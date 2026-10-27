@@ -10,7 +10,6 @@ vi.mock("@/shared/hooks/useStickyState", () => ({
 vi.mock("./HashratePanel", () => ({ HashratePanel: () => null }));
 vi.mock("./UptimePanel", () => ({ UptimePanel: () => null }));
 vi.mock("./TemperaturePanel", () => ({ TemperaturePanel: () => null }));
-vi.mock("./ReadingPanel", () => ({ default: () => null }));
 vi.mock("./PowerPanel", () => ({ PowerPanel: () => null }));
 vi.mock("./EfficiencyPanel", () => ({ EfficiencyPanel: () => null }));
 

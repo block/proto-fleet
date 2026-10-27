@@ -1,5 +1,12 @@
 import { expect, test } from "@playwright/test";
-import { clientA, clientB, hostAccount, mockClientWorkspace, subclient } from "../helpers/clientWorkspaceMocks";
+import {
+  clientA,
+  clientB,
+  hostAccount,
+  mockClientWorkspace,
+  newClient,
+  subclient,
+} from "../helpers/clientWorkspaceMocks";
 import { ClientWorkspacePage } from "../pages/clientWorkspace";
 
 test.describe("Client workspace and read-only host preview", () => {
@@ -15,7 +22,7 @@ test.describe("Client workspace and read-only host preview", () => {
       const workspace = new ClientWorkspacePage(page, isMobile);
       await workspace.open(clientA);
       await expect(workspace.fleetSize().getByText("4 assets", { exact: true })).toBeVisible();
-      await expect(page.getByText("Healthy", { exact: true })).toBeVisible();
+      await expect(page.getByRole("heading", { name: "Healthy", exact: true })).toBeVisible();
       await expect(page.getByText("Performance", { exact: true })).toBeVisible();
       const current = workspace.currentReadings();
       const power = workspace.currentReading("Power");
@@ -124,12 +131,12 @@ test.describe("Client workspace and read-only host preview", () => {
         });
         await expect(page.getByRole("region", { name: "Account details", exact: true })).toBeVisible();
         await expect(page.getByRole("heading", { name: "Your permissions", exact: true })).toBeVisible();
-        await expect(page.getByRole("button", { name: "Grant ancestor access", exact: true })).toBeEnabled({
+        await expect(page.getByRole("button", { name: "Grant host or parent access", exact: true })).toBeEnabled({
           enabled: !preview,
         });
       });
 
-      await test.step("Persist personal preferences and apply units to current and historical temperatures", async () => {
+      await test.step("Persist personal preferences and apply temperature units to current readings", async () => {
         await workspace.navigate("Preferences", clientA, "preferences");
         await workspace.setTemperatureUnit("F");
         await workspace.setTheme("dark");
@@ -140,8 +147,7 @@ test.describe("Client workspace and read-only host preview", () => {
         await expect(page.locator("body")).toHaveAttribute("data-theme", "dark");
         await workspace.navigate("Home", clientA, "overview");
         await expect(workspace.currentReading("Temperature").getByText("125.6 °F", { exact: true })).toBeVisible();
-        await expect(workspace.performanceReading("Temperature").getByText("125.6", { exact: true })).toBeVisible();
-        await expect(workspace.performanceReading("Temperature")).toContainText("°F");
+        await expect(workspace.performanceReading("Temperature")).toContainText("All assets within optimal range");
       });
 
       const scopedCalls = mock.calls.filter((call) => call.body.accountId && call.body.accountId !== hostAccount);
@@ -158,6 +164,102 @@ test.describe("Client workspace and read-only host preview", () => {
     });
   }
 
+  test("uptime surfaces missing module observations alongside healthy miners", async ({ page, context, isMobile }) => {
+    const mock = await mockClientWorkspace(context, false, { missingModuleUptime: true });
+    const workspace = new ClientWorkspacePage(page, isMobile);
+    await workspace.open(clientA);
+    const uptime = workspace.performanceReading("Uptime");
+    await expect(uptime).toContainText("1 of 4 assets reporting");
+    await expect(uptime).not.toContainText("All assets hashing");
+    await uptime.scrollIntoViewIfNeeded();
+    await test.info().attach("Incomplete uptime reporting", {
+      body: await page.screenshot({ path: test.info().outputPath("uptime-coverage.png"), animations: "disabled" }),
+      contentType: "image/png",
+    });
+    expect(mock.unexpected).toEqual([]);
+  });
+
+  test("create a client and explicitly invite its team after Fleet allocation", async ({ page, context, isMobile }) => {
+    const mock = await mockClientWorkspace(context, true, { fleet: true });
+    const workspace = new ClientWorkspacePage(page, isMobile);
+
+    await test.step("Create a client without sending an invitation", async () => {
+      await workspace.createClient("New client", newClient);
+      await test.info().attach("Client setup", {
+        body: await page.screenshot({ path: test.info().outputPath("client-setup.png"), animations: "disabled" }),
+        contentType: "image/png",
+      });
+      expect(mock.calls.filter((call) => call.method === "CreateAccount")).toMatchObject([
+        { account: hostAccount, body: { accountId: hostAccount, name: "New client", capabilities: "31" } },
+      ]);
+      expect(mock.calls.filter((call) => call.method === "CreateInvitation")).toHaveLength(0);
+    });
+
+    await test.step("Allocate only the selected Fleet miner to the original client", async () => {
+      const screenshot = await workspace.allocateFleetMiner(
+        newClient,
+        "New client",
+        test.info().outputPath("fleet-allocation.png"),
+      );
+      await test.info().attach("Fleet allocation", { body: screenshot, contentType: "image/png" });
+      expect(mock.calls.filter((call) => call.method === "AssignAccountAssets")).toMatchObject([
+        {
+          account: hostAccount,
+          body: {
+            accountId: hostAccount,
+            childAccountId: newClient,
+            intent: "ASSET_ASSIGNMENT_INTENT_ASSIGN",
+            assets: [{ kind: "MINING_ASSET_KIND_MINER", id: "42", expectedRevision: "7" }],
+          },
+        },
+      ]);
+      const assignment = mock.calls.find((call) => call.method === "AssignAccountAssets")!;
+      expect(assignment.body.assets).toHaveLength(1);
+      expect(mock.calls.filter((call) => call.method === "CreateInvitation")).toHaveLength(0);
+    });
+
+    await test.step("The allocated client name in Fleet opens the same management view", async () => {
+      await page.goto("/fleet/miners");
+      const client = page.getByRole("link", { name: "New client", exact: true });
+      await expect(client).toHaveAttribute("href", `/accounts/${newClient}/manage/assets`);
+      await client.click();
+      await expect(page).toHaveURL(new RegExp(`/accounts/${newClient}/manage/assets$`));
+      await expect(page.getByRole("dialog")).toHaveCount(0);
+    });
+
+    await test.step("Create the first invitation from Team", async () => {
+      await workspace.inviteClientAdministrator(newClient, "New client");
+      expect(mock.calls.filter((call) => call.method === "CreateInvitation")).toMatchObject([
+        {
+          account: newClient,
+          body: { accountId: newClient, role: "ACCOUNT_ROLE_ADMINISTRATOR", expiresInSeconds: 86400 },
+        },
+      ]);
+    });
+
+    expect(mock.unexpected).toEqual([]);
+  });
+
+  test("create a client and explicitly invite its team without allocating assets", async ({
+    page,
+    context,
+    isMobile,
+  }) => {
+    const mock = await mockClientWorkspace(context, true);
+    const workspace = new ClientWorkspacePage(page, isMobile);
+    await workspace.createClient("New client", newClient);
+    expect(mock.calls.filter((call) => call.method === "CreateInvitation")).toHaveLength(0);
+    await workspace.inviteClientAdministrator(newClient, "New client");
+    expect(mock.calls.filter((call) => call.method === "AssignAccountAssets")).toHaveLength(0);
+    expect(mock.calls.filter((call) => call.method === "CreateInvitation")).toMatchObject([
+      {
+        account: newClient,
+        body: { accountId: newClient, role: "ACCOUNT_ROLE_ADMINISTRATOR", expiresInSeconds: 86400 },
+      },
+    ]);
+    expect(mock.unexpected).toEqual([]);
+  });
+
   test("client rows open host management with visible team, settings and permission actions", async ({
     page,
     context,
@@ -166,7 +268,7 @@ test.describe("Client workspace and read-only host preview", () => {
     const mock = await mockClientWorkspace(context, true);
     const workspace = new ClientWorkspacePage(page, isMobile);
     await workspace.openClientManagement(clientA, "Customer A");
-    await expect(page.getByRole("link", { name: "Assign from Fleet", exact: true })).toBeVisible();
+    await expect(page.getByRole("link", { name: "Allocate assets", exact: true })).toBeVisible();
     await expect
       .poll(() =>
         mock.calls.some(
@@ -189,9 +291,9 @@ test.describe("Client workspace and read-only host preview", () => {
     await expect(page.getByRole("button", { name: "Manage permissions", exact: true })).toHaveCount(0);
     await expect(permissions.getByRole("checkbox", { name: "View account data", exact: true })).toBeDisabled();
     await expect(permissions.getByRole("button", { name: "Save permissions", exact: true })).toHaveCount(0);
-    await permissions.getByRole("checkbox", { name: "Change pools", exact: true }).uncheck();
+    await permissions.getByRole("checkbox", { name: "Select stored pool profile", exact: true }).uncheck();
     await expect.poll(() => mock.calls.filter((call) => call.method === "ConfigureAccount").length).toBe(1);
-    await expect(permissions.getByRole("checkbox", { name: "Change pools", exact: true })).toBeEnabled();
+    await expect(permissions.getByRole("checkbox", { name: "Select stored pool profile", exact: true })).toBeEnabled();
     await permissions.getByRole("button", { name: "Suspend account", exact: true }).click();
     const suspend = page.getByRole("dialog", { name: "Suspend Customer A?", exact: true });
     await expect(suspend).toBeVisible();
@@ -217,8 +319,10 @@ test.describe("Client workspace and read-only host preview", () => {
     await expect(page.getByRole("dialog", { name: "Viewing as Customer A", exact: true })).toBeVisible();
     await workspace.closePreview();
     await expect(page).toHaveURL(new RegExp(`/accounts/${clientA}/manage/permissions$`));
-    await expect(permissions.getByRole("checkbox", { name: "Change pools", exact: true })).not.toBeChecked();
-    await expect(permissions.getByRole("checkbox", { name: "Change pools", exact: true })).toBeEnabled();
+    await expect(
+      permissions.getByRole("checkbox", { name: "Select stored pool profile", exact: true }),
+    ).not.toBeChecked();
+    await expect(permissions.getByRole("checkbox", { name: "Select stored pool profile", exact: true })).toBeEnabled();
     expect(mock.unexpected).toEqual([]);
   });
 
@@ -466,7 +570,7 @@ test.describe("Client workspace and read-only host preview", () => {
     await expect(workspace.fleetSize().getByText("4 assets", { exact: true })).toBeVisible();
     const held = mock.pauseDashboard(clientA);
     try {
-      await page.getByRole("button", { name: "Refresh", exact: true }).click();
+      await page.evaluate(() => window.dispatchEvent(new Event("focus")));
       await held.pending;
       mock.denyAccount();
       await page.evaluate(() => window.dispatchEvent(new Event("focus")));
@@ -528,9 +632,9 @@ test.describe("Client workspace and read-only host preview", () => {
         { exact: true },
       ),
     ).toBeVisible();
-    await expect(
-      page.getByRole("region", { name: "Performance", exact: true }).getByText("No data", { exact: true }),
-    ).toHaveCount(3);
+    for (const label of ["Hashrate", "Uptime", "Temperature", "Power", "Efficiency"]) {
+      await expect(workspace.performanceReading(label).getByText("No data", { exact: true })).toBeVisible();
+    }
     expect(mock.unexpected).toEqual([]);
   });
 });

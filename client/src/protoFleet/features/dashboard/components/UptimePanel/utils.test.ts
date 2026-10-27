@@ -267,3 +267,44 @@ describe("generateUptimeHeadline", () => {
     expect(result).toBe("20% not hashing");
   });
 });
+
+describe("account uptime headlines", () => {
+  it("shows missing readings independently of the asset label", () => {
+    expect(
+      generateUptimeHeadline([[{ datetime: 0, hashing: 0, notHashing: 0, broken: 0 }]], {
+        audience: "account",
+        assetLabel: "module",
+      }),
+    ).toBe("No uptime readings");
+  });
+
+  it("surfaces missing observations when the reporting assets are healthy", () => {
+    expect(
+      generateUptimeHeadline([[{ datetime: 0, hashing: 2, notHashing: 0, broken: 0 }]], {
+        audience: "account",
+        assetLabel: "asset",
+        expectedAssetCount: 4,
+      }),
+    ).toBe("2 of 4 assets reporting");
+  });
+
+  it("reports zero coverage when all allocated assets have missing observations", () => {
+    expect(
+      generateUptimeHeadline([[{ datetime: 0, hashing: 0 }]], {
+        audience: "account",
+        assetLabel: "asset",
+        expectedAssetCount: 1,
+      }),
+    ).toBe("0 of 1 asset reporting");
+  });
+
+  it("keeps the healthy headline when every allocated asset reports", () => {
+    expect(
+      generateUptimeHeadline([[{ datetime: 0, hashing: 4 }]], {
+        audience: "account",
+        assetLabel: "asset",
+        expectedAssetCount: 4,
+      }),
+    ).toBe("All assets hashing");
+  });
+});

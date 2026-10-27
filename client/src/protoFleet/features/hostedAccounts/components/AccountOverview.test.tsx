@@ -93,6 +93,32 @@ function chooseFilter(key: "allocation" | "site", id: string) {
 }
 
 describe("shared account dashboard", () => {
+  it("surfaces uptime gaps against the latest historical allocation rather than current inventory", async () => {
+    const reply = response();
+    reply.readings = [
+      create(AccountDashboardReadingSchema, {
+        time: { seconds: BigInt(Math.floor(Date.now() / 1000)) },
+        summary: { assetCount: 3n },
+        uptimeStatus: { timestamp: { seconds: BigInt(Math.floor(Date.now() / 1000)) }, hashingCount: 2 },
+      }),
+    ];
+    mount(reply);
+    await screen.findByText("2 of 3 assets reporting");
+    expect(screen.queryByText("All assets hashing")).not.toBeInTheDocument();
+  });
+  it("shows status-only history without claiming there are no historical readings", async () => {
+    const reply = response();
+    reply.readings = [
+      create(AccountDashboardReadingSchema, {
+        time: { seconds: BigInt(Math.floor(Date.now() / 1000)) },
+        summary: { assetCount: 4n },
+        uptimeStatus: { timestamp: { seconds: BigInt(Math.floor(Date.now() / 1000)) }, notHashingCount: 4 },
+      }),
+    ];
+    mount(reply);
+    await screen.findByText("100% not hashing");
+    expect(screen.queryByText(/No authorized historical readings/)).not.toBeInTheDocument();
+  });
   it("keeps high measured module power in kilowatts through the shared chart", async () => {
     const reply = response();
     const summary = { assetCount: 1n, moduleCount: 1n, powerW: 200_000, powerReportingCount: 1n };
@@ -118,6 +144,16 @@ describe("shared account dashboard", () => {
       create(AccountDashboardReadingSchema, {
         time: { seconds: BigInt(Math.floor(Date.now() / 1000)) },
         summary: reply.totals,
+        temperatureStatus: {
+          timestamp: { seconds: BigInt(Math.floor(Date.now() / 1000)) },
+          okCount: 1,
+          hotCount: 1,
+        },
+        uptimeStatus: {
+          timestamp: { seconds: BigInt(Math.floor(Date.now() / 1000)) },
+          hashingCount: 1,
+          brokenCount: 1,
+        },
       }),
     ];
     useFleetStore.getState().ui.setTemperatureUnit("F");
@@ -127,12 +163,12 @@ describe("shared account dashboard", () => {
     const temperature = within(screen.getByRole("region", { name: "Performance" }))
       .getAllByTestId("stats-item")
       .find((item) => within(item).queryByRole("heading", { name: "Temperature" }))!;
-    expect(temperature).toHaveTextContent("131.0");
-    expect(temperature).toHaveTextContent("°F");
+    expect(temperature).toHaveTextContent("1 asset outside of safe range");
+    expect(screen.getAllByText("50% of reporting assets").length).toBeGreaterThan(0);
+    expect(screen.queryByRole("button", { name: /miner$/ })).not.toBeInTheDocument();
     act(() => useFleetStore.getState().ui.setTemperatureUnit("C"));
     expect(current.getByText("55.0 °C")).toBeInTheDocument();
-    expect(temperature).toHaveTextContent("55.0");
-    expect(temperature).toHaveTextContent("°C");
+    expect(temperature).toHaveTextContent("1 asset outside of safe range");
   });
   it("uses scoped Dashboard health and all five performance charts with honest current coverage", async () => {
     const { calls } = mount();
@@ -144,6 +180,7 @@ describe("shared account dashboard", () => {
     for (const label of ["Hashrate", "Power", "Efficiency", "Temperature", "Uptime"])
       expect(screen.getAllByRole("heading", { name: label }).length).toBeGreaterThan(0);
     expect(screen.getByRole("button", { name: "Add Filter" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Refresh" })).not.toBeInTheDocument();
     expect(screen.queryByRole("combobox")).not.toBeInTheDocument();
     expect(calls[0].method).toBe("GetAccountDashboard");
     expect(calls[0].account).toBe(accountId);
@@ -290,7 +327,7 @@ describe("shared account dashboard", () => {
       },
     ];
     mount(reply);
-    expect(await screen.findByText("No mining assets assigned")).toBeInTheDocument();
+    expect(await screen.findByText("No mining assets")).toBeInTheDocument();
     expect(screen.getByRole("region", { name: "Performance" })).toBeInTheDocument();
     expect(screen.queryByText(/No authorized historical readings/)).not.toBeInTheDocument();
     expect(screen.queryByRole("link", { name: /module detail/i })).not.toBeInTheDocument();

@@ -37,11 +37,15 @@ func TestAccountHistoryDenseCompressedWindow(t *testing.T) {
 	require.NoError(t, err)
 	_, err = f.db.ExecContext(t.Context(), `INSERT INTO device_metrics(time,device_identifier,hash_rate_hs,power_w,temp_c) SELECT sample,d.device_identifier,1e12,20,55 FROM device d CROSS JOIN generate_series($1::timestamptz,$2::timestamptz-interval '15 seconds',interval '15 seconds') sample WHERE d.id IN (SELECT value::bigint FROM jsonb_array_elements_text($3::jsonb))`, start, end, minerIDs)
 	require.NoError(t, err)
+	_, err = f.db.ExecContext(t.Context(), `INSERT INTO miner_state_snapshots(time,org_id,device_identifier,state) SELECT sample,d.org_id,d.device_identifier,CASE WHEN d.id=$4 THEN 2 ELSE 3 END FROM device d CROSS JOIN generate_series($1::timestamptz,$2::timestamptz-interval '15 seconds',interval '15 seconds') sample WHERE d.id IN (SELECT value::bigint FROM jsonb_array_elements_text($3::jsonb))`, start, end, minerIDs, miners[0])
+	require.NoError(t, err)
 	ids, err := json.Marshal(modules)
 	require.NoError(t, err)
 	_, err = f.db.ExecContext(t.Context(), `INSERT INTO container_module_metrics(module_id,time,collected_at,hashrate_hs,power_w,temperature_c,coverage) SELECT id,sample,sample,1e12,20,55,jsonb_build_object('hashrate',evidence,'power',evidence,'temperature',evidence) FROM jsonb_array_elements_text($3::jsonb) ids(id_text) CROSS JOIN LATERAL (SELECT id_text::bigint id) asset CROSS JOIN generate_series($1::timestamptz,$2::timestamptz-interval '15 seconds',interval '15 seconds') sample CROSS JOIN LATERAL (SELECT jsonb_build_object('oldest_at',sample,'newest_at',sample,'reporting',1,'expected',1,'topology_complete',true) evidence) source`, start, end, ids)
 	require.NoError(t, err)
-	for _, table := range []string{"device_metrics", "container_module_metrics"} {
+	_, err = f.db.ExecContext(t.Context(), `INSERT INTO container_module_diagnostic_observation(module_id,collected_at,state,state_observed_at) SELECT id_text::bigint,sample,'active',sample FROM jsonb_array_elements_text($3::jsonb) ids(id_text) CROSS JOIN generate_series($1::timestamptz,$2::timestamptz-interval '15 seconds',interval '15 seconds') sample`, start, end, ids)
+	require.NoError(t, err)
+	for _, table := range []string{"device_metrics", "container_module_metrics", "miner_state_snapshots"} {
 		_, err = f.db.ExecContext(t.Context(), `SELECT compress_chunk(c,if_not_compressed=>true) FROM show_chunks($1::regclass) c`, table)
 		require.NoError(t, err)
 	}
@@ -52,18 +56,20 @@ func TestAccountHistoryDenseCompressedWindow(t *testing.T) {
 			ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 			defer cancel()
 			capture := &miningProjectionDB{DB: f.db}
-			rows, err := sqlc.New(capture).ListHostedAccountHistoricalReadings(ctx, sqlc.ListHostedAccountHistoricalReadingsParams{StartTime: end.Add(-duration), EndTime: end, BucketSeconds: 900, Intervals: encoded, HostAuthority: json.RawMessage("[]"), PolicySites: []int64{}})
+			rows, err := sqlc.New(capture).ListHostedAccountHistoricalReadings(ctx, sqlc.ListHostedAccountHistoricalReadingsParams{OrganizationID: f.org, StartTime: end.Add(-duration), EndTime: end, BucketSeconds: 900, Intervals: encoded, HostAuthority: json.RawMessage("[]"), PolicySites: []int64{}})
 			require.NoError(t, err)
 			require.Len(t, rows, int(duration/(15*time.Minute)))
 			for _, row := range rows {
 				require.EqualValues(t, 120, row.PairedReportingCount)
+				require.EqualValues(t, 119, row.StatusHashingCount)
+				require.EqualValues(t, 1, row.StatusBrokenCount)
 			}
 			var plans []struct {
 				ExecutionTime float64 `json:"Execution Time"`
 			}
 			require.NoError(t, json.Unmarshal(capture.plan, &plans))
 			require.Less(t, plans[0].ExecutionTime, 5000.0, "dense compressed history must fit the mining transaction deadline")
-			t.Logf("120 assets (100 miners,20 modules),15-second cadence,7 retained compressed days,range=%s,execution=%.2fms", duration, plans[0].ExecutionTime)
+			t.Logf("120 assets (100 miners,20 modules),15-second metrics and state cadence,7 retained days with compressed numeric telemetry and miner snapshots,range=%s,execution=%.2fms", duration, plans[0].ExecutionTime)
 			if directory := os.Getenv("HOSTED_HISTORY_PLAN_DIR"); directory != "" {
 				require.NoError(t, os.WriteFile(directory+"/"+duration.String()+".json", capture.plan, 0600))
 			}

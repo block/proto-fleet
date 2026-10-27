@@ -103,6 +103,31 @@ describe("RowActionsMenu", () => {
     expect(screen.queryByTestId("row-actions-menu-trigger")).not.toBeInTheDocument();
   });
 
+  it.each([false, true])("explains disabled actions on mobile=%s without invoking them", (isPhone) => {
+    mockUseWindowDimensions.mockReturnValue({ isPhone });
+    const onAllocate = vi.fn();
+    render(
+      <RowActionsMenu
+        actions={[
+          {
+            label: "Allocate",
+            disabled: true,
+            disabledReason: "Select specific assets first.",
+            onClick: onAllocate,
+          },
+          { label: "Edit", disabledReason: "Hidden while enabled.", onClick: vi.fn() },
+        ]}
+      />,
+    );
+    fireEvent.click(screen.getByTestId("row-actions-menu-trigger"));
+    const action = screen.getByText("Allocate").closest("button")!;
+    expect(action).toBeDisabled();
+    expect(screen.getByText("Select specific assets first.")).toBeInTheDocument();
+    expect(screen.queryByText("Hidden while enabled.")).not.toBeInTheDocument();
+    fireEvent.click(action);
+    expect(onAllocate).not.toHaveBeenCalled();
+  });
+
   it("honors a custom testIdPrefix on the trigger and popover", () => {
     render(<RowActionsMenu actions={[{ label: "Edit", onClick: vi.fn() }]} testIdPrefix="my-row-actions" />);
     expect(screen.getByTestId("my-row-actions-trigger")).toBeInTheDocument();

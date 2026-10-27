@@ -2,11 +2,26 @@ import { type Account, AccountRole } from "@/protoFleet/api/generated/hosted/v1/
 
 export const capabilities = [
   { value: 1n, label: "View account data" },
-  { value: 2n, label: "Manage pool configurations" },
-  { value: 4n, label: "Change pools" },
   { value: 8n, label: "Manage memberships" },
-  { value: 16n, label: "Delegate and recall miners" },
+  {
+    value: 2n,
+    label: "Manage pool configurations",
+    description: "Create, revise and archive saved pool configurations.",
+  },
+  {
+    value: 4n,
+    label: "Select stored pool profile",
+    description: "Choose a saved revision; does not apply pools to mining assets.",
+  },
+  {
+    value: 16n,
+    label: "Allocate and recall assets",
+    description: "Allocate assets to subclients and recall them to this account.",
+  },
 ] as const;
+export const apiKeyCapabilities = capabilities.filter(
+  (capability) => capability.value === 1n || capability.value === 2n,
+);
 export const can = (account: Account | undefined, capability: bigint) =>
   !!account && !account.suspended && (account.effectiveCapabilities & capability) === capability;
 export const roleLabel = (role: AccountRole) =>
@@ -14,7 +29,7 @@ export const roleLabel = (role: AccountRole) =>
     [AccountRole.VIEWER]: "Viewer",
     [AccountRole.POOL_OPERATOR]: "Pool operator",
     [AccountRole.ADMINISTRATOR]: "Account administrator",
-    [AccountRole.UNSPECIFIED]: "Ancestor access",
+    [AccountRole.UNSPECIFIED]: "Host and parent access",
   })[role];
 export const roleOptions = [
   { value: String(AccountRole.VIEWER), label: "Viewer", description: "View account data" },
@@ -26,7 +41,7 @@ export const roleOptions = [
   {
     value: String(AccountRole.ADMINISTRATOR),
     label: "Account administrator",
-    description: "Manage pools, memberships and permitted delegation",
+    description: "Manage pools, memberships and permitted asset allocation",
   },
 ];
 export const accountPath = (accountId: string, section = "overview") =>

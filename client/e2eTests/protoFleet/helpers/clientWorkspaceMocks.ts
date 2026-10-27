@@ -4,6 +4,7 @@ export const clientA = "11111111-1111-4111-8111-111111111111";
 export const clientB = "22222222-2222-4222-8222-222222222222";
 export const subclient = "33333333-3333-4333-8333-333333333333";
 export const hostAccount = "99999999-9999-4999-8999-999999999999";
+export const newClient = "44444444-4444-4444-8444-444444444444";
 
 export type WorkspaceCall = {
   method: string;
@@ -44,12 +45,19 @@ const fulfill = (route: Route, data: unknown) =>
   route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(data) });
 
 /** Every RPC is intercepted: these scenarios never contact a backend or miner. */
-export async function mockClientWorkspace(context: BrowserContext, preview: boolean) {
+export async function mockClientWorkspace(
+  context: BrowserContext,
+  preview: boolean,
+  options: { fleet?: boolean; missingModuleUptime?: boolean } = {},
+) {
   const configured = new Map<string, { capabilities: string; suspended: boolean }>();
+  let createdName = "";
+  let allocatedTo = hostAccount;
   const accountFor = (id: string) => {
     const saved = configured.get(id);
     return {
       ...account(id),
+      ...(id === newClient ? { name: createdName, depth: 1, parentAccountId: hostAccount } : {}),
       ...(saved
         ? {
             capabilityCeiling: saved.capabilities,
@@ -71,7 +79,7 @@ export async function mockClientWorkspace(context: BrowserContext, preview: bool
     | undefined;
   const username = preview ? "host-operator" : "customer-admin";
   await context.addInitScript(
-    ({ username, preview }) => {
+    ({ username, preview, fleet }) => {
       if (!localStorage.getItem("proto-fleet-auth")) {
         localStorage.setItem(
           "proto-fleet-auth",
@@ -83,7 +91,9 @@ export async function mockClientWorkspace(context: BrowserContext, preview: bool
                 isAuthenticated: true,
                 username,
                 role: "Admin",
-                permissions: preview ? ["account:manage"] : [],
+                permissions: preview
+                  ? ["account:manage", ...(fleet ? ["fleet:read", "site:read", "miner:read"] : [])]
+                  : [],
                 permissionsScope: "org",
               },
             },
@@ -92,7 +102,7 @@ export async function mockClientWorkspace(context: BrowserContext, preview: bool
         );
       }
     },
-    { username, preview },
+    { username, preview, fleet: options.fleet },
   );
   await context.route("**/api-proxy/**", async (route) => {
     const request = route.request();
@@ -122,6 +132,39 @@ export async function mockClientWorkspace(context: BrowserContext, preview: bool
       });
       return fulfill(route, {});
     }
+    if (method === "CreateAccount") {
+      createdName = String(body.name);
+      return fulfill(route, { account: accountFor(newClient) });
+    }
+    if (method === "CreateInvitation") return fulfill(route, { token: "K7MP-4X9R" });
+    if (method === "AssignAccountAssets") {
+      allocatedTo = String(body.childAccountId);
+      return fulfill(route, {});
+    }
+    if (options.fleet && method === "ListInventory") {
+      const items = [
+        { id: "42", name: "Allocation miner", deviceIdentifier: "allocation-miner" },
+        { id: "43", name: "Other miner", deviceIdentifier: "other-miner" },
+      ].map(({ id, name, deviceIdentifier }) => ({
+        ref: { kind: "ENTITY_KIND_MINER", id },
+        name,
+        deviceIdentifier,
+        miner: {
+          deviceIdentifier,
+          name,
+          model: "S21",
+          pairingStatus: "PAIRING_STATUS_PAIRED",
+          deviceStatus: "DEVICE_STATUS_ONLINE",
+        },
+      }));
+      return fulfill(route, { items, totalCount: "2", minerCount: "2", models: ["S21"] });
+    }
+    if (options.fleet && method === "ListMinerStateSnapshots") return fulfill(route, {});
+    if (
+      options.fleet &&
+      ["ListSites", "ListBuildings", "ListContainers", "ListTankOptions", "ListSavedViews", "Query"].includes(method)
+    )
+      return fulfill(route, {});
     if (method === "GetAccount") {
       if (denied)
         return route.fulfill({
@@ -244,8 +287,20 @@ export async function mockClientWorkspace(context: BrowserContext, preview: bool
           readings: noHistory
             ? []
             : [
-                { time: new Date(Date.now() - 120000).toISOString(), summary: summary(id) },
-                { time: new Date(Date.now() - 60000).toISOString(), summary: summary(id) },
+                ...[120000, 60000].map((age) => {
+                  const time = new Date(Date.now() - age).toISOString();
+                  const reading = summary(id);
+                  return {
+                    time,
+                    summary: reading,
+                    temperatureStatus: { timestamp: time, okCount: Number(reading.assetCount) },
+                    uptimeStatus: {
+                      timestamp: time,
+                      hashingCount: options.missingModuleUptime ? 1 : Number(reading.hashingCount),
+                      brokenCount: options.missingModuleUptime ? 0 : Number(reading.attentionCount),
+                    },
+                  };
+                }),
               ],
           sites: [
             { siteId: "7", name: id === clientA ? "A allocated site" : "B allocated site", summary: summary(id) },
@@ -260,9 +315,27 @@ export async function mockClientWorkspace(context: BrowserContext, preview: bool
     }
     if (method === "ListChildren")
       return fulfill(route, {
-        accounts: id === hostAccount ? [accountFor(clientA), accountFor(clientB)] : [accountFor(subclient)],
+        accounts:
+          id === hostAccount
+            ? [accountFor(clientA), accountFor(clientB), ...(createdName ? [accountFor(newClient)] : [])]
+            : [accountFor(subclient)],
       });
-    if (method === "ListAccountAssets")
+    if (method === "ListAccountAssets") {
+      if (options.fleet && Array.isArray(body.selectedAssets))
+        return fulfill(route, {
+          assets: (body.selectedAssets as { id: string }[]).map(({ id }) => ({
+            kind: "MINING_ASSET_KIND_MINER",
+            id,
+            revision: id === "42" ? "7" : "3",
+            name: id === "42" ? "Allocation miner" : "Other miner",
+            available: true,
+            ownerAccountId: id === "42" ? allocatedTo : hostAccount,
+            ownerAccountName: id === "42" && allocatedTo !== hostAccount ? createdName : "Host",
+          })),
+          canViewAssignments: true,
+          canManageAssignments: true,
+          children: [accountFor(clientA), accountFor(clientB), ...(createdName ? [accountFor(newClient)] : [])],
+        });
       return fulfill(route, {
         filterOptions: {
           models: ["S21", "S19"],
@@ -273,14 +346,17 @@ export async function mockClientWorkspace(context: BrowserContext, preview: bool
           containers: [],
         },
         assets:
-          recalled || body.model === "S19" || body.siteId === "8"
+          recalled ||
+          body.model === "S19" ||
+          body.siteId === "8" ||
+          (body.ownerAccountId === newClient && allocatedTo !== newClient)
             ? []
             : [
                 {
                   kind: "MINING_ASSET_KIND_MINER",
                   id: "42",
                   revision: "1",
-                  name: `${accountFor(id).name} miner`,
+                  name: body.ownerAccountId === newClient ? "Allocation miner" : `${accountFor(id).name} miner`,
                   model: "S21",
                   siteId: "7",
                   siteName: "A allocated site",
@@ -294,6 +370,7 @@ export async function mockClientWorkspace(context: BrowserContext, preview: bool
         canManageAssignments: true,
         children: [{ accountId: subclient, name: "East subclient" }],
       });
+    }
     if (method === "GetAccountAssetDetail") {
       if (recalled)
         return route.fulfill({

@@ -119,7 +119,7 @@ function mount(
   };
 }
 const selectTarget = async (user: ReturnType<typeof userEvent.setup>) => {
-  await user.click(screen.getByRole("button", { name: /Assign to subclient/ }));
+  await user.click(screen.getByRole("button", { name: /Allocate to subclient/ }));
   await user.click(await screen.findByRole("option", { name: "East" }));
 };
 
@@ -200,7 +200,7 @@ describe("account mining asset allocation", () => {
       ),
     );
     expect(screen.getByTestId("active-filter-container")).toHaveTextContent("Container A");
-    fireEvent.click(screen.getByRole("button", { name: "Clear Assigned to filter" }));
+    fireEvent.click(screen.getByRole("button", { name: "Clear Allocated to filter" }));
     fireEvent.click(screen.getByRole("button", { name: "Clear Container filter" }));
     fireEvent.click(screen.getByRole("button", { name: "Clear Model filter" }));
     fireEvent.click(screen.getByRole("button", { name: "Clear Site filter" }));
@@ -216,6 +216,26 @@ describe("account mining asset allocation", () => {
         expect.anything(),
       ),
     );
+  });
+  it("keeps the toolbar mounted while clearing a search that matched nothing", async () => {
+    const user = userEvent.setup();
+    const { client } = mount();
+    await screen.findByText("Miner One");
+    client.listAccountAssets.mockResolvedValueOnce(create(ListAccountAssetsResponseSchema, { assets: [] }));
+    await user.click(screen.getByRole("button", { name: "Search mining assets" }));
+    await user.type(screen.getByLabelText("Search mining assets"), "nothing");
+    await waitFor(() => expect(screen.queryByText("Miner One")).not.toBeInTheDocument());
+    const search = screen.getByLabelText("Search mining assets");
+    client.listAccountAssets.mockReturnValueOnce(new Promise(() => {}));
+    await user.clear(search);
+    await waitFor(() =>
+      expect(client.listAccountAssets).toHaveBeenLastCalledWith(
+        expect.objectContaining({ search: "" }),
+        expect.anything(),
+      ),
+    );
+    expect(screen.getByLabelText("Search mining assets")).toBe(search);
+    expect(search).toHaveFocus();
   });
   it("retains unknown coverage hints for zero module readings", async () => {
     mount(31n, [
@@ -270,7 +290,7 @@ describe("account mining asset allocation", () => {
     const { client } = mount(31n, [miner, create(AccountAssetSchema, { ...module, ownerAccountId: childId })]);
     await screen.findByText("Miner One");
     expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Assign selected" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Allocate selected" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Recall selected" })).not.toBeInTheDocument();
     const user = userEvent.setup();
     await user.click(screen.getByRole("button", { name: "Add Filter" }));
@@ -302,7 +322,7 @@ describe("account mining asset allocation", () => {
       expect.objectContaining({ accountId, ownerAccountId: childId }),
       expect.anything(),
     );
-    expect(screen.queryByRole("button", { name: "Assignment" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Allocation" })).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Recall selected" }));
     await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Recall 1 asset" }));
     expect(client.assignAccountAssets).toHaveBeenCalledWith(
@@ -322,9 +342,9 @@ describe("account mining asset allocation", () => {
       expect.anything(),
     );
     expect(screen.queryByRole("button", { name: "Recall selected" })).not.toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Assign selected" }));
-    expect(screen.queryByRole("button", { name: "Assign to subclient" })).not.toBeInTheDocument();
-    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Assign 1 asset" }));
+    await user.click(screen.getByRole("button", { name: "Allocate selected" }));
+    expect(screen.queryByRole("button", { name: "Allocate to subclient" })).not.toBeInTheDocument();
+    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Allocate 1 asset" }));
     expect(client.assignAccountAssets).toHaveBeenCalledWith(
       expect.objectContaining({ accountId, childAccountId: childId, intent: AssetAssignmentIntent.ASSIGN }),
     );
@@ -344,7 +364,7 @@ describe("account mining asset allocation", () => {
     await user.click(await screen.findByRole("checkbox", { name: "Select Miner One" }));
     expect(screen.getByText("1 mining asset selected")).toBeInTheDocument();
     expect(screen.getByText("No active subclients are available to receive these assets.")).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Assign selected" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Allocate selected" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Recall selected" })).not.toBeInTheDocument();
     expect(client.assignAccountAssets).not.toHaveBeenCalled();
   });
@@ -395,7 +415,7 @@ describe("account mining asset allocation", () => {
       ),
     );
     await screen.findByText("Miner One");
-    expect(screen.queryByRole("columnheader", { name: "Assigned to" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("columnheader", { name: "Allocated to" })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Add Filter" }));
     expect(screen.queryByTestId("nested-dropdown-filter-row-assignment")).not.toBeInTheDocument();
     expect(screen.getByTestId("nested-dropdown-filter-row-container")).toBeInTheDocument();
@@ -415,7 +435,7 @@ describe("account mining asset allocation", () => {
     await screen.findByRole("checkbox", { name: "Select Miner One" });
     rerenderAccount(create(AccountSchema, { ...scope.account, effectiveCapabilities: mask }));
     expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Assign selected" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Allocate selected" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Recall selected" })).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Container" }));
     await user.click(await screen.findByRole("option", { name: "Container A" }));
@@ -425,18 +445,18 @@ describe("account mining asset allocation", () => {
   it("shows assignment details to administration without delegation", async () => {
     mount(9n);
     await screen.findByText("Miner One");
-    expect(screen.getByRole("columnheader", { name: "Assigned to" })).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "Allocated to" })).toBeInTheDocument();
   });
   it("removes an open allocation review when delegation is revoked without reopening it on restoration", async () => {
     const { scope, rerenderAccount, client } = mount(31n, undefined, undefined, "", "assign");
     const user = userEvent.setup();
     await user.click(await screen.findByRole("checkbox", { name: "Select Miner One" }));
-    await user.click(screen.getByRole("button", { name: "Assign selected" }));
+    await user.click(screen.getByRole("button", { name: "Allocate selected" }));
     await selectTarget(user);
-    expect(screen.getByRole("dialog", { name: /Assign \d+ assets?\?/ })).toBeInTheDocument();
+    expect(screen.getByRole("dialog", { name: /Allocate \d+ assets?\?/ })).toBeInTheDocument();
 
     rerenderAccount(create(AccountSchema, { ...scope.account, effectiveCapabilities: 9n }));
-    expect(screen.queryByRole("button", { name: "Assign selected" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Allocate selected" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Recall selected" })).not.toBeInTheDocument();
     expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
@@ -457,14 +477,14 @@ describe("account mining asset allocation", () => {
     mount(31n, [miner], assign, "", "assign");
     const user = userEvent.setup();
     await user.click(await screen.findByRole("checkbox", { name: "Select Miner One" }));
-    await user.click(screen.getByRole("button", { name: "Assign selected" }));
+    await user.click(screen.getByRole("button", { name: "Allocate selected" }));
     await selectTarget(user);
-    const confirm = within(screen.getByRole("dialog")).getByRole("button", { name: "Assign 1 asset" });
+    const confirm = within(screen.getByRole("dialog")).getByRole("button", { name: "Allocate 1 asset" });
     await user.dblClick(confirm);
     expect(assign).toHaveBeenCalledTimes(1);
     expect(confirm).toBeDisabled();
     act(() => window.dispatchEvent(new Event("focus")));
-    expect(screen.getByRole("dialog", { name: /Assign \d+ assets?\?/ })).toBeInTheDocument();
+    expect(screen.getByRole("dialog", { name: /Allocate \d+ assets?\?/ })).toBeInTheDocument();
     expect(confirm).toBeDisabled();
     expect(assign).toHaveBeenCalledTimes(1);
     finish({});
@@ -474,13 +494,13 @@ describe("account mining asset allocation", () => {
     const { client } = mount(31n, [miner], undefined, "", "assign");
     const user = userEvent.setup();
     await user.click(await screen.findByRole("checkbox", { name: "Select Miner One" }));
-    await user.click(screen.getByRole("button", { name: "Assign selected" }));
+    await user.click(screen.getByRole("button", { name: "Allocate selected" }));
     await selectTarget(user);
     act(() => window.dispatchEvent(new Event("focus")));
     await waitFor(() => expect(client.listAccountAssets).toHaveBeenCalledTimes(2));
-    const dialog = screen.getByRole("dialog", { name: "Assign 1 asset?" });
+    const dialog = screen.getByRole("dialog", { name: "Allocate 1 asset?" });
     expect(screen.getByText("Miner One")).toBeInTheDocument();
-    await user.click(within(dialog).getByRole("button", { name: "Assign 1 asset" }));
+    await user.click(within(dialog).getByRole("button", { name: "Allocate 1 asset" }));
     await waitFor(() =>
       expect(client.assignAccountAssets).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -514,21 +534,21 @@ describe("account mining asset allocation", () => {
     const { unmount } = mount(31n, [miner], undefined, "", "assign", child, { onAssigned });
     const user = userEvent.setup();
     await user.click(await screen.findByRole("checkbox", { name: "Select Miner One" }));
-    await user.click(screen.getByRole("button", { name: "Assign selected" }));
-    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Assign 1 asset" }));
-    await waitFor(() => expect(onAssigned).toHaveBeenCalledWith("Assigned 1 asset to East."));
+    await user.click(screen.getByRole("button", { name: "Allocate selected" }));
+    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Allocate 1 asset" }));
+    await waitFor(() => expect(onAssigned).toHaveBeenCalledWith("Allocated 1 asset to East."));
     unmount();
-    mount(31n, [miner], undefined, "", "inventory", child, { initialNotice: "Assigned 1 asset to East." });
-    expect(screen.getByRole("status")).toHaveTextContent("Assigned 1 asset to East.");
+    mount(31n, [miner], undefined, "", "inventory", child, { initialNotice: "Allocated 1 asset to East." });
+    expect(screen.getByRole("status")).toHaveTextContent("Allocated 1 asset to East.");
   });
   it("keeps the hidden assignment column when a subclient view saves its columns", async () => {
     const user = userEvent.setup();
     const inventory = mount();
-    await screen.findByRole("columnheader", { name: "Assigned to" });
+    await screen.findByRole("columnheader", { name: "Allocated to" });
     await user.click(screen.getByRole("button", { name: "Manage columns" }));
-    await user.click(screen.getByRole("checkbox", { name: "Toggle Assigned to column" }));
+    await user.click(screen.getByRole("checkbox", { name: "Toggle Allocated to column" }));
     await user.click(screen.getByRole("button", { name: "Save" }));
-    expect(screen.queryByRole("columnheader", { name: "Assigned to" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("columnheader", { name: "Allocated to" })).not.toBeInTheDocument();
     inventory.unmount();
     const child = mount(31n, undefined, undefined, "", "inventory", {
       accountId: childId,
@@ -537,13 +557,13 @@ describe("account mining asset allocation", () => {
     });
     await screen.findByText("Miner One");
     await user.click(screen.getByRole("button", { name: "Manage columns" }));
-    expect(screen.queryByRole("checkbox", { name: "Toggle Assigned to column" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("checkbox", { name: "Toggle Allocated to column" })).not.toBeInTheDocument();
     await user.click(screen.getByRole("checkbox", { name: "Toggle Power column" }));
     await user.click(screen.getByRole("button", { name: "Save" }));
     child.unmount();
     mount();
     await screen.findByText("Miner One");
-    expect(screen.queryByRole("columnheader", { name: "Assigned to" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("columnheader", { name: "Allocated to" })).not.toBeInTheDocument();
     expect(screen.queryByRole("columnheader", { name: "Power" })).not.toBeInTheDocument();
   });
   it("reviews typed selections with exact revisions and a chosen destination", async () => {
@@ -551,14 +571,14 @@ describe("account mining asset allocation", () => {
     const user = userEvent.setup();
     await user.click(await screen.findByRole("checkbox", { name: "Select Miner One" }));
     await user.click(screen.getByRole("checkbox", { name: "Select Module One" }));
-    await user.click(screen.getByRole("button", { name: "Assign selected" }));
-    const dialog = screen.getByRole("dialog", { name: /Assign \d+ assets?\?/ });
-    expect(within(dialog).getByText("Assign the selected assets from Customer.")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Allocate selected" }));
+    const dialog = screen.getByRole("dialog", { name: /Allocate \d+ assets?\?/ });
+    expect(within(dialog).getByText("Allocate the selected assets from Customer.")).toBeInTheDocument();
     expect(within(dialog).queryByText("Miner One")).not.toBeInTheDocument();
     expect(within(dialog).queryByText("Module One")).not.toBeInTheDocument();
-    expect(within(dialog).getByRole("button", { name: "Assign 2 assets" })).toBeDisabled();
+    expect(within(dialog).getByRole("button", { name: "Allocate 2 assets" })).toBeDisabled();
     await selectTarget(user);
-    await user.click(within(dialog).getByRole("button", { name: "Assign 2 assets" }));
+    await user.click(within(dialog).getByRole("button", { name: "Allocate 2 assets" }));
     await waitFor(() =>
       expect(client.assignAccountAssets).toHaveBeenCalledWith({
         accountId,
@@ -570,7 +590,7 @@ describe("account mining asset allocation", () => {
         ],
       }),
     );
-    expect(await screen.findByRole("status")).toHaveTextContent("Assigned 2 assets to East");
+    expect(await screen.findByRole("status")).toHaveTextContent("Allocated 2 assets to East");
   });
   it("selects only displayed modules for a container and states the page boundary", async () => {
     const { client } = mount(31n, undefined, undefined, "", "assign");
@@ -587,7 +607,7 @@ describe("account mining asset allocation", () => {
     await user.click(await screen.findByRole("button", { name: "Select modules on this page" }));
     expect(screen.getByRole("checkbox", { name: "Select Module One" })).toBeChecked();
     expect(screen.getByRole("checkbox", { name: "Select Miner One" })).not.toBeChecked();
-    await user.click(screen.getByRole("button", { name: "Assign selected" }));
+    await user.click(screen.getByRole("button", { name: "Allocate selected" }));
     expect(within(screen.getByRole("dialog")).getByText(/Only the selected modules are included/)).toBeInTheDocument();
   });
   it("keeps the reviewed selection available to retry after a destination policy error", async () => {
@@ -599,17 +619,17 @@ describe("account mining asset allocation", () => {
     const { client } = mount(31n, [miner], assign, "", "assign");
     const user = userEvent.setup();
     await user.click(await screen.findByRole("checkbox", { name: "Select Miner One" }));
-    await user.click(screen.getByRole("button", { name: "Assign selected" }));
+    await user.click(screen.getByRole("button", { name: "Allocate selected" }));
     await selectTarget(user);
     const dialog = screen.getByRole("dialog");
-    const confirm = within(dialog).getByRole("button", { name: "Assign 1 asset" });
+    const confirm = within(dialog).getByRole("button", { name: "Allocate 1 asset" });
     await user.click(confirm);
     expect(await within(dialog).findByText(policyError)).toBeInTheDocument();
     expect(confirm).toBeEnabled();
     expect(screen.getByRole("checkbox", { name: "Select Miner One" })).toBeChecked();
     expect(client.listAccountAssets).toHaveBeenCalledOnce();
     await user.click(confirm);
-    expect(await screen.findByRole("status")).toHaveTextContent("Assigned 1 asset to East");
+    expect(await screen.findByRole("status")).toHaveTextContent("Allocated 1 asset to East");
     expect(assign).toHaveBeenCalledTimes(2);
   });
   it("clears stale selections and requires another review after an ownership conflict", async () => {
@@ -617,9 +637,9 @@ describe("account mining asset allocation", () => {
     const { client } = mount(31n, [miner], assign, "", "assign");
     const user = userEvent.setup();
     await user.click(await screen.findByRole("checkbox", { name: "Select Miner One" }));
-    await user.click(screen.getByRole("button", { name: "Assign selected" }));
+    await user.click(screen.getByRole("button", { name: "Allocate selected" }));
     await selectTarget(user);
-    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Assign 1 asset" }));
+    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Allocate 1 asset" }));
     expect(await screen.findByRole("status")).toHaveTextContent(/select them again/);
     await waitFor(() => expect(client.listAccountAssets).toHaveBeenCalledTimes(2));
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
@@ -675,7 +695,7 @@ describe("account mining asset allocation", () => {
     });
     const user = userEvent.setup();
     await user.click(await screen.findByRole("checkbox", { name: "Select Unavailable module 8" }));
-    expect(screen.queryByRole("button", { name: "Assign selected" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Allocate selected" })).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Recall selected" }));
     expect(within(screen.getByRole("dialog")).queryByText("Unavailable module 8")).not.toBeInTheDocument();
     expect(within(screen.getByRole("dialog")).getByText(/from East to Customer/)).toBeInTheDocument();

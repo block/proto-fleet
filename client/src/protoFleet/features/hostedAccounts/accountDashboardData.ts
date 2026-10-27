@@ -5,11 +5,11 @@ import {
   MeasurementType,
   type Metric,
   MetricSchema,
+  TemperatureStatusCountSchema,
+  UptimeStatusCountSchema,
 } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
 import { getGranularityForDuration } from "@/protoFleet/features/dashboard/utils/granularity";
 import type { FleetDuration } from "@/shared/components/DurationSelector";
-import type { TemperatureUnit } from "@/shared/features/preferences";
-import { convertCtoF } from "@/shared/utils/telemetryFormat";
 
 export const reportingCoverage = (count: bigint, summary: MiningSummary) => {
   const label =
@@ -21,11 +21,8 @@ export const reportingCoverage = (count: bigint, summary: MiningSummary) => {
   return `${count.toLocaleString()} of ${summary.assetCount.toLocaleString()} ${label}${summary.assetCount === 1n ? "" : "s"} reporting`;
 };
 
-export const accountDashboardData = (
-  readings: AccountDashboardReading[],
-  duration: FleetDuration,
-  temperatureUnit: TemperatureUnit,
-) => {
+// Temperature and uptime chart status distributions, so only the averaged metrics become series.
+export const accountDashboardData = (readings: AccountDashboardReading[], duration: FleetDuration) => {
   const metrics: Metric[] = [];
   const tooltipNotes: Partial<Record<MeasurementType, Record<number, string>>> = {};
   const granularityMs = getGranularityForDuration(duration) * 1000;
@@ -43,16 +40,6 @@ export const accountDashboardData = (
         summary.powerReportingCount,
       ],
       [MeasurementType.EFFICIENCY, summary.efficiencyJTh, summary.pairedReportingCount],
-      [
-        MeasurementType.TEMPERATURE,
-        summary.temperatureC === undefined
-          ? undefined
-          : temperatureUnit === "F"
-            ? convertCtoF(summary.temperatureC)
-            : summary.temperatureC,
-        summary.temperatureReportingCount,
-      ],
-      [MeasurementType.UPTIME, summary.uptimePercent, summary.uptimeReportingCount],
     ];
     const timestamp = Math.floor((Number(time.seconds) * 1000) / granularityMs) * granularityMs;
     for (const [measurementType, value, reporting] of values) {
@@ -68,5 +55,16 @@ export const accountDashboardData = (
       (tooltipNotes[measurementType] ??= {})[timestamp] = reportingCoverage(reporting, summary);
     }
   }
-  return { metrics, tooltipNotes };
+  const latestSummary = readings[readings.length - 1]?.summary;
+  return {
+    metrics,
+    tooltipNotes,
+    temperatureStatusCounts: readings.map(
+      ({ time, temperatureStatus }) => temperatureStatus ?? create(TemperatureStatusCountSchema, { timestamp: time }),
+    ),
+    uptimeExpectedAssetCount: latestSummary ? Number(latestSummary.assetCount) : undefined,
+    uptimeStatusCounts: readings.map(
+      ({ time, uptimeStatus }) => uptimeStatus ?? create(UptimeStatusCountSchema, { timestamp: time }),
+    ),
+  };
 };

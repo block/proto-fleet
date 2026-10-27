@@ -1,4 +1,4 @@
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { create, toJson } from "@bufbuild/protobuf";
@@ -37,6 +37,7 @@ function mount({
   failureCode = "aborted",
   failureMessage = "changed",
   mask = 16n,
+  entry = "/fleet/miners",
 } = {}) {
   const calls: { method: string; body: Record<string, unknown>; account: string | null }[] = [];
   const onAssigned = vi.fn();
@@ -77,7 +78,7 @@ function mount({
     onAssigned,
   };
   const page = (current = props, capability = mask) => (
-    <MemoryRouter>
+    <MemoryRouter initialEntries={[entry]}>
       <HostedAccountsContext.Provider
         value={{
           accounts: [
@@ -89,7 +90,10 @@ function mount({
           refresh: vi.fn(),
         }}
       >
-        <FleetAccountAssignment {...current} />
+        <Routes>
+          <Route path="/fleet/miners" element={<FleetAccountAssignment {...current} />} />
+          <Route path="/accounts/:id/manage/assets" element={<p>Client management returned</p>} />
+        </Routes>
       </HostedAccountsContext.Provider>
     </MemoryRouter>
   );
@@ -100,18 +104,22 @@ function mount({
     rerender: (assets = references, capability = mask) => view.rerender(page({ ...props, assets }, capability)),
   };
 }
+const openAllocation = async (user: ReturnType<typeof userEvent.setup>) => {
+  await user.click(screen.getByRole("button", { name: "More asset actions" }));
+  await user.click(screen.getByRole("button", { name: "Allocate to client" }));
+};
 const chooseCustomer = async (user: ReturnType<typeof userEvent.setup>) => {
-  await user.click(await screen.findByRole("button", { name: "Assign to client" }));
+  await user.click(await screen.findByRole("button", { name: "Allocate to client" }));
   await user.click(await screen.findByRole("option", { name: "Customer" }));
 };
 describe("Fleet account assignment", () => {
   it("looks up exact typed leaves, freezes selection, and submits reviewed revisions under host authority", async () => {
     const { calls, rerender, onAssigned } = mount();
     const user = userEvent.setup();
-    await user.click(screen.getByRole("button", { name: "Assign to account" }));
+    await openAllocation(user);
     await chooseCustomer(user);
     rerender([{ kind: MiningAssetKind.MINER, id: 99n }]);
-    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Assign 2 assets" }));
+    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Allocate 2 assets" }));
     await waitFor(() => expect(onAssigned).toHaveBeenCalledOnce());
     expect(calls.find((call) => call.method === "ListAccountAssets")).toEqual({
       method: "ListAccountAssets",
@@ -155,22 +163,22 @@ describe("Fleet account assignment", () => {
             ];
       const { calls } = mount({ assets });
       const user = userEvent.setup();
-      await user.click(screen.getByRole("button", { name: "Assign to account" }));
+      await openAllocation(user);
       await screen.findByText(
-        reason === "missing" ? /no longer available or accessible/ : /Only available, unassigned assets/,
+        reason === "missing" ? /no longer available or accessible/ : /Only available, unallocated assets/,
       );
-      expect(within(screen.getByRole("dialog")).getByRole("button", { name: "Assign 2 assets" })).toBeDisabled();
+      expect(within(screen.getByRole("dialog")).getByRole("button", { name: "Allocate 2 assets" })).toBeDisabled();
       expect(calls.some((call) => call.method === "AssignAccountAssets")).toBe(false);
     },
   );
   it("requires a fresh selection after an assignment conflict", async () => {
     const { calls } = mount({ failure: true });
     const user = userEvent.setup();
-    await user.click(screen.getByRole("button", { name: "Assign to account" }));
+    await openAllocation(user);
     await chooseCustomer(user);
-    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Assign 2 assets" }));
-    await screen.findByText(/Assignments or equipment changed/);
-    expect(within(screen.getByRole("dialog")).getByRole("button", { name: "Assign 2 assets" })).toBeDisabled();
+    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Allocate 2 assets" }));
+    await screen.findByText(/Allocations or equipment changed/);
+    expect(within(screen.getByRole("dialog")).getByRole("button", { name: "Allocate 2 assets" })).toBeDisabled();
     expect(calls.filter((call) => call.method === "AssignAccountAssets")).toHaveLength(1);
   });
   it("keeps the reviewed assets available to retry after a destination policy error", async () => {
@@ -181,14 +189,14 @@ describe("Fleet account assignment", () => {
       failureMessage: policyError,
     });
     const user = userEvent.setup();
-    await user.click(screen.getByRole("button", { name: "Assign to account" }));
+    await openAllocation(user);
     await chooseCustomer(user);
     const dialog = screen.getByRole("dialog");
-    const confirm = within(dialog).getByRole("button", { name: "Assign 2 assets" });
+    const confirm = within(dialog).getByRole("button", { name: "Allocate 2 assets" });
     await user.click(confirm);
     expect(await within(dialog).findByText(policyError)).toBeInTheDocument();
     expect(confirm).toBeEnabled();
-    expect(screen.queryByText(/Assignments or equipment changed/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Allocations or equipment changed/)).not.toBeInTheDocument();
     expect(calls.filter((call) => call.method === "ListAccountAssets")).toHaveLength(1);
     await user.click(confirm);
     await waitFor(() => expect(calls.filter((call) => call.method === "AssignAccountAssets")).toHaveLength(2));
@@ -197,20 +205,52 @@ describe("Fleet account assignment", () => {
     expect(calls.filter((call) => call.method === "ListAccountAssets")).toHaveLength(1);
     expect(onAssigned).not.toHaveBeenCalled();
   });
-  it("never expands a global selection into a partial assignment", () => {
-    const { calls } = mount({ exact: false });
-    expect(screen.getByRole("button", { name: "Assign to account" })).toBeDisabled();
+  it("never expands a global selection into a partial assignment", async () => {
+    const { calls, rerender } = mount({ exact: false });
+    rerender([references[1]]);
+    await userEvent.setup().click(screen.getByRole("button", { name: "More asset actions" }));
+    expect(screen.getByRole("button", { name: /^Allocate to client/ })).toBeDisabled();
+    expect(screen.getByText("Select up to 500 specific assets on this page to allocate them.")).toBeInTheDocument();
+    expect(calls).toHaveLength(0);
+  });
+  it("explains the allocation limit for a module-only selection", async () => {
+    const { calls, rerender } = mount();
+    rerender(Array.from({ length: 501 }, (_, index) => ({ kind: MiningAssetKind.MODULE, id: BigInt(index + 1) })));
+    await userEvent.setup().click(screen.getByRole("button", { name: "More asset actions" }));
+    expect(screen.getByRole("button", { name: /^Allocate to client/ })).toBeDisabled();
+    expect(screen.getByText("Select up to 500 specific assets on this page to allocate them.")).toBeInTheDocument();
     expect(calls).toHaveLength(0);
   });
   it("closes the confirmation when host delegation is revoked", async () => {
     const { rerender } = mount();
     const user = userEvent.setup();
-    await user.click(screen.getByRole("button", { name: "Assign to account" }));
+    await openAllocation(user);
     await chooseCustomer(user);
     rerender(references, 1n);
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Assign to account" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Allocate to client" })).not.toBeInTheDocument();
     rerender(references, 16n);
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+  it("preselects the originating client and returns after a successful allocation", async () => {
+    const { calls } = mount({ entry: `/fleet/miners?allocateTo=${childId}` });
+    const user = userEvent.setup();
+    await openAllocation(user);
+    const dialog = await screen.findByRole("dialog");
+    expect(await within(dialog).findByRole("button", { name: "Allocate to client" })).toHaveTextContent("Customer");
+    await user.click(within(dialog).getByRole("button", { name: "Allocate 2 assets" }));
+    await screen.findByText("Client management returned");
+    expect(calls.find((call) => call.method === "AssignAccountAssets")?.body.childAccountId).toBe(childId);
+  });
+  it("does not allocate to a suspended originating client", async () => {
+    const { calls } = mount({
+      entry: `/fleet/miners?allocateTo=${childId}`,
+      children: [{ accountId: childId, name: "Customer", suspended: true }],
+    });
+    const user = userEvent.setup();
+    await openAllocation(user);
+    await screen.findByText(/No active clients/);
+    expect(within(screen.getByRole("dialog")).getByRole("button", { name: "Allocate 2 assets" })).toBeDisabled();
+    expect(calls.some((call) => call.method === "AssignAccountAssets")).toBe(false);
   });
 });

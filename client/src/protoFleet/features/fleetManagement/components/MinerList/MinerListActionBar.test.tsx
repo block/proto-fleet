@@ -1,5 +1,6 @@
-import { type ComponentProps, useState } from "react";
-import { fireEvent, render, waitFor } from "@testing-library/react";
+import { type ComponentProps, type ReactNode, useState } from "react";
+import { MemoryRouter } from "react-router-dom";
+import { fireEvent, render as renderUI, waitFor } from "@testing-library/react";
 import { describe, expect, test, vi } from "vitest";
 import { create } from "@bufbuild/protobuf";
 import { SortConfigSchema, SortField } from "@/protoFleet/api/generated/common/v1/sort_pb";
@@ -10,6 +11,8 @@ import {
   MinerStateSnapshotSchema,
 } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import MinerListActionBar from "@/protoFleet/features/fleetManagement/components/MinerList/MinerListActionBar";
+
+const render = (ui: ReactNode) => renderUI(ui, { wrapper: ({ children }) => <MemoryRouter>{children}</MemoryRouter> });
 
 const selections = vi.hoisted(() => ({ miners: vi.fn(), modules: vi.fn() }));
 vi.mock("@/protoFleet/features/containers/MiningActionsMenu", () => ({

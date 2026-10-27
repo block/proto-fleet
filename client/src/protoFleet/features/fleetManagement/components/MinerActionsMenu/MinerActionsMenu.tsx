@@ -34,6 +34,7 @@ import { useWindowDimensions } from "@/shared/hooks/useWindowDimensions";
 const FILTER_UNSUPPORTED_ALL_MODE_ACTIONS = new Set<SupportedAction>([settingsActions.security]);
 
 interface MinerActionsMenuProps {
+  additionalActions?: BulkAction<string>[];
   selectedMiners: string[];
   selectionMode: SelectionMode;
   /**
@@ -75,6 +76,7 @@ type BulkWorkerNameTarget = {
 
 const MinerActionsMenu = ({
   selectedMiners,
+  additionalActions = [],
   selectionMode,
   totalCount,
   currentFilter,
@@ -278,6 +280,8 @@ const MinerActionsMenu = ({
     return selectedMinersWithStatus;
   }, [poolFilteredDeviceIds, selectedMinersWithStatus]);
 
+  const menuActions: BulkAction<string>[] = [...visibleActions, ...additionalActions];
+
   const showQuickActions = !isPhone && !isTablet;
   const quickActions = useMemo(() => {
     const quickActionOrder: SupportedAction[] = [
@@ -297,10 +301,10 @@ const MinerActionsMenu = ({
   return (
     <PopoverProvider>
       <div className="flex flex-wrap justify-start gap-3">
-        <BulkActionsWidget<SupportedAction>
+        <BulkActionsWidget<string>
           buttonIconSuffix={<ChevronDown width={iconSizes.xSmall} />}
           buttonTitle={showQuickActions ? "More" : "Actions"}
-          actions={visibleActions}
+          actions={menuActions}
           onConfirmation={handleConfirmation}
           onCancel={handleCancel}
           currentAction={currentAction}
@@ -330,8 +334,8 @@ const MinerActionsMenu = ({
               : null
           }
           renderPopover={(beforeEach, closePopover) => (
-            <BulkActionsPopover<SupportedAction>
-              actions={visibleActions}
+            <BulkActionsPopover<string>
+              actions={menuActions}
               beforeEach={beforeEach}
               testId="actions-menu-popover"
               closePopover={closePopover}

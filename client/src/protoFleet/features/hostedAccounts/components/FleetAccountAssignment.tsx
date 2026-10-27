@@ -1,14 +1,17 @@
-import { useEffect, useState } from "react";
+import { type ReactNode, useEffect, useState } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { Code, ConnectError } from "@connectrpc/connect";
 
-import { can } from "../capabilities";
+import { accountManagementPath, can } from "../capabilities";
 import { useHostedAccounts } from "../HostedAccountsContext";
 import { allocationKey, type AssetReference, useFleetAccountInventory } from "../useFleetAccountInventory";
 import { AccountState } from "./AccountState";
 import { ActionModal } from "./ActionModal";
 import { AssetAssignmentIntent } from "@/protoFleet/api/generated/hosted/v1/hosted_pb";
+import type { BulkAction } from "@/protoFleet/features/fleetManagement/components/BulkActions/types";
 import { useFleetStore } from "@/protoFleet/store";
-import Button from "@/shared/components/Button";
+import { ChevronDown, Groups } from "@/shared/assets/icons";
+import RowActionsMenu from "@/shared/components/RowActionsMenu";
 import Select from "@/shared/components/Select";
 
 const AssignmentDialog = ({
@@ -19,12 +22,13 @@ const AssignmentDialog = ({
 }: {
   assets: AssetReference[];
   onClose: () => void;
-  onSuccess: () => void;
+  onSuccess: (target: string) => void;
   onActionComplete: () => void;
 }) => {
   useEffect(() => () => onActionComplete(), [onActionComplete]);
   const inventory = useFleetAccountInventory(assets);
-  const [target, setTarget] = useState("");
+  const [params] = useSearchParams();
+  const [target, setTarget] = useState(params.get("allocateTo") ?? "");
   const [stale, setStale] = useState(false);
   const rows = assets.flatMap((asset) => {
     const row = inventory.byAsset.get(allocationKey(asset));
@@ -38,8 +42,8 @@ const AssignmentDialog = ({
   return (
     <ActionModal
       presentation="dialog"
-      title={`Assign ${assets.length} ${assets.length === 1 ? "asset" : "assets"}?`}
-      confirm={`Assign ${assets.length} ${assets.length === 1 ? "asset" : "assets"}`}
+      title={`Allocate ${assets.length} ${assets.length === 1 ? "asset" : "assets"}?`}
+      confirm={`Allocate ${assets.length} ${assets.length === 1 ? "asset" : "assets"}`}
       valid={
         !!inventory.root && !!inventory.data?.canManageAssignments && eligible && !stale
           ? destinations.some((child) => child.accountId === target)
@@ -60,11 +64,11 @@ const AssignmentDialog = ({
           }
           throw error;
         }
-        onSuccess();
+        onSuccess(target);
       }}
     >
       {stale ? (
-        <p>Assignments or equipment changed. Close this dialog, refresh Fleet, and select the assets again.</p>
+        <p>Allocations or equipment changed. Close this dialog, refresh Fleet, and select the assets again.</p>
       ) : null}
       <AccountState loading={inventory.loading} error={inventory.error} retry={inventory.refresh} />
       {inventory.data ? (
@@ -72,7 +76,7 @@ const AssignmentDialog = ({
           <p>Some selected assets are no longer available or accessible. Refresh Fleet and select them again.</p>
         ) : !eligible ? (
           <p>
-            Only available, unassigned assets can be assigned. Recall existing allocations from the client’s Mining
+            Only available, unallocated assets can be allocated. Recall existing allocations from the client’s Mining
             assets view first.
           </p>
         ) : destinations.length === 0 ? (
@@ -80,7 +84,7 @@ const AssignmentDialog = ({
         ) : (
           <Select
             id="fleet-asset-assignment-target"
-            label="Assign to client"
+            label="Allocate to client"
             value={target}
             options={destinations.map((child) => ({ value: child.accountId, label: child.name }))}
             onChange={setTarget}
@@ -100,47 +104,72 @@ export const FleetAccountAssignment = ({
   onActionStart,
   onActionComplete,
   onAssigned,
+  renderMenu,
 }: {
   assets: AssetReference[];
   exactSelection: boolean;
   onActionStart: () => void;
   onActionComplete: () => void;
   onAssigned: () => void;
+  renderMenu?: (action: BulkAction<string> | undefined) => ReactNode;
 }) => {
   const directory = useHostedAccounts();
+  const navigate = useNavigate();
+  const [params] = useSearchParams();
   const root = directory?.accounts.find((account) => account.depth === 0 && can(account, 16n));
   const generation = useFleetStore((state) => state.auth.sessionGeneration);
   const scope = `${root?.accountId ?? ""}:${generation}`;
   const [snapshot, setSnapshot] = useState<{ scope: string; assets: AssetReference[] } | null>(null);
   if (snapshot && (!root || snapshot.scope !== scope)) setSnapshot(null);
-  if (!root) return null;
+  if (!root) return renderMenu?.(undefined) ?? null;
   const close = () => {
     setSnapshot(null);
     onActionComplete();
   };
+  const action: BulkAction<string> = {
+    action: "allocateAssets",
+    title: "Allocate to client",
+    icon: <Groups />,
+    requiresConfirmation: false,
+    disabled: !exactSelection || assets.length === 0 || assets.length > 500,
+    disabledReason: "Select up to 500 specific assets on this page to allocate them.",
+    actionHandler: () => {
+      setSnapshot({ scope, assets });
+      onActionStart();
+    },
+  };
   return (
     <>
-      <span title={!exactSelection ? "Select specific assets on this page to assign them." : undefined}>
-        <Button
-          variant="secondary"
-          className="bg-grayscale-white-10! text-grayscale-white-90! disabled:opacity-40"
-          text="Assign to account"
-          disabled={!exactSelection || assets.length === 0 || assets.length > 500}
-          onClick={() => {
-            setSnapshot({ scope, assets });
-            onActionStart();
-          }}
+      {renderMenu ? (
+        renderMenu(action)
+      ) : (
+        <RowActionsMenu
+          ariaLabel="More asset actions"
+          triggerLabel="More"
+          triggerVariant="secondary"
+          triggerSuffixIcon={<ChevronDown />}
+          triggerClassName="bg-grayscale-white-10! text-grayscale-white-90!"
+          actions={[
+            {
+              label: action.title,
+              disabled: action.disabled,
+              disabledReason: action.disabledReason,
+              icon: action.icon,
+              onClick: action.actionHandler,
+            },
+          ]}
         />
-      </span>
+      )}
       {snapshot ? (
         <AssignmentDialog
           key={snapshot.scope}
           assets={snapshot.assets}
           onClose={close}
           onActionComplete={onActionComplete}
-          onSuccess={() => {
+          onSuccess={(target) => {
             close();
             onAssigned();
+            if (params.has("allocateTo")) navigate(accountManagementPath(target));
           }}
         />
       ) : null}

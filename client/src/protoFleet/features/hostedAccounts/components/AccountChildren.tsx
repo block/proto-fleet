@@ -68,7 +68,7 @@ const AccountChildren = () => {
                   ? { to: `${pathname}?assets=${encodeURIComponent(selectedChild.accountId)}` }
                   : {}),
               },
-              ...(assigning ? [{ label: "Assign assets" }] : []),
+              ...(assigning ? [{ label: "Allocate assets" }] : []),
             ]}
           />
           <div className="flex flex-wrap gap-3">
@@ -83,13 +83,18 @@ const AccountChildren = () => {
             ) : null}
             {selectedChild && !assigning && can(account, 16n) ? (
               account.depth === 0 ? (
-                <Button variant="primary" size={sizes.compact} text="Assign from Fleet" to="/fleet/miners" />
+                <Button
+                  variant="primary"
+                  size={sizes.compact}
+                  text="Allocate assets"
+                  to={`/fleet/miners?allocateTo=${encodeURIComponent(selectedChild.accountId)}`}
+                />
               ) : !selectedChild.suspended ? (
                 <Button
                   variant="primary"
                   size={sizes.compact}
                   disabled={readOnly}
-                  text="Assign assets"
+                  text="Allocate assets"
                   onClick={() => setParams({ assets: selectedChild.accountId, action: "assign" })}
                 />
               ) : null
@@ -118,7 +123,7 @@ const AccountChildren = () => {
           <SettingsPageHeader
             title={account.depth === 0 ? "Clients" : "Subclients"}
             description={
-              account.depth === 0 ? "Manage client accounts, assigned mining assets, and team access." : undefined
+              account.depth === 0 ? "Manage client accounts, allocated mining assets, and team access." : undefined
             }
           />
         </div>
@@ -144,7 +149,7 @@ const AccountChildren = () => {
           colTitles={{
             name: account.depth === 0 ? "Client" : "Subclient",
             status: "Status",
-            assets: "Assigned assets",
+            assets: "Allocated assets",
             logins: "Logins",
             permissions: "Permissions",
           }}
@@ -187,7 +192,7 @@ const AccountChildren = () => {
                 ];
                 return (
                   <div className="flex flex-col gap-1">
-                    <span>{types.length ? types.join(" · ") : "No assets assigned"}</span>
+                    <span>{types.length ? types.join(" · ") : "No mining assets"}</span>
                     {counts.moduleCount > 0n ? (
                       <span className="text-200 text-text-primary-50">
                         Modules in {counts.containerCount.toLocaleString()}{" "}
@@ -216,7 +221,7 @@ const AccountChildren = () => {
             ...(account.depth === 1 && can(account, 16n)
               ? [
                   {
-                    title: "Assign assets",
+                    title: "Allocate assets",
                     actionHandler: (child: Account) => {
                       if (!child.suspended) setParams({ assets: child.accountId, action: "assign" });
                     },
@@ -271,7 +276,7 @@ const AccountChildren = () => {
               title={account.depth === 0 ? "No clients yet" : "No subclients yet"}
               description={
                 account.depth === 0
-                  ? "Create a client, then invite its team and assign mining assets from Fleet."
+                  ? "Create a client, allocate mining assets, then invite its team."
                   : "Create a subclient, then invite its team."
               }
             />
@@ -296,9 +301,14 @@ const AccountChildren = () => {
               name: name.trim(),
               capabilities: ceiling,
             });
-            if (result.account) navigate(`${childTeamPath(result.account.accountId)}?invite=administrator`);
+            if (result.account)
+              navigate(
+                account.depth === 0
+                  ? accountManagementPath(result.account.accountId)
+                  : `${pathname}?assets=${encodeURIComponent(result.account.accountId)}`,
+              );
             setEditing(null);
-            query.refresh();
+            query.invalidate();
             directory?.refresh();
           }}
         >
@@ -309,9 +319,7 @@ const AccountChildren = () => {
             onChange={setName}
             maxLength={255}
           />
-          <p className="text-200 text-text-primary-50">Next, create an invitation code for the client’s team.</p>
           <CapabilityFields value={ceiling} allowed={allowed} required={required} onChange={setCeiling} />
-          <p className="text-200 text-text-primary-50">Viewing data and managing the team are required.</p>
         </ActionModal>
       ) : editing ? (
         <AccountPermissionsEditor

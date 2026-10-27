@@ -3,7 +3,7 @@ import { timestampFromDate } from "@bufbuild/protobuf/wkt";
 
 import { useRequiredAccountScope } from "../AccountScope";
 import { ACCOUNT_READ_TIMEOUT_MS } from "../api";
-import { can, capabilities } from "../capabilities";
+import { apiKeyCapabilities, can, capabilities } from "../capabilities";
 import { useHostedAccounts } from "../HostedAccountsContext";
 import { useAccountQuery } from "../useAccountQuery";
 import AccountDetails from "./AccountDetails";
@@ -70,7 +70,7 @@ const AccountAccess = ({ title = "Access" }: { title?: string }) => {
       <AccountDetails />
       {can(account, 8n) && account.depth > 0 ? (
         <section className="flex flex-col gap-4">
-          <h2 className="text-heading-200 text-text-primary">Ancestor access</h2>
+          <h2 className="text-heading-200 text-text-primary">Host and parent access</h2>
           <p className="text-300 text-text-primary-70">Hosting alone doesn’t grant account access.</p>
           <AccountState loading={grants.loading} error={grants.error} retry={grants.refresh} />
           {grants.data ? (
@@ -80,7 +80,7 @@ const AccountAccess = ({ title = "Access" }: { title?: string }) => {
               itemSelectable={false}
               stickyFirstColumn={false}
               activeCols={["ancestor", "permissions"]}
-              colTitles={{ ancestor: "Ancestor", permissions: "Granted permissions" }}
+              colTitles={{ ancestor: "Host or parent account", permissions: "Granted permissions" }}
               colConfig={{
                 ancestor: { width: "min-w-40", component: (g) => ancestorName(g.ancestorAccountId) },
                 permissions: {
@@ -98,7 +98,7 @@ const AccountAccess = ({ title = "Access" }: { title?: string }) => {
                   variant="secondary"
                   size={sizes.compact}
                   disabled={readOnly}
-                  text="Grant ancestor access"
+                  text="Grant host or parent access"
                   onClick={() => setGrant({ ancestorId: account.parentAccountId, capabilities: 1n })}
                 />
               }
@@ -110,7 +110,7 @@ const AccountAccess = ({ title = "Access" }: { title?: string }) => {
                 },
                 { title: "Revoke access", disabled: readOnly, variant: "destructive", actionHandler: setRemovingGrant },
               ]}
-              noDataElement={<SettingsEmptyState size="section" title="No ancestor access granted" />}
+              noDataElement={<SettingsEmptyState size="section" title="No host or parent access granted" />}
             />
           ) : null}
         </section>
@@ -118,7 +118,11 @@ const AccountAccess = ({ title = "Access" }: { title?: string }) => {
       {account.depth > 0 ? (
         <section className="flex flex-col gap-4">
           <h2 className="text-heading-200 text-text-primary">API keys</h2>
-          <p className="text-300 text-text-primary-70">Keys are limited by their issuer’s permissions.</p>
+          <p className="text-300 text-text-primary-70">
+            Keys can read account details and saved pool configurations, and optionally manage saved configurations.
+            Reporting, stored profile selection and account administration require a Fleet login. Keys remain limited by
+            their issuer’s current permissions, account grants and suspension status.
+          </p>
           <AccountState loading={keys.loading} error={keys.error} retry={keys.refresh} />
           {keys.data ? (
             <>
@@ -202,18 +206,12 @@ const AccountAccess = ({ title = "Access" }: { title?: string }) => {
           }}
         >
           <Input id="hosted-key-name" label="Key name" initValue={name} onChange={setName} maxLength={255} />
-          <div className="flex flex-col gap-3">
-            {capabilities.slice(0, 3).map((c) => (
-              <label key={String(c.value)} className="flex items-center gap-3">
-                <Checkbox
-                  checked={(keyCapabilities & c.value) !== 0n}
-                  disabled={c.value === 1n || !can(account, c.value)}
-                  onChange={(e) => setKeyCapabilities((mask) => (e.target.checked ? mask | c.value : mask & ~c.value))}
-                />
-                {c.label}
-              </label>
-            ))}
-          </div>
+          <CapabilityFields
+            value={keyCapabilities}
+            allowed={account.suspended ? 0n : account.effectiveCapabilities}
+            options={apiKeyCapabilities}
+            onChange={setKeyCapabilities}
+          />
           <Select
             id="hosted-key-expiry"
             label="Expires after"
@@ -277,7 +275,7 @@ const AccountAccess = ({ title = "Access" }: { title?: string }) => {
       ) : null}
       {grant && can(account, 8n) ? (
         <ActionModal
-          title="Ancestor access"
+          title="Host and parent access"
           onDismiss={() => setGrant(null)}
           onSubmit={async () => {
             await client.setAncestorGrant({
@@ -291,7 +289,7 @@ const AccountAccess = ({ title = "Access" }: { title?: string }) => {
         >
           <Select
             id="hosted-ancestor"
-            label="Ancestor account"
+            label="Host or parent account"
             value={grant.ancestorId}
             onChange={(ancestorId) => setGrant((g) => ({ ...g!, ancestorId }))}
             options={ancestors.map((id) => ({ value: id, label: ancestorName(id) }))}
@@ -305,7 +303,7 @@ const AccountAccess = ({ title = "Access" }: { title?: string }) => {
       ) : null}
       {removingGrant && can(account, 8n) ? (
         <ActionModal
-          title="Revoke ancestor access"
+          title="Revoke host or parent access"
           confirm="Revoke access"
           onDismiss={() => setRemovingGrant(null)}
           onSubmit={async () => {

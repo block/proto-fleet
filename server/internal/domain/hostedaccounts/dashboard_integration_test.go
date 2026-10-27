@@ -1,6 +1,7 @@
 package hostedaccounts_test
 
 import (
+	"math"
 	"testing"
 	"time"
 
@@ -11,6 +12,90 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
+
+func TestAccountDashboardStatusDistributionsUseAuthorizedLatestReadings(t *testing.T) {
+	f := setup(t)
+	client := f.client(t, "Customer", f.user, hostedaccounts.AllCapabilities)
+	end := time.Now().UTC().Truncate(time.Second).Add(-time.Minute)
+	start := end.Add(-time.Hour)
+	for index, temperature := range []float64{-5, 0, 70, 90, math.Inf(1)} {
+		miner := f.miningDevice(t, commonpb.DeviceClass_DEVICE_CLASS_RIG)
+		require.NoError(t, f.allocate(t, f.host, f.root, client.AccountID, 1, selected(5, miner, 0)))
+		_, err := f.db.ExecContext(t.Context(), `UPDATE hosted_account_asset_interval SET started_at=$1 WHERE asset_id=$2 AND kind=5`, start, miner)
+		require.NoError(t, err)
+		for _, sample := range []struct {
+			at   time.Time
+			temp float64
+		}{
+			{start.Add(time.Minute), 95},
+			{start.Add(10 * time.Minute), temperature},
+		} {
+			_, err = f.db.ExecContext(t.Context(), `INSERT INTO device_metrics(time,device_identifier,temp_c) SELECT $1,device_identifier,$2 FROM device WHERE id=$3`, sample.at, sample.temp, miner)
+			require.NoError(t, err)
+		}
+		_, err = f.db.ExecContext(t.Context(), `INSERT INTO miner_state_snapshots(time,org_id,site_id,device_identifier,state) SELECT $1,$2,NULL,device_identifier,$3 FROM device WHERE id=$4`, start.Add(10*time.Minute), f.org, index, miner)
+		require.NoError(t, err)
+	}
+	request := dashboardRequest(client.AccountID, start, end, nil)
+	request.BucketSeconds = 1800
+	result, err := f.svc.Dashboard(t.Context(), f.user, f.org, request)
+	require.NoError(t, err)
+	require.Len(t, result.Readings, 2)
+	temperature := result.Readings[0].TemperatureStatus
+	require.EqualValues(t, 1, temperature.ColdCount)
+	require.EqualValues(t, 1, temperature.OkCount)
+	require.EqualValues(t, 1, temperature.HotCount)
+	require.EqualValues(t, 2, temperature.CriticalCount, "invalid values do not replace the latest valid observation")
+	uptime := result.Readings[0].UptimeStatus
+	require.EqualValues(t, 1, uptime.HashingCount)
+	require.EqualValues(t, 1, uptime.BrokenCount)
+	require.EqualValues(t, 2, uptime.NotHashingCount, "unknown state is not healthy or offline")
+	require.Zero(t, result.Readings[1].TemperatureStatus.GetOkCount(), "missing buckets remain gaps")
+	require.Zero(t, result.Readings[1].UptimeStatus.GetHashingCount())
+}
+
+func TestAccountDashboardModuleStatusDistributionsUseAuthorizedHashSources(t *testing.T) {
+	f := setup(t)
+	client := f.client(t, "Customer", f.user, hostedaccounts.AllCapabilities)
+	end := time.Now().UTC().Truncate(time.Second).Add(-time.Minute)
+	start := end.Add(-time.Hour)
+	at := start.Add(10 * time.Minute)
+	for _, module := range []struct {
+		hash, temperature float64
+		hashSource        bool
+		sourceOldest      time.Time
+	}{
+		{100e12, 55, true, at},
+		{0, 80, true, at},
+		// A missing hash source only marks the collection incomplete.
+		{100e12, 55, false, at},
+		// Sources that predate the allocation belong to the previous owner.
+		{100e12, 95, true, start.Add(-time.Minute)},
+	} {
+		id, _ := f.miningModule(t)
+		require.NoError(t, f.allocate(t, f.host, f.root, client.AccountID, 1, selected(6, id, 0)))
+		_, err := f.db.ExecContext(t.Context(), `INSERT INTO container_module_metrics(module_id,time,collected_at,hashrate_hs,power_w,temperature_c,coverage) VALUES($1,$2,$2,$3,NULL,$4,jsonb_build_object('hashrate',CASE WHEN $6 THEN jsonb_build_object('reporting',1,'expected',1,'topology_complete',true,'oldest_at',$5::timestamptz,'newest_at',$2::timestamptz) ELSE '{}'::jsonb END,'temperature',jsonb_build_object('oldest_at',$5::timestamptz,'newest_at',$2::timestamptz)))`, id, at, module.hash, module.temperature, module.sourceOldest, module.hashSource)
+		require.NoError(t, err)
+	}
+	_, err := f.db.ExecContext(t.Context(), `UPDATE hosted_account_asset_interval SET started_at=$1 WHERE client_id=$2`, start, client.ID)
+	require.NoError(t, err)
+	request := dashboardRequest(client.AccountID, start, end, nil)
+	request.BucketSeconds = 1800
+	result, err := f.svc.Dashboard(t.Context(), f.user, f.org, request)
+	require.NoError(t, err)
+	require.Len(t, result.Readings, 2)
+	uptime := result.Readings[0].UptimeStatus
+	require.Zero(t, uptime.HashingCount, "numeric sources alone cannot supply module state")
+	require.Zero(t, uptime.NotHashingCount)
+	require.Zero(t, uptime.BrokenCount)
+	require.Equal(t, 100e12, result.Readings[0].Summary.GetHashrateHs())
+	require.EqualValues(t, 2, result.Readings[0].Summary.HashrateReportingCount, "missing and previous-owner sources stay excluded")
+	temperature := result.Readings[0].TemperatureStatus
+	require.EqualValues(t, 2, temperature.OkCount)
+	require.EqualValues(t, 1, temperature.HotCount)
+	require.Zero(t, temperature.CriticalCount, "a previous owner's temperature is excluded")
+	require.Zero(t, result.Readings[1].UptimeStatus.GetHashingCount(), "missing buckets remain gaps")
+}
 
 func dashboardRequest(account string, start, end time.Time, owner *string) *pb.GetAccountDashboardRequest {
 	return &pb.GetAccountDashboardRequest{AccountId: account, StartTime: timestamppb.New(start), EndTime: timestamppb.New(end), BucketSeconds: 14400, OwnerAccountId: owner}
@@ -46,6 +131,8 @@ func TestAccountDashboardHistoryAttributionRecallAndSiteRestoration(t *testing.T
 	}{{start.Add(30 * time.Minute), 900e12}, {start.Add(90 * time.Minute), 100e12}, {start.Add(150 * time.Minute), 200e12}, {start.Add(210 * time.Minute), 900e12}} {
 		_, err = f.db.ExecContext(t.Context(), `INSERT INTO device_metrics(time,device_identifier,hash_rate_hs,power_w,temp_c,site_id) SELECT $1,device_identifier,$2,3000,60,$3 FROM device WHERE id=$4`, sample.at, sample.hash, site, miner)
 		require.NoError(t, err)
+		_, err = f.db.ExecContext(t.Context(), `INSERT INTO miner_state_snapshots(time,org_id,site_id,device_identifier,state) SELECT $1,$2,$3,device_identifier,CASE WHEN $4>500e12 THEN 2 ELSE 3 END FROM device WHERE id=$5`, sample.at, f.org, site, sample.hash, miner)
+		require.NoError(t, err)
 	}
 	query := func(account string, actor int64, owner *string) *pb.GetAccountDashboardResponse {
 		result, err := f.svc.Dashboard(t.Context(), actor, f.org, dashboardRequest(account, start, end, owner))
@@ -58,6 +145,9 @@ func TestAccountDashboardHistoryAttributionRecallAndSiteRestoration(t *testing.T
 	require.NotNil(t, all.HistoryAvailableFrom)
 	require.Equal(t, 150e12, all.Readings[0].Summary.GetHashrateHs(), "unknown and other-client periods cannot enter a crossing bucket")
 	require.EqualValues(t, 1, all.Readings[0].Summary.AssetCount, "parent must not double-count delegated leaf")
+	require.EqualValues(t, 1, all.Readings[0].TemperatureStatus.GetOkCount())
+	require.EqualValues(t, 1, all.Readings[0].UptimeStatus.GetHashingCount())
+	require.Zero(t, all.Readings[0].UptimeStatus.GetBrokenCount(), "other-client and unknown allocation periods cannot enter status counts")
 	require.Equal(t, 100e12, query(client.AccountID, f.user, &client.AccountID).Readings[0].Summary.GetHashrateHs())
 	require.Equal(t, 200e12, query(client.AccountID, f.user, &child.AccountID).Readings[0].Summary.GetHashrateHs())
 	require.Equal(t, 200e12, query(child.AccountID, f.host, nil).Readings[0].Summary.GetHashrateHs())
@@ -67,6 +157,8 @@ func TestAccountDashboardHistoryAttributionRecallAndSiteRestoration(t *testing.T
 	require.NoError(t, f.svc.ConfigureSites(t.Context(), f.user, f.org, client.AccountID, true, nil))
 	revoked := query(client.AccountID, f.user, nil)
 	require.Nil(t, revoked.Readings[0].Summary.HashrateHs)
+	require.Zero(t, revoked.Readings[0].TemperatureStatus.GetOkCount())
+	require.Zero(t, revoked.Readings[0].UptimeStatus.GetHashingCount())
 	require.Empty(t, revoked.Sites)
 	require.NoError(t, f.svc.ConfigureSites(t.Context(), f.user, f.org, client.AccountID, true, []int64{site}))
 	require.Equal(t, 150e12, query(client.AccountID, f.user, nil).Readings[0].Summary.GetHashrateHs(), "permission restoration restores retained samples")

@@ -3,6 +3,8 @@ import type { Timestamp } from "@bufbuild/protobuf/wkt";
 import type { ButtonVariant } from "@/shared/components/Button";
 import type { FleetDuration } from "@/shared/components/DurationSelector";
 
+export type DashboardAudience = "fleet" | "account";
+
 export interface SegmentedBarChartData {
   datetime: number;
   [key: string]: number;
@@ -37,4 +39,6 @@ export interface SegmentedMetricPanelProps {
   segmentConfig: SegmentConfig;
   duration: FleetDuration;
   className?: string;
+  assetLabel?: string;
+  populationLabel?: string;
 }

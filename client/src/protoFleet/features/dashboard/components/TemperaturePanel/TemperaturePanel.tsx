@@ -2,7 +2,10 @@ import { generateTemperatureHeadline } from "./utils";
 import { type TemperatureStatusCount } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
 import ChartWidget from "@/protoFleet/features/dashboard/components/ChartWidget";
 import { SegmentedMetricPanel } from "@/protoFleet/features/dashboard/components/SegmentedMetricPanel";
-import type { SegmentConfig } from "@/protoFleet/features/dashboard/components/SegmentedMetricPanel/types";
+import type {
+  DashboardAudience,
+  SegmentConfig,
+} from "@/protoFleet/features/dashboard/components/SegmentedMetricPanel/types";
 import { Triangle } from "@/shared/assets/icons";
 import { FleetDuration } from "@/shared/components/DurationSelector";
 import SkeletonBar from "@/shared/components/SkeletonBar";
@@ -45,9 +48,16 @@ interface TemperaturePanelProps {
   duration: FleetDuration;
   /** Temperature status counts — undefined = not loaded yet */
   temperatureStatusCounts: TemperatureStatusCount[] | undefined;
+  assetLabel?: string;
+  audience?: DashboardAudience;
 }
 
-export function TemperaturePanel({ duration, temperatureStatusCounts }: TemperaturePanelProps) {
+export function TemperaturePanel({
+  duration,
+  temperatureStatusCounts,
+  audience = "fleet",
+  assetLabel = audience === "account" ? "asset" : "miner",
+}: TemperaturePanelProps) {
   if (temperatureStatusCounts === undefined) {
     const stat = {
       label: "Temperature",
@@ -72,10 +82,12 @@ export function TemperaturePanel({ duration, temperatureStatusCounts }: Temperat
   return (
     <SegmentedMetricPanel
       title="Temperature"
-      headlineGenerator={generateTemperatureHeadline}
+      headlineGenerator={(data) => generateTemperatureHeadline(data, { assetLabel, audience })}
       chartData={temperatureStatusCounts}
       segmentConfig={temperatureSegmentConfig}
       duration={duration}
+      assetLabel={assetLabel}
+      populationLabel={audience === "account" ? "reporting assets" : "fleet"}
     />
   );
 }

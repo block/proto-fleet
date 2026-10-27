@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import clsx from "clsx";
 import { Code, ConnectError } from "@connectrpc/connect";
 
@@ -56,11 +56,13 @@ const AccountAssets = ({
   mode = "inventory",
   onAssigned,
   initialNotice = "",
+  actions,
 }: {
   child?: Pick<AccountMiningBucket, "accountId" | "name" | "suspended">;
   mode?: "inventory" | "assign";
   onAssigned?: (notice: string) => void;
   initialNotice?: string;
+  actions?: ReactNode;
 }) => {
   const assigning = mode === "assign";
   const { account, client, readOnly = false } = useRequiredAccountScope();
@@ -142,6 +144,14 @@ const AccountAssets = ({
     () => (query.data?.inventory.assets ?? []).map((asset) => ({ ...asset, key: allocationKey(asset) })),
     [query.data],
   );
+  const hasFilters = !!(search || owner || container.id || model || site.id);
+  const toolbarNeeded = rows.length > 0 || hasFilters || pages.length > 1;
+  // Clearing the last filter reloads without data; keep the toolbar mounted until that reload settles.
+  const [toolbarShown, setToolbarShown] = useState({ accountId: account.accountId, shown: false });
+  if (query.data && (toolbarShown.accountId !== account.accountId || toolbarShown.shown !== toolbarNeeded))
+    setToolbarShown({ accountId: account.accountId, shown: toolbarNeeded });
+  const showToolbar =
+    toolbarNeeded || (query.loading && toolbarShown.accountId === account.accountId && toolbarShown.shown);
   const children = query.data?.inventory.children ?? [];
   const management = !!query.data?.inventory.canViewAssignments;
   const editable =
@@ -181,10 +191,10 @@ const AccountAssets = ({
       selectionHint = "";
     } else if (assigning) {
       selectionHint = hasAssignmentTarget
-        ? "Only available assets held directly by this account can be assigned."
+        ? "Only available assets held directly by this account can be allocated."
         : `No active ${childLabel}s are available to receive these assets.`;
     } else {
-      selectionHint = `Select assets assigned to one ${childLabel} to recall them together.`;
+      selectionHint = `Select assets allocated to one ${childLabel} to recall them together.`;
     }
   }
   const filterOptions = query.data?.inventory.filterOptions;
@@ -195,15 +205,15 @@ const AccountAssets = ({
   const models = new Set(filterOptions?.models ?? []);
   if (model) models.add(model);
   const assignmentOptions = [
-    { id: account.accountId, label: account.depth === 0 ? "Available to assign" : "Directly assigned" },
+    { id: account.accountId, label: account.depth === 0 ? "Available to allocate" : "Directly allocated" },
     ...children.map((child) => ({ id: child.accountId, label: child.name })),
     ...(owner && owner !== account.accountId && !children.some((child) => child.accountId === owner)
-      ? [{ id: owner, label: "Unavailable assignment" }]
+      ? [{ id: owner, label: "Unavailable allocation" }]
       : []),
   ];
   const inventoryFilters: FilterChipsBarFilter[] = [
     ...(management && !child && !assigning
-      ? [{ key: "assignment", title: "Assigned to", options: assignmentOptions, selectedValues: owner ? [owner] : [] }]
+      ? [{ key: "assignment", title: "Allocated to", options: assignmentOptions, selectedValues: owner ? [owner] : [] }]
       : []),
     {
       key: "model",
@@ -286,11 +296,11 @@ const AccountAssets = ({
           </TabStrip>
         </div>
       ) : !child ? (
-        <SettingsPageHeader title={assigning ? "Assign assets" : "Mining assets"} />
+        <SettingsPageHeader title={assigning ? "Allocate assets" : "Mining assets"} />
       ) : null}
       {assigning ? (
         <p className="text-200 text-text-primary-50">
-          Choose assets held directly by {account.name} to assign to {child?.name ?? "a subclient"}.
+          Choose assets held directly by {account.name} to allocate to {child?.name ?? "a subclient"}.
         </p>
       ) : !child && !fleetView ? (
         <p className="text-200 text-text-primary-50">
@@ -299,102 +309,115 @@ const AccountAssets = ({
             : "Assets allocated to this account."}
         </p>
       ) : null}
-      <div className={clsx("flex flex-wrap items-center gap-3", fleetView && "laptop:pt-4")}>
-        {fleetView ? (
-          <FilterChipsBar
-            filters={inventoryFilters}
-            onChange={(key, values) => {
-              resetSelection();
-              const value = values.slice(-1)[0] ?? "";
-              if (key === "assignment") setOwner(value);
-              if (key === "model") setModel(value);
-              if (key === "site") setSite({ id: value, name: sites.get(value) ?? "" });
-              if (key === "container") setContainer({ id: value, name: containers.get(value) ?? "" });
-            }}
-            onClearAll={() => {
-              resetSelection();
-              setOwner("");
-              setModel("");
-              setSite({ id: "", name: "" });
-              setContainer({ id: "", name: "" });
-            }}
-          />
-        ) : null}
-        {!fleetView && management && !child && !assigning ? (
-          <Select
-            id="account-assets-owner"
-            label="Assignment"
-            value={owner}
-            variant="filter"
-            options={[
-              { value: "", label: "All account assets" },
-              { value: account.accountId, label: account.depth === 0 ? "Available to assign" : "Directly assigned" },
-              ...children.map((child) => ({ value: child.accountId, label: child.name })),
-            ]}
-            onChange={(value) => {
-              resetSelection();
-              setOwner(value);
-            }}
-          />
-        ) : null}
-        {!fleetView && containers.size ? (
-          <Select
-            id="account-assets-container"
-            label="Container"
-            value={container.id}
-            variant="filter"
-            options={[
-              { value: "", label: "All containers and miners" },
-              ...Array.from(containers, ([value, label]) => ({ value, label })),
-            ]}
-            onChange={(value) => {
-              resetSelection();
-              setContainer({ id: value, name: containers.get(value) ?? "" });
-            }}
-          />
-        ) : null}
-        {!child && !assigning && owner && owner !== account.accountId && can(account, 16n) ? (
-          <Button
-            variant="secondary"
-            size={sizes.compact}
-            disabled={readOnly}
-            text="Manage subclient assets"
-            to={`${accountPath(account.accountId, "children")}?assets=${encodeURIComponent(owner)}`}
-          />
-        ) : null}
-        <ListSearchInput
-          id="account-assets-search"
-          label="Search mining assets"
-          className="phone:w-full"
-          initialValue={search}
-          onQueryInput={() => {
-            setSelected([]);
-            setReview(null);
-          }}
-          onQueryChange={(value) => {
-            resetSelection();
-            setSearch(value);
-          }}
-          collapsible
-        />
-        {editable && container.id ? (
-          <Button
-            variant="textOnly"
-            text="Select modules on this page"
-            disabled={!selectedInContainer.length}
-            onClick={() => setSelected(selectedInContainer.map((asset) => asset.key))}
-          />
-        ) : null}
-        <Button
-          className="ml-auto"
-          ariaLabel="Manage columns"
-          ariaHasPopup="dialog"
-          variant="secondary"
-          size={sizes.compact}
-          prefixIcon={<Slider width="w-4" />}
-          onClick={() => setManagingColumns(true)}
-        />
-      </div>
+      {showToolbar || actions ? (
+        <div className={clsx("flex flex-wrap items-center gap-3", fleetView && "laptop:pt-4")}>
+          {showToolbar ? (
+            <>
+              {fleetView ? (
+                <FilterChipsBar
+                  filters={inventoryFilters}
+                  onChange={(key, values) => {
+                    resetSelection();
+                    const value = values.slice(-1)[0] ?? "";
+                    if (key === "assignment") setOwner(value);
+                    if (key === "model") setModel(value);
+                    if (key === "site") setSite({ id: value, name: sites.get(value) ?? "" });
+                    if (key === "container") setContainer({ id: value, name: containers.get(value) ?? "" });
+                  }}
+                  onClearAll={() => {
+                    resetSelection();
+                    setOwner("");
+                    setModel("");
+                    setSite({ id: "", name: "" });
+                    setContainer({ id: "", name: "" });
+                  }}
+                />
+              ) : null}
+              {!fleetView && management && !child && !assigning ? (
+                <Select
+                  id="account-assets-owner"
+                  label="Allocation"
+                  value={owner}
+                  variant="filter"
+                  options={[
+                    { value: "", label: "All account assets" },
+                    {
+                      value: account.accountId,
+                      label: account.depth === 0 ? "Available to allocate" : "Directly allocated",
+                    },
+                    ...children.map((child) => ({ value: child.accountId, label: child.name })),
+                  ]}
+                  onChange={(value) => {
+                    resetSelection();
+                    setOwner(value);
+                  }}
+                />
+              ) : null}
+              {!fleetView && containers.size ? (
+                <Select
+                  id="account-assets-container"
+                  label="Container"
+                  value={container.id}
+                  variant="filter"
+                  options={[
+                    { value: "", label: "All containers and miners" },
+                    ...Array.from(containers, ([value, label]) => ({ value, label })),
+                  ]}
+                  onChange={(value) => {
+                    resetSelection();
+                    setContainer({ id: value, name: containers.get(value) ?? "" });
+                  }}
+                />
+              ) : null}
+              {!child && !assigning && owner && owner !== account.accountId && can(account, 16n) ? (
+                <Button
+                  variant="secondary"
+                  size={sizes.compact}
+                  disabled={readOnly}
+                  text="Manage subclient assets"
+                  to={`${accountPath(account.accountId, "children")}?assets=${encodeURIComponent(owner)}`}
+                />
+              ) : null}
+              <ListSearchInput
+                id="account-assets-search"
+                label="Search mining assets"
+                className="phone:w-full"
+                initialValue={search}
+                onQueryInput={() => {
+                  setSelected([]);
+                  setReview(null);
+                }}
+                onQueryChange={(value) => {
+                  resetSelection();
+                  setSearch(value);
+                }}
+                collapsible
+              />
+              {editable && container.id ? (
+                <Button
+                  variant="textOnly"
+                  text="Select modules on this page"
+                  disabled={!selectedInContainer.length}
+                  onClick={() => setSelected(selectedInContainer.map((asset) => asset.key))}
+                />
+              ) : null}
+            </>
+          ) : null}
+          <div className="ml-auto flex items-center gap-2">
+            {showToolbar ? (
+              <Button
+                ariaLabel="Manage columns"
+                ariaHasPopup="dialog"
+                variant="secondary"
+                size={sizes.compact}
+                prefixIcon={<Slider width="w-4" />}
+                onClick={() => setManagingColumns(true)}
+              />
+            ) : null}
+            {actions}
+          </div>
+        </div>
+      ) : null}
       {notice ? (
         <p role="status" className="text-300">
           {notice}
@@ -427,7 +450,7 @@ const AccountAssets = ({
                     variant="secondary"
                     className="bg-grayscale-white-10! text-grayscale-white-90!"
                     disabled={readOnly}
-                    text="Assign selected"
+                    text="Allocate selected"
                     onClick={() =>
                       setReview({
                         intent: AssetAssignmentIntent.ASSIGN,
@@ -488,20 +511,8 @@ const AccountAssets = ({
             }
             noDataElement={
               <SettingsEmptyState
-                title={
-                  search || owner || container.id || model || site.id
-                    ? "No matching assets"
-                    : account.depth === 0
-                      ? "No mining assets"
-                      : "No assets assigned"
-                }
-                description={
-                  search || owner || container.id || model || site.id
-                    ? "Try another search or filter."
-                    : account.depth === 0
-                      ? "Paired miners and current container modules appear here."
-                      : "Your parent account can assign miners or modules to this account."
-                }
+                title={hasFilters ? "No matching assets" : "No mining assets"}
+                description={hasFilters ? "Try another search or filter." : "Allocated miners and modules appear here."}
               />
             }
           />
@@ -542,8 +553,8 @@ const AccountAssets = ({
       {review && editable ? (
         <ActionModal
           presentation="dialog"
-          title={`${review.intent === AssetAssignmentIntent.ASSIGN ? "Assign" : "Recall"} ${countLabel(review.assets.length)}?`}
-          confirm={`${review.intent === AssetAssignmentIntent.ASSIGN ? "Assign" : "Recall"} ${countLabel(review.assets.length)}`}
+          title={`${review.intent === AssetAssignmentIntent.ASSIGN ? "Allocate" : "Recall"} ${countLabel(review.assets.length)}?`}
+          confirm={`${review.intent === AssetAssignmentIntent.ASSIGN ? "Allocate" : "Recall"} ${countLabel(review.assets.length)}`}
           valid={reviewTarget ? review.intent === AssetAssignmentIntent.RECALL || !reviewTarget.suspended : false}
           onDismiss={() => setReview(null)}
           onSubmit={async () => {
@@ -564,14 +575,14 @@ const AccountAssets = ({
               } catch (error) {
                 if ([Code.Aborted, Code.FailedPrecondition, Code.NotFound].includes(ConnectError.from(error).code)) {
                   refresh();
-                  setNotice("Assignments or equipment changed. Review the refreshed assets and select them again.");
+                  setNotice("Allocations or equipment changed. Review the refreshed assets and select them again.");
                   return;
                 }
                 throw error;
               }
               const success =
                 review.intent === AssetAssignmentIntent.ASSIGN
-                  ? `Assigned ${countLabel(review.assets.length)} to ${reviewTarget!.name}.`
+                  ? `Allocated ${countLabel(review.assets.length)} to ${reviewTarget!.name}.`
                   : `Recalled ${countLabel(review.assets.length)} to ${account.name}.`;
               setNotice(success);
               refresh();
@@ -583,13 +594,13 @@ const AccountAssets = ({
         >
           {review.intent === AssetAssignmentIntent.ASSIGN ? (
             <>
-              <p>Assign the selected assets from {account.name}.</p>
+              <p>Allocate the selected assets from {account.name}.</p>
               {child ? (
                 <p>To {child.name}</p>
               ) : (
                 <Select
                   id="asset-assignment-target"
-                  label={account.depth === 0 ? "Assign to client" : "Assign to subclient"}
+                  label={account.depth === 0 ? "Allocate to client" : "Allocate to subclient"}
                   value={review.childId}
                   options={children
                     .filter((child) => !child.suspended)

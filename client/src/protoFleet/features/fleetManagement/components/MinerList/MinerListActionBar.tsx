@@ -109,6 +109,27 @@ const MinerListActionBar = ({
           onAssigned={() => {
             onAssigned?.();
           }}
+          renderMenu={
+            minerIdentifiers.length > 0
+              ? (allocationAction) => (
+                  <MinerActionsMenu
+                    additionalActions={allocationAction ? [allocationAction] : []}
+                    selectedMiners={minerIdentifiers}
+                    selectionMode={effectiveSelectionMode}
+                    totalCount={effectiveSelectionMode === "subset" ? minerIdentifiers.length : totalCount}
+                    currentFilter={currentFilter}
+                    currentSort={currentSort}
+                    miners={miners}
+                    minerIds={minerIds}
+                    selectionIncludesUnauthenticatedMiner={selectionIncludesUnauthenticatedMiner}
+                    onRefetchMiners={onRefetchMiners}
+                    onWorkerNameUpdated={onWorkerNameUpdated}
+                    onActionStart={onActionStart}
+                    onActionComplete={onActionComplete}
+                  />
+                )
+              : undefined
+          }
         />
         {modules.length > 0 ? (
           <MiningActionsMenu
@@ -116,22 +137,6 @@ const MinerListActionBar = ({
             items={modules}
             presentation="bulk"
             onRefresh={onRefetchMiners}
-            onActionStart={onActionStart}
-            onActionComplete={onActionComplete}
-          />
-        ) : null}
-        {minerIdentifiers.length > 0 ? (
-          <MinerActionsMenu
-            selectedMiners={minerIdentifiers}
-            selectionMode={effectiveSelectionMode}
-            totalCount={effectiveSelectionMode === "subset" ? minerIdentifiers.length : totalCount}
-            currentFilter={currentFilter}
-            currentSort={currentSort}
-            miners={miners}
-            minerIds={minerIds}
-            selectionIncludesUnauthenticatedMiner={selectionIncludesUnauthenticatedMiner}
-            onRefetchMiners={onRefetchMiners}
-            onWorkerNameUpdated={onWorkerNameUpdated}
             onActionStart={onActionStart}
             onActionComplete={onActionComplete}
           />

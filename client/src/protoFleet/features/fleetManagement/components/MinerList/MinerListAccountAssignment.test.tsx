@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { create, toJson } from "@bufbuild/protobuf";
 import userEvent from "@testing-library/user-event";
 
+import type { BulkAction } from "../BulkActions/types";
 import MinerList from "./MinerList";
 import {
   EntityKind,
@@ -23,8 +24,21 @@ import {
 import { DeviceStatus } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
 import { HostedAccountsContext } from "@/protoFleet/features/hostedAccounts/HostedAccountsContext";
 import { useFleetStore } from "@/protoFleet/store";
+import RowActionsMenu from "@/shared/components/RowActionsMenu";
 
-vi.mock("@/protoFleet/features/fleetManagement/components/MinerActionsMenu", () => ({ default: () => null }));
+vi.mock("@/protoFleet/features/fleetManagement/components/MinerActionsMenu", () => ({
+  default: ({ additionalActions = [] }: { additionalActions?: BulkAction<string>[] }) => (
+    <RowActionsMenu
+      ariaLabel="More asset actions"
+      triggerLabel="More"
+      actions={additionalActions.map((action) => ({
+        label: action.title,
+        disabled: action.disabled,
+        onClick: action.actionHandler,
+      }))}
+    />
+  ),
+}));
 vi.mock("@/protoFleet/features/fleetManagement/components/MinerActionsMenu/SingleMinerActionsMenu", () => ({
   default: () => null,
 }));
@@ -129,10 +143,11 @@ describe("Fleet list account assignment integration", () => {
     const minerCheckbox = screen.getByRole("checkbox", { name: "Select miner:module:1" });
     await user.click(moduleCheckbox);
     await user.click(minerCheckbox);
-    await user.click(screen.getByRole("button", { name: "Assign to account" }));
-    await user.click(await screen.findByRole("button", { name: "Assign to client" }));
+    await user.click(screen.getByRole("button", { name: "More asset actions" }));
+    await user.click(screen.getByRole("button", { name: "Allocate to client" }));
+    await user.click(await screen.findByRole("button", { name: "Allocate to client" }));
     await user.click(await screen.findByRole("option", { name: "Northstar" }));
-    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Assign 2 assets" }));
+    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Allocate 2 assets" }));
     await waitFor(() => expect(refetch).toHaveBeenCalledOnce());
     expect(assignments).toEqual([
       {
@@ -151,23 +166,32 @@ describe("Fleet list account assignment integration", () => {
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     expect(moduleCheckbox).not.toBeChecked();
     expect(minerCheckbox).not.toBeChecked();
-    expect(screen.queryByRole("button", { name: "Assign to account" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Allocate to client" })).not.toBeInTheDocument();
     await waitFor(() => expect(screen.getAllByRole("link", { name: "Northstar" })).toHaveLength(2));
     for (const checkbox of [moduleCheckbox, minerCheckbox])
       expect(within(checkbox.closest("tr")!).getByRole("link", { name: "Northstar" })).toHaveAttribute(
         "href",
-        `/accounts?assets=${clientId}`,
+        `/accounts/${clientId}/manage/assets`,
       );
   });
 
+  it("offers the Allocated to column toggle to hosted roots", async () => {
+    mount([minerItem]);
+    const user = userEvent.setup();
+    await screen.findByRole("checkbox", { name: "Select miner:module:1" });
+    await user.click(screen.getByRole("button", { name: "Manage columns" }));
+    expect(screen.getByRole("checkbox", { name: "Toggle Allocated to column" })).toBeInTheDocument();
+  });
   it("keeps assignment disabled for global selection even when visible miners have typed references", async () => {
     const { assignments } = mount([minerItem], 200);
     const user = userEvent.setup();
     await user.click(await screen.findByRole("checkbox", { name: "Select miner:module:1" }));
-    expect(screen.getByRole("button", { name: "Assign to account" })).toBeEnabled();
+    await user.click(screen.getByRole("button", { name: "More asset actions" }));
+    expect(screen.getByRole("button", { name: "Allocate to client" })).toBeEnabled();
     await user.click(screen.getByRole("button", { name: "Select all" }));
     expect(screen.getByText("All 200 miners selected")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Assign to account" })).toBeDisabled();
+    await user.click(screen.getByRole("button", { name: "More asset actions" }));
+    expect(screen.getByRole("button", { name: "Allocate to client" })).toBeDisabled();
     expect(assignments).toHaveLength(0);
   });
 
@@ -175,7 +199,8 @@ describe("Fleet list account assignment integration", () => {
     const { assignments } = mount([create(InventoryItemSchema, { ...minerItem, ref: undefined })]);
     const user = userEvent.setup();
     await user.click(await screen.findByRole("checkbox", { name: "Select miner:module:1" }));
-    const assign = screen.getByRole("button", { name: "Assign to account" });
+    await user.click(screen.getByRole("button", { name: "More asset actions" }));
+    const assign = screen.getByRole("button", { name: "Allocate to client" });
     expect(assign).toBeDisabled();
     await user.click(assign);
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();

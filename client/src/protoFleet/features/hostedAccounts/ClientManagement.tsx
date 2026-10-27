@@ -71,12 +71,19 @@ const ClientManagementContent = () => {
       </div>
       <AccountState error={query.error} retry={query.refresh} />
       {section === "assets" ? (
-        <>
-          <div className="flex justify-end">
-            <Button variant="secondary" size={sizes.compact} text="Assign from Fleet" to="/fleet/miners" />
-          </div>
-          <AccountAssets key={accountId} child={child} />
-        </>
+        <AccountAssets
+          key={accountId}
+          child={child}
+          actions={
+            <Button
+              variant="primary"
+              size={sizes.compact}
+              text="Allocate assets"
+              disabled={child.suspended}
+              to={`/fleet/miners?allocateTo=${encodeURIComponent(accountId)}`}
+            />
+          }
+        />
       ) : section === "permissions" ? (
         <ClientPermissions
           key={`${child.accountId}:${child.capabilityCeiling}:${child.suspended}`}

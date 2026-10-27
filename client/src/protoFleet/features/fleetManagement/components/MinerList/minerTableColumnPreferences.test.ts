@@ -57,4 +57,19 @@ describe("minerTableColumnPreferences", () => {
       minerCols.macAddress,
     ]);
   });
+  it("lets allocation visibility and position follow saved column choices", () => {
+    const preferences = normalizeMinerTableColumnPreferences({
+      columns: [
+        { id: minerCols.status, visible: true },
+        { id: minerCols.assignedAccount, visible: false },
+      ],
+    });
+    expect(buildActiveMinerColumns(preferences)).not.toContain(minerCols.assignedAccount);
+    const visible = updateMinerTableColumnVisibility(preferences, minerCols.assignedAccount, true);
+    expect(buildActiveMinerColumns(visible).slice(0, 3)).toEqual([
+      minerCols.name,
+      minerCols.status,
+      minerCols.assignedAccount,
+    ]);
+  });
 });
