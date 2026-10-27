@@ -93,10 +93,27 @@ func (s *SQLFleetNodePairingStore) DeviceHasActivePairing(ctx context.Context, d
 }
 
 func (s *SQLFleetNodePairingStore) UnpairDevice(ctx context.Context, deviceID, orgID int64) (int64, error) {
-	return s.q(ctx).UnpairDevice(ctx, sqlc.UnpairDeviceParams{
-		DeviceID: deviceID,
-		OrgID:    orgID,
+	var removed int64
+	err := NewSQLTransactor(s.conn.DB).RunInTx(ctx, func(ctx context.Context) error {
+		q := s.q(ctx)
+		device, err := q.GetDeviceByID(ctx, sqlc.GetDeviceByIDParams{ID: deviceID, OrgID: orgID})
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		if device.DiscoveredDeviceID != 0 {
+			_, err := lockDiscoveredInventory(ctx, q, sqlc.DiscoveredDevice{ID: device.DiscoveredDeviceID, OrgID: orgID})
+			if err != nil && !errors.Is(err, sql.ErrNoRows) {
+				return err
+			}
+		}
+		// Read remaining owners in a fresh statement after acquiring the locks.
+		removed, err = q.UnpairDevice(ctx, sqlc.UnpairDeviceParams{DeviceID: deviceID, OrgID: orgID})
+		return err
 	})
+	return removed, err
 }
 
 func (s *SQLFleetNodePairingStore) ListFleetNodeDevices(ctx context.Context, orgID int64, fleetNodeID *int64) ([]pairing.FleetNodeDevice, error) {

@@ -1,8 +1,11 @@
 package sqlstores_test
 
 import (
+	"context"
 	"database/sql"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/block/proto-fleet/server/generated/sqlc"
 	"github.com/block/proto-fleet/server/internal/domain/deviceendpoints"
@@ -97,7 +100,7 @@ func TestNodeUnpairRebuildsControllerRoutesAfterLastPairing(t *testing.T) {
 	requireEmptyControllerDiscovery(t, db, device.DiscoveredDeviceID)
 	device, err = q.GetDeviceByID(t.Context(), sqlc.GetDeviceByIDParams{ID: device.ID, OrgID: org})
 	require.NoError(t, err)
-	require.Empty(t, device.SerialNumber.String)
+	require.False(t, device.SerialNumber.Valid, "cleared serials must not conflict in the unique index")
 	require.Empty(t, device.MacAddress)
 
 	report("a", "10.0.0.11")
@@ -115,4 +118,61 @@ func requireEmptyControllerDiscovery(t *testing.T, db *sql.DB, discoveredID int6
 	require.Empty(t, key)
 	require.Empty(t, serial)
 	require.Empty(t, mac)
+}
+
+func TestConcurrentNodeUnpairClearsLastOwnerRoutes(t *testing.T) {
+	db, discoveryStore, org := ct1HAStore(t)
+	saved := saveCT1HA(t, discoveryStore, "scan-a", ct1HADiscovery(org, "a", "10.0.0.11"))
+	discoveredID, err := discoveryStore.GetDatabaseID(t.Context(), saved.GetDeviceOrgIdentifier())
+	require.NoError(t, err)
+	var node int64
+	require.NoError(t, db.QueryRowContext(t.Context(), `INSERT INTO fleet_node (org_id, name, identity_pubkey, encryption_pubkey, enrollment_status)
+        VALUES ($1,'concurrent-unpair',decode(repeat('11',32),'hex'),decode(repeat('22',32),'hex'),'CONFIRMED') RETURNING id`, org).Scan(&node))
+	q := sqlc.New(db)
+	store := sqlstores.NewSQLFleetNodePairingStore(db)
+	ids := make([]int64, 0, 2)
+	for _, identifier := range []string{"owner-a", "owner-b"} {
+		id, err := q.InsertDevice(t.Context(), sqlc.InsertDeviceParams{
+			OrgID: org, DiscoveredDeviceID: discoveredID, DeviceIdentifier: identifier,
+			SerialNumber: sql.NullString{String: identifier, Valid: true},
+		})
+		require.NoError(t, err)
+		_, err = store.PairDeviceToFleetNode(t.Context(), node, id, org, nil)
+		require.NoError(t, err)
+		ids = append(ids, id)
+	}
+	removed, release := make(chan struct{}), make(chan struct{})
+	unlock := sync.OnceFunc(func() { close(release) })
+	defer unlock()
+	firstDone, secondDone := make(chan error, 1), make(chan error, 1)
+	go func() {
+		firstDone <- sqlstores.NewSQLTransactor(db).RunInTx(t.Context(), func(ctx context.Context) error {
+			if _, err := store.UnpairDevice(ctx, ids[0], org); err != nil {
+				return err
+			}
+			close(removed)
+			<-release
+			return nil
+		})
+	}()
+	select {
+	case <-removed:
+	case err := <-firstDone:
+		t.Fatalf("first unpair failed: %v", err)
+	case <-time.After(3 * time.Second):
+		t.Fatal("first unpair did not finish its write")
+	}
+	go func() {
+		_, err := store.UnpairDevice(t.Context(), ids[1], org)
+		secondDone <- err
+	}()
+	require.Eventually(t, func() bool {
+		var blocked bool
+		err := db.QueryRowContext(t.Context(), `SELECT EXISTS (SELECT 1 FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock' AND query LIKE '%LockEndpointDiscoveryDevices%')`).Scan(&blocked)
+		return err == nil && blocked
+	}, 3*time.Second, 10*time.Millisecond)
+	unlock()
+	require.NoError(t, <-firstDone)
+	require.NoError(t, <-secondDone)
+	requireEmptyControllerDiscovery(t, db, discoveredID)
 }

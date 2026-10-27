@@ -659,7 +659,7 @@ WITH locked_device AS MATERIALIZED (
       )
     RETURNING dd.id
 ), reset_identity AS (
-    UPDATE device d SET serial_number = '', mac_address = ''
+    UPDATE device d SET serial_number = NULL, mac_address = ''
     WHERE d.id IN (SELECT device_id FROM removed)
       AND d.discovered_device_id IN (SELECT id FROM reset_discovery)
 )
