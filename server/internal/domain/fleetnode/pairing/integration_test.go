@@ -402,7 +402,7 @@ func TestUpsertDiscoveredDevices_PromotedNodeReusesSyntheticIdentity(t *testing.
 			q := sqlc.New(tx)
 			moved, err := q.MoveFleetNodeDevices(ctx, sqlc.MoveFleetNodeDevicesParams{FromNodeID: active, ToNodeID: promoted, OrgID: orgID})
 			require.NoError(t, err)
-			require.Equal(t, []int64{deviceID}, moved)
+			require.Equal(t, []string{"dev-" + report.DeviceIdentifier}, moved)
 			require.NoError(t, q.MoveDiscoveredDeviceAttribution(ctx, sqlc.MoveDiscoveredDeviceAttributionParams{FromNodeID: sql.NullInt64{Int64: active, Valid: true}, ToNodeID: sql.NullInt64{Int64: promoted, Valid: true}, OrgID: orgID}))
 			require.NoError(t, tx.Commit())
 
