@@ -83,11 +83,7 @@ const MinersPage = ({
     void listFleetNodes()
       .then((nodes) => {
         if (requestId !== requestState.latestId) return;
-        const hasIneligibleNode = nodes.some(
-          (node) =>
-            node.enrollmentStatus === FleetNodeEnrollmentStatus.CONFIRMED &&
-            (!node.controlStreamConnected || node.commandProtocolUpgradeRequired),
-        );
+        const hasIneligibleNode = nodes.some((node) => node.discoveryCoverageDegraded);
         const activeNodes = nodes.filter((node) => node.enrollmentStatus !== FleetNodeEnrollmentStatus.REVOKED);
         if (hasIneligibleNode) {
           setRemoteDiscoveryReadiness("partialCoverage");

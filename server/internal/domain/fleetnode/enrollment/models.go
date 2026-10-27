@@ -68,3 +68,14 @@ type FleetNodeListing struct {
 func (l FleetNodeListing) IsHAStandby() bool {
 	return l.HAStandbyNodeID != nil && *l.HAStandbyNodeID == l.ID
 }
+
+// IsDiscoveryNode reports whether this node is responsible for discovery.
+func (l FleetNodeListing) IsDiscoveryNode() bool {
+	return l.EnrollmentStatus == FleetNodeStatusConfirmed && !l.IsHAStandby()
+}
+
+// DiscoveryCoverageDegraded reports whether this node is responsible for
+// discovery but cannot currently accept a discovery command.
+func (l FleetNodeListing) DiscoveryCoverageDegraded(connected, protocolUpgradeRequired bool) bool {
+	return l.IsDiscoveryNode() && (!connected || protocolUpgradeRequired)
+}

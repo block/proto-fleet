@@ -71,7 +71,8 @@ const (
 	PermScheduleRead   = "schedule:read"
 	PermScheduleManage = "schedule:manage"
 
-	// fleetnode — top-nav admin operations.
+	// fleetnode — top-nav admin operations. Manage includes HA standby
+	// enrollment and authorizes Fleet to provision the shared credential key.
 	PermFleetnodeRead   = "fleetnode:read"
 	PermFleetnodeManage = "fleetnode:manage"
 

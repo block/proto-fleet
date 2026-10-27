@@ -23,6 +23,7 @@ export interface FleetNodeItem {
   commandProtocolUpgradeRequired: boolean;
   commandProtocolUpgradeRecommended: boolean;
   controlStreamConnected: boolean;
+  discoveryCoverageDegraded: boolean;
   pairedDeviceCount: number;
   haRole: FleetNodeHARole;
   haPeerNodeId: string | null;
@@ -58,6 +59,7 @@ function toFleetNodeItem(summary: FleetNodeSummary): FleetNodeItem {
     commandProtocolUpgradeRequired: summary.commandProtocolUpgradeRequired,
     commandProtocolUpgradeRecommended: summary.commandProtocolUpgradeRecommended,
     controlStreamConnected: summary.controlStreamConnected,
+    discoveryCoverageDegraded: summary.discoveryCoverageDegraded,
     pairedDeviceCount: Number(summary.pairedDeviceCount),
     haRole: summary.haRole,
     haPeerNodeId: summary.haPeerNodeId?.toString() ?? null,

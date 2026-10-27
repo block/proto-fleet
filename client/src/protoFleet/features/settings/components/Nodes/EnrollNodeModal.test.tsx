@@ -27,6 +27,7 @@ const awaitingNode: FleetNodeItem = {
   commandProtocolUpgradeRequired: false,
   commandProtocolUpgradeRecommended: false,
   controlStreamConnected: false,
+  discoveryCoverageDegraded: false,
   pairedDeviceCount: 0,
   haRole: FleetNodeHARole.FLEET_NODE_HA_ROLE_UNSPECIFIED,
   haPeerNodeId: null,

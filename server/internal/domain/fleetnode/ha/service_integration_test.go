@@ -412,6 +412,43 @@ func TestFailover_MovesOnlyTheActiveNodesDevicesAndLogsActivity(t *testing.T) {
 	}
 }
 
+func TestFailover_MovesLargeDeviceSetWithinTransactionDeadline(t *testing.T) {
+	const deviceCount = 5000
+	h := newHarness(t)
+	h.createPair(t, true)
+	h.connect(t, h.standby, v7)
+	_, err := h.db.ExecContext(t.Context(), `
+		WITH discovered AS (
+			INSERT INTO discovered_device (
+				org_id, device_identifier, ip_address, port, url_scheme,
+				driver_name, is_active, discovered_by_fleet_node_id
+			)
+			SELECT $1::bigint, format('bulk:%s:%s', $2::bigint, n), '10.0.0.1', '4028', 'http',
+			       'virtual', true, $2::bigint
+			FROM generate_series(1, $3::integer) AS n
+			RETURNING id, device_identifier
+		), devices AS (
+			INSERT INTO device (
+				device_identifier, mac_address, serial_number, org_id, discovered_device_id
+			)
+			SELECT 'device-' || device_identifier, '', device_identifier, $1::bigint, id
+			FROM discovered
+			RETURNING id
+		)
+		INSERT INTO fleet_node_device (fleet_node_id, device_id, org_id)
+		SELECT $2::bigint, id, $1::bigint FROM devices`, h.orgID, h.active, deviceCount)
+	require.NoError(t, err)
+
+	h.svc.TickForTest(t.Context(), time.Now())
+
+	var assigned, attributed int
+	require.NoError(t, h.db.QueryRowContext(t.Context(), `SELECT count(*) FROM fleet_node_device WHERE org_id=$1 AND fleet_node_id=$2`, h.orgID, h.standby).Scan(&assigned))
+	require.NoError(t, h.db.QueryRowContext(t.Context(), `SELECT count(*) FROM discovered_device WHERE org_id=$1 AND discovered_by_fleet_node_id=$2`, h.orgID, h.standby).Scan(&attributed))
+	assert.Equal(t, deviceCount, assigned)
+	assert.Equal(t, deviceCount, attributed)
+	assert.Len(t, h.invalidated, deviceCount)
+}
+
 func TestFailover_RejectsStalePair(t *testing.T) {
 	tests := []struct {
 		name  string
@@ -694,43 +731,6 @@ func TestTick_ReportsWhyStandbyIsNotReady(t *testing.T) {
 	}
 }
 
-func TestShouldHandOff(t *testing.T) {
-	tests := []struct {
-		name           string
-		noPair         bool
-		ready          bool
-		connectStandby bool
-		revokeStandby  bool
-		want           bool
-	}{
-		{name: "ready connected standby", ready: true, connectStandby: true, want: true},
-		{name: "standby not ready", connectStandby: true},
-		{name: "standby disconnected still requires handoff", ready: true, want: true},
-		{name: "revoking the standby", ready: true, connectStandby: true, revokeStandby: true},
-		{name: "no pair", noPair: true},
-	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			h := newHarness(t)
-			if !tc.noPair {
-				h.createPair(t, tc.ready)
-			}
-			if tc.connectStandby {
-				h.connect(t, h.standby, v7)
-			}
-			revoked := h.active
-			if tc.revokeStandby {
-				revoked = h.standby
-			}
-
-			got, err := h.svc.ShouldHandOff(t.Context(), h.orgID, revoked)
-
-			require.NoError(t, err)
-			assert.Equal(t, tc.want, got)
-		})
-	}
-}
-
 func TestHandOff(t *testing.T) {
 	tests := []struct {
 		name          string
@@ -837,7 +837,8 @@ func TestFailover_RechecksConnectivityAfterDeviceLockWait(t *testing.T) {
 
 func TestTick_BlockedFailoverDoesNotBlockAnotherOrganizationAndRetries(t *testing.T) {
 	h := newHarness(t)
-	h.svc.SetFailoverTimeoutForTest(2 * time.Second)
+	h.svc.SetFailoverTimeoutForTest(5 * time.Second)
+	h.svc.SetFailoverLockTimeoutForTest(500 * time.Millisecond)
 	h.createPair(t, true)
 	deviceID := h.addDevice(t, h.active)
 	h.connect(t, h.standby, v7)
@@ -878,7 +879,7 @@ func TestTick_BlockedFailoverDoesNotBlockAnotherOrganizationAndRetries(t *testin
 	select {
 	case <-finished:
 	case <-time.After(5 * time.Second):
-		t.Fatal("the automatic transaction deadline did not cancel the lock wait")
+		t.Fatal("the automatic lock timeout did not cancel the lock wait")
 	}
 	require.Eventually(t, func() bool { return waiting() == 0 }, time.Second, 10*time.Millisecond)
 	assert.Equal(t, h.active, h.deviceNode(t, deviceID), "the timed-out transaction must leave ownership unchanged")
@@ -895,7 +896,8 @@ func TestTick_BlockedFailoverDoesNotBlockAnotherOrganizationAndRetries(t *testin
 
 func TestTick_FailoverCapacityRotatesPastBlockedPairs(t *testing.T) {
 	h := newHarness(t)
-	h.svc.SetFailoverTimeoutForTest(200 * time.Millisecond)
+	h.svc.SetFailoverTimeoutForTest(2 * time.Second)
+	h.svc.SetFailoverLockTimeoutForTest(200 * time.Millisecond)
 	call, err := h.db.BeginTx(t.Context(), nil)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = call.Rollback() })

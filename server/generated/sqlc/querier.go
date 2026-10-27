@@ -2216,6 +2216,7 @@ type Querier interface {
 	// Contended advisory admission or fence creation must release the entire
 	// deletion batch promptly instead of holding shared identity stripes for I/O.
 	SetLocalDeviceDeletionLockTimeout(ctx context.Context) error
+	SetLocalFleetNodeHAFailoverLockTimeout(ctx context.Context, timeoutMilliseconds int64) error
 	SetLocalTransactionTimeout(ctx context.Context, timeoutMilliseconds int64) error
 	SetMQTTSourceConfigEnabled(ctx context.Context, arg SetMQTTSourceConfigEnabledParams) (SetMQTTSourceConfigEnabledRow, error)
 	// Writes the rack's grid placement (aisle_index, position_in_aisle).

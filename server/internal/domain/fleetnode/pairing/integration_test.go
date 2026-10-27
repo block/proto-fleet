@@ -410,6 +410,9 @@ func TestUpsertDiscoveredDevices_PromotedNodeReusesSyntheticIdentity(t *testing.
 			rescan.DeviceIdentifier = tc.prefix + "promoted-hash"
 			rescan.FirmwareVersion = "updated"
 			rescan.URLScheme = "http"
+			if tc.prefix == "auto:" {
+				rescan.DeviceClass = commonpb.DeviceClass_DEVICE_CLASS_UNSPECIFIED
+			}
 			if tc.rpcPort != 0 {
 				rescan.Port, rescan.URLScheme = "50051", "http"
 				rescan.RPCPort = tc.rpcPort
@@ -463,7 +466,7 @@ func TestUpsertDiscoveredDevices_SyntheticEndpointRequiresMatchingIdentity(t *te
 		{name: "driver", change: func(r *fleetnodepairing.DiscoveredDeviceReport) { r.DriverName = "different-driver" }},
 		{name: "model", change: func(r *fleetnodepairing.DiscoveredDeviceReport) { r.Model = "different-model" }},
 		{name: "class", change: func(r *fleetnodepairing.DiscoveredDeviceReport) {
-			r.DeviceClass = commonpb.DeviceClass_DEVICE_CLASS_UNSPECIFIED
+			r.DeviceClass = commonpb.DeviceClass_DEVICE_CLASS_CONTAINER
 		}},
 		{name: "port", change: func(r *fleetnodepairing.DiscoveredDeviceReport) { r.Port = "4029" }},
 	} {

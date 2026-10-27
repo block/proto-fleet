@@ -91,11 +91,13 @@ func (h *Handler) ListFleetNodes(ctx context.Context, _ *connect.Request[pb.List
 	resp := &pb.ListFleetNodesResponse{FleetNodes: make([]*pb.FleetNodeSummary, 0, len(fleetNodes))}
 	for _, n := range fleetNodes {
 		_, controlStreamConnected := connected[n.ID]
+		protocolUpgradeRequired := h.registry.CommandProtocolUpgradeRequired(n.ID)
 		summary := &pb.FleetNodeSummary{
 			EnrollmentStatus:                  deriveDisplayStatus(n),
-			CommandProtocolUpgradeRequired:    h.registry.CommandProtocolUpgradeRequired(n.ID),
+			CommandProtocolUpgradeRequired:    protocolUpgradeRequired,
 			CommandProtocolUpgradeRecommended: h.registry.CommandProtocolUpgradeRecommended(n.ID),
 			ControlStreamConnected:            controlStreamConnected,
+			DiscoveryCoverageDegraded:         n.DiscoveryCoverageDegraded(controlStreamConnected, protocolUpgradeRequired),
 		}
 		if includeAdministrativeDetails {
 			summary.FleetNodeId = n.ID

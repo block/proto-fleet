@@ -731,7 +731,7 @@ VALUES ($1, COALESCE((
       AND dd.discovered_by_fleet_node_id = $3
       AND dd.ip_address = $4
       AND dd.driver_name = $5
-      AND dd.device_class = $6
+      AND ($6 = 0 OR dd.device_class = $6)
       AND COALESCE(dd.model, '') = COALESCE($7, '')
       AND (
         ($2 LIKE 'auto:%' AND dd.device_identifier LIKE 'auto:%'

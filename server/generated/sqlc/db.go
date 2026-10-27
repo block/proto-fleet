@@ -2487,6 +2487,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.setLocalDeviceDeletionLockTimeoutStmt, err = db.PrepareContext(ctx, setLocalDeviceDeletionLockTimeout); err != nil {
 		return nil, fmt.Errorf("error preparing query SetLocalDeviceDeletionLockTimeout: %w", err)
 	}
+	if q.setLocalFleetNodeHAFailoverLockTimeoutStmt, err = db.PrepareContext(ctx, setLocalFleetNodeHAFailoverLockTimeout); err != nil {
+		return nil, fmt.Errorf("error preparing query SetLocalFleetNodeHAFailoverLockTimeout: %w", err)
+	}
 	if q.setLocalTransactionTimeoutStmt, err = db.PrepareContext(ctx, setLocalTransactionTimeout); err != nil {
 		return nil, fmt.Errorf("error preparing query SetLocalTransactionTimeout: %w", err)
 	}
@@ -6993,6 +6996,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing setLocalDeviceDeletionLockTimeoutStmt: %w", cerr)
 		}
 	}
+	if q.setLocalFleetNodeHAFailoverLockTimeoutStmt != nil {
+		if cerr := q.setLocalFleetNodeHAFailoverLockTimeoutStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing setLocalFleetNodeHAFailoverLockTimeoutStmt: %w", cerr)
+		}
+	}
 	if q.setLocalTransactionTimeoutStmt != nil {
 		if cerr := q.setLocalTransactionTimeoutStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing setLocalTransactionTimeoutStmt: %w", cerr)
@@ -8513,6 +8521,7 @@ type Queries struct {
 	setHostedAccountSitesRestrictedStmt                          *sql.Stmt
 	setInfrastructureControlSubnetsStmt                          *sql.Stmt
 	setLocalDeviceDeletionLockTimeoutStmt                        *sql.Stmt
+	setLocalFleetNodeHAFailoverLockTimeoutStmt                   *sql.Stmt
 	setLocalTransactionTimeoutStmt                               *sql.Stmt
 	setMQTTSourceConfigEnabledStmt                               *sql.Stmt
 	setRackBuildingPositionStmt                                  *sql.Stmt
@@ -9472,6 +9481,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		setHostedAccountSitesRestrictedStmt:                          q.setHostedAccountSitesRestrictedStmt,
 		setInfrastructureControlSubnetsStmt:                          q.setInfrastructureControlSubnetsStmt,
 		setLocalDeviceDeletionLockTimeoutStmt:                        q.setLocalDeviceDeletionLockTimeoutStmt,
+		setLocalFleetNodeHAFailoverLockTimeoutStmt:                   q.setLocalFleetNodeHAFailoverLockTimeoutStmt,
 		setLocalTransactionTimeoutStmt:                               q.setLocalTransactionTimeoutStmt,
 		setMQTTSourceConfigEnabledStmt:                               q.setMQTTSourceConfigEnabledStmt,
 		setRackBuildingPositionStmt:                                  q.setRackBuildingPositionStmt,

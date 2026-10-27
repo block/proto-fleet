@@ -339,6 +339,15 @@ func (q *Queries) SetFleetNodeHAPairStatus(ctx context.Context, arg SetFleetNode
 	return result.RowsAffected()
 }
 
+const setLocalFleetNodeHAFailoverLockTimeout = `-- name: SetLocalFleetNodeHAFailoverLockTimeout :exec
+SELECT set_config('lock_timeout', $1::BIGINT::TEXT || 'ms', TRUE)
+`
+
+func (q *Queries) SetLocalFleetNodeHAFailoverLockTimeout(ctx context.Context, timeoutMilliseconds int64) error {
+	_, err := q.exec(ctx, q.setLocalFleetNodeHAFailoverLockTimeoutStmt, setLocalFleetNodeHAFailoverLockTimeout, timeoutMilliseconds)
+	return err
+}
+
 const swapFleetNodeHAPair = `-- name: SwapFleetNodeHAPair :exec
 UPDATE fleet_node_ha_pair
 SET active_node_id = standby_node_id, standby_node_id = active_node_id, failed_over_at = now()

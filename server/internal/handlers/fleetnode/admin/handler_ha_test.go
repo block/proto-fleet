@@ -14,6 +14,7 @@ import (
 
 	pb "github.com/block/proto-fleet/server/generated/grpc/fleetnodeadmin/v1"
 	pairingpb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
+	"github.com/block/proto-fleet/server/internal/domain/authz"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/ha"
 	"github.com/block/proto-fleet/server/internal/domain/stores/sqlstores"
@@ -109,6 +110,24 @@ func TestListFleetNodes_ReportsHARoleAndPeer(t *testing.T) {
 	}, got)
 	require.NotNil(t, standalone)
 	assert.Nil(t, standalone.HaPeerNodeId, "a node outside a pair has no peer")
+}
+
+func TestListFleetNodes_PairingOnlyCallerDoesNotTreatOfflineStandbyAsDegradedCoverage(t *testing.T) {
+	h := newPairingHarness(t)
+	activeID := h.createFleetNode(t, "admin-ha-coverage-active")
+	standbyID := h.createFleetNode(t, "admin-ha-coverage-standby")
+	h.insertHAPair(t, activeID, standbyID, true, "")
+	stream := h.registry.Register(activeID)
+	defer stream.Unregister()
+
+	resp, err := h.handler.ListFleetNodes(h.ctxWithPerms(authz.PermMinerPair), connect.NewRequest(&pb.ListFleetNodesRequest{}))
+
+	require.NoError(t, err)
+	require.Len(t, resp.Msg.GetFleetNodes(), 2)
+	for _, node := range resp.Msg.GetFleetNodes() {
+		assert.Zero(t, node.GetFleetNodeId(), "pairing-only projections remain redacted")
+		assert.False(t, node.GetDiscoveryCoverageDegraded())
+	}
 }
 
 func TestDiscoverOnFleetNode_StandbyReturnsFailedPrecondition(t *testing.T) {

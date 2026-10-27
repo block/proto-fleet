@@ -148,6 +148,7 @@ func TestListFleetNodes_ReportsProtocolStateAndRedactsPairingOnlyCallers(t *test
 	require.Len(t, resp.Msg.GetFleetNodes(), 1)
 	assert.True(t, resp.Msg.GetFleetNodes()[0].GetCommandProtocolUpgradeRequired())
 	assert.True(t, resp.Msg.GetFleetNodes()[0].GetControlStreamConnected())
+	assert.True(t, resp.Msg.GetFleetNodes()[0].GetDiscoveryCoverageDegraded())
 	assert.EqualValues(t, 1, resp.Msg.GetFleetNodes()[0].GetPairedDeviceCount())
 
 	resp, err = h.handler.ListFleetNodes(h.ctxWithPerms(authz.PermMinerPair), connect.NewRequest(&pb.ListFleetNodesRequest{}))
@@ -163,6 +164,7 @@ func TestListFleetNodes_ReportsProtocolStateAndRedactsPairingOnlyCallers(t *test
 	assert.Equal(t, pb.FleetNodeEnrollmentStatus_FLEET_NODE_ENROLLMENT_STATUS_CONFIRMED, pairingSummary.GetEnrollmentStatus())
 	assert.True(t, pairingSummary.GetCommandProtocolUpgradeRequired())
 	assert.True(t, pairingSummary.GetControlStreamConnected())
+	assert.True(t, pairingSummary.GetDiscoveryCoverageDegraded())
 	assert.Zero(t, pairingSummary.GetPairedDeviceCount())
 
 	stream.Unregister()
@@ -171,6 +173,7 @@ func TestListFleetNodes_ReportsProtocolStateAndRedactsPairingOnlyCallers(t *test
 	require.Len(t, resp.Msg.GetFleetNodes(), 1)
 	assert.False(t, resp.Msg.GetFleetNodes()[0].GetCommandProtocolUpgradeRequired())
 	assert.False(t, resp.Msg.GetFleetNodes()[0].GetControlStreamConnected())
+	assert.True(t, resp.Msg.GetFleetNodes()[0].GetDiscoveryCoverageDegraded())
 }
 
 func TestPairDeviceToFleetNode_HappyPath(t *testing.T) {

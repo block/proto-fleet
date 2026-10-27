@@ -347,7 +347,6 @@ func (s *Service) revokeFleetNode(ctx context.Context, agentID, orgID, expectedP
 	}
 	var agentName string
 	var devices []RevokedDevice
-	var handOff bool
 	if err := s.transactor.RunInTx(ctx, func(ctx context.Context) error {
 		// This transaction only denies authentication; it never waits for a device
 		// binding held through physical dispatch. Enrollment locks match Confirm.
@@ -396,11 +395,6 @@ func (s *Service) revokeFleetNode(ctx context.Context, agentID, orgID, expectedP
 		if _, err := s.apiKeySvc.RevokeForFleetNode(ctx, agentID, orgID); err != nil {
 			return err
 		}
-		if s.ha != nil {
-			if handOff, err = s.ha.ShouldHandOff(ctx, orgID, agentID); err != nil {
-				return logInternal("check HA hand-off", clientErrRevokeFleetNode, err)
-			}
-		}
 		agentName = agent.Name
 		return nil
 	}); err != nil {
@@ -411,7 +405,7 @@ func (s *Service) revokeFleetNode(ctx context.Context, agentID, orgID, expectedP
 	}
 	s.logActivity(ctx, "revoke_fleet_node", fmt.Sprintf("Revoked fleet node '%s' (id=%d)", agentName, agentID))
 	var err error
-	if handOff {
+	if s.ha != nil {
 		devices, err = s.handOffRevokedDevices(ctx, agentID, orgID)
 	} else {
 		devices, err = s.dissolvePairAndListDevices(ctx, agentID, orgID)

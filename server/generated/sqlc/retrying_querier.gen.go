@@ -9086,6 +9086,12 @@ func (q *retryingQuerier) SetLocalDeviceDeletionLockTimeout(ctx context.Context)
 	})
 }
 
+func (q *retryingQuerier) SetLocalFleetNodeHAFailoverLockTimeout(ctx context.Context, timeoutMilliseconds int64) error {
+	return q.retrier.RetryQuery(ctx, "SetLocalFleetNodeHAFailoverLockTimeout", func() error {
+		return q.next.SetLocalFleetNodeHAFailoverLockTimeout(ctx, timeoutMilliseconds)
+	})
+}
+
 func (q *retryingQuerier) SetLocalTransactionTimeout(ctx context.Context, timeoutMilliseconds int64) error {
 	return q.retrier.RetryQuery(ctx, "SetLocalTransactionTimeout", func() error {
 		return q.next.SetLocalTransactionTimeout(ctx, timeoutMilliseconds)

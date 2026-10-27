@@ -27,6 +27,10 @@ func (s *Service) SetFailoverTimeoutForTest(timeout time.Duration) {
 	s.failoverTimeout = timeout
 }
 
+func (s *Service) SetFailoverLockTimeoutForTest(timeout time.Duration) {
+	s.failoverLockTimeout = timeout
+}
+
 // TickForTest runs one pass of Run as if fleetd started at started, and waits
 // for any credential key transfers or automatic failovers it began.
 func (s *Service) TickForTest(ctx context.Context, started time.Time) {

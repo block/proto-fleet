@@ -34,6 +34,9 @@ FROM fleet_node_ha_pair
 WHERE id = $1 AND active_node_id = $2
 FOR UPDATE;
 
+-- name: SetLocalFleetNodeHAFailoverLockTimeout :exec
+SELECT set_config('lock_timeout', sqlc.arg('timeout_milliseconds')::BIGINT::TEXT || 'ms', TRUE);
+
 -- name: SetFleetNodeHAPairStatus :execrows
 UPDATE fleet_node_ha_pair
 SET status_reason = sqlc.arg('status_reason')

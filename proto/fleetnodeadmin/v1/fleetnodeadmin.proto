@@ -97,6 +97,9 @@ message FleetNodeSummary {
     bool ha_standby_ready = 19;
     // Why the standby is not ready yet; empty when ready.
     string ha_status_reason = 20;
+    // True when this confirmed node is expected to scan but currently cannot.
+    // Standbys are excluded because their active peer covers discovery.
+    bool discovery_coverage_degraded = 21;
 }
 
 message ConfirmFleetNodeRequest {

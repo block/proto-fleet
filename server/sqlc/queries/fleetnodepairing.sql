@@ -38,7 +38,7 @@ VALUES (sqlc.arg('org_id'), COALESCE((
       AND dd.discovered_by_fleet_node_id = sqlc.arg('discovered_by_fleet_node_id')
       AND dd.ip_address = sqlc.arg('ip_address')
       AND dd.driver_name = sqlc.arg('driver_name')
-      AND dd.device_class = sqlc.arg('device_class')
+      AND (sqlc.arg('device_class') = 0 OR dd.device_class = sqlc.arg('device_class'))
       AND COALESCE(dd.model, '') = COALESCE(sqlc.arg('model'), '')
       AND (
         (sqlc.arg('device_identifier') LIKE 'auto:%' AND dd.device_identifier LIKE 'auto:%'

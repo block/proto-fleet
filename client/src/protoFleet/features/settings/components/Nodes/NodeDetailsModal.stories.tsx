@@ -19,6 +19,7 @@ const meta = {
       commandProtocolUpgradeRequired: false,
       commandProtocolUpgradeRecommended: false,
       controlStreamConnected: true,
+      discoveryCoverageDegraded: false,
       pairedDeviceCount: 128,
       haRole: FleetNodeHARole.FLEET_NODE_HA_ROLE_UNSPECIFIED,
       haPeerNodeId: null,

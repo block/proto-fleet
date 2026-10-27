@@ -30,6 +30,7 @@ const node: FleetNodeItem = {
   commandProtocolUpgradeRequired: false,
   commandProtocolUpgradeRecommended: false,
   controlStreamConnected: true,
+  discoveryCoverageDegraded: false,
   pairedDeviceCount: 12,
   haRole: FleetNodeHARole.FLEET_NODE_HA_ROLE_UNSPECIFIED,
   haPeerNodeId: null,

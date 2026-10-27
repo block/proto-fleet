@@ -136,6 +136,11 @@ func freshState(t *testing.T, dir string, sessionExpiresAt time.Time) *bootstrap
 	return st
 }
 
+func setRunState(cmd *RunCmd, state *bootstrap.State, path string) {
+	cmd.state = state
+	cmd.statePath = path
+}
+
 func TestRunCmd_ValidateHeartbeatInterval(t *testing.T) {
 	t.Parallel()
 
@@ -339,10 +344,11 @@ func TestRunCmd_RetriesThrottledRefreshWithoutLosingCredentials(t *testing.T) {
 			before, err := os.ReadFile(statePath)
 			require.NoError(t, err)
 			cmd := &RunCmd{now: time.Now}
+			setRunState(cmd, state, statePath)
 			client := &stubGatewayClient{responder: func(int) error { return nil }}
 
 			// Act
-			require.NoError(t, cmd.tick(t.Context(), client, state, statePath, discardLogger(t)))
+			require.NoError(t, cmd.tick(t.Context(), client, discardLogger(t)))
 
 			// Assert
 			require.Equal(t, "old-session", state.SessionToken)
@@ -354,7 +360,7 @@ func TestRunCmd_RetriesThrottledRefreshWithoutLosingCredentials(t *testing.T) {
 
 			// Act
 			throttled.Store(false)
-			require.NoError(t, cmd.tick(t.Context(), client, state, statePath, discardLogger(t)))
+			require.NoError(t, cmd.tick(t.Context(), client, discardLogger(t)))
 
 			// Assert
 			require.Equal(t, "new-session", state.SessionToken)
@@ -381,10 +387,11 @@ func TestRunCmd_ThrottledRefreshWithExpiredSessionSkipsHeartbeat(t *testing.T) {
 	statePath := bootstrap.StatePath(t.TempDir())
 	require.NoError(t, bootstrap.SaveState(statePath, state))
 	cmd := &RunCmd{now: time.Now}
+	setRunState(cmd, state, statePath)
 	client := &stubGatewayClient{}
 
 	// Act
-	err = cmd.tick(t.Context(), client, state, statePath, discardLogger(t))
+	err = cmd.tick(t.Context(), client, discardLogger(t))
 
 	// Assert
 	require.NoError(t, err)
@@ -445,8 +452,9 @@ func TestRunCmd_StateSaveFailureRequiresOperatorAction(t *testing.T) {
 	require.NoError(t, os.WriteFile(blockedParent, []byte("blocked"), 0o600))
 	statePath := filepath.Join(blockedParent, "state.yaml")
 	cmd := &RunCmd{now: func() time.Time { return time.Now().UTC() }}
+	setRunState(cmd, state, statePath)
 
-	err = cmd.tick(t.Context(), &stubGatewayClient{}, state, statePath, discardLogger(t))
+	err = cmd.tick(t.Context(), &stubGatewayClient{}, discardLogger(t))
 
 	require.Error(t, err)
 	requireOperatorActionExit(t, err)
@@ -484,8 +492,9 @@ func TestRunCmd_RefreshRetriesOneCompleteAuthRejection(t *testing.T) {
 	}
 	statePath := bootstrap.StatePath(t.TempDir())
 	cmd := &RunCmd{}
+	setRunState(cmd, state, statePath)
 
-	err = cmd.refreshAndSave(t.Context(), state, statePath, discardLogger(t))
+	err = cmd.refreshAndSave(t.Context(), discardLogger(t))
 
 	require.NoError(t, err)
 	assert.Equal(t, 2, fake.completeAuthCount())
@@ -537,7 +546,7 @@ func TestRunCmd_ConcurrentRefreshAndCredentialKeyInstallPreservesState(t *testin
 	}()
 	go func() {
 		<-start
-		refreshDone <- standby.cmd.refreshAndSave(ctx, state, standby.statePath, logger)
+		refreshDone <- standby.cmd.refreshAndSave(ctx, logger)
 	}()
 	close(start)
 	select {
@@ -590,8 +599,9 @@ func TestRunCmd_RepeatedCompleteAuthRejectionRequiresOperatorAction(t *testing.T
 		SessionExpiresAt:       time.Now().Add(30 * time.Minute),
 	}
 	cmd := &RunCmd{now: func() time.Time { return time.Now().UTC() }}
+	setRunState(cmd, state, bootstrap.StatePath(t.TempDir()))
 
-	err = cmd.tick(t.Context(), &stubGatewayClient{}, state, bootstrap.StatePath(t.TempDir()), discardLogger(t))
+	err = cmd.tick(t.Context(), &stubGatewayClient{}, discardLogger(t))
 
 	require.Error(t, err)
 	requireOperatorActionExit(t, err)
@@ -758,6 +768,7 @@ func TestRunCmd_SuccessfulRefreshRetiresActiveControlSession(t *testing.T) {
 	mux.Handle(path, handler)
 	controlServer := testutil.NewH2CServer(t, mux)
 	cmd := &RunCmd{}
+	setRunState(cmd, state, statePath)
 	client, err := bootstrap.NewAuthenticatedGatewayClient(controlServer.URL, func() string {
 		cmd.stateMu.Lock()
 		defer cmd.stateMu.Unlock()
@@ -775,7 +786,7 @@ func TestRunCmd_SuccessfulRefreshRetiresActiveControlSession(t *testing.T) {
 		return len(headers) == 1 && headers[0] == "Bearer session-1"
 	}, time.Second, 10*time.Millisecond)
 
-	require.NoError(t, cmd.refreshAndSave(ctx, state, statePath, discardLogger(t)))
+	require.NoError(t, cmd.refreshAndSave(ctx, discardLogger(t)))
 	require.Eventually(t, func() bool {
 		headers := controlGateway.controlAuthHeaders()
 		return len(headers) == 2 && headers[0] == "Bearer session-1" && headers[1] == "Bearer session-2"
@@ -813,6 +824,7 @@ func TestRunCmd_RefreshFailureCannotExtendControlStreamPastExpiry(t *testing.T) 
 	// The client must be the only party enforcing expiry here; see dropGRPCDeadline.
 	client := newControlClient(t, controlGateway, dropGRPCDeadline)
 	cmd := &RunCmd{}
+	setRunState(cmd, state, statePath)
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
 	done := make(chan error, 1)
@@ -821,7 +833,7 @@ func TestRunCmd_RefreshFailureCannotExtendControlStreamPastExpiry(t *testing.T) 
 	}()
 	require.Eventually(t, func() bool { return controlGateway.helloCount() == 1 }, time.Second, 10*time.Millisecond)
 
-	require.Error(t, cmd.refreshAndSave(ctx, state, statePath, discardLogger(t)))
+	require.Error(t, cmd.refreshAndSave(ctx, discardLogger(t)))
 	select {
 	case sessionErr := <-done:
 		t.Fatalf("failed refresh retired the stream before token expiry: %v", sessionErr)

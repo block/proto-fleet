@@ -66,7 +66,7 @@ func (s *Service) EligibleNodeIDs(ctx context.Context, orgID int64) ([]int64, er
 	}
 	confirmed := make(map[int64]struct{}, len(nodes))
 	for _, n := range nodes {
-		if n.EnrollmentStatus == enrollment.FleetNodeStatusConfirmed && !n.IsHAStandby() {
+		if n.IsDiscoveryNode() {
 			confirmed[n.ID] = struct{}{}
 		}
 	}

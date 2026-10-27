@@ -157,6 +157,7 @@ const confirmedNode: FleetNodeItem = {
   commandProtocolUpgradeRequired: false,
   commandProtocolUpgradeRecommended: false,
   controlStreamConnected: true,
+  discoveryCoverageDegraded: false,
   pairedDeviceCount: 0,
   haRole: FleetNodeHARole.FLEET_NODE_HA_ROLE_UNSPECIFIED,
   haPeerNodeId: null,

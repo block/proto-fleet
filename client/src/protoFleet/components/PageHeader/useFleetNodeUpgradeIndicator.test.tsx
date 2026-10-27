@@ -27,6 +27,7 @@ const node = (upgradeRecommended: boolean): FleetNodeItem => ({
   commandProtocolUpgradeRequired: false,
   commandProtocolUpgradeRecommended: upgradeRecommended,
   controlStreamConnected: true,
+  discoveryCoverageDegraded: false,
   pairedDeviceCount: 0,
   haRole: FleetNodeHARole.FLEET_NODE_HA_ROLE_UNSPECIFIED,
   haPeerNodeId: null,

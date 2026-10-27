@@ -43,7 +43,8 @@ const (
 	provisionRetry = 30 * time.Second
 	commandTimeout = 15 * time.Second
 
-	failoverTransactionTimeout = 3 * time.Second
+	failoverLockTimeout        = 3 * time.Second
+	failoverTransactionTimeout = 30 * time.Second
 	maxConcurrentFailovers     = 8
 
 	// HAProtocolVersion is the first command protocol with key transfer and
@@ -76,11 +77,12 @@ type Service struct {
 	activity        *activity.Service
 	invalidateMiner func(models.DeviceIdentifier)
 
-	failoverDelay   time.Duration
-	startupGrace    time.Duration
-	tickInterval    time.Duration
-	provisionRetry  time.Duration
-	failoverTimeout time.Duration
+	failoverDelay       time.Duration
+	startupGrace        time.Duration
+	tickInterval        time.Duration
+	provisionRetry      time.Duration
+	failoverLockTimeout time.Duration
+	failoverTimeout     time.Duration
 
 	mu           sync.Mutex
 	provisioning map[int64]bool      // pair IDs with a transfer in flight
@@ -91,19 +93,20 @@ type Service struct {
 
 func NewService(conn *sql.DB, transactor interfaces.Transactor, registry *control.Registry, activitySvc *activity.Service, invalidateMiner func(models.DeviceIdentifier)) *Service {
 	return &Service{
-		queries:         db.NewFailoverResettingQuerier(db.NewRetryDB(conn)),
-		transactor:      transactor,
-		registry:        registry,
-		activity:        activitySvc,
-		invalidateMiner: invalidateMiner,
-		failoverDelay:   FailoverDelay,
-		startupGrace:    startupGrace,
-		tickInterval:    tickInterval,
-		provisionRetry:  provisionRetry,
-		failoverTimeout: failoverTransactionTimeout,
-		provisioning:    make(map[int64]bool),
-		failedAt:        make(map[int64]time.Time),
-		failingOver:     make(map[int64]bool),
+		queries:             db.NewFailoverResettingQuerier(db.NewRetryDB(conn)),
+		transactor:          transactor,
+		registry:            registry,
+		activity:            activitySvc,
+		invalidateMiner:     invalidateMiner,
+		failoverDelay:       FailoverDelay,
+		startupGrace:        startupGrace,
+		tickInterval:        tickInterval,
+		provisionRetry:      provisionRetry,
+		failoverLockTimeout: failoverLockTimeout,
+		failoverTimeout:     failoverTransactionTimeout,
+		provisioning:        make(map[int64]bool),
+		failedAt:            make(map[int64]time.Time),
+		failingOver:         make(map[int64]bool),
 	}
 }
 
@@ -180,14 +183,6 @@ func (s *Service) RequireNotStandby(ctx context.Context, orgID, nodeID int64) er
 		return fleeterror.NewFailedPreconditionError("fleet node is an HA standby; use its active node")
 	}
 	return nil
-}
-
-// ShouldHandOff reports whether revoking nodeID should move its devices to its
-// standby. Readiness is durable; a disconnected standby delays the hand-off
-// rather than changing a retry into destructive cleanup.
-func (s *Service) ShouldHandOff(ctx context.Context, orgID, nodeID int64) (bool, error) {
-	_, ok, err := s.readyPairOf(ctx, orgID, nodeID)
-	return ok, err
 }
 
 // HandOff moves a revoked active node's devices to its ready standby, so they
@@ -480,6 +475,11 @@ func (s *Service) failover(ctx context.Context, orgID, pairID, activeID, standby
 	}
 	err := s.transactor.RunInTx(txCtx, func(ctx context.Context) error {
 		q := db.GetTxQueries(ctx)
+		if why == automaticFailover {
+			if err := q.SetLocalFleetNodeHAFailoverLockTimeout(ctx, s.failoverLockTimeout.Milliseconds()); err != nil {
+				return err
+			}
+		}
 		if _, err := q.LockFleetNodeDevicesForRevocation(ctx, sqlc.LockFleetNodeDevicesForRevocationParams{FleetNodeID: activeID, OrgID: orgID}); err != nil {
 			return err
 		}
