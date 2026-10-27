@@ -31,6 +31,7 @@ import {
   type CurtailmentSource,
   type CurtailmentSourceFormValues,
   DEFAULT_SOURCE_STALENESS_THRESHOLD_SEC,
+  isEditableResponseProfile,
   isResponseProfileAutomationReady,
   MAX_SOURCE_STALENESS_THRESHOLD_SEC,
   type ResponseProfile,
@@ -455,7 +456,6 @@ function createCurtailmentFormValuesFromResponseProfile(
     siteIds,
     siteNamesById,
     ...cloneTopologyTargetIds(values),
-    deviceSetIds: [],
     deviceIdentifiers,
     minerSelectionMode: hasAllMinersSelected ? "all" : "subset",
     responseProfileId: "customPlan",
@@ -497,9 +497,6 @@ function getResponseProfileRestoreBehavior(
 function createResponseProfileFormValuesFromCurtailmentValues(
   values: CurtailmentSubmitValues,
 ): ResponseProfileFormValues {
-  if (values.scopeType === "deviceSet") {
-    throw new Error("Unsupported curtailment target scope.");
-  }
   const hasAllMinersSelected = values.minerSelectionMode === "all";
   const siteIds =
     hasAllMinersSelected || (values.siteSelection !== "site" && values.siteSelection !== "allSites")
@@ -785,9 +782,9 @@ function ResponseProfileCard({ profile, onEdit }: ResponseProfileCardProps): Rea
           variant={variants.secondary}
           size={sizes.compact}
           text="Edit"
-          ariaLabel={profile.isReadOnly || !profile.formValues ? "Editing this profile is unavailable" : "Edit"}
+          ariaLabel={isEditableResponseProfile(profile) ? "Edit" : "Editing this profile is unavailable"}
           className="!h-8 !px-3 !py-0"
-          disabled={profile.isReadOnly || !profile.formValues}
+          disabled={!isEditableResponseProfile(profile)}
           onClick={() => onEdit(profile)}
           testId={`response-profile-edit-${profile.id}`}
         />
@@ -1414,7 +1411,7 @@ export function CurtailmentSettingsContent({
 
   const openEditResponseProfileModal = useCallback(
     (profile: ResponseProfile) => {
-      if (profile.isReadOnly || !profile.formValues) {
+      if (!isEditableResponseProfile(profile)) {
         return;
       }
       onResponseProfileModalOpen?.();

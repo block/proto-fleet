@@ -1381,6 +1381,33 @@ describe("CurtailmentSettingsPage", () => {
     expect(within(card).getByRole("button", { name: "Edit" })).toBeEnabled();
   });
 
+  it("disables editing for read-only and form-less response profiles", () => {
+    const readOnlyProfile: ResponseProfile = {
+      ...testResponseProfiles[0],
+      id: "read-only-profile",
+      name: "Read-only response",
+      formValues: undefined,
+      isReadOnly: true,
+    };
+    const formlessProfile: ResponseProfile = {
+      ...testResponseProfiles[1],
+      id: "formless-profile",
+      name: "Summary-only response",
+      formValues: undefined,
+    };
+
+    render(<CurtailmentSettingsContent initialResponseProfiles={[readOnlyProfile, formlessProfile]} />);
+
+    for (const profileName of ["Read-only response", "Summary-only response"]) {
+      const editButton = within(getResponseProfileCard(profileName)).getByRole("button", {
+        name: "Editing this profile is unavailable",
+      });
+      expect(editButton).toBeDisabled();
+      fireEvent.click(editButton);
+    }
+    expect(screen.queryByText("Edit response profile")).not.toBeInTheDocument();
+  });
+
   it("renders provided automations with enabled and disabled rows", () => {
     render(
       <CurtailmentSettingsContent

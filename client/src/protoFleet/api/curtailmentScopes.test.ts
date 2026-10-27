@@ -147,12 +147,11 @@ describe("buildCurtailmentScopes", () => {
     expect(scopes?.map(getTopologyScopeId)).toEqual([7n, 8n]);
   });
 
-  it("fails closed for missing, empty, legacy device-set, and invalid selectors", () => {
+  it("fails closed for missing, empty, and invalid selectors", () => {
     expect(buildCurtailmentScopes({})).toBeUndefined();
     expect(buildCurtailmentScopes({ minerSelectionMode: "all" })).toBeUndefined();
     expect(buildCurtailmentScopes({ scopeType: "building", buildingTargetIds: [] })).toBeUndefined();
     expect(buildCurtailmentScopes({ scopeType: "rack", rackTargetIds: ["not-an-id"] })).toBeUndefined();
-    expect(buildCurtailmentScopes({ scopeType: "deviceSet" })).toBeUndefined();
   });
 
   it("keeps the terminal selector authoritative over retained navigation state", () => {

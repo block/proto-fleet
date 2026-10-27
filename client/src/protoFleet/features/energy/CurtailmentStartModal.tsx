@@ -47,7 +47,7 @@ import Select from "@/shared/components/Select";
 import { positions } from "@/shared/constants";
 
 export type CurtailmentPriority = "normal" | "emergency";
-export type CurtailmentScopeType = CurtailmentTerminalScopeType | "deviceSet";
+export type CurtailmentScopeType = CurtailmentTerminalScopeType;
 export type CurtailmentSiteSelection = "none" | "allSites" | "site";
 export type CurtailmentMinerSelectionMode = "subset" | "all";
 export type ResponseProfileId = string;
@@ -67,7 +67,6 @@ export interface CurtailmentFormValues {
   buildingTargetIds?: string[];
   rackTargetIds?: string[];
   groupTargetIds?: string[];
-  deviceSetIds: string[];
   deviceIdentifiers: string[];
   minerSelectionMode?: CurtailmentMinerSelectionMode;
   responseProfileId: ResponseProfileId;
@@ -239,7 +238,6 @@ const defaultValues: CurtailmentFormValues = {
   buildingTargetIds: [],
   rackTargetIds: [],
   groupTargetIds: [],
-  deviceSetIds: [],
   deviceIdentifiers: [],
   minerSelectionMode: "subset",
   responseProfileId: customResponseProfileId,
@@ -356,7 +354,6 @@ function hasSelectedCurtailmentTarget(
     CurtailmentFormValues,
     | "buildingTargetIds"
     | "deviceIdentifiers"
-    | "deviceSetIds"
     | "groupTargetIds"
     | "minerSelectionMode"
     | "rackTargetIds"
@@ -371,8 +368,7 @@ function hasSelectedCurtailmentTarget(
     (values.buildingTargetIds?.length ?? 0) > 0 ||
     (values.rackTargetIds?.length ?? 0) > 0 ||
     (values.groupTargetIds?.length ?? 0) > 0 ||
-    getExplicitMinerCount(values) > 0 ||
-    values.deviceSetIds.length > 0
+    getExplicitMinerCount(values) > 0
   );
 }
 
@@ -423,7 +419,6 @@ function withTerminalScope(
     buildingTargetIds: scope.type === "building" ? scope.ids : [],
     rackTargetIds: scope.type === "rack" ? scope.ids : [],
     groupTargetIds: scope.type === "group" ? scope.ids : [],
-    deviceSetIds: [],
     deviceIdentifiers: scope.type === "explicitMiners" ? scope.ids : [],
     minerSelectionMode: "subset",
   };
@@ -461,7 +456,6 @@ function withWholeFleetScope(values: CurtailmentFormValues): CurtailmentFormValu
     buildingTargetIds: [],
     rackTargetIds: [],
     groupTargetIds: [],
-    deviceSetIds: [],
     deviceIdentifiers: [],
     minerSelectionMode: "subset",
   };
@@ -501,7 +495,6 @@ function withAllSitesScope(
     buildingTargetIds: [],
     rackTargetIds: [],
     groupTargetIds: [],
-    deviceSetIds: [],
     deviceIdentifiers: [],
     minerSelectionMode: "subset",
   };
@@ -521,7 +514,6 @@ function withNoSiteScope(values: CurtailmentFormValues): CurtailmentFormValues {
     buildingTargetIds: [],
     rackTargetIds: [],
     groupTargetIds: [],
-    deviceSetIds: [],
   };
 }
 
@@ -550,7 +542,6 @@ function withSiteScopes(values: CurtailmentFormValues, sites: readonly Curtailme
     buildingTargetIds: [],
     rackTargetIds: [],
     groupTargetIds: [],
-    deviceSetIds: [],
     deviceIdentifiers: [],
     minerSelectionMode: "subset",
   };
@@ -616,7 +607,6 @@ function hasResponseProfileScopeValues(responseProfileValues: CurtailmentRespons
     "buildingTargetIds" in responseProfileValues ||
     "rackTargetIds" in responseProfileValues ||
     "groupTargetIds" in responseProfileValues ||
-    "deviceSetIds" in responseProfileValues ||
     "deviceIdentifiers" in responseProfileValues ||
     "minerSelectionMode" in responseProfileValues
   );
@@ -636,7 +626,6 @@ function removeResponseProfileScopeValues(
   delete behaviorValues.buildingTargetIds;
   delete behaviorValues.rackTargetIds;
   delete behaviorValues.groupTargetIds;
-  delete behaviorValues.deviceSetIds;
   delete behaviorValues.deviceIdentifiers;
   delete behaviorValues.minerSelectionMode;
 
@@ -673,11 +662,9 @@ function withSelectedResponseProfileValues(
       ? "wholeOrg"
       : siteIds.length > 0
         ? "site"
-        : responseProfileValues.deviceSetIds?.length
-          ? "deviceSet"
-          : deviceIdentifiers.length
-            ? "explicitMiners"
-            : "wholeOrg");
+        : deviceIdentifiers.length
+          ? "explicitMiners"
+          : "wholeOrg");
 
   if (minerSelectionMode === "all") {
     return withAllMinerScope({ ...nextValues, deviceIdentifiers: [], minerSelectionMode });
@@ -698,10 +685,6 @@ function withSelectedResponseProfileValues(
       );
     }
 
-    return withWholeFleetScope(nextValues);
-  }
-
-  if (scopeType === "deviceSet") {
     return withWholeFleetScope(nextValues);
   }
 
@@ -1111,10 +1094,6 @@ function formatCurtailmentConfirmationTarget(values: CurtailmentFormValues, sele
 
   if (values.scopeType === "explicitMiners" && getExplicitMinerCount(values) > 0) {
     return formatCountLabel(values.deviceIdentifiers.length, "miner").toLowerCase();
-  }
-
-  if (values.scopeType === "deviceSet") {
-    return `miners in ${formatCountLabel(values.deviceSetIds.length, "device set").toLowerCase()}`;
   }
 
   if (values.scopeType === "building" && (values.buildingTargetIds?.length ?? 0) > 0) {

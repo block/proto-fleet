@@ -2979,11 +2979,6 @@ func (r *Reconciler) eventStillDispatchable(ctx context.Context, ev *models.Even
 			"event_id", ev.ID, "event_uuid", ev.EventUUID, "error", err)
 		return false
 	}
-	if latest == nil {
-		slog.Warn("curtailment reconciler: event missing before dispatch",
-			"event_id", ev.ID, "event_uuid", ev.EventUUID)
-		return false
-	}
 	if latest.State.IsTerminal() || latest.State != ev.State {
 		slog.Info("curtailment reconciler: skipping dispatch after event state changed",
 			"event_id", ev.ID, "event_uuid", ev.EventUUID,

@@ -308,7 +308,6 @@ const activeEventFormValues = {
   reason: "Grid peak",
   scopeType: "wholeOrg",
   scopeId: "whole-org",
-  deviceSetIds: [],
   deviceIdentifiers: [],
   responseProfileId: "customPlan",
   curtailmentMode: "fixedKwReduction",

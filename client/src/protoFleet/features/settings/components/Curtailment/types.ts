@@ -95,6 +95,12 @@ export type ResponseProfile = {
   isAutomationReady: boolean;
 };
 
+export type EditableResponseProfile = ResponseProfile & { formValues: ResponseProfileFormValues };
+
+export function isEditableResponseProfile(profile: ResponseProfile): profile is EditableResponseProfile {
+  return !profile.isReadOnly && profile.formValues !== undefined;
+}
+
 export type AutomationConditionType = "mqttTriggerTargetOff" | "marketPriceAbove" | "hashpriceBelow" | "capacityAbove";
 
 export type AutomationRuleFormValues = {

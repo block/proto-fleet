@@ -396,7 +396,7 @@ func (s *Subscriber) reconcile(ctx context.Context, failIfNoneStarted bool) (int
 			workerCancel()
 			return started, len(sources), errSubscriberNotStarted
 		}
-		w, done, err := s.startWorker(ctx, workerCtx, src, &activation.workerWG)
+		w, done, err := s.startWorker(workerCtx, src, &activation.workerWG)
 		if err != nil {
 			workerCancel()
 			if firstStartErr == nil {
@@ -551,8 +551,8 @@ func (s *Subscriber) waitForHandleStopped(ctx context.Context, handle *sourceWor
 }
 
 // startWorker validates source settings and decrypts credentials, then starts
-// supervision on workerCtx. setupCtx is currently unused.
-func (s *Subscriber) startWorker(setupCtx, workerCtx context.Context, src SourceConfig, wg *sync.WaitGroup) (*sourceWorker, <-chan struct{}, error) {
+// supervision on workerCtx.
+func (s *Subscriber) startWorker(workerCtx context.Context, src SourceConfig, wg *sync.WaitGroup) (*sourceWorker, <-chan struct{}, error) {
 	primary, secondary, ok := ResolveBrokerRoles(src.BrokerPrimaryHost, src.BrokerSecondaryHost)
 	if !ok {
 		return nil, nil, fmt.Errorf("mqttingest: source %s has identical broker hosts", src.SourceName)

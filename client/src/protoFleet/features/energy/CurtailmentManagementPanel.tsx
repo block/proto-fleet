@@ -36,9 +36,10 @@ import CurtailmentStopConfirmationDialog, {
   type CurtailmentStopConfirmationAction,
 } from "@/protoFleet/features/energy/CurtailmentStopConfirmationDialog";
 import { createCurtailmentPlanPreview } from "@/protoFleet/features/energy/useCurtailmentPlanPreview";
-import type {
-  ResponseProfile,
-  ResponseProfileFormValues,
+import {
+  type EditableResponseProfile,
+  isEditableResponseProfile,
+  type ResponseProfileFormValues,
 } from "@/protoFleet/features/settings/components/Curtailment/types";
 import { useHasPermission } from "@/protoFleet/store";
 import { Alert } from "@/shared/assets/icons";
@@ -188,11 +189,7 @@ function getResponseProfileSiteNamesById(
   );
 }
 
-function createResponseProfileFormValuesFromProfile(profile: ResponseProfile): ResponseProfileFormValues | undefined {
-  if (!profile.formValues) {
-    return undefined;
-  }
-
+function createResponseProfileFormValuesFromProfile(profile: EditableResponseProfile): ResponseProfileFormValues {
   const hasAllMinersSelected = profile.formValues.minerSelectionMode === "all";
   const siteIds = hasAllMinersSelected ? [] : getSelectedResponseProfileSiteIds(profile.formValues);
   const siteId = siteIds[0] ?? "";
@@ -215,13 +212,8 @@ function createResponseProfileFormValuesFromProfile(profile: ResponseProfile): R
   };
 }
 
-function createCurtailmentResponseProfileOption(
-  profile: ResponseProfile,
-): CurtailmentResponseProfileOption | undefined {
+function createCurtailmentResponseProfileOption(profile: EditableResponseProfile): CurtailmentResponseProfileOption {
   const values = createResponseProfileFormValuesFromProfile(profile);
-  if (!values) {
-    return undefined;
-  }
   const restoreBatchSize =
     values.restoreBatchSize ||
     (values.restoreBehavior === "automaticImmediateRestore" ? immediateRestoreBatchSizeInputValue : "");
@@ -275,7 +267,6 @@ function createCurtailmentResponseProfileOption(
       buildingTargetIds: [...(values.buildingTargetIds ?? [])],
       rackTargetIds: [...(values.rackTargetIds ?? [])],
       groupTargetIds: [...(values.groupTargetIds ?? [])],
-      deviceSetIds: [],
       deviceIdentifiers,
       minerSelectionMode: hasAllMinersSelected ? "all" : "subset",
       curtailmentMode: values.actionType,
@@ -593,11 +584,7 @@ function CurtailmentManagementPanel({
     void listInfrastructureDevices().catch(() => {});
   }, [listInfrastructureDevices]);
   const responseProfileOptions = useMemo(
-    () =>
-      responseProfiles
-        .filter((profile) => !profile.isReadOnly && profile.formValues !== undefined)
-        .map(createCurtailmentResponseProfileOption)
-        .filter((option) => option !== undefined),
+    () => responseProfiles.filter(isEditableResponseProfile).map(createCurtailmentResponseProfileOption),
     [responseProfiles],
   );
   const defaultSiteScope = useMemo(

@@ -169,7 +169,7 @@ func (f *fakeStore) GetEventByUUID(_ context.Context, orgID int64, eventUUID uui
 			return ev, nil
 		}
 	}
-	return nil, nil
+	return nil, fleeterror.NewNotFoundErrorf("curtailment event not found: %s", eventUUID)
 }
 func (f *fakeStore) GetEventDetailByUUID(ctx context.Context, orgID int64, eventUUID uuid.UUID) (*models.Event, error) {
 	return f.GetEventByUUID(ctx, orgID, eventUUID)
@@ -500,10 +500,13 @@ func (f *fakeStore) WithCurtailmentTopologyDispatchFence(
 		return f.topologyFenceErr
 	}
 	latest, err := f.GetEventByUUID(ctx, event.OrgID, event.EventUUID)
+	if fleeterror.IsNotFoundError(err) {
+		return interfaces.ErrCurtailmentEventStateRaceLoss
+	}
 	if err != nil {
 		return err
 	}
-	if latest == nil || latest.ID != event.ID || latest.State != event.State || latest.State.IsTerminal() {
+	if latest.ID != event.ID || latest.State != event.State || latest.State.IsTerminal() {
 		return interfaces.ErrCurtailmentEventStateRaceLoss
 	}
 	latestCopy := *latest
@@ -539,10 +542,13 @@ func (f *fakeStore) WithCurtailmentTopologyRestoreDispatchFence(
 		return f.topologyFenceErr
 	}
 	latest, err := f.GetEventByUUID(ctx, event.OrgID, event.EventUUID)
+	if fleeterror.IsNotFoundError(err) {
+		return interfaces.ErrCurtailmentEventStateRaceLoss
+	}
 	if err != nil {
 		return err
 	}
-	if latest == nil || latest.ID != event.ID || latest.State != event.State || latest.State.IsTerminal() {
+	if latest.ID != event.ID || latest.State != event.State || latest.State.IsTerminal() {
 		return interfaces.ErrCurtailmentEventStateRaceLoss
 	}
 	latestCopy := *latest

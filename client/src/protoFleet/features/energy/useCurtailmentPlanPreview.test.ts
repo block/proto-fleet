@@ -40,7 +40,6 @@ const baseValues: CurtailmentFormValues = {
   buildingTargetIds: [],
   rackTargetIds: [],
   groupTargetIds: [],
-  deviceSetIds: [],
   deviceIdentifiers: [],
   responseProfileId: "customPlan",
   curtailmentMode: "fixedKwReduction",
@@ -329,7 +328,6 @@ describe("useCurtailmentPlanPreview", () => {
   it("does not build a request until target and scope are valid", () => {
     expect(buildPreviewCurtailmentPlanRequest({ ...baseValues, targetKw: "" })).toBeUndefined();
     expect(buildPreviewCurtailmentPlanRequest({ ...baseValues, targetKw: "0" })).toBeUndefined();
-    expect(buildPreviewCurtailmentPlanRequest({ ...baseValues, scopeType: "deviceSet" })).toBeUndefined();
     expect(
       buildPreviewCurtailmentPlanRequest({
         ...baseValues,
