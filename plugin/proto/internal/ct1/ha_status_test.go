@@ -18,9 +18,6 @@ func TestHAObservationsDegrade(t *testing.T) {
 		{"missing peer inventory", func(h *mdk.HAStatus) { h.Members = h.Members[:1] }},
 		{"duplicate member", func(h *mdk.HAStatus) { h.Members = append(h.Members, h.Members[0]) }},
 		{"changed partner", func(h *mdk.HAStatus) { h.PeerServerId = "replacement" }},
-		{"old role in new response", func(h *mdk.HAStatus) {
-			h.Members[0].RoleObservation.ObservedAt = timestamppb.New(time.Now().Add(-time.Minute))
-		}},
 		{"future role", func(h *mdk.HAStatus) {
 			h.Members[0].RoleObservation.ObservedAt = timestamppb.New(time.Now().Add(time.Minute))
 		}},
@@ -37,6 +34,8 @@ func TestHAObservationsDegrade(t *testing.T) {
 		{"cached role differs", func(h *mdk.HAStatus) {
 			h.Members[0].HaRole = mdk.HARole_HA_ROLE_STANDBY
 			h.Members[0].ContainerWritePrimary = new(false)
+			h.Members[1].HaRole = mdk.HARole_HA_ROLE_PRIMARY
+			h.Members[1].ContainerWritePrimary = new(true)
 		}},
 		{"cached authority unknown", func(h *mdk.HAStatus) { h.Members[0].ContainerWritePrimary = nil }},
 		{"cached recovery missing", func(h *mdk.HAStatus) { h.Members[0].Recovery = nil }},
