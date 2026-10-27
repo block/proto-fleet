@@ -170,6 +170,72 @@ func TestRevokeActiveNodeHandsDevicesToReadyStandby(t *testing.T) {
 	assert.False(t, ok, "revoking either node dissolves the pair")
 }
 
+func TestRevokeReadyPairPreservesDevicesUntilHandOffCompletes(t *testing.T) {
+	for _, scenario := range []string{
+		"standby disconnected before revocation",
+		"standby disconnects after authentication is revoked",
+		"standby became active before revocation",
+		"installation completes after the hand-off decision",
+	} {
+		t.Run(scenario, func(t *testing.T) {
+			h := setupHAEnrollmentTest(t)
+			active, standby, deviceID := h.readyPairWithDevice(t)
+			_, err := h.db.ExecContext(t.Context(), `INSERT INTO miner_credentials (device_id, username_enc, password_enc) VALUES ($1, 'sealed-user', 'sealed-password')`, deviceID)
+			require.NoError(t, err)
+			if scenario == "standby became active before revocation" {
+				svc := ha.NewService(h.db, sqlstores.NewSQLTransactor(h.db), h.registry, nil, nil)
+				require.NoError(t, svc.HandOff(t.Context(), h.orgID, active))
+				active, standby = standby, active
+			}
+			// Replace the existing stream so the test owns the disconnect boundary.
+			stream, err := h.registry.RegisterAuthenticated(standby, "", gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V7)
+			require.NoError(t, err)
+			t.Cleanup(stream.Unregister)
+			if scenario == "standby disconnects after authentication is revoked" {
+				h.enrollment.WithControlStreamInvalidator(func(int64) { stream.Unregister() })
+			} else {
+				stream.Unregister()
+			}
+			if scenario == "installation completes after the hand-off decision" {
+				_, err = h.db.ExecContext(t.Context(), `UPDATE fleet_node_ha_pair SET standby_ready=false, pending_credential_key=$1 WHERE active_node_id=$2`, []byte("sealed install"), active)
+				require.NoError(t, err)
+				h.enrollment.WithControlStreamInvalidator(func(int64) {
+					_, err := h.db.ExecContext(t.Context(), `UPDATE fleet_node_ha_pair SET standby_ready=true, pending_credential_key=NULL WHERE active_node_id=$1`, active)
+					require.NoError(t, err)
+				})
+			}
+
+			for range 2 {
+				err = h.enrollment.RevokeFleetNode(t.Context(), active, h.orgID)
+				requireFleetErrorCode(t, err, connect.CodeFailedPrecondition)
+				node, err := h.enrollment.GetFleetNodeByID(t.Context(), active, h.orgID)
+				require.NoError(t, err, "failed cleanup must not soft-delete the node")
+				assert.Equal(t, fleetnodeenrollment.FleetNodeStatusRevoked, node.EnrollmentStatus)
+				pairActive, pairStandby, ok := h.pairOf(t, active)
+				require.True(t, ok)
+				assert.Equal(t, active, pairActive)
+				assert.Equal(t, standby, pairStandby)
+				assert.Equal(t, []int64{active}, h.deviceNodes(t, deviceID))
+				var password string
+				require.NoError(t, h.db.QueryRowContext(t.Context(), `SELECT password_enc FROM miner_credentials WHERE device_id=$1`, deviceID).Scan(&password))
+				assert.Equal(t, "sealed-password", password)
+			}
+
+			h.enrollment.WithControlStreamInvalidator(nil)
+			stream, err = h.registry.RegisterAuthenticated(standby, "", gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V7)
+			require.NoError(t, err)
+			t.Cleanup(stream.Unregister)
+			require.NoError(t, h.enrollment.RevokeFleetNode(t.Context(), active, h.orgID))
+			assert.Equal(t, []int64{standby}, h.deviceNodes(t, deviceID))
+			_, _, ok := h.pairOf(t, standby)
+			assert.False(t, ok)
+			var password string
+			require.NoError(t, h.db.QueryRowContext(t.Context(), `SELECT password_enc FROM miner_credentials WHERE device_id=$1`, deviceID).Scan(&password))
+			assert.Equal(t, "sealed-password", password)
+		})
+	}
+}
+
 func TestRevokeActiveNodeDeniesAuthBeforeWaitingForInFlightCalls(t *testing.T) {
 	h := setupHAEnrollmentTest(t)
 	active, standby, deviceID := h.readyPairWithDevice(t)

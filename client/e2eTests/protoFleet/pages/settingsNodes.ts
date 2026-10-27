@@ -174,7 +174,7 @@ export class SettingsNodesPage extends BasePage {
 
   async validateRevokeDialogText(nodeName: string, text: string) {
     const dialog = this.page.getByRole("dialog").filter({ hasText: "Revoke node?" });
-    await expect(dialog).toContainText(`revoke "${nodeName}"`);
+    await expect(dialog).toContainText(`"${nodeName}" will lose access to Fleet.`);
     await expect(dialog).toContainText(text);
   }
 }

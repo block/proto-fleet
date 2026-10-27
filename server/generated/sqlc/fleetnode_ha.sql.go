@@ -36,6 +36,7 @@ const deleteFleetNodeHAPairForNode = `-- name: DeleteFleetNodeHAPairForNode :exe
 DELETE FROM fleet_node_ha_pair AS p
 WHERE p.org_id = $1
   AND (active_node_id = $2 OR standby_node_id = $2)
+  AND NOT (p.active_node_id = $2 AND p.standby_ready)
   AND (p.pending_credential_key IS NULL OR p.standby_ready OR
        (p.standby_node_id = $2 AND EXISTS (
            SELECT 1 FROM fleet_node n WHERE n.id = p.standby_node_id AND n.org_id = p.org_id
@@ -50,6 +51,8 @@ type DeleteFleetNodeHAPairForNodeParams struct {
 
 // Pending installation may still execute after a server timeout. Keep the
 // surviving standby reserved until an acknowledgement reconciles its key.
+// A ready active pair must hand off before cleanup, even if the standby is
+// disconnected or readiness changed after the revocation decision.
 func (q *Queries) DeleteFleetNodeHAPairForNode(ctx context.Context, arg DeleteFleetNodeHAPairForNodeParams) (int64, error) {
 	result, err := q.exec(ctx, q.deleteFleetNodeHAPairForNodeStmt, deleteFleetNodeHAPairForNode, arg.OrgID, arg.NodeID)
 	if err != nil {
@@ -244,10 +247,12 @@ func (q *Queries) MoveDiscoveredDeviceAttribution(ctx context.Context, arg MoveD
 }
 
 const moveFleetNodeDevices = `-- name: MoveFleetNodeDevices :many
-UPDATE fleet_node_device
+UPDATE fleet_node_device AS fnd
 SET fleet_node_id = $1
-WHERE fleet_node_id = $2 AND org_id = $3
-RETURNING device_id
+FROM device d
+WHERE fnd.fleet_node_id = $2 AND fnd.org_id = $3
+  AND d.id = fnd.device_id AND d.org_id = fnd.org_id
+RETURNING d.device_identifier
 `
 
 type MoveFleetNodeDevicesParams struct {
@@ -256,19 +261,19 @@ type MoveFleetNodeDevicesParams struct {
 	OrgID      int64
 }
 
-func (q *Queries) MoveFleetNodeDevices(ctx context.Context, arg MoveFleetNodeDevicesParams) ([]int64, error) {
+func (q *Queries) MoveFleetNodeDevices(ctx context.Context, arg MoveFleetNodeDevicesParams) ([]string, error) {
 	rows, err := q.query(ctx, q.moveFleetNodeDevicesStmt, moveFleetNodeDevices, arg.ToNodeID, arg.FromNodeID, arg.OrgID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []int64
+	var items []string
 	for rows.Next() {
-		var device_id int64
-		if err := rows.Scan(&device_id); err != nil {
+		var device_identifier string
+		if err := rows.Scan(&device_identifier); err != nil {
 			return nil, err
 		}
-		items = append(items, device_id)
+		items = append(items, device_identifier)
 	}
 	if err := rows.Close(); err != nil {
 		return nil, err

@@ -25,6 +25,7 @@ import (
 	activitymodels "github.com/block/proto-fleet/server/internal/domain/activity/models"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/control"
+	"github.com/block/proto-fleet/server/internal/domain/miner/models"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 	"github.com/block/proto-fleet/server/internal/infrastructure/db"
 	"github.com/block/proto-fleet/server/internal/infrastructure/id"
@@ -73,7 +74,7 @@ type Service struct {
 	transactor      interfaces.Transactor
 	registry        *control.Registry
 	activity        *activity.Service
-	invalidateMiner func(context.Context, int64)
+	invalidateMiner func(models.DeviceIdentifier)
 
 	failoverDelay   time.Duration
 	startupGrace    time.Duration
@@ -88,7 +89,7 @@ type Service struct {
 	lastFailover int64               // rotate attempts so blocked pairs cannot starve later pairs
 }
 
-func NewService(conn *sql.DB, transactor interfaces.Transactor, registry *control.Registry, activitySvc *activity.Service, invalidateMiner func(context.Context, int64)) *Service {
+func NewService(conn *sql.DB, transactor interfaces.Transactor, registry *control.Registry, activitySvc *activity.Service, invalidateMiner func(models.DeviceIdentifier)) *Service {
 	return &Service{
 		queries:         db.NewFailoverResettingQuerier(db.NewRetryDB(conn)),
 		transactor:      transactor,
@@ -182,10 +183,11 @@ func (s *Service) RequireNotStandby(ctx context.Context, orgID, nodeID int64) er
 }
 
 // ShouldHandOff reports whether revoking nodeID should move its devices to its
-// standby: nodeID is a pair's active node and the standby is ready and connected.
+// standby. Readiness is durable; a disconnected standby delays the hand-off
+// rather than changing a retry into destructive cleanup.
 func (s *Service) ShouldHandOff(ctx context.Context, orgID, nodeID int64) (bool, error) {
-	pair, ok, err := s.readyPairOf(ctx, orgID, nodeID)
-	return ok && s.registry.Connected(pair.StandbyNodeID), err
+	_, ok, err := s.readyPairOf(ctx, orgID, nodeID)
+	return ok, err
 }
 
 // HandOff moves a revoked active node's devices to its ready standby, so they
@@ -213,21 +215,24 @@ func (s *Service) readyPairOf(ctx context.Context, orgID, nodeID int64) (pair sq
 	return pair, pair.ActiveNodeID == nodeID && pair.StandbyReady, nil
 }
 
-// DeletePair removes a revoked node's pair unless an unresolved installation
-// could still replace the surviving standby's credential key.
+// DeletePair preserves ready active pairs until hand-off, and pending key
+// installations until the surviving standby's credential key is reconciled.
 func (s *Service) DeletePair(ctx context.Context, orgID, nodeID int64) error {
 	rows, err := s.q(ctx).DeleteFleetNodeHAPairForNode(ctx, sqlc.DeleteFleetNodeHAPairForNodeParams{OrgID: orgID, NodeID: nodeID})
 	if err != nil || rows > 0 {
 		return err
 	}
-	paired, err := s.q(ctx).FleetNodeInHAPair(ctx, sqlc.FleetNodeInHAPairParams{OrgID: orgID, NodeID: nodeID})
+	pair, err := s.q(ctx).GetFleetNodeHAPairForNode(ctx, sqlc.GetFleetNodeHAPairForNodeParams{OrgID: orgID, NodeID: nodeID})
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil
+	}
 	if err != nil {
 		return err
 	}
-	if paired {
-		return fleeterror.NewFailedPreconditionError("fleet node authentication is revoked; standby credential key installation is pending; reconnect the standby and retry revocation")
+	if pair.ActiveNodeID == nodeID && pair.StandbyReady {
+		return fleeterror.NewFailedPreconditionError("fleet node authentication is revoked; device hand-off did not finish; reconnect the standby and retry revocation")
 	}
-	return nil
+	return fleeterror.NewFailedPreconditionError("fleet node authentication is revoked; standby credential key installation is pending; reconnect the standby and retry revocation")
 }
 
 // Run watches every pair until ctx ends. It fails over pairs whose active node
@@ -463,11 +468,11 @@ func (s *Service) setStatus(ctx context.Context, pair sqlc.ListFleetNodeHAPairsR
 }
 
 func (s *Service) failover(ctx context.Context, orgID, pairID, activeID, standbyID int64, why failoverReason) error {
-	var moved []int64
+	var moved []string
 	var activeName, standbyName string
 	// Automatic attempts must release lock waits so other pairs can use the
 	// bounded workers. Revocation keeps its caller's hand-off deadline.
-	// Post-commit invalidation uses the lifecycle context, outside this timeout.
+	// The move returns cache identifiers, avoiding per-device lookups after commit.
 	txCtx := ctx
 	cancel := func() {}
 	if why == automaticFailover {
@@ -531,8 +536,8 @@ func (s *Service) failover(ctx context.Context, orgID, pairID, activeID, standby
 		return err
 	}
 	if s.invalidateMiner != nil {
-		for _, deviceID := range moved {
-			s.invalidateMiner(ctx, deviceID)
+		for _, identifier := range moved {
+			s.invalidateMiner(models.DeviceIdentifier(identifier))
 		}
 	}
 	description := fmt.Sprintf("Moved %d devices from fleet node '%s' (id=%d) to standby '%s' (id=%d) %s", len(moved), activeName, activeID, standbyName, standbyID, why)

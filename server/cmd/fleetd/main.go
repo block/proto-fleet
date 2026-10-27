@@ -528,7 +528,7 @@ func start(config *Config) (result error) {
 	fleetNodePairingSvc.WithMinerInvalidator(minerService.InvalidateMinerByID)
 	fleetNodeEnrollmentSvc.WithMinerInvalidator(minerService.InvalidateMinerByID)
 	fleetNodeEnrollmentSvc.WithTelemetryRemover(telemetryService.RemoveUnpairedDevices)
-	fleetNodeHASvc := fleetnodeha.NewService(conn, transactor, fleetNodeControlRegistry, activitySvc, minerService.InvalidateMinerByID)
+	fleetNodeHASvc := fleetnodeha.NewService(conn, transactor, fleetNodeControlRegistry, activitySvc, minerService.InvalidateMiner)
 	fleetNodeEnrollmentSvc.WithHA(fleetNodeHASvc)
 
 	// Initialize IP scanner service

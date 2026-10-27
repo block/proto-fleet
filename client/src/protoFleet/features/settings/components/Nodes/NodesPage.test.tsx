@@ -472,17 +472,15 @@ describe("NodesPage", () => {
     expect(rowNames()).toEqual(["View node-01", "View standby-node", "View other-node"]);
   });
 
-  it("explains authentication denial before handoff when revoking an active node with a ready standby", async () => {
+  it("explains that a ready standby takes over when revoking the active node", async () => {
     listFleetNodesMock.mockResolvedValue([activeNode, standbyNode]);
     renderNodesPage();
     await screen.findByText("standby-node");
 
     await openNodeRevoke();
 
-    expect(
-      await screen.findByText(/immediately loses access to Fleet.*Fleet then moves its devices to standby-node/),
-    ).toBeInTheDocument();
-    expect(screen.getByText(/If the handoff fails, the node stays revoked.*Retry revocation/)).toBeInTheDocument();
+    expect(await screen.findByText(/"node-01" will lose access to Fleet/)).toBeInTheDocument();
+    expect(screen.getByText(/standby-node will take over its miners/)).toBeInTheDocument();
   });
 
   it.each([
@@ -538,7 +536,7 @@ describe("NodesPage", () => {
       renderNodesPage();
     });
     await openNodeRevoke("standby-node");
-    expect(screen.getByText(/node-01 keeps its devices/)).toBeInTheDocument();
+    expect(screen.getByText(/node-01 will keep managing its miners/)).toBeInTheDocument();
 
     listFleetNodesMock.mockResolvedValue([
       {
@@ -641,6 +639,8 @@ describe("NodesPage", () => {
 
     await openNodeRevoke();
 
-    expect(await screen.findByText(/since standby-node isn't connected to take over/)).toBeInTheDocument();
+    expect(
+      await screen.findByText(/Its miners will keep running, but Fleet will lose access to them/),
+    ).toBeInTheDocument();
   });
 });

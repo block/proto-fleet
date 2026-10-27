@@ -178,14 +178,17 @@ test.describe("Node HA pair display", () => {
     await test.step("Warn that an unready standby cannot take over when revoking the active node", async () => {
       await settingsNodesPage.openNodeDetails("active-node");
       await settingsNodesPage.clickNodeAction("Revoke");
-      await settingsNodesPage.validateRevokeDialogText("active-node", "since standby-node isn't ready to take over");
+      await settingsNodesPage.validateRevokeDialogText(
+        "active-node",
+        "Its miners will keep running, but Fleet will lose access to them.",
+      );
       await page.keyboard.press("Escape");
     });
 
     await test.step("Say the peer keeps its devices when revoking the standby", async () => {
       await settingsNodesPage.openNodeDetails("standby-node");
       await settingsNodesPage.clickNodeAction("Revoke");
-      await settingsNodesPage.validateRevokeDialogText("standby-node", "active-node keeps its devices");
+      await settingsNodesPage.validateRevokeDialogText("standby-node", "active-node will keep managing its miners.");
     });
   });
 });

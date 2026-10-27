@@ -47,10 +47,12 @@ SET standby_ready = true, status_reason = '', pending_credential_key = NULL
 WHERE id = $1 AND active_node_id = $2 AND standby_node_id = $3;
 
 -- name: MoveFleetNodeDevices :many
-UPDATE fleet_node_device
+UPDATE fleet_node_device AS fnd
 SET fleet_node_id = sqlc.arg('to_node_id')
-WHERE fleet_node_id = sqlc.arg('from_node_id') AND org_id = sqlc.arg('org_id')
-RETURNING device_id;
+FROM device d
+WHERE fnd.fleet_node_id = sqlc.arg('from_node_id') AND fnd.org_id = sqlc.arg('org_id')
+  AND d.id = fnd.device_id AND d.org_id = fnd.org_id
+RETURNING d.device_identifier;
 
 -- name: MoveDiscoveredDeviceAttribution :exec
 UPDATE discovered_device
@@ -65,9 +67,12 @@ WHERE id = $1;
 -- name: DeleteFleetNodeHAPairForNode :execrows
 -- Pending installation may still execute after a server timeout. Keep the
 -- surviving standby reserved until an acknowledgement reconciles its key.
+-- A ready active pair must hand off before cleanup, even if the standby is
+-- disconnected or readiness changed after the revocation decision.
 DELETE FROM fleet_node_ha_pair AS p
 WHERE p.org_id = sqlc.arg('org_id')
   AND (active_node_id = sqlc.arg('node_id') OR standby_node_id = sqlc.arg('node_id'))
+  AND NOT (p.active_node_id = sqlc.arg('node_id') AND p.standby_ready)
   AND (p.pending_credential_key IS NULL OR p.standby_ready OR
        (p.standby_node_id = sqlc.arg('node_id') AND EXISTS (
            SELECT 1 FROM fleet_node n WHERE n.id = p.standby_node_id AND n.org_id = p.org_id

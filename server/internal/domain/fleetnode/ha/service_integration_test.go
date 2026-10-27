@@ -25,6 +25,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/control"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/credentialkey"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/ha"
+	"github.com/block/proto-fleet/server/internal/domain/miner/models"
 	"github.com/block/proto-fleet/server/internal/domain/stores/sqlstores"
 	"github.com/block/proto-fleet/server/internal/testutil"
 )
@@ -45,7 +46,7 @@ type harness struct {
 	standbyKey *ecdh.PrivateKey
 
 	mu          sync.Mutex
-	invalidated []int64
+	invalidated []models.DeviceIdentifier
 }
 
 func newHarness(t *testing.T) *harness {
@@ -58,7 +59,7 @@ func newHarness(t *testing.T) *harness {
 	database := testutil.NewDatabaseService(t, cfg)
 	h := &harness{database: database, db: database.DB, registry: control.NewRegistry()}
 	h.orgID = database.CreateSuperAdminUser().OrganizationID
-	h.svc = ha.NewService(h.db, sqlstores.NewSQLTransactor(h.db), h.registry, activity.NewService(sqlstores.NewSQLActivityStore(h.db)), func(_ context.Context, deviceID int64) {
+	h.svc = ha.NewService(h.db, sqlstores.NewSQLTransactor(h.db), h.registry, activity.NewService(sqlstores.NewSQLActivityStore(h.db)), func(deviceID models.DeviceIdentifier) {
 		h.mu.Lock()
 		defer h.mu.Unlock()
 		h.invalidated = append(h.invalidated, deviceID)
@@ -293,6 +294,28 @@ func TestCheckStandbyTarget(t *testing.T) {
 	}
 }
 
+func TestCreatePair_RechecksTargetAtConfirmation(t *testing.T) {
+	for _, change := range []string{"revoked", "soft deleted"} {
+		t.Run(change, func(t *testing.T) {
+			h := newHarness(t)
+			require.NoError(t, h.svc.CheckStandbyTarget(t.Context(), h.orgID, h.active))
+			if change == "revoked" {
+				h.exec(t, `UPDATE fleet_node SET enrollment_status='REVOKED' WHERE id=$1`, h.active)
+			} else {
+				h.exec(t, `UPDATE fleet_node SET deleted_at=now() WHERE id=$1`, h.active)
+			}
+
+			err := sqlstores.NewSQLTransactor(h.db).RunInTx(t.Context(), func(ctx context.Context) error {
+				return h.svc.CreatePair(ctx, h.orgID, h.active, h.standby)
+			})
+
+			requireCode(t, err, connect.CodeFailedPrecondition)
+			_, paired := h.pair(t)
+			require.False(t, paired, "confirmation must not create a pair with an ineligible target")
+		})
+	}
+}
+
 func TestCreatePair_RequiresTransaction(t *testing.T) {
 	h := newHarness(t)
 
@@ -369,7 +392,13 @@ func TestFailover_MovesOnlyTheActiveNodesDevicesAndLogsActivity(t *testing.T) {
 			}
 			assert.Equal(t, bystander, h.deviceNode(t, bystanderDevice))
 			assert.Equal(t, bystander, h.discoveredBy(t, bystanderDevice))
-			assert.ElementsMatch(t, moved, h.invalidated)
+			var movedIdentifiers []models.DeviceIdentifier
+			for _, deviceID := range moved {
+				var identifier models.DeviceIdentifier
+				require.NoError(t, h.db.QueryRowContext(t.Context(), `SELECT device_identifier FROM device WHERE id=$1`, deviceID).Scan(&identifier))
+				movedIdentifiers = append(movedIdentifiers, identifier)
+			}
+			assert.ElementsMatch(t, movedIdentifiers, h.invalidated)
 			assert.Equal(t, []failoverActivity{{
 				description:    fmt.Sprintf("Moved 2 devices from fleet node 'active' (id=%d) to standby 'standby' (id=%d) %s", h.active, h.standby, tc.why),
 				result:         "success",
@@ -433,17 +462,19 @@ func TestFailover_RejectsStalePair(t *testing.T) {
 
 func TestTick_KeepsDevicesWhileFailoverIsNotDue(t *testing.T) {
 	tests := []struct {
-		name           string
-		failoverDelay  time.Duration
-		startupGrace   time.Duration
-		ready          bool
-		connectActive  bool
-		connectStandby bool
-		standbyAfter   time.Duration
+		name                  string
+		failoverDelay         time.Duration
+		startupGrace          time.Duration
+		ready                 bool
+		connectActive         bool
+		connectStandby        bool
+		standbyAfter          time.Duration
+		activeDisconnectAfter time.Duration
 	}{
 		{name: "within startup grace", startupGrace: time.Hour, ready: true, connectStandby: true},
 		{name: "within failover delay", failoverDelay: time.Hour, ready: true, connectStandby: true},
 		{name: "standby connected for less than the failover delay", failoverDelay: 300 * time.Millisecond, ready: true, connectStandby: true, standbyAfter: 400 * time.Millisecond},
+		{name: "active just disconnected after long standby uptime", failoverDelay: 300 * time.Millisecond, ready: true, connectActive: true, connectStandby: true, activeDisconnectAfter: 400 * time.Millisecond},
 		{name: "active connected", ready: true, connectActive: true, connectStandby: true},
 		{name: "standby disconnected", ready: true},
 		{name: "standby not ready", connectStandby: true},
@@ -454,14 +485,19 @@ func TestTick_KeepsDevicesWhileFailoverIsNotDue(t *testing.T) {
 			h.svc.SetTimingForTest(tc.failoverDelay, tc.startupGrace, time.Hour)
 			h.createPair(t, tc.ready)
 			deviceID := h.addDevice(t, h.active)
+			var active *control.Stream
 			if tc.connectActive {
-				h.connect(t, h.active, v7)
+				active = h.connect(t, h.active, v7)
 			}
 			time.Sleep(tc.standbyAfter)
 			if tc.connectStandby {
 				h.connect(t, h.standby, v7)
 			}
 
+			if tc.activeDisconnectAfter > 0 {
+				time.Sleep(tc.activeDisconnectAfter)
+				active.Unregister()
+			}
 			h.svc.TickForTest(t.Context(), time.Now())
 
 			pair, ok := h.pair(t)
@@ -669,7 +705,7 @@ func TestShouldHandOff(t *testing.T) {
 	}{
 		{name: "ready connected standby", ready: true, connectStandby: true, want: true},
 		{name: "standby not ready", connectStandby: true},
-		{name: "standby disconnected", ready: true},
+		{name: "standby disconnected still requires handoff", ready: true, want: true},
 		{name: "revoking the standby", ready: true, connectStandby: true, revokeStandby: true},
 		{name: "no pair", noPair: true},
 	}
@@ -974,6 +1010,8 @@ func TestTick_PendingInstallSurvivesTeardownAndRestart(t *testing.T) {
 	require.True(t, ok)
 	require.True(t, pair.ready)
 	assert.Equal(t, int32(1), exports.Load())
+	requireCode(t, restarted.DeletePair(t.Context(), h.orgID, h.active), connect.CodeFailedPrecondition)
+	require.NoError(t, restarted.HandOff(t.Context(), h.orgID, h.active))
 	require.NoError(t, restarted.DeletePair(t.Context(), h.orgID, h.active))
 	require.NoError(t, restarted.RequireNotStandby(t.Context(), h.orgID, h.standby))
 	require.NoError(t, restarted.CheckStandbyTarget(t.Context(), h.orgID, h.standby))

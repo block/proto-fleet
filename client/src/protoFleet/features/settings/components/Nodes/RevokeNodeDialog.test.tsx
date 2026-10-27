@@ -74,19 +74,16 @@ describe("RevokeNodeDialog", () => {
     );
 
     expect(screen.getByText(/"node-01" will lose access to Fleet/)).toBeInTheDocument();
-    if (!haStandbyReady) {
-      expect(screen.getByText(/Its miners will keep running, but Fleet will lose access to them/)).toBeInTheDocument();
-      expect(screen.queryByText(/must be paired with another node/)).not.toBeInTheDocument();
-    } else {
-      expect(screen.getByText(/must be paired with another node to manage them in Fleet/)).toBeInTheDocument();
-    }
+    expect(screen.getByText(/Its miners will keep running, but Fleet will lose access to them/)).toBeInTheDocument();
+    expect(screen.queryByText(/must be paired with another node/)).not.toBeInTheDocument();
     expect(screen.getByText("1 paired Proto Rig miner will lose connection.")).toBeInTheDocument();
   });
 
-  it("warns that devices are unpaired when the standby is missing from the node list", () => {
+  it("warns that Fleet loses access when the standby is missing from the node list", () => {
     render(<RevokeNodeDialog {...haProps} haRole={FleetNodeHARole.FLEET_NODE_HA_ROLE_ACTIVE} haStandbyReady />);
 
-    expect(screen.getByText(/must be paired with another node to manage them in Fleet/)).toBeInTheDocument();
+    expect(screen.getByText(/Its miners will keep running, but Fleet will lose access to them/)).toBeInTheDocument();
+    expect(screen.queryByText(/must be paired with another node/)).not.toBeInTheDocument();
   });
 
   it("explains that the peer keeps its devices when revoking a standby", () => {

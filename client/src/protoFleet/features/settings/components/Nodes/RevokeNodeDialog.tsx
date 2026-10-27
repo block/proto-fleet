@@ -85,7 +85,7 @@ const RevokeNodeDialog = ({
           <>{peerLabel} will keep managing its miners.</>
         ) : handsOffDevices ? (
           <>{peerLabel} will take over its miners.</>
-        ) : isActive && !haStandbyReady ? (
+        ) : isActive ? (
           <>Its miners will keep running, but Fleet will lose access to them.</>
         ) : (
           <>Its miners will keep running, but must be paired with another node to manage them in Fleet.</>
