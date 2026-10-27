@@ -390,8 +390,8 @@ type targetPowerResponse struct {
 type targetPowerRequest struct {
 	Watts            float64 `json:"watts"`
 	PerformanceMode  string  `json:"performanceMode"`
-	BalanceBays      bool    `json:"balanceBays"`
-	HashOnDisconnect bool    `json:"hashOnDisconnect"`
+	BalanceBays      *bool   `json:"balanceBays,omitempty"`
+	HashOnDisconnect *bool   `json:"hashOnDisconnect,omitempty"`
 }
 
 type timeSeriesBucket struct {
@@ -828,8 +828,8 @@ func (h *RESTApiHandler) handleTargetPower(w http.ResponseWriter, r *http.Reques
 		update = &targetPowerUpdate{
 			watts:            request.Watts,
 			performanceMode:  request.PerformanceMode,
-			balanceBays:      &request.BalanceBays,
-			hashOnDisconnect: &request.HashOnDisconnect,
+			balanceBays:      request.BalanceBays,
+			hashOnDisconnect: request.HashOnDisconnect,
 		}
 	}
 	h.state.mu.Lock()

@@ -1,7 +1,9 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"math"
 	"net"
 	"net/http"
@@ -247,6 +249,64 @@ func TestRPCWritesRecordHistoryLikeREST(t *testing.T) {
 				if latest.Boards[i].Mining != board.isMining() {
 					t.Fatalf("latest history sample board %s mining = %v, want %v", board.MAC, latest.Boards[i].Mining, board.isMining())
 				}
+			}
+		})
+	}
+}
+
+func TestSetTargetPowerKeepsOmittedFlags(t *testing.T) {
+	on, off := true, false
+	for _, tc := range []struct {
+		name string
+		set  func(t *testing.T, srv *httptest.Server, balanceBays, hashOnDisconnect *bool)
+	}{
+		{"REST", func(t *testing.T, srv *httptest.Server, balanceBays, hashOnDisconnect *bool) {
+			body, err := json.Marshal(targetPowerRequest{Watts: 2800, BalanceBays: balanceBays, HashOnDisconnect: hashOnDisconnect})
+			if err != nil {
+				t.Fatal(err)
+			}
+			req, err := http.NewRequest(http.MethodPut, srv.URL+"/api/v2/mining/target-power", bytes.NewReader(body))
+			if err != nil {
+				t.Fatal(err)
+			}
+			req.Header.Set("Content-Type", "application/json")
+			resp, err := http.DefaultClient.Do(req)
+			if err != nil {
+				t.Fatal(err)
+			}
+			resp.Body.Close()
+			if resp.StatusCode != http.StatusOK {
+				t.Fatalf("PUT target-power status = %d", resp.StatusCode)
+			}
+		}},
+		{"Connect", func(t *testing.T, srv *httptest.Server, balanceBays, hashOnDisconnect *bool) {
+			mining := mdkv2connect.NewMiningServiceClient(http.DefaultClient, srv.URL)
+			if _, err := mining.SetTargetPower(context.Background(), connect.NewRequest(&mdk.SetTargetPowerRequest{
+				Watts:            2800,
+				BalanceBays:      balanceBays,
+				HashOnDisconnect: hashOnDisconnect,
+			})); err != nil {
+				t.Fatalf("SetTargetPower: %v", err)
+			}
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			srv, state := newConnectTestServer(t)
+			flags := func() (bool, bool) {
+				state.mu.RLock()
+				defer state.mu.RUnlock()
+				return state.BalanceBays, state.HashOnDisconnect
+			}
+
+			tc.set(t, srv, &on, &on)
+			tc.set(t, srv, nil, nil)
+			if balanceBays, hashOnDisconnect := flags(); !balanceBays || !hashOnDisconnect {
+				t.Fatalf("after omitting both flags: balanceBays=%v hashOnDisconnect=%v, want both still true", balanceBays, hashOnDisconnect)
+			}
+
+			tc.set(t, srv, &off, nil)
+			if balanceBays, hashOnDisconnect := flags(); balanceBays || !hashOnDisconnect {
+				t.Fatalf("after clearing only balanceBays: balanceBays=%v hashOnDisconnect=%v, want false and true", balanceBays, hashOnDisconnect)
 			}
 		})
 	}
