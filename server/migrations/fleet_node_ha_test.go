@@ -39,7 +39,7 @@ func TestFleetNodeHARollbackPreservesOperationalState(t *testing.T) {
 				}
 				require.NoError(t, conn.QueryRowContext(ctx, `INSERT INTO pending_enrollment(org_id,created_by,code_hash,fleet_node_id,status,expires_at,standby_for_node_id) VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING id`, user.OrganizationID, user.DatabaseID, uuid.NewString(), enrollingNode, status, expires, active).Scan(&enrollmentID))
 			}
-			down, err := migrations.Current.ReadFile("current/001041_internal_fleet_node_standby_ha.down.sql")
+			down, err := migrations.Current.ReadFile("current/001042_internal_fleet_node_standby_ha.down.sql")
 			require.NoError(t, err)
 			// Preparing enforces one atomic statement, so a failed guard cannot leave
 			// part of the schema dropped without an enclosing migration transaction.
@@ -79,7 +79,7 @@ func TestFleetNodeHARollbackPreservesOperationalState(t *testing.T) {
 				require.NoError(t, conn.QueryRowContext(ctx, `SELECT count(*) FROM pending_enrollment WHERE id=$1`, enrollmentID).Scan(&count))
 				require.Equal(t, 1, count, "rollback preserves enrollment history")
 			}
-			up, err := migrations.Current.ReadFile("current/001041_internal_fleet_node_standby_ha.up.sql")
+			up, err := migrations.Current.ReadFile("current/001042_internal_fleet_node_standby_ha.up.sql")
 			require.NoError(t, err)
 			_, err = conn.ExecContext(ctx, string(up))
 			require.NoError(t, err, "HA schema must reapply after safe teardown")

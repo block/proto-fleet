@@ -717,7 +717,36 @@ INSERT INTO discovered_device (
     rpc_port,
     rpc_tls, endpoint_key, endpoints
 )
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, TRUE, $11, $12, $13, $14, $15)
+VALUES ($1, COALESCE((
+    SELECT dd.device_identifier
+    FROM discovered_device dd
+    WHERE dd.org_id = $1
+      AND dd.device_identifier = $2
+      AND dd.deleted_at IS NULL
+), (
+    SELECT dd.device_identifier
+    FROM discovered_device dd
+    WHERE dd.org_id = $1
+      AND dd.deleted_at IS NULL
+      AND dd.discovered_by_fleet_node_id = $3
+      AND dd.ip_address = $4
+      AND dd.driver_name = $5
+      AND dd.device_class = $6
+      AND COALESCE(dd.model, '') = COALESCE($7, '')
+      AND (
+        ($2 LIKE 'auto:%' AND dd.device_identifier LIKE 'auto:%'
+          AND dd.port = $8)
+        OR ($2 LIKE 'container:%' AND dd.device_identifier LIKE 'container:%'
+          AND dd.device_class = 2)
+      )
+    ORDER BY dd.id ASC
+    LIMIT 1
+), $2),
+    $4, $8, $9,
+    $5, $7, $10,
+    $11, $3,
+    TRUE, $6, $12, $13,
+    $14, $15)
 ON CONFLICT (org_id, device_identifier) WHERE deleted_at IS NULL DO UPDATE SET
     ip_address = EXCLUDED.ip_address,
     -- Native CT1 rediscovery must retain the existing browser endpoint.
@@ -747,7 +776,7 @@ AND (
     discovered_device.discovered_by_fleet_node_id = EXCLUDED.discovered_by_fleet_node_id
     -- The attributing node was revoked (soft-deleted), so a replacement node may
     -- reclaim its rows (otherwise a re-scan of the same stable mac:/serial: device
-    -- is rejected forever). Attribution moves to the reporter ($10), staying
+    -- is rejected forever). Attribution moves to the reporter, staying
     -- non-NULL, so cloud-exclusion (discovered_by_fleet_node_id IS NULL) is never
     -- widened. Cloud-paired and live-cross-node rows remain blocked below.
     OR (
@@ -777,14 +806,14 @@ AND (
             WHERE dp.device_id = d.id
               AND dp.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD')
           )
-          -- A device paired to THIS reporting node ($10) is node-dialed, not
+          -- A device paired to THIS reporting node is node-dialed, not
           -- cloud-dialed; its paired-like row must not block its own node's re-scan.
           AND NOT EXISTS (
             SELECT 1
             FROM fleet_node_device fnd
             WHERE fnd.device_id = d.id
               AND fnd.org_id = d.org_id
-              AND fnd.fleet_node_id = $10
+              AND fnd.fleet_node_id = $3
           )
         )
         OR EXISTS (
@@ -792,7 +821,7 @@ AND (
           FROM fleet_node_device fnd
           WHERE fnd.device_id = d.id
             AND fnd.org_id = d.org_id
-            AND fnd.fleet_node_id <> $10
+            AND fnd.fleet_node_id <> $3
         )
       )
 )
@@ -802,15 +831,15 @@ RETURNING device_class, device_identifier, endpoints
 type UpsertDiscoveredDeviceFromFleetNodeParams struct {
 	OrgID                   int64
 	DeviceIdentifier        string
+	DiscoveredByFleetNodeID sql.NullInt64
 	IpAddress               string
+	DriverName              string
+	DeviceClass             int32
+	Model                   sql.NullString
 	Port                    string
 	UrlScheme               string
-	DriverName              string
-	Model                   sql.NullString
 	Manufacturer            sql.NullString
 	FirmwareVersion         sql.NullString
-	DiscoveredByFleetNodeID sql.NullInt64
-	DeviceClass             int32
 	RpcPort                 int32
 	RpcTls                  bool
 	EndpointKey             string
@@ -827,23 +856,25 @@ type UpsertDiscoveredDeviceFromFleetNodeRow struct {
 // endpoint/credentials of a miner the cloud owns, so the update is blocked
 // unless the row is already attributed to this fleet node or to a revoked node
 // that can be reclaimed. Devices paired to the reporting node itself stay
-// refreshable, subject to the attribution guard. The agent synthesizes a stable
-// per-device identifier (mac:/serial:, else auto:<hash>), so a re-scan reuses
-// the same row.
+// refreshable, subject to the attribution guard. Synthetic identifiers include
+// the physical node id. After attribution moves to an HA peer, reconcile its
+// new synthetic identifier to the inherited endpoint within that node and org.
+// Exact identifiers take precedence, preserving the ownership guard. Container
+// identity excludes the port because CT1 browser/RPC endpoints can change.
 // A web-only scan cannot erase a saved native RPC route.
 func (q *Queries) UpsertDiscoveredDeviceFromFleetNode(ctx context.Context, arg UpsertDiscoveredDeviceFromFleetNodeParams) (UpsertDiscoveredDeviceFromFleetNodeRow, error) {
 	row := q.queryRow(ctx, q.upsertDiscoveredDeviceFromFleetNodeStmt, upsertDiscoveredDeviceFromFleetNode,
 		arg.OrgID,
 		arg.DeviceIdentifier,
+		arg.DiscoveredByFleetNodeID,
 		arg.IpAddress,
+		arg.DriverName,
+		arg.DeviceClass,
+		arg.Model,
 		arg.Port,
 		arg.UrlScheme,
-		arg.DriverName,
-		arg.Model,
 		arg.Manufacturer,
 		arg.FirmwareVersion,
-		arg.DiscoveredByFleetNodeID,
-		arg.DeviceClass,
 		arg.RpcPort,
 		arg.RpcTls,
 		arg.EndpointKey,

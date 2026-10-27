@@ -46,6 +46,10 @@ func (s *orderedPersistStore) DeviceHasActivePairing(context.Context, int64, int
 	return s.activePairing, nil
 }
 
+func (*orderedPersistStore) IsFleetNodeHAStandby(context.Context, int64, int64) (bool, error) {
+	return false, nil
+}
+
 func (s *orderedPersistStore) PairDeviceToFleetNode(context.Context, int64, int64, int64, *int64) (int64, error) {
 	return 1, nil
 }
