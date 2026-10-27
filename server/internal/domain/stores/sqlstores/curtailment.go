@@ -3303,8 +3303,9 @@ func updateCurtailmentTargetState(
 		return fleeterror.NewInternalErrorf("failed to update curtailment target (%d, %s) state: %v", eventID, deviceIdentifier, err)
 	}
 	if rows == 0 {
-		// Zero rows: either the parent event advanced to terminal (EXISTS
-		// guard) or expected_desired_state lost the race against a Stop.
+		// Zero rows: the locked_event FOR UPDATE CTE rejected the parent
+		// phase, or a desired-state, target-state, or dispatch-batch guard lost
+		// a race against lifecycle or confirmation work.
 		return interfaces.ErrCurtailmentEventStateRaceLoss
 	}
 	return nil

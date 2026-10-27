@@ -2888,18 +2888,6 @@ func (q *retryingQuerier) GetCurtailmentEventDetailByUUID(ctx context.Context, a
 	return result, err
 }
 
-func (q *retryingQuerier) GetCurtailmentOrgConfig(ctx context.Context, orgID int64) (CurtailmentOrgConfig, error) {
-	var result CurtailmentOrgConfig
-	err := q.retrier.RetryQuery(ctx, "GetCurtailmentOrgConfig", func() error {
-		callResult, callErr := q.next.GetCurtailmentOrgConfig(ctx, orgID)
-		if callErr == nil {
-			result = callResult
-		}
-		return callErr
-	})
-	return result, err
-}
-
 func (q *retryingQuerier) GetCurtailmentReconcilerHeartbeat(ctx context.Context) (CurtailmentReconcilerHeartbeat, error) {
 	var result CurtailmentReconcilerHeartbeat
 	err := q.retrier.RetryQuery(ctx, "GetCurtailmentReconcilerHeartbeat", func() error {
@@ -8598,12 +8586,6 @@ func (q *retryingQuerier) RenewFleetRuntimeLease(ctx context.Context, arg RenewF
 		return callErr
 	})
 	return result, err
-}
-
-func (q *retryingQuerier) RequestRigConfigReconciliation(ctx context.Context, arg RequestRigConfigReconciliationParams) error {
-	return q.retrier.RetryQuery(ctx, "RequestRigConfigReconciliation", func() error {
-		return q.next.RequestRigConfigReconciliation(ctx, arg)
-	})
 }
 
 func (q *retryingQuerier) RequestRigConfigReconciliationForDevices(ctx context.Context, arg RequestRigConfigReconciliationForDevicesParams) error {

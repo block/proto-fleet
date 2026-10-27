@@ -75,9 +75,9 @@ func (s *ResponseProfileService) Get(ctx context.Context, orgID, profileID int64
 }
 
 // ValidateAutomationScope strictly resolves topology selectors before an
-// automation binding or execution is accepted. Get intentionally returns
-// persisted profiles even when their selected topology was later deleted, so
-// callers that can execute a profile must opt into this live validation.
+// automation binding is accepted. Get returns persisted profiles even when
+// their selected topology was later deleted. Execution performs its own live
+// scope validation in the selector and reconciler.
 func (s *ResponseProfileService) ValidateAutomationScope(ctx context.Context, profile *models.ResponseProfile) error {
 	if s == nil || s.store == nil {
 		return fleeterror.NewUnimplementedError("curtailment response profile service is not configured")

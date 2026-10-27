@@ -325,8 +325,8 @@ func (c TargetSiteCoverage) UnknownTargetCount() int64 {
 }
 
 // InsertEventParams is the caller-supplied fields; id / created_at /
-// updated_at come from the DB. EffectiveBatchSize is computed at Start
-// from the selected-target count and stamped here.
+// updated_at come from the DB. EffectiveBatchSize is stamped at Start from
+// the explicit restore wave size or the bounded selected-target count.
 type InsertEventParams struct {
 	EventUUID                   uuid.UUID
 	OrgID                       int64

@@ -33,7 +33,6 @@ import FacilityFanSelectionModal, {
 } from "@/protoFleet/features/energy/FacilityFanSelectionModal";
 import {
   createCurtailmentPlanPreview,
-  getUnsupportedDeviceSetPreviewError,
   useCurtailmentPlanPreview,
 } from "@/protoFleet/features/energy/useCurtailmentPlanPreview";
 import { Alert, LightningAlt, Question } from "@/shared/assets/icons";
@@ -186,7 +185,6 @@ interface PreviewStateOptions {
   apiPreview: PreviewPaneProps;
   controlledPreview?: PreviewPaneProps;
   isEditMode: boolean;
-  unsupportedDeviceSetPreviewError?: string;
 }
 
 interface ApplyToTarget {
@@ -1257,18 +1255,9 @@ function getTopologyApplyToTarget(label: "Buildings" | "Racks" | "Groups", ids: 
   };
 }
 
-function getPreviewState({
-  apiPreview,
-  controlledPreview,
-  isEditMode,
-  unsupportedDeviceSetPreviewError,
-}: PreviewStateOptions): PreviewPaneProps {
+function getPreviewState({ apiPreview, controlledPreview, isEditMode }: PreviewStateOptions): PreviewPaneProps {
   if (isEditMode) {
     return controlledPreview ?? { preview: undefined, previewError: undefined, isPreviewLoading: false };
-  }
-
-  if (unsupportedDeviceSetPreviewError) {
-    return { preview: undefined, previewError: unsupportedDeviceSetPreviewError, isPreviewLoading: false };
   }
 
   return controlledPreview ?? apiPreview;
@@ -1424,7 +1413,6 @@ function CurtailmentStartModalContent({
 
     return values;
   }, [selectedSiteIds, siteOptions, values]);
-  const unsupportedDeviceSetPreviewError = getUnsupportedDeviceSetPreviewError(effectiveValues);
   const controlledPreviewValue = preview
     ? createCurtailmentPlanPreview(effectiveValues, {
         selectedMinerCount: preview.selectedMinerCount,
@@ -1447,7 +1435,6 @@ function CurtailmentStartModalContent({
     apiPreview,
     controlledPreview,
     isEditMode: isLiveCurtailmentEditMode,
-    unsupportedDeviceSetPreviewError,
   });
 
   const hasLocalFormError = Object.keys(localErrors).length > 0;
@@ -2192,9 +2179,8 @@ function CurtailmentStartModalContent({
               enabling it also opts in maintenance-flagged miners via the request builders.
               Re-add the checkbox here if maintenance ever needs to become independently togglable.
 
-              The checkbox is also available when saving logical topology scopes. Topology Run/Test
-              stays disabled until the backend lifecycle lands; explicit miner snapshots remain
-              ineligible for the all-paired policy.
+              The checkbox is also available for logical topology scopes; explicit miner snapshots
+              remain ineligible for the all-paired policy.
             */}
             {isFullFleetMode && supportsAllPairedTargeting(values) ? (
               <Section title="Miners">

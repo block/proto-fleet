@@ -198,6 +198,9 @@ placeholder. Live firmware qualification remains outstanding.
 
 ## Hosted ownership and curtailment
 
+See the [curtailment schema notes](../docs/architecture/curtailment-schema.md)
+for persisted scopes, target ownership, states and timestamp behavior.
+
 Host curtailment applies across the fleet regardless of hosted account ownership.
 Curtail, restore, and fallback-config delivery remain available during ownership
 handoffs and in reserved, active, or quarantined ownership states. Handoffs retain

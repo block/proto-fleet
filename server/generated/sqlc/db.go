@@ -813,9 +813,6 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.getCurtailmentEventDetailByUUIDStmt, err = db.PrepareContext(ctx, getCurtailmentEventDetailByUUID); err != nil {
 		return nil, fmt.Errorf("error preparing query GetCurtailmentEventDetailByUUID: %w", err)
 	}
-	if q.getCurtailmentOrgConfigStmt, err = db.PrepareContext(ctx, getCurtailmentOrgConfig); err != nil {
-		return nil, fmt.Errorf("error preparing query GetCurtailmentOrgConfig: %w", err)
-	}
 	if q.getCurtailmentReconcilerHeartbeatStmt, err = db.PrepareContext(ctx, getCurtailmentReconcilerHeartbeat); err != nil {
 		return nil, fmt.Errorf("error preparing query GetCurtailmentReconcilerHeartbeat: %w", err)
 	}
@@ -2330,9 +2327,6 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.renewFleetRuntimeLeaseStmt, err = db.PrepareContext(ctx, renewFleetRuntimeLease); err != nil {
 		return nil, fmt.Errorf("error preparing query RenewFleetRuntimeLease: %w", err)
-	}
-	if q.requestRigConfigReconciliationStmt, err = db.PrepareContext(ctx, requestRigConfigReconciliation); err != nil {
-		return nil, fmt.Errorf("error preparing query RequestRigConfigReconciliation: %w", err)
 	}
 	if q.requestRigConfigReconciliationForDevicesStmt, err = db.PrepareContext(ctx, requestRigConfigReconciliationForDevices); err != nil {
 		return nil, fmt.Errorf("error preparing query RequestRigConfigReconciliationForDevices: %w", err)
@@ -4204,11 +4198,6 @@ func (q *Queries) Close() error {
 	if q.getCurtailmentEventDetailByUUIDStmt != nil {
 		if cerr := q.getCurtailmentEventDetailByUUIDStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getCurtailmentEventDetailByUUIDStmt: %w", cerr)
-		}
-	}
-	if q.getCurtailmentOrgConfigStmt != nil {
-		if cerr := q.getCurtailmentOrgConfigStmt.Close(); cerr != nil {
-			err = fmt.Errorf("error closing getCurtailmentOrgConfigStmt: %w", cerr)
 		}
 	}
 	if q.getCurtailmentReconcilerHeartbeatStmt != nil {
@@ -6736,11 +6725,6 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing renewFleetRuntimeLeaseStmt: %w", cerr)
 		}
 	}
-	if q.requestRigConfigReconciliationStmt != nil {
-		if cerr := q.requestRigConfigReconciliationStmt.Close(); cerr != nil {
-			err = fmt.Errorf("error closing requestRigConfigReconciliationStmt: %w", cerr)
-		}
-	}
 	if q.requestRigConfigReconciliationForDevicesStmt != nil {
 		if cerr := q.requestRigConfigReconciliationForDevicesStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing requestRigConfigReconciliationForDevicesStmt: %w", cerr)
@@ -7963,7 +7947,6 @@ type Queries struct {
 	getCurtailmentEventByIdempotencyKeyStmt                      *sql.Stmt
 	getCurtailmentEventByUUIDStmt                                *sql.Stmt
 	getCurtailmentEventDetailByUUIDStmt                          *sql.Stmt
-	getCurtailmentOrgConfigStmt                                  *sql.Stmt
 	getCurtailmentReconcilerHeartbeatStmt                        *sql.Stmt
 	getCurtailmentResponseProfileByOrgStmt                       *sql.Stmt
 	getCurtailmentTargetRollupByEventStmt                        *sql.Stmt
@@ -8469,7 +8452,6 @@ type Queries struct {
 	removeDevicesFromDeviceSetStmt                               *sql.Stmt
 	renameHostedAccountStmt                                      *sql.Stmt
 	renewFleetRuntimeLeaseStmt                                   *sql.Stmt
-	requestRigConfigReconciliationStmt                           *sql.Stmt
 	requestRigConfigReconciliationForDevicesStmt                 *sql.Stmt
 	requeueFirmwareRolloutDevicesStmt                            *sql.Stmt
 	requeueRigConfigReconciliationAfterTerminalFailureStmt       *sql.Stmt
@@ -8923,7 +8905,6 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getCurtailmentEventByIdempotencyKeyStmt:                      q.getCurtailmentEventByIdempotencyKeyStmt,
 		getCurtailmentEventByUUIDStmt:                                q.getCurtailmentEventByUUIDStmt,
 		getCurtailmentEventDetailByUUIDStmt:                          q.getCurtailmentEventDetailByUUIDStmt,
-		getCurtailmentOrgConfigStmt:                                  q.getCurtailmentOrgConfigStmt,
 		getCurtailmentReconcilerHeartbeatStmt:                        q.getCurtailmentReconcilerHeartbeatStmt,
 		getCurtailmentResponseProfileByOrgStmt:                       q.getCurtailmentResponseProfileByOrgStmt,
 		getCurtailmentTargetRollupByEventStmt:                        q.getCurtailmentTargetRollupByEventStmt,
@@ -9429,7 +9410,6 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		removeDevicesFromDeviceSetStmt:                               q.removeDevicesFromDeviceSetStmt,
 		renameHostedAccountStmt:                                      q.renameHostedAccountStmt,
 		renewFleetRuntimeLeaseStmt:                                   q.renewFleetRuntimeLeaseStmt,
-		requestRigConfigReconciliationStmt:                           q.requestRigConfigReconciliationStmt,
 		requestRigConfigReconciliationForDevicesStmt:                 q.requestRigConfigReconciliationForDevicesStmt,
 		requeueFirmwareRolloutDevicesStmt:                            q.requeueFirmwareRolloutDevicesStmt,
 		requeueRigConfigReconciliationAfterTerminalFailureStmt:       q.requeueRigConfigReconciliationAfterTerminalFailureStmt,

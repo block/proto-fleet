@@ -49,7 +49,7 @@ type Scope struct {
 type PreviewRequest struct {
 	OrgID                       int64
 	Scope                       Scope
-	Mode                        models.Mode     // must be ModeFixedKw
+	Mode                        models.Mode     // ModeFixedKw or ModeFullFleet
 	Strategy                    models.Strategy // default StrategyLeastEfficientFirst
 	Level                       models.Level    // must be LevelFull
 	Priority                    models.Priority // PriorityNormal or PriorityEmergency
@@ -76,8 +76,8 @@ type StartRequest struct {
 	RestoreBatchIntervalSec int32
 	MinCurtailedDurationSec int32
 	// Curtailed dispatch controls. Manual Start calls leave
-	// UseProfileCurtailSettings=false so effective_batch_size also drives the
-	// curtail batch. Automation/profile starts set it true so nil
+	// UseProfileCurtailSettings=false and derive a bounded curtail batch from
+	// the selected-target count. Automation/profile starts set it true so nil
 	// CurtailBatchSize is persisted as NULL, meaning "curtail all selected
 	// targets in scope."
 	CurtailBatchSize          *int32
@@ -116,8 +116,8 @@ type StartRequest struct {
 	CreatedByUserID int64
 }
 
-// Service orchestrates Preview / Start through the shared config / scope /
-// candidate / selector pipeline.
+// Service plans curtailment and manages event lifecycle, history, and recovery.
+// Preview and Start share the config / scope / candidate / selector pipeline.
 type Service struct {
 	store                    interfaces.CurtailmentStore
 	fanStore                 interfaces.CurtailmentFanStateStore
@@ -233,12 +233,9 @@ func (s *Service) Start(ctx context.Context, req StartRequest) (*Plan, error) {
 		// Defense-in-depth; FIXED_KW's validator + selector prevent this.
 		return nil, fleeterror.NewInvalidArgumentError("no targets selected")
 	}
-	// FULL_FLEET with a genuinely empty scope is valid (nothing currently
-	// curtailable). Closed-loop scopes persist an active watcher so newly
-	// eligible miners can be admitted while the event is asserted.
-	// runSelector rejects the unsafe non-empty/all-skipped case before this
-	// point so automation cannot interpret "nothing actionable curtailed" as
-	// satisfied.
+	// FULL_FLEET permits an empty selection, including an all-skipped scope.
+	// Closed-loop scopes persist a watcher so newly eligible miners can be
+	// admitted while the event is asserted.
 
 	// max_duration_seconds=nil + !AllowUnbounded means "use org default".
 	// Bounds-check the normalized value so a misconfigured default surfaces
@@ -415,9 +412,6 @@ func (s *Service) Update(ctx context.Context, req UpdateRequest) (*models.Event,
 	event, err := s.store.GetEventByUUID(ctx, req.OrgID, req.EventUUID)
 	if err != nil {
 		return nil, err
-	}
-	if event == nil {
-		return nil, fleeterror.NewNotFoundErrorf("curtailment event not found: %s", req.EventUUID)
 	}
 
 	switch event.State { //nolint:exhaustive // pending/active is the operator-safe surface; everything else maps to the default rejection.
@@ -1164,9 +1158,6 @@ func (s *Service) GetEvent(ctx context.Context, orgID int64, eventUUID uuid.UUID
 	if err != nil {
 		return nil, err
 	}
-	if event == nil {
-		return nil, fleeterror.NewNotFoundErrorf("curtailment event not found: %s", eventUUID)
-	}
 	return event, nil
 }
 
@@ -1251,7 +1242,7 @@ func (s *Service) ListTargetSiteCoverageByEvents(
 // runSelector runs the org-config → scope → candidate → classify →
 // build-plan pipeline shared by Preview and Start. Returns the resolved
 // candidate floor (for the decision snapshot) and the OrgConfig (so Start
-// can resolve max_duration_seconds=0 without a second DB read).
+// can resolve a nil MaxDurationSeconds without a second DB read).
 func (s *Service) runSelector(ctx context.Context, req PreviewRequest) (*Plan, int32, *models.OrgConfig, error) {
 	candidateFilter, err := s.resolveScopeForOrg(ctx, req.OrgID, req.Scope)
 	if err != nil {
@@ -1323,8 +1314,7 @@ func (s *Service) runSelector(ctx context.Context, req PreviewRequest) (*Plan, i
 		cooldownSet = toStringSet(cooldownDevices)
 	}
 
-	// TODO: registry-driven curtail_full capability check. classifyCandidates
-	// already skips devices missing driver metadata as defense-in-depth.
+	// classifyCandidates rejects devices missing driver metadata.
 	eligible, preFiltered, summary := classifyCandidates(candidates, classifyOpts{
 		IncludeMaintenance: req.IncludeMaintenance && req.ForceIncludeMaintenance,
 		ActiveEventDevices: activeSet,
@@ -1384,10 +1374,9 @@ const (
 	nonAdminRestoreBatchIntervalMax   int32 = 5 * 60
 	restoreBatchIntervalUpperBoundSec int32 = 60 * 60
 	facilityFanDelayUpperBoundSec     int32 = 60 * 60
-	// New response-profile selections and the public Start RPC are limited to
-	// eight. The domain Start path retains the historical ceiling so profiles
-	// saved before that limit can still execute until an operator deliberately
-	// reduces their fan set.
+	// New response-profile fan selections are limited to eight. Start accepts
+	// up to the historical ceiling of 1024 so saved profiles can execute until
+	// an operator deliberately reduces their fan set.
 	facilityFanDeviceCountMax       = 8
 	facilityFanDeviceCountLegacyMax = 1024
 )

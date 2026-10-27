@@ -40,9 +40,9 @@ const (
 	CurtailmentMode_CURTAILMENT_MODE_THERMAL_LIMIT    CurtailmentMode = 5 // reserved (v3)
 	CurtailmentMode_CURTAILMENT_MODE_PRICE_BREAKEVEN  CurtailmentMode = 6 // reserved (v3)
 	CurtailmentMode_CURTAILMENT_MODE_POWER_TRAJECTORY CurtailmentMode = 7 // reserved (v3)
-	// Open-loop: curtail every eligible candidate in the selected scope (no kW
-	// target), frozen at creation. Whole-org scope = whole fleet; a site /
-	// device-list scope = that site.
+	// Curtail every eligible candidate in the selected scope, without a kW
+	// target. Whole-org, site, building, rack, and group scopes reconcile
+	// membership continuously; explicit miner scopes keep a fixed target set.
 	CurtailmentMode_CURTAILMENT_MODE_FULL_FLEET CurtailmentMode = 8
 )
 
@@ -105,7 +105,7 @@ type CurtailmentStrategy int32
 const (
 	CurtailmentStrategy_CURTAILMENT_STRATEGY_UNSPECIFIED CurtailmentStrategy = 0
 	// Economic ranking by per-miner attributes.
-	CurtailmentStrategy_CURTAILMENT_STRATEGY_LEAST_EFFICIENT_FIRST CurtailmentStrategy = 1 // v1 default: worst J/TH first
+	CurtailmentStrategy_CURTAILMENT_STRATEGY_LEAST_EFFICIENT_FIRST CurtailmentStrategy = 1 // default: worst J/H first
 	CurtailmentStrategy_CURTAILMENT_STRATEGY_MOST_POWER_FIRST      CurtailmentStrategy = 2 // reserved: biggest single-miner shed first
 	CurtailmentStrategy_CURTAILMENT_STRATEGY_OLDEST_HARDWARE_FIRST CurtailmentStrategy = 3 // reserved: oldest gear first
 	// Reliability ranking by stability heuristics.
@@ -218,7 +218,8 @@ const (
 	CurtailmentPriority_CURTAILMENT_PRIORITY_UNSPECIFIED CurtailmentPriority = 0
 	CurtailmentPriority_CURTAILMENT_PRIORITY_NORMAL      CurtailmentPriority = 1 // default priority
 	CurtailmentPriority_CURTAILMENT_PRIORITY_HIGH        CurtailmentPriority = 2
-	// EMERGENCY bypasses min-duration, but not maintenance checks.
+	// EMERGENCY disables post-event cooldown during selection. Only Stop's
+	// admin-gated force bypasses min-duration; maintenance checks still apply.
 	CurtailmentPriority_CURTAILMENT_PRIORITY_EMERGENCY CurtailmentPriority = 3
 )
 
@@ -351,7 +352,7 @@ const (
 	CurtailmentTargetState_CURTAILMENT_TARGET_STATE_UNAVAILABLE CurtailmentTargetState = 9
 	// Terminal outcomes.
 	CurtailmentTargetState_CURTAILMENT_TARGET_STATE_RESOLVED       CurtailmentTargetState = 5 // event ended cleanly for this target
-	CurtailmentTargetState_CURTAILMENT_TARGET_STATE_RELEASED       CurtailmentTargetState = 6 // removed by closed-loop mid-event (v3+); ends target, not event
+	CurtailmentTargetState_CURTAILMENT_TARGET_STATE_RELEASED       CurtailmentTargetState = 6 // ownership released; ends target, not necessarily event
 	CurtailmentTargetState_CURTAILMENT_TARGET_STATE_RESTORE_FAILED CurtailmentTargetState = 7 // unreachable after restore was attempted
 )
 
@@ -1171,11 +1172,10 @@ type CurtailmentEvent struct {
 	FanOnSentAt          *timestamppb.Timestamp `protobuf:"bytes,49,opt,name=fan_on_sent_at,json=fanOnSentAt,proto3" json:"fan_on_sent_at,omitempty"`
 	FanLastError         string                 `protobuf:"bytes,50,opt,name=fan_last_error,json=fanLastError,proto3" json:"fan_last_error,omitempty"`
 	FanAirflowReopenedAt *timestamppb.Timestamp `protobuf:"bytes,51,opt,name=fan_airflow_reopened_at,json=fanAirflowReopenedAt,proto3" json:"fan_airflow_reopened_at,omitempty"`
-	// Server-resolved restore batch size stamped at Start. restore_batch_size=0
-	// means restore all pending targets in one wave up to the server's explicit
-	// max restore wave size; positive values are used as the caller's explicit
-	// restore wave size.
-	// Clients display this; restorer reads it.
+	// Server-resolved batch size stamped at Start for display and explicit
+	// restore batching. When restore_batch_size is positive, the restorer uses
+	// this value. When restore_batch_size=0, the restorer ignores this value and
+	// claims up to the server's maximum restore wave size each time.
 	EffectiveBatchSize uint32 `protobuf:"varint,24,opt,name=effective_batch_size,json=effectiveBatchSize,proto3" json:"effective_batch_size,omitempty"`
 	// Profile-backed executions can throttle Curtail dispatch separately from
 	// Restore. Unset curtail_batch_size means all selected targets.
@@ -1183,7 +1183,7 @@ type CurtailmentEvent struct {
 	CurtailBatchIntervalSec uint32  `protobuf:"varint,27,opt,name=curtail_batch_interval_sec,json=curtailBatchIntervalSec,proto3" json:"curtail_batch_interval_sec,omitempty"`
 	// Operator-supplied reason.
 	Reason string `protobuf:"bytes,20,opt,name=reason,proto3" json:"reason,omitempty"`
-	// Trigger attribution; empty for direct user/API-key calls.
+	// Caller-supplied trigger attribution; direct user/API-key calls may set it.
 	ExternalSource    string `protobuf:"bytes,21,opt,name=external_source,json=externalSource,proto3" json:"external_source,omitempty"`
 	ExternalReference string `protobuf:"bytes,22,opt,name=external_reference,json=externalReference,proto3" json:"external_reference,omitempty"`
 	IdempotencyKey    string `protobuf:"bytes,23,opt,name=idempotency_key,json=idempotencyKey,proto3" json:"idempotency_key,omitempty"`
@@ -2083,8 +2083,8 @@ type CurtailmentCandidate struct {
 	state            protoimpl.MessageState `protogen:"open.v1"`
 	DeviceIdentifier string                 `protobuf:"bytes,1,opt,name=device_identifier,json=deviceIdentifier,proto3" json:"device_identifier,omitempty"`
 	CurrentPowerW    float64                `protobuf:"fixed64,2,opt,name=current_power_w,json=currentPowerW,proto3" json:"current_power_w,omitempty"`
-	EfficiencyJh     float64                `protobuf:"fixed64,3,opt,name=efficiency_jh,json=efficiencyJh,proto3" json:"efficiency_jh,omitempty"`
-	ReasonSelected   string                 `protobuf:"bytes,4,opt,name=reason_selected,json=reasonSelected,proto3" json:"reason_selected,omitempty"` // human-readable selection rationale
+	EfficiencyJh     float64                `protobuf:"fixed64,3,opt,name=efficiency_jh,json=efficiencyJh,proto3" json:"efficiency_jh,omitempty"`     // hourly average in joules per hash (J/H), not J/TH
+	ReasonSelected   string                 `protobuf:"bytes,4,opt,name=reason_selected,json=reasonSelected,proto3" json:"reason_selected,omitempty"` // machine token, e.g. "least_efficient_first"
 	unknownFields    protoimpl.UnknownFields
 	sizeCache        protoimpl.SizeCache
 }
@@ -2152,7 +2152,7 @@ type SkippedCandidate struct {
 	state            protoimpl.MessageState `protogen:"open.v1"`
 	DeviceIdentifier string                 `protobuf:"bytes,1,opt,name=device_identifier,json=deviceIdentifier,proto3" json:"device_identifier,omitempty"`
 	Reason           string                 `protobuf:"bytes,2,opt,name=reason,proto3" json:"reason,omitempty"`           // canonical exclusion reason (e.g. "phantom_load_no_hash")
-	Description      string                 `protobuf:"bytes,3,opt,name=description,proto3" json:"description,omitempty"` // human-readable elaboration
+	Description      string                 `protobuf:"bytes,3,opt,name=description,proto3" json:"description,omitempty"` // currently unpopulated; use reason
 	unknownFields    protoimpl.UnknownFields
 	sizeCache        protoimpl.SizeCache
 }
@@ -2247,8 +2247,8 @@ type PreviewCurtailmentPlanRequest struct {
 	// event still owns maintenance-flagged miners but holds them in the
 	// UNAVAILABLE state until maintenance clears.
 	ForceIncludeAllPairedMiners bool `protobuf:"varint,30,opt,name=force_include_all_paired_miners,json=forceIncludeAllPairedMiners,proto3" json:"force_include_all_paired_miners,omitempty"`
-	// New topology selectors require version 1. Zero keeps current site/miner
-	// callers valid while the server-first rollout is in progress.
+	// Building, rack, and group selectors require version 1. Zero is accepted
+	// for whole-org, site, and explicit-miner scopes; ProtoFleet sends version 1.
 	ScopeSchemaVersion uint32 `protobuf:"varint,31,opt,name=scope_schema_version,json=scopeSchemaVersion,proto3" json:"scope_schema_version,omitempty"`
 	// Set together when previewing values copied from a saved response profile.
 	ResponseProfileId               int64  `protobuf:"varint,32,opt,name=response_profile_id,json=responseProfileId,proto3" json:"response_profile_id,omitempty"`
@@ -2685,7 +2685,7 @@ type StartCurtailmentRequest struct {
 	//	*StartCurtailmentRequest_SitePowerCap
 	ModeParams isStartCurtailmentRequest_ModeParams `protobuf_oneof:"mode_params"`
 	// Operational controls.
-	MaxDurationSeconds uint32 `protobuf:"varint,20,opt,name=max_duration_seconds,json=maxDurationSeconds,proto3" json:"max_duration_seconds,omitempty"` // 0 = no cap
+	MaxDurationSeconds uint32 `protobuf:"varint,20,opt,name=max_duration_seconds,json=maxDurationSeconds,proto3" json:"max_duration_seconds,omitempty"` // 0 = org default unless allow_unbounded
 	// Default 0 = restore all pending targets in one wave up to the server's
 	// explicit max restore wave size. Positive values are persisted and used as
 	// the caller's explicit restore wave size.
@@ -2705,7 +2705,7 @@ type StartCurtailmentRequest struct {
 	CandidateMinPowerWOverride *uint32 `protobuf:"varint,26,opt,name=candidate_min_power_w_override,json=candidateMinPowerWOverride,proto3,oneof" json:"candidate_min_power_w_override,omitempty"`
 	// Admin-only acknowledgement to opt out of `max_duration_default_sec`
 	// normalization. Default false; otherwise `max_duration_seconds=0` is
-	// normalized to the per-org default at handler entry.
+	// normalized to the per-org default by the domain service.
 	AllowUnbounded bool `protobuf:"varint,27,opt,name=allow_unbounded,json=allowUnbounded,proto3" json:"allow_unbounded,omitempty"`
 	// How long restored targets remain excluded from selection. Zero disables cooldown.
 	PostEventCooldownSec uint32 `protobuf:"varint,29,opt,name=post_event_cooldown_sec,json=postEventCooldownSec,proto3" json:"post_event_cooldown_sec,omitempty"`
@@ -2725,8 +2725,8 @@ type StartCurtailmentRequest struct {
 	FacilityFanDeviceIds []int64 `protobuf:"varint,38,rep,packed,name=facility_fan_device_ids,json=facilityFanDeviceIds,proto3" json:"facility_fan_device_ids,omitempty"`
 	FanOffDelaySec       uint32  `protobuf:"varint,39,opt,name=fan_off_delay_sec,json=fanOffDelaySec,proto3" json:"fan_off_delay_sec,omitempty"`
 	FanRestoreDelaySec   uint32  `protobuf:"varint,40,opt,name=fan_restore_delay_sec,json=fanRestoreDelaySec,proto3" json:"fan_restore_delay_sec,omitempty"`
-	// New topology selectors require version 1. Zero keeps current site/miner
-	// callers valid while the server-first rollout is in progress.
+	// Building, rack, and group selectors require version 1. Zero is accepted
+	// for whole-org, site, and explicit-miner scopes; ProtoFleet sends version 1.
 	ScopeSchemaVersion uint32 `protobuf:"varint,41,opt,name=scope_schema_version,json=scopeSchemaVersion,proto3" json:"scope_schema_version,omitempty"`
 	// Set together when starting values copied from a saved response profile.
 	// The server locks this revision in the event-create transaction.
@@ -3355,17 +3355,18 @@ func (x *StopCurtailmentResponse) GetEvent() *CurtailmentEvent {
 	return nil
 }
 
-// ListActiveCurtailments returns every non-terminal event for the caller's
-// org. Multiple can be active when they target disjoint device scopes (e.g.
+// ListActiveCurtailments returns non-terminal events in the caller's org
+// whose authorization requirements the caller satisfies. Multiple can be
+// active when they target disjoint device scopes (e.g.
 // one per site). Each event carries its metadata, scope, mode params,
 // target-site coverage, and a live `target_rollup` (per-state counts of the
 // event's current target set, the operational truth for active displays) but
 // omits per-device targets and the decision snapshot; use GetCurtailmentEvent
 // for full per-target detail and event-start snapshot context.
 //
-// Whole-org events omit `target_rollup` when the caller's curtailment:read
-// grant is narrowed at any site: the rollup aggregates target counts across
-// every site, so it requires unnarrowed org-wide read.
+// Whole-org events require unnarrowed org-wide curtailment:read and are
+// filtered out for callers whose grant is narrowed at any site. Trigger
+// attribution and idempotency fields are scrubbed from list responses.
 type ListActiveCurtailmentsRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	unknownFields protoimpl.UnknownFields
@@ -3447,7 +3448,10 @@ func (x *ListActiveCurtailmentsResponse) GetEvents() []*CurtailmentEvent {
 	return nil
 }
 
-// ListCurtailmentEvents returns historical events. Each event omits
+// ListCurtailmentEvents returns permitted events in any state unless filtered.
+// Permission filtering scans a bounded number of database pages, so a response
+// may be short or empty with a nonempty next_page_token. Continue until that
+// token is empty. Each event omits
 // `target_rollup`/`targets`, scrubs webhook trigger metadata
 // (`external_source`, `external_reference`, `idempotency_key`), and
 // ships a trimmed `decision_snapshot` where the per-device `skipped`
@@ -3530,7 +3534,8 @@ func (x *ListCurtailmentEventsRequest) GetStateFilters() []CurtailmentEventState
 type ListCurtailmentEventsResponse struct {
 	state  protoimpl.MessageState `protogen:"open.v1"`
 	Events []*CurtailmentEvent    `protobuf:"bytes,1,rep,name=events,proto3" json:"events,omitempty"`
-	// Empty when no further pages remain.
+	// Empty when no further pages remain; may be nonempty even on a short or
+	// empty page after permission filtering.
 	NextPageToken string `protobuf:"bytes,2,opt,name=next_page_token,json=nextPageToken,proto3" json:"next_page_token,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -5353,7 +5358,7 @@ type CurtailmentResponseProfile struct {
 	state       protoimpl.MessageState `protogen:"open.v1"`
 	ProfileId   int64                  `protobuf:"varint,1,opt,name=profile_id,json=profileId,proto3" json:"profile_id,omitempty"`
 	ProfileName string                 `protobuf:"bytes,2,opt,name=profile_name,json=profileName,proto3" json:"profile_name,omitempty"`
-	// Unset site means the profile applies to the whole org.
+	// Singular site projection when applicable; read scopes for the full selector.
 	Site *ScopeSite `protobuf:"bytes,3,opt,name=site,proto3" json:"site,omitempty"`
 	// Executable terminal selector. Repeated entries share one selector type.
 	Scopes   []*CurtailmentScope `protobuf:"bytes,17,rep,name=scopes,proto3" json:"scopes,omitempty"`
@@ -5787,9 +5792,9 @@ func (x *GetCurtailmentResponseProfileResponse) GetProfile() *CurtailmentRespons
 type CreateCurtailmentResponseProfileRequest struct {
 	state       protoimpl.MessageState `protogen:"open.v1"`
 	ProfileName string                 `protobuf:"bytes,1,opt,name=profile_name,json=profileName,proto3" json:"profile_name,omitempty"`
-	// Unset site means the profile applies to the whole org.
+	// Set exactly one of site or nonempty scopes. Use scopes for whole-org selection.
 	Site *ScopeSite `protobuf:"bytes,2,opt,name=site,proto3" json:"site,omitempty"`
-	// Required unless site is populated; scopes replaces site when set.
+	// Required unless site is populated; cannot be combined with site.
 	Scopes   []*CurtailmentScope `protobuf:"bytes,17,rep,name=scopes,proto3" json:"scopes,omitempty"`
 	Mode     CurtailmentMode     `protobuf:"varint,3,opt,name=mode,proto3,enum=curtailment.v1.CurtailmentMode" json:"mode,omitempty"`
 	Strategy CurtailmentStrategy `protobuf:"varint,4,opt,name=strategy,proto3,enum=curtailment.v1.CurtailmentStrategy" json:"strategy,omitempty"`
@@ -6059,9 +6064,9 @@ type UpdateCurtailmentResponseProfileRequest struct {
 	state       protoimpl.MessageState `protogen:"open.v1"`
 	ProfileId   int64                  `protobuf:"varint,1,opt,name=profile_id,json=profileId,proto3" json:"profile_id,omitempty"`
 	ProfileName string                 `protobuf:"bytes,2,opt,name=profile_name,json=profileName,proto3" json:"profile_name,omitempty"`
-	// Unset site means the profile applies to the whole org.
+	// Set exactly one of site or nonempty scopes. Use scopes for whole-org selection.
 	Site *ScopeSite `protobuf:"bytes,3,opt,name=site,proto3" json:"site,omitempty"`
-	// Required unless site is populated; scopes replaces site when set.
+	// Required unless site is populated; cannot be combined with site.
 	Scopes   []*CurtailmentScope `protobuf:"bytes,17,rep,name=scopes,proto3" json:"scopes,omitempty"`
 	Mode     CurtailmentMode     `protobuf:"varint,4,opt,name=mode,proto3,enum=curtailment.v1.CurtailmentMode" json:"mode,omitempty"`
 	Strategy CurtailmentStrategy `protobuf:"varint,5,opt,name=strategy,proto3,enum=curtailment.v1.CurtailmentStrategy" json:"strategy,omitempty"`

@@ -303,9 +303,11 @@ func TestRigConfigTerminalFailureRequeueIsDeferredWithoutBeingLost(t *testing.T)
 		DeviceID: device.DatabaseID, PairingStatus: sqlc.PairingStatusEnumPAIRED,
 	})
 	require.NoError(t, err)
-	require.NoError(t, queries.RequestRigConfigReconciliation(ctx, sqlc.RequestRigConfigReconciliationParams{
-		OrganizationID: user.OrganizationID,
-		RequestedBy:    user.DatabaseID,
+	require.NoError(t, queries.RequestRigConfigReconciliationForDevices(ctx, sqlc.RequestRigConfigReconciliationForDevicesParams{
+		ContainerDeviceClass: int32(commonpb.DeviceClass_DEVICE_CLASS_CONTAINER),
+		OrganizationID:       user.OrganizationID,
+		RequestedBy:          user.DatabaseID,
+		DeviceIdentifiers:    []string{device.ID},
 	}))
 	require.NoError(t, queries.CompleteRigConfigReconciliation(ctx, sqlc.CompleteRigConfigReconciliationParams{
 		OrganizationID:     user.OrganizationID,
@@ -395,9 +397,11 @@ func TestRigConfigTerminalFailureRequeueIsDeferredWithoutBeingLost(t *testing.T)
 	}))
 	createBatch("rig-config-orphan-1")
 	createBatch("rig-config-orphan-2")
-	require.NoError(t, queries.RequestRigConfigReconciliation(ctx, sqlc.RequestRigConfigReconciliationParams{
-		OrganizationID: user.OrganizationID,
-		RequestedBy:    user.DatabaseID,
+	require.NoError(t, queries.RequestRigConfigReconciliationForDevices(ctx, sqlc.RequestRigConfigReconciliationForDevicesParams{
+		ContainerDeviceClass: int32(commonpb.DeviceClass_DEVICE_CLASS_CONTAINER),
+		OrganizationID:       user.OrganizationID,
+		RequestedBy:          user.DatabaseID,
+		DeviceIdentifiers:    []string{device.ID},
 	}))
 	claimed, err = queries.ClaimRigConfigReconciliation(ctx)
 	require.NoError(t, err)

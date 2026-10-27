@@ -418,11 +418,10 @@ export type CurtailmentEvent = Message<"curtailment.v1.CurtailmentEvent"> & {
   fanAirflowReopenedAt?: Timestamp | undefined;
 
   /**
-   * Server-resolved restore batch size stamped at Start. restore_batch_size=0
-   * means restore all pending targets in one wave up to the server's explicit
-   * max restore wave size; positive values are used as the caller's explicit
-   * restore wave size.
-   * Clients display this; restorer reads it.
+   * Server-resolved batch size stamped at Start for display and explicit
+   * restore batching. When restore_batch_size is positive, the restorer uses
+   * this value. When restore_batch_size=0, the restorer ignores this value and
+   * claims up to the server's maximum restore wave size each time.
    *
    * @generated from field: uint32 effective_batch_size = 24;
    */
@@ -449,7 +448,7 @@ export type CurtailmentEvent = Message<"curtailment.v1.CurtailmentEvent"> & {
   reason: string;
 
   /**
-   * Trigger attribution; empty for direct user/API-key calls.
+   * Caller-supplied trigger attribution; direct user/API-key calls may set it.
    *
    * @generated from field: string external_source = 21;
    */
@@ -802,12 +801,14 @@ export type CurtailmentCandidate = Message<"curtailment.v1.CurtailmentCandidate"
   currentPowerW: number;
 
   /**
+   * hourly average in joules per hash (J/H), not J/TH
+   *
    * @generated from field: double efficiency_jh = 3;
    */
   efficiencyJh: number;
 
   /**
-   * human-readable selection rationale
+   * machine token, e.g. "least_efficient_first"
    *
    * @generated from field: string reason_selected = 4;
    */
@@ -841,7 +842,7 @@ export type SkippedCandidate = Message<"curtailment.v1.SkippedCandidate"> & {
   reason: string;
 
   /**
-   * human-readable elaboration
+   * currently unpopulated; use reason
    *
    * @generated from field: string description = 3;
    */
@@ -986,8 +987,8 @@ export type PreviewCurtailmentPlanRequest = Message<"curtailment.v1.PreviewCurta
   forceIncludeAllPairedMiners: boolean;
 
   /**
-   * New topology selectors require version 1. Zero keeps current site/miner
-   * callers valid while the server-first rollout is in progress.
+   * Building, rack, and group selectors require version 1. Zero is accepted
+   * for whole-org, site, and explicit-miner scopes; ProtoFleet sends version 1.
    *
    * @generated from field: uint32 scope_schema_version = 31;
    */
@@ -1202,7 +1203,7 @@ export type StartCurtailmentRequest = Message<"curtailment.v1.StartCurtailmentRe
   /**
    * Operational controls.
    *
-   * 0 = no cap
+   * 0 = org default unless allow_unbounded
    *
    * @generated from field: uint32 max_duration_seconds = 20;
    */
@@ -1266,7 +1267,7 @@ export type StartCurtailmentRequest = Message<"curtailment.v1.StartCurtailmentRe
   /**
    * Admin-only acknowledgement to opt out of `max_duration_default_sec`
    * normalization. Default false; otherwise `max_duration_seconds=0` is
-   * normalized to the per-org default at handler entry.
+   * normalized to the per-org default by the domain service.
    *
    * @generated from field: bool allow_unbounded = 27;
    */
@@ -1314,8 +1315,8 @@ export type StartCurtailmentRequest = Message<"curtailment.v1.StartCurtailmentRe
   fanRestoreDelaySec: number;
 
   /**
-   * New topology selectors require version 1. Zero keeps current site/miner
-   * callers valid while the server-first rollout is in progress.
+   * Building, rack, and group selectors require version 1. Zero is accepted
+   * for whole-org, site, and explicit-miner scopes; ProtoFleet sends version 1.
    *
    * @generated from field: uint32 scope_schema_version = 41;
    */
@@ -1513,17 +1514,18 @@ export const StopCurtailmentResponseSchema: GenMessage<StopCurtailmentResponse> 
   messageDesc(file_curtailment_v1_curtailment, 22);
 
 /**
- * ListActiveCurtailments returns every non-terminal event for the caller's
- * org. Multiple can be active when they target disjoint device scopes (e.g.
+ * ListActiveCurtailments returns non-terminal events in the caller's org
+ * whose authorization requirements the caller satisfies. Multiple can be
+ * active when they target disjoint device scopes (e.g.
  * one per site). Each event carries its metadata, scope, mode params,
  * target-site coverage, and a live `target_rollup` (per-state counts of the
  * event's current target set, the operational truth for active displays) but
  * omits per-device targets and the decision snapshot; use GetCurtailmentEvent
  * for full per-target detail and event-start snapshot context.
  *
- * Whole-org events omit `target_rollup` when the caller's curtailment:read
- * grant is narrowed at any site: the rollup aggregates target counts across
- * every site, so it requires unnarrowed org-wide read.
+ * Whole-org events require unnarrowed org-wide curtailment:read and are
+ * filtered out for callers whose grant is narrowed at any site. Trigger
+ * attribution and idempotency fields are scrubbed from list responses.
  *
  * @generated from message curtailment.v1.ListActiveCurtailmentsRequest
  */
@@ -1558,7 +1560,10 @@ export const ListActiveCurtailmentsResponseSchema: GenMessage<ListActiveCurtailm
   messageDesc(file_curtailment_v1_curtailment, 24);
 
 /**
- * ListCurtailmentEvents returns historical events. Each event omits
+ * ListCurtailmentEvents returns permitted events in any state unless filtered.
+ * Permission filtering scans a bounded number of database pages, so a response
+ * may be short or empty with a nonempty next_page_token. Continue until that
+ * token is empty. Each event omits
  * `target_rollup`/`targets`, scrubs webhook trigger metadata
  * (`external_source`, `external_reference`, `idempotency_key`), and
  * ships a trimmed `decision_snapshot` where the per-device `skipped`
@@ -1616,7 +1621,8 @@ export type ListCurtailmentEventsResponse = Message<"curtailment.v1.ListCurtailm
   events: CurtailmentEvent[];
 
   /**
-   * Empty when no further pages remain.
+   * Empty when no further pages remain; may be nonempty even on a short or
+   * empty page after permission filtering.
    *
    * @generated from field: string next_page_token = 2;
    */
@@ -2529,7 +2535,7 @@ export type CurtailmentResponseProfile = Message<"curtailment.v1.CurtailmentResp
   profileName: string;
 
   /**
-   * Unset site means the profile applies to the whole org.
+   * Singular site projection when applicable; read scopes for the full selector.
    *
    * @generated from field: curtailment.v1.ScopeSite site = 3;
    */
@@ -2763,14 +2769,14 @@ export type CreateCurtailmentResponseProfileRequest =
     profileName: string;
 
     /**
-     * Unset site means the profile applies to the whole org.
+     * Set exactly one of site or nonempty scopes. Use scopes for whole-org selection.
      *
      * @generated from field: curtailment.v1.ScopeSite site = 2;
      */
     site?: ScopeSite | undefined;
 
     /**
-     * Required unless site is populated; scopes replaces site when set.
+     * Required unless site is populated; cannot be combined with site.
      *
      * @generated from field: repeated curtailment.v1.CurtailmentScope scopes = 17;
      */
@@ -2923,14 +2929,14 @@ export type UpdateCurtailmentResponseProfileRequest =
     profileName: string;
 
     /**
-     * Unset site means the profile applies to the whole org.
+     * Set exactly one of site or nonempty scopes. Use scopes for whole-org selection.
      *
      * @generated from field: curtailment.v1.ScopeSite site = 3;
      */
     site?: ScopeSite | undefined;
 
     /**
-     * Required unless site is populated; scopes replaces site when set.
+     * Required unless site is populated; cannot be combined with site.
      *
      * @generated from field: repeated curtailment.v1.CurtailmentScope scopes = 17;
      */
@@ -3624,9 +3630,9 @@ export enum CurtailmentMode {
   POWER_TRAJECTORY = 7,
 
   /**
-   * Open-loop: curtail every eligible candidate in the selected scope (no kW
-   * target), frozen at creation. Whole-org scope = whole fleet; a site /
-   * device-list scope = that site.
+   * Curtail every eligible candidate in the selected scope, without a kW
+   * target. Whole-org, site, building, rack, and group scopes reconcile
+   * membership continuously; explicit miner scopes keep a fixed target set.
    *
    * @generated from enum value: CURTAILMENT_MODE_FULL_FLEET = 8;
    */
@@ -3654,7 +3660,7 @@ export enum CurtailmentStrategy {
   /**
    * Economic ranking by per-miner attributes.
    *
-   * v1 default: worst J/TH first
+   * default: worst J/H first
    *
    * @generated from enum value: CURTAILMENT_STRATEGY_LEAST_EFFICIENT_FIRST = 1;
    */
@@ -3757,7 +3763,8 @@ export enum CurtailmentPriority {
   HIGH = 2,
 
   /**
-   * EMERGENCY bypasses min-duration, but not maintenance checks.
+   * EMERGENCY disables post-event cooldown during selection. Only Stop's
+   * admin-gated force bypasses min-duration; maintenance checks still apply.
    *
    * @generated from enum value: CURTAILMENT_PRIORITY_EMERGENCY = 3;
    */
@@ -3899,7 +3906,7 @@ export enum CurtailmentTargetState {
   RESOLVED = 5,
 
   /**
-   * removed by closed-loop mid-event (v3+); ends target, not event
+   * ownership released; ends target, not necessarily event
    *
    * @generated from enum value: CURTAILMENT_TARGET_STATE_RELEASED = 6;
    */
@@ -4086,7 +4093,7 @@ export const CurtailmentService: GenService<{
     output: typeof PreviewCurtailmentPlanResponseSchema;
   };
   /**
-   * Start an event, persist targets, and dispatch initial Curtail
+   * Start an event and persist targets for the reconciler to dispatch Curtail
    * commands. Multiple events can be active per org when they target
    * disjoint device scopes; AlreadyExists means a selected device is
    * already in a non-terminal curtailment (retry against the remainder).
@@ -4120,7 +4127,7 @@ export const CurtailmentService: GenService<{
     output: typeof StopCurtailmentResponseSchema;
   };
   /**
-   * List every active (pending/active/restoring) event for the org.
+   * List active (pending/active/restoring) events the caller may read in the org.
    * Multiple can be active at once when scoped to disjoint device sets.
    *
    * @generated from rpc curtailment.v1.CurtailmentService.ListActiveCurtailments
@@ -4131,7 +4138,7 @@ export const CurtailmentService: GenService<{
     output: typeof ListActiveCurtailmentsResponseSchema;
   };
   /**
-   * List historical events with cursor pagination.
+   * List permitted events in any state with cursor pagination.
    *
    * @generated from rpc curtailment.v1.CurtailmentService.ListCurtailmentEvents
    */
@@ -4151,7 +4158,7 @@ export const CurtailmentService: GenService<{
     output: typeof GetCurtailmentEventResponseSchema;
   };
   /**
-   * Admin recovery RPC: force a non-terminal event to a terminal state.
+   * Admin recovery RPC: force a pending or restoring event to a terminal state.
    * Session-only, Admin role; reason required (min_len=1, max_len=256).
    *
    * FailedPrecondition variants ride on FleetErrorDetails.service (see
@@ -4188,11 +4195,8 @@ export const CurtailmentService: GenService<{
     output: typeof ForceReleaseCurtailmentOwnershipResponseSchema;
   };
   /**
-   * IngestCurtailmentSignal starts a curtailment event from an
-   * external dispatch signal. signal_payload is provider-opaque;
-   * per-provider adapters decode it. Idempotent on
-   * (org_id, external_source, external_reference): replay during
-   * an in-flight event echoes, post-terminal fires fresh.
+   * Reserved external dispatch endpoint. After checking curtailment:ingest,
+   * the handler returns Unimplemented; no signal is ingested or event started.
    *
    * @generated from rpc curtailment.v1.CurtailmentService.IngestCurtailmentSignal
    */

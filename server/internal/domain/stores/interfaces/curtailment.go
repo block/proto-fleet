@@ -452,6 +452,7 @@ type CurtailmentStore interface {
 	ListRecentlyResolvedCurtailedDevices(ctx context.Context, params ListRecentlyResolvedCurtailedDevicesParams) ([]string, error)
 	SiteBelongsToOrg(ctx context.Context, orgID, siteID int64) (bool, error)
 
+	// GetEventByUUID returns NotFound when no matching event exists.
 	GetEventByUUID(ctx context.Context, orgID int64, eventUUID uuid.UUID) (*models.Event, error)
 	GetEventDetailByUUID(ctx context.Context, orgID int64, eventUUID uuid.UUID) (*models.Event, error)
 
@@ -483,7 +484,7 @@ type CurtailmentStore interface {
 	// A reservation may consume the interval even if the later enqueue fails.
 	RecordCurtailPendingDispatch(ctx context.Context, eventID int64, expectedState models.EventState, dispatchedAt time.Time) error
 
-	// AdminTerminateEvent forces a non-terminal event to CANCELLED or
+	// AdminTerminateEvent forces a pending or restoring event to CANCELLED or
 	// FAILED and sweeps non-terminal targets to RESTORE_FAILED in one
 	// transaction. Idempotent: an already-terminal event in the same
 	// target state returns transitioned=false (caller suppresses side
@@ -559,11 +560,10 @@ type CurtailmentStore interface {
 	// Heartbeat singleton row used by liveness alerts.
 	GetHeartbeat(ctx context.Context) (*models.Heartbeat, error)
 
-	// ListCandidates returns per-device state for the selector. Nil
-	// deviceIdentifiers returns the whole org (callers normalize empty
-	// slice → nil). SiteID restricts candidates to one live site in the
-	// org. Devices without recent telemetry return nil power / hash; the
-	// service treats those as stale.
+	// ListCandidates returns per-device state for the selector. Empty selector
+	// slices return the whole org; otherwise device identifiers or one topology
+	// selector (SiteIDs, BuildingIDs, RackIDs, GroupIDs) restricts membership.
+	// Devices without recent telemetry return nil power / hash.
 	ListCandidates(ctx context.Context, params ListCandidatesParams) ([]*models.Candidate, error)
 
 	// ListNonTerminalEvents returns pending/active/restoring events across

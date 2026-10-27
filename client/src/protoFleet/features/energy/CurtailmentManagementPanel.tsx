@@ -91,8 +91,6 @@ const activeCurtailmentRefreshIntervalMs = 3_000;
 const nonTerminalActiveEventStates = new Set<CurtailmentEventState>(["pending", "active", "restoring"]);
 const updateableCurtailmentEventStates = new Set<CurtailmentEventState>(["pending", "active"]);
 const forceRestorableCurtailmentEventStates = new Set<CurtailmentEventState>(["pending", "active"]);
-const defaultResponseDeadlineMinutes = "15";
-const defaultMaxDurationSec = "900";
 
 const terminateRecoveryStateOptions: { label: string; value: TerminateRecoveryState }[] = [
   { label: "Cancelled", value: "cancelled" },
@@ -148,16 +146,6 @@ function getRecoveryStopErrorMessage(
   return stopError;
 }
 
-function minutesToSeconds(value: string): string {
-  const minutes = Number(value);
-
-  if (!Number.isFinite(minutes) || minutes <= 0) {
-    return defaultMaxDurationSec;
-  }
-
-  return String(minutes * 60);
-}
-
 function createSiteOptions(sites: SiteWithCounts[]): CurtailmentSiteOption[] {
   return sites
     .flatMap((siteWithCounts) => {
@@ -200,75 +188,40 @@ function getResponseProfileSiteNamesById(
   );
 }
 
-function createResponseProfileFormValuesFromProfile(profile: ResponseProfile): ResponseProfileFormValues {
-  if (profile.formValues) {
-    const hasAllMinersSelected = profile.formValues.minerSelectionMode === "all";
-    const siteIds = hasAllMinersSelected ? [] : getSelectedResponseProfileSiteIds(profile.formValues);
-    const siteId = siteIds[0] ?? "";
-
-    return {
-      ...profile.formValues,
-      deviceIdentifiers: hasAllMinersSelected ? [] : [...profile.formValues.deviceIdentifiers],
-      minerSelectionMode: hasAllMinersSelected ? "all" : "subset",
-      siteSelection: hasAllMinersSelected
-        ? "allSites"
-        : profile.formValues.siteSelection === "allSites"
-          ? "allSites"
-          : siteIds.length > 0
-            ? "site"
-            : "none",
-      siteId,
-      siteName: siteId ? getResponseProfileSiteNameForId(profile.formValues, siteId) : "",
-      siteIds,
-      siteNamesById: getResponseProfileSiteNamesById(profile.formValues, siteIds),
-    };
+function createResponseProfileFormValuesFromProfile(profile: ResponseProfile): ResponseProfileFormValues | undefined {
+  if (!profile.formValues) {
+    return undefined;
   }
 
-  const targetKwMatch = profile.targetSummary.match(/(\d+(?:\.\d+)?)/);
-  const actionType: ResponseProfileFormValues["actionType"] = targetKwMatch ? "fixedKwReduction" : "fullFleet";
-  const responseDeadlineMinutes = profile.deadlineSummary.match(/(\d+)/)?.[1] ?? defaultResponseDeadlineMinutes;
+  const hasAllMinersSelected = profile.formValues.minerSelectionMode === "all";
+  const siteIds = hasAllMinersSelected ? [] : getSelectedResponseProfileSiteIds(profile.formValues);
+  const siteId = siteIds[0] ?? "";
 
   return {
-    name: profile.name,
-    actionType,
-    targetKw: targetKwMatch?.[1] ?? "",
-    toleranceKw: "",
-    priority: "normal",
-    postEventCooldownSec: "",
-    scopeType: "wholeOrg",
-    buildingTargetIds: [],
-    rackTargetIds: [],
-    groupTargetIds: [],
-    deviceIdentifiers: [],
-    minerSelectionMode: "subset",
-    siteSelection: "none",
-    siteId: "",
-    siteName: "",
-    siteIds: [],
-    siteNamesById: {},
-    selectionStrategy: "leastEfficientFirst",
-    restoreBehavior: profile.restoreBehavior.toLowerCase().includes("immediate")
-      ? "automaticImmediateRestore"
-      : "automaticBatchRestore",
-    minDurationSec: "",
-    maxDurationSec: minutesToSeconds(responseDeadlineMinutes),
-    curtailBatchSize: "",
-    curtailBatchIntervalSec: "",
-    restoreBatchSize: profile.restoreBehavior.toLowerCase().includes("immediate")
-      ? immediateRestoreBatchSizeInputValue
-      : "",
-    restoreIntervalSec: "",
-    facilityFanDeviceIds: [],
-    fanOffDelaySec: "",
-    fanRestoreDelaySec: "",
-    responseDeadlineMinutes,
-    includeMaintenance: false,
-    forceIncludeAllPairedMiners: false,
+    ...profile.formValues,
+    deviceIdentifiers: hasAllMinersSelected ? [] : [...profile.formValues.deviceIdentifiers],
+    minerSelectionMode: hasAllMinersSelected ? "all" : "subset",
+    siteSelection: hasAllMinersSelected
+      ? "allSites"
+      : profile.formValues.siteSelection === "allSites"
+        ? "allSites"
+        : siteIds.length > 0
+          ? "site"
+          : "none",
+    siteId,
+    siteName: siteId ? getResponseProfileSiteNameForId(profile.formValues, siteId) : "",
+    siteIds,
+    siteNamesById: getResponseProfileSiteNamesById(profile.formValues, siteIds),
   };
 }
 
-function createCurtailmentResponseProfileOption(profile: ResponseProfile): CurtailmentResponseProfileOption {
+function createCurtailmentResponseProfileOption(
+  profile: ResponseProfile,
+): CurtailmentResponseProfileOption | undefined {
   const values = createResponseProfileFormValuesFromProfile(profile);
+  if (!values) {
+    return undefined;
+  }
   const restoreBatchSize =
     values.restoreBatchSize ||
     (values.restoreBehavior === "automaticImmediateRestore" ? immediateRestoreBatchSizeInputValue : "");
@@ -643,7 +596,8 @@ function CurtailmentManagementPanel({
     () =>
       responseProfiles
         .filter((profile) => !profile.isReadOnly && profile.formValues !== undefined)
-        .map(createCurtailmentResponseProfileOption),
+        .map(createCurtailmentResponseProfileOption)
+        .filter((option) => option !== undefined),
     [responseProfiles],
   );
   const defaultSiteScope = useMemo(

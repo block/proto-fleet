@@ -84,7 +84,6 @@ vi.mock("@/protoFleet/features/energy/useCurtailmentPlanPreview", () => ({
     restoreEstimate: "~2 minutes",
     scopeLabel: values.scopeId ?? "across the fleet",
   }),
-  getUnsupportedDeviceSetPreviewError: () => undefined,
   useCurtailmentPlanPreview: mockUseCurtailmentPlanPreview,
 }));
 
@@ -191,7 +190,6 @@ const testResponseProfiles: ResponseProfile[] = [
     scope: "Whole fleet",
     selectionStrategy: "Least efficient first",
     restoreBehavior: "Restore in batches",
-    deadlineSummary: "Within 5 min",
     isAutomationReady: true,
     formValues: {
       name: "Emergency full shed",
@@ -227,7 +225,6 @@ const testResponseProfiles: ResponseProfile[] = [
     scope: "Whole fleet",
     selectionStrategy: "Least efficient first",
     restoreBehavior: "Restore immediately",
-    deadlineSummary: "Within 15 min",
     isAutomationReady: true,
     formValues: {
       name: "Site Alpha 500 kW",
@@ -264,7 +261,6 @@ const targetedMinersResponseProfile: ResponseProfile = {
   scope: "Whole fleet",
   selectionStrategy: "Least efficient first",
   restoreBehavior: "Restore in batches",
-  deadlineSummary: "Within 15 min",
   isAutomationReady: true,
   formValues: {
     name: "Targeted miners",
@@ -300,7 +296,6 @@ const siteScopedResponseProfile: ResponseProfile = {
   scope: "Site 101",
   selectionStrategy: "Least efficient first",
   restoreBehavior: "Restore immediately",
-  deadlineSummary: "Within 15 min",
   isAutomationReady: true,
   formValues: {
     name: "Site scoped profile",
@@ -714,7 +709,7 @@ describe("CurtailmentSettingsPage", () => {
     await user.click(screen.getByRole("button", { name: "Create profile" }));
     await user.click(screen.getByRole("button", { name: /Infrastructure\s+Select/ }));
 
-    expect(screen.getByRole("checkbox", { name: /Fan Unit 1/ })).toBeVisible();
+    await waitFor(() => expect(screen.getByRole("checkbox", { name: /Fan Unit 1/ })).toBeVisible());
   });
 
   it("loads site names for site-scoped response profile cards after reload", async () => {

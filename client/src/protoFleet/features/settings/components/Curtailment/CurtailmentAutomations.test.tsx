@@ -53,7 +53,6 @@ const testResponseProfiles: ResponseProfile[] = [
     scope: "Whole fleet",
     selectionStrategy: "Least efficient first",
     restoreBehavior: "Restore in batches",
-    deadlineSummary: "Within 15 min",
     isAutomationReady: true,
   },
   {
@@ -64,7 +63,6 @@ const testResponseProfiles: ResponseProfile[] = [
     scope: "Whole fleet",
     selectionStrategy: "Least efficient first",
     restoreBehavior: "Restore immediately",
-    deadlineSummary: "Within 10 min",
     isAutomationReady: true,
   },
 ];

@@ -233,9 +233,7 @@ func TestRigConfigStore_MigrationPreservesPendingWorkAcrossUpgradeAndDowngrade(t
 	f := newRigConfigStoreFixture(t)
 	rig := f.createRig(t, "Proto", "PAIRED")
 	for range 3 {
-		require.NoError(t, f.queries.RequestRigConfigReconciliation(t.Context(), sqlc.RequestRigConfigReconciliationParams{
-			OrganizationID: f.orgID, RequestedBy: f.userID,
-		}))
+		f.request(t, rig.identifier)
 	}
 	f.complete(t, 1)
 	// Include pending targeted work: a downgrade must preserve its generation
@@ -282,9 +280,13 @@ func TestRigConfigStore_ClaimScopeIsStableAcrossNewerSettingsRequests(t *testing
 
 	// A later settings request must not broaden this claimed device-scoped
 	// generation. Its full-delivery watermark belongs to the next claim.
-	require.NoError(t, f.queries.RequestRigConfigReconciliation(t.Context(), sqlc.RequestRigConfigReconciliationParams{
-		OrganizationID: f.orgID, RequestedBy: f.userID,
-	}))
+	_, err = f.queries.InsertMQTTSourceConfig(t.Context(), sqlc.InsertMQTTSourceConfigParams{
+		OrganizationID: f.orgID, ServiceUserID: f.userID, SourceName: "settings", Topic: "test/curtailment",
+		BrokerPrimaryHost: "primary.example", BrokerSecondaryHost: "secondary.example",
+		BrokerTransport: "tcp", PayloadFormat: "target_timestamp", Enabled: true,
+		MqttUsername: "test", MqttPasswordEnc: "enc:secret",
+	})
+	require.NoError(t, err)
 	require.Equal(t, int64(0), claim.FullReconcileGeneration)
 	require.Equal(t, []string{first.identifier}, f.targets(t, claim.DesiredGeneration))
 	f.complete(t, claim.DesiredGeneration)

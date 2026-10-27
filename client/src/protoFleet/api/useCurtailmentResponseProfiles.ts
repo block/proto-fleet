@@ -289,7 +289,6 @@ function mapApiResponseProfile(profile: ApiCurtailmentResponseProfile, siteNameB
     scope,
     selectionStrategy: "Least efficient first",
     restoreBehavior: restoreBehavior === "automaticImmediateRestore" ? "Restore immediately" : "Restore in batches",
-    deadlineSummary: responseDeadlineMinutes === "1" ? "Within 1 min" : `Within ${responseDeadlineMinutes} min`,
     formValues: readOnlyScopeSummary ? undefined : mergedFormValues,
     isReadOnly: Boolean(readOnlyScopeSummary),
     isAutomationReady: isResponseProfileAutomationReady(scopeFormValues.scopeType),

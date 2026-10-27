@@ -568,7 +568,6 @@ describe("CurtailmentManagementPanel", () => {
           scope: "Whole fleet",
           selectionStrategy: "Least efficient first",
           restoreBehavior: "Restore in batches",
-          deadlineSummary: "Within 15 min",
           formValues: {
             name: "Standard shed",
             actionType: "fixedKwReduction",
@@ -598,7 +597,6 @@ describe("CurtailmentManagementPanel", () => {
           scope: "2 buildings",
           selectionStrategy: "Least efficient first",
           restoreBehavior: "Restore in batches",
-          deadlineSummary: "Within 15 min",
           formValues: {
             name: "Building shed",
             actionType: "fixedKwReduction",
@@ -671,7 +669,6 @@ describe("CurtailmentManagementPanel", () => {
           scope: "3 miners",
           selectionStrategy: "Least efficient first",
           restoreBehavior: "Restore in batches",
-          deadlineSummary: "Within 15 min",
           formValues: {
             name: "Targeted shed",
             actionType: "fixedKwReduction",

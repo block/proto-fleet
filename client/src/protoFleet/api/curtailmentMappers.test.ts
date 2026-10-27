@@ -10,7 +10,7 @@ import {
 } from "@/protoFleet/api/generated/curtailment/v1/curtailment_pb";
 
 describe("mapCurtailmentEventToFormValues", () => {
-  it("keeps topology-scoped events read-only until the modal can render them", () => {
+  it("keeps topology-scoped events read-only for editing", () => {
     const scopes = [7n, 8n].map((buildingId) =>
       create(CurtailmentScopeSchema, {
         scope: { case: "building", value: create(ScopeBuildingSchema, { buildingId }) },

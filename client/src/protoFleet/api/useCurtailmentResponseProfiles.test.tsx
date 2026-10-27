@@ -150,7 +150,6 @@ describe("useCurtailmentResponseProfiles", () => {
       targetSummary: "2,000 kW target",
       scope: "Site 101",
       restoreBehavior: "Restore immediately",
-      deadlineSummary: "Within 15 min",
       formValues: {
         ...fixedKwFormValues,
         scopeType: "site",

@@ -124,7 +124,7 @@ const (
 type CurtailmentServiceClient interface {
 	// Preview a candidate plan without persisting it.
 	PreviewCurtailmentPlan(context.Context, *connect.Request[v1.PreviewCurtailmentPlanRequest]) (*connect.Response[v1.PreviewCurtailmentPlanResponse], error)
-	// Start an event, persist targets, and dispatch initial Curtail
+	// Start an event and persist targets for the reconciler to dispatch Curtail
 	// commands. Multiple events can be active per org when they target
 	// disjoint device scopes; AlreadyExists means a selected device is
 	// already in a non-terminal curtailment (retry against the remainder).
@@ -134,14 +134,14 @@ type CurtailmentServiceClient interface {
 	// Stop an active event and begin staggered restore. Idempotent on
 	// already-restoring; FailedPrecondition on terminal events (non-retryable).
 	StopCurtailment(context.Context, *connect.Request[v1.StopCurtailmentRequest]) (*connect.Response[v1.StopCurtailmentResponse], error)
-	// List every active (pending/active/restoring) event for the org.
+	// List active (pending/active/restoring) events the caller may read in the org.
 	// Multiple can be active at once when scoped to disjoint device sets.
 	ListActiveCurtailments(context.Context, *connect.Request[v1.ListActiveCurtailmentsRequest]) (*connect.Response[v1.ListActiveCurtailmentsResponse], error)
-	// List historical events with cursor pagination.
+	// List permitted events in any state with cursor pagination.
 	ListCurtailmentEvents(context.Context, *connect.Request[v1.ListCurtailmentEventsRequest]) (*connect.Response[v1.ListCurtailmentEventsResponse], error)
 	// Get one historical or active event with full per-target cycle detail.
 	GetCurtailmentEvent(context.Context, *connect.Request[v1.GetCurtailmentEventRequest]) (*connect.Response[v1.GetCurtailmentEventResponse], error)
-	// Admin recovery RPC: force a non-terminal event to a terminal state.
+	// Admin recovery RPC: force a pending or restoring event to a terminal state.
 	// Session-only, Admin role; reason required (min_len=1, max_len=256).
 	//
 	// FailedPrecondition variants ride on FleetErrorDetails.service (see
@@ -162,11 +162,8 @@ type CurtailmentServiceClient interface {
 	// (graceful restore) and AdminTerminateEvent (Stop-first terminal
 	// recovery). Session-only, Admin role; reason required.
 	ForceReleaseCurtailmentOwnership(context.Context, *connect.Request[v1.ForceReleaseCurtailmentOwnershipRequest]) (*connect.Response[v1.ForceReleaseCurtailmentOwnershipResponse], error)
-	// IngestCurtailmentSignal starts a curtailment event from an
-	// external dispatch signal. signal_payload is provider-opaque;
-	// per-provider adapters decode it. Idempotent on
-	// (org_id, external_source, external_reference): replay during
-	// an in-flight event echoes, post-terminal fires fresh.
+	// Reserved external dispatch endpoint. After checking curtailment:ingest,
+	// the handler returns Unimplemented; no signal is ingested or event started.
 	IngestCurtailmentSignal(context.Context, *connect.Request[v1.IngestCurtailmentSignalRequest]) (*connect.Response[v1.IngestCurtailmentSignalResponse], error)
 	// MQTT curtailment source settings. These RPCs manage broker
 	// configuration and source runtime state only. Binding a source to a
@@ -539,7 +536,7 @@ func (c *curtailmentServiceClient) DeleteCurtailmentAutomationRule(ctx context.C
 type CurtailmentServiceHandler interface {
 	// Preview a candidate plan without persisting it.
 	PreviewCurtailmentPlan(context.Context, *connect.Request[v1.PreviewCurtailmentPlanRequest]) (*connect.Response[v1.PreviewCurtailmentPlanResponse], error)
-	// Start an event, persist targets, and dispatch initial Curtail
+	// Start an event and persist targets for the reconciler to dispatch Curtail
 	// commands. Multiple events can be active per org when they target
 	// disjoint device scopes; AlreadyExists means a selected device is
 	// already in a non-terminal curtailment (retry against the remainder).
@@ -549,14 +546,14 @@ type CurtailmentServiceHandler interface {
 	// Stop an active event and begin staggered restore. Idempotent on
 	// already-restoring; FailedPrecondition on terminal events (non-retryable).
 	StopCurtailment(context.Context, *connect.Request[v1.StopCurtailmentRequest]) (*connect.Response[v1.StopCurtailmentResponse], error)
-	// List every active (pending/active/restoring) event for the org.
+	// List active (pending/active/restoring) events the caller may read in the org.
 	// Multiple can be active at once when scoped to disjoint device sets.
 	ListActiveCurtailments(context.Context, *connect.Request[v1.ListActiveCurtailmentsRequest]) (*connect.Response[v1.ListActiveCurtailmentsResponse], error)
-	// List historical events with cursor pagination.
+	// List permitted events in any state with cursor pagination.
 	ListCurtailmentEvents(context.Context, *connect.Request[v1.ListCurtailmentEventsRequest]) (*connect.Response[v1.ListCurtailmentEventsResponse], error)
 	// Get one historical or active event with full per-target cycle detail.
 	GetCurtailmentEvent(context.Context, *connect.Request[v1.GetCurtailmentEventRequest]) (*connect.Response[v1.GetCurtailmentEventResponse], error)
-	// Admin recovery RPC: force a non-terminal event to a terminal state.
+	// Admin recovery RPC: force a pending or restoring event to a terminal state.
 	// Session-only, Admin role; reason required (min_len=1, max_len=256).
 	//
 	// FailedPrecondition variants ride on FleetErrorDetails.service (see
@@ -577,11 +574,8 @@ type CurtailmentServiceHandler interface {
 	// (graceful restore) and AdminTerminateEvent (Stop-first terminal
 	// recovery). Session-only, Admin role; reason required.
 	ForceReleaseCurtailmentOwnership(context.Context, *connect.Request[v1.ForceReleaseCurtailmentOwnershipRequest]) (*connect.Response[v1.ForceReleaseCurtailmentOwnershipResponse], error)
-	// IngestCurtailmentSignal starts a curtailment event from an
-	// external dispatch signal. signal_payload is provider-opaque;
-	// per-provider adapters decode it. Idempotent on
-	// (org_id, external_source, external_reference): replay during
-	// an in-flight event echoes, post-terminal fires fresh.
+	// Reserved external dispatch endpoint. After checking curtailment:ingest,
+	// the handler returns Unimplemented; no signal is ingested or event started.
 	IngestCurtailmentSignal(context.Context, *connect.Request[v1.IngestCurtailmentSignalRequest]) (*connect.Response[v1.IngestCurtailmentSignalResponse], error)
 	// MQTT curtailment source settings. These RPCs manage broker
 	// configuration and source runtime state only. Binding a source to a

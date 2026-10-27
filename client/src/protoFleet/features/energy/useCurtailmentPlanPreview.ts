@@ -43,7 +43,6 @@ type CurtailmentPlanPreviewRequestValues = Pick<
   | "buildingTargetIds"
   | "rackTargetIds"
   | "groupTargetIds"
-  | "deviceSetIds"
   | "deviceIdentifiers"
   | "minerSelectionMode"
   | "responseProfileId"
@@ -134,7 +133,6 @@ function cloneRequestValues(values: CurtailmentPlanPreviewRequestValues): Curtai
     buildingTargetIds: values.buildingTargetIds ? [...values.buildingTargetIds] : undefined,
     rackTargetIds: values.rackTargetIds ? [...values.rackTargetIds] : undefined,
     groupTargetIds: values.groupTargetIds ? [...values.groupTargetIds] : undefined,
-    deviceSetIds: [...values.deviceSetIds],
     deviceIdentifiers: [...values.deviceIdentifiers],
   };
 }
@@ -198,14 +196,6 @@ export function buildPreviewCurtailmentPlanRequest(
   });
 }
 
-export function getUnsupportedDeviceSetPreviewError(values: CurtailmentFormValues): string | undefined {
-  if (values.scopeType !== "deviceSet" || values.deviceSetIds.length === 0) {
-    return undefined;
-  }
-
-  return "Rack and group curtailment previews are not supported yet. Select specific miners or the whole fleet to preview and start this curtailment.";
-}
-
 function pluralize(value: number, singular: string): string {
   return `${value} ${singular}${value === 1 ? "" : "s"}`;
 }
@@ -254,15 +244,6 @@ function formatScopeLabel(values: CurtailmentFormValues): string {
       return formatSelectedScopeLabel(canonicalScopeCount, "rack");
     case "group":
       return formatSelectedScopeLabel(canonicalScopeCount, "group");
-    case "deviceSet":
-      if (values.scopeId === "racks") {
-        return formatSelectedScopeLabel(values.deviceSetIds?.length ?? 0, "rack");
-      }
-
-      if (values.scopeId === "groups") {
-        return formatSelectedScopeLabel(values.deviceSetIds?.length ?? 0, "group");
-      }
-      return formatSelectedScopeLabel(values.deviceSetIds?.length ?? 0, "set");
     case "site":
     case "explicitMiners":
     case "wholeOrg":
@@ -437,7 +418,6 @@ export function useCurtailmentPlanPreview({
       buildingTargetIds: values.buildingTargetIds,
       rackTargetIds: values.rackTargetIds,
       groupTargetIds: values.groupTargetIds,
-      deviceSetIds: values.deviceSetIds,
       deviceIdentifiers: values.deviceIdentifiers,
       minerSelectionMode: values.minerSelectionMode,
       responseProfileId: values.responseProfileId,
@@ -452,7 +432,6 @@ export function useCurtailmentPlanPreview({
     }),
     [
       values.buildingTargetIds,
-      values.deviceSetIds,
       values.deviceIdentifiers,
       values.groupTargetIds,
       values.minerSelectionMode,
@@ -483,7 +462,6 @@ export function useCurtailmentPlanPreview({
           requestKey: toJsonString(PreviewCurtailmentPlanRequestSchema, request),
         };
   }, [requestValues]);
-  const unsupportedDeviceSetPreviewError = getUnsupportedDeviceSetPreviewError(values);
 
   useEffect(() => {
     if (!open || disabled) {
@@ -652,14 +630,6 @@ export function useCurtailmentPlanPreview({
 
   if (!open || disabled) {
     return emptyPreviewResult;
-  }
-
-  if (unsupportedDeviceSetPreviewError) {
-    return {
-      preview: undefined,
-      previewError: unsupportedDeviceSetPreviewError,
-      isPreviewLoading: false,
-    };
   }
 
   const hasCurrentResponse = requestState !== undefined && state.responseRequestKey === requestState.requestKey;

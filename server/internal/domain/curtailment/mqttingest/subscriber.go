@@ -550,8 +550,8 @@ func (s *Subscriber) waitForHandleStopped(ctx context.Context, handle *sourceWor
 	}
 }
 
-// startWorker validates one source with setupCtx, then boots its long-lived
-// worker on workerCtx.
+// startWorker validates source settings and decrypts credentials, then starts
+// supervision on workerCtx. setupCtx is currently unused.
 func (s *Subscriber) startWorker(setupCtx, workerCtx context.Context, src SourceConfig, wg *sync.WaitGroup) (*sourceWorker, <-chan struct{}, error) {
 	primary, secondary, ok := ResolveBrokerRoles(src.BrokerPrimaryHost, src.BrokerSecondaryHost)
 	if !ok {
@@ -579,7 +579,8 @@ func (s *Subscriber) startWorker(setupCtx, workerCtx context.Context, src Source
 		primaryHost:   primary,
 		secondaryHost: secondary,
 	}
-	// Bound plaintext credentials to the worker lifetime.
+	// Clear the decrypted byte buffer; workerPassword and MQTT clients retain
+	// string copies for connection attempts.
 	clear(password)
 
 	done := make(chan struct{})

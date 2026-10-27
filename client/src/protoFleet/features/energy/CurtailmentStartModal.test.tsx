@@ -45,10 +45,6 @@ vi.mock("@/protoFleet/features/energy/useCurtailmentPlanPreview", () => ({
     restoreEstimate: "~2 minutes",
     scopeLabel: "across the fleet",
   }),
-  getUnsupportedDeviceSetPreviewError: (values: CurtailmentFormValues) =>
-    values.scopeType === "deviceSet" && values.deviceSetIds.length > 0
-      ? "Rack and group curtailment previews are not supported yet. Select specific miners or the whole fleet to preview and start this curtailment."
-      : undefined,
   useCurtailmentPlanPreview: mockUseCurtailmentPlanPreview,
 }));
 
@@ -2029,27 +2025,6 @@ describe("CurtailmentStartModal", () => {
     );
 
     expect(screen.getAllByText("Preview is unavailable until a valid target reduction is entered.")).toHaveLength(2);
-  });
-
-  it("shows unsupported target-scope errors before controlled preview props", () => {
-    renderModal({
-      initialValues: {
-        ...configuredValues,
-        includeMaintenance: false,
-        scopeType: "deviceSet",
-        scopeId: "racks",
-        deviceSetIds: ["rack-1"],
-      },
-      preview,
-    });
-
-    expect(
-      screen.getAllByText(
-        "Rack and group curtailment previews are not supported yet. Select specific miners or the whole fleet to preview and start this curtailment.",
-      ),
-    ).toHaveLength(2);
-    expect(screen.queryByText("Curtail 18 miners across the fleet immediately")).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Run curtailment" })).toBeDisabled();
   });
 
   it("renders estimated reduction against the requested reduction", () => {

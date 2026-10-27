@@ -90,7 +90,6 @@ export type ResponseProfile = {
   scope: string;
   selectionStrategy: string;
   restoreBehavior: string;
-  deadlineSummary: string;
   formValues?: ResponseProfileFormValues;
   isReadOnly?: boolean;
   isAutomationReady: boolean;

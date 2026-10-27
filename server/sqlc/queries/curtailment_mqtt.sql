@@ -31,8 +31,8 @@ WHERE cfg.organization_id = sqlc.arg('organization_id')
 ORDER BY st.source_config_id;
 
 -- name: UpsertMQTTSourceState :exec
--- Subscriber upserts source signal state on each successful message receive,
--- after precedence/dedup processing. Singleton per source.
+-- Replace the source's signal state after receive, pending-edge, watchdog,
+-- and retry processing. Singleton per source.
 INSERT INTO curtailment_mqtt_source_state (
     source_config_id,
     last_target,
@@ -214,23 +214,6 @@ RETURNING config.organization_id, config.service_user_id
         last_error = NULL
 )
 SELECT COUNT(*)::BIGINT FROM changed;
-
--- name: RequestRigConfigReconciliation :exec
-INSERT INTO curtailment_rig_config_reconciliation (
-    organization_id,
-    requested_by,
-    full_reconcile_generation
-) VALUES (
-    sqlc.arg('organization_id'),
-    sqlc.arg('requested_by'),
-    1
-)
-ON CONFLICT (organization_id) DO UPDATE
-SET requested_by = EXCLUDED.requested_by,
-    desired_generation = curtailment_rig_config_reconciliation.desired_generation + 1,
-    full_reconcile_generation = curtailment_rig_config_reconciliation.desired_generation + 1,
-    retry_at = CURRENT_TIMESTAMP,
-    last_error = NULL;
 
 -- name: RequestRigConfigReconciliationForDevices :exec
 -- Lock/update the organization before writing targets. Completion and terminal

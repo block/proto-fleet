@@ -19,8 +19,8 @@ import (
 	"github.com/block/proto-fleet/server/internal/handlers/middleware"
 )
 
-// Action verb for requireAdminFromContext error messages on the legacy
-// admin-only override checks that run after the curtailment:manage gate.
+// Action verb for requireAdminFromContext errors on admin-only overrides
+// checked after scoped curtailment:manage authorization.
 const actionSupplyOverrideFields = "supply curtailment override fields"
 const actionAdminTerminateEvents = "admin terminate curtailment events"
 const actionManageMqttSources = "manage MaestroOS curtailment sources"
@@ -31,8 +31,9 @@ const listCurtailmentEventsMaxPermissionScanPages = 3
 const requestReadMaxBytes = 2 << 20
 const curtailmentExecutionSchemaVersionCurrent uint32 = 1
 
-// Handler implements the curtailment RPC surface; service=nil keeps
-// RPC bodies at Unimplemented after any entry auth gates run.
+// Handler implements the curtailment RPC surface. A nil service returns
+// Unimplemented; whether validation and authorization precede that check
+// depends on the RPC.
 type Handler struct {
 	service          *curtailment.Service
 	mqttSettings     *mqttingest.SettingsService
@@ -451,9 +452,8 @@ func (h *Handler) AdminTerminateEvent(ctx context.Context, req *connect.Request[
 }
 
 // ForceReleaseCurtailmentOwnership is an admin recovery path that releases
-// curtailment ownership immediately. It intentionally checks org-level manage
-// capability before loading the event envelope so recovery remains scoped to
-// the durable authorization snapshot.
+// curtailment ownership immediately. It requires manage capability and an
+// Admin/SuperAdmin role, then authorizes the persisted event envelope.
 func (h *Handler) ForceReleaseCurtailmentOwnership(ctx context.Context, req *connect.Request[pb.ForceReleaseCurtailmentOwnershipRequest]) (*connect.Response[pb.ForceReleaseCurtailmentOwnershipResponse], error) {
 	info, err := requireScopedPermissionCapability(ctx, authz.PermCurtailmentManage)
 	if err != nil {
@@ -493,9 +493,8 @@ func (h *Handler) ForceReleaseCurtailmentOwnership(ctx context.Context, req *con
 	}), nil
 }
 
-// IngestCurtailmentSignal starts a curtailment event from an external
-// dispatch signal. Permission gate runs before the body so denial
-// surfaces regardless of whether the body has shipped.
+// IngestCurtailmentSignal is a reserved external dispatch endpoint. It checks
+// curtailment:ingest before returning Unimplemented.
 func (h *Handler) IngestCurtailmentSignal(ctx context.Context, _ *connect.Request[pb.IngestCurtailmentSignalRequest]) (*connect.Response[pb.IngestCurtailmentSignalResponse], error) {
 	if _, err := middleware.RequirePermission(ctx, authz.PermCurtailmentIngest, authz.ResourceContext{}); err != nil {
 		return nil, err
