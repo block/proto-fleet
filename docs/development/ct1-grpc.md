@@ -127,7 +127,10 @@ The shared probe budget is at most five seconds and half the caller's remaining
 deadline. The first call checks durable identity; the second supplies the live
 role, write authority, and firmware version. It does not repeat `GetSystemInfo`.
 
-Reads prefer a settled primary, then a settled standby. Writes require one
+Reads prefer a settled primary, then a settled standby, then the unique live
+write primary. If primary telemetry collection fails, the same poll can use its
+verified settled standby once, within the caller's deadline, with degraded HA.
+Writes require one
 verified controller with primary role and explicit write authority. Recovery
 health does not override that authority. Conflicting write claims reject the
 command. Frigate owns promotion. A command stays on the selected connection,

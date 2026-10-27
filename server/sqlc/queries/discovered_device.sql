@@ -116,8 +116,9 @@ ON CONFLICT (org_id, device_identifier) WHERE deleted_at IS NULL DO UPDATE SET
 WHERE ((NOT sqlc.arg('direct_discovery')::boolean AND discovered_device.endpoint_key <> '' AND discovered_device.driver_name = EXCLUDED.driver_name)
     OR discovered_device.endpoint_key = ''
     OR (discovered_device.endpoint_key = EXCLUDED.endpoint_key AND discovered_device.driver_name = EXCLUDED.driver_name))
--- A fast rig write must fall back to locked reconciliation for a saved container.
-AND (NOT sqlc.arg('lockless_discovery')::boolean OR (discovered_device.device_class <> 2 AND discovered_device.endpoint_key = ''))
+-- A web-only scan cannot erase a saved native RPC route.
+AND (NOT sqlc.arg('direct_discovery')::boolean OR EXCLUDED.endpoint_key <> '' OR EXCLUDED.rpc_port > 0
+    OR (discovered_device.rpc_port = 0 AND NOT discovered_device.rpc_tls))
 AND (NOT sqlc.arg('direct_discovery')::boolean OR (
     discovered_device.discovered_by_fleet_node_id IS NULL
     AND NOT EXISTS (
@@ -232,7 +233,8 @@ AND (dd.discovered_by_fleet_node_id IS NOT DISTINCT FROM sqlc.narg(fleet_node_id
         )))
 AND (dd.endpoint_key = sqlc.arg(group_key) OR
     (dd.endpoint_key = '' AND dd.ip_address = sqlc.arg(scanned_host)::text
-        AND dd.rpc_port = sqlc.arg(scanned_rpc_port)::integer AND dd.port = sqlc.arg(scanned_port)::integer::text) OR
+        AND dd.rpc_port = sqlc.arg(scanned_rpc_port)::integer
+        AND (sqlc.arg(scanned_rpc_port)::integer <> 0 OR dd.port = sqlc.arg(scanned_port)::integer::text)) OR
     (dd.endpoint_key <> '' AND EXISTS (
         SELECT 1 FROM jsonb_each(CASE WHEN jsonb_typeof(dd.endpoints)='object' THEN dd.endpoints ELSE '{}'::jsonb END) endpoint
         WHERE endpoint.value->>'Host' = sqlc.arg(scanned_host)::text

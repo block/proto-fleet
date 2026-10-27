@@ -117,6 +117,12 @@ func reconcileDeviceEndpoints(ctx context.Context, q sqlc.Querier, criteria sqlc
 		candidate := proto.CloneOf(endpoint)
 		if previous != nil {
 			candidate.Port, candidate.UrlScheme = previous.Port, previous.UrlScheme
+		} else if existing.EndpointKey == "" {
+			port, err := strconv.ParseInt(existing.Port, 10, 32)
+			if err != nil {
+				return nil, nil, fmt.Errorf("parse saved endpoint web port: %w", err)
+			}
+			candidate.Port, candidate.UrlScheme = int32(port), existing.UrlScheme
 		}
 		// Only the scanned controller can own its address. Do not retain a
 		// different identity at that socket after an unpaired address change.
@@ -133,6 +139,9 @@ func reconcileDeviceEndpoints(ctx context.Context, q sqlc.Querier, criteria sqlc
 	}
 	encoded, err := deviceendpoints.Encode(merged)
 	if err != nil {
+		if paired {
+			return nil, nil, fmt.Errorf("%w: %v", errPairedDeviceEndpoints, err)
+		}
 		return nil, nil, err
 	}
 	merged, err = deviceendpoints.Decode(encoded)

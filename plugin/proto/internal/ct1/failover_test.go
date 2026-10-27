@@ -33,6 +33,7 @@ type haServer struct {
 	haOverride     func(*mdk.HAStatus)
 	statusOverride func(*mdk.SystemStatus)
 	mapError       error
+	mapDelay       time.Duration
 	mapReads       atomic.Int32
 	infoReads      atomic.Int32
 	groupReads     atomic.Int32
@@ -135,8 +136,15 @@ func (s *haServer) GetSystemStatus(ctx context.Context, _ *mdk.GetSystemStatusRe
 func (s *haServer) GetContainerControls(context.Context, *mdk.GetContainerControlsRequest) (*mdk.GetContainerControlsResponse, error) {
 	return &mdk.GetContainerControlsResponse{MainCircuitBreakerSupported: new(true), MainCircuitBreakerClosed: new(false)}, nil
 }
-func (s *haServer) GetContainerMap(context.Context, *mdk.GetContainerMapRequest) (*mdk.GetContainerMapResponse, error) {
+func (s *haServer) GetContainerMap(ctx context.Context, _ *mdk.GetContainerMapRequest) (*mdk.GetContainerMapResponse, error) {
 	s.mapReads.Add(1)
+	if s.mapDelay > 0 {
+		select {
+		case <-ctx.Done():
+			return nil, fmt.Errorf("read container map: %w", ctx.Err())
+		case <-time.After(s.mapDelay):
+		}
+	}
 	if s.mapError != nil {
 		return nil, s.mapError
 	}
@@ -259,6 +267,89 @@ func TestHAReadsPreferSettledStandby(t *testing.T) {
 			require.NoError(t, err)
 			require.EqualValues(t, 1, a.writes.Load())
 			require.Zero(t, b.writes.Load())
+		})
+	}
+}
+
+func TestHAStatusFallsBackAfterPrimaryCollectionFailure(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		change      func(*haServer)
+		standbyRead int32
+		wantError   bool
+	}{
+		{name: "verified standby", standbyRead: 1},
+		{name: "standby collection also fails", standbyRead: 1, wantError: true, change: func(s *haServer) {
+			s.mapError = status.Error(codes.Unavailable, "standby map unavailable")
+		}},
+		{name: "unsettled standby", wantError: true, change: func(s *haServer) {
+			s.statusOverride = func(state *mdk.SystemStatus) { state.DatabaseConnected = false }
+		}},
+		{name: "changed cluster identity", wantError: true, change: func(s *haServer) {
+			s.haOverride = func(report *mdk.HAStatus) { report.ClusterId = "65778105-4500-4905-8268-c0320b07827e" }
+		}},
+		{name: "changed member identity", wantError: true, change: func(s *haServer) {
+			s.statusOverride = func(state *mdk.SystemStatus) { state.ServerId = "replacement" }
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			a, b := startHAServer(t, "a", "b"), startHAServer(t, "b", "a")
+			a.primary.Store(true)
+			a.mapError = status.Error(codes.Internal, "primary database unavailable")
+			if tc.change != nil {
+				tc.change(b)
+			}
+			d, err := NewDevice(t.Context(), "container", haInfo(a, b), sdk.UsernamePassword{})
+			require.NoError(t, err)
+			defer d.Close(t.Context())
+
+			metrics, err := d.Status(t.Context())
+			if tc.wantError {
+				require.ErrorContains(t, err, "primary database unavailable")
+				if tc.standbyRead == 1 {
+					require.ErrorContains(t, err, "standby map unavailable")
+				}
+			} else {
+				require.NoError(t, err)
+				require.Equal(t, "v1-b", metrics.FirmwareVersion)
+				require.True(t, metrics.Container.HA.Degraded)
+			}
+			require.EqualValues(t, 1, a.mapReads.Load())
+			require.Equal(t, tc.standbyRead, b.mapReads.Load())
+			require.EqualValues(t, 2, b.haReads.Load(), "fallback reuses the verified probe")
+			require.Zero(t, a.writes.Load())
+			require.Zero(t, b.writes.Load())
+		})
+	}
+}
+
+func TestHAStatusFallbackKeepsCallerDeadline(t *testing.T) {
+	for _, duringFallback := range []bool{false, true} {
+		t.Run(fmt.Sprintf("during fallback=%t", duringFallback), func(t *testing.T) {
+			a, b := startHAServer(t, "a", "b"), startHAServer(t, "b", "a")
+			a.primary.Store(true)
+			if duringFallback {
+				a.mapError = status.Error(codes.Internal, "primary database unavailable")
+				b.mapDelay = time.Second
+			} else {
+				a.mapDelay = time.Second
+			}
+			d, err := NewDevice(t.Context(), "container", haInfo(a, b), sdk.UsernamePassword{})
+			require.NoError(t, err)
+			defer d.Close(t.Context())
+			ctx, cancel := context.WithTimeout(t.Context(), 100*time.Millisecond)
+			defer cancel()
+			started := time.Now()
+			_, err = d.Status(ctx)
+			require.Error(t, err)
+			require.ErrorIs(t, ctx.Err(), context.DeadlineExceeded)
+			require.Less(t, time.Since(started), time.Second)
+			require.EqualValues(t, 1, a.mapReads.Load())
+			if duringFallback {
+				require.EqualValues(t, 1, b.mapReads.Load())
+			} else {
+				require.Zero(t, b.mapReads.Load(), "an expired poll cannot start fallback collection")
+			}
 		})
 	}
 }

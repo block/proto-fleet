@@ -34,6 +34,7 @@ func TestPairedEndpointDiscoveryRejectsSpoofedRoutes(t *testing.T) {
 				}},
 				{"peer address swap", func(d *discovery.DiscoveredDevice) { d.IpAddress, d.Endpoints[0].Host = "10.0.0.12", "10.0.0.12" }},
 				{"omitted endpoints", func(d *discovery.DiscoveredDevice) { d.Endpoints = nil }},
+				{"changed members", func(d *discovery.DiscoveredDevice) { d.Endpoints[0].MemberIds = []string{"a", "c"} }},
 			} {
 				t.Run(attack.name, func(t *testing.T) {
 					incoming := ct1HADiscovery(org, "a", "10.0.0.11")

@@ -17,6 +17,8 @@ type controllerProbe struct {
 	state  *mdk.SystemStatus
 	report *mdk.HAStatus
 	err    error
+
+	standby *controllerProbe
 }
 
 // Probe both open connections within one budget. Never send a mutation here.
@@ -113,6 +115,7 @@ func (d *Device) probeControllers(ctx context.Context, write bool) (*controllerP
 		}
 	} else {
 		if primary != nil {
+			primary.standby = standby
 			return primary, ha, nil
 		}
 		if standby != nil {

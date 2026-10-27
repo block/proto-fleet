@@ -219,7 +219,7 @@ func (s *SQLFleetNodePairingStore) LockDiscoveredDeviceReports(ctx context.Conte
 
 func (s *SQLFleetNodePairingStore) UpsertDiscoveredDeviceFromFleetNode(ctx context.Context, orgID, fleetNodeID int64, report pairing.DiscoveredDeviceReport) (pairing.DiscoveredDeviceReport, bool, error) {
 	if !fleetNodeReportNeedsEndpointLock(report) {
-		return s.upsertDiscoveredDeviceFromFleetNode(ctx, orgID, fleetNodeID, report, true)
+		return s.upsertDiscoveredDeviceFromFleetNode(ctx, orgID, fleetNodeID, report)
 	}
 	var saved pairing.DiscoveredDeviceReport
 	var stored bool
@@ -265,7 +265,7 @@ func (s *SQLFleetNodePairingStore) UpsertDiscoveredDeviceFromFleetNode(ctx conte
 			return err
 		}
 		var err error
-		saved, stored, err = s.upsertDiscoveredDeviceFromFleetNode(ctx, orgID, fleetNodeID, candidate, false)
+		saved, stored, err = s.upsertDiscoveredDeviceFromFleetNode(ctx, orgID, fleetNodeID, candidate)
 		return err
 	})
 	return saved, stored, err
@@ -275,7 +275,7 @@ func logEndpointDiscoveryRejection(ctx context.Context, orgID, fleetNodeID int64
 	slog.WarnContext(ctx, "rejected Fleet Node device discovery report", "org_id", orgID, "fleet_node_id", fleetNodeID, "device_identifier", identifier, "reason", reason)
 }
 
-func (s *SQLFleetNodePairingStore) upsertDiscoveredDeviceFromFleetNode(ctx context.Context, orgID, fleetNodeID int64, report pairing.DiscoveredDeviceReport, lockless bool) (pairing.DiscoveredDeviceReport, bool, error) {
+func (s *SQLFleetNodePairingStore) upsertDiscoveredDeviceFromFleetNode(ctx context.Context, orgID, fleetNodeID int64, report pairing.DiscoveredDeviceReport) (pairing.DiscoveredDeviceReport, bool, error) {
 	endpoints, err := deviceendpoints.Encode(report.Endpoints)
 	if err != nil {
 		return report, false, err
@@ -285,8 +285,7 @@ func (s *SQLFleetNodePairingStore) upsertDiscoveredDeviceFromFleetNode(ctx conte
 		return report, false, err
 	}
 	row, err := s.q(ctx).UpsertDiscoveredDeviceFromFleetNode(ctx, sqlc.UpsertDiscoveredDeviceFromFleetNodeParams{
-		LocklessDiscovery: lockless,
-		EndpointKey:       key, Endpoints: endpoints, OrgID: orgID, DeviceIdentifier: report.DeviceIdentifier,
+		EndpointKey: key, Endpoints: endpoints, OrgID: orgID, DeviceIdentifier: report.DeviceIdentifier,
 		IpAddress: report.IPAddress, Port: report.Port, UrlScheme: report.URLScheme, RpcPort: report.RPCPort, RpcTls: report.RPCTLS,
 		DriverName: report.DriverName, Model: emptyToNullString(report.Model), DeviceClass: int32(report.DeviceClass),
 		Manufacturer: emptyToNullString(report.Manufacturer), FirmwareVersion: emptyToNullString(report.FirmwareVersion),

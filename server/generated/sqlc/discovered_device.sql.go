@@ -219,7 +219,8 @@ AND (dd.discovered_by_fleet_node_id IS NOT DISTINCT FROM $3::bigint
         )))
 AND (dd.endpoint_key = $4 OR
     (dd.endpoint_key = '' AND dd.ip_address = $5::text
-        AND dd.rpc_port = $6::integer AND dd.port = $7::integer::text) OR
+        AND dd.rpc_port = $6::integer
+        AND ($6::integer <> 0 OR dd.port = $7::integer::text)) OR
     (dd.endpoint_key <> '' AND EXISTS (
         SELECT 1 FROM jsonb_each(CASE WHEN jsonb_typeof(dd.endpoints)='object' THEN dd.endpoints ELSE '{}'::jsonb END) endpoint
         WHERE endpoint.value->>'Host' = $5::text
@@ -760,7 +761,8 @@ ON CONFLICT (org_id, device_identifier) WHERE deleted_at IS NULL DO UPDATE SET
 WHERE ((NOT $18::boolean AND discovered_device.endpoint_key <> '' AND discovered_device.driver_name = EXCLUDED.driver_name)
     OR discovered_device.endpoint_key = ''
     OR (discovered_device.endpoint_key = EXCLUDED.endpoint_key AND discovered_device.driver_name = EXCLUDED.driver_name))
-AND (NOT $19::boolean OR (discovered_device.device_class <> 2 AND discovered_device.endpoint_key = ''))
+AND (NOT $18::boolean OR EXCLUDED.endpoint_key <> '' OR EXCLUDED.rpc_port > 0
+    OR (discovered_device.rpc_port = 0 AND NOT discovered_device.rpc_tls))
 AND (NOT $18::boolean OR (
     discovered_device.discovered_by_fleet_node_id IS NULL
     AND NOT EXISTS (
@@ -772,29 +774,28 @@ RETURNING id
 `
 
 type UpsertDiscoveredDeviceParams struct {
-	OrgID             int64
-	DeviceIdentifier  string
-	Model             sql.NullString
-	Manufacturer      sql.NullString
-	FirmwareVersion   sql.NullString
-	IpAddress         string
-	Port              string
-	UrlScheme         string
-	IsActive          bool
-	DriverName        string
-	DeviceClass       int32
-	SerialNumber      string
-	MacAddress        string
-	RpcPort           int32
-	RpcTls            bool
-	EndpointKey       string
-	Endpoints         json.RawMessage
-	DirectDiscovery   bool
-	LocklessDiscovery bool
+	OrgID            int64
+	DeviceIdentifier string
+	Model            sql.NullString
+	Manufacturer     sql.NullString
+	FirmwareVersion  sql.NullString
+	IpAddress        string
+	Port             string
+	UrlScheme        string
+	IsActive         bool
+	DriverName       string
+	DeviceClass      int32
+	SerialNumber     string
+	MacAddress       string
+	RpcPort          int32
+	RpcTls           bool
+	EndpointKey      string
+	Endpoints        json.RawMessage
+	DirectDiscovery  bool
 }
 
 // PostgreSQL version returns the id directly using RETURNING
-// A fast rig write must fall back to locked reconciliation for a saved container.
+// A web-only scan cannot erase a saved native RPC route.
 func (q *Queries) UpsertDiscoveredDevice(ctx context.Context, arg UpsertDiscoveredDeviceParams) (int64, error) {
 	row := q.queryRow(ctx, q.upsertDiscoveredDeviceStmt, upsertDiscoveredDevice,
 		arg.OrgID,
@@ -815,7 +816,6 @@ func (q *Queries) UpsertDiscoveredDevice(ctx context.Context, arg UpsertDiscover
 		arg.EndpointKey,
 		arg.Endpoints,
 		arg.DirectDiscovery,
-		arg.LocklessDiscovery,
 	)
 	var id int64
 	err := row.Scan(&id)

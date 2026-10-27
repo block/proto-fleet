@@ -57,6 +57,7 @@ func TestCT1DiscoveryLearnsInitiallyUnavailableIdentity(t *testing.T) {
 			db, store, org := ct1HAStore(t)
 			initial := ct1HADiscovery(org, "a", "10.0.0.11")
 			initial.Endpoints = nil
+			initial.Port, initial.UrlScheme = "8181", "https"
 			before := saveCT1HA(t, store, "initial-scan", initial)
 			if paired {
 				pairCT1HA(t, db, before)
@@ -69,6 +70,10 @@ func TestCT1DiscoveryLearnsInitiallyUnavailableIdentity(t *testing.T) {
 			require.NoError(t, err)
 			require.Equal(t, before.DeviceIdentifier, after.DeviceIdentifier)
 			require.Len(t, after.Endpoints, 1)
+			require.Equal(t, "8181", after.Port)
+			require.Equal(t, "https", after.UrlScheme)
+			require.Equal(t, int32(8181), after.Endpoints[0].Port)
+			require.Equal(t, "https", after.Endpoints[0].UrlScheme)
 			count, err := store.CountActiveUnpairedDevices(t.Context(), org)
 			require.NoError(t, err)
 			require.EqualValues(t, 1, count)

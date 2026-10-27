@@ -84,6 +84,17 @@ func (d *Device) Status(ctx context.Context) (sdk.DeviceMetrics, error) {
 		return sdk.DeviceMetrics{}, err
 	}
 	metrics, err := selected.client.Collect(ctx, d.id)
+	if err != nil && selected.standby != nil && ctx.Err() == nil {
+		// Reuse this poll's verified standby. Only telemetry can fall back;
+		// commands and their readback stay on one selected connection.
+		selected = selected.standby
+		firstErr := err
+		metrics, err = selected.client.Collect(ctx, d.id)
+		if err != nil {
+			err = errors.Join(firstErr, err)
+		}
+		ha.Degraded = true
+	}
 	if metrics.Container != nil {
 		metrics.Container.HA = ha
 	}

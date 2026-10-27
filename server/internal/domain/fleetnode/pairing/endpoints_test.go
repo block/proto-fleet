@@ -9,6 +9,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/deviceendpoints"
 	fleetnodepairing "github.com/block/proto-fleet/server/internal/domain/fleetnode/pairing"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/proto"
 )
 
 func endpointGroupReport(t *testing.T, node int64, endpointID, host string) fleetnodepairing.DiscoveredDeviceReport {
@@ -160,17 +161,20 @@ func TestPairedEndpointDiscoveryRejectsSpoofedReportsWithoutDroppingBatch(t *tes
 	uncheckedPeer.Endpoints = append([]*commonpb.DeviceEndpoint{a.Endpoints[0]}, b.Endpoints[0])
 	mismatched := a
 	mismatched.Endpoints = []*commonpb.DeviceEndpoint{{Id: "controller-a", DeviceKey: "ct1-pair", Host: "10.0.0.99", Port: 8080, UrlScheme: "http", RpcPort: 9095}}
+	changedMembers := a
+	changedMembers.Endpoints = []*commonpb.DeviceEndpoint{proto.CloneOf(a.Endpoints[0])}
+	changedMembers.Endpoints[0].MemberIds = []string{"controller-a", "controller-c"}
 	validBefore := fleetnodepairing.DiscoveredDeviceReport{DeviceIdentifier: "valid-before", IPAddress: "10.0.0.21", Port: "80", URLScheme: "http", DriverName: "virtual"}
 	validAfter := validBefore
 	validAfter.DeviceIdentifier, validAfter.IPAddress = "valid-after", "10.0.0.22"
 	reports := []fleetnodepairing.DiscoveredDeviceReport{validBefore,
-		endpointGroupReport(t, node, "controller-a", "10.0.0.99"), rogue, swap, transport, omitted, downgraded, malformed, uncheckedPeer, mismatched,
+		endpointGroupReport(t, node, "controller-a", "10.0.0.99"), rogue, swap, transport, omitted, downgraded, malformed, uncheckedPeer, mismatched, changedMembers,
 		a, validAfter}
 
 	accepted, rejected, err := svc.UpsertDiscoveredDevices(ctx, node, org, reports)
 
 	require.NoError(t, err)
-	require.EqualValues(t, 9, rejected)
+	require.EqualValues(t, 10, rejected)
 	require.Len(t, accepted, 3)
 	require.Equal(t, validBefore.DeviceIdentifier, accepted[0].DeviceIdentifier)
 	require.Equal(t, a.DeviceIdentifier, accepted[1].DeviceIdentifier, "same-route scans must remain valid")
@@ -198,7 +202,15 @@ func TestEndpointDiscoveryGroupsByPluginKeyAndNetworkOwner(t *testing.T) {
 	keyless.DeviceIdentifier, keyless.Endpoints = "serial:identity-unavailable", nil
 	_, _, err := svc.UpsertDiscoveredDevices(t.Context(), node, org, []fleetnodepairing.DiscoveredDeviceReport{keyless})
 	require.NoError(t, err)
-	accepted, rejected, err := svc.UpsertDiscoveredDevices(t.Context(), node, org, []fleetnodepairing.DiscoveredDeviceReport{a, b})
+	incomplete := keyless
+	incomplete.RPCPort = 0
+	accepted, rejected, err := svc.UpsertDiscoveredDevices(t.Context(), node, org, []fleetnodepairing.DiscoveredDeviceReport{incomplete})
+	require.NoError(t, err)
+	require.Empty(t, accepted)
+	require.EqualValues(t, 1, rejected, "web-only reports must not erase the saved native route")
+	a.Port, a.URLScheme = "8080", "http"
+	a.Endpoints[0].Port, a.Endpoints[0].UrlScheme = 8080, "http"
+	accepted, rejected, err = svc.UpsertDiscoveredDevices(t.Context(), node, org, []fleetnodepairing.DiscoveredDeviceReport{a, b})
 	require.NoError(t, err)
 	require.Zero(t, rejected)
 	require.Len(t, accepted, 2)

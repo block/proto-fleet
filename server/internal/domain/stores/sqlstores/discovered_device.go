@@ -84,12 +84,7 @@ func (s *SQLDiscoveredDeviceStore) ActivateDirect(ctx context.Context, doi disco
 
 func (s *SQLDiscoveredDeviceStore) SaveDirect(ctx context.Context, doi discoverymodels.DeviceOrgIdentifier, device *discoverymodels.DiscoveredDevice) (*discoverymodels.DiscoveredDevice, error) {
 	if len(device.Endpoints) == 0 && device.DeviceClass != commonpb.DeviceClass_DEVICE_CLASS_CONTAINER && device.RpcPort == 0 && !device.RpcTls {
-		saved, err := s.save(ctx, doi, device, discoveredDeviceSaveOptions{direct: true, lockless: true})
-		if !fleeterror.IsFailedPreconditionError(err) {
-			return saved, err
-		}
-		// A saved container or group needs the guarded path even when a scan
-		// omits its class/endpoints. The fast SQL write did not change that row.
+		return s.save(ctx, doi, device, discoveredDeviceSaveOptions{direct: true})
 	}
 	var saved *discoverymodels.DiscoveredDevice
 	err := NewSQLTransactor(s.conn.DB).RunInTx(ctx, func(ctx context.Context) error {
@@ -142,8 +137,7 @@ func (s *SQLDiscoveredDeviceStore) SaveDirect(ctx context.Context, doi discovery
 }
 
 type discoveredDeviceSaveOptions struct {
-	direct   bool
-	lockless bool
+	direct bool
 }
 
 func (s *SQLDiscoveredDeviceStore) save(ctx context.Context, doi discoverymodels.DeviceOrgIdentifier, device *discoverymodels.DiscoveredDevice, options discoveredDeviceSaveOptions) (*discoverymodels.DiscoveredDevice, error) {
@@ -156,8 +150,8 @@ func (s *SQLDiscoveredDeviceStore) save(ctx context.Context, doi discoverymodels
 		return nil, err
 	}
 	insertedID, err := s.getQueries(ctx).UpsertDiscoveredDevice(ctx, sqlc.UpsertDiscoveredDeviceParams{
-		DirectDiscovery: options.direct, LocklessDiscovery: options.lockless,
-		EndpointKey: key, Endpoints: controllers,
+		DirectDiscovery: options.direct,
+		EndpointKey:     key, Endpoints: controllers,
 		OrgID:            doi.OrgID,
 		DeviceIdentifier: doi.DeviceIdentifier,
 		Model:            sql.NullString{String: device.Model, Valid: len(device.Model) > 0},

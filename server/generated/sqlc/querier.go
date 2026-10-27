@@ -2577,7 +2577,7 @@ type Querier interface {
 	// revocation committed and waited on this row's lock.
 	UpsertDeviceStatus(ctx context.Context, arg UpsertDeviceStatusParams) error
 	// PostgreSQL version returns the id directly using RETURNING
-	// A fast rig write must fall back to locked reconciliation for a saved container.
+	// A web-only scan cannot erase a saved native RPC route.
 	UpsertDiscoveredDevice(ctx context.Context, arg UpsertDiscoveredDeviceParams) (int64, error)
 	// No returned row on conflict signals rejection. A remote report must not redirect the
 	// endpoint/credentials of a miner the cloud owns, so the update is blocked
@@ -2586,6 +2586,7 @@ type Querier interface {
 	// refreshable, subject to the attribution guard. The agent synthesizes a stable
 	// per-device identifier (mac:/serial:, else auto:<hash>), so a re-scan reuses
 	// the same row.
+	// A web-only scan cannot erase a saved native RPC route.
 	UpsertDiscoveredDeviceFromFleetNode(ctx context.Context, arg UpsertDiscoveredDeviceFromFleetNodeParams) (UpsertDiscoveredDeviceFromFleetNodeRow, error)
 	UpsertFleetMetricRollups(ctx context.Context, arg UpsertFleetMetricRollupsParams) error
 	UpsertFleetNodeAuthChallenge(ctx context.Context, arg UpsertFleetNodeAuthChallengeParams) error
