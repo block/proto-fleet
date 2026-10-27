@@ -80,31 +80,15 @@ const RevokeNodeDialog = ({
       ]}
     >
       <div className="text-300 text-text-primary-70">
+        "{nodeName}" will lose access to Fleet.{" "}
         {isStandby ? (
-          <>
-            Are you sure you want to revoke "{nodeName}"? The node immediately loses access to Fleet and the HA pair is
-            removed. {peerLabel} keeps its devices.
-          </>
+          <>{peerLabel} will keep managing its miners.</>
         ) : handsOffDevices ? (
-          <>
-            Are you sure you want to revoke "{nodeName}"? The node immediately loses access to Fleet. Fleet then moves
-            its devices to {peerLabel} and removes the HA pair. If the handoff fails, the node stays revoked. Retry
-            revocation to complete the handoff.
-          </>
+          <>{peerLabel} will take over its miners.</>
         ) : isActive && !haStandbyReady ? (
-          <>
-            Are you sure you want to revoke "{nodeName}"? The node immediately loses access to Fleet. {peerLabel} isn't
-            ready to take over. Its miners keep running. If standby setup is pending, the HA pair, miner pairings, and
-            stored miner credentials are kept until you reconnect the standby and retry revocation. Otherwise,
-            revocation removes them, and another node must discover and pair the miners again.
-          </>
+          <>Its miners will keep running, but Fleet will lose access to them.</>
         ) : (
-          <>
-            Are you sure you want to revoke "{nodeName}"? The node immediately loses access to Fleet, and its miner
-            pairings and stored miner credentials are removed. Its miners keep running, but another node will need to
-            discover and pair them again.
-            {isActive ? ` The HA pair is removed, since ${peerLabel} isn't connected to take over.` : ""}
-          </>
+          <>Its miners will keep running, but must be paired with another node to manage them in Fleet.</>
         )}{" "}
         This action cannot be undone.
       </div>
