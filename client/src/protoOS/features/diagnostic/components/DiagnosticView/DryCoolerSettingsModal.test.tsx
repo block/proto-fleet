@@ -117,6 +117,38 @@ describe("DryCoolerSettingsModal", () => {
     expect(screen.getAllByRole("button", { name: "Save" })[0]).toBeEnabled();
   });
 
+  test.each([
+    ["REST", { status: 400, error: { code: 3, message: "temperature target must be between 20 and 55°C" } }],
+    [
+      "Connect",
+      Object.assign(new Error("[invalid_argument] temperature target must be between 20 and 55°C"), {
+        status: 400,
+        error: { code: 3, message: "temperature target must be between 20 and 55°C" },
+      }),
+    ],
+  ])("reports the controller's rejection text from the %s client", async (_transport, rejection) => {
+    const miner = adapter({ setContainerSetpoint: vi.fn().mockRejectedValue(rejection) });
+    render(
+      <DryCoolerSettingsModal
+        adapter={miner}
+        initialMode="auto"
+        initialTargetC={18}
+        onSaved={vi.fn()}
+        onDismiss={vi.fn()}
+      />,
+    );
+    fireEvent.click(screen.getAllByRole("button", { name: "Save" })[0]);
+    await waitFor(() =>
+      expect(updateToast).toHaveBeenCalledWith(
+        1,
+        expect.objectContaining({
+          message: "Could not confirm the target temperature was saved: temperature target must be between 20 and 55°C",
+          status: "error",
+        }),
+      ),
+    );
+  });
+
   test.each([false, true])("reports a partial save and refreshes state (refresh fails: %s)", async (refreshFails) => {
     const miner = adapter({ setContainerControl: vi.fn().mockRejectedValue(new Error("Disconnected")) });
     const onSaved = refreshFails

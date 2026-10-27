@@ -171,10 +171,14 @@ const httpStatusByCode: Record<Code, number> = {
   [Code.Unauthenticated]: 401,
 };
 
-/** Rejects with the REST client's shape: an HTTP `status` plus the gateway's `{ code, message }` body on `error`. */
+/**
+ * Rejects with the REST client's shape: an HTTP `status` plus the gateway's `{ code, message }` body on `error`.
+ * `message` is the server's text without ConnectError's `[code]` prefix, which callers would otherwise display.
+ */
 const toGatewayError = (error: unknown) => {
   const connectError = ConnectError.from(error);
   return Object.assign(connectError, {
+    message: connectError.rawMessage,
     status: httpStatusByCode[connectError.code],
     error: { code: connectError.code, message: connectError.rawMessage },
   });

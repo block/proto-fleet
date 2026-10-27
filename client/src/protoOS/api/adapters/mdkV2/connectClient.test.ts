@@ -226,6 +226,7 @@ describe("MDK v2 Connect client", () => {
 
     await expect(client.miningServiceGetMiningStatus()).rejects.toMatchObject({
       status,
+      message: "Rejected by the controller",
       error: { code, message: "Rejected by the controller" },
     });
   });
