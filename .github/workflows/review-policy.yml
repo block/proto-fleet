@@ -8,6 +8,7 @@ on: # zizmor: ignore[dangerous-triggers] review policy runs from trusted workflo
   workflow_run:
     workflows: ["PR Gate", "Codex Security Review", "Semgrep OSS", "zizmor"]
     types: [completed]
+  workflow_call:
   pull_request:
     types: [edited]
   pull_request_review:
@@ -167,12 +168,17 @@ jobs:
                 return;
               }
               pr = await findOpenPrForSha(context.payload.check_suite?.head_sha);
-            } else if (context.payload.workflow_run?.pull_requests?.length) {
-              const candidate = context.payload.workflow_run.pull_requests[0];
-              const workflowRunHeadSha = context.payload.workflow_run.head_sha;
-              const data = await getOpenPrByNumber(candidate.number);
-              if (data && isCurrentHeadForEvent(data, workflowRunHeadSha, 'workflow_run')) {
-                pr = data;
+            } else if (context.eventName === 'workflow_run') {
+              const run = context.payload.workflow_run;
+              const candidate = run?.pull_requests?.[0];
+              if (candidate) {
+                const data = await getOpenPrByNumber(candidate.number);
+                if (data && isCurrentHeadForEvent(data, run.head_sha, 'workflow_run')) {
+                  pr = data;
+                }
+              } else {
+                // GitHub can omit pull_requests for runs on fork heads.
+                pr = await findOpenPrForSha(run?.head_sha);
               }
             }
 
@@ -517,6 +523,8 @@ jobs:
     needs: evaluate
     if: >-
       always() &&
+      github.event_name != 'pull_request' &&
+      github.event_name != 'pull_request_review' &&
       needs.evaluate.outputs.found == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -650,6 +658,8 @@ jobs:
     needs: evaluate
     if: >-
       always() &&
+      github.event_name != 'pull_request' &&
+      github.event_name != 'pull_request_review' &&
       needs.evaluate.outputs.found == 'true' &&
       needs.evaluate.result != 'cancelled'
     runs-on: ubuntu-latest

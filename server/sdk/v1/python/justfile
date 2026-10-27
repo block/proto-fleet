@@ -51,9 +51,15 @@ clean:
 setup:
   #!/usr/bin/env bash
   set -euo pipefail
-  if [ ! -d ".venv" ]; then
-    python3 -m venv .venv
+  # Hermit's link farm is not a Python installation; venv must record the real home.
+  PYTHON="$(python3 -c 'import os, sys; print(os.path.realpath(sys.executable))')"
+  if ! .venv/bin/python3 -I -c 'import sys; sys.exit(sys.prefix == sys.base_prefix)' >/dev/null 2>&1; then
+    "${PYTHON}" -m venv --clear --without-pip .venv
     echo "✅ Created virtual environment at .venv"
+  fi
+  # Run ensurepip directly so bootstrap errors are visible, and repair partial setups.
+  if ! .venv/bin/python3 -I -m pip --version >/dev/null 2>&1; then
+    .venv/bin/python3 -I -m ensurepip --upgrade --default-pip
   fi
   source "{{repo_root}}/scripts/pip-config.sh"
   .venv/bin/pip install -e ".[dev]"

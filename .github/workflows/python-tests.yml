@@ -99,7 +99,7 @@ jobs:
 
       - name: Validate tarball contents match source
         run: |
-          TARBALL="proto-python-gen-0.2.0.tar.gz"
+          TARBALL="proto-python-gen-0.2.2.tar.gz"
           if [[ ! -f "${TARBALL}" ]]; then
             echo "ERROR: Committed tarball ${TARBALL} not found."
             echo "Run 'cd packages/proto-python-gen && just package' and commit the tarball."

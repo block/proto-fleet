@@ -1,7 +1,7 @@
 set shell := ["bash", "-euo", "pipefail", "-c"]
 
 package_name := "proto-python-gen"
-version := "0.2.0"
+version := "0.2.2"
 package_root := justfile_directory()
 repo_root := package_root / "../.."
 
@@ -31,6 +31,8 @@ format: setup-dev
 test: setup
   #!/usr/bin/env bash
   set -euo pipefail
+
+  "{{package_root}}/.venv/bin/python" "{{package_root}}/tests/test_setup.py" -v
 
   TEST_OUTPUT="{{package_root}}/tests/output"
   rm -rf "${TEST_OUTPUT}"
@@ -132,6 +134,28 @@ test: setup
     FAIL=1
   fi
   rm -rf "${PREFIX_OUTPUT}"
+
+  echo ""
+  echo "=== Verify: Hermit-style symlink chain locates plugin code ==="
+  LINK_TEST_DIR="$(mktemp -d)"
+  trap 'rm -rf "${LINK_TEST_DIR}"' EXIT
+  mkdir -p "${LINK_TEST_DIR}/link farm/bin"
+  ln -s "{{package_root}}/bin/protoc-gen-python-grpc" "${LINK_TEST_DIR}/plugin target"
+  ln -s "../../plugin target" "${LINK_TEST_DIR}/link farm/bin/protoc-gen-python-grpc"
+  LINK_TEMPLATE="$("{{package_root}}/.venv/bin/python" -c '
+  import json, sys
+  print(json.dumps({"version": "v2", "plugins": [
+      {"protoc_builtin": "python", "out": "."},
+      {"protoc_builtin": "pyi", "out": "."},
+      {"local": sys.argv[1], "out": "."},
+  ]}))
+  ' "${LINK_TEST_DIR}/link farm/bin/protoc-gen-python-grpc")"
+  buf generate \
+    --template "${LINK_TEMPLATE}" \
+    -o "${LINK_TEST_DIR}/output" \
+    "{{package_root}}/tests/test_protos"
+  diff -rq --exclude='__pycache__' "${TEST_OUTPUT}" "${LINK_TEST_DIR}/output"
+  echo "  OK  absolute and relative symlinks preserve generated output"
 
   echo ""
   if [[ ${FAIL} -eq 0 ]]; then

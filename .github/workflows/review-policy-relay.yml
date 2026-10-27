@@ -1,0 +1,24 @@
+name: Review Policy Relay
+
+on: # zizmor: ignore[dangerous-triggers] reevaluates default-branch policy without executing PR-head code
+  workflow_run:
+    workflows: ["Review Policy"]
+    types: [completed]
+
+permissions:
+  contents: read
+
+jobs:
+  reevaluate:
+    # Direct fork/Dependabot PR and review events can have read-only tokens.
+    # Completion runs use trusted default-branch code and fresh GitHub state.
+    if: contains(fromJSON('["pull_request","pull_request_review"]'), github.event.workflow_run.event)
+    uses: ./.github/workflows/review-policy.yml
+    permissions:
+      actions: read
+      checks: read
+      contents: read
+      issues: write
+      pull-requests: write
+      statuses: write
+    secrets: inherit

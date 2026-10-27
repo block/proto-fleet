@@ -53,6 +53,11 @@ if [[ -z "${PYTHON}" ]]; then
   exit 1
 fi
 
+# A venv created through Hermit's symlink can record the link farm as its
+# Python home, where the standard library is absent. Keep the selected
+# interpreter, but invoke its physical executable when creating the venv.
+PYTHON="$("${PYTHON}" -c 'import os, sys; print(os.path.realpath(sys.executable))')"
+
 if ! "${PYTHON}" -c 'import sys; sys.exit(0 if sys.version_info >= (3, 8) else 1)' >/dev/null 2>&1; then
   echo "Error: Python 3.8+ is required; found version: $(${PYTHON} --version 2>&1)" >&2
   exit 1
@@ -61,9 +66,9 @@ fi
 echo "Using Python: $(${PYTHON} --version 2>&1) (${PYTHON})"
 
 # ── Create venv ───────────────────────────────────────────────────────────────
-if [[ ! -d "${VENV_DIR}" ]]; then
-  echo "Creating venv at ${VENV_DIR} ..."
-  "${PYTHON}" -m venv "${VENV_DIR}"
+if [[ ! -x "${VENV_DIR}/bin/pip" ]] || ! "${VENV_DIR}/bin/python" -c 'import encodings, pip' &>/dev/null; then
+  echo "Creating or repairing venv at ${VENV_DIR} ..."
+  "${PYTHON}" -m venv --clear "${VENV_DIR}"
 fi
 
 # ── Install dependencies ─────────────────────────────────────────────────────
