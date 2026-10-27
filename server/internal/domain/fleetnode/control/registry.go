@@ -36,6 +36,7 @@ package control
 import (
 	"errors"
 	"sync"
+	"time"
 
 	gatewaypb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
 	pairingpb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
@@ -51,6 +52,10 @@ const commandEventBuffer = 64
 // exceeds the node's command worker-pool ceiling so concurrent Send/SendCommand to
 // one node enqueue without serializing behind the gateway's single drain loop.
 const outgoingBuffer = 1024
+
+// KeepaliveMisses is how many negotiated keepalive intervals of silence either
+// end of a V7 ControlStream tolerates before closing it.
+const KeepaliveMisses = 3
 
 // MaxConcurrentCommandArtifactUploadsPerFleetNode bounds upload streams before
 // their first message can be matched to a command expectation.
@@ -179,6 +184,7 @@ type connection struct {
 	done                      chan struct{}                  // closed once on evict/Unregister; wakes the handler and blocked senders
 	cmds                      map[string]*inflightCommand    // in-flight commands by command_id
 	maxCommandProtocolVersion gatewaypb.CommandProtocolVersion
+	connectedAt               time.Time
 }
 
 // inflightCommand is the operator/worker side of one in-flight command. Its result
@@ -216,6 +222,8 @@ type Registry struct {
 	sessionFences            map[int64]sessionFence
 	commandArtifactUploads   map[int64]int
 	commandArtifactDownloads map[int64]int
+	started                  time.Time
+	disconnectedAt           map[int64]time.Time
 }
 
 type sessionFence struct {
@@ -229,7 +237,42 @@ func NewRegistry() *Registry {
 		sessionFences:            make(map[int64]sessionFence),
 		commandArtifactUploads:   make(map[int64]int),
 		commandArtifactDownloads: make(map[int64]int),
+		started:                  time.Now(),
+		disconnectedAt:           make(map[int64]time.Time),
 	}
+}
+
+// Connected reports whether fleetNodeID has an active ControlStream.
+func (r *Registry) Connected(fleetNodeID int64) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.conns[fleetNodeID] != nil
+}
+
+// ConnectedSince reports when fleetNodeID's current ControlStream registered.
+// ok is false while the node is disconnected.
+func (r *Registry) ConnectedSince(fleetNodeID int64) (since time.Time, ok bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if conn := r.conns[fleetNodeID]; conn != nil {
+		return conn.connectedAt, true
+	}
+	return time.Time{}, false
+}
+
+// DisconnectedSince reports when fleetNodeID's last ControlStream ended. A node
+// that has not connected since this registry started counts as disconnected
+// since then. ok is false while the node is connected.
+func (r *Registry) DisconnectedSince(fleetNodeID int64) (since time.Time, ok bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.conns[fleetNodeID] != nil {
+		return time.Time{}, false
+	}
+	if since, ok := r.disconnectedAt[fleetNodeID]; ok {
+		return since, true
+	}
+	return r.started, true
 }
 
 // ConnectedFleetNodeIDs returns the fleet_node IDs with an active ControlStream

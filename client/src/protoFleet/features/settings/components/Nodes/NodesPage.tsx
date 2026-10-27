@@ -8,12 +8,13 @@ import { POLL_INTERVAL_MS } from "@/protoFleet/constants/polling";
 import EnrollNodeModal from "@/protoFleet/features/settings/components/Nodes/EnrollNodeModal";
 import FindNodeMinersModal from "@/protoFleet/features/settings/components/Nodes/FindNodeMinersModal";
 import NodeDetailsModal from "@/protoFleet/features/settings/components/Nodes/NodeDetailsModal";
+import NodeRole from "@/protoFleet/features/settings/components/Nodes/NodeRole";
 import NodeStatusBadge from "@/protoFleet/features/settings/components/Nodes/NodeStatusBadge";
 import RevokeNodeDialog from "@/protoFleet/features/settings/components/Nodes/RevokeNodeDialog";
 import SettingsEmptyState from "@/protoFleet/features/settings/components/SettingsEmptyState";
 import SettingsPageHeader from "@/protoFleet/features/settings/components/SettingsPageHeader";
 import { useHasPermission } from "@/protoFleet/store";
-import { Checkmark, Trash } from "@/shared/assets/icons";
+import { Checkmark } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import List from "@/shared/components/List";
 import { ColConfig, ColTitles } from "@/shared/components/List/types";
@@ -21,18 +22,20 @@ import { pushToast, STATUSES } from "@/shared/features/toaster";
 import { usePoll } from "@/shared/hooks/usePoll";
 import { getRelativeTimeFromEpoch } from "@/shared/utils/datetime";
 
-type NodeColumns = "name" | "ipAddresses" | "status" | "version" | "miners" | "lastSeen";
+type NodeColumns = "name" | "ipAddresses" | "role" | "status" | "version" | "miners" | "lastSeen";
+type NodeTableItem = FleetNodeItem & { endsGroup: boolean };
 
 const colTitles: ColTitles<NodeColumns> = {
   name: "Name",
   ipAddresses: "IP address",
-  status: "Status",
+  role: "Role",
+  status: "Connection",
   version: "Version",
   miners: "Paired miners",
   lastSeen: "Last heartbeat",
 };
 
-const activeCols: NodeColumns[] = ["name", "ipAddresses", "status", "version", "miners", "lastSeen"];
+const activeCols: NodeColumns[] = ["name", "ipAddresses", "role", "status", "version", "miners", "lastSeen"];
 
 const NodesPage = () => {
   const { listFleetNodes, listFleetNodeDevices, revokeFleetNode, discoverOnFleetNode } = useFleetNodes();
@@ -54,6 +57,7 @@ const NodesPage = () => {
   const [isRevoking, setIsRevoking] = useState(false);
   const notifyNextLoadErrorRef = useRef(true);
   const revokeImpactRequestRef = useRef(0);
+  const revokePeerConnectedRef = useRef<boolean | undefined>(undefined);
   const scansByNodeRef = useRef(
     new Map<
       string,
@@ -153,14 +157,57 @@ const NodesPage = () => {
   const detailsNode = nodes.find((node) => node.fleetNodeId === detailsNodeId) ?? null;
   const findingNode = nodes.find((node) => node.fleetNodeId === findingNodeId) ?? null;
 
+  const tableNodes = useMemo(() => {
+    const byId = new Map(nodes.map((node) => [node.fleetNodeId, node]));
+    const seen = new Set<string>();
+    const compareNames = (a: FleetNodeItem, b: FleetNodeItem) =>
+      a.name.localeCompare(b.name) || a.fleetNodeId.localeCompare(b.fleetNodeId);
+    // Name order keeps pairs and their members stationary when HA roles swap.
+    return [...nodes].sort(compareNames).flatMap((node): NodeTableItem[] => {
+      if (seen.has(node.fleetNodeId)) return [];
+      const peer = byId.get(node.haPeerNodeId ?? "");
+      const members = peer?.haPeerNodeId === node.fleetNodeId ? [node, peer].sort(compareNames) : [node];
+      return members.map((member, index) => {
+        seen.add(member.fleetNodeId);
+        return { ...member, endsGroup: index === members.length - 1 };
+      });
+    });
+  }, [nodes]);
+
+  const revokePeerNode = revokeNodeData?.haPeerNodeId
+    ? (nodes.find((node) => node.fleetNodeId === revokeNodeData.haPeerNodeId) ?? null)
+    : null;
+
   const dismissRevoke = useCallback(() => {
     revokeImpactRequestRef.current++;
     setRevokeNodeData(null);
   }, []);
 
+  useEffect(() => {
+    if (!revokeNodeData || isRevoking) return;
+    const currentNode = nodes.find((node) => node.fleetNodeId === revokeNodeData.fleetNodeId);
+    if (
+      !currentNode ||
+      currentNode.haRole !== revokeNodeData.haRole ||
+      currentNode.haPeerNodeId !== revokeNodeData.haPeerNodeId ||
+      currentNode.haStandbyReady !== revokeNodeData.haStandbyReady ||
+      currentNode.pairedDeviceCount !== revokeNodeData.pairedDeviceCount ||
+      revokePeerNode?.controlStreamConnected !== revokePeerConnectedRef.current
+    ) {
+      dismissRevoke();
+      pushToast({
+        message: "Node details changed. Reopen Revoke to review the current impact.",
+        status: STATUSES.error,
+      });
+    }
+  }, [nodes, revokeNodeData, revokePeerNode, isRevoking, dismissRevoke]);
+
   const openRevoke = useCallback(
     (node: FleetNodeItem) => {
       const requestId = ++revokeImpactRequestRef.current;
+      revokePeerConnectedRef.current = nodes.find(
+        (peer) => peer.fleetNodeId === node.haPeerNodeId,
+      )?.controlStreamConnected;
       setRevokeNodeData(node);
       setRevokeDevices([]);
       setRevokeImpactError("");
@@ -180,7 +227,7 @@ const NodesPage = () => {
           if (requestId === revokeImpactRequestRef.current) setRevokeImpactLoading(false);
         });
     },
-    [listFleetNodeDevices],
+    [listFleetNodeDevices, nodes],
   );
 
   const handleRevokeConfirm = useCallback(() => {
@@ -217,20 +264,18 @@ const NodesPage = () => {
         },
         hidden: (node: FleetNodeItem) => node.enrollmentStatus !== FleetNodeEnrollmentStatus.AWAITING_CONFIRMATION,
       },
-      {
-        title: "Revoke",
-        icon: <Trash />,
-        variant: "destructive" as const,
-        actionHandler: openRevoke,
-      },
     ],
-    [openRevoke],
+    [],
   );
 
-  const colConfig: ColConfig<FleetNodeItem, string, NodeColumns> = useMemo(
+  const colConfig: ColConfig<NodeTableItem, string, NodeColumns> = useMemo(
     () => ({
       name: {
-        component: (node: FleetNodeItem) => <span className="text-emphasis-300">{node.name}</span>,
+        component: (node: NodeTableItem) => (
+          <span title={node.name} className="text-emphasis-300">
+            {node.name}
+          </span>
+        ),
         width: "w-48",
       },
       ipAddresses: {
@@ -249,13 +294,18 @@ const NodesPage = () => {
         width: "w-44",
         allowWrap: true,
       },
+      role: {
+        component: (node: FleetNodeItem) => <NodeRole node={node} />,
+        width: "w-28",
+      },
       status: {
         component: (node: FleetNodeItem) => <NodeStatusBadge node={node} />,
-        width: "w-56",
+        width: "w-44",
       },
       miners: {
         component: (node: FleetNodeItem) => <span>{node.pairedDeviceCount}</span>,
         width: "w-32",
+        align: "right",
       },
       lastSeen: {
         component: (node: FleetNodeItem) => (
@@ -276,7 +326,7 @@ const NodesPage = () => {
   }
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex flex-col gap-3">
       <div className="flex items-start justify-between gap-4 phone:flex-col phone:items-stretch">
         <SettingsPageHeader title="Nodes" />
         {canManageNodes ? (
@@ -290,27 +340,35 @@ const NodesPage = () => {
         ) : null}
       </div>
 
-      {isLoading ? (
-        <div className="text-center text-text-primary-50">Loading nodes...</div>
-      ) : (
-        <List<FleetNodeItem, string, NodeColumns>
-          items={nodes}
-          itemKey="fleetNodeId"
-          activeCols={activeCols}
-          colTitles={colTitles}
-          colConfig={colConfig}
-          total={nodes.length}
-          itemName={{ singular: "node", plural: "nodes" }}
-          noDataElement={
-            <SettingsEmptyState
-              title="No nodes yet"
-              description="Enroll a host running the fleet-node daemon to discover and manage the miners on its network."
-            />
-          }
-          onRowClick={(node) => setDetailsNodeId(node.fleetNodeId)}
-          actions={canManageNodes ? availableActions : undefined}
-        />
-      )}
+      <div>
+        {isLoading ? (
+          <div className="text-center text-text-primary-50">Loading nodes...</div>
+        ) : (
+          <List<NodeTableItem, string, NodeColumns>
+            items={tableNodes}
+            itemKey="fleetNodeId"
+            activeCols={activeCols}
+            colTitles={colTitles}
+            colConfig={colConfig}
+            showRowDivider={(node) => node.endsGroup}
+            total={nodes.length}
+            itemName={{ singular: "node", plural: "nodes" }}
+            noDataElement={
+              <SettingsEmptyState
+                title="No nodes yet"
+                description="Enroll a host running the fleet-node daemon to discover and manage the miners on its network."
+              />
+            }
+            onRowClick={(node) => setDetailsNodeId(node.fleetNodeId)}
+            actions={
+              canManageNodes &&
+              nodes.some((node) => node.enrollmentStatus === FleetNodeEnrollmentStatus.AWAITING_CONFIRMATION)
+                ? availableActions
+                : undefined
+            }
+          />
+        )}
+      </div>
 
       <EnrollNodeModal
         open={showEnrollModal}
@@ -327,6 +385,14 @@ const NodesPage = () => {
             setDetailsNodeId(null);
             setFindingNodeId(detailsNode.fleetNodeId);
           }}
+          onRevoke={
+            canManageNodes
+              ? () => {
+                  setDetailsNodeId(null);
+                  openRevoke(detailsNode);
+                }
+              : undefined
+          }
         />
       ) : null}
       {findingNode ? (
@@ -344,18 +410,24 @@ const NodesPage = () => {
           scanOnNode={scanOnNode}
         />
       ) : null}
-      <RevokeNodeDialog
-        open={!!revokeNodeData}
-        nodeName={revokeNodeData?.name ?? ""}
-        affectedDevices={revokeDevices}
-        isLoadingImpact={revokeImpactLoading}
-        impactError={revokeImpactError}
-        onConfirm={handleRevokeConfirm}
-        onDismiss={() => {
-          if (!isRevoking) dismissRevoke();
-        }}
-        isSubmitting={isRevoking}
-      />
+      {revokeNodeData ? (
+        <RevokeNodeDialog
+          open
+          nodeName={revokeNodeData.name}
+          affectedDevices={revokeDevices}
+          haRole={revokeNodeData.haRole}
+          haStandbyReady={revokeNodeData.haStandbyReady}
+          peerNode={revokePeerNode}
+          peerName={revokeNodeData.haPeerNodeName}
+          isLoadingImpact={revokeImpactLoading}
+          impactError={revokeImpactError}
+          onConfirm={handleRevokeConfirm}
+          onDismiss={() => {
+            if (!isRevoking) dismissRevoke();
+          }}
+          isSubmitting={isRevoking}
+        />
+      ) : null}
     </div>
   );
 };

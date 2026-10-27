@@ -43,6 +43,10 @@ func AdmissionForCommand(command *gatewaypb.AgentCommand) (CommandAdmissionClass
 		return CommandAdmissionExclusive, "endpoint_recovery"
 	case *gatewaypb.AgentCommand_Telemetry:
 		return CommandAdmissionDeferrableRead, "telemetry"
+	case *gatewaypb.AgentCommand_ExportCredentialKey:
+		return CommandAdmissionGeneral, "credential_key_export"
+	case *gatewaypb.AgentCommand_InstallCredentialKey:
+		return CommandAdmissionGeneral, "credential_key_install"
 	case *gatewaypb.AgentCommand_MinerCommand:
 		return AdmissionForMinerCommand(typedCommand.MinerCommand)
 	default:

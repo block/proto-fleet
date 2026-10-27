@@ -3,7 +3,10 @@ import { act, fireEvent, render, screen, waitFor, within } from "@testing-librar
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { create } from "@bufbuild/protobuf";
 import MinersPage from "./MinersWrapper";
-import { FleetNodeEnrollmentStatus } from "@/protoFleet/api/generated/fleetnodeadmin/v1/fleetnodeadmin_pb";
+import {
+  FleetNodeEnrollmentStatus,
+  FleetNodeHARole,
+} from "@/protoFleet/api/generated/fleetnodeadmin/v1/fleetnodeadmin_pb";
 import { NetworkInfoSchema } from "@/protoFleet/api/generated/networkinfo/v1/networkinfo_pb";
 import { DeviceSchema } from "@/protoFleet/api/generated/pairing/v1/pairing_pb";
 import { type FleetNodeItem, useFleetNodes } from "@/protoFleet/api/useFleetNodes";
@@ -109,7 +112,13 @@ function fleetNode(overrides: Partial<FleetNodeItem> = {}): FleetNodeItem {
     commandProtocolUpgradeRequired: false,
     commandProtocolUpgradeRecommended: false,
     controlStreamConnected: true,
+    discoveryCoverageDegraded: false,
     pairedDeviceCount: 0,
+    haRole: FleetNodeHARole.FLEET_NODE_HA_ROLE_UNSPECIFIED,
+    haPeerNodeId: null,
+    haPeerNodeName: "",
+    haStandbyReady: false,
+    haStatusReason: "",
     ipAddresses: [],
     version: "",
     enrolledBy: "",
@@ -697,10 +706,26 @@ describe("MinersWrapper", () => {
       );
     });
 
+    it("does not warn when an offline standby is covered by its active peer", async () => {
+      mockListFleetNodes.mockResolvedValue([
+        fleetNode(),
+        fleetNode({
+          fleetNodeId: "2",
+          controlStreamConnected: false,
+          haRole: FleetNodeHARole.FLEET_NODE_HA_ROLE_STANDBY,
+        }),
+      ]);
+
+      renderMinersPage("pairing");
+
+      await waitFor(() => expect(mockListFleetNodes).toHaveBeenCalled());
+      expect(screen.queryByTestId("remote-discovery-guidance")).not.toBeInTheDocument();
+    });
+
     it("warns generically when some confirmed nodes are ineligible", async () => {
       mockListFleetNodes.mockResolvedValue([
         fleetNode(),
-        fleetNode({ fleetNodeId: "2", controlStreamConnected: false }),
+        fleetNode({ fleetNodeId: "2", controlStreamConnected: false, discoveryCoverageDegraded: true }),
       ]);
 
       renderMinersPage("pairing");
@@ -710,7 +735,9 @@ describe("MinersWrapper", () => {
     });
 
     it("warns generically when no confirmed node is eligible", async () => {
-      mockListFleetNodes.mockResolvedValue([fleetNode({ commandProtocolUpgradeRequired: true })]);
+      mockListFleetNodes.mockResolvedValue([
+        fleetNode({ commandProtocolUpgradeRequired: true, discoveryCoverageDegraded: true }),
+      ]);
 
       renderMinersPage("pairing");
 
@@ -738,7 +765,7 @@ describe("MinersWrapper", () => {
       // Arrange
       mockListFleetNodes
         .mockResolvedValueOnce([fleetNode()])
-        .mockResolvedValueOnce([fleetNode({ controlStreamConnected: false })])
+        .mockResolvedValueOnce([fleetNode({ controlStreamConnected: false, discoveryCoverageDegraded: true })])
         .mockResolvedValue([fleetNode()]);
       mockDiscover.mockImplementation(async ({ onStreamData }) => {
         onStreamData([createDiscoveredMiner("miner-1", "192.168.1.100")]);
@@ -786,7 +813,9 @@ describe("MinersWrapper", () => {
       fireEvent.click(screen.getByTestId("section-search-by-ip").querySelector("button")!);
       expect(screen.getByText("Scanning… 1 miner found on your network")).toBeInTheDocument();
       expect(screen.queryByTestId("remote-discovery-guidance")).not.toBeInTheDocument();
-      await act(async () => resolveCoverage([fleetNode(), fleetNode({ controlStreamConnected: false })]));
+      await act(async () =>
+        resolveCoverage([fleetNode(), fleetNode({ controlStreamConnected: false, discoveryCoverageDegraded: true })]),
+      );
 
       // Assert: delayed warnings are visible without leaving scanning or results.
       const warning = "Some Fleet Nodes can't scan. Results may be incomplete.";
@@ -855,7 +884,9 @@ describe("MinersWrapper", () => {
             rejectInitial = reject;
           }),
       );
-      mockListFleetNodes.mockResolvedValue([fleetNode({ controlStreamConnected: false })]);
+      mockListFleetNodes.mockResolvedValue([
+        fleetNode({ controlStreamConnected: false, discoveryCoverageDegraded: true }),
+      ]);
       renderMinersPage("pairing");
 
       // Act
@@ -917,7 +948,11 @@ describe("MinersWrapper", () => {
         [fleetNode({ enrollmentStatus: FleetNodeEnrollmentStatus.PENDING })],
         "Ask an administrator to finish enrolling the node.",
       ],
-      ["ineligible", [fleetNode({ controlStreamConnected: false })], "Ask an administrator to check Fleet Nodes."],
+      [
+        "ineligible",
+        [fleetNode({ controlStreamConnected: false, discoveryCoverageDegraded: true })],
+        "Ask an administrator to check Fleet Nodes.",
+      ],
     ])(
       "directs an operator without management permission to an administrator for %s nodes",
       async (_label, nodes, hint) => {
@@ -1016,7 +1051,9 @@ describe("MinersWrapper", () => {
     });
 
     it("hides loaded coverage state when miner pairing permission is removed", async () => {
-      mockListFleetNodes.mockResolvedValue([fleetNode({ controlStreamConnected: false })]);
+      mockListFleetNodes.mockResolvedValue([
+        fleetNode({ controlStreamConnected: false, discoveryCoverageDegraded: true }),
+      ]);
       const view = renderMinersPage("pairing");
       expect(await screen.findByTestId("remote-discovery-guidance")).toBeInTheDocument();
 

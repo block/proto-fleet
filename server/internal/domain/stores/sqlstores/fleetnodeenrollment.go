@@ -26,12 +26,13 @@ func (s *SQLFleetNodeEnrollmentStore) q(ctx context.Context) sqlc.Querier {
 	return s.GetQueries(ctx)
 }
 
-func (s *SQLFleetNodeEnrollmentStore) CreatePendingEnrollment(ctx context.Context, codeHash string, orgID, createdBy int64, expiresAt time.Time) (*enrollment.PendingEnrollment, error) {
+func (s *SQLFleetNodeEnrollmentStore) CreatePendingEnrollment(ctx context.Context, codeHash string, orgID, createdBy int64, expiresAt time.Time, standbyForNodeID *int64) (*enrollment.PendingEnrollment, error) {
 	row, err := s.q(ctx).CreatePendingEnrollment(ctx, sqlc.CreatePendingEnrollmentParams{
-		CodeHash:  codeHash,
-		OrgID:     orgID,
-		CreatedBy: createdBy,
-		ExpiresAt: expiresAt,
+		CodeHash:         codeHash,
+		OrgID:            orgID,
+		CreatedBy:        createdBy,
+		ExpiresAt:        expiresAt,
+		StandbyForNodeID: ptrToNullInt64(standbyForNodeID),
 	})
 	if err != nil {
 		return nil, err
@@ -181,6 +182,11 @@ func (s *SQLFleetNodeEnrollmentStore) ListFleetNodesForOrganization(ctx context.
 			EnrolledBy:              r.EnrolledBy,
 			PendingEnrollmentID:     nullInt64ToPtr(r.PendingEnrollmentID),
 			PendingEnrollmentStatus: enrollment.Status(r.PendingEnrollmentStatus),
+			StandbyForNodeID:        nullInt64ToPtr(r.StandbyForNodeID),
+			HAActiveNodeID:          nullInt64ToPtr(r.HaActiveNodeID),
+			HAStandbyNodeID:         nullInt64ToPtr(r.HaStandbyNodeID),
+			HAStandbyReady:          r.HaStandbyReady,
+			HAStatusReason:          r.HaStatusReason,
 		})
 	}
 	return out, nil
@@ -260,15 +266,16 @@ func (s *SQLFleetNodeEnrollmentStore) DeleteMinerCredentialsForFleetNode(ctx con
 
 func rowToPending(row sqlc.PendingEnrollment) *enrollment.PendingEnrollment {
 	return &enrollment.PendingEnrollment{
-		ID:          row.ID,
-		CodeHash:    row.CodeHash,
-		OrgID:       row.OrgID,
-		CreatedBy:   row.CreatedBy,
-		FleetNodeID: nullInt64ToPtr(row.FleetNodeID),
-		Status:      enrollment.Status(row.Status),
-		ExpiresAt:   row.ExpiresAt,
-		ConsumedAt:  nullTimeToPtr(row.ConsumedAt),
-		CreatedAt:   row.CreatedAt,
+		ID:               row.ID,
+		CodeHash:         row.CodeHash,
+		OrgID:            row.OrgID,
+		CreatedBy:        row.CreatedBy,
+		FleetNodeID:      nullInt64ToPtr(row.FleetNodeID),
+		Status:           enrollment.Status(row.Status),
+		ExpiresAt:        row.ExpiresAt,
+		ConsumedAt:       nullTimeToPtr(row.ConsumedAt),
+		CreatedAt:        row.CreatedAt,
+		StandbyForNodeID: nullInt64ToPtr(row.StandbyForNodeID),
 	}
 }
 

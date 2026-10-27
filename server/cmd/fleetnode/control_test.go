@@ -314,9 +314,9 @@ func TestDiscoverForCommand_ContinuesAfterNonPrivateResolvedIPListHostname(t *te
 }
 
 func TestControlLoop_UnknownCommandDoesNotCloseStream(t *testing.T) {
-	// Arrange: field 6 is a future top-level AgentCommand oneof arm unknown to
+	// Arrange: field 8 is a future top-level AgentCommand oneof arm unknown to
 	// this node. Follow it with a command the node does understand.
-	unknownPayload := protowire.AppendTag(nil, 6, protowire.BytesType)
+	unknownPayload := protowire.AppendTag(nil, 8, protowire.BytesType)
 	unknownPayload = protowire.AppendBytes(unknownPayload, nil)
 	discoveryPayload := discoverPayload(t, discoverIPList([]string{"10.0.0.5"}, []string{"4028"}))
 	disc := &stubDiscoverer{probes: map[string]*pb.DiscoveredDeviceReport{
@@ -589,7 +589,7 @@ func TestControlLoop_ReconnectsAfterStreamEOF(t *testing.T) {
 	// Assert: the loop reconnected at least once.
 	assert.GreaterOrEqual(t, fake.helloCount(), 2)
 	for _, got := range fake.helloCommandProtocolVersionsCopy() {
-		assert.Equal(t, pb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V6, got)
+		assert.Equal(t, pb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V7, got)
 	}
 }
 

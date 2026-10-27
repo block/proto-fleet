@@ -107,7 +107,9 @@ func TestRegistry_CommandProtocolUpgradeRequiredForVersion(t *testing.T) {
 		gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V3,
 		gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V4,
 		gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V5,
-		gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V5 + 1,
+		gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V6,
+		gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V7,
+		gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V7 + 1,
 	} {
 		t.Run(installed.String(), func(t *testing.T) {
 			r := NewRegistry()
@@ -120,6 +122,8 @@ func TestRegistry_CommandProtocolUpgradeRequiredForVersion(t *testing.T) {
 				gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V3,
 				gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V4,
 				gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V5,
+				gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V6,
+				gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V7,
 			} {
 				require.Equal(t, installed < minimum, r.CommandProtocolUpgradeRequiredForVersion(7, minimum))
 			}
@@ -143,8 +147,9 @@ func TestRegistry_CommandProtocolUpgradeRecommended(t *testing.T) {
 		{gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V3, true},
 		{gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V4, true},
 		{gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V5, true},
-		{gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V6, false},
-		{gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V6 + 1, false},
+		{gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V6, true},
+		{gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V7, false},
+		{gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V7 + 1, false},
 	} {
 		t.Run(tc.version.String(), func(t *testing.T) {
 			stream, err := r.RegisterAuthenticated(7, "session", tc.version)
@@ -1575,4 +1580,136 @@ func TestRegistryPoolWritesRejectLegacyProtocolBeforeEnqueue(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestRegistry_DisconnectedSince_NeverConnectedReportsRegistryStart(t *testing.T) {
+	before := time.Now()
+	r := NewRegistry()
+	after := time.Now()
+
+	since, ok := r.DisconnectedSince(7)
+
+	assert.True(t, ok)
+	assert.False(t, since.Before(before))
+	assert.False(t, since.After(after))
+	assert.False(t, r.Connected(7))
+}
+
+func TestRegistry_DisconnectedSince_ConnectedNodeReportsNotDisconnected(t *testing.T) {
+	r := NewRegistry()
+	stream, err := r.RegisterAuthenticated(7, "session", gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V6)
+	require.NoError(t, err)
+	defer stream.Unregister()
+
+	since, ok := r.DisconnectedSince(7)
+
+	assert.True(t, r.Connected(7))
+	assert.False(t, ok)
+	assert.True(t, since.IsZero())
+}
+
+func TestRegistry_DisconnectedSince_UnregisterRecordsTime(t *testing.T) {
+	r := NewRegistry()
+	stream, err := r.RegisterAuthenticated(7, "session", gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V6)
+	require.NoError(t, err)
+	beforeUnregister := time.Now()
+
+	stream.Unregister()
+
+	since, ok := r.DisconnectedSince(7)
+	assert.False(t, r.Connected(7))
+	assert.True(t, ok)
+	assert.False(t, since.Before(beforeUnregister))
+	assert.False(t, since.After(time.Now()))
+}
+
+func TestRegistry_DisconnectedSince_ServerDisconnectRecordsTime(t *testing.T) {
+	r := NewRegistry()
+	_, err := r.RegisterAuthenticated(7, "session", gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V6)
+	require.NoError(t, err)
+	beforeDisconnect := time.Now()
+
+	r.Disconnect(7)
+
+	since, ok := r.DisconnectedSince(7)
+	assert.False(t, r.Connected(7))
+	assert.True(t, ok)
+	assert.False(t, since.Before(beforeDisconnect))
+}
+
+func TestRegistry_DisconnectedSince_ReconnectClearsDisconnectTime(t *testing.T) {
+	r := NewRegistry()
+	first, err := r.RegisterAuthenticated(7, "session", gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V6)
+	require.NoError(t, err)
+	first.Unregister()
+	_, disconnected := r.DisconnectedSince(7)
+	require.True(t, disconnected)
+
+	second, err := r.RegisterAuthenticated(7, "session", gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V6)
+	require.NoError(t, err)
+	defer second.Unregister()
+
+	since, ok := r.DisconnectedSince(7)
+	assert.True(t, r.Connected(7))
+	assert.False(t, ok)
+	assert.True(t, since.IsZero())
+}
+
+func TestRegistry_DisconnectedSince_EvictedStreamDoesNotMarkNodeDisconnected(t *testing.T) {
+	r := NewRegistry()
+	first, err := r.RegisterAuthenticated(7, "session", gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V6)
+	require.NoError(t, err)
+	second, err := r.RegisterAuthenticated(7, "session", gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V6)
+	require.NoError(t, err)
+	defer second.Unregister()
+
+	first.Unregister()
+
+	since, ok := r.DisconnectedSince(7)
+	assert.True(t, r.Connected(7))
+	assert.False(t, ok)
+	assert.True(t, since.IsZero())
+}
+
+func TestRegistry_DisconnectedSince_TracksNodesIndependently(t *testing.T) {
+	r := NewRegistry()
+	one, err := r.RegisterAuthenticated(1, "session", gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V6)
+	require.NoError(t, err)
+	two, err := r.RegisterAuthenticated(2, "session", gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V6)
+	require.NoError(t, err)
+	defer two.Unregister()
+
+	one.Unregister()
+
+	assert.False(t, r.Connected(1))
+	assert.True(t, r.Connected(2))
+	_, ok := r.DisconnectedSince(2)
+	assert.False(t, ok)
+}
+
+func TestRegistry_ConnectedSince_ReportsLatestRegistration(t *testing.T) {
+	r := NewRegistry()
+	first, err := r.RegisterAuthenticated(7, "session", gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V6)
+	require.NoError(t, err)
+	first.Unregister()
+	beforeReconnect := time.Now()
+
+	second, err := r.RegisterAuthenticated(7, "session", gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V6)
+	require.NoError(t, err)
+	defer second.Unregister()
+
+	since, ok := r.ConnectedSince(7)
+	assert.True(t, ok)
+	assert.False(t, since.Before(beforeReconnect))
+}
+
+func TestRegistry_ConnectedSince_DisconnectedNodeReportsNotConnected(t *testing.T) {
+	r := NewRegistry()
+	stream, err := r.RegisterAuthenticated(7, "session", gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V6)
+	require.NoError(t, err)
+
+	stream.Unregister()
+
+	_, ok := r.ConnectedSince(7)
+	assert.False(t, ok)
 }

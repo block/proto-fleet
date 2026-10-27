@@ -30,6 +30,8 @@ type PendingEnrollment struct {
 	ExpiresAt   time.Time
 	ConsumedAt  *time.Time
 	CreatedAt   time.Time
+	// StandbyForNodeID is the confirmed node this enrollment will back up.
+	StandbyForNodeID *int64
 }
 
 type FleetNode struct {
@@ -53,4 +55,27 @@ type FleetNodeListing struct {
 	FleetNode
 	PendingEnrollmentID     *int64
 	PendingEnrollmentStatus Status
+	// StandbyForNodeID is set while the node awaits confirmation as a standby.
+	StandbyForNodeID *int64
+	// HA pair membership; both IDs are nil for standalone nodes.
+	HAActiveNodeID  *int64
+	HAStandbyNodeID *int64
+	HAStandbyReady  bool
+	HAStatusReason  string
+}
+
+// IsHAStandby reports whether the node is the standby member of an HA pair.
+func (l FleetNodeListing) IsHAStandby() bool {
+	return l.HAStandbyNodeID != nil && *l.HAStandbyNodeID == l.ID
+}
+
+// IsDiscoveryNode reports whether this node is responsible for discovery.
+func (l FleetNodeListing) IsDiscoveryNode() bool {
+	return l.EnrollmentStatus == FleetNodeStatusConfirmed && !l.IsHAStandby()
+}
+
+// DiscoveryCoverageDegraded reports whether this node is responsible for
+// discovery but cannot currently accept a discovery command.
+func (l FleetNodeListing) DiscoveryCoverageDegraded(connected, protocolUpgradeRequired bool) bool {
+	return l.IsDiscoveryNode() && (!connected || protocolUpgradeRequired)
 }

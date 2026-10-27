@@ -331,6 +331,148 @@ func TestControlStream_SendsPeriodicLiveness(t *testing.T) {
 	require.NotNil(t, second.GetAccepted())
 }
 
+func TestControlStream_NegotiatesKeepalive(t *testing.T) {
+	tests := []struct {
+		name          string
+		version       pb.CommandProtocolVersion
+		wantKeepalive time.Duration
+	}{
+		{name: "pre-keepalive node", version: pb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V6, wantKeepalive: 0},
+		{name: "keepalive node", version: pb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V7, wantKeepalive: gateway.ControlStreamKeepaliveInterval},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			activeCtx, cancelActive := context.WithCancel(t.Context())
+			defer cancelActive()
+			client := startControlServerWithAdmission(t, controlledAdmissionGate{active: activeCtx})
+			stream := client.ControlStream(t.Context())
+			t.Cleanup(func() { _ = stream.CloseRequest(); _ = stream.CloseResponse() })
+
+			require.NoError(t, stream.Send(controlHello(tc.version)))
+			first, err := stream.Receive()
+
+			require.NoError(t, err)
+			assert.Equal(t, tc.wantKeepalive, first.GetAccepted().GetKeepaliveInterval().AsDuration())
+		})
+	}
+}
+
+func TestControlStream_ClosesSilentKeepaliveStream(t *testing.T) {
+	setKeepaliveInterval(t, 20*time.Millisecond)
+	activeCtx, cancelActive := context.WithCancel(t.Context())
+	defer cancelActive()
+	client := startControlServerWithAdmission(t, controlledAdmissionGate{active: activeCtx})
+	stream := client.ControlStream(t.Context())
+	t.Cleanup(func() { _ = stream.CloseRequest(); _ = stream.CloseResponse() })
+	require.NoError(t, stream.Send(controlHello(pb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V7)))
+
+	var err error
+	for err == nil {
+		_, err = stream.Receive()
+	}
+
+	var connectErr *connect.Error
+	require.ErrorAs(t, err, &connectErr)
+	assert.Equal(t, connect.CodeUnavailable, connectErr.Code())
+}
+
+func TestControlStream_PingsKeepStreamOpen(t *testing.T) {
+	setKeepaliveInterval(t, 20*time.Millisecond)
+	activeCtx, cancelActive := context.WithCancel(t.Context())
+	defer cancelActive()
+	client := startControlServerWithAdmission(t, controlledAdmissionGate{active: activeCtx})
+	stream := client.ControlStream(t.Context())
+	t.Cleanup(func() { _ = stream.CloseRequest(); _ = stream.CloseResponse() })
+	require.NoError(t, stream.Send(controlHello(pb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V7)))
+	pingCtx, stopPings := context.WithCancel(t.Context())
+	defer stopPings()
+	go func() {
+		ticker := time.NewTicker(5 * time.Millisecond)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-pingCtx.Done():
+				return
+			case <-ticker.C:
+				if stream.Send(&pb.ControlStreamRequest{Kind: &pb.ControlStreamRequest_Ping{Ping: &pb.ControlPing{}}}) != nil {
+					return
+				}
+			}
+		}
+	}()
+
+	var received int
+	var err error
+	for deadline := time.Now().Add(200 * time.Millisecond); time.Now().Before(deadline) && err == nil; received++ {
+		_, err = stream.Receive()
+	}
+
+	require.NoError(t, err)
+	assert.Greater(t, received, 3)
+}
+
+func TestControlStream_DropsSilentStreamWhileSendIsBlocked(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		block func(*pb.ControlStreamResponse) bool
+	}{
+		{name: "initial acceptance", block: func(response *pb.ControlStreamResponse) bool { return response.GetAccepted() != nil }},
+		{name: "command", block: func(response *pb.ControlStreamResponse) bool { return response.GetCommand() != nil }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			setKeepaliveInterval(t, 20*time.Millisecond)
+			h := newControlHarness(t)
+			// A half-open connection blocks the handler in Send until TCP gives up.
+			release := make(chan struct{})
+			blocked := make(chan struct{}, 1)
+			t.Cleanup(func() { close(release) })
+			client := startControlServer(t, h, connect.WithInterceptors(blockControlSends{release: release, blocked: blocked, block: tc.block}))
+			stream := client.ControlStream(t.Context())
+			t.Cleanup(func() { _ = stream.CloseRequest(); _ = stream.CloseResponse() })
+			require.NoError(t, stream.Send(controlHello(pb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V7)))
+
+			session := waitForSend(t, h.registry, h.fleetNodeID, "blocked", []byte("payload"))
+			defer session.Close()
+			select {
+			case <-blocked:
+			case <-time.After(5 * time.Second):
+				t.Fatal("expected handler to block in Send")
+			}
+
+			assert.Eventually(t, func() bool { return !h.registry.Connected(h.fleetNodeID) }, 5*time.Second, 10*time.Millisecond,
+				"a silent stream leaves the registry even while Send is blocked")
+		})
+	}
+}
+
+func TestControlStream_KeepsSilentLegacyStreamOpen(t *testing.T) {
+	const interval = 20 * time.Millisecond
+	setKeepaliveInterval(t, interval)
+	h := newControlHarness(t)
+	client := startControlServer(t, h)
+	stream := client.ControlStream(t.Context())
+	t.Cleanup(func() { _ = stream.CloseRequest(); _ = stream.CloseResponse() })
+	require.NoError(t, stream.Send(controlHello(pb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V6)))
+	accepted, err := stream.Receive()
+	require.NoError(t, err)
+	require.NotNil(t, accepted.GetAccepted())
+
+	time.Sleep(4 * control.KeepaliveMisses * interval)
+
+	assert.True(t, h.registry.Connected(h.fleetNodeID), "V6 nodes never ping, so silence must not close them")
+}
+
+func controlHello(version pb.CommandProtocolVersion) *pb.ControlStreamRequest {
+	return &pb.ControlStreamRequest{Kind: &pb.ControlStreamRequest_Hello{Hello: &pb.ControlHello{MaxCommandProtocolVersion: version}}}
+}
+
+func setKeepaliveInterval(t *testing.T, interval time.Duration) {
+	t.Helper()
+	previous := gateway.ControlStreamKeepaliveInterval
+	gateway.ControlStreamKeepaliveInterval = interval
+	t.Cleanup(func() { gateway.ControlStreamKeepaliveInterval = previous })
+}
+
 func requireStructuredNotActive(t *testing.T, err error) {
 	t.Helper()
 	require.Error(t, err)
@@ -405,6 +547,40 @@ func startControlServer(t *testing.T, h *controlHarness, opts ...connect.Handler
 		},
 	}
 	return fleetnodegatewayv1connect.NewFleetNodeGatewayServiceClient(httpClient, srv.URL, connect.WithGRPC())
+}
+
+type blockControlSends struct {
+	release <-chan struct{}
+	blocked chan<- struct{}
+	block   func(*pb.ControlStreamResponse) bool
+}
+
+func (b blockControlSends) WrapUnary(next connect.UnaryFunc) connect.UnaryFunc { return next }
+
+func (b blockControlSends) WrapStreamingClient(next connect.StreamingClientFunc) connect.StreamingClientFunc {
+	return next
+}
+
+func (b blockControlSends) WrapStreamingHandler(next connect.StreamingHandlerFunc) connect.StreamingHandlerFunc {
+	return func(ctx context.Context, conn connect.StreamingHandlerConn) error {
+		return next(ctx, blockedSendConn{StreamingHandlerConn: conn, blockControlSends: b})
+	}
+}
+
+type blockedSendConn struct {
+	connect.StreamingHandlerConn
+	blockControlSends
+}
+
+func (c blockedSendConn) Send(msg any) error {
+	if response, ok := msg.(*pb.ControlStreamResponse); ok && c.block(response) {
+		select {
+		case c.blocked <- struct{}{}:
+		default:
+		}
+		<-c.release
+	}
+	return c.StreamingHandlerConn.Send(msg) //nolint:wrapcheck // passthrough to the real stream
 }
 
 type agentSubjectInjector struct {

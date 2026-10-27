@@ -106,7 +106,10 @@ var errControlSenderClosed = errors.New("control session sender closed")
 var (
 	errControlSessionRotated = errors.New("control session credentials rotated")
 	errControlSessionExpired = errors.New("control session credentials expired")
+	errControlStreamSilent   = errors.New("control stream silent past keepalive deadline")
 )
+
+const minControlKeepaliveInterval = time.Second
 
 // connect-go bidi streams are not safe for concurrent Send. The receive
 // loop's busy-ack and the worker's completion ack now share a stream;
@@ -223,7 +226,9 @@ func (r *RunCmd) runControlSession(ctx context.Context, logger *slog.Logger, cli
 	r.initControlConcurrency()
 	credentialCtx, endSession := r.beginControlSession(ctx, st)
 	defer endSession()
-	stream := client.ControlStream(credentialCtx)
+	streamCtx, cancelStream := context.WithCancelCause(credentialCtx)
+	defer cancelStream(context.Canceled)
+	stream := client.ControlStream(streamCtx)
 	// stream.Receive parks in http2.pipe on a sync.Cond ctx can't unblock;
 	// the watcher below closes the stream so Ctrl+C returns. Defers run
 	// LIFO: close(done) fires first so the watcher exits quietly on normal
@@ -233,7 +238,7 @@ func (r *RunCmd) runControlSession(ctx context.Context, logger *slog.Logger, cli
 	defer close(done)
 	go func() {
 		select {
-		case <-credentialCtx.Done():
+		case <-streamCtx.Done():
 			_ = stream.CloseRequest()
 			_ = stream.CloseResponse()
 		case <-done:
@@ -241,12 +246,12 @@ func (r *RunCmd) runControlSession(ctx context.Context, logger *slog.Logger, cli
 	}()
 
 	if err := stream.Send(&pb.ControlStreamRequest{Kind: &pb.ControlStreamRequest_Hello{Hello: &pb.ControlHello{
-		MaxCommandProtocolVersion: pb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V6,
+		MaxCommandProtocolVersion: pb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V7,
 	}}}); err != nil {
 		if ctx.Err() != nil {
 			return nil
 		}
-		if cause := context.Cause(credentialCtx); cause != nil {
+		if cause := context.Cause(streamCtx); cause != nil {
 			return fmt.Errorf("control session ended while sending hello: %w", cause)
 		}
 		return fmt.Errorf("send hello: %w", err)
@@ -256,7 +261,7 @@ func (r *RunCmd) runControlSession(ctx context.Context, logger *slog.Logger, cli
 		if ctx.Err() != nil {
 			return nil
 		}
-		if cause := context.Cause(credentialCtx); cause != nil {
+		if cause := context.Cause(streamCtx); cause != nil {
 			return fmt.Errorf("control session ended while awaiting acceptance: %w", cause)
 		}
 		return fmt.Errorf("await accepted: %w", err)
@@ -273,7 +278,7 @@ func (r *RunCmd) runControlSession(ctx context.Context, logger *slog.Logger, cli
 	// sessionCtx so a dropped stream cancels the in-flight scan immediately;
 	// without it the agent would burn up to commandTimeout finishing an old
 	// scan before opening a new session.
-	sessionCtx, cancelSession := context.WithCancel(credentialCtx)
+	sessionCtx, cancelSession := context.WithCancel(streamCtx)
 
 	// Serialize all sends on the bidi: the worker's completion ack and the
 	// receive loop's busy ack would otherwise race on stream.Send.
@@ -282,6 +287,13 @@ func (r *RunCmd) runControlSession(ctx context.Context, logger *slog.Logger, cli
 		cancelSession()
 		sender.Close()
 	}()
+
+	// Servers that predate keepalive leave the interval unset.
+	var received chan struct{}
+	if keepalive := first.GetAccepted().GetKeepaliveInterval().AsDuration(); keepalive > 0 {
+		received = make(chan struct{}, 1)
+		runControlKeepalive(sessionCtx, sender, received, max(keepalive, minControlKeepaliveInterval), cancelStream)
+	}
 
 	// Process-wide lanes owned by RunCmd:
 	//   - discovery and pairing are heavy, report-bearing scans that share an
@@ -300,13 +312,17 @@ func (r *RunCmd) runControlSession(ctx context.Context, logger *slog.Logger, cli
 			if ctx.Err() != nil {
 				return nil
 			}
-			if cause := context.Cause(credentialCtx); cause != nil {
+			if cause := context.Cause(streamCtx); cause != nil {
 				return fmt.Errorf("control session ended: %w", cause)
 			}
 			if errors.Is(err, io.EOF) {
 				return fmt.Errorf("control stream closed by server: %w", err)
 			}
 			return fmt.Errorf("recv: %w", err)
+		}
+		select {
+		case received <- struct{}{}:
+		default:
 		}
 		cmd := msg.GetCommand()
 		if cmd == nil {
@@ -370,6 +386,45 @@ func (r *RunCmd) runControlSession(ctx context.Context, logger *slog.Logger, cli
 			commandSpan.End()
 		}
 	}
+}
+
+// runControlKeepalive pings fleetd every interval and retires the stream after
+// fleetnodecontrol.KeepaliveMisses intervals with no server message, so a
+// half-open connection reconnects in seconds rather than at a TCP timeout.
+// The watchdog has its own goroutine so a ping blocked on a dead connection
+// cannot delay it.
+func runControlKeepalive(ctx context.Context, sender acker, received <-chan struct{}, interval time.Duration, cancelStream context.CancelCauseFunc) {
+	go func() {
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		ping := &pb.ControlStreamRequest{Kind: &pb.ControlStreamRequest_Ping{Ping: &pb.ControlPing{}}}
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				if sender.Send(ping) != nil {
+					return
+				}
+			}
+		}
+	}()
+	go func() {
+		deadline := fleetnodecontrol.KeepaliveMisses * interval
+		timer := time.NewTimer(deadline)
+		defer timer.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-received:
+				timer.Reset(deadline)
+			case <-timer.C:
+				cancelStream(errControlStreamSilent)
+				return
+			}
+		}
+	}()
 }
 
 func (r *RunCmd) beginControlSession(parent context.Context, st *bootstrap.State) (context.Context, func()) {
@@ -480,6 +535,10 @@ func (r *RunCmd) handleCommand(ctx context.Context, client gatewayClient, stream
 		r.handleTelemetryCommand(ctx, stream, commandID, k.Telemetry, logger)
 	case *pb.AgentCommand_RecoverMinerEndpoints:
 		r.handleRecoverMinerEndpoints(ctx, stream, commandID, k.RecoverMinerEndpoints, logger)
+	case *pb.AgentCommand_ExportCredentialKey:
+		r.handleExportCredentialKey(stream, commandID, k.ExportCredentialKey, logger)
+	case *pb.AgentCommand_InstallCredentialKey:
+		r.handleInstallCredentialKey(stream, commandID, k.InstallCredentialKey, logger)
 	default:
 		if len(env.ProtoReflect().GetUnknown()) > 0 {
 			r.sendAck(stream, commandID, pb.AckCode_ACK_CODE_UNIMPLEMENTED, "server-to-node command type is not supported", logger)

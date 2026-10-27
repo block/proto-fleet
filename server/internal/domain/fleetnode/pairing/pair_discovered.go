@@ -11,6 +11,7 @@ import (
 	minercommandv1 "github.com/block/proto-fleet/server/generated/grpc/minercommand/v1"
 	pairingpb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/block/proto-fleet/server/internal/domain/fleetnode/control"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/credentialblob"
 	minermodels "github.com/block/proto-fleet/server/internal/domain/miner/models"
 	discoverymodels "github.com/block/proto-fleet/server/internal/domain/minerdiscovery/models"
@@ -176,11 +177,13 @@ func pairingStatusFilterValues(statuses []fleetmanagementv1.PairingStatus) ([]st
 // the node and stores node-encrypted credentials when reported; AUTH_NEEDED/AUTH_FAILED
 // record AUTHENTICATION_NEEDED for retry; ERROR/UNSPECIFIED persist nothing.
 // expected is the immutable target captured before dispatch, not a fresh lookup.
-func (s *Service) PersistFleetNodePairResult(ctx context.Context, fleetNodeID, orgID int64, result *gatewaypb.FleetNodePairResult, assignedBy *int64, expected *pairingpb.FleetNodePairTarget) (string, error) {
+func (s *Service) PersistFleetNodePairResult(ctx context.Context, meta control.PairPersistMeta, result *gatewaypb.FleetNodePairResult) (string, error) {
+	fleetNodeID, orgID, assignedBy := meta.FleetNodeID, meta.OrgID, meta.AssignedBy
 	if s.deviceStore == nil || s.discoveredDeviceStore == nil {
 		return "", fleeterror.NewInternalError("fleet node pairing provisioning is not configured")
 	}
 	identifier := result.GetDeviceIdentifier()
+	expected := meta.Snapshots[identifier]
 	outcome := result.GetOutcome()
 	if outcome == gatewaypb.PairOutcome_PAIR_OUTCOME_ERROR || outcome == gatewaypb.PairOutcome_PAIR_OUTCOME_UNSPECIFIED {
 		return StatusFailed, nil

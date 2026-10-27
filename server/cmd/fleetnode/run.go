@@ -42,6 +42,9 @@ type RunCmd struct {
 	discoverer               discoverer                                                               `kong:"-"`
 	driverGetter             driverGetter                                                             `kong:"-"`
 	minerSecrets             secretProvider                                                           `kong:"-"`
+	credentials              *credentialCodec                                                         `kong:"-"`
+	statePath                string                                                                   `kong:"-"`
+	state                    *bootstrap.State                                                         `kong:"-"`
 	passwordUpdatePrivateKey []byte                                                                   `kong:"-"`
 	pairer                   pairer                                                                   `kong:"-"`
 	telemetry                telemetryFetcher                                                         `kong:"-"`
@@ -52,8 +55,11 @@ type RunCmd struct {
 	firmwareTempRoot         string                                                                   `kong:"-"`
 	notifyReady              func() error                                                             `kong:"-"`
 
-	stateMu sync.Mutex `kong:"-"` // guards session state and the active control-session cancel func.
-	pairMu  sync.Mutex `kong:"-"` // serializes pair commands; held until every pair worker exits (see handlePairCommand).
+	// stateMu guards mutable state and the active control-session cancel function.
+	stateMu sync.Mutex `kong:"-"`
+	// saveMu serializes state-file snapshots. Acquire it before stateMu when persisting.
+	saveMu sync.Mutex `kong:"-"`
+	pairMu sync.Mutex `kong:"-"` // serializes pair commands; held until every pair worker exits (see handlePairCommand).
 
 	controlSessionCancel context.CancelCauseFunc `kong:"-"`
 
@@ -206,6 +212,7 @@ func (r *RunCmd) runLocked(ctx context.Context, c *Context, resolvedPluginsDir s
 	if err := bootstrap.ValidateServerURL(st.ServerURL, st.AllowInsecureTransport); err != nil {
 		return operatorActionRequired(err)
 	}
+	r.statePath, r.state = path, st
 	r.firmwareTempRoot = filepath.Join(c.StateDir, firmwareArtifactTempDirName)
 	if err := prepareFirmwareArtifactTempRoot(r.firmwareTempRoot); err != nil {
 		return operatorActionRequired(fmt.Errorf("prepare firmware temp dir: %w", err))
@@ -229,6 +236,7 @@ func (r *RunCmd) runLocked(ctx context.Context, c *Context, resolvedPluginsDir s
 		if r.minerSecrets == nil {
 			r.minerSecrets = credentials
 		}
+		r.credentials = credentials
 		if r.passwordUpdatePrivateKey == nil {
 			privateKey, err := decodePasswordUpdatePrivateKey(st)
 			if err != nil {
@@ -241,7 +249,7 @@ func (r *RunCmd) runLocked(ctx context.Context, c *Context, resolvedPluginsDir s
 	tokenSource := func() string {
 		r.stateMu.Lock()
 		defer r.stateMu.Unlock()
-		return st.SessionToken
+		return r.state.SessionToken
 	}
 	client, err := r.clientFactory(st.ServerURL, tokenSource)
 	if err != nil {
@@ -258,7 +266,7 @@ func (r *RunCmd) runLocked(ctx context.Context, c *Context, resolvedPluginsDir s
 		"session_expires_at", st.SessionExpiresAt.Format(time.RFC3339),
 	)
 
-	if err := r.tick(ctx, client, st, path, logger); err != nil {
+	if err := r.tick(ctx, client, logger); err != nil {
 		return err
 	}
 	if ctx.Err() != nil {
@@ -277,7 +285,7 @@ func (r *RunCmd) runLocked(ctx context.Context, c *Context, resolvedPluginsDir s
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		if err := r.runHeartbeatLoop(loopCtx, client, st, path, logger); err != nil {
+		if err := r.runHeartbeatLoop(loopCtx, client, logger); err != nil {
 			errCh <- err
 			cancelLoops()
 		}
@@ -336,7 +344,7 @@ func (r *RunCmd) waitForControlWorkers(logger *slog.Logger) {
 	}
 }
 
-func (r *RunCmd) runHeartbeatLoop(ctx context.Context, client gatewayClient, st *bootstrap.State, path string, logger *slog.Logger) error {
+func (r *RunCmd) runHeartbeatLoop(ctx context.Context, client gatewayClient, logger *slog.Logger) error {
 	ticker := time.NewTicker(r.HeartbeatInterval)
 	defer ticker.Stop()
 	for {
@@ -344,7 +352,7 @@ func (r *RunCmd) runHeartbeatLoop(ctx context.Context, client gatewayClient, st 
 		case <-ctx.Done():
 			return nil
 		case <-ticker.C:
-			if err := r.tick(ctx, client, st, path, logger); err != nil {
+			if err := r.tick(ctx, client, logger); err != nil {
 				return err
 			}
 		}
@@ -361,26 +369,35 @@ func (r *RunCmd) sessionNeedsRefresh(st *bootstrap.State) bool {
 	return st.SessionExpiresAt.Sub(r.now()) < sessionRefreshLeeway
 }
 
-func (r *RunCmd) refreshAndSave(ctx context.Context, st *bootstrap.State, path string, logger *slog.Logger) error {
-	logger.Info("refreshing session", "fleet_node_id", st.FleetNodeID, "session_expires_at", st.SessionExpiresAt.Format(time.RFC3339))
+func (r *RunCmd) stateSnapshot() bootstrap.State {
+	r.stateMu.Lock()
+	defer r.stateMu.Unlock()
+	return *r.state
+}
+
+func (r *RunCmd) refreshAndSave(ctx context.Context, logger *slog.Logger) error {
 	// Handshake on a shallow copy so the 2-RPC call doesn't hold stateMu and
 	// stall the control loop's token reads.
-	next := *st
+	next := r.stateSnapshot()
+	logger.Info("refreshing session", "fleet_node_id", next.FleetNodeID, "session_expires_at", next.SessionExpiresAt.Format(time.RFC3339))
 	if err := bootstrap.Refresh(ctx, &next); err != nil {
 		if errors.Is(err, bootstrap.ErrBeginAuthRejected) || connect.CodeOf(err) != connect.CodeUnauthenticated {
 			return err
 		}
-		logger.Warn("session refresh completion rejected; retrying handshake once", "fleet_node_id", st.FleetNodeID, "err", err)
+		logger.Warn("session refresh completion rejected; retrying handshake once", "fleet_node_id", next.FleetNodeID, "err", err)
 		if err := bootstrap.Refresh(ctx, &next); err != nil {
 			return err
 		}
 	}
+	r.saveMu.Lock()
+	defer r.saveMu.Unlock()
 	r.stateMu.Lock()
-	st.SessionToken = next.SessionToken
-	st.SessionExpiresAt = next.SessionExpiresAt
+	r.state.SessionToken = next.SessionToken
+	r.state.SessionExpiresAt = next.SessionExpiresAt
 	// Snapshot under the lock so SaveState's yaml.Marshal doesn't race the
 	// tokenSource goroutine that the control loop will add later.
-	snapshot := *st
+	snapshot := *r.state
+	path := r.statePath
 	cancelControlSession := r.controlSessionCancel
 	r.stateMu.Unlock()
 	if cancelControlSession != nil {
@@ -389,7 +406,7 @@ func (r *RunCmd) refreshAndSave(ctx context.Context, st *bootstrap.State, path s
 	if err := bootstrap.SaveState(path, &snapshot); err != nil {
 		return fmt.Errorf("save state after refresh: %w", err)
 	}
-	logger.Info("session refreshed", "fleet_node_id", st.FleetNodeID, "session_expires_at", st.SessionExpiresAt.Format(time.RFC3339))
+	logger.Info("session refreshed", "fleet_node_id", snapshot.FleetNodeID, "session_expires_at", snapshot.SessionExpiresAt.Format(time.RFC3339))
 	return nil
 }
 
@@ -415,9 +432,10 @@ func isRetryableRefreshError(err error) bool {
 // tick runs one heartbeat cycle. A non-nil return is a permanent condition
 // (revoked credential / deleted fleet_node) that requires re-enrollment;
 // transient errors return nil so the next tick retries.
-func (r *RunCmd) tick(ctx context.Context, client gatewayClient, st *bootstrap.State, path string, logger *slog.Logger) error {
-	if r.sessionNeedsRefresh(st) {
-		if err := r.refreshAndSave(ctx, st, path, logger); err != nil {
+func (r *RunCmd) tick(ctx context.Context, client gatewayClient, logger *slog.Logger) error {
+	st := r.stateSnapshot()
+	if r.sessionNeedsRefresh(&st) {
+		if err := r.refreshAndSave(ctx, logger); err != nil {
 			if errors.Is(err, bootstrap.ErrBeginAuthRejected) {
 				return operatorActionRequired(fmt.Errorf("%w. The server returns Unauthenticated for any of: revoked api_key, identity_pubkey mismatch, expired challenge, or server clock drift. Exiting; local credentials are preserved, re-enroll once the operator-side cause is resolved", bootstrap.ErrBeginAuthRejected))
 			}
@@ -446,7 +464,7 @@ func (r *RunCmd) tick(ctx context.Context, client gatewayClient, st *bootstrap.S
 	}
 
 	logger.Warn("heartbeat rejected as Unauthenticated; refreshing session and retrying", "fleet_node_id", st.FleetNodeID, "err", err)
-	if refreshErr := r.refreshAndSave(ctx, st, path, logger); refreshErr != nil {
+	if refreshErr := r.refreshAndSave(ctx, logger); refreshErr != nil {
 		if errors.Is(refreshErr, bootstrap.ErrBeginAuthRejected) {
 			return operatorActionRequired(fmt.Errorf("%w. The server returns Unauthenticated for any of: revoked api_key, identity_pubkey mismatch, expired challenge, or server clock drift. Exiting; re-enroll once the operator-side cause is resolved", bootstrap.ErrBeginAuthRejected))
 		}

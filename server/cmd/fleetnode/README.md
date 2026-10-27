@@ -65,7 +65,7 @@ A full command can report up to 40,960 endpoints in forty 1,024-report uploads. 
 `run` opens a bidirectional `ControlStream` over the gateway:
 
 1. Agent dials gateway, sends `ControlHello`.
-2. Server replies `ControlAccepted`; stream stays open.
+2. Server replies `ControlAccepted`; stream stays open. For nodes that speak command protocol V7, `ControlAccepted.keepalive_interval` is set (five seconds): the node sends `ControlPing` at that interval, and either side closes the stream after three intervals without receiving anything, so a half-open connection reconnects within seconds.
 3. Server pushes `ControlCommand{command_id, payload}`. Payload is a serialized `AgentCommand` envelope containing discovery, pairing, telemetry, or a per-miner command.
 4. Agent executes the command locally and sends any command-specific reports or acknowledgement payload. For discovery, it scans the requested TCP endpoints and identifies open ports using plugins, then sends results via `ReportDiscoveredDevices` in batches of 1,024 under one 90-second upload budget. Each batch carries `command_id`; identified results survive a late scan failure or deadline. Fleet Nodes do not support mDNS discovery.
 5. Agent sends `ControlAck{command_id, succeeded}` on completion.
@@ -133,6 +133,16 @@ Stop with `SIGINT`, `SIGTERM`, or `SIGHUP` (terminal close). On shutdown the age
 5. `fleetnode run` keeps the session refreshed and the control stream open.
 
 If anything is interrupted between Register and Complete, `fleetnode refresh` resumes from the persisted state.
+
+## High availability
+
+A node can have one standby. In **Settings → Nodes → Set up a node**, select **Enroll as a standby**, choose a confirmed node that is not already in a pair, and complete normal enrollment on a second machine that can reach Fleet and the same miners. Each node keeps its own identity and API key.
+
+You can enroll a standby before upgrading the nodes; the pair stays **Preparing** until both support HA (V7). Once both nodes are connected and run an HA-capable version, Fleet asks the active node to seal its miner-credential key to the standby's enrollment encryption key, relays the sealed key, and has the standby install it in `state.yaml`. Fleet persists the sealed payload before dispatch and retries that same payload after a timeout or server restart, even if the active node is no longer available. Fleet relays only the sealed key and compares key fingerprints from both nodes before marking it **Standby**. The active node seals the key to whichever recipient Fleet names, so pairing trusts the Fleet server with the credential key: a compromised Fleet server could request it. A standby does not discover or pair miners.
+
+When the active node's control stream has been down, and a ready standby connected, for 30 seconds, Fleet moves the active node's device assignments and discovery attribution to the standby and swaps the roles. Fleet waits 90 seconds after it starts, or becomes the active Fleet instance, so nodes can reconnect first. There is no automatic failback: the old active node returns as the ready standby. Commands in flight on the failed node are not replayed, so check device state before repeating an uncertain write. Password updates and curtailment configs are encrypted to a device's node when they are queued, so any still queued at failover fail on the new node and must be run again. Plugin-local state is not copied between nodes.
+
+Revoking either node dissolves the pair once any pending credential-key installation is reconciled. Access is revoked immediately. If installation on a surviving standby is still unresolved, that node remains reserved and cannot discover, pair miners, or receive another standby; reconnect it and retry revocation after installation finishes. Revoking the standby itself can dissolve the pair immediately because that revoked identity cannot pair miners. Revoking an active node with a ready standby denies the node access, then moves its devices to the standby. If the standby is disconnected before or during hand-off, the pair, device assignments, and stored credentials remain intact across retries; reconnect the standby and retry revocation. An active node whose standby is not ready and has no pending installation is unpaired as usual. Revocation cannot erase the credential key from a machine: for a compromised node, revoke both nodes and rotate the affected miner credentials. Deploy the Fleet server before upgrading nodes. Before rolling back the HA migration, remove all HA pairs and cancel unexpired standby enrollments; the down migration refuses to discard that state. Rollback does not reverse completed device ownership moves or erase keys already installed on nodes.
 
 ## Security model
 

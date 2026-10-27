@@ -14,6 +14,7 @@ import (
 	gatewaypb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
 	minercommandv1 "github.com/block/proto-fleet/server/generated/grpc/minercommand/v1"
 	pairingpb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
+	"github.com/block/proto-fleet/server/internal/domain/fleetnode/control"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/enrollment"
 	discoverymodels "github.com/block/proto-fleet/server/internal/domain/minerdiscovery/models"
 	storemocks "github.com/block/proto-fleet/server/internal/domain/stores/interfaces/mocks"
@@ -43,6 +44,10 @@ func (s *orderedPersistStore) DeviceHasActiveCloudPairing(context.Context, int64
 func (s *orderedPersistStore) DeviceHasActivePairing(context.Context, int64, int64) (bool, error) {
 	*s.events = append(*s.events, "check_active_pairing")
 	return s.activePairing, nil
+}
+
+func (*orderedPersistStore) IsFleetNodeHAStandby(context.Context, int64, int64) (bool, error) {
+	return false, nil
 }
 
 func (s *orderedPersistStore) PairDeviceToFleetNode(context.Context, int64, int64, int64, *int64) (int64, error) {
@@ -162,11 +167,17 @@ func TestPersistPairResultLocksIdentityThenDeviceThenEnrollmentBeforeWrites(t *t
 				passThroughTransactor{},
 			).WithProvisioning(deviceStore, discoveredStore, nil)
 			defaultPasswordActive := false
-			status, err := service.PersistFleetNodePairResult(t.Context(), fleetNodeID, orgID, &gatewaypb.FleetNodePairResult{
+			status, err := service.PersistFleetNodePairResult(t.Context(), control.PairPersistMeta{
+				FleetNodeID: fleetNodeID,
+				OrgID:       orgID,
+				Snapshots: map[string]*pairingpb.FleetNodePairTarget{
+					identifier: {DeviceIdentifier: identifier},
+				},
+			}, &gatewaypb.FleetNodePairResult{
 				DeviceIdentifier:      identifier,
 				Outcome:               tc.outcome,
 				DefaultPasswordActive: &defaultPasswordActive,
-			}, nil, &pairingpb.FleetNodePairTarget{DeviceIdentifier: identifier})
+			})
 
 			require.NoError(t, err)
 			require.Equal(t, wantStatus, status)

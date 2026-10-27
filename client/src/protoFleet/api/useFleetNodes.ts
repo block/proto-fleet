@@ -7,6 +7,7 @@ import type {
   FleetNodeDeviceSummary,
   FleetNodeDiscoveredDevice,
   FleetNodeEnrollmentStatus,
+  FleetNodeHARole,
   FleetNodeSummary,
 } from "@/protoFleet/api/generated/fleetnodeadmin/v1/fleetnodeadmin_pb";
 import type { Credentials, DiscoverRequest, DiscoverResponse } from "@/protoFleet/api/generated/pairing/v1/pairing_pb";
@@ -22,7 +23,13 @@ export interface FleetNodeItem {
   commandProtocolUpgradeRequired: boolean;
   commandProtocolUpgradeRecommended: boolean;
   controlStreamConnected: boolean;
+  discoveryCoverageDegraded: boolean;
   pairedDeviceCount: number;
+  haRole: FleetNodeHARole;
+  haPeerNodeId: string | null;
+  haPeerNodeName: string;
+  haStandbyReady: boolean;
+  haStatusReason: string;
   ipAddresses: string[];
   version: string;
   enrolledBy: string;
@@ -52,7 +59,13 @@ function toFleetNodeItem(summary: FleetNodeSummary): FleetNodeItem {
     commandProtocolUpgradeRequired: summary.commandProtocolUpgradeRequired,
     commandProtocolUpgradeRecommended: summary.commandProtocolUpgradeRecommended,
     controlStreamConnected: summary.controlStreamConnected,
+    discoveryCoverageDegraded: summary.discoveryCoverageDegraded,
     pairedDeviceCount: Number(summary.pairedDeviceCount),
+    haRole: summary.haRole,
+    haPeerNodeId: summary.haPeerNodeId?.toString() ?? null,
+    haPeerNodeName: summary.haPeerNodeName,
+    haStandbyReady: summary.haStandbyReady,
+    haStatusReason: summary.haStatusReason,
     createdAt: toDate(summary.createdAt),
     lastSeenAt: toDate(summary.lastSeenAt),
   };
@@ -72,19 +85,24 @@ const useFleetNodes = () => {
   }, [handleAuthErrors]);
 
   // Plaintext code is one-time only.
-  const createEnrollmentCode = useCallback(async (): Promise<EnrollmentCode> => {
-    try {
-      const response = await fleetNodeAdminClient.createEnrollmentCode({});
-      return {
-        code: response.code,
-        pendingEnrollmentId: response.pendingEnrollmentId.toString(),
-        expiresAt: toDate(response.expiresAt),
-      };
-    } catch (err) {
-      handleAuthErrors({ error: err });
-      throw toError(err, "Failed to create an enrollment code.");
-    }
-  }, [handleAuthErrors]);
+  const createEnrollmentCode = useCallback(
+    async (standbyForNodeId?: string): Promise<EnrollmentCode> => {
+      try {
+        const response = await fleetNodeAdminClient.createEnrollmentCode(
+          standbyForNodeId ? { standbyForNodeId: BigInt(standbyForNodeId) } : {},
+        );
+        return {
+          code: response.code,
+          pendingEnrollmentId: response.pendingEnrollmentId.toString(),
+          expiresAt: toDate(response.expiresAt),
+        };
+      } catch (err) {
+        handleAuthErrors({ error: err });
+        throw toError(err, "Failed to create an enrollment code.");
+      }
+    },
+    [handleAuthErrors],
+  );
 
   // Returns one-time api_key plaintext.
   const confirmFleetNode = useCallback(

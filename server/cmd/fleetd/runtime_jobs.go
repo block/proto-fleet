@@ -385,6 +385,7 @@ type runtimeJobLifecycles struct {
 	curtailmentRigConfig      runtimejobs.Lifecycle
 	curtailmentAlertMetrics   runtimejobs.Lifecycle
 	chunkedUploadCleanup      runtimejobs.Lifecycle
+	fleetNodeFailover         runtimejobs.Lifecycle
 	systemMonitoring          runtimejobs.Lifecycle
 	haReadiness               runtimejobs.Lifecycle
 	releaseChecker            runtimejobs.Lifecycle
@@ -435,6 +436,11 @@ func newRuntimeJobs(lifecycles runtimeJobLifecycles) ([]runtimejobs.Job, error) 
 	}
 	if err := add("chunked-upload-cleanup", lifecycles.chunkedUploadCleanup); err != nil {
 		return nil, err
+	}
+	if lifecycles.fleetNodeFailover != nil {
+		if err := add("fleet-node-failover", lifecycles.fleetNodeFailover); err != nil {
+			return nil, err
+		}
 	}
 	if lifecycles.systemMonitoring != nil {
 		if err := add("system-monitoring", lifecycles.systemMonitoring); err != nil {

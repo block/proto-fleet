@@ -1,7 +1,10 @@
 import { render } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import NodeStatusBadge from "./NodeStatusBadge";
-import { FleetNodeEnrollmentStatus } from "@/protoFleet/api/generated/fleetnodeadmin/v1/fleetnodeadmin_pb";
+import {
+  FleetNodeEnrollmentStatus,
+  FleetNodeHARole,
+} from "@/protoFleet/api/generated/fleetnodeadmin/v1/fleetnodeadmin_pb";
 import type { FleetNodeItem } from "@/protoFleet/api/useFleetNodes";
 
 const baseNode: FleetNodeItem = {
@@ -13,7 +16,13 @@ const baseNode: FleetNodeItem = {
   commandProtocolUpgradeRequired: false,
   commandProtocolUpgradeRecommended: false,
   controlStreamConnected: false,
+  discoveryCoverageDegraded: false,
   pairedDeviceCount: 0,
+  haRole: FleetNodeHARole.FLEET_NODE_HA_ROLE_UNSPECIFIED,
+  haPeerNodeId: null,
+  haPeerNodeName: "",
+  haStandbyReady: false,
+  haStatusReason: "",
   ipAddresses: [],
   version: "",
   enrolledBy: "",

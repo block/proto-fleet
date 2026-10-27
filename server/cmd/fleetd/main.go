@@ -97,6 +97,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/control"
 	fleetnodediscovery "github.com/block/proto-fleet/server/internal/domain/fleetnode/discovery"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/enrollment"
+	fleetnodeha "github.com/block/proto-fleet/server/internal/domain/fleetnode/ha"
 	fleetnodepairing "github.com/block/proto-fleet/server/internal/domain/fleetnode/pairing"
 	fleetnoderecovery "github.com/block/proto-fleet/server/internal/domain/fleetnode/recovery"
 	"github.com/block/proto-fleet/server/internal/domain/fleetoptions"
@@ -527,6 +528,8 @@ func start(config *Config) (result error) {
 	fleetNodePairingSvc.WithMinerInvalidator(minerService.InvalidateMinerByID)
 	fleetNodeEnrollmentSvc.WithMinerInvalidator(minerService.InvalidateMinerByID)
 	fleetNodeEnrollmentSvc.WithTelemetryRemover(telemetryService.RemoveUnpairedDevices)
+	fleetNodeHASvc := fleetnodeha.NewService(conn, transactor, fleetNodeControlRegistry, activitySvc, minerService.InvalidateMiner)
+	fleetNodeEnrollmentSvc.WithHA(fleetNodeHASvc)
 
 	// Initialize IP scanner service
 	ipScannerService := ipscanner.NewIPScannerService(
@@ -820,6 +823,7 @@ func start(config *Config) (result error) {
 		curtailmentRigConfig:      mqttSettingsSvc,
 		curtailmentAlertMetrics:   curtailmentAlertMetrics,
 		chunkedUploadCleanup:      chunkedUploadCleanup,
+		fleetNodeFailover:         newBackgroundLoop(fleetNodeHASvc.Run),
 		systemMonitoring:          systemMonitoring,
 		haReadiness:               haReadiness,
 		releaseChecker:            releaseCheckerJob,
@@ -943,7 +947,7 @@ func start(config *Config) (result error) {
 		gateway.CommandArtifactUploadReadLimitOption(),
 		gateway.BootstrapRateLimitOption(),
 	))
-	mux.Handle(fleetnodeadminv1connect.NewFleetNodeAdminServiceHandler(admin.NewHandler(fleetNodeEnrollmentSvc, fleetNodePairingSvc, fleetNodeDiscoverySvc, fleetNodeControlRegistry), li))
+	mux.Handle(fleetnodeadminv1connect.NewFleetNodeAdminServiceHandler(admin.NewHandler(fleetNodeEnrollmentSvc, fleetNodePairingSvc, fleetNodeDiscoverySvc, fleetNodeControlRegistry, fleetNodeHASvc), li))
 	mux.Handle(collectionv1connect.NewDeviceCollectionServiceHandler(collectionHandler.NewHandler(collectionSvc), li))
 	mux.Handle(device_setv1connect.NewDeviceSetServiceHandler(devicesetHandler.NewHandler(collectionSvc), li))
 	mux.Handle(telemetryv1connect.NewTelemetryServiceHandler(telemetryHandler.NewHandler(telemetryService), li))

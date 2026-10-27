@@ -1,7 +1,10 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import NodeDetailsModal from "./NodeDetailsModal";
-import { FleetNodeEnrollmentStatus } from "@/protoFleet/api/generated/fleetnodeadmin/v1/fleetnodeadmin_pb";
+import {
+  FleetNodeEnrollmentStatus,
+  FleetNodeHARole,
+} from "@/protoFleet/api/generated/fleetnodeadmin/v1/fleetnodeadmin_pb";
 import type { FleetNodeItem } from "@/protoFleet/api/useFleetNodes";
 import { pushToast, STATUSES } from "@/shared/features/toaster";
 import { copyToClipboard } from "@/shared/utils/utility";
@@ -27,7 +30,13 @@ const node: FleetNodeItem = {
   commandProtocolUpgradeRequired: false,
   commandProtocolUpgradeRecommended: false,
   controlStreamConnected: true,
+  discoveryCoverageDegraded: false,
   pairedDeviceCount: 12,
+  haRole: FleetNodeHARole.FLEET_NODE_HA_ROLE_UNSPECIFIED,
+  haPeerNodeId: null,
+  haPeerNodeName: "",
+  haStandbyReady: false,
+  haStatusReason: "",
   createdAt: new Date("2026-07-09T12:00:00Z"),
   lastSeenAt: new Date(),
   ipAddresses: ["192.168.1.7", "fd00::7"],
@@ -73,6 +82,42 @@ describe("NodeDetailsModal", () => {
       expect(screen.getByRole("button", { name: "Find miners" })).toBeDisabled();
     },
   );
+
+  it("hides the HA section for a standalone node", () => {
+    show();
+
+    expect(screen.getByText("Role").nextSibling).toHaveTextContent("Standalone");
+    expect(screen.getByRole("button", { name: "Find miners" })).toBeEnabled();
+  });
+
+  it("shows the active node's role and standby peer", () => {
+    show({
+      haRole: FleetNodeHARole.FLEET_NODE_HA_ROLE_ACTIVE,
+      haPeerNodeId: "8",
+      haPeerNodeName: "standby-node",
+      haStandbyReady: true,
+    });
+
+    expect(screen.getByText("Role").nextSibling).toHaveTextContent("Active");
+    expect(screen.getByText("Standby node").nextSibling).toHaveTextContent("standby-node");
+    expect(screen.getByRole("button", { name: "Find miners" })).toBeEnabled();
+  });
+
+  it("shows the standby relationship and status reason, and disables Find miners", () => {
+    show({
+      haRole: FleetNodeHARole.FLEET_NODE_HA_ROLE_STANDBY,
+      haPeerNodeId: "1",
+      haPeerNodeName: "primary",
+      haStandbyReady: false,
+      haStatusReason: "Waiting for both nodes to connect",
+    });
+
+    expect(screen.getByText("Role").nextSibling).toHaveTextContent("Preparing");
+    expect(screen.getByText("Standby for").nextSibling).toHaveTextContent("primary");
+    expect(screen.getByText("HA status").nextSibling).toHaveTextContent("Waiting for both nodes to connect");
+    expect(screen.getByRole("button", { name: "Find miners" })).toBeDisabled();
+    expect(screen.getByText("Standby nodes can't find miners.")).toBeInTheDocument();
+  });
 
   it("copies the node id and confirms with a toast", async () => {
     show();

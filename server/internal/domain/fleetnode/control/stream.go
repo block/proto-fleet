@@ -3,6 +3,7 @@ package control
 import (
 	"log/slog"
 	"sync"
+	"time"
 
 	"google.golang.org/protobuf/proto"
 
@@ -54,11 +55,13 @@ func (r *Registry) registerLocked(fleetNodeID int64, maxCommandProtocolVersion g
 	if old, exists := r.conns[fleetNodeID]; exists {
 		teardown(old)
 	}
+	delete(r.disconnectedAt, fleetNodeID)
 	conn := &connection{
 		outgoing:                  make(chan *gatewaypb.ControlCommand, outgoingBuffer),
 		done:                      make(chan struct{}),
 		cmds:                      make(map[string]*inflightCommand),
 		maxCommandProtocolVersion: maxCommandProtocolVersion,
+		connectedAt:               time.Now(),
 	}
 	r.conns[fleetNodeID] = conn
 	return &Stream{r: r, fleetNodeID: fleetNodeID, conn: conn, Outgoing: conn.outgoing, Done: conn.done}
@@ -96,6 +99,7 @@ func (r *Registry) disconnectLocked(fleetNodeID int64) {
 	}
 	teardown(conn)
 	delete(r.conns, fleetNodeID)
+	r.disconnectedAt[fleetNodeID] = time.Now()
 }
 
 // Unregister tears the connection down so blocked senders/the handler wake. No-op if
@@ -107,8 +111,7 @@ func (s *Stream) Unregister() {
 	if !ok || conn != s.conn {
 		return
 	}
-	teardown(conn)
-	delete(s.r.conns, s.fleetNodeID)
+	s.r.disconnectLocked(s.fleetNodeID)
 }
 
 // PublishAck routes an agent ack to its in-flight command: a report-bearing command
@@ -409,9 +412,10 @@ func artifactExpectationMatches(exp, want ArtifactExpectation) bool {
 // PairPersistMeta is the operator context the gateway needs to persist a pair
 // result authoritatively, returned by AdmitAndScopePairResults.
 type PairPersistMeta struct {
-	OrgID      int64
-	AssignedBy *int64
-	Snapshots  map[string]*pairingpb.FleetNodePairTarget
+	FleetNodeID int64
+	OrgID       int64
+	AssignedBy  *int64
+	Snapshots   map[string]*pairingpb.FleetNodePairTarget
 }
 
 // AdmitAndScopePairResults is the single atomic gate for the gateway's
@@ -447,7 +451,12 @@ func (r *Registry) AdmitAndScopePairResults(fleetNodeID int64, commandID string,
 		kept = append(kept, res)
 	}
 	cmd.reported += len(kept)
-	return kept, PairPersistMeta{OrgID: cmd.pair.OrgID, AssignedBy: cmd.pair.AssignedBy, Snapshots: snapshots}, nil
+	return kept, PairPersistMeta{
+		FleetNodeID: fleetNodeID,
+		OrgID:       cmd.pair.OrgID,
+		AssignedBy:  cmd.pair.AssignedBy,
+		Snapshots:   snapshots,
+	}, nil
 }
 
 // ReinstatePairTargets returns identifiers to the in-flight pair command's target

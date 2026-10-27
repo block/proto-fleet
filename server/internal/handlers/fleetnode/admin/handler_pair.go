@@ -91,6 +91,9 @@ func (h *Handler) PairDiscoveredDevicesOnFleetNode(ctx context.Context, req *con
 	if node.EnrollmentStatus != enrollment.FleetNodeStatusConfirmed {
 		return fleeterror.NewFailedPreconditionError("fleet node is not CONFIRMED")
 	}
+	if err := h.ha.RequireNotStandby(ctx, info.OrganizationID, fleetNodeID); err != nil {
+		return err
+	}
 
 	credentials := req.Msg.GetCredentials()
 	assignedBy := info.UserID

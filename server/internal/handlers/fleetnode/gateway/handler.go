@@ -10,10 +10,12 @@ import (
 	"log/slog"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"buf.build/go/protovalidate"
 	"connectrpc.com/connect"
+	"google.golang.org/protobuf/types/known/durationpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
@@ -609,7 +611,7 @@ func (h *Handler) ReportPairedDevices(ctx context.Context, req *connect.Request[
 	persisted := make([]*pb.FleetNodePairResult, 0, len(kept))
 	var persistFailed []string
 	for _, r := range kept {
-		status, err := h.pairing.PersistFleetNodePairResult(ctx, subject.FleetNodeID, meta.OrgID, r, meta.AssignedBy, meta.Snapshots[r.GetDeviceIdentifier()])
+		status, err := h.pairing.PersistFleetNodePairResult(ctx, meta, r)
 		if err != nil {
 			// Per-device isolation: one persist failure must not drop the others
 			// (already paired on the node). A failed result isn't forwarded as paired;
@@ -697,6 +699,12 @@ var (
 	// ControlStreamLivenessInterval keeps data moving across the fleetd-to-NGINX
 	// hop so NGINX can detect a stalled upstream within its read timeout.
 	ControlStreamLivenessInterval = 30 * time.Second
+
+	// ControlStreamKeepaliveInterval is the ping cadence negotiated with nodes
+	// that speak CommandProtocolVersion V7. Both ends close the stream after
+	// control.KeepaliveMisses intervals of silence, so the HA failover loop
+	// sees a half-open connection within seconds instead of a TCP timeout.
+	ControlStreamKeepaliveInterval = 5 * time.Second
 )
 
 func (h *Handler) ControlStream(ctx context.Context, stream *connect.BidiStream[pb.ControlStreamRequest, pb.ControlStreamResponse]) error {
@@ -748,10 +756,30 @@ func (h *Handler) ControlStream(ctx context.Context, stream *connect.BidiStream[
 	}
 	defer regHandle.Unregister()
 
-	if err := sendControlStreamAccepted(ctx, stream.Send); err != nil {
+	// Older nodes never ping, so only V7 nodes get a keepalive deadline.
+	var keepalive time.Duration
+	livenessInterval := ControlStreamLivenessInterval
+	if hello.GetMaxCommandProtocolVersion() >= pb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V7 {
+		keepalive = ControlStreamKeepaliveInterval
+		livenessInterval = keepalive
+	}
+	silence := control.KeepaliveMisses * keepalive
+	var silent atomic.Bool
+	var watchdog *time.Timer
+	if keepalive > 0 {
+		// The watchdog runs apart from the loop below, which can block in Send on
+		// a half-open connection, so a silent node leaves the registry (and can
+		// fail over) without waiting for TCP to give up.
+		watchdog = time.AfterFunc(silence, func() {
+			silent.Store(true)
+			regHandle.Unregister()
+		})
+		defer watchdog.Stop()
+	}
+	if err := sendControlStreamAccepted(ctx, stream.Send, keepalive); err != nil {
 		return err
 	}
-	liveness := time.NewTicker(ControlStreamLivenessInterval)
+	liveness := time.NewTicker(livenessInterval)
 	defer liveness.Stop()
 	// Side-goroutine bridges blocking stream.Receive into the select loop. Its
 	// send selects on regHandle.Done (closed by the deferred Unregister) so it
@@ -776,11 +804,14 @@ func (h *Handler) ControlStream(ctx context.Context, stream *connect.BidiStream[
 		case <-ctx.Done():
 			return controlStreamExitError(ctx, nil)
 		case <-regHandle.Done:
-			// Newest-wins eviction or Unregister fired; let the handler
-			// exit so connect-go closes the stream.
+			// Newest-wins eviction, Unregister, or the keepalive watchdog fired;
+			// let the handler exit so connect-go closes the stream.
+			if silent.Load() {
+				return controlStreamExitError(ctx, fleeterror.NewUnavailableErrorf("control stream silent for %s", silence))
+			}
 			return controlStreamExitError(ctx, nil)
 		case <-liveness.C:
-			if err := sendControlStreamAccepted(ctx, stream.Send); err != nil {
+			if err := sendControlStreamAccepted(ctx, stream.Send, keepalive); err != nil {
 				return err
 			}
 		case cmd := <-regHandle.Outgoing:
@@ -793,6 +824,9 @@ func (h *Handler) ControlStream(ctx context.Context, stream *connect.BidiStream[
 					return controlStreamExitError(ctx, nil)
 				}
 				return controlStreamExitError(ctx, fleeterror.NewInternalErrorf("control stream recv: %v", r.err))
+			}
+			if watchdog != nil {
+				watchdog.Reset(silence)
 			}
 			if ack := r.msg.GetAck(); ack != nil {
 				// Trust boundary for node input: drop a malformed/oversized ack rather than
@@ -816,10 +850,12 @@ func controlStreamExitError(ctx context.Context, fallback error) error {
 	return fallback
 }
 
-func sendControlStreamAccepted(ctx context.Context, send func(*pb.ControlStreamResponse) error) error {
-	if err := send(&pb.ControlStreamResponse{Kind: &pb.ControlStreamResponse_Accepted{
-		Accepted: &pb.ControlAccepted{ServerTime: timestamppb.New(time.Now().UTC())},
-	}}); err != nil {
+func sendControlStreamAccepted(ctx context.Context, send func(*pb.ControlStreamResponse) error, keepalive time.Duration) error {
+	accepted := &pb.ControlAccepted{ServerTime: timestamppb.New(time.Now().UTC())}
+	if keepalive > 0 {
+		accepted.KeepaliveInterval = durationpb.New(keepalive)
+	}
+	if err := send(&pb.ControlStreamResponse{Kind: &pb.ControlStreamResponse_Accepted{Accepted: accepted}}); err != nil {
 		return controlStreamExitError(ctx, fleeterror.NewInternalErrorf("send accepted: %v", err))
 	}
 	return nil

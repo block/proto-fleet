@@ -58,7 +58,7 @@ func NewService(registry nodeRegistry, enrollmentSvc nodeLister) *Service {
 }
 
 // EligibleNodeIDs returns the confirmed, connected nodes that support current
-// discovery commands.
+// discovery commands. HA standbys are excluded; their active node discovers.
 func (s *Service) EligibleNodeIDs(ctx context.Context, orgID int64) ([]int64, error) {
 	nodes, err := s.enrollment.ListFleetNodes(ctx, orgID)
 	if err != nil {
@@ -66,7 +66,7 @@ func (s *Service) EligibleNodeIDs(ctx context.Context, orgID int64) ([]int64, er
 	}
 	confirmed := make(map[int64]struct{}, len(nodes))
 	for _, n := range nodes {
-		if n.EnrollmentStatus == enrollment.FleetNodeStatusConfirmed {
+		if n.IsDiscoveryNode() {
 			confirmed[n.ID] = struct{}{}
 		}
 	}

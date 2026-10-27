@@ -12,7 +12,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
 	gatewaypb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
+	"github.com/block/proto-fleet/server/generated/sqlc"
 	"github.com/block/proto-fleet/server/internal/domain/apikey"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	fleetnodeenrollment "github.com/block/proto-fleet/server/internal/domain/fleetnode/enrollment"
@@ -325,10 +327,6 @@ func TestPairDeviceTransfersDiscoveryAttribution(t *testing.T) {
 	assert.Equal(t, int64(0), rejected)
 }
 
-// Synthesized identifiers (auto:*) re-key per scan on the agent;
-// server reconciles them against any prior row at the same
-// (fleet_node, ip, port) endpoint so a single physical device stays a
-// single row across rescans.
 func TestUpsertDiscoveredDevices_RescanReusesRowForStableIdentifier(t *testing.T) {
 	// Arrange: the agent now synthesizes a stable identifier per device, so a
 	// rescan reports the same auto:* identifier. The upsert must reuse the one
@@ -359,6 +357,141 @@ func TestUpsertDiscoveredDevices_RescanReusesRowForStableIdentifier(t *testing.T
 	require.NoError(t, db.QueryRow(`SELECT model FROM discovered_device WHERE device_identifier = 'auto:stable' AND org_id = $1`, orgID).Scan(&model))
 	require.True(t, model.Valid)
 	assert.Equal(t, "x9000", model.String, "rescan refreshes the row's metadata")
+}
+
+func TestUpsertDiscoveredDevices_PromotedNodeReusesSyntheticIdentity(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		prefix  string
+		class   commonpb.DeviceClass
+		driver  string
+		port    string
+		rpcPort int32
+	}{
+		{name: "container", prefix: "container:", class: commonpb.DeviceClass_DEVICE_CLASS_CONTAINER, driver: "proto", port: "443", rpcPort: 50051},
+		{name: "rig", prefix: "auto:", class: commonpb.DeviceClass_DEVICE_CLASS_RIG, driver: "antminer", port: "4028"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := t.Context()
+			db, orgID, pairing, enrollment := setupPairingTest(t)
+			active := createFleetNode(t, enrollment, orgID, "synthetic-active")
+			promoted := createFleetNode(t, enrollment, orgID, "synthetic-promoted")
+			unrelated := createFleetNode(t, enrollment, orgID, "synthetic-unrelated")
+			report := fleetnodepairing.DiscoveredDeviceReport{
+				DeviceIdentifier: tc.prefix + "active-hash", IPAddress: "10.0.0.70", Port: tc.port,
+				URLScheme: "https", DriverName: tc.driver, DeviceClass: tc.class, Model: "test-model",
+			}
+			accepted, rejected, err := pairing.UpsertDiscoveredDevices(ctx, active, orgID, []fleetnodepairing.DiscoveredDeviceReport{report})
+			require.NoError(t, err)
+			require.Equal(t, int64(0), rejected)
+			require.Equal(t, []fleetnodepairing.DiscoveredDeviceReport{report}, accepted)
+			deviceID := deviceForDiscovered(t, db, orgID, report.DeviceIdentifier)
+			require.NoError(t, pairing.PairDevice(ctx, active, deviceID, orgID, nil))
+			setPairingStatus(t, db, deviceID, "PAIRED")
+
+			other := report
+			other.DeviceIdentifier = tc.prefix + "unrelated-hash"
+			accepted, rejected, err = pairing.UpsertDiscoveredDevices(ctx, unrelated, orgID, []fleetnodepairing.DiscoveredDeviceReport{other})
+			require.NoError(t, err)
+			require.Zero(t, rejected)
+			require.Equal(t, []fleetnodepairing.DiscoveredDeviceReport{other}, accepted)
+
+			tx, err := db.BeginTx(ctx, nil)
+			require.NoError(t, err)
+			t.Cleanup(func() { _ = tx.Rollback() })
+			q := sqlc.New(tx)
+			moved, err := q.MoveFleetNodeDevices(ctx, sqlc.MoveFleetNodeDevicesParams{FromNodeID: active, ToNodeID: promoted, OrgID: orgID})
+			require.NoError(t, err)
+			require.Equal(t, []string{"dev-" + report.DeviceIdentifier}, moved)
+			require.NoError(t, q.MoveDiscoveredDeviceAttribution(ctx, sqlc.MoveDiscoveredDeviceAttributionParams{FromNodeID: sql.NullInt64{Int64: active, Valid: true}, ToNodeID: sql.NullInt64{Int64: promoted, Valid: true}, OrgID: orgID}))
+			require.NoError(t, tx.Commit())
+
+			rescan := report
+			rescan.DeviceIdentifier = tc.prefix + "promoted-hash"
+			rescan.FirmwareVersion = "updated"
+			rescan.URLScheme = "http"
+			if tc.prefix == "auto:" {
+				rescan.DeviceClass = commonpb.DeviceClass_DEVICE_CLASS_UNSPECIFIED
+			}
+			if tc.rpcPort != 0 {
+				rescan.Port, rescan.URLScheme = "50051", "http"
+				rescan.RPCPort = tc.rpcPort
+			}
+			accepted, rejected, err = pairing.UpsertDiscoveredDevices(ctx, promoted, orgID, []fleetnodepairing.DiscoveredDeviceReport{rescan})
+			require.NoError(t, err)
+			require.Zero(t, rejected)
+			require.Len(t, accepted, 1)
+			assert.Equal(t, report.DeviceIdentifier, accepted[0].DeviceIdentifier, "published discovery must use the paired canonical identity")
+			assert.Equal(t, tc.class, accepted[0].DeviceClass)
+			assert.Equal(t, tc.prefix+"promoted-hash", rescan.DeviceIdentifier, "the caller's report remains unchanged")
+
+			var count int
+			require.NoError(t, db.QueryRow(`SELECT count(*) FROM discovered_device WHERE org_id=$1 AND ip_address=$2 AND deleted_at IS NULL`, orgID, report.IPAddress).Scan(&count))
+			assert.Equal(t, 2, count, "rediscovery must not add a third row for the inherited paired device")
+			var identifier, firmware, port string
+			var attributed int64
+			require.NoError(t, db.QueryRow(`SELECT dd.device_identifier, dd.firmware_version, dd.port, dd.discovered_by_fleet_node_id
+				FROM discovered_device dd JOIN device d ON d.discovered_device_id=dd.id WHERE d.id=$1`, deviceID).Scan(&identifier, &firmware, &port, &attributed))
+			assert.Equal(t, report.DeviceIdentifier, identifier)
+			assert.Equal(t, "updated", firmware)
+			assert.Equal(t, report.Port, port, "native CT1 reports retain the browser endpoint")
+			assert.Equal(t, promoted, attributed)
+			unpaired, _, err := pairing.ListDiscoveredDevicesForFleetNode(ctx, orgID, &promoted, nil, nil)
+			require.NoError(t, err)
+			assert.Empty(t, unpaired, "a promoted paired device must not appear available for pairing")
+
+			stable := rescan
+			stable.DeviceIdentifier = "serial:distinct-device"
+			accepted, rejected, err = pairing.UpsertDiscoveredDevices(ctx, promoted, orgID, []fleetnodepairing.DiscoveredDeviceReport{stable})
+			require.NoError(t, err)
+			require.Zero(t, rejected)
+			require.Len(t, accepted, 1)
+			assert.Equal(t, stable.DeviceIdentifier, accepted[0].DeviceIdentifier)
+
+			foreign := rescan
+			foreign.DeviceIdentifier = other.DeviceIdentifier
+			accepted, rejected, err = pairing.UpsertDiscoveredDevices(ctx, promoted, orgID, []fleetnodepairing.DiscoveredDeviceReport{foreign})
+			require.NoError(t, err)
+			assert.Equal(t, int64(1), rejected)
+			assert.Empty(t, accepted)
+		})
+	}
+}
+
+func TestUpsertDiscoveredDevices_SyntheticEndpointRequiresMatchingIdentity(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		change func(*fleetnodepairing.DiscoveredDeviceReport)
+	}{
+		{name: "driver", change: func(r *fleetnodepairing.DiscoveredDeviceReport) { r.DriverName = "different-driver" }},
+		{name: "model", change: func(r *fleetnodepairing.DiscoveredDeviceReport) { r.Model = "different-model" }},
+		{name: "class", change: func(r *fleetnodepairing.DiscoveredDeviceReport) {
+			r.DeviceClass = commonpb.DeviceClass_DEVICE_CLASS_CONTAINER
+		}},
+		{name: "port", change: func(r *fleetnodepairing.DiscoveredDeviceReport) { r.Port = "4029" }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := t.Context()
+			db, orgID, pairing, enrollment := setupPairingTest(t)
+			node := createFleetNode(t, enrollment, orgID, "synthetic-identity")
+			original := fleetnodepairing.DiscoveredDeviceReport{
+				DeviceIdentifier: "auto:original", IPAddress: "10.0.0.70", Port: "4028", URLScheme: "http",
+				DriverName: "antminer", DeviceClass: commonpb.DeviceClass_DEVICE_CLASS_RIG, Model: "test-model",
+			}
+			_, _, err := pairing.UpsertDiscoveredDevices(ctx, node, orgID, []fleetnodepairing.DiscoveredDeviceReport{original})
+			require.NoError(t, err)
+			distinct := original
+			distinct.DeviceIdentifier = "auto:distinct"
+			tc.change(&distinct)
+			accepted, rejected, err := pairing.UpsertDiscoveredDevices(ctx, node, orgID, []fleetnodepairing.DiscoveredDeviceReport{distinct})
+			require.NoError(t, err)
+			require.Zero(t, rejected)
+			require.Equal(t, []fleetnodepairing.DiscoveredDeviceReport{distinct}, accepted)
+			var count int
+			require.NoError(t, db.QueryRow(`SELECT count(*) FROM discovered_device WHERE org_id=$1 AND discovered_by_fleet_node_id=$2 AND deleted_at IS NULL`, orgID, node).Scan(&count))
+			assert.Equal(t, 2, count, "a different identity tuple must not overwrite the prior synthetic device")
+		})
+	}
 }
 
 func TestUpsertDiscoveredDevices_RefreshesUnpairedDeviceFromOriginatingNode(t *testing.T) {
@@ -455,13 +588,13 @@ func TestRevokeClearsPairings_PreservesAttribution(t *testing.T) {
 	identifier := "mac:p-revoke-shared"
 	upsertNodeDiscovered(t, pairing, orgID, nodeID, identifier)
 	assignedBy := int64(1)
-	status, err := pairing.PersistFleetNodePairResult(ctx, nodeID, orgID, pairResult(identifier, gatewaypb.PairOutcome_PAIR_OUTCOME_PAIRED), &assignedBy, pairingSnapshot(t, db, orgID, identifier))
+	status, err := pairing.PersistFleetNodePairResult(ctx, pairPersistMeta(t, db, nodeID, orgID, &assignedBy, identifier), pairResult(identifier, gatewaypb.PairOutcome_PAIR_OUTCOME_PAIRED))
 	require.NoError(t, err)
 	require.Equal(t, fleetnodepairing.StatusPaired, status)
 	siblingNodeID := createFleetNode(t, enrollment, orgID, "unaffected-node")
 	siblingIdentifier := "mac:p-revoke-sibling"
 	upsertNodeDiscovered(t, pairing, orgID, siblingNodeID, siblingIdentifier)
-	siblingStatus, err := pairing.PersistFleetNodePairResult(ctx, siblingNodeID, orgID, pairResult(siblingIdentifier, gatewaypb.PairOutcome_PAIR_OUTCOME_PAIRED), &assignedBy, pairingSnapshot(t, db, orgID, siblingIdentifier))
+	siblingStatus, err := pairing.PersistFleetNodePairResult(ctx, pairPersistMeta(t, db, siblingNodeID, orgID, &assignedBy, siblingIdentifier), pairResult(siblingIdentifier, gatewaypb.PairOutcome_PAIR_OUTCOME_PAIRED))
 	require.NoError(t, err)
 	require.Equal(t, fleetnodepairing.StatusPaired, siblingStatus)
 	var ddID int64
@@ -533,7 +666,7 @@ func TestRevokeClearsPairings_PreservesAttribution(t *testing.T) {
 	}}))
 	require.NoError(t, db.QueryRow(`SELECT status FROM device_status WHERE device_id = $1`, devID).Scan(&deviceStatus))
 	assert.Equal(t, "OFFLINE", deviceStatus)
-	status, err = pairing.PersistFleetNodePairResult(ctx, replacementID, orgID, pairResult(identifier, gatewaypb.PairOutcome_PAIR_OUTCOME_PAIRED), &assignedBy, pairingSnapshot(t, db, orgID, identifier))
+	status, err = pairing.PersistFleetNodePairResult(ctx, pairPersistMeta(t, db, replacementID, orgID, &assignedBy, identifier), pairResult(identifier, gatewaypb.PairOutcome_PAIR_OUTCOME_PAIRED))
 	require.NoError(t, err)
 	assert.Equal(t, fleetnodepairing.StatusPaired, status)
 	assert.Equal(t, "PAIRED", devicePairingStatus(t, db, orgID, identifier))
@@ -554,7 +687,7 @@ func TestRevocationBlocksTelemetryStartedBeforeCommit(t *testing.T) {
 	identifier := "mac:p-revoke-racing-status"
 	upsertNodeDiscovered(t, pairing, orgID, nodeID, identifier)
 	assignedBy := int64(1)
-	status, err := pairing.PersistFleetNodePairResult(ctx, nodeID, orgID, pairResult(identifier, gatewaypb.PairOutcome_PAIR_OUTCOME_PAIRED), &assignedBy, pairingSnapshot(t, db, orgID, identifier))
+	status, err := pairing.PersistFleetNodePairResult(ctx, pairPersistMeta(t, db, nodeID, orgID, &assignedBy, identifier), pairResult(identifier, gatewaypb.PairOutcome_PAIR_OUTCOME_PAIRED))
 	require.NoError(t, err)
 	require.Equal(t, fleetnodepairing.StatusPaired, status)
 	deviceID := deviceIDByIdentifier(t, db, orgID, identifier)

@@ -142,16 +142,17 @@ func (q *Queries) CreateFleetNode(ctx context.Context, arg CreateFleetNodeParams
 }
 
 const createPendingEnrollment = `-- name: CreatePendingEnrollment :one
-INSERT INTO pending_enrollment (code_hash, org_id, created_by, status, expires_at)
-VALUES ($1, $2, $3, 'PENDING', $4)
-RETURNING id, code_hash, org_id, created_by, fleet_node_id, status, expires_at, consumed_at, created_at, confirmed_by
+INSERT INTO pending_enrollment (code_hash, org_id, created_by, status, expires_at, standby_for_node_id)
+VALUES ($1, $2, $3, 'PENDING', $4, $5)
+RETURNING id, code_hash, org_id, created_by, fleet_node_id, status, expires_at, consumed_at, created_at, confirmed_by, standby_for_node_id
 `
 
 type CreatePendingEnrollmentParams struct {
-	CodeHash  string
-	OrgID     int64
-	CreatedBy int64
-	ExpiresAt time.Time
+	CodeHash         string
+	OrgID            int64
+	CreatedBy        int64
+	ExpiresAt        time.Time
+	StandbyForNodeID sql.NullInt64
 }
 
 func (q *Queries) CreatePendingEnrollment(ctx context.Context, arg CreatePendingEnrollmentParams) (PendingEnrollment, error) {
@@ -160,6 +161,7 @@ func (q *Queries) CreatePendingEnrollment(ctx context.Context, arg CreatePending
 		arg.OrgID,
 		arg.CreatedBy,
 		arg.ExpiresAt,
+		arg.StandbyForNodeID,
 	)
 	var i PendingEnrollment
 	err := row.Scan(
@@ -173,12 +175,13 @@ func (q *Queries) CreatePendingEnrollment(ctx context.Context, arg CreatePending
 		&i.ConsumedAt,
 		&i.CreatedAt,
 		&i.ConfirmedBy,
+		&i.StandbyForNodeID,
 	)
 	return i, err
 }
 
 const getCancelledEnrollmentByFleetNode = `-- name: GetCancelledEnrollmentByFleetNode :one
-SELECT id, code_hash, org_id, created_by, fleet_node_id, status, expires_at, consumed_at, created_at, confirmed_by
+SELECT id, code_hash, org_id, created_by, fleet_node_id, status, expires_at, consumed_at, created_at, confirmed_by, standby_for_node_id
 FROM pending_enrollment
 WHERE id = $1 AND fleet_node_id = $2 AND org_id = $3 AND status = 'CANCELLED'
 `
@@ -204,6 +207,7 @@ func (q *Queries) GetCancelledEnrollmentByFleetNode(ctx context.Context, arg Get
 		&i.ConsumedAt,
 		&i.CreatedAt,
 		&i.ConfirmedBy,
+		&i.StandbyForNodeID,
 	)
 	return i, err
 }
@@ -286,7 +290,7 @@ func (q *Queries) GetFleetNodeByIDUnscoped(ctx context.Context, id int64) (GetFl
 }
 
 const getPendingEnrollmentByCodeHash = `-- name: GetPendingEnrollmentByCodeHash :one
-SELECT id, code_hash, org_id, created_by, fleet_node_id, status, expires_at, consumed_at, created_at, confirmed_by
+SELECT id, code_hash, org_id, created_by, fleet_node_id, status, expires_at, consumed_at, created_at, confirmed_by, standby_for_node_id
 FROM pending_enrollment
 WHERE code_hash = $1
 `
@@ -305,12 +309,13 @@ func (q *Queries) GetPendingEnrollmentByCodeHash(ctx context.Context, codeHash s
 		&i.ConsumedAt,
 		&i.CreatedAt,
 		&i.ConfirmedBy,
+		&i.StandbyForNodeID,
 	)
 	return i, err
 }
 
 const getPendingEnrollmentByFleetNode = `-- name: GetPendingEnrollmentByFleetNode :one
-SELECT id, code_hash, org_id, created_by, fleet_node_id, status, expires_at, consumed_at, created_at, confirmed_by
+SELECT id, code_hash, org_id, created_by, fleet_node_id, status, expires_at, consumed_at, created_at, confirmed_by, standby_for_node_id
 FROM pending_enrollment
 WHERE fleet_node_id = $1 AND org_id = $2 AND status = 'AWAITING_CONFIRMATION'
 `
@@ -337,6 +342,7 @@ func (q *Queries) GetPendingEnrollmentByFleetNode(ctx context.Context, arg GetPe
 		&i.ConsumedAt,
 		&i.CreatedAt,
 		&i.ConfirmedBy,
+		&i.StandbyForNodeID,
 	)
 	return i, err
 }
@@ -348,11 +354,18 @@ SELECT a.id, a.org_id, a.name, a.identity_pubkey,
        pe.id AS pending_enrollment_id,
        COALESCE(h.ip_addresses, '{}'::text[])::text[] AS ip_addresses,
        COALESCE(h.version, '')::text AS version,
-       COALESCE(u.username, '')::text AS enrolled_by
+       COALESCE(u.username, '')::text AS enrolled_by,
+       pe.standby_for_node_id,
+       p.active_node_id AS ha_active_node_id,
+       p.standby_node_id AS ha_standby_node_id,
+       COALESCE(p.standby_ready, false)::boolean AS ha_standby_ready,
+       COALESCE(p.status_reason, '')::text AS ha_status_reason
 FROM fleet_node a
 LEFT JOIN pending_enrollment pe
   ON pe.fleet_node_id = a.id
  AND pe.status = 'AWAITING_CONFIRMATION'
+LEFT JOIN fleet_node_ha_pair p
+  ON p.org_id = a.org_id AND (p.active_node_id = a.id OR p.standby_node_id = a.id)
 LEFT JOIN fleet_node_heartbeat h ON h.fleet_node_id = a.id AND h.org_id = a.org_id
 LEFT JOIN LATERAL (
     SELECT confirmed_by FROM pending_enrollment
@@ -379,6 +392,11 @@ type ListFleetNodesForOrganizationRow struct {
 	IpAddresses             []string
 	Version                 string
 	EnrolledBy              string
+	StandbyForNodeID        sql.NullInt64
+	HaActiveNodeID          sql.NullInt64
+	HaStandbyNodeID         sql.NullInt64
+	HaStandbyReady          bool
+	HaStatusReason          string
 }
 
 // A fleet node can have multiple pending_enrollment rows over its lifetime
@@ -408,6 +426,11 @@ func (q *Queries) ListFleetNodesForOrganization(ctx context.Context, orgID int64
 			pq.Array(&i.IpAddresses),
 			&i.Version,
 			&i.EnrolledBy,
+			&i.StandbyForNodeID,
+			&i.HaActiveNodeID,
+			&i.HaStandbyNodeID,
+			&i.HaStandbyReady,
+			&i.HaStatusReason,
 		); err != nil {
 			return nil, err
 		}

@@ -12,6 +12,7 @@ import "common/v1/cooling.proto";
 import "common/v1/common.proto";
 import "curtailment/v1/curtailment.proto";
 import "errors/v1/errors.proto";
+import "google/protobuf/duration.proto";
 import "google/protobuf/timestamp.proto";
 import "minercommand/v1/command.proto";
 import "pairing/v1/pairing.proto";
@@ -271,6 +272,7 @@ message ControlStreamRequest {
 
         ControlHello hello = 1;
         ControlAck   ack   = 2;
+        ControlPing  ping  = 3;
     }
 }
 
@@ -299,7 +301,10 @@ enum CommandProtocolVersion {
     COMMAND_PROTOCOL_VERSION_V4 = 4;
     // V5 adds module mining with expected hardware identity.
     COMMAND_PROTOCOL_VERSION_V5 = 5;
+    // V6 adds CT1 module and hashboard mining-pool assignments.
     COMMAND_PROTOCOL_VERSION_V6 = 6;
+    // V7 adds standby credential key transfer and ControlPing keepalive.
+    COMMAND_PROTOCOL_VERSION_V7 = 7;
 }
 
 message ControlHello {
@@ -309,7 +314,13 @@ message ControlHello {
 
 message ControlAccepted {
     google.protobuf.Timestamp server_time = 1;
+    // Set for V7 nodes. The server repeats ControlAccepted and the node sends
+    // ControlPing at this interval; either side ends the stream after three
+    // intervals without a message from the other.
+    google.protobuf.Duration keepalive_interval = 2;
 }
+
+message ControlPing {}
 
 // TraceContext carries W3C trace propagation fields for one server-issued
 // command. Fleet nodes treat missing or invalid context as a new trace.
@@ -594,6 +605,7 @@ message GetErrorsResult {
 //   3 = MinerCommand miner_command   (per-miner command path)
 //   4 = FleetNodeTelemetryRequest telemetry (per-miner telemetry path)
 //   5 = RecoverMinerEndpointsRequest recover_miner_endpoints (offline endpoint recovery)
+//   6, 7 = standby credential key export and install
 message AgentCommand {
     oneof command {
         option (buf.validate.oneof).required = true;
@@ -603,7 +615,28 @@ message AgentCommand {
         MinerCommand miner_command = 3;
         telemetry.v1.FleetNodeTelemetryRequest telemetry = 4;
         RecoverMinerEndpointsRequest recover_miner_endpoints = 5;
+        ExportCredentialKey export_credential_key = 6;
+        InstallCredentialKey install_credential_key = 7;
     }
+}
+
+// Seals the active node's miner credential key to its standby so the standby
+// can open the active node's stored miner credentials after failover. The
+// server forwards the sealed key without being able to read it.
+message ExportCredentialKey {
+    bytes recipient_public_key = 1 [(buf.validate.field).bytes.len = 32];
+}
+
+// Replaces a standby's unused credential key with its active node's key.
+message InstallCredentialKey {
+    NodeEncryptedPayload sealed_key = 1 [(buf.validate.field).required = true];
+}
+
+// ControlAck payload for both credential key commands. sealed_key is set only
+// by export. fingerprint is the SHA-256 of the key the node now holds.
+message CredentialKeyResult {
+    NodeEncryptedPayload sealed_key = 1;
+    bytes fingerprint = 2 [(buf.validate.field).bytes.len = 32];
 }
 
 message ControlAck {

@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"log/slog"
 	"time"
@@ -14,6 +15,7 @@ import (
 	activitymodels "github.com/block/proto-fleet/server/internal/domain/activity/models"
 	"github.com/block/proto-fleet/server/internal/domain/apikey"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/block/proto-fleet/server/internal/domain/fleetnode/ha"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/passwordupdate"
 	"github.com/block/proto-fleet/server/internal/domain/session"
 	stores "github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
@@ -41,7 +43,7 @@ const (
 )
 
 type PendingEnrollmentStore interface {
-	CreatePendingEnrollment(ctx context.Context, codeHash string, orgID, createdBy int64, expiresAt time.Time) (*PendingEnrollment, error)
+	CreatePendingEnrollment(ctx context.Context, codeHash string, orgID, createdBy int64, expiresAt time.Time, standbyForNodeID *int64) (*PendingEnrollment, error)
 	GetPendingEnrollmentByCodeHash(ctx context.Context, codeHash string) (*PendingEnrollment, error)
 	GetPendingEnrollmentByFleetNode(ctx context.Context, agentID, orgID int64) (*PendingEnrollment, error)
 	GetCancelledEnrollmentByFleetNode(ctx context.Context, enrollmentID, agentID, orgID int64) (*PendingEnrollment, error)
@@ -96,6 +98,7 @@ type Service struct {
 	apiKeySvc   *apikey.Service
 	transactor  stores.Transactor
 	activitySvc *activity.Service
+	ha          *ha.Service
 
 	invalidateMiner         func(context.Context, int64)
 	invalidateControlStream func(int64)
@@ -122,7 +125,28 @@ func (s *Service) WithControlStreamInvalidator(invalidate func(int64)) {
 	s.invalidateControlStream = invalidate
 }
 
+// WithHA enables standby enrollment and HA-aware revocation.
+func (s *Service) WithHA(service *ha.Service) {
+	s.ha = service
+}
+
 func (s *Service) CreateCodeWithEnrollmentID(ctx context.Context, userID, orgID int64, ttl time.Duration) (string, int64, time.Time, error) {
+	return s.createCode(ctx, userID, orgID, ttl, nil)
+}
+
+// CreateStandbyCode mints a code that enrolls the new node as the HA standby
+// for standbyForNodeID, a confirmed node that is not already in a pair.
+func (s *Service) CreateStandbyCode(ctx context.Context, userID, orgID int64, ttl time.Duration, standbyForNodeID int64) (string, int64, time.Time, error) {
+	if s.ha == nil {
+		return "", 0, time.Time{}, fleeterror.NewFailedPreconditionError("standby enrollment is unavailable")
+	}
+	if err := s.ha.CheckStandbyTarget(ctx, orgID, standbyForNodeID); err != nil {
+		return "", 0, time.Time{}, sanitizeDomainError("check standby target", clientErrCreateCode, err)
+	}
+	return s.createCode(ctx, userID, orgID, ttl, &standbyForNodeID)
+}
+
+func (s *Service) createCode(ctx context.Context, userID, orgID int64, ttl time.Duration, standbyForNodeID *int64) (string, int64, time.Time, error) {
 	if ttl <= 0 {
 		ttl = defaultCodeTTL
 	}
@@ -132,11 +156,15 @@ func (s *Service) CreateCodeWithEnrollmentID(ctx context.Context, userID, orgID 
 	}
 	plaintext := base64.RawURLEncoding.EncodeToString(codeBytes)
 	expiresAt := time.Now().UTC().Add(ttl)
-	pendingEnrollment, err := s.store.CreatePendingEnrollment(ctx, hashCode(plaintext), orgID, userID, expiresAt)
+	pendingEnrollment, err := s.store.CreatePendingEnrollment(ctx, hashCode(plaintext), orgID, userID, expiresAt, standbyForNodeID)
 	if err != nil {
 		return "", 0, time.Time{}, logInternal("create pending enrollment", clientErrCreateCode, err)
 	}
-	s.logActivity(ctx, "create_enrollment_code", fmt.Sprintf("Created fleet node enrollment code (expires %s)", expiresAt.Format(time.RFC3339)))
+	description := fmt.Sprintf("Created fleet node enrollment code (expires %s)", expiresAt.Format(time.RFC3339))
+	if standbyForNodeID != nil {
+		description = fmt.Sprintf("Created fleet node standby enrollment code for node %d (expires %s)", *standbyForNodeID, expiresAt.Format(time.RFC3339))
+	}
+	s.logActivity(ctx, "create_enrollment_code", description)
 	return plaintext, pendingEnrollment.ID, expiresAt, nil
 }
 
@@ -213,9 +241,10 @@ func (s *Service) ConfirmExpected(ctx context.Context, agentID, orgID, pendingEn
 // issue the api_key. The plaintext api_key is returned exactly once.
 func (s *Service) confirm(ctx context.Context, agentID, orgID, pendingEnrollmentID, confirmedBy int64) (string, time.Time, error) {
 	var (
-		plaintext string
-		expires   time.Time
-		agentName string
+		plaintext  string
+		expires    time.Time
+		agentName  string
+		standbyFor *int64
 	)
 	if err := s.transactor.RunInTx(ctx, func(ctx context.Context) error {
 		// Lock the fleet node row first so Confirm and RevokeFleetNode always acquire
@@ -262,6 +291,15 @@ func (s *Service) confirm(ctx context.Context, agentID, orgID, pendingEnrollment
 		if statusRows == 0 {
 			return fleeterror.NewFailedPreconditionError("fleet node state changed; refresh and retry")
 		}
+		if pe.StandbyForNodeID != nil {
+			if s.ha == nil {
+				return fleeterror.NewFailedPreconditionError("standby enrollment is unavailable")
+			}
+			if err := s.ha.CreatePair(ctx, orgID, *pe.StandbyForNodeID, agentID); err != nil {
+				return sanitizeDomainError("create HA pair", clientErrConfirmFleetNode, err)
+			}
+			standbyFor = pe.StandbyForNodeID
+		}
 		key, apiKey, err := s.apiKeySvc.CreateFleetNode(ctx, agentID, orgID, fleetNodeApiKeyLabel, nil)
 		if err != nil {
 			return err
@@ -275,7 +313,11 @@ func (s *Service) confirm(ctx context.Context, agentID, orgID, pendingEnrollment
 	}); err != nil {
 		return "", time.Time{}, err
 	}
-	s.logActivity(ctx, "confirm_fleet_node", fmt.Sprintf("Confirmed fleet node '%s' (id=%d)", agentName, agentID))
+	description := fmt.Sprintf("Confirmed fleet node '%s' (id=%d)", agentName, agentID)
+	if standbyFor != nil {
+		description += fmt.Sprintf(" as the HA standby for node %d", *standbyFor)
+	}
+	s.logActivity(ctx, "confirm_fleet_node", description)
 	return plaintext, expires, nil
 }
 
@@ -353,12 +395,6 @@ func (s *Service) revokeFleetNode(ctx context.Context, agentID, orgID, expectedP
 		if _, err := s.apiKeySvc.RevokeForFleetNode(ctx, agentID, orgID); err != nil {
 			return err
 		}
-		var listErr error
-		devices, listErr = s.store.ListDevicesForFleetNodeRevocation(ctx, agentID, orgID)
-		if listErr != nil {
-			return logInternal("list fleet node devices", clientErrRevokeFleetNode, listErr)
-		}
-
 		agentName = agent.Name
 		return nil
 	}); err != nil {
@@ -366,6 +402,16 @@ func (s *Service) revokeFleetNode(ctx context.Context, agentID, orgID, expectedP
 	}
 	if s.invalidateControlStream != nil {
 		s.invalidateControlStream(agentID)
+	}
+	s.logActivity(ctx, "revoke_fleet_node", fmt.Sprintf("Revoked fleet node '%s' (id=%d)", agentName, agentID))
+	var err error
+	if s.ha != nil {
+		devices, err = s.handOffRevokedDevices(ctx, agentID, orgID)
+	} else {
+		devices, err = s.dissolvePairAndListDevices(ctx, agentID, orgID)
+	}
+	if err != nil {
+		return err
 	}
 	if s.removeTelemetry != nil {
 		// Revocation has committed, so a canceled request must not leave these
@@ -385,9 +431,6 @@ func (s *Service) revokeFleetNode(ctx context.Context, agentID, orgID, expectedP
 			s.invalidateMiner(ctx, device.ID)
 		}
 	}
-	// Record and publish the committed security decision even if teardown is
-	// interrupted. The live REVOKED row lets operators retry incomplete cleanup.
-	s.logActivity(ctx, "revoke_fleet_node", fmt.Sprintf("Revoked fleet node '%s' (id=%d)", agentName, agentID))
 	if err := s.transactor.RunInTx(ctx, func(ctx context.Context) error {
 		// Device/route locks precede the final node update. No node row lock is
 		// held while waiting for an admitted, possibly context-ignoring call.
@@ -415,6 +458,30 @@ func (s *Service) revokeFleetNode(ctx context.Context, agentID, orgID, expectedP
 		return fleeterror.NewFailedPreconditionError("fleet node authentication is revoked; route cleanup did not finish; retry revocation")
 	}
 	return nil
+}
+
+func (s *Service) handOffRevokedDevices(ctx context.Context, agentID, orgID int64) ([]RevokedDevice, error) {
+	if err := s.ha.HandOff(ctx, orgID, agentID); err != nil {
+		slog.Warn("revoked fleet node device hand-off did not finish", "fleet_node_id", agentID, "org_id", orgID, "err", err)
+		return nil, fleeterror.NewFailedPreconditionError("fleet node authentication is revoked; device hand-off did not finish; retry revocation")
+	}
+	return s.dissolvePairAndListDevices(ctx, agentID, orgID)
+}
+
+func (s *Service) dissolvePairAndListDevices(ctx context.Context, agentID, orgID int64) ([]RevokedDevice, error) {
+	if s.ha != nil {
+		if err := s.ha.DeletePair(ctx, orgID, agentID); err != nil {
+			if fleeterror.IsFailedPreconditionError(err) {
+				return nil, err
+			}
+			return nil, logInternal("delete HA pair", clientErrRevokeFleetNode, err)
+		}
+	}
+	devices, err := s.store.ListDevicesForFleetNodeRevocation(ctx, agentID, orgID)
+	if err != nil {
+		return nil, logInternal("list fleet node devices", clientErrRevokeFleetNode, err)
+	}
+	return devices, nil
 }
 
 // UpdateLastSeen advances the Fleet Node heartbeat without locking its routing row. 0 rows
@@ -497,6 +564,14 @@ func logInternal(op, clientMsg string, err error) error {
 		return err
 	}
 	return fleeterror.LogInternal(component, op, clientMsg, err)
+}
+
+func sanitizeDomainError(op, clientMsg string, err error) error {
+	var fleetErr fleeterror.FleetError
+	if errors.As(err, &fleetErr) {
+		return err
+	}
+	return logInternal(op, clientMsg, err)
 }
 
 // logActivity records an operator-driven enrollment event. No-ops when the

@@ -220,7 +220,7 @@ type registerFleetNodeStore struct {
 	gotIdentityPubkey []byte
 }
 
-func (s *registerFleetNodeStore) CreatePendingEnrollment(context.Context, string, int64, int64, time.Time) (*PendingEnrollment, error) {
+func (s *registerFleetNodeStore) CreatePendingEnrollment(context.Context, string, int64, int64, time.Time, *int64) (*PendingEnrollment, error) {
 	panic("unexpected CreatePendingEnrollment")
 }
 

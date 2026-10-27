@@ -49,6 +49,7 @@ func (s *fakeUpsertStore) UpsertDiscoveredDeviceFromFleetNode(_ context.Context,
 		return report, false, s.err
 	}
 	if report.DeviceIdentifier == "accept" {
+		report.DeviceIdentifier = "canonical-accept"
 		report.DeviceClass = commonpb.DeviceClass_DEVICE_CLASS_CONTAINER
 		return report, true, nil
 	}
@@ -83,7 +84,7 @@ func TestUpsertDiscoveredDevicesPreservesRetryableDatabaseErrors(t *testing.T) {
 
 			require.NoError(t, err)
 			require.Len(t, accepted, 1)
-			require.Equal(t, "accept", accepted[0].DeviceIdentifier)
+			require.Equal(t, "canonical-accept", accepted[0].DeviceIdentifier)
 			require.EqualValues(t, 1, rejected)
 		})
 	}
@@ -106,7 +107,8 @@ func TestUpsertDiscoveredDevices_CountsAreNotDoubledOnTxRetry(t *testing.T) {
 	// Assert: counts reflect a single committed pass, not the rolled-back one.
 	require.NoError(t, err)
 	require.Len(t, accepted, 1, "accepted reports must not accumulate across retries")
-	assert.Equal(t, "accept", accepted[0].DeviceIdentifier)
+	assert.Equal(t, "canonical-accept", accepted[0].DeviceIdentifier)
+	assert.Equal(t, "accept", reports[0].DeviceIdentifier, "transaction attempts must not mutate the input")
 	assert.Equal(t, commonpb.DeviceClass_DEVICE_CLASS_CONTAINER, accepted[0].DeviceClass)
 	assert.Equal(t, commonpb.DeviceClass_DEVICE_CLASS_UNSPECIFIED, reports[0].DeviceClass, "transaction attempts must not mutate the input")
 	assert.Equal(t, int64(2), rejected, "rejected count must not accumulate across retries")

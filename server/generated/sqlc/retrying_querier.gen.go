@@ -1514,6 +1514,12 @@ func (q *retryingQuerier) CreateFleetNodeApiKey(ctx context.Context, arg CreateF
 	})
 }
 
+func (q *retryingQuerier) CreateFleetNodeHAPair(ctx context.Context, arg CreateFleetNodeHAPairParams) error {
+	return q.retrier.RetryQuery(ctx, "CreateFleetNodeHAPair", func() error {
+		return q.next.CreateFleetNodeHAPair(ctx, arg)
+	})
+}
+
 func (q *retryingQuerier) CreateHostedAccount(ctx context.Context, arg CreateHostedAccountParams) (HostedAccount, error) {
 	var result HostedAccount
 	err := q.retrier.RetryQuery(ctx, "CreateHostedAccount", func() error {
@@ -1878,6 +1884,18 @@ func (q *retryingQuerier) DeleteFleetNodeDevicePairings(ctx context.Context, arg
 	var result int64
 	err := q.retrier.RetryQuery(ctx, "DeleteFleetNodeDevicePairings", func() error {
 		callResult, callErr := q.next.DeleteFleetNodeDevicePairings(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) DeleteFleetNodeHAPairForNode(ctx context.Context, arg DeleteFleetNodeHAPairForNodeParams) (int64, error) {
+	var result int64
+	err := q.retrier.RetryQuery(ctx, "DeleteFleetNodeHAPairForNode", func() error {
+		callResult, callErr := q.next.DeleteFleetNodeHAPairForNode(ctx, arg)
 		if callErr == nil {
 			result = callResult
 		}
@@ -2286,6 +2304,18 @@ func (q *retryingQuerier) FinishTerminalCommandBatches(ctx context.Context, fini
 	var result int64
 	err := q.retrier.RetryQuery(ctx, "FinishTerminalCommandBatches", func() error {
 		callResult, callErr := q.next.FinishTerminalCommandBatches(ctx, finishLimit)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) FleetNodeInHAPair(ctx context.Context, arg FleetNodeInHAPairParams) (bool, error) {
+	var result bool
+	err := q.retrier.RetryQuery(ctx, "FleetNodeInHAPair", func() error {
+		callResult, callErr := q.next.FleetNodeInHAPair(ctx, arg)
 		if callErr == nil {
 			result = callResult
 		}
@@ -3546,6 +3576,18 @@ func (q *retryingQuerier) GetFleetNodeByIDUnscoped(ctx context.Context, id int64
 	var result GetFleetNodeByIDUnscopedRow
 	err := q.retrier.RetryQuery(ctx, "GetFleetNodeByIDUnscoped", func() error {
 		callResult, callErr := q.next.GetFleetNodeByIDUnscoped(ctx, id)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) GetFleetNodeHAPairForNode(ctx context.Context, arg GetFleetNodeHAPairForNodeParams) (FleetNodeHaPair, error) {
+	var result FleetNodeHaPair
+	err := q.retrier.RetryQuery(ctx, "GetFleetNodeHAPairForNode", func() error {
+		callResult, callErr := q.next.GetFleetNodeHAPairForNode(ctx, arg)
 		if callErr == nil {
 			result = callResult
 		}
@@ -5390,6 +5432,18 @@ func (q *retryingQuerier) IsDeviceWriteFenceDrained(ctx context.Context, arg IsD
 	return result, err
 }
 
+func (q *retryingQuerier) IsFleetNodeHAStandby(ctx context.Context, arg IsFleetNodeHAStandbyParams) (bool, error) {
+	var result bool
+	err := q.retrier.RetryQuery(ctx, "IsFleetNodeHAStandby", func() error {
+		callResult, callErr := q.next.IsFleetNodeHAStandby(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) IsRetiredDeviceWriteDrained(ctx context.Context, identityKeys []string) (bool, error) {
 	var result bool
 	err := q.retrier.RetryQuery(ctx, "IsRetiredDeviceWriteDrained", func() error {
@@ -6210,6 +6264,18 @@ func (q *retryingQuerier) ListFleetNodeDiscoveredDevices(ctx context.Context, ar
 	var result []ListFleetNodeDiscoveredDevicesRow
 	err := q.retrier.RetryQuery(ctx, "ListFleetNodeDiscoveredDevices", func() error {
 		callResult, callErr := q.next.ListFleetNodeDiscoveredDevices(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) ListFleetNodeHAPairs(ctx context.Context) ([]ListFleetNodeHAPairsRow, error) {
+	var result []ListFleetNodeHAPairsRow
+	err := q.retrier.RetryQuery(ctx, "ListFleetNodeHAPairs", func() error {
+		callResult, callErr := q.next.ListFleetNodeHAPairs(ctx)
 		if callErr == nil {
 			result = callResult
 		}
@@ -7592,6 +7658,18 @@ func (q *retryingQuerier) LockFleetNodeDevicesForRevocation(ctx context.Context,
 	return result, err
 }
 
+func (q *retryingQuerier) LockFleetNodeHAPair(ctx context.Context, arg LockFleetNodeHAPairParams) (FleetNodeHaPair, error) {
+	var result FleetNodeHaPair
+	err := q.retrier.RetryQuery(ctx, "LockFleetNodeHAPair", func() error {
+		callResult, callErr := q.next.LockFleetNodeHAPair(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) LockFleetNodeIdentityByID(ctx context.Context, arg LockFleetNodeIdentityByIDParams) (LockFleetNodeIdentityByIDRow, error) {
 	var result LockFleetNodeIdentityByIDRow
 	err := q.retrier.RetryQuery(ctx, "LockFleetNodeIdentityByID", func() error {
@@ -8000,10 +8078,40 @@ func (q *retryingQuerier) MarkFirmwareRolloutDevicesVerified(ctx context.Context
 	})
 }
 
+func (q *retryingQuerier) MarkFleetNodeHAStandbyReady(ctx context.Context, arg MarkFleetNodeHAStandbyReadyParams) (int64, error) {
+	var result int64
+	err := q.retrier.RetryQuery(ctx, "MarkFleetNodeHAStandbyReady", func() error {
+		callResult, callErr := q.next.MarkFleetNodeHAStandbyReady(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) MarkRepairTicketPartsConsumed(ctx context.Context, arg MarkRepairTicketPartsConsumedParams) error {
 	return q.retrier.RetryQuery(ctx, "MarkRepairTicketPartsConsumed", func() error {
 		return q.next.MarkRepairTicketPartsConsumed(ctx, arg)
 	})
+}
+
+func (q *retryingQuerier) MoveDiscoveredDeviceAttribution(ctx context.Context, arg MoveDiscoveredDeviceAttributionParams) error {
+	return q.retrier.RetryQuery(ctx, "MoveDiscoveredDeviceAttribution", func() error {
+		return q.next.MoveDiscoveredDeviceAttribution(ctx, arg)
+	})
+}
+
+func (q *retryingQuerier) MoveFleetNodeDevices(ctx context.Context, arg MoveFleetNodeDevicesParams) ([]string, error) {
+	var result []string
+	err := q.retrier.RetryQuery(ctx, "MoveFleetNodeDevices", func() error {
+		callResult, callErr := q.next.MoveFleetNodeDevices(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
 }
 
 func (q *retryingQuerier) NegateSchedulePriorities(ctx context.Context, arg NegateSchedulePrioritiesParams) error {
@@ -8094,6 +8202,18 @@ func (q *retryingQuerier) PauseFirmwareRollout(ctx context.Context, arg PauseFir
 	var result int64
 	err := q.retrier.RetryQuery(ctx, "PauseFirmwareRollout", func() error {
 		callResult, callErr := q.next.PauseFirmwareRollout(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) PrepareFleetNodeHAKeyInstall(ctx context.Context, arg PrepareFleetNodeHAKeyInstallParams) ([]byte, error) {
+	var result []byte
+	err := q.retrier.RetryQuery(ctx, "PrepareFleetNodeHAKeyInstall", func() error {
+		callResult, callErr := q.next.PrepareFleetNodeHAKeyInstall(ctx, arg)
 		if callErr == nil {
 			result = callResult
 		}
@@ -8888,6 +9008,18 @@ func (q *retryingQuerier) SetFleetNodeEnrollmentStatus(ctx context.Context, arg 
 	return result, err
 }
 
+func (q *retryingQuerier) SetFleetNodeHAPairStatus(ctx context.Context, arg SetFleetNodeHAPairStatusParams) (int64, error) {
+	var result int64
+	err := q.retrier.RetryQuery(ctx, "SetFleetNodeHAPairStatus", func() error {
+		callResult, callErr := q.next.SetFleetNodeHAPairStatus(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) SetHashboardPoolIntent(ctx context.Context, arg SetHashboardPoolIntentParams) error {
 	return q.retrier.RetryQuery(ctx, "SetHashboardPoolIntent", func() error {
 		return q.next.SetHashboardPoolIntent(ctx, arg)
@@ -8951,6 +9083,12 @@ func (q *retryingQuerier) SetInfrastructureControlSubnets(ctx context.Context, a
 func (q *retryingQuerier) SetLocalDeviceDeletionLockTimeout(ctx context.Context) error {
 	return q.retrier.RetryQuery(ctx, "SetLocalDeviceDeletionLockTimeout", func() error {
 		return q.next.SetLocalDeviceDeletionLockTimeout(ctx)
+	})
+}
+
+func (q *retryingQuerier) SetLocalFleetNodeHAFailoverLockTimeout(ctx context.Context, timeoutMilliseconds int64) error {
+	return q.retrier.RetryQuery(ctx, "SetLocalFleetNodeHAFailoverLockTimeout", func() error {
+		return q.next.SetLocalFleetNodeHAFailoverLockTimeout(ctx, timeoutMilliseconds)
 	})
 }
 
@@ -9263,6 +9401,12 @@ func (q *retryingQuerier) StampContainerSample(ctx context.Context, arg StampCon
 func (q *retryingQuerier) StampHashboardTopology(ctx context.Context, arg StampHashboardTopologyParams) error {
 	return q.retrier.RetryQuery(ctx, "StampHashboardTopology", func() error {
 		return q.next.StampHashboardTopology(ctx, arg)
+	})
+}
+
+func (q *retryingQuerier) SwapFleetNodeHAPair(ctx context.Context, id int64) error {
+	return q.retrier.RetryQuery(ctx, "SwapFleetNodeHAPair", func() error {
+		return q.next.SwapFleetNodeHAPair(ctx, id)
 	})
 }
 

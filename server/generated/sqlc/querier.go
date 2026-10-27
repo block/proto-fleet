@@ -439,6 +439,7 @@ type Querier interface {
 	CreateFirmwareRolloutEvent(ctx context.Context, arg CreateFirmwareRolloutEventParams) error
 	CreateFleetNode(ctx context.Context, arg CreateFleetNodeParams) (CreateFleetNodeRow, error)
 	CreateFleetNodeApiKey(ctx context.Context, arg CreateFleetNodeApiKeyParams) error
+	CreateFleetNodeHAPair(ctx context.Context, arg CreateFleetNodeHAPairParams) error
 	CreateHostedAccount(ctx context.Context, arg CreateHostedAccountParams) (HostedAccount, error)
 	CreateHostedAccountInvitation(ctx context.Context, arg CreateHostedAccountInvitationParams) (HostedAccountInvitation, error)
 	CreateHostedAccountPool(ctx context.Context, arg CreateHostedAccountPoolParams) (HostedAccountPool, error)
@@ -500,6 +501,11 @@ type Querier interface {
 	DeleteFleetMetricRollupsForWindow(ctx context.Context, arg DeleteFleetMetricRollupsForWindowParams) error
 	// Deletes fleet-node ownership rows for devices that are being removed from the fleet.
 	DeleteFleetNodeDevicePairings(ctx context.Context, arg DeleteFleetNodeDevicePairingsParams) (int64, error)
+	// Pending installation may still execute after a server timeout. Keep the
+	// surviving standby reserved until an acknowledgement reconciles its key.
+	// A ready active pair must hand off before cleanup, even if the standby is
+	// disconnected or readiness changed after the revocation decision.
+	DeleteFleetNodeHAPairForNode(ctx context.Context, arg DeleteFleetNodeHAPairForNodeParams) (int64, error)
 	DeleteHostedAccountSites(ctx context.Context, arg DeleteHostedAccountSitesParams) error
 	DeleteMinerCredentialsByDeviceIDAndOrgID(ctx context.Context, arg DeleteMinerCredentialsByDeviceIDAndOrgIDParams) (int64, error)
 	// Deletes miner credentials for devices that are being removed from the fleet.
@@ -621,6 +627,7 @@ type Querier interface {
 	// rollout's preceding lifecycle events.
 	FinishFirmwareRollout(ctx context.Context, arg FinishFirmwareRolloutParams) (int64, error)
 	FinishTerminalCommandBatches(ctx context.Context, finishLimit int32) (int64, error)
+	FleetNodeInHAPair(ctx context.Context, arg FleetNodeInHAPairParams) (bool, error)
 	// Last-resort recovery: persistently releases curtailment ownership for any
 	// non-terminal event row. Unlike AdminTerminateCurtailmentEvent, this
 	// intentionally supports ACTIVE events and has no in-flight command gate because
@@ -831,6 +838,7 @@ type Querier interface {
 	GetFleetMetricRollupCoverage(ctx context.Context) (GetFleetMetricRollupCoverageRow, error)
 	GetFleetNodeByID(ctx context.Context, arg GetFleetNodeByIDParams) (GetFleetNodeByIDRow, error)
 	GetFleetNodeByIDUnscoped(ctx context.Context, id int64) (GetFleetNodeByIDUnscopedRow, error)
+	GetFleetNodeHAPairForNode(ctx context.Context, arg GetFleetNodeHAPairForNodeParams) (FleetNodeHaPair, error)
 	GetFleetNodePairedDeviceIdentifier(ctx context.Context, arg GetFleetNodePairedDeviceIdentifierParams) (string, error)
 	GetFleetNodeSessionByTokenHash(ctx context.Context, arg GetFleetNodeSessionByTokenHashParams) (GetFleetNodeSessionByTokenHashRow, error)
 	// Resolve the active fleet node and all connection metadata needed for a
@@ -1160,6 +1168,7 @@ type Querier interface {
 	IsContainerMetricSelector(ctx context.Context, identifier string) (bool, error)
 	IsDeletionUnpairIdentityCurrent(ctx context.Context, arg IsDeletionUnpairIdentityCurrentParams) (bool, error)
 	IsDeviceWriteFenceDrained(ctx context.Context, arg IsDeviceWriteFenceDrainedParams) (bool, error)
+	IsFleetNodeHAStandby(ctx context.Context, arg IsFleetNodeHAStandbyParams) (bool, error)
 	IsRetiredDeviceWriteDrained(ctx context.Context, identityKeys []string) (bool, error)
 	// The delivery-path read: only windows covering sqlc.arg('now'), so the expired tail never loads.
 	ListActiveAlertMaintenanceWindows(ctx context.Context, arg ListActiveAlertMaintenanceWindowsParams) ([]AlertMaintenanceWindow, error)
@@ -1466,6 +1475,7 @@ type Querier interface {
 	// (the latest live device's pairing_status). Paginates by ascending id; a NULL
 	// limit returns all rows (the pairing batch path needs every candidate).
 	ListFleetNodeDiscoveredDevices(ctx context.Context, arg ListFleetNodeDiscoveredDevicesParams) ([]ListFleetNodeDiscoveredDevicesRow, error)
+	ListFleetNodeHAPairs(ctx context.Context) ([]ListFleetNodeHAPairsRow, error)
 	// A fleet node can have multiple pending_enrollment rows over its lifetime
 	// (terminal CONFIRMED/EXPIRED/CANCELLED + a new AWAITING_CONFIRMATION on
 	// re-enrollment), so the join is filtered to the one status the listing
@@ -1813,6 +1823,7 @@ type Querier interface {
 	// Teardown follows dispatch's device-before-child order and retains routing
 	// children until any admitted physical call has actually returned.
 	LockFleetNodeDevicesForRevocation(ctx context.Context, arg LockFleetNodeDevicesForRevocationParams) ([]int64, error)
+	LockFleetNodeHAPair(ctx context.Context, arg LockFleetNodeHAPairParams) (FleetNodeHaPair, error)
 	// Keep the routing identity alive during a device wait without blocking
 	// authentication revocation. Writers revalidate with LockFleetNodeByID after
 	// acquiring the device lock before they mutate any binding children.
@@ -1925,7 +1936,10 @@ type Querier interface {
 	// Latches convergence for miners that meet every criterion this tick, so the
 	// phase change is a rollout change under the revision rule.
 	MarkFirmwareRolloutDevicesVerified(ctx context.Context, arg MarkFirmwareRolloutDevicesVerifiedParams) error
+	MarkFleetNodeHAStandbyReady(ctx context.Context, arg MarkFleetNodeHAStandbyReadyParams) (int64, error)
 	MarkRepairTicketPartsConsumed(ctx context.Context, arg MarkRepairTicketPartsConsumedParams) error
+	MoveDiscoveredDeviceAttribution(ctx context.Context, arg MoveDiscoveredDeviceAttributionParams) error
+	MoveFleetNodeDevices(ctx context.Context, arg MoveFleetNodeDevicesParams) ([]string, error)
 	NegateSchedulePriorities(ctx context.Context, arg NegateSchedulePrioritiesParams) error
 	NextRepairTicketNumber(ctx context.Context, orgID int64) (int64, error)
 	// --- Rollout devices ---
@@ -1944,6 +1958,7 @@ type Querier interface {
 	// Timestamp the pause after the header lock, never before the creation or
 	// stage transition the caller observed. Repeated pauses keep the first event.
 	PauseFirmwareRollout(ctx context.Context, arg PauseFirmwareRolloutParams) (int64, error)
+	PrepareFleetNodeHAKeyInstall(ctx context.Context, arg PrepareFleetNodeHAKeyInstallParams) ([]byte, error)
 	PrepareTelemetrySeed(ctx context.Context, arg PrepareTelemetrySeedParams) (time.Time, error)
 	// Retrying a failed deployment preserves its original health expectations.
 	// A failed update can itself stop hashing; recapturing that degraded state
@@ -2188,6 +2203,7 @@ type Querier interface {
 	SetDevicePairingAuthNeededIfNotPaired(ctx context.Context, deviceID int64) (int64, error)
 	SetFirmwareRolloutControllerWait(ctx context.Context, arg SetFirmwareRolloutControllerWaitParams) error
 	SetFleetNodeEnrollmentStatus(ctx context.Context, arg SetFleetNodeEnrollmentStatusParams) (int64, error)
+	SetFleetNodeHAPairStatus(ctx context.Context, arg SetFleetNodeHAPairStatusParams) (int64, error)
 	SetHashboardPoolIntent(ctx context.Context, arg SetHashboardPoolIntentParams) error
 	SetHostedAccountAncestorGrant(ctx context.Context, arg SetHostedAccountAncestorGrantParams) error
 	SetHostedAccountAsset(ctx context.Context, arg SetHostedAccountAssetParams) (int64, error)
@@ -2200,6 +2216,7 @@ type Querier interface {
 	// Contended advisory admission or fence creation must release the entire
 	// deletion batch promptly instead of holding shared identity stripes for I/O.
 	SetLocalDeviceDeletionLockTimeout(ctx context.Context) error
+	SetLocalFleetNodeHAFailoverLockTimeout(ctx context.Context, timeoutMilliseconds int64) error
 	SetLocalTransactionTimeout(ctx context.Context, timeoutMilliseconds int64) error
 	SetMQTTSourceConfigEnabled(ctx context.Context, arg SetMQTTSourceConfigEnabledParams) (SetMQTTSourceConfigEnabledRow, error)
 	// Writes the rack's grid placement (aisle_index, position_in_aisle).
@@ -2298,6 +2315,7 @@ type Querier interface {
 	// collection. The function groups by exact source time and supplies explicit
 	// board/time filters before Timescale decompresses batches, including generic plans.
 	StampHashboardTopology(ctx context.Context, arg StampHashboardTopologyParams) error
+	SwapFleetNodeHAPair(ctx context.Context, id int64) error
 	// Reclaims rows for never-created rule UIDs left by ambiguous create failures (see CreateRule).
 	// The hour of slack protects in-flight creates, whose config row lands before the Grafana rule exists.
 	SweepAlertRuleConfigs(ctx context.Context, arg SweepAlertRuleConfigsParams) (int64, error)
@@ -2583,9 +2601,11 @@ type Querier interface {
 	// endpoint/credentials of a miner the cloud owns, so the update is blocked
 	// unless the row is already attributed to this fleet node or to a revoked node
 	// that can be reclaimed. Devices paired to the reporting node itself stay
-	// refreshable, subject to the attribution guard. The agent synthesizes a stable
-	// per-device identifier (mac:/serial:, else auto:<hash>), so a re-scan reuses
-	// the same row.
+	// refreshable, subject to the attribution guard. Synthetic identifiers include
+	// the physical node id. After attribution moves to an HA peer, reconcile its
+	// new synthetic identifier to the inherited endpoint within that node and org.
+	// Exact identifiers take precedence, preserving the ownership guard. Container
+	// identity excludes the port because CT1 browser/RPC endpoints can change.
 	// A web-only scan cannot erase a saved native RPC route.
 	UpsertDiscoveredDeviceFromFleetNode(ctx context.Context, arg UpsertDiscoveredDeviceFromFleetNodeParams) (UpsertDiscoveredDeviceFromFleetNodeRow, error)
 	UpsertFleetMetricRollups(ctx context.Context, arg UpsertFleetMetricRollupsParams) error

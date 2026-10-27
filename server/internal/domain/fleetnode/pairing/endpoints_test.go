@@ -38,7 +38,7 @@ func TestEndpointDiscoveryReclaimsRevokedNodeInventory(t *testing.T) {
 		SerialNumber: "controller-a", DeviceClass: commonpb.DeviceClass_DEVICE_CLASS_CONTAINER,
 		Model: "CT1", Manufacturer: "Proto",
 	}
-	status, err := svc.PersistFleetNodePairResult(ctx, original, org, result, nil, pairingSnapshot(t, db, org, result.GetDeviceIdentifier()))
+	status, err := svc.PersistFleetNodePairResult(ctx, pairPersistMeta(t, db, original, org, nil, result.GetDeviceIdentifier()), result)
 	require.NoError(t, err)
 	require.Equal(t, fleetnodepairing.StatusPaired, status)
 	deviceID := deviceIDByIdentifier(t, db, org, a.DeviceIdentifier)
@@ -63,7 +63,7 @@ func TestEndpointDiscoveryReclaimsRevokedNodeInventory(t *testing.T) {
 	require.Len(t, accepted[0].Endpoints, 2)
 	require.Equal(t, "10.0.0.11", accepted[0].Endpoints[0].Host)
 	require.Equal(t, "10.0.0.22", accepted[0].Endpoints[1].Host)
-	status, err = svc.PersistFleetNodePairResult(ctx, replacement, org, result, nil, pairingSnapshot(t, db, org, result.GetDeviceIdentifier()))
+	status, err = svc.PersistFleetNodePairResult(ctx, pairPersistMeta(t, db, replacement, org, nil, result.GetDeviceIdentifier()), result)
 	require.NoError(t, err)
 	require.Equal(t, fleetnodepairing.StatusPaired, status)
 	require.True(t, deviceBoundToNode(t, db, org, replacement, a.DeviceIdentifier))
@@ -138,10 +138,11 @@ func TestPairedEndpointDiscoveryRejectsSpoofedReportsWithoutDroppingBatch(t *tes
 	a, b := endpointGroupReport(t, node, "controller-a", "10.0.0.11"), endpointGroupReport(t, node, "controller-b", "10.0.0.12")
 	_, _, err := svc.UpsertDiscoveredDevices(ctx, node, org, []fleetnodepairing.DiscoveredDeviceReport{a, b})
 	require.NoError(t, err)
-	_, err = svc.PersistFleetNodePairResult(ctx, node, org, &gatewaypb.FleetNodePairResult{
+	result := &gatewaypb.FleetNodePairResult{
 		DeviceIdentifier: a.DeviceIdentifier, Outcome: gatewaypb.PairOutcome_PAIR_OUTCOME_PAIRED,
 		SerialNumber: "controller-a", DeviceClass: commonpb.DeviceClass_DEVICE_CLASS_CONTAINER, Model: "CT1", Manufacturer: "Proto",
-	}, nil, pairingSnapshot(t, db, org, a.DeviceIdentifier))
+	}
+	_, err = svc.PersistFleetNodePairResult(ctx, pairPersistMeta(t, db, node, org, nil, a.DeviceIdentifier), result)
 	require.NoError(t, err)
 	q := sqlc.New(db)
 	before, err := q.GetDiscoveredDeviceByDeviceIdentifier(ctx, sqlc.GetDiscoveredDeviceByDeviceIdentifierParams{OrgID: org, DeviceIdentifier: a.DeviceIdentifier})

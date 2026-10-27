@@ -1685,6 +1685,18 @@ type FleetNodeDevice struct {
 	AssignedBy  sql.NullInt64
 }
 
+type FleetNodeHaPair struct {
+	ID                   int64
+	OrgID                int64
+	ActiveNodeID         int64
+	StandbyNodeID        int64
+	StandbyReady         bool
+	PendingCredentialKey []byte
+	StatusReason         string
+	CreatedAt            time.Time
+	FailedOverAt         sql.NullTime
+}
+
 type FleetNodeHeartbeat struct {
 	FleetNodeID int64
 	OrgID       int64
@@ -2223,16 +2235,17 @@ type OrganizationInvitation struct {
 }
 
 type PendingEnrollment struct {
-	ID          int64
-	CodeHash    string
-	OrgID       int64
-	CreatedBy   int64
-	FleetNodeID sql.NullInt64
-	Status      string
-	ExpiresAt   time.Time
-	ConsumedAt  sql.NullTime
-	CreatedAt   time.Time
-	ConfirmedBy sql.NullInt64
+	ID               int64
+	CodeHash         string
+	OrgID            int64
+	CreatedBy        int64
+	FleetNodeID      sql.NullInt64
+	Status           string
+	ExpiresAt        time.Time
+	ConsumedAt       sql.NullTime
+	CreatedAt        time.Time
+	ConfirmedBy      sql.NullInt64
+	StandbyForNodeID sql.NullInt64
 }
 
 type Permission struct {

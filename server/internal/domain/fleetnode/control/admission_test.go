@@ -115,6 +115,22 @@ func TestCommandAdmissionPolicy(t *testing.T) {
 			wantClass: CommandAdmissionExclusive,
 			wantKind:  "endpoint_recovery",
 		},
+		{
+			name: "credential key export",
+			command: &gatewaypb.AgentCommand{Command: &gatewaypb.AgentCommand_ExportCredentialKey{
+				ExportCredentialKey: &gatewaypb.ExportCredentialKey{},
+			}},
+			wantClass: CommandAdmissionGeneral,
+			wantKind:  "credential_key_export",
+		},
+		{
+			name: "credential key install",
+			command: &gatewaypb.AgentCommand{Command: &gatewaypb.AgentCommand_InstallCredentialKey{
+				InstallCredentialKey: &gatewaypb.InstallCredentialKey{},
+			}},
+			wantClass: CommandAdmissionGeneral,
+			wantKind:  "credential_key_install",
+		},
 	}
 
 	for _, tt := range tests {
