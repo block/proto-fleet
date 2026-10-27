@@ -142,7 +142,7 @@ gen-protos: _server-init _client-init _lint-protos _gen-protos _gen-fleet-cli ge
 
 # regenerate pinned internal Frigate contracts
 [working-directory: 'sdk/mdk']
-gen-mdk-protos:
+gen-mdk-protos: _client-init
   PATH="$(pwd)/../../client/node_modules/.bin:$PATH" buf generate
   goimports -w generated
   # protoc-gen-es ends files with a blank line, which `git diff --check` rejects.

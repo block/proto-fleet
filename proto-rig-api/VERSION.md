@@ -90,8 +90,7 @@ To update the MDK v2 API specification:
 4. Update this VERSION.md with the mirror version, both commit SHAs, and dates
 5. Regenerate the dependent generated code:
    - Client: `cd client && npm run generate-api-types`
-   - MDK v2 bindings: `just gen-mdk-protos` from the repository root, after
-     installing client dependencies (it runs the client's `protoc-gen-es`)
+   - MDK v2 bindings: `just gen-mdk-protos` from the repository root
 6. Update the fake CT1 simulator if the consumed MDK v2 surface changed
    (see `server/fake-ct1/README.md`)
 7. Run tests to verify compatibility
