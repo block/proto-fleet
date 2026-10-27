@@ -50,33 +50,34 @@ func NewDevice(ctx context.Context, id string, info sdk.DeviceInfo, credentials 
 		}
 		d.clients = []*Client{c}
 	}
-	verified := info
-	var err error
-	if len(info.Endpoints) > 0 {
-		var selected *controllerProbe
-		selected, _, err = d.probeControllers(ctx, false)
-		if err == nil {
-			verified.FirmwareVersion = selected.state.GetVersion()
-			if verified.SerialNumber == "" {
-				verified.SerialNumber = selected.state.GetServerId()
-			}
+	if len(info.Endpoints) == 0 {
+		verified, err := d.clients[0].Discover(ctx, info)
+		if err != nil {
+			_ = d.Close(ctx)
+			return nil, err
 		}
-	} else {
-		verified, err = d.clients[0].Discover(ctx, info)
+		d.info = verified
 	}
-	if err != nil {
-		_ = d.Close(ctx)
-		return nil, err
-	}
-	d.info = verified
 	return d, nil
 }
 func Capabilities() sdk.Capabilities {
 	return sdk.Capabilities{sdk.CapabilityMiningGroups: true, sdk.CapabilityTankMining: true, sdk.CapabilityModuleMining: true, sdk.CapabilityContainerControl: true, sdk.CapabilityPollingHost: true, sdk.CapabilityDiscovery: true, sdk.CapabilityPairing: true, sdk.CapabilityRealtimeTelemetry: true, sdk.CapabilityHashrateReported: true, sdk.CapabilityPowerUsage: true}
 }
 func (d *Device) ID() string { return d.id }
-func (d *Device) DescribeDevice(context.Context) (sdk.DeviceInfo, sdk.Capabilities, error) {
-	return d.info, Capabilities(), nil
+func (d *Device) DescribeDevice(ctx context.Context) (sdk.DeviceInfo, sdk.Capabilities, error) {
+	info := d.info
+	if len(info.Endpoints) > 0 {
+		// Pairing verifies live identity here; reads and writes probe when used.
+		selected, _, err := d.probeControllers(ctx, false)
+		if err != nil {
+			return sdk.DeviceInfo{}, nil, err
+		}
+		info.FirmwareVersion = selected.state.GetVersion()
+		if info.SerialNumber == "" {
+			info.SerialNumber = selected.state.GetServerId()
+		}
+	}
+	return info, Capabilities(), nil
 }
 func (d *Device) Status(ctx context.Context) (sdk.DeviceMetrics, error) {
 	selected, ha, err := d.probeControllers(ctx, false)

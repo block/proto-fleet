@@ -197,6 +197,9 @@ func TestHAPairingAndFailoverWithoutHashboards(t *testing.T) {
 	restarted, err := NewDevice(t.Context(), "container", haInfo(a, b), sdk.UsernamePassword{})
 	require.NoError(t, err)
 	defer restarted.Close(t.Context())
+	info, _, err := restarted.DescribeDevice(t.Context())
+	require.NoError(t, err)
+	require.Equal(t, "v1-b", info.FirmwareVersion)
 }
 
 func TestHAReusedDefaultRPCAddressKeepsVerifiedPartnerUsable(t *testing.T) {
@@ -316,7 +319,7 @@ func TestHAStatusFallsBackAfterPrimaryCollectionFailure(t *testing.T) {
 			}
 			require.EqualValues(t, 1, a.mapReads.Load())
 			require.Equal(t, tc.standbyRead, b.mapReads.Load())
-			require.EqualValues(t, 2, b.haReads.Load(), "fallback reuses the verified probe")
+			require.EqualValues(t, 1, b.haReads.Load(), "fallback reuses the verified probe")
 			require.Zero(t, a.writes.Load())
 			require.Zero(t, b.writes.Load())
 		})
@@ -536,6 +539,12 @@ func TestHAProbesClusterWithoutRepeatingSystemInfo(t *testing.T) {
 	defer d.Close(t.Context())
 	require.Zero(t, a.infoReads.Load(), "saved groups use HA identity and live status")
 	require.Zero(t, b.infoReads.Load())
+	require.Zero(t, a.haReads.Load(), "creating a saved group must not probe controllers")
+	require.Zero(t, b.haReads.Load())
+	_, err = d.Status(t.Context())
+	require.NoError(t, err)
+	require.EqualValues(t, 1, a.haReads.Load(), "the first poll probes each controller only once")
+	require.EqualValues(t, 1, b.haReads.Load())
 	require.NoError(t, d.SetContainerControl(t.Context(), sdk.ContainerControlRequest{Name: mainCircuitBreakerControl, Enabled: new(true)}))
 	require.EqualValues(t, 1, a.writes.Load())
 	require.EqualValues(t, 2, a.haReads.Load())

@@ -96,6 +96,8 @@ func TestHASavedClusterIdentityCannotChange(t *testing.T) {
 			a.server.Stop()
 			b.primary.Store(true)
 			b.haOverride = change.report
+			_, _, err = d.DescribeDevice(t.Context())
+			require.Error(t, err, "pairing must verify the saved cluster before accepting it")
 			_, err = d.Status(t.Context())
 			require.Error(t, err)
 			require.Error(t, d.SetContainerControl(t.Context(), sdk.ContainerControlRequest{Name: mainCircuitBreakerControl, Enabled: new(true)}))
