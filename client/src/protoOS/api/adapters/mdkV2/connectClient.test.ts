@@ -1,18 +1,258 @@
 import { describe, expect, it } from "vitest";
+import { type DescMethod, type DescMethodUnary, type JsonValue, toJson } from "@bufbuild/protobuf";
 import { Code, ConnectError, createRouterTransport } from "@connectrpc/connect";
 
-import { createMdkV2Client } from "./connectClient";
+import { createMdkV2Client, type MdkV2Client } from "./connectClient";
+import { V2HashboardIdentifyLEDMode, V2PerformanceMode } from "./generated/generatedApi";
 import { BucketSize, TimeSeriesMetric } from "./generated/proto/mdk/v2/common_pb";
 import { HashboardErrorCause, HashboardService } from "./generated/proto/mdk/v2/hashboard_pb";
 import { MiningService, PerformanceMode } from "./generated/proto/mdk/v2/mining_pb";
 import { PoolService } from "./generated/proto/mdk/v2/pool_pb";
 import { PowerService } from "./generated/proto/mdk/v2/power_pb";
 import { RunInService } from "./generated/proto/mdk/v2/runin_pb";
+import { SystemService } from "./generated/proto/mdk/v2/system_pb";
 import { HistorySource, TelemetryService } from "./generated/proto/mdk/v2/telemetry_pb";
 import { MdkV2Adapter } from "./MdkV2Adapter";
 import { isAbortError } from "@/shared/utils/abort";
 
+const containerMapWithBoardError = (cause: HashboardErrorCause) => ({
+  containerMap: {
+    tanks: [
+      {
+        id: 1,
+        modules: [
+          {
+            id: 1,
+            slots: [
+              {
+                hashboard: {
+                  macAddress: "02:00:00:00:00:01",
+                  location: { hashboardPosition: 1 },
+                  health: { errors: [{ cause }] },
+                },
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  },
+});
+
+const isUnary = (method: DescMethod): method is DescMethodUnary => method.methodKind === "unary";
+
+const recordingClient = () => {
+  const calls: { rpc: string; request: JsonValue }[] = [];
+  const transport = createRouterTransport((router) => {
+    for (const service of [
+      SystemService,
+      MiningService,
+      HashboardService,
+      PoolService,
+      PowerService,
+      RunInService,
+      TelemetryService,
+    ]) {
+      for (const method of service.methods.filter(isUnary)) {
+        router.rpc(method, (request) => {
+          calls.push({ rpc: `${service.typeName}/${method.name}`, request: toJson(method.input, request) });
+          return {};
+        });
+      }
+    }
+  });
+  return { calls, client: createMdkV2Client(transport) };
+};
+
+const range = { "range.start": "2026-09-16T00:00:00Z", "range.end": "2026-09-16T01:00:00Z" };
+const scope = { modules: [{ tank: 1, module: 2 }] };
+
+const rpcTable: [
+  method: keyof MdkV2Client,
+  rpc: string,
+  request: JsonValue,
+  call: (client: MdkV2Client) => Promise<unknown>,
+][] = [
+  ["systemServiceGetSystemInfo", "mdk.v2.SystemService/GetSystemInfo", {}, (c) => c.systemServiceGetSystemInfo()],
+  ["systemServiceGetSystemStatus", "mdk.v2.SystemService/GetSystemStatus", {}, (c) => c.systemServiceGetSystemStatus()],
+  ["miningServiceGetMiningStatus", "mdk.v2.MiningService/GetMiningStatus", {}, (c) => c.miningServiceGetMiningStatus()],
+  ["miningServiceGetTargetPower", "mdk.v2.MiningService/GetTargetPower", {}, (c) => c.miningServiceGetTargetPower()],
+  [
+    "miningServiceSetTargetPower",
+    "mdk.v2.MiningService/SetTargetPower",
+    { watts: 900, performanceMode: "PERFORMANCE_MODE_EFFICIENCY", balanceBays: false },
+    (c) =>
+      c.miningServiceSetTargetPower({
+        watts: 900,
+        performanceMode: V2PerformanceMode.PERFORMANCE_MODE_EFFICIENCY,
+        balanceBays: false,
+      }),
+  ],
+  [
+    "miningServiceSetPowerTargetScoped",
+    "mdk.v2.MiningService/SetPowerTargetScoped",
+    { scope, watts: 850 },
+    (c) => c.miningServiceSetPowerTargetScoped({ scope, watts: 850 }),
+  ],
+  [
+    "miningServiceClearPowerTargetScoped",
+    "mdk.v2.MiningService/ClearPowerTargetScoped",
+    { scope: { identifiers: ["02:00:00:00:00:01"] } },
+    (c) => c.miningServiceClearPowerTargetScoped({ scope: { identifiers: ["02:00:00:00:00:01"] } }),
+  ],
+  [
+    "miningServiceStartMiningScoped",
+    "mdk.v2.MiningService/StartMiningScoped",
+    { scope },
+    (c) => c.miningServiceStartMiningScoped({ scope }),
+  ],
+  [
+    "miningServiceStopMiningScoped",
+    "mdk.v2.MiningService/StopMiningScoped",
+    { scope },
+    (c) => c.miningServiceStopMiningScoped({ scope }),
+  ],
+  [
+    "miningServiceSetIsolation",
+    "mdk.v2.MiningService/SetIsolation",
+    { scope, isolated: true },
+    (c) => c.miningServiceSetIsolation({ scope, isolated: true }),
+  ],
+  [
+    "miningServiceSetModuleFixedVoltage",
+    "mdk.v2.MiningService/SetModuleFixedVoltage",
+    { moduleId: "T1-M02", millivolts: 28000 },
+    (c) => c.miningServiceSetModuleFixedVoltage({ moduleId: "T1-M02" }, { millivolts: 28000 }),
+  ],
+  [
+    "miningServiceClearModuleFixedVoltage",
+    "mdk.v2.MiningService/ClearModuleFixedVoltage",
+    { moduleId: "T1-M02" },
+    (c) => c.miningServiceClearModuleFixedVoltage({ moduleId: "T1-M02" }),
+  ],
+  ["miningServiceStartMining", "mdk.v2.MiningService/StartMining", {}, (c) => c.miningServiceStartMining()],
+  ["miningServiceStopMining", "mdk.v2.MiningService/StopMining", {}, (c) => c.miningServiceStopMining()],
+  [
+    "hashboardServiceGetContainerMap",
+    "mdk.v2.HashboardService/GetContainerMap",
+    {},
+    (c) => c.hashboardServiceGetContainerMap(),
+  ],
+  [
+    "hashboardServiceSetIdentifyLed",
+    "mdk.v2.HashboardService/SetIdentifyLED",
+    { scope, mode: "HASHBOARD_IDENTIFY_LED_MODE_BLINK" },
+    (c) =>
+      c.hashboardServiceSetIdentifyLed({ scope, mode: V2HashboardIdentifyLEDMode.HASHBOARD_IDENTIFY_LED_MODE_BLINK }),
+  ],
+  [
+    "hashboardServiceGetHashboardAsiCs",
+    "mdk.v2.HashboardService/GetHashboardASICs",
+    { identifier: "02:00:00:00:00:01" },
+    (c) => c.hashboardServiceGetHashboardAsiCs({ identifier: "02:00:00:00:00:01" }),
+  ],
+  ["poolServiceListPools", "mdk.v2.PoolService/ListPools", {}, (c) => c.poolServiceListPools()],
+  [
+    "poolServiceGetPoolDiagnostics",
+    "mdk.v2.PoolService/GetPoolDiagnostics",
+    { includeLastRecordedShares: true },
+    (c) => c.poolServiceGetPoolDiagnostics({ includeLastRecordedShares: true }),
+  ],
+  [
+    "poolServiceCreatePool",
+    "mdk.v2.PoolService/CreatePool",
+    { pool: { name: "Backup", url: "stratum+tcp://pool.test:3333", priority: 2 }, password: "secret" },
+    (c) =>
+      c.poolServiceCreatePool({
+        pool: { name: "Backup", url: "stratum+tcp://pool.test:3333", priority: 2 },
+        password: "secret",
+      }),
+  ],
+  [
+    "poolServiceUpdatePool",
+    "mdk.v2.PoolService/UpdatePool",
+    { pool: { id: "7", priority: 3 }, updateMask: "priority" },
+    (c) => c.poolServiceUpdatePool({ poolId: "7" }, { pool: { priority: 3 }, updateMask: "priority" }),
+  ],
+  ["poolServiceDeletePool", "mdk.v2.PoolService/DeletePool", { id: "7" }, (c) => c.poolServiceDeletePool({ id: "7" })],
+  [
+    "powerServiceGetContainerControls",
+    "mdk.v2.PowerService/GetContainerControls",
+    {},
+    (c) => c.powerServiceGetContainerControls(),
+  ],
+  [
+    "powerServiceSetContainerControl",
+    "mdk.v2.PowerService/SetContainerControl",
+    { name: "dry_cooler_auto", enabled: true },
+    (c) => c.powerServiceSetContainerControl({ name: "dry_cooler_auto" }, { enabled: true }),
+  ],
+  [
+    "powerServiceSetContainerSetpoint",
+    "mdk.v2.PowerService/SetContainerSetpoint",
+    { name: "dry_cooler_auto_temp_c", value: 31.5 },
+    (c) => c.powerServiceSetContainerSetpoint({ name: "dry_cooler_auto_temp_c" }, { value: 31.5 }),
+  ],
+  [
+    "runInServiceStartModuleRunIn",
+    "mdk.v2.RunInService/StartModuleRunIn",
+    { moduleId: "T1-M02", taskId: "0123456789abcdef", config: { stopMiningOnFinish: true } },
+    (c) =>
+      c.runInServiceStartModuleRunIn({ moduleId: "T1-M02", taskId: "0123456789abcdef" }, { stopMiningOnFinish: true }),
+  ],
+  [
+    "telemetryServiceGetContainerHealth",
+    "mdk.v2.TelemetryService/GetContainerHealth",
+    { includeModuleDistribution: true },
+    (c) => c.telemetryServiceGetContainerHealth({ includeModuleDistribution: true }),
+  ],
+  [
+    "telemetryServiceQueryTimeSeries",
+    "mdk.v2.TelemetryService/QueryTimeSeries",
+    {
+      metric: "TIME_SERIES_METRIC_HASHRATE",
+      identifier: "02:00:00:00:00:01",
+      bucketSize: "BUCKET_SIZE_5M",
+      range: { start: "2026-09-16T00:00:00Z", end: "2026-09-16T01:00:00Z" },
+    },
+    (c) =>
+      c.telemetryServiceQueryTimeSeries({
+        metric: "TIME_SERIES_METRIC_HASHRATE",
+        identifier: "02:00:00:00:00:01",
+        bucketSize: "BUCKET_SIZE_5M",
+        ...range,
+      }),
+  ],
+  [
+    "telemetryServiceQueryShareQualityHistory",
+    "mdk.v2.TelemetryService/QueryShareQualityHistory",
+    {
+      poolId: 2,
+      grouping: "SHARE_QUALITY_HISTORY_GROUPING_TOTAL",
+      bucketSize: "BUCKET_SIZE_1H",
+      range: { start: "2026-09-16T00:00:00Z", end: "2026-09-16T01:00:00Z" },
+    },
+    (c) =>
+      c.telemetryServiceQueryShareQualityHistory({
+        poolId: 2,
+        grouping: "SHARE_QUALITY_HISTORY_GROUPING_TOTAL",
+        bucketSize: "BUCKET_SIZE_1H",
+        ...range,
+      }),
+  ],
+];
+
 describe("MDK v2 Connect client", () => {
+  it.each(rpcTable)("%s calls %s", async (_method, rpc, request, call) => {
+    const { calls, client } = recordingClient();
+    await call(client);
+    expect(calls).toEqual([{ rpc, request }]);
+  });
+
+  it("has an RPC table row for every client method", () => {
+    expect(Object.keys(recordingClient().client).sort()).toEqual(rpcTable.map(([method]) => method).sort());
+  });
+
   it("sends module run-in settings as the request config", async () => {
     let received: unknown;
     const client = createMdkV2Client(
@@ -169,31 +409,7 @@ describe("MDK v2 Connect client", () => {
     const adapter = new MdkV2Adapter(
       createMdkV2Client(
         createRouterTransport(({ service }) => {
-          service(HashboardService, {
-            getContainerMap: () => ({
-              containerMap: {
-                tanks: [
-                  {
-                    id: 1,
-                    modules: [
-                      {
-                        id: 1,
-                        slots: [
-                          {
-                            hashboard: {
-                              macAddress: "02:00:00:00:00:01",
-                              location: { hashboardPosition: 1 },
-                              health: { errors: [{ cause: 4242 as HashboardErrorCause }] },
-                            },
-                          },
-                        ],
-                      },
-                    ],
-                  },
-                ],
-              },
-            }),
-          });
+          service(HashboardService, { getContainerMap: () => containerMapWithBoardError(4242 as HashboardErrorCause) });
           service(TelemetryService, { getContainerHealth: () => ({}) });
         }),
       ),
@@ -201,6 +417,22 @@ describe("MDK v2 Connect client", () => {
 
     await expect(adapter.getErrors()).resolves.toContainEqual(
       expect.objectContaining({ code: "HASHBOARD_ERROR_CAUSE_4242", message: "4242", severity: "critical" }),
+    );
+  });
+
+  it("keeps listing hashboard errors when the CT1 does not implement plant health", async () => {
+    const adapter = new MdkV2Adapter(
+      createMdkV2Client(
+        createRouterTransport(({ service }) =>
+          service(HashboardService, {
+            getContainerMap: () => containerMapWithBoardError(HashboardErrorCause.BOARD_OVER_TEMPERATURE),
+          }),
+        ),
+      ),
+    );
+
+    await expect(adapter.getErrors()).resolves.toContainEqual(
+      expect.objectContaining({ code: "HASHBOARD_ERROR_CAUSE_BOARD_OVER_TEMPERATURE", severity: "critical" }),
     );
   });
 
