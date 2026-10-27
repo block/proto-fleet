@@ -1,3 +1,4 @@
+import { createConnectTransport } from "@connectrpc/connect-web";
 import type { ContainerHistoryRequest } from "../containerHistory";
 import type { PoolHistoryRequest } from "../poolHistory";
 import type {
@@ -17,6 +18,7 @@ import type {
 } from "../types";
 import { mapWithConcurrency } from "../utils/async";
 import { parseIsoDurationMs } from "../utils/time";
+import { createMdkV2Client, type MdkV2Client } from "./connectClient";
 import { queryContainerHistory } from "./containerHistory";
 import {
   Api,
@@ -48,8 +50,11 @@ import type { CoolingMode, MiningTarget, MiningTargetUpdate } from "@/protoOS/st
 import { getHashboardId } from "@/protoOS/store/utils/entityIds";
 import type { PoolInfo } from "@/shared/types/pool";
 
-export type MdkV2Client = InstanceType<typeof Api>["api"];
 type QueryTimeSeriesResponse = Awaited<ReturnType<MdkV2Client["telemetryServiceQueryTimeSeries"]>>["data"];
+export type { MdkV2Client } from "./connectClient";
+
+/** `connect` reaches Frigate's MDK v2 Connect gateway; `rest` reaches the `/api/v2` gateway. */
+export type MdkV2Protocol = "connect" | "rest";
 
 const ACTOR = "proto-os";
 const DEFAULT_DEVICE_ID = "ct1";
@@ -139,8 +144,12 @@ export class MdkV2Adapter implements MinerAdapter {
    * no generated v2 runtime leaks into MinerHostingContext; tests construct the
    * class directly with a mock client.
    */
-  static fromConfig(config: { baseUrl: string }, match: AdapterProbeMatch = {}): MdkV2Adapter {
-    return new MdkV2Adapter(new Api({ baseUrl: config.baseUrl }).api, match);
+  static fromConfig(config: { baseUrl: string; protocol: MdkV2Protocol }, match: AdapterProbeMatch = {}): MdkV2Adapter {
+    const client: MdkV2Client =
+      config.protocol === "rest"
+        ? new Api({ baseUrl: config.baseUrl }).api
+        : createMdkV2Client(createConnectTransport({ baseUrl: config.baseUrl, useBinaryFormat: true }));
+    return new MdkV2Adapter(client, match);
   }
 
   private containerDeviceId(context?: { deviceId: string }) {
@@ -192,7 +201,7 @@ export class MdkV2Adapter implements MinerAdapter {
     const decorated = this.decorate(params);
     const [map, health] = await Promise.all([
       this.client.hashboardServiceGetContainerMap(decorated),
-      this.client.telemetryServiceGetContainerHealth(decorated).catch((error) => {
+      this.client.telemetryServiceGetContainerHealth({}, decorated).catch((error) => {
         // A mixed-version CT1 deployment may not expose plant health yet.
         // Preserve the existing board/PSU errors in that case.
         const status = (error as { status?: number })?.status;
@@ -330,7 +339,7 @@ export class MdkV2Adapter implements MinerAdapter {
     const [map, status, telemetry] = await Promise.all([
       this.client.hashboardServiceGetContainerMap(decorated),
       this.client.miningServiceGetMiningStatus(decorated),
-      this.client.telemetryServiceGetContainerHealth(decorated),
+      this.client.telemetryServiceGetContainerHealth({}, decorated),
     ]);
     return toCanonicalContainer(map.data, status.data, telemetry.data, deviceId);
   }
@@ -515,7 +524,7 @@ export class MdkV2Adapter implements MinerAdapter {
     const decorated = this.decorate(params);
     const [status, telemetry] = await Promise.all([
       this.client.miningServiceGetMiningStatus(decorated),
-      this.client.telemetryServiceGetContainerHealth(decorated),
+      this.client.telemetryServiceGetContainerHealth({}, decorated),
     ]);
     return toCanonicalContainerTelemetry(status.data, telemetry.data, this.containerDeviceId());
   }
@@ -643,7 +652,7 @@ export class MdkV2Adapter implements MinerAdapter {
   }
 
   async getCoolingStatus(params: AdapterRequestOptions = {}) {
-    const response = await this.client.telemetryServiceGetContainerHealth(this.decorate(params));
+    const response = await this.client.telemetryServiceGetContainerHealth({}, this.decorate(params));
     return { mode: "unknown" as CoolingMode, fans: toCanonicalContainerFans(response.data, this.containerDeviceId()) };
   }
 

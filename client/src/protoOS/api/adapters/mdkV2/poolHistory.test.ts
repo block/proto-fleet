@@ -158,7 +158,7 @@ describe("pool history", () => {
   });
 
   describe("generated HTTP transport", () => {
-    const adapter = () => MdkV2Adapter.fromConfig({ baseUrl: "http://miner.test" });
+    const adapter = () => MdkV2Adapter.fromConfig({ baseUrl: "http://miner.test", protocol: "rest" });
 
     it.each([
       [404, 5],
@@ -196,6 +196,51 @@ describe("pool history", () => {
       vi.stubGlobal(
         "fetch",
         vi.fn(async () => Response.json({ code: 14, message: "Unavailable" }, { status: 503 })),
+      );
+      await expect(adapter().getPoolHistory(request)).rejects.toThrow("Could not refresh any pool history");
+    });
+  });
+
+  describe("Connect transport", () => {
+    const adapter = () => MdkV2Adapter.fromConfig({ baseUrl: "http://miner.test", protocol: "connect" });
+
+    it.each([
+      [404, "not_found"],
+      [501, "unimplemented"],
+    ])("classifies HTTP %s (%s) as unavailable", async (status, code) => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () => Response.json({ code, message: "Unsupported" }, { status })),
+      );
+      await expect(adapter().getPoolHistory(request)).resolves.toEqual({ byPool: {}, unavailable: request.poolIds });
+    });
+
+    it.each([
+      [401, "unauthenticated", 16],
+      [403, "permission_denied", 7],
+    ])("preserves HTTP %s and the RPC error for authentication handling", async (status, name, code) => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () => Response.json({ code: name, message: "Access denied" }, { status })),
+      );
+      await expect(adapter().getPoolHistory(request)).rejects.toMatchObject({
+        status,
+        error: { code, message: "Access denied" },
+      });
+    });
+
+    it("classifies a host without the procedure as unavailable", async () => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () => new Response("Not found", { status: 404 })),
+      );
+      await expect(adapter().getPoolHistory(request)).resolves.toEqual({ byPool: {}, unavailable: request.poolIds });
+    });
+
+    it("rejects total outages", async () => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () => Response.json({ code: "unavailable", message: "Unavailable" }, { status: 503 })),
       );
       await expect(adapter().getPoolHistory(request)).rejects.toThrow("Could not refresh any pool history");
     });

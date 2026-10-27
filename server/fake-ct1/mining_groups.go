@@ -60,8 +60,6 @@ func miningGroupRPC[T proto.Message](ctx context.Context, a *grpcAPI, key string
 			}
 			return proto.Clone(receipt.response).(T), nil
 		}
-		s.recordUntil(s.now())
-		s.advance(s.now())
 	}
 	response, err := fn(s, g)
 	if err != nil {
@@ -69,8 +67,6 @@ func miningGroupRPC[T proto.Message](ctx context.Context, a *grpcAPI, key string
 	}
 	if request != nil {
 		g.receipts[receiptKey] = miningGroupReceipt{proto.Clone(request), proto.Clone(response)}
-		s.advance(s.now())
-		s.recordTransition()
 	}
 	return proto.Clone(response).(T), nil
 }

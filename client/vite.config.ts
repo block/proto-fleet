@@ -167,7 +167,7 @@ export default defineConfig(({ mode, command }) => {
           secure: false,
         }
       : undefined;
-    proxies = minerApiProxy ? { "/api/v1": minerApiProxy, "/api/v2": minerApiProxy } : {};
+    proxies = minerApiProxy ? { "/api/v1": minerApiProxy, "/api/v2": minerApiProxy, "/mdk.v2.": minerApiProxy } : {};
 
     // Log which proxy is being used for clarity
 

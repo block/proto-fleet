@@ -1,0 +1,517 @@
+syntax = "proto3";
+
+package mdk.v2;
+
+import "google/api/annotations.proto";
+import "google/protobuf/duration.proto";
+import "google/protobuf/timestamp.proto";
+import "mdk/v2/options.proto";
+import "protoc-gen-openapiv2/options/annotations.proto";
+
+option go_package = "github.com/btc-mining/frigate/gen/mdk/v2;mdkv2";
+
+// FeedMappingService manages CT1 power-feed to hashboard mapping.
+service FeedMappingService {
+  // RequestWiringVerification queues checks; it never rewrites installation positions.
+  rpc RequestWiringVerification(RequestWiringVerificationRequest) returns (RequestWiringVerificationResponse) {
+    option (mdk.v2.product) = PRODUCT_CT1;
+    option (mdk.v2.tunnel_access) = TUNNEL_ACCESS_MUTATE;
+    option (google.api.http) = {post: "/api/v2/feed-mapping/wiring:verify" body: "*"};
+  }
+  option (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_tag) = {
+    name: "Feed Mapping"
+    description: "CT1 power-feed mapping discovery, planning, run status, and run events."
+  };
+
+  // GetFeedMappingReport returns the currently stored feed mapping report.
+  rpc GetFeedMappingReport(GetFeedMappingReportRequest) returns (GetFeedMappingReportResponse) {
+    option (mdk.v2.product) = PRODUCT_CT1;
+    option (mdk.v2.tunnel_access) = TUNNEL_ACCESS_READ;
+    option (google.api.http) = {get: "/api/v2/feed-mapping"};
+  }
+
+  // PlanFeedMappingRun validates and previews a feed mapping run.
+  rpc PlanFeedMappingRun(PlanFeedMappingRunRequest) returns (PlanFeedMappingRunResponse) {
+    option (mdk.v2.product) = PRODUCT_CT1;
+    option (mdk.v2.tunnel_access) = TUNNEL_ACCESS_READ;
+    option (google.api.http) = {
+      post: "/api/v2/feed-mapping:plan"
+      body: "config"
+    };
+  }
+
+  // StartFeedMappingRun starts a feed mapping run.
+  rpc StartFeedMappingRun(StartFeedMappingRunRequest) returns (StartFeedMappingRunResponse) {
+    option (mdk.v2.product) = PRODUCT_CT1;
+    option (mdk.v2.tunnel_access) = TUNNEL_ACCESS_MUTATE;
+    option (google.api.http) = {
+      post: "/api/v2/feed-mapping/runs"
+      body: "config"
+    };
+  }
+
+  // GetActiveFeedMappingRun returns the active feed mapping run, if one is running.
+  rpc GetActiveFeedMappingRun(GetActiveFeedMappingRunRequest) returns (GetActiveFeedMappingRunResponse) {
+    option (mdk.v2.product) = PRODUCT_CT1;
+    option (mdk.v2.tunnel_access) = TUNNEL_ACCESS_READ;
+    option (google.api.http) = {get: "/api/v2/feed-mapping/active-run"};
+  }
+
+  // GetFeedMappingRun returns one feed mapping run snapshot.
+  rpc GetFeedMappingRun(GetFeedMappingRunRequest) returns (GetFeedMappingRunResponse) {
+    option (mdk.v2.product) = PRODUCT_CT1;
+    option (mdk.v2.tunnel_access) = TUNNEL_ACCESS_READ;
+    option (google.api.http) = {get: "/api/v2/feed-mapping/runs/{run_id}"};
+  }
+
+  // CancelFeedMappingRun cancels an active feed mapping run and restores feeds when configured.
+  rpc CancelFeedMappingRun(CancelFeedMappingRunRequest) returns (CancelFeedMappingRunResponse) {
+    option (mdk.v2.product) = PRODUCT_CT1;
+    option (mdk.v2.tunnel_access) = TUNNEL_ACCESS_MUTATE;
+    option (google.api.http) = {
+      post: "/api/v2/feed-mapping/runs/{run_id}:cancel"
+      body: "*"
+    };
+  }
+
+  // ListFeedMappingRunEvents returns buffered events for a feed mapping run.
+  rpc ListFeedMappingRunEvents(ListFeedMappingRunEventsRequest) returns (ListFeedMappingRunEventsResponse) {
+    option (mdk.v2.product) = PRODUCT_CT1;
+    option (mdk.v2.tunnel_access) = TUNNEL_ACCESS_READ;
+    option (google.api.http) = {get: "/api/v2/feed-mapping/runs/{run_id}/events"};
+  }
+
+  // StartSoftFeedMappingRun verifies board-to-feed mappings by perturbing one mining board at a time.
+  rpc StartSoftFeedMappingRun(StartSoftFeedMappingRunRequest) returns (StartSoftFeedMappingRunResponse) {
+    option (mdk.v2.product) = PRODUCT_CT1;
+    option (mdk.v2.tunnel_access) = TUNNEL_ACCESS_MUTATE;
+    option (google.api.http) = {
+      post: "/api/v2/feed-mapping/soft-runs"
+      body: "config"
+    };
+  }
+
+  // GetActiveSoftFeedMappingRun returns the active soft mapping run, if one is running.
+  rpc GetActiveSoftFeedMappingRun(GetActiveSoftFeedMappingRunRequest) returns (GetActiveSoftFeedMappingRunResponse) {
+    option (mdk.v2.product) = PRODUCT_CT1;
+    option (mdk.v2.tunnel_access) = TUNNEL_ACCESS_READ;
+    option (google.api.http) = {get: "/api/v2/feed-mapping/soft-active-run"};
+  }
+
+  // GetSoftFeedMappingReport returns the most recent soft mapping run, if one exists.
+  rpc GetSoftFeedMappingReport(GetSoftFeedMappingReportRequest) returns (GetSoftFeedMappingReportResponse) {
+    option (mdk.v2.product) = PRODUCT_CT1;
+    option (mdk.v2.tunnel_access) = TUNNEL_ACCESS_READ;
+    option (google.api.http) = {get: "/api/v2/feed-mapping/soft-report"};
+  }
+
+  // GetSoftFeedMappingRun returns one soft mapping run snapshot.
+  rpc GetSoftFeedMappingRun(GetSoftFeedMappingRunRequest) returns (GetSoftFeedMappingRunResponse) {
+    option (mdk.v2.product) = PRODUCT_CT1;
+    option (mdk.v2.tunnel_access) = TUNNEL_ACCESS_READ;
+    option (google.api.http) = {get: "/api/v2/feed-mapping/soft-runs/{run_id}"};
+  }
+
+  // CancelSoftFeedMappingRun cancels an active soft mapping run and restores the current board when possible.
+  rpc CancelSoftFeedMappingRun(CancelSoftFeedMappingRunRequest) returns (CancelSoftFeedMappingRunResponse) {
+    option (mdk.v2.product) = PRODUCT_CT1;
+    option (mdk.v2.tunnel_access) = TUNNEL_ACCESS_MUTATE;
+    option (google.api.http) = {
+      post: "/api/v2/feed-mapping/soft-runs/{run_id}:cancel"
+      body: "*"
+    };
+  }
+
+  // ApplySoftFeedMappingRun applies high-confidence changed/added mappings from a completed soft run.
+  rpc ApplySoftFeedMappingRun(ApplySoftFeedMappingRunRequest) returns (ApplySoftFeedMappingRunResponse) {
+    option (mdk.v2.product) = PRODUCT_CT1;
+    option (mdk.v2.tunnel_access) = TUNNEL_ACCESS_MUTATE;
+    option (google.api.http) = {
+      post: "/api/v2/feed-mapping/soft-runs/{run_id}:apply"
+      body: "*"
+    };
+  }
+}
+
+// FeedMappingRunStatus is the lifecycle state of a feed mapping run.
+enum FeedMappingRunStatus {
+  FEED_MAPPING_RUN_STATUS_UNSPECIFIED = 0;
+  FEED_MAPPING_RUN_STATUS_PLANNED = 1;
+  FEED_MAPPING_RUN_STATUS_RUNNING = 2;
+  FEED_MAPPING_RUN_STATUS_COMPLETED = 3;
+  FEED_MAPPING_RUN_STATUS_FAILED = 4;
+  FEED_MAPPING_RUN_STATUS_CANCELED = 5;
+}
+
+// FeedMappingFeedStatus is the lifecycle state for one feed in a run.
+enum FeedMappingFeedStatus {
+  FEED_MAPPING_FEED_STATUS_UNSPECIFIED = 0;
+  FEED_MAPPING_FEED_STATUS_PENDING = 1;
+  FEED_MAPPING_FEED_STATUS_RUNNING = 2;
+  FEED_MAPPING_FEED_STATUS_COMPLETED = 3;
+  FEED_MAPPING_FEED_STATUS_TIMED_OUT = 4;
+}
+
+// FeedMappingChangeType classifies a durable current-map transition.
+enum FeedMappingChangeType {
+  FEED_MAPPING_CHANGE_TYPE_UNSPECIFIED = 0;
+  FEED_MAPPING_CHANGE_TYPE_ADDED = 1;
+  FEED_MAPPING_CHANGE_TYPE_REMOVED = 2;
+  FEED_MAPPING_CHANGE_TYPE_MOVED = 3;
+}
+
+// SoftFeedMappingBoardStatus is the per-board result of a soft mapping run.
+enum SoftFeedMappingBoardStatus {
+  SOFT_FEED_MAPPING_BOARD_STATUS_UNSPECIFIED = 0;
+  SOFT_FEED_MAPPING_BOARD_STATUS_PENDING = 1;
+  SOFT_FEED_MAPPING_BOARD_STATUS_RUNNING = 2;
+  SOFT_FEED_MAPPING_BOARD_STATUS_CONFIRMED = 3;
+  SOFT_FEED_MAPPING_BOARD_STATUS_MISMATCH = 4;
+  SOFT_FEED_MAPPING_BOARD_STATUS_ADDED = 5;
+  SOFT_FEED_MAPPING_BOARD_STATUS_REMOVED = 6;
+  SOFT_FEED_MAPPING_BOARD_STATUS_AMBIGUOUS = 7;
+  SOFT_FEED_MAPPING_BOARD_STATUS_NO_SIGNAL = 8;
+  SOFT_FEED_MAPPING_BOARD_STATUS_SKIPPED = 9;
+  SOFT_FEED_MAPPING_BOARD_STATUS_ERROR = 10;
+  SOFT_FEED_MAPPING_BOARD_STATUS_APPLIED = 11;
+}
+
+// FeedMappingRunConfig configures feed mapping run behavior.
+message FeedMappingRunConfig {
+  // Feed IDs to map. Empty means all configured power feeds for the active backend.
+  repeated string feed_ids = 1;
+  // Maximum time to wait for boards after enabling one feed.
+  google.protobuf.Duration feed_timeout = 2;
+  // Quiet window after disabling all feeds before mapping starts.
+  google.protobuf.Duration isolation_quiet = 3;
+  // Quiet window used to confirm mapped boards went offline after a feed is disabled.
+  google.protobuf.Duration offline_quiet = 4;
+  // Optional early-completion count for each feed.
+  int32 expected_boards_per_feed = 5;
+  // Grace period after the expected boards appear before accepting a feed.
+  google.protobuf.Duration online_settle = 9;
+  // Restore all isolation feeds to ON when the run completes.
+  bool restore_all_on = 6;
+  // Validate and return a plan without writing hardware state.
+  bool dry_run = 7;
+  // Required for mutating runs.
+  bool confirm_power_cycle = 8;
+}
+
+// SoftFeedMappingRunConfig configures soft mapping behavior.
+message SoftFeedMappingRunConfig {
+  // Internal fenced verification context, validated against the shared lease.
+  string verification_token = 20;
+  string wiring_generation = 21;
+  // Optional board MAC addresses or serial numbers to test. Empty means all live mining boards.
+  repeated string board_ids = 1;
+  // Optional feed IDs to consider as candidates. Empty means all configured/live feeds.
+  repeated string feed_ids = 2;
+  // Number of power-feed samples to average for each measurement window.
+  int32 sample_count = 3;
+  // Delay between power-feed samples.
+  google.protobuf.Duration sample_interval = 4;
+  // Delay after stopping the board before measuring the power drop.
+  google.protobuf.Duration perturb_settle = 5;
+  // Delay after restarting the board before measuring recovery.
+  google.protobuf.Duration restore_settle = 6;
+  // Minimum power-feed watt drop needed to infer a mapping.
+  double min_drop_watts = 7;
+  // If second-best drop / best drop exceeds this value, mark the result ambiguous.
+  double ambiguity_ratio = 8;
+  // Required for mutating board controls.
+  bool confirm_board_control = 9;
+  // Restrict the run to boards controlled by this node and skip HA-peer
+  // delegation. Set automatically on delegated runs from the peer's parent
+  // run; the server accepts such a run on a non-primary node only when the
+  // call's source address is the configured HA peer. Any other local_only
+  // start (like every other start) still requires this node to be the
+  // container-write primary; apply always does.
+  bool local_only = 10;
+}
+
+// FeedMappingRun is a snapshot of a feed mapping run.
+message FeedMappingRun {
+  string run_id = 1;
+  FeedMappingRunStatus status = 2;
+  string phase = 3;
+  string current_feed_id = 4;
+  google.protobuf.Timestamp started_at = 5;
+  google.protobuf.Timestamp updated_at = 6;
+  google.protobuf.Timestamp completed_at = 7;
+  bool dry_run = 8;
+  bool restore_all_on = 9;
+  repeated FeedMappingFeedResult feeds = 10;
+  string error = 11;
+  repeated string warnings = 12;
+}
+
+// FeedMappingFeedResult contains mapping results for one feed.
+message FeedMappingFeedResult {
+  string feed_id = 1;
+  FeedMappingFeedStatus status = 2;
+  google.protobuf.Timestamp started_at = 3;
+  google.protobuf.Timestamp completed_at = 4;
+  bool timed_out = 5;
+  bool offline_timed_out = 6;
+  repeated FeedMappingDetectedBoard boards = 7;
+}
+
+// FeedMappingDetectedBoard identifies a board detected during feed mapping.
+message FeedMappingDetectedBoard {
+  string mac_address = 1;
+  string serial = 2;
+  string hw_revision = 3;
+  string previous_feed_id = 4;
+  google.protobuf.Timestamp first_seen_at = 5;
+  google.protobuf.Timestamp last_seen_at = 6;
+  string detected_by = 7;
+  google.protobuf.Timestamp verified_at = 8;
+  string firmware_version = 9;
+}
+
+// SoftFeedMappingRun is a snapshot of a soft feed mapping run.
+message SoftFeedMappingRun {
+  string run_id = 1;
+  FeedMappingRunStatus status = 2;
+  string phase = 3;
+  string current_board_id = 4;
+  google.protobuf.Timestamp started_at = 5;
+  google.protobuf.Timestamp updated_at = 6;
+  google.protobuf.Timestamp completed_at = 7;
+  repeated SoftFeedMappingBoardResult boards = 8;
+  string error = 9;
+  repeated string warnings = 10;
+  bool apply_available = 11;
+  int32 confirmed = 12;
+  int32 changed = 13;
+  int32 added = 14;
+  int32 removed = 15;
+  int32 ambiguous = 16;
+  int32 no_signal = 17;
+  int32 skipped = 18;
+  int32 applied = 19;
+}
+
+// SoftFeedMappingBoardResult contains the soft mapping result for one board.
+message SoftFeedMappingBoardResult {
+  string mac_address = 1;
+  string serial = 2;
+  string hw_revision = 3;
+  string current_feed_id = 4;
+  string inferred_feed_id = 5;
+  SoftFeedMappingBoardStatus status = 6;
+  double confidence = 7;
+  repeated string anomalies = 8;
+  SoftFeedMappingEvidence evidence = 9;
+  string error = 10;
+  string firmware_version = 11;
+}
+
+// SoftFeedMappingEvidence records the power-feed signal used for one board inference.
+message SoftFeedMappingEvidence {
+  reserved 5, 6, 7;
+  reserved "baseline_socket_watts", "perturbed_socket_watts", "restored_socket_watts";
+  double best_drop_watts = 1;
+  double second_best_drop_watts = 2;
+  double total_drop_watts = 3;
+  double recovery_watts = 4;
+  double baseline_power_feed_watts = 8;
+  double perturbed_power_feed_watts = 9;
+  double restored_power_feed_watts = 10;
+}
+
+// FeedMappingRunEvent is an event emitted during feed mapping runs.
+message FeedMappingRunEvent {
+  int64 seq = 1;
+  google.protobuf.Timestamp time = 2;
+  string type = 3;
+  string severity = 4;
+  string phase = 5;
+  string feed_id = 6;
+  string mac_address = 7;
+  string message = 8;
+}
+
+// FeedMappingChange is one durable transition in the current feed map.
+message FeedMappingChange {
+  int64 sequence = 1;
+  google.protobuf.Timestamp changed_at = 2;
+  FeedMappingChangeType type = 3;
+  string mac_address = 4;
+  string serial = 5;
+  string previous_feed_id = 6;
+  string feed_id = 7;
+  string run_id = 8;
+}
+
+message GetFeedMappingReportRequest {
+  // Maximum recent changes to include. The server defaults to 50 and caps at 200.
+  int32 change_limit = 1;
+}
+
+message GetFeedMappingReportResponse {
+  // Presence advertises fixed-port wiring support; older agents omit this field.
+  WiringReport wiring = 5;
+  FeedMappingRun report = 1;
+  repeated FeedMappingChange changes = 2;
+  // True when more durable changes exist than were returned.
+  bool changes_truncated = 3;
+  // True when the current report succeeded but durable change history could not be read.
+  bool changes_unavailable = 4;
+}
+
+message PlanFeedMappingRunRequest {
+  FeedMappingRunConfig config = 1;
+}
+
+message PlanFeedMappingRunResponse {
+  FeedMappingRun plan = 1;
+}
+
+message StartFeedMappingRunRequest {
+  FeedMappingRunConfig config = 1;
+}
+
+message StartFeedMappingRunResponse {
+  string run_id = 1;
+  FeedMappingRun run = 2;
+}
+
+message GetActiveFeedMappingRunRequest {}
+
+message GetActiveFeedMappingRunResponse {
+  FeedMappingRun run = 1;
+}
+
+message GetFeedMappingRunRequest {
+  string run_id = 1;
+}
+
+message GetFeedMappingRunResponse {
+  FeedMappingRun run = 1;
+}
+
+message CancelFeedMappingRunRequest {
+  string run_id = 1;
+}
+
+message CancelFeedMappingRunResponse {
+  FeedMappingRun run = 1;
+}
+
+message ListFeedMappingRunEventsRequest {
+  string run_id = 1;
+}
+
+message ListFeedMappingRunEventsResponse {
+  string run_id = 1;
+  repeated FeedMappingRunEvent events = 2;
+}
+
+message StartSoftFeedMappingRunRequest {
+  SoftFeedMappingRunConfig config = 1;
+}
+
+message StartSoftFeedMappingRunResponse {
+  string run_id = 1;
+  SoftFeedMappingRun run = 2;
+}
+
+message GetActiveSoftFeedMappingRunRequest {}
+
+message GetActiveSoftFeedMappingRunResponse {
+  SoftFeedMappingRun run = 1;
+}
+
+message GetSoftFeedMappingReportRequest {}
+
+message GetSoftFeedMappingReportResponse {
+  SoftFeedMappingRun report = 1;
+}
+
+message GetSoftFeedMappingRunRequest {
+  string run_id = 1;
+}
+
+message GetSoftFeedMappingRunResponse {
+  SoftFeedMappingRun run = 1;
+}
+
+message CancelSoftFeedMappingRunRequest {
+  string run_id = 1;
+}
+
+message CancelSoftFeedMappingRunResponse {
+  SoftFeedMappingRun run = 1;
+}
+
+message ApplySoftFeedMappingRunRequest {
+  string run_id = 1;
+  bool confirm_apply = 2;
+}
+
+message ApplySoftFeedMappingRunResponse {
+  SoftFeedMappingRun run = 1;
+}
+
+message RequestWiringVerificationRequest { repeated string mac_addresses = 1; }
+message RequestWiringVerificationResponse { bool queued = 1; }
+message WiringReport {
+  string mode = 1;
+  string generation = 2;
+  google.protobuf.Timestamp updated_at = 3;
+  string deferred_reason = 4;
+  repeated WiringSwitch switches = 5;
+  repeated WiringBoard boards = 6;
+  repeated WiringEvent history = 7;
+  string layout = 8;
+  // Configuration readiness only: not_configured, partial, or ready. Live
+  // switch evidence and HA capability agreement remain independent gates.
+  string configuration_readiness = 9;
+  repeated string configuration_reasons = 10;
+}
+message WiringSwitch {
+  string id = 1;
+  string address = 2;
+  string engine_id = 3;
+  google.protobuf.Timestamp observed_at = 4;
+  string error = 5;
+}
+message WiringBoard {
+  string mac_address = 1;
+  string switch_id = 2;
+  string port_id = 3;
+  uint32 bridge_port = 4;
+  string interface_name = 5;
+  int32 tank = 6;
+  int32 module = 7;
+  uint32 hashboard_position = 8;
+  string expected_feed_id = 9;
+  string observed_feed_id = 10;
+  string module_id = 11;
+  optional uint32 reported_position = 12;
+  string status = 13;
+  repeated string reasons = 14;
+  repeated string reduced_coverage = 15;
+  google.protobuf.Timestamp observed_at = 16;
+  google.protobuf.Timestamp verified_at = 17;
+  google.protobuf.Timestamp next_due = 18;
+  bool link_up = 19;
+  bool queued = 20;
+  bool automatic_recovery_allowed = 21;
+  string evidence_source = 22;
+  string deferred_reason = 23;
+  bool location_assigned = 24;
+  string superseded_by = 25;
+}
+message WiringEvent {
+  google.protobuf.Timestamp at = 1;
+  string mac_address = 2;
+  string kind = 3;
+  string detail = 4;
+  string expected_feed_id = 5;
+  string observed_feed_id = 6;
+  double drop_watts = 7;
+  double recovery_watts = 8;
+}

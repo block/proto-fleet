@@ -1,29 +1,30 @@
-# Frigate MDK v2 Go contracts
+# Frigate MDK v2 contracts
 
-Shared native gRPC contracts for the CT1 plugin and `server/fake-ct1`.
-These are separate from Fleet's public/browser APIs.
+Shared MDK v2 contracts for the CT1 plugin, `server/fake-ct1`, and the ProtoOS
+CT1 adapter. Generation produces native gRPC and Connect-Go bindings under
+`generated/`, and protobuf-es bindings under
+`client/src/protoOS/api/adapters/mdkV2/generated/proto` for the browser Connect
+client. These are separate from Fleet's public/browser APIs.
 
-`proto/mdk/v2` contains unmodified sources from
-[`btc-mining/frigate` at `e069860da77f91857d664d26bbadd6672e0463ba`](https://github.com/btc-mining/frigate/tree/e069860da77f91857d664d26bbadd6672e0463ba/proto/mdk/v2),
-the upstream `main` revision selected at migration implementation start.
-The files include the import closure of System, Hashboard, Mining, Power, and
-Telemetry services. Some files use the newer pins listed below. No repository-root license file was present at this pin;
+`proto/mdk/v2` contains the complete, unmodified `proto/mdk/v2` sources from
+[`btc-mining/frigate` at `6acbeba0dcde568d33ca7121aee15a3b567abb4f`](https://github.com/btc-mining/frigate/tree/6acbeba0dcde568d33ca7121aee15a3b567abb4f/proto/mdk/v2).
+No repository-root license file was present at this pin;
 these remain internal Frigate sources, not independently licensed public code.
 External annotation dependencies are pinned in `buf.lock` and retain their
 upstream licensing through Buf's Google APIs and grpc-gateway modules.
 
-`mining_group.proto` and its `pool.proto` import are pinned separately to
-[`4677049b24e9428ebf01b17323682e2a16d332d7`](https://github.com/btc-mining/frigate/tree/4677049b24e9428ebf01b17323682e2a16d332d7/proto/mdk/v2)
-for the physical-hashboard mining groups v1 contract. The remaining files retain
-the pin above.
+Keep this pin and the MDK v2 OpenAPI snapshot in `proto-rig-api/` on the same
+Frigate commit. The ProtoOS Connect client encodes with these protos but types
+its results with the snapshot's REST types; `proto-rig-api/VERSION.md` records
+any skew between the two.
 
 Run `just gen-mdk-protos` from the repository root after updating sources.
-The repository's existing Hermit-managed Buf/Go generators override only Go
-package paths; do not edit generated files. Commit source and generated output
-together. Generated historical RPC definitions do not enable historical fetching.
+It installs client dependencies when they are missing or stale, then runs the
+client's Buf CLI and `protoc-gen-es` from `client/node_modules/.bin` with the
+Hermit-managed Go generators; managed mode overrides only Go package paths. Do
+not edit generated files. Commit source and generated output together.
+Generated historical RPC definitions do not enable historical fetching.
 
-`system.proto` is copied unmodified from Frigate commit
-[`3115a6e7ec53458ce22a05856f8fb804e9dbe3a9`](https://github.com/btc-mining/frigate/commit/3115a6e7ec53458ce22a05856f8fb804e9dbe3a9).
 `SystemService.GetHAStatus` provides durable cluster identity, configured members,
 and independently aged HA observations. The plugin uses confirmed cluster IDs
 for new endpoint groups and live `GetSystemStatus` for command selection.

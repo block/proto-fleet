@@ -82,12 +82,14 @@ service MiningService {
   // firmware-supported voltage range for every known module ID.
   rpc ListModuleVoltageSettings(ListModuleVoltageSettingsRequest) returns (ListModuleVoltageSettingsResponse) {
     option (mdk.v2.product) = PRODUCT_CT1;
+    option (mdk.v2.tunnel_access) = TUNNEL_ACCESS_READ;
     option (google.api.http) = {get: "/api/v2/mining/modules/voltage"};
   }
 
   // SetModuleFixedVoltage persists and applies one module-wide fixed voltage.
   rpc SetModuleFixedVoltage(SetModuleFixedVoltageRequest) returns (SetModuleFixedVoltageResponse) {
     option (mdk.v2.product) = PRODUCT_CT1;
+    option (mdk.v2.tunnel_access) = TUNNEL_ACCESS_MUTATE;
     option (google.api.http) = {
       put: "/api/v2/mining/modules/{module_id}/voltage/fixed"
       body: "*"
@@ -98,6 +100,7 @@ service MiningService {
   // one module.
   rpc ClearModuleFixedVoltage(ClearModuleFixedVoltageRequest) returns (ClearModuleFixedVoltageResponse) {
     option (mdk.v2.product) = PRODUCT_CT1;
+    option (mdk.v2.tunnel_access) = TUNNEL_ACCESS_MUTATE;
     option (google.api.http) = {delete: "/api/v2/mining/modules/{module_id}/voltage/fixed"};
   }
 

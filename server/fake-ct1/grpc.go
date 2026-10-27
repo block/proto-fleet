@@ -21,45 +21,68 @@ type grpcAPI struct {
 	mdk.UnimplementedMiningGroupServiceServer
 	mdk.UnimplementedTelemetryServiceServer
 	mdk.UnimplementedPowerServiceServer
+	mdk.UnimplementedPoolServiceServer
+	mdk.UnimplementedRunInServiceServer
 	state *ContainerState
 }
 
 func newGRPCServer(state *ContainerState) *grpc.Server {
 	state.initHistory()
 	api := &grpcAPI{state: state}
-	server := grpc.NewServer()
+	server := grpc.NewServer(grpc.UnaryInterceptor(serveUnary(state)))
 	mdk.RegisterSystemServiceServer(server, api)
 	mdk.RegisterHashboardServiceServer(server, api)
 	mdk.RegisterMiningServiceServer(server, api)
 	mdk.RegisterMiningGroupServiceServer(server, api)
 	mdk.RegisterTelemetryServiceServer(server, api)
 	mdk.RegisterPowerServiceServer(server, api)
+	mdk.RegisterPoolServiceServer(server, api)
+	mdk.RegisterRunInServiceServer(server, api)
 	return server
 }
 
-// Reuse the simulator's existing DTO builders and clock for both transports.
+func projectProto(data any, out proto.Message) error {
+	encoded, err := json.Marshal(data)
+	if err != nil {
+		return status.Errorf(codes.Internal, "encode simulation: %v", err)
+	}
+	if err := (protojson.UnmarshalOptions{DiscardUnknown: true}).Unmarshal(encoded, out); err != nil {
+		return status.Errorf(codes.Internal, "project simulation: %v", err)
+	}
+	return nil
+}
+
+// project converts a shared operation's REST DTO into its native response.
+func project[T any, M proto.Message](dto T, err error, out M) (M, error) {
+	if err == nil {
+		err = projectProto(dto, out)
+	}
+	if err != nil {
+		var none M
+		return none, err
+	}
+	return out, nil
+}
+
 // The REST simulator retains some older diagnostic fields (e.g. breakerId)
 // that aren't in the pinned native contract; protojson drops only those fields.
 func (a *grpcAPI) snapshot(build func(*ContainerState) any, out proto.Message) error {
 	a.state.mu.Lock()
 	defer a.state.mu.Unlock()
-	now := a.state.now()
-	a.state.recordUntil(now)
-	a.state.advance(now)
-	data, err := json.Marshal(build(a.state))
-	if err != nil {
-		return status.Errorf(codes.Internal, "encode simulation: %v", err)
-	}
-	if err := (protojson.UnmarshalOptions{DiscardUnknown: true}).Unmarshal(data, out); err != nil {
-		return status.Errorf(codes.Internal, "project simulation: %v", err)
-	}
-	return nil
+	return projectProto(build(a.state), out)
 }
 func (a *grpcAPI) GetSystemInfo(context.Context, *mdk.GetSystemInfoRequest) (*mdk.GetSystemInfoResponse, error) {
 	out := new(mdk.GetSystemInfoResponse)
 	err := a.snapshot(func(s *ContainerState) any { return s.systemInfoDTO() }, out)
 	return out, err
 }
+
+func (a *grpcAPI) GetSystemStatus(context.Context, *mdk.GetSystemStatusRequest) (*mdk.GetSystemStatusResponse, error) {
+	out := new(mdk.GetSystemStatusResponse)
+	err := a.snapshot(func(s *ContainerState) any { return s.systemStatusDTO() }, out)
+	return out, err
+}
+
 func (a *grpcAPI) GetContainerMap(context.Context, *mdk.GetContainerMapRequest) (*mdk.GetContainerMapResponse, error) {
 	out := new(mdk.GetContainerMapResponse)
 	err := a.snapshot(func(s *ContainerState) any { return s.containerMapDTO() }, out)
@@ -86,6 +109,19 @@ func (a *grpcAPI) GetContainerControls(context.Context, *mdk.GetContainerControl
 	}, out)
 	return out, err
 }
+
+func (a *grpcAPI) SetContainerSetpoint(ctx context.Context, in *mdk.SetContainerSetpointRequest) (*mdk.SetContainerSetpointResponse, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, status.FromContextError(err).Err()
+	}
+	a.state.mu.Lock()
+	defer a.state.mu.Unlock()
+	if err := a.state.setContainerSetpoint(in.GetName(), in.GetValue()); err != nil {
+		return nil, err
+	}
+	return &mdk.SetContainerSetpointResponse{Setpoint: &mdk.ContainerSetpoint{Name: in.GetName(), Value: in.GetValue(), Unit: "°C"}}, nil
+}
+
 func (a *grpcAPI) SetContainerControl(ctx context.Context, in *mdk.SetContainerControlRequest) (*mdk.SetContainerControlResponse, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, status.FromContextError(err).Err()
@@ -96,15 +132,41 @@ func (a *grpcAPI) SetContainerControl(ctx context.Context, in *mdk.SetContainerC
 		return nil, status.Error(codes.NotFound, "unknown container control")
 	}
 	now := a.state.now()
-	a.state.recordUntil(now)
-	a.state.advance(now)
 	a.state.ContainerControls[in.Name] = in.Enabled
-	a.state.advance(now)
-	a.state.recordTransition()
 	return &mdk.SetContainerControlResponse{Control: &mdk.ContainerControl{Name: in.Name, Enabled: in.Enabled, StateKnown: true}, Confirmation: &mdk.ContainerControlConfirmation{RequestedEnabled: in.Enabled, ObservedEnabled: new(a.state.ContainerControls[in.Name]), ObservedAt: timestamppb.New(now), State: mdk.PlantWriteConfirmationState_PLANT_WRITE_CONFIRMATION_STATE_CONFIRMED, Source: mdk.PlantWriteConfirmationSource_PLANT_WRITE_CONFIRMATION_SOURCE_CONTROLLER_REGISTER}}, nil
 }
 func (a *grpcAPI) SetMainCircuitBreakerState(context.Context, *mdk.SetMainCircuitBreakerStateRequest) (*mdk.SetMainCircuitBreakerStateResponse, error) {
 	return nil, status.Error(codes.Unimplemented, fmt.Sprintf("%s simulator has no dedicated breaker readback", product))
+}
+
+func (a *grpcAPI) ListPools(context.Context, *mdk.ListPoolsRequest) (*mdk.ListPoolsResponse, error) {
+	return project(listPoolsResponse{Pools: demoPools()}, nil, new(mdk.ListPoolsResponse))
+}
+
+func (a *grpcAPI) GetPoolDiagnostics(context.Context, *mdk.GetPoolDiagnosticsRequest) (*mdk.GetPoolDiagnosticsResponse, error) {
+	a.state.mu.RLock()
+	dto := a.state.poolDiagnosticsDTO()
+	a.state.mu.RUnlock()
+	return project(dto, nil, new(mdk.GetPoolDiagnosticsResponse))
+}
+
+func (a *grpcAPI) GetTargetPower(context.Context, *mdk.GetTargetPowerRequest) (*mdk.GetTargetPowerResponse, error) {
+	a.state.mu.Lock()
+	dto, err := a.state.targetPower(nil)
+	a.state.mu.Unlock()
+	return project(dto, err, new(mdk.GetTargetPowerResponse))
+}
+
+func (a *grpcAPI) SetTargetPower(_ context.Context, in *mdk.SetTargetPowerRequest) (*mdk.SetTargetPowerResponse, error) {
+	a.state.mu.Lock()
+	dto, err := a.state.targetPower(&targetPowerUpdate{
+		watts:            in.GetWatts(),
+		performanceMode:  in.GetPerformanceMode().String(),
+		balanceBays:      in.BalanceBays,
+		hashOnDisconnect: in.HashOnDisconnect,
+	})
+	a.state.mu.Unlock()
+	return project(dto, err, new(mdk.SetTargetPowerResponse))
 }
 
 func (a *grpcAPI) StartMining(ctx context.Context, _ *mdk.StartMiningRequest) (*mdk.StartMiningResponse, error) {
@@ -125,30 +187,64 @@ func (a *grpcAPI) setGlobalMining(ctx context.Context, mining bool) error {
 	}
 	a.state.mu.Lock()
 	defer a.state.mu.Unlock()
-	now := a.state.now()
-	a.state.recordUntil(now)
-	a.state.advance(now)
 	a.state.setGlobalMining(mining)
-	a.state.advance(now)
-	a.state.recordTransition()
 	return nil
 }
 
 func (a *grpcAPI) StartMiningScoped(ctx context.Context, in *mdk.StartMiningScopedRequest) (*mdk.StartMiningScopedResponse, error) {
-	results, err := a.setScopedMining(ctx, in.GetScope(), true)
+	results, err := a.applyToScope(ctx, in.GetScope(), startBoard)
 	if err != nil {
 		return nil, err
 	}
 	return &mdk.StartMiningScopedResponse{BoardsStarted: appliedBoardCount(results), Results: results}, nil
 }
 func (a *grpcAPI) StopMiningScoped(ctx context.Context, in *mdk.StopMiningScopedRequest) (*mdk.StopMiningScopedResponse, error) {
-	results, err := a.setScopedMining(ctx, in.GetScope(), false)
+	results, err := a.applyToScope(ctx, in.GetScope(), stopBoard)
 	if err != nil {
 		return nil, err
 	}
 	return &mdk.StopMiningScopedResponse{BoardsStopped: appliedBoardCount(results), Results: results}, nil
 }
-func (a *grpcAPI) setScopedMining(ctx context.Context, in *mdk.BoardScope, mining bool) ([]*mdk.BoardResult, error) {
+
+func (a *grpcAPI) SetPowerTargetScoped(ctx context.Context, in *mdk.SetPowerTargetScopedRequest) (*mdk.SetPowerTargetScopedResponse, error) {
+	if err := finiteWatts(in.GetWatts()); err != nil {
+		return nil, err
+	}
+	results, err := a.applyToScope(ctx, in.GetScope(), scopedPowerTarget(in.GetWatts()))
+	if err != nil {
+		return nil, err
+	}
+	return &mdk.SetPowerTargetScopedResponse{BoardsUpdated: appliedBoardCount(results), Results: results}, nil
+}
+
+func (a *grpcAPI) ClearPowerTargetScoped(ctx context.Context, in *mdk.ClearPowerTargetScopedRequest) (*mdk.ClearPowerTargetScopedResponse, error) {
+	results, err := a.applyToScope(ctx, in.GetScope(), clearScopedPowerTarget)
+	if err != nil {
+		return nil, err
+	}
+	return &mdk.ClearPowerTargetScopedResponse{BoardsUpdated: appliedBoardCount(results), Results: results}, nil
+}
+
+func (a *grpcAPI) SetIsolation(ctx context.Context, in *mdk.SetIsolationRequest) (*mdk.SetIsolationResponse, error) {
+	results, err := a.applyToScope(ctx, in.GetScope(), func(b *Hashboard) (bool, string) {
+		b.Isolated = in.GetIsolated()
+		return true, ""
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &mdk.SetIsolationResponse{BoardsChanged: appliedBoardCount(results), Results: results}, nil
+}
+
+func (a *grpcAPI) SetIdentifyLED(ctx context.Context, in *mdk.SetIdentifyLEDRequest) (*mdk.SetIdentifyLEDResponse, error) {
+	results, err := a.applyToScope(ctx, in.GetScope(), func(*Hashboard) (bool, string) { return true, "" })
+	if err != nil {
+		return nil, err
+	}
+	return &mdk.SetIdentifyLEDResponse{BoardsUpdated: appliedBoardCount(results)}, nil
+}
+
+func (a *grpcAPI) applyToScope(ctx context.Context, in *mdk.BoardScope, apply func(*Hashboard) (bool, string)) ([]*mdk.BoardResult, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, status.FromContextError(err).Err()
 	}
@@ -157,17 +253,8 @@ func (a *grpcAPI) setScopedMining(ctx context.Context, in *mdk.BoardScope, minin
 		sc.Modules = append(sc.Modules, moduleCoord{Tank: module.GetTank(), Module: module.GetModule()})
 	}
 	a.state.mu.Lock()
-	defer a.state.mu.Unlock()
-	results := a.state.applyToScope(sc, func(b *Hashboard) (bool, string) {
-		if mining && b.Isolated {
-			return false, "board isolated"
-		}
-		b.State = miningStateIdle
-		if mining {
-			b.State = miningStateMining
-		}
-		return true, ""
-	})
+	results := a.state.applyToScope(sc, apply)
+	a.state.mu.Unlock()
 	out := make([]*mdk.BoardResult, 0, len(results))
 	for _, result := range results {
 		out = append(out, &mdk.BoardResult{MacAddress: result.MACAddress, Applied: result.Applied, Message: result.Message})
@@ -182,4 +269,62 @@ func appliedBoardCount(results []*mdk.BoardResult) int32 {
 		}
 	}
 	return count
+}
+
+func (a *grpcAPI) SetModuleFixedVoltage(ctx context.Context, in *mdk.SetModuleFixedVoltageRequest) (*mdk.SetModuleFixedVoltageResponse, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, status.FromContextError(err).Err()
+	}
+	a.state.mu.Lock()
+	dto, err := a.state.setModuleFixedVoltage(in.GetModuleId(), int64(in.GetMillivolts()), true)
+	a.state.mu.Unlock()
+	return project(dto, err, new(mdk.SetModuleFixedVoltageResponse))
+}
+
+func (a *grpcAPI) ClearModuleFixedVoltage(ctx context.Context, in *mdk.ClearModuleFixedVoltageRequest) (*mdk.ClearModuleFixedVoltageResponse, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, status.FromContextError(err).Err()
+	}
+	a.state.mu.Lock()
+	dto, err := a.state.setModuleFixedVoltage(in.GetModuleId(), 0, false)
+	a.state.mu.Unlock()
+	return project(dto, err, new(mdk.ClearModuleFixedVoltageResponse))
+}
+
+func (a *grpcAPI) GetHashboardASICs(_ context.Context, in *mdk.GetHashboardASICsRequest) (*mdk.GetHashboardASICsResponse, error) {
+	a.state.mu.RLock()
+	dto, err := a.state.hashboardASICs(in.GetIdentifier())
+	a.state.mu.RUnlock()
+	return project(dto, err, new(mdk.GetHashboardASICsResponse))
+}
+
+func (a *grpcAPI) QueryTimeSeries(_ context.Context, in *mdk.QueryTimeSeriesRequest) (*mdk.QueryTimeSeriesResponse, error) {
+	if in.GetRange().GetStart() == nil || in.GetRange().GetEnd() == nil {
+		return nil, status.Error(codes.InvalidArgument, "range.start and range.end are required")
+	}
+	a.state.mu.Lock()
+	dto, err := a.state.timeSeries(in.GetMetric().String(), in.GetIdentifier(), in.GetRange().GetStart().AsTime(), in.GetRange().GetEnd().AsTime(), in.GetBucketSize().String())
+	a.state.mu.Unlock()
+	return project(dto, err, new(mdk.QueryTimeSeriesResponse))
+}
+
+func (a *grpcAPI) QueryShareQualityHistory(_ context.Context, in *mdk.QueryShareQualityHistoryRequest) (*mdk.QueryShareQualityHistoryResponse, error) {
+	poolID := ""
+	if in.PoolId != nil {
+		poolID = fmt.Sprint(in.GetPoolId())
+	}
+	a.state.mu.RLock()
+	dto, err := a.state.poolShareHistory(poolID, in.GetGrouping().String(), in.GetIdentifier(), in.GetRange().GetStart().AsTime(), in.GetRange().GetEnd().AsTime(), in.GetBucketSize().String())
+	a.state.mu.RUnlock()
+	return project(dto, err, new(mdk.QueryShareQualityHistoryResponse))
+}
+
+func (a *grpcAPI) StartModuleRunIn(_ context.Context, in *mdk.StartModuleRunInRequest) (*mdk.StartModuleRunInResponse, error) {
+	if in.GetConfig() == nil {
+		return nil, status.Error(codes.InvalidArgument, "config is required")
+	}
+	a.state.mu.RLock()
+	dto, err := a.state.moduleRunIn(in.GetModuleId(), in.GetTaskId())
+	a.state.mu.RUnlock()
+	return project(dto, err, new(mdk.StartModuleRunInResponse))
 }
