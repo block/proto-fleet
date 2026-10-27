@@ -66,9 +66,8 @@ func TestFrigateHALab(t *testing.T) {
 		}
 	}
 	require.NotEmpty(t, identity.DeviceKey, "the lab must expose a confirmed HA cluster ID")
-	require.ElementsMatch(t, []string{endpoints[0].ID, endpoints[1].ID}, identity.MemberIDs)
 	for i := range endpoints {
-		endpoints[i].DeviceKey, endpoints[i].MemberIDs = identity.DeviceKey, identity.MemberIDs
+		endpoints[i].DeviceKey = identity.DeviceKey
 	}
 	info := sdk.DeviceInfo{Host: endpoints[0].Host, Port: endpoints[0].Port, URLScheme: "http", RPCPort: endpoints[0].RPCPort, SerialNumber: endpoints[0].ID, Endpoints: endpoints}
 	d, err := NewDevice(ctx, "ct1-ha-lab", info, sdk.UsernamePassword{})

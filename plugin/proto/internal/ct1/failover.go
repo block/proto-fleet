@@ -12,9 +12,11 @@ import (
 
 const controllerProbeTimeout = 5 * time.Second
 
-type controllerSelection struct {
+type controllerProbe struct {
 	client *Client
-	info   sdk.DeviceInfo
+	state  *mdk.SystemStatus
+	report *mdk.HAStatus
+	err    error
 }
 
 // Probe both open connections within one budget. Never send a mutation here.
@@ -26,19 +28,13 @@ func (d *Device) selectClient(ctx context.Context, write bool) (*Client, error) 
 	}
 	return selected.client, nil
 }
-func (d *Device) probeControllers(ctx context.Context, write bool) (*controllerSelection, *sdk.ContainerHA, error) {
+func (d *Device) probeControllers(ctx context.Context, write bool) (*controllerProbe, *sdk.ContainerHA, error) {
 	if len(d.info.Endpoints) == 0 {
 		// Older or unconfigured servers cannot establish a healthy HA pair.
-		return &controllerSelection{client: d.clients[0], info: d.info}, &sdk.ContainerHA{ObservedAt: time.Now().UTC(), Degraded: true}, nil
+		return &controllerProbe{client: d.clients[0]}, &sdk.ContainerHA{ObservedAt: time.Now().UTC(), Degraded: true}, nil
 	}
 	clients := d.clients
-	type probeResult struct {
-		selected *controllerSelection
-		state    *mdk.SystemStatus
-		report   *mdk.HAStatus
-		err      error
-	}
-	results := make(chan probeResult, len(clients))
+	results := make(chan *controllerProbe, len(clients))
 	probeTimeout := controllerProbeTimeout
 	if deadline, ok := ctx.Deadline(); ok {
 		// Reserve time for collection or command execution after selection.
@@ -51,7 +47,7 @@ func (d *Device) probeControllers(ctx context.Context, write bool) (*controllerS
 			id := c.endpointID(d.info.Endpoints)
 			report, _, err := c.readHA(probe, id, d.info.Endpoints[0].DeviceKey)
 			if err != nil {
-				results <- probeResult{err: err}
+				results <- &controllerProbe{err: err}
 				return
 			}
 			response, err := c.system.GetSystemStatus(probe, &mdk.GetSystemStatusRequest{})
@@ -59,21 +55,16 @@ func (d *Device) probeControllers(ctx context.Context, write bool) (*controllerS
 			if err == nil && state.GetServerId() != id {
 				err = fmt.Errorf("CT1 status identity mismatch")
 			}
-			info := d.info
-			info.FirmwareVersion = state.GetVersion()
-			if info.SerialNumber == "" {
-				info.SerialNumber = state.GetServerId()
-			}
-			results <- probeResult{selected: &controllerSelection{client: c, info: info}, state: state, report: report, err: err}
+			results <- &controllerProbe{client: c, state: state, report: report, err: err}
 		}(c)
 	}
-	var primary, standby, readable, writable *controllerSelection
+	var primary, standby, readable, writable *controllerProbe
 	var errs []error
 	primaryCount := 0
 	standbyCount := 0
 	healthy := len(clients) == 2
 	for range clients {
-		var result probeResult
+		var result *controllerProbe
 		select {
 		case <-ctx.Done():
 			return nil, nil, fmt.Errorf("probe CT1 controllers: %w", ctx.Err())
@@ -83,7 +74,7 @@ func (d *Device) probeControllers(ctx context.Context, write bool) (*controllerS
 			errs = append(errs, result.err)
 			continue
 		}
-		readable = result.selected
+		readable = result
 		state := result.state
 		if !healthyHAReport(result.report, state, d.info.Endpoints, time.Now()) {
 			healthy = false
@@ -97,16 +88,16 @@ func (d *Device) probeControllers(ctx context.Context, write bool) (*controllerS
 		// Frigate authorizes writes independently of recovery health. Keep the
 		// strict health table for HA reporting and read preference only.
 		if isPrimary {
-			writable = result.selected
+			writable = result
 		}
 		if !settledController(state) {
 			healthy = false
 			continue
 		}
 		if isPrimary {
-			primary = result.selected
+			primary = result
 		} else if isStandby {
-			standby = result.selected
+			standby = result
 			standbyCount++
 		} else {
 			healthy = false

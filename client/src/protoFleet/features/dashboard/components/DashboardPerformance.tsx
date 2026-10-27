@@ -2,7 +2,6 @@ import { useMemo } from "react";
 import { EfficiencyPanel } from "./EfficiencyPanel";
 import { HashratePanel } from "./HashratePanel";
 import { PowerPanel } from "./PowerPanel";
-import ReadingPanel from "./ReadingPanel";
 import SectionHeading from "./SectionHeading";
 import { TemperaturePanel } from "./TemperaturePanel";
 import { UptimePanel } from "./UptimePanel";
@@ -13,7 +12,6 @@ import {
   type UptimeStatusCount,
 } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
 import { usePageBackground } from "@/protoFleet/hooks/usePageBackground";
-import { useTemperatureUnit } from "@/protoFleet/store";
 import DurationSelector, { type FleetDuration, fleetDurations } from "@/shared/components/DurationSelector";
 import { useStickyState } from "@/shared/hooks/useStickyState";
 
@@ -26,7 +24,8 @@ export type DashboardPerformanceProps = {
   totalAssets: number;
   temperatureStatusCounts?: TemperatureStatusCount[];
   uptimeStatusCounts?: UptimeStatusCount[];
-  /** Account sources supply measured numeric readings rather than host status distributions. */
+  uptimeExpectedAssetCount?: number;
+  /** Account sources use scoped raw history and shorter retained ranges. */
   accountReadings?: boolean;
   tooltipNotes?: Partial<Record<MeasurementType, Record<number, string>>>;
 };
@@ -38,20 +37,18 @@ export default function DashboardPerformance({
   totalAssets,
   temperatureStatusCounts,
   uptimeStatusCounts,
+  uptimeExpectedAssetCount,
   accountReadings = false,
   tooltipNotes,
 }: DashboardPerformanceProps) {
   const { refs } = useStickyState();
   const { bgClass } = usePageBackground();
-  const temperatureUnit = useTemperatureUnit();
   const grouped = useMemo(() => {
     const byType = (type: MeasurementType) => metrics?.filter((metric) => metric.measurementType === type);
     return {
       hashrate: byType(MeasurementType.HASHRATE),
       power: byType(MeasurementType.POWER),
       efficiency: byType(MeasurementType.EFFICIENCY),
-      temperature: byType(MeasurementType.TEMPERATURE),
-      uptime: byType(MeasurementType.UPTIME),
     };
   }, [metrics]);
   const connectNulls = !accountReadings;
@@ -74,28 +71,18 @@ export default function DashboardPerformance({
           connectNulls={connectNulls}
           tooltipNotes={tooltipNotes?.[MeasurementType.HASHRATE]}
         />
-        {accountReadings ? (
-          <ReadingPanel
-            label="Uptime"
-            units="%"
-            duration={duration}
-            metrics={grouped.uptime}
-            tooltipNotes={tooltipNotes?.[MeasurementType.UPTIME]}
-          />
-        ) : (
-          <UptimePanel duration={duration} uptimeStatusCounts={uptimeStatusCounts} />
-        )}
-        {accountReadings ? (
-          <ReadingPanel
-            label="Temperature"
-            units={`°${temperatureUnit}`}
-            duration={duration}
-            metrics={grouped.temperature}
-            tooltipNotes={tooltipNotes?.[MeasurementType.TEMPERATURE]}
-          />
-        ) : (
-          <TemperaturePanel duration={duration} temperatureStatusCounts={temperatureStatusCounts} />
-        )}
+        <UptimePanel
+          duration={duration}
+          uptimeStatusCounts={uptimeStatusCounts}
+          audience={accountReadings ? "account" : "fleet"}
+          expectedAssetCount={uptimeExpectedAssetCount}
+          showActions={!accountReadings}
+        />
+        <TemperaturePanel
+          duration={duration}
+          temperatureStatusCounts={temperatureStatusCounts}
+          audience={accountReadings ? "account" : "fleet"}
+        />
         <div className="grid grid-cols-1 gap-4 laptop:grid-cols-2">
           <PowerPanel
             duration={duration}

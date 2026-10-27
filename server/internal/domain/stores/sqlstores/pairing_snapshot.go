@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"errors"
-	"slices"
 
 	pairingpb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
 	"github.com/block/proto-fleet/server/generated/sqlc"
@@ -59,10 +58,7 @@ func (s *SQLDiscoveredDeviceStore) LockPairingSnapshot(ctx context.Context, doi 
 			if endpoint.Id != verified.Id {
 				continue
 			}
-			members, verifiedMembers := slices.Clone(endpoint.MemberIds), slices.Clone(verified.MemberIds)
-			slices.Sort(members)
-			slices.Sort(verifiedMembers)
-			if !sameEndpointRoute(endpoint, verified) || endpoint.DeviceKey != verified.DeviceKey || !slices.Equal(members, verifiedMembers) {
+			if !sameEndpointRoute(endpoint, verified) || endpoint.DeviceKey != verified.DeviceKey {
 				return fleeterror.NewFailedPreconditionError(pairingSnapshotChanged)
 			}
 			found = true

@@ -2134,14 +2134,14 @@ var PluginMap = map[string]plugin.Plugin{
 func endpointsToProto(endpoints []DeviceEndpoint) []*pb.DeviceEndpoint {
 	var result []*pb.DeviceEndpoint
 	for _, c := range endpoints {
-		result = append(result, &pb.DeviceEndpoint{Id: c.ID, DeviceKey: c.DeviceKey, MemberIds: c.MemberIDs, Host: c.Host, Port: c.Port, UrlScheme: c.URLScheme, RpcPort: c.RPCPort, RpcTls: c.RPCTLS})
+		result = append(result, &pb.DeviceEndpoint{Id: c.ID, DeviceKey: c.DeviceKey, Host: c.Host, Port: c.Port, UrlScheme: c.URLScheme, RpcPort: c.RPCPort, RpcTls: c.RPCTLS})
 	}
 	return result
 }
 func endpointsFromProto(endpoints []*pb.DeviceEndpoint) []DeviceEndpoint {
 	var result []DeviceEndpoint
 	for _, c := range endpoints {
-		result = append(result, DeviceEndpoint{ID: c.GetId(), DeviceKey: c.GetDeviceKey(), MemberIDs: c.GetMemberIds(), Host: c.GetHost(), Port: c.GetPort(), URLScheme: c.GetUrlScheme(), RPCPort: c.GetRpcPort(), RPCTLS: c.GetRpcTls()})
+		result = append(result, DeviceEndpoint{ID: c.GetId(), DeviceKey: c.GetDeviceKey(), Host: c.GetHost(), Port: c.GetPort(), URLScheme: c.GetUrlScheme(), RPCPort: c.GetRpcPort(), RPCTLS: c.GetRpcTls()})
 	}
 	return result
 }

@@ -94,7 +94,7 @@ const Stat = ({ label, value }: { label: string; value: string }) => (
 );
 
 const Panel = ({ children, className }: { children: ReactNode; className?: string }) => (
-  <div className={clsx("rounded-2xl bg-surface-5 p-6", className)}>{children}</div>
+  <div className={clsx("rounded-2xl bg-surface-overlay p-6", className)}>{children}</div>
 );
 
 const useContainerDiagnostics = () => {
@@ -249,7 +249,7 @@ const TankDiagnosticCard = ({
   const powerText = power === undefined ? "—" : `${decimal(power / 1_000)} kW`;
 
   return (
-    <article className="rounded-2xl bg-surface-5 p-6" aria-label={tank.label ?? `Tank ${tank.slot ?? ""}`}>
+    <article className="rounded-2xl bg-surface-overlay p-6" aria-label={tank.label ?? `Tank ${tank.slot ?? ""}`}>
       <div className="mb-5 flex items-center justify-between gap-3">
         <h3 className="flex items-center gap-2 text-emphasis-300">
           {hasIssue ? <Alert className="text-intent-critical-fill" /> : null}

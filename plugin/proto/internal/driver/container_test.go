@@ -167,7 +167,6 @@ func TestContainerDiscoveryAllowsSlowSequentialIdentityRPCs(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "controller-a", info.SerialNumber)
 	require.Len(t, info.Endpoints, 1)
-	require.Equal(t, []string{"controller-a", "controller-b"}, info.Endpoints[0].MemberIDs)
 
 	shortCtx, shortCancel := context.WithTimeout(t.Context(), 20*time.Millisecond)
 	defer shortCancel()

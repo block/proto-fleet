@@ -42,6 +42,7 @@ func TestWriteFenceMigrationPreservesPopulatedLegacyQueue(t *testing.T) {
 	database := testutil.NewDatabaseService(t, cfg)
 	user := database.CreateSuperAdminUser()
 	seed := database.CreateDevice(user.OrganizationID, "proto")
+	rollbackEmptyMiningGroups(t, database.DB)
 	for _, name := range []string{"current/001018_internal_hosted_curtailment_control", "current/001012_internal_retired_device_write_permits", "current/001011_internal_direct_device_write_attempts", "current/001009_internal_queue_pending_order_index", "current/001008_internal_hosted_device_write_fences"} {
 		script, err := migrations.Current.ReadFile(name + ".down.sql")
 		require.NoError(t, err)

@@ -44,8 +44,6 @@ func (d *Device) setScopedMining(ctx context.Context, positions []int32, targets
 	if err != nil {
 		return err
 	}
-	c.mu.Lock()
-	defer c.mu.Unlock()
 	expectedSerial := strings.TrimSpace(d.info.SerialNumber)
 	if expectedSerial == "" {
 		return fmt.Errorf("container identity unavailable")

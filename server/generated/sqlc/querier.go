@@ -520,6 +520,10 @@ type Querier interface {
 	// outages of departed historical targets do not reserve capacity again.
 	DeleteReleasedFirmwareRolloutReservations(ctx context.Context) error
 	DeleteScheduleTargets(ctx context.Context, arg DeleteScheduleTargetsParams) error
+	// Only after confirmed terminal transfer failures and a fresh observation with
+	// no pending controller work. Retain the assignments verified on the controller;
+	// abandoned desires must not be retried by a subsequent unrelated request.
+	DeleteUnappliedHashboardPoolIntents(ctx context.Context, arg DeleteUnappliedHashboardPoolIntentsParams) error
 	// The owning process calls this only after full operation completion without
 	// any dispatched mutation, including a rejected direct mutation admission.
 	// Keep queue, deletion-permit and unresolved evidence.
@@ -556,6 +560,7 @@ type Querier interface {
 	EnsureDeviceWriteFences(ctx context.Context, deviceIds []int64) error
 	// The caller rejects aliases that resolve to different existing hardware.
 	EnsureHashboards(ctx context.Context, arg EnsureHashboardsParams) ([]EnsureHashboardsRow, error)
+	EnsureMiningGroupState(ctx context.Context, arg EnsureMiningGroupStateParams) error
 	ExcludeFirmwareRolloutDevices(ctx context.Context, arg ExcludeFirmwareRolloutDevicesParams) error
 	// Returns one row per device whose live rack has a non-NULL
 	// building_id. Devices with no rack, devices in a rack without a
@@ -846,6 +851,12 @@ type Querier interface {
 	// Resolve once per page; services bind the result to the cursor and pass that
 	// same value into the data query so crossing a cutoff mid-request cannot switch tiers.
 	GetHistoryResolution(ctx context.Context, arg GetHistoryResolutionParams) (int32, error)
+	// New assignments may only select active configurations.
+	GetHostMiningGroupPoolRevision(ctx context.Context, arg GetHostMiningGroupPoolRevisionParams) (HostedAccountPoolRevision, error)
+	// Archiving prevents new assignments but preserves revisions used by accepted
+	// workflows and existing controller bindings. Account restrictions still apply.
+	GetHostMiningGroupPoolRevisionForReconciliation(ctx context.Context, arg GetHostMiningGroupPoolRevisionForReconciliationParams) (HostedAccountPoolRevision, error)
+	GetHostPoolAccount(ctx context.Context, organizationID int64) (HostedAccount, error)
 	GetHostedAccountActivityPage(ctx context.Context, arg GetHostedAccountActivityPageParams) (json.RawMessage, error)
 	GetHostedAccountAncestorGrant(ctx context.Context, arg GetHostedAccountAncestorGrantParams) (HostedAccountAncestorGrant, error)
 	GetHostedAccountAssetDevice(ctx context.Context, arg GetHostedAccountAssetDeviceParams) (int64, error)
@@ -904,6 +915,14 @@ type Querier interface {
 	// DISTINCT ON keeps one state per device per bucket so summed counts always
 	// equal a real fleet size regardless of snapshot alignment within the bucket.
 	GetMinerStateSnapshots(ctx context.Context, arg GetMinerStateSnapshotsParams) ([]GetMinerStateSnapshotsRow, error)
+	GetMiningGroupBoards(ctx context.Context, arg GetMiningGroupBoardsParams) ([]GetMiningGroupBoardsRow, error)
+	GetMiningGroupRequest(ctx context.Context, arg GetMiningGroupRequestParams) (MiningGroupRequest, error)
+	// Outcomes retain the actor and site captured at admission, even after the
+	// operator is renamed/deleted or access and device placement change.
+	GetMiningGroupRequestActivity(ctx context.Context, arg GetMiningGroupRequestActivityParams) (ActivityLog, error)
+	GetMiningGroupState(ctx context.Context, arg GetMiningGroupStateParams) (ContainerMiningGroupState, error)
+	GetMiningGroupTarget(ctx context.Context, arg GetMiningGroupTargetParams) (GetMiningGroupTargetRow, error)
+	GetMiningGroupWorkflowAttempt(ctx context.Context, arg GetMiningGroupWorkflowAttemptParams) (DeviceWriteAttempt, error)
 	GetModuleHashboards(ctx context.Context, arg GetModuleHashboardsParams) (json.RawMessage, error)
 	GetModuleRollupWatermarks(ctx context.Context, deviceID int64) ([]GetModuleRollupWatermarksRow, error)
 	GetOfflineDevices(ctx context.Context, limit int32) ([]GetOfflineDevicesRow, error)
@@ -1055,6 +1074,9 @@ type Querier interface {
 	// settled them without updating, with its note).
 	HaltFirmwareRolloutDevices(ctx context.Context, arg HaltFirmwareRolloutDevicesParams) error
 	HasBlockedTelemetrySeedRecovery(ctx context.Context) (bool, error)
+	// Stale telemetry alone is not evidence of removal. Match the exact saved
+	// installation, controller and MAC without imposing a freshness requirement.
+	HasDetachedHashboardPoolIntents(ctx context.Context, arg HasDetachedHashboardPoolIntentsParams) (bool, error)
 	HasDueTelemetrySeedRecovery(ctx context.Context) (bool, error)
 	HasHostedAccountHostAuthority(ctx context.Context, arg HasHostedAccountHostAuthorityParams) (bool, error)
 	HasPendingContainerControl(ctx context.Context, deviceID int64) (bool, error)
@@ -1181,8 +1203,6 @@ type Querier interface {
 	// per-org built-ins. The onboarding flow also seeds built-ins for
 	// new orgs inside its creation transaction.
 	ListActiveOrganizationIDs(ctx context.Context) ([]int64, error)
-	// Bounded count scan. Endpoint validity is checked by the canonical Go codec.
-	ListActiveUnpairedDiscoveredDeviceEndpoints(ctx context.Context, arg ListActiveUnpairedDiscoveredDeviceEndpointsParams) ([]ListActiveUnpairedDiscoveredDeviceEndpointsRow, error)
 	// Array filter contract: the Go store layer must pass nil (not empty slice)
 	// for the narg text[] filters below. An empty non-nil array
 	// (pq.Array([]string{})) produces '{}' which matches nothing via ANY, leading
@@ -1457,6 +1477,8 @@ type Querier interface {
 	// and topology groups separate even when they share a bucket.
 	ListHashboardHistory(ctx context.Context, arg ListHashboardHistoryParams) ([]ListHashboardHistoryRow, error)
 	ListHashboardModules(ctx context.Context, deviceID int64) ([]ListHashboardModulesRow, error)
+	ListHashboardPoolIntents(ctx context.Context, arg ListHashboardPoolIntentsParams) ([]HashboardPoolIntent, error)
+	ListHostMiningGroupPoolRevisions(ctx context.Context, organizationID int64) ([]HostedAccountPoolRevision, error)
 	ListHostedAccountAncestorGrants(ctx context.Context, arg ListHostedAccountAncestorGrantsParams) ([]HostedAccountAncestorGrant, error)
 	ListHostedAccountAssetChildren(ctx context.Context, arg ListHostedAccountAssetChildrenParams) ([]ListHostedAccountAssetChildrenRow, error)
 	// Only physical metadata is projected, so telemetry values are not fetched.
@@ -1516,6 +1538,7 @@ type Querier interface {
 	// because sqlc cannot parameterize ORDER BY direction or dynamic columns.
 	// This stub exists solely to generate the ListMinerStateSnapshotsRow type.
 	ListMinerStateSnapshots(ctx context.Context) ([]ListMinerStateSnapshotsRow, error)
+	ListMiningGroupControllers(ctx context.Context) ([]ListMiningGroupControllersRow, error)
 	ListModuleCommandTargets(ctx context.Context, arg ListModuleCommandTargetsParams) ([]ListModuleCommandTargetsRow, error)
 	// System-scope (no org filter); reconciler is a singleton driving all orgs.
 	// Order by id keeps per-tick processing deterministic.
@@ -1845,6 +1868,7 @@ type Querier interface {
 	LockMinerBindingObservationDevice(ctx context.Context, id int64) (int64, error)
 	LockMinerBindingPairing(ctx context.Context, deviceID int64) ([]int64, error)
 	LockMinerBindingRoutes(ctx context.Context, deviceID int64) ([]int64, error)
+	LockMiningGroupState(ctx context.Context, arg LockMiningGroupStateParams) (ContainerMiningGroupState, error)
 	LockQueuedDeviceWrite(ctx context.Context, id int64) (LockQueuedDeviceWriteRow, error)
 	// Locks device_set + rack rows FOR UPDATE and returns current placement.
 	// Must run after the site/building locks (canonical lock order).
@@ -1925,6 +1949,10 @@ type Querier interface {
 	// A failed update can itself stop hashing; recapturing that degraded state
 	// would incorrectly lower the requirements for the retry to succeed.
 	PreserveFirmwareRolloutRetryBaselines(ctx context.Context, rolloutID int64) error
+	// Called only while admitting new intent or settling an interrupted workflow
+	// after all controller work is known to be terminal.
+	// A new board/installation never inherits the previous occupant's intent.
+	PruneDetachedHashboardPoolIntents(ctx context.Context, arg PruneDetachedHashboardPoolIntentsParams) error
 	// Retention: reclaims the org's expired windows (ends_at <= now) that ended before the cutoff,
 	// plus any beyond the newest keep_newest (see maxRetainedExpiredWindowsPerOrg for the why).
 	PruneExpiredAlertMaintenanceWindows(ctx context.Context, arg PruneExpiredAlertMaintenanceWindowsParams) (int64, error)
@@ -2012,6 +2040,7 @@ type Querier interface {
 	// Attributes an action that changes only the rollout's devices (retry) to
 	// its actor.
 	RecordFirmwareRolloutAction(ctx context.Context, arg RecordFirmwareRolloutActionParams) error
+	RecordMiningGroupRequest(ctx context.Context, arg RecordMiningGroupRequestParams) error
 	RecoverTelemetrySeedBatch(ctx context.Context) error
 	// ============================================================================
 	// Error Lifecycle Management
@@ -2024,6 +2053,9 @@ type Querier interface {
 	// have changed while they were out of scope.
 	ReincludeFirmwareRolloutDevices(ctx context.Context, arg ReincludeFirmwareRolloutDevicesParams) error
 	ReleaseDeviceWriteFenceToHost(ctx context.Context, arg ReleaseDeviceWriteFenceToHostParams) (int64, error)
+	// A cleanly stopped owner may expire only its exact live term. Keep the row and
+	// fencing history so the next acquisition must advance the epoch.
+	ReleaseFleetRuntimeLease(ctx context.Context, arg ReleaseFleetRuntimeLeaseParams) (int64, error)
 	// Explicit removal permits a prompt transfer, but cannot release a board still
 	// reported elsewhere in this same poll (including unlocated inventory).
 	ReleaseHashboardObservations(ctx context.Context, arg ReleaseHashboardObservationsParams) error
@@ -2139,6 +2171,11 @@ type Querier interface {
 	RevokeOrganizationInvitation(ctx context.Context, arg RevokeOrganizationInvitationParams) (int64, error)
 	RevokePermissionFromRole(ctx context.Context, arg RevokePermissionFromRoleParams) error
 	RevokeSession(ctx context.Context, arg RevokeSessionParams) error
+	SaveMiningGroupState(ctx context.Context, arg SaveMiningGroupStateParams) error
+	// A successful RPC can still leave a blocked operation (including FAILED
+	// transfers). Only a successful reconciliation outcome resets the backoff.
+	// Guard the workflow identity so delayed bookkeeping cannot affect a new request.
+	ScheduleMiningGroupReconciliation(ctx context.Context, arg ScheduleMiningGroupReconciliationParams) error
 	SetCurtailmentAutomationActiveEvent(ctx context.Context, arg SetCurtailmentAutomationActiveEventParams) (int64, error)
 	SetCurtailmentAutomationExecutionError(ctx context.Context, arg SetCurtailmentAutomationExecutionErrorParams) error
 	SetCurtailmentAutomationRestoreStarted(ctx context.Context, arg SetCurtailmentAutomationRestoreStartedParams) error
@@ -2151,6 +2188,7 @@ type Querier interface {
 	SetDevicePairingAuthNeededIfNotPaired(ctx context.Context, deviceID int64) (int64, error)
 	SetFirmwareRolloutControllerWait(ctx context.Context, arg SetFirmwareRolloutControllerWaitParams) error
 	SetFleetNodeEnrollmentStatus(ctx context.Context, arg SetFleetNodeEnrollmentStatusParams) (int64, error)
+	SetHashboardPoolIntent(ctx context.Context, arg SetHashboardPoolIntentParams) error
 	SetHostedAccountAncestorGrant(ctx context.Context, arg SetHostedAccountAncestorGrantParams) error
 	SetHostedAccountAsset(ctx context.Context, arg SetHostedAccountAssetParams) (int64, error)
 	SetHostedAccountMembership(ctx context.Context, arg SetHostedAccountMembershipParams) error
@@ -2229,7 +2267,8 @@ type Querier interface {
 	// Soft-deletes a discovered_device record. Used to clean up orphaned records
 	// after device reconciliation during subnet migration.
 	SoftDeleteDiscoveredDeviceByIdentifier(ctx context.Context, arg SoftDeleteDiscoveredDeviceByIdentifierParams) error
-	// Soft-deletes discovered_device records linked to the specified devices.
+	// Keep a shared discovery record while another live device still owns it.
+	// Grouped controllers must rebuild their saved routes after explicit unpairing.
 	SoftDeleteDiscoveredDevicesForDeletedDevices(ctx context.Context, arg SoftDeleteDiscoveredDevicesForDeletedDevicesParams) error
 	SoftDeleteFleetNode(ctx context.Context, arg SoftDeleteFleetNodeParams) (int64, error)
 	SoftDeleteFleetNodesForExpiredEnrollments(ctx context.Context, deletedAt sql.NullTime) (int64, error)
@@ -2324,6 +2363,7 @@ type Querier interface {
 	UndeleteOrganization(ctx context.Context, id int64) error
 	UndeleteRole(ctx context.Context, id int64) error
 	UnlockTelemetrySeedMaintenance(ctx context.Context) error
+	// A remaining cloud pairing or another inventory owner keeps its saved routes.
 	UnpairDevice(ctx context.Context, arg UnpairDeviceParams) (int64, error)
 	UnpairDevicesForFleetNodeRevocation(ctx context.Context, arg UnpairDevicesForFleetNodeRevocationParams) (int64, error)
 	// Reopens convergence for verified miners the enforcement loop sees drifting

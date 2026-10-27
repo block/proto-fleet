@@ -37,6 +37,7 @@ import (
 	"github.com/block/proto-fleet/server/generated/grpc/maintenance/v1/maintenancev1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/marketdata/v1/marketdatav1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/minercommand/v1/minercommandv1connect"
+	"github.com/block/proto-fleet/server/generated/grpc/mininggroups/v1/mininggroupsv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/networkinfo/v1/networkinfov1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/onboarding/v1/onboardingv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/pairing/v1/pairingv1connect"
@@ -82,6 +83,7 @@ var registeredServices = []struct {
 	{buildingsv1connect.BuildingServiceName, reflect.TypeOf((*buildingsv1connect.BuildingServiceHandler)(nil)).Elem()},
 	{collectionv1connect.DeviceCollectionServiceName, reflect.TypeOf((*collectionv1connect.DeviceCollectionServiceHandler)(nil)).Elem()},
 	{containersv1connect.ContainerServiceName, reflect.TypeOf((*containersv1connect.ContainerServiceHandler)(nil)).Elem()},
+	{mininggroupsv1connect.MiningGroupServiceName, reflect.TypeOf((*mininggroupsv1connect.MiningGroupServiceHandler)(nil)).Elem()},
 	{fleetinventoryv1connect.FleetInventoryServiceName, reflect.TypeOf((*fleetinventoryv1connect.FleetInventoryServiceHandler)(nil)).Elem()},
 	{curtailmentv1connect.CurtailmentServiceName, reflect.TypeOf((*curtailmentv1connect.CurtailmentServiceHandler)(nil)).Elem()},
 	{device_setv1connect.DeviceSetServiceName, reflect.TypeOf((*device_setv1connect.DeviceSetServiceHandler)(nil)).Elem()},
@@ -289,4 +291,8 @@ func locateMainGo(t *testing.T) string {
 	_, err := os.Stat(mainPath)
 	require.NoError(t, err, "expected main.go at %s", mainPath)
 	return mainPath
+}
+
+func TestRPCContract_OrdinaryPoolUpdatesUsePoolUpdatePermission(t *testing.T) {
+	require.Equal(t, authz.PermMinerUpdatePools, middleware.ProcedurePermissions[minercommandv1connect.MinerCommandServiceUpdateMiningPoolsProcedure])
 }

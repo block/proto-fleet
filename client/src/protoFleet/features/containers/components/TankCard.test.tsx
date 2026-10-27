@@ -11,7 +11,8 @@ const renderCard = (overrides: Partial<TankCardProps> = {}) => {
     modules: ["healthy"],
     on: true,
     onToggle: vi.fn(),
-    stats: ["3/3 boards"],
+    moduleSummary: "1 module hashing",
+    stats: ["60.0 °C", "12.3 kW"],
     ...overrides,
   };
 

@@ -96,7 +96,7 @@ describe("owner Clients directory", () => {
     const user = userEvent.setup();
     await screen.findByRole("link", { name: "Existing client" });
     expect(screen.getByRole("columnheader", { name: "Client" })).toBeInTheDocument();
-    expect(screen.getByRole("columnheader", { name: "Assigned assets" })).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "Allocated assets" })).toBeInTheDocument();
     expect(screen.getByRole("columnheader", { name: "Logins" })).toBeInTheDocument();
     expect(screen.getByText("3 miners · 12 modules")).toBeInTheDocument();
     expect(screen.getByText("Modules in 2 containers")).toBeInTheDocument();
@@ -112,6 +112,15 @@ describe("owner Clients directory", () => {
     expect(within(dialog).getByRole("button", { name: "Create client" })).toBeDisabled();
     await user.type(within(dialog).getByLabelText("Client name"), "New client");
     await user.click(within(dialog).getByRole("button", { name: "Create client" }));
+    await screen.findByRole("link", { name: "Allocate assets" });
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(calls.some((call) => call.method === "CreateInvitation")).toBe(false);
+    expect(screen.getByRole("link", { name: "Allocate assets" })).toHaveAttribute(
+      "href",
+      `/fleet/miners?allocateTo=${newClient.accountId}`,
+    );
+    await user.click(screen.getByRole("button", { name: "Team" }));
+    await user.click(await screen.findByRole("button", { name: "Invite team member" }));
     const invitation = await screen.findByRole("dialog", { name: "Create invitation" });
     expect(within(invitation).getByText("Invite someone to New client.")).toBeInTheDocument();
     expect(within(invitation).getByRole("button", { name: "Role" })).toHaveTextContent("Account administrator");
@@ -176,7 +185,7 @@ describe("owner Clients directory", () => {
     const user = userEvent.setup();
     const row = (await screen.findByRole("link", { name: "Existing client" })).closest("tr")!;
     await user.click(within(row).getByRole("cell", { name: "Active" }));
-    await screen.findByRole("link", { name: "Assign from Fleet" });
+    await screen.findByRole("link", { name: "Allocate assets" });
     expect(calls).toContainEqual(
       expect.objectContaining({
         method: "ListAccountAssets",
@@ -192,7 +201,7 @@ describe("owner Clients directory", () => {
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Save permissions" })).not.toBeInTheDocument();
     expect(screen.getByRole("checkbox", { name: "Manage memberships" })).toBeDisabled();
-    await user.click(screen.getByRole("checkbox", { name: "Change pools" }));
+    await user.click(screen.getByRole("checkbox", { name: "Select stored pool profile" }));
     await waitFor(() =>
       expect(calls).toContainEqual({
         method: "ConfigureAccount",
@@ -219,13 +228,14 @@ describe("owner Clients directory", () => {
     await user.click(await screen.findByRole("link", { name: "Invite team member" }));
     const invitation = await screen.findByRole("dialog", { name: "Create invitation" });
     expect(within(invitation).getByText("Invite someone to Existing client.")).toBeInTheDocument();
-    expect(within(invitation).getByRole("button", { name: "Role" })).toHaveTextContent("Viewer");
+    // The client has no members yet, so its first invitation defaults to administrator.
+    expect(await within(invitation).findByRole("button", { name: "Role" })).toHaveTextContent("Account administrator");
     await user.click(within(invitation).getByRole("button", { name: "Create invitation" }));
     await screen.findByLabelText("Invitation code");
     expect(calls).toContainEqual({
       method: "CreateInvitation",
       account: clientId,
-      body: { accountId: clientId, role: "ACCOUNT_ROLE_VIEWER", expiresInSeconds: 86400 },
+      body: { accountId: clientId, role: "ACCOUNT_ROLE_ADMINISTRATOR", expiresInSeconds: 86400 },
     });
     expect(calls.some((call) => call.method === "CreateAccount")).toBe(false);
   });

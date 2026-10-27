@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { create } from "@bufbuild/protobuf";
+import HashboardPoolAction from "./HashboardPoolAction";
 import { ModuleIssues } from "./ModuleIssues";
 import { ModuleStatus } from "./ModuleStatus";
 import { getModuleStatusPresentation } from "./moduleStatusPresentation";
@@ -76,7 +77,15 @@ export function HashboardIssues({
   );
 }
 
-export function HashboardCell({ slot, column }: { slot: HashboardSlot; column: string }) {
+export function HashboardCell({
+  slot,
+  column,
+  deviceIdentifier,
+}: {
+  slot: HashboardSlot;
+  column: string;
+  deviceIdentifier?: string;
+}) {
   const unit = useTemperatureUnit();
   const board = slot.occupancy === "occupied" ? slot.board : undefined;
   const identity = board?.serial || board?.macAddress;
@@ -84,9 +93,12 @@ export function HashboardCell({ slot, column }: { slot: HashboardSlot; column: s
   switch (column) {
     case "name":
       return (
-        <span className="block truncate pl-8" title={name}>
-          {name}
-        </span>
+        <div className="flex items-center justify-between gap-2 pl-8">
+          <span className="truncate" title={name}>
+            {name}
+          </span>
+          {deviceIdentifier ? <HashboardPoolAction deviceIdentifier={deviceIdentifier} slot={slot} /> : null}
+        </div>
       );
     case "status":
       if (slot.occupancy === "empty") return <span>Empty slot</span>;

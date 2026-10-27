@@ -6,7 +6,10 @@ import { MinerListFilterSchema } from "@/protoFleet/api/generated/fleetmanagemen
 import { DeviceStatus, type UptimeStatusCount } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
 import ChartWidget from "@/protoFleet/features/dashboard/components/ChartWidget";
 import { SegmentedMetricPanel } from "@/protoFleet/features/dashboard/components/SegmentedMetricPanel";
-import type { SegmentConfig } from "@/protoFleet/features/dashboard/components/SegmentedMetricPanel/types";
+import type {
+  DashboardAudience,
+  SegmentConfig,
+} from "@/protoFleet/features/dashboard/components/SegmentedMetricPanel/types";
 import { encodeFilterToURL } from "@/protoFleet/features/fleetManagement/utils/filterUrlParams";
 import { FleetDuration } from "@/shared/components/DurationSelector";
 import SkeletonBar from "@/shared/components/SkeletonBar";
@@ -32,9 +35,20 @@ interface UptimePanelProps {
   duration: FleetDuration;
   /** Uptime status counts — undefined = not loaded yet */
   uptimeStatusCounts: UptimeStatusCount[] | undefined;
+  assetLabel?: string;
+  audience?: DashboardAudience;
+  expectedAssetCount?: number;
+  showActions?: boolean;
 }
 
-export function UptimePanel({ duration, uptimeStatusCounts }: UptimePanelProps) {
+export function UptimePanel({
+  duration,
+  uptimeStatusCounts,
+  audience = "fleet",
+  assetLabel = audience === "account" ? "asset" : "miner",
+  expectedAssetCount,
+  showActions = true,
+}: UptimePanelProps) {
   const navigate = useNavigate();
 
   const uptimeSegmentConfig: SegmentConfig = useMemo(
@@ -50,7 +64,7 @@ export function UptimePanel({ duration, uptimeStatusCounts }: UptimePanelProps) 
         color: "var(--color-intent-warning-fill)",
         label: "Degraded",
         displayInBreakdown: true,
-        showButton: true,
+        showButton: showActions,
         buttonVariant: "secondary",
         index: 1,
         onClick: () => navigate(needsAttentionRoute),
@@ -59,13 +73,13 @@ export function UptimePanel({ duration, uptimeStatusCounts }: UptimePanelProps) 
         color: "var(--color-core-primary-10)",
         label: "Not hashing",
         displayInBreakdown: true,
-        showButton: true,
+        showButton: showActions,
         buttonVariant: "secondary",
         index: 0,
         onClick: () => navigate(notHashingRoute),
       },
     }),
-    [navigate],
+    [navigate, showActions],
   );
 
   if (uptimeStatusCounts === undefined) {
@@ -91,10 +105,12 @@ export function UptimePanel({ duration, uptimeStatusCounts }: UptimePanelProps) 
   return (
     <SegmentedMetricPanel
       title="Uptime"
-      headlineGenerator={generateUptimeHeadline}
+      headlineGenerator={(data) => generateUptimeHeadline(data, { assetLabel, audience, expectedAssetCount })}
       chartData={uptimeStatusCounts}
       segmentConfig={uptimeSegmentConfig}
       duration={duration}
+      assetLabel={assetLabel}
+      populationLabel={audience === "account" ? "reporting assets" : "fleet"}
     />
   );
 }

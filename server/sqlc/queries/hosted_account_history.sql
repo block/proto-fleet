@@ -23,7 +23,8 @@ WITH intervals AS MATERIALIZED (
 ), samples AS (
  SELECT i.kind,i.asset_id,m.time,COALESCE(m.site_id,0)::bigint AS site_id,
  m.hash_rate_hs AS hashrate_hs,m.power_w,m.temp_c AS temperature_c,
- COALESCE(m.hash_rate_hs>=0 AND m.hash_rate_hs<'Infinity'::float8 AND m.power_w>=0 AND m.power_w<'Infinity'::float8,false) AS complete, true AS efficiency_candidate
+ COALESCE(m.hash_rate_hs>=0 AND m.hash_rate_hs<'Infinity'::float8 AND m.power_w>=0 AND m.power_w<'Infinity'::float8,false) AS complete, true AS efficiency_candidate,
+ NULL::integer AS uptime_state
  FROM intervals i
  JOIN device_metrics m ON i.kind=5 AND m.device_identifier=i.device_identifier AND COALESCE(m.site_id,0)=i.site_id
   AND m.time>=i.started_at AND (i.ended_at IS NULL OR m.time<i.ended_at)
@@ -38,7 +39,8 @@ WITH intervals AS MATERIALIZED (
   AND (m.coverage->metric.name->>'expected')::int>0
   AND (m.coverage->metric.name->>'reporting')::int=(m.coverage->metric.name->>'expected')::int
   AND metric.value>=0 AND metric.value<'Infinity'::float8,false) END,
- metric.name IN ('hashrate','power') AS efficiency_candidate
+ metric.name IN ('hashrate','power') AS efficiency_candidate,
+ NULL::integer AS uptime_state
  FROM intervals i
  JOIN container_module_metrics m ON i.kind=6 AND m.module_id=i.asset_id AND COALESCE(m.site_id,0)=i.site_id
   -- The stored time may come from a stale PSU while board sources are fresh.
@@ -67,12 +69,43 @@ WITH intervals AS MATERIALIZED (
   AND m.collected_at>=i.started_at AND (i.ended_at IS NULL OR m.collected_at<i.ended_at)
   AND m.collected_at>=sqlc.arg(start_time)::timestamptz AND m.collected_at<sqlc.arg(end_time)::timestamptz
  )
-
+ UNION ALL
+ -- Module health is independent of numeric metric sources. Authorize the
+ -- observed state, not today's inventory state or a positive hashrate.
+ SELECT i.kind,i.asset_id,s.state_observed_at,COALESCE(s.site_id,0)::bigint,
+ NULL::float8,NULL::float8,NULL::float8,NULL::boolean,false,
+ CASE WHEN s.state='active' THEN 3
+  WHEN s.state IN ('error','needs_mining_pool','updating','reboot_required') THEN 2
+  WHEN s.state='offline' THEN 0
+  WHEN s.state IN ('inactive','maintenance') THEN 1
+  ELSE 4 END::integer AS uptime_state
+ FROM intervals i
+ JOIN container_module_diagnostic_observation s ON i.kind=6 AND s.module_id=i.asset_id
+  AND COALESCE(s.site_id,0)=i.site_id
+  AND s.collected_at>=sqlc.arg(start_time)::timestamptz-INTERVAL '5 seconds'
+  AND s.collected_at<sqlc.arg(end_time)::timestamptz+INTERVAL '2 minutes'
+  AND s.collected_at>=i.started_at-INTERVAL '5 seconds'
+  AND (i.ended_at IS NULL OR s.collected_at<i.ended_at+INTERVAL '2 minutes')
+  AND s.state_observed_at>s.collected_at-INTERVAL '2 minutes'
+  AND s.state_observed_at<=s.collected_at+INTERVAL '5 seconds'
+  AND (s.attribution_since IS NULL OR s.state_observed_at>=s.attribution_since)
+  AND s.state_observed_at>=i.started_at AND (i.ended_at IS NULL OR s.state_observed_at<i.ended_at)
+  AND s.state_observed_at>=sqlc.arg(start_time)::timestamptz AND s.state_observed_at<sqlc.arg(end_time)::timestamptz
+ UNION ALL
+ SELECT i.kind,i.asset_id,s.time,COALESCE(s.site_id,0)::bigint,
+ NULL::float8,NULL::float8,NULL::float8,NULL::boolean,false,s.state::integer
+ FROM intervals i
+ JOIN miner_state_snapshots s ON i.kind=5 AND s.device_identifier=i.device_identifier
+  AND s.org_id=sqlc.arg(organization_id)::bigint AND COALESCE(s.site_id,0)=i.site_id
+  AND s.time>=i.started_at AND (i.ended_at IS NULL OR s.time<i.ended_at)
+  AND s.time>=sqlc.arg(start_time)::timestamptz AND s.time<sqlc.arg(end_time)::timestamptz
 ), asset_buckets AS (
 SELECT kind,asset_id,date_bin(make_interval(secs=>sqlc.arg(bucket_seconds)::int),time,sqlc.arg(start_time)::timestamptz)::timestamptz AS bucket,
  COALESCE(avg(hashrate_hs) FILTER(WHERE hashrate_hs>=0 AND hashrate_hs<'Infinity'::float8),0)::float8 AS hashrate_hs,
  COALESCE(avg(power_w) FILTER(WHERE power_w>=0 AND power_w<'Infinity'::float8),0)::float8 AS power_w,
  COALESCE(avg(temperature_c) FILTER(WHERE temperature_c>'-Infinity'::float8 AND temperature_c<'Infinity'::float8),0)::float8 AS temperature_c,
+ last(temperature_c,time) FILTER(WHERE temperature_c>'-Infinity'::float8 AND temperature_c<'Infinity'::float8) AS latest_temperature_c,
+ last(uptime_state,time) FILTER(WHERE uptime_state IS NOT NULL) AS uptime_state,
  count(*) FILTER(WHERE hashrate_hs>=0 AND hashrate_hs<'Infinity'::float8)>0 AS has_hashrate,
  count(*) FILTER(WHERE power_w>=0 AND power_w<'Infinity'::float8)>0 AS has_power,
  count(*) FILTER(WHERE temperature_c>'-Infinity'::float8 AND temperature_c<'Infinity'::float8)>0 AS has_temperature,
@@ -95,6 +128,13 @@ SELECT bucket,
  count(*) FILTER(WHERE has_hashrate)::bigint AS hashrate_reporting_count,
  count(*) FILTER(WHERE has_power)::bigint AS power_reporting_count,
  count(*) FILTER(WHERE has_temperature)::bigint AS temperature_reporting_count,
+ count(*) FILTER(WHERE latest_temperature_c<0)::int AS temperature_cold_count,
+ count(*) FILTER(WHERE latest_temperature_c>=0 AND latest_temperature_c<70)::int AS temperature_ok_count,
+ count(*) FILTER(WHERE latest_temperature_c>=70 AND latest_temperature_c<90)::int AS temperature_hot_count,
+ count(*) FILTER(WHERE latest_temperature_c>=90)::int AS temperature_critical_count,
+ count(*) FILTER(WHERE uptime_state=3)::int AS status_hashing_count,
+ count(*) FILTER(WHERE uptime_state=2)::int AS status_broken_count,
+ count(*) FILTER(WHERE uptime_state IN (0,1))::int AS status_not_hashing_count,
  count(*) FILTER(WHERE has_hashrate AND has_power)::bigint AS paired_reporting_count,
  COALESCE(sum(hashrate_hs) FILTER(WHERE has_hashrate AND has_power),0)::float8 AS paired_hashrate_hs,
  COALESCE(sum(power_w) FILTER(WHERE has_hashrate AND has_power),0)::float8 AS paired_power_w,

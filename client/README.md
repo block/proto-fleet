@@ -569,11 +569,11 @@ mutation RPCs. The authenticated host identity and audit attribution stay intact
 Client users with one accessible account see its
 name as plain text; users with multiple accounts retain an account picker for their
 workspaces at `/accounts/:accountId/:section`. Customers and subclients land on
-Home, with Fleet for their assigned mining assets and Settings for administration.
+Home, with Fleet for their allocated mining assets and Settings for administration.
 Settings groups Pools under Fleet, Team, Access and Subclients under Admin,
 and Preferences under Account, using the API’s effective capabilities. Desktop shows a Settings sidebar; phones
 show the same sections in the expandable navigation drawer. Access includes
-account details, renaming, the current user’s permissions, ancestor grants and API
+account details, renaming, the current user’s permissions, Host and parent access, and API
 keys; account status appears only when suspended. Settings opens the first available account
 section. Preferences reuses personal theme and temperature-unit settings, persisted
 in the browser. All client roles can change them; host previews change only the
@@ -582,7 +582,10 @@ respect the selected temperature unit. `/accounts` lists accessible workspaces.
 Host management retains Fleet navigation under Settings → Admin. Clicking a client
 name or row opens `/accounts/:accountId/manage/assets`, with Mining assets, Team,
 Client settings and Permissions tabs. Permission checkboxes save immediately, roll back failed updates, and lock while
-a request is pending. Suspension and resumption are separate confirmed actions. The Team tab contains **Invite team member**. Mining
+a request is pending. Suspension and resumption are separate confirmed actions. Creating a client opens Mining assets without creating an invitation. **Allocate assets** opens
+Fleet with the client preselected for allocation; successful allocation returns to client
+management. The Team tab contains **Invite team member**; the first invitation defaults
+to Account administrator when the team is empty. Inviting before allocation is also supported. Mining
 assets and permission limits use host authority; private team and account settings
 continue to require the client’s grants. **View as client** is an explicit preview
 action on the management page and in the list menu. The owner-facing `/accounts` page directly lists managed clients
@@ -624,8 +627,13 @@ summaries cover the permitted allocated estate and exclude whole-site capacity
 and plant power.
 
 Overview reuses Dashboard health tiles and performance panels, with 1h (default) and
-24h ranges, measured temperature and uptime, and server-scoped allocation/site
-filters. Entire estate, Directly managed and named subclient filters retain the
+24h ranges, segmented temperature and uptime distributions, and server-scoped allocation/site
+filters. It refreshes automatically and on window focus. The status panels reuse
+the host charts, label percentages against reporting assets, and omit host-only
+drilldowns. Temperature bands use each asset's latest valid authorized observation;
+miner uptime uses recorded state snapshots, while module uptime uses authorized
+diagnostic state observations (hashrate alone never marks a module hashing).
+Entire estate, Directly managed and named subclient filters retain the
 parent's navigation and permissions. Historical attribution uses the allocation
 and delegation in effect when each sample was recorded. Migration 1031 begins
 prospective interval tracking; earlier ownership is unknown and is never inferred
@@ -646,10 +654,10 @@ retained samples. History does not create a separate historical detail page.
 Mining assets shows only the selected account’s allocation, including its
 subclients. Its Name, Model, Status, Hashrate, Efficiency, Power, and Temp columns
 use Fleet's labels, widths, metric cells, and module coverage presentation.
-The Fleet Add Filter menu supports Model, Site, Container, and Assigned to.
+The account Fleet Add Filter menu supports Model, Site, Container, and Allocated to.
 Choices cover the full authorized inventory across pages; server-side filtering
 combines criteria before pagination and excludes redacted physical metadata.
-Assigned to remains limited to viewers with assignment-management visibility.
+Allocated to remains limited to viewers with assignment-management visibility.
 Column visibility and order are saved per login and parent account through the
 same Manage columns dialog as Fleet. Sorting applies across the inventory with
 missing readings last; cursors are bound to the account, user, filters, and sort.
@@ -658,15 +666,16 @@ limited to the visible page and exposes only assign/recall actions. Model names
 belong to miners; a module never inherits its controller's model or network details.
 Fresh temperature and reported efficiency follow the existing mining-asset view's
 freshness and site-policy redaction. It separates commercial reporting allocation from physical placement.
-Hosts select miners/modules in Fleet and choose **Assign to account**; Fleet’s
-**Assigned to** column opens the customer’s allocation inventory under the host’s
-authority. Clients and Subclients also open these focused inventories without
+Hosts select miners/modules in Fleet and choose **Allocate to client** from More
+(Actions on smaller screens). Fleet’s configurable **Allocated to** column opens
+the same client management page as Clients, under host authority. Allocations
+to subclients resolve to their direct client in the host view. Clients and Subclients also open these focused inventories without
 requiring access to a child’s private workspace. A parent can recall from the
 receiving account’s inventory, including a suspended child’s retained allocations.
 An account’s own inventory is read-only; administrators can filter by subclient
 and open **Manage subclient assets** for parent-authorized recall. An account
 cannot surrender its own allocation using its own delegation grant.
-Customer administrators open **Assign assets** from Subclients and choose only
+Customer administrators open **Allocate assets** from Subclients and choose only
 resources held directly by their account. Host assignment and customer delegation
 use separate pickers from the inventory’s recall controls. Recall returns the selected
 allocation to its parent. Whole-customer recall also clears its subclient
@@ -708,7 +717,8 @@ are not retained across reloads. A signed-in recipient can accept with the
 current login or choose **Use a different login** to sign out first. Optional
 links use
 `/account-invitation#token=…` at the sender’s current Fleet address; recipients
-must be able to reach that address. The page removes the fragment before
+must be able to reach that address. **Copy invitation code** is the primary sharing
+action; **Copy invitation link** is secondary, with separate copied states. The page removes the fragment before
 previewing the invitation. New API-key secrets are also shown once for manual copying. Saved pool passwords are
 never read back; a revision can retain them only for unchanged slot destinations
 and usernames. Incoming profiles pin an immutable revision and require the
@@ -734,3 +744,9 @@ metadata that the current API does not expose.
 
 Hashboard-level allocation, automatic allocation of new hardware, customer firmware
 commands, pool application and downloadable reconciliation exports remain unsupported.
+
+Account permissions distinguish **Manage pool configurations** from **Select stored pool
+profile**; profile selection does not apply pools to equipment. New account API keys
+offer View and optional saved-pool management, while reporting and account
+administration require a session. See [Hosted account permissions](../docs/development/hosted-account-permissions.md)
+for the operation and authentication matrix.

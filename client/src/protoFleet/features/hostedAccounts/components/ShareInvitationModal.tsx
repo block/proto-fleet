@@ -14,6 +14,8 @@ export const ShareInvitationModal = ({ token, onDismiss }: { token: string; onDi
       label="Invitation code"
       value={token}
       onDismiss={onDismiss}
+      copyVariant="primary"
+      copiedText="Invitation code copied"
       description="Send this code to the person you’re inviting. In Fleet, they choose “Use an invitation code” and enter it."
       helperText="Copy this code before closing. You won’t be able to view it again."
     >
@@ -22,7 +24,7 @@ export const ShareInvitationModal = ({ token, onDismiss }: { token: string; onDi
       </p>
       <Button
         variant="textOnly"
-        text={copied ? "Link copied" : "Copy link"}
+        text={copied ? "Invitation link copied" : "Copy invitation link"}
         onClick={() => {
           void copyToClipboard(link.toString()).then(
             () => {

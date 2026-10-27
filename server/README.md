@@ -98,6 +98,26 @@ records, retain their IDs in `legacy_module_ids` with a null canonical `module_i
 new polls cannot silently choose or merge them. The migration establishes current
 placement evidence only from its upgrade boundary.
 
+## Mining-group reconciliation
+
+Mining-group changes run as an HA-managed background job: the passive Fleet
+server does not reconcile them, and loss of active ownership cancels the job.
+Normal progress uses the three-second worker cadence. Up to eight containers
+reconcile concurrently, with at most one task per container. Each tick fills
+available slots without waiting for slower containers to finish. Shutdown
+cancels and waits for all running tasks before the worker returns.
+Consecutive failures use exponential retry delays starting at five seconds and
+capped at five minutes,
+with 80–100% jitter. Retry timing is stored with the operation and survives
+failover; dialog observations do not reset it. Successful progress resets the
+delay. A controller reporting a failed transfer remains blocked and backs off,
+even when the status request itself succeeds.
+
+Retries retain the exact saved request and controller operation identity.
+Backoff never releases a device-write admission or marks unresolved work
+complete. A database outage or a crash before retry bookkeeping commits can
+cause an earlier retry; the saved physical operation remains unchanged.
+
 ## Firmware reboot reconciliation
 
 Proto miner telemetry clears `REBOOT_REQUIRED` when sampled uptime proves the

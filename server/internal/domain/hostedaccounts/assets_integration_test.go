@@ -731,32 +731,73 @@ func TestAccountMiningAssignmentGuardsLeaveLedgerUnchanged(t *testing.T) {
 }
 
 func TestAccountMiningPreservesNodeOfflineState(t *testing.T) {
-	f := setup(t)
-	client := f.client(t, "Customer", f.user, hostedaccounts.AllCapabilities)
-	miner := f.miningDevice(t, commonpb.DeviceClass_DEVICE_CLASS_RIG)
-	require.NoError(t, f.allocate(t, f.host, f.root, client.AccountID, pb.AssetAssignmentIntent_ASSET_ASSIGNMENT_INTENT_ASSIGN, selected(pb.MiningAssetKind_MINING_ASSET_KIND_MINER, miner, 0)))
-	var node int64
-	require.NoError(t, f.db.QueryRowContext(t.Context(), `INSERT INTO fleet_node(org_id,name,identity_pubkey,encryption_pubkey,enrollment_status,last_seen_at) VALUES($1,'Offline node',$2,$3,'CONFIRMED',now()-interval '3 minutes') RETURNING id`, f.org, []byte("hosted-test-node"), make([]byte, 32)).Scan(&node))
-	_, err := f.db.ExecContext(t.Context(), `INSERT INTO fleet_node_heartbeat(fleet_node_id,org_id,last_seen_at) VALUES($1,$2,now()-interval '3 minutes')`, node, f.org)
-	require.NoError(t, err)
-	_, err = f.db.ExecContext(t.Context(), `INSERT INTO fleet_node_device(fleet_node_id,device_id,org_id) VALUES($1,$2,$3)`, node, miner, f.org)
-	require.NoError(t, err)
-	_, err = f.db.ExecContext(t.Context(), `INSERT INTO device_status(device_id,status,status_timestamp) VALUES($1,'ACTIVE',clock_timestamp())`, miner)
-	require.NoError(t, err)
-	host, err := f.svc.MiningSummary(t.Context(), f.host, f.org, f.root)
-	require.NoError(t, err)
-	require.EqualValues(t, 1, host.Totals.OfflineCount)
-	summary, err := f.svc.MiningSummary(t.Context(), f.user, f.org, client.AccountID)
-	require.NoError(t, err)
-	require.EqualValues(t, 1, summary.Totals.OfflineCount)
-	require.Zero(t, summary.Totals.HashingCount)
-	assets, err := f.svc.ListAssets(t.Context(), f.user, f.org, &pb.ListAccountAssetsRequest{AccountId: client.AccountID})
-	require.NoError(t, err)
-	require.Len(t, assets.Assets, 1)
-	require.Equal(t, "offline", assets.Assets[0].State)
-	detail, err := f.svc.AssetDetail(t.Context(), f.user, f.org, &pb.GetAccountAssetDetailRequest{AccountId: client.AccountID, Asset: &pb.MiningAssetReference{Kind: pb.MiningAssetKind_MINING_ASSET_KIND_MINER, Id: miner}})
-	require.NoError(t, err)
-	require.Equal(t, "offline", detail.Asset.State)
+	for _, test := range []struct {
+		name                      string
+		baselineAge, heartbeatAge time.Duration
+		offline                   bool
+	}{
+		{name: "fresh heartbeat overrides stale baseline", baselineAge: 3 * time.Minute},
+		{name: "stale heartbeat overrides fresh baseline", heartbeatAge: 3 * time.Minute, offline: true},
+		{name: "stale node", baselineAge: 3 * time.Minute, heartbeatAge: 3 * time.Minute, offline: true},
+		{name: "fresh node"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			f := setup(t)
+			client := f.client(t, "Customer", f.user, hostedaccounts.AllCapabilities)
+			miner := f.miningDevice(t, commonpb.DeviceClass_DEVICE_CLASS_RIG)
+			require.NoError(t, f.allocate(t, f.host, f.root, client.AccountID, pb.AssetAssignmentIntent_ASSET_ASSIGNMENT_INTENT_ASSIGN, selected(pb.MiningAssetKind_MINING_ASSET_KIND_MINER, miner, 0)))
+			var node int64
+			now := time.Now().UTC()
+			require.NoError(t, f.db.QueryRowContext(t.Context(), `INSERT INTO fleet_node(org_id,name,identity_pubkey,encryption_pubkey,enrollment_status,last_seen_at) VALUES($1,'Test node',$2,$3,'CONFIRMED',$4) RETURNING id`, f.org, []byte("hosted-test-node"), make([]byte, 32), now.Add(-test.baselineAge)).Scan(&node))
+			_, err := f.db.ExecContext(t.Context(), `INSERT INTO fleet_node_heartbeat(fleet_node_id,org_id,last_seen_at) VALUES($1,$2,$3)`, node, f.org, now.Add(-test.heartbeatAge))
+			require.NoError(t, err)
+			_, err = f.db.ExecContext(t.Context(), `INSERT INTO fleet_node_device(fleet_node_id,device_id,org_id) VALUES($1,$2,$3)`, node, miner, f.org)
+			require.NoError(t, err)
+			_, err = f.db.ExecContext(t.Context(), `INSERT INTO device_status(device_id,status,status_timestamp) VALUES($1,'ACTIVE',clock_timestamp())`, miner)
+			require.NoError(t, err)
+			_, err = f.db.ExecContext(t.Context(), `INSERT INTO device_metrics(time,device_identifier,site_id,hash_rate_hs,power_w) SELECT clock_timestamp(),device_identifier,site_id,100e12,3000 FROM device WHERE id=$1`, miner)
+			require.NoError(t, err)
+			checkAsset := func(asset *pb.AccountAsset) {
+				t.Helper()
+				if test.offline {
+					require.Equal(t, "offline", asset.State)
+					require.Nil(t, asset.HashrateHs)
+					require.Nil(t, asset.PowerW)
+				} else {
+					require.Equal(t, "active", asset.State)
+					require.NotNil(t, asset.HashrateHs)
+					require.Equal(t, 100e12, *asset.HashrateHs)
+					require.NotNil(t, asset.PowerW)
+					require.Equal(t, 3000.0, *asset.PowerW)
+				}
+			}
+			for _, scope := range []struct {
+				actor   int64
+				account string
+			}{{f.host, f.root}, {f.user, client.AccountID}} {
+				summary, err := f.svc.MiningSummary(t.Context(), scope.actor, f.org, scope.account)
+				require.NoError(t, err)
+				if test.offline {
+					require.EqualValues(t, 1, summary.Totals.OfflineCount)
+					require.Zero(t, summary.Totals.HashingCount)
+					require.Nil(t, summary.Totals.HashrateHs)
+					require.Nil(t, summary.Totals.PowerW)
+				} else {
+					require.Zero(t, summary.Totals.OfflineCount)
+					require.EqualValues(t, 1, summary.Totals.HashingCount)
+					require.Equal(t, 100e12, summary.Totals.GetHashrateHs())
+					require.Equal(t, 3000.0, summary.Totals.GetPowerW())
+				}
+				assets, err := f.svc.ListAssets(t.Context(), scope.actor, f.org, &pb.ListAccountAssetsRequest{AccountId: scope.account})
+				require.NoError(t, err)
+				require.Len(t, assets.Assets, 1)
+				checkAsset(assets.Assets[0])
+				detail, err := f.svc.AssetDetail(t.Context(), scope.actor, f.org, &pb.GetAccountAssetDetailRequest{AccountId: scope.account, Asset: &pb.MiningAssetReference{Kind: pb.MiningAssetKind_MINING_ASSET_KIND_MINER, Id: miner}})
+				require.NoError(t, err)
+				checkAsset(detail.Asset)
+			}
+		})
+	}
 }
 
 func TestAccountMiningRepeatedModuleSourceDoesNotDuplicateAssets(t *testing.T) {

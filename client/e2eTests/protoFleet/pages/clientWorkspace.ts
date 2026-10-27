@@ -217,6 +217,59 @@ export class ClientWorkspacePage {
     await expect(this.page.getByRole("dialog")).toHaveCount(0);
   }
 
+  async createClient(name: string, accountId: string) {
+    await this.page.goto("/accounts");
+    await this.page.getByRole("button", { name: "Create client", exact: true }).click();
+    const dialog = this.page.getByRole("dialog", { name: "Create client", exact: true });
+    await dialog.getByRole("textbox", { name: "Client name", exact: true }).fill(name);
+    await dialog.getByRole("button", { name: "Create client", exact: true }).click();
+    await expect(this.page).toHaveURL(new RegExp(`/accounts/${accountId}/manage/assets$`));
+    await expect(this.page.getByRole("heading", { name, exact: true })).toBeVisible();
+    await expect(this.page.getByRole("dialog")).toHaveCount(0);
+    await expect(this.page.getByText("No mining assets", { exact: true })).toBeVisible();
+  }
+
+  async allocateFleetMiner(accountId: string, clientName: string, screenshotPath: string) {
+    const allocate = this.page.getByRole("link", { name: "Allocate assets", exact: true });
+    await expect(allocate).toHaveAttribute("href", `/fleet/miners?allocateTo=${accountId}`);
+    await allocate.click();
+    await expect(this.page).toHaveURL(new RegExp(`/fleet/miners\\?allocateTo=${accountId}$`));
+    const miner = this.page
+      .getByTestId("list-row")
+      .filter({ has: this.page.getByText("Allocation miner", { exact: true }) });
+    const other = this.page
+      .getByTestId("list-row")
+      .filter({ has: this.page.getByText("Other miner", { exact: true }) });
+    await expect(miner).toBeVisible();
+    await this.selectAssetFilter("model", "S21");
+    await expect(this.page).toHaveURL(new RegExp(`allocateTo=${accountId}(?:&|$)`));
+    await miner.getByRole("checkbox").check();
+    await expect(other.getByRole("checkbox")).not.toBeChecked();
+    await this.page.getByRole("button", { name: this.isMobile ? "Actions" : "More", exact: true }).click();
+    await this.page.getByRole("button", { name: "Allocate to client", exact: true }).click();
+    const dialog = this.page.getByRole("dialog", { name: "Allocate 1 asset?", exact: true });
+    await expect(dialog).toBeVisible();
+    await expect(dialog.getByRole("button", { name: "Allocate to client", exact: true })).toContainText(clientName);
+    const screenshot = await this.page.screenshot({ path: screenshotPath, animations: "disabled" });
+    await dialog.getByRole("button", { name: "Allocate 1 asset", exact: true }).click();
+    await expect(this.page).toHaveURL(new RegExp(`/accounts/${accountId}/manage/assets$`));
+    await expect(this.page.getByText("Allocation miner", { exact: true })).toBeVisible();
+    return screenshot;
+  }
+
+  async inviteClientAdministrator(accountId: string, name: string) {
+    await this.manageClientSection(accountId, "Team", "team");
+    await this.page.getByRole("button", { name: "Invite team member", exact: true }).click();
+    const dialog = this.page.getByRole("dialog", { name: "Create invitation", exact: true });
+    await expect(dialog.getByText(`Invite someone to ${name}.`, { exact: true })).toBeVisible();
+    await expect(dialog.getByRole("button", { name: "Role", exact: true })).toContainText("Account administrator");
+    await dialog.getByRole("button", { name: "Create invitation", exact: true }).click();
+    const share = this.page.getByRole("dialog", { name: "Share invitation", exact: true });
+    await expect(share.getByRole("textbox", { name: "Invitation code", exact: true })).toHaveValue("K7MP-4X9R");
+    await share.getByRole("button", { name: "Done", exact: true }).click();
+    await expect(share).toHaveCount(0);
+  }
+
   async manageClientSection(accountId: string, label: string, section: string) {
     await this.page
       .getByRole("navigation", { name: "Client sections", exact: true })

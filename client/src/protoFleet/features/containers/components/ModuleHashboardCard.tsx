@@ -2,6 +2,7 @@ import { useState } from "react";
 import { create, fromJson } from "@bufbuild/protobuf";
 import { TimestampSchema } from "@bufbuild/protobuf/wkt";
 import { HashboardCell, HashboardIssues } from "../HashboardCell";
+import HashboardPoolAction from "../HashboardPoolAction";
 import { isCurrentObservation } from "../moduleDetail";
 import {
   HashboardReadingSchema,
@@ -26,7 +27,15 @@ function isCurrentAsicTemperature(observedAt: unknown, now: number) {
   }
 }
 
-export default function ModuleHashboardCard({ slot, now }: { slot: HashboardSlot; now: number }) {
+export default function ModuleHashboardCard({
+  slot,
+  now,
+  deviceIdentifier,
+}: {
+  slot: HashboardSlot;
+  now: number;
+  deviceIdentifier?: string;
+}) {
   const unit = useTemperatureUnit();
   const occupied = slot.occupancy === "occupied" && isCurrentObservation(slot.observedAt, now);
   const board = occupied ? slot.board : undefined;
@@ -85,6 +94,11 @@ export default function ModuleHashboardCard({ slot, now }: { slot: HashboardSlot
         ) : null
       }
     >
+      {deviceIdentifier ? (
+        <div className="flex justify-end">
+          <HashboardPoolAction deviceIdentifier={deviceIdentifier} slot={slot} />
+        </div>
+      ) : null}
       {board ? (
         !current ? (
           <p role="status" className="text-200 text-text-primary-70">

@@ -32,11 +32,13 @@ interface WrapperArgs {
   attention: number;
   startOn: boolean;
   stats: string[];
+  moduleSummary: string;
+  reportingSummary?: string[];
   seed: number;
 }
 
 /** Interactive wrapper so the power toggle flips live in the story. */
-function InteractiveTankCard({ label, attention, startOn, stats, seed }: WrapperArgs) {
+function InteractiveTankCard({ label, attention, startOn, stats, moduleSummary, reportingSummary, seed }: WrapperArgs) {
   const [on, setOn] = useState(startOn);
   const modules = useMemo(() => makeModules(MODULES, attention, seed), [attention, seed]);
   return (
@@ -49,6 +51,8 @@ function InteractiveTankCard({ label, attention, startOn, stats, seed }: Wrapper
       onToggle={setOn}
       onInfo={() => {}}
       stats={stats}
+      moduleSummary={moduleSummary}
+      reportingSummary={reportingSummary}
       onModuleAction={() => {}}
     />
   );
@@ -83,7 +87,8 @@ export const Healthy: Story = {
     label: "Tank 1",
     attention: 0,
     startOn: true,
-    stats: ["48/48 boards", "65.5°", "12.3 kW"],
+    moduleSummary: "16 modules hashing",
+    stats: ["65.5°", "12.3 kW"],
     seed: 11,
   },
 };
@@ -93,7 +98,9 @@ export const WithIssues: Story = {
     label: "Tank 2",
     attention: 3,
     startOn: true,
-    stats: ["45/48 boards", "67.1°", "11.8 kW"],
+    moduleSummary: "13/16 modules hashing",
+    reportingSummary: ["Temperature: 15/16 modules reporting"],
+    stats: ["32.0 °C – 60.2 °C", "121.7 kW"],
     seed: 23,
   },
 };
@@ -103,7 +110,20 @@ export const Off: Story = {
     label: "Tank 6",
     attention: 0,
     startOn: false,
-    stats: ["0/48 boards", "—", "0.0 kW"],
+    moduleSummary: "0/16 modules hashing",
+    stats: ["—", "0.0 kW"],
     seed: 67,
+  },
+};
+
+export const IncompleteReadings: Story = {
+  args: {
+    label: "Tank 1",
+    attention: 0,
+    startOn: true,
+    moduleSummary: "16 modules · readings incomplete",
+    reportingSummary: ["Temperature: 14 modules reporting · topology incomplete"],
+    stats: ["59.8 °C – 60.2 °C", "149.8 kW"],
+    seed: 11,
   },
 };

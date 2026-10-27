@@ -24,6 +24,7 @@ func TestPoolRollbackIsAtomicWithoutOuterTransaction(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			conn := dbtest.GetTestDB(t)
+			rollbackEmptyMiningGroups(t, conn)
 			ctx := t.Context()
 			var org, root, account int64
 			require.NoError(t, conn.QueryRowContext(ctx, `INSERT INTO organization(org_id,name) VALUES($1,'Host') RETURNING id`, uuid.NewString()).Scan(&org))

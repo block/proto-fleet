@@ -1,6 +1,6 @@
 import { type ReactNode, useState } from "react";
 
-import Button from "@/shared/components/Button";
+import Button, { type ButtonVariant } from "@/shared/components/Button";
 import Input from "@/shared/components/Input";
 import Modal from "@/shared/components/Modal";
 import { copyToClipboard } from "@/shared/utils/utility";
@@ -13,6 +13,8 @@ export const SecretModal = ({
   helperText,
   onDismiss,
   children,
+  copyVariant = "secondary",
+  copiedText = "Copied",
 }: {
   title: string;
   label: string;
@@ -21,6 +23,8 @@ export const SecretModal = ({
   helperText?: string;
   onDismiss: () => void;
   children?: ReactNode;
+  copyVariant?: ButtonVariant;
+  copiedText?: string;
 }) => {
   const [copied, setCopied] = useState(false);
   const [error, setError] = useState("");
@@ -38,8 +42,8 @@ export const SecretModal = ({
         <Input id="hosted-one-time-secret" label={label} initValue={value} readOnly autoComplete="off" />
         {helperText ? <p className="text-200 text-text-primary-70">{helperText}</p> : null}
         <Button
-          variant="secondary"
-          text={copied ? "Copied" : `Copy ${label.toLowerCase()}`}
+          variant={copyVariant}
+          text={copied ? copiedText : `Copy ${label.toLowerCase()}`}
           onClick={() => {
             void copyToClipboard(value).then(
               () => {

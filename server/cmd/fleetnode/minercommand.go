@@ -146,6 +146,12 @@ func (r *RunCmd) handleMinerCommand(ctx context.Context, client gatewayClient, s
 		return
 	}
 
+	groups, err := newMiningGroupsCommand(r.passwordUpdatePrivateKey, target, mc)
+	if err != nil {
+		code, msg := classifyMinerCommandError("prepare mining groups", err)
+		r.sendAck(stream, commandID, code, msg, logger)
+		return
+	}
 	cmdCtx, cancel := context.WithTimeout(ctx, minerCommandActionTimeout(mc))
 	defer cancel()
 
@@ -171,7 +177,7 @@ func (r *RunCmd) handleMinerCommand(ctx context.Context, client gatewayClient, s
 		MacAddress:   target.GetMacAddress(),
 	}
 	// This action addresses the controller, never a derived module or a rig.
-	if mc.GetSetContainerControl() != nil || mc.GetSetTankMining() != nil || mc.GetSetModuleMining() != nil {
+	if mc.GetSetContainerControl() != nil || mc.GetSetTankMining() != nil || mc.GetSetModuleMining() != nil || mc.GetMiningGroups() != nil {
 		deviceInfo.DeviceClass = sdk.DeviceClassContainer
 	}
 	result, err := driver.NewDevice(cmdCtx, handleID, deviceInfo, bundle)
@@ -194,6 +200,8 @@ func (r *RunCmd) handleMinerCommand(ctx context.Context, client gatewayClient, s
 	var payload []byte
 	if passwordUpdate != nil {
 		payload, err = passwordUpdate.run(cmdCtx, dev, bundle, r.minerSecrets)
+	} else if groups != nil {
+		payload, err = groups.run(cmdCtx, dev)
 	} else if poolConfig != nil {
 		payload, err = poolConfig.run(cmdCtx, dev)
 	} else if curtailmentConfig != nil {

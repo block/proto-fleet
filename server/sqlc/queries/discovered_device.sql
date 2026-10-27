@@ -87,7 +87,7 @@ ON CONFLICT (org_id, device_identifier) WHERE deleted_at IS NULL DO UPDATE SET
     -- Retaining an old value could associate replacement hardware with the wrong miner.
     -- Fleet-node discovery reports have no identity fields; their separate upsert
     -- preserves identity learned during pairing.
-    -- A metadata snapshot from a different group or member set cannot restore a removed
+    -- A metadata snapshot from a different group or route set cannot restore a removed
     -- controller's identity after an explicit unpair and replacement scan.
     serial_number = CASE WHEN NOT sqlc.arg('direct_discovery')::boolean AND discovered_device.endpoint_key <> ''
                              AND (discovered_device.endpoint_key <> EXCLUDED.endpoint_key OR discovered_device.endpoints <> EXCLUDED.endpoints)
@@ -127,14 +127,7 @@ ON CONFLICT (org_id, device_identifier) WHERE deleted_at IS NULL DO UPDATE SET
     last_seen = CURRENT_TIMESTAMP
 WHERE ((NOT sqlc.arg('direct_discovery')::boolean AND discovered_device.endpoint_key <> '' AND discovered_device.driver_name = EXCLUDED.driver_name)
     OR discovered_device.endpoint_key = ''
-    OR (discovered_device.endpoint_key = EXCLUDED.endpoint_key AND discovered_device.driver_name = EXCLUDED.driver_name)
-    OR (sqlc.arg('allow_endpoint_group_change')::boolean AND discovered_device.driver_name = EXCLUDED.driver_name
-        AND NOT EXISTS (
-            SELECT 1 FROM device d LEFT JOIN device_pairing dp ON dp.device_id=d.id
-            WHERE d.discovered_device_id=discovered_device.id AND d.org_id=discovered_device.org_id AND d.deleted_at IS NULL
-            AND (dp.pairing_status IN ('PAIRED','DEFAULT_PASSWORD','AUTHENTICATION_NEEDED')
-                OR EXISTS (SELECT 1 FROM fleet_node_device fnd WHERE fnd.device_id=d.id AND fnd.org_id=d.org_id))
-        )))
+    OR (discovered_device.endpoint_key = EXCLUDED.endpoint_key AND discovered_device.driver_name = EXCLUDED.driver_name))
 -- A fast rig write must fall back to locked reconciliation for a saved container.
 AND (NOT sqlc.arg('lockless_discovery')::boolean OR (discovered_device.device_class <> 2 AND discovered_device.endpoint_key = ''))
 AND (NOT sqlc.arg('direct_discovery')::boolean OR (
@@ -184,21 +177,6 @@ FROM discovered_device dd
 LEFT JOIN device d ON dd.id = d.discovered_device_id AND d.deleted_at IS NULL
 WHERE dd.org_id = $1 AND dd.is_active = TRUE AND dd.deleted_at IS NULL
     AND d.id IS NULL AND dd.discovered_by_fleet_node_id IS NULL;
-
--- name: ListActiveUnpairedDiscoveredDeviceEndpoints :many
--- Bounded count scan. Endpoint validity is checked by the canonical Go codec.
-SELECT dd.id, dd.endpoints
-FROM discovered_device dd
-LEFT JOIN device d ON dd.id = d.discovered_device_id AND d.deleted_at IS NULL
-WHERE dd.org_id = $1
-    AND dd.is_active = TRUE
-    AND dd.deleted_at IS NULL
-    AND d.id IS NULL
-    AND dd.discovered_by_fleet_node_id IS NULL
-    AND dd.endpoints <> '{}'::jsonb
-    AND dd.id > sqlc.arg(cursor_id)
-ORDER BY dd.id
-LIMIT sqlc.arg(page_size);
 
 -- name: SoftDeleteDiscoveredDeviceByIdentifier :exec
 -- Soft-deletes a discovered_device record. Used to clean up orphaned records
@@ -270,13 +248,7 @@ AND (dd.endpoint_key = sqlc.arg(group_key) OR
         WHERE endpoint.value->>'Host' = sqlc.arg(scanned_host)::text
           AND endpoint.value->>'RPCPort' = sqlc.arg(scanned_rpc_port)::integer::text
           AND (sqlc.arg(scanned_rpc_port)::integer <> 0 OR endpoint.value->>'Port' = sqlc.arg(scanned_port)::integer::text)
-    )) OR
-    (dd.endpoint_key = ''
-      AND dd.device_class = sqlc.arg(device_class)::integer
-      AND COALESCE(lower(dd.model), '') = lower(sqlc.arg(model)::text)
-      AND COALESCE(lower(dd.manufacturer), '') = lower(sqlc.arg(manufacturer)::text)
-      AND (dd.serial_number = ANY(sqlc.arg(endpoint_ids)::text[])
-        OR (dd.serial_number = '' AND dd.ip_address = sqlc.arg(scanned_host)::text))))
+    )))
 AND NOT EXISTS (
  SELECT 1 FROM device d JOIN fleet_node_device fnd ON fnd.device_id=d.id AND fnd.org_id=d.org_id
  WHERE d.discovered_device_id=dd.id AND d.org_id=dd.org_id AND d.deleted_at IS NULL

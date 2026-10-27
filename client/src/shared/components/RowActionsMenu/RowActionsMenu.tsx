@@ -20,6 +20,7 @@ export interface RowAction {
   showGroupDivider?: boolean;
   hidden?: boolean;
   disabled?: boolean;
+  disabledReason?: string;
   danger?: boolean;
   testId?: string;
 }
@@ -149,6 +150,7 @@ const RowActionsMenuInner = ({
         <ActionSheet
           items={visibleActions.map((action) => ({
             disabled: action.disabled,
+            disabledReason: action.disabledReason,
             danger: action.danger,
             icon: action.icon,
             label: action.label,
@@ -180,7 +182,10 @@ const RowActionsMenuInner = ({
         >
           {visibleActions.map((action, index) => (
             <Fragment key={action.testId ?? `${action.label}-${index}`}>
-              <div className={action.disabled ? "px-4 opacity-50" : "px-4"}>
+              <div
+                className={action.disabled ? "px-4 opacity-50" : "px-4"}
+                title={action.disabled ? action.disabledReason : undefined}
+              >
                 <Row
                   className={clsx("text-emphasis-300", action.danger && "text-intent-critical-fill")}
                   prefixIcon={action.icon}
@@ -193,7 +198,10 @@ const RowActionsMenuInner = ({
                   compact
                   divider={false}
                 >
-                  {action.label}
+                  <span>{action.label}</span>
+                  {action.disabled && action.disabledReason ? (
+                    <span className="mt-1 block text-200 text-text-primary-70">{action.disabledReason}</span>
+                  ) : null}
                 </Row>
               </div>
               {action.showGroupDivider && index < visibleActions.length - 1 ? <Divider dividerStyle="thick" /> : null}

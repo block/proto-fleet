@@ -299,6 +299,7 @@ enum CommandProtocolVersion {
     COMMAND_PROTOCOL_VERSION_V4 = 4;
     // V5 adds module mining with expected hardware identity.
     COMMAND_PROTOCOL_VERSION_V5 = 5;
+    COMMAND_PROTOCOL_VERSION_V6 = 6;
 }
 
 message ControlHello {
@@ -441,6 +442,7 @@ message MinerCommand {
         SetContainerControlAction set_container_control = 19;
         SetTankMiningAction set_tank_mining = 20;
         SetModuleMiningAction set_module_mining = 21;
+        MiningGroupsAction mining_groups = 22;
     }
 }
 
@@ -662,4 +664,11 @@ message ModuleMiningTarget {
 message SetModuleMiningAction {
   repeated ModuleMiningTarget modules = 1 [(buf.validate.field).repeated = {min_items: 1, max_items: 100}];
   optional bool mining = 2 [(buf.validate.field).required = true];
+}
+
+// Closed SDK MiningGroupRequest JSON. Passwords are empty in request;
+// replace_pools carries its credentials exclusively in encrypted_pools.
+message MiningGroupsAction {
+ bytes request = 1 [(buf.validate.field).bytes = {min_len: 1, max_len: 16384}];
+ NodeEncryptedPayload encrypted_pools = 2;
 }

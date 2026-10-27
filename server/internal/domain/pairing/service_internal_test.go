@@ -155,7 +155,7 @@ func TestAuthenticationRequiredPairingRejectsStaleSnapshot(t *testing.T) {
 	discovered := mocks.NewMockDiscoveredDeviceStore(ctrl)
 	transactor := mocks.NewMockTransactor(ctrl)
 	device := &discoverymodels.DiscoveredDevice{Device: pb.Device{DeviceIdentifier: "container", DriverName: "proto", DeviceClass: commonv1.DeviceClass_DEVICE_CLASS_CONTAINER, IpAddress: "10.0.0.11", Port: "8080", RpcPort: 9095,
-		Endpoints: []*commonv1.DeviceEndpoint{{Id: "a", DeviceKey: "a-b", MemberIds: []string{"a", "b"}, Host: "10.0.0.11", Port: 8080, RpcPort: 9095}}}, OrgID: 7, IsActive: true}
+		Endpoints: []*commonv1.DeviceEndpoint{{Id: "a", DeviceKey: "a-b", Host: "10.0.0.11", Port: 8080, RpcPort: 9095}}}, OrgID: 7, IsActive: true}
 	transactor.EXPECT().RunInTx(gomock.Any(), gomock.Any()).DoAndReturn(func(ctx context.Context, action func(context.Context) error) error { return action(ctx) })
 	discovered.EXPECT().LockPairingSnapshot(gomock.Any(), device.GetDeviceOrgIdentifier(), &device.Device, gomock.Nil()).Return(fleeterror.NewFailedPreconditionError("discovery changed"))
 	service := &Service{deviceStore: mocks.NewMockDeviceStore(ctrl), discoveredDeviceStore: discovered, transactor: transactor}

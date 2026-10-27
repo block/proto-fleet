@@ -78,6 +78,8 @@ import {
 } from "@/protoFleet/features/fleetManagement/utils/telemetryFilterBounds";
 import { VIEW_URL_PARAM } from "@/protoFleet/features/fleetManagement/views/savedViews";
 import type { FilterLabelSource } from "@/protoFleet/features/fleetManagement/views/viewSummary";
+import { accountManagementPath, can } from "@/protoFleet/features/hostedAccounts/capabilities";
+import { useHostedAccounts } from "@/protoFleet/features/hostedAccounts/HostedAccountsContext";
 import {
   allocationKey,
   type AssetReference,
@@ -497,7 +499,7 @@ const ScopedMinerListBody = ({
               variant="textOnly"
               className="justify-start text-left"
               text={allocation.ownerAccountName}
-              to={`/accounts?assets=${encodeURIComponent(allocation.ownerAccountId)}`}
+              to={accountManagementPath(allocation.ownerAccountId)}
             />
           </div>
         );
@@ -607,7 +609,9 @@ const ScopedMinerListBody = ({
               create(HashboardSlotSchema, { position, occupancy: "unknown" });
             const cells: Partial<Record<MinerColumn, ReactNode>> = {};
             for (const column of Object.keys(minerColConfig) as MinerColumn[])
-              cells[column] = <HashboardCell slot={slot} column={column} />;
+              cells[column] = (
+                <HashboardCell slot={slot} column={column} deviceIdentifier={item.row.deviceIdentifier} />
+              );
             if (!result) cells.status = <span role="status">Loading…</span>;
             if (result?.error && position === 1)
               cells.status = (
@@ -627,7 +631,7 @@ const ScopedMinerListBody = ({
             };
           });
         }}
-        activeCols={fleetAssignments.root ? [activeCols[0], "assignedAccount", ...activeCols.slice(1)] : activeCols}
+        activeCols={activeCols.filter((column) => column !== "assignedAccount" || !!fleetAssignments.root)}
         colTitles={minerColTitles}
         colConfig={listColumns}
         filters={filters}
@@ -857,6 +861,9 @@ const MinerList = ({
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const username = useUsername();
+  const directory = useHostedAccounts();
+  const hostedRoot = !!directory?.accounts.some((account) => account.depth === 0 && can(account, 16n));
+  const allocationTarget = hostedRoot ? searchParams.get("allocateTo") : null;
   const { preferences: columnPreferences, setPreferences: setColumnPreferences } =
     useMinerTableColumnPreferences(username);
 
@@ -1452,6 +1459,8 @@ const MinerList = ({
       if (sortParam) params.set("sort", sortParam);
       if (dirParam) params.set("dir", dirParam);
       if (viewParam) params.set(VIEW_URL_PARAM, viewParam);
+      const allocationClient = searchParams.get("allocateTo");
+      if (allocationClient) params.set("allocateTo", allocationClient);
       navigate(`?${params.toString()}`, { replace: true });
     },
     [navigate, searchParams],
@@ -1523,6 +1532,12 @@ const MinerList = ({
 
   return (
     <>
+      {allocationTarget ? (
+        <div className="flex flex-wrap items-center justify-between gap-3 px-6 py-4 laptop:px-10">
+          <p>Select assets, then choose Allocate to client from the actions menu.</p>
+          <Button variant="textOnly" text="Return to client" to={accountManagementPath(allocationTarget)} />
+        </div>
+      ) : null}
       {/* Scroll anchor for pagination. When a title is present (standalone
           /miners) it renders an <h2> with the page's top padding; in the fleet
           shell there's no title, so it collapses to a zero-height anchor rather
@@ -1594,6 +1609,7 @@ const MinerList = ({
       {showManageColumnsModal ? (
         <ManageColumnsModal
           preferences={columnPreferences}
+          showAssignedAccount={hostedRoot}
           onDismiss={handleCloseManageColumns}
           onSave={handleSaveManageColumns}
         />

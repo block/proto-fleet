@@ -12,21 +12,13 @@ import (
 )
 
 func TestPairingSnapshotRejectsChangedInventory(t *testing.T) {
-	for _, change := range []string{"group", "members", "route", "browser route", "owner", "legacy upgrade"} {
+	for _, change := range []string{"route", "browser route", "owner"} {
 		t.Run(change, func(t *testing.T) {
 			db, store, org := ct1HAStore(t)
 			initial := ct1HADiscovery(org, "a", "10.0.0.11")
-			if change == "legacy upgrade" {
-				initial.Endpoints = nil
-			}
 			before := saveCT1HA(t, store, "container", initial)
 			incoming := ct1HADiscovery(org, "a", "10.0.0.11")
 			switch change {
-			case "group":
-				incoming.Endpoints[0].DeviceKey = "a-c"
-				incoming.Endpoints[0].MemberIds = []string{"a", "c"}
-			case "members":
-				incoming.Endpoints[0].MemberIds = []string{"a", "c"}
 			case "route":
 				incoming.IpAddress, incoming.Endpoints[0].Host = "10.0.0.99", "10.0.0.99"
 			case "browser route":
@@ -102,8 +94,7 @@ func TestPairingSnapshotRechecksAfterDiscoveryCommit(t *testing.T) {
 	go func() {
 		scanDone <- sqlstores.NewSQLTransactor(db).RunInTx(t.Context(), func(ctx context.Context) error {
 			incoming := ct1HADiscovery(org, "a", "10.0.0.11")
-			incoming.Endpoints[0].DeviceKey = "a-c"
-			incoming.Endpoints[0].MemberIds = []string{"a", "c"}
+			incoming.IpAddress, incoming.Endpoints[0].Host = "10.0.0.99", "10.0.0.99"
 			if _, err := store.SaveDirect(ctx, before.GetDeviceOrgIdentifier(), incoming); err != nil {
 				return err
 			}

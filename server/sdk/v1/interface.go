@@ -411,8 +411,6 @@ const (
 type DeviceEndpoint struct {
 	ID        string
 	DeviceKey string
-	// MemberIDs includes known peer identities, without claiming their addresses.
-	MemberIDs []string
 	Host      string
 	Port      int32
 	URLScheme string

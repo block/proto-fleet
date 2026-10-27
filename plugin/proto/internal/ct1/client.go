@@ -8,7 +8,6 @@ import (
 	"math"
 	"net"
 	"os"
-	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -45,7 +44,6 @@ type Client struct {
 	mining    mdk.MiningServiceClient
 	telemetry mdk.TelemetryServiceClient
 	power     mdk.PowerServiceClient
-	mu        sync.Mutex
 	pollMu    sync.Mutex
 }
 
@@ -105,14 +103,12 @@ func (c *Client) Discover(ctx context.Context, info sdk.DeviceInfo) (sdk.DeviceI
 	if (savedKey != "" || expectedID != "") && expectedID != v.Id {
 		return sdk.DeviceInfo{}, fmt.Errorf("CT1 controller identity mismatch")
 	}
-	report, key, err := c.readHA(ctx, v.Id, savedKey)
+	_, key, err := c.readHA(ctx, v.Id, savedKey)
 	if err != nil {
 		return sdk.DeviceInfo{}, err
 	}
 	if savedKey == "" && key != "" {
-		members := []string{report.ReportingServerId, report.PeerServerId}
-		slices.Sort(members)
-		info.Endpoints = []sdk.DeviceEndpoint{{ID: v.Id, DeviceKey: key, MemberIDs: members, Host: c.endpoint.Host, Port: c.endpoint.Port, URLScheme: c.endpoint.URLScheme, RPCPort: c.endpoint.RPCPort, RPCTLS: c.endpoint.RPCTLS}}
+		info.Endpoints = []sdk.DeviceEndpoint{{ID: v.Id, DeviceKey: key, Host: c.endpoint.Host, Port: c.endpoint.Port, URLScheme: c.endpoint.URLScheme, RPCPort: c.endpoint.RPCPort, RPCTLS: c.endpoint.RPCTLS}}
 		if _, err := sdk.DeviceEndpointKey(info.Endpoints); err != nil {
 			return sdk.DeviceInfo{}, err
 		}

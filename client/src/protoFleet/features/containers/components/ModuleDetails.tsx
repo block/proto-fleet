@@ -122,6 +122,7 @@ export default function ModuleDetails({
         <div className="grid grid-cols-1 gap-4 laptop:grid-cols-3">
           {[1, 2, 3].map((position) => (
             <ModuleHashboardCard
+              deviceIdentifier={module.deviceIdentifier}
               key={position}
               slot={
                 !unavailable

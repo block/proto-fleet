@@ -627,9 +627,43 @@ func (q *Queries) TransferDiscoveredDeviceAttribution(ctx context.Context, arg T
 	return result.RowsAffected()
 }
 
-const unpairDevice = `-- name: UnpairDevice :execrows
-DELETE FROM fleet_node_device
-WHERE device_id = $1 AND org_id = $2
+const unpairDevice = `-- name: UnpairDevice :one
+WITH locked_device AS MATERIALIZED (
+    SELECT d.id, d.discovered_device_id
+    FROM device d
+    WHERE d.id = $1 AND d.org_id = $2
+    FOR UPDATE
+), removed AS (
+    DELETE FROM fleet_node_device fnd
+    USING locked_device d
+    WHERE fnd.device_id = d.id AND fnd.org_id = $2
+    RETURNING fnd.device_id
+), reset_discovery AS (
+    UPDATE discovered_device dd
+    SET endpoints = '{}', endpoint_key = '', serial_number = '', mac_address = ''
+    FROM locked_device d
+    WHERE dd.id = d.discovered_device_id AND dd.org_id = $2
+      AND dd.endpoint_key <> ''
+      AND EXISTS (SELECT 1 FROM removed)
+      AND NOT EXISTS (
+          SELECT 1 FROM device owner
+          WHERE owner.discovered_device_id = dd.id
+            AND owner.org_id = dd.org_id AND owner.deleted_at IS NULL
+            AND (
+                EXISTS (SELECT 1 FROM device_pairing dp WHERE dp.device_id = owner.id
+                        AND dp.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD', 'AUTHENTICATION_NEEDED'))
+                OR EXISTS (SELECT 1 FROM fleet_node_device fnd
+                           WHERE fnd.device_id = owner.id AND fnd.org_id = owner.org_id
+                             AND fnd.device_id NOT IN (SELECT device_id FROM removed))
+            )
+      )
+    RETURNING dd.id
+), reset_identity AS (
+    UPDATE device d SET serial_number = '', mac_address = ''
+    WHERE d.id IN (SELECT device_id FROM removed)
+      AND d.discovered_device_id IN (SELECT id FROM reset_discovery)
+)
+SELECT count(*)::bigint FROM removed
 `
 
 type UnpairDeviceParams struct {
@@ -637,12 +671,12 @@ type UnpairDeviceParams struct {
 	OrgID    int64
 }
 
+// A remaining cloud pairing or another inventory owner keeps its saved routes.
 func (q *Queries) UnpairDevice(ctx context.Context, arg UnpairDeviceParams) (int64, error) {
-	result, err := q.exec(ctx, q.unpairDeviceStmt, unpairDevice, arg.DeviceID, arg.OrgID)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected()
+	row := q.queryRow(ctx, q.unpairDeviceStmt, unpairDevice, arg.DeviceID, arg.OrgID)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
 }
 
 const unpairDevicesForFleetNodeRevocation = `-- name: UnpairDevicesForFleetNodeRevocation :execrows
@@ -697,10 +731,6 @@ ON CONFLICT (org_id, device_identifier) WHERE deleted_at IS NULL DO UPDATE SET
     rpc_tls = EXCLUDED.rpc_tls,
     endpoint_key = EXCLUDED.endpoint_key,
     endpoints = EXCLUDED.endpoints,
-    -- Reports do not carry verified serials or MACs. A replacement group must
-    -- not keep the removed peer's identity; pairing will learn it again.
-    serial_number = CASE WHEN $16::boolean THEN '' ELSE discovered_device.serial_number END,
-    mac_address = CASE WHEN $16::boolean THEN '' ELSE discovered_device.mac_address END,
     driver_name = COALESCE(discovered_device.driver_name, EXCLUDED.driver_name),
     model = EXCLUDED.model,
     device_class = COALESCE(NULLIF(EXCLUDED.device_class, 0), discovered_device.device_class),
@@ -710,14 +740,7 @@ ON CONFLICT (org_id, device_identifier) WHERE deleted_at IS NULL DO UPDATE SET
     last_seen = CURRENT_TIMESTAMP,
     is_active = TRUE
 WHERE (discovered_device.endpoint_key = '' OR
-    (discovered_device.endpoint_key = EXCLUDED.endpoint_key AND discovered_device.driver_name = EXCLUDED.driver_name)
-    OR ($16::boolean AND discovered_device.driver_name = EXCLUDED.driver_name
-        AND NOT EXISTS (
-            SELECT 1 FROM device d LEFT JOIN device_pairing dp ON dp.device_id=d.id
-            WHERE d.discovered_device_id=discovered_device.id AND d.org_id=discovered_device.org_id AND d.deleted_at IS NULL
-            AND (dp.pairing_status IN ('PAIRED','DEFAULT_PASSWORD','AUTHENTICATION_NEEDED')
-                OR EXISTS (SELECT 1 FROM fleet_node_device fnd WHERE fnd.device_id=d.id AND fnd.org_id=d.org_id))
-        )))
+    (discovered_device.endpoint_key = EXCLUDED.endpoint_key AND discovered_device.driver_name = EXCLUDED.driver_name))
 AND (
     discovered_device.discovered_by_fleet_node_id = EXCLUDED.discovered_by_fleet_node_id
     -- The attributing node was revoked (soft-deleted), so a replacement node may
@@ -775,22 +798,21 @@ RETURNING device_class, device_identifier, endpoints
 `
 
 type UpsertDiscoveredDeviceFromFleetNodeParams struct {
-	OrgID                    int64
-	DeviceIdentifier         string
-	IpAddress                string
-	Port                     string
-	UrlScheme                string
-	DriverName               string
-	Model                    sql.NullString
-	Manufacturer             sql.NullString
-	FirmwareVersion          sql.NullString
-	DiscoveredByFleetNodeID  sql.NullInt64
-	DeviceClass              int32
-	RpcPort                  int32
-	RpcTls                   bool
-	EndpointKey              string
-	Endpoints                json.RawMessage
-	AllowEndpointGroupChange bool
+	OrgID                   int64
+	DeviceIdentifier        string
+	IpAddress               string
+	Port                    string
+	UrlScheme               string
+	DriverName              string
+	Model                   sql.NullString
+	Manufacturer            sql.NullString
+	FirmwareVersion         sql.NullString
+	DiscoveredByFleetNodeID sql.NullInt64
+	DeviceClass             int32
+	RpcPort                 int32
+	RpcTls                  bool
+	EndpointKey             string
+	Endpoints               json.RawMessage
 }
 
 type UpsertDiscoveredDeviceFromFleetNodeRow struct {
@@ -823,7 +845,6 @@ func (q *Queries) UpsertDiscoveredDeviceFromFleetNode(ctx context.Context, arg U
 		arg.RpcTls,
 		arg.EndpointKey,
 		arg.Endpoints,
-		arg.AllowEndpointGroupChange,
 	)
 	var i UpsertDiscoveredDeviceFromFleetNodeRow
 	err := row.Scan(&i.DeviceClass, &i.DeviceIdentifier, &i.Endpoints)

@@ -182,7 +182,17 @@ test_fleet_ha_contract() {
     assert_contains "$rendered" "FLEET_HA_ENDPOINT_INTERFACE: eth0"
     assert_contains "$rendered" "FLEET_ALERTS_ENABLED: \"true\""
     assert_contains "$rendered" "FLEET_PUBLIC_URL: https://10.40.0.100"
-    assert_contains "$rendered" "sleep 15; exec /app/fleetd"
+    assert_contains "${HA_DIR}/fleet-compose.yaml" "else sleep 15; fi; exec /app/fleetd"
+    assert_contains "$rendered" "sleep 15"
+    assert_contains "$rendered" "source: /run/proto-fleet-ha/controlled-start"
+    assert_contains "$rendered" "target: /run/proto-fleet-controlled-start"
+    assert_contains "$rendered" "rm /run/proto-fleet-controlled-start/passive"
+    awk '
+        /source: \/run\/proto-fleet-ha\/controlled-start$/ { in_mount = 1; next }
+        in_mount && /read_only: true/ { exit 1 }
+        in_mount && /bind:/ { found = 1; exit }
+        END { exit !found }
+    ' "$rendered" || fail "Fleet services must mount the controlled-start directory writable"
     [[ "$(grep -c 'restart: on-failure' "$rendered")" -eq 3 ]] ||
         fail "Fleet services must restart process failures without bypassing the systemd start gate"
     assert_contains "$rendered" "cap_drop:"

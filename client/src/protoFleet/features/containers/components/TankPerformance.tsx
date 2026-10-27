@@ -29,7 +29,13 @@ export default function TankPerformance({
           <Button variant={variants.secondary} text="Retry history" onClick={retry} />
         </div>
       ) : null}
-      <DeviceSetPerformanceSection duration={duration} metrics={metrics} connectNulls={false} inputUnits="display" />
+      <DeviceSetPerformanceSection
+        cardSurface="overlay"
+        duration={duration}
+        metrics={metrics}
+        connectNulls={false}
+        inputUnits="display"
+      />
     </section>
   );
 }

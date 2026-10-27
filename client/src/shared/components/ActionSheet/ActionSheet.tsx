@@ -10,6 +10,7 @@ import { useEscapeDismiss } from "@/shared/hooks/useEscapeDismiss";
 export interface ActionSheetItem {
   danger?: boolean;
   disabled?: boolean;
+  disabledReason?: string;
   icon?: ReactNode;
   label?: string;
   loading?: boolean;
@@ -64,7 +65,10 @@ const ActionSheet = ({
           }
           divider={false}
         >
-          {item.label}
+          <span>{item.label}</span>
+          {item.disabled && item.disabledReason ? (
+            <span className="mt-1 block text-200 text-text-primary-70">{item.disabledReason}</span>
+          ) : null}
         </Row>
         {item.showGroupDivider && index < items.length - 1 ? <Divider dividerStyle="thick" /> : null}
       </Fragment>

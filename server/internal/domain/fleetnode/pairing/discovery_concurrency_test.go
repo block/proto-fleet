@@ -47,8 +47,8 @@ func TestConcurrentDiscoveryBatchesKeepOneLockOrder(t *testing.T) {
 			db, org, _, enrollment := setupPairingTest(t)
 			node := createFleetNode(t, enrollment, org, "batch-node")
 			a, b := endpointGroupReport(t, node, "controller-a", "10.0.0.11"), endpointGroupReport(t, node, "controller-b", "10.0.0.12")
-			a.Endpoints[0].DeviceKey, a.Endpoints[0].MemberIds = "group-a", []string{"controller-a"}
-			b.Endpoints[0].DeviceKey, b.Endpoints[0].MemberIds = "group-b", []string{"controller-b"}
+			a.Endpoints[0].DeviceKey = "group-a"
+			b.Endpoints[0].DeviceKey = "group-b"
 			if mixedLegacy {
 				a.DeviceIdentifier, a.Endpoints = "legacy-a", nil
 			}
@@ -101,7 +101,7 @@ func TestDirectDiscoveryWaitsForNodeDiscoveryDatabasePhase(t *testing.T) {
 	results := make(chan error, 2)
 	nodeReport := endpointGroupReport(t, node, "controller-a", "10.0.0.11")
 	directReport := endpointGroupReport(t, node, "controller-b", "10.0.0.12")
-	directReport.Endpoints[0].DeviceKey, directReport.Endpoints[0].MemberIds = "unrelated-direct-group", []string{"controller-b"}
+	directReport.Endpoints[0].DeviceKey = "unrelated-direct-group"
 	go func() {
 		_, _, err := svc.UpsertDiscoveredDevices(ctx, node, org, []fleetnodepairing.DiscoveredDeviceReport{nodeReport})
 		results <- err

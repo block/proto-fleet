@@ -798,6 +798,7 @@ const reserveDeviceWriteFence = `-- name: ReserveDeviceWriteFence :one
 UPDATE device_write_fence f SET epoch=epoch+1,state='reserved',updated_at=statement_timestamp()
 WHERE f.device_id=$1 AND f.organization_id=$2 AND f.state='host'
 AND NOT EXISTS (SELECT 1 FROM device_write_attempt a WHERE a.device_id=f.device_id AND a.status='unknown')
+AND NOT EXISTS (SELECT 1 FROM container_mining_group_state mg WHERE mg.device_id=f.device_id AND mg.status IN ('pending','applying','blocked'))
 RETURNING epoch
 `
 

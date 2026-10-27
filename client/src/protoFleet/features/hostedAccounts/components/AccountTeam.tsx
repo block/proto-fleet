@@ -65,7 +65,15 @@ const AccountTeam = () => {
     member?: Member;
     invitation?: Invitation;
   } | null>(() => (!readOnly && (invite === "1" || invite === "administrator") ? { kind: "invite" } : null));
-  const [role, setRole] = useState(String(invite === "administrator" ? AccountRole.ADMINISTRATOR : AccountRole.VIEWER));
+  const [roleChoice, setRole] = useState<string | null>(
+    invite === "administrator" ? String(AccountRole.ADMINISTRATOR) : null,
+  );
+  // An empty team's first invitation defaults to administrator, however the dialog was opened.
+  const emptyTeam =
+    !!query.data &&
+    query.data.members.length === 0 &&
+    !query.data.invitations.some((invitation) => invitationState(invitation) === "Pending");
+  const role = roleChoice ?? String(emptyTeam ? AccountRole.ADMINISTRATOR : AccountRole.VIEWER);
   const [expiry, setExpiry] = useState("86400");
   const [invitationCode, setInvitationCode] = useState<string | null>(null);
   const closeAction = () => {
@@ -77,7 +85,7 @@ const AccountTeam = () => {
     }
   };
   const createInvite = () => {
-    setRole(String(AccountRole.VIEWER));
+    setRole(null);
     setExpiry("86400");
     setAction({ kind: "invite" });
   };
@@ -186,7 +194,7 @@ const AccountTeam = () => {
           />
         </>
       ) : null}
-      {action ? (
+      {action && (action.kind !== "invite" || query.data) ? (
         <ActionModal
           title={
             action.kind === "invite"

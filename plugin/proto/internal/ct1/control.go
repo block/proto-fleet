@@ -24,8 +24,6 @@ func (d *Device) SetContainerControl(ctx context.Context, req sdk.ContainerContr
 	if err != nil {
 		return err
 	}
-	c.mu.Lock()
-	defer c.mu.Unlock()
 	wire, err := c.power.GetContainerControls(ctx, &mdk.GetContainerControlsRequest{})
 	if err != nil {
 		return err

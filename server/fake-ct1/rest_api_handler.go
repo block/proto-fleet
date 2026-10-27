@@ -777,29 +777,45 @@ func (s *ContainerState) miningStatusDTO() miningStatusResponse {
 		AverageHashboardTemperatureC: avgBoard,
 	}
 
+	if s.miningGroups != nil && s.miningGroups.capability.Enabled {
+		resp.Mining = s.miningGroups.groups["default"].DesiredMining
+	}
+
 	return resp
 }
 
 func (h *RESTApiHandler) handleMiningStart(w http.ResponseWriter, r *http.Request) {
-	s := h.state
-	s.mu.Lock()
-	for _, b := range s.eachBoard() {
-		if !b.Isolated {
-			b.State = miningStateMining
-		}
-	}
-	s.mu.Unlock()
+	h.state.mu.Lock()
+	h.state.setGlobalMining(true)
+	h.state.mu.Unlock()
 	writeJSON(w, http.StatusOK, struct{}{})
 }
 
 func (h *RESTApiHandler) handleMiningStop(w http.ResponseWriter, r *http.Request) {
-	s := h.state
-	s.mu.Lock()
-	for _, b := range s.eachBoard() {
-		b.State = miningStateIdle
-	}
-	s.mu.Unlock()
+	h.state.mu.Lock()
+	h.state.setGlobalMining(false)
+	h.state.mu.Unlock()
 	writeJSON(w, http.StatusOK, struct{}{})
+}
+
+// Caller holds mu. After activation, global lifecycle controls only default.
+func (s *ContainerState) setGlobalMining(mining bool) {
+	if s.miningGroups != nil && s.miningGroups.capability.Enabled {
+		group := s.miningGroups.groups["default"]
+		group.DesiredMining = mining
+		s.touchGroup(group)
+		s.applyGroupMining("default")
+		return
+	}
+	for _, b := range s.eachBoard() {
+		if mining {
+			if !b.Isolated {
+				b.State = miningStateMining
+			}
+		} else {
+			b.State = miningStateIdle
+		}
+	}
 }
 
 func demoPools() []poolDTO {

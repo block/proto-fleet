@@ -44,6 +44,7 @@ Manifest-covered `cloud-release.json` records `schema_version` from
 migrations, bridge SQL, baseline assertions/reconciliation inputs and listed
 DB/Patroni/etcd sources. The format is unchanged. Automated database retention
 requires an exact match; retained history affects the hash, not the version.
+Build-only Patroni requirements are excluded because application updates retain the installed database containers.
 
 Bundles include `server/fleet-db-transition` for
 [baseline reconciliation](../../docs/development/migrations.md#existing-databases).

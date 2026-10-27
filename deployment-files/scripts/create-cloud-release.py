@@ -16,7 +16,6 @@ DATABASE_FILES = (
     "deployment-files/ha/compose.yaml",
     "deployment-files/ha/patroni.Dockerfile",
     "deployment-files/ha/patroni.yml.tmpl",
-    "deployment-files/ha/patroni-build-requirements.txt",
     "deployment-files/ha/patroni-requirements.txt",
     "deployment-files/ha/scripts/patroni-entrypoint.sh",
     "deployment-files/ha/scripts/patroni-post-bootstrap.sh",

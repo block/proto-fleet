@@ -50,7 +50,7 @@ func (s *pausedPairSnapshotStore) LockPairingSnapshot(ctx context.Context, doi d
 }
 
 func TestPairResultRejectsDiscoveryChangesAfterDispatch(t *testing.T) {
-	for _, change := range []string{"group", "partner route", "browser route"} {
+	for _, change := range []string{"partner route", "browser route"} {
 		t.Run(change, func(t *testing.T) {
 			db, org, svc, enrollment := setupPairingTest(t)
 			node := createFleetNode(t, enrollment, org, "pair-snapshot-node")
@@ -85,9 +85,6 @@ func TestPairResultRejectsDiscoveryChangesAfterDispatch(t *testing.T) {
 
 			changed := a
 			switch change {
-			case "group":
-				changed.Endpoints[0].DeviceKey = "replacement-pair"
-				changed.Endpoints[0].MemberIds = []string{"controller-a", "controller-c"}
 			case "partner route":
 				changed = b
 				changed.IPAddress = "10.0.0.22"

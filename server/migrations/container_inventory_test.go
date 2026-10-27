@@ -11,6 +11,7 @@ import (
 
 func TestContainerInventoryMigrationRoundTrip(t *testing.T) {
 	db := testutil.GetTestDB(t)
+	rollbackEmptyMiningGroups(t, db)
 	testutil.RestoreLegacySummaryBootstraps(t, db,
 		"001016_internal_ct1_metric_summaries",
 		"001021_internal_hashboard_metric_summaries")
@@ -49,6 +50,7 @@ func TestContainerInventoryMigrationRoundTrip(t *testing.T) {
 
 func TestHashboardMigrationRoundTrip(t *testing.T) {
 	db := testutil.GetTestDB(t)
+	rollbackEmptyMiningGroups(t, db)
 	testutil.RestoreLegacySummaryBootstraps(t, db,
 		"001016_internal_ct1_metric_summaries",
 		"001021_internal_hashboard_metric_summaries")

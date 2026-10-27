@@ -628,6 +628,31 @@ type ContainerMetricsHourly struct {
 	EfficiencyComplete   bool
 }
 
+type ContainerMiningGroupState struct {
+	DeviceID                int64
+	OrganizationID          int64
+	Observed                json.RawMessage
+	ObservedAt              sql.NullTime
+	Bindings                json.RawMessage
+	OperationID             uuid.NullUUID
+	AttemptID               uuid.NullUUID
+	ActorID                 sql.NullInt64
+	OperationKind           string
+	Status                  string
+	Message                 string
+	Step                    pqtype.NullRawMessage
+	StepKey                 uuid.NullUUID
+	ControllerOperationID   string
+	WriteEpoch              int64
+	Revision                int64
+	UpdatedAt               time.Time
+	RetryCount              int32
+	NextReconcileAt         time.Time
+	ActivationResumeMining  sql.NullBool
+	ActivationStopRequested bool
+	TransferFailureCount    int32
+}
+
 type ContainerModule struct {
 	ID                int64
 	TankID            int64
@@ -1877,6 +1902,18 @@ type HashboardObservation struct {
 	ReleasedAt       sql.NullTime
 }
 
+type HashboardPoolIntent struct {
+	OrganizationID int64
+	HashboardID    int64
+	DeviceID       int64
+	InstallationID int64
+	MacAddress     string
+	AccountID      int64
+	PoolRevisionID string
+	OperationID    uuid.UUID
+	UpdatedAt      time.Time
+}
+
 type HashboardSlot struct {
 	ModuleID          int64
 	HashboardID       sql.NullInt64
@@ -2102,6 +2139,14 @@ type MinerStateSnapshotDeviceHourly struct {
 	OrgID            int64
 	DeviceIdentifier string
 	State            int16
+}
+
+type MiningGroupRequest struct {
+	OrganizationID int64
+	RequestID      uuid.UUID
+	DeviceID       int64
+	Fingerprint    string
+	CreatedAt      time.Time
 }
 
 type NotificationActive struct {

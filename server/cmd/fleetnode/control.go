@@ -241,7 +241,7 @@ func (r *RunCmd) runControlSession(ctx context.Context, logger *slog.Logger, cli
 	}()
 
 	if err := stream.Send(&pb.ControlStreamRequest{Kind: &pb.ControlStreamRequest_Hello{Hello: &pb.ControlHello{
-		MaxCommandProtocolVersion: pb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V5,
+		MaxCommandProtocolVersion: pb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V6,
 	}}}); err != nil {
 		if ctx.Err() != nil {
 			return nil

@@ -1,93 +1,25 @@
 package sqlstores_test
 
 import (
-	"fmt"
 	"testing"
 
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
-	discovery "github.com/block/proto-fleet/server/internal/domain/minerdiscovery/models"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
 )
 
-func TestDiscoveryListingSkipsInvalidEndpointsWithoutLosingPages(t *testing.T) {
-	db, store, org := ct1HAStore(t)
-	for i := range 6 {
-		identifier := fmt.Sprintf("device-%d", i)
-		device := ct1HADiscovery(org, identifier, fmt.Sprintf("10.0.0.%d", i+1))
-		device.Endpoints = nil
-		saveCT1HA(t, store, identifier, device)
-		if i != 2 && i != 4 {
-			_, err := db.ExecContext(t.Context(), `UPDATE discovered_device SET endpoints = '{"invalid":{}}' WHERE org_id = $1 AND device_identifier = $2`, org, identifier)
-			require.NoError(t, err)
-		}
-	}
-	first, cursor, err := store.GetActiveUnpairedDevices(t.Context(), org, "", 1)
-	require.NoError(t, err)
-	require.Len(t, first, 1)
-	require.Equal(t, "device-2", first[0].DeviceIdentifier)
-	require.NotEmpty(t, cursor)
-	count, err := store.CountActiveUnpairedDevices(t.Context(), org)
-	require.NoError(t, err)
-	require.EqualValues(t, 2, count)
-	second, cursor, err := store.GetActiveUnpairedDevices(t.Context(), org, cursor, 1)
-	require.NoError(t, err)
-	require.Len(t, second, 1)
-	require.Equal(t, "device-4", second[0].DeviceIdentifier)
-	require.Empty(t, cursor)
-	_, err = store.GetDevice(t.Context(), discovery.DeviceOrgIdentifier{OrgID: org, DeviceIdentifier: "device-0"})
-	require.True(t, fleeterror.IsFailedPreconditionError(err), "invalid endpoints must never become a usable route")
-
-	_, err = db.ExecContext(t.Context(), `UPDATE discovered_device SET endpoints = '{"invalid":{}}' WHERE org_id = $1`, org)
-	require.NoError(t, err)
-	devices, cursor, err := store.GetActiveUnpairedDevices(t.Context(), org, "", 1)
-	require.NoError(t, err)
-	require.Empty(t, devices)
-	require.Empty(t, cursor)
-	count, err = store.CountActiveUnpairedDevices(t.Context(), org)
-	require.NoError(t, err)
-	require.Zero(t, count)
-}
-
 func TestPairingMetadataSaveKeepsCurrentEndpointGroup(t *testing.T) {
-	for _, key := range []string{"different-group", "opaque-pair"} {
-		t.Run(key, func(t *testing.T) { testPairingMetadataSaveKeepsCurrentEndpointGroup(t, false, key) })
-	}
-	t.Run("legacy snapshot", func(t *testing.T) { testPairingMetadataSaveKeepsCurrentEndpointGroup(t, true, "different-group") })
-}
-
-func testPairingMetadataSaveKeepsCurrentEndpointGroup(t *testing.T, legacySnapshot bool, key string) {
-	t.Helper()
 	_, store, org := ct1HAStore(t)
-	initial := ct1HADiscovery(org, "b", "10.0.0.12")
-	initial.MacAddress = "AA:BB:CC:DD:EE:0B"
-	if legacySnapshot {
-		initial = ct1HADiscovery(org, "a", "10.0.0.11")
-		initial.Endpoints = nil
-	}
-	before := saveCT1HA(t, store, "container", initial)
-	if !legacySnapshot {
-		before = saveCT1HA(t, store, "scan-a", ct1HADiscovery(org, "a", "10.0.0.11"))
-		require.Len(t, before.Endpoints, 2)
-		require.Equal(t, "b", before.SerialNumber)
-		// Pairing can learn B's MAC before a later scan replaces B with C.
-		before.MacAddress = "AA:BB:CC:DD:EE:0B"
-	}
-	incoming := ct1HADiscovery(org, "a", "10.0.0.11")
-	incoming.Endpoints[0].DeviceKey = key
-	incoming.Endpoints[0].MemberIds = []string{"a", "c"}
-	incoming.SerialNumber, incoming.MacAddress = "a", "AA:BB:CC:DD:EE:0A"
-	current := saveCT1HA(t, store, "scan-a", incoming)
+	before := saveCT1HA(t, store, "container", ct1HADiscovery(org, "a", "10.0.0.11"))
+	current := saveCT1HA(t, store, "scan-b", ct1HADiscovery(org, "b", "10.0.0.12"))
 	before.FirmwareVersion = "pair-v2"
 	saved, err := store.Save(t.Context(), before.GetDeviceOrgIdentifier(), before)
 	require.NoError(t, err)
 	require.Equal(t, "pair-v2", saved.FirmwareVersion)
-	require.Equal(t, current.SerialNumber, saved.SerialNumber)
-	require.Equal(t, current.MacAddress, saved.MacAddress)
+	require.Len(t, saved.Endpoints, 2)
 	require.True(t, proto.Equal(current.Endpoints[0], saved.Endpoints[0]))
-	require.Len(t, saved.Endpoints, 1)
+	require.True(t, proto.Equal(current.Endpoints[1], saved.Endpoints[1]))
 	before.DriverName = "unrelated-driver"
 	_, err = store.Save(t.Context(), before.GetDeviceOrgIdentifier(), before)
 	require.True(t, fleeterror.IsFailedPreconditionError(err))
-	require.NotContains(t, err.Error(), "no rows")
 }

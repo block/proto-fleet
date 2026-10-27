@@ -1014,6 +1014,42 @@ describe("MinerList", () => {
       expect(screen.getByTestId("manage-columns-reorder-model").firstChild).toHaveClass("w-4", "h-4", "shrink-0");
     });
 
+    it("omits the Allocated to toggle outside hosted roots and keeps its stored preference", async () => {
+      const user = userEvent.setup();
+      const key = getMinerTableColumnPreferencesStorageKey("alice");
+      localStorage.setItem(
+        key,
+        JSON.stringify({
+          columns: [
+            { id: "model", visible: true },
+            { id: "assignedAccount", visible: false },
+            { id: "groups", visible: true },
+          ],
+        }),
+      );
+      useFleetStore.setState((state) => ({ auth: { ...state.auth, username: "alice" } }));
+
+      renderMinerList({
+        title: "Miners",
+        minerIds: ["m1"],
+        totalMiners: 1,
+        onAddMiners: vi.fn(),
+        loading: false,
+      });
+
+      await user.click(screen.getByRole("button", { name: "Manage columns" }));
+      expect(screen.queryByRole("checkbox", { name: "Toggle Allocated to column" })).not.toBeInTheDocument();
+      await user.click(screen.getByRole("checkbox", { name: "Toggle Model column" }));
+      await user.click(screen.getByTestId("manage-columns-save-button"));
+
+      const saved = JSON.parse(localStorage.getItem(key) ?? "null").columns as { id: string; visible: boolean }[];
+      expect(saved.slice(0, 3)).toEqual([
+        { id: "model", visible: false },
+        { id: "assignedAccount", visible: false },
+        { id: "groups", visible: true },
+      ]);
+    });
+
     it("saves hidden columns for the current user and reapplies them on rerender", async () => {
       const user = userEvent.setup();
 

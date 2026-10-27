@@ -6,6 +6,7 @@ import Stats from "@/shared/components/Stats";
 type ChartWidgetStat = Omit<StatProps, "size">;
 
 type ChartWidgetProps = {
+  surface?: "elevated" | "overlay";
   stats?: ChartWidgetStat | ChartWidgetStat[];
   children: ReactNode;
   className?: string;
@@ -16,6 +17,7 @@ type ChartWidgetProps = {
 };
 
 const ChartWidget = ({
+  surface = "elevated",
   stats,
   children,
   className,
@@ -28,7 +30,13 @@ const ChartWidget = ({
   const statsArray = stats ? (Array.isArray(stats) ? stats : [stats]) : [];
 
   return (
-    <div className={clsx("rounded-xl bg-surface-elevated-base p-10 shadow-100 phone:p-6", className)}>
+    <div
+      className={clsx(
+        "rounded-xl p-10 phone:p-6",
+        surface === "overlay" ? "bg-surface-overlay" : "bg-surface-elevated-base shadow-100",
+        className,
+      )}
+    >
       <div className={statsPadding}>
         {statsArray.length > 0 ? (
           <Stats

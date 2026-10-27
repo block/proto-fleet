@@ -142,8 +142,9 @@ func TestRegistry_CommandProtocolUpgradeRecommended(t *testing.T) {
 		{gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V2, true},
 		{gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V3, true},
 		{gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V4, true},
-		{gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V5, false},
-		{gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V5 + 1, false},
+		{gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V5, true},
+		{gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V6, false},
+		{gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V6 + 1, false},
 	} {
 		t.Run(tc.version.String(), func(t *testing.T) {
 			stream, err := r.RegisterAuthenticated(7, "session", tc.version)
@@ -806,14 +807,13 @@ func TestRegistry_ReinstatePairTargets_AllowsRetryAfterPersistFailure(t *testing
 func TestRegistryPairSnapshotsRemainFixedAcrossDispatchAndRetry(t *testing.T) {
 	r := NewRegistry()
 	operator := int64(7)
-	target := &pairingpb.FleetNodePairTarget{DeviceIdentifier: "a", IpAddress: "10.0.0.1", Port: "8080", Endpoints: []*commonpb.DeviceEndpoint{{Id: "a", Host: "10.0.0.1", MemberIds: []string{"a", "b"}}}}
+	target := &pairingpb.FleetNodePairTarget{DeviceIdentifier: "a", IpAddress: "10.0.0.1", Port: "8080", Endpoints: []*commonpb.DeviceEndpoint{{Id: "a", Host: "10.0.0.1"}}}
 	pair := &PairMeta{OrgID: 1, AssignedBy: &operator, Targets: map[string]struct{}{"a": {}}, Snapshots: map[string]*pairingpb.FleetNodePairTarget{"a": target}}
 	session, stream := sendPair(t, r, 6, "snapshot", pair)
 	defer stream.Unregister()
 	defer session.Close()
 	target.IpAddress = "10.0.0.99"
 	target.Endpoints[0].Host = "10.0.0.99"
-	target.Endpoints[0].MemberIds[1] = "c"
 	operator = 9
 	delete(pair.Snapshots, "a")
 	delete(pair.Targets, "a")
@@ -823,7 +823,6 @@ func TestRegistryPairSnapshotsRemainFixedAcrossDispatchAndRetry(t *testing.T) {
 	require.EqualValues(t, 7, *meta.AssignedBy)
 	require.Equal(t, "10.0.0.1", meta.Snapshots["a"].GetIpAddress())
 	require.Equal(t, "10.0.0.1", meta.Snapshots["a"].GetEndpoints()[0].GetHost())
-	require.Equal(t, []string{"a", "b"}, meta.Snapshots["a"].GetEndpoints()[0].GetMemberIds())
 	meta.Snapshots["a"].IpAddress = "10.0.0.88"
 	meta.Snapshots["a"].Endpoints[0].Host = "10.0.0.88"
 	r.ReinstatePairTargets(6, "snapshot", []string{"a"})

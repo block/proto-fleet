@@ -107,29 +107,23 @@ const AccountOverview = () => {
   ];
   const summary = query.data?.totals;
   const history = useMemo(
-    () => (query.data ? accountDashboardData(query.data.readings, duration, temperatureUnit) : undefined),
-    [query.data, duration, temperatureUnit],
+    () => (query.data ? accountDashboardData(query.data.readings, duration) : undefined),
+    [query.data, duration],
   );
   const historyHasReadings = query.data?.readings.some(
-    ({ summary: reading }) =>
-      reading &&
-      (reading.hashrateHs !== undefined ||
-        reading.powerW !== undefined ||
-        reading.temperatureC !== undefined ||
-        reading.uptimePercent !== undefined),
+    ({ summary: reading, uptimeStatus }) =>
+      (uptimeStatus && uptimeStatus.hashingCount + uptimeStatus.brokenCount + uptimeStatus.notHashingCount > 0) ||
+      (reading &&
+        (reading.hashrateHs !== undefined ||
+          reading.powerW !== undefined ||
+          reading.temperatureC !== undefined ||
+          reading.uptimePercent !== undefined)),
   );
   return (
     <div className="flex flex-col gap-6">
       <div className="flex flex-wrap items-center justify-between gap-4">
         <h1 className="text-heading-300">Overview</h1>
         <div className="flex flex-wrap gap-3">
-          <Button
-            variant="secondary"
-            size={sizes.compact}
-            text="Refresh"
-            onClick={query.refresh}
-            disabled={query.loading}
-          />
           <Button
             variant="primary"
             size={sizes.compact}
@@ -224,7 +218,7 @@ const AccountOverview = () => {
           </section>
           {summary.assetCount === 0n ? (
             <SettingsEmptyState
-              title="No mining assets assigned"
+              title="No mining assets"
               description="Previously authorized readings can remain available below after recall, subject to current site permissions and telemetry retention."
             />
           ) : null}
@@ -261,6 +255,9 @@ const AccountOverview = () => {
             metrics={history?.metrics}
             totalAssets={Number(summary?.assetCount ?? 0n)}
             accountReadings
+            temperatureStatusCounts={history?.temperatureStatusCounts}
+            uptimeStatusCounts={history?.uptimeStatusCounts}
+            uptimeExpectedAssetCount={history?.uptimeExpectedAssetCount}
             tooltipNotes={history?.tooltipNotes}
           />
         </div>

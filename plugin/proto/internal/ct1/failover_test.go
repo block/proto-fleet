@@ -21,6 +21,8 @@ type haServer struct {
 	mdk.UnimplementedSystemServiceServer
 	mdk.UnimplementedPowerServiceServer
 	mdk.UnimplementedHashboardServiceServer
+	mdk.UnimplementedMiningServiceServer
+	mdk.UnimplementedMiningGroupServiceServer
 	id, peer       string
 	peerOverride   atomic.Pointer[string]
 	primary        atomic.Bool
@@ -33,6 +35,8 @@ type haServer struct {
 	mapError       error
 	mapReads       atomic.Int32
 	infoReads      atomic.Int32
+	groupReads     atomic.Int32
+	groupWrites    atomic.Int32
 	haDelay        time.Duration
 	haReads        atomic.Int32
 	statusDelay    time.Duration
@@ -49,10 +53,12 @@ func startHAServer(t *testing.T, id, peer string) *haServer {
 	port, err := sdk.ParsePort(portText)
 	require.NoError(t, err)
 	key := "ct1:" + testClusterID
-	s := &haServer{id: id, peer: peer, server: grpc.NewServer(), endpoint: sdk.DeviceEndpoint{ID: id, DeviceKey: key, MemberIDs: []string{id, peer}, Host: host, Port: 8080, URLScheme: "http", RPCPort: port}}
+	s := &haServer{id: id, peer: peer, server: grpc.NewServer(), endpoint: sdk.DeviceEndpoint{ID: id, DeviceKey: key, Host: host, Port: 8080, URLScheme: "http", RPCPort: port}}
 	mdk.RegisterSystemServiceServer(s.server, s)
 	mdk.RegisterPowerServiceServer(s.server, s)
 	mdk.RegisterHashboardServiceServer(s.server, s)
+	mdk.RegisterMiningServiceServer(s.server, s)
+	mdk.RegisterMiningGroupServiceServer(s.server, s)
 	go func() { _ = s.server.Serve(listener) }()
 	t.Cleanup(s.server.Stop)
 	return s
@@ -135,6 +141,17 @@ func (s *haServer) GetContainerMap(context.Context, *mdk.GetContainerMapRequest)
 		return nil, s.mapError
 	}
 	return &mdk.GetContainerMapResponse{ContainerMap: &mdk.ContainerMap{}}, nil
+}
+func (s *haServer) GetMiningStatus(context.Context, *mdk.GetMiningStatusRequest) (*mdk.GetMiningStatusResponse, error) {
+	s.groupReads.Add(1)
+	return &mdk.GetMiningStatusResponse{Mining: true, ActiveBoards: 3}, nil
+}
+func (s *haServer) CreateMiningGroup(context.Context, *mdk.CreateMiningGroupRequest) (*mdk.CreateMiningGroupResponse, error) {
+	s.groupWrites.Add(1)
+	if s.uncertain.Load() {
+		return nil, fmt.Errorf("simulated uncertain group write: %w", status.Error(codes.Unavailable, "connection lost after dispatch"))
+	}
+	return &mdk.CreateMiningGroupResponse{Group: &mdk.MiningGroupRecord{Id: "group", Revision: 1}}, nil
 }
 func (s *haServer) SetMainCircuitBreakerState(_ context.Context, req *mdk.SetMainCircuitBreakerStateRequest) (*mdk.SetMainCircuitBreakerStateResponse, error) {
 	s.writes.Add(1)
@@ -265,6 +282,39 @@ func TestHAWriteIsNotReplayedAfterUncertainResult(t *testing.T) {
 	require.EqualValues(t, 1, b.writes.Load())
 }
 
+func TestHAMiningGroupsUseSelectedControllerWithoutReplay(t *testing.T) {
+	a, b := startHAServer(t, "a", "b"), startHAServer(t, "b", "a")
+	a.primary.Store(true)
+	d, err := NewDevice(t.Context(), "container", haInfo(a, b), sdk.UsernamePassword{})
+	require.NoError(t, err)
+	defer d.Close(t.Context())
+	_, err = d.MiningGroups(t.Context(), sdk.MiningGroupRequest{Action: "mining_status"})
+	require.NoError(t, err)
+	require.EqualValues(t, 1, a.groupReads.Load())
+	require.Zero(t, b.groupReads.Load())
+
+	req := sdk.MiningGroupRequest{Action: "create", Key: "create", ConfigID: "config"}
+	a.uncertain.Store(true)
+	_, err = d.MiningGroups(t.Context(), req)
+	require.Error(t, err)
+	require.EqualValues(t, 1, a.groupWrites.Load())
+	require.Zero(t, b.groupWrites.Load())
+
+	a.server.Stop()
+	b.primary.Store(true)
+	_, err = d.MiningGroups(t.Context(), sdk.MiningGroupRequest{Action: "mining_status"})
+	require.NoError(t, err)
+	require.EqualValues(t, 1, b.groupReads.Load())
+	_, err = d.MiningGroups(t.Context(), req)
+	require.NoError(t, err)
+	require.EqualValues(t, 1, b.groupWrites.Load())
+
+	b.statusOverride = func(s *mdk.SystemStatus) { s.ContainerWritePrimary = false }
+	_, err = d.MiningGroups(t.Context(), req)
+	require.Error(t, err)
+	require.EqualValues(t, 1, b.groupWrites.Load(), "cached HA roles cannot grant write authority")
+}
+
 func TestHARefusesConflictingWriteAuthority(t *testing.T) {
 	a, b := startHAServer(t, "a", "b"), startHAServer(t, "b", "a")
 	a.primary.Store(true)
@@ -304,7 +354,6 @@ func TestHAClusterIdentitySurvivesPartnerReplacement(t *testing.T) {
 	verified, err := d.clients[1].Discover(t.Context(), sdk.DeviceInfo{})
 	require.NoError(t, err)
 	require.Equal(t, d.info.Endpoints[0].DeviceKey, verified.Endpoints[0].DeviceKey)
-	require.Equal(t, []string{"b", "replacement"}, verified.Endpoints[0].MemberIDs)
 }
 
 func TestHAWebViewUsesSavedEndpointWithoutProbing(t *testing.T) {

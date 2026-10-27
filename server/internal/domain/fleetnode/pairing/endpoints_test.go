@@ -11,21 +11,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestEndpointDiscoveryGroupsByPluginKeyAndNetworkOwner(t *testing.T) {
-	for _, partnerFirst := range []bool{false, true} {
-		name := "legacy endpoint first"
-		if partnerFirst {
-			name = "partner endpoint first"
-		}
-		t.Run(name, func(t *testing.T) {
-			testEndpointDiscoveryGroupsByPluginKeyAndNetworkOwner(t, partnerFirst)
-		})
-	}
-}
-
 func endpointGroupReport(t *testing.T, node int64, endpointID, host string) fleetnodepairing.DiscoveredDeviceReport {
 	t.Helper()
-	endpoints := []*commonpb.DeviceEndpoint{{Id: endpointID, DeviceKey: "ct1-pair", MemberIds: []string{"controller-a", "controller-b"}, Host: host, Port: 8080, UrlScheme: "http", RpcPort: 9095}}
+	endpoints := []*commonpb.DeviceEndpoint{{Id: endpointID, DeviceKey: "ct1-pair", Host: host, Port: 8080, UrlScheme: "http", RpcPort: 9095}}
 	identifier, err := deviceendpoints.NodeIdentifier(node, "proto", endpoints)
 	require.NoError(t, err)
 	return fleetnodepairing.DiscoveredDeviceReport{
@@ -142,55 +130,6 @@ func TestEndpointDiscoveryRejectsAmbiguousRevokedNodes(t *testing.T) {
 	require.Zero(t, count)
 }
 
-func TestEndpointDiscoveryRejectsAmbiguousLegacyRowsWithoutDroppingBatch(t *testing.T) {
-	for _, databaseFailure := range []bool{false, true} {
-		name := "valid rows commit"
-		if databaseFailure {
-			name = "database failure rolls back valid rows"
-		}
-		t.Run(name, func(t *testing.T) {
-			ctx := t.Context()
-			db, org, svc, enrollment := setupPairingTest(t)
-			node := createFleetNode(t, enrollment, org, "legacy-node")
-			for _, endpoint := range []struct{ id, host string }{{"controller-a", "10.0.0.11"}, {"controller-b", "10.0.0.12"}} {
-				legacy := endpointGroupReport(t, node, endpoint.id, endpoint.host)
-				legacy.DeviceIdentifier, legacy.Endpoints = endpoint.id, nil
-				_, _, err := svc.UpsertDiscoveredDevices(ctx, node, org, []fleetnodepairing.DiscoveredDeviceReport{legacy})
-				require.NoError(t, err)
-				_, err = db.ExecContext(ctx, `UPDATE discovered_device SET serial_number=$1 WHERE org_id=$2 AND device_identifier=$1`, endpoint.id, org)
-				require.NoError(t, err)
-			}
-			if databaseFailure {
-				_, err := db.ExecContext(ctx, `ALTER TABLE discovered_device ADD CONSTRAINT test_discovery_failure CHECK (device_identifier <> 'valid-after')`)
-				require.NoError(t, err)
-			}
-			before := fleetnodepairing.DiscoveredDeviceReport{DeviceIdentifier: "valid-before", IPAddress: "10.0.0.21", Port: "80", URLScheme: "http", DriverName: "virtual"}
-			after := before
-			after.DeviceIdentifier, after.IPAddress = "valid-after", "10.0.0.22"
-			ambiguous := endpointGroupReport(t, node, "controller-a", "10.0.0.11")
-			accepted, rejected, err := svc.UpsertDiscoveredDevices(ctx, node, org, []fleetnodepairing.DiscoveredDeviceReport{before, ambiguous, after})
-			if databaseFailure {
-				require.Error(t, err)
-				require.Empty(t, accepted)
-				require.Zero(t, rejected)
-			} else {
-				require.NoError(t, err)
-				require.Equal(t, []fleetnodepairing.DiscoveredDeviceReport{before, after}, accepted)
-				require.EqualValues(t, 1, rejected)
-			}
-			var legacyCount, validCount int
-			require.NoError(t, db.QueryRowContext(ctx, `SELECT count(*) FROM discovered_device WHERE org_id=$1 AND device_identifier IN ('controller-a','controller-b') AND endpoint_key='' AND endpoints='{}'::jsonb`, org).Scan(&legacyCount))
-			require.Equal(t, 2, legacyCount, "ambiguous legacy devices must remain separate")
-			require.NoError(t, db.QueryRowContext(ctx, `SELECT count(*) FROM discovered_device WHERE org_id=$1 AND device_identifier IN ('valid-before','valid-after')`, org).Scan(&validCount))
-			if databaseFailure {
-				require.Zero(t, validCount, "a database error must roll back the accepted prefix")
-			} else {
-				require.Equal(t, 2, validCount)
-			}
-		})
-	}
-}
-
 func TestPairedEndpointDiscoveryRejectsSpoofedReportsWithoutDroppingBatch(t *testing.T) {
 	ctx := t.Context()
 	db, org, svc, enrollment := setupPairingTest(t)
@@ -208,7 +147,6 @@ func TestPairedEndpointDiscoveryRejectsSpoofedReportsWithoutDroppingBatch(t *tes
 	require.NoError(t, err)
 	rogue := endpointGroupReport(t, node, "controller-a", "10.0.0.99")
 	rogue.Endpoints[0].Id = "controller-c"
-	rogue.Endpoints[0].MemberIds = []string{"controller-a", "controller-b", "controller-c"}
 	swap := endpointGroupReport(t, node, "controller-a", "10.0.0.12")
 	transport := endpointGroupReport(t, node, "controller-a", "10.0.0.11")
 	transport.RPCPort, transport.Endpoints[0].RpcPort = 9443, 9443
@@ -240,112 +178,40 @@ func TestPairedEndpointDiscoveryRejectsSpoofedReportsWithoutDroppingBatch(t *tes
 	require.Equal(t, 3, count)
 }
 
-func TestPairedLegacyNodeDiscoveryRejectsRouteChanges(t *testing.T) {
-	ctx := t.Context()
-	db, org, svc, enrollment := setupPairingTest(t)
-	node := createFleetNode(t, enrollment, org, "legacy-pinned-node")
-	legacy := endpointGroupReport(t, node, "controller-a", "10.0.0.11")
-	legacy.Endpoints = nil
-	_, _, err := svc.UpsertDiscoveredDevices(ctx, node, org, []fleetnodepairing.DiscoveredDeviceReport{legacy})
-	require.NoError(t, err)
-	_, err = svc.PersistFleetNodePairResult(ctx, node, org, &gatewaypb.FleetNodePairResult{
-		DeviceIdentifier: legacy.DeviceIdentifier, Outcome: gatewaypb.PairOutcome_PAIR_OUTCOME_PAIRED,
-		SerialNumber: "controller-a", DeviceClass: commonpb.DeviceClass_DEVICE_CLASS_CONTAINER, Model: "CT1", Manufacturer: "Proto",
-	}, nil, pairingSnapshot(t, db, org, legacy.DeviceIdentifier))
-	require.NoError(t, err)
-	moved := legacy
-	moved.IPAddress = "10.0.0.99"
-	valid := fleetnodepairing.DiscoveredDeviceReport{DeviceIdentifier: "valid-other", IPAddress: "10.0.0.21", Port: "80", URLScheme: "http", DriverName: "virtual"}
-	accepted, rejected, err := svc.UpsertDiscoveredDevices(ctx, node, org, []fleetnodepairing.DiscoveredDeviceReport{
-		endpointGroupReport(t, node, "controller-a", "10.0.0.99"),
-		endpointGroupReport(t, node, "controller-b", "10.0.0.12"), moved, valid,
-	})
-	require.NoError(t, err)
-	require.EqualValues(t, 3, rejected)
-	require.Equal(t, []fleetnodepairing.DiscoveredDeviceReport{valid}, accepted)
-	var host string
-	require.NoError(t, db.QueryRowContext(ctx, `SELECT ip_address FROM discovered_device WHERE org_id=$1 AND device_identifier=$2`, org, legacy.DeviceIdentifier).Scan(&host))
-	require.Equal(t, legacy.IPAddress, host)
-}
-
-func testEndpointDiscoveryGroupsByPluginKeyAndNetworkOwner(t *testing.T, partnerFirst bool) {
-	t.Helper()
-	db, org, svc, enrollment := setupPairingTest(t)
+func TestEndpointDiscoveryGroupsByPluginKeyAndNetworkOwner(t *testing.T) {
+	_, org, svc, enrollment := setupPairingTest(t)
 	node := createFleetNode(t, enrollment, org, "node-a")
 	other := createFleetNode(t, enrollment, org, "node-b")
-	report := func(id, host string) fleetnodepairing.DiscoveredDeviceReport {
-		return fleetnodepairing.DiscoveredDeviceReport{DeviceIdentifier: id, IPAddress: host, Port: "8080", URLScheme: "http", RPCPort: 0, DriverName: "virtual", DeviceClass: commonpb.DeviceClass_DEVICE_CLASS_RIG, Endpoints: []*commonpb.DeviceEndpoint{{Id: id, DeviceKey: "opaque-key", MemberIds: []string{"a", "b"}, Host: host, Port: 8080, UrlScheme: "http", RpcPort: 0}}}
-	}
-	a, b := report("a", "10.0.0.11"), report("b", "10.0.0.12")
-	// An existing single-address discovery must retain its identifier on upgrade.
-	legacy := a
-	legacy.Endpoints = nil
-	legacy.Port = "8181"
-	legacy.URLScheme = "https"
-	_, _, err := svc.UpsertDiscoveredDevices(t.Context(), node, org, []fleetnodepairing.DiscoveredDeviceReport{legacy})
-	require.NoError(t, err)
-	if partnerFirst {
-		// A partner-first upgrade needs the identity learned during pairing.
-		_, err = db.ExecContext(t.Context(), `UPDATE discovered_device SET serial_number = 'a' WHERE org_id = $1 AND device_identifier = $2`, org, legacy.DeviceIdentifier)
-		require.NoError(t, err)
-	}
-	// The generic store supports endpoints for other plugins and device classes.
-	reports := []fleetnodepairing.DiscoveredDeviceReport{a, b}
-	if partnerFirst {
-		reports[0], reports[1] = reports[1], reports[0]
-	}
-	accepted, rejected, err := svc.UpsertDiscoveredDevices(t.Context(), node, org, reports)
+	a := endpointGroupReport(t, node, "controller-a", "10.0.0.11")
+	b := endpointGroupReport(t, node, "controller-b", "10.0.0.12")
+	a.Port, a.URLScheme = "8181", "https"
+	a.Endpoints[0].Port, a.Endpoints[0].UrlScheme = 8181, "https"
+	accepted, rejected, err := svc.UpsertDiscoveredDevices(t.Context(), node, org, []fleetnodepairing.DiscoveredDeviceReport{a, b})
 	require.NoError(t, err)
 	require.Zero(t, rejected)
 	require.Len(t, accepted, 2)
-	require.Equal(t, "a", accepted[0].DeviceIdentifier)
 	require.Equal(t, accepted[0].DeviceIdentifier, accepted[1].DeviceIdentifier)
-	require.Len(t, accepted[1].Endpoints, 2)
 	listed, _, err := svc.ListDiscoveredDevicesForFleetNode(t.Context(), org, &node, nil, nil)
 	require.NoError(t, err)
 	require.Len(t, listed, 1)
-	require.Equal(t, "a", listed[0].DeviceIdentifier)
 	require.Len(t, listed[0].Endpoints, 2)
-	require.Equal(t, "a", listed[0].Endpoints[0].Id)
-	require.Equal(t, "10.0.0.11", listed[0].Endpoints[0].Host)
-	require.EqualValues(t, 8181, listed[0].Endpoints[0].Port)
-	require.Equal(t, "https", listed[0].Endpoints[0].UrlScheme)
-	require.Equal(t, "b", listed[0].Endpoints[1].Id)
-	require.Equal(t, "10.0.0.12", listed[0].Endpoints[1].Host)
-	require.EqualValues(t, 8080, listed[0].Endpoints[1].Port)
 	require.Equal(t, "10.0.0.11", listed[0].IPAddress)
 	require.Equal(t, "8181", listed[0].Port)
 	require.Equal(t, "https", listed[0].URLScheme)
-	// Equal plugin keys on another LAN are distinct devices.
 	elsewhere, _, err := svc.UpsertDiscoveredDevices(t.Context(), other, org, []fleetnodepairing.DiscoveredDeviceReport{a, b})
 	require.NoError(t, err)
 	require.NotEqual(t, accepted[0].DeviceIdentifier, elsewhere[0].DeviceIdentifier)
-	// Unpaired node discoveries can have no saved serial number.
-	_, err = db.ExecContext(t.Context(), `UPDATE discovered_device SET serial_number = '' WHERE org_id = $1 AND device_identifier = $2`, org, legacy.DeviceIdentifier)
-	require.NoError(t, err)
-	// A rescan moves only the scanned endpoint and retains its partner.
-	moved := report("a", "10.0.0.21")
-	again, _, err := svc.UpsertDiscoveredDevices(t.Context(), node, org, []fleetnodepairing.DiscoveredDeviceReport{moved})
+	// A scan may update an unpaired address while retaining the other route.
+	a.IPAddress, a.Endpoints[0].Host = "10.0.0.21", "10.0.0.21"
+	again, _, err := svc.UpsertDiscoveredDevices(t.Context(), node, org, []fleetnodepairing.DiscoveredDeviceReport{a})
 	require.NoError(t, err)
 	require.Len(t, again[0].Endpoints, 2)
-	require.Equal(t, "a", again[0].DeviceIdentifier)
+	require.Equal(t, accepted[0].DeviceIdentifier, again[0].DeviceIdentifier)
 	require.Equal(t, "10.0.0.21", again[0].IPAddress)
 	require.Equal(t, "8181", again[0].Port)
-	require.Equal(t, "https", again[0].URLScheme)
-	require.Equal(t, "10.0.0.21", again[0].Endpoints[0].Host)
-	require.EqualValues(t, 8181, again[0].Endpoints[0].Port)
-	require.Equal(t, "https", again[0].Endpoints[0].UrlScheme)
 	require.Equal(t, "10.0.0.12", again[0].Endpoints[1].Host)
-	partnerMoved := report("b", "10.0.0.22")
-	again, _, err = svc.UpsertDiscoveredDevices(t.Context(), node, org, []fleetnodepairing.DiscoveredDeviceReport{partnerMoved})
-	require.NoError(t, err)
-	require.Equal(t, "10.0.0.21", again[0].IPAddress)
-	require.Equal(t, "8181", again[0].Port)
-	require.Equal(t, "https", again[0].URLScheme)
-	require.Equal(t, "10.0.0.22", again[0].Endpoints[1].Host)
-	// A claimed second address must not bypass scan admission.
-	invalid := a
-	invalid.Endpoints = []*commonpb.DeviceEndpoint{a.Endpoints[0], b.Endpoints[0]}
-	_, _, err = svc.UpsertDiscoveredDevices(t.Context(), node, org, []fleetnodepairing.DiscoveredDeviceReport{invalid})
+	// A report cannot introduce a second address that was not scanned.
+	a.Endpoints = append(a.Endpoints, b.Endpoints[0])
+	_, _, err = svc.UpsertDiscoveredDevices(t.Context(), node, org, []fleetnodepairing.DiscoveredDeviceReport{a})
 	require.Error(t, err)
 }

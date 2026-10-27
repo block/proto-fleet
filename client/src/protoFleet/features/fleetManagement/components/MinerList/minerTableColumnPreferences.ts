@@ -16,6 +16,7 @@ export const configurableMinerColumns = [
   minerCols.building,
   minerCols.rack,
   minerCols.groups,
+  minerCols.assignedAccount,
 ] as const;
 
 export type ConfigurableMinerColumn = (typeof configurableMinerColumns)[number];

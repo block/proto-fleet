@@ -6,6 +6,7 @@ import "buf/validate/validate.proto";
 import "activity/v1/activity.proto";
 import "common/v1/equipment_coverage.proto";
 import "common/v1/sort.proto";
+import "telemetry/v1/telemetry.proto";
 import "google/protobuf/timestamp.proto";
 
 // HostedAccountService uses account authority independently of organization RBAC.
@@ -573,6 +574,10 @@ message GetAccountDashboardRequest {
 message AccountDashboardReading {
   google.protobuf.Timestamp time = 1;
   MiningSummary summary = 2;
+  // Distributions include only source-authorized observations in this bucket.
+  // Empty counts preserve gaps; missing observations are never healthy assets.
+  telemetry.v1.TemperatureStatusCount temperature_status = 3;
+  telemetry.v1.UptimeStatusCount uptime_status = 4;
 }
 message AccountDashboardSite {
   int64 site_id = 1;

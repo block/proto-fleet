@@ -50,13 +50,16 @@ func NewDevice(ctx context.Context, id string, info sdk.DeviceInfo, credentials 
 		}
 		d.clients = []*Client{c}
 	}
-	var verified sdk.DeviceInfo
+	verified := info
 	var err error
 	if len(info.Endpoints) > 0 {
-		var selected *controllerSelection
+		var selected *controllerProbe
 		selected, _, err = d.probeControllers(ctx, false)
 		if err == nil {
-			verified = selected.info
+			verified.FirmwareVersion = selected.state.GetVersion()
+			if verified.SerialNumber == "" {
+				verified.SerialNumber = selected.state.GetServerId()
+			}
 		}
 	} else {
 		verified, err = d.clients[0].Discover(ctx, info)
@@ -69,7 +72,7 @@ func NewDevice(ctx context.Context, id string, info sdk.DeviceInfo, credentials 
 	return d, nil
 }
 func Capabilities() sdk.Capabilities {
-	return sdk.Capabilities{sdk.CapabilityTankMining: true, sdk.CapabilityModuleMining: true, sdk.CapabilityContainerControl: true, sdk.CapabilityPollingHost: true, sdk.CapabilityDiscovery: true, sdk.CapabilityPairing: true, sdk.CapabilityRealtimeTelemetry: true, sdk.CapabilityHashrateReported: true, sdk.CapabilityPowerUsage: true}
+	return sdk.Capabilities{sdk.CapabilityMiningGroups: true, sdk.CapabilityTankMining: true, sdk.CapabilityModuleMining: true, sdk.CapabilityContainerControl: true, sdk.CapabilityPollingHost: true, sdk.CapabilityDiscovery: true, sdk.CapabilityPairing: true, sdk.CapabilityRealtimeTelemetry: true, sdk.CapabilityHashrateReported: true, sdk.CapabilityPowerUsage: true}
 }
 func (d *Device) ID() string { return d.id }
 func (d *Device) DescribeDevice(context.Context) (sdk.DeviceInfo, sdk.Capabilities, error) {
@@ -84,7 +87,10 @@ func (d *Device) Status(ctx context.Context) (sdk.DeviceMetrics, error) {
 	if metrics.Container != nil {
 		metrics.Container.HA = ha
 	}
-	metrics.FirmwareVersion = selected.info.FirmwareVersion
+	metrics.FirmwareVersion = d.info.FirmwareVersion
+	if selected.state != nil {
+		metrics.FirmwareVersion = selected.state.GetVersion()
+	}
 	return metrics, err
 }
 func (d *Device) Close(context.Context) error {

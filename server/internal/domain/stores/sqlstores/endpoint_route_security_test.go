@@ -30,7 +30,7 @@ func TestPairedEndpointDiscoveryRejectsSpoofedRoutes(t *testing.T) {
 				{"rpc port", func(d *discovery.DiscoveredDevice) { d.RpcPort, d.Endpoints[0].RpcPort = 9443, 9443 }},
 				{"rpc tls", func(d *discovery.DiscoveredDevice) { d.RpcTls, d.Endpoints[0].RpcTls = true, true }},
 				{"new identity", func(d *discovery.DiscoveredDevice) {
-					d.Endpoints[0].Id, d.Endpoints[0].MemberIds = "c", []string{"a", "b", "c"}
+					d.Endpoints[0].Id = "c"
 				}},
 				{"peer address swap", func(d *discovery.DiscoveredDevice) { d.IpAddress, d.Endpoints[0].Host = "10.0.0.12", "10.0.0.12" }},
 				{"omitted endpoints", func(d *discovery.DiscoveredDevice) { d.Endpoints = nil }},
@@ -45,52 +45,13 @@ func TestPairedEndpointDiscoveryRejectsSpoofedRoutes(t *testing.T) {
 					require.True(t, proto.Equal(&before.Device, &after.Device), "a rejected scan must not change paired routes or metadata")
 				})
 			}
-			// Defaults and untrusted peer claims cannot overwrite saved web settings
-			// or add a route during a valid scan of a pinned address.
+			// Discovery defaults cannot overwrite saved web settings.
 			incoming := ct1HADiscovery(org, "a", "10.0.0.11")
 			incoming.Endpoints[0].Port, incoming.Endpoints[0].UrlScheme = 443, "https"
-			incoming.Endpoints[0].MemberIds = []string{"a", "b", "c"}
 			saved := saveCT1HA(t, store, before.DeviceIdentifier, incoming)
 			require.True(t, proto.Equal(&before.Device, &saved.Device))
 		})
 	}
-}
-
-func TestPairedLegacyContainerDiscoveryPinsSavedRoute(t *testing.T) {
-	db, store, org := ct1HAStore(t)
-	legacy := ct1HADiscovery(org, "a", "10.0.0.11")
-	legacy.Endpoints = nil
-	legacy.Port, legacy.UrlScheme = "8443", "https"
-	before := saveCT1HA(t, store, "legacy", legacy)
-	pairCT1HA(t, db, before)
-	for _, incoming := range []*discovery.DiscoveredDevice{
-		ct1HADiscovery(org, "a", "10.0.0.99"),
-		ct1HADiscovery(org, "b", "10.0.0.12"),
-	} {
-		_, err := store.SaveDirect(t.Context(), before.GetDeviceOrgIdentifier(), incoming)
-		require.True(t, fleeterror.IsFailedPreconditionError(err), "legacy identity must not authorize a different address")
-	}
-	legacy.IpAddress = "10.0.0.99"
-	_, err := store.SaveDirect(t.Context(), before.GetDeviceOrgIdentifier(), legacy)
-	require.True(t, fleeterror.IsFailedPreconditionError(err), "omitting endpoints must not bypass the legacy guard")
-	upgraded := saveCT1HA(t, store, before.DeviceIdentifier, ct1HADiscovery(org, "a", "10.0.0.11"))
-	require.Equal(t, "10.0.0.11", upgraded.IpAddress)
-	require.Equal(t, "8443", upgraded.Port)
-	require.Equal(t, "https", upgraded.UrlScheme)
-	require.Len(t, upgraded.Endpoints, 1)
-}
-
-func TestPairedLegacyDiscoveryDoesNotInterpretDefaultRPCPort(t *testing.T) {
-	db, store, org := ct1HAStore(t)
-	legacy := ct1HADiscovery(org, "a", "10.0.0.11")
-	legacy.Endpoints, legacy.RpcPort = nil, 0
-	before := saveCT1HA(t, store, "legacy", legacy)
-	pairCT1HA(t, db, before)
-	_, err := store.SaveDirect(t.Context(), before.GetDeviceOrgIdentifier(), ct1HADiscovery(org, "a", "10.0.0.11"))
-	require.True(t, fleeterror.IsFailedPreconditionError(err), "raw port changes need an explicit unpair, even at the same host")
-	setCT1HAPairing(t, db, before, sqlc.PairingStatusEnumUNPAIRED)
-	upgraded := saveCT1HA(t, store, before.DeviceIdentifier, ct1HADiscovery(org, "a", "10.0.0.11"))
-	require.EqualValues(t, 9095, upgraded.RpcPort)
 }
 
 func TestEndpointDiscoveryRechecksPairingAfterDeviceLock(t *testing.T) {

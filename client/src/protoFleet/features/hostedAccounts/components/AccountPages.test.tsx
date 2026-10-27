@@ -6,6 +6,7 @@ import { create } from "@bufbuild/protobuf";
 import userEvent from "@testing-library/user-event";
 
 import { type AccountScope, AccountScopeContext } from "../AccountScope";
+import { HostedAccountsContext } from "../HostedAccountsContext";
 import AccountAccess from "./AccountAccess";
 import AccountChildren from "./AccountChildren";
 import AccountPools from "./AccountPools";
@@ -119,7 +120,7 @@ const mount = (element: ReactNode, value: AccountScope) =>
 describe("hosted account pages", () => {
   it.each([
     { page: <AccountPools />, controls: ["Add pool", "Change selection"] },
-    { page: <AccountAccess />, controls: ["Create API key", "Grant ancestor access"] },
+    { page: <AccountAccess />, controls: ["Create API key", "Grant host or parent access"] },
     { page: <AccountTeam />, controls: ["Invite team member"] },
     { page: <AccountChildren />, controls: ["Create subclient"] },
   ])("keeps administrator mutation controls visible and disabled in preview: $controls", async ({ page, controls }) => {
@@ -269,7 +270,7 @@ describe("hosted account pages", () => {
     const copy = vi.spyOn(navigator.clipboard, "writeText").mockResolvedValue();
     await user.click(screen.getByRole("button", { name: "Copy invitation code" }));
     expect(copy).toHaveBeenLastCalledWith("K7MP-4X9R");
-    await user.click(screen.getByRole("button", { name: "Copy link" }));
+    await user.click(screen.getByRole("button", { name: "Copy invitation link" }));
     expect(copy).toHaveBeenLastCalledWith(`${window.location.origin}/account-invitation#token=K7MP-4X9R`);
     expect(client.createInvitation).toHaveBeenCalledWith({
       accountId,
@@ -279,6 +280,83 @@ describe("hosted account pages", () => {
     await user.click(screen.getByRole("button", { name: "Done" }));
     expect(screen.queryByLabelText("Invitation code")).not.toBeInTheDocument();
     expect(screen.queryByLabelText(/email/i)).not.toBeInTheDocument();
+  });
+  it.each([
+    { team: "an empty team", members: [], role: AccountRole.ADMINISTRATOR, label: "Account administrator" },
+    { team: "a staffed team", members: undefined, role: AccountRole.VIEWER, label: "Viewer" },
+  ])("defaults deep-linked invitations for $team", async ({ members, role, label }) => {
+    const user = userEvent.setup(),
+      { value, client } = scope();
+    if (members) client.listMembers.mockResolvedValue({ members });
+    render(
+      <MemoryRouter initialEntries={["/team?invite=1"]}>
+        <AccountScopeContext.Provider value={value}>
+          <AccountTeam />
+        </AccountScopeContext.Provider>
+      </MemoryRouter>,
+    );
+    const dialog = await screen.findByRole("dialog");
+    await waitFor(() => expect(client.listInvitations).toHaveBeenCalled());
+    if (!members) await screen.findByText("payout_ops");
+    expect(await within(dialog).findByText(label)).toBeInTheDocument();
+    await user.click(within(dialog).getByRole("button", { name: "Create invitation" }));
+    await waitFor(() =>
+      expect(client.createInvitation).toHaveBeenCalledWith({ accountId, role, expiresInSeconds: 86400 }),
+    );
+  });
+  it("defaults another invitation to Viewer while the first invitation is pending", async () => {
+    const user = userEvent.setup(),
+      { value, client } = scope();
+    client.listMembers.mockResolvedValue({ members: [] });
+    client.listInvitations.mockResolvedValue({
+      invitations: [create(InvitationSchema, { invitationId: "pending", available: true })],
+      nextPageToken: "",
+    });
+    mount(<AccountTeam />, value);
+    await user.click(await screen.findByRole("button", { name: "Invite team member" }));
+    const dialog = screen.getByRole("dialog", { name: "Create invitation" });
+    expect(within(dialog).getByRole("button", { name: "Role" })).toHaveTextContent("Viewer");
+    await user.click(within(dialog).getByRole("button", { name: "Create invitation" }));
+    await waitFor(() =>
+      expect(client.createInvitation).toHaveBeenCalledWith({
+        accountId,
+        role: AccountRole.VIEWER,
+        expiresInSeconds: 86400,
+      }),
+    );
+  });
+  it("waits for the team query before opening a deep-linked invitation", async () => {
+    const user = userEvent.setup(),
+      { value, client } = scope();
+    let finish!: () => void;
+    client.listMembers.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finish = () => resolve({ members: [] });
+        }),
+    );
+    render(
+      <MemoryRouter initialEntries={["/team?invite=1"]}>
+        <AccountScopeContext.Provider value={value}>
+          <AccountTeam />
+        </AccountScopeContext.Provider>
+      </MemoryRouter>,
+    );
+    await waitFor(() => expect(client.listMembers).toHaveBeenCalledOnce());
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Create invitation" })).not.toBeInTheDocument();
+    expect(client.createInvitation).not.toHaveBeenCalled();
+    await act(async () => finish());
+    const dialog = await screen.findByRole("dialog", { name: "Create invitation" });
+    expect(within(dialog).getByRole("button", { name: "Role" })).toHaveTextContent("Account administrator");
+    await user.click(within(dialog).getByRole("button", { name: "Create invitation" }));
+    await waitFor(() =>
+      expect(client.createInvitation).toHaveBeenCalledWith({
+        accountId,
+        role: AccountRole.ADMINISTRATOR,
+        expiresInSeconds: 86400,
+      }),
+    );
   });
   it("copies invitation codes and optional links on plain HTTP without a secure clipboard API", async () => {
     const user = userEvent.setup(),
@@ -297,9 +375,9 @@ describe("hosted account pages", () => {
       await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Create invitation" }));
       await screen.findByLabelText("Invitation code");
       await user.click(screen.getByRole("button", { name: "Copy invitation code" }));
-      expect(await screen.findByRole("button", { name: "Copied" })).toBeInTheDocument();
-      await user.click(screen.getByRole("button", { name: "Copy link" }));
-      await screen.findByRole("button", { name: "Link copied" });
+      expect(await screen.findByRole("button", { name: "Invitation code copied" })).toBeInTheDocument();
+      await user.click(screen.getByRole("button", { name: "Copy invitation link" }));
+      await screen.findByRole("button", { name: "Invitation link copied" });
       expect(copied).toEqual(["K7MP-4X9R", `${window.location.origin}/account-invitation#token=K7MP-4X9R`]);
       expect(copy).toHaveBeenCalledWith("copy");
       expect(document.querySelector("textarea")).toBeNull();
@@ -321,7 +399,7 @@ describe("hosted account pages", () => {
       await screen.findByLabelText("Invitation code");
       await user.click(screen.getByRole("button", { name: "Copy invitation code" }));
       await screen.findByText("Couldn’t copy. Select and copy the value above.");
-      await user.click(screen.getByRole("button", { name: "Copy link" }));
+      await user.click(screen.getByRole("button", { name: "Copy invitation link" }));
       await screen.findByText("Couldn’t copy the link. Share the code instead.");
       expect(screen.getByLabelText("Invitation code")).toHaveValue("K7MP-4X9R");
       expect(document.querySelector("textarea")).toBeNull();
@@ -351,9 +429,13 @@ describe("hosted account pages", () => {
     mount(<AccountAccess />, value);
     const details = screen.getByRole("region", { name: "Account details" });
     expect(within(details).getByText("Client A")).toBeInTheDocument();
+    expect(within(details).getByText("Account administrator")).toBeInTheDocument();
     expect(within(details).queryByText("Active")).not.toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Your permissions" })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Ancestor access" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Host and parent access" })).toBeInTheDocument();
+    const permissions = within(screen.getByRole("region", { name: "Your permissions" }));
+    expect(permissions.getByText("Allocate and recall assets")).toBeInTheDocument();
+    expect(permissions.getByText("Select stored pool profile")).toBeInTheDocument();
     await user.click(within(details).getByRole("button", { name: "Rename account" }));
     const dialog = screen.getByRole("dialog", { name: "Rename account" });
     await user.clear(within(dialog).getByLabelText("Account name"));
@@ -377,13 +459,19 @@ describe("hosted account pages", () => {
       { value, client } = scope(1n);
     mount(<AccountAccess />, value);
     await user.click(await screen.findByRole("button", { name: "Create API key" }));
-    await user.type(screen.getByLabelText("Key name"), "Reporting");
+    const dialog = within(screen.getByRole("dialog", { name: "Create API key" }));
+    expect(dialog.getByRole("checkbox", { name: "View account data" })).toBeChecked();
+    expect(dialog.getByRole("checkbox", { name: "View account data" })).toBeDisabled();
+    expect(dialog.getByRole("checkbox", { name: "Manage pool configurations" })).toBeDisabled();
+    expect(dialog.queryByRole("checkbox", { name: "Select stored pool profile" })).not.toBeInTheDocument();
+    expect(dialog.queryByRole("checkbox", { name: "Change pools" })).not.toBeInTheDocument();
+    await user.type(screen.getByLabelText("Key name"), "Pool reader");
     await user.click(screen.getByRole("button", { name: "Create key" }));
     expect(await screen.findByLabelText("Secret")).toHaveValue("one-time-test-secret");
     expect(client.createAccountKey).toHaveBeenCalledWith(
       expect.objectContaining({
         accountId,
-        name: "Reporting",
+        name: "Pool reader",
         capabilities: 1n,
         descendantAccountIds: [],
         includeFutureDescendants: false,
@@ -391,6 +479,48 @@ describe("hosted account pages", () => {
     );
     await user.click(screen.getByRole("button", { name: "Done" }));
     expect(screen.queryByLabelText("Secret")).not.toBeInTheDocument();
+  });
+
+  it("creates a saved-pool management key without session-only profile selection", async () => {
+    const user = userEvent.setup(),
+      { value, client } = scope(7n);
+    mount(<AccountAccess />, value);
+    await user.click(await screen.findByRole("button", { name: "Create API key" }));
+    const dialog = within(screen.getByRole("dialog", { name: "Create API key" }));
+    expect(dialog.queryByRole("checkbox", { name: "Select stored pool profile" })).not.toBeInTheDocument();
+    expect(dialog.queryByRole("checkbox", { name: "Change pools" })).not.toBeInTheDocument();
+    await user.click(dialog.getByRole("checkbox", { name: "Manage pool configurations" }));
+    await user.type(dialog.getByLabelText("Key name"), "Pool automation");
+    await user.click(dialog.getByRole("button", { name: "Create key" }));
+    await waitFor(() =>
+      expect(client.createAccountKey).toHaveBeenCalledWith(
+        expect.objectContaining({ accountId, name: "Pool automation", capabilities: 3n }),
+      ),
+    );
+  });
+
+  it("identifies granted host access without presenting it as a membership role", async () => {
+    const user = userEvent.setup(),
+      { value } = scope();
+    value.account.role = AccountRole.UNSPECIFIED;
+    const host = create(AccountSchema, { accountId: value.account.parentAccountId, name: "North Hosting" });
+    mount(
+      <HostedAccountsContext.Provider
+        value={{ accounts: [host, value.account], hostAccess: true, loading: false, error: null, refresh: vi.fn() }}
+      >
+        <AccountAccess />
+      </HostedAccountsContext.Provider>,
+      value,
+    );
+    expect(
+      within(screen.getByRole("region", { name: "Account details" })).getByText("Host and parent access"),
+    ).toBeInTheDocument();
+    await user.click(await screen.findByRole("button", { name: "Grant host or parent access" }));
+    const dialog = within(screen.getByRole("dialog", { name: "Host and parent access" }));
+    expect(dialog.getByRole("button", { name: "Host or parent account" })).toHaveTextContent("North Hosting");
+    expect(dialog.getByText("Create, revise and archive saved pool configurations.")).toBeInTheDocument();
+    expect(dialog.getByText("Choose a saved revision; does not apply pools to mining assets.")).toBeInTheDocument();
+    expect(dialog.getByText("Allocate assets to subclients and recall them to this account.")).toBeInTheDocument();
   });
 
   it("saves an edited revision with an unchanged password omitted", async () => {
@@ -489,7 +619,7 @@ describe("hosted account pages", () => {
           {
             pathname: `/accounts/${accountId}/children`,
             search: `?assets=${childId}`,
-            state: { assetNotice: "Assigned 1 asset to Child." },
+            state: { assetNotice: "Allocated 1 asset to Child." },
           },
         ]}
       >
@@ -506,7 +636,53 @@ describe("hosted account pages", () => {
         </AccountScopeContext.Provider>
       </MemoryRouter>,
     );
-    expect(await screen.findByRole("status")).toHaveTextContent("Assigned 1 asset to Child.");
+    expect(await screen.findByRole("status")).toHaveTextContent("Allocated 1 asset to Child.");
+  });
+  it("loads the created subclient's mining assets without showing it as unavailable", async () => {
+    const user = userEvent.setup(),
+      { value, client } = scope();
+    const child = create(AccountSchema, {
+      accountId: "88888888-8888-4888-8888-888888888888",
+      name: "New subclient",
+      depth: 2,
+      effectiveCapabilities: 31n,
+      capabilityCeiling: 31n,
+    });
+    client.createAccount.mockResolvedValue({ account: child });
+    let finish!: () => void;
+    client.listChildren.mockResolvedValueOnce({ accounts: [] }).mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finish = () => resolve({ accounts: [child] });
+        }),
+    );
+    const listAccountAssets = vi.fn().mockResolvedValue({ assets: [], nextPageToken: "", children: [] });
+    mount(<AccountChildren />, {
+      ...value,
+      client: { ...client, listAccountAssets } as unknown as AccountScope["client"],
+    });
+    await screen.findByText("No subclients yet");
+    await user.click(screen.getByRole("button", { name: "Create subclient" }));
+    const dialog = screen.getByRole("dialog", { name: "Create subclient" });
+    await user.type(within(dialog).getByLabelText("Subclient name"), child.name);
+    await user.click(within(dialog).getByRole("button", { name: "Create subclient" }));
+    await waitFor(() => expect(client.listChildren).toHaveBeenCalledTimes(2));
+    expect(client.createAccount).toHaveBeenCalledWith({ accountId, name: child.name, capabilities: 31n });
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(screen.queryByText("This account is unavailable.")).not.toBeInTheDocument();
+    expect(listAccountAssets).not.toHaveBeenCalled();
+    await act(async () => finish());
+    expect(await screen.findByRole("link", { name: "Invite team member" })).toHaveAttribute(
+      "href",
+      `/accounts/${child.accountId}/team?invite=1`,
+    );
+    await waitFor(() =>
+      expect(listAccountAssets).toHaveBeenCalledWith(
+        expect.objectContaining({ accountId, ownerAccountId: child.accountId }),
+        expect.objectContaining({ signal: expect.any(AbortSignal) }),
+      ),
+    );
+    expect(screen.queryByText("This account is unavailable.")).not.toBeInTheDocument();
   });
   it("saves permission changes immediately and rolls a failed update back", async () => {
     const user = userEvent.setup();
@@ -528,7 +704,7 @@ describe("hosted account pages", () => {
     );
     const permissions = within(screen.getByRole("region", { name: "Client permissions" }));
     expect(permissions.queryByRole("button", { name: "Save permissions" })).not.toBeInTheDocument();
-    const changePools = permissions.getByRole("checkbox", { name: "Change pools" });
+    const changePools = permissions.getByRole("checkbox", { name: "Select stored pool profile" });
     await user.click(changePools);
     expect(changePools).not.toBeChecked();
     expect(changePools).toBeDisabled();
@@ -568,7 +744,7 @@ describe("hosted account pages", () => {
       />,
       value,
     );
-    await user.click(screen.getByRole("checkbox", { name: "Change pools" }));
+    await user.click(screen.getByRole("checkbox", { name: "Select stored pool profile" }));
     view.unmount();
     await act(async () => finish());
     expect(onSaved).not.toHaveBeenCalled();
@@ -619,7 +795,7 @@ describe("hosted account pages", () => {
     await user.click(screen.getByRole("button", { name: "Suspend account" }));
     await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Suspend account" }));
     await waitFor(() => expect(onSaved).toHaveBeenCalledOnce());
-    await user.click(screen.getByRole("checkbox", { name: "Change pools" }));
+    await user.click(screen.getByRole("checkbox", { name: "Select stored pool profile" }));
     await waitFor(() => expect(onSaved).toHaveBeenCalledTimes(2));
     expect(client.configureAccount).toHaveBeenLastCalledWith({
       accountId,
@@ -639,7 +815,7 @@ describe("hosted account pages", () => {
       />,
       { ...value, readOnly: true },
     );
-    expect(screen.getByRole("checkbox", { name: "Change pools" })).toBeDisabled();
+    expect(screen.getByRole("checkbox", { name: "Select stored pool profile" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Suspend account" })).toBeDisabled();
     expect(client.configureAccount).not.toHaveBeenCalled();
   });
@@ -653,7 +829,7 @@ describe("hosted account pages", () => {
     await user.click(await screen.findByRole("button", { name: "Manage permissions" }));
     expect(screen.getByRole("checkbox", { name: "Manage memberships" })).toBeDisabled();
     expect(screen.getByRole("checkbox", { name: "View account data" })).toBeDisabled();
-    await user.click(screen.getByRole("checkbox", { name: "Change pools" }));
+    await user.click(screen.getByRole("checkbox", { name: "Select stored pool profile" }));
     await user.click(screen.getByRole("button", { name: "Save permissions" }));
     await waitFor(() =>
       expect(client.configureAccount).toHaveBeenCalledWith({

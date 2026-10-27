@@ -79,7 +79,7 @@ describe("real account workspace routing", () => {
       expect(main.queryByRole("link", { name: "Pools" })).not.toBeInTheDocument();
       expect(main.queryByRole("link", { name: "Team" })).not.toBeInTheDocument();
       expect(main.queryByRole("link", { name: "Subclients" })).not.toBeInTheDocument();
-      await screen.findByText("No mining assets assigned");
+      await screen.findByText("No mining assets");
       await userEvent.setup().click(main.getByRole("link", { name: "Settings" }));
       const settings = within(await screen.findByRole("navigation", { name: "Settings" }));
       expect(settings.getByRole("link", { name: "Pools" })).toBeInTheDocument();
@@ -131,7 +131,7 @@ describe("real account workspace routing", () => {
       };
     });
     mount(undefined, `children?assets=${childId}`);
-    await screen.findByRole("link", { name: "Assign from Fleet" });
+    await screen.findByRole("link", { name: "Allocate assets" });
     const breadcrumb = within(screen.getByRole("navigation", { name: "Breadcrumb" }));
     expect(breadcrumb.getByText("Customer")).toBeInTheDocument();
     expect(breadcrumb.getByRole("link", { name: "Clients" })).toHaveAttribute("href", `/accounts/${rootId}/children`);
@@ -142,8 +142,11 @@ describe("real account workspace routing", () => {
       }),
     );
     expect(calls.some((call) => call.method === "GetAccount")).toBe(false);
-    expect(screen.getByRole("link", { name: "Assign from Fleet" })).toHaveAttribute("href", "/fleet/miners");
-    expect(screen.queryByRole("button", { name: "Assign selected" })).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Allocate assets" })).toHaveAttribute(
+      "href",
+      `/fleet/miners?allocateTo=${childId}`,
+    );
+    expect(screen.queryByRole("button", { name: "Allocate selected" })).not.toBeInTheDocument();
   });
   it("clears private assignment filters when live account capabilities are reduced", async () => {
     vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue(new DOMRect(20, 20, 240, 40));
@@ -167,7 +170,7 @@ describe("real account workspace routing", () => {
       if (method === "GetAccountMiningSummary")
         return reduced ? { totals: {} } : { totals: {}, direct: {}, children: [{ accountId: childId, name: "East" }] };
       return {
-        assets: [],
+        assets: [{ kind: "MINING_ASSET_KIND_MINER", id: "1", name: "Allocated miner", available: true }],
         canManageAssignments: !reduced,
         canViewAssignments: !reduced,
         children: reduced ? [] : [{ accountId: childId, name: "East" }],
@@ -187,7 +190,7 @@ describe("real account workspace routing", () => {
     );
     reduced = true;
     act(() => window.dispatchEvent(new Event("focus")));
-    await waitFor(() => expect(screen.queryByRole("button", { name: /Assigned to/ })).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByRole("button", { name: /Allocated to/ })).not.toBeInTheDocument());
     await waitFor(() =>
       expect(
         calls.filter((call) => call.method === "ListAccountAssets").slice(-1)[0]?.body.ownerAccountId,
@@ -368,7 +371,7 @@ describe("real account workspace routing", () => {
     );
     mount(child, "overview", false, [parent, child]);
     const user = userEvent.setup();
-    await screen.findByText("No mining assets assigned");
+    await screen.findByText("No mining assets");
     const breadcrumb = within(screen.getByRole("navigation", { name: "Breadcrumb" }));
     expect(breadcrumb.queryByRole("link", { name: "Clients" })).not.toBeInTheDocument();
     expect(breadcrumb.getByRole("link", { name: "Parent client" })).toHaveAttribute(

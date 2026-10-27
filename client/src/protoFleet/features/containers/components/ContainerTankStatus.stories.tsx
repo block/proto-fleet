@@ -16,7 +16,8 @@ const runningTank: ContainerTank = {
   cols: 8,
   rows: 2,
   modules: modules(16, 2),
-  stats: ["14/16 modules", "67.1°", "11.8 kW"],
+  moduleSummary: "14/16 modules hashing",
+  stats: ["67.1°", "11.8 kW"],
   tempLabel: "67.1°",
   powerLabel: "11.8 kW",
 };
@@ -28,7 +29,8 @@ const offTank: ContainerTank = {
   cols: 8,
   rows: 2,
   modules: modules(16, 0),
-  stats: ["0/16 modules", "—", "0.0 kW"],
+  moduleSummary: "0/16 modules hashing",
+  stats: ["—", "0.0 kW"],
   tempLabel: "—",
   powerLabel: "0.0 kW",
 };

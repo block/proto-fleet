@@ -22,7 +22,7 @@ import (
 )
 
 func TestDirectPairingRejectsDiscoveryChangedDuringProbe(t *testing.T) {
-	for _, change := range []string{"legacy upgrade", "partner replacement", "route", "owner"} {
+	for _, change := range []string{"route", "owner"} {
 		t.Run(change, func(t *testing.T) {
 			db := testutil.GetTestDB(t)
 			org, err := sqlc.New(db).CreateOrganization(t.Context(), sqlc.CreateOrganizationParams{OrgID: "pair-race", Name: "Pair race"})
@@ -31,20 +31,11 @@ func TestDirectPairingRejectsDiscoveryChangedDuringProbe(t *testing.T) {
 			fixture := func(id, host string) *discovery.DiscoveredDevice {
 				return &discovery.DiscoveredDevice{Device: pb.Device{DeviceIdentifier: "container", DriverName: "proto", DeviceClass: commonpb.DeviceClass_DEVICE_CLASS_CONTAINER,
 					IpAddress: host, Port: "8080", UrlScheme: "http", RpcPort: 9095, SerialNumber: id, Model: "CT1", Manufacturer: "Proto",
-					Endpoints: []*commonpb.DeviceEndpoint{{Id: id, Host: host, Port: 8080, UrlScheme: "http", RpcPort: 9095, DeviceKey: "a-b", MemberIds: []string{"a", "b"}}}}, OrgID: org, IsActive: true}
+					Endpoints: []*commonpb.DeviceEndpoint{{Id: id, Host: host, Port: 8080, UrlScheme: "http", RpcPort: 9095, DeviceKey: "a-b"}}}, OrgID: org, IsActive: true}
 			}
 			initial := fixture("b", "10.0.0.12")
-			if change == "legacy upgrade" {
-				initial.Endpoints = nil
-			}
 			selected, err := store.SaveDirect(t.Context(), initial.GetDeviceOrgIdentifier(), initial)
 			require.NoError(t, err)
-			if change == "partner replacement" {
-				_, err = store.SaveDirect(t.Context(), selected.GetDeviceOrgIdentifier(), fixture("a", "10.0.0.11"))
-				require.NoError(t, err)
-				selected, err = store.GetDevice(t.Context(), selected.GetDeviceOrgIdentifier())
-				require.NoError(t, err)
-			}
 			ctrl := gomock.NewController(t)
 			driver := sdkmocks.NewMockDriver(ctrl)
 			started, release := make(chan struct{}), make(chan struct{})
@@ -72,10 +63,6 @@ func TestDirectPairingRejectsDiscoveryChangedDuringProbe(t *testing.T) {
 			}
 			incoming := fixture("b", "10.0.0.12")
 			switch change {
-			case "partner replacement":
-				incoming = fixture("a", "10.0.0.11")
-				incoming.Endpoints[0].DeviceKey = "a-c"
-				incoming.Endpoints[0].MemberIds = []string{"a", "c"}
 			case "route":
 				incoming.IpAddress, incoming.Endpoints[0].Host = "10.0.0.99", "10.0.0.99"
 			case "owner":

@@ -903,6 +903,13 @@ impl Driver for DriverService {
 
     // --- Configuration ---
 
+    async fn mining_groups(
+        &self,
+        _req: Request<pb::MiningGroupsRequest>,
+    ) -> Result<Response<pb::MiningGroupsResponse>, Status> {
+        Err(Status::unimplemented("mining groups are unsupported"))
+    }
+
     async fn set_module_mining(
         &self,
         _req: Request<pb::SetModuleMiningRequest>,

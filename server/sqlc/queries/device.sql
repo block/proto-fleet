@@ -1247,13 +1247,30 @@ WHERE fnd.device_id = d.id
   AND d.org_id = sqlc.arg('org_id');
 
 -- name: SoftDeleteDiscoveredDevicesForDeletedDevices :exec
--- Soft-deletes discovered_device records linked to the specified devices.
-UPDATE discovered_device dd SET deleted_at = NOW()
+-- Keep a shared discovery record while another live device still owns it.
+-- Grouped controllers must rebuild their saved routes after explicit unpairing.
+UPDATE discovered_device dd SET
+    deleted_at = NOW(),
+    endpoints = '{}',
+    endpoint_key = '',
+    serial_number = CASE WHEN dd.endpoint_key <> '' THEN '' ELSE dd.serial_number END,
+    mac_address = CASE WHEN dd.endpoint_key <> '' THEN '' ELSE dd.mac_address END
 FROM device d
 WHERE dd.id = d.discovered_device_id
   AND d.device_identifier = ANY(sqlc.arg('device_identifiers')::text[])
   AND d.org_id = sqlc.arg('org_id')
-  AND dd.deleted_at IS NULL;
+  AND dd.deleted_at IS NULL
+  AND NOT EXISTS (
+      SELECT 1 FROM device owner
+      WHERE owner.discovered_device_id = dd.id
+        AND owner.org_id = dd.org_id
+        AND owner.deleted_at IS NULL
+        AND (
+            EXISTS (SELECT 1 FROM device_pairing dp WHERE dp.device_id = owner.id
+                    AND dp.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD', 'AUTHENTICATION_NEEDED'))
+            OR EXISTS (SELECT 1 FROM fleet_node_device fnd WHERE fnd.device_id = owner.id AND fnd.org_id = owner.org_id)
+        )
+  );
 
 -- name: GetPairedDeviceByMACAddress :many
 -- Finds an existing paired device by MAC address for a given organization.

@@ -2375,18 +2375,9 @@ func TestService_DeleteMiners_ShouldWaitForPendingUnpairs(t *testing.T) {
 
 	// WaitForPendingUnpairs should return promptly (background Unpair
 	// will fail since there's no real device, but that's expected — best-effort)
-	done := make(chan struct{})
-	go func() {
-		service.WaitForPendingUnpairs(1 * time.Minute)
-		close(done)
-	}()
-
-	select {
-	case <-done:
-		// Expected: completed within timeout
-	case <-time.After(1 * time.Minute):
-		t.Fatal("WaitForPendingUnpairs did not complete within timeout")
-	}
+	drainCtx, cancelDrain := context.WithTimeout(t.Context(), time.Minute)
+	defer cancelDrain()
+	require.NoError(t, service.WaitForPendingUnpairs(drainCtx))
 }
 
 // TestService_RenameMiners_PersistsCustomName verifies that the custom name is stored

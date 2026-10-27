@@ -2,6 +2,7 @@ import type { Locator, Page, TestInfo } from "@playwright/test";
 import { expect } from "@playwright/test";
 import fs from "fs/promises";
 import path from "path";
+import { fileURLToPath } from "url";
 import { testConfig } from "../config/test.config";
 import type { AddMinersPage } from "../pages/addMiners";
 import type { AuthPage } from "../pages/auth";
@@ -18,6 +19,7 @@ import type { CommonSteps } from "./commonSteps";
 const OVERWRITE_VISUAL_SNAPSHOTS = process.env.PROTOFLEET_VISUAL_OVERWRITE === "1";
 const DEFAULT_VISUAL_OPTIONS = { animations: "disabled" as const, scale: "css" as const };
 const FIXED_VISUAL_DATE = "2026-01-15T12:00:00Z";
+const MINER_ACTIONS_SCREENSHOT_STYLE = fileURLToPath(new URL("./minerActionsScreenshot.css", import.meta.url));
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -59,11 +61,19 @@ export class VisualSnapshotHelper {
     await expect(page).toHaveScreenshot(snapshotName, { ...DEFAULT_VISUAL_OPTIONS, ...options });
   }
 
-  async captureLocator(locator: Locator, snapshotName: readonly string[], options: { maxDiffPixels?: number } = {}) {
+  async captureLocator(
+    locator: Locator,
+    snapshotName: readonly string[],
+    options: { maxDiffPixels?: number; stylePath?: string } = {},
+  ) {
     if (OVERWRITE_VISUAL_SNAPSHOTS) {
       const snapshotPath = this.testInfo.snapshotPath(...snapshotName);
       await fs.mkdir(path.dirname(snapshotPath), { recursive: true });
-      await locator.screenshot({ path: snapshotPath, ...DEFAULT_VISUAL_OPTIONS });
+      await locator.screenshot({
+        path: snapshotPath,
+        ...DEFAULT_VISUAL_OPTIONS,
+        style: options.stylePath ? await fs.readFile(options.stylePath, "utf8") : undefined,
+      });
       return;
     }
 
@@ -275,7 +285,9 @@ export class OnboardingVisualHelper {
 
   async captureSingleMinerActionsMenu() {
     const { minersPage, snapshots } = this.deps;
-    await snapshots.captureLocator(minersPage.getSingleMinerActionsPopover(), VISUAL_SNAPSHOTS.singleMinerActions);
+    await snapshots.captureLocator(minersPage.getSingleMinerActionsPopover(), VISUAL_SNAPSHOTS.singleMinerActions, {
+      stylePath: MINER_ACTIONS_SCREENSHOT_STYLE,
+    });
   }
 
   async selectProtoRigMiners(count: number) {
@@ -297,7 +309,9 @@ export class OnboardingVisualHelper {
 
   async captureBulkActionsMenu() {
     const { minersPage, snapshots } = this.deps;
-    await snapshots.captureLocator(minersPage.getBulkActionsPopover(), VISUAL_SNAPSHOTS.bulkMoreMenu);
+    await snapshots.captureLocator(minersPage.getBulkActionsPopover(), VISUAL_SNAPSHOTS.bulkMoreMenu, {
+      stylePath: MINER_ACTIONS_SCREENSHOT_STYLE,
+    });
   }
 
   private async waitForCompleteSetupModuleReady() {

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	pb "github.com/block/proto-fleet/server/generated/grpc/hosted/v1"
+	telemetrypb "github.com/block/proto-fleet/server/generated/grpc/telemetry/v1"
 	"github.com/block/proto-fleet/server/generated/sqlc"
 	"github.com/block/proto-fleet/server/internal/domain/authz"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
@@ -235,7 +236,7 @@ func (s *Service) Dashboard(ctx context.Context, actorID, orgID int64, request *
 		if err != nil {
 			return nil, err
 		}
-		readings, err := q.ListHostedAccountHistoricalReadings(ctx, sqlc.ListHostedAccountHistoricalReadingsParams{Intervals: encoded, StartTime: start, EndTime: end, BucketSeconds: request.BucketSeconds, SiteFilter: request.GetSiteId(), PolicyRestricted: e.policy.EffectiveRestricted, PolicySites: e.policy.EffectiveSiteIDs, HostAuthority: authority})
+		readings, err := q.ListHostedAccountHistoricalReadings(ctx, sqlc.ListHostedAccountHistoricalReadingsParams{OrganizationID: orgID, Intervals: encoded, StartTime: start, EndTime: end, BucketSeconds: request.BucketSeconds, SiteFilter: request.GetSiteId(), PolicyRestricted: e.policy.EffectiveRestricted, PolicySites: e.policy.EffectiveSiteIDs, HostAuthority: authority})
 		if err != nil {
 			return nil, err
 		}
@@ -248,6 +249,8 @@ func (s *Service) Dashboard(ctx context.Context, actorID, orgID int64, request *
 				}
 			}
 			summary := &pb.MiningSummary{AssetCount: int64(len(assets)), UnknownCount: int64(len(assets))}
+			temperatureStatus := &telemetrypb.TemperatureStatusCount{Timestamp: timestamppb.New(at)}
+			uptimeStatus := &telemetrypb.UptimeStatusCount{Timestamp: timestamppb.New(at)}
 			for _, kind := range assets {
 				if kind == int32(pb.MiningAssetKind_MINING_ASSET_KIND_MINER) {
 					summary.MinerCount++
@@ -258,6 +261,13 @@ func (s *Service) Dashboard(ctx context.Context, actorID, orgID int64, request *
 			if readingIndex < len(readings) && readings[readingIndex].Bucket.Equal(at) {
 				row := readings[readingIndex]
 				readingIndex++
+				temperatureStatus.ColdCount = row.TemperatureColdCount
+				temperatureStatus.OkCount = row.TemperatureOkCount
+				temperatureStatus.HotCount = row.TemperatureHotCount
+				temperatureStatus.CriticalCount = row.TemperatureCriticalCount
+				uptimeStatus.HashingCount = row.StatusHashingCount
+				uptimeStatus.BrokenCount = row.StatusBrokenCount
+				uptimeStatus.NotHashingCount = row.StatusNotHashingCount
 				summary.HashrateReportingCount = row.HashrateReportingCount
 				summary.PowerReportingCount = row.PowerReportingCount
 				summary.TemperatureReportingCount = row.TemperatureReportingCount
@@ -282,7 +292,7 @@ func (s *Service) Dashboard(ctx context.Context, actorID, orgID int64, request *
 					summary.EfficiencyJTh = &value
 				}
 			}
-			response.Readings = append(response.Readings, &pb.AccountDashboardReading{Time: timestamppb.New(at), Summary: summary})
+			response.Readings = append(response.Readings, &pb.AccountDashboardReading{Time: timestamppb.New(at), Summary: summary, TemperatureStatus: temperatureStatus, UptimeStatus: uptimeStatus})
 		}
 		return response, nil
 	})
