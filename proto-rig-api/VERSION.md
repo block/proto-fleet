@@ -5,14 +5,18 @@
 ### MDK v1
 
 - Repository: miner-firmware (private)
-  - Commit SHA: def3bae416409d693aa9536d8bbdf2a0b902421a
-  - Commit Date: 2026-10-13
-  - Extraction Date: 2026-10-15
+  - Commit SHA: 10bc4cdf7e3ab3cc8bc9a3558baf10f66d12cbb8
+  - Commit Date: 2026-10-19
+  - Extraction Date: 2026-10-26
+- Published mirror: btc-mining/proto-api `mdk/MDK-API.json` at
+  c6fdc5a0fae634ea0853b885f65ae32e3e2f0592, identical to the source file
 
-This snapshot tracks the `proto-apps-1.9.4` source revision. The
-`GET /api/v1/system/logs` contract counts `lines` in journal entries, returns
-an empty result for `lines=0`, and fails rather than truncating when the
-default `miner_sw` source needs more than 10000 entries of history.
+This snapshot is 12 commits after the `proto-apps-1.9.4` source revision
+(`def3bae4`). The `GET /api/v1/system/logs` contract counts `lines` in journal
+entries and returns an empty result for `lines=0`. The default `miner_sw`
+source now scans until the requested matching tail is complete or the journal
+ends, within a 20-second read deadline, and fails rather than truncating when
+the deadline expires. Fleet's miner proxy allows 30 seconds per request.
 `UpdateStatus.error` can now be present in `available` or `current` to report
 the newest failed catalog check, update request, or update attempt, and
 `message` carries a one-line summary of `error` (at most 512 bytes). The
