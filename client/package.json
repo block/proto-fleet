@@ -84,7 +84,7 @@
     "prettier": "3.9.9",
     "prettier-plugin-tailwindcss": "0.8.1",
     "rolldown": "1.2.12",
-    "storybook": "10.6.1",
+    "storybook": "10.6.2",
     "swagger-typescript-api": "13.12.6",
     "tailwindcss": "4.3.3",
     "tsx": "4.23.15",
