@@ -1,7 +1,26 @@
 import { type ReactElement, type ReactNode, useEffect, useMemo, useState } from "react";
 import { create } from "@bufbuild/protobuf";
+import {
+  getValidSiteScopeId,
+  normalizeCurtailmentSelectionValues,
+  parseCurtailmentTargetId,
+} from "@/protoFleet/api/curtailmentScopes";
 
-import { type CurtailmentTerminalScopeType, parseCurtailmentTargetId } from "@/protoFleet/api/curtailmentScopes";
+import type {
+  CurtailmentFormErrors,
+  CurtailmentFormValues,
+  CurtailmentMode,
+  CurtailmentPlanPreview,
+  CurtailmentResponseProfileOption,
+  CurtailmentSiteOption,
+  CurtailmentSiteSelection,
+  CurtailmentStartModalMode,
+  CurtailmentStartModalVariant,
+  CurtailmentSubmitValues,
+  ResponseProfileModalMode,
+} from "@/protoFleet/api/curtailmentTypes";
+
+import { formatCurtailmentKw as formatKw } from "@/protoFleet/api/curtailmentUtils";
 import { MinerListFilterSchema } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import FullScreenTwoPaneModal, {
   type FullScreenTwoPaneModalProps,
@@ -17,7 +36,6 @@ import {
 import {
   formatCurtailmentAppliesToSummary,
   formatCurtailmentFacilityFanCount,
-  formatCurtailmentKw as formatKw,
 } from "@/protoFleet/features/energy/curtailmentDisplayUtils";
 import {
   curtailmentNumericFieldLimits,
@@ -45,78 +63,6 @@ import Popover, { PopoverProvider, popoverSizes, usePopover } from "@/shared/com
 import ProgressCircular from "@/shared/components/ProgressCircular";
 import Select from "@/shared/components/Select";
 import { positions } from "@/shared/constants";
-
-export type CurtailmentPriority = "normal" | "emergency";
-export type CurtailmentScopeType = CurtailmentTerminalScopeType;
-export type CurtailmentSiteSelection = "none" | "allSites" | "site";
-export type CurtailmentMinerSelectionMode = "subset" | "all";
-export type ResponseProfileId = string;
-export type CurtailmentMode = "fixedKwReduction" | "fullFleet";
-export type MinerSelectionStrategy = "leastEfficientFirst";
-export type CurtailmentStartModalMode = "create" | "edit";
-export type CurtailmentStartModalVariant = "curtailment" | "responseProfile";
-export type ResponseProfileModalMode = "create" | "edit";
-
-export interface CurtailmentFormValues {
-  scopeType: CurtailmentScopeType;
-  scopeId?: string;
-  siteSelection?: CurtailmentSiteSelection;
-  siteId?: string;
-  siteIds?: string[];
-  siteNamesById?: Record<string, string>;
-  buildingTargetIds?: string[];
-  rackTargetIds?: string[];
-  groupTargetIds?: string[];
-  deviceIdentifiers: string[];
-  minerSelectionMode?: CurtailmentMinerSelectionMode;
-  responseProfileId: ResponseProfileId;
-  responseProfileRevision?: string;
-  curtailmentMode: CurtailmentMode;
-  minerSelectionStrategy: MinerSelectionStrategy;
-  targetKw: string;
-  toleranceKw: string;
-  priority: CurtailmentPriority;
-  postEventCooldownSec?: string;
-  minDurationSec: string;
-  maxDurationSec: string;
-  curtailBatchSize: string;
-  curtailBatchIntervalSec: string;
-  restoreBatchSize: string;
-  restoreIntervalSec: string;
-  facilityFanDeviceIds?: string[];
-  fanOffDelaySec?: string;
-  fanRestoreDelaySec?: string;
-  reason: string;
-  includeMaintenance: boolean;
-  forceIncludeAllPairedMiners: boolean;
-}
-
-export type CurtailmentSubmitValues = CurtailmentFormValues;
-
-export interface CurtailmentResponseProfileOption {
-  id: ResponseProfileId;
-  label: string;
-  revision?: string;
-  values: Partial<Omit<CurtailmentFormValues, "responseProfileId" | "responseProfileRevision">>;
-}
-
-export interface CurtailmentSiteOption {
-  id: string;
-  name: string;
-}
-
-export interface CurtailmentPlanPreview {
-  selectedMinerCount: number;
-  facilityFanDeviceCount?: number;
-  unavailableMinerCount?: number;
-  targetKw: number;
-  estimatedReductionKw: number;
-  curtailEstimate: string;
-  restoreEstimate: string;
-  scopeLabel: string;
-}
-
-export type CurtailmentFormErrors = Partial<Record<keyof CurtailmentFormValues, string>>;
 
 type PendingCurtailmentConfirmation = {
   action: "run" | "test";
@@ -274,26 +220,12 @@ const curtailmentModeOptions = [
 ];
 const getSiteScopeRowId = (siteId: string) => `site:${siteId}`;
 
-function uniqueNonEmptyStrings(values: readonly string[]): string[] {
-  return [...new Set(values.map((value) => value.trim()).filter(Boolean))];
-}
-
 function parseCurtailmentTargetIds(values: readonly string[]): bigint[] {
   return values.flatMap((value) => {
     const parsed = parseCurtailmentTargetId(value);
     return parsed === undefined ? [] : [parsed];
   });
 }
-
-const getValidSiteScopeId = (siteId?: string): string | undefined => {
-  const normalizedSiteId = siteId?.trim();
-  if (!normalizedSiteId) {
-    return undefined;
-  }
-
-  const parsedSiteId = parseCurtailmentTargetId(normalizedSiteId);
-  return parsedSiteId?.toString() === normalizedSiteId ? normalizedSiteId : undefined;
-};
 
 function getValidSiteScopeIds(siteIds?: readonly string[], fallbackSiteId?: string): string[] {
   const normalizedSiteIds = siteIds?.flatMap((siteId) => {
@@ -302,7 +234,7 @@ function getValidSiteScopeIds(siteIds?: readonly string[], fallbackSiteId?: stri
   });
 
   if (normalizedSiteIds !== undefined && normalizedSiteIds.length > 0) {
-    return uniqueNonEmptyStrings(normalizedSiteIds);
+    return normalizeCurtailmentSelectionValues(normalizedSiteIds);
   }
 
   const validFallbackSiteId = getValidSiteScopeId(fallbackSiteId);
@@ -476,7 +408,7 @@ function withAllSitesScope(
     name: getSiteNameForId(values, siteId),
   })),
 ): CurtailmentFormValues {
-  const selectedSites = uniqueNonEmptyStrings(sites.map((site) => site.id)).map((siteId) => {
+  const selectedSites = normalizeCurtailmentSelectionValues(sites.map((site) => site.id)).map((siteId) => {
     const site = sites.find((candidate) => candidate.id === siteId);
     return {
       id: siteId,
@@ -518,7 +450,7 @@ function withNoSiteScope(values: CurtailmentFormValues): CurtailmentFormValues {
 }
 
 function withSiteScopes(values: CurtailmentFormValues, sites: readonly CurtailmentSiteOption[]): CurtailmentFormValues {
-  const selectedSites = uniqueNonEmptyStrings(sites.map((site) => site.id)).map((siteId) => {
+  const selectedSites = normalizeCurtailmentSelectionValues(sites.map((site) => site.id)).map((siteId) => {
     const site = sites.find((candidate) => candidate.id === siteId);
     return {
       id: siteId,

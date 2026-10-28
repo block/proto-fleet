@@ -1,7 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react";
 
 import { CurtailmentSettingsContent } from "./CurtailmentSettingsPage";
-import type { AutomationRule, CurtailmentSource, ResponseProfile } from "./types";
+import type { AutomationRule, CurtailmentSource, ResponseProfile } from "@/protoFleet/api/curtailmentTypes";
 
 import { withMockedMinerSelectionApis } from "@/protoFleet/stories/MockedMinerSelectionApis";
 import { formatTimestamp, isoToEpochSeconds } from "@/shared/utils/formatTimestamp";

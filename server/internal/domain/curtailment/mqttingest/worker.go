@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"math/rand"
+	"slices"
 	"sync"
 	"time"
 )
@@ -678,25 +679,7 @@ func (w *sourceWorker) alreadyProcessedTarget(prior SourceState, c CanonicalStat
 	if prior.LastTargetAt.IsZero() || !c.PublishedAt.Equal(prior.LastTargetAt) {
 		return false
 	}
-	if c.Target != prior.LastTarget {
-		for _, target := range prior.LastProcessedTargets {
-			if target == c.Target {
-				return true
-			}
-		}
-		if c.Target == TargetOff {
-			return false
-		}
-		return prior.LastTarget != TargetUnknown &&
-			prior.LastProcessedTarget == c.Target &&
-			prior.LastProcessedTarget != prior.LastTarget
-	}
-	for _, target := range prior.LastProcessedTargets {
-		if target == c.Target {
-			return true
-		}
-	}
-	return c.Target == prior.LastProcessedTarget
+	return slices.Contains(prior.LastProcessedTargets, c.Target)
 }
 
 func shouldAssertRepeatedOff(prior SourceState, c CanonicalState, alreadyProcessed bool) bool {

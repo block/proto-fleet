@@ -2,12 +2,8 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import { describe, expect, it, vi } from "vitest";
 
 import { AutomationResponseProfileRevisionConflictError } from "@/protoFleet/api/automationResponseProfileRevisionConflict";
+import type { AutomationRule, CurtailmentSource, ResponseProfile } from "@/protoFleet/api/curtailmentTypes";
 import { CurtailmentAutomationsContent } from "@/protoFleet/features/settings/components/Curtailment/CurtailmentAutomations";
-import type {
-  AutomationRule,
-  CurtailmentSource,
-  ResponseProfile,
-} from "@/protoFleet/features/settings/components/Curtailment/types";
 
 const testSources: CurtailmentSource[] = [
   {

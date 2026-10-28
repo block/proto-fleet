@@ -13,11 +13,20 @@ import {
   parseCurtailmentTerminalScopes,
 } from "@/protoFleet/api/curtailmentScopes";
 import {
+  isResponseProfileAutomationReady,
+  type ResponseProfile,
+  type ResponseProfileFormValues,
+} from "@/protoFleet/api/curtailmentTypes";
+import {
+  formatCurtailmentKw,
+  mapEditableCurtailmentPriority,
+  toApiCurtailmentPriority,
+} from "@/protoFleet/api/curtailmentUtils";
+import {
   type CurtailmentResponseProfile as ApiCurtailmentResponseProfile,
   CreateCurtailmentResponseProfileRequestSchema,
   CurtailmentLevel,
   CurtailmentMode,
-  CurtailmentPriority,
   CurtailmentStrategy,
   DeleteCurtailmentResponseProfileRequestSchema,
   FixedKwParamsSchema,
@@ -33,11 +42,6 @@ import {
   immediateRestoreBatchSize,
   parseOptionalUint32Field,
 } from "@/protoFleet/features/energy/curtailmentNumericFields";
-import {
-  isResponseProfileAutomationReady,
-  type ResponseProfile,
-  type ResponseProfileFormValues,
-} from "@/protoFleet/features/settings/components/Curtailment/types";
 import { useAuthErrors } from "@/protoFleet/store";
 
 const defaultResponseDeadlineMinutes: string = "15";
@@ -120,10 +124,6 @@ function numberToNonNegativeInputValue(value: number | undefined): string {
 
 function curtailBatchIntervalInputValue(profile: ApiCurtailmentResponseProfile): string {
   return (profile.curtailBatchSize ?? 0) > 0 ? numberToNonNegativeInputValue(profile.curtailBatchIntervalSec) : "";
-}
-
-function formatKw(value: number): string {
-  return value.toLocaleString(undefined, { maximumFractionDigits: 2 });
 }
 
 const responseProfileScopeLabelByMode: Partial<Record<CurtailmentMode, string>> = {
@@ -234,7 +234,9 @@ function mapApiResponseProfile(profile: ApiCurtailmentResponseProfile, siteNameB
       ? "automaticImmediateRestore"
       : "automaticBatchRestore";
   const targetSummary =
-    actionType === "fixedKwReduction" && fixedKw !== undefined ? `${formatKw(fixedKw)} kW target` : "100% reduction";
+    actionType === "fixedKwReduction" && fixedKw !== undefined
+      ? `${formatCurtailmentKw(fixedKw, { maximumFractionDigits: 2, minimumFractionDigits: 0, normalizeNonFinite: false })} target`
+      : "100% reduction";
 
   const formValues: ResponseProfileFormValues | undefined = scopeFormValues.scopeType
     ? {
@@ -244,7 +246,7 @@ function mapApiResponseProfile(profile: ApiCurtailmentResponseProfile, siteNameB
         scopeType: scopeFormValues.scopeType,
         targetKw,
         toleranceKw: numberToNonNegativeInputValue(fixedKwParams?.toleranceKw),
-        priority: profile.priority === CurtailmentPriority.EMERGENCY ? "emergency" : "normal",
+        priority: mapEditableCurtailmentPriority(profile.priority),
         postEventCooldownSec: numberToNonNegativeInputValue(profile.postEventCooldownSec),
         selectionStrategy: "leastEfficientFirst",
         restoreBehavior,
@@ -442,7 +444,7 @@ function buildResponseProfilePayload(values: ResponseProfileFormValues, preserve
     mode: values.actionType === "fixedKwReduction" ? CurtailmentMode.FIXED_KW : CurtailmentMode.FULL_FLEET,
     strategy: CurtailmentStrategy.LEAST_EFFICIENT_FIRST,
     level: CurtailmentLevel.FULL,
-    priority: values.priority === "emergency" ? CurtailmentPriority.EMERGENCY : CurtailmentPriority.NORMAL,
+    priority: toApiCurtailmentPriority(values.priority),
     modeParams: getModeParams(values),
     curtailBatchSize: getOptionalPositiveNumber(values.curtailBatchSize),
     curtailBatchIntervalSec: getOptionalNonNegativeNumber(values.curtailBatchIntervalSec),

@@ -155,7 +155,7 @@ func newHandlerAutomationHandler(
 		}
 	}
 	profiles := domainCurtailment.NewResponseProfileService(profileStore)
-	return NewHandlerWithAutomation(nil, profiles, newHandlerAutomationService(t, store, profiles), nil)
+	return NewHandler(nil, profiles, newHandlerAutomationService(t, store, profiles), nil)
 }
 
 func newHandlerAutomationService(

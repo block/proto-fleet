@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net"
 	"strconv"
 	"strings"
@@ -14,11 +15,11 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/block/proto-fleet/server/internal/domain/curtailment/mqttingest"
 	paho "github.com/eclipse/paho.mqtt.golang"
 )
 
 const subscribeQoS byte = 1
-const maxPayloadBytes = 1024
 const reconnectSubscribeTimeout = 10 * time.Second
 const subscribeFailureCode byte = 0x80
 
@@ -134,6 +135,10 @@ func (c *Client) Subscribe(ctx context.Context, topic string, handler func(paylo
 	messageHandler := func(_ paho.Client, msg paho.Message) {
 		payload, ok := copyPayload(msg.Payload())
 		if !ok {
+			slog.WarnContext(ctx, "mqttclient: dropping oversized payload",
+				slog.String("topic", msg.Topic()),
+				slog.Int("payload_bytes", len(msg.Payload())),
+				slog.Int("max_payload_bytes", mqttingest.MaxPayloadBytes))
 			return
 		}
 		handler(payload, time.Now().UTC())
@@ -272,7 +277,7 @@ func (c *Client) subscriptionSnapshot() map[string]paho.MessageHandler {
 }
 
 func copyPayload(payload []byte) ([]byte, bool) {
-	if len(payload) > maxPayloadBytes {
+	if len(payload) > mqttingest.MaxPayloadBytes {
 		return nil, false
 	}
 	return append([]byte(nil), payload...), true

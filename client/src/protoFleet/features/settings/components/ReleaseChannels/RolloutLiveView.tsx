@@ -35,7 +35,7 @@ import {
   RolloutStatus,
 } from "@/protoFleet/api/generated/rollout/v1/rollout_pb";
 import { gatesAfterBatch } from "@/protoFleet/api/rolloutBehavior";
-import { formatCurtailmentElapsedDuration as formatElapsed } from "@/protoFleet/features/energy/curtailmentDisplayUtils";
+import { formatCurtailmentDuration as formatElapsed } from "@/protoFleet/features/energy/curtailmentDisplayUtils";
 import { useTemperatureUnit } from "@/protoFleet/store";
 import { Alert, ArrowRight, Info, Success } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";

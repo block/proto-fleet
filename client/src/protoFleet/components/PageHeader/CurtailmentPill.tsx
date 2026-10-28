@@ -3,11 +3,11 @@ import { Link } from "react-router-dom";
 
 import type { CurtailmentPillEvent, CurtailmentPillProps, CurtailmentPillState } from "./curtailmentPillTypes";
 import PageHeaderPopoverPill from "./PageHeaderPopoverPill";
+import { formatCurtailmentKw } from "@/protoFleet/api/curtailmentUtils";
 import {
   activeCurtailmentDisplayStateConfigs,
   type CurtailmentEventState,
   curtailmentEventStateConfigs,
-  formatCurtailmentKw,
   formatCurtailmentSelectedMinerCount,
 } from "@/protoFleet/features/energy/curtailmentDisplayUtils";
 

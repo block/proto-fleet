@@ -238,7 +238,7 @@ func (f *fakeStore) BeginCurtailmentTopologyTargetRestore(
 ) (int64, error) {
 	f.topologyRestoreCalls++
 	f.topologyRestoreDevices = append([]string(nil), deviceIdentifiers...)
-	wanted := toStringSet(deviceIdentifiers)
+	wanted := curtailment.ToStringSet(deviceIdentifiers)
 	var transitioned int64
 	for _, target := range f.targetsByEventID[event.ID] {
 		if _, ok := wanted[target.DeviceIdentifier]; !ok || target.DesiredState == models.DesiredStateActive {
@@ -469,7 +469,7 @@ func (f *fakeStore) ResolveCurtailmentTopologyDispatch(
 	}
 	members := make(map[string]struct{}, len(f.candidates))
 	if f.topologyDispatchMembers != nil {
-		members = toStringSet(f.topologyDispatchMembers)
+		members = curtailment.ToStringSet(f.topologyDispatchMembers)
 	} else {
 		for _, candidate := range f.candidates {
 			if candidate != nil {

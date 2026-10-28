@@ -7,6 +7,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/block/proto-fleet/server/internal/domain/curtailment/mqttingest"
+
 	paho "github.com/eclipse/paho.mqtt.golang"
 )
 
@@ -162,7 +164,7 @@ func TestBrokerOptions_TLS(t *testing.T) {
 func TestCopyPayloadRejectsOversizedPayload(t *testing.T) {
 	t.Parallel()
 
-	if _, ok := copyPayload([]byte(strings.Repeat("x", maxPayloadBytes+1))); ok {
+	if _, ok := copyPayload([]byte(strings.Repeat("x", mqttingest.MaxPayloadBytes+1))); ok {
 		t.Fatal("oversized payload was accepted")
 	}
 }

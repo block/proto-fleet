@@ -91,7 +91,7 @@ func TestDecodePayload_Malformed(t *testing.T) {
 		},
 		{
 			name:        "oversized payload",
-			body:        strings.Repeat(" ", maxPayloadBytes+1),
+			body:        strings.Repeat(" ", MaxPayloadBytes+1),
 			wantMessage: "payload exceeds",
 		},
 	}

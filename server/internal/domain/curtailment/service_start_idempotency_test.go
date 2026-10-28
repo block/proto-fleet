@@ -51,6 +51,7 @@ func TestService_Start_IdempotencyKeyReplayReturnsExistingEvent(t *testing.T) {
 	assert.Equal(t, existingUUID, *plan.EventUUID)
 	require.NotNil(t, plan.ReplayEvent)
 	assert.Equal(t, models.EventStateActive, plan.ReplayEvent.State)
+	assert.Equal(t, plan.ReplayEvent.State, plan.StartState)
 	assert.Equal(t, int32(120), plan.EffectiveRestoreBatchIntervalSec)
 	require.NotNil(t, plan.EffectiveMaxDurationSeconds)
 	assert.Equal(t, int32(3600), *plan.EffectiveMaxDurationSeconds)

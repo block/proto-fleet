@@ -57,7 +57,7 @@ func (r *Reconciler) claimAllPairedPolicyTargets(
 			"event_id", ev.ID, "error", err)
 		return false
 	}
-	activeSet := toStringSet(activeDevices)
+	activeSet := curtailment.ToStringSet(activeDevices)
 	for _, target := range existingTargets {
 		delete(activeSet, target.DeviceIdentifier)
 	}
@@ -283,7 +283,7 @@ func (r *Reconciler) applyAllPairedReadinessUpdates(
 			"event_id", ev.ID, "update_count", len(updates), "error", err)
 		return false
 	}
-	applied := toStringSet(appliedDevices)
+	applied := curtailment.ToStringSet(appliedDevices)
 	if len(applied) < len(updates) {
 		// Rows that advanced concurrently (dispatch claim, Stop reset,
 		// event phase change) are skipped by the SQL guards; the next tick

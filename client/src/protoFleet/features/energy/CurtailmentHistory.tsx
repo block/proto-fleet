@@ -1,9 +1,9 @@
 import { type KeyboardEvent, type MouseEvent, type ReactElement, useMemo, useState } from "react";
 import clsx from "clsx";
+import type { CurtailmentHistoryEvent, CurtailmentPriority } from "@/protoFleet/api/curtailmentTypes";
 
 import NoFilterResultsEmptyState from "@/protoFleet/components/NoFilterResultsEmptyState";
 import {
-  type ActiveCurtailmentDisplayState,
   activeCurtailmentDisplayStateConfigs,
   type CurtailmentEventState,
   curtailmentEventStateConfigs,
@@ -19,32 +19,6 @@ import Header from "@/shared/components/Header";
 import DropdownFilter from "@/shared/components/List/Filters/DropdownFilter";
 import FilterChip from "@/shared/components/List/Filters/FilterChip";
 import Modal, { sizes as modalSizes } from "@/shared/components/Modal";
-
-export type CurtailmentPriority = "normal" | "high" | "emergency";
-
-export interface CurtailmentHistoryEvent {
-  id: string;
-  reason: string;
-  state: CurtailmentEventState;
-  displayState?: ActiveCurtailmentDisplayState;
-  injectedActive?: boolean;
-  priority: CurtailmentPriority;
-  scopeLabel: string;
-  selectedMiners: number;
-  facilityFanDeviceCount?: number;
-  estimatedReductionKw: number;
-  targetMetricsAvailable: boolean;
-  // Distinct from targetMetricsAvailable: live rollups prove counts without
-  // proving a kW estimate (active-list rows scrub the decision snapshot).
-  // Optional so fixture-driven surfaces default to the count signal.
-  estimatedReductionAvailable?: boolean;
-  targetKw?: number;
-  sourceLabel: string;
-  startedAt?: string;
-  endedAt?: string;
-  scheduledAt?: string;
-  createdAt?: string;
-}
 
 interface CurtailmentHistoryProps {
   events: CurtailmentHistoryEvent[];

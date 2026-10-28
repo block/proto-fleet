@@ -2,27 +2,27 @@ import { type KeyboardEvent, type ReactElement, useCallback, useEffect, useMemo,
 import clsx from "clsx";
 
 import { AutomationResponseProfileRevisionConflictError } from "@/protoFleet/api/automationResponseProfileRevisionConflict";
-import { isInputEnterSaveEvent } from "@/protoFleet/features/settings/components/Curtailment/keyboard";
 import type {
   AutomationRule,
   AutomationRuleFormValues,
   CurtailmentSource,
   ResponseProfile,
-} from "@/protoFleet/features/settings/components/Curtailment/types";
+} from "@/protoFleet/api/curtailmentTypes";
+import {
+  InfoToggleContent,
+  SectionHeader,
+} from "@/protoFleet/features/settings/components/Curtailment/CurtailmentSection";
+import { isInputEnterSaveEvent } from "@/protoFleet/features/settings/components/Curtailment/keyboard";
 import SettingsEmptyState from "@/protoFleet/features/settings/components/SettingsEmptyState";
-import { Info } from "@/shared/assets/icons";
-import { iconSizes } from "@/shared/assets/icons/constants";
-import Button, { sizes, variants } from "@/shared/components/Button";
+import { variants } from "@/shared/components/Button";
 import Input from "@/shared/components/Input";
 import List from "@/shared/components/List";
 import type { ColConfig, ColTitles } from "@/shared/components/List/types";
 import Modal, { sizes as modalSizes } from "@/shared/components/Modal";
-import Popover, { PopoverProvider, popoverSizes, usePopover } from "@/shared/components/Popover";
+import { PopoverProvider } from "@/shared/components/Popover";
 import ProgressCircular from "@/shared/components/ProgressCircular";
 import Select, { type SelectOption } from "@/shared/components/Select";
 import Switch from "@/shared/components/Switch";
-import { positions } from "@/shared/constants";
-import { classNameToSelectors } from "@/shared/utils/cssUtils";
 
 const AUTOMATIONS_DESCRIPTION = "Conditions that automatically trigger a response profile.";
 const GRID_SIGNAL_VALUE = "0";
@@ -96,20 +96,6 @@ type AutomationModalProps = {
 };
 
 type AutomationFormErrors = Partial<Record<keyof AutomationRuleFormValues, string>>;
-
-type InfoToggleContentProps = {
-  ariaLabel: string;
-  description: string;
-  testId: string;
-  triggerClassName: string;
-};
-
-type SectionHeaderProps = {
-  title: string;
-  buttonText: string;
-  onButtonClick: () => void;
-  infoToggle?: ReactElement;
-};
 
 type CurtailmentAutomationsContentProps = {
   initialAutomationRules?: AutomationRule[];
@@ -209,39 +195,6 @@ function validateAutomationFormValues(values: AutomationRuleFormValues): Automat
   return errors;
 }
 
-function InfoToggleContent({ ariaLabel, description, testId, triggerClassName }: InfoToggleContentProps): ReactElement {
-  const [isOpen, setIsOpen] = useState(false);
-  const { triggerRef } = usePopover();
-  const closeIgnoreSelectors = classNameToSelectors(triggerClassName);
-
-  return (
-    <div ref={triggerRef} className={`${triggerClassName} relative`}>
-      <Button
-        variant={variants.secondary}
-        size={sizes.compact}
-        ariaHasPopup
-        ariaExpanded={isOpen}
-        ariaLabel={ariaLabel}
-        prefixIcon={<Info width={iconSizes.small} className="text-text-primary-70" />}
-        onClick={() => setIsOpen((current) => !current)}
-      />
-      {isOpen ? (
-        <Popover
-          position={positions["bottom left"]}
-          size={popoverSizes.normal}
-          offset={8}
-          className="!space-y-0"
-          closePopover={() => setIsOpen(false)}
-          closeIgnoreSelectors={closeIgnoreSelectors}
-          testId={testId}
-        >
-          <p className="text-300 text-text-primary-70">{description}</p>
-        </Popover>
-      ) : null}
-    </div>
-  );
-}
-
 function AutomationsInfoToggle(): ReactElement {
   return (
     <PopoverProvider>
@@ -252,20 +205,6 @@ function AutomationsInfoToggle(): ReactElement {
         triggerClassName="curtailment-automations-info-trigger"
       />
     </PopoverProvider>
-  );
-}
-
-function SectionHeader({ title, buttonText, onButtonClick, infoToggle }: SectionHeaderProps): ReactElement {
-  return (
-    <div className="mb-4 flex items-center justify-between gap-4">
-      <div className="flex min-w-0 items-center gap-4">
-        <h2 className="truncate text-heading-200 font-medium text-text-primary">{title}</h2>
-      </div>
-      <div className="flex shrink-0 items-center gap-2">
-        {infoToggle}
-        <Button variant={variants.secondary} size={sizes.compact} text={buttonText} onClick={onButtonClick} />
-      </div>
-    </div>
   );
 }
 

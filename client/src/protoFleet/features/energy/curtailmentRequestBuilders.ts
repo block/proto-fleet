@@ -1,5 +1,4 @@
 import { create } from "@bufbuild/protobuf";
-
 import {
   buildCurtailmentScopes,
   curtailmentScopeSchemaVersion,
@@ -7,12 +6,14 @@ import {
   normalizeCurtailmentSelectionValues,
   parseCurtailmentTargetId,
 } from "@/protoFleet/api/curtailmentScopes";
+import type { CurtailmentSubmitValues } from "@/protoFleet/api/curtailmentTypes";
+import { toApiCurtailmentPriority } from "@/protoFleet/api/curtailmentUtils";
+
 import {
   type FixedKwParams,
   FixedKwParamsSchema,
   CurtailmentLevel as ProtoCurtailmentLevel,
   CurtailmentMode as ProtoCurtailmentMode,
-  CurtailmentPriority as ProtoCurtailmentPriority,
   CurtailmentStrategy as ProtoCurtailmentStrategy,
   type StartCurtailmentRequest,
   StartCurtailmentRequestSchema,
@@ -24,7 +25,6 @@ import {
   getOptionalUint32Setting,
   parseOptionalUint32Field,
 } from "@/protoFleet/features/energy/curtailmentNumericFields";
-import type { CurtailmentSubmitValues } from "@/protoFleet/features/energy/CurtailmentStartModal";
 
 type OptionalUint32FieldOptions = Parameters<typeof parseOptionalUint32Field>[1];
 
@@ -165,10 +165,6 @@ function getChangedUpdateUint32Setting(
   return getChangedParsedUpdateUint32Setting(nextValue, initialValue, options);
 }
 
-function getPriority(priority: CurtailmentSubmitValues["priority"]): ProtoCurtailmentPriority {
-  return priority === "emergency" ? ProtoCurtailmentPriority.EMERGENCY : ProtoCurtailmentPriority.NORMAL;
-}
-
 function buildFixedKwParams(values: CurtailmentSubmitValues): FixedKwParams {
   return create(FixedKwParamsSchema, {
     targetKw: Number(values.targetKw),
@@ -256,7 +252,7 @@ function buildCurtailmentRequestFields(values: CurtailmentSubmitValues): Curtail
     // Server defaults unspecified strategy to least-efficient-first.
     strategy: ProtoCurtailmentStrategy.UNSPECIFIED,
     level: ProtoCurtailmentLevel.FULL,
-    priority: getPriority(values.priority),
+    priority: toApiCurtailmentPriority(values.priority),
     postEventCooldownSec: getOptionalUint32Setting(values.postEventCooldownSec ?? "", postEventCooldownOptions),
     ...buildForceInclusionFields(values),
   };

@@ -3,16 +3,17 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { Code, ConnectError } from "@connectrpc/connect";
 import userEvent from "@testing-library/user-event";
 
+import {
+  type ActiveCurtailmentEvent,
+  type CurtailmentHistoryEvent,
+  type CurtailmentPlanPreview,
+  type CurtailmentResponseProfileOption,
+  type CurtailmentSiteOption,
+  type CurtailmentSubmitValues,
+} from "@/protoFleet/api/curtailmentTypes";
+
 import type { UseCurtailmentApiResult } from "@/protoFleet/api/useCurtailmentApi";
-import type { ActiveCurtailmentEvent } from "@/protoFleet/features/energy/ActiveCurtailmentStatus";
-import type { CurtailmentHistoryEvent } from "@/protoFleet/features/energy/CurtailmentHistory";
 import CurtailmentManagementPanel from "@/protoFleet/features/energy/CurtailmentManagementPanel";
-import type {
-  CurtailmentPlanPreview,
-  CurtailmentResponseProfileOption,
-  CurtailmentSiteOption,
-  CurtailmentSubmitValues,
-} from "@/protoFleet/features/energy/CurtailmentStartModal";
 
 const mocks = vi.hoisted(() => ({
   activeSite: { current: { kind: "all" } as { kind: string; id?: string; slug?: string } },

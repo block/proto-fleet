@@ -100,22 +100,12 @@ WHERE config.id = $1
   AND config.organization_id = $2
   AND config.enabled = FALSE
 RETURNING config.organization_id, config.service_user_id
-), requested AS (
-    INSERT INTO curtailment_rig_config_reconciliation (
-        organization_id,
-        requested_by,
-        full_reconcile_generation
-    )
-    SELECT organization_id, service_user_id, 1
-    FROM changed
-    ON CONFLICT (organization_id) DO UPDATE
-    SET requested_by = EXCLUDED.requested_by,
-        desired_generation = curtailment_rig_config_reconciliation.desired_generation + 1,
-        full_reconcile_generation = curtailment_rig_config_reconciliation.desired_generation + 1,
-        retry_at = CURRENT_TIMESTAMP,
-        last_error = NULL
 )
-SELECT COUNT(*)::BIGINT FROM changed
+SELECT COUNT(*)::BIGINT
+FROM changed
+CROSS JOIN LATERAL request_curtailment_rig_config_reconciliation(
+    changed.organization_id, changed.service_user_id, TRUE
+) requested
 `
 
 type DeleteDisabledMQTTSourceConfigByOrgParams struct {
@@ -228,22 +218,12 @@ INSERT INTO curtailment_mqtt_source_config (
     $13
 )
 RETURNING id, organization_id, service_user_id, source_name, topic, broker_primary_host, broker_secondary_host, broker_port, broker_transport, mqtt_username, mqtt_password_enc, payload_format, staleness_threshold_sec, enabled, created_at, updated_at
-), requested AS (
-    INSERT INTO curtailment_rig_config_reconciliation (
-        organization_id,
-        requested_by,
-        full_reconcile_generation
-    )
-    SELECT organization_id, service_user_id, 1
-    FROM changed
-    ON CONFLICT (organization_id) DO UPDATE
-    SET requested_by = EXCLUDED.requested_by,
-        desired_generation = curtailment_rig_config_reconciliation.desired_generation + 1,
-        full_reconcile_generation = curtailment_rig_config_reconciliation.desired_generation + 1,
-        retry_at = CURRENT_TIMESTAMP,
-        last_error = NULL
 )
-SELECT id, organization_id, service_user_id, source_name, topic, broker_primary_host, broker_secondary_host, broker_port, broker_transport, mqtt_username, mqtt_password_enc, payload_format, staleness_threshold_sec, enabled, created_at, updated_at FROM changed
+SELECT changed.id, changed.organization_id, changed.service_user_id, changed.source_name, changed.topic, changed.broker_primary_host, changed.broker_secondary_host, changed.broker_port, changed.broker_transport, changed.mqtt_username, changed.mqtt_password_enc, changed.payload_format, changed.staleness_threshold_sec, changed.enabled, changed.created_at, changed.updated_at
+FROM changed
+CROSS JOIN LATERAL request_curtailment_rig_config_reconciliation(
+    changed.organization_id, changed.service_user_id, TRUE
+) requested
 `
 
 type InsertMQTTSourceConfigParams struct {
@@ -530,18 +510,11 @@ WITH eligible AS MATERIALIZED (
       AND dd.device_class <> $3::integer
       AND dp.pairing_status = 'PAIRED'
 ), requested AS (
-    INSERT INTO curtailment_rig_config_reconciliation (
-        organization_id,
-        requested_by
-    )
-    SELECT DISTINCT org_id, $4::bigint
-    FROM eligible
-    ON CONFLICT (organization_id) DO UPDATE
-    SET requested_by = EXCLUDED.requested_by,
-        desired_generation = curtailment_rig_config_reconciliation.desired_generation + 1,
-        retry_at = CURRENT_TIMESTAMP,
-        last_error = NULL
-    RETURNING organization_id, desired_generation
+    SELECT organizations.org_id AS organization_id,
+           request_curtailment_rig_config_reconciliation(
+               organizations.org_id, $4::bigint, FALSE
+           ) AS desired_generation
+    FROM (SELECT DISTINCT org_id FROM eligible) organizations
 )
 INSERT INTO curtailment_rig_config_target (
     organization_id,
@@ -648,22 +621,12 @@ SET enabled = $1
 WHERE config.id = $2
   AND config.organization_id = $3
 RETURNING id, organization_id, service_user_id, source_name, topic, broker_primary_host, broker_secondary_host, broker_port, broker_transport, mqtt_username, mqtt_password_enc, payload_format, staleness_threshold_sec, enabled, created_at, updated_at
-), requested AS (
-    INSERT INTO curtailment_rig_config_reconciliation (
-        organization_id,
-        requested_by,
-        full_reconcile_generation
-    )
-    SELECT organization_id, service_user_id, 1
-    FROM changed
-    ON CONFLICT (organization_id) DO UPDATE
-    SET requested_by = EXCLUDED.requested_by,
-        desired_generation = curtailment_rig_config_reconciliation.desired_generation + 1,
-        full_reconcile_generation = curtailment_rig_config_reconciliation.desired_generation + 1,
-        retry_at = CURRENT_TIMESTAMP,
-        last_error = NULL
 )
-SELECT id, organization_id, service_user_id, source_name, topic, broker_primary_host, broker_secondary_host, broker_port, broker_transport, mqtt_username, mqtt_password_enc, payload_format, staleness_threshold_sec, enabled, created_at, updated_at FROM changed
+SELECT changed.id, changed.organization_id, changed.service_user_id, changed.source_name, changed.topic, changed.broker_primary_host, changed.broker_secondary_host, changed.broker_port, changed.broker_transport, changed.mqtt_username, changed.mqtt_password_enc, changed.payload_format, changed.staleness_threshold_sec, changed.enabled, changed.created_at, changed.updated_at
+FROM changed
+CROSS JOIN LATERAL request_curtailment_rig_config_reconciliation(
+    changed.organization_id, changed.service_user_id, TRUE
+) requested
 `
 
 type SetMQTTSourceConfigEnabledParams struct {
@@ -733,22 +696,12 @@ SET
 WHERE config.id = $12
   AND config.organization_id = $13
 RETURNING id, organization_id, service_user_id, source_name, topic, broker_primary_host, broker_secondary_host, broker_port, broker_transport, mqtt_username, mqtt_password_enc, payload_format, staleness_threshold_sec, enabled, created_at, updated_at
-), requested AS (
-    INSERT INTO curtailment_rig_config_reconciliation (
-        organization_id,
-        requested_by,
-        full_reconcile_generation
-    )
-    SELECT organization_id, service_user_id, 1
-    FROM changed
-    ON CONFLICT (organization_id) DO UPDATE
-    SET requested_by = EXCLUDED.requested_by,
-        desired_generation = curtailment_rig_config_reconciliation.desired_generation + 1,
-        full_reconcile_generation = curtailment_rig_config_reconciliation.desired_generation + 1,
-        retry_at = CURRENT_TIMESTAMP,
-        last_error = NULL
 )
-SELECT id, organization_id, service_user_id, source_name, topic, broker_primary_host, broker_secondary_host, broker_port, broker_transport, mqtt_username, mqtt_password_enc, payload_format, staleness_threshold_sec, enabled, created_at, updated_at FROM changed
+SELECT changed.id, changed.organization_id, changed.service_user_id, changed.source_name, changed.topic, changed.broker_primary_host, changed.broker_secondary_host, changed.broker_port, changed.broker_transport, changed.mqtt_username, changed.mqtt_password_enc, changed.payload_format, changed.staleness_threshold_sec, changed.enabled, changed.created_at, changed.updated_at
+FROM changed
+CROSS JOIN LATERAL request_curtailment_rig_config_reconciliation(
+    changed.organization_id, changed.service_user_id, TRUE
+) requested
 `
 
 type UpdateMQTTSourceConfigParams struct {

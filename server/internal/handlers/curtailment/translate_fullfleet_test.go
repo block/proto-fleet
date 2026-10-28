@@ -119,7 +119,7 @@ func TestToStartResponse_ClosedLoopFullFleetReturnsActiveTargetlessEvent(t *test
 	t.Parallel()
 
 	startedAt := time.Date(2026, 6, 4, 11, 0, 0, 0, time.UTC)
-	plan := &curtailment.Plan{
+	plan := &curtailment.Plan{StartState: models.EventStateActive,
 		StartedAt: &startedAt,
 		Selected: []curtailment.SelectedDevice{
 			{DeviceIdentifier: "miner-a", PowerW: 3000},
@@ -144,7 +144,7 @@ func TestToStartResponse_MultiSiteFullFleetReturnsActiveTargetlessEvent(t *testi
 	t.Parallel()
 
 	startedAt := time.Date(2026, 6, 4, 11, 0, 0, 0, time.UTC)
-	plan := &curtailment.Plan{
+	plan := &curtailment.Plan{StartState: models.EventStateActive,
 		StartedAt: &startedAt,
 		Selected: []curtailment.SelectedDevice{
 			{DeviceIdentifier: "miner-a", PowerW: 3000},
@@ -175,7 +175,7 @@ func TestToStartResponse_TopologyFullFleetReturnsActiveTargetlessEvent(t *testin
 		nil,
 		{{DeviceIdentifier: "miner-a", PowerW: 3000}},
 	} {
-		plan := &curtailment.Plan{Selected: selected}
+		plan := &curtailment.Plan{StartState: models.EventStateActive, Selected: selected}
 		req := &pb.StartCurtailmentRequest{
 			Mode: pb.CurtailmentMode_CURTAILMENT_MODE_FULL_FLEET,
 			Scopes: []*pb.CurtailmentScope{{
@@ -194,7 +194,7 @@ func TestToStartResponse_TopologyFullFleetReturnsActiveTargetlessEvent(t *testin
 func TestToStartResponse_AllPairedTopologyFullFleetUsesBoundedTargetRollup(t *testing.T) {
 	t.Parallel()
 
-	plan := &curtailment.Plan{
+	plan := &curtailment.Plan{StartState: models.EventStateActive,
 		Selected: []curtailment.SelectedDevice{
 			{DeviceIdentifier: "online", PowerW: 3000},
 			{DeviceIdentifier: "offline", TargetState: models.TargetStateUnavailable, LastError: "offline"},
@@ -223,7 +223,7 @@ func TestToStartResponse_AllPairedFullFleetUsesBoundedTargetRollup(t *testing.T)
 	t.Parallel()
 
 	startedAt := time.Date(2026, 6, 4, 11, 0, 0, 0, time.UTC)
-	plan := &curtailment.Plan{
+	plan := &curtailment.Plan{StartState: models.EventStateActive,
 		StartedAt: &startedAt,
 		Selected: []curtailment.SelectedDevice{
 			{DeviceIdentifier: "online", PowerW: 3000},
@@ -253,7 +253,7 @@ func TestToStartResponse_AllPairedFullFleetUsesBoundedTargetRollup(t *testing.T)
 func TestToStartResponse_AllPairedAllUnavailableReturnsPending(t *testing.T) {
 	t.Parallel()
 
-	plan := &curtailment.Plan{
+	plan := &curtailment.Plan{StartState: models.EventStatePending,
 		Selected: []curtailment.SelectedDevice{
 			{DeviceIdentifier: "offline", TargetState: models.TargetStateUnavailable, LastError: "offline"},
 			{DeviceIdentifier: "auth-needed", TargetState: models.TargetStateUnavailable, LastError: "authentication_needed"},
@@ -280,7 +280,7 @@ func TestToStartResponse_AllPairedAllUnavailableReturnsPending(t *testing.T) {
 func TestToStartResponse_EmptyAllPairedTopologyReturnsPending(t *testing.T) {
 	t.Parallel()
 
-	plan := &curtailment.Plan{}
+	plan := &curtailment.Plan{StartState: models.EventStatePending}
 	req := &pb.StartCurtailmentRequest{
 		Mode: pb.CurtailmentMode_CURTAILMENT_MODE_FULL_FLEET,
 		Scopes: []*pb.CurtailmentScope{{
@@ -334,7 +334,7 @@ func TestToStartResponse_DeviceListFullFleetEmptyCarriesEndedAt(t *testing.T) {
 	t.Parallel()
 
 	endedAt := time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC)
-	plan := &curtailment.Plan{EndedAt: &endedAt} // no Selected -> empty full_fleet
+	plan := &curtailment.Plan{StartState: models.EventStateCompleted, EndedAt: &endedAt} // no Selected -> empty full_fleet
 	req := &pb.StartCurtailmentRequest{
 		Mode:  pb.CurtailmentMode_CURTAILMENT_MODE_FULL_FLEET,
 		Scope: &pb.StartCurtailmentRequest_DeviceIdentifiers{DeviceIdentifiers: &pb.ScopeDeviceList{DeviceIdentifiers: []string{"miner-a"}}},

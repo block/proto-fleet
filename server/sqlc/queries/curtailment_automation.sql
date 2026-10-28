@@ -1,58 +1,16 @@
 -- name: ListCurtailmentAutomationRulesByOrg :many
-SELECT
-    r.*,
-    rule_revision.response_profile_revision,
-    src.source_name AS mqtt_source_name,
-    st.last_signal,
-    st.last_signal_at,
-    st.active_event_uuid,
-    st.last_started_at,
-    st.last_restored_at,
-    st.last_error,
-    st.last_error_at,
-    profile.profile_name AS response_profile_name,
-    profile.site_id AS response_profile_site_id,
-    profile.scope_json AS response_profile_scope_json
-FROM curtailment_automation_rule r
-JOIN curtailment_automation_rule_profile_revision rule_revision
-    ON rule_revision.automation_rule_id = r.id
-JOIN curtailment_mqtt_source_config src
-    ON src.id = r.mqtt_source_id
-    AND src.organization_id = r.org_id
-JOIN curtailment_response_profile profile
-    ON profile.id = r.response_profile_id
-    AND profile.org_id = r.org_id
-LEFT JOIN curtailment_automation_rule_state st
-    ON st.rule_id = r.id
+SELECT r.*, st.last_signal, st.last_signal_at, st.active_event_uuid,
+       st.last_started_at, st.last_restored_at, st.last_error, st.last_error_at
+FROM curtailment_automation_rule_binding r
+LEFT JOIN curtailment_automation_rule_state st ON st.rule_id = r.id
 WHERE r.org_id = sqlc.arg('org_id')
 ORDER BY r.id;
 
 -- name: GetCurtailmentAutomationRuleByOrg :one
-SELECT
-    r.*,
-    rule_revision.response_profile_revision,
-    src.source_name AS mqtt_source_name,
-    st.last_signal,
-    st.last_signal_at,
-    st.active_event_uuid,
-    st.last_started_at,
-    st.last_restored_at,
-    st.last_error,
-    st.last_error_at,
-    profile.profile_name AS response_profile_name,
-    profile.site_id AS response_profile_site_id,
-    profile.scope_json AS response_profile_scope_json
-FROM curtailment_automation_rule r
-JOIN curtailment_automation_rule_profile_revision rule_revision
-    ON rule_revision.automation_rule_id = r.id
-JOIN curtailment_mqtt_source_config src
-    ON src.id = r.mqtt_source_id
-    AND src.organization_id = r.org_id
-JOIN curtailment_response_profile profile
-    ON profile.id = r.response_profile_id
-    AND profile.org_id = r.org_id
-LEFT JOIN curtailment_automation_rule_state st
-    ON st.rule_id = r.id
+SELECT r.*, st.last_signal, st.last_signal_at, st.active_event_uuid,
+       st.last_started_at, st.last_restored_at, st.last_error, st.last_error_at
+FROM curtailment_automation_rule_binding r
+LEFT JOIN curtailment_automation_rule_state st ON st.rule_id = r.id
 WHERE r.id = sqlc.arg('id')
   AND r.org_id = sqlc.arg('org_id');
 
@@ -86,61 +44,19 @@ WHERE rule.id = sqlc.arg('id')
 FOR UPDATE OF rule, rule_revision, source;
 
 -- name: ListEnabledCurtailmentAutomationRulesByMQTTSource :many
-SELECT
-    r.*,
-    rule_revision.response_profile_revision,
-    src.source_name AS mqtt_source_name,
-    st.last_signal,
-    st.last_signal_at,
-    st.active_event_uuid,
-    st.last_started_at,
-    st.last_restored_at,
-    st.last_error,
-    st.last_error_at,
-    profile.profile_name AS response_profile_name,
-    profile.site_id AS response_profile_site_id,
-    profile.scope_json AS response_profile_scope_json
-FROM curtailment_automation_rule r
-JOIN curtailment_automation_rule_profile_revision rule_revision
-    ON rule_revision.automation_rule_id = r.id
-JOIN curtailment_mqtt_source_config src
-    ON src.id = r.mqtt_source_id
-    AND src.organization_id = r.org_id
-JOIN curtailment_response_profile profile
-    ON profile.id = r.response_profile_id
-    AND profile.org_id = r.org_id
-LEFT JOIN curtailment_automation_rule_state st
-    ON st.rule_id = r.id
+SELECT r.*, st.last_signal, st.last_signal_at, st.active_event_uuid,
+       st.last_started_at, st.last_restored_at, st.last_error, st.last_error_at
+FROM curtailment_automation_rule_binding r
+LEFT JOIN curtailment_automation_rule_state st ON st.rule_id = r.id
 WHERE r.mqtt_source_id = sqlc.arg('mqtt_source_id')
   AND r.enabled = TRUE
 ORDER BY r.id;
 
 -- name: GetEnabledCurtailmentAutomationRuleByEvent :one
-SELECT
-    r.*,
-    rule_revision.response_profile_revision,
-    src.source_name AS mqtt_source_name,
-    st.last_signal,
-    st.last_signal_at,
-    st.active_event_uuid,
-    st.last_started_at,
-    st.last_restored_at,
-    st.last_error,
-    st.last_error_at,
-    profile.profile_name AS response_profile_name,
-    profile.site_id AS response_profile_site_id,
-    profile.scope_json AS response_profile_scope_json
-FROM curtailment_automation_rule r
-JOIN curtailment_automation_rule_profile_revision rule_revision
-    ON rule_revision.automation_rule_id = r.id
-JOIN curtailment_mqtt_source_config src
-    ON src.id = r.mqtt_source_id
-    AND src.organization_id = r.org_id
-JOIN curtailment_response_profile profile
-    ON profile.id = r.response_profile_id
-    AND profile.org_id = r.org_id
-JOIN curtailment_automation_rule_state st
-    ON st.rule_id = r.id
+SELECT r.*, st.last_signal, st.last_signal_at, st.active_event_uuid,
+       st.last_started_at, st.last_restored_at, st.last_error, st.last_error_at
+FROM curtailment_automation_rule_binding r
+JOIN curtailment_automation_rule_state st ON st.rule_id = r.id
 WHERE r.org_id = sqlc.arg('org_id')
   AND r.enabled = TRUE
   AND (
@@ -180,26 +96,8 @@ SET
     response_profile_id = sqlc.arg('response_profile_id')
 WHERE curtailment_automation_rule.id = sqlc.arg('id')
   AND curtailment_automation_rule.org_id = sqlc.arg('org_id')
-  AND NOT EXISTS (
-      -- A live automation event pins the rule via the rule-state pointer or
-      -- via the event's external reference, which also covers the window
-      -- before SetAutomationActiveEvent writes the pointer.
-      SELECT 1
-      FROM curtailment_event e
-      WHERE e.state IN ('pending', 'active', 'restoring')
-        AND (
-            EXISTS (
-                SELECT 1
-                FROM curtailment_automation_rule_state st
-                WHERE st.rule_id = curtailment_automation_rule.id
-                  AND st.active_event_uuid = e.event_uuid
-            )
-            OR (
-                e.org_id = curtailment_automation_rule.org_id
-                AND e.external_source = 'curtailment_automation'
-                AND e.external_reference = curtailment_automation_rule.id::text
-            )
-        )
+  AND NOT curtailment_automation_rule_has_live_event(
+      curtailment_automation_rule.id, curtailment_automation_rule.org_id
   )
 RETURNING *;
 
@@ -223,23 +121,8 @@ WHERE curtailment_automation_rule.id = sqlc.arg('id')
       OR response_profile_id = sqlc.arg('expected_response_profile_id')
   )
   AND (
-      NOT EXISTS (
-          SELECT 1
-          FROM curtailment_event e
-          WHERE e.state IN ('pending', 'active', 'restoring')
-            AND (
-                EXISTS (
-                    SELECT 1
-                    FROM curtailment_automation_rule_state st
-                    WHERE st.rule_id = curtailment_automation_rule.id
-                      AND st.active_event_uuid = e.event_uuid
-                )
-                OR (
-                    e.org_id = curtailment_automation_rule.org_id
-                    AND e.external_source = 'curtailment_automation'
-                    AND e.external_reference = curtailment_automation_rule.id::text
-                )
-            )
+      NOT curtailment_automation_rule_has_live_event(
+          curtailment_automation_rule.id, curtailment_automation_rule.org_id
       )
       OR (
           sqlc.arg('enabled') = TRUE
@@ -281,25 +164,8 @@ WHERE st.rule_id = r.id
 DELETE FROM curtailment_automation_rule
 WHERE curtailment_automation_rule.id = sqlc.arg('id')
   AND curtailment_automation_rule.org_id = sqlc.arg('org_id')
-  AND NOT EXISTS (
-      -- Same live-event pin as UpdateCurtailmentAutomationRule: pointer or
-      -- external reference, so the nil-pointer window cannot slip a delete.
-      SELECT 1
-      FROM curtailment_event e
-      WHERE e.state IN ('pending', 'active', 'restoring')
-        AND (
-            EXISTS (
-                SELECT 1
-                FROM curtailment_automation_rule_state st
-                WHERE st.rule_id = curtailment_automation_rule.id
-                  AND st.active_event_uuid = e.event_uuid
-            )
-            OR (
-                e.org_id = curtailment_automation_rule.org_id
-                AND e.external_source = 'curtailment_automation'
-                AND e.external_reference = curtailment_automation_rule.id::text
-            )
-        )
+  AND NOT curtailment_automation_rule_has_live_event(
+      curtailment_automation_rule.id, curtailment_automation_rule.org_id
   );
 
 -- name: CountCurtailmentAutomationRulesByMQTTSource :one

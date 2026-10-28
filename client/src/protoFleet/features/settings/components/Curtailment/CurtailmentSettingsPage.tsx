@@ -1,8 +1,32 @@
 import { type KeyboardEvent, type ReactElement, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Navigate, useNavigate } from "react-router-dom";
 import clsx from "clsx";
+import {
+  type CurtailmentScopeSelection,
+  getCurtailmentScopeSummary,
+  normalizeCurtailmentSelectionValues,
+} from "@/protoFleet/api/curtailmentScopes";
 
-import { type CurtailmentScopeSelection, getCurtailmentScopeSummary } from "@/protoFleet/api/curtailmentScopes";
+import {
+  type AutomationRule,
+  type AutomationRuleFormValues,
+  type CurtailmentFormValues,
+  type CurtailmentHealth,
+  type CurtailmentSiteOption,
+  type CurtailmentSource,
+  type CurtailmentSourceFormValues,
+  type CurtailmentSubmitValues,
+  DEFAULT_SOURCE_STALENESS_THRESHOLD_SEC,
+  isEditableResponseProfile,
+  isResponseProfileAutomationReady,
+  MAX_SOURCE_STALENESS_THRESHOLD_SEC,
+  type ResponseProfile,
+  type ResponseProfileFormValues,
+  type ResponseProfileModalMode,
+} from "@/protoFleet/api/curtailmentTypes";
+
+import { formatCurtailmentKw } from "@/protoFleet/api/curtailmentUtils";
+
 import type { SiteWithCounts } from "@/protoFleet/api/generated/sites/v1/sites_pb";
 import { useSites } from "@/protoFleet/api/sites";
 import { useCurtailmentApi } from "@/protoFleet/api/useCurtailmentApi";
@@ -15,28 +39,14 @@ import useMqttCurtailmentSources from "@/protoFleet/api/useMqttCurtailmentSource
 import { useActiveSite } from "@/protoFleet/components/PageHeader/SitePicker";
 import { immediateRestoreBatchSizeInputValue } from "@/protoFleet/features/energy/curtailmentNumericFields";
 import { getDefaultCurtailmentSiteScope } from "@/protoFleet/features/energy/curtailmentSiteScopeDefaults";
-import CurtailmentStartModal, {
-  type CurtailmentFormValues,
-  type CurtailmentSiteOption,
-  type CurtailmentSubmitValues,
-  type ResponseProfileModalMode,
-} from "@/protoFleet/features/energy/CurtailmentStartModal";
+import CurtailmentStartModal from "@/protoFleet/features/energy/CurtailmentStartModal";
 import type { FacilityFanDeviceOption } from "@/protoFleet/features/energy/FacilityFanSelectionModal";
 import CurtailmentAutomationsContent from "@/protoFleet/features/settings/components/Curtailment/CurtailmentAutomations";
-import { isInputEnterSaveEvent } from "@/protoFleet/features/settings/components/Curtailment/keyboard";
 import {
-  type AutomationRule,
-  type AutomationRuleFormValues,
-  type CurtailmentHealth,
-  type CurtailmentSource,
-  type CurtailmentSourceFormValues,
-  DEFAULT_SOURCE_STALENESS_THRESHOLD_SEC,
-  isEditableResponseProfile,
-  isResponseProfileAutomationReady,
-  MAX_SOURCE_STALENESS_THRESHOLD_SEC,
-  type ResponseProfile,
-  type ResponseProfileFormValues,
-} from "@/protoFleet/features/settings/components/Curtailment/types";
+  InfoToggleContent,
+  SectionHeader,
+} from "@/protoFleet/features/settings/components/Curtailment/CurtailmentSection";
+import { isInputEnterSaveEvent } from "@/protoFleet/features/settings/components/Curtailment/keyboard";
 import SettingsEmptyState from "@/protoFleet/features/settings/components/SettingsEmptyState";
 import SettingsPageHeader from "@/protoFleet/features/settings/components/SettingsPageHeader";
 import { scopedPath } from "@/protoFleet/routing/siteScope";
@@ -51,13 +61,12 @@ import Input from "@/shared/components/Input";
 import List from "@/shared/components/List";
 import type { ColConfig, ColTitles } from "@/shared/components/List/types";
 import Modal, { sizes as modalSizes } from "@/shared/components/Modal";
-import Popover, { PopoverProvider, popoverSizes, usePopover } from "@/shared/components/Popover";
+import { PopoverProvider } from "@/shared/components/Popover";
 import ProgressCircular from "@/shared/components/ProgressCircular";
 import type { SelectOption } from "@/shared/components/Select";
 import Switch from "@/shared/components/Switch";
 import { positions } from "@/shared/constants";
 import { pushToast, STATUSES } from "@/shared/features/toaster";
-import { classNameToSelectors } from "@/shared/utils/cssUtils";
 import "./CurtailmentSettingsPage.css";
 
 const CURTAILMENT_PAGE_DESCRIPTION =
@@ -225,7 +234,12 @@ function isPositiveInteger(value: string): boolean {
 }
 
 function getResponseProfileTargetSummary(values: ResponseProfileFormValues): string {
-  const targetKw = Number(values.targetKw).toLocaleString();
+  const targetKw = formatCurtailmentKw(Number(values.targetKw), {
+    maximumFractionDigits: 3,
+    minimumFractionDigits: 0,
+    includeUnit: false,
+    normalizeNonFinite: false,
+  });
 
   switch (values.actionType) {
     case "fixedKwReduction":
@@ -243,14 +257,10 @@ function getResponseProfileScopeSummary(values: ResponseProfileFormValues): stri
   });
 }
 
-function uniqueNonEmptyStrings(values: readonly string[]): string[] {
-  return [...new Set(values.map((value) => value.trim()).filter(Boolean))];
-}
-
 function getSelectedResponseProfileSiteIds(
   values: Pick<ResponseProfileFormValues, "siteSelection" | "siteId" | "siteIds">,
 ): string[] {
-  const siteIds = uniqueNonEmptyStrings(
+  const siteIds = normalizeCurtailmentSelectionValues(
     values.siteIds !== undefined && values.siteIds.length > 0 ? values.siteIds : values.siteId ? [values.siteId] : [],
   );
 
@@ -501,7 +511,7 @@ function createResponseProfileFormValuesFromCurtailmentValues(
   const siteIds =
     hasAllMinersSelected || (values.siteSelection !== "site" && values.siteSelection !== "allSites")
       ? []
-      : uniqueNonEmptyStrings(values.siteIds ?? (values.siteId ? [values.siteId] : []));
+      : normalizeCurtailmentSelectionValues(values.siteIds ?? (values.siteId ? [values.siteId] : []));
   const siteId = siteIds[0] ?? "";
   const siteNamesById = Object.fromEntries(
     siteIds.map((currentSiteId) => [
@@ -641,46 +651,6 @@ const sourceHealthLabel: Record<CurtailmentHealth, string> = {
 
 function formatSourceHealth(health: CurtailmentSource["health"]): string {
   return sourceHealthLabel[health];
-}
-
-type InfoToggleContentProps = {
-  ariaLabel: string;
-  description: string;
-  testId: string;
-  triggerClassName: string;
-};
-
-function InfoToggleContent({ ariaLabel, description, testId, triggerClassName }: InfoToggleContentProps): ReactElement {
-  const [isOpen, setIsOpen] = useState(false);
-  const { triggerRef } = usePopover();
-  const closeIgnoreSelectors = classNameToSelectors(triggerClassName);
-
-  return (
-    <div ref={triggerRef} className={`${triggerClassName} relative`}>
-      <Button
-        variant={variants.secondary}
-        size={sizes.compact}
-        ariaHasPopup
-        ariaExpanded={isOpen}
-        ariaLabel={ariaLabel}
-        prefixIcon={<Info width={iconSizes.small} className="text-text-primary-70" />}
-        onClick={() => setIsOpen((current) => !current)}
-      />
-      {isOpen ? (
-        <Popover
-          position={positions["bottom left"]}
-          size={popoverSizes.normal}
-          offset={8}
-          className="!space-y-0"
-          closePopover={() => setIsOpen(false)}
-          closeIgnoreSelectors={closeIgnoreSelectors}
-          testId={testId}
-        >
-          <p className="text-300 text-text-primary-70">{description}</p>
-        </Popover>
-      ) : null}
-    </div>
-  );
 }
 
 function ResponseProfilesInfoToggle(): ReactElement {
@@ -1147,33 +1117,6 @@ function SourceModal({
         </div>
       </div>
     </Modal>
-  );
-}
-
-type SectionHeaderProps = {
-  title: string;
-  buttonText: string;
-  onButtonClick: () => void;
-  infoToggle?: ReactElement;
-};
-
-function SectionHeader({ title, buttonText, onButtonClick, infoToggle }: SectionHeaderProps): ReactElement {
-  return (
-    <div className="curtailment-section-header">
-      <div className="curtailment-section-header__title">
-        <h2 className="curtailment-section-header__label">{title}</h2>
-      </div>
-      <div className="flex shrink-0 items-center gap-2">
-        {infoToggle}
-        <Button
-          variant={variants.secondary}
-          size={sizes.compact}
-          text={buttonText}
-          onClick={onButtonClick}
-          className="curtailment-settings__action-button"
-        />
-      </div>
-    </div>
   );
 }
 
@@ -1653,6 +1596,7 @@ export function CurtailmentSettingsContent({
 
       <section className="curtailment-settings__section">
         <SectionHeader
+          variant="settings"
           title="Response profiles"
           buttonText="Create profile"
           onButtonClick={openCreateResponseProfileModal}
@@ -1668,6 +1612,7 @@ export function CurtailmentSettingsContent({
 
       <section className="curtailment-settings__section">
         <SectionHeader
+          variant="settings"
           title="Sources"
           buttonText="Add source"
           onButtonClick={openCreateSourceModal}

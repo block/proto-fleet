@@ -23,6 +23,12 @@ import {
   mapCurtailmentHistoryEvent,
 } from "@/protoFleet/api/curtailmentMappers";
 import {
+  type ActiveCurtailmentEvent,
+  type CurtailmentHistoryEvent,
+  type CurtailmentSubmitValues,
+} from "@/protoFleet/api/curtailmentTypes";
+
+import {
   AdminTerminateEventRequestSchema,
   CurtailmentEventSchema,
   ForceReleaseCurtailmentOwnershipRequestSchema,
@@ -34,18 +40,15 @@ import {
 } from "@/protoFleet/api/generated/curtailment/v1/curtailment_pb";
 import { assertNotAborted, isAbortError, isAuthOrPermissionError, toError } from "@/protoFleet/api/requestErrors";
 import type { SiteNameById } from "@/protoFleet/api/siteNames";
-import type { ActiveCurtailmentEvent } from "@/protoFleet/features/energy/ActiveCurtailmentStatus";
 import {
   type CurtailmentEventState,
   curtailmentEventStates,
   mapCurtailmentEventState,
 } from "@/protoFleet/features/energy/curtailmentDisplayUtils";
-import type { CurtailmentHistoryEvent } from "@/protoFleet/features/energy/CurtailmentHistory";
 import {
   buildStartCurtailmentRequest,
   buildUpdateCurtailmentEventRequest,
 } from "@/protoFleet/features/energy/curtailmentRequestBuilders";
-import type { CurtailmentSubmitValues } from "@/protoFleet/features/energy/CurtailmentStartModal";
 import { useAuthErrors } from "@/protoFleet/store";
 
 export interface RefreshCurtailmentOptions {

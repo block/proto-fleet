@@ -241,36 +241,15 @@ func (s *Service) Start(ctx context.Context, req StartRequest) (*Plan, error) {
 	// Bounds-check the normalized value so a misconfigured default surfaces
 	// as InvalidArgument instead of tripping the DB CHECK.
 	if !req.AllowUnbounded && req.MaxDurationSeconds == nil {
-		if orgConfig.MaxDurationDefaultSec <= 0 {
-			return nil, fleeterror.NewInvalidArgumentErrorf(
-				"org's max_duration_default_sec must be > 0, got %d", orgConfig.MaxDurationDefaultSec,
-			)
-		}
-		if orgConfig.MaxDurationDefaultSec > maxFiniteDurationSeconds {
-			return nil, fleeterror.NewInvalidArgumentErrorf(
-				"org's max_duration_default_sec must be <= %d, got %d",
-				maxFiniteDurationSeconds, orgConfig.MaxDurationDefaultSec,
-			)
+		if err := validateFiniteDuration("org's max_duration_default_sec", orgConfig.MaxDurationDefaultSec); err != nil {
+			return nil, err
 		}
 		v := orgConfig.MaxDurationDefaultSec
 		req.MaxDurationSeconds = &v
 	}
-	// Admin-gate is intrinsically post-normalization: it compares the
-	// resolved value to the org default.
-	if req.MaxDurationSeconds != nil &&
-		orgConfig.MaxDurationDefaultSec > 0 &&
-		*req.MaxDurationSeconds > orgConfig.MaxDurationDefaultSec &&
-		!req.CanUseAdminControls {
-		return nil, fleeterror.NewForbiddenErrorf(
-			"only admins can set max_duration_seconds above org default %d",
-			orgConfig.MaxDurationDefaultSec,
-		)
-	}
-	if req.RestoreBatchIntervalSec > nonAdminRestoreBatchIntervalMax && !req.CanUseAdminControls {
-		return nil, fleeterror.NewForbiddenErrorf(
-			"only admins can set restore_batch_interval_sec above %d",
-			nonAdminRestoreBatchIntervalMax,
-		)
+	// Duration access compares the normalized cap with the organization default.
+	if err := validateAdminControlAccess(startAdminControls(req, orgConfig), req.CanUseAdminControls); err != nil {
+		return nil, err
 	}
 
 	// Stamp once so buildInsertParams and the Start response agree.
@@ -282,7 +261,7 @@ func (s *Service) Start(ctx context.Context, req StartRequest) (*Plan, error) {
 	plan.EffectiveCurtailBatchSize = cloneInt32Ptr(req.CurtailBatchSize)
 	plan.EffectiveCurtailBatchIntervalSec = req.CurtailBatchIntervalSec
 
-	requiresAdminControls := startRequiresAdminControls(req, orgConfig)
+	requiresAdminControls := adminControlsRequirement(startAdminControls(req, orgConfig)) != ""
 	eventParams, targetParams, err := buildInsertParams(req, plan, minPowerW, requiresAdminControls)
 	if err != nil {
 		return nil, err
@@ -296,6 +275,7 @@ func (s *Service) Start(ctx context.Context, req StartRequest) (*Plan, error) {
 	}
 	// Carry stamped lifecycle times into the Plan so the synchronous Start
 	// response matches the persisted row (otherwise a later Get/List diverges).
+	plan.StartState = eventParams.State
 	plan.EndedAt = eventParams.EndedAt
 	plan.StartedAt = eventParams.StartedAt
 
@@ -436,29 +416,20 @@ func (s *Service) Update(ctx context.Context, req UpdateRequest) (*models.Event,
 		return event, nil
 	}
 
-	// Admin gate mirrors Start. Compares against the effective patch so a
-	// no-op echo passes; fetch org config lazily on a real write.
+	// Check only changed controls so an unchanged elevated value remains a no-op.
+	controls := adminControls{MaxDurationSeconds: patch.MaxDurationSeconds}
 	if patch.MaxDurationSeconds != nil && !req.CanUseAdminControls {
 		orgConfig, err := s.store.GetOrgConfig(ctx, req.OrgID)
 		if err != nil {
 			return nil, err
 		}
-		if orgConfig.MaxDurationDefaultSec > 0 &&
-			*patch.MaxDurationSeconds > orgConfig.MaxDurationDefaultSec {
-			return nil, fleeterror.NewForbiddenErrorf(
-				"only admins can set max_duration_seconds above org default %d",
-				orgConfig.MaxDurationDefaultSec,
-			)
-		}
+		controls.MaxDurationDefaultSec = orgConfig.MaxDurationDefaultSec
 	}
-	// Symmetric gate for restore_batch_interval_sec above the non-admin cap.
-	if patch.RestoreBatchIntervalSec != nil &&
-		*patch.RestoreBatchIntervalSec > nonAdminRestoreBatchIntervalMax &&
-		!req.CanUseAdminControls {
-		return nil, fleeterror.NewForbiddenErrorf(
-			"only admins can set restore_batch_interval_sec above %d",
-			nonAdminRestoreBatchIntervalMax,
-		)
+	if patch.RestoreBatchIntervalSec != nil {
+		controls.RestoreBatchIntervalSec = *patch.RestoreBatchIntervalSec
+	}
+	if err := validateAdminControlAccess(controls, req.CanUseAdminControls); err != nil {
+		return nil, err
 	}
 
 	updated, err := s.store.UpdateOperatorFields(ctx, event.ID, req.OrgID, patch)
@@ -748,17 +719,7 @@ func (s *Service) restoreFansForOperatorRecovery(ctx context.Context, event *mod
 }
 
 func validateAdminRecoveryReason(reason string) error {
-	if strings.TrimSpace(reason) == "" {
-		return fleeterror.NewInvalidArgumentError("reason must be set")
-	}
-	// Recovery reasons can be fanned out into target last_error columns; cap at
-	// proto's rune-based max_len so multi-byte input matches validator behavior.
-	if n := utf8.RuneCountInString(reason); n > startTextFieldMaxLen {
-		return fleeterror.NewInvalidArgumentErrorf(
-			"reason must be at most %d characters, got %d", startTextFieldMaxLen, n,
-		)
-	}
-	return nil
+	return validateReason(reason, "reason must be set")
 }
 
 // emitStartAuditTrail emits one curtailment_started row. Override flags ride
@@ -1037,6 +998,7 @@ func (s *Service) replayPlanFromPersistedEvent(ctx context.Context, orgID int64,
 	eventUUID := event.EventUUID
 	plan := &Plan{
 		EventUUID:                        &eventUUID,
+		StartState:                       event.State,
 		EffectiveRestoreBatchIntervalSec: event.RestoreBatchIntervalSec,
 		EffectiveCurtailBatchSize:        cloneInt32Ptr(event.CurtailBatchSize),
 		EffectiveCurtailBatchIntervalSec: event.CurtailBatchIntervalSec,
@@ -1067,61 +1029,15 @@ func validateUpdateRequest(req UpdateRequest) error {
 		)
 	}
 	if req.Reason != nil {
-		v := *req.Reason
-		if strings.TrimSpace(v) == "" {
-			// Empty Reason silently no-ops via the UPDATE's COALESCE.
-			return fleeterror.NewInvalidArgumentError("reason must be non-empty when set")
-		}
-		if n := utf8.RuneCountInString(v); n > startTextFieldMaxLen {
-			return fleeterror.NewInvalidArgumentErrorf(
-				"reason must be at most %d characters, got %d", startTextFieldMaxLen, n,
-			)
+		if err := validateReason(*req.Reason, "reason must be non-empty when set"); err != nil {
+			return err
 		}
 	}
-	if req.RestoreBatchSize != nil {
-		v := *req.RestoreBatchSize
-		if v < 0 {
-			return fleeterror.NewInvalidArgumentErrorf(
-				"restore_batch_size must be >= 0, got %d", v,
-			)
-		}
-		if v > RestoreBatchSizeMax {
-			return fleeterror.NewInvalidArgumentErrorf(
-				"restore_batch_size must be <= %d, got %d",
-				RestoreBatchSizeMax,
-				v,
-			)
-		}
-	}
-	if req.RestoreBatchIntervalSec != nil {
-		v := *req.RestoreBatchIntervalSec
-		if v < 0 {
-			return fleeterror.NewInvalidArgumentErrorf(
-				"restore_batch_interval_sec must be >= 0, got %d", v,
-			)
-		}
-		if v > restoreBatchIntervalUpperBoundSec {
-			return fleeterror.NewInvalidArgumentErrorf(
-				"restore_batch_interval_sec must be <= %d, got %d",
-				restoreBatchIntervalUpperBoundSec, v,
-			)
-		}
-	}
-	if req.MaxDurationSeconds != nil {
-		v := *req.MaxDurationSeconds
-		if v <= 0 {
-			return fleeterror.NewInvalidArgumentErrorf(
-				"max_duration_seconds must be > 0, got %d", v,
-			)
-		}
-		if v > maxFiniteDurationSeconds {
-			return fleeterror.NewInvalidArgumentErrorf(
-				"max_duration_seconds must be <= %d, got %d",
-				maxFiniteDurationSeconds, v,
-			)
-		}
-	}
-	return nil
+	return validateControlBounds(controlBounds{
+		RestoreBatchSize:        req.RestoreBatchSize,
+		RestoreBatchIntervalSec: req.RestoreBatchIntervalSec,
+		MaxDurationSeconds:      req.MaxDurationSeconds,
+	})
 }
 
 // ListEvents returns cursor-paginated event history for an org. The
@@ -1264,7 +1180,7 @@ func (s *Service) runSelector(ctx context.Context, req PreviewRequest) (*Plan, i
 	if err != nil {
 		return nil, 0, nil, err
 	}
-	activeSet := toStringSet(activeDevices)
+	activeSet := ToStringSet(activeDevices)
 
 	candidateFilter.ResultLimit = ScopeResolvedMinerMax + 1
 	candidates, err := s.store.ListCandidates(ctx, candidateFilter)
@@ -1311,7 +1227,7 @@ func (s *Service) runSelector(ctx context.Context, req PreviewRequest) (*Plan, i
 		if err != nil {
 			return nil, 0, nil, err
 		}
-		cooldownSet = toStringSet(cooldownDevices)
+		cooldownSet = ToStringSet(cooldownDevices)
 	}
 
 	// classifyCandidates rejects devices missing driver metadata.
@@ -1370,10 +1286,10 @@ const (
 	// text fields; backstop for non-Connect callers.
 	startTextFieldMaxLen = 256
 
-	maxFiniteDurationSeconds          int32 = 7 * 24 * 60 * 60
-	nonAdminRestoreBatchIntervalMax   int32 = 5 * 60
-	restoreBatchIntervalUpperBoundSec int32 = 60 * 60
-	facilityFanDelayUpperBoundSec     int32 = 60 * 60
+	maxFiniteDurationSeconds      int32 = 7 * 24 * 60 * 60
+	nonAdminBatchIntervalMax      int32 = 5 * 60
+	batchIntervalUpperBoundSec    int32 = 60 * 60
+	facilityFanDelayUpperBoundSec int32 = 60 * 60
 	// New response-profile fan selections are limited to eight. Start accepts
 	// up to the historical ceiling of 1024 so saved profiles can execute until
 	// an operator deliberately reduces their fan set.
@@ -1385,35 +1301,15 @@ func validateStartRequest(req StartRequest) error {
 	if err := validatePreviewRequest(req.PreviewRequest); err != nil {
 		return err
 	}
-	if (req.ResponseProfileID > 0) != (req.ResponseProfileRevision != uuid.Nil) {
-		return fleeterror.NewInvalidArgumentError(
-			"response_profile_id and expected_response_profile_revision must be set together",
-		)
+	if err := ValidateExecutionFence(ExecutionFence{
+		ResponseProfileID: req.ResponseProfileID, ResponseProfileRevision: req.ResponseProfileRevision,
+		AutomationRuleID: req.AutomationRuleID, AutomationMQTTSourceID: req.AutomationMQTTSourceID,
+		SourceActorType: req.SourceActorType,
+	}, ExecutionFenceStart); err != nil {
+		return err
 	}
-	if req.ResponseProfileID < 0 {
-		return fleeterror.NewInvalidArgumentError("response_profile_id must be non-negative")
-	}
-	if (req.AutomationRuleID > 0) != (req.AutomationMQTTSourceID > 0) {
-		return fleeterror.NewInvalidArgumentError(
-			"automation_rule_id and automation_mqtt_source_id must be set together",
-		)
-	}
-	if req.AutomationRuleID < 0 || req.AutomationMQTTSourceID < 0 {
-		return fleeterror.NewInvalidArgumentError("automation execution fence IDs must be non-negative")
-	}
-	if req.AutomationRuleID > 0 &&
-		(req.SourceActorType != models.SourceActorAutomation || req.ResponseProfileID == 0) {
-		return fleeterror.NewInvalidArgumentError(
-			"automation execution fence requires an automation actor and response profile",
-		)
-	}
-	if strings.TrimSpace(req.Reason) == "" {
-		return fleeterror.NewInvalidArgumentError("reason must be non-empty")
-	}
-	if n := utf8.RuneCountInString(req.Reason); n > startTextFieldMaxLen {
-		return fleeterror.NewInvalidArgumentErrorf(
-			"reason must be at most %d characters, got %d", startTextFieldMaxLen, n,
-		)
+	if err := validateReason(req.Reason, "reason must be non-empty"); err != nil {
+		return err
 	}
 	if req.IdempotencyKey != nil {
 		if n := utf8.RuneCountInString(*req.IdempotencyKey); n > startTextFieldMaxLen {
@@ -1443,87 +1339,22 @@ func validateStartRequest(req StartRequest) error {
 			)
 		}
 	}
-	if req.RestoreBatchSize < 0 {
-		return fleeterror.NewInvalidArgumentErrorf(
-			"restore_batch_size must be >= 0, got %d", req.RestoreBatchSize,
-		)
+	if err := validateControlBounds(controlBounds{
+		CurtailBatchSize: req.CurtailBatchSize, CurtailBatchIntervalSec: &req.CurtailBatchIntervalSec,
+		RestoreBatchSize: &req.RestoreBatchSize, RestoreBatchIntervalSec: &req.RestoreBatchIntervalSec,
+		FanOffDelaySec: &req.FanOffDelaySec, FanRestoreDelaySec: &req.FanRestoreDelaySec,
+		MinCurtailedDurationSec: &req.MinCurtailedDurationSec, MaxDurationSeconds: req.MaxDurationSeconds,
+	}); err != nil {
+		return err
 	}
-	if req.RestoreBatchSize > RestoreBatchSizeMax {
-		return fleeterror.NewInvalidArgumentErrorf(
-			"restore_batch_size must be <= %d, got %d",
-			RestoreBatchSizeMax,
-			req.RestoreBatchSize,
-		)
-	}
-	if req.CurtailBatchSize != nil && *req.CurtailBatchSize <= 0 {
-		return fleeterror.NewInvalidArgumentErrorf(
-			"curtail_batch_size must be > 0 when set, got %d",
-			*req.CurtailBatchSize,
-		)
-	}
-	if req.CurtailBatchSize != nil && *req.CurtailBatchSize > responseProfileBatchSizeMax {
-		return fleeterror.NewInvalidArgumentErrorf(
-			"curtail_batch_size must be <= %d, got %d",
-			responseProfileBatchSizeMax,
-			*req.CurtailBatchSize,
-		)
-	}
-	if req.CurtailBatchIntervalSec < 0 {
-		return fleeterror.NewInvalidArgumentErrorf(
-			"curtail_batch_interval_sec must be >= 0, got %d",
-			req.CurtailBatchIntervalSec,
-		)
-	}
-	if req.CurtailBatchSize == nil && req.CurtailBatchIntervalSec > 0 {
-		return fleeterror.NewInvalidArgumentError(
-			"curtail_batch_interval_sec must be 0 when curtail_batch_size is unset",
-		)
-	}
-	if req.RestoreBatchIntervalSec < 0 {
-		return fleeterror.NewInvalidArgumentErrorf(
-			"restore_batch_interval_sec must be >= 0, got %d", req.RestoreBatchIntervalSec,
-		)
-	}
-	if req.MinCurtailedDurationSec < 0 {
-		return fleeterror.NewInvalidArgumentErrorf(
-			"min_curtailed_duration_sec must be >= 0, got %d", req.MinCurtailedDurationSec,
-		)
-	}
-	// allow_unbounded + finite max_duration are mutually exclusive.
 	if req.AllowUnbounded && req.MaxDurationSeconds != nil {
-		return fleeterror.NewInvalidArgumentError(
-			"max_duration_seconds must be unset when allow_unbounded is true",
-		)
+		return fleeterror.NewInvalidArgumentError("max_duration_seconds must be unset when allow_unbounded is true")
 	}
-	if req.AllowUnbounded && !req.CanUseAdminControls {
-		return fleeterror.NewForbiddenError("only admins can set allow_unbounded")
-	}
-	if req.CandidateMinPowerWOverride != nil && !req.CanUseAdminControls {
-		return fleeterror.NewForbiddenError("only admins can set candidate_min_power_w_override")
-	}
-	if req.ForceIncludeMaintenance && !req.CanUseAdminControls {
-		return fleeterror.NewForbiddenError("only admins can set force_include_maintenance")
-	}
-	if req.ForceIncludeAllPairedMiners && !req.CanUseAdminControls {
-		return fleeterror.NewForbiddenError("only admins can set force_include_all_paired_miners")
-	}
-	if req.FanOffDelaySec < 0 {
-		return fleeterror.NewInvalidArgumentErrorf("fan_off_delay_sec must be >= 0, got %d", req.FanOffDelaySec)
-	}
-	if req.FanRestoreDelaySec < 0 {
-		return fleeterror.NewInvalidArgumentErrorf("fan_restore_delay_sec must be >= 0, got %d", req.FanRestoreDelaySec)
-	}
-	if req.FanOffDelaySec > facilityFanDelayUpperBoundSec {
-		return fleeterror.NewInvalidArgumentErrorf(
-			"fan_off_delay_sec must be <= %d, got %d",
-			facilityFanDelayUpperBoundSec, req.FanOffDelaySec,
-		)
-	}
-	if req.FanRestoreDelaySec > facilityFanDelayUpperBoundSec {
-		return fleeterror.NewInvalidArgumentErrorf(
-			"fan_restore_delay_sec must be <= %d, got %d",
-			facilityFanDelayUpperBoundSec, req.FanRestoreDelaySec,
-		)
+	// Restore pacing and normalized duration are gated after loading org config.
+	controls := startAdminControls(req, nil)
+	controls.RestoreBatchIntervalSec = 0
+	if err := validateAdminControlAccess(controls, req.CanUseAdminControls); err != nil {
+		return err
 	}
 	if len(req.FacilityFanDeviceIDs) > facilityFanDeviceCountLegacyMax {
 		return fleeterror.NewInvalidArgumentErrorf(
@@ -1551,35 +1382,6 @@ func validateStartRequest(req StartRequest) error {
 			}
 		}
 	}
-	if !req.AllowUnbounded && req.MaxDurationSeconds != nil && *req.MaxDurationSeconds <= 0 {
-		return fleeterror.NewInvalidArgumentErrorf(
-			"max_duration_seconds must be > 0, got %d", *req.MaxDurationSeconds,
-		)
-	}
-	if req.MaxDurationSeconds != nil && *req.MaxDurationSeconds > maxFiniteDurationSeconds {
-		return fleeterror.NewInvalidArgumentErrorf(
-			"max_duration_seconds must be <= %d, got %d",
-			maxFiniteDurationSeconds, *req.MaxDurationSeconds,
-		)
-	}
-	if req.RestoreBatchIntervalSec > restoreBatchIntervalUpperBoundSec {
-		return fleeterror.NewInvalidArgumentErrorf(
-			"restore_batch_interval_sec must be <= %d, got %d",
-			restoreBatchIntervalUpperBoundSec, req.RestoreBatchIntervalSec,
-		)
-	}
-	if req.CurtailBatchIntervalSec > restoreBatchIntervalUpperBoundSec {
-		return fleeterror.NewInvalidArgumentErrorf(
-			"curtail_batch_interval_sec must be <= %d, got %d",
-			restoreBatchIntervalUpperBoundSec, req.CurtailBatchIntervalSec,
-		)
-	}
-	if req.CurtailBatchIntervalSec > nonAdminRestoreBatchIntervalMax && !req.CanUseAdminControls {
-		return fleeterror.NewForbiddenErrorf(
-			"only admins can set curtail_batch_interval_sec above %d",
-			nonAdminRestoreBatchIntervalMax,
-		)
-	}
 	if req.SourceActorType == "" {
 		return fleeterror.NewInvalidArgumentError("source_actor_type must be set")
 	}
@@ -1600,7 +1402,7 @@ func validatePreviewRequest(req PreviewRequest) error {
 	// re-pair) only runs for closed-loop scopes; an open-loop (explicit
 	// miner / device-set) all-paired event would release unpaired miners
 	// and never reclaim them, silently breaking the policy's promise.
-	if req.ForceIncludeAllPairedMiners && !isClosedLoopFullFleetStart(req.Scope, req.Mode) {
+	if req.ForceIncludeAllPairedMiners && !IsClosedLoopFullFleetStart(req.Scope, req.Mode) {
 		return fleeterror.NewInvalidArgumentError(
 			"force_include_all_paired_miners requires a whole-org, site, building, rack, or group scope; explicit miner scopes are not supported",
 		)
@@ -1624,10 +1426,10 @@ func validatePreviewRequest(req PreviewRequest) error {
 	if req.Mode != models.ModeFullFleet {
 		// NaN/+/-Inf comparisons evaluate false, slipping past the > 0/>= 0
 		// guards below and poisoning FixedKw's running sum.
-		if math.IsNaN(req.TargetKW) || math.IsInf(req.TargetKW, 0) {
+		if !IsFinite(req.TargetKW) {
 			return fleeterror.NewInvalidArgumentErrorf("target_kw must be a finite number, got %v", req.TargetKW)
 		}
-		if math.IsNaN(req.ToleranceKW) || math.IsInf(req.ToleranceKW, 0) {
+		if !IsFinite(req.ToleranceKW) {
 			return fleeterror.NewInvalidArgumentErrorf("tolerance_kw must be a finite number, got %v", req.ToleranceKW)
 		}
 		if req.TargetKW <= 0 {
@@ -2030,7 +1832,7 @@ func classifyCandidates(cands []*models.Candidate, opts classifyOpts) ([]Candida
 		}
 		// Non-finite avg_efficiency breaks sort transitivity; rank last.
 		avgEff := c.AvgEfficiencyJH
-		if !isFiniteFloat(avgEff) {
+		if avgEff != nil && !IsFinite(*avgEff) {
 			avgEff = nil
 		}
 		eligible = append(eligible, CandidateInput{
@@ -2062,14 +1864,6 @@ func missingDeviceIdentifiers(requested []string, candidates []*models.Candidate
 	return missing
 }
 
-func toStringSet(s []string) map[string]struct{} {
-	set := make(map[string]struct{}, len(s))
-	for _, v := range s {
-		set[v] = struct{}{}
-	}
-	return set
-}
-
 func derefFloat(p *float64) float64 {
 	if p == nil {
 		return 0
@@ -2078,16 +1872,7 @@ func derefFloat(p *float64) float64 {
 }
 
 func hasNonNegativeFiniteFloat(p *float64) bool {
-	return p != nil && isFiniteFloat(p) && *p >= 0
-}
-
-// isFiniteFloat returns true for nil pointers; otherwise checks the
-// pointee is neither NaN nor Inf.
-func isFiniteFloat(p *float64) bool {
-	if p == nil {
-		return true
-	}
-	return !math.IsNaN(*p) && !math.IsInf(*p, 0)
+	return p != nil && IsFinite(*p) && *p >= 0
 }
 
 // curtailment_target column values written at Start.
@@ -2198,7 +1983,7 @@ func buildInsertParams(
 		event.ScopeType = models.ScopeTypeWholeOrg
 	}
 
-	if isClosedLoopFullFleetStart(scope, mode) {
+	if IsClosedLoopFullFleetStart(scope, mode) {
 		event.LoopType = models.LoopTypeClosed
 	}
 	if event.State == models.EventStateActive && event.StartedAt == nil {
@@ -2207,7 +1992,7 @@ func buildInsertParams(
 	}
 
 	var targets []models.InsertTargetParams
-	if !isClosedLoopFullFleetStart(scope, mode) || req.ForceIncludeAllPairedMiners {
+	if !IsClosedLoopFullFleetStart(scope, mode) || req.ForceIncludeAllPairedMiners {
 		targets = BuildInsertTargetParams(plan.Selected, mode, minPowerW)
 	}
 	return event, targets, nil
@@ -2306,7 +2091,7 @@ func shouldPersistBaselinePowerW(mode models.Mode, powerW float64, minPowerW int
 // Closed-loop FULL_FLEET starts as an active command policy; the reconciler
 // claims per-miner targets only when it is about to dispatch.
 func eventStartState(scope Scope, mode models.Mode, targetCount int) models.EventState {
-	if isClosedLoopFullFleetStart(scope, mode) {
+	if IsClosedLoopFullFleetStart(scope, mode) {
 		return models.EventStateActive
 	}
 	if mode == models.ModeFullFleet && targetCount == 0 {
@@ -2315,7 +2100,9 @@ func eventStartState(scope Scope, mode models.Mode, targetCount int) models.Even
 	return models.EventStatePending
 }
 
-func isClosedLoopFullFleetStart(scope Scope, mode models.Mode) bool {
+// IsClosedLoopFullFleetStart reports whether Start persists a watcher that
+// admits eligible miners as topology membership changes.
+func IsClosedLoopFullFleetStart(scope Scope, mode models.Mode) bool {
 	scope = normalizeScope(scope)
 	if mode != models.ModeFullFleet {
 		return false
@@ -2471,27 +2258,12 @@ func (s *Service) Recurtail(ctx context.Context, req RecurtailRequest) (*models.
 	if req.EventUUID == uuid.Nil {
 		return nil, fleeterror.NewInvalidArgumentError("event_uuid must be set")
 	}
-	if (req.ResponseProfileID > 0) != (req.ResponseProfileRevision != uuid.Nil) {
-		return nil, fleeterror.NewInvalidArgumentError(
-			"response_profile_id and response_profile_revision must be set together",
-		)
-	}
-	if req.ResponseProfileID < 0 {
-		return nil, fleeterror.NewInvalidArgumentError("response_profile_id must be non-negative")
-	}
-	if req.AutomationRuleID < 0 || req.AutomationMQTTSourceID < 0 || req.AutomationServiceUserID < 0 {
-		return nil, fleeterror.NewInvalidArgumentError("automation execution fence IDs must be non-negative")
-	}
-	if (req.AutomationRuleID > 0) != (req.AutomationMQTTSourceID > 0) ||
-		(req.AutomationRuleID > 0) != (req.AutomationServiceUserID > 0) {
-		return nil, fleeterror.NewInvalidArgumentError(
-			"automation execution fence requires rule, MQTT source, and service user IDs",
-		)
-	}
-	if req.AutomationRuleID > 0 && req.ResponseProfileID == 0 {
-		return nil, fleeterror.NewInvalidArgumentError(
-			"automation execution fence requires a response profile ID and revision",
-		)
+	if err := ValidateExecutionFence(ExecutionFence{
+		ResponseProfileID: req.ResponseProfileID, ResponseProfileRevision: req.ResponseProfileRevision,
+		AutomationRuleID: req.AutomationRuleID, AutomationMQTTSourceID: req.AutomationMQTTSourceID,
+		AutomationServiceUserID: req.AutomationServiceUserID,
+	}, ExecutionFenceRecurtail); err != nil {
+		return nil, err
 	}
 	return s.store.BeginRecurtailTransition(
 		ctx,
@@ -2656,17 +2428,6 @@ func marshalDecisionSnapshot(
 	return b, nil
 }
 
-func startRequiresAdminControls(req StartRequest, orgConfig *models.OrgConfig) bool {
-	if req.AllowUnbounded || req.CandidateMinPowerWOverride != nil ||
-		req.ForceIncludeMaintenance || req.ForceIncludeAllPairedMiners ||
-		req.CurtailBatchIntervalSec > nonAdminRestoreBatchIntervalMax ||
-		req.RestoreBatchIntervalSec > nonAdminRestoreBatchIntervalMax {
-		return true
-	}
-	return req.MaxDurationSeconds != nil && orgConfig != nil &&
-		orgConfig.MaxDurationDefaultSec > 0 && *req.MaxDurationSeconds > orgConfig.MaxDurationDefaultSec
-}
-
 // EventRequiresAdminControls combines the immutable Start-time marker with
 // controls that an operator may change while an event is pending or active.
 // Comparing max duration with the current organization default mirrors the
@@ -2675,11 +2436,16 @@ func EventRequiresAdminControls(ev *models.Event, orgConfig *models.OrgConfig) (
 	if ev == nil {
 		return false, nil
 	}
-	if ev.AllowUnbounded || ev.ForceIncludeMaintenance || ev.ForceIncludeAllPairedMiners ||
-		ev.CurtailBatchIntervalSec > nonAdminRestoreBatchIntervalMax ||
-		ev.RestoreBatchIntervalSec > nonAdminRestoreBatchIntervalMax ||
-		(ev.MaxDurationSeconds != nil && orgConfig != nil && orgConfig.MaxDurationDefaultSec > 0 &&
-			*ev.MaxDurationSeconds > orgConfig.MaxDurationDefaultSec) {
+	controls := adminControls{
+		AllowUnbounded: ev.AllowUnbounded, ForceIncludeMaintenance: ev.ForceIncludeMaintenance,
+		ForceIncludeAllPairedMiners: ev.ForceIncludeAllPairedMiners,
+		CurtailBatchIntervalSec:     ev.CurtailBatchIntervalSec, RestoreBatchIntervalSec: ev.RestoreBatchIntervalSec,
+		MaxDurationSeconds: ev.MaxDurationSeconds,
+	}
+	if orgConfig != nil {
+		controls.MaxDurationDefaultSec = orgConfig.MaxDurationDefaultSec
+	}
+	if adminControlsRequirement(controls) != "" {
 		return true, nil
 	}
 	if len(ev.DecisionSnapshotJSON) == 0 {

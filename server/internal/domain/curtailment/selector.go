@@ -67,6 +67,8 @@ type Plan struct {
 	InsufficientLoadDetail *modes.InsufficientLoadDetail
 	// EventUUID is set by Service.Start after persisting; nil for Preview.
 	EventUUID *uuid.UUID
+	// StartState is the persisted lifecycle state. Unset for Preview.
+	StartState models.EventState
 	// StartedAt is set by Service.Start for events inserted already active;
 	// echoed in the Start response so it matches the stamped row.
 	StartedAt *time.Time
@@ -333,7 +335,7 @@ func BuildAllPairedPolicyPlan(
 			estimatedReductionW += powerW
 		}
 		avgEff := c.AvgEfficiencyJH
-		if !isFiniteFloat(avgEff) {
+		if avgEff != nil && !IsFinite(*avgEff) {
 			avgEff = nil
 		}
 		if state == models.TargetStateUnavailable {

@@ -2,27 +2,27 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { create, toJsonString } from "@bufbuild/protobuf";
 
 import { curtailmentClient } from "@/protoFleet/api/clients";
-import {
-  buildCurtailmentScopes,
-  curtailmentScopeSchemaVersion,
-  getCurtailmentScopeSelectionCount,
-} from "@/protoFleet/api/curtailmentScopes";
+import { buildCurtailmentScopes, curtailmentScopeSchemaVersion } from "@/protoFleet/api/curtailmentScopes";
+import type { CurtailmentFormValues, CurtailmentPlanPreview } from "@/protoFleet/api/curtailmentTypes";
+import { toApiCurtailmentPriority } from "@/protoFleet/api/curtailmentUtils";
 import {
   CurtailmentMode,
-  CurtailmentPriority,
   FixedKwParamsSchema,
   type PreviewCurtailmentPlanRequest,
   PreviewCurtailmentPlanRequestSchema,
   type PreviewCurtailmentPlanResponse,
 } from "@/protoFleet/api/generated/curtailment/v1/curtailment_pb";
 import { getErrorMessage } from "@/protoFleet/api/getErrorMessage";
+import {
+  formatCurtailmentDuration,
+  formatCurtailmentPlanScopeLabel,
+} from "@/protoFleet/features/energy/curtailmentDisplayUtils";
 import { curtailmentNumericFieldLimits } from "@/protoFleet/features/energy/curtailmentNumericFields";
 import {
   buildForceInclusionFields,
   curtailmentExecutionSchemaVersion,
   getResponseProfileExecutionFields,
 } from "@/protoFleet/features/energy/curtailmentRequestBuilders";
-import type { CurtailmentFormValues, CurtailmentPlanPreview } from "@/protoFleet/features/energy/CurtailmentStartModal";
 import { useAuthErrors } from "@/protoFleet/store";
 
 interface UseCurtailmentPlanPreviewOptions {
@@ -122,10 +122,6 @@ function parseNonNegativeInteger(value: string): number | undefined {
   return parseNumber(value, (parsed) => parsed >= 0 && Number.isInteger(parsed));
 }
 
-function toApiPriority(priority: CurtailmentFormValues["priority"]): CurtailmentPriority {
-  return priority === "emergency" ? CurtailmentPriority.EMERGENCY : CurtailmentPriority.NORMAL;
-}
-
 function cloneRequestValues(values: CurtailmentPlanPreviewRequestValues): CurtailmentPlanPreviewRequestValues {
   return {
     ...values,
@@ -163,7 +159,7 @@ export function buildPreviewCurtailmentPlanRequest(
       executionSchemaVersion: curtailmentExecutionSchemaVersion,
       ...responseProfileExecutionFields,
       mode: CurtailmentMode.FULL_FLEET,
-      priority: toApiPriority(values.priority),
+      priority: toApiCurtailmentPriority(values.priority),
       postEventCooldownSec,
       ...buildForceInclusionFields(values),
     });
@@ -181,7 +177,7 @@ export function buildPreviewCurtailmentPlanRequest(
     executionSchemaVersion: curtailmentExecutionSchemaVersion,
     ...responseProfileExecutionFields,
     mode: CurtailmentMode.FIXED_KW,
-    priority: toApiPriority(values.priority),
+    priority: toApiCurtailmentPriority(values.priority),
     postEventCooldownSec,
     modeParams: {
       case: "fixedKw",
@@ -196,101 +192,19 @@ export function buildPreviewCurtailmentPlanRequest(
   });
 }
 
-function pluralize(value: number, singular: string): string {
-  return `${value} ${singular}${value === 1 ? "" : "s"}`;
-}
-
-function formatSelectedScopeLabel(count: number, singular: string): string {
-  return count === 1 ? `from 1 selected ${singular}` : `from ${count} selected ${singular}s`;
-}
-
-function formatSelectedMinerScopeLabel(count: number): string {
-  return count === 1 ? "from the selected miner" : "from selected miners";
-}
-
-function formatScopeLabel(values: CurtailmentFormValues): string {
-  if (values.minerSelectionMode === "all") {
-    return "across the fleet";
-  }
-
-  const selectedMinerCount = values.deviceIdentifiers?.length ?? 0;
-  const selectedSiteIds =
-    values.siteSelection === "site" || values.siteSelection === "allSites"
-      ? values.siteIds?.length
-        ? values.siteIds
-        : values.siteId
-          ? [values.siteId]
-          : []
-      : [];
-  const selectedSiteLabel =
-    values.siteSelection === "allSites"
-      ? "all sites"
-      : selectedSiteIds.length === 1
-        ? values.scopeId?.trim() || `site ${selectedSiteIds[0]}`
-        : `${selectedSiteIds.length} selected sites`;
-  const siteLabel = `from ${selectedSiteLabel}`;
-  const canonicalScopeCount = getCurtailmentScopeSelectionCount(values) ?? 0;
-  if (values.scopeType === "explicitMiners" && selectedMinerCount > 0) {
-    return formatSelectedMinerScopeLabel(selectedMinerCount);
-  }
-  if (values.scopeType === "site" && selectedSiteIds.length > 0) {
-    return siteLabel;
-  }
-
-  switch (values.scopeType) {
-    case "building":
-      return formatSelectedScopeLabel(canonicalScopeCount, "building");
-    case "rack":
-      return formatSelectedScopeLabel(canonicalScopeCount, "rack");
-    case "group":
-      return formatSelectedScopeLabel(canonicalScopeCount, "group");
-    case "site":
-    case "explicitMiners":
-    case "wholeOrg":
-    default:
-      return "across the fleet";
-  }
-}
-
-function formatDurationEstimate(seconds: number, approximate = true): string {
-  if (seconds <= 0) {
-    return "Immediately";
-  }
-
-  const prefix = approximate ? "~" : "";
-
-  if (seconds < 60) {
-    return `${prefix}${pluralize(seconds, "second")}`;
-  }
-
-  const minutes = Math.ceil(seconds / 60);
-  if (minutes < 60) {
-    return `${prefix}${pluralize(minutes, "minute")}`;
-  }
-
-  const hours = Math.floor(minutes / 60);
-  const remainingMinutes = minutes % 60;
-
-  if (remainingMinutes === 0) {
-    return `${prefix}${pluralize(hours, "hour")}`;
-  }
-
-  return `${prefix}${pluralize(hours, "hour")} ${pluralize(remainingMinutes, "minute")}`;
-}
-
 function formatDurationWithInfrastructureDelay(
   minerDurationSec: number | undefined,
   infrastructureDelaySec: number,
 ): string {
   if (minerDurationSec !== undefined) {
-    return formatDurationEstimate(minerDurationSec + infrastructureDelaySec);
+    return formatCurtailmentDuration(minerDurationSec + infrastructureDelaySec, { style: "estimate" });
   }
 
   if (infrastructureDelaySec === 0) {
     return "Server default";
   }
 
-  return `Server default + ${formatDurationEstimate(infrastructureDelaySec, false)}`;
+  return `Server default + ${formatCurtailmentDuration(infrastructureDelaySec, { style: "estimate", approximate: false })}`;
 }
 
 function facilityFanDelaySeconds(
@@ -340,11 +254,11 @@ function estimateRestoreDuration(values: CurtailmentFormValues, selectedMinerCou
   const intervalSec = parseNonNegativeInteger(values.restoreIntervalSec) ?? 0;
   const infrastructureDelaySec = facilityFanDelaySeconds(values.facilityFanDeviceIds, values.fanRestoreDelaySec);
   if (intervalSec === 0) {
-    return formatDurationEstimate(infrastructureDelaySec);
+    return formatCurtailmentDuration(infrastructureDelaySec, { style: "estimate" });
   }
   const effectiveBatchSize = batchSize === 0 ? curtailmentNumericFieldLimits.restoreBatchSize : batchSize;
   const minerDurationSec = estimateBatchDurationSeconds(effectiveBatchSize, intervalSec, selectedMinerCount);
-  return formatDurationEstimate(minerDurationSec + infrastructureDelaySec);
+  return formatCurtailmentDuration(minerDurationSec + infrastructureDelaySec, { style: "estimate" });
 }
 
 export function createCurtailmentPlanPreview(
@@ -375,7 +289,7 @@ export function createCurtailmentPlanPreview(
     estimatedReductionKw,
     curtailEstimate: estimateCurtailDuration(values, selectedMinerCount),
     restoreEstimate: estimateRestoreDuration(values, selectedMinerCount),
-    scopeLabel: formatScopeLabel(values),
+    scopeLabel: formatCurtailmentPlanScopeLabel(values),
   };
 }
 

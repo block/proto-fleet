@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { create } from "@bufbuild/protobuf";
 
@@ -9,7 +9,7 @@ import {
 } from "@/protoFleet/api/generated/curtailment/v1/curtailment_pb";
 import {
   type CurtailmentTargetRollup,
-  formatCurtailmentElapsedDuration,
+  formatCurtailmentDuration,
   getActiveCurtailmentCurtailProgress,
   getActiveCurtailmentRestoreProgress,
   getCurtailmentEventScopeLabel,
@@ -205,7 +205,7 @@ describe("getActiveCurtailmentRestoreProgress", () => {
   });
 });
 
-describe("formatCurtailmentElapsedDuration", () => {
+describe("formatCurtailmentDuration", () => {
   it.each([
     [0, "0s"],
     [45, "45s"],
@@ -217,7 +217,7 @@ describe("formatCurtailmentElapsedDuration", () => {
     [-5, "0s"],
     [Number.NaN, "0s"],
   ])("formats %s seconds as %s", (seconds, expected) => {
-    expect(formatCurtailmentElapsedDuration(seconds)).toBe(expected);
+    expect(formatCurtailmentDuration(seconds)).toBe(expected);
   });
 });
 
@@ -236,4 +236,35 @@ describe("getCurtailmentEventScopeLabel", () => {
 
     expect(getCurtailmentEventScopeLabel(event)).toBe("2 buildings");
   });
+});
+
+describe("formatCurtailmentDuration styles", () => {
+  it.each([
+    [0, "Immediate", "Immediately"],
+    [1, "1 second", "~1 second"],
+    [61, "1 minute, 1 second", "~2 minutes"],
+    [3600, "60 minutes", "~1 hour"],
+    [3601, "60 minutes, 1 second", "~1 hour 1 minute"],
+  ] as const)("preserves long and estimated duration wording for %s seconds", (seconds, long, estimate) => {
+    expect(formatCurtailmentDuration(seconds, { style: "long" })).toBe(long);
+    expect(formatCurtailmentDuration(seconds, { style: "estimate" })).toBe(estimate);
+  });
+
+  it("omits approximation only when requested for infrastructure delays", () => {
+    expect(formatCurtailmentDuration(61, { style: "estimate", approximate: false })).toBe("2 minutes");
+  });
+});
+
+it("preserves the elapsed display's unlocalized minute and second digits", () => {
+  const localeSpy = vi.spyOn(Number.prototype, "toLocaleString").mockImplementation(function (this: number) {
+    return new Intl.NumberFormat("ar-EG").format(Number(this));
+  });
+  try {
+    expect(formatCurtailmentDuration(123)).toBe("2m 3s");
+    expect(formatCurtailmentDuration(3660)).toBe("١h 1m");
+    expect(formatCurtailmentDuration(123, { style: "long" })).toBe("٢ minutes, ٣ seconds");
+    expect(formatCurtailmentDuration(123, { style: "estimate" })).toBe("~3 minutes");
+  } finally {
+    localeSpy.mockRestore();
+  }
 });

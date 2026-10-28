@@ -30,7 +30,7 @@ func TestHandler_CreateCurtailmentResponseProfile(t *testing.T) {
 
 	store := newHandlerResponseProfileStore()
 	store.infrastructureDevices[31] = models.ResponseProfileInfrastructureDevice{ID: 31, SiteID: 8, Enabled: true}
-	h := NewHandlerWithResponseProfiles(nil, domainCurtailment.NewResponseProfileService(store))
+	h := newTestHandlerWithProfiles(nil, domainCurtailment.NewResponseProfileService(store))
 
 	resp, err := h.CreateCurtailmentResponseProfile(
 		sessionCtxWithPerms(42, authz.PermCurtailmentManage, authz.PermSiteRead),
@@ -89,7 +89,7 @@ func TestHandler_CreateCurtailmentResponseProfilePreservesSingularSiteScopeVersi
 	t.Parallel()
 
 	store := newHandlerResponseProfileStore()
-	h := NewHandlerWithResponseProfiles(nil, domainCurtailment.NewResponseProfileService(store))
+	h := newTestHandlerWithProfiles(nil, domainCurtailment.NewResponseProfileService(store))
 
 	resp, err := h.CreateCurtailmentResponseProfile(
 		sessionCtxWithPerms(42, authz.PermCurtailmentManage, authz.PermSiteRead),
@@ -157,7 +157,7 @@ func TestHandler_CreateCurtailmentResponseProfileRequiresFacilityFanSitePermissi
 			if tt.device != nil {
 				store.infrastructureDevices[31] = *tt.device
 			}
-			h := NewHandlerWithResponseProfiles(nil, domainCurtailment.NewResponseProfileService(store))
+			h := newTestHandlerWithProfiles(nil, domainCurtailment.NewResponseProfileService(store))
 
 			_, err := h.CreateCurtailmentResponseProfile(
 				testSessionCtxWithAssignments(t, &session.Info{
@@ -192,7 +192,7 @@ func TestHandler_CreateCurtailmentResponseProfilePreservesExplicitZeroRestoreInt
 	t.Parallel()
 
 	store := newHandlerResponseProfileStore()
-	h := NewHandlerWithResponseProfiles(nil, domainCurtailment.NewResponseProfileService(store))
+	h := newTestHandlerWithProfiles(nil, domainCurtailment.NewResponseProfileService(store))
 
 	resp, err := h.CreateCurtailmentResponseProfile(
 		sessionCtxWithPerms(42, authz.PermCurtailmentManage),
@@ -219,7 +219,7 @@ func TestHandler_CreateCurtailmentResponseProfileWithExplicitWholeOrg(t *testing
 	t.Parallel()
 
 	store := newHandlerResponseProfileStore()
-	h := NewHandlerWithResponseProfiles(nil, domainCurtailment.NewResponseProfileService(store))
+	h := newTestHandlerWithProfiles(nil, domainCurtailment.NewResponseProfileService(store))
 
 	resp, err := h.CreateCurtailmentResponseProfile(
 		sessionCtxWithPerms(42, authz.PermCurtailmentManage),
@@ -262,7 +262,7 @@ func TestHandler_ListCurtailmentResponseProfilesFiltersSiteNarrowing(t *testing.
 		{ID: 205, OrgID: 42, ProfileName: "Hidden device", ScopeJSON: []byte(`{"device_identifiers":["hidden-miner"]}`), Mode: models.ModeFixedKw, TargetKW: ptrFloat64(2500), RestoreBatchSize: 50},
 		{ID: 206, OrgID: 42, ProfileName: "Unassigned device", ScopeJSON: []byte(`{"device_identifiers":["unassigned-miner"]}`), Mode: models.ModeFixedKw, TargetKW: ptrFloat64(2500), RestoreBatchSize: 50},
 	}
-	h := NewHandlerWithResponseProfiles(nil, domainCurtailment.NewResponseProfileService(store))
+	h := newTestHandlerWithProfiles(nil, domainCurtailment.NewResponseProfileService(store))
 
 	resp, err := h.ListCurtailmentResponseProfiles(
 		testSessionCtxWithAssignments(t, &session.Info{
@@ -290,7 +290,7 @@ func TestHandler_ListCurtailmentResponseProfilesFiltersProfilesWithInaccessibleF
 		{ID: 202, OrgID: 42, ProfileName: "Hidden fan", SiteID: &profileSiteID, Mode: models.ModeFullFleet, RestoreBatchSize: 50, FacilityFanDeviceIDs: []int64{31}},
 	}
 	store.infrastructureDevices[31] = models.ResponseProfileInfrastructureDevice{ID: 31, SiteID: 8, Enabled: true}
-	h := NewHandlerWithResponseProfiles(nil, domainCurtailment.NewResponseProfileService(store))
+	h := newTestHandlerWithProfiles(nil, domainCurtailment.NewResponseProfileService(store))
 
 	resp, err := h.ListCurtailmentResponseProfiles(
 		testSessionCtxWithAssignments(t, &session.Info{
@@ -319,7 +319,7 @@ func TestHandler_CreateCurtailmentResponseProfileChecksExplicitDeviceSites(t *te
 	)
 	store := newHandlerResponseProfileStore()
 	store.deviceSites = map[string]*int64{"hidden-miner": ptrHandlerInt64(deniedSite)}
-	h := NewHandlerWithResponseProfiles(nil, domainCurtailment.NewResponseProfileService(store))
+	h := newTestHandlerWithProfiles(nil, domainCurtailment.NewResponseProfileService(store))
 
 	_, err := h.CreateCurtailmentResponseProfile(
 		testSessionCtxWithAssignments(t, &session.Info{
@@ -358,7 +358,7 @@ func TestHandler_CreateCurtailmentResponseProfileCarriesAuthorizedDeviceSnapshot
 	const allowedSite = int64(7)
 	store := newHandlerResponseProfileStore()
 	store.deviceSites = map[string]*int64{"miner-a": ptrHandlerInt64(allowedSite)}
-	h := NewHandlerWithResponseProfiles(nil, domainCurtailment.NewResponseProfileService(store))
+	h := newTestHandlerWithProfiles(nil, domainCurtailment.NewResponseProfileService(store))
 
 	_, err := h.CreateCurtailmentResponseProfile(
 		testSessionCtxWithAssignments(t, &session.Info{
@@ -396,7 +396,7 @@ func TestHandler_CreateCurtailmentResponseProfileRequiresOrgWideForUnassignedDev
 	const narrowedSite = int64(7)
 	store := newHandlerResponseProfileStore()
 	store.deviceSites = map[string]*int64{"unassigned-miner": nil}
-	h := NewHandlerWithResponseProfiles(nil, domainCurtailment.NewResponseProfileService(store))
+	h := newTestHandlerWithProfiles(nil, domainCurtailment.NewResponseProfileService(store))
 
 	_, err := h.CreateCurtailmentResponseProfile(
 		testSessionCtxWithAssignments(t, &session.Info{
@@ -437,7 +437,7 @@ func TestHandler_CreateCurtailmentResponseProfileChecksCompositeSites(t *testing
 		deniedSite  = int64(8)
 	)
 	store := newHandlerResponseProfileStore()
-	h := NewHandlerWithResponseProfiles(nil, domainCurtailment.NewResponseProfileService(store))
+	h := newTestHandlerWithProfiles(nil, domainCurtailment.NewResponseProfileService(store))
 
 	_, err := h.CreateCurtailmentResponseProfile(
 		testSessionCtxWithAssignments(t, &session.Info{
@@ -478,7 +478,7 @@ func TestHandler_GetCurtailmentResponseProfileChecksStoredSite(t *testing.T) {
 	store.profiles = []*models.ResponseProfile{
 		{ID: 201, OrgID: 42, ProfileName: "Hidden site", SiteID: &siteID, Mode: models.ModeFixedKw, TargetKW: ptrFloat64(2500), RestoreBatchSize: 50},
 	}
-	h := NewHandlerWithResponseProfiles(nil, domainCurtailment.NewResponseProfileService(store))
+	h := newTestHandlerWithProfiles(nil, domainCurtailment.NewResponseProfileService(store))
 
 	_, err := h.GetCurtailmentResponseProfile(
 		testSessionCtxWithAssignments(t, &session.Info{
@@ -505,7 +505,7 @@ func TestHandler_GetCurtailmentResponseProfileChecksPersistedFacilityFanSites(t 
 		{ID: 201, OrgID: 42, ProfileName: "Hidden fan", SiteID: &profileSiteID, Mode: models.ModeFullFleet, RestoreBatchSize: 50, FacilityFanDeviceIDs: []int64{31}},
 	}
 	store.infrastructureDevices[31] = models.ResponseProfileInfrastructureDevice{ID: 31, SiteID: 8, Enabled: true}
-	h := NewHandlerWithResponseProfiles(nil, domainCurtailment.NewResponseProfileService(store))
+	h := newTestHandlerWithProfiles(nil, domainCurtailment.NewResponseProfileService(store))
 
 	_, err := h.GetCurtailmentResponseProfile(
 		testSessionCtxWithAssignments(t, &session.Info{
@@ -538,7 +538,7 @@ func TestHandler_GetCurtailmentResponseProfileChecksStoredCompositeSites(t *test
 	store.profiles = []*models.ResponseProfile{
 		{ID: 201, OrgID: 42, ProfileName: "Hidden multi-site", ScopeJSON: []byte(`{"site_ids":[7,8]}`), Mode: models.ModeFixedKw, TargetKW: ptrFloat64(2500), RestoreBatchSize: 50},
 	}
-	h := NewHandlerWithResponseProfiles(nil, domainCurtailment.NewResponseProfileService(store))
+	h := newTestHandlerWithProfiles(nil, domainCurtailment.NewResponseProfileService(store))
 
 	_, err := h.GetCurtailmentResponseProfile(
 		testSessionCtxWithAssignments(t, &session.Info{
@@ -569,7 +569,7 @@ func TestHandler_UpdateCurtailmentResponseProfile(t *testing.T) {
 		{ID: 201, OrgID: 42, ProfileName: "Old", SiteID: &siteID, ScopeJSON: siteScopeJSON(t, siteID), Mode: models.ModeFixedKw, TargetKW: ptrFloat64(1000), RestoreBatchSize: 50, FacilityFanDeviceIDs: []int64{31}, FanOffDelaySec: 45, FanRestoreDelaySec: 90},
 	}
 	store.infrastructureDevices[31] = models.ResponseProfileInfrastructureDevice{ID: 31, SiteID: siteID, Enabled: true}
-	h := NewHandlerWithResponseProfiles(nil, domainCurtailment.NewResponseProfileService(store))
+	h := newTestHandlerWithProfiles(nil, domainCurtailment.NewResponseProfileService(store))
 
 	resp, err := h.UpdateCurtailmentResponseProfile(
 		sessionCtxWithPerms(42, authz.PermCurtailmentManage, authz.PermSiteRead),
@@ -633,7 +633,7 @@ func TestHandler_UpdateCurtailmentResponseProfileRequiresAccessToPreservedFacili
 		},
 	}
 	store.infrastructureDevices[31] = models.ResponseProfileInfrastructureDevice{ID: 31, SiteID: 8, Enabled: true}
-	h := NewHandlerWithResponseProfiles(nil, domainCurtailment.NewResponseProfileService(store))
+	h := newTestHandlerWithProfiles(nil, domainCurtailment.NewResponseProfileService(store))
 
 	_, err := h.UpdateCurtailmentResponseProfile(
 		testSessionCtxWithAssignments(t, &session.Info{
@@ -672,7 +672,7 @@ func TestHandler_UpdateCurtailmentResponseProfileClearsFacilityFanSettingsWhenRe
 		{ID: 201, OrgID: 42, ProfileName: "Old", SiteID: &siteID, ScopeJSON: siteScopeJSON(t, siteID), Mode: models.ModeFixedKw, TargetKW: ptrFloat64(1000), RestoreBatchSize: 50, FacilityFanDeviceIDs: []int64{31}, FanOffDelaySec: 45, FanRestoreDelaySec: 90},
 	}
 	store.infrastructureDevices[31] = models.ResponseProfileInfrastructureDevice{ID: 31, SiteID: siteID, Enabled: true}
-	h := NewHandlerWithResponseProfiles(nil, domainCurtailment.NewResponseProfileService(store))
+	h := newTestHandlerWithProfiles(nil, domainCurtailment.NewResponseProfileService(store))
 
 	_, err := h.UpdateCurtailmentResponseProfile(
 		sessionCtxWithPerms(42, authz.PermCurtailmentManage, authz.PermSiteRead),
@@ -707,7 +707,7 @@ func TestHandler_UpdateCurtailmentResponseProfileGuardsStoredCompositeScope(t *t
 	store.profiles = []*models.ResponseProfile{
 		{ID: 201, OrgID: 42, ProfileName: "Old composite", ScopeJSON: []byte(`{"site_ids":[7,8]}`), Mode: models.ModeFixedKw, TargetKW: ptrFloat64(1000), RestoreBatchSize: 50},
 	}
-	h := NewHandlerWithResponseProfiles(nil, domainCurtailment.NewResponseProfileService(store))
+	h := newTestHandlerWithProfiles(nil, domainCurtailment.NewResponseProfileService(store))
 
 	_, err := h.UpdateCurtailmentResponseProfile(
 		testSessionCtxWithAssignments(t, &session.Info{
@@ -752,7 +752,7 @@ func TestHandler_UpdateCurtailmentResponseProfileRejectsOmittedScope(t *testing.
 	store.profiles = []*models.ResponseProfile{
 		{ID: 201, OrgID: 42, ProfileName: "Old composite", ScopeJSON: []byte(`{"site_ids":[7,8]}`), Mode: models.ModeFixedKw, TargetKW: ptrFloat64(1000), RestoreBatchSize: 50},
 	}
-	h := NewHandlerWithResponseProfiles(nil, domainCurtailment.NewResponseProfileService(store))
+	h := newTestHandlerWithProfiles(nil, domainCurtailment.NewResponseProfileService(store))
 
 	_, err := h.UpdateCurtailmentResponseProfile(
 		testSessionCtxWithAssignments(t, &session.Info{
@@ -789,7 +789,7 @@ func TestHandler_UpdateCurtailmentResponseProfileAllowsExplicitSiteClear(t *test
 	store.profiles = []*models.ResponseProfile{
 		{ID: 201, OrgID: 42, ProfileName: "Old site", SiteID: &siteID, ScopeJSON: siteScopeJSON(t, siteID), Mode: models.ModeFixedKw, TargetKW: ptrFloat64(1000), RestoreBatchSize: 50},
 	}
-	h := NewHandlerWithResponseProfiles(nil, domainCurtailment.NewResponseProfileService(store))
+	h := newTestHandlerWithProfiles(nil, domainCurtailment.NewResponseProfileService(store))
 
 	_, err := h.UpdateCurtailmentResponseProfile(
 		sessionCtxWithPerms(42, authz.PermCurtailmentManage),
@@ -825,7 +825,7 @@ func TestHandler_UpdateCurtailmentResponseProfileRequiresOrgWideToClearSite(t *t
 	store.profiles = []*models.ResponseProfile{
 		{ID: 201, OrgID: 42, ProfileName: "Old site", SiteID: &siteID, ScopeJSON: siteScopeJSON(t, siteID), Mode: models.ModeFixedKw, TargetKW: ptrFloat64(1000), RestoreBatchSize: 50},
 	}
-	h := NewHandlerWithResponseProfiles(nil, domainCurtailment.NewResponseProfileService(store))
+	h := newTestHandlerWithProfiles(nil, domainCurtailment.NewResponseProfileService(store))
 
 	_, err := h.UpdateCurtailmentResponseProfile(
 		testSessionCtxWithAssignments(t, &session.Info{
@@ -866,7 +866,7 @@ func TestHandler_UpdateCurtailmentResponseProfileChecksExistingSite(t *testing.T
 	store.profiles = []*models.ResponseProfile{
 		{ID: 201, OrgID: 42, ProfileName: "Hidden site", SiteID: &siteID, Mode: models.ModeFixedKw, TargetKW: ptrFloat64(2500), RestoreBatchSize: 50},
 	}
-	h := NewHandlerWithResponseProfiles(nil, domainCurtailment.NewResponseProfileService(store))
+	h := newTestHandlerWithProfiles(nil, domainCurtailment.NewResponseProfileService(store))
 
 	_, err := h.UpdateCurtailmentResponseProfile(
 		testSessionCtxWithAssignments(t, &session.Info{
@@ -903,7 +903,7 @@ func TestHandler_DeleteCurtailmentResponseProfile(t *testing.T) {
 		{ID: 201, OrgID: 42, ProfileName: "Standard shed", SiteID: &siteID, ScopeJSON: siteScopeJSON(t, siteID), Mode: models.ModeFixedKw, TargetKW: ptrFloat64(2500), RestoreBatchSize: 50, FacilityFanDeviceIDs: []int64{31}, FanOffDelaySec: 45, FanRestoreDelaySec: 90},
 	}
 	store.infrastructureDevices[31] = models.ResponseProfileInfrastructureDevice{ID: 31, SiteID: siteID, Enabled: true}
-	h := NewHandlerWithResponseProfiles(nil, domainCurtailment.NewResponseProfileService(store))
+	h := newTestHandlerWithProfiles(nil, domainCurtailment.NewResponseProfileService(store))
 
 	_, err := h.DeleteCurtailmentResponseProfile(
 		sessionCtxWithPerms(42, authz.PermCurtailmentManage, authz.PermSiteRead),
@@ -929,7 +929,7 @@ func TestHandler_DeleteCurtailmentResponseProfileChecksStoredSite(t *testing.T) 
 	store.profiles = []*models.ResponseProfile{
 		{ID: 201, OrgID: 42, ProfileName: "Hidden site", SiteID: &siteID, Mode: models.ModeFixedKw, TargetKW: ptrFloat64(2500), RestoreBatchSize: 50},
 	}
-	h := NewHandlerWithResponseProfiles(nil, domainCurtailment.NewResponseProfileService(store))
+	h := newTestHandlerWithProfiles(nil, domainCurtailment.NewResponseProfileService(store))
 
 	_, err := h.DeleteCurtailmentResponseProfile(
 		testSessionCtxWithAssignments(t, &session.Info{
@@ -951,7 +951,7 @@ func TestHandler_DeleteCurtailmentResponseProfileChecksStoredSite(t *testing.T) 
 func TestHandler_ResponseProfilesRequireManage(t *testing.T) {
 	t.Parallel()
 
-	h := NewHandlerWithResponseProfiles(nil, domainCurtailment.NewResponseProfileService(newHandlerResponseProfileStore()))
+	h := newTestHandlerWithProfiles(nil, domainCurtailment.NewResponseProfileService(newHandlerResponseProfileStore()))
 
 	_, err := h.ListCurtailmentResponseProfiles(
 		sessionCtxWithPerms(42, authz.PermCurtailmentRead),
@@ -968,7 +968,7 @@ func TestHandler_ResponseProfileNonAdminCannotUseAdminControls(t *testing.T) {
 	t.Parallel()
 
 	store := newHandlerResponseProfileStore()
-	h := NewHandlerWithResponseProfiles(nil, domainCurtailment.NewResponseProfileService(store))
+	h := newTestHandlerWithProfiles(nil, domainCurtailment.NewResponseProfileService(store))
 
 	_, err := h.CreateCurtailmentResponseProfile(
 		sessionCtxWithPerms(42, authz.PermCurtailmentManage),
@@ -995,7 +995,7 @@ func TestHandler_ResponseProfileAdminCanUseAdminControls(t *testing.T) {
 	t.Parallel()
 
 	store := newHandlerResponseProfileStore()
-	h := NewHandlerWithResponseProfiles(nil, domainCurtailment.NewResponseProfileService(store))
+	h := newTestHandlerWithProfiles(nil, domainCurtailment.NewResponseProfileService(store))
 
 	resp, err := h.CreateCurtailmentResponseProfile(
 		startSessionCtxWithPerms(t, 42, domainAuth.AdminRoleName, authz.PermCurtailmentManage),
@@ -1021,7 +1021,7 @@ func TestHandler_ResponseProfileAdminCanCreateAllPairedPolicy(t *testing.T) {
 	t.Parallel()
 
 	store := newHandlerResponseProfileStore()
-	h := NewHandlerWithResponseProfiles(nil, domainCurtailment.NewResponseProfileService(store))
+	h := newTestHandlerWithProfiles(nil, domainCurtailment.NewResponseProfileService(store))
 
 	resp, err := h.CreateCurtailmentResponseProfile(
 		startSessionCtxWithPerms(t, 42, domainAuth.AdminRoleName, authz.PermCurtailmentManage),

@@ -4,13 +4,14 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
 
+import type {
+  CurtailmentFormValues,
+  CurtailmentPlanPreview,
+  CurtailmentResponseProfileOption,
+  CurtailmentSiteOption,
+} from "@/protoFleet/api/curtailmentTypes";
 import type { FullScreenTwoPaneModalProps } from "@/protoFleet/components/FullScreenTwoPaneModal";
-import CurtailmentStartModal, {
-  type CurtailmentFormValues,
-  type CurtailmentPlanPreview,
-  type CurtailmentResponseProfileOption,
-  type CurtailmentSiteOption,
-} from "@/protoFleet/features/energy/CurtailmentStartModal";
+import CurtailmentStartModal from "@/protoFleet/features/energy/CurtailmentStartModal";
 import type { FacilityFanDeviceOption } from "@/protoFleet/features/energy/FacilityFanSelectionModal";
 
 type MockFullScreenTwoPaneModalProps = Pick<
