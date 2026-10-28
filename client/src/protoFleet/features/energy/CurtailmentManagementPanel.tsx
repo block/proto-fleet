@@ -4,6 +4,7 @@ import clsx from "clsx";
 import { Code, ConnectError } from "@connectrpc/connect";
 import {
   getResponseProfileSiteNameForId,
+  getResponseProfileSiteNamesById,
   getSelectedResponseProfileSiteIds,
 } from "@/protoFleet/api/curtailmentResponseProfileUtils";
 import { getCurtailmentScopeSummary, getCurtailmentTerminalScope } from "@/protoFleet/api/curtailmentScopes";
@@ -160,15 +161,6 @@ function createSiteOptions(sites: SiteWithCounts[]): CurtailmentSiteOption[] {
       return id ? [{ id, name: site?.name || `Site ${id}` }] : [];
     })
     .sort((left, right) => left.name.localeCompare(right.name, undefined, { sensitivity: "base" }));
-}
-
-function getResponseProfileSiteNamesById(
-  values: ResponseProfileFormValues,
-  siteIds: readonly string[],
-): Record<string, string> {
-  return Object.fromEntries(
-    siteIds.map((siteId) => [siteId, getResponseProfileSiteNameForId(values, siteId) || `Site ${siteId}`]),
-  );
 }
 
 function createResponseProfileFormValuesFromProfile(profile: EditableResponseProfile): ResponseProfileFormValues {

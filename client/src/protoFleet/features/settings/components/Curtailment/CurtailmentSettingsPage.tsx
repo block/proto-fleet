@@ -4,6 +4,7 @@ import clsx from "clsx";
 import {
   getResponseProfileScopeSummary,
   getResponseProfileSiteNameForId,
+  getResponseProfileSiteNamesById,
   getSelectedResponseProfileSiteIds,
 } from "@/protoFleet/api/curtailmentResponseProfileUtils";
 import {
@@ -250,15 +251,6 @@ function getResponseProfileTargetSummary(values: ResponseProfileFormValues): str
     default:
       return "100% reduction";
   }
-}
-
-function getResponseProfileSiteNamesById(
-  values: ResponseProfileFormValues,
-  siteIds: readonly string[],
-): Record<string, string> {
-  return Object.fromEntries(
-    siteIds.map((siteId) => [siteId, getResponseProfileSiteNameForId(values, siteId) || `Site ${siteId}`]),
-  );
 }
 
 function createSiteOptions(sites: SiteWithCounts[]): CurtailmentSiteOption[] {

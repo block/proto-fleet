@@ -6,6 +6,7 @@ import { curtailmentClient } from "@/protoFleet/api/clients";
 import {
   getResponseProfileScopeSummary,
   getResponseProfileSiteNameForId,
+  getResponseProfileSiteNamesById,
   getSelectedResponseProfileSiteIds,
 } from "@/protoFleet/api/curtailmentResponseProfileUtils";
 import {
@@ -131,15 +132,6 @@ function curtailBatchIntervalInputValue(profile: ApiCurtailmentResponseProfile):
 
 function hasSameStringSet(left: readonly string[], right: readonly string[]): boolean {
   return left.length === right.length && left.every((value) => right.includes(value));
-}
-
-function getResponseProfileSiteNamesById(
-  values: ResponseProfileFormValues,
-  siteIds: readonly string[],
-): Record<string, string> {
-  return Object.fromEntries(
-    siteIds.map((siteId) => [siteId, getResponseProfileSiteNameForId(values, siteId) || getSiteDisplayName(siteId)]),
-  );
 }
 
 function getPersistedResponseProfileFormValues(values: ResponseProfileFormValues): ResponseProfileFormValues {
