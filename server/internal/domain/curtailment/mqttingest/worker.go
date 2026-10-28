@@ -384,7 +384,13 @@ func (w *sourceWorker) handleMessage(ctx context.Context, prior SourceState, obs
 	if prior.PendingEdge != nil {
 		// Heartbeats confirm liveness; they do not create a new attempt or
 		// reset the durable edge's age, backoff, or replay identity.
+		pendingTarget := prior.PendingEdge.Target
 		state, _ := w.retryPendingEdge(ctx, prior)
+		if canonical.Target == pendingTarget && canonical.PublishedAt.After(state.LastTargetAt) {
+			// The newer publisher time is the ordering cutoff, so a delayed
+			// older payload cannot override this signal after the edge settles.
+			recordProcessedTarget(&state, canonical)
+		}
 		state = w.advanceLiveness(state, canonical, liveness)
 		w.persistState(ctx, state)
 		return state
@@ -615,8 +621,17 @@ func (w *sourceWorker) settlePendingEdge(
 		state.LastReceivedBroker = pending.ReceivedBroker
 	}
 	state.LastTarget = target
-	recordProcessedTarget(&state, pending.canonical())
+	if !newerSameTargetRecorded(prior, pending) {
+		recordProcessedTarget(&state, pending.canonical())
+	}
 	return state
+}
+
+// newerSameTargetRecorded reports whether a heartbeat for the pending target
+// was recorded after the edge's publisher time; settling must not move that
+// ordering cutoff backwards.
+func newerSameTargetRecorded(prior SourceState, pending *PendingEdge) bool {
+	return pending.TargetAt.Before(prior.LastTargetAt) && slices.Contains(prior.LastProcessedTargets, pending.Target)
 }
 
 func isRepeatedOffAssertion(prior SourceState, pending *PendingEdge) bool {

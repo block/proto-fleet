@@ -479,6 +479,61 @@ func TestSourceWorker_HeartbeatsPreservePendingEdgeBackoffAcrossRestart(t *testi
 	assert.Equal(t, firstReceivedAt, executor.last.ReceivedAt)
 }
 
+func TestSourceWorker_NewerHeartbeatRejectsDelayedOlderSignalAfterRetry(t *testing.T) {
+	t.Parallel()
+
+	for _, settleBy := range []string{"heartbeat retry", "watchdog retry"} {
+		t.Run(settleBy, func(t *testing.T) {
+			t.Parallel()
+			start := time.Date(2026, 6, 10, 12, 0, 0, 0, time.UTC)
+			now := start
+			store := newFakeSourceStore()
+			src := testSourceConfig()
+			executor := &fakeSignalExecutor{err: errors.New("automation unavailable")}
+			w := newTestSourceWorker(store, src, func() time.Time { return now })
+			w.cfg.SignalExecutor = executor
+			message := func(target int, publishedAt, receivedAt time.Time) observation {
+				return observation{
+					broker:     src.BrokerPrimaryHost,
+					payload:    []byte(fmt.Sprintf(`{"target":%d,"timestamp":%d}`, target, publishedAt.Unix())),
+					receivedAt: receivedAt,
+				}
+			}
+
+			state := w.handleMessage(t.Context(), SourceState{SourceConfigID: src.ID, LastTarget: TargetOn}, message(0, start, start))
+			require.NotNil(t, state.PendingEdge, "the first OFF fails and stays pending")
+
+			now = start.Add(10 * time.Second)
+			if settleBy == "heartbeat retry" {
+				executor.err = nil
+			}
+			state = w.handleMessage(t.Context(), state, message(0, now, now))
+			if settleBy == "watchdog retry" {
+				require.NotNil(t, state.PendingEdge)
+				executor.err = nil
+				now = state.PendingEdge.RetryAt
+				state = w.handleWatchdog(t.Context(), state)
+			}
+			require.Nil(t, state.PendingEdge)
+			require.Equal(t, TargetOff, state.LastTarget)
+			require.Equal(t, start, executor.last.TargetAt, "the retry settles the original edge")
+			callsAfterOff := executor.calls
+
+			w = newTestSourceWorker(store, src, func() time.Time { return now })
+			w.cfg.SignalExecutor = executor
+			state, ok := w.loadInitialState(t.Context())
+			require.True(t, ok)
+
+			delayedOnAt := now.Add(time.Second)
+			state = w.handleMessage(t.Context(), state, message(100, start.Add(5*time.Second), delayedOnAt))
+
+			assert.Equal(t, TargetOff, state.LastTarget, "an ON published before the newer OFF must not restore miners")
+			assert.Equal(t, callsAfterOff, executor.calls, "the delayed ON must not reach automation")
+			assert.Nil(t, state.PendingEdge)
+		})
+	}
+}
+
 func TestSourceWorker_WatchdogKeepsPublisherStaleAcrossRetryAndRestart(t *testing.T) {
 	t.Parallel()
 
