@@ -59,7 +59,6 @@ vi.mock("@/protoFleet/api/useMqttCurtailmentSources", () => ({
 
 vi.mock("@/protoFleet/api/useCurtailmentResponseProfiles", () => ({
   default: vi.fn(),
-  getResponseProfileScopeLabelForActionType: () => "Whole fleet",
 }));
 
 vi.mock("@/protoFleet/api/useInfrastructureDevices", () => ({

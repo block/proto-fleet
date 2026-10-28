@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { create } from "@bufbuild/protobuf";
+import { getCurtailmentScopeSummary } from "@/protoFleet/api/curtailmentScopes";
+import type { CurtailmentTargetRollup } from "@/protoFleet/api/curtailmentTypes";
 
 import {
   CurtailmentEventSchema,
@@ -8,7 +10,6 @@ import {
   ScopeBuildingSchema,
 } from "@/protoFleet/api/generated/curtailment/v1/curtailment_pb";
 import {
-  type CurtailmentTargetRollup,
   formatCurtailmentDuration,
   getActiveCurtailmentCurtailProgress,
   getActiveCurtailmentRestoreProgress,
@@ -222,6 +223,28 @@ describe("formatCurtailmentDuration", () => {
 });
 
 describe("getCurtailmentEventScopeLabel", () => {
+  it("preserves localized event counts and unlocalized form summaries", () => {
+    const buildingIds = Array.from({ length: 1234 }, (_, index) => String(index + 1));
+    const event = create(CurtailmentEventSchema, {
+      scopes: buildingIds.map((buildingId) =>
+        create(CurtailmentScopeSchema, {
+          scope: { case: "building", value: create(ScopeBuildingSchema, { buildingId: BigInt(buildingId) }) },
+        }),
+      ),
+    });
+    const localeSpy = vi.spyOn(Number.prototype, "toLocaleString").mockImplementation(function (this: number) {
+      return new Intl.NumberFormat("de-DE").format(Number(this));
+    });
+    try {
+      expect(getCurtailmentEventScopeLabel(event)).toBe("1.234 buildings");
+      expect(getCurtailmentScopeSummary({ type: "building", buildingIds }, { fallbackLabel: "Whole fleet" })).toBe(
+        "1234 buildings",
+      );
+    } finally {
+      localeSpy.mockRestore();
+    }
+  });
+
   it("summarizes a typed topology terminal scope without treating it as a generic device set", () => {
     const event = create(CurtailmentEventSchema, {
       scopes: [

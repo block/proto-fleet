@@ -2,8 +2,13 @@ import { type KeyboardEvent, type ReactElement, useCallback, useEffect, useMemo,
 import { Navigate, useNavigate } from "react-router-dom";
 import clsx from "clsx";
 import {
+  getResponseProfileScopeSummary,
+  getResponseProfileSiteNameForId,
+  getResponseProfileSiteNamesById,
+  getSelectedResponseProfileSiteIds,
+} from "@/protoFleet/api/curtailmentResponseProfileUtils";
+import {
   type CurtailmentScopeSelection,
-  getCurtailmentScopeSummary,
   normalizeCurtailmentSelectionValues,
 } from "@/protoFleet/api/curtailmentScopes";
 
@@ -31,9 +36,7 @@ import type { SiteWithCounts } from "@/protoFleet/api/generated/sites/v1/sites_p
 import { useSites } from "@/protoFleet/api/sites";
 import { useCurtailmentApi } from "@/protoFleet/api/useCurtailmentApi";
 import useCurtailmentAutomationRules from "@/protoFleet/api/useCurtailmentAutomationRules";
-import useCurtailmentResponseProfiles, {
-  getResponseProfileScopeLabelForActionType,
-} from "@/protoFleet/api/useCurtailmentResponseProfiles";
+import useCurtailmentResponseProfiles from "@/protoFleet/api/useCurtailmentResponseProfiles";
 import useInfrastructureDevices from "@/protoFleet/api/useInfrastructureDevices";
 import useMqttCurtailmentSources from "@/protoFleet/api/useMqttCurtailmentSources";
 import { useActiveSite } from "@/protoFleet/components/PageHeader/SitePicker";
@@ -248,40 +251,6 @@ function getResponseProfileTargetSummary(values: ResponseProfileFormValues): str
     default:
       return "100% reduction";
   }
-}
-
-function getResponseProfileScopeSummary(values: ResponseProfileFormValues): string {
-  return getCurtailmentScopeSummary(values, {
-    fallbackLabel: getResponseProfileScopeLabelForActionType(values.actionType),
-    getSiteLabel: (siteId) => getResponseProfileSiteNameForId(values, siteId),
-  });
-}
-
-function getSelectedResponseProfileSiteIds(
-  values: Pick<ResponseProfileFormValues, "siteSelection" | "siteId" | "siteIds">,
-): string[] {
-  const siteIds = normalizeCurtailmentSelectionValues(
-    values.siteIds !== undefined && values.siteIds.length > 0 ? values.siteIds : values.siteId ? [values.siteId] : [],
-  );
-
-  return values.siteSelection === "site" ||
-    values.siteSelection === "allSites" ||
-    (values.siteSelection === undefined && siteIds.length > 0)
-    ? siteIds
-    : [];
-}
-
-function getResponseProfileSiteNameForId(values: Partial<ResponseProfileFormValues>, siteId: string): string {
-  return values.siteNamesById?.[siteId]?.trim() || (values.siteId === siteId ? values.siteName?.trim() : "") || "";
-}
-
-function getResponseProfileSiteNamesById(
-  values: ResponseProfileFormValues,
-  siteIds: readonly string[],
-): Record<string, string> {
-  return Object.fromEntries(
-    siteIds.map((siteId) => [siteId, getResponseProfileSiteNameForId(values, siteId) || `Site ${siteId}`]),
-  );
 }
 
 function createSiteOptions(sites: SiteWithCounts[]): CurtailmentSiteOption[] {

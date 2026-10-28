@@ -1,9 +1,15 @@
 import type { CurtailmentTerminalScopeType } from "@/protoFleet/api/curtailmentScopes";
-import type {
-  ActiveCurtailmentDisplayState,
-  CurtailmentEventState,
-  CurtailmentTargetRollup,
-} from "@/protoFleet/features/energy/curtailmentDisplayUtils";
+
+export type CurtailmentEventState =
+  "pending" | "active" | "restoring" | "completed" | "completedWithFailures" | "cancelled" | "failed";
+export type CurtailmentTargetState =
+  "pending" | "dispatched" | "confirmed" | "drifted" | "resolved" | "released" | "unavailable" | "restoreFailed";
+export interface CurtailmentTargetRollup {
+  state: CurtailmentTargetState;
+  count: number;
+}
+export type ActiveCurtailmentDisplayState =
+  "cancelled" | "curtailed" | "curtailing" | "failed" | "pending" | "restoreIncomplete" | "restored" | "restoring";
 
 export type CurtailmentPriority = "normal" | "high" | "emergency";
 export type EditableCurtailmentPriority = Exclude<CurtailmentPriority, "high">;

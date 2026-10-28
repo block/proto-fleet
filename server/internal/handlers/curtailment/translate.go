@@ -39,15 +39,16 @@ func toRequestMode(m pb.CurtailmentMode, fixedKw *pb.FixedKwParams, hasModeParam
 		return "", nil, fleeterror.NewInvalidArgumentErrorf(
 			"mode %s is not supported; only FIXED_KW and FULL_FLEET", m.String())
 	}
-	// FIXED_KW (and the unspecified default) require fixed_kw params.
+	// FIXED_KW (including the unspecified fallback for direct callers) requires fixed_kw params.
 	if fixedKw == nil {
 		return "", nil, fleeterror.NewInvalidArgumentError("fixed_kw mode params required for FIXED_KW")
 	}
 	return models.ModeFixedKw, fixedKw, nil
 }
 
-// requestModeProto normalizes a request's mode for echoing in responses: the
-// unspecified default is FIXED_KW.
+// requestModeProto normalizes a request's mode for echoing in responses.
+// Direct callers may use the unspecified fallback to FIXED_KW; RPC validation
+// requires an explicit supported mode.
 func requestModeProto(m pb.CurtailmentMode) pb.CurtailmentMode {
 	if m == pb.CurtailmentMode_CURTAILMENT_MODE_UNSPECIFIED {
 		return pb.CurtailmentMode_CURTAILMENT_MODE_FIXED_KW
@@ -707,27 +708,19 @@ func formatExclusionCounters(d *modes.InsufficientLoadDetail) string {
 
 // toStopRequest converts the proto request to a service StopRequest;
 // Force is admin-gated at the handler.
-func toStopRequest(msg *pb.StopCurtailmentRequest, orgID int64) (curtailment.StopRequest, error) {
-	eventUUID, err := parseEventUUID(msg.GetEventUuid())
-	if err != nil {
-		return curtailment.StopRequest{}, err
-	}
+func toStopRequest(msg *pb.StopCurtailmentRequest, orgID int64, eventUUID uuid.UUID) curtailment.StopRequest {
 	return curtailment.StopRequest{
 		OrgID:     orgID,
 		EventUUID: eventUUID,
 		Force:     msg.GetForce(),
-	}, nil
+	}
 }
 
 // toAdminTerminateRequest maps the proto request to the service-layer
 // shape; the service re-checks target_state.
-func toAdminTerminateRequest(msg *pb.AdminTerminateEventRequest, info *session.Info) (curtailment.AdminTerminateRequest, error) {
+func toAdminTerminateRequest(msg *pb.AdminTerminateEventRequest, info *session.Info, eventUUID uuid.UUID) (curtailment.AdminTerminateRequest, error) {
 	if info == nil || info.OrganizationID <= 0 {
 		return curtailment.AdminTerminateRequest{}, fleeterror.NewUnauthenticatedError("authentication required")
-	}
-	eventUUID, err := parseEventUUID(msg.GetEventUuid())
-	if err != nil {
-		return curtailment.AdminTerminateRequest{}, err
 	}
 	return curtailment.AdminTerminateRequest{
 		OrgID:       info.OrganizationID,
@@ -755,13 +748,9 @@ func toForceReleaseRequest(
 // toUpdateRequest maps the proto request to the service-layer shape.
 // Optional proto fields preserve "set vs absent" semantics; the service
 // handles all bounds validation.
-func toUpdateRequest(msg *pb.UpdateCurtailmentEventRequest, info *session.Info) (curtailment.UpdateRequest, error) {
+func toUpdateRequest(msg *pb.UpdateCurtailmentEventRequest, info *session.Info, eventUUID uuid.UUID) (curtailment.UpdateRequest, error) {
 	if info == nil || info.OrganizationID <= 0 {
 		return curtailment.UpdateRequest{}, fleeterror.NewUnauthenticatedError("authentication required")
-	}
-	eventUUID, err := parseEventUUID(msg.GetEventUuid())
-	if err != nil {
-		return curtailment.UpdateRequest{}, err
 	}
 	out := curtailment.UpdateRequest{
 		OrgID:     info.OrganizationID,

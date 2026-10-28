@@ -1,5 +1,11 @@
-import { getCurtailmentScopeSelectionCount } from "@/protoFleet/api/curtailmentScopes";
-import type { CurtailmentFormValues } from "@/protoFleet/api/curtailmentTypes";
+import { getCurtailmentScopeCountLabel, getCurtailmentScopeSelectionCount } from "@/protoFleet/api/curtailmentScopes";
+import type {
+  ActiveCurtailmentDisplayState,
+  CurtailmentEventState,
+  CurtailmentFormValues,
+  CurtailmentTargetRollup,
+  CurtailmentTargetState,
+} from "@/protoFleet/api/curtailmentTypes";
 import {
   estimatedReductionKwSnapshotKeys,
   formatCurtailmentKw,
@@ -49,9 +55,7 @@ export const curtailmentEventStateConfigs = {
     dotClassName: "bg-intent-critical-fill",
     order: 6,
   },
-} as const;
-
-export type CurtailmentEventState = keyof typeof curtailmentEventStateConfigs;
+} as const satisfies Record<CurtailmentEventState, { label: string; dotClassName: string; order: number }>;
 
 export const curtailmentEventStates = Object.keys(curtailmentEventStateConfigs) as CurtailmentEventState[];
 export const activeCurtailmentEventStates = [
@@ -61,13 +65,6 @@ export const activeCurtailmentEventStates = [
 ] as const satisfies readonly CurtailmentEventState[];
 
 export type ActiveCurtailmentEventState = (typeof activeCurtailmentEventStates)[number];
-export type CurtailmentTargetState =
-  "pending" | "dispatched" | "confirmed" | "drifted" | "resolved" | "released" | "unavailable" | "restoreFailed";
-
-export interface CurtailmentTargetRollup {
-  state: CurtailmentTargetState;
-  count: number;
-}
 
 export const activeCurtailmentDisplayStateConfigs = {
   cancelled: {
@@ -102,9 +99,7 @@ export const activeCurtailmentDisplayStateConfigs = {
     label: "Restoring",
     dotClassName: "bg-core-accent-fill",
   },
-} as const;
-
-export type ActiveCurtailmentDisplayState = keyof typeof activeCurtailmentDisplayStateConfigs;
+} as const satisfies Record<ActiveCurtailmentDisplayState, { label: string; dotClassName: string }>;
 
 interface ActiveCurtailmentDisplayEvent {
   state: CurtailmentEventState;
@@ -195,18 +190,6 @@ function getSnapshotNumber(event: ProtoCurtailmentEvent, keys: readonly string[]
     }
   }
   return undefined;
-}
-
-function getMinerCountLabel(minerCount: number): string {
-  return minerCount === 1 ? "miner" : "miners";
-}
-
-function getSiteCountLabel(siteCount: number): string {
-  return siteCount === 1 ? "site" : "sites";
-}
-
-function getScopeCountLabel(count: number, singular: string): string {
-  return count === 1 ? singular : `${singular}s`;
 }
 
 function formatCurtailmentScopeParts(parts: string[]): string {
@@ -403,21 +386,25 @@ export function getCurtailmentEventScopeLabel(event: ProtoCurtailmentEvent, site
     if (siteLabelsById.size === 1) {
       parts.push([...siteLabelsById.values()][0]);
     } else if (siteLabelsById.size > 1) {
-      parts.push(`${siteLabelsById.size.toLocaleString()} ${getSiteCountLabel(siteLabelsById.size)}`);
+      parts.push(
+        `${siteLabelsById.size.toLocaleString()} ${getCurtailmentScopeCountLabel(siteLabelsById.size, "site")}`,
+      );
     }
 
     if (buildingIds.size > 0) {
-      parts.push(`${buildingIds.size.toLocaleString()} ${getScopeCountLabel(buildingIds.size, "building")}`);
+      parts.push(`${buildingIds.size.toLocaleString()} ${getCurtailmentScopeCountLabel(buildingIds.size, "building")}`);
     }
     if (rackIds.size > 0) {
-      parts.push(`${rackIds.size.toLocaleString()} ${getScopeCountLabel(rackIds.size, "rack")}`);
+      parts.push(`${rackIds.size.toLocaleString()} ${getCurtailmentScopeCountLabel(rackIds.size, "rack")}`);
     }
     if (groupIds.size > 0) {
-      parts.push(`${groupIds.size.toLocaleString()} ${getScopeCountLabel(groupIds.size, "group")}`);
+      parts.push(`${groupIds.size.toLocaleString()} ${getCurtailmentScopeCountLabel(groupIds.size, "group")}`);
     }
 
     if (deviceIdentifiers.size > 0) {
-      parts.push(`${deviceIdentifiers.size.toLocaleString()} ${getMinerCountLabel(deviceIdentifiers.size)}`);
+      parts.push(
+        `${deviceIdentifiers.size.toLocaleString()} ${getCurtailmentScopeCountLabel(deviceIdentifiers.size, "miner")}`,
+      );
     }
 
     return formatCurtailmentScopeParts(parts);
@@ -430,7 +417,7 @@ export function getCurtailmentEventScopeLabel(event: ProtoCurtailmentEvent, site
       return getSiteDisplayName(event.scope.value.siteId, siteNameById);
     case "deviceIdentifiers": {
       const count = event.scope.value.deviceIdentifiers.length;
-      return `${count.toLocaleString()} ${getMinerCountLabel(count)}`;
+      return `${count.toLocaleString()} ${getCurtailmentScopeCountLabel(count, "miner")}`;
     }
     default:
       return "Unknown scope";
@@ -596,15 +583,11 @@ export function getActiveCurtailmentDisplayState(
 }
 
 export function formatCurtailmentMinerCount(minerCount: number): string {
-  return `${minerCount.toLocaleString()} ${getMinerCountLabel(minerCount)}`;
-}
-
-function getFacilityFanDeviceCountLabel(deviceCount: number): string {
-  return deviceCount === 1 ? "device" : "devices";
+  return `${minerCount.toLocaleString()} ${getCurtailmentScopeCountLabel(minerCount, "miner")}`;
 }
 
 export function formatCurtailmentFacilityFanCount(deviceCount: number): string {
-  return `${deviceCount.toLocaleString()} ${getFacilityFanDeviceCountLabel(deviceCount)}`;
+  return `${deviceCount.toLocaleString()} ${getCurtailmentScopeCountLabel(deviceCount, "device")}`;
 }
 
 export function formatCurtailmentAppliesToSummary(minerCount: number, facilityFanDeviceCount = 0): string {
@@ -618,7 +601,7 @@ export function formatCurtailmentAppliesToSummary(minerCount: number, facilityFa
 }
 
 export function formatCurtailmentSelectedMinerCount(minerCount: number): string {
-  return `${minerCount.toLocaleString()} selected ${getMinerCountLabel(minerCount)}`;
+  return `${minerCount.toLocaleString()} selected ${getCurtailmentScopeCountLabel(minerCount, "miner")}`;
 }
 
 export function formatCurtailmentTargetVsActual(event: CurtailmentTargetKwEvent): string {

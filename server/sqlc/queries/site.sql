@@ -328,12 +328,6 @@ WHERE org_id = sqlc.arg('org_id')
 ORDER BY id
 FOR UPDATE;
 
--- name: CountResponseProfilesByInfrastructureDevices :one
-SELECT COUNT(*)
-FROM curtailment_response_profile
-WHERE org_id = sqlc.arg('org_id')
-  AND facility_fan_device_ids && sqlc.arg('infrastructure_device_ids')::bigint[];
-
 -- name: UnassignRacksFromSite :execrows
 -- Sets device_set_rack.site_id = NULL for every live rack pointing at
 -- the given site (org-guarded by the denormalized rack.org_id; the

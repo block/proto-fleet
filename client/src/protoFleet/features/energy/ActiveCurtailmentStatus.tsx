@@ -1,6 +1,7 @@
 import { type ReactElement, type ReactNode, useEffect, useState } from "react";
 import clsx from "clsx";
 import type {
+  ActiveCurtailmentDisplayState,
   ActiveCurtailmentEvent,
   ActiveCurtailmentTargetSiteCoverage,
   ActiveCurtailmentUnavailableReasonCount,
@@ -9,7 +10,6 @@ import type {
 import { formatCurtailmentKw as formatKw } from "@/protoFleet/api/curtailmentUtils";
 import {
   type ActiveCurtailmentCurtailProgress,
-  type ActiveCurtailmentDisplayState,
   type ActiveCurtailmentMinerCompliance,
   type ActiveCurtailmentRestoreProgress,
   formatCurtailmentAppliesToSummary,

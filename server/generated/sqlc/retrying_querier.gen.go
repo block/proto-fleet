@@ -1346,18 +1346,6 @@ func (q *retryingQuerier) CountRepairTicketsBySite(ctx context.Context, arg Coun
 	return result, err
 }
 
-func (q *retryingQuerier) CountResponseProfilesByInfrastructureDevice(ctx context.Context, arg CountResponseProfilesByInfrastructureDeviceParams) (int64, error) {
-	var result int64
-	err := q.retrier.RetryQuery(ctx, "CountResponseProfilesByInfrastructureDevice", func() error {
-		callResult, callErr := q.next.CountResponseProfilesByInfrastructureDevice(ctx, arg)
-		if callErr == nil {
-			result = callResult
-		}
-		return callErr
-	})
-	return result, err
-}
-
 func (q *retryingQuerier) CountResponseProfilesByInfrastructureDevices(ctx context.Context, arg CountResponseProfilesByInfrastructureDevicesParams) (int64, error) {
 	var result int64
 	err := q.retrier.RetryQuery(ctx, "CountResponseProfilesByInfrastructureDevices", func() error {

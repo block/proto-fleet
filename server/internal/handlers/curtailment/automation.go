@@ -302,10 +302,10 @@ func (h *Handler) responseProfileDeviceSitesForAutomationRules(
 	if len(deviceIdentifiers) == 0 {
 		return map[string]*int64{}, nil
 	}
-	if h.responseProfiles == nil {
-		return nil, nil
+	if requireService(h.responseProfiles, "automation rule scope authorization") == nil {
+		return h.responseProfiles.ListDeviceSites(ctx, orgID, deviceIdentifiers)
 	}
-	return h.responseProfiles.ListDeviceSites(ctx, orgID, deviceIdentifiers)
+	return nil, nil
 }
 
 func (h *Handler) automationRuleProfileResourceContextRequirements(

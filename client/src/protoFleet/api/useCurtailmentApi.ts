@@ -24,6 +24,7 @@ import {
 } from "@/protoFleet/api/curtailmentMappers";
 import {
   type ActiveCurtailmentEvent,
+  type CurtailmentEventState,
   type CurtailmentHistoryEvent,
   type CurtailmentSubmitValues,
 } from "@/protoFleet/api/curtailmentTypes";
@@ -40,11 +41,7 @@ import {
 } from "@/protoFleet/api/generated/curtailment/v1/curtailment_pb";
 import { assertNotAborted, isAbortError, isAuthOrPermissionError, toError } from "@/protoFleet/api/requestErrors";
 import type { SiteNameById } from "@/protoFleet/api/siteNames";
-import {
-  type CurtailmentEventState,
-  curtailmentEventStates,
-  mapCurtailmentEventState,
-} from "@/protoFleet/features/energy/curtailmentDisplayUtils";
+import { curtailmentEventStates, mapCurtailmentEventState } from "@/protoFleet/features/energy/curtailmentDisplayUtils";
 import {
   buildStartCurtailmentRequest,
   buildUpdateCurtailmentEventRequest,

@@ -381,9 +381,6 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.countRepairTicketsBySiteStmt, err = db.PrepareContext(ctx, countRepairTicketsBySite); err != nil {
 		return nil, fmt.Errorf("error preparing query CountRepairTicketsBySite: %w", err)
 	}
-	if q.countResponseProfilesByInfrastructureDeviceStmt, err = db.PrepareContext(ctx, countResponseProfilesByInfrastructureDevice); err != nil {
-		return nil, fmt.Errorf("error preparing query CountResponseProfilesByInfrastructureDevice: %w", err)
-	}
 	if q.countResponseProfilesByInfrastructureDevicesStmt, err = db.PrepareContext(ctx, countResponseProfilesByInfrastructureDevices); err != nil {
 		return nil, fmt.Errorf("error preparing query CountResponseProfilesByInfrastructureDevices: %w", err)
 	}
@@ -3472,11 +3469,6 @@ func (q *Queries) Close() error {
 	if q.countRepairTicketsBySiteStmt != nil {
 		if cerr := q.countRepairTicketsBySiteStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing countRepairTicketsBySiteStmt: %w", cerr)
-		}
-	}
-	if q.countResponseProfilesByInfrastructureDeviceStmt != nil {
-		if cerr := q.countResponseProfilesByInfrastructureDeviceStmt.Close(); cerr != nil {
-			err = fmt.Errorf("error closing countResponseProfilesByInfrastructureDeviceStmt: %w", cerr)
 		}
 	}
 	if q.countResponseProfilesByInfrastructureDevicesStmt != nil {
@@ -7787,7 +7779,6 @@ type Queries struct {
 	countRepairTicketsStmt                                     *sql.Stmt
 	countRepairTicketsByBuildingStmt                           *sql.Stmt
 	countRepairTicketsBySiteStmt                               *sql.Stmt
-	countResponseProfilesByInfrastructureDeviceStmt            *sql.Stmt
 	countResponseProfilesByInfrastructureDevicesStmt           *sql.Stmt
 	countUnexpiredAlertMaintenanceWindowsStmt                  *sql.Stmt
 	createApiKeyStmt                                           *sql.Stmt
@@ -8743,7 +8734,6 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		countRepairTicketsStmt:                                     q.countRepairTicketsStmt,
 		countRepairTicketsByBuildingStmt:                           q.countRepairTicketsByBuildingStmt,
 		countRepairTicketsBySiteStmt:                               q.countRepairTicketsBySiteStmt,
-		countResponseProfilesByInfrastructureDeviceStmt:            q.countResponseProfilesByInfrastructureDeviceStmt,
 		countResponseProfilesByInfrastructureDevicesStmt:           q.countResponseProfilesByInfrastructureDevicesStmt,
 		countUnexpiredAlertMaintenanceWindowsStmt:                  q.countUnexpiredAlertMaintenanceWindowsStmt,
 		createApiKeyStmt:                                           q.createApiKeyStmt,

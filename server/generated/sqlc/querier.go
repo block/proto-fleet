@@ -410,7 +410,7 @@ type Querier interface {
 	CountRepairTicketsByBuilding(ctx context.Context, arg CountRepairTicketsByBuildingParams) (int64, error)
 	// Only unfinished work blocks deletion; completed tickets retain historical links.
 	CountRepairTicketsBySite(ctx context.Context, arg CountRepairTicketsBySiteParams) (int64, error)
-	CountResponseProfilesByInfrastructureDevice(ctx context.Context, arg CountResponseProfilesByInfrastructureDeviceParams) (int64, error)
+	// Counts each profile that references any of the supplied facility fans once.
 	CountResponseProfilesByInfrastructureDevices(ctx context.Context, arg CountResponseProfilesByInfrastructureDevicesParams) (int64, error)
 	// Backs the transaction-scoped per-org write quota: only active or scheduled windows count, so
 	// expired history can never block a write.
