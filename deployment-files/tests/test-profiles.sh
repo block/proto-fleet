@@ -279,6 +279,8 @@ check_pairing_routes "$REPO_ROOT/deployment-files/client/nginx.https.conf" local
 check_pairing_routes "$REPO_ROOT/client/nginx.runner-protofleet.conf" 127.0.0.1
 pass "NGINX gives Fleet Node pairing scoped streaming timeouts"
 
+bash "$REPO_ROOT/deployment-files/tests/test-health-probe-logging.sh" || fail "NGINX health-probe logging"
+
 # ----------------------------------------------------------------------------
 # 6. Compose render smoke test (staged tarball layout)
 # ----------------------------------------------------------------------------
