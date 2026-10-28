@@ -1,7 +1,6 @@
 import { getCurtailmentScopeCountLabel, getCurtailmentScopeSelectionCount } from "@/protoFleet/api/curtailmentScopes";
 import type {
   ActiveCurtailmentDisplayState,
-  ActiveCurtailmentEventState,
   CurtailmentEventState,
   CurtailmentFormValues,
   CurtailmentTargetRollup,
@@ -63,7 +62,9 @@ export const activeCurtailmentEventStates = [
   "pending",
   "active",
   "restoring",
-] as const satisfies readonly ActiveCurtailmentEventState[];
+] as const satisfies readonly CurtailmentEventState[];
+
+export type ActiveCurtailmentEventState = (typeof activeCurtailmentEventStates)[number];
 
 export const activeCurtailmentDisplayStateConfigs = {
   cancelled: {

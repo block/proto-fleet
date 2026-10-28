@@ -2,7 +2,6 @@ import type { CurtailmentTerminalScopeType } from "@/protoFleet/api/curtailmentS
 
 export type CurtailmentEventState =
   "pending" | "active" | "restoring" | "completed" | "completedWithFailures" | "cancelled" | "failed";
-export type ActiveCurtailmentEventState = Extract<CurtailmentEventState, "pending" | "active" | "restoring">;
 export type CurtailmentTargetState =
   "pending" | "dispatched" | "confirmed" | "drifted" | "resolved" | "released" | "unavailable" | "restoreFailed";
 export interface CurtailmentTargetRollup {
