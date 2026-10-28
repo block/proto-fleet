@@ -193,6 +193,19 @@ const openNodeRevoke = async (name = "node-01") => {
 };
 
 describe("NodesPage", () => {
+  it("shows effective discovery ranges only while connected", async () => {
+    permissionsMock.current = ["fleetnode:read"];
+    listFleetNodesMock.mockResolvedValue([
+      {
+        ...confirmedNode,
+        controlStreamConnected: true,
+        discoveryConfigReported: true,
+        discoveryRanges: ["10.0.0.1-10.0.15.254"],
+      },
+    ]);
+    renderNodesPage();
+    expect(await screen.findByText("10.0.0.1-10.0.15.254")).toBeVisible();
+  });
   afterEach(() => vi.useRealTimers());
   beforeEach(() => {
     permissionsMock.current = ["fleetnode:read", "fleetnode:manage"];

@@ -22,12 +22,13 @@ import { pushToast, STATUSES } from "@/shared/features/toaster";
 import { usePoll } from "@/shared/hooks/usePoll";
 import { getRelativeTimeFromEpoch } from "@/shared/utils/datetime";
 
-type NodeColumns = "name" | "ipAddresses" | "role" | "status" | "version" | "miners" | "lastSeen";
+type NodeColumns = "name" | "ipAddresses" | "ranges" | "role" | "status" | "version" | "miners" | "lastSeen";
 type NodeTableItem = FleetNodeItem & { endsGroup: boolean };
 
 const colTitles: ColTitles<NodeColumns> = {
   name: "Name",
   ipAddresses: "IP address",
+  ranges: "Discovery ranges",
   role: "Role",
   status: "Connection",
   version: "Version",
@@ -35,7 +36,7 @@ const colTitles: ColTitles<NodeColumns> = {
   lastSeen: "Last heartbeat",
 };
 
-const activeCols: NodeColumns[] = ["name", "ipAddresses", "role", "status", "version", "miners", "lastSeen"];
+const activeCols: NodeColumns[] = ["name", "ipAddresses", "ranges", "role", "status", "version", "miners", "lastSeen"];
 
 const NodesPage = () => {
   const { listFleetNodes, listFleetNodeDevices, revokeFleetNode, discoverOnFleetNode } = useFleetNodes();
@@ -292,6 +293,19 @@ const NodesPage = () => {
       version: {
         component: (node: FleetNodeItem) => <span className="break-all">{node.version || "—"}</span>,
         width: "w-44",
+        allowWrap: true,
+      },
+      ranges: {
+        component: (node: FleetNodeItem) => (
+          <span className="break-all" title={node.discoveryRanges?.join(", ")}>
+            {!node.controlStreamConnected
+              ? "Unavailable"
+              : !node.discoveryConfigReported
+                ? "Upgrade node to report ranges"
+                : node.discoveryRanges?.join(", ") || "Not configured"}
+          </span>
+        ),
+        width: "w-56",
         allowWrap: true,
       },
       role: {

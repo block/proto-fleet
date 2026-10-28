@@ -11,6 +11,7 @@ import (
 )
 
 type State struct {
+	DiscoveryRanges         []string  `yaml:"discovery_ranges,omitempty"`
 	ServerURL               string    `yaml:"server_url"`
 	AllowInsecureTransport  bool      `yaml:"allow_insecure_transport,omitempty"`
 	FleetNodeID             int64     `yaml:"fleet_node_id"`

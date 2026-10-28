@@ -101,6 +101,10 @@ func (h *Handler) ListFleetNodes(ctx context.Context, _ *connect.Request[pb.List
 		}
 		if includeAdministrativeDetails {
 			summary.FleetNodeId = n.ID
+			if config := h.registry.DiscoveryConfig(n.ID); config != nil {
+				summary.DiscoveryRanges = config.GetRanges()
+				summary.DiscoveryConfigReported = true
+			}
 			summary.PairedDeviceCount = pairedCounts[n.ID]
 			summary.Name = n.Name
 			summary.IpAddresses = n.IPAddresses
