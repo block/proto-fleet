@@ -608,10 +608,8 @@ func start(config *Config) (result error) {
 	sitemapSvc := sitemapDomain.NewService(siteStore, buildingStore, collectionStore, deviceStore, fleetMgmtSvc, transactor, activitySvc)
 
 	// Register the schedule-conflict preflight filter on commandSvc so every
-	// caller (manual API, schedule processor, future curtailment reconciler)
-	// sees the same priority/manual-fallback semantics. Pre-pre-work this
-	// only ran inline inside the schedule processor, leaving manual
-	// SetPowerTarget calls free to race a running power-target schedule.
+	// caller (manual API, schedule processor, curtailment reconciler)
+	// sees the same priority/manual-fallback semantics.
 	commandSvc.RegisterFilter(commandDomain.NewScheduleConflictFilter(scheduleStore))
 	commandSvc.RegisterFilter(commandDomain.NewScheduleContainerFilter(conn))
 	// CurtailmentActiveFilter blocks non-curtailment commands on locked

@@ -1,6 +1,8 @@
 // Package reconciler drives non-terminal curtailment events: dispatches
 // Curtail commands for pending targets, watches telemetry for drift on
-// confirmed targets, and retries within a bounded budget.
+// confirmed targets, and restores targets when events stop. Curtail retries
+// remain open while OFF is asserted. Restore retries are bounded, with
+// all-paired topology obligations able to park until they become commandable.
 package reconciler
 
 import (
@@ -41,7 +43,7 @@ const (
 	// 0.5: power_w > baseline*factor is drifted; catches partial restore.
 	defaultDriftThresholdFactor = 0.5
 
-	// Per-target telemetry confirmation timeouts; both burn retry budget.
+	// Per-target telemetry confirmation timeouts; both increment retry_count.
 	defaultCurtailDispatchTimeoutSec = 5
 	defaultRestoreDispatchTimeoutSec = 30
 )
@@ -65,10 +67,10 @@ type Config struct {
 	CurtailMaxRetries    int32
 	DriftThresholdFactor float64
 	// CurtailDispatchTimeoutSec ages out curtail-phase targets stuck in
-	// Dispatched without confirming telemetry (burns retry budget).
+	// Dispatched without confirming telemetry (increments retry_count).
 	CurtailDispatchTimeoutSec int `help:"Seconds a curtail target may stay dispatched without telemetry confirmation before consuming retry budget. Zero uses the default; positive values must be at least 1." default:"0" env:"CURTAIL_DISPATCH_TIMEOUT_SEC"`
 	// RestoreDispatchTimeoutSec ages out restore-phase targets stuck in
-	// Dispatched without confirming telemetry (burns retry budget).
+	// Dispatched without confirming telemetry (increments retry_count).
 	RestoreDispatchTimeoutSec int `help:"Seconds a restore target may stay dispatched without telemetry confirmation before consuming retry budget. Zero uses the default." default:"0" env:"RESTORE_DISPATCH_TIMEOUT_SEC"`
 	// ConfirmationFastPathEnabled turns on the wake-driven confirmation
 	// pulse (see confirmation_fast_path.go). Disabled restores exact
@@ -465,7 +467,8 @@ func (r *Reconciler) processEvent(ctx context.Context, ev *models.Event) {
 
 // dispatchPending dispatches Curtail per pending target, confirms
 // already-dispatched targets via telemetry, then flips the event to
-// active once every target is confirmed or terminally failed.
+// active once targets settle. Curtail failures remain retryable; policy
+// readiness and topology departure restores also affect activation.
 func (r *Reconciler) dispatchPending(ctx context.Context, ev *models.Event) {
 	targets, err := r.store.ListTargetsByEvent(ctx, ev.OrgID, ev.EventUUID)
 	if err != nil {
@@ -500,9 +503,9 @@ func (r *Reconciler) dispatchPending(ctx context.Context, ev *models.Event) {
 	}
 
 	// Liveness check; per-target race-closure happens in dispatchCurtailBatch.
-	// DISPATCHING is included alongside PENDING because ticks are serial,
-	// so any DISPATCHING seen here is from an interrupted prior tick — safe
-	// to redispatch (Curtail is device-idempotent).
+	// DISPATCHING includes interrupted writes, aged confirmation attempts,
+	// and closed-loop admission claims. Curtail is device-idempotent; the
+	// batch helper applies pacing before redispatch.
 	if !r.eventStillDispatchable(ctx, ev) {
 		return
 	}
@@ -587,9 +590,9 @@ func (r *Reconciler) reconcilePendingFans(ctx context.Context, ev *models.Event)
 }
 
 // dispatchPendingCurtailBatches drains retryable Curtail work in command
-// batches. Orphaned DISPATCHING rows from an interrupted prior tick are
-// recovered before fresh PENDING rows. curtail_batch_size=NULL dispatches all
-// remaining targets; a positive interval paces fresh pending batches.
+// batches. DISPATCHING recovery and retry rows precede fresh PENDING rows.
+// curtail_batch_size=NULL dispatches all remaining targets; a positive
+// interval paces fresh pending batches.
 func (r *Reconciler) dispatchPendingCurtailBatches(ctx context.Context, ev *models.Event, targets []*models.Target) {
 	batchSize := curtailBatchSizeForEvent(ev, len(targets))
 	dispatchByState := func(state models.TargetState, dispatchSingleBatch bool, recordPendingDispatch bool) bool {
@@ -672,8 +675,8 @@ func (r *Reconciler) confirmDispatched(ctx context.Context, ev *models.Event, ta
 //
 // Race-closure: the DISPATCHING pre-write makes a concurrent
 // AdminTerminate see an in-flight target and reject as Stop-first; its
-// EXISTS guard against the parent event state catches a terminate that
-// committed between the per-tick liveness check and this write.
+// locked_event FOR UPDATE CTE serializes the target write with parent
+// transitions and rejects a parent that left the expected phase.
 // Restart-safety: a crash between pre-write and command leaves the
 // target in DISPATCHING; the next tick redispatches via
 // nonTerminalFailureState (Curtail is device-idempotent).
@@ -731,8 +734,8 @@ func (r *Reconciler) dispatchCurtailBatchWithKnownUnsent(
 			slog.Error("curtailment reconciler: dispatching pre-write failed",
 				"event_id", ev.ID, "device", t.DeviceIdentifier, "error", err)
 			// Symmetric to dispatchRestoreBatch: burn one retry slot so a
-			// row-specific persistent write failure escalates to terminal
-			// after MaxRetries instead of stalling the event indefinitely.
+			// row-specific persistent write failure remains observable in retry_count.
+			// Curtail targets stay retryable while OFF is asserted.
 			r.recordDispatchFailure(ctx, ev, t, err.Error(), nonTerminalFailureState)
 			continue
 		}
@@ -982,8 +985,8 @@ func skippedDeviceReason(s command.SkippedDevice) string {
 }
 
 // observeActive checks drift on confirmed targets and re-dispatches drifted
-// targets up to MaxRetries. ListCandidates over-fetches columns the drift
-// check ignores; acceptable at the per-tick fanout scale.
+// targets while OFF remains asserted. ListCandidates over-fetches columns
+// the drift check ignores; acceptable at the per-tick fanout scale.
 func (r *Reconciler) observeActive(ctx context.Context, ev *models.Event) {
 	targets, err := r.store.ListTargetsByEvent(ctx, ev.OrgID, ev.EventUUID)
 	if err != nil {
@@ -1056,11 +1059,10 @@ func (r *Reconciler) observeActive(ctx context.Context, ev *models.Event) {
 					// Re-entry: drifted-then-redispatched, waiting on confirmation.
 					r.confirmOneDispatched(cmdCtx, ev, t, candByID[t.DeviceIdentifier], models.TargetStateDispatched)
 				case models.TargetStateDispatching:
-					// Orphan from an interrupted prior tick; redispatched after
-					// observation in batch-aware order.
+					// Recovery, timeout retry, or closed-loop admission claim;
+					// redispatched after observation in batch-aware order.
 					if r.retryBudgetTerminalizes(t, t.RetryCount) {
-						// Escalate restore targets instead of leaving the row pinned
-						// in DISPATCHING after retry_count passes MaxRetries.
+						// Defensive budget guard; curtail targets remain retryable.
 						r.recordDispatchFailure(cmdCtx, ev, t,
 							"retry budget exhausted from interrupted dispatch",
 							models.TargetStateDispatching)
@@ -1068,9 +1070,7 @@ func (r *Reconciler) observeActive(ctx context.Context, ev *models.Event) {
 					}
 				case models.TargetStateDrifted:
 					if r.retryBudgetTerminalizes(t, t.RetryCount) {
-						// Symmetric to the DISPATCHING arm: a Drifted target whose
-						// retry budget was bumped past MaxRetries by the
-						// BumpTargetRetry fallback must terminalize, not loop.
+						// Defensive budget guard; curtail targets remain retryable.
 						r.recordDispatchFailure(cmdCtx, ev, t,
 							"retry budget exhausted on drifted target",
 							models.TargetStateDrifted)
@@ -1369,14 +1369,6 @@ func (r *Reconciler) reopenEventFans(ctx context.Context, ev *models.Event) bool
 	}
 	ev.FanLastError = lastError
 	return lastError == nil
-}
-
-func (r *Reconciler) claimClosedLoopFullFleetTargets(
-	ctx context.Context,
-	ev *models.Event,
-	existingTargets []*models.Target,
-) ([]*models.Target, bool) {
-	return r.claimClosedLoopFullFleetTargetsFromSnapshot(ctx, ev, existingTargets, nil)
 }
 
 type closedLoopTopologySnapshot struct {
@@ -1932,7 +1924,7 @@ func (r *Reconciler) confirmOneDispatched(ctx context.Context, ev *models.Event,
 }
 
 // checkDrift evaluates a confirmed target against telemetry. Uncurtailed
-// → Drifted, re-dispatch if budget remains.
+// → Drifted, re-dispatch while OFF remains asserted.
 func (r *Reconciler) checkDrift(ctx context.Context, ev *models.Event, t *models.Target, c *models.Candidate) {
 	if c == nil {
 		r.recordDispatchFailure(ctx, ev, t, "candidate row missing (device unpaired or deleted)", models.TargetStateDrifted)
@@ -2005,9 +1997,10 @@ func (r *Reconciler) checkDrift(ctx context.Context, ev *models.Event, t *models
 	}
 }
 
-// maybeMarkActive flips Pending → Active once every target is Confirmed or
-// terminally failed. All-failed events skip past Active to
-// completed_with_failures so they can't sit indefinitely.
+// maybeMarkActive flips Pending → Active once in-flight work has settled,
+// while preserving policy readiness holds and topology restore obligations.
+// The all-failed branch handles retained or defensive failure states; normal
+// curtail retries never terminalize.
 func (r *Reconciler) maybeMarkActive(ctx context.Context, ev *models.Event, targets []*models.Target) {
 	confirmed, terminalFailures, unavailable, releasedPolicy := 0, 0, 0, 0
 	topologyWatcher := isClosedLoopTopologyEvent(ev)
@@ -2620,7 +2613,7 @@ func (r *Reconciler) maybeClaimRestoreBatch(ctx context.Context, ev *models.Even
 		if t.DesiredState != models.DesiredStateActive {
 			continue
 		}
-		if t.State == models.TargetStateDispatched || t.State == models.TargetStateDrifted {
+		if t.State == models.TargetStateDispatched {
 			return
 		}
 	}
@@ -2984,11 +2977,6 @@ func (r *Reconciler) eventStillDispatchable(ctx context.Context, ev *models.Even
 	if err != nil {
 		slog.Error("curtailment reconciler: event liveness check failed",
 			"event_id", ev.ID, "event_uuid", ev.EventUUID, "error", err)
-		return false
-	}
-	if latest == nil {
-		slog.Warn("curtailment reconciler: event missing before dispatch",
-			"event_id", ev.ID, "event_uuid", ev.EventUUID)
 		return false
 	}
 	if latest.State.IsTerminal() || latest.State != ev.State {

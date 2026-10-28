@@ -726,9 +726,6 @@ type Querier interface {
 	// candidates at the SQL boundary so a single large event cannot force a
 	// fleet-sized JSON snapshot through the handler.
 	GetCurtailmentEventDetailByUUID(ctx context.Context, arg GetCurtailmentEventDetailByUUIDParams) (GetCurtailmentEventDetailByUUIDRow, error)
-	// Per-org tunables. Migration seeds existing orgs;
-	// EnsureCurtailmentOrgConfig backfills post-migration tenants.
-	GetCurtailmentOrgConfig(ctx context.Context, orgID int64) (CurtailmentOrgConfig, error)
 	GetCurtailmentReconcilerHeartbeat(ctx context.Context) (CurtailmentReconcilerHeartbeat, error)
 	GetCurtailmentResponseProfileByOrg(ctx context.Context, arg GetCurtailmentResponseProfileByOrgParams) (CurtailmentResponseProfileWithRevision, error)
 	// Org-scoped aggregate for paginated event detail. Target pages can be
@@ -2111,7 +2108,6 @@ type Querier interface {
 	RemoveDevicesFromDeviceSet(ctx context.Context, arg RemoveDevicesFromDeviceSetParams) ([]string, error)
 	RenameHostedAccount(ctx context.Context, arg RenameHostedAccountParams) error
 	RenewFleetRuntimeLease(ctx context.Context, arg RenewFleetRuntimeLeaseParams) (RenewFleetRuntimeLeaseRow, error)
-	RequestRigConfigReconciliation(ctx context.Context, arg RequestRigConfigReconciliationParams) error
 	// Lock/update the organization before writing targets. Completion and terminal
 	// retry follow the same lock order so concurrent requests cannot lose targets.
 	RequestRigConfigReconciliationForDevices(ctx context.Context, arg RequestRigConfigReconciliationForDevicesParams) error
@@ -2615,8 +2611,8 @@ type Querier interface {
 	// The org lock serializes these accepted claims, including boards with no installation.
 	UpsertHashboardObservations(ctx context.Context, arg UpsertHashboardObservationsParams) error
 	UpsertHashboardSlots(ctx context.Context, arg UpsertHashboardSlotsParams) error
-	// Subscriber upserts source signal state on each successful message receive,
-	// after precedence/dedup processing. Singleton per source.
+	// Replace the source's signal state after receive, pending-edge, watchdog,
+	// and retry processing. Singleton per source.
 	UpsertMQTTSourceState(ctx context.Context, arg UpsertMQTTSourceStateParams) error
 	// The parent lock also protects absence of credentials during dispatch.
 	UpsertMinerCredentials(ctx context.Context, arg UpsertMinerCredentialsParams) error

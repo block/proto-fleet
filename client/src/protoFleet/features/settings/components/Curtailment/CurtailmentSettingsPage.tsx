@@ -31,6 +31,7 @@ import {
   type CurtailmentSource,
   type CurtailmentSourceFormValues,
   DEFAULT_SOURCE_STALENESS_THRESHOLD_SEC,
+  isEditableResponseProfile,
   isResponseProfileAutomationReady,
   MAX_SOURCE_STALENESS_THRESHOLD_SEC,
   type ResponseProfile,
@@ -223,14 +224,6 @@ function isPositiveInteger(value: string): boolean {
   return /^[1-9]\d*$/.test(value.trim());
 }
 
-function getOptionValueByLabel<TValue extends string>(
-  options: SelectOption[],
-  label: string,
-  fallbackValue: TValue,
-): TValue {
-  return (options.find((option) => option.label === label)?.value ?? fallbackValue) as TValue;
-}
-
 function getResponseProfileTargetSummary(values: ResponseProfileFormValues): string {
   const targetKw = Number(values.targetKw).toLocaleString();
 
@@ -241,11 +234,6 @@ function getResponseProfileTargetSummary(values: ResponseProfileFormValues): str
     default:
       return "100% reduction";
   }
-}
-
-function getResponseProfileDeadlineSummary(values: ResponseProfileFormValues): string {
-  const minutes = Number(values.responseDeadlineMinutes);
-  return minutes === 1 ? "Within 1 min" : `Within ${minutes} min`;
 }
 
 function getResponseProfileScopeSummary(values: ResponseProfileFormValues): string {
@@ -391,7 +379,6 @@ function createResponseProfileFromFormValues(
     scope: getResponseProfileScopeSummary(normalizedValues),
     selectionStrategy: responseProfileSelectionStrategyLabel[normalizedValues.selectionStrategy],
     restoreBehavior: responseProfileRestoreBehaviorLabel[normalizedValues.restoreBehavior],
-    deadlineSummary: getResponseProfileDeadlineSummary(normalizedValues),
     formValues: normalizedValues,
     isAutomationReady: isResponseProfileAutomationReady(normalizedValues.scopeType),
   };
@@ -421,61 +408,8 @@ function removeResponseProfileScope(values: ResponseProfileFormValues): Response
   };
 }
 
-function createResponseProfileFormValuesFromProfile(profile: ResponseProfile): ResponseProfileFormValues {
-  if (profile.formValues) {
-    return removeResponseProfileScope(profile.formValues);
-  }
-
-  const targetKwMatch = profile.targetSummary.match(/(\d+(?:\.\d+)?)/);
-  const actionType = targetKwMatch ? "fixedKwReduction" : "fullFleet";
-
-  return {
-    name: profile.name,
-    actionType,
-    targetKw: targetKwMatch?.[1] ?? "",
-    toleranceKw: emptyResponseProfileFormValues.toleranceKw,
-    priority: emptyResponseProfileFormValues.priority,
-    postEventCooldownSec: emptyResponseProfileFormValues.postEventCooldownSec,
-    scopeType: "wholeOrg",
-    buildingTargetIds: [],
-    rackTargetIds: [],
-    groupTargetIds: [],
-    deviceIdentifiers: [],
-    minerSelectionMode: "subset",
-    siteSelection: "none",
-    siteId: "",
-    siteName: "",
-    siteIds: [],
-    siteNamesById: {},
-    selectionStrategy: getOptionValueByLabel(
-      responseProfileSelectionStrategyOptions,
-      profile.selectionStrategy,
-      emptyResponseProfileFormValues.selectionStrategy,
-    ),
-    restoreBehavior: getOptionValueByLabel(
-      responseProfileRestoreBehaviorOptions,
-      profile.restoreBehavior,
-      emptyResponseProfileFormValues.restoreBehavior,
-    ),
-    minDurationSec: emptyResponseProfileFormValues.minDurationSec,
-    maxDurationSec: minutesToSeconds(
-      profile.deadlineSummary.match(/(\d+)/)?.[1] ?? emptyResponseProfileFormValues.responseDeadlineMinutes,
-    ),
-    curtailBatchSize: emptyResponseProfileFormValues.curtailBatchSize,
-    curtailBatchIntervalSec: emptyResponseProfileFormValues.curtailBatchIntervalSec,
-    restoreBatchSize:
-      profile.restoreBehavior === responseProfileRestoreBehaviorLabel.automaticImmediateRestore
-        ? immediateRestoreBatchSizeInputValue
-        : emptyResponseProfileFormValues.restoreBatchSize,
-    restoreIntervalSec: emptyResponseProfileFormValues.restoreIntervalSec,
-    facilityFanDeviceIds: emptyResponseProfileFormValues.facilityFanDeviceIds,
-    fanOffDelaySec: emptyResponseProfileFormValues.fanOffDelaySec,
-    fanRestoreDelaySec: emptyResponseProfileFormValues.fanRestoreDelaySec,
-    responseDeadlineMinutes:
-      profile.deadlineSummary.match(/(\d+)/)?.[1] ?? emptyResponseProfileFormValues.responseDeadlineMinutes,
-    includeMaintenance: emptyResponseProfileFormValues.includeMaintenance,
-    forceIncludeAllPairedMiners: emptyResponseProfileFormValues.forceIncludeAllPairedMiners,
-  };
+function createResponseProfileFormValuesFromProfile(profile: ResponseProfile): ResponseProfileFormValues | undefined {
+  return profile.formValues ? removeResponseProfileScope(profile.formValues) : undefined;
 }
 
 function createCurtailmentFormValuesFromResponseProfile(
@@ -522,7 +456,6 @@ function createCurtailmentFormValuesFromResponseProfile(
     siteIds,
     siteNamesById,
     ...cloneTopologyTargetIds(values),
-    deviceSetIds: [],
     deviceIdentifiers,
     minerSelectionMode: hasAllMinersSelected ? "all" : "subset",
     responseProfileId: "customPlan",
@@ -564,9 +497,6 @@ function getResponseProfileRestoreBehavior(
 function createResponseProfileFormValuesFromCurtailmentValues(
   values: CurtailmentSubmitValues,
 ): ResponseProfileFormValues {
-  if (values.scopeType === "deviceSet") {
-    throw new Error("Unsupported curtailment target scope.");
-  }
   const hasAllMinersSelected = values.minerSelectionMode === "all";
   const siteIds =
     hasAllMinersSelected || (values.siteSelection !== "site" && values.siteSelection !== "allSites")
@@ -852,9 +782,9 @@ function ResponseProfileCard({ profile, onEdit }: ResponseProfileCardProps): Rea
           variant={variants.secondary}
           size={sizes.compact}
           text="Edit"
-          ariaLabel={profile.isReadOnly ? "Editing this profile is unavailable" : "Edit"}
+          ariaLabel={isEditableResponseProfile(profile) ? "Edit" : "Editing this profile is unavailable"}
           className="!h-8 !px-3 !py-0"
-          disabled={profile.isReadOnly}
+          disabled={!isEditableResponseProfile(profile)}
           onClick={() => onEdit(profile)}
           testId={`response-profile-edit-${profile.id}`}
         />
@@ -1445,7 +1375,7 @@ export function CurtailmentSettingsContent({
   const responseProfileModalInitialValues = useMemo(
     () =>
       latestEditingResponseProfile
-        ? createResponseProfileFormValuesFromProfile(latestEditingResponseProfile)
+        ? (createResponseProfileFormValuesFromProfile(latestEditingResponseProfile) ?? emptyResponseProfileFormValues)
         : emptyResponseProfileFormValues,
     [latestEditingResponseProfile],
   );
@@ -1481,6 +1411,9 @@ export function CurtailmentSettingsContent({
 
   const openEditResponseProfileModal = useCallback(
     (profile: ResponseProfile) => {
+      if (!isEditableResponseProfile(profile)) {
+        return;
+      }
       onResponseProfileModalOpen?.();
       setResponseProfileActionError(null);
       setEditingResponseProfile(profile);

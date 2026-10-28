@@ -21,8 +21,9 @@ import (
 const maxCurtailmentScopeEntries = 1024
 
 // toRequestMode validates the proto mode and returns the domain mode plus the
-// FIXED_KW params (nil for FULL_FLEET). FIXED_KW (and the unspecified default)
-// require fixed_kw params; FULL_FLEET takes none.
+// FIXED_KW params (nil for FULL_FLEET). FIXED_KW requires fixed_kw params;
+// FULL_FLEET takes none. The unspecified fallback is for direct callers;
+// RPC validation requires an explicit supported mode.
 func toRequestMode(m pb.CurtailmentMode, fixedKw *pb.FixedKwParams, hasModeParams bool) (models.Mode, *pb.FixedKwParams, error) {
 	if m == pb.CurtailmentMode_CURTAILMENT_MODE_FULL_FLEET {
 		// FULL_FLEET takes no params; reject any set mode_params oneof rather
@@ -257,8 +258,7 @@ func toStartRequest(msg *pb.StartCurtailmentRequest, info *session.Info) (curtai
 	return out, nil
 }
 
-// toStartScope mirrors toScope. The two oneofs are structurally identical
-// but typed separately by protoc-gen-go, so the switches can't merge.
+// toStartScope mirrors toScope using Start's generated oneof wrapper types.
 func toStartScope(msg *pb.StartCurtailmentRequest) (curtailment.Scope, error) {
 	if scopes := msg.GetScopes(); len(scopes) > 0 {
 		scope, err := toTerminalScope(scopes)

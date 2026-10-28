@@ -90,11 +90,16 @@ export type ResponseProfile = {
   scope: string;
   selectionStrategy: string;
   restoreBehavior: string;
-  deadlineSummary: string;
   formValues?: ResponseProfileFormValues;
   isReadOnly?: boolean;
   isAutomationReady: boolean;
 };
+
+export type EditableResponseProfile = ResponseProfile & { formValues: ResponseProfileFormValues };
+
+export function isEditableResponseProfile(profile: ResponseProfile): profile is EditableResponseProfile {
+  return !profile.isReadOnly && profile.formValues !== undefined;
+}
 
 export type AutomationConditionType = "mqttTriggerTargetOff" | "marketPriceAbove" | "hashpriceBelow" | "capacityAbove";
 

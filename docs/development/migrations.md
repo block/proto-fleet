@@ -173,7 +173,46 @@ plan for collection-bound batch filtering.
    and in order. Public skips private numbers; private changes to shared tables
    stay private.
 4. Never edit, delete or renumber merged/released SQL. Correct it with a new pair.
-   Retain legacy SQL and the migration-143 bridge for upgrade waypoints.
+   Retain legacy SQL and the migration-143 bridge as historical fixtures and
+   evidence for explicit upgrade waypoints. Current startup reads only
+   `server/migrations/current/`; it does not invoke the legacy bridge. See the
+   [migration-143 recovery procedure](../solutions/database-issues/dirty-migration-143-legacy-curtailment-upgrade-2026-08-25.md)
+   for the verified public-release waypoint and its lineage restrictions.
+
+### Transactions and large-table indexes
+
+Every current migration file executes inside an explicit PostgreSQL transaction
+owned by `checkpointDriver` in
+`server/internal/infrastructure/db/database_connection.go`. Internal migrations
+commit at private checkpoints; an earlier shared file and its following private
+checkpoint can share that transaction. Locks acquired by a shared file remain
+held until that checkpoint commits. A failure rolls back the uncommitted SQL.
+
+`CREATE INDEX CONCURRENTLY` and `DROP INDEX CONCURRENTLY` cannot execute inside
+these transactions, so they are unavailable through the current migration runner,
+including `fleet-db-transition migrate`. Putting either command in its own file
+does not change this. Migration 000072 used the old runner's concurrent-index
+behavior; its historical comment does not describe the current runner.
+
+For a large `curtailment_event` or `curtailment_target` table, use an ordinary
+`CREATE INDEX` in a new migration and plan a stopped-writer maintenance window.
+Rehearse on a representative backup with retained event and target history;
+measure relation sizes, lock wait, index build time, free storage and WAL volume.
+Size downtime from those measurements, not current miner count. Stop API replicas,
+Fleet Nodes, plugins and scheduled writers, run the target release's
+`fleet-db-transition migrate`, and verify the clean checkpoint, startup check and
+`pg_index.indisvalid` before restarting writers.
+
+If a deployment requires an online concurrent build, it needs a separately
+reviewed operational procedure that runs standalone SQL outside this runner,
+handles interrupted/invalid indexes, and verifies the exact index definition
+before the subsequent migration adopts it. There is no nontransactional migration
+mode. Do not add transaction-control statements to migration files or force a
+checkpoint to skip an index build.
+
+Current curtailment field and index semantics are maintained in the
+[curtailment schema notes](../architecture/curtailment-schema.md); comments in
+immutable legacy migrations describe their original implementation.
 
 ### Migration 1026 collision recovery
 

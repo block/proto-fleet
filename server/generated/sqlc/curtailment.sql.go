@@ -1598,32 +1598,6 @@ func (q *Queries) GetCurtailmentEventDetailByUUID(ctx context.Context, arg GetCu
 	return i, err
 }
 
-const getCurtailmentOrgConfig = `-- name: GetCurtailmentOrgConfig :one
-SELECT
-    org_id,
-    max_duration_default_sec,
-    candidate_min_power_w,
-    created_at,
-    updated_at
-FROM curtailment_org_config
-WHERE org_id = $1
-`
-
-// Per-org tunables. Migration seeds existing orgs;
-// EnsureCurtailmentOrgConfig backfills post-migration tenants.
-func (q *Queries) GetCurtailmentOrgConfig(ctx context.Context, orgID int64) (CurtailmentOrgConfig, error) {
-	row := q.queryRow(ctx, q.getCurtailmentOrgConfigStmt, getCurtailmentOrgConfig, orgID)
-	var i CurtailmentOrgConfig
-	err := row.Scan(
-		&i.OrgID,
-		&i.MaxDurationDefaultSec,
-		&i.CandidateMinPowerW,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-	)
-	return i, err
-}
-
 const getCurtailmentReconcilerHeartbeat = `-- name: GetCurtailmentReconcilerHeartbeat :one
 SELECT id, last_tick_at, last_tick_uuid, last_tick_duration_ms, active_event_count
 FROM curtailment_reconciler_heartbeat

@@ -12,7 +12,7 @@ service CurtailmentService {
     rpc PreviewCurtailmentPlan(PreviewCurtailmentPlanRequest)
         returns (PreviewCurtailmentPlanResponse);
 
-    // Start an event, persist targets, and dispatch initial Curtail
+    // Start an event and persist targets for the reconciler to dispatch Curtail
     // commands. Multiple events can be active per org when they target
     // disjoint device scopes; AlreadyExists means a selected device is
     // already in a non-terminal curtailment (retry against the remainder).
@@ -28,12 +28,12 @@ service CurtailmentService {
     rpc StopCurtailment(StopCurtailmentRequest)
         returns (StopCurtailmentResponse);
 
-    // List every active (pending/active/restoring) event for the org.
+    // List active (pending/active/restoring) events the caller may read in the org.
     // Multiple can be active at once when scoped to disjoint device sets.
     rpc ListActiveCurtailments(ListActiveCurtailmentsRequest)
         returns (ListActiveCurtailmentsResponse);
 
-    // List historical events with cursor pagination.
+    // List permitted events in any state with cursor pagination.
     rpc ListCurtailmentEvents(ListCurtailmentEventsRequest)
         returns (ListCurtailmentEventsResponse);
 
@@ -41,7 +41,7 @@ service CurtailmentService {
     rpc GetCurtailmentEvent(GetCurtailmentEventRequest)
         returns (GetCurtailmentEventResponse);
 
-    // Admin recovery RPC: force a non-terminal event to a terminal state.
+    // Admin recovery RPC: force a pending or restoring event to a terminal state.
     // Session-only, Admin role; reason required (min_len=1, max_len=256).
     //
     // FailedPrecondition variants ride on FleetErrorDetails.service (see
@@ -66,11 +66,8 @@ service CurtailmentService {
     rpc ForceReleaseCurtailmentOwnership(ForceReleaseCurtailmentOwnershipRequest)
         returns (ForceReleaseCurtailmentOwnershipResponse);
 
-    // IngestCurtailmentSignal starts a curtailment event from an
-    // external dispatch signal. signal_payload is provider-opaque;
-    // per-provider adapters decode it. Idempotent on
-    // (org_id, external_source, external_reference): replay during
-    // an in-flight event echoes, post-terminal fires fresh.
+    // Reserved external dispatch endpoint. After checking curtailment:ingest,
+    // the handler returns Unimplemented; no signal is ingested or event started.
     rpc IngestCurtailmentSignal(IngestCurtailmentSignalRequest)
         returns (IngestCurtailmentSignalResponse);
 
@@ -141,9 +138,9 @@ enum CurtailmentMode {
     CURTAILMENT_MODE_PRICE_BREAKEVEN  = 6;  // reserved (v3)
     CURTAILMENT_MODE_POWER_TRAJECTORY = 7;  // reserved (v3)
 
-    // Open-loop: curtail every eligible candidate in the selected scope (no kW
-    // target), frozen at creation. Whole-org scope = whole fleet; a site /
-    // device-list scope = that site.
+    // Curtail every eligible candidate in the selected scope, without a kW
+    // target. Whole-org, site, building, rack, and group scopes reconcile
+    // membership continuously; explicit miner scopes keep a fixed target set.
     CURTAILMENT_MODE_FULL_FLEET       = 8;
 }
 
@@ -152,7 +149,7 @@ enum CurtailmentStrategy {
     CURTAILMENT_STRATEGY_UNSPECIFIED            = 0;
 
     // Economic ranking by per-miner attributes.
-    CURTAILMENT_STRATEGY_LEAST_EFFICIENT_FIRST  = 1;  // v1 default: worst J/TH first
+    CURTAILMENT_STRATEGY_LEAST_EFFICIENT_FIRST  = 1;  // default: worst J/H first
     CURTAILMENT_STRATEGY_MOST_POWER_FIRST       = 2;  // reserved: biggest single-miner shed first
     CURTAILMENT_STRATEGY_OLDEST_HARDWARE_FIRST  = 3;  // reserved: oldest gear first
 
@@ -175,7 +172,8 @@ enum CurtailmentPriority {
     CURTAILMENT_PRIORITY_UNSPECIFIED = 0;
     CURTAILMENT_PRIORITY_NORMAL      = 1;  // default priority
     CURTAILMENT_PRIORITY_HIGH        = 2;
-    // EMERGENCY bypasses min-duration, but not maintenance checks.
+    // EMERGENCY disables post-event cooldown during selection. Only Stop's
+    // admin-gated force bypasses min-duration; maintenance checks still apply.
     CURTAILMENT_PRIORITY_EMERGENCY   = 3;
 }
 
@@ -214,7 +212,7 @@ enum CurtailmentTargetState {
 
     // Terminal outcomes.
     CURTAILMENT_TARGET_STATE_RESOLVED       = 5;  // event ended cleanly for this target
-    CURTAILMENT_TARGET_STATE_RELEASED       = 6;  // removed by closed-loop mid-event (v3+); ends target, not event
+    CURTAILMENT_TARGET_STATE_RELEASED       = 6;  // ownership released; ends target, not necessarily event
     CURTAILMENT_TARGET_STATE_RESTORE_FAILED = 7;  // unreachable after restore was attempted
 }
 
@@ -351,11 +349,10 @@ message CurtailmentEvent {
     string fan_last_error = 50;
     google.protobuf.Timestamp fan_airflow_reopened_at = 51;
 
-    // Server-resolved restore batch size stamped at Start. restore_batch_size=0
-    // means restore all pending targets in one wave up to the server's explicit
-    // max restore wave size; positive values are used as the caller's explicit
-    // restore wave size.
-    // Clients display this; restorer reads it.
+    // Server-resolved batch size stamped at Start for display and explicit
+    // restore batching. When restore_batch_size is positive, the restorer uses
+    // this value. When restore_batch_size=0, the restorer ignores this value and
+    // claims up to the server's maximum restore wave size each time.
     uint32 effective_batch_size = 24;
 
     // Profile-backed executions can throttle Curtail dispatch separately from
@@ -366,7 +363,7 @@ message CurtailmentEvent {
     // Operator-supplied reason.
     string reason = 20;
 
-    // Trigger attribution; empty for direct user/API-key calls.
+    // Caller-supplied trigger attribution; direct user/API-key calls may set it.
     string external_source    = 21;
     string external_reference = 22;
     string idempotency_key    = 23;
@@ -461,15 +458,15 @@ message CurtailmentTargetPhaseSummary {
 message CurtailmentCandidate {
     string device_identifier = 1;
     double current_power_w   = 2;
-    double efficiency_jh     = 3;
-    string reason_selected   = 4;  // human-readable selection rationale
+    double efficiency_jh     = 3;  // hourly average in joules per hash (J/H), not J/TH
+    string reason_selected   = 4;  // machine token, e.g. "least_efficient_first"
 }
 
 // SkippedCandidate explains why a candidate was excluded.
 message SkippedCandidate {
     string device_identifier = 1;
     string reason            = 2;  // canonical exclusion reason (e.g. "phantom_load_no_hash")
-    string description       = 3;  // human-readable elaboration
+    string description       = 3;  // currently unpopulated; use reason
 }
 
 // --- Requests / Responses ---
@@ -559,8 +556,8 @@ message PreviewCurtailmentPlanRequest {
     // UNAVAILABLE state until maintenance clears.
     bool force_include_all_paired_miners = 30;
 
-    // New topology selectors require version 1. Zero keeps current site/miner
-    // callers valid while the server-first rollout is in progress.
+    // Building, rack, and group selectors require version 1. Zero is accepted
+    // for whole-org, site, and explicit-miner scopes; ProtoFleet sends version 1.
     uint32 scope_schema_version = 31 [(buf.validate.field).uint32.lte = 1];
 
     // Set together when previewing values copied from a saved response profile.
@@ -675,7 +672,7 @@ message StartCurtailmentRequest {
     }
 
     // Operational controls.
-    uint32 max_duration_seconds       = 20 [(buf.validate.field).uint32 = {lte: 604800}];  // 0 = no cap
+    uint32 max_duration_seconds       = 20 [(buf.validate.field).uint32 = {lte: 604800}];  // 0 = org default unless allow_unbounded
     // Default 0 = restore all pending targets in one wave up to the server's
     // explicit max restore wave size. Positive values are persisted and used as
     // the caller's explicit restore wave size.
@@ -698,7 +695,7 @@ message StartCurtailmentRequest {
 
     // Admin-only acknowledgement to opt out of `max_duration_default_sec`
     // normalization. Default false; otherwise `max_duration_seconds=0` is
-    // normalized to the per-org default at handler entry.
+    // normalized to the per-org default by the domain service.
     bool allow_unbounded = 27;
 
     // How long restored targets remain excluded from selection. Zero disables cooldown.
@@ -726,8 +723,8 @@ message StartCurtailmentRequest {
     uint32 fan_off_delay_sec = 39 [(buf.validate.field).uint32.lte = 3600];
     uint32 fan_restore_delay_sec = 40 [(buf.validate.field).uint32.lte = 3600];
 
-    // New topology selectors require version 1. Zero keeps current site/miner
-    // callers valid while the server-first rollout is in progress.
+    // Building, rack, and group selectors require version 1. Zero is accepted
+    // for whole-org, site, and explicit-miner scopes; ProtoFleet sends version 1.
     uint32 scope_schema_version = 41 [(buf.validate.field).uint32.lte = 1];
 
     // Set together when starting values copied from a saved response profile.
@@ -797,17 +794,18 @@ message StopCurtailmentResponse {
     CurtailmentEvent event = 1;
 }
 
-// ListActiveCurtailments returns every non-terminal event for the caller's
-// org. Multiple can be active when they target disjoint device scopes (e.g.
+// ListActiveCurtailments returns non-terminal events in the caller's org
+// whose authorization requirements the caller satisfies. Multiple can be
+// active when they target disjoint device scopes (e.g.
 // one per site). Each event carries its metadata, scope, mode params,
 // target-site coverage, and a live `target_rollup` (per-state counts of the
 // event's current target set, the operational truth for active displays) but
 // omits per-device targets and the decision snapshot; use GetCurtailmentEvent
 // for full per-target detail and event-start snapshot context.
 //
-// Whole-org events omit `target_rollup` when the caller's curtailment:read
-// grant is narrowed at any site: the rollup aggregates target counts across
-// every site, so it requires unnarrowed org-wide read.
+// Whole-org events require unnarrowed org-wide curtailment:read and are
+// filtered out for callers whose grant is narrowed at any site. Trigger
+// attribution and idempotency fields are scrubbed from list responses.
 message ListActiveCurtailmentsRequest {}
 
 message ListActiveCurtailmentsResponse {
@@ -815,7 +813,10 @@ message ListActiveCurtailmentsResponse {
     repeated CurtailmentEvent events = 1;
 }
 
-// ListCurtailmentEvents returns historical events. Each event omits
+// ListCurtailmentEvents returns permitted events in any state unless filtered.
+// Permission filtering scans a bounded number of database pages, so a response
+// may be short or empty with a nonempty next_page_token. Continue until that
+// token is empty. Each event omits
 // `target_rollup`/`targets`, scrubs webhook trigger metadata
 // (`external_source`, `external_reference`, `idempotency_key`), and
 // ships a trimmed `decision_snapshot` where the per-device `skipped`
@@ -847,7 +848,8 @@ message ListCurtailmentEventsRequest {
 message ListCurtailmentEventsResponse {
     repeated CurtailmentEvent events = 1;
 
-    // Empty when no further pages remain.
+    // Empty when no further pages remain; may be nonempty even on a short or
+    // empty page after permission filtering.
     string next_page_token = 2;
 }
 
@@ -1134,7 +1136,7 @@ message CurtailmentResponseProfile {
     int64 profile_id = 1;
     string profile_name = 2;
 
-    // Unset site means the profile applies to the whole org.
+    // Singular site projection when applicable; read scopes for the full selector.
     ScopeSite site = 3;
     // Executable terminal selector. Repeated entries share one selector type.
     repeated CurtailmentScope scopes = 17 [(buf.validate.field).repeated.max_items = 1024];
@@ -1226,9 +1228,9 @@ message CreateCurtailmentResponseProfileRequest {
     };
 
     string profile_name = 1 [(buf.validate.field).string = { min_len: 1, max_len: 64 }];
-    // Unset site means the profile applies to the whole org.
+    // Set exactly one of site or nonempty scopes. Use scopes for whole-org selection.
     ScopeSite site = 2;
-    // Required unless site is populated; scopes replaces site when set.
+    // Required unless site is populated; cannot be combined with site.
     repeated CurtailmentScope scopes = 17 [(buf.validate.field).repeated.max_items = 1024];
 
     CurtailmentMode mode = 3 [(buf.validate.field).enum = {
@@ -1305,9 +1307,9 @@ message UpdateCurtailmentResponseProfileRequest {
 
     int64 profile_id = 1 [(buf.validate.field).int64.gt = 0];
     string profile_name = 2 [(buf.validate.field).string = { min_len: 1, max_len: 64 }];
-    // Unset site means the profile applies to the whole org.
+    // Set exactly one of site or nonempty scopes. Use scopes for whole-org selection.
     ScopeSite site = 3;
-    // Required unless site is populated; scopes replaces site when set.
+    // Required unless site is populated; cannot be combined with site.
     repeated CurtailmentScope scopes = 17 [(buf.validate.field).repeated.max_items = 1024];
 
     CurtailmentMode mode = 4 [(buf.validate.field).enum = {

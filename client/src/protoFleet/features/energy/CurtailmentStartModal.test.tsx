@@ -45,10 +45,6 @@ vi.mock("@/protoFleet/features/energy/useCurtailmentPlanPreview", () => ({
     restoreEstimate: "~2 minutes",
     scopeLabel: "across the fleet",
   }),
-  getUnsupportedDeviceSetPreviewError: (values: CurtailmentFormValues) =>
-    values.scopeType === "deviceSet" && values.deviceSetIds.length > 0
-      ? "Rack and group curtailment previews are not supported yet. Select specific miners or the whole fleet to preview and start this curtailment."
-      : undefined,
   useCurtailmentPlanPreview: mockUseCurtailmentPlanPreview,
 }));
 
@@ -207,7 +203,6 @@ const responseProfiles: CurtailmentResponseProfileOption[] = [
       scopeType: "explicitMiners",
       scopeId: undefined,
       siteId: "",
-      deviceSetIds: [],
       deviceIdentifiers: ["miner-1", "miner-2", "miner-3"],
       targetKw: "50",
       toleranceKw: "5",
@@ -246,7 +241,6 @@ const wholeFleetResponseProfiles: CurtailmentResponseProfileOption[] = [
       scopeType: "wholeOrg",
       scopeId: "whole-org",
       siteId: "",
-      deviceSetIds: [],
       deviceIdentifiers: [],
       includeMaintenance: false,
     },
@@ -263,7 +257,6 @@ const siteResponseProfiles: CurtailmentResponseProfileOption[] = [
       scopeType: "site",
       scopeId: "Austin, TX",
       siteId: "101",
-      deviceSetIds: [],
       deviceIdentifiers: [],
       includeMaintenance: false,
     },
@@ -428,7 +421,6 @@ describe("CurtailmentStartModal", () => {
         siteId: "101",
         siteIds: ["101"],
         siteNamesById: { "101": "Austin, TX" },
-        deviceSetIds: [],
         deviceIdentifiers: [],
       }),
     );
@@ -619,7 +611,6 @@ describe("CurtailmentStartModal", () => {
         scopeType: "wholeOrg",
         scopeId: "whole-org",
         siteId: "",
-        deviceSetIds: [],
         deviceIdentifiers: [],
         toleranceKw: "5",
         priority: "emergency",
@@ -770,7 +761,6 @@ describe("CurtailmentStartModal", () => {
         scopeType: "site",
         scopeId: "Austin, TX",
         siteId: "101",
-        deviceSetIds: [],
         deviceIdentifiers: [],
       }),
     );
@@ -870,7 +860,6 @@ describe("CurtailmentStartModal", () => {
           scopeType: "site",
           scopeId: "Missing site",
           siteId: "   ",
-          deviceSetIds: [],
           deviceIdentifiers: [],
           includeMaintenance: false,
         },
@@ -897,7 +886,6 @@ describe("CurtailmentStartModal", () => {
         scopeType: "wholeOrg",
         scopeId: "whole-org",
         siteId: "",
-        deviceSetIds: [],
         deviceIdentifiers: [],
       }),
     );
@@ -914,7 +902,6 @@ describe("CurtailmentStartModal", () => {
           scopeType: "site",
           scopeId: "Austin, TX",
           siteId: "austin-tx",
-          deviceSetIds: [],
           deviceIdentifiers: [],
           includeMaintenance: false,
         },
@@ -941,7 +928,6 @@ describe("CurtailmentStartModal", () => {
         scopeType: "wholeOrg",
         scopeId: "whole-org",
         siteId: "",
-        deviceSetIds: [],
         deviceIdentifiers: [],
       }),
     );
@@ -976,7 +962,6 @@ describe("CurtailmentStartModal", () => {
         responseProfileId: "emergency-shed",
         scopeType: "explicitMiners",
         scopeId: undefined,
-        deviceSetIds: [],
         deviceIdentifiers: ["miner-1", "miner-2", "miner-3"],
       }),
     );
@@ -1117,7 +1102,6 @@ describe("CurtailmentStartModal", () => {
         fanRestoreDelaySec: "120",
         scopeType: "site",
         scopeId: "Austin, TX",
-        deviceSetIds: [],
         deviceIdentifiers: [],
         includeMaintenance: true,
       }),
@@ -1149,7 +1133,6 @@ describe("CurtailmentStartModal", () => {
         siteIds: ["102"],
         scopeType: "site",
         scopeId: "Denver, CO",
-        deviceSetIds: [],
         deviceIdentifiers: [],
       }),
     );
@@ -1285,7 +1268,6 @@ describe("CurtailmentStartModal", () => {
         siteNamesById: { "102": "Denver, CO" },
         scopeType: "site",
         scopeId: "Denver, CO",
-        deviceSetIds: [],
         deviceIdentifiers: [],
       }),
     );
@@ -1319,7 +1301,6 @@ describe("CurtailmentStartModal", () => {
         siteNamesById: { "101": "Toronto" },
         scopeType: "site",
         scopeId: "All sites",
-        deviceSetIds: [],
         deviceIdentifiers: [],
       }),
     );
@@ -1352,7 +1333,6 @@ describe("CurtailmentStartModal", () => {
         siteNamesById: { "101": "Austin, TX", "102": "Denver, CO" },
         scopeType: "site",
         scopeId: "2 sites",
-        deviceSetIds: [],
         deviceIdentifiers: [],
       }),
     );
@@ -1746,7 +1726,6 @@ describe("CurtailmentStartModal", () => {
         siteSelection: "allSites",
         scopeType: "site",
         scopeId: "All sites",
-        deviceSetIds: [],
         deviceIdentifiers: [],
       }),
     );
@@ -2031,27 +2010,6 @@ describe("CurtailmentStartModal", () => {
     expect(screen.getAllByText("Preview is unavailable until a valid target reduction is entered.")).toHaveLength(2);
   });
 
-  it("shows unsupported target-scope errors before controlled preview props", () => {
-    renderModal({
-      initialValues: {
-        ...configuredValues,
-        includeMaintenance: false,
-        scopeType: "deviceSet",
-        scopeId: "racks",
-        deviceSetIds: ["rack-1"],
-      },
-      preview,
-    });
-
-    expect(
-      screen.getAllByText(
-        "Rack and group curtailment previews are not supported yet. Select specific miners or the whole fleet to preview and start this curtailment.",
-      ),
-    ).toHaveLength(2);
-    expect(screen.queryByText("Curtail 18 miners across the fleet immediately")).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Run curtailment" })).toBeDisabled();
-  });
-
   it("renders estimated reduction against the requested reduction", () => {
     renderModal({
       initialValues: {
@@ -2288,7 +2246,6 @@ describe("CurtailmentStartModal", () => {
       expect.objectContaining({
         scopeType: "explicitMiners",
         scopeId: undefined,
-        deviceSetIds: [],
         deviceIdentifiers: ["miner-1", "miner-2", "miner-3"],
       }),
     );
@@ -2487,7 +2444,6 @@ describe("CurtailmentStartModal", () => {
         scopeId: "whole-org",
         siteSelection: "allSites",
         siteId: "",
-        deviceSetIds: [],
         deviceIdentifiers: [],
         minerSelectionMode: "all",
       }),
@@ -2543,7 +2499,6 @@ describe("CurtailmentStartModal", () => {
         scopeId: "whole-org",
         siteSelection: "allSites",
         siteId: "",
-        deviceSetIds: [],
         deviceIdentifiers: [],
         minerSelectionMode: "all",
       }),
@@ -2582,7 +2537,6 @@ describe("CurtailmentStartModal", () => {
         siteId: "",
         siteIds: [],
         siteNamesById: {},
-        deviceSetIds: [],
         deviceIdentifiers: ["miner-1", "miner-2", "miner-3"],
         minerSelectionMode: "subset",
       }),
@@ -2622,7 +2576,6 @@ describe("CurtailmentStartModal", () => {
         siteId: "101",
         siteIds: ["101", "102"],
         siteNamesById: { "101": "Austin, TX", "102": "Denver, CO" },
-        deviceSetIds: [],
         deviceIdentifiers: [],
         minerSelectionMode: "subset",
       }),
@@ -2659,7 +2612,6 @@ describe("CurtailmentStartModal", () => {
         siteSelection: "site",
         siteId: "101",
         siteIds: ["101"],
-        deviceSetIds: [],
         deviceIdentifiers: [],
         minerSelectionMode: "subset",
       }),

@@ -117,7 +117,6 @@ function mapCurtailmentEventScopeToFormValues(
       | "buildingTargetIds"
       | "rackTargetIds"
       | "groupTargetIds"
-      | "deviceSetIds"
       | "deviceIdentifiers"
     >
   | undefined {
@@ -154,7 +153,6 @@ function mapCurtailmentEventScopeToFormValues(
       siteSelection: scope.type === "wholeOrg" ? "allSites" : scope.type === "site" ? "site" : "none",
       siteId,
       siteNamesById,
-      deviceSetIds: [],
     };
   }
 
@@ -171,7 +169,6 @@ function mapCurtailmentEventScopeToFormValues(
         buildingTargetIds: [],
         rackTargetIds: [],
         groupTargetIds: [],
-        deviceSetIds: [],
         deviceIdentifiers: [],
       };
     }
@@ -186,7 +183,6 @@ function mapCurtailmentEventScopeToFormValues(
         buildingTargetIds: [],
         rackTargetIds: [],
         groupTargetIds: [],
-        deviceSetIds: [],
         deviceIdentifiers: [...event.scope.value.deviceIdentifiers],
       };
     case "wholeOrg":
@@ -201,7 +197,6 @@ function mapCurtailmentEventScopeToFormValues(
         buildingTargetIds: [],
         rackTargetIds: [],
         groupTargetIds: [],
-        deviceSetIds: [],
         deviceIdentifiers: [],
       };
   }

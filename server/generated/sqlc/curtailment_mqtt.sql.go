@@ -517,34 +517,6 @@ func (q *Queries) ListRigConfigReconciliationTargets(ctx context.Context, arg Li
 	return items, nil
 }
 
-const requestRigConfigReconciliation = `-- name: RequestRigConfigReconciliation :exec
-INSERT INTO curtailment_rig_config_reconciliation (
-    organization_id,
-    requested_by,
-    full_reconcile_generation
-) VALUES (
-    $1,
-    $2,
-    1
-)
-ON CONFLICT (organization_id) DO UPDATE
-SET requested_by = EXCLUDED.requested_by,
-    desired_generation = curtailment_rig_config_reconciliation.desired_generation + 1,
-    full_reconcile_generation = curtailment_rig_config_reconciliation.desired_generation + 1,
-    retry_at = CURRENT_TIMESTAMP,
-    last_error = NULL
-`
-
-type RequestRigConfigReconciliationParams struct {
-	OrganizationID int64
-	RequestedBy    int64
-}
-
-func (q *Queries) RequestRigConfigReconciliation(ctx context.Context, arg RequestRigConfigReconciliationParams) error {
-	_, err := q.exec(ctx, q.requestRigConfigReconciliationStmt, requestRigConfigReconciliation, arg.OrganizationID, arg.RequestedBy)
-	return err
-}
-
 const requestRigConfigReconciliationForDevices = `-- name: RequestRigConfigReconciliationForDevices :exec
 WITH eligible AS MATERIALIZED (
     SELECT d.id, d.org_id
@@ -922,8 +894,8 @@ type UpsertMQTTSourceStateParams struct {
 	PendingRetryAt        sql.NullTime
 }
 
-// Subscriber upserts source signal state on each successful message receive,
-// after precedence/dedup processing. Singleton per source.
+// Replace the source's signal state after receive, pending-edge, watchdog,
+// and retry processing. Singleton per source.
 func (q *Queries) UpsertMQTTSourceState(ctx context.Context, arg UpsertMQTTSourceStateParams) error {
 	_, err := q.exec(ctx, q.upsertMQTTSourceStateStmt, upsertMQTTSourceState,
 		arg.SourceConfigID,

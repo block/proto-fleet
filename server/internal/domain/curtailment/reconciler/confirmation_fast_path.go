@@ -10,8 +10,8 @@
 //
 // Lifecycle: the pulse goroutine parks with zero periodic work while no
 // eligible rows exist. Wakes arrive when a tick observes durable dispatched
-// work (deferred from each phase handler, which also covers startup and
-// crash recovery via the initial wake in Start). While active it re-runs
+// work (deferred from each phase handler). tickLoop sends the initial wake
+// for startup and crash recovery. While active it re-runs
 // every confirmationPulseInterval, backing off exponentially on pass
 // failures, and parks again once the eligibility read returns no rows.
 //

@@ -24,7 +24,7 @@ export type CurtailmentTerminalScope =
   | { type: "deviceIdentifiers"; deviceIdentifiers: string[] };
 
 export type CurtailmentScopeSelection = {
-  scopeType?: CurtailmentTerminalScopeType | "deviceSet";
+  scopeType?: CurtailmentTerminalScopeType;
   minerSelectionMode?: "all" | "subset";
   siteSelection?: "none" | "site" | "allSites";
   siteId?: string;
@@ -99,7 +99,6 @@ export function getCurtailmentTerminalScope(
       const deviceIdentifiers = normalizeCurtailmentSelectionValues(selection.deviceIdentifiers ?? []);
       return deviceIdentifiers.length > 0 ? { type: "deviceIdentifiers", deviceIdentifiers } : undefined;
     }
-    case "deviceSet":
     case undefined:
       return undefined;
   }

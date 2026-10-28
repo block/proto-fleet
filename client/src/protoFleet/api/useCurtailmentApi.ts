@@ -1304,11 +1304,7 @@ export function useCurtailmentApi(options: UseCurtailmentApiOptions = {}): UseCu
         }
 
         applyEvent(response.event);
-        try {
-          await refreshAfterMutation();
-        } catch (refreshError) {
-          handleFailure(refreshError, "Failed to refresh curtailment state after force release.");
-        }
+        await refreshAfterMutation();
         return {
           event: response.event,
           releasedTargetCount: response.releasedTargetCount,

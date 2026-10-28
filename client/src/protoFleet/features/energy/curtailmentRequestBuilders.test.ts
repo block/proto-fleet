@@ -14,7 +14,6 @@ const baseValues: CurtailmentSubmitValues = {
   buildingTargetIds: [],
   rackTargetIds: [],
   groupTargetIds: [],
-  deviceSetIds: [],
   deviceIdentifiers: [],
   responseProfileId: "customPlan",
   curtailmentMode: "fixedKwReduction",
@@ -274,15 +273,6 @@ describe("curtailmentRequestBuilders", () => {
   });
 
   it("keeps unsupported scope state from falling back to the whole fleet", () => {
-    expect(() =>
-      buildStartCurtailmentRequest({
-        ...baseValues,
-        scopeType: "deviceSet",
-        scopeId: "racks",
-        deviceSetIds: ["rack-1"],
-      }),
-    ).toThrow("Unsupported curtailment target scope.");
-
     expect(() =>
       buildStartCurtailmentRequest({
         ...baseValues,
