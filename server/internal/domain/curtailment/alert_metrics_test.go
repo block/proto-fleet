@@ -1,9 +1,11 @@
 package curtailment
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"testing"
 	"time"
 
@@ -514,4 +516,19 @@ func TestAlertMetricsTick_PendingAgesResetAndReadFailureDoesNotClear(t *testing.
 	work.eventAge, work.edgeAge = 0, 0
 	loop.tick(t.Context())
 	require.Equal(t, [2]time.Duration{0, 0}, ages.samples[1], "resolved work must clear both gauges")
+}
+
+func TestAlertMetricsTick_PendingAgesErrorIsQuietOnShutdown(t *testing.T) {
+	var logs bytes.Buffer
+	loop := newTestAlertMetricsLoop(t, AlertMetricsConfig{
+		Sources: &fakeSourcesLister{}, Runtime: &fakeRuntime{}, ActiveCurtailment: &fakeActiveLister{}, Emitter: &recordingEmitter{},
+		PendingWork: &fakePendingWork{err: context.Canceled}, PendingAges: &recordingPendingAges{},
+		Logger: slog.New(slog.NewTextHandler(&logs, nil)),
+	})
+	stopped, cancel := context.WithCancel(t.Context())
+	cancel()
+	loop.tick(stopped)
+	require.NotContains(t, logs.String(), "pending work ages failed", "shutdown must not log a lookup failure")
+	loop.tick(t.Context())
+	require.Contains(t, logs.String(), "pending work ages failed", "a failure outside shutdown must still be logged")
 }

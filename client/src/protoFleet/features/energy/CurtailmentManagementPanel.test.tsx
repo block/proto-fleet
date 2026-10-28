@@ -1824,6 +1824,17 @@ describe("CurtailmentManagementPanel", () => {
     },
   );
 
+  it("keeps an earlier stop error out of the Manage modal", async () => {
+    const user = userEvent.setup();
+    mocks.useCurtailmentApi.mockReturnValue(
+      createApiResult({ activeEvent, activeEventId: "curt-1", activeEventFormValues, stopError: "Stop rejected" }),
+    );
+    render(<CurtailmentManagementPanel />);
+    await user.click(screen.getByRole("button", { name: "Request edit" }));
+    const modal = screen.getByRole("dialog", { name: "Manage curtailment" });
+    expect(within(modal).queryByTestId("modal-action-error")).not.toBeInTheDocument();
+  });
+
   it("withholds the active Manage action when the event has no supported edit form", () => {
     mocks.useCurtailmentApi.mockReturnValue(
       createApiResult({ activeEvent, activeEventId: "curt-1", activeEventFormValues: null }),

@@ -1059,7 +1059,7 @@ function CurtailmentManagementPanel({
           onSubmit={handleModalSubmit}
           onStopCurtailment={isEditingCurtailment ? handleEditStopCurtailment : undefined}
           isSubmitting={isModalSubmitting}
-          actionError={isEditingCurtailment ? (updateError ?? recoveryStopError) : startError}
+          actionError={isEditingCurtailment ? updateError : startError}
         />
       ) : null}
 

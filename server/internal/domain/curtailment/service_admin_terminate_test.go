@@ -694,6 +694,11 @@ func TestService_AdminTerminate_FanPathRaceLossMapsFailedPrecondition(t *testing
 	})
 	require.Error(t, err)
 	assert.True(t, fleeterror.IsFailedPreconditionError(err))
+	var fleetErr fleeterror.FleetError
+	require.ErrorAs(t, err, &fleetErr)
+	assert.Equal(t, fleeterror.ErrorCodeTypeService, fleetErr.FleetErrorCodeType)
+	assert.Equal(t, FleetErrorCodeAdminTerminateStateRaceLoss, fleetErr.FleetErrorCode,
+		"race loss must carry its own code so callers can retry without parsing the message")
 	assert.Equal(t, 1, store.adminTerminateWithFanRecoveryCalls)
 	assert.Zero(t, store.adminTerminateCalls, "race loss must stop terminal transition")
 }

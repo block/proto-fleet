@@ -4171,6 +4171,8 @@ export const CurtailmentService: GenService<{
    *     StopCurtailment first.
    *   - 2 (AdminTerminateStateConflict): event already settled in a
    *     different terminal state. Not retryable.
+   *   - 3 (AdminTerminateStateRaceLoss): event state changed while the
+   *     terminate ran. Retry against the current event.
    *
    * RESTORING-event semantics: the in-flight gate matches only
    * desired_state=CURTAILED, so a terminate during restore proceeds

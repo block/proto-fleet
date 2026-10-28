@@ -1701,6 +1701,15 @@ SET desired_state = CASE
         THEN 'released'
         ELSE 'pending'
     END,
+    released_at = CASE
+        WHEN target.state IN ('pending', 'unavailable', 'dispatching')
+         AND target.last_dispatched_at IS NULL
+         AND target.curtail_dispatched_at IS NULL
+         AND target.retry_count = 0
+         AND target.restore_started_at IS NULL
+        THEN COALESCE(target.released_at, CURRENT_TIMESTAMP)
+        ELSE target.released_at
+    END,
     retry_count = 0,
     last_dispatched_at = NULL,
     last_batch_uuid = NULL,

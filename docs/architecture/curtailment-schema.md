@@ -76,7 +76,8 @@ never-dispatched target release path set the relevant phase state and phase
 completion time. Normal confirmation updates the corresponding phase completion
 time as well.
 
-Force release, never-dispatched release, and all-paired policy release populate
+Force release, never-dispatched release (including targets that leave a
+topology scope before Curtail dispatch), and all-paired policy release populate
 `released_at` on the first release; repeated writes preserve that timestamp.
 Reacquiring a terminal target for the same event clears it to null along with
 the new curtail phase's dispatch/retry state. Older released rows can still have

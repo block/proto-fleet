@@ -2271,27 +2271,13 @@ func isCurtailed(latestPowerW *float64, baselinePowerW *float64, latestHashRateH
 }
 
 // enforceMaxDuration restores an event once its finite safety cap expires.
-// Active events use started_at. Pending events use creation as a conservative
-// fallback because no durable first-dispatch timestamp exists. Incomplete
-// confirmation cannot leave already curtailed miners held indefinitely. A failed
-// transition still suppresses further curtail dispatch until a later tick can retry it.
+// Active events use started_at; pending events use creation (see
+// curtailment.MaxDurationElapsed). Incomplete confirmation cannot leave already
+// curtailed miners held indefinitely. A failed transition still suppresses
+// further curtail dispatch until a later tick can retry it.
 func (r *Reconciler) enforceMaxDuration(ctx context.Context, ev *models.Event, targets []*models.Target) bool {
-	if ev.AllowUnbounded || ev.MaxDurationSeconds == nil || *ev.MaxDurationSeconds <= 0 {
-		return false
-	}
-	var boundary time.Time
-	if ev.StartedAt != nil {
-		boundary = *ev.StartedAt
-	} else if ev.State == models.EventStatePending {
-		boundary = ev.CreatedAt
-		// LastDispatchedAt advances on every retry and cannot be used as a
-		// durable first-dispatch clock. Creation is the conservative fallback.
-	} else {
-		return false
-	}
-	maxDur := time.Duration(*ev.MaxDurationSeconds) * time.Second
-	elapsed := r.now().Sub(boundary)
-	if elapsed < maxDur {
+	elapsed, expired := curtailment.MaxDurationElapsed(ev, r.now())
+	if !expired {
 		return false
 	}
 

@@ -529,10 +529,20 @@ passed. To run a fleet with the beta alerts stack:
 On the first run with alerts enabled, `run-fleet.sh` rotates the
 Grafana admin password and writes it into `.env` as
 `GRAFANA_ADMIN_PASSWORD`. It also creates a dedicated read-only
-PostgreSQL role for Grafana (`grafana_ro` by default) with `SELECT`
-only on `notification_metric_sample`, and persists those credentials
-to `.env` as `GRAFANA_DB_USERNAME` / `GRAFANA_DB_PASSWORD`. Grafana
-authenticates as this role rather than the broader fleet-api app role.
+PostgreSQL role for Grafana (`grafana_ro` by default) and persists
+those credentials to `.env` as `GRAFANA_DB_USERNAME` /
+`GRAFANA_DB_PASSWORD`. Grafana authenticates as this role rather than
+the broader fleet-api app role.
+
+The role can read only what the packaged alert rules query:
+`notification_metric_sample` and the `fleet_telemetry_poll_heartbeat`
+aggregate; owner-privilege views that expose live organization IDs,
+device presence, and device placement without grants on the underlying
+tables; and only the liveness columns of `fleet_node_live` and
+`curtailment_reconciler_heartbeat`. `provision_grafana_db_role` in
+`run-fleet.sh` defines the exact grants, and a server test runs every
+packaged rule under them, so a rule that needs a new table fails in CI
+until the grant is added.
 
 ### Configuration files
 

@@ -1352,6 +1352,34 @@ func TestAutomationService_HandleMQTTSignal_RepeatedOffDoesNotRecurtailAfterMaxD
 	assert.Equal(t, 0, h.rules.setActiveCalls)
 }
 
+func TestAutomationService_HandleMQTTSignal_RepeatedOffDoesNotRecurtailEventExpiredWhilePending(t *testing.T) {
+	t.Parallel()
+
+	h := newAutomationHarness(t)
+	activeEventUUID := h.seedAutomationEvent(models.EventStateRestoring)
+	lastSignal := models.AutomationSignalOff
+	lastSignalAt := time.Date(2026, 6, 11, 20, 0, 0, 0, time.UTC)
+	maxDurationSeconds := int32(300)
+	h.rule.ActiveEventUUID = &activeEventUUID
+	h.rule.LastSignal = &lastSignal
+	h.rule.LastSignalAt = &lastSignalAt
+	// The pending cap restored this event before it became active, so it has no started_at.
+	h.curtailments.eventsByUUID[activeEventUUID].CreatedAt = lastSignalAt.Add(-time.Hour)
+	h.curtailments.eventsByUUID[activeEventUUID].MaxDurationSeconds = &maxDurationSeconds
+
+	err := h.automation.HandleMQTTSignal(t.Context(), mqttingest.SignalEdge{
+		Source:     h.source,
+		Direction:  mqttingest.EdgeReassertOff,
+		Target:     mqttingest.TargetOff,
+		ReceivedAt: lastSignalAt.Add(10 * time.Second),
+	})
+
+	require.NoError(t, err)
+	assert.Equal(t, []models.AutomationSignal{models.AutomationSignalOff}, h.rules.recordedSignals)
+	assert.Equal(t, 0, h.curtailments.beginRecurtailCalls)
+	assert.Equal(t, 0, h.rules.setActiveCalls)
+}
+
 func TestAutomationService_HandleMQTTSignal_ReplayedOffDoesNotBypassMaxDuration(t *testing.T) {
 	t.Parallel()
 

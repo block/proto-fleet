@@ -1,7 +1,8 @@
 // Package curtailment: alert_metrics.go periodically translates MQTT
 // curtailment-source state into emissions on the metrics contract declared in
 // server/internal/infrastructure/metrics, feeding the default Grafana rules
-// "Curtailment Active" and "Curtailment Source Unreachable".
+// "Curtailment Active" and "Curtailment Source Unreachable". The same loop
+// emits the global oldest pending-event and pending-MQTT-edge age gauges.
 package curtailment
 
 import (
@@ -199,11 +200,11 @@ func (l *AlertMetricsLoop) tickLoop(ctx context.Context, runDone chan<- struct{}
 	}
 }
 
-// tick emits one sample per source; a panic is contained so one bad tick
-// cannot kill the loop.
+// tick emits the global pending-work age gauges and one sample per source; a
+// panic is contained so one bad tick cannot kill the loop.
 //
-// Error handling deliberately fails open: on a lookup error nothing is
-// emitted and, if the errors persist past the rules' freshness window, the
+// Error handling deliberately fails open: a lookup error skips the gauges that
+// lookup feeds and, if the errors persist past the rules' freshness window, the
 // alerts resolve. Re-emitting cached values instead could mask a real
 // disconnect or hold a stale curtailed alert with no bound, so the residual
 // exposure (a partial DB failure hitting only these reads) is accepted; a
@@ -221,7 +222,9 @@ func (l *AlertMetricsLoop) tick(parent context.Context) {
 	if l.cfg.PendingWork != nil && l.cfg.PendingAges != nil {
 		eventAge, edgeAge, err := l.cfg.PendingWork.GetPendingWorkAges(ctx)
 		if err != nil {
-			l.cfg.Logger.Error("curtailment alert metrics: pending work ages failed", "error", err)
+			if parent.Err() == nil {
+				l.cfg.Logger.Error("curtailment alert metrics: pending work ages failed", "error", err)
+			}
 		} else {
 			l.cfg.PendingAges.EmitCurtailmentPendingAges(eventAge, edgeAge)
 		}

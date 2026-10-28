@@ -245,9 +245,9 @@ groups:
               rawSql: |
                 -- The singleton is written even when no events exist. Missing
                 -- heartbeats and cold starts are stale rather than healthy.
-                SELECT o.id::text AS organization_id,
+                SELECT o.organization_id,
                        COALESCE(EXTRACT(EPOCH FROM NOW() - h.last_tick_at)::float8, 1e9) AS staleness_seconds
-                FROM organization o
+                FROM fleet_active_organization o
                 LEFT JOIN curtailment_reconciler_heartbeat h ON h.id = 1
           - refId: B
             datasourceUid: __expr__

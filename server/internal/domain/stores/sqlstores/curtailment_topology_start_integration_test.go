@@ -431,17 +431,20 @@ func TestSQLCurtailmentStore_BeginTopologyRestoreReleasesUnsentAndQueuesAttempte
 	assert.Equal(t, models.TargetStateReleased, unsent.State)
 	assert.Equal(t, models.DesiredStateCurtailed, unsent.DesiredState)
 	assert.Nil(t, unsent.RestorePhase)
+	assert.NotNil(t, unsent.ReleasedAt, "a topology-departure release stamps released_at")
 
 	unsentDispatching := byDevice[devices[1]]
 	require.NotNil(t, unsentDispatching)
 	assert.Equal(t, models.TargetStateReleased, unsentDispatching.State)
 	assert.Equal(t, models.DesiredStateCurtailed, unsentDispatching.DesiredState)
 	assert.Nil(t, unsentDispatching.RestorePhase)
+	assert.NotNil(t, unsentDispatching.ReleasedAt, "a topology-departure release stamps released_at")
 
 	attempted := byDevice[devices[2]]
 	require.NotNil(t, attempted)
 	assert.Equal(t, models.TargetStatePending, attempted.State)
 	assert.Equal(t, models.DesiredStateActive, attempted.DesiredState)
+	assert.Nil(t, attempted.ReleasedAt, "a target queued for restore is not released")
 	require.NotNil(t, attempted.RestorePhase)
 	assert.Equal(t, models.TargetStatePending, attempted.RestorePhase.State)
 	require.NotNil(t, attempted.RestorePhase.StartedAt)

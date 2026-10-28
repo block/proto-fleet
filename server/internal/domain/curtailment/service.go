@@ -493,6 +493,9 @@ const (
 	// FleetErrorCodeAdminTerminateStateConflict: event already terminal
 	// in a different state. Not retryable.
 	FleetErrorCodeAdminTerminateStateConflict int32 = 2
+	// FleetErrorCodeAdminTerminateStateRaceLoss: event state changed while
+	// the terminate ran. Retry against the current event.
+	FleetErrorCodeAdminTerminateStateRaceLoss int32 = 3
 )
 
 // AdminTerminateRequest is the service-level shape of an
@@ -548,7 +551,11 @@ func (s *Service) AdminTerminate(ctx context.Context, req AdminTerminateRequest)
 	}
 	if err != nil {
 		if errors.Is(err, interfaces.ErrCurtailmentEventStateRaceLoss) {
-			return nil, fleeterror.NewFailedPreconditionError("curtailment event state advanced during admin termination; retry against the current event state")
+			return nil, fleeterror.NewErrorWithServiceCode(
+				"curtailment event state advanced during admin termination; retry against the current event state",
+				connect.CodeFailedPrecondition,
+				FleetErrorCodeAdminTerminateStateRaceLoss,
+			)
 		}
 		if errors.Is(err, interfaces.ErrCurtailmentAdminTerminateStateConflict) {
 			return nil, fleeterror.NewErrorWithServiceCode(
