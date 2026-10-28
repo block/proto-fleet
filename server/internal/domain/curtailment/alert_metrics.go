@@ -45,12 +45,24 @@ type ActiveCurtailmentLister interface {
 	ListMQTTSourcesWithActiveCurtailment(ctx context.Context) ([]*models.MQTTSourceActiveCurtailment, error)
 }
 
+// PendingWorkAgesLister reads durable pending work independently from reconciler
+// progress, so a stalled reconciler cannot freeze its own pending-age gauges.
+type PendingWorkAgesLister interface {
+	GetPendingWorkAges(ctx context.Context) (time.Duration, time.Duration, error)
+}
+
+type PendingWorkAgesEmitter interface {
+	EmitCurtailmentPendingAges(eventAge, edgeAge time.Duration)
+}
+
 // AlertMetricsConfig bundles the loop's dependencies and tunables.
 type AlertMetricsConfig struct {
 	Sources           EnabledSourcesLister
 	Runtime           SourceRuntimeStatusProvider
 	ActiveCurtailment ActiveCurtailmentLister
 	Emitter           AlertMetricsEmitter
+	PendingWork       PendingWorkAgesLister
+	PendingAges       PendingWorkAgesEmitter
 	// Interval between emissions; zero uses the default.
 	Interval time.Duration
 	Logger   *slog.Logger
@@ -206,6 +218,14 @@ func (l *AlertMetricsLoop) tick(parent context.Context) {
 	// stall every future tick and silently resolve the alerts via age-out.
 	ctx, cancel := context.WithTimeout(parent, 2*l.cfg.Interval)
 	defer cancel()
+	if l.cfg.PendingWork != nil && l.cfg.PendingAges != nil {
+		eventAge, edgeAge, err := l.cfg.PendingWork.GetPendingWorkAges(ctx)
+		if err != nil {
+			l.cfg.Logger.Error("curtailment alert metrics: pending work ages failed", "error", err)
+		} else {
+			l.cfg.PendingAges.EmitCurtailmentPendingAges(eventAge, edgeAge)
+		}
+	}
 	sources, err := l.cfg.Sources.ListEnabledSources(ctx)
 	if err != nil {
 		// parent, not ctx: a tick timeout must be logged; only shutdown is quiet.

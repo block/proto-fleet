@@ -43,6 +43,7 @@ type updateStubStore struct {
 
 func newUpdateStubStore(state models.EventState) *updateStubStore {
 	eventUUID := uuid.New()
+	capSeconds := int32(900)
 	return &updateStubStore{
 		expectedEventUUID: eventUUID,
 		event: &models.Event{
@@ -55,6 +56,7 @@ func newUpdateStubStore(state models.EventState) *updateStubStore {
 			Level:                   models.LevelFull,
 			Priority:                models.PriorityNormal,
 			RestoreBatchSize:        10,
+			MaxDurationSeconds:      &capSeconds,
 			RestoreBatchIntervalSec: 120,
 			Reason:                  "initial reason",
 			AuthorizationEnvelopeJSON: testAuthorizationEnvelopeJSON(
@@ -96,9 +98,6 @@ func (s *updateStubStore) UpdateOperatorFields(_ context.Context, eventID, orgID
 	out := *s.event
 	if params.Reason != nil {
 		out.Reason = *params.Reason
-	}
-	if params.RestoreBatchSize != nil {
-		out.RestoreBatchSize = *params.RestoreBatchSize
 	}
 	if params.RestoreBatchIntervalSec != nil {
 		out.RestoreBatchIntervalSec = *params.RestoreBatchIntervalSec
@@ -282,7 +281,6 @@ func TestHandler_UpdateCurtailmentEvent_HappyPath(t *testing.T) {
 	assert.Equal(t, newReason, *store.lastUpdateParams.Reason)
 	require.NotNil(t, store.lastUpdateParams.MaxDurationSeconds)
 	assert.Equal(t, int32(1800), *store.lastUpdateParams.MaxDurationSeconds)
-	assert.Nil(t, store.lastUpdateParams.RestoreBatchSize, "unset proto fields stay nil through the service layer")
 }
 
 // TestHandler_UpdateCurtailmentEvent_RejectsRestoringState: the service

@@ -51,6 +51,7 @@ const workerRestartBackoffMax = 30 * time.Second
 const reconcileRetryTimeout = 30 * time.Second
 
 var errSubscriberNotStarted = errors.New("mqttingest: subscriber is not started")
+var errStartupSourcesQuiesced = errors.New("mqttingest: startup sources are waiting for settings reconciliation")
 
 // Config bundles the subscriber's runtime dependencies and tunables.
 type Config struct {
@@ -82,13 +83,20 @@ type brokerRuntimeStatus struct {
 }
 
 type subscriberActivation struct {
-	runCanceled <-chan struct{}
-	cancel      context.CancelFunc
-	done        chan struct{}
-	sourceIDs   map[int64]struct{}
-	workerWG    sync.WaitGroup
-	cleanupOnce sync.Once
+	runCanceled    <-chan struct{}
+	cancel         context.CancelFunc
+	done           chan struct{}
+	sourceIDs      map[int64]struct{}
+	quiescedIDs    map[int64]*sourcePause
+	resumeRequests map[int64]*sourcePause
+	retryReconcile chan struct{}
+	workerWG       sync.WaitGroup
+	cleanupOnce    sync.Once
 }
+
+// Each settings pause has its own identity so a delayed completion cannot
+// release a newer pause for the same source.
+type sourcePause struct{ sourceID int64 }
 
 // Subscriber owns per-source workers.
 type Subscriber struct {
@@ -150,7 +158,8 @@ func NewSubscriber(cfg Config) (*Subscriber, error) {
 }
 
 // Start runs the subscriber for the lifetime of ctx and performs the initial
-// source reconciliation.
+// source reconciliation. Source and database failures retry in the background
+// without rolling back other runtime jobs.
 func (s *Subscriber) Start(ctx context.Context) error {
 	s.lifecycleMu.Lock()
 	s.mu.Lock()
@@ -165,33 +174,97 @@ func (s *Subscriber) Start(ctx context.Context) error {
 	}
 	runCtx, cancel := context.WithCancel(ctx)
 	activation := &subscriberActivation{
-		runCanceled: runCtx.Done(),
-		cancel:      cancel,
-		done:        make(chan struct{}),
-		sourceIDs:   make(map[int64]struct{}),
+		runCanceled:    runCtx.Done(),
+		cancel:         cancel,
+		done:           make(chan struct{}),
+		sourceIDs:      make(map[int64]struct{}),
+		quiescedIDs:    make(map[int64]*sourcePause),
+		resumeRequests: make(map[int64]*sourcePause),
+		retryReconcile: make(chan struct{}, 1),
 	}
+	// Reserve the reconciliation retry worker before cancellation can begin waiting.
+	activation.workerWG.Add(1)
 	s.activation = activation
 	s.workers = make(map[int64]*sourceWorkerHandle)
 	s.mu.Unlock()
 	s.lifecycleMu.Unlock()
 	go s.cleanupActivationWhenCanceled(activation)
+	go s.retryReconcile(runCtx, activation)
 
-	if _, _, err := s.reconcile(runCtx, true); err != nil {
-		cancel()
-		s.startActivationCleanup(activation)
-		<-activation.done
-		return err
-	}
+	_, _, reconcileErr := s.reconcile(runCtx, true)
 	if err := runCtx.Err(); err != nil {
 		s.startActivationCleanup(activation)
 		<-activation.done
+		if errors.Is(reconcileErr, errSubscriberNotStarted) {
+			return reconcileErr
+		}
 		return fmt.Errorf("mqttingest: start subscriber: %w", err)
+	}
+	if reconcileErr != nil {
+		s.cfg.Logger.Warn("mqttingest: initial reconciliation degraded; retrying", slog.Any("error", reconcileErr))
+		s.requestReconcileRetry(activation)
 	}
 	return nil
 }
 
+func (s *Subscriber) requestReconcileRetry(activation *subscriberActivation) {
+	select {
+	case activation.retryReconcile <- struct{}{}:
+	default:
+	}
+}
+
+func (s *Subscriber) retryReconcile(ctx context.Context, activation *subscriberActivation) {
+	defer activation.workerWG.Done()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-activation.retryReconcile:
+		}
+		backoff := startupRetryEveryFor(s.cfg.WatchdogTickEvery)
+		for {
+			timer := time.NewTimer(backoff)
+			select {
+			case <-ctx.Done():
+				timer.Stop()
+				return
+			case <-timer.C:
+			}
+			reconcileCtx, cancel := context.WithTimeout(ctx, s.cfg.ReconcileTimeout)
+			_, _, err := s.reconcile(reconcileCtx, true)
+			cancel()
+			if ctx.Err() != nil {
+				return
+			}
+			if err == nil {
+				break
+			}
+			if !errors.Is(err, errStartupSourcesQuiesced) {
+				s.cfg.Logger.Warn("mqttingest: source reconciliation failed; retrying", slog.Any("error", err))
+			}
+			backoff = nextWorkerRestartBackoff(backoff)
+		}
+	}
+}
+
 // Reconcile applies enabled-source settings to the running subscriber.
+// It preserves sources quiesced by settings mutations still in flight.
 func (s *Subscriber) Reconcile(ctx context.Context) error {
+	_, _, err := s.reconcile(ctx, false)
+	return err
+}
+
+// ReconcileSource releases only sourceID's settings pause after its write
+// commits or fails, then reloads enabled-source settings.
+func (s *Subscriber) ReconcileSource(ctx context.Context, sourceID int64) error {
+	s.mu.Lock()
+	activation := s.activation
+	if activation != nil && !channelClosed(activation.runCanceled) {
+		activation.resumeRequests[sourceID] = activation.quiescedIDs[sourceID]
+		s.requestReconcileRetry(activation)
+	}
+	s.mu.Unlock()
 	_, _, err := s.reconcile(ctx, false)
 	return err
 }
@@ -288,12 +361,28 @@ func (s *Subscriber) QuiesceSource(ctx context.Context, sourceID int64) error {
 	activation := s.activation
 	handle := s.workers[sourceID]
 	s.mu.Unlock()
-	if activation == nil || handle == nil {
+	if activation == nil {
+		return nil
+	}
+	// Preserve the settings writer's stop until its post-write reconciliation,
+	// including a source whose initialization failed before creating a handle.
+	s.mu.Lock()
+	if activation.quiescedIDs == nil {
+		activation.quiescedIDs = make(map[int64]*sourcePause)
+	}
+	activation.quiescedIDs[sourceID] = &sourcePause{sourceID: sourceID}
+	s.mu.Unlock()
+	if handle == nil {
 		return nil
 	}
 	runCanceled := activation.runCanceled
 	handle.cancel()
 	if err := s.waitForHandleStopped(ctx, handle); err != nil {
+		// Quiescence failed, so the settings mutation will abort before its
+		// database write. Permit this source to resume once it drains.
+		s.mu.Lock()
+		delete(activation.quiescedIDs, sourceID)
+		s.mu.Unlock()
 		s.recordSourceError(handle.worker.source.ID, err.Error())
 		s.reconcileWhenHandleStops(runCanceled, handle)
 		return err
@@ -308,7 +397,7 @@ func (s *Subscriber) QuiesceSource(ctx context.Context, sourceID int64) error {
 	return nil
 }
 
-func (s *Subscriber) reconcile(ctx context.Context, failIfNoneStarted bool) (int, int, error) {
+func (s *Subscriber) reconcile(ctx context.Context, startup bool) (int, int, error) {
 	if err := s.lockReconcile(ctx); err != nil {
 		return 0, 0, err
 	}
@@ -316,6 +405,16 @@ func (s *Subscriber) reconcile(ctx context.Context, failIfNoneStarted bool) (int
 
 	s.mu.Lock()
 	activation := s.activation
+	if activation != nil {
+		// Apply completed writes under reconcileMu before reading a fresh
+		// settings snapshot. Delayed completions only release their own pause.
+		for sourceID, pause := range activation.resumeRequests {
+			if activation.quiescedIDs[sourceID] == pause {
+				delete(activation.quiescedIDs, sourceID)
+			}
+			delete(activation.resumeRequests, sourceID)
+		}
+	}
 	existing := make(map[int64]*sourceWorkerHandle, len(s.workers))
 	for id, handle := range s.workers {
 		existing[id] = handle
@@ -339,6 +438,13 @@ func (s *Subscriber) reconcile(ctx context.Context, failIfNoneStarted bool) (int
 	for _, src := range sources {
 		desired[src.ID] = src
 	}
+	s.mu.Lock()
+	for sourceID := range activation.quiescedIDs {
+		if _, enabled := desired[sourceID]; !enabled {
+			delete(activation.quiescedIDs, sourceID)
+		}
+	}
+	s.mu.Unlock()
 	stopping := make([]*sourceWorkerHandle, 0)
 	for sourceID, handle := range existing {
 		if handleStopped(handle) {
@@ -375,12 +481,19 @@ func (s *Subscriber) reconcile(ctx context.Context, failIfNoneStarted bool) (int
 
 	started := 0
 	var firstStartErr error
+	hasQuiescedSource := false
 	for _, src := range sources {
 		if channelClosed(runCanceled) {
 			return started, len(sources), errSubscriberNotStarted
 		}
 		fingerprint := sourceConfigFingerprint(src)
 		s.mu.Lock()
+		_, quiesced := activation.quiescedIDs[src.ID]
+		if quiesced {
+			hasQuiescedSource = true
+			s.mu.Unlock()
+			continue
+		}
 		current, ok := s.workers[src.ID]
 		if ok && current.fingerprint == fingerprint {
 			s.mu.Unlock()
@@ -429,16 +542,11 @@ func (s *Subscriber) reconcile(ctx context.Context, failIfNoneStarted bool) (int
 		started++
 	}
 
-	if failIfNoneStarted && len(sources) > 0 {
-		s.mu.Lock()
-		runningCount := len(s.workers)
-		s.mu.Unlock()
-		if runningCount == 0 {
-			if firstStartErr == nil {
-				return started, len(sources), fmt.Errorf("mqttingest: no enabled sources started (source_count=%d)", len(sources))
-			}
-			return started, len(sources), fmt.Errorf("mqttingest: no enabled sources started (source_count=%d): %w", len(sources), firstStartErr)
-		}
+	if startup && firstStartErr != nil {
+		return started, len(sources), fmt.Errorf("mqttingest: enabled sources failed to start: %w", firstStartErr)
+	}
+	if startup && hasQuiescedSource {
+		return started, len(sources), errStartupSourcesQuiesced
 	}
 	return started, len(sources), nil
 }
@@ -448,6 +556,9 @@ func (s *Subscriber) lockReconcile(ctx context.Context) error {
 		ctx = context.Background()
 	}
 	for {
+		if err := ctx.Err(); err != nil {
+			return fmt.Errorf("mqttingest: reconcile lock: %w", err)
+		}
 		if s.reconcileMu.TryLock() {
 			return nil
 		}
@@ -500,7 +611,7 @@ func (s *Subscriber) reconcileAfterHandleStops(runCanceled <-chan struct{}, hand
 	defer runCancel()
 	reconcileCtx, timeoutCancel := context.WithTimeout(runCtx, s.cfg.ReconcileTimeout)
 	defer timeoutCancel()
-	if err := s.Reconcile(reconcileCtx); err != nil {
+	if _, _, err := s.reconcile(reconcileCtx, true); err != nil && !errors.Is(err, errStartupSourcesQuiesced) {
 		s.cfg.Logger.Warn("mqttingest: retry reconcile after worker stop failed",
 			slog.String("source", handle.worker.source.SourceName),
 			slog.Any("error", err))

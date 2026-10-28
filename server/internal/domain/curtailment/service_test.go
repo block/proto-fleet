@@ -178,7 +178,7 @@ func TestFacilityFanController_MissingClaimIsFailureOncePerPowerPhase(t *testing
 		Return(nil, fleeterror.NewNotFoundError("infrastructure device not found")).
 		Times(4)
 	audit := &recordingAudit{}
-	controller := NewFacilityFanController(devices, sites, driver.NewRegistry(), audit)
+	controller := NewFacilityFanController(devices, sites, driver.NewRegistry(), audit, nil)
 	event := &models.Event{
 		EventUUID:            uuid.New(),
 		OrgID:                orgID,
@@ -255,7 +255,7 @@ func TestFacilityFanController_RotatesFailedRetryStartAcrossDevices(t *testing.T
 	driverController := &recordingFacilityFanDriver{failDeviceID: firstID}
 	registry := driver.NewRegistry()
 	registry.Register(driverType, func() driver.Controller { return driverController })
-	controller := NewFacilityFanController(devices, sites, registry, &recordingAudit{})
+	controller := NewFacilityFanController(devices, sites, registry, &recordingAudit{}, nil)
 	event := &models.Event{
 		ID:                   77,
 		EventUUID:            uuid.New(),
@@ -303,7 +303,7 @@ func TestFacilityFanController_DisabledClaimIsAuditedSkipAndCommandFailure(t *te
 	registry := driver.NewRegistry()
 	registry.Register(driverType, func() driver.Controller { return driverController })
 	audit := &recordingAudit{}
-	controller := NewFacilityFanController(devices, sites, registry, audit)
+	controller := NewFacilityFanController(devices, sites, registry, audit, nil)
 	event := &models.Event{
 		EventUUID:            uuid.New(),
 		OrgID:                orgID,
@@ -345,7 +345,7 @@ func TestFacilityFanController_RejectsDeviceMovedFromAuthorizedSite(t *testing.T
 		GetInfrastructureDevice(gomock.Any(), orgID, deviceID).
 		Return(&infrastructuremodels.Device{ID: deviceID, OrgID: orgID, SiteID: currentSite, Enabled: true}, nil)
 	audit := &recordingAudit{}
-	controller := NewFacilityFanController(devices, sites, driver.NewRegistry(), audit)
+	controller := NewFacilityFanController(devices, sites, driver.NewRegistry(), audit, nil)
 	event := &models.Event{
 		EventUUID:            uuid.New(),
 		OrgID:                orgID,

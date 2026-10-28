@@ -504,7 +504,7 @@ func TestAddRoutesNormalizesSharedSubscriptionFilters(t *testing.T) {
 func TestClientOptions_DurableOrderedSession(t *testing.T) {
 	t.Parallel()
 
-	opts := clientOptions("tcp://10.0.0.1:1883", nil, "user", "pass", "source|broker|topic", nil, nil)
+	opts := clientOptions("tcp://10.0.0.1:1883", nil, "user", "pass", "source|broker|topic", false, nil, nil)
 
 	if opts.CleanSession {
 		t.Fatal("CleanSession must be false so broker QoS1 queues survive fleetd restarts")
@@ -534,6 +534,7 @@ func TestClientOptions_RuntimeStatusCallbacks(t *testing.T) {
 		"user",
 		"pass",
 		"source|broker|topic",
+		false,
 		func(paho.Client) {
 			connected = true
 		},

@@ -469,12 +469,12 @@ func (s *AutomationService) ensureNoNonTerminalActiveEvent(ctx context.Context, 
 	event, err := s.curtailment.GetEvent(ctx, rule.OrgID, *rule.ActiveEventUUID)
 	if err != nil {
 		if fleeterror.IsNotFoundError(err) {
-			return s.store.ClearAutomationActiveEvent(ctx, rule.ID, s.clock())
+			return s.store.ClearAutomationActiveEvent(ctx, rule.ID, time.Time{})
 		}
 		return err
 	}
 	if event == nil || event.State.IsTerminal() {
-		return s.store.ClearAutomationActiveEvent(ctx, rule.ID, s.clock())
+		return s.store.ClearAutomationActiveEvent(ctx, rule.ID, time.Time{})
 	}
 	return fleeterror.NewFailedPreconditionErrorf(
 		"cannot %s curtailment automation rule while automation event %s is %s; restore or complete the event first",

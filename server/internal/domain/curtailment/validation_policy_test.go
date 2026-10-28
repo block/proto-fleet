@@ -130,3 +130,32 @@ func TestServiceStart_PlanStateMatchesPersistedLifecycle(t *testing.T) {
 		})
 	}
 }
+
+func TestServiceStart_MinimumDurationBoundsAndEffectiveCap(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		minimum   int32
+		cap       *int32
+		wantError bool
+	}{
+		{"minimum at hard ceiling", maxFiniteDurationSeconds, int32Ptr(maxFiniteDurationSeconds), false},
+		{"minimum above hard ceiling", maxFiniteDurationSeconds + 1, int32Ptr(maxFiniteDurationSeconds), true},
+		{"minimum above explicit cap", 601, int32Ptr(600), true},
+		{"minimum above organization default", 14401, nil, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			store := newFakeStore()
+			store.orgConfigByOrg[42] = defaultOrgConfig(42)
+			store.candidatesByOrg[42] = []*models.Candidate{minerWithEff("a", 6000, 100, 40)}
+			req := validStartRequest(42)
+			req.MinCurtailedDurationSec, req.MaxDurationSeconds, req.CanUseAdminControls = tc.minimum, tc.cap, true
+			_, err := NewService(store).Start(t.Context(), req)
+			if tc.wantError {
+				require.True(t, fleeterror.IsInvalidArgumentError(err), "%v", err)
+				assert.Zero(t, store.insertEventCalls)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}

@@ -3,8 +3,10 @@ package mqttingest
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -248,6 +250,294 @@ func TestSubscriber_ReconcileStartsAndStopsWorkers(t *testing.T) {
 		active, _, _ := reg.snapshot()
 		return active == 0
 	}, 2*time.Second, 10*time.Millisecond, "broker sessions should drain after the source is removed")
+}
+
+type failingListStore struct {
+	Store
+	failing atomic.Bool
+	calls   atomic.Int64
+}
+
+func (s *failingListStore) ListEnabledSources(ctx context.Context) ([]SourceConfig, error) {
+	s.calls.Add(1)
+	if s.failing.Load() {
+		return nil, errors.New("database unavailable")
+	}
+	return s.Store.ListEnabledSources(ctx)
+}
+
+func TestSubscriber_StartRetriesSourceListingAndSupportsRestart(t *testing.T) {
+	t.Parallel()
+
+	src := reconcileTestSource(1, "maestro")
+	store := &failingListStore{Store: newFakeSourceStore(src)}
+	store.failing.Store(true)
+	reg := &clientRegistry{}
+	s := newReconcileTestSubscriber(t, store, reg)
+	s.cfg.WatchdogTickEvery = 5 * time.Millisecond
+	require.NoError(t, s.Start(t.Context()), "database failure must not stop the runtime group")
+	require.ErrorContains(t, s.Start(t.Context()), "already started", "degraded activation still owns its lifecycle")
+	require.Eventually(t, func() bool { return store.calls.Load() >= 2 }, time.Second, time.Millisecond)
+	store.failing.Store(false)
+	requireRunningBrokers(t, s, src.ID, 2)
+	require.NoError(t, s.Stop(t.Context()))
+
+	store.failing.Store(true)
+	require.NoError(t, s.Start(t.Context()))
+	require.NoError(t, s.Stop(t.Context()), "shutdown must cancel the startup retry timer")
+	require.NoError(t, s.Start(t.Context()), "a stopped degraded activation must release ownership")
+	store.failing.Store(false)
+	requireRunningBrokers(t, s, src.ID, 2)
+	require.NoError(t, s.Stop(t.Context()))
+	_, maxActive, connects := reg.snapshot()
+	assert.LessOrEqual(t, maxActive, 2)
+	assert.Equal(t, 4, connects)
+}
+
+func TestSubscriber_StartRetriesInvalidSourcesWhileHealthySourcesKeepRunning(t *testing.T) {
+	t.Parallel()
+
+	for _, withHealthy := range []bool{false, true} {
+		t.Run(fmt.Sprintf("healthy_source_%v", withHealthy), func(t *testing.T) {
+			t.Parallel()
+			bad := reconcileTestSource(1, "broken")
+			bad.PayloadFormat = "unknown"
+			healthy := reconcileTestSource(2, "healthy")
+			store := newFakeSourceStore(bad)
+			if withHealthy {
+				store.setSources(bad, healthy)
+			}
+			reg := &clientRegistry{}
+			s := newReconcileTestSubscriber(t, store, reg)
+			s.cfg.WatchdogTickEvery = 5 * time.Millisecond
+			require.NoError(t, s.Start(t.Context()))
+			t.Cleanup(func() { require.NoError(t, s.Stop(context.Background())) })
+			assert.Equal(t, RuntimeStateError, s.SourceRuntimeStatus(bad.ID).State)
+			if withHealthy {
+				requireRunningBrokers(t, s, healthy.ID, 2)
+			}
+			bad.PayloadFormat = payloadFormatTargetTimestamp
+			if withHealthy {
+				store.setSources(bad, healthy)
+			} else {
+				store.setSources(bad)
+			}
+			requireRunningBrokers(t, s, bad.ID, 2)
+			_, _, connects := reg.snapshot()
+			wantConnects := 2
+			if withHealthy {
+				wantConnects = 4
+			}
+			assert.Equal(t, wantConnects, connects, "successful workers must not restart during source retries")
+		})
+	}
+}
+
+func TestSubscriber_StartupRetriesPreserveQuiescenceUntilSettingsReconcile(t *testing.T) {
+	t.Parallel()
+
+	for _, writeSucceeded := range []bool{false, true} {
+		t.Run(fmt.Sprintf("disable_write_succeeded_%v", writeSucceeded), func(t *testing.T) {
+			t.Parallel()
+			healthy := reconcileTestSource(1, "healthy")
+			invalid := reconcileTestSource(2, "invalid")
+			invalid.PayloadFormat = "unknown"
+			sources := newFakeSourceStore(healthy, invalid)
+			store := &failingListStore{Store: sources}
+			reg := &clientRegistry{}
+			s := newReconcileTestSubscriber(t, store, reg)
+			s.cfg.WatchdogTickEvery = 5 * time.Millisecond
+			require.NoError(t, s.Start(t.Context()))
+			t.Cleanup(func() { require.NoError(t, s.Stop(context.Background())) })
+			requireRunningBrokers(t, s, healthy.ID, 2)
+			require.NoError(t, s.QuiesceSource(t.Context(), healthy.ID))
+			// Leave the stored source enabled while a settings write is in flight.
+			callsAfterQuiesce := store.calls.Load()
+			require.Eventually(t, func() bool { return store.calls.Load() >= callsAfterQuiesce+3 }, time.Second, time.Millisecond)
+			active, _, connects := reg.snapshot()
+			assert.Zero(t, active, "background startup retry must not reopen a quiesced source")
+			assert.Equal(t, 2, connects)
+			if writeSucceeded {
+				sources.setSources(invalid)
+				require.Eventually(t, func() bool {
+					s.mu.Lock()
+					defer s.mu.Unlock()
+					return len(s.activation.quiescedIDs) == 0
+				}, time.Second, time.Millisecond, "disabled sources must not leave stale quiescence entries")
+			}
+			require.NoError(t, s.ReconcileSource(t.Context(), healthy.ID), "settings reconcile releases the pause after commit or rollback")
+			if !writeSucceeded {
+				requireRunningBrokers(t, s, healthy.ID, 2)
+				_, _, connects = reg.snapshot()
+				assert.Equal(t, 4, connects)
+			} else {
+				active, _, connects = reg.snapshot()
+				assert.Zero(t, active)
+				assert.Equal(t, 2, connects)
+			}
+			s.mu.Lock()
+			assert.Empty(t, s.activation.quiescedIDs)
+			s.mu.Unlock()
+		})
+	}
+}
+
+func TestSubscriber_QuiescenceDoesNotSurviveActivationRestart(t *testing.T) {
+	t.Parallel()
+
+	src := reconcileTestSource(1, "maestro")
+	store := newFakeSourceStore(src)
+	reg := &clientRegistry{}
+	s := newReconcileTestSubscriber(t, store, reg)
+	require.NoError(t, s.Start(t.Context()))
+	requireRunningBrokers(t, s, src.ID, 2)
+	require.NoError(t, s.QuiesceSource(t.Context(), src.ID))
+	require.NoError(t, s.Stop(t.Context()))
+	require.NoError(t, s.Start(t.Context()))
+	requireRunningBrokers(t, s, src.ID, 2)
+	require.NoError(t, s.Stop(t.Context()))
+	_, _, connects := reg.snapshot()
+	assert.Equal(t, 4, connects)
+}
+
+func TestSubscriber_StartupRetryWaitsForQuiescedSourceWithoutWorker(t *testing.T) {
+	t.Parallel()
+
+	src := reconcileTestSource(1, "maestro")
+	src.PayloadFormat = "unknown"
+	sources := newFakeSourceStore(src)
+	store := &failingListStore{Store: sources}
+	reg := &clientRegistry{}
+	s := newReconcileTestSubscriber(t, store, reg)
+	s.cfg.WatchdogTickEvery = 5 * time.Millisecond
+	require.NoError(t, s.Start(t.Context()))
+	t.Cleanup(func() { require.NoError(t, s.Stop(context.Background())) })
+	require.NoError(t, s.QuiesceSource(t.Context(), src.ID))
+	callsAfterQuiesce := store.calls.Load()
+	require.Eventually(t, func() bool { return store.calls.Load() >= callsAfterQuiesce+2 }, time.Second, time.Millisecond,
+		"startup retry must remain owned while settings are in flight")
+	_, _, connects := reg.snapshot()
+	assert.Zero(t, connects)
+
+	// The disable write failed and its explicit reconcile still sees an invalid
+	// source. Subsequent recovery must retain the original automatic retry loop.
+	require.NoError(t, s.ReconcileSource(t.Context(), src.ID))
+	src.PayloadFormat = payloadFormatTargetTimestamp
+	sources.setSources(src)
+	requireRunningBrokers(t, s, src.ID, 2)
+}
+
+func TestSubscriber_SourceCompletionSurvivesReconcileLockTimeout(t *testing.T) {
+	t.Parallel()
+
+	for _, disableCommitted := range []bool{false, true} {
+		t.Run(fmt.Sprintf("disable_committed_%v", disableCommitted), func(t *testing.T) {
+			t.Parallel()
+			src := reconcileTestSource(1, "maestro")
+			sources := newFakeSourceStore(src)
+			store := &failingListStore{Store: sources}
+			reg := &clientRegistry{}
+			s := newReconcileTestSubscriber(t, store, reg)
+			s.cfg.WatchdogTickEvery = 5 * time.Millisecond
+			require.NoError(t, s.Start(t.Context()))
+			t.Cleanup(func() { require.NoError(t, s.Stop(context.Background())) })
+			requireRunningBrokers(t, s, src.ID, 2)
+			require.NoError(t, s.QuiesceSource(t.Context(), src.ID))
+			if disableCommitted {
+				sources.setSources()
+			}
+			// A separate reconciliation owns the lock longer than the settings
+			// writer's completion budget, after a healthy startup with no errors.
+			s.reconcileMu.Lock()
+			ctx, cancel := context.WithTimeout(t.Context(), 20*time.Millisecond)
+			err := s.ReconcileSource(ctx, src.ID)
+			cancel()
+			s.mu.Lock()
+			queued := len(s.activation.resumeRequests)
+			paused := len(s.activation.quiescedIDs)
+			s.mu.Unlock()
+			s.reconcileMu.Unlock()
+			require.ErrorIs(t, err, context.DeadlineExceeded)
+			assert.Equal(t, 1, queued, "completion must stay queued after the caller times out")
+			assert.Equal(t, 1, paused, "pause release must wait for the reconcile lock")
+			if !disableCommitted {
+				requireRunningBrokers(t, s, src.ID, 2)
+			}
+			require.Eventually(t, func() bool {
+				s.mu.Lock()
+				defer s.mu.Unlock()
+				return len(s.activation.resumeRequests) == 0 && len(s.activation.quiescedIDs) == 0
+			}, time.Second, time.Millisecond)
+			active, _, connects := reg.snapshot()
+			if disableCommitted {
+				assert.Zero(t, active)
+				assert.Equal(t, 2, connects, "completed disable must never reconnect")
+			} else {
+				assert.Equal(t, 2, active)
+				assert.Equal(t, 4, connects, "failed disable must eventually resume")
+			}
+		})
+	}
+}
+
+func TestSubscriber_DelayedCompletionCannotReleaseNewerSourcePause(t *testing.T) {
+	t.Parallel()
+
+	src := reconcileTestSource(1, "maestro")
+	reg := &clientRegistry{}
+	s := newReconcileTestSubscriber(t, newFakeSourceStore(src), reg)
+	require.NoError(t, s.Start(t.Context()))
+	t.Cleanup(func() { require.NoError(t, s.Stop(context.Background())) })
+	requireRunningBrokers(t, s, src.ID, 2)
+	require.NoError(t, s.QuiesceSource(t.Context(), src.ID))
+	// Model an old completed write queued behind reconcileMu, followed by a
+	// newer writer's quiescence before the old completion is applied.
+	s.mu.Lock()
+	previousPause := s.activation.quiescedIDs[src.ID]
+	newerPause := &sourcePause{sourceID: src.ID}
+	s.activation.resumeRequests[src.ID] = previousPause
+	s.activation.quiescedIDs[src.ID] = newerPause
+	s.mu.Unlock()
+	require.NoError(t, s.Reconcile(t.Context()))
+	s.mu.Lock()
+	assert.Same(t, newerPause, s.activation.quiescedIDs[src.ID])
+	assert.Empty(t, s.activation.resumeRequests)
+	s.mu.Unlock()
+	_, _, connects := reg.snapshot()
+	assert.Equal(t, 2, connects, "old completion must not restart the newer writer's source")
+	require.NoError(t, s.ReconcileSource(t.Context(), src.ID))
+	requireRunningBrokers(t, s, src.ID, 2)
+}
+
+type cancelableListStore struct {
+	Store
+	started chan struct{}
+	once    sync.Once
+}
+
+func (s *cancelableListStore) ListEnabledSources(ctx context.Context) ([]SourceConfig, error) {
+	s.once.Do(func() { close(s.started) })
+	<-ctx.Done()
+	return nil, fmt.Errorf("list enabled sources canceled: %w", ctx.Err())
+}
+
+func TestSubscriber_StartCancellationRemainsAnError(t *testing.T) {
+	t.Parallel()
+
+	store := &cancelableListStore{Store: newFakeSourceStore(), started: make(chan struct{})}
+	s := newReconcileTestSubscriber(t, store, &clientRegistry{})
+	ctx, cancel := context.WithCancel(t.Context())
+	done := make(chan error, 1)
+	go func() { done <- s.Start(ctx) }()
+	<-store.started
+	cancel()
+	select {
+	case err := <-done:
+		require.ErrorIs(t, err, context.Canceled)
+	case <-time.After(time.Second):
+		t.Fatal("canceled initial source listing did not drain")
+	}
+	require.NoError(t, s.Stop(t.Context()))
 }
 
 func TestSubscriber_StartContextCancellationAllowsRestartAfterWorkersDrain(t *testing.T) {

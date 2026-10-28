@@ -466,8 +466,14 @@ function createAutomationColConfig(
 ): ColConfig<AutomationRuleWithDetails, string, AutomationColumn> {
   return {
     [automationCols.name]: {
+      allowWrap: true,
       component: (rule) => (
-        <span className="block max-w-full truncate text-emphasis-300 text-text-primary">{rule.name}</span>
+        <div>
+          <span className="block max-w-full truncate text-emphasis-300 text-text-primary">{rule.name}</span>
+          {rule.lastError ? (
+            <div className="text-200 wrap-anywhere whitespace-normal text-text-critical">{rule.lastError}</div>
+          ) : null}
+        </div>
       ),
       width: "w-[31%] phone:w-auto",
     },

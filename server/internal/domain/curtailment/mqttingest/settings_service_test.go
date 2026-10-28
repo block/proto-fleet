@@ -235,6 +235,7 @@ func (f *fakeSettingsCipher) Decrypt(encrypted string) ([]byte, error) {
 
 type fakeRuntimeController struct {
 	reconcileCalls     int
+	reconciledSourceID int64
 	quiesceCalls       int
 	reconcileErr       error
 	quiesceErr         error
@@ -245,8 +246,9 @@ type fakeRuntimeController struct {
 
 type fakeRuntimeContextKey struct{}
 
-func (f *fakeRuntimeController) Reconcile(ctx context.Context) error {
+func (f *fakeRuntimeController) ReconcileSource(ctx context.Context, sourceID int64) error {
 	f.reconcileCalls++
+	f.reconciledSourceID = sourceID
 	if ctx.Err() != nil {
 		f.sawCanceledContext = true
 	}

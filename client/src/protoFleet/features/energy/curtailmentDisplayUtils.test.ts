@@ -6,7 +6,9 @@ import type { CurtailmentTargetRollup } from "@/protoFleet/api/curtailmentTypes"
 
 import {
   CurtailmentEventSchema,
+  CurtailmentEventState,
   CurtailmentScopeSchema,
+  CurtailmentTargetState,
   ScopeBuildingSchema,
 } from "@/protoFleet/api/generated/curtailment/v1/curtailment_pb";
 import {
@@ -14,6 +16,8 @@ import {
   getActiveCurtailmentCurtailProgress,
   getActiveCurtailmentRestoreProgress,
   getCurtailmentEventScopeLabel,
+  mapCurtailmentEventState,
+  mapCurtailmentTargetState,
 } from "@/protoFleet/features/energy/curtailmentDisplayUtils";
 
 function rollups(counts: Partial<Record<CurtailmentTargetRollup["state"], number>>): CurtailmentTargetRollup[] {
@@ -290,4 +294,20 @@ it("preserves the elapsed display's unlocalized minute and second digits", () =>
   } finally {
     localeSpy.mockRestore();
   }
+});
+
+describe("unknown curtailment states", () => {
+  it.each([CurtailmentEventState.UNSPECIFIED, 999])("keeps event state %s out of pending", (state) => {
+    expect(mapCurtailmentEventState(state)).toBe("unknown");
+  });
+  it.each([CurtailmentTargetState.UNSPECIFIED, 999])("keeps target state %s out of pending", (state) => {
+    expect(mapCurtailmentTargetState(state)).toBe("unknown");
+  });
+  it("counts unknown targets as unavailable rather than pending", () => {
+    expect(getActiveCurtailmentCurtailProgress({ rollups: [{ state: "unknown", count: 2 }] })).toMatchObject({
+      pendingCount: 0,
+      unavailableCount: 2,
+      reachedCount: 0,
+    });
+  });
 });

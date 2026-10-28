@@ -682,3 +682,18 @@ func TestService_AdminTerminate_RejectsMissingOrgAndUUID(t *testing.T) {
 	require.Error(t, err)
 	assert.True(t, fleeterror.IsInvalidArgumentError(err))
 }
+
+func TestService_AdminTerminate_FanPathRaceLossMapsFailedPrecondition(t *testing.T) {
+	store := newFakeStore()
+	eventUUID := uuid.New()
+	store.eventsByUUID[eventUUID] = &models.Event{ID: 1, OrgID: 1, EventUUID: eventUUID,
+		State: models.EventStatePending, FacilityFanDeviceIDs: []int64{1}}
+	store.updateFanStateErr = interfaces.ErrCurtailmentEventStateRaceLoss
+	_, err := NewService(store, WithFacilityFanController(&fakeTerminalFanController{})).AdminTerminate(t.Context(), AdminTerminateRequest{
+		OrgID: 1, EventUUID: eventUUID, TargetState: models.EventStateCancelled, Reason: "recover curtailment",
+	})
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsFailedPreconditionError(err))
+	assert.Equal(t, 1, store.adminTerminateWithFanRecoveryCalls)
+	assert.Zero(t, store.adminTerminateCalls, "race loss must stop terminal transition")
+}

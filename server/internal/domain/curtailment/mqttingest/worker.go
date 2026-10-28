@@ -381,8 +381,11 @@ func (w *sourceWorker) handleMessage(ctx context.Context, prior SourceState, obs
 		pendingSuperseded = true
 	}
 
-	if prior.PendingEdge != nil && !w.pendingEdgeRetryReady(prior.PendingEdge) {
-		state := w.advanceLiveness(prior, canonical, liveness)
+	if prior.PendingEdge != nil {
+		// Heartbeats confirm liveness; they do not create a new attempt or
+		// reset the durable edge's age, backoff, or replay identity.
+		state, _ := w.retryPendingEdge(ctx, prior)
+		state = w.advanceLiveness(state, canonical, liveness)
 		w.persistState(ctx, state)
 		return state
 	}
@@ -607,8 +610,10 @@ func (w *sourceWorker) settlePendingEdge(
 	if !isRepeatedOffAssertion(prior, pending) {
 		state.LastEdgeAt = pending.ReceivedAt
 	}
-	state.LastReceivedAt = pending.ReceivedAt
-	state.LastReceivedBroker = pending.ReceivedBroker
+	if pending.Direction != EdgeWatchdogOff && pending.ReceivedAt.After(state.LastReceivedAt) {
+		state.LastReceivedAt = pending.ReceivedAt
+		state.LastReceivedBroker = pending.ReceivedBroker
+	}
 	state.LastTarget = target
 	recordProcessedTarget(&state, pending.canonical())
 	return state

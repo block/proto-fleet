@@ -123,8 +123,8 @@ describe("useCurtailmentPlanPreview", () => {
       throw new Error("Expected fixedKw mode params");
     }
     expect(wholeFleetRequest.modeParams.value.targetKw).toBe(40);
-    expect(wholeFleetRequest?.includeMaintenance).toBe(true);
-    expect(wholeFleetRequest?.forceIncludeMaintenance).toBe(true);
+    expect(wholeFleetRequest?.includeMaintenance).toBe(false);
+    expect(wholeFleetRequest?.forceIncludeMaintenance).toBe(false);
 
     const minerRequest = buildPreviewCurtailmentPlanRequest({
       ...baseValues,
@@ -382,8 +382,8 @@ describe("useCurtailmentPlanPreview", () => {
 
     expect(mockPreviewCurtailmentPlan).toHaveBeenCalledWith(
       expect.objectContaining({
-        includeMaintenance: true,
-        forceIncludeMaintenance: true,
+        includeMaintenance: false,
+        forceIncludeMaintenance: false,
       }),
       expect.objectContaining({
         signal: expect.any(AbortSignal),

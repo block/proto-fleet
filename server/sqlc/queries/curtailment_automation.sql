@@ -264,7 +264,7 @@ INSERT INTO curtailment_automation_rule_state (
 ON CONFLICT (rule_id) DO UPDATE
 SET
     active_event_uuid = NULL,
-    last_restored_at = EXCLUDED.last_restored_at,
+    last_restored_at = COALESCE(EXCLUDED.last_restored_at, curtailment_automation_rule_state.last_restored_at),
     last_error = NULL,
     last_error_at = NULL;
 

@@ -272,6 +272,12 @@ export function buildStartCurtailmentRequest(values: CurtailmentSubmitValues): S
     throw new Error("Enter curtail batch size before adding a curtail batch interval.");
   }
 
+  const minCurtailedDurationSec = getOptionalUint32Setting(values.minDurationSec, minCurtailedDurationOptions);
+  const maxDurationSeconds = getOptionalUint32Setting(values.maxDurationSec, maxDurationOptions);
+  if (maxDurationSeconds > 0 && minCurtailedDurationSec > maxDurationSeconds) {
+    throw new Error("Minimum curtailed duration cannot exceed max duration.");
+  }
+
   const facilityFanDeviceIds = [
     ...new Set(
       normalizeCurtailmentSelectionValues(values.facilityFanDeviceIds ?? []).map((value) => {
@@ -287,12 +293,12 @@ export function buildStartCurtailmentRequest(values: CurtailmentSubmitValues): S
   return create(StartCurtailmentRequestSchema, {
     ...buildCurtailmentRequestFields(values),
     ...responseProfileExecutionFields,
-    maxDurationSeconds: getOptionalUint32Setting(values.maxDurationSec, maxDurationOptions),
+    maxDurationSeconds,
     curtailBatchSize,
     curtailBatchIntervalSec,
     restoreBatchSize: getOptionalUint32Setting(values.restoreBatchSize, restoreBatchSizeOptions),
     restoreBatchIntervalSec: getOptionalUint32Setting(values.restoreIntervalSec, restoreBatchIntervalOptions),
-    minCurtailedDurationSec: getOptionalUint32Setting(values.minDurationSec, minCurtailedDurationOptions),
+    minCurtailedDurationSec,
     facilityFanDeviceIds,
     fanOffDelaySec: getOptionalUint32Setting(values.fanOffDelaySec ?? "", fanOffDelayOptions),
     fanRestoreDelaySec: getOptionalUint32Setting(values.fanRestoreDelaySec ?? "", fanRestoreDelayOptions),

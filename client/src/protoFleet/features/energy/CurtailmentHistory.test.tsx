@@ -223,7 +223,7 @@ describe("CurtailmentHistory", () => {
     expect(within(modal).getByText("Queued curtailment")).toBeInTheDocument();
     expect(within(modal).getByText("Not started yet")).toBeInTheDocument();
 
-    expect(within(modal).getByRole("button", { name: "Stop curtailment" })).toBeDisabled();
+    expect(within(modal).getByRole("button", { name: "Stop curtailment" })).toBeEnabled();
     expect(onStopActiveEvent).toHaveBeenCalledTimes(1);
   });
 
@@ -371,7 +371,7 @@ describe("CurtailmentHistory", () => {
     expect(within(activeRow).getByRole("button", { name: "Stop ERCOT ERS obligation" })).toBeDisabled();
   });
 
-  it("keeps stop actions disabled when a confirmed stop handler returns synchronously", async () => {
+  it("re-enables stop actions when a confirmed stop handler returns synchronously", async () => {
     const user = userEvent.setup();
     const onStopActiveEvent = vi.fn();
 
@@ -388,12 +388,12 @@ describe("CurtailmentHistory", () => {
     await user.click(screen.getByRole("button", { name: "Confirm stop" }));
 
     expect(onStopActiveEvent).toHaveBeenCalledWith(mockCurtailmentHistoryEvents[0]);
-    expect(within(activeRow).getByRole("button", { name: "Stop ERCOT ERS obligation" })).toBeDisabled();
+    expect(within(activeRow).getByRole("button", { name: "Stop ERCOT ERS obligation" })).toBeEnabled();
 
     await user.click(activeRow);
 
     const modal = screen.getByTestId("modal");
-    expect(within(modal).getByRole("button", { name: "Stop curtailment" })).toBeDisabled();
+    expect(within(modal).getByRole("button", { name: "Stop curtailment" })).toBeEnabled();
   });
 
   it("re-enables stop actions when a confirmed stop handler throws synchronously", async () => {
@@ -721,5 +721,37 @@ describe("CurtailmentHistory", () => {
 
     expect(screen.getByText("No results")).toBeInTheDocument();
     expect(screen.queryByTestId("curtailment-history-pagination")).not.toBeInTheDocument();
+  });
+  it("re-enables stop after a successful request even if the history row has not refreshed", async () => {
+    const user = userEvent.setup();
+    let resolveStop!: () => void;
+    const onStopActiveEvent = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveStop = resolve;
+        }),
+    );
+    render(
+      <CurtailmentHistory
+        events={mockCurtailmentHistoryEvents}
+        activeEventId="curt-1042"
+        onStopActiveEvent={onStopActiveEvent}
+      />,
+    );
+    const row = screen.getByTestId("curtailment-history-row-curt-1042");
+    const stop = within(row).getByRole("button", { name: "Stop ERCOT ERS obligation" });
+    await user.click(stop);
+    await user.click(screen.getByRole("button", { name: "Confirm stop" }));
+    expect(stop).toBeDisabled();
+    resolveStop();
+    await waitFor(() => expect(stop).toBeEnabled());
+  });
+
+  it("keeps unsupported topology events viewable without a Manage action", async () => {
+    const user = userEvent.setup();
+    const event = { ...mockCurtailmentHistoryEvents[0], isManageable: false };
+    render(<CurtailmentHistory events={[event]} activeEventId={event.id} onManageActiveEvent={vi.fn()} />);
+    await user.click(screen.getByTestId(`curtailment-history-row-${event.id}`));
+    expect(screen.queryByRole("button", { name: "Manage" })).not.toBeInTheDocument();
   });
 });

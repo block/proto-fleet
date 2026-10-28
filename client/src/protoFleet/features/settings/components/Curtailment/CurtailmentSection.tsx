@@ -54,7 +54,7 @@ export function InfoToggleContent({
 type SectionHeaderProps = {
   title: string;
   buttonText: string;
-  onButtonClick: () => void;
+  onButtonClick?: () => void;
   infoToggle?: ReactElement;
   variant?: "settings" | "automations";
 };
@@ -83,13 +83,15 @@ export function SectionHeader({
       </div>
       <div className="flex shrink-0 items-center gap-2">
         {infoToggle}
-        <Button
-          variant={variants.secondary}
-          size={sizes.compact}
-          text={buttonText}
-          onClick={onButtonClick}
-          className={variant === "settings" ? "curtailment-settings__action-button" : undefined}
-        />
+        {onButtonClick ? (
+          <Button
+            variant={variants.secondary}
+            size={sizes.compact}
+            text={buttonText}
+            onClick={onButtonClick}
+            className={variant === "settings" ? "curtailment-settings__action-button" : undefined}
+          />
+        ) : null}
       </div>
     </div>
   );

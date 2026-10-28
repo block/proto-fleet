@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { Code, ConnectError } from "@connectrpc/connect";
 import userEvent from "@testing-library/user-event";
@@ -219,6 +219,8 @@ vi.mock("@/protoFleet/features/energy/CurtailmentStartModal", () => ({
     );
   },
   default: ({
+    actionError,
+    onDismiss,
     initialValues,
     mode,
     onStopCurtailment,
@@ -234,6 +236,8 @@ vi.mock("@/protoFleet/features/energy/CurtailmentStartModal", () => ({
     buildingScopeEnabled,
     rackAndGroupScopeEnabled,
   }: {
+    actionError?: string | null;
+    onDismiss: () => void;
     initialValues?: Partial<CurtailmentSubmitValues>;
     mode?: string;
     onStopCurtailment?: () => void;
@@ -250,6 +254,10 @@ vi.mock("@/protoFleet/features/energy/CurtailmentStartModal", () => ({
     rackAndGroupScopeEnabled?: boolean;
   }) => (
     <div role="dialog" aria-label={mode === "edit" ? "Manage curtailment" : "New curtailment"}>
+      {actionError ? <div data-testid="modal-action-error">{actionError}</div> : null}
+      <button type="button" onClick={onDismiss}>
+        Dismiss editor
+      </button>
       <div data-testid="modal-initial-reason">{initialValues?.reason ?? ""}</div>
       <div data-testid="modal-response-profiles">{responseProfiles?.map((profile) => profile.label).join(",")}</div>
       <div data-testid="modal-response-profile-values">{JSON.stringify(responseProfiles?.[0]?.values ?? {})}</div>
@@ -348,6 +356,7 @@ function createApiResult(overrides: Partial<UseCurtailmentApiResult> = {}): UseC
     stoppingEventId: null,
     adminTerminatingEventId: null,
     loadError: null,
+    clearActionErrors: vi.fn(),
     startError: null,
     updateError: null,
     stopError: null,
@@ -1788,5 +1797,38 @@ describe("CurtailmentManagementPanel", () => {
     expect(mocks.setHistoryStatusFilters).toHaveBeenCalledWith(["completed", "failed"], {
       signal: expect.any(AbortSignal),
     });
+  });
+  it.each(["create", "edit"] as const)(
+    "shows %s errors inside the modal and clears them on dismissal",
+    async (mode) => {
+      const user = userEvent.setup();
+      const clearActionErrors = vi.fn();
+      mocks.useCurtailmentApi.mockReturnValue(
+        createApiResult({
+          activeEvent,
+          activeEventId: "curt-1",
+          activeEventFormValues,
+          startError: "Start rejected",
+          updateError: "Update rejected",
+          clearActionErrors,
+        }),
+      );
+      render(<CurtailmentManagementPanel />);
+      await user.click(screen.getByRole("button", { name: mode === "edit" ? "Request edit" : "Run curtailment" }));
+      const modal = screen.getByRole("dialog", { name: mode === "edit" ? "Manage curtailment" : "New curtailment" });
+      expect(within(modal).getByTestId("modal-action-error")).toHaveTextContent(
+        mode === "edit" ? "Update rejected" : "Start rejected",
+      );
+      await user.click(within(modal).getByRole("button", { name: "Dismiss editor" }));
+      expect(clearActionErrors).toHaveBeenCalledOnce();
+    },
+  );
+
+  it("withholds the active Manage action when the event has no supported edit form", () => {
+    mocks.useCurtailmentApi.mockReturnValue(
+      createApiResult({ activeEvent, activeEventId: "curt-1", activeEventFormValues: null }),
+    );
+    render(<CurtailmentManagementPanel />);
+    expect(screen.queryByRole("button", { name: "Request edit" })).not.toBeInTheDocument();
   });
 });

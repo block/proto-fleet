@@ -27,6 +27,7 @@ export default meta;
 type Story = StoryObj<typeof CurtailmentStartModal>;
 
 interface ModalStoryProps {
+  actionError?: string;
   initialValues?: Partial<CurtailmentFormValues>;
   mode?: CurtailmentStartModalMode;
   preview?: CurtailmentPlanPreview;
@@ -214,6 +215,17 @@ export const ResponseProfileWithInfrastructure: Story = {
         fanRestoreDelaySec: "90",
       }}
       preview={preview}
+    />
+  ),
+};
+
+export const SubmissionFailure: Story = {
+  name: "Submission failure",
+  render: () => (
+    <ModalStory
+      initialValues={configuredValues}
+      preview={preview}
+      actionError="Unable to start curtailment. The selected response profile changed. Reload the profile and try again."
     />
   ),
 };

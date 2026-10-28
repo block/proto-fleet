@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -614,6 +615,35 @@ func TestAutomationService_SetEnabledClearsTerminalActiveEventBeforeDisable(t *t
 	assert.False(t, updated.Enabled)
 	assert.Nil(t, updated.ActiveEventUUID)
 	assert.Equal(t, 1, h.rules.clearActiveCalls)
+	assert.Nil(t, updated.LastRestoredAt, "administrative cleanup must not invent a restore")
+}
+
+func TestAutomationService_StaleActiveEventCleanupPreservesRestoreTimestamp(t *testing.T) {
+	t.Parallel()
+
+	for _, eventExists := range []bool{false, true} {
+		for _, hadRestore := range []bool{false, true} {
+			t.Run(fmt.Sprintf("event_%v_restore_%v", eventExists, hadRestore), func(t *testing.T) {
+				t.Parallel()
+				h := newAutomationHarness(t)
+				if eventExists {
+					h.seedAutomationEvent(models.EventStateCompleted)
+				} else {
+					eventUUID := uuid.New()
+					h.rule.ActiveEventUUID = &eventUUID
+				}
+				if hadRestore {
+					priorRestore := h.automation.clock().Add(-time.Hour)
+					h.rule.LastRestoredAt = &priorRestore
+				}
+				priorRestoredAt := h.rule.LastRestoredAt
+				require.NoError(t, h.automation.ensureNoNonTerminalActiveEvent(t.Context(), h.rule, "disable"))
+				assert.Nil(t, h.rule.ActiveEventUUID)
+				assert.Equal(t, priorRestoredAt, h.rule.LastRestoredAt)
+				assert.True(t, h.rules.lastClearedAt.IsZero(), "cleanup should preserve the stored restore timestamp")
+			})
+		}
+	}
 }
 
 func TestAutomationService_HandleMQTTSignal_OffStartsCurtailmentFromResponseProfile(t *testing.T) {
@@ -1805,7 +1835,9 @@ func (f *automationFakeStore) ClearAutomationActiveEvent(_ context.Context, rule
 	for _, rule := range f.rules {
 		if rule.ID == ruleID {
 			rule.ActiveEventUUID = nil
-			rule.LastRestoredAt = &at
+			if !at.IsZero() {
+				rule.LastRestoredAt = &at
+			}
 			return nil
 		}
 	}

@@ -242,4 +242,12 @@ describe("useCurtailmentAutomationRules", () => {
     expect(result.current.createError).toBe("Select a valid source.");
     expect(mockCreateCurtailmentAutomationRule).not.toHaveBeenCalled();
   });
+  it("retains automation execution failures for the rule view", async () => {
+    mockListCurtailmentAutomationRules.mockResolvedValue({ rules: [apiRule({ lastError: "No eligible miners" })] });
+    const { result } = renderHook(() => useCurtailmentAutomationRules(false));
+    await act(async () => {
+      await result.current.listAutomationRules();
+    });
+    expect(result.current.automationRules[0]?.lastError).toBe("No eligible miners");
+  });
 });

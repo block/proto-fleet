@@ -34,6 +34,14 @@ only when their optional keys are present. Terminal history therefore does not
 permanently reserve either key. Multiple events may run in one organization;
 target ownership provides the device-level exclusion.
 
+Finite maximum durations also apply while an event is pending. Events without a
+`started_at` measure the cap from `created_at`, because dispatch timestamps advance
+on retries; otherwise they measure it from `started_at`. Expiry starts restoration
+even when some targets never confirm. The cap must be at least the minimum curtailed
+duration. Only admins may shorten an existing cap, and unbounded events reject
+cap updates. Operator updates recheck duration policy against the current row
+so a concurrent extension cannot turn a non-admin update into an early restore.
+
 ## Targets and identity
 
 `curtailment_target` has primary key `(curtailment_event_id, device_identifier)`
@@ -68,12 +76,10 @@ never-dispatched target release path set the relevant phase state and phase
 completion time. Normal confirmation updates the corresponding phase completion
 time as well.
 
-The nullable `released_at` column remains readable in the model/API, but current
-normal release queries do not populate it. Reacquiring a terminal target for the
-same event clears it to null along with the new curtail phase's dispatch/retry
-state. The historical 000108 down migration populated it when remapping
-`unavailable` rows to `released`; that is not current runtime behavior. A null
-`released_at` therefore does not imply ownership is still held, and a nonnull
-value is not a reliable timestamp for the current phase. Use the target state
-and `curtail_completed_at`/`restore_completed_at` for their respective meanings;
-release must not be interpreted as confirmed restoration.
+Force release, never-dispatched release, and all-paired policy release populate
+`released_at` on the first release; repeated writes preserve that timestamp.
+Reacquiring a terminal target for the same event clears it to null along with
+the new curtail phase's dispatch/retry state. Older released rows can still have
+a null timestamp, so use the target state to determine ownership. Use
+`curtail_completed_at`/`restore_completed_at` for phase completion; release must
+not be interpreted as confirmed restoration.

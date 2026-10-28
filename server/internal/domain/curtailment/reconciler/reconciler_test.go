@@ -2503,11 +2503,8 @@ func TestReconciler_PendingAllPairedPolicyUnavailableTargetsDoNotBlockActive(t *
 	assert.Equal(t, 0, disp.curtailCalls)
 }
 
-// A bounded all-paired event whose entire scope is non-commandable must hold
-// in pending: transitioning to Active would stamp StartedAt and start
-// enforceMaxDuration's clock while nothing is curtailed, letting the event
-// burn its bounded window — then force-restore, releasing every
-// never-dispatched row — without a single dispatch having happened.
+// An all-paired event with no commandable members stays pending until readiness
+// changes or its finite safety cap expires.
 func TestReconciler_PendingAllPairedPolicyAllUnavailableStaysPending(t *testing.T) {
 	store := newFakeStore()
 	disp := &fakeDispatcher{}

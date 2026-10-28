@@ -186,9 +186,7 @@ export function buildPreviewCurtailmentPlanRequest(
         toleranceKw: parseNonNegativeNumber(values.toleranceKw),
       }),
     },
-    includeMaintenance: values.includeMaintenance,
-    forceIncludeMaintenance: values.includeMaintenance,
-    forceIncludeAllPairedMiners: false,
+    ...buildForceInclusionFields(values),
   });
 }
 

@@ -2,11 +2,10 @@ package curtailment
 
 import "time"
 
-// Metrics records curtailment operational signals. Default is no-op; the
-// real recorder is wired at cmd/fleetd/main.go. Heartbeat staleness is a
-// separate SQL check against curtailment_reconciler_heartbeat —
-// IncTargetWriteFailure pairs with it to catch "heartbeat fresh but
-// events stalled" outages.
+// Metrics records curtailment operational signals through the platform metrics
+// provider in production. The heartbeat table independently records reconciler
+// liveness; target-write and tick failures distinguish stalled work from a dead
+// reconciler.
 type Metrics interface {
 	ObserveTickDuration(d time.Duration)
 	IncTickFailure()
@@ -40,7 +39,7 @@ type Metrics interface {
 	IncAllPairedPendingStall()
 }
 
-// NoOpMetrics is the default until the platform observability path lands.
+// NoOpMetrics supports tests and assemblies without operational metrics.
 type NoOpMetrics struct{}
 
 func (NoOpMetrics) ObserveTickDuration(time.Duration) {}

@@ -528,6 +528,7 @@ function CurtailmentManagementPanel({
     adminTerminatingEventId,
     loadError,
     startError,
+    clearActionErrors,
     updateError,
     stopError,
     adminTerminateError,
@@ -704,7 +705,8 @@ function CurtailmentManagementPanel({
     cancelManageSelection();
     setModalMode(null);
     setEditSession(null);
-  }, [cancelManageSelection]);
+    clearActionErrors();
+  }, [cancelManageSelection, clearActionErrors]);
 
   const openCreateModal = useCallback(() => {
     cancelManageSelection();
@@ -1004,7 +1006,7 @@ function CurtailmentManagementPanel({
               onRequestForceRelease={
                 canForceReleaseActiveEvent ? () => setPendingForceReleaseEventId(activeEventId) : undefined
               }
-              onRequestEdit={enableManage ? openEditModal : undefined}
+              onRequestEdit={enableManage && activeEventFormValues ? openEditModal : undefined}
               onRequestRestore={enableManage ? () => openStopConfirmation("restore") : undefined}
               onRequestStop={
                 enableManage && !activeEvent.isAutomationOwned ? () => openStopConfirmation("restore") : undefined
@@ -1057,6 +1059,7 @@ function CurtailmentManagementPanel({
           onSubmit={handleModalSubmit}
           onStopCurtailment={isEditingCurtailment ? handleEditStopCurtailment : undefined}
           isSubmitting={isModalSubmitting}
+          actionError={isEditingCurtailment ? (updateError ?? recoveryStopError) : startError}
         />
       ) : null}
 

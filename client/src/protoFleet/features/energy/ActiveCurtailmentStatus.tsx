@@ -112,6 +112,7 @@ const unavailablePowerLabel = "Unavailable";
 const unavailableTimeLabel = "Time unavailable";
 
 const displayStateLabels: Record<ActiveCurtailmentDisplayState, string> = {
+  unknown: "Unknown",
   cancelled: "Cancelled",
   curtailed: "Curtailed",
   curtailing: "Curtailing",
@@ -127,7 +128,7 @@ function getInfrastructureStatus(
   isRestoreFlow: boolean,
   displayState: ActiveCurtailmentDisplayState,
 ): string | null {
-  if ((event.facilityFanDeviceCount ?? 0) <= 0) {
+  if (displayState === "unknown" || (event.facilityFanDeviceCount ?? 0) <= 0) {
     return null;
   }
 
@@ -617,6 +618,7 @@ function getActiveCurtailmentActionButton({
       return onDismissRestored ? (
         <Button variant={variants.secondary} size={sizes.compact} text="Dismiss" onClick={onDismissRestored} />
       ) : null;
+    case "unknown":
     case "cancelled":
     case "failed":
       return null;
@@ -756,12 +758,17 @@ export default function ActiveCurtailmentStatus({
     Boolean(event.endedAt) ||
     (remainingRestoreSeconds > 0 && estimatedCompletion !== unavailableTimeLabel);
   const restoreFailureValue = formatMinerCount(compliance.restoreFailedCount);
-  const statusIcon = getActiveCurtailmentStatusIcon({
-    isTerminalFailure: displayFlags.isTerminalFailure,
-    isRestored: displayFlags.isRestored,
-    isRestoreIncomplete: displayFlags.isRestoreIncomplete,
-    isCurtailmentComplete: displayFlags.isCurtailmentComplete,
-  });
+  const statusIcon =
+    displayState === "unknown" ? (
+      <Alert className="text-text-primary-50" />
+    ) : (
+      getActiveCurtailmentStatusIcon({
+        isTerminalFailure: displayFlags.isTerminalFailure,
+        isRestored: displayFlags.isRestored,
+        isRestoreIncomplete: displayFlags.isRestoreIncomplete,
+        isCurtailmentComplete: displayFlags.isCurtailmentComplete,
+      })
+    );
   const incompleteSiteCoverageWarning = formatIncompleteSiteCoverageWarning(event.targetSiteCoverage);
   const infrastructureStatus = getInfrastructureStatus(event, displayFlags.isRestoreFlow, displayState);
 

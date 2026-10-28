@@ -1,6 +1,6 @@
 import type { ComponentProps } from "react";
 import type { RenderResult } from "@testing-library/react";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
 
@@ -13,6 +13,7 @@ import type {
 import type { FullScreenTwoPaneModalProps } from "@/protoFleet/components/FullScreenTwoPaneModal";
 import CurtailmentStartModal from "@/protoFleet/features/energy/CurtailmentStartModal";
 import type { FacilityFanDeviceOption } from "@/protoFleet/features/energy/FacilityFanSelectionModal";
+import { useFleetStore } from "@/protoFleet/store/useFleetStore";
 
 type MockFullScreenTwoPaneModalProps = Pick<
   FullScreenTwoPaneModalProps,
@@ -351,6 +352,7 @@ async function confirmCurtailment(user: ReturnType<typeof userEvent.setup>, conf
 
 describe("CurtailmentStartModal", () => {
   beforeEach(() => {
+    useFleetStore.getState().auth.setRole("ADMIN");
     mockUseCurtailmentPlanPreview.mockReturnValue({
       preview: undefined,
       previewError: undefined,
@@ -2738,5 +2740,63 @@ describe("CurtailmentStartModal", () => {
     expect(targetInput).toHaveAttribute("aria-invalid", "true");
     expect(targetInput).toHaveAttribute("aria-describedby", "curtailment-target-kw-error");
     expect(screen.getByText("Enter a target reduction.")).toBeInTheDocument();
+  });
+  it("hides all-paired targeting from non-admin operators", () => {
+    useFleetStore.getState().auth.setRole("FIELD_TECH");
+    renderModal({ initialValues: { ...configuredValues, curtailmentMode: "fullFleet" } });
+    expect(screen.queryByText("Target all paired miners")).not.toBeInTheDocument();
+  });
+
+  it.each(["curtailment-curtail-batch-interval", "curtailment-restore-batch-interval"])(
+    "limits non-admin %s to 300 seconds",
+    async (testId) => {
+      useFleetStore.getState().auth.setRole("FIELD_TECH");
+      const user = userEvent.setup();
+      const { onSubmit } = renderModal({ initialValues: configuredValues });
+      const input = screen.getByTestId(testId);
+      await user.clear(input);
+      await user.type(input, "301");
+      expect(screen.getByText("Enter batch interval of 300 or less.")).toBeVisible();
+      await user.click(screen.getByRole("button", { name: "Run curtailment" }));
+      expect(onSubmit).not.toHaveBeenCalled();
+      expect(screen.queryByTestId("curtailment-run-confirmation")).not.toBeInTheDocument();
+      fireEvent.change(screen.getByTestId(testId), { target: { value: "300" } });
+      await waitFor(() => expect(screen.queryByText("Enter batch interval of 300 or less.")).not.toBeInTheDocument());
+      expect(screen.getByRole("button", { name: "Run curtailment" })).toBeEnabled();
+    },
+  );
+
+  it("retains the admin interval allowance through 3600 seconds", async () => {
+    const user = userEvent.setup();
+    renderModal({ initialValues: configuredValues });
+    const input = screen.getByTestId("curtailment-restore-batch-interval");
+    await user.clear(input);
+    await user.type(input, "3600");
+    expect(screen.getByRole("button", { name: "Run curtailment" })).toBeEnabled();
+    await user.clear(input);
+    await user.type(input, "3601");
+    expect(screen.getByText("Enter batch interval of 3,600 or less.")).toBeVisible();
+  });
+
+  it("lets operators edit a reason without changing an inherited elevated restore interval", async () => {
+    useFleetStore.getState().auth.setRole("FIELD_TECH");
+    const user = userEvent.setup();
+    const { onSubmit } = renderModal({
+      mode: "edit",
+      initialValues: { ...configuredValues, restoreIntervalSec: "3600" },
+    });
+    const reason = screen.getByLabelText("Reason");
+    await user.clear(reason);
+    await user.type(reason, "Updated reason");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    expect(onSubmit).toHaveBeenCalledWith(
+      expect.objectContaining({ reason: "Updated reason", restoreIntervalSec: "3600" }),
+    );
+    const interval = screen.getByTestId("curtailment-restore-batch-interval");
+    await user.clear(interval);
+    await user.type(interval, "301");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    expect(onSubmit).toHaveBeenCalledOnce();
+    expect(screen.getByText("Enter batch interval of 300 or less.")).toBeVisible();
   });
 });

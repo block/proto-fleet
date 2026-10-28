@@ -724,6 +724,8 @@ type Querier interface {
 	// candidates at the SQL boundary so a single large event cannot force a
 	// fleet-sized JSON snapshot through the handler.
 	GetCurtailmentEventDetailByUUID(ctx context.Context, arg GetCurtailmentEventDetailByUUIDParams) (GetCurtailmentEventDetailByUUIDRow, error)
+	// Global operational gauges; no pending work emits zero to clear old values.
+	GetCurtailmentPendingWorkAges(ctx context.Context) (GetCurtailmentPendingWorkAgesRow, error)
 	GetCurtailmentReconcilerHeartbeat(ctx context.Context) (CurtailmentReconcilerHeartbeat, error)
 	GetCurtailmentResponseProfileByOrg(ctx context.Context, arg GetCurtailmentResponseProfileByOrgParams) (CurtailmentResponseProfileWithRevision, error)
 	// Org-scoped aggregate for paginated event detail. Target pages can be
@@ -2393,9 +2395,9 @@ type Querier interface {
 	// explicit operator Force Release can retry fan ON and clear a durable failure.
 	// fan_last_error is always replaced after a successful write.
 	UpdateCurtailmentEventFanState(ctx context.Context, arg UpdateCurtailmentEventFanStateParams) (int64, error)
-	// Partial update; nil params COALESCE-preserve. State filter is the
-	// race-loss guard — zero rows means the event advanced between the
-	// service's pre-read and this UPDATE.
+	// Partial update; nil params COALESCE-preserve. Recheck state and duration
+	// policy atomically so a concurrent extension cannot turn a non-admin's
+	// intended extension into an early restore.
 	UpdateCurtailmentEventOperatorFields(ctx context.Context, arg UpdateCurtailmentEventOperatorFieldsParams) (CurtailmentEvent, error)
 	// Row-count return is the race-loss guard; expected_state prevents stale
 	// phase writes (e.g. pending→active after Stop moved the event to restoring).

@@ -38,6 +38,7 @@ type Client struct {
 	statusReporter    func(connected bool, subscribed bool, err error)
 	statusSequence    atomic.Uint64
 	oversizedWarnings payloadWarningThrottle
+	cleanSession      bool
 }
 
 // payloadWarningThrottle shares one warning budget across all topics on a client.
@@ -94,6 +95,14 @@ func New() *Client {
 	}
 }
 
+// NewProbe creates a connection-test client whose broker state is discarded on
+// disconnect. Runtime ingest uses New to retain durable QoS1 queues.
+func NewProbe() *Client {
+	client := New()
+	client.cleanSession = true
+	return client
+}
+
 func (c *Client) Connect(ctx context.Context, host string, port int32, transport string, username, password, clientIdentity string) error {
 	if port <= 0 {
 		return fmt.Errorf("mqttclient: invalid broker port %d", port)
@@ -105,7 +114,7 @@ func (c *Client) Connect(ctx context.Context, host string, port int32, transport
 	}
 	initialConnectComplete := &atomic.Bool{}
 	initialOnConnectObserved := &atomic.Bool{}
-	opts := clientOptions(brokerURL, tlsConfig, username, password, clientIdentity, func(client paho.Client) {
+	opts := clientOptions(brokerURL, tlsConfig, username, password, clientIdentity, c.cleanSession, func(client paho.Client) {
 		if initialOnConnectObserved.CompareAndSwap(false, true) {
 			return
 		}
@@ -329,6 +338,7 @@ func clientOptions(
 	username string,
 	password string,
 	clientIdentity string,
+	cleanSession bool,
 	onConnect paho.OnConnectHandler,
 	onConnectionLost paho.ConnectionLostHandler,
 ) *paho.ClientOptions {
@@ -339,7 +349,7 @@ func clientOptions(
 		SetPassword(password).
 		SetAutoReconnect(true).
 		SetResumeSubs(true).
-		SetCleanSession(false).
+		SetCleanSession(cleanSession).
 		SetOnConnectHandler(onConnect).
 		SetOrderMatters(true).
 		SetProtocolVersion(4)
