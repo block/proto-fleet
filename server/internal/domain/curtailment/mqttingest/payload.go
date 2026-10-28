@@ -7,6 +7,8 @@ import (
 	"errors"
 	"fmt"
 	"time"
+
+	"github.com/block/proto-fleet/server/internal/mqttlimits"
 )
 
 // Target is the canonical state decoded from an integration-specific payload.
@@ -53,9 +55,6 @@ var ErrMalformedPayload = errors.New("malformed MQTT payload")
 // timestampSanityWindow rejects badly skewed publisher clocks.
 const timestampSanityWindow = 24 * time.Hour
 
-// MaxPayloadBytes bounds MQTT bodies before copying and decoding.
-const MaxPayloadBytes = 1024
-
 // PayloadDecoder maps a raw MQTT message to canonical state.
 type PayloadDecoder interface {
 	Decode(body []byte, now time.Time) (Payload, error)
@@ -89,8 +88,8 @@ const (
 )
 
 func (targetTimestampDecoder) Decode(body []byte, now time.Time) (Payload, error) {
-	if len(body) > MaxPayloadBytes {
-		return Payload{}, fmt.Errorf("%w: payload exceeds %d bytes", ErrMalformedPayload, MaxPayloadBytes)
+	if len(body) > mqttlimits.MaxPayloadBytes {
+		return Payload{}, fmt.Errorf("%w: payload exceeds %d bytes", ErrMalformedPayload, mqttlimits.MaxPayloadBytes)
 	}
 	var raw struct {
 		Target    *int   `json:"target"`

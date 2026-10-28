@@ -1,13 +1,32 @@
 import { describe, expect, it } from "vitest";
 import { create } from "@bufbuild/protobuf";
 
-import { mapCurtailmentEventToFormValues } from "@/protoFleet/api/curtailmentMappers";
+import {
+  hasCurtailmentEstimatedReductionKw,
+  hasCurtailmentTargetMetrics,
+  mapCurtailmentEventToFormValues,
+} from "@/protoFleet/api/curtailmentMappers";
 import {
   CurtailmentEventSchema,
   CurtailmentScopeSchema,
   ScopeBuildingSchema,
   ScopeRackSchema,
 } from "@/protoFleet/api/generated/curtailment/v1/curtailment_pb";
+
+describe("curtailment snapshot availability", () => {
+  it.each(["estimated_reduction_kw", "estimatedReductionKw"])(
+    "keeps zero %s available while an absent estimate remains unavailable",
+    (key) => {
+      const event = create(CurtailmentEventSchema, { decisionSnapshot: { [key]: 0 } });
+      expect(hasCurtailmentTargetMetrics(event)).toBe(true);
+      expect(hasCurtailmentEstimatedReductionKw(event)).toBe(true);
+
+      const summary = create(CurtailmentEventSchema);
+      expect(hasCurtailmentTargetMetrics(summary)).toBe(false);
+      expect(hasCurtailmentEstimatedReductionKw(summary)).toBe(false);
+    },
+  );
+});
 
 describe("mapCurtailmentEventToFormValues", () => {
   it("keeps topology-scoped events read-only for editing", () => {

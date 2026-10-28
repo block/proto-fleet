@@ -1,9 +1,16 @@
 import type { CurtailmentPriority, EditableCurtailmentPriority } from "@/protoFleet/api/curtailmentTypes";
-import { CurtailmentPriority as ProtoCurtailmentPriority } from "@/protoFleet/api/generated/curtailment/v1/curtailment_pb";
+import {
+  type CurtailmentEvent,
+  CurtailmentPriority as ProtoCurtailmentPriority,
+} from "@/protoFleet/api/generated/curtailment/v1/curtailment_pb";
 
 export const wattsPerKilowatt = 1000;
 export const estimatedReductionKwSnapshotKeys = ["estimated_reduction_kw", "estimatedReductionKw"] as const;
 export const selectedCountSnapshotKeys = ["selected_count", "selectedCount"] as const;
+
+export function hasSnapshotNumber(event: CurtailmentEvent, keys: readonly string[]): boolean {
+  return keys.some((key) => typeof event.decisionSnapshot?.[key] === "number");
+}
 
 type CurtailmentKwFormatOptions = {
   maximumFractionDigits?: number;

@@ -224,25 +224,6 @@ func (q *Queries) CountRepairTicketsBySite(ctx context.Context, arg CountRepairT
 	return column_1, err
 }
 
-const countResponseProfilesByInfrastructureDevices = `-- name: CountResponseProfilesByInfrastructureDevices :one
-SELECT COUNT(*)
-FROM curtailment_response_profile
-WHERE org_id = $1
-  AND facility_fan_device_ids && $2::bigint[]
-`
-
-type CountResponseProfilesByInfrastructureDevicesParams struct {
-	OrgID                   int64
-	InfrastructureDeviceIds []int64
-}
-
-func (q *Queries) CountResponseProfilesByInfrastructureDevices(ctx context.Context, arg CountResponseProfilesByInfrastructureDevicesParams) (int64, error) {
-	row := q.queryRow(ctx, q.countResponseProfilesByInfrastructureDevicesStmt, countResponseProfilesByInfrastructureDevices, arg.OrgID, pq.Array(arg.InfrastructureDeviceIds))
-	var count int64
-	err := row.Scan(&count)
-	return count, err
-}
-
 const createSite = `-- name: CreateSite :one
 INSERT INTO site (
     org_id,

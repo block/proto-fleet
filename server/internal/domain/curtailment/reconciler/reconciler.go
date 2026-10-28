@@ -68,7 +68,7 @@ type Config struct {
 	DriftThresholdFactor float64
 	// CurtailDispatchTimeoutSec ages out curtail-phase targets stuck in
 	// Dispatched without confirming telemetry (increments retry_count).
-	CurtailDispatchTimeoutSec int `help:"Seconds a curtail target may stay dispatched without telemetry confirmation before consuming retry budget. Zero uses the default; positive values must be at least 1." default:"0" env:"CURTAIL_DISPATCH_TIMEOUT_SEC"`
+	CurtailDispatchTimeoutSec int `help:"Seconds a curtail target may stay dispatched without telemetry confirmation before incrementing retry_count and retrying. Curtail targets keep retrying while OFF remains asserted. Zero uses the default; positive values must be at least 1." default:"0" env:"CURTAIL_DISPATCH_TIMEOUT_SEC"`
 	// RestoreDispatchTimeoutSec ages out restore-phase targets stuck in
 	// Dispatched without confirming telemetry (increments retry_count).
 	RestoreDispatchTimeoutSec int `help:"Seconds a restore target may stay dispatched without telemetry confirmation before consuming retry budget. Zero uses the default." default:"0" env:"RESTORE_DISPATCH_TIMEOUT_SEC"`
@@ -808,10 +808,7 @@ func (r *Reconciler) dispatchCurtailBatchWithKnownUnsent(
 		}
 		return true
 	}
-	dispatchedSet := make(map[string]struct{}, len(result.DispatchedDeviceIdentifiers))
-	for _, deviceID := range result.DispatchedDeviceIdentifiers {
-		dispatchedSet[deviceID] = struct{}{}
-	}
+	dispatchedSet := curtailment.ToStringSet(result.DispatchedDeviceIdentifiers)
 
 	now := r.now()
 	emptyErr := ""
@@ -1791,10 +1788,7 @@ func excludeDeviceIdentifiers(targets []models.InsertTargetParams, deviceIdentif
 	if len(targets) == 0 || len(deviceIdentifiers) == 0 {
 		return targets
 	}
-	excluded := make(map[string]struct{}, len(deviceIdentifiers))
-	for _, deviceIdentifier := range deviceIdentifiers {
-		excluded[deviceIdentifier] = struct{}{}
-	}
+	excluded := curtailment.ToStringSet(deviceIdentifiers)
 	filtered := targets[:0]
 	for _, target := range targets {
 		if _, ok := excluded[target.DeviceIdentifier]; ok {
@@ -2791,10 +2785,7 @@ func (r *Reconciler) dispatchRestoreBatch(ctx context.Context, ev *models.Event,
 	for _, s := range result.Skipped {
 		skippedSet[s.DeviceIdentifier] = skippedDeviceReason(s)
 	}
-	dispatchedSet := make(map[string]struct{}, len(result.DispatchedDeviceIdentifiers))
-	for _, deviceID := range result.DispatchedDeviceIdentifiers {
-		dispatchedSet[deviceID] = struct{}{}
-	}
+	dispatchedSet := curtailment.ToStringSet(result.DispatchedDeviceIdentifiers)
 
 	now := r.now()
 	batchID := result.BatchIdentifier

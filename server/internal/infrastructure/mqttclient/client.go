@@ -15,13 +15,14 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/block/proto-fleet/server/internal/domain/curtailment/mqttingest"
+	"github.com/block/proto-fleet/server/internal/mqttlimits"
 	paho "github.com/eclipse/paho.mqtt.golang"
 )
 
 const subscribeQoS byte = 1
 const reconnectSubscribeTimeout = 10 * time.Second
 const subscribeFailureCode byte = 0x80
+const oversizedPayloadWarningInterval = time.Minute
 
 const (
 	transportTCP = "tcp"
@@ -30,12 +31,34 @@ const (
 
 // Client adapts Eclipse Paho to the curtailment MQTT ingest interface.
 type Client struct {
-	mu             sync.Mutex
-	statusMu       sync.Mutex
-	client         paho.Client
-	subscriptions  map[string]paho.MessageHandler
-	statusReporter func(connected bool, subscribed bool, err error)
-	statusSequence atomic.Uint64
+	mu                sync.Mutex
+	statusMu          sync.Mutex
+	client            paho.Client
+	subscriptions     map[string]paho.MessageHandler
+	statusReporter    func(connected bool, subscribed bool, err error)
+	statusSequence    atomic.Uint64
+	oversizedWarnings payloadWarningThrottle
+}
+
+// payloadWarningThrottle shares one warning budget across all topics on a client.
+// It retains only a count, so an unbounded set of topics cannot grow its state.
+type payloadWarningThrottle struct {
+	mu            sync.Mutex
+	nextWarningAt time.Time
+	suppressed    uint64
+}
+
+func (w *payloadWarningThrottle) record(now time.Time) (uint64, bool) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if now.Before(w.nextWarningAt) {
+		w.suppressed++
+		return 0, false
+	}
+	suppressed := w.suppressed
+	w.suppressed = 0
+	w.nextWarningAt = now.Add(oversizedPayloadWarningInterval)
+	return suppressed, true
 }
 
 type subscriptionClient interface {
@@ -135,10 +158,13 @@ func (c *Client) Subscribe(ctx context.Context, topic string, handler func(paylo
 	messageHandler := func(_ paho.Client, msg paho.Message) {
 		payload, ok := copyPayload(msg.Payload())
 		if !ok {
-			slog.WarnContext(ctx, "mqttclient: dropping oversized payload",
-				slog.String("topic", msg.Topic()),
-				slog.Int("payload_bytes", len(msg.Payload())),
-				slog.Int("max_payload_bytes", mqttingest.MaxPayloadBytes))
+			if suppressed, warn := c.oversizedWarnings.record(time.Now()); warn {
+				slog.WarnContext(ctx, "mqttclient: dropping oversized payload",
+					slog.String("topic", msg.Topic()),
+					slog.Int("payload_bytes", len(msg.Payload())),
+					slog.Int("max_payload_bytes", mqttlimits.MaxPayloadBytes),
+					slog.Uint64("suppressed_messages", suppressed))
+			}
 			return
 		}
 		handler(payload, time.Now().UTC())
@@ -277,7 +303,7 @@ func (c *Client) subscriptionSnapshot() map[string]paho.MessageHandler {
 }
 
 func copyPayload(payload []byte) ([]byte, bool) {
-	if len(payload) > mqttingest.MaxPayloadBytes {
+	if len(payload) > mqttlimits.MaxPayloadBytes {
 		return nil, false
 	}
 	return append([]byte(nil), payload...), true

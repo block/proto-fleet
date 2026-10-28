@@ -2,7 +2,11 @@ import { create as createMessage, equals } from "@bufbuild/protobuf";
 import { create as createStore } from "zustand";
 
 import { curtailmentClient } from "@/protoFleet/api/clients";
-import { estimatedReductionKwSnapshotKeys, selectedCountSnapshotKeys } from "@/protoFleet/api/curtailmentUtils";
+import {
+  estimatedReductionKwSnapshotKeys,
+  hasSnapshotNumber,
+  selectedCountSnapshotKeys,
+} from "@/protoFleet/api/curtailmentUtils";
 import {
   CurtailmentEventSchema,
   CurtailmentEventState,
@@ -153,10 +157,6 @@ function removeActiveCurtailmentEventFromList(
   eventUuid: string,
 ): ProtoCurtailmentEvent[] {
   return events.filter((event) => event.eventUuid !== eventUuid);
-}
-
-function hasSnapshotNumber(event: ProtoCurtailmentEvent, keys: readonly string[]): boolean {
-  return keys.some((key) => typeof event.decisionSnapshot?.[key] === "number");
 }
 
 // Live rollups now ride on every active-list row, so rollup presence no

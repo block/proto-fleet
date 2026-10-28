@@ -1,5 +1,12 @@
-import { getCurtailmentScopeSelectionCount } from "@/protoFleet/api/curtailmentScopes";
-import type { CurtailmentFormValues } from "@/protoFleet/api/curtailmentTypes";
+import { getCurtailmentScopeCountLabel, getCurtailmentScopeSelectionCount } from "@/protoFleet/api/curtailmentScopes";
+import type {
+  ActiveCurtailmentDisplayState,
+  ActiveCurtailmentEventState,
+  CurtailmentEventState,
+  CurtailmentFormValues,
+  CurtailmentTargetRollup,
+  CurtailmentTargetState,
+} from "@/protoFleet/api/curtailmentTypes";
 import {
   estimatedReductionKwSnapshotKeys,
   formatCurtailmentKw,
@@ -49,9 +56,7 @@ export const curtailmentEventStateConfigs = {
     dotClassName: "bg-intent-critical-fill",
     order: 6,
   },
-} as const;
-
-export type CurtailmentEventState = keyof typeof curtailmentEventStateConfigs;
+} as const satisfies Record<CurtailmentEventState, { label: string; dotClassName: string; order: number }>;
 
 export const curtailmentEventStates = Object.keys(curtailmentEventStateConfigs) as CurtailmentEventState[];
 export const activeCurtailmentEventStates = [
@@ -59,15 +64,6 @@ export const activeCurtailmentEventStates = [
   "active",
   "restoring",
 ] as const satisfies readonly CurtailmentEventState[];
-
-export type ActiveCurtailmentEventState = (typeof activeCurtailmentEventStates)[number];
-export type CurtailmentTargetState =
-  "pending" | "dispatched" | "confirmed" | "drifted" | "resolved" | "released" | "unavailable" | "restoreFailed";
-
-export interface CurtailmentTargetRollup {
-  state: CurtailmentTargetState;
-  count: number;
-}
 
 export const activeCurtailmentDisplayStateConfigs = {
   cancelled: {
@@ -102,9 +98,7 @@ export const activeCurtailmentDisplayStateConfigs = {
     label: "Restoring",
     dotClassName: "bg-core-accent-fill",
   },
-} as const;
-
-export type ActiveCurtailmentDisplayState = keyof typeof activeCurtailmentDisplayStateConfigs;
+} as const satisfies Record<ActiveCurtailmentDisplayState, { label: string; dotClassName: string }>;
 
 interface ActiveCurtailmentDisplayEvent {
   state: CurtailmentEventState;
@@ -203,10 +197,6 @@ function getMinerCountLabel(minerCount: number): string {
 
 function getSiteCountLabel(siteCount: number): string {
   return siteCount === 1 ? "site" : "sites";
-}
-
-function getScopeCountLabel(count: number, singular: string): string {
-  return count === 1 ? singular : `${singular}s`;
 }
 
 function formatCurtailmentScopeParts(parts: string[]): string {
@@ -407,13 +397,13 @@ export function getCurtailmentEventScopeLabel(event: ProtoCurtailmentEvent, site
     }
 
     if (buildingIds.size > 0) {
-      parts.push(`${buildingIds.size.toLocaleString()} ${getScopeCountLabel(buildingIds.size, "building")}`);
+      parts.push(`${buildingIds.size.toLocaleString()} ${getCurtailmentScopeCountLabel(buildingIds.size, "building")}`);
     }
     if (rackIds.size > 0) {
-      parts.push(`${rackIds.size.toLocaleString()} ${getScopeCountLabel(rackIds.size, "rack")}`);
+      parts.push(`${rackIds.size.toLocaleString()} ${getCurtailmentScopeCountLabel(rackIds.size, "rack")}`);
     }
     if (groupIds.size > 0) {
-      parts.push(`${groupIds.size.toLocaleString()} ${getScopeCountLabel(groupIds.size, "group")}`);
+      parts.push(`${groupIds.size.toLocaleString()} ${getCurtailmentScopeCountLabel(groupIds.size, "group")}`);
     }
 
     if (deviceIdentifiers.size > 0) {

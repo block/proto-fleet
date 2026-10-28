@@ -472,6 +472,13 @@ WHERE org_id = sqlc.arg('org_id')
 ORDER BY id
 FOR UPDATE;
 
+-- name: CountResponseProfilesByInfrastructureDevices :one
+-- Counts each profile that references any of the supplied facility fans once.
+SELECT COUNT(*)
+FROM curtailment_response_profile
+WHERE org_id = sqlc.arg('org_id')
+  AND facility_fan_device_ids && sqlc.arg('infrastructure_device_ids')::bigint[];
+
 -- name: CountCurtailmentFanClaims :one
 SELECT COUNT(*)
 FROM curtailment_event

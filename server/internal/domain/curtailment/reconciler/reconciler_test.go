@@ -4584,7 +4584,7 @@ func TestReconciler_ObserveActive_ExhaustedCurtailDispatchingOrphanKeepsRetrying
 }
 
 // A race-loss on the orphan-redispatch pre-write must not fire Curtail
-// — pins the EXISTS-guard race-closure on the observeActive path.
+// — pins the locked_event CTE race closure on the observeActive path.
 func TestReconciler_ObserveActive_DispatchingOrphanRaceLossDoesNotIssueCommand(t *testing.T) {
 	store := newFakeStore()
 	disp := &fakeDispatcher{}

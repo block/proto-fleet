@@ -17,6 +17,7 @@ import {
 
 import {
   estimatedReductionKwSnapshotKeys,
+  hasSnapshotNumber,
   mapCurtailmentPriority,
   mapEditableCurtailmentPriority,
   selectedCountSnapshotKeys,
@@ -266,10 +267,6 @@ function mapTargetSiteCoverage(event: ProtoCurtailmentEvent): ActiveCurtailmentT
     mappedTargetCount: coverage.mappedTargetCount,
     unknownTargetCount: coverage.unknownTargetCount,
   };
-}
-
-function hasSnapshotNumber(event: ProtoCurtailmentEvent, keys: readonly string[]): boolean {
-  return keys.some((key) => typeof event.decisionSnapshot?.[key] === "number");
 }
 
 export function hasCurtailmentTargetMetrics(event: ProtoCurtailmentEvent): boolean {

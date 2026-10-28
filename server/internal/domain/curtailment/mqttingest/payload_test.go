@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/block/proto-fleet/server/internal/mqttlimits"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -91,7 +93,7 @@ func TestDecodePayload_Malformed(t *testing.T) {
 		},
 		{
 			name:        "oversized payload",
-			body:        strings.Repeat(" ", MaxPayloadBytes+1),
+			body:        strings.Repeat(" ", mqttlimits.MaxPayloadBytes+1),
 			wantMessage: "payload exceeds",
 		},
 	}
@@ -107,6 +109,17 @@ func TestDecodePayload_Malformed(t *testing.T) {
 			assert.True(t, strings.Contains(err.Error(), tc.wantMessage), "error %q must mention %q", err.Error(), tc.wantMessage)
 		})
 	}
+}
+
+func TestDecodePayload_AcceptsSizeLimit(t *testing.T) {
+	t.Parallel()
+
+	now := time.Date(2026, 5, 28, 12, 0, 0, 0, time.UTC)
+	body := fmt.Sprintf(`{"target":100,"timestamp":%d}`, now.Unix())
+	body += strings.Repeat(" ", mqttlimits.MaxPayloadBytes-len(body))
+	payload, err := (targetTimestampDecoder{}).Decode([]byte(body), now)
+	require.NoError(t, err)
+	assert.Equal(t, TargetOn, payload.Target)
 }
 
 func TestTarget_String(t *testing.T) {

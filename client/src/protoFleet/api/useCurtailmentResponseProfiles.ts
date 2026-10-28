@@ -4,10 +4,13 @@ import { Code, ConnectError } from "@connectrpc/connect";
 
 import { curtailmentClient } from "@/protoFleet/api/clients";
 import {
+  getResponseProfileScopeSummary,
+  getResponseProfileSiteNameForId,
+} from "@/protoFleet/api/curtailmentResponseProfileUtils";
+import {
   buildCurtailmentScopes,
   curtailmentScopeSchemaVersion,
   getCurtailmentScopeFormFields,
-  getCurtailmentScopeSummary,
   getCurtailmentTerminalScope,
   normalizeCurtailmentSelectionValues,
   parseCurtailmentTerminalScopes,
@@ -126,21 +129,6 @@ function curtailBatchIntervalInputValue(profile: ApiCurtailmentResponseProfile):
   return (profile.curtailBatchSize ?? 0) > 0 ? numberToNonNegativeInputValue(profile.curtailBatchIntervalSec) : "";
 }
 
-const responseProfileScopeLabelByMode: Partial<Record<CurtailmentMode, string>> = {
-  [CurtailmentMode.FIXED_KW]: "Whole fleet",
-  [CurtailmentMode.FULL_FLEET]: "Whole fleet",
-};
-
-export function getResponseProfileScopeLabel(mode: CurtailmentMode): string {
-  return responseProfileScopeLabelByMode[mode] ?? "Unknown scope";
-}
-
-export function getResponseProfileScopeLabelForActionType(actionType: ResponseProfileFormValues["actionType"]): string {
-  return getResponseProfileScopeLabel(
-    actionType === "fixedKwReduction" ? CurtailmentMode.FIXED_KW : CurtailmentMode.FULL_FLEET,
-  );
-}
-
 function hasSameStringSet(left: readonly string[], right: readonly string[]): boolean {
   return left.length === right.length && left.every((value) => right.includes(value));
 }
@@ -157,10 +145,6 @@ function getSelectedResponseProfileSiteIds(
     (values.siteSelection === undefined && siteIds.length > 0)
     ? siteIds
     : [];
-}
-
-function getResponseProfileSiteNameForId(values: Partial<ResponseProfileFormValues>, siteId: string): string {
-  return values.siteNamesById?.[siteId]?.trim() || (values.siteId === siteId ? values.siteName?.trim() : "") || "";
 }
 
 function getResponseProfileSiteNamesById(
@@ -347,13 +331,6 @@ function getApiResponseProfileScopeValues(
     minerSelectionMode: terminalScope.type === "wholeOrg" ? "all" : "subset",
     readOnlyScopeSummary: undefined,
   };
-}
-
-function getResponseProfileScopeSummary(values: ResponseProfileFormValues, mode: CurtailmentMode): string {
-  return getCurtailmentScopeSummary(values, {
-    fallbackLabel: getResponseProfileScopeLabel(mode),
-    getSiteLabel: (siteId) => getResponseProfileSiteNameForId(values, siteId),
-  });
 }
 
 export function clearCurtailmentResponseProfileSessionCacheForTest(): void {

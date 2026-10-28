@@ -1,11 +1,14 @@
 import { type KeyboardEvent, type MouseEvent, type ReactElement, useMemo, useState } from "react";
 import clsx from "clsx";
-import type { CurtailmentHistoryEvent, CurtailmentPriority } from "@/protoFleet/api/curtailmentTypes";
+import type {
+  CurtailmentEventState,
+  CurtailmentHistoryEvent,
+  CurtailmentPriority,
+} from "@/protoFleet/api/curtailmentTypes";
 
 import NoFilterResultsEmptyState from "@/protoFleet/components/NoFilterResultsEmptyState";
 import {
   activeCurtailmentDisplayStateConfigs,
-  type CurtailmentEventState,
   curtailmentEventStateConfigs,
   curtailmentEventStates,
   formatCurtailmentAppliesToSummary,

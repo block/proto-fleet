@@ -110,8 +110,12 @@ export function isCurtailmentTopologyScopeType(
   return scopeType === "building" || scopeType === "rack" || scopeType === "group";
 }
 
+export function getCurtailmentScopeCountLabel(count: number, singular: string): string {
+  return count === 1 ? singular : `${singular}s`;
+}
+
 function formatScopeCount(count: number, singular: string): string {
-  return `${count} ${count === 1 ? singular : `${singular}s`}`;
+  return `${count} ${getCurtailmentScopeCountLabel(count, singular)}`;
 }
 
 export function getCurtailmentScopeSummary(

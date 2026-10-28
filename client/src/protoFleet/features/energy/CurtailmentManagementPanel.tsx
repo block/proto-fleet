@@ -10,6 +10,7 @@ import {
 
 import {
   type ActiveCurtailmentEvent,
+  type CurtailmentEventState,
   type CurtailmentHistoryEvent,
   type CurtailmentPlanPreview,
   type CurtailmentResponseProfileOption,
@@ -36,7 +37,6 @@ import useCurtailmentResponseProfiles from "@/protoFleet/api/useCurtailmentRespo
 import useInfrastructureDevices from "@/protoFleet/api/useInfrastructureDevices";
 import { useActiveSite } from "@/protoFleet/components/PageHeader/SitePicker";
 import ActiveCurtailmentStatus from "@/protoFleet/features/energy/ActiveCurtailmentStatus";
-import type { CurtailmentEventState } from "@/protoFleet/features/energy/curtailmentDisplayUtils";
 import CurtailmentHistory from "@/protoFleet/features/energy/CurtailmentHistory";
 import { immediateRestoreBatchSizeInputValue } from "@/protoFleet/features/energy/curtailmentNumericFields";
 import { getDefaultCurtailmentSiteScope } from "@/protoFleet/features/energy/curtailmentSiteScopeDefaults";

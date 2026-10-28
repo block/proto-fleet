@@ -122,10 +122,7 @@ func (r *Reconciler) authorizeTopologyCurtailDispatch(
 			if !topologyCoverageWithinEnvelope(coverage, envelope) {
 				return rejectFence("current topology exceeds the persisted authorization envelope", nil)
 			}
-			currentMembers := make(map[string]struct{}, len(fenced.Topology.DispatchMemberDeviceIdentifiers))
-			for _, deviceIdentifier := range fenced.Topology.DispatchMemberDeviceIdentifiers {
-				currentMembers[deviceIdentifier] = struct{}{}
-			}
+			currentMembers := curtailment.ToStringSet(fenced.Topology.DispatchMemberDeviceIdentifiers)
 			for _, target := range targets {
 				if target == nil {
 					continue
@@ -211,10 +208,7 @@ func (r *Reconciler) fenceTopologyRestoreDispatch(
 				command(commandTargets)
 				return nil
 			}
-			currentMembers := make(map[string]struct{}, len(fenced.Topology.DispatchMemberDeviceIdentifiers))
-			for _, deviceIdentifier := range fenced.Topology.DispatchMemberDeviceIdentifiers {
-				currentMembers[deviceIdentifier] = struct{}{}
-			}
+			currentMembers := curtailment.ToStringSet(fenced.Topology.DispatchMemberDeviceIdentifiers)
 			commandTargets = make([]*models.Target, 0, len(targets))
 			returnedDeviceIdentifiers := make([]string, 0, len(targets))
 			for _, target := range targets {

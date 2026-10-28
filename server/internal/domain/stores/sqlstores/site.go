@@ -344,17 +344,7 @@ func (s *SQLSiteStore) CountInfrastructureDevicesBySite(ctx context.Context, org
 }
 
 func (s *SQLSiteStore) CountResponseProfilesByInfrastructureDevices(ctx context.Context, orgID int64, ids []int64) (int64, error) {
-	if len(ids) == 0 {
-		return 0, nil
-	}
-	count, err := s.GetQueries(ctx).CountResponseProfilesByInfrastructureDevices(ctx, sqlc.CountResponseProfilesByInfrastructureDevicesParams{
-		OrgID:                   orgID,
-		InfrastructureDeviceIds: ids,
-	})
-	if err != nil {
-		return 0, fleeterror.NewInternalErrorf("failed to count response profiles by infrastructure devices: %v", err)
-	}
-	return count, nil
+	return countResponseProfilesByInfrastructureDevices(ctx, s.GetQueries(ctx), orgID, ids)
 }
 
 func (s *SQLSiteStore) CountActiveCurtailmentEventsByInfrastructureDevices(
@@ -362,21 +352,7 @@ func (s *SQLSiteStore) CountActiveCurtailmentEventsByInfrastructureDevices(
 	orgID int64,
 	ids []int64,
 ) (int64, error) {
-	if len(ids) == 0 {
-		return 0, nil
-	}
-	count, err := s.GetQueries(ctx).CountCurtailmentFanClaims(
-		ctx,
-		sqlc.CountCurtailmentFanClaimsParams{
-			IncludeTerminalErrors: true,
-			OrgID:                 orgID,
-			FacilityFanDeviceIds:  ids,
-		},
-	)
-	if err != nil {
-		return 0, fleeterror.NewInternalErrorf("failed to count active curtailment events by infrastructure devices: %v", err)
-	}
-	return count, nil
+	return countCurtailmentEventsByInfrastructureDevices(ctx, s.GetQueries(ctx), orgID, ids, true)
 }
 
 func (s *SQLSiteStore) CountNonTerminalCurtailmentEventsByInfrastructureDevices(
@@ -384,21 +360,7 @@ func (s *SQLSiteStore) CountNonTerminalCurtailmentEventsByInfrastructureDevices(
 	orgID int64,
 	ids []int64,
 ) (int64, error) {
-	if len(ids) == 0 {
-		return 0, nil
-	}
-	count, err := s.GetQueries(ctx).CountCurtailmentFanClaims(
-		ctx,
-		sqlc.CountCurtailmentFanClaimsParams{
-			IncludeTerminalErrors: false,
-			OrgID:                 orgID,
-			FacilityFanDeviceIds:  ids,
-		},
-	)
-	if err != nil {
-		return 0, fleeterror.NewInternalErrorf("failed to count non-terminal curtailment events by infrastructure devices: %v", err)
-	}
-	return count, nil
+	return countCurtailmentEventsByInfrastructureDevices(ctx, s.GetQueries(ctx), orgID, ids, false)
 }
 
 func (s *SQLSiteStore) UnassignRacksFromSite(ctx context.Context, orgID, siteID int64) (int64, error) {

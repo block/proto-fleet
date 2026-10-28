@@ -153,7 +153,7 @@ func (h *Handler) StartCurtailment(ctx context.Context, req *connect.Request[pb.
 	}
 	startReq.ResponseProfileID = req.Msg.GetResponseProfileId()
 	startReq.ResponseProfileRevision = expectedProfileRevision
-	if h.service != nil {
+	if err := requireService(h.service, "StartCurtailment"); err == nil {
 		replayEvent, err := h.service.LookupStartReplay(ctx, startReq)
 		if err != nil {
 			return nil, err
@@ -250,7 +250,7 @@ func (h *Handler) UpdateCurtailmentEvent(ctx context.Context, req *connect.Reque
 	if err != nil {
 		return nil, err
 	}
-	updateReq, err := toUpdateRequest(req.Msg, info)
+	updateReq, err := toUpdateRequest(req.Msg, info, eventUUID)
 	if err != nil {
 		return nil, err
 	}
@@ -275,11 +275,11 @@ func (h *Handler) StopCurtailment(ctx context.Context, req *connect.Request[pb.S
 			return nil, err
 		}
 	}
-	if h.service == nil {
+	if err := requireService(h.service, "StopCurtailment"); err != nil {
 		if _, err := middleware.RequirePermission(ctx, authz.PermCurtailmentManage, authz.ResourceContext{}); err != nil {
 			return nil, err
 		}
-		return nil, errCurtailmentNotImplemented("StopCurtailment")
+		return nil, err
 	}
 	eventUUID, err := parseEventUUID(req.Msg.GetEventUuid())
 	if err != nil {
@@ -290,10 +290,7 @@ func (h *Handler) StopCurtailment(ctx context.Context, req *connect.Request[pb.S
 		return nil, err
 	}
 
-	stopReq, err := toStopRequest(req.Msg, info.OrganizationID)
-	if err != nil {
-		return nil, err
-	}
+	stopReq := toStopRequest(req.Msg, info.OrganizationID, eventUUID)
 
 	event, err := h.service.Stop(ctx, stopReq)
 	if err != nil {
@@ -409,14 +406,14 @@ func (h *Handler) GetCurtailmentEvent(ctx context.Context, req *connect.Request[
 // with SessionOnlyProcedures (see interceptors/config.go); callers need
 // curtailment:manage for the event plus an Admin/SuperAdmin role.
 func (h *Handler) AdminTerminateEvent(ctx context.Context, req *connect.Request[pb.AdminTerminateEventRequest]) (*connect.Response[pb.AdminTerminateEventResponse], error) {
-	if h.service == nil {
+	if err := requireService(h.service, "AdminTerminateEvent"); err != nil {
 		if _, err := middleware.RequirePermission(ctx, authz.PermCurtailmentManage, authz.ResourceContext{}); err != nil {
 			return nil, err
 		}
 		if err := requireAdminFromContext(ctx, actionAdminTerminateEvents); err != nil {
 			return nil, err
 		}
-		return nil, errCurtailmentNotImplemented("AdminTerminateEvent")
+		return nil, err
 	}
 	eventUUID, err := parseEventUUID(req.Msg.GetEventUuid())
 	if err != nil {
@@ -429,7 +426,7 @@ func (h *Handler) AdminTerminateEvent(ctx context.Context, req *connect.Request[
 	if err := requireAdminFromContext(ctx, actionAdminTerminateEvents); err != nil {
 		return nil, err
 	}
-	terminateReq, err := toAdminTerminateRequest(req.Msg, info)
+	terminateReq, err := toAdminTerminateRequest(req.Msg, info, eventUUID)
 	if err != nil {
 		return nil, err
 	}
@@ -646,14 +643,15 @@ func (h *Handler) scopeResourceContextRequirements(
 		return out, nil
 	}
 	if deviceSites == nil {
-		if h.responseProfiles == nil {
+		if requireService(h.responseProfiles, "scope authorization") == nil {
+			var err error
+			deviceSites, err = h.responseProfiles.ListDeviceSites(ctx, orgID, deviceIdentifiers)
+			if err != nil {
+				return scopeResourceContextRequirements{}, err
+			}
+		} else {
 			out.requireOrgWide = true
 			return out, nil
-		}
-		var err error
-		deviceSites, err = h.responseProfiles.ListDeviceSites(ctx, orgID, deviceIdentifiers)
-		if err != nil {
-			return scopeResourceContextRequirements{}, err
 		}
 	}
 	out.deviceSites = deviceSites
