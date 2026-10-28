@@ -68,13 +68,14 @@ changed-checks:
     } | sort -u
   commands:
     diff-whitespace:
+      # Jobs run in a pseudo-terminal, so a git pager here would wait for input forever.
       run: |
         set -e
         base="${CHECK_CHANGED_BASE:-origin/main}"
         merge_base="$(git merge-base "$base" HEAD)"
-        git diff --check "$merge_base"...HEAD
-        git diff --check
-        git diff --cached --check
+        git --no-pager diff --check "$merge_base"...HEAD
+        git --no-pager diff --check
+        git --no-pager diff --cached --check
 
     protobuf-lint:
       glob:
