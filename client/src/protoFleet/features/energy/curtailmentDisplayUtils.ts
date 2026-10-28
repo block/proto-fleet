@@ -191,14 +191,6 @@ function getSnapshotNumber(event: ProtoCurtailmentEvent, keys: readonly string[]
   return undefined;
 }
 
-function getMinerCountLabel(minerCount: number): string {
-  return minerCount === 1 ? "miner" : "miners";
-}
-
-function getSiteCountLabel(siteCount: number): string {
-  return siteCount === 1 ? "site" : "sites";
-}
-
 function formatCurtailmentScopeParts(parts: string[]): string {
   return parts.length > 0 ? parts.join(" + ") : "Unknown scope";
 }
@@ -393,7 +385,9 @@ export function getCurtailmentEventScopeLabel(event: ProtoCurtailmentEvent, site
     if (siteLabelsById.size === 1) {
       parts.push([...siteLabelsById.values()][0]);
     } else if (siteLabelsById.size > 1) {
-      parts.push(`${siteLabelsById.size.toLocaleString()} ${getSiteCountLabel(siteLabelsById.size)}`);
+      parts.push(
+        `${siteLabelsById.size.toLocaleString()} ${getCurtailmentScopeCountLabel(siteLabelsById.size, "site")}`,
+      );
     }
 
     if (buildingIds.size > 0) {
@@ -407,7 +401,9 @@ export function getCurtailmentEventScopeLabel(event: ProtoCurtailmentEvent, site
     }
 
     if (deviceIdentifiers.size > 0) {
-      parts.push(`${deviceIdentifiers.size.toLocaleString()} ${getMinerCountLabel(deviceIdentifiers.size)}`);
+      parts.push(
+        `${deviceIdentifiers.size.toLocaleString()} ${getCurtailmentScopeCountLabel(deviceIdentifiers.size, "miner")}`,
+      );
     }
 
     return formatCurtailmentScopeParts(parts);
@@ -420,7 +416,7 @@ export function getCurtailmentEventScopeLabel(event: ProtoCurtailmentEvent, site
       return getSiteDisplayName(event.scope.value.siteId, siteNameById);
     case "deviceIdentifiers": {
       const count = event.scope.value.deviceIdentifiers.length;
-      return `${count.toLocaleString()} ${getMinerCountLabel(count)}`;
+      return `${count.toLocaleString()} ${getCurtailmentScopeCountLabel(count, "miner")}`;
     }
     default:
       return "Unknown scope";
@@ -586,15 +582,11 @@ export function getActiveCurtailmentDisplayState(
 }
 
 export function formatCurtailmentMinerCount(minerCount: number): string {
-  return `${minerCount.toLocaleString()} ${getMinerCountLabel(minerCount)}`;
-}
-
-function getFacilityFanDeviceCountLabel(deviceCount: number): string {
-  return deviceCount === 1 ? "device" : "devices";
+  return `${minerCount.toLocaleString()} ${getCurtailmentScopeCountLabel(minerCount, "miner")}`;
 }
 
 export function formatCurtailmentFacilityFanCount(deviceCount: number): string {
-  return `${deviceCount.toLocaleString()} ${getFacilityFanDeviceCountLabel(deviceCount)}`;
+  return `${deviceCount.toLocaleString()} ${getCurtailmentScopeCountLabel(deviceCount, "device")}`;
 }
 
 export function formatCurtailmentAppliesToSummary(minerCount: number, facilityFanDeviceCount = 0): string {
@@ -608,7 +600,7 @@ export function formatCurtailmentAppliesToSummary(minerCount: number, facilityFa
 }
 
 export function formatCurtailmentSelectedMinerCount(minerCount: number): string {
-  return `${minerCount.toLocaleString()} selected ${getMinerCountLabel(minerCount)}`;
+  return `${minerCount.toLocaleString()} selected ${getCurtailmentScopeCountLabel(minerCount, "miner")}`;
 }
 
 export function formatCurtailmentTargetVsActual(event: CurtailmentTargetKwEvent): string {
