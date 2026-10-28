@@ -4,6 +4,7 @@ import clsx from "clsx";
 import {
   getResponseProfileScopeSummary,
   getResponseProfileSiteNameForId,
+  getSelectedResponseProfileSiteIds,
 } from "@/protoFleet/api/curtailmentResponseProfileUtils";
 import {
   type CurtailmentScopeSelection,
@@ -249,20 +250,6 @@ function getResponseProfileTargetSummary(values: ResponseProfileFormValues): str
     default:
       return "100% reduction";
   }
-}
-
-function getSelectedResponseProfileSiteIds(
-  values: Pick<ResponseProfileFormValues, "siteSelection" | "siteId" | "siteIds">,
-): string[] {
-  const siteIds = normalizeCurtailmentSelectionValues(
-    values.siteIds !== undefined && values.siteIds.length > 0 ? values.siteIds : values.siteId ? [values.siteId] : [],
-  );
-
-  return values.siteSelection === "site" ||
-    values.siteSelection === "allSites" ||
-    (values.siteSelection === undefined && siteIds.length > 0)
-    ? siteIds
-    : [];
 }
 
 function getResponseProfileSiteNamesById(

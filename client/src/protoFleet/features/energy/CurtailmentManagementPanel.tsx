@@ -3,10 +3,10 @@ import { useNavigate } from "react-router-dom";
 import clsx from "clsx";
 import { Code, ConnectError } from "@connectrpc/connect";
 import {
-  getCurtailmentScopeSummary,
-  getCurtailmentTerminalScope,
-  normalizeCurtailmentSelectionValues,
-} from "@/protoFleet/api/curtailmentScopes";
+  getResponseProfileSiteNameForId,
+  getSelectedResponseProfileSiteIds,
+} from "@/protoFleet/api/curtailmentResponseProfileUtils";
+import { getCurtailmentScopeSummary, getCurtailmentTerminalScope } from "@/protoFleet/api/curtailmentScopes";
 
 import {
   type ActiveCurtailmentEvent,
@@ -160,24 +160,6 @@ function createSiteOptions(sites: SiteWithCounts[]): CurtailmentSiteOption[] {
       return id ? [{ id, name: site?.name || `Site ${id}` }] : [];
     })
     .sort((left, right) => left.name.localeCompare(right.name, undefined, { sensitivity: "base" }));
-}
-
-function getSelectedResponseProfileSiteIds(
-  values: Pick<ResponseProfileFormValues, "siteSelection" | "siteId" | "siteIds">,
-): string[] {
-  const siteIds = normalizeCurtailmentSelectionValues(
-    values.siteIds !== undefined && values.siteIds.length > 0 ? values.siteIds : values.siteId ? [values.siteId] : [],
-  );
-
-  return values.siteSelection === "site" ||
-    values.siteSelection === "allSites" ||
-    (values.siteSelection === undefined && siteIds.length > 0)
-    ? siteIds
-    : [];
-}
-
-function getResponseProfileSiteNameForId(values: Partial<ResponseProfileFormValues>, siteId: string): string {
-  return values.siteNamesById?.[siteId]?.trim() || (values.siteId === siteId ? values.siteName?.trim() : "") || "";
 }
 
 function getResponseProfileSiteNamesById(

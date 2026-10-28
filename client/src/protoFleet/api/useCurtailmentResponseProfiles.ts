@@ -6,13 +6,13 @@ import { curtailmentClient } from "@/protoFleet/api/clients";
 import {
   getResponseProfileScopeSummary,
   getResponseProfileSiteNameForId,
+  getSelectedResponseProfileSiteIds,
 } from "@/protoFleet/api/curtailmentResponseProfileUtils";
 import {
   buildCurtailmentScopes,
   curtailmentScopeSchemaVersion,
   getCurtailmentScopeFormFields,
   getCurtailmentTerminalScope,
-  normalizeCurtailmentSelectionValues,
   parseCurtailmentTerminalScopes,
 } from "@/protoFleet/api/curtailmentScopes";
 import {
@@ -131,20 +131,6 @@ function curtailBatchIntervalInputValue(profile: ApiCurtailmentResponseProfile):
 
 function hasSameStringSet(left: readonly string[], right: readonly string[]): boolean {
   return left.length === right.length && left.every((value) => right.includes(value));
-}
-
-function getSelectedResponseProfileSiteIds(
-  values: Pick<ResponseProfileFormValues, "siteSelection" | "siteId" | "siteIds">,
-): string[] {
-  const siteIds = normalizeCurtailmentSelectionValues(
-    values.siteIds !== undefined && values.siteIds.length > 0 ? values.siteIds : values.siteId ? [values.siteId] : [],
-  );
-
-  return values.siteSelection === "site" ||
-    values.siteSelection === "allSites" ||
-    (values.siteSelection === undefined && siteIds.length > 0)
-    ? siteIds
-    : [];
 }
 
 function getResponseProfileSiteNamesById(

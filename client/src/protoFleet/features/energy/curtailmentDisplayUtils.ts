@@ -63,7 +63,7 @@ export const activeCurtailmentEventStates = [
   "pending",
   "active",
   "restoring",
-] as const satisfies readonly CurtailmentEventState[];
+] as const satisfies readonly ActiveCurtailmentEventState[];
 
 export const activeCurtailmentDisplayStateConfigs = {
   cancelled: {
