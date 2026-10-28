@@ -102,3 +102,7 @@ Collectors can sample expected passive probes using this per-response marker.
 Keep unmarked failures and forwarded public requests even if they use a
 load-balancer user agent. Older servers or nginx configs omit the marker, so
 collectors must retain their 503s until both components have been updated.
+
+Monitor public URL availability independently: the load balancer can lose access
+to the active host while it retains its lease and the standby continues returning
+marked passive 503s. Sampled passive logs do not establish public service health.

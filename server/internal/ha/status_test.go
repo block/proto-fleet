@@ -24,6 +24,7 @@ func TestRuntimeStatusReportsInitializingThenHealthyPassive(t *testing.T) {
 		Role: RoleInitializing, Observation: ObservationUnavailable,
 		Endpoint: EndpointNotApplicable, ReasonCodes: []ReasonCode{ReasonObservationPending},
 	}, runtime.Status(now))
+	require.False(t, runtime.Passive(now))
 
 	coordinator.deactivate(nil)
 	status := runtime.Status(time.Now())

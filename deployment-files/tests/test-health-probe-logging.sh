@@ -8,8 +8,13 @@ NGINX_IMAGE=$(awk '/^FROM nginx:/ { print $2; exit }' "$REPO_ROOT/deployment-fil
 STAGE=$(mktemp -d)
 CONTAINER=
 cleanup() {
-    if [ -n "$CONTAINER" ]; then docker rm -f "$CONTAINER" >/dev/null; fi
-    rm -rf "$STAGE"
+    local status=$?
+    if [ -n "$CONTAINER" ]; then
+        if [ "$status" -ne 0 ]; then docker logs "$CONTAINER" >&2 || true; fi
+        docker rm -f "$CONTAINER" >/dev/null || true
+    fi
+    rm -rf "$STAGE" || true
+    exit "$status"
 }
 trap cleanup EXIT
 
@@ -30,7 +35,7 @@ EOF
 
 for protocol in http https; do
     CONTAINER="fleet-health-log-test-$(basename "$STAGE")-$protocol"
-    docker run --rm -d --name "$CONTAINER" \
+    docker run -d --name "$CONTAINER" \
         -p 127.0.0.1::80 -p 127.0.0.1::443 \
         -v "$REPO_ROOT/deployment-files/client/nginx.$protocol.conf:/etc/nginx/conf.d/default.conf:ro" \
         -v "$STAGE/upstream.conf:/etc/nginx/conf.d/test-upstream.conf:ro" \
