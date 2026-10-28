@@ -51,12 +51,14 @@ func TestRuntimeStatusDegradesUnavailableAndStaleObservations(t *testing.T) {
 	require.Equal(t, RoleDegraded, unavailable.Role)
 	require.Equal(t, ObservationUnavailable, unavailable.Observation)
 	require.Equal(t, []ReasonCode{ReasonControlPlaneUnavailable}, unavailable.ReasonCodes)
+	require.False(t, runtime.Passive(time.Now()))
 
 	coordinator.deactivate(nil)
 	stale := runtime.Status(time.Now().Add(2 * time.Second))
 	require.Equal(t, RoleDegraded, stale.Role)
 	require.Equal(t, ObservationStale, stale.Observation)
 	require.Equal(t, []ReasonCode{ReasonObservationStale}, stale.ReasonCodes)
+	require.False(t, runtime.Passive(time.Now().Add(2*time.Second)))
 }
 
 func TestRuntimeStatusReportsActiveOnlyAfterAdmissionAndEndpointHealth(t *testing.T) {

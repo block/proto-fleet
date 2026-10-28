@@ -126,9 +126,14 @@ type ActiveState interface {
 	Active() bool
 }
 
+type ActiveHealthState interface {
+	ActiveState
+	PassiveState
+}
+
 // NewActiveHandler reports whether this process currently owns a healthy
 // active runtime. It does not grant ownership.
-func NewActiveHandler(version string, state ActiveState) func(w http.ResponseWriter, r *http.Request) {
+func NewActiveHandler(version string, state ActiveHealthState) func(w http.ResponseWriter, r *http.Request) {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			w.WriteHeader(http.StatusMethodNotAllowed)
@@ -136,6 +141,11 @@ func NewActiveHandler(version string, state ActiveState) func(w http.ResponseWri
 		}
 		w.Header().Set("X-Proto-Fleet-Version", version)
 		if !state.Active() {
+			// Only a current passive observation qualifies this expected 503 for
+			// log sampling. Missing/stale observations and active failures do not.
+			if state.Passive(time.Now()) {
+				w.Header().Set("X-Proto-Fleet-HA-Role", "passive")
+			}
 			w.Header().Set("Content-Type", "text/plain")
 			w.WriteHeader(http.StatusServiceUnavailable)
 			return

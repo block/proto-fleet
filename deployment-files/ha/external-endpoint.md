@@ -88,3 +88,17 @@ separately; rolling takeover checks it using system roots. Neither check grants 
 
 Public certificate renewal belongs to the load-balancer provisioner. Cluster
 service certificate rotation and artifact HA remain outside this profile.
+
+## Health-probe logs
+
+An active-health response returns 503 on a passive host. Only a current passive
+observation adds the response header `X-Proto-Fleet-HA-Role: passive`; active
+failures, initialization, stale observations, and unavailable observations omit it.
+Packaged HTTP and HTTPS nginx configs record that upstream header as the final
+`ha_role="passive"` field on active-health access logs. Missing headers become
+`ha_role="-"`. This is a log-classification signal, not a grant of leadership.
+
+Collectors can sample expected passive probes using this per-response marker.
+Keep unmarked failures and forwarded public requests even if they use a
+load-balancer user agent. Older servers or nginx configs omit the marker, so
+collectors must retain their 503s until both components have been updated.
