@@ -7,7 +7,6 @@ import {
 import { DeviceSchema } from "@/protoFleet/api/generated/pairing/v1/pairing_pb";
 import type { FleetNodeItem } from "@/protoFleet/api/useFleetNodes";
 
-/** Thirteen manually partitioned discovery sources, including two capacity warnings. */
 export const scaleFleetNodes: FleetNodeItem[] = Array.from({ length: 13 }, (_, index) => ({
   fleetNodeId: String(index + 1),
   pendingEnrollmentId: null,

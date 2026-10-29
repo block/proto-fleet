@@ -333,9 +333,6 @@ func (h *Handler) pairFleetNodeDevices(ctx context.Context, orgID, userID int64,
 		return resp, route, nil
 	}
 
-	// Resolve explicit ownership in directory order before starting commands. A
-	// device stays with its first discovering node, including when that node's
-	// command fails; it must never be retried through another node or the server.
 	type nodeWork struct {
 		nodeID  int64
 		targets []*pb.FleetNodePairTarget
@@ -383,8 +380,6 @@ func (h *Handler) pairFleetNodeDevices(ctx context.Context, orgID, userID int64,
 		}
 	}
 
-	// Each node owns its result maps. Only merge after all workers have finished,
-	// so callbacks from independent command streams cannot race with each other.
 	var wg sync.WaitGroup
 	for i := range work {
 		wg.Add(1)
@@ -392,8 +387,6 @@ func (h *Handler) pairFleetNodeDevices(ctx context.Context, orgID, userID int64,
 			defer wg.Done()
 			item := &work[i]
 			if allDevicesFilter != nil {
-				// Filter pages use the existing discovery owner. The live
-				// org/identifier uniqueness constraint keeps node pages disjoint.
 				item.err = h.pairAllMatchingFleetNodeDevices(ctx, item.nodeID, orgID, userID, allDevicesFilter, req, &item.route, item.failed)
 				return
 			}

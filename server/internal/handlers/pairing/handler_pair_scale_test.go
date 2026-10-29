@@ -58,10 +58,8 @@ func TestPairFleetNodeDevicesDispatchesNodesInParallelAndBoundsBatches(t *testin
 				selected = append(selected, id)
 			}
 			store.devices[8] = []fleetnodepairing.FleetNodeDiscoveredDevice{{ID: 300, DeviceIdentifier: "b", IPAddress: "10.0.0.2"}}
-			selected = append(selected, "b", "a-000") // duplicate selection must dispatch once.
+			selected = append(selected, "b", "a-000")
 			if !allDevices {
-				// Even if a later lookup can see the same identity, explicit
-				// routing keeps the first eligible node and never repeats it.
 				store.devices[8] = append(store.devices[8], store.devices[7][0])
 			}
 			registry := control.NewRegistry()
@@ -96,7 +94,6 @@ func TestPairFleetNodeDevicesDispatchesNodesInParallelAndBoundsBatches(t *testin
 			case <-time.After(2 * time.Second):
 				t.Fatal("node A did not receive its first batch")
 			}
-			// Hold A's response: B must progress independently.
 			var commandB *gatewaypb.ControlCommand
 			select {
 			case commandB = <-b.Outgoing:
@@ -147,14 +144,6 @@ func TestPairFleetNodeDevicesDispatchesNodesInParallelAndBoundsBatches(t *testin
 	}
 }
 
-// Pairing repairs must enumerate connected discovery nodes even when their live
-// configuration no longer makes them eligible for discovering new miners.
-type repairOnlyDiscoveryRunner struct{ stubFleetNodeDiscoveryRunner }
-
-func (*repairOnlyDiscoveryRunner) EligibleNodeIDs(context.Context, int64) ([]int64, error) {
-	return nil, nil
-}
-
 func TestPairFleetNodeDevicesWithoutConfigurationOnlyRepairsOwnedRoute(t *testing.T) {
 	for _, configured := range []bool{false, true} {
 		for _, repair := range []bool{false, true} {
@@ -174,7 +163,7 @@ func TestPairFleetNodeDevicesWithoutConfigurationOnlyRepairsOwnedRoute(t *testin
 					stream.SetDiscoveryConfig(&gatewaypb.DiscoveryConfig{})
 				}
 				h := &Handler{
-					discovery:        &repairOnlyDiscoveryRunner{stubFleetNodeDiscoveryRunner{nodeIDs: []int64{7}}},
+					discovery:        &stubFleetNodeDiscoveryRunner{nodeIDs: []int64{7}},
 					fleetNodePairing: fleetnodepairing.NewService(store, nil, nil).WithProvisioning(nil, nil, registry),
 				}
 				done := make(chan fleetNodePairRoute, 1)
