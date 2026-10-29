@@ -595,6 +595,54 @@ func TestControlLoop_ReconnectsAfterStreamEOF(t *testing.T) {
 	}
 }
 
+func TestControlSession_HelloCarriesNormalizedDiscoveryRanges(t *testing.T) {
+	tests := []struct {
+		name string
+		cmd  *RunCmd
+		want []string
+	}{
+		{
+			name: "explicit ranges are merged and ordered",
+			cmd:  &RunCmd{DiscoveryRanges: []string{"192.168.1.1", "10.0.0.128/25", "10.0.0.0/25"}},
+			want: []string{"10.0.0.0-10.0.0.255", "192.168.1.1"},
+		},
+		{
+			name: "explicit empty list is reported as disabled",
+			cmd:  &RunCmd{DiscoveryRanges: []string{}, LocalDiscoverySubnet: "10.9.0.0/24"},
+		},
+		{
+			name: "legacy subnet",
+			cmd:  &RunCmd{LocalDiscoverySubnet: "10.9.0.0/24"},
+			want: []string{"10.9.0.0-10.9.0.255"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Arrange
+			tt.cmd.discoverer = &stubDiscoverer{}
+			fake := &controlFakeGateway{}
+			fake.setBehavior(controlFakeBehavior{closeAfterAccepted: true})
+			client := newControlClient(t, fake)
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+
+			// Act
+			done := make(chan error, 1)
+			go func() { done <- tt.cmd.runControlLoop(ctx, client, &bootstrap.State{FleetNodeID: 7}, discardLogger(t)) }()
+			require.Eventually(t, func() bool { return fake.helloCount() >= 1 }, 3*time.Second, 20*time.Millisecond)
+			cancel()
+			<-done
+			tt.cmd.waitForControlWorkers(discardLogger(t))
+
+			// Assert
+			configs := fake.helloDiscoveryConfigsCopy()
+			require.NotEmpty(t, configs)
+			require.NotNil(t, configs[0], "an empty config must still be present so the server sees it as reported")
+			assert.Equal(t, tt.want, configs[0].GetRanges())
+		})
+	}
+}
+
 func TestIsNotActiveControlErrorRequiresStructuredDetail(t *testing.T) {
 	t.Parallel()
 
@@ -693,6 +741,7 @@ type controlFakeGateway struct {
 	pending                      []pendingCommand
 	hellos                       int32
 	helloCommandProtocolVersions []pb.CommandProtocolVersion
+	helloDiscoveryConfigs        []*pb.DiscoveryConfig
 	acks                         []*pb.ControlAck
 	reports                      []*pb.ReportDiscoveredDevicesRequest
 	pairReports                  []*pb.ReportPairedDevicesRequest
@@ -737,6 +786,16 @@ func (f *controlFakeGateway) helloCommandProtocolVersionsCopy() []pb.CommandProt
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return append([]pb.CommandProtocolVersion(nil), f.helloCommandProtocolVersions...)
+}
+
+func (f *controlFakeGateway) helloDiscoveryConfigsCopy() []*pb.DiscoveryConfig {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	out := make([]*pb.DiscoveryConfig, len(f.helloDiscoveryConfigs))
+	for i, config := range f.helloDiscoveryConfigs {
+		out[i] = proto.CloneOf(config)
+	}
+	return out
 }
 
 func (f *controlFakeGateway) ReportDiscoveredDevices(_ context.Context, req *connect.Request[pb.ReportDiscoveredDevicesRequest]) (*connect.Response[pb.ReportDiscoveredDevicesResponse], error) {
@@ -791,6 +850,7 @@ func (f *controlFakeGateway) ControlStream(ctx context.Context, stream *connect.
 	}
 	f.mu.Lock()
 	f.helloCommandProtocolVersions = append(f.helloCommandProtocolVersions, hello.GetMaxCommandProtocolVersion())
+	f.helloDiscoveryConfigs = append(f.helloDiscoveryConfigs, proto.CloneOf(hello.GetDiscoveryConfig()))
 	f.mu.Unlock()
 	atomic.AddInt32(&f.hellos, 1)
 

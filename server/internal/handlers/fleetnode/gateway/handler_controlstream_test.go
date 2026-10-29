@@ -272,6 +272,64 @@ func TestControlStream_SecondStreamEvictsFirst(t *testing.T) {
 	require.Error(t, recvErr)
 }
 
+func TestControlStream_RecordsHelloDiscoveryConfig(t *testing.T) {
+	tests := []struct {
+		name       string
+		hello      *pb.ControlHello
+		wantNil    bool
+		wantRanges []string
+	}{
+		{
+			name:       "ranges",
+			hello:      &pb.ControlHello{DiscoveryConfig: &pb.DiscoveryConfig{Ranges: []string{"10.0.0.0-10.0.0.255", "192.168.1.1"}}},
+			wantRanges: []string{"10.0.0.0-10.0.0.255", "192.168.1.1"},
+		},
+		{
+			name:  "empty config means discovery disabled",
+			hello: &pb.ControlHello{DiscoveryConfig: &pb.DiscoveryConfig{}},
+		},
+		{
+			name:    "missing config means node did not report",
+			hello:   &pb.ControlHello{},
+			wantNil: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Arrange
+			h := newControlHarness(t)
+			client := startControlServer(t, h)
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			stream := client.ControlStream(ctx)
+			t.Cleanup(func() { _ = stream.CloseRequest(); _ = stream.CloseResponse() })
+
+			// Act
+			require.NoError(t, stream.Send(&pb.ControlStreamRequest{Kind: &pb.ControlStreamRequest_Hello{Hello: tt.hello}}))
+			accepted, err := stream.Receive()
+
+			// Assert
+			require.NoError(t, err)
+			require.NotNil(t, accepted.GetAccepted())
+			config := h.registry.DiscoveryConfig(h.fleetNodeID)
+			if tt.wantNil {
+				require.Nil(t, config)
+			} else {
+				require.NotNil(t, config)
+				require.Equal(t, tt.wantRanges, config.GetRanges())
+			}
+
+			// Act
+			require.NoError(t, stream.CloseRequest())
+			require.NoError(t, stream.CloseResponse())
+
+			// Assert
+			require.Eventually(t, func() bool { return !h.registry.Connected(h.fleetNodeID) }, 2*time.Second, 10*time.Millisecond)
+			require.Nil(t, h.registry.DiscoveryConfig(h.fleetNodeID))
+		})
+	}
+}
+
 func TestControlStream_RequiresHelloFirst(t *testing.T) {
 	// Arrange
 	h := newControlHarness(t)

@@ -176,6 +176,81 @@ func TestListFleetNodes_ReportsProtocolStateAndRedactsPairingOnlyCallers(t *test
 	assert.True(t, resp.Msg.GetFleetNodes()[0].GetDiscoveryCoverageDegraded())
 }
 
+func TestListFleetNodes_ReportsDiscoveryConfig(t *testing.T) {
+	tests := []struct {
+		name         string
+		config       *gatewaypb.DiscoveryConfig
+		connected    bool
+		redacted     bool
+		wantReported bool
+		wantRanges   []string
+	}{
+		{
+			name:         "connected node with ranges",
+			config:       &gatewaypb.DiscoveryConfig{Ranges: []string{"10.0.0.0-10.0.0.255", "192.168.1.1"}},
+			connected:    true,
+			wantReported: true,
+			wantRanges:   []string{"10.0.0.0-10.0.0.255", "192.168.1.1"},
+		},
+		{
+			name:         "connected node reporting an empty config",
+			config:       &gatewaypb.DiscoveryConfig{},
+			connected:    true,
+			wantReported: true,
+		},
+		{
+			name:      "connected legacy node that reported nothing",
+			connected: true,
+		},
+		{
+			name:   "disconnected node",
+			config: &gatewaypb.DiscoveryConfig{Ranges: []string{"10.0.0.1"}},
+		},
+		{
+			name:      "caller without administrative details",
+			config:    &gatewaypb.DiscoveryConfig{Ranges: []string{"10.0.0.1"}},
+			connected: true,
+			redacted:  true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Arrange
+			h := newPairingHarness(t)
+			fleetNodeID := h.createFleetNode(t, "discovery-config")
+			stream, err := h.registry.RegisterAuthenticated(
+				fleetNodeID,
+				"",
+				gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V7,
+				control.WithDiscoveryConfig(tt.config),
+			)
+			require.NoError(t, err)
+			if !tt.connected {
+				stream.Unregister()
+			}
+			ctx := h.adminCtx()
+			if tt.redacted {
+				ctx = h.ctxWithPerms(authz.PermMinerPair)
+			}
+
+			// Act
+			resp, err := h.handler.ListFleetNodes(ctx, connect.NewRequest(&pb.ListFleetNodesRequest{}))
+
+			// Assert
+			require.NoError(t, err)
+			require.Len(t, resp.Msg.GetFleetNodes(), 1)
+			summary := resp.Msg.GetFleetNodes()[0]
+			assert.Equal(t, tt.connected, summary.GetControlStreamConnected())
+			assert.Equal(t, tt.wantReported, summary.GetDiscoveryConfigReported())
+			if tt.wantRanges == nil {
+				assert.Empty(t, summary.GetDiscoveryRanges())
+				return
+			}
+			assert.Equal(t, tt.wantRanges, summary.GetDiscoveryRanges())
+		})
+	}
+}
+
 func TestPairDeviceToFleetNode_HappyPath(t *testing.T) {
 	// Arrange
 	h := newPairingHarness(t)

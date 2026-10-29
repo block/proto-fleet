@@ -750,12 +750,12 @@ func (h *Handler) ControlStream(ctx context.Context, stream *connect.BidiStream[
 		subject.FleetNodeID,
 		subject.SessionFingerprint,
 		hello.GetMaxCommandProtocolVersion(),
+		control.WithDiscoveryConfig(hello.GetDiscoveryConfig()),
 	)
 	if err != nil {
 		return fleeterror.NewUnauthenticatedError("fleet node session was replaced or revoked")
 	}
 	defer regHandle.Unregister()
-	regHandle.SetDiscoveryConfig(hello.GetDiscoveryConfig())
 
 	// Older nodes never ping, so only V7 nodes get a keepalive deadline.
 	var keepalive time.Duration

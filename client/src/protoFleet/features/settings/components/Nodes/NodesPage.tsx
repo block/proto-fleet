@@ -36,6 +36,12 @@ const colTitles: ColTitles<NodeColumns> = {
   lastSeen: "Last heartbeat",
 };
 
+const discoveryRangesLabel = (node: FleetNodeItem) => {
+  if (!node.controlStreamConnected) return "Unavailable";
+  if (!node.discoveryConfigReported) return "Upgrade node to report ranges";
+  return node.discoveryRanges?.join(", ") || "Not configured";
+};
+
 const activeCols: NodeColumns[] = ["name", "ipAddresses", "ranges", "role", "status", "version", "miners", "lastSeen"];
 
 const NodesPage = () => {
@@ -296,15 +302,17 @@ const NodesPage = () => {
         allowWrap: true,
       },
       ranges: {
-        component: (node: FleetNodeItem) => (
-          <span className="break-all" title={node.discoveryRanges?.join(", ")}>
-            {!node.controlStreamConnected
-              ? "Unavailable"
-              : !node.discoveryConfigReported
-                ? "Upgrade node to report ranges"
-                : node.discoveryRanges?.join(", ") || "Not configured"}
-          </span>
-        ),
+        component: (node: FleetNodeItem) => {
+          const label = discoveryRangesLabel(node);
+          return (
+            <span
+              className="break-all"
+              title={node.controlStreamConnected && node.discoveryConfigReported ? label : undefined}
+            >
+              {label}
+            </span>
+          );
+        },
         width: "w-56",
         allowWrap: true,
       },

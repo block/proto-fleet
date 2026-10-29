@@ -93,12 +93,20 @@ func parseRange(value string) (Range, error) {
 	if r.Start.Compare(r.End) > 0 {
 		return Range{}, fmt.Errorf("start address must not exceed end address")
 	}
+	if !WithinPrivateNetwork(r.Start, r.End) {
+		return Range{}, fmt.Errorf("range must remain within one private IPv4 network")
+	}
+	return r, nil
+}
+
+// WithinPrivateNetwork reports whether both addresses lie in the same RFC 1918 network.
+func WithinPrivateNetwork(start, end netip.Addr) bool {
 	for _, network := range privateNetworks {
-		if network.Contains(r.Start) && network.Contains(r.End) {
-			return r, nil
+		if network.Contains(start) && network.Contains(end) {
+			return true
 		}
 	}
-	return Range{}, fmt.Errorf("range must remain within one private IPv4 network")
+	return false
 }
 
 // Strings returns sorted, merged intervals as IPs or inclusive start-end strings.

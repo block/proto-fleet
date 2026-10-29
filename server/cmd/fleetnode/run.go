@@ -218,6 +218,7 @@ func (r *RunCmd) runLocked(ctx context.Context, c *Context, resolvedPluginsDir s
 		return operatorActionRequired(err)
 	}
 	r.statePath, r.state = path, st
+	r.warnInvalidLegacyDiscoverySubnet(logger)
 	if _, err := r.effectiveDiscoveryConfig(); err != nil {
 		return operatorActionRequired(fmt.Errorf("discovery ranges: %w", err))
 	}

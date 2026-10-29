@@ -41,6 +41,7 @@ func (r *Registry) RegisterAuthenticated(
 	fleetNodeID int64,
 	sessionFingerprint string,
 	maxCommandProtocolVersion gatewaypb.CommandProtocolVersion,
+	opts ...RegisterOption,
 ) (*Stream, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -48,10 +49,23 @@ func (r *Registry) RegisterAuthenticated(
 	if exists && (fence.revoked || fence.fingerprint != sessionFingerprint) {
 		return nil, errSessionInvalidated
 	}
-	return r.registerLocked(fleetNodeID, maxCommandProtocolVersion), nil
+	return r.registerLocked(fleetNodeID, maxCommandProtocolVersion, opts...), nil
 }
 
-func (r *Registry) registerLocked(fleetNodeID int64, maxCommandProtocolVersion gatewaypb.CommandProtocolVersion) *Stream {
+// RegisterOption sets connection metadata before the connection becomes visible.
+type RegisterOption func(*connection)
+
+// WithDiscoveryConfig records the ranges a node reported in ControlHello; a nil
+// config marks a node that did not report any.
+func WithDiscoveryConfig(config *gatewaypb.DiscoveryConfig) RegisterOption {
+	return func(c *connection) { c.discoveryConfig = proto.CloneOf(config) }
+}
+
+func (r *Registry) registerLocked(
+	fleetNodeID int64,
+	maxCommandProtocolVersion gatewaypb.CommandProtocolVersion,
+	opts ...RegisterOption,
+) *Stream {
 	if old, exists := r.conns[fleetNodeID]; exists {
 		teardown(old)
 	}
@@ -62,6 +76,9 @@ func (r *Registry) registerLocked(fleetNodeID int64, maxCommandProtocolVersion g
 		cmds:                      make(map[string]*inflightCommand),
 		maxCommandProtocolVersion: maxCommandProtocolVersion,
 		connectedAt:               time.Now(),
+	}
+	for _, opt := range opts {
+		opt(conn)
 	}
 	r.conns[fleetNodeID] = conn
 	return &Stream{r: r, fleetNodeID: fleetNodeID, conn: conn, Outgoing: conn.outgoing, Done: conn.done}
