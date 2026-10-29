@@ -2,8 +2,10 @@ package pairing
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
+	"sync"
 	"testing"
 	"time"
 
@@ -24,13 +26,28 @@ type nodePairTargetStore struct {
 	fleetnodepairing.Store
 	devices  map[int64][]fleetnodepairing.FleetNodeDiscoveredDevice
 	bindings map[int64][]fleetnodepairing.FleetNodeDevice
+	// listErr fails discovery listing for a node; panicBindings panics when its
+	// bindings are read; afterList runs once after the first discovery listing.
+	listErr       map[int64]error
+	panicBindings map[int64]bool
+	afterList     func()
+	afterListOnce sync.Once
 }
 
 func (s *nodePairTargetStore) ListFleetNodeDevices(_ context.Context, _ int64, nodeID *int64) ([]fleetnodepairing.FleetNodeDevice, error) {
+	if s.panicBindings[*nodeID] {
+		panic("bindings unavailable")
+	}
 	return s.bindings[*nodeID], nil
 }
 
 func (s *nodePairTargetStore) ListFleetNodeDiscoveredDevices(_ context.Context, _ int64, nodeID *int64, filter fleetnodepairing.FleetNodeDiscoveredDeviceFilter) ([]fleetnodepairing.FleetNodeDiscoveredDevice, error) {
+	if err := s.listErr[*nodeID]; err != nil {
+		return nil, err
+	}
+	if s.afterList != nil {
+		defer s.afterListOnce.Do(s.afterList)
+	}
 	var out []fleetnodepairing.FleetNodeDiscoveredDevice
 	for _, device := range s.devices[*nodeID] {
 		if filter.Identifiers != nil && !slices.Contains(filter.Identifiers, device.DeviceIdentifier) {
@@ -50,9 +67,10 @@ func (s *nodePairTargetStore) ListFleetNodeDiscoveredDevices(_ context.Context, 
 func TestPairFleetNodeDevicesDispatchesNodesInParallelAndBoundsBatches(t *testing.T) {
 	for _, allDevices := range []bool{false, true} {
 		t.Run(fmt.Sprintf("allDevices=%t", allDevices), func(t *testing.T) {
+			// Arrange
 			store := &nodePairTargetStore{devices: map[int64][]fleetnodepairing.FleetNodeDiscoveredDevice{}}
 			var selected []string
-			for i := range 257 {
+			for i := range 2*fleetnodepairing.MaxPairBatch + 1 {
 				id := fmt.Sprintf("a-%03d", i)
 				store.devices[7] = append(store.devices[7], fleetnodepairing.FleetNodeDiscoveredDevice{ID: int64(i + 1), DeviceIdentifier: id, IPAddress: "10.0.0.1"})
 				selected = append(selected, id)
@@ -80,6 +98,8 @@ func TestPairFleetNodeDevicesDispatchesNodesInParallelAndBoundsBatches(t *testin
 				err   error
 			}
 			done := make(chan result, 1)
+
+			// Act
 			go func() {
 				selector := includeDevicesSelector(selected)
 				if allDevices {
@@ -105,7 +125,7 @@ func TestPairFleetNodeDevicesDispatchesNodesInParallelAndBoundsBatches(t *testin
 				var envelope gatewaypb.AgentCommand
 				require.NoError(t, proto.Unmarshal(cmd.GetPayload(), &envelope))
 				targets := envelope.GetPair().GetTargets()
-				require.LessOrEqual(t, len(targets), 128)
+				require.LessOrEqual(t, len(targets), fleetnodepairing.MaxPairBatch)
 				assert.True(t, proto.Equal(credentials, envelope.GetPair().GetCredentials()))
 				var results []*gatewaypb.FleetNodePairResult
 				for _, target := range targets {
@@ -126,6 +146,7 @@ func TestPairFleetNodeDevicesDispatchesNodesInParallelAndBoundsBatches(t *testin
 				case cmd := <-a.Outgoing:
 					complete(7, a, cmd, false)
 				case got := <-done:
+					// Assert
 					require.NoError(t, got.err)
 					assert.True(t, got.route.remoteSucceeded)
 					assert.Len(t, got.resp.GetFailedDeviceIds(), 257)
@@ -148,6 +169,7 @@ func TestPairFleetNodeDevicesWithoutConfigurationOnlyRepairsOwnedRoute(t *testin
 	for _, configured := range []bool{false, true} {
 		for _, repair := range []bool{false, true} {
 			t.Run(fmt.Sprintf("empty-config=%t/repair=%t", configured, repair), func(t *testing.T) {
+				// Arrange
 				store := &nodePairTargetStore{
 					devices:  map[int64][]fleetnodepairing.FleetNodeDiscoveredDevice{7: {{ID: 1, DeviceIdentifier: "miner", IPAddress: "10.0.0.1"}}},
 					bindings: map[int64][]fleetnodepairing.FleetNodeDevice{},
@@ -167,6 +189,8 @@ func TestPairFleetNodeDevicesWithoutConfigurationOnlyRepairsOwnedRoute(t *testin
 					fleetNodePairing: fleetnodepairing.NewService(store, nil, nil).WithProvisioning(nil, nil, registry),
 				}
 				done := make(chan fleetNodePairRoute, 1)
+
+				// Act
 				go func() {
 					_, route, err := h.pairFleetNodeDevices(t.Context(), 1, 2, &pb.PairRequest{Credentials: &pb.Credentials{Password: proto.String("secret")}, DeviceSelector: includeDevicesSelector([]string{"miner"})})
 					if err != nil {
@@ -185,6 +209,7 @@ func TestPairFleetNodeDevicesWithoutConfigurationOnlyRepairsOwnedRoute(t *testin
 				}
 				select {
 				case route := <-done:
+					// Assert
 					assert.Contains(t, route.routedExplicit, "miner")
 					if repair {
 						assert.NoError(t, route.remoteErr)
@@ -208,9 +233,10 @@ func TestPairFleetNodeDevicesWithoutConfigurationOnlyRepairsOwnedRoute(t *testin
 func TestPairFleetNodeDevicesCompletesAcceptedCommandsAndStopsNewBatches(t *testing.T) {
 	for _, stop := range []string{"command-error", "cancel"} {
 		t.Run(stop, func(t *testing.T) {
+			// Arrange
 			store := &nodePairTargetStore{devices: map[int64][]fleetnodepairing.FleetNodeDiscoveredDevice{}}
 			var selected []string
-			for i := range 129 {
+			for i := range fleetnodepairing.MaxPairBatch + 1 {
 				id := fmt.Sprintf("a-%03d", i)
 				store.devices[7] = append(store.devices[7], fleetnodepairing.FleetNodeDiscoveredDevice{ID: int64(i + 1), DeviceIdentifier: id, IPAddress: "10.0.0.1"})
 				selected = append(selected, id)
@@ -232,6 +258,8 @@ func TestPairFleetNodeDevicesCompletesAcceptedCommandsAndStopsNewBatches(t *test
 				err      error
 			}
 			done := make(chan result, 1)
+
+			// Act
 			go func() {
 				resp, route, err := h.pairFleetNodeDevices(ctx, 1, 2, &pb.PairRequest{DeviceSelector: includeDevicesSelector(selected)})
 				done <- result{resp, route, err}
@@ -262,10 +290,11 @@ func TestPairFleetNodeDevicesCompletesAcceptedCommandsAndStopsNewBatches(t *test
 			b.PublishAck(&gatewaypb.ControlAck{CommandId: commandB.GetCommandId(), Code: gatewaypb.AckCode_ACK_CODE_OK, Succeeded: true})
 			select {
 			case got := <-done:
+				// Assert
 				require.NoError(t, got.err)
 				assert.Error(t, got.route.remoteErr)
 				assert.True(t, got.route.remoteSucceeded)
-				assert.Len(t, got.response.GetFailedDeviceIds(), 129)
+				assert.Len(t, got.response.GetFailedDeviceIds(), fleetnodepairing.MaxPairBatch+1)
 			case <-time.After(2 * time.Second):
 				t.Fatal("pairing did not finish")
 			}
@@ -276,4 +305,287 @@ func TestPairFleetNodeDevicesCompletesAcceptedCommandsAndStopsNewBatches(t *test
 			}
 		})
 	}
+}
+
+type pairFanOutResult struct {
+	resp  *pb.PairResponse
+	route fleetNodePairRoute
+	err   error
+}
+
+type pairTestNodes struct {
+	handler  *Handler
+	registry *control.Registry
+	streams  map[int64]*control.Stream
+}
+
+// newPairTestNodes connects nodes whose discovery range is 10.0.0.0/24 and
+// reports them to the handler in the given order.
+func newPairTestNodes(t *testing.T, store *nodePairTargetStore, nodeIDs ...int64) *pairTestNodes {
+	t.Helper()
+	registry := control.NewRegistry()
+	streams := map[int64]*control.Stream{}
+	for _, id := range nodeIDs {
+		stream := registry.Register(id)
+		stream.SetDiscoveryConfig(&gatewaypb.DiscoveryConfig{Ranges: []string{"10.0.0.0/24"}})
+		t.Cleanup(stream.Unregister)
+		streams[id] = stream
+	}
+	return &pairTestNodes{
+		handler: &Handler{
+			discovery:        &stubFleetNodeDiscoveryRunner{nodeIDs: nodeIDs},
+			fleetNodePairing: fleetnodepairing.NewService(store, nil, nil).WithProvisioning(nil, nil, registry),
+		},
+		registry: registry,
+		streams:  streams,
+	}
+}
+
+func (n *pairTestNodes) pair(ctx context.Context, selector *minercommandv1.DeviceSelector) <-chan pairFanOutResult {
+	done := make(chan pairFanOutResult, 1)
+	go func() {
+		resp, route, err := n.handler.pairFleetNodeDevices(ctx, 1, 2, &pb.PairRequest{DeviceSelector: selector})
+		done <- pairFanOutResult{resp, route, err}
+	}()
+	return done
+}
+
+func (n *pairTestNodes) nextCommand(t *testing.T, nodeID int64) (*gatewaypb.ControlCommand, []*pb.FleetNodePairTarget) {
+	t.Helper()
+	select {
+	case cmd := <-n.streams[nodeID].Outgoing:
+		var envelope gatewaypb.AgentCommand
+		require.NoError(t, proto.Unmarshal(cmd.GetPayload(), &envelope))
+		return cmd, envelope.GetPair().GetTargets()
+	case <-time.After(2 * time.Second):
+		t.Fatalf("node %d did not receive a pair command", nodeID)
+		return nil, nil
+	}
+}
+
+func (n *pairTestNodes) publishPaired(nodeID int64, cmd *gatewaypb.ControlCommand, targets []*pb.FleetNodePairTarget) {
+	results := make([]*gatewaypb.FleetNodePairResult, len(targets))
+	for i, target := range targets {
+		results[i] = &gatewaypb.FleetNodePairResult{DeviceIdentifier: target.GetDeviceIdentifier(), Outcome: gatewaypb.PairOutcome_PAIR_OUTCOME_PAIRED}
+	}
+	n.registry.PublishPairResults(nodeID, cmd.GetCommandId(), results)
+}
+
+func (n *pairTestNodes) ack(nodeID int64, cmd *gatewaypb.ControlCommand) {
+	n.streams[nodeID].PublishAck(&gatewaypb.ControlAck{CommandId: cmd.GetCommandId(), Code: gatewaypb.AckCode_ACK_CODE_OK, Succeeded: true})
+}
+
+func (n *pairTestNodes) assertNoCommand(t *testing.T, nodeID int64) {
+	t.Helper()
+	select {
+	case cmd := <-n.streams[nodeID].Outgoing:
+		t.Fatalf("node %d received an unexpected command %s", nodeID, cmd.GetCommandId())
+	default:
+	}
+}
+
+func awaitPairResult(t *testing.T, done <-chan pairFanOutResult) pairFanOutResult {
+	t.Helper()
+	select {
+	case got := <-done:
+		return got
+	case <-time.After(5 * time.Second):
+		t.Fatal("pairing did not finish")
+		return pairFanOutResult{}
+	}
+}
+
+func addNodeDevices(store *nodePairTargetStore, nodeID int64, prefix, ip string, firstID, count int) []string {
+	ids := make([]string, 0, count)
+	for i := range count {
+		id := fmt.Sprintf("%s-%03d", prefix, i)
+		store.devices[nodeID] = append(store.devices[nodeID], fleetnodepairing.FleetNodeDiscoveredDevice{ID: int64(firstID + i), DeviceIdentifier: id, IPAddress: ip})
+		ids = append(ids, id)
+	}
+	return ids
+}
+
+func allUnpairedSelector() *minercommandv1.DeviceSelector {
+	return &minercommandv1.DeviceSelector{SelectionType: &minercommandv1.DeviceSelector_AllDevices{AllDevices: &minercommandv1.DeviceFilter{
+		PairingStatus: []fleetmanagementv1.PairingStatus{fleetmanagementv1.PairingStatus_PAIRING_STATUS_UNPAIRED},
+	}}}
+}
+
+func TestPairFleetNodeDevicesDeadlineReturnsUndispatchedTargetsAsFailed(t *testing.T) {
+	// Arrange
+	deadline := 500 * time.Millisecond
+	previous := pairFleetNodeDeadline
+	pairFleetNodeDeadline = deadline
+	t.Cleanup(func() { pairFleetNodeDeadline = previous })
+	store := &nodePairTargetStore{devices: map[int64][]fleetnodepairing.FleetNodeDiscoveredDevice{}}
+	selected := addNodeDevices(store, 7, "a", "10.0.0.1", 1, fleetnodepairing.MaxPairBatch+3)
+	nodes := newPairTestNodes(t, store, 7)
+
+	// Act
+	done := nodes.pair(t.Context(), includeDevicesSelector(selected))
+	cmd, targets := nodes.nextCommand(t, 7)
+	time.Sleep(2 * deadline)
+	nodes.publishPaired(7, cmd, targets)
+	nodes.ack(7, cmd)
+	got := awaitPairResult(t, done)
+
+	// Assert
+	require.NoError(t, got.err)
+	assert.True(t, got.route.remoteSucceeded)
+	assert.ErrorIs(t, got.route.remoteErr, context.DeadlineExceeded)
+	assert.Equal(t, selected[fleetnodepairing.MaxPairBatch:], got.resp.GetFailedDeviceIds(), "the accepted batch paired; every undispatched target failed")
+	nodes.assertNoCommand(t, 7)
+}
+
+func TestPairFleetNodeDevicesAssignsSharedDeviceToLowestNodeID(t *testing.T) {
+	// Arrange
+	store := &nodePairTargetStore{devices: map[int64][]fleetnodepairing.FleetNodeDiscoveredDevice{}}
+	addNodeDevices(store, 7, "shared", "10.0.0.1", 1, 1)
+	addNodeDevices(store, 8, "shared", "10.0.0.1", 2, 1)
+	nodes := newPairTestNodes(t, store, 8, 7)
+
+	// Act
+	done := nodes.pair(t.Context(), includeDevicesSelector([]string{"shared-000"}))
+	cmd, targets := nodes.nextCommand(t, 7)
+	nodes.publishPaired(7, cmd, targets)
+	nodes.ack(7, cmd)
+	got := awaitPairResult(t, done)
+
+	// Assert
+	require.NoError(t, got.err)
+	assert.Empty(t, got.resp.GetFailedDeviceIds())
+	assert.Contains(t, got.route.routedExplicit, "shared-000")
+	nodes.assertNoCommand(t, 8)
+}
+
+func TestPairFleetNodeDevicesRecoversFromNodeWorkerPanic(t *testing.T) {
+	// Arrange
+	store := &nodePairTargetStore{devices: map[int64][]fleetnodepairing.FleetNodeDiscoveredDevice{}, panicBindings: map[int64]bool{7: true}}
+	// An address outside the node's range makes node 7 read its bindings, which panics.
+	panicking := addNodeDevices(store, 7, "a", "10.9.9.9", 1, 1)
+	healthy := addNodeDevices(store, 8, "b", "10.0.0.2", 10, 1)
+	nodes := newPairTestNodes(t, store, 7, 8)
+
+	// Act
+	done := nodes.pair(t.Context(), includeDevicesSelector(append(panicking, healthy...)))
+	cmd, targets := nodes.nextCommand(t, 8)
+	nodes.publishPaired(8, cmd, targets)
+	nodes.ack(8, cmd)
+	got := awaitPairResult(t, done)
+
+	// Assert
+	require.NoError(t, got.err)
+	assert.True(t, got.route.remoteSucceeded)
+	assert.Error(t, got.route.remoteErr)
+	assert.Equal(t, panicking, got.resp.GetFailedDeviceIds())
+}
+
+func TestPairFleetNodeDevicesContinuesPastOutOfScopeBatch(t *testing.T) {
+	// Arrange
+	store := &nodePairTargetStore{devices: map[int64][]fleetnodepairing.FleetNodeDiscoveredDevice{}}
+	outOfScope := addNodeDevices(store, 7, "a", "10.9.9.9", 1, fleetnodepairing.MaxPairBatch)
+	inScope := addNodeDevices(store, 7, "b", "10.0.0.1", 500, 2)
+	nodes := newPairTestNodes(t, store, 7)
+
+	// Act
+	done := nodes.pair(t.Context(), includeDevicesSelector(append(slices.Clone(outOfScope), inScope...)))
+	cmd, targets := nodes.nextCommand(t, 7)
+	nodes.publishPaired(7, cmd, targets)
+	nodes.ack(7, cmd)
+	got := awaitPairResult(t, done)
+
+	// Assert
+	require.NoError(t, got.err)
+	assert.Len(t, targets, len(inScope))
+	assert.True(t, got.route.remoteSucceeded)
+	assert.True(t, fleetnodepairing.IsOutOfScopeError(got.route.remoteErr), "got %v", got.route.remoteErr)
+	assert.Equal(t, outOfScope, got.resp.GetFailedDeviceIds())
+}
+
+func TestPairFleetNodeDevicesAllDevicesKeepsOtherNodesWhenOneNodeErrors(t *testing.T) {
+	// Arrange
+	store := &nodePairTargetStore{
+		devices: map[int64][]fleetnodepairing.FleetNodeDiscoveredDevice{},
+		listErr: map[int64]error{7: errors.New("listing failed")},
+	}
+	addNodeDevices(store, 7, "a", "10.0.0.1", 1, 1)
+	healthy := addNodeDevices(store, 8, "b", "10.0.0.2", 10, 2)
+	nodes := newPairTestNodes(t, store, 7, 8)
+
+	// Act
+	done := nodes.pair(t.Context(), allUnpairedSelector())
+	cmd, targets := nodes.nextCommand(t, 8)
+	nodes.publishPaired(8, cmd, targets)
+	nodes.ack(8, cmd)
+	got := awaitPairResult(t, done)
+
+	// Assert
+	require.NoError(t, got.err, "another node's results must not be discarded")
+	assert.True(t, got.route.allDevices)
+	assert.True(t, got.route.remoteSucceeded)
+	assert.Error(t, got.route.remoteErr)
+	assert.Empty(t, got.resp.GetFailedDeviceIds())
+	assert.Len(t, got.route.routedAllDevices, len(healthy))
+	nodes.assertNoCommand(t, 7)
+}
+
+func TestPairFleetNodeDevicesAllDevicesReportsErrorWhenNoNodeCanPair(t *testing.T) {
+	// Arrange
+	store := &nodePairTargetStore{
+		devices: map[int64][]fleetnodepairing.FleetNodeDiscoveredDevice{},
+		listErr: map[int64]error{7: errors.New("listing failed")},
+	}
+	nodes := newPairTestNodes(t, store, 7)
+
+	// Act
+	got := awaitPairResult(t, nodes.pair(t.Context(), allUnpairedSelector()))
+
+	// Assert
+	require.NoError(t, got.err)
+	assert.True(t, got.route.allDevices, "the node error must flow through the all-devices route")
+	assert.False(t, got.route.remoteSucceeded)
+	assert.Error(t, got.route.remoteErr)
+}
+
+func TestPairFleetNodeDevicesAllDevicesStopsPaginationOnCancellation(t *testing.T) {
+	// Arrange
+	store := &nodePairTargetStore{devices: map[int64][]fleetnodepairing.FleetNodeDiscoveredDevice{}}
+	addNodeDevices(store, 7, "a", "10.0.0.1", 1, fleetnodepairing.MaxPairBatch+1)
+	nodes := newPairTestNodes(t, store, 7)
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+
+	// Act
+	done := nodes.pair(ctx, allUnpairedSelector())
+	cmd, targets := nodes.nextCommand(t, 7)
+	nodes.publishPaired(7, cmd, targets)
+	cancel()
+	nodes.ack(7, cmd)
+	got := awaitPairResult(t, done)
+
+	// Assert
+	require.NoError(t, got.err)
+	assert.True(t, got.route.remoteSucceeded, "the accepted page finished after cancellation")
+	assert.ErrorIs(t, got.route.remoteErr, context.Canceled)
+	assert.Empty(t, got.resp.GetFailedDeviceIds())
+	assert.Len(t, got.route.routedAllDevices, fleetnodepairing.MaxPairBatch)
+	nodes.assertNoCommand(t, 7)
+}
+
+func TestPairFleetNodeDevicesExplicitCancellationDuringResolutionDispatchesNothing(t *testing.T) {
+	// Arrange
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	store := &nodePairTargetStore{devices: map[int64][]fleetnodepairing.FleetNodeDiscoveredDevice{}, afterList: cancel}
+	selected := addNodeDevices(store, 7, "a", "10.0.0.1", 1, fleetnodepairing.MaxPairBatch+1)
+	nodes := newPairTestNodes(t, store, 7)
+
+	// Act
+	got := awaitPairResult(t, nodes.pair(ctx, includeDevicesSelector(selected)))
+
+	// Assert
+	require.Error(t, got.err)
+	assert.ErrorIs(t, got.err, context.Canceled)
+	assert.Nil(t, got.resp)
+	nodes.assertNoCommand(t, 7)
 }

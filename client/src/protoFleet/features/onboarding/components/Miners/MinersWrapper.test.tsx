@@ -172,6 +172,41 @@ describe("MinersWrapper", () => {
       expect(screen.getByText("192.168.1.201")).toBeInTheDocument();
     });
 
+    it("mounts the found-miners modal only while open and keeps the selection across reopening", async () => {
+      // Arrange
+      vi.mocked(useNetworkInfo).mockReturnValue({
+        data: create(NetworkInfoSchema, { subnet: "192.168.1.0/24" }),
+        pending: false,
+        error: undefined,
+        fetchData: vi.fn(),
+        updateNetworkInfo: vi.fn(),
+      });
+      mockDiscover.mockImplementationOnce(async ({ onStreamData }) => {
+        onStreamData([
+          createDiscoveredMiner("miner-1", "192.168.1.100"),
+          createDiscoveredMiner("miner-2", "192.168.1.101"),
+        ]);
+      });
+      renderMinersPage("onboarding");
+      fireEvent.click(screen.getByText("Get started"));
+      fireEvent.click(screen.getByTestId("section-scan-network").querySelector("button")!);
+      expect(await screen.findByText("2 miners found on your network")).toBeInTheDocument();
+      const modalDescription = "Selected devices will be added to your fleet.";
+
+      // Act
+      expect(screen.queryByText(modalDescription)).not.toBeInTheDocument();
+      fireEvent.click(screen.getByTestId("add-miners-choose-miners"));
+      expect(await screen.findByText(modalDescription)).toBeInTheDocument();
+      fireEvent.click(screen.getByText("192.168.1.100").closest("tr")!.querySelector("input[type=checkbox]")!);
+      fireEvent.click(screen.getByRole("button", { name: "Done" }));
+
+      // Assert
+      await waitFor(() => expect(screen.queryByText(modalDescription)).not.toBeInTheDocument());
+      expect(screen.getByTestId("add-miners-continue")).toHaveTextContent("Continue with 1 miners");
+      fireEvent.click(screen.getByTestId("add-miners-choose-miners"));
+      expect(await screen.findByText("1 device selected")).toBeInTheDocument();
+    });
+
     it("starts fresh after closing and reopening onboarding discovery", async () => {
       vi.mocked(useNetworkInfo).mockReturnValue({
         data: create(NetworkInfoSchema, { subnet: "192.168.1.0/24" }),

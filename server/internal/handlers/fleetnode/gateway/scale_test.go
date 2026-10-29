@@ -17,6 +17,7 @@ import (
 	minercommandpb "github.com/block/proto-fleet/server/generated/grpc/minercommand/v1"
 	pairingpb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
 	"github.com/block/proto-fleet/server/internal/domain/authz"
+	"github.com/block/proto-fleet/server/internal/domain/discoverylimits"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/auth"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/control"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/discovery"
@@ -43,6 +44,7 @@ func TestFleetNodeScaleDiscoveryAndPairing(t *testing.T) {
 	if os.Getenv("FLEETNODE_SCALE_TEST") != "1" {
 		t.Skip("set FLEETNODE_SCALE_TEST=1 for the 50,000-miner qualification")
 	}
+	// Arrange
 	const total = 50000
 	const nodeCount = 13
 	const perNode = (total + nodeCount - 1) / nodeCount
@@ -102,7 +104,7 @@ func TestFleetNodeScaleDiscoveryAndPairing(t *testing.T) {
 						for address := range target.Addresses() {
 							reports = append(reports, &gatewaypb.DiscoveredDeviceReport{DeviceIdentifier: "scale:" + address.String(), IpAddress: address.String(), Port: "4028", UrlScheme: "http", DriverName: "virtual", DeviceClass: commonpb.DeviceClass_DEVICE_CLASS_RIG})
 						}
-						if len(reports) > 256 {
+						if len(reports) > discoverylimits.MaxPartitionAddresses {
 							fail(fmt.Errorf("scan has %d targets", len(reports)))
 							return
 						}
@@ -116,7 +118,7 @@ func TestFleetNodeScaleDiscoveryAndPairing(t *testing.T) {
 							return
 						}
 					} else if request := env.GetPair(); request != nil {
-						if len(request.Targets) > 128 {
+						if len(request.Targets) > pairing.MaxPairBatch {
 							fail(fmt.Errorf("pair command has %d targets", len(request.Targets)))
 							return
 						}
@@ -165,6 +167,8 @@ func TestFleetNodeScaleDiscoveryAndPairing(t *testing.T) {
 		}
 		require.NoError(t, ctx.Err())
 	}
+
+	// Act
 	started := time.Now()
 	run(func(id int64) error {
 		return discoverySvc.RunOnNode(ctx, id, "scale node", &pairingpb.DiscoverRequest{Mode: &pairingpb.DiscoverRequest_NetworkScan{NetworkScan: &pairingpb.NetworkScanModeRequest{UseFleetNodeLocalSubnet: true}}}, func(batch *pairingpb.DiscoverResponse) error {
@@ -176,6 +180,8 @@ func TestFleetNodeScaleDiscoveryAndPairing(t *testing.T) {
 		})
 	})
 	discoveryDuration := time.Since(started)
+
+	// Assert
 	require.Equal(t, int64(total), discovered.Load())
 	var unique int
 	require.NoError(t, h.db.QueryRowContext(ctx, `SELECT count(DISTINCT device_identifier) FROM discovered_device WHERE org_id=1 AND deleted_at IS NULL`).Scan(&unique))
@@ -190,6 +196,8 @@ func TestFleetNodeScaleDiscoveryAndPairing(t *testing.T) {
 		selected = append(selected, identifier)
 	}
 	require.NoError(t, rows.Err())
+
+	// Act
 	started = time.Now()
 	operatorCtx := authn.SetInfo(ctx, &session.Info{AuthMethod: session.AuthMethodSession, UserID: 1, OrganizationID: 1})
 	operatorCtx = middleware.WithEffectivePermissions(operatorCtx, authz.NewEffectivePermissions([]authz.Assignment{{AssignmentID: 1, ScopeType: authz.ScopeOrg, Permissions: []string{authz.PermMinerPair}}}))
@@ -197,8 +205,10 @@ func TestFleetNodeScaleDiscoveryAndPairing(t *testing.T) {
 		DeviceSelector: &minercommandpb.DeviceSelector{SelectionType: &minercommandpb.DeviceSelector_IncludeDevices{IncludeDevices: &commonpb.DeviceIdentifierList{DeviceIdentifiers: selected}}},
 	}))
 	require.NoError(t, err)
-	require.Empty(t, response.Msg.GetFailedDeviceIds())
 	pairingDuration := time.Since(started)
+
+	// Assert
+	require.Empty(t, response.Msg.GetFailedDeviceIds())
 	require.Equal(t, int64(total), paired.Load())
 	var bindings, owners, maxAssigned int
 	require.NoError(t, h.db.QueryRowContext(ctx, `SELECT count(*),count(DISTINCT device_id) FROM fleet_node_device WHERE org_id=1`).Scan(&bindings, &owners))

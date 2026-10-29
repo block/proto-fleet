@@ -141,7 +141,7 @@ sustained telemetry cadence, or deployment-specific database sizing. Qualify tho
 with representative hardware and steady telemetry/control load before claiming
 production capacity.
 
-A full command can report up to 40,960 endpoints in forty 1,024-report uploads. Those batches and the terminal ACK fit the existing 64-event command queue without requiring the consumer to drain during upload. The complete upload has a 90-second budget, leaving 30 seconds for dispatch and ACK delivery within the server’s 12-minute wait after a ten-minute scan. This capacity does not guarantee completion within the command deadline.
+A discovery command covers at most 256 addresses and 1,024 address/port probes, so it reports at most 1,024 endpoints in a single upload batch before the terminal ACK. That batch and the ACK fit the existing 64-event command queue without requiring the consumer to drain during upload. The upload has a 90-second budget, leaving 30 seconds for dispatch and ACK delivery within the server’s 12-minute wait after a ten-minute scan. This capacity does not guarantee completion within the command deadline.
 
 ## Control stream
 

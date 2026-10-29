@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"slices"
 	"sync"
+	"time"
 
 	commonv1 "github.com/block/proto-fleet/server/generated/grpc/common/v1"
 	gatewaypb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
@@ -42,6 +43,12 @@ type fleetNodeDiscoveryRunner interface {
 }
 
 var _ pairingv1connect.PairingServiceHandler = &Handler{}
+
+// pairFleetNodeDeadline bounds the fleet node fan-out of one Pair call so the
+// response, with its failed device IDs, arrives before the reverse proxy's
+// 75 minute read timeout. A command already accepted by a node still finishes
+// (up to PairCommandTimeout) after the deadline. Var for tests.
+var pairFleetNodeDeadline = 45 * time.Minute
 
 type fleetNodePairRoute struct {
 	allDevices       bool
@@ -332,23 +339,22 @@ func (h *Handler) pairFleetNodeDevices(ctx context.Context, orgID, userID int64,
 	if len(nodeIDs) == 0 {
 		return resp, route, nil
 	}
+	// Ownership of a device discovered by several nodes goes to the lowest node ID.
+	nodeIDs = slices.Sorted(slices.Values(nodeIDs))
+
+	ctx, cancel := context.WithTimeout(ctx, pairFleetNodeDeadline)
+	defer cancel()
 
 	type nodeWork struct {
 		nodeID  int64
 		targets []*pb.FleetNodePairTarget
 		route   fleetNodePairRoute
 		failed  map[string]struct{}
-		err     error
 	}
 	pending := setFromSlice(selected)
 	sortedSelected := sortedKeys(pending)
 	work := make([]nodeWork, 0, len(nodeIDs))
-	seenNodes := map[int64]struct{}{}
 	for _, nodeID := range nodeIDs {
-		if _, seen := seenNodes[nodeID]; seen {
-			continue
-		}
-		seenNodes[nodeID] = struct{}{}
 		item := nodeWork{nodeID: nodeID, route: fleetNodePairRoute{
 			routedExplicit: map[string]struct{}{}, routedAllDevices: map[string]struct{}{},
 		}, failed: map[string]struct{}{}}
@@ -362,13 +368,15 @@ func (h *Handler) pairFleetNodeDevices(ctx context.Context, orgID, userID int64,
 				if err != nil {
 					return nil, fleetNodePairRoute{}, err
 				}
+				matched := make([]*pb.FleetNodePairTarget, 0, len(targets))
 				for _, target := range targets {
-					if _, needed := pending[target.GetDeviceIdentifier()]; !needed {
-						continue
+					if _, needed := pending[target.GetDeviceIdentifier()]; needed {
+						delete(pending, target.GetDeviceIdentifier())
+						matched = append(matched, target)
 					}
-					item.targets = append(item.targets, target)
-					recordFleetNodePairTargets([]*pb.FleetNodePairTarget{target}, false, item.route.routedExplicit, item.route.routedAllDevices, item.failed, pending)
 				}
+				item.targets = append(item.targets, matched...)
+				recordFleetNodePairTargets(matched, false, item.route.routedExplicit, item.route.routedAllDevices, item.failed)
 			}
 			if len(item.targets) == 0 {
 				continue
@@ -386,8 +394,24 @@ func (h *Handler) pairFleetNodeDevices(ctx context.Context, orgID, userID int64,
 		go func() {
 			defer wg.Done()
 			item := &work[i]
+			defer func() {
+				if r := recover(); r != nil {
+					slog.Error("panic in fleet node pairing worker", "fleet_node_id", item.nodeID, "panic", r)
+					if item.route.remoteErr == nil {
+						item.route.remoteErr = fleeterror.NewInternalError("fleet node pairing worker panicked")
+					}
+				}
+			}()
 			if allDevicesFilter != nil {
-				item.err = h.pairAllMatchingFleetNodeDevices(ctx, item.nodeID, orgID, userID, allDevicesFilter, req, &item.route, item.failed)
+				if err := h.pairAllMatchingFleetNodeDevices(ctx, item.nodeID, orgID, userID, allDevicesFilter, req, &item.route, item.failed); err != nil {
+					slog.Warn("fleet node pairing stopped; returning failed targets in pair response", "fleet_node_id", item.nodeID, "error", err)
+					// A node that failed before dispatching still has to surface its
+					// error through the all-devices route.
+					item.route.allDevices = true
+					if item.route.remoteErr == nil {
+						item.route.remoteErr = err
+					}
+				}
 				return
 			}
 			for targets := range slices.Chunk(item.targets, fleetnodepairing.MaxPairBatch) {
@@ -397,8 +421,12 @@ func (h *Handler) pairFleetNodeDevices(ctx context.Context, orgID, userID int64,
 				}
 				if err := h.pairFleetNodeTargetBatch(ctx, item.nodeID, orgID, userID, req, targets, false, &item.route, item.failed); err != nil {
 					slog.Warn("fleet node pairing command failed; returning failed targets in pair response", "fleet_node_id", item.nodeID, "error", err)
-					item.route.remoteErr = err
-					return
+					if item.route.remoteErr == nil {
+						item.route.remoteErr = err
+					}
+					if !fleetnodepairing.IsOutOfScopeError(err) {
+						return
+					}
 				}
 			}
 		}()
@@ -406,9 +434,6 @@ func (h *Handler) pairFleetNodeDevices(ctx context.Context, orgID, userID int64,
 	wg.Wait()
 	failed := map[string]struct{}{}
 	for _, item := range work {
-		if item.err != nil {
-			return nil, fleetNodePairRoute{}, item.err
-		}
 		for id := range item.route.routedExplicit {
 			route.routedExplicit[id] = struct{}{}
 		}
@@ -428,6 +453,9 @@ func (h *Handler) pairFleetNodeDevices(ctx context.Context, orgID, userID int64,
 	return resp, route, nil
 }
 
+// pairAllMatchingFleetNodeDevices pages through the node's matching devices. A
+// batch outside the node's discovery ranges is recorded and skipped; any other
+// error stops this node and is returned.
 func (h *Handler) pairAllMatchingFleetNodeDevices(ctx context.Context, nodeID, orgID, userID int64, allDevicesFilter *minercommandv1.DeviceFilter, req *pb.PairRequest, route *fleetNodePairRoute, failed map[string]struct{}) error {
 	var cursorID *int64
 	for {
@@ -441,14 +469,15 @@ func (h *Handler) pairAllMatchingFleetNodeDevices(ctx context.Context, nodeID, o
 		if len(targets) == 0 {
 			return nil
 		}
-		recordFleetNodePairTargets(targets, true, route.routedExplicit, route.routedAllDevices, failed, nil)
+		recordFleetNodePairTargets(targets, true, route.routedExplicit, route.routedAllDevices, failed)
 		if err := h.pairFleetNodeTargetBatch(ctx, nodeID, orgID, userID, req, targets, true, route, failed); err != nil {
-			slog.Warn("fleet node pairing command failed; returning failed targets in pair response",
-				"fleet_node_id", nodeID, "error", err)
+			if !fleetnodepairing.IsOutOfScopeError(err) {
+				return err
+			}
+			slog.Warn("fleet node pairing skipped a batch outside discovery ranges", "fleet_node_id", nodeID, "error", err)
 			if route.remoteErr == nil {
 				route.remoteErr = err
 			}
-			return nil
 		}
 		cursorID = nextCursor
 		if cursorID == nil {
@@ -457,7 +486,7 @@ func (h *Handler) pairAllMatchingFleetNodeDevices(ctx context.Context, nodeID, o
 	}
 }
 
-func recordFleetNodePairTargets(targets []*pb.FleetNodePairTarget, allDevices bool, routedExplicit, routedAllDevices, failed, pending map[string]struct{}) {
+func recordFleetNodePairTargets(targets []*pb.FleetNodePairTarget, allDevices bool, routedExplicit, routedAllDevices, failed map[string]struct{}) {
 	for _, target := range targets {
 		id := target.GetDeviceIdentifier()
 		if allDevices {
@@ -466,9 +495,6 @@ func recordFleetNodePairTargets(targets []*pb.FleetNodePairTarget, allDevices bo
 			routedExplicit[id] = struct{}{}
 		}
 		failed[id] = struct{}{}
-		if pending != nil {
-			delete(pending, id)
-		}
 	}
 }
 

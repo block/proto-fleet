@@ -1,4 +1,10 @@
 import { useMemo } from "react";
+import {
+  FLEET_SERVER_ID,
+  fleetSourceLabel,
+  MAX_MINERS_PER_NODE,
+  RECOMMENDED_MINERS_PER_NODE,
+} from "./foundMinersLabels";
 import { type Device } from "@/protoFleet/api/generated/pairing/v1/pairing_pb";
 import { type FleetNodeItem } from "@/protoFleet/api/useFleetNodes";
 import { Alert } from "@/shared/assets/icons";
@@ -26,8 +32,13 @@ const NodePairingSummary = ({ miners, fleetNodes, showPairedCounts }: NodePairin
       const paired = showPairedCounts && node ? node.pairedDeviceCount : undefined;
       return {
         id,
-        name: id === "0" ? "Fleet Server" : (showPairedCounts && node?.name) || `Fleet Node ${id}`,
-        paired,
+        name: fleetSourceLabel(id, showPairedCounts ? node?.name : undefined),
+        pairedText:
+          id === FLEET_SERVER_ID
+            ? undefined
+            : paired === undefined
+              ? "Paired count unavailable"
+              : `${paired.toLocaleString()} paired`,
         selected,
         added,
         total: paired === undefined ? undefined : paired + added,
@@ -35,35 +46,39 @@ const NodePairingSummary = ({ miners, fleetNodes, showPairedCounts }: NodePairin
     });
   }, [miners, fleetNodes, showPairedCounts]);
 
-  if (!sources.length) return null;
+  if (!sources.some(({ id }) => id !== FLEET_SERVER_ID)) return null;
   return (
     <section className="mt-6 space-y-3" aria-label="Pairing by source">
       <h3 className="text-emphasis-300">Pairing by source</h3>
       <dl className="space-y-2 text-300">
-        {sources.map(({ id, name, paired, selected, added, total }) => (
+        {sources.map(({ id, name, pairedText, selected, added, total }) => (
           <div key={id}>
             <div className="flex flex-wrap justify-between gap-x-4 gap-y-1">
               <dt>{name}</dt>
               <dd>
-                {paired === undefined ? "Paired count unavailable" : `${paired.toLocaleString()} paired`}
+                {pairedText === undefined ? "" : `${pairedText} + `}
                 {selected === added
-                  ? ` + ${selected.toLocaleString()} selected`
-                  : ` + ${added.toLocaleString()} new (${selected.toLocaleString()} selected)`}
+                  ? `${selected.toLocaleString()} selected`
+                  : `${added.toLocaleString()} new (${selected.toLocaleString()} selected)`}
                 {total === undefined ? "" : ` = ${total.toLocaleString()} total`}
               </dd>
             </div>
-            {total !== undefined && total > 4000 ? (
+            {total !== undefined && total > RECOMMENDED_MINERS_PER_NODE ? (
               <Callout
                 className="mt-2"
                 intent="warning"
                 prefixIcon={<Alert />}
-                title={total > 5000 ? "Exceeds 5,000 miners per Fleet Node" : "Above the 4,000-miner target"}
+                title={
+                  total > MAX_MINERS_PER_NODE
+                    ? `Exceeds ${MAX_MINERS_PER_NODE.toLocaleString()} miners per Fleet Node`
+                    : `Above the ${RECOMMENDED_MINERS_PER_NODE.toLocaleString()}-miner target`
+                }
               />
             ) : null}
           </div>
         ))}
       </dl>
-      {sources.some(({ total }) => total !== undefined && total > 4000) ? (
+      {sources.some(({ total }) => total !== undefined && total > RECOMMENDED_MINERS_PER_NODE) ? (
         <p className="text-300 text-text-primary-70">Partition discovery ranges across Fleet Nodes before pairing.</p>
       ) : null}
     </section>

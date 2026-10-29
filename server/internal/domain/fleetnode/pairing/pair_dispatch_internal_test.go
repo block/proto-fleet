@@ -249,20 +249,40 @@ func TestPairOnNodePartialAckPreservesReportedAndMissingResults(t *testing.T) {
 func TestPairTargetsOnNodeChunksPublicSelectionAndStopsNewCommands(t *testing.T) {
 	for _, stop := range []string{"complete", "cancel", "command-error"} {
 		t.Run(stop, func(t *testing.T) {
+			// Arrange
 			registry := control.NewRegistry()
 			stream := registry.Register(7)
 			stream.SetDiscoveryConfig(&gatewaypb.DiscoveryConfig{Ranges: []string{"10.0.0.0/24"}})
 			defer stream.Unregister()
 			service := NewService(nil, nil, nil).WithProvisioning(nil, nil, registry)
 			credentials := &pairingpb.Credentials{Username: "root", Password: proto.String("secret")}
-			targets := pairTargetsFromDiscoveredDevices(pairAllTestStore(1024).devices)
+			targets := pairTargetsFromDiscoveredDevices(pairAllTestStore(8 * MaxPairBatch).devices)
 			ctx, cancel := context.WithCancel(t.Context())
 			defer cancel()
 			done := make(chan error, 1)
+			delivered := make(chan struct{}, 2*len(targets))
 			reported := 0
+			awaitDelivery := func() {
+				t.Helper()
+				select {
+				case <-delivered:
+				case <-time.After(2 * time.Second):
+					t.Fatal("results of an accepted command were not delivered")
+				}
+			}
+			pairedResults := func(targets []*pairingpb.FleetNodePairTarget) []*gatewaypb.FleetNodePairResult {
+				results := make([]*gatewaypb.FleetNodePairResult, len(targets))
+				for i, target := range targets {
+					results[i] = &gatewaypb.FleetNodePairResult{DeviceIdentifier: target.GetDeviceIdentifier(), Outcome: gatewaypb.PairOutcome_PAIR_OUTCOME_PAIRED}
+				}
+				return results
+			}
+
+			// Act
 			go func() {
 				done <- service.PairTargetsOnNode(ctx, 7, targets, credentials, 20, nil, func(results []*gatewaypb.FleetNodePairResult) error {
 					reported += len(results)
+					delivered <- struct{}{}
 					return nil
 				})
 			}()
@@ -275,27 +295,28 @@ func TestPairTargetsOnNodeChunksPublicSelectionAndStopsNewCommands(t *testing.T)
 					var payload gatewaypb.AgentCommand
 					require.NoError(t, proto.Unmarshal(cmd.GetPayload(), &payload))
 					assert.True(t, proto.Equal(credentials, payload.GetPair().GetCredentials()))
-					require.LessOrEqual(t, len(payload.GetPair().GetTargets()), 128)
-					for _, target := range payload.GetPair().GetTargets() {
+					batch := payload.GetPair().GetTargets()
+					require.LessOrEqual(t, len(batch), MaxPairBatch)
+					for _, target := range batch {
 						seen = append(seen, target.GetDeviceIdentifier())
 					}
 					code := gatewaypb.AckCode_ACK_CODE_PARTIAL
 					if stop == "cancel" {
+						registry.PublishPairResults(7, cmd.GetCommandId(), pairedResults(batch[:1]))
+						awaitDelivery()
 						cancel()
-						select {
-						case err := <-done:
-							t.Fatalf("accepted command aborted before acknowledgment: %v", err)
-						default:
-						}
+						registry.PublishPairResults(7, cmd.GetCommandId(), pairedResults(batch[1:]))
+						awaitDelivery()
 					}
 					if stop == "command-error" {
 						code = gatewaypb.AckCode_ACK_CODE_REPORT_FAILED
 					}
 					stream.PublishAck(&gatewaypb.ControlAck{CommandId: cmd.GetCommandId(), Code: code})
 				case err := <-done:
+					// Assert
 					if stop == "complete" {
 						require.NoError(t, err)
-						assert.Equal(t, 8, commands)
+						assert.Equal(t, len(targets)/MaxPairBatch, commands)
 						expected := make([]string, len(targets))
 						for i, target := range targets {
 							expected[i] = target.GetDeviceIdentifier()
@@ -304,7 +325,7 @@ func TestPairTargetsOnNodeChunksPublicSelectionAndStopsNewCommands(t *testing.T)
 					} else {
 						require.Error(t, err)
 						assert.Equal(t, 1, commands)
-						assert.Len(t, seen, 128)
+						assert.Len(t, seen, MaxPairBatch)
 						if stop == "cancel" {
 							assert.ErrorIs(t, err, context.Canceled)
 						}
@@ -317,4 +338,55 @@ func TestPairTargetsOnNodeChunksPublicSelectionAndStopsNewCommands(t *testing.T)
 			}
 		})
 	}
+}
+
+func TestPairTargetsOnNodeSkipsOutOfScopeBatchAndReturnsItsError(t *testing.T) {
+	// Arrange
+	registry := control.NewRegistry()
+	stream := registry.Register(7)
+	stream.SetDiscoveryConfig(&gatewaypb.DiscoveryConfig{Ranges: []string{"10.0.0.0/24"}})
+	defer stream.Unregister()
+	service := NewService(nil, nil, nil).WithProvisioning(nil, nil, registry)
+	targets := make([]*pairingpb.FleetNodePairTarget, 2*MaxPairBatch)
+	for i := range targets {
+		address := "10.0.0.1"
+		if i < MaxPairBatch {
+			address = "10.9.9.9"
+		}
+		targets[i] = &pairingpb.FleetNodePairTarget{DeviceIdentifier: fmt.Sprintf("miner-%d", i), IpAddress: address}
+	}
+	var reported []*gatewaypb.FleetNodePairResult
+	done := make(chan error, 1)
+
+	// Act
+	go func() {
+		done <- service.PairTargetsOnNode(t.Context(), 7, targets, nil, 20, nil, func(results []*gatewaypb.FleetNodePairResult) error {
+			reported = append(reported, results...)
+			return nil
+		})
+	}()
+	var dispatched []string
+	select {
+	case cmd := <-stream.Outgoing:
+		var payload gatewaypb.AgentCommand
+		require.NoError(t, proto.Unmarshal(cmd.GetPayload(), &payload))
+		for _, target := range payload.GetPair().GetTargets() {
+			dispatched = append(dispatched, target.GetDeviceIdentifier())
+		}
+		stream.PublishAck(&gatewaypb.ControlAck{CommandId: cmd.GetCommandId(), Code: gatewaypb.AckCode_ACK_CODE_PARTIAL})
+	case <-time.After(2 * time.Second):
+		t.Fatal("in-scope batch was not dispatched after an out-of-scope batch")
+	}
+	var err error
+	select {
+	case err = <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("pairing did not finish")
+	}
+
+	// Assert
+	assert.True(t, IsOutOfScopeError(err), "got %v", err)
+	require.Len(t, dispatched, MaxPairBatch)
+	assert.Equal(t, "miner-128", dispatched[0])
+	assert.Len(t, reported, 2*MaxPairBatch, "every target has a terminal result")
 }

@@ -37,6 +37,7 @@ func TestPairDiscoveredDevicesOnFleetNode_ExplicitSelectionChunks(t *testing.T) 
 
 func testPairDiscoveredDevicesOnFleetNodeBatches(t *testing.T, explicit bool) {
 	t.Helper()
+	// Arrange
 	h := newPairingHarness(t)
 	fleetNodeID := h.createFleetNode(t, "admin-pairall-pages")
 	count := fleetnodepairing.MaxPairBatch + 1
@@ -78,6 +79,8 @@ func testPairDiscoveredDevicesOnFleetNodeBatches(t *testing.T, explicit bool) {
 			request.DeviceIdentifiers = append(request.DeviceIdentifiers, fmt.Sprintf("mac:page-%d", i))
 		}
 	}
+
+	// Act
 	resp, err := client.PairDiscoveredDevicesOnFleetNode(ctx, connect.NewRequest(request))
 	require.NoError(t, err)
 	seen := make(map[string]bool, count)
@@ -90,13 +93,15 @@ func testPairDiscoveredDevicesOnFleetNodeBatches(t *testing.T, explicit bool) {
 	}
 	require.NoError(t, resp.Err())
 	require.NoError(t, resp.Close())
+
+	// Assert
 	assert.Len(t, seen, count)
 	dispatched := map[string]bool{}
 	for len(commands) > 0 {
 		var envelope gatewaypb.AgentCommand
 		require.NoError(t, proto.Unmarshal((<-commands).GetPayload(), &envelope))
 		assert.True(t, proto.Equal(credentials, envelope.GetPair().GetCredentials()))
-		require.LessOrEqual(t, len(envelope.GetPair().GetTargets()), 128)
+		require.LessOrEqual(t, len(envelope.GetPair().GetTargets()), fleetnodepairing.MaxPairBatch)
 		for _, target := range envelope.GetPair().GetTargets() {
 			assert.False(t, dispatched[target.GetDeviceIdentifier()])
 			dispatched[target.GetDeviceIdentifier()] = true

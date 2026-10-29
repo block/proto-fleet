@@ -29,6 +29,13 @@ import { ManualDiscoveryTargets } from "@/shared/utils/ipParsing";
 // Show a toast if pairing takes longer than this threshold
 const LONG_PAIRING_THRESHOLD_MS = 3000;
 
+const isActiveNode = (node: FleetNodeItem) =>
+  node.enrollmentStatus !== FleetNodeEnrollmentStatus.REVOKED &&
+  node.haRole !== FleetNodeHARole.FLEET_NODE_HA_ROLE_STANDBY;
+
+const isDiscoveryConfigured = (node: FleetNodeItem, canReadFleetNodes: boolean) =>
+  !canReadFleetNodes || (!!node.discoveryConfigReported && !!node.discoveryRanges?.length);
+
 type MinersPageProps = {
   /**
    * Discovery mode determines the flow context and post-pairing behavior:
@@ -90,21 +97,14 @@ const MinersPage = ({
         if (requestId !== requestState.latestId) return;
         setFleetNodes(nodes);
         const hasIneligibleNode = nodes.some((node) => node.discoveryCoverageDegraded);
-        const activeNodes = nodes.filter(
-          (node) =>
-            node.enrollmentStatus !== FleetNodeEnrollmentStatus.REVOKED &&
-            node.haRole !== FleetNodeHARole.FLEET_NODE_HA_ROLE_STANDBY,
-        );
+        const activeNodes = nodes.filter(isActiveNode);
         if (hasIneligibleNode) {
           setRemoteDiscoveryReadiness("partialCoverage");
         } else if (activeNodes.length === 0) {
           setRemoteDiscoveryReadiness("noNodes");
         } else if (activeNodes.some((node) => node.enrollmentStatus !== FleetNodeEnrollmentStatus.CONFIRMED)) {
           setRemoteDiscoveryReadiness("enrollmentIncomplete");
-        } else if (
-          canReadFleetNodes &&
-          activeNodes.some((node) => !node.discoveryConfigReported || !node.discoveryRanges?.length)
-        ) {
+        } else if (activeNodes.some((node) => !isDiscoveryConfigured(node, canReadFleetNodes))) {
           setRemoteDiscoveryReadiness("discoveryNotConfigured");
         } else {
           setRemoteDiscoveryReadiness("none");
@@ -218,10 +218,10 @@ const MinersPage = ({
     (canPairMiners &&
       fleetNodes.some(
         (node) =>
+          isActiveNode(node) &&
           node.enrollmentStatus === FleetNodeEnrollmentStatus.CONFIRMED &&
-          node.haRole !== FleetNodeHARole.FLEET_NODE_HA_ROLE_STANDBY &&
           !node.discoveryCoverageDegraded &&
-          (!canReadFleetNodes || (node.discoveryConfigReported && !!node.discoveryRanges?.length)),
+          isDiscoveryConfigured(node, canReadFleetNodes),
       ));
 
   const networkInfoPendingForScan = networkInfoPending && !scanAvailable;

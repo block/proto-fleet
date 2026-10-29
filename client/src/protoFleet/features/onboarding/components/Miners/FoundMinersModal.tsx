@@ -1,5 +1,5 @@
 import { Dispatch, SetStateAction, useCallback, useMemo, useState } from "react";
-import { foundSummary } from "./foundMinersLabels";
+import { fleetSourceLabel, foundSummary } from "./foundMinersLabels";
 import { createFoundMinersModelFilter, filterFoundMinerByModel } from "./foundMinersModelFilter";
 import type { MinerWithSelected, MinerWithSelectedAndAction } from "./types";
 import { DeviceClass } from "@/protoFleet/api/generated/common/v1/common_pb";
@@ -60,11 +60,11 @@ const FoundMinersModal = ({ open, miners, fleetNodes, setDeselectedMiners, onDis
   const selectedCount = useMemo(() => miners.reduce((count, miner) => count + Number(miner.selected), 0), [miners]);
 
   const updateSelection = useCallback(
-    (ids: Set<string>, selected: boolean) => {
+    (ids: Set<string>, isSelected: (id: string) => boolean) => {
       setDeselectedMiners((previous) => {
         const next = new Set(previous);
         for (const id of ids) {
-          if (selected) next.delete(id);
+          if (isSelected(id)) next.delete(id);
           else next.add(id);
         }
         return [...next];
@@ -83,13 +83,10 @@ const FoundMinersModal = ({ open, miners, fleetNodes, setDeselectedMiners, onDis
   const pageStart = currentPage * PAGE_SIZE;
   const pageMiners = useMemo(() => {
     const nodes = new Map(fleetNodes?.map((node) => [node.fleetNodeId, node.name]));
-    return filteredMiners.slice(pageStart, pageStart + PAGE_SIZE).map((miner) => ({
-      ...miner,
-      source:
-        miner.fleetNodeId === 0n
-          ? "Fleet Server"
-          : nodes.get(miner.fleetNodeId.toString()) || `Fleet Node ${miner.fleetNodeId}`,
-    }));
+    return filteredMiners.slice(pageStart, pageStart + PAGE_SIZE).map((miner) => {
+      const id = miner.fleetNodeId.toString();
+      return { ...miner, source: fleetSourceLabel(id, nodes.get(id)) };
+    });
   }, [filteredMiners, fleetNodes, pageStart]);
   const filteredIds = useMemo(() => new Set(filteredMiners.map((miner) => miner.deviceIdentifier)), [filteredMiners]);
   const deviceGroups = [
@@ -154,14 +151,7 @@ const FoundMinersModal = ({ open, miners, fleetNodes, setDeselectedMiners, onDis
                   customSelectedItems={group.filter((miner) => miner.selected).map((miner) => miner.deviceIdentifier)}
                   customSetSelectedItems={(selected) => {
                     const selectedIds = new Set(selected);
-                    setDeselectedMiners((previous) => {
-                      const next = new Set(previous);
-                      for (const id of groupIds) {
-                        if (selectedIds.has(id)) next.delete(id);
-                        else next.add(id);
-                      }
-                      return [...next];
-                    });
+                    updateSelection(groupIds, (id) => selectedIds.has(id));
                   }}
                   containerClassName="min-h-0"
                   tableClassName="mb-0"
@@ -185,8 +175,8 @@ const FoundMinersModal = ({ open, miners, fleetNodes, setDeselectedMiners, onDis
         />
         <ModalSelectAllFooter
           label={`${selectedCount} ${selectedCount === 1 ? "device" : "devices"} selected`}
-          onSelectAll={() => updateSelection(filteredIds, true)}
-          onSelectNone={() => updateSelection(filteredIds, false)}
+          onSelectAll={() => updateSelection(filteredIds, () => true)}
+          onSelectNone={() => updateSelection(filteredIds, () => false)}
         />
       </div>
     </Modal>

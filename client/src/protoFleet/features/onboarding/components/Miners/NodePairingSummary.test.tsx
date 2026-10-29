@@ -74,4 +74,35 @@ describe("pairing capacity guidance", () => {
     expect(screen.queryByText(/0 paired/)).not.toBeInTheDocument();
     expect(screen.queryByText(/Above|Exceeds/)).not.toBeInTheDocument();
   });
+
+  it("shows the Fleet Server row without a paired count next to Fleet Node rows", () => {
+    // Arrange
+    const serverMiner = create(DeviceSchema, { deviceIdentifier: "server", fleetNodeId: 0n });
+
+    // Act
+    render(
+      <NodePairingSummary
+        miners={[serverMiner, ...miners]}
+        fleetNodes={[{ ...scaleFleetNodes[0], pairedDeviceCount: 10 }]}
+        showPairedCounts
+      />,
+    );
+
+    // Assert
+    expect(screen.getByText("Fleet Server")).toBeInTheDocument();
+    expect(screen.getByText("1 selected")).toBeInTheDocument();
+    expect(screen.getByText("10 paired + 2 selected = 12 total")).toBeInTheDocument();
+    expect(screen.queryByText(/Paired count unavailable/)).not.toBeInTheDocument();
+  });
+
+  it("omits the summary when only the Fleet Server is a source", () => {
+    // Arrange
+    const serverMiner = create(DeviceSchema, { deviceIdentifier: "server", fleetNodeId: 0n });
+
+    // Act
+    render(<NodePairingSummary miners={[serverMiner]} fleetNodes={[]} showPairedCounts />);
+
+    // Assert
+    expect(screen.queryByRole("region", { name: "Pairing by source" })).not.toBeInTheDocument();
+  });
 });

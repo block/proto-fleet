@@ -2,6 +2,7 @@ package pairing
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"time"
@@ -24,9 +25,13 @@ var PairCommandTimeout = 12 * time.Minute
 // commands. The row-ID cursor advances even when a miner fails and remains
 // eligible, so it is attempted only once per walk. Cancellation stops new batches;
 // PairOnNode still finishes any dispatched command while the gateway persists
-// its results.
+// its results. A page entirely outside the node's discovery ranges is skipped and
+// its error returned once the walk ends.
 func (s *Service) PairAllOnNode(ctx context.Context, fleetNodeID, orgID int64, credentials *pairingpb.Credentials, assignedBy *int64, onResults func([]*gatewaypb.FleetNodePairResult) error) error {
-	var cursor *int64
+	var (
+		cursor     *int64
+		outOfScope error
+	)
 	for {
 		if err := ctx.Err(); err != nil {
 			return fmt.Errorf("pair-all stopped before next batch: %w", err)
@@ -39,16 +44,21 @@ func (s *Service) PairAllOnNode(ctx context.Context, fleetNodeID, orgID int64, c
 			if cursor == nil {
 				return fleeterror.NewInvalidArgumentError("no pairable devices for the requested selection")
 			}
-			return nil
+			return outOfScope
 		}
 		if err := ctx.Err(); err != nil {
 			return fmt.Errorf("pair-all stopped before dispatch: %w", err)
 		}
 		if err := s.PairOnNode(ctx, fleetNodeID, targets, credentials, orgID, assignedBy, onResults); err != nil {
-			return err
+			if !IsOutOfScopeError(err) {
+				return err
+			}
+			if outOfScope == nil {
+				outOfScope = err
+			}
 		}
 		if nextCursor == nil {
-			return nil
+			return outOfScope
 		}
 		cursor = nextCursor
 	}
@@ -56,20 +66,28 @@ func (s *Service) PairAllOnNode(ctx context.Context, fleetNodeID, orgID int64, c
 
 // PairTargetsOnNode splits an explicit selection into sequential commands. An
 // accepted command finishes even when the operator cancels; cancellation and a
-// command error stop the next batch, without retrying any target.
+// command error stop the next batch, without retrying any target. A batch
+// entirely outside the node's discovery ranges is skipped and its error returned
+// once the other batches are done.
 func (s *Service) PairTargetsOnNode(ctx context.Context, fleetNodeID int64, targets []*pairingpb.FleetNodePairTarget, credentials *pairingpb.Credentials, orgID int64, assignedBy *int64, onResults func([]*gatewaypb.FleetNodePairResult) error) error {
 	if len(targets) == 0 {
 		return fleeterror.NewInvalidArgumentError("pair command requires at least one target")
 	}
+	var outOfScope error
 	for batch := range slices.Chunk(targets, MaxPairBatch) {
 		if err := ctx.Err(); err != nil {
 			return fmt.Errorf("pair stopped before next batch: %w", err)
 		}
 		if err := s.PairOnNode(ctx, fleetNodeID, batch, credentials, orgID, assignedBy, onResults); err != nil {
-			return err
+			if !IsOutOfScopeError(err) {
+				return err
+			}
+			if outOfScope == nil {
+				outOfScope = err
+			}
 		}
 	}
-	return nil
+	return outOfScope
 }
 
 // PairOnNode dispatches a batch pair command over the node's ControlStream and
@@ -142,6 +160,14 @@ func (s *Service) PairOnNode(ctx context.Context, fleetNodeID int64, targets []*
 	// error (timeout/disconnect); onResults is best-effort when the operator is gone.
 	_ = reportUnpaired(displayPending, onResults)
 	return err
+}
+
+// IsOutOfScopeError reports whether PairOnNode withheld a whole batch because
+// every target is outside the node's live discovery ranges. Later batches may
+// still be in scope.
+func IsOutOfScopeError(err error) bool {
+	var fleetErr fleeterror.FleetError
+	return errors.As(err, &fleetErr) && fleetErr.DebugMessage == outOfScopeMessage
 }
 
 const outOfScopeMessage = "device pairing requires all device addresses within this fleet node's live discovery ranges"

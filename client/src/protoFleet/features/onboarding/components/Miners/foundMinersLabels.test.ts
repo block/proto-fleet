@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { deviceGroupLabel, entityNoun, foundSummary } from "./foundMinersLabels";
+import { deviceGroupLabel, entityNoun, fleetSourceLabel, foundSummary } from "./foundMinersLabels";
 import { DeviceClass } from "@/protoFleet/api/generated/common/v1/common_pb";
 
 describe("entityNoun", () => {
@@ -63,5 +63,21 @@ describe("foundSummary", () => {
   it("omits the miner bucket when there are only containers", () => {
     expect(foundSummary(2, 0)).toBe("2 containers found on your network");
     expect(foundSummary(1, 0)).toBe("1 container found on your network");
+  });
+});
+
+describe("fleetSourceLabel", () => {
+  it.each([
+    ["0", undefined, "Fleet Server"],
+    ["0", "Ignored", "Fleet Server"],
+    ["7", "Mining hall", "Mining hall"],
+    ["7", "", "Fleet Node 7"],
+    ["7", undefined, "Fleet Node 7"],
+  ])("labels node %s with name %s as %s", (id, name, expected) => {
+    // Act
+    const label = fleetSourceLabel(id, name);
+
+    // Assert
+    expect(label).toBe(expected);
   });
 });

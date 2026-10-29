@@ -139,6 +139,13 @@ const Miners = ({
     });
   }, [foundMiners]);
   const deselectedMinerIds = useMemo(() => new Set(deselectedMiners), [deselectedMiners]);
+  const foundMinersModalMiners = useMemo(
+    () =>
+      showFoundMinersModal
+        ? displayMiners.map((miner) => ({ ...miner, selected: !deselectedMinerIds.has(miner.deviceIdentifier) }))
+        : [],
+    [showFoundMinersModal, displayMiners, deselectedMinerIds],
+  );
   const selectedDisplayMiners = useMemo(
     () => displayMiners.filter((miner) => !deselectedMinerIds.has(miner.deviceIdentifier)),
     [displayMiners, deselectedMinerIds],
@@ -516,15 +523,12 @@ const Miners = ({
                 </p>
               ) : null}
               {children}
-              {displayMiners.length > 0 ? (
+              {showFoundMinersModal && displayMiners.length > 0 ? (
                 <FoundMinersModal
-                  open={showFoundMinersModal}
+                  open
                   setDeselectedMiners={setDeselectedMiners}
                   fleetNodes={canReadFleetNodes ? fleetNodes : undefined}
-                  miners={displayMiners.map((miner) => ({
-                    ...miner,
-                    selected: !deselectedMinerIds.has(miner.deviceIdentifier),
-                  }))}
+                  miners={foundMinersModalMiners}
                   onDismiss={() => setShowFoundMinersModal(false)}
                 />
               ) : null}
