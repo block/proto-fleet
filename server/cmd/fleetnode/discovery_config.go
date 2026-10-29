@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"iter"
 	"log/slog"
@@ -11,6 +12,7 @@ import (
 	pb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
 	"github.com/block/proto-fleet/server/internal/domain/discoverylimits"
 	"github.com/block/proto-fleet/server/internal/domain/discoveryranges"
+	fleetnodecontrol "github.com/block/proto-fleet/server/internal/domain/fleetnode/control"
 	"github.com/block/proto-fleet/server/internal/fleetnode/bootstrap"
 )
 
@@ -63,8 +65,8 @@ func (r *RunCmd) installDiscoveryConfig(ranges []string) error {
 	if err != nil {
 		return err
 	}
-	if (r.DiscoveryRanges != nil || r.LocalDiscoverySubnet != "" || len(current.GetRanges()) > 0) && !slices.Equal(current.GetRanges(), scope.Strings()) {
-		return fmt.Errorf("standby discovery ranges conflict with the active node; correct local configuration before retrying")
+	if (r.DiscoveryRanges != nil || len(current.GetRanges()) > 0) && !slices.Equal(current.GetRanges(), scope.Strings()) {
+		return errors.New(fleetnodecontrol.StandbyDiscoveryConflictMessage)
 	}
 	r.stateMu.Lock()
 	if r.state == nil {

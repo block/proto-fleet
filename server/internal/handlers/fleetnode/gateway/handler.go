@@ -788,20 +788,28 @@ func (h *Handler) ControlStream(ctx context.Context, stream *connect.BidiStream[
 		})
 		defer watchdog.Stop()
 	}
-	if h.pairing != nil && hello.GetDiscoveryConfig() != nil {
-		budget := silence
+	// Best-effort: a persistent failure must not keep the node from being
+	// accepted, which would also suppress HA failover.
+	if h.pairing != nil && len(hello.GetDiscoveryConfig().GetRanges()) > 0 {
+		budget := silence / 2
 		if budget <= 0 {
-			budget = control.KeepaliveMisses * ControlStreamKeepaliveInterval
+			budget = control.KeepaliveMisses * ControlStreamKeepaliveInterval / 2
 		}
 		retirementCtx, cancel := context.WithTimeout(ctx, budget)
-		defer cancel()
-		if err := h.pairing.RetireOutOfScopeDiscoveries(retirementCtx, subject.FleetNodeID, subject.OrgID, hello.GetDiscoveryConfig()); err != nil {
-			return err
+		err := h.pairing.RetireOutOfScopeDiscoveries(retirementCtx, subject.FleetNodeID, subject.OrgID, hello.GetDiscoveryConfig())
+		cancel()
+		if err != nil {
+			slog.Warn("failed to retire out-of-scope discoveries on control stream connect",
+				"fleet_node_id", subject.FleetNodeID, "error", err)
 		}
 	}
 
 	if err := sendControlStreamAccepted(ctx, stream.Send, keepalive); err != nil {
 		return err
+	}
+	// Retirement may have consumed most of the silence window.
+	if watchdog != nil {
+		watchdog.Reset(silence)
 	}
 	liveness := time.NewTicker(livenessInterval)
 	defer liveness.Stop()

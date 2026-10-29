@@ -54,21 +54,29 @@ func (s *SQLFleetNodePairingStore) RetireOutOfScopeDiscoveries(ctx context.Conte
 		starts = append(starts, interval.Start.String())
 		ends = append(ends, interval.End.String())
 	}
+	nodeParam := sql.NullInt64{Int64: nodeID, Valid: true}
 	return NewSQLTransactor(s.conn.DB).RunInTx(ctx, func(ctx context.Context) error {
 		q := s.q(ctx)
-		params := sqlc.LockFleetNodeDiscoveryDevicesParams{OrgID: orgID, FleetNodeID: sql.NullInt64{Int64: nodeID, Valid: true}}
-		// Match pairing's device-before-discovery lock order. Batch these locks
-		// so reconnect does not issue per-miner database round trips.
-		if _, err := q.LockFleetNodeDiscoveryDevices(ctx, params); err != nil {
+		// Find candidates without locks so reconnects that retire nothing never
+		// block on paired inventory.
+		candidates, err := q.ListOutOfScopeFleetNodeDiscoveryIDs(ctx, sqlc.ListOutOfScopeFleetNodeDiscoveryIDsParams{
+			OrgID: orgID, FleetNodeID: nodeParam, RangeStarts: starts, RangeEnds: ends,
+		})
+		if err != nil || len(candidates) == 0 {
 			return err
 		}
-		lockedIDs, err := q.LockFleetNodeDiscoveries(ctx, sqlc.LockFleetNodeDiscoveriesParams(params))
+		// Match pairing's device-before-discovery lock order. Batch these locks
+		// so reconnect does not issue per-miner database round trips.
+		if _, err := q.LockFleetNodeDiscoveryDevices(ctx, sqlc.LockFleetNodeDiscoveryDevicesParams{OrgID: orgID, DiscoveryIds: candidates}); err != nil {
+			return err
+		}
+		lockedIDs, err := q.LockFleetNodeDiscoveries(ctx, sqlc.LockFleetNodeDiscoveriesParams{OrgID: orgID, FleetNodeID: nodeParam, DiscoveryIds: candidates})
 		if err != nil {
 			return err
 		}
 		// A fresh statement sees ownership committed while either lock waited.
 		_, err = q.RetireOutOfScopeFleetNodeDiscoveries(ctx, sqlc.RetireOutOfScopeFleetNodeDiscoveriesParams{
-			OrgID: orgID, FleetNodeID: params.FleetNodeID, RangeStarts: starts, RangeEnds: ends, LockedDiscoveryIds: lockedIDs,
+			OrgID: orgID, FleetNodeID: nodeParam, RangeStarts: starts, RangeEnds: ends, LockedDiscoveryIds: lockedIDs,
 		})
 		return err
 	})

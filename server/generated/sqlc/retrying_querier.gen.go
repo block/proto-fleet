@@ -7166,6 +7166,18 @@ func (q *retryingQuerier) ListOrganizations(ctx context.Context) ([]Organization
 	return result, err
 }
 
+func (q *retryingQuerier) ListOutOfScopeFleetNodeDiscoveryIDs(ctx context.Context, arg ListOutOfScopeFleetNodeDiscoveryIDsParams) ([]int64, error) {
+	var result []int64
+	err := q.retrier.RetryQuery(ctx, "ListOutOfScopeFleetNodeDiscoveryIDs", func() error {
+		callResult, callErr := q.next.ListOutOfScopeFleetNodeDiscoveryIDs(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) ListPartsBySite(ctx context.Context, arg ListPartsBySiteParams) ([]ListPartsBySiteRow, error) {
 	var result []ListPartsBySiteRow
 	err := q.retrier.RetryQuery(ctx, "ListPartsBySite", func() error {

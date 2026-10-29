@@ -69,6 +69,36 @@ func TestRunOnNode_ForwardsBatchesUntilAck(t *testing.T) {
 	assert.Equal(t, "auto:1", got[0].GetDeviceIdentifier())
 }
 
+func TestRunOnNode_OverwritesNodeReportedFleetNodeID(t *testing.T) {
+	// Arrange
+	reg := control.NewRegistry()
+	svc := NewService(reg, stubLister{})
+	const nodeID, spoofedID = int64(7), int64(99)
+	stream := registerConfiguredNode(reg, nodeID)
+	defer stream.Unregister()
+	go func() {
+		cmd := <-stream.Outgoing
+		reg.PublishBatch(nodeID, cmd.GetCommandId(), &pairingpb.DiscoverResponse{
+			Devices: []*pairingpb.Device{
+				{DeviceIdentifier: "auto:1", IpAddress: "10.0.0.5", Port: "4028", FleetNodeId: spoofedID},
+				{DeviceIdentifier: "auto:2", IpAddress: "10.0.0.6", Port: "4028"},
+			},
+		})
+		stream.PublishAck(&gatewaypb.ControlAck{CommandId: cmd.GetCommandId(), Succeeded: true, Code: gatewaypb.AckCode_ACK_CODE_OK})
+	}()
+	var got []*pairingpb.Device
+
+	// Act
+	err := svc.RunOnNode(context.Background(), nodeID, "Fleet Node 7", ipListReq([]string{"10.0.0.5", "10.0.0.6"}, []string{"4028"}), collectBatches(&got))
+
+	// Assert
+	require.NoError(t, err)
+	require.Len(t, got, 2)
+	for _, device := range got {
+		assert.Equal(t, nodeID, device.GetFleetNodeId())
+	}
+}
+
 func TestRunOnNode_RejectsIPListRangesBeforeDispatch(t *testing.T) {
 	for _, raw := range []string{"10.0.0.1-2", "10.0-1.0-1.1", "10.0.0.1-10.0.1.2", "10.0.0.0/24"} {
 		t.Run(raw, func(t *testing.T) {
@@ -232,6 +262,7 @@ func TestRunOnNode_CancellationDoesNotWarn(t *testing.T) {
 }
 
 func TestDiscoveryNodeIDs_IntersectsStatusAndConnection(t *testing.T) {
+	// Arrange
 	reg := control.NewRegistry()
 	lister := stubLister{nodes: []enrollment.FleetNodeListing{
 		{FleetNode: enrollment.FleetNode{ID: 1, EnrollmentStatus: enrollment.FleetNodeStatusConfirmed}},
@@ -248,13 +279,16 @@ func TestDiscoveryNodeIDs_IntersectsStatusAndConnection(t *testing.T) {
 	require.NoError(t, err)
 	defer s4.Unregister()
 
+	// Act
 	got, err := svc.DiscoveryNodeIDs(context.Background(), 1)
 
+	// Assert
 	require.NoError(t, err)
 	assert.ElementsMatch(t, []int64{1, 4}, got)
 }
 
 func TestDiscoveryNodeIDs_ExcludesHAStandby(t *testing.T) {
+	// Arrange
 	reg := control.NewRegistry()
 	activeID, standbyID := int64(1), int64(2)
 	pair := func(n enrollment.FleetNode) enrollment.FleetNodeListing {
@@ -271,8 +305,10 @@ func TestDiscoveryNodeIDs_ExcludesHAStandby(t *testing.T) {
 		defer stream.Unregister()
 	}
 
+	// Act
 	got, err := svc.DiscoveryNodeIDs(context.Background(), 1)
 
+	// Assert
 	require.NoError(t, err)
 	assert.ElementsMatch(t, []int64{1, 3}, got)
 }
@@ -347,11 +383,14 @@ func TestRunOnNode_TimesOutWhenAgentNeverAcks(t *testing.T) {
 }
 
 func TestDiscoveryNodeIDs_PropagatesListError(t *testing.T) {
+	// Arrange
 	reg := control.NewRegistry()
 	svc := NewService(reg, stubLister{err: errors.New("db unavailable")})
 
+	// Act
 	_, err := svc.DiscoveryNodeIDs(context.Background(), 1)
 
+	// Assert
 	require.Error(t, err)
 }
 
@@ -395,6 +434,7 @@ func TestRunOnNode_InterpretsLocalSubnetFlag(t *testing.T) {
 }
 
 func TestPartitionRequests_SplitsLongHostnamesBeforeEncoding(t *testing.T) {
+	// Arrange
 	addresses := make([]string, 4096)
 	for i := range addresses {
 		addresses[i] = fmt.Sprintf("%04d%s.%s.%s.%s", i, strings.Repeat("a", 59), strings.Repeat("b", 63), strings.Repeat("c", 63), strings.Repeat("d", 61))
@@ -404,7 +444,11 @@ func TestPartitionRequests_SplitsLongHostnamesBeforeEncoding(t *testing.T) {
 	require.NoError(t, ValidateRequest(req))
 	scope, err := discoveryranges.Parse([]string{"10.0.0.0/24"})
 	require.NoError(t, err)
+
+	// Act
 	tasks, err := partitionRequests(req, scope)
+
+	// Assert
 	require.NoError(t, err)
 	count := 0
 	for task := range tasks {
@@ -418,6 +462,7 @@ func TestPartitionRequests_SplitsLongHostnamesBeforeEncoding(t *testing.T) {
 }
 
 func TestRunOnNode_ClipsAndSplitsConfiguredScope(t *testing.T) {
+	// Arrange
 	reg := control.NewRegistry()
 	stream := registerConfiguredNode(reg, 77)
 	defer stream.Unregister()
@@ -442,9 +487,13 @@ func TestRunOnNode_ClipsAndSplitsConfiguredScope(t *testing.T) {
 			}
 		}
 	}()
+
+	// Act
 	err := NewService(reg, stubLister{}).RunOnNode(ctx, 77, "Fleet Node", networkScanReq("10.0.0.0/23", nil), func(*pairingpb.DiscoverResponse) error { return nil })
 	cancel()
 	<-finished
+
+	// Assert
 	require.NoError(t, err)
 	var addresses []string
 	for _, command := range commands {
@@ -473,6 +522,7 @@ func TestDiscoveryReadiness_WarnsWithoutDispatch(t *testing.T) {
 		{"invalid report shape", &gatewaypb.DiscoveryConfig{Ranges: []string{""}}, "invalid"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			// Arrange
 			reg := control.NewRegistry()
 			stream := reg.Register(7)
 			defer stream.Unregister()
@@ -482,7 +532,12 @@ func TestDiscoveryReadiness_WarnsWithoutDispatch(t *testing.T) {
 			require.NoError(t, err)
 			require.Equal(t, []int64{7}, candidates)
 			var responses []*pairingpb.DiscoverResponse
-			require.NoError(t, svc.RunOnNode(t.Context(), 7, "Fleet Node 7", autoNetworkScanReq(nil), collectResponses(&responses)))
+
+			// Act
+			err = svc.RunOnNode(t.Context(), 7, "Fleet Node 7", autoNetworkScanReq(nil), collectResponses(&responses))
+
+			// Assert
+			require.NoError(t, err)
 			require.Len(t, responses, 1)
 			require.Contains(t, responses[0].GetWarning(), "Fleet Node 7:")
 			require.Contains(t, responses[0].GetWarning(), tc.warning)
@@ -496,6 +551,7 @@ func TestDiscoveryReadiness_WarnsWithoutDispatch(t *testing.T) {
 }
 
 func TestRunOnNode_HostnameReportsStayWithinAssignedRanges(t *testing.T) {
+	// Arrange
 	reg := control.NewRegistry()
 	stream := reg.Register(7)
 	defer stream.Unregister()
@@ -518,13 +574,19 @@ func TestRunOnNode_HostnameReportsStayWithinAssignedRanges(t *testing.T) {
 			checked <- false
 		}
 	}()
-	require.NoError(t, NewService(reg, nil).RunOnNode(ctx, 7, "Fleet Node", ipListReq([]string{"10.0.0.6", "miner.lan"}, []string{"4028"}), func(*pairingpb.DiscoverResponse) error { return nil }))
+
+	// Act
+	err := NewService(reg, nil).RunOnNode(ctx, 7, "Fleet Node", ipListReq([]string{"10.0.0.6", "miner.lan"}, []string{"4028"}), func(*pairingpb.DiscoverResponse) error { return nil })
+
+	// Assert
+	require.NoError(t, err)
 	require.True(t, <-checked, "node resolves hostname; server constrains its report to assigned IPs and requested ports")
 }
 
 func TestRunOnNode_StopsPartitionsAfterIncompleteCommand(t *testing.T) {
 	for _, code := range []gatewaypb.AckCode{gatewaypb.AckCode_ACK_CODE_SCAN_FAILED, gatewaypb.AckCode_ACK_CODE_PARTIAL} {
 		t.Run(code.String(), func(t *testing.T) {
+			// Arrange
 			reg := control.NewRegistry()
 			stream := registerConfiguredNode(reg, 7)
 			defer stream.Unregister()
@@ -546,9 +608,13 @@ func TestRunOnNode_StopsPartitionsAfterIncompleteCommand(t *testing.T) {
 				}
 			}()
 			var responses []*pairingpb.DiscoverResponse
+
+			// Act
 			err := NewService(reg, nil).RunOnNode(ctx, 7, "Fleet Node", ipRangeReq("10.0.0.0", "10.0.1.255", nil), collectResponses(&responses))
 			cancel()
 			<-finished
+
+			// Assert
 			require.NoError(t, err)
 			require.Len(t, commands, 1)
 			require.Len(t, responses, 2)

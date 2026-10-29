@@ -235,6 +235,67 @@ func TestPairOnNodeRepairsExistingBindingOutsideDiscoveryRanges(t *testing.T) {
 	require.NoError(t, <-done)
 }
 
+func TestPairOnNodeRejectsRepairExemptionMismatches(t *testing.T) {
+	tests := []struct {
+		name    string
+		outcome gatewaypb.PairOutcome
+		mutate  func(*pairingpb.FleetNodePairTarget)
+	}{
+		{
+			name:    "same identifier on a different route",
+			outcome: gatewaypb.PairOutcome_PAIR_OUTCOME_AUTH_NEEDED,
+			mutate:  func(target *pairingpb.FleetNodePairTarget) { target.Port = "8080" },
+		},
+		{
+			name:   "bound device without a pair result",
+			mutate: func(*pairingpb.FleetNodePairTarget) {},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			// Arrange
+			db, org, svc, enrollment := setupPairingTest(t)
+			node := createFleetNode(t, enrollment, org, "partition-repair-mismatch")
+			report := fleetnodepairing.DiscoveredDeviceReport{DeviceIdentifier: "mac:repair-mismatch", IPAddress: "10.0.0.11", Port: "80", URLScheme: "http", DriverName: "virtual"}
+			_, _, err := svc.UpsertDiscoveredDevices(t.Context(), node, org, []fleetnodepairing.DiscoveredDeviceReport{report})
+			require.NoError(t, err)
+			if tc.outcome != gatewaypb.PairOutcome_PAIR_OUTCOME_UNSPECIFIED {
+				_, err = svc.PersistFleetNodePairResult(t.Context(), pairPersistMeta(t, db, node, org, nil, report.DeviceIdentifier),
+					&gatewaypb.FleetNodePairResult{DeviceIdentifier: report.DeviceIdentifier, Outcome: tc.outcome})
+				require.NoError(t, err)
+			} else {
+				_, err = db.Exec(`INSERT INTO device (org_id, device_identifier, discovered_device_id, mac_address)
+					SELECT org_id, device_identifier, id, '' FROM discovered_device WHERE org_id=$1 AND device_identifier=$2`, org, report.DeviceIdentifier)
+				require.NoError(t, err)
+			}
+			require.NoError(t, svc.PairDevice(t.Context(), node, deviceIDByIdentifier(t, db, org, report.DeviceIdentifier), org, nil))
+			registry := control.NewRegistry()
+			stream := registry.Register(node)
+			defer stream.Unregister()
+			stream.SetDiscoveryConfig(&gatewaypb.DiscoveryConfig{Ranges: []string{"10.0.1.0/24"}})
+			svc.WithProvisioning(sqlstores.NewSQLDeviceStore(db), sqlstores.NewSQLDiscoveredDeviceStore(db), registry)
+			target := pairingSnapshot(t, db, org, report.DeviceIdentifier)
+			tc.mutate(target)
+
+			// Act
+			done := make(chan error, 1)
+			go func() {
+				done <- svc.PairOnNode(t.Context(), node, []*pairingpb.FleetNodePairTarget{target}, nil, org, nil, func([]*gatewaypb.FleetNodePairResult) error { return nil })
+			}()
+
+			// Assert
+			select {
+			case err := <-done:
+				require.True(t, fleeterror.IsFailedPreconditionError(err), "got %v", err)
+			case <-stream.Outgoing:
+				t.Fatal("target outside the live ranges was dispatched")
+			case <-time.After(5 * time.Second):
+				t.Fatal("PairOnNode did not return")
+			}
+		})
+	}
+}
+
 func assertPairedDiscoveryVisible(t *testing.T, database *sql.DB, org int64, identifier string) {
 	t.Helper()
 	var active bool
@@ -289,4 +350,31 @@ func TestRetirementRechecksOwnershipAfterWaitingForPairResult(t *testing.T) {
 	require.NoError(t, <-paired)
 	require.NoError(t, <-retired)
 	assertPairedDiscoveryVisible(t, database, org, report.DeviceIdentifier)
+}
+
+func TestRetirementWithNothingOutOfScopeDoesNotLockPairedInventory(t *testing.T) {
+	// Arrange
+	database, org, svc, enrollment := setupPairingTest(t)
+	node := createFleetNode(t, enrollment, org, "partition-no-lock")
+	report := fleetnodepairing.DiscoveredDeviceReport{DeviceIdentifier: "mac:no-lock", IPAddress: "10.0.0.11", Port: "80", URLScheme: "http", DriverName: "virtual"}
+	_, _, err := svc.UpsertDiscoveredDevices(t.Context(), node, org, []fleetnodepairing.DiscoveredDeviceReport{report})
+	require.NoError(t, err)
+	_, err = svc.PersistFleetNodePairResult(t.Context(), pairPersistMeta(t, database, node, org, nil, report.DeviceIdentifier),
+		&gatewaypb.FleetNodePairResult{DeviceIdentifier: report.DeviceIdentifier, Outcome: gatewaypb.PairOutcome_PAIR_OUTCOME_PAIRED})
+	require.NoError(t, err)
+	tx, err := database.BeginTx(t.Context(), nil)
+	require.NoError(t, err)
+	defer func() { _ = tx.Rollback() }()
+	_, err = tx.Exec(`SELECT id FROM device WHERE org_id=$1 AND device_identifier=$2 FOR UPDATE`, org, report.DeviceIdentifier)
+	require.NoError(t, err)
+	_, err = tx.Exec(`SELECT id FROM discovered_device WHERE org_id=$1 AND device_identifier=$2 FOR UPDATE`, org, report.DeviceIdentifier)
+	require.NoError(t, err)
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+
+	// Act
+	err = svc.RetireOutOfScopeDiscoveries(ctx, node, org, &gatewaypb.DiscoveryConfig{Ranges: []string{"10.0.0.0/24"}})
+
+	// Assert
+	require.NoError(t, err)
 }

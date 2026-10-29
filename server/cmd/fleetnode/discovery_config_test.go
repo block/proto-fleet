@@ -6,36 +6,89 @@ import (
 	"path/filepath"
 	"testing"
 
+	fleetnodecontrol "github.com/block/proto-fleet/server/internal/domain/fleetnode/control"
+	"github.com/block/proto-fleet/server/internal/fleetnode/bootstrap"
 	"github.com/stretchr/testify/require"
 )
 
 func TestInstallDiscoveryConfigPersistsOnce(t *testing.T) {
+	// Arrange
 	r := &RunCmd{state: &bootstrap.State{}, statePath: filepath.Join(t.TempDir(), "state.yaml")}
-	require.NoError(t, r.installDiscoveryConfig([]string{"10.0.0.1-10.0.0.8"}))
-	loaded, ok, err := bootstrap.LoadState(r.statePath)
-	require.NoError(t, err)
+
+	// Act
+	firstErr := r.installDiscoveryConfig([]string{"10.0.0.1-10.0.0.8"})
+	loaded, ok, loadErr := bootstrap.LoadState(r.statePath)
+	repeatErr := r.installDiscoveryConfig([]string{"10.0.0.1-10.0.0.8"})
+	conflictErr := r.installDiscoveryConfig([]string{"10.1.0.1"})
+
+	// Assert
+	require.NoError(t, firstErr)
+	require.NoError(t, loadErr)
 	require.True(t, ok)
-	restarted := &RunCmd{state: loaded}
-	config, err := restarted.effectiveDiscoveryConfig()
+	config, err := (&RunCmd{state: loaded}).effectiveDiscoveryConfig()
 	require.NoError(t, err)
 	require.Equal(t, []string{"10.0.0.1-10.0.0.8"}, config.Ranges)
-	require.NoError(t, r.installDiscoveryConfig([]string{"10.0.0.1-10.0.0.8"}))
-	require.Error(t, r.installDiscoveryConfig([]string{"10.1.0.1"}))
+	require.NoError(t, repeatErr)
+	require.Error(t, conflictErr)
 	require.Equal(t, []string{"10.0.0.1-10.0.0.8"}, r.state.DiscoveryRanges)
 }
 
 func TestInstallDiscoveryConfigRejectsConflictAndWriteFailure(t *testing.T) {
+	// Arrange
 	r := &RunCmd{DiscoveryRanges: []string{"10.1.0.1"}, state: &bootstrap.State{}, statePath: filepath.Join(t.TempDir(), "state.yaml")}
-	require.Error(t, r.installDiscoveryConfig([]string{"10.0.0.1"}))
+
+	// Act
+	conflictErr := r.installDiscoveryConfig([]string{"10.0.0.1"})
+
+	// Assert
+	require.ErrorContains(t, conflictErr, fleetnodecontrol.StandbyDiscoveryConflictMessage)
 	require.Empty(t, r.state.DiscoveryRanges)
+
+	// Arrange: a directory cannot be atomically replaced by the state file.
 	r.DiscoveryRanges = nil
-	r.statePath = filepath.Join(t.TempDir(), "missing", "state.yaml", "not-a-directory")
-	require.NoError(t, os.MkdirAll(filepath.Dir(r.statePath), 0700))
-	require.NoError(t, os.WriteFile(r.statePath, []byte("existing"), 0600))
-	// A directory cannot be atomically replaced by the state file.
-	r.statePath = filepath.Dir(r.statePath)
-	require.Error(t, r.installDiscoveryConfig([]string{"10.0.0.1"}))
+	blocked := filepath.Join(t.TempDir(), "missing", "state.yaml", "not-a-directory")
+	require.NoError(t, os.MkdirAll(filepath.Dir(blocked), 0700))
+	require.NoError(t, os.WriteFile(blocked, []byte("existing"), 0600))
+	r.statePath = filepath.Dir(blocked)
+
+	// Act
+	writeErr := r.installDiscoveryConfig([]string{"10.0.0.1"})
+
+	// Assert
+	require.Error(t, writeErr)
 	require.Empty(t, r.state.DiscoveryRanges)
+}
+
+func TestInstallDiscoveryConfigTreatsOnlyUsableLegacySubnetAsLocalConfig(t *testing.T) {
+	tests := []struct {
+		name         string
+		legacy       string
+		wantConflict bool
+	}{
+		{name: "whitespace is ignored", legacy: "  "},
+		{name: "invalid subnet is ignored", legacy: "not-a-subnet"},
+		{name: "public subnet is ignored", legacy: "8.8.8.0/24"},
+		{name: "usable subnet that differs conflicts", legacy: "10.3.0.0/24", wantConflict: true},
+		{name: "usable subnet that matches installs", legacy: "10.0.0.0/24"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Arrange
+			r := &RunCmd{LocalDiscoverySubnet: tt.legacy, state: &bootstrap.State{}, statePath: filepath.Join(t.TempDir(), "state.yaml")}
+
+			// Act
+			err := r.installDiscoveryConfig([]string{"10.0.0.0-10.0.0.255"})
+
+			// Assert
+			if tt.wantConflict {
+				require.ErrorContains(t, err, fleetnodecontrol.StandbyDiscoveryConflictMessage)
+				require.Empty(t, r.state.DiscoveryRanges)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, []string{"10.0.0.0-10.0.0.255"}, r.state.DiscoveryRanges)
+		})
+	}
 }
 
 func TestEffectiveDiscoveryConfig(t *testing.T) {

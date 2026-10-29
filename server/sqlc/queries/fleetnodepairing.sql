@@ -455,13 +455,53 @@ JOIN discovered_device dd ON dd.id = d.discovered_device_id AND dd.org_id = d.or
 WHERE d.id = sqlc.arg(device_id) AND d.org_id = sqlc.arg(org_id)
   AND d.deleted_at IS NULL AND dd.deleted_at IS NULL;
 
+-- name: ListOutOfScopeFleetNodeDiscoveryIDs :many
+-- Unlocked retirement candidates: unowned discoveries with any address outside
+-- the ranges. Callers lock only these rows and re-check under the lock.
+WITH scope AS (
+    SELECT starts.first_ip::inet AS first_ip, ends.last_ip::inet AS last_ip
+    FROM unnest(sqlc.arg(range_starts)::text[]) WITH ORDINALITY AS starts(first_ip, position)
+    JOIN unnest(sqlc.arg(range_ends)::text[]) WITH ORDINALITY AS ends(last_ip, position) USING (position)
+), unowned AS MATERIALIZED (
+    -- Exclude owned inventory before inspecting legacy endpoint hosts.
+    SELECT dd.id, dd.ip_address, dd.endpoints
+    FROM discovered_device dd
+    WHERE dd.org_id = sqlc.arg(org_id)
+      AND dd.discovered_by_fleet_node_id = sqlc.arg(fleet_node_id)
+      AND dd.deleted_at IS NULL AND dd.is_active
+      AND NOT EXISTS (
+        SELECT 1 FROM device owner
+        WHERE owner.org_id = dd.org_id AND owner.deleted_at IS NULL
+          AND (owner.discovered_device_id = dd.id OR owner.device_identifier = dd.device_identifier)
+          AND (EXISTS (SELECT 1 FROM fleet_node_device fnd WHERE fnd.device_id = owner.id AND fnd.org_id = owner.org_id)
+            OR EXISTS (SELECT 1 FROM device_pairing dp WHERE dp.device_id = owner.id AND dp.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD')))
+      )
+)
+SELECT candidate.id
+FROM unowned candidate
+WHERE EXISTS (
+    SELECT 1 FROM (
+        SELECT candidate.ip_address AS host
+        UNION ALL
+        SELECT endpoint.value->>'Host' FROM jsonb_each(candidate.endpoints) endpoint
+    ) addresses
+    WHERE NOT EXISTS (
+        SELECT 1 FROM scope bounds
+        -- SDK endpoint hosts may be DNS names. Only canonical IPv4 literals
+        -- can belong to these ranges; CASE prevents unsafe inet casts.
+        WHERE CASE WHEN addresses.host ~ '^((25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])[.]){3}(25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])$'
+                   THEN addresses.host::inet
+              END BETWEEN bounds.first_ip AND bounds.last_ip
+    )
+)
+ORDER BY candidate.id;
+
 -- name: LockFleetNodeDiscoveryDevices :many
 SELECT d.id FROM device d
 WHERE d.org_id = sqlc.arg(org_id) AND d.deleted_at IS NULL
   AND EXISTS (
     SELECT 1 FROM discovered_device dd
-    WHERE dd.org_id = d.org_id AND dd.discovered_by_fleet_node_id = sqlc.arg(fleet_node_id)
-      AND dd.deleted_at IS NULL AND dd.is_active
+    WHERE dd.org_id = d.org_id AND dd.id = ANY(sqlc.arg(discovery_ids)::bigint[])
       AND (d.discovered_device_id = dd.id OR d.device_identifier = dd.device_identifier)
   )
 ORDER BY d.id FOR UPDATE;
@@ -469,6 +509,7 @@ ORDER BY d.id FOR UPDATE;
 -- name: LockFleetNodeDiscoveries :many
 SELECT dd.id FROM discovered_device dd
 WHERE dd.org_id = sqlc.arg(org_id) AND dd.discovered_by_fleet_node_id = sqlc.arg(fleet_node_id)
+  AND dd.id = ANY(sqlc.arg(discovery_ids)::bigint[])
   AND dd.deleted_at IS NULL AND dd.is_active
 ORDER BY dd.id FOR UPDATE;
 

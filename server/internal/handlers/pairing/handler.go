@@ -15,7 +15,6 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/discovery"
 	fleetnodepairing "github.com/block/proto-fleet/server/internal/domain/fleetnode/pairing"
-	"github.com/block/proto-fleet/server/internal/domain/netscan"
 	"github.com/block/proto-fleet/server/internal/handlers/middleware"
 
 	"connectrpc.com/connect"
@@ -84,7 +83,7 @@ func (h *Handler) Discover(ctx context.Context, r *connect.Request[pb.DiscoverRe
 	case *pb.DiscoverRequest_IpRange:
 		resultChan, err = h.pairingSvc.DiscoverWithIPRange(streamCtx, r.Msg.GetIpRange())
 	case *pb.DiscoverRequest_NetworkScan:
-		if h.discovery != nil && (r.Msg.GetNetworkScan().GetUseFleetNodeLocalSubnet() || r.Msg.GetNetworkScan().GetTarget() == netscan.LocalSubnetTarget) {
+		if h.discovery != nil && discovery.ScansLocalSubnet(r.Msg.GetNetworkScan()) {
 			err = discovery.ValidateRequest(r.Msg)
 		} else {
 			resultChan, err = h.pairingSvc.DiscoverWithNetworkScan(streamCtx, r.Msg.GetNetworkScan())
@@ -179,7 +178,7 @@ func (h *Handler) forwardDiscoverySources(
 			}
 		} else {
 			if serverResults == nil && len(nodeIDs) == 0 && nodeReq.GetNetworkScan() != nil &&
-				(nodeReq.GetNetworkScan().GetUseFleetNodeLocalSubnet() || nodeReq.GetNetworkScan().GetTarget() == netscan.LocalSubnetTarget) {
+				discovery.ScansLocalSubnet(nodeReq.GetNetworkScan()) {
 				results, scanErr := h.pairingSvc.DiscoverWithNetworkScan(ctx, nodeReq.GetNetworkScan())
 				if scanErr == nil {
 					forwardServer(results)

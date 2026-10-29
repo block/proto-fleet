@@ -1610,6 +1610,9 @@ type Querier interface {
 	// unchanged authority; the service then applies the inviter's current hierarchy.
 	ListOrganizationInvitations(ctx context.Context, arg ListOrganizationInvitationsParams) ([]ListOrganizationInvitationsRow, error)
 	ListOrganizations(ctx context.Context) ([]Organization, error)
+	// Unlocked retirement candidates: unowned discoveries with any address outside
+	// the ranges. Callers lock only these rows and re-check under the lock.
+	ListOutOfScopeFleetNodeDiscoveryIDs(ctx context.Context, arg ListOutOfScopeFleetNodeDiscoveryIDsParams) ([]int64, error)
 	ListPartsBySite(ctx context.Context, arg ListPartsBySiteParams) ([]ListPartsBySiteRow, error)
 	ListPendingPoolConfigurationWork(ctx context.Context) ([]ListPendingPoolConfigurationWorkRow, error)
 	ListPermissions(ctx context.Context) ([]Permission, error)

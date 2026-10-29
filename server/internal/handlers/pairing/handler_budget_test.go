@@ -38,12 +38,17 @@ func (r *requestBudgetDiscoveryRunner) RunOnNode(ctx context.Context, _ int64, _
 }
 
 func TestDiscoverPublicFanoutSharesBudgetAndDeadlineAcrossNodes(t *testing.T) {
+	// Arrange
 	runner := &requestBudgetDiscoveryRunner{}
 	client := discoveryClientForHandler(t, &Handler{discovery: runner})
+
+	// Act
 	stream, err := client.Discover(t.Context(), connect.NewRequest(&pb.DiscoverRequest{Mode: &pb.DiscoverRequest_NetworkScan{NetworkScan: &pb.NetworkScanModeRequest{UseFleetNodeLocalSubnet: true}}}))
 	require.NoError(t, err)
 	for stream.Receive() {
 	}
+
+	// Assert
 	require.NoError(t, stream.Err())
 	require.Len(t, runner.budgets, 2)
 	require.NotNil(t, runner.budgets[0])

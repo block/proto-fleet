@@ -52,6 +52,7 @@ func TestDiscoverForCommandEnforcesLocalRangesBeforeScanningAndProbing(t *testin
 				{"missing", nil, false},
 			} {
 				t.Run(scope.name, func(t *testing.T) {
+					// Arrange
 					discoverer := &scopeRecordingDiscoverer{stubDiscoverer: &stubDiscoverer{probes: map[string]*gatewaypb.DiscoveredDeviceReport{
 						"10.0.0.1|4028": {DeviceIdentifier: "one", DriverName: "virtual", UrlScheme: "http"},
 						"10.0.0.2|4028": {DeviceIdentifier: "two", DriverName: "virtual", UrlScheme: "http"},
@@ -80,7 +81,11 @@ func TestDiscoverForCommandEnforcesLocalRangesBeforeScanningAndProbing(t *testin
 							return ctx.Err()
 						}),
 					}
+
+					// Act
 					reports, truncated, err := runner.discoverForCommand(t.Context(), request.request, discardLogger(t))
+
+					// Assert
 					require.False(t, truncated)
 					if !scope.configured {
 						require.ErrorContains(t, err, "configure discovery-ranges")

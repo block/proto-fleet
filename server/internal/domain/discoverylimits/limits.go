@@ -16,4 +16,11 @@ const (
 	// MaxDiscoveryRanges caps a node's configured ranges. It must match max_items
 	// on DiscoveryConfig.ranges in fleetnodegateway.proto.
 	MaxDiscoveryRanges = 256
+
+	// MaxPartitionAddresses caps addresses in one server-partitioned discovery command.
+	MaxPartitionAddresses = 256
+
+	// MaxPartitionProbes caps address x port probes in one server-partitioned
+	// discovery command, and so the reports the server admits for it.
+	MaxPartitionProbes = 1024
 )

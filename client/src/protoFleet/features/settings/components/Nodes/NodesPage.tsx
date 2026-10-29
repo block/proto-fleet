@@ -304,12 +304,10 @@ const NodesPage = () => {
       ranges: {
         component: (node: FleetNodeItem) => {
           const label = discoveryRangesLabel(node);
+          const rangesReported = node.controlStreamConnected && node.discoveryConfigReported;
           return (
-            <span
-              className="break-all"
-              title={node.controlStreamConnected && node.discoveryConfigReported ? label : undefined}
-            >
-              {node.discoveryConfigMismatch ? "HA ranges differ: " : ""}
+            <span className="break-all" title={rangesReported ? label : undefined}>
+              {rangesReported && node.discoveryConfigMismatch ? "HA ranges differ: " : ""}
               {label}
             </span>
           );

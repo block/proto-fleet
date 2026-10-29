@@ -4,41 +4,74 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/require"
 )
 
 func TestWithRequestRetainsBudgetAndDeadline(t *testing.T) {
+	// Arrange
 	outer, cancel := WithRequest(t.Context(), time.Second)
 	defer cancel()
+
+	// Act
 	inner, cancelInner := WithRequest(outer, time.Minute)
 	defer cancelInner()
+	independent, cancelIndependent := WithRequest(t.Context(), time.Minute)
+	defer cancelIndependent()
+
+	// Assert
 	require.Same(t, BudgetFromContext(outer), BudgetFromContext(inner))
 	outerDeadline, ok := outer.Deadline()
 	require.True(t, ok)
 	innerDeadline, ok := inner.Deadline()
 	require.True(t, ok)
 	require.Equal(t, outerDeadline, innerDeadline)
-
-	independent, cancelIndependent := WithRequest(t.Context(), time.Minute)
-	defer cancelIndependent()
 	require.NotSame(t, BudgetFromContext(outer), BudgetFromContext(independent))
 }
 
+func TestDeadlineExpiredDistinguishesRequestDeadlineFromEarlierCancellation(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		// Arrange
+		ctx, cancel := WithRequest(t.Context(), time.Minute)
+		defer cancel()
+		budget := BudgetFromContext(ctx)
+
+		// Act
+		time.Sleep(time.Minute - time.Second)
+		beforeDeadline := budget.DeadlineExpired()
+		time.Sleep(time.Second)
+		atDeadline := budget.DeadlineExpired()
+
+		// Assert
+		require.False(t, beforeDeadline)
+		require.True(t, atDeadline)
+	})
+}
+
 func TestReportBudgetRejectsCrossingBatchAndClosesAdmission(t *testing.T) {
+	// Arrange
 	budget := &ReportBudget{}
 	require.True(t, budget.Admit(MaxReportsPerRequest-1))
-	require.False(t, budget.Admit(2))
+
+	// Act
+	crossing := budget.Admit(2)
+
+	// Assert
+	require.False(t, crossing)
 	require.Equal(t, MaxReportsPerRequest-1, budget.reported, "rejected batch must not reserve or persist a prefix")
 	require.True(t, budget.Exhausted())
 	require.False(t, budget.Admit(1), "a rejected batch stops the whole request")
 }
 
 func TestReportBudgetConcurrentAdmissionCannotExceedLimit(t *testing.T) {
+	// Arrange
 	budget := &ReportBudget{}
 	var admitted atomic.Int64
 	var wg sync.WaitGroup
+
+	// Act
 	for range 16 {
 		wg.Go(func() {
 			for budget.Admit(1024) {
@@ -47,6 +80,8 @@ func TestReportBudgetConcurrentAdmissionCannotExceedLimit(t *testing.T) {
 		})
 	}
 	wg.Wait()
+
+	// Assert
 	require.Equal(t, int64(MaxReportsPerRequest), admitted.Load())
 	require.True(t, budget.Exhausted())
 }

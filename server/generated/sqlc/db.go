@@ -1914,6 +1914,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.listOrganizationsStmt, err = db.PrepareContext(ctx, listOrganizations); err != nil {
 		return nil, fmt.Errorf("error preparing query ListOrganizations: %w", err)
 	}
+	if q.listOutOfScopeFleetNodeDiscoveryIDsStmt, err = db.PrepareContext(ctx, listOutOfScopeFleetNodeDiscoveryIDs); err != nil {
+		return nil, fmt.Errorf("error preparing query ListOutOfScopeFleetNodeDiscoveryIDs: %w", err)
+	}
 	if q.listPartsBySiteStmt, err = db.PrepareContext(ctx, listPartsBySite); err != nil {
 		return nil, fmt.Errorf("error preparing query ListPartsBySite: %w", err)
 	}
@@ -6284,6 +6287,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing listOrganizationsStmt: %w", cerr)
 		}
 	}
+	if q.listOutOfScopeFleetNodeDiscoveryIDsStmt != nil {
+		if cerr := q.listOutOfScopeFleetNodeDiscoveryIDsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listOutOfScopeFleetNodeDiscoveryIDsStmt: %w", cerr)
+		}
+	}
 	if q.listPartsBySiteStmt != nil {
 		if cerr := q.listPartsBySiteStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing listPartsBySiteStmt: %w", cerr)
@@ -8978,6 +8986,7 @@ type Queries struct {
 	listNotificationHistoryStmt                                *sql.Stmt
 	listOrganizationInvitationsStmt                            *sql.Stmt
 	listOrganizationsStmt                                      *sql.Stmt
+	listOutOfScopeFleetNodeDiscoveryIDsStmt                    *sql.Stmt
 	listPartsBySiteStmt                                        *sql.Stmt
 	listPendingPoolConfigurationWorkStmt                       *sql.Stmt
 	listPermissionsStmt                                        *sql.Stmt
@@ -10019,6 +10028,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		listNotificationHistoryStmt:                                q.listNotificationHistoryStmt,
 		listOrganizationInvitationsStmt:                            q.listOrganizationInvitationsStmt,
 		listOrganizationsStmt:                                      q.listOrganizationsStmt,
+		listOutOfScopeFleetNodeDiscoveryIDsStmt:                    q.listOutOfScopeFleetNodeDiscoveryIDsStmt,
 		listPartsBySiteStmt:                                        q.listPartsBySiteStmt,
 		listPendingPoolConfigurationWorkStmt:                       q.listPendingPoolConfigurationWorkStmt,
 		listPermissionsStmt:                                        q.listPermissionsStmt,

@@ -7,6 +7,10 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
+// StandbyDiscoveryConflictMessage lets the server tell an operator-fixable
+// standby range conflict from other install failures.
+const StandbyDiscoveryConflictMessage = "standby discovery ranges conflict with the active node; correct local configuration before retrying"
+
 // DiscoveryConfig returns only the live connection's metadata, never a stale snapshot.
 func (r *Registry) DiscoveryConfig(nodeID int64) *gatewaypb.DiscoveryConfig {
 	r.mu.Lock()

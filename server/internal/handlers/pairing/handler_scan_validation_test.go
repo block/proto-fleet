@@ -22,13 +22,18 @@ func TestDiscover_RejectsNonPrivateDirectServerTarget(t *testing.T) {
 	for _, target := range []string{"169.254.169.254", "8.8.8.8", "127.0.0.1"} {
 		for _, fanOut := range []bool{false, true} {
 			t.Run(fmt.Sprintf("%s/fanOut=%t", target, fanOut), func(t *testing.T) {
+				// Arrange
 				runner := &stubFleetNodeDiscoveryRunner{nodeIDs: []int64{7}}
 				h := &Handler{pairingSvc: pairingdomain.NewService(nil, nil, nil, nil, nil, nil, nil, nil, nil)}
 				if fanOut {
 					h.discovery = runner
 				}
 				req := &pb.DiscoverRequest{Mode: &pb.DiscoverRequest_NetworkScan{NetworkScan: &pb.NetworkScanModeRequest{Target: target, Ports: []string{"4028"}}}}
+
+				// Act
 				err := h.Discover(ctxWithPerms(authz.PermMinerPair), connect.NewRequest(req), nil)
+
+				// Assert
 				require.True(t, fleeterror.IsInvalidArgumentError(err))
 				require.Empty(t, runner.requests)
 			})
@@ -37,17 +42,21 @@ func TestDiscover_RejectsNonPrivateDirectServerTarget(t *testing.T) {
 }
 
 func TestDiscover_AutomaticNodeRangesDoNotRequireServerSubnet(t *testing.T) {
-	// A nil pairing service proves automatic discovery never initializes a
+	// Arrange: a nil pairing service proves automatic discovery never initializes a
 	// server-local scan, even if the client retains an obsolete target.
 	runner := &stubFleetNodeDiscoveryRunner{nodeIDs: []int64{7}}
 	client := discoveryClientForHandler(t, &Handler{discovery: runner})
 	req := &pb.DiscoverRequest{Mode: &pb.DiscoverRequest_NetworkScan{NetworkScan: &pb.NetworkScanModeRequest{
 		Target: "8.8.8.8", Ports: []string{"4028"}, UseFleetNodeLocalSubnet: true,
 	}}}
+
+	// Act
 	stream, err := client.Discover(t.Context(), connect.NewRequest(req))
 	require.NoError(t, err)
 	for stream.Receive() {
 	}
+
+	// Assert
 	require.NoError(t, stream.Err())
 	require.Len(t, runner.requests, 1)
 	require.True(t, runner.requests[0].GetNetworkScan().GetUseFleetNodeLocalSubnet())
@@ -56,6 +65,7 @@ func TestDiscover_AutomaticNodeRangesDoNotRequireServerSubnet(t *testing.T) {
 func TestDiscover_AutomaticServerOnlyScanUsesServerDiscoveryPorts(t *testing.T) {
 	for _, hasDirectory := range []bool{false, true} {
 		t.Run(fmt.Sprint("nodeDirectory=", hasDirectory), func(t *testing.T) {
+			// Arrange
 			caps := pairingmocks.NewMockCapabilitiesProvider(gomock.NewController(t))
 			// Server-only automatic scanning must initialize the existing server scan.
 			// A missing canonical port list gives a deterministic pre-probe failure.
@@ -66,6 +76,8 @@ func TestDiscover_AutomaticServerOnlyScanUsesServerDiscoveryPorts(t *testing.T) 
 				h.discovery = runner
 			}
 			client := discoveryClientForHandler(t, h)
+
+			// Act
 			stream, err := client.Discover(t.Context(), connect.NewRequest(&pb.DiscoverRequest{Mode: &pb.DiscoverRequest_NetworkScan{NetworkScan: &pb.NetworkScanModeRequest{
 				Target: "192.168.1.0/24", UseFleetNodeLocalSubnet: true,
 			}}}))
@@ -74,6 +86,8 @@ func TestDiscover_AutomaticServerOnlyScanUsesServerDiscoveryPorts(t *testing.T) 
 			for stream.Receive() {
 				warnings = append(warnings, stream.Msg().GetWarning())
 			}
+
+			// Assert
 			require.NoError(t, stream.Err())
 			require.Equal(t, []string{"Fleet Server: discovery failed"}, warnings)
 			require.Empty(t, runner.requests)
@@ -82,6 +96,7 @@ func TestDiscover_AutomaticServerOnlyScanUsesServerDiscoveryPorts(t *testing.T) 
 }
 
 func TestDiscover_AutomaticUnconfiguredNodeDoesNotFallBackToServer(t *testing.T) {
+	// Arrange
 	reg := control.NewRegistry()
 	node := reg.Register(7)
 	defer node.Unregister()
@@ -90,6 +105,8 @@ func TestDiscover_AutomaticUnconfiguredNodeDoesNotFallBackToServer(t *testing.T)
 	// actionable configuration warning.
 	runner := credentialAckDiscoveryRunner{fleetnodediscovery.NewService(reg, nil)}
 	client := discoveryClientForHandler(t, &Handler{discovery: runner})
+
+	// Act
 	stream, err := client.Discover(t.Context(), connect.NewRequest(&pb.DiscoverRequest{Mode: &pb.DiscoverRequest_NetworkScan{NetworkScan: &pb.NetworkScanModeRequest{
 		Target: "192.168.1.0/24", UseFleetNodeLocalSubnet: true,
 	}}}))
@@ -98,6 +115,8 @@ func TestDiscover_AutomaticUnconfiguredNodeDoesNotFallBackToServer(t *testing.T)
 	for stream.Receive() {
 		warnings = append(warnings, stream.Msg().GetWarning())
 	}
+
+	// Assert
 	require.NoError(t, stream.Err())
 	require.Len(t, warnings, 1)
 	require.Contains(t, warnings[0], "configure Fleet Node discovery ranges")

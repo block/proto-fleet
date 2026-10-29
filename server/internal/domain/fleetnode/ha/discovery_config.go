@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	gatewaypb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
 	"github.com/block/proto-fleet/server/generated/sqlc"
@@ -34,17 +35,26 @@ func (s *Service) transferDiscoveryConfig(ctx context.Context, pair sqlc.ListFle
 	if err != nil {
 		return err
 	}
+	if ack.GetCode() == gatewaypb.AckCode_ACK_CODE_BAD_REQUEST && ack.GetErrorMessage() == control.StandbyDiscoveryConflictMessage {
+		return errStandbyDiscoveryConflict
+	}
 	if !ack.GetSucceeded() || ack.GetCode() != gatewaypb.AckCode_ACK_CODE_OK {
 		return control.AckFailure(ack, "discovery configuration")
 	}
+	return s.recordInstalledDiscoveryConfig(pair.StandbyNodeID, connectedAt, config, ack)
+}
+
+// recordInstalledDiscoveryConfig trusts the standby's acknowledgement only when
+// it echoes the requested ranges, and only for the connection that received them.
+func (s *Service) recordInstalledDiscoveryConfig(standbyID int64, connectedAt time.Time, want *gatewaypb.DiscoveryConfig, ack *gatewaypb.ControlAck) error {
 	installed := &gatewaypb.DiscoveryConfig{}
 	if err := proto.Unmarshal(ack.GetPayload(), installed); err != nil {
 		return fmt.Errorf("decode installed discovery configuration: %w", err)
 	}
-	if !proto.Equal(installed, config) {
+	if !proto.Equal(installed, want) {
 		return fmt.Errorf("standby acknowledged different discovery ranges")
 	}
-	if !s.registry.UpdateDiscoveryConfig(pair.StandbyNodeID, connectedAt, installed) {
+	if !s.registry.UpdateDiscoveryConfig(standbyID, connectedAt, installed) {
 		return fmt.Errorf("standby reconnected during discovery configuration installation; retry setup")
 	}
 	return nil

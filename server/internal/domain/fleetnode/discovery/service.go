@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"buf.build/go/protovalidate"
+	"connectrpc.com/connect"
 	"google.golang.org/protobuf/proto"
 
 	gatewaypb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
@@ -27,14 +28,16 @@ import (
 	"github.com/block/proto-fleet/server/internal/infrastructure/id"
 )
 
-// DiscoverCommandTimeout bounds the whole discovery request across partitions
-// and nodes, so a silent node cannot pin operator streams and registry slots. Must
-// exceed the agent's scan budget (commandTimeout, 10m) plus report/ack slack: too
-// short frees the slot mid-scan, the agent's ack is rejected as stale, and a new
-// command dispatches while the node is still busy. Var for tests.
+// DiscoverCommandTimeout bounds each command and the window in which a request
+// may dispatch new partitions, so a silent node cannot pin operator streams and
+// registry slots. Must exceed the agent's scan budget (commandTimeout, 10m) plus
+// report/ack slack: too short frees the slot mid-scan, the agent's ack is
+// rejected as stale, and a new command dispatches while the node is still busy.
+// Var for tests.
 var DiscoverCommandTimeout = 12 * time.Minute
 
-// NewRequestContext shares one report budget and deadline across all sources.
+// NewRequestContext shares one report budget and dispatch deadline across all
+// sources. Commands already dispatched at the deadline still run to their own timeout.
 func NewRequestContext(ctx context.Context) (context.Context, context.CancelFunc) {
 	return discoverylimits.WithRequest(ctx, DiscoverCommandTimeout)
 }
@@ -138,7 +141,7 @@ func (s *Service) RunOnNode(ctx context.Context, fleetNodeID int64, source strin
 		return err
 	}
 	requestedScope := buildReportScope(req)
-	for task := range tasks {
+	for task, probes := range tasks {
 		if ctx.Err() != nil {
 			if errors.Is(ctx.Err(), context.DeadlineExceeded) {
 				return onBatch(&pairingpb.DiscoverResponse{Warning: fmt.Sprintf("%s: %s", source, discoverylimits.RequestTimeoutWarning)})
@@ -153,7 +156,7 @@ func (s *Service) RunOnNode(ctx context.Context, fleetNodeID int64, source strin
 			address, ok := parseScopeAddr(ip)
 			return ok && scope.Contains(address) && requestedScope(ip, port) && taskScope(ip, port)
 		}
-		complete, err := s.runCommand(ctx, fleetNodeID, source, task, reportScope, onBatch)
+		complete, err := s.runCommand(ctx, fleetNodeID, source, task, probes, reportScope, onBatch)
 		if err != nil {
 			return err
 		}
@@ -170,7 +173,7 @@ func (s *Service) RunOnNode(ctx context.Context, fleetNodeID int64, source strin
 	return nil
 }
 
-func (s *Service) runCommand(ctx context.Context, fleetNodeID int64, source string, req *pairingpb.DiscoverRequest, reportScope control.ReportScope, onBatch func(*pairingpb.DiscoverResponse) error) (bool, error) {
+func (s *Service) runCommand(ctx context.Context, fleetNodeID int64, source string, req *pairingpb.DiscoverRequest, probes int, reportScope control.ReportScope, onBatch func(*pairingpb.DiscoverResponse) error) (bool, error) {
 	payload, err := proto.Marshal(&gatewaypb.AgentCommand{
 		Command: &gatewaypb.AgentCommand_Discover{Discover: req},
 	})
@@ -197,7 +200,9 @@ func (s *Service) runCommand(ctx context.Context, fleetNodeID int64, source stri
 		}
 		return forward(&pairingpb.DiscoverResponse{Warning: fmt.Sprintf("%s: %s", source, detail)})
 	}
-	err = control.RunCommand(ctx, s.registry, fleetNodeID, gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1, cmd, reportScope, control.ReportKindDiscovery, nil, DiscoverCommandTimeout, "discovery",
+	cmdCtx, stop := detachRequestDeadline(ctx)
+	defer stop()
+	err = control.RunCommand(control.WithCommandReportLimit(cmdCtx, probes), s.registry, fleetNodeID, gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1, cmd, reportScope, control.ReportKindDiscovery, nil, DiscoverCommandTimeout, "discovery",
 		func(ev control.CommandEvent) (terminal bool, err error) {
 			if ev.Batch != nil {
 				if sendErr := forward(ev.Batch); sendErr != nil {
@@ -220,20 +225,44 @@ func (s *Service) runCommand(ctx context.Context, fleetNodeID int64, source stri
 	if discoverylimits.BudgetFromContext(ctx).Exhausted() {
 		return false, nil
 	}
-	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
-		return false, warning(discoverylimits.RequestTimeoutWarning)
-	}
 	if err == nil {
 		return !partial, nil
 	}
 	if errors.Is(ctx.Err(), context.Canceled) {
 		return false, nil
 	}
+	if connect.CodeOf(err) == connect.CodeDeadlineExceeded || (errors.Is(ctx.Err(), context.DeadlineExceeded) && cmdCtx.Err() != nil) {
+		return false, warning(discoverylimits.RequestTimeoutWarning)
+	}
 	if fleeterror.IsInvalidArgumentError(err) || fleeterror.IsAuthenticationError(err) || fleeterror.IsForbiddenError(err) {
 		return false, err
 	}
 	slog.Warn("fleet node discovery failed", "fleet_node_id", fleetNodeID, "error", err)
 	return false, forward(SourceWarning(source, err))
+}
+
+// detachRequestDeadline keeps ctx's values and cancellation but not the request's
+// aggregate deadline, which only stops new partitions from dispatching. Abandoning
+// an in-flight command there would free the node's slot mid-scan. An earlier
+// caller deadline still cancels it.
+func detachRequestDeadline(ctx context.Context) (context.Context, context.CancelFunc) {
+	detached, cancel := context.WithCancel(context.WithoutCancel(ctx))
+	stop := context.AfterFunc(ctx, func() {
+		if budget := discoverylimits.BudgetFromContext(ctx); budget != nil && errors.Is(ctx.Err(), context.DeadlineExceeded) && budget.DeadlineExpired() {
+			return
+		}
+		cancel()
+	})
+	return detached, func() {
+		stop()
+		cancel()
+	}
+}
+
+// ScansLocalSubnet reports whether the scan defers its target to the node's
+// configured discovery ranges, by flag or by the sentinel target.
+func ScansLocalSubnet(scan *pairingpb.NetworkScanModeRequest) bool {
+	return scan.GetUseFleetNodeLocalSubnet() || scan.GetTarget() == netscan.LocalSubnetTarget
 }
 
 func requestForNode(req *pairingpb.DiscoverRequest) *pairingpb.DiscoverRequest {
@@ -288,7 +317,7 @@ func ValidateRequest(in *pairingpb.DiscoverRequest) error {
 		// its own private subnet(s)), so there is nothing to validate here; the
 		// report scope (buildReportScope) and validateReport still confine reports
 		// to private addresses.
-		if m.NetworkScan.GetUseFleetNodeLocalSubnet() || target == netscan.LocalSubnetTarget {
+		if ScansLocalSubnet(m.NetworkScan) {
 			if err := checkScanLimits(nil, m.NetworkScan.GetPorts()); err != nil {
 				return err
 			}

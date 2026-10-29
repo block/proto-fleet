@@ -17,8 +17,9 @@ import (
 // partitionRequests clips literal targets to the assigned ranges and lazily
 // emits bounded commands. Hostnames stay unresolved until the node applies its
 // own DNS and range policy. Network scans retain TCP probing; lists and ranges
-// retain direct plugin discovery.
-func partitionRequests(req *pairingpb.DiscoverRequest, assigned discoveryranges.Scope) (iter.Seq[*pairingpb.DiscoverRequest], error) {
+// retain direct plugin discovery. Each command is paired with its address x port
+// probe count, the most reports it can produce.
+func partitionRequests(req *pairingpb.DiscoverRequest, assigned discoveryranges.Scope) (iter.Seq2[*pairingpb.DiscoverRequest, int], error) {
 	var ports, literals, hostnames []string
 	var requested discoveryranges.Scope
 	network := req.GetNetworkScan() != nil
@@ -52,7 +53,7 @@ func partitionRequests(req *pairingpb.DiscoverRequest, assigned discoveryranges.
 		}
 	case *pairingpb.DiscoverRequest_NetworkScan:
 		ports = m.NetworkScan.GetPorts()
-		if m.NetworkScan.GetTarget() == netscan.LocalSubnetTarget || m.NetworkScan.GetUseFleetNodeLocalSubnet() {
+		if ScansLocalSubnet(m.NetworkScan) {
 			requested = assigned
 			break
 		}
@@ -101,12 +102,12 @@ func partitionRequests(req *pairingpb.DiscoverRequest, assigned discoveryranges.
 	if portCount == 0 {
 		portCount = discoverylimits.MaxPortsPerIP
 	}
-	chunkSize := min(256, 1024/portCount)
+	chunkSize := min(discoverylimits.MaxPartitionAddresses, discoverylimits.MaxPartitionProbes/portCount)
 	scope := assigned.IntersectScope(requested)
-	return func(yield func(*pairingpb.DiscoverRequest) bool) {
+	return func(yield func(*pairingpb.DiscoverRequest, int) bool) {
 		for addresses := range scope.Chunks(chunkSize) {
 			if list {
-				if !yield(&pairingpb.DiscoverRequest{Mode: &pairingpb.DiscoverRequest_IpList{IpList: &pairingpb.IPListModeRequest{IpAddresses: addresses, Ports: ports}}}) {
+				if !yield(&pairingpb.DiscoverRequest{Mode: &pairingpb.DiscoverRequest_IpList{IpList: &pairingpb.IPListModeRequest{IpAddresses: addresses, Ports: ports}}}, len(addresses)*portCount) {
 					return
 				}
 				continue
@@ -135,7 +136,7 @@ func partitionRequests(req *pairingpb.DiscoverRequest, assigned discoveryranges.
 				} else {
 					command = &pairingpb.DiscoverRequest{Mode: &pairingpb.DiscoverRequest_IpRange{IpRange: &pairingpb.IPRangeModeRequest{StartIp: first.String(), EndIp: last.String(), Ports: ports}}}
 				}
-				if !yield(command) {
+				if !yield(command, (end-start)*portCount) {
 					return
 				}
 				start = end
@@ -145,7 +146,7 @@ func partitionRequests(req *pairingpb.DiscoverRequest, assigned discoveryranges.
 			for names := range slices.Chunk(hostnames, chunkSize) {
 				command := proto.CloneOf(req)
 				command.GetIpList().IpAddresses = names
-				if !yield(command) {
+				if !yield(command, len(names)*portCount) {
 					return
 				}
 			}
@@ -154,7 +155,7 @@ func partitionRequests(req *pairingpb.DiscoverRequest, assigned discoveryranges.
 		for _, hostname := range hostnames {
 			command := proto.CloneOf(req)
 			command.GetNetworkScan().Target = hostname
-			if !yield(command) {
+			if !yield(command, portCount) {
 				return
 			}
 		}

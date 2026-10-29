@@ -53,16 +53,19 @@ const (
 
 	confirmedStatus = "CONFIRMED"
 
-	reasonWaitingForNodes         = "Waiting for both nodes to connect"
-	reasonUpgradeRequired         = "Both nodes must run a Fleet Node version that supports HA"
-	reasonTransferFailed          = "Credential key transfer failed; retrying"
-	reasonStandbyUpgradeRequired  = "Upgrade standby Fleet Node to support discovery configuration installation"
-	reasonDiscoveryConfigRequired = "Active Fleet Node must report configured discovery ranges before standby setup"
+	reasonWaitingForNodes          = "Waiting for both nodes to connect"
+	reasonUpgradeRequired          = "Both nodes must run a Fleet Node version that supports HA"
+	reasonTransferFailed           = "Credential key transfer failed; retrying"
+	reasonStandbyUpgradeRequired   = "Upgrade standby Fleet Node to support discovery configuration installation"
+	reasonDiscoveryConfigRequired  = "Active Fleet Node must report configured discovery ranges before standby setup"
+	reasonStandbyDiscoveryConflict = "Standby Fleet Node discovery ranges differ from the active node; correct the standby's local discovery ranges"
 )
 
 var (
 	errPairChanged    = errors.New("HA pair changed")
 	errFailoverNotDue = errors.New("HA failover is no longer due")
+
+	errStandbyDiscoveryConflict = errors.New("standby discovery ranges conflict with the active node")
 )
 
 type failoverReason string
@@ -381,7 +384,11 @@ func (s *Service) transfer(ctx context.Context, pair sqlc.ListFleetNodeHAPairsRo
 	s.mu.Unlock()
 	if err != nil && ctx.Err() == nil {
 		slog.Warn("fleet node HA credential key transfer failed", "pair_id", pair.ID, "active_node_id", pair.ActiveNodeID, "standby_node_id", pair.StandbyNodeID, "err", err)
-		s.setStatus(ctx, pair, reasonTransferFailed)
+		reason := reasonTransferFailed
+		if errors.Is(err, errStandbyDiscoveryConflict) {
+			reason = reasonStandbyDiscoveryConflict
+		}
+		s.setStatus(ctx, pair, reason)
 	}
 }
 

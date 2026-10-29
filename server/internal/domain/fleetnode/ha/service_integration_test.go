@@ -600,6 +600,25 @@ func TestTick_FingerprintMismatchKeepsStandbyNotReadyAndBacksOff(t *testing.T) {
 	assert.Equal(t, int32(1), installs.Load(), "the retry backoff suppresses the second attempt")
 }
 
+func TestTick_StandbyDiscoveryRangeConflictSurfacesDedicatedReason(t *testing.T) {
+	// Arrange
+	h := newHarness(t)
+	h.createPair(t, false)
+	respond(t, h.connectConfigured(t, h.active, v7), exportKey(make([]byte, credentialkey.KeySize)))
+	respond(t, h.connect(t, h.standby, v8), func(*pb.AgentCommand) *pb.ControlAck {
+		return &pb.ControlAck{Code: pb.AckCode_ACK_CODE_BAD_REQUEST, ErrorMessage: control.StandbyDiscoveryConflictMessage}
+	})
+
+	// Act
+	h.svc.TickForTest(t.Context(), time.Now())
+
+	// Assert
+	pair, ok := h.pair(t)
+	require.True(t, ok)
+	assert.False(t, pair.ready)
+	assert.Equal(t, ha.ReasonStandbyDiscoveryConflict, pair.reason)
+}
+
 func TestTick_KeyTransferFailuresKeepStandbyNotReady(t *testing.T) {
 	key := make([]byte, credentialkey.KeySize)
 	tests := []struct {
@@ -777,6 +796,7 @@ func TestTick_NewSetupRequiresDiscoveryConfiguration(t *testing.T) {
 		{name: "active reports empty ranges", standbyVersion: v8, config: &pb.DiscoveryConfig{}, wantReason: "Active Fleet Node must report configured discovery ranges before standby setup"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			// Arrange
 			h := newHarness(t)
 			h.createPair(t, false)
 			active := h.connect(t, h.active, v7)
@@ -784,8 +804,10 @@ func TestTick_NewSetupRequiresDiscoveryConfiguration(t *testing.T) {
 			exports := respond(t, active, exportKey(make([]byte, credentialkey.KeySize)))
 			installs := respond(t, h.connect(t, h.standby, tc.standbyVersion), installKey(h.standbyKey))
 
+			// Act
 			h.svc.TickForTest(t.Context(), time.Now())
 
+			// Assert
 			pair, ok := h.pair(t)
 			require.True(t, ok)
 			assert.False(t, pair.ready)
@@ -797,6 +819,7 @@ func TestTick_NewSetupRequiresDiscoveryConfiguration(t *testing.T) {
 }
 
 func TestTick_LegacyPendingInstallDoesNotNeedActiveConfiguration(t *testing.T) {
+	// Arrange
 	h := newHarness(t)
 	h.createPair(t, false)
 	key := make([]byte, credentialkey.KeySize)
@@ -810,8 +833,10 @@ func TestTick_LegacyPendingInstallDoesNotNeedActiveConfiguration(t *testing.T) {
 	h.exec(t, `UPDATE fleet_node SET enrollment_status='REVOKED' WHERE id=$1`, h.active)
 	installs := respond(t, h.connect(t, h.standby, v7), installKey(h.standbyKey))
 
+	// Act
 	h.svc.TickForTest(t.Context(), time.Now())
 
+	// Assert
 	pair, ok := h.pair(t)
 	require.True(t, ok)
 	assert.True(t, pair.ready)

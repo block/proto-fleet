@@ -5,6 +5,7 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"database/sql"
+	"fmt"
 	"testing"
 	"time"
 
@@ -130,6 +131,76 @@ func TestListFleetNodes_PairingOnlyCallerDoesNotTreatOfflineStandbyAsDegradedCov
 		assert.Zero(t, node.GetFleetNodeId(), "pairing-only projections remain redacted")
 		assert.False(t, node.GetDiscoveryCoverageDegraded())
 	}
+}
+
+func TestListFleetNodes_FlagsDiscoveryConfigMismatchFromEitherSide(t *testing.T) {
+	ranges := func(values ...string) *gatewaypb.DiscoveryConfig { return &gatewaypb.DiscoveryConfig{Ranges: values} }
+	tests := []struct {
+		name         string
+		active       *gatewaypb.DiscoveryConfig
+		standby      *gatewaypb.DiscoveryConfig
+		wantMismatch bool
+	}{
+		{name: "matching ranges", active: ranges("10.0.0.0-10.0.0.255"), standby: ranges("10.0.0.0-10.0.0.255")},
+		{name: "differing ranges", active: ranges("10.0.0.0-10.0.0.255"), standby: ranges("10.0.1.0-10.0.1.255"), wantMismatch: true},
+		{name: "standby reports none", active: ranges("10.0.0.0-10.0.0.255"), standby: ranges(), wantMismatch: true},
+		{name: "standby unreported", active: ranges("10.0.0.0-10.0.0.255")},
+		{name: "active unreported", standby: ranges("10.0.0.0-10.0.0.255")},
+	}
+	for i, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Arrange
+			h := newPairingHarness(t)
+			h.withHA()
+			activeID := h.createFleetNode(t, fmt.Sprintf("admin-ha-mismatch-active-%d", i))
+			standbyID := h.createFleetNode(t, fmt.Sprintf("admin-ha-mismatch-standby-%d", i))
+			h.insertHAPair(t, activeID, standbyID, true, "")
+			for nodeID, config := range map[int64]*gatewaypb.DiscoveryConfig{activeID: tt.active, standbyID: tt.standby} {
+				if config != nil {
+					stream := h.registry.Register(nodeID)
+					stream.SetDiscoveryConfig(config)
+					defer stream.Unregister()
+				}
+			}
+
+			// Act
+			resp, err := h.handler.ListFleetNodes(h.adminCtx(), connect.NewRequest(&pb.ListFleetNodesRequest{}))
+
+			// Assert
+			require.NoError(t, err)
+			got := map[int64]bool{}
+			for _, n := range resp.Msg.GetFleetNodes() {
+				got[n.GetFleetNodeId()] = n.GetDiscoveryConfigMismatch()
+			}
+			assert.Equal(t, tt.wantMismatch, got[activeID], "active side")
+			assert.Equal(t, tt.wantMismatch, got[standbyID], "standby side")
+		})
+	}
+}
+
+func TestListFleetNodes_FlagsDiscoveryConfigMismatchForPendingStandby(t *testing.T) {
+	// Arrange
+	h := newPairingHarness(t)
+	h.withHA()
+	targetID := h.createFleetNode(t, "admin-ha-mismatch-target")
+	standbyID := h.registerPendingStandby(t, "admin-ha-mismatch-pending-standby", targetID)
+	for nodeID, ranges := range map[int64][]string{targetID: {"10.0.0.0-10.0.0.255"}, standbyID: {"10.0.1.0-10.0.1.255"}} {
+		stream := h.registry.Register(nodeID)
+		stream.SetDiscoveryConfig(&gatewaypb.DiscoveryConfig{Ranges: ranges})
+		defer stream.Unregister()
+	}
+
+	// Act
+	resp, err := h.handler.ListFleetNodes(h.adminCtx(), connect.NewRequest(&pb.ListFleetNodesRequest{}))
+
+	// Assert
+	require.NoError(t, err)
+	got := map[int64]bool{}
+	for _, n := range resp.Msg.GetFleetNodes() {
+		got[n.GetFleetNodeId()] = n.GetDiscoveryConfigMismatch()
+	}
+	assert.True(t, got[standbyID], "a standby awaiting its pair resolves its peer through the node it stands by for")
+	assert.False(t, got[targetID], "a node outside a pair has no peer to differ from")
 }
 
 func TestDiscoverOnFleetNode_StandbyReturnsFailedPrecondition(t *testing.T) {

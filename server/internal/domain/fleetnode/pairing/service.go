@@ -13,6 +13,7 @@ import (
 
 	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
 	gatewaypb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
+	pairingpb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/control"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/enrollment"
@@ -53,6 +54,8 @@ type Store interface { //nolint:interfacebloat // Pairing coordinates several sq
 	DeviceExistsInOrg(ctx context.Context, deviceID, orgID int64) (bool, error)
 	GetDeviceIDByDeviceIdentifier(ctx context.Context, identifier string) (int64, error)
 	GetFleetNodePairedDeviceIdentifier(ctx context.Context, deviceID, orgID int64) (string, error)
+	GetFleetNodePairingTarget(ctx context.Context, deviceID, orgID int64) (*pairingpb.FleetNodePairTarget, error)
+	RetireOutOfScopeDiscoveries(ctx context.Context, fleetNodeID, orgID int64, scope discoveryranges.Scope) error
 }
 
 type minerCredentialDeleter interface {
@@ -121,13 +124,7 @@ func (s *Service) RetireOutOfScopeDiscoveries(ctx context.Context, fleetNodeID, 
 	if err != nil {
 		return fleeterror.NewInvalidArgumentErrorf("invalid discovery ranges: %v", err)
 	}
-	store, ok := s.store.(interface {
-		RetireOutOfScopeDiscoveries(ctx context.Context, fleetNodeID, orgID int64, scope discoveryranges.Scope) error
-	})
-	if !ok {
-		return fleeterror.NewInternalError("discovery retirement is not configured")
-	}
-	if err := store.RetireOutOfScopeDiscoveries(ctx, fleetNodeID, orgID, scope); err != nil {
+	if err := s.store.RetireOutOfScopeDiscoveries(ctx, fleetNodeID, orgID, scope); err != nil {
 		return logInternal("retire out-of-scope discoveries", clientErrUpsertDiscoveredDevice, err)
 	}
 	return nil
