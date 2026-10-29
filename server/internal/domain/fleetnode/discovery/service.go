@@ -27,12 +27,17 @@ import (
 	"github.com/block/proto-fleet/server/internal/infrastructure/id"
 )
 
-// DiscoverCommandTimeout bounds how long RunOnNode waits for the agent's batches
-// and ack, so a silent node can't pin operator streams and registry slots. Must
+// DiscoverCommandTimeout bounds the whole discovery request across partitions
+// and nodes, so a silent node cannot pin operator streams and registry slots. Must
 // exceed the agent's scan budget (commandTimeout, 10m) plus report/ack slack: too
 // short frees the slot mid-scan, the agent's ack is rejected as stale, and a new
 // command dispatches while the node is still busy. Var for tests.
 var DiscoverCommandTimeout = 12 * time.Minute
+
+// NewRequestContext shares one report budget and deadline across all sources.
+func NewRequestContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	return discoverylimits.WithRequest(ctx, DiscoverCommandTimeout)
+}
 
 // nodeLister is the subset of enrollment.Service that fan-out targeting needs.
 type nodeLister interface {
@@ -125,6 +130,9 @@ func (s *Service) configuredScope(nodeID int64) (discoveryranges.Scope, error) {
 // authentication, and onBatch failures remain errors. Caller cancellation is quiet.
 // The caller supplies a source label appropriate for its authorization boundary.
 func (s *Service) RunOnNode(ctx context.Context, fleetNodeID int64, source string, req *pairingpb.DiscoverRequest, onBatch func(*pairingpb.DiscoverResponse) error) error {
+	ctx, cancel := NewRequestContext(ctx)
+	defer cancel()
+	budget := discoverylimits.BudgetFromContext(ctx)
 	req = requestForNode(req)
 	if err := ValidateRequest(req); err != nil {
 		return err
@@ -149,15 +157,32 @@ func (s *Service) RunOnNode(ctx context.Context, fleetNodeID int64, source strin
 	requestedScope := buildReportScope(req)
 	for task := range tasks {
 		if ctx.Err() != nil {
+			if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+				return onBatch(&pairingpb.DiscoverResponse{Warning: fmt.Sprintf("%s: %s", source, discoverylimits.RequestTimeoutWarning)})
+			}
 			return nil
+		}
+		if budget.Exhausted() {
+			return onBatch(&pairingpb.DiscoverResponse{Warning: fmt.Sprintf("%s: %s", source, discoverylimits.ReportLimitWarning)})
 		}
 		taskScope := buildReportScope(task)
 		reportScope := func(ip, port string) bool {
 			address, ok := parseScopeAddr(ip)
 			return ok && scope.Contains(address) && requestedScope(ip, port) && taskScope(ip, port)
 		}
-		if complete, err := s.runCommand(ctx, fleetNodeID, source, task, reportScope, onBatch); err != nil || !complete {
+		complete, err := s.runCommand(ctx, fleetNodeID, source, task, reportScope, onBatch)
+		if err != nil {
 			return err
+		}
+		if errors.Is(ctx.Err(), context.Canceled) {
+			return nil
+		}
+		// Check even after an OK ack: the node may ignore a rejected report.
+		if budget.Exhausted() {
+			return onBatch(&pairingpb.DiscoverResponse{Warning: fmt.Sprintf("%s: %s", source, discoverylimits.ReportLimitWarning)})
+		}
+		if !complete {
+			return nil
 		}
 	}
 	return nil
@@ -209,6 +234,13 @@ func (s *Service) runCommand(ctx context.Context, fleetNodeID int64, source stri
 		})
 	if callbackErr != nil {
 		return false, callbackErr
+	}
+	if discoverylimits.BudgetFromContext(ctx).Exhausted() {
+		// RunOnNode emits the aggregate limit warning after draining this command.
+		return false, nil
+	}
+	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		return false, warning(discoverylimits.RequestTimeoutWarning)
 	}
 	if err == nil {
 		return !partial, nil

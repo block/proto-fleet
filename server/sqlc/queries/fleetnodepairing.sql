@@ -455,6 +455,23 @@ JOIN discovered_device dd ON dd.id = d.discovered_device_id AND dd.org_id = d.or
 WHERE d.id = sqlc.arg(device_id) AND d.org_id = sqlc.arg(org_id)
   AND d.deleted_at IS NULL AND dd.deleted_at IS NULL;
 
+-- name: LockFleetNodeDiscoveryDevices :many
+SELECT d.id FROM device d
+WHERE d.org_id = sqlc.arg(org_id) AND d.deleted_at IS NULL
+  AND EXISTS (
+    SELECT 1 FROM discovered_device dd
+    WHERE dd.org_id = d.org_id AND dd.discovered_by_fleet_node_id = sqlc.arg(fleet_node_id)
+      AND dd.deleted_at IS NULL AND dd.is_active
+      AND (d.discovered_device_id = dd.id OR d.device_identifier = dd.device_identifier)
+  )
+ORDER BY d.id FOR UPDATE;
+
+-- name: LockFleetNodeDiscoveries :many
+SELECT dd.id FROM discovered_device dd
+WHERE dd.org_id = sqlc.arg(org_id) AND dd.discovered_by_fleet_node_id = sqlc.arg(fleet_node_id)
+  AND dd.deleted_at IS NULL AND dd.is_active
+ORDER BY dd.id FOR UPDATE;
+
 -- name: RetireOutOfScopeFleetNodeDiscoveries :execrows
 -- Pairing remains authoritative across every live linkage, including inventory
 -- recreated with the same identifier. Config remains live connection metadata.
@@ -466,7 +483,8 @@ WITH scope AS (
     -- Exclude owned inventory before inspecting legacy endpoint hosts.
     SELECT dd.id, dd.ip_address, dd.endpoints
     FROM discovered_device dd
-    WHERE dd.org_id = sqlc.arg(org_id)
+    WHERE dd.id = ANY(sqlc.arg(locked_discovery_ids)::bigint[])
+      AND dd.org_id = sqlc.arg(org_id)
       AND dd.discovered_by_fleet_node_id = sqlc.arg(fleet_node_id)
       AND dd.deleted_at IS NULL AND dd.is_active
       AND NOT EXISTS (

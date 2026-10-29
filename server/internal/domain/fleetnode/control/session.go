@@ -9,6 +9,7 @@ import (
 
 	gatewaypb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
 	pairingpb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
+	"github.com/block/proto-fleet/server/internal/domain/discoverylimits"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 )
 
@@ -62,6 +63,9 @@ func (r *Registry) Send(ctx context.Context, fleetNodeID int64, minimumCommandPr
 		maxReports: maxReports,
 		pair:       pair,
 		done:       make(chan struct{}),
+	}
+	if kind == ReportKindDiscovery {
+		c.requestBudget = discoverylimits.BudgetFromContext(ctx)
 	}
 	outgoing, connDone, err := r.addCmd(fleetNodeID, minimumCommandProtocolVersion, c)
 	if err != nil {

@@ -8228,6 +8228,30 @@ func (q *retryingQuerier) LockFleetNodeDevicesForRevocation(ctx context.Context,
 	return result, err
 }
 
+func (q *retryingQuerier) LockFleetNodeDiscoveries(ctx context.Context, arg LockFleetNodeDiscoveriesParams) ([]int64, error) {
+	var result []int64
+	err := q.retrier.RetryQuery(ctx, "LockFleetNodeDiscoveries", func() error {
+		callResult, callErr := q.next.LockFleetNodeDiscoveries(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) LockFleetNodeDiscoveryDevices(ctx context.Context, arg LockFleetNodeDiscoveryDevicesParams) ([]int64, error) {
+	var result []int64
+	err := q.retrier.RetryQuery(ctx, "LockFleetNodeDiscoveryDevices", func() error {
+		callResult, callErr := q.next.LockFleetNodeDiscoveryDevices(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) LockFleetNodeHAPair(ctx context.Context, arg LockFleetNodeHAPairParams) (FleetNodeHaPair, error) {
 	var result FleetNodeHaPair
 	err := q.retrier.RetryQuery(ctx, "LockFleetNodeHAPair", func() error {

@@ -158,7 +158,10 @@ func (r *Registry) AdmitReport(fleetNodeID int64, commandID string, deviceCount 
 	if cmd == nil || !cmd.reportBearing() || cmd.kind != want {
 		return errNoInFlightCommand
 	}
-	if cmd.reported+deviceCount > cmd.maxReports {
+	if deviceCount < 0 || deviceCount > cmd.maxReports-cmd.reported {
+		return ErrReportQuotaExceeded
+	}
+	if cmd.requestBudget != nil && !cmd.requestBudget.Admit(deviceCount) {
 		return ErrReportQuotaExceeded
 	}
 	cmd.reported += deviceCount

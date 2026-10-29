@@ -1889,6 +1889,8 @@ type Querier interface {
 	// Teardown follows dispatch's device-before-child order and retains routing
 	// children until any admitted physical call has actually returned.
 	LockFleetNodeDevicesForRevocation(ctx context.Context, arg LockFleetNodeDevicesForRevocationParams) ([]int64, error)
+	LockFleetNodeDiscoveries(ctx context.Context, arg LockFleetNodeDiscoveriesParams) ([]int64, error)
+	LockFleetNodeDiscoveryDevices(ctx context.Context, arg LockFleetNodeDiscoveryDevicesParams) ([]int64, error)
 	LockFleetNodeHAPair(ctx context.Context, arg LockFleetNodeHAPairParams) (FleetNodeHaPair, error)
 	// Keep the routing identity alive during a device wait without blocking
 	// authentication revocation. Writers revalidate with LockFleetNodeByID after

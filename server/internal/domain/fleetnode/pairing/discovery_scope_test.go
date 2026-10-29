@@ -1,6 +1,8 @@
 package pairing_test
 
 import (
+	"context"
+	"database/sql"
 	"fmt"
 	"testing"
 	"time"
@@ -197,6 +199,7 @@ func TestPairResultMayFinishAfterDiscoveryRangesChange(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, fleetnodepairing.StatusPaired, status)
 	require.True(t, deviceBoundToNode(t, db, org, node, report.DeviceIdentifier))
+	assertPairedDiscoveryVisible(t, db, org, report.DeviceIdentifier)
 }
 
 func TestPairOnNodeRepairsExistingBindingOutsideDiscoveryRanges(t *testing.T) {
@@ -230,4 +233,60 @@ func TestPairOnNodeRepairsExistingBindingOutsideDiscoveryRanges(t *testing.T) {
 		t.Fatal("repair command did not dispatch")
 	}
 	require.NoError(t, <-done)
+}
+
+func assertPairedDiscoveryVisible(t *testing.T, database *sql.DB, org int64, identifier string) {
+	t.Helper()
+	var active bool
+	require.NoError(t, database.QueryRow(`SELECT is_active FROM discovered_device WHERE org_id=$1 AND device_identifier=$2`, org, identifier).Scan(&active))
+	require.True(t, active)
+	rows, _, total, err := sqlstores.NewSQLDeviceStore(database).ListMinerStateSnapshots(t.Context(), org, "", 100, nil, nil)
+	require.NoError(t, err)
+	require.EqualValues(t, 1, total)
+	require.Len(t, rows, 1)
+	require.Equal(t, identifier, rows[0].DeviceIdentifier)
+}
+
+func TestRetirementRechecksOwnershipAfterWaitingForPairResult(t *testing.T) {
+	database, org, svc, enrollment := setupPairingTest(t)
+	node := createFleetNode(t, enrollment, org, "partition-persist-lock")
+	report := fleetnodepairing.DiscoveredDeviceReport{DeviceIdentifier: "mac:persist-lock", IPAddress: "10.0.0.11", Port: "80", URLScheme: "http", DriverName: "virtual"}
+	_, _, err := svc.UpsertDiscoveredDevices(t.Context(), node, org, []fleetnodepairing.DiscoveredDeviceReport{report})
+	require.NoError(t, err)
+	meta := pairPersistMeta(t, database, node, org, nil, report.DeviceIdentifier)
+	locked := make(chan struct{})
+	release := make(chan struct{})
+	defer close(release)
+	paired := make(chan error, 1)
+	go func() {
+		paired <- sqlstores.NewSQLTransactor(database).RunInTx(t.Context(), func(ctx context.Context) error {
+			_, err := svc.PersistFleetNodePairResult(ctx, meta, &gatewaypb.FleetNodePairResult{DeviceIdentifier: report.DeviceIdentifier, Outcome: gatewaypb.PairOutcome_PAIR_OUTCOME_PAIRED})
+			if err != nil {
+				return err
+			}
+			close(locked)
+			<-release
+			return nil
+		})
+	}()
+	select {
+	case <-locked:
+	case err := <-paired:
+		t.Fatalf("pairing failed before locking: %v", err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("pairing did not lock inventory")
+	}
+	retired := make(chan error, 1)
+	go func() {
+		retired <- svc.RetireOutOfScopeDiscoveries(t.Context(), node, org, &gatewaypb.DiscoveryConfig{})
+	}()
+	require.Eventually(t, func() bool {
+		var waiting bool
+		err := database.QueryRow(`SELECT EXISTS (SELECT 1 FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock' AND query LIKE '%discovered_device%')`).Scan(&waiting)
+		return err == nil && waiting
+	}, 5*time.Second, 10*time.Millisecond, "retirement must wait on the pairing transaction")
+	release <- struct{}{}
+	require.NoError(t, <-paired)
+	require.NoError(t, <-retired)
+	assertPairedDiscoveryVisible(t, database, org, report.DeviceIdentifier)
 }

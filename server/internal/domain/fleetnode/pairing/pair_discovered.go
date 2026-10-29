@@ -283,6 +283,11 @@ func (s *Service) PersistFleetNodePairResult(ctx context.Context, meta control.P
 			}
 		}
 
+		// Accepted successful pairing remains inventory even if a reconnect retired
+		// its discovery while the physical command was running.
+		if outcome == gatewaypb.PairOutcome_PAIR_OUTCOME_PAIRED {
+			dd.IsActive = true
+		}
 		applyReportedIdentity(dd, result)
 		if _, err := s.discoveredDeviceStore.Save(ctx, doi, dd); err != nil {
 			return logInternal("save discovered device", clientErrPair, err)

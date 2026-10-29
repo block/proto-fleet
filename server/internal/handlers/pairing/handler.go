@@ -11,6 +11,7 @@ import (
 	gatewaypb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
 	minercommandv1 "github.com/block/proto-fleet/server/generated/grpc/minercommand/v1"
 	"github.com/block/proto-fleet/server/internal/domain/authz"
+	"github.com/block/proto-fleet/server/internal/domain/discoverylimits"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/discovery"
 	fleetnodepairing "github.com/block/proto-fleet/server/internal/domain/fleetnode/pairing"
@@ -69,8 +70,9 @@ func (h *Handler) Discover(ctx context.Context, r *connect.Request[pb.DiscoverRe
 	nodeReq := fleetNodeDiscoveryRequest(r.Msg)
 	slog.Debug("Discover: handling discover request", "payload", r.Msg)
 
-	// A send failure (operator disconnected) cancels every source.
-	streamCtx, cancel := context.WithCancel(ctx)
+	// One budget and deadline cover the server and every node. A send failure
+	// or the result limit cancels the remaining sources.
+	streamCtx, cancel := discovery.NewRequestContext(ctx)
 	defer cancel()
 
 	// Serialize the concurrent sources (cloud scan + each node) onto the one
@@ -119,6 +121,9 @@ func (h *Handler) Discover(ctx context.Context, r *connect.Request[pb.DiscoverRe
 		}
 		return nil
 	}
+	if errors.Is(streamCtx.Err(), context.DeadlineExceeded) {
+		return fwd.forward(&pb.DiscoverResponse{Warning: discoverylimits.RequestTimeoutWarning})
+	}
 	return sourceErr
 }
 
@@ -129,6 +134,8 @@ func (h *Handler) forwardDiscoverySources(
 	nodeReq *pb.DiscoverRequest,
 	fwd *dedupForwarder,
 ) error {
+	ctx, cancelRequest := discovery.NewRequestContext(ctx)
+	defer cancelRequest()
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	var sourceErr error
@@ -202,7 +209,7 @@ func (h *Handler) forwardDiscoverySources(
 					if ctx.Err() != nil {
 						return
 					}
-					// Each node is bounded by RunOnNode's per-node timeout.
+					// Every node retains the outer request budget and deadline.
 					runErr := h.discovery.RunOnNode(ctx, nodeID, "Fleet Node", nodeReq, fwd.forward)
 					// Node target policy is narrower than the server's: public
 					// addresses can still be scanned locally.

@@ -2199,6 +2199,12 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.lockFleetNodeDevicesForRevocationStmt, err = db.PrepareContext(ctx, lockFleetNodeDevicesForRevocation); err != nil {
 		return nil, fmt.Errorf("error preparing query LockFleetNodeDevicesForRevocation: %w", err)
 	}
+	if q.lockFleetNodeDiscoveriesStmt, err = db.PrepareContext(ctx, lockFleetNodeDiscoveries); err != nil {
+		return nil, fmt.Errorf("error preparing query LockFleetNodeDiscoveries: %w", err)
+	}
+	if q.lockFleetNodeDiscoveryDevicesStmt, err = db.PrepareContext(ctx, lockFleetNodeDiscoveryDevices); err != nil {
+		return nil, fmt.Errorf("error preparing query LockFleetNodeDiscoveryDevices: %w", err)
+	}
 	if q.lockFleetNodeHAPairStmt, err = db.PrepareContext(ctx, lockFleetNodeHAPair); err != nil {
 		return nil, fmt.Errorf("error preparing query LockFleetNodeHAPair: %w", err)
 	}
@@ -6753,6 +6759,16 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing lockFleetNodeDevicesForRevocationStmt: %w", cerr)
 		}
 	}
+	if q.lockFleetNodeDiscoveriesStmt != nil {
+		if cerr := q.lockFleetNodeDiscoveriesStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing lockFleetNodeDiscoveriesStmt: %w", cerr)
+		}
+	}
+	if q.lockFleetNodeDiscoveryDevicesStmt != nil {
+		if cerr := q.lockFleetNodeDiscoveryDevicesStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing lockFleetNodeDiscoveryDevicesStmt: %w", cerr)
+		}
+	}
 	if q.lockFleetNodeHAPairStmt != nil {
 		if cerr := q.lockFleetNodeHAPairStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing lockFleetNodeHAPairStmt: %w", cerr)
@@ -9057,6 +9073,8 @@ type Queries struct {
 	lockEndpointDiscoveryDevicesStmt                           *sql.Stmt
 	lockFleetNodeByIDStmt                                      *sql.Stmt
 	lockFleetNodeDevicesForRevocationStmt                      *sql.Stmt
+	lockFleetNodeDiscoveriesStmt                               *sql.Stmt
+	lockFleetNodeDiscoveryDevicesStmt                          *sql.Stmt
 	lockFleetNodeHAPairStmt                                    *sql.Stmt
 	lockFleetNodeIdentityByIDStmt                              *sql.Stmt
 	lockFleetNodePairingDeviceStmt                             *sql.Stmt
@@ -10096,6 +10114,8 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		lockEndpointDiscoveryDevicesStmt:                           q.lockEndpointDiscoveryDevicesStmt,
 		lockFleetNodeByIDStmt:                                      q.lockFleetNodeByIDStmt,
 		lockFleetNodeDevicesForRevocationStmt:                      q.lockFleetNodeDevicesForRevocationStmt,
+		lockFleetNodeDiscoveriesStmt:                               q.lockFleetNodeDiscoveriesStmt,
+		lockFleetNodeDiscoveryDevicesStmt:                          q.lockFleetNodeDiscoveryDevicesStmt,
 		lockFleetNodeHAPairStmt:                                    q.lockFleetNodeHAPairStmt,
 		lockFleetNodeIdentityByIDStmt:                              q.lockFleetNodeIdentityByIDStmt,
 		lockFleetNodePairingDeviceStmt:                             q.lockFleetNodePairingDeviceStmt,

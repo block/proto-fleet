@@ -767,11 +767,6 @@ func (h *Handler) ControlStream(ctx context.Context, stream *connect.BidiStream[
 		return fleeterror.NewUnauthenticatedError("fleet node session was replaced or revoked")
 	}
 	defer regHandle.Unregister()
-	if h.pairing != nil && hello.GetDiscoveryConfig() != nil {
-		if err := h.pairing.RetireOutOfScopeDiscoveries(ctx, subject.FleetNodeID, subject.OrgID, hello.GetDiscoveryConfig()); err != nil {
-			return err
-		}
-	}
 
 	// Older nodes never ping, so only V7 nodes get a keepalive deadline.
 	var keepalive time.Duration
@@ -793,6 +788,18 @@ func (h *Handler) ControlStream(ctx context.Context, stream *connect.BidiStream[
 		})
 		defer watchdog.Stop()
 	}
+	if h.pairing != nil && hello.GetDiscoveryConfig() != nil {
+		budget := silence
+		if budget <= 0 {
+			budget = control.KeepaliveMisses * ControlStreamKeepaliveInterval
+		}
+		retirementCtx, cancel := context.WithTimeout(ctx, budget)
+		defer cancel()
+		if err := h.pairing.RetireOutOfScopeDiscoveries(retirementCtx, subject.FleetNodeID, subject.OrgID, hello.GetDiscoveryConfig()); err != nil {
+			return err
+		}
+	}
+
 	if err := sendControlStreamAccepted(ctx, stream.Send, keepalive); err != nil {
 		return err
 	}

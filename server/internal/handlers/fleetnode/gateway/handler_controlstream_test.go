@@ -701,3 +701,33 @@ func (a agentSubjectInjector) WrapStreamingHandler(next connect.StreamingHandler
 		return next(authn.SetInfo(ctx, a.subject), conn)
 	}
 }
+
+func TestControlStream_BoundsRetirementWaitingOnInventory(t *testing.T) {
+	const interval = 100 * time.Millisecond
+	setKeepaliveInterval(t, interval)
+	h := newControlHarness(t)
+	_, err := h.db.Exec(`INSERT INTO discovered_device (org_id, device_identifier, ip_address, port, url_scheme, driver_name, discovered_by_fleet_node_id, is_active)
+		VALUES (1, 'retirement-lock', '10.0.0.11', '80', 'http', 'virtual', $1, TRUE)`, h.fleetNodeID)
+	require.NoError(t, err)
+	tx, err := h.db.BeginTx(t.Context(), nil)
+	require.NoError(t, err)
+	defer func() { _ = tx.Rollback() }()
+	_, err = tx.Exec(`SELECT id FROM discovered_device WHERE device_identifier='retirement-lock' FOR UPDATE`)
+	require.NoError(t, err)
+	client := startControlServer(t, h)
+	stream := client.ControlStream(t.Context())
+	t.Cleanup(func() { _ = stream.CloseRequest(); _ = stream.CloseResponse() })
+	hello := controlHello(pb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V7)
+	hello.GetHello().DiscoveryConfig = &pb.DiscoveryConfig{Ranges: []string{"10.0.1.0/24"}}
+	require.NoError(t, stream.Send(hello))
+	require.Eventually(t, func() bool { return h.registry.Connected(h.fleetNodeID) }, time.Second, time.Millisecond)
+	session := waitForSend(t, h.registry, h.fleetNodeID, "must-not-deliver", []byte("payload"))
+	defer session.Close()
+	require.Eventually(t, func() bool { return !h.registry.Connected(h.fleetNodeID) }, 2*control.KeepaliveMisses*interval, 5*time.Millisecond)
+	// A query deadline exits the handler too: no Accepted or queued command may
+	// escape when the lock is released after the silence budget expires.
+	response, err := stream.Receive()
+	require.Error(t, err)
+	require.Nil(t, response)
+	require.NoError(t, tx.Rollback())
+}

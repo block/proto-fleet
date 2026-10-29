@@ -54,10 +54,24 @@ func (s *SQLFleetNodePairingStore) RetireOutOfScopeDiscoveries(ctx context.Conte
 		starts = append(starts, interval.Start.String())
 		ends = append(ends, interval.End.String())
 	}
-	_, err := s.q(ctx).RetireOutOfScopeFleetNodeDiscoveries(ctx, sqlc.RetireOutOfScopeFleetNodeDiscoveriesParams{
-		OrgID: orgID, FleetNodeID: sql.NullInt64{Int64: nodeID, Valid: true}, RangeStarts: starts, RangeEnds: ends,
+	return NewSQLTransactor(s.conn.DB).RunInTx(ctx, func(ctx context.Context) error {
+		q := s.q(ctx)
+		params := sqlc.LockFleetNodeDiscoveryDevicesParams{OrgID: orgID, FleetNodeID: sql.NullInt64{Int64: nodeID, Valid: true}}
+		// Match pairing's device-before-discovery lock order. Batch these locks
+		// so reconnect does not issue per-miner database round trips.
+		if _, err := q.LockFleetNodeDiscoveryDevices(ctx, params); err != nil {
+			return err
+		}
+		lockedIDs, err := q.LockFleetNodeDiscoveries(ctx, sqlc.LockFleetNodeDiscoveriesParams(params))
+		if err != nil {
+			return err
+		}
+		// A fresh statement sees ownership committed while either lock waited.
+		_, err = q.RetireOutOfScopeFleetNodeDiscoveries(ctx, sqlc.RetireOutOfScopeFleetNodeDiscoveriesParams{
+			OrgID: orgID, FleetNodeID: params.FleetNodeID, RangeStarts: starts, RangeEnds: ends, LockedDiscoveryIds: lockedIDs,
+		})
+		return err
 	})
-	return err
 }
 
 func (s *SQLFleetNodePairingStore) PairDeviceToFleetNode(ctx context.Context, fleetNodeID, deviceID, orgID int64, assignedBy *int64) (int64, error) {

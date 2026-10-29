@@ -538,6 +538,81 @@ func (q *Queries) ListFleetNodeDiscoveredDevices(ctx context.Context, arg ListFl
 	return items, nil
 }
 
+const lockFleetNodeDiscoveries = `-- name: LockFleetNodeDiscoveries :many
+SELECT dd.id FROM discovered_device dd
+WHERE dd.org_id = $1 AND dd.discovered_by_fleet_node_id = $2
+  AND dd.deleted_at IS NULL AND dd.is_active
+ORDER BY dd.id FOR UPDATE
+`
+
+type LockFleetNodeDiscoveriesParams struct {
+	OrgID       int64
+	FleetNodeID sql.NullInt64
+}
+
+func (q *Queries) LockFleetNodeDiscoveries(ctx context.Context, arg LockFleetNodeDiscoveriesParams) ([]int64, error) {
+	rows, err := q.query(ctx, q.lockFleetNodeDiscoveriesStmt, lockFleetNodeDiscoveries, arg.OrgID, arg.FleetNodeID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const lockFleetNodeDiscoveryDevices = `-- name: LockFleetNodeDiscoveryDevices :many
+SELECT d.id FROM device d
+WHERE d.org_id = $1 AND d.deleted_at IS NULL
+  AND EXISTS (
+    SELECT 1 FROM discovered_device dd
+    WHERE dd.org_id = d.org_id AND dd.discovered_by_fleet_node_id = $2
+      AND dd.deleted_at IS NULL AND dd.is_active
+      AND (d.discovered_device_id = dd.id OR d.device_identifier = dd.device_identifier)
+  )
+ORDER BY d.id FOR UPDATE
+`
+
+type LockFleetNodeDiscoveryDevicesParams struct {
+	OrgID       int64
+	FleetNodeID sql.NullInt64
+}
+
+func (q *Queries) LockFleetNodeDiscoveryDevices(ctx context.Context, arg LockFleetNodeDiscoveryDevicesParams) ([]int64, error) {
+	rows, err := q.query(ctx, q.lockFleetNodeDiscoveryDevicesStmt, lockFleetNodeDiscoveryDevices, arg.OrgID, arg.FleetNodeID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const lockFleetNodePairingDevice = `-- name: LockFleetNodePairingDevice :many
 SELECT id
 FROM device
@@ -645,7 +720,8 @@ WITH scope AS (
     -- Exclude owned inventory before inspecting legacy endpoint hosts.
     SELECT dd.id, dd.ip_address, dd.endpoints
     FROM discovered_device dd
-    WHERE dd.org_id = $1
+    WHERE dd.id = ANY($5::bigint[])
+      AND dd.org_id = $1
       AND dd.discovered_by_fleet_node_id = $2
       AND dd.deleted_at IS NULL AND dd.is_active
       AND NOT EXISTS (
@@ -680,10 +756,11 @@ WHERE dd.id = candidate.id
 `
 
 type RetireOutOfScopeFleetNodeDiscoveriesParams struct {
-	OrgID       int64
-	FleetNodeID sql.NullInt64
-	RangeStarts []string
-	RangeEnds   []string
+	OrgID              int64
+	FleetNodeID        sql.NullInt64
+	RangeStarts        []string
+	RangeEnds          []string
+	LockedDiscoveryIds []int64
 }
 
 // Pairing remains authoritative across every live linkage, including inventory
@@ -694,6 +771,7 @@ func (q *Queries) RetireOutOfScopeFleetNodeDiscoveries(ctx context.Context, arg 
 		arg.FleetNodeID,
 		pq.Array(arg.RangeStarts),
 		pq.Array(arg.RangeEnds),
+		pq.Array(arg.LockedDiscoveryIds),
 	)
 	if err != nil {
 		return 0, err
