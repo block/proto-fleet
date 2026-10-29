@@ -159,3 +159,35 @@ func TestServiceStart_MinimumDurationBoundsAndEffectiveCap(t *testing.T) {
 		})
 	}
 }
+
+func TestServiceStart_MinimumDurationAccessUsesValidatedCap(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name    string
+		minimum int32
+		cap     *int32
+		wantErr string
+	}{
+		{"minimum at default", 14400, nil, ""},
+		{"minimum above implicit cap", 14401, nil, "min_curtailed_duration_sec must be <= max_duration_seconds"},
+		{"minimum above explicit cap", 14401, int32Ptr(14400), "min_curtailed_duration_sec must be <= max_duration_seconds"},
+		{"elevated minimum and cap", 14401, int32Ptr(14401), "only admins can set max_duration_seconds above org default 14400"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			store := newFakeStore()
+			store.orgConfigByOrg[42] = defaultOrgConfig(42)
+			store.candidatesByOrg[42] = []*models.Candidate{minerWithEff("a", 6000, 100, 40)}
+			req := validStartRequest(42)
+			req.MinCurtailedDurationSec, req.MaxDurationSeconds = tc.minimum, tc.cap
+			req.CanUseAdminControls = false
+			_, err := NewService(store).Start(t.Context(), req)
+			if tc.wantErr == "" {
+				require.NoError(t, err)
+				return
+			}
+			require.ErrorContains(t, err, tc.wantErr)
+			assert.Zero(t, store.insertEventCalls)
+		})
+	}
+}

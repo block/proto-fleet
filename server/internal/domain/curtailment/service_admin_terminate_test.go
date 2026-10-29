@@ -3,6 +3,7 @@ package curtailment
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -216,6 +217,37 @@ func TestService_ForceRelease_TerminalizesBeforeTurningNonTerminalEventFansOn(t 
 	assert.Nil(t, store.lastUpdateFanStateParams.LastError)
 	assert.Equal(t, 1, store.forceReleaseCalls)
 	assert.Equal(t, []string{"force release", "terminal fan recovery"}, store.operatorFanCallOrder)
+}
+
+func TestService_ForceRelease_FanStateRaceReturnsFailedPrecondition(t *testing.T) {
+	t.Parallel()
+	for _, state := range []models.EventState{models.EventStateActive, models.EventStateCompletedWithFailures} {
+		t.Run(string(state), func(t *testing.T) {
+			t.Parallel()
+			eventUUID := uuid.New()
+			store := newFakeStore()
+			fanOffAt := time.Now().UTC()
+			fanError := "previous recovery failed"
+			store.eventsByUUID[eventUUID] = &models.Event{
+				ID: 89, EventUUID: eventUUID, OrgID: 1, State: state,
+				FacilityFanDeviceIDs: []int64{601}, FanOffSentAt: &fanOffAt, FanLastError: &fanError,
+			}
+			raceErr := fmt.Errorf("fan recovery race: %w", interfaces.ErrCurtailmentEventStateRaceLoss)
+			store.forceReleaseErr, store.terminalFanRecoveryErr = raceErr, raceErr
+			fans := &fakeTerminalFanController{}
+
+			got, err := NewService(store, WithFacilityFanController(fans)).ForceRelease(t.Context(), ForceReleaseRequest{
+				OrgID: 1, EventUUID: eventUUID, Reason: "operator release",
+			})
+
+			require.Error(t, err)
+			assert.Nil(t, got)
+			assert.True(t, fleeterror.IsFailedPreconditionError(err))
+			assert.Contains(t, err.Error(), "retry against the current event state")
+			assert.Empty(t, fans.powers)
+			assert.Zero(t, store.updateFanStateCalls)
+		})
+	}
 }
 
 func TestService_ForceRelease_RestoresFansWithoutPersistedOffTimestamp(t *testing.T) {

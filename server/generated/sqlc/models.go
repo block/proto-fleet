@@ -1059,6 +1059,7 @@ type CurtailmentEvent struct {
 	FanLastError                 sql.NullString
 	LastCurtailPendingDispatchAt sql.NullTime
 	AuthorizationEnvelopeJsonb   json.RawMessage
+	PendingStartedAt             time.Time
 }
 
 type CurtailmentMqttSourceConfig struct {

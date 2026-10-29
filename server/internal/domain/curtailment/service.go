@@ -221,8 +221,12 @@ func (s *Service) Start(ctx context.Context, req StartRequest) (*Plan, error) {
 
 	// Start-only (not Preview) so debounced previews don't flood the
 	// counter against a static fleet snapshot.
+	excludedByReason := make(map[SkipReason]int)
 	for _, skip := range plan.Skipped {
-		s.metrics.IncCandidateExcluded(string(skip.Reason))
+		excludedByReason[skip.Reason]++
+	}
+	for reason, count := range excludedByReason {
+		s.metrics.IncCandidateExcluded(string(reason), count)
 	}
 
 	if plan.InsufficientLoadDetail != nil {
@@ -618,6 +622,11 @@ func (s *Service) ForceRelease(ctx context.Context, req ForceReleaseRequest) (*F
 		// successful write clears fan_last_error before the idempotent release.
 		if recoveryEvent.State.IsTerminal() {
 			if err := s.restoreFansForOperatorRecovery(ctx, recoveryEvent); err != nil {
+				if errors.Is(err, interfaces.ErrCurtailmentEventStateRaceLoss) {
+					return nil, fleeterror.NewFailedPreconditionError(
+						"curtailment event state changed during force release; retry against the current event state",
+					)
+				}
 				return nil, err
 			}
 		}
@@ -663,6 +672,11 @@ func (s *Service) ForceRelease(ctx context.Context, req ForceReleaseRequest) (*F
 		s.emitForceReleaseAuditTrail(ctx, req, released.Event, released.SweptTargets)
 	}
 	if err != nil {
+		if errors.Is(err, interfaces.ErrCurtailmentEventStateRaceLoss) {
+			return nil, fleeterror.NewFailedPreconditionError(
+				"curtailment event state changed during force release; retry against the current event state",
+			)
+		}
 		return nil, err
 	}
 	result := &ForceReleaseResult{
@@ -1950,10 +1964,9 @@ func buildInsertParams(
 
 	startState := eventStartState(scope, mode, len(plan.Selected))
 	// An all-paired start with no currently owned miner, or whose every owned
-	// miner is unavailable, holds in pending. Otherwise max_duration_seconds
-	// could expire before a single Curtail is dispatched, dropping durable
-	// ownership having curtailed nothing. The reconciler promotes the event
-	// once a target confirms; readiness refresh and admission run while pending.
+	// miner is unavailable, holds in pending until a target confirms. Readiness
+	// refresh and admission continue while pending. Finite duration caps include
+	// this wait; only an explicitly unbounded event may hold indefinitely.
 	if req.ForceIncludeAllPairedMiners &&
 		(len(plan.Selected) == 0 || plan.UnavailableTargetCount == len(plan.Selected)) {
 		startState = models.EventStatePending
@@ -2466,7 +2479,7 @@ func EventRequiresAdminControls(ev *models.Event, orgConfig *models.OrgConfig) (
 		AllowUnbounded: ev.AllowUnbounded, ForceIncludeMaintenance: ev.ForceIncludeMaintenance,
 		ForceIncludeAllPairedMiners: ev.ForceIncludeAllPairedMiners,
 		CurtailBatchIntervalSec:     ev.CurtailBatchIntervalSec, RestoreBatchIntervalSec: ev.RestoreBatchIntervalSec,
-		MaxDurationSeconds: ev.MaxDurationSeconds, MinCurtailedDurationSec: ev.MinCurtailedDurationSec,
+		MaxDurationSeconds: ev.MaxDurationSeconds,
 	}
 	if orgConfig != nil {
 		controls.MaxDurationDefaultSec = orgConfig.MaxDurationDefaultSec

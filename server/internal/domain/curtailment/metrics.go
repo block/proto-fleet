@@ -15,9 +15,9 @@ type Metrics interface {
 	// IncTickFailure for the pulse so a stuck fast path is visible on
 	// dashboards even while the full tick stays healthy.
 	IncConfirmationPassFailure()
-	// IncCandidateExcluded counts selector exclusions by reason
-	// (e.g. "phantom_load_no_hash", "stale_telemetry").
-	IncCandidateExcluded(reason string)
+	// IncCandidateExcluded adds count selector exclusions for a reason
+	// (e.g. "phantom_load_no_hash", "stale_telemetry") in one sample.
+	IncCandidateExcluded(reason string, count int)
 	IncMaintenanceOverride()
 	// IncEventStateRaceLoss counts UpdateEventState or UpdateTargetState
 	// writes that matched zero rows because a concurrent Stop/AdminTerminate
@@ -32,10 +32,10 @@ type Metrics interface {
 	IncAuditWriteFailure(activityType string)
 	// IncAllPairedPendingStall counts reconciler ticks that observed an
 	// all-paired policy event held in pending past the stall threshold with
-	// nothing confirmed. The hold is deliberate and open-ended — the event
-	// owns its scope and blocks other curtailment starts until something
-	// confirms or an operator stops it — so a sustained stall must be
-	// visible on dashboards. Operator-actionable.
+	// nothing confirmed. The event owns its scope and blocks other starts
+	// until confirmation, Stop, or finite-cap expiry. Only explicitly unbounded
+	// events may hold indefinitely. Sustained stalls must be visible on
+	// dashboards. Operator-actionable.
 	IncAllPairedPendingStall()
 }
 
@@ -45,7 +45,7 @@ type NoOpMetrics struct{}
 func (NoOpMetrics) ObserveTickDuration(time.Duration) {}
 func (NoOpMetrics) IncTickFailure()                   {}
 func (NoOpMetrics) IncConfirmationPassFailure()       {}
-func (NoOpMetrics) IncCandidateExcluded(string)       {}
+func (NoOpMetrics) IncCandidateExcluded(string, int)  {}
 func (NoOpMetrics) IncMaintenanceOverride()           {}
 func (NoOpMetrics) IncEventStateRaceLoss()            {}
 func (NoOpMetrics) IncTargetWriteFailure()            {}

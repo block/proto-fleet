@@ -21,21 +21,17 @@ func IsFinite(value float64) bool {
 	return !math.IsNaN(value) && !math.IsInf(value, 0)
 }
 
-// MaxDurationElapsed reports how long ev has run against its finite safety cap
-// and whether the cap has expired. Pending and restoring events that never
-// became active measure from creation because dispatch timestamps advance on
-// retries, so an event that expired while pending stays expired after it
-// starts restoring.
+// MaxDurationElapsed reports elapsed time against ev's finite safety cap.
+// The clock starts at creation (or an earlier started_at) and never resets on
+// activation or re-curtailment. Pending work therefore consumes the same cap
+// as active work, and a restore reversal cannot revive an expired event.
 func MaxDurationElapsed(ev *models.Event, now time.Time) (time.Duration, bool) {
 	if ev == nil || ev.AllowUnbounded || ev.MaxDurationSeconds == nil || *ev.MaxDurationSeconds <= 0 {
 		return 0, false
 	}
 	start := ev.CreatedAt
-	switch {
-	case ev.StartedAt != nil:
+	if ev.StartedAt != nil && (start.IsZero() || ev.StartedAt.Before(start)) {
 		start = *ev.StartedAt
-	case ev.State != models.EventStatePending && ev.State != models.EventStateRestoring:
-		return 0, false
 	}
 	elapsed := now.Sub(start)
 	return elapsed, elapsed >= time.Duration(*ev.MaxDurationSeconds)*time.Second

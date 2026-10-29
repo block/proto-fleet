@@ -157,7 +157,7 @@ func TestReconciler_EnforceMaxDuration_BeginRestoreErrorSkipsDriftDispatch(t *te
 		"drift dispatch must NOT run when max_duration elapsed and the transition failed; re-curtailing would extend past the cap")
 }
 
-func TestReconciler_EnforceMaxDuration_NilStartedAtSkips(t *testing.T) {
+func TestReconciler_EnforceMaxDuration_NilStartedAtUsesCreation(t *testing.T) {
 	store := newFakeStore()
 	disp := &fakeDispatcher{}
 
@@ -170,14 +170,14 @@ func TestReconciler_EnforceMaxDuration_NilStartedAtSkips(t *testing.T) {
 		OrgID:              1,
 		State:              models.EventStateActive,
 		MaxDurationSeconds: &maxDur,
-		// StartedAt nil — shouldn't happen for an active event in production,
-		// but the guard prevents a nil-deref if a stale row sneaks in.
+		CreatedAt:          r.now().Add(-2 * time.Hour),
+		// A missing activation timestamp must not disable the safety cap.
 	}}
 	store.targetsByEventID[eventID] = []*models.Target{
 		{CurtailmentEventID: eventID, DeviceIdentifier: "m1", State: models.TargetStateConfirmed, DesiredState: models.DesiredStateCurtailed},
 	}
 	r.runTick(context.Background())
-	assert.Equal(t, 0, store.beginRestoreCalls)
+	assert.Equal(t, 1, store.beginRestoreCalls)
 }
 
 // --- observeRestoring: claim + dispatch + confirm + completion ---

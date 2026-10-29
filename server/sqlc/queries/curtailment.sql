@@ -1843,6 +1843,7 @@ WHERE curtailment_event_id = sqlc.arg('curtailment_event_id')
 -- hide fans that remained off after a failed restore command.
 UPDATE curtailment_event
 SET state = 'pending',
+    pending_started_at = CURRENT_TIMESTAMP,
     fan_airflow_reopened_at = COALESCE(fan_on_sent_at, fan_airflow_reopened_at),
     fan_on_sent_at = NULL,
     last_curtail_pending_dispatch_at = NULL

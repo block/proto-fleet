@@ -39,7 +39,7 @@ func TestToRequestMode_FixedKwRequiresParams(t *testing.T) {
 
 	params := &pb.FixedKwParams{TargetKw: 100}
 	mode, fk, err := toRequestMode(pb.CurtailmentMode_CURTAILMENT_MODE_UNSPECIFIED, params, true)
-	require.NoError(t, err, "the unspecified default is FIXED_KW")
+	require.NoError(t, err, "fixed_kw params identify FIXED_KW when mode is unspecified")
 	assert.Equal(t, models.ModeFixedKw, mode)
 	assert.Equal(t, params, fk)
 }

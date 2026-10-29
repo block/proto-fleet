@@ -130,6 +130,7 @@ func activeDeviceGroupCopy(g alertGroup) string {
 		RuleTemplateMQTTCurtailment,
 		RuleTemplateMQTTDisconnected,
 		RuleTemplateCurtailmentFanRestore,
+		RuleTemplateCurtailmentHeartbeat,
 		RuleTemplateMetricIngest,
 		RuleTemplateHAReadiness,
 		RuleTemplateFleetNodeUnavailable:
@@ -168,6 +169,7 @@ func resolvedGroupCopy(g alertGroup) string {
 			RuleTemplateMQTTCurtailment,
 			RuleTemplateMQTTDisconnected,
 			RuleTemplateCurtailmentFanRestore,
+			RuleTemplateCurtailmentHeartbeat,
 			RuleTemplateMetricIngest,
 			RuleTemplateHAReadiness,
 			RuleTemplateFleetNodeUnavailable:
@@ -196,8 +198,8 @@ func resolvedGroupCopy(g alertGroup) string {
 	case RuleTemplateFleetNodeUnavailable:
 		return "Fleet Node connection restored"
 	case RuleTemplateOffline, RuleTemplateHashrate, RuleTemplateTemperature,
-		RuleTemplatePool, RuleTemplateCommandFailure:
-		// Device-backed templates without a device label use the generic instance wording below.
+		RuleTemplatePool, RuleTemplateCommandFailure, RuleTemplateCurtailmentHeartbeat:
+		// Templates without specialized recovery copy use the generic instance wording below.
 	default:
 		// Unknown templates use the same generic instance wording.
 	}

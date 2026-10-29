@@ -743,6 +743,8 @@ type Querier interface {
 	// fleet-sized JSON snapshot through the handler.
 	GetCurtailmentEventDetailByUUID(ctx context.Context, arg GetCurtailmentEventDetailByUUIDParams) (GetCurtailmentEventDetailByUUIDRow, error)
 	// Global operational gauges; no pending work emits zero to clear old values.
+	// Re-curtailment begins a fresh pending phase without resetting the event's
+	// finite safety cap. Dispatch/fan updates must not refresh this phase clock.
 	GetCurtailmentPendingWorkAges(ctx context.Context) (GetCurtailmentPendingWorkAgesRow, error)
 	GetCurtailmentReconcilerHeartbeat(ctx context.Context) (CurtailmentReconcilerHeartbeat, error)
 	GetCurtailmentResponseProfileByOrg(ctx context.Context, arg GetCurtailmentResponseProfileByOrgParams) (CurtailmentResponseProfileWithRevision, error)
