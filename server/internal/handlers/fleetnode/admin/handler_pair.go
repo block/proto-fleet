@@ -59,6 +59,7 @@ func (h *Handler) ListFleetNodeDiscoveredDevices(ctx context.Context, req *conne
 			FirmwareVersion:  d.FirmwareVersion,
 			DeviceClass:      d.DeviceClass,
 			PairingStatus:    d.PairingStatus,
+			BoundToFleetNode: d.BoundToFleetNode,
 		}
 		if !d.LastSeen.IsZero() {
 			dev.LastSeen = timestamppb.New(d.LastSeen)

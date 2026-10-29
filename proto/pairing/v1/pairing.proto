@@ -52,6 +52,8 @@ message Device {
   repeated common.v1.DeviceEndpoint endpoints = 15 [(buf.validate.field).repeated.max_items = 16];
   // Discovering Fleet Node; zero for direct Fleet Server discovery.
   int64 fleet_node_id = 16;
+  // Server-derived discovery metadata: already assigned to fleet_node_id.
+  bool bound_to_fleet_node = 17;
 }
 
 // Represents login credentials used for device pairing

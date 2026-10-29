@@ -271,6 +271,10 @@ func TestListFleetNodeDiscoveredDevices_ExcludesPairedIncludesAuthNeeded(t *test
 	for _, d := range got {
 		if d.DeviceIdentifier == "mac:authneeded" {
 			assert.Equal(t, "AUTHENTICATION_NEEDED", d.PairingStatus)
+			assert.False(t, d.BoundToFleetNode, "an authentication attempt alone is not a binding")
+		}
+		if d.DeviceIdentifier == "mac:bound-authneeded" {
+			assert.True(t, d.BoundToFleetNode, "credential repair retains its assignment")
 		}
 	}
 }

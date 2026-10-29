@@ -292,3 +292,34 @@ func TestReportDiscoveredDevices_DropsOutOfScopeDevices(t *testing.T) {
 		t.Fatal("expected batch on events channel")
 	}
 }
+
+func TestReportDiscoveredDevices_PublishesAuthoritativeBinding(t *testing.T) {
+	h := newControlHarness(t)
+	ctx := authn.SetInfo(t.Context(), &auth.Subject{FleetNodeID: h.fleetNodeID, OrgID: 1})
+	stream := h.registry.Register(h.fleetNodeID)
+	defer stream.Unregister()
+	session, err := h.registry.Send(ctx, h.fleetNodeID, pb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1, &pb.ControlCommand{CommandId: "binding-rescan"}, nil, control.ReportKindDiscovery, nil)
+	require.NoError(t, err)
+	defer session.Close()
+	<-stream.Outgoing
+	report := &pb.ReportDiscoveredDevicesRequest{CommandId: "binding-rescan", Devices: []*pb.DiscoveredDeviceReport{{DeviceIdentifier: "binding-device", IpAddress: "10.0.0.50", Port: "80", UrlScheme: "http", DriverName: "virtual"}}}
+	_, err = h.handler.ReportDiscoveredDevices(ctx, connect.NewRequest(report))
+	require.NoError(t, err)
+	first := <-session.Events()
+	require.NotNil(t, first.Batch)
+	require.False(t, first.Batch.Devices[0].BoundToFleetNode)
+	_, err = h.db.Exec(`WITH inserted AS (
+		INSERT INTO device (org_id, device_identifier, discovered_device_id, mac_address)
+		SELECT org_id, device_identifier, id, '' FROM discovered_device WHERE device_identifier='binding-device' AND org_id=1 RETURNING id
+	) INSERT INTO fleet_node_device (org_id, fleet_node_id, device_id) SELECT 1, $1, id FROM inserted`, h.fleetNodeID)
+	require.NoError(t, err)
+	_, err = h.handler.ReportDiscoveredDevices(ctx, connect.NewRequest(report))
+	require.NoError(t, err)
+	select {
+	case event := <-session.Events():
+		require.NotNil(t, event.Batch)
+		require.True(t, event.Batch.Devices[0].BoundToFleetNode)
+	case <-time.After(time.Second):
+		t.Fatal("expected discovery batch with existing binding")
+	}
+}

@@ -12,13 +12,16 @@ interface NodePairingSummaryProps {
 
 const NodePairingSummary = ({ miners, fleetNodes, showPairedCounts }: NodePairingSummaryProps) => {
   const sources = useMemo(() => {
-    const counts = new Map<string, number>();
+    const counts = new Map<string, { selected: number; added: number }>();
     for (const miner of miners) {
       const id = miner.fleetNodeId.toString();
-      counts.set(id, (counts.get(id) ?? 0) + 1);
+      const count = counts.get(id) ?? { selected: 0, added: 0 };
+      count.selected++;
+      if (!miner.boundToFleetNode) count.added++;
+      counts.set(id, count);
     }
     const nodes = new Map(fleetNodes.map((node) => [node.fleetNodeId, node]));
-    return [...counts].map(([id, selected]) => {
+    return [...counts].map(([id, { selected, added }]) => {
       const node = nodes.get(id);
       const paired = showPairedCounts && node ? node.pairedDeviceCount : undefined;
       return {
@@ -26,7 +29,8 @@ const NodePairingSummary = ({ miners, fleetNodes, showPairedCounts }: NodePairin
         name: id === "0" ? "Fleet Server" : (showPairedCounts && node?.name) || `Fleet Node ${id}`,
         paired,
         selected,
-        total: paired === undefined ? undefined : paired + selected,
+        added,
+        total: paired === undefined ? undefined : paired + added,
       };
     });
   }, [miners, fleetNodes, showPairedCounts]);
@@ -36,13 +40,15 @@ const NodePairingSummary = ({ miners, fleetNodes, showPairedCounts }: NodePairin
     <section className="mt-6 space-y-3" aria-label="Pairing by source">
       <h3 className="text-emphasis-300">Pairing by source</h3>
       <dl className="space-y-2 text-300">
-        {sources.map(({ id, name, paired, selected, total }) => (
+        {sources.map(({ id, name, paired, selected, added, total }) => (
           <div key={id}>
             <div className="flex flex-wrap justify-between gap-x-4 gap-y-1">
               <dt>{name}</dt>
               <dd>
                 {paired === undefined ? "Paired count unavailable" : `${paired.toLocaleString()} paired`}
-                {` + ${selected.toLocaleString()} selected`}
+                {selected === added
+                  ? ` + ${selected.toLocaleString()} selected`
+                  : ` + ${added.toLocaleString()} new (${selected.toLocaleString()} selected)`}
                 {total === undefined ? "" : ` = ${total.toLocaleString()} total`}
               </dd>
             </div>

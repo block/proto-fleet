@@ -224,6 +224,7 @@ func (s *SQLFleetNodePairingStore) ListFleetNodeDiscoveredDevices(ctx context.Co
 			FirmwareVersion:  r.FirmwareVersion.String,
 			LastSeen:         r.LastSeen.Time,
 			PairingStatus:    r.PairingStatus,
+			BoundToFleetNode: r.BoundToFleetNode,
 		})
 	}
 	return out, nil
@@ -323,6 +324,7 @@ func (s *SQLFleetNodePairingStore) upsertDiscoveredDeviceFromFleetNode(ctx conte
 	if err != nil {
 		return report, false, err
 	}
+	report.BoundToFleetNode = row.BoundToFleetNode
 	report.Endpoints, err = deviceendpoints.Decode(row.Endpoints)
 	report.DeviceIdentifier, report.DeviceClass = row.DeviceIdentifier, commonpb.DeviceClass(row.DeviceClass)
 	return report, err == nil, err

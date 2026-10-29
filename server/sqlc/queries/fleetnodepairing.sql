@@ -133,7 +133,14 @@ AND (
         )
       )
 )
-RETURNING device_class, device_identifier, endpoints;
+RETURNING device_class, device_identifier, endpoints,
+  EXISTS (
+    SELECT 1 FROM device bound
+    JOIN fleet_node_device fnd ON fnd.device_id = bound.id AND fnd.org_id = bound.org_id
+    WHERE bound.org_id = discovered_device.org_id AND bound.deleted_at IS NULL
+      AND (bound.discovered_device_id = discovered_device.id OR bound.device_identifier = discovered_device.device_identifier)
+      AND fnd.fleet_node_id = discovered_device.discovered_by_fleet_node_id
+  ) AS bound_to_fleet_node;
 
 -- name: PairDeviceToFleetNode :execrows
 -- The parent lock also protects absence of a route during dispatch. A scalar
@@ -367,6 +374,13 @@ WITH candidate AS (
          dd.manufacturer,
          dd.firmware_version,
          dd.last_seen,
+         EXISTS (
+           SELECT 1 FROM device bound
+           JOIN fleet_node_device fnd ON fnd.device_id = bound.id AND fnd.org_id = bound.org_id
+           WHERE bound.org_id = dd.org_id AND bound.deleted_at IS NULL
+             AND (bound.discovered_device_id = dd.id OR bound.device_identifier = dd.device_identifier)
+             AND fnd.fleet_node_id = dd.discovered_by_fleet_node_id
+         ) AS bound_to_fleet_node,
          COALESCE(dp.pairing_status::text, '')::text AS pairing_status
   FROM discovered_device dd
   LEFT JOIN device d ON (

@@ -58,62 +58,71 @@ run:
     - 10.41.0.0/24
 ```
 
-The `--discovery-ranges` flag accepts the same values. The existing
-`--local-discovery-subnet` override remains a single-range configuration when
-`discovery-ranges` is absent. Explicit configuration takes precedence over ranges
-imported during standby setup; an explicit empty YAML list disables discovery.
+The `--discovery-ranges` flag accepts the same values. When `discovery-ranges` is
+absent, the existing `--local-discovery-subnet` override configures a single range.
+Explicit configuration takes precedence over ranges imported during standby setup.
+An explicit empty YAML list disables discovery.
 Restart the node after editing its configuration. Invalid ranges fail local
 validation. Missing ranges disable discovery and new pairing while existing
 miner telemetry and commands continue.
 
-Fleet Server learns effective ranges from each live control connection; it does
-not store an authoritative configuration in the database. Node management shows
-the reported ranges while connected and marks them unavailable when disconnected.
+Fleet Server reads each node's effective ranges from its live control connection.
+It does not store an authoritative configuration in the database. Node management
+shows the reported ranges while connected and marks them unavailable when
+disconnected.
 Operators prevent overlap between active nodes, including nodes on separate
 networks. Separate networks reusing the same private addresses are not supported
 by this partitioning workflow.
 
 The regular Add Miners flow scans configured ranges through their assigned active
-nodes, without requiring a Fleet Server miner subnet. Manual IP targets are clipped
-to each node's ranges. Fleet splits work into sequential commands per node with at
-most 256 addresses and 1,024 address/port combinations; nodes run in parallel and
-also restrict discovery to their local configuration. IP lists and ranges retain
+nodes, without requiring a Fleet Server miner subnet. Fleet limits manual IP
+targets to each node's ranges. Each node receives sequential commands with at most
+256 addresses and 1,024 address/port combinations. Nodes run in parallel and
+restrict discovery to their local configuration. IP lists and ranges retain
 direct plugin identification, while network scans retain TCP probing. Source
 warnings identify incomplete discovery; completed results remain available.
 
-A new pairing must use the discovering node's current ranges, including every
-address in a grouped endpoint. Pairing runs across nodes in parallel, in sequential
+Each discovery request has a 12-minute overall deadline and admits at most
+262,144 node reports across all participating nodes and partitions. Add Miners
+keeps at most 65,536 distinct devices in its result list. Reaching a limit retains
+completed results and shows an incomplete-discovery warning. Narrow the targets
+and run discovery again to continue; discovery does not resume automatically.
+
+A new pairing must keep every address in a grouped endpoint within the discovering
+node's current ranges. Pairing runs across nodes in parallel, in sequential
 batches of at most 128 miners per node. The UI displays paired and selected counts
 when the caller can read node details, warns above 4,000, and flags totals above
-5,000. These are operational guardrails: Fleet does not reserve capacity or enforce
-a transactional count limit. Plan approximately 13 active nodes for 50,000 miners
-at the 4,000-miner target, plus standbys as required.
+5,000. Fleet does not reserve capacity or enforce a transactional count limit.
+Plan approximately 13 active nodes for 50,000 miners at the 4,000-miner target,
+plus standbys as required.
 
-Changing ranges does not rebalance or re-pair existing miners. On reconnect,
-out-of-scope unpaired discoveries are retired so another configured node can claim
-them. Existing owners and authentication-repair routes remain intact. Finish or
-resolve outstanding discovery/pairing work before moving a partition to another
-node. If interrupted, reopen Add Miners and continue the remaining work; accepted
-batches finish server-side, but an unknown result requires inspection before retry.
+Changing ranges does not rebalance or re-pair existing miners. When a node
+reconnects, Fleet retires its out-of-scope unpaired discoveries so another
+configured node can claim them. Existing owners and authentication-repair routes
+remain intact. Finish or resolve outstanding discovery/pairing work before moving
+a partition to another node. If interrupted, reopen Add Miners and continue the
+remaining work. Accepted batches finish server-side. Inspect unknown results
+before retrying.
 There is no durable background operation or automatic restart recovery.
 
 ### Standby inheritance
 
 When adding a standby, Fleet copies the active node's reported ranges once and
-persists them in the standby's local state directory. Setup waits for the durable
-installation acknowledgement before marking the standby ready. The active must
+persists them in the standby's local state directory. Fleet waits for the standby
+to acknowledge that the ranges were saved before marking it ready. The active must
 be connected with ranges configured, and the standby must support command protocol
-V8. Matching repeated installation is safe; a conflicting local or previously
-imported configuration requires operator correction.
+V8. Repeating the same installation is safe. Operators must correct any conflicting
+local or previously imported configuration.
 
-Imported ranges survive restart and promotion. Later edits are not synchronized:
-update both peers manually. Node management warns when both connected peers report
-different effective ranges. Only the active peer scans. Existing ready HA pairs
-retain their failover behavior.
+Imported ranges survive restart and promotion. Later edits do not propagate
+automatically. Update both peers manually. Node management warns when both
+connected peers report different effective ranges. Only the active peer scans.
+Existing ready HA pairs retain their failover behavior.
 
 Deploy Fleet Server support first, then upgrade and configure nodes before new
-discovery or pairing. Partitioned discovery supports IPv4; existing owned-miner
-operations and separate direct-server discovery retain their routing contracts.
+discovery or pairing. Partitioned discovery supports IPv4. Existing owned-miner
+operations and separate direct-server discovery keep their existing routing
+behavior.
 
 ### Scale qualification
 
@@ -125,11 +134,12 @@ DB_PASSWORD=fleet FLEETNODE_SCALE_TEST=1 go test ./internal/handlers/fleetnode/g
   -run '^TestFleetNodeScaleDiscoveryAndPairing$' -count=1 -v -timeout 5m
 ```
 
-It discovers and pairs 50,000 simulated miners across 13 nodes through production
-gateway persistence, verifies unique ownership, and reports discovery/pairing time.
-It does not qualify physical drivers, node hardware, sustained telemetry cadence,
-or deployment-specific database sizing; those require representative hardware and
-steady telemetry/control load before a production capacity claim.
+The test discovers and pairs 50,000 simulated miners across 13 nodes using the
+production gateway's persistence code. It verifies unique ownership and reports
+discovery/pairing time. It does not qualify physical drivers, node hardware,
+sustained telemetry cadence, or deployment-specific database sizing. Qualify those
+with representative hardware and steady telemetry/control load before claiming
+production capacity.
 
 A full command can report up to 40,960 endpoints in forty 1,024-report uploads. Those batches and the terminal ACK fit the existing 64-event command queue without requiring the consumer to drain during upload. The complete upload has a 90-second budget, leaving 30 seconds for dispatch and ACK delivery within the server’s 12-minute wait after a ten-minute scan. This capacity does not guarantee completion within the command deadline.
 

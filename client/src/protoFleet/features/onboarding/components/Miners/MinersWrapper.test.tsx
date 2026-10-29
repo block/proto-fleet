@@ -729,6 +729,21 @@ describe("MinersWrapper", () => {
       ).toBeDisabled();
     });
 
+    it("does not count streamed existing assignments as new capacity", async () => {
+      mockListFleetNodes.mockResolvedValue([fleetNode({ pairedDeviceCount: 4000 })]);
+      mockDiscover.mockImplementation(async ({ onStreamData }) => {
+        onStreamData([
+          create(DeviceSchema, { deviceIdentifier: "repair-miner", fleetNodeId: 1n, boundToFleetNode: true }),
+        ]);
+      });
+      renderMinersPage("pairing");
+      const scan = within(screen.getByTestId("section-scan-network")).getByRole("button", { name: "Find miners" });
+      await waitFor(() => expect(scan).toBeEnabled());
+      fireEvent.click(scan);
+      expect(await screen.findByText("4,000 paired + 0 new (1 selected) = 4,000 total")).toBeVisible();
+      expect(screen.queryByText(/Above the 4,000|Exceeds 5,000/)).not.toBeInTheDocument();
+    });
+
     it("allows redacted pairing operators to scan without inventing node metadata", async () => {
       vi.mocked(useHasPermission).mockImplementation((permission) => permission === "miner:pair");
       mockListFleetNodes.mockResolvedValue([

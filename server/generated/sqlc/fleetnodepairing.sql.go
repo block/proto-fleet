@@ -368,6 +368,13 @@ WITH candidate AS (
          dd.manufacturer,
          dd.firmware_version,
          dd.last_seen,
+         EXISTS (
+           SELECT 1 FROM device bound
+           JOIN fleet_node_device fnd ON fnd.device_id = bound.id AND fnd.org_id = bound.org_id
+           WHERE bound.org_id = dd.org_id AND bound.deleted_at IS NULL
+             AND (bound.discovered_device_id = dd.id OR bound.device_identifier = dd.device_identifier)
+             AND fnd.fleet_node_id = dd.discovered_by_fleet_node_id
+         ) AS bound_to_fleet_node,
          COALESCE(dp.pairing_status::text, '')::text AS pairing_status
   FROM discovered_device dd
   LEFT JOIN device d ON (
@@ -433,7 +440,7 @@ WITH candidate AS (
     AND ($9::bigint IS NULL OR dd.id > $9::bigint)
   ORDER BY dd.id ASC, d.id DESC NULLS LAST
 )
-SELECT id, org_id, device_identifier, discovered_by_fleet_node_id, ip_address, port, url_scheme, rpc_port, rpc_tls, endpoints, driver_name, model, device_class, manufacturer, firmware_version, last_seen, pairing_status
+SELECT id, org_id, device_identifier, discovered_by_fleet_node_id, ip_address, port, url_scheme, rpc_port, rpc_tls, endpoints, driver_name, model, device_class, manufacturer, firmware_version, last_seen, bound_to_fleet_node, pairing_status
 FROM candidate
 WHERE ($2::text[] IS NULL OR pairing_status = ANY($2::text[]))
 ORDER BY id ASC
@@ -469,6 +476,7 @@ type ListFleetNodeDiscoveredDevicesRow struct {
 	Manufacturer            sql.NullString
 	FirmwareVersion         sql.NullString
 	LastSeen                sql.NullTime
+	BoundToFleetNode        bool
 	PairingStatus           string
 }
 
@@ -523,6 +531,7 @@ func (q *Queries) ListFleetNodeDiscoveredDevices(ctx context.Context, arg ListFl
 			&i.Manufacturer,
 			&i.FirmwareVersion,
 			&i.LastSeen,
+			&i.BoundToFleetNode,
 			&i.PairingStatus,
 		); err != nil {
 			return nil, err
@@ -864,7 +873,14 @@ AND (
         )
       )
 )
-RETURNING device_class, device_identifier, endpoints
+RETURNING device_class, device_identifier, endpoints,
+  EXISTS (
+    SELECT 1 FROM device bound
+    JOIN fleet_node_device fnd ON fnd.device_id = bound.id AND fnd.org_id = bound.org_id
+    WHERE bound.org_id = discovered_device.org_id AND bound.deleted_at IS NULL
+      AND (bound.discovered_device_id = discovered_device.id OR bound.device_identifier = discovered_device.device_identifier)
+      AND fnd.fleet_node_id = discovered_device.discovered_by_fleet_node_id
+  ) AS bound_to_fleet_node
 `
 
 type UpsertDiscoveredDeviceFromFleetNodeParams struct {
@@ -889,6 +905,7 @@ type UpsertDiscoveredDeviceFromFleetNodeRow struct {
 	DeviceClass      int32
 	DeviceIdentifier string
 	Endpoints        json.RawMessage
+	BoundToFleetNode bool
 }
 
 // No returned row on conflict signals rejection. A remote report must not redirect the
@@ -920,6 +937,11 @@ func (q *Queries) UpsertDiscoveredDeviceFromFleetNode(ctx context.Context, arg U
 		arg.Endpoints,
 	)
 	var i UpsertDiscoveredDeviceFromFleetNodeRow
-	err := row.Scan(&i.DeviceClass, &i.DeviceIdentifier, &i.Endpoints)
+	err := row.Scan(
+		&i.DeviceClass,
+		&i.DeviceIdentifier,
+		&i.Endpoints,
+		&i.BoundToFleetNode,
+	)
 	return i, err
 }
