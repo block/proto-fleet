@@ -13,6 +13,10 @@ import (
 	"time"
 	_ "time/tzdata"
 
+	"github.com/block/proto-fleet/server/generated/grpc/poolconfigurations/v1/poolconfigurationsv1connect"
+	poolconfigurationsDomain "github.com/block/proto-fleet/server/internal/domain/poolconfigurations"
+	poolconfigurationsHandler "github.com/block/proto-fleet/server/internal/handlers/poolconfigurations"
+
 	mininggroupsv1connect "github.com/block/proto-fleet/server/generated/grpc/mininggroups/v1/mininggroupsv1connect"
 	mininggroupsDomain "github.com/block/proto-fleet/server/internal/domain/mininggroups"
 	mininggroupsHandler "github.com/block/proto-fleet/server/internal/handlers/mininggroups"
@@ -372,6 +376,7 @@ func start(config *Config) (result error) {
 	teamInvitationsSvc := hostedaccountsDomain.NewTeamInvitationService(hostedaccountsSvc, sessionSvc)
 	hostedKeysSvc := hostedaccountsDomain.NewKeyService(hostedaccountsSvc, apiKeySvc)
 	hostedPoolsSvc := hostedaccountsDomain.NewPoolService(hostedaccountsSvc, encryptSvc, hostedKeysSvc, authSvc)
+	poolConfigurationsSvc := poolconfigurationsDomain.NewService(conn, poolconfigurationsDomain.NewRepository(encryptSvc), hostedPoolsSvc)
 
 	identityStateCleanup := newBackgroundLoop(func(ctx context.Context) {
 		cleanupInterval := sessionSvc.CleanupInterval()
@@ -919,6 +924,7 @@ func start(config *Config) (result error) {
 	mux.Handle(fleetmanagementv1connect.NewFleetManagementServiceHandler(fleetmanagement.NewHandler(fleetMgmtSvc), li))
 	mux.Handle(minercommandv1connect.NewMinerCommandServiceHandler(command.NewHandler(commandSvc), li))
 	mux.Handle(poolsv1connect.NewPoolsServiceHandler(pools.NewHandler(poolsSvc), li))
+	mux.Handle(poolconfigurationsv1connect.NewPoolConfigurationServiceHandler(poolconfigurationsHandler.NewHandler(poolConfigurationsSvc), li))
 	mux.Handle(schedulev1connect.NewScheduleServiceHandler(scheduleHandler.NewHandler(scheduleSvc), li))
 	rolloutPath, rolloutHTTP := rolloutv1connect.NewRolloutServiceHandler(rolloutHandler.NewHandler(rolloutSvc), li)
 	mux.Handle(rolloutPath, rolloutHTTP)

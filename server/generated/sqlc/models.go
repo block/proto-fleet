@@ -2357,6 +2357,91 @@ type Pool struct {
 	DeletedAt   sql.NullTime
 }
 
+type PoolConfiguration struct {
+	ConfigurationID   string
+	OrganizationID    int64
+	AccountID         sql.NullInt64
+	Name              string
+	Archived          bool
+	Version           int64
+	AssignmentVersion int64
+	CurrentRevisionID sql.NullString
+	CreatedAt         time.Time
+	UpdatedAt         time.Time
+}
+
+type PoolConfigurationAssignment struct {
+	OrganizationID  int64
+	TargetKind      string
+	TargetID        int64
+	DeviceID        int64
+	ConfigurationID string
+	RevisionID      string
+	Version         int64
+	OperationID     string
+	RetiredAt       sql.NullTime
+	UpdatedAt       time.Time
+}
+
+type PoolConfigurationImport struct {
+	OrganizationID  int64
+	SourceKind      string
+	SourceID        string
+	SourceVersion   string
+	ConfigurationID string
+	RevisionID      string
+	CreatedAt       time.Time
+}
+
+type PoolConfigurationOperation struct {
+	OperationID     string
+	OrganizationID  int64
+	ConfigurationID string
+	RevisionID      string
+	ActorID         int64
+	CreatedAt       time.Time
+}
+
+type PoolConfigurationOperationTarget struct {
+	OrganizationID    int64
+	OperationID       string
+	TargetKind        string
+	TargetID          int64
+	AssignmentVersion int64
+	State             string
+	Attempts          int32
+	ResultCode        string
+	UpdatedAt         time.Time
+}
+
+type PoolConfigurationReview struct {
+	ReviewID             string
+	Kind                 string
+	OrganizationID       int64
+	ConfigurationID      string
+	ActorID              int64
+	ConfigurationVersion int64
+	AssignmentVersion    int64
+	Name                 string
+	Slots                json.RawMessage
+	SettingsChanged      bool
+	Targets              json.RawMessage
+	CreatedAt            time.Time
+	ExpiresAt            time.Time
+	SavedVersion         sql.NullInt64
+	SavedRevisionID      sql.NullString
+	OperationID          sql.NullString
+}
+
+type PoolConfigurationRevision struct {
+	RevisionID      string
+	OrganizationID  int64
+	ConfigurationID string
+	Number          int64
+	Slots           json.RawMessage
+	CreatedAt       time.Time
+}
+
 type QueueMessage struct {
 	ID                  int64
 	CommandBatchLogUuid string

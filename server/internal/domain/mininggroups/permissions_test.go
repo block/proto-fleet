@@ -10,7 +10,7 @@ import (
 	"github.com/block/proto-fleet/server/generated/sqlc"
 	"github.com/block/proto-fleet/server/internal/domain/authz"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
-	"github.com/block/proto-fleet/server/internal/domain/hostedaccounts"
+	"github.com/block/proto-fleet/server/internal/domain/poolconfigurations"
 	"github.com/block/proto-fleet/server/internal/domain/session"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
@@ -40,7 +40,7 @@ func preparePermissionPoolAssignment(t *testing.T, ctx context.Context, f retryF
 	t.Helper()
 	info, err := session.GetInfo(ctx)
 	require.NoError(t, err)
-	profile, err := f.service.pools.CreateHost(ctx, info.UserID, info.OrganizationID, hostedaccounts.PoolRevisionOptions{Name: "Pools", Slots: []hostedaccounts.PoolSlotOptions{{URL: "stratum+tcp://pool.example:3333", Username: "worker"}}})
+	profile, err := f.service.pools.CreateHost(ctx, info.UserID, info.OrganizationID, poolconfigurations.RevisionOptions{Name: "Pools", Slots: []poolconfigurations.SlotOptions{{URL: "stratum+tcp://pool.example:3333", Username: "worker"}}})
 	require.NoError(t, err)
 	_, err = sqlc.New(f.conn).AdvanceContainerInventory(ctx, sqlc.AdvanceContainerInventoryParams{DeviceIdentifier: f.target.DeviceIdentifier, ObservedAt: time.Now()})
 	require.NoError(t, err)

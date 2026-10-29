@@ -7,19 +7,20 @@ import (
 	pb "github.com/block/proto-fleet/server/generated/grpc/hosted/v1"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	domain "github.com/block/proto-fleet/server/internal/domain/hostedaccounts"
+	"github.com/block/proto-fleet/server/internal/domain/poolconfigurations"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
-func poolOptions(input *pb.PoolRevisionInput) (domain.PoolRevisionOptions, error) {
+func poolOptions(input *pb.PoolRevisionInput) (poolconfigurations.RevisionOptions, error) {
 	if input == nil {
-		return domain.PoolRevisionOptions{}, fleeterror.NewInvalidArgumentError("pool configuration required")
+		return poolconfigurations.RevisionOptions{}, fleeterror.NewInvalidArgumentError("pool configuration required")
 	}
-	options := domain.PoolRevisionOptions{Name: input.Name, Slots: make([]domain.PoolSlotOptions, 0, len(input.Slots))}
+	options := poolconfigurations.RevisionOptions{Name: input.Name, Slots: make([]poolconfigurations.SlotOptions, 0, len(input.Slots))}
 	for _, slot := range input.Slots {
 		if slot == nil {
-			return domain.PoolRevisionOptions{}, fleeterror.NewInvalidArgumentError("pool slot required")
+			return poolconfigurations.RevisionOptions{}, fleeterror.NewInvalidArgumentError("pool slot required")
 		}
-		options.Slots = append(options.Slots, domain.PoolSlotOptions{URL: slot.Url, Username: slot.Username, WorkerTemplate: slot.WorkerTemplate, Password: slot.Password})
+		options.Slots = append(options.Slots, poolconfigurations.SlotOptions{URL: slot.Url, Username: slot.Username, WorkerTemplate: slot.WorkerTemplate, Password: slot.Password})
 	}
 	return options, nil
 }

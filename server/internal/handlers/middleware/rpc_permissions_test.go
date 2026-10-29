@@ -11,6 +11,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/block/proto-fleet/server/generated/grpc/poolconfigurations/v1/poolconfigurationsv1connect"
+
 	"github.com/stretchr/testify/require"
 
 	"github.com/block/proto-fleet/server/generated/grpc/activity/v1/activityv1connect"
@@ -102,6 +104,7 @@ var registeredServices = []struct {
 	{alertsv1connect.HistoryServiceName, reflect.TypeOf((*alertsv1connect.HistoryServiceHandler)(nil)).Elem()},
 	{onboardingv1connect.OnboardingServiceName, reflect.TypeOf((*onboardingv1connect.OnboardingServiceHandler)(nil)).Elem()},
 	{pairingv1connect.PairingServiceName, reflect.TypeOf((*pairingv1connect.PairingServiceHandler)(nil)).Elem()},
+	{poolconfigurationsv1connect.PoolConfigurationServiceName, reflect.TypeOf((*poolconfigurationsv1connect.PoolConfigurationServiceHandler)(nil)).Elem()},
 	{poolsv1connect.PoolsServiceName, reflect.TypeOf((*poolsv1connect.PoolsServiceHandler)(nil)).Elem()},
 	{rolloutv1connect.RolloutServiceName, reflect.TypeOf((*rolloutv1connect.RolloutServiceHandler)(nil)).Elem()},
 	{schedulev1connect.ScheduleServiceName, reflect.TypeOf((*schedulev1connect.ScheduleServiceHandler)(nil)).Elem()},

@@ -84,6 +84,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.archiveHostedAccountPoolStmt, err = db.PrepareContext(ctx, archiveHostedAccountPool); err != nil {
 		return nil, fmt.Errorf("error preparing query ArchiveHostedAccountPool: %w", err)
 	}
+	if q.archivePoolConfigurationStmt, err = db.PrepareContext(ctx, archivePoolConfiguration); err != nil {
+		return nil, fmt.Errorf("error preparing query ArchivePoolConfiguration: %w", err)
+	}
 	if q.assignBuildingToSiteStmt, err = db.PrepareContext(ctx, assignBuildingToSite); err != nil {
 		return nil, fmt.Errorf("error preparing query AssignBuildingToSite: %w", err)
 	}
@@ -218,6 +221,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.claimMessageForProcessingStmt, err = db.PrepareContext(ctx, claimMessageForProcessing); err != nil {
 		return nil, fmt.Errorf("error preparing query ClaimMessageForProcessing: %w", err)
+	}
+	if q.claimPoolConfigurationTargetStmt, err = db.PrepareContext(ctx, claimPoolConfigurationTarget); err != nil {
+		return nil, fmt.Errorf("error preparing query ClaimPoolConfigurationTarget: %w", err)
 	}
 	if q.claimRigConfigReconciliationStmt, err = db.PrepareContext(ctx, claimRigConfigReconciliation); err != nil {
 		return nil, fmt.Errorf("error preparing query ClaimRigConfigReconciliation: %w", err)
@@ -456,6 +462,21 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.createPoolStmt, err = db.PrepareContext(ctx, createPool); err != nil {
 		return nil, fmt.Errorf("error preparing query CreatePool: %w", err)
 	}
+	if q.createPoolConfigurationStmt, err = db.PrepareContext(ctx, createPoolConfiguration); err != nil {
+		return nil, fmt.Errorf("error preparing query CreatePoolConfiguration: %w", err)
+	}
+	if q.createPoolConfigurationOperationStmt, err = db.PrepareContext(ctx, createPoolConfigurationOperation); err != nil {
+		return nil, fmt.Errorf("error preparing query CreatePoolConfigurationOperation: %w", err)
+	}
+	if q.createPoolConfigurationOperationTargetStmt, err = db.PrepareContext(ctx, createPoolConfigurationOperationTarget); err != nil {
+		return nil, fmt.Errorf("error preparing query CreatePoolConfigurationOperationTarget: %w", err)
+	}
+	if q.createPoolConfigurationReviewStmt, err = db.PrepareContext(ctx, createPoolConfigurationReview); err != nil {
+		return nil, fmt.Errorf("error preparing query CreatePoolConfigurationReview: %w", err)
+	}
+	if q.createPoolConfigurationRevisionStmt, err = db.PrepareContext(ctx, createPoolConfigurationRevision); err != nil {
+		return nil, fmt.Errorf("error preparing query CreatePoolConfigurationRevision: %w", err)
+	}
 	if q.createQueueMessageStmt, err = db.PrepareContext(ctx, createQueueMessage); err != nil {
 		return nil, fmt.Errorf("error preparing query CreateQueueMessage: %w", err)
 	}
@@ -656,6 +677,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.finishFirmwareRolloutStmt, err = db.PrepareContext(ctx, finishFirmwareRollout); err != nil {
 		return nil, fmt.Errorf("error preparing query FinishFirmwareRollout: %w", err)
+	}
+	if q.finishPoolConfigurationTargetStmt, err = db.PrepareContext(ctx, finishPoolConfigurationTarget); err != nil {
+		return nil, fmt.Errorf("error preparing query FinishPoolConfigurationTarget: %w", err)
 	}
 	if q.finishTerminalCommandBatchesStmt, err = db.PrepareContext(ctx, finishTerminalCommandBatches); err != nil {
 		return nil, fmt.Errorf("error preparing query FinishTerminalCommandBatches: %w", err)
@@ -1227,6 +1251,27 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.getPoolStmt, err = db.PrepareContext(ctx, getPool); err != nil {
 		return nil, fmt.Errorf("error preparing query GetPool: %w", err)
 	}
+	if q.getPoolAssignmentDeviceStmt, err = db.PrepareContext(ctx, getPoolAssignmentDevice); err != nil {
+		return nil, fmt.Errorf("error preparing query GetPoolAssignmentDevice: %w", err)
+	}
+	if q.getPoolAssignmentInstallationStmt, err = db.PrepareContext(ctx, getPoolAssignmentInstallation); err != nil {
+		return nil, fmt.Errorf("error preparing query GetPoolAssignmentInstallation: %w", err)
+	}
+	if q.getPoolConfigurationStmt, err = db.PrepareContext(ctx, getPoolConfiguration); err != nil {
+		return nil, fmt.Errorf("error preparing query GetPoolConfiguration: %w", err)
+	}
+	if q.getPoolConfigurationAssignmentStmt, err = db.PrepareContext(ctx, getPoolConfigurationAssignment); err != nil {
+		return nil, fmt.Errorf("error preparing query GetPoolConfigurationAssignment: %w", err)
+	}
+	if q.getPoolConfigurationImportStmt, err = db.PrepareContext(ctx, getPoolConfigurationImport); err != nil {
+		return nil, fmt.Errorf("error preparing query GetPoolConfigurationImport: %w", err)
+	}
+	if q.getPoolConfigurationOperationStmt, err = db.PrepareContext(ctx, getPoolConfigurationOperation); err != nil {
+		return nil, fmt.Errorf("error preparing query GetPoolConfigurationOperation: %w", err)
+	}
+	if q.getPoolConfigurationRevisionStmt, err = db.PrepareContext(ctx, getPoolConfigurationRevision); err != nil {
+		return nil, fmt.Errorf("error preparing query GetPoolConfigurationRevision: %w", err)
+	}
 	if q.getQueueMessagesByBatchStmt, err = db.PrepareContext(ctx, getQueueMessagesByBatch); err != nil {
 		return nil, fmt.Errorf("error preparing query GetQueueMessagesByBatch: %w", err)
 	}
@@ -1755,6 +1800,12 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.listHostedAccountsStmt, err = db.PrepareContext(ctx, listHostedAccounts); err != nil {
 		return nil, fmt.Errorf("error preparing query ListHostedAccounts: %w", err)
 	}
+	if q.listHostedPoolImportSourcesStmt, err = db.PrepareContext(ctx, listHostedPoolImportSources); err != nil {
+		return nil, fmt.Errorf("error preparing query ListHostedPoolImportSources: %w", err)
+	}
+	if q.listImportedPoolConfigurationsStmt, err = db.PrepareContext(ctx, listImportedPoolConfigurations); err != nil {
+		return nil, fmt.Errorf("error preparing query ListImportedPoolConfigurations: %w", err)
+	}
 	if q.listInfrastructureDevicesByOrgStmt, err = db.PrepareContext(ctx, listInfrastructureDevicesByOrg); err != nil {
 		return nil, fmt.Errorf("error preparing query ListInfrastructureDevicesByOrg: %w", err)
 	}
@@ -1805,6 +1856,15 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.listPermissionsStmt, err = db.PrepareContext(ctx, listPermissions); err != nil {
 		return nil, fmt.Errorf("error preparing query ListPermissions: %w", err)
+	}
+	if q.listPoolConfigurationAssignmentsStmt, err = db.PrepareContext(ctx, listPoolConfigurationAssignments); err != nil {
+		return nil, fmt.Errorf("error preparing query ListPoolConfigurationAssignments: %w", err)
+	}
+	if q.listPoolConfigurationOperationTargetsStmt, err = db.PrepareContext(ctx, listPoolConfigurationOperationTargets); err != nil {
+		return nil, fmt.Errorf("error preparing query ListPoolConfigurationOperationTargets: %w", err)
+	}
+	if q.listPoolConfigurationsStmt, err = db.PrepareContext(ctx, listPoolConfigurations); err != nil {
+		return nil, fmt.Errorf("error preparing query ListPoolConfigurations: %w", err)
 	}
 	if q.listPoolsStmt, err = db.PrepareContext(ctx, listPools); err != nil {
 		return nil, fmt.Errorf("error preparing query ListPools: %w", err)
@@ -2094,6 +2154,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.lockInvitationTokenHashStmt, err = db.PrepareContext(ctx, lockInvitationTokenHash); err != nil {
 		return nil, fmt.Errorf("error preparing query LockInvitationTokenHash: %w", err)
 	}
+	if q.lockLegacyPoolLibraryForImportStmt, err = db.PrepareContext(ctx, lockLegacyPoolLibraryForImport); err != nil {
+		return nil, fmt.Errorf("error preparing query LockLegacyPoolLibraryForImport: %w", err)
+	}
 	if q.lockMaintenanceBuildingForTicketStmt, err = db.PrepareContext(ctx, lockMaintenanceBuildingForTicket); err != nil {
 		return nil, fmt.Errorf("error preparing query LockMaintenanceBuildingForTicket: %w", err)
 	}
@@ -2126,6 +2189,15 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.lockMiningGroupStateStmt, err = db.PrepareContext(ctx, lockMiningGroupState); err != nil {
 		return nil, fmt.Errorf("error preparing query LockMiningGroupState: %w", err)
+	}
+	if q.lockPoolConfigurationStmt, err = db.PrepareContext(ctx, lockPoolConfiguration); err != nil {
+		return nil, fmt.Errorf("error preparing query LockPoolConfiguration: %w", err)
+	}
+	if q.lockPoolConfigurationImportOrganizationStmt, err = db.PrepareContext(ctx, lockPoolConfigurationImportOrganization); err != nil {
+		return nil, fmt.Errorf("error preparing query LockPoolConfigurationImportOrganization: %w", err)
+	}
+	if q.lockPoolConfigurationReviewStmt, err = db.PrepareContext(ctx, lockPoolConfigurationReview); err != nil {
+		return nil, fmt.Errorf("error preparing query LockPoolConfigurationReview: %w", err)
 	}
 	if q.lockQueuedDeviceWriteStmt, err = db.PrepareContext(ctx, lockQueuedDeviceWrite); err != nil {
 		return nil, fmt.Errorf("error preparing query LockQueuedDeviceWrite: %w", err)
@@ -2292,6 +2364,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.recordMiningGroupRequestStmt, err = db.PrepareContext(ctx, recordMiningGroupRequest); err != nil {
 		return nil, fmt.Errorf("error preparing query RecordMiningGroupRequest: %w", err)
 	}
+	if q.recordPoolConfigurationImportStmt, err = db.PrepareContext(ctx, recordPoolConfigurationImport); err != nil {
+		return nil, fmt.Errorf("error preparing query RecordPoolConfigurationImport: %w", err)
+	}
 	if q.recoverTelemetrySeedBatchStmt, err = db.PrepareContext(ctx, recoverTelemetrySeedBatch); err != nil {
 		return nil, fmt.Errorf("error preparing query RecoverTelemetrySeedBatch: %w", err)
 	}
@@ -2394,6 +2469,12 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.retireContainerModulesStmt, err = db.PrepareContext(ctx, retireContainerModules); err != nil {
 		return nil, fmt.Errorf("error preparing query RetireContainerModules: %w", err)
 	}
+	if q.retirePoolConfigurationAssignmentStmt, err = db.PrepareContext(ctx, retirePoolConfigurationAssignment); err != nil {
+		return nil, fmt.Errorf("error preparing query RetirePoolConfigurationAssignment: %w", err)
+	}
+	if q.retryPoolConfigurationTargetStmt, err = db.PrepareContext(ctx, retryPoolConfigurationTarget); err != nil {
+		return nil, fmt.Errorf("error preparing query RetryPoolConfigurationTarget: %w", err)
+	}
 	if q.retryRigConfigReconciliationStmt, err = db.PrepareContext(ctx, retryRigConfigReconciliation); err != nil {
 		return nil, fmt.Errorf("error preparing query RetryRigConfigReconciliation: %w", err)
 	}
@@ -2432,6 +2513,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.saveMiningGroupStateStmt, err = db.PrepareContext(ctx, saveMiningGroupState); err != nil {
 		return nil, fmt.Errorf("error preparing query SaveMiningGroupState: %w", err)
+	}
+	if q.savePoolConfigurationReviewResultStmt, err = db.PrepareContext(ctx, savePoolConfigurationReviewResult); err != nil {
+		return nil, fmt.Errorf("error preparing query SavePoolConfigurationReviewResult: %w", err)
 	}
 	if q.scheduleMiningGroupReconciliationStmt, err = db.PrepareContext(ctx, scheduleMiningGroupReconciliation); err != nil {
 		return nil, fmt.Errorf("error preparing query ScheduleMiningGroupReconciliation: %w", err)
@@ -2492,6 +2576,12 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.setMQTTSourceConfigEnabledStmt, err = db.PrepareContext(ctx, setMQTTSourceConfigEnabled); err != nil {
 		return nil, fmt.Errorf("error preparing query SetMQTTSourceConfigEnabled: %w", err)
+	}
+	if q.setPoolConfigurationAssignmentStmt, err = db.PrepareContext(ctx, setPoolConfigurationAssignment); err != nil {
+		return nil, fmt.Errorf("error preparing query SetPoolConfigurationAssignment: %w", err)
+	}
+	if q.setPoolConfigurationCurrentRevisionStmt, err = db.PrepareContext(ctx, setPoolConfigurationCurrentRevision); err != nil {
+		return nil, fmt.Errorf("error preparing query SetPoolConfigurationCurrentRevision: %w", err)
 	}
 	if q.setRackBuildingPositionStmt, err = db.PrepareContext(ctx, setRackBuildingPosition); err != nil {
 		return nil, fmt.Errorf("error preparing query SetRackBuildingPosition: %w", err)
@@ -2591,6 +2681,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.stampHashboardTopologyStmt, err = db.PrepareContext(ctx, stampHashboardTopology); err != nil {
 		return nil, fmt.Errorf("error preparing query StampHashboardTopology: %w", err)
+	}
+	if q.supersedePoolConfigurationTargetStmt, err = db.PrepareContext(ctx, supersedePoolConfigurationTarget); err != nil {
+		return nil, fmt.Errorf("error preparing query SupersedePoolConfigurationTarget: %w", err)
 	}
 	if q.swapFleetNodeHAPairStmt, err = db.PrepareContext(ctx, swapFleetNodeHAPair); err != nil {
 		return nil, fmt.Errorf("error preparing query SwapFleetNodeHAPair: %w", err)
@@ -2991,6 +3084,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing archiveHostedAccountPoolStmt: %w", cerr)
 		}
 	}
+	if q.archivePoolConfigurationStmt != nil {
+		if cerr := q.archivePoolConfigurationStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing archivePoolConfigurationStmt: %w", cerr)
+		}
+	}
 	if q.assignBuildingToSiteStmt != nil {
 		if cerr := q.assignBuildingToSiteStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing assignBuildingToSiteStmt: %w", cerr)
@@ -3214,6 +3312,11 @@ func (q *Queries) Close() error {
 	if q.claimMessageForProcessingStmt != nil {
 		if cerr := q.claimMessageForProcessingStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing claimMessageForProcessingStmt: %w", cerr)
+		}
+	}
+	if q.claimPoolConfigurationTargetStmt != nil {
+		if cerr := q.claimPoolConfigurationTargetStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing claimPoolConfigurationTargetStmt: %w", cerr)
 		}
 	}
 	if q.claimRigConfigReconciliationStmt != nil {
@@ -3611,6 +3714,31 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing createPoolStmt: %w", cerr)
 		}
 	}
+	if q.createPoolConfigurationStmt != nil {
+		if cerr := q.createPoolConfigurationStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing createPoolConfigurationStmt: %w", cerr)
+		}
+	}
+	if q.createPoolConfigurationOperationStmt != nil {
+		if cerr := q.createPoolConfigurationOperationStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing createPoolConfigurationOperationStmt: %w", cerr)
+		}
+	}
+	if q.createPoolConfigurationOperationTargetStmt != nil {
+		if cerr := q.createPoolConfigurationOperationTargetStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing createPoolConfigurationOperationTargetStmt: %w", cerr)
+		}
+	}
+	if q.createPoolConfigurationReviewStmt != nil {
+		if cerr := q.createPoolConfigurationReviewStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing createPoolConfigurationReviewStmt: %w", cerr)
+		}
+	}
+	if q.createPoolConfigurationRevisionStmt != nil {
+		if cerr := q.createPoolConfigurationRevisionStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing createPoolConfigurationRevisionStmt: %w", cerr)
+		}
+	}
 	if q.createQueueMessageStmt != nil {
 		if cerr := q.createQueueMessageStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing createQueueMessageStmt: %w", cerr)
@@ -3944,6 +4072,11 @@ func (q *Queries) Close() error {
 	if q.finishFirmwareRolloutStmt != nil {
 		if cerr := q.finishFirmwareRolloutStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing finishFirmwareRolloutStmt: %w", cerr)
+		}
+	}
+	if q.finishPoolConfigurationTargetStmt != nil {
+		if cerr := q.finishPoolConfigurationTargetStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing finishPoolConfigurationTargetStmt: %w", cerr)
 		}
 	}
 	if q.finishTerminalCommandBatchesStmt != nil {
@@ -4896,6 +5029,41 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing getPoolStmt: %w", cerr)
 		}
 	}
+	if q.getPoolAssignmentDeviceStmt != nil {
+		if cerr := q.getPoolAssignmentDeviceStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getPoolAssignmentDeviceStmt: %w", cerr)
+		}
+	}
+	if q.getPoolAssignmentInstallationStmt != nil {
+		if cerr := q.getPoolAssignmentInstallationStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getPoolAssignmentInstallationStmt: %w", cerr)
+		}
+	}
+	if q.getPoolConfigurationStmt != nil {
+		if cerr := q.getPoolConfigurationStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getPoolConfigurationStmt: %w", cerr)
+		}
+	}
+	if q.getPoolConfigurationAssignmentStmt != nil {
+		if cerr := q.getPoolConfigurationAssignmentStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getPoolConfigurationAssignmentStmt: %w", cerr)
+		}
+	}
+	if q.getPoolConfigurationImportStmt != nil {
+		if cerr := q.getPoolConfigurationImportStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getPoolConfigurationImportStmt: %w", cerr)
+		}
+	}
+	if q.getPoolConfigurationOperationStmt != nil {
+		if cerr := q.getPoolConfigurationOperationStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getPoolConfigurationOperationStmt: %w", cerr)
+		}
+	}
+	if q.getPoolConfigurationRevisionStmt != nil {
+		if cerr := q.getPoolConfigurationRevisionStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getPoolConfigurationRevisionStmt: %w", cerr)
+		}
+	}
 	if q.getQueueMessagesByBatchStmt != nil {
 		if cerr := q.getQueueMessagesByBatchStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getQueueMessagesByBatchStmt: %w", cerr)
@@ -5776,6 +5944,16 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing listHostedAccountsStmt: %w", cerr)
 		}
 	}
+	if q.listHostedPoolImportSourcesStmt != nil {
+		if cerr := q.listHostedPoolImportSourcesStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listHostedPoolImportSourcesStmt: %w", cerr)
+		}
+	}
+	if q.listImportedPoolConfigurationsStmt != nil {
+		if cerr := q.listImportedPoolConfigurationsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listImportedPoolConfigurationsStmt: %w", cerr)
+		}
+	}
 	if q.listInfrastructureDevicesByOrgStmt != nil {
 		if cerr := q.listInfrastructureDevicesByOrgStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing listInfrastructureDevicesByOrgStmt: %w", cerr)
@@ -5859,6 +6037,21 @@ func (q *Queries) Close() error {
 	if q.listPermissionsStmt != nil {
 		if cerr := q.listPermissionsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing listPermissionsStmt: %w", cerr)
+		}
+	}
+	if q.listPoolConfigurationAssignmentsStmt != nil {
+		if cerr := q.listPoolConfigurationAssignmentsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listPoolConfigurationAssignmentsStmt: %w", cerr)
+		}
+	}
+	if q.listPoolConfigurationOperationTargetsStmt != nil {
+		if cerr := q.listPoolConfigurationOperationTargetsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listPoolConfigurationOperationTargetsStmt: %w", cerr)
+		}
+	}
+	if q.listPoolConfigurationsStmt != nil {
+		if cerr := q.listPoolConfigurationsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listPoolConfigurationsStmt: %w", cerr)
 		}
 	}
 	if q.listPoolsStmt != nil {
@@ -6341,6 +6534,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing lockInvitationTokenHashStmt: %w", cerr)
 		}
 	}
+	if q.lockLegacyPoolLibraryForImportStmt != nil {
+		if cerr := q.lockLegacyPoolLibraryForImportStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing lockLegacyPoolLibraryForImportStmt: %w", cerr)
+		}
+	}
 	if q.lockMaintenanceBuildingForTicketStmt != nil {
 		if cerr := q.lockMaintenanceBuildingForTicketStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing lockMaintenanceBuildingForTicketStmt: %w", cerr)
@@ -6394,6 +6592,21 @@ func (q *Queries) Close() error {
 	if q.lockMiningGroupStateStmt != nil {
 		if cerr := q.lockMiningGroupStateStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing lockMiningGroupStateStmt: %w", cerr)
+		}
+	}
+	if q.lockPoolConfigurationStmt != nil {
+		if cerr := q.lockPoolConfigurationStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing lockPoolConfigurationStmt: %w", cerr)
+		}
+	}
+	if q.lockPoolConfigurationImportOrganizationStmt != nil {
+		if cerr := q.lockPoolConfigurationImportOrganizationStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing lockPoolConfigurationImportOrganizationStmt: %w", cerr)
+		}
+	}
+	if q.lockPoolConfigurationReviewStmt != nil {
+		if cerr := q.lockPoolConfigurationReviewStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing lockPoolConfigurationReviewStmt: %w", cerr)
 		}
 	}
 	if q.lockQueuedDeviceWriteStmt != nil {
@@ -6671,6 +6884,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing recordMiningGroupRequestStmt: %w", cerr)
 		}
 	}
+	if q.recordPoolConfigurationImportStmt != nil {
+		if cerr := q.recordPoolConfigurationImportStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing recordPoolConfigurationImportStmt: %w", cerr)
+		}
+	}
 	if q.recoverTelemetrySeedBatchStmt != nil {
 		if cerr := q.recoverTelemetrySeedBatchStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing recoverTelemetrySeedBatchStmt: %w", cerr)
@@ -6841,6 +7059,16 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing retireContainerModulesStmt: %w", cerr)
 		}
 	}
+	if q.retirePoolConfigurationAssignmentStmt != nil {
+		if cerr := q.retirePoolConfigurationAssignmentStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing retirePoolConfigurationAssignmentStmt: %w", cerr)
+		}
+	}
+	if q.retryPoolConfigurationTargetStmt != nil {
+		if cerr := q.retryPoolConfigurationTargetStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing retryPoolConfigurationTargetStmt: %w", cerr)
+		}
+	}
 	if q.retryRigConfigReconciliationStmt != nil {
 		if cerr := q.retryRigConfigReconciliationStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing retryRigConfigReconciliationStmt: %w", cerr)
@@ -6904,6 +7132,11 @@ func (q *Queries) Close() error {
 	if q.saveMiningGroupStateStmt != nil {
 		if cerr := q.saveMiningGroupStateStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing saveMiningGroupStateStmt: %w", cerr)
+		}
+	}
+	if q.savePoolConfigurationReviewResultStmt != nil {
+		if cerr := q.savePoolConfigurationReviewResultStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing savePoolConfigurationReviewResultStmt: %w", cerr)
 		}
 	}
 	if q.scheduleMiningGroupReconciliationStmt != nil {
@@ -7004,6 +7237,16 @@ func (q *Queries) Close() error {
 	if q.setMQTTSourceConfigEnabledStmt != nil {
 		if cerr := q.setMQTTSourceConfigEnabledStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing setMQTTSourceConfigEnabledStmt: %w", cerr)
+		}
+	}
+	if q.setPoolConfigurationAssignmentStmt != nil {
+		if cerr := q.setPoolConfigurationAssignmentStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing setPoolConfigurationAssignmentStmt: %w", cerr)
+		}
+	}
+	if q.setPoolConfigurationCurrentRevisionStmt != nil {
+		if cerr := q.setPoolConfigurationCurrentRevisionStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing setPoolConfigurationCurrentRevisionStmt: %w", cerr)
 		}
 	}
 	if q.setRackBuildingPositionStmt != nil {
@@ -7169,6 +7412,11 @@ func (q *Queries) Close() error {
 	if q.stampHashboardTopologyStmt != nil {
 		if cerr := q.stampHashboardTopologyStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing stampHashboardTopologyStmt: %w", cerr)
+		}
+	}
+	if q.supersedePoolConfigurationTargetStmt != nil {
+		if cerr := q.supersedePoolConfigurationTargetStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing supersedePoolConfigurationTargetStmt: %w", cerr)
 		}
 	}
 	if q.swapFleetNodeHAPairStmt != nil {
@@ -7720,6 +7968,7 @@ type Queries struct {
 	applyFleetNodeRecoveredEndpointStmt                        *sql.Stmt
 	applyFleetNodeRecoveryAuthenticationNeededStmt             *sql.Stmt
 	archiveHostedAccountPoolStmt                               *sql.Stmt
+	archivePoolConfigurationStmt                               *sql.Stmt
 	assignBuildingToSiteStmt                                   *sql.Stmt
 	assignBuildingsToSiteBulkStmt                              *sql.Stmt
 	assignContainersToSiteStmt                                 *sql.Stmt
@@ -7765,6 +8014,7 @@ type Queries struct {
 	claimClosedLoopFullFleetTargetsStmt                        *sql.Stmt
 	claimDeletionUnpairPermitStmt                              *sql.Stmt
 	claimMessageForProcessingStmt                              *sql.Stmt
+	claimPoolConfigurationTargetStmt                           *sql.Stmt
 	claimRigConfigReconciliationStmt                           *sql.Stmt
 	classifyFleetRuntimeLeaseAcquisitionStmt                   *sql.Stmt
 	clearCurtailmentAutomationActiveEventStmt                  *sql.Stmt
@@ -7844,6 +8094,11 @@ type Queries struct {
 	createOrganizationInvitationStmt                           *sql.Stmt
 	createPendingEnrollmentStmt                                *sql.Stmt
 	createPoolStmt                                             *sql.Stmt
+	createPoolConfigurationStmt                                *sql.Stmt
+	createPoolConfigurationOperationStmt                       *sql.Stmt
+	createPoolConfigurationOperationTargetStmt                 *sql.Stmt
+	createPoolConfigurationReviewStmt                          *sql.Stmt
+	createPoolConfigurationRevisionStmt                        *sql.Stmt
 	createQueueMessageStmt                                     *sql.Stmt
 	createQueueMessagesStmt                                    *sql.Stmt
 	createRackExtensionStmt                                    *sql.Stmt
@@ -7911,6 +8166,7 @@ type Queries struct {
 	findHostedAccountMemberByUUIDStmt                          *sql.Stmt
 	finishDeviceWriteAttemptStmt                               *sql.Stmt
 	finishFirmwareRolloutStmt                                  *sql.Stmt
+	finishPoolConfigurationTargetStmt                          *sql.Stmt
 	finishTerminalCommandBatchesStmt                           *sql.Stmt
 	fleetNodeInHAPairStmt                                      *sql.Stmt
 	forceReleaseCurtailmentEventStmt                           *sql.Stmt
@@ -8101,6 +8357,13 @@ type Queries struct {
 	getPermissionByKeyStmt                                     *sql.Stmt
 	getPermissionsByKeysStmt                                   *sql.Stmt
 	getPoolStmt                                                *sql.Stmt
+	getPoolAssignmentDeviceStmt                                *sql.Stmt
+	getPoolAssignmentInstallationStmt                          *sql.Stmt
+	getPoolConfigurationStmt                                   *sql.Stmt
+	getPoolConfigurationAssignmentStmt                         *sql.Stmt
+	getPoolConfigurationImportStmt                             *sql.Stmt
+	getPoolConfigurationOperationStmt                          *sql.Stmt
+	getPoolConfigurationRevisionStmt                           *sql.Stmt
 	getQueueMessagesByBatchStmt                                *sql.Stmt
 	getRackDetailsForDevicesStmt                               *sql.Stmt
 	getRackInfoStmt                                            *sql.Stmt
@@ -8277,6 +8540,8 @@ type Queries struct {
 	listHostedAccountSitesStmt                                 *sql.Stmt
 	listHostedAccountSummariesStmt                             *sql.Stmt
 	listHostedAccountsStmt                                     *sql.Stmt
+	listHostedPoolImportSourcesStmt                            *sql.Stmt
+	listImportedPoolConfigurationsStmt                         *sql.Stmt
 	listInfrastructureDevicesByOrgStmt                         *sql.Stmt
 	listInventoryPartsStmt                                     *sql.Stmt
 	listMQTTSourceConfigsByOrgStmt                             *sql.Stmt
@@ -8294,6 +8559,9 @@ type Queries struct {
 	listOrganizationsStmt                                      *sql.Stmt
 	listPartsBySiteStmt                                        *sql.Stmt
 	listPermissionsStmt                                        *sql.Stmt
+	listPoolConfigurationAssignmentsStmt                       *sql.Stmt
+	listPoolConfigurationOperationTargetsStmt                  *sql.Stmt
+	listPoolConfigurationsStmt                                 *sql.Stmt
 	listPoolsStmt                                              *sql.Stmt
 	listRackTypesStmt                                          *sql.Stmt
 	listRackZoneRefsStmt                                       *sql.Stmt
@@ -8390,6 +8658,7 @@ type Queries struct {
 	lockInfrastructureRackForPlacementStmt                     *sql.Stmt
 	lockInventorySitesStmt                                     *sql.Stmt
 	lockInvitationTokenHashStmt                                *sql.Stmt
+	lockLegacyPoolLibraryForImportStmt                         *sql.Stmt
 	lockMaintenanceBuildingForTicketStmt                       *sql.Stmt
 	lockMaintenanceMinerForTicketStmt                          *sql.Stmt
 	lockMaintenanceRackForTicketStmt                           *sql.Stmt
@@ -8401,6 +8670,9 @@ type Queries struct {
 	lockMinerBindingPairingStmt                                *sql.Stmt
 	lockMinerBindingRoutesStmt                                 *sql.Stmt
 	lockMiningGroupStateStmt                                   *sql.Stmt
+	lockPoolConfigurationStmt                                  *sql.Stmt
+	lockPoolConfigurationImportOrganizationStmt                *sql.Stmt
+	lockPoolConfigurationReviewStmt                            *sql.Stmt
 	lockQueuedDeviceWriteStmt                                  *sql.Stmt
 	lockRackPlacementForWriteStmt                              *sql.Stmt
 	lockRacksForReparentStmt                                   *sql.Stmt
@@ -8456,6 +8728,7 @@ type Queries struct {
 	recordFirmwareDeploymentStmt                               *sql.Stmt
 	recordFirmwareRolloutActionStmt                            *sql.Stmt
 	recordMiningGroupRequestStmt                               *sql.Stmt
+	recordPoolConfigurationImportStmt                          *sql.Stmt
 	recoverTelemetrySeedBatchStmt                              *sql.Stmt
 	refreshOpenErrorsLastSeenByDeviceStmt                      *sql.Stmt
 	reincludeFirmwareRolloutDevicesStmt                        *sql.Stmt
@@ -8490,6 +8763,8 @@ type Queries struct {
 	resumeFirmwareRolloutStmt                                  *sql.Stmt
 	resumePausedScheduleStmt                                   *sql.Stmt
 	retireContainerModulesStmt                                 *sql.Stmt
+	retirePoolConfigurationAssignmentStmt                      *sql.Stmt
+	retryPoolConfigurationTargetStmt                           *sql.Stmt
 	retryRigConfigReconciliationStmt                           *sql.Stmt
 	revertScheduleToActiveStmt                                 *sql.Stmt
 	revokeAllSessionsByUserIDStmt                              *sql.Stmt
@@ -8503,6 +8778,7 @@ type Queries struct {
 	revokePermissionFromRoleStmt                               *sql.Stmt
 	revokeSessionStmt                                          *sql.Stmt
 	saveMiningGroupStateStmt                                   *sql.Stmt
+	savePoolConfigurationReviewResultStmt                      *sql.Stmt
 	scheduleMiningGroupReconciliationStmt                      *sql.Stmt
 	setCurtailmentAutomationActiveEventStmt                    *sql.Stmt
 	setCurtailmentAutomationExecutionErrorStmt                 *sql.Stmt
@@ -8523,6 +8799,8 @@ type Queries struct {
 	setLocalFleetNodeHAFailoverLockTimeoutStmt                 *sql.Stmt
 	setLocalTransactionTimeoutStmt                             *sql.Stmt
 	setMQTTSourceConfigEnabledStmt                             *sql.Stmt
+	setPoolConfigurationAssignmentStmt                         *sql.Stmt
+	setPoolConfigurationCurrentRevisionStmt                    *sql.Stmt
 	setRackBuildingPositionStmt                                *sql.Stmt
 	setRackBuildingPositionBulkClearStmt                       *sql.Stmt
 	setRackBuildingPositionBulkPlaceStmt                       *sql.Stmt
@@ -8556,6 +8834,7 @@ type Queries struct {
 	softDeleteUserFromOrganizationStmt                         *sql.Stmt
 	stampContainerSampleStmt                                   *sql.Stmt
 	stampHashboardTopologyStmt                                 *sql.Stmt
+	supersedePoolConfigurationTargetStmt                       *sql.Stmt
 	swapFleetNodeHAPairStmt                                    *sql.Stmt
 	sweepAlertRuleConfigsStmt                                  *sql.Stmt
 	sweepCurtailmentTargetsToReleasedStmt                      *sql.Stmt
@@ -8680,6 +8959,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		applyFleetNodeRecoveredEndpointStmt:                        q.applyFleetNodeRecoveredEndpointStmt,
 		applyFleetNodeRecoveryAuthenticationNeededStmt:             q.applyFleetNodeRecoveryAuthenticationNeededStmt,
 		archiveHostedAccountPoolStmt:                               q.archiveHostedAccountPoolStmt,
+		archivePoolConfigurationStmt:                               q.archivePoolConfigurationStmt,
 		assignBuildingToSiteStmt:                                   q.assignBuildingToSiteStmt,
 		assignBuildingsToSiteBulkStmt:                              q.assignBuildingsToSiteBulkStmt,
 		assignContainersToSiteStmt:                                 q.assignContainersToSiteStmt,
@@ -8725,6 +9005,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		claimClosedLoopFullFleetTargetsStmt:                        q.claimClosedLoopFullFleetTargetsStmt,
 		claimDeletionUnpairPermitStmt:                              q.claimDeletionUnpairPermitStmt,
 		claimMessageForProcessingStmt:                              q.claimMessageForProcessingStmt,
+		claimPoolConfigurationTargetStmt:                           q.claimPoolConfigurationTargetStmt,
 		claimRigConfigReconciliationStmt:                           q.claimRigConfigReconciliationStmt,
 		classifyFleetRuntimeLeaseAcquisitionStmt:                   q.classifyFleetRuntimeLeaseAcquisitionStmt,
 		clearCurtailmentAutomationActiveEventStmt:                  q.clearCurtailmentAutomationActiveEventStmt,
@@ -8804,6 +9085,11 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		createOrganizationInvitationStmt:                           q.createOrganizationInvitationStmt,
 		createPendingEnrollmentStmt:                                q.createPendingEnrollmentStmt,
 		createPoolStmt:                                             q.createPoolStmt,
+		createPoolConfigurationStmt:                                q.createPoolConfigurationStmt,
+		createPoolConfigurationOperationStmt:                       q.createPoolConfigurationOperationStmt,
+		createPoolConfigurationOperationTargetStmt:                 q.createPoolConfigurationOperationTargetStmt,
+		createPoolConfigurationReviewStmt:                          q.createPoolConfigurationReviewStmt,
+		createPoolConfigurationRevisionStmt:                        q.createPoolConfigurationRevisionStmt,
 		createQueueMessageStmt:                                     q.createQueueMessageStmt,
 		createQueueMessagesStmt:                                    q.createQueueMessagesStmt,
 		createRackExtensionStmt:                                    q.createRackExtensionStmt,
@@ -8871,6 +9157,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		findHostedAccountMemberByUUIDStmt:                          q.findHostedAccountMemberByUUIDStmt,
 		finishDeviceWriteAttemptStmt:                               q.finishDeviceWriteAttemptStmt,
 		finishFirmwareRolloutStmt:                                  q.finishFirmwareRolloutStmt,
+		finishPoolConfigurationTargetStmt:                          q.finishPoolConfigurationTargetStmt,
 		finishTerminalCommandBatchesStmt:                           q.finishTerminalCommandBatchesStmt,
 		fleetNodeInHAPairStmt:                                      q.fleetNodeInHAPairStmt,
 		forceReleaseCurtailmentEventStmt:                           q.forceReleaseCurtailmentEventStmt,
@@ -9061,6 +9348,13 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getPermissionByKeyStmt:                                     q.getPermissionByKeyStmt,
 		getPermissionsByKeysStmt:                                   q.getPermissionsByKeysStmt,
 		getPoolStmt:                                                q.getPoolStmt,
+		getPoolAssignmentDeviceStmt:                                q.getPoolAssignmentDeviceStmt,
+		getPoolAssignmentInstallationStmt:                          q.getPoolAssignmentInstallationStmt,
+		getPoolConfigurationStmt:                                   q.getPoolConfigurationStmt,
+		getPoolConfigurationAssignmentStmt:                         q.getPoolConfigurationAssignmentStmt,
+		getPoolConfigurationImportStmt:                             q.getPoolConfigurationImportStmt,
+		getPoolConfigurationOperationStmt:                          q.getPoolConfigurationOperationStmt,
+		getPoolConfigurationRevisionStmt:                           q.getPoolConfigurationRevisionStmt,
 		getQueueMessagesByBatchStmt:                                q.getQueueMessagesByBatchStmt,
 		getRackDetailsForDevicesStmt:                               q.getRackDetailsForDevicesStmt,
 		getRackInfoStmt:                                            q.getRackInfoStmt,
@@ -9237,6 +9531,8 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		listHostedAccountSitesStmt:                                 q.listHostedAccountSitesStmt,
 		listHostedAccountSummariesStmt:                             q.listHostedAccountSummariesStmt,
 		listHostedAccountsStmt:                                     q.listHostedAccountsStmt,
+		listHostedPoolImportSourcesStmt:                            q.listHostedPoolImportSourcesStmt,
+		listImportedPoolConfigurationsStmt:                         q.listImportedPoolConfigurationsStmt,
 		listInfrastructureDevicesByOrgStmt:                         q.listInfrastructureDevicesByOrgStmt,
 		listInventoryPartsStmt:                                     q.listInventoryPartsStmt,
 		listMQTTSourceConfigsByOrgStmt:                             q.listMQTTSourceConfigsByOrgStmt,
@@ -9254,6 +9550,9 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		listOrganizationsStmt:                                      q.listOrganizationsStmt,
 		listPartsBySiteStmt:                                        q.listPartsBySiteStmt,
 		listPermissionsStmt:                                        q.listPermissionsStmt,
+		listPoolConfigurationAssignmentsStmt:                       q.listPoolConfigurationAssignmentsStmt,
+		listPoolConfigurationOperationTargetsStmt:                  q.listPoolConfigurationOperationTargetsStmt,
+		listPoolConfigurationsStmt:                                 q.listPoolConfigurationsStmt,
 		listPoolsStmt:                                              q.listPoolsStmt,
 		listRackTypesStmt:                                          q.listRackTypesStmt,
 		listRackZoneRefsStmt:                                       q.listRackZoneRefsStmt,
@@ -9350,6 +9649,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		lockInfrastructureRackForPlacementStmt:                     q.lockInfrastructureRackForPlacementStmt,
 		lockInventorySitesStmt:                                     q.lockInventorySitesStmt,
 		lockInvitationTokenHashStmt:                                q.lockInvitationTokenHashStmt,
+		lockLegacyPoolLibraryForImportStmt:                         q.lockLegacyPoolLibraryForImportStmt,
 		lockMaintenanceBuildingForTicketStmt:                       q.lockMaintenanceBuildingForTicketStmt,
 		lockMaintenanceMinerForTicketStmt:                          q.lockMaintenanceMinerForTicketStmt,
 		lockMaintenanceRackForTicketStmt:                           q.lockMaintenanceRackForTicketStmt,
@@ -9361,6 +9661,9 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		lockMinerBindingPairingStmt:                                q.lockMinerBindingPairingStmt,
 		lockMinerBindingRoutesStmt:                                 q.lockMinerBindingRoutesStmt,
 		lockMiningGroupStateStmt:                                   q.lockMiningGroupStateStmt,
+		lockPoolConfigurationStmt:                                  q.lockPoolConfigurationStmt,
+		lockPoolConfigurationImportOrganizationStmt:                q.lockPoolConfigurationImportOrganizationStmt,
+		lockPoolConfigurationReviewStmt:                            q.lockPoolConfigurationReviewStmt,
 		lockQueuedDeviceWriteStmt:                                  q.lockQueuedDeviceWriteStmt,
 		lockRackPlacementForWriteStmt:                              q.lockRackPlacementForWriteStmt,
 		lockRacksForReparentStmt:                                   q.lockRacksForReparentStmt,
@@ -9416,6 +9719,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		recordFirmwareDeploymentStmt:                               q.recordFirmwareDeploymentStmt,
 		recordFirmwareRolloutActionStmt:                            q.recordFirmwareRolloutActionStmt,
 		recordMiningGroupRequestStmt:                               q.recordMiningGroupRequestStmt,
+		recordPoolConfigurationImportStmt:                          q.recordPoolConfigurationImportStmt,
 		recoverTelemetrySeedBatchStmt:                              q.recoverTelemetrySeedBatchStmt,
 		refreshOpenErrorsLastSeenByDeviceStmt:                      q.refreshOpenErrorsLastSeenByDeviceStmt,
 		reincludeFirmwareRolloutDevicesStmt:                        q.reincludeFirmwareRolloutDevicesStmt,
@@ -9450,6 +9754,8 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		resumeFirmwareRolloutStmt:                                  q.resumeFirmwareRolloutStmt,
 		resumePausedScheduleStmt:                                   q.resumePausedScheduleStmt,
 		retireContainerModulesStmt:                                 q.retireContainerModulesStmt,
+		retirePoolConfigurationAssignmentStmt:                      q.retirePoolConfigurationAssignmentStmt,
+		retryPoolConfigurationTargetStmt:                           q.retryPoolConfigurationTargetStmt,
 		retryRigConfigReconciliationStmt:                           q.retryRigConfigReconciliationStmt,
 		revertScheduleToActiveStmt:                                 q.revertScheduleToActiveStmt,
 		revokeAllSessionsByUserIDStmt:                              q.revokeAllSessionsByUserIDStmt,
@@ -9463,6 +9769,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		revokePermissionFromRoleStmt:                               q.revokePermissionFromRoleStmt,
 		revokeSessionStmt:                                          q.revokeSessionStmt,
 		saveMiningGroupStateStmt:                                   q.saveMiningGroupStateStmt,
+		savePoolConfigurationReviewResultStmt:                      q.savePoolConfigurationReviewResultStmt,
 		scheduleMiningGroupReconciliationStmt:                      q.scheduleMiningGroupReconciliationStmt,
 		setCurtailmentAutomationActiveEventStmt:                    q.setCurtailmentAutomationActiveEventStmt,
 		setCurtailmentAutomationExecutionErrorStmt:                 q.setCurtailmentAutomationExecutionErrorStmt,
@@ -9483,6 +9790,8 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		setLocalFleetNodeHAFailoverLockTimeoutStmt:                 q.setLocalFleetNodeHAFailoverLockTimeoutStmt,
 		setLocalTransactionTimeoutStmt:                             q.setLocalTransactionTimeoutStmt,
 		setMQTTSourceConfigEnabledStmt:                             q.setMQTTSourceConfigEnabledStmt,
+		setPoolConfigurationAssignmentStmt:                         q.setPoolConfigurationAssignmentStmt,
+		setPoolConfigurationCurrentRevisionStmt:                    q.setPoolConfigurationCurrentRevisionStmt,
 		setRackBuildingPositionStmt:                                q.setRackBuildingPositionStmt,
 		setRackBuildingPositionBulkClearStmt:                       q.setRackBuildingPositionBulkClearStmt,
 		setRackBuildingPositionBulkPlaceStmt:                       q.setRackBuildingPositionBulkPlaceStmt,
@@ -9516,6 +9825,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		softDeleteUserFromOrganizationStmt:                         q.softDeleteUserFromOrganizationStmt,
 		stampContainerSampleStmt:                                   q.stampContainerSampleStmt,
 		stampHashboardTopologyStmt:                                 q.stampHashboardTopologyStmt,
+		supersedePoolConfigurationTargetStmt:                       q.supersedePoolConfigurationTargetStmt,
 		swapFleetNodeHAPairStmt:                                    q.swapFleetNodeHAPairStmt,
 		sweepAlertRuleConfigsStmt:                                  q.sweepAlertRuleConfigsStmt,
 		sweepCurtailmentTargetsToReleasedStmt:                      q.sweepCurtailmentTargetsToReleasedStmt,

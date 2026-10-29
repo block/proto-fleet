@@ -17,6 +17,7 @@ import (
 // on hashboard installations, hosted pool revisions, and device write attempts.
 func rollbackEmptyMiningGroups(t *testing.T, conn *sql.DB) {
 	t.Helper()
+	rollbackEmptyPoolConfigurations(t, conn)
 	down, err := migrations.Current.ReadFile("current/001039_internal_mining_groups.down.sql")
 	require.NoError(t, err)
 	_, err = conn.ExecContext(t.Context(), string(down))

@@ -17,6 +17,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/authz"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/hostedaccounts"
+	"github.com/block/proto-fleet/server/internal/domain/poolconfigurations"
 	"github.com/block/proto-fleet/server/internal/domain/session"
 	"github.com/block/proto-fleet/server/internal/domain/stores/sqlstores"
 	"github.com/block/proto-fleet/server/internal/infrastructure/encrypt"
@@ -40,8 +41,8 @@ func poolFixture(t *testing.T, f fixture) (*hostedaccounts.PoolService, *hosteda
 	return hostedaccounts.NewPoolService(f.svc, cipher, keys, verifier), keys, credentials, cipher, ctx
 }
 
-func poolOptions(password *string) hostedaccounts.PoolRevisionOptions {
-	return hostedaccounts.PoolRevisionOptions{Name: "  Customer choice  ", Slots: []hostedaccounts.PoolSlotOptions{
+func poolOptions(password *string) poolconfigurations.RevisionOptions {
+	return poolconfigurations.RevisionOptions{Name: "  Customer choice  ", Slots: []poolconfigurations.SlotOptions{
 		{URL: "stratum+tcp://freely-chosen.example:3333", Username: "payout.with.periods", Password: password, WorkerTemplate: "rig-{miner_id}"},
 		{URL: "stratum+ssl://backup.example:443", Username: "backup.payout"},
 	}}

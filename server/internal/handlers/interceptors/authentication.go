@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/block/proto-fleet/server/generated/grpc/poolconfigurations/v1/poolconfigurationsv1connect"
+
 	"github.com/block/proto-fleet/server/generated/grpc/auth/v1/authv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/hosted/v1/hostedv1connect"
 
@@ -225,6 +227,14 @@ func requiresSelectedAccount(procedure string) bool {
 
 func allowsAccountKey(procedure string) bool {
 	switch procedure {
+	case poolconfigurationsv1connect.PoolConfigurationServiceCreateConfigurationProcedure,
+		poolconfigurationsv1connect.PoolConfigurationServiceGetConfigurationProcedure,
+		poolconfigurationsv1connect.PoolConfigurationServiceListConfigurationsProcedure,
+		poolconfigurationsv1connect.PoolConfigurationServiceDuplicateConfigurationProcedure,
+		poolconfigurationsv1connect.PoolConfigurationServiceArchiveConfigurationProcedure,
+		poolconfigurationsv1connect.PoolConfigurationServiceReviewEditProcedure,
+		poolconfigurationsv1connect.PoolConfigurationServiceConfirmReviewProcedure:
+		return true
 	case hostedv1connect.HostedAccountServiceCreatePoolConfigurationProcedure,
 		hostedv1connect.HostedAccountServiceRevisePoolConfigurationProcedure,
 		hostedv1connect.HostedAccountServiceGetPoolRevisionProcedure,
@@ -243,6 +253,14 @@ func allowsSelectedAccount(procedure string) bool {
 	// explicit decision before they can be called from a customer workspace.
 	// Invitation redemption precedes selection and is excluded.
 	switch procedure {
+	case poolconfigurationsv1connect.PoolConfigurationServiceCreateConfigurationProcedure,
+		poolconfigurationsv1connect.PoolConfigurationServiceGetConfigurationProcedure,
+		poolconfigurationsv1connect.PoolConfigurationServiceListConfigurationsProcedure,
+		poolconfigurationsv1connect.PoolConfigurationServiceDuplicateConfigurationProcedure,
+		poolconfigurationsv1connect.PoolConfigurationServiceArchiveConfigurationProcedure,
+		poolconfigurationsv1connect.PoolConfigurationServiceReviewEditProcedure,
+		poolconfigurationsv1connect.PoolConfigurationServiceConfirmReviewProcedure:
+		return true
 	case hostedv1connect.HostedAccountServiceListAccountActivitiesProcedure,
 		hostedv1connect.HostedAccountServiceExportAccountActivitiesProcedure,
 		hostedv1connect.HostedAccountServiceGetAccountDashboardProcedure,

@@ -17,6 +17,7 @@ import (
 	"github.com/block/proto-fleet/server/generated/grpc/minercommand/v1/minercommandv1connect"
 	mininggroupsv1connect "github.com/block/proto-fleet/server/generated/grpc/mininggroups/v1/mininggroupsv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/onboarding/v1/onboardingv1connect"
+	"github.com/block/proto-fleet/server/generated/grpc/poolconfigurations/v1/poolconfigurationsv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/serverlog/v1/serverlogv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/sitemap/v1/sitemapv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/sites/v1/sitesv1connect"
@@ -26,6 +27,9 @@ import (
 // (passwords, pool credentials, provider attestations) and must not be
 // logged at debug level.
 var RedactedRequestProcedures = []string{
+	poolconfigurationsv1connect.PoolConfigurationServiceCreateConfigurationProcedure,
+	poolconfigurationsv1connect.PoolConfigurationServiceReviewEditProcedure,
+
 	mininggroupsv1connect.MiningGroupServiceSetPoolsProcedure,
 	mininggroupsv1connect.MiningGroupServiceCreatePoolConfigurationProcedure,
 	hostedv1connect.HostedAccountServiceCreatePoolConfigurationProcedure,
@@ -261,6 +265,9 @@ var FleetNodeAuthenticatedProcedures = []string{
 // For streaming RPCs, this also suppresses individual message bodies in
 // loggingStreamingHandlerConn.
 var SensitiveBodyProcedures = map[string]bool{
+	poolconfigurationsv1connect.PoolConfigurationServiceCreateConfigurationProcedure: true,
+	poolconfigurationsv1connect.PoolConfigurationServiceReviewEditProcedure:          true,
+
 	hostedv1connect.HostedAccountServiceListAccountActivitiesProcedure:   true,
 	hostedv1connect.HostedAccountServiceExportAccountActivitiesProcedure: true,
 	hostedv1connect.HostedAccountServiceGetAccountDashboardProcedure:     true,

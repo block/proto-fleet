@@ -5,7 +5,7 @@ import (
 
 	"github.com/block/proto-fleet/server/generated/sqlc"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
-	"github.com/block/proto-fleet/server/internal/domain/hostedaccounts"
+	"github.com/block/proto-fleet/server/internal/domain/poolconfigurations"
 	"github.com/block/proto-fleet/server/internal/domain/session"
 	sdk "github.com/block/proto-fleet/server/sdk/v1"
 	"github.com/google/uuid"
@@ -141,7 +141,7 @@ func TestRejectedAssignmentPreservesEarlierIntent(t *testing.T) {
 	require.NoError(t, err)
 	info, err := session.GetInfo(ctx)
 	require.NoError(t, err)
-	profile, err := f.service.pools.CreateHost(ctx, info.UserID, info.OrganizationID, hostedaccounts.PoolRevisionOptions{Name: "Other pools", Slots: []hostedaccounts.PoolSlotOptions{{URL: "stratum+tcp://other.example:3333", Username: "other"}}})
+	profile, err := f.service.pools.CreateHost(ctx, info.UserID, info.OrganizationID, poolconfigurations.RevisionOptions{Name: "Other pools", Slots: []poolconfigurations.SlotOptions{{URL: "stratum+tcp://other.example:3333", Username: "other"}}})
 	require.NoError(t, err)
 	before := f.state(t)
 	_, err = f.service.Submit(ctx, f.target.DeviceIdentifier, uuid.NewString(), profile.RevisionID, boards, before.Revision)

@@ -7,6 +7,7 @@ import (
 	"github.com/block/proto-fleet/server/generated/sqlc"
 	"github.com/block/proto-fleet/server/internal/domain/authz"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/block/proto-fleet/server/internal/domain/poolconfigurations"
 	"github.com/block/proto-fleet/server/internal/infrastructure/db"
 	sdk "github.com/block/proto-fleet/server/sdk/v1"
 	"github.com/google/uuid"
@@ -15,8 +16,8 @@ import (
 // Host profiles use the same encrypted, immutable revision store as customer
 // profiles. These explicit operator methods do not grant root account customer
 // membership and cannot read another account's configurations.
-func (s *PoolService) CreateHost(ctx context.Context, userID, orgID int64, options PoolRevisionOptions) (PoolRevision, error) {
-	options, err := validatePoolOptions(options)
+func (s *PoolService) CreateHost(ctx context.Context, userID, orgID int64, options poolconfigurations.RevisionOptions) (PoolRevision, error) {
+	options, err := poolconfigurations.Validate(options)
 	if err != nil {
 		return PoolRevision{}, err
 	}
@@ -37,7 +38,7 @@ func (s *PoolService) CreateHost(ctx context.Context, userID, orgID int64, optio
 		if err != nil {
 			return PoolRevision{}, err
 		}
-		slots, err := s.encryptSlots(options.Slots, nil)
+		slots, err := poolconfigurations.EncryptSlots(s.secrets, options.Slots, nil)
 		if err != nil {
 			return PoolRevision{}, err
 		}
@@ -91,7 +92,7 @@ func (s *PoolService) HostGroupCredentials(ctx context.Context, q sqlc.Querier, 
 	if err != nil {
 		return nil, err
 	}
-	slots, err := decodePoolSlots(r.Slots)
+	slots, err := poolconfigurations.DecodeSlots(r.Slots)
 	if err != nil {
 		return nil, err
 	}

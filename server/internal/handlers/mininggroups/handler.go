@@ -11,6 +11,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/hostedaccounts"
 	domain "github.com/block/proto-fleet/server/internal/domain/mininggroups"
+	"github.com/block/proto-fleet/server/internal/domain/poolconfigurations"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
@@ -112,12 +113,12 @@ func (h *Handler) CreatePoolConfiguration(ctx context.Context, r *connect.Reques
 	if input == nil {
 		return nil, fleeterror.NewInvalidArgumentError("pool configuration required")
 	}
-	options := hostedaccounts.PoolRevisionOptions{Name: input.Name}
+	options := poolconfigurations.RevisionOptions{Name: input.Name}
 	for _, p := range input.Slots {
 		if p == nil {
 			return nil, fleeterror.NewInvalidArgumentError("pool slot required")
 		}
-		options.Slots = append(options.Slots, hostedaccounts.PoolSlotOptions{URL: p.Url, Username: p.Username, WorkerTemplate: p.WorkerTemplate, Password: p.Password})
+		options.Slots = append(options.Slots, poolconfigurations.SlotOptions{URL: p.Url, Username: p.Username, WorkerTemplate: p.WorkerTemplate, Password: p.Password})
 	}
 	row, err := h.pools.CreateHost(ctx, i.UserID, i.OrganizationID, options)
 	if err != nil {

@@ -62,7 +62,7 @@ func NewDevice(ctx context.Context, id string, info sdk.DeviceInfo, credentials 
 	return d, nil
 }
 func Capabilities() sdk.Capabilities {
-	return sdk.Capabilities{sdk.CapabilityMiningGroups: true, sdk.CapabilityTankMining: true, sdk.CapabilityModuleMining: true, sdk.CapabilityContainerControl: true, sdk.CapabilityPollingHost: true, sdk.CapabilityDiscovery: true, sdk.CapabilityPairing: true, sdk.CapabilityRealtimeTelemetry: true, sdk.CapabilityHashrateReported: true, sdk.CapabilityPowerUsage: true}
+	return sdk.Capabilities{sdk.CapabilityPoolConfig: true, sdk.CapabilityPoolPriority: true, sdk.CapabilityMiningGroups: true, sdk.CapabilityTankMining: true, sdk.CapabilityModuleMining: true, sdk.CapabilityContainerControl: true, sdk.CapabilityPollingHost: true, sdk.CapabilityDiscovery: true, sdk.CapabilityPairing: true, sdk.CapabilityRealtimeTelemetry: true, sdk.CapabilityHashrateReported: true, sdk.CapabilityPowerUsage: true}
 }
 func (d *Device) ID() string { return d.id }
 func (d *Device) DescribeDevice(ctx context.Context) (sdk.DeviceInfo, sdk.Capabilities, error) {
@@ -133,14 +133,8 @@ func (d *Device) GetCoolingMode(context.Context) (sdk.CoolingMode, error) {
 func (d *Device) SetPowerTarget(context.Context, sdk.PerformanceMode) error {
 	return sdk.NewErrUnsupportedCapability("power_target")
 }
-func (d *Device) UpdateMiningPools(context.Context, []sdk.MiningPoolConfig) error {
-	return sdk.NewErrUnsupportedCapability("pool_config")
-}
 func (d *Device) UpdateMinerPassword(context.Context, string, string) error {
 	return sdk.NewErrUnsupportedCapability("password")
-}
-func (d *Device) GetMiningPools(context.Context) ([]sdk.ConfiguredPool, error) {
-	return nil, sdk.NewErrUnsupportedCapability("pool_config")
 }
 func (d *Device) DownloadLogs(context.Context, *time.Time, string) (string, bool, error) {
 	return "", false, sdk.NewErrUnsupportedCapability("logs")

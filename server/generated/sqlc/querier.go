@@ -74,6 +74,7 @@ type Querier interface {
 	// statement so credential repair is observed from a fresh snapshot.
 	ApplyFleetNodeRecoveryAuthenticationNeeded(ctx context.Context, arg ApplyFleetNodeRecoveryAuthenticationNeededParams) (int64, error)
 	ArchiveHostedAccountPool(ctx context.Context, arg ArchiveHostedAccountPoolParams) (int64, error)
+	ArchivePoolConfiguration(ctx context.Context, arg ArchivePoolConfigurationParams) (int64, error)
 	// Move a building to a different site (or to "unassigned" by passing
 	// NULL). The cross-collection invariant (no rack in the building
 	// contains a device assigned to a different site) is enforced in the
@@ -264,6 +265,7 @@ type Querier interface {
 	ClaimClosedLoopFullFleetTargets(ctx context.Context, arg ClaimClosedLoopFullFleetTargetsParams) ([]ClaimClosedLoopFullFleetTargetsRow, error)
 	ClaimDeletionUnpairPermit(ctx context.Context, arg ClaimDeletionUnpairPermitParams) (int64, error)
 	ClaimMessageForProcessing(ctx context.Context, id int64) (sql.Result, error)
+	ClaimPoolConfigurationTarget(ctx context.Context, arg ClaimPoolConfigurationTargetParams) (int32, error)
 	ClaimRigConfigReconciliation(ctx context.Context) (CurtailmentRigConfigReconciliation, error)
 	ClassifyFleetRuntimeLeaseAcquisition(ctx context.Context, arg ClassifyFleetRuntimeLeaseAcquisitionParams) (string, error)
 	ClearCurtailmentAutomationActiveEvent(ctx context.Context, arg ClearCurtailmentAutomationActiveEventParams) error
@@ -451,6 +453,11 @@ type Querier interface {
 	CreateOrganizationInvitation(ctx context.Context, arg CreateOrganizationInvitationParams) (OrganizationInvitation, error)
 	CreatePendingEnrollment(ctx context.Context, arg CreatePendingEnrollmentParams) (PendingEnrollment, error)
 	CreatePool(ctx context.Context, arg CreatePoolParams) (int64, error)
+	CreatePoolConfiguration(ctx context.Context, arg CreatePoolConfigurationParams) (PoolConfiguration, error)
+	CreatePoolConfigurationOperation(ctx context.Context, arg CreatePoolConfigurationOperationParams) (PoolConfigurationOperation, error)
+	CreatePoolConfigurationOperationTarget(ctx context.Context, arg CreatePoolConfigurationOperationTargetParams) (PoolConfigurationOperationTarget, error)
+	CreatePoolConfigurationReview(ctx context.Context, arg CreatePoolConfigurationReviewParams) (PoolConfigurationReview, error)
+	CreatePoolConfigurationRevision(ctx context.Context, arg CreatePoolConfigurationRevisionParams) (PoolConfigurationRevision, error)
 	CreateQueueMessage(ctx context.Context, arg CreateQueueMessageParams) error
 	CreateQueueMessages(ctx context.Context, arg CreateQueueMessagesParams) error
 	// org_id is denormalized onto device_set_rack so the building FK can be
@@ -624,6 +631,7 @@ type Querier interface {
 	// Record the first terminal time after the header lock, bounded by the
 	// rollout's preceding lifecycle events.
 	FinishFirmwareRollout(ctx context.Context, arg FinishFirmwareRolloutParams) (int64, error)
+	FinishPoolConfigurationTarget(ctx context.Context, arg FinishPoolConfigurationTargetParams) (int64, error)
 	FinishTerminalCommandBatches(ctx context.Context, finishLimit int32) (int64, error)
 	FleetNodeInHAPair(ctx context.Context, arg FleetNodeInHAPairParams) (bool, error)
 	// Last-resort recovery: persistently releases curtailment ownership for any
@@ -999,6 +1007,13 @@ type Querier interface {
 	GetPermissionByKey(ctx context.Context, key string) (Permission, error)
 	GetPermissionsByKeys(ctx context.Context, keys []string) ([]Permission, error)
 	GetPool(ctx context.Context, arg GetPoolParams) (Pool, error)
+	GetPoolAssignmentDevice(ctx context.Context, arg GetPoolAssignmentDeviceParams) (int64, error)
+	GetPoolAssignmentInstallation(ctx context.Context, arg GetPoolAssignmentInstallationParams) (int64, error)
+	GetPoolConfiguration(ctx context.Context, arg GetPoolConfigurationParams) (GetPoolConfigurationRow, error)
+	GetPoolConfigurationAssignment(ctx context.Context, arg GetPoolConfigurationAssignmentParams) (GetPoolConfigurationAssignmentRow, error)
+	GetPoolConfigurationImport(ctx context.Context, arg GetPoolConfigurationImportParams) (PoolConfigurationImport, error)
+	GetPoolConfigurationOperation(ctx context.Context, arg GetPoolConfigurationOperationParams) (PoolConfigurationOperation, error)
+	GetPoolConfigurationRevision(ctx context.Context, arg GetPoolConfigurationRevisionParams) (PoolConfigurationRevision, error)
 	GetQueueMessagesByBatch(ctx context.Context, commandBatchLogUuid string) ([]GetQueueMessagesByBatchRow, error)
 	// Batch query to get rack label and formatted slot position for multiple devices at once.
 	// Returns at most one rack per device due to partial unique index.
@@ -1526,6 +1541,9 @@ type Querier interface {
 	// private role or capabilities unless explicit live authority grants viewing.
 	ListHostedAccountSummaries(ctx context.Context, arg ListHostedAccountSummariesParams) ([]ListHostedAccountSummariesRow, error)
 	ListHostedAccounts(ctx context.Context, organizationID int64) ([]HostedAccount, error)
+	ListHostedPoolImportSources(ctx context.Context, organizationID int64) ([]ListHostedPoolImportSourcesRow, error)
+	// New source versions may reuse only active, current settings with import provenance.
+	ListImportedPoolConfigurations(ctx context.Context, arg ListImportedPoolConfigurationsParams) ([]ListImportedPoolConfigurationsRow, error)
 	// Lists every live infrastructure device in the org. site_ids is an
 	// optional OR filter (empty array = no filter); excluded_site_ids
 	// removes sites from the result regardless of site_ids — the handler
@@ -1569,6 +1587,9 @@ type Querier interface {
 	ListOrganizations(ctx context.Context) ([]Organization, error)
 	ListPartsBySite(ctx context.Context, arg ListPartsBySiteParams) ([]ListPartsBySiteRow, error)
 	ListPermissions(ctx context.Context) ([]Permission, error)
+	ListPoolConfigurationAssignments(ctx context.Context, arg ListPoolConfigurationAssignmentsParams) ([]PoolConfigurationAssignment, error)
+	ListPoolConfigurationOperationTargets(ctx context.Context, arg ListPoolConfigurationOperationTargetsParams) ([]PoolConfigurationOperationTarget, error)
+	ListPoolConfigurations(ctx context.Context, arg ListPoolConfigurationsParams) ([]ListPoolConfigurationsRow, error)
 	ListPools(ctx context.Context, orgID int64) ([]Pool, error)
 	ListRackTypes(ctx context.Context, orgID int64) ([]ListRackTypesRow, error)
 	// Returns all distinct (building_id, zone) pairs across the org's racks
@@ -1868,6 +1889,8 @@ type Querier interface {
 	// Organization locks do not serialize issuers in different organizations, so
 	// each candidate code is reserved until the issuing transaction ends.
 	LockInvitationTokenHash(ctx context.Context, tokenHash string) error
+	// A maintenance import must also exclude new rows from the legacy library.
+	LockLegacyPoolLibraryForImport(ctx context.Context) error
 	LockMaintenanceBuildingForTicket(ctx context.Context, arg LockMaintenanceBuildingForTicketParams) (int64, error)
 	LockMaintenanceMinerForTicket(ctx context.Context, arg LockMaintenanceMinerForTicketParams) (int64, error)
 	// Match rack placement writers' dsr → ds table order.
@@ -1886,6 +1909,10 @@ type Querier interface {
 	LockMinerBindingPairing(ctx context.Context, deviceID int64) ([]int64, error)
 	LockMinerBindingRoutes(ctx context.Context, deviceID int64) ([]int64, error)
 	LockMiningGroupState(ctx context.Context, arg LockMiningGroupStateParams) (ContainerMiningGroupState, error)
+	LockPoolConfiguration(ctx context.Context, arg LockPoolConfigurationParams) (PoolConfiguration, error)
+	// Preserve serialization without blocking foreign-key KEY SHARE admission.
+	LockPoolConfigurationImportOrganization(ctx context.Context, id int64) (int64, error)
+	LockPoolConfigurationReview(ctx context.Context, arg LockPoolConfigurationReviewParams) (LockPoolConfigurationReviewRow, error)
 	LockQueuedDeviceWrite(ctx context.Context, id int64) (LockQueuedDeviceWriteRow, error)
 	// Locks device_set + rack rows FOR UPDATE and returns current placement.
 	// Must run after the site/building locks (canonical lock order).
@@ -2062,6 +2089,7 @@ type Querier interface {
 	// its actor.
 	RecordFirmwareRolloutAction(ctx context.Context, arg RecordFirmwareRolloutActionParams) error
 	RecordMiningGroupRequest(ctx context.Context, arg RecordMiningGroupRequestParams) error
+	RecordPoolConfigurationImport(ctx context.Context, arg RecordPoolConfigurationImportParams) error
 	RecoverTelemetrySeedBatch(ctx context.Context) error
 	// ============================================================================
 	// Error Lifecycle Management
@@ -2179,6 +2207,8 @@ type Querier interface {
 	// Detach changed placements before inserting their replacements, including swaps.
 	// Identity rows survive retirement; a returning PSU reuses its original ID.
 	RetireContainerModules(ctx context.Context, arg RetireContainerModulesParams) error
+	RetirePoolConfigurationAssignment(ctx context.Context, arg RetirePoolConfigurationAssignmentParams) (int64, error)
+	RetryPoolConfigurationTarget(ctx context.Context, arg RetryPoolConfigurationTargetParams) (int64, error)
 	RetryRigConfigReconciliation(ctx context.Context, arg RetryRigConfigReconciliationParams) error
 	RevertScheduleToActive(ctx context.Context, id int64) error
 	RevokeAllSessionsByUserID(ctx context.Context, arg RevokeAllSessionsByUserIDParams) error
@@ -2192,6 +2222,7 @@ type Querier interface {
 	RevokePermissionFromRole(ctx context.Context, arg RevokePermissionFromRoleParams) error
 	RevokeSession(ctx context.Context, arg RevokeSessionParams) error
 	SaveMiningGroupState(ctx context.Context, arg SaveMiningGroupStateParams) error
+	SavePoolConfigurationReviewResult(ctx context.Context, arg SavePoolConfigurationReviewResultParams) (int64, error)
 	// A successful RPC can still leave a blocked operation (including FAILED
 	// transfers). Only a successful reconciliation outcome resets the backoff.
 	// Guard the workflow identity so delayed bookkeeping cannot affect a new request.
@@ -2224,6 +2255,8 @@ type Querier interface {
 	SetLocalFleetNodeHAFailoverLockTimeout(ctx context.Context, timeoutMilliseconds int64) error
 	SetLocalTransactionTimeout(ctx context.Context, timeoutMilliseconds int64) error
 	SetMQTTSourceConfigEnabled(ctx context.Context, arg SetMQTTSourceConfigEnabledParams) (SetMQTTSourceConfigEnabledRow, error)
+	SetPoolConfigurationAssignment(ctx context.Context, arg SetPoolConfigurationAssignmentParams) (PoolConfigurationAssignment, error)
+	SetPoolConfigurationCurrentRevision(ctx context.Context, arg SetPoolConfigurationCurrentRevisionParams) (PoolConfiguration, error)
 	// Writes the rack's grid placement (aisle_index, position_in_aisle).
 	// Caller must have already set building_id via UpdateRackPlacement —
 	// this query intentionally does not touch building_id so the two
@@ -2320,6 +2353,7 @@ type Querier interface {
 	// collection. The function groups by exact source time and supplies explicit
 	// board/time filters before Timescale decompresses batches, including generic plans.
 	StampHashboardTopology(ctx context.Context, arg StampHashboardTopologyParams) error
+	SupersedePoolConfigurationTarget(ctx context.Context, arg SupersedePoolConfigurationTargetParams) error
 	SwapFleetNodeHAPair(ctx context.Context, id int64) error
 	// Reclaims rows for never-created rule UIDs left by ambiguous create failures (see CreateRule).
 	// The hour of slack protects in-flight creates, whose config row lands before the Grafana rule exists.

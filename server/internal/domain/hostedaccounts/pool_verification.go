@@ -5,6 +5,7 @@ import (
 
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/miner/interfaces"
+	"github.com/block/proto-fleet/server/internal/domain/poolconfigurations"
 	sdk "github.com/block/proto-fleet/server/sdk/v1"
 )
 
@@ -32,7 +33,7 @@ func verifyStoredPools(expected []sdk.MiningPoolConfig, actual []interfaces.Mine
 			continue
 		}
 		desired := expected[i]
-		if desired.Priority != pool.Priority || !validPoolURL(desired.URL) || desired.WorkerName == "" ||
+		if desired.Priority != pool.Priority || !poolconfigurations.ValidURL(desired.URL) || desired.WorkerName == "" ||
 			pool.URL != desired.URL || pool.Username != desired.WorkerName ||
 			subtle.ConstantTimeCompare([]byte(*pool.Password), []byte(desired.Password)) != 1 {
 			return mismatch()

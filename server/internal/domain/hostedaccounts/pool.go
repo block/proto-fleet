@@ -6,39 +6,17 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
-	"net"
-	"net/url"
-	"strconv"
-	"strings"
 	"time"
-	"unicode"
-	"unicode/utf8"
 
-	"buf.build/go/protovalidate"
 	"github.com/google/uuid"
-
-	poolspb "github.com/block/proto-fleet/server/generated/grpc/pools/v1"
 
 	"github.com/block/proto-fleet/server/generated/sqlc"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/block/proto-fleet/server/internal/domain/poolconfigurations"
 	"github.com/block/proto-fleet/server/internal/domain/session"
-	"github.com/block/proto-fleet/server/internal/domain/sv2"
 	"github.com/block/proto-fleet/server/internal/infrastructure/db"
 	"github.com/block/proto-fleet/server/internal/infrastructure/encrypt"
 )
-
-type PoolSlotOptions struct {
-	URL, Username, WorkerTemplate string
-	// Nil retains the previous password only when URL and username at this
-	// priority are unchanged. Other existing slots require an explicit password;
-	// a new slot defaults to encrypted empty. Explicit empty clears it.
-	Password *string
-}
-
-type PoolRevisionOptions struct {
-	Name  string
-	Slots []PoolSlotOptions
-}
 
 // PoolEndpoint deliberately has no plaintext or encrypted credential field.
 type PoolEndpoint struct {
@@ -82,16 +60,8 @@ func NewPoolService(accounts *Service, secrets *encrypt.Service, keys *KeyServic
 	return &PoolService{accounts: accounts, secrets: secrets, keys: keys, verifier: verifier}
 }
 
-type storedPoolSlot struct {
-	URL                string `json:"url"`
-	Username           string `json:"username"`
-	WorkerTemplate     string `json:"worker_template"`
-	PasswordCiphertext string `json:"password_ciphertext"`
-	HasPassword        bool   `json:"has_password"`
-}
-
-func (s *PoolService) Create(ctx context.Context, actorID, orgID int64, accountID string, options PoolRevisionOptions) (PoolRevision, error) {
-	options, err := validatePoolOptions(options)
+func (s *PoolService) Create(ctx context.Context, actorID, orgID int64, accountID string, options poolconfigurations.RevisionOptions) (PoolRevision, error) {
+	options, err := poolconfigurations.Validate(options)
 	if err != nil {
 		return PoolRevision{}, err
 	}
@@ -100,7 +70,7 @@ func (s *PoolService) Create(ctx context.Context, actorID, orgID int64, accountI
 		if err != nil {
 			return PoolRevision{}, err
 		}
-		slots, err := s.encryptSlots(options.Slots, nil)
+		slots, err := poolconfigurations.EncryptSlots(s.secrets, options.Slots, nil)
 		if err != nil {
 			return PoolRevision{}, err
 		}
@@ -119,8 +89,8 @@ func (s *PoolService) Create(ctx context.Context, actorID, orgID int64, accountI
 	})
 }
 
-func (s *PoolService) Revise(ctx context.Context, actorID, orgID int64, accountID, poolID, expectedRevisionID string, options PoolRevisionOptions) (PoolRevision, error) {
-	options, err := validatePoolOptions(options)
+func (s *PoolService) Revise(ctx context.Context, actorID, orgID int64, accountID, poolID, expectedRevisionID string, options poolconfigurations.RevisionOptions) (PoolRevision, error) {
+	options, err := poolconfigurations.Validate(options)
 	if err != nil {
 		return PoolRevision{}, err
 	}
@@ -146,11 +116,11 @@ func (s *PoolService) Revise(ctx context.Context, actorID, orgID int64, accountI
 		if previous.RevisionID != expectedRevisionID {
 			return PoolRevision{}, fleeterror.NewFailedPreconditionError("pool configuration has a newer revision")
 		}
-		oldSlots, err := decodePoolSlots(previous.Slots)
+		oldSlots, err := poolconfigurations.DecodeSlots(previous.Slots)
 		if err != nil {
 			return PoolRevision{}, err
 		}
-		slots, err := s.encryptSlots(options.Slots, oldSlots)
+		slots, err := poolconfigurations.EncryptSlots(s.secrets, options.Slots, oldSlots)
 		if err != nil {
 			return PoolRevision{}, err
 		}
@@ -388,46 +358,8 @@ func (s *PoolService) authorizePoolAccess(ctx context.Context, q sqlc.Querier, a
 	return account, nil
 }
 
-func (s *PoolService) encryptSlots(options []PoolSlotOptions, previous []storedPoolSlot) ([]byte, error) {
-	stored := make([]storedPoolSlot, len(options))
-	for i, slot := range options {
-		item := storedPoolSlot{URL: slot.URL, Username: slot.Username, WorkerTemplate: slot.WorkerTemplate}
-		if slot.Password == nil && i < len(previous) {
-			if slot.URL != previous[i].URL || slot.Username != previous[i].Username {
-				return nil, fleeterror.NewInvalidArgumentError("changed pool destination or username requires an explicit password; use empty to clear")
-			}
-			item.PasswordCiphertext, item.HasPassword = previous[i].PasswordCiphertext, previous[i].HasPassword
-		} else {
-			password := ""
-			if slot.Password != nil {
-				password = *slot.Password
-			}
-			var err error
-			item.PasswordCiphertext, err = s.secrets.Encrypt([]byte(password))
-			if err != nil {
-				return nil, fleeterror.NewInternalError("encrypt pool password failed")
-			}
-			item.HasPassword = password != ""
-		}
-		stored[i] = item
-	}
-	encoded, err := json.Marshal(stored)
-	if err != nil {
-		return nil, fleeterror.NewInternalError("encode pool slots failed")
-	}
-	return encoded, nil
-}
-
-func decodePoolSlots(encoded []byte) ([]storedPoolSlot, error) {
-	var slots []storedPoolSlot
-	if err := json.Unmarshal(encoded, &slots); err != nil {
-		return nil, fleeterror.NewInternalError("decode pool slots failed")
-	}
-	return slots, nil
-}
-
 func publicPoolRevision(row sqlc.HostedAccountPoolRevision, archived bool) (PoolRevision, error) {
-	stored, err := decodePoolSlots(row.Slots)
+	stored, err := poolconfigurations.DecodeSlots(row.Slots)
 	if err != nil {
 		return PoolRevision{}, err
 	}
@@ -456,129 +388,4 @@ func poolStorageError(err error) error {
 func validPoolID(id string) bool {
 	parsed, err := uuid.Parse(id)
 	return err == nil && parsed.String() == id
-}
-
-func validatePoolOptions(options PoolRevisionOptions) (PoolRevisionOptions, error) {
-	options.Name = strings.TrimSpace(options.Name)
-	if options.Name == "" || !utf8.ValidString(options.Name) || utf8.RuneCountInString(options.Name) > 255 {
-		return options, fleeterror.NewInvalidArgumentError("pool name must contain 1 to 255 characters")
-	}
-	if len(options.Slots) < 1 || len(options.Slots) > 3 {
-		return options, fleeterror.NewInvalidArgumentError("pool configurations require 1 to 3 ordered slots")
-	}
-	for _, slot := range options.Slots {
-		if !validPoolURL(slot.URL) {
-			return options, fleeterror.NewInvalidArgumentError("invalid pool destination")
-		}
-		if !validPoolText(slot.Username, 255, false) || slot.Username == "" {
-			return options, fleeterror.NewInvalidArgumentError("invalid payout username")
-		}
-		if slot.Password != nil && !validPoolText(*slot.Password, 255, true) {
-			return options, fleeterror.NewInvalidArgumentError("invalid pool password")
-		}
-		if err := validateWorkerTemplate(slot.WorkerTemplate); err != nil {
-			return options, err
-		}
-	}
-	return options, nil
-}
-
-func validPoolText(value string, maxBytes int, allowSpace bool) bool {
-	if len(value) > maxBytes || !utf8.ValidString(value) {
-		return false
-	}
-	for _, r := range value {
-		if unicode.IsControl(r) || (!allowSpace && unicode.IsSpace(r)) {
-			return false
-		}
-	}
-	return true
-}
-
-func validPoolURL(raw string) bool {
-	// Use the host pool contract as the common destination grammar. Additional
-	// checks below reject malformed hosts, unsafe ports and invalid V2 keys.
-	if !validPoolText(raw, 256, false) || protovalidate.Validate(&poolspb.PoolConfig{Url: raw}) != nil {
-		return false
-	}
-	u, err := url.Parse(raw)
-	if err != nil || u.User != nil || u.RawQuery != "" || u.ForceQuery || u.Fragment != "" || strings.Contains(raw, "#") || u.Opaque != "" || u.Host == "" {
-		return false
-	}
-	switch u.Scheme {
-	case "stratum+tcp", "stratum+ssl", "stratum+ws", "stratum2+tcp":
-	default:
-		return false
-	}
-	host := u.Hostname()
-	if net.ParseIP(host) == nil {
-		if len(host) == 0 || len(host) > 253 {
-			return false
-		}
-		for _, label := range strings.Split(strings.TrimSuffix(host, "."), ".") {
-			if len(label) == 0 || len(label) > 63 || label[0] == '-' || label[len(label)-1] == '-' {
-				return false
-			}
-			for _, c := range label {
-				if !(c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '-') {
-					return false
-				}
-			}
-		}
-	}
-	if strings.HasSuffix(u.Host, ":") {
-		return false
-	}
-	if port := u.Port(); port != "" {
-		n, err := strconv.Atoi(port)
-		if err != nil || n < 1 || n > 65535 {
-			return false
-		}
-	}
-	if u.Scheme == "stratum2+tcp" {
-		return u.Port() != "" && sv2.ValidatePoolURL(raw) == nil
-	}
-	return u.Path == "" || u.Path == "/"
-}
-
-func validateWorkerTemplate(template string) error {
-	if !validPoolText(template, 128, false) {
-		return fleeterror.NewInvalidArgumentError("invalid worker template")
-	}
-	for remaining := template; remaining != ""; {
-		index := strings.IndexAny(remaining, "{}")
-		if index < 0 {
-			break
-		}
-		remaining = remaining[index:]
-		switch {
-		case strings.HasPrefix(remaining, "{miner_id}"):
-			remaining = strings.TrimPrefix(remaining, "{miner_id}")
-		case strings.HasPrefix(remaining, "{miner_name}"):
-			remaining = strings.TrimPrefix(remaining, "{miner_name}")
-		default:
-			return fleeterror.NewInvalidArgumentError("invalid worker template placeholder")
-		}
-	}
-	return nil
-}
-
-// RenderPoolWorker keeps the complete payout username, including its periods.
-// Future allocation code supplies stable miner identifiers and names.
-func RenderPoolWorker(username, template, minerID, minerName string) (string, error) {
-	if username == "" || !validPoolText(username, 255, false) {
-		return "", fleeterror.NewInvalidArgumentError("invalid payout username")
-	}
-	if err := validateWorkerTemplate(template); err != nil {
-		return "", err
-	}
-	worker := username
-	if template != "" {
-		suffix := strings.NewReplacer("{miner_id}", minerID, "{miner_name}", minerName).Replace(template)
-		worker += "." + suffix
-	}
-	if !validPoolText(worker, 255, false) {
-		return "", fleeterror.NewInvalidArgumentError("rendered pool worker must contain at most 255 bytes without whitespace or controls")
-	}
-	return worker, nil
 }

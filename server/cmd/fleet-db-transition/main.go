@@ -10,7 +10,11 @@ import (
 	"syscall"
 
 	"github.com/alecthomas/kong"
+	"github.com/block/proto-fleet/server/generated/sqlc"
+	"github.com/block/proto-fleet/server/internal/domain/poolconfigurations"
+	poolmigration "github.com/block/proto-fleet/server/internal/domain/poolconfigurations/migration"
 	"github.com/block/proto-fleet/server/internal/infrastructure/db"
+	"github.com/block/proto-fleet/server/internal/infrastructure/encrypt"
 )
 
 type cli struct {
@@ -25,6 +29,10 @@ type cli struct {
 		Source        string `required:"" enum:"public,internal"`
 		SourceVersion int    `required:""`
 	} `cmd:"" help:"Reconcile a qualified source while all applications are stopped. Requires a rehearsed coordinated backup."`
+	ImportPoolConfigurations struct {
+		OrganizationID int64          `required:"" help:"Internal organization ID to import."`
+		Encryption     encrypt.Config `embed:""`
+	} `cmd:"" help:"Consolidate operator and hosted pool libraries while application writers are stopped. Preserves sources and does not assign or change equipment."`
 }
 
 func run(ctx context.Context, args []string) error {
@@ -54,6 +62,16 @@ func run(ctx context.Context, args []string) error {
 		}
 		return nil
 	}
+	var secrets *encrypt.Service
+	if parsed.Command() == "import-pool-configurations" {
+		if command.ImportPoolConfigurations.OrganizationID <= 0 {
+			return fmt.Errorf("pool import requires a positive organization ID")
+		}
+		secrets, err = encrypt.NewService(&command.ImportPoolConfigurations.Encryption)
+		if err != nil {
+			return err
+		}
+	}
 	// The stock migration runner uses background contexts; leave migrate on
 	// default signal handling so an operator can actually terminate it.
 	ctx, cancel := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
@@ -64,6 +82,23 @@ func run(ctx context.Context, args []string) error {
 	}
 	defer conn.Close()
 	switch parsed.Command() {
+	case "import-pool-configurations":
+		if _, err := db.CheckBaseline(ctx, conn, "startup", "", 0); err != nil {
+			return err
+		}
+		report, err := db.WithTransaction(ctx, conn, func(q sqlc.Querier) (poolconfigurations.ImportReport, error) {
+			return poolmigration.Libraries(ctx, q, secrets, command.ImportPoolConfigurations.OrganizationID)
+		})
+		if err != nil {
+			return err
+		}
+		if err := json.NewEncoder(os.Stdout).Encode(report); err != nil {
+			return fmt.Errorf("write pool import report: %w", err)
+		}
+		if len(report.Unresolved) > 0 {
+			return fmt.Errorf("%d pool configurations require review before adoption", len(report.Unresolved))
+		}
+		return nil
 	case "check":
 		status, err := db.CheckBaseline(ctx, conn, command.Check.State, command.Check.Source, command.Check.SourceVersion)
 		if err != nil {
@@ -80,7 +115,7 @@ func run(ctx context.Context, args []string) error {
 		fmt.Println("Baseline reconciliation complete. Run migrate to apply any subsequent migrations.")
 		return nil
 	default:
-		return fmt.Errorf("expected migrate, check, or apply")
+		return fmt.Errorf("expected migrate, check, apply, or import-pool-configurations")
 	}
 }
 

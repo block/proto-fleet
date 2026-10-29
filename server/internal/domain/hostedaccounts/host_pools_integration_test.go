@@ -7,6 +7,7 @@ import (
 
 	"github.com/block/proto-fleet/server/generated/sqlc"
 	"github.com/block/proto-fleet/server/internal/domain/hostedaccounts"
+	"github.com/block/proto-fleet/server/internal/domain/poolconfigurations"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 )
@@ -17,7 +18,7 @@ func TestArchivedHostPoolCredentialsRetainAccountBoundaries(t *testing.T) {
 	ctx := t.Context()
 	q := sqlc.New(f.db)
 	password := "retained-pool-password"
-	options := hostedaccounts.PoolRevisionOptions{Name: "Host pools", Slots: []hostedaccounts.PoolSlotOptions{{URL: "stratum+tcp://pool.example:3333", Username: "host.worker", Password: &password}}}
+	options := poolconfigurations.RevisionOptions{Name: "Host pools", Slots: []poolconfigurations.SlotOptions{{URL: "stratum+tcp://pool.example:3333", Username: "host.worker", Password: &password}}}
 	config, err := pools.CreateHost(ctx, f.host, f.org, options)
 	require.NoError(t, err)
 	host, err := q.GetHostPoolAccount(ctx, f.org)
@@ -48,7 +49,7 @@ func TestHostPoolCreationRecordsCredentialFreeActivity(t *testing.T) {
 	f := setup(t)
 	pools, _, _, _, ctx := poolFixture(t, f)
 	password := uuid.NewString()
-	options := hostedaccounts.PoolRevisionOptions{Name: "Host pools", Slots: []hostedaccounts.PoolSlotOptions{{URL: "stratum+tcp://private-pool.example:3333", Username: "private.payout", Password: &password}}}
+	options := poolconfigurations.RevisionOptions{Name: "Host pools", Slots: []poolconfigurations.SlotOptions{{URL: "stratum+tcp://private-pool.example:3333", Username: "private.payout", Password: &password}}}
 	config, err := pools.CreateHost(ctx, f.host, f.org, options)
 	require.NoError(t, err)
 	var actor, username string
@@ -79,7 +80,7 @@ func TestHostPoolCreationRollsBackWhenAuditFails(t *testing.T) {
 	_, err := f.db.ExecContext(ctx, `CREATE FUNCTION reject_host_pool_audit() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.event_type='create_hosted_account_pool' THEN RAISE EXCEPTION 'audit unavailable'; END IF; RETURN NEW; END $$;
  CREATE TRIGGER reject_host_pool_audit BEFORE INSERT ON activity_log FOR EACH ROW EXECUTE FUNCTION reject_host_pool_audit()`)
 	require.NoError(t, err)
-	_, err = pools.CreateHost(ctx, f.host, f.org, hostedaccounts.PoolRevisionOptions{Name: "Host pools", Slots: []hostedaccounts.PoolSlotOptions{{URL: "stratum+tcp://pool.example:3333", Username: "worker"}}})
+	_, err = pools.CreateHost(ctx, f.host, f.org, poolconfigurations.RevisionOptions{Name: "Host pools", Slots: []poolconfigurations.SlotOptions{{URL: "stratum+tcp://pool.example:3333", Username: "worker"}}})
 	require.ErrorContains(t, err, "audit unavailable")
 	var poolsCount, revisionsCount int
 	require.NoError(t, f.db.QueryRowContext(ctx, `SELECT count(*) FROM hosted_account_pool WHERE organization_id=$1`, f.org).Scan(&poolsCount))

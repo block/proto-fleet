@@ -6,6 +6,32 @@ Shared and private SQL use one sequence: shared baseline 1000, private baseline
 
 ## Existing databases
 
+### Pool configuration library import
+
+The foundation uses shared migration 1045 and private checkpoint 1046, after
+main's hosted-history summaries migration. Both apply in one transaction.
+Development databases that applied the earlier unmerged pool stack at 1042–1054
+or the unconsolidated foundation at 1047 have a different history. Use a separate
+fresh development database or reconcile that history explicitly before running
+this sequence; do not force the version or run it against those databases unchanged.
+
+After migrating to checkpoint 1046 or later, stop application writers and run
+`fleet-db-transition import-pool-configurations --organization-id=<internal-id>`
+with the normal database settings and `SERVICE_MASTER_KEY`. The command stages
+operator pools, current hosted configurations and revisions referenced by
+hashboard intent in the neutral configuration store. Equivalent ordered stacks
+merge only within the same organization/account owner, including password values
+and worker settings. Operator pools with an omitted password retain an empty
+password; missing device credentials are not treated as empty.
+
+The JSON report contains source-to-configuration mappings and unresolved entries,
+never credentials. A nonzero exit with unresolved entries means valid entries were
+imported but the remaining configurations need review. Repeating the same source
+versions is idempotent. Legacy rows and revisions remain intact. This command does
+not establish hardware assignments, switch library readers, or send device writes.
+
+### Baseline reconciliation
+
 `fleet-db-transition apply` reconciles recognized source schemas without replaying
 the fresh-install baseline. It validates the source catalog and grants, applies
 missing changes, checks protected data and the target schema, and updates the

@@ -11,6 +11,7 @@ import (
 	"github.com/block/proto-fleet/server/generated/sqlc"
 	"github.com/block/proto-fleet/server/internal/domain/authz"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/block/proto-fleet/server/internal/domain/poolconfigurations"
 	"github.com/block/proto-fleet/server/internal/infrastructure/db"
 	sdk "github.com/block/proto-fleet/server/sdk/v1"
 	"github.com/google/uuid"
@@ -44,7 +45,7 @@ func (s *PoolService) ResolveHostFleetPools(ctx context.Context, userID, orgID i
 			UpdatedAt time.Time
 		}
 		sources := []source{}
-		options := PoolRevisionOptions{Name: "Fleet pool assignment"}
+		options := poolconfigurations.RevisionOptions{Name: "Fleet pool assignment"}
 		inputs := []sdk.MiningGroupPoolInput{}
 		seen := map[int64]bool{}
 		for _, id := range ids {
@@ -68,7 +69,7 @@ func (s *PoolService) ResolveHostFleetPools(ctx context.Context, userID, orgID i
 				password = string(plain)
 			}
 			sources = append(sources, source{ID: pool.ID, UpdatedAt: pool.UpdatedAt})
-			options.Slots = append(options.Slots, PoolSlotOptions{URL: pool.Url, Username: pool.Username, Password: &password})
+			options.Slots = append(options.Slots, poolconfigurations.SlotOptions{URL: pool.Url, Username: pool.Username, Password: &password})
 			inputs = append(inputs, sdk.MiningGroupPoolInput{URL: pool.Url, Username: pool.Username, Password: password})
 		}
 		if err := (sdk.MiningGroupRequest{Action: "replace_pools", GroupID: "validation", Revision: 1, Key: "validation", Pools: inputs}).Validate(); err != nil {
@@ -89,7 +90,7 @@ func (s *PoolService) ResolveHostFleetPools(ctx context.Context, userID, orgID i
 		if !errors.Is(err, sql.ErrNoRows) {
 			return PoolRevision{}, err
 		}
-		slots, err := s.encryptSlots(options.Slots, nil)
+		slots, err := poolconfigurations.EncryptSlots(s.secrets, options.Slots, nil)
 		if err != nil {
 			return PoolRevision{}, err
 		}

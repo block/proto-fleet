@@ -1,0 +1,120 @@
+syntax = "proto3";
+
+package poolconfigurations.v1;
+
+import "buf/validate/validate.proto";
+import "google/protobuf/timestamp.proto";
+
+// One private library per organization or selected hosted account. Empty
+// account_id selects the operator library; an account workspace must supply its
+// selected account ID. Ownership and live permissions are enforced server-side.
+service PoolConfigurationService {
+  rpc CreateConfiguration(CreateConfigurationRequest) returns (CreateConfigurationResponse);
+  rpc GetConfiguration(GetConfigurationRequest) returns (GetConfigurationResponse);
+  rpc ListConfigurations(ListConfigurationsRequest) returns (ListConfigurationsResponse);
+  rpc DuplicateConfiguration(DuplicateConfigurationRequest) returns (DuplicateConfigurationResponse);
+  rpc ArchiveConfiguration(ArchiveConfigurationRequest) returns (ArchiveConfigurationResponse);
+  rpc ReviewEdit(ReviewEditRequest) returns (ReviewEditResponse);
+  rpc ConfirmReview(ConfirmReviewRequest) returns (ConfirmReviewResponse);
+}
+
+message PoolInput {
+  // Server-issued identity from this configuration's current saved revision,
+  // retained when reordering. Empty for a new slot; identities cannot be reused
+  // from another configuration. Password omission preserves only an unchanged
+  // URL and username.
+  string slot_id = 1 [(buf.validate.field).string.max_bytes = 36];
+  string url = 2 [(buf.validate.field).string = {min_len: 1, max_bytes: 256}];
+  string username = 3 [(buf.validate.field).string = {min_len: 1, max_bytes: 255}];
+  optional string password = 4 [(buf.validate.field).string.max_bytes = 255];
+  string worker_template = 5 [(buf.validate.field).string.max_bytes = 255];
+}
+
+message ConfigurationInput {
+  string name = 1 [(buf.validate.field).string = {min_len: 1, max_len: 255}];
+  // Primary first, followed by zero, one, or two backups.
+  repeated PoolInput pools = 2 [(buf.validate.field).repeated = {min_items: 1, max_items: 3}];
+}
+
+// Credentials are never returned. has_password supports explicit preserve,
+// replace and clear controls without exposing the stored value.
+message Pool {
+  string slot_id = 1;
+  string url = 2;
+  string username = 3;
+  string worker_template = 4;
+  bool has_password = 5;
+}
+
+message Configuration {
+  string configuration_id = 1;
+  string name = 2;
+  string revision_id = 3;
+  int64 version = 4;
+  bool archived = 5;
+  repeated Pool pools = 6;
+  int64 assigned_count = 7;
+}
+
+message CreateConfigurationRequest {
+  option (buf.validate.message).cel = {
+    id: "configuration.create_new_slots"
+    message: "new configurations require empty pool slot identities"
+    expression: "this.configuration.pools.all(p, p.slot_id == '')"
+  };
+  string account_id = 1;
+  ConfigurationInput configuration = 2 [(buf.validate.field).required = true];
+}
+message CreateConfigurationResponse { Configuration configuration = 1; }
+message GetConfigurationRequest {
+  string account_id = 1;
+  string configuration_id = 2 [(buf.validate.field).string.uuid = true];
+}
+message GetConfigurationResponse { Configuration configuration = 1; }
+message ListConfigurationsRequest {
+  string account_id = 1;
+  string page_token = 2 [(buf.validate.field).string.max_len = 2048];
+  int32 page_size = 3 [(buf.validate.field).int32 = {gte: 0, lte: 100}];
+  bool include_archived = 4;
+}
+message ListConfigurationsResponse {
+  repeated Configuration configurations = 1;
+  string next_page_token = 2;
+}
+message DuplicateConfigurationRequest {
+  string account_id = 1;
+  string configuration_id = 2 [(buf.validate.field).string.uuid = true];
+  string name = 3 [(buf.validate.field).string = {min_len: 1, max_len: 255}];
+}
+message DuplicateConfigurationResponse { Configuration configuration = 1; }
+message ArchiveConfigurationRequest {
+  string account_id = 1;
+  string configuration_id = 2 [(buf.validate.field).string.uuid = true];
+  int64 expected_version = 3 [(buf.validate.field).int64.gt = 0];
+}
+message ArchiveConfigurationResponse {}
+
+message ReviewEditRequest {
+  string account_id = 1;
+  string configuration_id = 2 [(buf.validate.field).string.uuid = true];
+  int64 expected_version = 3 [(buf.validate.field).int64.gt = 0];
+  ConfigurationInput configuration = 4 [(buf.validate.field).required = true];
+}
+message ReviewEditResponse {
+  string review_id = 1;
+  Configuration configuration = 2;
+  bool settings_changed = 3;
+  int64 affected_miners = 4;
+  int64 affected_hashboards = 5;
+  google.protobuf.Timestamp expires_at = 6;
+}
+message ConfirmReviewRequest {
+  string account_id = 1;
+  string review_id = 2 [(buf.validate.field).string.uuid = true];
+}
+message ConfirmReviewResponse {
+  Configuration configuration = 1;
+  // Saving settings and applying them are distinct. An operation ID denotes
+  // durable equipment work, not successful application.
+  string operation_id = 2;
+}

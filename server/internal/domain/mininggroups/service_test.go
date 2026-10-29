@@ -13,6 +13,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/devicewrite"
 	"github.com/block/proto-fleet/server/internal/domain/hostedaccounts"
 	"github.com/block/proto-fleet/server/internal/domain/miner/interfaces"
+	"github.com/block/proto-fleet/server/internal/domain/poolconfigurations"
 	"github.com/block/proto-fleet/server/internal/domain/session"
 	"github.com/block/proto-fleet/server/internal/infrastructure/encrypt"
 	"github.com/block/proto-fleet/server/internal/testutil"
@@ -140,7 +141,7 @@ func testDurableGroupReconciliation(t *testing.T, archive bool) {
 	require.NoError(t, err)
 	pools := hostedaccounts.NewPoolService(hostedaccounts.NewService(conn), secrets, nil, nil)
 	password := "private-password"
-	config, err := pools.CreateHost(ctx, user.DatabaseID, user.OrganizationID, hostedaccounts.PoolRevisionOptions{Name: "Customer pools", Slots: []hostedaccounts.PoolSlotOptions{{URL: "stratum+tcp://primary.example:3333", Username: "customer.worker", Password: &password}, {URL: "stratum+tcp://backup.example:3333", Username: "customer.worker"}}})
+	config, err := pools.CreateHost(ctx, user.DatabaseID, user.OrganizationID, poolconfigurations.RevisionOptions{Name: "Customer pools", Slots: []poolconfigurations.SlotOptions{{URL: "stratum+tcp://primary.example:3333", Username: "customer.worker", Password: &password}, {URL: "stratum+tcp://backup.example:3333", Username: "customer.worker"}}})
 	require.NoError(t, err)
 	firmware := &simulatedGroups{snapshot: sdk.MiningGroupResult{Supported: true, Enabled: true, Revision: 1, MaxGroups: 289, Groups: []sdk.MiningGroup{{ID: "default", Revision: 1, MACs: []string{"02:00:00:00:00:01", "02:00:00:00:00:02"}}}}, receipts: map[string]sdk.MiningGroupResult{}}
 	service := NewService(conn, firmware, pools, secrets)
@@ -232,7 +233,7 @@ func testDurableGroupReconciliation(t *testing.T, archive bool) {
 	require.NoError(t, err)
 	require.NotContains(t, string(observation), password)
 	if archive {
-		replacement, err := pools.CreateHost(ctx, user.DatabaseID, user.OrganizationID, hostedaccounts.PoolRevisionOptions{Name: "Replacement", Slots: []hostedaccounts.PoolSlotOptions{{URL: "stratum+tcp://replacement.example:3333", Username: "replacement.worker"}}})
+		replacement, err := pools.CreateHost(ctx, user.DatabaseID, user.OrganizationID, poolconfigurations.RevisionOptions{Name: "Replacement", Slots: []poolconfigurations.SlotOptions{{URL: "stratum+tcp://replacement.example:3333", Username: "replacement.worker"}}})
 		require.NoError(t, err)
 		_, err = service.Submit(ctx, controller.ID, uuid.NewString(), replacement.RevisionID, []int64{board}, state.Record.Revision)
 		require.NoError(t, err)

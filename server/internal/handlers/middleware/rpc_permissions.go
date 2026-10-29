@@ -28,6 +28,7 @@ import (
 	"github.com/block/proto-fleet/server/generated/grpc/networkinfo/v1/networkinfov1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/onboarding/v1/onboardingv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/pairing/v1/pairingv1connect"
+	"github.com/block/proto-fleet/server/generated/grpc/poolconfigurations/v1/poolconfigurationsv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/pools/v1/poolsv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/rollout/v1/rolloutv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/schedule/v1/schedulev1connect"
@@ -61,6 +62,16 @@ import (
 // glance: shrinking ProceduresPendingMigration to zero is the exit
 // criterion for retiring the legacy RequireAdmin middleware.
 var ProcedurePermissions = map[string]string{
+	// Shared pool operations resolve operator permission or selected-account
+	// capability inside a transaction through AuthorizePoolConfiguration.
+	poolconfigurationsv1connect.PoolConfigurationServiceCreateConfigurationProcedure:    authz.PermPoolManage,
+	poolconfigurationsv1connect.PoolConfigurationServiceGetConfigurationProcedure:       authz.PermPoolRead,
+	poolconfigurationsv1connect.PoolConfigurationServiceListConfigurationsProcedure:     authz.PermPoolRead,
+	poolconfigurationsv1connect.PoolConfigurationServiceDuplicateConfigurationProcedure: authz.PermPoolManage,
+	poolconfigurationsv1connect.PoolConfigurationServiceArchiveConfigurationProcedure:   authz.PermPoolManage,
+	poolconfigurationsv1connect.PoolConfigurationServiceReviewEditProcedure:             authz.PermPoolManage,
+	poolconfigurationsv1connect.PoolConfigurationServiceConfirmReviewProcedure:          authz.PermPoolManage,
+
 	marketdatav1connect.MarketDataServiceGetMarketDataProcedure: authz.PermFleetRead,
 	// Activity log — read-only audit trail. Export is the CSV variant of
 	// the same query; filter options is the lookup endpoint that drives

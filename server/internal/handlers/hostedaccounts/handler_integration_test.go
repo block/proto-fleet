@@ -12,6 +12,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/block/proto-fleet/server/generated/grpc/poolconfigurations/v1/poolconfigurationsv1connect"
+	"github.com/block/proto-fleet/server/internal/domain/poolconfigurations"
+	poolhandler "github.com/block/proto-fleet/server/internal/handlers/poolconfigurations"
+
 	"connectrpc.com/connect"
 	"connectrpc.com/validate"
 	authpb "github.com/block/proto-fleet/server/generated/grpc/auth/v1"
@@ -44,17 +48,18 @@ var rpcClientSequence atomic.Uint32
 const rpcPassword = "customer-password123"
 
 type rpcFixture struct {
-	db          *sql.DB
-	accounts    *domain.Service
-	keys        *apikey.Service
-	client      hostedv1connect.HostedAccountServiceClient
-	invitations invitationv1connect.InvitationServiceClient
-	auth        authv1connect.AuthServiceClient
-	org         int64
-	host        int64
-	root        string
-	cookie      string
-	peerAddress *atomic.Pointer[string]
+	configurations poolconfigurationsv1connect.PoolConfigurationServiceClient
+	db             *sql.DB
+	accounts       *domain.Service
+	keys           *apikey.Service
+	client         hostedv1connect.HostedAccountServiceClient
+	invitations    invitationv1connect.InvitationServiceClient
+	auth           authv1connect.AuthServiceClient
+	org            int64
+	host           int64
+	root           string
+	cookie         string
+	peerAddress    *atomic.Pointer[string]
 }
 
 // The RPC server uses the same identity, session, permission, validation, error
@@ -84,6 +89,7 @@ func newRPCFixture(t *testing.T) rpcFixture {
 		validate.NewInterceptor(),
 	)
 	mux := http.NewServeMux()
+	mux.Handle(poolconfigurationsv1connect.NewPoolConfigurationServiceHandler(poolhandler.NewHandler(poolconfigurations.NewService(db, poolconfigurations.NewRepository(poolSecrets), pools)), options))
 	invitations := domain.NewInvitationService(accounts, sessions)
 	mux.Handle(hostedv1connect.NewHostedAccountServiceHandler(hostedhandler.NewHandler(accounts, invitations, accountKeys, pools, users, permissions), options))
 	mux.Handle(invitationv1connect.NewInvitationServiceHandler(invitationhandler.NewHandler(invitations, domain.NewTeamInvitationService(accounts, sessions)), options))
@@ -102,9 +108,10 @@ func newRPCFixture(t *testing.T) rpcFixture {
 	}))
 	t.Cleanup(server.Close)
 	f := rpcFixture{db: db, accounts: accounts, keys: keys, org: org, peerAddress: peerAddress,
-		client:      hostedv1connect.NewHostedAccountServiceClient(server.Client(), server.URL),
-		invitations: invitationv1connect.NewInvitationServiceClient(server.Client(), server.URL),
-		auth:        authv1connect.NewAuthServiceClient(server.Client(), server.URL)}
+		configurations: poolconfigurationsv1connect.NewPoolConfigurationServiceClient(server.Client(), server.URL),
+		client:         hostedv1connect.NewHostedAccountServiceClient(server.Client(), server.URL),
+		invitations:    invitationv1connect.NewInvitationServiceClient(server.Client(), server.URL),
+		auth:           authv1connect.NewAuthServiceClient(server.Client(), server.URL)}
 	f.host = f.addUser(t, "host-"+uuid.NewString(), true)
 	require.NoError(t, db.QueryRowContext(t.Context(), `SELECT account_id FROM hosted_account WHERE organization_id=$1 AND depth=0`, org).Scan(&f.root))
 	var username string
