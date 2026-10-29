@@ -804,6 +804,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.getCurtailmentEventDetailByUUIDStmt, err = db.PrepareContext(ctx, getCurtailmentEventDetailByUUID); err != nil {
 		return nil, fmt.Errorf("error preparing query GetCurtailmentEventDetailByUUID: %w", err)
 	}
+	if q.getCurtailmentPendingWorkAgesStmt, err = db.PrepareContext(ctx, getCurtailmentPendingWorkAges); err != nil {
+		return nil, fmt.Errorf("error preparing query GetCurtailmentPendingWorkAges: %w", err)
+	}
 	if q.getCurtailmentReconcilerHeartbeatStmt, err = db.PrepareContext(ctx, getCurtailmentReconcilerHeartbeat); err != nil {
 		return nil, fmt.Errorf("error preparing query GetCurtailmentReconcilerHeartbeat: %w", err)
 	}
@@ -4174,6 +4177,11 @@ func (q *Queries) Close() error {
 	if q.getCurtailmentEventDetailByUUIDStmt != nil {
 		if cerr := q.getCurtailmentEventDetailByUUIDStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getCurtailmentEventDetailByUUIDStmt: %w", cerr)
+		}
+	}
+	if q.getCurtailmentPendingWorkAgesStmt != nil {
+		if cerr := q.getCurtailmentPendingWorkAgesStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getCurtailmentPendingWorkAgesStmt: %w", cerr)
 		}
 	}
 	if q.getCurtailmentReconcilerHeartbeatStmt != nil {
@@ -7920,6 +7928,7 @@ type Queries struct {
 	getCurtailmentEventByIdempotencyKeyStmt                    *sql.Stmt
 	getCurtailmentEventByUUIDStmt                              *sql.Stmt
 	getCurtailmentEventDetailByUUIDStmt                        *sql.Stmt
+	getCurtailmentPendingWorkAgesStmt                          *sql.Stmt
 	getCurtailmentReconcilerHeartbeatStmt                      *sql.Stmt
 	getCurtailmentResponseProfileByOrgStmt                     *sql.Stmt
 	getCurtailmentTargetRollupByEventStmt                      *sql.Stmt
@@ -8875,6 +8884,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getCurtailmentEventByIdempotencyKeyStmt:                    q.getCurtailmentEventByIdempotencyKeyStmt,
 		getCurtailmentEventByUUIDStmt:                              q.getCurtailmentEventByUUIDStmt,
 		getCurtailmentEventDetailByUUIDStmt:                        q.getCurtailmentEventDetailByUUIDStmt,
+		getCurtailmentPendingWorkAgesStmt:                          q.getCurtailmentPendingWorkAgesStmt,
 		getCurtailmentReconcilerHeartbeatStmt:                      q.getCurtailmentReconcilerHeartbeatStmt,
 		getCurtailmentResponseProfileByOrgStmt:                     q.getCurtailmentResponseProfileByOrgStmt,
 		getCurtailmentTargetRollupByEventStmt:                      q.getCurtailmentTargetRollupByEventStmt,

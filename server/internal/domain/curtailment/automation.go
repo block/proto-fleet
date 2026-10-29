@@ -300,17 +300,6 @@ func (s *AutomationService) shouldCoalesceRepeatedOff(
 	return event != nil && !event.State.IsTerminal() && event.State != models.EventStateRestoring, nil
 }
 
-func eventMaxDurationElapsed(event *models.Event, now time.Time) bool {
-	if event == nil ||
-		event.AllowUnbounded ||
-		event.MaxDurationSeconds == nil ||
-		*event.MaxDurationSeconds <= 0 ||
-		event.StartedAt == nil {
-		return false
-	}
-	return now.Sub(*event.StartedAt) >= time.Duration(*event.MaxDurationSeconds)*time.Second
-}
-
 func (s *AutomationService) handleRuleOff(ctx context.Context, rule *models.AutomationRule, signal mqttingest.SignalEdge, at time.Time) error {
 	if rule.ActiveEventUUID != nil {
 		event, err := s.curtailment.GetEvent(ctx, rule.OrgID, *rule.ActiveEventUUID)
@@ -407,7 +396,7 @@ func (s *AutomationService) recurtailAutomationEvent(
 	event *models.Event,
 	at time.Time,
 ) error {
-	if eventMaxDurationElapsed(event, s.clock()) {
+	if _, expired := MaxDurationElapsed(event, s.clock()); expired {
 		return nil
 	}
 	if _, err := s.currentBoundAutomationProfile(ctx, rule); err != nil {
@@ -469,12 +458,12 @@ func (s *AutomationService) ensureNoNonTerminalActiveEvent(ctx context.Context, 
 	event, err := s.curtailment.GetEvent(ctx, rule.OrgID, *rule.ActiveEventUUID)
 	if err != nil {
 		if fleeterror.IsNotFoundError(err) {
-			return s.store.ClearAutomationActiveEvent(ctx, rule.ID, s.clock())
+			return s.store.ClearAutomationActiveEvent(ctx, rule.ID, time.Time{})
 		}
 		return err
 	}
 	if event == nil || event.State.IsTerminal() {
-		return s.store.ClearAutomationActiveEvent(ctx, rule.ID, s.clock())
+		return s.store.ClearAutomationActiveEvent(ctx, rule.ID, time.Time{})
 	}
 	return fleeterror.NewFailedPreconditionErrorf(
 		"cannot %s curtailment automation rule while automation event %s is %s; restore or complete the event first",

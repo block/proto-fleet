@@ -252,7 +252,7 @@ function isActiveStoppableEvent(event: CurtailmentHistoryEvent, activeEventIds: 
 }
 
 function isActiveManageableEvent(event: CurtailmentHistoryEvent, activeEventIds: Set<string>): boolean {
-  return activeEventIds.has(event.id) && manageableEventStates.has(event.state);
+  return event.isManageable !== false && activeEventIds.has(event.id) && manageableEventStates.has(event.state);
 }
 
 function isActiveSelectableEvent(event: CurtailmentHistoryEvent, activeEventIds: Set<string>): boolean {
@@ -611,29 +611,27 @@ function CurtailmentHistory({
     setSelectedStopEventId(undefined);
     setPendingStopEventIds((currentEventIds) => new Set(currentEventIds).add(event.id));
 
+    const clearPendingStop = () => {
+      setPendingStopEventIds((currentEventIds) => {
+        const nextEventIds = new Set(currentEventIds);
+        nextEventIds.delete(event.id);
+        return nextEventIds;
+      });
+    };
     let stopRequest: void | PromiseLike<unknown>;
     try {
       stopRequest = onStopActiveEvent(event);
     } catch {
-      setPendingStopEventIds((currentEventIds) => {
-        const nextEventIds = new Set(currentEventIds);
-        nextEventIds.delete(event.id);
-        return nextEventIds;
-      });
+      clearPendingStop();
       return;
     }
 
     if (!isPromiseLike(stopRequest)) {
+      clearPendingStop();
       return;
     }
 
-    void Promise.resolve(stopRequest).catch(() => {
-      setPendingStopEventIds((currentEventIds) => {
-        const nextEventIds = new Set(currentEventIds);
-        nextEventIds.delete(event.id);
-        return nextEventIds;
-      });
-    });
+    void Promise.resolve(stopRequest).then(clearPendingStop, clearPendingStop);
   };
 
   const handleManageSelectedDetailEvent =

@@ -43,6 +43,7 @@ vi.mock("react-router-dom", async () => {
 
 vi.mock("@/protoFleet/store", () => ({
   useHasPermission: vi.fn(),
+  useRole: () => useFleetStore((state) => state.auth.role),
 }));
 
 vi.mock("@/protoFleet/api/sites", () => ({
@@ -502,6 +503,7 @@ function mockSitesApi() {
 
 describe("CurtailmentSettingsPage", () => {
   beforeEach(() => {
+    useFleetStore.getState().auth.setRole("ADMIN");
     activeSiteMock.current = { kind: "all" };
     useFleetStore.getState().ui.setActiveSite({ kind: "all" });
     vi.mocked(useHasPermission).mockReset();
@@ -873,12 +875,12 @@ describe("CurtailmentSettingsPage", () => {
         actionType: "fullFleet",
         siteId: "",
         siteName: "",
-        maxDurationSec: "900",
+        maxDurationSec: "",
         curtailBatchSize: "25",
         curtailBatchIntervalSec: "60",
         restoreBatchSize: "10",
         restoreIntervalSec: "120",
-        responseDeadlineMinutes: "15",
+        responseDeadlineMinutes: "",
         includeMaintenance: false,
       }),
     );
@@ -2017,5 +2019,41 @@ describe("CurtailmentSettingsPage", () => {
       refreshResponseProfiles: expect.any(Function),
     });
     expect(screen.queryByTestId("settings-curtailment-page")).not.toBeInTheDocument();
+  });
+  it("shows MQTT runtime failures while withholding source mutations from non-admins", () => {
+    useFleetStore.getState().auth.setRole("FIELD_TECH");
+    render(
+      <CurtailmentSettingsContent
+        initialSources={[{ ...testSources[0], lastRuntimeError: "Broker authentication failed" }]}
+      />,
+    );
+    expect(screen.getByText("Broker authentication failed")).toBeVisible();
+    expect(screen.queryByRole("button", { name: "Add source" })).not.toBeInTheDocument();
+    expect(screen.getByRole("checkbox")).toBeDisabled();
+    fireEvent.click(screen.getByText(testSources[0].name));
+    expect(screen.queryByTestId("curtailment-source-modal")).not.toBeInTheDocument();
+  });
+
+  it("runs loaded profiles without deriving a hidden deadline cap", async () => {
+    const onCreateResponseProfile = vi
+      .fn()
+      .mockImplementation(async (formValues) => ({ ...testResponseProfiles[0], formValues }));
+    const onTestResponseProfileCurtailment = vi.fn().mockResolvedValue(undefined);
+    render(
+      <CurtailmentSettingsContent
+        initialResponseProfileModalOpen
+        onCreateResponseProfile={onCreateResponseProfile}
+        onTestResponseProfileCurtailment={onTestResponseProfileCurtailment}
+      />,
+    );
+    fireEvent.change(screen.getByLabelText("Profile name"), { target: { value: "Server default duration" } });
+    fireEvent.click(getEnabledButton("Run curtailment"));
+    confirmCurtailmentAction();
+    await waitFor(() =>
+      expect(onTestResponseProfileCurtailment).toHaveBeenCalledWith(
+        expect.objectContaining({ maxDurationSec: "", responseDeadlineMinutes: "" }),
+        expect.objectContaining({ maxDurationSec: "" }),
+      ),
+    );
   });
 });

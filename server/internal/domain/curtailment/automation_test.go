@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -614,6 +615,35 @@ func TestAutomationService_SetEnabledClearsTerminalActiveEventBeforeDisable(t *t
 	assert.False(t, updated.Enabled)
 	assert.Nil(t, updated.ActiveEventUUID)
 	assert.Equal(t, 1, h.rules.clearActiveCalls)
+	assert.Nil(t, updated.LastRestoredAt, "administrative cleanup must not invent a restore")
+}
+
+func TestAutomationService_StaleActiveEventCleanupPreservesRestoreTimestamp(t *testing.T) {
+	t.Parallel()
+
+	for _, eventExists := range []bool{false, true} {
+		for _, hadRestore := range []bool{false, true} {
+			t.Run(fmt.Sprintf("event_%v_restore_%v", eventExists, hadRestore), func(t *testing.T) {
+				t.Parallel()
+				h := newAutomationHarness(t)
+				if eventExists {
+					h.seedAutomationEvent(models.EventStateCompleted)
+				} else {
+					eventUUID := uuid.New()
+					h.rule.ActiveEventUUID = &eventUUID
+				}
+				if hadRestore {
+					priorRestore := h.automation.clock().Add(-time.Hour)
+					h.rule.LastRestoredAt = &priorRestore
+				}
+				priorRestoredAt := h.rule.LastRestoredAt
+				require.NoError(t, h.automation.ensureNoNonTerminalActiveEvent(t.Context(), h.rule, "disable"))
+				assert.Nil(t, h.rule.ActiveEventUUID)
+				assert.Equal(t, priorRestoredAt, h.rule.LastRestoredAt)
+				assert.True(t, h.rules.lastClearedAt.IsZero(), "cleanup should preserve the stored restore timestamp")
+			})
+		}
+	}
 }
 
 func TestAutomationService_HandleMQTTSignal_OffStartsCurtailmentFromResponseProfile(t *testing.T) {
@@ -1322,6 +1352,34 @@ func TestAutomationService_HandleMQTTSignal_RepeatedOffDoesNotRecurtailAfterMaxD
 	assert.Equal(t, 0, h.rules.setActiveCalls)
 }
 
+func TestAutomationService_HandleMQTTSignal_RepeatedOffDoesNotRecurtailEventExpiredWhilePending(t *testing.T) {
+	t.Parallel()
+
+	h := newAutomationHarness(t)
+	activeEventUUID := h.seedAutomationEvent(models.EventStateRestoring)
+	lastSignal := models.AutomationSignalOff
+	lastSignalAt := time.Date(2026, 6, 11, 20, 0, 0, 0, time.UTC)
+	maxDurationSeconds := int32(300)
+	h.rule.ActiveEventUUID = &activeEventUUID
+	h.rule.LastSignal = &lastSignal
+	h.rule.LastSignalAt = &lastSignalAt
+	// The pending cap restored this event before it became active, so it has no started_at.
+	h.curtailments.eventsByUUID[activeEventUUID].CreatedAt = lastSignalAt.Add(-time.Hour)
+	h.curtailments.eventsByUUID[activeEventUUID].MaxDurationSeconds = &maxDurationSeconds
+
+	err := h.automation.HandleMQTTSignal(t.Context(), mqttingest.SignalEdge{
+		Source:     h.source,
+		Direction:  mqttingest.EdgeReassertOff,
+		Target:     mqttingest.TargetOff,
+		ReceivedAt: lastSignalAt.Add(10 * time.Second),
+	})
+
+	require.NoError(t, err)
+	assert.Equal(t, []models.AutomationSignal{models.AutomationSignalOff}, h.rules.recordedSignals)
+	assert.Equal(t, 0, h.curtailments.beginRecurtailCalls)
+	assert.Equal(t, 0, h.rules.setActiveCalls)
+}
+
 func TestAutomationService_HandleMQTTSignal_ReplayedOffDoesNotBypassMaxDuration(t *testing.T) {
 	t.Parallel()
 
@@ -1805,7 +1863,9 @@ func (f *automationFakeStore) ClearAutomationActiveEvent(_ context.Context, rule
 	for _, rule := range f.rules {
 		if rule.ID == ruleID {
 			rule.ActiveEventUUID = nil
-			rule.LastRestoredAt = &at
+			if !at.IsZero() {
+				rule.LastRestoredAt = &at
+			}
 			return nil
 		}
 	}

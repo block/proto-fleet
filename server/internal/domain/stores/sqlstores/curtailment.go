@@ -1910,9 +1910,9 @@ func (s *SQLCurtailmentStore) UpdateOperatorFields(ctx context.Context, eventID,
 		ID:                      eventID,
 		OrgID:                   orgID,
 		Reason:                  nullStringFromPtr(params.Reason),
-		RestoreBatchSize:        nullInt32FromPtr(params.RestoreBatchSize),
 		RestoreBatchIntervalSec: nullInt32FromPtr(params.RestoreBatchIntervalSec),
 		MaxDurationSeconds:      nullInt32FromPtr(params.MaxDurationSeconds),
+		CanShortenMaxDuration:   params.CanShortenMaxDuration,
 	})
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -2043,7 +2043,7 @@ func (s *SQLCurtailmentStore) AdminTerminateEventWithFanRecovery(
 	if command == nil {
 		return nil, false, fleeterror.NewInvalidArgumentError("admin-terminate fan recovery command is required")
 	}
-	result, err := db.WithTransaction(ctx, s.conn.DB, func(q sqlc.Querier) (adminTerminateResult, error) {
+	result, err := db.WithTransactionNoRetry(ctx, s.conn.DB, func(q sqlc.Querier) (adminTerminateResult, error) {
 		current, err := q.LockCurtailmentEventByUUIDForWrite(ctx, sqlc.LockCurtailmentEventByUUIDForWriteParams{
 			EventUuid: eventUUID,
 			OrgID:     orgID,
@@ -3000,7 +3000,7 @@ func (s *SQLCurtailmentStore) commandFanState(
 	params interfaces.UpdateCurtailmentFanStateParams,
 	command func(context.Context) *string,
 ) (*string, error) {
-	return db.WithTransaction(ctx, s.conn.DB, func(q sqlc.Querier) (*string, error) {
+	return db.WithTransactionNoRetry(ctx, s.conn.DB, func(q sqlc.Querier) (*string, error) {
 		return s.commandFanStateWithQueries(ctx, q, eventID, params, command)
 	})
 }
@@ -3086,7 +3086,7 @@ func (s *SQLCurtailmentStore) ForceReleaseEventWithFanRecovery(
 		)
 	}
 
-	return db.WithTransaction(ctx, s.conn.DB, func(q sqlc.Querier) (interfaces.ForceReleaseEventResult, error) {
+	return db.WithTransactionNoRetry(ctx, s.conn.DB, func(q sqlc.Querier) (interfaces.ForceReleaseEventResult, error) {
 		for _, fanID := range fanIDs {
 			if err := q.LockCurtailmentFanDeviceForWrite(ctx, strconv.FormatInt(fanID, 10)); err != nil {
 				return interfaces.ForceReleaseEventResult{}, fleeterror.NewInternalErrorf("failed to lock force-release facility fan claim: %v", err)
@@ -3178,7 +3178,7 @@ func (s *SQLCurtailmentStore) RecoverTerminalFanState(
 		return fleeterror.NewInvalidArgumentError("terminal fan recovery command is required")
 	}
 
-	_, err := db.WithTransaction(ctx, s.conn.DB, func(q sqlc.Querier) (struct{}, error) {
+	_, err := db.WithTransactionNoRetry(ctx, s.conn.DB, func(q sqlc.Querier) (struct{}, error) {
 		for _, fanID := range fanIDs {
 			if err := q.LockCurtailmentFanDeviceForWrite(ctx, strconv.FormatInt(fanID, 10)); err != nil {
 				return struct{}{}, fleeterror.NewInternalErrorf("failed to lock terminal facility fan recovery: %v", err)
@@ -3717,6 +3717,10 @@ func (s *SQLCurtailmentStore) ClaimAllPairedPolicyTargets(
 		})
 	})
 	if err != nil {
+		var fleetErr fleeterror.FleetError
+		if errors.As(err, &fleetErr) {
+			return 0, fleetErr
+		}
 		return 0, fleeterror.NewInternalErrorf("failed to claim all-paired policy targets: %v", err)
 	}
 	return claimed, nil
@@ -4034,6 +4038,10 @@ func (s *SQLCurtailmentStore) BeginCurtailmentTopologyTargetRestore(
 		if errors.Is(err, interfaces.ErrCurtailmentEventStateRaceLoss) {
 			return 0, err
 		}
+		var fleetErr fleeterror.FleetError
+		if errors.As(err, &fleetErr) {
+			return 0, fleetErr
+		}
 		return 0, fleeterror.NewInternalErrorf("failed to begin topology target restore: %v", err)
 	}
 	return rows, nil
@@ -4136,6 +4144,10 @@ func (s *SQLCurtailmentStore) BulkRefreshAllPairedTargetReadiness(
 		})
 	})
 	if err != nil {
+		var fleetErr fleeterror.FleetError
+		if errors.As(err, &fleetErr) {
+			return nil, fleetErr
+		}
 		return nil, fleeterror.NewInternalErrorf("failed to bulk refresh all-paired target readiness: %v", err)
 	}
 	return applied, nil

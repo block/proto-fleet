@@ -115,6 +115,7 @@ export interface UseCurtailmentApiResult extends CurtailmentSnapshot {
   stoppingEventId: string | null;
   adminTerminatingEventId: string | null;
   loadError: string | null;
+  clearActionErrors: () => void;
   startError: string | null;
   updateError: string | null;
   stopError: string | null;
@@ -1163,6 +1164,12 @@ export function useCurtailmentApi(options: UseCurtailmentApiOptions = {}): UseCu
     [handleFailure, siteNameById, updateSnapshot],
   );
 
+  const clearActionErrors = useCallback(() => {
+    setStartError(null);
+    setUpdateError(null);
+    setStopError(null);
+  }, []);
+
   const startCurtailment = useCallback(
     async (values: CurtailmentSubmitValues) => {
       setIsStarting(true);
@@ -1385,6 +1392,7 @@ export function useCurtailmentApi(options: UseCurtailmentApiOptions = {}): UseCu
       setHistoryStatusFilters,
       selectActiveCurtailment,
       startCurtailment,
+      clearActionErrors,
       dismissTerminalCurtailment,
       updateCurtailment,
       stopCurtailment,
@@ -1414,6 +1422,7 @@ export function useCurtailmentApi(options: UseCurtailmentApiOptions = {}): UseCu
       selectActiveCurtailment,
       snapshot,
       startCurtailment,
+      clearActionErrors,
       dismissTerminalCurtailment,
       updateCurtailment,
       stopCurtailment,

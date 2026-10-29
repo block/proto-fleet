@@ -20,6 +20,7 @@ import {
 import { getSiteDisplayName, type SiteNameById } from "@/protoFleet/api/siteNames";
 
 export const curtailmentEventStateConfigs = {
+  unknown: { label: "Unknown", dotClassName: "bg-text-primary-30", order: 7 },
   pending: {
     label: "Pending",
     dotClassName: "bg-core-accent-fill",
@@ -57,7 +58,9 @@ export const curtailmentEventStateConfigs = {
   },
 } as const satisfies Record<CurtailmentEventState, { label: string; dotClassName: string; order: number }>;
 
-export const curtailmentEventStates = Object.keys(curtailmentEventStateConfigs) as CurtailmentEventState[];
+export const curtailmentEventStates = Object.keys(curtailmentEventStateConfigs).filter(
+  (state) => state !== "unknown",
+) as CurtailmentEventState[];
 export const activeCurtailmentEventStates = [
   "pending",
   "active",
@@ -67,6 +70,7 @@ export const activeCurtailmentEventStates = [
 export type ActiveCurtailmentEventState = (typeof activeCurtailmentEventStates)[number];
 
 export const activeCurtailmentDisplayStateConfigs = {
+  unknown: { label: "Unknown", dotClassName: "bg-text-primary-30" },
   cancelled: {
     label: "Cancelled",
     dotClassName: "bg-intent-critical-fill",
@@ -215,9 +219,10 @@ export function mapCurtailmentEventState(state: ProtoCurtailmentEventState): Cur
     case ProtoCurtailmentEventState.FAILED:
       return "failed";
     case ProtoCurtailmentEventState.PENDING:
+      return "pending";
     case ProtoCurtailmentEventState.UNSPECIFIED:
     default:
-      return "pending";
+      return "unknown";
   }
 }
 
@@ -239,9 +244,10 @@ export function mapCurtailmentTargetState(state: ProtoCurtailmentTargetState): C
     case ProtoCurtailmentTargetState.RESTORE_FAILED:
       return "restoreFailed";
     case ProtoCurtailmentTargetState.PENDING:
+      return "pending";
     case ProtoCurtailmentTargetState.UNSPECIFIED:
     default:
-      return "pending";
+      return "unknown";
   }
 }
 
@@ -453,7 +459,7 @@ const sentCurtailTargetStates: CurtailmentTargetState[] = ["dispatched"];
 const confirmedCurtailTargetStates: CurtailmentTargetState[] = ["confirmed"];
 const driftedCurtailTargetStates: CurtailmentTargetState[] = ["drifted"];
 const pendingCurtailTargetStates: CurtailmentTargetState[] = ["pending"];
-const unavailableCurtailTargetStates: CurtailmentTargetState[] = ["unavailable"];
+const unavailableCurtailTargetStates: CurtailmentTargetState[] = ["unavailable", "unknown"];
 
 export function getActiveCurtailmentCurtailProgress(
   event: Pick<ActiveCurtailmentDisplayEvent, "rollups">,
@@ -550,6 +556,10 @@ export function getActiveCurtailmentDisplayState(
   event: ActiveCurtailmentDisplayEvent,
   options: ActiveCurtailmentDisplayOptions = {},
 ): ActiveCurtailmentDisplayState {
+  if (event.state === "unknown") {
+    return "unknown";
+  }
+
   if (event.state === "restoring") {
     return "restoring";
   }

@@ -247,6 +247,9 @@ func (s *Service) Start(ctx context.Context, req StartRequest) (*Plan, error) {
 		v := orgConfig.MaxDurationDefaultSec
 		req.MaxDurationSeconds = &v
 	}
+	if err := validateControlBounds(controlBounds{MinCurtailedDurationSec: &req.MinCurtailedDurationSec, MaxDurationSeconds: req.MaxDurationSeconds}); err != nil {
+		return nil, err
+	}
 	// Duration access compares the normalized cap with the organization default.
 	if err := validateAdminControlAccess(startAdminControls(req, orgConfig), req.CanUseAdminControls); err != nil {
 		return nil, err
@@ -408,6 +411,10 @@ func (s *Service) Update(ctx context.Context, req UpdateRequest) (*models.Event,
 		)
 	}
 
+	if event.AllowUnbounded && req.MaxDurationSeconds != nil {
+		return nil, fleeterror.NewInvalidArgumentError("max_duration_seconds cannot be set on an allow_unbounded event")
+	}
+
 	// Collapse no-op patches before any gate or DB write so a UI re-submit
 	// of an admin-elevated value doesn't trip the admin gate or bump
 	// updated_at.
@@ -416,6 +423,14 @@ func (s *Service) Update(ctx context.Context, req UpdateRequest) (*models.Event,
 		return event, nil
 	}
 
+	if patch.MaxDurationSeconds != nil {
+		if *patch.MaxDurationSeconds < event.MinCurtailedDurationSec {
+			return nil, fleeterror.NewInvalidArgumentError("max_duration_seconds must be >= min_curtailed_duration_sec")
+		}
+		if !req.CanUseAdminControls && (event.MaxDurationSeconds == nil || *patch.MaxDurationSeconds < *event.MaxDurationSeconds) {
+			return nil, fleeterror.NewForbiddenError("only admins can shorten max_duration_seconds; use StopCurtailment for a guarded restore")
+		}
+	}
 	// Check only changed controls so an unchanged elevated value remains a no-op.
 	controls := adminControls{MaxDurationSeconds: patch.MaxDurationSeconds}
 	if patch.MaxDurationSeconds != nil && !req.CanUseAdminControls {
@@ -432,11 +447,12 @@ func (s *Service) Update(ctx context.Context, req UpdateRequest) (*models.Event,
 		return nil, err
 	}
 
+	patch.CanShortenMaxDuration = req.CanUseAdminControls
 	updated, err := s.store.UpdateOperatorFields(ctx, event.ID, req.OrgID, patch)
 	if err != nil {
 		if errors.Is(err, interfaces.ErrCurtailmentEventStateRaceLoss) {
 			return nil, fleeterror.NewFailedPreconditionError(
-				"curtailment event state advanced during update; retry against the current event state",
+				"curtailment event state or duration policy changed during update; retry against the current event",
 			)
 		}
 		return nil, err
@@ -477,6 +493,9 @@ const (
 	// FleetErrorCodeAdminTerminateStateConflict: event already terminal
 	// in a different state. Not retryable.
 	FleetErrorCodeAdminTerminateStateConflict int32 = 2
+	// FleetErrorCodeAdminTerminateStateRaceLoss: event state changed while
+	// the terminate ran. Retry against the current event.
+	FleetErrorCodeAdminTerminateStateRaceLoss int32 = 3
 )
 
 // AdminTerminateRequest is the service-level shape of an
@@ -531,6 +550,13 @@ func (s *Service) AdminTerminate(ctx context.Context, req AdminTerminateRequest)
 		updated, transitioned, err = s.store.AdminTerminateEvent(ctx, req.OrgID, req.EventUUID, req.TargetState, req.Reason)
 	}
 	if err != nil {
+		if errors.Is(err, interfaces.ErrCurtailmentEventStateRaceLoss) {
+			return nil, fleeterror.NewErrorWithServiceCode(
+				"curtailment event state advanced during admin termination; retry against the current event state",
+				connect.CodeFailedPrecondition,
+				FleetErrorCodeAdminTerminateStateRaceLoss,
+			)
+		}
 		if errors.Is(err, interfaces.ErrCurtailmentAdminTerminateStateConflict) {
 			return nil, fleeterror.NewErrorWithServiceCode(
 				fmt.Sprintf("curtailment event is already terminal in a different state; admin terminate to %q is not applicable", req.TargetState),
@@ -2440,7 +2466,7 @@ func EventRequiresAdminControls(ev *models.Event, orgConfig *models.OrgConfig) (
 		AllowUnbounded: ev.AllowUnbounded, ForceIncludeMaintenance: ev.ForceIncludeMaintenance,
 		ForceIncludeAllPairedMiners: ev.ForceIncludeAllPairedMiners,
 		CurtailBatchIntervalSec:     ev.CurtailBatchIntervalSec, RestoreBatchIntervalSec: ev.RestoreBatchIntervalSec,
-		MaxDurationSeconds: ev.MaxDurationSeconds,
+		MaxDurationSeconds: ev.MaxDurationSeconds, MinCurtailedDurationSec: ev.MinCurtailedDurationSec,
 	}
 	if orgConfig != nil {
 		controls.MaxDurationDefaultSec = orgConfig.MaxDurationDefaultSec

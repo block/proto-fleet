@@ -49,3 +49,7 @@ export function mapEditableCurtailmentPriority(priority: ProtoCurtailmentPriorit
 export function toApiCurtailmentPriority(priority: EditableCurtailmentPriority): ProtoCurtailmentPriority {
   return priority === "emergency" ? ProtoCurtailmentPriority.EMERGENCY : ProtoCurtailmentPriority.NORMAL;
 }
+
+export function isCurtailmentAdmin(role: string): boolean {
+  return role === "ADMIN" || role === "SUPER_ADMIN";
+}

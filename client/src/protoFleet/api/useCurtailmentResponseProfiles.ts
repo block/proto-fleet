@@ -48,7 +48,7 @@ import {
 } from "@/protoFleet/features/energy/curtailmentNumericFields";
 import { useAuthErrors } from "@/protoFleet/store";
 
-const defaultResponseDeadlineMinutes: string = "15";
+const defaultResponseDeadlineMinutes: string = "";
 const responseProfileUpdateConflictMessage = "curtailment response profile changed before update; retry";
 const sessionFormValuesByProfileId = new Map<string, ResponseProfileFormValues>();
 const restoreBatchSizeOptions = {
@@ -337,11 +337,7 @@ function getRestoreBatchSize(values: ResponseProfileFormValues): number | undefi
   if (values.restoreBehavior === "automaticImmediateRestore") {
     return immediateRestoreBatchSize;
   }
-  if (parsedField.parsed === undefined || parsedField.parsed === 0) {
-    throw new Error("Enter restore batch size greater than 0 for batch restore.");
-  }
-
-  return parsedField.parsed;
+  return parsedField.parsed ?? 0;
 }
 
 function getRestoreBatchIntervalSec(values: ResponseProfileFormValues): number | undefined {

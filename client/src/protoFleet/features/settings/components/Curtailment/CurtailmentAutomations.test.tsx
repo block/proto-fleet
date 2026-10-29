@@ -407,4 +407,13 @@ describe("CurtailmentAutomationsContent", () => {
       "opacity-50",
     );
   });
+  it("shows an automation runtime error beside its rule", () => {
+    render(
+      <CurtailmentAutomationsContent
+        initialAutomationRules={[{ ...testAutomationRules[0], lastError: "No eligible miners" }]}
+        responseProfiles={testResponseProfiles}
+      />,
+    );
+    expect(screen.getByText("No eligible miners")).toBeVisible();
+  });
 });

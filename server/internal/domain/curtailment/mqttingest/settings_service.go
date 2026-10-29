@@ -54,7 +54,7 @@ type RuntimeStatus struct {
 
 // RuntimeController hot-reloads the subscriber after a settings write.
 type RuntimeController interface {
-	Reconcile(ctx context.Context) error
+	ReconcileSource(ctx context.Context, sourceID int64) error
 	QuiesceSource(ctx context.Context, sourceID int64) error
 	SourceRuntimeStatus(sourceID int64) RuntimeStatus
 }
@@ -77,6 +77,8 @@ type SettingsService struct {
 	rigConfigStore   RigConfigReconciliationStore
 	clock            func() time.Time
 	reconcileTimeout time.Duration
+	sourceMutationMu sync.Mutex
+	sourceMutations  map[sourceMutationKey]*sourceMutationLock
 
 	rigConfigWake   chan struct{}
 	rigConfigRunMu  sync.Mutex
@@ -208,7 +210,7 @@ func (s *SettingsService) Create(ctx context.Context, req CreateSourceRequest) (
 	if err != nil {
 		return SourceView{}, sourceStoreError("create mqtt source setting", err)
 	}
-	s.reconcileAfterSettingsWrite(ctx, created.OrganizationID)
+	s.reconcileAfterSettingsWrite(ctx, created.OrganizationID, created.ID)
 	state, hasState, err := s.getStateForSource(ctx, created.OrganizationID, created.ID)
 	if err != nil {
 		return SourceView{}, err
@@ -220,6 +222,11 @@ func (s *SettingsService) Update(ctx context.Context, req UpdateSourceRequest) (
 	if req.ClearStaleness && req.StalenessThreshold != nil {
 		return SourceView{}, fleeterror.NewInvalidArgumentError("clear_staleness_threshold_sec conflicts with staleness_threshold_sec")
 	}
+	releaseMutation, err := s.acquireSourceMutation(ctx, req.OrganizationID, req.SourceID)
+	if err != nil {
+		return SourceView{}, err
+	}
+	defer releaseMutation()
 	current, err := s.getConfig(ctx, req.OrganizationID, req.SourceID)
 	if err != nil {
 		return SourceView{}, err
@@ -262,7 +269,7 @@ func (s *SettingsService) Update(ctx context.Context, req UpdateSourceRequest) (
 	if err != nil {
 		return SourceView{}, sourceStoreError("update mqtt source setting", err)
 	}
-	s.reconcileAfterSettingsWrite(ctx, updated.OrganizationID)
+	s.reconcileAfterSettingsWrite(ctx, updated.OrganizationID, updated.ID)
 	state, hasState, err := s.getStateForSource(ctx, updated.OrganizationID, updated.ID)
 	if err != nil {
 		return SourceView{}, err
@@ -271,6 +278,11 @@ func (s *SettingsService) Update(ctx context.Context, req UpdateSourceRequest) (
 }
 
 func (s *SettingsService) SetEnabled(ctx context.Context, orgID, sourceID int64, enabled bool) (SourceView, error) {
+	releaseMutation, err := s.acquireSourceMutation(ctx, orgID, sourceID)
+	if err != nil {
+		return SourceView{}, err
+	}
+	defer releaseMutation()
 	current, err := s.getConfig(ctx, orgID, sourceID)
 	if err != nil {
 		return SourceView{}, err
@@ -289,11 +301,11 @@ func (s *SettingsService) SetEnabled(ctx context.Context, orgID, sourceID int64,
 	updated, err := s.store.SetSourceConfigEnabled(ctx, orgID, sourceID, enabled)
 	if err != nil {
 		if !enabled {
-			_ = s.reconcile(ctx)
+			_ = s.reconcile(ctx, sourceID)
 		}
 		return SourceView{}, sourceStoreError("set mqtt source enabled", err)
 	}
-	s.reconcileAfterSettingsWrite(ctx, updated.OrganizationID)
+	s.reconcileAfterSettingsWrite(ctx, updated.OrganizationID, updated.ID)
 	state, hasState, err := s.getStateForSource(ctx, updated.OrganizationID, updated.ID)
 	if err != nil {
 		return SourceView{}, err
@@ -308,6 +320,11 @@ func (s *SettingsService) Delete(ctx context.Context, orgID, sourceID int64) err
 	if sourceID <= 0 {
 		return fleeterror.NewInvalidArgumentError("source_id must be set")
 	}
+	releaseMutation, err := s.acquireSourceMutation(ctx, orgID, sourceID)
+	if err != nil {
+		return err
+	}
+	defer releaseMutation()
 	count, err := s.store.CountAutomationRulesByMQTTSource(ctx, orgID, sourceID)
 	if err != nil {
 		return fmt.Errorf("count automation rules by mqtt source: %w", err)
@@ -318,7 +335,7 @@ func (s *SettingsService) Delete(ctx context.Context, orgID, sourceID int64) err
 	if err := s.store.DeleteDisabledSourceConfig(ctx, orgID, sourceID); err != nil {
 		return sourceStoreError("delete mqtt source setting", err)
 	}
-	s.reconcileAfterSettingsWrite(ctx, orgID)
+	s.reconcileAfterSettingsWrite(ctx, orgID, sourceID)
 	return nil
 }
 
@@ -361,9 +378,9 @@ func (s *SettingsService) ReapplyRigConfigBestEffort(ctx context.Context, orgID,
 	s.wakeRigConfigReconciler()
 }
 
-func (s *SettingsService) reconcileAfterSettingsWrite(ctx context.Context, orgID int64) {
+func (s *SettingsService) reconcileAfterSettingsWrite(ctx context.Context, orgID, sourceID int64) {
 	s.wakeRigConfigReconciler()
-	if err := s.reconcile(ctx); err != nil {
+	if err := s.reconcile(ctx, sourceID); err != nil {
 		slog.Error("reload MQTT runtime after durable settings write", "org_id", orgID, "error", err)
 	}
 }
@@ -561,13 +578,13 @@ func (s *SettingsService) encryptPassword(plaintext string) (string, error) {
 	return encrypted, nil
 }
 
-func (s *SettingsService) reconcile(ctx context.Context) error {
+func (s *SettingsService) reconcile(ctx context.Context, sourceID int64) error {
 	if s.runtime == nil {
 		return nil
 	}
 	reconcileCtx, cancel := context.WithTimeout(detachedContext(ctx), s.reconcileTimeout)
 	defer cancel()
-	if err := s.runtime.Reconcile(reconcileCtx); err != nil {
+	if err := s.runtime.ReconcileSource(reconcileCtx, sourceID); err != nil {
 		return fleeterror.NewUnavailableErrorf("MaestroOS source saved but runtime reload failed: %v", err)
 	}
 	return nil

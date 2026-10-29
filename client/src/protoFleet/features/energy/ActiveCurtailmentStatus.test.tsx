@@ -1048,4 +1048,22 @@ describe("ActiveCurtailmentStatus", () => {
     expectActionButtonHidden("Restore now");
     expectActionButtonHidden("Restore");
   });
+  it("presents unknown states without progress or lifecycle actions", () => {
+    render(
+      <ActiveCurtailmentStatus
+        event={{ ...curtailingCurtailmentEvent, state: "unknown" }}
+        onRequestEdit={vi.fn()}
+        onRequestStop={vi.fn()}
+        onRequestRestore={vi.fn()}
+        onRequestTerminateRecovery={vi.fn()}
+        onRequestForceRelease={vi.fn()}
+      />,
+    );
+    expect(screen.getByText("Unknown")).toBeVisible();
+    expectProgressHidden();
+    expectActionButtonHidden("Manage");
+    expectActionButtonHidden("Restore now");
+    expectActionButtonHidden("Restore");
+    expectActionButtonHidden("Abort");
+  });
 });

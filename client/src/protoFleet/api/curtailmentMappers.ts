@@ -385,6 +385,7 @@ export function mapCurtailmentHistoryEvent(
 
   return {
     id: event.eventUuid,
+    isManageable: mapCurtailmentEventToFormValues(event, options) !== undefined,
     reason: event.reason || "Curtailment",
     state: mapCurtailmentEventState(event.state),
     priority: mapCurtailmentPriority(event.priority),

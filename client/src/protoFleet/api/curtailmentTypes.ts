@@ -1,15 +1,31 @@
 import type { CurtailmentTerminalScopeType } from "@/protoFleet/api/curtailmentScopes";
 
 export type CurtailmentEventState =
-  "pending" | "active" | "restoring" | "completed" | "completedWithFailures" | "cancelled" | "failed";
+  "pending" | "active" | "restoring" | "completed" | "completedWithFailures" | "cancelled" | "failed" | "unknown";
 export type CurtailmentTargetState =
-  "pending" | "dispatched" | "confirmed" | "drifted" | "resolved" | "released" | "unavailable" | "restoreFailed";
+  | "pending"
+  | "dispatched"
+  | "confirmed"
+  | "drifted"
+  | "resolved"
+  | "released"
+  | "unavailable"
+  | "restoreFailed"
+  | "unknown";
 export interface CurtailmentTargetRollup {
   state: CurtailmentTargetState;
   count: number;
 }
 export type ActiveCurtailmentDisplayState =
-  "cancelled" | "curtailed" | "curtailing" | "failed" | "pending" | "restoreIncomplete" | "restored" | "restoring";
+  | "cancelled"
+  | "curtailed"
+  | "curtailing"
+  | "failed"
+  | "pending"
+  | "restoreIncomplete"
+  | "restored"
+  | "restoring"
+  | "unknown";
 
 export type CurtailmentPriority = "normal" | "high" | "emergency";
 export type EditableCurtailmentPriority = Exclude<CurtailmentPriority, "high">;
@@ -131,6 +147,7 @@ export interface ActiveCurtailmentUnavailableReasonCount {
 }
 
 export interface CurtailmentHistoryEvent {
+  isManageable?: boolean;
   id: string;
   reason: string;
   state: CurtailmentEventState;
@@ -173,6 +190,7 @@ export type CurtailmentSource = {
   qos: number;
   username: string;
   hasPassword?: boolean;
+  lastRuntimeError?: string;
   lastTarget: string;
   lastSeen: string;
   health: CurtailmentHealth;
@@ -265,6 +283,7 @@ export type AutomationRuleFormValues = {
 };
 
 export type AutomationRule = {
+  lastError?: string;
   id: string;
   priority: number;
   name: string;

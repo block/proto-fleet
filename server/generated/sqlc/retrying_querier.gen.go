@@ -2852,6 +2852,18 @@ func (q *retryingQuerier) GetCurtailmentEventDetailByUUID(ctx context.Context, a
 	return result, err
 }
 
+func (q *retryingQuerier) GetCurtailmentPendingWorkAges(ctx context.Context) (GetCurtailmentPendingWorkAgesRow, error) {
+	var result GetCurtailmentPendingWorkAgesRow
+	err := q.retrier.RetryQuery(ctx, "GetCurtailmentPendingWorkAges", func() error {
+		callResult, callErr := q.next.GetCurtailmentPendingWorkAges(ctx)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) GetCurtailmentReconcilerHeartbeat(ctx context.Context) (CurtailmentReconcilerHeartbeat, error) {
 	var result CurtailmentReconcilerHeartbeat
 	err := q.retrier.RetryQuery(ctx, "GetCurtailmentReconcilerHeartbeat", func() error {

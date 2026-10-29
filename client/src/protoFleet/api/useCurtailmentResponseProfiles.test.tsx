@@ -149,6 +149,7 @@ describe("useCurtailmentResponseProfiles", () => {
       restoreBehavior: "Restore immediately",
       formValues: {
         ...fixedKwFormValues,
+        responseDeadlineMinutes: "",
         scopeType: "site",
         facilityFanDeviceIds: ["31", "32"],
         fanOffDelaySec: "45",
@@ -612,22 +613,29 @@ describe("useCurtailmentResponseProfiles", () => {
     );
   });
 
-  it("rejects batch restore profiles without a positive restore batch size", async () => {
-    const { result } = renderHook(() => useCurtailmentResponseProfiles(false));
-
-    await expect(
-      act(async () => {
+  it.each(["", "0"])(
+    "allows restore batch size %j with an interval using the safety limit",
+    async (restoreBatchSize) => {
+      mockCreateCurtailmentResponseProfile.mockResolvedValueOnce({
+        profile: apiProfile({ restoreBatchIntervalSec: 60 }),
+      });
+      const { result } = renderHook(() => useCurtailmentResponseProfiles(false));
+      await act(async () => {
         await result.current.createResponseProfile({
           ...fixedKwFormValues,
           restoreBehavior: "automaticBatchRestore",
-          restoreBatchSize: "",
-          restoreIntervalSec: "",
+          restoreBatchSize,
+          restoreIntervalSec: "60",
         });
-      }),
-    ).rejects.toThrow("Enter restore batch size greater than 0 for batch restore.");
-
-    expect(mockCreateCurtailmentResponseProfile).not.toHaveBeenCalled();
-  });
+      });
+      expect(mockCreateCurtailmentResponseProfile).toHaveBeenCalledWith(
+        expect.objectContaining({
+          restoreBatchSize: 0,
+          restoreBatchIntervalSec: 60,
+        }),
+      );
+    },
+  );
 
   it("preserves site in the CRUD payload when site values are present", async () => {
     mockCreateCurtailmentResponseProfile.mockResolvedValueOnce({ profile: apiProfile() });

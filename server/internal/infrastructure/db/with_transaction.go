@@ -101,12 +101,18 @@ func WithTransactionNoResult(ctx context.Context, db *sql.DB, action func(q sqlc
 	return withTransactionNoResultWithRetry(ctx, db, action, DefaultRetryConfig, firstTxOpts(opts))
 }
 
-// WithTransactionNoRetryNoResult runs action exactly once. Use it only when
-// action performs an external side effect that cannot safely be replayed.
+// WithTransactionNoRetry runs action in a transaction without replaying it on
+// database failures. Use it when action performs an external side effect that
+// cannot safely be repeated after a write or commit failure.
+func WithTransactionNoRetry[T any](ctx context.Context, db *sql.DB, action func(q sqlc.Querier) (T, error), opts ...*sql.TxOptions) (T, error) {
+	return executeTransaction(ctx, db, action, firstTxOpts(opts))
+}
+
+// WithTransactionNoRetryNoResult is the result-free form of WithTransactionNoRetry.
 func WithTransactionNoRetryNoResult(ctx context.Context, db *sql.DB, action func(q sqlc.Querier) error, opts ...*sql.TxOptions) error {
-	_, err := executeTransaction(ctx, db, func(q sqlc.Querier) (struct{}, error) {
+	_, err := WithTransactionNoRetry(ctx, db, func(q sqlc.Querier) (struct{}, error) {
 		return struct{}{}, action(q)
-	}, firstTxOpts(opts))
+	}, opts...)
 	return err
 }
 

@@ -347,6 +347,8 @@ func (r *Reconciler) releaseAllPairedPolicyTarget(ctx context.Context, ev *model
 		return
 	}
 	target.State = models.TargetStateReleased
+	now := r.now()
+	target.ReleasedAt = &now
 	target.LastError = &reason
 }
 

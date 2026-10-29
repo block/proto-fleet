@@ -372,3 +372,8 @@ export const AnimatedCurtailmentLifecycle: Story = {
     return <AnimatedCurtailmentLifecycleStory />;
   },
 };
+
+export const UnknownState: Story = {
+  args: { event: { ...curtailingCurtailmentEvent, state: "unknown" } },
+  render: (args) => <ActiveCurtailmentStatusStory {...args} />,
+};

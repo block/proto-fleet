@@ -3,6 +3,7 @@ import type { Meta, StoryObj } from "@storybook/react";
 import { CurtailmentSettingsContent } from "./CurtailmentSettingsPage";
 import type { AutomationRule, CurtailmentSource, ResponseProfile } from "@/protoFleet/api/curtailmentTypes";
 
+import { useFleetStore } from "@/protoFleet/store/useFleetStore";
 import { withMockedMinerSelectionApis } from "@/protoFleet/stories/MockedMinerSelectionApis";
 import { formatTimestamp, isoToEpochSeconds } from "@/shared/utils/formatTimestamp";
 
@@ -276,6 +277,11 @@ const meta = {
   },
   decorators: [withMockedMinerSelectionApis],
   tags: ["autodocs"],
+  beforeEach: () => {
+    const previousRole = useFleetStore.getState().auth.role;
+    useFleetStore.getState().auth.setRole("ADMIN");
+    return () => useFleetStore.getState().auth.setRole(previousRole);
+  },
 } satisfies Meta<typeof CurtailmentSettingsContent>;
 
 export default meta;
@@ -315,5 +321,24 @@ export const AddResponseProfileDialog: Story = {
       formValues: values,
     }),
     onTestResponseProfileCurtailment: async () => undefined,
+  },
+};
+
+export const OperatorRuntimeErrors: Story = {
+  beforeEach: () => {
+    useFleetStore.getState().auth.setRole("FIELD_TECH");
+  },
+  args: {
+    initialResponseProfiles: storyResponseProfiles,
+    initialSources: [
+      {
+        ...storySources[0],
+        health: "offline",
+        lastRuntimeError: "Broker authentication failed. Check the source credentials.",
+      },
+    ],
+    initialAutomationRules: [
+      { ...storyAutomationRules[0], lastError: "No eligible miners are available for this profile." },
+    ],
   },
 };

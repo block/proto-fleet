@@ -673,6 +673,7 @@ RETURNING *;
 -- releases ownership without claiming that restore was attempted or failed.
 UPDATE curtailment_target
 SET state      = 'released',
+    released_at = COALESCE(released_at, CURRENT_TIMESTAMP),
     last_error = sqlc.arg('last_error')::TEXT,
     curtail_state = CASE
         WHEN desired_state = 'curtailed' THEN 'released'
@@ -694,18 +695,28 @@ WHERE curtailment_event_id = sqlc.arg('curtailment_event_id')
     AND state NOT IN ('resolved', 'restore_failed', 'released');
 
 -- name: UpdateCurtailmentEventOperatorFields :one
--- Partial update; nil params COALESCE-preserve. State filter is the
--- race-loss guard — zero rows means the event advanced between the
--- service's pre-read and this UPDATE.
+-- Partial update; nil params COALESCE-preserve. Recheck state and duration
+-- policy atomically so a concurrent extension cannot turn a non-admin's
+-- intended extension into an early restore.
 UPDATE curtailment_event
 SET reason                     = COALESCE(sqlc.narg('reason')::TEXT, reason),
-    restore_batch_size         = COALESCE(sqlc.narg('restore_batch_size')::INT, restore_batch_size),
     restore_batch_interval_sec = COALESCE(sqlc.narg('restore_batch_interval_sec')::INT, restore_batch_interval_sec),
     max_duration_seconds       = COALESCE(sqlc.narg('max_duration_seconds')::INT, max_duration_seconds),
     updated_at                 = NOW()
 WHERE id = sqlc.arg('id')
     AND org_id = sqlc.arg('org_id')
     AND state IN ('pending', 'active')
+    AND (
+        sqlc.narg('max_duration_seconds')::INT IS NULL
+        OR (
+            NOT allow_unbounded
+            AND sqlc.narg('max_duration_seconds')::INT >= min_curtailed_duration_sec
+            AND (
+                sqlc.arg('can_shorten_max_duration')::BOOLEAN
+                OR sqlc.narg('max_duration_seconds')::INT >= max_duration_seconds
+            )
+        )
+    )
 RETURNING *;
 
 -- name: ListCurtailmentEventsForOrg :many
@@ -1690,6 +1701,15 @@ SET desired_state = CASE
         THEN 'released'
         ELSE 'pending'
     END,
+    released_at = CASE
+        WHEN target.state IN ('pending', 'unavailable', 'dispatching')
+         AND target.last_dispatched_at IS NULL
+         AND target.curtail_dispatched_at IS NULL
+         AND target.retry_count = 0
+         AND target.restore_started_at IS NULL
+        THEN COALESCE(target.released_at, CURRENT_TIMESTAMP)
+        ELSE target.released_at
+    END,
     retry_count = 0,
     last_dispatched_at = NULL,
     last_batch_uuid = NULL,
@@ -1797,6 +1817,7 @@ ORDER BY d.device_identifier;
 -- be terminally released.
 UPDATE curtailment_target
 SET state              = 'released',
+    released_at        = COALESCE(released_at, CURRENT_TIMESTAMP),
     last_error         = COALESCE(last_error, 'released without restore: no curtail command dispatched'),
     curtail_state      = 'released',
     curtail_completed_at = COALESCE(curtail_completed_at, CURRENT_TIMESTAMP),
@@ -1907,6 +1928,10 @@ WITH locked_event AS MATERIALIZED (
 )
 UPDATE curtailment_target
 SET state              = sqlc.arg('state'),
+    released_at        = CASE
+        WHEN sqlc.arg('state') = 'released' THEN COALESCE(released_at, CURRENT_TIMESTAMP)
+        ELSE released_at
+    END,
     last_dispatched_at = COALESCE(sqlc.narg('last_dispatched_at'), last_dispatched_at),
     last_batch_uuid    = COALESCE(sqlc.narg('last_batch_uuid'),    last_batch_uuid),
     observed_power_w   = COALESCE(sqlc.narg('observed_power_w'),   observed_power_w),

@@ -590,11 +590,9 @@ func start(config *Config) (result error) {
 		siteStore,
 		infrastructureDriverRegistry,
 		activitySvc,
+		metricsProvider,
 	)
-	// Curtailment operational metrics route through this single recorder.
-	// Swap NoOpMetrics for the platform observability implementation once
-	// the pipeline shape lands (OTel Meter, Prometheus, or DogStatsD).
-	var curtailmentMetrics curtailmentDomain.Metrics = curtailmentDomain.NoOpMetrics{}
+	var curtailmentMetrics curtailmentDomain.Metrics = metricsProvider
 	curtailmentSvc := curtailmentDomain.NewService(curtailmentStore,
 		curtailmentDomain.WithServiceMetrics(curtailmentMetrics),
 		curtailmentDomain.WithAuditLogger(activitySvc),
@@ -695,7 +693,7 @@ func start(config *Config) (result error) {
 		return fmt.Errorf("failed to initialize curtailment mqtt subscriber: %w", err)
 	}
 	mqttConnectionTester, err := mqttingest.NewMQTTConnectionTester(mqttingest.ConnectionTesterConfig{
-		NewClient: func() mqttingest.MQTTClient { return mqttclient.New() },
+		NewClient: func() mqttingest.MQTTClient { return mqttclient.NewProbe() },
 	})
 	if err != nil {
 		return fmt.Errorf("failed to initialize curtailment mqtt connection tester: %w", err)
@@ -714,8 +712,8 @@ func start(config *Config) (result error) {
 	pairingSvc.WithRigConfigReapplier(mqttSettingsSvc.ReapplyRigConfigBestEffort)
 	fleetNodePairingSvc.WithRigConfigReapplier(mqttSettingsSvc.ReapplyRigConfigBestEffort)
 
-	// Feeds the MQTT curtailment default alert rules; skipped when the
-	// metrics pipeline is off so its periodic queries aren't wasted work.
+	// Emits MQTT curtailment alert state and durable pending-work ages; skipped
+	// when the metrics pipeline is off to avoid unused periodic queries.
 	var curtailmentAlertMetrics runtimejobs.Lifecycle
 	if metricsProvider.Enabled() {
 		alertMetricsLoop, err := curtailmentDomain.NewAlertMetricsLoop(curtailmentDomain.AlertMetricsConfig{
@@ -723,6 +721,8 @@ func start(config *Config) (result error) {
 			Runtime:           mqttSubscriber,
 			ActiveCurtailment: curtailmentStore,
 			Emitter:           metricsProvider,
+			PendingWork:       curtailmentStore,
+			PendingAges:       metricsProvider,
 		})
 		if err != nil {
 			return fmt.Errorf("failed to initialize curtailment alert metrics loop: %w", err)

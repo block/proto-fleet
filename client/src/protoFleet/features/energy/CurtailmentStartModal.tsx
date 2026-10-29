@@ -20,7 +20,7 @@ import type {
   ResponseProfileModalMode,
 } from "@/protoFleet/api/curtailmentTypes";
 
-import { formatCurtailmentKw as formatKw } from "@/protoFleet/api/curtailmentUtils";
+import { formatCurtailmentKw as formatKw, isCurtailmentAdmin } from "@/protoFleet/api/curtailmentUtils";
 import { MinerListFilterSchema } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import FullScreenTwoPaneModal, {
   type FullScreenTwoPaneModalProps,
@@ -39,6 +39,7 @@ import {
 } from "@/protoFleet/features/energy/curtailmentDisplayUtils";
 import {
   curtailmentNumericFieldLimits,
+  nonAdminBatchIntervalMax,
   parseOptionalUint32Field,
 } from "@/protoFleet/features/energy/curtailmentNumericFields";
 import {
@@ -53,6 +54,7 @@ import {
   createCurtailmentPlanPreview,
   useCurtailmentPlanPreview,
 } from "@/protoFleet/features/energy/useCurtailmentPlanPreview";
+import { useRole } from "@/protoFleet/store";
 import { Alert, LightningAlt, Question } from "@/shared/assets/icons";
 import { variants } from "@/shared/components/Button";
 import Checkbox from "@/shared/components/Checkbox";
@@ -723,14 +725,23 @@ function validateCurtailmentFormValues(
   mode: CurtailmentStartModalMode = "create",
   initialValues: CurtailmentFormValues = defaultValues,
   variant: CurtailmentStartModalVariant = "curtailment",
+  canUseAdminControls = false,
 ): CurtailmentFormErrors {
   const localErrors: CurtailmentFormErrors = {};
   const isEditMode = mode === "edit";
   const isResponseProfileVariant = variant === "responseProfile";
   const shouldValidateFullFormFields = !isEditMode || isResponseProfileVariant;
+  const unchangedRestoreInterval =
+    isEditMode &&
+    !isResponseProfileVariant &&
+    parseComparableUint32Field(values.restoreIntervalSec, curtailmentNumericFieldLimits.restoreIntervalSec) ===
+      parseComparableUint32Field(initialValues.restoreIntervalSec, curtailmentNumericFieldLimits.restoreIntervalSec);
   const restoreInterval = parseOptionalUint32Field(values.restoreIntervalSec, {
     label: "batch interval",
-    max: curtailmentNumericFieldLimits.restoreIntervalSec,
+    max:
+      canUseAdminControls || unchangedRestoreInterval
+        ? curtailmentNumericFieldLimits.restoreIntervalSec
+        : nonAdminBatchIntervalMax,
   });
   const curtailBatchSize = parseOptionalUint32Field(values.curtailBatchSize, {
     label: "batch size",
@@ -738,7 +749,7 @@ function validateCurtailmentFormValues(
   });
   const curtailBatchInterval = parseOptionalUint32Field(values.curtailBatchIntervalSec, {
     label: "batch interval",
-    max: curtailmentNumericFieldLimits.curtailBatchIntervalSec,
+    max: canUseAdminControls ? curtailmentNumericFieldLimits.curtailBatchIntervalSec : nonAdminBatchIntervalMax,
   });
   const fanOffDelay = parseOptionalUint32Field(values.fanOffDelaySec ?? "", {
     label: "fan-off delay",
@@ -1218,6 +1229,7 @@ function CurtailmentStartModalContent({
   isTestingCurtailment = false,
   isDeleting = false,
 }: CurtailmentStartModalProps): ReactElement {
+  const canUseAdminControls = isCurtailmentAdmin(useRole());
   const [initialFormValues] = useState<CurtailmentFormValues>(() =>
     getInitialValues(initialValues, variant, defaultSiteScope),
   );
@@ -1290,8 +1302,8 @@ function CurtailmentStartModalContent({
   const validationMode: CurtailmentStartModalMode = isLiveCurtailmentEditMode ? "edit" : "create";
   const isBusy = isSubmitting || isTestingCurtailment || isDeleting;
   const localErrors = useMemo(
-    () => validateCurtailmentFormValues(values, validationMode, initialFormValues, variant),
-    [initialFormValues, validationMode, values, variant],
+    () => validateCurtailmentFormValues(values, validationMode, initialFormValues, variant, canUseAdminControls),
+    [canUseAdminControls, initialFormValues, validationMode, values, variant],
   );
   const visibleLocalErrors = useMemo(() => {
     const visibleErrors: CurtailmentFormErrors = {};
@@ -2093,7 +2105,7 @@ function CurtailmentStartModalContent({
               The checkbox is also available for logical topology scopes; explicit miner snapshots
               remain ineligible for the all-paired policy.
             */}
-            {isFullFleetMode && supportsAllPairedTargeting(values) ? (
+            {canUseAdminControls && isFullFleetMode && supportsAllPairedTargeting(values) ? (
               <Section title="Miners">
                 <label
                   className={`flex items-start gap-3 text-left ${

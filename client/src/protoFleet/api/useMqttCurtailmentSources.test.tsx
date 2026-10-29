@@ -307,4 +307,18 @@ describe("useMqttCurtailmentSources", () => {
     );
     expect(result.current.sources).toEqual([]);
   });
+  it("retains the broker runtime failure for the source view", async () => {
+    mockListMqttCurtailmentSources.mockResolvedValue({
+      sources: [
+        mqttSource({
+          status: create(MqttCurtailmentSourceStatusSchema, { lastRuntimeError: "Broker authentication failed" }),
+        }),
+      ],
+    });
+    const { result } = renderHook(() => useMqttCurtailmentSources(false));
+    await act(async () => {
+      await result.current.listSources();
+    });
+    expect(result.current.sources[0]?.lastRuntimeError).toBe("Broker authentication failed");
+  });
 });

@@ -350,9 +350,11 @@ type CurtailmentTopologyRestoreDispatchFenceStore interface {
 // would race an in-flight restore claim.
 type UpdateOperatorFieldsParams struct {
 	Reason                  *string
-	RestoreBatchSize        *int32
 	RestoreBatchIntervalSec *int32
 	MaxDurationSeconds      *int32
+	// CanShortenMaxDuration permits an admin to shorten the cap against the
+	// current row, including when a concurrent update extended it after pre-read.
+	CanShortenMaxDuration bool
 }
 
 // UpdateCurtailmentFanStateParams persists one reconciler or operator-recovery

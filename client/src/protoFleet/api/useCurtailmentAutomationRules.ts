@@ -57,6 +57,7 @@ function mapApiAutomationRule(rule: ApiCurtailmentAutomationRule, priority: numb
     responseProfileId: rule.responseProfileId.toString(),
     responseProfileName: rule.responseProfileName,
     enabled: rule.enabled,
+    lastError: rule.lastError || undefined,
   };
 }
 

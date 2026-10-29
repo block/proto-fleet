@@ -49,7 +49,7 @@ func validateControlBounds(c controlBounds) error {
 		{"restore_batch_interval_sec", c.RestoreBatchIntervalSec, batchIntervalUpperBoundSec},
 		{"fan_off_delay_sec", c.FanOffDelaySec, facilityFanDelayUpperBoundSec},
 		{"fan_restore_delay_sec", c.FanRestoreDelaySec, facilityFanDelayUpperBoundSec},
-		{"min_curtailed_duration_sec", c.MinCurtailedDurationSec, 0},
+		{"min_curtailed_duration_sec", c.MinCurtailedDurationSec, maxFiniteDurationSeconds},
 	}
 	for _, f := range fields {
 		if f.value == nil {
@@ -66,7 +66,12 @@ func validateControlBounds(c controlBounds) error {
 		}
 	}
 	if c.MaxDurationSeconds != nil {
-		return validateFiniteDuration("max_duration_seconds", *c.MaxDurationSeconds)
+		if err := validateFiniteDuration("max_duration_seconds", *c.MaxDurationSeconds); err != nil {
+			return err
+		}
+		if c.MinCurtailedDurationSec != nil && *c.MinCurtailedDurationSec > *c.MaxDurationSeconds {
+			return fleeterror.NewInvalidArgumentError("min_curtailed_duration_sec must be <= max_duration_seconds")
+		}
 	}
 	return nil
 }
@@ -100,6 +105,7 @@ type adminControls struct {
 	CurtailBatchIntervalSec     int32
 	RestoreBatchIntervalSec     int32
 	MaxDurationSeconds          *int32
+	MinCurtailedDurationSec     int32
 	MaxDurationDefaultSec       int32
 }
 
@@ -122,6 +128,8 @@ func adminControlsRequirement(c adminControls) string {
 		return fmt.Sprintf("only admins can set curtail_batch_interval_sec above %d", nonAdminBatchIntervalMax)
 	case c.RestoreBatchIntervalSec > nonAdminBatchIntervalMax:
 		return fmt.Sprintf("only admins can set restore_batch_interval_sec above %d", nonAdminBatchIntervalMax)
+	case c.MinCurtailedDurationSec > c.MaxDurationDefaultSec && c.MaxDurationDefaultSec > 0:
+		return fmt.Sprintf("only admins can set min_curtailed_duration_sec above org default %d", c.MaxDurationDefaultSec)
 	case c.MaxDurationSeconds != nil && c.MaxDurationDefaultSec > 0 && *c.MaxDurationSeconds > c.MaxDurationDefaultSec:
 		return fmt.Sprintf("only admins can set max_duration_seconds above org default %d", c.MaxDurationDefaultSec)
 	default:
@@ -143,7 +151,7 @@ func startAdminControls(req StartRequest, orgConfig *models.OrgConfig) adminCont
 		AllowUnbounded: req.AllowUnbounded, CandidateMinPowerWOverride: req.CandidateMinPowerWOverride,
 		ForceIncludeMaintenance: req.ForceIncludeMaintenance, ForceIncludeAllPairedMiners: req.ForceIncludeAllPairedMiners,
 		CurtailBatchIntervalSec: req.CurtailBatchIntervalSec, RestoreBatchIntervalSec: req.RestoreBatchIntervalSec,
-		MaxDurationSeconds: req.MaxDurationSeconds,
+		MaxDurationSeconds: req.MaxDurationSeconds, MinCurtailedDurationSec: req.MinCurtailedDurationSec,
 	}
 	if orgConfig != nil {
 		c.MaxDurationDefaultSec = orgConfig.MaxDurationDefaultSec

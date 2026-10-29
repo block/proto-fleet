@@ -201,6 +201,15 @@ SET desired_state = CASE
         THEN 'released'
         ELSE 'pending'
     END,
+    released_at = CASE
+        WHEN target.state IN ('pending', 'unavailable', 'dispatching')
+         AND target.last_dispatched_at IS NULL
+         AND target.curtail_dispatched_at IS NULL
+         AND target.retry_count = 0
+         AND target.restore_started_at IS NULL
+        THEN COALESCE(target.released_at, CURRENT_TIMESTAMP)
+        ELSE target.released_at
+    END,
     retry_count = 0,
     last_dispatched_at = NULL,
     last_batch_uuid = NULL,
@@ -4213,6 +4222,7 @@ func (q *Queries) RecordCurtailPendingDispatch(ctx context.Context, arg RecordCu
 const releaseUndispatchedTargetsForRestore = `-- name: ReleaseUndispatchedTargetsForRestore :execrows
 UPDATE curtailment_target
 SET state              = 'released',
+    released_at        = COALESCE(released_at, CURRENT_TIMESTAMP),
     last_error         = COALESCE(last_error, 'released without restore: no curtail command dispatched'),
     curtail_state      = 'released',
     curtail_completed_at = COALESCE(curtail_completed_at, CURRENT_TIMESTAMP),
@@ -4619,6 +4629,7 @@ func (q *Queries) ResumeCurtailmentFromRestoring(ctx context.Context, id int64) 
 const sweepCurtailmentTargetsToReleased = `-- name: SweepCurtailmentTargetsToReleased :execrows
 UPDATE curtailment_target
 SET state      = 'released',
+    released_at = COALESCE(released_at, CURRENT_TIMESTAMP),
     last_error = $1::TEXT,
     curtail_state = CASE
         WHEN desired_state = 'curtailed' THEN 'released'
@@ -4756,36 +4767,46 @@ func (q *Queries) UpdateCurtailmentEventFanState(ctx context.Context, arg Update
 const updateCurtailmentEventOperatorFields = `-- name: UpdateCurtailmentEventOperatorFields :one
 UPDATE curtailment_event
 SET reason                     = COALESCE($1::TEXT, reason),
-    restore_batch_size         = COALESCE($2::INT, restore_batch_size),
-    restore_batch_interval_sec = COALESCE($3::INT, restore_batch_interval_sec),
-    max_duration_seconds       = COALESCE($4::INT, max_duration_seconds),
+    restore_batch_interval_sec = COALESCE($2::INT, restore_batch_interval_sec),
+    max_duration_seconds       = COALESCE($3::INT, max_duration_seconds),
     updated_at                 = NOW()
-WHERE id = $5
-    AND org_id = $6
+WHERE id = $4
+    AND org_id = $5
     AND state IN ('pending', 'active')
+    AND (
+        $3::INT IS NULL
+        OR (
+            NOT allow_unbounded
+            AND $3::INT >= min_curtailed_duration_sec
+            AND (
+                $6::BOOLEAN
+                OR $3::INT >= max_duration_seconds
+            )
+        )
+    )
 RETURNING id, event_uuid, org_id, state, mode, strategy, level, priority, loop_type, scope_type, scope_jsonb, mode_params_jsonb, restore_batch_size, restore_batch_interval_sec, effective_batch_size, min_curtailed_duration_sec, max_duration_seconds, allow_unbounded, include_maintenance, force_include_maintenance, decision_snapshot_jsonb, source_actor_type, source_actor_id, external_source, external_reference, idempotency_key, supersedes_event_id, reason, scheduled_start_at, started_at, ended_at, created_at, updated_at, created_by_user_id, curtail_batch_size, curtail_batch_interval_sec, force_include_all_paired_miners, facility_fan_device_ids, facility_fan_site_ids, fan_off_delay_sec, fan_restore_delay_sec, fan_off_sent_at, fan_on_sent_at, fan_airflow_reopened_at, fan_last_error, last_curtail_pending_dispatch_at, authorization_envelope_jsonb
 `
 
 type UpdateCurtailmentEventOperatorFieldsParams struct {
 	Reason                  sql.NullString
-	RestoreBatchSize        sql.NullInt32
 	RestoreBatchIntervalSec sql.NullInt32
 	MaxDurationSeconds      sql.NullInt32
 	ID                      int64
 	OrgID                   int64
+	CanShortenMaxDuration   bool
 }
 
-// Partial update; nil params COALESCE-preserve. State filter is the
-// race-loss guard — zero rows means the event advanced between the
-// service's pre-read and this UPDATE.
+// Partial update; nil params COALESCE-preserve. Recheck state and duration
+// policy atomically so a concurrent extension cannot turn a non-admin's
+// intended extension into an early restore.
 func (q *Queries) UpdateCurtailmentEventOperatorFields(ctx context.Context, arg UpdateCurtailmentEventOperatorFieldsParams) (CurtailmentEvent, error) {
 	row := q.queryRow(ctx, q.updateCurtailmentEventOperatorFieldsStmt, updateCurtailmentEventOperatorFields,
 		arg.Reason,
-		arg.RestoreBatchSize,
 		arg.RestoreBatchIntervalSec,
 		arg.MaxDurationSeconds,
 		arg.ID,
 		arg.OrgID,
+		arg.CanShortenMaxDuration,
 	)
 	var i CurtailmentEvent
 	err := row.Scan(
@@ -4887,6 +4908,10 @@ WITH locked_event AS MATERIALIZED (
 )
 UPDATE curtailment_target
 SET state              = $1,
+    released_at        = CASE
+        WHEN $1 = 'released' THEN COALESCE(released_at, CURRENT_TIMESTAMP)
+        ELSE released_at
+    END,
     last_dispatched_at = COALESCE($2, last_dispatched_at),
     last_batch_uuid    = COALESCE($3,    last_batch_uuid),
     observed_power_w   = COALESCE($4,   observed_power_w),

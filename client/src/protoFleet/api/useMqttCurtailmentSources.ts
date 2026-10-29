@@ -114,6 +114,7 @@ function mapMqttCurtailmentSource(source: MqttCurtailmentSource): CurtailmentSou
     qos: 1,
     username: source.mqttUsername,
     hasPassword: source.hasPassword,
+    lastRuntimeError: source.status?.lastRuntimeError || undefined,
     lastTarget: source.status?.lastTarget || unsetDisplayValue,
     lastSeen: formatSignalUpdate(source.status?.lastReceivedAt ?? source.status?.lastTargetAt),
     health: mapRuntimeHealth(source),

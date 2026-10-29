@@ -30,7 +30,7 @@ import {
   type ResponseProfileModalMode,
 } from "@/protoFleet/api/curtailmentTypes";
 
-import { formatCurtailmentKw } from "@/protoFleet/api/curtailmentUtils";
+import { formatCurtailmentKw, isCurtailmentAdmin } from "@/protoFleet/api/curtailmentUtils";
 
 import type { SiteWithCounts } from "@/protoFleet/api/generated/sites/v1/sites_pb";
 import { useSites } from "@/protoFleet/api/sites";
@@ -53,7 +53,7 @@ import { isInputEnterSaveEvent } from "@/protoFleet/features/settings/components
 import SettingsEmptyState from "@/protoFleet/features/settings/components/SettingsEmptyState";
 import SettingsPageHeader from "@/protoFleet/features/settings/components/SettingsPageHeader";
 import { scopedPath } from "@/protoFleet/routing/siteScope";
-import { useHasPermission } from "@/protoFleet/store";
+import { useHasPermission, useRole } from "@/protoFleet/store";
 import { useFleetStore } from "@/protoFleet/store/useFleetStore";
 import { Alert, Info, Success } from "@/shared/assets/icons";
 import { iconSizes } from "@/shared/assets/icons/constants";
@@ -193,7 +193,7 @@ const emptyResponseProfileFormValues: ResponseProfileFormValues = {
   selectionStrategy: "leastEfficientFirst",
   restoreBehavior: "automaticBatchRestore",
   minDurationSec: "",
-  maxDurationSec: "900",
+  maxDurationSec: "",
   curtailBatchSize: "",
   curtailBatchIntervalSec: "",
   restoreBatchSize: "",
@@ -201,7 +201,7 @@ const emptyResponseProfileFormValues: ResponseProfileFormValues = {
   facilityFanDeviceIds: [],
   fanOffDelaySec: "",
   fanRestoreDelaySec: "",
-  responseDeadlineMinutes: "15",
+  responseDeadlineMinutes: "",
   // Maintenance-flagged miners are excluded by default: force_include_maintenance
   // is admin-gated server-side, so defaulting it on would block non-admin
   // operators with curtailment:manage from saving any profile. "Target all
@@ -272,16 +272,6 @@ function secondsToDeadlineMinutes(value: string): string {
   }
 
   return Math.max(Math.ceil(seconds / 60), 1).toString();
-}
-
-function minutesToSeconds(value: string): string {
-  const minutes = Number(value);
-
-  if (!Number.isFinite(minutes) || minutes <= 0) {
-    return emptyResponseProfileFormValues.maxDurationSec;
-  }
-
-  return String(minutes * 60);
 }
 
 function createResponseProfileId(name: string, existingProfiles: ResponseProfile[]): string {
@@ -445,7 +435,7 @@ function createCurtailmentFormValuesFromResponseProfile(
     priority: values.priority,
     postEventCooldownSec: values.postEventCooldownSec,
     minDurationSec: values.minDurationSec,
-    maxDurationSec: values.maxDurationSec || minutesToSeconds(values.responseDeadlineMinutes),
+    maxDurationSec: values.maxDurationSec,
     curtailBatchSize: values.curtailBatchSize,
     curtailBatchIntervalSec: values.curtailBatchIntervalSec,
     restoreBatchSize,
@@ -1092,11 +1082,13 @@ function SourceModal({
 type CurtailmentSourceColConfigOptions = {
   onToggle: (sourceId: string) => void;
   updatingSourceIds: ReadonlySet<string>;
+  canManageSources: boolean;
 };
 
 function createCurtailmentSourceColConfig({
   onToggle,
   updatingSourceIds,
+  canManageSources,
 }: CurtailmentSourceColConfigOptions): ColConfig<CurtailmentSource, string, CurtailmentSourceColumn> {
   return {
     [curtailmentSourceCols.name]: {
@@ -1114,16 +1106,22 @@ function createCurtailmentSourceColConfig({
       width: "w-[23.5%] phone:hidden",
     },
     [curtailmentSourceCols.health]: {
+      allowWrap: true,
       component: (source) => (
-        <div className="inline-flex items-center gap-1.5">
-          <span
-            className={clsx(
-              "curtailment-source-health-dot h-2 w-2 shrink-0 rounded-full",
-              sourceHealthDotClassName[source.health],
-              source.health === "connected" && "curtailment-source-health-dot--connected",
-            )}
-          />
-          <span className="truncate text-text-primary">{formatSourceHealth(source.health)}</span>
+        <div>
+          <div className="inline-flex items-center gap-1.5">
+            <span
+              className={clsx(
+                "curtailment-source-health-dot h-2 w-2 shrink-0 rounded-full",
+                sourceHealthDotClassName[source.health],
+                source.health === "connected" && "curtailment-source-health-dot--connected",
+              )}
+            />
+            <span className="truncate text-text-primary">{formatSourceHealth(source.health)}</span>
+          </div>
+          {source.lastRuntimeError ? (
+            <div className="text-200 wrap-anywhere whitespace-normal text-text-critical">{source.lastRuntimeError}</div>
+          ) : null}
         </div>
       ),
       width: "w-[23.5%] phone:w-auto",
@@ -1134,7 +1132,7 @@ function createCurtailmentSourceColConfig({
           <Switch
             checked={source.enabled}
             setChecked={() => onToggle(source.id)}
-            disabled={updatingSourceIds.has(source.id)}
+            disabled={!canManageSources || updatingSourceIds.has(source.id)}
           />
         </div>
       ),
@@ -1264,6 +1262,7 @@ export function CurtailmentSettingsContent({
   onToggleAutomation,
   onDeleteAutomation,
 }: CurtailmentSettingsContentProps): ReactElement {
+  const canManageSources = isCurtailmentAdmin(useRole());
   const [localResponseProfiles, setLocalResponseProfiles] = useState<ResponseProfile[]>(() => [
     ...initialResponseProfiles,
   ]);
@@ -1543,8 +1542,9 @@ export function CurtailmentSettingsContent({
       createCurtailmentSourceColConfig({
         onToggle: toggleSource,
         updatingSourceIds,
+        canManageSources,
       }),
-    [toggleSource, updatingSourceIds],
+    [canManageSources, toggleSource, updatingSourceIds],
   );
 
   const noDataElement = getSourcesEmptyState(loadSourcesError, isLoadingSources);
@@ -1584,7 +1584,7 @@ export function CurtailmentSettingsContent({
           variant="settings"
           title="Sources"
           buttonText="Add source"
-          onButtonClick={openCreateSourceModal}
+          onButtonClick={canManageSources ? openCreateSourceModal : undefined}
           infoToggle={<SourcesInfoToggle />}
         />
         <List<CurtailmentSource, string, CurtailmentSourceColumn>
@@ -1603,7 +1603,7 @@ export function CurtailmentSettingsContent({
           tableClassName={curtailmentSourcesTableClassName}
           noDataElement={noDataElement}
           applyColumnWidthsToCells
-          onRowClick={openEditSourceModal}
+          onRowClick={canManageSources ? openEditSourceModal : undefined}
         />
       </section>
 
@@ -1660,7 +1660,7 @@ export function CurtailmentSettingsContent({
 
       <SourceModal
         key={isSourceModalOpen ? `source-modal-${editingSource?.id ?? "new"}` : "source-modal-closed"}
-        open={isSourceModalOpen}
+        open={isSourceModalOpen ? canManageSources : false}
         mode={sourceModalMode}
         initialValues={sourceModalInitialValues}
         hasSavedPassword={editingSource?.hasPassword ?? false}

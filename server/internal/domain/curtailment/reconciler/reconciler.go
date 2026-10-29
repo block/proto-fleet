@@ -476,6 +476,11 @@ func (r *Reconciler) dispatchPending(ctx context.Context, ev *models.Event) {
 			"event_id", ev.ID, "error", err)
 		return
 	}
+	// Enforce the finite safety cap before any fan or miner dispatch, including
+	// partially confirmed pending events. Failed transitions still stop dispatch.
+	if r.enforceMaxDuration(ctx, ev, targets) {
+		return
+	}
 	// Deferred so both fresh dispatches from this pass and rows already
 	// dispatched (recovery) wake the confirmation fast path.
 	defer func() { r.wakeIfDispatchedWork(targets) }()
@@ -2041,14 +2046,9 @@ func (r *Reconciler) maybeMarkActive(ctx context.Context, ev *models.Event, targ
 		}
 	}
 	if confirmed == 0 && (unavailable > 0 || releasedPolicy > 0) {
-		// All-paired policy event with nothing curtailed yet: hold it in
-		// pending so StartedAt (and enforceMaxDuration's clock) don't start
-		// until curtailment actually begins. The per-tick readiness refresh
-		// keeps promoting unavailable rows, and admission reopens released
-		// rows on re-pair; a scope that starts entirely offline — or whose
-		// every row was released on unpair — must not burn its bounded
-		// duration window (or be force-restored having curtailed nothing)
-		// before a single dispatch happens.
+		// Keep readiness and admission running while no miner is confirmed.
+		// Bounded events still expire from creation through the pending cap
+		// guard; unbounded policy events retain their scope until stopped.
 		r.warnIfAllPairedPendingStalled(ev, unavailable, releasedPolicy)
 		return
 	}
@@ -2270,20 +2270,14 @@ func isCurtailed(latestPowerW *float64, baselinePowerW *float64, latestHashRateH
 	return *latestHashRateHS <= 0
 }
 
-// enforceMaxDuration transitions an active event to restoring when the
-// max_duration_seconds cap elapses since started_at. Returns true so the
-// caller skips further active-phase work this tick. AllowUnbounded events
-// and events without started_at short-circuit out.
+// enforceMaxDuration restores an event once its finite safety cap expires.
+// Active events use started_at; pending events use creation (see
+// curtailment.MaxDurationElapsed). Incomplete confirmation cannot leave already
+// curtailed miners held indefinitely. A failed transition still suppresses
+// further curtail dispatch until a later tick can retry it.
 func (r *Reconciler) enforceMaxDuration(ctx context.Context, ev *models.Event, targets []*models.Target) bool {
-	if ev.AllowUnbounded || ev.MaxDurationSeconds == nil || *ev.MaxDurationSeconds <= 0 {
-		return false
-	}
-	if ev.StartedAt == nil {
-		return false
-	}
-	maxDur := time.Duration(*ev.MaxDurationSeconds) * time.Second
-	elapsed := r.now().Sub(*ev.StartedAt)
-	if elapsed < maxDur {
+	elapsed, expired := curtailment.MaxDurationElapsed(ev, r.now())
+	if !expired {
 		return false
 	}
 
