@@ -46,7 +46,7 @@ so a concurrent extension cannot turn a non-admin update into an early restore.
 `pending_started_at` records the current pending phase for the operational age
 gauge. Initial insertion stamps it, and restoring-to-pending reversal refreshes
 it; dispatch, retries and fan writes preserve it. This phase clock does not affect
-the finite cap. Migration 1044 backfills existing rows from `created_at`; because
+the finite cap. Migration 1047 backfills existing rows from `created_at`; because
 older rows did not retain reversal timestamps, their current pending age can be
 overstated until their next re-curtailment.
 

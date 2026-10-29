@@ -69,8 +69,10 @@ func TestSQLCurtailmentStore_PendingPhaseClockMigrationBackfillsCreation(t *test
 	created := time.Now().UTC().Truncate(time.Microsecond).Add(-2 * time.Hour)
 	_, err = database.ExecContext(ctx, `UPDATE curtailment_event SET created_at=$2 WHERE id=$1`, inserted.ID, created)
 	require.NoError(t, err)
+	var updatedBeforeUpgrade time.Time
+	require.NoError(t, database.QueryRowContext(ctx, `SELECT updated_at FROM curtailment_event WHERE id=$1`, inserted.ID).Scan(&updatedBeforeUpgrade))
 	for _, direction := range []string{"down", "up"} {
-		migration, err := migrations.Current.ReadFile("current/001044_shared_curtailment_pending_phase_clock." + direction + ".sql")
+		migration, err := migrations.Current.ReadFile("current/001047_shared_curtailment_pending_phase_clock." + direction + ".sql")
 		require.NoError(t, err)
 		tx, err := database.BeginTx(ctx, nil)
 		require.NoError(t, err)
@@ -81,10 +83,11 @@ func TestSQLCurtailmentStore_PendingPhaseClockMigrationBackfillsCreation(t *test
 		require.NoError(t, err)
 		require.NoError(t, tx.Commit())
 	}
-	var pendingStarted, preservedCreation time.Time
-	require.NoError(t, database.QueryRowContext(ctx, `SELECT pending_started_at, created_at FROM curtailment_event WHERE id=$1`, inserted.ID).Scan(&pendingStarted, &preservedCreation))
+	var pendingStarted, preservedCreation, preservedUpdate time.Time
+	require.NoError(t, database.QueryRowContext(ctx, `SELECT pending_started_at, created_at, updated_at FROM curtailment_event WHERE id=$1`, inserted.ID).Scan(&pendingStarted, &preservedCreation, &preservedUpdate))
 	require.True(t, created.Equal(pendingStarted), "upgrade uses original creation when older phase history is unavailable")
 	require.True(t, created.Equal(preservedCreation), "the event's finite-cap clock must not change")
+	require.True(t, updatedBeforeUpgrade.Equal(preservedUpdate), "the backfill must not report historical events as updated")
 }
 
 func TestSQLCurtailmentStore_PendingWorkAges_RecurtailStartsNewPhase(t *testing.T) {

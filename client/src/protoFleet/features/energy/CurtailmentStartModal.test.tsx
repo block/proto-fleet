@@ -2748,21 +2748,22 @@ describe("CurtailmentStartModal", () => {
     expect(screen.queryByText("Target all paired miners")).not.toBeInTheDocument();
   });
 
+  const allPairedResponseProfile: CurtailmentResponseProfileOption = {
+    ...wholeFleetResponseProfiles[0],
+    id: "7",
+    values: {
+      ...wholeFleetResponseProfiles[0].values,
+      curtailmentMode: "fullFleet",
+      targetKw: "",
+      includeMaintenance: true,
+      forceIncludeAllPairedMiners: true,
+    },
+  };
+
   it("shows inherited all-paired targeting to operators and detaches the profile only when they turn it off", async () => {
     useFleetStore.getState().auth.setRole("FIELD_TECH");
     const user = userEvent.setup();
-    const savedProfile: CurtailmentResponseProfileOption = {
-      ...wholeFleetResponseProfiles[0],
-      id: "7",
-      values: {
-        ...wholeFleetResponseProfiles[0].values,
-        curtailmentMode: "fullFleet",
-        targetKw: "",
-        includeMaintenance: true,
-        forceIncludeAllPairedMiners: true,
-      },
-    };
-    const { onSubmit } = renderModal({ initialValues: configuredValues, responseProfiles: [savedProfile] });
+    const { onSubmit } = renderModal({ initialValues: configuredValues, responseProfiles: [allPairedResponseProfile] });
 
     await user.click(screen.getByRole("button", { name: "Profile" }));
     await user.click(screen.getByText("Standard shed"));
@@ -2776,8 +2777,8 @@ describe("CurtailmentStartModal", () => {
       expect.objectContaining({
         disabled: true,
         values: expect.objectContaining({
-          responseProfileId: savedProfile.id,
-          responseProfileRevision: savedProfile.revision,
+          responseProfileId: allPairedResponseProfile.id,
+          responseProfileRevision: allPairedResponseProfile.revision,
           forceIncludeAllPairedMiners: true,
         }),
       }),
@@ -2796,6 +2797,35 @@ describe("CurtailmentStartModal", () => {
     expect(buildStartCurtailmentRequest(onSubmit.mock.calls[0][0])).toMatchObject({
       responseProfileId: 0n,
       expectedResponseProfileRevision: "",
+      forceIncludeAllPairedMiners: false,
+      includeMaintenance: false,
+      forceIncludeMaintenance: false,
+    });
+  });
+
+  it("does not block operators who narrow inherited all-paired targeting to explicit miners", async () => {
+    useFleetStore.getState().auth.setRole("FIELD_TECH");
+    const user = userEvent.setup();
+    const { onSubmit } = renderModal({
+      initialValues: configuredValues,
+      responseProfiles: [allPairedResponseProfile],
+    });
+
+    await user.click(screen.getByRole("button", { name: "Profile" }));
+    await user.click(screen.getByText("Standard shed"));
+    expect(screen.getByRole("button", { name: "Run curtailment" })).toBeDisabled();
+
+    await user.click(screen.getByRole("button", { name: /^Miners\b/ }));
+    await user.click(screen.getByRole("button", { name: "Save miners" }));
+
+    expect(screen.queryByText("Target all paired miners")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Run curtailment" })).toBeEnabled();
+    await user.click(screen.getByRole("button", { name: "Run curtailment" }));
+    await confirmCurtailment(user);
+
+    expect(onSubmit).toHaveBeenCalledOnce();
+    expect(buildStartCurtailmentRequest(onSubmit.mock.calls[0][0])).toMatchObject({
+      responseProfileId: 0n,
       forceIncludeAllPairedMiners: false,
       includeMaintenance: false,
       forceIncludeMaintenance: false,

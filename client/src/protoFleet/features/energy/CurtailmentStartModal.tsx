@@ -1261,7 +1261,10 @@ function CurtailmentStartModalContent({
   const isLiveCurtailmentEditMode = isEditMode && !isResponseProfileVariant;
   const shouldResetResponseProfileOnEdit = !isResponseProfileVariant && !isEditMode;
   const hasRestrictedAllPairedTargeting =
-    !canUseAdminControls && values.forceIncludeAllPairedMiners && !isLiveCurtailmentEditMode;
+    !canUseAdminControls &&
+    !isLiveCurtailmentEditMode &&
+    values.forceIncludeAllPairedMiners &&
+    supportsAllPairedTargeting(values);
   const resetResponseProfileSelection = (nextValues: CurtailmentFormValues): CurtailmentFormValues => {
     if (!shouldResetResponseProfileOnEdit || nextValues.responseProfileId === customResponseProfileId) {
       return nextValues;
