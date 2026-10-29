@@ -106,10 +106,7 @@ const AccountOverview = () => {
     },
   ];
   const summary = query.data?.totals;
-  const history = useMemo(
-    () => (query.data ? accountDashboardData(query.data.readings, duration) : undefined),
-    [query.data, duration],
-  );
+  const history = useMemo(() => (query.data ? accountDashboardData(query.data.readings) : undefined), [query.data]);
   const historyHasReadings = query.data?.readings.some(
     ({ summary: reading, uptimeStatus }) =>
       (uptimeStatus && uptimeStatus.hashingCount + uptimeStatus.brokenCount + uptimeStatus.notHashingCount > 0) ||
@@ -247,7 +244,11 @@ const AccountOverview = () => {
           ) : null}
         </>
       ) : null}
-      {query.loading || query.data || query.errorCode === Code.InvalidArgument ? (
+      {query.loading ||
+      query.data ||
+      (query.errorCode !== null &&
+        query.errorCode !== Code.PermissionDenied &&
+        query.errorCode !== Code.Unauthenticated) ? (
         <div className="-mx-10 phone:-mx-6">
           <DashboardPerformance
             duration={duration}

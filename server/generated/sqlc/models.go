@@ -2012,7 +2012,80 @@ type HostedAccountAssetInterval struct {
 	EndedAt          sql.NullTime
 }
 
+type HostedAccountHistoryDaily struct {
+	Bucket                    interface{}
+	IntervalID                int64
+	HashrateSum               int64
+	HashrateCount             int64
+	HashratePositiveCount     int64
+	HashrateComplete          bool
+	HashrateSourceOldestAt    interface{}
+	HashrateSourceNewestAt    interface{}
+	PowerSum                  int64
+	PowerCount                int64
+	PowerComplete             bool
+	PowerSourceOldestAt       interface{}
+	PowerSourceNewestAt       interface{}
+	TemperatureSum            int64
+	TemperatureCount          int64
+	TemperatureLatestValue    interface{}
+	TemperatureLatestAt       interface{}
+	TemperatureSourceOldestAt interface{}
+	TemperatureSourceNewestAt interface{}
+	StateCount                int64
+	StateLatestValue          interface{}
+	StateLatestAt             interface{}
+	StateSourceOldestAt       interface{}
+	StateSourceNewestAt       interface{}
+}
+
 type HostedAccountHistoryEpoch struct {
+	Singleton bool
+	StartedAt time.Time
+}
+
+type HostedAccountHistoryHourly struct {
+	Bucket                    interface{}
+	IntervalID                int64
+	HashrateSum               int64
+	HashrateCount             int64
+	HashratePositiveCount     int64
+	HashrateComplete          bool
+	HashrateSourceOldestAt    interface{}
+	HashrateSourceNewestAt    interface{}
+	PowerSum                  int64
+	PowerCount                int64
+	PowerComplete             bool
+	PowerSourceOldestAt       interface{}
+	PowerSourceNewestAt       interface{}
+	TemperatureSum            int64
+	TemperatureCount          int64
+	TemperatureLatestValue    interface{}
+	TemperatureLatestAt       interface{}
+	TemperatureSourceOldestAt interface{}
+	TemperatureSourceNewestAt interface{}
+	StateCount                int64
+	StateLatestValue          interface{}
+	StateLatestAt             interface{}
+	StateSourceOldestAt       interface{}
+	StateSourceNewestAt       interface{}
+}
+
+type HostedAccountHistorySample struct {
+	Time              time.Time
+	IntervalID        int64
+	Metric            int16
+	Value             sql.NullFloat64
+	Complete          sql.NullBool
+	SourceOldestAt    time.Time
+	SourceNewestAt    time.Time
+	SourceID          int16
+	OriginKey         string
+	OriginTime        time.Time
+	OriginCollectedAt time.Time
+}
+
+type HostedAccountHistorySummaryEpoch struct {
 	Singleton bool
 	StartedAt time.Time
 }

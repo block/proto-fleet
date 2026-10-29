@@ -25,12 +25,41 @@ func (q *Queries) GetHostedAccountHistoryEpoch(ctx context.Context) (time.Time, 
 	return started_at, err
 }
 
+const getHostedAccountHistorySummaryEpoch = `-- name: GetHostedAccountHistorySummaryEpoch :one
+SELECT started_at FROM hosted_account_history_summary_epoch WHERE singleton
+`
+
+func (q *Queries) GetHostedAccountHistorySummaryEpoch(ctx context.Context) (time.Time, error) {
+	row := q.queryRow(ctx, q.getHostedAccountHistorySummaryEpochStmt, getHostedAccountHistorySummaryEpoch)
+	var started_at time.Time
+	err := row.Scan(&started_at)
+	return started_at, err
+}
+
+const getHostedAccountHistoryWatermarks = `-- name: GetHostedAccountHistoryWatermarks :one
+SELECT hourly::timestamptz,daily::timestamptz
+FROM hosted_account_history_watermarks($1::timestamptz)
+`
+
+type GetHostedAccountHistoryWatermarksRow struct {
+	Hourly time.Time
+	Daily  time.Time
+}
+
+func (q *Queries) GetHostedAccountHistoryWatermarks(ctx context.Context, startTime time.Time) (GetHostedAccountHistoryWatermarksRow, error) {
+	row := q.queryRow(ctx, q.getHostedAccountHistoryWatermarksStmt, getHostedAccountHistoryWatermarks, startTime)
+	var i GetHostedAccountHistoryWatermarksRow
+	err := row.Scan(&i.Hourly, &i.Daily)
+	return i, err
+}
+
 const listHostedAccountHistoricalReadings = `-- name: ListHostedAccountHistoricalReadings :many
 WITH intervals AS MATERIALIZED (
- SELECT (value->>'kind')::integer AS kind,(value->>'asset_id')::bigint AS asset_id,(value->>'site_id')::bigint AS site_id,
- (value->>'device_identifier')::text AS device_identifier,
- (value->>'started_at')::timestamptz AS started_at,(value->>'ended_at')::timestamptz AS ended_at
- FROM jsonb_array_elements($1::jsonb)
+ SELECT interval_id::bigint AS interval_id,kind::integer AS kind,asset_id::bigint AS asset_id,
+ device_identifier::text AS device_identifier,site_id::bigint AS site_id,
+ started_at::timestamptz AS started_at,ended_at::timestamptz AS ended_at
+ FROM hosted_history_authorized_intervals($1::jsonb,$2::bigint,
+  $3::boolean,$4::bigint[],$5::jsonb)
 ), samples AS (
  SELECT i.kind,i.asset_id,m.time,COALESCE(m.site_id,0)::bigint AS site_id,
  m.hash_rate_hs AS hashrate_hs,m.power_w,m.temp_c AS temperature_c,
@@ -39,7 +68,7 @@ WITH intervals AS MATERIALIZED (
  FROM intervals i
  JOIN device_metrics m ON i.kind=5 AND m.device_identifier=i.device_identifier AND COALESCE(m.site_id,0)=i.site_id
   AND m.time>=i.started_at AND (i.ended_at IS NULL OR m.time<i.ended_at)
-  AND m.time>=$2::timestamptz AND m.time<$3::timestamptz
+  AND m.time>=$6::timestamptz AND m.time<$7::timestamptz
  UNION ALL
  SELECT i.kind,i.asset_id,CASE WHEN source_window.has_source THEN metric.newest_at ELSE m.collected_at END AS time,COALESCE(m.site_id,0)::bigint,
  CASE WHEN metric.name='hashrate' AND source_window.has_source THEN metric.value END,
@@ -57,8 +86,8 @@ WITH intervals AS MATERIALIZED (
   -- The stored time may come from a stale PSU while board sources are fresh.
   -- Bound collection using the source freshness/skew allowances, then authorize
   -- and bucket each metric using its full independent contributor window.
-  AND m.collected_at>=$2::timestamptz-INTERVAL '5 seconds'
-  AND m.collected_at<$3::timestamptz+INTERVAL '2 minutes'
+  AND m.collected_at>=$6::timestamptz-INTERVAL '5 seconds'
+  AND m.collected_at<$7::timestamptz+INTERVAL '2 minutes'
   AND m.collected_at>=i.started_at-INTERVAL '5 seconds'
   AND (i.ended_at IS NULL OR m.collected_at<i.ended_at+INTERVAL '2 minutes')
  CROSS JOIN LATERAL (VALUES
@@ -72,46 +101,42 @@ WITH intervals AS MATERIALIZED (
  ) source_window
  WHERE (source_window.has_source
   AND metric.oldest_at>=i.started_at AND (i.ended_at IS NULL OR metric.newest_at<i.ended_at)
-  AND metric.newest_at>=$2::timestamptz AND metric.newest_at<$3::timestamptz)
+  AND metric.newest_at>=$6::timestamptz AND metric.newest_at<$7::timestamptz)
  OR (
   -- Missing sources carry only an incompleteness marker, never a value.
   -- Authorize that absence at collection time without admitting earlier owners.
   NOT source_window.has_source AND metric.name IN ('hashrate','power')
   AND m.collected_at>=i.started_at AND (i.ended_at IS NULL OR m.collected_at<i.ended_at)
-  AND m.collected_at>=$2::timestamptz AND m.collected_at<$3::timestamptz
+  AND m.collected_at>=$6::timestamptz AND m.collected_at<$7::timestamptz
  )
  UNION ALL
  -- Module health is independent of numeric metric sources. Authorize the
  -- observed state, not today's inventory state or a positive hashrate.
  SELECT i.kind,i.asset_id,s.state_observed_at,COALESCE(s.site_id,0)::bigint,
  NULL::float8,NULL::float8,NULL::float8,NULL::boolean,false,
- CASE WHEN s.state='active' THEN 3
-  WHEN s.state IN ('error','needs_mining_pool','updating','reboot_required') THEN 2
-  WHEN s.state='offline' THEN 0
-  WHEN s.state IN ('inactive','maintenance') THEN 1
-  ELSE 4 END::integer AS uptime_state
+ hosted_module_uptime_state(s.state)::integer AS uptime_state
  FROM intervals i
  JOIN container_module_diagnostic_observation s ON i.kind=6 AND s.module_id=i.asset_id
   AND COALESCE(s.site_id,0)=i.site_id
-  AND s.collected_at>=$2::timestamptz-INTERVAL '5 seconds'
-  AND s.collected_at<$3::timestamptz+INTERVAL '2 minutes'
+  AND s.collected_at>=$6::timestamptz-INTERVAL '5 seconds'
+  AND s.collected_at<$7::timestamptz+INTERVAL '2 minutes'
   AND s.collected_at>=i.started_at-INTERVAL '5 seconds'
   AND (i.ended_at IS NULL OR s.collected_at<i.ended_at+INTERVAL '2 minutes')
   AND s.state_observed_at>s.collected_at-INTERVAL '2 minutes'
   AND s.state_observed_at<=s.collected_at+INTERVAL '5 seconds'
   AND (s.attribution_since IS NULL OR s.state_observed_at>=s.attribution_since)
   AND s.state_observed_at>=i.started_at AND (i.ended_at IS NULL OR s.state_observed_at<i.ended_at)
-  AND s.state_observed_at>=$2::timestamptz AND s.state_observed_at<$3::timestamptz
+  AND s.state_observed_at>=$6::timestamptz AND s.state_observed_at<$7::timestamptz
  UNION ALL
  SELECT i.kind,i.asset_id,s.time,COALESCE(s.site_id,0)::bigint,
  NULL::float8,NULL::float8,NULL::float8,NULL::boolean,false,s.state::integer
  FROM intervals i
  JOIN miner_state_snapshots s ON i.kind=5 AND s.device_identifier=i.device_identifier
-  AND s.org_id=$4::bigint AND COALESCE(s.site_id,0)=i.site_id
+  AND s.org_id=$8::bigint AND COALESCE(s.site_id,0)=i.site_id
   AND s.time>=i.started_at AND (i.ended_at IS NULL OR s.time<i.ended_at)
-  AND s.time>=$2::timestamptz AND s.time<$3::timestamptz
+  AND s.time>=$6::timestamptz AND s.time<$7::timestamptz
 ), asset_buckets AS (
-SELECT kind,asset_id,date_bin(make_interval(secs=>$5::int),time,$2::timestamptz)::timestamptz AS bucket,
+SELECT kind,asset_id,date_bin(make_interval(secs=>$9::int),time,$6::timestamptz)::timestamptz AS bucket,
  COALESCE(avg(hashrate_hs) FILTER(WHERE hashrate_hs>=0 AND hashrate_hs<'Infinity'::float8),0)::float8 AS hashrate_hs,
  COALESCE(avg(power_w) FILTER(WHERE power_w>=0 AND power_w<'Infinity'::float8),0)::float8 AS power_w,
  COALESCE(avg(temperature_c) FILTER(WHERE temperature_c>'-Infinity'::float8 AND temperature_c<'Infinity'::float8),0)::float8 AS temperature_c,
@@ -123,12 +148,6 @@ SELECT kind,asset_id,date_bin(make_interval(secs=>$5::int),time,$2::timestamptz)
  COALESCE(bool_and(complete) FILTER (WHERE efficiency_candidate),false)::boolean AS complete,
  COALESCE(avg(CASE WHEN hashrate_hs>0 THEN 100.0 ELSE 0.0 END) FILTER(WHERE hashrate_hs>=0 AND hashrate_hs<'Infinity'::float8),0)::float8 AS uptime_percent
 FROM samples
-WHERE ($6::bigint=0 OR site_id=$6::bigint)
- AND (NOT $7::boolean OR site_id=ANY($8::bigint[]))
- AND NOT EXISTS (
-  SELECT 1 FROM jsonb_to_recordset($9::jsonb) AS a(org_wide boolean,sites bigint[])
-  WHERE NOT (CASE WHEN a.org_wide THEN site_id=0 OR NOT(site_id=ANY(a.sites)) ELSE site_id=ANY(a.sites) END)
- )
 GROUP BY kind,asset_id,bucket
 )
 SELECT bucket,
@@ -158,14 +177,14 @@ FROM asset_buckets GROUP BY bucket ORDER BY bucket
 
 type ListHostedAccountHistoricalReadingsParams struct {
 	Intervals        json.RawMessage
-	StartTime        time.Time
-	EndTime          time.Time
-	OrganizationID   int64
-	BucketSeconds    int32
 	SiteFilter       int64
 	PolicyRestricted bool
 	PolicySites      []int64
 	HostAuthority    json.RawMessage
+	StartTime        time.Time
+	EndTime          time.Time
+	OrganizationID   int64
+	BucketSeconds    int32
 }
 
 type ListHostedAccountHistoricalReadingsRow struct {
@@ -194,19 +213,20 @@ type ListHostedAccountHistoricalReadingsRow struct {
 }
 
 // The bounded interval list is already authorized to the requested account.
-// Raw samples are filtered by half-open ownership boundaries before aggregation.
+// Physical-site authority is shared with retained reads and evaluated once per
+// interval. Every raw source still requires that site and half-open ownership.
 // Reduce to the bounded chart shape before crossing the database boundary.
 func (q *Queries) ListHostedAccountHistoricalReadings(ctx context.Context, arg ListHostedAccountHistoricalReadingsParams) ([]ListHostedAccountHistoricalReadingsRow, error) {
 	rows, err := q.query(ctx, q.listHostedAccountHistoricalReadingsStmt, listHostedAccountHistoricalReadings,
 		arg.Intervals,
-		arg.StartTime,
-		arg.EndTime,
-		arg.OrganizationID,
-		arg.BucketSeconds,
 		arg.SiteFilter,
 		arg.PolicyRestricted,
 		pq.Array(arg.PolicySites),
 		arg.HostAuthority,
+		arg.StartTime,
+		arg.EndTime,
+		arg.OrganizationID,
+		arg.BucketSeconds,
 	)
 	if err != nil {
 		return nil, err
@@ -290,7 +310,7 @@ func (q *Queries) ListHostedAccountHistoricalSites(ctx context.Context, arg List
 }
 
 const listHostedAccountHistoryIntervals = `-- name: ListHostedAccountHistoryIntervals :many
-SELECT i.kind,i.asset_id,i.device_id,i.client_id,COALESCE(i.subclient_id,0)::bigint AS subclient_id,
+SELECT i.id,i.kind,i.asset_id,i.device_id,i.client_id,COALESCE(i.subclient_id,0)::bigint AS subclient_id,
  i.started_at,i.ended_at,i.device_identifier,COALESCE(i.site_id,0)::bigint AS site_id
 FROM hosted_account_asset_interval i
 WHERE i.organization_id=$1
@@ -311,6 +331,7 @@ type ListHostedAccountHistoryIntervalsParams struct {
 }
 
 type ListHostedAccountHistoryIntervalsRow struct {
+	ID               int64
 	Kind             int32
 	AssetID          int64
 	DeviceID         int64
@@ -339,6 +360,7 @@ func (q *Queries) ListHostedAccountHistoryIntervals(ctx context.Context, arg Lis
 	for rows.Next() {
 		var i ListHostedAccountHistoryIntervalsRow
 		if err := rows.Scan(
+			&i.ID,
 			&i.Kind,
 			&i.AssetID,
 			&i.DeviceID,
@@ -360,4 +382,214 @@ func (q *Queries) ListHostedAccountHistoryIntervals(ctx context.Context, arg Lis
 		return nil, err
 	}
 	return items, nil
+}
+
+const listHostedAccountRetainedReadings = `-- name: ListHostedAccountRetainedReadings :many
+WITH intervals AS MATERIALIZED (
+ SELECT interval_id::bigint AS interval_id,kind::integer AS kind,asset_id::bigint AS asset_id,
+ device_identifier::text AS device_identifier,site_id::bigint AS site_id,
+ started_at::timestamptz AS started_at,ended_at::timestamptz AS ended_at
+ FROM hosted_history_authorized_intervals($1::jsonb,$2::bigint,
+  $3::boolean,$4::bigint[],$5::jsonb)
+), retained AS (
+ SELECT h.bucket, h.interval_id, h.hashrate_sum, h.hashrate_count, h.hashrate_positive_count, h.hashrate_complete, h.hashrate_source_oldest_at, h.hashrate_source_newest_at, h.power_sum, h.power_count, h.power_complete, h.power_source_oldest_at, h.power_source_newest_at, h.temperature_sum, h.temperature_count, h.temperature_latest_value, h.temperature_latest_at, h.temperature_source_oldest_at, h.temperature_source_newest_at, h.state_count, h.state_latest_value, h.state_latest_at, h.state_source_oldest_at, h.state_source_newest_at FROM hosted_account_history_hourly h
+ WHERE $6::boolean
+  AND h.bucket>=date_trunc('hour',$7::timestamptz)
+  AND h.bucket<$8::timestamptz
+  -- A constant array, unlike the join below, reaches the real-time tail.
+  AND h.interval_id=ANY($9::bigint[])
+ UNION ALL
+ SELECT h.bucket, h.interval_id, h.hashrate_sum, h.hashrate_count, h.hashrate_positive_count, h.hashrate_complete, h.hashrate_source_oldest_at, h.hashrate_source_newest_at, h.power_sum, h.power_count, h.power_complete, h.power_source_oldest_at, h.power_source_newest_at, h.temperature_sum, h.temperature_count, h.temperature_latest_value, h.temperature_latest_at, h.temperature_source_oldest_at, h.temperature_source_newest_at, h.state_count, h.state_latest_value, h.state_latest_at, h.state_source_oldest_at, h.state_source_newest_at FROM hosted_account_history_daily h
+ WHERE NOT $6::boolean
+  AND h.bucket>=date_trunc('day',$7::timestamptz AT TIME ZONE 'UTC') AT TIME ZONE 'UTC'
+  AND h.bucket<$8::timestamptz
+  AND h.interval_id=ANY($9::bigint[])
+), authorized AS NOT MATERIALIZED (
+ SELECT i.kind,i.asset_id,h.bucket, h.interval_id, h.hashrate_sum, h.hashrate_count, h.hashrate_positive_count, h.hashrate_complete, h.hashrate_source_oldest_at, h.hashrate_source_newest_at, h.power_sum, h.power_count, h.power_complete, h.power_source_oldest_at, h.power_source_newest_at, h.temperature_sum, h.temperature_count, h.temperature_latest_value, h.temperature_latest_at, h.temperature_source_oldest_at, h.temperature_source_newest_at, h.state_count, h.state_latest_value, h.state_latest_at, h.state_source_oldest_at, h.state_source_newest_at,
+ h.hashrate_source_oldest_at>=i.started_at
+  AND h.hashrate_source_oldest_at>=$10::timestamptz
+  AND (i.ended_at IS NULL OR h.hashrate_source_newest_at<i.ended_at) AS hashrate_authorized,
+ h.power_source_oldest_at>=i.started_at
+  AND h.power_source_oldest_at>=$10::timestamptz
+  AND (i.ended_at IS NULL OR h.power_source_newest_at<i.ended_at) AS power_authorized,
+ h.temperature_source_oldest_at>=i.started_at
+  AND h.temperature_source_oldest_at>=$10::timestamptz
+  AND (i.ended_at IS NULL OR h.temperature_source_newest_at<i.ended_at) AS temperature_authorized,
+ h.state_source_oldest_at>=i.started_at
+  AND h.state_source_oldest_at>=$10::timestamptz
+  AND (i.ended_at IS NULL OR h.state_source_newest_at<i.ended_at) AS state_authorized
+ FROM intervals i JOIN retained h ON h.interval_id=i.interval_id
+), asset_buckets AS (
+ SELECT kind,asset_id,
+ date_bin(make_interval(secs=>$11::int),bucket,$7::timestamptz)::timestamptz AS bucket,
+ CASE WHEN hashrate_authorized THEN COALESCE(hashrate_sum/NULLIF(hashrate_count,0),0) ELSE 0 END::float8 AS hashrate_hs,
+ CASE WHEN power_authorized THEN COALESCE(power_sum/NULLIF(power_count,0),0) ELSE 0 END::float8 AS power_w,
+ CASE WHEN temperature_authorized THEN COALESCE(temperature_sum/NULLIF(temperature_count,0),0) ELSE 0 END::float8 AS temperature_c,
+ CASE WHEN temperature_authorized AND temperature_count>0 THEN temperature_latest_value END AS latest_temperature_c,
+ CASE WHEN state_authorized AND state_count>0 THEN state_latest_value END AS uptime_state,
+ COALESCE(hashrate_authorized AND hashrate_count>0,false) AS has_hashrate,
+ COALESCE(power_authorized AND power_count>0,false) AS has_power,
+ COALESCE(temperature_authorized AND temperature_count>0,false) AS has_temperature,
+ COALESCE(CASE WHEN hashrate_authorized AND power_authorized THEN hashrate_complete AND power_complete
+  WHEN hashrate_authorized THEN hashrate_complete WHEN power_authorized THEN power_complete END,false)::boolean AS complete,
+ CASE WHEN hashrate_authorized THEN COALESCE(100.0*hashrate_positive_count/NULLIF(hashrate_count,0),0) ELSE 0 END::float8 AS uptime_percent
+ FROM authorized
+ WHERE $12::boolean AND (hashrate_authorized OR power_authorized OR temperature_authorized OR state_authorized)
+ UNION ALL
+ SELECT kind,asset_id,
+ date_bin(make_interval(secs=>$11::int),bucket,$7::timestamptz)::timestamptz AS bucket,
+ COALESCE(sum(hashrate_sum) FILTER(WHERE hashrate_authorized)/NULLIF(sum(hashrate_count) FILTER(WHERE hashrate_authorized),0),0)::float8 AS hashrate_hs,
+ COALESCE(sum(power_sum) FILTER(WHERE power_authorized)/NULLIF(sum(power_count) FILTER(WHERE power_authorized),0),0)::float8 AS power_w,
+ COALESCE(sum(temperature_sum) FILTER(WHERE temperature_authorized)/NULLIF(sum(temperature_count) FILTER(WHERE temperature_authorized),0),0)::float8 AS temperature_c,
+ last(temperature_latest_value,temperature_latest_at) FILTER(WHERE temperature_authorized AND temperature_count>0) AS latest_temperature_c,
+ last(state_latest_value,state_latest_at) FILTER(WHERE state_authorized AND state_count>0) AS uptime_state,
+ COALESCE(sum(hashrate_count) FILTER(WHERE hashrate_authorized),0)>0 AS has_hashrate,
+ COALESCE(sum(power_count) FILTER(WHERE power_authorized),0)>0 AS has_power,
+ COALESCE(sum(temperature_count) FILTER(WHERE temperature_authorized),0)>0 AS has_temperature,
+ COALESCE(bool_and(CASE
+  WHEN hashrate_authorized AND power_authorized THEN hashrate_complete AND power_complete
+  WHEN hashrate_authorized THEN hashrate_complete WHEN power_authorized THEN power_complete END),false)::boolean AS complete,
+ COALESCE(100.0*sum(hashrate_positive_count) FILTER(WHERE hashrate_authorized)/NULLIF(sum(hashrate_count) FILTER(WHERE hashrate_authorized),0),0)::float8 AS uptime_percent
+ FROM authorized
+ WHERE NOT $12::boolean AND (hashrate_authorized OR power_authorized OR temperature_authorized OR state_authorized)
+ GROUP BY 3,kind,asset_id
+)
+SELECT bucket,
+ COALESCE(sum(hashrate_hs) FILTER(WHERE has_hashrate),0)::float8 AS hashrate_hs,
+ COALESCE(sum(power_w) FILTER(WHERE has_power),0)::float8 AS power_w,
+ COALESCE(avg(temperature_c) FILTER(WHERE has_temperature),0)::float8 AS temperature_c,
+ count(*) FILTER(WHERE has_hashrate)::bigint AS hashrate_reporting_count,
+ count(*) FILTER(WHERE has_power)::bigint AS power_reporting_count,
+ count(*) FILTER(WHERE has_temperature)::bigint AS temperature_reporting_count,
+ count(*) FILTER(WHERE latest_temperature_c<0)::int AS temperature_cold_count,
+ count(*) FILTER(WHERE latest_temperature_c>=0 AND latest_temperature_c<70)::int AS temperature_ok_count,
+ count(*) FILTER(WHERE latest_temperature_c>=70 AND latest_temperature_c<90)::int AS temperature_hot_count,
+ count(*) FILTER(WHERE latest_temperature_c>=90)::int AS temperature_critical_count,
+ count(*) FILTER(WHERE uptime_state=3)::int AS status_hashing_count,
+ count(*) FILTER(WHERE uptime_state=2)::int AS status_broken_count,
+ count(*) FILTER(WHERE uptime_state IN (0,1))::int AS status_not_hashing_count,
+ count(*) FILTER(WHERE has_hashrate AND has_power)::bigint AS paired_reporting_count,
+ COALESCE(sum(hashrate_hs) FILTER(WHERE has_hashrate AND has_power),0)::float8 AS paired_hashrate_hs,
+ COALESCE(sum(power_w) FILTER(WHERE has_hashrate AND has_power),0)::float8 AS paired_power_w,
+ count(*) FILTER(WHERE has_hashrate AND hashrate_hs>0)::bigint AS hashing_count,
+ count(*) FILTER(WHERE has_hashrate AND hashrate_hs=0)::bigint AS offline_count,
+ count(*) FILTER(WHERE kind=6 AND NOT complete)::bigint AS partial_module_count,
+ bool_and(complete)::boolean AS complete,
+ COALESCE(avg(uptime_percent) FILTER(WHERE has_hashrate),0)::float8 AS uptime_percent
+FROM asset_buckets GROUP BY bucket ORDER BY bucket
+`
+
+type ListHostedAccountRetainedReadingsParams struct {
+	Intervals        json.RawMessage
+	SiteFilter       int64
+	PolicyRestricted bool
+	PolicySites      []int64
+	HostAuthority    json.RawMessage
+	Hourly           bool
+	StartTime        time.Time
+	EndTime          time.Time
+	IntervalIds      []int64
+	AvailableFrom    time.Time
+	BucketSeconds    int32
+	DirectBuckets    bool
+}
+
+type ListHostedAccountRetainedReadingsRow struct {
+	Bucket                    time.Time
+	HashrateHs                float64
+	PowerW                    float64
+	TemperatureC              float64
+	HashrateReportingCount    int64
+	PowerReportingCount       int64
+	TemperatureReportingCount int64
+	TemperatureColdCount      int32
+	TemperatureOkCount        int32
+	TemperatureHotCount       int32
+	TemperatureCriticalCount  int32
+	StatusHashingCount        int32
+	StatusBrokenCount         int32
+	StatusNotHashingCount     int32
+	PairedReportingCount      int64
+	PairedHashrateHs          float64
+	PairedPowerW              float64
+	HashingCount              int64
+	OfflineCount              int64
+	PartialModuleCount        int64
+	Complete                  bool
+	UptimePercent             float64
+}
+
+// Share interval-level physical-site authority with raw reads, then preserve
+// independent sums/counts and source windows before combining assets.
+// Both routes share authorization. Inline it so the custom plan prunes the
+// unused route without spooling or scanning the wide history twice.
+// Reduce to the bounded chart shape before crossing the database boundary.
+func (q *Queries) ListHostedAccountRetainedReadings(ctx context.Context, arg ListHostedAccountRetainedReadingsParams) ([]ListHostedAccountRetainedReadingsRow, error) {
+	rows, err := q.query(ctx, q.listHostedAccountRetainedReadingsStmt, listHostedAccountRetainedReadings,
+		arg.Intervals,
+		arg.SiteFilter,
+		arg.PolicyRestricted,
+		pq.Array(arg.PolicySites),
+		arg.HostAuthority,
+		arg.Hourly,
+		arg.StartTime,
+		arg.EndTime,
+		pq.Array(arg.IntervalIds),
+		arg.AvailableFrom,
+		arg.BucketSeconds,
+		arg.DirectBuckets,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListHostedAccountRetainedReadingsRow
+	for rows.Next() {
+		var i ListHostedAccountRetainedReadingsRow
+		if err := rows.Scan(
+			&i.Bucket,
+			&i.HashrateHs,
+			&i.PowerW,
+			&i.TemperatureC,
+			&i.HashrateReportingCount,
+			&i.PowerReportingCount,
+			&i.TemperatureReportingCount,
+			&i.TemperatureColdCount,
+			&i.TemperatureOkCount,
+			&i.TemperatureHotCount,
+			&i.TemperatureCriticalCount,
+			&i.StatusHashingCount,
+			&i.StatusBrokenCount,
+			&i.StatusNotHashingCount,
+			&i.PairedReportingCount,
+			&i.PairedHashrateHs,
+			&i.PairedPowerW,
+			&i.HashingCount,
+			&i.OfflineCount,
+			&i.PartialModuleCount,
+			&i.Complete,
+			&i.UptimePercent,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const useHostedAccountHistoryCustomPlan = `-- name: UseHostedAccountHistoryCustomPlan :exec
+SELECT set_config('plan_cache_mode','force_custom_plan',true)
+`
+
+// Generic plans misestimate the allocation array and retained/raw UNION branches.
+// Keep this setting local to the dashboard transaction.
+func (q *Queries) UseHostedAccountHistoryCustomPlan(ctx context.Context) error {
+	_, err := q.exec(ctx, q.useHostedAccountHistoryCustomPlanStmt, useHostedAccountHistoryCustomPlan)
+	return err
 }

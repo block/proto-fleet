@@ -866,6 +866,8 @@ type Querier interface {
 	GetHostedAccountAncestorGrant(ctx context.Context, arg GetHostedAccountAncestorGrantParams) (HostedAccountAncestorGrant, error)
 	GetHostedAccountAssetDevice(ctx context.Context, arg GetHostedAccountAssetDeviceParams) (int64, error)
 	GetHostedAccountHistoryEpoch(ctx context.Context) (time.Time, error)
+	GetHostedAccountHistorySummaryEpoch(ctx context.Context) (time.Time, error)
+	GetHostedAccountHistoryWatermarks(ctx context.Context, startTime time.Time) (GetHostedAccountHistoryWatermarksRow, error)
 	GetHostedAccountInvitationByHash(ctx context.Context, tokenHash string) (GetHostedAccountInvitationByHashRow, error)
 	GetHostedAccountKeyAuthority(ctx context.Context, arg GetHostedAccountKeyAuthorityParams) (GetHostedAccountKeyAuthorityRow, error)
 	GetHostedAccountKeyOwner(ctx context.Context, arg GetHostedAccountKeyOwnerParams) (sql.NullInt64, error)
@@ -1493,7 +1495,8 @@ type Querier interface {
 	ListHostedAccountAssetFilterOptions(ctx context.Context, arg ListHostedAccountAssetFilterOptionsParams) ([]ListHostedAccountAssetFilterOptionsRow, error)
 	ListHostedAccountChildren(ctx context.Context, arg ListHostedAccountChildrenParams) ([]HostedAccount, error)
 	// The bounded interval list is already authorized to the requested account.
-	// Raw samples are filtered by half-open ownership boundaries before aggregation.
+	// Physical-site authority is shared with retained reads and evaluated once per
+	// interval. Every raw source still requires that site and half-open ownership.
 	// Reduce to the bounded chart shape before crossing the database boundary.
 	ListHostedAccountHistoricalReadings(ctx context.Context, arg ListHostedAccountHistoricalReadingsParams) ([]ListHostedAccountHistoricalReadingsRow, error)
 	ListHostedAccountHistoricalSites(ctx context.Context, arg ListHostedAccountHistoricalSitesParams) ([]ListHostedAccountHistoricalSitesRow, error)
@@ -1511,6 +1514,12 @@ type Querier interface {
 	// Include retained assignments even after retirement or policy changes.
 	ListHostedAccountMiningAssets(ctx context.Context, arg ListHostedAccountMiningAssetsParams) ([]ListHostedAccountMiningAssetsRow, error)
 	ListHostedAccountPools(ctx context.Context, arg ListHostedAccountPoolsParams) ([]ListHostedAccountPoolsRow, error)
+	// Share interval-level physical-site authority with raw reads, then preserve
+	// independent sums/counts and source windows before combining assets.
+	// Both routes share authorization. Inline it so the custom plan prunes the
+	// unused route without spooling or scanning the wide history twice.
+	// Reduce to the bounded chart shape before crossing the database boundary.
+	ListHostedAccountRetainedReadings(ctx context.Context, arg ListHostedAccountRetainedReadingsParams) ([]ListHostedAccountRetainedReadingsRow, error)
 	ListHostedAccountSites(ctx context.Context, arg ListHostedAccountSitesParams) ([]ListHostedAccountSitesRow, error)
 	// Resolve the entire account list in one snapshot. A parent filter is used only
 	// after delegation authorization and includes policy-only children, with no
@@ -2627,6 +2636,9 @@ type Querier interface {
 	// actor. Reconciliation and retries retain this assignment's owner.
 	UpsertReleaseChannelFirmware(ctx context.Context, arg UpsertReleaseChannelFirmwareParams) (ReleaseChannelFirmware, error)
 	UpsertReleaseChannelSetting(ctx context.Context, arg UpsertReleaseChannelSettingParams) (ReleaseChannelSetting, error)
+	// Generic plans misestimate the allocation array and retained/raw UNION branches.
+	// Keep this setting local to the dashboard transaction.
+	UseHostedAccountHistoryCustomPlan(ctx context.Context) error
 	// A contradictory claim withdraws command eligibility without assigning either
 	// position to that identity. Source watermarks survive for a corrected report.
 	WithdrawContainerModuleIdentities(ctx context.Context, moduleIds []int64) error

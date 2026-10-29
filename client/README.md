@@ -626,23 +626,21 @@ allocations remain in the parent’s inventory totals. Dashboard counts and site
 summaries cover the permitted allocated estate and exclude whole-site capacity
 and plant power.
 
-Overview reuses Dashboard health tiles and performance panels, with 1h (default) and
-24h ranges, segmented temperature and uptime distributions, and server-scoped allocation/site
-filters. It refreshes automatically and on window focus. The status panels reuse
-the host charts, label percentages against reporting assets, and omit host-only
-drilldowns. Temperature bands use each asset's latest valid authorized observation;
+Overview reuses Dashboard health tiles and performance panels, including
+segmented temperature and uptime distributions. The shared Fleet ranges are
+1h (default), 24h, 7d, 30d, 90d and 1y. Allocation/site filters are server-scoped;
+charts refresh automatically and on window focus. Status panels label percentages
+against reporting assets and omit host-only drilldowns. Temperature bands use each
+asset's latest valid authorized observation;
 miner uptime uses recorded state snapshots, while module uptime uses authorized
 diagnostic state observations (hashrate alone never marks a module hashing).
 Entire estate, Directly managed and named subclient filters retain the
 parent's navigation and permissions. Historical attribution uses the allocation
 and delegation in effect when each sample was recorded. Migration 1031 begins
 prospective interval tracking; earlier ownership is unknown and is never inferred
-from current assignments. Account charts use raw samples retained for ten days;
-the account API rejects ranges longer than 24 hours and bounds raw work by
-authorized allocation duration (300 weighted asset-days; modules count eight times).
-For larger estates, shorten the range or narrow allocation/site filters. Charts identify the later
-of the tracking and retention boundaries and missing data. Host dashboard ranges
-continue to use the existing aggregate-backed history.
+from current assignments. Recent windows up to 24 hours use authorized raw
+samples; older or longer windows use allocation-specific hourly/daily history.
+For larger estates, shorten the range or narrow allocation/site filters.
 Partial power is a measured subtotal with reporting coverage; incomplete efficiency
 remains unavailable. Missing buckets remain gaps rather than interpolated values.
 

@@ -1032,6 +1032,12 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.getHostedAccountHistoryEpochStmt, err = db.PrepareContext(ctx, getHostedAccountHistoryEpoch); err != nil {
 		return nil, fmt.Errorf("error preparing query GetHostedAccountHistoryEpoch: %w", err)
 	}
+	if q.getHostedAccountHistorySummaryEpochStmt, err = db.PrepareContext(ctx, getHostedAccountHistorySummaryEpoch); err != nil {
+		return nil, fmt.Errorf("error preparing query GetHostedAccountHistorySummaryEpoch: %w", err)
+	}
+	if q.getHostedAccountHistoryWatermarksStmt, err = db.PrepareContext(ctx, getHostedAccountHistoryWatermarks); err != nil {
+		return nil, fmt.Errorf("error preparing query GetHostedAccountHistoryWatermarks: %w", err)
+	}
 	if q.getHostedAccountInvitationByHashStmt, err = db.PrepareContext(ctx, getHostedAccountInvitationByHash); err != nil {
 		return nil, fmt.Errorf("error preparing query GetHostedAccountInvitationByHash: %w", err)
 	}
@@ -1736,6 +1742,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.listHostedAccountPoolsStmt, err = db.PrepareContext(ctx, listHostedAccountPools); err != nil {
 		return nil, fmt.Errorf("error preparing query ListHostedAccountPools: %w", err)
+	}
+	if q.listHostedAccountRetainedReadingsStmt, err = db.PrepareContext(ctx, listHostedAccountRetainedReadings); err != nil {
+		return nil, fmt.Errorf("error preparing query ListHostedAccountRetainedReadings: %w", err)
 	}
 	if q.listHostedAccountSitesStmt, err = db.PrepareContext(ctx, listHostedAccountSites); err != nil {
 		return nil, fmt.Errorf("error preparing query ListHostedAccountSites: %w", err)
@@ -2867,6 +2876,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.upsertReleaseChannelSettingStmt, err = db.PrepareContext(ctx, upsertReleaseChannelSetting); err != nil {
 		return nil, fmt.Errorf("error preparing query UpsertReleaseChannelSetting: %w", err)
+	}
+	if q.useHostedAccountHistoryCustomPlanStmt, err = db.PrepareContext(ctx, useHostedAccountHistoryCustomPlan); err != nil {
+		return nil, fmt.Errorf("error preparing query UseHostedAccountHistoryCustomPlan: %w", err)
 	}
 	if q.withdrawContainerModuleIdentitiesStmt, err = db.PrepareContext(ctx, withdrawContainerModuleIdentities); err != nil {
 		return nil, fmt.Errorf("error preparing query WithdrawContainerModuleIdentities: %w", err)
@@ -4559,6 +4571,16 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing getHostedAccountHistoryEpochStmt: %w", cerr)
 		}
 	}
+	if q.getHostedAccountHistorySummaryEpochStmt != nil {
+		if cerr := q.getHostedAccountHistorySummaryEpochStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getHostedAccountHistorySummaryEpochStmt: %w", cerr)
+		}
+	}
+	if q.getHostedAccountHistoryWatermarksStmt != nil {
+		if cerr := q.getHostedAccountHistoryWatermarksStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getHostedAccountHistoryWatermarksStmt: %w", cerr)
+		}
+	}
 	if q.getHostedAccountInvitationByHashStmt != nil {
 		if cerr := q.getHostedAccountInvitationByHashStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getHostedAccountInvitationByHashStmt: %w", cerr)
@@ -5732,6 +5754,11 @@ func (q *Queries) Close() error {
 	if q.listHostedAccountPoolsStmt != nil {
 		if cerr := q.listHostedAccountPoolsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing listHostedAccountPoolsStmt: %w", cerr)
+		}
+	}
+	if q.listHostedAccountRetainedReadingsStmt != nil {
+		if cerr := q.listHostedAccountRetainedReadingsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listHostedAccountRetainedReadingsStmt: %w", cerr)
 		}
 	}
 	if q.listHostedAccountSitesStmt != nil {
@@ -7619,6 +7646,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing upsertReleaseChannelSettingStmt: %w", cerr)
 		}
 	}
+	if q.useHostedAccountHistoryCustomPlanStmt != nil {
+		if cerr := q.useHostedAccountHistoryCustomPlanStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing useHostedAccountHistoryCustomPlanStmt: %w", cerr)
+		}
+	}
 	if q.withdrawContainerModuleIdentitiesStmt != nil {
 		if cerr := q.withdrawContainerModuleIdentitiesStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing withdrawContainerModuleIdentitiesStmt: %w", cerr)
@@ -8004,6 +8036,8 @@ type Queries struct {
 	getHostedAccountAncestorGrantStmt                          *sql.Stmt
 	getHostedAccountAssetDeviceStmt                            *sql.Stmt
 	getHostedAccountHistoryEpochStmt                           *sql.Stmt
+	getHostedAccountHistorySummaryEpochStmt                    *sql.Stmt
+	getHostedAccountHistoryWatermarksStmt                      *sql.Stmt
 	getHostedAccountInvitationByHashStmt                       *sql.Stmt
 	getHostedAccountKeyAuthorityStmt                           *sql.Stmt
 	getHostedAccountKeyOwnerStmt                               *sql.Stmt
@@ -8239,6 +8273,7 @@ type Queries struct {
 	listHostedAccountMiningAssetPageStmt                       *sql.Stmt
 	listHostedAccountMiningAssetsStmt                          *sql.Stmt
 	listHostedAccountPoolsStmt                                 *sql.Stmt
+	listHostedAccountRetainedReadingsStmt                      *sql.Stmt
 	listHostedAccountSitesStmt                                 *sql.Stmt
 	listHostedAccountSummariesStmt                             *sql.Stmt
 	listHostedAccountsStmt                                     *sql.Stmt
@@ -8616,6 +8651,7 @@ type Queries struct {
 	upsertPermissionStmt                                       *sql.Stmt
 	upsertReleaseChannelFirmwareStmt                           *sql.Stmt
 	upsertReleaseChannelSettingStmt                            *sql.Stmt
+	useHostedAccountHistoryCustomPlanStmt                      *sql.Stmt
 	withdrawContainerModuleIdentitiesStmt                      *sql.Stmt
 	withdrawHashboardReadingsStmt                              *sql.Stmt
 }
@@ -8960,6 +8996,8 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getHostedAccountAncestorGrantStmt:                          q.getHostedAccountAncestorGrantStmt,
 		getHostedAccountAssetDeviceStmt:                            q.getHostedAccountAssetDeviceStmt,
 		getHostedAccountHistoryEpochStmt:                           q.getHostedAccountHistoryEpochStmt,
+		getHostedAccountHistorySummaryEpochStmt:                    q.getHostedAccountHistorySummaryEpochStmt,
+		getHostedAccountHistoryWatermarksStmt:                      q.getHostedAccountHistoryWatermarksStmt,
 		getHostedAccountInvitationByHashStmt:                       q.getHostedAccountInvitationByHashStmt,
 		getHostedAccountKeyAuthorityStmt:                           q.getHostedAccountKeyAuthorityStmt,
 		getHostedAccountKeyOwnerStmt:                               q.getHostedAccountKeyOwnerStmt,
@@ -9195,6 +9233,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		listHostedAccountMiningAssetPageStmt:                       q.listHostedAccountMiningAssetPageStmt,
 		listHostedAccountMiningAssetsStmt:                          q.listHostedAccountMiningAssetsStmt,
 		listHostedAccountPoolsStmt:                                 q.listHostedAccountPoolsStmt,
+		listHostedAccountRetainedReadingsStmt:                      q.listHostedAccountRetainedReadingsStmt,
 		listHostedAccountSitesStmt:                                 q.listHostedAccountSitesStmt,
 		listHostedAccountSummariesStmt:                             q.listHostedAccountSummariesStmt,
 		listHostedAccountsStmt:                                     q.listHostedAccountsStmt,
@@ -9572,6 +9611,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		upsertPermissionStmt:                                       q.upsertPermissionStmt,
 		upsertReleaseChannelFirmwareStmt:                           q.upsertReleaseChannelFirmwareStmt,
 		upsertReleaseChannelSettingStmt:                            q.upsertReleaseChannelSettingStmt,
+		useHostedAccountHistoryCustomPlanStmt:                      q.useHostedAccountHistoryCustomPlanStmt,
 		withdrawContainerModuleIdentitiesStmt:                      q.withdrawContainerModuleIdentitiesStmt,
 		withdrawHashboardReadingsStmt:                              q.withdrawHashboardReadingsStmt,
 	}

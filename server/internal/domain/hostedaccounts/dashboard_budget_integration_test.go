@@ -30,6 +30,5 @@ func TestAccountDashboardBoundsRawTelemetryWork(t *testing.T) {
 	require.NoError(t, err)
 	require.EqualValues(t, 38, result.Totals.AssetCount)
 	_, err = f.svc.Dashboard(t.Context(), f.user, f.org, dashboardRequest(client.AccountID, end.Add(-7*24*time.Hour), end, nil))
-	require.True(t, fleeterror.IsInvalidArgumentError(err))
-	require.ErrorContains(t, err, "at most 24 hours")
+	require.NoError(t, err, "retained summaries have a separate source-bucket work budget")
 }

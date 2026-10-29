@@ -16,6 +16,10 @@ import (
 // Tests of an earlier migration first remove the empty newer dependency.
 func rollbackEmptyAllocationHistory(t *testing.T, conn *sql.DB) {
 	t.Helper()
+	summaryDown, err := migrations.Current.ReadFile("current/001044_internal_hosted_history_summaries.down.sql")
+	require.NoError(t, err)
+	_, err = conn.ExecContext(t.Context(), string(summaryDown))
+	require.NoError(t, err)
 	down, err := migrations.Current.ReadFile("current/001031_internal_hosted_allocation_history.down.sql")
 	require.NoError(t, err)
 	_, err = conn.ExecContext(t.Context(), string(down))

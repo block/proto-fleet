@@ -18,6 +18,7 @@ import (
 // These intervals contain established ownership only, never a projection of
 // today's ledger into older telemetry. The same typed key is used throughout.
 type dashboardInterval struct {
+	IntervalID int64      `json:"interval_id"`
 	Kind       int32      `json:"kind"`
 	AssetID    int64      `json:"asset_id"`
 	Identifier string     `json:"device_identifier"`
@@ -30,9 +31,115 @@ type dashboardKey struct {
 	id   int64
 }
 
-// Hosted charts use source-authorized raw samples, retained for ten days.
-const dashboardHistoryRetention = 10 * 24 * time.Hour
-const dashboardHistoryMaxRange = 24 * time.Hour
+// Recent short windows retain exact raw bounds. Longer/older windows use
+// allocation-aware summaries, rounded up to their source resolution.
+const (
+	dashboardRawResolution             = time.Duration(0)
+	dashboardHourlyResolution          = time.Hour
+	dashboardDailyResolution           = 24 * time.Hour
+	dashboardHourlyRefreshCadence      = 30 * time.Minute
+	dashboardDailyRefreshCadence       = 6 * time.Hour
+	dashboardRawMaxRange               = dashboardDailyResolution
+	dashboardHourlyMaxRange            = 10 * dashboardDailyResolution
+	dashboardHistoryRetention          = 10 * dashboardDailyResolution
+	dashboardHourlyRetentionMonths     = 3
+	dashboardDailyRetentionYears       = 3
+	dashboardHistoryMaxRange           = 366 * dashboardDailyResolution
+	dashboardMaxBuckets                = 1500
+	dashboardMinBucketWidth            = time.Minute
+	dashboardModuleCollectionAllowance = 2*time.Minute + 5*time.Second
+)
+
+func dashboardHistoryResolution(now, start, end time.Time, bucketSeconds int32) (time.Duration, time.Duration) {
+	step := time.Duration(bucketSeconds) * time.Second
+	var resolution time.Duration
+	if end.Sub(start) <= dashboardRawMaxRange && !start.Before(now.Add(-dashboardHistoryRetention)) {
+		return dashboardRawResolution, step
+	}
+	if end.Sub(start) <= dashboardHourlyMaxRange && !start.Before(now.AddDate(0, -dashboardHourlyRetentionMonths, 0)) {
+		resolution = dashboardHourlyResolution
+	} else {
+		resolution = dashboardDailyResolution
+	}
+	if remainder := step % resolution; remainder != 0 {
+		step += resolution - remainder
+	}
+	return resolution, step
+}
+
+// A source-period summary is already an asset/output bucket only when the
+// request does not merge periods or multiple allocation intervals for an asset.
+func dashboardDirectSummaryBuckets(intervals []dashboardInterval, start time.Time, resolution, step time.Duration) bool {
+	if resolution == dashboardRawResolution || step != resolution || !start.Equal(start.Truncate(resolution)) {
+		return false
+	}
+	seen := make(map[dashboardKey]struct{}, len(intervals))
+	for _, interval := range intervals {
+		key := dashboardKey{interval.Kind, interval.AssetID}
+		if _, exists := seen[key]; exists {
+			return false
+		}
+		seen[key] = struct{}{}
+	}
+	return true
+}
+
+// Each source bucket contains one wide summary row per allocation.
+// Include the policy-normal daily-to-hourly rollup (up to 54h) for 2,500
+// year-long allocations, separately from the raw poll-density budget.
+const dashboardSummaryBudget = 1_100_000
+
+func dashboardSummaryWork(intervals []dashboardInterval, start, end time.Time, resolution time.Duration) int64 {
+	var work int64
+	for _, interval := range intervals {
+		if first, last, ok := interval.overlap(start, end); ok {
+			work += int64((last.Sub(first)+resolution-1)/resolution) + 1
+		}
+		if work > dashboardSummaryBudget {
+			break
+		}
+	}
+	return work
+}
+
+// Limit normalized raw-tail work separately from materialized source buckets.
+const dashboardSummaryTailBudget = 300 * 24 * time.Hour
+
+func dashboardHealthyRetainedWork(intervals []dashboardInterval, start, end time.Time, resolution time.Duration, now time.Time) (int64, time.Duration) {
+	hourly := maxTime(start, now.Add(-2*dashboardHourlyResolution-dashboardHourlyRefreshCadence))
+	daily := maxTime(start, now.Add(-2*dashboardDailyResolution-dashboardDailyRefreshCadence))
+	return dashboardRetainedWork(intervals, start, end, resolution, hourly, daily)
+}
+
+// A daily real-time read rolls up hourly rows above its watermark, then reads
+// raw samples only above both watermarks. Count that hourly work as well as the
+// saved daily buckets; neither refresh cadence is a bound on actual lag.
+func dashboardRetainedWork(intervals []dashboardInterval, start, end time.Time, resolution time.Duration, hourly, daily time.Time) (int64, time.Duration) {
+	rawStart := maxTime(start, hourly)
+	var summaryWork int64
+	if resolution == dashboardDailyResolution {
+		hourlyStart := maxTime(start, daily)
+		summaryWork = dashboardSummaryWork(intervals, start, minTime(end, hourlyStart), dashboardDailyResolution) +
+			dashboardSummaryWork(intervals, hourlyStart, end, dashboardHourlyResolution)
+		rawStart = maxTime(rawStart, hourlyStart)
+	} else {
+		summaryWork = dashboardSummaryWork(intervals, start, end, resolution)
+	}
+	return summaryWork, dashboardSummaryTailWork(intervals, rawStart, end)
+}
+
+func dashboardSummaryTailWork(intervals []dashboardInterval, start, end time.Time) time.Duration {
+	var work time.Duration
+	for _, interval := range intervals {
+		if first, last, ok := interval.overlap(start, end); ok {
+			work += last.Sub(first)
+		}
+		if work > dashboardSummaryTailBudget {
+			break
+		}
+	}
+	return work
+}
 
 // Bound raw work before scanning telemetry. Module observations expand into
 // independently authorized contributor windows and cost more than miner rows.
@@ -44,17 +151,14 @@ const dashboardModuleWeight = 8
 func dashboardHistoryWork(intervals []dashboardInterval, start, end time.Time) time.Duration {
 	var work time.Duration
 	for _, interval := range intervals {
-		first, last := maxTime(start, interval.Start), end
-		if interval.End != nil {
-			last = minTime(last, *interval.End)
-		}
-		if !last.After(first) {
+		first, last, ok := interval.overlap(start, end)
+		if !ok {
 			continue
 		}
 		duration := last.Sub(first)
 		if interval.Kind == int32(pb.MiningAssetKind_MINING_ASSET_KIND_MODULE) {
 			// The collection prefilter includes contributor freshness/clock-skew edges.
-			duration = (duration + 125*time.Second) * dashboardModuleWeight
+			duration = (duration + dashboardModuleCollectionAllowance) * dashboardModuleWeight
 		}
 		work += duration
 		if work > dashboardHistoryBudget {
@@ -62,6 +166,14 @@ func dashboardHistoryWork(intervals []dashboardInterval, start, end time.Time) t
 		}
 	}
 	return work
+}
+
+func (i dashboardInterval) overlap(start, end time.Time) (time.Time, time.Time, bool) {
+	first, last := maxTime(start, i.Start), end
+	if i.End != nil {
+		last = minTime(last, *i.End)
+	}
+	return first, last, last.After(first)
 }
 
 func minTime(a, b time.Time) time.Time {
@@ -130,9 +242,19 @@ func (s *Service) Dashboard(ctx context.Context, actorID, orgID int64, request *
 	// SQL buckets and the in-memory expected-asset denominators.
 	start, end := request.StartTime.AsTime().Truncate(time.Microsecond), request.EndTime.AsTime().Truncate(time.Microsecond)
 	step := time.Duration(request.BucketSeconds) * time.Second
-	if !end.After(start) || end.Sub(start) > dashboardHistoryMaxRange || step < time.Minute || step > 24*time.Hour || end.Sub(start)/step > 1500 || request.SiteId != nil && *request.SiteId <= 0 {
-		return nil, fleeterror.NewInvalidArgumentError("dashboard range must be at most 24 hours and 1500 buckets")
+	if !end.After(start) || end.Sub(start) > dashboardHistoryMaxRange || step < dashboardMinBucketWidth || step > dashboardDailyResolution || request.SiteId != nil && *request.SiteId <= 0 {
+		return nil, fleeterror.NewInvalidArgumentErrorf("dashboard range must be at most %d days with bucket widths from one minute to one day", dashboardHistoryMaxRange/dashboardDailyResolution)
 	}
+	resolution, step := dashboardHistoryResolution(time.Now().UTC(), start, end, request.BucketSeconds)
+	if resolution != dashboardRawResolution {
+		// Retained buckets represent whole UTC source periods. Align expected
+		// allocations to those same periods, including the intersecting edges.
+		start = start.Truncate(resolution)
+	}
+	if (end.Sub(start)+step-1)/step > dashboardMaxBuckets {
+		return nil, fleeterror.NewInvalidArgumentErrorf("dashboard range must contain at most %d buckets", dashboardMaxBuckets)
+	}
+	effectiveBucketSeconds := int32(step / time.Second) //nolint:gosec // G115: validated widths round up to at most one day
 	ctx, cancel := context.WithTimeout(ctx, miningTransactionTimeout)
 	defer cancel()
 	return db.WithTransactionTimeout(ctx, s.conn, miningTransactionTimeout, func(q sqlc.Querier) (*pb.GetAccountDashboardResponse, error) {
@@ -153,6 +275,17 @@ func (s *Service) Dashboard(ctx context.Context, actorID, orgID int64, request *
 			return nil, err
 		}
 		retainedFrom := response.GeneratedAt.AsTime().Add(-dashboardHistoryRetention)
+		if resolution != dashboardRawResolution {
+			summaryEpoch, err := q.GetHostedAccountHistorySummaryEpoch(ctx)
+			if err != nil {
+				return nil, err
+			}
+			epoch = maxTime(epoch, summaryEpoch)
+			retainedFrom = response.GeneratedAt.AsTime().AddDate(-dashboardDailyRetentionYears, 0, 0)
+			if resolution == dashboardHourlyResolution {
+				retainedFrom = response.GeneratedAt.AsTime().AddDate(0, -dashboardHourlyRetentionMonths, 0)
+			}
+		}
 		if epoch.Before(retainedFrom) {
 			epoch = retainedFrom
 		}
@@ -201,7 +334,7 @@ func (s *Service) Dashboard(ctx context.Context, actorID, orgID int64, request *
 			if request.SiteId != nil && period.SiteID != *request.SiteId {
 				continue
 			}
-			interval := dashboardInterval{Kind: period.Kind, AssetID: period.AssetID, Identifier: period.DeviceIdentifier, Start: period.StartedAt, SiteID: period.SiteID}
+			interval := dashboardInterval{IntervalID: period.ID, Kind: period.Kind, AssetID: period.AssetID, Identifier: period.DeviceIdentifier, Start: period.StartedAt, SiteID: period.SiteID}
 			if period.EndedAt.Valid {
 				t := period.EndedAt.Time
 				interval.End = &t
@@ -225,7 +358,33 @@ func (s *Service) Dashboard(ctx context.Context, actorID, orgID int64, request *
 		for _, id := range siteIDs {
 			response.Sites = append(response.Sites, &pb.AccountDashboardSite{SiteId: id, Name: siteNames[id], Summary: sites[id].result()})
 		}
-		if dashboardHistoryWork(intervals, start, end) > dashboardHistoryBudget {
+		var overBudget bool
+		if resolution == dashboardRawResolution {
+			overBudget = dashboardHistoryWork(intervals, start, end) > dashboardHistoryBudget
+		} else {
+			available := maxTime(start, epoch)
+			// SQL includes the whole intersecting source bucket. Charge its tail
+			// through now, while preserving the bounds of future-dated requests.
+			budgetEnd := end
+			if boundary := end.Truncate(resolution); !boundary.Equal(end) {
+				budgetEnd = maxTime(end, minTime(boundary.Add(resolution), response.GeneratedAt.AsTime()))
+			}
+			// A healthy policy still leaves a real-time tail. Requests that cannot
+			// fit that steady-state work need narrowing, not a retry after refresh.
+			summaryWork, tailWork := dashboardHealthyRetainedWork(intervals, available, budgetEnd, resolution, response.GeneratedAt.AsTime())
+			overBudget = summaryWork > dashboardSummaryBudget || tailWork > dashboardSummaryTailBudget
+			if !overBudget && len(intervals) > 0 && budgetEnd.After(available) {
+				watermarks, err := q.GetHostedAccountHistoryWatermarks(ctx, available)
+				if err != nil {
+					return nil, err
+				}
+				summaryWork, tailWork := dashboardRetainedWork(intervals, available, budgetEnd, resolution, watermarks.Hourly, watermarks.Daily)
+				if summaryWork > dashboardSummaryBudget || tailWork > dashboardSummaryTailBudget {
+					return nil, fleeterror.NewUnavailableErrorf("Hosted history refresh is behind for this request; retry after refresh catches up, or choose a shorter range or fewer allocations or sites")
+				}
+			}
+		}
+		if overBudget {
 			return nil, fleeterror.NewInvalidArgumentError("This history request covers too many assets; choose a shorter time range or filter to fewer allocations or sites")
 		}
 		encoded, err := json.Marshal(intervals)
@@ -236,9 +395,27 @@ func (s *Service) Dashboard(ctx context.Context, actorID, orgID int64, request *
 		if err != nil {
 			return nil, err
 		}
-		readings, err := q.ListHostedAccountHistoricalReadings(ctx, sqlc.ListHostedAccountHistoricalReadingsParams{OrganizationID: orgID, Intervals: encoded, StartTime: start, EndTime: end, BucketSeconds: request.BucketSeconds, SiteFilter: request.GetSiteId(), PolicyRestricted: e.policy.EffectiveRestricted, PolicySites: e.policy.EffectiveSiteIDs, HostAuthority: authority})
-		if err != nil {
-			return nil, err
+		var readings []sqlc.ListHostedAccountHistoricalReadingsRow
+		if resolution == dashboardRawResolution {
+			readings, err = q.ListHostedAccountHistoricalReadings(ctx, sqlc.ListHostedAccountHistoricalReadingsParams{OrganizationID: orgID, Intervals: encoded, StartTime: start, EndTime: end, BucketSeconds: effectiveBucketSeconds, SiteFilter: request.GetSiteId(), PolicyRestricted: e.policy.EffectiveRestricted, PolicySites: e.policy.EffectiveSiteIDs, HostAuthority: authority})
+			if err != nil {
+				return nil, err
+			}
+		} else {
+			intervalIDs := make([]int64, len(intervals))
+			for i, interval := range intervals {
+				intervalIDs[i] = interval.IntervalID
+			}
+			if err := q.UseHostedAccountHistoryCustomPlan(ctx); err != nil {
+				return nil, err
+			}
+			retained, err := q.ListHostedAccountRetainedReadings(ctx, sqlc.ListHostedAccountRetainedReadingsParams{DirectBuckets: dashboardDirectSummaryBuckets(intervals, start, resolution, step), AvailableFrom: epoch, Intervals: encoded, IntervalIds: intervalIDs, StartTime: start, EndTime: end, Hourly: resolution == dashboardHourlyResolution, BucketSeconds: effectiveBucketSeconds, SiteFilter: request.GetSiteId(), PolicyRestricted: e.policy.EffectiveRestricted, PolicySites: e.policy.EffectiveSiteIDs, HostAuthority: authority})
+			if err != nil {
+				return nil, err
+			}
+			for _, row := range retained {
+				readings = append(readings, sqlc.ListHostedAccountHistoricalReadingsRow(row))
+			}
 		}
 		readingIndex := 0
 		for at := start; at.Before(end); at = at.Add(step) {

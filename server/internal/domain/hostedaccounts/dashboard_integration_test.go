@@ -286,7 +286,7 @@ func TestAccountDashboardTypedIDCollisionAndCompleteCoverage(t *testing.T) {
 	require.Equal(t, 100e12, result.Readings[len(result.Readings)-1].Summary.GetHashrateHs(), "sub-microsecond request timestamps use the same bucket keys as PostgreSQL")
 	request.StartTime = timestamppb.New(end.Add(-24*time.Hour - time.Second))
 	_, err = f.svc.Dashboard(t.Context(), f.user, f.org, request)
-	require.True(t, fleeterror.IsInvalidArgumentError(err), "longer ranges require source-authorized long-term storage")
+	require.NoError(t, err, "longer ranges use source-authorized retained summaries")
 }
 
 func TestAccountDashboardHistoryAvailabilityTracksRetention(t *testing.T) {

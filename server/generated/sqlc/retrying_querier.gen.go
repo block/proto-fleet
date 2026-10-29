@@ -3764,6 +3764,30 @@ func (q *retryingQuerier) GetHostedAccountHistoryEpoch(ctx context.Context) (tim
 	return result, err
 }
 
+func (q *retryingQuerier) GetHostedAccountHistorySummaryEpoch(ctx context.Context) (time.Time, error) {
+	var result time.Time
+	err := q.retrier.RetryQuery(ctx, "GetHostedAccountHistorySummaryEpoch", func() error {
+		callResult, callErr := q.next.GetHostedAccountHistorySummaryEpoch(ctx)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) GetHostedAccountHistoryWatermarks(ctx context.Context, startTime time.Time) (GetHostedAccountHistoryWatermarksRow, error) {
+	var result GetHostedAccountHistoryWatermarksRow
+	err := q.retrier.RetryQuery(ctx, "GetHostedAccountHistoryWatermarks", func() error {
+		callResult, callErr := q.next.GetHostedAccountHistoryWatermarks(ctx, startTime)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) GetHostedAccountInvitationByHash(ctx context.Context, tokenHash string) (GetHostedAccountInvitationByHashRow, error) {
 	var result GetHostedAccountInvitationByHashRow
 	err := q.retrier.RetryQuery(ctx, "GetHostedAccountInvitationByHash", func() error {
@@ -6468,6 +6492,18 @@ func (q *retryingQuerier) ListHostedAccountPools(ctx context.Context, arg ListHo
 	var result []ListHostedAccountPoolsRow
 	err := q.retrier.RetryQuery(ctx, "ListHostedAccountPools", func() error {
 		callResult, callErr := q.next.ListHostedAccountPools(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) ListHostedAccountRetainedReadings(ctx context.Context, arg ListHostedAccountRetainedReadingsParams) ([]ListHostedAccountRetainedReadingsRow, error) {
+	var result []ListHostedAccountRetainedReadingsRow
+	err := q.retrier.RetryQuery(ctx, "ListHostedAccountRetainedReadings", func() error {
+		callResult, callErr := q.next.ListHostedAccountRetainedReadings(ctx, arg)
 		if callErr == nil {
 			result = callResult
 		}
@@ -10206,6 +10242,12 @@ func (q *retryingQuerier) UpsertReleaseChannelSetting(ctx context.Context, arg U
 		return callErr
 	})
 	return result, err
+}
+
+func (q *retryingQuerier) UseHostedAccountHistoryCustomPlan(ctx context.Context) error {
+	return q.retrier.RetryQuery(ctx, "UseHostedAccountHistoryCustomPlan", func() error {
+		return q.next.UseHostedAccountHistoryCustomPlan(ctx)
+	})
 }
 
 func (q *retryingQuerier) WithdrawContainerModuleIdentities(ctx context.Context, moduleIds []int64) error {

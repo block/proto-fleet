@@ -489,12 +489,10 @@ intervals. Module readings require each metric's full source-time window to fit 
 established interval; collection time does not establish ownership. Current
 readings use the same provenance checks before inventory sorting or aggregation.
 
-Charts use retained raw telemetry. Existing rollups lack the site or independent
-source-time provenance needed for this authorization check, so aggregate-only
-periods remain unavailable. Raw telemetry is retained for ten days;
-`GetAccountDashboard` rejects ranges longer than 24 hours and reports availability
-from the later of the tracking epoch and retention horizon. The account UI offers
-1h (default) and 24h; host dashboard ranges remain unchanged. Raw requests are
+`GetAccountDashboard` accepts ranges up to 366 days. Recent windows up to 24 hours
+use authorized raw telemetry; older or longer windows use allocation-specific
+hourly/daily summaries. See [hosted-account charts](../docs/development/ct1-polling-metrics.md#hosted-account-charts)
+for availability, retention and work limits. Raw requests are
 bounded to 300 weighted asset-days after allocation/site authorization: miners
 count once, modules eight times including contributor-window scan margins.
 Over-budget requests return InvalidArgument with guidance to shorten the range

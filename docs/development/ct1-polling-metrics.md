@@ -182,6 +182,95 @@ and instantaneous state are unavailable. Groups remain separate when topology or
 installation changes within a bucket. Latest readings still expire after two
 minutes, independently of durable latest rows.
 
+### Hosted-account charts
+
+Hosted clients and host previews share Fleet's 1h, 24h, 7d, 30d, 90d and 1y
+ranges, using the tier selection, measurement retention and bucket rounding above.
+Retained buckets align to UTC; expected allocations cover the same intersecting
+periods.
+Requests allow at most 366 days and 1,500 output buckets, with these work limits:
+
+- Raw reads: 300 weighted asset-days.
+- Retained reads: 1.1 million allocation/source buckets, including hourly rows
+  rolled up above the daily watermark.
+- Unmaterialized raw tail: 300 asset-days, clipped to each allocation above the
+  hourly watermark and, for daily reads, the daily watermark.
+
+Uninitialized summaries count the full available request. Excess work caused by
+refresh lag returns Unavailable; inherently oversized requests return
+InvalidArgument. The initial budget includes the normal policy lag (up to about
+2.5 hours hourly and 54 hours daily); the summary limit accommodates 2,500
+year-long allocations at that lag. Shorter ranges and allocation/site filters
+reduce the work.
+
+Migration 1044 captures hash, power, temperature and state observations in
+`hosted_account_history_sample`, recording allocation IDs and full source windows.
+Wide hourly/daily rows retain per-metric sums/counts, source bounds and
+completeness, plus positive-hash counts and latest temperature/state observations.
+Both read paths use `hosted_history_authorized_intervals` to apply site filters,
+current site policy and intersected host permissions once per allocation interval.
+Membership and suspension also gate access. Each metric must match the recorded
+site and fit its allocation's ownership/source window, including after recall,
+reassignment or site changes.
+
+Malformed coverage leaves that metric unavailable without failing raw telemetry;
+unexpected database errors still propagate. A captured source window crossing a
+later allocation-close boundary hides that metric's whole summary bucket,
+including valid samples in it. Other allocations remain readable.
+
+Retained history begins at migration 1044's summary epoch. Generic Fleet rollups
+lack allocation/source evidence and are never imported; earlier authorized raw
+history remains readable while retained. `history_available_from` reports the
+later of the selected tier's epoch and retention boundary. Missing history stays
+empty rather than being inferred from current ownership.
+
+Charts combine per-asset sample averages. Efficiency is the fleet ratio of
+complete paired power/hashrate; incomplete module sources make it unavailable.
+Chart uptime is positive-hash sample percentage, not contractual uptime. Latest
+authorized temperature/state observations determine distributions. Missing
+measurements remain absent.
+
+Retained transactions use custom query plans. Aligned source-width buckets with
+one interval per typed asset project summary rows directly; other requests use
+sample-weighted per-asset aggregation. Both routes share per-metric authorization.
+Daily reads roll up hourly rows above the daily watermark and raw samples above
+both watermarks, filtering requested allocation intervals before tail aggregation.
+
+Standard Timescale policies refresh the last nine days: hourly every 30 minutes,
+daily every six hours. Hosted history has no catch-up job, write fence or retention
+gate. Missed buckets outside that window need an explicit refresh before their
+source expires: ten-day raw history for hourly summaries, three-month hourly
+history for daily summaries. The one-day refresh/raw-retention margin is not an
+outage allowance. See [deployment checks](migrations.md#hosted-chart-summaries-1044).
+
+An explicit refresh over expired source data can erase saved aggregate rows.
+Inspect the missed periods and remaining source chunks first; retention settings
+alone do not prove the source is still present. In `psql`, set `missing_from` and
+`missing_to` to the inspected outage bounds as UTC-aligned timestamps. Refresh
+hourly first, then daily, clamping each range to complete periods inside its
+source retention. Run each call only if its clamped start is before its end:
+
+```sql
+SET TIME ZONE 'UTC';
+
+CALL refresh_continuous_aggregate('hosted_account_history_hourly',
+  GREATEST(:'missing_from'::timestamptz,
+    date_trunc('hour', now() - INTERVAL '10 days') + INTERVAL '1 hour'),
+  LEAST(:'missing_to'::timestamptz,
+    date_trunc('hour', now() - INTERVAL '1 hour')));
+
+CALL refresh_continuous_aggregate('hosted_account_history_daily',
+  GREATEST(:'missing_from'::timestamptz,
+    date_trunc('day', now() - INTERVAL '3 months') + INTERVAL '1 day'),
+  LEAST(:'missing_to'::timestamptz,
+    date_trunc('day', now() - INTERVAL '1 day')));
+```
+
+Do not widen these ranges into expired or missing source periods. If hourly
+history was never materialized and its raw source has expired, refreshing daily
+history cannot recover it. Preserve existing summaries and investigate recovery
+from a backup instead.
+
 ## Raw telemetry compression
 
 CT1 plant, tank, module, and hashboard telemetry use the same compression schedule

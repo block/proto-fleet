@@ -15,8 +15,6 @@ import { usePageBackground } from "@/protoFleet/hooks/usePageBackground";
 import DurationSelector, { type FleetDuration, fleetDurations } from "@/shared/components/DurationSelector";
 import { useStickyState } from "@/shared/hooks/useStickyState";
 
-const accountDurations = ["1h", "24h"] as const;
-
 export type DashboardPerformanceProps = {
   duration: FleetDuration;
   onDurationChange: (duration: FleetDuration) => void;
@@ -25,7 +23,7 @@ export type DashboardPerformanceProps = {
   temperatureStatusCounts?: TemperatureStatusCount[];
   uptimeStatusCounts?: UptimeStatusCount[];
   uptimeExpectedAssetCount?: number;
-  /** Account sources use scoped raw history and shorter retained ranges. */
+  /** Account readings preserve allocation-scoped coverage and gaps. */
   accountReadings?: boolean;
   tooltipNotes?: Partial<Record<MeasurementType, Record<number, string>>>;
 };
@@ -52,16 +50,14 @@ export default function DashboardPerformance({
     };
   }, [metrics]);
   const connectNulls = !accountReadings;
+  // Account responses include every output bucket. Their hourly/daily resolution
+  // can exceed the requested chart granularity, so client padding would add false gaps.
   return (
     <section aria-label="Performance" className="pb-6">
       <div ref={refs.vertical.start} />
       <div className={`${bgClass} sticky top-0 z-2 px-6 pt-6 pb-6 laptop:px-10 laptop:pt-10`}>
         <SectionHeading heading="Performance">
-          <DurationSelector
-            duration={duration}
-            durations={accountReadings ? accountDurations : fleetDurations}
-            onSelect={onDurationChange}
-          />
+          <DurationSelector duration={duration} durations={fleetDurations} onSelect={onDurationChange} />
         </SectionHeading>
       </div>
       <div className="flex flex-col gap-4 px-6 pt-4 laptop:px-10">
@@ -69,6 +65,7 @@ export default function DashboardPerformance({
           duration={duration}
           metrics={grouped.hashrate}
           connectNulls={connectNulls}
+          padMissingBuckets={!accountReadings}
           tooltipNotes={tooltipNotes?.[MeasurementType.HASHRATE]}
         />
         <UptimePanel
@@ -90,6 +87,7 @@ export default function DashboardPerformance({
             metricsInKW={accountReadings}
             totalMiners={totalAssets}
             connectNulls={connectNulls}
+            padMissingBuckets={!accountReadings}
             tooltipNotes={tooltipNotes?.[MeasurementType.POWER]}
             reportingSubtitle={accountReadings ? "Measured equipment power" : undefined}
           />
@@ -98,6 +96,7 @@ export default function DashboardPerformance({
             metrics={grouped.efficiency}
             totalMiners={totalAssets}
             connectNulls={connectNulls}
+            padMissingBuckets={!accountReadings}
             tooltipNotes={tooltipNotes?.[MeasurementType.EFFICIENCY]}
             reportingSubtitle={accountReadings ? "Complete readings only" : undefined}
           />

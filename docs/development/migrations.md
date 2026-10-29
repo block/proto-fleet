@@ -102,6 +102,61 @@ preserve the database. Inspect the actual schema and retained allocation rows
 before choosing an evidence-preserving recovery; do not force a version or clear
 the dirty marker based only on the reported version.
 
+## Hosted chart summaries (1044)
+
+Stop application and scheduled database writers while applying migration 1044.
+Retained hosted history begins at this migration's boundary; earlier authorized
+raw history remains readable while retained. See [hosted-account charts](ct1-polling-metrics.md#hosted-account-charts)
+for retention, request limits and refresh recovery.
+
+Rehearse the upgrade on a representative restored backup to size the maintenance
+window and lock capacity. The table locks and trigger installation include existing
+telemetry chunks, including up to a year of six-hour miner state chunks; fresh
+database tests do not measure that footprint.
+
+Prefer fixing forward. The 1044 down migration drops captured samples and both
+summaries, including populated history. Once source retention has expired, that
+history cannot be reconstructed. Application rollback does not require running it.
+
+After deploying, and again after the first day, check:
+
+- Every policy job runs and succeeds. Expect hourly refresh every 30 minutes and
+  daily refresh every six hours:
+
+  ```sql
+  SELECT COALESCE(a.view_name, j.hypertable_name) AS history_source,
+         j.proc_name, s.last_run_status,
+         s.last_successful_finish, s.total_failures
+  FROM timescaledb_information.jobs j
+  JOIN timescaledb_information.job_stats s USING (job_id)
+  LEFT JOIN timescaledb_information.continuous_aggregates a
+    ON a.materialization_hypertable_schema = j.hypertable_schema
+   AND a.materialization_hypertable_name = j.hypertable_name
+  WHERE COALESCE(a.view_name, j.hypertable_name) LIKE 'hosted_account_history_%'
+  ORDER BY 1, 2;
+  ```
+
+- Capture keeps up with open allocations. Sources 1–2 are miner metrics and
+  state, sources 3–4 module metrics and state. Each source should report close
+  to the open miner (kind 5) or module (kind 6) interval count:
+
+  ```sql
+  SELECT source_id, metric, count(DISTINCT interval_id) AS intervals, max(time) AS newest
+  FROM hosted_account_history_sample
+  WHERE time > now() - INTERVAL '1 hour'
+  GROUP BY 1, 2 ORDER BY 1, 2;
+
+  SELECT kind, count(*) FROM hosted_account_asset_interval
+  WHERE ended_at IS NULL AND kind IN (5, 6) GROUP BY kind;
+  ```
+
+- Materialization advances. Expect the hourly watermark within about
+  2.5 hours of now and the daily watermark within about 54 hours:
+
+  ```sql
+  SELECT * FROM hosted_account_history_watermarks('-infinity'::timestamptz);
+  ```
+
 ## Hosted allocation history upgrade (1031–1033)
 
 Stop Fleet API replicas, plugins, Fleet Node dispatchers and scheduled database

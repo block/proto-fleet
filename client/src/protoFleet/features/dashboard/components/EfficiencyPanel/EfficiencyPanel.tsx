@@ -10,6 +10,7 @@ import SkeletonBar from "@/shared/components/SkeletonBar";
 
 interface EfficiencyPanelProps {
   connectNulls?: boolean;
+  padMissingBuckets?: boolean;
   tooltipNotes?: Record<number, string>;
   reportingSubtitle?: string;
   duration: FleetDuration;
@@ -26,6 +27,7 @@ export function EfficiencyPanel({
   connectNulls,
   tooltipNotes,
   reportingSubtitle,
+  padMissingBuckets = true,
 }: EfficiencyPanelProps) {
   // Transform metrics data to chart format (merging already done by store selectors)
   const chartData = useMemo(() => {
@@ -35,8 +37,8 @@ export function EfficiencyPanel({
     const transformedData = transformEfficiencyMetricsToChartData(metrics);
 
     // Pad with null values for the full duration
-    return padChartDataWithNulls(transformedData, duration);
-  }, [metrics, duration]);
+    return padMissingBuckets ? padChartDataWithNulls(transformedData, duration) : transformedData;
+  }, [metrics, duration, padMissingBuckets]);
 
   // Get the latest efficiency value for the stat display
   const currentEfficiency = useMemo(() => {

@@ -11,7 +11,11 @@ import {
   GetAccountDashboardResponseSchema,
 } from "@/protoFleet/api/generated/hosted/v1/hosted_pb";
 
+import type { LineChartProps } from "@/protoFleet/components/LineChart/LineChart";
 import { useFleetStore } from "@/protoFleet/store";
+
+const chart = vi.hoisted(() => vi.fn((_props: LineChartProps) => null));
+vi.mock("@/protoFleet/components/LineChart", () => ({ default: chart }));
 
 const initialUI = useFleetStore.getState().ui;
 const accountId = "11111111-1111-4111-8111-111111111111";
@@ -39,6 +43,7 @@ const response = () =>
     historyAvailableFrom: { seconds: 1792000000n },
   });
 beforeEach(() => {
+  chart.mockClear();
   vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue(new DOMRect(20, 20, 240, 40));
 });
 afterEach(() => {
@@ -47,7 +52,7 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-function mount(reply = response(), capabilities = 31n) {
+function mount(reply = response(), capabilities = 31n, readOnly = false) {
   const calls: { method: string; account: string | null; body: Record<string, unknown> }[] = [];
   const fetchMock = vi.fn(async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
     calls.push({
@@ -60,7 +65,7 @@ function mount(reply = response(), capabilities = 31n) {
     });
   });
   vi.stubGlobal("fetch", fetchMock);
-  const connection = createAccountConnection(accountId);
+  const connection = createAccountConnection(accountId, { readOnly });
   const invalidate = vi.fn();
   const view = render(
     <MemoryRouter>
@@ -74,6 +79,7 @@ function mount(reply = response(), capabilities = 31n) {
           }),
           client: connection.client,
           signal: connection.signal,
+          readOnly,
           refreshAccount: vi.fn(),
           invalidateAccount: invalidate,
         }}
@@ -93,6 +99,90 @@ function chooseFilter(key: "allocation" | "site", id: string) {
 }
 
 describe("shared account dashboard", () => {
+  it.each([
+    ["7d", 3600],
+    ["30d", 86400],
+    ["90d", 86400],
+    ["1y", 86400],
+  ] as const)(
+    "plots actual %s output buckets without false gaps or shifted coverage notes",
+    async (duration, bucketSeconds) => {
+      const reply = response();
+      const lastBucket = Math.floor(Date.now() / 1000 / bucketSeconds) * bucketSeconds;
+      const times = Array.from({ length: 5 }, (_, index) => lastBucket - (4 - index) * bucketSeconds);
+      reply.readings = times.map((seconds, index) =>
+        create(AccountDashboardReadingSchema, {
+          time: { seconds: BigInt(seconds) },
+          summary: {
+            assetCount: 4n,
+            moduleCount: 4n,
+            ...(index === 2 || index === 4
+              ? {}
+              : {
+                  hashrateHs: 400e12,
+                  powerW: index === 3 ? 9000 : 10000,
+                  efficiencyJTh: index === 3 ? undefined : 25,
+                  hashrateReportingCount: 4n,
+                  powerReportingCount: index === 3 ? 3n : 4n,
+                  pairedReportingCount: index === 3 ? 3n : 4n,
+                }),
+          },
+        }),
+      );
+      reply.readings[2].summary = undefined;
+      const { calls } = mount(reply);
+      await screen.findByText("200.0 TH/s");
+      fireEvent.click(screen.getByRole("button", { name: duration }));
+      await waitFor(() => expect(calls).toHaveLength(2));
+      await waitFor(() =>
+        expect(chart).toHaveBeenCalledWith(
+          expect.objectContaining({ duration, chartData: expect.any(Array) }),
+          undefined,
+        ),
+      );
+      for (const [aggregateKey, values] of [
+        ["hashrate", [400, 400, null, 400, null]],
+        ["power", [10, 10, null, 9, null]],
+        ["efficiency", [25, 25, null, null, null]],
+      ] as const) {
+        const props = [...chart.mock.calls].reverse().find(([props]) => props.aggregateKey === aggregateKey)![0];
+        expect(props.chartData!.map((point) => point.datetime)).toEqual(times.map((time) => time * 1000));
+        expect(props.chartData!.map((point) => point[aggregateKey])).toEqual(values);
+        expect(props.connectNulls).toBe(false);
+      }
+      const power = [...chart.mock.calls].reverse().find(([props]) => props.aggregateKey === "power")![0];
+      expect(power.tooltipNotes![times[3] * 1000]).toBe("3 of 4 modules reporting");
+    },
+  );
+  it.each([false, true])("requests each Fleet range with shared granularity (preview=%s)", async (readOnly) => {
+    const { calls } = mount(response(), 31n, readOnly);
+    await screen.findByText("200.0 TH/s");
+    const ranges = within(screen.getByRole("group", { name: "Time range" }));
+    const durations = [
+      ["1h", 1, 90],
+      ["24h", 24, 90],
+      ["7d", 7 * 24, 900],
+      ["30d", 30 * 24, 2700],
+      ["90d", 90 * 24, 8100],
+      ["1y", 365 * 24, 32850],
+    ] as const;
+    expect(ranges.getAllByRole("button").map((button) => button.textContent)).toEqual(
+      durations.map(([label]) => label),
+    );
+    for (const [index, [duration, hours, bucketSeconds]] of durations.entries()) {
+      if (index > 0) fireEvent.click(ranges.getByRole("button", { name: duration }));
+      await waitFor(() => expect(calls).toHaveLength(index + 1));
+      expect(calls[index]).toMatchObject({
+        method: "GetAccountDashboard",
+        account: accountId,
+        body: { accountId, bucketSeconds },
+      });
+      expect(Date.parse(String(calls[index].body.endTime)) - Date.parse(String(calls[index].body.startTime))).toBe(
+        hours * 60 * 60 * 1000,
+      );
+      expect(ranges.getByRole("button", { name: duration })).toHaveAttribute("aria-pressed", "true");
+    }
+  });
   it("surfaces uptime gaps against the latest historical allocation rather than current inventory", async () => {
     const reply = response();
     reply.readings = [
@@ -232,20 +322,24 @@ describe("shared account dashboard", () => {
     chooseFilter("site", "7");
     expect(screen.getByRole("group", { name: "Time range" })).toBe(ranges);
   });
-  it("lets a budget-rejected 24-hour request recover by selecting one hour", async () => {
+  it.each([
+    ["invalid_argument", 400],
+    ["unavailable", 503],
+    ["deadline_exceeded", 504],
+    ["internal", 500],
+    ["unknown", 500],
+    ["resource_exhausted", 429],
+  ])("lets a %s history request recover by selecting one hour", async (code, status) => {
     const { fetchMock } = mount();
     await screen.findByText("200.0 TH/s");
     const ranges = screen.getByRole("group", { name: "Time range" });
     fetchMock.mockResolvedValueOnce(
-      new Response(
-        JSON.stringify({ code: "invalid_argument", message: "Choose a shorter time range or filter assets" }),
-        {
-          status: 400,
-          headers: { "Content-Type": "application/json" },
-        },
-      ),
+      new Response(JSON.stringify({ code, message: "Choose a shorter time range or filter assets" }), {
+        status,
+        headers: { "Content-Type": "application/json" },
+      }),
     );
-    fireEvent.click(within(ranges).getByRole("button", { name: "24h" }));
+    fireEvent.click(within(ranges).getByRole("button", { name: "30d" }));
     await screen.findByText(/Choose a shorter time range/);
     expect(screen.getByRole("group", { name: "Time range" })).toBe(ranges);
     expect(screen.queryByText("200.0 TH/s")).not.toBeInTheDocument();

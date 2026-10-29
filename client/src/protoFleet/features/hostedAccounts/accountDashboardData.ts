@@ -1,5 +1,9 @@
 import { create } from "@bufbuild/protobuf";
-import type { AccountDashboardReading, MiningSummary } from "@/protoFleet/api/generated/hosted/v1/hosted_pb";
+import {
+  type AccountDashboardReading,
+  type MiningSummary,
+  MiningSummarySchema,
+} from "@/protoFleet/api/generated/hosted/v1/hosted_pb";
 import {
   AggregationType,
   MeasurementType,
@@ -8,8 +12,6 @@ import {
   TemperatureStatusCountSchema,
   UptimeStatusCountSchema,
 } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
-import { getGranularityForDuration } from "@/protoFleet/features/dashboard/utils/granularity";
-import type { FleetDuration } from "@/shared/components/DurationSelector";
 
 export const reportingCoverage = (count: bigint, summary: MiningSummary) => {
   const label =
@@ -22,12 +24,11 @@ export const reportingCoverage = (count: bigint, summary: MiningSummary) => {
 };
 
 // Temperature and uptime chart status distributions, so only the averaged metrics become series.
-export const accountDashboardData = (readings: AccountDashboardReading[], duration: FleetDuration) => {
+export const accountDashboardData = (readings: AccountDashboardReading[]) => {
   const metrics: Metric[] = [];
   const tooltipNotes: Partial<Record<MeasurementType, Record<number, string>>> = {};
-  const granularityMs = getGranularityForDuration(duration) * 1000;
-  for (const { time, summary } of readings) {
-    if (!time || !summary) continue;
+  for (const { time, summary = create(MiningSummarySchema) } of readings) {
+    if (!time) continue;
     const values: [MeasurementType, number | undefined, bigint][] = [
       [
         MeasurementType.HASHRATE,
@@ -41,7 +42,7 @@ export const accountDashboardData = (readings: AccountDashboardReading[], durati
       ],
       [MeasurementType.EFFICIENCY, summary.efficiencyJTh, summary.pairedReportingCount],
     ];
-    const timestamp = Math.floor((Number(time.seconds) * 1000) / granularityMs) * granularityMs;
+    const timestamp = Number(time.seconds) * 1000;
     for (const [measurementType, value, reporting] of values) {
       metrics.push(
         create(MetricSchema, {
