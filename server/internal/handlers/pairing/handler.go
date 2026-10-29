@@ -70,8 +70,6 @@ func (h *Handler) Discover(ctx context.Context, r *connect.Request[pb.DiscoverRe
 	nodeReq := fleetNodeDiscoveryRequest(r.Msg)
 	slog.Debug("Discover: handling discover request", "payload", r.Msg)
 
-	// One budget and deadline cover the server and every node. A send failure
-	// or the result limit cancels the remaining sources.
 	streamCtx, cancel := discovery.NewRequestContext(ctx)
 	defer cancel()
 
@@ -87,8 +85,6 @@ func (h *Handler) Discover(ctx context.Context, r *connect.Request[pb.DiscoverRe
 		resultChan, err = h.pairingSvc.DiscoverWithIPRange(streamCtx, r.Msg.GetIpRange())
 	case *pb.DiscoverRequest_NetworkScan:
 		if h.discovery != nil && (r.Msg.GetNetworkScan().GetUseFleetNodeLocalSubnet() || r.Msg.GetNetworkScan().GetTarget() == netscan.LocalSubnetTarget) {
-			// Connected node candidates handle automatic discovery using their
-			// configured ranges. An empty directory falls back to the server below.
 			err = discovery.ValidateRequest(r.Msg)
 		} else {
 			resultChan, err = h.pairingSvc.DiscoverWithNetworkScan(streamCtx, r.Msg.GetNetworkScan())
@@ -184,9 +180,6 @@ func (h *Handler) forwardDiscoverySources(
 		} else {
 			if serverResults == nil && len(nodeIDs) == 0 && nodeReq.GetNetworkScan() != nil &&
 				(nodeReq.GetNetworkScan().GetUseFleetNodeLocalSubnet() || nodeReq.GetNetworkScan().GetTarget() == netscan.LocalSubnetTarget) {
-				// Server-only installations still send the automatic flag alongside the
-				// server subnet. A connected unconfigured node remains a candidate and
-				// receives its readiness warning instead of taking this path.
 				results, scanErr := h.pairingSvc.DiscoverWithNetworkScan(ctx, nodeReq.GetNetworkScan())
 				if scanErr == nil {
 					forwardServer(results)
@@ -209,7 +202,6 @@ func (h *Handler) forwardDiscoverySources(
 					if ctx.Err() != nil {
 						return
 					}
-					// Every node retains the outer request budget and deadline.
 					runErr := h.discovery.RunOnNode(ctx, nodeID, "Fleet Node", nodeReq, fwd.forward)
 					// Node target policy is narrower than the server's: public
 					// addresses can still be scanned locally.

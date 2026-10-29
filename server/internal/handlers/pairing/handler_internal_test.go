@@ -52,10 +52,6 @@ func (s *stubFleetNodeDiscoveryRunner) DiscoveryNodeIDs(context.Context, int64) 
 	return s.nodeIDs, s.eligibleErr
 }
 
-func (s *stubFleetNodeDiscoveryRunner) EligibleNodeIDs(context.Context, int64) ([]int64, error) {
-	return s.nodeIDs, s.eligibleErr
-}
-
 func (s *stubFleetNodeDiscoveryRunner) RunOnNode(
 	_ context.Context,
 	nodeID int64,
@@ -636,9 +632,5 @@ type credentialAckDiscoveryRunner struct {
 }
 
 func (credentialAckDiscoveryRunner) DiscoveryNodeIDs(context.Context, int64) ([]int64, error) {
-	return []int64{7}, nil
-}
-
-func (credentialAckDiscoveryRunner) EligibleNodeIDs(context.Context, int64) ([]int64, error) {
 	return []int64{7}, nil
 }

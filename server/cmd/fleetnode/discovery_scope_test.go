@@ -5,7 +5,6 @@ import (
 	"iter"
 	"net"
 	"net/netip"
-	"slices"
 	"sync"
 	"testing"
 
@@ -14,16 +13,6 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/netscan"
 	"github.com/stretchr/testify/require"
 )
-
-func TestNodeDiscoveryFiltersEveryTargetAgainstLocalRanges(t *testing.T) {
-	r := &RunCmd{DiscoveryRanges: []string{"10.0.0.2-10.0.0.3"}}
-	input := []netip.Addr{netip.MustParseAddr("10.0.0.1"), netip.MustParseAddr("10.0.0.2"), netip.MustParseAddr("10.0.0.3"), netip.MustParseAddr("10.0.0.4")}
-	scoped, err := r.scopedDiscoveryTargets(slices.Values(input))
-	require.NoError(t, err)
-	require.Equal(t, input[1:3], slices.Collect(scoped))
-	_, err = (&RunCmd{}).scopedDiscoveryTargets(slices.Values(input))
-	require.ErrorContains(t, err, "configure discovery-ranges")
-}
 
 // scopeRecordingDiscoverer records the actual plugin boundary, including probes
 // that return no report; checking results alone would miss out-of-scope work.

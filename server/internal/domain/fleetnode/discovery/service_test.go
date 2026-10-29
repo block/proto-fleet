@@ -231,8 +231,7 @@ func TestRunOnNode_CancellationDoesNotWarn(t *testing.T) {
 	assert.Empty(t, got)
 }
 
-func TestEligibleNodeIDs_IntersectsStatusConnectionAndCompatibility(t *testing.T) {
-	// Arrange: 1 = eligible, 2 = disconnected, 3 = pending, 4 = legacy protocol.
+func TestDiscoveryNodeIDs_IntersectsStatusAndConnection(t *testing.T) {
 	reg := control.NewRegistry()
 	lister := stubLister{nodes: []enrollment.FleetNodeListing{
 		{FleetNode: enrollment.FleetNode{ID: 1, EnrollmentStatus: enrollment.FleetNodeStatusConfirmed}},
@@ -249,15 +248,13 @@ func TestEligibleNodeIDs_IntersectsStatusConnectionAndCompatibility(t *testing.T
 	require.NoError(t, err)
 	defer s4.Unregister()
 
-	// Act
-	got, err := svc.EligibleNodeIDs(context.Background(), 1)
+	got, err := svc.DiscoveryNodeIDs(context.Background(), 1)
 
-	// Assert: only the confirmed AND connected node (order is unspecified).
 	require.NoError(t, err)
-	assert.ElementsMatch(t, []int64{1}, got)
+	assert.ElementsMatch(t, []int64{1, 4}, got)
 }
 
-func TestEligibleNodeIDs_ExcludesHAStandby(t *testing.T) {
+func TestDiscoveryNodeIDs_ExcludesHAStandby(t *testing.T) {
 	reg := control.NewRegistry()
 	activeID, standbyID := int64(1), int64(2)
 	pair := func(n enrollment.FleetNode) enrollment.FleetNodeListing {
@@ -274,7 +271,7 @@ func TestEligibleNodeIDs_ExcludesHAStandby(t *testing.T) {
 		defer stream.Unregister()
 	}
 
-	got, err := svc.EligibleNodeIDs(context.Background(), 1)
+	got, err := svc.DiscoveryNodeIDs(context.Background(), 1)
 
 	require.NoError(t, err)
 	assert.ElementsMatch(t, []int64{1, 3}, got)
@@ -349,15 +346,12 @@ func TestRunOnNode_TimesOutWhenAgentNeverAcks(t *testing.T) {
 	assert.Contains(t, got[0].GetWarning(), "timed out")
 }
 
-func TestEligibleNodeIDs_PropagatesListError(t *testing.T) {
-	// Arrange: the enrollment lookup fails.
+func TestDiscoveryNodeIDs_PropagatesListError(t *testing.T) {
 	reg := control.NewRegistry()
 	svc := NewService(reg, stubLister{err: errors.New("db unavailable")})
 
-	// Act
-	_, err := svc.EligibleNodeIDs(context.Background(), 1)
+	_, err := svc.DiscoveryNodeIDs(context.Background(), 1)
 
-	// Assert: the error propagates (fan-out treats it as best-effort upstream).
 	require.Error(t, err)
 }
 
@@ -467,7 +461,7 @@ func TestRunOnNode_ClipsAndSplitsConfiguredScope(t *testing.T) {
 	require.Equal(t, "10.0.1.150", addresses[len(addresses)-1])
 }
 
-func TestDiscoveryReadiness_WarnsAndExcludesNewPairing(t *testing.T) {
+func TestDiscoveryReadiness_WarnsWithoutDispatch(t *testing.T) {
 	for _, tc := range []struct {
 		name    string
 		config  *gatewaypb.DiscoveryConfig
@@ -484,9 +478,6 @@ func TestDiscoveryReadiness_WarnsAndExcludesNewPairing(t *testing.T) {
 			defer stream.Unregister()
 			stream.SetDiscoveryConfig(tc.config)
 			svc := NewService(reg, stubLister{nodes: []enrollment.FleetNodeListing{{FleetNode: enrollment.FleetNode{ID: 7, EnrollmentStatus: enrollment.FleetNodeStatusConfirmed}}}})
-			eligible, err := svc.EligibleNodeIDs(t.Context(), 1)
-			require.NoError(t, err)
-			require.Empty(t, eligible)
 			candidates, err := svc.DiscoveryNodeIDs(t.Context(), 1)
 			require.NoError(t, err)
 			require.Equal(t, []int64{7}, candidates)

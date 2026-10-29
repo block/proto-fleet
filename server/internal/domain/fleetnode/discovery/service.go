@@ -88,23 +88,6 @@ func (s *Service) DiscoveryNodeIDs(ctx context.Context, orgID int64) ([]int64, e
 	return out, nil
 }
 
-// EligibleNodeIDs restricts new pairing to nodes ready for scoped discovery.
-func (s *Service) EligibleNodeIDs(ctx context.Context, orgID int64) ([]int64, error) {
-	nodes, err := s.DiscoveryNodeIDs(ctx, orgID)
-	if err != nil {
-		return nil, err
-	}
-	out := make([]int64, 0, len(nodes))
-	for _, nodeID := range nodes {
-		if !s.registry.CommandProtocolUpgradeRequired(nodeID) {
-			if _, err := s.configuredScope(nodeID); err == nil {
-				out = append(out, nodeID)
-			}
-		}
-	}
-	return out, nil
-}
-
 func (s *Service) configuredScope(nodeID int64) (discoveryranges.Scope, error) {
 	config := s.registry.DiscoveryConfig(nodeID)
 	if config == nil {
@@ -177,7 +160,6 @@ func (s *Service) RunOnNode(ctx context.Context, fleetNodeID int64, source strin
 		if errors.Is(ctx.Err(), context.Canceled) {
 			return nil
 		}
-		// Check even after an OK ack: the node may ignore a rejected report.
 		if budget.Exhausted() {
 			return onBatch(&pairingpb.DiscoverResponse{Warning: fmt.Sprintf("%s: %s", source, discoverylimits.ReportLimitWarning)})
 		}
@@ -236,7 +218,6 @@ func (s *Service) runCommand(ctx context.Context, fleetNodeID int64, source stri
 		return false, callbackErr
 	}
 	if discoverylimits.BudgetFromContext(ctx).Exhausted() {
-		// RunOnNode emits the aggregate limit warning after draining this command.
 		return false, nil
 	}
 	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
@@ -255,8 +236,6 @@ func (s *Service) runCommand(ctx context.Context, fleetNodeID int64, source stri
 	return false, forward(SourceWarning(source, err))
 }
 
-// requestForNode normalizes the automatic flag before partitioning the node
-// configuration. False preserves the explicit target.
 func requestForNode(req *pairingpb.DiscoverRequest) *pairingpb.DiscoverRequest {
 	if req == nil || req.GetNetworkScan() == nil || !req.GetNetworkScan().GetUseFleetNodeLocalSubnet() {
 		return req
@@ -315,7 +294,6 @@ func ValidateRequest(in *pairingpb.DiscoverRequest) error {
 			}
 			return nil
 		}
-		// Validate the complete request before clipping to the assigned ranges.
 		parsed, err := netscan.ParseTarget(target)
 		if err != nil {
 			return fleeterror.NewInvalidArgumentError(err.Error())
