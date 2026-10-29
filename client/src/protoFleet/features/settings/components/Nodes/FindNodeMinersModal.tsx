@@ -61,6 +61,7 @@ const FindNodeMinersModal = ({
         .map((device) =>
           create(DeviceSchema, {
             deviceIdentifier: device.deviceIdentifier,
+            fleetNodeId: BigInt(node.fleetNodeId),
             ipAddress: device.ipAddress,
             port: device.port,
             urlScheme: device.urlScheme,
@@ -71,7 +72,7 @@ const FindNodeMinersModal = ({
             deviceClass: device.deviceClass,
           }),
         ),
-    [blockedIdentifiers, discovered],
+    [blockedIdentifiers, discovered, node.fleetNodeId],
   );
 
   const refresh = useCallback(
@@ -264,6 +265,7 @@ const FindNodeMinersModal = ({
         mode="pairing"
         initialStep="pairing"
         foundMiners={foundMiners}
+        fleetNodes={[node]}
         scanDiscoveryPending={isScanning}
         manualDiscoveryPending={false}
         pairingPending={isPairing}

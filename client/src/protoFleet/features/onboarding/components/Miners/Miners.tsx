@@ -3,9 +3,11 @@ import { Link } from "react-router-dom";
 import clsx from "clsx";
 import FoundMiners from "./FoundMiners";
 import FoundMinersModal from "./FoundMinersModal";
+import NodePairingSummary from "./NodePairingSummary";
 import { type MinerDiscoveryMode, type RemoteDiscoveryReadiness } from "./types";
 import ValidationErrorDialog from "./ValidationErrorDialog";
 import { Device } from "@/protoFleet/api/generated/pairing/v1/pairing_pb";
+import { type FleetNodeItem } from "@/protoFleet/api/useFleetNodes";
 import FullScreenModalHeaderActions from "@/protoFleet/components/FullScreenModalHeaderActions";
 import NullState from "@/protoFleet/components/NullState";
 import { useHasPermission } from "@/protoFleet/store";
@@ -41,6 +43,11 @@ const REMOTE_DISCOVERY_GUIDANCE: Record<
     intent: "warning",
     adminAction: "Ask an administrator to check Fleet Nodes.",
   },
+  discoveryNotConfigured: {
+    message: "Configure Fleet Node discovery ranges",
+    intent: "information",
+    adminAction: "Ask an administrator to configure discovery ranges on the node.",
+  },
   checkFailed: {
     message: "Couldn't check Fleet Nodes. Results may be incomplete.",
     intent: "warning",
@@ -55,6 +62,7 @@ interface MinersProps {
   networkInfoPending: boolean;
   scanAvailable: boolean;
   foundMiners: Device[];
+  fleetNodes?: FleetNodeItem[];
   onCancelScan: () => void;
   onManualDiscover: (targets: ManualDiscoveryTargets) => void;
   onContinue: (selectedMinerIdentifiers: string[]) => void;
@@ -81,6 +89,7 @@ const Miners = ({
   networkInfoPending,
   scanAvailable,
   foundMiners,
+  fleetNodes,
   onCancelScan,
   onManualDiscover,
   onContinue,
@@ -129,7 +138,11 @@ const Miners = ({
       return true;
     });
   }, [foundMiners]);
-  const selectedDisplayMiners = displayMiners.filter((miner) => !deselectedMiners.includes(miner.deviceIdentifier));
+  const deselectedMinerIds = useMemo(() => new Set(deselectedMiners), [deselectedMiners]);
+  const selectedDisplayMiners = useMemo(
+    () => displayMiners.filter((miner) => !deselectedMinerIds.has(miner.deviceIdentifier)),
+    [displayMiners, deselectedMinerIds],
+  );
   const useCompactHeaderActions = isPhone;
   const canReadFleetNodes = useHasPermission("fleetnode:read");
   const canManageFleetNodes = useHasPermission("fleetnode:manage");
@@ -490,6 +503,13 @@ const Miners = ({
                 isScanning={discoveryPending}
                 showSkeleton={showLoadingSkeleton}
               />
+              {fleetNodes ? (
+                <NodePairingSummary
+                  miners={selectedDisplayMiners}
+                  fleetNodes={fleetNodes}
+                  showPairedCounts={canReadFleetNodes}
+                />
+              ) : null}
               {maxSelectedMiners !== undefined && selectedDisplayMiners.length > maxSelectedMiners ? (
                 <p role="status" className="mt-4 text-300 text-intent-warning-fill">
                   Select at most {maxSelectedMiners} miners per request.
@@ -500,9 +520,10 @@ const Miners = ({
                 <FoundMinersModal
                   open={showFoundMinersModal}
                   setDeselectedMiners={setDeselectedMiners}
+                  fleetNodes={canReadFleetNodes ? fleetNodes : undefined}
                   miners={displayMiners.map((miner) => ({
                     ...miner,
-                    selected: !deselectedMiners.includes(miner.deviceIdentifier),
+                    selected: !deselectedMinerIds.has(miner.deviceIdentifier),
                   }))}
                   onDismiss={() => setShowFoundMinersModal(false)}
                 />

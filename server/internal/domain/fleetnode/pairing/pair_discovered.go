@@ -21,10 +21,9 @@ import (
 	"github.com/block/proto-fleet/server/internal/infrastructure/secrets"
 )
 
-// MaxPairBatch caps targets per pair command, matching FleetNodePairRequest.targets
-// max_items so a pair_all on a huge fleet can't balloon one ControlCommand; the
-// pair-all dispatches successive batches rather than enlarging ControlCommand.
-const MaxPairBatch = 1024
+// MaxPairBatch bounds each dispatched command. The public request still accepts
+// up to 1,024 explicit selections; callers split those into sequential commands.
+const MaxPairBatch = 128
 
 // ResolvePairTargets returns the pairable targets for a batch request. It draws
 // from devices the node discovered that are either not yet paired or are bound

@@ -54,6 +54,24 @@ func (s *Service) PairAllOnNode(ctx context.Context, fleetNodeID, orgID int64, c
 	}
 }
 
+// PairTargetsOnNode splits an explicit selection into sequential commands. An
+// accepted command finishes even when the operator cancels; cancellation and a
+// command error stop the next batch, without retrying any target.
+func (s *Service) PairTargetsOnNode(ctx context.Context, fleetNodeID int64, targets []*pairingpb.FleetNodePairTarget, credentials *pairingpb.Credentials, orgID int64, assignedBy *int64, onResults func([]*gatewaypb.FleetNodePairResult) error) error {
+	if len(targets) == 0 {
+		return fleeterror.NewInvalidArgumentError("pair command requires at least one target")
+	}
+	for batch := range slices.Chunk(targets, MaxPairBatch) {
+		if err := ctx.Err(); err != nil {
+			return fmt.Errorf("pair stopped before next batch: %w", err)
+		}
+		if err := s.PairOnNode(ctx, fleetNodeID, batch, credentials, orgID, assignedBy, onResults); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // PairOnNode dispatches a batch pair command over the node's ControlStream and
 // invokes onResults per result batch for live operator display. Persistence is
 // authoritative in the gateway ReportPairedDevices handler, not here, so onResults

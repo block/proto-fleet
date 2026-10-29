@@ -245,3 +245,76 @@ func TestPairOnNodePartialAckPreservesReportedAndMissingResults(t *testing.T) {
 	assert.Equal(t, "missing", batches[1][0].GetDeviceIdentifier())
 	assert.Equal(t, gatewaypb.PairOutcome_PAIR_OUTCOME_ERROR, batches[1][0].GetOutcome())
 }
+
+func TestPairTargetsOnNodeChunksPublicSelectionAndStopsNewCommands(t *testing.T) {
+	for _, stop := range []string{"complete", "cancel", "command-error"} {
+		t.Run(stop, func(t *testing.T) {
+			registry := control.NewRegistry()
+			stream := registry.Register(7)
+			stream.SetDiscoveryConfig(&gatewaypb.DiscoveryConfig{Ranges: []string{"10.0.0.0/24"}})
+			defer stream.Unregister()
+			service := NewService(nil, nil, nil).WithProvisioning(nil, nil, registry)
+			credentials := &pairingpb.Credentials{Username: "root", Password: proto.String("secret")}
+			targets := pairTargetsFromDiscoveredDevices(pairAllTestStore(1024).devices)
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			done := make(chan error, 1)
+			reported := 0
+			go func() {
+				done <- service.PairTargetsOnNode(ctx, 7, targets, credentials, 20, nil, func(results []*gatewaypb.FleetNodePairResult) error {
+					reported += len(results)
+					return nil
+				})
+			}()
+			var seen []string
+			commands := 0
+			for {
+				select {
+				case cmd := <-stream.Outgoing:
+					commands++
+					var payload gatewaypb.AgentCommand
+					require.NoError(t, proto.Unmarshal(cmd.GetPayload(), &payload))
+					assert.True(t, proto.Equal(credentials, payload.GetPair().GetCredentials()))
+					require.LessOrEqual(t, len(payload.GetPair().GetTargets()), 128)
+					for _, target := range payload.GetPair().GetTargets() {
+						seen = append(seen, target.GetDeviceIdentifier())
+					}
+					code := gatewaypb.AckCode_ACK_CODE_PARTIAL
+					if stop == "cancel" {
+						cancel()
+						select {
+						case err := <-done:
+							t.Fatalf("accepted command aborted before acknowledgment: %v", err)
+						default:
+						}
+					}
+					if stop == "command-error" {
+						code = gatewaypb.AckCode_ACK_CODE_REPORT_FAILED
+					}
+					stream.PublishAck(&gatewaypb.ControlAck{CommandId: cmd.GetCommandId(), Code: code})
+				case err := <-done:
+					if stop == "complete" {
+						require.NoError(t, err)
+						assert.Equal(t, 8, commands)
+						expected := make([]string, len(targets))
+						for i, target := range targets {
+							expected[i] = target.GetDeviceIdentifier()
+						}
+						assert.Equal(t, expected, seen)
+					} else {
+						require.Error(t, err)
+						assert.Equal(t, 1, commands)
+						assert.Len(t, seen, 128)
+						if stop == "cancel" {
+							assert.ErrorIs(t, err, context.Canceled)
+						}
+					}
+					assert.Equal(t, len(seen), reported, "accepted batch has terminal results before returning")
+					return
+				case <-time.After(2 * time.Second):
+					t.Fatal("explicit pairing did not finish")
+				}
+			}
+		})
+	}
+}

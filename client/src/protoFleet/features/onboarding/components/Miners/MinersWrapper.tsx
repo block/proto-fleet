@@ -3,7 +3,10 @@ import { create } from "@bufbuild/protobuf";
 import Miners from "./Miners";
 import { type MinerDiscoveryMode, type RemoteDiscoveryReadiness } from "./types";
 import { DeviceIdentifierListSchema } from "@/protoFleet/api/generated/common/v1/device_selector_pb";
-import { FleetNodeEnrollmentStatus } from "@/protoFleet/api/generated/fleetnodeadmin/v1/fleetnodeadmin_pb";
+import {
+  FleetNodeEnrollmentStatus,
+  FleetNodeHARole,
+} from "@/protoFleet/api/generated/fleetnodeadmin/v1/fleetnodeadmin_pb";
 import { DeviceSelectorSchema } from "@/protoFleet/api/generated/minercommand/v1/command_pb";
 import {
   Device,
@@ -11,7 +14,7 @@ import {
   DiscoverRequestSchema,
   PairRequestSchema,
 } from "@/protoFleet/api/generated/pairing/v1/pairing_pb";
-import { useFleetNodes } from "@/protoFleet/api/useFleetNodes";
+import { type FleetNodeItem, useFleetNodes } from "@/protoFleet/api/useFleetNodes";
 import { useForemanImport } from "@/protoFleet/api/useForemanImport";
 import { useMinerPairing } from "@/protoFleet/api/useMinerPairing";
 import { useNetworkInfo } from "@/protoFleet/api/useNetworkInfo";
@@ -61,6 +64,8 @@ const MinersPage = ({
   const { discover, pairingPending, pair } = useMinerPairing();
   const { listFleetNodes } = useFleetNodes();
   const canPairMiners = useHasPermission("miner:pair");
+  const canReadFleetNodes = useHasPermission("fleetnode:read");
+  const [fleetNodes, setFleetNodes] = useState<FleetNodeItem[]>([]);
   const { importPending: foremanImportPending, importFromForeman, completeImport } = useForemanImport();
   const [scanDiscoveryPending, setScanDiscoveryPending] = useState(false);
   const [manualDiscoveryPending, setManualDiscoveryPending] = useState(false);
@@ -83,14 +88,24 @@ const MinersPage = ({
     void listFleetNodes()
       .then((nodes) => {
         if (requestId !== requestState.latestId) return;
+        setFleetNodes(nodes);
         const hasIneligibleNode = nodes.some((node) => node.discoveryCoverageDegraded);
-        const activeNodes = nodes.filter((node) => node.enrollmentStatus !== FleetNodeEnrollmentStatus.REVOKED);
+        const activeNodes = nodes.filter(
+          (node) =>
+            node.enrollmentStatus !== FleetNodeEnrollmentStatus.REVOKED &&
+            node.haRole !== FleetNodeHARole.FLEET_NODE_HA_ROLE_STANDBY,
+        );
         if (hasIneligibleNode) {
           setRemoteDiscoveryReadiness("partialCoverage");
         } else if (activeNodes.length === 0) {
           setRemoteDiscoveryReadiness("noNodes");
         } else if (activeNodes.some((node) => node.enrollmentStatus !== FleetNodeEnrollmentStatus.CONFIRMED)) {
           setRemoteDiscoveryReadiness("enrollmentIncomplete");
+        } else if (
+          canReadFleetNodes &&
+          activeNodes.some((node) => !node.discoveryConfigReported || !node.discoveryRanges?.length)
+        ) {
+          setRemoteDiscoveryReadiness("discoveryNotConfigured");
         } else {
           setRemoteDiscoveryReadiness("none");
         }
@@ -98,7 +113,7 @@ const MinersPage = ({
       .catch(() => {
         if (requestId === requestState.latestId) setRemoteDiscoveryReadiness("checkFailed");
       });
-  }, [canPairMiners, listFleetNodes]);
+  }, [canPairMiners, canReadFleetNodes, listFleetNodes]);
 
   useEffect(() => {
     const requestState = coverageRequestState.current;
@@ -198,9 +213,22 @@ const MinersPage = ({
     [discover, processDiscoveredMiners, refreshRemoteDiscoveryCoverage],
   );
 
+  const scanAvailable =
+    !!networkInfo?.subnet ||
+    (canPairMiners &&
+      fleetNodes.some(
+        (node) =>
+          node.enrollmentStatus === FleetNodeEnrollmentStatus.CONFIRMED &&
+          node.haRole !== FleetNodeHARole.FLEET_NODE_HA_ROLE_STANDBY &&
+          !node.discoveryCoverageDegraded &&
+          (!canReadFleetNodes || (node.discoveryConfigReported && !!node.discoveryRanges?.length)),
+      ));
+
+  const networkInfoPendingForScan = networkInfoPending && !scanAvailable;
+
   const handleNetworkScanDiscovery = useCallback(
     (keepResults = false) => {
-      if (!networkInfo?.subnet) return;
+      if (!scanAvailable) return;
 
       foremanCredsRef.current = null;
       if (!keepResults) setFoundMiners([]);
@@ -211,7 +239,7 @@ const MinersPage = ({
         mode: {
           case: "networkScan",
           value: {
-            target: networkInfo.subnet,
+            target: networkInfo?.subnet ?? "",
             useFleetNodeLocalSubnet: true,
           },
         },
@@ -223,7 +251,7 @@ const MinersPage = ({
         }
       });
     },
-    [handleDiscover, networkInfo],
+    [handleDiscover, networkInfo, scanAvailable],
   );
 
   const cancelNetworkScan = useCallback(() => {
@@ -413,6 +441,7 @@ const MinersPage = ({
 
         // If this was a Foreman import, create pools/groups/racks and assign devices before refreshing
         if (lastDiscoveryMode === minerDiscoveryModes.foreman && foremanCredsRef.current) {
+          const failedIds = new Set(failedDeviceIds);
           const creds = foremanCredsRef.current;
           foremanCredsRef.current = null;
           if (successCount > 0) {
@@ -422,7 +451,7 @@ const MinersPage = ({
               importPools: true,
               importGroups: true,
               importRacks: true,
-              pairedDeviceIdentifiers: selectedMinerIdentifiers.filter((id) => !failedDeviceIds.includes(id)),
+              pairedDeviceIdentifiers: selectedMinerIdentifiers.filter((id) => !failedIds.has(id)),
               onSuccess: () => {},
               onError: (error) => {
                 console.error("Foreman complete import failed:", error);
@@ -499,8 +528,9 @@ const MinersPage = ({
       scanDiscoveryPending={scanDiscoveryPending}
       manualDiscoveryPending={manualDiscoveryPending}
       pairingPending={pairingPending}
-      networkInfoPending={networkInfoPending}
-      scanAvailable={!!networkInfo?.subnet}
+      networkInfoPending={networkInfoPendingForScan}
+      scanAvailable={scanAvailable}
+      fleetNodes={canPairMiners ? fleetNodes : undefined}
       onCancelScan={cancelNetworkScan}
       onManualDiscover={handleManualDiscovery}
       onContinue={handleContinue}

@@ -83,6 +83,7 @@ const CollapsibleSkeleton = ({ visible, showDivider }: { visible: boolean; showD
 };
 
 const FoundMiners = ({ miners, deselectedMiners, isScanning, showSkeleton, className }: FoundMinersProps) => {
+  const deselectedMinerIds = useMemo(() => new Set(deselectedMiners), [deselectedMiners]);
   const skeletonVisible = showSkeleton ?? !!isScanning;
   // Derive minersByModel directly from miners prop
   const minersByModel = useMemo(() => {
@@ -180,7 +181,7 @@ const FoundMiners = ({ miners, deselectedMiners, isScanning, showSkeleton, class
                   <div className="h-6 text-emphasis-300">
                     {(() => {
                       const selectedCount = model.miners.filter(
-                        (miner) => !deselectedMiners.includes(miner.deviceIdentifier),
+                        (miner) => !deselectedMinerIds.has(miner.deviceIdentifier),
                       ).length;
                       return `${selectedCount} ${entityNoun(model.deviceClass, selectedCount)}`;
                     })()}

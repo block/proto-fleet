@@ -12,6 +12,7 @@ export default {
 const mockMiners = [
   {
     $typeName: "pairing.v1.Device" as const,
+    fleetNodeId: 0n,
     deviceIdentifier: "miner-001",
     model: "S19 Pro",
     ipAddress: "192.168.1.10",
@@ -20,6 +21,7 @@ const mockMiners = [
   },
   {
     $typeName: "pairing.v1.Device" as const,
+    fleetNodeId: 0n,
     deviceIdentifier: "miner-002",
     model: "S19 Pro",
     ipAddress: "192.168.1.11",
@@ -28,6 +30,7 @@ const mockMiners = [
   },
   {
     $typeName: "pairing.v1.Device" as const,
+    fleetNodeId: 0n,
     deviceIdentifier: "miner-003",
     model: "S19j Pro",
     ipAddress: "192.168.1.12",
@@ -36,6 +39,7 @@ const mockMiners = [
   },
   {
     $typeName: "pairing.v1.Device" as const,
+    fleetNodeId: 0n,
     deviceIdentifier: "miner-004",
     model: "S19j Pro",
     ipAddress: "192.168.1.13",
@@ -44,6 +48,7 @@ const mockMiners = [
   },
   {
     $typeName: "pairing.v1.Device" as const,
+    fleetNodeId: 0n,
     deviceIdentifier: "miner-005",
     model: "S19 XP",
     ipAddress: "192.168.1.14",
@@ -82,6 +87,7 @@ export const Default = () => {
 const mixedMiners = [
   {
     $typeName: "pairing.v1.Device" as const,
+    fleetNodeId: 0n,
     deviceIdentifier: "cu-001",
     model: "CU1",
     deviceClass: DeviceClass.CONTAINER,
@@ -91,6 +97,7 @@ const mixedMiners = [
   },
   {
     $typeName: "pairing.v1.Device" as const,
+    fleetNodeId: 0n,
     deviceIdentifier: "cu-002",
     model: "cu-200",
     deviceClass: DeviceClass.CONTAINER,
@@ -100,6 +107,7 @@ const mixedMiners = [
   },
   {
     $typeName: "pairing.v1.Device" as const,
+    fleetNodeId: 0n,
     deviceIdentifier: "miner-101",
     model: "S21 Pro",
     ipAddress: "192.168.1.40",

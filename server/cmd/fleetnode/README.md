@@ -45,18 +45,91 @@ server/.fleetnode/
 
 Network discovery uses the in-process TCP scanner in `internal/domain/netscan`. The scanner connects to the requested ports, closes each connection immediately, and hands open endpoints to the existing miner plugins for identification. IP-list and IP-range discovery send every requested endpoint directly to bounded plugin identification, including virtual miners that have no TCP listeners. No mode needs a scanner executable or raw-socket capability.
 
-TCP connection attempts share a 512-socket process budget, with a three-second timeout each. Plugin identification uses 32 concurrent probes with ten seconds per probe. Target parsing, private DNS selection, and port validation use the same shared helpers as Fleet Server. IPv4 CIDRs omit their actual network and broadcast addresses through /30; /31, /32, and explicit ranges include every address. Eligible IPv6 literals are supported, while IPv6 CIDRs are rejected.
+TCP connection attempts share a 512-socket process budget, with a three-second timeout each. Plugin identification uses 32 concurrent probes with ten seconds per probe. Target parsing, private DNS selection, and port validation use the same shared helpers as Fleet Server. Manual network-scan IPv4 CIDRs omit their actual network and broadcast addresses through /30; /31, /32, configured address intervals, and explicit ranges include every address. Assigned node discovery ranges support private IPv4 only; existing owned IPv6 miner routes are unaffected.
 
-For automatic "local subnet" discovery commands, the server sends the reserved `fleet-node-local-subnet` target and the agent chooses what to scan. By default it detects the host's local private IPv4 subnet. On multi-NIC, NAT, or containerized hosts, set the subnet explicitly:
+## Assigned discovery ranges
 
-```bash
-fleetnode run --local-discovery-subnet=10.90.0.0/24
-FLEETNODE_LOCAL_DISCOVERY_SUBNET=10.90.0.0/24 fleetnode run
+Configure each active node with disjoint private IPv4 ranges in `/etc/fleetnode/config.yaml`:
+
+```yaml
+run:
+  discovery-ranges:
+    - 10.40.0.1-10.40.15.254
+    - 10.41.0.0/24
 ```
 
-The configured subnet is validated the same way as an auto-detected local subnet: it must be a private IPv4 CIDR, /20 or narrower. Each command accepts at most 4,096 target addresses and ten raw port entries. A /20 enumerates 4,094 usable addresses; an explicit 4,096-address range includes every address. Fleet Server keeps its broader address policy and can scan the aggregate of its known subnets without a Fleet Node command cap.
+The `--discovery-ranges` flag accepts the same values. The existing
+`--local-discovery-subnet` override remains a single-range configuration when
+`discovery-ranges` is absent. Explicit configuration takes precedence over ranges
+imported during standby setup; an explicit empty YAML list disables discovery.
+Restart the node after editing its configuration. Invalid ranges fail local
+validation. Missing ranges disable discovery and new pairing while existing
+miner telemetry and commands continue.
 
-The public discovery API names this mode `network_scan` (`NetworkScanModeRequest`). Nodes retain the ten-minute command budget, so a /20 with responsive ports and slow plugin identification can finish partially. Identified devices remain available, and incomplete discovery produces a source-specific warning. Update Fleet Server, Fleet Nodes, and clients together for this API change; the existing command-version and capability checks continue to support maintenance.
+Fleet Server learns effective ranges from each live control connection; it does
+not store an authoritative configuration in the database. Node management shows
+the reported ranges while connected and marks them unavailable when disconnected.
+Operators prevent overlap between active nodes, including nodes on separate
+networks. Separate networks reusing the same private addresses are not supported
+by this partitioning workflow.
+
+The regular Add Miners flow scans configured ranges through their assigned active
+nodes, without requiring a Fleet Server miner subnet. Manual IP targets are clipped
+to each node's ranges. Fleet splits work into sequential commands per node with at
+most 256 addresses and 1,024 address/port combinations; nodes run in parallel and
+also restrict discovery to their local configuration. IP lists and ranges retain
+direct plugin identification, while network scans retain TCP probing. Source
+warnings identify incomplete discovery; completed results remain available.
+
+A new pairing must use the discovering node's current ranges, including every
+address in a grouped endpoint. Pairing runs across nodes in parallel, in sequential
+batches of at most 128 miners per node. The UI displays paired and selected counts
+when the caller can read node details, warns above 4,000, and flags totals above
+5,000. These are operational guardrails: Fleet does not reserve capacity or enforce
+a transactional count limit. Plan approximately 13 active nodes for 50,000 miners
+at the 4,000-miner target, plus standbys as required.
+
+Changing ranges does not rebalance or re-pair existing miners. On reconnect,
+out-of-scope unpaired discoveries are retired so another configured node can claim
+them. Existing owners and authentication-repair routes remain intact. Finish or
+resolve outstanding discovery/pairing work before moving a partition to another
+node. If interrupted, reopen Add Miners and continue the remaining work; accepted
+batches finish server-side, but an unknown result requires inspection before retry.
+There is no durable background operation or automatic restart recovery.
+
+### Standby inheritance
+
+When adding a standby, Fleet copies the active node's reported ranges once and
+persists them in the standby's local state directory. Setup waits for the durable
+installation acknowledgement before marking the standby ready. The active must
+be connected with ranges configured, and the standby must support command protocol
+V8. Matching repeated installation is safe; a conflicting local or previously
+imported configuration requires operator correction.
+
+Imported ranges survive restart and promotion. Later edits are not synchronized:
+update both peers manually. Node management warns when both connected peers report
+different effective ranges. Only the active peer scans. Existing ready HA pairs
+retain their failover behavior.
+
+Deploy Fleet Server support first, then upgrade and configure nodes before new
+discovery or pairing. Partitioned discovery supports IPv4; existing owned-miner
+operations and separate direct-server discovery retain their routing contracts.
+
+### Scale qualification
+
+Run the opt-in gateway/Postgres integration with an isolated local test database:
+
+```bash
+cd server
+DB_PASSWORD=fleet FLEETNODE_SCALE_TEST=1 go test ./internal/handlers/fleetnode/gateway \
+  -run '^TestFleetNodeScaleDiscoveryAndPairing$' -count=1 -v -timeout 5m
+```
+
+It discovers and pairs 50,000 simulated miners across 13 nodes through production
+gateway persistence, verifies unique ownership, and reports discovery/pairing time.
+It does not qualify physical drivers, node hardware, sustained telemetry cadence,
+or deployment-specific database sizing; those require representative hardware and
+steady telemetry/control load before a production capacity claim.
 
 A full command can report up to 40,960 endpoints in forty 1,024-report uploads. Those batches and the terminal ACK fit the existing 64-event command queue without requiring the consumer to drain during upload. The complete upload has a 90-second budget, leaving 30 seconds for dispatch and ACK delivery within the server’s 12-minute wait after a ten-minute scan. This capacity does not guarantee completion within the command deadline.
 

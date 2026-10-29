@@ -114,6 +114,8 @@ function fleetNode(overrides: Partial<FleetNodeItem> = {}): FleetNodeItem {
     controlStreamConnected: true,
     discoveryCoverageDegraded: false,
     pairedDeviceCount: 0,
+    discoveryConfigReported: true,
+    discoveryRanges: ["10.1.0.0/20"],
     haRole: FleetNodeHARole.FLEET_NODE_HA_ROLE_UNSPECIFIED,
     haPeerNodeId: null,
     haPeerNodeName: "",
@@ -690,6 +692,60 @@ describe("MinersWrapper", () => {
       });
     });
 
+    it.each([false, true])(
+      "scans configured Fleet Nodes without a Fleet Server subnet (network request pending: %s)",
+      async (pending) => {
+        vi.mocked(useNetworkInfo).mockReturnValue({
+          data: undefined,
+          pending,
+          error: undefined,
+          fetchData: vi.fn(),
+          updateNetworkInfo: vi.fn(),
+        });
+        mockListFleetNodes.mockResolvedValue([
+          fleetNode({
+            discoveryConfigReported: true,
+            discoveryRanges: ["10.1.0.0/20"],
+          }),
+        ]);
+        renderMinersPage("pairing");
+        const scan = within(screen.getByTestId("section-scan-network")).getByRole("button", { name: "Find miners" });
+        await waitFor(() => expect(scan).toBeEnabled());
+        fireEvent.click(scan);
+        await waitFor(() => expect(mockDiscover).toHaveBeenCalledTimes(1));
+        expect(mockDiscover.mock.calls[0][0].discoverRequest.mode).toMatchObject({
+          case: "networkScan",
+          value: { target: "", useFleetNodeLocalSubnet: true },
+        });
+      },
+    );
+
+    it("requires reported discovery ranges before offering a remote-only scan to node readers", async () => {
+      mockListFleetNodes.mockResolvedValue([fleetNode({ discoveryConfigReported: false, discoveryRanges: [] })]);
+      renderMinersPage("pairing");
+      expect(await screen.findByText("Configure Fleet Node discovery ranges")).toBeVisible();
+      expect(
+        within(screen.getByTestId("section-scan-network")).getByRole("button", { name: "Find miners" }),
+      ).toBeDisabled();
+    });
+
+    it("allows redacted pairing operators to scan without inventing node metadata", async () => {
+      vi.mocked(useHasPermission).mockImplementation((permission) => permission === "miner:pair");
+      mockListFleetNodes.mockResolvedValue([
+        fleetNode({ name: "", discoveryConfigReported: false, discoveryRanges: [], pairedDeviceCount: 0 }),
+      ]);
+      mockDiscover.mockImplementation(async ({ onStreamData }) => {
+        onStreamData([create(DeviceSchema, { deviceIdentifier: "remote-miner", fleetNodeId: 1n })]);
+      });
+      renderMinersPage("pairing");
+      const scan = within(screen.getByTestId("section-scan-network")).getByRole("button", { name: "Find miners" });
+      await waitFor(() => expect(scan).toBeEnabled());
+      fireEvent.click(scan);
+      expect(await screen.findByText(/Paired count unavailable/)).toBeVisible();
+      expect(screen.queryByText(/0 paired/)).not.toBeInTheDocument();
+      expect(screen.queryByText("hidden-node-name")).not.toBeInTheDocument();
+    });
+
     it("shows no topology or warning when every confirmed node is eligible", async () => {
       mockListFleetNodes.mockResolvedValue([fleetNode()]);
 
@@ -712,14 +768,39 @@ describe("MinersWrapper", () => {
         fleetNode({
           fleetNodeId: "2",
           controlStreamConnected: false,
+          discoveryConfigReported: false,
+          discoveryRanges: [],
           haRole: FleetNodeHARole.FLEET_NODE_HA_ROLE_STANDBY,
         }),
       ]);
 
       renderMinersPage("pairing");
 
-      await waitFor(() => expect(mockListFleetNodes).toHaveBeenCalled());
+      await waitFor(() =>
+        expect(
+          within(screen.getByTestId("section-scan-network")).getByRole("button", { name: "Find miners" }),
+        ).toBeEnabled(),
+      );
       expect(screen.queryByTestId("remote-discovery-guidance")).not.toBeInTheDocument();
+    });
+
+    it("does not enable node-based scanning through a standby before failover", async () => {
+      mockListFleetNodes.mockResolvedValue([
+        fleetNode({
+          controlStreamConnected: false,
+          discoveryCoverageDegraded: true,
+          discoveryConfigReported: false,
+          discoveryRanges: [],
+        }),
+        fleetNode({ fleetNodeId: "2", haRole: FleetNodeHARole.FLEET_NODE_HA_ROLE_STANDBY }),
+      ]);
+
+      renderMinersPage("pairing");
+
+      expect(await screen.findByText("Some Fleet Nodes can't scan. Results may be incomplete.")).toBeVisible();
+      expect(
+        within(screen.getByTestId("section-scan-network")).getByRole("button", { name: "Find miners" }),
+      ).toBeDisabled();
     });
 
     it("warns generically when some confirmed nodes are ineligible", async () => {

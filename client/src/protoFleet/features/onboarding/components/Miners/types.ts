@@ -11,8 +11,10 @@ export type MinerWithSelected = MinerWithModel & {
 
 export type MinerWithSelectedAndAction = MinerWithSelected & {
   action?: null;
+  source?: string;
 };
 
 export type MinerDiscoveryMode = "onboarding" | "pairing";
 
-export type RemoteDiscoveryReadiness = "none" | "noNodes" | "enrollmentIncomplete" | "partialCoverage" | "checkFailed";
+export type RemoteDiscoveryReadiness =
+  "none" | "noNodes" | "enrollmentIncomplete" | "partialCoverage" | "discoveryNotConfigured" | "checkFailed";

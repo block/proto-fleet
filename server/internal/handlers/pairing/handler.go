@@ -3,6 +3,7 @@ package pairing
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"slices"
 	"sync"
@@ -332,45 +333,104 @@ func (h *Handler) pairFleetNodeDevices(ctx context.Context, orgID, userID int64,
 		return resp, route, nil
 	}
 
+	// Resolve explicit ownership in directory order before starting commands. A
+	// device stays with its first discovering node, including when that node's
+	// command fails; it must never be retried through another node or the server.
+	type nodeWork struct {
+		nodeID  int64
+		targets []*pb.FleetNodePairTarget
+		route   fleetNodePairRoute
+		failed  map[string]struct{}
+		err     error
+	}
 	pending := setFromSlice(selected)
 	sortedSelected := sortedKeys(pending)
-	failed := map[string]struct{}{}
+	work := make([]nodeWork, 0, len(nodeIDs))
+	seenNodes := map[int64]struct{}{}
 	for _, nodeID := range nodeIDs {
-		if allDevicesFilter != nil {
-			if err := h.pairAllMatchingFleetNodeDevices(ctx, nodeID, orgID, userID, allDevicesFilter, req, &route, failed); err != nil {
-				return nil, fleetNodePairRoute{}, err
-			}
+		if _, seen := seenNodes[nodeID]; seen {
 			continue
 		}
-
-		targetIDs := pendingSortedIdentifiers(sortedSelected, pending)
-		for start := 0; start < len(targetIDs); start += fleetnodepairing.MaxPairBatch {
-			end := start + fleetnodepairing.MaxPairBatch
-			if end > len(targetIDs) {
-				end = len(targetIDs)
+		seenNodes[nodeID] = struct{}{}
+		item := nodeWork{nodeID: nodeID, route: fleetNodePairRoute{
+			routedExplicit: map[string]struct{}{}, routedAllDevices: map[string]struct{}{},
+		}, failed: map[string]struct{}{}}
+		if allDevicesFilter == nil {
+			targetIDs := pendingSortedIdentifiers(sortedSelected, pending)
+			for ids := range slices.Chunk(targetIDs, fleetnodepairing.MaxPairBatch) {
+				if err := ctx.Err(); err != nil {
+					return nil, fleetNodePairRoute{}, fmt.Errorf("pair stopped before resolving next batch: %w", err)
+				}
+				targets, err := h.fleetNodePairing.ResolvePairTargets(ctx, nodeID, orgID, ids, false, req.GetCredentials())
+				if err != nil {
+					return nil, fleetNodePairRoute{}, err
+				}
+				for _, target := range targets {
+					if _, needed := pending[target.GetDeviceIdentifier()]; !needed {
+						continue
+					}
+					item.targets = append(item.targets, target)
+					recordFleetNodePairTargets([]*pb.FleetNodePairTarget{target}, false, item.route.routedExplicit, item.route.routedAllDevices, item.failed, pending)
+				}
 			}
-			targets, err := h.fleetNodePairing.ResolvePairTargets(ctx, nodeID, orgID, targetIDs[start:end], false, req.GetCredentials())
-			if err != nil {
-				return nil, fleetNodePairRoute{}, err
-			}
-			if len(targets) == 0 {
+			if len(item.targets) == 0 {
 				continue
 			}
-			recordFleetNodePairTargets(targets, false, route.routedExplicit, route.routedAllDevices, failed, pending)
-			if err := h.pairFleetNodeTargetBatch(ctx, nodeID, orgID, userID, req, targets, false, &route, failed); err != nil {
-				slog.Warn("fleet node pairing command failed; returning failed targets in pair response",
-					"fleet_node_id", nodeID, "error", err)
-				if route.remoteErr == nil {
-					route.remoteErr = err
-				}
-				break
-			}
 		}
-		if len(pending) == 0 {
+		work = append(work, item)
+		if allDevicesFilter == nil && len(pending) == 0 {
 			break
 		}
 	}
 
+	// Each node owns its result maps. Only merge after all workers have finished,
+	// so callbacks from independent command streams cannot race with each other.
+	var wg sync.WaitGroup
+	for i := range work {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			item := &work[i]
+			if allDevicesFilter != nil {
+				// Filter pages use the existing discovery owner. The live
+				// org/identifier uniqueness constraint keeps node pages disjoint.
+				item.err = h.pairAllMatchingFleetNodeDevices(ctx, item.nodeID, orgID, userID, allDevicesFilter, req, &item.route, item.failed)
+				return
+			}
+			for targets := range slices.Chunk(item.targets, fleetnodepairing.MaxPairBatch) {
+				if err := ctx.Err(); err != nil {
+					item.route.remoteErr = err
+					return
+				}
+				if err := h.pairFleetNodeTargetBatch(ctx, item.nodeID, orgID, userID, req, targets, false, &item.route, item.failed); err != nil {
+					slog.Warn("fleet node pairing command failed; returning failed targets in pair response", "fleet_node_id", item.nodeID, "error", err)
+					item.route.remoteErr = err
+					return
+				}
+			}
+		}()
+	}
+	wg.Wait()
+	failed := map[string]struct{}{}
+	for _, item := range work {
+		if item.err != nil {
+			return nil, fleetNodePairRoute{}, item.err
+		}
+		for id := range item.route.routedExplicit {
+			route.routedExplicit[id] = struct{}{}
+		}
+		for id := range item.route.routedAllDevices {
+			route.routedAllDevices[id] = struct{}{}
+		}
+		for id := range item.failed {
+			failed[id] = struct{}{}
+		}
+		route.allDevices = route.allDevices || item.route.allDevices
+		route.remoteSucceeded = route.remoteSucceeded || item.route.remoteSucceeded
+		if route.remoteErr == nil {
+			route.remoteErr = item.route.remoteErr
+		}
+	}
 	resp.FailedDeviceIds = sortedKeys(failed)
 	return resp, route, nil
 }
@@ -378,6 +438,9 @@ func (h *Handler) pairFleetNodeDevices(ctx context.Context, orgID, userID int64,
 func (h *Handler) pairAllMatchingFleetNodeDevices(ctx context.Context, nodeID, orgID, userID int64, allDevicesFilter *minercommandv1.DeviceFilter, req *pb.PairRequest, route *fleetNodePairRoute, failed map[string]struct{}) error {
 	var cursorID *int64
 	for {
+		if err := ctx.Err(); err != nil {
+			return fmt.Errorf("pair stopped before next page: %w", err)
+		}
 		targets, nextCursor, err := h.fleetNodePairing.ResolvePairTargetsByFilterPage(ctx, nodeID, orgID, allDevicesFilter, req.GetCredentials(), cursorID)
 		if err != nil {
 			return err
