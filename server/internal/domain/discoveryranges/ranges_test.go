@@ -100,31 +100,6 @@ func TestScopeEmpty(t *testing.T) {
 	}
 }
 
-func TestScopeIntersect(t *testing.T) {
-	scope := mustParse(t, "10.0.0.1-10.0.0.5", "10.0.0.8-10.0.0.12", "192.168.1.1")
-	for _, tc := range []struct {
-		name, start, end string
-		want             []Range
-	}{
-		{"clips intervals and retains gap", "10.0.0.3", "10.0.0.9", []Range{ipRange("10.0.0.3", "10.0.0.5"), ipRange("10.0.0.8", "10.0.0.9")}},
-		{"inclusive singleton", "10.0.0.5", "10.0.0.5", []Range{ipRange("10.0.0.5", "10.0.0.5")}},
-		{"gap", "10.0.0.6", "10.0.0.7", nil},
-		{"outside", "172.16.0.1", "172.31.255.255", nil},
-		{"reversed", "10.0.0.9", "10.0.0.3", nil},
-		{"IPv6", "::1", "::2", nil},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			got := scope.Intersect(netip.MustParseAddr(tc.start), netip.MustParseAddr(tc.end))
-			if !reflect.DeepEqual(got, tc.want) {
-				t.Fatalf("Intersect() = %v, want %v", got, tc.want)
-			}
-		})
-	}
-	if got := scope.Intersect(netip.Addr{}, netip.MustParseAddr("10.0.0.1")); len(got) != 0 {
-		t.Fatalf("invalid interval returned %v", got)
-	}
-}
-
 func TestScopeIntersectScope(t *testing.T) {
 	left := mustParse(t, "10.0.0.1-10.0.0.5", "10.0.0.8-10.0.0.12", "172.16.0.1")
 	right := mustParse(t, "10.0.0.3-10.0.0.9", "192.168.1.1")

@@ -134,31 +134,6 @@ func (s Scope) ContainsString(address string) bool {
 	return err == nil && s.Contains(parsed)
 }
 
-// Intersect returns the portions of this scope within the inclusive IPv4 interval.
-// Invalid, IPv6, and reversed bounds produce no intersection.
-func (s Scope) Intersect(start, end netip.Addr) []Range {
-	if !start.Is4() || !end.Is4() || start.Compare(end) > 0 {
-		return nil
-	}
-	var result []Range
-	for _, r := range s.ranges {
-		if r.Start.Compare(end) > 0 {
-			break
-		}
-		if r.End.Compare(start) < 0 {
-			continue
-		}
-		if r.Start.Compare(start) < 0 {
-			r.Start = start
-		}
-		if r.End.Compare(end) > 0 {
-			r.End = end
-		}
-		result = append(result, r)
-	}
-	return result
-}
-
 // IntersectScope returns the addresses permitted by both scopes.
 func (s Scope) IntersectScope(other Scope) Scope {
 	var result []Range
