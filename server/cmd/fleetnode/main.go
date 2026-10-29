@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"os"
 	"time"
 
 	"github.com/alecthomas/kong"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/block/proto-fleet/server/internal/fleetnode/bootstrap"
 	fleet_telemetry "github.com/block/proto-fleet/server/internal/infrastructure/fleet-telemetry"
+	"github.com/block/proto-fleet/server/internal/infrastructure/logging"
 	"github.com/block/proto-fleet/server/internal/releaseinfo"
 )
 
@@ -29,6 +31,8 @@ type CLI struct {
 	TracingEnabled         bool                       `name:"tracing-enabled" help:"enable OpenTelemetry command traces" env:"FLEETNODE_TRACING_ENABLED"`
 	TracingEndpoint        string                     `name:"tracing-endpoint" help:"OTLP HTTP endpoint for command traces" default:"http://localhost:4318" env:"FLEETNODE_TRACING_ENDPOINT"`
 	TracingSampleRate      float64                    `name:"tracing-sample-rate" help:"fraction of command traces to sample (0.0-1.0)" default:"1.0" env:"FLEETNODE_TRACING_SAMPLE_RATE"`
+	LogLevel               slog.Level                 `name:"log-level" env:"FLEETNODE_LOG_LEVEL" default:"info" help:"minimum log level (debug, info, warn, error)"`
+	LogOutput              string                     `name:"log-output" env:"FLEETNODE_LOG_OUTPUT" default:"auto" enum:"auto,stdout,journal" help:"log sink: auto, stdout, or journal"`
 
 	Enroll  EnrollCmd  `cmd:"" help:"register this fleet node with a fleet server"`
 	Status  StatusCmd  `cmd:"" help:"print local fleet node state"`
@@ -55,6 +59,7 @@ func main() {
 		kong.Description("Fleet node CLI: enroll, authenticate, refresh."),
 		kong.Configuration(kongyaml.Loader, "/etc/fleetnode/config.yaml"),
 	)
+	slog.SetDefault(slog.New(logging.NewHandler(os.Stdout, cli.LogLevel, cli.LogOutput, "fleetnode")))
 	stateDir, err := bootstrap.ResolveStateDir(cli.StateDir)
 	kctx.FatalIfErrorf(err)
 	shutdownTracer, err := fleet_telemetry.Setup(context.Background(), version, fleet_telemetry.Config{

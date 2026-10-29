@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -189,7 +190,7 @@ func TestRunCmd_HappyPathThreeTicks(t *testing.T) {
 	}
 
 	done := make(chan error, 1)
-	go func() { done <- cmd.run(&Context{StateDir: dir}, &bytes.Buffer{}) }()
+	go func() { done <- cmd.run(&Context{StateDir: dir}, slog.New(slog.DiscardHandler)) }()
 
 	select {
 	case err := <-done:
@@ -222,7 +223,7 @@ func TestRunCmd_NotifiesReadyAfterFirstHeartbeatAttempt(t *testing.T) {
 		},
 	}
 
-	require.NoError(t, cmd.run(&Context{StateDir: dir}, &bytes.Buffer{}))
+	require.NoError(t, cmd.run(&Context{StateDir: dir}, slog.New(slog.DiscardHandler)))
 	assert.True(t, notified)
 	calls, _ := stub.snapshot()
 	assert.Equal(t, 1, calls, "readiness must follow the first heartbeat attempt")
@@ -246,7 +247,7 @@ func TestRunCmd_StartupLogReportsBuildIdentity(t *testing.T) {
 	}
 	var logs bytes.Buffer
 
-	require.NoError(t, cmd.run(&Context{StateDir: dir}, &logs))
+	require.NoError(t, cmd.run(&Context{StateDir: dir}, slog.New(slog.NewTextHandler(&logs, nil))))
 	assert.Contains(t, logs.String(), `msg="daemon started" version=`+version+" release_repository="+releaseinfo.Repository+" ")
 }
 
@@ -267,7 +268,7 @@ func TestRunCmd_TransientInitialRefreshFailureStillBecomesReady(t *testing.T) {
 		},
 	}
 
-	require.NoError(t, cmd.run(&Context{StateDir: dir}, &bytes.Buffer{}))
+	require.NoError(t, cmd.run(&Context{StateDir: dir}, slog.New(slog.DiscardHandler)))
 	assert.True(t, notified, "Fleet Server unavailability must not block local readiness")
 }
 
@@ -417,7 +418,7 @@ func TestRunCmd_LocalRefreshFailureRequiresOperatorAction(t *testing.T) {
 		return nil
 	}}
 
-	err := cmd.run(&Context{StateDir: dir}, &bytes.Buffer{})
+	err := cmd.run(&Context{StateDir: dir}, slog.New(slog.DiscardHandler))
 
 	require.Error(t, err)
 	requireOperatorActionExit(t, err)
@@ -642,7 +643,7 @@ func TestRunCmd_StateLockErrorClassification(t *testing.T) {
 		stateDir := filepath.Join(t.TempDir(), "state")
 		require.NoError(t, os.Symlink(realStateDir, stateDir))
 
-		err := (&RunCmd{}).run(&Context{StateDir: stateDir}, &bytes.Buffer{})
+		err := (&RunCmd{}).run(&Context{StateDir: stateDir}, slog.New(slog.DiscardHandler))
 
 		require.Error(t, err)
 		requireOperatorActionExit(t, err)
@@ -655,7 +656,7 @@ func TestRunCmd_StateLockErrorClassification(t *testing.T) {
 		notifyErr := errors.New("notify failed")
 		cmd := &RunCmd{notifyReady: func() error { return notifyErr }}
 
-		err := cmd.run(&Context{StateDir: stateDir}, &bytes.Buffer{})
+		err := cmd.run(&Context{StateDir: stateDir}, slog.New(slog.DiscardHandler))
 
 		require.ErrorIs(t, err, notifyErr)
 		var exitCoder interface{ ExitCode() int }
@@ -721,7 +722,7 @@ func TestRunCmd_RefreshesNearExpirySession(t *testing.T) {
 	cmd := &RunCmd{HeartbeatInterval: 5 * time.Millisecond, parentCtx: parent}
 
 	done := make(chan error, 1)
-	go func() { done <- cmd.run(&Context{StateDir: dir}, &bytes.Buffer{}) }()
+	go func() { done <- cmd.run(&Context{StateDir: dir}, slog.New(slog.DiscardHandler)) }()
 
 	select {
 	case err := <-done:
@@ -889,7 +890,7 @@ func TestRunCmd_RefreshesOnUnauthenticatedResponse(t *testing.T) {
 	cmd := &RunCmd{HeartbeatInterval: 5 * time.Millisecond, parentCtx: parent}
 
 	done := make(chan error, 1)
-	go func() { done <- cmd.run(&Context{StateDir: dir}, &bytes.Buffer{}) }()
+	go func() { done <- cmd.run(&Context{StateDir: dir}, slog.New(slog.DiscardHandler)) }()
 
 	select {
 	case err := <-done:
@@ -913,7 +914,7 @@ func TestRunCmd_FailsWhenStateIsMissing(t *testing.T) {
 	var stderr bytes.Buffer
 
 	// Act
-	err := cmd.run(&Context{StateDir: stateDir}, &stderr)
+	err := cmd.run(&Context{StateDir: stateDir}, slog.New(slog.NewTextHandler(&stderr, nil)))
 
 	// Assert
 	require.Error(t, err)
@@ -941,7 +942,7 @@ func TestRunCmd_FailsWhenApiKeyIsMissing(t *testing.T) {
 	cmd := &RunCmd{HeartbeatInterval: time.Second}
 
 	// Act
-	err = cmd.run(&Context{StateDir: dir}, &bytes.Buffer{})
+	err = cmd.run(&Context{StateDir: dir}, slog.New(slog.DiscardHandler))
 
 	// Assert
 	require.Error(t, err)
@@ -977,7 +978,7 @@ func TestRunCmd_BailsOutWhenInitialRefreshHitsBeginAuthRejected(t *testing.T) {
 	cmd := &RunCmd{HeartbeatInterval: time.Second}
 
 	// Act
-	err = cmd.run(&Context{StateDir: dir}, &bytes.Buffer{})
+	err = cmd.run(&Context{StateDir: dir}, slog.New(slog.DiscardHandler))
 
 	// Assert
 	require.Error(t, err)
@@ -1013,7 +1014,7 @@ func TestRunCmd_ValidatesServerURLBeforeBuildingClient(t *testing.T) {
 	}
 
 	// Act
-	err = cmd.run(&Context{StateDir: dir}, &bytes.Buffer{})
+	err = cmd.run(&Context{StateDir: dir}, slog.New(slog.DiscardHandler))
 
 	// Assert
 	require.Error(t, err)
@@ -1040,7 +1041,7 @@ func TestRunCmd_ExitsOnCodeNotFoundHeartbeat(t *testing.T) {
 
 	// Act
 	done := make(chan error, 1)
-	go func() { done <- cmd.run(&Context{StateDir: dir}, &bytes.Buffer{}) }()
+	go func() { done <- cmd.run(&Context{StateDir: dir}, slog.New(slog.DiscardHandler)) }()
 
 	// Assert
 	select {
@@ -1088,7 +1089,7 @@ func TestRunCmd_ExitsWhenTickRefreshHitsBeginAuthRejected(t *testing.T) {
 
 	// Act
 	done := make(chan error, 1)
-	go func() { done <- cmd.run(&Context{StateDir: dir}, &bytes.Buffer{}) }()
+	go func() { done <- cmd.run(&Context{StateDir: dir}, slog.New(slog.DiscardHandler)) }()
 
 	// Assert
 	select {

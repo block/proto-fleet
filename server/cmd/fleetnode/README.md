@@ -101,7 +101,7 @@ Release builds embed the release tag and publishing repository with `-ldflags`. 
 
 ```bash
 fleetnode enroll --server-url=https://fleet.example.com
-fleetnode run     # long-running daemon; logs to stdout
+fleetnode run     # long-running daemon; logs to stdout, or the journal under systemd
 ```
 
 ### Command tracing
@@ -121,6 +121,27 @@ The exported service name is `fleetnode`. Server-issued commands continue the
 `fleetd` dispatch trace when both processes have tracing enabled; missing or
 invalid incoming trace context starts a new Fleet Node trace. The Fleet Node
 installer loads these variables from `/etc/fleetnode/fleetnode.env` when set.
+
+### Logs
+
+The daemon logs at `info` and above; lower it with `--log-level` /
+`FLEETNODE_LOG_LEVEL` (`debug`, `info`, `warn`, `error`). `--log-output` /
+`FLEETNODE_LOG_OUTPUT` picks the sink:
+
+| Value | Behavior |
+|-------|----------|
+| `auto` (default) | `journal` when systemd connected stdout to the journal (`JOURNAL_STREAM`), otherwise `stdout`. |
+| `stdout` | logfmt text lines with `time=` and `level=`, as in a terminal or the dev containers. |
+| `journal` | Native journald entries over `/run/systemd/journal/socket`; falls back to `stdout` with a warning if the socket is unavailable. |
+
+Journal entries carry the level as `PRIORITY` (so `journalctl -p warning -u
+fleet-node.service` and journal-tailing shippers such as the Datadog Agent see
+the real severity instead of the stdout default of `info`), each attribute as
+an uppercase field (`fleet_node_id` → `FLEET_NODE_ID`, groups joined with `_`;
+see `journalctl -o verbose`), and the message with its logfmt attributes in
+`MESSAGE`, so `journalctl -u fleet-node.service` reads as before. The handler
+lives in [`internal/infrastructure/logging`](../../internal/infrastructure/logging/journal.go)
+so the other systemd-run binaries can adopt it.
 
 Stop with `SIGINT`, `SIGTERM`, or `SIGHUP` (terminal close). On shutdown the agent closes the control stream, drains in-flight probes, and reaps plugin subprocesses. At startup it also reaps any orphan plugin processes left under `<exe-dir>/plugins/` by a previous crash — see [orphan_reaper.go](orphan_reaper.go).
 

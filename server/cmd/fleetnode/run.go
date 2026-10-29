@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -82,10 +81,16 @@ type gatewayClient interface {
 }
 
 func (r *RunCmd) Run(c *Context) error {
-	return r.run(c, os.Stdout)
+	err := r.run(c, slog.Default())
+	if err != nil {
+		// kong prints the error on stderr too, but under systemd that stream is
+		// PRIORITY=info; this is the line `journalctl -p warning` must show.
+		slog.Error("daemon exiting", "error", err)
+	}
+	return err
 }
 
-func (r *RunCmd) run(c *Context, logOutput io.Writer) error {
+func (r *RunCmd) run(c *Context, logger *slog.Logger) error {
 	if err := r.validateHeartbeatInterval(); err != nil {
 		return err
 	}
@@ -141,7 +146,6 @@ func (r *RunCmd) run(c *Context, logOutput io.Writer) error {
 		return operatorActionRequired(fmt.Errorf("state at %s has no api_key; complete enrollment via `fleetnode refresh` before running the daemon", path))
 	}
 
-	logger := slog.New(slog.NewTextHandler(logOutput, nil))
 	switch {
 	case resolvedPluginsDir != "":
 		logger.Info("plugins dir resolved", "plugins_dir", resolvedPluginsDir)
