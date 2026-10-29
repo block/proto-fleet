@@ -213,10 +213,16 @@ AND dd.driver_name = $2::text
 AND (dd.discovered_by_fleet_node_id IS NOT DISTINCT FROM $3::bigint
     OR ($3::bigint IS NOT NULL
         AND dd.discovered_by_fleet_node_id IS NOT NULL
-        AND NOT EXISTS (
+        AND (NOT EXISTS (
             SELECT 1 FROM fleet_node fn
             WHERE fn.id = dd.discovered_by_fleet_node_id AND fn.org_id = dd.org_id AND fn.deleted_at IS NULL
-        )))
+        ) OR (NOT dd.is_active AND NOT EXISTS (
+            SELECT 1 FROM device owner
+            WHERE owner.org_id = dd.org_id AND owner.deleted_at IS NULL
+              AND (owner.discovered_device_id = dd.id OR owner.device_identifier = dd.device_identifier)
+              AND (EXISTS (SELECT 1 FROM fleet_node_device fnd WHERE fnd.device_id = owner.id AND fnd.org_id = owner.org_id)
+                OR EXISTS (SELECT 1 FROM device_pairing dp WHERE dp.device_id = owner.id AND dp.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD')))
+        )))))
 AND (dd.endpoint_key = $4 OR
     (dd.endpoint_key = '' AND dd.ip_address = $5::text
         AND dd.rpc_port = $6::integer

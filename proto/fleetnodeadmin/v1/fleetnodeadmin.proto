@@ -103,6 +103,7 @@ message FleetNodeSummary {
     // Effective ranges from the current connection; unavailable when disconnected.
     repeated string discovery_ranges = 22;
     bool discovery_config_reported = 23;
+    bool discovery_config_mismatch = 24;
 }
 
 message ConfirmFleetNodeRequest {

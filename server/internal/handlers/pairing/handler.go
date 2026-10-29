@@ -14,6 +14,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/discovery"
 	fleetnodepairing "github.com/block/proto-fleet/server/internal/domain/fleetnode/pairing"
+	"github.com/block/proto-fleet/server/internal/domain/netscan"
 	"github.com/block/proto-fleet/server/internal/handlers/middleware"
 
 	"connectrpc.com/connect"
@@ -35,7 +36,7 @@ type Handler struct {
 }
 
 type fleetNodeDiscoveryRunner interface {
-	EligibleNodeIDs(ctx context.Context, orgID int64) ([]int64, error)
+	DiscoveryNodeIDs(ctx context.Context, orgID int64) ([]int64, error)
 	RunOnNode(ctx context.Context, fleetNodeID int64, source string, req *pb.DiscoverRequest, onBatch func(*pb.DiscoverResponse) error) error
 }
 
@@ -83,7 +84,13 @@ func (h *Handler) Discover(ctx context.Context, r *connect.Request[pb.DiscoverRe
 	case *pb.DiscoverRequest_IpRange:
 		resultChan, err = h.pairingSvc.DiscoverWithIPRange(streamCtx, r.Msg.GetIpRange())
 	case *pb.DiscoverRequest_NetworkScan:
-		resultChan, err = h.pairingSvc.DiscoverWithNetworkScan(streamCtx, r.Msg.GetNetworkScan())
+		if h.discovery != nil && (r.Msg.GetNetworkScan().GetUseFleetNodeLocalSubnet() || r.Msg.GetNetworkScan().GetTarget() == netscan.LocalSubnetTarget) {
+			// Connected node candidates handle automatic discovery using their
+			// configured ranges. An empty directory falls back to the server below.
+			err = discovery.ValidateRequest(r.Msg)
+		} else {
+			resultChan, err = h.pairingSvc.DiscoverWithNetworkScan(streamCtx, r.Msg.GetNetworkScan())
+		}
 	case *pb.DiscoverRequest_Mdns:
 		resultChan, err = h.pairingSvc.DiscoverWithMDNS(streamCtx, r.Msg.GetMdns())
 	default:
@@ -130,7 +137,10 @@ func (h *Handler) forwardDiscoverySources(
 		failOnce.Do(func() { sourceErr = err; cancel() })
 	}
 	var wg sync.WaitGroup
-	if serverResults != nil {
+	forwardServer := func(serverResults <-chan *pb.DiscoverResponse) {
+		if serverResults == nil {
+			return
+		}
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
@@ -150,8 +160,10 @@ func (h *Handler) forwardDiscoverySources(
 		}()
 	}
 
+	forwardServer(serverResults)
+
 	if nodeReq != nil && h.discovery != nil {
-		nodeIDs, err := h.discovery.EligibleNodeIDs(ctx, organizationID)
+		nodeIDs, err := h.discovery.DiscoveryNodeIDs(ctx, organizationID)
 		if err != nil {
 			if ctx.Err() == nil {
 				if fleeterror.IsInvalidArgumentError(err) || fleeterror.IsAuthenticationError(err) || fleeterror.IsForbiddenError(err) {
@@ -163,6 +175,23 @@ func (h *Handler) forwardDiscoverySources(
 				}
 			}
 		} else {
+			if serverResults == nil && len(nodeIDs) == 0 && nodeReq.GetNetworkScan() != nil &&
+				(nodeReq.GetNetworkScan().GetUseFleetNodeLocalSubnet() || nodeReq.GetNetworkScan().GetTarget() == netscan.LocalSubnetTarget) {
+				// Server-only installations still send the automatic flag alongside the
+				// server subnet. A connected unconfigured node remains a candidate and
+				// receives its readiness warning instead of taking this path.
+				results, scanErr := h.pairingSvc.DiscoverWithNetworkScan(ctx, nodeReq.GetNetworkScan())
+				if scanErr == nil {
+					forwardServer(results)
+				} else if fleeterror.IsInvalidArgumentError(scanErr) || fleeterror.IsAuthenticationError(scanErr) || fleeterror.IsForbiddenError(scanErr) {
+					fail(scanErr)
+				} else if ctx.Err() == nil {
+					slog.Warn("fleet server discovery failed", "error", scanErr)
+					if sendErr := fwd.forward(discovery.SourceWarning("Fleet Server", scanErr)); sendErr != nil {
+						fail(sendErr)
+					}
+				}
+			}
 			for _, nodeID := range nodeIDs {
 				if ctx.Err() != nil {
 					break
@@ -176,7 +205,7 @@ func (h *Handler) forwardDiscoverySources(
 					// Each node is bounded by RunOnNode's per-node timeout.
 					runErr := h.discovery.RunOnNode(ctx, nodeID, "Fleet Node", nodeReq, fwd.forward)
 					// Node target policy is narrower than the server's: public
-					// addresses and broad ranges can still be scanned locally.
+					// addresses can still be scanned locally.
 					// Direct-node requests retain their strict validation errors.
 					if runErr == nil || ctx.Err() != nil {
 						return
@@ -294,7 +323,7 @@ func (h *Handler) pairFleetNodeDevices(ctx context.Context, orgID, userID int64,
 		return resp, route, nil
 	}
 
-	nodeIDs, err := h.discovery.EligibleNodeIDs(ctx, orgID)
+	nodeIDs, err := h.discovery.DiscoveryNodeIDs(ctx, orgID)
 	if err != nil {
 		slog.Warn("skipping fleet node pairing route", "error", err)
 		return resp, route, nil

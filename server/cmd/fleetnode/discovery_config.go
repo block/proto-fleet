@@ -2,12 +2,16 @@ package main
 
 import (
 	"fmt"
+	"iter"
 	"log/slog"
+	"net/netip"
+	"slices"
 	"strings"
 
 	pb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
 	"github.com/block/proto-fleet/server/internal/domain/discoverylimits"
 	"github.com/block/proto-fleet/server/internal/domain/discoveryranges"
+	"github.com/block/proto-fleet/server/internal/fleetnode/bootstrap"
 )
 
 func (r *RunCmd) effectiveDiscoveryConfig() (*pb.DiscoveryConfig, error) {
@@ -43,4 +47,59 @@ func (r *RunCmd) warnInvalidLegacyDiscoverySubnet(logger *slog.Logger) {
 	if _, err := r.legacyDiscoveryRanges(); err != nil {
 		logger.Warn("ignoring invalid local discovery subnet", "subnet", r.LocalDiscoverySubnet, "err", err)
 	}
+}
+
+func (r *RunCmd) installDiscoveryConfig(ranges []string) error {
+	scope, err := discoveryranges.Parse(ranges)
+	if err != nil {
+		return err
+	}
+	if scope.Empty() {
+		return fmt.Errorf("active node discovery ranges are not configured")
+	}
+	r.saveMu.Lock()
+	defer r.saveMu.Unlock()
+	current, err := r.effectiveDiscoveryConfig()
+	if err != nil {
+		return err
+	}
+	if (r.DiscoveryRanges != nil || r.LocalDiscoverySubnet != "" || len(current.GetRanges()) > 0) && !slices.Equal(current.GetRanges(), scope.Strings()) {
+		return fmt.Errorf("standby discovery ranges conflict with the active node; correct local configuration before retrying")
+	}
+	r.stateMu.Lock()
+	if r.state == nil {
+		r.stateMu.Unlock()
+		return fmt.Errorf("node state is unavailable")
+	}
+	snapshot := *r.state
+	snapshot.DiscoveryRanges = scope.Strings()
+	r.stateMu.Unlock()
+	if err := bootstrap.SaveState(r.statePath, &snapshot); err != nil {
+		return fmt.Errorf("persist discovery configuration: %w", err)
+	}
+	r.stateMu.Lock()
+	r.state.DiscoveryRanges = snapshot.DiscoveryRanges
+	r.stateMu.Unlock()
+	return nil
+}
+
+func (r *RunCmd) scopedDiscoveryTargets(targets iter.Seq[netip.Addr]) (iter.Seq[netip.Addr], error) {
+	config, err := r.effectiveDiscoveryConfig()
+	if err != nil {
+		return nil, cmdErr(pb.AckCode_ACK_CODE_BAD_REQUEST, "%s", err)
+	}
+	scope, err := discoveryranges.Parse(config.GetRanges())
+	if err != nil {
+		return nil, cmdErr(pb.AckCode_ACK_CODE_BAD_REQUEST, "%s", err)
+	}
+	if scope.Empty() {
+		return nil, cmdErr(pb.AckCode_ACK_CODE_AGENT_INCAPABLE, "configure discovery-ranges before discovering new miners")
+	}
+	return func(yield func(netip.Addr) bool) {
+		for addr := range targets {
+			if scope.Contains(addr) && !yield(addr) {
+				return
+			}
+		}
+	}, nil
 }

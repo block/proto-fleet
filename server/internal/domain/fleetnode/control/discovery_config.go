@@ -1,6 +1,8 @@
 package control
 
 import (
+	"time"
+
 	gatewaypb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
 	"google.golang.org/protobuf/proto"
 )
@@ -13,6 +15,18 @@ func (r *Registry) DiscoveryConfig(nodeID int64) *gatewaypb.DiscoveryConfig {
 		return proto.CloneOf(conn.discoveryConfig)
 	}
 	return nil
+}
+
+// UpdateDiscoveryConfig updates metadata only for the connection that acknowledged installation.
+func (r *Registry) UpdateDiscoveryConfig(nodeID int64, connectedAt time.Time, config *gatewaypb.DiscoveryConfig) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	conn := r.conns[nodeID]
+	if conn == nil || !conn.connectedAt.Equal(connectedAt) {
+		return false
+	}
+	conn.discoveryConfig = proto.CloneOf(config)
+	return true
 }
 
 func (s *Stream) SetDiscoveryConfig(config *gatewaypb.DiscoveryConfig) {

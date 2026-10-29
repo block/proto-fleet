@@ -305,6 +305,8 @@ enum CommandProtocolVersion {
     COMMAND_PROTOCOL_VERSION_V6 = 6;
     // V7 adds standby credential key transfer and ControlPing keepalive.
     COMMAND_PROTOCOL_VERSION_V7 = 7;
+    // V8 adds initial standby discovery configuration installation.
+    COMMAND_PROTOCOL_VERSION_V8 = 8;
 }
 
 message ControlHello {
@@ -623,6 +625,7 @@ message AgentCommand {
         RecoverMinerEndpointsRequest recover_miner_endpoints = 5;
         ExportCredentialKey export_credential_key = 6;
         InstallCredentialKey install_credential_key = 7;
+        DiscoveryConfig install_discovery_config = 8;
     }
 }
 

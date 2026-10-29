@@ -19,6 +19,7 @@ import (
 	gatewaypb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
 	pairingpb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
 	"github.com/block/proto-fleet/server/internal/domain/discoverylimits"
+	"github.com/block/proto-fleet/server/internal/domain/discoveryranges"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/control"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/enrollment"
@@ -43,6 +44,7 @@ type nodeLister interface {
 // makes the coupling explicit and lets tests inject a fake without a Registry.
 type nodeRegistry interface {
 	ConnectedFleetNodeIDs() []int64
+	DiscoveryConfig(fleetNodeID int64) *gatewaypb.DiscoveryConfig
 	CommandProtocolUpgradeRequired(fleetNodeID int64) bool
 	Send(ctx context.Context, fleetNodeID int64, minimumCommandProtocolVersion gatewaypb.CommandProtocolVersion, cmd *gatewaypb.ControlCommand, scope control.ReportScope, kind control.ReportKind, pair *control.PairMeta) (*control.Session, error)
 }
@@ -57,9 +59,10 @@ func NewService(registry nodeRegistry, enrollmentSvc nodeLister) *Service {
 	return &Service{registry: registry, enrollment: enrollmentSvc}
 }
 
-// EligibleNodeIDs returns the confirmed, connected nodes that support current
-// discovery commands. HA standbys are excluded; their active node discovers.
-func (s *Service) EligibleNodeIDs(ctx context.Context, orgID int64) ([]int64, error) {
+// DiscoveryNodeIDs includes confirmed, connected discovery nodes, allowing
+// RunOnNode to explain why an old or unconfigured node cannot discover.
+// HA standbys are excluded; their active node discovers.
+func (s *Service) DiscoveryNodeIDs(ctx context.Context, orgID int64) ([]int64, error) {
 	nodes, err := s.enrollment.ListFleetNodes(ctx, orgID)
 	if err != nil {
 		return nil, err
@@ -73,11 +76,46 @@ func (s *Service) EligibleNodeIDs(ctx context.Context, orgID int64) ([]int64, er
 	connected := s.registry.ConnectedFleetNodeIDs()
 	out := make([]int64, 0, len(connected))
 	for _, nodeID := range connected {
-		if _, ok := confirmed[nodeID]; ok && !s.registry.CommandProtocolUpgradeRequired(nodeID) {
+		if _, ok := confirmed[nodeID]; ok {
 			out = append(out, nodeID)
 		}
 	}
 	return out, nil
+}
+
+// EligibleNodeIDs restricts new pairing to nodes ready for scoped discovery.
+func (s *Service) EligibleNodeIDs(ctx context.Context, orgID int64) ([]int64, error) {
+	nodes, err := s.DiscoveryNodeIDs(ctx, orgID)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]int64, 0, len(nodes))
+	for _, nodeID := range nodes {
+		if !s.registry.CommandProtocolUpgradeRequired(nodeID) {
+			if _, err := s.configuredScope(nodeID); err == nil {
+				out = append(out, nodeID)
+			}
+		}
+	}
+	return out, nil
+}
+
+func (s *Service) configuredScope(nodeID int64) (discoveryranges.Scope, error) {
+	config := s.registry.DiscoveryConfig(nodeID)
+	if config == nil {
+		return discoveryranges.Scope{}, fleeterror.NewInvalidArgumentError("upgrade Fleet Node to configure discovery ranges")
+	}
+	if err := protovalidate.Validate(config); err != nil {
+		return discoveryranges.Scope{}, fleeterror.NewInvalidArgumentError("Fleet Node discovery configuration is invalid; configure private IPv4 discovery ranges")
+	}
+	scope, err := discoveryranges.Parse(config.GetRanges())
+	if err != nil {
+		return discoveryranges.Scope{}, fleeterror.NewInvalidArgumentErrorf("invalid Fleet Node discovery configuration: %v", err)
+	}
+	if scope.Empty() {
+		return scope, fleeterror.NewInvalidArgumentError("configure Fleet Node discovery ranges before discovering miners")
+	}
+	return scope, nil
 }
 
 // RunOnNode validates req, builds the report scope, dispatches the command over
@@ -92,19 +130,57 @@ func (s *Service) RunOnNode(ctx context.Context, fleetNodeID int64, source strin
 		return err
 	}
 
+	if s.registry.CommandProtocolUpgradeRequired(fleetNodeID) {
+		return onBatch(&pairingpb.DiscoverResponse{Warning: fmt.Sprintf("%s: upgrade Fleet Node to support discovery commands", source)})
+	}
+	scope, err := s.configuredScope(fleetNodeID)
+	if err != nil {
+		for _, connected := range s.registry.ConnectedFleetNodeIDs() {
+			if connected == fleetNodeID {
+				return onBatch(SourceWarning(source, err))
+			}
+		}
+		return onBatch(&pairingpb.DiscoverResponse{Warning: fmt.Sprintf("%s: fleet node has no active control stream", source)})
+	}
+	tasks, err := partitionRequests(req, scope)
+	if err != nil {
+		return err
+	}
+	requestedScope := buildReportScope(req)
+	for task := range tasks {
+		if ctx.Err() != nil {
+			return nil
+		}
+		taskScope := buildReportScope(task)
+		reportScope := func(ip, port string) bool {
+			address, ok := parseScopeAddr(ip)
+			return ok && scope.Contains(address) && requestedScope(ip, port) && taskScope(ip, port)
+		}
+		if complete, err := s.runCommand(ctx, fleetNodeID, source, task, reportScope, onBatch); err != nil || !complete {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *Service) runCommand(ctx context.Context, fleetNodeID int64, source string, req *pairingpb.DiscoverRequest, reportScope control.ReportScope, onBatch func(*pairingpb.DiscoverResponse) error) (bool, error) {
 	payload, err := proto.Marshal(&gatewaypb.AgentCommand{
 		Command: &gatewaypb.AgentCommand_Discover{Discover: req},
 	})
 	if err != nil {
-		return fleeterror.NewInternalErrorf("marshal discover payload: %v", err)
+		return false, fleeterror.NewInternalErrorf("marshal discover payload: %v", err)
 	}
 
 	cmd := &gatewaypb.ControlCommand{CommandId: id.GenerateID(), Payload: payload}
 	if err := protovalidate.Validate(cmd); err != nil {
-		return fleeterror.NewInvalidArgumentError("discovery command exceeds Fleet Node payload limits; split the request or shorten hostnames")
+		return false, fleeterror.NewInvalidArgumentError("discovery command exceeds Fleet Node payload limits; split the request or shorten hostnames")
 	}
 	var callbackErr error
+	partial := false
 	forward := func(batch *pairingpb.DiscoverResponse) error {
+		for _, device := range batch.GetDevices() {
+			device.FleetNodeId = fleetNodeID
+		}
 		callbackErr = onBatch(batch)
 		return callbackErr
 	}
@@ -114,7 +190,7 @@ func (s *Service) RunOnNode(ctx context.Context, fleetNodeID int64, source strin
 		}
 		return forward(&pairingpb.DiscoverResponse{Warning: fmt.Sprintf("%s: %s", source, detail)})
 	}
-	err = control.RunCommand(ctx, s.registry, fleetNodeID, gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1, cmd, buildReportScope(req), control.ReportKindDiscovery, nil, DiscoverCommandTimeout, "discovery",
+	err = control.RunCommand(ctx, s.registry, fleetNodeID, gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1, cmd, reportScope, control.ReportKindDiscovery, nil, DiscoverCommandTimeout, "discovery",
 		func(ev control.CommandEvent) (terminal bool, err error) {
 			if ev.Batch != nil {
 				if sendErr := forward(ev.Batch); sendErr != nil {
@@ -122,6 +198,7 @@ func (s *Service) RunOnNode(ctx context.Context, fleetNodeID int64, source strin
 				}
 			}
 			if ev.Ack.GetCode() == gatewaypb.AckCode_ACK_CODE_PARTIAL {
+				partial = true
 				detail := ev.Ack.GetErrorMessage()
 				if detail == "" {
 					detail = "discovery completed partially"
@@ -131,20 +208,23 @@ func (s *Service) RunOnNode(ctx context.Context, fleetNodeID int64, source strin
 			return false, nil
 		})
 	if callbackErr != nil {
-		return callbackErr
+		return false, callbackErr
 	}
-	if err == nil || errors.Is(ctx.Err(), context.Canceled) {
-		return nil
+	if err == nil {
+		return !partial, nil
+	}
+	if errors.Is(ctx.Err(), context.Canceled) {
+		return false, nil
 	}
 	if fleeterror.IsInvalidArgumentError(err) || fleeterror.IsAuthenticationError(err) || fleeterror.IsForbiddenError(err) {
-		return err
+		return false, err
 	}
 	slog.Warn("fleet node discovery failed", "fleet_node_id", fleetNodeID, "error", err)
-	return forward(SourceWarning(source, err))
+	return false, forward(SourceWarning(source, err))
 }
 
-// requestForNode translates the shared request flag into the sentinel understood
-// by the Fleet Node command runner. False preserves the target.
+// requestForNode normalizes the automatic flag before partitioning the node
+// configuration. False preserves the explicit target.
 func requestForNode(req *pairingpb.DiscoverRequest) *pairingpb.DiscoverRequest {
 	if req == nil || req.GetNetworkScan() == nil || !req.GetNetworkScan().GetUseFleetNodeLocalSubnet() {
 		return req
@@ -154,8 +234,9 @@ func requestForNode(req *pairingpb.DiscoverRequest) *pairingpb.DiscoverRequest {
 	return out
 }
 
-// ValidateRequest checks Fleet Node target and port limits before discovery starts.
-// Automatic local-subnet scans validate ports here and resolve targets on the node.
+// ValidateRequest checks target syntax, private-address policy, and raw list and
+// port limits. Range and network requests are clipped and partitioned before
+// applying the per-command target budget.
 func ValidateRequest(in *pairingpb.DiscoverRequest) error {
 	switch m := in.GetMode().(type) {
 	case *pairingpb.DiscoverRequest_IpList:
@@ -202,8 +283,8 @@ func ValidateRequest(in *pairingpb.DiscoverRequest) error {
 			}
 			return nil
 		}
-		// Apply the same target grammar and CIDR breadth cap as the agent.
-		parsed, err := netscan.ParseBoundedTarget(target)
+		// Validate the complete request before clipping to the assigned ranges.
+		parsed, err := netscan.ParseTarget(target)
 		if err != nil {
 			return fleeterror.NewInvalidArgumentError(err.Error())
 		}
@@ -248,9 +329,6 @@ func validatedIPv4Range(startStr, endStr string) (netscan.Target, error) {
 	}
 	if !target.IsPrivate() {
 		return netscan.Target{}, fleeterror.NewInvalidArgumentError("ip range must be within a private (RFC1918) range")
-	}
-	if target.Count() > discoverylimits.MaxScanTargets {
-		return netscan.Target{}, fleeterror.NewInvalidArgumentErrorf("ip range exceeds %d addresses", discoverylimits.MaxScanTargets)
 	}
 	return target, nil
 }

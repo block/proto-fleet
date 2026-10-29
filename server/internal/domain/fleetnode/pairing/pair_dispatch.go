@@ -74,6 +74,12 @@ func (s *Service) PairOnNode(ctx context.Context, fleetNodeID int64, targets []*
 	if s.dispatcher == nil {
 		return fleeterror.NewInternalError("fleet node pairing dispatch is not configured")
 	}
+	if connections, ok := s.dispatcher.(interface{ Connected(fleetNodeID int64) bool }); ok && !connections.Connected(fleetNodeID) {
+		return fleeterror.NewFailedPreconditionError("fleet node has no active control stream")
+	}
+	if err := s.validatePairTargetsDiscoveryScope(ctx, fleetNodeID, orgID, targets); err != nil {
+		return err
+	}
 	payload, err := proto.Marshal(&gatewaypb.AgentCommand{
 		Command: &gatewaypb.AgentCommand_Pair{Pair: &pairingpb.FleetNodePairRequest{
 			Targets:     targets,

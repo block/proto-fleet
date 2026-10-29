@@ -53,9 +53,11 @@ const (
 
 	confirmedStatus = "CONFIRMED"
 
-	reasonWaitingForNodes = "Waiting for both nodes to connect"
-	reasonUpgradeRequired = "Both nodes must run a Fleet Node version that supports HA"
-	reasonTransferFailed  = "Credential key transfer failed; retrying"
+	reasonWaitingForNodes         = "Waiting for both nodes to connect"
+	reasonUpgradeRequired         = "Both nodes must run a Fleet Node version that supports HA"
+	reasonTransferFailed          = "Credential key transfer failed; retrying"
+	reasonStandbyUpgradeRequired  = "Upgrade standby Fleet Node to support discovery configuration installation"
+	reasonDiscoveryConfigRequired = "Active Fleet Node must report configured discovery ranges before standby setup"
 )
 
 var (
@@ -346,6 +348,14 @@ func (s *Service) notReadyReason(pair sqlc.ListFleetNodeHAPairsRow) string {
 		(needsExport && s.registry.CommandProtocolUpgradeRequiredForVersion(pair.ActiveNodeID, HAProtocolVersion)) {
 		return reasonUpgradeRequired
 	}
+	if needsExport {
+		if s.registry.CommandProtocolUpgradeRequiredForVersion(pair.StandbyNodeID, gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V8) {
+			return reasonStandbyUpgradeRequired
+		}
+		if len(s.registry.DiscoveryConfig(pair.ActiveNodeID).GetRanges()) == 0 {
+			return reasonDiscoveryConfigRequired
+		}
+	}
 	return ""
 }
 
@@ -378,6 +388,9 @@ func (s *Service) transfer(ctx context.Context, pair sqlc.ListFleetNodeHAPairsRo
 func (s *Service) transferKey(ctx context.Context, pair sqlc.ListFleetNodeHAPairsRow) error {
 	pending := pair.PendingCredentialKey
 	if len(pending) == 0 {
+		if err := s.transferDiscoveryConfig(ctx, pair); err != nil {
+			return fmt.Errorf("copy discovery ranges: %w", err)
+		}
 		exported, err := s.sendKeyCommand(ctx, pair.ActiveNodeID, &gatewaypb.AgentCommand{
 			Command: &gatewaypb.AgentCommand_ExportCredentialKey{ExportCredentialKey: &gatewaypb.ExportCredentialKey{
 				RecipientPublicKey: pair.StandbyEncryptionPubkey,

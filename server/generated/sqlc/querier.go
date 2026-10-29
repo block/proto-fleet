@@ -855,6 +855,7 @@ type Querier interface {
 	GetFleetNodeByIDUnscoped(ctx context.Context, id int64) (GetFleetNodeByIDUnscopedRow, error)
 	GetFleetNodeHAPairForNode(ctx context.Context, arg GetFleetNodeHAPairForNodeParams) (FleetNodeHaPair, error)
 	GetFleetNodePairedDeviceIdentifier(ctx context.Context, arg GetFleetNodePairedDeviceIdentifierParams) (string, error)
+	GetFleetNodePairingTarget(ctx context.Context, arg GetFleetNodePairingTargetParams) (GetFleetNodePairingTargetRow, error)
 	GetFleetNodeSessionByTokenHash(ctx context.Context, arg GetFleetNodeSessionByTokenHashParams) (GetFleetNodeSessionByTokenHashRow, error)
 	// Resolve the active fleet node and all connection metadata needed for a
 	// telemetry sample and remote miner command routing. The server sends this to
@@ -2268,6 +2269,9 @@ type Querier interface {
 	// Detach changed placements before inserting their replacements, including swaps.
 	// Identity rows survive retirement; a returning PSU reuses its original ID.
 	RetireContainerModules(ctx context.Context, arg RetireContainerModulesParams) error
+	// Pairing remains authoritative across every live linkage, including inventory
+	// recreated with the same identifier. Config remains live connection metadata.
+	RetireOutOfScopeFleetNodeDiscoveries(ctx context.Context, arg RetireOutOfScopeFleetNodeDiscoveriesParams) (int64, error)
 	RetirePoolConfigurationAssignment(ctx context.Context, arg RetirePoolConfigurationAssignmentParams) (int64, error)
 	RetryPoolConfigurationTarget(ctx context.Context, arg RetryPoolConfigurationTargetParams) (int64, error)
 	RetryRigConfigReconciliation(ctx context.Context, arg RetryRigConfigReconciliationParams) error
@@ -2704,8 +2708,8 @@ type Querier interface {
 	UpsertDiscoveredDevice(ctx context.Context, arg UpsertDiscoveredDeviceParams) (int64, error)
 	// No returned row on conflict signals rejection. A remote report must not redirect the
 	// endpoint/credentials of a miner the cloud owns, so the update is blocked
-	// unless the row is already attributed to this fleet node or to a revoked node
-	// that can be reclaimed. Devices paired to the reporting node itself stay
+	// unless the row is already attributed to this fleet node, inactive and unpaired,
+	// or attributed to a revoked node that can be reclaimed. Devices paired to the reporting node itself stay
 	// refreshable, subject to the attribution guard. Synthetic identifiers include
 	// the physical node id. After attribution moves to an HA peer, reconcile its
 	// new synthetic identifier to the inherited endpoint within that node and org.

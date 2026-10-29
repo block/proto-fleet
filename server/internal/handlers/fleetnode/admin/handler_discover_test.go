@@ -30,11 +30,13 @@ func TestDiscoverOnFleetNode_StreamsBatchesAndStopsOnAck(t *testing.T) {
 	h := newPairingHarness(t)
 	fleetNodeID := h.createFleetNode(t, "admin-discover-1")
 	stream := h.registry.Register(fleetNodeID)
+	stream.SetDiscoveryConfig(&gatewaypb.DiscoveryConfig{Ranges: []string{"10.0.0.0/8", "192.168.0.0/16", "172.16.0.0/12"}})
 	defer stream.Unregister()
 
 	client := startAdminServer(t, h)
 
 	agentDone := make(chan struct{})
+	t.Cleanup(func() { <-agentDone })
 	go func() {
 		defer close(agentDone)
 		select {
@@ -113,11 +115,13 @@ func TestDiscoverOnFleetNode_FailedAckWithoutMessageReturnsError(t *testing.T) {
 	h := newPairingHarness(t)
 	fleetNodeID := h.createFleetNode(t, "admin-discover-failed-ack")
 	stream := h.registry.Register(fleetNodeID)
+	stream.SetDiscoveryConfig(&gatewaypb.DiscoveryConfig{Ranges: []string{"10.0.0.0/8", "192.168.0.0/16", "172.16.0.0/12"}})
 	defer stream.Unregister()
 
 	client := startAdminServer(t, h)
 
 	agentDone := make(chan struct{})
+	t.Cleanup(func() { <-agentDone })
 	go func() {
 		defer close(agentDone)
 		select {
@@ -163,11 +167,13 @@ func TestDiscoverOnFleetNode_PartialAckCompletesSuccessfully(t *testing.T) {
 	h := newPairingHarness(t)
 	fleetNodeID := h.createFleetNode(t, "admin-discover-partial")
 	stream := h.registry.Register(fleetNodeID)
+	stream.SetDiscoveryConfig(&gatewaypb.DiscoveryConfig{Ranges: []string{"10.0.0.0/8", "192.168.0.0/16", "172.16.0.0/12"}})
 	defer stream.Unregister()
 
 	client := startAdminServer(t, h)
 
 	agentDone := make(chan struct{})
+	t.Cleanup(func() { <-agentDone })
 	go func() {
 		defer close(agentDone)
 		select {
@@ -224,11 +230,13 @@ func TestDiscoverOnFleetNode_RejectsInconsistentSuccessAck(t *testing.T) {
 	h := newPairingHarness(t)
 	fleetNodeID := h.createFleetNode(t, "admin-discover-inconsistent-ack")
 	stream := h.registry.Register(fleetNodeID)
+	stream.SetDiscoveryConfig(&gatewaypb.DiscoveryConfig{Ranges: []string{"10.0.0.0/8", "192.168.0.0/16", "172.16.0.0/12"}})
 	defer stream.Unregister()
 
 	client := startAdminServer(t, h)
 
 	agentDone := make(chan struct{})
+	t.Cleanup(func() { <-agentDone })
 	go func() {
 		defer close(agentDone)
 		select {
@@ -323,7 +331,6 @@ func TestDiscoverOnFleetNode_RejectsUnsupportedNetworkScanTarget(t *testing.T) {
 		target string
 	}{
 		{name: "ipv6 cidr", target: "2001:db8::/32"},
-		{name: "ipv4 cidr broader than /20", target: "10.0.0.0/16"},
 		{name: "leading dash flag", target: "-iL/etc/passwd"},
 	}
 	for _, tc := range tests {
@@ -387,11 +394,12 @@ func TestDiscoverOnFleetNode_RejectsMDNSMode(t *testing.T) {
 	assert.Equal(t, connect.CodeInvalidArgument, connErr.Code())
 }
 
-func TestDiscoverOnFleetNode_NetworkScanModePassesThrough(t *testing.T) {
+func TestDiscoverOnFleetNode_NetworkScanModePreservesUsableTargets(t *testing.T) {
 	// Arrange
 	h := newPairingHarness(t)
 	fleetNodeID := h.createFleetNode(t, "admin-discover-network-scan")
 	stream := h.registry.Register(fleetNodeID)
+	stream.SetDiscoveryConfig(&gatewaypb.DiscoveryConfig{Ranges: []string{"10.0.0.0/8", "192.168.0.0/16", "172.16.0.0/12"}})
 	defer stream.Unregister()
 
 	client := startAdminServer(t, h)
@@ -428,7 +436,7 @@ func TestDiscoverOnFleetNode_NetworkScanModePassesThrough(t *testing.T) {
 	// Assert
 	select {
 	case target := <-gotTarget:
-		assert.Equal(t, "10.0.0.0/28", target)
+		assert.Equal(t, "10.0.0.1-14", target)
 	case <-time.After(2 * time.Second):
 		t.Fatal("agent never received network scan command")
 	}
@@ -463,6 +471,7 @@ func TestDiscoverOnFleetNode_PreservesIPRangeOnWire(t *testing.T) {
 	h := newPairingHarness(t)
 	fleetNodeID := h.createFleetNode(t, "admin-discover-range")
 	stream := h.registry.Register(fleetNodeID)
+	stream.SetDiscoveryConfig(&gatewaypb.DiscoveryConfig{Ranges: []string{"10.0.0.0/8", "192.168.0.0/16", "172.16.0.0/12"}})
 	defer stream.Unregister()
 
 	client := startAdminServer(t, h)
@@ -572,6 +581,7 @@ func TestDiscoverOnFleetNode_TimesOutWhenAgentNeverResponds(t *testing.T) {
 	h := newPairingHarness(t)
 	fleetNodeID := h.createFleetNode(t, "admin-discover-timeout")
 	stream := h.registry.Register(fleetNodeID)
+	stream.SetDiscoveryConfig(&gatewaypb.DiscoveryConfig{Ranges: []string{"10.0.0.0/8", "192.168.0.0/16", "172.16.0.0/12"}})
 	defer stream.Unregister()
 	// Drain the outgoing command so Send doesn't block, but never ack it.
 	go func() { <-stream.Outgoing }()

@@ -207,6 +207,45 @@ func (q *Queries) GetFleetNodePairedDeviceIdentifier(ctx context.Context, arg Ge
 	return device_identifier, err
 }
 
+const getFleetNodePairingTarget = `-- name: GetFleetNodePairingTarget :one
+SELECT dd.device_identifier, dd.ip_address, dd.port, dd.url_scheme,
+       dd.rpc_port, dd.rpc_tls, dd.endpoints
+FROM device d
+JOIN discovered_device dd ON dd.id = d.discovered_device_id AND dd.org_id = d.org_id
+WHERE d.id = $1 AND d.org_id = $2
+  AND d.deleted_at IS NULL AND dd.deleted_at IS NULL
+`
+
+type GetFleetNodePairingTargetParams struct {
+	DeviceID int64
+	OrgID    int64
+}
+
+type GetFleetNodePairingTargetRow struct {
+	DeviceIdentifier string
+	IpAddress        string
+	Port             string
+	UrlScheme        string
+	RpcPort          int32
+	RpcTls           bool
+	Endpoints        json.RawMessage
+}
+
+func (q *Queries) GetFleetNodePairingTarget(ctx context.Context, arg GetFleetNodePairingTargetParams) (GetFleetNodePairingTargetRow, error) {
+	row := q.queryRow(ctx, q.getFleetNodePairingTargetStmt, getFleetNodePairingTarget, arg.DeviceID, arg.OrgID)
+	var i GetFleetNodePairingTargetRow
+	err := row.Scan(
+		&i.DeviceIdentifier,
+		&i.IpAddress,
+		&i.Port,
+		&i.UrlScheme,
+		&i.RpcPort,
+		&i.RpcTls,
+		&i.Endpoints,
+	)
+	return i, err
+}
+
 const listFleetNodeDevices = `-- name: ListFleetNodeDevices :many
 SELECT fnd.fleet_node_id,
        fnd.device_id,
@@ -597,6 +636,71 @@ func (q *Queries) PairDeviceToFleetNode(ctx context.Context, arg PairDeviceToFle
 	return result.RowsAffected()
 }
 
+const retireOutOfScopeFleetNodeDiscoveries = `-- name: RetireOutOfScopeFleetNodeDiscoveries :execrows
+WITH scope AS (
+    SELECT starts.first_ip::inet AS first_ip, ends.last_ip::inet AS last_ip
+    FROM unnest($3::text[]) WITH ORDINALITY AS starts(first_ip, position)
+    JOIN unnest($4::text[]) WITH ORDINALITY AS ends(last_ip, position) USING (position)
+), candidates AS MATERIALIZED (
+    -- Exclude owned inventory before inspecting legacy endpoint hosts.
+    SELECT dd.id, dd.ip_address, dd.endpoints
+    FROM discovered_device dd
+    WHERE dd.org_id = $1
+      AND dd.discovered_by_fleet_node_id = $2
+      AND dd.deleted_at IS NULL AND dd.is_active
+      AND NOT EXISTS (
+        SELECT 1 FROM device owner
+        WHERE owner.org_id = dd.org_id AND owner.deleted_at IS NULL
+          AND (owner.discovered_device_id = dd.id OR owner.device_identifier = dd.device_identifier)
+          AND (EXISTS (SELECT 1 FROM fleet_node_device fnd WHERE fnd.device_id = owner.id AND fnd.org_id = owner.org_id)
+            OR EXISTS (SELECT 1 FROM device_pairing dp WHERE dp.device_id = owner.id AND dp.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD')))
+      )
+)
+UPDATE discovered_device dd SET is_active = FALSE
+FROM candidates candidate
+WHERE dd.id = candidate.id
+  AND dd.org_id = $1
+  AND dd.discovered_by_fleet_node_id = $2
+  AND dd.deleted_at IS NULL AND dd.is_active
+  AND EXISTS (
+    SELECT 1 FROM (
+        SELECT candidate.ip_address AS host
+        UNION ALL
+        SELECT endpoint.value->>'Host' FROM jsonb_each(candidate.endpoints) endpoint
+    ) addresses
+    WHERE NOT EXISTS (
+        SELECT 1 FROM scope bounds
+        -- SDK endpoint hosts may be DNS names. Only canonical IPv4 literals
+        -- can belong to these ranges; CASE prevents unsafe inet casts.
+        WHERE CASE WHEN addresses.host ~ '^((25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])[.]){3}(25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])$'
+                   THEN addresses.host::inet
+              END BETWEEN bounds.first_ip AND bounds.last_ip
+    )
+  )
+`
+
+type RetireOutOfScopeFleetNodeDiscoveriesParams struct {
+	OrgID       int64
+	FleetNodeID sql.NullInt64
+	RangeStarts []string
+	RangeEnds   []string
+}
+
+// Pairing remains authoritative across every live linkage, including inventory
+// recreated with the same identifier. Config remains live connection metadata.
+func (q *Queries) RetireOutOfScopeFleetNodeDiscoveries(ctx context.Context, arg RetireOutOfScopeFleetNodeDiscoveriesParams) (int64, error) {
+	result, err := q.exec(ctx, q.retireOutOfScopeFleetNodeDiscoveriesStmt, retireOutOfScopeFleetNodeDiscoveries,
+		arg.OrgID,
+		arg.FleetNodeID,
+		pq.Array(arg.RangeStarts),
+		pq.Array(arg.RangeEnds),
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const transferDiscoveredDeviceAttribution = `-- name: TransferDiscoveredDeviceAttribution :execrows
 UPDATE discovered_device
 SET discovered_by_fleet_node_id = $1::bigint
@@ -728,7 +832,15 @@ VALUES ($1, COALESCE((
     FROM discovered_device dd
     WHERE dd.org_id = $1
       AND dd.deleted_at IS NULL
-      AND dd.discovered_by_fleet_node_id = $3
+      AND (dd.discovered_by_fleet_node_id = $3
+        OR (dd.discovered_by_fleet_node_id IS NOT NULL AND NOT dd.is_active
+          AND NOT EXISTS (
+            SELECT 1 FROM device owner
+            WHERE owner.org_id = dd.org_id AND owner.deleted_at IS NULL
+              AND (owner.discovered_device_id = dd.id OR owner.device_identifier = dd.device_identifier)
+              AND (EXISTS (SELECT 1 FROM fleet_node_device fnd WHERE fnd.device_id = owner.id AND fnd.org_id = owner.org_id)
+                OR EXISTS (SELECT 1 FROM device_pairing dp WHERE dp.device_id = owner.id AND dp.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD')))
+          )))
       AND dd.ip_address = $4
       AND dd.driver_name = $5
       AND ($6 = 0 OR dd.device_class = $6)
@@ -781,13 +893,13 @@ AND (
     -- widened. Cloud-paired and live-cross-node rows remain blocked below.
     OR (
       discovered_device.discovered_by_fleet_node_id IS NOT NULL
-      AND NOT EXISTS (
+      AND (NOT discovered_device.is_active OR NOT EXISTS (
       SELECT 1
       FROM fleet_node fn
       WHERE fn.id = discovered_device.discovered_by_fleet_node_id
         AND fn.org_id = discovered_device.org_id
         AND fn.deleted_at IS NULL
-      )
+      ))
     )
   )
   AND NOT EXISTS (
@@ -795,7 +907,7 @@ AND (
     -- cloud-paired device or one paired to another node; bare and own-node pass.
     SELECT 1
     FROM device d
-    WHERE d.discovered_device_id = discovered_device.id
+    WHERE (d.discovered_device_id = discovered_device.id OR d.device_identifier = discovered_device.device_identifier)
       AND d.org_id = discovered_device.org_id
       AND d.deleted_at IS NULL
       AND (
@@ -854,8 +966,8 @@ type UpsertDiscoveredDeviceFromFleetNodeRow struct {
 
 // No returned row on conflict signals rejection. A remote report must not redirect the
 // endpoint/credentials of a miner the cloud owns, so the update is blocked
-// unless the row is already attributed to this fleet node or to a revoked node
-// that can be reclaimed. Devices paired to the reporting node itself stay
+// unless the row is already attributed to this fleet node, inactive and unpaired,
+// or attributed to a revoked node that can be reclaimed. Devices paired to the reporting node itself stay
 // refreshable, subject to the attribution guard. Synthetic identifiers include
 // the physical node id. After attribution moves to an HA peer, reconcile its
 // new synthetic identifier to the inherited endpoint within that node and org.

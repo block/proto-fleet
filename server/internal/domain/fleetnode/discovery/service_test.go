@@ -8,12 +8,14 @@ import (
 	"testing"
 	"time"
 
+	"buf.build/go/protovalidate"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
 
 	gatewaypb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
 	pairingpb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
+	"github.com/block/proto-fleet/server/internal/domain/discoveryranges"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/control"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/enrollment"
@@ -29,6 +31,12 @@ func (s stubLister) ListFleetNodes(context.Context, int64) ([]enrollment.FleetNo
 	return s.nodes, s.err
 }
 
+func registerConfiguredNode(reg *control.Registry, nodeID int64) *control.Stream {
+	stream := reg.Register(nodeID)
+	stream.SetDiscoveryConfig(&gatewaypb.DiscoveryConfig{Ranges: []string{"10.0.0.0/8", "192.168.0.0/16"}})
+	return stream
+}
+
 func collectBatches(dst *[]*pairingpb.Device) func(*pairingpb.DiscoverResponse) error {
 	return func(b *pairingpb.DiscoverResponse) error {
 		*dst = append(*dst, b.GetDevices()...)
@@ -41,7 +49,7 @@ func TestRunOnNode_ForwardsBatchesUntilAck(t *testing.T) {
 	reg := control.NewRegistry()
 	svc := NewService(reg, stubLister{})
 	const nodeID = int64(7)
-	stream := reg.Register(nodeID)
+	stream := registerConfiguredNode(reg, nodeID)
 	defer stream.Unregister()
 	go func() {
 		cmd := <-stream.Outgoing
@@ -66,7 +74,7 @@ func TestRunOnNode_RejectsIPListRangesBeforeDispatch(t *testing.T) {
 		t.Run(raw, func(t *testing.T) {
 			reg := control.NewRegistry()
 			svc := NewService(reg, stubLister{})
-			stream := reg.Register(7)
+			stream := registerConfiguredNode(reg, 7)
 			defer stream.Unregister()
 			ctx, cancel := context.WithTimeout(t.Context(), time.Second)
 			defer cancel()
@@ -94,7 +102,7 @@ func TestRunOnNode_PartialAndFailedScanKeepResultsWithWarning(t *testing.T) {
 		t.Run(code.String(), func(t *testing.T) {
 			reg := control.NewRegistry()
 			svc := NewService(reg, stubLister{})
-			stream := reg.Register(8)
+			stream := registerConfiguredNode(reg, 8)
 			defer stream.Unregister()
 			go func() {
 				cmd := <-stream.Outgoing
@@ -122,7 +130,7 @@ func TestRunOnNode_PartialAndFailedScanKeepResultsWithWarning(t *testing.T) {
 func TestRunOnNode_PartialWithoutDetailStillWarns(t *testing.T) {
 	reg := control.NewRegistry()
 	svc := NewService(reg, stubLister{})
-	stream := reg.Register(8)
+	stream := registerConfiguredNode(reg, 8)
 	defer stream.Unregister()
 	go func() {
 		cmd := <-stream.Outgoing
@@ -137,7 +145,7 @@ func TestRunOnNode_PartialWithoutDetailStillWarns(t *testing.T) {
 func TestRunOnNode_DisconnectBeforeAckWarns(t *testing.T) {
 	reg := control.NewRegistry()
 	svc := NewService(reg, stubLister{})
-	stream := reg.Register(9)
+	stream := registerConfiguredNode(reg, 9)
 	go func() { <-stream.Outgoing; stream.Unregister() }()
 	var got []*pairingpb.DiscoverResponse
 	err := svc.RunOnNode(t.Context(), 9, "Fleet Node 9", ipListReq([]string{"10.0.0.7"}, nil), collectResponses(&got))
@@ -178,7 +186,7 @@ func TestRunOnNode_RequiresCommandProtocolV1(t *testing.T) {
 func TestRunOnNode_BadRequestRemainsError(t *testing.T) {
 	reg := control.NewRegistry()
 	svc := NewService(reg, stubLister{})
-	stream := reg.Register(8)
+	stream := registerConfiguredNode(reg, 8)
 	defer stream.Unregister()
 	go func() {
 		cmd := <-stream.Outgoing
@@ -195,7 +203,7 @@ func TestRunOnNode_WarningSendFailureIsTerminal(t *testing.T) {
 		t.Run(code.String(), func(t *testing.T) {
 			reg := control.NewRegistry()
 			svc := NewService(reg, stubLister{})
-			stream := reg.Register(8)
+			stream := registerConfiguredNode(reg, 8)
 			defer stream.Unregister()
 			go func() {
 				cmd := <-stream.Outgoing
@@ -213,7 +221,7 @@ func TestRunOnNode_WarningSendFailureIsTerminal(t *testing.T) {
 func TestRunOnNode_CancellationDoesNotWarn(t *testing.T) {
 	reg := control.NewRegistry()
 	svc := NewService(reg, stubLister{})
-	stream := reg.Register(8)
+	stream := registerConfiguredNode(reg, 8)
 	defer stream.Unregister()
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
@@ -233,9 +241,9 @@ func TestEligibleNodeIDs_IntersectsStatusConnectionAndCompatibility(t *testing.T
 		{FleetNode: enrollment.FleetNode{ID: 4, EnrollmentStatus: enrollment.FleetNodeStatusConfirmed}},
 	}}
 	svc := NewService(reg, lister)
-	s1 := reg.Register(1)
+	s1 := registerConfiguredNode(reg, 1)
 	defer s1.Unregister()
-	s3 := reg.Register(3)
+	s3 := registerConfiguredNode(reg, 3)
 	defer s3.Unregister()
 	s4, err := reg.RegisterAuthenticated(4, "legacy", gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_UNSPECIFIED)
 	require.NoError(t, err)
@@ -262,7 +270,7 @@ func TestEligibleNodeIDs_ExcludesHAStandby(t *testing.T) {
 	}}
 	svc := NewService(reg, lister)
 	for _, nodeID := range []int64{1, 2, 3} {
-		stream := reg.Register(nodeID)
+		stream := registerConfiguredNode(reg, nodeID)
 		defer stream.Unregister()
 	}
 
@@ -276,7 +284,7 @@ func TestRunOnNode_PreservesIPRangeRequest(t *testing.T) {
 	reg := control.NewRegistry()
 	svc := NewService(reg, stubLister{})
 	const nodeID = int64(22)
-	stream := reg.Register(nodeID)
+	stream := registerConfiguredNode(reg, nodeID)
 	defer stream.Unregister()
 	received := make(chan *pairingpb.IPRangeModeRequest, 1)
 	go func() {
@@ -305,7 +313,7 @@ func TestRunOnNode_OnBatchErrorIsTerminal(t *testing.T) {
 	reg := control.NewRegistry()
 	svc := NewService(reg, stubLister{})
 	const nodeID = int64(11)
-	stream := reg.Register(nodeID)
+	stream := registerConfiguredNode(reg, nodeID)
 	defer stream.Unregister()
 	go func() {
 		cmd := <-stream.Outgoing
@@ -330,7 +338,7 @@ func TestRunOnNode_TimesOutWhenAgentNeverAcks(t *testing.T) {
 	t.Cleanup(func() { DiscoverCommandTimeout = prev })
 	reg := control.NewRegistry()
 	svc := NewService(reg, stubLister{})
-	stream := reg.Register(12)
+	stream := registerConfiguredNode(reg, 12)
 	defer stream.Unregister()
 	go func() { <-stream.Outgoing }()
 	var got []*pairingpb.DiscoverResponse
@@ -360,15 +368,16 @@ func TestRunOnNode_InterpretsLocalSubnetFlag(t *testing.T) {
 		localSubnet bool
 		wantTarget  string
 	}{
-		{name: "sentinel passes through", target: netscan.LocalSubnetTarget, wantTarget: netscan.LocalSubnetTarget},
-		{name: "true uses node local subnet", target: "10.0.0.0/28", localSubnet: true, wantTarget: netscan.LocalSubnetTarget},
-		{name: "false preserves target", target: "10.0.0.0/28", wantTarget: "10.0.0.0/28"},
+		{name: "sentinel expands saved range", target: netscan.LocalSubnetTarget, wantTarget: "10.0.0.1-100"},
+		{name: "true expands saved range", target: "10.0.0.0/28", localSubnet: true, wantTarget: "10.0.0.1-100"},
+		{name: "false clips explicit target", target: "10.0.0.0/28", wantTarget: "10.0.0.1-14"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			reg := control.NewRegistry()
 			svc := NewService(reg, stubLister{})
 			const nodeID = int64(21)
-			stream := reg.Register(nodeID)
+			stream := registerConfiguredNode(reg, nodeID)
+			stream.SetDiscoveryConfig(&gatewaypb.DiscoveryConfig{Ranges: []string{"10.0.0.1-10.0.0.100"}})
 			defer stream.Unregister()
 			gotTarget := make(chan string, 1)
 			go func() {
@@ -391,45 +400,173 @@ func TestRunOnNode_InterpretsLocalSubnetFlag(t *testing.T) {
 	}
 }
 
-func TestRunOnNode_ValidatesEncodedPayloadBeforeDispatch(t *testing.T) {
-	for _, hostnameLength := range []int{253, 252} {
-		t.Run(fmt.Sprint(hostnameLength), func(t *testing.T) {
-			addresses := make([]string, 4096)
-			for i := range addresses {
-				addresses[i] = fmt.Sprintf("%04d%s.%s.%s.%s", i, strings.Repeat("a", 59), strings.Repeat("b", 63), strings.Repeat("c", 63), strings.Repeat("d", hostnameLength-192))
-				require.Len(t, addresses[i], hostnameLength)
+func TestPartitionRequests_SplitsLongHostnamesBeforeEncoding(t *testing.T) {
+	addresses := make([]string, 4096)
+	for i := range addresses {
+		addresses[i] = fmt.Sprintf("%04d%s.%s.%s.%s", i, strings.Repeat("a", 59), strings.Repeat("b", 63), strings.Repeat("c", 63), strings.Repeat("d", 61))
+		require.Len(t, addresses[i], 253)
+	}
+	req := ipListReq(addresses, []string{"4028"})
+	require.NoError(t, ValidateRequest(req))
+	scope, err := discoveryranges.Parse([]string{"10.0.0.0/24"})
+	require.NoError(t, err)
+	tasks, err := partitionRequests(req, scope)
+	require.NoError(t, err)
+	count := 0
+	for task := range tasks {
+		require.LessOrEqual(t, len(task.GetIpList().GetIpAddresses()), 256)
+		payload, err := proto.Marshal(&gatewaypb.AgentCommand{Command: &gatewaypb.AgentCommand_Discover{Discover: task}})
+		require.NoError(t, err)
+		require.NoError(t, protovalidate.Validate(&gatewaypb.ControlCommand{CommandId: "test", Payload: payload}))
+		count += len(task.GetIpList().GetIpAddresses())
+	}
+	require.Equal(t, len(addresses), count)
+}
+
+func TestRunOnNode_ClipsAndSplitsConfiguredScope(t *testing.T) {
+	reg := control.NewRegistry()
+	stream := registerConfiguredNode(reg, 77)
+	defer stream.Unregister()
+	stream.SetDiscoveryConfig(&gatewaypb.DiscoveryConfig{Ranges: []string{"10.0.0.100-10.0.1.150"}})
+	ctx, cancel := context.WithTimeout(t.Context(), time.Second)
+	defer cancel()
+	var commands []*pairingpb.DiscoverRequest
+	finished := make(chan struct{})
+	go func() {
+		defer close(finished)
+		for {
+			select {
+			case cmd := <-stream.Outgoing:
+				var envelope gatewaypb.AgentCommand
+				if proto.Unmarshal(cmd.GetPayload(), &envelope) != nil {
+					return
+				}
+				commands = append(commands, envelope.GetDiscover())
+				stream.PublishAck(&gatewaypb.ControlAck{CommandId: cmd.GetCommandId(), Succeeded: true, Code: gatewaypb.AckCode_ACK_CODE_OK})
+			case <-ctx.Done():
+				return
 			}
-			req := ipListReq(addresses, []string{"4028"})
-			require.NoError(t, ValidateRequest(req), "target count and grammar fit the discovery contract")
+		}
+	}()
+	err := NewService(reg, stubLister{}).RunOnNode(ctx, 77, "Fleet Node", networkScanReq("10.0.0.0/23", nil), func(*pairingpb.DiscoverResponse) error { return nil })
+	cancel()
+	<-finished
+	require.NoError(t, err)
+	var addresses []string
+	for _, command := range commands {
+		require.NotNil(t, command.GetNetworkScan(), "TCP network scanning must retain its mode")
+		target, err := netscan.ParseTarget(command.GetNetworkScan().GetTarget())
+		require.NoError(t, err)
+		require.LessOrEqual(t, target.Count(), uint64(102), "default ten-port fanout must fit 1024 targets")
+		for address := range target.Addresses() {
+			addresses = append(addresses, address.String())
+		}
+	}
+	require.Len(t, addresses, 307)
+	require.Equal(t, "10.0.0.100", addresses[0])
+	require.Equal(t, "10.0.1.150", addresses[len(addresses)-1])
+}
+
+func TestDiscoveryReadiness_WarnsAndExcludesNewPairing(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		config  *gatewaypb.DiscoveryConfig
+		warning string
+	}{
+		{"older node", nil, "upgrade"},
+		{"unconfigured node", &gatewaypb.DiscoveryConfig{}, "configure"},
+		{"invalid config", &gatewaypb.DiscoveryConfig{Ranges: []string{"8.8.8.8"}}, "invalid"},
+		{"invalid report shape", &gatewaypb.DiscoveryConfig{Ranges: []string{""}}, "invalid"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
 			reg := control.NewRegistry()
-			svc := NewService(reg, stubLister{})
 			stream := reg.Register(7)
 			defer stream.Unregister()
-			ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+			stream.SetDiscoveryConfig(tc.config)
+			svc := NewService(reg, stubLister{nodes: []enrollment.FleetNodeListing{{FleetNode: enrollment.FleetNode{ID: 7, EnrollmentStatus: enrollment.FleetNodeStatusConfirmed}}}})
+			eligible, err := svc.EligibleNodeIDs(t.Context(), 1)
+			require.NoError(t, err)
+			require.Empty(t, eligible)
+			candidates, err := svc.DiscoveryNodeIDs(t.Context(), 1)
+			require.NoError(t, err)
+			require.Equal(t, []int64{7}, candidates)
+			var responses []*pairingpb.DiscoverResponse
+			require.NoError(t, svc.RunOnNode(t.Context(), 7, "Fleet Node 7", autoNetworkScanReq(nil), collectResponses(&responses)))
+			require.Len(t, responses, 1)
+			require.Contains(t, responses[0].GetWarning(), "Fleet Node 7:")
+			require.Contains(t, responses[0].GetWarning(), tc.warning)
+			select {
+			case cmd := <-stream.Outgoing:
+				t.Fatalf("unready node received command %q", cmd.GetCommandId())
+			default:
+			}
+		})
+	}
+}
+
+func TestRunOnNode_HostnameReportsStayWithinAssignedRanges(t *testing.T) {
+	reg := control.NewRegistry()
+	stream := reg.Register(7)
+	defer stream.Unregister()
+	stream.SetDiscoveryConfig(&gatewaypb.DiscoveryConfig{Ranges: []string{"10.0.0.5"}})
+	ctx, cancel := context.WithTimeout(t.Context(), time.Second)
+	defer cancel()
+	checked := make(chan bool, 1)
+	go func() {
+		select {
+		case cmd := <-stream.Outgoing:
+			var envelope gatewaypb.AgentCommand
+			if proto.Unmarshal(cmd.GetPayload(), &envelope) != nil {
+				checked <- false
+				return
+			}
+			scope, ok := reg.ReportScopeFor(7, cmd.GetCommandId())
+			checked <- ok && scope("10.0.0.5", "4028") && !scope("10.0.0.6", "4028") && !scope("10.0.0.5", "80") && envelope.GetDiscover().GetIpList().GetIpAddresses()[0] == "miner.lan"
+			stream.PublishAck(&gatewaypb.ControlAck{CommandId: cmd.GetCommandId(), Succeeded: true, Code: gatewaypb.AckCode_ACK_CODE_OK})
+		case <-ctx.Done():
+			checked <- false
+		}
+	}()
+	require.NoError(t, NewService(reg, nil).RunOnNode(ctx, 7, "Fleet Node", ipListReq([]string{"10.0.0.6", "miner.lan"}, []string{"4028"}), func(*pairingpb.DiscoverResponse) error { return nil }))
+	require.True(t, <-checked, "node resolves hostname; server constrains its report to assigned IPs and requested ports")
+}
+
+func TestRunOnNode_StopsPartitionsAfterIncompleteCommand(t *testing.T) {
+	for _, code := range []gatewaypb.AckCode{gatewaypb.AckCode_ACK_CODE_SCAN_FAILED, gatewaypb.AckCode_ACK_CODE_PARTIAL} {
+		t.Run(code.String(), func(t *testing.T) {
+			reg := control.NewRegistry()
+			stream := registerConfiguredNode(reg, 7)
+			defer stream.Unregister()
+			ctx, cancel := context.WithTimeout(t.Context(), time.Second)
 			defer cancel()
-			if hostnameLength == 252 {
-				go func() {
+			commands := make(chan string, 10)
+			finished := make(chan struct{})
+			go func() {
+				defer close(finished)
+				for {
 					select {
 					case cmd := <-stream.Outgoing:
-						stream.PublishAck(&gatewaypb.ControlAck{CommandId: cmd.GetCommandId(), Succeeded: true, Code: gatewaypb.AckCode_ACK_CODE_OK})
+						commands <- cmd.GetCommandId()
+						reg.PublishBatch(7, cmd.GetCommandId(), &pairingpb.DiscoverResponse{Devices: []*pairingpb.Device{{DeviceIdentifier: "first-result", IpAddress: "10.0.0.5", Port: "4028"}}})
+						stream.PublishAck(&gatewaypb.ControlAck{CommandId: cmd.GetCommandId(), Code: code})
 					case <-ctx.Done():
+						return
 					}
-				}()
-			}
-			var got []*pairingpb.DiscoverResponse
-			err := svc.RunOnNode(ctx, 7, "Fleet Node 7", req, collectResponses(&got))
-			if hostnameLength == 253 {
-				require.True(t, fleeterror.IsInvalidArgumentError(err), "error = %v", err)
-				require.Contains(t, err.Error(), "split the request or shorten hostnames")
-				select {
-				case cmd := <-stream.Outgoing:
-					t.Fatalf("oversized payload was dispatched: %d bytes", len(cmd.GetPayload()))
-				default:
 				}
+			}()
+			var responses []*pairingpb.DiscoverResponse
+			err := NewService(reg, nil).RunOnNode(ctx, 7, "Fleet Node", ipRangeReq("10.0.0.0", "10.0.1.255", nil), collectResponses(&responses))
+			cancel()
+			<-finished
+			require.NoError(t, err)
+			require.Len(t, commands, 1)
+			require.Len(t, responses, 2)
+			require.Equal(t, "first-result", responses[0].GetDevices()[0].GetDeviceIdentifier())
+			if code == gatewaypb.AckCode_ACK_CODE_PARTIAL {
+				require.Contains(t, responses[1].GetWarning(), "discovery completed partially")
 			} else {
-				require.NoError(t, err)
+				require.Contains(t, responses[1].GetWarning(), "discovery failed")
 			}
-			require.Empty(t, got)
 		})
 	}
 }

@@ -23,6 +23,7 @@ import (
 	"github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1/fleetnodegatewayv1connect"
 	pairingpb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
 	"github.com/block/proto-fleet/server/internal/admissionctx"
+	"github.com/block/proto-fleet/server/internal/domain/discoveryranges"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/auth"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/control"
@@ -745,6 +746,16 @@ func (h *Handler) ControlStream(ctx context.Context, stream *connect.BidiStream[
 	if hello == nil {
 		return controlStreamExitError(ctx, fleeterror.NewInvalidArgumentError("first ControlStreamRequest must be Hello"))
 	}
+	if err := protovalidate.Validate(hello); err != nil {
+		return fleeterror.NewInvalidArgumentErrorf("invalid discovery configuration: %v", err)
+	}
+	if config := hello.GetDiscoveryConfig(); config != nil {
+		scope, err := discoveryranges.Parse(config.GetRanges())
+		if err != nil {
+			return fleeterror.NewInvalidArgumentErrorf("invalid discovery ranges: %v", err)
+		}
+		config.Ranges = scope.Strings()
+	}
 
 	regHandle, err := h.registry.RegisterAuthenticated(
 		subject.FleetNodeID,
@@ -756,6 +767,11 @@ func (h *Handler) ControlStream(ctx context.Context, stream *connect.BidiStream[
 		return fleeterror.NewUnauthenticatedError("fleet node session was replaced or revoked")
 	}
 	defer regHandle.Unregister()
+	if h.pairing != nil && hello.GetDiscoveryConfig() != nil {
+		if err := h.pairing.RetireOutOfScopeDiscoveries(ctx, subject.FleetNodeID, subject.OrgID, hello.GetDiscoveryConfig()); err != nil {
+			return err
+		}
+	}
 
 	// Older nodes never ping, so only V7 nodes get a keepalive deadline.
 	var keepalive time.Duration

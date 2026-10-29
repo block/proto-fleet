@@ -26,6 +26,7 @@ func TestPairAllOnNodePagesPastBatchLimit(t *testing.T) {
 			store := pairAllTestStore(count)
 			registry := control.NewRegistry()
 			stream := registry.Register(7)
+			stream.SetDiscoveryConfig(&gatewaypb.DiscoveryConfig{Ranges: []string{"10.0.0.0/24"}})
 			defer stream.Unregister()
 			service := NewService(store, nil, nil).WithProvisioning(nil, nil, registry)
 			ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
@@ -77,6 +78,7 @@ func TestPairAllOnNodeStopsAfterCommandError(t *testing.T) {
 	store := pairAllTestStore(MaxPairBatch + 1)
 	registry := control.NewRegistry()
 	stream := registry.Register(7)
+	stream.SetDiscoveryConfig(&gatewaypb.DiscoveryConfig{Ranges: []string{"10.0.0.0/24"}})
 	defer stream.Unregister()
 	service := NewService(store, nil, nil).WithProvisioning(nil, nil, registry)
 	done := make(chan error, 1)
@@ -102,6 +104,7 @@ func TestPairAllOnNodeFinishesInFlightBatchAfterCancellation(t *testing.T) {
 	store := pairAllTestStore(MaxPairBatch + 1)
 	registry := control.NewRegistry()
 	stream := registry.Register(7)
+	stream.SetDiscoveryConfig(&gatewaypb.DiscoveryConfig{Ranges: []string{"10.0.0.0/24"}})
 	defer stream.Unregister()
 	service := NewService(store, nil, nil).WithProvisioning(nil, nil, registry)
 	ctx, cancel := context.WithCancel(t.Context())
@@ -141,6 +144,7 @@ func TestPairAllOnNodeCancellationBeforeEnqueueStopsDispatch(t *testing.T) {
 	store := pairAllTestStore(MaxPairBatch + 1)
 	registry := control.NewRegistry()
 	stream := registry.Register(7)
+	stream.SetDiscoveryConfig(&gatewaypb.DiscoveryConfig{Ranges: []string{"10.0.0.0/24"}})
 	defer stream.Unregister()
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
@@ -185,7 +189,7 @@ func TestPairAllOnNodeRejectsEmptySelection(t *testing.T) {
 func pairAllTestStore(count int) *pagingPairTargetStore {
 	store := &pagingPairTargetStore{devices: make([]FleetNodeDiscoveredDevice, count)}
 	for i := range store.devices {
-		store.devices[i] = FleetNodeDiscoveredDevice{ID: int64(i + 1), DeviceIdentifier: fmt.Sprintf("miner-%d", i+1)}
+		store.devices[i] = FleetNodeDiscoveredDevice{ID: int64(i + 1), DeviceIdentifier: fmt.Sprintf("miner-%d", i+1), IPAddress: "10.0.0.1"}
 	}
 	return store
 }
@@ -221,6 +225,7 @@ func TestPairOnNodeRequiresCommandProtocolV1(t *testing.T) {
 func TestPairOnNodePartialAckPreservesReportedAndMissingResults(t *testing.T) {
 	registry := control.NewRegistry()
 	stream := registry.Register(7)
+	stream.SetDiscoveryConfig(&gatewaypb.DiscoveryConfig{Ranges: []string{"10.0.0.0/24"}})
 	defer stream.Unregister()
 	service := NewService(nil, nil, nil).WithProvisioning(nil, nil, registry)
 	go func() {
@@ -229,7 +234,7 @@ func TestPairOnNodePartialAckPreservesReportedAndMissingResults(t *testing.T) {
 		stream.PublishAck(&gatewaypb.ControlAck{CommandId: cmd.GetCommandId(), Code: gatewaypb.AckCode_ACK_CODE_PARTIAL})
 	}()
 	var batches [][]*gatewaypb.FleetNodePairResult
-	err := service.PairOnNode(t.Context(), 7, []*pairingpb.FleetNodePairTarget{{DeviceIdentifier: "paired"}, {DeviceIdentifier: "missing"}}, nil, 1, nil,
+	err := service.PairOnNode(t.Context(), 7, []*pairingpb.FleetNodePairTarget{{DeviceIdentifier: "paired", IpAddress: "10.0.0.1"}, {DeviceIdentifier: "missing", IpAddress: "10.0.0.2"}}, nil, 1, nil,
 		func(results []*gatewaypb.FleetNodePairResult) error { batches = append(batches, results); return nil })
 	require.NoError(t, err)
 	require.Len(t, batches, 2, "PARTIAL must not introduce an empty callback")

@@ -35,6 +35,7 @@ func TestPairDiscoveredDevicesOnFleetNode_PairAllBeyondOneBatch(t *testing.T) {
 		FROM generate_series(1, $3::int) AS n`, h.orgID, fleetNodeID, count)
 	require.NoError(t, err)
 	stream := h.registry.Register(fleetNodeID)
+	stream.SetDiscoveryConfig(&gatewaypb.DiscoveryConfig{Ranges: []string{"10.0.0.0/8", "192.168.0.0/16", "172.16.0.0/12"}})
 	defer stream.Unregister()
 	client := startAdminServer(t, h)
 	ctx, cancel := context.WithTimeout(t.Context(), 15*time.Second)
@@ -98,10 +99,12 @@ func TestPairDiscoveredDevicesOnFleetNode_PairsAndStreamsResults(t *testing.T) {
 	fleetNodeID := h.createFleetNode(t, "admin-pairdisc-1")
 	h.insertDiscoveredForNode(t, fleetNodeID, "mac:hp-1")
 	stream := h.registry.Register(fleetNodeID)
+	stream.SetDiscoveryConfig(&gatewaypb.DiscoveryConfig{Ranges: []string{"10.0.0.0/8", "192.168.0.0/16", "172.16.0.0/12"}})
 	defer stream.Unregister()
 	client := startAdminServer(t, h)
 
 	agentDone := make(chan struct{})
+	t.Cleanup(func() { <-agentDone })
 	go func() {
 		defer close(agentDone)
 		select {
@@ -168,10 +171,12 @@ func TestPairDiscoveredDevicesOnFleetNode_SynthesizesUnreportedTargets(t *testin
 	h.insertDiscoveredForNode(t, fleetNodeID, "mac:reported")
 	h.insertDiscoveredForNode(t, fleetNodeID, "mac:dropped")
 	stream := h.registry.Register(fleetNodeID)
+	stream.SetDiscoveryConfig(&gatewaypb.DiscoveryConfig{Ranges: []string{"10.0.0.0/8", "192.168.0.0/16", "172.16.0.0/12"}})
 	defer stream.Unregister()
 	client := startAdminServer(t, h)
 
 	agentDone := make(chan struct{})
+	t.Cleanup(func() { <-agentDone })
 	go func() {
 		defer close(agentDone)
 		select {
@@ -218,10 +223,12 @@ func TestPairDiscoveredDevicesOnFleetNode_DropsResultsOutsideRequestedTargets(t 
 	h.insertDiscoveredForNode(t, fleetNodeID, "mac:req")
 	h.insertDiscoveredForNode(t, fleetNodeID, "mac:sneaky")
 	stream := h.registry.Register(fleetNodeID)
+	stream.SetDiscoveryConfig(&gatewaypb.DiscoveryConfig{Ranges: []string{"10.0.0.0/8", "192.168.0.0/16", "172.16.0.0/12"}})
 	defer stream.Unregister()
 	client := startAdminServer(t, h)
 
 	agentDone := make(chan struct{})
+	t.Cleanup(func() { <-agentDone })
 	go func() {
 		defer close(agentDone)
 		select {
@@ -283,6 +290,7 @@ func TestPairDiscoveredDevicesOnFleetNode_PersistsAfterOperatorDisconnect(t *tes
 	fleetNodeID := h.createFleetNode(t, "admin-pairdisc-disconnect")
 	h.insertDiscoveredForNode(t, fleetNodeID, "mac:dc-1")
 	stream := h.registry.Register(fleetNodeID)
+	stream.SetDiscoveryConfig(&gatewaypb.DiscoveryConfig{Ranges: []string{"10.0.0.0/8", "192.168.0.0/16", "172.16.0.0/12"}})
 	defer stream.Unregister()
 	client := startAdminServer(t, h)
 
@@ -385,6 +393,7 @@ func TestPairDiscoveredDevicesOnFleetNode_NoPairableTargetsReturnsInvalidArgumen
 	h := newPairingHarness(t)
 	fleetNodeID := h.createFleetNode(t, "admin-pairdisc-empty")
 	stream := h.registry.Register(fleetNodeID)
+	stream.SetDiscoveryConfig(&gatewaypb.DiscoveryConfig{Ranges: []string{"10.0.0.0/8", "192.168.0.0/16", "172.16.0.0/12"}})
 	defer stream.Unregister()
 	client := startAdminServer(t, h)
 

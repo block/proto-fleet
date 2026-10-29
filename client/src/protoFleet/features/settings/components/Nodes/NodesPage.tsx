@@ -309,6 +309,7 @@ const NodesPage = () => {
               className="break-all"
               title={node.controlStreamConnected && node.discoveryConfigReported ? label : undefined}
             >
+              {node.discoveryConfigMismatch ? "HA ranges differ: " : ""}
               {label}
             </span>
           );

@@ -9,8 +9,10 @@ import (
 	"time"
 
 	"github.com/block/proto-fleet/server/internal/domain/deviceendpoints"
+	"github.com/block/proto-fleet/server/internal/domain/discoveryranges"
 
 	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
+	gatewaypb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/control"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/enrollment"
@@ -82,6 +84,7 @@ type Service struct {
 	deviceStore           stores.DeviceStore
 	discoveredDeviceStore stores.DiscoveredDeviceStore
 	dispatcher            control.Sender
+	discoveryConfig       func(int64) *gatewaypb.DiscoveryConfig
 
 	invalidateMiner    func(context.Context, int64)
 	rigConfigReapplier func(context.Context, int64, int64, []string)
@@ -97,7 +100,37 @@ func (s *Service) WithProvisioning(deviceStore stores.DeviceStore, discoveredDev
 	s.deviceStore = deviceStore
 	s.discoveredDeviceStore = discoveredDeviceStore
 	s.dispatcher = dispatcher
+	if source, ok := dispatcher.(interface {
+		DiscoveryConfig(fleetNodeID int64) *gatewaypb.DiscoveryConfig
+	}); ok {
+		s.discoveryConfig = source.DiscoveryConfig
+	}
 	return s
+}
+
+// WithDiscoveryConfig supplies live connection metadata for alternate dispatchers.
+func (s *Service) WithDiscoveryConfig(config func(int64) *gatewaypb.DiscoveryConfig) *Service {
+	s.discoveryConfig = config
+	return s
+}
+
+// RetireOutOfScopeDiscoveries removes stale unpaired candidates after the node
+// advertises a new partition. Paired inventory remains available for repair.
+func (s *Service) RetireOutOfScopeDiscoveries(ctx context.Context, fleetNodeID, orgID int64, config *gatewaypb.DiscoveryConfig) error {
+	scope, err := discoveryranges.Parse(config.GetRanges())
+	if err != nil {
+		return fleeterror.NewInvalidArgumentErrorf("invalid discovery ranges: %v", err)
+	}
+	store, ok := s.store.(interface {
+		RetireOutOfScopeDiscoveries(ctx context.Context, fleetNodeID, orgID int64, scope discoveryranges.Scope) error
+	})
+	if !ok {
+		return fleeterror.NewInternalError("discovery retirement is not configured")
+	}
+	if err := store.RetireOutOfScopeDiscoveries(ctx, fleetNodeID, orgID, scope); err != nil {
+		return logInternal("retire out-of-scope discoveries", clientErrUpsertDiscoveredDevice, err)
+	}
+	return nil
 }
 
 // WithMinerInvalidator wires the miner-cache invalidator so pair/unpair evicts a stale
@@ -164,6 +197,9 @@ func (s *Service) pairDeviceLocked(ctx context.Context, fleetNodeID, deviceID, o
 		return err
 	}
 	if err := s.lockFleetNodeForPairing(ctx, fleetNodeID, orgID); err != nil {
+		return err
+	}
+	if err := s.validateDeviceDiscoveryScope(ctx, fleetNodeID, deviceID, orgID); err != nil {
 		return err
 	}
 	if err := s.pairDeviceWithLocks(ctx, fleetNodeID, deviceID, orgID, assignedBy); err != nil {

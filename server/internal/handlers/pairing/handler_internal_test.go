@@ -48,6 +48,10 @@ type stubFleetNodeDiscoveryRunner struct {
 	warning     string
 }
 
+func (s *stubFleetNodeDiscoveryRunner) DiscoveryNodeIDs(context.Context, int64) ([]int64, error) {
+	return s.nodeIDs, s.eligibleErr
+}
+
 func (s *stubFleetNodeDiscoveryRunner) EligibleNodeIDs(context.Context, int64) ([]int64, error) {
 	return s.nodeIDs, s.eligibleErr
 }
@@ -286,7 +290,6 @@ func TestDiscover_NodeFailureKeepsLaterServerResults(t *testing.T) {
 		rejectCredentials bool
 	}{
 		{"public address", &pb.DiscoverRequest{Mode: &pb.DiscoverRequest_IpList{IpList: &pb.IPListModeRequest{IpAddresses: []string{"8.8.8.8"}, Ports: []string{"4028"}}}}, "8.8.8.8", false},
-		{"broad private range", &pb.DiscoverRequest{Mode: &pb.DiscoverRequest_IpRange{IpRange: &pb.IPRangeModeRequest{StartIp: "10.0.0.0", EndIp: "10.0.31.255", Ports: []string{"4028"}}}}, "10.0.0.0", false},
 		{"miner credentials rejected", &pb.DiscoverRequest{Mode: &pb.DiscoverRequest_IpList{IpList: &pb.IPListModeRequest{IpAddresses: []string{"192.168.1.10"}, Ports: []string{"4028"}}}}, "192.168.1.10", true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -319,6 +322,7 @@ func TestDiscover_NodeFailureKeepsLaterServerResults(t *testing.T) {
 			if tc.rejectCredentials {
 				reg := control.NewRegistry()
 				nodeStream := reg.Register(7)
+				nodeStream.SetDiscoveryConfig(&gatewaypb.DiscoveryConfig{Ranges: []string{"192.168.1.0/24"}})
 				defer nodeStream.Unregister()
 				go func() {
 					select {
@@ -629,6 +633,10 @@ func TestIsNoCloudPairTargetsError(t *testing.T) {
 // Use the real command/ACK path while fixing node eligibility for the RPC test.
 type credentialAckDiscoveryRunner struct {
 	*fleetnodediscovery.Service
+}
+
+func (credentialAckDiscoveryRunner) DiscoveryNodeIDs(context.Context, int64) ([]int64, error) {
+	return []int64{7}, nil
 }
 
 func (credentialAckDiscoveryRunner) EligibleNodeIDs(context.Context, int64) ([]int64, error) {

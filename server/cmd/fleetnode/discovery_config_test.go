@@ -2,10 +2,41 @@ package main
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 )
+
+func TestInstallDiscoveryConfigPersistsOnce(t *testing.T) {
+	r := &RunCmd{state: &bootstrap.State{}, statePath: filepath.Join(t.TempDir(), "state.yaml")}
+	require.NoError(t, r.installDiscoveryConfig([]string{"10.0.0.1-10.0.0.8"}))
+	loaded, ok, err := bootstrap.LoadState(r.statePath)
+	require.NoError(t, err)
+	require.True(t, ok)
+	restarted := &RunCmd{state: loaded}
+	config, err := restarted.effectiveDiscoveryConfig()
+	require.NoError(t, err)
+	require.Equal(t, []string{"10.0.0.1-10.0.0.8"}, config.Ranges)
+	require.NoError(t, r.installDiscoveryConfig([]string{"10.0.0.1-10.0.0.8"}))
+	require.Error(t, r.installDiscoveryConfig([]string{"10.1.0.1"}))
+	require.Equal(t, []string{"10.0.0.1-10.0.0.8"}, r.state.DiscoveryRanges)
+}
+
+func TestInstallDiscoveryConfigRejectsConflictAndWriteFailure(t *testing.T) {
+	r := &RunCmd{DiscoveryRanges: []string{"10.1.0.1"}, state: &bootstrap.State{}, statePath: filepath.Join(t.TempDir(), "state.yaml")}
+	require.Error(t, r.installDiscoveryConfig([]string{"10.0.0.1"}))
+	require.Empty(t, r.state.DiscoveryRanges)
+	r.DiscoveryRanges = nil
+	r.statePath = filepath.Join(t.TempDir(), "missing", "state.yaml", "not-a-directory")
+	require.NoError(t, os.MkdirAll(filepath.Dir(r.statePath), 0700))
+	require.NoError(t, os.WriteFile(r.statePath, []byte("existing"), 0600))
+	// A directory cannot be atomically replaced by the state file.
+	r.statePath = filepath.Dir(r.statePath)
+	require.Error(t, r.installDiscoveryConfig([]string{"10.0.0.1"}))
+	require.Empty(t, r.state.DiscoveryRanges)
+}
 
 func TestEffectiveDiscoveryConfig(t *testing.T) {
 	tests := []struct {

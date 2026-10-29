@@ -1029,6 +1029,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.getFleetNodePairedDeviceIdentifierStmt, err = db.PrepareContext(ctx, getFleetNodePairedDeviceIdentifier); err != nil {
 		return nil, fmt.Errorf("error preparing query GetFleetNodePairedDeviceIdentifier: %w", err)
 	}
+	if q.getFleetNodePairingTargetStmt, err = db.PrepareContext(ctx, getFleetNodePairingTarget); err != nil {
+		return nil, fmt.Errorf("error preparing query GetFleetNodePairingTarget: %w", err)
+	}
 	if q.getFleetNodeSessionByTokenHashStmt, err = db.PrepareContext(ctx, getFleetNodeSessionByTokenHash); err != nil {
 		return nil, fmt.Errorf("error preparing query GetFleetNodeSessionByTokenHash: %w", err)
 	}
@@ -2591,6 +2594,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.retireContainerModulesStmt, err = db.PrepareContext(ctx, retireContainerModules); err != nil {
 		return nil, fmt.Errorf("error preparing query RetireContainerModules: %w", err)
+	}
+	if q.retireOutOfScopeFleetNodeDiscoveriesStmt, err = db.PrepareContext(ctx, retireOutOfScopeFleetNodeDiscoveries); err != nil {
+		return nil, fmt.Errorf("error preparing query RetireOutOfScopeFleetNodeDiscoveries: %w", err)
 	}
 	if q.retirePoolConfigurationAssignmentStmt, err = db.PrepareContext(ctx, retirePoolConfigurationAssignment); err != nil {
 		return nil, fmt.Errorf("error preparing query RetirePoolConfigurationAssignment: %w", err)
@@ -4795,6 +4801,11 @@ func (q *Queries) Close() error {
 	if q.getFleetNodePairedDeviceIdentifierStmt != nil {
 		if cerr := q.getFleetNodePairedDeviceIdentifierStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getFleetNodePairedDeviceIdentifierStmt: %w", cerr)
+		}
+	}
+	if q.getFleetNodePairingTargetStmt != nil {
+		if cerr := q.getFleetNodePairingTargetStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getFleetNodePairingTargetStmt: %w", cerr)
 		}
 	}
 	if q.getFleetNodeSessionByTokenHashStmt != nil {
@@ -7402,6 +7413,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing retireContainerModulesStmt: %w", cerr)
 		}
 	}
+	if q.retireOutOfScopeFleetNodeDiscoveriesStmt != nil {
+		if cerr := q.retireOutOfScopeFleetNodeDiscoveriesStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing retireOutOfScopeFleetNodeDiscoveriesStmt: %w", cerr)
+		}
+	}
 	if q.retirePoolConfigurationAssignmentStmt != nil {
 		if cerr := q.retirePoolConfigurationAssignmentStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing retirePoolConfigurationAssignmentStmt: %w", cerr)
@@ -8651,6 +8667,7 @@ type Queries struct {
 	getFleetNodeByIDUnscopedStmt                               *sql.Stmt
 	getFleetNodeHAPairForNodeStmt                              *sql.Stmt
 	getFleetNodePairedDeviceIdentifierStmt                     *sql.Stmt
+	getFleetNodePairingTargetStmt                              *sql.Stmt
 	getFleetNodeSessionByTokenHashStmt                         *sql.Stmt
 	getFleetNodeTelemetryRouteByDeviceIdentifierStmt           *sql.Stmt
 	getGroupRefsForDevicesStmt                                 *sql.Stmt
@@ -9172,6 +9189,7 @@ type Queries struct {
 	resumeFirmwareRolloutStmt                                  *sql.Stmt
 	resumePausedScheduleStmt                                   *sql.Stmt
 	retireContainerModulesStmt                                 *sql.Stmt
+	retireOutOfScopeFleetNodeDiscoveriesStmt                   *sql.Stmt
 	retirePoolConfigurationAssignmentStmt                      *sql.Stmt
 	retryPoolConfigurationTargetStmt                           *sql.Stmt
 	retryRigConfigReconciliationStmt                           *sql.Stmt
@@ -9688,6 +9706,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getFleetNodeByIDUnscopedStmt:                               q.getFleetNodeByIDUnscopedStmt,
 		getFleetNodeHAPairForNodeStmt:                              q.getFleetNodeHAPairForNodeStmt,
 		getFleetNodePairedDeviceIdentifierStmt:                     q.getFleetNodePairedDeviceIdentifierStmt,
+		getFleetNodePairingTargetStmt:                              q.getFleetNodePairingTargetStmt,
 		getFleetNodeSessionByTokenHashStmt:                         q.getFleetNodeSessionByTokenHashStmt,
 		getFleetNodeTelemetryRouteByDeviceIdentifierStmt:           q.getFleetNodeTelemetryRouteByDeviceIdentifierStmt,
 		getGroupRefsForDevicesStmt:                                 q.getGroupRefsForDevicesStmt,
@@ -10209,6 +10228,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		resumeFirmwareRolloutStmt:                                  q.resumeFirmwareRolloutStmt,
 		resumePausedScheduleStmt:                                   q.resumePausedScheduleStmt,
 		retireContainerModulesStmt:                                 q.retireContainerModulesStmt,
+		retireOutOfScopeFleetNodeDiscoveriesStmt:                   q.retireOutOfScopeFleetNodeDiscoveriesStmt,
 		retirePoolConfigurationAssignmentStmt:                      q.retirePoolConfigurationAssignmentStmt,
 		retryPoolConfigurationTargetStmt:                           q.retryPoolConfigurationTargetStmt,
 		retryRigConfigReconciliationStmt:                           q.retryRigConfigReconciliationStmt,

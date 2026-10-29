@@ -130,6 +130,9 @@ func (h *pairingHarness) insertDevice(t *testing.T) int64 {
 func TestListFleetNodes_ReportsProtocolStateAndRedactsPairingOnlyCallers(t *testing.T) {
 	h := newPairingHarness(t)
 	fleetNodeID := h.createFleetNode(t, "admin-list-legacy")
+	readyStream := h.registry.Register(fleetNodeID)
+	readyStream.SetDiscoveryConfig(&gatewaypb.DiscoveryConfig{Ranges: []string{"10.0.0.0/8", "192.168.0.0/16", "172.16.0.0/12"}})
+	defer readyStream.Unregister()
 	deviceID := h.insertDevice(t)
 	_, err := h.handler.PairDeviceToFleetNode(h.adminCtx(), connect.NewRequest(&pb.PairDeviceToFleetNodeRequest{
 		FleetNodeId: fleetNodeID,
@@ -142,6 +145,7 @@ func TestListFleetNodes_ReportsProtocolStateAndRedactsPairingOnlyCallers(t *test
 		gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_UNSPECIFIED,
 	)
 	require.NoError(t, err)
+	stream.SetDiscoveryConfig(&gatewaypb.DiscoveryConfig{Ranges: []string{"10.0.0.0/8", "192.168.0.0/16", "172.16.0.0/12"}})
 
 	resp, err := h.handler.ListFleetNodes(h.ctxWithPerms(authz.PermFleetnodeManage), connect.NewRequest(&pb.ListFleetNodesRequest{}))
 	require.NoError(t, err)
@@ -255,6 +259,9 @@ func TestPairDeviceToFleetNode_HappyPath(t *testing.T) {
 	// Arrange
 	h := newPairingHarness(t)
 	fleetNodeID := h.createFleetNode(t, "admin-pair-1")
+	readyStream := h.registry.Register(fleetNodeID)
+	readyStream.SetDiscoveryConfig(&gatewaypb.DiscoveryConfig{Ranges: []string{"10.0.0.0/8", "192.168.0.0/16", "172.16.0.0/12"}})
+	defer readyStream.Unregister()
 	deviceID := h.insertDevice(t)
 
 	// Act
@@ -303,6 +310,9 @@ func TestUnpairDevice_HappyPath(t *testing.T) {
 	// Arrange
 	h := newPairingHarness(t)
 	fleetNodeID := h.createFleetNode(t, "admin-unpair-1")
+	readyStream := h.registry.Register(fleetNodeID)
+	readyStream.SetDiscoveryConfig(&gatewaypb.DiscoveryConfig{Ranges: []string{"10.0.0.0/8", "192.168.0.0/16", "172.16.0.0/12"}})
+	defer readyStream.Unregister()
 	deviceID := h.insertDevice(t)
 	_, err := h.handler.PairDeviceToFleetNode(h.adminCtx(), connect.NewRequest(&pb.PairDeviceToFleetNodeRequest{FleetNodeId: fleetNodeID, DeviceId: deviceID}))
 	require.NoError(t, err)
@@ -335,6 +345,9 @@ func TestListFleetNodeDevices_HappyPath(t *testing.T) {
 	// Arrange
 	h := newPairingHarness(t)
 	fleetNodeID := h.createFleetNode(t, "admin-list-1")
+	readyStream := h.registry.Register(fleetNodeID)
+	readyStream.SetDiscoveryConfig(&gatewaypb.DiscoveryConfig{Ranges: []string{"10.0.0.0/8", "192.168.0.0/16", "172.16.0.0/12"}})
+	defer readyStream.Unregister()
 	deviceID := h.insertDevice(t)
 	_, err := h.db.Exec(`UPDATE discovered_device SET driver_name = 'asicrs', manufacturer = 'Bitmain', model = 'S19'
 		WHERE id = (SELECT discovered_device_id FROM device WHERE id = $1)`, deviceID)

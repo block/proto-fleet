@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	pb "github.com/block/proto-fleet/server/generated/grpc/fleetnodeadmin/v1"
+	gatewaypb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
 	pairingpb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
 	"github.com/block/proto-fleet/server/internal/domain/authz"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
@@ -118,6 +119,7 @@ func TestListFleetNodes_PairingOnlyCallerDoesNotTreatOfflineStandbyAsDegradedCov
 	standbyID := h.createFleetNode(t, "admin-ha-coverage-standby")
 	h.insertHAPair(t, activeID, standbyID, true, "")
 	stream := h.registry.Register(activeID)
+	stream.SetDiscoveryConfig(&gatewaypb.DiscoveryConfig{Ranges: []string{"10.0.0.0/8", "192.168.0.0/16", "172.16.0.0/12"}})
 	defer stream.Unregister()
 
 	resp, err := h.handler.ListFleetNodes(h.ctxWithPerms(authz.PermMinerPair), connect.NewRequest(&pb.ListFleetNodesRequest{}))
@@ -136,6 +138,7 @@ func TestDiscoverOnFleetNode_StandbyReturnsFailedPrecondition(t *testing.T) {
 	standbyID := h.createFleetNode(t, "admin-discover-ha-standby")
 	h.insertHAPair(t, activeID, standbyID, true, "")
 	stream := h.registry.Register(standbyID)
+	stream.SetDiscoveryConfig(&gatewaypb.DiscoveryConfig{Ranges: []string{"10.0.0.0/8", "192.168.0.0/16", "172.16.0.0/12"}})
 	defer stream.Unregister()
 	client := startAdminServer(t, h)
 
@@ -184,6 +187,7 @@ func TestPairDiscoveredDevicesOnFleetNode_StandbyReturnsFailedPrecondition(t *te
 	h.insertHAPair(t, activeID, standbyID, true, "")
 	h.insertDiscoveredForNode(t, standbyID, "mac:ha-standby-1")
 	stream := h.registry.Register(standbyID)
+	stream.SetDiscoveryConfig(&gatewaypb.DiscoveryConfig{Ranges: []string{"10.0.0.0/8", "192.168.0.0/16", "172.16.0.0/12"}})
 	defer stream.Unregister()
 	client := startAdminServer(t, h)
 
@@ -209,6 +213,7 @@ func TestPairDiscoveredDevicesOnFleetNode_ActiveNodeOfPairIsNotBlocked(t *testin
 	standbyID := h.createFleetNode(t, "admin-pairdisc-ha-standby-ok")
 	h.insertHAPair(t, activeID, standbyID, true, "")
 	stream := h.registry.Register(activeID)
+	stream.SetDiscoveryConfig(&gatewaypb.DiscoveryConfig{Ranges: []string{"10.0.0.0/8", "192.168.0.0/16", "172.16.0.0/12"}})
 	defer stream.Unregister()
 	client := startAdminServer(t, h)
 

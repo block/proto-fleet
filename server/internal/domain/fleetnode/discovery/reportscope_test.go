@@ -121,7 +121,7 @@ func TestValidateDiscoverRequest_TargetAndPortLimits(t *testing.T) {
 		{"4096 raw targets", ipListReq(addresses, nil), true},
 		{"4097 raw targets", ipListReq(slices.Concat(addresses, []string{"10.0.0.1"}), nil), false},
 		{"/20 network", networkScanReq("10.0.0.0/20", nil), true},
-		{"/19 network", networkScanReq("10.0.0.0/19", nil), false},
+		{"/19 request is partitioned", networkScanReq("10.0.0.0/19", nil), true},
 		{"ten raw ports", ipListReq([]string{"10.0.0.1"}, ports), true},
 		{"eleven raw ports", ipListReq([]string{"10.0.0.1"}, append(ports, "80")), false},
 	} {
@@ -222,14 +222,13 @@ func TestNormalizeDiscoverRequest_LocalSubnetTarget_RejectsInvalidPort(t *testin
 	assert.Contains(t, err.Error(), "invalid port")
 }
 
-func TestValidateRequest_IPRangeTargetLimit(t *testing.T) {
+func TestValidateRequest_IPRangeBeforePartitioning(t *testing.T) {
 	for _, tc := range []struct {
-		name    string
-		end     string
-		wantErr bool
+		name string
+		end  string
 	}{
 		{name: "4096 targets", end: "10.0.16.1"},
-		{name: "4097 targets", end: "10.0.16.2", wantErr: true},
+		{name: "4097 targets are partitioned", end: "10.0.16.2"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			// Arrange
@@ -239,11 +238,7 @@ func TestValidateRequest_IPRangeTargetLimit(t *testing.T) {
 			err := ValidateRequest(req)
 
 			// Assert
-			if tc.wantErr {
-				require.ErrorContains(t, err, "ip range exceeds 4096 addresses")
-			} else {
-				require.NoError(t, err)
-			}
+			require.NoError(t, err)
 			assert.Equal(t, "10.0.0.2", req.GetIpRange().GetStartIp())
 			assert.Equal(t, tc.end, req.GetIpRange().GetEndIp())
 		})

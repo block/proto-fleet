@@ -3,6 +3,7 @@ package admin
 import (
 	"context"
 	"fmt"
+	"slices"
 	"time"
 
 	"connectrpc.com/connect"
@@ -119,6 +120,18 @@ func (h *Handler) ListFleetNodes(ctx context.Context, _ *connect.Request[pb.List
 				summary.LastSeenAt = timestamppb.New(*n.LastSeenAt)
 			}
 			setHASummary(summary, n, names)
+			if config := h.registry.DiscoveryConfig(n.ID); config != nil {
+				peerID := int64(0)
+				if n.HAActiveNodeID != nil && *n.HAActiveNodeID != n.ID {
+					peerID = *n.HAActiveNodeID
+				}
+				if n.HAStandbyNodeID != nil && *n.HAStandbyNodeID != n.ID {
+					peerID = *n.HAStandbyNodeID
+				}
+				if peer := h.registry.DiscoveryConfig(peerID); peer != nil {
+					summary.DiscoveryConfigMismatch = !slices.Equal(config.GetRanges(), peer.GetRanges())
+				}
+			}
 		}
 		resp.FleetNodes = append(resp.FleetNodes, summary)
 	}
