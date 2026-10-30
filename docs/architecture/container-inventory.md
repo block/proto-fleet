@@ -19,6 +19,12 @@ Container mining totals and plant telemetry are supplementary requests with
 bounded deadlines. Their failure does not discard a successful topology/module
 observation. Parent cancellation still cancels the collection.
 
+Fleet Node transports the complete metrics JSON, including container topology
+and board observations, with a 960 KiB limit inside its 1 MiB command-response
+payload. Larger snapshots fail collection without persisting partial inventory.
+Upgrade Fleet Server before Fleet Nodes when moving from the previous 256 KiB
+limit; older servers reject observations above that limit.
+
 The CT1 collector derives container efficiency from the final controller power
 and hashrate measurements in each poll, storing watts divided by hashes/second
 as J/H in the existing device telemetry field. This follows the controller power

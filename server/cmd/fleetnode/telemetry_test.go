@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"buf.build/go/protovalidate"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
@@ -365,6 +366,80 @@ func TestTelemetryResultFromV2CarriesComponentMetricsPayload(t *testing.T) {
 	require.Len(t, decoded.HashBoards, 1)
 	require.Len(t, decoded.HashBoards[0].ASICs, 1)
 	assert.Equal(t, 80.0, decoded.HashBoards[0].ASICs[0].TempC.Value)
+}
+
+func TestControlLoop_TelemetryAckCarriesLargeContainerPayload(t *testing.T) {
+	now := time.Now().UTC()
+	metadata, err := json.Marshal(map[string]string{"firmware_details": strings.Repeat("sample", 455)})
+	require.NoError(t, err)
+	snapshot := &sdk.ContainerSnapshot{ObservedAt: now, TopologyComplete: true}
+	for tankPosition := int32(1); tankPosition <= 6; tankPosition++ {
+		tank := sdk.ContainerTank{Position: tankPosition, TopologyComplete: true}
+		for modulePosition := int32(1); modulePosition <= 16; modulePosition++ {
+			module := sdk.ContainerModule{Position: modulePosition, ReportedID: fmt.Sprintf("psu-%d-%d", tankPosition, modulePosition), IdentityConfirmed: true, ObservedAt: now}
+			for boardPosition := int32(1); boardPosition <= 3; boardPosition++ {
+				module.Hashboards = append(module.Hashboards, sdk.ContainerHashboard{Position: boardPosition, Occupancy: "present", ObservedAt: now, StateObservedAt: now, MetadataJSON: metadata, HashrateHS: new(1e12)})
+			}
+			tank.Modules = append(tank.Modules, module)
+		}
+		snapshot.Tanks = append(snapshot.Tanks, tank)
+	}
+	result, err := telemetryResultFromV2("node-device", modelsV2.DeviceMetrics{
+		DeviceIdentifier: "node-device", Timestamp: now, Container: snapshot,
+	}, telemetrypb.DeviceStatus_DEVICE_STATUS_ONLINE)
+	require.NoError(t, err)
+	require.Greater(t, len(result.GetDeviceMetricsJson()), 850_215)
+	require.NoError(t, protovalidate.Validate(result))
+
+	fake := &controlFakeGateway{}
+	fake.queue(telemetryCmd(t, validTelemetryRequest()))
+	runControlLoopOnce(t, &RunCmd{telemetry: &stubTelemetryFetcher{result: result}}, fake)
+	acks := fake.acksCopy()
+	require.Len(t, acks, 1)
+	require.Equal(t, pb.AckCode_ACK_CODE_OK, acks[0].GetCode())
+	require.NoError(t, protovalidate.Validate(acks[0]))
+	decodedResult := &telemetrypb.FleetNodeTelemetryResult{}
+	require.NoError(t, proto.Unmarshal(acks[0].GetPayload(), decodedResult))
+	require.NoError(t, protovalidate.Validate(decodedResult))
+	var decoded modelsV2.DeviceMetrics
+	require.NoError(t, json.Unmarshal(decodedResult.GetDeviceMetricsJson(), &decoded))
+	require.Equal(t, snapshot, decoded.Container)
+}
+
+func TestTelemetryDeviceMetricsPayloadLimit(t *testing.T) {
+	const limit = 960 * 1024
+	for _, size := range []int{limit, limit + 1} {
+		t.Run(fmt.Sprint(size), func(t *testing.T) {
+			reason := ""
+			metrics := modelsV2.DeviceMetrics{Timestamp: time.Now().UTC(), HealthReason: &reason}
+			emptyJSON, err := json.Marshal(metrics)
+			require.NoError(t, err)
+			reason = strings.Repeat("x", size-len(emptyJSON))
+			metricsJSON, err := json.Marshal(metrics)
+			require.NoError(t, err)
+			require.Len(t, metricsJSON, size)
+			result, err := telemetryResultFromV2("node-device", metrics, telemetrypb.DeviceStatus_DEVICE_STATUS_ONLINE)
+			if size > limit {
+				require.ErrorContains(t, err, "device metrics payload is")
+			} else {
+				require.NoError(t, err)
+				require.NoError(t, protovalidate.Validate(result))
+				require.LessOrEqual(t, proto.Size(result), maxAckPayloadBytes)
+			}
+			// Exercise the receiver's generated validation independently of the encoder.
+			wireResult := &telemetrypb.FleetNodeTelemetryResult{
+				DeviceIdentifier: strings.Repeat("n", 255), Timestamp: timestamppb.New(metrics.Timestamp),
+				FirmwareVersion: strings.Repeat("v", 255), HealthReason: strings.Repeat("h", 4096),
+				ErrorMessage: strings.Repeat("e", 4096), DeviceMetricsJson: metricsJSON,
+			}
+			if size > limit {
+				require.Error(t, protovalidate.Validate(wireResult))
+			} else {
+				require.NoError(t, protovalidate.Validate(wireResult))
+				require.LessOrEqual(t, proto.Size(wireResult), maxAckPayloadBytes)
+			}
+		})
+	}
 }
 
 func TestPluginTelemetryFetcherAcquireTelemetrySlotRejectsDuplicate(t *testing.T) {
