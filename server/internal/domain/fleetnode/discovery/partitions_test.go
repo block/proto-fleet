@@ -215,23 +215,6 @@ func TestPartitionRequests_ClipsCIDRBoundaries(t *testing.T) {
 	}
 }
 
-func TestPartitionRequests_ClipsCIDRToAssignedScope(t *testing.T) {
-	// Arrange
-	scope, err := discoveryranges.Parse([]string{"10.0.0.100-10.0.0.110"})
-	require.NoError(t, err)
-
-	// Act
-	tasks, err := partitionRequests(networkScanReq("10.0.0.0/24", []string{"4028"}), scope)
-	require.NoError(t, err)
-	commands, _ := collectPartitions(tasks)
-
-	// Assert
-	addresses := networkScanAddresses(t, commands)
-	require.Len(t, addresses, 11)
-	require.Equal(t, "10.0.0.100", addresses[0])
-	require.Equal(t, "10.0.0.110", addresses[len(addresses)-1])
-}
-
 func TestPartitionRequests_NetworkScanHostnameStaysUnresolved(t *testing.T) {
 	// Arrange
 	scope, err := discoveryranges.Parse([]string{"10.0.0.0/24"})

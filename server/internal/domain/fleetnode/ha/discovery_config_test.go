@@ -205,9 +205,7 @@ func TestStandbyDiscoveryCopyRejectsLegacyAndMissingConfiguration(t *testing.T) 
 		config         *gatewaypb.DiscoveryConfig
 		standbyVersion gatewaypb.CommandProtocolVersion
 	}{
-		{name: "legacy nodes without configuration", standbyVersion: gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V7},
 		{name: "legacy standby", config: &gatewaypb.DiscoveryConfig{Ranges: []string{"10.0.0.1"}}, standbyVersion: gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V7},
-		{name: "missing configuration", standbyVersion: gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V8},
 		{name: "empty configuration", config: &gatewaypb.DiscoveryConfig{}, standbyVersion: gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V8},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

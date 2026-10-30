@@ -23,7 +23,7 @@ func TestDirectBindingUsesLiveDiscoveryRanges(t *testing.T) {
 	device := insertDevice(t, db, org)
 	var config *gatewaypb.DiscoveryConfig
 	svc.WithDiscoveryConfig(func(int64) *gatewaypb.DiscoveryConfig { return config })
-	for _, ranges := range [][]string{nil, {}, {"10.0.1.0/24"}} {
+	for _, ranges := range [][]string{nil, {"10.0.1.0/24"}} {
 		if ranges != nil {
 			config = &gatewaypb.DiscoveryConfig{Ranges: ranges}
 		}

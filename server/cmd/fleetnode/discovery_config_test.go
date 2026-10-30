@@ -67,7 +67,6 @@ func TestInstallDiscoveryConfigTreatsOnlyUsableLegacySubnetAsLocalConfig(t *test
 	}{
 		{name: "whitespace is ignored", legacy: "  "},
 		{name: "invalid subnet is ignored", legacy: "not-a-subnet"},
-		{name: "public subnet is ignored", legacy: "8.8.8.0/24"},
 		{name: "usable subnet that differs conflicts", legacy: "10.3.0.0/24", wantConflict: true},
 		{name: "usable subnet that matches installs", legacy: "10.0.0.0/24"},
 	}

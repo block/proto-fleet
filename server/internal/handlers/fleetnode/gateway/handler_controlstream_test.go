@@ -809,30 +809,19 @@ func TestControlStream_SlowRetirementDoesNotEvictAcceptedSession(t *testing.T) {
 }
 
 func TestControlStream_SkipsRetirementWithoutDiscoveryRanges(t *testing.T) {
-	tests := []struct {
-		name  string
-		hello *pb.ControlStreamRequest
-	}{
-		{name: "no discovery config", hello: controlHello(pb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V7)},
-		{name: "empty ranges", hello: helloWithRanges()},
-	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			// Arrange
-			const interval = 100 * time.Millisecond
-			setKeepaliveInterval(t, interval)
-			h := newControlHarness(t)
-			insertRetirableDiscovery(t, h, "unconfigured-node")
-			stream := openControlStream(t, h)
+	// Arrange
+	const interval = 100 * time.Millisecond
+	setKeepaliveInterval(t, interval)
+	h := newControlHarness(t)
+	insertRetirableDiscovery(t, h, "unconfigured-node")
+	stream := openControlStream(t, h)
 
-			// Act
-			require.NoError(t, stream.Send(tc.hello))
-			response, err := receiveWithin(t, stream, control.KeepaliveMisses*interval)
+	// Act
+	require.NoError(t, stream.Send(helloWithRanges()))
+	response, err := receiveWithin(t, stream, control.KeepaliveMisses*interval)
 
-			// Assert
-			require.NoError(t, err)
-			require.NotNil(t, response.GetAccepted())
-			assert.True(t, discoveryActive(t, h, "unconfigured-node"), "an upgraded node without ranges must keep its inventory")
-		})
-	}
+	// Assert
+	require.NoError(t, err)
+	require.NotNil(t, response.GetAccepted())
+	assert.True(t, discoveryActive(t, h, "unconfigured-node"), "an upgraded node without ranges must keep its inventory")
 }

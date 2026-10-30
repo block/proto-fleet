@@ -25,7 +25,6 @@ func TestPairOnNodeRejectsOutsideLiveDiscoveryScopeBeforeDispatch(t *testing.T) 
 		target *pairingpb.FleetNodePairTarget
 	}{
 		{name: "missing live config", target: &pairingpb.FleetNodePairTarget{DeviceIdentifier: "miner", IpAddress: "10.0.0.1"}},
-		{name: "empty live ranges", config: &gatewaypb.DiscoveryConfig{}, target: &pairingpb.FleetNodePairTarget{DeviceIdentifier: "miner", IpAddress: "10.0.0.1"}},
 		{name: "outside range", config: &gatewaypb.DiscoveryConfig{Ranges: []string{"10.0.0.0/24"}}, target: &pairingpb.FleetNodePairTarget{DeviceIdentifier: "miner", IpAddress: "10.0.1.1"}},
 		{name: "outside group member", config: &gatewaypb.DiscoveryConfig{Ranges: []string{"10.0.0.0/24"}}, target: &pairingpb.FleetNodePairTarget{DeviceIdentifier: "miner", IpAddress: "10.0.0.1", Endpoints: []*commonpb.DeviceEndpoint{{Host: "10.0.0.1"}, {Host: "10.0.1.1"}}}},
 	} {

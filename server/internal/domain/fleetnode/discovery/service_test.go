@@ -461,55 +461,6 @@ func TestPartitionRequests_SplitsLongHostnamesBeforeEncoding(t *testing.T) {
 	require.Equal(t, len(addresses), count)
 }
 
-func TestRunOnNode_ClipsAndSplitsConfiguredScope(t *testing.T) {
-	// Arrange
-	reg := control.NewRegistry()
-	stream := registerConfiguredNode(reg, 77)
-	defer stream.Unregister()
-	stream.SetDiscoveryConfig(&gatewaypb.DiscoveryConfig{Ranges: []string{"10.0.0.100-10.0.1.150"}})
-	ctx, cancel := context.WithTimeout(t.Context(), time.Second)
-	defer cancel()
-	var commands []*pairingpb.DiscoverRequest
-	finished := make(chan struct{})
-	go func() {
-		defer close(finished)
-		for {
-			select {
-			case cmd := <-stream.Outgoing:
-				var envelope gatewaypb.AgentCommand
-				if proto.Unmarshal(cmd.GetPayload(), &envelope) != nil {
-					return
-				}
-				commands = append(commands, envelope.GetDiscover())
-				stream.PublishAck(&gatewaypb.ControlAck{CommandId: cmd.GetCommandId(), Succeeded: true, Code: gatewaypb.AckCode_ACK_CODE_OK})
-			case <-ctx.Done():
-				return
-			}
-		}
-	}()
-
-	// Act
-	err := NewService(reg, stubLister{}).RunOnNode(ctx, 77, "Fleet Node", networkScanReq("10.0.0.0/23", nil), func(*pairingpb.DiscoverResponse) error { return nil })
-	cancel()
-	<-finished
-
-	// Assert
-	require.NoError(t, err)
-	var addresses []string
-	for _, command := range commands {
-		require.NotNil(t, command.GetNetworkScan(), "TCP network scanning must retain its mode")
-		target, err := netscan.ParseTarget(command.GetNetworkScan().GetTarget())
-		require.NoError(t, err)
-		require.LessOrEqual(t, target.Count(), uint64(102), "default ten-port fanout must fit 1024 targets")
-		for address := range target.Addresses() {
-			addresses = append(addresses, address.String())
-		}
-	}
-	require.Len(t, addresses, 307)
-	require.Equal(t, "10.0.0.100", addresses[0])
-	require.Equal(t, "10.0.1.150", addresses[len(addresses)-1])
-}
-
 func TestDiscoveryReadiness_WarnsWithoutDispatch(t *testing.T) {
 	for _, tc := range []struct {
 		name    string

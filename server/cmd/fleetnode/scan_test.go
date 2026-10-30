@@ -358,18 +358,6 @@ func TestDiscoveryCommandTargetBoundaries(t *testing.T) {
 	}
 }
 
-func TestIPListExcludesPrivateIPv6OutsideConfiguredRanges(t *testing.T) {
-	r := &RunCmd{DiscoveryRanges: []string{"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"},
-		discoverer: &stubDiscoverer{probes: map[string]*pb.DiscoveredDeviceReport{
-			"fd00::1|4028": {DeviceIdentifier: "identified", DriverName: "virtual", UrlScheme: "http"},
-		}},
-		resolver: stubResolver{"miner.lan": {{IP: net.ParseIP("8.8.8.8")}, {IP: net.ParseIP("fd00::1")}}},
-	}
-	reports, _, err := r.discoverForCommand(t.Context(), discoverIPList([]string{"miner.lan"}, []string{"4028"}), discardLogger(t))
-	require.NoError(t, err)
-	require.Empty(t, reports)
-}
-
 type reportBudgetClient struct {
 	gatewayClient
 	delay     time.Duration

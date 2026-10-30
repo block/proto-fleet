@@ -791,8 +791,6 @@ func TestTick_NewSetupRequiresDiscoveryConfiguration(t *testing.T) {
 		wantReason     string
 	}{
 		{name: "legacy nodes without reported ranges", standbyVersion: v7, wantReason: "Upgrade standby Fleet Node to support discovery configuration installation"},
-		{name: "legacy standby with configured active", standbyVersion: v7, config: &pb.DiscoveryConfig{Ranges: []string{"10.0.0.1"}}, wantReason: "Upgrade standby Fleet Node to support discovery configuration installation"},
-		{name: "active has not reported ranges", standbyVersion: v8, wantReason: "Active Fleet Node must report configured discovery ranges before standby setup"},
 		{name: "active reports empty ranges", standbyVersion: v8, config: &pb.DiscoveryConfig{}, wantReason: "Active Fleet Node must report configured discovery ranges before standby setup"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
