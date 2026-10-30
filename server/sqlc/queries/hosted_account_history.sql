@@ -207,24 +207,21 @@ WITH intervals AS MATERIALIZED (
 -- Both routes share authorization. Inline it so the custom plan prunes the
 -- unused route without spooling or scanning the wide history twice.
 ), authorized AS NOT MATERIALIZED (
- SELECT i.kind,i.asset_id,i.started_at,i.ended_at,h.*,
- h.hashrate_source_oldest_at>=i.started_at
-  AND h.hashrate_source_oldest_at>=sqlc.arg(available_from)::timestamptz
-  AND (i.ended_at IS NULL OR h.hashrate_source_newest_at<i.ended_at) AS hashrate_authorized,
- h.power_source_oldest_at>=i.started_at
-  AND h.power_source_oldest_at>=sqlc.arg(available_from)::timestamptz
-  AND (i.ended_at IS NULL OR h.power_source_newest_at<i.ended_at) AS power_authorized,
- h.temperature_source_oldest_at>=i.started_at
-  AND h.temperature_source_oldest_at>=sqlc.arg(available_from)::timestamptz
-  AND (i.ended_at IS NULL OR h.temperature_source_newest_at<i.ended_at) AS temperature_authorized,
- h.state_source_oldest_at>=i.started_at
-  AND h.state_source_oldest_at>=sqlc.arg(available_from)::timestamptz
-  AND (i.ended_at IS NULL OR h.state_source_newest_at<i.ended_at) AS state_authorized
+ SELECT i.kind,i.asset_id,i.started_at,i.ended_at,h.*
  FROM intervals i JOIN retained h ON h.interval_id=i.interval_id
 ), bucketed AS NOT MATERIALIZED (
  -- Locate only the overlapping output slices. A fleet-sized summary must not
- -- compare each source row with every chart bucket.
- SELECT a.*,(sqlc.arg(bucket_starts)::timestamptz[])[slice.index] AS output_bucket
+ -- compare each source row with every chart bucket. Retained aggregates cannot
+ -- be split without their source samples: keep gaps when a metric spans slices.
+ SELECT a.*,slice_bounds.first AS output_bucket,
+ a.hashrate_source_oldest_at>=GREATEST(a.started_at,sqlc.arg(available_from)::timestamptz,slice_bounds.first)
+  AND a.hashrate_source_newest_at<LEAST(a.ended_at,slice_bounds.last) AS hashrate_authorized,
+ a.power_source_oldest_at>=GREATEST(a.started_at,sqlc.arg(available_from)::timestamptz,slice_bounds.first)
+  AND a.power_source_newest_at<LEAST(a.ended_at,slice_bounds.last) AS power_authorized,
+ a.temperature_source_oldest_at>=GREATEST(a.started_at,sqlc.arg(available_from)::timestamptz,slice_bounds.first)
+  AND a.temperature_source_newest_at<LEAST(a.ended_at,slice_bounds.last) AS temperature_authorized,
+ a.state_source_oldest_at>=GREATEST(a.started_at,sqlc.arg(available_from)::timestamptz,slice_bounds.first)
+  AND a.state_source_newest_at<LEAST(a.ended_at,slice_bounds.last) AS state_authorized
  FROM authorized a
  CROSS JOIN LATERAL (SELECT
   GREATEST(a.bucket,a.started_at,sqlc.arg(start_time)::timestamptz) AS first,
@@ -233,6 +230,9 @@ WITH intervals AS MATERIALIZED (
  CROSS JOIN LATERAL generate_series(
   GREATEST(1,width_bucket(bounds.first,sqlc.arg(bucket_starts)::timestamptz[])),
   width_bucket(bounds.last-INTERVAL '1 microsecond',sqlc.arg(bucket_starts)::timestamptz[])) slice(index)
+ CROSS JOIN LATERAL (SELECT
+  (sqlc.arg(bucket_starts)::timestamptz[])[slice.index] AS first,
+  COALESCE((sqlc.arg(bucket_starts)::timestamptz[])[slice.index+1],sqlc.arg(end_time)::timestamptz) AS last) slice_bounds
  WHERE bounds.first<bounds.last
 ), asset_buckets AS (
  SELECT kind,asset_id,

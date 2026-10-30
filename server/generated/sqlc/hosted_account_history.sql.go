@@ -436,24 +436,21 @@ WITH intervals AS MATERIALIZED (
   AND h.bucket<$8::timestamptz
   AND h.interval_id=ANY($9::bigint[])
 ), authorized AS NOT MATERIALIZED (
- SELECT i.kind,i.asset_id,i.started_at,i.ended_at,h.bucket, h.interval_id, h.hashrate_sum, h.hashrate_count, h.hashrate_positive_count, h.hashrate_complete, h.hashrate_source_oldest_at, h.hashrate_source_newest_at, h.power_sum, h.power_count, h.power_complete, h.power_source_oldest_at, h.power_source_newest_at, h.temperature_sum, h.temperature_count, h.temperature_latest_value, h.temperature_latest_at, h.temperature_source_oldest_at, h.temperature_source_newest_at, h.state_count, h.state_latest_value, h.state_latest_at, h.state_source_oldest_at, h.state_source_newest_at,
- h.hashrate_source_oldest_at>=i.started_at
-  AND h.hashrate_source_oldest_at>=$10::timestamptz
-  AND (i.ended_at IS NULL OR h.hashrate_source_newest_at<i.ended_at) AS hashrate_authorized,
- h.power_source_oldest_at>=i.started_at
-  AND h.power_source_oldest_at>=$10::timestamptz
-  AND (i.ended_at IS NULL OR h.power_source_newest_at<i.ended_at) AS power_authorized,
- h.temperature_source_oldest_at>=i.started_at
-  AND h.temperature_source_oldest_at>=$10::timestamptz
-  AND (i.ended_at IS NULL OR h.temperature_source_newest_at<i.ended_at) AS temperature_authorized,
- h.state_source_oldest_at>=i.started_at
-  AND h.state_source_oldest_at>=$10::timestamptz
-  AND (i.ended_at IS NULL OR h.state_source_newest_at<i.ended_at) AS state_authorized
+ SELECT i.kind,i.asset_id,i.started_at,i.ended_at,h.bucket, h.interval_id, h.hashrate_sum, h.hashrate_count, h.hashrate_positive_count, h.hashrate_complete, h.hashrate_source_oldest_at, h.hashrate_source_newest_at, h.power_sum, h.power_count, h.power_complete, h.power_source_oldest_at, h.power_source_newest_at, h.temperature_sum, h.temperature_count, h.temperature_latest_value, h.temperature_latest_at, h.temperature_source_oldest_at, h.temperature_source_newest_at, h.state_count, h.state_latest_value, h.state_latest_at, h.state_source_oldest_at, h.state_source_newest_at
  FROM intervals i JOIN retained h ON h.interval_id=i.interval_id
 ), bucketed AS NOT MATERIALIZED (
  -- Locate only the overlapping output slices. A fleet-sized summary must not
- -- compare each source row with every chart bucket.
- SELECT a.kind, a.asset_id, a.started_at, a.ended_at, a.bucket, a.interval_id, a.hashrate_sum, a.hashrate_count, a.hashrate_positive_count, a.hashrate_complete, a.hashrate_source_oldest_at, a.hashrate_source_newest_at, a.power_sum, a.power_count, a.power_complete, a.power_source_oldest_at, a.power_source_newest_at, a.temperature_sum, a.temperature_count, a.temperature_latest_value, a.temperature_latest_at, a.temperature_source_oldest_at, a.temperature_source_newest_at, a.state_count, a.state_latest_value, a.state_latest_at, a.state_source_oldest_at, a.state_source_newest_at, a.hashrate_authorized, a.power_authorized, a.temperature_authorized, a.state_authorized,($11::timestamptz[])[slice.index] AS output_bucket
+ -- compare each source row with every chart bucket. Retained aggregates cannot
+ -- be split without their source samples: keep gaps when a metric spans slices.
+ SELECT a.kind, a.asset_id, a.started_at, a.ended_at, a.bucket, a.interval_id, a.hashrate_sum, a.hashrate_count, a.hashrate_positive_count, a.hashrate_complete, a.hashrate_source_oldest_at, a.hashrate_source_newest_at, a.power_sum, a.power_count, a.power_complete, a.power_source_oldest_at, a.power_source_newest_at, a.temperature_sum, a.temperature_count, a.temperature_latest_value, a.temperature_latest_at, a.temperature_source_oldest_at, a.temperature_source_newest_at, a.state_count, a.state_latest_value, a.state_latest_at, a.state_source_oldest_at, a.state_source_newest_at,slice_bounds.first AS output_bucket,
+ a.hashrate_source_oldest_at>=GREATEST(a.started_at,$10::timestamptz,slice_bounds.first)
+  AND a.hashrate_source_newest_at<LEAST(a.ended_at,slice_bounds.last) AS hashrate_authorized,
+ a.power_source_oldest_at>=GREATEST(a.started_at,$10::timestamptz,slice_bounds.first)
+  AND a.power_source_newest_at<LEAST(a.ended_at,slice_bounds.last) AS power_authorized,
+ a.temperature_source_oldest_at>=GREATEST(a.started_at,$10::timestamptz,slice_bounds.first)
+  AND a.temperature_source_newest_at<LEAST(a.ended_at,slice_bounds.last) AS temperature_authorized,
+ a.state_source_oldest_at>=GREATEST(a.started_at,$10::timestamptz,slice_bounds.first)
+  AND a.state_source_newest_at<LEAST(a.ended_at,slice_bounds.last) AS state_authorized
  FROM authorized a
  CROSS JOIN LATERAL (SELECT
   GREATEST(a.bucket,a.started_at,$7::timestamptz) AS first,
@@ -462,6 +459,9 @@ WITH intervals AS MATERIALIZED (
  CROSS JOIN LATERAL generate_series(
   GREATEST(1,width_bucket(bounds.first,$11::timestamptz[])),
   width_bucket(bounds.last-INTERVAL '1 microsecond',$11::timestamptz[])) slice(index)
+ CROSS JOIN LATERAL (SELECT
+  ($11::timestamptz[])[slice.index] AS first,
+  COALESCE(($11::timestamptz[])[slice.index+1],$8::timestamptz) AS last) slice_bounds
  WHERE bounds.first<bounds.last
 ), asset_buckets AS (
  SELECT kind,asset_id,

@@ -475,6 +475,12 @@ unknown gaps preserve ownership. Later identity confirmation can complete a
 transfer, using that accepted poll's timestamp for both history boundaries.
 Ownership is never backfilled to an earlier unconfirmed observation.
 
+Replacement detection uses the observations accepted so far. If a board moves to
+another controller, but its old slot reports a spare before the new controller
+reports the moved board, the spare inherits the allocation. A later report from
+the new controller does not undo that transfer. The host must correct the
+allocation when this poll order causes a move to be treated as a replacement.
+
 Migration 1049 records allocation decisions, installations, and removals in database
 sequence order. Device clock skew cannot override a later manual decision.
 Placement-only updates retain allocation decision order. Reporting history still
@@ -553,6 +559,9 @@ Migration 1047 also captures authorized board observations in the retained
 hourly/daily history introduced by migration 1044. Corrections and deletions
 update the captured contribution. Both raw and retained charts split board
 replacement periods so sequential boards do not count as simultaneous capacity.
+Each retained metric must have its full source time range inside the displayed
+period. An aggregate that spans a replacement boundary leaves a gap because its
+samples cannot be separated from the retained sum and count alone.
 
 Power totals contain only measured equipment readings with reporting counts;
 controller plant power never substitutes for assigned-module power. Efficiency
