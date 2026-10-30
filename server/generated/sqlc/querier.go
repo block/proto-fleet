@@ -121,6 +121,9 @@ type Querier interface {
 	// with no possible Curtail attempt release immediately; every other target
 	// enters the normal restore queue conservatively.
 	BeginCurtailmentTopologyTargetRestore(ctx context.Context, arg BeginCurtailmentTopologyTargetRestoreParams) (int64, error)
+	// Call after locking and revalidating all selected miners and boards. Accepted
+	// inventory can be clock-ahead; closed periods also bound a later reassignment.
+	BeginHostedAccountAllocationChange(ctx context.Context, arg BeginHostedAccountAllocationChangeParams) error
 	BindCurtailmentAutomationRuleResponseProfileRevision(ctx context.Context, arg BindCurtailmentAutomationRuleResponseProfileRevisionParams) (int64, error)
 	BindEnrollmentToFleetNode(ctx context.Context, arg BindEnrollmentToFleetNodeParams) (int64, error)
 	BindHostedAccountKey(ctx context.Context, arg BindHostedAccountKeyParams) error
@@ -1507,6 +1510,7 @@ type Querier interface {
 	ListHostedAccountAssetChildren(ctx context.Context, arg ListHostedAccountAssetChildrenParams) ([]ListHostedAccountAssetChildrenRow, error)
 	// Only physical metadata is projected, so telemetry values are not fetched.
 	// Use the same live inventory, allocation and physical-policy boundaries as the page.
+	// Module site/container options are already represented by their allocated boards.
 	ListHostedAccountAssetFilterOptions(ctx context.Context, arg ListHostedAccountAssetFilterOptionsParams) ([]ListHostedAccountAssetFilterOptionsRow, error)
 	ListHostedAccountChildren(ctx context.Context, arg ListHostedAccountChildrenParams) ([]HostedAccount, error)
 	// The bounded interval list is already authorized to the requested account.
@@ -2070,6 +2074,7 @@ type Querier interface {
 	// Late samples must not resurrect devices moved to UNPAIRED,
 	// AUTHENTICATION_NEEDED, PENDING, or FAILED by another flow.
 	ReconcileDefaultPasswordPairingStatusByIdentifier(ctx context.Context, arg ReconcileDefaultPasswordPairingStatusByIdentifierParams) (ReconcileDefaultPasswordPairingStatusByIdentifierRow, error)
+	ReconcileHostedHashboardReplacements(ctx context.Context, arg ReconcileHostedHashboardReplacementsParams) error
 	// The status and reboot-boundary predicates apply to the current status row even
 	// after waiting for a concurrent firmware install's write to finish. Boot
 	// evidence from an earlier install must not clear a later pending reboot.

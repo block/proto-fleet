@@ -245,6 +245,11 @@ func TestHashboardObservationMigrationPreservesExistingAttribution(t *testing.T)
 	for _, released := range []bool{false, true} {
 		t.Run(map[bool]string{false: "active", true: "removed"}[released], func(t *testing.T) {
 			r := newContainerRollupRig(t)
+			// Remove the later allocation views before exercising the older schema.
+			allocationDown, err := migrations.Current.ReadFile("current/001047_internal_hashboard_allocations.down.sql")
+			require.NoError(t, err)
+			_, err = r.db.ExecContext(t.Context(), string(allocationDown))
+			require.NoError(t, err)
 			r.store(t, r.snapshot(0, false, 100e12, 200e12))
 			r.store(t, r.snapshot(time.Second, true, 110e12, 210e12))
 			if released {

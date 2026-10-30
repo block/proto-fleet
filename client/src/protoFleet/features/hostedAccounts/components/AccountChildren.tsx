@@ -26,7 +26,7 @@ const AccountChildren = () => {
   const childTeamPath = (id: string) =>
     account.depth === 0 ? accountManagementPath(id, "team") : accountPath(id, "team");
   const navigate = useNavigate();
-  const { pathname, state } = useLocation();
+  const { pathname } = useLocation();
   const allowed = account.depth === 0 ? account.capabilityCeiling : account.effectiveCapabilities;
   const required = 9n; // Viewing and membership administration keep recovery possible.
   const canConfigure = (allowed & required) === required;
@@ -39,9 +39,6 @@ const AccountChildren = () => {
   const [params, setParams] = useSearchParams();
   const selectedChild = query.data?.accounts.find((child) => child.accountId === params.get("assets"));
   const assigning = params.get("action") === "assign";
-  // Assigning remounts the child inventory, so its confirmation rides on the
-  // history entry it navigates to instead of the unmounted form's state.
-  const assetNotice = (state as { assetNotice?: string } | null)?.assetNotice;
   const [editing, setEditing] = useState<Account | "new" | null>(null);
   const [name, setName] = useState("");
   const [ceiling, setCeiling] = useState(1n);
@@ -100,8 +97,7 @@ const AccountChildren = () => {
             key={`${selectedChild.accountId}:${assigning}`}
             child={selectedChild}
             mode={assigning ? "assign" : "inventory"}
-            initialNotice={assigning ? undefined : assetNotice}
-            onAssigned={(notice) => setParams({ assets: selectedChild.accountId }, { state: { assetNotice: notice } })}
+            onAssigned={() => setParams({ assets: selectedChild.accountId })}
           />
         ) : !query.loading && !query.error ? (
           <p>This account is unavailable.</p>
@@ -175,20 +171,20 @@ const AccountChildren = () => {
               component: (child) => {
                 const counts = child.managementSummary;
                 if (!counts) return "—";
-                const types = [
-                  ...(counts.minerCount > 0n
-                    ? [`${counts.minerCount.toLocaleString()} ${counts.minerCount === 1n ? "miner" : "miners"}`]
-                    : []),
-                  ...(counts.moduleCount > 0n
-                    ? [`${counts.moduleCount.toLocaleString()} ${counts.moduleCount === 1n ? "module" : "modules"}`]
-                    : []),
-                ];
+                const types: string[] = [];
+                for (const [count, label] of [
+                  [counts.minerCount, "miner"],
+                  [counts.hashboardCount, "hashboard"],
+                  [counts.moduleCount, "module"],
+                ] as const) {
+                  if (count > 0n) types.push(`${count.toLocaleString()} ${label}${count === 1n ? "" : "s"}`);
+                }
                 return (
                   <div className="flex flex-col gap-1">
                     <span>{types.length ? types.join(" · ") : "No mining assets"}</span>
-                    {counts.moduleCount > 0n ? (
+                    {counts.containerCount > 0n ? (
                       <span className="text-200 text-text-primary-50">
-                        Modules in {counts.containerCount.toLocaleString()}{" "}
+                        Equipment in {counts.containerCount.toLocaleString()}{" "}
                         {counts.containerCount === 1n ? "container" : "containers"}
                       </span>
                     ) : null}

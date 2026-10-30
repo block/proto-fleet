@@ -34,6 +34,7 @@ WITH account_types AS (
  UNION ALL SELECT 'set_hosted_account_pool_profile','pool','account','Updated incoming pool profile'
  UNION ALL SELECT 'account_assets_assigned','fleet_management','asset','Assigned mining assets'
  UNION ALL SELECT 'account_assets_recalled','fleet_management','asset','Recalled mining assets'
+ UNION ALL SELECT 'account_hashboard_replaced','fleet_management','asset','Replaced allocated hashboard'
 ), command_types AS (
  SELECT 'reboot.completed'::text AS event_type,'Rebooted miners'::text AS description
  UNION ALL SELECT 'start_mining.completed','Started mining'
@@ -47,7 +48,7 @@ WITH account_types AS (
 ), account_events AS NOT MATERIALIZED (
  SELECT a.id,a.event_id,a.created_at,
   at.event_category,at.event_type,at.description,at.scope_type,
-  CASE WHEN a.event_type='account_assets_assigned' THEN (a.metadata->>'asset_count')::integer ELSE 0 END AS scope_count,
+  CASE WHEN a.event_type IN ('account_assets_assigned','account_hashboard_replaced') THEN (a.metadata->>'asset_count')::integer ELSE 0 END AS scope_count,
   a.result, '{}'::jsonb AS metadata
  FROM activity_log a JOIN account_types at ON at.event_type=
   CASE WHEN a.event_type='account_assets_assigned' AND a.metadata->>'intent'='ASSET_ASSIGNMENT_INTENT_RECALL'
@@ -56,7 +57,8 @@ WITH account_types AS (
   AND ($1::boolean OR $3::timestamptz IS NULL
        OR (a.created_at,a.id)<($3::timestamptz,$4::bigint))
   AND (a.metadata->>'account_id'=$5::text
-       OR (a.event_type='account_assets_assigned' AND a.metadata->>'child_account_id'=$5::text))
+       OR (a.event_type IN ('account_assets_assigned','account_hashboard_replaced') AND a.metadata->>'child_account_id'=$5::text)
+       OR (a.event_type='account_hashboard_replaced' AND a.metadata->>'allocated_account_id'=$5::text))
   AND cardinality($6::bigint[])=0 AND NOT $7::boolean
 ), visible_commands AS NOT MATERIALIZED (
  -- Reuse this exact allocation/authority predicate for visibility and counts.

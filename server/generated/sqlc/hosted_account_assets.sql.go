@@ -14,10 +14,32 @@ import (
 	"github.com/lib/pq"
 )
 
+const beginHostedAccountAllocationChange = `-- name: BeginHostedAccountAllocationChange :exec
+SELECT set_config('fleet.allocation_boundary',
+ GREATEST(clock_timestamp(),max(COALESCE(i.ended_at,i.started_at)))::text,true)
+FROM hosted_account_asset_interval i
+JOIN jsonb_to_recordset($1::jsonb) AS selected(kind int,id bigint)
+ ON selected.kind=i.kind AND selected.id=i.asset_id
+WHERE i.organization_id=$2
+`
+
+type BeginHostedAccountAllocationChangeParams struct {
+	SelectedAssets json.RawMessage
+	OrganizationID int64
+}
+
+// Call after locking and revalidating all selected miners and boards. Accepted
+// inventory can be clock-ahead; closed periods also bound a later reassignment.
+func (q *Queries) BeginHostedAccountAllocationChange(ctx context.Context, arg BeginHostedAccountAllocationChangeParams) error {
+	_, err := q.exec(ctx, q.beginHostedAccountAllocationChangeStmt, beginHostedAccountAllocationChange, arg.SelectedAssets, arg.OrganizationID)
+	return err
+}
+
 const getHostedAccountAssetDevice = `-- name: GetHostedAccountAssetDevice :one
 SELECT d.id FROM device d WHERE d.org_id=$1 AND (
  ($2::int=5 AND d.id=$3) OR
- ($2::int=6 AND d.id=(SELECT t.device_id FROM container_module m JOIN container_tank t ON t.id=m.tank_id WHERE m.id=$3))
+ ($2::int=6 AND d.id=(SELECT t.device_id FROM container_module m JOIN container_tank t ON t.id=m.tank_id WHERE m.id=$3)) OR
+ ($2::int=7 AND d.id=COALESCE((SELECT device_id FROM hashboard_observation WHERE hashboard_id=$3),(SELECT device_id FROM hosted_account_asset WHERE organization_id=$1 AND kind=7 AND asset_id=$3)))
 )
 `
 
@@ -79,33 +101,42 @@ func (q *Queries) ListHostedAccountAssetChildren(ctx context.Context, arg ListHo
 }
 
 const listHostedAccountAssetFilterOptions = `-- name: ListHostedAccountAssetFilterOptions :many
+WITH live_assets AS (
+ SELECT f.kind, f.id, f.org_id, f.site_id, f.name, f.device_identifier, f.position, f.reported_id, f.facility_kind, f.facility_id, f.group_kind, f.group_id, f.state, f.observed_at, f.hashrate_hs, f.power_w, f.temperature_c, f.miner_efficiency_jth FROM hosted_mining_asset f
+ WHERE $5::boolean AND f.org_id=$1 AND f.kind IN (5,7)
+ UNION ALL
+ SELECT f.kind, f.id, f.org_id, f.site_id, f.name, f.device_identifier, f.position, f.reported_id, f.facility_kind, f.facility_id, f.group_kind, f.group_id, f.state, f.observed_at, f.hashrate_hs, f.power_w, f.temperature_c, f.miner_efficiency_jth FROM hosted_account_asset a
+ CROSS JOIN LATERAL (
+  SELECT f.kind, f.id, f.org_id, f.site_id, f.name, f.device_identifier, f.position, f.reported_id, f.facility_kind, f.facility_id, f.group_kind, f.group_id, f.state, f.observed_at, f.hashrate_hs, f.power_w, f.temperature_c, f.miner_efficiency_jth FROM hosted_mining_asset f
+  WHERE f.org_id=a.organization_id AND f.kind=a.kind AND f.id=a.asset_id
+  OFFSET 0
+ ) f
+ WHERE NOT $5::boolean AND a.organization_id=$1
+ AND (a.client_id=$6::bigint OR a.subclient_id=$6::bigint)
+)
 SELECT DISTINCT CASE WHEN f.kind=5 THEN COALESCE(dd.model,'') ELSE '' END::text AS model,
  COALESCE(d.site_id,0)::bigint AS site_id,COALESCE(s.name,'')::text AS site_name,
- CASE WHEN f.kind=6 THEN d.id ELSE 0 END::bigint AS container_id,
- CASE WHEN f.kind=6 THEN COALESCE(NULLIF(d.custom_name,''),'Container '||d.device_identifier) ELSE '' END::text AS container_name
-FROM fleet_mining_asset f
+ CASE WHEN f.kind IN (6,7) THEN d.id ELSE 0 END::bigint AS container_id,
+ CASE WHEN f.kind IN (6,7) THEN COALESCE(NULLIF(d.custom_name,''),'Container '||d.device_identifier) ELSE '' END::text AS container_name
+FROM live_assets f
 JOIN device d ON d.id=CASE WHEN f.kind=5 THEN f.id ELSE f.facility_id END AND d.org_id=f.org_id
 LEFT JOIN discovered_device dd ON dd.id=d.discovered_device_id AND dd.org_id=f.org_id
 LEFT JOIN site s ON s.id=d.site_id AND s.org_id=f.org_id
 WHERE f.org_id=$1
- AND ($2::boolean OR EXISTS (
-  SELECT 1 FROM hosted_account_asset a WHERE a.organization_id=f.org_id AND a.kind=f.kind AND a.asset_id=f.id
-   AND (a.client_id=$3::bigint OR a.subclient_id=$3::bigint)
- ))
- AND (NOT $4::boolean OR COALESCE(d.site_id,0)=ANY($5::bigint[]))
+ AND (NOT $2::boolean OR COALESCE(d.site_id,0)=ANY($3::bigint[]))
  AND NOT EXISTS (
-  SELECT 1 FROM jsonb_to_recordset($6::jsonb) AS a(org_wide boolean,sites bigint[])
+  SELECT 1 FROM jsonb_to_recordset($4::jsonb) AS a(org_wide boolean,sites bigint[])
   WHERE NOT (CASE WHEN a.org_wide THEN COALESCE(d.site_id,0)=0 OR NOT(COALESCE(d.site_id,0)=ANY(a.sites)) ELSE COALESCE(d.site_id,0)=ANY(a.sites) END)
  )
 `
 
 type ListHostedAccountAssetFilterOptionsParams struct {
 	OrganizationID    int64
-	IsRoot            bool
-	AccountInternalID int64
 	PolicyRestricted  bool
 	PolicySites       []int64
 	HostAuthority     json.RawMessage
+	IsRoot            bool
+	AccountInternalID int64
 }
 
 type ListHostedAccountAssetFilterOptionsRow struct {
@@ -118,14 +149,15 @@ type ListHostedAccountAssetFilterOptionsRow struct {
 
 // Only physical metadata is projected, so telemetry values are not fetched.
 // Use the same live inventory, allocation and physical-policy boundaries as the page.
+// Module site/container options are already represented by their allocated boards.
 func (q *Queries) ListHostedAccountAssetFilterOptions(ctx context.Context, arg ListHostedAccountAssetFilterOptionsParams) ([]ListHostedAccountAssetFilterOptionsRow, error) {
 	rows, err := q.query(ctx, q.listHostedAccountAssetFilterOptionsStmt, listHostedAccountAssetFilterOptions,
 		arg.OrganizationID,
-		arg.IsRoot,
-		arg.AccountInternalID,
 		arg.PolicyRestricted,
 		pq.Array(arg.PolicySites),
 		arg.HostAuthority,
+		arg.IsRoot,
+		arg.AccountInternalID,
 	)
 	if err != nil {
 		return nil, err
@@ -155,22 +187,45 @@ func (q *Queries) ListHostedAccountAssetFilterOptions(ctx context.Context, arg L
 }
 
 const listHostedAccountMiningAssetPage = `-- name: ListHostedAccountMiningAssetPage :many
-WITH allocations AS MATERIALIZED (
- SELECT a.organization_id, a.kind, a.asset_id, a.device_id, a.miner_id, a.module_id, a.client_id, a.subclient_id, a.revision, a.updated_at FROM hosted_account_asset a
- WHERE a.organization_id=$9
- AND ($10::boolean OR a.client_id=$11::bigint OR a.subclient_id=$11::bigint)
+WITH customer_leaves AS MATERIALIZED (
+ SELECT a.organization_id,a.kind,a.asset_id,a.device_id,a.client_id,a.subclient_id,a.revision,'[]'::jsonb AS boards
+ FROM hosted_account_asset a
+ WHERE NOT $9::boolean AND a.organization_id=$10
+ AND (a.client_id=$11::bigint OR a.subclient_id=$11::bigint)
+), candidate_modules AS (
+ SELECT DISTINCT s.module_id FROM customer_leaves a
+ JOIN hashboard_slot s ON a.kind=7 AND s.hashboard_id=a.asset_id
+ WHERE NOT $12::boolean
+), allocations AS MATERIALIZED (
+ SELECT a.organization_id, a.kind, a.asset_id, a.device_id, a.client_id, a.subclient_id, a.revision, a.boards FROM hosted_account_asset_projection a
+ WHERE $9::boolean AND a.organization_id=$10
+ AND (NOT $12::boolean OR a.kind=7)
+ UNION ALL
+ SELECT organization_id, kind, asset_id, device_id, client_id, subclient_id, revision, boards FROM customer_leaves
+ WHERE NOT $12::boolean OR kind=7
+ UNION ALL
+ SELECT a.organization_id, a.kind, a.asset_id, a.device_id, a.client_id, a.subclient_id, a.revision, a.boards FROM candidate_modules m
+ CROSS JOIN LATERAL (
+  -- Scope by module ID before grouping, but retain every board in each module
+  -- so partial ownership never grants access to the complete module.
+  SELECT a.organization_id, a.kind, a.asset_id, a.device_id, a.client_id, a.subclient_id, a.revision, a.boards FROM hosted_account_asset_projection a
+  WHERE a.organization_id=$10 AND a.kind=6 AND a.asset_id=m.module_id
+  OFFSET 0
+ ) a
+ WHERE a.client_id=$11::bigint OR a.subclient_id=$11::bigint
 ), live_assets AS MATERIALIZED (
- SELECT f.kind, f.id, f.org_id, f.site_id, f.name, f.device_identifier, f.position, f.reported_id, f.facility_kind, f.facility_id, f.group_kind, f.group_id, f.state, f.observed_at, f.hashrate_hs, f.power_w, f.temperature_c, f.miner_efficiency_jth FROM fleet_mining_asset f
- WHERE $10::boolean AND f.org_id=$9
+ SELECT f.kind, f.id, f.org_id, f.site_id, f.name, f.device_identifier, f.position, f.reported_id, f.facility_kind, f.facility_id, f.group_kind, f.group_id, f.state, f.observed_at, f.hashrate_hs, f.power_w, f.temperature_c, f.miner_efficiency_jth FROM hosted_mining_asset f
+ WHERE $9::boolean AND f.org_id=$10
+ AND (NOT $12::boolean OR f.kind=7)
  UNION ALL
  SELECT f.kind, f.id, f.org_id, f.site_id, f.name, f.device_identifier, f.position, f.reported_id, f.facility_kind, f.facility_id, f.group_kind, f.group_id, f.state, f.observed_at, f.hashrate_hs, f.power_w, f.temperature_c, f.miner_efficiency_jth FROM allocations a
  CROSS JOIN LATERAL (
-  SELECT f.kind, f.id, f.org_id, f.site_id, f.name, f.device_identifier, f.position, f.reported_id, f.facility_kind, f.facility_id, f.group_kind, f.group_id, f.state, f.observed_at, f.hashrate_hs, f.power_w, f.temperature_c, f.miner_efficiency_jth FROM fleet_mining_asset f
-  WHERE f.org_id=$9 AND f.kind=a.kind AND f.id=a.asset_id
+  SELECT f.kind, f.id, f.org_id, f.site_id, f.name, f.device_identifier, f.position, f.reported_id, f.facility_kind, f.facility_id, f.group_kind, f.group_id, f.state, f.observed_at, f.hashrate_hs, f.power_w, f.temperature_c, f.miner_efficiency_jth FROM hosted_mining_asset f
+  WHERE f.org_id=$10 AND f.kind=a.kind AND f.id=a.asset_id
   -- Prevent pull-up from moving allocation filtering after telemetry joins.
   OFFSET 0
  ) f
- WHERE NOT $10::boolean
+ WHERE NOT $9::boolean
 ), leaves AS (
  SELECT f.kind,f.id,f.org_id,CASE WHEN f.kind=5 THEN f.id ELSE f.facility_id END::bigint AS device_id
  FROM live_assets f
@@ -178,12 +233,12 @@ WITH allocations AS MATERIALIZED (
  SELECT a.kind,a.asset_id,a.organization_id,a.device_id FROM allocations a
  WHERE a.client_id IS NOT NULL
 ), projection AS (
-SELECT l.kind,l.id,l.device_id,COALESCE(a.revision,0)::bigint AS revision,
+SELECT l.kind,l.id,l.device_id,COALESCE(a.revision,0)::bigint AS revision, COALESCE(a.boards,'[]'::jsonb)::jsonb AS boards,
  COALESCE(a.client_id,0)::bigint AS client_id,COALESCE(a.subclient_id,0)::bigint AS subclient_id,
  COALESCE(sc.account_id,c.account_id,'')::text AS owner_account_id,
  COALESCE(sc.name,c.name,'')::text AS owner_account_name,
  COALESCE(f.name,'')::text AS name,CASE
-  WHEN g.state_allowed AND ($10::boolean OR l.kind=6 OR f.state='offline') THEN COALESCE(f.state,'unknown')
+  WHEN g.state_allowed AND ($9::boolean OR l.kind IN (6,7) OR f.state='offline') THEN COALESCE(f.state,'unknown')
   WHEN source.auth_attention_time IS NOT NULL THEN 'error'
   WHEN g.state_allowed AND status.status IN ('MAINTENANCE','INACTIVE') THEN lower(status.status::text)
   WHEN source.error_attention_time IS NOT NULL THEN 'error'
@@ -193,20 +248,20 @@ SELECT l.kind,l.id,l.device_id,COALESCE(a.revision,0)::bigint AS revision,
  COALESCE(CASE WHEN g.temperature_allowed THEN f.temperature_c END,0)::float8 AS temperature_c, (g.temperature_allowed AND f.temperature_c IS NOT NULL)::boolean AS has_temperature,
  COALESCE(CASE WHEN g.hash_allowed AND g.power_allowed THEN f.miner_efficiency_jth END,0)::float8 AS efficiency_j_th, COALESCE(g.hash_allowed AND g.power_allowed AND f.miner_efficiency_jth IS NOT NULL
   AND f.hashrate_hs>=0 AND f.hashrate_hs<'Infinity'::float8 AND f.power_w>=0 AND f.power_w<'Infinity'::float8
-  AND (l.kind=5 OR (
+  AND (l.kind IN (5,7) OR (
    (cm.coverage#>>'{hashrate,topology_complete}')::boolean AND (cm.coverage#>>'{power,topology_complete}')::boolean
    AND (cm.coverage#>>'{hashrate,expected}')::int>0 AND (cm.coverage#>>'{power,expected}')::int>0
    AND (cm.coverage#>>'{hashrate,reporting}')::int=(cm.coverage#>>'{hashrate,expected}')::int
    AND (cm.coverage#>>'{power,reporting}')::int=(cm.coverage#>>'{power,expected}')::int
   )),false)::boolean AS has_efficiency,
  COALESCE(d.site_id,0)::bigint AS site_id,COALESCE(s.name,'')::text AS site_name,
- CASE WHEN l.kind=6 THEN l.device_id ELSE 0 END::bigint AS container_id,
- CASE WHEN l.kind=6 THEN COALESCE(NULLIF(d.custom_name,''),'Container '||d.device_identifier) ELSE '' END::text AS container_name,
+ CASE WHEN l.kind IN (6,7) THEN l.device_id ELSE 0 END::bigint AS container_id,
+ CASE WHEN l.kind IN (6,7) THEN COALESCE(NULLIF(d.custom_name,''),'Container '||d.device_identifier) ELSE '' END::text AS container_name,
  (f.id IS NOT NULL)::boolean AS available,
  COALESCE(CASE WHEN g.hash_allowed THEN f.hashrate_hs END,0)::float8 AS hashrate_hs,COALESCE(CASE WHEN g.power_allowed THEN f.power_w END,0)::float8 AS power_w,
  (g.hash_allowed AND f.hashrate_hs IS NOT NULL)::boolean AS has_hashrate,(g.power_allowed AND f.power_w IS NOT NULL)::boolean AS has_power,
- COALESCE(CASE WHEN $10::boolean THEN f.observed_at ELSE GREATEST(CASE WHEN g.hash_allowed THEN source.hash_new END,CASE WHEN g.power_allowed THEN source.power_new END,CASE WHEN g.temperature_allowed THEN source.temperature_new END,CASE WHEN g.state_allowed THEN source.state_time END,source.auth_attention_time,source.error_attention_time) END,'0001-01-01T00:00:00Z'::timestamptz)::timestamptz AS observed_at,
- CASE WHEN $10::boolean THEN COALESCE(cm.coverage,'null'::jsonb) ELSE jsonb_strip_nulls(jsonb_build_object('hashrate',CASE WHEN g.hash_allowed THEN cm.coverage->'hashrate' END,'power',CASE WHEN g.power_allowed THEN cm.coverage->'power' END,'temperature',CASE WHEN g.temperature_allowed THEN cm.coverage->'temperature' END)) END::jsonb AS coverage
+ COALESCE(CASE WHEN $9::boolean THEN f.observed_at ELSE GREATEST(CASE WHEN g.hash_allowed THEN source.hash_new END,CASE WHEN g.power_allowed THEN source.power_new END,CASE WHEN g.temperature_allowed THEN source.temperature_new END,CASE WHEN g.state_allowed THEN source.state_time END,source.auth_attention_time,source.error_attention_time) END,'0001-01-01T00:00:00Z'::timestamptz)::timestamptz AS observed_at,
+ CASE WHEN $9::boolean THEN COALESCE(cm.coverage,'null'::jsonb) ELSE jsonb_strip_nulls(jsonb_build_object('hashrate',CASE WHEN g.hash_allowed THEN cm.coverage->'hashrate' END,'power',CASE WHEN g.power_allowed THEN cm.coverage->'power' END,'temperature',CASE WHEN g.temperature_allowed THEN cm.coverage->'temperature' END)) END::jsonb AS coverage
 FROM leaves l
 LEFT JOIN allocations a ON a.organization_id=l.org_id AND a.kind=l.kind AND a.asset_id=l.id
 LEFT JOIN hosted_account c ON c.id=a.client_id
@@ -219,17 +274,22 @@ LEFT JOIN container_equipment_current_metrics cm ON l.kind=6 AND cm.kind=6 AND c
 LEFT JOIN device_metrics sample ON l.kind=5 AND sample.device_identifier=d.device_identifier AND sample.time=f.observed_at
 LEFT JOIN device_status status ON l.kind=5 AND status.device_id=l.id
 LEFT JOIN device_pairing pairing ON l.kind=5 AND pairing.device_id=l.id
+LEFT JOIN hashboard_latest_metrics board_sample ON l.kind=7 AND board_sample.hashboard_id=l.id
+LEFT JOIN hashboard_installation board_install ON l.kind=7 AND board_install.hashboard_id=l.id
+ AND board_install.device_id=l.device_id AND board_install.removed_at IS NULL
+LEFT JOIN hashboard_slot board_slot ON board_slot.module_id=board_install.module_id
+ AND board_slot.position=board_install.position AND board_slot.hashboard_id=l.id
 LEFT JOIN container_module module ON l.kind=6 AND module.id=l.id
 LEFT JOIN container_module_latest_metrics latest ON l.kind=6 AND latest.module_id=l.id
 LEFT JOIN container_module_metrics module_sample ON l.kind=6 AND module_sample.module_id=l.id AND module_sample.time=latest.time AND module_sample.collected_at=latest.collected_at
 CROSS JOIN LATERAL (
- SELECT CASE WHEN l.kind=5 THEN f.observed_at ELSE (cm.coverage#>>'{hashrate,oldest_at}')::timestamptz END AS hash_old,
- CASE WHEN l.kind=5 THEN f.observed_at ELSE (cm.coverage#>>'{hashrate,newest_at}')::timestamptz END AS hash_new,
- CASE WHEN l.kind=5 THEN f.observed_at ELSE (cm.coverage#>>'{power,oldest_at}')::timestamptz END AS power_old,
- CASE WHEN l.kind=5 THEN f.observed_at ELSE (cm.coverage#>>'{power,newest_at}')::timestamptz END AS power_new,
- CASE WHEN l.kind=5 THEN f.observed_at ELSE (cm.coverage#>>'{temperature,oldest_at}')::timestamptz END AS temperature_old,
- CASE WHEN l.kind=5 THEN f.observed_at ELSE (cm.coverage#>>'{temperature,newest_at}')::timestamptz END AS temperature_new,
- CASE WHEN l.kind=5 THEN status.status_timestamp ELSE module.state_observed_at END AS state_time,
+ SELECT CASE WHEN l.kind IN (5,7) THEN f.observed_at ELSE (cm.coverage#>>'{hashrate,oldest_at}')::timestamptz END AS hash_old,
+ CASE WHEN l.kind IN (5,7) THEN f.observed_at ELSE (cm.coverage#>>'{hashrate,newest_at}')::timestamptz END AS hash_new,
+ CASE WHEN l.kind IN (5,7) THEN f.observed_at ELSE (cm.coverage#>>'{power,oldest_at}')::timestamptz END AS power_old,
+ CASE WHEN l.kind IN (5,7) THEN f.observed_at ELSE (cm.coverage#>>'{power,newest_at}')::timestamptz END AS power_new,
+ CASE WHEN l.kind IN (5,7) THEN f.observed_at ELSE (cm.coverage#>>'{temperature,oldest_at}')::timestamptz END AS temperature_old,
+ CASE WHEN l.kind IN (5,7) THEN f.observed_at ELSE (cm.coverage#>>'{temperature,newest_at}')::timestamptz END AS temperature_new,
+ CASE WHEN l.kind=5 THEN status.status_timestamp WHEN l.kind=7 THEN board_slot.state_observed_at ELSE module.state_observed_at END AS state_time,
  CASE WHEN l.kind=5 AND pairing.pairing_status='AUTHENTICATION_NEEDED'
   AND hosted_account_source_authorized(l.org_id,l.kind,l.id,a.client_id,a.subclient_id,d.site_id,d.device_identifier,pairing.updated_at,pairing.updated_at)
   THEN pairing.updated_at END AS auth_attention_time,
@@ -239,38 +299,49 @@ CROSS JOIN LATERAL (
    AND e.closed_at IS NULL AND e.severity IN (1,2,3,4)
    AND e.site_id IS NOT DISTINCT FROM d.site_id
    AND hosted_account_source_authorized(l.org_id,l.kind,l.id,a.client_id,a.subclient_id,e.site_id,d.device_identifier,e.first_seen_at,e.last_seen_at)) AS error_attention_time,
- CASE WHEN l.kind=5 THEN sample.site_id ELSE module_sample.site_id END AS sample_site,
- CASE WHEN l.kind=5 THEN sample.time IS NOT NULL ELSE module_sample.module_id IS NOT NULL END AS sample_present
+ CASE WHEN l.kind=5 THEN sample.site_id WHEN l.kind=7 THEN board_install.site_id ELSE module_sample.site_id END AS sample_site,
+ CASE WHEN l.kind=5 THEN sample.time IS NOT NULL WHEN l.kind=7 THEN board_sample.hashboard_id IS NOT NULL ELSE module_sample.module_id IS NOT NULL END AS sample_present
 ) source
 CROSS JOIN LATERAL (
- SELECT $10::boolean OR (source.sample_present AND source.sample_site IS NOT DISTINCT FROM d.site_id AND hosted_account_source_authorized(l.org_id,l.kind,l.id,a.client_id,a.subclient_id,source.sample_site,d.device_identifier,source.hash_old,source.hash_new)) AS hash_allowed,
- $10::boolean OR (source.sample_present AND source.sample_site IS NOT DISTINCT FROM d.site_id AND hosted_account_source_authorized(l.org_id,l.kind,l.id,a.client_id,a.subclient_id,source.sample_site,d.device_identifier,source.power_old,source.power_new)) AS power_allowed,
- $10::boolean OR (source.sample_present AND source.sample_site IS NOT DISTINCT FROM d.site_id AND hosted_account_source_authorized(l.org_id,l.kind,l.id,a.client_id,a.subclient_id,source.sample_site,d.device_identifier,source.temperature_old,source.temperature_new)) AS temperature_allowed,
- $10::boolean OR hosted_account_source_authorized(l.org_id,l.kind,l.id,a.client_id,a.subclient_id,d.site_id,d.device_identifier,source.state_time,source.state_time) AS state_allowed
+ SELECT $9::boolean OR (source.sample_present AND source.sample_site IS NOT DISTINCT FROM d.site_id AND hosted_account_source_authorized(l.org_id,l.kind,l.id,a.client_id,a.subclient_id,source.sample_site,d.device_identifier,source.hash_old,source.hash_new)) AS hash_allowed,
+ $9::boolean OR (source.sample_present AND source.sample_site IS NOT DISTINCT FROM d.site_id AND hosted_account_source_authorized(l.org_id,l.kind,l.id,a.client_id,a.subclient_id,source.sample_site,d.device_identifier,source.power_old,source.power_new)) AS power_allowed,
+ $9::boolean OR (source.sample_present AND source.sample_site IS NOT DISTINCT FROM d.site_id AND hosted_account_source_authorized(l.org_id,l.kind,l.id,a.client_id,a.subclient_id,source.sample_site,d.device_identifier,source.temperature_old,source.temperature_new)) AS temperature_allowed,
+ $9::boolean OR hosted_account_source_authorized(l.org_id,l.kind,l.id,a.client_id,a.subclient_id,d.site_id,d.device_identifier,source.state_time,source.state_time) AS state_allowed
 ) g
-WHERE $10::boolean OR a.client_id=$11::bigint OR a.subclient_id=$11::bigint
+WHERE $9::boolean OR a.client_id=$11::bigint OR a.subclient_id=$11::bigint
 
-), filtered AS (
-SELECT p.kind, p.id, p.device_id, p.revision, p.client_id, p.subclient_id, p.owner_account_id, p.owner_account_name, p.name, p.state, p.model, p.temperature_c, p.has_temperature, p.efficiency_j_th, p.has_efficiency, p.site_id, p.site_name, p.container_id, p.container_name, p.available, p.hashrate_hs, p.power_w, p.has_hashrate, p.has_power, p.observed_at, p.coverage FROM projection p
-WHERE (NOT EXISTS (
-  SELECT 1 FROM jsonb_to_recordset($12::jsonb) AS a(org_wide boolean,sites bigint[])
+), matching AS MATERIALIZED (
+SELECT p.kind, p.id, p.device_id, p.revision, p.boards, p.client_id, p.subclient_id, p.owner_account_id, p.owner_account_name, p.name, p.state, p.model, p.temperature_c, p.has_temperature, p.efficiency_j_th, p.has_efficiency, p.site_id, p.site_name, p.container_id, p.container_name, p.available, p.hashrate_hs, p.power_w, p.has_hashrate, p.has_power, p.observed_at, p.coverage FROM projection p
+WHERE (NOT $12::boolean OR p.kind=7)
+ AND (NOT $13::boolean OR
+  (p.available AND (NOT $14::boolean OR p.site_id=ANY($15::bigint[]))))
+AND (NOT EXISTS (
+  SELECT 1 FROM jsonb_to_recordset($16::jsonb) AS a(org_wide boolean,sites bigint[])
   WHERE NOT (CASE WHEN a.org_wide THEN p.site_id=0 OR NOT(p.site_id=ANY(a.sites)) ELSE p.site_id=ANY(a.sites) END)
  ))
- AND (NOT $13::boolean OR CASE
-  WHEN $10::boolean THEN p.client_id=$14::bigint
-  ELSE p.subclient_id=$14::bigint END)
- AND ($15::bigint=0 OR
-  (p.available AND (NOT $16::boolean OR p.site_id=ANY($17::bigint[])) AND p.container_id=$15::bigint))
- AND ($18::text='' OR
-  (p.available AND (NOT $16::boolean OR p.site_id=ANY($17::bigint[])) AND p.model=$18::text))
+ AND (NOT $17::boolean OR CASE
+  WHEN $9::boolean THEN p.client_id=$18::bigint
+  ELSE p.subclient_id=$18::bigint END)
  AND ($19::bigint=0 OR
-  (p.available AND (NOT $16::boolean OR p.site_id=ANY($17::bigint[])) AND p.site_id=$19::bigint))
- AND ($20::text='' OR position(lower($20::text) IN lower(CASE
-  WHEN p.available AND (NOT $16::boolean OR p.site_id=ANY($17::bigint[])) THEN p.name ELSE '' END))>0)
+  (p.available AND (NOT $14::boolean OR p.site_id=ANY($15::bigint[])) AND p.container_id=$19::bigint))
+ AND ($20::text='' OR
+  (p.available AND (NOT $14::boolean OR p.site_id=ANY($15::bigint[])) AND p.model=$20::text))
+ AND ($21::bigint=0 OR
+  (p.available AND (NOT $14::boolean OR p.site_id=ANY($15::bigint[])) AND p.site_id=$21::bigint))
+ AND ($22::text='' OR position(lower($22::text) IN lower(CASE
+  WHEN p.available AND (NOT $14::boolean OR p.site_id=ANY($15::bigint[])) THEN p.name ELSE '' END))>0)
+), grouped_boards AS MATERIALIZED (
+ -- Only matching modules suppress their boards. Expand membership once per page request.
+ SELECT (b->>'id')::bigint AS id FROM matching parent
+ CROSS JOIN LATERAL jsonb_array_elements(parent.boards) b
+ WHERE parent.kind=6
+), filtered AS (
+ SELECT p.kind, p.id, p.device_id, p.revision, p.boards, p.client_id, p.subclient_id, p.owner_account_id, p.owner_account_name, p.name, p.state, p.model, p.temperature_c, p.has_temperature, p.efficiency_j_th, p.has_efficiency, p.site_id, p.site_name, p.container_id, p.container_name, p.available, p.hashrate_hs, p.power_w, p.has_hashrate, p.has_power, p.observed_at, p.coverage FROM matching p
+ WHERE p.kind<>7 OR NOT EXISTS (SELECT 1 FROM grouped_boards b WHERE b.id=p.id)
 ), sorted AS (
- SELECT p.kind, p.id, p.device_id, p.revision, p.client_id, p.subclient_id, p.owner_account_id, p.owner_account_name, p.name, p.state, p.model, p.temperature_c, p.has_temperature, p.efficiency_j_th, p.has_efficiency, p.site_id, p.site_name, p.container_id, p.container_name, p.available, p.hashrate_hs, p.power_w, p.has_hashrate, p.has_power, p.observed_at, p.coverage,
- CASE WHEN p.available AND (NOT $16::boolean OR p.site_id=ANY($17::bigint[])) THEN
-   CASE $21::int
+ SELECT p.kind, p.id, p.device_id, p.revision, p.boards, p.client_id, p.subclient_id, p.owner_account_id, p.owner_account_name, p.name, p.state, p.model, p.temperature_c, p.has_temperature, p.efficiency_j_th, p.has_efficiency, p.site_id, p.site_name, p.container_id, p.container_name, p.available, p.hashrate_hs, p.power_w, p.has_hashrate, p.has_power, p.observed_at, p.coverage,
+ CASE WHEN p.available AND (NOT $14::boolean OR p.site_id=ANY($15::bigint[])) THEN
+   CASE $23::int
      WHEN 1 THEN CASE WHEN p.name<>'' THEN 0::float8 END
      WHEN 5 THEN CASE WHEN p.model<>'' THEN 0::float8 END
      WHEN 6 THEN CASE WHEN p.has_hashrate AND p.hashrate_hs>=0 AND p.hashrate_hs<'Infinity'::float8 THEN p.hashrate_hs END
@@ -279,12 +350,12 @@ WHERE (NOT EXISTS (
      WHEN 9 THEN CASE WHEN p.has_efficiency AND p.efficiency_j_th>=0 AND p.efficiency_j_th<'Infinity'::float8 THEN p.efficiency_j_th END
    END
  END::float8 AS sort_number,
- CASE WHEN p.available AND (NOT $16::boolean OR p.site_id=ANY($17::bigint[])) THEN
-   CASE $21::int WHEN 1 THEN lower(p.name) WHEN 5 THEN lower(p.model) ELSE '' END
+ CASE WHEN p.available AND (NOT $14::boolean OR p.site_id=ANY($15::bigint[])) THEN
+   CASE $23::int WHEN 1 THEN lower(p.name) WHEN 5 THEN lower(p.model) ELSE '' END
  ELSE '' END::text AS sort_text
  FROM filtered p
 )
-SELECT p.kind,p.id,p.device_id,p.revision,p.client_id,p.subclient_id,p.owner_account_id,p.owner_account_name,p.name,p.state,p.model,p.temperature_c,p.has_temperature,p.efficiency_j_th,p.has_efficiency,p.site_id,p.site_name,p.container_id,p.container_name,p.available,p.hashrate_hs,p.power_w,p.has_hashrate,p.has_power,p.observed_at,p.coverage,
+SELECT p.kind,p.id,p.device_id,p.revision,p.boards,p.client_id,p.subclient_id,p.owner_account_id,p.owner_account_name,p.name,p.state,p.model,p.temperature_c,p.has_temperature,p.efficiency_j_th,p.has_efficiency,p.site_id,p.site_name,p.container_id,p.container_name,p.available,p.hashrate_hs,p.power_w,p.has_hashrate,p.has_power,p.observed_at,p.coverage,
  COALESCE(p.sort_number,0)::float8 AS sort_number,p.sort_text,(p.sort_number IS NULL)::boolean AS sort_null
 FROM sorted p
 WHERE NOT $1::boolean OR
@@ -303,27 +374,29 @@ LIMIT $8::int
 `
 
 type ListHostedAccountMiningAssetPageParams struct {
-	HasCursor         bool
-	CursorNull        bool
-	Descending        bool
-	CursorNumber      float64
-	CursorText        string
-	AfterKind         int32
-	AfterID           int64
-	PageLimit         int32
-	OrganizationID    int64
-	IsRoot            bool
-	AccountInternalID int64
-	HostAuthority     json.RawMessage
-	HasOwnerFilter    bool
-	OwnerInternalID   int64
-	ContainerFilter   int64
-	PolicyRestricted  bool
-	PolicySites       []int64
-	ModelFilter       string
-	SiteFilter        int64
-	Search            string
-	SortField         int32
+	HasCursor             bool
+	CursorNull            bool
+	Descending            bool
+	CursorNumber          float64
+	CursorText            string
+	AfterKind             int32
+	AfterID               int64
+	PageLimit             int32
+	IsRoot                bool
+	OrganizationID        int64
+	AccountInternalID     int64
+	HashboardsOnly        bool
+	ReplacementCandidates bool
+	PolicyRestricted      bool
+	PolicySites           []int64
+	HostAuthority         json.RawMessage
+	HasOwnerFilter        bool
+	OwnerInternalID       int64
+	ContainerFilter       int64
+	ModelFilter           string
+	SiteFilter            int64
+	Search                string
+	SortField             int32
 }
 
 type ListHostedAccountMiningAssetPageRow struct {
@@ -331,6 +404,7 @@ type ListHostedAccountMiningAssetPageRow struct {
 	ID               int64
 	DeviceID         int64
 	Revision         int64
+	Boards           json.RawMessage
 	ClientID         int64
 	SubclientID      int64
 	OwnerAccountID   string
@@ -371,15 +445,17 @@ func (q *Queries) ListHostedAccountMiningAssetPage(ctx context.Context, arg List
 		arg.AfterKind,
 		arg.AfterID,
 		arg.PageLimit,
-		arg.OrganizationID,
 		arg.IsRoot,
+		arg.OrganizationID,
 		arg.AccountInternalID,
+		arg.HashboardsOnly,
+		arg.ReplacementCandidates,
+		arg.PolicyRestricted,
+		pq.Array(arg.PolicySites),
 		arg.HostAuthority,
 		arg.HasOwnerFilter,
 		arg.OwnerInternalID,
 		arg.ContainerFilter,
-		arg.PolicyRestricted,
-		pq.Array(arg.PolicySites),
 		arg.ModelFilter,
 		arg.SiteFilter,
 		arg.Search,
@@ -397,6 +473,7 @@ func (q *Queries) ListHostedAccountMiningAssetPage(ctx context.Context, arg List
 			&i.ID,
 			&i.DeviceID,
 			&i.Revision,
+			&i.Boards,
 			&i.ClientID,
 			&i.SubclientID,
 			&i.OwnerAccountID,
@@ -438,24 +515,27 @@ func (q *Queries) ListHostedAccountMiningAssetPage(ctx context.Context, arg List
 
 const listHostedAccountMiningAssets = `-- name: ListHostedAccountMiningAssets :many
 WITH allocations AS MATERIALIZED (
- SELECT a.organization_id, a.kind, a.asset_id, a.device_id, a.miner_id, a.module_id, a.client_id, a.subclient_id, a.revision, a.updated_at FROM hosted_account_asset a
+ SELECT a.organization_id, a.kind, a.asset_id, a.device_id, a.client_id, a.subclient_id, a.revision, a.boards FROM hosted_account_asset_projection a
  WHERE a.organization_id=$3
+ AND (NOT $4::boolean OR a.kind<>6)
  AND ($1::boolean OR a.client_id=$2::bigint OR a.subclient_id=$2::bigint)
- AND (jsonb_array_length($4::jsonb)=0 OR EXISTS (SELECT 1 FROM jsonb_to_recordset($4::jsonb) AS selected(kind integer,id bigint) WHERE selected.kind=a.kind AND selected.id=a.asset_id))
+ AND (jsonb_array_length($5::jsonb)=0 OR EXISTS (SELECT 1 FROM jsonb_to_recordset($5::jsonb) AS selected(kind integer,id bigint) WHERE selected.kind=a.kind AND selected.id=a.asset_id))
 ), live_assets AS MATERIALIZED (
  -- Unselected root reports need the full fleet. Exact root selections and
  -- customer reports enter the Fleet view by typed ID, before telemetry joins.
- SELECT f.kind, f.id, f.org_id, f.site_id, f.name, f.device_identifier, f.position, f.reported_id, f.facility_kind, f.facility_id, f.group_kind, f.group_id, f.state, f.observed_at, f.hashrate_hs, f.power_w, f.temperature_c, f.miner_efficiency_jth FROM fleet_mining_asset f
+ SELECT f.kind, f.id, f.org_id, f.site_id, f.name, f.device_identifier, f.position, f.reported_id, f.facility_kind, f.facility_id, f.group_kind, f.group_id, f.state, f.observed_at, f.hashrate_hs, f.power_w, f.temperature_c, f.miner_efficiency_jth FROM hosted_mining_asset f
  WHERE $1::boolean AND f.org_id=$3
- AND jsonb_array_length($4::jsonb)=0
+ AND (NOT $4::boolean OR f.kind<>6)
+ AND jsonb_array_length($5::jsonb)=0
  UNION ALL
  SELECT f.kind, f.id, f.org_id, f.site_id, f.name, f.device_identifier, f.position, f.reported_id, f.facility_kind, f.facility_id, f.group_kind, f.group_id, f.state, f.observed_at, f.hashrate_hs, f.power_w, f.temperature_c, f.miner_efficiency_jth FROM (
   SELECT DISTINCT (value->>'kind')::integer AS kind,(value->>'id')::bigint AS id
-  FROM jsonb_array_elements($4::jsonb)
+  FROM jsonb_array_elements($5::jsonb)
  ) selected
  CROSS JOIN LATERAL (
-  SELECT f.kind, f.id, f.org_id, f.site_id, f.name, f.device_identifier, f.position, f.reported_id, f.facility_kind, f.facility_id, f.group_kind, f.group_id, f.state, f.observed_at, f.hashrate_hs, f.power_w, f.temperature_c, f.miner_efficiency_jth FROM fleet_mining_asset f
+  SELECT f.kind, f.id, f.org_id, f.site_id, f.name, f.device_identifier, f.position, f.reported_id, f.facility_kind, f.facility_id, f.group_kind, f.group_id, f.state, f.observed_at, f.hashrate_hs, f.power_w, f.temperature_c, f.miner_efficiency_jth FROM hosted_mining_asset f
   WHERE f.org_id=$3 AND f.kind=selected.kind AND f.id=selected.id
+  AND (NOT $4::boolean OR f.kind<>6)
   -- Prevent pull-up from moving selection filtering after telemetry joins.
   OFFSET 0
  ) f
@@ -463,7 +543,7 @@ WITH allocations AS MATERIALIZED (
  UNION ALL
  SELECT f.kind, f.id, f.org_id, f.site_id, f.name, f.device_identifier, f.position, f.reported_id, f.facility_kind, f.facility_id, f.group_kind, f.group_id, f.state, f.observed_at, f.hashrate_hs, f.power_w, f.temperature_c, f.miner_efficiency_jth FROM allocations a
  CROSS JOIN LATERAL (
-  SELECT f.kind, f.id, f.org_id, f.site_id, f.name, f.device_identifier, f.position, f.reported_id, f.facility_kind, f.facility_id, f.group_kind, f.group_id, f.state, f.observed_at, f.hashrate_hs, f.power_w, f.temperature_c, f.miner_efficiency_jth FROM fleet_mining_asset f
+  SELECT f.kind, f.id, f.org_id, f.site_id, f.name, f.device_identifier, f.position, f.reported_id, f.facility_kind, f.facility_id, f.group_kind, f.group_id, f.state, f.observed_at, f.hashrate_hs, f.power_w, f.temperature_c, f.miner_efficiency_jth FROM hosted_mining_asset f
   WHERE f.org_id=$3 AND f.kind=a.kind AND f.id=a.asset_id
   -- Prevent pull-up from moving allocation filtering after telemetry joins.
   OFFSET 0
@@ -476,12 +556,12 @@ WITH allocations AS MATERIALIZED (
  SELECT a.kind,a.asset_id,a.organization_id,a.device_id FROM allocations a
  WHERE a.client_id IS NOT NULL
 )
-SELECT l.kind,l.id,l.device_id,COALESCE(a.revision,0)::bigint AS revision,
+SELECT l.kind,l.id,l.device_id,COALESCE(a.revision,0)::bigint AS revision, COALESCE(a.boards,'[]'::jsonb)::jsonb AS boards,
  COALESCE(a.client_id,0)::bigint AS client_id,COALESCE(a.subclient_id,0)::bigint AS subclient_id,
  COALESCE(sc.account_id,c.account_id,'')::text AS owner_account_id,
  COALESCE(sc.name,c.name,'')::text AS owner_account_name,
  COALESCE(f.name,'')::text AS name,CASE
-  WHEN g.state_allowed AND ($1::boolean OR l.kind=6 OR f.state='offline') THEN COALESCE(f.state,'unknown')
+  WHEN g.state_allowed AND ($1::boolean OR l.kind IN (6,7) OR f.state='offline') THEN COALESCE(f.state,'unknown')
   WHEN source.auth_attention_time IS NOT NULL THEN 'error'
   WHEN g.state_allowed AND status.status IN ('MAINTENANCE','INACTIVE') THEN lower(status.status::text)
   WHEN source.error_attention_time IS NOT NULL THEN 'error'
@@ -491,15 +571,15 @@ SELECT l.kind,l.id,l.device_id,COALESCE(a.revision,0)::bigint AS revision,
  COALESCE(CASE WHEN g.temperature_allowed THEN f.temperature_c END,0)::float8 AS temperature_c, (g.temperature_allowed AND f.temperature_c IS NOT NULL)::boolean AS has_temperature,
  COALESCE(CASE WHEN g.hash_allowed AND g.power_allowed THEN f.miner_efficiency_jth END,0)::float8 AS efficiency_j_th, COALESCE(g.hash_allowed AND g.power_allowed AND f.miner_efficiency_jth IS NOT NULL
   AND f.hashrate_hs>=0 AND f.hashrate_hs<'Infinity'::float8 AND f.power_w>=0 AND f.power_w<'Infinity'::float8
-  AND (l.kind=5 OR (
+  AND (l.kind IN (5,7) OR (
    (cm.coverage#>>'{hashrate,topology_complete}')::boolean AND (cm.coverage#>>'{power,topology_complete}')::boolean
    AND (cm.coverage#>>'{hashrate,expected}')::int>0 AND (cm.coverage#>>'{power,expected}')::int>0
    AND (cm.coverage#>>'{hashrate,reporting}')::int=(cm.coverage#>>'{hashrate,expected}')::int
    AND (cm.coverage#>>'{power,reporting}')::int=(cm.coverage#>>'{power,expected}')::int
   )),false)::boolean AS has_efficiency,
  COALESCE(d.site_id,0)::bigint AS site_id,COALESCE(s.name,'')::text AS site_name,
- CASE WHEN l.kind=6 THEN l.device_id ELSE 0 END::bigint AS container_id,
- CASE WHEN l.kind=6 THEN COALESCE(NULLIF(d.custom_name,''),'Container '||d.device_identifier) ELSE '' END::text AS container_name,
+ CASE WHEN l.kind IN (6,7) THEN l.device_id ELSE 0 END::bigint AS container_id,
+ CASE WHEN l.kind IN (6,7) THEN COALESCE(NULLIF(d.custom_name,''),'Container '||d.device_identifier) ELSE '' END::text AS container_name,
  (f.id IS NOT NULL)::boolean AS available,
  COALESCE(CASE WHEN g.hash_allowed THEN f.hashrate_hs END,0)::float8 AS hashrate_hs,COALESCE(CASE WHEN g.power_allowed THEN f.power_w END,0)::float8 AS power_w,
  (g.hash_allowed AND f.hashrate_hs IS NOT NULL)::boolean AS has_hashrate,(g.power_allowed AND f.power_w IS NOT NULL)::boolean AS has_power,
@@ -518,17 +598,22 @@ LEFT JOIN container_equipment_current_metrics cm ON l.kind=6 AND cm.kind=6 AND c
 LEFT JOIN device_metrics sample ON l.kind=5 AND sample.device_identifier=d.device_identifier AND sample.time=f.observed_at
 LEFT JOIN device_status status ON l.kind=5 AND status.device_id=l.id
 LEFT JOIN device_pairing pairing ON l.kind=5 AND pairing.device_id=l.id
+LEFT JOIN hashboard_latest_metrics board_sample ON l.kind=7 AND board_sample.hashboard_id=l.id
+LEFT JOIN hashboard_installation board_install ON l.kind=7 AND board_install.hashboard_id=l.id
+ AND board_install.device_id=l.device_id AND board_install.removed_at IS NULL
+LEFT JOIN hashboard_slot board_slot ON board_slot.module_id=board_install.module_id
+ AND board_slot.position=board_install.position AND board_slot.hashboard_id=l.id
 LEFT JOIN container_module module ON l.kind=6 AND module.id=l.id
 LEFT JOIN container_module_latest_metrics latest ON l.kind=6 AND latest.module_id=l.id
 LEFT JOIN container_module_metrics module_sample ON l.kind=6 AND module_sample.module_id=l.id AND module_sample.time=latest.time AND module_sample.collected_at=latest.collected_at
 CROSS JOIN LATERAL (
- SELECT CASE WHEN l.kind=5 THEN f.observed_at ELSE (cm.coverage#>>'{hashrate,oldest_at}')::timestamptz END AS hash_old,
- CASE WHEN l.kind=5 THEN f.observed_at ELSE (cm.coverage#>>'{hashrate,newest_at}')::timestamptz END AS hash_new,
- CASE WHEN l.kind=5 THEN f.observed_at ELSE (cm.coverage#>>'{power,oldest_at}')::timestamptz END AS power_old,
- CASE WHEN l.kind=5 THEN f.observed_at ELSE (cm.coverage#>>'{power,newest_at}')::timestamptz END AS power_new,
- CASE WHEN l.kind=5 THEN f.observed_at ELSE (cm.coverage#>>'{temperature,oldest_at}')::timestamptz END AS temperature_old,
- CASE WHEN l.kind=5 THEN f.observed_at ELSE (cm.coverage#>>'{temperature,newest_at}')::timestamptz END AS temperature_new,
- CASE WHEN l.kind=5 THEN status.status_timestamp ELSE module.state_observed_at END AS state_time,
+ SELECT CASE WHEN l.kind IN (5,7) THEN f.observed_at ELSE (cm.coverage#>>'{hashrate,oldest_at}')::timestamptz END AS hash_old,
+ CASE WHEN l.kind IN (5,7) THEN f.observed_at ELSE (cm.coverage#>>'{hashrate,newest_at}')::timestamptz END AS hash_new,
+ CASE WHEN l.kind IN (5,7) THEN f.observed_at ELSE (cm.coverage#>>'{power,oldest_at}')::timestamptz END AS power_old,
+ CASE WHEN l.kind IN (5,7) THEN f.observed_at ELSE (cm.coverage#>>'{power,newest_at}')::timestamptz END AS power_new,
+ CASE WHEN l.kind IN (5,7) THEN f.observed_at ELSE (cm.coverage#>>'{temperature,oldest_at}')::timestamptz END AS temperature_old,
+ CASE WHEN l.kind IN (5,7) THEN f.observed_at ELSE (cm.coverage#>>'{temperature,newest_at}')::timestamptz END AS temperature_new,
+ CASE WHEN l.kind=5 THEN status.status_timestamp WHEN l.kind=7 THEN board_slot.state_observed_at ELSE module.state_observed_at END AS state_time,
  CASE WHEN l.kind=5 AND pairing.pairing_status='AUTHENTICATION_NEEDED'
   AND hosted_account_source_authorized(l.org_id,l.kind,l.id,a.client_id,a.subclient_id,d.site_id,d.device_identifier,pairing.updated_at,pairing.updated_at)
   THEN pairing.updated_at END AS auth_attention_time,
@@ -538,8 +623,8 @@ CROSS JOIN LATERAL (
    AND e.closed_at IS NULL AND e.severity IN (1,2,3,4)
    AND e.site_id IS NOT DISTINCT FROM d.site_id
    AND hosted_account_source_authorized(l.org_id,l.kind,l.id,a.client_id,a.subclient_id,e.site_id,d.device_identifier,e.first_seen_at,e.last_seen_at)) AS error_attention_time,
- CASE WHEN l.kind=5 THEN sample.site_id ELSE module_sample.site_id END AS sample_site,
- CASE WHEN l.kind=5 THEN sample.time IS NOT NULL ELSE module_sample.module_id IS NOT NULL END AS sample_present
+ CASE WHEN l.kind=5 THEN sample.site_id WHEN l.kind=7 THEN board_install.site_id ELSE module_sample.site_id END AS sample_site,
+ CASE WHEN l.kind=5 THEN sample.time IS NOT NULL WHEN l.kind=7 THEN board_sample.hashboard_id IS NOT NULL ELSE module_sample.module_id IS NOT NULL END AS sample_present
 ) source
 CROSS JOIN LATERAL (
  SELECT $1::boolean OR (source.sample_present AND source.sample_site IS NOT DISTINCT FROM d.site_id AND hosted_account_source_authorized(l.org_id,l.kind,l.id,a.client_id,a.subclient_id,source.sample_site,d.device_identifier,source.hash_old,source.hash_new)) AS hash_allowed,
@@ -555,6 +640,7 @@ type ListHostedAccountMiningAssetsParams struct {
 	IsRoot            bool
 	AccountInternalID int64
 	OrganizationID    int64
+	LeavesOnly        bool
 	SelectedAssets    json.RawMessage
 }
 
@@ -563,6 +649,7 @@ type ListHostedAccountMiningAssetsRow struct {
 	ID               int64
 	DeviceID         int64
 	Revision         int64
+	Boards           json.RawMessage
 	ClientID         int64
 	SubclientID      int64
 	OwnerAccountID   string
@@ -596,6 +683,7 @@ func (q *Queries) ListHostedAccountMiningAssets(ctx context.Context, arg ListHos
 		arg.IsRoot,
 		arg.AccountInternalID,
 		arg.OrganizationID,
+		arg.LeavesOnly,
 		arg.SelectedAssets,
 	)
 	if err != nil {
@@ -610,6 +698,7 @@ func (q *Queries) ListHostedAccountMiningAssets(ctx context.Context, arg ListHos
 			&i.ID,
 			&i.DeviceID,
 			&i.Revision,
+			&i.Boards,
 			&i.ClientID,
 			&i.SubclientID,
 			&i.OwnerAccountID,
@@ -659,8 +748,8 @@ func (q *Queries) LockHostedAccountAssetInventory(ctx context.Context, deviceIds
 }
 
 const setHostedAccountAsset = `-- name: SetHostedAccountAsset :one
-INSERT INTO hosted_account_asset(organization_id,kind,asset_id,device_id,miner_id,module_id,client_id,subclient_id)
-VALUES($1,$2,$3,$4,$5,$6,$7,$8)
+INSERT INTO hosted_account_asset(organization_id,kind,asset_id,device_id,miner_id,module_id,hashboard_id,client_id,subclient_id)
+VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)
 ON CONFLICT (organization_id,kind,asset_id) DO UPDATE SET client_id=EXCLUDED.client_id,subclient_id=EXCLUDED.subclient_id,revision=hosted_account_asset.revision+1,updated_at=CURRENT_TIMESTAMP
 RETURNING revision
 `
@@ -672,6 +761,7 @@ type SetHostedAccountAssetParams struct {
 	DeviceID       int64
 	MinerID        sql.NullInt64
 	ModuleID       sql.NullInt64
+	HashboardID    sql.NullInt64
 	ClientID       sql.NullInt64
 	SubclientID    sql.NullInt64
 }
@@ -684,6 +774,7 @@ func (q *Queries) SetHostedAccountAsset(ctx context.Context, arg SetHostedAccoun
 		arg.DeviceID,
 		arg.MinerID,
 		arg.ModuleID,
+		arg.HashboardID,
 		arg.ClientID,
 		arg.SubclientID,
 	)

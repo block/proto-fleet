@@ -112,8 +112,9 @@ WITH actor AS (
 ), assignment_counts AS (
  SELECT a.client_id,
         count(*) FILTER (WHERE a.kind=5)::bigint AS miner_count,
-        count(*) FILTER (WHERE a.kind=6)::bigint AS module_count,
-        count(DISTINCT a.device_id) FILTER (WHERE a.kind=6)::bigint AS container_count
+        0::bigint AS module_count,
+        count(DISTINCT a.device_id) FILTER (WHERE a.kind=7)::bigint AS container_count,
+        count(*) FILTER (WHERE a.kind=7)::bigint AS hashboard_count
  FROM hosted_account_asset a JOIN management_clients c ON c.id=a.client_id
  WHERE a.organization_id=sqlc.arg(organization_id)
  GROUP BY a.client_id
@@ -126,7 +127,7 @@ WITH actor AS (
  GROUP BY m.account_id
 )
 SELECT s.*, COALESCE(ac.miner_count,0)::bigint AS miner_count,
-       COALESCE(ac.module_count,0)::bigint AS module_count,
+       COALESCE(ac.module_count,0)::bigint AS module_count, COALESCE(ac.hashboard_count,0)::bigint AS hashboard_count,
        COALESCE(ac.container_count,0)::bigint AS container_count,
        COALESCE(lc.login_count,0)::bigint AS login_count
 FROM summaries s JOIN accounts a ON a.account_id=s.account_id

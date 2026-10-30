@@ -450,11 +450,51 @@ for the relationship between code entropy, lifetime, and guessing limits.
 ### Hosted mining reporting and allocation
 
 `hosted_account_asset` stores an exclusive typed mining leaf: conventional miner
-or container module, its primary customer and optional immediate subclient.
+or stable hashboard identity, its primary customer and optional immediate subclient.
 Both account references empty means available to the host. Recalled rows retain
 monotonic revisions, so an old selection cannot overwrite a later recall and
-reassignment. Replacing/retiring a module does not transfer its reporting
-allocation to another module ID.
+reassignment. Modules are derived from established slot membership and ownership
+of every installed board. Confirmed empty slots are allowed; empty modules,
+unknown slots and conflicting identities do not qualify. Board allocations survive
+module retirement and discovery gaps. Accepted controller movement updates placement
+without changing ownership.
+
+Module selections include all reviewed board IDs and revisions. Assignment expands
+them into atomic board mutations and rejects changed membership or overlapping
+selections. After reconciling each accepted controller inventory, the server
+detects replacements in the same slot of a module with a confirmed PSU identity.
+It uses durable board identities resolved from MAC addresses and serial numbers.
+The replacement inherits the outgoing board's client and subclient. The outgoing
+board returns to the host. Both allocation changes and a system activity event
+commit with the inventory update under the organization lock.
+
+The outgoing board must have no later installation or active observation. The
+incoming board must be unallocated. Later manual allocation decisions, suspended
+accounts, and destination site restrictions prevent automatic transfer. Empty or
+unknown gaps preserve ownership. Later identity confirmation can complete a
+transfer, using that accepted poll's timestamp for both history boundaries.
+Ownership is never backfilled to an earlier unconfirmed observation.
+
+Migration 1049 records allocation decisions, installations, and removals in database
+sequence order. Device clock skew cannot override a later manual decision.
+Placement-only updates retain allocation decision order. Reporting history still
+uses the accepted observation time and waits if that time would overlap an earlier
+ownership period. Existing pending replacements have no reliable ordering markers
+and require the manual fallback. New replacements of existing boards are automatic.
+
+Host operators can still transfer an old board's complete allocation chain to an
+available, unallocated replacement with `ReplaceAccountHashboard`. This manual
+fallback also uses one history boundary. Neither path applies pool settings.
+
+Migration 1047 converts established current module allocations to board allocations.
+It closes the old module periods and starts board periods at one upgrade boundary.
+It preserves the old module history without inferring earlier board ownership.
+Migration refuses allocated modules with unresolved membership. Before retrying,
+restore a complete accepted inventory, or explicitly recall the unresolved module
+allocation using the previous application version. The error leaves ownership
+unchanged. Do not mark slots empty merely to pass the migration. Rollback refuses
+once board allocations or board history exist; use a coordinated backup or fix
+forward.
 
 Account View permits the primary customer estate aggregate and scoped inventory.
 Membership-management or delegation permits relative child buckets/owner labels;
@@ -481,7 +521,7 @@ requires a current, available allocation and live site access.
 Migration 1031 records half-open assignment/delegation intervals, including device
 site and identity changes. Existing assignments establish ownership only from the
 migration's recorded start; no earlier samples are backfilled from current owners.
-Raw miner/module samples join their typed identity and established intervals before
+Raw miner/board and legacy module samples join their typed identity and established intervals before
 aggregation, so buckets crossing reassignment exclude other accounts' samples.
 Recall leaves intervals intact. Current site permissions gate historical access;
 restoration exposes retained samples again. Rollback refuses to discard retained
@@ -493,13 +533,26 @@ readings use the same provenance checks before inventory sorting or aggregation.
 use authorized raw telemetry; older or longer windows use allocation-specific
 hourly/daily summaries. See [hosted-account charts](../docs/development/ct1-polling-metrics.md#hosted-account-charts)
 for availability, retention and work limits. Raw requests are
-bounded to 300 weighted asset-days after allocation/site authorization: miners
-count once, modules eight times including contributor-window scan margins.
+bounded to 300 weighted asset-days after allocation/site authorization: miners and boards
+count once, legacy modules eight times including contributor-window scan margins.
 Over-budget requests return InvalidArgument with guidance to shorten the range
 or narrow allocation/site filters. Module history scans
 collections with the source freshness and clock-skew margins using the
 module/collection-time index and collection-first compressed ordering (1033), then authorizes and buckets independent metric
 source windows. A stale PSU source time cannot exclude fresh board readings.
+
+Current account totals, site summaries and allocation counts use miners and
+hashboards, matching new historical buckets. Modules remain inventory groups;
+their module/PSU readings are separate from account totals and never replace
+missing board measurements. Legacy buckets retain module reporting and are
+labeled in chart tooltips and the history view.
+Board history joins the installation's recorded controller and site, not the
+controller's current identifier or the board's current module. Independent board
+diagnostic observations supply historical operating states.
+Migration 1047 also captures authorized board observations in the retained
+hourly/daily history introduced by migration 1044. Corrections and deletions
+update the captured contribution. Both raw and retained charts split board
+replacement periods so sequential boards do not count as simultaneous capacity.
 
 Power totals contain only measured equipment readings with reporting counts;
 controller plant power never substitutes for assigned-module power. Efficiency

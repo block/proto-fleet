@@ -400,6 +400,10 @@ type AlertRuleConfig struct {
 	UpdatedAt time.Time
 }
 
+type AllocationTransition struct {
+	At interface{}
+}
+
 type ApiKey struct {
 	ID             int64
 	KeyID          string
@@ -1803,6 +1807,8 @@ type HashboardInstallation struct {
 	DeviceID       int64
 	TankID         int64
 	ModulePosition int32
+	InstalledOrder sql.NullInt64
+	RemovedOrder   sql.NullInt64
 }
 
 type HashboardLatestMetric struct {
@@ -1986,16 +1992,18 @@ type HostedAccountAncestorGrant struct {
 }
 
 type HostedAccountAsset struct {
-	OrganizationID int64
-	Kind           int32
-	AssetID        int64
-	DeviceID       int64
-	MinerID        sql.NullInt64
-	ModuleID       sql.NullInt64
-	ClientID       sql.NullInt64
-	SubclientID    sql.NullInt64
-	Revision       int64
-	UpdatedAt      time.Time
+	OrganizationID          int64
+	Kind                    int32
+	AssetID                 int64
+	DeviceID                int64
+	MinerID                 sql.NullInt64
+	ModuleID                sql.NullInt64
+	ClientID                sql.NullInt64
+	SubclientID             sql.NullInt64
+	Revision                int64
+	UpdatedAt               time.Time
+	HashboardID             sql.NullInt64
+	AllocationDecisionOrder int64
 }
 
 type HostedAccountAssetInterval struct {
@@ -2010,6 +2018,17 @@ type HostedAccountAssetInterval struct {
 	SubclientID      sql.NullInt64
 	StartedAt        time.Time
 	EndedAt          sql.NullTime
+}
+
+type HostedAccountAssetProjection struct {
+	OrganizationID int64
+	Kind           int32
+	AssetID        int64
+	DeviceID       int64
+	ClientID       sql.NullInt64
+	SubclientID    sql.NullInt64
+	Revision       int64
+	Boards         json.RawMessage
 }
 
 type HostedAccountHistoryDaily struct {
@@ -2168,6 +2187,35 @@ type HostedInvitationRateLimit struct {
 	ClientHash      string
 	WindowStartedAt time.Time
 	Attempts        int32
+}
+
+type HostedMiningAsset struct {
+	Kind               int32
+	ID                 int64
+	OrgID              int64
+	SiteID             sql.NullInt64
+	Name               string
+	DeviceIdentifier   string
+	Position           int32
+	ReportedID         string
+	FacilityKind       int32
+	FacilityID         sql.NullInt64
+	GroupKind          int32
+	GroupID            int64
+	State              string
+	ObservedAt         time.Time
+	HashrateHs         sql.NullFloat64
+	PowerW             sql.NullFloat64
+	TemperatureC       sql.NullFloat64
+	MinerEfficiencyJth float64
+}
+
+type HostedModuleMembership struct {
+	ModuleID        int64
+	DeviceID        int64
+	OrgID           int64
+	MembershipSince interface{}
+	BoardIds        interface{}
 }
 
 type InfrastructureDevice struct {

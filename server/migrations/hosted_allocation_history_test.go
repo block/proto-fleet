@@ -16,6 +16,7 @@ import (
 // Tests of an earlier migration first remove the empty newer dependency.
 func rollbackEmptyAllocationHistory(t *testing.T, conn *sql.DB) {
 	t.Helper()
+	rollbackEmptyHashboardAllocations(t, conn)
 	summaryDown, err := migrations.Current.ReadFile("current/001044_internal_hosted_history_summaries.down.sql")
 	require.NoError(t, err)
 	_, err = conn.ExecContext(t.Context(), string(summaryDown))
@@ -148,4 +149,18 @@ func TestAllocationHistoryMigrationFencesConcurrentRecall(t *testing.T) {
 	require.NoError(t, conn.QueryRowContext(ctx, `SELECT count(*),count(*) FILTER(WHERE ended_at IS NULL) FROM hosted_account_asset_interval WHERE client_id=$1`, customer).Scan(&periods, &open))
 	require.Equal(t, 1, periods)
 	require.Zero(t, open, "the recall after migration must close the seeded interval")
+}
+
+// Remove the newest dependent schema before testing a legacy migration.
+func rollbackEmptyHashboardAllocations(t *testing.T, conn *sql.DB) {
+	t.Helper()
+	var exists bool
+	require.NoError(t, conn.QueryRowContext(t.Context(), `SELECT to_regclass('hosted_module_membership') IS NOT NULL`).Scan(&exists))
+	if !exists {
+		return
+	}
+	down, err := migrations.Current.ReadFile("current/001047_internal_hashboard_allocations.down.sql")
+	require.NoError(t, err)
+	_, err = conn.ExecContext(t.Context(), string(down))
+	require.NoError(t, err)
 }

@@ -547,6 +547,7 @@ var AccountProcedureCapabilities = map[string]hostedaccounts.Capabilities{
 	hostedv1connect.HostedAccountServiceGetAccountMiningSummaryProcedure:  hostedaccounts.View,
 	hostedv1connect.HostedAccountServiceListAccountAssetsProcedure:        hostedaccounts.View,
 	hostedv1connect.HostedAccountServiceAssignAccountAssetsProcedure:      hostedaccounts.Delegate,
+	hostedv1connect.HostedAccountServiceReplaceAccountHashboardProcedure:  hostedaccounts.Delegate,
 	hostedv1connect.HostedAccountServiceCreatePoolConfigurationProcedure:  hostedaccounts.ManagePools,
 	hostedv1connect.HostedAccountServiceRevisePoolConfigurationProcedure:  hostedaccounts.ManagePools,
 	hostedv1connect.HostedAccountServiceGetPoolRevisionProcedure:          hostedaccounts.View,

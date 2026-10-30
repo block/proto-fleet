@@ -12,7 +12,7 @@ bits; changing a label does not change authorization.
 | 2   | `ManagePools`     | Manage pool configurations | Create, revise and archive saved pool configurations.                                                                                                                                 |
 | 4   | `ChangePools`     | Select stored pool profile | Select or clear the stored profile's pinned pool revision using a Fleet session and the current login password.                                                                       |
 | 8   | `ManageMembers`   | Manage memberships         | Manage the account's team, invitations and explicit ancestor grants; also rename the account and manage site policy within the permitted scope.                                       |
-| 16  | `Delegate`        | Allocate and recall assets | Manage permitted child accounts and reporting allocations. Customer administrators allocate directly held miners or modules to subclients and recall those allocations to the parent. |
+| 16  | `Delegate`        | Allocate and recall assets | Manage permitted child accounts and reporting allocations. Customer administrators allocate directly held miners or hashboards (including module selections) to subclients and recall those allocations to the parent. |
 
 Viewer supplies bit 1, Pool operator supplies bits 1, 2 and 4, and Account
 administrator supplies all five bits. Effective capabilities combine direct
@@ -24,6 +24,57 @@ Saved pool configurations and stored profile selection are separate permissions.
 Neither operation applies pool settings to existing or newly assigned mining
 assets. Allocation moves reporting responsibility; it does not move physical
 equipment, apply pools or enable firmware commands.
+
+## Hashboard allocations
+
+CT1 allocation uses stable hashboard IDs. A module selection supplies the exact
+reviewed board IDs and revisions. The server assigns, delegates, or recalls that
+set in one transaction. It rejects changed membership or allocation revisions.
+A conventional miner remains one whole-device allocation.
+
+A module appears only when its three slots establish a nonempty membership and
+the account owns every installed board. Confirmed empty slots are permitted;
+unknown or conflicting slots do not establish membership. Parent accounts can
+see a module whose boards belong to different subclients. Each partial owner
+sees only its boards. Discovery gaps and module retirement preserve allocations.
+
+Inventory updates detect a replacement when a different board appears in the same
+slot of a module with a confirmed PSU identity. The new board inherits the old
+board's client and subclient allocation. The old board returns to the host.
+The update records both changes and a system activity event in one transaction.
+History changes at the accepted observation time; delayed confirmation does not
+backfill ownership. Empty or unknown slots preserve the old allocation.
+
+Automatic transfer requires an unallocated replacement and an old board that has
+not moved elsewhere. Unresolved identities, later manual allocation decisions,
+suspended accounts, and destination site restrictions prevent the transfer.
+The database records decision order separately from device timestamps and physical
+moves. Replacements already pending before migration 1049 require the manual
+fallback because their decision order cannot be reconstructed safely.
+
+As a manual fallback, host operators can use **Individual hashboards** in a
+client's Mining assets page to select an old board and **Replace hashboard**.
+The replacement must be available and unallocated. The operation preserves the
+client/subclient chain and checks both physical read authority and destination
+site policy. This action requires a selected host account and a Fleet session.
+Customers and account API keys cannot perform it.
+The replacement picker resolves the reviewed board's full owner path, including
+subclient policies and parent site ceilings, before filtering and paging spares.
+The transfer checks this policy again in case it changed after selection.
+
+Manual changes use one history timestamp for every affected miner and board.
+It is no earlier than database time or any selected asset's recorded history,
+including closed periods. This keeps recall, delegation, reassignment, and
+replacement valid when an accepted inventory timestamp is ahead of the database.
+
+Current summaries and allocation counts use miners and hashboards. Modules remain
+inventory groups with separately labeled module/PSU power in their detail view.
+Account totals never substitute module power for missing board measurements.
+New historical reporting follows board allocation periods and uses measured board
+power. Earlier module periods remain labeled legacy module history. No past board
+ownership is inferred from current membership.
+History buckets split at board allocation changes, including migration and board
+replacement. Sequential equipment is not added as simultaneous capacity.
 
 ## Host and parent access
 
@@ -58,7 +109,7 @@ Host recovery and direct-parent management paths have additional checks.
 | `SetIncomingPoolProfile`                                                                       | `ChangePools`                                                          | Yes, with current login password | No                                         |
 | `GetAccountDashboard`, `GetAccountMiningSummary`, `ListAccountAssets`, `GetAccountAssetDetail` | `View`                                                                 | Yes                              | No                                         |
 | `ListAccountActivities`, `ExportAccountActivities`                                             | `View`                                                                 | Yes                              | No                                         |
-| `AssignAccountAssets`                                                                          | `Delegate`                                                             | Yes                              | No                                         |
+| `AssignAccountAssets`, `ReplaceAccountHashboard`                                                                          | `Delegate`                                                             | Yes                              | No                                         |
 | `ListChildren`, `CreateAccount`, `ConfigureAccount`                                            | `Delegate` or checked host management authority                        | Yes                              | No                                         |
 | `RenameAccount`, `ListMembers`, `SetMemberRole`, `RevokeMember`                                | `ManageMembers`                                                        | Yes                              | No                                         |
 | `ListAncestorGrants`, `SetAncestorGrant`, `RevokeAncestorGrant`, `SetSitePolicy`               | `ManageMembers`, with checked host/parent alternatives where supported | Yes                              | No                                         |

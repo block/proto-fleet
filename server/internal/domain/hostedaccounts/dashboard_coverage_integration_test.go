@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestAccountModuleHistoryMissingSourcesVetoEfficiency(t *testing.T) {
+func TestAccountLegacyModuleHistoryMissingSourcesVetoEfficiency(t *testing.T) {
 	for _, test := range []struct {
 		name                                                                          string
 		missingPower, beforeAllocation, outsideRange, foreignSite, valueWithoutSource bool
@@ -30,6 +30,7 @@ func TestAccountModuleHistoryMissingSourcesVetoEfficiency(t *testing.T) {
 			require.NoError(t, f.allocate(t, f.host, f.root, client.AccountID, 1, selected(6, module, 0)))
 			end := time.Now().UTC().Truncate(time.Second).Add(-time.Minute)
 			start := end.Add(-time.Hour)
+			f.legacyModuleHistory(t)
 			_, err := f.db.ExecContext(t.Context(), `UPDATE hosted_account_asset_interval SET started_at=$1 WHERE client_id=$2`, start.Add(10*time.Minute), client.ID)
 			require.NoError(t, err)
 

@@ -1,6 +1,6 @@
 import { create } from "@bufbuild/protobuf";
 
-import { type AssetColumn, assetName } from "./accountAssetColumns";
+import { type AssetColumn, assetKindLabel, assetName } from "./accountAssetColumns";
 import { EntityKind, InventoryItemSchema } from "@/protoFleet/api/generated/fleetinventory/v1/fleetinventory_pb";
 import { type AccountAsset, MiningAssetKind } from "@/protoFleet/api/generated/hosted/v1/hosted_pb";
 import { InventoryCell } from "@/protoFleet/features/containers/InventoryCell";
@@ -12,7 +12,7 @@ import { convertCtoF } from "@/shared/utils/telemetryFormat";
 export function AccountAssetCell({ asset, column }: { asset: AccountAsset; column: AssetColumn }) {
   const unit = useTemperatureUnit();
   if (column === "model") return <span>{asset.model || "—"}</span>;
-  if (column === "kind") return <span>{asset.kind === MiningAssetKind.MODULE ? "Module" : "Miner"}</span>;
+  if (column === "kind") return <span>{assetKindLabel(asset.kind)}</span>;
   if (column === "container")
     return (
       <span className="block truncate" title={asset.containerName || undefined}>
@@ -26,7 +26,7 @@ export function AccountAssetCell({ asset, column }: { asset: AccountAsset; colum
         {asset.outsidePolicy ? "Outside site policy" : "Unavailable"}
       </span>
     );
-  if (asset.kind === MiningAssetKind.MINER) {
+  if (asset.kind !== MiningAssetKind.MODULE) {
     switch (column) {
       case "name":
         return (

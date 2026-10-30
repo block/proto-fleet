@@ -56,7 +56,9 @@ func TestAccountHistoryRawRetainedParity(t *testing.T) {
 		module, controller := f.miningModule(t)
 		_, err := f.db.ExecContext(t.Context(), `UPDATE device SET site_id=$1 WHERE id=$2`, secondSite, controller)
 		require.NoError(t, err)
+		f.observeModuleAtCurrentSite(t, module, controller)
 		require.NoError(t, f.allocate(t, f.host, f.root, client.AccountID, 1, selected(6, module, 0)))
+		f.legacyModuleHistory(t)
 		_, err = f.db.ExecContext(t.Context(), `UPDATE hosted_account_asset_interval SET started_at=$1 WHERE kind=6 AND asset_id=$2`, start, module)
 		require.NoError(t, err)
 		for _, offset := range []time.Duration{10 * time.Minute, 40 * time.Minute} {
@@ -87,6 +89,10 @@ func TestAccountHistoryRawRetainedParity(t *testing.T) {
 		if hourly {
 			bucket = int32(time.Hour / time.Second)
 		}
+		var parityBuckets []time.Time
+		for at := start; at.Before(end); at = at.Add(time.Duration(bucket) * time.Second) {
+			parityBuckets = append(parityBuckets, at)
+		}
 		for _, scope := range []struct {
 			name       string
 			site       int64
@@ -107,7 +113,7 @@ func TestAccountHistoryRawRetainedParity(t *testing.T) {
 			{name: "host intersection denies", authority: fmt.Sprintf(`[{"org_wide":false,"sites":[%d]},{"org_wide":false,"sites":[%d]}]`, firstSite, secondSite)},
 		} {
 			t.Run(fmt.Sprintf("hourly=%t/%s", hourly, scope.name), func(t *testing.T) {
-				raw, err := q.ListHostedAccountHistoricalReadings(t.Context(), sqlc.ListHostedAccountHistoricalReadingsParams{OrganizationID: f.org, Intervals: encoded, StartTime: start, EndTime: end, BucketSeconds: bucket, SiteFilter: scope.site, PolicyRestricted: scope.restricted, PolicySites: scope.sites, HostAuthority: json.RawMessage(scope.authority)})
+				raw, err := q.ListHostedAccountHistoricalReadings(t.Context(), sqlc.ListHostedAccountHistoricalReadingsParams{OrganizationID: f.org, Intervals: encoded, StartTime: start, EndTime: end, BucketStarts: parityBuckets, SiteFilter: scope.site, PolicyRestricted: scope.restricted, PolicySites: scope.sites, HostAuthority: json.RawMessage(scope.authority)})
 				require.NoError(t, err)
 				var reporting int64
 				for _, row := range raw {
@@ -128,7 +134,7 @@ func TestAccountHistoryRawRetainedParity(t *testing.T) {
 					require.False(t, raw[0].Complete)
 				}
 				for _, direct := range []bool{true, false} {
-					retained, err := q.ListHostedAccountRetainedReadings(t.Context(), sqlc.ListHostedAccountRetainedReadingsParams{AvailableFrom: start, Intervals: encoded, IntervalIds: intervalIDs, StartTime: start, EndTime: end, Hourly: hourly, DirectBuckets: direct, BucketSeconds: bucket, SiteFilter: scope.site, PolicyRestricted: scope.restricted, PolicySites: scope.sites, HostAuthority: json.RawMessage(scope.authority)})
+					retained, err := q.ListHostedAccountRetainedReadings(t.Context(), sqlc.ListHostedAccountRetainedReadingsParams{AvailableFrom: start, Intervals: encoded, IntervalIds: intervalIDs, StartTime: start, EndTime: end, Hourly: hourly, DirectBuckets: direct, BucketStarts: parityBuckets, SiteFilter: scope.site, PolicyRestricted: scope.restricted, PolicySites: scope.sites, HostAuthority: json.RawMessage(scope.authority)})
 					require.NoError(t, err)
 					require.Len(t, retained, len(raw))
 					for index, row := range retained {

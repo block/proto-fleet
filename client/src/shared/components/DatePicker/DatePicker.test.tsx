@@ -256,6 +256,10 @@ describe("DatePicker", () => {
   test("moves focus into portal-scrolling panels when opened from the trigger", async () => {
     render(<DatePicker popoverRenderMode="portal-scrolling" testId="dp" />);
 
+    vi.spyOn(screen.getByTestId("dp-trigger").parentElement!, "getBoundingClientRect").mockReturnValue(
+      new DOMRect(40, 100, 200, 56),
+    );
+
     fireEvent.click(screen.getByTestId("dp-trigger"));
 
     await waitFor(() => {

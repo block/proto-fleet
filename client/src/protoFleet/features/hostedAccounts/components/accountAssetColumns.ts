@@ -25,5 +25,10 @@ export const assetColumnWidths = {
   kind: "w-[96px]",
   container: "w-[192px]",
 };
+export const assetKindLabel = (kind: MiningAssetKind) => {
+  if (kind === MiningAssetKind.MODULE) return "Module";
+  if (kind === MiningAssetKind.HASHBOARD) return "Hashboard";
+  return "Miner";
+};
 export const assetName = (asset: AccountAsset) =>
-  asset.name || `Unavailable ${asset.kind === MiningAssetKind.MODULE ? "module" : "miner"} ${asset.id}`;
+  asset.name || `Unavailable ${assetKindLabel(asset.kind).toLowerCase()} ${asset.id}`;

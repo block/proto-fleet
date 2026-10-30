@@ -85,7 +85,7 @@ func loadMiningEstate(ctx context.Context, q sqlc.Querier, actorID, orgID int64,
 		return estate, err
 	}
 	if includeRows {
-		estate.rows, err = q.ListHostedAccountMiningAssets(ctx, sqlc.ListHostedAccountMiningAssetsParams{OrganizationID: orgID, AccountInternalID: estate.account.ID, IsRoot: estate.account.Depth == 0, SelectedAssets: json.RawMessage("[]")})
+		estate.rows, err = q.ListHostedAccountMiningAssets(ctx, sqlc.ListHostedAccountMiningAssetsParams{OrganizationID: orgID, AccountInternalID: estate.account.ID, IsRoot: estate.account.Depth == 0, SelectedAssets: json.RawMessage("[]"), LeavesOnly: true})
 		if err != nil {
 			return estate, err
 		}
@@ -147,6 +147,9 @@ func (e miningEstate) owner(row sqlc.ListHostedAccountMiningAssetsRow) string {
 			}
 		}
 	}
+	if row.ClientID < 0 || row.SubclientID < 0 {
+		return ""
+	}
 	if row.OwnerAccountID == "" {
 		return e.account.AccountID
 	}
@@ -166,9 +169,14 @@ func (e miningEstate) asset(row sqlc.ListHostedAccountMiningAssetsRow) *pb.Accou
 				}
 			}
 		}
-		if row.OwnerAccountID == "" {
+		if a.OwnerAccountId == "" {
+			a.OwnerAccountName = "Mixed allocations"
+		} else if row.OwnerAccountID == "" {
 			a.OwnerAccountName = e.account.Name
 		}
+	}
+	if a.Kind == pb.MiningAssetKind_MINING_ASSET_KIND_MODULE {
+		_ = json.Unmarshal(row.Boards, &a.Boards)
 	}
 	if !row.Available || outside {
 		if pb.MiningAssetKind(row.Kind) == pb.MiningAssetKind_MINING_ASSET_KIND_MODULE {
@@ -239,8 +247,10 @@ func (a *miningAccumulator) add(asset *pb.AccountAsset) {
 	s.AssetCount++
 	if asset.Kind == pb.MiningAssetKind_MINING_ASSET_KIND_MINER {
 		s.MinerCount++
-	} else {
+	} else if asset.Kind == pb.MiningAssetKind_MINING_ASSET_KIND_MODULE {
 		s.ModuleCount++
+	} else {
+		s.HashboardCount++
 	}
 	if !asset.Available {
 		s.UnavailableCount++
@@ -340,9 +350,11 @@ func (s *Service) MiningSummary(ctx context.Context, actorID, orgID int64, accou
 			asset := e.asset(row)
 			total.add(asset)
 			owner := e.owner(row)
+			bucket := buckets[owner]
 			if owner == accountID {
-				direct.add(asset)
-			} else if bucket := buckets[owner]; bucket != nil {
+				bucket = direct
+			}
+			if bucket != nil {
 				bucket.add(asset)
 			}
 		}
@@ -358,27 +370,43 @@ func (s *Service) MiningSummary(ctx context.Context, actorID, orgID int64, accou
 }
 
 type miningCursor struct {
-	Account       string
-	Actor, Org    int64
-	Search, Owner string
-	Container     int64
-	Model         string
-	Site          int64
-	Kind          int32
-	ID            int64
-	Sort          int32
-	Descending    bool
-	Number        float64
-	Text          string
-	Null          bool
+	Account             string
+	Actor, Org          int64
+	Search, Owner       string
+	Container           int64
+	Model               string
+	Site                int64
+	Kind                int32
+	ID                  int64
+	Sort                int32
+	Descending          bool
+	HashboardsOnly      bool
+	ReplacementID       int64
+	ReplacementRevision int64
+	Number              float64
+	Text                string
+	Null                bool
+}
+
+func supportedMiningAssetKind(kind pb.MiningAssetKind) bool {
+	return kind == pb.MiningAssetKind_MINING_ASSET_KIND_MINER ||
+		kind == pb.MiningAssetKind_MINING_ASSET_KIND_MODULE ||
+		kind == pb.MiningAssetKind_MINING_ASSET_KIND_HASHBOARD
 }
 
 func (s *Service) ListAssets(ctx context.Context, actorID, orgID int64, request *pb.ListAccountAssetsRequest) (*pb.ListAccountAssetsResponse, error) {
 	if request.PageSize < 0 || request.PageSize > 100 || len(request.Search) > 1020 || len(request.PageToken) > 8192 {
 		return nil, fleeterror.NewInvalidArgumentError("invalid asset list")
 	}
-	if len(request.SelectedAssets) > 500 || len(request.SelectedAssets) > 0 && (request.PageSize != 0 || request.PageToken != "" || request.Search != "" || request.OwnerAccountId != nil || request.ContainerId != nil || request.Sort != nil || request.Model != nil || request.SiteId != nil) {
+	if len(request.SelectedAssets) > 500 || len(request.SelectedAssets) > 0 && (request.PageSize != 0 || request.PageToken != "" || request.Search != "" || request.OwnerAccountId != nil || request.ContainerId != nil || request.Sort != nil || request.Model != nil || request.SiteId != nil || request.HashboardsOnly || request.ReplacementFor != nil) {
 		return nil, fleeterror.NewInvalidArgumentError("selected assets cannot be combined with pagination or filters")
+	}
+	if source := request.ReplacementFor; source != nil {
+		validSource := source.Id > 0 && source.ExpectedRevision >= 0
+		directHashboards := request.HashboardsOnly && request.OwnerAccountId != nil && request.GetOwnerAccountId() == request.AccountId
+		if !validSource || !directHashboards {
+			return nil, fleeterror.NewInvalidArgumentError("replacement candidates require individual hashboards held by the active account")
+		}
 	}
 	field := commonpb.SortField_SORT_FIELD_NAME
 	descending := false
@@ -405,7 +433,7 @@ func (s *Service) ListAssets(ctx context.Context, actorID, orgID int64, request 
 	}
 	seen := map[[2]int64]bool{}
 	for _, asset := range request.SelectedAssets {
-		if asset == nil || (asset.Kind != pb.MiningAssetKind_MINING_ASSET_KIND_MINER && asset.Kind != pb.MiningAssetKind_MINING_ASSET_KIND_MODULE) || asset.Id <= 0 || seen[[2]int64{int64(asset.Kind), asset.Id}] {
+		if asset == nil || !supportedMiningAssetKind(asset.Kind) || asset.Id <= 0 || seen[[2]int64{int64(asset.Kind), asset.Id}] {
 			return nil, fleeterror.NewInvalidArgumentError("invalid selected assets")
 		}
 		seen[[2]int64{int64(asset.Kind), asset.Id}] = true
@@ -430,7 +458,15 @@ func (s *Service) ListAssets(ctx context.Context, actorID, orgID int64, request 
 				return nil, denied()
 			}
 		}
-		expected := miningCursor{Account: request.AccountId, Actor: actorID, Org: orgID, Search: request.Search, Owner: request.GetOwnerAccountId(), Container: request.GetContainerId(), Model: request.GetModel(), Site: request.GetSiteId(), Sort: int32(field), Descending: descending}
+		expected := miningCursor{Account: request.AccountId, Actor: actorID, Org: orgID, Search: request.Search, Owner: request.GetOwnerAccountId(), Container: request.GetContainerId(), Model: request.GetModel(), Site: request.GetSiteId(), Sort: int32(field), Descending: descending, HashboardsOnly: request.HashboardsOnly}
+		if old := request.ReplacementFor; old != nil {
+			e.policy, err = e.replacementCandidatePolicy(ctx, q, orgID, old)
+			if err != nil {
+				return nil, err
+			}
+			expected.ReplacementID = old.Id
+			expected.ReplacementRevision = old.ExpectedRevision
+		}
 		cursor := expected
 		if request.PageToken != "" {
 			encoded, err := base64.RawURLEncoding.DecodeString(request.PageToken)
@@ -443,7 +479,7 @@ func (s *Service) ListAssets(ctx context.Context, actorID, orgID int64, request 
 			check.Number = 0
 			check.Text = ""
 			check.Null = false
-			if check != expected || (cursor.Kind != int32(pb.MiningAssetKind_MINING_ASSET_KIND_MINER) && cursor.Kind != int32(pb.MiningAssetKind_MINING_ASSET_KIND_MODULE)) || cursor.ID <= 0 {
+			if check != expected || !supportedMiningAssetKind(pb.MiningAssetKind(cursor.Kind)) || cursor.ID <= 0 {
 				return nil, fleeterror.NewInvalidArgumentError("asset page token scope changed")
 			}
 		}
@@ -499,8 +535,9 @@ func (s *Service) ListAssets(ctx context.Context, actorID, orgID int64, request 
 		response.FilterOptions = assetFilterOptions(options)
 		rows, err := q.ListHostedAccountMiningAssetPage(ctx, sqlc.ListHostedAccountMiningAssetPageParams{
 			OrganizationID: orgID, AccountInternalID: e.account.ID, IsRoot: e.account.Depth == 0,
-			AfterKind: cursor.Kind, AfterID: cursor.ID, HostAuthority: encodedAuthority,
-			SortField: int32(field), Descending: descending, HasCursor: request.PageToken != "",
+			HashboardsOnly: request.HashboardsOnly, AfterKind: cursor.Kind, AfterID: cursor.ID, HostAuthority: encodedAuthority,
+			ReplacementCandidates: request.ReplacementFor != nil,
+			SortField:             int32(field), Descending: descending, HasCursor: request.PageToken != "",
 			CursorNull: cursor.Null, CursorNumber: cursor.Number, CursorText: cursor.Text,
 			HasOwnerFilter: request.OwnerAccountId != nil, OwnerInternalID: ownerID,
 			ContainerFilter: request.GetContainerId(), ModelFilter: request.GetModel(), SiteFilter: request.GetSiteId(), PolicyRestricted: e.policy.EffectiveRestricted, PolicySites: e.policy.EffectiveSiteIDs,
@@ -606,10 +643,8 @@ func (s *Service) AssignAssets(ctx context.Context, actorID, orgID int64, reques
 		}
 		selected := map[[2]int64]*pb.MiningAssetSelection{}
 		deviceIDs := []int64{}
-		keys := []string{}
-		identityByDevice := map[int64][]string{}
 		for _, selection := range request.Assets {
-			if selection == nil || (selection.Kind != pb.MiningAssetKind_MINING_ASSET_KIND_MINER && selection.Kind != pb.MiningAssetKind_MINING_ASSET_KIND_MODULE) || selection.Id <= 0 || selection.ExpectedRevision < 0 {
+			if selection == nil || !supportedMiningAssetKind(selection.Kind) || selection.Id <= 0 || selection.ExpectedRevision < 0 {
 				return fleeterror.NewInvalidArgumentError("invalid selected asset")
 			}
 			key := [2]int64{int64(selection.Kind), selection.Id}
@@ -618,7 +653,40 @@ func (s *Service) AssignAssets(ctx context.Context, actorID, orgID int64, reques
 			}
 			selected[key] = selection
 		}
-		selectedAssets, err := json.Marshal(request.Assets)
+		// Board revisions protect allocation changes; the full ID set protects topology changes.
+		leaves := []*pb.MiningAssetSelection{}
+		leafKeys := map[[2]int64]bool{}
+		for _, selection := range request.Assets {
+			if selection.Kind != pb.MiningAssetKind_MINING_ASSET_KIND_MODULE {
+				if len(selection.Boards) != 0 {
+					return fleeterror.NewInvalidArgumentError("only modules accept board membership")
+				}
+				leaves = append(leaves, selection)
+				continue
+			}
+			if len(selection.Boards) == 0 || len(selection.Boards) > 3 {
+				return assetConflict()
+			}
+			for _, board := range selection.Boards {
+				if board == nil || board.Id <= 0 || board.ExpectedRevision < 0 {
+					return assetConflict()
+				}
+				leaves = append(leaves, &pb.MiningAssetSelection{Kind: pb.MiningAssetKind_MINING_ASSET_KIND_HASHBOARD, Id: board.Id, ExpectedRevision: board.ExpectedRevision})
+			}
+		}
+		lookup := slices.Clone(request.Assets)
+		for _, leaf := range leaves {
+			key := [2]int64{int64(leaf.Kind), leaf.Id}
+			if leafKeys[key] {
+				return fleeterror.NewInvalidArgumentError("overlapping selected assets")
+			}
+			leafKeys[key] = true
+			if selected[key] == nil {
+				lookup = append(lookup, leaf)
+			}
+			selected[key] = leaf
+		}
+		selectedAssets, err := json.Marshal(lookup)
 		if err != nil {
 			return fleeterror.NewInternalErrorf("encode selected mining assets: %w", err)
 		}
@@ -636,17 +704,26 @@ func (s *Service) AssignAssets(ctx context.Context, actorID, orgID int64, reques
 				if !ok || row.Revision != selection.ExpectedRevision || !e.physicalRead(row) {
 					return nil, assetConflict()
 				}
-				if assigning {
-					if !row.Available || !siteAllowed(e.policy, row.SiteID) {
+				if selection.Kind == pb.MiningAssetKind_MINING_ASSET_KIND_MODULE {
+					var boards []*pb.HashboardAllocationSelection
+					if json.Unmarshal(row.Boards, &boards) != nil || !sameBoardSelection(boards, selection.Boards) {
 						return nil, assetConflict()
 					}
-					if !siteAllowed(destinationPolicy, row.SiteID) {
-						return nil, fleeterror.NewInvalidArgumentError("selected assets are outside the destination account's site policy")
-					}
-					if e.account.Depth == 0 && row.ClientID != 0 || e.account.Depth == 1 && (row.ClientID != e.account.ID || row.SubclientID != 0) {
+					continue
+				}
+				if !assigning {
+					if e.account.Depth == 0 && row.ClientID != child.ID || e.account.Depth == 1 && (row.ClientID != e.account.ID || row.SubclientID != child.ID) {
 						return nil, assetConflict()
 					}
-				} else if e.account.Depth == 0 && row.ClientID != child.ID || e.account.Depth == 1 && (row.ClientID != e.account.ID || row.SubclientID != child.ID) {
+					continue
+				}
+				if !row.Available || !siteAllowed(e.policy, row.SiteID) {
+					return nil, assetConflict()
+				}
+				if !siteAllowed(destinationPolicy, row.SiteID) {
+					return nil, fleeterror.NewInvalidArgumentError("selected assets are outside the destination account's site policy")
+				}
+				if e.account.Depth == 0 && row.ClientID != 0 || e.account.Depth == 1 && (row.ClientID != e.account.ID || row.SubclientID != 0) {
 					return nil, assetConflict()
 				}
 			}
@@ -663,46 +740,8 @@ func (s *Service) AssignAssets(ctx context.Context, actorID, orgID int64, reques
 				return missingAssetConflict(err)
 			}
 			deviceIDs = append(deviceIDs, deviceID)
-			identity, err := q.GetDeviceWriteIdentityKeys(ctx, deviceID)
-			if err != nil {
-				return err
-			}
-			keys = append(keys, identity...)
-			identityByDevice[deviceID] = identity
 		}
-		if err = q.LockDeviceWriteIdentities(ctx, keys); err != nil {
-			return err
-		}
-		slices.Sort(deviceIDs)
-		deviceIDs = slices.Compact(deviceIDs)
-		for _, deviceID := range deviceIDs {
-			discoveryID, err := q.LockMinerBindingDevice(ctx, deviceID)
-			if err != nil {
-				return missingAssetConflict(err)
-			}
-			if _, err = q.LockMinerBindingDiscovery(ctx, discoveryID); err != nil {
-				return err
-			}
-			if _, err = q.LockMinerBindingPairing(ctx, deviceID); err != nil {
-				return err
-			}
-			if _, err = q.LockMinerBindingCredentials(ctx, deviceID); err != nil {
-				return err
-			}
-			if _, err = q.LockMinerBindingRoutes(ctx, deviceID); err != nil {
-				return err
-			}
-		}
-		for _, deviceID := range deviceIDs {
-			identity, err := q.GetDeviceWriteIdentityKeys(ctx, deviceID)
-			if err != nil {
-				return err
-			}
-			if !slices.Equal(identity, identityByDevice[deviceID]) {
-				return assetConflict()
-			}
-		}
-		if err = q.LockHostedAccountAssetInventory(ctx, deviceIDs); err != nil {
+		if err = lockMiningDevices(ctx, q, deviceIDs); err != nil {
 			return err
 		}
 		// Refresh after the last lock: retirement, replacement and site movement
@@ -711,23 +750,37 @@ func (s *Service) AssignAssets(ctx context.Context, actorID, orgID int64, reques
 		if err != nil {
 			return err
 		}
-		for _, selection := range request.Assets {
+		for _, selection := range leaves {
+			if !slices.Contains(deviceIDs, current[[2]int64{int64(selection.Kind), selection.Id}].DeviceID) {
+				return assetConflict()
+			}
+		}
+		allocationAssets, err := json.Marshal(leaves)
+		if err != nil {
+			return fleeterror.NewInternalErrorf("encode allocation assets: %w", err)
+		}
+		if err := q.BeginHostedAccountAllocationChange(ctx, sqlc.BeginHostedAccountAllocationChangeParams{OrganizationID: orgID, SelectedAssets: allocationAssets}); err != nil {
+			return err
+		}
+		var clientID, subclientID sql.NullInt64
+		if e.account.Depth != 0 {
+			clientID = sql.NullInt64{Int64: e.account.ID, Valid: true}
+			if assigning {
+				subclientID = sql.NullInt64{Int64: child.ID, Valid: true}
+			}
+		} else if assigning {
+			clientID = sql.NullInt64{Int64: child.ID, Valid: true}
+		}
+		for _, selection := range leaves {
 			row := current[[2]int64{int64(selection.Kind), selection.Id}]
-			params := sqlc.SetHostedAccountAssetParams{OrganizationID: orgID, Kind: int32(selection.Kind), AssetID: selection.Id, DeviceID: row.DeviceID}
+			params := sqlc.SetHostedAccountAssetParams{
+				OrganizationID: orgID, Kind: int32(selection.Kind), AssetID: selection.Id, DeviceID: row.DeviceID,
+				ClientID: clientID, SubclientID: subclientID,
+			}
 			if pb.MiningAssetKind(row.Kind) == pb.MiningAssetKind_MINING_ASSET_KIND_MINER {
 				params.MinerID = sql.NullInt64{Int64: row.ID, Valid: true}
 			} else {
-				params.ModuleID = sql.NullInt64{Int64: row.ID, Valid: true}
-			}
-			if e.account.Depth == 0 {
-				if assigning {
-					params.ClientID = sql.NullInt64{Int64: child.ID, Valid: true}
-				}
-			} else {
-				params.ClientID = sql.NullInt64{Int64: e.account.ID, Valid: true}
-				if assigning {
-					params.SubclientID = sql.NullInt64{Int64: child.ID, Valid: true}
-				}
+				params.HashboardID = sql.NullInt64{Int64: row.ID, Valid: true}
 			}
 			if _, err = q.SetHostedAccountAsset(ctx, params); err != nil {
 				return err
@@ -737,7 +790,7 @@ func (s *Service) AssignAssets(ctx context.Context, actorID, orgID int64, reques
 		if err != nil {
 			return err
 		}
-		return audit(ctx, q, actor, e.account, "account_assets_assigned", map[string]any{"child_account_id": child.AccountID, "intent": request.Intent.String(), "asset_count": len(request.Assets), "assets": request.Assets})
+		return audit(ctx, q, actor, e.account, "account_assets_assigned", map[string]any{"child_account_id": child.AccountID, "intent": request.Intent.String(), "asset_count": len(leaves), "assets": request.Assets})
 	})
 }
 func assetConflict() error {
@@ -751,4 +804,74 @@ func missingAssetConflict(err error) error {
 		return assetConflict()
 	}
 	return err
+}
+
+func sameBoardSelection(current, reviewed []*pb.HashboardAllocationSelection) bool {
+	if len(current) != len(reviewed) {
+		return false
+	}
+	expectedRevisions := map[int64]int64{}
+	for _, board := range reviewed {
+		if board == nil {
+			return false
+		}
+		expectedRevisions[board.Id] = board.ExpectedRevision
+	}
+	if len(expectedRevisions) != len(reviewed) {
+		return false
+	}
+	for _, board := range current {
+		revision, ok := expectedRevisions[board.Id]
+		if !ok || revision != board.ExpectedRevision {
+			return false
+		}
+	}
+	return true
+}
+
+func lockMiningDevices(ctx context.Context, q sqlc.Querier, deviceIDs []int64) error {
+	deviceIDs = slices.Clone(deviceIDs)
+	slices.Sort(deviceIDs)
+	deviceIDs = slices.Compact(deviceIDs)
+	keys := []string{}
+	identityByDevice := map[int64][]string{}
+	for _, deviceID := range deviceIDs {
+		identity, err := q.GetDeviceWriteIdentityKeys(ctx, deviceID)
+		if err != nil {
+			return err
+		}
+		keys = append(keys, identity...)
+		identityByDevice[deviceID] = identity
+	}
+	if err := q.LockDeviceWriteIdentities(ctx, keys); err != nil {
+		return err
+	}
+	for _, deviceID := range deviceIDs {
+		discoveryID, err := q.LockMinerBindingDevice(ctx, deviceID)
+		if err != nil {
+			return missingAssetConflict(err)
+		}
+		if _, err = q.LockMinerBindingDiscovery(ctx, discoveryID); err != nil {
+			return err
+		}
+		if _, err = q.LockMinerBindingPairing(ctx, deviceID); err != nil {
+			return err
+		}
+		if _, err = q.LockMinerBindingCredentials(ctx, deviceID); err != nil {
+			return err
+		}
+		if _, err = q.LockMinerBindingRoutes(ctx, deviceID); err != nil {
+			return err
+		}
+	}
+	for _, deviceID := range deviceIDs {
+		identity, err := q.GetDeviceWriteIdentityKeys(ctx, deviceID)
+		if err != nil {
+			return err
+		}
+		if !slices.Equal(identity, identityByDevice[deviceID]) {
+			return assetConflict()
+		}
+	}
+	return q.LockHostedAccountAssetInventory(ctx, deviceIDs)
 }

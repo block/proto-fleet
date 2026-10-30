@@ -43,6 +43,21 @@ func TestHostedMiningRPCRequiresSelectedMatchingAccountAndSession(t *testing.T) 
 	require.Equal(t, connect.CodePermissionDenied, connect.CodeOf(err))
 }
 
+func TestReplaceHashboardRPCRequiresHostSelection(t *testing.T) {
+	f := newRPCFixture(t)
+	account := f.account(t, "Customer", f.host, domain.AllCapabilities)
+	request := &pb.ReplaceAccountHashboardRequest{AccountId: f.root, OldBoard: &pb.HashboardAllocationSelection{Id: 1, ExpectedRevision: 1}, ReplacementBoard: &pb.HashboardAllocationSelection{Id: 2}}
+	for _, selected := range []string{"", account.AccountID} {
+		_, err := f.client.ReplaceAccountHashboard(t.Context(), rpcRequest(request, f.cookie, selected))
+		require.Equal(t, connect.CodePermissionDenied, connect.CodeOf(err))
+	}
+	_, err := f.client.ReplaceAccountHashboard(t.Context(), rpcRequest(request, f.cookie, f.root))
+	require.Equal(t, connect.CodeFailedPrecondition, connect.CodeOf(err), "the authorized request must reach the board revision checks")
+	request.AccountId = account.AccountID
+	_, err = f.client.ReplaceAccountHashboard(t.Context(), rpcRequest(request, f.cookie, account.AccountID))
+	require.Equal(t, connect.CodePermissionDenied, connect.CodeOf(err), "client membership cannot perform an operator replacement")
+}
+
 func TestHostedMiningRPCRejectsUnsupportedAssetFiltersAndSort(t *testing.T) {
 	f := newRPCFixture(t)
 	account := f.account(t, "Customer", f.host, domain.AllCapabilities)
@@ -51,6 +66,11 @@ func TestHostedMiningRPCRejectsUnsupportedAssetFiltersAndSort(t *testing.T) {
 		{SiteId: proto.Int64(0)}, {Model: proto.String("")},
 		{Model: proto.String("S21"), SelectedAssets: []*pb.MiningAssetReference{{Kind: 5, Id: 1}}},
 		{SiteId: proto.Int64(1), SelectedAssets: []*pb.MiningAssetReference{{Kind: 5, Id: 1}}},
+		{ReplacementFor: &pb.HashboardAllocationSelection{Id: 1}},
+		{HashboardsOnly: true, ReplacementFor: &pb.HashboardAllocationSelection{Id: 1}},
+		{HashboardsOnly: true, OwnerAccountId: &account.AccountID, ReplacementFor: &pb.HashboardAllocationSelection{Id: 0}},
+		{HashboardsOnly: true, OwnerAccountId: &account.AccountID, ReplacementFor: &pb.HashboardAllocationSelection{Id: 1, ExpectedRevision: -1}},
+		{HashboardsOnly: true, OwnerAccountId: &account.AccountID, ReplacementFor: &pb.HashboardAllocationSelection{Id: 1}, SelectedAssets: []*pb.MiningAssetReference{{Kind: 7, Id: 1}}},
 	} {
 		request.AccountId = account.AccountID
 		_, err := f.client.ListAccountAssets(t.Context(), rpcRequest(request, f.cookie, account.AccountID))

@@ -16,8 +16,15 @@ import {
   MiningAssetKind,
 } from "@/protoFleet/api/generated/hosted/v1/hosted_pb";
 import { POLL_INTERVAL_MS } from "@/protoFleet/constants/polling";
+import { pushToast, STATUSES } from "@/shared/features/toaster";
+
+vi.mock("@/shared/features/toaster", () => ({
+  pushToast: vi.fn(),
+  STATUSES: { success: "success" },
+}));
 
 beforeEach(() => {
+  vi.mocked(pushToast).mockClear();
   // Popovers require a visible trigger; JSDOM does not calculate layout.
   vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue(new DOMRect(20, 20, 240, 40));
 });
@@ -47,6 +54,11 @@ const module = create(AccountAssetSchema, {
   kind: MiningAssetKind.MODULE,
   id: 1n,
   revision: 9n,
+  boards: [
+    { id: 11n, expectedRevision: 7n },
+    { id: 12n, expectedRevision: 9n },
+    { id: 13n, expectedRevision: 2n },
+  ],
   name: "Module One",
   available: true,
   ownerAccountId: accountId,
@@ -71,7 +83,7 @@ function mount(
   nextPageToken = "",
   mode: "inventory" | "assign" = "inventory",
   child?: { accountId: string; name: string; suspended: boolean },
-  props: { onAssigned?: (notice: string) => void; initialNotice?: string } = {},
+  props: { onAssigned?: () => void } = {},
 ) {
   const client = {
     listAccountAssets: vi.fn().mockResolvedValue(
@@ -124,6 +136,26 @@ const selectTarget = async (user: ReturnType<typeof userEvent.setup>) => {
 };
 
 describe("account mining asset allocation", () => {
+  it("keeps the toolbar and filtered empty state when a miner-only account shows hashboards", async () => {
+    const { client } = mount(31n, [miner]);
+    const user = userEvent.setup();
+    await screen.findByText("Miner One");
+    client.listAccountAssets.mockImplementation((request: { hashboardsOnly?: boolean }) =>
+      Promise.resolve(create(ListAccountAssetsResponseSchema, { assets: request.hashboardsOnly ? [] : [miner] })),
+    );
+
+    await user.click(screen.getByRole("button", { name: "Show" }));
+    await user.click(screen.getByRole("option", { name: "Individual hashboards" }));
+    expect(await screen.findByText("No matching assets")).toBeInTheDocument();
+    expect(screen.queryByText("No mining assets")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Search mining assets" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Manage columns" })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Show" }));
+    await user.click(screen.getByRole("option", { name: "All assets" }));
+    expect(await screen.findByText("Miner One")).toBeInTheDocument();
+    expect(screen.queryByText("No matching assets")).not.toBeInTheDocument();
+  });
   it("removes assets after a background authorization change without requiring window focus", async () => {
     const polling = vi.spyOn(window, "setInterval");
     const { client } = mount();
@@ -328,6 +360,10 @@ describe("account mining asset allocation", () => {
     expect(client.assignAccountAssets).toHaveBeenCalledWith(
       expect.objectContaining({ accountId, childAccountId: childId, intent: AssetAssignmentIntent.RECALL }),
     );
+    await waitFor(() =>
+      expect(pushToast).toHaveBeenCalledWith({ message: "Recalled 1 asset to Customer.", status: STATUSES.success }),
+    );
+    expect(screen.queryByText("Recalled 1 asset to Customer.")).not.toBeInTheDocument();
   });
   it("keeps the subclient assignment picker limited to directly held assets and its chosen destination", async () => {
     const { client } = mount(31n, [miner], undefined, "", "assign", {
@@ -528,7 +564,7 @@ describe("account mining asset allocation", () => {
     expect(await screen.findByText("1 mining asset selected")).toBeInTheDocument();
     expect(screen.getByRole("checkbox", { name: "Select Miner One" })).toBeChecked();
   });
-  it("hands the assignment confirmation to the remounted inventory", async () => {
+  it("shows the assignment confirmation once in a toast when returning to inventory", async () => {
     const onAssigned = vi.fn();
     const child = { accountId: childId, name: "East", suspended: false };
     const { unmount } = mount(31n, [miner], undefined, "", "assign", child, { onAssigned });
@@ -536,10 +572,17 @@ describe("account mining asset allocation", () => {
     await user.click(await screen.findByRole("checkbox", { name: "Select Miner One" }));
     await user.click(screen.getByRole("button", { name: "Allocate selected" }));
     await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Allocate 1 asset" }));
-    await waitFor(() => expect(onAssigned).toHaveBeenCalledWith("Allocated 1 asset to East."));
+    await waitFor(() => expect(onAssigned).toHaveBeenCalledOnce());
+    expect(pushToast).toHaveBeenCalledExactlyOnceWith({
+      message: "Allocated 1 asset to East.",
+      status: STATUSES.success,
+    });
+    expect(screen.queryByText("Allocated 1 asset to East.")).not.toBeInTheDocument();
     unmount();
-    mount(31n, [miner], undefined, "", "inventory", child, { initialNotice: "Allocated 1 asset to East." });
-    expect(screen.getByRole("status")).toHaveTextContent("Allocated 1 asset to East.");
+    mount(31n, [miner], undefined, "", "inventory", child);
+    await screen.findByText("Miner One");
+    expect(screen.queryByText("Allocated 1 asset to East.")).not.toBeInTheDocument();
+    expect(pushToast).toHaveBeenCalledOnce();
   });
   it("keeps the hidden assignment column when a subclient view saves its columns", async () => {
     const user = userEvent.setup();
@@ -586,11 +629,13 @@ describe("account mining asset allocation", () => {
         intent: AssetAssignmentIntent.ASSIGN,
         assets: [
           { kind: MiningAssetKind.MINER, id: 1n, expectedRevision: 7n },
-          { kind: MiningAssetKind.MODULE, id: 1n, expectedRevision: 9n },
+          { kind: MiningAssetKind.MODULE, id: 1n, expectedRevision: 9n, boards: module.boards },
         ],
       }),
     );
-    expect(await screen.findByRole("status")).toHaveTextContent("Allocated 2 assets to East");
+    await waitFor(() =>
+      expect(pushToast).toHaveBeenCalledWith({ message: "Allocated 2 assets to East.", status: STATUSES.success }),
+    );
   });
   it("selects only displayed modules for a container and states the page boundary", async () => {
     const { client } = mount(31n, undefined, undefined, "", "assign");
@@ -608,7 +653,9 @@ describe("account mining asset allocation", () => {
     expect(screen.getByRole("checkbox", { name: "Select Module One" })).toBeChecked();
     expect(screen.getByRole("checkbox", { name: "Select Miner One" })).not.toBeChecked();
     await user.click(screen.getByRole("button", { name: "Allocate selected" }));
-    expect(within(screen.getByRole("dialog")).getByText(/Only the selected modules are included/)).toBeInTheDocument();
+    expect(
+      within(screen.getByRole("dialog")).getByText(/Only the boards in the reviewed modules are included/),
+    ).toBeInTheDocument();
   });
   it("keeps the reviewed selection available to retry after a destination policy error", async () => {
     const policyError = "selected assets are outside the destination account's site policy";
@@ -629,7 +676,9 @@ describe("account mining asset allocation", () => {
     expect(screen.getByRole("checkbox", { name: "Select Miner One" })).toBeChecked();
     expect(client.listAccountAssets).toHaveBeenCalledOnce();
     await user.click(confirm);
-    expect(await screen.findByRole("status")).toHaveTextContent("Allocated 1 asset to East");
+    await waitFor(() =>
+      expect(pushToast).toHaveBeenCalledWith({ message: "Allocated 1 asset to East.", status: STATUSES.success }),
+    );
     expect(assign).toHaveBeenCalledTimes(2);
   });
   it("clears stale selections and requires another review after an ownership conflict", async () => {
@@ -678,9 +727,9 @@ describe("account mining asset allocation", () => {
     await act(async () => finish({}));
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
   });
-  it("allows a parent to recall retired child allocations without assigning replacement hardware", async () => {
+  it("allows a parent to recall unavailable board allocations without assigning replacement hardware", async () => {
     const retired = create(AccountAssetSchema, {
-      kind: MiningAssetKind.MODULE,
+      kind: MiningAssetKind.HASHBOARD,
       id: 8n,
       revision: 4n,
       ownerAccountId: childId,
@@ -694,10 +743,10 @@ describe("account mining asset allocation", () => {
       suspended: false,
     });
     const user = userEvent.setup();
-    await user.click(await screen.findByRole("checkbox", { name: "Select Unavailable module 8" }));
+    await user.click(await screen.findByRole("checkbox", { name: "Select Unavailable hashboard 8" }));
     expect(screen.queryByRole("button", { name: "Allocate selected" })).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Recall selected" }));
-    expect(within(screen.getByRole("dialog")).queryByText("Unavailable module 8")).not.toBeInTheDocument();
+    expect(within(screen.getByRole("dialog")).queryByText("Unavailable hashboard 8")).not.toBeInTheDocument();
     expect(within(screen.getByRole("dialog")).getByText(/from East to Customer/)).toBeInTheDocument();
     await user.click(
       within(screen.getByRole("dialog", { name: /Recall \d+ assets?\?/ })).getByRole("button", {
@@ -709,7 +758,7 @@ describe("account mining asset allocation", () => {
         accountId,
         childAccountId: childId,
         intent: AssetAssignmentIntent.RECALL,
-        assets: [{ kind: MiningAssetKind.MODULE, id: 8n, expectedRevision: 4n }],
+        assets: [{ kind: MiningAssetKind.HASHBOARD, id: 8n, expectedRevision: 4n }],
       }),
     );
   });

@@ -30,7 +30,7 @@ func TestAccountHistoryQueryReturnsOnlyChartBuckets(t *testing.T) {
 	encoded, err := json.Marshal(intervals)
 	require.NoError(t, err)
 	capture := &miningProjectionDB{DB: f.db}
-	rows, err := sqlc.New(capture).ListHostedAccountHistoricalReadings(t.Context(), sqlc.ListHostedAccountHistoricalReadingsParams{OrganizationID: f.org, StartTime: start, EndTime: end, BucketSeconds: 900, Intervals: encoded, HostAuthority: json.RawMessage("[]"), PolicySites: []int64{}})
+	rows, err := sqlc.New(capture).ListHostedAccountHistoricalReadings(t.Context(), sqlc.ListHostedAccountHistoricalReadingsParams{OrganizationID: f.org, StartTime: start, EndTime: end, BucketStarts: historyTestBuckets(start, end), Intervals: encoded, HostAuthority: json.RawMessage("[]"), PolicySites: []int64{}})
 	require.NoError(t, err)
 	require.Len(t, rows, 672, "database result must be bounded by chart buckets, independent of asset count")
 	for _, row := range rows {
@@ -48,4 +48,12 @@ func TestAccountHistoryQueryReturnsOnlyChartBuckets(t *testing.T) {
 	require.Len(t, plans, 1)
 	require.EqualValues(t, 672, plans[0].Plan.ActualRows)
 	t.Logf("source-authorized history: 100 assets, 67,200 metric samples and 67,200 state snapshots over 7 days, 672 returned rows, database execution %.2fms", plans[0].ExecutionTime)
+}
+
+func historyTestBuckets(start, end time.Time) []time.Time {
+	buckets := []time.Time{}
+	for at := start; at.Before(end); at = at.Add(15 * time.Minute) {
+		buckets = append(buckets, at)
+	}
+	return buckets
 }

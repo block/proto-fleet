@@ -33,7 +33,7 @@ const client = create(AccountSchema, {
   name: "Existing client",
   depth: 1,
   capabilityCeiling: 31n,
-  managementSummary: { minerCount: 3n, moduleCount: 12n, containerCount: 2n, loginCount: 4n },
+  managementSummary: { minerCount: 3n, hashboardCount: 36n, containerCount: 2n, loginCount: 4n },
 });
 beforeEach(() => {
   vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue(new DOMRect(20, 20, 240, 40));
@@ -98,8 +98,8 @@ describe("owner Clients directory", () => {
     expect(screen.getByRole("columnheader", { name: "Client" })).toBeInTheDocument();
     expect(screen.getByRole("columnheader", { name: "Allocated assets" })).toBeInTheDocument();
     expect(screen.getByRole("columnheader", { name: "Logins" })).toBeInTheDocument();
-    expect(screen.getByText("3 miners · 12 modules")).toBeInTheDocument();
-    expect(screen.getByText("Modules in 2 containers")).toBeInTheDocument();
+    expect(screen.getByText("3 miners · 36 hashboards")).toBeInTheDocument();
+    expect(screen.getByText("Equipment in 2 containers")).toBeInTheDocument();
     expect(screen.getByRole("cell", { name: "4" })).toBeInTheDocument();
     expect(screen.queryByText("Host organization")).not.toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "Use an invitation code" })).not.toBeInTheDocument();

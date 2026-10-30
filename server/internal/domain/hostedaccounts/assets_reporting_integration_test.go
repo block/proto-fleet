@@ -35,11 +35,14 @@ func (d *miningProjectionDB) QueryContext(ctx context.Context, query string, arg
 }
 
 type miningProjectionPlan struct {
-	NodeType    string                 `json:"Node Type"`
-	SubplanName string                 `json:"Subplan Name"`
-	ActualRows  float64                `json:"Actual Rows"`
-	ActualLoops float64                `json:"Actual Loops"`
-	Plans       []miningProjectionPlan `json:"Plans"`
+	RelationName        string                 `json:"Relation Name"`
+	NodeType            string                 `json:"Node Type"`
+	SubplanName         string                 `json:"Subplan Name"`
+	ActualRows          float64                `json:"Actual Rows"`
+	ActualLoops         float64                `json:"Actual Loops"`
+	GroupKey            []string               `json:"Group Key"`
+	RowsRemovedByFilter float64                `json:"Rows Removed by Filter"`
+	Plans               []miningProjectionPlan `json:"Plans"`
 }
 
 func (p miningProjectionPlan) liveProjection() (miningProjectionPlan, bool) {
@@ -57,7 +60,7 @@ func (p miningProjectionPlan) liveProjection() (miningProjectionPlan, bool) {
 // The Fleet view reads latest miner telemetry with a per-device LIMIT 1.
 // Count its executions as well as materialized rows to catch late filtering.
 func (p miningProjectionPlan) minerTelemetryLookups() float64 {
-	if p.NodeType == "Limit" {
+	if p.NodeType == "Limit" && !p.containsRelation("hashboard_identity") {
 		return p.ActualLoops
 	}
 	var total float64
@@ -88,20 +91,21 @@ func TestAccountMiningSummaryScopesLargeFleetBeforeProjection(t *testing.T) {
 
 	t.Run("projection", func(t *testing.T) {
 		for _, account := range []struct {
-			account  hostedaccounts.Account
-			expected int
-			miners   int
-		}{{first, 2, 1}, {second, 1, 1}, {child.Account, 1, 0}} {
+			account   hostedaccounts.Account
+			expected  int
+			miners    int
+			projected int
+		}{{first, 2, 1, 5}, {second, 1, 1, 1}, {child.Account, 1, 0, 4}} {
 			capture := &miningProjectionDB{DB: f.db}
 			rows, err := sqlc.New(capture).ListHostedAccountMiningAssets(t.Context(), sqlc.ListHostedAccountMiningAssetsParams{OrganizationID: f.org, AccountInternalID: account.account.ID, SelectedAssets: json.RawMessage("[]")})
 			require.NoError(t, err)
-			require.Len(t, rows, account.expected)
+			require.Len(t, rows, account.projected)
 			var plans []struct{ Plan miningProjectionPlan }
 			require.NoError(t, json.Unmarshal(capture.plan, &plans))
 			require.Len(t, plans, 1)
 			projection, found := plans[0].Plan.liveProjection()
 			require.True(t, found, "expected the executed live-assets projection")
-			require.EqualValues(t, account.expected, projection.ActualRows*projection.ActualLoops, "account %s must not materialize unrelated host telemetry", account.account.Name)
+			require.EqualValues(t, account.projected, projection.ActualRows*projection.ActualLoops, "account %s must not materialize unrelated host telemetry", account.account.Name)
 			require.EqualValues(t, account.miners, projection.minerTelemetryLookups(), "account %s must not read unrelated miner telemetry", account.account.Name)
 
 			// The paginated list shares the estate scope, so a customer page must not
@@ -115,7 +119,7 @@ func TestAccountMiningSummaryScopesLargeFleetBeforeProjection(t *testing.T) {
 			require.Len(t, plans, 1)
 			projection, found = plans[0].Plan.liveProjection()
 			require.True(t, found, "expected the executed page live-assets projection")
-			require.EqualValues(t, account.expected, projection.ActualRows*projection.ActualLoops, "account %s page must not materialize unrelated host telemetry", account.account.Name)
+			require.EqualValues(t, account.projected, projection.ActualRows*projection.ActualLoops, "account %s page must not materialize unrelated host telemetry", account.account.Name)
 			require.EqualValues(t, account.miners, projection.minerTelemetryLookups(), "account %s page must not read unrelated miner telemetry", account.account.Name)
 		}
 	})
@@ -130,7 +134,7 @@ func TestAccountMiningSummaryScopesLargeFleetBeforeProjection(t *testing.T) {
 			miners    int
 		}{
 			{"exact selection", selection, 2, 2},
-			{"full fleet", json.RawMessage("[]"), len(miners) + 1, len(miners)},
+			{"full fleet", json.RawMessage("[]"), len(miners) + 4, len(miners)},
 		} {
 			t.Run(test.name, func(t *testing.T) {
 				capture := &miningProjectionDB{DB: f.db}
@@ -171,7 +175,7 @@ func TestAccountMiningSummaryScopesLargeFleetBeforeProjection(t *testing.T) {
 					}
 					expected := int64(1)
 					if i == 0 {
-						expected = 2
+						expected = 4
 					}
 					if summary.Totals.AssetCount != expected {
 						results <- fmt.Errorf("account %s returned %d assets, want %d", account.Name, summary.Totals.AssetCount, expected)
@@ -224,4 +228,16 @@ func TestAccountMiningReadsBoundOrganizationLockWait(t *testing.T) {
 			require.NoError(t, read(t.Context(), f, client.AccountID), "timed-out report must release its transaction")
 		})
 	}
+}
+
+func (p miningProjectionPlan) containsRelation(name string) bool {
+	if p.RelationName == name {
+		return true
+	}
+	for _, child := range p.Plans {
+		if child.containsRelation(name) {
+			return true
+		}
+	}
+	return false
 }

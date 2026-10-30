@@ -345,6 +345,9 @@ func storeHashboards(ctx context.Context, q *sqlc.Queries, orgID, deviceID int64
 	if err := q.UpsertHashboardInstallations(ctx, sqlc.UpsertHashboardInstallationsParams{ObservedAt: snapshot.ObservedAt, Boards: data}); err != nil {
 		return err
 	}
+	if err := q.ReconcileHostedHashboardReplacements(ctx, sqlc.ReconcileHostedHashboardReplacementsParams{OrganizationID: orgID, DeviceID: deviceID, ObservedAt: snapshot.ObservedAt}); err != nil {
+		return err
+	}
 	if err := q.InsertHashboardMetrics(ctx, sqlc.InsertHashboardMetricsParams{CollectedAt: snapshot.ObservedAt, Boards: data}); err != nil {
 		return err
 	}

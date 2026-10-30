@@ -24,7 +24,7 @@ const response = () =>
   create(GetAccountDashboardResponseSchema, {
     totals: {
       assetCount: 4n,
-      moduleCount: 4n,
+      hashboardCount: 4n,
       hashrateHs: 200e12,
       powerW: 6000,
       hashrateReportingCount: 4n,
@@ -38,7 +38,7 @@ const response = () =>
       uptimePercent: 97,
       uptimeReportingCount: 3n,
     },
-    sites: [{ siteId: 7n, name: "Client site", summary: { assetCount: 4n, moduleCount: 4n } }],
+    sites: [{ siteId: 7n, name: "Client site", summary: { assetCount: 4n, hashboardCount: 4n } }],
     children: [{ accountId: childId, name: "Subclient A" }],
     historyAvailableFrom: { seconds: 1792000000n },
   });
@@ -151,7 +151,7 @@ describe("shared account dashboard", () => {
         expect(props.connectNulls).toBe(false);
       }
       const power = [...chart.mock.calls].reverse().find(([props]) => props.aggregateKey === "power")![0];
-      expect(power.tooltipNotes![times[3] * 1000]).toBe("3 of 4 modules reporting");
+      expect(power.tooltipNotes![times[3] * 1000]).toBe("Legacy module data · 3 of 4 modules reporting");
     },
   );
   it.each([false, true])("requests each Fleet range with shared granularity (preview=%s)", async (readOnly) => {
@@ -209,10 +209,9 @@ describe("shared account dashboard", () => {
     await screen.findByText("100% not hashing");
     expect(screen.queryByText(/No authorized historical readings/)).not.toBeInTheDocument();
   });
-  it("keeps high measured module power in kilowatts through the shared chart", async () => {
+  it("labels legacy module readings and keeps their power in kilowatts", async () => {
     const reply = response();
     const summary = { assetCount: 1n, moduleCount: 1n, powerW: 200_000, powerReportingCount: 1n };
-    reply.totals = create(GetAccountDashboardResponseSchema, { totals: summary }).totals;
     reply.readings = [
       create(AccountDashboardReadingSchema, {
         time: { seconds: BigInt(Math.floor(Date.now() / 1000)) },
@@ -227,6 +226,7 @@ describe("shared account dashboard", () => {
       .find((item) => within(item).queryByRole("heading", { name: "Power" }))!;
     expect(power).toHaveTextContent("200.0");
     expect(power).toHaveTextContent("kW");
+    expect(performance.getByText(/This range includes legacy module data/)).toBeInTheDocument();
   });
   it("updates current and historical temperatures when personal units change", async () => {
     const reply = response();
@@ -259,12 +259,13 @@ describe("shared account dashboard", () => {
     act(() => useFleetStore.getState().ui.setTemperatureUnit("C"));
     expect(current.getByText("55.0 °C")).toBeInTheDocument();
     expect(temperature).toHaveTextContent("1 asset outside of safe range");
+    expect(screen.queryByText(/This range includes legacy module data/)).not.toBeInTheDocument();
   });
   it("uses scoped Dashboard health and all five performance charts with honest current coverage", async () => {
     const { calls } = mount();
     await screen.findByText("200.0 TH/s");
     expect(screen.getByText("4 assets")).toBeInTheDocument();
-    expect(screen.getAllByText("3 of 4 modules reporting")).toHaveLength(2);
+    expect(screen.getAllByText("3 of 4 hashboards reporting")).toHaveLength(2);
     expect(screen.queryByText("30 J/TH")).not.toBeInTheDocument();
     expect(screen.getByRole("region", { name: "Performance" })).toBeInTheDocument();
     for (const label of ["Hashrate", "Power", "Efficiency", "Temperature", "Uptime"])

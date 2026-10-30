@@ -350,6 +350,12 @@ func (q *retryingQuerier) BeginCurtailmentTopologyTargetRestore(ctx context.Cont
 	return result, err
 }
 
+func (q *retryingQuerier) BeginHostedAccountAllocationChange(ctx context.Context, arg BeginHostedAccountAllocationChangeParams) error {
+	return q.retrier.RetryQuery(ctx, "BeginHostedAccountAllocationChange", func() error {
+		return q.next.BeginHostedAccountAllocationChange(ctx, arg)
+	})
+}
+
 func (q *retryingQuerier) BindCurtailmentAutomationRuleResponseProfileRevision(ctx context.Context, arg BindCurtailmentAutomationRuleResponseProfileRevisionParams) (int64, error) {
 	var result int64
 	err := q.retrier.RetryQuery(ctx, "BindCurtailmentAutomationRuleResponseProfileRevision", func() error {
@@ -8700,6 +8706,12 @@ func (q *retryingQuerier) ReconcileDefaultPasswordPairingStatusByIdentifier(ctx 
 		return callErr
 	})
 	return result, err
+}
+
+func (q *retryingQuerier) ReconcileHostedHashboardReplacements(ctx context.Context, arg ReconcileHostedHashboardReplacementsParams) error {
+	return q.retrier.RetryQuery(ctx, "ReconcileHostedHashboardReplacements", func() error {
+		return q.next.ReconcileHostedHashboardReplacements(ctx, arg)
+	})
 }
 
 func (q *retryingQuerier) ReconcileRebootRequiredStatus(ctx context.Context, arg ReconcileRebootRequiredStatusParams) (int64, error) {

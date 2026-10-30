@@ -54,7 +54,7 @@ func TestAccountDashboardStatusDistributionsUseAuthorizedLatestReadings(t *testi
 	require.Zero(t, result.Readings[1].UptimeStatus.GetHashingCount())
 }
 
-func TestAccountDashboardModuleStatusDistributionsUseAuthorizedHashSources(t *testing.T) {
+func TestAccountLegacyModuleStatusDistributionsUseAuthorizedHashSources(t *testing.T) {
 	f := setup(t)
 	client := f.client(t, "Customer", f.user, hostedaccounts.AllCapabilities)
 	end := time.Now().UTC().Truncate(time.Second).Add(-time.Minute)
@@ -77,6 +77,7 @@ func TestAccountDashboardModuleStatusDistributionsUseAuthorizedHashSources(t *te
 		_, err := f.db.ExecContext(t.Context(), `INSERT INTO container_module_metrics(module_id,time,collected_at,hashrate_hs,power_w,temperature_c,coverage) VALUES($1,$2,$2,$3,NULL,$4,jsonb_build_object('hashrate',CASE WHEN $6 THEN jsonb_build_object('reporting',1,'expected',1,'topology_complete',true,'oldest_at',$5::timestamptz,'newest_at',$2::timestamptz) ELSE '{}'::jsonb END,'temperature',jsonb_build_object('oldest_at',$5::timestamptz,'newest_at',$2::timestamptz)))`, id, at, module.hash, module.temperature, module.sourceOldest, module.hashSource)
 		require.NoError(t, err)
 	}
+	f.legacyModuleHistory(t)
 	_, err := f.db.ExecContext(t.Context(), `UPDATE hosted_account_asset_interval SET started_at=$1 WHERE client_id=$2`, start, client.ID)
 	require.NoError(t, err)
 	request := dashboardRequest(client.AccountID, start, end, nil)
@@ -181,6 +182,7 @@ func TestAccountDashboardNoBackfillMissingMetricsAndTypedModules(t *testing.T) {
 	require.NoError(t, err)
 	require.Nil(t, result.Readings[0].Summary.HashrateHs, "current ownership cannot infer old ownership")
 	// Establish both typed allocations before a sample; no miner sample is present.
+	f.legacyModuleHistory(t)
 	_, err = f.db.ExecContext(t.Context(), `UPDATE hosted_account_asset_interval SET started_at=$1 WHERE client_id=$2`, start, client.ID)
 	require.NoError(t, err)
 	_, err = f.db.ExecContext(t.Context(), `INSERT INTO container_module_metrics(module_id,time,collected_at,hashrate_hs,power_w,coverage) VALUES($1,$2,$2,100e12,2000,jsonb_build_object('hashrate',jsonb_build_object('reporting',1,'expected',2,'topology_complete',true,'oldest_at',$2::timestamptz,'newest_at',$2::timestamptz),'power',jsonb_build_object('reporting',1,'expected',2,'topology_complete',true,'oldest_at',$2::timestamptz,'newest_at',$2::timestamptz)))`, module, start.Add(20*time.Minute))
@@ -259,6 +261,7 @@ func TestAccountDashboardTypedIDCollisionAndCompleteCoverage(t *testing.T) {
 	end := time.Now().UTC().Truncate(time.Second)
 	start := end.Add(-time.Hour)
 	sample := start.Add(30 * time.Minute)
+	f.legacyModuleHistory(t)
 	_, err := f.db.ExecContext(t.Context(), `UPDATE hosted_account_asset_interval SET started_at=$1 WHERE organization_id=$2`, start, f.org)
 	require.NoError(t, err)
 	_, err = f.db.ExecContext(t.Context(), `INSERT INTO device_metrics(time,device_identifier,hash_rate_hs,power_w) SELECT $1,device_identifier,999e12,99999 FROM device WHERE id IN ($2,$3)`, sample, miner, controller)
@@ -307,13 +310,14 @@ func TestAccountDashboardHistoryAvailabilityTracksRetention(t *testing.T) {
 	require.Equal(t, newEpoch, result.HistoryAvailableFrom.AsTime(), "the launch boundary still limits history when it is newer than retention")
 }
 
-func TestAccountModuleHistoryUsesCollectionScanWithIndependentSources(t *testing.T) {
+func TestAccountLegacyModuleHistoryUsesCollectionScanWithIndependentSources(t *testing.T) {
 	f := setup(t)
 	client := f.client(t, "Customer", f.user, hostedaccounts.AllCapabilities)
 	module, _ := f.miningModule(t)
 	require.NoError(t, f.allocate(t, f.host, f.root, client.AccountID, 1, selected(6, module, 0)))
 	end := time.Now().UTC().Truncate(time.Second).Add(-time.Minute)
 	start := end.Add(-3 * time.Minute)
+	f.legacyModuleHistory(t)
 	_, err := f.db.ExecContext(t.Context(), `UPDATE hosted_account_asset_interval SET started_at=$1 WHERE client_id=$2`, start.Add(30*time.Second), client.ID)
 	require.NoError(t, err)
 	// A cached PSU pins the stored sample time before the chart even though
@@ -396,7 +400,7 @@ func TestAccountCurrentReadingsRejectPreviousOwnerSamples(t *testing.T) {
 	assertUnavailable()
 }
 
-func TestAccountDashboardModuleUsesIndependentSourceWindows(t *testing.T) {
+func TestAccountLegacyModuleUsesIndependentSourceWindows(t *testing.T) {
 	f := setup(t)
 	client := f.client(t, "Customer", f.user, hostedaccounts.AllCapabilities)
 	module, _ := f.miningModule(t)
@@ -404,6 +408,7 @@ func TestAccountDashboardModuleUsesIndependentSourceWindows(t *testing.T) {
 	end := time.Now().UTC().Truncate(time.Second)
 	start := end.Add(-2 * time.Hour)
 	boundary := start.Add(time.Hour)
+	f.legacyModuleHistory(t)
 	_, err := f.db.ExecContext(t.Context(), `UPDATE hosted_account_asset_interval SET started_at=$1 WHERE client_id=$2`, boundary, client.ID)
 	require.NoError(t, err)
 	// The collection belongs to this client, but hash sources precede assignment,
@@ -427,7 +432,7 @@ func TestAccountCurrentModuleRejectsCachedAndCrossingSources(t *testing.T) {
 	before := time.Now().UTC().Add(-time.Minute)
 	require.NoError(t, f.allocate(t, f.host, f.root, client.AccountID, 1, selected(6, module, 0)))
 	var boundary time.Time
-	require.NoError(t, f.db.QueryRowContext(t.Context(), `SELECT started_at FROM hosted_account_asset_interval WHERE kind=6 AND asset_id=$1 AND ended_at IS NULL`, module).Scan(&boundary))
+	require.NoError(t, f.db.QueryRowContext(t.Context(), `SELECT min(started_at) FROM hosted_account_asset_interval WHERE kind=7 AND asset_id IN (SELECT hashboard_id FROM hashboard_installation WHERE module_id=$1) AND ended_at IS NULL`, module).Scan(&boundary))
 	publish := func(hashOld, hashNew, powerOld, powerNew time.Time) {
 		t.Helper()
 		at := time.Now().UTC()
@@ -508,13 +513,14 @@ func TestAccountHistoryExactAllocationBoundary(t *testing.T) {
 	}
 }
 
-func TestAccountModuleHistoryRangeUsesSourcesAndRejectsInvalidEfficiency(t *testing.T) {
+func TestAccountLegacyModuleHistoryRangeUsesSourcesAndRejectsInvalidEfficiency(t *testing.T) {
 	f := setup(t)
 	client := f.client(t, "Customer", f.user, hostedaccounts.AllCapabilities)
 	module, _ := f.miningModule(t)
 	require.NoError(t, f.allocate(t, f.host, f.root, client.AccountID, 1, selected(6, module, 0)))
 	end := time.Now().UTC().Truncate(time.Second).Add(-time.Minute)
 	start := end.Add(-3 * time.Minute)
+	f.legacyModuleHistory(t)
 	_, err := f.db.ExecContext(t.Context(), `UPDATE hosted_account_asset_interval SET started_at=$1 WHERE client_id=$2`, start.Add(-time.Hour), client.ID)
 	require.NoError(t, err)
 	insert := func(collected, hashAt, powerAt time.Time, hash any) {
@@ -577,6 +583,7 @@ func TestAccountDashboardRetainsAllocatedCountsOutsideNarrowedPolicy(t *testing.
 	require.NoError(t, f.db.QueryRowContext(t.Context(), `INSERT INTO site(org_id,name,slug) VALUES($1,'Allocated site','allocated') RETURNING id`, f.org).Scan(&site))
 	_, err := f.db.ExecContext(t.Context(), `UPDATE device SET site_id=$1 WHERE id IN ($2,$3)`, site, miner, controller)
 	require.NoError(t, err)
+	f.observeModuleAtCurrentSite(t, module, controller)
 	require.NoError(t, f.allocate(t, f.host, f.root, client.AccountID, 1, selected(5, miner, 0), selected(6, module, 0)))
 	end := time.Now().UTC().Truncate(time.Second)
 	start := end.Add(-time.Hour)
@@ -586,17 +593,18 @@ func TestAccountDashboardRetainsAllocatedCountsOutsideNarrowedPolicy(t *testing.
 	require.NoError(t, err)
 	before, err := f.svc.Dashboard(t.Context(), f.user, f.org, dashboardRequest(client.AccountID, start, end, nil))
 	require.NoError(t, err)
-	require.EqualValues(t, 2, before.Totals.AssetCount)
+	require.EqualValues(t, 4, before.Totals.AssetCount)
 	require.Equal(t, 100e12, before.Readings[0].Summary.GetHashrateHs())
 	require.Len(t, before.Sites, 1)
 	require.NoError(t, f.svc.ConfigureSites(t.Context(), f.user, f.org, client.AccountID, true, nil))
 	after, err := f.svc.Dashboard(t.Context(), f.user, f.org, dashboardRequest(client.AccountID, start, end, nil))
 	require.NoError(t, err)
-	require.EqualValues(t, 2, after.Totals.AssetCount, "policy changes must not erase existing allocations")
+	require.EqualValues(t, 4, after.Totals.AssetCount, "policy changes must not erase existing allocations")
 	require.EqualValues(t, 1, after.Totals.MinerCount)
-	require.EqualValues(t, 1, after.Totals.ModuleCount)
-	require.EqualValues(t, 2, after.Totals.OutsidePolicyCount)
-	require.EqualValues(t, 2, after.Totals.UnknownCount)
+	require.EqualValues(t, 3, after.Totals.HashboardCount)
+	require.Zero(t, after.Totals.ModuleCount)
+	require.EqualValues(t, 4, after.Totals.OutsidePolicyCount)
+	require.EqualValues(t, 4, after.Totals.UnknownCount)
 	require.Nil(t, after.Totals.HashrateHs)
 	require.Nil(t, after.Totals.PowerW)
 	require.Empty(t, after.Sites, "outside-policy counts must not disclose site identity")

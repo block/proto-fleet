@@ -182,6 +182,7 @@ func TestAccountAssetFiltersCoverAuthorizedInventoryBeforePagination(t *testing.
 		_, err = f.db.ExecContext(t.Context(), `UPDATE discovered_device SET model=$1 WHERE id=(SELECT discovered_device_id FROM device WHERE id=$2)`, item.model, item.id)
 		require.NoError(t, err)
 	}
+	f.observeModuleAtCurrentSite(t, module, controller)
 	require.NoError(t, f.allocate(t, f.host, f.root, account.AccountID, 1, selected(5, first, 0), selected(5, second, 0), selected(6, module, 0)))
 	require.NoError(t, f.allocate(t, f.host, f.root, sibling.AccountID, 1, selected(5, hidden, 0)))
 	list := func(request *pb.ListAccountAssetsRequest) *pb.ListAccountAssetsResponse {

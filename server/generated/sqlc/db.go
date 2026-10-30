@@ -114,6 +114,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.beginCurtailmentTopologyTargetRestoreStmt, err = db.PrepareContext(ctx, beginCurtailmentTopologyTargetRestore); err != nil {
 		return nil, fmt.Errorf("error preparing query BeginCurtailmentTopologyTargetRestore: %w", err)
 	}
+	if q.beginHostedAccountAllocationChangeStmt, err = db.PrepareContext(ctx, beginHostedAccountAllocationChange); err != nil {
+		return nil, fmt.Errorf("error preparing query BeginHostedAccountAllocationChange: %w", err)
+	}
 	if q.bindCurtailmentAutomationRuleResponseProfileRevisionStmt, err = db.PrepareContext(ctx, bindCurtailmentAutomationRuleResponseProfileRevision); err != nil {
 		return nil, fmt.Errorf("error preparing query BindCurtailmentAutomationRuleResponseProfileRevision: %w", err)
 	}
@@ -2346,6 +2349,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.reconcileDefaultPasswordPairingStatusByIdentifierStmt, err = db.PrepareContext(ctx, reconcileDefaultPasswordPairingStatusByIdentifier); err != nil {
 		return nil, fmt.Errorf("error preparing query ReconcileDefaultPasswordPairingStatusByIdentifier: %w", err)
 	}
+	if q.reconcileHostedHashboardReplacementsStmt, err = db.PrepareContext(ctx, reconcileHostedHashboardReplacements); err != nil {
+		return nil, fmt.Errorf("error preparing query ReconcileHostedHashboardReplacements: %w", err)
+	}
 	if q.reconcileRebootRequiredStatusStmt, err = db.PrepareContext(ctx, reconcileRebootRequiredStatus); err != nil {
 		return nil, fmt.Errorf("error preparing query ReconcileRebootRequiredStatus: %w", err)
 	}
@@ -3132,6 +3138,11 @@ func (q *Queries) Close() error {
 	if q.beginCurtailmentTopologyTargetRestoreStmt != nil {
 		if cerr := q.beginCurtailmentTopologyTargetRestoreStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing beginCurtailmentTopologyTargetRestoreStmt: %w", cerr)
+		}
+	}
+	if q.beginHostedAccountAllocationChangeStmt != nil {
+		if cerr := q.beginHostedAccountAllocationChangeStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing beginHostedAccountAllocationChangeStmt: %w", cerr)
 		}
 	}
 	if q.bindCurtailmentAutomationRuleResponseProfileRevisionStmt != nil {
@@ -6854,6 +6865,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing reconcileDefaultPasswordPairingStatusByIdentifierStmt: %w", cerr)
 		}
 	}
+	if q.reconcileHostedHashboardReplacementsStmt != nil {
+		if cerr := q.reconcileHostedHashboardReplacementsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing reconcileHostedHashboardReplacementsStmt: %w", cerr)
+		}
+	}
 	if q.reconcileRebootRequiredStatusStmt != nil {
 		if cerr := q.reconcileRebootRequiredStatusStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing reconcileRebootRequiredStatusStmt: %w", cerr)
@@ -7978,6 +7994,7 @@ type Queries struct {
 	assignRoleStmt                                             *sql.Stmt
 	beginCurtailmentRestorationStmt                            *sql.Stmt
 	beginCurtailmentTopologyTargetRestoreStmt                  *sql.Stmt
+	beginHostedAccountAllocationChangeStmt                     *sql.Stmt
 	bindCurtailmentAutomationRuleResponseProfileRevisionStmt   *sql.Stmt
 	bindEnrollmentToFleetNodeStmt                              *sql.Stmt
 	bindHostedAccountKeyStmt                                   *sql.Stmt
@@ -8722,6 +8739,7 @@ type Queries struct {
 	reconcileContainerModulesStmt                              *sql.Stmt
 	reconcileContainerTanksStmt                                *sql.Stmt
 	reconcileDefaultPasswordPairingStatusByIdentifierStmt      *sql.Stmt
+	reconcileHostedHashboardReplacementsStmt                   *sql.Stmt
 	reconcileRebootRequiredStatusStmt                          *sql.Stmt
 	recordCurtailPendingDispatchStmt                           *sql.Stmt
 	recordDeviceWriteRecoveryStmt                              *sql.Stmt
@@ -8969,6 +8987,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		assignRoleStmt:                                             q.assignRoleStmt,
 		beginCurtailmentRestorationStmt:                            q.beginCurtailmentRestorationStmt,
 		beginCurtailmentTopologyTargetRestoreStmt:                  q.beginCurtailmentTopologyTargetRestoreStmt,
+		beginHostedAccountAllocationChangeStmt:                     q.beginHostedAccountAllocationChangeStmt,
 		bindCurtailmentAutomationRuleResponseProfileRevisionStmt:   q.bindCurtailmentAutomationRuleResponseProfileRevisionStmt,
 		bindEnrollmentToFleetNodeStmt:                              q.bindEnrollmentToFleetNodeStmt,
 		bindHostedAccountKeyStmt:                                   q.bindHostedAccountKeyStmt,
@@ -9713,6 +9732,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		reconcileContainerModulesStmt:                              q.reconcileContainerModulesStmt,
 		reconcileContainerTanksStmt:                                q.reconcileContainerTanksStmt,
 		reconcileDefaultPasswordPairingStatusByIdentifierStmt:      q.reconcileDefaultPasswordPairingStatusByIdentifierStmt,
+		reconcileHostedHashboardReplacementsStmt:                   q.reconcileHostedHashboardReplacementsStmt,
 		reconcileRebootRequiredStatusStmt:                          q.reconcileRebootRequiredStatusStmt,
 		recordCurtailPendingDispatchStmt:                           q.recordCurtailPendingDispatchStmt,
 		recordDeviceWriteRecoveryStmt:                              q.recordDeviceWriteRecoveryStmt,

@@ -81,6 +81,7 @@ func TestAccountAssetChainTriggerRejectsBrokenOwnership(t *testing.T) {
 	cfg, err := testutil.GetTestConfig()
 	require.NoError(t, err)
 	database := testutil.NewDatabaseService(t, cfg)
+	rollbackEmptyHashboardAllocations(t, database.DB)
 	user := database.CreateSuperAdminUser()
 	org := user.OrganizationID
 	miner := database.CreateDevice(org, "proto").DatabaseID

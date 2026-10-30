@@ -13,13 +13,22 @@ import AccountPools from "./AccountPools";
 import AccountTeam from "./AccountTeam";
 import { ClientPermissions } from "./ClientPermissions";
 import {
+  AccountAssetSchema,
   AccountRole,
   AccountSchema,
   InvitationSchema,
+  ListAccountAssetsResponseSchema,
   MemberSchema,
+  MiningAssetKind,
   PoolRevisionSchema,
 } from "@/protoFleet/api/generated/hosted/v1/hosted_pb";
 import { useFleetStore } from "@/protoFleet/store";
+import { pushToast, STATUSES } from "@/shared/features/toaster";
+
+vi.mock("@/shared/features/toaster", () => ({
+  pushToast: vi.fn(),
+  STATUSES: { success: "success" },
+}));
 
 const initialAuth = useFleetStore.getState().auth;
 const accountId = "11111111-1111-4111-8111-111111111111";
@@ -105,6 +114,7 @@ function scope(mask = 31n) {
   return { value, client };
 }
 beforeEach(() => {
+  vi.mocked(pushToast).mockClear();
   // JSDOM has no layout; runtime popovers require a visible trigger rectangle.
   vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue(new DOMRect(20, 20, 240, 40));
 });
@@ -662,14 +672,33 @@ describe("hosted account pages", () => {
 
   it("shows the assignment confirmation in the child inventory it returns to", async () => {
     const { value, client } = scope();
+    const user = userEvent.setup();
     const childId = "77777777-7777-4777-8777-777777777777";
+    const listAccountAssets = vi.fn().mockImplementation(({ ownerAccountId }) =>
+      Promise.resolve(
+        create(ListAccountAssetsResponseSchema, {
+          assets: [
+            create(AccountAssetSchema, {
+              kind: MiningAssetKind.MINER,
+              id: 1n,
+              revision: 1n,
+              name: "Miner One",
+              available: true,
+              ownerAccountId,
+            }),
+          ],
+          canManageAssignments: true,
+          canViewAssignments: true,
+          children: [{ accountId: childId, name: "Child" }],
+        }),
+      ),
+    );
     render(
       <MemoryRouter
         initialEntries={[
           {
             pathname: `/accounts/${accountId}/children`,
-            search: `?assets=${childId}`,
-            state: { assetNotice: "Allocated 1 asset to Child." },
+            search: `?assets=${childId}&action=assign`,
           },
         ]}
       >
@@ -678,7 +707,8 @@ describe("hosted account pages", () => {
             ...value,
             client: {
               ...client,
-              listAccountAssets: vi.fn().mockResolvedValue({ assets: [], nextPageToken: "", children: [] }),
+              listAccountAssets,
+              assignAccountAssets: vi.fn().mockResolvedValue({}),
             } as unknown as AccountScope["client"],
           }}
         >
@@ -686,7 +716,21 @@ describe("hosted account pages", () => {
         </AccountScopeContext.Provider>
       </MemoryRouter>,
     );
-    expect(await screen.findByRole("status")).toHaveTextContent("Allocated 1 asset to Child.");
+    await user.click(await screen.findByRole("checkbox", { name: "Select Miner One" }));
+    await user.click(screen.getByRole("button", { name: "Allocate selected" }));
+    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Allocate 1 asset" }));
+    expect(await screen.findByRole("button", { name: "Allocate assets" })).toBeInTheDocument();
+    await waitFor(() =>
+      expect(listAccountAssets).toHaveBeenLastCalledWith(
+        expect.objectContaining({ ownerAccountId: childId }),
+        expect.anything(),
+      ),
+    );
+    expect(pushToast).toHaveBeenCalledExactlyOnceWith({
+      message: "Allocated 1 asset to Child.",
+      status: STATUSES.success,
+    });
+    expect(screen.queryByText("Allocated 1 asset to Child.")).not.toBeInTheDocument();
   });
   it("loads the created subclient's mining assets without showing it as unavailable", async () => {
     const user = userEvent.setup(),

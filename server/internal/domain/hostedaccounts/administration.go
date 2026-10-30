@@ -34,6 +34,7 @@ type AccountSummary struct {
 type ClientManagementSummary struct {
 	MinerCount     int64
 	ModuleCount    int64
+	HashboardCount int64
 	ContainerCount int64
 	LoginCount     int64
 }
@@ -90,7 +91,7 @@ func (s *Service) listAccountSummaries(ctx context.Context, actorID, orgID int64
 		}
 		if parentID.Valid && row.Depth == 1 {
 			item.ManagementSummary = &ClientManagementSummary{
-				MinerCount: row.MinerCount, ModuleCount: row.ModuleCount,
+				MinerCount: row.MinerCount, ModuleCount: row.ModuleCount, HashboardCount: row.HashboardCount,
 				ContainerCount: row.ContainerCount, LoginCount: row.LoginCount,
 			}
 		}

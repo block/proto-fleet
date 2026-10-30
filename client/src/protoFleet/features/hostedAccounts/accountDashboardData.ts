@@ -1,4 +1,5 @@
 import { create } from "@bufbuild/protobuf";
+import { timestampMs } from "@bufbuild/protobuf/wkt";
 import {
   type AccountDashboardReading,
   type MiningSummary,
@@ -14,12 +15,15 @@ import {
 } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
 
 export const reportingCoverage = (count: bigint, summary: MiningSummary) => {
-  const label =
-    summary.minerCount === 0n && summary.moduleCount > 0n
-      ? "module"
-      : summary.moduleCount === 0n && summary.minerCount > 0n
-        ? "miner"
-        : "asset";
+  const { minerCount, moduleCount, hashboardCount } = summary;
+  let label = "asset";
+  if (minerCount === 0n && hashboardCount === 0n && moduleCount > 0n) {
+    label = "module";
+  } else if (moduleCount === 0n && hashboardCount === 0n && minerCount > 0n) {
+    label = "miner";
+  } else if (hashboardCount > 0n && minerCount === 0n && moduleCount === 0n) {
+    label = "hashboard";
+  }
   return `${count.toLocaleString()} of ${summary.assetCount.toLocaleString()} ${label}${summary.assetCount === 1n ? "" : "s"} reporting`;
 };
 
@@ -42,7 +46,7 @@ export const accountDashboardData = (readings: AccountDashboardReading[]) => {
       ],
       [MeasurementType.EFFICIENCY, summary.efficiencyJTh, summary.pairedReportingCount],
     ];
-    const timestamp = Number(time.seconds) * 1000;
+    const timestamp = timestampMs(time);
     for (const [measurementType, value, reporting] of values) {
       metrics.push(
         create(MetricSchema, {
@@ -53,13 +57,16 @@ export const accountDashboardData = (readings: AccountDashboardReading[]) => {
             value !== undefined && Number.isFinite(value) ? [{ aggregationType: AggregationType.AVERAGE, value }] : [],
         }),
       );
-      (tooltipNotes[measurementType] ??= {})[timestamp] = reportingCoverage(reporting, summary);
+      const coverage = reportingCoverage(reporting, summary);
+      (tooltipNotes[measurementType] ??= {})[timestamp] =
+        summary.moduleCount > 0n ? `Legacy module data · ${coverage}` : coverage;
     }
   }
   const latestSummary = readings[readings.length - 1]?.summary;
   return {
     metrics,
     tooltipNotes,
+    hasLegacyModuleReadings: readings.some(({ summary }) => summary && summary.moduleCount > 0n),
     temperatureStatusCounts: readings.map(
       ({ time, temperatureStatus }) => temperatureStatus ?? create(TemperatureStatusCountSchema, { timestamp: time }),
     ),

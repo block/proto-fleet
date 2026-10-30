@@ -16,9 +16,13 @@ func TestClientManagementSummaryAllocationAndLoginCounts(t *testing.T) {
 	subclient, err := f.svc.CreateChild(t.Context(), f.user, f.org, client.AccountID, "Subclient", f.host, hostedaccounts.AllCapabilities)
 	require.NoError(t, err)
 	miner := f.miningDevice(t, commonpb.DeviceClass_DEVICE_CLASS_RIG)
-	module, _ := f.miningModule(t)
+	module, controller := f.miningModule(t)
 	var sameContainerModule int64
 	require.NoError(t, f.db.QueryRowContext(t.Context(), `INSERT INTO container_module(tank_id,position,first_seen_at,last_seen_at,state,state_observed_at) SELECT tank_id,2,now(),now(),'active',now() FROM container_module WHERE id=$1 RETURNING id`, module).Scan(&sameContainerModule))
+	f.observeModuleAtCurrentSite(t, sameContainerModule, controller)
+	for slot := 1; slot <= 3; slot++ {
+		f.miningBoard(t, sameContainerModule, controller, slot)
+	}
 	otherContainerModule, _ := f.miningModule(t)
 	assign := pb.AssetAssignmentIntent_ASSET_ASSIGNMENT_INTENT_ASSIGN
 	require.NoError(t, f.allocate(t, f.host, f.root, client.AccountID, assign, selected(5, miner, 0), selected(6, module, 0), selected(6, sameContainerModule, 0), selected(6, otherContainerModule, 0)))
@@ -40,18 +44,20 @@ func TestClientManagementSummaryAllocationAndLoginCounts(t *testing.T) {
 	}
 	_, err = hostedaccounts.NewInvitationService(f.svc, nil).Create(t.Context(), f.user, f.org, client.AccountID, hostedaccounts.RoleViewer, 0)
 	require.NoError(t, err)
+	expected := &hostedaccounts.ClientManagementSummary{MinerCount: 1, HashboardCount: 9, ContainerCount: 2, LoginCount: 2}
 	check := func() {
 		t.Helper()
 		rows, err := f.svc.ListChildren(t.Context(), f.host, f.org, f.root)
 		require.NoError(t, err)
 		require.Len(t, rows, 2)
 		require.Equal(t, client.AccountID, rows[0].AccountID)
-		require.Equal(t, &hostedaccounts.ClientManagementSummary{MinerCount: 1, ModuleCount: 3, ContainerCount: 2, LoginCount: 2}, rows[0].ManagementSummary)
+		require.Equal(t, expected, rows[0].ManagementSummary)
 		require.Equal(t, empty.AccountID, rows[1].AccountID)
 		require.Equal(t, &hostedaccounts.ClientManagementSummary{LoginCount: 1}, rows[1].ManagementSummary)
 		require.Zero(t, rows[0].EffectiveCapabilities, "aggregate management does not grant private client access")
 	}
 	check()
+	boards := f.moduleSelection(t, module).Boards
 	_, err = f.db.ExecContext(t.Context(), `UPDATE container_module SET retired_at=now() WHERE id=$1`, module)
 	require.NoError(t, err)
 	check()
@@ -67,7 +73,11 @@ func TestClientManagementSummaryAllocationAndLoginCounts(t *testing.T) {
 	require.NoError(t, f.svc.ConfigureChild(t.Context(), f.host, f.org, client.AccountID, hostedaccounts.AllCapabilities, true))
 	check()
 	require.NoError(t, f.svc.ConfigureChild(t.Context(), f.host, f.org, client.AccountID, hostedaccounts.AllCapabilities, false))
-	require.NoError(t, f.allocate(t, f.host, f.root, client.AccountID, pb.AssetAssignmentIntent_ASSET_ASSIGNMENT_INTENT_RECALL, selected(5, miner, 1), selected(6, module, 2), selected(6, sameContainerModule, 1), selected(6, otherContainerModule, 1)))
+	recall := []*pb.MiningAssetSelection{selected(5, miner, 1), selected(6, sameContainerModule, 1), selected(6, otherContainerModule, 1)}
+	for _, board := range boards {
+		recall = append(recall, selected(7, board.Id, 2))
+	}
+	require.NoError(t, f.allocate(t, f.host, f.root, client.AccountID, pb.AssetAssignmentIntent_ASSET_ASSIGNMENT_INTENT_RECALL, recall...))
 	rows, err = f.svc.ListChildren(t.Context(), f.host, f.org, f.root)
 	require.NoError(t, err)
 	require.Equal(t, &hostedaccounts.ClientManagementSummary{LoginCount: 2}, rows[0].ManagementSummary)
