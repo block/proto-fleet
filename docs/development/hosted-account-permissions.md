@@ -46,7 +46,12 @@ History changes at the accepted observation time; delayed confirmation does not
 backfill ownership. Empty or unknown slots preserve the old allocation.
 
 Automatic transfer requires an unallocated replacement and an old board that has
-not moved elsewhere. Unresolved identities, later manual allocation decisions,
+not moved elsewhere. The source map must be complete. Every other registered CT1 controller must provide complete
+inventory accepted after the candidate installation, with an observation time at
+least as recent. Missing, incomplete, or stale peer reports defer the transfer;
+later source polls retry it automatically. This preserves ownership when the
+destination reports a moved board after the source reports its replacement.
+Unresolved identities, later manual allocation decisions,
 suspended accounts, and destination site restrictions prevent the transfer.
 The database records decision order separately from device timestamps and physical
 moves. Replacements already pending before migration 1049 require the manual

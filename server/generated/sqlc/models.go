@@ -543,9 +543,11 @@ type ContainerHaObservation struct {
 }
 
 type ContainerInventory struct {
-	DeviceID   int64
-	ObservedAt time.Time
-	OrgID      int64
+	DeviceID                   int64
+	ObservedAt                 time.Time
+	OrgID                      int64
+	HashboardInventoryOrder    sql.NullInt64
+	HashboardInventoryComplete bool
 }
 
 type ContainerLatestMetric struct {

@@ -215,15 +215,18 @@ func replacementEventCount(t *testing.T, r *modulePSUIdentityRig) int {
 }
 
 func replacementSnapshot(at time.Time, serials ...string) *sdk.ContainerSnapshot {
-	boards := make([]sdk.ContainerHashboard, len(serials))
-	positions := [...]int32{1, 2, 3}
-	for i, serial := range serials {
+	boards := make([]sdk.ContainerHashboard, sdk.CT1HashboardsPerModule)
+	for i := range int32(sdk.CT1HashboardsPerModule) {
+		serial := ""
+		if int(i) < len(serials) {
+			serial = serials[i]
+		}
 		if serial == "" {
-			boards[i] = sdk.ContainerHashboard{Position: positions[i], Occupancy: "empty"}
+			boards[i] = sdk.ContainerHashboard{Position: i + 1, Occupancy: "empty"}
 			continue
 		}
 		boards[i] = identifiedBoard(at, serial)
-		boards[i].Position = positions[i]
+		boards[i].Position = i + 1
 		boards[i].MACAddress = "mac-" + serial
 	}
 	return modulePSUSnapshot(at, sdk.ContainerTank{Position: 1, Modules: []sdk.ContainerModule{confirmedModule(at, 1, "psu-a", boards...)}})
@@ -354,6 +357,12 @@ func TestAutomaticHashboardReplacementAcceptsRecalledSpareFromAnotherController(
 				require.Equal(t, [2]int64{}, replacementOwner(t, destination, stock))
 				at = at.Add(time.Second)
 			}
+			require.NoError(t, destination.store(t, replacementSnapshot(at, "stock")))
+			require.Equal(t, [2]int64{client, child}, replacementOwner(t, destination, old))
+			require.Equal(t, [2]int64{}, replacementOwner(t, destination, stock))
+			// The other controller must confirm a complete map after installation.
+			require.NoError(t, source.store(t, modulePSUSnapshot(at.Add(time.Second))))
+			at = at.Add(2 * time.Second)
 			require.NoError(t, destination.store(t, replacementSnapshot(at, "stock")))
 			require.Equal(t, [2]int64{}, replacementOwner(t, destination, old))
 			require.Equal(t, [2]int64{client, child}, replacementOwner(t, destination, stock))

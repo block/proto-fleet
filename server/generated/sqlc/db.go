@@ -2367,6 +2367,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.recordFirmwareRolloutActionStmt, err = db.PrepareContext(ctx, recordFirmwareRolloutAction); err != nil {
 		return nil, fmt.Errorf("error preparing query RecordFirmwareRolloutAction: %w", err)
 	}
+	if q.recordHostedHashboardInventoryStmt, err = db.PrepareContext(ctx, recordHostedHashboardInventory); err != nil {
+		return nil, fmt.Errorf("error preparing query RecordHostedHashboardInventory: %w", err)
+	}
 	if q.recordMiningGroupRequestStmt, err = db.PrepareContext(ctx, recordMiningGroupRequest); err != nil {
 		return nil, fmt.Errorf("error preparing query RecordMiningGroupRequest: %w", err)
 	}
@@ -6895,6 +6898,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing recordFirmwareRolloutActionStmt: %w", cerr)
 		}
 	}
+	if q.recordHostedHashboardInventoryStmt != nil {
+		if cerr := q.recordHostedHashboardInventoryStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing recordHostedHashboardInventoryStmt: %w", cerr)
+		}
+	}
 	if q.recordMiningGroupRequestStmt != nil {
 		if cerr := q.recordMiningGroupRequestStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing recordMiningGroupRequestStmt: %w", cerr)
@@ -8745,6 +8753,7 @@ type Queries struct {
 	recordDeviceWriteRecoveryStmt                              *sql.Stmt
 	recordFirmwareDeploymentStmt                               *sql.Stmt
 	recordFirmwareRolloutActionStmt                            *sql.Stmt
+	recordHostedHashboardInventoryStmt                         *sql.Stmt
 	recordMiningGroupRequestStmt                               *sql.Stmt
 	recordPoolConfigurationImportStmt                          *sql.Stmt
 	recoverTelemetrySeedBatchStmt                              *sql.Stmt
@@ -9738,6 +9747,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		recordDeviceWriteRecoveryStmt:                              q.recordDeviceWriteRecoveryStmt,
 		recordFirmwareDeploymentStmt:                               q.recordFirmwareDeploymentStmt,
 		recordFirmwareRolloutActionStmt:                            q.recordFirmwareRolloutActionStmt,
+		recordHostedHashboardInventoryStmt:                         q.recordHostedHashboardInventoryStmt,
 		recordMiningGroupRequestStmt:                               q.recordMiningGroupRequestStmt,
 		recordPoolConfigurationImportStmt:                          q.recordPoolConfigurationImportStmt,
 		recoverTelemetrySeedBatchStmt:                              q.recoverTelemetrySeedBatchStmt,

@@ -24,3 +24,23 @@ func (q *Queries) ReconcileHostedHashboardReplacements(ctx context.Context, arg 
 	_, err := q.exec(ctx, q.reconcileHostedHashboardReplacementsStmt, reconcileHostedHashboardReplacements, arg.OrganizationID, arg.DeviceID, arg.ObservedAt)
 	return err
 }
+
+const recordHostedHashboardInventory = `-- name: RecordHostedHashboardInventory :exec
+UPDATE container_inventory
+SET hashboard_inventory_order=nextval('hosted_hashboard_allocation_order'),
+ hashboard_inventory_complete=$1::boolean
+WHERE device_id=$2::bigint AND observed_at=$3::timestamptz
+`
+
+type RecordHostedHashboardInventoryParams struct {
+	Complete   bool
+	DeviceID   int64
+	ObservedAt time.Time
+}
+
+// Record the normalized map only after identity conflicts and unknown slots
+// have been resolved. Stale or replayed polls never reach this checkpoint.
+func (q *Queries) RecordHostedHashboardInventory(ctx context.Context, arg RecordHostedHashboardInventoryParams) error {
+	_, err := q.exec(ctx, q.recordHostedHashboardInventoryStmt, recordHostedHashboardInventory, arg.Complete, arg.DeviceID, arg.ObservedAt)
+	return err
+}

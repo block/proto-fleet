@@ -112,4 +112,5 @@ DROP TRIGGER hosted_hashboard_allocation_order ON hosted_account_asset;
 DROP FUNCTION record_hosted_hashboard_allocation_order();
 ALTER TABLE hashboard_installation DROP COLUMN installed_order, DROP COLUMN removed_order;
 ALTER TABLE hosted_account_asset DROP COLUMN allocation_decision_order;
+ALTER TABLE container_inventory DROP COLUMN hashboard_inventory_order, DROP COLUMN hashboard_inventory_complete;
 DROP SEQUENCE hosted_hashboard_allocation_order;

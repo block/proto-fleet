@@ -475,11 +475,14 @@ unknown gaps preserve ownership. Later identity confirmation can complete a
 transfer, using that accepted poll's timestamp for both history boundaries.
 Ownership is never backfilled to an earlier unconfirmed observation.
 
-Replacement detection uses the observations accepted so far. If a board moves to
-another controller, but its old slot reports a spare before the new controller
-reports the moved board, the spare inherits the allocation. A later report from
-the new controller does not undo that transfer. The host must correct the
-allocation when this poll order causes a move to be treated as a replacement.
+Before a transfer, the source must have a complete normalized map, and every other
+registered CT1 controller in the organization must
+provide a complete inventory accepted after the candidate installation. Its
+observation time must also reach that installation time. Missing, incomplete, or
+older reports leave the old board's allocation in place. A report locating the
+old board elsewhere prevents the transfer, regardless of controller poll order.
+The source controller retries pending replacements on later polls. Offline peers
+can delay automatic replacement; the host-operated fallback remains available.
 
 Migration 1049 records allocation decisions, installations, and removals in database
 sequence order. Device clock skew cannot override a later manual decision.

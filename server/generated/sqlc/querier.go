@@ -2093,6 +2093,9 @@ type Querier interface {
 	// Attributes an action that changes only the rollout's devices (retry) to
 	// its actor.
 	RecordFirmwareRolloutAction(ctx context.Context, arg RecordFirmwareRolloutActionParams) error
+	// Record the normalized map only after identity conflicts and unknown slots
+	// have been resolved. Stale or replayed polls never reach this checkpoint.
+	RecordHostedHashboardInventory(ctx context.Context, arg RecordHostedHashboardInventoryParams) error
 	RecordMiningGroupRequest(ctx context.Context, arg RecordMiningGroupRequestParams) error
 	RecordPoolConfigurationImport(ctx context.Context, arg RecordPoolConfigurationImportParams) error
 	RecoverTelemetrySeedBatch(ctx context.Context) error

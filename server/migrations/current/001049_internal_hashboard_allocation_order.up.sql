@@ -6,6 +6,8 @@ LOCK TABLE organization IN EXCLUSIVE MODE;
 CREATE SEQUENCE hosted_hashboard_allocation_order;
 ALTER TABLE hosted_account_asset ADD COLUMN allocation_decision_order bigint NOT NULL DEFAULT 0;
 ALTER TABLE hashboard_installation ADD COLUMN installed_order bigint, ADD COLUMN removed_order bigint;
+ALTER TABLE container_inventory ADD COLUMN hashboard_inventory_order bigint,
+ ADD COLUMN hashboard_inventory_complete boolean NOT NULL DEFAULT false;
 
 -- Accepted inventory may be slightly ahead of the server clock. A controller
 -- move or deletion must close all of its placements at one valid boundary.
@@ -64,9 +66,23 @@ DECLARE
  replacement record;
  previous_boundary text := COALESCE(current_setting('fleet.allocation_boundary',true),'');
  transferred bigint := 0;
+ peer_inventory_order bigint;
+ peer_observed_at timestamptz;
 BEGIN
  PERFORM id FROM organization WHERE id=target_org AND deleted_at IS NULL FOR NO KEY UPDATE;
  IF NOT FOUND THEN RETURN 0; END IF;
+
+ -- Absence on this controller cannot distinguish a replacement from a move
+ -- whose destination has not reported yet. Require every other registered
+ -- controller to accept a complete map after the candidate was installed.
+ -- Read this once per poll, not once per replacement board.
+ SELECT min(CASE WHEN inventory.hashboard_inventory_complete
+   THEN COALESCE(inventory.hashboard_inventory_order,0) ELSE 0 END),min(inventory.observed_at)
+ INTO peer_inventory_order,peer_observed_at
+ FROM device peer JOIN discovered_device discovered ON discovered.id=peer.discovered_device_id
+ LEFT JOIN container_inventory inventory ON inventory.device_id=peer.id
+ WHERE peer.org_id=target_org AND peer.id<>controller AND peer.deleted_at IS NULL
+  AND discovered.deleted_at IS NULL AND discovered.device_class=2;
 
  FOR replacement IN
   SELECT a.asset_id AS old_board, current.hashboard_id AS new_board, current.module_id, current.position,
@@ -77,6 +93,7 @@ BEGIN
    AND module.identity_confirmed AND module.last_seen_at=observed
   JOIN container_tank tank ON tank.id=module.tank_id AND tank.device_id=controller AND tank.present
   JOIN container_inventory inventory ON inventory.device_id=controller AND inventory.observed_at=observed
+   AND inventory.hashboard_inventory_complete
   JOIN device device ON device.id=controller AND device.org_id=target_org AND device.deleted_at IS NULL
    AND device.site_id IS NOT DISTINCT FROM current.site_id
   JOIN container_module_identity identity ON identity.module_id=module.id
@@ -108,6 +125,8 @@ BEGIN
    AND destination.asset_id=current.hashboard_id
   WHERE current.device_id=controller AND current.removed_at IS NULL AND current.last_seen_at=observed
    AND prior.hashboard_id<>current.hashboard_id AND prior.removed_at<=current.installed_at
+   AND (peer_inventory_order IS NULL OR (peer_inventory_order>GREATEST(current.installed_order,prior.removed_order)
+    AND peer_observed_at>=current.installed_at))
    -- Never take an allocated board, or override a manual decision made after
    -- the incoming board was installed. Recalled spare boards remain usable.
    AND destination.client_id IS NULL

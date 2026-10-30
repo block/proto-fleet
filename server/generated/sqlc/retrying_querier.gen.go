@@ -8756,6 +8756,12 @@ func (q *retryingQuerier) RecordFirmwareRolloutAction(ctx context.Context, arg R
 	})
 }
 
+func (q *retryingQuerier) RecordHostedHashboardInventory(ctx context.Context, arg RecordHostedHashboardInventoryParams) error {
+	return q.retrier.RetryQuery(ctx, "RecordHostedHashboardInventory", func() error {
+		return q.next.RecordHostedHashboardInventory(ctx, arg)
+	})
+}
+
 func (q *retryingQuerier) RecordMiningGroupRequest(ctx context.Context, arg RecordMiningGroupRequestParams) error {
 	return q.retrier.RetryQuery(ctx, "RecordMiningGroupRequest", func() error {
 		return q.next.RecordMiningGroupRequest(ctx, arg)
