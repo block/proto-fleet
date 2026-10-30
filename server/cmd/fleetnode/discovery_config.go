@@ -6,10 +6,9 @@ import (
 	"strings"
 
 	pb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
+	"github.com/block/proto-fleet/server/internal/domain/discoverylimits"
 	"github.com/block/proto-fleet/server/internal/domain/discoveryranges"
 )
-
-const maxDiscoveryRanges = 256
 
 func (r *RunCmd) effectiveDiscoveryConfig() (*pb.DiscoveryConfig, error) {
 	r.stateMu.Lock()
@@ -26,8 +25,8 @@ func (r *RunCmd) effectiveDiscoveryConfig() (*pb.DiscoveryConfig, error) {
 		return nil, err
 	}
 	normalized := scope.Strings()
-	if len(normalized) > maxDiscoveryRanges {
-		return nil, fmt.Errorf("at most %d discovery ranges are supported", maxDiscoveryRanges)
+	if len(normalized) > discoverylimits.MaxDiscoveryRanges {
+		return nil, fmt.Errorf("at most %d discovery ranges are supported", discoverylimits.MaxDiscoveryRanges)
 	}
 	return &pb.DiscoveryConfig{Ranges: normalized}, nil
 }
