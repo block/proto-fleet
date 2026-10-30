@@ -1,5 +1,22 @@
 -- Restore the previous reconciliation function before removing its ordering data.
 LOCK TABLE organization IN EXCLUSIVE MODE;
+CREATE OR REPLACE FUNCTION record_hosted_account_asset_placement() RETURNS TRIGGER LANGUAGE plpgsql AS $$
+DECLARE boundary TIMESTAMPTZ := clock_timestamp();
+BEGIN
+ IF NEW.deleted_at IS NOT NULL THEN
+  UPDATE hosted_account_asset_interval SET ended_at=boundary WHERE device_id=NEW.id AND ended_at IS NULL;
+  RETURN NEW;
+ END IF;
+ IF NEW.site_id IS NOT DISTINCT FROM OLD.site_id AND NEW.device_identifier=OLD.device_identifier THEN RETURN NEW; END IF;
+ WITH closed AS (
+  UPDATE hosted_account_asset_interval SET ended_at=boundary WHERE device_id=NEW.id AND ended_at IS NULL RETURNING *
+ )
+ INSERT INTO hosted_account_asset_interval(organization_id,kind,asset_id,device_id,client_id,subclient_id,started_at,site_id,device_identifier)
+ SELECT organization_id,kind,asset_id,device_id,client_id,subclient_id,boundary,NEW.site_id,NEW.device_identifier FROM closed;
+ RETURN NEW;
+END;
+$$;
+
 CREATE OR REPLACE FUNCTION reconcile_hosted_hashboard_replacements(target_org bigint, controller bigint, observed timestamptz)
 RETURNS bigint LANGUAGE plpgsql AS $$
 DECLARE

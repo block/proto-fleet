@@ -7,6 +7,27 @@ CREATE SEQUENCE hosted_hashboard_allocation_order;
 ALTER TABLE hosted_account_asset ADD COLUMN allocation_decision_order bigint NOT NULL DEFAULT 0;
 ALTER TABLE hashboard_installation ADD COLUMN installed_order bigint, ADD COLUMN removed_order bigint;
 
+-- Accepted inventory may be slightly ahead of the server clock. A controller
+-- move or deletion must close all of its placements at one valid boundary.
+CREATE OR REPLACE FUNCTION record_hosted_account_asset_placement() RETURNS TRIGGER LANGUAGE plpgsql AS $$
+DECLARE boundary TIMESTAMPTZ;
+BEGIN
+ IF NEW.deleted_at IS NULL AND NEW.site_id IS NOT DISTINCT FROM OLD.site_id AND NEW.device_identifier=OLD.device_identifier THEN RETURN NEW; END IF;
+ SELECT GREATEST(clock_timestamp(),max(started_at)) INTO boundary
+ FROM hosted_account_asset_interval WHERE device_id=NEW.id AND ended_at IS NULL;
+ IF NEW.deleted_at IS NOT NULL THEN
+  UPDATE hosted_account_asset_interval SET ended_at=boundary WHERE device_id=NEW.id AND ended_at IS NULL;
+  RETURN NEW;
+ END IF;
+ WITH closed AS (
+  UPDATE hosted_account_asset_interval SET ended_at=boundary WHERE device_id=NEW.id AND ended_at IS NULL RETURNING *
+ )
+ INSERT INTO hosted_account_asset_interval(organization_id,kind,asset_id,device_id,client_id,subclient_id,started_at,site_id,device_identifier)
+ SELECT organization_id,kind,asset_id,device_id,client_id,subclient_id,boundary,NEW.site_id,NEW.device_identifier FROM closed;
+ RETURN NEW;
+END;
+$$;
+
 -- Ownership writes include explicit decisions to keep the same owner. Physical
 -- placement updates do not target these columns and must not advance this marker.
 CREATE FUNCTION record_hosted_hashboard_allocation_order() RETURNS trigger LANGUAGE plpgsql AS $$
