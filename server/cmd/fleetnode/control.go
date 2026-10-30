@@ -53,7 +53,9 @@ const (
 	maxAckErrorMessageBytes = 4096
 	// Mirrors ControlAck.payload's proto cap; result-bearing commands must not
 	// make the ack itself invalid.
-	maxAckPayloadBytes = 1 << 20
+	maxAckPayloadBytes = 8 << 20
+	// Endpoint recovery and get-errors retain their existing 1 MiB budget.
+	maxCommandResultPayloadBytes = 1 << 20
 	// These aliases keep the runtime and its tests tied to the shared server/node
 	// admission policy. Discovery retains a separate process-wide slot.
 	commandPoolSize               = fleetnodecontrol.MaxConcurrentCommandsPerFleetNode

@@ -438,7 +438,7 @@ func TestHandleRecoverMinerEndpointsBoundsPayloadWithOrderedPrefix(t *testing.T)
 	require.NoError(t, protovalidate.Validate(req))
 	require.LessOrEqual(t, proto.Size(req), 900*1024, "request must fit the server's dispatch limit")
 	require.NoError(t, protovalidate.Validate(full))
-	require.Greater(t, proto.Size(full), maxAckPayloadBytes)
+	require.Greater(t, proto.Size(full), maxCommandResultPayloadBytes)
 	ack := &capturingAcker{}
 
 	r.handleRecoverMinerEndpoints(t.Context(), ack, "recover-large", req, discardLogger(t))
@@ -447,14 +447,14 @@ func TestHandleRecoverMinerEndpointsBoundsPayloadWithOrderedPrefix(t *testing.T)
 	got := ack.sent[0].GetAck()
 	require.Equal(t, pb.AckCode_ACK_CODE_PARTIAL, got.GetCode())
 	require.NotEmpty(t, got.GetPayload())
-	require.LessOrEqual(t, len(got.GetPayload()), maxAckPayloadBytes)
+	require.LessOrEqual(t, len(got.GetPayload()), maxCommandResultPayloadBytes)
 	result := &pb.RecoverMinerEndpointsResult{}
 	require.NoError(t, proto.Unmarshal(got.GetPayload(), result))
 	require.NotEmpty(t, result.GetResults())
 	require.Less(t, len(result.GetResults()), len(full.GetResults()))
 	assert.True(t, proto.Equal(result, &pb.RecoverMinerEndpointsResult{Results: full.Results[:len(result.Results)]}))
 	result.Results = append(result.Results, full.Results[len(result.Results)])
-	assert.Greater(t, proto.Size(result), maxAckPayloadBytes, "retain the largest prefix that fits")
+	assert.Greater(t, proto.Size(result), maxCommandResultPayloadBytes, "retain the largest prefix that fits")
 }
 
 func TestHandleRecoverMinerEndpointsReturnsEmptyPartialOnTimeout(t *testing.T) {

@@ -1218,7 +1218,7 @@ func TestHandleMinerCommand_GetErrorsReturnsTruncatedPayloadForOversizedPayload(
 	assert.Equal(t, pb.AckCode_ACK_CODE_OK, got.GetCode())
 	assert.True(t, got.GetSucceeded())
 	require.NotEmpty(t, got.GetPayload())
-	require.LessOrEqual(t, len(got.GetPayload()), maxAckPayloadBytes)
+	require.LessOrEqual(t, len(got.GetPayload()), maxCommandResultPayloadBytes)
 
 	var result pb.GetErrorsResult
 	require.NoError(t, proto.Unmarshal(got.GetPayload(), &result))

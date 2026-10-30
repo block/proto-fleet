@@ -18,6 +18,8 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"buf.build/go/protovalidate"
+
 	"connectrpc.com/connect"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -2176,22 +2178,31 @@ func TestSendAck_TruncationPreservesUTF8Boundaries(t *testing.T) {
 	assert.True(t, strings.HasSuffix(got, "..."))
 }
 
-func TestSendAckWithPayload_DowngradesOversizedOKPayload(t *testing.T) {
-	// Arrange
-	r := &RunCmd{}
-	captured := &capturingAcker{}
-	payload := make([]byte, maxAckPayloadBytes+1)
-
-	// Act
-	r.sendAckWithPayload(captured, "cmd-x", pb.AckCode_ACK_CODE_OK, "", payload, discardLogger(t))
-
-	// Assert
-	require.Len(t, captured.sent, 1)
-	got := captured.sent[0].GetAck()
-	assert.Equal(t, pb.AckCode_ACK_CODE_INTERNAL, got.GetCode())
-	assert.False(t, got.GetSucceeded())
-	assert.Empty(t, got.GetPayload())
-	assert.Contains(t, got.GetErrorMessage(), "ack payload too large")
+func TestSendAckWithPayloadLimit(t *testing.T) {
+	const limit = 8 * 1024 * 1024
+	for _, size := range []int{limit, limit + 1} {
+		t.Run(fmt.Sprint(size), func(t *testing.T) {
+			captured := &capturingAcker{}
+			payload := make([]byte, size)
+			(&RunCmd{}).sendAckWithPayload(captured, "cmd-x", pb.AckCode_ACK_CODE_OK, "", payload, discardLogger(t))
+			require.Len(t, captured.sent, 1)
+			got := captured.sent[0].GetAck()
+			require.NoError(t, protovalidate.Validate(got))
+			wire := &pb.ControlAck{CommandId: "cmd-x", Succeeded: true, Code: pb.AckCode_ACK_CODE_OK, Payload: payload}
+			if size > limit {
+				require.Error(t, protovalidate.Validate(wire))
+				assert.Equal(t, pb.AckCode_ACK_CODE_INTERNAL, got.GetCode())
+				assert.False(t, got.GetSucceeded())
+				assert.Empty(t, got.GetPayload())
+				assert.Contains(t, got.GetErrorMessage(), "ack payload too large")
+			} else {
+				require.NoError(t, protovalidate.Validate(wire))
+				assert.Equal(t, pb.AckCode_ACK_CODE_OK, got.GetCode())
+				assert.True(t, got.GetSucceeded())
+				assert.Equal(t, payload, got.GetPayload())
+			}
+		})
+	}
 }
 
 func TestSendAck_ClosedSessionDropsWithoutWarning(t *testing.T) {

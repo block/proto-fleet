@@ -369,7 +369,7 @@ func TestTelemetryResultFromV2CarriesComponentMetricsPayload(t *testing.T) {
 }
 
 func TestTelemetryDeviceMetricsPayloadLimit(t *testing.T) {
-	const limit = 960 * 1024
+	const limit = 8*1024*1024 - 64*1024
 	for _, size := range []int{limit, limit + 1} {
 		t.Run(fmt.Sprint(size), func(t *testing.T) {
 			reason := ""
@@ -400,46 +400,6 @@ func TestTelemetryDeviceMetricsPayloadLimit(t *testing.T) {
 				require.NoError(t, protovalidate.Validate(wireResult))
 				require.LessOrEqual(t, proto.Size(wireResult), maxAckPayloadBytes)
 			}
-		})
-	}
-}
-
-func TestTelemetryCompactsUnlocatedDiagnosticsWithoutChangingIssueEvidence(t *testing.T) {
-	for _, field := range []string{"health", "metadata"} {
-		t.Run(field, func(t *testing.T) {
-			now := time.Now().UTC()
-			diagnostic, err := json.Marshal(map[string]string{"detail": strings.Repeat("x", 200*1024)})
-			require.NoError(t, err)
-			issues := &sdk.ContainerModuleIssues{Complete: true, ObservedAt: now, SourceTimes: map[string]time.Time{"psu": now}}
-			snapshot := &sdk.ContainerSnapshot{ObservedAt: now, Tanks: []sdk.ContainerTank{{Position: 1, Modules: []sdk.ContainerModule{{Position: 1, Issues: issues}}}}}
-			for i := range 6 {
-				board := sdk.ContainerHashboard{Serial: fmt.Sprint(i), Occupancy: "occupied", State: sdk.MinerStatusError, HashrateHS: new(1e12), ObservedAt: now}
-				if field == "health" {
-					board.HealthJSON = diagnostic
-				} else {
-					board.MetadataJSON = diagnostic
-				}
-				snapshot.UnlocatedHashboards = append(snapshot.UnlocatedHashboards, board)
-			}
-			metrics := modelsV2.DeviceMetrics{Timestamp: now, Container: snapshot}
-			before, err := json.Marshal(metrics)
-			require.NoError(t, err)
-			require.Greater(t, len(before), maxTelemetryDeviceMetricsJSONBytes)
-			result, err := telemetryResultFromV2("ct1", metrics, telemetrypb.DeviceStatus_DEVICE_STATUS_ERROR)
-			require.NoError(t, err)
-			require.NoError(t, protovalidate.Validate(result))
-			var decoded modelsV2.DeviceMetrics
-			require.NoError(t, json.Unmarshal(result.DeviceMetricsJson, &decoded))
-			require.Equal(t, snapshot.Tanks, decoded.Container.Tanks, "raw diagnostic omission does not truncate normalized issues")
-			require.Len(t, decoded.Container.UnlocatedHashboards, 6)
-			for i, board := range decoded.Container.UnlocatedHashboards {
-				want := snapshot.UnlocatedHashboards[i]
-				want.HealthJSON, want.MetadataJSON = nil, nil
-				require.Equal(t, want, board)
-			}
-			after, err := json.Marshal(metrics)
-			require.NoError(t, err)
-			require.Equal(t, before, after)
 		})
 	}
 }

@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -38,8 +37,8 @@ var telemetryCommandTimeout = 4 * time.Second
 var telemetrySupervisorGrace = 100 * time.Millisecond
 
 // CT1 snapshots include the full container topology and board observations.
-// Reserve 64 KiB for the result envelope inside the 1 MiB ControlAck payload.
-const maxTelemetryDeviceMetricsJSONBytes = 960 * 1024
+// Reserve 64 KiB for the result envelope inside the 8 MiB ControlAck payload.
+const maxTelemetryDeviceMetricsJSONBytes = maxAckPayloadBytes - 64*1024
 const maxTelemetryFirmwareVersionBytes = 255
 
 type telemetryFetcher interface {
@@ -392,9 +391,9 @@ func telemetryResultFromV2(deviceIdentifier string, metrics modelsV2.DeviceMetri
 	if metrics.Timestamp.IsZero() {
 		metrics.Timestamp = time.Now().UTC()
 	}
-	metricsJSON, err := marshalTelemetryMetrics(metrics)
+	metricsJSON, err := json.Marshal(metrics)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("marshal device metrics: %w", err)
 	}
 	if len(metricsJSON) > maxTelemetryDeviceMetricsJSONBytes {
 		return nil, fmt.Errorf("device metrics payload is %d bytes, max %d", len(metricsJSON), maxTelemetryDeviceMetricsJSONBytes)
@@ -425,82 +424,6 @@ func telemetryResultFromV2(deviceIdentifier string, metrics modelsV2.DeviceMetri
 		result.DefaultPasswordActive = metrics.DefaultPasswordActive
 	}
 	return result, nil
-}
-
-// Keep inventory, measurements, and fault states when verbose container
-// diagnostics exceed the upload budget. Leave snapshots that already fit intact.
-func marshalTelemetryMetrics(metrics modelsV2.DeviceMetrics) ([]byte, error) {
-	marshal := func() ([]byte, error) {
-		data, err := json.Marshal(metrics)
-		if err != nil {
-			return nil, fmt.Errorf("marshal device metrics: %w", err)
-		}
-		return data, nil
-	}
-	data, err := marshal()
-	if err != nil || len(data) <= maxTelemetryDeviceMetricsJSONBytes || metrics.Container == nil {
-		return data, err
-	}
-	// Cached plugin observations may be reused by another caller.
-	container := *metrics.Container
-	metrics.Container = &container
-	container.UnlocatedHashboards = slices.Clone(container.UnlocatedHashboards)
-	container.Tanks = slices.Clone(container.Tanks)
-	for ti := range container.Tanks {
-		tank := &container.Tanks[ti]
-		tank.Modules = slices.Clone(tank.Modules)
-		for mi := range tank.Modules {
-			module := &tank.Modules[mi]
-			module.Hashboards = slices.Clone(module.Hashboards)
-			if module.Issues != nil {
-				issues := *module.Issues
-				module.Issues = &issues
-			}
-		}
-	}
-	for _, clear := range []func(*sdk.ContainerHashboard){
-		func(b *sdk.ContainerHashboard) { b.HealthJSON = nil },
-		func(b *sdk.ContainerHashboard) { b.MetadataJSON = nil },
-	} {
-		for i := range container.UnlocatedHashboards {
-			clear(&container.UnlocatedHashboards[i])
-		}
-		for ti := range container.Tanks {
-			for mi := range container.Tanks[ti].Modules {
-				for bi := range container.Tanks[ti].Modules[mi].Hashboards {
-					clear(&container.Tanks[ti].Modules[mi].Hashboards[bi])
-				}
-			}
-		}
-		data, err = marshal()
-		if err != nil || len(data) <= maxTelemetryDeviceMetricsJSONBytes {
-			return data, err
-		}
-	}
-	for {
-		trimmed := false
-		for ti := range container.Tanks {
-			for mi := range container.Tanks[ti].Modules {
-				issues := container.Tanks[ti].Modules[mi].Issues
-				if issues == nil || len(issues.Items) == 0 {
-					continue
-				}
-				// Trim every module equally, retaining the plugin's fault-first
-				// order. Omitted causes must not advance clear-source watermarks.
-				issues.Items = issues.Items[:len(issues.Items)/2]
-				issues.Complete = false
-				issues.SourceTimes = nil
-				trimmed = true
-			}
-		}
-		if !trimmed {
-			return data, nil // The caller still rejects oversized core telemetry.
-		}
-		data, err = marshal()
-		if err != nil || len(data) <= maxTelemetryDeviceMetricsJSONBytes {
-			return data, err
-		}
-	}
 }
 
 func metricValue(metric *modelsV2.MetricValue) *float64 {

@@ -991,7 +991,7 @@ func getErrorsResultPayload(targetDeviceID string, deviceErrors sdk.DeviceErrors
 	if err != nil {
 		return nil, fmt.Errorf("marshal get errors result: %w", err)
 	}
-	if len(payload) <= maxAckPayloadBytes {
+	if len(payload) <= maxCommandResultPayloadBytes {
 		return payload, nil
 	}
 	return truncateGetErrorsResultPayload(result)
@@ -1053,7 +1053,7 @@ func truncateGetErrorsResultPayload(result *pb.GetErrorsResult) ([]byte, error) 
 		if err != nil {
 			return nil, fmt.Errorf("marshal truncated get errors result: %w", err)
 		}
-		if len(payload) <= maxAckPayloadBytes {
+		if len(payload) <= maxCommandResultPayloadBytes {
 			best = payload
 			low = mid + 1
 			continue
@@ -1070,7 +1070,7 @@ func truncateGetErrorsResultPayload(result *pb.GetErrorsResult) ([]byte, error) 
 		if err != nil {
 			return nil, fmt.Errorf("marshal empty get errors result: %w", err)
 		}
-		if len(payload) > maxAckPayloadBytes {
+		if len(payload) > maxCommandResultPayloadBytes {
 			return nil, cmdErr(pb.AckCode_ACK_CODE_PARTIAL, "get errors result metadata exceeds ack payload limit")
 		}
 		return payload, nil

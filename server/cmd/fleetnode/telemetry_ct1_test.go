@@ -71,17 +71,11 @@ func TestCT1SimulatorTelemetryUpload(t *testing.T) {
 			require.NoError(t, protovalidate.Validate(result))
 			require.LessOrEqual(t, proto.Size(result), maxAckPayloadBytes)
 			t.Logf("real CT1 JSON: before=%d uploaded=%d", len(original), len(result.DeviceMetricsJson))
-			if scenario != "all-board-faults" {
-				// A hard regression check on real output, without transport
-				// compaction masking growth in the ordinary simulator scenarios.
-				require.LessOrEqual(t, len(original), maxTelemetryDeviceMetricsJSONBytes)
-				require.Equal(t, original, result.DeviceMetricsJson)
-			} else {
-				require.Greater(t, len(original), maxTelemetryDeviceMetricsJSONBytes)
+			require.LessOrEqual(t, len(original), maxTelemetryDeviceMetricsJSONBytes)
+			require.Equal(t, original, result.DeviceMetricsJson, "upload must preserve every plugin-provided field")
+			if scenario == "all-board-faults" {
+				require.Greater(t, len(original), 2*1024*1024, "exercise a real fault payload above the old ACK cap")
 			}
-			unchanged, err := json.Marshal(metrics)
-			require.NoError(t, err)
-			require.Equal(t, original, unchanged, "upload compaction must not mutate the cached observation")
 
 			gateway := &controlFakeGateway{}
 			gateway.queue(telemetryCmd(t, validTelemetryRequest()))
@@ -93,39 +87,18 @@ func TestCT1SimulatorTelemetryUpload(t *testing.T) {
 			decodedResult := &telemetrypb.FleetNodeTelemetryResult{}
 			require.NoError(t, proto.Unmarshal(acks[0].GetPayload(), decodedResult))
 			require.NoError(t, protovalidate.Validate(decodedResult))
+			require.Equal(t, original, decodedResult.DeviceMetricsJson, "complete encoded observation, including diagnostics and issue evidence, must survive the ACK")
 			var decoded modelsV2.DeviceMetrics
 			require.NoError(t, json.Unmarshal(decodedResult.DeviceMetricsJson, &decoded))
-			require.Equal(t, metrics.Health, decoded.Health)
-			require.Equal(t, metrics.HashrateHS, decoded.HashrateHS)
-			require.Equal(t, metrics.PowerW, decoded.PowerW)
 			require.Len(t, decoded.Container.Tanks, 6)
-			truncated := false
-			for ti, tank := range decoded.Container.Tanks {
+			for _, tank := range decoded.Container.Tanks {
 				require.Len(t, tank.Modules, 16)
-				for mi, module := range tank.Modules {
-					expected := metrics.Container.Tanks[ti].Modules[mi]
-					require.Equal(t, expected.State, module.State)
-					require.Equal(t, expected.Metrics, module.Metrics)
+				for _, module := range tank.Modules {
 					require.Len(t, module.Hashboards, 3)
 					if scenario == "all-board-faults" {
 						require.Equal(t, sdk.MinerStatusError, module.State)
-						if expected.Issues != nil && len(expected.Issues.Items) > 0 {
-							require.NotEmpty(t, module.Issues.Items)
-							require.Less(t, len(module.Issues.Items), len(expected.Issues.Items))
-							require.False(t, module.Issues.Complete)
-							require.Empty(t, module.Issues.SourceTimes)
-							truncated = true
-						}
-					}
-					for bi, board := range module.Hashboards {
-						want := expected.Hashboards[bi]
-						want.HealthJSON, want.MetadataJSON = board.HealthJSON, board.MetadataJSON
-						require.Equal(t, want, board, "all typed board evidence survives compaction")
 					}
 				}
-			}
-			if scenario == "all-board-faults" {
-				require.True(t, truncated, "exercise normalized-issue truncation as well as raw diagnostics")
 			}
 		})
 	}
