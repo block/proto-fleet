@@ -206,7 +206,8 @@ jobs:
     name: ${{ matrix.case.id }} / ${{ matrix.variant.id }} / ${{ needs.select-cases.outputs.repeat }}
     needs: select-cases
     if: ${{ needs.select-cases.result == 'success' && (github.event.action == 'codex-security-review-benchmark' || github.event.action == 'codex-security-review-terra-benchmark' || github.event.action == 'codex-security-review-extended-timeout-benchmark') }}
-    runs-on: ubuntu-latest
+    # openai/codex-action's drop-sudo fails on ubuntu-26.04 (openai/codex-action#188).
+    runs-on: ubuntu-24.04
     # The composite action ignored its caller step timeout in production, so the
     # matrix job itself is the enforceable reviewer budget, including setup. A
     # separate matrix finalizer creates timeout artifacts after cleanup.

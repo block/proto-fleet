@@ -153,7 +153,8 @@ jobs:
   shard-review:
     name: Model ${{ matrix.shard }}
     needs: prepare-shard
-    runs-on: ubuntu-latest
+    # openai/codex-action's drop-sudo fails on ubuntu-26.04 (openai/codex-action#188).
+    runs-on: ubuntu-24.04
     # This is the enforceable model boundary. Preparation runs in a separate job,
     # and the isolated model job is cancelled after six minutes even though the
     # pinned composite action ignores its caller-step timeout.
