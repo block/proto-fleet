@@ -1182,10 +1182,9 @@ func (s *Service) ListTargetSiteCoverageByEvents(
 	return s.store.ListTargetSiteCoverageByEvents(ctx, orgID, eventUUIDs)
 }
 
-// runSelector runs the org-config → scope → candidate → classify →
+// runSelector runs the scope → org-config → candidate → classify →
 // build-plan pipeline shared by Preview and Start. Returns the resolved
-// candidate floor (for the decision snapshot) and the OrgConfig (so Start
-// can resolve a nil MaxDurationSeconds without a second DB read).
+// candidate floor for the decision snapshot.
 func (s *Service) runSelector(ctx context.Context, req PreviewRequest) (*Plan, int32, error) {
 	candidateFilter, err := s.resolveScopeForOrg(ctx, req.OrgID, req.Scope)
 	if err != nil {
