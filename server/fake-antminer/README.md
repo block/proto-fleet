@@ -85,8 +85,62 @@ To test the RPC API:
 echo '{"command":"version"}' | nc localhost 4028
 ```
 
-To test the Web API:
+To test the Web API, set `FAKE_MINER_AUTH` to the fixture's configured username
+and password separated by a colon:
 
 ```bash
-curl -u root:root --digest http://localhost:80/cgi-bin/get_system_info.cgi
+curl --user "$FAKE_MINER_AUTH" --digest http://localhost:80/cgi-bin/get_system_info.cgi
 ``` 
+
+### Multiple destination addresses
+
+Set `FAKE_MINER_ADDRESSES_FILE` to a newline-delimited file of unique IPv4
+addresses to serve independent miners from one process. The inventory is loaded
+once; empty files, duplicate entries and invalid addresses fail startup. Blank
+lines are ignored. Configure the host's local routes or addresses so traffic for
+these destinations reaches this process. The listeners remain TCP 4028 and HTTP
+80. Only listed local destination addresses are served, including `/health`;
+other destinations are rejected. The HTTP `Host` header never selects a miner.
+
+Each destination has an independent pool configuration, password, work mode,
+firmware and LED state shared by both protocols. MAC addresses, miner serials
+and hashboard serials are stable and unique across IPv4 destinations. Load mode
+uses the normal model and `root`/`root` defaults, with full MD5 digest response
+validation so credentials cannot leak between miners. The existing single-miner
+fixture retains its defaults and legacy authentication behavior when the address
+file is omitted. Load telemetry varies deterministically on observation using a
+sequence seeded by the destination IPv4 address; it stays within healthy bounds.
+Existing explicit error environment variables still apply to every listed miner.
+
+Optional load controls:
+
+- `FAKE_MINER_RESPONSE_DELAY`: nonnegative Go duration, default `0`. Set `5ms`
+  for the load campaign. Delay occurs before authentication and state locks;
+  cancelled HTTP writes do not reach their handlers. RPC waits are bounded by
+  the existing 30-second connection limit and process shutdown.
+- `FAKE_MINER_METRICS_FILE`: append cumulative JSONL aggregates every ten
+  seconds and at graceful shutdown. Each record contains UTC `timestamp`,
+  `requests_total`, `errors_total` and `operations`. Fixed `http:<path>` and
+  `rpc:<command>` operation keys contain `requests_total`, `errors_total` and
+  `latency_sum_ms`; unknown operations share one key per protocol. There are no
+  per-address metric labels or retained request samples. HTTP error counts
+  include expected digest challenges (401). Metrics file errors are reported
+  on stderr. Load mode suppresses per-request logs.
+
+The file determines the exact miner count: for example, a shard's 4,000 address
+lines create exactly 4,000 miners, without creating miners for other protocol
+addresses routed to the same host. Provision and calibrate shards separately;
+local fixture tests do not qualify a 40,000-miner campaign.
+
+Run fixture tests from the repository root with Hermit:
+
+```sh
+. ./bin/activate-hermit
+(cd server/fake-antminer && GOWORK=off go test -race ./...)
+go test ./plugin/antminer/pkg/antminer -run TestLoadFixtureContract -count=1
+```
+
+The real-plugin contract starts this fixture on ephemeral test-only ports and
+requires two locally routable IPv4 addresses. It exercises discovery, digest
+authentication, identity, telemetry, pool/password isolation, HTTP writes with
+TCP readback and deadlines. No Docker service or privileged port is required.

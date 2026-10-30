@@ -70,9 +70,55 @@ docker run -p 8080:8080 fake-proto-rig
 | Variable | Description | Default |
 |----------|-------------|---------|
 | `HTTP_PORT` | Port to listen on | `8080` |
+| `TLS_CERT_FILE` / `TLS_KEY_FILE` | PEM certificate and private key; both are required to enable HTTPS | Unset (HTTP) |
+| `FAKE_MINER_ADDRESSES_FILE` | Newline-separated exact IPv4 allowlist for independent rigs selected by socket destination | Unset (one rig) |
+| `FAKE_MINER_RESPONSE_DELAY` | Nonnegative Go duration applied before request dispatch; canceled request contexts stop waiting | `0s` |
+| `FAKE_MINER_METRICS_FILE` | Append cumulative aggregate JSONL every ten seconds and at graceful shutdown | Unset (disabled) |
 | `SERIAL_NUMBER` | Device serial number | `PROTO-SIM-<uuid>` |
 | `MAC_ADDRESS` | Device MAC address | Generated from instance ID |
 | `FAKE_RIG_ENABLE_TEST_CONTROLS` | Enable authenticated fake-only test control endpoints | `false` |
+
+### Multiple destination addresses
+
+One wildcard listener can serve many independent rigs. Each address in
+`FAKE_MINER_ADDRESSES_FILE` receives its own current REST handler, authentication,
+pools, mining settings and command state. Selection uses the accepted socket's
+local destination address; the HTTP `Host` header cannot select a rig. Unlisted
+addresses return 404, including for `/health`, and never create miners.
+
+The file accepts one IPv4 address per line, with blank lines ignored and duplicate
+addresses collapsed. CIDRs, IPv6 and invalid lines fail startup. The host must
+already route the listed addresses locally; this process does not configure
+interfaces or routes.
+
+Multi-rig serial numbers and MACs are stable across process restarts and derive
+from all four destination octets: `192.0.2.3` becomes `PROTO-SIM-C0000203` and
+`02:00:C0:00:02:03`. `SERIAL_NUMBER` and `MAC_ADDRESS` apply only in single-rig
+mode. Startup password and explicit error settings apply independently to each
+rig; existing authentication and command contracts remain in effect.
+
+For an HTTPS load generator with a prepared address file and certificate:
+
+```bash
+FAKE_MINER_ADDRESSES_FILE=/run/proto-rigs.txt \
+TLS_CERT_FILE=/run/tls/cert.pem TLS_KEY_FILE=/run/tls/key.pem \
+HTTP_PORT=443 FAKE_MINER_RESPONSE_DELAY=5ms \
+FAKE_MINER_METRICS_FILE=/var/log/proto-rig-metrics.jsonl \
+GOWORK=off go run .
+```
+
+The port remains 8080 and the delay remains zero unless configured. The load
+profile explicitly selects 443 and a 5 ms delay. Certificate/key loading errors
+fail startup; the simulator does not generate certificates.
+
+Metrics contain UTC `timestamp`, cumulative `requests_total`, `errors_total`, and
+an `operations` map keyed by `http:<registered-route>` (unknown paths use
+`http:unknown`). Each operation contains `requests_total`, `errors_total`, and
+`latency_sum_ms`, including the configured delay. HTTP errors and canceled
+request contexts count as errors. Route patterns group dynamic pool IDs, keeping
+aggregate cardinality fixed; addresses, credentials and request bodies are not
+logged. The optional JSONL file grows by one aggregate record per ten seconds,
+plus a final record after in-flight requests finish on graceful shutdown.
 
 ### Error Injection
 

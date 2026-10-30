@@ -43,23 +43,39 @@ func main() {
 	instanceID := simulatorInstanceID()
 
 	cfg := ContainerConfig{
-		InstanceID:       instanceID,
-		Seed:             getEnvInt("CT1_SEED", 1),
-		ServerID:         getEnv("SERVER_ID", "ct1-sim-"+instanceID),
-		Hostname:         getEnv("HOSTNAME", "fake-ct1-"+instanceID),
-		Version:          getEnv("CT1_VERSION", defaultVersion),
-		Tanks:            getEnvInt("CT1_TANKS", defaultTanks),
-		ModulesPerTank:   getEnvInt("CT1_MODULES_PER_TANK", defaultModulesPerTank),
-		SlotsPerModule:   getEnvInt("CT1_SLOTS_PER_MODULE", defaultSlotsPerModule),
-		AsicsPerBoard:    getEnvInt("CT1_ASICS_PER_BOARD", defaultAsicsPerBoard),
-		DemoModuleStates: getEnv("CT1_DEMO_MODULE_STATES", "true") == "true",
-		UnlocatedBoards:  unlocatedBoards,
+		InstanceID:        instanceID,
+		IdentityNamespace: getEnv("CT1_IDENTITY_NAMESPACE", getEnv("CT1_INSTANCE_ID", os.Getenv("SERVER_ID"))),
+		Seed:              getEnvInt("CT1_SEED", 1),
+		ServerID:          getEnv("SERVER_ID", "ct1-sim-"+instanceID),
+		Hostname:          getEnv("HOSTNAME", "fake-ct1-"+instanceID),
+		Version:           getEnv("CT1_VERSION", defaultVersion),
+		Tanks:             getEnvInt("CT1_TANKS", defaultTanks),
+		ModulesPerTank:    getEnvInt("CT1_MODULES_PER_TANK", defaultModulesPerTank),
+		SlotsPerModule:    getEnvInt("CT1_SLOTS_PER_MODULE", defaultSlotsPerModule),
+		AsicsPerBoard:     getEnvInt("CT1_ASICS_PER_BOARD", defaultAsicsPerBoard),
+		DemoModuleStates:  getEnv("CT1_DEMO_MODULE_STATES", "true") == "true",
+		UnlocatedBoards:   unlocatedBoards,
 
 		DemoAllBoardFaults: getEnv("CT1_DEMO_ALL_BOARD_FAULTS", "false") == "true",
 	}
 
+	cfg.OccupiedBoards, err = parseOccupiedBoards(os.Getenv("CT1_OCCUPIED_BOARDS"), cfg.Tanks*cfg.ModulesPerTank*cfg.SlotsPerModule)
+	if err != nil {
+		log.Fatal(err)
+	}
+	cfg.ResponseDelay, err = parseResponseDelay(os.Getenv("FAKE_MINER_RESPONSE_DELAY"))
+	if err != nil {
+		log.Fatal(err)
+	}
+	address, err := parseListenAddress(os.Getenv("LISTEN_ADDRESS"))
+	if err != nil {
+		log.Fatal(err)
+	}
 	state := NewContainerState(cfg)
 	state.IPAddress = getOutboundIP().String()
+	if address != "" {
+		state.IPAddress = address
+	}
 
 	log.Printf(
 		"Starting fake CT1 container: serverID=%s tanks=%d modules=%d boards=%d",
@@ -67,8 +83,14 @@ func main() {
 	)
 
 	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	stopMetrics, err := state.startMetrics(ctx, os.Getenv("FAKE_MINER_METRICS_FILE"))
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer stopMetrics()
 
-	rpcListener, err := net.Listen("tcp", fmt.Sprintf(":%d", getEnvPort("GRPC_PORT", 9095)))
+	rpcListener, err := net.Listen("tcp", net.JoinHostPort(address, strconv.Itoa(getEnvPort("GRPC_PORT", 9095))))
 	if err != nil {
 		cancel()
 		log.Fatalf("Failed to listen for gRPC: %v", err)
@@ -83,14 +105,14 @@ func main() {
 	}()
 	log.Printf("gRPC server listening on %s", rpcListener.Addr())
 	port := getEnvPort("HTTP_PORT", defaultHTTPPort)
-	err = startHTTPServer(ctx, state, port, *webRoot)
+	err = startHTTPServer(ctx, state, address, port, *webRoot)
 	cancel()
 	if err != nil {
 		log.Fatalf("Failed to start HTTP server: %v", err)
 	}
 }
 
-func startHTTPServer(ctx context.Context, state *ContainerState, port int, webRoot string) error {
+func startHTTPServer(ctx context.Context, state *ContainerState, address string, port int, webRoot string) error {
 	handler, closeHandler, err := newHTTPHandler(state, webRoot)
 	if err != nil {
 		return err
@@ -98,7 +120,7 @@ func startHTTPServer(ctx context.Context, state *ContainerState, port int, webRo
 	defer closeHandler()
 
 	server := &http.Server{
-		Addr:              fmt.Sprintf(":%d", port),
+		Addr:              net.JoinHostPort(address, strconv.Itoa(port)),
 		Handler:           handler,
 		ReadHeaderTimeout: 10 * time.Second,
 		// Bound total request and response time. Every handler holds the state
@@ -223,4 +245,37 @@ func simulatorInstanceID() string {
 		return id
 	}
 	return uuid.New().String()[:8]
+}
+
+func parseOccupiedBoards(value string, capacity int) (int, error) {
+	if value == "" {
+		return 0, nil
+	}
+	count, err := strconv.Atoi(value)
+	if err != nil || count < 1 || count > capacity {
+		return 0, fmt.Errorf("invalid CT1_OCCUPIED_BOARDS=%q: expected 1..%d", value, capacity)
+	}
+	return count, nil
+}
+
+func parseResponseDelay(value string) (time.Duration, error) {
+	if value == "" {
+		return 0, nil
+	}
+	delay, err := time.ParseDuration(value)
+	if err != nil || delay < 0 {
+		return 0, fmt.Errorf("invalid FAKE_MINER_RESPONSE_DELAY=%q: expected nonnegative duration", value)
+	}
+	return delay, nil
+}
+
+func parseListenAddress(value string) (string, error) {
+	if value == "" {
+		return "", nil
+	}
+	address := net.ParseIP(value)
+	if address == nil || address.IsUnspecified() {
+		return "", fmt.Errorf("invalid LISTEN_ADDRESS=%q: expected a specific IP address", value)
+	}
+	return address.String(), nil
 }

@@ -1,6 +1,9 @@
 package main
 
-import "sync"
+import (
+	"log"
+	"sync"
+)
 
 // Constants for default values
 const (
@@ -82,6 +85,8 @@ type DeviceInfo struct {
 // MinerState holds the state data of the fake miner
 type MinerState struct {
 	mu                     sync.RWMutex
+	LoadMode               bool
+	telemetrySample        uint64
 	MinerType              string
 	SerialNumber           string
 	MacAddress             string
@@ -256,4 +261,23 @@ func (s *MinerState) summaryStatusLocked() string {
 	}
 
 	return "running"
+}
+
+// Load mode retains bounded telemetry variation without timers or background
+// goroutines per miner. Default fixtures retain their exact existing values.
+func (s *MinerState) advanceTelemetry() {
+	if !s.LoadMode {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.telemetrySample++
+	s.HashRate = 110 + float64(s.telemetrySample%11)/10
+	s.Temperature = 45 + float64(s.telemetrySample%7)/10
+}
+
+func (s *MinerState) logf(format string, args ...any) {
+	if !s.LoadMode {
+		log.Printf(format, args...)
+	}
 }

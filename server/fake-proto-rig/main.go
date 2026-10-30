@@ -12,6 +12,7 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"log"
 	"net"
@@ -67,53 +68,63 @@ func main() {
 }
 
 func startHTTPServer(ctx context.Context, state *MinerState, port int) error {
-	mux := http.NewServeMux()
-
-	// Create REST API handler
-	restHandler := NewRESTApiHandler(state)
-	restHandler.RegisterRoutes(mux)
-
-	// Add health check endpoint
-	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("OK"))
-	})
-
-	server := &http.Server{
-		Addr:    fmt.Sprintf(":%d", port),
-		Handler: mux,
+	handler := newRESTAPIHandler(state)
+	if path := os.Getenv("FAKE_MINER_ADDRESSES_FILE"); path != "" {
+		multi, err := newMultiMinerHandler(path)
+		if err != nil {
+			return err
+		}
+		handler = multi
 	}
+	delay, err := time.ParseDuration(getEnv("FAKE_MINER_RESPONSE_DELAY", "0s"))
+	if err != nil || delay < 0 {
+		return fmt.Errorf("FAKE_MINER_RESPONSE_DELAY must be a nonnegative Go duration")
+	}
+	metrics, err := newMinerMetrics(os.Getenv("FAKE_MINER_METRICS_FILE"))
+	if err != nil {
+		return err
+	}
+	defer metrics.close()
+	handler = instrumentMinerHandler(handler, delay, metrics)
 
-	// Start listening
+	certPath, keyPath := os.Getenv("TLS_CERT_FILE"), os.Getenv("TLS_KEY_FILE")
+	var tlsConfig *tls.Config
+	if certPath != "" || keyPath != "" {
+		certificate, err := tls.LoadX509KeyPair(certPath, keyPath)
+		if err != nil {
+			return fmt.Errorf("load TLS certificate/key: %w", err)
+		}
+		tlsConfig = &tls.Config{MinVersion: tls.VersionTLS12, Certificates: []tls.Certificate{certificate}}
+	}
+	server := &http.Server{Addr: fmt.Sprintf(":%d", port), Handler: handler}
 	listener, err := net.Listen("tcp", server.Addr)
 	if err != nil {
 		return fmt.Errorf("failed to listen on port %d: %w", port, err)
 	}
-
-	// Handle graceful shutdown
-	go func() {
-		sigs := make(chan os.Signal, 1)
-		signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
-
-		select {
-		case <-sigs:
-			log.Println("Shutting down fake Proto miner...")
-		case <-ctx.Done():
-		}
-
-		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), serverShutdownTimeout)
-		defer shutdownCancel()
-
-		if err := server.Shutdown(shutdownCtx); err != nil {
-			log.Printf("Server shutdown error: %v", err)
-		}
-	}()
-
-	log.Printf("HTTP server listening on :%d", port)
-	if err := server.Serve(listener); err != nil && err != http.ErrServerClosed {
-		return fmt.Errorf("server error: %w", err)
+	if tlsConfig != nil {
+		listener = tls.NewListener(listener, tlsConfig)
 	}
 
+	serverCtx, stop := signal.NotifyContext(ctx, syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+	shutdownDone := make(chan struct{})
+	go func() {
+		defer close(shutdownDone)
+		<-serverCtx.Done()
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), serverShutdownTimeout)
+		defer cancel()
+		if err := server.Shutdown(shutdownCtx); err != nil {
+			log.Printf("Server shutdown error: %v", err)
+			_ = server.Close()
+		}
+	}()
+	log.Printf("Proto REST server listening on :%d (TLS=%t)", port, tlsConfig != nil)
+	err = server.Serve(listener)
+	stop()
+	<-shutdownDone
+	if err != nil && err != http.ErrServerClosed {
+		return fmt.Errorf("server error: %w", err)
+	}
 	return nil
 }
 

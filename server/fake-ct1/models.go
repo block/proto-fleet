@@ -1,6 +1,7 @@
 package main
 
 import (
+	"crypto/sha256"
 	"fmt"
 	"sync"
 	"time"
@@ -66,16 +67,19 @@ const (
 
 // ContainerConfig carries the topology parameters for a simulated container.
 type ContainerConfig struct {
-	InstanceID       string
-	ServerID         string
-	Hostname         string
-	Version          string
-	Tanks            int
-	ModulesPerTank   int
-	SlotsPerModule   int
-	AsicsPerBoard    int
-	DemoModuleStates bool
-	Seed             int
+	InstanceID        string
+	IdentityNamespace string
+	OccupiedBoards    int
+	ResponseDelay     time.Duration
+	ServerID          string
+	Hostname          string
+	Version           string
+	Tanks             int
+	ModulesPerTank    int
+	SlotsPerModule    int
+	AsicsPerBoard     int
+	DemoModuleStates  bool
+	Seed              int
 	// UnlocatedBoards moves the first N boards into the map's inventory group;
 	// -1 selects all boards. The underlying physical simulation stays intact.
 	UnlocatedBoards int
@@ -89,6 +93,7 @@ type ContainerState struct {
 	mu sync.RWMutex
 	// requests serializes API calls from every transport; see serve.
 	requests     sync.Mutex
+	metrics      operationMetrics
 	now          func() time.Time
 	sampleTime   time.Time
 	observedAt   time.Time
@@ -212,22 +217,30 @@ func newContainerState(cfg ContainerConfig, now time.Time) *ContainerState {
 		tank := &Tank{ID: t}
 		for m := 1; m <= cfg.ModulesPerTank; m++ {
 			moduleID := fmt.Sprintf("T%d-M%02d", t, m)
+			if cfg.IdentityNamespace != "" {
+				moduleID = cfg.IdentityNamespace + ":" + moduleID
+			}
 			module := &Module{ID: m, ModuleID: moduleID, TankID: t}
 			for sl := range cfg.SlotsPerModule {
 				globalBoard++
-				board := newHashboard(cfg, t, m, moduleID, sl, globalBoard, now)
+				var board *Hashboard
+				if cfg.OccupiedBoards == 0 || globalBoard <= cfg.OccupiedBoards {
+					board = newHashboard(cfg, t, m, moduleID, sl, globalBoard, now)
+				}
 				slot := &Slot{
 					Index:       sl,
 					BreakerID:   fmt.Sprintf("BRK-%s-%d", moduleID, sl),
 					PowerFeedID: fmt.Sprintf("pdu-%d-outlet-%02d", t, m),
-					Occupied:    true,
+					Occupied:    board != nil,
 					Board:       board,
 				}
-				board.BreakerID = slot.BreakerID
-				board.PowerFeedID = slot.PowerFeedID
+				if board != nil {
+					board.BreakerID = slot.BreakerID
+					board.PowerFeedID = slot.PowerFeedID
+					s.boardsByMAC[board.MAC] = board
+					s.boardsBySerial[board.Serial] = board
+				}
 				module.Slots = append(module.Slots, slot)
-				s.boardsByMAC[board.MAC] = board
-				s.boardsBySerial[board.Serial] = board
 			}
 			tank.Modules = append(tank.Modules, module)
 			s.Modules = append(s.Modules, module)
@@ -246,7 +259,7 @@ func newContainerState(cfg ContainerConfig, now time.Time) *ContainerState {
 
 func newHashboard(cfg ContainerConfig, tank, moduleNum int, moduleID string, slot, globalBoard int, now time.Time) *Hashboard {
 	return &Hashboard{
-		MAC:             fmt.Sprintf("02:C1:00:%02X:%02X:%02X", (globalBoard>>16)&0xFF, (globalBoard>>8)&0xFF, globalBoard&0xFF),
+		MAC:             boardMAC(cfg, globalBoard),
 		Serial:          fmt.Sprintf("CT1-%s-%04d", cfg.InstanceID, globalBoard),
 		HWRevision:      "rev-c",
 		FirmwareVersion: cfg.Version,
@@ -326,4 +339,19 @@ func (b *Hashboard) targetWatts() float64 {
 // reported status.
 func (b *Hashboard) isMining() bool {
 	return !b.Isolated && b.State == miningStateMining
+}
+
+// MACs are locally administered unicast addresses. Hash the controller namespace
+// and position together so controllers with identical topology remain distinct.
+func boardMAC(cfg ContainerConfig, position int) string {
+	namespace := cfg.IdentityNamespace
+	if namespace == "" {
+		namespace = cfg.InstanceID
+	}
+	if namespace == "" {
+		return fmt.Sprintf("02:C1:00:%02X:%02X:%02X", (position>>16)&0xff, (position>>8)&0xff, position&0xff)
+	}
+	digest := sha256.Sum256([]byte(fmt.Sprintf("%s/board/%d", namespace, position)))
+	digest[0] = (digest[0] | 2) & 0xfe
+	return fmt.Sprintf("%02X:%02X:%02X:%02X:%02X:%02X", digest[0], digest[1], digest[2], digest[3], digest[4], digest[5])
 }

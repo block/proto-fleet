@@ -15,51 +15,20 @@ import (
 )
 
 func main() {
-	// Get configuration from environment variables with validation
-	minerType := getEnv("MINER_TYPE", "Antminer S19j Pro")
-	serialNumber := getEnv("SERIAL_NUMBER", "fake-antminer-1")
-	macAddress := getEnv("MAC_ADDRESS", "00:11:22:33:44:55")
-	firmwareVersion := getEnv("FIRMWARE_VERSION", "2.0.0")
-
-	// Validate required environment variables
-	if err := validateConfig(minerType, serialNumber, macAddress); err != nil {
-		log.Fatalf("Configuration validation failed: %v", err)
-	}
-
-	log.Printf("Starting fake Antminer server: %s (SN: %s)", minerType, serialNumber)
-
-	// Parse error configuration from environment
-	errorConfig := parseErrorConfig()
-
-	// Create miner state
-	state := &MinerState{
-		MinerType:       minerType,
-		SerialNumber:    serialNumber,
-		MacAddress:      macAddress,
-		FirmwareVersion: firmwareVersion,
-		IPAddress:       getIPAddr(),
-		Hostname:        "antminer-" + serialNumber,
-		NetMask:         getEnv("NETMASK", "255.255.255.0"),
-		Gateway:         getEnv("GATEWAY", "192.168.2.1"),
-		DNSServers:      getEnvAllowEmpty("DNS_SERVERS", "8.8.8.8"),
-		HashRate:        110.0,
-		Temperature:     45.0,
-		Pools: []Pool{
-			{
-				URL:  "stratum+tcp://btc.example.com:3333",
-				User: "worker1",
-				Pass: "x",
-			},
-		},
-		BitmainWorkMode: WorkModeNormal,
-		Username:        getEnv("USERNAME", "root"),
-		Password:        getEnv("PASSWORD", "root"),
-		ErrorConfig:     errorConfig,
+	fleet, err := loadMinerFleet()
+	if err != nil {
+		log.Fatal(err)
 	}
 
 	// Create context for graceful shutdown
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+
+	if err := fleet.startMetrics(context.Background()); err != nil {
+		log.Fatal(err)
+	}
+
+	defer fleet.stopMetrics()
 
 	// Create wait group for server goroutines
 	var wg sync.WaitGroup
@@ -68,7 +37,7 @@ func main() {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		if err := startRPCServer(ctx, state); err != nil && err != context.Canceled {
+		if err := startRPCServer(ctx, fleet); err != nil && err != context.Canceled {
 			log.Printf("RPC server error: %v", err)
 		}
 	}()
@@ -77,7 +46,7 @@ func main() {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		if err := startHTTPServer(ctx, state); err != nil && err != context.Canceled {
+		if err := startHTTPServer(ctx, fleet); err != nil && err != context.Canceled {
 			log.Printf("HTTP server error: %v", err)
 		}
 	}()
@@ -105,7 +74,7 @@ func main() {
 	}
 }
 
-func startRPCServer(ctx context.Context, state *MinerState) error {
+func startRPCServer(ctx context.Context, fleet *minerFleet) error {
 	// Listen on the standard cgminer API port
 	listener, err := net.Listen("tcp", ":4028")
 	if err != nil {
@@ -133,11 +102,11 @@ func startRPCServer(ctx context.Context, state *MinerState) error {
 			}
 		}
 
-		go handleRPCConnection(conn, state)
+		go fleet.handleRPC(ctx, conn)
 	}
 }
 
-func startHTTPServer(ctx context.Context, state *MinerState) error {
+func createHTTPHandler(state *MinerState) http.Handler {
 	mux := http.NewServeMux()
 
 	// Register API endpoints
@@ -170,9 +139,13 @@ func startHTTPServer(ctx context.Context, state *MinerState) error {
 		}
 	})
 
+	return protectedHandler
+}
+
+func startHTTPServer(ctx context.Context, fleet *minerFleet) error {
 	server := &http.Server{
 		Addr:    ":80",
-		Handler: protectedHandler,
+		Handler: fleet,
 	}
 
 	// Handle graceful shutdown
@@ -323,4 +296,46 @@ func parseBool(key string, defaultValue bool) bool {
 		}
 	}
 	return defaultValue
+}
+
+func newMinerState(ip string) (*MinerState, error) {
+	// Get configuration from environment variables with validation
+	minerType := getEnv("MINER_TYPE", "Antminer S19j Pro")
+	serialNumber := getEnv("SERIAL_NUMBER", "fake-antminer-1")
+	macAddress := getEnv("MAC_ADDRESS", "00:11:22:33:44:55")
+	firmwareVersion := getEnv("FIRMWARE_VERSION", "2.0.0")
+
+	// Validate required environment variables
+	if err := validateConfig(minerType, serialNumber, macAddress); err != nil {
+		return nil, fmt.Errorf("configuration validation failed: %w", err)
+	}
+
+	// Parse error configuration from environment
+	errorConfig := parseErrorConfig()
+
+	// Create miner state
+	return &MinerState{
+		MinerType:       minerType,
+		SerialNumber:    serialNumber,
+		MacAddress:      macAddress,
+		FirmwareVersion: firmwareVersion,
+		IPAddress:       ip,
+		Hostname:        "antminer-" + serialNumber,
+		NetMask:         getEnv("NETMASK", "255.255.255.0"),
+		Gateway:         getEnv("GATEWAY", "192.168.2.1"),
+		DNSServers:      getEnvAllowEmpty("DNS_SERVERS", "8.8.8.8"),
+		HashRate:        110.0,
+		Temperature:     45.0,
+		Pools: []Pool{
+			{
+				URL:  "stratum+tcp://btc.example.com:3333",
+				User: "worker1",
+				Pass: "x",
+			},
+		},
+		BitmainWorkMode: WorkModeNormal,
+		Username:        getEnv("USERNAME", "root"),
+		Password:        getEnv("PASSWORD", "root"),
+		ErrorConfig:     errorConfig,
+	}, nil
 }
