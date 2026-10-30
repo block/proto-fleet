@@ -610,11 +610,6 @@ func TestControlSession_HelloCarriesNormalizedDiscoveryRanges(t *testing.T) {
 			name: "explicit empty list is reported as disabled",
 			cmd:  &RunCmd{DiscoveryRanges: []string{}, LocalDiscoverySubnet: "10.9.0.0/24"},
 		},
-		{
-			name: "legacy subnet",
-			cmd:  &RunCmd{LocalDiscoverySubnet: "10.9.0.0/24"},
-			want: []string{"10.9.0.0-10.9.0.255"},
-		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

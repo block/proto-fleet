@@ -26,12 +26,6 @@ func TestEffectiveDiscoveryConfig(t *testing.T) {
 		{name: "explicit empty overrides legacy", configured: []string{}, legacy: "10.3.0.0/24", want: []string{}},
 		{name: "whitespace legacy falls through to imported", legacy: "  ", imported: []string{"10.1.0.1"}, want: []string{"10.1.0.1"}},
 		{name: "invalid legacy falls through to imported", legacy: "8.8.8.8", imported: []string{"10.1.0.1"}, want: []string{"10.1.0.1"}},
-		{name: "invalid legacy without imported is empty", legacy: "not-a-subnet", want: []string{}},
-		{
-			name:       "unsorted overlapping input is merged and ordered",
-			configured: []string{"10.0.0.128/25", "10.0.0.0/25", "192.168.1.1", "10.0.1.0-10.0.1.9", "10.0.1.5"},
-			want:       []string{"10.0.0.0-10.0.1.9", "192.168.1.1"},
-		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

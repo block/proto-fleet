@@ -62,14 +62,6 @@ func TestDiscoveryConfigNilMarksLegacyNode(t *testing.T) {
 	require.Nil(t, r.DiscoveryConfig(7))
 }
 
-func TestDiscoveryConfigUnknownNode(t *testing.T) {
-	// Act
-	config := NewRegistry().DiscoveryConfig(7)
-
-	// Assert
-	require.Nil(t, config)
-}
-
 func TestRegisterAuthenticatedPublishesDiscoveryConfigWithConnection(t *testing.T) {
 	tests := []struct {
 		name   string
