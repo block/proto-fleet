@@ -583,8 +583,11 @@ Host management retains Fleet navigation under Settings → Admin. Clicking a cl
 name or row opens `/accounts/:accountId/manage/assets`, with Mining assets, Team,
 Client settings and Permissions tabs. Permission checkboxes save immediately, roll back failed updates, and lock while
 a request is pending. Suspension and resumption are separate confirmed actions. Creating a client opens Mining assets without creating an invitation. **Allocate assets** opens
-Fleet with the client preselected for allocation; successful allocation returns to client
-management. The Team tab contains **Invite team member**; the first invitation defaults
+the in-place **Select assets** modal with the destination client fixed. Hosts select
+eligible miners or CT1 modules from the current page and review the allocation before
+confirming. Closing the picker preserves the underlying list; successful allocation
+refreshes it in place and restores focus to **Allocate assets**.
+The Team tab contains **Invite team member**; the first invitation defaults
 to Account administrator when the team is empty. Inviting before allocation is also supported. Mining
 assets and permission limits use host authority; private team and account settings
 continue to require the client’s grants. **View as client** is an explicit preview
@@ -596,7 +599,7 @@ modules, and live direct client logins. Containers are placement groups, not
 additional assigned assets. Login counts exclude invitations, revoked memberships,
 deleted users, removed organization affiliations, ancestor grants, and subclient-only
 memberships. Membership-only users retain their account
-directory and invitation entry point. The root workspace opens Clients. Hosts allocate reporting capacity from Fleet;
+directory and invitation entry point. The root workspace opens Clients. Hosts allocate reporting capacity from client management or Fleet;
 the root account has no separate Mining assets tab.
 
 | Persona                    | Primary experience                                                  |

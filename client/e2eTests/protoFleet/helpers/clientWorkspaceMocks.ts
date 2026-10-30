@@ -321,21 +321,36 @@ export async function mockClientWorkspace(
             : [accountFor(subclient)],
       });
     if (method === "ListAccountAssets") {
-      if (options.fleet && Array.isArray(body.selectedAssets))
+      if (options.fleet && id === hostAccount) {
+        const selected = body.selectedAssets as { id: string }[] | undefined;
+        const assets = ["42", "43"].map((assetId) => ({
+          kind: "MINING_ASSET_KIND_MINER",
+          id: assetId,
+          revision: assetId === "42" ? "7" : "3",
+          name: assetId === "42" ? "Allocation miner" : "Other miner",
+          model: "S21",
+          siteId: "7",
+          siteName: "A allocated site",
+          available: true,
+          ownerAccountId: assetId === "42" ? allocatedTo : hostAccount,
+          ownerAccountName: assetId === "42" && allocatedTo !== hostAccount ? createdName : "Host",
+        }));
         return fulfill(route, {
-          assets: (body.selectedAssets as { id: string }[]).map(({ id }) => ({
-            kind: "MINING_ASSET_KIND_MINER",
-            id,
-            revision: id === "42" ? "7" : "3",
-            name: id === "42" ? "Allocation miner" : "Other miner",
-            available: true,
-            ownerAccountId: id === "42" ? allocatedTo : hostAccount,
-            ownerAccountName: id === "42" && allocatedTo !== hostAccount ? createdName : "Host",
-          })),
+          assets: assets
+            .filter((asset) =>
+              selected ? selected.some(({ id }) => id === asset.id) : asset.ownerAccountId === body.ownerAccountId,
+            )
+            .filter(
+              (asset) =>
+                (!body.model || body.model === asset.model) &&
+                (!body.search || asset.name.toLowerCase().includes(String(body.search).toLowerCase())),
+            ),
+          filterOptions: { models: ["S21", "S19"] },
           canViewAssignments: true,
           canManageAssignments: true,
           children: [accountFor(clientA), accountFor(clientB), ...(createdName ? [accountFor(newClient)] : [])],
         });
+      }
       return fulfill(route, {
         filterOptions: {
           models: ["S21", "S19"],

@@ -71,19 +71,7 @@ const ClientManagementContent = () => {
       </div>
       <AccountState error={query.error} retry={query.refresh} />
       {section === "assets" ? (
-        <AccountAssets
-          key={accountId}
-          child={child}
-          actions={
-            <Button
-              variant="primary"
-              size={sizes.compact}
-              text="Allocate assets"
-              disabled={child.suspended}
-              to={`/fleet/miners?allocateTo=${encodeURIComponent(accountId)}`}
-            />
-          }
-        />
+        <AccountAssets key={accountId} child={child} />
       ) : section === "permissions" ? (
         <ClientPermissions
           key={`${child.accountId}:${child.capabilityCeiling}:${child.suspended}`}

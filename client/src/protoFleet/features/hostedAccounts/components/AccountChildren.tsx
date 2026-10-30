@@ -81,15 +81,8 @@ const AccountChildren = () => {
                 to={`${childTeamPath(selectedChild.accountId)}?invite=1`}
               />
             ) : null}
-            {selectedChild && !assigning && can(account, 16n) ? (
-              account.depth === 0 ? (
-                <Button
-                  variant="primary"
-                  size={sizes.compact}
-                  text="Allocate assets"
-                  to={`/fleet/miners?allocateTo=${encodeURIComponent(selectedChild.accountId)}`}
-                />
-              ) : !selectedChild.suspended ? (
+            {selectedChild && !assigning && can(account, 16n) && account.depth > 0 ? (
+              !selectedChild.suspended ? (
                 <Button
                   variant="primary"
                   size={sizes.compact}

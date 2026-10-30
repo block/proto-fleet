@@ -1,4 +1,4 @@
-import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import clsx from "clsx";
 import { Code, ConnectError } from "@connectrpc/connect";
 
@@ -42,6 +42,7 @@ import FilterChipsBar, { type FilterChipsBarFilter } from "@/shared/components/L
 import { formatListCountLabel } from "@/shared/components/List/listCountLabel";
 import type { ColConfig, SortDirection } from "@/shared/components/List/types";
 import ManageColumnsModal from "@/shared/components/ManageColumnsModal";
+import Modal, { ModalSelectAllFooter } from "@/shared/components/Modal";
 import Select from "@/shared/components/Select";
 import TabStrip, { TabStripItem } from "@/shared/components/Tab/TabStrip";
 
@@ -56,16 +57,19 @@ const AccountAssets = ({
   mode = "inventory",
   onAssigned,
   initialNotice = "",
-  actions,
+  onDismiss,
 }: {
   child?: Pick<AccountMiningBucket, "accountId" | "name" | "suspended">;
   mode?: "inventory" | "assign";
   onAssigned?: (notice: string) => void;
   initialNotice?: string;
-  actions?: ReactNode;
+  onDismiss?: () => void;
 }) => {
   const assigning = mode === "assign";
+  const isPicker = !!onDismiss;
   const { account, client, readOnly = false } = useRequiredAccountScope();
+  const inputId = useId();
+  const [allocating, setAllocating] = useState(false);
   const fleetView = !child && !assigning && account.depth > 0;
   const username = useFleetStore((state) => state.auth.username);
   const columnPreferences = useAssetColumnPreferences(username, account.accountId);
@@ -156,6 +160,8 @@ const AccountAssets = ({
   const management = !!query.data?.inventory.canViewAssignments;
   const editable =
     !!query.data?.inventory.canManageAssignments && can(account, 16n) && account.depth < 2 && (assigning || !!child);
+  const canAllocate = !assigning && !!child && account.depth === 0 && editable;
+  if (allocating && (!canAllocate || child?.suspended)) setAllocating(false);
   if (!editable && (selected.length > 0 || review !== null)) {
     setSelected([]);
     setReview(null);
@@ -182,7 +188,7 @@ const AccountAssets = ({
     selectedAssets.every((asset) => asset.ownerAccountId === recallChild) &&
     children.some((child) => child.accountId === recallChild);
   const hasAssignmentTarget = children.some(
-    (target) => !target.suspended && (!child || target.accountId === child.accountId),
+    (target) => !target.suspended && !child?.suspended && (!child || target.accountId === child.accountId),
   );
   const childLabel = account.depth === 0 ? "client" : "subclient";
   let selectionHint = "";
@@ -246,6 +252,12 @@ const AccountAssets = ({
   const firstItemIndex = (pages.length - 1) * ASSETS_PAGE_SIZE + 1;
   const lastItemIndex = (pages.length - 1) * ASSETS_PAGE_SIZE + rows.length;
   const reviewTarget = children.find((child) => child.accountId === review?.childId);
+  const reviewAssignment = () =>
+    setReview({
+      intent: AssetAssignmentIntent.ASSIGN,
+      childId: child?.accountId ?? "",
+      assets: selectedAssets,
+    });
   const showAssignment = management && !child && !assigning;
   const configurableColumns = useMemo(
     () => columnPreferences.columns.filter((column) => column.id !== "assignedAccount" || showAssignment),
@@ -286,7 +298,7 @@ const AccountAssets = ({
     };
   }
 
-  return (
+  const content = (
     <div className="flex min-w-0 flex-col gap-6">
       {fleetView ? (
         <div className="flex flex-col gap-4">
@@ -299,9 +311,7 @@ const AccountAssets = ({
         <SettingsPageHeader title={assigning ? "Allocate assets" : "Mining assets"} />
       ) : null}
       {assigning ? (
-        <p className="text-200 text-text-primary-50">
-          Choose assets held directly by {account.name} to allocate to {child?.name ?? "a subclient"}.
-        </p>
+        <p className="text-200 text-text-primary-50">Choose assets to allocate to {child?.name ?? "a subclient"}.</p>
       ) : !child && !fleetView ? (
         <p className="text-200 text-text-primary-50">
           {account.depth < 2
@@ -309,11 +319,11 @@ const AccountAssets = ({
             : "Assets allocated to this account."}
         </p>
       ) : null}
-      {showToolbar || actions ? (
+      {showToolbar || canAllocate ? (
         <div className={clsx("flex flex-wrap items-center gap-3", fleetView && "laptop:pt-4")}>
           {showToolbar ? (
             <>
-              {fleetView ? (
+              {fleetView || isPicker ? (
                 <FilterChipsBar
                   filters={inventoryFilters}
                   onChange={(key, values) => {
@@ -335,7 +345,7 @@ const AccountAssets = ({
               ) : null}
               {!fleetView && management && !child && !assigning ? (
                 <Select
-                  id="account-assets-owner"
+                  id={`${inputId}-owner`}
                   label="Allocation"
                   value={owner}
                   variant="filter"
@@ -353,9 +363,9 @@ const AccountAssets = ({
                   }}
                 />
               ) : null}
-              {!fleetView && containers.size ? (
+              {!fleetView && !isPicker && containers.size ? (
                 <Select
-                  id="account-assets-container"
+                  id={`${inputId}-container`}
                   label="Container"
                   value={container.id}
                   variant="filter"
@@ -379,7 +389,7 @@ const AccountAssets = ({
                 />
               ) : null}
               <ListSearchInput
-                id="account-assets-search"
+                id={`${inputId}-search`}
                 label="Search mining assets"
                 className="phone:w-full"
                 initialValue={search}
@@ -404,7 +414,7 @@ const AccountAssets = ({
             </>
           ) : null}
           <div className="ml-auto flex items-center gap-2">
-            {showToolbar ? (
+            {showToolbar && !isPicker ? (
               <Button
                 ariaLabel="Manage columns"
                 ariaHasPopup="dialog"
@@ -414,7 +424,15 @@ const AccountAssets = ({
                 onClick={() => setManagingColumns(true)}
               />
             ) : null}
-            {actions}
+            {canAllocate ? (
+              <Button
+                variant="primary"
+                size={sizes.compact}
+                text="Allocate assets"
+                disabled={readOnly || child?.suspended}
+                onClick={() => setAllocating(true)}
+              />
+            ) : null}
           </div>
         </div>
       ) : null}
@@ -426,7 +444,7 @@ const AccountAssets = ({
       <AccountState loading={query.loading} error={query.error} retry={refresh} />
       {query.data ? (
         <>
-          {editable && selected.length > 0 ? (
+          {editable && selected.length > 0 && !isPicker ? (
             <FleetListActionBar
               isActionBusy={review !== null}
               selectedItems={selected}
@@ -451,13 +469,7 @@ const AccountAssets = ({
                     className="bg-grayscale-white-10! text-grayscale-white-90!"
                     disabled={readOnly}
                     text="Allocate selected"
-                    onClick={() =>
-                      setReview({
-                        intent: AssetAssignmentIntent.ASSIGN,
-                        childId: child?.accountId ?? "",
-                        assets: selectedAssets,
-                      })
-                    }
+                    onClick={reviewAssignment}
                   />
                 ) : null}
                 {!assigning && recallable ? (
@@ -599,7 +611,7 @@ const AccountAssets = ({
                 <p>To {child.name}</p>
               ) : (
                 <Select
-                  id="asset-assignment-target"
+                  id={`${inputId}-assignment-target`}
                   label={account.depth === 0 ? "Allocate to client" : "Allocate to subclient"}
                   value={review.childId}
                   options={children
@@ -626,6 +638,64 @@ const AccountAssets = ({
         </ActionModal>
       ) : null}
     </div>
+  );
+  if (isPicker) {
+    return (
+      <Modal
+        open
+        title="Select assets"
+        dialogLabel="Select assets"
+        size="large"
+        manageFocus
+        onDismiss={review ? undefined : onDismiss}
+        className="flex !h-[calc(100dvh-(--spacing(32)))] flex-col !overflow-hidden"
+        bodyClassName="min-h-0 flex-1 overflow-y-auto"
+        buttons={[
+          {
+            text: "Allocate selected",
+            variant: "primary",
+            disabled: !editable || !assignable || !hasAssignmentTarget || readOnly || !!review,
+            onClick: reviewAssignment,
+            dismissModalOnClick: false,
+          },
+        ]}
+        fixedFooter={
+          <div aria-live="polite">
+            <ModalSelectAllFooter
+              label={`${countLabel(selected.length)} selected`}
+              onSelectAll={
+                editable && pages.length === 1 && !query.data?.inventory.nextPageToken
+                  ? () => setSelected(rows.filter(isAssetSelectable).map((asset) => asset.key))
+                  : undefined
+              }
+              selectAllDisabled={readOnly || !!review || !rows.some(isAssetSelectable)}
+              onSelectNone={selected.length > 0 && !review ? () => setSelected([]) : undefined}
+            />
+          </div>
+        }
+      >
+        {content}
+      </Modal>
+    );
+  }
+  return (
+    <>
+      {content}
+      {allocating && canAllocate && child ? (
+        <AccountAssets
+          mode="assign"
+          child={child}
+          onDismiss={() => setAllocating(false)}
+          onAssigned={(message) => {
+            setAllocating(false);
+            setSelected([]);
+            setReview(null);
+            revalidate();
+            setNotice(message);
+          }}
+        />
+      ) : null}
+    </>
   );
 };
 export default AccountAssets;

@@ -863,7 +863,6 @@ const MinerList = ({
   const username = useUsername();
   const directory = useHostedAccounts();
   const hostedRoot = !!directory?.accounts.some((account) => account.depth === 0 && can(account, 16n));
-  const allocationTarget = hostedRoot ? searchParams.get("allocateTo") : null;
   const { preferences: columnPreferences, setPreferences: setColumnPreferences } =
     useMinerTableColumnPreferences(username);
 
@@ -1459,8 +1458,6 @@ const MinerList = ({
       if (sortParam) params.set("sort", sortParam);
       if (dirParam) params.set("dir", dirParam);
       if (viewParam) params.set(VIEW_URL_PARAM, viewParam);
-      const allocationClient = searchParams.get("allocateTo");
-      if (allocationClient) params.set("allocateTo", allocationClient);
       navigate(`?${params.toString()}`, { replace: true });
     },
     [navigate, searchParams],
@@ -1532,12 +1529,6 @@ const MinerList = ({
 
   return (
     <>
-      {allocationTarget ? (
-        <div className="flex flex-wrap items-center justify-between gap-3 px-6 py-4 laptop:px-10">
-          <p>Select assets, then choose Allocate to client from the actions menu.</p>
-          <Button variant="textOnly" text="Return to client" to={accountManagementPath(allocationTarget)} />
-        </div>
-      ) : null}
       {/* Scroll anchor for pagination. When a title is present (standalone
           /miners) it renders an <h2> with the page's top padding; in the fleet
           shell there's no title, so it collapses to a zero-height anchor rather

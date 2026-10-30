@@ -179,7 +179,11 @@ test.describe("Client workspace and read-only host preview", () => {
     expect(mock.unexpected).toEqual([]);
   });
 
-  test("create a client and explicitly invite its team after Fleet allocation", async ({ page, context, isMobile }) => {
+  test("create a client and explicitly invite its team after in-place allocation", async ({
+    page,
+    context,
+    isMobile,
+  }) => {
     const mock = await mockClientWorkspace(context, true, { fleet: true });
     const workspace = new ClientWorkspacePage(page, isMobile);
 
@@ -195,13 +199,19 @@ test.describe("Client workspace and read-only host preview", () => {
       expect(mock.calls.filter((call) => call.method === "CreateInvitation")).toHaveLength(0);
     });
 
-    await test.step("Allocate only the selected Fleet miner to the original client", async () => {
-      const screenshot = await workspace.allocateFleetMiner(
+    await test.step("Cancel a draft without leaving the client or allocating assets", async () => {
+      await workspace.cancelAllocationPicker();
+      await expect(page).toHaveURL(new RegExp(`/accounts/${newClient}/manage/assets$`));
+      expect(mock.calls.filter((call) => call.method === "AssignAccountAssets")).toHaveLength(0);
+    });
+
+    await test.step("Allocate only the selected miner without leaving the original client", async () => {
+      const screenshot = await workspace.allocateClientMiner(
         newClient,
         "New client",
-        test.info().outputPath("fleet-allocation.png"),
+        test.info().outputPath("client-allocation.png"),
       );
-      await test.info().attach("Fleet allocation", { body: screenshot, contentType: "image/png" });
+      await test.info().attach("Client allocation", { body: screenshot, contentType: "image/png" });
       expect(mock.calls.filter((call) => call.method === "AssignAccountAssets")).toMatchObject([
         {
           account: hostAccount,
@@ -268,7 +278,7 @@ test.describe("Client workspace and read-only host preview", () => {
     const mock = await mockClientWorkspace(context, true);
     const workspace = new ClientWorkspacePage(page, isMobile);
     await workspace.openClientManagement(clientA, "Customer A");
-    await expect(page.getByRole("link", { name: "Allocate assets", exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Allocate assets", exact: true })).toBeVisible();
     await expect
       .poll(() =>
         mock.calls.some(

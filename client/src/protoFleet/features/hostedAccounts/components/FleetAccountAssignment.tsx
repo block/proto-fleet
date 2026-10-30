@@ -1,8 +1,7 @@
 import { type ReactNode, useEffect, useState } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
 import { Code, ConnectError } from "@connectrpc/connect";
 
-import { accountManagementPath, can } from "../capabilities";
+import { can } from "../capabilities";
 import { useHostedAccounts } from "../HostedAccountsContext";
 import { allocationKey, type AssetReference, useFleetAccountInventory } from "../useFleetAccountInventory";
 import { AccountState } from "./AccountState";
@@ -22,13 +21,12 @@ const AssignmentDialog = ({
 }: {
   assets: AssetReference[];
   onClose: () => void;
-  onSuccess: (target: string) => void;
+  onSuccess: () => void;
   onActionComplete: () => void;
 }) => {
   useEffect(() => () => onActionComplete(), [onActionComplete]);
   const inventory = useFleetAccountInventory(assets);
-  const [params] = useSearchParams();
-  const [target, setTarget] = useState(params.get("allocateTo") ?? "");
+  const [target, setTarget] = useState("");
   const [stale, setStale] = useState(false);
   const rows = assets.flatMap((asset) => {
     const row = inventory.byAsset.get(allocationKey(asset));
@@ -64,7 +62,7 @@ const AssignmentDialog = ({
           }
           throw error;
         }
-        onSuccess(target);
+        onSuccess();
       }}
     >
       {stale ? (
@@ -114,8 +112,6 @@ export const FleetAccountAssignment = ({
   renderMenu?: (action: BulkAction<string> | undefined) => ReactNode;
 }) => {
   const directory = useHostedAccounts();
-  const navigate = useNavigate();
-  const [params] = useSearchParams();
   const root = directory?.accounts.find((account) => account.depth === 0 && can(account, 16n));
   const generation = useFleetStore((state) => state.auth.sessionGeneration);
   const scope = `${root?.accountId ?? ""}:${generation}`;
@@ -166,10 +162,9 @@ export const FleetAccountAssignment = ({
           assets={snapshot.assets}
           onClose={close}
           onActionComplete={onActionComplete}
-          onSuccess={(target) => {
+          onSuccess={() => {
             close();
             onAssigned();
-            if (params.has("allocateTo")) navigate(accountManagementPath(target));
           }}
         />
       ) : null}

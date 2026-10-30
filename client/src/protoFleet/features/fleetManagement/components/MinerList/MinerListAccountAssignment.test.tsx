@@ -69,7 +69,7 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-function mount(items: InventoryItem[], totalMiners = 1) {
+function mount(items: InventoryItem[], totalMiners = 1, initialEntry = "/fleet/miners") {
   const assignments: { account: string | null; body: unknown }[] = [];
   let assigned = false;
   vi.stubGlobal(
@@ -107,7 +107,7 @@ function mount(items: InventoryItem[], totalMiners = 1) {
   );
   const refetch = vi.fn();
   render(
-    <MemoryRouter initialEntries={["/fleet/miners"]}>
+    <MemoryRouter initialEntries={[initialEntry]}>
       <HostedAccountsContext.Provider
         value={{
           accounts: [create(AccountSchema, { accountId: rootId, depth: 0, name: "Host", effectiveCapabilities: 31n })],
@@ -137,9 +137,10 @@ function mount(items: InventoryItem[], totalMiners = 1) {
 
 describe("Fleet list account assignment integration", () => {
   it("assigns distinct typed miner/module IDs and refreshes owner cells while clearing selection", async () => {
-    const { assignments, refetch } = mount([moduleItem, minerItem]);
+    const { assignments, refetch } = mount([moduleItem, minerItem], 1, `/fleet/miners?allocateTo=${clientId}`);
     const user = userEvent.setup();
     const moduleCheckbox = await screen.findByRole("checkbox", { name: "Select module:1" });
+    expect(screen.queryByRole("link", { name: "Return to client" })).not.toBeInTheDocument();
     const minerCheckbox = screen.getByRole("checkbox", { name: "Select miner:module:1" });
     await user.click(moduleCheckbox);
     await user.click(minerCheckbox);

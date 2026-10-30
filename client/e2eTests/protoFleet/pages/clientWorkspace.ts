@@ -229,30 +229,55 @@ export class ClientWorkspacePage {
     await expect(this.page.getByText("No mining assets", { exact: true })).toBeVisible();
   }
 
-  async allocateFleetMiner(accountId: string, clientName: string, screenshotPath: string) {
-    const allocate = this.page.getByRole("link", { name: "Allocate assets", exact: true });
-    await expect(allocate).toHaveAttribute("href", `/fleet/miners?allocateTo=${accountId}`);
-    await allocate.click();
-    await expect(this.page).toHaveURL(new RegExp(`/fleet/miners\\?allocateTo=${accountId}$`));
-    const miner = this.page
+  allocationPicker() {
+    return this.page.getByRole("dialog", { name: "Select assets", exact: true });
+  }
+
+  async openAllocationPicker() {
+    await this.page.getByRole("button", { name: "Allocate assets", exact: true }).click();
+    await expect(this.allocationPicker()).toBeVisible();
+  }
+
+  async cancelAllocationPicker() {
+    await this.openAllocationPicker();
+    const picker = this.allocationPicker();
+    await picker.getByRole("checkbox", { name: "Select Allocation miner", exact: true }).check();
+    await picker.getByRole("button", { name: "Close dialog", exact: true }).click();
+    await expect(picker).toHaveCount(0);
+  }
+
+  async allocateClientMiner(accountId: string, clientName: string, screenshotPath: string) {
+    const originalUrl = this.page.url();
+    await this.openAllocationPicker();
+    const picker = this.allocationPicker();
+    const miner = picker
       .getByTestId("list-row")
       .filter({ has: this.page.getByText("Allocation miner", { exact: true }) });
-    const other = this.page
-      .getByTestId("list-row")
-      .filter({ has: this.page.getByText("Other miner", { exact: true }) });
+    const other = picker.getByTestId("list-row").filter({ has: this.page.getByText("Other miner", { exact: true }) });
     await expect(miner).toBeVisible();
-    await this.selectAssetFilter("model", "S21");
-    await expect(this.page).toHaveURL(new RegExp(`allocateTo=${accountId}(?:&|$)`));
+    await picker.getByRole("button", { name: "Add Filter", exact: true }).click();
+    await this.page.getByTestId("nested-dropdown-filter-row-model").click();
+    await this.page.getByTestId("filter-option-S21").click();
+    if (this.isMobile) await this.page.keyboard.press("Escape");
+    else await picker.getByText("0 assets selected", { exact: true }).click();
+    await expect(this.page).toHaveURL(originalUrl);
+    await expect(miner.getByRole("checkbox")).not.toBeChecked();
     await miner.getByRole("checkbox").check();
     await expect(other.getByRole("checkbox")).not.toBeChecked();
-    await this.page.getByRole("button", { name: this.isMobile ? "Actions" : "More", exact: true }).click();
-    await this.page.getByRole("button", { name: "Allocate to client", exact: true }).click();
+    const screenshot = await this.page.screenshot({ path: screenshotPath, animations: "disabled" });
+    await picker.getByRole("button", { name: "Allocate selected", exact: true }).click();
     const dialog = this.page.getByRole("dialog", { name: "Allocate 1 asset?", exact: true });
     await expect(dialog).toBeVisible();
-    await expect(dialog.getByRole("button", { name: "Allocate to client", exact: true })).toContainText(clientName);
-    const screenshot = await this.page.screenshot({ path: screenshotPath, animations: "disabled" });
+    await expect(dialog.getByText(`To ${clientName}`, { exact: true })).toBeVisible();
+    await dialog.getByRole("button", { name: "Allocate 1 asset", exact: true }).focus();
+    await this.page.keyboard.press("Tab");
+    await expect(dialog.getByRole("button", { name: "Cancel", exact: true })).toBeFocused();
     await dialog.getByRole("button", { name: "Allocate 1 asset", exact: true }).click();
-    await expect(this.page).toHaveURL(new RegExp(`/accounts/${accountId}/manage/assets$`));
+    await expect(picker).toHaveCount(0);
+    await expect(this.page).toHaveURL(originalUrl);
+    expect(new URL(originalUrl).pathname).toBe(`/accounts/${accountId}/manage/assets`);
+    await expect(this.page.getByRole("status")).toHaveText(`Allocated 1 asset to ${clientName}.`);
+    await expect(this.page.getByRole("button", { name: "Allocate assets", exact: true })).toBeFocused();
     await expect(this.page.getByText("Allocation miner", { exact: true })).toBeVisible();
     return screenshot;
   }

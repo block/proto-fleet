@@ -37,7 +37,6 @@ function mount({
   failureCode = "aborted",
   failureMessage = "changed",
   mask = 16n,
-  entry = "/fleet/miners",
 } = {}) {
   const calls: { method: string; body: Record<string, unknown>; account: string | null }[] = [];
   const onAssigned = vi.fn();
@@ -78,7 +77,7 @@ function mount({
     onAssigned,
   };
   const page = (current = props, capability = mask) => (
-    <MemoryRouter initialEntries={[entry]}>
+    <MemoryRouter initialEntries={["/fleet/miners"]}>
       <HostedAccountsContext.Provider
         value={{
           accounts: [
@@ -92,7 +91,6 @@ function mount({
       >
         <Routes>
           <Route path="/fleet/miners" element={<FleetAccountAssignment {...current} />} />
-          <Route path="/accounts/:id/manage/assets" element={<p>Client management returned</p>} />
         </Routes>
       </HostedAccountsContext.Provider>
     </MemoryRouter>
@@ -232,19 +230,20 @@ describe("Fleet account assignment", () => {
     rerender(references, 16n);
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
-  it("preselects the originating client and returns after a successful allocation", async () => {
-    const { calls } = mount({ entry: `/fleet/miners?allocateTo=${childId}` });
+  it("keeps standalone allocation in Fleet after success", async () => {
+    const { calls, onAssigned } = mount();
     const user = userEvent.setup();
     await openAllocation(user);
-    const dialog = await screen.findByRole("dialog");
-    expect(await within(dialog).findByRole("button", { name: "Allocate to client" })).toHaveTextContent("Customer");
+    await chooseCustomer(user);
+    const dialog = screen.getByRole("dialog");
     await user.click(within(dialog).getByRole("button", { name: "Allocate 2 assets" }));
-    await screen.findByText("Client management returned");
+    await waitFor(() => expect(onAssigned).toHaveBeenCalledOnce());
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "More asset actions" })).toBeInTheDocument();
     expect(calls.find((call) => call.method === "AssignAccountAssets")?.body.childAccountId).toBe(childId);
   });
-  it("does not allocate to a suspended originating client", async () => {
+  it("does not allocate to a suspended client", async () => {
     const { calls } = mount({
-      entry: `/fleet/miners?allocateTo=${childId}`,
       children: [{ accountId: childId, name: "Customer", suspended: true }],
     });
     const user = userEvent.setup();

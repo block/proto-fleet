@@ -112,13 +112,12 @@ describe("owner Clients directory", () => {
     expect(within(dialog).getByRole("button", { name: "Create client" })).toBeDisabled();
     await user.type(within(dialog).getByLabelText("Client name"), "New client");
     await user.click(within(dialog).getByRole("button", { name: "Create client" }));
-    await screen.findByRole("link", { name: "Allocate assets" });
+    await screen.findByRole("button", { name: "Allocate assets" });
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     expect(calls.some((call) => call.method === "CreateInvitation")).toBe(false);
-    expect(screen.getByRole("link", { name: "Allocate assets" })).toHaveAttribute(
-      "href",
-      `/fleet/miners?allocateTo=${newClient.accountId}`,
-    );
+    await user.click(screen.getByRole("button", { name: "Allocate assets" }));
+    const picker = await screen.findByRole("dialog", { name: "Select assets" });
+    await user.click(within(picker).getByRole("button", { name: "Close dialog" }));
     await user.click(screen.getByRole("button", { name: "Team" }));
     await user.click(await screen.findByRole("button", { name: "Invite team member" }));
     const invitation = await screen.findByRole("dialog", { name: "Create invitation" });
@@ -185,7 +184,7 @@ describe("owner Clients directory", () => {
     const user = userEvent.setup();
     const row = (await screen.findByRole("link", { name: "Existing client" })).closest("tr")!;
     await user.click(within(row).getByRole("cell", { name: "Active" }));
-    await screen.findByRole("link", { name: "Allocate assets" });
+    await screen.findByRole("button", { name: "Allocate assets" });
     expect(calls).toContainEqual(
       expect.objectContaining({
         method: "ListAccountAssets",

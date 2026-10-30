@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter, useLocation } from "react-router-dom";
 import { act, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { create } from "@bufbuild/protobuf";
@@ -26,6 +26,10 @@ const accountId = "11111111-1111-4111-8111-111111111111";
 const poolId = "22222222-2222-4222-8222-222222222222";
 const oldRevisionId = "33333333-3333-4333-8333-333333333333";
 const newRevisionId = "44444444-4444-4444-8444-444444444444";
+const CurrentLocation = () => {
+  const location = useLocation();
+  return <output data-testid="location">{location.pathname + location.search}</output>;
+};
 const getPools = () => {
   const latest = create(PoolRevisionSchema, {
     poolId,
@@ -610,6 +614,52 @@ describe("hosted account pages", () => {
       ),
     );
   });
+  it.each([false, true])("keeps subclient allocation on its existing route (suspended=%s)", async (suspended) => {
+    const { value, client } = scope(16n);
+    const child = create(AccountSchema, {
+      accountId: "77777777-7777-4777-8777-777777777777",
+      name: "Child",
+      depth: 2,
+      suspended,
+      capabilityCeiling: 31n,
+    });
+    client.listChildren.mockResolvedValue({ accounts: [child] });
+    const listAccountAssets = vi.fn().mockResolvedValue({
+      assets: [],
+      nextPageToken: "",
+      canManageAssignments: true,
+      children: [child],
+    });
+    render(
+      <MemoryRouter initialEntries={[`/accounts/${accountId}/children?assets=${child.accountId}`]}>
+        <AccountScopeContext.Provider
+          value={{ ...value, client: { ...client, listAccountAssets } as unknown as AccountScope["client"] }}
+        >
+          <CurrentLocation />
+          <AccountChildren />
+        </AccountScopeContext.Provider>
+      </MemoryRouter>,
+    );
+    await screen.findByText("Child");
+    await waitFor(() => expect(listAccountAssets).toHaveBeenCalled());
+    expect(screen.queryAllByRole("button", { name: "Allocate assets" })).toHaveLength(suspended ? 0 : 1);
+    expect(screen.queryByRole("dialog", { name: "Select assets" })).not.toBeInTheDocument();
+    if (!suspended) {
+      await userEvent.setup().click(screen.getByRole("button", { name: "Allocate assets" }));
+      expect(screen.getByTestId("location")).toHaveTextContent(
+        `/accounts/${accountId}/children?assets=${child.accountId}&action=assign`,
+      );
+      await waitFor(() =>
+        expect(listAccountAssets).toHaveBeenLastCalledWith(
+          expect.objectContaining({ ownerAccountId: accountId }),
+          expect.anything(),
+        ),
+      );
+      expect(screen.queryByRole("dialog", { name: "Select assets" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Allocate assets" })).not.toBeInTheDocument();
+    }
+  });
+
   it("shows the assignment confirmation in the child inventory it returns to", async () => {
     const { value, client } = scope();
     const childId = "77777777-7777-4777-8777-777777777777";
