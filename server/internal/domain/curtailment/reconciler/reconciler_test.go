@@ -3913,16 +3913,6 @@ func TestClaimClosedLoopFullFleetTargetsHandlesTopologyAdmissionFailure(t *testi
 			wantRestoreCalls: 1,
 		},
 		{
-			name:        "restores after update raises max duration and creator is demoted",
-			permissions: staticDispatchPermissionResolver{effective: topologyDispatchManagePermission(), roleName: "CUSTOM"},
-			configure: func(store *fakeStore, event *models.Event) {
-				store.orgConfig = &models.OrgConfig{OrgID: event.OrgID, MaxDurationDefaultSec: 100}
-				maxDurationSeconds := int32(101)
-				event.MaxDurationSeconds = &maxDurationSeconds
-			},
-			wantRestoreCalls: 1,
-		},
-		{
 			name:                  "defers transient role failure",
 			permissions:           staticDispatchPermissionResolver{effective: topologyDispatchManagePermission(), roleErr: errors.New("role database unavailable")},
 			requiresAdminControls: true,

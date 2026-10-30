@@ -187,7 +187,7 @@ func (s *Service) Preview(ctx context.Context, req PreviewRequest) (*Plan, error
 		return nil, err
 	}
 	req.PostEventCooldownSec = effectivePostEventCooldownSec(req)
-	plan, _, _, err := s.runSelector(ctx, req)
+	plan, _, err := s.runSelector(ctx, req)
 	if err != nil {
 		return nil, err
 	}
@@ -214,7 +214,7 @@ func (s *Service) Start(ctx context.Context, req StartRequest) (*Plan, error) {
 		return s.replayPlanFromPersistedEvent(ctx, req.OrgID, existing)
 	}
 
-	plan, minPowerW, orgConfig, err := s.runSelector(ctx, req.PreviewRequest)
+	plan, minPowerW, err := s.runSelector(ctx, req.PreviewRequest)
 	if err != nil {
 		return nil, err
 	}
@@ -241,21 +241,15 @@ func (s *Service) Start(ctx context.Context, req StartRequest) (*Plan, error) {
 	// Closed-loop scopes persist a watcher so newly eligible miners can be
 	// admitted while the event is asserted.
 
-	// max_duration_seconds=nil + !AllowUnbounded means "use org default".
-	// Bounds-check the normalized value so a misconfigured default surfaces
-	// as InvalidArgument instead of tripping the DB CHECK.
-	if !req.AllowUnbounded && req.MaxDurationSeconds == nil {
-		if err := validateFiniteDuration("org's max_duration_default_sec", orgConfig.MaxDurationDefaultSec); err != nil {
-			return nil, err
-		}
-		v := orgConfig.MaxDurationDefaultSec
-		req.MaxDurationSeconds = &v
+	// A finite cap applies only when the caller sets one; otherwise the event
+	// runs until it is stopped.
+	if req.MaxDurationSeconds == nil {
+		req.AllowUnbounded = true
 	}
 	if err := validateControlBounds(controlBounds{MinCurtailedDurationSec: &req.MinCurtailedDurationSec, MaxDurationSeconds: req.MaxDurationSeconds}); err != nil {
 		return nil, err
 	}
-	// Duration access compares the normalized cap with the organization default.
-	if err := validateAdminControlAccess(startAdminControls(req, orgConfig), req.CanUseAdminControls); err != nil {
+	if err := validateAdminControlAccess(startAdminControls(req), req.CanUseAdminControls); err != nil {
 		return nil, err
 	}
 
@@ -268,7 +262,7 @@ func (s *Service) Start(ctx context.Context, req StartRequest) (*Plan, error) {
 	plan.EffectiveCurtailBatchSize = cloneInt32Ptr(req.CurtailBatchSize)
 	plan.EffectiveCurtailBatchIntervalSec = req.CurtailBatchIntervalSec
 
-	requiresAdminControls := adminControlsRequirement(startAdminControls(req, orgConfig)) != ""
+	requiresAdminControls := adminControlsRequirement(startAdminControls(req)) != ""
 	eventParams, targetParams, err := buildInsertParams(req, plan, minPowerW, requiresAdminControls)
 	if err != nil {
 		return nil, err
@@ -436,14 +430,7 @@ func (s *Service) Update(ctx context.Context, req UpdateRequest) (*models.Event,
 		}
 	}
 	// Check only changed controls so an unchanged elevated value remains a no-op.
-	controls := adminControls{MaxDurationSeconds: patch.MaxDurationSeconds}
-	if patch.MaxDurationSeconds != nil && !req.CanUseAdminControls {
-		orgConfig, err := s.store.GetOrgConfig(ctx, req.OrgID)
-		if err != nil {
-			return nil, err
-		}
-		controls.MaxDurationDefaultSec = orgConfig.MaxDurationDefaultSec
-	}
+	controls := adminControls{}
 	if patch.RestoreBatchIntervalSec != nil {
 		controls.RestoreBatchIntervalSec = *patch.RestoreBatchIntervalSec
 	}
@@ -1199,15 +1186,15 @@ func (s *Service) ListTargetSiteCoverageByEvents(
 // build-plan pipeline shared by Preview and Start. Returns the resolved
 // candidate floor (for the decision snapshot) and the OrgConfig (so Start
 // can resolve a nil MaxDurationSeconds without a second DB read).
-func (s *Service) runSelector(ctx context.Context, req PreviewRequest) (*Plan, int32, *models.OrgConfig, error) {
+func (s *Service) runSelector(ctx context.Context, req PreviewRequest) (*Plan, int32, error) {
 	candidateFilter, err := s.resolveScopeForOrg(ctx, req.OrgID, req.Scope)
 	if err != nil {
-		return nil, 0, nil, err
+		return nil, 0, err
 	}
 
 	orgConfig, err := s.store.GetOrgConfig(ctx, req.OrgID)
 	if err != nil {
-		return nil, 0, nil, err
+		return nil, 0, err
 	}
 	// Effective candidate floor: per-org default, admin-overridable.
 	// Handler enforces the admin role gate.
@@ -1218,24 +1205,24 @@ func (s *Service) runSelector(ctx context.Context, req PreviewRequest) (*Plan, i
 
 	activeDevices, err := s.store.ListActiveCurtailedDevices(ctx, req.OrgID)
 	if err != nil {
-		return nil, 0, nil, err
+		return nil, 0, err
 	}
 	activeSet := ToStringSet(activeDevices)
 
 	candidateFilter.ResultLimit = ScopeResolvedMinerMax + 1
 	candidates, err := s.store.ListCandidates(ctx, candidateFilter)
 	if err != nil {
-		return nil, 0, nil, err
+		return nil, 0, err
 	}
 	if err := validateResolvedMinerCount(len(candidates)); err != nil {
-		return nil, 0, nil, err
+		return nil, 0, err
 	}
 
 	// Cross-org ids are silently dropped by the SQL org_id filter; surface
 	// them as NotFound rather than masquerading as InsufficientLoad.
 	if len(candidateFilter.DeviceIdentifiers) > 0 {
 		if missing := missingDeviceIdentifiers(candidateFilter.DeviceIdentifiers, candidates); len(missing) > 0 {
-			return nil, 0, nil, fleeterror.NewNotFoundErrorf(
+			return nil, 0, fleeterror.NewNotFoundErrorf(
 				"device_identifiers not found in caller's org: %v", missing,
 			)
 		}
@@ -1251,7 +1238,7 @@ func (s *Service) runSelector(ctx context.Context, req PreviewRequest) (*Plan, i
 			req.IncludeMaintenance && req.ForceIncludeMaintenance,
 			minPowerW,
 		)
-		return &plan, minPowerW, orgConfig, nil
+		return &plan, minPowerW, nil
 	}
 
 	cooldownSet := map[string]struct{}{}
@@ -1265,7 +1252,7 @@ func (s *Service) runSelector(ctx context.Context, req PreviewRequest) (*Plan, i
 			},
 		)
 		if err != nil {
-			return nil, 0, nil, err
+			return nil, 0, err
 		}
 		cooldownSet = ToStringSet(cooldownDevices)
 	}
@@ -1280,11 +1267,11 @@ func (s *Service) runSelector(ctx context.Context, req PreviewRequest) (*Plan, i
 
 	mode, err := buildMode(req.Mode, req.TargetKW, req.ToleranceKW, summary)
 	if err != nil {
-		return nil, 0, nil, err
+		return nil, 0, err
 	}
 
 	plan := BuildPlan(eligible, preFiltered, minPowerW, mode)
-	return &plan, minPowerW, orgConfig, nil
+	return &plan, minPowerW, nil
 }
 
 func candidateDeviceIdentifiers(candidates []*models.Candidate) []string {
@@ -1390,8 +1377,8 @@ func validateStartRequest(req StartRequest) error {
 	if req.AllowUnbounded && req.MaxDurationSeconds != nil {
 		return fleeterror.NewInvalidArgumentError("max_duration_seconds must be unset when allow_unbounded is true")
 	}
-	// Restore pacing and normalized duration are gated after loading org config.
-	controls := startAdminControls(req, nil)
+	// Restore pacing is gated later in Start.
+	controls := startAdminControls(req)
 	controls.RestoreBatchIntervalSec = 0
 	if err := validateAdminControlAccess(controls, req.CanUseAdminControls); err != nil {
 		return err
@@ -2468,21 +2455,16 @@ func marshalDecisionSnapshot(
 }
 
 // EventRequiresAdminControls combines the immutable Start-time marker with
-// controls that an operator may change while an event is pending or active.
-// Comparing max duration with the current organization default mirrors the
-// Update gate and prevents a later role demotion from authorizing new members.
-func EventRequiresAdminControls(ev *models.Event, orgConfig *models.OrgConfig) (bool, error) {
+// controls that an operator may change while an event is pending or active,
+// so a later role demotion cannot authorize new members.
+func EventRequiresAdminControls(ev *models.Event) (bool, error) {
 	if ev == nil {
 		return false, nil
 	}
 	controls := adminControls{
-		AllowUnbounded: ev.AllowUnbounded, ForceIncludeMaintenance: ev.ForceIncludeMaintenance,
+		ForceIncludeMaintenance:     ev.ForceIncludeMaintenance,
 		ForceIncludeAllPairedMiners: ev.ForceIncludeAllPairedMiners,
 		CurtailBatchIntervalSec:     ev.CurtailBatchIntervalSec, RestoreBatchIntervalSec: ev.RestoreBatchIntervalSec,
-		MaxDurationSeconds: ev.MaxDurationSeconds,
-	}
-	if orgConfig != nil {
-		controls.MaxDurationDefaultSec = orgConfig.MaxDurationDefaultSec
 	}
 	if adminControlsRequirement(controls) != "" {
 		return true, nil

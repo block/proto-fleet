@@ -11,7 +11,7 @@ import (
 
 const getCurtailmentPendingWorkAges = `-- name: GetCurtailmentPendingWorkAges :one
 SELECT
-  COALESCE((SELECT GREATEST(0, EXTRACT(EPOCH FROM NOW() - MIN(pending_started_at)))::float8
+  COALESCE((SELECT GREATEST(0, EXTRACT(EPOCH FROM NOW() - MIN(created_at)))::float8
             FROM curtailment_event WHERE state = 'pending'), 0)::float8 AS pending_event_age_seconds,
   COALESCE((SELECT GREATEST(0, EXTRACT(EPOCH FROM NOW() - MIN(st.pending_received_at)))::float8
             FROM curtailment_mqtt_source_state st
@@ -25,8 +25,6 @@ type GetCurtailmentPendingWorkAgesRow struct {
 }
 
 // Global operational gauges; no pending work emits zero to clear old values.
-// Re-curtailment begins a fresh pending phase without resetting the event's
-// finite safety cap. Dispatch/fan updates must not refresh this phase clock.
 func (q *Queries) GetCurtailmentPendingWorkAges(ctx context.Context) (GetCurtailmentPendingWorkAgesRow, error) {
 	row := q.queryRow(ctx, q.getCurtailmentPendingWorkAgesStmt, getCurtailmentPendingWorkAges)
 	var i GetCurtailmentPendingWorkAgesRow

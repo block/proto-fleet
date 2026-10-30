@@ -770,8 +770,9 @@ func TestHandler_OverrideFieldsRoleGate(t *testing.T) {
 		{"Preview override + viewer API key", previewWithOverride, "VIEWER", session.AuthMethodAPIKey, connect.CodePermissionDenied},
 		{"Start candidate override + viewer session", startWithCandidateOverride, "VIEWER", session.AuthMethodSession, connect.CodePermissionDenied},
 		{"Start candidate override + viewer API key", startWithCandidateOverride, "VIEWER", session.AuthMethodAPIKey, connect.CodePermissionDenied},
-		{"Start allow_unbounded + viewer session", startWithAllowUnbounded, "VIEWER", session.AuthMethodSession, connect.CodePermissionDenied},
-		{"Start allow_unbounded + viewer API key", startWithAllowUnbounded, "VIEWER", session.AuthMethodAPIKey, connect.CodePermissionDenied},
+		// Running without a cap is the default, so allow_unbounded is not admin-gated.
+		{"Start allow_unbounded + viewer session", startWithAllowUnbounded, "VIEWER", session.AuthMethodSession, connect.CodeUnimplemented},
+		{"Start allow_unbounded + viewer API key", startWithAllowUnbounded, "VIEWER", session.AuthMethodAPIKey, connect.CodeUnimplemented},
 		{"Stop force + viewer session", stopWithForce, "VIEWER", session.AuthMethodSession, connect.CodePermissionDenied},
 		{"Stop force + viewer API key", stopWithForce, "VIEWER", session.AuthMethodAPIKey, connect.CodePermissionDenied},
 		// force_include_maintenance is safety-critical and admin-gated: a

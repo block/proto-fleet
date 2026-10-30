@@ -234,15 +234,7 @@ func (r *Reconciler) fenceTopologyRestoreDispatch(
 }
 
 func (r *Reconciler) eventCreatorCanUseRequiredAdminControls(ctx context.Context, ev *models.Event) (bool, error) {
-	var orgConfig *models.OrgConfig
-	var err error
-	if ev != nil && ev.MaxDurationSeconds != nil {
-		orgConfig, err = r.store.GetOrgConfig(ctx, ev.OrgID)
-		if err != nil {
-			return false, err
-		}
-	}
-	required, err := curtailment.EventRequiresAdminControls(ev, orgConfig)
+	required, err := curtailment.EventRequiresAdminControls(ev)
 	if err != nil || !required {
 		return !required, err
 	}

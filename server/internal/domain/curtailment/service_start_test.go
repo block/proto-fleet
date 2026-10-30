@@ -362,7 +362,7 @@ func TestService_Start_RejectsCurtailIntervalWithoutBatchSize(t *testing.T) {
 	assert.Contains(t, err.Error(), "curtail_batch_interval_sec")
 }
 
-func TestService_Start_NilMaxDurationUsesOrgDefault(t *testing.T) {
+func TestService_Start_NilMaxDurationHasNoCap(t *testing.T) {
 	t.Parallel()
 	const orgID = int64(1)
 	store := newFakeStore()
@@ -372,62 +372,14 @@ func TestService_Start_NilMaxDurationUsesOrgDefault(t *testing.T) {
 	}
 	svc := NewService(store)
 	req := validStartRequest(orgID)
-	req.MaxDurationSeconds = nil // sentinel: use org default
+	req.MaxDurationSeconds = nil
 	_, err := svc.Start(t.Context(), req)
 	require.NoError(t, err)
-	require.NotNil(t, store.lastInsertEvent.MaxDurationSeconds)
-	assert.Equal(t, store.orgConfigByOrg[orgID].MaxDurationDefaultSec, *store.lastInsertEvent.MaxDurationSeconds)
+	assert.Nil(t, store.lastInsertEvent.MaxDurationSeconds)
+	assert.True(t, store.lastInsertEvent.AllowUnbounded)
 }
 
-// TestService_Start_RejectsOrgDefaultAboveAbsoluteCeiling pins the
-// post-normalization upper-bound guard: when the caller leaves
-// max_duration_seconds unset and !allow_unbounded, Service.Start fills it
-// from orgConfig.MaxDurationDefaultSec. validateStartRequest ran before the
-// fill and saw nil, so a misconfigured org default above maxFiniteDurationSeconds
-// would otherwise tunnel into the DB and trip ck_curtailment_event_max_duration_bounds
-// as an Internal error. Re-checking here keeps the failure a clean
-// InvalidArgument with a config-level message.
-func TestService_Start_RejectsOrgDefaultAboveAbsoluteCeiling(t *testing.T) {
-	t.Parallel()
-	const orgID = int64(1)
-	store := newFakeStore()
-	cfg := defaultOrgConfig(orgID)
-	cfg.MaxDurationDefaultSec = maxFiniteDurationSeconds + 1
-	store.orgConfigByOrg[orgID] = cfg
-	store.candidatesByOrg[orgID] = []*models.Candidate{
-		minerWithEff("miner", 6000, 100, 40),
-	}
-	svc := NewService(store)
-	req := validStartRequest(orgID)
-	req.MaxDurationSeconds = nil // sentinel: use org default
-
-	_, err := svc.Start(t.Context(), req)
-	require.Error(t, err)
-	assert.True(t, fleeterror.IsInvalidArgumentError(err))
-	assert.Contains(t, err.Error(), "max_duration_default_sec")
-	assert.Contains(t, err.Error(), "must be <=")
-}
-
-func TestService_Start_RejectsNonAdminDurationAboveOrgDefault(t *testing.T) {
-	t.Parallel()
-	const orgID = int64(1)
-	store := newFakeStore()
-	store.orgConfigByOrg[orgID] = defaultOrgConfig(orgID)
-	store.candidatesByOrg[orgID] = []*models.Candidate{
-		minerWithEff("miner", 6000, 100, 40),
-	}
-	svc := NewService(store)
-	req := validStartRequest(orgID)
-	tooLong := store.orgConfigByOrg[orgID].MaxDurationDefaultSec + 1
-	req.MaxDurationSeconds = &tooLong
-
-	_, err := svc.Start(t.Context(), req)
-	require.Error(t, err)
-	assert.True(t, fleeterror.IsForbiddenError(err))
-	assert.Contains(t, err.Error(), "max_duration_seconds")
-}
-
-func TestService_Start_AllowsAdminDurationAboveOrgDefaultWithinCap(t *testing.T) {
+func TestService_Start_AllowsOperatorCapAboveOrgDefault(t *testing.T) {
 	t.Parallel()
 	const orgID = int64(1)
 	store := newFakeStore()
@@ -439,12 +391,12 @@ func TestService_Start_AllowsAdminDurationAboveOrgDefaultWithinCap(t *testing.T)
 	req := validStartRequest(orgID)
 	custom := store.orgConfigByOrg[orgID].MaxDurationDefaultSec + 1
 	req.MaxDurationSeconds = &custom
-	req.CanUseAdminControls = true
 
 	_, err := svc.Start(t.Context(), req)
 	require.NoError(t, err)
 	require.NotNil(t, store.lastInsertEvent.MaxDurationSeconds)
 	assert.Equal(t, custom, *store.lastInsertEvent.MaxDurationSeconds)
+	assert.False(t, store.lastInsertEvent.AllowUnbounded)
 }
 
 func TestService_Start_RejectsZeroMaxDuration(t *testing.T) {
@@ -1038,27 +990,25 @@ func TestService_Start_AllowUnboundedPersistsNullMaxDuration(t *testing.T) {
 func TestAdminControlsRequirement_StartControls(t *testing.T) {
 	t.Parallel()
 
-	orgConfig := &models.OrgConfig{MaxDurationDefaultSec: 100}
 	tests := []struct {
 		name string
 		req  StartRequest
 		want bool
 	}{
 		{name: "ordinary settings"},
-		{name: "allow unbounded", req: StartRequest{AllowUnbounded: true}, want: true},
+		{name: "no cap", req: StartRequest{AllowUnbounded: true}},
+		{name: "explicit cap", req: StartRequest{MaxDurationSeconds: int32Ptr(maxFiniteDurationSeconds)}},
 		{name: "candidate power override", req: StartRequest{PreviewRequest: PreviewRequest{CandidateMinPowerWOverride: int32Ptr(1)}}, want: true},
 		{name: "force maintenance", req: StartRequest{PreviewRequest: PreviewRequest{ForceIncludeMaintenance: true}}, want: true},
 		{name: "force all paired", req: StartRequest{PreviewRequest: PreviewRequest{ForceIncludeAllPairedMiners: true}}, want: true},
 		{name: "curtail pacing above operator limit", req: StartRequest{CurtailBatchIntervalSec: nonAdminBatchIntervalMax + 1}, want: true},
 		{name: "restore pacing above operator limit", req: StartRequest{RestoreBatchIntervalSec: nonAdminBatchIntervalMax + 1}, want: true},
-		{name: "duration above org default", req: StartRequest{MaxDurationSeconds: int32Ptr(101)}, want: true},
-		{name: "duration at org default", req: StartRequest{MaxDurationSeconds: int32Ptr(100)}},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			assert.Equal(t, tt.want, adminControlsRequirement(startAdminControls(tt.req, orgConfig)) != "")
+			assert.Equal(t, tt.want, adminControlsRequirement(startAdminControls(tt.req)) != "")
 		})
 	}
 }

@@ -2685,7 +2685,7 @@ type StartCurtailmentRequest struct {
 	//	*StartCurtailmentRequest_SitePowerCap
 	ModeParams isStartCurtailmentRequest_ModeParams `protobuf_oneof:"mode_params"`
 	// Operational controls.
-	MaxDurationSeconds uint32 `protobuf:"varint,20,opt,name=max_duration_seconds,json=maxDurationSeconds,proto3" json:"max_duration_seconds,omitempty"` // 0 = org default unless allow_unbounded
+	MaxDurationSeconds uint32 `protobuf:"varint,20,opt,name=max_duration_seconds,json=maxDurationSeconds,proto3" json:"max_duration_seconds,omitempty"` // 0 = no cap
 	// Default 0 = restore all pending targets in one wave up to the server's
 	// explicit max restore wave size. Positive values are persisted and used as
 	// the caller's explicit restore wave size.
@@ -2703,9 +2703,9 @@ type StartCurtailmentRequest struct {
 	// Admin-only override of the per-org `candidate_min_power_w` default.
 	// Upper bound is a sanity ceiling (10 MW per miner); zero means "use default" so it is excluded.
 	CandidateMinPowerWOverride *uint32 `protobuf:"varint,26,opt,name=candidate_min_power_w_override,json=candidateMinPowerWOverride,proto3,oneof" json:"candidate_min_power_w_override,omitempty"`
-	// Admin-only acknowledgement to opt out of `max_duration_default_sec`
-	// normalization. Default false; otherwise `max_duration_seconds=0` is
-	// normalized to the per-org default by the domain service.
+	// Kept for existing callers: an event without `max_duration_seconds`
+	// already has no cap. Rejected together with a non-zero
+	// `max_duration_seconds`.
 	AllowUnbounded bool `protobuf:"varint,27,opt,name=allow_unbounded,json=allowUnbounded,proto3" json:"allow_unbounded,omitempty"`
 	// How long restored targets remain excluded from selection. Zero disables cooldown.
 	PostEventCooldownSec uint32 `protobuf:"varint,29,opt,name=post_event_cooldown_sec,json=postEventCooldownSec,proto3" json:"post_event_cooldown_sec,omitempty"`
@@ -3141,7 +3141,7 @@ type UpdateCurtailmentEventRequest struct {
 	// 0 = no wait between restore waves.
 	RestoreBatchIntervalSec *uint32 `protobuf:"varint,12,opt,name=restore_batch_interval_sec,json=restoreBatchIntervalSec,proto3,oneof" json:"restore_batch_interval_sec,omitempty"`
 	// Omit to preserve the cap; a supplied value must be positive.
-	// Only admins may shorten it; allow_unbounded events reject a cap update.
+	// Only admins may shorten it; events without a cap reject a cap update.
 	MaxDurationSeconds *uint32 `protobuf:"varint,13,opt,name=max_duration_seconds,json=maxDurationSeconds,proto3,oneof" json:"max_duration_seconds,omitempty"`
 	unknownFields      protoimpl.UnknownFields
 	sizeCache          protoimpl.SizeCache

@@ -674,7 +674,7 @@ message StartCurtailmentRequest {
     }
 
     // Operational controls.
-    uint32 max_duration_seconds       = 20 [(buf.validate.field).uint32 = {lte: 604800}];  // 0 = org default unless allow_unbounded
+    uint32 max_duration_seconds       = 20 [(buf.validate.field).uint32 = {lte: 604800}];  // 0 = no cap
     // Default 0 = restore all pending targets in one wave up to the server's
     // explicit max restore wave size. Positive values are persisted and used as
     // the caller's explicit restore wave size.
@@ -695,9 +695,9 @@ message StartCurtailmentRequest {
     // Upper bound is a sanity ceiling (10 MW per miner); zero means "use default" so it is excluded.
     optional uint32 candidate_min_power_w_override = 26 [(buf.validate.field).uint32 = {gte: 1, lte: 10000000}];
 
-    // Admin-only acknowledgement to opt out of `max_duration_default_sec`
-    // normalization. Default false; otherwise `max_duration_seconds=0` is
-    // normalized to the per-org default by the domain service.
+    // Kept for existing callers: an event without `max_duration_seconds`
+    // already has no cap. Rejected together with a non-zero
+    // `max_duration_seconds`.
     bool allow_unbounded = 27;
 
     // How long restored targets remain excluded from selection. Zero disables cooldown.
@@ -770,7 +770,7 @@ message UpdateCurtailmentEventRequest {
     // 0 = no wait between restore waves.
     optional uint32 restore_batch_interval_sec = 12 [(buf.validate.field).uint32 = {lte: 3600}];
     // Omit to preserve the cap; a supplied value must be positive.
-    // Only admins may shorten it; allow_unbounded events reject a cap update.
+    // Only admins may shorten it; events without a cap reject a cap update.
     optional uint32 max_duration_seconds       = 13 [(buf.validate.field).uint32 = {gt: 0, lte: 604800}];
 }
 

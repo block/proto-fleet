@@ -26,7 +26,7 @@ func TestAdminPolicy_FullFleetProfileAndManualStartRemainDifferent(t *testing.T)
 	assert.Equal(t, models.EventStateActive, plan.StartState)
 	required, err := EventRequiresAdminControls(&models.Event{
 		Mode: models.ModeFullFleet, DecisionSnapshotJSON: store.lastInsertEvent.DecisionSnapshotJSON,
-	}, store.orgConfigByOrg[orgID])
+	})
 	require.NoError(t, err)
 	assert.False(t, required, "FULL_FLEET alone must not become a persisted admin requirement")
 
@@ -141,7 +141,7 @@ func TestServiceStart_MinimumDurationBoundsAndEffectiveCap(t *testing.T) {
 		{"minimum at hard ceiling", maxFiniteDurationSeconds, int32Ptr(maxFiniteDurationSeconds), false},
 		{"minimum above hard ceiling", maxFiniteDurationSeconds + 1, int32Ptr(maxFiniteDurationSeconds), true},
 		{"minimum above explicit cap", 601, int32Ptr(600), true},
-		{"minimum above organization default", 14401, nil, true},
+		{"minimum without a cap", 14401, nil, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			store := newFakeStore()
@@ -168,10 +168,9 @@ func TestServiceStart_MinimumDurationAccessUsesValidatedCap(t *testing.T) {
 		cap     *int32
 		wantErr string
 	}{
-		{"minimum at default", 14400, nil, ""},
-		{"minimum above implicit cap", 14401, nil, "min_curtailed_duration_sec must be <= max_duration_seconds"},
+		{"minimum without a cap", 14401, nil, ""},
 		{"minimum above explicit cap", 14401, int32Ptr(14400), "min_curtailed_duration_sec must be <= max_duration_seconds"},
-		{"elevated minimum and cap", 14401, int32Ptr(14401), "only admins can set max_duration_seconds above org default 14400"},
+		{"elevated minimum and cap", 14401, int32Ptr(14401), ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
