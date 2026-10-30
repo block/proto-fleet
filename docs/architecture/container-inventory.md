@@ -24,6 +24,10 @@ and board observations, with a 960 KiB limit inside its 1 MiB command-response
 payload. Larger snapshots fail collection without persisting partial inventory.
 Upgrade Fleet Server before Fleet Nodes when moving from the previous 256 KiB
 limit; older servers reject observations above that limit.
+Authenticated Fleet Node uploads use gzip for messages of at least 1 KiB,
+including telemetry acknowledgments on the gRPC control stream. Compression
+reduces bytes on the network; the JSON and command-response limits still apply
+to the decoded messages.
 
 The CT1 collector derives container efficiency from the final controller power
 and hashrate measurements in each poll, storing watts divided by hashes/second
