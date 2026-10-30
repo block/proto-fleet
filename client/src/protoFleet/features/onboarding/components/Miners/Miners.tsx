@@ -153,6 +153,10 @@ const Miners = ({
   const useCompactHeaderActions = isPhone;
   const canReadFleetNodes = useHasPermission("fleetnode:read");
   const canManageFleetNodes = useHasPermission("fleetnode:manage");
+  const visibleFleetNodes = useMemo(
+    () => fleetNodes && (canReadFleetNodes ? fleetNodes : []),
+    [fleetNodes, canReadFleetNodes],
+  );
   const guidance =
     remoteDiscoveryReadiness && remoteDiscoveryReadiness !== "none"
       ? REMOTE_DISCOVERY_GUIDANCE[remoteDiscoveryReadiness]
@@ -510,12 +514,8 @@ const Miners = ({
                 isScanning={discoveryPending}
                 showSkeleton={showLoadingSkeleton}
               />
-              {fleetNodes ? (
-                <NodePairingSummary
-                  miners={selectedDisplayMiners}
-                  fleetNodes={fleetNodes}
-                  showPairedCounts={canReadFleetNodes}
-                />
+              {visibleFleetNodes ? (
+                <NodePairingSummary miners={selectedDisplayMiners} fleetNodes={visibleFleetNodes} />
               ) : null}
               {maxSelectedMiners !== undefined && selectedDisplayMiners.length > maxSelectedMiners ? (
                 <p role="status" className="mt-4 text-300 text-intent-warning-fill">
@@ -527,7 +527,7 @@ const Miners = ({
                 <FoundMinersModal
                   open
                   setDeselectedMiners={setDeselectedMiners}
-                  fleetNodes={canReadFleetNodes ? fleetNodes : undefined}
+                  fleetNodes={visibleFleetNodes}
                   miners={foundMinersModalMiners}
                   onDismiss={() => setShowFoundMinersModal(false)}
                 />

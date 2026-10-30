@@ -13,10 +13,9 @@ import Callout from "@/shared/components/Callout";
 interface NodePairingSummaryProps {
   miners: Device[];
   fleetNodes: FleetNodeItem[];
-  showPairedCounts: boolean;
 }
 
-const NodePairingSummary = ({ miners, fleetNodes, showPairedCounts }: NodePairingSummaryProps) => {
+const NodePairingSummary = ({ miners, fleetNodes }: NodePairingSummaryProps) => {
   const sources = useMemo(() => {
     const counts = new Map<string, { selected: number; added: number }>();
     for (const miner of miners) {
@@ -29,10 +28,10 @@ const NodePairingSummary = ({ miners, fleetNodes, showPairedCounts }: NodePairin
     const nodes = new Map(fleetNodes.map((node) => [node.fleetNodeId, node]));
     return [...counts].map(([id, { selected, added }]) => {
       const node = nodes.get(id);
-      const paired = showPairedCounts && node ? node.pairedDeviceCount : undefined;
+      const paired = node?.pairedDeviceCount;
       return {
         id,
-        name: fleetSourceLabel(id, showPairedCounts ? node?.name : undefined),
+        name: fleetSourceLabel(id, node?.name),
         pairedText:
           id === FLEET_SERVER_ID
             ? undefined
@@ -44,7 +43,7 @@ const NodePairingSummary = ({ miners, fleetNodes, showPairedCounts }: NodePairin
         total: paired === undefined ? undefined : paired + added,
       };
     });
-  }, [miners, fleetNodes, showPairedCounts]);
+  }, [miners, fleetNodes]);
 
   if (!sources.some(({ id }) => id !== FLEET_SERVER_ID)) return null;
   return (

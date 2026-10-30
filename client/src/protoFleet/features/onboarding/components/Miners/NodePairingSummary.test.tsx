@@ -17,13 +17,7 @@ describe("pairing capacity guidance", () => {
     [4998, "Above the 4,000-miner target"],
     [4999, "Exceeds 5,000 miners per Fleet Node"],
   ])("combines %i paired miners with the two selected miners", (pairedDeviceCount, warning) => {
-    render(
-      <NodePairingSummary
-        miners={miners}
-        fleetNodes={[{ ...scaleFleetNodes[0], pairedDeviceCount }]}
-        showPairedCounts
-      />,
-    );
+    render(<NodePairingSummary miners={miners} fleetNodes={[{ ...scaleFleetNodes[0], pairedDeviceCount }]} />);
     expect(
       screen.getByText(
         `${pairedDeviceCount.toLocaleString()} paired + 2 selected = ${(pairedDeviceCount + 2).toLocaleString()} total`,
@@ -34,15 +28,15 @@ describe("pairing capacity guidance", () => {
   });
 
   it("summarizes only sources with selected devices", () => {
-    const { rerender } = render(<NodePairingSummary miners={miners} fleetNodes={scaleFleetNodes} showPairedCounts />);
+    const { rerender } = render(<NodePairingSummary miners={miners} fleetNodes={scaleFleetNodes} />);
     expect(screen.getByText("Mining hall 1")).toBeInTheDocument();
     expect(screen.queryByText("Mining hall 2")).not.toBeInTheDocument();
-    rerender(<NodePairingSummary miners={[]} fleetNodes={scaleFleetNodes} showPairedCounts />);
+    rerender(<NodePairingSummary miners={[]} fleetNodes={scaleFleetNodes} />);
     expect(screen.queryByRole("region", { name: "Pairing by source" })).not.toBeInTheDocument();
   });
 
-  it("keeps redacted paired totals and node names unavailable", () => {
-    render(<NodePairingSummary miners={miners} fleetNodes={scaleFleetNodes} showPairedCounts={false} />);
+  it("keeps paired totals and node names unavailable without node details", () => {
+    render(<NodePairingSummary miners={miners} fleetNodes={[]} />);
     expect(screen.getByText("Paired count unavailable + 2 selected")).toBeInTheDocument();
     expect(screen.queryByText("Mining hall 1")).not.toBeInTheDocument();
     expect(screen.queryByText(/0 paired/)).not.toBeInTheDocument();
@@ -58,7 +52,6 @@ describe("pairing capacity guidance", () => {
       <NodePairingSummary
         miners={[serverMiner, ...miners]}
         fleetNodes={[{ ...scaleFleetNodes[0], pairedDeviceCount: 10 }]}
-        showPairedCounts
       />,
     );
 
@@ -74,7 +67,7 @@ describe("pairing capacity guidance", () => {
     const serverMiner = create(DeviceSchema, { deviceIdentifier: "server", fleetNodeId: 0n });
 
     // Act
-    render(<NodePairingSummary miners={[serverMiner]} fleetNodes={[]} showPairedCounts />);
+    render(<NodePairingSummary miners={[serverMiner]} fleetNodes={[]} />);
 
     // Assert
     expect(screen.queryByRole("region", { name: "Pairing by source" })).not.toBeInTheDocument();
