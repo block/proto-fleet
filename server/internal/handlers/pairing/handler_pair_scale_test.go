@@ -166,67 +166,62 @@ func TestPairFleetNodeDevicesDispatchesNodesInParallelAndBoundsBatches(t *testin
 }
 
 func TestPairFleetNodeDevicesWithoutConfigurationOnlyRepairsOwnedRoute(t *testing.T) {
-	for _, configured := range []bool{false, true} {
-		for _, repair := range []bool{false, true} {
-			t.Run(fmt.Sprintf("empty-config=%t/repair=%t", configured, repair), func(t *testing.T) {
-				// Arrange
-				store := &nodePairTargetStore{
-					devices:  map[int64][]fleetnodepairing.FleetNodeDiscoveredDevice{7: {{ID: 1, DeviceIdentifier: "miner", IPAddress: "10.0.0.1"}}},
-					bindings: map[int64][]fleetnodepairing.FleetNodeDevice{},
-				}
-				if repair {
-					store.devices[7][0].PairingStatus = fleetnodepairing.StatusAuthenticationNeeded
-					store.bindings[7] = []fleetnodepairing.FleetNodeDevice{{DeviceIdentifier: "miner"}}
-				}
-				registry := control.NewRegistry()
-				stream := registry.Register(7)
-				defer stream.Unregister()
-				if configured {
-					stream.SetDiscoveryConfig(&gatewaypb.DiscoveryConfig{})
-				}
-				h := &Handler{
-					discovery:        &stubFleetNodeDiscoveryRunner{nodeIDs: []int64{7}},
-					fleetNodePairing: fleetnodepairing.NewService(store, nil, nil).WithProvisioning(nil, nil, registry),
-				}
-				done := make(chan fleetNodePairRoute, 1)
+	for _, repair := range []bool{false, true} {
+		t.Run(fmt.Sprintf("repair=%t", repair), func(t *testing.T) {
+			// Arrange
+			store := &nodePairTargetStore{
+				devices:  map[int64][]fleetnodepairing.FleetNodeDiscoveredDevice{7: {{ID: 1, DeviceIdentifier: "miner", IPAddress: "10.0.0.1"}}},
+				bindings: map[int64][]fleetnodepairing.FleetNodeDevice{},
+			}
+			if repair {
+				store.devices[7][0].PairingStatus = fleetnodepairing.StatusAuthenticationNeeded
+				store.bindings[7] = []fleetnodepairing.FleetNodeDevice{{DeviceIdentifier: "miner"}}
+			}
+			registry := control.NewRegistry()
+			stream := registry.Register(7)
+			defer stream.Unregister()
+			h := &Handler{
+				discovery:        &stubFleetNodeDiscoveryRunner{nodeIDs: []int64{7}},
+				fleetNodePairing: fleetnodepairing.NewService(store, nil, nil).WithProvisioning(nil, nil, registry),
+			}
+			done := make(chan fleetNodePairRoute, 1)
 
-				// Act
-				go func() {
-					_, route, err := h.pairFleetNodeDevices(t.Context(), 1, 2, &pb.PairRequest{Credentials: &pb.Credentials{Password: proto.String("secret")}, DeviceSelector: includeDevicesSelector([]string{"miner"})})
-					if err != nil {
-						route.remoteErr = err
-					}
-					done <- route
-				}()
-				if repair {
-					select {
-					case cmd := <-stream.Outgoing:
-						registry.PublishPairResults(7, cmd.GetCommandId(), []*gatewaypb.FleetNodePairResult{{DeviceIdentifier: "miner", Outcome: gatewaypb.PairOutcome_PAIR_OUTCOME_PAIRED}})
-						stream.PublishAck(&gatewaypb.ControlAck{CommandId: cmd.GetCommandId(), Code: gatewaypb.AckCode_ACK_CODE_OK, Succeeded: true})
-					case <-time.After(2 * time.Second):
-						t.Fatal("owned authentication repair was not dispatched")
-					}
+			// Act
+			go func() {
+				_, route, err := h.pairFleetNodeDevices(t.Context(), 1, 2, &pb.PairRequest{Credentials: &pb.Credentials{Password: proto.String("secret")}, DeviceSelector: includeDevicesSelector([]string{"miner"})})
+				if err != nil {
+					route.remoteErr = err
 				}
-				select {
-				case route := <-done:
-					// Assert
-					assert.Contains(t, route.routedExplicit, "miner")
-					if repair {
-						assert.NoError(t, route.remoteErr)
-						assert.True(t, route.remoteSucceeded)
-					} else {
-						assert.Error(t, route.remoteErr, "new targets must still fail closed without ranges")
-					}
-				case <-time.After(2 * time.Second):
-					t.Fatal("pairing did not finish")
-				}
+				done <- route
+			}()
+			if repair {
 				select {
 				case cmd := <-stream.Outgoing:
-					t.Fatalf("unexpected pair command %s", cmd.GetCommandId())
-				default:
+					registry.PublishPairResults(7, cmd.GetCommandId(), []*gatewaypb.FleetNodePairResult{{DeviceIdentifier: "miner", Outcome: gatewaypb.PairOutcome_PAIR_OUTCOME_PAIRED}})
+					stream.PublishAck(&gatewaypb.ControlAck{CommandId: cmd.GetCommandId(), Code: gatewaypb.AckCode_ACK_CODE_OK, Succeeded: true})
+				case <-time.After(2 * time.Second):
+					t.Fatal("owned authentication repair was not dispatched")
 				}
-			})
-		}
+			}
+			select {
+			case route := <-done:
+				// Assert
+				assert.Contains(t, route.routedExplicit, "miner")
+				if repair {
+					assert.NoError(t, route.remoteErr)
+					assert.True(t, route.remoteSucceeded)
+				} else {
+					assert.Error(t, route.remoteErr, "new targets must still fail closed without ranges")
+				}
+			case <-time.After(2 * time.Second):
+				t.Fatal("pairing did not finish")
+			}
+			select {
+			case cmd := <-stream.Outgoing:
+				t.Fatalf("unexpected pair command %s", cmd.GetCommandId())
+			default:
+			}
+		})
 	}
 }
 

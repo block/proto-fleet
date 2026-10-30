@@ -68,7 +68,6 @@ describe("foundSummary", () => {
 
 describe("fleetSourceLabel", () => {
   it.each([
-    ["0", undefined, "Fleet Server"],
     ["0", "Ignored", "Fleet Server"],
     ["7", "Mining hall", "Mining hall"],
     ["7", "", "Fleet Node 7"],

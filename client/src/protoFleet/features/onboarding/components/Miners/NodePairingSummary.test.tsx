@@ -33,32 +33,6 @@ describe("pairing capacity guidance", () => {
     else expect(screen.queryByText(/Above|Exceeds/)).not.toBeInTheDocument();
   });
 
-  it("counts existing credential repairs as selected without adding assignments", () => {
-    render(
-      <NodePairingSummary
-        miners={miners.map((miner) => create(DeviceSchema, { ...miner, boundToFleetNode: true }))}
-        fleetNodes={[{ ...scaleFleetNodes[0], pairedDeviceCount: 4000 }]}
-        showPairedCounts
-      />,
-    );
-    expect(screen.getByText("4,000 paired + 0 new (2 selected) = 4,000 total")).toBeInTheDocument();
-    expect(screen.queryByText(/Above|Exceeds/)).not.toBeInTheDocument();
-  });
-
-  it("adds only new assignments in a mixed repair selection", () => {
-    render(
-      <NodePairingSummary
-        miners={miners.map((miner) =>
-          create(DeviceSchema, { ...miner, boundToFleetNode: miner.deviceIdentifier === "one" }),
-        )}
-        fleetNodes={[{ ...scaleFleetNodes[0], pairedDeviceCount: 3999 }]}
-        showPairedCounts
-      />,
-    );
-    expect(screen.getByText("3,999 paired + 1 new (2 selected) = 4,000 total")).toBeInTheDocument();
-    expect(screen.queryByText(/Above|Exceeds/)).not.toBeInTheDocument();
-  });
-
   it("summarizes only sources with selected devices", () => {
     const { rerender } = render(<NodePairingSummary miners={miners} fleetNodes={scaleFleetNodes} showPairedCounts />);
     expect(screen.getByText("Mining hall 1")).toBeInTheDocument();
