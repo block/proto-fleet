@@ -336,10 +336,13 @@ func TestHAStatusFallbackKeepsCallerDeadline(t *testing.T) {
 			defer d.Close(t.Context())
 			ctx, cancel := context.WithTimeout(t.Context(), 100*time.Millisecond)
 			defer cancel()
+			deadline, _ := ctx.Deadline()
 			started := time.Now()
 			_, err = d.Status(ctx)
 			require.Error(t, err)
-			require.ErrorIs(t, ctx.Err(), context.DeadlineExceeded)
+			// The RPC can fail at the deadline before the context's own timer
+			// marks ctx.Err() on a loaded runner, so compare against the clock.
+			require.False(t, time.Now().Before(deadline), "Status returned before the caller's deadline: %v", err)
 			require.Less(t, time.Since(started), time.Second)
 			require.EqualValues(t, 1, a.mapReads.Load())
 			if duringFallback {
