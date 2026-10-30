@@ -234,7 +234,7 @@ func (s *Service) runCommand(ctx context.Context, fleetNodeID int64, source stri
 	if connect.CodeOf(err) == connect.CodeDeadlineExceeded || (errors.Is(ctx.Err(), context.DeadlineExceeded) && cmdCtx.Err() != nil) {
 		return false, warning(discoverylimits.RequestTimeoutWarning)
 	}
-	if fleeterror.IsInvalidArgumentError(err) || fleeterror.IsAuthenticationError(err) || fleeterror.IsForbiddenError(err) {
+	if IsCallerError(err) {
 		return false, err
 	}
 	slog.Warn("fleet node discovery failed", "fleet_node_id", fleetNodeID, "error", err)

@@ -2,6 +2,7 @@ package discoverylimits
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"time"
 )
@@ -12,9 +13,13 @@ const (
 	// MaxUniqueDevicesPerRequest bounds streamed results and their deduplication map.
 	MaxUniqueDevicesPerRequest = 65536
 
-	ReportLimitWarning    = "discovery stopped at the request report limit (262144 reports); results are partial. Narrow the targets and continue discovery manually."
-	ResultLimitWarning    = "discovery stopped at the request result limit (65536 unique devices); results are partial. Narrow the targets and continue discovery manually."
-	RequestTimeoutWarning = "discovery request timed out; results are partial. Narrow the targets and continue discovery manually."
+	partialResultsAdvice  = "results are partial. Narrow the targets and continue discovery manually."
+	RequestTimeoutWarning = "discovery request timed out; " + partialResultsAdvice
+)
+
+var (
+	ReportLimitWarning = fmt.Sprintf("discovery stopped at the request report limit (%d reports); %s", MaxReportsPerRequest, partialResultsAdvice)
+	ResultLimitWarning = fmt.Sprintf("discovery stopped at the request result limit (%d unique devices); %s", MaxUniqueDevicesPerRequest, partialResultsAdvice)
 )
 
 // ReportBudget is shared by every discovery command dispatched for a request.

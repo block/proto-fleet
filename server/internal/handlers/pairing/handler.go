@@ -94,14 +94,8 @@ func (h *Handler) Discover(ctx context.Context, r *connect.Request[pb.DiscoverRe
 		return fleeterror.NewInternalError("unsupported mode")
 	}
 	if err != nil {
-		if fleeterror.IsInvalidArgumentError(err) || fleeterror.IsAuthenticationError(err) || fleeterror.IsForbiddenError(err) {
+		if err := reportServerScanError(streamCtx, fwd, err); err != nil {
 			return err
-		}
-		if streamCtx.Err() == nil {
-			slog.Warn("fleet server discovery failed", "error", err)
-			if sendErr := fwd.forward(discovery.SourceWarning("Fleet Server", err)); sendErr != nil {
-				return sendErr
-			}
 		}
 	}
 
@@ -168,7 +162,7 @@ func (h *Handler) forwardDiscoverySources(
 		nodeIDs, err := h.discovery.DiscoveryNodeIDs(ctx, organizationID)
 		if err != nil {
 			if ctx.Err() == nil {
-				if fleeterror.IsInvalidArgumentError(err) || fleeterror.IsAuthenticationError(err) || fleeterror.IsForbiddenError(err) {
+				if discovery.IsCallerError(err) {
 					fail(err)
 				} else {
 					slog.Warn("skipping fleet node discovery fan-out", "error", err)
@@ -182,13 +176,8 @@ func (h *Handler) forwardDiscoverySources(
 				results, scanErr := h.pairingSvc.DiscoverWithNetworkScan(ctx, nodeReq.GetNetworkScan())
 				if scanErr == nil {
 					forwardServer(results)
-				} else if fleeterror.IsInvalidArgumentError(scanErr) || fleeterror.IsAuthenticationError(scanErr) || fleeterror.IsForbiddenError(scanErr) {
-					fail(scanErr)
-				} else if ctx.Err() == nil {
-					slog.Warn("fleet server discovery failed", "error", scanErr)
-					if sendErr := fwd.forward(discovery.SourceWarning("Fleet Server", scanErr)); sendErr != nil {
-						fail(sendErr)
-					}
+				} else if err := reportServerScanError(ctx, fwd, scanErr); err != nil {
+					fail(err)
 				}
 			}
 			for _, nodeID := range nodeIDs {
@@ -222,6 +211,19 @@ func (h *Handler) forwardDiscoverySources(
 
 	wg.Wait()
 	return sourceErr
+}
+
+// reportServerScanError returns caller errors and forwards other Fleet Server
+// scan failures as a warning unless the request has ended.
+func reportServerScanError(ctx context.Context, fwd *dedupForwarder, err error) error {
+	if discovery.IsCallerError(err) {
+		return err
+	}
+	if ctx.Err() != nil {
+		return nil
+	}
+	slog.Warn("fleet server discovery failed", "error", err)
+	return fwd.forward(discovery.SourceWarning("Fleet Server", err))
 }
 
 // fleetNodeDiscoveryRequest returns requests supported by Fleet Nodes. The

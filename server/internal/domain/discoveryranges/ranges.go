@@ -90,6 +90,15 @@ func parseRange(value string) (Range, error) {
 	return r, validateRange(r)
 }
 
+// FromBounds returns the scope of one inclusive interval, validated like Parse.
+func FromBounds(first, last netip.Addr) (Scope, error) {
+	r := Range{Start: first, End: last}
+	if err := validateRange(r); err != nil {
+		return Scope{}, fmt.Errorf("discovery range %s-%s: %w", first, last, err)
+	}
+	return Scope{ranges: []Range{r}}, nil
+}
+
 func validateRange(r Range) error {
 	if !r.Start.Is4() || !r.End.Is4() {
 		return fmt.Errorf("only IPv4 addresses are supported")

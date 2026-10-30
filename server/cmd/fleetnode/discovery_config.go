@@ -17,19 +17,27 @@ import (
 )
 
 func (r *RunCmd) effectiveDiscoveryConfig() (*pb.DiscoveryConfig, error) {
+	scope, err := r.effectiveDiscoveryScope()
+	if err != nil {
+		return nil, err
+	}
+	return &pb.DiscoveryConfig{Ranges: scope.Strings()}, nil
+}
+
+func (r *RunCmd) effectiveDiscoveryScope() (discoveryranges.Scope, error) {
+	r.stateMu.Lock()
 	ranges := r.DiscoveryRanges
 	if ranges == nil {
 		ranges, _ = r.legacyDiscoveryRanges()
 	}
 	scope, err := discoveryranges.Parse(ranges)
 	if err != nil {
-		return nil, err
+		return discoveryranges.Scope{}, err
 	}
-	normalized := scope.Strings()
-	if len(normalized) > discoverylimits.MaxDiscoveryRanges {
-		return nil, fmt.Errorf("at most %d discovery ranges are supported", discoverylimits.MaxDiscoveryRanges)
+	if len(scope.Ranges()) > discoverylimits.MaxDiscoveryRanges {
+		return discoveryranges.Scope{}, fmt.Errorf("at most %d discovery ranges are supported", discoverylimits.MaxDiscoveryRanges)
 	}
-	return &pb.DiscoveryConfig{Ranges: normalized}, nil
+	return scope, nil
 }
 
 // legacyDiscoveryRanges' error is only logged: an unusable legacy override must
@@ -61,11 +69,11 @@ func (r *RunCmd) installDiscoveryConfig(ranges []string) error {
 	}
 	r.saveMu.Lock()
 	defer r.saveMu.Unlock()
-	current, err := r.effectiveDiscoveryConfig()
+	current, err := r.effectiveDiscoveryScope()
 	if err != nil {
 		return err
 	}
-	if (r.DiscoveryRanges != nil || len(current.GetRanges()) > 0) && !slices.Equal(current.GetRanges(), scope.Strings()) {
+	if (r.DiscoveryRanges != nil || !current.Empty()) && !slices.Equal(current.Ranges(), scope.Ranges()) {
 		return errors.New(fleetnodecontrol.StandbyDiscoveryConflictMessage)
 	}
 	r.stateMu.Lock()
@@ -86,11 +94,7 @@ func (r *RunCmd) installDiscoveryConfig(ranges []string) error {
 }
 
 func (r *RunCmd) scopedDiscoveryTargets(targets iter.Seq[netip.Addr]) (iter.Seq[netip.Addr], error) {
-	config, err := r.effectiveDiscoveryConfig()
-	if err != nil {
-		return nil, cmdErr(pb.AckCode_ACK_CODE_BAD_REQUEST, "%s", err)
-	}
-	scope, err := discoveryranges.Parse(config.GetRanges())
+	scope, err := r.effectiveDiscoveryScope()
 	if err != nil {
 		return nil, cmdErr(pb.AckCode_ACK_CODE_BAD_REQUEST, "%s", err)
 	}

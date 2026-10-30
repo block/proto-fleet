@@ -44,10 +44,11 @@ func partitionRequests(req *pairingpb.DiscoverRequest, assigned discoveryranges.
 		}
 	case *pairingpb.DiscoverRequest_IpRange:
 		ports = m.IpRange.GetPorts()
-		start, _ := parseScopeAddr(m.IpRange.GetStartIp())
-		end, _ := parseScopeAddr(m.IpRange.GetEndIp())
-		var err error
-		requested, err = discoveryranges.Parse([]string{start.String() + "-" + end.String()})
+		target, err := netscan.Range(m.IpRange.GetStartIp(), m.IpRange.GetEndIp())
+		if err != nil {
+			return nil, fleeterror.NewInvalidArgumentError(err.Error())
+		}
+		requested, err = discoveryranges.FromBounds(target.Bounds())
 		if err != nil {
 			return nil, fleeterror.NewInvalidArgumentError(err.Error())
 		}
@@ -65,33 +66,7 @@ func partitionRequests(req *pairingpb.DiscoverRequest, assigned discoveryranges.
 			hostnames = append(hostnames, m.NetworkScan.GetTarget())
 			break
 		}
-		// CIDR bounds come from the range parser; do not enumerate a broad
-		// manual request before intersecting it with the node's configuration.
-		if prefix, err := netip.ParsePrefix(m.NetworkScan.GetTarget()); err == nil {
-			requested, err = discoveryranges.Parse([]string{m.NetworkScan.GetTarget()})
-			if err != nil {
-				return nil, fleeterror.NewInvalidArgumentError(err.Error())
-			}
-			if prefix.Bits() <= 30 {
-				interval := requested.Ranges()[0]
-				requested, err = discoveryranges.Parse([]string{interval.Start.Next().String() + "-" + interval.End.Prev().String()})
-				if err != nil {
-					return nil, fleeterror.NewInvalidArgumentError(err.Error())
-				}
-			}
-			break
-		}
-		var first, last netip.Addr
-		for address := range target.Addresses() {
-			if !address.Is4() {
-				return nil, fleeterror.NewInvalidArgumentError("Fleet Node discovery ranges support only IPv4 targets")
-			}
-			if !first.IsValid() {
-				first = address
-			}
-			last = address
-		}
-		requested, err = discoveryranges.Parse([]string{first.String() + "-" + last.String()})
+		requested, err = discoveryranges.FromBounds(target.Bounds())
 		if err != nil {
 			return nil, fleeterror.NewInvalidArgumentError(err.Error())
 		}
