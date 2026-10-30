@@ -194,6 +194,7 @@ the native gRPC group service.
 | `CT1_SLOTS_PER_MODULE`   | Hashboard slots per module                                                                                                                     | `3`               |
 | `CT1_ASICS_PER_BOARD`    | ASICs reported per board                                                                                                                       | `312`             |
 | `CT1_DEMO_MODULE_STATES` | Set to `true` for mixed failures in tank 2, a single-board fault in tank 3, and sleeping/offline modules in tank 4 (tanks 1, 5, and 6 healthy) | `true`            |
+| `CT1_DEMO_ALL_BOARD_FAULTS` | Report every current MDK fault cause on every board to exercise telemetry payload limits; use with `CT1_DEMO_MODULE_STATES=false` | `false` |
 | `CT1_UNLOCATED_BOARDS` | Number of existing boards to report under tank/module zero, or `all` for entirely unlocated inventory | `0` |
 | `CT1_SEED`               | Positive integer controlling deterministic variation                                                                                           | `1`               |
 

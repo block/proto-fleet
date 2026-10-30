@@ -36,7 +36,9 @@ var telemetryCommandTimeout = 4 * time.Second
 // return their own error before the supervisor abandons context-ignoring calls.
 var telemetrySupervisorGrace = 100 * time.Millisecond
 
-const maxTelemetryDeviceMetricsJSONBytes = 256 * 1024
+// CT1 snapshots include the full container topology and board observations.
+// Reserve 64 KiB for the result envelope inside the 8 MiB ControlAck payload.
+const maxTelemetryDeviceMetricsJSONBytes = maxAckPayloadBytes - 64*1024
 const maxTelemetryFirmwareVersionBytes = 255
 
 type telemetryFetcher interface {

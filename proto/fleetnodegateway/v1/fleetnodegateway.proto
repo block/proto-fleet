@@ -645,7 +645,7 @@ message ControlAck {
     string error_message = 3 [(buf.validate.field).string.max_len = 4096];
     AckCode code         = 4;
     // Optional typed result payload for command kinds that return data.
-    bytes payload        = 5 [(buf.validate.field).bytes.max_len = 1048576];
+    bytes payload        = 5 [(buf.validate.field).bytes.max_len = 8388608];
 }
 
 // AckCode is the structured outcome class for a ControlCommand. error_message

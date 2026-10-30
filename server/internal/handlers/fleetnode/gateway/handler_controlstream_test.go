@@ -202,6 +202,47 @@ func TestControlStream_DropsInvalidAck(t *testing.T) {
 	}
 }
 
+func TestControlStream_AckPayloadLimit(t *testing.T) {
+	registry := control.NewRegistry()
+	h := &controlHarness{
+		handler:     gateway.NewHandler(nil, nil, nil, registry, nil),
+		registry:    registry,
+		fleetNodeID: 42,
+	}
+	client := startControlServer(t, h)
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	defer cancel()
+	stream := client.ControlStream(ctx)
+	t.Cleanup(func() { _ = stream.CloseRequest(); _ = stream.CloseResponse() })
+	require.NoError(t, stream.Send(&pb.ControlStreamRequest{Kind: &pb.ControlStreamRequest_Hello{Hello: &pb.ControlHello{
+		MaxCommandProtocolVersion: pb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1,
+	}}}))
+	first, err := stream.Receive()
+	require.NoError(t, err)
+	require.NotNil(t, first.GetAccepted())
+	session := waitForSend(t, h.registry, h.fleetNodeID, "large-telemetry", []byte("command"))
+	defer session.Close()
+	command, err := stream.Receive()
+	require.NoError(t, err)
+	require.Equal(t, "large-telemetry", command.GetCommand().GetCommandId())
+	const limit = 8 * 1024 * 1024
+	payload := []byte(strings.Repeat("x", limit+1))
+	// The gateway must discard an oversized ACK and continue accepting a full
+	// 8 MiB ACK over native gRPC. This checks the receiver, beyond local encoding.
+	for _, size := range []int{limit + 1, limit} {
+		require.NoError(t, stream.Send(&pb.ControlStreamRequest{Kind: &pb.ControlStreamRequest_Ack{Ack: &pb.ControlAck{
+			CommandId: "large-telemetry", Succeeded: true, Code: pb.AckCode_ACK_CODE_OK, Payload: payload[:size],
+		}}}))
+	}
+	select {
+	case event := <-session.Events():
+		require.NotNil(t, event.Ack)
+		require.Equal(t, payload[:limit], event.Ack.GetPayload())
+	case <-ctx.Done():
+		t.Fatal("gateway did not accept the 8 MiB ACK")
+	}
+}
+
 func TestControlStream_SecondStreamEvictsFirst(t *testing.T) {
 	// Arrange
 	h := newControlHarness(t)

@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"buf.build/go/protovalidate"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
@@ -365,6 +366,42 @@ func TestTelemetryResultFromV2CarriesComponentMetricsPayload(t *testing.T) {
 	require.Len(t, decoded.HashBoards, 1)
 	require.Len(t, decoded.HashBoards[0].ASICs, 1)
 	assert.Equal(t, 80.0, decoded.HashBoards[0].ASICs[0].TempC.Value)
+}
+
+func TestTelemetryDeviceMetricsPayloadLimit(t *testing.T) {
+	const limit = 8*1024*1024 - 64*1024
+	for _, size := range []int{limit, limit + 1} {
+		t.Run(fmt.Sprint(size), func(t *testing.T) {
+			reason := ""
+			metrics := modelsV2.DeviceMetrics{Timestamp: time.Now().UTC(), HealthReason: &reason, Container: &sdk.ContainerSnapshot{}}
+			emptyJSON, err := json.Marshal(metrics)
+			require.NoError(t, err)
+			reason = strings.Repeat("x", size-len(emptyJSON))
+			metricsJSON, err := json.Marshal(metrics)
+			require.NoError(t, err)
+			require.Len(t, metricsJSON, size)
+			result, err := telemetryResultFromV2("node-device", metrics, telemetrypb.DeviceStatus_DEVICE_STATUS_ONLINE)
+			if size > limit {
+				require.ErrorContains(t, err, "device metrics payload is")
+			} else {
+				require.NoError(t, err)
+				require.NoError(t, protovalidate.Validate(result))
+				require.LessOrEqual(t, proto.Size(result), maxAckPayloadBytes)
+			}
+			// Exercise the receiver's generated validation independently of the encoder.
+			wireResult := &telemetrypb.FleetNodeTelemetryResult{
+				DeviceIdentifier: strings.Repeat("n", 255), Timestamp: timestamppb.New(metrics.Timestamp),
+				FirmwareVersion: strings.Repeat("v", 255), HealthReason: strings.Repeat("h", 4096),
+				ErrorMessage: strings.Repeat("e", 4096), DeviceMetricsJson: metricsJSON,
+			}
+			if size > limit {
+				require.Error(t, protovalidate.Validate(wireResult))
+			} else {
+				require.NoError(t, protovalidate.Validate(wireResult))
+				require.LessOrEqual(t, proto.Size(wireResult), maxAckPayloadBytes)
+			}
+		})
+	}
 }
 
 func TestPluginTelemetryFetcherAcquireTelemetrySlotRejectsDuplicate(t *testing.T) {
