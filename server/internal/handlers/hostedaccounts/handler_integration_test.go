@@ -1,6 +1,7 @@
 package hostedaccounts_test
 
 import (
+	"context"
 	"database/sql"
 	"encoding/base64"
 	"fmt"
@@ -11,6 +12,9 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/block/proto-fleet/server/internal/domain/poolapplications"
+	sdk "github.com/block/proto-fleet/server/sdk/v1"
 
 	"github.com/block/proto-fleet/server/generated/grpc/poolconfigurations/v1/poolconfigurationsv1connect"
 	"github.com/block/proto-fleet/server/internal/domain/poolconfigurations"
@@ -89,7 +93,7 @@ func newRPCFixture(t *testing.T) rpcFixture {
 		validate.NewInterceptor(),
 	)
 	mux := http.NewServeMux()
-	mux.Handle(poolconfigurationsv1connect.NewPoolConfigurationServiceHandler(poolhandler.NewHandler(poolconfigurations.NewService(db, poolconfigurations.NewRepository(poolSecrets), pools)), options))
+	mux.Handle(poolconfigurationsv1connect.NewPoolConfigurationServiceHandler(poolhandler.NewHandler(poolconfigurations.NewService(db, poolconfigurations.NewRepository(poolSecrets), pools, poolapplications.NewReviewer(pools, rpcPoolCapabilities{}))), options))
 	invitations := domain.NewInvitationService(accounts, sessions)
 	mux.Handle(hostedv1connect.NewHostedAccountServiceHandler(hostedhandler.NewHandler(accounts, invitations, accountKeys, pools, users, permissions), options))
 	mux.Handle(invitationv1connect.NewInvitationServiceHandler(invitationhandler.NewHandler(invitations, domain.NewTeamInvitationService(accounts, sessions)), options))
@@ -434,4 +438,10 @@ func TestHostedRPCSiteOnlyOperatorKeepsFleetAccessWithoutPrivateAccounts(t *test
 	require.Empty(t, listed.Msg.Accounts, "Fleet entry does not create hosted-account membership")
 	_, err = f.client.GetAccount(t.Context(), rpcRequest(&pb.GetAccountRequest{AccountId: customer.AccountID}, cookie, customer.AccountID))
 	require.Equal(t, connect.CodePermissionDenied, connect.CodeOf(err), "workspace entry does not grant private account access")
+}
+
+type rpcPoolCapabilities struct{}
+
+func (rpcPoolCapabilities) GetRawCapabilitiesForDevice(context.Context, string, string, string) sdk.Capabilities {
+	return sdk.Capabilities{sdk.CapabilityPoolConfig: true, sdk.CapabilityPoolPriority: true}
 }

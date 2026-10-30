@@ -2412,6 +2412,8 @@ type PoolConfigurationOperationTarget struct {
 	Attempts          int32
 	ResultCode        string
 	UpdatedAt         time.Time
+	ReviewedBinding   string
+	PhysicalAttemptID uuid.NullUUID
 }
 
 type PoolConfigurationReview struct {

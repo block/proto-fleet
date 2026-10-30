@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"slices"
 
@@ -25,6 +26,8 @@ type AssignmentTarget struct {
 }
 
 type AssignmentChange struct {
+	// ReviewedBinding is private, credential-free dispatch context.
+	ReviewedBinding string
 	Target          AssignmentTarget
 	ExpectedVersion int64
 }
@@ -33,6 +36,7 @@ type OperationTarget struct {
 	Kind                  string
 	ID, AssignmentVersion int64
 	State, ResultCode     string
+	Label                 string
 }
 
 type Operation struct {
@@ -89,7 +93,7 @@ func (r *Repository) Assign(ctx context.Context, q sqlc.Querier, scope Scope, ac
 		} else if err != nil {
 			return Operation{}, storageError(err)
 		} else {
-			if previous.AccountID != scope.account() {
+			if !previous.RetiredAt.Valid && previous.AccountID != scope.account() {
 				return Operation{}, fleeterror.NewForbiddenError("equipment belongs to another configuration owner")
 			}
 			if previous.Version != change.ExpectedVersion || previous.DeviceID != target.DeviceID {
@@ -111,7 +115,7 @@ func (r *Repository) Assign(ctx context.Context, q sqlc.Querier, scope Scope, ac
 		if err != nil {
 			return Operation{}, storageError(err)
 		}
-		row, err := q.CreatePoolConfigurationOperationTarget(ctx, sqlc.CreatePoolConfigurationOperationTargetParams{OrganizationID: scope.OrganizationID, OperationID: result.ID, TargetKind: target.Kind, TargetID: target.ID, AssignmentVersion: assignment.Version})
+		row, err := q.CreatePoolConfigurationOperationTarget(ctx, sqlc.CreatePoolConfigurationOperationTargetParams{OrganizationID: scope.OrganizationID, OperationID: result.ID, TargetKind: target.Kind, TargetID: target.ID, AssignmentVersion: assignment.Version, ReviewedBinding: change.ReviewedBinding})
 		if err != nil {
 			return Operation{}, storageError(err)
 		}
@@ -142,5 +146,8 @@ func (r *Repository) RetireAssignment(ctx context.Context, q sqlc.Querier, scope
 }
 
 func publicOperationTarget(row sqlc.PoolConfigurationOperationTarget) OperationTarget {
-	return OperationTarget{Kind: row.TargetKind, ID: row.TargetID, AssignmentVersion: row.AssignmentVersion, State: row.State, ResultCode: row.ResultCode}
+	var display struct{ Label string }
+	// Only the deliberately public label leaves the private dispatch binding.
+	_ = json.Unmarshal([]byte(row.ReviewedBinding), &display)
+	return OperationTarget{Kind: row.TargetKind, ID: row.TargetID, AssignmentVersion: row.AssignmentVersion, State: row.State, ResultCode: row.ResultCode, Label: display.Label}
 }

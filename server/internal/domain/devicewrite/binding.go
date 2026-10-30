@@ -20,6 +20,28 @@ func (s *Service) WithBindingTransaction(ctx context.Context, call func(context.
 	})
 }
 
+// RecheckIdentityAdmission permits a single-device dispatch to reuse its
+// committed identity admission instead of retaining shared identity buckets
+// during hardware I/O. Only the exact binding transaction and mutation scope
+// qualify. Callers must retain the device's binding and fence locks and recheck
+// after acquiring them, since identity or ownership can change while waiting.
+// Ordinary reviews, batches, observations and deletion permits do not qualify.
+func RecheckIdentityAdmission(ctx context.Context, q sqlc.Querier, organizationID int64, deviceIDs []int64) (bool, error) {
+	attempt, ok := ctx.Value(attemptContextKey{}).(*Attempt)
+	if !ok || len(deviceIDs) != 1 || attempt.deviceID != deviceIDs[0] || attempt.organizationID != organizationID ||
+		attempt.observation || attempt.curtailmentCommand != "" || attempt.deletionBinding != "" {
+		return false, nil
+	}
+	binding, ok := ctx.Value(bindingQueriesContextKey{}).(bindingQueries)
+	if !ok || binding.service.conn != attempt.service.conn || binding.queries != q {
+		return false, nil
+	}
+	if err := attempt.Recheck(ctx); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
 // WithBindingDispatch locks every stored component of a physical route until
 // the adapter returns. Admission has already committed on a separate connection.
 // This transaction must never be retried or exposed as an ambient transaction:

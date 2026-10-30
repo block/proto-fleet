@@ -3,6 +3,9 @@ package hostedaccounts_test
 import (
 	"testing"
 
+	"github.com/block/proto-fleet/server/generated/sqlc"
+	"github.com/block/proto-fleet/server/internal/domain/authz"
+
 	"connectrpc.com/connect"
 	hostedpb "github.com/block/proto-fleet/server/generated/grpc/hosted/v1"
 	pb "github.com/block/proto-fleet/server/generated/grpc/poolconfigurations/v1"
@@ -45,6 +48,15 @@ func TestSharedPoolRPCScopesReviewsAndPreservesCredentials(t *testing.T) {
 			require.NoError(t, err)
 			require.Equal(t, c.RevisionId, unchanged.Msg.Configuration.RevisionId, "review does not save")
 			confirmation := &pb.ConfirmReviewRequest{AccountId: accountID, ReviewId: review.Msg.ReviewId}
+			for _, password := range []string{"incorrect", rpcPassword} {
+				confirmation.Password = password
+				_, err = f.configurations.ConfirmReview(t.Context(), rpcRequest(confirmation, f.cookie, accountID))
+				require.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err), "settings-only saves reject any supplied confirmation password")
+			}
+			unchanged, err = f.configurations.GetConfiguration(t.Context(), rpcRequest(&pb.GetConfigurationRequest{AccountId: accountID, ConfigurationId: c.ConfigurationId}, f.cookie, accountID))
+			require.NoError(t, err)
+			require.Equal(t, c.Version, unchanged.Msg.Configuration.Version, "rejected confirmations must not save")
+			confirmation.Password = ""
 			saved, err := f.configurations.ConfirmReview(t.Context(), rpcRequest(confirmation, f.cookie, accountID))
 			require.NoError(t, err)
 			require.NotEqual(t, c.RevisionId, saved.Msg.Configuration.RevisionId)
@@ -54,6 +66,9 @@ func TestSharedPoolRPCScopesReviewsAndPreservesCredentials(t *testing.T) {
 			again, err := f.configurations.ConfirmReview(t.Context(), rpcRequest(confirmation, f.cookie, accountID))
 			require.NoError(t, err)
 			require.Equal(t, saved.Msg.Configuration.RevisionId, again.Msg.Configuration.RevisionId)
+			confirmation.Password = rpcPassword
+			_, err = f.configurations.ConfirmReview(t.Context(), rpcRequest(confirmation, f.cookie, accountID))
+			require.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err), "settings-only replays also reject confirmation passwords")
 			var events int
 			require.NoError(t, f.db.QueryRowContext(t.Context(), `SELECT count(*) FROM activity_log WHERE organization_id=$1 AND event_type='update_pool_configuration' AND metadata->>'configuration_id'=$2`, f.org, c.ConfigurationId).Scan(&events))
 			require.Equal(t, 1, events, "confirmation replay does not duplicate audit")
@@ -167,4 +182,80 @@ func TestSharedPoolRPCRenameRetainsAssignmentCount(t *testing.T) {
 	input.Pools[0].SlotId = "not-a-slot-identity"
 	_, err = f.configurations.ReviewEdit(t.Context(), rpcRequest(&pb.ReviewEditRequest{ConfigurationId: c.ConfigurationId, ExpectedVersion: saved.Msg.Configuration.Version, Configuration: input}, f.cookie, ""))
 	require.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
+}
+
+func TestSharedPoolRPCAppliesWithoutManagePermissionAndPersistsResults(t *testing.T) {
+	for _, hosted := range []bool{false, true} {
+		name := "operator"
+		if hosted {
+			name = "hosted"
+		}
+		t.Run(name, func(t *testing.T) {
+			f := newRPCFixture(t)
+			accountID := ""
+			var account domain.Account
+			if hosted {
+				account = f.account(t, "Customer", f.host, domain.DefaultCapabilities)
+				accountID = account.AccountID
+			}
+			input := &pb.ConfigurationInput{Name: "Production", Pools: []*pb.PoolInput{{Url: "stratum+tcp://pool.example", Username: "payout"}}}
+			created, err := f.configurations.CreateConfiguration(t.Context(), rpcRequest(&pb.CreateConfigurationRequest{AccountId: accountID, Configuration: input}, f.cookie, accountID))
+			require.NoError(t, err)
+			config := created.Msg.Configuration
+			var discovery, device int64
+			identifier := uuid.NewString()
+			require.NoError(t, f.db.QueryRowContext(t.Context(), `INSERT INTO discovered_device(org_id,device_identifier,ip_address,port,url_scheme,driver_name,device_class) VALUES($1,$2,'192.0.2.1','80','http','proto',1) RETURNING id`, f.org, identifier).Scan(&discovery))
+			require.NoError(t, f.db.QueryRowContext(t.Context(), `INSERT INTO device(org_id,device_identifier,mac_address,discovered_device_id) VALUES($1,$2,'02:00:00:00:00:01',$3) RETURNING id`, f.org, identifier, discovery).Scan(&device))
+			if hosted {
+				_, err = f.db.ExecContext(t.Context(), `INSERT INTO hosted_account_asset(organization_id,kind,asset_id,device_id,miner_id,client_id) VALUES($1,5,$2,$2,$2,$3)`, f.org, device, account.ID)
+				require.NoError(t, err)
+				require.NoError(t, f.accounts.ConfigureChild(t.Context(), f.host, f.org, accountID, domain.DefaultCapabilities&^domain.ManagePools, false))
+			} else {
+				role, err := authz.NewService(f.db, nil).CreateCustomRole(t.Context(), f.host, f.org, "Apply pools", "", []string{authz.PermPoolRead, authz.PermSiteRead, authz.PermFleetRead, authz.PermMinerRead, authz.PermMinerUpdatePools})
+				require.NoError(t, err)
+				_, err = f.db.ExecContext(t.Context(), `DELETE FROM user_organization_role WHERE user_id=$1 AND organization_id=$2`, f.host, f.org)
+				require.NoError(t, err)
+				_, err = sqlc.New(f.db).AssignRole(t.Context(), sqlc.AssignRoleParams{UserID: f.host, OrganizationID: f.org, RoleID: role.ID, ScopeType: "org"})
+				require.NoError(t, err)
+			}
+			_, err = f.configurations.ReviewEdit(t.Context(), rpcRequest(&pb.ReviewEditRequest{AccountId: accountID, ConfigurationId: config.ConfigurationId, ExpectedVersion: config.Version, Configuration: input}, f.cookie, accountID))
+			require.Equal(t, connect.CodePermissionDenied, connect.CodeOf(err), "editing still requires Manage")
+			review, err := f.configurations.ReviewAssignment(t.Context(), rpcRequest(&pb.ReviewAssignmentRequest{AccountId: accountID, ConfigurationId: config.ConfigurationId, ExpectedVersion: config.Version, DeviceIdentifiers: []string{identifier}}, f.cookie, accountID))
+			require.NoError(t, err)
+			require.EqualValues(t, 1, review.Msg.AffectedMiners)
+			_, err = f.configurations.ConfirmReview(t.Context(), rpcRequest(&pb.ConfirmReviewRequest{AccountId: accountID, ReviewId: review.Msg.ReviewId}, f.cookie, accountID))
+			require.Error(t, err, "hardware changes require a password confirmation")
+			saved, err := f.configurations.ConfirmReview(t.Context(), rpcRequest(&pb.ConfirmReviewRequest{AccountId: accountID, ReviewId: review.Msg.ReviewId, Password: rpcPassword}, f.cookie, accountID))
+			require.NoError(t, err)
+			require.NotEmpty(t, saved.Msg.OperationId)
+			result, err := f.configurations.GetOperation(t.Context(), rpcRequest(&pb.GetOperationRequest{AccountId: accountID, OperationId: saved.Msg.OperationId}, f.cookie, accountID))
+			require.NoError(t, err)
+			require.Len(t, result.Msg.Targets, 1)
+			require.Equal(t, "pending", result.Msg.Targets[0].State, "saving does not claim equipment application")
+			require.NotContains(t, string(mustProtoJSON(t, result.Msg)), rpcPassword)
+			require.NotEmpty(t, result.Msg.Targets[0].Label)
+			history, err := f.configurations.ListOperations(t.Context(), rpcRequest(&pb.ListOperationsRequest{AccountId: accountID, ConfigurationId: config.ConfigurationId}, f.cookie, accountID))
+			require.NoError(t, err)
+			require.Len(t, history.Msg.Operations, 1)
+			require.Equal(t, saved.Msg.OperationId, history.Msg.Operations[0].OperationId)
+			require.EqualValues(t, 1, history.Msg.Operations[0].PendingCount)
+			_, err = f.configurations.ReviewRetry(t.Context(), rpcRequest(&pb.ReviewRetryRequest{AccountId: accountID, OperationId: saved.Msg.OperationId, Targets: []*pb.RetryTarget{{Kind: "device", TargetId: device}}}, f.cookie, accountID))
+			require.Equal(t, connect.CodeFailedPrecondition, connect.CodeOf(err), "pending work cannot be duplicated by retry")
+			current, err := f.configurations.GetConfiguration(t.Context(), rpcRequest(&pb.GetConfigurationRequest{AccountId: accountID, ConfigurationId: config.ConfigurationId}, f.cookie, accountID))
+			require.NoError(t, err)
+			require.EqualValues(t, 1, current.Msg.Configuration.AssignedCount)
+			t.Run("assignment review retains assigned count", func(t *testing.T) {
+				review, err := f.configurations.ReviewAssignment(t.Context(), rpcRequest(&pb.ReviewAssignmentRequest{AccountId: accountID, ConfigurationId: config.ConfigurationId, ExpectedVersion: config.Version, DeviceIdentifiers: []string{identifier}}, f.cookie, accountID))
+				require.NoError(t, err)
+				require.Equal(t, current.Msg.Configuration.AssignedCount, review.Msg.Configuration.AssignedCount)
+			})
+			t.Run("retry review retains assigned count", func(t *testing.T) {
+				_, err := f.db.ExecContext(t.Context(), `UPDATE pool_configuration_operation_target SET state='failed',result_code='unavailable',attempts=1 WHERE operation_id=$1`, saved.Msg.OperationId)
+				require.NoError(t, err)
+				review, err := f.configurations.ReviewRetry(t.Context(), rpcRequest(&pb.ReviewRetryRequest{AccountId: accountID, OperationId: saved.Msg.OperationId, Targets: []*pb.RetryTarget{{Kind: "device", TargetId: device}}}, f.cookie, accountID))
+				require.NoError(t, err)
+				require.Equal(t, current.Msg.Configuration.AssignedCount, review.Msg.Configuration.AssignedCount)
+			})
+		})
+	}
 }

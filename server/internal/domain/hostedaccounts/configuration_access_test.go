@@ -16,7 +16,7 @@ func TestSharedConfigurationServiceSeparatesOperatorAndSelectedAccountLibraries(
 	f := setup(t)
 	account := f.client(t, "Customer", f.user, hostedaccounts.AllCapabilities)
 	legacy, _, _, cipher, customerCtx := poolFixture(t, f)
-	service := poolconfigurations.NewService(f.db, poolconfigurations.NewRepository(cipher), legacy)
+	service := poolconfigurations.NewService(f.db, poolconfigurations.NewRepository(cipher), legacy, nil)
 	customerCtx, err := hostedaccounts.WithRequestAccountID(customerCtx, account.AccountID)
 	require.NoError(t, err)
 	hostCtx := authn.SetInfo(t.Context(), &session.Info{UserID: f.host, OrganizationID: f.org, AuthMethod: session.AuthMethodSession})

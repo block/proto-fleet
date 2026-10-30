@@ -253,7 +253,11 @@ func allowsSelectedAccount(procedure string) bool {
 	// explicit decision before they can be called from a customer workspace.
 	// Invitation redemption precedes selection and is excluded.
 	switch procedure {
-	case poolconfigurationsv1connect.PoolConfigurationServiceCreateConfigurationProcedure,
+	case poolconfigurationsv1connect.PoolConfigurationServiceReviewAssignmentProcedure,
+		poolconfigurationsv1connect.PoolConfigurationServiceGetOperationProcedure,
+		poolconfigurationsv1connect.PoolConfigurationServiceReviewRetryProcedure,
+		poolconfigurationsv1connect.PoolConfigurationServiceListOperationsProcedure,
+		poolconfigurationsv1connect.PoolConfigurationServiceCreateConfigurationProcedure,
 		poolconfigurationsv1connect.PoolConfigurationServiceGetConfigurationProcedure,
 		poolconfigurationsv1connect.PoolConfigurationServiceListConfigurationsProcedure,
 		poolconfigurationsv1connect.PoolConfigurationServiceDuplicateConfigurationProcedure,

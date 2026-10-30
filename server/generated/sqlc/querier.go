@@ -1014,6 +1014,11 @@ type Querier interface {
 	GetPoolConfigurationImport(ctx context.Context, arg GetPoolConfigurationImportParams) (PoolConfigurationImport, error)
 	GetPoolConfigurationOperation(ctx context.Context, arg GetPoolConfigurationOperationParams) (PoolConfigurationOperation, error)
 	GetPoolConfigurationRevision(ctx context.Context, arg GetPoolConfigurationRevisionParams) (PoolConfigurationRevision, error)
+	GetPoolConfigurationRuntime(ctx context.Context, arg GetPoolConfigurationRuntimeParams) (GetPoolConfigurationRuntimeRow, error)
+	GetPoolConfigurationWork(ctx context.Context, arg GetPoolConfigurationWorkParams) (GetPoolConfigurationWorkRow, error)
+	GetPoolEquipmentDevice(ctx context.Context, arg GetPoolEquipmentDeviceParams) (GetPoolEquipmentDeviceRow, error)
+	GetPoolEquipmentInstallationModule(ctx context.Context, arg GetPoolEquipmentInstallationModuleParams) (int64, error)
+	GetPoolEquipmentMinerOwner(ctx context.Context, arg GetPoolEquipmentMinerOwnerParams) (GetPoolEquipmentMinerOwnerRow, error)
 	GetQueueMessagesByBatch(ctx context.Context, commandBatchLogUuid string) ([]GetQueueMessagesByBatchRow, error)
 	// Batch query to get rack label and formatted slot position for multiple devices at once.
 	// Returns at most one rack per device due to partial unique index.
@@ -1184,6 +1189,7 @@ type Querier interface {
 	IsDeviceWriteFenceDrained(ctx context.Context, arg IsDeviceWriteFenceDrainedParams) (bool, error)
 	IsFleetNodeHAStandby(ctx context.Context, arg IsFleetNodeHAStandbyParams) (bool, error)
 	IsRetiredDeviceWriteDrained(ctx context.Context, identityKeys []string) (bool, error)
+	LinkPoolConfigurationAttempt(ctx context.Context, arg LinkPoolConfigurationAttemptParams) (int64, error)
 	// The delivery-path read: only windows covering sqlc.arg('now'), so the expired tail never loads.
 	ListActiveAlertMaintenanceWindows(ctx context.Context, arg ListActiveAlertMaintenanceWindowsParams) ([]AlertMaintenanceWindow, error)
 	// Devices locked in a non-terminal event; excluded from candidates to
@@ -1586,10 +1592,19 @@ type Querier interface {
 	ListOrganizationInvitations(ctx context.Context, arg ListOrganizationInvitationsParams) ([]ListOrganizationInvitationsRow, error)
 	ListOrganizations(ctx context.Context) ([]Organization, error)
 	ListPartsBySite(ctx context.Context, arg ListPartsBySiteParams) ([]ListPartsBySiteRow, error)
+	ListPendingPoolConfigurationWork(ctx context.Context) ([]ListPendingPoolConfigurationWorkRow, error)
 	ListPermissions(ctx context.Context) ([]Permission, error)
 	ListPoolConfigurationAssignments(ctx context.Context, arg ListPoolConfigurationAssignmentsParams) ([]PoolConfigurationAssignment, error)
+	// Assignment identity is retained across retirement and reassignment. Use its
+	// device's current committed site for read authorization, not the old reviewed
+	// snapshot. This read must not take device locks held across hardware I/O;
+	// actor and permission locks are retained by the enclosing read transaction.
+	ListPoolConfigurationOperationSites(ctx context.Context, arg ListPoolConfigurationOperationSitesParams) ([]sql.NullInt64, error)
 	ListPoolConfigurationOperationTargets(ctx context.Context, arg ListPoolConfigurationOperationTargetsParams) ([]PoolConfigurationOperationTarget, error)
+	ListPoolConfigurationOperations(ctx context.Context, arg ListPoolConfigurationOperationsParams) ([]ListPoolConfigurationOperationsRow, error)
 	ListPoolConfigurations(ctx context.Context, arg ListPoolConfigurationsParams) ([]ListPoolConfigurationsRow, error)
+	ListPoolEquipmentIdentities(ctx context.Context, arg ListPoolEquipmentIdentitiesParams) ([]ListPoolEquipmentIdentitiesRow, error)
+	ListPoolEquipmentModuleOwners(ctx context.Context, arg ListPoolEquipmentModuleOwnersParams) ([]ListPoolEquipmentModuleOwnersRow, error)
 	ListPools(ctx context.Context, orgID int64) ([]Pool, error)
 	ListRackTypes(ctx context.Context, orgID int64) ([]ListRackTypesRow, error)
 	// Returns all distinct (building_id, zone) pairs across the org's racks
@@ -1719,6 +1734,9 @@ type Querier interface {
 	// by UUID; obsolete history and missing witnesses do not become candidates.
 	// The engine reloads the evidence under the rollout lock before adoption.
 	ListTerminalFirmwareRolloutsNeedingProvenance(ctx context.Context) ([]FirmwareRollout, error)
+	// The caller holds the device fence through its decision or dispatch. Enqueue
+	// and physical admission use that fence too; no queue-row lock is needed.
+	ListUnfinishedDeviceWriteCommands(ctx context.Context, arg ListUnfinishedDeviceWriteCommandsParams) ([]string, error)
 	ListUnresolvedDeviceWriteAttempts(ctx context.Context, arg ListUnresolvedDeviceWriteAttemptsParams) ([]DeviceWriteAttempt, error)
 	ListUsersForOrganization(ctx context.Context, organizationID int64) ([]ListUsersForOrganizationRow, error)
 	LockActiveHostedAccountUser(ctx context.Context, arg LockActiveHostedAccountUserParams) (User, error)
@@ -1913,6 +1931,8 @@ type Querier interface {
 	// Preserve serialization without blocking foreign-key KEY SHARE admission.
 	LockPoolConfigurationImportOrganization(ctx context.Context, id int64) (int64, error)
 	LockPoolConfigurationReview(ctx context.Context, arg LockPoolConfigurationReviewParams) (LockPoolConfigurationReviewRow, error)
+	// Hardware updates may overlap, while assignment/account mutations wait.
+	LockPoolEquipmentOrganization(ctx context.Context, id int64) (int64, error)
 	LockQueuedDeviceWrite(ctx context.Context, id int64) (LockQueuedDeviceWriteRow, error)
 	// Locks device_set + rack rows FOR UPDATE and returns current placement.
 	// Must run after the site/building locks (canonical lock order).
@@ -2090,6 +2110,11 @@ type Querier interface {
 	RecordFirmwareRolloutAction(ctx context.Context, arg RecordFirmwareRolloutActionParams) error
 	RecordMiningGroupRequest(ctx context.Context, arg RecordMiningGroupRequestParams) error
 	RecordPoolConfigurationImport(ctx context.Context, arg RecordPoolConfigurationImportParams) error
+	// Never redispatch work. Running admissions need explicit offline recovery,
+	// regardless of their age or process owner. A settled attempt proves drain,
+	// not successful settings application. Allow a minute for normal bookkeeping
+	// after completion; this delay is not evidence of physical safety.
+	RecoverSettledPoolConfigurationWork(ctx context.Context) error
 	RecoverTelemetrySeedBatch(ctx context.Context) error
 	// ============================================================================
 	// Error Lifecycle Management
@@ -2208,6 +2233,9 @@ type Querier interface {
 	// Identity rows survive retirement; a returning PSU reuses its original ID.
 	RetireContainerModules(ctx context.Context, arg RetireContainerModulesParams) error
 	RetirePoolConfigurationAssignment(ctx context.Context, arg RetirePoolConfigurationAssignmentParams) (int64, error)
+	// Allocation changes end the previous owner's intent; they never apply a new
+	// owner's settings. Keep assignment generations and immutable operation history.
+	RetireReallocatedPoolAssignments(ctx context.Context, arg RetireReallocatedPoolAssignmentsParams) error
 	RetryPoolConfigurationTarget(ctx context.Context, arg RetryPoolConfigurationTargetParams) (int64, error)
 	RetryRigConfigReconciliation(ctx context.Context, arg RetryRigConfigReconciliationParams) error
 	RevertScheduleToActive(ctx context.Context, id int64) error

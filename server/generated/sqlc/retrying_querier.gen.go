@@ -4724,6 +4724,66 @@ func (q *retryingQuerier) GetPoolConfigurationRevision(ctx context.Context, arg 
 	return result, err
 }
 
+func (q *retryingQuerier) GetPoolConfigurationRuntime(ctx context.Context, arg GetPoolConfigurationRuntimeParams) (GetPoolConfigurationRuntimeRow, error) {
+	var result GetPoolConfigurationRuntimeRow
+	err := q.retrier.RetryQuery(ctx, "GetPoolConfigurationRuntime", func() error {
+		callResult, callErr := q.next.GetPoolConfigurationRuntime(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) GetPoolConfigurationWork(ctx context.Context, arg GetPoolConfigurationWorkParams) (GetPoolConfigurationWorkRow, error) {
+	var result GetPoolConfigurationWorkRow
+	err := q.retrier.RetryQuery(ctx, "GetPoolConfigurationWork", func() error {
+		callResult, callErr := q.next.GetPoolConfigurationWork(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) GetPoolEquipmentDevice(ctx context.Context, arg GetPoolEquipmentDeviceParams) (GetPoolEquipmentDeviceRow, error) {
+	var result GetPoolEquipmentDeviceRow
+	err := q.retrier.RetryQuery(ctx, "GetPoolEquipmentDevice", func() error {
+		callResult, callErr := q.next.GetPoolEquipmentDevice(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) GetPoolEquipmentInstallationModule(ctx context.Context, arg GetPoolEquipmentInstallationModuleParams) (int64, error) {
+	var result int64
+	err := q.retrier.RetryQuery(ctx, "GetPoolEquipmentInstallationModule", func() error {
+		callResult, callErr := q.next.GetPoolEquipmentInstallationModule(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) GetPoolEquipmentMinerOwner(ctx context.Context, arg GetPoolEquipmentMinerOwnerParams) (GetPoolEquipmentMinerOwnerRow, error) {
+	var result GetPoolEquipmentMinerOwnerRow
+	err := q.retrier.RetryQuery(ctx, "GetPoolEquipmentMinerOwner", func() error {
+		callResult, callErr := q.next.GetPoolEquipmentMinerOwner(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) GetQueueMessagesByBatch(ctx context.Context, commandBatchLogUuid string) ([]GetQueueMessagesByBatchRow, error) {
 	var result []GetQueueMessagesByBatchRow
 	err := q.retrier.RetryQuery(ctx, "GetQueueMessagesByBatch", func() error {
@@ -5616,6 +5676,18 @@ func (q *retryingQuerier) IsRetiredDeviceWriteDrained(ctx context.Context, ident
 	var result bool
 	err := q.retrier.RetryQuery(ctx, "IsRetiredDeviceWriteDrained", func() error {
 		callResult, callErr := q.next.IsRetiredDeviceWriteDrained(ctx, identityKeys)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) LinkPoolConfigurationAttempt(ctx context.Context, arg LinkPoolConfigurationAttemptParams) (int64, error) {
+	var result int64
+	err := q.retrier.RetryQuery(ctx, "LinkPoolConfigurationAttempt", func() error {
+		callResult, callErr := q.next.LinkPoolConfigurationAttempt(ctx, arg)
 		if callErr == nil {
 			result = callResult
 		}
@@ -6944,6 +7016,18 @@ func (q *retryingQuerier) ListPartsBySite(ctx context.Context, arg ListPartsBySi
 	return result, err
 }
 
+func (q *retryingQuerier) ListPendingPoolConfigurationWork(ctx context.Context) ([]ListPendingPoolConfigurationWorkRow, error) {
+	var result []ListPendingPoolConfigurationWorkRow
+	err := q.retrier.RetryQuery(ctx, "ListPendingPoolConfigurationWork", func() error {
+		callResult, callErr := q.next.ListPendingPoolConfigurationWork(ctx)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) ListPermissions(ctx context.Context) ([]Permission, error) {
 	var result []Permission
 	err := q.retrier.RetryQuery(ctx, "ListPermissions", func() error {
@@ -6968,6 +7052,18 @@ func (q *retryingQuerier) ListPoolConfigurationAssignments(ctx context.Context, 
 	return result, err
 }
 
+func (q *retryingQuerier) ListPoolConfigurationOperationSites(ctx context.Context, arg ListPoolConfigurationOperationSitesParams) ([]sql.NullInt64, error) {
+	var result []sql.NullInt64
+	err := q.retrier.RetryQuery(ctx, "ListPoolConfigurationOperationSites", func() error {
+		callResult, callErr := q.next.ListPoolConfigurationOperationSites(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) ListPoolConfigurationOperationTargets(ctx context.Context, arg ListPoolConfigurationOperationTargetsParams) ([]PoolConfigurationOperationTarget, error) {
 	var result []PoolConfigurationOperationTarget
 	err := q.retrier.RetryQuery(ctx, "ListPoolConfigurationOperationTargets", func() error {
@@ -6980,10 +7076,46 @@ func (q *retryingQuerier) ListPoolConfigurationOperationTargets(ctx context.Cont
 	return result, err
 }
 
+func (q *retryingQuerier) ListPoolConfigurationOperations(ctx context.Context, arg ListPoolConfigurationOperationsParams) ([]ListPoolConfigurationOperationsRow, error) {
+	var result []ListPoolConfigurationOperationsRow
+	err := q.retrier.RetryQuery(ctx, "ListPoolConfigurationOperations", func() error {
+		callResult, callErr := q.next.ListPoolConfigurationOperations(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) ListPoolConfigurations(ctx context.Context, arg ListPoolConfigurationsParams) ([]ListPoolConfigurationsRow, error) {
 	var result []ListPoolConfigurationsRow
 	err := q.retrier.RetryQuery(ctx, "ListPoolConfigurations", func() error {
 		callResult, callErr := q.next.ListPoolConfigurations(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) ListPoolEquipmentIdentities(ctx context.Context, arg ListPoolEquipmentIdentitiesParams) ([]ListPoolEquipmentIdentitiesRow, error) {
+	var result []ListPoolEquipmentIdentitiesRow
+	err := q.retrier.RetryQuery(ctx, "ListPoolEquipmentIdentities", func() error {
+		callResult, callErr := q.next.ListPoolEquipmentIdentities(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) ListPoolEquipmentModuleOwners(ctx context.Context, arg ListPoolEquipmentModuleOwnersParams) ([]ListPoolEquipmentModuleOwnersRow, error) {
+	var result []ListPoolEquipmentModuleOwnersRow
+	err := q.retrier.RetryQuery(ctx, "ListPoolEquipmentModuleOwners", func() error {
+		callResult, callErr := q.next.ListPoolEquipmentModuleOwners(ctx, arg)
 		if callErr == nil {
 			result = callResult
 		}
@@ -7428,6 +7560,18 @@ func (q *retryingQuerier) ListTerminalFirmwareRolloutsNeedingProvenance(ctx cont
 	var result []FirmwareRollout
 	err := q.retrier.RetryQuery(ctx, "ListTerminalFirmwareRolloutsNeedingProvenance", func() error {
 		callResult, callErr := q.next.ListTerminalFirmwareRolloutsNeedingProvenance(ctx)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) ListUnfinishedDeviceWriteCommands(ctx context.Context, arg ListUnfinishedDeviceWriteCommandsParams) ([]string, error) {
+	var result []string
+	err := q.retrier.RetryQuery(ctx, "ListUnfinishedDeviceWriteCommands", func() error {
+		callResult, callErr := q.next.ListUnfinishedDeviceWriteCommands(ctx, arg)
 		if callErr == nil {
 			result = callResult
 		}
@@ -8228,6 +8372,18 @@ func (q *retryingQuerier) LockPoolConfigurationReview(ctx context.Context, arg L
 	return result, err
 }
 
+func (q *retryingQuerier) LockPoolEquipmentOrganization(ctx context.Context, id int64) (int64, error) {
+	var result int64
+	err := q.retrier.RetryQuery(ctx, "LockPoolEquipmentOrganization", func() error {
+		callResult, callErr := q.next.LockPoolEquipmentOrganization(ctx, id)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) LockQueuedDeviceWrite(ctx context.Context, id int64) (LockQueuedDeviceWriteRow, error) {
 	var result LockQueuedDeviceWriteRow
 	err := q.retrier.RetryQuery(ctx, "LockQueuedDeviceWrite", func() error {
@@ -8756,6 +8912,12 @@ func (q *retryingQuerier) RecordPoolConfigurationImport(ctx context.Context, arg
 	})
 }
 
+func (q *retryingQuerier) RecoverSettledPoolConfigurationWork(ctx context.Context) error {
+	return q.retrier.RetryQuery(ctx, "RecoverSettledPoolConfigurationWork", func() error {
+		return q.next.RecoverSettledPoolConfigurationWork(ctx)
+	})
+}
+
 func (q *retryingQuerier) RecoverTelemetrySeedBatch(ctx context.Context) error {
 	return q.retrier.RetryQuery(ctx, "RecoverTelemetrySeedBatch", func() error {
 		return q.next.RecoverTelemetrySeedBatch(ctx)
@@ -9120,6 +9282,12 @@ func (q *retryingQuerier) RetirePoolConfigurationAssignment(ctx context.Context,
 		return callErr
 	})
 	return result, err
+}
+
+func (q *retryingQuerier) RetireReallocatedPoolAssignments(ctx context.Context, arg RetireReallocatedPoolAssignmentsParams) error {
+	return q.retrier.RetryQuery(ctx, "RetireReallocatedPoolAssignments", func() error {
+		return q.next.RetireReallocatedPoolAssignments(ctx, arg)
+	})
 }
 
 func (q *retryingQuerier) RetryPoolConfigurationTarget(ctx context.Context, arg RetryPoolConfigurationTargetParams) (int64, error) {

@@ -81,8 +81,8 @@ func (q *Queries) CreatePoolConfigurationOperation(ctx context.Context, arg Crea
 }
 
 const createPoolConfigurationOperationTarget = `-- name: CreatePoolConfigurationOperationTarget :one
-INSERT INTO pool_configuration_operation_target(organization_id, operation_id, target_kind, target_id, assignment_version)
-VALUES($1, $2, $3, $4, $5) RETURNING organization_id, operation_id, target_kind, target_id, assignment_version, state, attempts, result_code, updated_at
+INSERT INTO pool_configuration_operation_target(organization_id, operation_id, target_kind, target_id, assignment_version, reviewed_binding)
+VALUES($1, $2, $3, $4, $5, $6) RETURNING organization_id, operation_id, target_kind, target_id, assignment_version, state, attempts, result_code, updated_at, reviewed_binding, physical_attempt_id
 `
 
 type CreatePoolConfigurationOperationTargetParams struct {
@@ -91,6 +91,7 @@ type CreatePoolConfigurationOperationTargetParams struct {
 	TargetKind        string
 	TargetID          int64
 	AssignmentVersion int64
+	ReviewedBinding   string
 }
 
 func (q *Queries) CreatePoolConfigurationOperationTarget(ctx context.Context, arg CreatePoolConfigurationOperationTargetParams) (PoolConfigurationOperationTarget, error) {
@@ -100,6 +101,7 @@ func (q *Queries) CreatePoolConfigurationOperationTarget(ctx context.Context, ar
 		arg.TargetKind,
 		arg.TargetID,
 		arg.AssignmentVersion,
+		arg.ReviewedBinding,
 	)
 	var i PoolConfigurationOperationTarget
 	err := row.Scan(
@@ -112,6 +114,8 @@ func (q *Queries) CreatePoolConfigurationOperationTarget(ctx context.Context, ar
 		&i.Attempts,
 		&i.ResultCode,
 		&i.UpdatedAt,
+		&i.ReviewedBinding,
+		&i.PhysicalAttemptID,
 	)
 	return i, err
 }
@@ -318,8 +322,47 @@ func (q *Queries) ListPoolConfigurationAssignments(ctx context.Context, arg List
 	return items, nil
 }
 
+const listPoolConfigurationOperationSites = `-- name: ListPoolConfigurationOperationSites :many
+SELECT d.site_id FROM pool_configuration_operation_target t
+JOIN pool_configuration_assignment a ON a.organization_id=t.organization_id AND a.target_kind=t.target_kind AND a.target_id=t.target_id
+JOIN device d ON d.org_id=a.organization_id AND d.id=a.device_id
+WHERE t.organization_id=$1 AND t.operation_id=$2
+`
+
+type ListPoolConfigurationOperationSitesParams struct {
+	OrganizationID int64
+	OperationID    string
+}
+
+// Assignment identity is retained across retirement and reassignment. Use its
+// device's current committed site for read authorization, not the old reviewed
+// snapshot. This read must not take device locks held across hardware I/O;
+// actor and permission locks are retained by the enclosing read transaction.
+func (q *Queries) ListPoolConfigurationOperationSites(ctx context.Context, arg ListPoolConfigurationOperationSitesParams) ([]sql.NullInt64, error) {
+	rows, err := q.query(ctx, q.listPoolConfigurationOperationSitesStmt, listPoolConfigurationOperationSites, arg.OrganizationID, arg.OperationID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []sql.NullInt64
+	for rows.Next() {
+		var site_id sql.NullInt64
+		if err := rows.Scan(&site_id); err != nil {
+			return nil, err
+		}
+		items = append(items, site_id)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listPoolConfigurationOperationTargets = `-- name: ListPoolConfigurationOperationTargets :many
-SELECT t.organization_id, t.operation_id, t.target_kind, t.target_id, t.assignment_version, t.state, t.attempts, t.result_code, t.updated_at FROM pool_configuration_operation_target t
+SELECT t.organization_id, t.operation_id, t.target_kind, t.target_id, t.assignment_version, t.state, t.attempts, t.result_code, t.updated_at, t.reviewed_binding, t.physical_attempt_id FROM pool_configuration_operation_target t
 WHERE t.organization_id = $1 AND t.operation_id = $2 ORDER BY t.target_kind, t.target_id
 `
 
@@ -347,6 +390,8 @@ func (q *Queries) ListPoolConfigurationOperationTargets(ctx context.Context, arg
 			&i.Attempts,
 			&i.ResultCode,
 			&i.UpdatedAt,
+			&i.ReviewedBinding,
+			&i.PhysicalAttemptID,
 		); err != nil {
 			return nil, err
 		}
@@ -480,7 +525,7 @@ func (q *Queries) SetPoolConfigurationAssignment(ctx context.Context, arg SetPoo
 
 const supersedePoolConfigurationTarget = `-- name: SupersedePoolConfigurationTarget :exec
 UPDATE pool_configuration_operation_target SET state = 'superseded', updated_at = CURRENT_TIMESTAMP
-WHERE organization_id = $1 AND target_kind = $2 AND target_id = $3 AND state IN ('pending','applying','failed','different')
+WHERE organization_id = $1 AND target_kind = $2 AND target_id = $3 AND state IN ('pending','applying','failed','different','applied_unverified')
 `
 
 type SupersedePoolConfigurationTargetParams struct {

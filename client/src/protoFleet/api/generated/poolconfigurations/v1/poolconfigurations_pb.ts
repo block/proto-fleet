@@ -15,7 +15,7 @@ import type { Message } from "@bufbuild/protobuf";
 export const file_poolconfigurations_v1_poolconfigurations: GenFile =
   /*@__PURE__*/
   fileDesc(
-    "Ci5wb29sY29uZmlndXJhdGlvbnMvdjEvcG9vbGNvbmZpZ3VyYXRpb25zLnByb3RvEhVwb29sY29uZmlndXJhdGlvbnMudjEirQEKCVBvb2xJbnB1dBIYCgdzbG90X2lkGAEgASgJQge6SARyAigkEhcKA3VybBgCIAEoCUIKukgHcgUQASiAAhIcCgh1c2VybmFtZRgDIAEoCUIKukgHcgUQASj/ARIfCghwYXNzd29yZBgEIAEoCUIIukgFcgMo/wFIAIgBARIhCg93b3JrZXJfdGVtcGxhdGUYBSABKAlCCLpIBXIDKP8BQgsKCV9wYXNzd29yZCJrChJDb25maWd1cmF0aW9uSW5wdXQSGAoEbmFtZRgBIAEoCUIKukgHcgUQARj/ARI7CgVwb29scxgCIAMoCzIgLnBvb2xjb25maWd1cmF0aW9ucy52MS5Qb29sSW5wdXRCCrpIB5IBBAgBEAMiZQoEUG9vbBIPCgdzbG90X2lkGAEgASgJEgsKA3VybBgCIAEoCRIQCgh1c2VybmFtZRgDIAEoCRIXCg93b3JrZXJfdGVtcGxhdGUYBCABKAkSFAoMaGFzX3Bhc3N3b3JkGAUgASgIIrMBCg1Db25maWd1cmF0aW9uEhgKEGNvbmZpZ3VyYXRpb25faWQYASABKAkSDAoEbmFtZRgCIAEoCRITCgtyZXZpc2lvbl9pZBgDIAEoCRIPCgd2ZXJzaW9uGAQgASgDEhAKCGFyY2hpdmVkGAUgASgIEioKBXBvb2xzGAYgAygLMhsucG9vbGNvbmZpZ3VyYXRpb25zLnYxLlBvb2wSFgoOYXNzaWduZWRfY291bnQYByABKAMijQIKGkNyZWF0ZUNvbmZpZ3VyYXRpb25SZXF1ZXN0EhIKCmFjY291bnRfaWQYASABKAkSSAoNY29uZmlndXJhdGlvbhgCIAEoCzIpLnBvb2xjb25maWd1cmF0aW9ucy52MS5Db25maWd1cmF0aW9uSW5wdXRCBrpIA8gBATqQAbpIjAEaiQEKHmNvbmZpZ3VyYXRpb24uY3JlYXRlX25ld19zbG90cxI1bmV3IGNvbmZpZ3VyYXRpb25zIHJlcXVpcmUgZW1wdHkgcG9vbCBzbG90IGlkZW50aXRpZXMaMHRoaXMuY29uZmlndXJhdGlvbi5wb29scy5hbGwocCwgcC5zbG90X2lkID09ICcnKSJaChtDcmVhdGVDb25maWd1cmF0aW9uUmVzcG9uc2USOwoNY29uZmlndXJhdGlvbhgBIAEoCzIkLnBvb2xjb25maWd1cmF0aW9ucy52MS5Db25maWd1cmF0aW9uIlEKF0dldENvbmZpZ3VyYXRpb25SZXF1ZXN0EhIKCmFjY291bnRfaWQYASABKAkSIgoQY29uZmlndXJhdGlvbl9pZBgCIAEoCUIIukgFcgOwAQEiVwoYR2V0Q29uZmlndXJhdGlvblJlc3BvbnNlEjsKDWNvbmZpZ3VyYXRpb24YASABKAsyJC5wb29sY29uZmlndXJhdGlvbnMudjEuQ29uZmlndXJhdGlvbiKFAQoZTGlzdENvbmZpZ3VyYXRpb25zUmVxdWVzdBISCgphY2NvdW50X2lkGAEgASgJEhwKCnBhZ2VfdG9rZW4YAiABKAlCCLpIBXIDGIAQEhwKCXBhZ2Vfc2l6ZRgDIAEoBUIJukgGGgQYZCgAEhgKEGluY2x1ZGVfYXJjaGl2ZWQYBCABKAgicwoaTGlzdENvbmZpZ3VyYXRpb25zUmVzcG9uc2USPAoOY29uZmlndXJhdGlvbnMYASADKAsyJC5wb29sY29uZmlndXJhdGlvbnMudjEuQ29uZmlndXJhdGlvbhIXCg9uZXh0X3BhZ2VfdG9rZW4YAiABKAkicQodRHVwbGljYXRlQ29uZmlndXJhdGlvblJlcXVlc3QSEgoKYWNjb3VudF9pZBgBIAEoCRIiChBjb25maWd1cmF0aW9uX2lkGAIgASgJQgi6SAVyA7ABARIYCgRuYW1lGAMgASgJQgq6SAdyBRABGP8BIl0KHkR1cGxpY2F0ZUNvbmZpZ3VyYXRpb25SZXNwb25zZRI7Cg1jb25maWd1cmF0aW9uGAEgASgLMiQucG9vbGNvbmZpZ3VyYXRpb25zLnYxLkNvbmZpZ3VyYXRpb24ieAobQXJjaGl2ZUNvbmZpZ3VyYXRpb25SZXF1ZXN0EhIKCmFjY291bnRfaWQYASABKAkSIgoQY29uZmlndXJhdGlvbl9pZBgCIAEoCUIIukgFcgOwAQESIQoQZXhwZWN0ZWRfdmVyc2lvbhgDIAEoA0IHukgEIgIgACIeChxBcmNoaXZlQ29uZmlndXJhdGlvblJlc3BvbnNlIrgBChFSZXZpZXdFZGl0UmVxdWVzdBISCgphY2NvdW50X2lkGAEgASgJEiIKEGNvbmZpZ3VyYXRpb25faWQYAiABKAlCCLpIBXIDsAEBEiEKEGV4cGVjdGVkX3ZlcnNpb24YAyABKANCB7pIBCICIAASSAoNY29uZmlndXJhdGlvbhgEIAEoCzIpLnBvb2xjb25maWd1cmF0aW9ucy52MS5Db25maWd1cmF0aW9uSW5wdXRCBrpIA8gBASLkAQoSUmV2aWV3RWRpdFJlc3BvbnNlEhEKCXJldmlld19pZBgBIAEoCRI7Cg1jb25maWd1cmF0aW9uGAIgASgLMiQucG9vbGNvbmZpZ3VyYXRpb25zLnYxLkNvbmZpZ3VyYXRpb24SGAoQc2V0dGluZ3NfY2hhbmdlZBgDIAEoCBIXCg9hZmZlY3RlZF9taW5lcnMYBCABKAMSGwoTYWZmZWN0ZWRfaGFzaGJvYXJkcxgFIAEoAxIuCgpleHBpcmVzX2F0GAYgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcCJHChRDb25maXJtUmV2aWV3UmVxdWVzdBISCgphY2NvdW50X2lkGAEgASgJEhsKCXJldmlld19pZBgCIAEoCUIIukgFcgOwAQEiagoVQ29uZmlybVJldmlld1Jlc3BvbnNlEjsKDWNvbmZpZ3VyYXRpb24YASABKAsyJC5wb29sY29uZmlndXJhdGlvbnMudjEuQ29uZmlndXJhdGlvbhIUCgxvcGVyYXRpb25faWQYAiABKAky4AYKGFBvb2xDb25maWd1cmF0aW9uU2VydmljZRJ8ChNDcmVhdGVDb25maWd1cmF0aW9uEjEucG9vbGNvbmZpZ3VyYXRpb25zLnYxLkNyZWF0ZUNvbmZpZ3VyYXRpb25SZXF1ZXN0GjIucG9vbGNvbmZpZ3VyYXRpb25zLnYxLkNyZWF0ZUNvbmZpZ3VyYXRpb25SZXNwb25zZRJzChBHZXRDb25maWd1cmF0aW9uEi4ucG9vbGNvbmZpZ3VyYXRpb25zLnYxLkdldENvbmZpZ3VyYXRpb25SZXF1ZXN0Gi8ucG9vbGNvbmZpZ3VyYXRpb25zLnYxLkdldENvbmZpZ3VyYXRpb25SZXNwb25zZRJ5ChJMaXN0Q29uZmlndXJhdGlvbnMSMC5wb29sY29uZmlndXJhdGlvbnMudjEuTGlzdENvbmZpZ3VyYXRpb25zUmVxdWVzdBoxLnBvb2xjb25maWd1cmF0aW9ucy52MS5MaXN0Q29uZmlndXJhdGlvbnNSZXNwb25zZRKFAQoWRHVwbGljYXRlQ29uZmlndXJhdGlvbhI0LnBvb2xjb25maWd1cmF0aW9ucy52MS5EdXBsaWNhdGVDb25maWd1cmF0aW9uUmVxdWVzdBo1LnBvb2xjb25maWd1cmF0aW9ucy52MS5EdXBsaWNhdGVDb25maWd1cmF0aW9uUmVzcG9uc2USfwoUQXJjaGl2ZUNvbmZpZ3VyYXRpb24SMi5wb29sY29uZmlndXJhdGlvbnMudjEuQXJjaGl2ZUNvbmZpZ3VyYXRpb25SZXF1ZXN0GjMucG9vbGNvbmZpZ3VyYXRpb25zLnYxLkFyY2hpdmVDb25maWd1cmF0aW9uUmVzcG9uc2USYQoKUmV2aWV3RWRpdBIoLnBvb2xjb25maWd1cmF0aW9ucy52MS5SZXZpZXdFZGl0UmVxdWVzdBopLnBvb2xjb25maWd1cmF0aW9ucy52MS5SZXZpZXdFZGl0UmVzcG9uc2USagoNQ29uZmlybVJldmlldxIrLnBvb2xjb25maWd1cmF0aW9ucy52MS5Db25maXJtUmV2aWV3UmVxdWVzdBosLnBvb2xjb25maWd1cmF0aW9ucy52MS5Db25maXJtUmV2aWV3UmVzcG9uc2VCiAIKGWNvbS5wb29sY29uZmlndXJhdGlvbnMudjFCF1Bvb2xjb25maWd1cmF0aW9uc1Byb3RvUAFaXWdpdGh1Yi5jb20vYmxvY2svcHJvdG8tZmxlZXQvc2VydmVyL2dlbmVyYXRlZC9ncnBjL3Bvb2xjb25maWd1cmF0aW9ucy92MTtwb29sY29uZmlndXJhdGlvbnN2MaICA1BYWKoCFVBvb2xjb25maWd1cmF0aW9ucy5WMcoCFVBvb2xjb25maWd1cmF0aW9uc1xWMeICIVBvb2xjb25maWd1cmF0aW9uc1xWMVxHUEJNZXRhZGF0YeoCFlBvb2xjb25maWd1cmF0aW9uczo6VjFiBnByb3RvMw",
+    "Ci5wb29sY29uZmlndXJhdGlvbnMvdjEvcG9vbGNvbmZpZ3VyYXRpb25zLnByb3RvEhVwb29sY29uZmlndXJhdGlvbnMudjEirQEKCVBvb2xJbnB1dBIYCgdzbG90X2lkGAEgASgJQge6SARyAigkEhcKA3VybBgCIAEoCUIKukgHcgUQASiAAhIcCgh1c2VybmFtZRgDIAEoCUIKukgHcgUQASj/ARIfCghwYXNzd29yZBgEIAEoCUIIukgFcgMo/wFIAIgBARIhCg93b3JrZXJfdGVtcGxhdGUYBSABKAlCCLpIBXIDKP8BQgsKCV9wYXNzd29yZCJrChJDb25maWd1cmF0aW9uSW5wdXQSGAoEbmFtZRgBIAEoCUIKukgHcgUQARj/ARI7CgVwb29scxgCIAMoCzIgLnBvb2xjb25maWd1cmF0aW9ucy52MS5Qb29sSW5wdXRCCrpIB5IBBAgBEAMiZQoEUG9vbBIPCgdzbG90X2lkGAEgASgJEgsKA3VybBgCIAEoCRIQCgh1c2VybmFtZRgDIAEoCRIXCg93b3JrZXJfdGVtcGxhdGUYBCABKAkSFAoMaGFzX3Bhc3N3b3JkGAUgASgIIrMBCg1Db25maWd1cmF0aW9uEhgKEGNvbmZpZ3VyYXRpb25faWQYASABKAkSDAoEbmFtZRgCIAEoCRITCgtyZXZpc2lvbl9pZBgDIAEoCRIPCgd2ZXJzaW9uGAQgASgDEhAKCGFyY2hpdmVkGAUgASgIEioKBXBvb2xzGAYgAygLMhsucG9vbGNvbmZpZ3VyYXRpb25zLnYxLlBvb2wSFgoOYXNzaWduZWRfY291bnQYByABKAMijQIKGkNyZWF0ZUNvbmZpZ3VyYXRpb25SZXF1ZXN0EhIKCmFjY291bnRfaWQYASABKAkSSAoNY29uZmlndXJhdGlvbhgCIAEoCzIpLnBvb2xjb25maWd1cmF0aW9ucy52MS5Db25maWd1cmF0aW9uSW5wdXRCBrpIA8gBATqQAbpIjAEaiQEKHmNvbmZpZ3VyYXRpb24uY3JlYXRlX25ld19zbG90cxI1bmV3IGNvbmZpZ3VyYXRpb25zIHJlcXVpcmUgZW1wdHkgcG9vbCBzbG90IGlkZW50aXRpZXMaMHRoaXMuY29uZmlndXJhdGlvbi5wb29scy5hbGwocCwgcC5zbG90X2lkID09ICcnKSJaChtDcmVhdGVDb25maWd1cmF0aW9uUmVzcG9uc2USOwoNY29uZmlndXJhdGlvbhgBIAEoCzIkLnBvb2xjb25maWd1cmF0aW9ucy52MS5Db25maWd1cmF0aW9uIlEKF0dldENvbmZpZ3VyYXRpb25SZXF1ZXN0EhIKCmFjY291bnRfaWQYASABKAkSIgoQY29uZmlndXJhdGlvbl9pZBgCIAEoCUIIukgFcgOwAQEiVwoYR2V0Q29uZmlndXJhdGlvblJlc3BvbnNlEjsKDWNvbmZpZ3VyYXRpb24YASABKAsyJC5wb29sY29uZmlndXJhdGlvbnMudjEuQ29uZmlndXJhdGlvbiKFAQoZTGlzdENvbmZpZ3VyYXRpb25zUmVxdWVzdBISCgphY2NvdW50X2lkGAEgASgJEhwKCnBhZ2VfdG9rZW4YAiABKAlCCLpIBXIDGIAQEhwKCXBhZ2Vfc2l6ZRgDIAEoBUIJukgGGgQYZCgAEhgKEGluY2x1ZGVfYXJjaGl2ZWQYBCABKAgicwoaTGlzdENvbmZpZ3VyYXRpb25zUmVzcG9uc2USPAoOY29uZmlndXJhdGlvbnMYASADKAsyJC5wb29sY29uZmlndXJhdGlvbnMudjEuQ29uZmlndXJhdGlvbhIXCg9uZXh0X3BhZ2VfdG9rZW4YAiABKAkicQodRHVwbGljYXRlQ29uZmlndXJhdGlvblJlcXVlc3QSEgoKYWNjb3VudF9pZBgBIAEoCRIiChBjb25maWd1cmF0aW9uX2lkGAIgASgJQgi6SAVyA7ABARIYCgRuYW1lGAMgASgJQgq6SAdyBRABGP8BIl0KHkR1cGxpY2F0ZUNvbmZpZ3VyYXRpb25SZXNwb25zZRI7Cg1jb25maWd1cmF0aW9uGAEgASgLMiQucG9vbGNvbmZpZ3VyYXRpb25zLnYxLkNvbmZpZ3VyYXRpb24ieAobQXJjaGl2ZUNvbmZpZ3VyYXRpb25SZXF1ZXN0EhIKCmFjY291bnRfaWQYASABKAkSIgoQY29uZmlndXJhdGlvbl9pZBgCIAEoCUIIukgFcgOwAQESIQoQZXhwZWN0ZWRfdmVyc2lvbhgDIAEoA0IHukgEIgIgACIeChxBcmNoaXZlQ29uZmlndXJhdGlvblJlc3BvbnNlIrgBChFSZXZpZXdFZGl0UmVxdWVzdBISCgphY2NvdW50X2lkGAEgASgJEiIKEGNvbmZpZ3VyYXRpb25faWQYAiABKAlCCLpIBXIDsAEBEiEKEGV4cGVjdGVkX3ZlcnNpb24YAyABKANCB7pIBCICIAASSAoNY29uZmlndXJhdGlvbhgEIAEoCzIpLnBvb2xjb25maWd1cmF0aW9ucy52MS5Db25maWd1cmF0aW9uSW5wdXRCBrpIA8gBASLkAQoSUmV2aWV3RWRpdFJlc3BvbnNlEhEKCXJldmlld19pZBgBIAEoCRI7Cg1jb25maWd1cmF0aW9uGAIgASgLMiQucG9vbGNvbmZpZ3VyYXRpb25zLnYxLkNvbmZpZ3VyYXRpb24SGAoQc2V0dGluZ3NfY2hhbmdlZBgDIAEoCBIXCg9hZmZlY3RlZF9taW5lcnMYBCABKAMSGwoTYWZmZWN0ZWRfaGFzaGJvYXJkcxgFIAEoAxIuCgpleHBpcmVzX2F0GAYgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcCJjChRDb25maXJtUmV2aWV3UmVxdWVzdBISCgphY2NvdW50X2lkGAEgASgJEhsKCXJldmlld19pZBgCIAEoCUIIukgFcgOwAQESGgoIcGFzc3dvcmQYAyABKAlCCLpIBXIDGIAIImoKFUNvbmZpcm1SZXZpZXdSZXNwb25zZRI7Cg1jb25maWd1cmF0aW9uGAEgASgLMiQucG9vbGNvbmZpZ3VyYXRpb25zLnYxLkNvbmZpZ3VyYXRpb24SFAoMb3BlcmF0aW9uX2lkGAIgASgJIqgBChdSZXZpZXdBc3NpZ25tZW50UmVxdWVzdBISCgphY2NvdW50X2lkGAEgASgJEiIKEGNvbmZpZ3VyYXRpb25faWQYAiABKAlCCLpIBXIDsAEBEiEKEGV4cGVjdGVkX3ZlcnNpb24YAyABKANCB7pIBCICIAASMgoSZGV2aWNlX2lkZW50aWZpZXJzGAQgAygJQha6SBOSARAIARD0AxgBIgdyBRABGP8BIkkKE0dldE9wZXJhdGlvblJlcXVlc3QSEgoKYWNjb3VudF9pZBgBIAEoCRIeCgxvcGVyYXRpb25faWQYAiABKAlCCLpIBXIDsAEBImUKD09wZXJhdGlvblRhcmdldBIMCgRraW5kGAEgASgJEhEKCXRhcmdldF9pZBgCIAEoAxINCgVzdGF0ZRgDIAEoCRITCgtyZXN1bHRfY29kZRgEIAEoCRINCgVsYWJlbBgFIAEoCSJ/ChRHZXRPcGVyYXRpb25SZXNwb25zZRIUCgxvcGVyYXRpb25faWQYASABKAkSGAoQY29uZmlndXJhdGlvbl9pZBgCIAEoCRI3Cgd0YXJnZXRzGAMgAygLMiYucG9vbGNvbmZpZ3VyYXRpb25zLnYxLk9wZXJhdGlvblRhcmdldCLQAQoYUmV2aWV3QXNzaWdubWVudFJlc3BvbnNlEhEKCXJldmlld19pZBgBIAEoCRI7Cg1jb25maWd1cmF0aW9uGAIgASgLMiQucG9vbGNvbmZpZ3VyYXRpb25zLnYxLkNvbmZpZ3VyYXRpb24SFwoPYWZmZWN0ZWRfbWluZXJzGAMgASgDEhsKE2FmZmVjdGVkX2hhc2hib2FyZHMYBCABKAMSLgoKZXhwaXJlc19hdBgFIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXAiXgoLUmV0cnlUYXJnZXQSMwoEa2luZBgBIAEoCUIlukgiciBSBmRldmljZVIWaGFzaGJvYXJkX2luc3RhbGxhdGlvbhIaCgl0YXJnZXRfaWQYAiABKANCB7pIBCICIAAiigEKElJldmlld1JldHJ5UmVxdWVzdBISCgphY2NvdW50X2lkGAEgASgJEh4KDG9wZXJhdGlvbl9pZBgCIAEoCUIIukgFcgOwAQESQAoHdGFyZ2V0cxgDIAMoCzIiLnBvb2xjb25maWd1cmF0aW9ucy52MS5SZXRyeVRhcmdldEILukgIkgEFCAEQ9AMiywEKE1Jldmlld1JldHJ5UmVzcG9uc2USEQoJcmV2aWV3X2lkGAEgASgJEjsKDWNvbmZpZ3VyYXRpb24YAiABKAsyJC5wb29sY29uZmlndXJhdGlvbnMudjEuQ29uZmlndXJhdGlvbhIXCg9hZmZlY3RlZF9taW5lcnMYAyABKAMSGwoTYWZmZWN0ZWRfaGFzaGJvYXJkcxgEIAEoAxIuCgpleHBpcmVzX2F0GAUgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcCJsChVMaXN0T3BlcmF0aW9uc1JlcXVlc3QSEgoKYWNjb3VudF9pZBgBIAEoCRIiChBjb25maWd1cmF0aW9uX2lkGAIgASgJQgi6SAVyA7ABARIbCgpwYWdlX3Rva2VuGAMgASgJQge6SARyAhgkIpsBChBPcGVyYXRpb25TdW1tYXJ5EhQKDG9wZXJhdGlvbl9pZBgBIAEoCRIuCgpjcmVhdGVkX2F0GAIgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIUCgx0YXJnZXRfY291bnQYAyABKAMSFQoNcGVuZGluZ19jb3VudBgEIAEoAxIUCgxmYWlsZWRfY291bnQYBSABKAMibgoWTGlzdE9wZXJhdGlvbnNSZXNwb25zZRI7CgpvcGVyYXRpb25zGAEgAygLMicucG9vbGNvbmZpZ3VyYXRpb25zLnYxLk9wZXJhdGlvblN1bW1hcnkSFwoPbmV4dF9wYWdlX3Rva2VuGAIgASgJMpMKChhQb29sQ29uZmlndXJhdGlvblNlcnZpY2USfAoTQ3JlYXRlQ29uZmlndXJhdGlvbhIxLnBvb2xjb25maWd1cmF0aW9ucy52MS5DcmVhdGVDb25maWd1cmF0aW9uUmVxdWVzdBoyLnBvb2xjb25maWd1cmF0aW9ucy52MS5DcmVhdGVDb25maWd1cmF0aW9uUmVzcG9uc2UScwoQR2V0Q29uZmlndXJhdGlvbhIuLnBvb2xjb25maWd1cmF0aW9ucy52MS5HZXRDb25maWd1cmF0aW9uUmVxdWVzdBovLnBvb2xjb25maWd1cmF0aW9ucy52MS5HZXRDb25maWd1cmF0aW9uUmVzcG9uc2USeQoSTGlzdENvbmZpZ3VyYXRpb25zEjAucG9vbGNvbmZpZ3VyYXRpb25zLnYxLkxpc3RDb25maWd1cmF0aW9uc1JlcXVlc3QaMS5wb29sY29uZmlndXJhdGlvbnMudjEuTGlzdENvbmZpZ3VyYXRpb25zUmVzcG9uc2UShQEKFkR1cGxpY2F0ZUNvbmZpZ3VyYXRpb24SNC5wb29sY29uZmlndXJhdGlvbnMudjEuRHVwbGljYXRlQ29uZmlndXJhdGlvblJlcXVlc3QaNS5wb29sY29uZmlndXJhdGlvbnMudjEuRHVwbGljYXRlQ29uZmlndXJhdGlvblJlc3BvbnNlEn8KFEFyY2hpdmVDb25maWd1cmF0aW9uEjIucG9vbGNvbmZpZ3VyYXRpb25zLnYxLkFyY2hpdmVDb25maWd1cmF0aW9uUmVxdWVzdBozLnBvb2xjb25maWd1cmF0aW9ucy52MS5BcmNoaXZlQ29uZmlndXJhdGlvblJlc3BvbnNlEmEKClJldmlld0VkaXQSKC5wb29sY29uZmlndXJhdGlvbnMudjEuUmV2aWV3RWRpdFJlcXVlc3QaKS5wb29sY29uZmlndXJhdGlvbnMudjEuUmV2aWV3RWRpdFJlc3BvbnNlEmoKDUNvbmZpcm1SZXZpZXcSKy5wb29sY29uZmlndXJhdGlvbnMudjEuQ29uZmlybVJldmlld1JlcXVlc3QaLC5wb29sY29uZmlndXJhdGlvbnMudjEuQ29uZmlybVJldmlld1Jlc3BvbnNlEnMKEFJldmlld0Fzc2lnbm1lbnQSLi5wb29sY29uZmlndXJhdGlvbnMudjEuUmV2aWV3QXNzaWdubWVudFJlcXVlc3QaLy5wb29sY29uZmlndXJhdGlvbnMudjEuUmV2aWV3QXNzaWdubWVudFJlc3BvbnNlEmcKDEdldE9wZXJhdGlvbhIqLnBvb2xjb25maWd1cmF0aW9ucy52MS5HZXRPcGVyYXRpb25SZXF1ZXN0GisucG9vbGNvbmZpZ3VyYXRpb25zLnYxLkdldE9wZXJhdGlvblJlc3BvbnNlEmQKC1Jldmlld1JldHJ5EikucG9vbGNvbmZpZ3VyYXRpb25zLnYxLlJldmlld1JldHJ5UmVxdWVzdBoqLnBvb2xjb25maWd1cmF0aW9ucy52MS5SZXZpZXdSZXRyeVJlc3BvbnNlEm0KDkxpc3RPcGVyYXRpb25zEiwucG9vbGNvbmZpZ3VyYXRpb25zLnYxLkxpc3RPcGVyYXRpb25zUmVxdWVzdBotLnBvb2xjb25maWd1cmF0aW9ucy52MS5MaXN0T3BlcmF0aW9uc1Jlc3BvbnNlQogCChljb20ucG9vbGNvbmZpZ3VyYXRpb25zLnYxQhdQb29sY29uZmlndXJhdGlvbnNQcm90b1ABWl1naXRodWIuY29tL2Jsb2NrL3Byb3RvLWZsZWV0L3NlcnZlci9nZW5lcmF0ZWQvZ3JwYy9wb29sY29uZmlndXJhdGlvbnMvdjE7cG9vbGNvbmZpZ3VyYXRpb25zdjGiAgNQWFiqAhVQb29sY29uZmlndXJhdGlvbnMuVjHKAhVQb29sY29uZmlndXJhdGlvbnNcVjHiAiFQb29sY29uZmlndXJhdGlvbnNcVjFcR1BCTWV0YWRhdGHqAhZQb29sY29uZmlndXJhdGlvbnM6OlYxYgZwcm90bzM",
     [file_buf_validate_validate, file_google_protobuf_timestamp],
   );
 
@@ -488,6 +488,15 @@ export type ConfirmReviewRequest = Message<"poolconfigurations.v1.ConfirmReviewR
    * @generated from field: string review_id = 2;
    */
   reviewId: string;
+
+  /**
+   * Required when this confirmation starts equipment updates. Must be empty
+   * for settings-only saves, including replays. Replaying an accepted equipment
+   * confirmation returns its original result without rechecking the password.
+   *
+   * @generated from field: string password = 3;
+   */
+  password: string;
 };
 
 /**
@@ -523,6 +532,344 @@ export type ConfirmReviewResponse = Message<"poolconfigurations.v1.ConfirmReview
 export const ConfirmReviewResponseSchema: GenMessage<ConfirmReviewResponse> =
   /*@__PURE__*/
   messageDesc(file_poolconfigurations_v1_poolconfigurations, 17);
+
+/**
+ * @generated from message poolconfigurations.v1.ReviewAssignmentRequest
+ */
+export type ReviewAssignmentRequest = Message<"poolconfigurations.v1.ReviewAssignmentRequest"> & {
+  /**
+   * @generated from field: string account_id = 1;
+   */
+  accountId: string;
+
+  /**
+   * @generated from field: string configuration_id = 2;
+   */
+  configurationId: string;
+
+  /**
+   * @generated from field: int64 expected_version = 3;
+   */
+  expectedVersion: bigint;
+
+  /**
+   * @generated from field: repeated string device_identifiers = 4;
+   */
+  deviceIdentifiers: string[];
+};
+
+/**
+ * Describes the message poolconfigurations.v1.ReviewAssignmentRequest.
+ * Use `create(ReviewAssignmentRequestSchema)` to create a new message.
+ */
+export const ReviewAssignmentRequestSchema: GenMessage<ReviewAssignmentRequest> =
+  /*@__PURE__*/
+  messageDesc(file_poolconfigurations_v1_poolconfigurations, 18);
+
+/**
+ * @generated from message poolconfigurations.v1.GetOperationRequest
+ */
+export type GetOperationRequest = Message<"poolconfigurations.v1.GetOperationRequest"> & {
+  /**
+   * @generated from field: string account_id = 1;
+   */
+  accountId: string;
+
+  /**
+   * @generated from field: string operation_id = 2;
+   */
+  operationId: string;
+};
+
+/**
+ * Describes the message poolconfigurations.v1.GetOperationRequest.
+ * Use `create(GetOperationRequestSchema)` to create a new message.
+ */
+export const GetOperationRequestSchema: GenMessage<GetOperationRequest> =
+  /*@__PURE__*/
+  messageDesc(file_poolconfigurations_v1_poolconfigurations, 19);
+
+/**
+ * @generated from message poolconfigurations.v1.OperationTarget
+ */
+export type OperationTarget = Message<"poolconfigurations.v1.OperationTarget"> & {
+  /**
+   * @generated from field: string kind = 1;
+   */
+  kind: string;
+
+  /**
+   * @generated from field: int64 target_id = 2;
+   */
+  targetId: bigint;
+
+  /**
+   * @generated from field: string state = 3;
+   */
+  state: string;
+
+  /**
+   * @generated from field: string result_code = 4;
+   */
+  resultCode: string;
+
+  /**
+   * @generated from field: string label = 5;
+   */
+  label: string;
+};
+
+/**
+ * Describes the message poolconfigurations.v1.OperationTarget.
+ * Use `create(OperationTargetSchema)` to create a new message.
+ */
+export const OperationTargetSchema: GenMessage<OperationTarget> =
+  /*@__PURE__*/
+  messageDesc(file_poolconfigurations_v1_poolconfigurations, 20);
+
+/**
+ * @generated from message poolconfigurations.v1.GetOperationResponse
+ */
+export type GetOperationResponse = Message<"poolconfigurations.v1.GetOperationResponse"> & {
+  /**
+   * @generated from field: string operation_id = 1;
+   */
+  operationId: string;
+
+  /**
+   * @generated from field: string configuration_id = 2;
+   */
+  configurationId: string;
+
+  /**
+   * @generated from field: repeated poolconfigurations.v1.OperationTarget targets = 3;
+   */
+  targets: OperationTarget[];
+};
+
+/**
+ * Describes the message poolconfigurations.v1.GetOperationResponse.
+ * Use `create(GetOperationResponseSchema)` to create a new message.
+ */
+export const GetOperationResponseSchema: GenMessage<GetOperationResponse> =
+  /*@__PURE__*/
+  messageDesc(file_poolconfigurations_v1_poolconfigurations, 21);
+
+/**
+ * @generated from message poolconfigurations.v1.ReviewAssignmentResponse
+ */
+export type ReviewAssignmentResponse = Message<"poolconfigurations.v1.ReviewAssignmentResponse"> & {
+  /**
+   * @generated from field: string review_id = 1;
+   */
+  reviewId: string;
+
+  /**
+   * @generated from field: poolconfigurations.v1.Configuration configuration = 2;
+   */
+  configuration?: Configuration | undefined;
+
+  /**
+   * @generated from field: int64 affected_miners = 3;
+   */
+  affectedMiners: bigint;
+
+  /**
+   * @generated from field: int64 affected_hashboards = 4;
+   */
+  affectedHashboards: bigint;
+
+  /**
+   * @generated from field: google.protobuf.Timestamp expires_at = 5;
+   */
+  expiresAt?: Timestamp | undefined;
+};
+
+/**
+ * Describes the message poolconfigurations.v1.ReviewAssignmentResponse.
+ * Use `create(ReviewAssignmentResponseSchema)` to create a new message.
+ */
+export const ReviewAssignmentResponseSchema: GenMessage<ReviewAssignmentResponse> =
+  /*@__PURE__*/
+  messageDesc(file_poolconfigurations_v1_poolconfigurations, 22);
+
+/**
+ * @generated from message poolconfigurations.v1.RetryTarget
+ */
+export type RetryTarget = Message<"poolconfigurations.v1.RetryTarget"> & {
+  /**
+   * @generated from field: string kind = 1;
+   */
+  kind: string;
+
+  /**
+   * @generated from field: int64 target_id = 2;
+   */
+  targetId: bigint;
+};
+
+/**
+ * Describes the message poolconfigurations.v1.RetryTarget.
+ * Use `create(RetryTargetSchema)` to create a new message.
+ */
+export const RetryTargetSchema: GenMessage<RetryTarget> =
+  /*@__PURE__*/
+  messageDesc(file_poolconfigurations_v1_poolconfigurations, 23);
+
+/**
+ * @generated from message poolconfigurations.v1.ReviewRetryRequest
+ */
+export type ReviewRetryRequest = Message<"poolconfigurations.v1.ReviewRetryRequest"> & {
+  /**
+   * @generated from field: string account_id = 1;
+   */
+  accountId: string;
+
+  /**
+   * @generated from field: string operation_id = 2;
+   */
+  operationId: string;
+
+  /**
+   * @generated from field: repeated poolconfigurations.v1.RetryTarget targets = 3;
+   */
+  targets: RetryTarget[];
+};
+
+/**
+ * Describes the message poolconfigurations.v1.ReviewRetryRequest.
+ * Use `create(ReviewRetryRequestSchema)` to create a new message.
+ */
+export const ReviewRetryRequestSchema: GenMessage<ReviewRetryRequest> =
+  /*@__PURE__*/
+  messageDesc(file_poolconfigurations_v1_poolconfigurations, 24);
+
+/**
+ * @generated from message poolconfigurations.v1.ReviewRetryResponse
+ */
+export type ReviewRetryResponse = Message<"poolconfigurations.v1.ReviewRetryResponse"> & {
+  /**
+   * @generated from field: string review_id = 1;
+   */
+  reviewId: string;
+
+  /**
+   * @generated from field: poolconfigurations.v1.Configuration configuration = 2;
+   */
+  configuration?: Configuration | undefined;
+
+  /**
+   * @generated from field: int64 affected_miners = 3;
+   */
+  affectedMiners: bigint;
+
+  /**
+   * @generated from field: int64 affected_hashboards = 4;
+   */
+  affectedHashboards: bigint;
+
+  /**
+   * @generated from field: google.protobuf.Timestamp expires_at = 5;
+   */
+  expiresAt?: Timestamp | undefined;
+};
+
+/**
+ * Describes the message poolconfigurations.v1.ReviewRetryResponse.
+ * Use `create(ReviewRetryResponseSchema)` to create a new message.
+ */
+export const ReviewRetryResponseSchema: GenMessage<ReviewRetryResponse> =
+  /*@__PURE__*/
+  messageDesc(file_poolconfigurations_v1_poolconfigurations, 25);
+
+/**
+ * @generated from message poolconfigurations.v1.ListOperationsRequest
+ */
+export type ListOperationsRequest = Message<"poolconfigurations.v1.ListOperationsRequest"> & {
+  /**
+   * @generated from field: string account_id = 1;
+   */
+  accountId: string;
+
+  /**
+   * @generated from field: string configuration_id = 2;
+   */
+  configurationId: string;
+
+  /**
+   * @generated from field: string page_token = 3;
+   */
+  pageToken: string;
+};
+
+/**
+ * Describes the message poolconfigurations.v1.ListOperationsRequest.
+ * Use `create(ListOperationsRequestSchema)` to create a new message.
+ */
+export const ListOperationsRequestSchema: GenMessage<ListOperationsRequest> =
+  /*@__PURE__*/
+  messageDesc(file_poolconfigurations_v1_poolconfigurations, 26);
+
+/**
+ * @generated from message poolconfigurations.v1.OperationSummary
+ */
+export type OperationSummary = Message<"poolconfigurations.v1.OperationSummary"> & {
+  /**
+   * @generated from field: string operation_id = 1;
+   */
+  operationId: string;
+
+  /**
+   * @generated from field: google.protobuf.Timestamp created_at = 2;
+   */
+  createdAt?: Timestamp | undefined;
+
+  /**
+   * @generated from field: int64 target_count = 3;
+   */
+  targetCount: bigint;
+
+  /**
+   * @generated from field: int64 pending_count = 4;
+   */
+  pendingCount: bigint;
+
+  /**
+   * @generated from field: int64 failed_count = 5;
+   */
+  failedCount: bigint;
+};
+
+/**
+ * Describes the message poolconfigurations.v1.OperationSummary.
+ * Use `create(OperationSummarySchema)` to create a new message.
+ */
+export const OperationSummarySchema: GenMessage<OperationSummary> =
+  /*@__PURE__*/
+  messageDesc(file_poolconfigurations_v1_poolconfigurations, 27);
+
+/**
+ * @generated from message poolconfigurations.v1.ListOperationsResponse
+ */
+export type ListOperationsResponse = Message<"poolconfigurations.v1.ListOperationsResponse"> & {
+  /**
+   * @generated from field: repeated poolconfigurations.v1.OperationSummary operations = 1;
+   */
+  operations: OperationSummary[];
+
+  /**
+   * @generated from field: string next_page_token = 2;
+   */
+  nextPageToken: string;
+};
+
+/**
+ * Describes the message poolconfigurations.v1.ListOperationsResponse.
+ * Use `create(ListOperationsResponseSchema)` to create a new message.
+ */
+export const ListOperationsResponseSchema: GenMessage<ListOperationsResponse> =
+  /*@__PURE__*/
+  messageDesc(file_poolconfigurations_v1_poolconfigurations, 28);
 
 /**
  * One private library per organization or selected hosted account. Empty
@@ -587,5 +934,37 @@ export const PoolConfigurationService: GenService<{
     methodKind: "unary";
     input: typeof ConfirmReviewRequestSchema;
     output: typeof ConfirmReviewResponseSchema;
+  };
+  /**
+   * @generated from rpc poolconfigurations.v1.PoolConfigurationService.ReviewAssignment
+   */
+  reviewAssignment: {
+    methodKind: "unary";
+    input: typeof ReviewAssignmentRequestSchema;
+    output: typeof ReviewAssignmentResponseSchema;
+  };
+  /**
+   * @generated from rpc poolconfigurations.v1.PoolConfigurationService.GetOperation
+   */
+  getOperation: {
+    methodKind: "unary";
+    input: typeof GetOperationRequestSchema;
+    output: typeof GetOperationResponseSchema;
+  };
+  /**
+   * @generated from rpc poolconfigurations.v1.PoolConfigurationService.ReviewRetry
+   */
+  reviewRetry: {
+    methodKind: "unary";
+    input: typeof ReviewRetryRequestSchema;
+    output: typeof ReviewRetryResponseSchema;
+  };
+  /**
+   * @generated from rpc poolconfigurations.v1.PoolConfigurationService.ListOperations
+   */
+  listOperations: {
+    methodKind: "unary";
+    input: typeof ListOperationsRequestSchema;
+    output: typeof ListOperationsResponseSchema;
   };
 }> = /*@__PURE__*/ serviceDesc(file_poolconfigurations_v1_poolconfigurations, 0);

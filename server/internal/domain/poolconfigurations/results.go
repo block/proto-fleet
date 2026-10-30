@@ -36,7 +36,7 @@ func (r *Repository) FinishTarget(ctx context.Context, q sqlc.Querier, scope Sco
 	case "different":
 		valid = resultCode == "settings_differ"
 	case "failed":
-		valid = resultCode == "unavailable" || resultCode == "unsupported" || resultCode == "rejected" || resultCode == "write_uncertain"
+		valid = resultCode == "unavailable" || resultCode == "unsupported" || resultCode == "rejected" || resultCode == "write_uncertain" || resultCode == "interrupted"
 	}
 	if !valid || attempt <= 0 {
 		return fleeterror.NewInvalidArgumentError("invalid pool update result")
@@ -76,4 +76,39 @@ func targetMutationResult(n int64, err error) error {
 		return staleAssignment()
 	}
 	return nil
+}
+
+type OperationPage struct {
+	Operations    []sqlc.ListPoolConfigurationOperationsRow
+	NextPageToken string
+}
+
+func (s *Service) ListOperations(ctx context.Context, accountID, configurationID, pageToken string) (OperationPage, error) {
+	return withAuthority(ctx, s, accountID, Read, func(q sqlc.Querier, p Principal) (OperationPage, error) {
+		if _, err := s.repository.Get(ctx, q, p.Scope, configurationID); err != nil {
+			return OperationPage{}, err
+		}
+		if pageToken != "" {
+			cursor, err := q.GetPoolConfigurationOperation(ctx, sqlc.GetPoolConfigurationOperationParams{OrganizationID: p.Scope.OrganizationID, AccountID: p.Scope.account(), OperationID: pageToken})
+			if errors.Is(err, sql.ErrNoRows) {
+				return OperationPage{}, fleeterror.NewInvalidArgumentError("invalid operation page token")
+			}
+			if err != nil {
+				return OperationPage{}, storageError(err)
+			}
+			if cursor.ConfigurationID != configurationID {
+				return OperationPage{}, fleeterror.NewInvalidArgumentError("invalid operation page token")
+			}
+		}
+		rows, err := q.ListPoolConfigurationOperations(ctx, sqlc.ListPoolConfigurationOperationsParams{OrganizationID: p.Scope.OrganizationID, AccountID: p.Scope.account(), ConfigurationID: configurationID, BeforeID: pageToken})
+		if err != nil {
+			return OperationPage{}, storageError(err)
+		}
+		page := OperationPage{Operations: rows}
+		if len(rows) > 25 {
+			page.Operations = rows[:25]
+			page.NextPageToken = rows[24].OperationID
+		}
+		return page, nil
+	})
 }

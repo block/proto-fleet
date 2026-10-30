@@ -30,6 +30,15 @@ imported but the remaining configurations need review. Repeating the same source
 versions is idempotent. Legacy rows and revisions remain intact. This command does
 not establish hardware assignments, switch library readers, or send device writes.
 
+Pool update claims retain their physical attempt IDs. Interrupted `running`
+attempts require the existing offline device-write recovery procedure; neither
+age nor a server restart authorizes another dispatch. Once an attempt is
+explicitly resolved, or its completed call has lacked result bookkeeping for a
+minute, the result becomes **Update interrupted**. This permits a new reviewed,
+password-confirmed retry without claiming the previous settings were verified.
+The one-minute delay allows normal result bookkeeping to finish; only the
+attempt's terminal state establishes that its physical work has settled.
+
 ### Baseline reconciliation
 
 `fleet-db-transition apply` reconciles recognized source schemas without replaying

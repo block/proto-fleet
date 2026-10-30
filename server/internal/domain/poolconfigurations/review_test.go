@@ -87,6 +87,11 @@ func TestReviewedEditIsAtomicBoundAndReplayable(t *testing.T) {
 	require.NotNil(t, saved.Operation)
 	require.Len(t, saved.Operation.Targets, 1)
 	require.NotEqual(t, config.RevisionID, saved.Configuration.RevisionID)
+	var binding string
+	require.NoError(t, conn.QueryRowContext(ctx, `SELECT reviewed_binding FROM pool_configuration_operation_target WHERE operation_id=$1`, saved.Operation.ID).Scan(&binding))
+	require.Equal(t, authority.binding, binding, "queued work retains the exact reviewed physical and ownership binding")
+	_, err = conn.ExecContext(ctx, `UPDATE pool_configuration_operation_target SET reviewed_binding='new binding' WHERE operation_id=$1`, saved.Operation.ID)
+	require.ErrorContains(t, err, "operation target identity is immutable")
 	again, err := confirm(1)
 	require.NoError(t, err)
 	require.True(t, again.Replay)

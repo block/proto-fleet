@@ -566,7 +566,8 @@ func assetFilterOptions(rows []sqlc.ListHostedAccountAssetFilterOptionsRow) *pb.
 }
 
 // AssignAssets validates the exact reviewed snapshot after physical bindings and
-// container reconciliation are locked. The allocation ledger is reporting-only.
+// container reconciliation are locked. Allocation determines pool ownership but
+// grants no user permission and dispatches no pool changes.
 func (s *Service) AssignAssets(ctx context.Context, actorID, orgID int64, request *pb.AssignAccountAssetsRequest) error {
 	if len(request.Assets) == 0 || len(request.Assets) > 500 || (request.Intent != pb.AssetAssignmentIntent_ASSET_ASSIGNMENT_INTENT_ASSIGN && request.Intent != pb.AssetAssignmentIntent_ASSET_ASSIGNMENT_INTENT_RECALL) {
 		return fleeterror.NewInvalidArgumentError("invalid asset assignment")
@@ -713,6 +714,9 @@ func (s *Service) AssignAssets(ctx context.Context, actorID, orgID int64, reques
 		}
 		for _, selection := range request.Assets {
 			row := current[[2]int64{int64(selection.Kind), selection.Id}]
+			if err := q.RetireReallocatedPoolAssignments(ctx, sqlc.RetireReallocatedPoolAssignmentsParams{OrganizationID: orgID, DeviceID: row.DeviceID, AssetKind: int32(selection.Kind), AssetID: selection.Id}); err != nil {
+				return err
+			}
 			params := sqlc.SetHostedAccountAssetParams{OrganizationID: orgID, Kind: int32(selection.Kind), AssetID: selection.Id, DeviceID: row.DeviceID}
 			if pb.MiningAssetKind(row.Kind) == pb.MiningAssetKind_MINING_ASSET_KIND_MINER {
 				params.MinerID = sql.NullInt64{Int64: row.ID, Valid: true}

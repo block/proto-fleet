@@ -27,6 +27,7 @@ import (
 // (passwords, pool credentials, provider attestations) and must not be
 // logged at debug level.
 var RedactedRequestProcedures = []string{
+	poolconfigurationsv1connect.PoolConfigurationServiceConfirmReviewProcedure,
 	poolconfigurationsv1connect.PoolConfigurationServiceCreateConfigurationProcedure,
 	poolconfigurationsv1connect.PoolConfigurationServiceReviewEditProcedure,
 
@@ -265,6 +266,7 @@ var FleetNodeAuthenticatedProcedures = []string{
 // For streaming RPCs, this also suppresses individual message bodies in
 // loggingStreamingHandlerConn.
 var SensitiveBodyProcedures = map[string]bool{
+	poolconfigurationsv1connect.PoolConfigurationServiceConfirmReviewProcedure:       true,
 	poolconfigurationsv1connect.PoolConfigurationServiceCreateConfigurationProcedure: true,
 	poolconfigurationsv1connect.PoolConfigurationServiceReviewEditProcedure:          true,
 

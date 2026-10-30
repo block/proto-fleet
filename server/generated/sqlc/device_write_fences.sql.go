@@ -255,6 +255,7 @@ WHERE a.attempt_id=$1 AND a.device_id=$2
  AND a.organization_id=$3
  AND a.status='complete' AND a.queue_message_id IS NULL
  AND NOT EXISTS (SELECT 1 FROM device_deletion_unpair_permit p WHERE p.attempt_id=a.attempt_id)
+ AND NOT EXISTS (SELECT 1 FROM pool_configuration_operation_target t WHERE t.physical_attempt_id=a.attempt_id)
 `
 
 type DeleteUndispatchedDirectAttemptParams struct {
@@ -429,6 +430,43 @@ func (q *Queries) IsRetiredDeviceWriteDrained(ctx context.Context, identityKeys 
 	var drained bool
 	err := row.Scan(&drained)
 	return drained, err
+}
+
+const listUnfinishedDeviceWriteCommands = `-- name: ListUnfinishedDeviceWriteCommands :many
+SELECT DISTINCT m.command_type
+FROM queue_message m JOIN device d ON d.id=m.device_id
+WHERE d.org_id=$1 AND m.device_id=$2
+ AND m.status IN ('PENDING','PROCESSING')
+`
+
+type ListUnfinishedDeviceWriteCommandsParams struct {
+	OrganizationID int64
+	DeviceID       int64
+}
+
+// The caller holds the device fence through its decision or dispatch. Enqueue
+// and physical admission use that fence too; no queue-row lock is needed.
+func (q *Queries) ListUnfinishedDeviceWriteCommands(ctx context.Context, arg ListUnfinishedDeviceWriteCommandsParams) ([]string, error) {
+	rows, err := q.query(ctx, q.listUnfinishedDeviceWriteCommandsStmt, listUnfinishedDeviceWriteCommands, arg.OrganizationID, arg.DeviceID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []string
+	for rows.Next() {
+		var command_type string
+		if err := rows.Scan(&command_type); err != nil {
+			return nil, err
+		}
+		items = append(items, command_type)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const listUnresolvedDeviceWriteAttempts = `-- name: ListUnresolvedDeviceWriteAttempts :many

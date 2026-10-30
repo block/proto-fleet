@@ -70,7 +70,11 @@ var ProcedurePermissions = map[string]string{
 	poolconfigurationsv1connect.PoolConfigurationServiceDuplicateConfigurationProcedure: authz.PermPoolManage,
 	poolconfigurationsv1connect.PoolConfigurationServiceArchiveConfigurationProcedure:   authz.PermPoolManage,
 	poolconfigurationsv1connect.PoolConfigurationServiceReviewEditProcedure:             authz.PermPoolManage,
-	poolconfigurationsv1connect.PoolConfigurationServiceConfirmReviewProcedure:          authz.PermPoolManage,
+	poolconfigurationsv1connect.PoolConfigurationServiceConfirmReviewProcedure:          authz.PermPoolRead,
+	poolconfigurationsv1connect.PoolConfigurationServiceReviewAssignmentProcedure:       authz.PermPoolRead,
+	poolconfigurationsv1connect.PoolConfigurationServiceGetOperationProcedure:           authz.PermPoolRead,
+	poolconfigurationsv1connect.PoolConfigurationServiceReviewRetryProcedure:            authz.PermPoolRead,
+	poolconfigurationsv1connect.PoolConfigurationServiceListOperationsProcedure:         authz.PermPoolRead,
 
 	marketdatav1connect.MarketDataServiceGetMarketDataProcedure: authz.PermFleetRead,
 	// Activity log — read-only audit trail. Export is the CSV variant of
