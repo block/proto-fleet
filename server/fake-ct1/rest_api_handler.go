@@ -9,6 +9,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	mdk "github.com/block/proto-fleet/sdk/mdk/generated/mdk/v2"
 )
 
 // Live telemetry and history expose the same simulated fan inventory.
@@ -1066,6 +1068,16 @@ func (s *ContainerState) hashboardDTO(b *Hashboard) *hashboardDTO {
 	}
 	if s.Config.DemoModuleStates && b.TankID == demoLightFaultTank && b.ModuleNum == demoLightFaultModule && b.SlotIndex == 0 && b.State == miningStateError {
 		errors = []hashboardHealthError{{Cause: "HASHBOARD_ERROR_CAUSE_BOARD_OVER_CURRENT"}}
+	}
+	if s.Config.DemoAllBoardFaults {
+		// Exercise container-wide fault payloads using every current MDK cause.
+		errors = nil
+		for _, cause := range mdk.HashboardErrorCause_name {
+			if cause != mdk.HashboardErrorCause_HASHBOARD_ERROR_CAUSE_UNSPECIFIED.String() {
+				errors = append(errors, hashboardHealthError{Cause: cause})
+			}
+		}
+		sort.Slice(errors, func(i, j int) bool { return errors[i].Cause < errors[j].Cause })
 	}
 
 	return &hashboardDTO{

@@ -368,50 +368,12 @@ func TestTelemetryResultFromV2CarriesComponentMetricsPayload(t *testing.T) {
 	assert.Equal(t, 80.0, decoded.HashBoards[0].ASICs[0].TempC.Value)
 }
 
-func TestControlLoop_TelemetryAckCarriesLargeContainerPayload(t *testing.T) {
-	now := time.Now().UTC()
-	metadata, err := json.Marshal(map[string]string{"firmware_details": strings.Repeat("sample", 455)})
-	require.NoError(t, err)
-	snapshot := &sdk.ContainerSnapshot{ObservedAt: now, TopologyComplete: true}
-	for tankPosition := int32(1); tankPosition <= 6; tankPosition++ {
-		tank := sdk.ContainerTank{Position: tankPosition, TopologyComplete: true}
-		for modulePosition := int32(1); modulePosition <= 16; modulePosition++ {
-			module := sdk.ContainerModule{Position: modulePosition, ReportedID: fmt.Sprintf("psu-%d-%d", tankPosition, modulePosition), IdentityConfirmed: true, ObservedAt: now}
-			for boardPosition := int32(1); boardPosition <= 3; boardPosition++ {
-				module.Hashboards = append(module.Hashboards, sdk.ContainerHashboard{Position: boardPosition, Occupancy: "present", ObservedAt: now, StateObservedAt: now, MetadataJSON: metadata, HashrateHS: new(1e12)})
-			}
-			tank.Modules = append(tank.Modules, module)
-		}
-		snapshot.Tanks = append(snapshot.Tanks, tank)
-	}
-	result, err := telemetryResultFromV2("node-device", modelsV2.DeviceMetrics{
-		DeviceIdentifier: "node-device", Timestamp: now, Container: snapshot,
-	}, telemetrypb.DeviceStatus_DEVICE_STATUS_ONLINE)
-	require.NoError(t, err)
-	require.Greater(t, len(result.GetDeviceMetricsJson()), 850_215)
-	require.NoError(t, protovalidate.Validate(result))
-
-	fake := &controlFakeGateway{}
-	fake.queue(telemetryCmd(t, validTelemetryRequest()))
-	runControlLoopOnce(t, &RunCmd{telemetry: &stubTelemetryFetcher{result: result}}, fake)
-	acks := fake.acksCopy()
-	require.Len(t, acks, 1)
-	require.Equal(t, pb.AckCode_ACK_CODE_OK, acks[0].GetCode())
-	require.NoError(t, protovalidate.Validate(acks[0]))
-	decodedResult := &telemetrypb.FleetNodeTelemetryResult{}
-	require.NoError(t, proto.Unmarshal(acks[0].GetPayload(), decodedResult))
-	require.NoError(t, protovalidate.Validate(decodedResult))
-	var decoded modelsV2.DeviceMetrics
-	require.NoError(t, json.Unmarshal(decodedResult.GetDeviceMetricsJson(), &decoded))
-	require.Equal(t, snapshot, decoded.Container)
-}
-
 func TestTelemetryDeviceMetricsPayloadLimit(t *testing.T) {
 	const limit = 960 * 1024
 	for _, size := range []int{limit, limit + 1} {
 		t.Run(fmt.Sprint(size), func(t *testing.T) {
 			reason := ""
-			metrics := modelsV2.DeviceMetrics{Timestamp: time.Now().UTC(), HealthReason: &reason}
+			metrics := modelsV2.DeviceMetrics{Timestamp: time.Now().UTC(), HealthReason: &reason, Container: &sdk.ContainerSnapshot{}}
 			emptyJSON, err := json.Marshal(metrics)
 			require.NoError(t, err)
 			reason = strings.Repeat("x", size-len(emptyJSON))
@@ -438,6 +400,46 @@ func TestTelemetryDeviceMetricsPayloadLimit(t *testing.T) {
 				require.NoError(t, protovalidate.Validate(wireResult))
 				require.LessOrEqual(t, proto.Size(wireResult), maxAckPayloadBytes)
 			}
+		})
+	}
+}
+
+func TestTelemetryCompactsUnlocatedDiagnosticsWithoutChangingIssueEvidence(t *testing.T) {
+	for _, field := range []string{"health", "metadata"} {
+		t.Run(field, func(t *testing.T) {
+			now := time.Now().UTC()
+			diagnostic, err := json.Marshal(map[string]string{"detail": strings.Repeat("x", 200*1024)})
+			require.NoError(t, err)
+			issues := &sdk.ContainerModuleIssues{Complete: true, ObservedAt: now, SourceTimes: map[string]time.Time{"psu": now}}
+			snapshot := &sdk.ContainerSnapshot{ObservedAt: now, Tanks: []sdk.ContainerTank{{Position: 1, Modules: []sdk.ContainerModule{{Position: 1, Issues: issues}}}}}
+			for i := range 6 {
+				board := sdk.ContainerHashboard{Serial: fmt.Sprint(i), Occupancy: "occupied", State: sdk.MinerStatusError, HashrateHS: new(1e12), ObservedAt: now}
+				if field == "health" {
+					board.HealthJSON = diagnostic
+				} else {
+					board.MetadataJSON = diagnostic
+				}
+				snapshot.UnlocatedHashboards = append(snapshot.UnlocatedHashboards, board)
+			}
+			metrics := modelsV2.DeviceMetrics{Timestamp: now, Container: snapshot}
+			before, err := json.Marshal(metrics)
+			require.NoError(t, err)
+			require.Greater(t, len(before), maxTelemetryDeviceMetricsJSONBytes)
+			result, err := telemetryResultFromV2("ct1", metrics, telemetrypb.DeviceStatus_DEVICE_STATUS_ERROR)
+			require.NoError(t, err)
+			require.NoError(t, protovalidate.Validate(result))
+			var decoded modelsV2.DeviceMetrics
+			require.NoError(t, json.Unmarshal(result.DeviceMetricsJson, &decoded))
+			require.Equal(t, snapshot.Tanks, decoded.Container.Tanks, "raw diagnostic omission does not truncate normalized issues")
+			require.Len(t, decoded.Container.UnlocatedHashboards, 6)
+			for i, board := range decoded.Container.UnlocatedHashboards {
+				want := snapshot.UnlocatedHashboards[i]
+				want.HealthJSON, want.MetadataJSON = nil, nil
+				require.Equal(t, want, board)
+			}
+			after, err := json.Marshal(metrics)
+			require.NoError(t, err)
+			require.Equal(t, before, after)
 		})
 	}
 }

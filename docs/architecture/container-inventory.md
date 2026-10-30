@@ -19,9 +19,13 @@ Container mining totals and plant telemetry are supplementary requests with
 bounded deadlines. Their failure does not discard a successful topology/module
 observation. Parent cancellation still cancels the collection.
 
-Fleet Node transports the complete metrics JSON, including container topology
+Fleet Node transports metrics JSON, including container topology
 and board observations, with a 960 KiB limit inside its 1 MiB command-response
-payload. Larger snapshots fail collection without persisting partial inventory.
+payload. If container diagnostics exceed this budget, the node omits raw board
+health, then raw metadata, then halves each module's issue list until it fits.
+Truncated issue lists are partial and omit clear-source watermarks. Typed board
+identity, topology, measurements, and fault states remain intact; cached plugin
+observations are unchanged. Oversized core telemetry still fails collection.
 Upgrade Fleet Server before Fleet Nodes when moving from the previous 256 KiB
 limit; older servers reject observations above that limit.
 Authenticated Fleet Node uploads use gzip for messages of at least 1 KiB,
