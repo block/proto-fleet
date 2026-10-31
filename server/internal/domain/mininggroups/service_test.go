@@ -139,7 +139,7 @@ func testDurableGroupReconciliation(t *testing.T, archive bool) {
 	require.NoError(t, err)
 	secrets, err := encrypt.NewService(&encrypt.Config{ServiceMasterKey: cfg.ServiceMasterKey})
 	require.NoError(t, err)
-	pools := hostedaccounts.NewPoolService(hostedaccounts.NewService(conn), secrets, nil, nil)
+	pools := hostedaccounts.NewPoolService(hostedaccounts.NewService(conn, nil), secrets, nil, nil)
 	password := "private-password"
 	config, err := pools.CreateHost(ctx, user.DatabaseID, user.OrganizationID, poolconfigurations.RevisionOptions{Name: "Customer pools", Slots: []poolconfigurations.SlotOptions{{URL: "stratum+tcp://primary.example:3333", Username: "customer.worker", Password: &password}, {URL: "stratum+tcp://backup.example:3333", Username: "customer.worker"}}})
 	require.NoError(t, err)

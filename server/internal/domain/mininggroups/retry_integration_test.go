@@ -118,7 +118,7 @@ func newIdleRetryFixture(t *testing.T) (context.Context, retryFixture) {
 	require.NoError(t, err)
 	secrets, err := encrypt.NewService(&encrypt.Config{ServiceMasterKey: cfg.ServiceMasterKey})
 	require.NoError(t, err)
-	pools := hostedaccounts.NewPoolService(hostedaccounts.NewService(database.DB), secrets, nil, nil)
+	pools := hostedaccounts.NewPoolService(hostedaccounts.NewService(database.DB, nil), secrets, nil, nil)
 	miner := &retryMiner{revision: 1}
 	service := NewService(database.DB, miner, pools, secrets)
 	_, err = service.GetState(ctx, controller.ID)

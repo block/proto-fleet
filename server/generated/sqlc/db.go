@@ -45,6 +45,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.addHostedAccountUserAffiliationStmt, err = db.PrepareContext(ctx, addHostedAccountUserAffiliation); err != nil {
 		return nil, fmt.Errorf("error preparing query AddHostedAccountUserAffiliation: %w", err)
 	}
+	if q.addRepairTicketBoardStmt, err = db.PrepareContext(ctx, addRepairTicketBoard); err != nil {
+		return nil, fmt.Errorf("error preparing query AddRepairTicketBoard: %w", err)
+	}
 	if q.adminResetUserPasswordStmt, err = db.PrepareContext(ctx, adminResetUserPassword); err != nil {
 		return nil, fmt.Errorf("error preparing query AdminResetUserPassword: %w", err)
 	}
@@ -108,6 +111,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.assignRoleStmt, err = db.PrepareContext(ctx, assignRole); err != nil {
 		return nil, fmt.Errorf("error preparing query AssignRole: %w", err)
 	}
+	if q.associateRepairTicketAccountStmt, err = db.PrepareContext(ctx, associateRepairTicketAccount); err != nil {
+		return nil, fmt.Errorf("error preparing query AssociateRepairTicketAccount: %w", err)
+	}
 	if q.beginCurtailmentRestorationStmt, err = db.PrepareContext(ctx, beginCurtailmentRestoration); err != nil {
 		return nil, fmt.Errorf("error preparing query BeginCurtailmentRestoration: %w", err)
 	}
@@ -156,11 +162,17 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.bumpCurtailmentTargetRetryStmt, err = db.PrepareContext(ctx, bumpCurtailmentTargetRetry); err != nil {
 		return nil, fmt.Errorf("error preparing query BumpCurtailmentTargetRetry: %w", err)
 	}
+	if q.canAccountCloseRepairTicketStmt, err = db.PrepareContext(ctx, canAccountCloseRepairTicket); err != nil {
+		return nil, fmt.Errorf("error preparing query CanAccountCloseRepairTicket: %w", err)
+	}
 	if q.canReadContainerModuleHistoryStmt, err = db.PrepareContext(ctx, canReadContainerModuleHistory); err != nil {
 		return nil, fmt.Errorf("error preparing query CanReadContainerModuleHistory: %w", err)
 	}
 	if q.canReadHashboardHistoryStmt, err = db.PrepareContext(ctx, canReadHashboardHistory); err != nil {
 		return nil, fmt.Errorf("error preparing query CanReadHashboardHistory: %w", err)
+	}
+	if q.canTargetAccountRepairAssetStmt, err = db.PrepareContext(ctx, canTargetAccountRepairAsset); err != nil {
+		return nil, fmt.Errorf("error preparing query CanTargetAccountRepairAsset: %w", err)
 	}
 	if q.cancelActiveFirmwareRolloutStmt, err = db.PrepareContext(ctx, cancelActiveFirmwareRollout); err != nil {
 		return nil, fmt.Errorf("error preparing query CancelActiveFirmwareRollout: %w", err)
@@ -689,6 +701,12 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.forceReleaseCurtailmentEventStmt, err = db.PrepareContext(ctx, forceReleaseCurtailmentEvent); err != nil {
 		return nil, fmt.Errorf("error preparing query ForceReleaseCurtailmentEvent: %w", err)
+	}
+	if q.getAccountRepairTicketStmt, err = db.PrepareContext(ctx, getAccountRepairTicket); err != nil {
+		return nil, fmt.Errorf("error preparing query GetAccountRepairTicket: %w", err)
+	}
+	if q.getAccountTicketAccessStmt, err = db.PrepareContext(ctx, getAccountTicketAccess); err != nil {
+		return nil, fmt.Errorf("error preparing query GetAccountTicketAccess: %w", err)
 	}
 	if q.getActiveFirmwareRolloutForPairStmt, err = db.PrepareContext(ctx, getActiveFirmwareRolloutForPair); err != nil {
 		return nil, fmt.Errorf("error preparing query GetActiveFirmwareRolloutForPair: %w", err)
@@ -1323,6 +1341,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.getRepairTicketCommentByIdempotencyKeyStmt, err = db.PrepareContext(ctx, getRepairTicketCommentByIdempotencyKey); err != nil {
 		return nil, fmt.Errorf("error preparing query GetRepairTicketCommentByIdempotencyKey: %w", err)
 	}
+	if q.getRepairTicketCommentForVisibilityStmt, err = db.PrepareContext(ctx, getRepairTicketCommentForVisibility); err != nil {
+		return nil, fmt.Errorf("error preparing query GetRepairTicketCommentForVisibility: %w", err)
+	}
 	if q.getRepairTicketCommentSiteForUpdateStmt, err = db.PrepareContext(ctx, getRepairTicketCommentSiteForUpdate); err != nil {
 		return nil, fmt.Errorf("error preparing query GetRepairTicketCommentSiteForUpdate: %w", err)
 	}
@@ -1331,6 +1352,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.getRepairTicketIDByIdempotencyKeyStmt, err = db.PrepareContext(ctx, getRepairTicketIDByIdempotencyKey); err != nil {
 		return nil, fmt.Errorf("error preparing query GetRepairTicketIDByIdempotencyKey: %w", err)
+	}
+	if q.getRepairTicketMetadataStmt, err = db.PrepareContext(ctx, getRepairTicketMetadata); err != nil {
+		return nil, fmt.Errorf("error preparing query GetRepairTicketMetadata: %w", err)
 	}
 	if q.getRoleByIDStmt, err = db.PrepareContext(ctx, getRoleByID); err != nil {
 		return nil, fmt.Errorf("error preparing query GetRoleByID: %w", err)
@@ -1512,6 +1536,12 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.insertReleaseChannelTargetsStmt, err = db.PrepareContext(ctx, insertReleaseChannelTargets); err != nil {
 		return nil, fmt.Errorf("error preparing query InsertReleaseChannelTargets: %w", err)
 	}
+	if q.insertRepairTicketOpeningAudienceStmt, err = db.PrepareContext(ctx, insertRepairTicketOpeningAudience); err != nil {
+		return nil, fmt.Errorf("error preparing query InsertRepairTicketOpeningAudience: %w", err)
+	}
+	if q.insertRepairTicketOpeningTargetStmt, err = db.PrepareContext(ctx, insertRepairTicketOpeningTarget); err != nil {
+		return nil, fmt.Errorf("error preparing query InsertRepairTicketOpeningTarget: %w", err)
+	}
 	if q.insertRepairTicketPartStmt, err = db.PrepareContext(ctx, insertRepairTicketPart); err != nil {
 		return nil, fmt.Errorf("error preparing query InsertRepairTicketPart: %w", err)
 	}
@@ -1541,6 +1571,15 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.linkPoolConfigurationAttemptStmt, err = db.PrepareContext(ctx, linkPoolConfigurationAttempt); err != nil {
 		return nil, fmt.Errorf("error preparing query LinkPoolConfigurationAttempt: %w", err)
+	}
+	if q.listAccountRepairTicketCommentsStmt, err = db.PrepareContext(ctx, listAccountRepairTicketComments); err != nil {
+		return nil, fmt.Errorf("error preparing query ListAccountRepairTicketComments: %w", err)
+	}
+	if q.listAccountRepairTicketTargetsStmt, err = db.PrepareContext(ctx, listAccountRepairTicketTargets); err != nil {
+		return nil, fmt.Errorf("error preparing query ListAccountRepairTicketTargets: %w", err)
+	}
+	if q.listAccountRepairTicketsStmt, err = db.PrepareContext(ctx, listAccountRepairTickets); err != nil {
+		return nil, fmt.Errorf("error preparing query ListAccountRepairTickets: %w", err)
 	}
 	if q.listActiveAlertMaintenanceWindowsStmt, err = db.PrepareContext(ctx, listActiveAlertMaintenanceWindows); err != nil {
 		return nil, fmt.Errorf("error preparing query ListActiveAlertMaintenanceWindows: %w", err)
@@ -1962,6 +2001,12 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.listReleaseChannelsPageStmt, err = db.PrepareContext(ctx, listReleaseChannelsPage); err != nil {
 		return nil, fmt.Errorf("error preparing query ListReleaseChannelsPage: %w", err)
 	}
+	if q.listRepairTicketAssetOptionsStmt, err = db.PrepareContext(ctx, listRepairTicketAssetOptions); err != nil {
+		return nil, fmt.Errorf("error preparing query ListRepairTicketAssetOptions: %w", err)
+	}
+	if q.listRepairTicketBoardOptionsStmt, err = db.PrepareContext(ctx, listRepairTicketBoardOptions); err != nil {
+		return nil, fmt.Errorf("error preparing query ListRepairTicketBoardOptions: %w", err)
+	}
 	if q.listRepairTicketCommentsStmt, err = db.PrepareContext(ctx, listRepairTicketComments); err != nil {
 		return nil, fmt.Errorf("error preparing query ListRepairTicketComments: %w", err)
 	}
@@ -2199,11 +2244,20 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.lockMaintenanceMinerForTicketStmt, err = db.PrepareContext(ctx, lockMaintenanceMinerForTicket); err != nil {
 		return nil, fmt.Errorf("error preparing query LockMaintenanceMinerForTicket: %w", err)
 	}
+	if q.lockMaintenanceModelDeviceStmt, err = db.PrepareContext(ctx, lockMaintenanceModelDevice); err != nil {
+		return nil, fmt.Errorf("error preparing query LockMaintenanceModelDevice: %w", err)
+	}
+	if q.lockMaintenanceModuleModelSiteStmt, err = db.PrepareContext(ctx, lockMaintenanceModuleModelSite); err != nil {
+		return nil, fmt.Errorf("error preparing query LockMaintenanceModuleModelSite: %w", err)
+	}
 	if q.lockMaintenanceRackForTicketStmt, err = db.PrepareContext(ctx, lockMaintenanceRackForTicket); err != nil {
 		return nil, fmt.Errorf("error preparing query LockMaintenanceRackForTicket: %w", err)
 	}
 	if q.lockMaintenanceSiteForTicketStmt, err = db.PrepareContext(ctx, lockMaintenanceSiteForTicket); err != nil {
 		return nil, fmt.Errorf("error preparing query LockMaintenanceSiteForTicket: %w", err)
+	}
+	if q.lockMaintenanceTicketInstallationStmt, err = db.PrepareContext(ctx, lockMaintenanceTicketInstallation); err != nil {
+		return nil, fmt.Errorf("error preparing query LockMaintenanceTicketInstallation: %w", err)
 	}
 	if q.lockMinerBindingCredentialsStmt, err = db.PrepareContext(ctx, lockMinerBindingCredentials); err != nil {
 		return nil, fmt.Errorf("error preparing query LockMinerBindingCredentials: %w", err)
@@ -2255,6 +2309,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.lockRepairTicketCreateKeyStmt, err = db.PrepareContext(ctx, lockRepairTicketCreateKey); err != nil {
 		return nil, fmt.Errorf("error preparing query LockRepairTicketCreateKey: %w", err)
+	}
+	if q.lockRepairTicketTargetAllocationStmt, err = db.PrepareContext(ctx, lockRepairTicketTargetAllocation); err != nil {
+		return nil, fmt.Errorf("error preparing query LockRepairTicketTargetAllocation: %w", err)
 	}
 	if q.lockSchedulePriorityStmt, err = db.PrepareContext(ctx, lockSchedulePriority); err != nil {
 		return nil, fmt.Errorf("error preparing query LockSchedulePriority: %w", err)
@@ -2400,6 +2457,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.recordFirmwareRolloutActionStmt, err = db.PrepareContext(ctx, recordFirmwareRolloutAction); err != nil {
 		return nil, fmt.Errorf("error preparing query RecordFirmwareRolloutAction: %w", err)
 	}
+	if q.recordMaintenanceModuleModelStmt, err = db.PrepareContext(ctx, recordMaintenanceModuleModel); err != nil {
+		return nil, fmt.Errorf("error preparing query RecordMaintenanceModuleModel: %w", err)
+	}
 	if q.recordMiningGroupRequestStmt, err = db.PrepareContext(ctx, recordMiningGroupRequest); err != nil {
 		return nil, fmt.Errorf("error preparing query RecordMiningGroupRequest: %w", err)
 	}
@@ -2447,6 +2507,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.renewFleetRuntimeLeaseStmt, err = db.PrepareContext(ctx, renewFleetRuntimeLease); err != nil {
 		return nil, fmt.Errorf("error preparing query RenewFleetRuntimeLease: %w", err)
+	}
+	if q.repairTicketContainsModuleStmt, err = db.PrepareContext(ctx, repairTicketContainsModule); err != nil {
+		return nil, fmt.Errorf("error preparing query RepairTicketContainsModule: %w", err)
 	}
 	if q.requestRigConfigReconciliationForDevicesStmt, err = db.PrepareContext(ctx, requestRigConfigReconciliationForDevices); err != nil {
 		return nil, fmt.Errorf("error preparing query RequestRigConfigReconciliationForDevices: %w", err)
@@ -2496,8 +2559,17 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.resolveMaintenanceMinerContextStmt, err = db.PrepareContext(ctx, resolveMaintenanceMinerContext); err != nil {
 		return nil, fmt.Errorf("error preparing query ResolveMaintenanceMinerContext: %w", err)
 	}
+	if q.resolveMaintenanceMinerIdentifierByIDStmt, err = db.PrepareContext(ctx, resolveMaintenanceMinerIdentifierByID); err != nil {
+		return nil, fmt.Errorf("error preparing query ResolveMaintenanceMinerIdentifierByID: %w", err)
+	}
 	if q.resolveReleaseChannelScopeStmt, err = db.PrepareContext(ctx, resolveReleaseChannelScope); err != nil {
 		return nil, fmt.Errorf("error preparing query ResolveReleaseChannelScope: %w", err)
+	}
+	if q.resolveRepairTicketAssetStmt, err = db.PrepareContext(ctx, resolveRepairTicketAsset); err != nil {
+		return nil, fmt.Errorf("error preparing query ResolveRepairTicketAsset: %w", err)
+	}
+	if q.resolveRepairTicketMinerTargetStmt, err = db.PrepareContext(ctx, resolveRepairTicketMinerTarget); err != nil {
+		return nil, fmt.Errorf("error preparing query ResolveRepairTicketMinerTarget: %w", err)
 	}
 	if q.resumeCurtailmentFromRestoringStmt, err = db.PrepareContext(ctx, resumeCurtailmentFromRestoring); err != nil {
 		return nil, fmt.Errorf("error preparing query ResumeCurtailmentFromRestoring: %w", err)
@@ -2607,6 +2679,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.setHostedAccountSitesRestrictedStmt, err = db.PrepareContext(ctx, setHostedAccountSitesRestricted); err != nil {
 		return nil, fmt.Errorf("error preparing query SetHostedAccountSitesRestricted: %w", err)
 	}
+	if q.setHostedAccountTicketingStmt, err = db.PrepareContext(ctx, setHostedAccountTicketing); err != nil {
+		return nil, fmt.Errorf("error preparing query SetHostedAccountTicketing: %w", err)
+	}
 	if q.setInfrastructureControlSubnetsStmt, err = db.PrepareContext(ctx, setInfrastructureControlSubnets); err != nil {
 		return nil, fmt.Errorf("error preparing query SetInfrastructureControlSubnets: %w", err)
 	}
@@ -2640,11 +2715,17 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.setRackSlotPositionStmt, err = db.PrepareContext(ctx, setRackSlotPosition); err != nil {
 		return nil, fmt.Errorf("error preparing query SetRackSlotPosition: %w", err)
 	}
+	if q.setRepairTicketCommentVisibilityStmt, err = db.PrepareContext(ctx, setRepairTicketCommentVisibility); err != nil {
+		return nil, fmt.Errorf("error preparing query SetRepairTicketCommentVisibility: %w", err)
+	}
 	if q.setSchedulePrioritiesStmt, err = db.PrepareContext(ctx, setSchedulePriorities); err != nil {
 		return nil, fmt.Errorf("error preparing query SetSchedulePriorities: %w", err)
 	}
 	if q.setScheduleRunningStmt, err = db.PrepareContext(ctx, setScheduleRunning); err != nil {
 		return nil, fmt.Errorf("error preparing query SetScheduleRunning: %w", err)
+	}
+	if q.shareRepairTicketStmt, err = db.PrepareContext(ctx, shareRepairTicket); err != nil {
+		return nil, fmt.Errorf("error preparing query ShareRepairTicket: %w", err)
 	}
 	if q.siteBelongsToOrgStmt, err = db.PrepareContext(ctx, siteBelongsToOrg); err != nil {
 		return nil, fmt.Errorf("error preparing query SiteBelongsToOrg: %w", err)
@@ -2750,6 +2831,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.sweepExpiredFleetNodeSessionsStmt, err = db.PrepareContext(ctx, sweepExpiredFleetNodeSessions); err != nil {
 		return nil, fmt.Errorf("error preparing query SweepExpiredFleetNodeSessions: %w", err)
+	}
+	if q.touchRepairTicketStmt, err = db.PrepareContext(ctx, touchRepairTicket); err != nil {
+		return nil, fmt.Errorf("error preparing query TouchRepairTicket: %w", err)
 	}
 	if q.transferDiscoveredDeviceAttributionStmt, err = db.PrepareContext(ctx, transferDiscoveredDeviceAttribution); err != nil {
 		return nil, fmt.Errorf("error preparing query TransferDiscoveredDeviceAttribution: %w", err)
@@ -2910,6 +2994,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.updateRepairTicketStmt, err = db.PrepareContext(ctx, updateRepairTicket); err != nil {
 		return nil, fmt.Errorf("error preparing query UpdateRepairTicket: %w", err)
 	}
+	if q.updateRepairTicketTargetEvidenceStmt, err = db.PrepareContext(ctx, updateRepairTicketTargetEvidence); err != nil {
+		return nil, fmt.Errorf("error preparing query UpdateRepairTicketTargetEvidence: %w", err)
+	}
 	if q.updateRoleStmt, err = db.PrepareContext(ctx, updateRole); err != nil {
 		return nil, fmt.Errorf("error preparing query UpdateRole: %w", err)
 	}
@@ -3064,6 +3151,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing addHostedAccountUserAffiliationStmt: %w", cerr)
 		}
 	}
+	if q.addRepairTicketBoardStmt != nil {
+		if cerr := q.addRepairTicketBoardStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing addRepairTicketBoardStmt: %w", cerr)
+		}
+	}
 	if q.adminResetUserPasswordStmt != nil {
 		if cerr := q.adminResetUserPasswordStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing adminResetUserPasswordStmt: %w", cerr)
@@ -3169,6 +3261,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing assignRoleStmt: %w", cerr)
 		}
 	}
+	if q.associateRepairTicketAccountStmt != nil {
+		if cerr := q.associateRepairTicketAccountStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing associateRepairTicketAccountStmt: %w", cerr)
+		}
+	}
 	if q.beginCurtailmentRestorationStmt != nil {
 		if cerr := q.beginCurtailmentRestorationStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing beginCurtailmentRestorationStmt: %w", cerr)
@@ -3249,6 +3346,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing bumpCurtailmentTargetRetryStmt: %w", cerr)
 		}
 	}
+	if q.canAccountCloseRepairTicketStmt != nil {
+		if cerr := q.canAccountCloseRepairTicketStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing canAccountCloseRepairTicketStmt: %w", cerr)
+		}
+	}
 	if q.canReadContainerModuleHistoryStmt != nil {
 		if cerr := q.canReadContainerModuleHistoryStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing canReadContainerModuleHistoryStmt: %w", cerr)
@@ -3257,6 +3359,11 @@ func (q *Queries) Close() error {
 	if q.canReadHashboardHistoryStmt != nil {
 		if cerr := q.canReadHashboardHistoryStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing canReadHashboardHistoryStmt: %w", cerr)
+		}
+	}
+	if q.canTargetAccountRepairAssetStmt != nil {
+		if cerr := q.canTargetAccountRepairAssetStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing canTargetAccountRepairAssetStmt: %w", cerr)
 		}
 	}
 	if q.cancelActiveFirmwareRolloutStmt != nil {
@@ -4137,6 +4244,16 @@ func (q *Queries) Close() error {
 	if q.forceReleaseCurtailmentEventStmt != nil {
 		if cerr := q.forceReleaseCurtailmentEventStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing forceReleaseCurtailmentEventStmt: %w", cerr)
+		}
+	}
+	if q.getAccountRepairTicketStmt != nil {
+		if cerr := q.getAccountRepairTicketStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getAccountRepairTicketStmt: %w", cerr)
+		}
+	}
+	if q.getAccountTicketAccessStmt != nil {
+		if cerr := q.getAccountTicketAccessStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getAccountTicketAccessStmt: %w", cerr)
 		}
 	}
 	if q.getActiveFirmwareRolloutForPairStmt != nil {
@@ -5194,6 +5311,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing getRepairTicketCommentByIdempotencyKeyStmt: %w", cerr)
 		}
 	}
+	if q.getRepairTicketCommentForVisibilityStmt != nil {
+		if cerr := q.getRepairTicketCommentForVisibilityStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getRepairTicketCommentForVisibilityStmt: %w", cerr)
+		}
+	}
 	if q.getRepairTicketCommentSiteForUpdateStmt != nil {
 		if cerr := q.getRepairTicketCommentSiteForUpdateStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getRepairTicketCommentSiteForUpdateStmt: %w", cerr)
@@ -5207,6 +5329,11 @@ func (q *Queries) Close() error {
 	if q.getRepairTicketIDByIdempotencyKeyStmt != nil {
 		if cerr := q.getRepairTicketIDByIdempotencyKeyStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getRepairTicketIDByIdempotencyKeyStmt: %w", cerr)
+		}
+	}
+	if q.getRepairTicketMetadataStmt != nil {
+		if cerr := q.getRepairTicketMetadataStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getRepairTicketMetadataStmt: %w", cerr)
 		}
 	}
 	if q.getRoleByIDStmt != nil {
@@ -5509,6 +5636,16 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing insertReleaseChannelTargetsStmt: %w", cerr)
 		}
 	}
+	if q.insertRepairTicketOpeningAudienceStmt != nil {
+		if cerr := q.insertRepairTicketOpeningAudienceStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing insertRepairTicketOpeningAudienceStmt: %w", cerr)
+		}
+	}
+	if q.insertRepairTicketOpeningTargetStmt != nil {
+		if cerr := q.insertRepairTicketOpeningTargetStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing insertRepairTicketOpeningTargetStmt: %w", cerr)
+		}
+	}
 	if q.insertRepairTicketPartStmt != nil {
 		if cerr := q.insertRepairTicketPartStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing insertRepairTicketPartStmt: %w", cerr)
@@ -5557,6 +5694,21 @@ func (q *Queries) Close() error {
 	if q.linkPoolConfigurationAttemptStmt != nil {
 		if cerr := q.linkPoolConfigurationAttemptStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing linkPoolConfigurationAttemptStmt: %w", cerr)
+		}
+	}
+	if q.listAccountRepairTicketCommentsStmt != nil {
+		if cerr := q.listAccountRepairTicketCommentsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listAccountRepairTicketCommentsStmt: %w", cerr)
+		}
+	}
+	if q.listAccountRepairTicketTargetsStmt != nil {
+		if cerr := q.listAccountRepairTicketTargetsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listAccountRepairTicketTargetsStmt: %w", cerr)
+		}
+	}
+	if q.listAccountRepairTicketsStmt != nil {
+		if cerr := q.listAccountRepairTicketsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listAccountRepairTicketsStmt: %w", cerr)
 		}
 	}
 	if q.listActiveAlertMaintenanceWindowsStmt != nil {
@@ -6259,6 +6411,16 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing listReleaseChannelsPageStmt: %w", cerr)
 		}
 	}
+	if q.listRepairTicketAssetOptionsStmt != nil {
+		if cerr := q.listRepairTicketAssetOptionsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listRepairTicketAssetOptionsStmt: %w", cerr)
+		}
+	}
+	if q.listRepairTicketBoardOptionsStmt != nil {
+		if cerr := q.listRepairTicketBoardOptionsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listRepairTicketBoardOptionsStmt: %w", cerr)
+		}
+	}
 	if q.listRepairTicketCommentsStmt != nil {
 		if cerr := q.listRepairTicketCommentsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing listRepairTicketCommentsStmt: %w", cerr)
@@ -6654,6 +6816,16 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing lockMaintenanceMinerForTicketStmt: %w", cerr)
 		}
 	}
+	if q.lockMaintenanceModelDeviceStmt != nil {
+		if cerr := q.lockMaintenanceModelDeviceStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing lockMaintenanceModelDeviceStmt: %w", cerr)
+		}
+	}
+	if q.lockMaintenanceModuleModelSiteStmt != nil {
+		if cerr := q.lockMaintenanceModuleModelSiteStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing lockMaintenanceModuleModelSiteStmt: %w", cerr)
+		}
+	}
 	if q.lockMaintenanceRackForTicketStmt != nil {
 		if cerr := q.lockMaintenanceRackForTicketStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing lockMaintenanceRackForTicketStmt: %w", cerr)
@@ -6662,6 +6834,11 @@ func (q *Queries) Close() error {
 	if q.lockMaintenanceSiteForTicketStmt != nil {
 		if cerr := q.lockMaintenanceSiteForTicketStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing lockMaintenanceSiteForTicketStmt: %w", cerr)
+		}
+	}
+	if q.lockMaintenanceTicketInstallationStmt != nil {
+		if cerr := q.lockMaintenanceTicketInstallationStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing lockMaintenanceTicketInstallationStmt: %w", cerr)
 		}
 	}
 	if q.lockMinerBindingCredentialsStmt != nil {
@@ -6747,6 +6924,11 @@ func (q *Queries) Close() error {
 	if q.lockRepairTicketCreateKeyStmt != nil {
 		if cerr := q.lockRepairTicketCreateKeyStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing lockRepairTicketCreateKeyStmt: %w", cerr)
+		}
+	}
+	if q.lockRepairTicketTargetAllocationStmt != nil {
+		if cerr := q.lockRepairTicketTargetAllocationStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing lockRepairTicketTargetAllocationStmt: %w", cerr)
 		}
 	}
 	if q.lockSchedulePriorityStmt != nil {
@@ -6989,6 +7171,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing recordFirmwareRolloutActionStmt: %w", cerr)
 		}
 	}
+	if q.recordMaintenanceModuleModelStmt != nil {
+		if cerr := q.recordMaintenanceModuleModelStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing recordMaintenanceModuleModelStmt: %w", cerr)
+		}
+	}
 	if q.recordMiningGroupRequestStmt != nil {
 		if cerr := q.recordMiningGroupRequestStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing recordMiningGroupRequestStmt: %w", cerr)
@@ -7067,6 +7254,11 @@ func (q *Queries) Close() error {
 	if q.renewFleetRuntimeLeaseStmt != nil {
 		if cerr := q.renewFleetRuntimeLeaseStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing renewFleetRuntimeLeaseStmt: %w", cerr)
+		}
+	}
+	if q.repairTicketContainsModuleStmt != nil {
+		if cerr := q.repairTicketContainsModuleStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing repairTicketContainsModuleStmt: %w", cerr)
 		}
 	}
 	if q.requestRigConfigReconciliationForDevicesStmt != nil {
@@ -7149,9 +7341,24 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing resolveMaintenanceMinerContextStmt: %w", cerr)
 		}
 	}
+	if q.resolveMaintenanceMinerIdentifierByIDStmt != nil {
+		if cerr := q.resolveMaintenanceMinerIdentifierByIDStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing resolveMaintenanceMinerIdentifierByIDStmt: %w", cerr)
+		}
+	}
 	if q.resolveReleaseChannelScopeStmt != nil {
 		if cerr := q.resolveReleaseChannelScopeStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing resolveReleaseChannelScopeStmt: %w", cerr)
+		}
+	}
+	if q.resolveRepairTicketAssetStmt != nil {
+		if cerr := q.resolveRepairTicketAssetStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing resolveRepairTicketAssetStmt: %w", cerr)
+		}
+	}
+	if q.resolveRepairTicketMinerTargetStmt != nil {
+		if cerr := q.resolveRepairTicketMinerTargetStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing resolveRepairTicketMinerTargetStmt: %w", cerr)
 		}
 	}
 	if q.resumeCurtailmentFromRestoringStmt != nil {
@@ -7334,6 +7541,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing setHostedAccountSitesRestrictedStmt: %w", cerr)
 		}
 	}
+	if q.setHostedAccountTicketingStmt != nil {
+		if cerr := q.setHostedAccountTicketingStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing setHostedAccountTicketingStmt: %w", cerr)
+		}
+	}
 	if q.setInfrastructureControlSubnetsStmt != nil {
 		if cerr := q.setInfrastructureControlSubnetsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing setInfrastructureControlSubnetsStmt: %w", cerr)
@@ -7389,6 +7601,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing setRackSlotPositionStmt: %w", cerr)
 		}
 	}
+	if q.setRepairTicketCommentVisibilityStmt != nil {
+		if cerr := q.setRepairTicketCommentVisibilityStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing setRepairTicketCommentVisibilityStmt: %w", cerr)
+		}
+	}
 	if q.setSchedulePrioritiesStmt != nil {
 		if cerr := q.setSchedulePrioritiesStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing setSchedulePrioritiesStmt: %w", cerr)
@@ -7397,6 +7614,11 @@ func (q *Queries) Close() error {
 	if q.setScheduleRunningStmt != nil {
 		if cerr := q.setScheduleRunningStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing setScheduleRunningStmt: %w", cerr)
+		}
+	}
+	if q.shareRepairTicketStmt != nil {
+		if cerr := q.shareRepairTicketStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing shareRepairTicketStmt: %w", cerr)
 		}
 	}
 	if q.siteBelongsToOrgStmt != nil {
@@ -7572,6 +7794,11 @@ func (q *Queries) Close() error {
 	if q.sweepExpiredFleetNodeSessionsStmt != nil {
 		if cerr := q.sweepExpiredFleetNodeSessionsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing sweepExpiredFleetNodeSessionsStmt: %w", cerr)
+		}
+	}
+	if q.touchRepairTicketStmt != nil {
+		if cerr := q.touchRepairTicketStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing touchRepairTicketStmt: %w", cerr)
 		}
 	}
 	if q.transferDiscoveredDeviceAttributionStmt != nil {
@@ -7839,6 +8066,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing updateRepairTicketStmt: %w", cerr)
 		}
 	}
+	if q.updateRepairTicketTargetEvidenceStmt != nil {
+		if cerr := q.updateRepairTicketTargetEvidenceStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing updateRepairTicketTargetEvidenceStmt: %w", cerr)
+		}
+	}
 	if q.updateRoleStmt != nil {
 		if cerr := q.updateRoleStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing updateRoleStmt: %w", cerr)
@@ -8075,6 +8307,7 @@ type Queries struct {
 	addHostedAccountKeyDescendantStmt                          *sql.Stmt
 	addHostedAccountSiteStmt                                   *sql.Stmt
 	addHostedAccountUserAffiliationStmt                        *sql.Stmt
+	addRepairTicketBoardStmt                                   *sql.Stmt
 	adminResetUserPasswordStmt                                 *sql.Stmt
 	adminTerminateCurtailmentEventStmt                         *sql.Stmt
 	advanceContainerControlsStmt                               *sql.Stmt
@@ -8096,6 +8329,7 @@ type Queries struct {
 	assignDevicesToSiteStmt                                    *sql.Stmt
 	assignPermissionToRoleStmt                                 *sql.Stmt
 	assignRoleStmt                                             *sql.Stmt
+	associateRepairTicketAccountStmt                           *sql.Stmt
 	beginCurtailmentRestorationStmt                            *sql.Stmt
 	beginCurtailmentTopologyTargetRestoreStmt                  *sql.Stmt
 	bindCurtailmentAutomationRuleResponseProfileRevisionStmt   *sql.Stmt
@@ -8112,8 +8346,10 @@ type Queries struct {
 	bulkRefreshAllPairedTargetReadinessStmt                    *sql.Stmt
 	bulkUpdateTicketStatusStmt                                 *sql.Stmt
 	bumpCurtailmentTargetRetryStmt                             *sql.Stmt
+	canAccountCloseRepairTicketStmt                            *sql.Stmt
 	canReadContainerModuleHistoryStmt                          *sql.Stmt
 	canReadHashboardHistoryStmt                                *sql.Stmt
+	canTargetAccountRepairAssetStmt                            *sql.Stmt
 	cancelActiveFirmwareRolloutStmt                            *sql.Stmt
 	cancelEnrollmentForFleetNodeStmt                           *sql.Stmt
 	cancelFirmwareRolloutStmt                                  *sql.Stmt
@@ -8290,6 +8526,8 @@ type Queries struct {
 	finishTerminalCommandBatchesStmt                           *sql.Stmt
 	fleetNodeInHAPairStmt                                      *sql.Stmt
 	forceReleaseCurtailmentEventStmt                           *sql.Stmt
+	getAccountRepairTicketStmt                                 *sql.Stmt
+	getAccountTicketAccessStmt                                 *sql.Stmt
 	getActiveFirmwareRolloutForPairStmt                        *sql.Stmt
 	getActiveSchedulesStmt                                     *sql.Stmt
 	getActiveUnpairedDiscoveredDevicesStmt                     *sql.Stmt
@@ -8501,9 +8739,11 @@ type Queries struct {
 	getReleaseChannelSettingStmt                               *sql.Stmt
 	getRepairTicketStmt                                        *sql.Stmt
 	getRepairTicketCommentByIdempotencyKeyStmt                 *sql.Stmt
+	getRepairTicketCommentForVisibilityStmt                    *sql.Stmt
 	getRepairTicketCommentSiteForUpdateStmt                    *sql.Stmt
 	getRepairTicketForUpdateStmt                               *sql.Stmt
 	getRepairTicketIDByIdempotencyKeyStmt                      *sql.Stmt
+	getRepairTicketMetadataStmt                                *sql.Stmt
 	getRoleByIDStmt                                            *sql.Stmt
 	getRoleByIDForUpdateStmt                                   *sql.Stmt
 	getRunningPowerTargetScheduleOverlapsStmt                  *sql.Stmt
@@ -8564,6 +8804,8 @@ type Queries struct {
 	insertNotificationMetricSamplesStmt                        *sql.Stmt
 	insertReleaseChannelMinerTargetsStmt                       *sql.Stmt
 	insertReleaseChannelTargetsStmt                            *sql.Stmt
+	insertRepairTicketOpeningAudienceStmt                      *sql.Stmt
+	insertRepairTicketOpeningTargetStmt                        *sql.Stmt
 	insertRepairTicketPartStmt                                 *sql.Stmt
 	inventoryPartExistsBySiteAndNameStmt                       *sql.Stmt
 	invitationTokenHashInUseStmt                               *sql.Stmt
@@ -8574,6 +8816,9 @@ type Queries struct {
 	isFleetNodeHAStandbyStmt                                   *sql.Stmt
 	isRetiredDeviceWriteDrainedStmt                            *sql.Stmt
 	linkPoolConfigurationAttemptStmt                           *sql.Stmt
+	listAccountRepairTicketCommentsStmt                        *sql.Stmt
+	listAccountRepairTicketTargetsStmt                         *sql.Stmt
+	listAccountRepairTicketsStmt                               *sql.Stmt
 	listActiveAlertMaintenanceWindowsStmt                      *sql.Stmt
 	listActiveCurtailedDevicesByOrgStmt                        *sql.Stmt
 	listActiveCurtailmentEventsStmt                            *sql.Stmt
@@ -8714,6 +8959,8 @@ type Queries struct {
 	listReleaseChannelTargetsStmt                              *sql.Stmt
 	listReleaseChannelsStmt                                    *sql.Stmt
 	listReleaseChannelsPageStmt                                *sql.Stmt
+	listRepairTicketAssetOptionsStmt                           *sql.Stmt
+	listRepairTicketBoardOptionsStmt                           *sql.Stmt
 	listRepairTicketCommentsStmt                               *sql.Stmt
 	listRepairTicketPartsStmt                                  *sql.Stmt
 	listRepairTicketsStmt                                      *sql.Stmt
@@ -8793,8 +9040,11 @@ type Queries struct {
 	lockLegacyPoolLibraryForImportStmt                         *sql.Stmt
 	lockMaintenanceBuildingForTicketStmt                       *sql.Stmt
 	lockMaintenanceMinerForTicketStmt                          *sql.Stmt
+	lockMaintenanceModelDeviceStmt                             *sql.Stmt
+	lockMaintenanceModuleModelSiteStmt                         *sql.Stmt
 	lockMaintenanceRackForTicketStmt                           *sql.Stmt
 	lockMaintenanceSiteForTicketStmt                           *sql.Stmt
+	lockMaintenanceTicketInstallationStmt                      *sql.Stmt
 	lockMinerBindingCredentialsStmt                            *sql.Stmt
 	lockMinerBindingDeviceStmt                                 *sql.Stmt
 	lockMinerBindingDiscoveryStmt                              *sql.Stmt
@@ -8812,6 +9062,7 @@ type Queries struct {
 	lockReleaseChannelScopesStmt                               *sql.Stmt
 	lockRepairTicketCommentCreateKeyStmt                       *sql.Stmt
 	lockRepairTicketCreateKeyStmt                              *sql.Stmt
+	lockRepairTicketTargetAllocationStmt                       *sql.Stmt
 	lockSchedulePriorityStmt                                   *sql.Stmt
 	lockSiteForWriteStmt                                       *sql.Stmt
 	lockTelemetrySeedMaintenanceStmt                           *sql.Stmt
@@ -8860,6 +9111,7 @@ type Queries struct {
 	recordDeviceWriteRecoveryStmt                              *sql.Stmt
 	recordFirmwareDeploymentStmt                               *sql.Stmt
 	recordFirmwareRolloutActionStmt                            *sql.Stmt
+	recordMaintenanceModuleModelStmt                           *sql.Stmt
 	recordMiningGroupRequestStmt                               *sql.Stmt
 	recordPoolConfigurationImportStmt                          *sql.Stmt
 	recoverSettledPoolConfigurationWorkStmt                    *sql.Stmt
@@ -8876,6 +9128,7 @@ type Queries struct {
 	removeDevicesFromDeviceSetStmt                             *sql.Stmt
 	renameHostedAccountStmt                                    *sql.Stmt
 	renewFleetRuntimeLeaseStmt                                 *sql.Stmt
+	repairTicketContainsModuleStmt                             *sql.Stmt
 	requestRigConfigReconciliationForDevicesStmt               *sql.Stmt
 	requeueFirmwareRolloutDevicesStmt                          *sql.Stmt
 	requeueRigConfigReconciliationAfterTerminalFailureStmt     *sql.Stmt
@@ -8892,7 +9145,10 @@ type Queries struct {
 	resolveMaintenanceAssigneeStmt                             *sql.Stmt
 	resolveMaintenanceLocationContextStmt                      *sql.Stmt
 	resolveMaintenanceMinerContextStmt                         *sql.Stmt
+	resolveMaintenanceMinerIdentifierByIDStmt                  *sql.Stmt
 	resolveReleaseChannelScopeStmt                             *sql.Stmt
+	resolveRepairTicketAssetStmt                               *sql.Stmt
+	resolveRepairTicketMinerTargetStmt                         *sql.Stmt
 	resumeCurtailmentFromRestoringStmt                         *sql.Stmt
 	resumeFirmwareRolloutStmt                                  *sql.Stmt
 	resumePausedScheduleStmt                                   *sql.Stmt
@@ -8929,6 +9185,7 @@ type Queries struct {
 	setHostedAccountMembershipStmt                             *sql.Stmt
 	setHostedAccountPoolProfileStmt                            *sql.Stmt
 	setHostedAccountSitesRestrictedStmt                        *sql.Stmt
+	setHostedAccountTicketingStmt                              *sql.Stmt
 	setInfrastructureControlSubnetsStmt                        *sql.Stmt
 	setLocalDeviceDeletionLockTimeoutStmt                      *sql.Stmt
 	setLocalFleetNodeHAFailoverLockTimeoutStmt                 *sql.Stmt
@@ -8940,8 +9197,10 @@ type Queries struct {
 	setRackBuildingPositionBulkClearStmt                       *sql.Stmt
 	setRackBuildingPositionBulkPlaceStmt                       *sql.Stmt
 	setRackSlotPositionStmt                                    *sql.Stmt
+	setRepairTicketCommentVisibilityStmt                       *sql.Stmt
 	setSchedulePrioritiesStmt                                  *sql.Stmt
 	setScheduleRunningStmt                                     *sql.Stmt
+	shareRepairTicketStmt                                      *sql.Stmt
 	siteBelongsToOrgStmt                                       *sql.Stmt
 	sitesByIDsStmt                                             *sql.Stmt
 	skipFirmwareRolloutDevicesStmt                             *sql.Stmt
@@ -8977,6 +9236,7 @@ type Queries struct {
 	sweepExpiredEnrollmentsStmt                                *sql.Stmt
 	sweepExpiredFleetNodeAuthChallengesStmt                    *sql.Stmt
 	sweepExpiredFleetNodeSessionsStmt                          *sql.Stmt
+	touchRepairTicketStmt                                      *sql.Stmt
 	transferDiscoveredDeviceAttributionStmt                    *sql.Stmt
 	unassignDeviceBuildingsByRackStmt                          *sql.Stmt
 	unassignDeviceSitesByRackStmt                              *sql.Stmt
@@ -9030,6 +9290,7 @@ type Queries struct {
 	updateRackPlacementBulkForSiteStmt                         *sql.Stmt
 	updateReleaseChannelStmt                                   *sql.Stmt
 	updateRepairTicketStmt                                     *sql.Stmt
+	updateRepairTicketTargetEvidenceStmt                       *sql.Stmt
 	updateRoleStmt                                             *sql.Stmt
 	updateScheduleStmt                                         *sql.Stmt
 	updateScheduleAfterRunStmt                                 *sql.Stmt
@@ -9081,6 +9342,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		addHostedAccountKeyDescendantStmt:                          q.addHostedAccountKeyDescendantStmt,
 		addHostedAccountSiteStmt:                                   q.addHostedAccountSiteStmt,
 		addHostedAccountUserAffiliationStmt:                        q.addHostedAccountUserAffiliationStmt,
+		addRepairTicketBoardStmt:                                   q.addRepairTicketBoardStmt,
 		adminResetUserPasswordStmt:                                 q.adminResetUserPasswordStmt,
 		adminTerminateCurtailmentEventStmt:                         q.adminTerminateCurtailmentEventStmt,
 		advanceContainerControlsStmt:                               q.advanceContainerControlsStmt,
@@ -9102,6 +9364,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		assignDevicesToSiteStmt:                                    q.assignDevicesToSiteStmt,
 		assignPermissionToRoleStmt:                                 q.assignPermissionToRoleStmt,
 		assignRoleStmt:                                             q.assignRoleStmt,
+		associateRepairTicketAccountStmt:                           q.associateRepairTicketAccountStmt,
 		beginCurtailmentRestorationStmt:                            q.beginCurtailmentRestorationStmt,
 		beginCurtailmentTopologyTargetRestoreStmt:                  q.beginCurtailmentTopologyTargetRestoreStmt,
 		bindCurtailmentAutomationRuleResponseProfileRevisionStmt:   q.bindCurtailmentAutomationRuleResponseProfileRevisionStmt,
@@ -9118,8 +9381,10 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		bulkRefreshAllPairedTargetReadinessStmt:                    q.bulkRefreshAllPairedTargetReadinessStmt,
 		bulkUpdateTicketStatusStmt:                                 q.bulkUpdateTicketStatusStmt,
 		bumpCurtailmentTargetRetryStmt:                             q.bumpCurtailmentTargetRetryStmt,
+		canAccountCloseRepairTicketStmt:                            q.canAccountCloseRepairTicketStmt,
 		canReadContainerModuleHistoryStmt:                          q.canReadContainerModuleHistoryStmt,
 		canReadHashboardHistoryStmt:                                q.canReadHashboardHistoryStmt,
+		canTargetAccountRepairAssetStmt:                            q.canTargetAccountRepairAssetStmt,
 		cancelActiveFirmwareRolloutStmt:                            q.cancelActiveFirmwareRolloutStmt,
 		cancelEnrollmentForFleetNodeStmt:                           q.cancelEnrollmentForFleetNodeStmt,
 		cancelFirmwareRolloutStmt:                                  q.cancelFirmwareRolloutStmt,
@@ -9296,6 +9561,8 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		finishTerminalCommandBatchesStmt:                           q.finishTerminalCommandBatchesStmt,
 		fleetNodeInHAPairStmt:                                      q.fleetNodeInHAPairStmt,
 		forceReleaseCurtailmentEventStmt:                           q.forceReleaseCurtailmentEventStmt,
+		getAccountRepairTicketStmt:                                 q.getAccountRepairTicketStmt,
+		getAccountTicketAccessStmt:                                 q.getAccountTicketAccessStmt,
 		getActiveFirmwareRolloutForPairStmt:                        q.getActiveFirmwareRolloutForPairStmt,
 		getActiveSchedulesStmt:                                     q.getActiveSchedulesStmt,
 		getActiveUnpairedDiscoveredDevicesStmt:                     q.getActiveUnpairedDiscoveredDevicesStmt,
@@ -9507,9 +9774,11 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getReleaseChannelSettingStmt:                               q.getReleaseChannelSettingStmt,
 		getRepairTicketStmt:                                        q.getRepairTicketStmt,
 		getRepairTicketCommentByIdempotencyKeyStmt:                 q.getRepairTicketCommentByIdempotencyKeyStmt,
+		getRepairTicketCommentForVisibilityStmt:                    q.getRepairTicketCommentForVisibilityStmt,
 		getRepairTicketCommentSiteForUpdateStmt:                    q.getRepairTicketCommentSiteForUpdateStmt,
 		getRepairTicketForUpdateStmt:                               q.getRepairTicketForUpdateStmt,
 		getRepairTicketIDByIdempotencyKeyStmt:                      q.getRepairTicketIDByIdempotencyKeyStmt,
+		getRepairTicketMetadataStmt:                                q.getRepairTicketMetadataStmt,
 		getRoleByIDStmt:                                            q.getRoleByIDStmt,
 		getRoleByIDForUpdateStmt:                                   q.getRoleByIDForUpdateStmt,
 		getRunningPowerTargetScheduleOverlapsStmt:                  q.getRunningPowerTargetScheduleOverlapsStmt,
@@ -9570,6 +9839,8 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		insertNotificationMetricSamplesStmt:                        q.insertNotificationMetricSamplesStmt,
 		insertReleaseChannelMinerTargetsStmt:                       q.insertReleaseChannelMinerTargetsStmt,
 		insertReleaseChannelTargetsStmt:                            q.insertReleaseChannelTargetsStmt,
+		insertRepairTicketOpeningAudienceStmt:                      q.insertRepairTicketOpeningAudienceStmt,
+		insertRepairTicketOpeningTargetStmt:                        q.insertRepairTicketOpeningTargetStmt,
 		insertRepairTicketPartStmt:                                 q.insertRepairTicketPartStmt,
 		inventoryPartExistsBySiteAndNameStmt:                       q.inventoryPartExistsBySiteAndNameStmt,
 		invitationTokenHashInUseStmt:                               q.invitationTokenHashInUseStmt,
@@ -9580,6 +9851,9 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		isFleetNodeHAStandbyStmt:                                   q.isFleetNodeHAStandbyStmt,
 		isRetiredDeviceWriteDrainedStmt:                            q.isRetiredDeviceWriteDrainedStmt,
 		linkPoolConfigurationAttemptStmt:                           q.linkPoolConfigurationAttemptStmt,
+		listAccountRepairTicketCommentsStmt:                        q.listAccountRepairTicketCommentsStmt,
+		listAccountRepairTicketTargetsStmt:                         q.listAccountRepairTicketTargetsStmt,
+		listAccountRepairTicketsStmt:                               q.listAccountRepairTicketsStmt,
 		listActiveAlertMaintenanceWindowsStmt:                      q.listActiveAlertMaintenanceWindowsStmt,
 		listActiveCurtailedDevicesByOrgStmt:                        q.listActiveCurtailedDevicesByOrgStmt,
 		listActiveCurtailmentEventsStmt:                            q.listActiveCurtailmentEventsStmt,
@@ -9720,6 +9994,8 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		listReleaseChannelTargetsStmt:                              q.listReleaseChannelTargetsStmt,
 		listReleaseChannelsStmt:                                    q.listReleaseChannelsStmt,
 		listReleaseChannelsPageStmt:                                q.listReleaseChannelsPageStmt,
+		listRepairTicketAssetOptionsStmt:                           q.listRepairTicketAssetOptionsStmt,
+		listRepairTicketBoardOptionsStmt:                           q.listRepairTicketBoardOptionsStmt,
 		listRepairTicketCommentsStmt:                               q.listRepairTicketCommentsStmt,
 		listRepairTicketPartsStmt:                                  q.listRepairTicketPartsStmt,
 		listRepairTicketsStmt:                                      q.listRepairTicketsStmt,
@@ -9799,8 +10075,11 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		lockLegacyPoolLibraryForImportStmt:                         q.lockLegacyPoolLibraryForImportStmt,
 		lockMaintenanceBuildingForTicketStmt:                       q.lockMaintenanceBuildingForTicketStmt,
 		lockMaintenanceMinerForTicketStmt:                          q.lockMaintenanceMinerForTicketStmt,
+		lockMaintenanceModelDeviceStmt:                             q.lockMaintenanceModelDeviceStmt,
+		lockMaintenanceModuleModelSiteStmt:                         q.lockMaintenanceModuleModelSiteStmt,
 		lockMaintenanceRackForTicketStmt:                           q.lockMaintenanceRackForTicketStmt,
 		lockMaintenanceSiteForTicketStmt:                           q.lockMaintenanceSiteForTicketStmt,
+		lockMaintenanceTicketInstallationStmt:                      q.lockMaintenanceTicketInstallationStmt,
 		lockMinerBindingCredentialsStmt:                            q.lockMinerBindingCredentialsStmt,
 		lockMinerBindingDeviceStmt:                                 q.lockMinerBindingDeviceStmt,
 		lockMinerBindingDiscoveryStmt:                              q.lockMinerBindingDiscoveryStmt,
@@ -9818,6 +10097,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		lockReleaseChannelScopesStmt:                               q.lockReleaseChannelScopesStmt,
 		lockRepairTicketCommentCreateKeyStmt:                       q.lockRepairTicketCommentCreateKeyStmt,
 		lockRepairTicketCreateKeyStmt:                              q.lockRepairTicketCreateKeyStmt,
+		lockRepairTicketTargetAllocationStmt:                       q.lockRepairTicketTargetAllocationStmt,
 		lockSchedulePriorityStmt:                                   q.lockSchedulePriorityStmt,
 		lockSiteForWriteStmt:                                       q.lockSiteForWriteStmt,
 		lockTelemetrySeedMaintenanceStmt:                           q.lockTelemetrySeedMaintenanceStmt,
@@ -9866,6 +10146,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		recordDeviceWriteRecoveryStmt:                              q.recordDeviceWriteRecoveryStmt,
 		recordFirmwareDeploymentStmt:                               q.recordFirmwareDeploymentStmt,
 		recordFirmwareRolloutActionStmt:                            q.recordFirmwareRolloutActionStmt,
+		recordMaintenanceModuleModelStmt:                           q.recordMaintenanceModuleModelStmt,
 		recordMiningGroupRequestStmt:                               q.recordMiningGroupRequestStmt,
 		recordPoolConfigurationImportStmt:                          q.recordPoolConfigurationImportStmt,
 		recoverSettledPoolConfigurationWorkStmt:                    q.recoverSettledPoolConfigurationWorkStmt,
@@ -9882,6 +10163,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		removeDevicesFromDeviceSetStmt:                             q.removeDevicesFromDeviceSetStmt,
 		renameHostedAccountStmt:                                    q.renameHostedAccountStmt,
 		renewFleetRuntimeLeaseStmt:                                 q.renewFleetRuntimeLeaseStmt,
+		repairTicketContainsModuleStmt:                             q.repairTicketContainsModuleStmt,
 		requestRigConfigReconciliationForDevicesStmt:               q.requestRigConfigReconciliationForDevicesStmt,
 		requeueFirmwareRolloutDevicesStmt:                          q.requeueFirmwareRolloutDevicesStmt,
 		requeueRigConfigReconciliationAfterTerminalFailureStmt:     q.requeueRigConfigReconciliationAfterTerminalFailureStmt,
@@ -9898,7 +10180,10 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		resolveMaintenanceAssigneeStmt:                             q.resolveMaintenanceAssigneeStmt,
 		resolveMaintenanceLocationContextStmt:                      q.resolveMaintenanceLocationContextStmt,
 		resolveMaintenanceMinerContextStmt:                         q.resolveMaintenanceMinerContextStmt,
+		resolveMaintenanceMinerIdentifierByIDStmt:                  q.resolveMaintenanceMinerIdentifierByIDStmt,
 		resolveReleaseChannelScopeStmt:                             q.resolveReleaseChannelScopeStmt,
+		resolveRepairTicketAssetStmt:                               q.resolveRepairTicketAssetStmt,
+		resolveRepairTicketMinerTargetStmt:                         q.resolveRepairTicketMinerTargetStmt,
 		resumeCurtailmentFromRestoringStmt:                         q.resumeCurtailmentFromRestoringStmt,
 		resumeFirmwareRolloutStmt:                                  q.resumeFirmwareRolloutStmt,
 		resumePausedScheduleStmt:                                   q.resumePausedScheduleStmt,
@@ -9935,6 +10220,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		setHostedAccountMembershipStmt:                             q.setHostedAccountMembershipStmt,
 		setHostedAccountPoolProfileStmt:                            q.setHostedAccountPoolProfileStmt,
 		setHostedAccountSitesRestrictedStmt:                        q.setHostedAccountSitesRestrictedStmt,
+		setHostedAccountTicketingStmt:                              q.setHostedAccountTicketingStmt,
 		setInfrastructureControlSubnetsStmt:                        q.setInfrastructureControlSubnetsStmt,
 		setLocalDeviceDeletionLockTimeoutStmt:                      q.setLocalDeviceDeletionLockTimeoutStmt,
 		setLocalFleetNodeHAFailoverLockTimeoutStmt:                 q.setLocalFleetNodeHAFailoverLockTimeoutStmt,
@@ -9946,8 +10232,10 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		setRackBuildingPositionBulkClearStmt:                       q.setRackBuildingPositionBulkClearStmt,
 		setRackBuildingPositionBulkPlaceStmt:                       q.setRackBuildingPositionBulkPlaceStmt,
 		setRackSlotPositionStmt:                                    q.setRackSlotPositionStmt,
+		setRepairTicketCommentVisibilityStmt:                       q.setRepairTicketCommentVisibilityStmt,
 		setSchedulePrioritiesStmt:                                  q.setSchedulePrioritiesStmt,
 		setScheduleRunningStmt:                                     q.setScheduleRunningStmt,
+		shareRepairTicketStmt:                                      q.shareRepairTicketStmt,
 		siteBelongsToOrgStmt:                                       q.siteBelongsToOrgStmt,
 		sitesByIDsStmt:                                             q.sitesByIDsStmt,
 		skipFirmwareRolloutDevicesStmt:                             q.skipFirmwareRolloutDevicesStmt,
@@ -9983,6 +10271,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		sweepExpiredEnrollmentsStmt:                                q.sweepExpiredEnrollmentsStmt,
 		sweepExpiredFleetNodeAuthChallengesStmt:                    q.sweepExpiredFleetNodeAuthChallengesStmt,
 		sweepExpiredFleetNodeSessionsStmt:                          q.sweepExpiredFleetNodeSessionsStmt,
+		touchRepairTicketStmt:                                      q.touchRepairTicketStmt,
 		transferDiscoveredDeviceAttributionStmt:                    q.transferDiscoveredDeviceAttributionStmt,
 		unassignDeviceBuildingsByRackStmt:                          q.unassignDeviceBuildingsByRackStmt,
 		unassignDeviceSitesByRackStmt:                              q.unassignDeviceSitesByRackStmt,
@@ -10036,6 +10325,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		updateRackPlacementBulkForSiteStmt:                         q.updateRackPlacementBulkForSiteStmt,
 		updateReleaseChannelStmt:                                   q.updateReleaseChannelStmt,
 		updateRepairTicketStmt:                                     q.updateRepairTicketStmt,
+		updateRepairTicketTargetEvidenceStmt:                       q.updateRepairTicketTargetEvidenceStmt,
 		updateRoleStmt:                                             q.updateRoleStmt,
 		updateScheduleStmt:                                         q.updateScheduleStmt,
 		updateScheduleAfterRunStmt:                                 q.updateScheduleAfterRunStmt,

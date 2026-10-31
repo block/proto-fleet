@@ -22,6 +22,7 @@ const clients = {
   listCompletedTickets: vi.fn(),
   createTicketComment: vi.fn(),
   deleteTicketComment: vi.fn(),
+  listTicketAssetOptions: vi.fn(),
 };
 vi.mock("./clients", () => ({ maintenanceClient: clients }));
 const handleAuthErrors = vi.fn();
@@ -32,6 +33,15 @@ describe("useMaintenanceApi", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     handleAuthErrors.mockImplementation(({ onError, error }) => onError?.(error));
+  });
+  it("forwards the asset kind so the server filters before limiting results", async () => {
+    clients.listTicketAssetOptions.mockResolvedValue({ assets: [] });
+    const { result } = renderHook(() => useMaintenanceApi());
+    await act(() => result.current.listTicketAssets({ kind: TicketCategory.HASHBOARD, siteIds: [9n] }));
+    expect(clients.listTicketAssetOptions).toHaveBeenCalledWith(
+      expect.objectContaining({ kind: TicketCategory.HASHBOARD, siteIds: [9n] }),
+      expect.anything(),
+    );
   });
   it("maps filters, cursor, sort, and abort signal", async () => {
     clients.listRepairTickets.mockResolvedValue({ tickets: [], nextPageToken: "next", totalCount: 7 });
@@ -64,6 +74,7 @@ describe("useMaintenanceApi", () => {
     await act(() =>
       result.current.createTicket({
         category: TicketCategory.MINER,
+        description: "Fan stopped",
         component: "Fan",
         idempotencyKey: "create-ticket-1",
       }),
@@ -84,7 +95,12 @@ describe("useMaintenanceApi", () => {
     );
 
     expect(clients.createTicketComment).toHaveBeenCalledWith(
-      { ticketId: 9n, text: "Replaced fan", idempotencyKey: "comment-operation-1" },
+      {
+        ticketId: 9n,
+        text: "Replaced fan",
+        idempotencyKey: "comment-operation-1",
+        internal: true,
+      },
       expect.anything(),
     );
   });
@@ -164,7 +180,7 @@ describe("useMaintenanceApi", () => {
       expect.anything(),
     );
   });
-  it("forwards bulk-close expected versions", async () => {
+  it("forwards bulk-close expected versions and the explicit resolution note", async () => {
     clients.bulkUpdateRepairTickets.mockResolvedValue({ updatedCount: 1 });
     const { result } = renderHook(() => useMaintenanceApi());
     await act(() =>
@@ -176,6 +192,7 @@ describe("useMaintenanceApi", () => {
           value: {
             resolution: TicketResolution.DEFERRED,
             repairLocation: RepairLocation.UNSPECIFIED,
+            resolutionNote: "Waiting for replacement",
           },
         },
       }),
@@ -190,13 +207,29 @@ describe("useMaintenanceApi", () => {
           value: {
             resolution: TicketResolution.DEFERRED,
             repairLocation: RepairLocation.UNSPECIFIED,
-            notes: "",
+            resolutionNote: "Waiting for replacement",
           },
         },
         clearAssignee: false,
       },
       expect.anything(),
     );
+  });
+
+  it("sends a closing resolution note independently of operational notes", async () => {
+    clients.updateRepairTicket.mockResolvedValue({});
+    const { result } = renderHook(() => useMaintenanceApi());
+    await act(() =>
+      result.current.updateTicket({
+        id: 4n,
+        status: TicketStatus.COMPLETED,
+        expectedUpdatedAt: ticketVersion,
+        resolutionNote: "Repair verified",
+      }),
+    );
+    const request = clients.updateRepairTicket.mock.calls[0][0];
+    expect(request).toMatchObject({ status: TicketStatus.COMPLETED, resolutionNote: "Repair verified" });
+    expect(request).not.toHaveProperty("notes");
   });
 
   it("routes failures through auth handling and finalizes once", async () => {

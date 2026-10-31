@@ -103,6 +103,37 @@ describe("real account workspace routing", () => {
       expect(screen.getByRole("button", { name: "Dark" })).toBeInTheDocument();
     },
   );
+  it("removes ticket navigation and cached ticket content after live access revocation", async () => {
+    const account = create(AccountSchema, {
+      accountId,
+      name: "Customer",
+      depth: 1,
+      role: AccountRole.VIEWER,
+      effectiveCapabilities: 1n,
+      ticketingEnabled: true,
+      ticketAccess: true,
+    });
+    fetchRpc((method) =>
+      method === "GetAccount"
+        ? { account: toJson(AccountSchema, account) }
+        : method === "ListAccountTickets"
+          ? { tickets: [{ id: "7", ticketNumber: "TK-0007", description: "Private ticket issue" }] }
+          : method === "ListAccountTicketNotifications"
+            ? { notifications: [{ id: "1", ticketId: "7", ticketNumber: "TK-0007", text: "Updated" }] }
+            : { totals: {} },
+    );
+    mount(account, "tickets");
+    await screen.findByText("Private ticket issue");
+    expect(screen.queryByRole("button", { name: /Ticket updates/ })).not.toBeInTheDocument();
+    const navigation = within(screen.getByTestId("navigation-menu"));
+    expect(navigation.getByRole("link", { name: "Tickets" })).toBeInTheDocument();
+    account.ticketAccess = false;
+    act(() => {
+      window.dispatchEvent(new Event("focus"));
+    });
+    await waitFor(() => expect(navigation.queryByRole("link", { name: "Tickets" })).not.toBeInTheDocument());
+    expect(screen.queryByText("Private ticket issue")).not.toBeInTheDocument();
+  });
   it("opens host root administration by default without resolving a private customer", async () => {
     const calls = fetchRpc((method) => {
       if (method === "GetAccount") throw new Error("Root is not a private customer account");
@@ -387,13 +418,12 @@ describe("real account workspace routing", () => {
     expect(breadcrumb.getByText("Subclient")).toBeInTheDocument();
     await user.click(breadcrumb.getByRole("link", { name: "Parent client" }));
     await waitFor(() =>
-      expect(
-        within(screen.getByRole("navigation", { name: "Breadcrumb" })).getByText("Parent client"),
-      ).toBeInTheDocument(),
+      expect(within(screen.getByTestId("navigation-menu")).getByRole("link", { name: "Home" })).toHaveAttribute(
+        "href",
+        `/accounts/${rootId}/overview`,
+      ),
     );
-    expect(
-      within(screen.getByRole("navigation", { name: "Breadcrumb" })).queryByText("Subclient"),
-    ).not.toBeInTheDocument();
+    expect(screen.queryByRole("navigation", { name: "Breadcrumb" })).not.toBeInTheDocument();
   });
   it("opens host administration and creates a customer using the root ceiling", async () => {
     const calls = fetchRpc((method) => {
@@ -413,7 +443,7 @@ describe("real account workspace routing", () => {
       expect(calls).toContainEqual({
         method: "CreateAccount",
         account: rootId,
-        body: { accountId: rootId, name: "Customer A", capabilities: "31" },
+        body: { accountId: rootId, name: "Customer A", capabilities: "31", ticketingEnabled: true },
       }),
     );
     expect(calls.some((c) => c.method === "GetAccount")).toBe(false);

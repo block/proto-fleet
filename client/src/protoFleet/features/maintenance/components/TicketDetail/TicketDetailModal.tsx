@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { getComponentIcon, getComponentIconColor } from "../../componentIcons";
 import CompletionForm from "./CompletionForm";
 import { ResolutionSectionContent } from "./ResolutionSection";
 import { RmaSectionContent } from "./RmaSection";
 import TicketComments from "./TicketComments";
+import TicketTargets from "./TicketTargets";
 import {
   MinerIdentifierType,
   type MinerStateSnapshot,
@@ -16,12 +17,13 @@ import { useMaintenanceOptions } from "@/protoFleet/features/maintenance/hooks/u
 import { useTicketDetail } from "@/protoFleet/features/maintenance/hooks/useTicketDetail";
 import type { PartUsageItem, TicketDetail } from "@/protoFleet/features/maintenance/types";
 import { useHasPermission } from "@/protoFleet/store";
-import { ArrowLeftCompact, ArrowRight, Fleet, Info } from "@/shared/assets/icons";
+import { ChevronDown, Fleet, Info } from "@/shared/assets/icons";
 import Button, { sizes as buttonSizes, variants } from "@/shared/components/Button";
 import Divider from "@/shared/components/Divider";
 import Modal from "@/shared/components/Modal";
 import ProgressCircular from "@/shared/components/ProgressCircular";
 import Row from "@/shared/components/Row";
+import Textarea from "@/shared/components/Textarea";
 
 interface TicketDetailModalProps {
   ticketId: string;
@@ -70,10 +72,13 @@ const TicketDetailModal = ({
   const [currentId, setCurrentId] = useState(ticketId);
   const detail = useTicketDetail(currentId);
   const options = useMaintenanceOptions();
-  const [editor, setEditor] = useState<"assign" | "status" | "completion" | "rma" | null>(null);
+  const [editor, setEditor] = useState<"assign" | "status" | "completion" | "rma" | "share" | "diagnosis" | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const mutationBusy = useRef(false);
+  const [mutationError, setMutationError] = useState<string | null>(null);
   const [editorVersion, setEditorVersion] = useState<TicketDetail["updatedAtSnapshot"]>(null);
   const [completionParts, setCompletionParts] = useState<PartUsageItem[]>([]);
+  const [diagnosis, setDiagnosis] = useState("");
   const [vendor, setVendor] = useState("");
   const [tracking, setTracking] = useState("");
   const [eta, setEta] = useState("");
@@ -84,7 +89,7 @@ const TicketDetailModal = ({
   }>({ identifier: "", snapshot: null, error: null });
   const index = ticketIds.indexOf(currentId);
   const ticket = detail.data;
-  const minerIdentifier = ticket?.category === "miner" ? ticket.minerIdentifier : null;
+  const minerIdentifier = ticket?.category === "miner" && !ticket.targets.length ? ticket.minerIdentifier : null;
   const linkedMiner = minerLookup.identifier === minerIdentifier ? minerLookup.snapshot : null;
   const minerLinkError = minerLookup.identifier === minerIdentifier ? minerLookup.error : null;
   useEffect(() => {
@@ -112,7 +117,7 @@ const TicketDetailModal = ({
   }, [canReadMiners, minerIdentifier]);
   const openCompletionEditor = () => {
     if (!ticket) return;
-    setCompletionParts(ticket.partsUsed.map((part) => ({ ...part })));
+    setCompletionParts(ticket.partsUsed.filter((part) => !part.consumedAt).map((part) => ({ ...part })));
     setEditorVersion(ticket.updatedAtSnapshot);
     setEditor("completion");
   };
@@ -125,26 +130,46 @@ const TicketDetailModal = ({
     setEditor("rma");
   };
   const navigateToTicket = (id: string) => {
+    if (mutationBusy.current) return;
+    setMutationError(null);
     setEditor(null);
     setCurrentId(id);
   };
   const submitMutation = async (mutation: () => Promise<boolean>) => {
-    if (submitting) return false;
+    if (mutationBusy.current) {
+      setMutationError("Another ticket action is still saving. Try again when it finishes.");
+      return false;
+    }
+    mutationBusy.current = true;
+    setMutationError(null);
     setSubmitting(true);
     try {
       const updated = await mutation();
       if (updated) onMutationSuccess?.();
       return updated;
     } finally {
+      mutationBusy.current = false;
       setSubmitting(false);
     }
   };
   const updateTicket = async (input: Omit<UpdateTicketProps, "id" | "expectedUpdatedAt">) => {
-    if (!editorVersion) return false;
+    if (!editorVersion || !canManage || ticket?.status === "completed") return false;
     const updated = await submitMutation(() => detail.update({ ...input, expectedUpdatedAt: editorVersion }));
-    if (!updated) setEditor(null);
     return updated;
   };
+  const refreshTicket = async () => {
+    let refreshed: TicketDetail | null = null;
+    await submitMutation(async () => {
+      [refreshed] = await Promise.all([detail.refresh(), options.refresh()]);
+      return false;
+    });
+    return refreshed;
+  };
+  const versionChanged =
+    editorVersion &&
+    ticket?.updatedAtSnapshot &&
+    (editorVersion.seconds !== ticket.updatedAtSnapshot.seconds ||
+      editorVersion.nanos !== ticket.updatedAtSnapshot.nanos);
   const saveRma = () => {
     void updateTicket({
       status: TicketStatus.SENT_TO_VENDOR,
@@ -181,13 +206,28 @@ const TicketDetailModal = ({
           dismissModalOnClick: false,
         },
       ]
-    : [];
+    : canManageTicket && ticket?.status === "completed"
+      ? [
+          {
+            text: "Reopen ticket",
+            variant: variants.secondary,
+            disabled: submitting,
+            dismissModalOnClick: false,
+            onClick: () => {
+              if (ticket.updatedAtSnapshot)
+                void submitMutation(() =>
+                  detail.update({ status: TicketStatus.OPEN, expectedUpdatedAt: ticket.updatedAtSnapshot! }),
+                );
+            },
+          },
+        ]
+      : [];
   const resolutionLabel = useMemo(() => ticket?.resolution.replaceAll("_", " ") ?? "", [ticket?.resolution]);
   return (
     <Modal
       open
       onDismiss={() => {
-        if (!submitting) onDismiss();
+        if (!mutationBusy.current) onDismiss();
       }}
       title={ticket?.ticketNumber ?? "Ticket"}
       size="standard"
@@ -197,10 +237,9 @@ const TicketDetailModal = ({
         {
           text: "Refresh",
           variant: variants.secondary,
-          disabled: detail.loading || submitting || editor !== null,
+          disabled: detail.loading || submitting,
           onClick: () => {
-            void detail.refresh();
-            void options.refresh();
+            void refreshTicket();
           },
           dismissModalOnClick: false,
         },
@@ -216,7 +255,42 @@ const TicketDetailModal = ({
       ) : !ticket ? (
         <div role="alert">Ticket not found</div>
       ) : (
-        <div className="flex flex-col gap-6">
+        <div className="flex flex-col gap-6 pt-4">
+          {mutationError ? <div role="alert">{mutationError}</div> : null}
+          {editor && ticket.status === "completed" ? (
+            <p role="status">
+              This ticket is closed. Your draft is preserved; cancel it or reopen the ticket before saving.
+            </p>
+          ) : editor && versionChanged ? (
+            <div className="flex flex-col gap-3 rounded-xl bg-surface-5 p-4">
+              <p>Ticket changed. Review the current details before confirming your draft again.</p>
+              {editor === "diagnosis" ? (
+                <p className="whitespace-pre-wrap">Current diagnosis: {ticket.diagnosis || "None"}</p>
+              ) : null}
+              {editor === "rma" ? (
+                <p>
+                  Current RMA: {ticket.rmaVendor || "None"} · {ticket.rmaTracking || "No tracking number"} ·{" "}
+                  {toDateInputValue(ticket.rmaEta) || "No ETA"}
+                </p>
+              ) : null}
+              {editor === "completion" ? (
+                <p>
+                  Current reserved parts:{" "}
+                  {ticket.partsUsed
+                    .filter((part) => !part.consumedAt)
+                    .map((part) => `${part.partName} ×${part.quantity}`)
+                    .join(", ") || "None"}
+                </p>
+              ) : null}
+              <Button
+                text="Use refreshed ticket version"
+                variant={variants.secondary}
+                disabled={submitting || detail.loading}
+                onClick={() => setEditorVersion(ticket.updatedAtSnapshot)}
+              />
+            </div>
+          ) : null}
+          {(editor === "assign" || editor === "status") && detail.error ? <div role="alert">{detail.error}</div> : null}
           {canMutate && (editor === "assign" || editor === "status") ? (
             <div className="rounded-xl bg-surface-elevated-base py-2 shadow-300">
               {editor === "assign" ? (
@@ -244,8 +318,9 @@ const TicketDetailModal = ({
                       <Row
                         compact
                         onClick={() => {
-                          void updateTicket({ clearAssignee: true });
-                          setEditor(null);
+                          void updateTicket({ clearAssignee: true }).then((ok) => {
+                            if (ok) setEditor(null);
+                          });
                         }}
                       >
                         Unassign
@@ -257,8 +332,9 @@ const TicketDetailModal = ({
                       <Row
                         compact
                         onClick={() => {
-                          void updateTicket({ assigneeUserId: BigInt(item.id) });
-                          setEditor(null);
+                          void updateTicket({ assigneeUserId: BigInt(item.id) }).then((ok) => {
+                            if (ok) setEditor(null);
+                          });
                         }}
                       >
                         {item.username}
@@ -277,8 +353,9 @@ const TicketDetailModal = ({
                           if (!editorVersion) return;
                           if (value === TicketStatus.SENT_TO_VENDOR) openRmaEditor(editorVersion);
                           else {
-                            setEditor(null);
-                            void updateTicket({ status: value });
+                            void updateTicket({ status: value }).then((ok) => {
+                              if (ok) setEditor(null);
+                            });
                           }
                         }}
                       >
@@ -298,10 +375,60 @@ const TicketDetailModal = ({
               </div>
             </div>
             <h2 className="text-heading-300">
-              {ticket.component}: {ticket.diagnosis}
+              {ticket.description || [ticket.component, ticket.diagnosis].filter(Boolean).join(": ")}
             </h2>
-            <span>{ticket.assigneeName ?? "Unassigned"}</span>
+            <div className="flex flex-wrap items-center gap-2">
+              {!ticket.sharedWithClients ? (
+                <span className="inline-flex items-center rounded-full bg-core-primary-5 px-2 py-0.5 text-200 whitespace-nowrap text-text-primary-70">
+                  Internal
+                </span>
+              ) : null}
+              <span>{ticket.assigneeName ?? "Unassigned"}</span>
+              {canManageTicket && !ticket.sharedWithClients && ticket.audiences.length > 0 ? (
+                <Button
+                  className="ml-auto"
+                  text="Share with clients"
+                  variant={variants.secondary}
+                  size={buttonSizes.compact}
+                  disabled={submitting}
+                  onClick={() => {
+                    setEditorVersion(ticket.updatedAtSnapshot);
+                    setEditor("share");
+                  }}
+                />
+              ) : null}
+            </div>
           </div>
+          {editor === "share" ? (
+            <div className="flex flex-col gap-3 rounded-xl bg-surface-5 p-4">
+              <h3 className="text-emphasis-300 font-medium">Share ticket</h3>
+              <p>Visible to: {ticket.audiences.map((a) => a.name).join(", ")}</p>
+              <p>{ticket.description || ticket.component}</p>
+              <p className="text-200 text-text-primary-70">
+                Clients will see ticket details, status, and their affected equipment. Internal notes stay private.
+              </p>
+              {detail.error ? <div role="alert">{detail.error}</div> : null}
+              <div className="flex gap-2">
+                <Button
+                  text="Cancel sharing"
+                  variant={variants.ghost}
+                  disabled={submitting}
+                  onClick={() => setEditor(null)}
+                />
+                <Button
+                  text="Share ticket"
+                  variant={variants.primary}
+                  loading={submitting}
+                  onClick={() => {
+                    if (editorVersion)
+                      void submitMutation(() => detail.share(editorVersion)).then((ok) => {
+                        if (ok) setEditor(null);
+                      });
+                  }}
+                />
+              </div>
+            </div>
+          ) : null}
           <div className="rounded-xl bg-surface-5 p-4">
             <div className="flex items-center gap-3">
               <Info width="w-5" />
@@ -318,12 +445,15 @@ const TicketDetailModal = ({
                 />
               ) : null}
             </div>
-            {canMutate && editor === "completion" ? (
+            {canManageTicket && editor === "completion" ? (
               <CompletionForm
                 key={ticket.id}
                 isMinerTicket={ticket.category === "miner"}
                 siteId={ticket.siteId}
                 initialParts={completionParts}
+                error={detail.error}
+                canSubmit={!!canMutate}
+                disabled={submitting}
                 onCancel={() => {
                   if (!submitting) setEditor(null);
                 }}
@@ -338,8 +468,8 @@ const TicketDetailModal = ({
               />
             ) : null}
           </div>
-          {canMutate && editor === "rma" ? (
-            <div className="flex flex-col gap-3">
+          {canManageTicket && editor === "rma" ? (
+            <section aria-label="RMA editor" className="flex flex-col gap-3">
               <RmaSectionContent
                 vendor={vendor}
                 tracking={tracking}
@@ -348,14 +478,22 @@ const TicketDetailModal = ({
                 onTrackingChange={setTracking}
                 onEtaChange={setEta}
               />
+              {detail.error ? <div role="alert">{detail.error}</div> : null}
               <Button
                 text={ticket.status === "sent_to_vendor" ? "Save RMA details" : "Send to vendor"}
                 variant={variants.primary}
-                disabled={!vendor.trim()}
+                disabled={!vendor.trim() || !canMutate}
                 loading={submitting}
                 onClick={saveRma}
               />
-            </div>
+              <Button
+                text="Cancel"
+                variant={variants.secondary}
+                size={buttonSizes.compact}
+                disabled={submitting}
+                onClick={() => setEditor(null)}
+              />
+            </section>
           ) : ticket.status === "sent_to_vendor" ? (
             <div className="flex flex-col gap-2 rounded-xl bg-surface-5 p-4">
               <div className="flex items-center justify-between gap-3">
@@ -375,14 +513,14 @@ const TicketDetailModal = ({
               <span>ETA: {ticket.rmaEta?.toLocaleDateString(undefined, { timeZone: "UTC" }) ?? "—"}</span>
             </div>
           ) : null}
-          {ticket.category === "miner" && ticket.minerIdentifier && canReadMiners ? (
+          {ticket.category === "miner" && !ticket.targets.length && ticket.minerIdentifier && canReadMiners ? (
             <div className="flex flex-col gap-2">
               <button
                 type="button"
                 className="flex items-center gap-3 rounded-xl bg-surface-5 p-4 disabled:cursor-not-allowed disabled:opacity-50"
                 disabled={!linkedMiner || submitting}
                 onClick={() => {
-                  if (!linkedMiner) return;
+                  if (!linkedMiner || mutationBusy.current) return;
                   onDismiss();
                   openMinerView(linkedMiner);
                 }}
@@ -398,16 +536,119 @@ const TicketDetailModal = ({
               resolution={resolutionLabel}
               repairLocation={ticket.repairLocation.replaceAll("_", " ")}
               partsUsed={ticket.partsUsed.map((part) => ({ name: part.partName, quantity: part.quantity }))}
-              notes={ticket.notes}
+              resolutionNote={ticket.resolutionNote}
             />
+          ) : null}
+          {ticket.notes.trim() ? (
+            <section aria-label="Operational notes" className="flex flex-col gap-2">
+              <h3 className="text-emphasis-300 font-medium">Operational notes</h3>
+              <p className="text-200 text-text-primary-70">Internal — host team only</p>
+              <p className="whitespace-pre-wrap">{ticket.notes}</p>
+            </section>
+          ) : null}
+          {(editor === "diagnosis" || !ticket.targets.length || ticket.diagnosis) &&
+          (editor === "diagnosis" || ticket.diagnosis || canMutate) ? (
+            <section className="flex flex-col gap-3" aria-label="Internal diagnosis">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                {ticket.diagnosis ? <h3 className="text-emphasis-300 font-medium">Internal diagnosis</h3> : null}
+                {canMutate && editor !== "diagnosis" ? (
+                  <Button
+                    text={ticket.diagnosis ? "Edit diagnosis" : "Add diagnosis"}
+                    variant={variants.secondary}
+                    size={buttonSizes.compact}
+                    disabled={submitting}
+                    onClick={() => {
+                      setDiagnosis(ticket.diagnosis);
+                      setEditorVersion(ticket.updatedAtSnapshot);
+                      setEditor("diagnosis");
+                    }}
+                  />
+                ) : null}
+              </div>
+              {editor === "diagnosis" ? (
+                <>
+                  <Textarea
+                    id="ticket-diagnosis"
+                    label="Diagnosis (internal, optional)"
+                    initValue={diagnosis}
+                    onChange={setDiagnosis}
+                    maxLength={4096}
+                    rows={3}
+                    disabled={submitting}
+                  />
+                  {detail.error ? <div role="alert">{detail.error}</div> : null}
+                  <div className="flex gap-3">
+                    <Button
+                      text="Cancel"
+                      variant={variants.secondary}
+                      size={buttonSizes.compact}
+                      disabled={submitting}
+                      onClick={() => setEditor(null)}
+                    />
+                    <Button
+                      text="Save diagnosis"
+                      disabled={!canMutate}
+                      variant={variants.primary}
+                      size={buttonSizes.compact}
+                      loading={submitting}
+                      onClick={() => {
+                        void updateTicket({ diagnosis: diagnosis.trim() }).then((updated) => {
+                          if (updated) setEditor(null);
+                        });
+                      }}
+                    />
+                  </div>
+                </>
+              ) : ticket.diagnosis ? (
+                <p className="whitespace-pre-wrap">{ticket.diagnosis}</p>
+              ) : null}
+            </section>
+          ) : null}
+          {ticket.targets.length || ticket.audiences.length ? (
+            <TicketTargets
+              key={`targets:${ticket.id}`}
+              ticket={ticket}
+              canManage={!!canMutate}
+              canReadMiners={canReadMiners}
+              disabled={submitting}
+              submitMutation={submitMutation}
+              onOpenMiner={(miner) => {
+                if (mutationBusy.current) return;
+                onDismiss();
+                openMinerView(miner);
+              }}
+              onSaved={async () => {
+                await detail.refresh();
+              }}
+            />
+          ) : null}
+          {ticket.status !== "completed" && ticket.partsUsed.some((part) => part.consumedAt) ? (
+            <div className="flex flex-col gap-2">
+              <h3 className="text-heading-100">Previously consumed parts</h3>
+              {ticket.partsUsed
+                .filter((part) => part.consumedAt)
+                .map((part, index) => (
+                  <p key={index}>
+                    {part.partName} ×{part.quantity}
+                  </p>
+                ))}
+            </div>
           ) : null}
           <TicketComments
             key={currentId}
             ticketId={currentId}
             comments={ticket.comments}
+            audiences={ticket.audiences}
+            sharedWithClients={ticket.sharedWithClients}
+            ticketVersion={ticket.updatedAtSnapshot}
+            onVisibilityChange={(id, internal, version, onError) =>
+              submitMutation(() => detail.setNoteVisibility(id, internal, version, onError))
+            }
             canManage={canManageTicket}
-            error={detail.error}
-            onAdd={(text, key) => submitMutation(() => detail.addComment(text, key))}
+            disabled={submitting}
+            onRefresh={refreshTicket}
+            error={editor ? null : detail.error}
+            onAdd={(text, key, audience) => submitMutation(() => detail.addComment(text, key, audience))}
             onDelete={(id) => submitMutation(() => detail.removeComment(id))}
           />
           <Divider />
@@ -420,7 +661,7 @@ const TicketDetailModal = ({
                 size={buttonSizes.compact}
                 variant={variants.secondary}
                 ariaLabel="Previous ticket"
-                prefixIcon={<ArrowLeftCompact />}
+                prefixIcon={<ChevronDown className="rotate-90" />}
                 onClick={() => navigateToTicket(ticketIds[index - 1])}
                 disabled={submitting || index <= 0}
               />
@@ -428,7 +669,7 @@ const TicketDetailModal = ({
                 size={buttonSizes.compact}
                 variant={variants.secondary}
                 ariaLabel="Next ticket"
-                prefixIcon={<ArrowRight />}
+                prefixIcon={<ChevronDown className="rotate-270" />}
                 onClick={() => navigateToTicket(ticketIds[index + 1])}
                 disabled={submitting || index < 0 || index >= ticketIds.length - 1}
               />

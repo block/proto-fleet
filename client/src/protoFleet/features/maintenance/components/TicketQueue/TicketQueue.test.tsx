@@ -10,6 +10,9 @@ const queue = {
       id: "1",
       ticketNumber: "TK-1",
       category: "miner",
+      targets: [],
+      audiences: [],
+      description: "",
       status: "sent_to_vendor",
       urgent: false,
       component: "Fan",
@@ -98,6 +101,7 @@ describe("TicketQueue", () => {
     queue.data = [...queueRows];
     queue.loading = false;
     queue.data[0].urgent = false;
+    queue.data[0].category = "miner";
     queue.data[0].status = "sent_to_vendor";
     maintenanceOptions = {
       sites: [{ id: "1", name: "Denver" }],
@@ -280,6 +284,9 @@ describe("TicketQueue", () => {
       </MemoryRouter>,
     );
     fireEvent.click(screen.getByRole("radio", { name: /Deferred/ }));
+    fireEvent.change(screen.getByLabelText("Resolution note (visible to clients)"), {
+      target: { value: "Repair verified" },
+    });
     fireEvent.click(screen.getByRole("button", { name: "Close tickets" }));
 
     await waitFor(() =>
@@ -288,6 +295,22 @@ describe("TicketQueue", () => {
       ]),
     );
   });
+
+  it.each(["module", "hashboard", "infrastructure", "account"] as const)(
+    "closes %s tickets without asking for a miner repair location",
+    (category) => {
+      queue.data[0].category = category;
+      render(
+        <MemoryRouter>
+          <TicketQueue />
+        </MemoryRouter>,
+      );
+      fireEvent.click(screen.getByTestId("list-actions-trigger"));
+      fireEvent.click(screen.getByText("Close ticket"));
+      fireEvent.click(screen.getByRole("radio", { name: /Repaired/ }));
+      expect(screen.queryByLabelText("Repair location")).not.toBeInTheDocument();
+    },
+  );
 
   it("keeps the miner repair-location requirement when a refresh replaces the selected row", () => {
     const view = render(
@@ -321,6 +344,9 @@ describe("TicketQueue", () => {
     expect(screen.queryByText("Delete ticket")).not.toBeInTheDocument();
     fireEvent.click(screen.getByText("Close ticket"));
     fireEvent.click(screen.getByRole("radio", { name: /No action needed/ }));
+    fireEvent.change(screen.getByLabelText("Resolution note (visible to clients)"), {
+      target: { value: "Repair verified" },
+    });
     fireEvent.click(screen.getByRole("button", { name: "Close tickets" }));
     await waitFor(() =>
       expect(queue.bulkUpdate).toHaveBeenCalledWith(

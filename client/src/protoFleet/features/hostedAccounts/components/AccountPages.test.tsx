@@ -61,6 +61,7 @@ function scope(mask = 31n) {
     listChildren: vi.fn().mockResolvedValue({
       accounts: [
         create(AccountSchema, {
+          ticketingEnabled: true,
           accountId: "77777777-7777-4777-8777-777777777777",
           name: "Child",
           depth: 2,
@@ -89,6 +90,7 @@ function scope(mask = 31n) {
   };
   const value: AccountScope = {
     account: create(AccountSchema, {
+      ticketingEnabled: true,
       accountId,
       parentAccountId: "55555555-5555-4555-8555-555555555555",
       name: "Client A",
@@ -507,7 +509,11 @@ describe("hosted account pages", () => {
     const user = userEvent.setup(),
       { value } = scope();
     value.account.role = AccountRole.UNSPECIFIED;
-    const host = create(AccountSchema, { accountId: value.account.parentAccountId, name: "North Hosting" });
+    const host = create(AccountSchema, {
+      ticketingEnabled: true,
+      accountId: value.account.parentAccountId,
+      name: "North Hosting",
+    });
     mount(
       <HostedAccountsContext.Provider
         value={{ accounts: [host, value.account], hostAccess: true, loading: false, error: null, refresh: vi.fn() }}
@@ -692,6 +698,7 @@ describe("hosted account pages", () => {
     const user = userEvent.setup(),
       { value, client } = scope();
     const child = create(AccountSchema, {
+      ticketingEnabled: true,
       accountId: "88888888-8888-4888-8888-888888888888",
       name: "New subclient",
       depth: 2,
@@ -717,7 +724,12 @@ describe("hosted account pages", () => {
     await user.type(within(dialog).getByLabelText("Subclient name"), child.name);
     await user.click(within(dialog).getByRole("button", { name: "Create subclient" }));
     await waitFor(() => expect(client.listChildren).toHaveBeenCalledTimes(2));
-    expect(client.createAccount).toHaveBeenCalledWith({ accountId, name: child.name, capabilities: 31n });
+    expect(client.createAccount).toHaveBeenCalledWith({
+      accountId,
+      name: child.name,
+      capabilities: 31n,
+      ticketingEnabled: true,
+    });
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     expect(screen.queryByText("This account is unavailable.")).not.toBeInTheDocument();
     expect(listAccountAssets).not.toHaveBeenCalled();
@@ -747,7 +759,12 @@ describe("hosted account pages", () => {
     );
     mount(
       <ClientPermissions
-        child={create(AccountSchema, { accountId: "child", name: "Child", capabilityCeiling: 31n })}
+        child={create(AccountSchema, {
+          ticketingEnabled: true,
+          accountId: "child",
+          name: "Child",
+          capabilityCeiling: 31n,
+        })}
         onSaved={onSaved}
       />,
       value,
@@ -772,6 +789,7 @@ describe("hosted account pages", () => {
       childAccountId: "child",
       capabilities: 27n,
       suspended: false,
+      ticketingEnabled: true,
     });
     expect(screen.queryByText(/Could not save permissions/)).not.toBeInTheDocument();
   });
@@ -789,7 +807,12 @@ describe("hosted account pages", () => {
     );
     const view = mount(
       <ClientPermissions
-        child={create(AccountSchema, { accountId: "child", name: "Child", capabilityCeiling: 31n })}
+        child={create(AccountSchema, {
+          ticketingEnabled: true,
+          accountId: "child",
+          name: "Child",
+          capabilityCeiling: 31n,
+        })}
         onSaved={onSaved}
       />,
       value,
@@ -807,7 +830,13 @@ describe("hosted account pages", () => {
     const action = suspended ? "Resume account" : "Suspend account";
     mount(
       <ClientPermissions
-        child={create(AccountSchema, { accountId: "child", name: "Child", capabilityCeiling: 31n, suspended })}
+        child={create(AccountSchema, {
+          ticketingEnabled: true,
+          accountId: "child",
+          name: "Child",
+          capabilityCeiling: 31n,
+          suspended,
+        })}
         onSaved={onSaved}
       />,
       value,
@@ -827,6 +856,7 @@ describe("hosted account pages", () => {
       childAccountId: "child",
       capabilities: 31n,
       suspended: !suspended,
+      ticketingEnabled: true,
     });
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
@@ -837,7 +867,12 @@ describe("hosted account pages", () => {
     const onSaved = vi.fn();
     mount(
       <ClientPermissions
-        child={create(AccountSchema, { accountId: "child", name: "Child", capabilityCeiling: 31n })}
+        child={create(AccountSchema, {
+          ticketingEnabled: true,
+          accountId: "child",
+          name: "Child",
+          capabilityCeiling: 31n,
+        })}
         onSaved={onSaved}
       />,
       value,
@@ -852,6 +887,7 @@ describe("hosted account pages", () => {
       childAccountId: "child",
       capabilities: 27n,
       suspended: true,
+      ticketingEnabled: true,
     });
     expect(screen.getByRole("button", { name: "Resume account" })).toBeInTheDocument();
   });
@@ -860,7 +896,12 @@ describe("hosted account pages", () => {
     const { value, client } = scope();
     mount(
       <ClientPermissions
-        child={create(AccountSchema, { accountId: "child", name: "Child", capabilityCeiling: 31n })}
+        child={create(AccountSchema, {
+          ticketingEnabled: true,
+          accountId: "child",
+          name: "Child",
+          capabilityCeiling: 31n,
+        })}
         onSaved={vi.fn()}
       />,
       { ...value, readOnly: true },
@@ -868,6 +909,44 @@ describe("hosted account pages", () => {
     expect(screen.getByRole("checkbox", { name: "Select stored pool profile" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Suspend account" })).toBeDisabled();
     expect(client.configureAccount).not.toHaveBeenCalled();
+  });
+
+  it("manages teammate roles without a separate ticket-access control", async () => {
+    const user = userEvent.setup();
+    const { value } = scope();
+    mount(<AccountTeam />, value);
+    const row = (await screen.findByText("payout_ops")).closest("tr")!;
+    expect(screen.queryByRole("columnheader", { name: "Ticket access" })).not.toBeInTheDocument();
+    await user.click(within(row).getByRole("button", { name: "Row actions" }));
+    expect(await screen.findByRole("button", { name: "Change role" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /ticket access/i })).not.toBeInTheDocument();
+  });
+
+  it("toggles the account ticket feature without changing its capability roles", async () => {
+    const user = userEvent.setup();
+    const { value, client } = scope();
+    mount(
+      <ClientPermissions
+        child={create(AccountSchema, {
+          accountId: "child",
+          name: "Child",
+          capabilityCeiling: 31n,
+          ticketingEnabled: true,
+        })}
+        onSaved={vi.fn()}
+      />,
+      value,
+    );
+    await user.click(screen.getByRole("checkbox", { name: "Ticketing" }));
+    await waitFor(() =>
+      expect(client.configureAccount).toHaveBeenCalledWith({
+        accountId,
+        childAccountId: "child",
+        capabilities: 31n,
+        suspended: false,
+        ticketingEnabled: false,
+      }),
+    );
   });
 
   it("keeps required access bits while configuring a child", async () => {
@@ -887,6 +966,7 @@ describe("hosted account pages", () => {
         childAccountId: "77777777-7777-4777-8777-777777777777",
         capabilities: 27n,
         suspended: false,
+        ticketingEnabled: true,
       }),
     );
   });

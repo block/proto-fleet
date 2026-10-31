@@ -74,7 +74,7 @@ const ClientManagementContent = () => {
         <AccountAssets key={accountId} child={child} />
       ) : section === "permissions" ? (
         <ClientPermissions
-          key={`${child.accountId}:${child.capabilityCeiling}:${child.suspended}`}
+          key={`${child.accountId}:${child.capabilityCeiling}:${child.suspended}:${child.ticketingEnabled}`}
           child={child}
           onSaved={() => {
             query.refresh();

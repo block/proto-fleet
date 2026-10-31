@@ -1,4 +1,5 @@
-import { act, render, screen } from "@testing-library/react";
+import { MemoryRouter } from "react-router-dom";
+import { act, render, screen, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
 import CreateTicketModal from "./CreateTicketModal";
@@ -6,8 +7,11 @@ import { DEFAULT_ACTIVE_SITE } from "@/protoFleet/store/types/activeSite";
 import { useFleetStore } from "@/protoFleet/store/useFleetStore";
 
 const createTicket = vi.fn();
+const listTicketAssets = vi.fn(async ({ onSuccess }) =>
+  onSuccess([{ kind: 3, id: 51n, label: "Module 51", model: "Model A", siteId: 8n }]),
+);
 let canReadMiners = true;
-vi.mock("@/protoFleet/api/maintenance", () => ({ useMaintenanceApi: () => ({ createTicket }) }));
+vi.mock("@/protoFleet/api/maintenance", () => ({ useMaintenanceApi: () => ({ createTicket, listTicketAssets }) }));
 vi.mock("@/protoFleet/store", () => ({
   useHasPermission: (permission: string) => permission !== "miner:read" || canReadMiners,
 }));
@@ -27,7 +31,11 @@ vi.mock("./MinerTicketPicker", () => ({
   ),
 }));
 const renderModal = (onSuccess = vi.fn(), onDismiss = vi.fn()) =>
-  render(<CreateTicketModal onDismiss={onDismiss} onSuccess={onSuccess} />);
+  render(
+    <MemoryRouter>
+      <CreateTicketModal onDismiss={onDismiss} onSuccess={onSuccess} />
+    </MemoryRouter>,
+  );
 describe("CreateTicketModal", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -41,14 +49,21 @@ describe("CreateTicketModal", () => {
     const user = userEvent.setup();
     const success = vi.fn();
     renderModal(success);
+    expect(screen.queryByLabelText("Diagnosis")).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Select miner" }));
     await user.click(screen.getByRole("button", { name: "Choose miner-1" }));
     await user.click(screen.getByRole("button", { name: "Component" }));
     await user.click(screen.getByText("Fan"));
-    await user.type(screen.getByRole("textbox", { name: "Issue description" }), "Broken fan");
+    expect(screen.getByRole("button", { name: "Create ticket" })).toBeDisabled();
+    await user.type(screen.getByRole("textbox", { name: "Description" }), "Broken fan");
     await user.click(screen.getByRole("button", { name: "Create ticket" }));
     expect(createTicket).toHaveBeenCalledWith(
-      expect.objectContaining({ minerIdentifier: "miner-1", component: "Fan", diagnosis: "Broken fan" }),
+      expect.objectContaining({
+        minerIdentifier: "miner-1",
+        component: "Fan",
+        description: "Broken fan",
+        shareWithClients: false,
+      }),
     );
     expect(success).toHaveBeenCalled();
   });
@@ -62,7 +77,7 @@ describe("CreateTicketModal", () => {
     await user.type(screen.getByRole("textbox", { name: "Miner ID" }), "miner-1");
     await user.click(screen.getByRole("button", { name: "Component" }));
     await user.click(screen.getByText("Fan"));
-    await user.type(screen.getByRole("textbox", { name: "Issue description" }), "Broken fan");
+    await user.type(screen.getByRole("textbox", { name: "Description" }), "Broken fan");
 
     await user.click(screen.getByRole("button", { name: "Create ticket" }));
     await user.click(screen.getByRole("button", { name: "Create ticket" }));
@@ -91,7 +106,7 @@ describe("CreateTicketModal", () => {
     await user.type(screen.getByRole("textbox", { name: "Miner ID" }), "miner-1");
     await user.click(screen.getByRole("button", { name: "Component" }));
     await user.click(screen.getByText("Fan"));
-    await user.type(screen.getByRole("textbox", { name: "Issue description" }), "Broken fan");
+    await user.type(screen.getByRole("textbox", { name: "Description" }), "Broken fan");
 
     await user.click(screen.getByRole("button", { name: "Create ticket" }));
     await user.click(screen.getByRole("button", { name: "Close dialog" }));
@@ -112,12 +127,30 @@ describe("CreateTicketModal", () => {
     await user.type(input, "known-miner-42");
     await user.click(screen.getByRole("button", { name: "Component" }));
     await user.click(screen.getByText("Fan"));
-    await user.type(screen.getByRole("textbox", { name: "Issue description" }), "Broken fan");
+    await user.type(screen.getByRole("textbox", { name: "Description" }), "Broken fan");
     await user.click(screen.getByRole("button", { name: "Create ticket" }));
 
     expect(createTicket).toHaveBeenCalledWith(expect.objectContaining({ minerIdentifier: "known-miner-42" }));
   });
 
+  it("creates module tickets using the selected physical identity", async () => {
+    const user = userEvent.setup();
+    renderModal();
+    await user.click(screen.getByRole("button", { name: "Category" }));
+    await user.click(screen.getByText("Module", { exact: true }));
+    await user.click(screen.getByRole("button", { name: "Select modules" }));
+    await screen.findByText(/Module 51/);
+    expect(listTicketAssets).toHaveBeenCalledWith(expect.objectContaining({ kind: 3, siteIds: [8n] }));
+    await user.click(within(screen.getByRole("dialog", { name: "Select affected assets" })).getByRole("checkbox"));
+    await user.click(screen.getByRole("button", { name: "Select assets" }));
+    await user.click(screen.getByRole("button", { name: "Component" }));
+    await user.click(screen.getByText("PSU", { exact: true }));
+    await user.type(screen.getByLabelText("Description"), "Power supply failed");
+    await user.click(screen.getByRole("button", { name: "Create ticket" }));
+    expect(createTicket).toHaveBeenCalledWith(
+      expect.objectContaining({ category: 3, targets: [{ kind: 3, id: 51n }], minerIdentifier: undefined }),
+    );
+  });
   it("uses live site IDs for infrastructure tickets", async () => {
     const user = userEvent.setup();
     renderModal();

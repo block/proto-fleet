@@ -1,6 +1,7 @@
 package maintenance
 
 import (
+	"strings"
 	"time"
 
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -15,7 +16,11 @@ import (
 // ---------------------------------------------------------------
 
 func toCreateParams(req *pb.CreateRepairTicketRequest, orgID int64) (models.CreateParams, error) {
-	category, err := checkedEnumValue(int32(req.GetCategory()), 1, 2, "category")
+	description := strings.TrimSpace(req.GetDescription())
+	if description == "" {
+		return models.CreateParams{}, fleeterror.NewInvalidArgumentError("description is required")
+	}
+	category, err := checkedEnumValue(int32(req.GetCategory()), 1, 4, "category")
 	if err != nil {
 		return models.CreateParams{}, err
 	}
@@ -23,7 +28,12 @@ func toCreateParams(req *pb.CreateRepairTicketRequest, orgID int64) (models.Crea
 	if err != nil {
 		return models.CreateParams{}, err
 	}
+	targets, err := toTargetSelections(req.GetTargets())
+	if err != nil {
+		return models.CreateParams{}, err
+	}
 	params := models.CreateParams{
+		ShareWithClients: req.GetShareWithClients(), Description: description, Targets: targets, ClientAccountIDs: req.GetClientAccountIds(),
 		OrgID:          orgID,
 		IdempotencyKey: req.GetIdempotencyKey(),
 		Category:       models.TicketCategory(category),
@@ -79,11 +89,17 @@ func toCreateParams(req *pb.CreateRepairTicketRequest, orgID int64) (models.Crea
 }
 
 func toUpdateParams(req *pb.UpdateRepairTicketRequest, orgID int64) (models.UpdateParams, error) {
+	targets, err := toTargetSelections(req.GetAffectedBoards())
+	if err != nil {
+		return models.UpdateParams{}, err
+	}
+
 	params := models.UpdateParams{
-		OrgID:         orgID,
-		ID:            req.GetId(),
-		ClearAssignee: req.GetClearAssignee(),
-		ClearRMAEta:   req.GetClearRmaEta(),
+		AffectedBoards: targets,
+		OrgID:          orgID,
+		ID:             req.GetId(),
+		ClearAssignee:  req.GetClearAssignee(),
+		ClearRMAEta:    req.GetClearRmaEta(),
 	}
 	if req.Status != nil {
 		raw, err := checkedEnumValue(int32(req.GetStatus()), 1, 5, "status")
@@ -141,6 +157,10 @@ func toUpdateParams(req *pb.UpdateRepairTicketRequest, orgID int64) (models.Upda
 	if req.Notes != nil {
 		v := req.GetNotes()
 		params.Notes = &v
+	}
+	if req.ResolutionNote != nil {
+		v := req.GetResolutionNote()
+		params.ResolutionNote = &v
 	}
 	if req.RmaVendor != nil {
 		v := req.GetRmaVendor()
@@ -206,7 +226,7 @@ func toListFilter(req *pb.ListRepairTicketsRequest, orgID int64) (models.ListFil
 	if len(requestFilter.GetCategories()) > 0 {
 		filter.Categories = make([]int16, len(requestFilter.GetCategories()))
 		for i, c := range requestFilter.GetCategories() {
-			value, err := checkedEnumValue(int32(c), 1, 2, "filter.categories")
+			value, err := checkedEnumValue(int32(c), 1, 5, "filter.categories")
 			if err != nil {
 				return models.ListFilter{}, err
 			}
@@ -300,9 +320,9 @@ func toBulkCloseParams(req *pb.BulkCloseParams, orgID int64, ticketIDs []int64) 
 		Resolution:     models.TicketResolution(resolution),
 		RepairLocation: models.RepairLocation(repairLocation),
 	}
-	if req.GetNotes() != "" {
-		v := req.GetNotes()
-		params.Notes = &v
+	if req.GetResolutionNote() != "" {
+		v := req.GetResolutionNote()
+		params.ResolutionNote = &v
 	}
 	return params, nil
 }
@@ -316,6 +336,7 @@ func toProtoTicket(t *models.RepairTicket) *pb.RepairTicket {
 		return nil
 	}
 	out := &pb.RepairTicket{
+		SharedWithClients: t.SharedWithClients, Description: t.Description, CreatedByAccountId: t.CreatedByAccountID,
 		Id:             t.ID,
 		TicketNumber:   t.TicketNumber,
 		Category:       pb.TicketCategory(t.Category),
@@ -326,11 +347,18 @@ func toProtoTicket(t *models.RepairTicket) *pb.RepairTicket {
 		WarrantyStatus: pb.WarrantyStatus(t.WarrantyStatus),
 		Resolution:     pb.TicketResolution(t.Resolution),
 		RepairLocation: pb.RepairLocation(t.RepairLocation),
+		ResolutionNote: t.ResolutionNote,
 		DailyImpactUsd: t.DailyImpactUsd,
 		SiteName:       t.SiteName,
 		BuildingName:   t.BuildingName,
 		CreatedAt:      timestamppb.New(t.CreatedAt),
 		UpdatedAt:      timestamppb.New(t.UpdatedAt),
+	}
+	for _, target := range t.Targets {
+		out.Targets = append(out.Targets, toProtoTicketAsset(target))
+	}
+	for _, audience := range t.Audiences {
+		out.Audiences = append(out.Audiences, &pb.TicketAudience{AccountId: audience.AccountID, Name: audience.Name})
 	}
 	if t.Diagnosis != nil {
 		out.Diagnosis = *t.Diagnosis
@@ -402,6 +430,7 @@ func toProtoComment(c *models.TicketComment) *pb.TicketComment {
 		return nil
 	}
 	return &pb.TicketComment{
+		Internal: c.Internal, AccountId: c.AccountID, AccountName: c.AccountName,
 		Id:               c.ID,
 		TicketId:         c.TicketID,
 		UserId:           c.UserID,
@@ -420,19 +449,23 @@ func toProtoComments(comments []models.TicketComment) []*pb.TicketComment {
 	return out
 }
 
-func toProtoPartUsage(p *models.PartUsage) *pb.PartUsage {
+func toProtoPartUsage(p *models.PartUsage) *pb.RecordedPartUsage {
 	if p == nil {
 		return nil
 	}
-	return &pb.PartUsage{
+	part := &pb.RecordedPartUsage{
 		InventoryPartId: p.InventoryPartID,
 		PartName:        p.PartName,
 		Quantity:        p.Quantity,
 	}
+	if p.ConsumedAt != nil {
+		part.ConsumedAt = timestamppb.New(*p.ConsumedAt)
+	}
+	return part
 }
 
-func toProtoPartsUsed(parts []models.PartUsage) []*pb.PartUsage {
-	out := make([]*pb.PartUsage, 0, len(parts))
+func toProtoPartsUsed(parts []models.PartUsage) []*pb.RecordedPartUsage {
+	out := make([]*pb.RecordedPartUsage, 0, len(parts))
 	for i := range parts {
 		out = append(out, toProtoPartUsage(&parts[i]))
 	}
@@ -502,4 +535,19 @@ func nextPageToken(tickets []models.RepairTicketSummary, hasNext bool) string {
 		return ""
 	}
 	return token
+}
+
+func toTargetSelections(targets []*pb.TicketAssetSelection) ([]models.TicketAssetSelection, error) {
+	out := make([]models.TicketAssetSelection, len(targets))
+	for i, t := range targets {
+		kind, valid := models.PhysicalTicketCategory(int32(t.GetKind()))
+		if !valid {
+			return nil, fleeterror.NewInvalidArgumentError("invalid physical ticket category")
+		}
+		out[i] = models.TicketAssetSelection{Kind: kind, ID: t.GetId(), ParentModuleID: t.ParentModuleId}
+	}
+	return out, nil
+}
+func toProtoTicketAsset(t models.TicketAsset) *pb.TicketAsset {
+	return &pb.TicketAsset{Kind: pb.TicketCategory(t.Kind), Id: t.ID, Label: t.Label, Model: t.Model, MinerIdentifier: t.MinerIdentifier, ModuleId: t.ModuleID, InstallationId: t.InstallationID, ContainerId: t.ContainerID, Position: t.Position, SiteId: t.SiteID, ReplacementModuleId: t.ReplacementModuleID, ReplacementHashboardId: t.ReplacementHashboardID, Diagnosis: t.Diagnosis, WarrantyEvidence: t.WarrantyEvidence, RepairOutcome: t.RepairOutcome, RmaOutcome: t.RMAOutcome}
 }

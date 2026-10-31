@@ -112,7 +112,7 @@ WITH eligible AS (
  issues=eligible.issues,
  issues_observed_at=GREATEST(m.issues_observed_at,(eligible.issues->>'observed_at')::timestamptz)
  FROM eligible WHERE m.id=eligible.id
- RETURNING m.id, m.tank_id, m.position, m.reported_id, m.first_seen_at, m.last_seen_at, m.retired_at, m.state, m.state_observed_at, m.issues, m.issues_observed_at, m.issues_source_times, m.identity_confirmed, m.observation_site_id, m.attribution_since
+ RETURNING m.id, m.tank_id, m.position, m.reported_id, m.first_seen_at, m.last_seen_at, m.retired_at, m.state, m.state_observed_at, m.issues, m.issues_observed_at, m.issues_source_times, m.identity_confirmed, m.observation_site_id, m.attribution_since, m.model
 )
 INSERT INTO container_module_diagnostic_observation(module_id,collected_at,site_id,attribution_since,state,state_observed_at,issues)
 SELECT id,last_seen_at,observation_site_id,attribution_since,state,state_observed_at,issues FROM attributed

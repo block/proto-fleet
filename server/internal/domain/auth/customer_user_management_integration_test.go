@@ -62,7 +62,7 @@ func customerManagementSetup(t *testing.T) customerManagementFixture {
 	require.NoError(t, err)
 	require.True(t, eff.Has(authz.PermUserManage, authz.ResourceContext{}))
 	require.False(t, eff.Has(authz.PermRoleManage, authz.ResourceContext{}))
-	accounts := hostedaccounts.NewService(conn)
+	accounts := hostedaccounts.NewService(conn, nil)
 	var root string
 	require.NoError(t, conn.QueryRowContext(t.Context(), `SELECT account_id FROM hosted_account WHERE organization_id=$1 AND depth=0`, host.OrganizationID).Scan(&root))
 	account, err := accounts.CreateChild(t.Context(), host.ID, host.OrganizationID, root, "Private customer", host.ID, hostedaccounts.DefaultCapabilities)

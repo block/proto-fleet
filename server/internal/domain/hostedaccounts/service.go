@@ -17,6 +17,7 @@ import (
 	"github.com/block/proto-fleet/server/generated/sqlc"
 	"github.com/block/proto-fleet/server/internal/domain/authz"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/block/proto-fleet/server/internal/domain/maintenance"
 	"github.com/block/proto-fleet/server/internal/infrastructure/db"
 )
 
@@ -74,10 +75,11 @@ func (a Access) Has(required Capabilities) bool {
 type Service struct {
 	conn    *sql.DB
 	queries sqlc.Querier
+	tickets *maintenance.Service
 }
 
-func NewService(conn *sql.DB) *Service {
-	return &Service{conn: conn, queries: db.NewFailoverResettingQuerier(db.NewRetryDB(conn))}
+func NewService(conn *sql.DB, tickets *maintenance.Service) *Service {
+	return &Service{conn: conn, tickets: tickets, queries: db.NewFailoverResettingQuerier(db.NewRetryDB(conn))}
 }
 
 // Resolve combines direct membership and explicit ancestor grants in one live
@@ -111,7 +113,7 @@ func resolve(ctx context.Context, q sqlc.Querier, userID, orgID int64, accountID
 // separate host administration. Zero adminID uses host access for host operators
 // and the creator as the initial member for customer-created subclients.
 // Names are display labels; identities and memberships are independent of names.
-func (s *Service) CreateChild(ctx context.Context, actorID, orgID int64, parentID, name string, adminID int64, capabilities Capabilities) (CreatedAccount, error) {
+func (s *Service) CreateChild(ctx context.Context, actorID, orgID int64, parentID, name string, adminID int64, capabilities Capabilities, ticketing ...bool) (CreatedAccount, error) {
 	name = strings.TrimSpace(name)
 	if name == "" || utf8.RuneCountInString(name) > 255 {
 		return CreatedAccount{}, fleeterror.NewInvalidArgumentError("account name must contain 1 to 255 characters")
@@ -171,7 +173,14 @@ func (s *Service) CreateChild(ctx context.Context, actorID, orgID int64, parentI
 		if err != nil {
 			return CreatedAccount{}, fleeterror.NewInternalErrorf("create account: %w", err)
 		}
-		metadata := map[string]any{"capabilities": capabilities}
+		if len(ticketing) > 0 && !ticketing[0] {
+			if err = q.SetHostedAccountTicketing(ctx, sqlc.SetHostedAccountTicketingParams{TicketingEnabled: false, OrganizationID: orgID, ID: account.ID}); err != nil {
+				return CreatedAccount{}, err
+			}
+			account.TicketingEnabled = false
+			account.Revision++
+		}
+		metadata := map[string]any{"capabilities": capabilities, "ticketing_enabled": account.TicketingEnabled}
 		if administratorID == 0 {
 			// A recorded root grant keeps host management independent of team seats.
 			// Full source authority mirrors the durable administrator role; hierarchy
@@ -204,7 +213,7 @@ func (s *Service) CreateChild(ctx context.Context, actorID, orgID int64, parentI
 
 // ConfigureChild changes only the policy of a directly delegated child. It
 // does not grant access to the child's assets, membership roster, or pools.
-func (s *Service) ConfigureChild(ctx context.Context, actorID, orgID int64, accountID string, capabilities Capabilities, suspended bool) error {
+func (s *Service) ConfigureChild(ctx context.Context, actorID, orgID int64, accountID string, capabilities Capabilities, suspended bool, ticketing ...*bool) error {
 	if err := validateCapabilities(capabilities); err != nil {
 		return err
 	}
@@ -228,14 +237,20 @@ func (s *Service) ConfigureChild(ctx context.Context, actorID, orgID int64, acco
 			return fleeterror.NewForbiddenError("cannot restore capabilities excluded by the parent")
 		}
 		account := path[len(path)-1]
-		if err := q.ConfigureHostedAccount(ctx, sqlc.ConfigureHostedAccountParams{Capabilities: int64(capabilities), Suspended: suspended, OrganizationID: orgID, ID: account.ID}); err != nil {
+		previousTicketing := account.TicketingEnabled
+		var ticketingValue sql.NullBool
+		if len(ticketing) > 0 && ticketing[0] != nil {
+			ticketingValue = sql.NullBool{Bool: *ticketing[0], Valid: true}
+			account.TicketingEnabled = *ticketing[0]
+		}
+		if err := q.ConfigureHostedAccount(ctx, sqlc.ConfigureHostedAccountParams{Capabilities: int64(capabilities), Suspended: suspended, OrganizationID: orgID, ID: account.ID, TicketingEnabled: ticketingValue}); err != nil {
 			return err
 		}
 		account.Revision++
 		if err := requireAdministrators(ctx, q, orgID); err != nil {
 			return err
 		}
-		return audit(ctx, q, actor, account, "configure_hosted_account", map[string]any{"previous_capabilities": account.Capabilities, "capabilities": capabilities, "previous_suspended": account.Suspended, "suspended": suspended})
+		return audit(ctx, q, actor, account, "configure_hosted_account", map[string]any{"previous_capabilities": account.Capabilities, "capabilities": capabilities, "previous_suspended": account.Suspended, "suspended": suspended, "previous_ticketing_enabled": previousTicketing, "ticketing_enabled": account.TicketingEnabled})
 	})
 }
 
@@ -405,6 +420,10 @@ func accessError(err error) error {
 }
 
 func audit(ctx context.Context, q sqlc.Querier, actor sqlc.User, account Account, event string, metadata map[string]any) error {
+	return auditWithCategory(ctx, q, actor, account, "auth", event, metadata)
+}
+
+func auditWithCategory(ctx context.Context, q sqlc.Querier, actor sqlc.User, account Account, category, event string, metadata map[string]any) error {
 	metadata["account_id"] = account.AccountID
 	metadata["account_revision"] = account.Revision
 	encoded, err := json.Marshal(metadata)
@@ -412,7 +431,7 @@ func audit(ctx context.Context, q sqlc.Querier, actor sqlc.User, account Account
 		return fleeterror.NewInternalErrorf("encode account audit metadata: %w", err)
 	}
 	return q.InsertActivityLog(ctx, sqlc.InsertActivityLogParams{
-		EventID: uuid.New(), EventCategory: "auth", EventType: event, Description: strings.ReplaceAll(event, "_", " "),
+		EventID: uuid.New(), EventCategory: category, EventType: event, Description: strings.ReplaceAll(event, "_", " "),
 		Result: "success", ActorType: "user",
 		UserID: sql.NullString{String: actor.UserID, Valid: true}, Username: sql.NullString{String: actor.Username, Valid: true},
 		OrganizationID: sql.NullInt64{Int64: account.OrganizationID, Valid: true},

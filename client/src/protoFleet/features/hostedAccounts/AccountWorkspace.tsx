@@ -15,13 +15,14 @@ import AccountOverview from "./components/AccountOverview";
 import AccountPools from "./components/AccountPools";
 import { AccountState } from "./components/AccountState";
 import AccountTeam from "./components/AccountTeam";
+import AccountTickets from "./components/AccountTickets";
 import { useHostedAccounts } from "./HostedAccountsContext";
 import { useAccountQuery } from "./useAccountQuery";
 import { type NavItem, type SecondaryNavItem } from "@/protoFleet/config/navItems";
 import { POLL_INTERVAL_MS } from "@/protoFleet/constants/polling";
 import Preferences from "@/protoFleet/features/settings/components/Preferences";
 import { useFleetStore, usePermissions } from "@/protoFleet/store";
-import { Activity, Fleet, Groups, Home, LightningAlt, Lock, Settings, Team } from "@/shared/assets/icons";
+import { Activity, Fleet, Groups, Home, LightningAlt, Lock, Repair, Settings, Team } from "@/shared/assets/icons";
 import Breadcrumb from "@/shared/components/Breadcrumb";
 import Button, { sizes } from "@/shared/components/Button";
 import ProgressCircular from "@/shared/components/ProgressCircular";
@@ -88,13 +89,14 @@ const AccountPage = ({
   }, [query.refresh]);
   const account = rootAccount ?? query.data?.account;
   const authority = account
-    ? `${account.effectiveCapabilities}:${account.capabilityCeiling}:${account.suspended}:${account.revision}:${query.data?.policy.effectiveRestricted}:${query.data?.policy.effectiveSiteIds.map(String).sort().join(",")}`
+    ? `${account.effectiveCapabilities}:${account.capabilityCeiling}:${account.suspended}:${account.ticketingEnabled}:${account.ticketAccess}:${account.revision}:${query.data?.policy.effectiveRestricted}:${query.data?.policy.effectiveSiteIds.map(String).sort().join(",")}`
     : "";
   const parent = directory?.accounts.find(
     (item) => item.accountId === account?.parentAccountId && item.depth > 0 && can(item, 1n),
   );
   const error = directory?.error ?? query.error;
   const loading = directory?.loading || (!account && !error && query.loading);
+  const ticketAccess = account?.depth !== 0 && account?.ticketingEnabled && account?.ticketAccess;
   const navItems: NavItem[] = [
     ...(account && account.depth > 0 && can(account, 1n) ? [{ path: path(accountId), label: "Home", icon: Home }] : []),
     ...(account && account.depth > 0 && can(account, 1n)
@@ -103,6 +105,7 @@ const AccountPage = ({
     ...(account && account.depth > 0 && can(account, 1n)
       ? [{ path: path(accountId, "activity"), label: "Activity", icon: Activity }]
       : []),
+    ...(ticketAccess ? [{ path: path(accountId, "tickets"), label: "Tickets", icon: Repair }] : []),
     ...(account && account.depth > 0 && can(account, 1n)
       ? [{ path: path(accountId, "pools"), label: "Pools", icon: LightningAlt }]
       : []),
@@ -146,7 +149,12 @@ const AccountPage = ({
     account?.depth !== 0 && !management
       ? [
           ...navItems.filter((item) =>
-            [path(accountId), path(accountId, "assets"), path(accountId, "activity")].includes(item.path),
+            [
+              path(accountId),
+              path(accountId, "assets"),
+              path(accountId, "activity"),
+              path(accountId, "tickets"),
+            ].includes(item.path),
           ),
           ...(settingsPages.length
             ? [{ path: settingsPath, label: "Settings", icon: Settings, children: settingsPages }]
@@ -157,6 +165,8 @@ const AccountPage = ({
   const accessible = !!section && navItems.some((item) => item.path === path(accountId, section));
   const renderSection = (authorityKey: string) => {
     switch (section) {
+      case "tickets":
+        return <AccountTickets key={authorityKey} />;
       case "activity":
         return <AccountActivity key={authorityKey} />;
       case "overview":
@@ -206,7 +216,7 @@ const AccountPage = ({
           refreshAccount={refresh}
           invalidateAccount={invalidate}
         >
-          {account.depth > 0 && !preview && !embedded ? (
+          {account.depth > 0 && !preview && !embedded && (host || management || !!parent) ? (
             <div className="mb-6 flex min-h-10 flex-wrap items-center justify-between gap-3">
               <Breadcrumb
                 className="min-w-0 flex-wrap"
@@ -236,7 +246,7 @@ const AccountPage = ({
           ) : null}
           {error ? <AccountState error={error} retry={refresh} /> : null}
           {accessible ? (
-            renderSection(`${account.effectiveCapabilities}:${account.suspended}`)
+            renderSection(authority)
           ) : (
             <Navigate
               to={

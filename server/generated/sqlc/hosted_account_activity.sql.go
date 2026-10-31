@@ -34,6 +34,10 @@ WITH account_types AS (
  UNION ALL SELECT 'set_hosted_account_pool_profile','pool','account','Updated incoming pool profile'
  UNION ALL SELECT 'account_assets_assigned','fleet_management','asset','Assigned mining assets'
  UNION ALL SELECT 'account_assets_recalled','fleet_management','asset','Recalled mining assets'
+ UNION ALL SELECT 'create_account_ticket','fleet_management','account','Created repair ticket'
+ UNION ALL SELECT 'comment_account_ticket','fleet_management','account','Commented on repair ticket'
+ UNION ALL SELECT 'close_account_ticket','fleet_management','account','Closed repair ticket'
+ UNION ALL SELECT 'reopen_account_ticket','fleet_management','account','Reopened repair ticket'
 ), command_types AS (
  SELECT 'reboot.completed'::text AS event_type,'Rebooted miners'::text AS description
  UNION ALL SELECT 'start_mining.completed','Started mining'

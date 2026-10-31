@@ -52,7 +52,9 @@ export const ActionModal = ({
   ];
   const content = (
     <div className="flex flex-col gap-4">
-      {children}
+      <fieldset className="flex flex-col gap-4" disabled={busy || scope?.readOnly}>
+        {children}
+      </fieldset>
       {error ? <Callout title={error} intent="danger" prefixIcon={<Alert />} /> : null}
     </div>
   );

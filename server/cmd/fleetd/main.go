@@ -372,7 +372,7 @@ func start(config *Config) (result error) {
 
 	// userStore implements both UserStore and UserManagementStore interfaces
 	authSvc := authDomain.NewService(userStore, userStore, transactor, tokenSvc, sessionSvc, encryptSvc, activitySvc, permissionResolver)
-	hostedaccountsSvc := hostedaccountsDomain.NewService(conn)
+	hostedaccountsSvc := hostedaccountsDomain.NewService(conn, maintenanceDomain.NewService(maintenanceStore, maintenanceStore, inventoryStore, transactor, nil))
 	hostedInvitationsSvc := hostedaccountsDomain.NewInvitationService(hostedaccountsSvc, sessionSvc)
 	teamInvitationsSvc := hostedaccountsDomain.NewTeamInvitationService(hostedaccountsSvc, sessionSvc)
 	hostedKeysSvc := hostedaccountsDomain.NewKeyService(hostedaccountsSvc, apiKeySvc)

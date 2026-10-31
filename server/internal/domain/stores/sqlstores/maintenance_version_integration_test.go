@@ -88,7 +88,8 @@ func TestMaintenanceCompletionStaleReplayCannotConsumeStockAgain(t *testing.T) {
 	initial, err := store.GetRepairTicket(ctx, orgID, ticketID)
 	require.NoError(t, err)
 	completed, resolution := models.TicketStatusCompleted, models.TicketResolutionRepaired
-	params := models.UpdateParams{OrgID: orgID, ID: ticketID, ExpectedUpdatedAt: initial.UpdatedAt, Status: &completed, Resolution: &resolution}
+	resolutionNote := "Fan replaced and operation verified"
+	params := models.UpdateParams{OrgID: orgID, ID: ticketID, ExpectedUpdatedAt: initial.UpdatedAt, Status: &completed, Resolution: &resolution, ResolutionNote: &resolutionNote}
 	_, err = service.UpdateRepairTicket(ctx, params)
 	require.NoError(t, err)
 	_, err = service.UpdateRepairTicket(ctx, params)

@@ -4,6 +4,7 @@ package hosted.v1;
 
 import "buf/validate/validate.proto";
 import "activity/v1/activity.proto";
+import "maintenance/v1/maintenance.proto";
 import "common/v1/equipment_coverage.proto";
 import "common/v1/sort.proto";
 import "telemetry/v1/telemetry.proto";
@@ -13,6 +14,12 @@ import "google/protobuf/timestamp.proto";
 // Every private account operation names its account; names are display labels.
 // invitation.v1.InvitationService redeems the invitation codes issued here.
 service HostedAccountService {
+  rpc ListAccountTickets(ListAccountTicketsRequest) returns (ListAccountTicketsResponse);
+  rpc GetAccountTicket(GetAccountTicketRequest) returns (GetAccountTicketResponse);
+  rpc CreateAccountTicket(CreateAccountTicketRequest) returns (CreateAccountTicketResponse);
+  rpc CommentAccountTicket(CommentAccountTicketRequest) returns (CommentAccountTicketResponse);
+  rpc ChangeAccountTicketStatus(ChangeAccountTicketStatusRequest) returns (ChangeAccountTicketStatusResponse);
+  rpc ListAccountTicketAssets(ListAccountTicketAssetsRequest) returns (ListAccountTicketAssetsResponse);
   rpc ListAccountActivities(ListAccountActivitiesRequest) returns (ListAccountActivitiesResponse);
   rpc ExportAccountActivities(ExportAccountActivitiesRequest) returns (stream ExportAccountActivitiesResponse);
   rpc GetAccountDashboard(GetAccountDashboardRequest) returns (GetAccountDashboardResponse);
@@ -106,6 +113,10 @@ message Account {
   int64 revision = 9;
   // Present only for direct clients returned by the host's ListChildren.
   ClientManagementSummary management_summary = 10;
+  bool ticketing_enabled = 11;
+  // Derived from live direct membership, View authority and account ticketing.
+  // All teammates are eligible; there is no individual ticket-access setting.
+  bool ticket_access = 12;
 }
 
 // Commercial allocation and direct membership counts for host client management.
@@ -173,6 +184,8 @@ message ListChildrenRequest {
 message ListChildrenResponse { repeated Account accounts = 1; }
 
 message CreateAccountRequest {
+  // Omission enables client ticketing.
+  optional bool ticketing_enabled = 5;
   string account_id = 1 [(buf.validate.field).string.uuid = true];
   string name = 2 [(buf.validate.field).string = {min_len: 1, max_len: 255}];
   // Omission gives host operators separate host administration, without a team
@@ -184,6 +197,7 @@ message CreateAccountRequest {
 message CreateAccountResponse { Account account = 1; }
 
 message ConfigureAccountRequest {
+  optional bool ticketing_enabled = 5;
   // The active parent workspace controls only its directly delegated child.
   string account_id = 1 [(buf.validate.field).string.uuid = true];
   string child_account_id = 2 [(buf.validate.field).string.uuid = true];
@@ -601,3 +615,68 @@ message GetAccountAssetDetailResponse {
   // Current allocation and current site permission are required, even with history.
   AccountAsset asset = 1;
 }
+
+// Client ticket projections omit host operational notes, parts and other
+// accounts' assets and conversations. Status is shared with the host queue.
+message AccountTicketDetail {
+  maintenance.v1.RepairTicket ticket = 1;
+  repeated maintenance.v1.TicketComment comments = 2;
+  bool can_close = 3;
+  // Older visible comments are fetched with GetAccountTicket.before_comment_id.
+  int64 next_before_comment_id = 4 [(buf.validate.field).int64.gte = 0];
+}
+message ListAccountTicketsRequest {
+  string account_id = 1 [(buf.validate.field).string.uuid = true];
+  int64 before_id = 2 [(buf.validate.field).int64.gte = 0];
+  repeated maintenance.v1.TicketStatus statuses = 3 [(buf.validate.field).repeated.items.enum = {defined_only: true, not_in: [0]}];
+}
+message ListAccountTicketsResponse {
+  repeated maintenance.v1.RepairTicket tickets = 1;
+  int64 next_before_id = 2;
+}
+message GetAccountTicketRequest {
+  string account_id = 1 [(buf.validate.field).string.uuid = true];
+  int64 ticket_id = 2 [(buf.validate.field).int64.gt = 0];
+  // Zero returns the latest 50 visible comments, ordered oldest first.
+  int64 before_comment_id = 3 [(buf.validate.field).int64.gte = 0];
+}
+message CreateAccountTicketRequest {
+  string account_id = 1 [(buf.validate.field).string.uuid = true];
+  string description = 2 [(buf.validate.field).string = {min_len: 1, max_len: 4096}];
+  string component = 3 [(buf.validate.field).string.max_len = 255];
+  repeated maintenance.v1.TicketAssetSelection targets = 4 [(buf.validate.field).repeated.max_items = 100];
+  string idempotency_key = 5 [(buf.validate.field).string = {min_len: 1, max_len: 64}];
+}
+message CommentAccountTicketRequest {
+  string account_id = 1 [(buf.validate.field).string.uuid = true];
+  int64 ticket_id = 2 [(buf.validate.field).int64.gt = 0];
+  string text = 3 [(buf.validate.field).string = {min_len: 1, max_len: 4096}];
+  string idempotency_key = 4 [(buf.validate.field).string = {min_len: 1, max_len: 64}];
+}
+message ChangeAccountTicketStatusRequest {
+  option (buf.validate.message).cel = {
+    id: "account_ticket.resolution_note_required"
+    message: "closing a ticket requires a resolution note"
+    expression: "!this.close || this.resolution_note.size() > 0"
+  };
+  option (buf.validate.message).cel = {
+    id: "account_ticket.resolution_note_closing_only"
+    message: "resolution_note is only valid when closing a ticket"
+    expression: "this.close || this.resolution_note == ''"
+  };
+  string account_id = 1 [(buf.validate.field).string.uuid = true];
+  int64 ticket_id = 2 [(buf.validate.field).int64.gt = 0];
+  bool close = 3;
+  string resolution_note = 4 [(buf.validate.field).string.max_len = 4096];
+  google.protobuf.Timestamp expected_updated_at = 5 [(buf.validate.field).required = true];
+}
+message ListAccountTicketAssetsRequest {
+  string account_id = 1 [(buf.validate.field).string.uuid = true];
+  string search = 2 [(buf.validate.field).string.max_len = 255];
+}
+message ListAccountTicketAssetsResponse { repeated maintenance.v1.TicketAsset assets = 1; }
+
+message GetAccountTicketResponse { AccountTicketDetail detail = 1; }
+message CreateAccountTicketResponse { AccountTicketDetail detail = 1; }
+message CommentAccountTicketResponse { AccountTicketDetail detail = 1; }
+message ChangeAccountTicketStatusResponse { AccountTicketDetail detail = 1; }

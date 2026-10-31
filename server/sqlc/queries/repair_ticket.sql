@@ -1,7 +1,8 @@
 -- name: LockRepairTicketCreateKey :exec
+WITH admission AS (SELECT id FROM organization WHERE id=sqlc.arg('org_id') FOR SHARE)
 SELECT pg_advisory_xact_lock(
     hashtextextended('repair_ticket_create:' || sqlc.arg('org_id')::bigint::text || ':' || sqlc.arg('idempotency_key')::text, 0)
-);
+) FROM admission;
 
 -- name: GetRepairTicketIDByIdempotencyKey :one
 SELECT id, create_request_hash
@@ -22,7 +23,7 @@ INSERT INTO repair_ticket (
     org_id, ticket_number, category, urgent, component, diagnosis,
     miner_identifier, alert_id, assignee_user_id, warranty_status,
     site_id, building_id, zone, rack_id, rack_label, group_label,
-    notes, daily_impact_usd, idempotency_key, create_request_hash
+    notes, daily_impact_usd, idempotency_key, create_request_hash, description, created_by_account_id, shared_with_clients
 ) VALUES (
     sqlc.arg('org_id'), sqlc.arg('ticket_number'), sqlc.arg('category'), sqlc.arg('urgent'),
     sqlc.arg('component'), sqlc.narg('diagnosis'), sqlc.narg('miner_identifier'),
@@ -30,7 +31,7 @@ INSERT INTO repair_ticket (
     sqlc.narg('site_id'), sqlc.narg('building_id'), sqlc.narg('zone'),
     sqlc.narg('rack_id'), sqlc.narg('rack_label'), sqlc.narg('group_label'),
     sqlc.narg('notes'), sqlc.arg('daily_impact_usd'), sqlc.arg('idempotency_key'),
-    sqlc.arg('create_request_hash')
+    sqlc.arg('create_request_hash'), sqlc.arg('description'), sqlc.narg('created_by_account_id'), sqlc.arg('shared_with_clients')
 )
 RETURNING id;
 
@@ -41,7 +42,7 @@ SELECT
     rt.id, rt.org_id, rt.ticket_number, rt.category, rt.status, rt.urgent,
     rt.component, rt.diagnosis, rt.miner_identifier, rt.alert_id,
     rt.assignee_user_id, COALESCE(u.username, '') AS assignee_name,
-    rt.warranty_status, rt.resolution, rt.repair_location, rt.notes,
+    rt.warranty_status, rt.resolution, rt.resolution_note, rt.repair_location, rt.notes,
     rt.daily_impact_usd, rt.rma_vendor, rt.rma_tracking, rt.rma_eta,
     rt.site_id, COALESCE(s.name, '') AS site_name,
     rt.building_id, COALESCE(b.name, '') AS building_name,
@@ -58,7 +59,7 @@ SELECT
     rt.id, rt.org_id, rt.ticket_number, rt.category, rt.status, rt.urgent,
     rt.component, rt.diagnosis, rt.miner_identifier, rt.alert_id,
     rt.assignee_user_id, COALESCE(u.username, '') AS assignee_name,
-    rt.warranty_status, rt.resolution, rt.repair_location, rt.notes,
+    rt.warranty_status, rt.resolution, rt.resolution_note, rt.repair_location, rt.notes,
     rt.daily_impact_usd, rt.rma_vendor, rt.rma_tracking, rt.rma_eta,
     rt.site_id, COALESCE(s.name, '') AS site_name,
     rt.building_id, COALESCE(b.name, '') AS building_name,
@@ -77,7 +78,7 @@ WITH filtered AS (
         rt.id, rt.org_id, rt.ticket_number, rt.category, rt.status, rt.urgent,
         rt.component, rt.diagnosis, rt.miner_identifier, rt.alert_id,
         rt.assignee_user_id, COALESCE(u.username, '') AS assignee_name,
-        rt.warranty_status, rt.resolution, rt.repair_location, rt.notes,
+        rt.warranty_status, rt.resolution, rt.resolution_note, rt.repair_location, rt.notes,
         rt.daily_impact_usd, rt.rma_vendor, rt.rma_tracking, rt.rma_eta,
         rt.site_id, COALESCE(s.name, '') AS site_name,
         rt.building_id, COALESCE(b.name, '') AS building_name,
@@ -103,8 +104,8 @@ WITH filtered AS (
       AND (sqlc.narg('filter_categories')::smallint[] IS NULL OR rt.category = ANY(sqlc.narg('filter_categories')::smallint[]))
       AND (sqlc.narg('filter_site_ids')::bigint[] IS NULL OR rt.site_id = ANY(sqlc.narg('filter_site_ids')::bigint[]))
       AND (sqlc.narg('excluded_site_ids')::bigint[] IS NULL OR rt.site_id IS NULL OR NOT (rt.site_id = ANY(sqlc.narg('excluded_site_ids')::bigint[])))
-      AND (sqlc.narg('filter_building_ids')::bigint[] IS NULL OR rt.building_id = ANY(sqlc.narg('filter_building_ids')::bigint[]))
-      AND (sqlc.narg('filter_rack_ids')::bigint[] IS NULL OR rt.rack_id = ANY(sqlc.narg('filter_rack_ids')::bigint[]))
+      AND (sqlc.narg('filter_building_ids')::bigint[] IS NULL OR rt.building_id = ANY(sqlc.narg('filter_building_ids')::bigint[]) OR EXISTS (SELECT 1 FROM repair_ticket_target target WHERE target.org_id=rt.org_id AND target.ticket_id=rt.id AND target.building_id=ANY(sqlc.narg('filter_building_ids')::bigint[])))
+      AND (sqlc.narg('filter_rack_ids')::bigint[] IS NULL OR rt.rack_id = ANY(sqlc.narg('filter_rack_ids')::bigint[]) OR EXISTS (SELECT 1 FROM repair_ticket_target target WHERE target.org_id=rt.org_id AND target.ticket_id=rt.id AND target.rack_id=ANY(sqlc.narg('filter_rack_ids')::bigint[])))
       AND (sqlc.narg('filter_group_labels')::text[] IS NULL OR rt.group_label = ANY(sqlc.narg('filter_group_labels')::text[]))
       AND (sqlc.narg('filter_assignee_user_id')::bigint IS NULL OR rt.assignee_user_id = sqlc.narg('filter_assignee_user_id'))
       AND (NOT sqlc.arg('filter_urgent_only')::boolean OR rt.urgent)
@@ -115,6 +116,7 @@ WITH filtered AS (
            rt.component ILIKE sqlc.narg('search_pattern') ESCAPE '\' OR
            COALESCE(rt.miner_identifier, '') ILIKE sqlc.narg('search_pattern') ESCAPE '\' OR
            COALESCE(rt.diagnosis, '') ILIKE sqlc.narg('search_pattern') ESCAPE '\' OR
+           rt.description ILIKE sqlc.narg('search_pattern') ESCAPE '\' OR
            COALESCE(s.name, '') ILIKE sqlc.narg('search_pattern') ESCAPE '\' OR
            COALESCE(b.name, '') ILIKE sqlc.narg('search_pattern') ESCAPE '\')
 )
@@ -143,8 +145,8 @@ WHERE rt.org_id = sqlc.arg('org_id') AND rt.deleted_at IS NULL
   AND (sqlc.narg('filter_categories')::smallint[] IS NULL OR rt.category = ANY(sqlc.narg('filter_categories')::smallint[]))
   AND (sqlc.narg('filter_site_ids')::bigint[] IS NULL OR rt.site_id = ANY(sqlc.narg('filter_site_ids')::bigint[]))
   AND (sqlc.narg('excluded_site_ids')::bigint[] IS NULL OR rt.site_id IS NULL OR NOT (rt.site_id = ANY(sqlc.narg('excluded_site_ids')::bigint[])))
-  AND (sqlc.narg('filter_building_ids')::bigint[] IS NULL OR rt.building_id = ANY(sqlc.narg('filter_building_ids')::bigint[]))
-  AND (sqlc.narg('filter_rack_ids')::bigint[] IS NULL OR rt.rack_id = ANY(sqlc.narg('filter_rack_ids')::bigint[]))
+  AND (sqlc.narg('filter_building_ids')::bigint[] IS NULL OR rt.building_id = ANY(sqlc.narg('filter_building_ids')::bigint[]) OR EXISTS (SELECT 1 FROM repair_ticket_target target WHERE target.org_id=rt.org_id AND target.ticket_id=rt.id AND target.building_id=ANY(sqlc.narg('filter_building_ids')::bigint[])))
+  AND (sqlc.narg('filter_rack_ids')::bigint[] IS NULL OR rt.rack_id = ANY(sqlc.narg('filter_rack_ids')::bigint[]) OR EXISTS (SELECT 1 FROM repair_ticket_target target WHERE target.org_id=rt.org_id AND target.ticket_id=rt.id AND target.rack_id=ANY(sqlc.narg('filter_rack_ids')::bigint[])))
   AND (sqlc.narg('filter_group_labels')::text[] IS NULL OR rt.group_label = ANY(sqlc.narg('filter_group_labels')::text[]))
   AND (sqlc.narg('filter_assignee_user_id')::bigint IS NULL OR rt.assignee_user_id = sqlc.narg('filter_assignee_user_id'))
   AND (NOT sqlc.arg('filter_urgent_only')::boolean OR rt.urgent)
@@ -155,6 +157,7 @@ WHERE rt.org_id = sqlc.arg('org_id') AND rt.deleted_at IS NULL
        rt.component ILIKE sqlc.narg('search_pattern') ESCAPE '\' OR
        COALESCE(rt.miner_identifier, '') ILIKE sqlc.narg('search_pattern') ESCAPE '\' OR
        COALESCE(rt.diagnosis, '') ILIKE sqlc.narg('search_pattern') ESCAPE '\' OR
+       rt.description ILIKE sqlc.narg('search_pattern') ESCAPE '\' OR
        COALESCE(s.name, '') ILIKE sqlc.narg('search_pattern') ESCAPE '\' OR
        COALESCE(b.name, '') ILIKE sqlc.narg('search_pattern') ESCAPE '\');
 
@@ -166,13 +169,15 @@ UPDATE repair_ticket SET
     component = COALESCE(sqlc.narg('component'), component),
     diagnosis = COALESCE(sqlc.narg('diagnosis'), diagnosis),
     warranty_status = COALESCE(sqlc.narg('warranty_status'), warranty_status),
-    resolution = COALESCE(sqlc.narg('resolution'), resolution),
-    repair_location = COALESCE(sqlc.narg('repair_location'), repair_location),
+    resolution = CASE WHEN status = 5 AND sqlc.narg('status')::smallint = 1 THEN 0 ELSE COALESCE(sqlc.narg('resolution'), resolution) END,
+    repair_location = CASE WHEN status = 5 AND sqlc.narg('status')::smallint = 1 THEN 0 ELSE COALESCE(sqlc.narg('repair_location'), repair_location) END,
+    resolution_note = CASE WHEN status = 5 AND sqlc.narg('status')::smallint = 1 THEN '' ELSE COALESCE(sqlc.narg('resolution_note'), resolution_note) END,
+    resolution_note_account_id = CASE WHEN sqlc.narg('status')::smallint = 5 THEN sqlc.narg('closing_account_id')::bigint WHEN status = 5 AND sqlc.narg('status')::smallint = 1 THEN NULL ELSE resolution_note_account_id END,
     notes = COALESCE(sqlc.narg('notes'), notes),
     rma_vendor = COALESCE(sqlc.narg('rma_vendor'), rma_vendor),
     rma_tracking = COALESCE(sqlc.narg('rma_tracking'), rma_tracking),
     rma_eta = CASE WHEN sqlc.arg('clear_rma_eta')::boolean THEN NULL ELSE COALESCE(sqlc.narg('rma_eta'), rma_eta) END,
-    completed_at = CASE WHEN sqlc.narg('status')::smallint = 5 AND status <> 5 THEN NOW() ELSE completed_at END
+    completed_at = CASE WHEN sqlc.narg('status')::smallint = 1 AND status = 5 THEN NULL WHEN sqlc.narg('status')::smallint = 5 AND status <> 5 THEN NOW() ELSE completed_at END
 WHERE id = sqlc.arg('id') AND org_id = sqlc.arg('org_id') AND deleted_at IS NULL
 RETURNING id;
 
@@ -190,8 +195,8 @@ WHERE org_id = sqlc.arg('org_id') AND id = ANY(sqlc.arg('ticket_ids')::bigint[])
 
 -- name: BulkCloseTickets :execrows
 UPDATE repair_ticket SET
-    status = 5, resolution = sqlc.arg('resolution'), repair_location = sqlc.arg('repair_location'),
-    notes = COALESCE(sqlc.narg('notes'), notes), completed_at = COALESCE(completed_at, NOW())
+    status = 5, resolution_note_account_id = NULL, resolution = sqlc.arg('resolution'), repair_location = sqlc.arg('repair_location'),
+    resolution_note = sqlc.narg('resolution_note'), completed_at = COALESCE(completed_at, NOW())
 WHERE org_id = sqlc.arg('org_id') AND id = ANY(sqlc.arg('ticket_ids')::bigint[]) AND deleted_at IS NULL;
 
 -- name: GetFilteredTicketStats :one
@@ -213,8 +218,8 @@ WHERE rt.org_id = sqlc.arg('org_id') AND rt.deleted_at IS NULL
   AND (sqlc.narg('filter_categories')::smallint[] IS NULL OR rt.category = ANY(sqlc.narg('filter_categories')::smallint[]))
   AND (sqlc.narg('filter_site_ids')::bigint[] IS NULL OR rt.site_id = ANY(sqlc.narg('filter_site_ids')::bigint[]))
   AND (sqlc.narg('excluded_site_ids')::bigint[] IS NULL OR rt.site_id IS NULL OR NOT (rt.site_id = ANY(sqlc.narg('excluded_site_ids')::bigint[])))
-  AND (sqlc.narg('filter_building_ids')::bigint[] IS NULL OR rt.building_id = ANY(sqlc.narg('filter_building_ids')::bigint[]))
-  AND (sqlc.narg('filter_rack_ids')::bigint[] IS NULL OR rt.rack_id = ANY(sqlc.narg('filter_rack_ids')::bigint[]))
+  AND (sqlc.narg('filter_building_ids')::bigint[] IS NULL OR rt.building_id = ANY(sqlc.narg('filter_building_ids')::bigint[]) OR EXISTS (SELECT 1 FROM repair_ticket_target target WHERE target.org_id=rt.org_id AND target.ticket_id=rt.id AND target.building_id=ANY(sqlc.narg('filter_building_ids')::bigint[])))
+  AND (sqlc.narg('filter_rack_ids')::bigint[] IS NULL OR rt.rack_id = ANY(sqlc.narg('filter_rack_ids')::bigint[]) OR EXISTS (SELECT 1 FROM repair_ticket_target target WHERE target.org_id=rt.org_id AND target.ticket_id=rt.id AND target.rack_id=ANY(sqlc.narg('filter_rack_ids')::bigint[])))
   AND (sqlc.narg('filter_group_labels')::text[] IS NULL OR rt.group_label = ANY(sqlc.narg('filter_group_labels')::text[]))
   AND (sqlc.narg('filter_assignee_user_id')::bigint IS NULL OR rt.assignee_user_id = sqlc.narg('filter_assignee_user_id'))
   AND (NOT sqlc.arg('filter_urgent_only')::boolean OR rt.urgent)
@@ -225,6 +230,7 @@ WHERE rt.org_id = sqlc.arg('org_id') AND rt.deleted_at IS NULL
        rt.component ILIKE sqlc.narg('search_pattern') ESCAPE '\' OR
        COALESCE(rt.miner_identifier, '') ILIKE sqlc.narg('search_pattern') ESCAPE '\' OR
        COALESCE(rt.diagnosis, '') ILIKE sqlc.narg('search_pattern') ESCAPE '\' OR
+       rt.description ILIKE sqlc.narg('search_pattern') ESCAPE '\' OR
        COALESCE(s.name, '') ILIKE sqlc.narg('search_pattern') ESCAPE '\' OR
        COALESCE(b.name, '') ILIKE sqlc.narg('search_pattern') ESCAPE '\');
 
@@ -234,7 +240,7 @@ WITH completed AS (
         rt.id, rt.org_id, rt.ticket_number, rt.category, rt.status, rt.urgent,
         rt.component, rt.diagnosis, rt.miner_identifier, rt.alert_id,
         rt.assignee_user_id, COALESCE(u.username, '') AS assignee_name,
-        rt.warranty_status, rt.resolution, rt.repair_location, rt.notes,
+        rt.warranty_status, rt.resolution, rt.resolution_note, rt.repair_location, rt.notes,
         rt.daily_impact_usd, rt.rma_vendor, rt.rma_tracking, rt.rma_eta,
         rt.site_id, COALESCE(s.name, '') AS site_name,
         rt.building_id, COALESCE(b.name, '') AS building_name,

@@ -41,7 +41,7 @@ export const FromMinerAlert: Story = {
       alertId: "alert-hashboard-m0012",
       minerIdentifier: "M0012",
       component: "Hashboard",
-      diagnosis: "Hashboard not detected",
+      description: "Hashboard not detected",
       siteId: "Denver",
     },
   },

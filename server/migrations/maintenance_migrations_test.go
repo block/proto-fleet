@@ -11,6 +11,7 @@ import (
 
 func TestMaintenanceMigrationsRoundTrip(t *testing.T) {
 	db := testutil.GetTestDB(t)
+	rollbackEmptyClientTicketing(t, db)
 	ctx := t.Context()
 	orgID := insertMaintenanceTestOrg(t, db, "maintenance-migration")
 	siteID := insertMaintenanceTestSite(t, db, orgID, "Preserved site")

@@ -52,9 +52,43 @@ describe("maintenance mappers", () => {
     );
     expect(result.updatedAtSnapshot).toEqual(updatedAt);
   });
+  it("keeps module identity and consumed parts separate from active reservations", () => {
+    const result = toTicketDetail(
+      create(RepairTicketDetailSchema, {
+        ticket: {
+          id: 5n,
+          category: TicketCategory.MODULE,
+          description: "Module stopped",
+          targets: [{ kind: TicketCategory.MODULE, id: 9n, label: "Module 9" }],
+          audiences: [{ accountId: "client", name: "Client" }],
+        },
+        partsUsed: [{ inventoryPartId: 7n, partName: "Fan", quantity: 2, consumedAt: { seconds: 1700000000n } }],
+        comments: [{ id: 1n, internal: true, text: "Host evidence" }],
+      }),
+    );
+    expect(result.category).toBe("module");
+    expect(result.targets[0].id).toBe(9n);
+    expect(result.description).toBe("Module stopped");
+    expect(result.partsUsed[0].consumedAt).toBeInstanceOf(Date);
+    expect(result.comments[0].internal).toBe(true);
+  });
   it("maps organization-wide inventory type facets", () => {
     const result = toInventoryInsights(create(InventoryInsightsSchema, { partTypes: ["cable", "fan"] }));
     expect(result.partTypes).toEqual(["cable", "fan"]);
+  });
+  it("preserves separate operational and resolution notes", () => {
+    const result = toTicketDetail(
+      create(RepairTicketDetailSchema, {
+        ticket: {
+          id: 5n,
+          notes: "Private diagnostic details",
+          resolutionNote: "Equipment repaired and verified",
+        },
+      }),
+    );
+
+    expect(result.notes).toBe("Private diagnostic details");
+    expect(result.resolutionNote).toBe("Equipment repaired and verified");
   });
   it("rejects malformed summaries", () => {
     expect(() => toTicketItem(create(RepairTicketSummarySchema))).toThrow("missing its ticket");

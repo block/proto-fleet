@@ -13,15 +13,17 @@ import (
 
 const configureHostedAccount = `-- name: ConfigureHostedAccount :exec
 UPDATE hosted_account SET capabilities = $1, suspended = $2,
+    ticketing_enabled = COALESCE($5::boolean, ticketing_enabled),
     revision = revision + 1, authority_revision = authority_revision + 1, updated_at = CURRENT_TIMESTAMP
 WHERE organization_id = $3 AND id = $4
 `
 
 type ConfigureHostedAccountParams struct {
-	Capabilities   int64
-	Suspended      bool
-	OrganizationID int64
-	ID             int64
+	Capabilities     int64
+	Suspended        bool
+	OrganizationID   int64
+	ID               int64
+	TicketingEnabled sql.NullBool
 }
 
 func (q *Queries) ConfigureHostedAccount(ctx context.Context, arg ConfigureHostedAccountParams) error {
@@ -30,13 +32,14 @@ func (q *Queries) ConfigureHostedAccount(ctx context.Context, arg ConfigureHoste
 		arg.Suspended,
 		arg.OrganizationID,
 		arg.ID,
+		arg.TicketingEnabled,
 	)
 	return err
 }
 
 const createHostedAccount = `-- name: CreateHostedAccount :one
 INSERT INTO hosted_account (account_id, organization_id, parent_id, depth, name, capabilities)
-VALUES ($1, $2, $3, $4, $5, $6) RETURNING id, account_id, organization_id, parent_id, depth, name, capabilities, suspended, revision, created_at, updated_at, sites_restricted, site_ceiling_restricted, authority_revision
+VALUES ($1, $2, $3, $4, $5, $6) RETURNING id, account_id, organization_id, parent_id, depth, name, capabilities, suspended, revision, created_at, updated_at, sites_restricted, site_ceiling_restricted, authority_revision, ticketing_enabled
 `
 
 type CreateHostedAccountParams struct {
@@ -73,6 +76,7 @@ func (q *Queries) CreateHostedAccount(ctx context.Context, arg CreateHostedAccou
 		&i.SitesRestricted,
 		&i.SiteCeilingRestricted,
 		&i.AuthorityRevision,
+		&i.TicketingEnabled,
 	)
 	return i, err
 }
@@ -106,13 +110,13 @@ func (q *Queries) GetHostedAccountMembership(ctx context.Context, arg GetHostedA
 
 const getHostedAccountPath = `-- name: GetHostedAccountPath :many
 WITH RECURSIVE path AS (
-    SELECT a.id, a.account_id, a.organization_id, a.parent_id, a.depth, a.name, a.capabilities, a.suspended, a.revision, a.created_at, a.updated_at, a.sites_restricted, a.site_ceiling_restricted, a.authority_revision FROM hosted_account a
+    SELECT a.id, a.account_id, a.organization_id, a.parent_id, a.depth, a.name, a.capabilities, a.suspended, a.revision, a.created_at, a.updated_at, a.sites_restricted, a.site_ceiling_restricted, a.authority_revision, a.ticketing_enabled FROM hosted_account a
     WHERE a.organization_id = $1 AND a.account_id = $2
     UNION ALL
-    SELECT parent.id, parent.account_id, parent.organization_id, parent.parent_id, parent.depth, parent.name, parent.capabilities, parent.suspended, parent.revision, parent.created_at, parent.updated_at, parent.sites_restricted, parent.site_ceiling_restricted, parent.authority_revision FROM hosted_account parent
+    SELECT parent.id, parent.account_id, parent.organization_id, parent.parent_id, parent.depth, parent.name, parent.capabilities, parent.suspended, parent.revision, parent.created_at, parent.updated_at, parent.sites_restricted, parent.site_ceiling_restricted, parent.authority_revision, parent.ticketing_enabled FROM hosted_account parent
     JOIN path child ON parent.id = child.parent_id AND parent.organization_id = child.organization_id
 )
-SELECT id, account_id, organization_id, parent_id, depth, name, capabilities, suspended, revision, created_at, updated_at, sites_restricted, site_ceiling_restricted, authority_revision FROM path ORDER BY depth
+SELECT id, account_id, organization_id, parent_id, depth, name, capabilities, suspended, revision, created_at, updated_at, sites_restricted, site_ceiling_restricted, authority_revision, ticketing_enabled FROM path ORDER BY depth
 `
 
 type GetHostedAccountPathParams struct {
@@ -135,6 +139,7 @@ type GetHostedAccountPathRow struct {
 	SitesRestricted       bool
 	SiteCeilingRestricted bool
 	AuthorityRevision     int64
+	TicketingEnabled      bool
 }
 
 func (q *Queries) GetHostedAccountPath(ctx context.Context, arg GetHostedAccountPathParams) ([]GetHostedAccountPathRow, error) {
@@ -161,6 +166,7 @@ func (q *Queries) GetHostedAccountPath(ctx context.Context, arg GetHostedAccount
 			&i.SitesRestricted,
 			&i.SiteCeilingRestricted,
 			&i.AuthorityRevision,
+			&i.TicketingEnabled,
 		); err != nil {
 			return nil, err
 		}

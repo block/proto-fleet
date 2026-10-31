@@ -51,6 +51,7 @@ func TestMaintenanceBulkServiceValidatesEntireSelection(t *testing.T) {
 		}
 		return result
 	}
+	resolutionNote := "Repair completed and operation verified"
 	for _, operation := range []struct {
 		name  string
 		run   func(context.Context, []int64) (int64, error)
@@ -69,7 +70,7 @@ func TestMaintenanceBulkServiceValidatesEntireSelection(t *testing.T) {
 		}, func(t *testing.T, ticket *models.RepairTicket) { require.True(t, ticket.Urgent) }},
 		{"close", func(ctx context.Context, ids []int64) (int64, error) {
 			return service.BulkClose(ctx, models.BulkCloseParams{OrgID: orgID, TicketIDs: ids,
-				ExpectedVersions: expectedVersions(ids), Resolution: models.TicketResolutionRepaired})
+				ExpectedVersions: expectedVersions(ids), Resolution: models.TicketResolutionRepaired, ResolutionNote: &resolutionNote})
 		}, func(t *testing.T, ticket *models.RepairTicket) {
 			require.Equal(t, models.TicketStatusCompleted, ticket.Status)
 		}},
@@ -138,7 +139,7 @@ func TestMaintenanceBulkCloseRollsBackInventoryOnWriteFailure(t *testing.T) {
 	require.NoError(t, err)
 	count, err := service.BulkClose(ctx, models.BulkCloseParams{
 		OrgID: orgID, TicketIDs: []int64{ticketID}, ExpectedVersions: map[int64]time.Time{ticketID: initial.UpdatedAt},
-		Resolution: models.TicketResolutionRepaired, Notes: &invalidNotes,
+		Resolution: models.TicketResolutionRepaired, ResolutionNote: &invalidNotes,
 	})
 	require.Error(t, err)
 	require.Zero(t, count)

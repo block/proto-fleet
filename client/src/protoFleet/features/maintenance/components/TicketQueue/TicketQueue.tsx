@@ -2,6 +2,7 @@ import { useCallback, useMemo, useState } from "react";
 import clsx from "clsx";
 
 import { getComponentIcon, getComponentIconColor } from "../../componentIcons";
+import { ticketAssetLabel } from "../../ticketAssets";
 import type { TicketItem } from "../../types";
 import BulkCloseModal from "../BulkClose/BulkCloseModal";
 import CreateTicketModal from "../CreateTicket/CreateTicketModal";
@@ -44,6 +45,9 @@ const STATUS_OPTIONS = [
 const CATEGORY_OPTIONS = [
   { id: "miner", label: "Miner" },
   { id: "infrastructure", label: "Infrastructure" },
+  { id: "module", label: "Module" },
+  { id: "hashboard", label: "Hashboard" },
+  { id: "account", label: "Account" },
 ];
 const statusEnums: Record<string, TicketStatus> = {
   open: TicketStatus.OPEN,
@@ -54,6 +58,9 @@ const statusEnums: Record<string, TicketStatus> = {
 const categoryEnums: Record<string, TicketCategory> = {
   miner: TicketCategory.MINER,
   infrastructure: TicketCategory.INFRASTRUCTURE,
+  module: TicketCategory.MODULE,
+  hashboard: TicketCategory.HASHBOARD,
+  account: TicketCategory.ACCOUNT,
 };
 const formatStatus = (status: string) =>
   ({
@@ -203,7 +210,7 @@ const TicketQueue = ({ initialViewMode = "list" }: TicketQueueProps) => {
         component: (t) => (
           <div className="flex flex-col">
             <span className="text-emphasis-300 font-medium">
-              {t.component}: {t.diagnosis}
+              {t.description || [t.component, t.diagnosis].filter(Boolean).join(": ")}
             </span>
             <span className="text-300 text-text-primary-70">{t.ticketNumber}</span>
           </div>
@@ -213,7 +220,13 @@ const TicketQueue = ({ initialViewMode = "list" }: TicketQueueProps) => {
       asset: {
         component: (t) => (
           <div className="flex flex-col">
-            <span>{t.minerIdentifier ?? t.component}</span>
+            <span>
+              {t.targets.length
+                ? t.targets.map(ticketAssetLabel).join(", ")
+                : t.category === "account"
+                  ? t.audiences.map((item) => item.name).join(", ") || "Client account"
+                  : (t.minerIdentifier ?? t.component)}
+            </span>
             <span className="text-300 text-text-primary-70">{t.buildingName ?? "—"}</span>
           </div>
         ),
@@ -528,7 +541,7 @@ const TicketKanbanView = ({
               onClick={() => onClick(ticket)}
             >
               <span>{ticket.ticketNumber}</span>
-              <span>{ticket.diagnosis}</span>
+              <span>{ticket.description || [ticket.component, ticket.diagnosis].filter(Boolean).join(": ")}</span>
               <span className="text-200 text-text-primary-70">
                 {[ticket.assigneeName ?? "Unassigned", ageText(ticket.createdAt)].filter(Boolean).join(", ")}
               </span>

@@ -269,7 +269,7 @@ func (q *Queries) ListHostedAccountAncestorGrants(ctx context.Context, arg ListH
 }
 
 const listHostedAccountChildren = `-- name: ListHostedAccountChildren :many
-SELECT id, account_id, organization_id, parent_id, depth, name, capabilities, suspended, revision, created_at, updated_at, sites_restricted, site_ceiling_restricted, authority_revision FROM hosted_account WHERE organization_id = $1 AND parent_id = $2 ORDER BY name, account_id
+SELECT id, account_id, organization_id, parent_id, depth, name, capabilities, suspended, revision, created_at, updated_at, sites_restricted, site_ceiling_restricted, authority_revision, ticketing_enabled FROM hosted_account WHERE organization_id = $1 AND parent_id = $2 ORDER BY name, account_id
 `
 
 type ListHostedAccountChildrenParams struct {
@@ -301,6 +301,7 @@ func (q *Queries) ListHostedAccountChildren(ctx context.Context, arg ListHostedA
 			&i.SitesRestricted,
 			&i.SiteCeilingRestricted,
 			&i.AuthorityRevision,
+			&i.TicketingEnabled,
 		); err != nil {
 			return nil, err
 		}
@@ -324,11 +325,11 @@ WITH RECURSIVE page AS MATERIALIZED (
    OR (invitation.created_at, invitation.invitation_id) < ($3::timestamptz, $4::varchar))
  ORDER BY invitation.created_at DESC, invitation.invitation_id DESC LIMIT $5::int
 ), path AS (
- SELECT a.id, a.account_id, a.organization_id, a.parent_id, a.depth, a.name, a.capabilities, a.suspended, a.revision, a.created_at, a.updated_at, a.sites_restricted, a.site_ceiling_restricted, a.authority_revision FROM hosted_account a WHERE a.organization_id=$1 AND a.id=$2
+ SELECT a.id, a.account_id, a.organization_id, a.parent_id, a.depth, a.name, a.capabilities, a.suspended, a.revision, a.created_at, a.updated_at, a.sites_restricted, a.site_ceiling_restricted, a.authority_revision, a.ticketing_enabled FROM hosted_account a WHERE a.organization_id=$1 AND a.id=$2
  UNION ALL
- SELECT p.id, p.account_id, p.organization_id, p.parent_id, p.depth, p.name, p.capabilities, p.suspended, p.revision, p.created_at, p.updated_at, p.sites_restricted, p.site_ceiling_restricted, p.authority_revision FROM hosted_account p JOIN path c ON p.id=c.parent_id AND p.organization_id=c.organization_id
+ SELECT p.id, p.account_id, p.organization_id, p.parent_id, p.depth, p.name, p.capabilities, p.suspended, p.revision, p.created_at, p.updated_at, p.sites_restricted, p.site_ceiling_restricted, p.authority_revision, p.ticketing_enabled FROM hosted_account p JOIN path c ON p.id=c.parent_id AND p.organization_id=c.organization_id
 ), target AS (
- SELECT a.id, a.account_id, a.organization_id, a.parent_id, a.depth, a.name, a.capabilities, a.suspended, a.revision, a.created_at, a.updated_at, a.sites_restricted, a.site_ceiling_restricted, a.authority_revision FROM path a ORDER BY depth DESC LIMIT 1
+ SELECT a.id, a.account_id, a.organization_id, a.parent_id, a.depth, a.name, a.capabilities, a.suspended, a.revision, a.created_at, a.updated_at, a.sites_restricted, a.site_ceiling_restricted, a.authority_revision, a.ticketing_enabled FROM path a ORDER BY depth DESC LIMIT 1
 ), policy AS (
  SELECT bit_and(capabilities)::bigint AS ceiling, bool_or(suspended) AS suspended,
   string_agg(id::text || ':' || authority_revision::text, ',' ORDER BY depth) AS state FROM path
@@ -527,7 +528,7 @@ func (q *Queries) ListHostedAccountSites(ctx context.Context, arg ListHostedAcco
 }
 
 const listHostedAccounts = `-- name: ListHostedAccounts :many
-SELECT id, account_id, organization_id, parent_id, depth, name, capabilities, suspended, revision, created_at, updated_at, sites_restricted, site_ceiling_restricted, authority_revision FROM hosted_account WHERE organization_id = $1 ORDER BY depth, name, account_id
+SELECT id, account_id, organization_id, parent_id, depth, name, capabilities, suspended, revision, created_at, updated_at, sites_restricted, site_ceiling_restricted, authority_revision, ticketing_enabled FROM hosted_account WHERE organization_id = $1 ORDER BY depth, name, account_id
 `
 
 func (q *Queries) ListHostedAccounts(ctx context.Context, organizationID int64) ([]HostedAccount, error) {
@@ -554,6 +555,7 @@ func (q *Queries) ListHostedAccounts(ctx context.Context, organizationID int64) 
 			&i.SitesRestricted,
 			&i.SiteCeilingRestricted,
 			&i.AuthorityRevision,
+			&i.TicketingEnabled,
 		); err != nil {
 			return nil, err
 		}

@@ -669,6 +669,7 @@ type ContainerModule struct {
 	IdentityConfirmed bool
 	ObservationSiteID sql.NullInt64
 	AttributionSince  sql.NullTime
+	Model             string
 }
 
 type ContainerModuleDiagnosticObservation struct {
@@ -1972,6 +1973,7 @@ type HostedAccount struct {
 	SitesRestricted       bool
 	SiteCeilingRestricted bool
 	AuthorityRevision     int64
+	TicketingEnabled      bool
 }
 
 type HostedAccountAncestorGrant struct {
@@ -2561,37 +2563,66 @@ type ReleaseChannelTarget struct {
 }
 
 type RepairTicket struct {
-	ID                int64
-	OrgID             int64
-	TicketNumber      string
-	Category          int16
-	Status            int16
-	Urgent            bool
-	Component         string
-	Diagnosis         sql.NullString
-	MinerIdentifier   sql.NullString
-	AlertID           sql.NullString
-	AssigneeUserID    sql.NullInt64
-	WarrantyStatus    int16
-	SiteID            sql.NullInt64
-	BuildingID        sql.NullInt64
-	Zone              sql.NullString
-	RackID            sql.NullInt64
-	RackLabel         sql.NullString
-	GroupLabel        sql.NullString
-	Resolution        int16
-	RepairLocation    int16
-	Notes             sql.NullString
-	DailyImpactUsd    sql.NullString
-	RmaVendor         sql.NullString
-	RmaTracking       sql.NullString
-	RmaEta            sql.NullTime
-	CompletedAt       sql.NullTime
-	CreatedAt         time.Time
-	UpdatedAt         time.Time
-	DeletedAt         sql.NullTime
-	IdempotencyKey    sql.NullString
-	CreateRequestHash sql.NullString
+	ID                      int64
+	OrgID                   int64
+	TicketNumber            string
+	Category                int16
+	Status                  int16
+	Urgent                  bool
+	Component               string
+	Diagnosis               sql.NullString
+	MinerIdentifier         sql.NullString
+	AlertID                 sql.NullString
+	AssigneeUserID          sql.NullInt64
+	WarrantyStatus          int16
+	SiteID                  sql.NullInt64
+	BuildingID              sql.NullInt64
+	Zone                    sql.NullString
+	RackID                  sql.NullInt64
+	RackLabel               sql.NullString
+	GroupLabel              sql.NullString
+	Resolution              int16
+	RepairLocation          int16
+	Notes                   sql.NullString
+	DailyImpactUsd          sql.NullString
+	RmaVendor               sql.NullString
+	RmaTracking             sql.NullString
+	RmaEta                  sql.NullTime
+	CompletedAt             sql.NullTime
+	CreatedAt               time.Time
+	UpdatedAt               time.Time
+	DeletedAt               sql.NullTime
+	IdempotencyKey          sql.NullString
+	CreateRequestHash       sql.NullString
+	Description             string
+	CreatedByAccountID      sql.NullInt64
+	SharedWithClients       bool
+	ResolutionNote          string
+	ResolutionNoteAccountID sql.NullInt64
+}
+
+type RepairTicketAssetOption struct {
+	Kind            int16
+	ID              int64
+	OrgID           int64
+	SiteID          sql.NullInt64
+	ParentAssetID   int64
+	AllocationKind  int32
+	ModuleID        sql.NullInt64
+	InstallationID  sql.NullInt64
+	ContainerID     sql.NullInt64
+	Position        sql.NullInt32
+	Label           string
+	Model           string
+	MinerIdentifier string
+	BuildingID      sql.NullInt64
+	RackID          sql.NullInt64
+}
+
+type RepairTicketAudience struct {
+	OrgID     int64
+	TicketID  int64
+	AccountID int64
 }
 
 type RepairTicketComment struct {
@@ -2605,6 +2636,8 @@ type RepairTicketComment struct {
 	DeletedAt         sql.NullTime
 	IdempotencyKey    sql.NullString
 	CreateRequestHash sql.NullString
+	Internal          bool
+	AccountID         sql.NullInt64
 }
 
 type RepairTicketCounter struct {
@@ -2620,6 +2653,33 @@ type RepairTicketPart struct {
 	PartName        string
 	Quantity        int32
 	ConsumedAt      sql.NullTime
+}
+
+type RepairTicketTarget struct {
+	OrgID                  int64
+	TicketID               int64
+	Kind                   int16
+	AssetID                int64
+	MinerID                sql.NullInt64
+	MinerIdentifier        sql.NullString
+	BuildingID             sql.NullInt64
+	RackID                 sql.NullInt64
+	ModuleID               sql.NullInt64
+	HashboardID            sql.NullInt64
+	InstallationID         sql.NullInt64
+	ContainerID            sql.NullInt64
+	SiteID                 sql.NullInt64
+	Label                  string
+	Model                  string
+	Position               sql.NullInt32
+	ClientID               sql.NullInt64
+	SubclientID            sql.NullInt64
+	Diagnosis              string
+	WarrantyEvidence       string
+	RepairOutcome          string
+	RmaOutcome             string
+	ReplacementModuleID    sql.NullInt64
+	ReplacementHashboardID sql.NullInt64
 }
 
 type Role struct {

@@ -5,8 +5,9 @@ const getTicket = vi.fn();
 const updateTicket = vi.fn();
 const createComment = vi.fn();
 const deleteComment = vi.fn();
+const setCommentVisibility = vi.fn();
 vi.mock("@/protoFleet/api/maintenance", () => ({
-  useMaintenanceApi: () => ({ getTicket, updateTicket, createComment, deleteComment }),
+  useMaintenanceApi: () => ({ getTicket, updateTicket, createComment, deleteComment, setCommentVisibility }),
 }));
 vi.mock("../mappers", () => ({
   toTicketDetail: (value: { ticket: { id: bigint } }) => ({ id: value.ticket.id.toString() }),
@@ -133,4 +134,51 @@ it("clears state without an RPC when no ticket is selected", async () => {
   const { result } = renderHook(() => useTicketDetail(null));
   await waitFor(() => expect(result.current.loading).toBe(false));
   expect(getTicket).not.toHaveBeenCalled();
+});
+
+it("ignores a captured target-save refresh after selecting another ticket", async () => {
+  let secondSignal: AbortSignal | undefined;
+  let finishSecond: (() => void) | undefined;
+  getTicket.mockImplementation(({ id, signal, onSuccess }) => {
+    if (id === 1n) {
+      onSuccess({ ticket: { id } });
+      return Promise.resolve();
+    }
+    secondSignal = signal;
+    return new Promise<void>((resolve) => {
+      finishSecond = () => {
+        onSuccess({ ticket: { id } });
+        resolve();
+      };
+    });
+  });
+  const { result, rerender } = renderHook(({ id }) => useTicketDetail(id), { initialProps: { id: "1" } });
+  await waitFor(() => expect(result.current.data).toEqual({ id: "1" }));
+  const refreshFromOldTargetSave = result.current.refresh;
+  rerender({ id: "2" });
+  await waitFor(() => expect(secondSignal).toBeDefined());
+
+  await act(() => refreshFromOldTargetSave());
+
+  expect(secondSignal?.aborted).toBe(false);
+  expect(getTicket).toHaveBeenCalledTimes(2);
+  await act(async () => finishSecond?.());
+  expect(result.current.data).toEqual({ id: "2" });
+  expect(result.current.loading).toBe(false);
+});
+
+it("reports visibility errors to the requesting action without replacing the general detail error", async () => {
+  getTicket.mockImplementation(async ({ onSuccess }) => onSuccess({ ticket: { id: 9n } }));
+  updateTicket.mockImplementation(async ({ onError }) => onError("Earlier update failed"));
+  setCommentVisibility.mockImplementation(async ({ onError }) => onError("Sharing was denied"));
+  const { result } = renderHook(() => useTicketDetail("9"));
+  await waitFor(() => expect(result.current.loading).toBe(false));
+  const version = { $typeName: "google.protobuf.Timestamp" as const, seconds: 1700000000n, nanos: 0 };
+  await act(() => result.current.update({ urgent: true, expectedUpdatedAt: version }));
+  const onError = vi.fn();
+
+  await act(() => result.current.setNoteVisibility("7", false, version, onError));
+
+  expect(onError).toHaveBeenCalledWith("Sharing was denied");
+  expect(result.current.error).toBe("Earlier update failed");
 });

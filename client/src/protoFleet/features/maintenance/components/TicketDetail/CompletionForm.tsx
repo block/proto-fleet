@@ -9,12 +9,15 @@ import Textarea from "@/shared/components/Textarea";
 
 interface CompletionFormProps {
   isMinerTicket?: boolean;
+  error?: string | null;
+  disabled?: boolean;
+  canSubmit?: boolean;
   siteId: string | null;
   initialParts?: PartUsageItem[];
   onSubmit: (value: {
     resolution: TicketResolution;
     repairLocation: RepairLocation;
-    notes?: string;
+    resolutionNote: string;
     partsSelection: PartSelection[];
   }) => Promise<boolean>;
   onCancel: () => void;
@@ -33,6 +36,9 @@ const LOCATION_OPTIONS = [
 const EMPTY_INITIAL_PARTS: PartUsageItem[] = [];
 const CompletionForm = ({
   isMinerTicket = true,
+  error: mutationError,
+  disabled = false,
+  canSubmit = true,
   siteId,
   initialParts = EMPTY_INITIAL_PARTS,
   onSubmit,
@@ -51,7 +57,7 @@ const CompletionForm = ({
   const [quantities, setQuantities] = useState<Record<string, number>>(() =>
     Object.fromEntries(initialParts.map((part) => [part.inventoryPartId, part.quantity])),
   );
-  const [notes, setNotes] = useState("");
+  const [resolutionNote, setResolutionNote] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   useEffect(() => {
@@ -88,6 +94,7 @@ const CompletionForm = ({
     return () => controller.abort();
   }, [initialParts, listPartsBySite, siteId]);
   const submit = async () => {
+    if (!resolutionNote.trim() || busy || disabled || !canSubmit) return;
     setBusy(true);
     setError(null);
     const selection = parts.flatMap((part) =>
@@ -100,7 +107,7 @@ const CompletionForm = ({
     const ok = await onSubmit({
       resolution,
       repairLocation: recordsRepairLocation ? repairLocation : RepairLocation.UNSPECIFIED,
-      ...(notes.trim() ? { notes: notes.trim() } : {}),
+      resolutionNote: resolutionNote.trim(),
       partsSelection: resolution === TicketResolution.NO_ACTION_NEEDED ? [] : selection,
     });
     setBusy(false);
@@ -159,16 +166,30 @@ const CompletionForm = ({
           ))}
         </fieldset>
       ) : null}
-      <Textarea id="completion-notes" label="Notes (optional)" onChange={setNotes} rows={3} />
-      {error ? <div role="alert">{error}</div> : null}
+      <Textarea
+        id="completion-notes"
+        label="Resolution note (visible to clients)"
+        required
+        maxLength={4096}
+        onChange={setResolutionNote}
+        rows={3}
+      />
+      {mutationError || error ? <div role="alert">{mutationError || error}</div> : null}
       <div className="flex justify-end gap-3">
-        <Button text="Cancel" variant={variants.secondary} size={buttonSizes.compact} onClick={onCancel} />
+        <Button
+          text="Cancel"
+          variant={variants.secondary}
+          size={buttonSizes.compact}
+          onClick={onCancel}
+          disabled={busy || disabled}
+        />
         <Button
           text="Complete repair"
           variant={variants.primary}
           size={buttonSizes.compact}
           onClick={() => void submit()}
           loading={busy}
+          disabled={!resolutionNote.trim() || disabled || !canSubmit}
         />
       </div>
     </div>

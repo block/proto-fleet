@@ -32,6 +32,7 @@ type Querier interface {
 	AddHostedAccountKeyDescendant(ctx context.Context, arg AddHostedAccountKeyDescendantParams) error
 	AddHostedAccountSite(ctx context.Context, arg AddHostedAccountSiteParams) (int64, error)
 	AddHostedAccountUserAffiliation(ctx context.Context, arg AddHostedAccountUserAffiliationParams) error
+	AddRepairTicketBoard(ctx context.Context, arg AddRepairTicketBoardParams) (int64, error)
 	AdminResetUserPassword(ctx context.Context, arg AdminResetUserPasswordParams) (int64, error)
 	// Flips pending/restoring → target_state (CANCELLED or FAILED).
 	// Locks the event row before evaluating the in-flight target predicate so
@@ -113,6 +114,7 @@ type Querier interface {
 	// Soft-deleted rows are excluded from the indexes, so re-assigning
 	// after UnassignRole is allowed.
 	AssignRole(ctx context.Context, arg AssignRoleParams) (UserOrganizationRole, error)
+	AssociateRepairTicketAccount(ctx context.Context, arg AssociateRepairTicketAccountParams) (int64, error)
 	// Stop's event-side flip to 'restoring'. The WHERE state-guard is the
 	// concurrency control; the loser sees zero rows and the store re-reads
 	// to distinguish "already restoring" from "already terminal."
@@ -175,12 +177,15 @@ type Querier interface {
 	// still lands on the next successful state-change write. EXISTS guard
 	// → zero rows → ErrCurtailmentEventStateRaceLoss on terminal parent.
 	BumpCurtailmentTargetRetry(ctx context.Context, arg BumpCurtailmentTargetRetryParams) (int64, error)
+	// The service holds the ticket row lock, also used by reservation/RMA writers.
+	CanAccountCloseRepairTicket(ctx context.Context, arg CanAccountCloseRepairTicketParams) (bool, error)
 	// Module history follows the sites where observations were recorded, including
 	// closed placements. Today's placement does not grant or revoke older access.
 	CanReadContainerModuleHistory(ctx context.Context, arg CanReadContainerModuleHistoryParams) (bool, error)
 	// Access is based on any readable installation, including closed placements.
 	// It is independent of the requested sample range and current hardware location.
 	CanReadHashboardHistory(ctx context.Context, arg CanReadHashboardHistoryParams) (bool, error)
+	CanTargetAccountRepairAsset(ctx context.Context, arg CanTargetAccountRepairAssetParams) (bool, error)
 	// Cancels the pair's active rollout because its assignment changed:
 	// 'superseded', 'rolled_back' or 'cleared'.
 	// Finish after acquiring the header lock, never before creation or the last
@@ -639,6 +644,8 @@ type Querier interface {
 	// intentionally supports ACTIVE events and has no in-flight command gate because
 	// the operator intent is to clear policy ownership, not report graceful restore.
 	ForceReleaseCurtailmentEvent(ctx context.Context, arg ForceReleaseCurtailmentEventParams) (CurtailmentEvent, error)
+	GetAccountRepairTicket(ctx context.Context, arg GetAccountRepairTicketParams) (RepairTicket, error)
+	GetAccountTicketAccess(ctx context.Context, arg GetAccountTicketAccessParams) (GetAccountTicketAccessRow, error)
 	GetActiveFirmwareRolloutForPair(ctx context.Context, arg GetActiveFirmwareRolloutForPairParams) (FirmwareRollout, error)
 	GetActiveSchedules(ctx context.Context) ([]Schedule, error)
 	// Excludes remote-fleet-node-reported rows: server-local pairing
@@ -1044,9 +1051,11 @@ type Querier interface {
 	// Keep their original location IDs: site authorization still uses rt.site_id.
 	GetRepairTicket(ctx context.Context, arg GetRepairTicketParams) (GetRepairTicketRow, error)
 	GetRepairTicketCommentByIdempotencyKey(ctx context.Context, arg GetRepairTicketCommentByIdempotencyKeyParams) (GetRepairTicketCommentByIdempotencyKeyRow, error)
+	GetRepairTicketCommentForVisibility(ctx context.Context, arg GetRepairTicketCommentForVisibilityParams) (GetRepairTicketCommentForVisibilityRow, error)
 	GetRepairTicketCommentSiteForUpdate(ctx context.Context, arg GetRepairTicketCommentSiteForUpdateParams) (sql.NullInt64, error)
 	GetRepairTicketForUpdate(ctx context.Context, arg GetRepairTicketForUpdateParams) (GetRepairTicketForUpdateRow, error)
 	GetRepairTicketIDByIdempotencyKey(ctx context.Context, arg GetRepairTicketIDByIdempotencyKeyParams) (GetRepairTicketIDByIdempotencyKeyRow, error)
+	GetRepairTicketMetadata(ctx context.Context, arg GetRepairTicketMetadataParams) ([]GetRepairTicketMetadataRow, error)
 	GetRoleByID(ctx context.Context, id int64) (Role, error)
 	// Locking counterpart of GetRoleByID. Used by mutations that must serialize
 	// against a concurrent SoftDeleteCustomRole on the same role row:
@@ -1178,6 +1187,8 @@ type Querier interface {
 	// Site, building, rack and group selectors; target_types and target_ids are
 	// parallel arrays.
 	InsertReleaseChannelTargets(ctx context.Context, arg InsertReleaseChannelTargetsParams) error
+	InsertRepairTicketOpeningAudience(ctx context.Context, arg InsertRepairTicketOpeningAudienceParams) error
+	InsertRepairTicketOpeningTarget(ctx context.Context, arg InsertRepairTicketOpeningTargetParams) error
 	InsertRepairTicketPart(ctx context.Context, arg InsertRepairTicketPartParams) error
 	InventoryPartExistsBySiteAndName(ctx context.Context, arg InventoryPartExistsBySiteAndNameParams) (bool, error)
 	// Team and customer account invitations share one code namespace, so public
@@ -1190,6 +1201,9 @@ type Querier interface {
 	IsFleetNodeHAStandby(ctx context.Context, arg IsFleetNodeHAStandbyParams) (bool, error)
 	IsRetiredDeviceWriteDrained(ctx context.Context, identityKeys []string) (bool, error)
 	LinkPoolConfigurationAttempt(ctx context.Context, arg LinkPoolConfigurationAttemptParams) (int64, error)
+	ListAccountRepairTicketComments(ctx context.Context, arg ListAccountRepairTicketCommentsParams) ([]ListAccountRepairTicketCommentsRow, error)
+	ListAccountRepairTicketTargets(ctx context.Context, arg ListAccountRepairTicketTargetsParams) ([]RepairTicketTarget, error)
+	ListAccountRepairTickets(ctx context.Context, arg ListAccountRepairTicketsParams) ([]RepairTicket, error)
 	// The delivery-path read: only windows covering sqlc.arg('now'), so the expired tail never loads.
 	ListActiveAlertMaintenanceWindows(ctx context.Context, arg ListActiveAlertMaintenanceWindowsParams) ([]AlertMaintenanceWindow, error)
 	// Devices locked in a non-terminal event; excluded from candidates to
@@ -1680,6 +1694,8 @@ type Querier interface {
 	// Channel listing uses immutable IDs so deleting or renaming the cursor's
 	// channel does not change where the next page begins.
 	ListReleaseChannelsPage(ctx context.Context, arg ListReleaseChannelsPageParams) ([]ReleaseChannel, error)
+	ListRepairTicketAssetOptions(ctx context.Context, arg ListRepairTicketAssetOptionsParams) ([]RepairTicketAssetOption, error)
+	ListRepairTicketBoardOptions(ctx context.Context, arg ListRepairTicketBoardOptionsParams) ([]json.RawMessage, error)
 	ListRepairTicketComments(ctx context.Context, arg ListRepairTicketCommentsParams) ([]ListRepairTicketCommentsRow, error)
 	ListRepairTicketParts(ctx context.Context, arg ListRepairTicketPartsParams) ([]ListRepairTicketPartsRow, error)
 	ListRepairTickets(ctx context.Context, arg ListRepairTicketsParams) ([]ListRepairTicketsRow, error)
@@ -1911,9 +1927,12 @@ type Querier interface {
 	LockLegacyPoolLibraryForImport(ctx context.Context) error
 	LockMaintenanceBuildingForTicket(ctx context.Context, arg LockMaintenanceBuildingForTicketParams) (int64, error)
 	LockMaintenanceMinerForTicket(ctx context.Context, arg LockMaintenanceMinerForTicketParams) (int64, error)
+	LockMaintenanceModelDevice(ctx context.Context, arg LockMaintenanceModelDeviceParams) (int64, error)
+	LockMaintenanceModuleModelSite(ctx context.Context, arg LockMaintenanceModuleModelSiteParams) (sql.NullInt64, error)
 	// Match rack placement writers' dsr → ds table order.
 	LockMaintenanceRackForTicket(ctx context.Context, arg LockMaintenanceRackForTicketParams) (int64, error)
 	LockMaintenanceSiteForTicket(ctx context.Context, arg LockMaintenanceSiteForTicketParams) (int64, error)
+	LockMaintenanceTicketInstallation(ctx context.Context, arg LockMaintenanceTicketInstallationParams) (int64, error)
 	LockMinerBindingCredentials(ctx context.Context, deviceID int64) ([]int64, error)
 	// Row locks span final binding validation and the adapter call. Device
 	// Mutations use FOR NO KEY UPDATE; admitted observations use FOR SHARE so
@@ -1971,6 +1990,8 @@ type Querier interface {
 	LockReleaseChannelScopes(ctx context.Context, orgID int64) error
 	LockRepairTicketCommentCreateKey(ctx context.Context, arg LockRepairTicketCommentCreateKeyParams) error
 	LockRepairTicketCreateKey(ctx context.Context, arg LockRepairTicketCreateKeyParams) error
+	// Keep the opening owner/subowner stable until the ticket and audience commit.
+	LockRepairTicketTargetAllocation(ctx context.Context, arg LockRepairTicketTargetAllocationParams) (LockRepairTicketTargetAllocationRow, error)
 	LockSchedulePriority(ctx context.Context, dollar_1 string) error
 	// Row-locks the site so concurrent DeleteSite can't soft-delete it
 	// between the existence check and the cascade write. Returns the
@@ -2108,6 +2129,7 @@ type Querier interface {
 	// Attributes an action that changes only the rollout's devices (retry) to
 	// its actor.
 	RecordFirmwareRolloutAction(ctx context.Context, arg RecordFirmwareRolloutActionParams) error
+	RecordMaintenanceModuleModel(ctx context.Context, arg RecordMaintenanceModuleModelParams) (int64, error)
 	RecordMiningGroupRequest(ctx context.Context, arg RecordMiningGroupRequestParams) error
 	RecordPoolConfigurationImport(ctx context.Context, arg RecordPoolConfigurationImportParams) error
 	// Never redispatch work. Running admissions need explicit offline recovery,
@@ -2170,6 +2192,7 @@ type Querier interface {
 	RemoveDevicesFromDeviceSet(ctx context.Context, arg RemoveDevicesFromDeviceSetParams) ([]string, error)
 	RenameHostedAccount(ctx context.Context, arg RenameHostedAccountParams) error
 	RenewFleetRuntimeLease(ctx context.Context, arg RenewFleetRuntimeLeaseParams) (RenewFleetRuntimeLeaseRow, error)
+	RepairTicketContainsModule(ctx context.Context, arg RepairTicketContainsModuleParams) (bool, error)
 	// Lock/update the organization before writing targets. Completion and terminal
 	// retry follow the same lock order so concurrent requests cannot lose targets.
 	RequestRigConfigReconciliationForDevices(ctx context.Context, arg RequestRigConfigReconciliationForDevicesParams) error
@@ -2212,12 +2235,17 @@ type Querier interface {
 	ResolveMaintenanceAssignee(ctx context.Context, arg ResolveMaintenanceAssigneeParams) (ResolveMaintenanceAssigneeRow, error)
 	ResolveMaintenanceLocationContext(ctx context.Context, arg ResolveMaintenanceLocationContextParams) (ResolveMaintenanceLocationContextRow, error)
 	ResolveMaintenanceMinerContext(ctx context.Context, arg ResolveMaintenanceMinerContextParams) (ResolveMaintenanceMinerContextRow, error)
+	ResolveMaintenanceMinerIdentifierByID(ctx context.Context, arg ResolveMaintenanceMinerIdentifierByIDParams) (string, error)
 	// Miners a candidate scope covers, one row per distinct other channel whose
 	// selectors already match each miner, or one row with no owner for a miner
 	// without conflicts. Callers count distinct miners for scope/model totals and
 	// aggregate every conflicting channel. Used to preview a scope and reject
 	// overlapping saves; exclude_channel_id is the channel being edited.
 	ResolveReleaseChannelScope(ctx context.Context, arg ResolveReleaseChannelScopeParams) ([]ResolveReleaseChannelScopeRow, error)
+	ResolveRepairTicketAsset(ctx context.Context, arg ResolveRepairTicketAssetParams) (RepairTicketAssetOption, error)
+	// The domain has already locked and revalidated physical placements. Resolve
+	// opening identities through the same view used by the asset picker.
+	ResolveRepairTicketMinerTarget(ctx context.Context, arg ResolveRepairTicketMinerTargetParams) (RepairTicketAssetOption, error)
 	// Restore reversal: go back through pending so the curtail dispatcher picks
 	// up reset targets. Preserve fan_off_sent_at and fan_last_error until the
 	// active reconciler has positively reopened airflow; clearing them here can
@@ -2274,6 +2302,7 @@ type Querier interface {
 	SetHostedAccountMembership(ctx context.Context, arg SetHostedAccountMembershipParams) error
 	SetHostedAccountPoolProfile(ctx context.Context, arg SetHostedAccountPoolProfileParams) (int64, error)
 	SetHostedAccountSitesRestricted(ctx context.Context, arg SetHostedAccountSitesRestrictedParams) error
+	SetHostedAccountTicketing(ctx context.Context, arg SetHostedAccountTicketingParams) error
 	// Explicitly replaces the commissioned OT allowlist. Empty text
 	// decommissions the site. Canonicalization happens in the sites domain.
 	SetInfrastructureControlSubnets(ctx context.Context, arg SetInfrastructureControlSubnetsParams) (string, error)
@@ -2307,8 +2336,10 @@ type Querier interface {
 	// have a "place nothing" pass-2 should skip the query entirely.
 	SetRackBuildingPositionBulkPlace(ctx context.Context, arg SetRackBuildingPositionBulkPlaceParams) error
 	SetRackSlotPosition(ctx context.Context, arg SetRackSlotPositionParams) error
+	SetRepairTicketCommentVisibility(ctx context.Context, arg SetRepairTicketCommentVisibilityParams) (int64, error)
 	SetSchedulePriorities(ctx context.Context, arg SetSchedulePrioritiesParams) error
 	SetScheduleRunning(ctx context.Context, id int64) (int64, error)
+	ShareRepairTicket(ctx context.Context, arg ShareRepairTicketParams) error
 	SiteBelongsToOrg(ctx context.Context, arg SiteBelongsToOrgParams) (bool, error)
 	// Returns the subset of requested IDs that correspond to live sites
 	// in the org. Caller diffs against the requested set to detect
@@ -2397,6 +2428,7 @@ type Querier interface {
 	SweepExpiredEnrollments(ctx context.Context, expiresAt time.Time) (int64, error)
 	SweepExpiredFleetNodeAuthChallenges(ctx context.Context, expiresAt time.Time) (int64, error)
 	SweepExpiredFleetNodeSessions(ctx context.Context, expiresAt time.Time) (int64, error)
+	TouchRepairTicket(ctx context.Context, arg TouchRepairTicketParams) error
 	// Pairing makes the fleet node the discovery owner so its future reports refresh
 	// the row (the upsert keys refreshability on discovered_by_fleet_node_id);
 	// otherwise a replacement node's reports are rejected until repaired by hand.
@@ -2592,6 +2624,7 @@ type Querier interface {
 	UpdateRackPlacementBulkForSite(ctx context.Context, arg UpdateRackPlacementBulkForSiteParams) error
 	UpdateReleaseChannel(ctx context.Context, arg UpdateReleaseChannelParams) (ReleaseChannel, error)
 	UpdateRepairTicket(ctx context.Context, arg UpdateRepairTicketParams) (int64, error)
+	UpdateRepairTicketTargetEvidence(ctx context.Context, arg UpdateRepairTicketTargetEvidenceParams) (int64, error)
 	UpdateRole(ctx context.Context, arg UpdateRoleParams) error
 	UpdateSchedule(ctx context.Context, arg UpdateScheduleParams) (int64, error)
 	UpdateScheduleAfterRun(ctx context.Context, arg UpdateScheduleAfterRunParams) error

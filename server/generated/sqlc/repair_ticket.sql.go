@@ -34,15 +34,15 @@ func (q *Queries) BulkAssignTickets(ctx context.Context, arg BulkAssignTicketsPa
 
 const bulkCloseTickets = `-- name: BulkCloseTickets :execrows
 UPDATE repair_ticket SET
-    status = 5, resolution = $1, repair_location = $2,
-    notes = COALESCE($3, notes), completed_at = COALESCE(completed_at, NOW())
+    status = 5, resolution_note_account_id = NULL, resolution = $1, repair_location = $2,
+    resolution_note = $3, completed_at = COALESCE(completed_at, NOW())
 WHERE org_id = $4 AND id = ANY($5::bigint[]) AND deleted_at IS NULL
 `
 
 type BulkCloseTicketsParams struct {
 	Resolution     int16
 	RepairLocation int16
-	Notes          sql.NullString
+	ResolutionNote sql.NullString
 	OrgID          int64
 	TicketIds      []int64
 }
@@ -51,7 +51,7 @@ func (q *Queries) BulkCloseTickets(ctx context.Context, arg BulkCloseTicketsPara
 	result, err := q.exec(ctx, q.bulkCloseTicketsStmt, bulkCloseTickets,
 		arg.Resolution,
 		arg.RepairLocation,
-		arg.Notes,
+		arg.ResolutionNote,
 		arg.OrgID,
 		pq.Array(arg.TicketIds),
 	)
@@ -138,8 +138,8 @@ WHERE rt.org_id = $1 AND rt.deleted_at IS NULL
   AND ($3::smallint[] IS NULL OR rt.category = ANY($3::smallint[]))
   AND ($4::bigint[] IS NULL OR rt.site_id = ANY($4::bigint[]))
   AND ($5::bigint[] IS NULL OR rt.site_id IS NULL OR NOT (rt.site_id = ANY($5::bigint[])))
-  AND ($6::bigint[] IS NULL OR rt.building_id = ANY($6::bigint[]))
-  AND ($7::bigint[] IS NULL OR rt.rack_id = ANY($7::bigint[]))
+  AND ($6::bigint[] IS NULL OR rt.building_id = ANY($6::bigint[]) OR EXISTS (SELECT 1 FROM repair_ticket_target target WHERE target.org_id=rt.org_id AND target.ticket_id=rt.id AND target.building_id=ANY($6::bigint[])))
+  AND ($7::bigint[] IS NULL OR rt.rack_id = ANY($7::bigint[]) OR EXISTS (SELECT 1 FROM repair_ticket_target target WHERE target.org_id=rt.org_id AND target.ticket_id=rt.id AND target.rack_id=ANY($7::bigint[])))
   AND ($8::text[] IS NULL OR rt.group_label = ANY($8::text[]))
   AND ($9::bigint IS NULL OR rt.assignee_user_id = $9)
   AND (NOT $10::boolean OR rt.urgent)
@@ -150,6 +150,7 @@ WHERE rt.org_id = $1 AND rt.deleted_at IS NULL
        rt.component ILIKE $13 ESCAPE '\' OR
        COALESCE(rt.miner_identifier, '') ILIKE $13 ESCAPE '\' OR
        COALESCE(rt.diagnosis, '') ILIKE $13 ESCAPE '\' OR
+       rt.description ILIKE $13 ESCAPE '\' OR
        COALESCE(s.name, '') ILIKE $13 ESCAPE '\' OR
        COALESCE(b.name, '') ILIKE $13 ESCAPE '\')
 `
@@ -196,7 +197,7 @@ INSERT INTO repair_ticket (
     org_id, ticket_number, category, urgent, component, diagnosis,
     miner_identifier, alert_id, assignee_user_id, warranty_status,
     site_id, building_id, zone, rack_id, rack_label, group_label,
-    notes, daily_impact_usd, idempotency_key, create_request_hash
+    notes, daily_impact_usd, idempotency_key, create_request_hash, description, created_by_account_id, shared_with_clients
 ) VALUES (
     $1, $2, $3, $4,
     $5, $6, $7,
@@ -204,32 +205,35 @@ INSERT INTO repair_ticket (
     $11, $12, $13,
     $14, $15, $16,
     $17, $18, $19,
-    $20
+    $20, $21, $22, $23
 )
 RETURNING id
 `
 
 type CreateRepairTicketParams struct {
-	OrgID             int64
-	TicketNumber      string
-	Category          int16
-	Urgent            bool
-	Component         string
-	Diagnosis         sql.NullString
-	MinerIdentifier   sql.NullString
-	AlertID           sql.NullString
-	AssigneeUserID    sql.NullInt64
-	WarrantyStatus    int16
-	SiteID            sql.NullInt64
-	BuildingID        sql.NullInt64
-	Zone              sql.NullString
-	RackID            sql.NullInt64
-	RackLabel         sql.NullString
-	GroupLabel        sql.NullString
-	Notes             sql.NullString
-	DailyImpactUsd    sql.NullString
-	IdempotencyKey    sql.NullString
-	CreateRequestHash sql.NullString
+	OrgID              int64
+	TicketNumber       string
+	Category           int16
+	Urgent             bool
+	Component          string
+	Diagnosis          sql.NullString
+	MinerIdentifier    sql.NullString
+	AlertID            sql.NullString
+	AssigneeUserID     sql.NullInt64
+	WarrantyStatus     int16
+	SiteID             sql.NullInt64
+	BuildingID         sql.NullInt64
+	Zone               sql.NullString
+	RackID             sql.NullInt64
+	RackLabel          sql.NullString
+	GroupLabel         sql.NullString
+	Notes              sql.NullString
+	DailyImpactUsd     sql.NullString
+	IdempotencyKey     sql.NullString
+	CreateRequestHash  sql.NullString
+	Description        string
+	CreatedByAccountID sql.NullInt64
+	SharedWithClients  bool
 }
 
 func (q *Queries) CreateRepairTicket(ctx context.Context, arg CreateRepairTicketParams) (int64, error) {
@@ -254,6 +258,9 @@ func (q *Queries) CreateRepairTicket(ctx context.Context, arg CreateRepairTicket
 		arg.DailyImpactUsd,
 		arg.IdempotencyKey,
 		arg.CreateRequestHash,
+		arg.Description,
+		arg.CreatedByAccountID,
+		arg.SharedWithClients,
 	)
 	var id int64
 	err := row.Scan(&id)
@@ -279,8 +286,8 @@ WHERE rt.org_id = $1 AND rt.deleted_at IS NULL
   AND ($3::smallint[] IS NULL OR rt.category = ANY($3::smallint[]))
   AND ($4::bigint[] IS NULL OR rt.site_id = ANY($4::bigint[]))
   AND ($5::bigint[] IS NULL OR rt.site_id IS NULL OR NOT (rt.site_id = ANY($5::bigint[])))
-  AND ($6::bigint[] IS NULL OR rt.building_id = ANY($6::bigint[]))
-  AND ($7::bigint[] IS NULL OR rt.rack_id = ANY($7::bigint[]))
+  AND ($6::bigint[] IS NULL OR rt.building_id = ANY($6::bigint[]) OR EXISTS (SELECT 1 FROM repair_ticket_target target WHERE target.org_id=rt.org_id AND target.ticket_id=rt.id AND target.building_id=ANY($6::bigint[])))
+  AND ($7::bigint[] IS NULL OR rt.rack_id = ANY($7::bigint[]) OR EXISTS (SELECT 1 FROM repair_ticket_target target WHERE target.org_id=rt.org_id AND target.ticket_id=rt.id AND target.rack_id=ANY($7::bigint[])))
   AND ($8::text[] IS NULL OR rt.group_label = ANY($8::text[]))
   AND ($9::bigint IS NULL OR rt.assignee_user_id = $9)
   AND (NOT $10::boolean OR rt.urgent)
@@ -291,6 +298,7 @@ WHERE rt.org_id = $1 AND rt.deleted_at IS NULL
        rt.component ILIKE $13 ESCAPE '\' OR
        COALESCE(rt.miner_identifier, '') ILIKE $13 ESCAPE '\' OR
        COALESCE(rt.diagnosis, '') ILIKE $13 ESCAPE '\' OR
+       rt.description ILIKE $13 ESCAPE '\' OR
        COALESCE(s.name, '') ILIKE $13 ESCAPE '\' OR
        COALESCE(b.name, '') ILIKE $13 ESCAPE '\')
 `
@@ -359,7 +367,7 @@ SELECT
     rt.id, rt.org_id, rt.ticket_number, rt.category, rt.status, rt.urgent,
     rt.component, rt.diagnosis, rt.miner_identifier, rt.alert_id,
     rt.assignee_user_id, COALESCE(u.username, '') AS assignee_name,
-    rt.warranty_status, rt.resolution, rt.repair_location, rt.notes,
+    rt.warranty_status, rt.resolution, rt.resolution_note, rt.repair_location, rt.notes,
     rt.daily_impact_usd, rt.rma_vendor, rt.rma_tracking, rt.rma_eta,
     rt.site_id, COALESCE(s.name, '') AS site_name,
     rt.building_id, COALESCE(b.name, '') AS building_name,
@@ -392,6 +400,7 @@ type GetRepairTicketRow struct {
 	AssigneeName    string
 	WarrantyStatus  int16
 	Resolution      int16
+	ResolutionNote  string
 	RepairLocation  int16
 	Notes           sql.NullString
 	DailyImpactUsd  sql.NullString
@@ -432,6 +441,7 @@ func (q *Queries) GetRepairTicket(ctx context.Context, arg GetRepairTicketParams
 		&i.AssigneeName,
 		&i.WarrantyStatus,
 		&i.Resolution,
+		&i.ResolutionNote,
 		&i.RepairLocation,
 		&i.Notes,
 		&i.DailyImpactUsd,
@@ -459,7 +469,7 @@ SELECT
     rt.id, rt.org_id, rt.ticket_number, rt.category, rt.status, rt.urgent,
     rt.component, rt.diagnosis, rt.miner_identifier, rt.alert_id,
     rt.assignee_user_id, COALESCE(u.username, '') AS assignee_name,
-    rt.warranty_status, rt.resolution, rt.repair_location, rt.notes,
+    rt.warranty_status, rt.resolution, rt.resolution_note, rt.repair_location, rt.notes,
     rt.daily_impact_usd, rt.rma_vendor, rt.rma_tracking, rt.rma_eta,
     rt.site_id, COALESCE(s.name, '') AS site_name,
     rt.building_id, COALESCE(b.name, '') AS building_name,
@@ -493,6 +503,7 @@ type GetRepairTicketForUpdateRow struct {
 	AssigneeName    string
 	WarrantyStatus  int16
 	Resolution      int16
+	ResolutionNote  string
 	RepairLocation  int16
 	Notes           sql.NullString
 	DailyImpactUsd  sql.NullString
@@ -531,6 +542,7 @@ func (q *Queries) GetRepairTicketForUpdate(ctx context.Context, arg GetRepairTic
 		&i.AssigneeName,
 		&i.WarrantyStatus,
 		&i.Resolution,
+		&i.ResolutionNote,
 		&i.RepairLocation,
 		&i.Notes,
 		&i.DailyImpactUsd,
@@ -630,7 +642,7 @@ WITH completed AS (
         rt.id, rt.org_id, rt.ticket_number, rt.category, rt.status, rt.urgent,
         rt.component, rt.diagnosis, rt.miner_identifier, rt.alert_id,
         rt.assignee_user_id, COALESCE(u.username, '') AS assignee_name,
-        rt.warranty_status, rt.resolution, rt.repair_location, rt.notes,
+        rt.warranty_status, rt.resolution, rt.resolution_note, rt.repair_location, rt.notes,
         rt.daily_impact_usd, rt.rma_vendor, rt.rma_tracking, rt.rma_eta,
         rt.site_id, COALESCE(s.name, '') AS site_name,
         rt.building_id, COALESCE(b.name, '') AS building_name,
@@ -656,7 +668,7 @@ WITH completed AS (
       AND ($9::bigint[] IS NULL OR rt.site_id = ANY($9::bigint[]))
       AND ($10::bigint[] IS NULL OR rt.site_id IS NULL OR NOT (rt.site_id = ANY($10::bigint[])))
 )
-SELECT id, org_id, ticket_number, category, status, urgent, component, diagnosis, miner_identifier, alert_id, assignee_user_id, assignee_name, warranty_status, resolution, repair_location, notes, daily_impact_usd, rma_vendor, rma_tracking, rma_eta, site_id, site_name, building_id, building_name, zone, rack_id, rack_label, group_label, completed_at, created_at, updated_at, deleted_at, comment_count, parts_count, sort_value FROM completed
+SELECT id, org_id, ticket_number, category, status, urgent, component, diagnosis, miner_identifier, alert_id, assignee_user_id, assignee_name, warranty_status, resolution, resolution_note, repair_location, notes, daily_impact_usd, rma_vendor, rma_tracking, rma_eta, site_id, site_name, building_id, building_name, zone, rack_id, rack_label, group_label, completed_at, created_at, updated_at, deleted_at, comment_count, parts_count, sort_value FROM completed
 WHERE $1::text IS NULL
    OR ($2::smallint = 1 AND
        (sort_value COLLATE "C" > $1::text COLLATE "C" OR
@@ -700,6 +712,7 @@ type ListCompletedTicketsRow struct {
 	AssigneeName    string
 	WarrantyStatus  int16
 	Resolution      int16
+	ResolutionNote  string
 	RepairLocation  int16
 	Notes           sql.NullString
 	DailyImpactUsd  sql.NullString
@@ -758,6 +771,7 @@ func (q *Queries) ListCompletedTickets(ctx context.Context, arg ListCompletedTic
 			&i.AssigneeName,
 			&i.WarrantyStatus,
 			&i.Resolution,
+			&i.ResolutionNote,
 			&i.RepairLocation,
 			&i.Notes,
 			&i.DailyImpactUsd,
@@ -799,7 +813,7 @@ WITH filtered AS (
         rt.id, rt.org_id, rt.ticket_number, rt.category, rt.status, rt.urgent,
         rt.component, rt.diagnosis, rt.miner_identifier, rt.alert_id,
         rt.assignee_user_id, COALESCE(u.username, '') AS assignee_name,
-        rt.warranty_status, rt.resolution, rt.repair_location, rt.notes,
+        rt.warranty_status, rt.resolution, rt.resolution_note, rt.repair_location, rt.notes,
         rt.daily_impact_usd, rt.rma_vendor, rt.rma_tracking, rt.rma_eta,
         rt.site_id, COALESCE(s.name, '') AS site_name,
         rt.building_id, COALESCE(b.name, '') AS building_name,
@@ -825,8 +839,8 @@ WITH filtered AS (
       AND ($8::smallint[] IS NULL OR rt.category = ANY($8::smallint[]))
       AND ($9::bigint[] IS NULL OR rt.site_id = ANY($9::bigint[]))
       AND ($10::bigint[] IS NULL OR rt.site_id IS NULL OR NOT (rt.site_id = ANY($10::bigint[])))
-      AND ($11::bigint[] IS NULL OR rt.building_id = ANY($11::bigint[]))
-      AND ($12::bigint[] IS NULL OR rt.rack_id = ANY($12::bigint[]))
+      AND ($11::bigint[] IS NULL OR rt.building_id = ANY($11::bigint[]) OR EXISTS (SELECT 1 FROM repair_ticket_target target WHERE target.org_id=rt.org_id AND target.ticket_id=rt.id AND target.building_id=ANY($11::bigint[])))
+      AND ($12::bigint[] IS NULL OR rt.rack_id = ANY($12::bigint[]) OR EXISTS (SELECT 1 FROM repair_ticket_target target WHERE target.org_id=rt.org_id AND target.ticket_id=rt.id AND target.rack_id=ANY($12::bigint[])))
       AND ($13::text[] IS NULL OR rt.group_label = ANY($13::text[]))
       AND ($14::bigint IS NULL OR rt.assignee_user_id = $14)
       AND (NOT $15::boolean OR rt.urgent)
@@ -837,10 +851,11 @@ WITH filtered AS (
            rt.component ILIKE $18 ESCAPE '\' OR
            COALESCE(rt.miner_identifier, '') ILIKE $18 ESCAPE '\' OR
            COALESCE(rt.diagnosis, '') ILIKE $18 ESCAPE '\' OR
+           rt.description ILIKE $18 ESCAPE '\' OR
            COALESCE(s.name, '') ILIKE $18 ESCAPE '\' OR
            COALESCE(b.name, '') ILIKE $18 ESCAPE '\')
 )
-SELECT id, org_id, ticket_number, category, status, urgent, component, diagnosis, miner_identifier, alert_id, assignee_user_id, assignee_name, warranty_status, resolution, repair_location, notes, daily_impact_usd, rma_vendor, rma_tracking, rma_eta, site_id, site_name, building_id, building_name, zone, rack_id, rack_label, group_label, completed_at, created_at, updated_at, deleted_at, comment_count, parts_count, sort_value FROM filtered
+SELECT id, org_id, ticket_number, category, status, urgent, component, diagnosis, miner_identifier, alert_id, assignee_user_id, assignee_name, warranty_status, resolution, resolution_note, repair_location, notes, daily_impact_usd, rma_vendor, rma_tracking, rma_eta, site_id, site_name, building_id, building_name, zone, rack_id, rack_label, group_label, completed_at, created_at, updated_at, deleted_at, comment_count, parts_count, sort_value FROM filtered
 WHERE $1::text IS NULL
    OR ($2::smallint = 1 AND
        (sort_value COLLATE "C" > $1::text COLLATE "C" OR
@@ -892,6 +907,7 @@ type ListRepairTicketsRow struct {
 	AssigneeName    string
 	WarrantyStatus  int16
 	Resolution      int16
+	ResolutionNote  string
 	RepairLocation  int16
 	Notes           sql.NullString
 	DailyImpactUsd  sql.NullString
@@ -958,6 +974,7 @@ func (q *Queries) ListRepairTickets(ctx context.Context, arg ListRepairTicketsPa
 			&i.AssigneeName,
 			&i.WarrantyStatus,
 			&i.Resolution,
+			&i.ResolutionNote,
 			&i.RepairLocation,
 			&i.Notes,
 			&i.DailyImpactUsd,
@@ -994,9 +1011,10 @@ func (q *Queries) ListRepairTickets(ctx context.Context, arg ListRepairTicketsPa
 }
 
 const lockRepairTicketCreateKey = `-- name: LockRepairTicketCreateKey :exec
+WITH admission AS (SELECT id FROM organization WHERE id=$1 FOR SHARE)
 SELECT pg_advisory_xact_lock(
     hashtextextended('repair_ticket_create:' || $1::bigint::text || ':' || $2::text, 0)
-)
+) FROM admission
 `
 
 type LockRepairTicketCreateKeyParams struct {
@@ -1032,34 +1050,38 @@ UPDATE repair_ticket SET
     component = COALESCE($5, component),
     diagnosis = COALESCE($6, diagnosis),
     warranty_status = COALESCE($7, warranty_status),
-    resolution = COALESCE($8, resolution),
-    repair_location = COALESCE($9, repair_location),
-    notes = COALESCE($10, notes),
-    rma_vendor = COALESCE($11, rma_vendor),
-    rma_tracking = COALESCE($12, rma_tracking),
-    rma_eta = CASE WHEN $13::boolean THEN NULL ELSE COALESCE($14, rma_eta) END,
-    completed_at = CASE WHEN $1::smallint = 5 AND status <> 5 THEN NOW() ELSE completed_at END
-WHERE id = $15 AND org_id = $16 AND deleted_at IS NULL
+    resolution = CASE WHEN status = 5 AND $1::smallint = 1 THEN 0 ELSE COALESCE($8, resolution) END,
+    repair_location = CASE WHEN status = 5 AND $1::smallint = 1 THEN 0 ELSE COALESCE($9, repair_location) END,
+    resolution_note = CASE WHEN status = 5 AND $1::smallint = 1 THEN '' ELSE COALESCE($10, resolution_note) END,
+    resolution_note_account_id = CASE WHEN $1::smallint = 5 THEN $11::bigint WHEN status = 5 AND $1::smallint = 1 THEN NULL ELSE resolution_note_account_id END,
+    notes = COALESCE($12, notes),
+    rma_vendor = COALESCE($13, rma_vendor),
+    rma_tracking = COALESCE($14, rma_tracking),
+    rma_eta = CASE WHEN $15::boolean THEN NULL ELSE COALESCE($16, rma_eta) END,
+    completed_at = CASE WHEN $1::smallint = 1 AND status = 5 THEN NULL WHEN $1::smallint = 5 AND status <> 5 THEN NOW() ELSE completed_at END
+WHERE id = $17 AND org_id = $18 AND deleted_at IS NULL
 RETURNING id
 `
 
 type UpdateRepairTicketParams struct {
-	Status         sql.NullInt16
-	Urgent         sql.NullBool
-	ClearAssignee  bool
-	AssigneeUserID sql.NullInt64
-	Component      sql.NullString
-	Diagnosis      sql.NullString
-	WarrantyStatus sql.NullInt16
-	Resolution     sql.NullInt16
-	RepairLocation sql.NullInt16
-	Notes          sql.NullString
-	RmaVendor      sql.NullString
-	RmaTracking    sql.NullString
-	ClearRmaEta    bool
-	RmaEta         sql.NullTime
-	ID             int64
-	OrgID          int64
+	Status           sql.NullInt16
+	Urgent           sql.NullBool
+	ClearAssignee    bool
+	AssigneeUserID   sql.NullInt64
+	Component        sql.NullString
+	Diagnosis        sql.NullString
+	WarrantyStatus   sql.NullInt16
+	Resolution       sql.NullInt16
+	RepairLocation   sql.NullInt16
+	ResolutionNote   sql.NullString
+	ClosingAccountID sql.NullInt64
+	Notes            sql.NullString
+	RmaVendor        sql.NullString
+	RmaTracking      sql.NullString
+	ClearRmaEta      bool
+	RmaEta           sql.NullTime
+	ID               int64
+	OrgID            int64
 }
 
 func (q *Queries) UpdateRepairTicket(ctx context.Context, arg UpdateRepairTicketParams) (int64, error) {
@@ -1073,6 +1095,8 @@ func (q *Queries) UpdateRepairTicket(ctx context.Context, arg UpdateRepairTicket
 		arg.WarrantyStatus,
 		arg.Resolution,
 		arg.RepairLocation,
+		arg.ResolutionNote,
+		arg.ClosingAccountID,
 		arg.Notes,
 		arg.RmaVendor,
 		arg.RmaTracking,
