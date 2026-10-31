@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"net"
 	"net/http"
 	"net/netip"
@@ -19,8 +20,6 @@ type minerEndpoint struct {
 	http  http.Handler
 }
 
-// The map is populated once from the protocol-specific inventory. Requests can
-// never create miners, including requests sent to another protocol's address.
 type minerFleet struct {
 	miners        map[netip.Addr]minerEndpoint
 	single        *minerEndpoint
@@ -137,7 +136,6 @@ func (f *minerFleet) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(response, r)
 		return
 	}
-	// Delay before auth or any state lock. A cancelled write never reaches its handler.
 	if err := waitResponse(r.Context(), f.delay); err != nil {
 		response.status = http.StatusRequestTimeout
 		return
@@ -196,18 +194,20 @@ func (m *operationMetrics) record(operation string, duration time.Duration, fail
 
 func (m *operationMetrics) flush(file *os.File) error {
 	m.mu.Lock()
-	defer m.mu.Unlock()
+	operations := maps.Clone(m.operations)
 	var requests, failures uint64
-	for _, stat := range m.operations {
+	for _, stat := range operations {
 		requests += stat.Requests
 		failures += stat.Errors
 	}
-	return json.NewEncoder(file).Encode(struct {
+	snapshot := struct {
 		Timestamp  string                   `json:"timestamp"`
 		Requests   uint64                   `json:"requests_total"`
 		Errors     uint64                   `json:"errors_total"`
 		Operations map[string]operationStat `json:"operations"`
-	}{time.Now().UTC().Format(time.RFC3339Nano), requests, failures, m.operations})
+	}{time.Now().UTC().Format(time.RFC3339Nano), requests, failures, operations}
+	m.mu.Unlock()
+	return json.NewEncoder(file).Encode(snapshot)
 }
 
 func (f *minerFleet) startMetrics(ctx context.Context) error {

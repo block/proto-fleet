@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"maps"
 	"net/http"
 	"os"
 	"sync"
@@ -22,8 +23,6 @@ type operationMetrics struct {
 	operations map[string]operationStat
 }
 
-// Names come from registered REST patterns or RPC methods, never request paths,
-// IPs or board identifiers, so the aggregate's cardinality stays bounded.
 func (m *operationMetrics) record(operation string, started time.Time, failed bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -41,18 +40,20 @@ func (m *operationMetrics) record(operation string, started time.Time, failed bo
 
 func (m *operationMetrics) flush(file *os.File) error {
 	m.mu.Lock()
-	defer m.mu.Unlock()
+	operations := maps.Clone(m.operations)
 	var requests, failures uint64
-	for _, stat := range m.operations {
+	for _, stat := range operations {
 		requests += stat.Requests
 		failures += stat.Errors
 	}
-	return json.NewEncoder(file).Encode(struct {
+	snapshot := struct {
 		Timestamp  string                   `json:"timestamp"`
 		Requests   uint64                   `json:"requests_total"`
 		Errors     uint64                   `json:"errors_total"`
 		Operations map[string]operationStat `json:"operations"`
-	}{time.Now().UTC().Format(time.RFC3339Nano), requests, failures, m.operations})
+	}{time.Now().UTC().Format(time.RFC3339Nano), requests, failures, operations}
+	m.mu.Unlock()
+	return json.NewEncoder(file).Encode(snapshot)
 }
 
 func (s *ContainerState) startMetrics(ctx context.Context, path string) (func(), error) {

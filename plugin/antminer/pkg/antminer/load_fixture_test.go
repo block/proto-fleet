@@ -3,11 +3,20 @@ package antminer_test
 import (
 	"bytes"
 	"context"
+	"crypto/md5"
+	"encoding/hex"
+	"encoding/json"
 	"fmt"
+	"io"
 	"net"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -137,8 +146,84 @@ func TestLoadFixtureContract(t *testing.T) {
 	if err != nil || otherPools.Pools[0].Username == "changed" || otherPools.Pools[0].Password == "secret" {
 		t.Fatalf("pool credentials leaked: %+v %v", otherPools, err)
 	}
+
+	t.Run("applied write with lost acknowledgement is not replayed", func(t *testing.T) {
+		var authenticatedWrites, appliedWrites atomic.Int32
+		transport := &http.Transport{}
+		defer transport.CloseIdleConnections()
+		proxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+			forwarded := request.Clone(request.Context())
+			forwarded.URL.Scheme = "http"
+			forwarded.URL.Host = net.JoinHostPort(addresses[0], fmt.Sprint(webPort))
+			forwarded.RequestURI = ""
+			write := request.Method == http.MethodPost && request.URL.Path == "/cgi-bin/set_miner_conf.cgi" && request.Header.Get("Authorization") != ""
+			if write {
+				authenticatedWrites.Add(1)
+			}
+			response, err := transport.RoundTrip(forwarded)
+			if err != nil {
+				t.Errorf("forward to actual fixture: %v", err)
+				http.Error(w, err.Error(), 502)
+				return
+			}
+			defer response.Body.Close()
+			if write && response.StatusCode == http.StatusOK {
+				// The real handler has applied the mutation before returning success.
+				if _, err := io.Copy(io.Discard, response.Body); err != nil {
+					t.Errorf("read backend acknowledgement: %v", err)
+				}
+				appliedWrites.Add(1)
+				panic(http.ErrAbortHandler) // Lose the acknowledgement after application.
+			}
+			for key, values := range response.Header {
+				w.Header()[key] = values
+			}
+			w.WriteHeader(response.StatusCode)
+			_, _ = io.Copy(w, response.Body)
+		}))
+		defer proxy.Close()
+		endpoint, err := url.Parse(proxy.URL)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var port int32
+		if _, err := fmt.Sscan(endpoint.Port(), &port); err != nil {
+			t.Fatal(err)
+		}
+		client, err := antminer.NewClient(addresses[0], rpcPort, port, "http")
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer client.Close()
+		if err := client.Pair(t.Context(), sdk.UsernamePassword{Username: "root", Password: "root"}); err != nil {
+			t.Fatal(err)
+		}
+		err = client.UpdatePools(t.Context(), []antminer.Pool{{URL: "stratum+tcp://lost-ack:3333", WorkerName: "applied-without-ack", Password: "secret"}})
+		if err == nil {
+			t.Fatal("lost acknowledgement reported success")
+		}
+		config, err := clients[0].GetMinerConfig(t.Context())
+		if err != nil || len(config.Pools) != 1 || config.Pools[0].Username != "applied-without-ack" {
+			t.Fatalf("lost acknowledgement write was not applied: %+v %v", config, err)
+		}
+		if got, applied := authenticatedWrites.Load(), appliedWrites.Load(); got != 1 || applied != 1 {
+			t.Fatalf("uncertain write replayed: authenticated=%d applied=%d", got, applied)
+		}
+	})
+	if err := clients[0].BlinkLED(t.Context(), time.Minute); err != nil {
+		t.Fatal(err)
+	}
+	for i, address := range addresses {
+		active, status := readLoadLEDAudit(t, address, webPort, "root")
+		if status != http.StatusOK || active != (i == 0) {
+			t.Fatalf("destination %s LED audit: active=%v status=%d", address, active, status)
+		}
+	}
 	if err := clients[0].ChangePassword(t.Context(), "root", "changed-password"); err != nil {
 		t.Fatal(err)
+	}
+	if _, status := readLoadLEDAudit(t, addresses[1], webPort, "changed-password"); status != http.StatusUnauthorized {
+		t.Fatalf("other destination's changed password accepted by LED audit: %d", status)
 	}
 	if err := clients[1].SetCredentials(sdk.UsernamePassword{Username: "root", Password: "changed-password"}); err != nil {
 		t.Fatal(err)
@@ -163,4 +248,47 @@ func TestLoadFixtureContract(t *testing.T) {
 	if _, err := clients[1].GetDeviceInfo(deadlineCtx); err == nil {
 		t.Fatal("deadline did not expire against delayed fixture")
 	}
+}
+
+// The audit is fixture-only, so authenticate its GET directly while BlinkLED
+// above still uses the actual production client and write path.
+func readLoadLEDAudit(t *testing.T, address string, port int32, password string) (bool, int) {
+	t.Helper()
+	endpoint := "http://" + net.JoinHostPort(address, fmt.Sprint(port)) + "/fake-api/v1/load/led"
+	transport := &http.Transport{}
+	defer transport.CloseIdleConnections()
+	client := &http.Client{Transport: transport, Timeout: time.Second}
+	response, err := client.Get(endpoint)
+	if err != nil {
+		t.Fatal(err)
+	}
+	challenge := response.Header.Get("WWW-Authenticate")
+	response.Body.Close()
+	match := regexp.MustCompile(`nonce="([^"]+)"`).FindStringSubmatch(challenge)
+	if response.StatusCode != http.StatusUnauthorized || len(match) != 2 {
+		t.Fatalf("audit challenge: %d %q", response.StatusCode, challenge)
+	}
+	hash := func(value string) string { sum := md5.Sum([]byte(value)); return hex.EncodeToString(sum[:]) }
+	const path = "/fake-api/v1/load/led"
+	digest := hash(hash("root:Antminer:"+password) + ":" + match[1] + ":00000001:test:auth:" + hash("GET:"+path))
+	request, err := http.NewRequestWithContext(t.Context(), http.MethodGet, endpoint, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request.Header.Set("Authorization", fmt.Sprintf(`Digest username="root", realm="Antminer", nonce="%s", uri="%s", qop=auth, nc=00000001, cnonce="test", response="%s"`, match[1], path, digest))
+	response, err = client.Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		return false, response.StatusCode
+	}
+	var result struct {
+		Active bool `json:"active"`
+	}
+	if err := json.NewDecoder(response.Body).Decode(&result); err != nil {
+		t.Fatal(err)
+	}
+	return result.Active, response.StatusCode
 }

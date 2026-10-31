@@ -21,10 +21,12 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
+	"sync"
 	"syscall"
 	"time"
 
 	"github.com/google/uuid"
+	"google.golang.org/grpc"
 )
 
 const (
@@ -82,21 +84,27 @@ func main() {
 		cfg.ServerID, cfg.Tanks, state.ModuleCount(), state.BoardCount(),
 	)
 
+	if err := runContainer(state, address, getEnvPort("GRPC_PORT", 9095), getEnvPort("HTTP_PORT", defaultHTTPPort), *webRoot); err != nil {
+		log.Fatal(err)
+	}
+}
+
+func runContainer(state *ContainerState, address string, rpcPort, httpPort int, webRoot string, options ...grpc.ServerOption) error {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	stopMetrics, err := state.startMetrics(ctx, os.Getenv("FAKE_MINER_METRICS_FILE"))
+	stopMetrics, err := state.startMetrics(context.Background(), os.Getenv("FAKE_MINER_METRICS_FILE"))
 	if err != nil {
-		log.Fatal(err)
+		return err
 	}
 	defer stopMetrics()
 
-	rpcListener, err := net.Listen("tcp", net.JoinHostPort(address, strconv.Itoa(getEnvPort("GRPC_PORT", 9095))))
+	rpcListener, err := net.Listen("tcp", net.JoinHostPort(address, strconv.Itoa(rpcPort)))
 	if err != nil {
 		cancel()
-		log.Fatalf("Failed to listen for gRPC: %v", err)
+		return fmt.Errorf("listen for gRPC: %w", err)
 	}
-	rpcServer := newGRPCServer(state)
-	defer rpcServer.Stop()
+	rpcServer := newGRPCServer(state, options...)
+	defer stopGRPCServer(rpcServer)
 	go func() {
 		if err := rpcServer.Serve(rpcListener); err != nil {
 			log.Printf("gRPC server failed: %v", err)
@@ -104,12 +112,9 @@ func main() {
 		}
 	}()
 	log.Printf("gRPC server listening on %s", rpcListener.Addr())
-	port := getEnvPort("HTTP_PORT", defaultHTTPPort)
-	err = startHTTPServer(ctx, state, address, port, *webRoot)
+	err = startHTTPServer(ctx, state, address, httpPort, webRoot)
 	cancel()
-	if err != nil {
-		log.Fatalf("Failed to start HTTP server: %v", err)
-	}
+	return err
 }
 
 func startHTTPServer(ctx context.Context, state *ContainerState, address string, port int, webRoot string) error {
@@ -119,6 +124,7 @@ func startHTTPServer(ctx context.Context, state *ContainerState, address string,
 	}
 	defer closeHandler()
 
+	var connections sync.WaitGroup
 	server := &http.Server{
 		Addr:              net.JoinHostPort(address, strconv.Itoa(port)),
 		Handler:           handler,
@@ -128,6 +134,14 @@ func startHTTPServer(ctx context.Context, state *ContainerState, address string,
 		// response, so an unbounded stall would pin the lock indefinitely.
 		ReadTimeout:  30 * time.Second,
 		WriteTimeout: 60 * time.Second,
+		ConnState: func(_ net.Conn, state http.ConnState) {
+			switch state {
+			case http.StateNew:
+				connections.Add(1)
+			case http.StateClosed, http.StateHijacked:
+				connections.Done()
+			}
+		},
 	}
 
 	listener, err := net.Listen("tcp", server.Addr)
@@ -139,10 +153,11 @@ func startHTTPServer(ctx context.Context, state *ContainerState, address string,
 	// listener so Serve returns immediately, and without this the process could
 	// exit mid-drain.
 	shutdownDone := make(chan struct{})
+	sigs := make(chan os.Signal, 1)
+	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
+	defer signal.Stop(sigs)
 	go func() {
 		defer close(shutdownDone)
-		sigs := make(chan os.Signal, 1)
-		signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
 
 		select {
 		case <-sigs:
@@ -155,6 +170,7 @@ func startHTTPServer(ctx context.Context, state *ContainerState, address string,
 
 		if err := server.Shutdown(shutdownCtx); err != nil {
 			log.Printf("Server shutdown error: %v", err)
+			_ = server.Close()
 		}
 	}()
 
@@ -163,6 +179,7 @@ func startHTTPServer(ctx context.Context, state *ContainerState, address string,
 		return fmt.Errorf("server error: %w", err)
 	}
 	<-shutdownDone
+	connections.Wait()
 
 	return nil
 }

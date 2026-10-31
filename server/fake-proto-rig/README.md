@@ -331,3 +331,7 @@ When in doubt, check the Rust models to see the exact JSON field names expected.
 - **REST API**: Manually implemented from `proto-rig-api/openapi/MDK-API.json`
 
 The OpenAPI spec is vendored from the private `miner-firmware` repository. See `proto-rig-api/VERSION.md` for the source commit.
+
+In multi-address load mode, authenticated `GET /fake-api/v1/load/led`
+returns `{"active": true|false}` for command readback. This fixture audit is
+separate from the hardware API and is absent from single-miner mode.

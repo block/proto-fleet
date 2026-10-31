@@ -10,15 +10,13 @@ import (
 	"sync"
 )
 
-// The address file is an exact protocol allowlist, not a CIDR: requests to
-// other local destinations must never create extra simulated miners.
 type multiMinerHandler struct {
 	miners map[[4]byte]*minerEntry
 }
 
 type minerEntry struct {
 	once    sync.Once
-	handler http.Handler
+	handler *http.ServeMux
 }
 
 func newMultiMinerHandler(path string) (*multiMinerHandler, error) {
@@ -49,16 +47,14 @@ func newMultiMinerHandler(path string) (*multiMinerHandler, error) {
 	return h, nil
 }
 
-func (h *multiMinerHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+func (h *multiMinerHandler) destinationMux(r *http.Request) (*http.ServeMux, bool) {
 	destinationIP, err := requestDestinationIP(r)
 	if err != nil {
-		http.NotFound(w, r)
-		return
+		return nil, false
 	}
 	entry, ok := h.miners[[4]byte(destinationIP)]
 	if !ok {
-		http.NotFound(w, r)
-		return
+		return nil, false
 	}
 	entry.once.Do(func() {
 		serialNumber, macAddress := minerIdentityForIP(destinationIP)
@@ -66,9 +62,26 @@ func (h *multiMinerHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		configureStartupAuthState(state)
 		applyErrorConfig(state)
 		state.IPAddress = destinationIP.String()
-		entry.handler = newRESTAPIHandler(state)
+		entry.handler = newRESTMux(state, true)
 	})
-	entry.handler.ServeHTTP(w, r)
+	return entry.handler, true
+}
+
+func (h *multiMinerHandler) Handler(r *http.Request) (http.Handler, string) {
+	mux, ok := h.destinationMux(r)
+	if !ok {
+		return http.NotFoundHandler(), ""
+	}
+	return mux.Handler(r)
+}
+
+func (h *multiMinerHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	mux, ok := h.destinationMux(r)
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	mux.ServeHTTP(w, r)
 }
 
 func requestDestinationIP(r *http.Request) (net.IP, error) {
@@ -94,8 +107,16 @@ func minerIdentityForIP(ip net.IP) (serialNumber, macAddress string) {
 }
 
 func newRESTAPIHandler(state *MinerState) http.Handler {
+	return newRESTMux(state, false)
+}
+
+func newRESTMux(state *MinerState, load bool) *http.ServeMux {
 	mux := http.NewServeMux()
-	NewRESTApiHandler(state).RegisterRoutes(mux)
+	api := NewRESTApiHandler(state)
+	api.RegisterRoutes(mux)
+	if load {
+		mux.HandleFunc("/fake-api/v1/load/led", api.requireBearerAuth(loadLEDAudit(state)))
+	}
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte("OK")) })
 	return mux
 }

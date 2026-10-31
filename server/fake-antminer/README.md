@@ -144,3 +144,7 @@ The real-plugin contract starts this fixture on ephemeral test-only ports and
 requires two locally routable IPv4 addresses. It exercises discovery, digest
 authentication, identity, telemetry, pool/password isolation, HTTP writes with
 TCP readback and deadlines. No Docker service or privileged port is required.
+
+In multi-address load mode, authenticated `GET /fake-api/v1/load/led`
+returns `{"active": true|false}` for command readback. This fixture audit is
+separate from the hardware API and is absent from single-miner mode.

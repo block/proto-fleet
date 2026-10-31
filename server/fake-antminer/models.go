@@ -86,6 +86,7 @@ type DeviceInfo struct {
 type MinerState struct {
 	mu                     sync.RWMutex
 	LoadMode               bool
+	digestNonce            string
 	telemetrySample        uint64
 	MinerType              string
 	SerialNumber           string
@@ -263,8 +264,6 @@ func (s *MinerState) summaryStatusLocked() string {
 	return "running"
 }
 
-// Load mode retains bounded telemetry variation without timers or background
-// goroutines per miner. Default fixtures retain their exact existing values.
 func (s *MinerState) advanceTelemetry() {
 	if !s.LoadMode {
 		return

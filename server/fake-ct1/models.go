@@ -341,8 +341,6 @@ func (b *Hashboard) isMining() bool {
 	return !b.Isolated && b.State == miningStateMining
 }
 
-// MACs are locally administered unicast addresses. Hash the controller namespace
-// and position together so controllers with identical topology remain distinct.
 func boardMAC(cfg ContainerConfig, position int) string {
 	namespace := cfg.IdentityNamespace
 	if namespace == "" {

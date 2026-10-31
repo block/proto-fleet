@@ -20,8 +20,6 @@ type operationMetrics struct {
 
 type minerMetrics struct {
 	mu         sync.Mutex
-	requests   uint64
-	errors     uint64
 	operations map[string]operationMetrics
 	file       *os.File
 	stop       chan struct{}
@@ -68,15 +66,18 @@ func (m *minerMetrics) close() {
 func (m *minerMetrics) flush() {
 	m.mu.Lock()
 	operations := make(map[string]operationMetrics, len(m.operations))
+	var requests, errors uint64
 	for key, value := range m.operations {
 		operations[key] = value
+		requests += value.Requests
+		errors += value.Errors
 	}
 	snapshot := struct {
 		Timestamp  string                      `json:"timestamp"`
 		Requests   uint64                      `json:"requests_total"`
 		Errors     uint64                      `json:"errors_total"`
 		Operations map[string]operationMetrics `json:"operations"`
-	}{time.Now().UTC().Format(time.RFC3339Nano), m.requests, m.errors, operations}
+	}{time.Now().UTC().Format(time.RFC3339Nano), requests, errors, operations}
 	m.mu.Unlock()
 	if err := json.NewEncoder(m.file).Encode(snapshot); err != nil {
 		log.Printf("write miner metrics: %v", err)
@@ -87,8 +88,6 @@ func (m *minerMetrics) record(pattern string, elapsed time.Duration, failed bool
 	if m == nil {
 		return
 	}
-	// ServeMux assigns one of the fixture's fixed registered patterns. Unknown
-	// paths and canceled requests share one bucket, without per-IP/path labels.
 	if pattern == "" {
 		pattern = "unknown"
 	}
@@ -98,10 +97,8 @@ func (m *minerMetrics) record(pattern string, elapsed time.Duration, failed bool
 	operation := m.operations[key]
 	operation.Requests++
 	operation.LatencySumMS += float64(elapsed) / float64(time.Millisecond)
-	m.requests++
 	if failed {
 		operation.Errors++
-		m.errors++
 	}
 	m.operations[key] = operation
 }
@@ -136,9 +133,18 @@ func instrumentMinerHandler(next http.Handler, delay time.Duration, metrics *min
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
+		pattern := r.Pattern
+		if mux, ok := next.(interface {
+			Handler(*http.Request) (http.Handler, string)
+		}); ok {
+			_, pattern = mux.Handler(r)
+		}
 		response := &metricsResponseWriter{ResponseWriter: w}
 		defer func() {
-			metrics.record(r.Pattern, time.Since(start), response.status >= 400 || r.Context().Err() != nil)
+			if pattern == "" {
+				pattern = r.Pattern
+			}
+			metrics.record(pattern, time.Since(start), response.status >= 400 || r.Context().Err() != nil)
 		}()
 		if delay > 0 {
 			timer := time.NewTimer(delay)
@@ -149,7 +155,6 @@ func instrumentMinerHandler(next http.Handler, delay time.Duration, metrics *min
 			case <-timer.C:
 			}
 		}
-		// Cancellation before dispatch must not mutate state or acquire miner locks.
 		if r.Context().Err() != nil {
 			return
 		}

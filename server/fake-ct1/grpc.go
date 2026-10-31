@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"time"
 
 	mdk "github.com/block/proto-fleet/sdk/mdk/generated/mdk/v2"
 	"google.golang.org/grpc"
@@ -26,10 +27,10 @@ type grpcAPI struct {
 	state *ContainerState
 }
 
-func newGRPCServer(state *ContainerState) *grpc.Server {
+func newGRPCServer(state *ContainerState, options ...grpc.ServerOption) *grpc.Server {
 	state.initHistory()
 	api := &grpcAPI{state: state}
-	server := grpc.NewServer(grpc.UnaryInterceptor(serveUnary(state)))
+	server := grpc.NewServer(append([]grpc.ServerOption{grpc.UnaryInterceptor(serveUnary(state)), grpc.WaitForHandlers(true)}, options...)...)
 	mdk.RegisterSystemServiceServer(server, api)
 	mdk.RegisterHashboardServiceServer(server, api)
 	mdk.RegisterMiningServiceServer(server, api)
@@ -39,6 +40,22 @@ func newGRPCServer(state *ContainerState) *grpc.Server {
 	mdk.RegisterPoolServiceServer(server, api)
 	mdk.RegisterRunInServiceServer(server, api)
 	return server
+}
+
+func stopGRPCServer(server *grpc.Server) {
+	done := make(chan struct{})
+	go func() {
+		server.GracefulStop()
+		close(done)
+	}()
+	timer := time.NewTimer(serverShutdownTimeout)
+	defer timer.Stop()
+	select {
+	case <-done:
+	case <-timer.C:
+		server.Stop()
+		<-done
+	}
 }
 
 func projectProto(data any, out proto.Message) error {

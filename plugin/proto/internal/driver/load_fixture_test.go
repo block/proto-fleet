@@ -2,15 +2,20 @@ package driver
 
 import (
 	"bytes"
+	"crypto/tls"
 	"crypto/x509"
+	"encoding/json"
 	"encoding/pem"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
+	"sync/atomic"
 	"syscall"
 	"testing"
 	"time"
@@ -110,6 +115,19 @@ func TestLoadFixtureProtoRESTContract(t *testing.T) {
 	_, err = d.PairDevice(t.Context(), infos[0], wrong)
 	require.Error(t, err, "fixture must reject incorrect credentials")
 	require.NoError(t, devices[0].UpdateMiningPools(t.Context(), []sdk.MiningPoolConfig{{URL: "stratum+tcp://pool.example:3333", WorkerName: "worker-a", Password: "pool-password"}}))
+	// The fixture-only audit reads the effect of the production LED write.
+	// Before the existing per-device checks blink both rigs, prove isolation.
+	roots := x509.NewCertPool()
+	require.True(t, roots.AppendCertsFromPEM(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certificate.Certificate[0]})))
+	transport := &http.Transport{TLSClientConfig: &tls.Config{RootCAs: roots, ServerName: "127.0.0.1"}}
+	t.Cleanup(transport.CloseIdleConnections)
+	auditClient := &http.Client{Transport: transport, Timeout: 3 * time.Second}
+	require.NoError(t, devices[0].BlinkLED(t.Context()))
+	for index, ip := range []string{"127.0.0.1", secondIP} {
+		active, status := readProtoLoadLEDAudit(t, auditClient, ip, port, "load-password")
+		require.Equal(t, http.StatusOK, status)
+		require.Equal(t, index == 0, active, "LED writes must not leak between socket destinations")
+	}
 	for index, device := range devices {
 		pools, err := device.GetMiningPools(t.Context())
 		require.NoError(t, err)
@@ -125,4 +143,118 @@ func TestLoadFixtureProtoRESTContract(t *testing.T) {
 		require.Len(t, metrics.PSUMetrics, 2)
 		require.NoError(t, device.BlinkLED(t.Context()))
 	}
+
+	t.Run("applied write with lost acknowledgement is not replayed", func(t *testing.T) {
+		var attemptedWrites, appliedWrites atomic.Int32
+		proxy := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+			forwarded := request.Clone(request.Context())
+			forwarded.URL.Scheme = "https"
+			forwarded.URL.Host = net.JoinHostPort("127.0.0.1", strconv.Itoa(port))
+			forwarded.RequestURI = ""
+			write := request.Method == http.MethodPost && request.URL.Path == "/api/v1/pools"
+			if write {
+				attemptedWrites.Add(1)
+				if request.Header.Get("Authorization") == "" {
+					t.Error("pool write must use the production bearer authentication")
+				}
+			}
+			response, err := transport.RoundTrip(forwarded)
+			if err != nil {
+				t.Errorf("forward to actual TLS fixture: %v", err)
+				http.Error(w, "fixture unavailable", http.StatusBadGateway)
+				return
+			}
+			defer response.Body.Close()
+			if write && response.StatusCode == http.StatusOK {
+				// Drain the real handler's success before losing its acknowledgement.
+				if _, err := io.Copy(io.Discard, response.Body); err != nil {
+					t.Errorf("read backend acknowledgement: %v", err)
+					return
+				}
+				appliedWrites.Add(1)
+				panic(http.ErrAbortHandler)
+			}
+			for key, values := range response.Header {
+				w.Header()[key] = values
+			}
+			w.WriteHeader(response.StatusCode)
+			_, _ = io.Copy(w, response.Body)
+		}))
+		defer proxy.Close()
+		endpoint, err := url.Parse(proxy.URL)
+		require.NoError(t, err)
+		proxyPort, err := strconv.Atoi(endpoint.Port())
+		require.NoError(t, err)
+		proxyInfo := infos[0]
+		proxyInfo.Host = endpoint.Hostname()
+		proxyInfo.Port = int32(proxyPort)
+		paired, err := d.PairDevice(t.Context(), proxyInfo, credentials)
+		require.NoError(t, err)
+		result, err := d.NewDevice(t.Context(), "lost-ack-rig", paired, credentials)
+		require.NoError(t, err)
+		defer func() { require.NoError(t, result.Device.Close(t.Context())) }()
+		err = result.Device.UpdateMiningPools(t.Context(), []sdk.MiningPoolConfig{{URL: "stratum+tcp://lost-ack.example:3333", WorkerName: "applied-without-ack", Password: "pool-secret"}})
+		require.Error(t, err, "lost acknowledgement must not report success")
+		// Independent native readback bypasses the proxy that dropped the ACK.
+		pools, err := devices[0].GetMiningPools(t.Context())
+		require.NoError(t, err)
+		require.Len(t, pools, 1)
+		require.Equal(t, "applied-without-ack", pools[0].Username)
+		require.Equal(t, "stratum+tcp://lost-ack.example:3333", pools[0].URL)
+		require.EqualValues(t, 1, attemptedWrites.Load(), "uncertain writes must not be replayed")
+		require.EqualValues(t, 1, appliedWrites.Load())
+	})
+
+	require.NoError(t, devices[0].UpdateMinerPassword(t.Context(), "load-password", "changed-password"))
+	changed := sdk.SecretBundle{Version: "v1", Kind: sdk.UsernamePassword{Username: "admin", Password: "changed-password"}}
+	_, err = d.PairDevice(t.Context(), infos[0], credentials)
+	require.Error(t, err, "changed destination must reject its old password")
+	_, err = d.PairDevice(t.Context(), infos[0], changed)
+	require.NoError(t, err)
+	_, err = d.PairDevice(t.Context(), infos[1], changed)
+	require.Error(t, err, "changed credentials must not leak to the second destination")
+	_, err = d.PairDevice(t.Context(), infos[1], credentials)
+	require.NoError(t, err)
+	active, status := readProtoLoadLEDAudit(t, auditClient, "127.0.0.1", port, "changed-password")
+	require.Equal(t, http.StatusOK, status)
+	require.True(t, active)
+	_, status = readProtoLoadLEDAudit(t, auditClient, secondIP, port, "changed-password")
+	require.Equal(t, http.StatusUnauthorized, status)
+}
+
+// Only the load-only audit uses a direct HTTP request. LED writes and password
+// rotation above always go through the production SDK driver.
+func readProtoLoadLEDAudit(t *testing.T, client *http.Client, address string, port int, password string) (bool, int) {
+	t.Helper()
+	base := "https://" + net.JoinHostPort(address, strconv.Itoa(port))
+	body, err := json.Marshal(map[string]string{"password": password})
+	require.NoError(t, err)
+	request, err := http.NewRequestWithContext(t.Context(), http.MethodPost, base+"/api/v1/auth/login", bytes.NewReader(body))
+	require.NoError(t, err)
+	request.Header.Set("Content-Type", "application/json")
+	response, err := client.Do(request)
+	require.NoError(t, err)
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		return false, response.StatusCode
+	}
+	var tokens struct {
+		AccessToken string `json:"access_token"`
+	}
+	require.NoError(t, json.NewDecoder(response.Body).Decode(&tokens))
+	require.NotEmpty(t, tokens.AccessToken)
+	request, err = http.NewRequestWithContext(t.Context(), http.MethodGet, base+"/fake-api/v1/load/led", nil)
+	require.NoError(t, err)
+	request.Header.Set("Authorization", "Bearer "+tokens.AccessToken)
+	audit, err := client.Do(request)
+	require.NoError(t, err)
+	defer audit.Body.Close()
+	if audit.StatusCode != http.StatusOK {
+		return false, audit.StatusCode
+	}
+	var state struct {
+		Active bool `json:"active"`
+	}
+	require.NoError(t, json.NewDecoder(audit.Body).Decode(&state))
+	return state.Active, audit.StatusCode
 }

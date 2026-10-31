@@ -430,12 +430,15 @@ func digestAuthMiddleware(state *MinerState) func(http.Handler) http.Handler {
 			state.mu.RLock()
 			username := state.Username
 			password := state.Password
+			nonce := state.digestNonce
 			state.mu.RUnlock()
 
 			auth := r.Header.Get("Authorization")
 			if auth == "" {
 				// No auth header, send challenge
-				nonce := generateNonce()
+				if !state.LoadMode {
+					nonce = generateNonce()
+				}
 				opaque := generateOpaque()
 
 				w.Header().Set("WWW-Authenticate", fmt.Sprintf(
@@ -448,7 +451,7 @@ func digestAuthMiddleware(state *MinerState) func(http.Handler) http.Handler {
 
 			// Parse the auth header and validate
 			if (!state.LoadMode && isValidDigestAuth(auth, username, password, r.Method)) ||
-				(state.LoadMode && isValidLoadDigestAuth(auth, username, password, r.Method, r.URL.RequestURI())) {
+				(state.LoadMode && loadDigestNonce(auth) == nonce && isValidLoadDigestAuth(auth, username, password, r.Method, r.URL.RequestURI())) {
 				next.ServeHTTP(w, r)
 			} else {
 				w.WriteHeader(http.StatusUnauthorized)
@@ -642,6 +645,19 @@ func createUpgradeHandler(state *MinerState) http.HandlerFunc {
 }
 
 var digestParamRE = regexp.MustCompile(`(\w+)=(?:"([^"]*)"|([^,\s]+))`)
+
+func loadDigestNonce(header string) string {
+	var nonce string
+	for _, match := range digestParamRE.FindAllStringSubmatch(strings.TrimPrefix(header, "Digest "), -1) {
+		if match[1] == "nonce" {
+			nonce = match[2]
+			if nonce == "" {
+				nonce = match[3]
+			}
+		}
+	}
+	return nonce
+}
 
 // Unlike the legacy fixture's username-only check, load mode must reject a
 // password valid for a different destination. Match the real plugin's MD5 qop.
