@@ -5,11 +5,14 @@ import (
 	"crypto/x509"
 	"encoding/json"
 	"encoding/pem"
+	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -143,5 +146,102 @@ func TestMetricsAreBoundedAggregatesAndFlushAtShutdown(t *testing.T) {
 	}
 	if record.Operations["http:unknown"].Requests != 100 {
 		t.Fatalf("unknown paths not grouped: %s", data)
+	}
+}
+
+func TestShutdownJoinsHandlersBeforeFinalMetrics(t *testing.T) {
+	for _, hijack := range []bool{false, true} {
+		name := "forced close"
+		if hijack {
+			name = "hijacked connection"
+		}
+		t.Run(name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "metrics.jsonl")
+			metrics, err := newMinerMetrics(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			listener, err := net.Listen("tcp4", "127.0.0.1:0")
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer listener.Close()
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			entered, canceled, release := make(chan struct{}), make(chan struct{}), make(chan struct{})
+			releaseHandler := sync.OnceFunc(func() { close(release) })
+			t.Cleanup(releaseHandler)
+			handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if hijack {
+					conn, _, err := http.NewResponseController(w).Hijack()
+					if err != nil {
+						t.Error(err)
+						return
+					}
+					conn.Close()
+				}
+				close(entered)
+				if hijack {
+					<-ctx.Done()
+				} else {
+					<-r.Context().Done()
+				}
+				close(canceled)
+				<-release
+			})
+			done := make(chan error, 1)
+			go func() {
+				err := serveHTTPServer(ctx, instrumentMinerHandler(handler, 0, metrics), listener, time.Millisecond)
+				metrics.close()
+				done <- err
+			}()
+			connection, err := net.DialTimeout("tcp4", listener.Addr().String(), time.Second)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer connection.Close()
+			if _, err := io.WriteString(connection, "GET / HTTP/1.1\r\nHost: localhost\r\n\r\n"); err != nil {
+				t.Fatal(err)
+			}
+			select {
+			case <-entered:
+			case <-time.After(time.Second):
+				t.Fatal("request did not enter handler")
+			}
+			cancel()
+			select {
+			case <-canceled:
+			case <-time.After(time.Second):
+				t.Fatal("forced shutdown did not cancel request")
+			}
+			select {
+			case err := <-done:
+				t.Fatalf("server returned before handler metrics were recorded: %v", err)
+			case <-time.After(25 * time.Millisecond):
+			}
+			releaseHandler()
+			select {
+			case err := <-done:
+				if err != nil {
+					t.Fatal(err)
+				}
+			case <-time.After(time.Second):
+				t.Fatal("server did not finish after handler returned")
+			}
+			data, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var final struct {
+				Requests uint64 `json:"requests_total"`
+				Errors   uint64 `json:"errors_total"`
+			}
+			if err := json.Unmarshal(data, &final); err != nil {
+				t.Fatal(err)
+			}
+			if final.Requests != 1 || (!hijack && final.Errors != 1) {
+				t.Fatalf("final metrics lost accepted request or cancellation: %s", data)
+			}
+		})
 	}
 }

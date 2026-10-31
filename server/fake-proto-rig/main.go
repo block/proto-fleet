@@ -21,6 +21,7 @@ import (
 	"os/signal"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -96,8 +97,7 @@ func startHTTPServer(ctx context.Context, state *MinerState, port int) error {
 		}
 		tlsConfig = &tls.Config{MinVersion: tls.VersionTLS12, Certificates: []tls.Certificate{certificate}}
 	}
-	server := &http.Server{Addr: fmt.Sprintf(":%d", port), Handler: handler}
-	listener, err := net.Listen("tcp", server.Addr)
+	listener, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
 	if err != nil {
 		return fmt.Errorf("failed to listen on port %d: %w", port, err)
 	}
@@ -107,21 +107,46 @@ func startHTTPServer(ctx context.Context, state *MinerState, port int) error {
 
 	serverCtx, stop := signal.NotifyContext(ctx, syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+	log.Printf("Proto REST server listening on :%d (TLS=%t)", port, tlsConfig != nil)
+	return serveHTTPServer(serverCtx, handler, listener, serverShutdownTimeout)
+}
+
+func serveHTTPServer(ctx context.Context, handler http.Handler, listener net.Listener, shutdownTimeout time.Duration) error {
+	var workers sync.WaitGroup
+	server := &http.Server{
+		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			workers.Add(1)
+			defer workers.Done()
+			handler.ServeHTTP(w, r)
+		}),
+		// Connections keep the count nonzero until their handlers enter. Track
+		// handlers too: hijacking detaches a connection before metrics are recorded.
+		ConnState: func(_ net.Conn, state http.ConnState) {
+			switch state {
+			case http.StateNew:
+				workers.Add(1)
+			case http.StateClosed, http.StateHijacked:
+				workers.Done()
+			}
+		},
+	}
+	serverCtx, stop := context.WithCancel(ctx)
+	defer stop()
 	shutdownDone := make(chan struct{})
 	go func() {
 		defer close(shutdownDone)
 		<-serverCtx.Done()
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), serverShutdownTimeout)
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 		defer cancel()
 		if err := server.Shutdown(shutdownCtx); err != nil {
 			log.Printf("Server shutdown error: %v", err)
 			_ = server.Close()
 		}
 	}()
-	log.Printf("Proto REST server listening on :%d (TLS=%t)", port, tlsConfig != nil)
-	err = server.Serve(listener)
+	err := server.Serve(listener)
 	stop()
 	<-shutdownDone
+	workers.Wait()
 	if err != nil && err != http.ErrServerClosed {
 		return fmt.Errorf("server error: %w", err)
 	}
