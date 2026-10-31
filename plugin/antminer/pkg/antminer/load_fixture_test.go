@@ -3,7 +3,7 @@ package antminer_test
 import (
 	"bytes"
 	"context"
-	"crypto/md5"
+	"crypto/md5" // #nosec G501 -- Antminer HTTP Digest requires MD5 for this protocol contract.
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -163,7 +163,7 @@ func TestLoadFixtureContract(t *testing.T) {
 			response, err := transport.RoundTrip(forwarded)
 			if err != nil {
 				t.Errorf("forward to actual fixture: %v", err)
-				http.Error(w, err.Error(), 502)
+				http.Error(w, err.Error(), http.StatusBadGateway)
 				return
 			}
 			defer response.Body.Close()
@@ -268,7 +268,10 @@ func readLoadLEDAudit(t *testing.T, address string, port int32, password string)
 	if response.StatusCode != http.StatusUnauthorized || len(match) != 2 {
 		t.Fatalf("audit challenge: %d %q", response.StatusCode, challenge)
 	}
-	hash := func(value string) string { sum := md5.Sum([]byte(value)); return hex.EncodeToString(sum[:]) }
+	hash := func(value string) string {
+		sum := md5.Sum([]byte(value)) // #nosec G401 -- Match the real Antminer HTTP Digest protocol.
+		return hex.EncodeToString(sum[:])
+	}
 	const path = "/fake-api/v1/load/led"
 	digest := hash(hash("root:Antminer:"+password) + ":" + match[1] + ":00000001:test:auth:" + hash("GET:"+path))
 	request, err := http.NewRequestWithContext(t.Context(), http.MethodGet, endpoint, nil)

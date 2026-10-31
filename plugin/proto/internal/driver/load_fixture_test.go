@@ -60,9 +60,11 @@ func TestLoadFixtureProtoRESTContract(t *testing.T) {
 	certPath, keyPath := filepath.Join(directory, "cert.pem"), filepath.Join(directory, "key.pem")
 	require.NoError(t, os.WriteFile(certPath, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certificate.Certificate[0]}), 0600))
 	require.NoError(t, os.WriteFile(keyPath, pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: key}), 0600))
-	listener, err := net.Listen("tcp4", "0.0.0.0:0")
+	listener, err := net.Listen("tcp4", "0.0.0.0:0") // #nosec G102 -- Reserve one port for both local test destinations.
 	require.NoError(t, err)
-	port := listener.Addr().(*net.TCPAddr).Port
+	tcpAddress, ok := listener.Addr().(*net.TCPAddr)
+	require.True(t, ok)
+	port := tcpAddress.Port
 	require.NoError(t, listener.Close())
 	command := exec.Command(binary)
 	command.Env = append(os.Environ(), "HTTP_PORT="+strconv.Itoa(port), "GRPC_PORT=", "FAKE_MINER_ADDRESSES_FILE="+addressPath, "FAKE_RIG_PASSWORD=load-password", "FAKE_RIG_DEFAULT_PASSWORD=", "FAKE_MINER_RESPONSE_DELAY=1ms", "FAKE_MINER_METRICS_FILE=", "TLS_CERT_FILE="+certPath, "TLS_KEY_FILE="+keyPath)
@@ -119,7 +121,7 @@ func TestLoadFixtureProtoRESTContract(t *testing.T) {
 	// Before the existing per-device checks blink both rigs, prove isolation.
 	roots := x509.NewCertPool()
 	require.True(t, roots.AppendCertsFromPEM(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certificate.Certificate[0]})))
-	transport := &http.Transport{TLSClientConfig: &tls.Config{RootCAs: roots, ServerName: "127.0.0.1"}}
+	transport := &http.Transport{TLSClientConfig: &tls.Config{RootCAs: roots, ServerName: "127.0.0.1", MinVersion: tls.VersionTLS12}}
 	t.Cleanup(transport.CloseIdleConnections)
 	auditClient := &http.Client{Transport: transport, Timeout: 3 * time.Second}
 	require.NoError(t, devices[0].BlinkLED(t.Context()))
@@ -183,7 +185,7 @@ func TestLoadFixtureProtoRESTContract(t *testing.T) {
 		defer proxy.Close()
 		endpoint, err := url.Parse(proxy.URL)
 		require.NoError(t, err)
-		proxyPort, err := strconv.Atoi(endpoint.Port())
+		proxyPort, err := strconv.ParseInt(endpoint.Port(), 10, 32)
 		require.NoError(t, err)
 		proxyInfo := infos[0]
 		proxyInfo.Host = endpoint.Hostname()
