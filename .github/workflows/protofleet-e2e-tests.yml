@@ -113,7 +113,7 @@ jobs:
           npm run build:protoFleet
 
       - name: Upload client build
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: protofleet-client-dist
           path: client/dist
@@ -216,7 +216,7 @@ jobs:
           key: ${{ runner.os }}-protofleet-e2e-app-${{ hashFiles('server/**', '.dockerignore') }}
 
       - name: Upload Docker images
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: protofleet-e2e-docker-images
           path: /tmp/docker-images/*.tar.gz
@@ -254,7 +254,7 @@ jobs:
           echo "Plugins built successfully"
 
       - name: Upload plugins
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: protofleet-plugins
           path: server/plugins
@@ -419,7 +419,7 @@ jobs:
           find blob-report -maxdepth 2 -type f -print | sort || true
 
       - name: Upload blob report
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: ${{ always() && !cancelled() }}
         with:
           name: blob-report-${{ matrix.project }}-shard-${{ matrix.shard }}
@@ -428,7 +428,7 @@ jobs:
           retention-days: 30
 
       - name: Upload test screenshots
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: ${{ failure() && !cancelled() }}
         with:
           name: screenshots-${{ matrix.project }}-shard-${{ matrix.shard }}
@@ -561,7 +561,7 @@ jobs:
           find blob-report -maxdepth 2 -type f -print | sort || true
 
       - name: Upload blob report
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: ${{ always() && !cancelled() }}
         with:
           name: blob-report-${{ matrix.project }}-visual
@@ -570,7 +570,7 @@ jobs:
           retention-days: 30
 
       - name: Upload test screenshots
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: ${{ failure() && !cancelled() }}
         with:
           name: screenshots-${{ matrix.project }}-visual
@@ -688,7 +688,7 @@ jobs:
 
       - name: Upload merged Playwright reports
         id: merged-report-artifact
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: ${{ !cancelled() }}
         with:
           name: playwright-report-protofleet-merged
