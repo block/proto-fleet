@@ -144,7 +144,7 @@ jobs:
           fi
 
       - name: Upload isolated model input
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: ${{ env.PREPARED_ARTIFACT_NAME }}
           path: ${{ runner.temp }}/codex-prepared
@@ -249,7 +249,7 @@ jobs:
             );
 
       - name: Upload trusted model job identity
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: ${{ env.IDENTITY_ARTIFACT_NAME }}
           path: ${{ runner.temp }}/shard-job-identity.json
@@ -320,7 +320,7 @@ jobs:
 
       - name: Upload trusted shard result
         if: ${{ always() && steps.write_result.outcome == 'success' }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: ${{ env.RESULT_ARTIFACT_NAME }}
           path: |
@@ -545,7 +545,7 @@ jobs:
 
       - name: Upload trusted shard timeout result
         if: ${{ steps.write_timeout.outcome == 'success' }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: ${{ env.RESULT_ARTIFACT_NAME }}
           path: |
@@ -605,7 +605,7 @@ jobs:
             --output-dir aggregate-result
 
       - name: Upload aggregate benchmark result
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: ${{ env.AGGREGATE_ARTIFACT }}
           path: |
