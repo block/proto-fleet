@@ -219,7 +219,7 @@ Nodes report free space for the filesystems that hold the program, daemon state,
 - Fleet serves release downloads, so the sequential runner should still avoid saturating shared-site bandwidth.
 - Remote source changes increase the impact of a compromised Fleet server: it can steer Nodes to an unavailable or attacker-controlled mirror, even though signatures still protect code integrity.
 - Local release storage means an HA failover can fail an in-flight update until the bundle is uploaded again.
-- Certificate checks depend on correct Node clocks.
+- Existing Node authentication still depends on correct clocks.
 - Existing Nodes need one manual update before Fleet can update them.
 - Each update briefly interrupts Node telemetry and commands for that Node's miners.
 - The initial records are kept indefinitely unless a retention policy is added.
@@ -273,7 +273,7 @@ The implementation should prove these behaviors before phase 1 ships:
 
 - Signing rejects tampered archives, wrong repository scope, wrong architecture, version mismatch, and unknown signing keys.
 - Signing drills cover the production KMS signer and recovery to a replacement key with an independently supplied fingerprint.
-- Update source defaults to the enrolled server, follows re-pairing, accepts gated Fleet-managed changes to the paired server or HTTPS mirrors, rejects invalid or unauthorised local paths, reports the effective source and management mode, and preflights non-Fleet sources before rollout.
+- Update source defaults to the enrolled server, follows re-pairing, accepts gated Fleet-managed changes to the paired server, HTTPS mirrors, or allowlisted local directories, rejects invalid or unauthorised local paths, reports the effective source and management mode, and preflights non-Fleet sources before rollout.
 - Release-store tests cover chunked upload, ingest rejection, retention, local host files, missing bundles after HA failover, and re-upload recovery.
 - Disk-space checks cover heartbeat reporting, Fleet admission, and executor failure before staging.
 - Front-end tests cover chunked upload through request-size limits, release download through an idle-timeout path, sequential multi-Node runs, rejected ineligible Nodes, stopped-run recovery actions, bootstrap guidance, and the HA sibling guard.
