@@ -311,7 +311,7 @@ func TestAccountActivityExcludesUnlistedEventsAndNonMinerCommands(t *testing.T) 
 	require.NoError(t, err)
 	rows, err := moved.RowsAffected()
 	require.NoError(t, err)
-	require.EqualValues(t, 2, rows, "the module interval covers its controller device")
+	require.EqualValues(t, 4, rows, "the board intervals cover their controller device")
 	command := func(eventType string, device int64) {
 		t.Helper()
 		batch := uuid.NewString()

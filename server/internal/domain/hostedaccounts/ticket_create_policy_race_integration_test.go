@@ -26,6 +26,7 @@ func TestClientTicketCreateRechecksPolicyAfterConcurrentSiteMove(t *testing.T) {
 	require.NoError(t, f.db.QueryRowContext(t.Context(), "INSERT INTO site(org_id,name,slug) VALUES($1,'Forbidden','ticket-forbidden') RETURNING id", f.org).Scan(&forbiddenSite))
 	_, err := f.db.ExecContext(t.Context(), "UPDATE device SET site_id=$1 WHERE id=$2", allowedSite, controller)
 	require.NoError(t, err)
+	f.observeModuleAtCurrentSite(t, module, controller)
 	require.NoError(t, f.allocate(t, f.host, f.root, account.AccountID, pb.AssetAssignmentIntent_ASSET_ASSIGNMENT_INTENT_ASSIGN, selected(6, module, 0)))
 	require.NoError(t, f.svc.ConfigureSites(t.Context(), f.user, f.org, account.AccountID, true, []int64{allowedSite}))
 	store := sqlstores.NewSQLMaintenanceStore(f.db)
@@ -47,6 +48,7 @@ func TestClientTicketCreateRechecksPolicyAfterConcurrentSiteMove(t *testing.T) {
 	// Commit the move before the domain's first target lookup. Placement checks
 	// will consistently see the new site, so client policy must check it too.
 	_, err = f.db.ExecContext(ctx, "UPDATE device SET site_id=$1 WHERE id=$2", forbiddenSite, controller)
+	f.observeModuleAtCurrentSite(t, module, controller)
 	close(refs.resume)
 	require.NoError(t, err)
 	select {

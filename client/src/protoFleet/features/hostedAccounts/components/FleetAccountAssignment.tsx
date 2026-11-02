@@ -1,6 +1,6 @@
 import { type ReactNode, useEffect, useState } from "react";
-import { Code, ConnectError } from "@connectrpc/connect";
 
+import { isStaleAssetSelection, reviewedAssetSelection } from "../assetSelection";
 import { can } from "../capabilities";
 import { useHostedAccounts } from "../HostedAccountsContext";
 import { allocationKey, type AssetReference, useFleetAccountInventory } from "../useFleetAccountInventory";
@@ -54,10 +54,10 @@ const AssignmentDialog = ({
             accountId: inventory.root!.accountId,
             childAccountId: target,
             intent: AssetAssignmentIntent.ASSIGN,
-            assets: rows.map((row) => ({ kind: row.kind, id: row.id, expectedRevision: row.revision })),
+            assets: rows.map(reviewedAssetSelection),
           });
         } catch (error) {
-          if ([Code.Aborted, Code.FailedPrecondition, Code.NotFound].includes(ConnectError.from(error).code)) {
+          if (isStaleAssetSelection(error)) {
             setStale(true);
           }
           throw error;

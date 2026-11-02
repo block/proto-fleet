@@ -1,4 +1,6 @@
-import { AggregationType, type Metric } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
+import { timestampMs } from "@bufbuild/protobuf/wkt";
+import type { Metric } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
+import { metricAverage } from "@/protoFleet/features/dashboard/utils/metricAverage";
 import { normalizePowerToKW } from "@/protoFleet/features/dashboard/utils/metricNormalization";
 import type { ChartData } from "@/shared/components/LineChart/types";
 
@@ -13,19 +15,12 @@ export function transformPowerMetricsToChartData(metrics: Metric[], metricsInKW 
   }
 
   return metrics.map((metric) => {
-    // Find the AVERAGE aggregation value, default to the first value if not found
-    const avgValue =
-      metric.aggregatedValues.find((agg) => agg.aggregationType === AggregationType.AVERAGE)?.value ??
-      metric.aggregatedValues[0]?.value;
+    const avgValue = metricAverage(metric);
     const normalizedPower =
-      avgValue !== undefined && Number.isFinite(avgValue)
-        ? metricsInKW
-          ? avgValue
-          : normalizePowerToKW(avgValue, metric.deviceCount)
-        : null;
+      avgValue !== undefined ? (metricsInKW ? avgValue : normalizePowerToKW(avgValue, metric.deviceCount)) : null;
 
     return {
-      datetime: Number(metric.openTime?.seconds ?? 0) * 1000, // Convert seconds to milliseconds
+      datetime: metric.openTime ? timestampMs(metric.openTime) : 0,
       power: normalizedPower,
     };
   });

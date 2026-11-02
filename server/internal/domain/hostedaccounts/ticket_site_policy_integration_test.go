@@ -20,6 +20,7 @@ func TestTicketLiveSitePolicyRedactsPhysicalContextAndPreservesConversation(t *t
 	require.NoError(t, err)
 	_, err = f.db.ExecContext(t.Context(), `UPDATE container_module SET model='Private model' WHERE id=$1`, module)
 	require.NoError(t, err)
+	f.observeModuleAtCurrentSite(t, module, controller)
 	require.NoError(t, f.allocate(t, f.host, f.root, account.AccountID, pb.AssetAssignmentIntent_ASSET_ASSIGNMENT_INTENT_ASSIGN, selected(6, module, 0)))
 	created, err := f.svc.CreateAccountTicket(t.Context(), f.user, f.org, &pb.CreateAccountTicketRequest{AccountId: account.AccountID, Description: "Retained repair conversation", Targets: []*mpb.TicketAssetSelection{{Kind: mpb.TicketCategory_TICKET_CATEGORY_MODULE, Id: module}}, IdempotencyKey: uuid.NewString()})
 	require.NoError(t, err)

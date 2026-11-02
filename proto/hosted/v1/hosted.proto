@@ -27,6 +27,7 @@ service HostedAccountService {
   rpc GetAccountMiningSummary(GetAccountMiningSummaryRequest) returns (GetAccountMiningSummaryResponse);
   rpc ListAccountAssets(ListAccountAssetsRequest) returns (ListAccountAssetsResponse);
   rpc AssignAccountAssets(AssignAccountAssetsRequest) returns (AssignAccountAssetsResponse);
+  rpc ReplaceAccountHashboard(ReplaceAccountHashboardRequest) returns (ReplaceAccountHashboardResponse);
   rpc ListAccounts(ListAccountsRequest) returns (ListAccountsResponse);
   rpc GetAccount(GetAccountRequest) returns (GetAccountResponse);
   rpc ListChildren(ListChildrenRequest) returns (ListChildrenResponse);
@@ -123,12 +124,15 @@ message Account {
 // Includes retained assignments and allocations delegated to subclients.
 message ClientManagementSummary {
   int64 miner_count = 1;
+  // Always zero. Current allocations count individual hashboards.
   int64 module_count = 2;
-  // Distinct containers represented by assigned modules, not assigned controllers.
+  // Distinct containers represented by allocated hashboards.
   int64 container_count = 3;
   // Live direct memberships with an active user and organization affiliation.
   // Excludes invitations, ancestor grants, and subclient-only memberships.
   int64 login_count = 4;
+  // All allocated hashboards, including boards grouped into modules in inventory.
+  int64 hashboard_count = 5;
 }
 
 message SitePolicy {
@@ -434,6 +438,7 @@ enum MiningAssetKind {
   MINING_ASSET_KIND_UNSPECIFIED = 0;
   MINING_ASSET_KIND_MINER = 5;
   MINING_ASSET_KIND_MODULE = 6;
+  MINING_ASSET_KIND_HASHBOARD = 7;
 }
 enum AssetAssignmentIntent {
   ASSET_ASSIGNMENT_INTENT_UNSPECIFIED = 0;
@@ -464,6 +469,7 @@ message MiningSummary {
   int64 temperature_reporting_count = 20;
   optional double uptime_percent = 21;
   int64 uptime_reporting_count = 22;
+  int64 hashboard_count = 23;
 }
 message AccountMiningBucket {
   string account_id = 1;
@@ -507,6 +513,8 @@ message AccountAsset {
   optional double temperature_c = 20;
   optional double efficiency_j_th = 21;
   common.v1.EquipmentCoverage coverage = 22;
+  // Exact board membership and allocation revisions for reviewing module changes.
+  repeated HashboardAllocationSelection boards = 23;
 }
 message MiningAssetReference {
   MiningAssetKind kind = 1 [(buf.validate.field).enum = {defined_only: true, not_in: [0]}];
@@ -516,7 +524,7 @@ message ListAccountAssetsRequest {
   option (buf.validate.message).cel = {
     id: "asset_lookup_scope"
     message: "selected assets cannot be combined with pagination or filters"
-    expression: "size(this.selected_assets) == 0 || (this.page_size == 0 && this.page_token == '' && this.search == '' && !has(this.owner_account_id) && !has(this.container_id) && !has(this.sort) && !has(this.model) && !has(this.site_id))"
+    expression: "size(this.selected_assets) == 0 || (this.page_size == 0 && this.page_token == '' && this.search == '' && !has(this.owner_account_id) && !has(this.container_id) && !has(this.sort) && !has(this.model) && !has(this.site_id) && !this.hashboards_only && !has(this.replacement_for))"
   };
   string account_id = 1 [(buf.validate.field).string.uuid = true];
   int32 page_size = 2 [(buf.validate.field).int32 = {gte: 0, lte: 100}];
@@ -532,6 +540,16 @@ message ListAccountAssetsRequest {
   common.v1.SortConfig sort = 8;
   optional string model = 9 [(buf.validate.field).string = {min_len: 1, max_len: 255}];
   optional int64 site_id = 10 [(buf.validate.field).int64.gt = 0];
+  // Show individual boards, including boards otherwise grouped into modules.
+  bool hashboards_only = 11;
+  // Host-only candidate list for this reviewed allocation. The server resolves
+  // the deepest owner and returns available, unallocated boards within its policy.
+  HashboardAllocationSelection replacement_for = 12;
+  option (buf.validate.message).cel = {
+    id: "replacement_candidate_scope"
+    message: "replacement candidates require individual hashboards held by the active account"
+    expression: "!has(this.replacement_for) || (this.hashboards_only && has(this.owner_account_id) && this.owner_account_id == this.account_id)"
+  };
   option (buf.validate.message).cel = {
     id: "asset_sort_fields"
     message: "unsupported asset sort field"
@@ -560,11 +578,21 @@ message ListAccountAssetsResponse {
   // Retired and physically redacted allocations contribute no options.
   AccountAssetFilterOptions filter_options = 6;
 }
+message HashboardAllocationSelection {
+  int64 id = 1 [(buf.validate.field).int64.gt = 0];
+  int64 expected_revision = 2 [(buf.validate.field).int64.gte = 0];
+}
 message MiningAssetSelection {
+  option (buf.validate.message).cel = {
+    id: "module_membership"
+    message: "module selection requires its reviewed boards; other assets must not supply boards"
+    expression: "int(this.kind) == 6 ? size(this.boards) > 0 : size(this.boards) == 0"
+  };
   MiningAssetKind kind = 1 [(buf.validate.field).enum = {defined_only: true, not_in: [0]}];
   int64 id = 2 [(buf.validate.field).int64.gt = 0];
   // Zero denotes a leaf never allocated. Recall retains and increments revisions.
   int64 expected_revision = 3 [(buf.validate.field).int64.gte = 0];
+  repeated HashboardAllocationSelection boards = 4 [(buf.validate.field).repeated.max_items = 3];
 }
 message AssignAccountAssetsRequest {
   string account_id = 1 [(buf.validate.field).string.uuid = true];
@@ -574,6 +602,15 @@ message AssignAccountAssetsRequest {
   repeated MiningAssetSelection assets = 4 [(buf.validate.field).repeated = {min_items: 1, max_items: 500}];
 }
 message AssignAccountAssetsResponse {}
+
+// Host-only manual replacement; transfers the full client/subclient allocation.
+// The old board keeps its past history. The new board is authorized from transfer.
+message ReplaceAccountHashboardRequest {
+  string account_id = 1 [(buf.validate.field).string.uuid = true];
+  HashboardAllocationSelection old_board = 2 [(buf.validate.field).required = true];
+  HashboardAllocationSelection replacement_board = 3 [(buf.validate.field).required = true];
+}
+message ReplaceAccountHashboardResponse {}
 
 // Reporting filters retain the selected account's authority and navigation.
 message GetAccountDashboardRequest {

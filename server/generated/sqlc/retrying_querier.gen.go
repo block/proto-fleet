@@ -374,6 +374,12 @@ func (q *retryingQuerier) BeginCurtailmentTopologyTargetRestore(ctx context.Cont
 	return result, err
 }
 
+func (q *retryingQuerier) BeginHostedAccountAllocationChange(ctx context.Context, arg BeginHostedAccountAllocationChangeParams) error {
+	return q.retrier.RetryQuery(ctx, "BeginHostedAccountAllocationChange", func() error {
+		return q.next.BeginHostedAccountAllocationChange(ctx, arg)
+	})
+}
+
 func (q *retryingQuerier) BindCurtailmentAutomationRuleResponseProfileRevision(ctx context.Context, arg BindCurtailmentAutomationRuleResponseProfileRevisionParams) (int64, error) {
 	var result int64
 	err := q.retrier.RetryQuery(ctx, "BindCurtailmentAutomationRuleResponseProfileRevision", func() error {
@@ -9074,6 +9080,12 @@ func (q *retryingQuerier) ReconcileDefaultPasswordPairingStatusByIdentifier(ctx 
 	return result, err
 }
 
+func (q *retryingQuerier) ReconcileHostedHashboardReplacements(ctx context.Context, arg ReconcileHostedHashboardReplacementsParams) error {
+	return q.retrier.RetryQuery(ctx, "ReconcileHostedHashboardReplacements", func() error {
+		return q.next.ReconcileHostedHashboardReplacements(ctx, arg)
+	})
+}
+
 func (q *retryingQuerier) ReconcileRebootRequiredStatus(ctx context.Context, arg ReconcileRebootRequiredStatusParams) (int64, error) {
 	var result int64
 	err := q.retrier.RetryQuery(ctx, "ReconcileRebootRequiredStatus", func() error {
@@ -9113,6 +9125,12 @@ func (q *retryingQuerier) RecordFirmwareDeployment(ctx context.Context, arg Reco
 func (q *retryingQuerier) RecordFirmwareRolloutAction(ctx context.Context, arg RecordFirmwareRolloutActionParams) error {
 	return q.retrier.RetryQuery(ctx, "RecordFirmwareRolloutAction", func() error {
 		return q.next.RecordFirmwareRolloutAction(ctx, arg)
+	})
+}
+
+func (q *retryingQuerier) RecordHostedHashboardInventory(ctx context.Context, arg RecordHostedHashboardInventoryParams) error {
+	return q.retrier.RetryQuery(ctx, "RecordHostedHashboardInventory", func() error {
+		return q.next.RecordHostedHashboardInventory(ctx, arg)
 	})
 }
 
@@ -9558,12 +9576,6 @@ func (q *retryingQuerier) RetirePoolConfigurationAssignment(ctx context.Context,
 		return callErr
 	})
 	return result, err
-}
-
-func (q *retryingQuerier) RetireReallocatedPoolAssignments(ctx context.Context, arg RetireReallocatedPoolAssignmentsParams) error {
-	return q.retrier.RetryQuery(ctx, "RetireReallocatedPoolAssignments", func() error {
-		return q.next.RetireReallocatedPoolAssignments(ctx, arg)
-	})
 }
 
 func (q *retryingQuerier) RetryPoolConfigurationTarget(ctx context.Context, arg RetryPoolConfigurationTargetParams) (int64, error) {

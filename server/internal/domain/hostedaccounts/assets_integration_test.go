@@ -67,6 +67,11 @@ func (f fixture) miningModule(t *testing.T) (int64, int64) {
 	require.NoError(t, f.db.QueryRowContext(t.Context(), `INSERT INTO container_module(tank_id,position,first_seen_at,last_seen_at,state,state_observed_at) VALUES($1,1,now(),now(),'active',now()) RETURNING id`, tank).Scan(&module))
 	_, err = f.db.ExecContext(t.Context(), `INSERT INTO container_module_latest_metrics(module_id,time,collected_at,hashrate_hs,power_w,coverage) VALUES($1,now(),now(),100e12,2000,jsonb_build_object('hashrate',jsonb_build_object('reporting',1,'expected',2,'topology_complete',true,'oldest_at',now()),'power',jsonb_build_object('reporting',1,'expected',2,'topology_complete',true,'oldest_at',now())))`, module)
 	require.NoError(t, err)
+	_, err = f.db.ExecContext(t.Context(), `UPDATE container_module SET last_seen_at=(SELECT observed_at FROM container_inventory WHERE device_id=$2) WHERE id=$1`, module, controller)
+	require.NoError(t, err)
+	for position := 1; position <= 3; position++ {
+		f.miningBoard(t, module, controller, position)
+	}
 	return module, controller
 }
 
@@ -85,6 +90,14 @@ func selected(kind pb.MiningAssetKind, id, revision int64) *pb.MiningAssetSelect
 }
 func (f fixture) allocate(t *testing.T, actor int64, parent, child string, intent pb.AssetAssignmentIntent, assets ...*pb.MiningAssetSelection) error {
 	t.Helper()
+	for _, asset := range assets {
+		if asset.Kind == pb.MiningAssetKind_MINING_ASSET_KIND_MODULE && len(asset.Boards) == 0 {
+			var raw []byte
+			if err := f.db.QueryRowContext(t.Context(), `SELECT boards FROM hosted_account_asset_projection WHERE kind=6 AND asset_id=$1`, asset.Id).Scan(&raw); err == nil {
+				require.NoError(t, json.Unmarshal(raw, &asset.Boards))
+			}
+		}
+	}
 	return f.svc.AssignAssets(t.Context(), actor, f.org, &pb.AssignAccountAssetsRequest{AccountId: parent, ChildAccountId: child, Intent: intent, Assets: assets})
 }
 func TestAccountMiningMixedLeavesAllocationCoverageAndRecall(t *testing.T) {
@@ -100,16 +113,17 @@ func TestAccountMiningMixedLeavesAllocationCoverageAndRecall(t *testing.T) {
 	f.publishCurrentModule(t, module)
 	summary, err := f.svc.MiningSummary(t.Context(), f.user, f.org, client.AccountID)
 	require.NoError(t, err)
-	require.EqualValues(t, 2, summary.Totals.AssetCount)
+	require.EqualValues(t, 4, summary.Totals.AssetCount)
 	require.EqualValues(t, 1, summary.Totals.MinerCount)
-	require.EqualValues(t, 1, summary.Totals.ModuleCount)
+	require.EqualValues(t, 3, summary.Totals.HashboardCount)
+	require.Zero(t, summary.Totals.ModuleCount)
 	require.EqualValues(t, 1, summary.Direct.AssetCount)
-	require.EqualValues(t, 1, summary.Children[0].Summary.AssetCount)
-	require.Equal(t, 100e12, *summary.Totals.HashrateHs)
-	require.Equal(t, 2000.0, *summary.Totals.PowerW)
+	require.EqualValues(t, 3, summary.Children[0].Summary.AssetCount)
+	require.Nil(t, summary.Totals.HashrateHs, "module readings do not fill missing board readings")
+	require.Nil(t, summary.Totals.PowerW)
 	require.Nil(t, summary.Totals.EfficiencyJTh, "partial selected estate cannot report efficiency")
-	require.EqualValues(t, 1, summary.Totals.HashrateReportingCount)
-	require.EqualValues(t, 1, summary.Totals.PartialModuleCount)
+	require.Zero(t, summary.Totals.HashrateReportingCount)
+	require.Zero(t, summary.Totals.PartialModuleCount)
 	rootRows, err := f.svc.ListAssets(t.Context(), f.host, f.org, &pb.ListAccountAssetsRequest{AccountId: f.root})
 	require.NoError(t, err)
 	for _, asset := range rootRows.Assets {
@@ -128,30 +142,42 @@ func TestAccountMiningMixedLeavesAllocationCoverageAndRecall(t *testing.T) {
 	require.NoError(t, f.svc.ConfigureChild(t.Context(), f.user, f.org, child.AccountID, hostedaccounts.DefaultCapabilities, true))
 	summary, err = f.svc.MiningSummary(t.Context(), f.user, f.org, client.AccountID)
 	require.NoError(t, err)
-	require.EqualValues(t, 2, summary.Totals.AssetCount)
+	require.EqualValues(t, 4, summary.Totals.AssetCount)
 	_, err = f.svc.MiningSummary(t.Context(), f.host, f.org, child.AccountID)
 	require.Error(t, err)
-	// Retirement retains allocation and hides identifying physical details.
+	// Retirement hides the module, but each stable board allocation remains recallable.
+	boards := f.moduleSelection(t, module).Boards
 	_, err = f.db.ExecContext(t.Context(), `UPDATE container_module SET retired_at=now() WHERE id=$1`, module)
+	require.NoError(t, err)
+	_, err = f.db.ExecContext(t.Context(), `UPDATE hashboard_observation SET released_at=now() WHERE hashboard_id IN (SELECT hashboard_id FROM hashboard_installation WHERE module_id=$1)`, module)
 	require.NoError(t, err)
 	rows, err := f.svc.ListAssets(t.Context(), f.user, f.org, &pb.ListAccountAssetsRequest{AccountId: client.AccountID})
 	require.NoError(t, err)
-	require.Len(t, rows.Assets, 2)
-	retired := rows.Assets[1]
-	require.False(t, retired.Available)
-	require.Empty(t, retired.Name)
-	require.Zero(t, retired.ContainerId)
-	require.Nil(t, retired.HashrateHs)
-	var replacement int64
-	require.NoError(t, f.db.QueryRowContext(t.Context(), `INSERT INTO container_module(tank_id,position,first_seen_at,last_seen_at,state,state_observed_at) SELECT tank_id,position,now(),now(),'active',now() FROM container_module WHERE id=$1 RETURNING id`, module).Scan(&replacement))
+	require.Len(t, rows.Assets, 4)
+	for _, asset := range rows.Assets {
+		if asset.Kind == pb.MiningAssetKind_MINING_ASSET_KIND_HASHBOARD {
+			require.False(t, asset.Available)
+			require.Empty(t, asset.Name)
+			require.Zero(t, asset.ContainerId)
+			require.Nil(t, asset.HashrateHs)
+		}
+	}
+	replacement, _ := f.miningModule(t)
 	rootPage, err := f.svc.ListAssets(t.Context(), f.host, f.org, &pb.ListAccountAssetsRequest{AccountId: f.root, OwnerAccountId: &f.root})
 	require.NoError(t, err)
 	require.Len(t, rootPage.Assets, 1)
 	require.Equal(t, replacement, rootPage.Assets[0].Id)
 	require.Zero(t, rootPage.Assets[0].Revision, "replacement modules never inherit old allocations")
-	require.NoError(t, f.allocate(t, f.user, client.AccountID, child.AccountID, recall, selected(6, module, 2)))
-	require.Error(t, f.allocate(t, f.user, client.AccountID, child.AccountID, assign, selected(6, module, 1)), "old revision cannot survive recall")
-	require.NoError(t, f.allocate(t, f.host, f.root, client.AccountID, recall, selected(5, miner, 1), selected(6, module, 3)))
+	var recallBoards []*pb.MiningAssetSelection
+	for _, board := range boards {
+		recallBoards = append(recallBoards, selected(7, board.Id, 2))
+	}
+	require.NoError(t, f.allocate(t, f.user, client.AccountID, child.AccountID, recall, recallBoards...))
+	require.Error(t, f.allocate(t, f.user, client.AccountID, child.AccountID, assign, selected(7, boards[0].Id, 1)), "old revision cannot survive recall")
+	for _, board := range recallBoards {
+		board.ExpectedRevision = 3
+	}
+	require.NoError(t, f.allocate(t, f.host, f.root, client.AccountID, recall, append(recallBoards, selected(5, miner, 1))...))
 	require.Error(t, f.allocate(t, f.host, f.root, client.AccountID, assign, selected(5, miner, 0)), "recall must preserve ABA witness")
 	require.NoError(t, f.allocate(t, f.host, f.root, client.AccountID, assign, selected(5, miner, 2)))
 }
@@ -212,6 +238,7 @@ func TestAccountMiningAssignmentRechecksConcurrentModuleRetirement(t *testing.T)
 	f := setup(t)
 	client := f.client(t, "Customer", f.user, hostedaccounts.AllCapabilities)
 	module, controller := f.miningModule(t)
+	snapshot := f.moduleSelection(t, module)
 	tx, err := f.db.BeginTx(t.Context(), nil)
 	require.NoError(t, err)
 	defer tx.Rollback()
@@ -219,7 +246,7 @@ func TestAccountMiningAssignmentRechecksConcurrentModuleRetirement(t *testing.T)
 	require.NoError(t, err)
 	result := make(chan error, 1)
 	go func() {
-		result <- f.svc.AssignAssets(t.Context(), f.host, f.org, &pb.AssignAccountAssetsRequest{AccountId: f.root, ChildAccountId: client.AccountID, Intent: 1, Assets: []*pb.MiningAssetSelection{selected(6, module, 0)}})
+		result <- f.svc.AssignAssets(t.Context(), f.host, f.org, &pb.AssignAccountAssetsRequest{AccountId: f.root, ChildAccountId: client.AccountID, Intent: 1, Assets: []*pb.MiningAssetSelection{snapshot}})
 	}()
 	require.Eventually(t, func() bool {
 		var blocked bool
@@ -281,10 +308,10 @@ func TestAccountMiningWeightedMetricsAndStaleCoverage(t *testing.T) {
 	require.NoError(t, err)
 	result, err := f.svc.MiningSummary(t.Context(), f.user, f.org, client.AccountID)
 	require.NoError(t, err)
-	require.EqualValues(t, 3, result.Totals.AssetCount)
-	require.EqualValues(t, 2, result.Totals.HashrateReportingCount)
-	require.Equal(t, 300e12, *result.Totals.HashrateHs)
-	require.Equal(t, 8000.0, *result.Totals.PowerW)
+	require.EqualValues(t, 5, result.Totals.AssetCount)
+	require.EqualValues(t, 1, result.Totals.HashrateReportingCount)
+	require.Equal(t, 200e12, *result.Totals.HashrateHs)
+	require.Equal(t, 6000.0, *result.Totals.PowerW)
 	require.Nil(t, result.Totals.EfficiencyJTh, "stale selected asset makes coverage incomplete")
 }
 func TestAccountMiningRootRequiresPhysicalReadAuthority(t *testing.T) {
@@ -383,12 +410,10 @@ func TestAccountAssetSelectedProjectionKeepsExactTypedPairs(t *testing.T) {
 	require.NoError(t, err)
 	retained, err := query.ListHostedAccountMiningAssets(t.Context(), sqlc.ListHostedAccountMiningAssetsParams{OrganizationID: f.org, IsRoot: true, SelectedAssets: selection})
 	require.NoError(t, err)
-	require.Len(t, retained, 1)
-	require.False(t, retained[0].Available)
-	require.Equal(t, module, retained[0].ID)
+	require.Empty(t, retained, "retired modules have no independent allocation")
 	rows, err := query.ListHostedAccountMiningAssets(t.Context(), sqlc.ListHostedAccountMiningAssetsParams{OrganizationID: f.org, IsRoot: true, SelectedAssets: []byte("[]")})
 	require.NoError(t, err)
-	require.Len(t, rows, 2, "summary's empty selection keeps full scoped estate")
+	require.Len(t, rows, 4, "the miner and three retained boards remain in the scoped estate")
 }
 
 func TestAccountMiningRootMixedSiteAuthority(t *testing.T) {
@@ -639,11 +664,15 @@ func TestAccountMiningMaximumMixedBatchAssignRecallAndStaleRevision(t *testing.T
 	for range 250 {
 		assets = append(assets, selected(pb.MiningAssetKind_MINING_ASSET_KIND_MINER, f.miningDevice(t, commonpb.DeviceClass_DEVICE_CLASS_RIG), 0))
 	}
-	module, _ := f.miningModule(t)
+	module, controller := f.miningModule(t)
 	assets = append(assets, selected(pb.MiningAssetKind_MINING_ASSET_KIND_MODULE, module, 0))
 	for position := 2; position <= 250; position++ {
 		var id int64
 		require.NoError(t, f.db.QueryRowContext(t.Context(), `INSERT INTO container_module(tank_id,position,first_seen_at,last_seen_at,state,state_observed_at) SELECT tank_id,$2,now(),now(),'active',now() FROM container_module WHERE id=$1 RETURNING id`, module, position).Scan(&id))
+		f.observeModuleAtCurrentSite(t, id, controller)
+		for slot := 1; slot <= 3; slot++ {
+			f.miningBoard(t, id, controller, slot)
+		}
 		assets = append(assets, selected(pb.MiningAssetKind_MINING_ASSET_KIND_MODULE, id, 0))
 	}
 	require.Len(t, assets, 500)
@@ -652,17 +681,20 @@ func TestAccountMiningMaximumMixedBatchAssignRecallAndStaleRevision(t *testing.T
 	require.NoError(t, f.allocate(t, f.host, f.root, client.AccountID, assign, assets...))
 	assertLedger := func(clientID any, revision int64, auditCount int) {
 		t.Helper()
-		var count, miners, modules, audits int
-		require.NoError(t, f.db.QueryRowContext(t.Context(), `SELECT count(*),count(*) FILTER (WHERE kind=5),count(*) FILTER (WHERE kind=6) FROM hosted_account_asset WHERE organization_id=$1 AND client_id IS NOT DISTINCT FROM $2::bigint AND subclient_id IS NULL AND revision=$3`, f.org, clientID, revision).Scan(&count, &miners, &modules))
-		require.Equal(t, 500, count)
+		var count, miners, hashboards, audits int
+		require.NoError(t, f.db.QueryRowContext(t.Context(), `SELECT count(*),count(*) FILTER (WHERE kind=5),count(*) FILTER (WHERE kind=7) FROM hosted_account_asset WHERE organization_id=$1 AND client_id IS NOT DISTINCT FROM $2::bigint AND subclient_id IS NULL AND revision=$3`, f.org, clientID, revision).Scan(&count, &miners, &hashboards))
+		require.Equal(t, 1000, count)
 		require.Equal(t, 250, miners)
-		require.Equal(t, 250, modules)
+		require.Equal(t, 750, hashboards)
 		require.NoError(t, f.db.QueryRowContext(t.Context(), `SELECT count(*) FROM activity_log WHERE event_type='account_assets_assigned'`).Scan(&audits))
 		require.Equal(t, auditCount, audits)
 	}
 	assertLedger(client.ID, 1, 1)
 	for _, asset := range assets {
 		asset.ExpectedRevision = 1
+		for _, board := range asset.Boards {
+			board.ExpectedRevision = 1
+		}
 	}
 	assets[len(assets)-1].ExpectedRevision = 0
 	require.ErrorContains(t, f.allocate(t, f.host, f.root, client.AccountID, recall, assets...), "selected assets changed")
@@ -812,12 +844,14 @@ func TestAccountMiningRepeatedModuleSourceDoesNotDuplicateAssets(t *testing.T) {
 	require.NoError(t, err)
 	summary, err := f.svc.MiningSummary(t.Context(), f.user, f.org, client.AccountID)
 	require.NoError(t, err)
-	require.EqualValues(t, 1, summary.Totals.AssetCount)
-	require.Equal(t, 2000.0, summary.Totals.GetPowerW())
+	require.EqualValues(t, 3, summary.Totals.AssetCount)
+	require.EqualValues(t, 3, summary.Totals.HashboardCount)
+	require.Nil(t, summary.Totals.PowerW)
 	assets, err := f.svc.ListAssets(t.Context(), f.user, f.org, &pb.ListAccountAssetsRequest{AccountId: client.AccountID})
 	require.NoError(t, err)
 	require.Len(t, assets.Assets, 1)
 	detail, err := f.svc.AssetDetail(t.Context(), f.user, f.org, &pb.GetAccountAssetDetailRequest{AccountId: client.AccountID, Asset: &pb.MiningAssetReference{Kind: pb.MiningAssetKind_MINING_ASSET_KIND_MODULE, Id: module}})
 	require.NoError(t, err)
 	require.Equal(t, module, detail.Asset.Id)
+	require.Equal(t, 2000.0, detail.Asset.GetPowerW())
 }

@@ -16,6 +16,7 @@ func TestHostedHistoryCaptureMalformedCoverageDoesNotRejectTelemetry(t *testing.
 	client := f.client(t, "Customer", f.user, hostedaccounts.AllCapabilities)
 	module, _ := f.miningModule(t)
 	require.NoError(t, f.allocate(t, f.host, f.root, client.AccountID, 1, selected(6, module, 0)))
+	f.legacyModuleHistory(t)
 	day := time.Now().UTC().Truncate(24 * time.Hour).Add(-40 * 24 * time.Hour)
 	historyEpoch(t, f, day)
 	_, err := f.db.ExecContext(t.Context(), `UPDATE hosted_account_asset_interval SET started_at=$1 WHERE kind=6 AND asset_id=$2`, day, module)

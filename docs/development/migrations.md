@@ -6,6 +6,15 @@ Shared and private SQL use one sequence: shared baseline 1000, private baseline
 
 ## Existing databases
 
+### Hashboard allocation feature databases
+
+Hashboard allocation uses private migrations 1049–1052, after the hosted-history,
+pool-configuration, and client-ticketing migrations on main. A development database that applied
+the earlier, unmerged hashboard sequences at 1044–1046 or 1047–1049 has a different schema at
+the same version. Preserve that database and use a fresh development database,
+or reconcile its schema explicitly before using this sequence. Do not force its
+version or replay the renumbered migrations against it.
+
 ### Pool configuration library import
 
 The foundation uses shared migration 1045 and private checkpoint 1046, after

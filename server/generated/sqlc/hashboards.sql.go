@@ -151,7 +151,7 @@ func (q *Queries) GetHashboardControllerSite(ctx context.Context, deviceID int64
 }
 
 const getHashboardInstallations = `-- name: GetHashboardInstallations :many
-SELECT i.id, i.hashboard_id, i.module_id, i.position, i.site_id, i.installed_at, i.last_seen_at, i.removed_at, i.metadata, i.device_id, i.tank_id, i.module_position, h.last_seen_at AS board_last_seen_at,
+SELECT i.id, i.hashboard_id, i.module_id, i.position, i.site_id, i.installed_at, i.last_seen_at, i.removed_at, i.metadata, i.device_id, i.tank_id, i.module_position, i.installed_order, i.removed_order, h.last_seen_at AS board_last_seen_at,
  EXISTS (SELECT 1 FROM hashboard_installation prior WHERE prior.hashboard_id=i.hashboard_id
    AND (prior.installed_at,prior.id)<(i.installed_at,i.id)) AS has_prior_installation
 FROM hashboard_installation i JOIN hashboard h ON h.id=i.hashboard_id
@@ -182,6 +182,8 @@ type GetHashboardInstallationsRow struct {
 	DeviceID             int64
 	TankID               int64
 	ModulePosition       int32
+	InstalledOrder       sql.NullInt64
+	RemovedOrder         sql.NullInt64
 	BoardLastSeenAt      time.Time
 	HasPriorInstallation bool
 }
@@ -211,6 +213,8 @@ func (q *Queries) GetHashboardInstallations(ctx context.Context, arg GetHashboar
 			&i.DeviceID,
 			&i.TankID,
 			&i.ModulePosition,
+			&i.InstalledOrder,
+			&i.RemovedOrder,
 			&i.BoardLastSeenAt,
 			&i.HasPriorInstallation,
 		); err != nil {

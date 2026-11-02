@@ -22,6 +22,7 @@ func TestModulePSUIdentityMigrationPreservesLegacyRecordsAndGuardsRollback(t *te
 	firstDevice := database.CreateDevice(firstUser.OrganizationID, "proto")
 	secondDevice := database.CreateDevice(secondUser.OrganizationID, "proto")
 	conn, ctx := database.DB, t.Context()
+	rollbackEmptyHashboardAllocations(t, conn)
 	rollbackEmptyPoolConfigurations(t, conn)
 
 	down, err := migrations.Current.ReadFile("current/001038_internal_module_psu_identity.down.sql")

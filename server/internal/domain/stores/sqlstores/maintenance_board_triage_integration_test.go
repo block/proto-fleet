@@ -21,6 +21,7 @@ func TestMaintenanceBoardTriageRetainsOpeningOwnerAndRemovedInstallation(t *test
 	require.NoError(t, db.QueryRowContext(ctx, `WITH tank AS (INSERT INTO container_tank(device_id,position,first_seen_at,last_seen_at) VALUES($1,1,NOW(),NOW()) RETURNING id) INSERT INTO container_module(tank_id,position,first_seen_at,last_seen_at,model) SELECT id,1,NOW(),NOW(),'BM1368' FROM tank RETURNING id`, controller).Scan(&module))
 	require.NoError(t, db.QueryRowContext(ctx, `INSERT INTO hashboard(org_id,first_seen_at,last_seen_at) VALUES($1,NOW(),NOW()) RETURNING id`, org).Scan(&board))
 	require.NoError(t, db.QueryRowContext(ctx, `INSERT INTO hashboard_installation(hashboard_id,module_id,position,installed_at,last_seen_at) VALUES($1,$2,1,NOW()-interval '1 day',NOW()) RETURNING id`, board, module).Scan(&installation))
+	observeMaintenanceModule(t, db, controller, module, board)
 	for i, name := range []string{"Opening client", "New client"} {
 		var id int64
 		require.NoError(t, db.QueryRowContext(ctx, `INSERT INTO hosted_account(account_id,organization_id,parent_id,depth,name,capabilities) SELECT gen_random_uuid()::text,$1,id,1,$2,31 FROM hosted_account WHERE organization_id=$1 AND depth=0 RETURNING id`, org, name).Scan(&id))
@@ -30,13 +31,13 @@ func TestMaintenanceBoardTriageRetainsOpeningOwnerAndRemovedInstallation(t *test
 			accountB = id
 		}
 	}
-	_, err = db.ExecContext(ctx, `INSERT INTO hosted_account_asset(organization_id,kind,asset_id,device_id,module_id,client_id) VALUES($1,6,$2,$3,$2,$4)`, org, module, controller, accountA)
+	_, err = db.ExecContext(ctx, `INSERT INTO hosted_account_asset(organization_id,kind,asset_id,device_id,hashboard_id,client_id) VALUES($1,7,$2,$3,$2,$4)`, org, board, controller, accountA)
 	require.NoError(t, err)
 	store := sqlstores.NewSQLMaintenanceStore(db)
 	ticket, err := store.CreateRepairTicket(ctx, models.CreateParams{OrgID: org, Category: models.TicketCategoryModule, Component: "Module", IdempotencyKey: "triage", CreateRequestHash: maintenanceCreateRequestHash, Targets: []models.TicketAssetSelection{{Kind: models.TicketCategoryModule, ID: module}}}, "TK-0001")
 	require.NoError(t, err)
 	// Transfer ownership after the incident opens.
-	_, err = db.ExecContext(ctx, `UPDATE hosted_account_asset SET client_id=$1,revision=revision+1 WHERE organization_id=$2 AND kind=6 AND asset_id=$3`, accountB, org, module)
+	_, err = db.ExecContext(ctx, `UPDATE hosted_account_asset SET client_id=$1,revision=revision+1 WHERE organization_id=$2 AND kind=7 AND asset_id=$3`, accountB, org, board)
 	require.NoError(t, err)
 	// The physical board has already been removed by the time triage identifies it.
 	_, err = db.ExecContext(ctx, `UPDATE hashboard_installation SET removed_at=clock_timestamp() WHERE id=$1`, installation)

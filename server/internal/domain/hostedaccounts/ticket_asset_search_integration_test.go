@@ -36,12 +36,10 @@ func TestTicketAssetSearchTreatsWildcardsLiterally(t *testing.T) {
 	}
 	module, _ := f.miningModule(t)
 	var expected int64
-	for _, serial := range []string{"board_A%", "boardXA100"} {
+	for position, serial := range []string{"board_A%", "boardXA100"} {
 		var board int64
-		require.NoError(t, f.db.QueryRowContext(t.Context(), "INSERT INTO hashboard(org_id,first_seen_at,last_seen_at) VALUES($1,now(),now()) RETURNING id", f.org).Scan(&board))
+		require.NoError(t, f.db.QueryRowContext(t.Context(), "SELECT hashboard_id FROM hashboard_installation WHERE module_id=$1 AND position=$2 AND removed_at IS NULL", module, position+1).Scan(&board))
 		_, err := f.db.ExecContext(t.Context(), "INSERT INTO hashboard_identity(org_id,hashboard_id,kind,value) VALUES($1,$2,'serial',$3)", f.org, board, serial)
-		require.NoError(t, err)
-		_, err = f.db.ExecContext(t.Context(), "INSERT INTO hashboard_installation(hashboard_id,module_id,position,installed_at,last_seen_at) VALUES($1,$2,$3,now(),now())", board, module, 1+int(board%2))
 		require.NoError(t, err)
 		if serial == "board_A%" {
 			expected = board

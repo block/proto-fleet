@@ -21,6 +21,7 @@ type dashboardInterval struct {
 	IntervalID int64      `json:"interval_id"`
 	Kind       int32      `json:"kind"`
 	AssetID    int64      `json:"asset_id"`
+	DeviceID   int64      `json:"device_id"`
 	Identifier string     `json:"device_identifier"`
 	Start      time.Time  `json:"started_at"`
 	End        *time.Time `json:"ended_at"`
@@ -84,7 +85,8 @@ func dashboardDirectSummaryBuckets(intervals []dashboardInterval, start time.Tim
 	return true
 }
 
-// Each source bucket contains one wide summary row per allocation.
+// Each source bucket contains one wide summary row per allocation. Metric
+// lookup visits at most four output slices per row, independent of replacements.
 // Include the policy-normal daily-to-hourly rollup (up to 54h) for 2,500
 // year-long allocations, separately from the raw poll-density budget.
 const dashboardSummaryBudget = 1_100_000
@@ -147,6 +149,33 @@ func dashboardSummaryTailWork(intervals []dashboardInterval, start, end time.Tim
 // transaction deadline; leave headroom for estate authorization and cold reads.
 const dashboardHistoryBudget = 300 * 24 * time.Hour
 const dashboardModuleWeight = 8
+
+// Keep each board allocation transition separate, including the module-to-board
+// migration and board replacement. Summing averages across these boundaries
+// would count sequential equipment as if it had operated at the same time.
+func dashboardBuckets(intervals []dashboardInterval, start, end time.Time, step time.Duration) []time.Time {
+	boundaries := map[time.Time]struct{}{}
+	for at := start; at.Before(end); at = at.Add(step) {
+		boundaries[at] = struct{}{}
+	}
+	for _, interval := range intervals {
+		if interval.Kind != int32(pb.MiningAssetKind_MINING_ASSET_KIND_HASHBOARD) {
+			continue
+		}
+		if interval.Start.After(start) && interval.Start.Before(end) {
+			boundaries[interval.Start.UTC()] = struct{}{}
+		}
+		if interval.End != nil && interval.End.After(start) && interval.End.Before(end) {
+			boundaries[interval.End.UTC()] = struct{}{}
+		}
+	}
+	buckets := make([]time.Time, 0, len(boundaries))
+	for at := range boundaries {
+		buckets = append(buckets, at)
+	}
+	sort.Slice(buckets, func(i, j int) bool { return buckets[i].Before(buckets[j]) })
+	return buckets
+}
 
 func dashboardHistoryWork(intervals []dashboardInterval, start, end time.Time) time.Duration {
 	var work time.Duration
@@ -254,7 +283,6 @@ func (s *Service) Dashboard(ctx context.Context, actorID, orgID int64, request *
 	if (end.Sub(start)+step-1)/step > dashboardMaxBuckets {
 		return nil, fleeterror.NewInvalidArgumentErrorf("dashboard range must contain at most %d buckets", dashboardMaxBuckets)
 	}
-	effectiveBucketSeconds := int32(step / time.Second) //nolint:gosec // G115: validated widths round up to at most one day
 	ctx, cancel := context.WithTimeout(ctx, miningTransactionTimeout)
 	defer cancel()
 	return db.WithTransactionTimeout(ctx, s.conn, miningTransactionTimeout, func(q sqlc.Querier) (*pb.GetAccountDashboardResponse, error) {
@@ -296,11 +324,17 @@ func (s *Service) Dashboard(ctx context.Context, actorID, orgID int64, request *
 		totals := newMiningAccumulator()
 		sites := map[int64]*miningAccumulator{}
 		siteNames := map[int64]string{}
-		for _, row := range e.rows {
-			if !e.physicalRead(row) {
-				continue
+		currentRows := e.rows
+		if request.OwnerAccountId != nil {
+			currentRows = nil
+			for _, row := range e.rows {
+				if row.SubclientID == owner {
+					currentRows = append(currentRows, row)
+				}
 			}
-			if request.OwnerAccountId != nil && row.SubclientID != owner {
+		}
+		for _, row := range currentRows {
+			if !e.physicalRead(row) {
 				continue
 			}
 			asset := e.asset(row)
@@ -334,7 +368,7 @@ func (s *Service) Dashboard(ctx context.Context, actorID, orgID int64, request *
 			if request.SiteId != nil && period.SiteID != *request.SiteId {
 				continue
 			}
-			interval := dashboardInterval{IntervalID: period.ID, Kind: period.Kind, AssetID: period.AssetID, Identifier: period.DeviceIdentifier, Start: period.StartedAt, SiteID: period.SiteID}
+			interval := dashboardInterval{IntervalID: period.ID, Kind: period.Kind, AssetID: period.AssetID, DeviceID: period.DeviceID, Identifier: period.DeviceIdentifier, Start: period.StartedAt, SiteID: period.SiteID}
 			if period.EndedAt.Valid {
 				t := period.EndedAt.Time
 				interval.End = &t
@@ -395,9 +429,13 @@ func (s *Service) Dashboard(ctx context.Context, actorID, orgID int64, request *
 		if err != nil {
 			return nil, err
 		}
+		buckets := dashboardBuckets(intervals, start, end, step)
+		if len(buckets) > 3000 {
+			return nil, fleeterror.NewInvalidArgumentError("This history request contains too many allocation changes; choose a shorter time range or filter to fewer allocations or sites")
+		}
 		var readings []sqlc.ListHostedAccountHistoricalReadingsRow
 		if resolution == dashboardRawResolution {
-			readings, err = q.ListHostedAccountHistoricalReadings(ctx, sqlc.ListHostedAccountHistoricalReadingsParams{OrganizationID: orgID, Intervals: encoded, StartTime: start, EndTime: end, BucketSeconds: effectiveBucketSeconds, SiteFilter: request.GetSiteId(), PolicyRestricted: e.policy.EffectiveRestricted, PolicySites: e.policy.EffectiveSiteIDs, HostAuthority: authority})
+			readings, err = q.ListHostedAccountHistoricalReadings(ctx, sqlc.ListHostedAccountHistoricalReadingsParams{OrganizationID: orgID, Intervals: encoded, StartTime: start, EndTime: end, BucketStarts: buckets, SiteFilter: request.GetSiteId(), PolicyRestricted: e.policy.EffectiveRestricted, PolicySites: e.policy.EffectiveSiteIDs, HostAuthority: authority})
 			if err != nil {
 				return nil, err
 			}
@@ -409,7 +447,7 @@ func (s *Service) Dashboard(ctx context.Context, actorID, orgID int64, request *
 			if err := q.UseHostedAccountHistoryCustomPlan(ctx); err != nil {
 				return nil, err
 			}
-			retained, err := q.ListHostedAccountRetainedReadings(ctx, sqlc.ListHostedAccountRetainedReadingsParams{DirectBuckets: dashboardDirectSummaryBuckets(intervals, start, resolution, step), AvailableFrom: epoch, Intervals: encoded, IntervalIds: intervalIDs, StartTime: start, EndTime: end, Hourly: resolution == dashboardHourlyResolution, BucketSeconds: effectiveBucketSeconds, SiteFilter: request.GetSiteId(), PolicyRestricted: e.policy.EffectiveRestricted, PolicySites: e.policy.EffectiveSiteIDs, HostAuthority: authority})
+			retained, err := q.ListHostedAccountRetainedReadings(ctx, sqlc.ListHostedAccountRetainedReadingsParams{DirectBuckets: len(buckets) == int((end.Sub(start)+step-1)/step) && dashboardDirectSummaryBuckets(intervals, start, resolution, step), AvailableFrom: epoch, Intervals: encoded, IntervalIds: intervalIDs, StartTime: start, EndTime: end, Hourly: resolution == dashboardHourlyResolution, BucketStarts: buckets, SiteFilter: request.GetSiteId(), PolicyRestricted: e.policy.EffectiveRestricted, PolicySites: e.policy.EffectiveSiteIDs, HostAuthority: authority})
 			if err != nil {
 				return nil, err
 			}
@@ -418,21 +456,28 @@ func (s *Service) Dashboard(ctx context.Context, actorID, orgID int64, request *
 			}
 		}
 		readingIndex := 0
-		for at := start; at.Before(end); at = at.Add(step) {
-			assets := map[dashboardKey]int32{}
+		for index, at := range buckets {
+			until := end
+			if index+1 < len(buckets) {
+				until = buckets[index+1]
+			}
+			assets := map[dashboardKey]struct{}{}
 			for _, interval := range intervals {
-				if interval.Start.Before(at.Add(step)) && (interval.End == nil || interval.End.After(at)) {
-					assets[dashboardKey{interval.Kind, interval.AssetID}] = interval.Kind
+				if interval.Start.Before(until) && (interval.End == nil || interval.End.After(at)) {
+					assets[dashboardKey{interval.Kind, interval.AssetID}] = struct{}{}
 				}
 			}
 			summary := &pb.MiningSummary{AssetCount: int64(len(assets)), UnknownCount: int64(len(assets))}
 			temperatureStatus := &telemetrypb.TemperatureStatusCount{Timestamp: timestamppb.New(at)}
 			uptimeStatus := &telemetrypb.UptimeStatusCount{Timestamp: timestamppb.New(at)}
-			for _, kind := range assets {
-				if kind == int32(pb.MiningAssetKind_MINING_ASSET_KIND_MINER) {
+			for asset := range assets {
+				switch asset.kind {
+				case int32(pb.MiningAssetKind_MINING_ASSET_KIND_MINER):
 					summary.MinerCount++
-				} else {
+				case int32(pb.MiningAssetKind_MINING_ASSET_KIND_MODULE):
 					summary.ModuleCount++
+				default:
+					summary.HashboardCount++
 				}
 			}
 			if readingIndex < len(readings) && readings[readingIndex].Bucket.Equal(at) {

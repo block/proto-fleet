@@ -122,6 +122,7 @@ const Popover = ({
       closePopover={closePopover}
       closeIgnoreSelectors={closeIgnoreSelectors}
       closeShouldIgnore={closeShouldIgnore}
+      isPositioned={isPhone || popoverStyle.visibility === "visible"}
       testId={contentTestId}
     />
   );

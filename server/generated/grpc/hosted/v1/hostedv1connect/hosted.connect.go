@@ -73,6 +73,9 @@ const (
 	// HostedAccountServiceAssignAccountAssetsProcedure is the fully-qualified name of the
 	// HostedAccountService's AssignAccountAssets RPC.
 	HostedAccountServiceAssignAccountAssetsProcedure = "/hosted.v1.HostedAccountService/AssignAccountAssets"
+	// HostedAccountServiceReplaceAccountHashboardProcedure is the fully-qualified name of the
+	// HostedAccountService's ReplaceAccountHashboard RPC.
+	HostedAccountServiceReplaceAccountHashboardProcedure = "/hosted.v1.HostedAccountService/ReplaceAccountHashboard"
 	// HostedAccountServiceListAccountsProcedure is the fully-qualified name of the
 	// HostedAccountService's ListAccounts RPC.
 	HostedAccountServiceListAccountsProcedure = "/hosted.v1.HostedAccountService/ListAccounts"
@@ -171,6 +174,7 @@ type HostedAccountServiceClient interface {
 	GetAccountMiningSummary(context.Context, *connect.Request[v1.GetAccountMiningSummaryRequest]) (*connect.Response[v1.GetAccountMiningSummaryResponse], error)
 	ListAccountAssets(context.Context, *connect.Request[v1.ListAccountAssetsRequest]) (*connect.Response[v1.ListAccountAssetsResponse], error)
 	AssignAccountAssets(context.Context, *connect.Request[v1.AssignAccountAssetsRequest]) (*connect.Response[v1.AssignAccountAssetsResponse], error)
+	ReplaceAccountHashboard(context.Context, *connect.Request[v1.ReplaceAccountHashboardRequest]) (*connect.Response[v1.ReplaceAccountHashboardResponse], error)
 	ListAccounts(context.Context, *connect.Request[v1.ListAccountsRequest]) (*connect.Response[v1.ListAccountsResponse], error)
 	GetAccount(context.Context, *connect.Request[v1.GetAccountRequest]) (*connect.Response[v1.GetAccountResponse], error)
 	ListChildren(context.Context, *connect.Request[v1.ListChildrenRequest]) (*connect.Response[v1.ListChildrenResponse], error)
@@ -273,6 +277,11 @@ func NewHostedAccountServiceClient(httpClient connect.HTTPClient, baseURL string
 		assignAccountAssets: connect.NewClient[v1.AssignAccountAssetsRequest, v1.AssignAccountAssetsResponse](
 			httpClient,
 			baseURL+HostedAccountServiceAssignAccountAssetsProcedure,
+			opts...,
+		),
+		replaceAccountHashboard: connect.NewClient[v1.ReplaceAccountHashboardRequest, v1.ReplaceAccountHashboardResponse](
+			httpClient,
+			baseURL+HostedAccountServiceReplaceAccountHashboardProcedure,
 			opts...,
 		),
 		listAccounts: connect.NewClient[v1.ListAccountsRequest, v1.ListAccountsResponse](
@@ -428,6 +437,7 @@ type hostedAccountServiceClient struct {
 	getAccountMiningSummary   *connect.Client[v1.GetAccountMiningSummaryRequest, v1.GetAccountMiningSummaryResponse]
 	listAccountAssets         *connect.Client[v1.ListAccountAssetsRequest, v1.ListAccountAssetsResponse]
 	assignAccountAssets       *connect.Client[v1.AssignAccountAssetsRequest, v1.AssignAccountAssetsResponse]
+	replaceAccountHashboard   *connect.Client[v1.ReplaceAccountHashboardRequest, v1.ReplaceAccountHashboardResponse]
 	listAccounts              *connect.Client[v1.ListAccountsRequest, v1.ListAccountsResponse]
 	getAccount                *connect.Client[v1.GetAccountRequest, v1.GetAccountResponse]
 	listChildren              *connect.Client[v1.ListChildrenRequest, v1.ListChildrenResponse]
@@ -520,6 +530,11 @@ func (c *hostedAccountServiceClient) ListAccountAssets(ctx context.Context, req 
 // AssignAccountAssets calls hosted.v1.HostedAccountService.AssignAccountAssets.
 func (c *hostedAccountServiceClient) AssignAccountAssets(ctx context.Context, req *connect.Request[v1.AssignAccountAssetsRequest]) (*connect.Response[v1.AssignAccountAssetsResponse], error) {
 	return c.assignAccountAssets.CallUnary(ctx, req)
+}
+
+// ReplaceAccountHashboard calls hosted.v1.HostedAccountService.ReplaceAccountHashboard.
+func (c *hostedAccountServiceClient) ReplaceAccountHashboard(ctx context.Context, req *connect.Request[v1.ReplaceAccountHashboardRequest]) (*connect.Response[v1.ReplaceAccountHashboardResponse], error) {
+	return c.replaceAccountHashboard.CallUnary(ctx, req)
 }
 
 // ListAccounts calls hosted.v1.HostedAccountService.ListAccounts.
@@ -672,6 +687,7 @@ type HostedAccountServiceHandler interface {
 	GetAccountMiningSummary(context.Context, *connect.Request[v1.GetAccountMiningSummaryRequest]) (*connect.Response[v1.GetAccountMiningSummaryResponse], error)
 	ListAccountAssets(context.Context, *connect.Request[v1.ListAccountAssetsRequest]) (*connect.Response[v1.ListAccountAssetsResponse], error)
 	AssignAccountAssets(context.Context, *connect.Request[v1.AssignAccountAssetsRequest]) (*connect.Response[v1.AssignAccountAssetsResponse], error)
+	ReplaceAccountHashboard(context.Context, *connect.Request[v1.ReplaceAccountHashboardRequest]) (*connect.Response[v1.ReplaceAccountHashboardResponse], error)
 	ListAccounts(context.Context, *connect.Request[v1.ListAccountsRequest]) (*connect.Response[v1.ListAccountsResponse], error)
 	GetAccount(context.Context, *connect.Request[v1.GetAccountRequest]) (*connect.Response[v1.GetAccountResponse], error)
 	ListChildren(context.Context, *connect.Request[v1.ListChildrenRequest]) (*connect.Response[v1.ListChildrenResponse], error)
@@ -770,6 +786,11 @@ func NewHostedAccountServiceHandler(svc HostedAccountServiceHandler, opts ...con
 	hostedAccountServiceAssignAccountAssetsHandler := connect.NewUnaryHandler(
 		HostedAccountServiceAssignAccountAssetsProcedure,
 		svc.AssignAccountAssets,
+		opts...,
+	)
+	hostedAccountServiceReplaceAccountHashboardHandler := connect.NewUnaryHandler(
+		HostedAccountServiceReplaceAccountHashboardProcedure,
+		svc.ReplaceAccountHashboard,
 		opts...,
 	)
 	hostedAccountServiceListAccountsHandler := connect.NewUnaryHandler(
@@ -935,6 +956,8 @@ func NewHostedAccountServiceHandler(svc HostedAccountServiceHandler, opts ...con
 			hostedAccountServiceListAccountAssetsHandler.ServeHTTP(w, r)
 		case HostedAccountServiceAssignAccountAssetsProcedure:
 			hostedAccountServiceAssignAccountAssetsHandler.ServeHTTP(w, r)
+		case HostedAccountServiceReplaceAccountHashboardProcedure:
+			hostedAccountServiceReplaceAccountHashboardHandler.ServeHTTP(w, r)
 		case HostedAccountServiceListAccountsProcedure:
 			hostedAccountServiceListAccountsHandler.ServeHTTP(w, r)
 		case HostedAccountServiceGetAccountProcedure:
@@ -1048,6 +1071,10 @@ func (UnimplementedHostedAccountServiceHandler) ListAccountAssets(context.Contex
 
 func (UnimplementedHostedAccountServiceHandler) AssignAccountAssets(context.Context, *connect.Request[v1.AssignAccountAssetsRequest]) (*connect.Response[v1.AssignAccountAssetsResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("hosted.v1.HostedAccountService.AssignAccountAssets is not implemented"))
+}
+
+func (UnimplementedHostedAccountServiceHandler) ReplaceAccountHashboard(context.Context, *connect.Request[v1.ReplaceAccountHashboardRequest]) (*connect.Response[v1.ReplaceAccountHashboardResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("hosted.v1.HostedAccountService.ReplaceAccountHashboard is not implemented"))
 }
 
 func (UnimplementedHostedAccountServiceHandler) ListAccounts(context.Context, *connect.Request[v1.ListAccountsRequest]) (*connect.Response[v1.ListAccountsResponse], error) {

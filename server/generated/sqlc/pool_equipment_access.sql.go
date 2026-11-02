@@ -67,7 +67,7 @@ func (q *Queries) GetPoolEquipmentInstallationModule(ctx context.Context, arg Ge
 }
 
 const getPoolEquipmentMinerOwner = `-- name: GetPoolEquipmentMinerOwner :one
-SELECT d.id AS asset_id,COALESCE(a.subclient_id,a.client_id,0)::bigint AS account_id,
+SELECT d.id AS asset_id,0::bigint AS hashboard_id,COALESCE(a.subclient_id,a.client_id,0)::bigint AS account_id,
  COALESCE(a.revision,0)::bigint AS revision
 FROM device d LEFT JOIN hosted_account_asset a ON a.organization_id=d.org_id AND a.kind=5 AND a.asset_id=d.id
 WHERE d.org_id=$1 AND d.id=$2
@@ -79,26 +79,35 @@ type GetPoolEquipmentMinerOwnerParams struct {
 }
 
 type GetPoolEquipmentMinerOwnerRow struct {
-	AssetID   int64
-	AccountID int64
-	Revision  int64
+	AssetID     int64
+	HashboardID int64
+	AccountID   int64
+	Revision    int64
 }
 
 func (q *Queries) GetPoolEquipmentMinerOwner(ctx context.Context, arg GetPoolEquipmentMinerOwnerParams) (GetPoolEquipmentMinerOwnerRow, error) {
 	row := q.queryRow(ctx, q.getPoolEquipmentMinerOwnerStmt, getPoolEquipmentMinerOwner, arg.OrgID, arg.ID)
 	var i GetPoolEquipmentMinerOwnerRow
-	err := row.Scan(&i.AssetID, &i.AccountID, &i.Revision)
+	err := row.Scan(
+		&i.AssetID,
+		&i.HashboardID,
+		&i.AccountID,
+		&i.Revision,
+	)
 	return i, err
 }
 
 const listPoolEquipmentModuleOwners = `-- name: ListPoolEquipmentModuleOwners :many
-SELECT m.id AS asset_id,COALESCE(a.subclient_id,a.client_id,0)::bigint AS account_id,
+SELECT m.id AS asset_id,COALESCE(b.id,0)::bigint AS hashboard_id,
+ CASE WHEN membership.module_id IS NULL THEN -1 ELSE COALESCE(a.subclient_id,a.client_id,0) END::bigint AS account_id,
  COALESCE(a.revision,0)::bigint AS revision
 FROM container_module m JOIN container_tank t ON t.id=m.tank_id
 JOIN device d ON d.id=t.device_id
-LEFT JOIN hosted_account_asset a ON a.organization_id=d.org_id AND a.kind=6 AND a.asset_id=m.id
+LEFT JOIN hosted_module_membership membership ON membership.module_id=m.id AND membership.org_id=d.org_id
+LEFT JOIN LATERAL unnest(membership.board_ids) b(id) ON true
+LEFT JOIN hosted_account_asset a ON a.organization_id=d.org_id AND a.kind=7 AND a.asset_id=b.id
 WHERE d.org_id=$1 AND d.id=$2 AND t.present AND m.retired_at IS NULL
-ORDER BY m.id
+ORDER BY m.id,b.id
 `
 
 type ListPoolEquipmentModuleOwnersParams struct {
@@ -107,9 +116,10 @@ type ListPoolEquipmentModuleOwnersParams struct {
 }
 
 type ListPoolEquipmentModuleOwnersRow struct {
-	AssetID   int64
-	AccountID int64
-	Revision  int64
+	AssetID     int64
+	HashboardID int64
+	AccountID   int64
+	Revision    int64
 }
 
 func (q *Queries) ListPoolEquipmentModuleOwners(ctx context.Context, arg ListPoolEquipmentModuleOwnersParams) ([]ListPoolEquipmentModuleOwnersRow, error) {
@@ -121,7 +131,12 @@ func (q *Queries) ListPoolEquipmentModuleOwners(ctx context.Context, arg ListPoo
 	var items []ListPoolEquipmentModuleOwnersRow
 	for rows.Next() {
 		var i ListPoolEquipmentModuleOwnersRow
-		if err := rows.Scan(&i.AssetID, &i.AccountID, &i.Revision); err != nil {
+		if err := rows.Scan(
+			&i.AssetID,
+			&i.HashboardID,
+			&i.AccountID,
+			&i.Revision,
+		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -133,41 +148,4 @@ func (q *Queries) ListPoolEquipmentModuleOwners(ctx context.Context, arg ListPoo
 		return nil, err
 	}
 	return items, nil
-}
-
-const retireReallocatedPoolAssignments = `-- name: RetireReallocatedPoolAssignments :exec
-WITH retired AS (
- UPDATE pool_configuration_assignment a SET retired_at=CURRENT_TIMESTAMP,
-  version=a.version+1,updated_at=CURRENT_TIMESTAMP
- WHERE a.organization_id=$1 AND a.retired_at IS NULL
-  AND a.device_id=$2
-  AND (a.target_kind='device' OR (
-   $3::int=6 AND a.target_kind='hashboard_installation' AND EXISTS (
-    SELECT 1 FROM hashboard_installation i WHERE i.id=a.target_id AND i.module_id=$4
-   )
-  ))
- RETURNING a.organization_id,a.target_kind,a.target_id
-)
-UPDATE pool_configuration_operation_target t SET state='superseded',updated_at=CURRENT_TIMESTAMP
-FROM retired a WHERE t.organization_id=a.organization_id AND t.target_kind=a.target_kind AND t.target_id=a.target_id
- AND t.state IN ('pending','applying','failed','different','applied_unverified')
-`
-
-type RetireReallocatedPoolAssignmentsParams struct {
-	OrganizationID int64
-	DeviceID       int64
-	AssetKind      int32
-	AssetID        int64
-}
-
-// Allocation changes end the previous owner's intent; they never apply a new
-// owner's settings. Keep assignment generations and immutable operation history.
-func (q *Queries) RetireReallocatedPoolAssignments(ctx context.Context, arg RetireReallocatedPoolAssignmentsParams) error {
-	_, err := q.exec(ctx, q.retireReallocatedPoolAssignmentsStmt, retireReallocatedPoolAssignments,
-		arg.OrganizationID,
-		arg.DeviceID,
-		arg.AssetKind,
-		arg.AssetID,
-	)
-	return err
 }

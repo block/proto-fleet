@@ -88,25 +88,40 @@ func (q *Queries) InsertRepairTicketOpeningTarget(ctx context.Context, arg Inser
 }
 
 const lockRepairTicketTargetAllocation = `-- name: LockRepairTicketTargetAllocation :one
-SELECT client_id,subclient_id FROM hosted_account_asset
-WHERE organization_id=$1 AND kind=$2 AND asset_id=$3
-FOR SHARE
+WITH selections AS MATERIALIZED (
+ SELECT $1::int AS kind,$2::bigint AS asset_id
+ WHERE $1::int<>6
+ UNION ALL
+ SELECT 7,unnest(m.board_ids) FROM hosted_module_membership m
+ WHERE $1::int=6 AND m.org_id=$3 AND m.module_id=$2
+), locked AS MATERIALIZED (
+ SELECT a.asset_id,a.client_id,a.subclient_id FROM hosted_account_asset a
+ JOIN selections s ON s.kind=a.kind AND s.asset_id=a.asset_id
+ WHERE a.organization_id=$3
+ FOR SHARE OF a
+), owners AS (
+ SELECT COALESCE(a.client_id,0) AS client_id,COALESCE(a.subclient_id,0) AS subclient_id
+ FROM selections s LEFT JOIN locked a ON a.asset_id=s.asset_id
+)
+SELECT CASE WHEN min(client_id)=max(client_id) THEN min(client_id) ELSE 0 END::bigint AS client_id,
+ CASE WHEN min(subclient_id)=max(subclient_id) THEN min(subclient_id) ELSE 0 END::bigint AS subclient_id
+FROM owners HAVING count(*)>0
 `
 
 type LockRepairTicketTargetAllocationParams struct {
-	OrgID          int64
 	AllocationKind int32
 	AssetID        int64
+	OrgID          int64
 }
 
 type LockRepairTicketTargetAllocationRow struct {
-	ClientID    sql.NullInt64
-	SubclientID sql.NullInt64
+	ClientID    int64
+	SubclientID int64
 }
 
 // Keep the opening owner/subowner stable until the ticket and audience commit.
 func (q *Queries) LockRepairTicketTargetAllocation(ctx context.Context, arg LockRepairTicketTargetAllocationParams) (LockRepairTicketTargetAllocationRow, error) {
-	row := q.queryRow(ctx, q.lockRepairTicketTargetAllocationStmt, lockRepairTicketTargetAllocation, arg.OrgID, arg.AllocationKind, arg.AssetID)
+	row := q.queryRow(ctx, q.lockRepairTicketTargetAllocationStmt, lockRepairTicketTargetAllocation, arg.AllocationKind, arg.AssetID, arg.OrgID)
 	var i LockRepairTicketTargetAllocationRow
 	err := row.Scan(&i.ClientID, &i.SubclientID)
 	return i, err

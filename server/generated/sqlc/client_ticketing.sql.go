@@ -68,7 +68,7 @@ func (q *Queries) AssociateRepairTicketAccount(ctx context.Context, arg Associat
 const canTargetAccountRepairAsset = `-- name: CanTargetAccountRepairAsset :one
 SELECT EXISTS (
  SELECT 1 FROM repair_ticket_asset_option o
- JOIN hosted_account_asset a ON a.organization_id=o.org_id AND a.kind=o.allocation_kind AND a.asset_id=o.parent_asset_id
+ JOIN hosted_account_asset_projection a ON a.organization_id=o.org_id AND a.kind=o.allocation_kind AND a.asset_id=o.parent_asset_id
  WHERE o.org_id=$1 AND o.kind=$2 AND o.id=$3
  AND (a.client_id=$4 OR a.subclient_id=$4)
  AND (o.kind<>4 OR o.module_id=$5::bigint)
@@ -478,7 +478,7 @@ func (q *Queries) ListAccountRepairTickets(ctx context.Context, arg ListAccountR
 
 const listRepairTicketAssetOptions = `-- name: ListRepairTicketAssetOptions :many
 SELECT o.kind, o.id, o.org_id, o.site_id, o.parent_asset_id, o.allocation_kind, o.module_id, o.installation_id, o.container_id, o.position, o.label, o.model, o.miner_identifier, o.building_id, o.rack_id FROM repair_ticket_asset_option o
-LEFT JOIN hosted_account_asset a ON a.organization_id=o.org_id AND a.kind=o.allocation_kind AND a.asset_id=o.parent_asset_id
+LEFT JOIN hosted_account_asset_projection a ON a.organization_id=o.org_id AND a.kind=o.allocation_kind AND a.asset_id=o.parent_asset_id
 WHERE o.org_id=$1
  AND ($2::smallint IS NULL OR o.kind=$2)
  AND ($3::bigint IS NULL OR a.client_id=$3 OR a.subclient_id=$3)

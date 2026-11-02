@@ -96,8 +96,7 @@ func TestClientTicketBoardScopeAndPhysicalHistory(t *testing.T) {
 	_, err := f.db.ExecContext(t.Context(), "UPDATE container_module SET model='Module X' WHERE id=$1", module)
 	require.NoError(t, err)
 	var board, installation int64
-	require.NoError(t, f.db.QueryRowContext(t.Context(), "INSERT INTO hashboard(org_id,first_seen_at,last_seen_at) VALUES($1,now(),now()) RETURNING id", f.org).Scan(&board))
-	require.NoError(t, f.db.QueryRowContext(t.Context(), "INSERT INTO hashboard_installation(hashboard_id,module_id,position,installed_at,last_seen_at) VALUES($1,$2,1,now(),now()) RETURNING id", board, module).Scan(&installation))
+	require.NoError(t, f.db.QueryRowContext(t.Context(), "SELECT hashboard_id,id FROM hashboard_installation WHERE module_id=$1 AND position=1 AND removed_at IS NULL", module).Scan(&board, &installation))
 	request := &pb.CreateAccountTicketRequest{AccountId: a.AccountID, Description: "Board reports a hardware fault", IdempotencyKey: uuid.NewString(), Targets: []*mpb.TicketAssetSelection{{Kind: mpb.TicketCategory_TICKET_CATEGORY_HASHBOARD, Id: board, ParentModuleId: &another}}}
 	_, err = f.svc.CreateAccountTicket(t.Context(), f.user, f.org, request)
 	require.Error(t, err, "forged parent must fail server-side")
@@ -112,13 +111,17 @@ func TestClientTicketBoardScopeAndPhysicalHistory(t *testing.T) {
 	require.Equal(t, board, created.Ticket.Targets[0].Id)
 	require.Equal(t, "Module X", created.Ticket.Targets[0].Model, "container controller model must never stand in for module model")
 	require.Equal(t, installation, created.Ticket.Targets[0].GetInstallationId())
+	require.NoError(t, f.allocate(t, f.host, f.root, a.AccountID, pb.AssetAssignmentIntent_ASSET_ASSIGNMENT_INTENT_RECALL, selected(6, module, 1)))
 	_, err = f.db.ExecContext(t.Context(), "UPDATE hashboard_installation SET removed_at=clock_timestamp() WHERE id=$1", installation)
 	require.NoError(t, err)
 	var replacement int64
 	require.NoError(t, f.db.QueryRowContext(t.Context(), "INSERT INTO hashboard(org_id,first_seen_at,last_seen_at) VALUES($1,now(),now()) RETURNING id", f.org).Scan(&replacement))
 	_, err = f.db.ExecContext(t.Context(), "INSERT INTO hashboard_installation(hashboard_id,module_id,position,installed_at,last_seen_at) VALUES($1,$2,1,clock_timestamp(),clock_timestamp())", replacement, module)
 	require.NoError(t, err)
-	require.NoError(t, f.allocate(t, f.host, f.root, a.AccountID, pb.AssetAssignmentIntent_ASSET_ASSIGNMENT_INTENT_RECALL, selected(6, module, 1)))
+	_, err = f.db.ExecContext(t.Context(), `INSERT INTO hashboard_observation(hashboard_id,device_id,last_seen_at) SELECT $1,device_id,now() FROM hashboard_installation WHERE hashboard_id=$1 AND removed_at IS NULL`, replacement)
+	require.NoError(t, err)
+	_, err = f.db.ExecContext(t.Context(), `UPDATE hashboard_slot SET hashboard_id=$1 WHERE module_id=$2 AND position=1`, replacement, module)
+	require.NoError(t, err)
 	require.NoError(t, f.allocate(t, f.host, f.root, b.AccountID, pb.AssetAssignmentIntent_ASSET_ASSIGNMENT_INTENT_ASSIGN, selected(6, module, 2)))
 	retained, err := f.svc.GetAccountTicket(t.Context(), f.user, f.org, &pb.GetAccountTicketRequest{AccountId: a.AccountID, TicketId: created.Ticket.Id})
 	require.NoError(t, err)

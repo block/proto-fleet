@@ -44,14 +44,14 @@ func TestAccountDashboardRetainedYearRepresentativeEstate(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, result.Readings, 365)
 	for _, r := range result.Readings {
-		require.Equal(t, 120e12, r.Summary.GetHashrateHs())
-		require.Equal(t, 2400.0, r.Summary.GetPowerW())
+		require.Equal(t, 160e12, r.Summary.GetHashrateHs())
+		require.Equal(t, 3200.0, r.Summary.GetPowerW())
 		require.Equal(t, 20.0, r.Summary.GetEfficiencyJTh())
-		require.EqualValues(t, 120, r.Summary.AssetCount)
-		require.EqualValues(t, 120, r.UptimeStatus.HashingCount)
+		require.EqualValues(t, 160, r.Summary.AssetCount)
+		require.EqualValues(t, 160, r.UptimeStatus.HashingCount)
 	}
 	require.Less(t, elapsed, 5*time.Second, "representative retained estate must fit the mining transaction deadline")
-	t.Logf("retained daily history: 100 miners + 20 modules,365 days,43800 wide summary rows,365 returned buckets,API duration=%s", elapsed)
+	t.Logf("retained daily history: 100 miners + 60 hashboards,365 days,58400 wide summary rows,365 returned buckets,API duration=%s", elapsed)
 	// Exercise the real-time current daily tail at a representative 15s cadence.
 	// Keep it unmaterialized so this cannot silently benchmark only saved groups.
 	_, err = f.db.ExecContext(t.Context(), `INSERT INTO hosted_account_history_sample(time,interval_id,metric,value,complete,source_oldest_at,source_newest_at,source_id,origin_key,origin_time,origin_collected_at)
@@ -65,9 +65,9 @@ func TestAccountDashboardRetainedYearRepresentativeEstate(t *testing.T) {
 	elapsed = time.Since(began)
 	require.NoError(t, err)
 	require.Len(t, result.Readings, 365)
-	require.Equal(t, 120e12, result.Readings[364].Summary.GetHashrateHs())
-	require.EqualValues(t, 120, result.Readings[364].UptimeStatus.HashingCount)
+	require.Equal(t, 160e12, result.Readings[364].Summary.GetHashrateHs())
+	require.EqualValues(t, 160, result.Readings[364].UptimeStatus.HashingCount)
 	require.Less(t, elapsed, 5*time.Second, "dense real-time summary tail must fit the mining transaction deadline")
-	t.Logf("same retained estate plus 24h unmaterialized 15-second tail (2764800 normalized samples),API duration=%s", elapsed)
+	t.Logf("same retained estate plus 24h unmaterialized 15-second tail (3686400 normalized samples),API duration=%s", elapsed)
 
 }

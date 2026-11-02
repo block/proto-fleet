@@ -25,6 +25,7 @@ export type DashboardPerformanceProps = {
   uptimeExpectedAssetCount?: number;
   /** Account readings preserve allocation-scoped coverage and gaps. */
   accountReadings?: boolean;
+  hasLegacyModuleReadings?: boolean;
   tooltipNotes?: Partial<Record<MeasurementType, Record<number, string>>>;
 };
 
@@ -37,6 +38,7 @@ export default function DashboardPerformance({
   uptimeStatusCounts,
   uptimeExpectedAssetCount,
   accountReadings = false,
+  hasLegacyModuleReadings = false,
   tooltipNotes,
 }: DashboardPerformanceProps) {
   const { refs } = useStickyState();
@@ -61,6 +63,12 @@ export default function DashboardPerformance({
         </SectionHeading>
       </div>
       <div className="flex flex-col gap-4 px-6 pt-4 laptop:px-10">
+        {hasLegacyModuleReadings ? (
+          <p className="text-300 text-text-primary-70">
+            This range includes legacy module data. New readings use miners and hashboards. Module/PSU power and asset
+            counts can differ from board measurements.
+          </p>
+        ) : null}
         <HashratePanel
           duration={duration}
           metrics={grouped.hashrate}

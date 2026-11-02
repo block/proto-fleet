@@ -42,7 +42,9 @@ func (s *SQLMaintenanceStore) snapshotRepairTicketOpening(ctx context.Context, p
 		if err != nil && !errors.Is(err, sql.ErrNoRows) {
 			return maintenanceWriteError("lock opening target ownership", err)
 		}
-		for _, account := range []sql.NullInt64{allocation.ClientID, allocation.SubclientID} {
+		clientID := sql.NullInt64{Int64: allocation.ClientID, Valid: allocation.ClientID > 0}
+		subclientID := sql.NullInt64{Int64: allocation.SubclientID, Valid: allocation.SubclientID > 0}
+		for _, account := range []sql.NullInt64{clientID, subclientID} {
 			if account.Valid {
 				audience[account.Int64] = struct{}{}
 			}
@@ -52,7 +54,7 @@ func (s *SQLMaintenanceStore) snapshotRepairTicketOpening(ctx context.Context, p
 			MinerIdentifier: ptrToNullString(nonEmptyStringPtr(target.MinerIdentifier)), BuildingID: target.BuildingID, RackID: target.RackID,
 			ModuleID: target.ModuleID, InstallationID: target.InstallationID, ContainerID: target.ContainerID,
 			SiteID: target.SiteID, Label: target.Label, Model: target.Model, Position: target.Position,
-			ClientID: allocation.ClientID, SubclientID: allocation.SubclientID,
+			ClientID: clientID, SubclientID: subclientID,
 		}
 		if models.TicketCategory(target.Kind) == models.TicketCategoryMiner {
 			row.MinerID = sql.NullInt64{Int64: target.ID, Valid: true}

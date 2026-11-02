@@ -199,12 +199,6 @@ const AccountOverview = () => {
                 },
               ]}
             />
-            {summary.partialModuleCount > 0n || summary.unknownModuleCount > 0n ? (
-              <p className="mt-2 text-300 text-text-primary-70">
-                Module measurement coverage: {summary.partialModuleCount.toLocaleString()} partial ·{" "}
-                {summary.unknownModuleCount.toLocaleString()} unknown. Power includes only measured equipment readings.
-              </p>
-            ) : null}
             {summary.unavailableCount > 0n || summary.outsidePolicyCount > 0n ? (
               <p className="mt-2 text-300 text-text-primary-70">
                 {summary.unavailableCount.toLocaleString()} unavailable · {summary.outsidePolicyCount.toLocaleString()}{" "}
@@ -256,6 +250,7 @@ const AccountOverview = () => {
             metrics={history?.metrics}
             totalAssets={Number(summary?.assetCount ?? 0n)}
             accountReadings
+            hasLegacyModuleReadings={history?.hasLegacyModuleReadings}
             temperatureStatusCounts={history?.temperatureStatusCounts}
             uptimeStatusCounts={history?.uptimeStatusCounts}
             uptimeExpectedAssetCount={history?.uptimeExpectedAssetCount}

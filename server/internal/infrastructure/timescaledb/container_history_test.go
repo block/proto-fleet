@@ -39,6 +39,9 @@ func TestStoredContainerRollupsMigrationRollback(t *testing.T) {
 	_, err := r.db.ExecContext(t.Context(), "TRUNCATE hashboard_metrics")
 	require.NoError(t, err)
 	for _, migrationName := range []string{
+		"001051_internal_hashboard_allocation_order.down",
+		"001050_internal_automatic_hashboard_allocation.down",
+		"001049_internal_hashboard_allocations.down",
 		"001027_internal_container_telemetry_compression.down",
 		"001022_internal_topology_compaction.down",
 		"001021_internal_hashboard_metric_summaries.down",
@@ -49,6 +52,9 @@ func TestStoredContainerRollupsMigrationRollback(t *testing.T) {
 		"001021_internal_hashboard_metric_summaries.up",
 		"001022_internal_topology_compaction.up",
 		"001027_internal_container_telemetry_compression.up",
+		"001049_internal_hashboard_allocations.up",
+		"001050_internal_automatic_hashboard_allocation.up",
+		"001051_internal_hashboard_allocation_order.up",
 	} {
 		migration, err := os.ReadFile("../../../migrations/current/" + migrationName + ".sql")
 		require.NoError(t, err)

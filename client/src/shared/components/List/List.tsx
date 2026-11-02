@@ -121,6 +121,8 @@ export type ListChildRow<ColKey extends string> = {
   key: string;
   label: string;
   cells: Partial<Record<ColKey, ReactNode>>;
+  /** Optional parent-managed selection control. Children do not join bulk selection. */
+  selection?: ReactNode;
 };
 
 type ControlledSelectionModeProps<ItemKeyValueType> = {
@@ -172,7 +174,7 @@ type RowReorderEnabledProps<ColKey extends string, ItemKeyValueType> = {
 };
 
 type ListProps<ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem & string> = {
-  /** Display-only children; excluded from filtering, counts, selection and sorting. */
+  /** Children stay outside filtering, counts, bulk selection and sorting. */
   getChildRows?: (item: ListItem) => ListChildRow<ColKey>[];
   activeCols: ColKey[];
   colTitles: ColTitles<ColKey>;
@@ -191,6 +193,7 @@ type ListProps<ListItem, ItemKeyValueType, ColKey extends string = keyof ListIte
   itemKey: keyof ListItem;
   itemSelectable?: boolean;
   rowSelectionLabel?: (item: ListItem) => string;
+  isRowPartiallySelected?: (item: ListItem) => boolean;
   /**
    * Controls whether selectable rows use checkboxes (multi-select) or radio buttons (single-select).
    * Defaults to "checkbox". When "radio", the header select-all is hidden and only one item can be selected.
@@ -391,6 +394,7 @@ type ListRowRenderProps<ListItem, ItemKeyValueType, ColKey extends string = keyo
   itemKey: keyof ListItem;
   itemSelectable: boolean;
   rowSelectionLabel?: (item: ListItem) => string;
+  isRowPartiallySelected?: (item: ListItem) => boolean;
   selectionType: "checkbox" | "radio";
   radioGroupName: string;
   pageScopedSelection: boolean;
@@ -440,6 +444,7 @@ const renderListRow = <ListItem, ItemKeyValueType, ColKey extends string = keyof
   itemKey,
   itemSelectable,
   rowSelectionLabel,
+  isRowPartiallySelected,
   selectionType,
   radioGroupName,
   pageScopedSelection,
@@ -545,7 +550,9 @@ const renderListRow = <ListItem, ItemKeyValueType, ColKey extends string = keyof
               "opacity-50": rowDisabled,
             })}
           >
-            {childRow ? null : selectionType === "radio" ? (
+            {childRow ? (
+              (childRow.selection ?? null)
+            ) : selectionType === "radio" ? (
               <Radio
                 name={radioGroupName}
                 value={String(rowKey)}
@@ -556,6 +563,7 @@ const renderListRow = <ListItem, ItemKeyValueType, ColKey extends string = keyof
             ) : (
               <Checkbox
                 ariaLabel={rowSelectionLabel?.(item) ?? `Select ${String(rowKey)}`}
+                partiallyChecked={isRowPartiallySelected?.(item)}
                 checked={
                   pageScopedSelection && currentSelectionMode === "all"
                     ? rowSelectable
@@ -787,6 +795,7 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
   itemKey,
   itemSelectable = false,
   rowSelectionLabel,
+  isRowPartiallySelected,
   selectionType = "checkbox",
   disabled = false,
   actions = [],
@@ -1359,6 +1368,7 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
       itemKey,
       itemSelectable,
       rowSelectionLabel,
+      isRowPartiallySelected,
       selectionType,
       radioGroupName,
       pageScopedSelection,

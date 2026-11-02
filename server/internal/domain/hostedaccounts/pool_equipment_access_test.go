@@ -63,6 +63,10 @@ func TestPoolWholeContainerRequiresEveryModuleOwnedBySelectedAccount(t *testing.
 	module, controller := f.miningModule(t)
 	var otherModule int64
 	require.NoError(t, f.db.QueryRowContext(t.Context(), `INSERT INTO container_module(tank_id,position,first_seen_at,last_seen_at) SELECT tank_id,2,now(),now() FROM container_module WHERE id=$1 RETURNING id`, module).Scan(&otherModule))
+	for position := 1; position <= 3; position++ {
+		f.miningBoard(t, otherModule, controller, position)
+	}
+	f.observeModuleAtCurrentSite(t, otherModule, controller)
 	require.NoError(t, f.allocate(t, f.host, f.root, account.AccountID, hostedpb.AssetAssignmentIntent_ASSET_ASSIGNMENT_INTENT_ASSIGN, selected(6, module, 0)))
 	pools, _, _, _, _ := poolFixture(t, f)
 	check := func(actor int64, scope poolconfigurations.Scope, selectedAccount string) (string, error) {
@@ -128,12 +132,9 @@ func TestPoolEquipmentBoardOwnershipAndReplacement(t *testing.T) {
 	module, controller := f.miningModule(t)
 	require.NoError(t, f.allocate(t, f.host, f.root, account.AccountID, hostedpb.AssetAssignmentIntent_ASSET_ASSIGNMENT_INTENT_ASSIGN, selected(6, module, 0)))
 	var board, installation int64
-	require.NoError(t, f.db.QueryRowContext(t.Context(), `INSERT INTO hashboard(org_id,first_seen_at,last_seen_at) VALUES($1,now(),now()) RETURNING id`, f.org).Scan(&board))
-	require.NoError(t, f.db.QueryRowContext(t.Context(), `INSERT INTO hashboard_installation(hashboard_id,module_id,position,installed_at,last_seen_at) VALUES($1,$2,1,now(),now()) RETURNING id`, board, module).Scan(&installation))
-	_, err := f.db.ExecContext(t.Context(), `INSERT INTO hashboard_slot(module_id,hashboard_id,position,occupancy,observed_at) VALUES($1,$2,1,'occupied',now())`, module, board)
-	require.NoError(t, err)
+	require.NoError(t, f.db.QueryRowContext(t.Context(), `SELECT hashboard_id,id FROM hashboard_installation WHERE module_id=$1 AND position=1 AND removed_at IS NULL`, module).Scan(&board, &installation))
 	pools, _, _, _, ctx := poolFixture(t, f)
-	ctx, err = hostedaccounts.WithRequestAccountID(ctx, account.AccountID)
+	ctx, err := hostedaccounts.WithRequestAccountID(ctx, account.AccountID)
 	require.NoError(t, err)
 	check := func() error {
 		return db.WithTransactionNoResult(ctx, f.db, func(q sqlc.Querier) error {

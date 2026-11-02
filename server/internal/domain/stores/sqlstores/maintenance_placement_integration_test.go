@@ -138,6 +138,7 @@ func insertMaintenancePhysicalTargets(t *testing.T, db *sql.DB, org, site int64,
 	require.NoError(t, db.QueryRowContext(t.Context(), "INSERT INTO hashboard(org_id,first_seen_at,last_seen_at) VALUES($1,NOW(),NOW()) RETURNING id", org).Scan(&board))
 	_, err = db.ExecContext(t.Context(), "INSERT INTO hashboard_installation(hashboard_id,module_id,position,installed_at,last_seen_at) VALUES($1,$2,1,NOW(),NOW())", board, module)
 	require.NoError(t, err)
+	observeMaintenanceModule(t, db, controller, module, board)
 	return controller, module, board
 }
 
@@ -148,4 +149,19 @@ func waitForMaintenancePlacementLock(t *testing.T, db *sql.DB, blockingPID int) 
 		err := db.QueryRowContext(t.Context(), "SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE datname=current_database() AND $1::integer=ANY(pg_blocking_pids(pid)))", blockingPID).Scan(&waiting)
 		return err == nil && waiting
 	}, 5*time.Second, 10*time.Millisecond, "ticket operation must wait for the physical placement lock")
+}
+
+// One installed board and two confirmed empty slots form a complete module.
+func observeMaintenanceModule(t *testing.T, db *sql.DB, controller, module, board int64) {
+	t.Helper()
+	_, placementErr := db.ExecContext(t.Context(), `UPDATE hashboard_installation SET site_id=(SELECT site_id FROM device WHERE id=$1) WHERE module_id=$2`, controller, module)
+	require.NoError(t, placementErr)
+	_, err := db.ExecContext(t.Context(), `UPDATE container_module SET last_seen_at=(SELECT observed_at FROM container_inventory WHERE device_id=$1) WHERE id=$2`, controller, module)
+	require.NoError(t, err)
+	_, err = db.ExecContext(t.Context(), `INSERT INTO hashboard_observation(hashboard_id,device_id,site_id,last_seen_at) SELECT $1,id,site_id,now() FROM device WHERE id=$2`, board, controller)
+	require.NoError(t, err)
+	_, err = db.ExecContext(t.Context(), `INSERT INTO hashboard_slot(module_id,position,occupancy,hashboard_id,observed_at)
+ SELECT $1,p,CASE WHEN p=1 THEN 'occupied' ELSE 'empty' END,CASE WHEN p=1 THEN $2::bigint END,last_seen_at
+ FROM container_module CROSS JOIN generate_series(1,3) p WHERE id=$1`, module, board)
+	require.NoError(t, err)
 }

@@ -57,7 +57,9 @@ describe("account dashboard readings", () => {
     expect(hashrate.slice(-5).map((point) => point.hashrate)).toEqual([400, null, null, 400, null]);
     expect(power.slice(-5).map((point) => point.power)).toEqual([10, null, null, 9, null]);
     expect(efficiency.slice(-5).map((point) => point.efficiency)).toEqual([25, null, null, null, null]);
-    expect(tooltipNotes[MeasurementType.POWER]?.[times[3] * 1000]).toBe("3 of 4 modules reporting");
+    expect(tooltipNotes[MeasurementType.POWER]?.[times[3] * 1000]).toBe(
+      "Legacy module data · 3 of 4 modules reporting",
+    );
     expect(temperatureStatusCounts.map(({ okCount, hotCount }) => okCount + hotCount)).toEqual([4, 0, 0, 1, 0]);
     expect(uptimeStatusCounts.map(({ hashingCount, brokenCount }) => hashingCount + brokenCount)).toEqual([
       4, 0, 0, 1, 0,
@@ -99,10 +101,10 @@ describe("account dashboard readings", () => {
     expect(metrics.find((metric) => metric.measurementType === MeasurementType.EFFICIENCY)?.aggregatedValues).toEqual(
       [],
     );
-    expect(tooltipNotes[MeasurementType.POWER]?.[180000]).toBe("3 of 4 modules reporting");
+    expect(tooltipNotes[MeasurementType.POWER]?.[180000]).toBe("Legacy module data · 3 of 4 modules reporting");
   });
   it("keeps measured zero and unavailable buckets distinct and charts only averaged metrics", () => {
-    const { metrics } = accountDashboardData([
+    const { metrics, hasLegacyModuleReadings } = accountDashboardData([
       create(AccountDashboardReadingSchema, {
         time: { seconds: 180n },
         summary: { assetCount: 1n, minerCount: 1n, hashrateHs: 0, hashrateReportingCount: 1n },
@@ -112,6 +114,7 @@ describe("account dashboard readings", () => {
     const hashrate = metrics.filter((metric) => metric.measurementType === MeasurementType.HASHRATE);
     expect(hashrate[0].aggregatedValues[0].value).toBe(0);
     expect(hashrate[1].aggregatedValues).toEqual([]);
+    expect(hasLegacyModuleReadings).toBe(false);
     expect(new Set(metrics.map((metric) => metric.measurementType))).toEqual(
       new Set([MeasurementType.HASHRATE, MeasurementType.POWER, MeasurementType.EFFICIENCY]),
     );

@@ -589,4 +589,5 @@ var AccountProcedureCapabilities = map[string]hostedaccounts.Capabilities{
 	hostedv1connect.HostedAccountServiceCreateInvitationProcedure:          hostedaccounts.ManageMembers,
 	hostedv1connect.HostedAccountServiceRevokeInvitationProcedure:          hostedaccounts.ManageMembers,
 	invitationv1connect.InvitationServiceAcceptInvitationProcedure:         0,
+	hostedv1connect.HostedAccountServiceReplaceAccountHashboardProcedure:   hostedaccounts.Delegate,
 }

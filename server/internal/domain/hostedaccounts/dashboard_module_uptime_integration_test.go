@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestAccountDashboardModuleUptimeUsesAuthorizedHistoricalState(t *testing.T) {
+func TestAccountLegacyModuleUptimeUsesAuthorizedHistoricalState(t *testing.T) {
 	for _, tc := range []struct {
 		name, state                 string
 		sourceOffset, collectOffset time.Duration
@@ -44,6 +44,7 @@ func TestAccountDashboardModuleUptimeUsesAuthorizedHistoricalState(t *testing.T)
 			end := time.Now().UTC().Truncate(time.Second).Add(-time.Minute)
 			start := end.Add(-time.Hour)
 			at := start.Add(10 * time.Minute)
+			f.legacyModuleHistory(t)
 			_, err := f.db.ExecContext(t.Context(), `UPDATE hosted_account_asset_interval SET started_at=$1,ended_at=$2 WHERE client_id=$3`, start, start.Add(30*time.Minute), client.ID)
 			require.NoError(t, err)
 			_, err = f.db.ExecContext(t.Context(), `INSERT INTO container_module_metrics(module_id,time,collected_at,hashrate_hs,coverage) VALUES($1,$2,$2,100e12,jsonb_build_object('hashrate',jsonb_build_object('oldest_at',$2::timestamptz,'newest_at',$2::timestamptz)))`, module, at)
@@ -77,13 +78,14 @@ func TestAccountDashboardModuleUptimeUsesAuthorizedHistoricalState(t *testing.T)
 	}
 }
 
-func TestAccountDashboardModuleUptimeUsesLatestStateWithoutMetricSamples(t *testing.T) {
+func TestAccountLegacyModuleUptimeUsesLatestStateWithoutMetricSamples(t *testing.T) {
 	f := setup(t)
 	client := f.client(t, "Customer", f.user, hostedaccounts.AllCapabilities)
 	module, _ := f.miningModule(t)
 	require.NoError(t, f.allocate(t, f.host, f.root, client.AccountID, 1, selected(6, module, 0)))
 	end := time.Now().UTC().Truncate(time.Second).Add(-time.Minute)
 	start := end.Add(-time.Hour)
+	f.legacyModuleHistory(t)
 	_, err := f.db.ExecContext(t.Context(), `UPDATE hosted_account_asset_interval SET started_at=$1 WHERE client_id=$2`, start, client.ID)
 	require.NoError(t, err)
 	for index, state := range []string{"active", "error", "active", "unknown"} {

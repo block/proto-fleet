@@ -19,7 +19,7 @@ func TestMaintenanceOpeningSnapshotRetainsIdentityAndAudiences(t *testing.T) {
 	site := insertMaintenanceTestSite(t, conn, org, "Opening site")
 	controller, module, board := insertMaintenancePhysicalTargets(t, conn, org, site, "opening-controller")
 	owner, subowner, creator := insertMaintenanceSnapshotAccounts(t, conn, org)
-	_, err := conn.ExecContext(t.Context(), `INSERT INTO hosted_account_asset(organization_id,kind,asset_id,device_id,module_id,client_id,subclient_id) VALUES($1,6,$2,$3,$2,$4,$5)`, org, module, controller, owner, subowner)
+	_, err := conn.ExecContext(t.Context(), `INSERT INTO hosted_account_asset(organization_id,kind,asset_id,device_id,hashboard_id,client_id,subclient_id) VALUES($1,7,$2,$3,$2,$4,$5)`, org, board, controller, owner, subowner)
 	require.NoError(t, err)
 	var installation int64
 	require.NoError(t, conn.QueryRowContext(t.Context(), `SELECT id FROM hashboard_installation WHERE hashboard_id=$1 AND removed_at IS NULL`, board).Scan(&installation))
@@ -36,7 +36,7 @@ func TestMaintenanceOpeningSnapshotRetainsIdentityAndAudiences(t *testing.T) {
 	require.NoError(t, conn.QueryRowContext(t.Context(), `SELECT client_id,subclient_id FROM repair_ticket_target WHERE org_id=$1 AND ticket_id=$2`, org, ticket.ID).Scan(&capturedOwner, &capturedSubowner))
 	require.Equal(t, owner, capturedOwner)
 	require.Equal(t, subowner, capturedSubowner)
-	_, err = conn.ExecContext(t.Context(), `UPDATE hosted_account_asset SET client_id=NULL,subclient_id=NULL,revision=revision+1 WHERE organization_id=$1 AND kind=6 AND asset_id=$2`, org, module)
+	_, err = conn.ExecContext(t.Context(), `UPDATE hosted_account_asset SET client_id=NULL,subclient_id=NULL,revision=revision+1 WHERE organization_id=$1 AND kind=7 AND asset_id=$2`, org, board)
 	require.NoError(t, err)
 	_, err = conn.ExecContext(t.Context(), `UPDATE container_module SET model='Next model' WHERE id=$1`, module)
 	require.NoError(t, err)
@@ -98,9 +98,9 @@ func TestMaintenanceOpeningSnapshotLocksOwnershipThroughCallerTransaction(t *tes
 	conn := testutil.GetTestDB(t)
 	org := insertMaintenanceTestOrg(t, conn, "owner-lock")
 	site := insertMaintenanceTestSite(t, conn, org, "Opening site")
-	controller, module, _ := insertMaintenancePhysicalTargets(t, conn, org, site, "locked-owner-controller")
+	controller, module, board := insertMaintenancePhysicalTargets(t, conn, org, site, "locked-owner-controller")
 	owner, _, _ := insertMaintenanceSnapshotAccounts(t, conn, org)
-	_, err := conn.ExecContext(t.Context(), `INSERT INTO hosted_account_asset(organization_id,kind,asset_id,device_id,module_id,client_id) VALUES($1,6,$2,$3,$2,$4)`, org, module, controller, owner)
+	_, err := conn.ExecContext(t.Context(), `INSERT INTO hosted_account_asset(organization_id,kind,asset_id,device_id,hashboard_id,client_id) VALUES($1,7,$2,$3,$2,$4)`, org, board, controller, owner)
 	require.NoError(t, err)
 	store := sqlstores.NewSQLMaintenanceStore(conn)
 	rollback := errors.New("abort opening transaction")
@@ -109,7 +109,7 @@ func TestMaintenanceOpeningSnapshotLocksOwnershipThroughCallerTransaction(t *tes
 		require.NoError(t, createErr)
 		waiting, cancel := context.WithTimeout(t.Context(), 100*time.Millisecond)
 		defer cancel()
-		_, updateErr := conn.ExecContext(waiting, `UPDATE hosted_account_asset SET client_id=NULL,revision=revision+1 WHERE organization_id=$1 AND kind=6 AND asset_id=$2`, org, module)
+		_, updateErr := conn.ExecContext(waiting, `UPDATE hosted_account_asset SET client_id=NULL,revision=revision+1 WHERE organization_id=$1 AND kind=7 AND asset_id=$2`, org, board)
 		require.Error(t, updateErr, "opening ownership remains locked until the caller commits")
 		return rollback
 	})
@@ -125,4 +125,32 @@ func insertMaintenanceSnapshotAccounts(t *testing.T, conn *sql.DB, org int64) (o
 	require.NoError(t, conn.QueryRowContext(t.Context(), `INSERT INTO hosted_account(account_id,organization_id,parent_id,depth,name,capabilities) VALUES(gen_random_uuid()::text,$1,$2,2,'Opening subowner',31) RETURNING id`, org, owner).Scan(&subowner))
 	require.NoError(t, conn.QueryRowContext(t.Context(), `INSERT INTO hosted_account(account_id,organization_id,parent_id,depth,name,capabilities) SELECT gen_random_uuid()::text,$1,id,1,'Ticket creator',31 FROM hosted_account WHERE organization_id=$1 AND depth=0 RETURNING id`, org).Scan(&creator))
 	return owner, subowner, creator
+}
+
+func TestMaintenanceOpeningSnapshotUsesOwnerCommittedDuringLockWait(t *testing.T) {
+	conn := testutil.GetTestDB(t)
+	org := insertMaintenanceTestOrg(t, conn, "owner-change")
+	site := insertMaintenanceTestSite(t, conn, org, "Current site")
+	controller, module, board := insertMaintenancePhysicalTargets(t, conn, org, site, "owner-change-controller")
+	owner, _, nextOwner := insertMaintenanceSnapshotAccounts(t, conn, org)
+	_, err := conn.ExecContext(t.Context(), `INSERT INTO hosted_account_asset(organization_id,kind,asset_id,device_id,hashboard_id,client_id) VALUES($1,7,$2,$3,$2,$4)`, org, board, controller, owner)
+	require.NoError(t, err)
+	tx, err := conn.BeginTx(t.Context(), nil)
+	require.NoError(t, err)
+	defer func() { _ = tx.Rollback() }()
+	var pid int
+	require.NoError(t, tx.QueryRowContext(t.Context(), `SELECT pg_backend_pid()`).Scan(&pid))
+	_, err = tx.ExecContext(t.Context(), `UPDATE hosted_account_asset SET client_id=$1,revision=revision+1 WHERE organization_id=$2 AND kind=7 AND asset_id=$3`, nextOwner, org, board)
+	require.NoError(t, err)
+	result := make(chan error, 1)
+	go func() {
+		_, createErr := sqlstores.NewSQLMaintenanceStore(conn).CreateRepairTicket(t.Context(), models.CreateParams{OrgID: org, Category: models.TicketCategoryModule, Component: "Module", IdempotencyKey: "owner-change", CreateRequestHash: maintenanceCreateRequestHash, Targets: []models.TicketAssetSelection{{Kind: models.TicketCategoryModule, ID: module}}}, "TK-0001")
+		result <- createErr
+	}()
+	waitForMaintenancePlacementLock(t, conn, pid)
+	require.NoError(t, tx.Commit())
+	require.NoError(t, <-result)
+	var captured int64
+	require.NoError(t, conn.QueryRowContext(t.Context(), `SELECT client_id FROM repair_ticket_target WHERE org_id=$1`, org).Scan(&captured))
+	require.Equal(t, nextOwner, captured, "the opening snapshot must use the owner returned by the locked allocation row")
 }

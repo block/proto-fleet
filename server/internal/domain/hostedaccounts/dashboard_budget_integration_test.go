@@ -21,6 +21,7 @@ func TestAccountDashboardBoundsRawTelemetryWork(t *testing.T) {
 		assets = append(assets, selected(6, id, 0))
 	}
 	require.NoError(t, f.allocate(t, f.host, f.root, client.AccountID, 1, assets...))
+	f.legacyModuleHistory(t)
 	_, err := f.db.ExecContext(t.Context(), `UPDATE hosted_account_asset_interval SET started_at=$1 WHERE client_id=$2`, start, client.ID)
 	require.NoError(t, err)
 	_, err = f.svc.Dashboard(t.Context(), f.user, f.org, dashboardRequest(client.AccountID, start, end, nil))
@@ -28,7 +29,9 @@ func TestAccountDashboardBoundsRawTelemetryWork(t *testing.T) {
 	require.ErrorContains(t, err, "choose a shorter time range")
 	result, err := f.svc.Dashboard(t.Context(), f.user, f.org, dashboardRequest(client.AccountID, end.Add(-time.Hour), end, nil))
 	require.NoError(t, err)
-	require.EqualValues(t, 38, result.Totals.AssetCount)
+	require.EqualValues(t, 114, result.Totals.AssetCount)
+	require.EqualValues(t, 114, result.Totals.HashboardCount)
+	require.EqualValues(t, 38, result.Readings[0].Summary.ModuleCount)
 	_, err = f.svc.Dashboard(t.Context(), f.user, f.org, dashboardRequest(client.AccountID, end.Add(-7*24*time.Hour), end, nil))
 	require.NoError(t, err, "retained summaries have a separate source-bucket work budget")
 }

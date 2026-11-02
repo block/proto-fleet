@@ -3,7 +3,7 @@ UPDATE hosted_account SET ticketing_enabled=$1,revision=revision+1,authority_rev
 
 -- name: ListRepairTicketAssetOptions :many
 SELECT o.* FROM repair_ticket_asset_option o
-LEFT JOIN hosted_account_asset a ON a.organization_id=o.org_id AND a.kind=o.allocation_kind AND a.asset_id=o.parent_asset_id
+LEFT JOIN hosted_account_asset_projection a ON a.organization_id=o.org_id AND a.kind=o.allocation_kind AND a.asset_id=o.parent_asset_id
 WHERE o.org_id=sqlc.arg(org_id)
  AND (sqlc.narg(kind)::smallint IS NULL OR o.kind=sqlc.narg(kind))
  AND (sqlc.narg(account_internal_id)::bigint IS NULL OR a.client_id=sqlc.narg(account_internal_id) OR a.subclient_id=sqlc.narg(account_internal_id))
@@ -94,7 +94,7 @@ ORDER BY c.created_at DESC,c.id DESC;
 -- name: CanTargetAccountRepairAsset :one
 SELECT EXISTS (
  SELECT 1 FROM repair_ticket_asset_option o
- JOIN hosted_account_asset a ON a.organization_id=o.org_id AND a.kind=o.allocation_kind AND a.asset_id=o.parent_asset_id
+ JOIN hosted_account_asset_projection a ON a.organization_id=o.org_id AND a.kind=o.allocation_kind AND a.asset_id=o.parent_asset_id
  WHERE o.org_id=sqlc.arg(org_id) AND o.kind=sqlc.arg(kind) AND o.id=sqlc.arg(asset_id)
  AND (a.client_id=sqlc.arg(account_internal_id) OR a.subclient_id=sqlc.arg(account_internal_id))
  AND (o.kind<>4 OR o.module_id=sqlc.narg(parent_module_id)::bigint)

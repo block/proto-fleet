@@ -10,6 +10,7 @@ import (
 
 func rollbackEmptyClientTicketing(t *testing.T, conn *sql.DB) {
 	t.Helper()
+	rollbackEmptyHashboardAllocations(t, conn)
 	for _, name := range []string{"001048_internal_client_ticketing.down.sql"} {
 		source, err := migrations.Current.ReadFile("current/" + name)
 		require.NoError(t, err)

@@ -34,7 +34,7 @@ func TestAccountHistoryCompressionMigrationPreservesIndependentSources(t *testin
 	read := func() *miningProjectionDB {
 		t.Helper()
 		capture := &miningProjectionDB{DB: f.db}
-		rows, err := sqlc.New(capture).ListHostedAccountHistoricalReadings(t.Context(), sqlc.ListHostedAccountHistoricalReadingsParams{StartTime: start, EndTime: end, BucketSeconds: 900, Intervals: encoded, HostAuthority: json.RawMessage("[]"), PolicySites: []int64{}})
+		rows, err := sqlc.New(capture).ListHostedAccountHistoricalReadings(t.Context(), sqlc.ListHostedAccountHistoricalReadingsParams{StartTime: start, EndTime: end, BucketStarts: historyTestBuckets(start, end), Intervals: encoded, HostAuthority: json.RawMessage("[]"), PolicySites: []int64{}})
 		require.NoError(t, err)
 		require.Len(t, rows, 4)
 		for _, row := range rows {

@@ -11,6 +11,7 @@ import (
 
 func TestContainerInventoryMigrationRoundTrip(t *testing.T) {
 	db := testutil.GetTestDB(t)
+	rollbackEmptyHashboardAllocations(t, db)
 	rollbackEmptyClientTicketing(t, db)
 	rollbackEmptyMiningGroups(t, db)
 	testutil.RestoreLegacySummaryBootstraps(t, db,
@@ -51,6 +52,7 @@ func TestContainerInventoryMigrationRoundTrip(t *testing.T) {
 
 func TestHashboardMigrationRoundTrip(t *testing.T) {
 	db := testutil.GetTestDB(t)
+	rollbackEmptyHashboardAllocations(t, db)
 	rollbackEmptyClientTicketing(t, db)
 	rollbackEmptyMiningGroups(t, db)
 	testutil.RestoreLegacySummaryBootstraps(t, db,

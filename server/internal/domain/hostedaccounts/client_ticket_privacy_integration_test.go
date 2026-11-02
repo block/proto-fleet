@@ -81,16 +81,18 @@ func TestMaintenanceAssetKindFilterPrecedesResultLimit(t *testing.T) {
 	}
 	module, _ := f.miningModule(t)
 	var board int64
-	require.NoError(t, f.db.QueryRowContext(t.Context(), "INSERT INTO hashboard(org_id,first_seen_at,last_seen_at) VALUES($1,now(),now()) RETURNING id", f.org).Scan(&board))
-	_, err := f.db.ExecContext(t.Context(), "INSERT INTO hashboard_installation(hashboard_id,module_id,position,installed_at,last_seen_at) VALUES($1,$2,1,now(),now())", board, module)
-	require.NoError(t, err)
+	require.NoError(t, f.db.QueryRowContext(t.Context(), "SELECT hashboard_id FROM hashboard_installation WHERE module_id=$1 AND position=1 AND removed_at IS NULL", module).Scan(&board))
 	for _, target := range []struct {
 		kind models.TicketCategory
 		id   int64
 	}{{models.TicketCategoryModule, module}, {models.TicketCategoryHashboard, board}} {
 		assets, err := ticketServiceForTest(f.db).ListTicketAssetOptions(t.Context(), f.org, nil, nil, target.kind, "")
 		require.NoError(t, err)
-		require.Len(t, assets, 1, "earlier equipment kinds cannot consume the selected kind's result limit")
+		expected := 1
+		if target.kind == models.TicketCategoryHashboard {
+			expected = 3
+		}
+		require.Len(t, assets, expected, "earlier equipment kinds cannot consume the selected kind's result limit")
 		require.Equal(t, target.id, assets[0].ID)
 	}
 }
@@ -106,6 +108,7 @@ func TestTicketModelChangeRequiresCurrentModuleSiteAuthority(t *testing.T) {
 	require.NoError(t, err)
 	_, err = f.db.ExecContext(t.Context(), "UPDATE container_module SET model='Opening model' WHERE id=$1", module)
 	require.NoError(t, err)
+	f.observeModuleAtCurrentSite(t, module, controller)
 	require.NoError(t, f.allocate(t, f.host, f.root, account.AccountID, pb.AssetAssignmentIntent_ASSET_ASSIGNMENT_INTENT_ASSIGN, selected(6, module, 0)))
 	created, err := f.svc.CreateAccountTicket(t.Context(), f.user, f.org, &pb.CreateAccountTicketRequest{AccountId: account.AccountID, Description: "Module fault before move", IdempotencyKey: uuid.NewString(), Targets: []*mpb.TicketAssetSelection{{Kind: mpb.TicketCategory_TICKET_CATEGORY_MODULE, Id: module}}})
 	require.NoError(t, err)
@@ -137,6 +140,7 @@ func TestTicketModelAuthorizationRechecksSiteAfterPlacementLockWait(t *testing.T
 	require.NoError(t, f.db.QueryRowContext(t.Context(), "INSERT INTO site(org_id,name,slug) VALUES($1,'Destination','model-lock-destination') RETURNING id", f.org).Scan(&destinationSite))
 	_, err := f.db.ExecContext(t.Context(), "UPDATE device SET site_id=$1 WHERE id=$2", originalSite, controller)
 	require.NoError(t, err)
+	f.observeModuleAtCurrentSite(t, module, controller)
 	require.NoError(t, f.allocate(t, f.host, f.root, account.AccountID, pb.AssetAssignmentIntent_ASSET_ASSIGNMENT_INTENT_ASSIGN, selected(6, module, 0)))
 	created, err := f.svc.CreateAccountTicket(t.Context(), f.user, f.org, &pb.CreateAccountTicketRequest{AccountId: account.AccountID, Description: "Model evidence before move", IdempotencyKey: uuid.NewString(), Targets: []*mpb.TicketAssetSelection{{Kind: mpb.TicketCategory_TICKET_CATEGORY_MODULE, Id: module}}})
 	require.NoError(t, err)
@@ -178,9 +182,7 @@ func TestBoardTicketRecordsActualParentModuleModelWithoutParentTicket(t *testing
 	module, _ := f.miningModule(t)
 	require.NoError(t, f.allocate(t, f.host, f.root, account.AccountID, pb.AssetAssignmentIntent_ASSET_ASSIGNMENT_INTENT_ASSIGN, selected(6, module, 0)))
 	var board int64
-	require.NoError(t, f.db.QueryRowContext(t.Context(), "INSERT INTO hashboard(org_id,first_seen_at,last_seen_at) VALUES($1,now(),now()) RETURNING id", f.org).Scan(&board))
-	_, err := f.db.ExecContext(t.Context(), "INSERT INTO hashboard_installation(hashboard_id,module_id,position,installed_at,last_seen_at) VALUES($1,$2,1,now(),now())", board, module)
-	require.NoError(t, err)
+	require.NoError(t, f.db.QueryRowContext(t.Context(), "SELECT hashboard_id FROM hashboard_installation WHERE module_id=$1 AND position=1 AND removed_at IS NULL", module).Scan(&board))
 	created, err := f.svc.CreateAccountTicket(t.Context(), f.user, f.org, &pb.CreateAccountTicketRequest{AccountId: account.AccountID, Description: "Board hardware fault", IdempotencyKey: uuid.NewString(), Targets: []*mpb.TicketAssetSelection{{Kind: mpb.TicketCategory_TICKET_CATEGORY_HASHBOARD, Id: board, ParentModuleId: &module}}})
 	require.NoError(t, err)
 	actualModel := "BM1368 module"

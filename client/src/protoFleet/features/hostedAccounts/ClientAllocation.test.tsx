@@ -9,6 +9,10 @@ import { HostedAccountsContext } from "./HostedAccountsContext";
 import { AccountSchema } from "@/protoFleet/api/generated/hosted/v1/hosted_pb";
 import { POLL_INTERVAL_MS } from "@/protoFleet/constants/polling";
 
+import { pushToast, STATUSES } from "@/shared/features/toaster";
+
+vi.mock("@/shared/features/toaster", () => ({ pushToast: vi.fn(), STATUSES: { success: "success" } }));
+
 const rootId = "99999999-9999-4999-8999-999999999999";
 const childId = "11111111-1111-4111-8111-111111111111";
 const managementPath = `/accounts/${childId}/manage/assets`;
@@ -31,6 +35,7 @@ const Location = () => {
 };
 
 beforeEach(() => {
+  vi.mocked(pushToast).mockClear();
   vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue(new DOMRect(20, 20, 240, 40));
 });
 afterEach(() => {
@@ -171,7 +176,10 @@ describe("customer allocation picker", () => {
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     expect(screen.getByTestId("location")).toHaveTextContent(entry);
     expect(await screen.findByRole("button", { name: "Allocate assets" })).toHaveFocus();
-    expect(await screen.findByText("Allocated 2 assets to Customer.")).toBeInTheDocument();
+    await waitFor(() =>
+      expect(pushToast).toHaveBeenCalledWith({ message: "Allocated 2 assets to Customer.", status: STATUSES.success }),
+    );
+    expect(screen.queryByText("Allocated 2 assets to Customer.")).not.toBeInTheDocument();
     expect(screen.getByText("Miner One")).toBeInTheDocument();
     expect(screen.getByText("Module One")).toBeInTheDocument();
     expect(calls.filter((call) => call.method === "AssignAccountAssets")).toEqual([
@@ -239,7 +247,9 @@ describe("customer allocation picker", () => {
         name: "Allocate 1 asset",
       }),
     );
-    await screen.findByText("Allocated 1 asset to Customer.");
+    await waitFor(() =>
+      expect(pushToast).toHaveBeenCalledWith({ message: "Allocated 1 asset to Customer.", status: STATUSES.success }),
+    );
     expect(mock.calls.filter((call) => call.method === "AssignAccountAssets").slice(-1)[0]?.body.assets).toEqual([
       { kind: "MINING_ASSET_KIND_MINER", id: "1", expectedRevision: "8" },
     ]);
@@ -262,7 +272,9 @@ describe("customer allocation picker", () => {
     expect(screen.getByRole("dialog", { name: "Allocate 1 asset?" })).toBeInTheDocument();
     expect(mock.calls.filter((call) => call.method === "AssignAccountAssets")).toHaveLength(1);
     await act(async () => mock.resume());
-    await screen.findByText("Allocated 1 asset to Customer.");
+    await waitFor(() =>
+      expect(pushToast).toHaveBeenCalledWith({ message: "Allocated 1 asset to Customer.", status: STATUSES.success }),
+    );
   });
 
   it("disables allocation for a suspended customer", async () => {

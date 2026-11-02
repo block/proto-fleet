@@ -56,7 +56,7 @@ func TestAccountHistoryDenseCompressedWindow(t *testing.T) {
 			ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 			defer cancel()
 			capture := &miningProjectionDB{DB: f.db}
-			rows, err := sqlc.New(capture).ListHostedAccountHistoricalReadings(ctx, sqlc.ListHostedAccountHistoricalReadingsParams{OrganizationID: f.org, StartTime: end.Add(-duration), EndTime: end, BucketSeconds: 900, Intervals: encoded, HostAuthority: json.RawMessage("[]"), PolicySites: []int64{}})
+			rows, err := sqlc.New(capture).ListHostedAccountHistoricalReadings(ctx, sqlc.ListHostedAccountHistoricalReadingsParams{OrganizationID: f.org, StartTime: end.Add(-duration), EndTime: end, BucketStarts: historyTestBuckets(end.Add(-duration), end), Intervals: encoded, HostAuthority: json.RawMessage("[]"), PolicySites: []int64{}})
 			require.NoError(t, err)
 			require.Len(t, rows, int(duration/(15*time.Minute)))
 			for _, row := range rows {

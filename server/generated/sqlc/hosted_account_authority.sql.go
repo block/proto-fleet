@@ -139,8 +139,9 @@ WITH actor AS (
 ), assignment_counts AS (
  SELECT a.client_id,
         count(*) FILTER (WHERE a.kind=5)::bigint AS miner_count,
-        count(*) FILTER (WHERE a.kind=6)::bigint AS module_count,
-        count(DISTINCT a.device_id) FILTER (WHERE a.kind=6)::bigint AS container_count
+        0::bigint AS module_count,
+        count(DISTINCT a.device_id) FILTER (WHERE a.kind=7)::bigint AS container_count,
+        count(*) FILTER (WHERE a.kind=7)::bigint AS hashboard_count
  FROM hosted_account_asset a JOIN management_clients c ON c.id=a.client_id
  WHERE a.organization_id=$3
  GROUP BY a.client_id
@@ -156,6 +157,7 @@ SELECT s.account_id, s.parent_account_id, s.name, s.depth, s.capabilities, s.sus
        (tm.user_id IS NOT NULL AND a.effective_ticketing_enabled AND (s.effective_capabilities & 1)<>0)::boolean AS ticket_access,
        COALESCE(ac.miner_count,0)::bigint AS miner_count,
        COALESCE(ac.module_count,0)::bigint AS module_count,
+       COALESCE(ac.hashboard_count,0)::bigint AS hashboard_count,
        COALESCE(ac.container_count,0)::bigint AS container_count,
        COALESCE(lc.login_count,0)::bigint AS login_count
 FROM summaries s JOIN accounts a ON a.account_id=s.account_id
@@ -186,6 +188,7 @@ type ListHostedAccountSummariesRow struct {
 	TicketAccess          bool
 	MinerCount            int64
 	ModuleCount           int64
+	HashboardCount        int64
 	ContainerCount        int64
 	LoginCount            int64
 }
@@ -216,6 +219,7 @@ func (q *Queries) ListHostedAccountSummaries(ctx context.Context, arg ListHosted
 			&i.TicketAccess,
 			&i.MinerCount,
 			&i.ModuleCount,
+			&i.HashboardCount,
 			&i.ContainerCount,
 			&i.LoginCount,
 		); err != nil {
