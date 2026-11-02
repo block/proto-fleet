@@ -378,6 +378,7 @@ type runtimeJobLifecycles struct {
 	ipScanner                 runtimejobs.Lifecycle
 	commandExecution          runtimejobs.Lifecycle
 	miningGroupReconciliation runtimejobs.Lifecycle
+	poolConfigurationUpdates  runtimejobs.Lifecycle
 	scheduleProcessor         runtimejobs.Lifecycle
 	rolloutEnforcement        runtimejobs.Lifecycle
 	curtailmentReconciler     runtimejobs.Lifecycle
@@ -418,6 +419,7 @@ func newRuntimeJobs(lifecycles runtimeJobLifecycles) ([]runtimejobs.Job, error) 
 		{name: "ip-scanner", lifecycle: lifecycles.ipScanner},
 		{name: "command-execution", lifecycle: commandExecution},
 		{name: "mining-group-reconciliation", lifecycle: lifecycles.miningGroupReconciliation},
+		{name: "pool-configuration-updates", lifecycle: lifecycles.poolConfigurationUpdates},
 		{name: "schedule-processor", lifecycle: lifecycles.scheduleProcessor},
 		{name: "rollout-enforcement", lifecycle: lifecycles.rolloutEnforcement},
 		{name: "curtailment-reconciler", lifecycle: lifecycles.curtailmentReconciler},

@@ -17,6 +17,7 @@ import SettingsEmptyState from "@/protoFleet/features/settings/components/Settin
 import SettingsPageHeader from "@/protoFleet/features/settings/components/SettingsPageHeader";
 import Breadcrumb from "@/shared/components/Breadcrumb";
 import Button, { sizes } from "@/shared/components/Button";
+import Checkbox from "@/shared/components/Checkbox";
 import Input from "@/shared/components/Input";
 import List from "@/shared/components/List";
 
@@ -41,9 +42,11 @@ const AccountChildren = () => {
   const assigning = params.get("action") === "assign";
   const [editing, setEditing] = useState<Account | "new" | null>(null);
   const [name, setName] = useState("");
+  const [ticketingEnabled, setTicketingEnabled] = useState(true);
   const [ceiling, setCeiling] = useState(1n);
   const open = (child: Account | "new") => {
     setName("");
+    setTicketingEnabled(true);
     setCeiling(allowed | required);
     setEditing(child);
   };
@@ -289,6 +292,7 @@ const AccountChildren = () => {
               accountId: account.accountId,
               name: name.trim(),
               capabilities: ceiling,
+              ticketingEnabled,
             });
             if (result.account)
               navigate(
@@ -309,6 +313,10 @@ const AccountChildren = () => {
             maxLength={255}
           />
           <CapabilityFields value={ceiling} allowed={allowed} required={required} onChange={setCeiling} />
+          <label className="flex items-center gap-3">
+            <Checkbox checked={ticketingEnabled} onChange={(event) => setTicketingEnabled(event.target.checked)} />
+            Ticketing
+          </label>
         </ActionModal>
       ) : editing ? (
         <AccountPermissionsEditor

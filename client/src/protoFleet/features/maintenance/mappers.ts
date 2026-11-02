@@ -28,6 +28,9 @@ const stringOrNull = (value?: string): string | null => value || null;
 const idOrNull = (value?: bigint): string | null => (value === undefined ? null : value.toString());
 
 export const toTicketCategory = (value: TicketCategory): TicketCategoryValue => {
+  if (value === TicketCategory.MODULE) return "module";
+  if (value === TicketCategory.HASHBOARD) return "hashboard";
+  if (value === TicketCategory.ACCOUNT) return "account";
   if (value === TicketCategory.MINER) return "miner";
   if (value === TicketCategory.INFRASTRUCTURE) return "infrastructure";
   return "unknown";
@@ -72,6 +75,11 @@ const ticketBase = (ticket: RepairTicket) => ({
   urgent: ticket.urgent,
   component: ticket.component,
   diagnosis: ticket.diagnosis,
+  description: ticket.description,
+  targets: ticket.targets,
+  audiences: ticket.audiences,
+  sharedWithClients: ticket.sharedWithClients,
+  createdByAccountId: ticket.createdByAccountId,
   minerIdentifier: stringOrNull(ticket.minerIdentifier),
   assigneeUserId: idOrNull(ticket.assigneeUserId),
   assigneeName: stringOrNull(ticket.assigneeName),
@@ -101,6 +109,7 @@ export function toTicketDetail(detail: RepairTicketDetail): TicketDetail {
     alertId: stringOrNull(ticket.alertId),
     warrantyStatus: toWarranty(ticket.warrantyStatus),
     resolution: toResolution(ticket.resolution),
+    resolutionNote: ticket.resolutionNote,
     repairLocation: toRepairLocation(ticket.repairLocation),
     notes: ticket.notes,
     dailyImpactUsd: ticket.dailyImpactUsd,
@@ -116,11 +125,15 @@ export function toTicketDetail(detail: RepairTicketDetail): TicketDetail {
       text: comment.text,
       createdAt: dateOrNull(comment.createdAt),
       authoredByCaller: comment.authoredByCaller,
+      internal: comment.internal,
+      accountId: comment.accountId,
+      accountName: comment.accountName,
     })),
     partsUsed: detail.partsUsed.map((part) => ({
       inventoryPartId: part.inventoryPartId.toString(),
       partName: part.partName,
       quantity: part.quantity,
+      consumedAt: dateOrNull(part.consumedAt),
     })),
   };
 }

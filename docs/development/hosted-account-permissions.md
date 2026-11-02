@@ -20,6 +20,83 @@ membership and explicit host/parent grants, then intersect them with every accou
 ceiling on the path. Suspension anywhere on that path denies account access.
 Live organization affiliation and user/organization status also apply.
 
+## Maintenance tickets
+
+Ticketing is a separate account feature, enabled by default when creating a
+client. Existing client accounts require explicit opt-in when upgrading; the
+host root remains enabled so hosts can enable individual clients. The host can
+change ticketing in client permissions. Disabling ticketing on an
+account or ancestor removes client access to existing tickets, submission,
+comments and status actions; host maintenance records remain.
+
+All direct teammates can use ticketing when it is enabled for the account.
+There is no per-teammate ticket permission. Existing pool, allocation and
+device-control permissions still apply to their respective operations. Explicit
+ancestor grants do not provide direct-team access. Hosts use the maintenance
+queue under their existing organization and site permissions.
+
+Client ticket RPCs require a Fleet session, the selected account header, live
+account View authority and direct membership. Account API keys cannot use them.
+The account response's `ticket_access` field reports this derived eligibility;
+it is not an independently configurable permission.
+
+Ticket creation requires a problem description. Clients can submit it without an
+asset or diagnosis. Diagnosis is optional host-only investigation information,
+recorded later in repair details. Physical targets
+use stable miner, module and hashboard identities, with server-verified current
+allocation and board parentage. Asset audiences are recorded when the ticket
+opens. Transfers and later board triage preserve that audience and the original
+installation; a new owner does not inherit previous tickets. Infrastructure
+audiences are explicitly selected by the host. Tickets with multiple targets use
+one target category and site, matching the host queue's site authorization. Miner
+targets retain their identifier and opening building/rack, so queue filters match
+any affected miner's original placement after equipment moves.
+
+Clients see only their own target snapshots, component text and conversation.
+Current site policy and host physical-read authority redact target labels, models,
+locations and installation details outside that scope. The historical target
+identity, conversation and permitted close/reopen actions remain available; site
+policy changes do not erase the opening audience.
+Conversation responses contain up to 50 comments, oldest first, with a cursor
+for loading earlier visible comments. A hidden or deleted page anchor requires
+refreshing the conversation; it is not treated as the end of history. Host notes default
+to internal; shared host notes inherit the ticket's audience. Client replies stay
+in their account conversation. Internal notes and other clients' replies are excluded. Host operational notes and target repair evidence are excluded from
+client projections. Comment author names remain visible on shared replies.
+
+Any teammate with ticket access can close an open ticket created by their
+account while it has no active parts reservations or RMA details. Once the host
+has started work, the host manages closure.
+Clients cannot close host-created tickets, but can reopen any visible closed
+ticket. The host can close without client approval. Every closure requires an
+explicit client-visible resolution note supplied in the closing request and
+stored separately from operational notes;
+a client's note remains private to its account while all affected accounts see
+the shared status. Closing and reopening preserve host operational notes. Client
+ticket creation, comments, closure and reopening record actor/account/ticket
+audits in the same transaction, without conversation contents. Reopening preserves
+physical repair history and consumed stock; completion forms select only active
+part reservations.
+
+Hosts can record actual module model evidence on module and board tickets and
+link distinct replacement hardware. Module replacement requires a known matching
+module model; the container controller model is never substituted. Historical
+board selection uses the installation at ticket opening, including removed or
+moved boards, without requiring another parent ticket.
+
+Changing a live module model also requires authority at its current site, with
+placement locked while the change is applied. Saving an unchanged historical
+model does not overwrite newer live inventory evidence or prevent an operator
+from adding repair notes to a ticket at its original site.
+
+Ticket actions do not change device-reported maintenance status. Contractual
+offline classification, SLA clocks, S3 approval and remedy calculations are not
+implemented in this workflow.
+
+The account ticket endpoints are `ListAccountTickets`, `GetAccountTicket`,
+`CreateAccountTicket`, `CommentAccountTicket`, `ChangeAccountTicketStatus`,
+`ListAccountTicketAssets` on `HostedAccountService`.
+
 Saved pool configurations and stored profile selection are separate permissions.
 Neither operation applies pool settings to existing or newly assigned mining
 assets. Allocation moves reporting responsibility; it does not move physical
@@ -38,6 +115,11 @@ unknown or conflicting slots do not establish membership. Parent accounts can
 see a module whose boards belong to different subclients. Each partial owner
 sees only its boards. Discovery gaps and module retirement preserve allocations.
 
+Repair-ticket selectors and opening ownership snapshots use the same board
+allocations and derived module ownership. Pool reviews capture each board's
+identity, owner, and revision. Ownership changes and controller moves retire
+prior pool-setting intent, including changes made by automatic replacement.
+
 Inventory updates detect a replacement when a different board appears in the same
 slot of a module with a confirmed PSU identity. The new board inherits the old
 board's client and subclient allocation. The old board returns to the host.
@@ -54,7 +136,7 @@ destination reports a moved board after the source reports its replacement.
 Unresolved identities, later manual allocation decisions,
 suspended accounts, and destination site restrictions prevent the transfer.
 The database records decision order separately from device timestamps and physical
-moves. Replacements already pending before migration 1049 require the manual
+moves. Replacements already pending before migration 1051 require the manual
 fallback because their decision order cannot be reconstructed safely.
 
 If a replacement is replaced again before its allocation transfer is confirmed,
@@ -174,3 +256,43 @@ creation. The UI offers seven-, 30- and 90-day expiry choices.
   [profile selection and password verification](../../server/internal/domain/hostedaccounts/pool.go).
 - [Key endpoint integration coverage](../../server/internal/handlers/hostedaccounts/key_integration_test.go)
   and [pool endpoint integration coverage](../../server/internal/handlers/hostedaccounts/pool_integration_test.go).
+
+### Host ticket and note visibility
+
+Host-created tickets default to internal, including tickets for client-assigned
+miners, modules, and hashboards. Opening-time equipment ownership records the
+potential recipients; it does not grant client access until the host explicitly
+shares the ticket. Client-created tickets are shared with their opening audience.
+Sharing preserves those recipients across subsequent equipment transfers.
+
+Host comments default to internal notes at both the RPC and UI boundaries.
+Hosts can post a client-visible reply or use the note's “Internal only” switch.
+Turning the switch off requires confirmation and shares with the ticket audience;
+turning it on hides the note from subsequent client reads. Visibility changes and
+comment deletion advance the ticket version so client refreshes discard retained
+older pages; responses from invalidated history loads cannot restore them. Account-scoped client
+replies cannot be republished or hidden by this switch. Visibility changes check
+the reviewed ticket version and advance it, so stale sharing requests cannot
+republish a note after it has been made internal. Sharing a ticket leaves its
+internal notes private. Internal tickets and notes produce no client ticket
+list entries or direct reads. Host operational notes and target
+repair evidence remain excluded from the client projection.
+
+Migration 1048 introduces ticket audiences and explicit sharing. Legacy host
+comments and newly created host notes default to internal. Opening targets and
+audiences are written together in the ticket transaction; client responses use
+a typed Go field allowlist with account and live site-policy filtering.
+
+### Maintenance API request requirements
+
+Ticket creation requires `description`; `diagnosis` is optional internal evidence.
+Closing requires an explicit `resolution_note` in the request, including bulk
+closure; saved operational `notes` do not satisfy it. Host creation accepts miner,
+infrastructure, module and hashboard categories; account-level tickets use the
+account service. Deploy callers with these updated request contracts together.
+
+Replacement IDs are optional patches: omission preserves the recorded link. Use
+`clear_replacement_module` or `clear_replacement_hashboard` to remove the link for
+that target kind; a clear flag cannot accompany the corresponding replacement ID
+or replacement model. Clearing a replacement field in the host editor sends the
+matching clear flag and preserves the original target and model evidence.

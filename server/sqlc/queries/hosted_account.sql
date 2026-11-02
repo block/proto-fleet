@@ -38,6 +38,7 @@ VALUES ($1, $2, $3, $4, $5, $6) RETURNING *;
 
 -- name: ConfigureHostedAccount :exec
 UPDATE hosted_account SET capabilities = $1, suspended = $2,
+    ticketing_enabled = COALESCE(sqlc.narg(ticketing_enabled)::boolean, ticketing_enabled),
     revision = revision + 1, authority_revision = authority_revision + 1, updated_at = CURRENT_TIMESTAMP
 WHERE organization_id = $3 AND id = $4;
 

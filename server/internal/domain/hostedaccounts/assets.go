@@ -603,7 +603,8 @@ func assetFilterOptions(rows []sqlc.ListHostedAccountAssetFilterOptionsRow) *pb.
 }
 
 // AssignAssets validates the exact reviewed snapshot after physical bindings and
-// container reconciliation are locked. The allocation ledger is reporting-only.
+// container reconciliation are locked. Allocation determines pool ownership but
+// grants no user permission and dispatches no pool changes.
 func (s *Service) AssignAssets(ctx context.Context, actorID, orgID int64, request *pb.AssignAccountAssetsRequest) error {
 	if len(request.Assets) == 0 || len(request.Assets) > 500 || (request.Intent != pb.AssetAssignmentIntent_ASSET_ASSIGNMENT_INTENT_ASSIGN && request.Intent != pb.AssetAssignmentIntent_ASSET_ASSIGNMENT_INTENT_RECALL) {
 		return fleeterror.NewInvalidArgumentError("invalid asset assignment")

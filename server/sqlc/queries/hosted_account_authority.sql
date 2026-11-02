@@ -78,7 +78,8 @@ WITH actor AS (
  SELECT a.*, COALESCE(parent.account_id,'')::text AS parent_account_id,
         (a.capabilities & COALESCE(parent.capabilities,31) & root.capabilities)::bigint AS ceiling,
         (a.suspended OR root.suspended OR COALESCE(parent.suspended,FALSE)) AS path_suspended,
-        root.id AS root_id
+        root.id AS root_id,
+        (a.ticketing_enabled AND root.ticketing_enabled AND COALESCE(parent.ticketing_enabled,TRUE)) AS effective_ticketing_enabled
  FROM hosted_account a
  JOIN hosted_account root ON root.organization_id=a.organization_id AND root.depth=0
  LEFT JOIN hosted_account parent ON parent.id=a.parent_id AND parent.organization_id=a.organization_id
@@ -126,11 +127,15 @@ WITH actor AS (
  WHERE m.organization_id=sqlc.arg(organization_id) AND m.revoked_at IS NULL
  GROUP BY m.account_id
 )
-SELECT s.*, COALESCE(ac.miner_count,0)::bigint AS miner_count,
-       COALESCE(ac.module_count,0)::bigint AS module_count, COALESCE(ac.hashboard_count,0)::bigint AS hashboard_count,
+SELECT s.*, a.ticketing_enabled,
+       (tm.user_id IS NOT NULL AND a.effective_ticketing_enabled AND (s.effective_capabilities & 1)<>0)::boolean AS ticket_access,
+       COALESCE(ac.miner_count,0)::bigint AS miner_count,
+       COALESCE(ac.module_count,0)::bigint AS module_count,
+       COALESCE(ac.hashboard_count,0)::bigint AS hashboard_count,
        COALESCE(ac.container_count,0)::bigint AS container_count,
        COALESCE(lc.login_count,0)::bigint AS login_count
 FROM summaries s JOIN accounts a ON a.account_id=s.account_id
+LEFT JOIN hosted_account_membership tm ON tm.organization_id=a.organization_id AND tm.account_id=a.id AND tm.user_id=sqlc.arg(user_id) AND tm.revoked_at IS NULL
 LEFT JOIN assignment_counts ac ON ac.client_id=a.id
 LEFT JOIN login_counts lc ON lc.account_id=a.id
 WHERE sqlc.narg(parent_id)::bigint IS NOT NULL OR s.effective_capabilities<>0

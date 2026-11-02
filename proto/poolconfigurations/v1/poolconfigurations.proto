@@ -16,6 +16,10 @@ service PoolConfigurationService {
   rpc ArchiveConfiguration(ArchiveConfigurationRequest) returns (ArchiveConfigurationResponse);
   rpc ReviewEdit(ReviewEditRequest) returns (ReviewEditResponse);
   rpc ConfirmReview(ConfirmReviewRequest) returns (ConfirmReviewResponse);
+  rpc ReviewAssignment(ReviewAssignmentRequest) returns (ReviewAssignmentResponse);
+  rpc GetOperation(GetOperationRequest) returns (GetOperationResponse);
+  rpc ReviewRetry(ReviewRetryRequest) returns (ReviewRetryResponse);
+  rpc ListOperations(ListOperationsRequest) returns (ListOperationsResponse);
 }
 
 message PoolInput {
@@ -111,10 +115,79 @@ message ReviewEditResponse {
 message ConfirmReviewRequest {
   string account_id = 1;
   string review_id = 2 [(buf.validate.field).string.uuid = true];
+  // Required when this confirmation starts equipment updates. Must be empty
+  // for settings-only saves, including replays. Replaying an accepted equipment
+  // confirmation returns its original result without rechecking the password.
+  string password = 3 [(buf.validate.field).string.max_len = 1024];
 }
 message ConfirmReviewResponse {
   Configuration configuration = 1;
   // Saving settings and applying them are distinct. An operation ID denotes
   // durable equipment work, not successful application.
   string operation_id = 2;
+}
+
+message ReviewAssignmentRequest {
+  string account_id = 1;
+  string configuration_id = 2 [(buf.validate.field).string.uuid = true];
+  int64 expected_version = 3 [(buf.validate.field).int64.gt = 0];
+  repeated string device_identifiers = 4 [(buf.validate.field).repeated = {min_items: 1, max_items: 500, unique: true, items: {string: {min_len: 1, max_len: 255}}}];
+}
+message GetOperationRequest {
+  string account_id = 1;
+  string operation_id = 2 [(buf.validate.field).string.uuid = true];
+}
+message OperationTarget {
+  string kind = 1;
+  int64 target_id = 2;
+  string state = 3;
+  string result_code = 4;
+  string label = 5;
+}
+message GetOperationResponse {
+  string operation_id = 1;
+  string configuration_id = 2;
+  repeated OperationTarget targets = 3;
+}
+
+message ReviewAssignmentResponse {
+  string review_id = 1;
+  Configuration configuration = 2;
+  int64 affected_miners = 3;
+  int64 affected_hashboards = 4;
+  google.protobuf.Timestamp expires_at = 5;
+}
+
+message RetryTarget {
+  string kind = 1 [(buf.validate.field).string.in = "device", (buf.validate.field).string.in = "hashboard_installation"];
+  int64 target_id = 2 [(buf.validate.field).int64.gt = 0];
+}
+message ReviewRetryRequest {
+  string account_id = 1;
+  string operation_id = 2 [(buf.validate.field).string.uuid = true];
+  repeated RetryTarget targets = 3 [(buf.validate.field).repeated = {min_items: 1, max_items: 500}];
+}
+message ReviewRetryResponse {
+  string review_id = 1;
+  Configuration configuration = 2;
+  int64 affected_miners = 3;
+  int64 affected_hashboards = 4;
+  google.protobuf.Timestamp expires_at = 5;
+}
+
+message ListOperationsRequest {
+  string account_id = 1;
+  string configuration_id = 2 [(buf.validate.field).string.uuid = true];
+  string page_token = 3 [(buf.validate.field).string.max_len = 36];
+}
+message OperationSummary {
+  string operation_id = 1;
+  google.protobuf.Timestamp created_at = 2;
+  int64 target_count = 3;
+  int64 pending_count = 4;
+  int64 failed_count = 5;
+}
+message ListOperationsResponse {
+  repeated OperationSummary operations = 1;
+  string next_page_token = 2;
 }

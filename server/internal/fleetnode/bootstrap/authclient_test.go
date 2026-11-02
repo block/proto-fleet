@@ -1,8 +1,11 @@
 package bootstrap
 
 import (
+	"bytes"
 	"context"
+	"encoding/binary"
 	"fmt"
+	"io"
 	"net/http"
 	"sync"
 	"testing"
@@ -11,12 +14,147 @@ import (
 	"connectrpc.com/connect"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	pb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
 	"github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1/fleetnodegatewayv1connect"
 	"github.com/block/proto-fleet/server/internal/testutil"
 )
+
+type uploadCompressionGateway struct {
+	fleetnodegatewayv1connect.UnimplementedFleetNodeGatewayServiceHandler
+	report *pb.ReportDiscoveredDevicesRequest
+	ack    *pb.ControlAck
+	chunk  []byte
+}
+
+func (g *uploadCompressionGateway) ReportDiscoveredDevices(_ context.Context, req *connect.Request[pb.ReportDiscoveredDevicesRequest]) (*connect.Response[pb.ReportDiscoveredDevicesResponse], error) {
+	g.report = req.Msg
+	return connect.NewResponse(&pb.ReportDiscoveredDevicesResponse{}), nil
+}
+
+func (g *uploadCompressionGateway) ControlStream(_ context.Context, stream *connect.BidiStream[pb.ControlStreamRequest, pb.ControlStreamResponse]) error {
+	if _, err := stream.Receive(); err != nil {
+		return fmt.Errorf("receive control hello: %w", err)
+	}
+	if err := stream.Send(&pb.ControlStreamResponse{Kind: &pb.ControlStreamResponse_Accepted{Accepted: &pb.ControlAccepted{ServerTime: timestamppb.Now()}}}); err != nil {
+		return fmt.Errorf("send control accepted: %w", err)
+	}
+	req, err := stream.Receive()
+	if err != nil {
+		return fmt.Errorf("receive control acknowledgment: %w", err)
+	}
+	g.ack = req.GetAck()
+	return nil
+}
+
+func (g *uploadCompressionGateway) UploadCommandArtifact(_ context.Context, stream *connect.ClientStream[pb.UploadCommandArtifactRequest]) (*connect.Response[pb.UploadCommandArtifactResponse], error) {
+	for stream.Receive() {
+		if chunk := stream.Msg().GetChunk(); chunk != nil {
+			g.chunk = append(g.chunk, chunk.GetData()...)
+		}
+	}
+	return connect.NewResponse(&pb.UploadCommandArtifactResponse{}), stream.Err()
+}
+
+func TestAuthenticatedClient_CompressesUploads(t *testing.T) {
+	t.Parallel()
+
+	for _, mode := range []string{"small discovery", "large discovery", "telemetry ack", "artifact stream"} {
+		t.Run(mode, func(t *testing.T) {
+			t.Parallel()
+			gateway := &uploadCompressionGateway{}
+			_, handler := fleetnodegatewayv1connect.NewFleetNodeGatewayServiceHandler(gateway)
+			type wireRequest struct {
+				header http.Header
+				body   []byte
+			}
+			observed := make(chan wireRequest, 1)
+			server := testutil.NewH2CServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				var wire bytes.Buffer
+				r.Body = struct {
+					io.Reader
+					io.Closer
+				}{io.TeeReader(r.Body, &wire), r.Body}
+				handler.ServeHTTP(w, r)
+				observed <- wireRequest{r.Header.Clone(), wire.Bytes()}
+			}))
+			client, err := NewAuthenticatedGatewayClient(server.URL, func() string { return "session-token" })
+			require.NoError(t, err)
+			ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+			defer cancel()
+			payload := bytes.Repeat([]byte("telemetry"), 100_000)
+			var report *pb.ReportDiscoveredDevicesRequest
+			switch mode {
+			case "small discovery", "large discovery":
+				report = &pb.ReportDiscoveredDevicesRequest{CommandId: "discovery-command"}
+				count := 1
+				if mode == "large discovery" {
+					count = 64
+				}
+				for i := range count {
+					report.Devices = append(report.Devices, &pb.DiscoveredDeviceReport{DeviceIdentifier: fmt.Sprintf("miner-%d", i), IpAddress: "10.0.0.1", Port: "8080", DriverName: "proto"})
+				}
+				_, err = client.ReportDiscoveredDevices(ctx, connect.NewRequest(report))
+				require.NoError(t, err)
+			case "telemetry ack":
+				stream := client.ControlStream(ctx)
+				require.NoError(t, stream.Send(&pb.ControlStreamRequest{Kind: &pb.ControlStreamRequest_Hello{Hello: &pb.ControlHello{}}}))
+				_, err = stream.Receive()
+				require.NoError(t, err)
+				require.NoError(t, stream.Send(&pb.ControlStreamRequest{Kind: &pb.ControlStreamRequest_Ack{Ack: &pb.ControlAck{CommandId: "telemetry-command", Succeeded: true, Payload: payload}}}))
+				require.NoError(t, stream.CloseRequest())
+				_, err = stream.Receive()
+				require.ErrorIs(t, err, io.EOF)
+				require.NoError(t, stream.CloseResponse())
+			case "artifact stream":
+				stream := client.UploadCommandArtifact(ctx)
+				require.NoError(t, stream.Send(&pb.UploadCommandArtifactRequest{Part: &pb.UploadCommandArtifactRequest_Header{Header: &pb.CommandArtifactUploadHeader{CommandId: "artifact-command"}}}))
+				require.NoError(t, stream.Send(&pb.UploadCommandArtifactRequest{Part: &pb.UploadCommandArtifactRequest_Chunk{Chunk: &pb.CommandArtifactChunk{Data: payload}}}))
+				_, err = stream.CloseAndReceive()
+				require.NoError(t, err)
+			}
+			var wire wireRequest
+			select {
+			case wire = <-observed:
+			case <-ctx.Done():
+				t.Fatal(ctx.Err())
+			}
+			require.Equal(t, "Bearer session-token", wire.header.Get("Authorization"))
+			switch mode {
+			case "small discovery":
+				require.Empty(t, wire.header.Get("Content-Encoding"))
+				require.True(t, proto.Equal(report, gateway.report))
+			case "large discovery":
+				require.Equal(t, "gzip", wire.header.Get("Content-Encoding"))
+				require.Less(t, len(wire.body), proto.Size(report))
+				require.True(t, proto.Equal(report, gateway.report))
+			default:
+				header := "Grpc-Encoding"
+				if mode == "artifact stream" {
+					header = "Connect-Content-Encoding"
+				}
+				require.Equal(t, "gzip", wire.header.Get(header))
+				require.Less(t, len(wire.body), len(payload)/10)
+				var flags []byte
+				for frame := wire.body; len(frame) > 0; {
+					require.GreaterOrEqual(t, len(frame), 5)
+					length := int(binary.BigEndian.Uint32(frame[1:5]))
+					require.GreaterOrEqual(t, len(frame), 5+length)
+					flags = append(flags, frame[0])
+					frame = frame[5+length:]
+				}
+				require.Equal(t, []byte{0, 1}, flags, "small header is uncompressed; large data message is compressed")
+				if mode == "artifact stream" {
+					require.Equal(t, payload, gateway.chunk)
+				} else {
+					require.Equal(t, payload, gateway.ack.GetPayload())
+				}
+			}
+		})
+	}
+}
 
 type captureGateway struct {
 	fleetnodegatewayv1connect.UnimplementedFleetNodeGatewayServiceHandler

@@ -146,7 +146,7 @@ describe("manual hashboard replacement", () => {
 
   it("prevents changes in a read-only scope", async () => {
     const { client } = mount(undefined, true);
-    await chooseReplacement();
+    expect(screen.getByRole("button", { name: "Replacement hashboard" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Transfer allocation" })).toBeDisabled();
     expect(client.replaceAccountHashboard).not.toHaveBeenCalled();
   });

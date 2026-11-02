@@ -28,6 +28,13 @@ const invitationState = (invitation: Invitation) =>
 type TeamEntry =
   { key: string; kind: "member"; member: Member } | { key: string; kind: "invitation"; invitation: Invitation };
 
+const actionLabels = {
+  invite: { title: "Create invitation", confirm: "Create invitation" },
+  role: { title: "Change account role", confirm: "Save role" },
+  remove: { title: "Remove membership", confirm: "Remove membership" },
+  revoke: { title: "Revoke invitation", confirm: "Revoke invitation" },
+} as const;
+
 const AccountTeam = () => {
   const { account, client, readOnly = false } = useRequiredAccountScope();
   const [params, setParams] = useSearchParams();
@@ -114,7 +121,13 @@ const AccountTeam = () => {
             itemSelectable={false}
             stickyFirstColumn={false}
             activeCols={["name", "role", "status", "addedAt", "expiresAt"]}
-            colTitles={{ name: "Name", role: "Role", status: "Status", addedAt: "Added", expiresAt: "Expires" }}
+            colTitles={{
+              name: "Name",
+              role: "Role",
+              status: "Status",
+              addedAt: "Added",
+              expiresAt: "Expires",
+            }}
             colConfig={{
               name: {
                 width: "min-w-40",
@@ -196,24 +209,8 @@ const AccountTeam = () => {
       ) : null}
       {action && (action.kind !== "invite" || query.data) ? (
         <ActionModal
-          title={
-            action.kind === "invite"
-              ? "Create invitation"
-              : action.kind === "role"
-                ? "Change account role"
-                : action.kind === "remove"
-                  ? "Remove membership"
-                  : "Revoke invitation"
-          }
-          confirm={
-            action.kind === "invite"
-              ? "Create invitation"
-              : action.kind === "remove"
-                ? "Remove membership"
-                : action.kind === "revoke"
-                  ? "Revoke invitation"
-                  : "Save role"
-          }
+          title={actionLabels[action.kind].title}
+          confirm={actionLabels[action.kind].confirm}
           onDismiss={closeAction}
           onSubmit={async () => {
             if (action.kind === "invite") {

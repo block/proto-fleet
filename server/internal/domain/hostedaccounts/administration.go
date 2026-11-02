@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
+	"errors"
 	"slices"
 	"strings"
 	"time"
@@ -19,6 +20,8 @@ import (
 // These DTOs expose stable public account and user identities. Internal database
 // keys and unrelated memberships never leave the account administration boundary.
 type AccountSummary struct {
+	TicketingEnabled      bool
+	TicketAccess          bool
 	AccountID             string
 	ParentAccountID       string
 	Name                  string
@@ -61,7 +64,7 @@ type Sites struct {
 }
 
 func summary(a Account, path []Account) AccountSummary {
-	result := AccountSummary{AccountID: a.AccountID, Name: a.Name, Depth: a.Depth, Capabilities: Capabilities(a.Capabilities), Suspended: a.Suspended, Revision: a.Revision}
+	result := AccountSummary{TicketingEnabled: a.TicketingEnabled, AccountID: a.AccountID, Name: a.Name, Depth: a.Depth, Capabilities: Capabilities(a.Capabilities), Suspended: a.Suspended, Revision: a.Revision}
 	if len(path) > 1 {
 		result.ParentAccountID = path[len(path)-2].AccountID
 	}
@@ -83,7 +86,7 @@ func (s *Service) listAccountSummaries(ctx context.Context, actorID, orgID int64
 	}
 	result := make([]AccountSummary, 0, len(rows))
 	for _, row := range rows {
-		item := AccountSummary{
+		item := AccountSummary{TicketingEnabled: row.TicketingEnabled, TicketAccess: row.TicketAccess,
 			AccountID: row.AccountID, ParentAccountID: row.ParentAccountID,
 			Name: row.Name, Depth: row.Depth, Capabilities: Capabilities(row.Capabilities),
 			Suspended: row.Suspended, Revision: row.Revision,
@@ -112,6 +115,14 @@ func (s *Service) GetAccount(ctx context.Context, actorID, orgID int64, accountI
 	item := summary(path[len(path)-1], path)
 	item.EffectiveCapabilities = access.Capabilities
 	item.Role = access.Role
+	_, memberErr := s.queries.GetHostedAccountMembership(ctx, sqlc.GetHostedAccountMembershipParams{OrganizationID: orgID, AccountID: path[len(path)-1].ID, UserID: actorID})
+	if memberErr != nil && !errors.Is(memberErr, sql.ErrNoRows) {
+		return AccountSummary{}, memberErr
+	}
+	item.TicketAccess = memberErr == nil && access.Capabilities&View != 0 && item.Depth > 0
+	for _, a := range path {
+		item.TicketAccess = item.TicketAccess && a.TicketingEnabled
+	}
 	return item, nil
 }
 

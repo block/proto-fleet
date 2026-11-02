@@ -57,15 +57,20 @@ it("preserves existing reservations when completing before inventory finishes lo
     />,
   );
 
+  fireEvent.change(screen.getByLabelText("Resolution note (visible to clients)"), {
+    target: { value: "Repair verified" },
+  });
   fireEvent.click(screen.getByRole("button", { name: "Complete repair" }));
 
   await waitFor(() =>
     expect(onSubmit).toHaveBeenCalledWith(
       expect.objectContaining({
+        resolutionNote: "Repair verified",
         partsSelection: [{ inventoryPartId: 7n, partName: "Fan", quantity: 2 }],
       }),
     ),
   );
+  expect(onSubmit).toHaveBeenCalledWith(expect.not.objectContaining({ notes: expect.anything() }));
 });
 
 it("preserves existing reservations when completing without editing parts", async () => {
@@ -83,6 +88,9 @@ it("preserves existing reservations when completing without editing parts", asyn
   expect(quantity).toHaveValue(2);
   expect(screen.getByText("Fan (10 available)")).toBeInTheDocument();
 
+  fireEvent.change(screen.getByLabelText("Resolution note (visible to clients)"), {
+    target: { value: "Repair verified" },
+  });
   fireEvent.click(screen.getByRole("button", { name: "Complete repair" }));
   await waitFor(() =>
     expect(onSubmit).toHaveBeenCalledWith(
@@ -108,26 +116,14 @@ it("clears parts from a no-action closure instead of consuming existing reservat
     target: { value: String(TicketResolution.NO_ACTION_NEEDED) },
   });
   expect(screen.queryByRole("spinbutton", { name: "Fan quantity" })).not.toBeInTheDocument();
+  fireEvent.change(screen.getByLabelText("Resolution note (visible to clients)"), {
+    target: { value: "Repair verified" },
+  });
   fireEvent.click(screen.getByRole("button", { name: "Complete repair" }));
   await waitFor(() =>
     expect(onSubmit).toHaveBeenCalledWith(
       expect.objectContaining({ resolution: TicketResolution.NO_ACTION_NEEDED, partsSelection: [] }),
     ),
-  );
-});
-
-it("omits blank completion notes so existing ticket notes are preserved", async () => {
-  const onSubmit = vi.fn(async () => true);
-  render(<CompletionForm siteId="11" onSubmit={onSubmit} onCancel={vi.fn()} />);
-
-  fireEvent.click(screen.getByRole("button", { name: "Complete repair" }));
-
-  await waitFor(() =>
-    expect(onSubmit).toHaveBeenCalledWith({
-      resolution: TicketResolution.REPAIRED,
-      repairLocation: RepairLocation.ON_RACK,
-      partsSelection: [],
-    }),
   );
 });
 
@@ -137,6 +133,9 @@ it("omits repair location for a non-repair outcome", async () => {
 
   fireEvent.change(screen.getByRole("combobox", { name: "Mark as" }), {
     target: { value: String(TicketResolution.DEFERRED) },
+  });
+  fireEvent.change(screen.getByLabelText("Resolution note (visible to clients)"), {
+    target: { value: "Repair verified" },
   });
   fireEvent.click(screen.getByRole("button", { name: "Complete repair" }));
 
@@ -164,6 +163,9 @@ it("preserves a reservation when no unallocated stock remains", async () => {
 
   const quantity = await screen.findByRole("spinbutton", { name: "Fan quantity" });
   expect(quantity).toHaveValue(2);
+  fireEvent.change(screen.getByLabelText("Resolution note (visible to clients)"), {
+    target: { value: "Repair verified" },
+  });
   fireEvent.click(screen.getByRole("button", { name: "Complete repair" }));
   await waitFor(() =>
     expect(onSubmit).toHaveBeenCalledWith(
@@ -172,4 +174,14 @@ it("preserves a reservation when no unallocated stock remains", async () => {
       }),
     ),
   );
+});
+
+it("requires an explicit client-visible closing note", () => {
+  const onSubmit = vi.fn(async () => true);
+  render(<CompletionForm siteId="11" onSubmit={onSubmit} onCancel={vi.fn()} />);
+  expect(screen.getByRole("button", { name: "Complete repair" })).toBeDisabled();
+  fireEvent.change(screen.getByLabelText("Resolution note (visible to clients)"), {
+    target: { value: "Fan replaced and tested" },
+  });
+  expect(screen.getByRole("button", { name: "Complete repair" })).toBeEnabled();
 });

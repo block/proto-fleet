@@ -7,6 +7,7 @@ import type { Account } from "@/protoFleet/api/generated/hosted/v1/hosted_pb";
 import { Alert } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import Callout from "@/shared/components/Callout";
+import Checkbox from "@/shared/components/Checkbox";
 import Dialog, { DialogIcon } from "@/shared/components/Dialog";
 
 export const ClientPermissions = ({ child, onSaved }: { child: Account; onSaved: () => void }) => {
@@ -15,22 +16,32 @@ export const ClientPermissions = ({ child, onSaved }: { child: Account; onSaved:
   const allowed = account.depth === 0 ? account.capabilityCeiling : account.effectiveCapabilities;
   const required = 9n;
   const [ceiling, setCeiling] = useState((child.capabilityCeiling & allowed) | required);
+  const [ticketingEnabled, setTicketingEnabled] = useState(child.ticketingEnabled);
   const [suspended, setSuspended] = useState(child.suspended);
   const [confirming, setConfirming] = useState(false);
   const { run, busy, error, clearError } = useAccountMutation();
-  const configure = async (capabilities: bigint, nextSuspended: boolean) => {
+  const configure = async ({
+    capabilities = ceiling,
+    suspended: nextSuspended = suspended,
+    ticketingEnabled: nextTicketing = ticketingEnabled,
+  }: {
+    capabilities?: bigint;
+    suspended?: boolean;
+    ticketingEnabled?: boolean;
+  }) => {
     await client.configureAccount({
       accountId: account.accountId,
       childAccountId: child.accountId,
       capabilities,
       suspended: nextSuspended,
+      ticketingEnabled: nextTicketing,
     });
   };
   const changePermissions = async (next: bigint) => {
     if (busy || readOnly || (next & required) !== required || (next & ~allowed) !== 0n) return;
     const previous = ceiling;
     setCeiling(next);
-    const saved = await run(() => configure(next, suspended));
+    const saved = await run(() => configure({ capabilities: next }));
     if (scope.signal.aborted) return;
     if (saved) onSaved();
     else setCeiling(previous);
@@ -41,7 +52,7 @@ export const ClientPermissions = ({ child, onSaved }: { child: Account; onSaved:
   };
   const confirmSuspension = async () => {
     const nextSuspended = !suspended;
-    const saved = await run(() => configure(ceiling, nextSuspended));
+    const saved = await run(() => configure({ suspended: nextSuspended }));
     if (saved) {
       setSuspended(nextSuspended);
       setConfirming(false);
@@ -61,6 +72,21 @@ export const ClientPermissions = ({ child, onSaved }: { child: Account; onSaved:
             void changePermissions(next);
           }}
         />
+        <label className="mt-4 flex items-center gap-3">
+          <Checkbox
+            checked={ticketingEnabled}
+            onChange={(event) => {
+              const next = event.target.checked;
+              setTicketingEnabled(next);
+              void run(() => configure({ ticketingEnabled: next })).then((saved) => {
+                if (scope.signal.aborted) return;
+                if (saved) onSaved();
+                else setTicketingEnabled(!next);
+              });
+            }}
+          />
+          Ticketing
+        </label>
       </fieldset>
       {busy && !confirming ? (
         <p role="status" className="text-200 text-text-primary-50">

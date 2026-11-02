@@ -54,6 +54,8 @@ func main() {
 		AsicsPerBoard:    getEnvInt("CT1_ASICS_PER_BOARD", defaultAsicsPerBoard),
 		DemoModuleStates: getEnv("CT1_DEMO_MODULE_STATES", "true") == "true",
 		UnlocatedBoards:  unlocatedBoards,
+
+		DemoAllBoardFaults: getEnv("CT1_DEMO_ALL_BOARD_FAULTS", "false") == "true",
 	}
 
 	state := NewContainerState(cfg)

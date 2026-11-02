@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { COMPONENT_FILTER_OPTIONS } from "../../componentOptions";
+import { ticketAssetLabel } from "../../ticketAssets";
 import TicketDetailModal from "../TicketDetail/TicketDetailModal";
 import type { Assignee } from "@/protoFleet/api/generated/maintenance/v1/maintenance_pb";
 import {
@@ -84,8 +85,12 @@ const HistoryTab = () => {
                     id: summary.ticket.id.toString(),
                     ticketNumber: summary.ticket.ticketNumber,
                     component: summary.ticket.component,
-                    diagnosis: summary.ticket.diagnosis,
-                    minerIdentifier: summary.ticket.minerIdentifier ?? null,
+                    diagnosis: summary.ticket.description || summary.ticket.diagnosis,
+                    minerIdentifier: summary.ticket.targets.length
+                      ? summary.ticket.targets.map(ticketAssetLabel).join(", ")
+                      : summary.ticket.audiences.map((item) => item.name).join(", ") ||
+                        summary.ticket.minerIdentifier ||
+                        null,
                     resolution: resolutionLabels[summary.ticket.resolution] ?? "Unknown",
                     assigneeName: summary.ticket.assigneeName || null,
                     completedAt: summary.ticket.completedAt

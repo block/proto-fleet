@@ -126,7 +126,7 @@ describe("owner Clients directory", () => {
     expect(calls).toContainEqual({
       method: "CreateAccount",
       account: rootId,
-      body: { accountId: rootId, name: "New client", capabilities: "31" },
+      body: { accountId: rootId, name: "New client", capabilities: "31", ticketingEnabled: true },
     });
     expect(refresh).toHaveBeenCalled();
     await user.click(within(invitation).getByRole("button", { name: "Create invitation" }));
@@ -205,7 +205,7 @@ describe("owner Clients directory", () => {
       expect(calls).toContainEqual({
         method: "ConfigureAccount",
         account: rootId,
-        body: { accountId: rootId, childAccountId: clientId, capabilities: "27" },
+        body: { accountId: rootId, childAccountId: clientId, capabilities: "27", ticketingEnabled: false },
       }),
     );
     await user.click(

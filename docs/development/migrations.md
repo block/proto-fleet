@@ -8,9 +8,9 @@ Shared and private SQL use one sequence: shared baseline 1000, private baseline
 
 ### Hashboard allocation feature databases
 
-Hashboard allocation uses private migrations 1047–1049, after the hosted-history
-and pool-configuration migrations on main. A development database that applied
-the earlier, unmerged hashboard sequence at 1044–1046 has a different schema at
+Hashboard allocation uses private migrations 1049–1052, after the hosted-history,
+pool-configuration, and client-ticketing migrations on main. A development database that applied
+the earlier, unmerged hashboard sequences at 1044–1046 or 1047–1049 has a different schema at
 the same version. Preserve that database and use a fresh development database,
 or reconcile its schema explicitly before using this sequence. Do not force its
 version or replay the renumbered migrations against it.
@@ -38,6 +38,15 @@ never credentials. A nonzero exit with unresolved entries means valid entries we
 imported but the remaining configurations need review. Repeating the same source
 versions is idempotent. Legacy rows and revisions remain intact. This command does
 not establish hardware assignments, switch library readers, or send device writes.
+
+Pool update claims retain their physical attempt IDs. Interrupted `running`
+attempts require the existing offline device-write recovery procedure; neither
+age nor a server restart authorizes another dispatch. Once an attempt is
+explicitly resolved, or its completed call has lacked result bookkeeping for a
+minute, the result becomes **Update interrupted**. This permits a new reviewed,
+password-confirmed retry without claiming the previous settings were verified.
+The one-minute delay allows normal result bookkeeping to finish; only the
+attempt's terminal state establishes that its physical work has settled.
 
 ### Baseline reconciliation
 

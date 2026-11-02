@@ -59,7 +59,8 @@ DELETE FROM device_write_attempt a
 WHERE a.attempt_id=sqlc.arg(attempt_id) AND a.device_id=sqlc.arg(device_id)
  AND a.organization_id=sqlc.arg(organization_id)
  AND a.status='complete' AND a.queue_message_id IS NULL
- AND NOT EXISTS (SELECT 1 FROM device_deletion_unpair_permit p WHERE p.attempt_id=a.attempt_id);
+ AND NOT EXISTS (SELECT 1 FROM device_deletion_unpair_permit p WHERE p.attempt_id=a.attempt_id)
+ AND NOT EXISTS (SELECT 1 FROM pool_configuration_operation_target t WHERE t.physical_attempt_id=a.attempt_id);
 
 -- name: QuarantineDeviceWriteFence :exec
 UPDATE device_write_fence SET quarantine_origin=CASE WHEN state='quarantined' THEN quarantine_origin ELSE state END,state='quarantined',updated_at=statement_timestamp()
@@ -112,6 +113,14 @@ AND NOT EXISTS (SELECT 1 FROM device_write_attempt a WHERE a.device_id=f.device_
 -- the device. Starting a new operation still requires a live device.
 SELECT * FROM device_write_fence WHERE device_id=$1 AND organization_id=$2 FOR UPDATE;
 
+
+-- name: ListUnfinishedDeviceWriteCommands :many
+-- The caller holds the device fence through its decision or dispatch. Enqueue
+-- and physical admission use that fence too; no queue-row lock is needed.
+SELECT DISTINCT m.command_type
+FROM queue_message m JOIN device d ON d.id=m.device_id
+WHERE d.org_id=sqlc.arg(organization_id) AND m.device_id=sqlc.arg(device_id)
+ AND m.status IN ('PENDING','PROCESSING');
 
 -- name: ListUnresolvedDeviceWriteAttempts :many
 SELECT a.* FROM device_write_attempt a

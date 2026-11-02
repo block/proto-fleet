@@ -34,6 +34,18 @@ const (
 // reflection-formatted method names, remove the leading slash and convert the remaining slash to a
 // period.
 const (
+	// MaintenanceServiceShareRepairTicketProcedure is the fully-qualified name of the
+	// MaintenanceService's ShareRepairTicket RPC.
+	MaintenanceServiceShareRepairTicketProcedure = "/maintenance.v1.MaintenanceService/ShareRepairTicket"
+	// MaintenanceServiceSetTicketCommentVisibilityProcedure is the fully-qualified name of the
+	// MaintenanceService's SetTicketCommentVisibility RPC.
+	MaintenanceServiceSetTicketCommentVisibilityProcedure = "/maintenance.v1.MaintenanceService/SetTicketCommentVisibility"
+	// MaintenanceServiceListTicketAssetOptionsProcedure is the fully-qualified name of the
+	// MaintenanceService's ListTicketAssetOptions RPC.
+	MaintenanceServiceListTicketAssetOptionsProcedure = "/maintenance.v1.MaintenanceService/ListTicketAssetOptions"
+	// MaintenanceServiceUpdateTicketTargetProcedure is the fully-qualified name of the
+	// MaintenanceService's UpdateTicketTarget RPC.
+	MaintenanceServiceUpdateTicketTargetProcedure = "/maintenance.v1.MaintenanceService/UpdateTicketTarget"
 	// MaintenanceServiceListRepairTicketsProcedure is the fully-qualified name of the
 	// MaintenanceService's ListRepairTickets RPC.
 	MaintenanceServiceListRepairTicketsProcedure = "/maintenance.v1.MaintenanceService/ListRepairTickets"
@@ -71,6 +83,10 @@ const (
 
 // MaintenanceServiceClient is a client for the maintenance.v1.MaintenanceService service.
 type MaintenanceServiceClient interface {
+	ShareRepairTicket(context.Context, *connect.Request[v1.ShareRepairTicketRequest]) (*connect.Response[v1.ShareRepairTicketResponse], error)
+	SetTicketCommentVisibility(context.Context, *connect.Request[v1.SetTicketCommentVisibilityRequest]) (*connect.Response[v1.SetTicketCommentVisibilityResponse], error)
+	ListTicketAssetOptions(context.Context, *connect.Request[v1.ListTicketAssetOptionsRequest]) (*connect.Response[v1.ListTicketAssetOptionsResponse], error)
+	UpdateTicketTarget(context.Context, *connect.Request[v1.UpdateTicketTargetRequest]) (*connect.Response[v1.UpdateTicketTargetResponse], error)
 	// ListRepairTickets returns a filtered, sorted, paginated list of
 	// repair tickets. Excludes soft-deleted tickets. Supports cursor
 	// pagination, multi-dimensional filtering, and text search across
@@ -121,6 +137,26 @@ type MaintenanceServiceClient interface {
 func NewMaintenanceServiceClient(httpClient connect.HTTPClient, baseURL string, opts ...connect.ClientOption) MaintenanceServiceClient {
 	baseURL = strings.TrimRight(baseURL, "/")
 	return &maintenanceServiceClient{
+		shareRepairTicket: connect.NewClient[v1.ShareRepairTicketRequest, v1.ShareRepairTicketResponse](
+			httpClient,
+			baseURL+MaintenanceServiceShareRepairTicketProcedure,
+			opts...,
+		),
+		setTicketCommentVisibility: connect.NewClient[v1.SetTicketCommentVisibilityRequest, v1.SetTicketCommentVisibilityResponse](
+			httpClient,
+			baseURL+MaintenanceServiceSetTicketCommentVisibilityProcedure,
+			opts...,
+		),
+		listTicketAssetOptions: connect.NewClient[v1.ListTicketAssetOptionsRequest, v1.ListTicketAssetOptionsResponse](
+			httpClient,
+			baseURL+MaintenanceServiceListTicketAssetOptionsProcedure,
+			opts...,
+		),
+		updateTicketTarget: connect.NewClient[v1.UpdateTicketTargetRequest, v1.UpdateTicketTargetResponse](
+			httpClient,
+			baseURL+MaintenanceServiceUpdateTicketTargetProcedure,
+			opts...,
+		),
 		listRepairTickets: connect.NewClient[v1.ListRepairTicketsRequest, v1.ListRepairTicketsResponse](
 			httpClient,
 			baseURL+MaintenanceServiceListRepairTicketsProcedure,
@@ -181,17 +217,41 @@ func NewMaintenanceServiceClient(httpClient connect.HTTPClient, baseURL string, 
 
 // maintenanceServiceClient implements MaintenanceServiceClient.
 type maintenanceServiceClient struct {
-	listRepairTickets       *connect.Client[v1.ListRepairTicketsRequest, v1.ListRepairTicketsResponse]
-	getRepairTicket         *connect.Client[v1.GetRepairTicketRequest, v1.GetRepairTicketResponse]
-	createRepairTicket      *connect.Client[v1.CreateRepairTicketRequest, v1.CreateRepairTicketResponse]
-	updateRepairTicket      *connect.Client[v1.UpdateRepairTicketRequest, v1.UpdateRepairTicketResponse]
-	bulkUpdateRepairTickets *connect.Client[v1.BulkUpdateRepairTicketsRequest, v1.BulkUpdateRepairTicketsResponse]
-	listTicketComments      *connect.Client[v1.ListTicketCommentsRequest, v1.ListTicketCommentsResponse]
-	createTicketComment     *connect.Client[v1.CreateTicketCommentRequest, v1.CreateTicketCommentResponse]
-	deleteTicketComment     *connect.Client[v1.DeleteTicketCommentRequest, v1.DeleteTicketCommentResponse]
-	listCompletedTickets    *connect.Client[v1.ListCompletedTicketsRequest, v1.ListCompletedTicketsResponse]
-	listAssignees           *connect.Client[v1.ListAssigneesRequest, v1.ListAssigneesResponse]
-	getTicketStats          *connect.Client[v1.GetTicketStatsRequest, v1.GetTicketStatsResponse]
+	shareRepairTicket          *connect.Client[v1.ShareRepairTicketRequest, v1.ShareRepairTicketResponse]
+	setTicketCommentVisibility *connect.Client[v1.SetTicketCommentVisibilityRequest, v1.SetTicketCommentVisibilityResponse]
+	listTicketAssetOptions     *connect.Client[v1.ListTicketAssetOptionsRequest, v1.ListTicketAssetOptionsResponse]
+	updateTicketTarget         *connect.Client[v1.UpdateTicketTargetRequest, v1.UpdateTicketTargetResponse]
+	listRepairTickets          *connect.Client[v1.ListRepairTicketsRequest, v1.ListRepairTicketsResponse]
+	getRepairTicket            *connect.Client[v1.GetRepairTicketRequest, v1.GetRepairTicketResponse]
+	createRepairTicket         *connect.Client[v1.CreateRepairTicketRequest, v1.CreateRepairTicketResponse]
+	updateRepairTicket         *connect.Client[v1.UpdateRepairTicketRequest, v1.UpdateRepairTicketResponse]
+	bulkUpdateRepairTickets    *connect.Client[v1.BulkUpdateRepairTicketsRequest, v1.BulkUpdateRepairTicketsResponse]
+	listTicketComments         *connect.Client[v1.ListTicketCommentsRequest, v1.ListTicketCommentsResponse]
+	createTicketComment        *connect.Client[v1.CreateTicketCommentRequest, v1.CreateTicketCommentResponse]
+	deleteTicketComment        *connect.Client[v1.DeleteTicketCommentRequest, v1.DeleteTicketCommentResponse]
+	listCompletedTickets       *connect.Client[v1.ListCompletedTicketsRequest, v1.ListCompletedTicketsResponse]
+	listAssignees              *connect.Client[v1.ListAssigneesRequest, v1.ListAssigneesResponse]
+	getTicketStats             *connect.Client[v1.GetTicketStatsRequest, v1.GetTicketStatsResponse]
+}
+
+// ShareRepairTicket calls maintenance.v1.MaintenanceService.ShareRepairTicket.
+func (c *maintenanceServiceClient) ShareRepairTicket(ctx context.Context, req *connect.Request[v1.ShareRepairTicketRequest]) (*connect.Response[v1.ShareRepairTicketResponse], error) {
+	return c.shareRepairTicket.CallUnary(ctx, req)
+}
+
+// SetTicketCommentVisibility calls maintenance.v1.MaintenanceService.SetTicketCommentVisibility.
+func (c *maintenanceServiceClient) SetTicketCommentVisibility(ctx context.Context, req *connect.Request[v1.SetTicketCommentVisibilityRequest]) (*connect.Response[v1.SetTicketCommentVisibilityResponse], error) {
+	return c.setTicketCommentVisibility.CallUnary(ctx, req)
+}
+
+// ListTicketAssetOptions calls maintenance.v1.MaintenanceService.ListTicketAssetOptions.
+func (c *maintenanceServiceClient) ListTicketAssetOptions(ctx context.Context, req *connect.Request[v1.ListTicketAssetOptionsRequest]) (*connect.Response[v1.ListTicketAssetOptionsResponse], error) {
+	return c.listTicketAssetOptions.CallUnary(ctx, req)
+}
+
+// UpdateTicketTarget calls maintenance.v1.MaintenanceService.UpdateTicketTarget.
+func (c *maintenanceServiceClient) UpdateTicketTarget(ctx context.Context, req *connect.Request[v1.UpdateTicketTargetRequest]) (*connect.Response[v1.UpdateTicketTargetResponse], error) {
+	return c.updateTicketTarget.CallUnary(ctx, req)
 }
 
 // ListRepairTickets calls maintenance.v1.MaintenanceService.ListRepairTickets.
@@ -251,6 +311,10 @@ func (c *maintenanceServiceClient) GetTicketStats(ctx context.Context, req *conn
 
 // MaintenanceServiceHandler is an implementation of the maintenance.v1.MaintenanceService service.
 type MaintenanceServiceHandler interface {
+	ShareRepairTicket(context.Context, *connect.Request[v1.ShareRepairTicketRequest]) (*connect.Response[v1.ShareRepairTicketResponse], error)
+	SetTicketCommentVisibility(context.Context, *connect.Request[v1.SetTicketCommentVisibilityRequest]) (*connect.Response[v1.SetTicketCommentVisibilityResponse], error)
+	ListTicketAssetOptions(context.Context, *connect.Request[v1.ListTicketAssetOptionsRequest]) (*connect.Response[v1.ListTicketAssetOptionsResponse], error)
+	UpdateTicketTarget(context.Context, *connect.Request[v1.UpdateTicketTargetRequest]) (*connect.Response[v1.UpdateTicketTargetResponse], error)
 	// ListRepairTickets returns a filtered, sorted, paginated list of
 	// repair tickets. Excludes soft-deleted tickets. Supports cursor
 	// pagination, multi-dimensional filtering, and text search across
@@ -297,6 +361,26 @@ type MaintenanceServiceHandler interface {
 // By default, handlers support the Connect, gRPC, and gRPC-Web protocols with the binary Protobuf
 // and JSON codecs. They also support gzip compression.
 func NewMaintenanceServiceHandler(svc MaintenanceServiceHandler, opts ...connect.HandlerOption) (string, http.Handler) {
+	maintenanceServiceShareRepairTicketHandler := connect.NewUnaryHandler(
+		MaintenanceServiceShareRepairTicketProcedure,
+		svc.ShareRepairTicket,
+		opts...,
+	)
+	maintenanceServiceSetTicketCommentVisibilityHandler := connect.NewUnaryHandler(
+		MaintenanceServiceSetTicketCommentVisibilityProcedure,
+		svc.SetTicketCommentVisibility,
+		opts...,
+	)
+	maintenanceServiceListTicketAssetOptionsHandler := connect.NewUnaryHandler(
+		MaintenanceServiceListTicketAssetOptionsProcedure,
+		svc.ListTicketAssetOptions,
+		opts...,
+	)
+	maintenanceServiceUpdateTicketTargetHandler := connect.NewUnaryHandler(
+		MaintenanceServiceUpdateTicketTargetProcedure,
+		svc.UpdateTicketTarget,
+		opts...,
+	)
 	maintenanceServiceListRepairTicketsHandler := connect.NewUnaryHandler(
 		MaintenanceServiceListRepairTicketsProcedure,
 		svc.ListRepairTickets,
@@ -354,6 +438,14 @@ func NewMaintenanceServiceHandler(svc MaintenanceServiceHandler, opts ...connect
 	)
 	return "/maintenance.v1.MaintenanceService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
+		case MaintenanceServiceShareRepairTicketProcedure:
+			maintenanceServiceShareRepairTicketHandler.ServeHTTP(w, r)
+		case MaintenanceServiceSetTicketCommentVisibilityProcedure:
+			maintenanceServiceSetTicketCommentVisibilityHandler.ServeHTTP(w, r)
+		case MaintenanceServiceListTicketAssetOptionsProcedure:
+			maintenanceServiceListTicketAssetOptionsHandler.ServeHTTP(w, r)
+		case MaintenanceServiceUpdateTicketTargetProcedure:
+			maintenanceServiceUpdateTicketTargetHandler.ServeHTTP(w, r)
 		case MaintenanceServiceListRepairTicketsProcedure:
 			maintenanceServiceListRepairTicketsHandler.ServeHTTP(w, r)
 		case MaintenanceServiceGetRepairTicketProcedure:
@@ -384,6 +476,22 @@ func NewMaintenanceServiceHandler(svc MaintenanceServiceHandler, opts ...connect
 
 // UnimplementedMaintenanceServiceHandler returns CodeUnimplemented from all methods.
 type UnimplementedMaintenanceServiceHandler struct{}
+
+func (UnimplementedMaintenanceServiceHandler) ShareRepairTicket(context.Context, *connect.Request[v1.ShareRepairTicketRequest]) (*connect.Response[v1.ShareRepairTicketResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("maintenance.v1.MaintenanceService.ShareRepairTicket is not implemented"))
+}
+
+func (UnimplementedMaintenanceServiceHandler) SetTicketCommentVisibility(context.Context, *connect.Request[v1.SetTicketCommentVisibilityRequest]) (*connect.Response[v1.SetTicketCommentVisibilityResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("maintenance.v1.MaintenanceService.SetTicketCommentVisibility is not implemented"))
+}
+
+func (UnimplementedMaintenanceServiceHandler) ListTicketAssetOptions(context.Context, *connect.Request[v1.ListTicketAssetOptionsRequest]) (*connect.Response[v1.ListTicketAssetOptionsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("maintenance.v1.MaintenanceService.ListTicketAssetOptions is not implemented"))
+}
+
+func (UnimplementedMaintenanceServiceHandler) UpdateTicketTarget(context.Context, *connect.Request[v1.UpdateTicketTargetRequest]) (*connect.Response[v1.UpdateTicketTargetResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("maintenance.v1.MaintenanceService.UpdateTicketTarget is not implemented"))
+}
 
 func (UnimplementedMaintenanceServiceHandler) ListRepairTickets(context.Context, *connect.Request[v1.ListRepairTicketsRequest]) (*connect.Response[v1.ListRepairTicketsResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("maintenance.v1.MaintenanceService.ListRepairTickets is not implemented"))

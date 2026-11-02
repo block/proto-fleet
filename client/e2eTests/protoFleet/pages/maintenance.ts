@@ -7,6 +7,7 @@ export interface MaintenanceTicketJson {
   ticketNumber: string;
   component: string;
   diagnosis: string;
+  description: string;
 }
 
 export class MaintenancePage {
@@ -110,24 +111,24 @@ export class MaintenancePage {
     await this.openQueue();
   }
 
-  async createMinerTicketThroughUI(siteName: string, diagnosis: string): Promise<MaintenanceTicketJson> {
+  async createMinerTicketThroughUI(siteName: string, description: string): Promise<MaintenanceTicketJson> {
     await this.page.getByRole("button", { name: "Create ticket" }).click();
     await this.page.getByRole("button", { name: "Select miner" }).click();
     await this.page.getByRole("row").filter({ hasText: siteName }).getByRole("radio").first().check();
     await this.page.getByRole("button", { name: "Use selected miner" }).click();
     await this.page.getByRole("button", { name: "Component", exact: true }).click();
     await this.page.getByText("Fan", { exact: true }).click();
-    await this.page.getByRole("textbox", { name: "Issue description" }).fill(diagnosis);
+    await this.page.getByRole("textbox", { name: "Description" }).fill(description);
     await this.page.getByRole("button", { name: "Create ticket", exact: true }).last().click();
-    await expect(this.page.getByText(diagnosis, { exact: false }).first()).toBeVisible();
+    await expect(this.page.getByText(description, { exact: false }).first()).toBeVisible();
 
     const listed = await this.rpc<{ tickets: Array<{ ticket?: MaintenanceTicketJson }> }>(
       "maintenance.v1.MaintenanceService/ListRepairTickets",
-      { filter: { searchQuery: diagnosis }, pageSize: 100 },
+      { filter: { searchQuery: description }, pageSize: 100 },
     );
     expect(listed.status).toBe(200);
-    const ticket = listed.body.tickets.find((item) => item.ticket?.diagnosis === diagnosis)?.ticket;
-    if (!ticket) throw new Error(`Unable to find created maintenance ticket for ${diagnosis}`);
+    const ticket = listed.body.tickets.find((item) => item.ticket?.description === description)?.ticket;
+    if (!ticket) throw new Error(`Unable to find created maintenance ticket for ${description}`);
     return ticket;
   }
 
@@ -153,6 +154,7 @@ export class MaintenancePage {
     const quantity = this.page.getByRole("spinbutton", { name: `${partName} quantity` });
     await expect(quantity).toBeVisible();
     await quantity.fill("1");
+    await this.page.getByRole("textbox", { name: "Resolution note (visible to clients)" }).fill("E2E repair verified");
     await this.page.getByRole("button", { name: "Complete repair" }).last().click();
     await expect(this.page.getByRole("table", { name: "Ticket resolution" })).toBeVisible();
   }

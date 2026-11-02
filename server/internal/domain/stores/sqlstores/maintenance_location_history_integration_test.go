@@ -37,7 +37,7 @@ func TestMaintenanceLocationDeletionPreservesCompletedHistory(t *testing.T) {
 				SiteID: &siteID, BuildingID: &buildingID,
 				IdempotencyKey: "location-history", CreateRequestHash: maintenanceCreateRequestHash}, "TK-0001")
 			require.NoError(t, err)
-			_, err = service.CreateComment(ctx, orgID, ticket.ID, userID, "history-author", "Keep the location and discussion", "history-comment")
+			_, _, err = service.CreateComment(ctx, orgID, ticket.ID, userID, "history-author", "Keep the location and discussion", "history-comment")
 			require.NoError(t, err)
 			deleteSiteID := siteID
 			if location == "site with moved building" {
@@ -62,9 +62,10 @@ func TestMaintenanceLocationDeletionPreservesCompletedHistory(t *testing.T) {
 				require.NoError(t, db.QueryRowContext(ctx, "SELECT deleted_at IS NULL FROM building WHERE id = $1", buildingID).Scan(&live))
 				require.True(t, live, "failed deletion must roll back its location changes")
 			}
+			resolutionNote := "Location repair resolved"
 			status, resolution := models.TicketStatusCompleted, models.TicketResolutionNoActionNeeded
 			_, err = service.UpdateRepairTicket(ctx, models.UpdateParams{OrgID: orgID, ID: ticket.ID,
-				ExpectedUpdatedAt: ticket.UpdatedAt, Status: &status, Resolution: &resolution})
+				ExpectedUpdatedAt: ticket.UpdatedAt, Status: &status, Resolution: &resolution, ResolutionNote: &resolutionNote})
 			require.NoError(t, err)
 			if location != "building" {
 				var partID int64
@@ -87,6 +88,13 @@ func TestMaintenanceLocationDeletionPreservesCompletedHistory(t *testing.T) {
 			require.Equal(t, &buildingID, detail.Ticket.BuildingID)
 			require.Equal(t, "Original site", detail.Ticket.SiteName)
 			require.Equal(t, "Original building", detail.Ticket.BuildingName)
+			status = models.TicketStatusOpen
+			_, err = service.UpdateRepairTicket(allowed, models.UpdateParams{OrgID: orgID, ID: ticket.ID, ExpectedUpdatedAt: detail.Ticket.UpdatedAt, Status: &status})
+			require.True(t, fleeterror.IsNotFoundError(err), "completed tickets at a retired location must remain completed: %v", err)
+			unchanged, err := store.GetRepairTicket(ctx, orgID, ticket.ID)
+			require.NoError(t, err)
+			require.Equal(t, models.TicketStatusCompleted, unchanged.Status)
+
 			require.Len(t, detail.Comments, 1)
 			require.Equal(t, "Keep the location and discussion", detail.Comments[0].Text)
 			history, total, _, _, err := service.ListCompletedTickets(allowed, models.CompletedFilter{OrgID: orgID, SiteIDs: []int64{siteID}})

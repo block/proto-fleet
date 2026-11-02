@@ -36,19 +36,19 @@ func TestNoActionClosureReleasesStockAndPreservesHistory(t *testing.T) {
 				require.NoError(t, store.InsertTicketPart(ctx, orgID, ticket.ID, partID, "Fan", quantity))
 				ids = append(ids, ticket.ID)
 				versions[ticket.ID] = ticket.UpdatedAt
-				_, err = service.CreateComment(ctx, orgID, ticket.ID, userID, "close-author", "Retain this discussion", fmt.Sprintf("comment-%d", i))
+				_, _, err = service.CreateComment(ctx, orgID, ticket.ID, userID, "close-author", "Retain this discussion", fmt.Sprintf("comment-%d", i))
 				require.NoError(t, err)
 			}
 			closeTickets := func(notes string) error {
 				if bulk {
 					_, err := service.BulkClose(ctx, models.BulkCloseParams{OrgID: orgID, TicketIDs: ids, ExpectedVersions: versions,
-						Resolution: models.TicketResolutionNoActionNeeded, Notes: &notes})
+						Resolution: models.TicketResolutionNoActionNeeded, ResolutionNote: &notes})
 					return err
 				}
 				status, resolution := models.TicketStatusCompleted, models.TicketResolutionNoActionNeeded
 				for _, id := range ids {
 					_, err := service.UpdateRepairTicket(ctx, models.UpdateParams{OrgID: orgID, ID: id,
-						ExpectedUpdatedAt: versions[id], Status: &status, Resolution: &resolution, Notes: &notes})
+						ExpectedUpdatedAt: versions[id], Status: &status, Resolution: &resolution, ResolutionNote: &notes})
 					if err != nil {
 						return err
 					}

@@ -38,7 +38,7 @@ func (f fixture) observeModuleAtCurrentSite(t *testing.T, module, controller int
 	require.NoError(t, err)
 }
 
-// These tests exercise module history written before migration 1047. Replace
+// These tests exercise module history written before migration 1049. Replace
 // their synthetic board periods with closed legacy periods before backdating
 // the fixture. Production never reconstructs old ownership from current boards.
 func (f fixture) legacyModuleHistory(t *testing.T) {
@@ -350,9 +350,10 @@ func TestHashboardAllocationMigrationPreservesLegacyBoundaries(t *testing.T) {
 			module, controller := f.miningModule(t)
 			// Start from main's schema, without any later replacement/order triggers.
 			for _, name := range []string{
-				"001049_internal_hashboard_allocation_order",
-				"001048_internal_automatic_hashboard_allocation",
-				"001047_internal_hashboard_allocations",
+				"001052_internal_hashboard_allocation_consumers",
+				"001051_internal_hashboard_allocation_order",
+				"001050_internal_automatic_hashboard_allocation",
+				"001049_internal_hashboard_allocations",
 			} {
 				down, err := migrations.Current.ReadFile("current/" + name + ".down.sql")
 				require.NoError(t, err)
@@ -387,7 +388,7 @@ func TestHashboardAllocationMigrationPreservesLegacyBoundaries(t *testing.T) {
 			}
 			var originalStart time.Time
 			require.NoError(t, f.db.QueryRowContext(t.Context(), `SELECT started_at FROM hosted_account_asset_interval WHERE kind=6 AND asset_id=$1`, module).Scan(&originalStart))
-			up, err := migrations.Current.ReadFile("current/001047_internal_hashboard_allocations.up.sql")
+			up, err := migrations.Current.ReadFile("current/001049_internal_hashboard_allocations.up.sql")
 			require.NoError(t, err)
 			if scenario == "unresolved" {
 				_, err = f.db.ExecContext(t.Context(), `UPDATE hashboard_slot SET occupancy='unknown' WHERE module_id=$1 AND position=3`, module)
@@ -403,8 +404,9 @@ func TestHashboardAllocationMigrationPreservesLegacyBoundaries(t *testing.T) {
 			_, err = f.db.ExecContext(t.Context(), string(up))
 			require.NoError(t, err)
 			for _, name := range []string{
-				"001048_internal_automatic_hashboard_allocation",
-				"001049_internal_hashboard_allocation_order",
+				"001050_internal_automatic_hashboard_allocation",
+				"001051_internal_hashboard_allocation_order",
+				"001052_internal_hashboard_allocation_consumers",
 			} {
 				migration, err := migrations.Current.ReadFile("current/" + name + ".up.sql")
 				require.NoError(t, err)
@@ -445,7 +447,7 @@ func TestHashboardAllocationMigrationPreservesLegacyBoundaries(t *testing.T) {
 				require.Equal(t, 300e12, reading.Summary.GetHashrateHs(), "do not double-count the module or infer earlier board ownership")
 				require.Equal(t, 600.0, reading.Summary.GetPowerW())
 			}
-			down, err := migrations.Current.ReadFile("current/001047_internal_hashboard_allocations.down.sql")
+			down, err := migrations.Current.ReadFile("current/001049_internal_hashboard_allocations.down.sql")
 			require.NoError(t, err)
 			_, err = f.db.ExecContext(t.Context(), string(down))
 			require.ErrorContains(t, err, "retained history")

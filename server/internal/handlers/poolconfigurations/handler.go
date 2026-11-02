@@ -95,6 +95,10 @@ func (h *Handler) ReviewEdit(ctx context.Context, req *connect.Request[pb.Review
 	if err != nil {
 		return nil, err
 	}
+	return connect.NewResponse(reviewDTO(review)), nil
+}
+
+func reviewDTO(review domain.Review) *pb.ReviewEditResponse {
 	result := &pb.ReviewEditResponse{ReviewId: review.ID, Configuration: configurationDTO(review.Configuration, review.AssignedCount), SettingsChanged: review.SettingsChanged, ExpiresAt: timestamppb.New(review.ExpiresAt)}
 	for _, target := range review.Targets {
 		if target.Kind == domain.TargetDevice {
@@ -103,17 +107,65 @@ func (h *Handler) ReviewEdit(ctx context.Context, req *connect.Request[pb.Review
 			result.AffectedHashboards++
 		}
 	}
-	return connect.NewResponse(result), nil
+	return result
 }
 
 func (h *Handler) ConfirmReview(ctx context.Context, req *connect.Request[pb.ConfirmReviewRequest]) (*connect.Response[pb.ConfirmReviewResponse], error) {
-	saved, err := h.service.ConfirmReview(ctx, req.Msg.AccountId, req.Msg.ReviewId)
+	saved, err := h.service.ConfirmReview(ctx, req.Msg.AccountId, req.Msg.ReviewId, req.Msg.Password)
 	if err != nil {
 		return nil, err
 	}
 	result := &pb.ConfirmReviewResponse{Configuration: configurationDTO(saved.Configuration, saved.AssignedCount)}
 	if saved.Operation != nil {
 		result.OperationId = saved.Operation.ID
+	}
+	return connect.NewResponse(result), nil
+}
+
+func (h *Handler) ReviewAssignment(ctx context.Context, req *connect.Request[pb.ReviewAssignmentRequest]) (*connect.Response[pb.ReviewAssignmentResponse], error) {
+	review, err := h.service.ReviewDevices(ctx, req.Msg.AccountId, req.Msg.ConfigurationId, req.Msg.ExpectedVersion, req.Msg.DeviceIdentifiers)
+	if err != nil {
+		return nil, err
+	}
+	result := reviewDTO(review)
+	return connect.NewResponse(&pb.ReviewAssignmentResponse{ReviewId: result.ReviewId, Configuration: result.Configuration, AffectedMiners: result.AffectedMiners, AffectedHashboards: result.AffectedHashboards, ExpiresAt: result.ExpiresAt}), nil
+}
+func (h *Handler) GetOperation(ctx context.Context, req *connect.Request[pb.GetOperationRequest]) (*connect.Response[pb.GetOperationResponse], error) {
+	operation, err := h.service.GetOperation(ctx, req.Msg.AccountId, req.Msg.OperationId)
+	if err != nil {
+		return nil, err
+	}
+	result := &pb.GetOperationResponse{OperationId: operation.ID, ConfigurationId: operation.ConfigurationID}
+	for _, target := range operation.Targets {
+		result.Targets = append(result.Targets, &pb.OperationTarget{Kind: target.Kind, TargetId: target.ID, State: target.State, ResultCode: target.ResultCode, Label: target.Label})
+	}
+	return connect.NewResponse(result), nil
+}
+
+func (h *Handler) ReviewRetry(ctx context.Context, req *connect.Request[pb.ReviewRetryRequest]) (*connect.Response[pb.ReviewRetryResponse], error) {
+	targets := make([]domain.AssignmentTarget, len(req.Msg.Targets))
+	for i, target := range req.Msg.Targets {
+		if target == nil {
+			return nil, fleeterror.NewInvalidArgumentError("retry target is required")
+		}
+		targets[i] = domain.AssignmentTarget{Kind: target.Kind, ID: target.TargetId}
+	}
+	review, err := h.service.ReviewRetry(ctx, req.Msg.AccountId, req.Msg.OperationId, targets)
+	if err != nil {
+		return nil, err
+	}
+	result := reviewDTO(review)
+	return connect.NewResponse(&pb.ReviewRetryResponse{ReviewId: result.ReviewId, Configuration: result.Configuration, AffectedMiners: result.AffectedMiners, AffectedHashboards: result.AffectedHashboards, ExpiresAt: result.ExpiresAt}), nil
+}
+
+func (h *Handler) ListOperations(ctx context.Context, req *connect.Request[pb.ListOperationsRequest]) (*connect.Response[pb.ListOperationsResponse], error) {
+	page, err := h.service.ListOperations(ctx, req.Msg.AccountId, req.Msg.ConfigurationId, req.Msg.PageToken)
+	if err != nil {
+		return nil, err
+	}
+	result := &pb.ListOperationsResponse{NextPageToken: page.NextPageToken}
+	for _, operation := range page.Operations {
+		result.Operations = append(result.Operations, &pb.OperationSummary{OperationId: operation.OperationID, CreatedAt: timestamppb.New(operation.CreatedAt), TargetCount: operation.TargetCount, PendingCount: operation.PendingCount, FailedCount: operation.FailedCount})
 	}
 	return connect.NewResponse(result), nil
 }

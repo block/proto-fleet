@@ -3,7 +3,9 @@ package sqlstores
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
+	"sort"
 
 	"github.com/block/proto-fleet/server/generated/sqlc"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
@@ -69,6 +71,14 @@ func (s *SQLMaintenanceStore) LockMinerForTicket(ctx context.Context, orgID int6
 		return fleeterror.NewInternalErrorf("failed to lock maintenance miner: %w", err)
 	}
 	return nil
+}
+
+func (s *SQLMaintenanceStore) ResolveMinerContextByID(ctx context.Context, orgID, minerID int64) (*models.AssetContext, error) {
+	identifier, err := s.GetQueries(ctx).ResolveMaintenanceMinerIdentifierByID(ctx, sqlc.ResolveMaintenanceMinerIdentifierByIDParams{OrgID: orgID, ID: minerID})
+	if err != nil {
+		return nil, maintenanceWriteError("resolve ticket miner identifier", err)
+	}
+	return s.ResolveMinerContext(ctx, orgID, identifier)
 }
 
 func (s *SQLMaintenanceStore) ResolveMinerContext(ctx context.Context, orgID int64, minerIdentifier string) (*models.AssetContext, error) {
@@ -138,4 +148,176 @@ func nonEmptyStringPtr(value string) *string {
 		return nil
 	}
 	return &value
+}
+
+func (s *SQLMaintenanceStore) ResolveTicketAsset(ctx context.Context, orgID int64, kind models.TicketCategory, id int64) (*models.TicketAsset, error) {
+	row, err := s.GetQueries(ctx).ResolveRepairTicketAsset(ctx, sqlc.ResolveRepairTicketAssetParams{OrgID: orgID, Kind: int16(kind), ID: id})
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, fleeterror.NewNotFoundError("physical ticket asset not found")
+		}
+		return nil, fleeterror.NewInternalErrorf("resolve physical ticket asset: %w", err)
+	}
+	asset := ticketAssetFromOption(row)
+	return &asset, nil
+}
+
+func (s *SQLMaintenanceStore) LockModuleModelSite(ctx context.Context, orgID, moduleID int64) (*int64, error) {
+	asset, err := s.ResolveTicketAsset(ctx, orgID, models.TicketCategoryModule, moduleID)
+	if err != nil {
+		return nil, err
+	}
+	if asset.ContainerID == nil {
+		return nil, fleeterror.NewNotFoundError("physical module container not found")
+	}
+	// Lock the device before inventory, then recheck the module's placement.
+	if _, err := s.GetQueries(ctx).LockMaintenanceModelDevice(ctx, sqlc.LockMaintenanceModelDeviceParams{OrgID: orgID, DeviceID: *asset.ContainerID}); err != nil {
+		return nil, maintenanceWriteError("lock module container", err)
+	}
+	site, err := s.GetQueries(ctx).LockMaintenanceModuleModelSite(ctx, sqlc.LockMaintenanceModuleModelSiteParams{OrgID: orgID, DeviceID: *asset.ContainerID, ModuleID: moduleID})
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, fleeterror.NewFailedPreconditionError("module placement changed; refresh before updating its model")
+		}
+		return nil, maintenanceWriteError("lock module model context", err)
+	}
+	return nullInt64ToPtr(site), nil
+}
+func (s *SQLMaintenanceStore) ListTicketAssetOptions(ctx context.Context, orgID int64, siteIDs, excludedSiteIDs []int64, kind models.TicketCategory, search string) ([]models.TicketAsset, error) {
+	rows, err := s.GetQueries(ctx).ListRepairTicketAssetOptions(ctx, sqlc.ListRepairTicketAssetOptionsParams{OrgID: orgID, SiteIds: maintenanceNilIfEmpty(siteIDs), ExcludedSiteIds: maintenanceNilIfEmpty(excludedSiteIDs), Kind: sql.NullInt16{Int16: int16(kind), Valid: kind != models.TicketCategoryUnspecified}, Search: search})
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("list physical ticket assets: %w", err)
+	}
+	out := make([]models.TicketAsset, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, ticketAssetFromOption(row))
+	}
+	return out, nil
+}
+func ticketAssetFromOption(row sqlc.RepairTicketAssetOption) models.TicketAsset {
+	var position *int32
+	if row.Position.Valid {
+		position = &row.Position.Int32
+	}
+	return models.TicketAsset{Kind: models.TicketCategory(row.Kind), ID: row.ID, Label: row.Label, Model: row.Model, SiteID: nullInt64ToPtr(row.SiteID), ModuleID: nullInt64ToPtr(row.ModuleID), InstallationID: nullInt64ToPtr(row.InstallationID), ContainerID: nullInt64ToPtr(row.ContainerID), Position: position}
+}
+
+func (s *SQLMaintenanceStore) ListTicketBoardOptions(ctx context.Context, orgID, ticketID int64, search string) ([]models.TicketAsset, error) {
+	payloads, err := s.GetQueries(ctx).ListRepairTicketBoardOptions(ctx, sqlc.ListRepairTicketBoardOptionsParams{OrgID: orgID, TicketID: ticketID, Search: search})
+	if err != nil {
+		return nil, err
+	}
+	result := make([]models.TicketAsset, 0, len(payloads))
+	for _, payload := range payloads {
+		var asset models.TicketAsset
+		if err = json.Unmarshal(payload, &asset); err != nil {
+			return nil, fleeterror.NewInternalErrorf("decode historical board option: %w", err)
+		}
+		result = append(result, asset)
+	}
+	return result, nil
+}
+
+// LockTicketAssetPlacements follows rack → device → module → installation order, with
+// IDs sorted at each level so overlapping selections acquire locks consistently.
+func (s *SQLMaintenanceStore) LockTicketAssetPlacements(ctx context.Context, orgID int64, selections []models.TicketAssetSelection) error {
+	racks := make(map[int64]struct{})
+	miners := make(map[int64]*models.AssetContext)
+	devices := make(map[int64]struct{})
+	modules := make(map[int64]int64)
+	installations := make(map[int64]int64)
+	for _, selection := range selections {
+		asset, err := s.ResolveTicketAsset(ctx, orgID, selection.Kind, selection.ID)
+		if err != nil {
+			return err
+		}
+		if selection.Kind == models.TicketCategoryMiner {
+			placement, err := s.ResolveMinerContextByID(ctx, orgID, asset.ID)
+			if err != nil {
+				return err
+			}
+			miners[asset.ID] = placement
+			if placement.RackID != nil {
+				racks[*placement.RackID] = struct{}{}
+			}
+			devices[asset.ID] = struct{}{}
+			continue
+		}
+		if asset.ContainerID == nil || asset.ModuleID == nil {
+			return fleeterror.NewFailedPreconditionError("ticket asset placement is unavailable; refresh before creating the ticket")
+		}
+		devices[*asset.ContainerID] = struct{}{}
+		modules[*asset.ModuleID] = *asset.ContainerID
+		if selection.Kind == models.TicketCategoryHashboard {
+			if asset.InstallationID == nil {
+				return fleeterror.NewFailedPreconditionError("hashboard installation is unavailable; refresh before creating the ticket")
+			}
+			installations[*asset.InstallationID] = *asset.ModuleID
+		}
+	}
+	rackIDs := make([]int64, 0, len(racks))
+	for id := range racks {
+		rackIDs = append(rackIDs, id)
+	}
+	sort.Slice(rackIDs, func(i, j int) bool { return rackIDs[i] < rackIDs[j] })
+	for _, id := range rackIDs {
+		if err := s.LockRackForTicket(ctx, orgID, id); err != nil {
+			return err
+		}
+	}
+	deviceIDs := make([]int64, 0, len(devices))
+	for id := range devices {
+		deviceIDs = append(deviceIDs, id)
+	}
+	sort.Slice(deviceIDs, func(i, j int) bool { return deviceIDs[i] < deviceIDs[j] })
+	for _, id := range deviceIDs {
+		if _, err := s.GetQueries(ctx).LockMaintenanceModelDevice(ctx, sqlc.LockMaintenanceModelDeviceParams{OrgID: orgID, DeviceID: id}); err != nil {
+			return maintenanceWriteError("lock ticket device placement", err)
+		}
+	}
+	for id, initial := range miners {
+		current, err := s.ResolveMinerContextByID(ctx, orgID, id)
+		if err != nil {
+			return err
+		}
+		if (initial.RackID == nil) != (current.RackID == nil) ||
+			(initial.RackID != nil && *initial.RackID != *current.RackID) {
+			return fleeterror.NewFailedPreconditionError("miner rack placement changed; refresh before creating the ticket")
+		}
+	}
+	moduleIDs := make([]int64, 0, len(modules))
+	for id := range modules {
+		moduleIDs = append(moduleIDs, id)
+	}
+	sort.Slice(moduleIDs, func(i, j int) bool { return moduleIDs[i] < moduleIDs[j] })
+	for _, id := range moduleIDs {
+		if _, err := s.GetQueries(ctx).LockMaintenanceModuleModelSite(ctx, sqlc.LockMaintenanceModuleModelSiteParams{OrgID: orgID, DeviceID: modules[id], ModuleID: id}); err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return fleeterror.NewFailedPreconditionError("module placement changed; refresh before creating the ticket")
+			}
+			return maintenanceWriteError("lock ticket module placement", err)
+		}
+	}
+	installationIDs := make([]int64, 0, len(installations))
+	for id := range installations {
+		installationIDs = append(installationIDs, id)
+	}
+	sort.Slice(installationIDs, func(i, j int) bool { return installationIDs[i] < installationIDs[j] })
+	for _, id := range installationIDs {
+		if _, err := s.GetQueries(ctx).LockMaintenanceTicketInstallation(ctx, sqlc.LockMaintenanceTicketInstallationParams{OrgID: orgID, InstallationID: id, ModuleID: installations[id]}); err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return fleeterror.NewFailedPreconditionError("hashboard placement changed; refresh before creating the ticket")
+			}
+			return maintenanceWriteError("lock ticket hashboard installation", err)
+		}
+	}
+	return nil
+}
+
+func (s *SQLMaintenanceStore) CanAccountCloseTicket(ctx context.Context, orgID, ticketID, accountID int64) (bool, error) {
+	allowed, err := s.GetQueries(ctx).CanAccountCloseRepairTicket(ctx, sqlc.CanAccountCloseRepairTicketParams{OrgID: orgID, TicketID: ticketID, AccountID: validNullInt64(accountID)})
+	if err != nil {
+		return false, maintenanceWriteError("check client ticket closure", err)
+	}
+	return allowed, nil
 }

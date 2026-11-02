@@ -30,16 +30,28 @@ type Principal struct {
 // retaining live actor/permission locks until the transaction completes.
 type Authority interface {
 	AuthorizePoolConfiguration(ctx context.Context, q sqlc.Querier, accountID string, access Access) (Principal, error)
+	PoolEquipmentVisibility(ctx context.Context, q sqlc.Querier, principal Principal) (func(siteID sql.NullInt64) bool, error)
+}
+
+// CredentialProof binds a password verification to the live actor credential.
+// Hash verification runs outside transactions; this proof is checked under the
+// actor lock immediately before saving the reviewed change.
+type CredentialProof func(ctx context.Context, q sqlc.Querier) error
+
+type Equipment interface {
+	TargetReviewer
+	VerifyPoolEquipmentCredentials(ctx context.Context, accountID, password string) (CredentialProof, error)
 }
 
 type Service struct {
 	conn       *sql.DB
 	repository *Repository
 	authority  Authority
+	equipment  Equipment
 }
 
-func NewService(conn *sql.DB, repository *Repository, authority Authority) *Service {
-	return &Service{conn: conn, repository: repository, authority: authority}
+func NewService(conn *sql.DB, repository *Repository, authority Authority, equipment Equipment) *Service {
+	return &Service{conn: conn, repository: repository, authority: authority, equipment: equipment}
 }
 
 func withAuthority[T any](ctx context.Context, s *Service, accountID string, access Access, fn func(sqlc.Querier, Principal) (T, error)) (T, error) {
@@ -127,32 +139,12 @@ func configurationAudit(ctx context.Context, q sqlc.Querier, p Principal, event,
 // service without equipment integration refuses assigned settings changes.
 func (s *Service) ReviewEdit(ctx context.Context, accountID, id string, version int64, options RevisionOptions) (Review, error) {
 	return withAuthority(ctx, s, accountID, Manage, func(q sqlc.Querier, p Principal) (Review, error) {
-		review, err := s.repository.ReviewEdit(ctx, q, p.Scope, p.ActorID, id, version, options, nil)
+		review, err := s.repository.ReviewEdit(ctx, q, p.Scope, p.ActorID, id, version, options, s.equipment)
 		if err != nil {
 			return Review{}, err
 		}
 		summary, err := s.repository.Get(ctx, q, p.Scope, id)
 		review.AssignedCount = summary.AssignedCount
 		return review, err
-	})
-}
-
-func (s *Service) ConfirmReview(ctx context.Context, accountID, reviewID string) (ReviewedSave, error) {
-	return withAuthority(ctx, s, accountID, Manage, func(q sqlc.Querier, p Principal) (ReviewedSave, error) {
-		result, err := s.repository.ConfirmReview(ctx, q, p.Scope, p.ActorID, reviewID, nil)
-		if err != nil {
-			return ReviewedSave{}, err
-		}
-		summary, err := s.repository.Get(ctx, q, p.Scope, result.Configuration.ID)
-		if err != nil {
-			return ReviewedSave{}, err
-		}
-		result.AssignedCount = summary.AssignedCount
-		if !result.Replay {
-			if err := configurationAudit(ctx, q, p, "update_pool_configuration", result.Configuration.ID, result.Configuration.RevisionID); err != nil {
-				return ReviewedSave{}, err
-			}
-		}
-		return result, nil
 	})
 }

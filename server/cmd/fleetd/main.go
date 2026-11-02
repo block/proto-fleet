@@ -14,6 +14,7 @@ import (
 	_ "time/tzdata"
 
 	"github.com/block/proto-fleet/server/generated/grpc/poolconfigurations/v1/poolconfigurationsv1connect"
+	"github.com/block/proto-fleet/server/internal/domain/poolapplications"
 	poolconfigurationsDomain "github.com/block/proto-fleet/server/internal/domain/poolconfigurations"
 	poolconfigurationsHandler "github.com/block/proto-fleet/server/internal/handlers/poolconfigurations"
 
@@ -371,12 +372,11 @@ func start(config *Config) (result error) {
 
 	// userStore implements both UserStore and UserManagementStore interfaces
 	authSvc := authDomain.NewService(userStore, userStore, transactor, tokenSvc, sessionSvc, encryptSvc, activitySvc, permissionResolver)
-	hostedaccountsSvc := hostedaccountsDomain.NewService(conn)
+	hostedaccountsSvc := hostedaccountsDomain.NewService(conn, maintenanceDomain.NewService(maintenanceStore, maintenanceStore, inventoryStore, transactor, nil))
 	hostedInvitationsSvc := hostedaccountsDomain.NewInvitationService(hostedaccountsSvc, sessionSvc)
 	teamInvitationsSvc := hostedaccountsDomain.NewTeamInvitationService(hostedaccountsSvc, sessionSvc)
 	hostedKeysSvc := hostedaccountsDomain.NewKeyService(hostedaccountsSvc, apiKeySvc)
 	hostedPoolsSvc := hostedaccountsDomain.NewPoolService(hostedaccountsSvc, encryptSvc, hostedKeysSvc, authSvc)
-	poolConfigurationsSvc := poolconfigurationsDomain.NewService(conn, poolconfigurationsDomain.NewRepository(encryptSvc), hostedPoolsSvc)
 
 	identityStateCleanup := newBackgroundLoop(func(ctx context.Context) {
 		cleanupInterval := sessionSvc.CleanupInterval()
@@ -804,6 +804,10 @@ func start(config *Config) (result error) {
 	if config.Updates.Enabled {
 		releaseCheckerJob = releaseChecker
 	}
+	poolRepository := poolconfigurationsDomain.NewRepository(encryptSvc)
+	poolReviewer := poolapplications.NewReviewer(hostedPoolsSvc, pluginService)
+	poolConfigurationsSvc := poolconfigurationsDomain.NewService(conn, poolRepository, hostedPoolsSvc, poolReviewer)
+	poolWorker := poolapplications.NewWorker(conn, poolRepository, poolReviewer, minerService, encryptSvc)
 	groupsSvc := mininggroupsDomain.NewService(conn, minerService, hostedPoolsSvc, encryptSvc)
 	jobs, err := newRuntimeJobs(runtimeJobLifecycles{
 		plugins: stopOnlyLifecycle{
@@ -819,6 +823,7 @@ func start(config *Config) (result error) {
 		ipScanner:                 ipScannerService,
 		commandExecution:          executionService,
 		miningGroupReconciliation: newBackgroundLoop(groupsSvc.Run),
+		poolConfigurationUpdates:  newBackgroundLoop(poolWorker.Run),
 		scheduleProcessor:         scheduleProcessor,
 		rolloutEnforcement:        rolloutEnforcement,
 		curtailmentReconciler:     curtailmentRec,

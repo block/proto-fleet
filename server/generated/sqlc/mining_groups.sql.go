@@ -108,7 +108,7 @@ func (q *Queries) GetHostMiningGroupPoolRevisionForReconciliation(ctx context.Co
 }
 
 const getHostPoolAccount = `-- name: GetHostPoolAccount :one
-SELECT id, account_id, organization_id, parent_id, depth, name, capabilities, suspended, revision, created_at, updated_at, sites_restricted, site_ceiling_restricted, authority_revision FROM hosted_account WHERE organization_id=$1 AND depth=0 AND NOT suspended
+SELECT id, account_id, organization_id, parent_id, depth, name, capabilities, suspended, revision, created_at, updated_at, sites_restricted, site_ceiling_restricted, authority_revision, ticketing_enabled FROM hosted_account WHERE organization_id=$1 AND depth=0 AND NOT suspended
 `
 
 func (q *Queries) GetHostPoolAccount(ctx context.Context, organizationID int64) (HostedAccount, error) {
@@ -129,6 +129,7 @@ func (q *Queries) GetHostPoolAccount(ctx context.Context, organizationID int64) 
 		&i.SitesRestricted,
 		&i.SiteCeilingRestricted,
 		&i.AuthorityRevision,
+		&i.TicketingEnabled,
 	)
 	return i, err
 }

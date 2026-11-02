@@ -9,9 +9,39 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/infrastructure/db"
 	"github.com/block/proto-fleet/server/internal/testutil/dbtest"
+	"github.com/block/proto-fleet/server/migrations"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 )
+
+func TestReviewedBindingRollbackPreservesRetainedEvidence(t *testing.T) {
+	conn, scope, repo, target := assignmentFixture(t)
+	ctx := t.Context()
+	operation, err := db.WithTransaction(ctx, conn, func(q sqlc.Querier) (Operation, error) {
+		config, err := repo.Create(ctx, q, scope, RevisionOptions{Name: "Production", Slots: []SlotOptions{{URL: "stratum+tcp://pool.example", Username: "payout"}}})
+		if err != nil {
+			return Operation{}, err
+		}
+		return repo.Assign(ctx, q, scope, 1, config.ID, config.RevisionID, []AssignmentChange{{Target: target, ReviewedBinding: `{"Version":1,"Label":"reviewed miner"}`}})
+	})
+	require.NoError(t, err)
+	down, err := migrations.Current.ReadFile("current/001047_internal_pool_operation_bindings.down.sql")
+	require.NoError(t, err)
+	for _, state := range []string{"pending", "applying", "verified", "superseded"} {
+		t.Run(state, func(t *testing.T) {
+			_, err := conn.ExecContext(ctx, `UPDATE pool_configuration_operation_target SET state=$1 WHERE operation_id=$2`, state, operation.ID)
+			require.NoError(t, err)
+			_, err = conn.ExecContext(ctx, string(down))
+			require.ErrorContains(t, err, "cannot roll back with retained pool operation bindings")
+			var binding, retainedState string
+			require.NoError(t, conn.QueryRowContext(ctx, `SELECT reviewed_binding,state FROM pool_configuration_operation_target WHERE operation_id=$1`, operation.ID).Scan(&binding, &retainedState))
+			require.JSONEq(t, `{"Version":1,"Label":"reviewed miner"}`, binding)
+			require.Equal(t, state, retainedState)
+			_, err = conn.ExecContext(ctx, `UPDATE pool_configuration_operation_target SET reviewed_binding='' WHERE operation_id=$1`, operation.ID)
+			require.ErrorContains(t, err, "pool operation target identity is immutable", "refused rollback must preserve the immutability trigger")
+		})
+	}
+}
 
 func assignmentFixture(t *testing.T) (*sql.DB, Scope, *Repository, AssignmentTarget) {
 	t.Helper()
@@ -118,6 +148,28 @@ func TestAssignmentSwitchSupersedesOldWorkWithoutChangingItsRevision(t *testing.
 		return repo.RetryTarget(ctx, q, scope, next.ID, target)
 	})
 	require.True(t, fleeterror.IsFailedPreconditionError(err), "uncertain writes need reconciliation before another dispatch")
+}
+
+func TestReplacingUnverifiedAssignmentSupersedesItsOperation(t *testing.T) {
+	conn, scope, repo, target := assignmentFixture(t)
+	ctx := t.Context()
+	err := db.WithTransactionNoResult(ctx, conn, func(q sqlc.Querier) error {
+		configuration, err := repo.Create(ctx, q, scope, RevisionOptions{Name: "Pools", Slots: []SlotOptions{{URL: "stratum+tcp://pool.example", Username: "payout"}}})
+		require.NoError(t, err)
+		first, err := repo.Assign(ctx, q, scope, 1, configuration.ID, configuration.RevisionID, []AssignmentChange{{Target: target}})
+		require.NoError(t, err)
+		attempt, err := repo.ClaimTarget(ctx, q, scope, first.ID, target)
+		require.NoError(t, err)
+		require.NoError(t, repo.FinishTarget(ctx, q, scope, first.ID, target, attempt, "applied_unverified", "readback_unavailable"))
+		_, err = repo.Assign(ctx, q, scope, 1, configuration.ID, configuration.RevisionID, []AssignmentChange{{Target: target, ExpectedVersion: first.Targets[0].AssignmentVersion}})
+		require.NoError(t, err)
+		previous, err := repo.GetOperation(ctx, q, scope, first.ID)
+		require.NoError(t, err)
+		require.Equal(t, "superseded", previous.Targets[0].State)
+		require.True(t, fleeterror.IsFailedPreconditionError(repo.RetryTarget(ctx, q, scope, first.ID, target)))
+		return nil
+	})
+	require.NoError(t, err)
 }
 
 func TestWholeContainerAndInstalledBoardAssignments(t *testing.T) {

@@ -205,7 +205,13 @@ const hostedAccountProcedurePrefix = "/hosted.v1.HostedAccountService/"
 // account administration deliberately continues to allow omitted selection.
 func requiresSelectedAccount(procedure string) bool {
 	switch procedure {
-	case hostedv1connect.HostedAccountServiceListAccountActivitiesProcedure,
+	case hostedv1connect.HostedAccountServiceListAccountTicketsProcedure,
+		hostedv1connect.HostedAccountServiceGetAccountTicketProcedure,
+		hostedv1connect.HostedAccountServiceCreateAccountTicketProcedure,
+		hostedv1connect.HostedAccountServiceCommentAccountTicketProcedure,
+		hostedv1connect.HostedAccountServiceChangeAccountTicketStatusProcedure,
+		hostedv1connect.HostedAccountServiceListAccountTicketAssetsProcedure,
+		hostedv1connect.HostedAccountServiceListAccountActivitiesProcedure,
 		hostedv1connect.HostedAccountServiceExportAccountActivitiesProcedure,
 		hostedv1connect.HostedAccountServiceGetAccountDashboardProcedure,
 		hostedv1connect.HostedAccountServiceGetAccountAssetDetailProcedure,
@@ -254,7 +260,11 @@ func allowsSelectedAccount(procedure string) bool {
 	// explicit decision before they can be called from a customer workspace.
 	// Invitation redemption precedes selection and is excluded.
 	switch procedure {
-	case poolconfigurationsv1connect.PoolConfigurationServiceCreateConfigurationProcedure,
+	case poolconfigurationsv1connect.PoolConfigurationServiceReviewAssignmentProcedure,
+		poolconfigurationsv1connect.PoolConfigurationServiceGetOperationProcedure,
+		poolconfigurationsv1connect.PoolConfigurationServiceReviewRetryProcedure,
+		poolconfigurationsv1connect.PoolConfigurationServiceListOperationsProcedure,
+		poolconfigurationsv1connect.PoolConfigurationServiceCreateConfigurationProcedure,
 		poolconfigurationsv1connect.PoolConfigurationServiceGetConfigurationProcedure,
 		poolconfigurationsv1connect.PoolConfigurationServiceListConfigurationsProcedure,
 		poolconfigurationsv1connect.PoolConfigurationServiceDuplicateConfigurationProcedure,
@@ -262,7 +272,13 @@ func allowsSelectedAccount(procedure string) bool {
 		poolconfigurationsv1connect.PoolConfigurationServiceReviewEditProcedure,
 		poolconfigurationsv1connect.PoolConfigurationServiceConfirmReviewProcedure:
 		return true
-	case hostedv1connect.HostedAccountServiceListAccountActivitiesProcedure,
+	case hostedv1connect.HostedAccountServiceListAccountTicketsProcedure,
+		hostedv1connect.HostedAccountServiceGetAccountTicketProcedure,
+		hostedv1connect.HostedAccountServiceCreateAccountTicketProcedure,
+		hostedv1connect.HostedAccountServiceCommentAccountTicketProcedure,
+		hostedv1connect.HostedAccountServiceChangeAccountTicketStatusProcedure,
+		hostedv1connect.HostedAccountServiceListAccountTicketAssetsProcedure,
+		hostedv1connect.HostedAccountServiceListAccountActivitiesProcedure,
 		hostedv1connect.HostedAccountServiceExportAccountActivitiesProcedure,
 		hostedv1connect.HostedAccountServiceGetAccountDashboardProcedure,
 		hostedv1connect.HostedAccountServiceGetAccountAssetDetailProcedure,

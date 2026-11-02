@@ -127,11 +127,12 @@ func (h *Handler) CreateAccount(ctx context.Context, req *connect.Request[pb.Cre
 		}
 		adminID = user.ID
 	}
-	created, err := h.accounts.CreateChild(ctx, info.UserID, info.OrganizationID, req.Msg.AccountId, req.Msg.Name, adminID, capabilities)
+	created, err := h.accounts.CreateChild(ctx, info.UserID, info.OrganizationID, req.Msg.AccountId, req.Msg.Name, adminID, capabilities, req.Msg.TicketingEnabled == nil || req.Msg.GetTicketingEnabled())
 	if err != nil {
 		return nil, err
 	}
 	item := domain.AccountSummary{AccountID: created.AccountID, ParentAccountID: req.Msg.AccountId, Name: created.Name, Depth: created.Depth, Capabilities: domain.Capabilities(created.Capabilities), Revision: created.Revision}
+	item.TicketingEnabled = created.TicketingEnabled
 	item.EffectiveCapabilities = created.Access.Capabilities
 	item.Role = created.Access.Role
 	return connect.NewResponse(&pb.CreateAccountResponse{Account: accountDTO(item)}), nil
@@ -148,7 +149,7 @@ func (h *Handler) ConfigureAccount(ctx context.Context, req *connect.Request[pb.
 	if _, err := h.requireChild(ctx, info, req.Msg.AccountId, req.Msg.ChildAccountId); err != nil {
 		return nil, err
 	}
-	if err = h.accounts.ConfigureChild(ctx, info.UserID, info.OrganizationID, req.Msg.ChildAccountId, capabilities, req.Msg.Suspended); err != nil {
+	if err = h.accounts.ConfigureChild(ctx, info.UserID, info.OrganizationID, req.Msg.ChildAccountId, capabilities, req.Msg.Suspended, req.Msg.TicketingEnabled); err != nil {
 		return nil, err
 	}
 	return connect.NewResponse(&pb.ConfigureAccountResponse{}), nil
@@ -341,7 +342,7 @@ func (h *Handler) RevokeInvitation(ctx context.Context, req *connect.Request[pb.
 }
 
 func accountDTO(a domain.AccountSummary) *pb.Account {
-	item := &pb.Account{AccountId: a.AccountID, ParentAccountId: a.ParentAccountID, Name: a.Name, Depth: uint32(a.Depth), CapabilityCeiling: uint64(a.Capabilities), EffectiveCapabilities: uint64(a.EffectiveCapabilities), Role: RoleDTO(a.Role), Suspended: a.Suspended, Revision: a.Revision} // #nosec G115 -- account depth is constrained to 0..2 and capability masks to 0..31.
+	item := &pb.Account{TicketingEnabled: a.TicketingEnabled, TicketAccess: a.TicketAccess, AccountId: a.AccountID, ParentAccountId: a.ParentAccountID, Name: a.Name, Depth: uint32(a.Depth), CapabilityCeiling: uint64(a.Capabilities), EffectiveCapabilities: uint64(a.EffectiveCapabilities), Role: RoleDTO(a.Role), Suspended: a.Suspended, Revision: a.Revision} // #nosec G115 -- account depth is constrained to 0..2 and capability masks to 0..31.
 	if counts := a.ManagementSummary; counts != nil {
 		item.ManagementSummary = &pb.ClientManagementSummary{
 			MinerCount: counts.MinerCount, ModuleCount: counts.ModuleCount, HashboardCount: counts.HashboardCount,

@@ -39,7 +39,7 @@ func registrationFixture(t *testing.T) (*InvitationService, *sql.DB, string) {
 	require.NoError(t, err)
 	var root string
 	require.NoError(t, conn.QueryRowContext(t.Context(), "SELECT account_id FROM hosted_account WHERE organization_id=$1 AND depth=0", orgID).Scan(&root))
-	accounts := NewService(conn)
+	accounts := NewService(conn, nil)
 	account, err := accounts.CreateChild(t.Context(), hostID, orgID, root, "Customer", hostID, DefaultCapabilities)
 	require.NoError(t, err)
 	sessions := session.NewService(session.Config{Duration: time.Hour, IDBytes: 32, CookieName: "fleet_session"}, sqlstores.NewSQLSessionStore(conn))

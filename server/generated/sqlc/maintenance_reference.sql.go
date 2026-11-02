@@ -10,6 +10,35 @@ import (
 	"database/sql"
 )
 
+const canAccountCloseRepairTicket = `-- name: CanAccountCloseRepairTicket :one
+SELECT EXISTS (
+ SELECT 1 FROM repair_ticket r
+ WHERE r.org_id=$1 AND r.id=$2
+  AND r.created_by_account_id=$3 AND r.status=1
+  AND r.deleted_at IS NULL
+  AND COALESCE(btrim(r.rma_vendor),'')=''
+  AND COALESCE(btrim(r.rma_tracking),'')='' AND r.rma_eta IS NULL
+  AND NOT EXISTS (
+   SELECT 1 FROM repair_ticket_part p
+   WHERE p.org_id=r.org_id AND p.ticket_id=r.id AND p.consumed_at IS NULL
+  )
+)::boolean AS allowed
+`
+
+type CanAccountCloseRepairTicketParams struct {
+	OrgID     int64
+	TicketID  int64
+	AccountID sql.NullInt64
+}
+
+// The service holds the ticket row lock, also used by reservation/RMA writers.
+func (q *Queries) CanAccountCloseRepairTicket(ctx context.Context, arg CanAccountCloseRepairTicketParams) (bool, error) {
+	row := q.queryRow(ctx, q.canAccountCloseRepairTicketStmt, canAccountCloseRepairTicket, arg.OrgID, arg.TicketID, arg.AccountID)
+	var allowed bool
+	err := row.Scan(&allowed)
+	return allowed, err
+}
+
 const listMaintenanceAssignees = `-- name: ListMaintenanceAssignees :many
 SELECT u.id AS user_id, u.username, COALESCE(r.name, '') AS role_name
 FROM user_organization uo
@@ -90,6 +119,44 @@ func (q *Queries) LockMaintenanceMinerForTicket(ctx context.Context, arg LockMai
 	return id, err
 }
 
+const lockMaintenanceModelDevice = `-- name: LockMaintenanceModelDevice :one
+SELECT id FROM device WHERE id=$1 AND org_id=$2 AND deleted_at IS NULL FOR SHARE
+`
+
+type LockMaintenanceModelDeviceParams struct {
+	DeviceID int64
+	OrgID    int64
+}
+
+func (q *Queries) LockMaintenanceModelDevice(ctx context.Context, arg LockMaintenanceModelDeviceParams) (int64, error) {
+	row := q.queryRow(ctx, q.lockMaintenanceModelDeviceStmt, lockMaintenanceModelDevice, arg.DeviceID, arg.OrgID)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
+}
+
+const lockMaintenanceModuleModelSite = `-- name: LockMaintenanceModuleModelSite :one
+SELECT d.site_id FROM device d
+JOIN container_tank t ON t.device_id=d.id
+JOIN container_module m ON m.tank_id=t.id
+WHERE d.org_id=$1 AND d.id=$2 AND m.id=$3
+ AND d.deleted_at IS NULL AND m.retired_at IS NULL
+FOR SHARE OF t FOR UPDATE OF m
+`
+
+type LockMaintenanceModuleModelSiteParams struct {
+	OrgID    int64
+	DeviceID int64
+	ModuleID int64
+}
+
+func (q *Queries) LockMaintenanceModuleModelSite(ctx context.Context, arg LockMaintenanceModuleModelSiteParams) (sql.NullInt64, error) {
+	row := q.queryRow(ctx, q.lockMaintenanceModuleModelSiteStmt, lockMaintenanceModuleModelSite, arg.OrgID, arg.DeviceID, arg.ModuleID)
+	var site_id sql.NullInt64
+	err := row.Scan(&site_id)
+	return site_id, err
+}
+
 const lockMaintenanceRackForTicket = `-- name: LockMaintenanceRackForTicket :one
 SELECT ds.id
 FROM device_set_rack dsr
@@ -133,6 +200,46 @@ func (q *Queries) LockMaintenanceSiteForTicket(ctx context.Context, arg LockMain
 	var id int64
 	err := row.Scan(&id)
 	return id, err
+}
+
+const lockMaintenanceTicketInstallation = `-- name: LockMaintenanceTicketInstallation :one
+SELECT i.id FROM hashboard_installation i
+JOIN hashboard b ON b.id=i.hashboard_id
+WHERE b.org_id=$1 AND i.id=$2
+ AND i.module_id=$3 AND i.removed_at IS NULL
+FOR SHARE OF i
+`
+
+type LockMaintenanceTicketInstallationParams struct {
+	OrgID          int64
+	InstallationID int64
+	ModuleID       int64
+}
+
+func (q *Queries) LockMaintenanceTicketInstallation(ctx context.Context, arg LockMaintenanceTicketInstallationParams) (int64, error) {
+	row := q.queryRow(ctx, q.lockMaintenanceTicketInstallationStmt, lockMaintenanceTicketInstallation, arg.OrgID, arg.InstallationID, arg.ModuleID)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
+}
+
+const recordMaintenanceModuleModel = `-- name: RecordMaintenanceModuleModel :execrows
+UPDATE container_module m SET model=$1
+FROM container_tank t,device d WHERE m.id=$2 AND t.id=m.tank_id AND d.id=t.device_id AND d.org_id=$3
+`
+
+type RecordMaintenanceModuleModelParams struct {
+	Model    string
+	ModuleID int64
+	OrgID    int64
+}
+
+func (q *Queries) RecordMaintenanceModuleModel(ctx context.Context, arg RecordMaintenanceModuleModelParams) (int64, error) {
+	result, err := q.exec(ctx, q.recordMaintenanceModuleModelStmt, recordMaintenanceModuleModel, arg.Model, arg.ModuleID, arg.OrgID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const resolveMaintenanceAssignee = `-- name: ResolveMaintenanceAssignee :one
@@ -274,4 +381,84 @@ func (q *Queries) ResolveMaintenanceMinerContext(ctx context.Context, arg Resolv
 		&i.GroupLabel,
 	)
 	return i, err
+}
+
+const resolveMaintenanceMinerIdentifierByID = `-- name: ResolveMaintenanceMinerIdentifierByID :one
+SELECT device_identifier FROM device WHERE org_id=$1 AND id=$2 AND deleted_at IS NULL
+`
+
+type ResolveMaintenanceMinerIdentifierByIDParams struct {
+	OrgID int64
+	ID    int64
+}
+
+func (q *Queries) ResolveMaintenanceMinerIdentifierByID(ctx context.Context, arg ResolveMaintenanceMinerIdentifierByIDParams) (string, error) {
+	row := q.queryRow(ctx, q.resolveMaintenanceMinerIdentifierByIDStmt, resolveMaintenanceMinerIdentifierByID, arg.OrgID, arg.ID)
+	var device_identifier string
+	err := row.Scan(&device_identifier)
+	return device_identifier, err
+}
+
+const touchRepairTicket = `-- name: TouchRepairTicket :exec
+UPDATE repair_ticket SET updated_at=clock_timestamp() WHERE org_id=$1 AND id=$2
+`
+
+type TouchRepairTicketParams struct {
+	OrgID int64
+	ID    int64
+}
+
+func (q *Queries) TouchRepairTicket(ctx context.Context, arg TouchRepairTicketParams) error {
+	_, err := q.exec(ctx, q.touchRepairTicketStmt, touchRepairTicket, arg.OrgID, arg.ID)
+	return err
+}
+
+const updateRepairTicketTargetEvidence = `-- name: UpdateRepairTicketTargetEvidence :execrows
+UPDATE repair_ticket_target SET
+ diagnosis=COALESCE($1,diagnosis),
+ warranty_evidence=COALESCE($2,warranty_evidence),
+ repair_outcome=COALESCE($3,repair_outcome),
+ rma_outcome=COALESCE($4,rma_outcome),
+ model=COALESCE($5,model),
+ replacement_module_id=CASE WHEN $6::boolean THEN NULL ELSE COALESCE($7,replacement_module_id) END,
+ replacement_hashboard_id=CASE WHEN $8::boolean THEN NULL ELSE COALESCE($9,replacement_hashboard_id) END
+WHERE org_id=$10 AND ticket_id=$11 AND kind=$12 AND asset_id=$13
+`
+
+type UpdateRepairTicketTargetEvidenceParams struct {
+	Diagnosis                 sql.NullString
+	WarrantyEvidence          sql.NullString
+	RepairOutcome             sql.NullString
+	RmaOutcome                sql.NullString
+	ModuleModel               sql.NullString
+	ClearReplacementModule    bool
+	ReplacementModuleID       sql.NullInt64
+	ClearReplacementHashboard bool
+	ReplacementHashboardID    sql.NullInt64
+	OrgID                     int64
+	TicketID                  int64
+	Kind                      int16
+	AssetID                   int64
+}
+
+func (q *Queries) UpdateRepairTicketTargetEvidence(ctx context.Context, arg UpdateRepairTicketTargetEvidenceParams) (int64, error) {
+	result, err := q.exec(ctx, q.updateRepairTicketTargetEvidenceStmt, updateRepairTicketTargetEvidence,
+		arg.Diagnosis,
+		arg.WarrantyEvidence,
+		arg.RepairOutcome,
+		arg.RmaOutcome,
+		arg.ModuleModel,
+		arg.ClearReplacementModule,
+		arg.ReplacementModuleID,
+		arg.ClearReplacementHashboard,
+		arg.ReplacementHashboardID,
+		arg.OrgID,
+		arg.TicketID,
+		arg.Kind,
+		arg.AssetID,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }

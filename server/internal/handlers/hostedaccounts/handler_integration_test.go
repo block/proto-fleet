@@ -1,6 +1,7 @@
 package hostedaccounts_test
 
 import (
+	"context"
 	"database/sql"
 	"encoding/base64"
 	"fmt"
@@ -11,6 +12,9 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/block/proto-fleet/server/internal/domain/poolapplications"
+	sdk "github.com/block/proto-fleet/server/sdk/v1"
 
 	"github.com/block/proto-fleet/server/generated/grpc/poolconfigurations/v1/poolconfigurationsv1connect"
 	"github.com/block/proto-fleet/server/internal/domain/poolconfigurations"
@@ -24,17 +28,20 @@ import (
 	"github.com/block/proto-fleet/server/generated/grpc/hosted/v1/hostedv1connect"
 	invpb "github.com/block/proto-fleet/server/generated/grpc/invitation/v1"
 	"github.com/block/proto-fleet/server/generated/grpc/invitation/v1/invitationv1connect"
+	"github.com/block/proto-fleet/server/generated/grpc/maintenance/v1/maintenancev1connect"
 	"github.com/block/proto-fleet/server/generated/sqlc"
 	"github.com/block/proto-fleet/server/internal/domain/apikey"
 	domainauth "github.com/block/proto-fleet/server/internal/domain/auth"
 	"github.com/block/proto-fleet/server/internal/domain/authz"
 	domain "github.com/block/proto-fleet/server/internal/domain/hostedaccounts"
+	"github.com/block/proto-fleet/server/internal/domain/maintenance"
 	"github.com/block/proto-fleet/server/internal/domain/session"
 	"github.com/block/proto-fleet/server/internal/domain/stores/sqlstores"
 	authhandler "github.com/block/proto-fleet/server/internal/handlers/auth"
 	hostedhandler "github.com/block/proto-fleet/server/internal/handlers/hostedaccounts"
 	"github.com/block/proto-fleet/server/internal/handlers/interceptors"
 	invitationhandler "github.com/block/proto-fleet/server/internal/handlers/invitation"
+	maintenancehandler "github.com/block/proto-fleet/server/internal/handlers/maintenance"
 	"github.com/block/proto-fleet/server/internal/handlers/middleware"
 	"github.com/block/proto-fleet/server/internal/infrastructure/encrypt"
 	"github.com/block/proto-fleet/server/internal/testutil/dbtest"
@@ -49,6 +56,7 @@ const rpcPassword = "customer-password123"
 
 type rpcFixture struct {
 	configurations poolconfigurationsv1connect.PoolConfigurationServiceClient
+	maintenance    maintenancev1connect.MaintenanceServiceClient
 	db             *sql.DB
 	accounts       *domain.Service
 	keys           *apikey.Service
@@ -74,7 +82,9 @@ func newRPCFixture(t *testing.T) rpcFixture {
 	users := sqlstores.NewSQLUserStore(db)
 	sessions := session.NewService(session.Config{Duration: time.Hour, IDBytes: 32, CookieName: "fleet_session"}, sqlstores.NewSQLSessionStore(db))
 	permissions := authz.NewPermissionResolver(db)
-	accounts := domain.NewService(db)
+	ticketStore := sqlstores.NewSQLMaintenanceStore(db)
+	ticketService := maintenance.NewService(ticketStore, ticketStore, sqlstores.NewSQLInventoryStore(db), sqlstores.NewSQLTransactor(db), nil)
+	accounts := domain.NewService(db, ticketService)
 	keys := apikey.NewService(sqlstores.NewSQLApiKeyStore(db), nil)
 	accountKeys := domain.NewKeyService(accounts, keys)
 	authService := domainauth.NewService(users, users, sqlstores.NewSQLTransactor(db), nil, sessions, nil, nil, permissions)
@@ -89,7 +99,8 @@ func newRPCFixture(t *testing.T) rpcFixture {
 		validate.NewInterceptor(),
 	)
 	mux := http.NewServeMux()
-	mux.Handle(poolconfigurationsv1connect.NewPoolConfigurationServiceHandler(poolhandler.NewHandler(poolconfigurations.NewService(db, poolconfigurations.NewRepository(poolSecrets), pools)), options))
+	mux.Handle(poolconfigurationsv1connect.NewPoolConfigurationServiceHandler(poolhandler.NewHandler(poolconfigurations.NewService(db, poolconfigurations.NewRepository(poolSecrets), pools, poolapplications.NewReviewer(pools, rpcPoolCapabilities{}))), options))
+	mux.Handle(maintenancev1connect.NewMaintenanceServiceHandler(maintenancehandler.NewHandler(ticketService), options))
 	invitations := domain.NewInvitationService(accounts, sessions)
 	mux.Handle(hostedv1connect.NewHostedAccountServiceHandler(hostedhandler.NewHandler(accounts, invitations, accountKeys, pools, users, permissions), options))
 	mux.Handle(invitationv1connect.NewInvitationServiceHandler(invitationhandler.NewHandler(invitations, domain.NewTeamInvitationService(accounts, sessions)), options))
@@ -109,6 +120,7 @@ func newRPCFixture(t *testing.T) rpcFixture {
 	t.Cleanup(server.Close)
 	f := rpcFixture{db: db, accounts: accounts, keys: keys, org: org, peerAddress: peerAddress,
 		configurations: poolconfigurationsv1connect.NewPoolConfigurationServiceClient(server.Client(), server.URL),
+		maintenance:    maintenancev1connect.NewMaintenanceServiceClient(server.Client(), server.URL),
 		client:         hostedv1connect.NewHostedAccountServiceClient(server.Client(), server.URL),
 		invitations:    invitationv1connect.NewInvitationServiceClient(server.Client(), server.URL),
 		auth:           authv1connect.NewAuthServiceClient(server.Client(), server.URL)}
@@ -434,4 +446,10 @@ func TestHostedRPCSiteOnlyOperatorKeepsFleetAccessWithoutPrivateAccounts(t *test
 	require.Empty(t, listed.Msg.Accounts, "Fleet entry does not create hosted-account membership")
 	_, err = f.client.GetAccount(t.Context(), rpcRequest(&pb.GetAccountRequest{AccountId: customer.AccountID}, cookie, customer.AccountID))
 	require.Equal(t, connect.CodePermissionDenied, connect.CodeOf(err), "workspace entry does not grant private account access")
+}
+
+type rpcPoolCapabilities struct{}
+
+func (rpcPoolCapabilities) GetRawCapabilitiesForDevice(context.Context, string, string, string) sdk.Capabilities {
+	return sdk.Capabilities{sdk.CapabilityPoolConfig: true, sdk.CapabilityPoolPriority: true}
 }

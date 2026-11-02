@@ -19,7 +19,7 @@ func TestManualAllocationAfterClockAheadAutomaticReplacement(t *testing.T) {
 			_, err := database.DB.ExecContext(t.Context(), "UPDATE discovered_device SET device_class=2 WHERE id=(SELECT discovered_device_id FROM device WHERE id=$1)", device.DatabaseID)
 			require.NoError(t, err)
 			r := &modulePSUIdentityRig{db: database.DB, deviceID: device.DatabaseID, orgID: user.OrganizationID, device: device.ID, base: time.Now().UTC().Add(-time.Minute).Truncate(time.Microsecond)}
-			svc := hostedaccounts.NewService(r.db)
+			svc := hostedaccounts.NewService(r.db, nil)
 			var root string
 			require.NoError(t, r.db.QueryRowContext(t.Context(), `SELECT account_id FROM hosted_account WHERE organization_id=$1 AND depth=0`, r.orgID).Scan(&root))
 			client, err := svc.CreateChild(t.Context(), user.DatabaseID, r.orgID, root, "Client", user.DatabaseID, hostedaccounts.AllCapabilities)

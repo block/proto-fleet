@@ -62,7 +62,7 @@ func (r *RunCmd) handleRecoverMinerEndpoints(ctx context.Context, stream acker, 
 		return
 	}
 	// Keep a bounded prefix instead of letting the transport discard all results.
-	for proto.Size(response) > maxAckPayloadBytes {
+	for proto.Size(response) > maxCommandResultPayloadBytes {
 		response.Results = response.Results[:len(response.Results)-1]
 		partial = true
 	}

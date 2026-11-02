@@ -286,8 +286,9 @@ func TestCompletedTicketRetainsAssigneeNameAfterUserDeactivation(t *testing.T) {
 		Component: "Transformer", AssigneeUserID: &userID,
 	}, fmt.Sprintf("TK-%04d", number))
 	require.NoError(t, err)
+	completionNote := "Repair completed"
 	completed := maintenancemodels.TicketStatusCompleted
-	_, err = store.UpdateRepairTicket(ctx, maintenancemodels.UpdateParams{OrgID: orgID, ID: ticket.ID, Status: &completed})
+	_, err = store.UpdateRepairTicket(ctx, maintenancemodels.UpdateParams{OrgID: orgID, ID: ticket.ID, Status: &completed, ResolutionNote: &completionNote})
 	require.NoError(t, err)
 	_, err = db.ExecContext(ctx, `UPDATE "user" SET deleted_at = CURRENT_TIMESTAMP WHERE id = $1`, userID)
 	require.NoError(t, err)
@@ -527,9 +528,10 @@ func TestMaintenanceStoreStableSortCursorsAndFilteredStats(t *testing.T) {
 	assert.Equal(t, int32(1), stats.CountByStatus[maintenancemodels.TicketStatusInProgress])
 	assert.Equal(t, int32(1), stats.Urgent)
 
+	completionNote := "Repair completed"
 	completed := maintenancemodels.TicketStatusCompleted
 	for _, id := range []int64{first.ID, second.ID} {
-		_, err = store.UpdateRepairTicket(ctx, maintenancemodels.UpdateParams{OrgID: orgID, ID: id, Status: &completed})
+		_, err = store.UpdateRepairTicket(ctx, maintenancemodels.UpdateParams{OrgID: orgID, ID: id, Status: &completed, ResolutionNote: &completionNote})
 		require.NoError(t, err)
 	}
 	component := "Shared"
@@ -624,7 +626,7 @@ func TestCompletedTicketsSortAndPaginateByCompletionTime(t *testing.T) {
 	completedEarlier := create("Newer creation")
 	_, err := db.ExecContext(ctx, `
 		UPDATE repair_ticket
-		SET status = 5,
+		SET status = 5, resolution_note = 'Repair completed',
 		    created_at = CASE id WHEN $1 THEN TIMESTAMPTZ '2024-01-01' ELSE TIMESTAMPTZ '2025-01-01' END,
 		    completed_at = CASE id WHEN $1 THEN TIMESTAMPTZ '2026-01-01' ELSE TIMESTAMPTZ '2025-06-01' END
 		WHERE id IN ($1, $2)
@@ -845,6 +847,32 @@ func TestMaintenanceStoreSearchTreatsWildcardsLiterally(t *testing.T) {
 			stats, err := store.GetTicketStats(ctx, filter)
 			require.NoError(t, err)
 			assert.Equal(t, int32(1), stats.CountByStatus[maintenancemodels.TicketStatusOpen])
+		})
+	}
+}
+
+func TestMaintenanceStoreSearchIncludesDescription(t *testing.T) {
+	conn := testutil.GetTestDB(t)
+	ctx := t.Context()
+	store := sqlstores.NewSQLMaintenanceStore(conn)
+	org := insertMaintenanceTestOrg(t, conn, "description-search")
+	site := insertMaintenanceTestSite(t, conn, org, "Site")
+	description := `Intermittent power loss at 100% load on PSU_secondary\input`
+	ticket, err := store.CreateRepairTicket(ctx, maintenancemodels.CreateParams{OrgID: org, IdempotencyKey: "description-search", CreateRequestHash: maintenanceCreateRequestHash, Category: maintenancemodels.TicketCategoryInfrastructure, Component: "Power", SiteID: &site, Description: description}, "TK-0001")
+	require.NoError(t, err)
+	for _, query := range []string{"intermittent power loss", "%", "_", `\`, " PSU_SECONDARY "} {
+		t.Run(query, func(t *testing.T) {
+			filter := maintenancemodels.ListFilter{OrgID: org, SearchQuery: query, Limit: 10}
+			tickets, err := store.ListRepairTickets(ctx, filter)
+			require.NoError(t, err)
+			require.Len(t, tickets, 1)
+			require.Equal(t, ticket.ID, tickets[0].ID)
+			count, err := store.CountRepairTickets(ctx, filter)
+			require.NoError(t, err)
+			require.Equal(t, int32(1), count)
+			stats, err := store.GetTicketStats(ctx, filter)
+			require.NoError(t, err)
+			require.Equal(t, int32(1), stats.CountByStatus[maintenancemodels.TicketStatusOpen])
 		})
 	}
 }

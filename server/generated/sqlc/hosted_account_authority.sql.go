@@ -83,9 +83,9 @@ func (q *Queries) HasHostedAccountHostAuthority(ctx context.Context, arg HasHost
 const listHostedAccountSummaries = `-- name: ListHostedAccountSummaries :many
 WITH actor AS (
  SELECT u.id FROM "user" u
- JOIN user_organization uo ON uo.user_id=u.id AND uo.organization_id=$2 AND uo.deleted_at IS NULL
+ JOIN user_organization uo ON uo.user_id=u.id AND uo.organization_id=$3 AND uo.deleted_at IS NULL
  JOIN organization o ON o.id=uo.organization_id AND o.deleted_at IS NULL
- WHERE u.id=$3 AND u.deleted_at IS NULL
+ WHERE u.id=$1 AND u.deleted_at IS NULL
 ), host_authority AS (
  SELECT EXISTS (
   SELECT 1 FROM user_organization_role ur
@@ -93,23 +93,24 @@ WITH actor AS (
   JOIN role_permission rp ON rp.role_id=r.id
   JOIN permission p ON p.id=rp.permission_id AND p.key='account:manage'
   JOIN actor ON actor.id=ur.user_id
-  WHERE ur.organization_id=$2 AND ur.deleted_at IS NULL AND ur.scope_type='org'
+  WHERE ur.organization_id=$3 AND ur.deleted_at IS NULL AND ur.scope_type='org'
  ) AS authorized
 ), memberships AS (
  SELECT m.account_id, m.role,
         CASE m.role WHEN 'viewer' THEN 1 WHEN 'pool_operator' THEN 7 WHEN 'account_administrator' THEN 31 ELSE 0 END::bigint AS capabilities
  FROM hosted_account_membership m JOIN actor ON actor.id=m.user_id
- WHERE m.organization_id=$2 AND m.revoked_at IS NULL
+ WHERE m.organization_id=$3 AND m.revoked_at IS NULL
 ), accounts AS (
- SELECT a.id, a.account_id, a.organization_id, a.parent_id, a.depth, a.name, a.capabilities, a.suspended, a.revision, a.created_at, a.updated_at, a.sites_restricted, a.site_ceiling_restricted, a.authority_revision, COALESCE(parent.account_id,'')::text AS parent_account_id,
+ SELECT a.id, a.account_id, a.organization_id, a.parent_id, a.depth, a.name, a.capabilities, a.suspended, a.revision, a.created_at, a.updated_at, a.sites_restricted, a.site_ceiling_restricted, a.authority_revision, a.ticketing_enabled, COALESCE(parent.account_id,'')::text AS parent_account_id,
         (a.capabilities & COALESCE(parent.capabilities,31) & root.capabilities)::bigint AS ceiling,
         (a.suspended OR root.suspended OR COALESCE(parent.suspended,FALSE)) AS path_suspended,
-        root.id AS root_id
+        root.id AS root_id,
+        (a.ticketing_enabled AND root.ticketing_enabled AND COALESCE(parent.ticketing_enabled,TRUE)) AS effective_ticketing_enabled
  FROM hosted_account a
  JOIN hosted_account root ON root.organization_id=a.organization_id AND root.depth=0
  LEFT JOIN hosted_account parent ON parent.id=a.parent_id AND parent.organization_id=a.organization_id
- WHERE a.organization_id=$2 AND EXISTS (SELECT 1 FROM actor)
- AND ($1::bigint IS NULL OR a.parent_id=$1::bigint)
+ WHERE a.organization_id=$3 AND EXISTS (SELECT 1 FROM actor)
+ AND ($2::bigint IS NULL OR a.parent_id=$2::bigint)
 ), sources AS (
  SELECT a.id, m.role, m.capabilities
  FROM accounts a JOIN memberships m ON m.account_id=a.id WHERE a.depth>0
@@ -134,7 +135,7 @@ WITH actor AS (
              THEN COALESCE(auth.role,'') ELSE '' END::text AS role
  FROM accounts a CROSS JOIN host_authority h LEFT JOIN authority auth ON auth.id=a.id
 ), management_clients AS (
- SELECT id FROM accounts WHERE depth=1 AND parent_id=$1::bigint
+ SELECT id FROM accounts WHERE depth=1 AND parent_id=$2::bigint
 ), assignment_counts AS (
  SELECT a.client_id,
         count(*) FILTER (WHERE a.kind=5)::bigint AS miner_count,
@@ -142,31 +143,35 @@ WITH actor AS (
         count(DISTINCT a.device_id) FILTER (WHERE a.kind=7)::bigint AS container_count,
         count(*) FILTER (WHERE a.kind=7)::bigint AS hashboard_count
  FROM hosted_account_asset a JOIN management_clients c ON c.id=a.client_id
- WHERE a.organization_id=$2
+ WHERE a.organization_id=$3
  GROUP BY a.client_id
 ), login_counts AS (
  SELECT m.account_id, count(*)::bigint AS login_count
  FROM hosted_account_membership m JOIN management_clients c ON c.id=m.account_id
  JOIN "user" u ON u.id=m.user_id AND u.deleted_at IS NULL
  JOIN user_organization uo ON uo.user_id=m.user_id AND uo.organization_id=m.organization_id AND uo.deleted_at IS NULL
- WHERE m.organization_id=$2 AND m.revoked_at IS NULL
+ WHERE m.organization_id=$3 AND m.revoked_at IS NULL
  GROUP BY m.account_id
 )
-SELECT s.account_id, s.parent_account_id, s.name, s.depth, s.capabilities, s.suspended, s.revision, s.effective_capabilities, s.role, COALESCE(ac.miner_count,0)::bigint AS miner_count,
-       COALESCE(ac.module_count,0)::bigint AS module_count, COALESCE(ac.hashboard_count,0)::bigint AS hashboard_count,
+SELECT s.account_id, s.parent_account_id, s.name, s.depth, s.capabilities, s.suspended, s.revision, s.effective_capabilities, s.role, a.ticketing_enabled,
+       (tm.user_id IS NOT NULL AND a.effective_ticketing_enabled AND (s.effective_capabilities & 1)<>0)::boolean AS ticket_access,
+       COALESCE(ac.miner_count,0)::bigint AS miner_count,
+       COALESCE(ac.module_count,0)::bigint AS module_count,
+       COALESCE(ac.hashboard_count,0)::bigint AS hashboard_count,
        COALESCE(ac.container_count,0)::bigint AS container_count,
        COALESCE(lc.login_count,0)::bigint AS login_count
 FROM summaries s JOIN accounts a ON a.account_id=s.account_id
+LEFT JOIN hosted_account_membership tm ON tm.organization_id=a.organization_id AND tm.account_id=a.id AND tm.user_id=$1 AND tm.revoked_at IS NULL
 LEFT JOIN assignment_counts ac ON ac.client_id=a.id
 LEFT JOIN login_counts lc ON lc.account_id=a.id
-WHERE $1::bigint IS NOT NULL OR s.effective_capabilities<>0
+WHERE $2::bigint IS NOT NULL OR s.effective_capabilities<>0
 ORDER BY s.depth,s.name,s.account_id
 `
 
 type ListHostedAccountSummariesParams struct {
+	UserID         int64
 	ParentID       sql.NullInt64
 	OrganizationID int64
-	UserID         int64
 }
 
 type ListHostedAccountSummariesRow struct {
@@ -179,6 +184,8 @@ type ListHostedAccountSummariesRow struct {
 	Revision              int64
 	EffectiveCapabilities int64
 	Role                  string
+	TicketingEnabled      bool
+	TicketAccess          bool
 	MinerCount            int64
 	ModuleCount           int64
 	HashboardCount        int64
@@ -190,7 +197,7 @@ type ListHostedAccountSummariesRow struct {
 // after delegation authorization and includes policy-only children, with no
 // private role or capabilities unless explicit live authority grants viewing.
 func (q *Queries) ListHostedAccountSummaries(ctx context.Context, arg ListHostedAccountSummariesParams) ([]ListHostedAccountSummariesRow, error) {
-	rows, err := q.query(ctx, q.listHostedAccountSummariesStmt, listHostedAccountSummaries, arg.ParentID, arg.OrganizationID, arg.UserID)
+	rows, err := q.query(ctx, q.listHostedAccountSummariesStmt, listHostedAccountSummaries, arg.UserID, arg.ParentID, arg.OrganizationID)
 	if err != nil {
 		return nil, err
 	}
@@ -208,6 +215,8 @@ func (q *Queries) ListHostedAccountSummaries(ctx context.Context, arg ListHosted
 			&i.Revision,
 			&i.EffectiveCapabilities,
 			&i.Role,
+			&i.TicketingEnabled,
+			&i.TicketAccess,
 			&i.MinerCount,
 			&i.ModuleCount,
 			&i.HashboardCount,
@@ -245,11 +254,11 @@ func (q *Queries) RenameHostedAccount(ctx context.Context, arg RenameHostedAccou
 
 const resolveHostedAccountAuthority = `-- name: ResolveHostedAccountAuthority :one
 WITH RECURSIVE path AS (
- SELECT a.id, a.account_id, a.organization_id, a.parent_id, a.depth, a.name, a.capabilities, a.suspended, a.revision, a.created_at, a.updated_at, a.sites_restricted, a.site_ceiling_restricted, a.authority_revision FROM hosted_account a WHERE a.organization_id=$2 AND a.account_id=$3
+ SELECT a.id, a.account_id, a.organization_id, a.parent_id, a.depth, a.name, a.capabilities, a.suspended, a.revision, a.created_at, a.updated_at, a.sites_restricted, a.site_ceiling_restricted, a.authority_revision, a.ticketing_enabled FROM hosted_account a WHERE a.organization_id=$2 AND a.account_id=$3
  UNION ALL
- SELECT p.id, p.account_id, p.organization_id, p.parent_id, p.depth, p.name, p.capabilities, p.suspended, p.revision, p.created_at, p.updated_at, p.sites_restricted, p.site_ceiling_restricted, p.authority_revision FROM hosted_account p JOIN path c ON p.id=c.parent_id AND p.organization_id=c.organization_id
+ SELECT p.id, p.account_id, p.organization_id, p.parent_id, p.depth, p.name, p.capabilities, p.suspended, p.revision, p.created_at, p.updated_at, p.sites_restricted, p.site_ceiling_restricted, p.authority_revision, p.ticketing_enabled FROM hosted_account p JOIN path c ON p.id=c.parent_id AND p.organization_id=c.organization_id
 ), target AS (
- SELECT a.id, a.account_id, a.organization_id, a.parent_id, a.depth, a.name, a.capabilities, a.suspended, a.revision, a.created_at, a.updated_at, a.sites_restricted, a.site_ceiling_restricted, a.authority_revision FROM path a ORDER BY depth DESC LIMIT 1
+ SELECT a.id, a.account_id, a.organization_id, a.parent_id, a.depth, a.name, a.capabilities, a.suspended, a.revision, a.created_at, a.updated_at, a.sites_restricted, a.site_ceiling_restricted, a.authority_revision, a.ticketing_enabled FROM path a ORDER BY depth DESC LIMIT 1
 ), policy AS (
  SELECT bit_and(capabilities)::bigint AS ceiling, bool_or(suspended) AS suspended,
         string_agg(id::text || ':' || authority_revision::text, ',' ORDER BY depth) AS state

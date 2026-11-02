@@ -46,11 +46,11 @@ WHERE a.organization_id = sqlc.arg(organization_id) AND a.target_kind = sqlc.arg
 
 -- name: SupersedePoolConfigurationTarget :exec
 UPDATE pool_configuration_operation_target SET state = 'superseded', updated_at = CURRENT_TIMESTAMP
-WHERE organization_id = $1 AND target_kind = $2 AND target_id = $3 AND state IN ('pending','applying','failed','different');
+WHERE organization_id = $1 AND target_kind = $2 AND target_id = $3 AND state IN ('pending','applying','failed','different','applied_unverified');
 
 -- name: CreatePoolConfigurationOperationTarget :one
-INSERT INTO pool_configuration_operation_target(organization_id, operation_id, target_kind, target_id, assignment_version)
-VALUES($1, $2, $3, $4, $5) RETURNING *;
+INSERT INTO pool_configuration_operation_target(organization_id, operation_id, target_kind, target_id, assignment_version, reviewed_binding)
+VALUES($1, $2, $3, $4, $5, $6) RETURNING *;
 
 -- name: GetPoolConfigurationOperation :one
 SELECT o.* FROM pool_configuration_operation o
@@ -61,6 +61,16 @@ WHERE o.organization_id = sqlc.arg(organization_id) AND o.operation_id = sqlc.ar
 -- name: ListPoolConfigurationOperationTargets :many
 SELECT t.* FROM pool_configuration_operation_target t
 WHERE t.organization_id = $1 AND t.operation_id = $2 ORDER BY t.target_kind, t.target_id;
+
+-- name: ListPoolConfigurationOperationSites :many
+-- Assignment identity is retained across retirement and reassignment. Use its
+-- device's current committed site for read authorization, not the old reviewed
+-- snapshot. This read must not take device locks held across hardware I/O;
+-- actor and permission locks are retained by the enclosing read transaction.
+SELECT d.site_id FROM pool_configuration_operation_target t
+JOIN pool_configuration_assignment a ON a.organization_id=t.organization_id AND a.target_kind=t.target_kind AND a.target_id=t.target_id
+JOIN device d ON d.org_id=a.organization_id AND d.id=a.device_id
+WHERE t.organization_id=$1 AND t.operation_id=$2;
 
 -- name: ClaimPoolConfigurationTarget :one
 UPDATE pool_configuration_operation_target t SET state = 'applying', attempts = attempts + 1, result_code = '', updated_at = CURRENT_TIMESTAMP

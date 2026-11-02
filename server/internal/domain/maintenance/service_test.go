@@ -2,6 +2,7 @@ package maintenance
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -57,21 +58,6 @@ func TestListCompletedTicketsSuppressesLookaheadOnFinalPage(t *testing.T) {
 	assert.Equal(t, facets, assignees)
 }
 
-func TestCreateRepairTicketRejectsWhitespaceDiagnosis(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	service := NewService(
-		mocks.NewMockMaintenanceStore(ctrl), mocks.NewMockMaintenanceReferenceStore(ctrl),
-		mocks.NewMockInventoryStore(ctrl), mocks.NewMockTransactor(ctrl), nil,
-	)
-
-	_, err := service.CreateRepairTicket(t.Context(), models.CreateParams{
-		OrgID: 2, IdempotencyKey: "create-ticket-whitespace", Category: models.TicketCategoryMiner, Component: "Fan", Diagnosis: stringPointer("   "),
-	})
-
-	assert.True(t, fleeterror.IsInvalidArgumentError(err), "%v", err)
-	assert.ErrorContains(t, err, "diagnosis")
-}
-
 func TestCreateRepairTicketRequiresIdempotencyKey(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	service := NewService(
@@ -79,27 +65,12 @@ func TestCreateRepairTicketRequiresIdempotencyKey(t *testing.T) {
 		mocks.NewMockInventoryStore(ctrl), mocks.NewMockTransactor(ctrl), nil,
 	)
 
-	_, err := service.CreateRepairTicket(t.Context(), models.CreateParams{
+	_, _, err := service.CreateRepairTicket(t.Context(), models.CreateParams{
 		OrgID: 2, Category: models.TicketCategoryMiner, Component: "Fan", MinerIdentifier: stringPointer("miner-1"),
 	})
 
 	assert.True(t, fleeterror.IsInvalidArgumentError(err), "%v", err)
 	assert.ErrorContains(t, err, "idempotency_key")
-}
-
-func TestUpdateRepairTicketRejectsWhitespaceDiagnosis(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	service := NewService(
-		mocks.NewMockMaintenanceStore(ctrl), mocks.NewMockMaintenanceReferenceStore(ctrl),
-		mocks.NewMockInventoryStore(ctrl), mocks.NewMockTransactor(ctrl), nil,
-	)
-
-	_, err := service.UpdateRepairTicket(t.Context(), models.UpdateParams{ExpectedUpdatedAt: testVersion,
-		OrgID: 2, ID: 3, Diagnosis: stringPointer("   "),
-	})
-
-	assert.True(t, fleeterror.IsInvalidArgumentError(err), "%v", err)
-	assert.ErrorContains(t, err, "diagnosis")
 }
 
 func TestUpdateRepairTicketRejectsSetAndClearRMAEtaTogether(t *testing.T) {
@@ -132,7 +103,7 @@ func TestUpdateRepairTicketTransitionMatrix(t *testing.T) {
 		models.TicketStatusSentToVendor: {
 			models.TicketStatusInProgress: true, models.TicketStatusCompleted: true,
 		},
-		models.TicketStatusCompleted: {},
+		models.TicketStatusCompleted: {models.TicketStatusOpen: true},
 	}
 	statuses := []models.TicketStatus{
 		models.TicketStatusOpen, models.TicketStatusInProgress, models.TicketStatusOnHold,
@@ -156,15 +127,19 @@ func TestUpdateRepairTicketTransitionMatrix(t *testing.T) {
 				if to == models.TicketStatusCompleted {
 					resolution := models.TicketResolutionDeferred
 					params.Resolution = &resolution
+					params.ResolutionNote = stringPointer("Resolution explained")
 				}
 				tx.EXPECT().RunInTxWithResult(gomock.Any(), gomock.Any()).DoAndReturn(runResultTx)
+				if to == models.TicketStatusOpen {
+					tickets.EXPECT().GetRepairTicket(gomock.Any(), int64(20), int64(10)).Return(current, nil)
+				}
 				tickets.EXPECT().GetRepairTicketForUpdate(gomock.Any(), int64(20), int64(10)).Return(current, nil)
 
-				isAllowed := from != models.TicketStatusCompleted && (from == to || allowed[from][to])
+				isAllowed := (from != models.TicketStatusCompleted && from == to) || allowed[from][to]
 				if isAllowed {
 					updated := *current
 					updated.Status = to
-					if from != models.TicketStatusCompleted {
+					if isAllowed {
 						if to == models.TicketStatusCompleted {
 							tickets.EXPECT().ListTicketParts(gomock.Any(), int64(20), int64(10)).Return(nil, nil)
 							tickets.EXPECT().MarkTicketPartsConsumed(gomock.Any(), int64(20), int64(10)).Return(nil)
@@ -224,7 +199,7 @@ func TestCompleteTicketConsumesSelectedPartsOnce(t *testing.T) {
 	location := models.RepairLocationOnRack
 	selection := []models.PartUsage{{InventoryPartID: 7, PartName: "Fan", Quantity: 2}}
 
-	params := models.UpdateParams{ExpectedUpdatedAt: testVersion, OrgID: 2, ID: 3, Status: &status, Resolution: &resolution, RepairLocation: &location, PartsSelection: &selection}
+	params := models.UpdateParams{ExpectedUpdatedAt: testVersion, OrgID: 2, ID: 3, Status: &status, Resolution: &resolution, ResolutionNote: stringPointer("Resolution explained"), RepairLocation: &location, PartsSelection: &selection}
 	siteID := int64(11)
 	current := &models.RepairTicket{UpdatedAt: testVersion, ID: 3, OrgID: 2, SiteID: &siteID, Category: models.TicketCategoryMiner, Status: models.TicketStatusInProgress, Component: "Fan", MinerIdentifier: stringPointer("miner-1")}
 	updated := *current
@@ -451,7 +426,7 @@ func TestCompleteTicketStockFailureStopsTicketMutation(t *testing.T) {
 	resolution := models.TicketResolutionDeferred
 	selection := []models.PartUsage{{InventoryPartID: 9, PartName: "PSU", Quantity: 1}}
 
-	params := models.UpdateParams{ExpectedUpdatedAt: testVersion, OrgID: 2, ID: 3, Status: &status, Resolution: &resolution, PartsSelection: &selection}
+	params := models.UpdateParams{ExpectedUpdatedAt: testVersion, OrgID: 2, ID: 3, Status: &status, Resolution: &resolution, ResolutionNote: stringPointer("Resolution explained"), PartsSelection: &selection}
 	siteID := int64(11)
 	current := &models.RepairTicket{UpdatedAt: testVersion, ID: 3, OrgID: 2, SiteID: &siteID, Category: models.TicketCategoryInfrastructure, Status: models.TicketStatusOpen, Component: "Power"}
 	stockErr := fleeterror.NewFailedPreconditionError("insufficient available stock")
@@ -518,7 +493,7 @@ func TestCreateInfrastructureTicketRevalidatesBuildingSitePairAfterLocking(t *te
 			Return(nil, movedErr),
 	)
 
-	_, err := service.CreateRepairTicket(t.Context(), params)
+	_, _, err := service.CreateRepairTicket(t.Context(), params)
 	assert.ErrorIs(t, err, movedErr)
 }
 
@@ -552,6 +527,10 @@ func TestCreateRepairTicketReturnsOriginalTicketForMatchingIdempotentReplay(t *t
 		Component:       "Updated after creation",
 		MinerIdentifier: &minerID,
 	}
+	params.BeforeCreate = func(context.Context) error {
+		t.Fatal("replays must skip creation-only policy")
+		return nil
+	}
 	canonicalParams := params
 	canonicalParams.MinerIdentifier = &minerID
 	requestHash, err := createRepairTicketRequestHash(canonicalParams)
@@ -563,9 +542,10 @@ func TestCreateRepairTicketReturnsOriginalTicketForMatchingIdempotentReplay(t *t
 		tickets.EXPECT().GetRepairTicketByIdempotencyKey(txContextMatcher{}, int64(4), "create-ticket-1").Return(existing, requestHash, nil),
 	)
 
-	ticket, err := service.CreateRepairTicket(t.Context(), params)
+	ticket, createdNew, err := service.CreateRepairTicket(t.Context(), params)
 	require.NoError(t, err)
 	assert.Same(t, existing, ticket)
+	assert.False(t, createdNew)
 }
 
 func TestCreateRepairTicketResetsCreatedFlagWhenTransactionAttemptIsReplayed(t *testing.T) {
@@ -582,6 +562,12 @@ func TestCreateRepairTicketResetsCreatedFlagWhenTransactionAttemptIsReplayed(t *
 		Category:       models.TicketCategoryInfrastructure,
 		Component:      "Network",
 		SiteID:         &siteID,
+	}
+	policyCalls := 0
+	params.BeforeCreate = func(ctx context.Context) error {
+		require.True(t, txContextMatcher{}.Matches(ctx))
+		policyCalls++
+		return nil
 	}
 	requestHash, err := createRepairTicketRequestHash(params)
 	require.NoError(t, err)
@@ -614,9 +600,11 @@ func TestCreateRepairTicketResetsCreatedFlagWhenTransactionAttemptIsReplayed(t *
 		tickets.EXPECT().GetRepairTicketByIdempotencyKey(txContextMatcher{}, int64(4), "create-ticket-replayed").Return(created, requestHash, nil),
 	)
 
-	ticket, err := service.CreateRepairTicket(t.Context(), params)
+	ticket, createdNew, err := service.CreateRepairTicket(t.Context(), params)
 	require.NoError(t, err)
 	assert.Same(t, created, ticket)
+	assert.False(t, createdNew)
+	assert.Equal(t, 1, policyCalls)
 }
 
 func TestCreateRepairTicketRejectsIdempotencyKeyReuseWithDifferentRequest(t *testing.T) {
@@ -652,7 +640,7 @@ func TestCreateRepairTicketRejectsIdempotencyKeyReuseWithDifferentRequest(t *tes
 		tickets.EXPECT().GetRepairTicketByIdempotencyKey(txContextMatcher{}, int64(4), "create-ticket-1").Return(existing, originalRequestHash, nil),
 	)
 
-	_, err = service.CreateRepairTicket(t.Context(), params)
+	_, _, err = service.CreateRepairTicket(t.Context(), params)
 	assert.True(t, fleeterror.IsAlreadyExistsError(err), "%v", err)
 }
 
@@ -689,8 +677,9 @@ func TestCreateRepairTicketDerivesMinerContext(t *testing.T) {
 		tickets.EXPECT().NextTicketNumber(txContextMatcher{}, int64(4)).Return(int64(1), nil),
 		tickets.EXPECT().CreateRepairTicket(txContextMatcher{}, expected, "TK-0001").Return(&models.RepairTicket{UpdatedAt: testVersion, ID: 1, OrgID: 4, Component: "Hashboard"}, nil),
 	)
-	ticket, err := service.CreateRepairTicket(t.Context(), params)
+	ticket, createdNew, err := service.CreateRepairTicket(t.Context(), params)
 	require.NoError(t, err)
+	assert.True(t, createdNew)
 	assert.Equal(t, "Hashboard", ticket.Component)
 }
 
@@ -719,7 +708,7 @@ func TestCreateRepairTicketRejectsMinerPlacementThatChangesBeforeLocks(t *testin
 		refs.EXPECT().ResolveMinerContext(txContextMatcher{}, int64(4), "miner-1").Return(&models.AssetContext{MinerIdentifier: "miner-1", SiteID: &newSiteID, BuildingID: &newBuildingID, RackID: &newRackID}, nil),
 	)
 
-	_, err := service.CreateRepairTicket(t.Context(), params)
+	_, _, err := service.CreateRepairTicket(t.Context(), params)
 	assert.True(t, fleeterror.IsFailedPreconditionError(err), "%v", err)
 }
 
@@ -755,7 +744,7 @@ func TestCreateRepairTicketUsesFinalDescriptiveLabels(t *testing.T) {
 		}),
 	)
 
-	_, err := service.CreateRepairTicket(t.Context(), params)
+	_, _, err := service.CreateRepairTicket(t.Context(), params)
 	require.NoError(t, err)
 }
 
@@ -773,7 +762,7 @@ func TestCreateRepairTicketDerivesMinerContextAndRejectsCrossOrgReference(t *tes
 		tickets.EXPECT().GetRepairTicketByIdempotencyKey(txContextMatcher{}, int64(4), "create-cross-org-ticket").Return(nil, "", fleeterror.NewNotFoundError("not found")),
 		refs.EXPECT().ResolveMinerContext(gomock.Any(), int64(4), "miner-1").Return(nil, fleeterror.NewNotFoundError("miner not found")),
 	)
-	_, err := service.CreateRepairTicket(t.Context(), params)
+	_, _, err := service.CreateRepairTicket(t.Context(), params)
 	assert.True(t, fleeterror.IsNotFoundError(err))
 }
 
@@ -791,18 +780,19 @@ func TestCreateCommentTrimsAndBoundsText(t *testing.T) {
 		tickets.EXPECT().LockTicketCommentCreateKey(txContextMatcher{}, int64(2), "comment-key").Return(nil),
 		tickets.EXPECT().GetTicketCommentByIdempotencyKey(txContextMatcher{}, int64(2), "comment-key").Return(nil, "", fleeterror.NewNotFoundError("not found")),
 		tickets.EXPECT().GetRepairTicketForUpdate(txContextMatcher{}, int64(2), int64(3)).Return(&models.RepairTicket{UpdatedAt: testVersion, ID: 3, SiteID: &siteID}, nil),
-		tickets.EXPECT().CreateTicketComment(txContextMatcher{}, int64(2), int64(3), int64(4), "fixed it", "comment-key", requestHash).Return(&models.TicketComment{ID: 5, Text: "fixed it"}, nil),
+		tickets.EXPECT().CreateTicketComment(txContextMatcher{}, int64(2), int64(3), int64(4), "fixed it", "comment-key", requestHash, models.CommentScope{Internal: true}).Return(&models.TicketComment{ID: 5, Text: "fixed it"}, nil),
 	)
 	activityStore.EXPECT().Insert(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, event *activitymodels.Event) error {
 		require.NotNil(t, event.SiteID)
 		assert.Equal(t, siteID, *event.SiteID)
 		return nil
 	})
-	comment, err := service.CreateComment(t.Context(), 2, 3, 4, "tech", "  fixed it  ", "comment-key")
+	comment, createdNew, err := service.CreateComment(t.Context(), 2, 3, 4, "tech", "  fixed it  ", "comment-key")
 	require.NoError(t, err)
 	assert.Equal(t, "fixed it", comment.Text)
+	assert.True(t, createdNew)
 
-	_, err = service.CreateComment(t.Context(), 2, 3, 4, "tech", string(make([]rune, 4097)), "long-comment-key")
+	_, _, err = service.CreateComment(t.Context(), 2, 3, 4, "tech", string(make([]rune, 4097)), "long-comment-key")
 	assert.True(t, fleeterror.IsInvalidArgumentError(err))
 }
 
@@ -824,9 +814,10 @@ func TestCreateCommentReturnsMatchingReplayWithoutDuplicateActivity(t *testing.T
 		tickets.EXPECT().GetRepairTicketForUpdate(txContextMatcher{}, int64(2), int64(3)).Return(&models.RepairTicket{UpdatedAt: testVersion, ID: 3, SiteID: &siteID}, nil),
 	)
 
-	comment, err := service.CreateComment(t.Context(), 2, 3, 4, "tech", "fixed it", "comment-retry-key")
+	comment, createdNew, err := service.CreateComment(t.Context(), 2, 3, 4, "tech", "fixed it", "comment-retry-key")
 	require.NoError(t, err)
 	assert.Same(t, existing, comment)
+	assert.False(t, createdNew)
 	assert.True(t, comment.AuthoredByCaller)
 }
 
@@ -858,7 +849,7 @@ func TestBulkCloseLocksTicketsAndInventoryBeforeConsumingReservations(t *testing
 	inventory := mocks.NewMockInventoryStore(ctrl)
 	tx := mocks.NewMockTransactor(ctrl)
 	service := NewService(tickets, mocks.NewMockMaintenanceReferenceStore(ctrl), inventory, tx, nil)
-	params := models.BulkCloseParams{
+	params := models.BulkCloseParams{ResolutionNote: stringPointer("Resolution explained"),
 		OrgID: 2, TicketIDs: []int64{4, 3, 3}, Resolution: models.TicketResolutionRepaired, RepairLocation: models.RepairLocationOnRack,
 		ExpectedVersions: map[int64]time.Time{3: testVersion, 4: testVersion},
 	}
@@ -874,8 +865,8 @@ func TestBulkCloseLocksTicketsAndInventoryBeforeConsumingReservations(t *testing
 		tickets.EXPECT().MarkTicketPartsConsumed(gomock.Any(), int64(2), int64(3)).Return(nil),
 		inventory.EXPECT().ConsumeReserved(gomock.Any(), int64(2), int64(5), int32(2)).Return(nil),
 		tickets.EXPECT().MarkTicketPartsConsumed(gomock.Any(), int64(2), int64(4)).Return(nil),
-		tickets.EXPECT().BulkCloseTickets(gomock.Any(), int64(2), []int64{3}, int16(models.TicketResolutionRepaired), int16(models.RepairLocationOnRack), nil).Return(int64(1), nil),
-		tickets.EXPECT().BulkCloseTickets(gomock.Any(), int64(2), []int64{4}, int16(models.TicketResolutionRepaired), int16(models.RepairLocationUnspecified), nil).Return(int64(1), nil),
+		tickets.EXPECT().BulkCloseTickets(gomock.Any(), int64(2), []int64{3}, int16(models.TicketResolutionRepaired), int16(models.RepairLocationOnRack), stringPointer("Resolution explained")).Return(int64(1), nil),
+		tickets.EXPECT().BulkCloseTickets(gomock.Any(), int64(2), []int64{4}, int16(models.TicketResolutionRepaired), int16(models.RepairLocationUnspecified), stringPointer("Resolution explained")).Return(int64(1), nil),
 	)
 	count, err := service.BulkClose(t.Context(), params)
 	require.NoError(t, err)
@@ -899,7 +890,7 @@ func TestBulkCloseRequiresExpectedVersionForEveryTicket(t *testing.T) {
 		{"zero timestamp", map[int64]time.Time{3: {}}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			_, err := service.BulkClose(t.Context(), models.BulkCloseParams{
+			_, err := service.BulkClose(t.Context(), models.BulkCloseParams{ResolutionNote: stringPointer("Resolution explained"),
 				OrgID: 2, TicketIDs: []int64{3}, ExpectedVersions: tc.versions, Resolution: models.TicketResolutionDeferred,
 			})
 			assert.True(t, fleeterror.IsInvalidArgumentError(err), "%v", err)
@@ -992,9 +983,9 @@ func TestBulkActivityUsesAffectedTicketSiteScope(t *testing.T) {
 			tickets.EXPECT().ListTicketParts(gomock.Any(), int64(2), ticket.ID).Return(nil, nil)
 			tickets.EXPECT().MarkTicketPartsConsumed(gomock.Any(), int64(2), ticket.ID).Return(nil)
 		}
-		tickets.EXPECT().BulkCloseTickets(gomock.Any(), int64(2), []int64{3, 4, 5}, int16(models.TicketResolutionDeferred), int16(models.RepairLocationUnspecified), nil).Return(int64(3), nil)
+		tickets.EXPECT().BulkCloseTickets(gomock.Any(), int64(2), []int64{3, 4, 5}, int16(models.TicketResolutionDeferred), int16(models.RepairLocationUnspecified), stringPointer("Resolution explained")).Return(int64(3), nil)
 		activityStore.EXPECT().Insert(gomock.Any(), gomock.Any()).DoAndReturn(assertScope(t))
-		_, err := service.BulkClose(t.Context(), models.BulkCloseParams{
+		_, err := service.BulkClose(t.Context(), models.BulkCloseParams{ResolutionNote: stringPointer("Resolution explained"),
 			OrgID: 2, TicketIDs: []int64{5, 3, 4}, Resolution: models.TicketResolutionDeferred,
 			ExpectedVersions: map[int64]time.Time{
 				3: testVersion, 4: testVersion, 5: testVersion,
@@ -1075,7 +1066,7 @@ func TestBulkCloseRejectsCompletedTicketWithDifferentDetails(t *testing.T) {
 	tickets := mocks.NewMockMaintenanceStore(ctrl)
 	tx := mocks.NewMockTransactor(ctrl)
 	service := NewService(tickets, mocks.NewMockMaintenanceReferenceStore(ctrl), mocks.NewMockInventoryStore(ctrl), tx, nil)
-	params := models.BulkCloseParams{
+	params := models.BulkCloseParams{ResolutionNote: stringPointer("Resolution explained"),
 		OrgID: 2, TicketIDs: []int64{3}, Resolution: models.TicketResolutionDeferred,
 		ExpectedVersions: map[int64]time.Time{3: testVersion},
 	}
@@ -1115,3 +1106,61 @@ func statusName(status models.TicketStatus) string                             {
 func stringPointer(value string) *string                                       { return &value }
 func statusPointer(value models.TicketStatus) *models.TicketStatus             { return &value }
 func resolutionPointer(value models.TicketResolution) *models.TicketResolution { return &value }
+
+func TestCreateRepairTicketRejectsCreationOnlyPolicyBeforeInsert(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	store := mocks.NewMockMaintenanceStore(ctrl)
+	tx := mocks.NewMockTransactor(ctrl)
+	service := NewService(store, mocks.NewMockMaintenanceReferenceStore(ctrl), mocks.NewMockInventoryStore(ctrl), tx, nil)
+	denied := fleeterror.NewForbiddenError("target is not allocated to this account")
+	account := int64(11)
+	params := models.CreateParams{OrgID: 2, Category: models.TicketCategoryAccount, CreatedByAccountID: &account, Component: "Power", IdempotencyKey: "policy"}
+	params.BeforeCreate = func(ctx context.Context) error {
+		require.True(t, txContextMatcher{}.Matches(ctx))
+		return denied
+	}
+	tx.EXPECT().RunInTx(gomock.Any(), gomock.Any()).DoAndReturn(runTx)
+	gomock.InOrder(
+		store.EXPECT().LockRepairTicketCreateKey(txContextMatcher{}, int64(2), "policy").Return(nil),
+		store.EXPECT().GetRepairTicketByIdempotencyKey(txContextMatcher{}, int64(2), "policy").Return(nil, "", fleeterror.NewNotFoundError("not found")),
+	)
+	ticket, created, err := service.CreateRepairTicket(t.Context(), params)
+	require.ErrorIs(t, err, denied)
+	require.Nil(t, ticket)
+	require.False(t, created)
+}
+
+func TestReopenLocksOriginalLocationBeforeTicketAndRevalidatesPlacement(t *testing.T) {
+	for _, changed := range []bool{false, true} {
+		t.Run(fmt.Sprintf("changed=%t", changed), func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			store := mocks.NewMockMaintenanceStore(ctrl)
+			refs := mocks.NewMockMaintenanceReferenceStore(ctrl)
+			tx := mocks.NewMockTransactor(ctrl)
+			service := NewService(store, refs, mocks.NewMockInventoryStore(ctrl), tx, nil)
+			site, building := int64(11), int64(12)
+			current := &models.RepairTicket{ID: 3, OrgID: 2, UpdatedAt: testVersion, Status: models.TicketStatusCompleted, SiteID: &site, BuildingID: &building}
+			locked := *current
+			if changed {
+				locked.BuildingID = nil
+			}
+			params := models.UpdateParams{OrgID: 2, ID: 3, ExpectedUpdatedAt: testVersion, Status: statusPointer(models.TicketStatusOpen)}
+			tx.EXPECT().RunInTxWithResult(gomock.Any(), gomock.Any()).DoAndReturn(runResultTx)
+			gomock.InOrder(
+				store.EXPECT().GetRepairTicket(txContextMatcher{}, int64(2), int64(3)).Return(current, nil),
+				refs.EXPECT().LockSiteForTicket(txContextMatcher{}, int64(2), site).Return(nil),
+				refs.EXPECT().LockBuildingForTicket(txContextMatcher{}, int64(2), building).Return(nil),
+				store.EXPECT().GetRepairTicketForUpdate(txContextMatcher{}, int64(2), int64(3)).Return(&locked, nil),
+			)
+			if !changed {
+				store.EXPECT().UpdateRepairTicket(txContextMatcher{}, params).Return(&locked, nil)
+			}
+			_, err := service.UpdateRepairTicket(t.Context(), params)
+			if changed {
+				require.True(t, fleeterror.IsFailedPreconditionError(err), "%v", err)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}

@@ -19,6 +19,7 @@ export const AccountPermissionsEditor = ({
   const allowed = account.depth === 0 ? account.capabilityCeiling : account.effectiveCapabilities;
   const required = 9n;
   const [ceiling, setCeiling] = useState((child.capabilityCeiling & allowed) | required);
+  const [ticketingEnabled, setTicketingEnabled] = useState(child.ticketingEnabled);
   const [suspended, setSuspended] = useState(child.suspended);
   return (
     <ActionModal
@@ -36,12 +37,17 @@ export const AccountPermissionsEditor = ({
           childAccountId: child.accountId,
           capabilities: ceiling,
           suspended,
+          ticketingEnabled,
         });
         onSaved();
         onDismiss();
       }}
     >
       <CapabilityFields value={ceiling} allowed={allowed} required={required} onChange={setCeiling} />
+      <label className="flex items-center gap-3">
+        <Checkbox checked={ticketingEnabled} onChange={(event) => setTicketingEnabled(event.target.checked)} />
+        Ticketing
+      </label>
       <p className="text-200 text-text-primary-50">Viewing data and managing the team are required.</p>
       <label className="flex items-start gap-3">
         <Checkbox checked={suspended} onChange={(event) => setSuspended(event.target.checked)} />

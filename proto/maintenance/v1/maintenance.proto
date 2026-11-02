@@ -10,6 +10,10 @@ import "google/protobuf/timestamp.proto";
 // miner hardware and infrastructure components. Also manages ticket
 // comments and provides aggregate statistics for queue dashboards.
 service MaintenanceService {
+    rpc ShareRepairTicket(ShareRepairTicketRequest) returns (ShareRepairTicketResponse);
+    rpc SetTicketCommentVisibility(SetTicketCommentVisibilityRequest) returns (SetTicketCommentVisibilityResponse);
+    rpc ListTicketAssetOptions(ListTicketAssetOptionsRequest) returns (ListTicketAssetOptionsResponse);
+    rpc UpdateTicketTarget(UpdateTicketTargetRequest) returns (UpdateTicketTargetResponse);
     // ListRepairTickets returns a filtered, sorted, paginated list of
     // repair tickets. Excludes soft-deleted tickets. Supports cursor
     // pagination, multi-dimensional filtering, and text search across
@@ -68,6 +72,9 @@ enum TicketCategory {
     TICKET_CATEGORY_UNSPECIFIED     = 0;
     TICKET_CATEGORY_MINER           = 1;
     TICKET_CATEGORY_INFRASTRUCTURE  = 2;
+    TICKET_CATEGORY_MODULE          = 3;
+    TICKET_CATEGORY_HASHBOARD       = 4;
+    TICKET_CATEGORY_ACCOUNT         = 5;
 }
 
 enum TicketStatus {
@@ -156,7 +163,9 @@ message RepairTicket {
     // Completion fields — populated when status is COMPLETED.
     TicketResolution resolution      = 19;
     RepairLocation   repair_location = 20;
+    // Operational notes remain separate from the client-visible closing note.
     string           notes           = 21;
+    string           resolution_note = 36;
     double           daily_impact_usd = 22;
 
     // RMA fields — populated when status is SENT_TO_VENDOR.
@@ -171,6 +180,49 @@ message RepairTicket {
     // Hydrated display labels. Clients do not resolve tenant-scoped IDs.
     string site_name     = 29;
     string building_name = 30;
+    string description = 31;
+    repeated TicketAsset targets = 32;
+    // Opening-time recipients; access requires shared_with_clients.
+    repeated TicketAudience audiences = 33;
+    bool shared_with_clients = 35;
+    string created_by_account_id = 34;
+}
+
+// Stable physical identities. A hashboard selection must name its current
+// module; the server verifies that association and snapshots the installation.
+message TicketAssetSelection {
+    TicketCategory kind = 1 [(buf.validate.field).enum = {defined_only: true, in: [1,3,4]}];
+    int64 id = 2 [(buf.validate.field).int64.gt = 0];
+    optional int64 parent_module_id = 3 [(buf.validate.field).int64.gt = 0];
+    option (buf.validate.message).cel = {
+      id: "ticket_asset.parent"
+      message: "only hashboards require a parent module"
+      expression: "(this.kind == 4) == has(this.parent_module_id)"
+    };
+}
+message TicketAsset {
+    TicketCategory kind = 1;
+    int64 id = 2;
+    string label = 3;
+    string model = 4;
+    optional int64 module_id = 5;
+    optional int64 installation_id = 6;
+    optional int64 container_id = 7;
+    optional int32 position = 8;
+    optional int64 site_id = 9;
+    optional int64 replacement_module_id = 10;
+    optional int64 replacement_hashboard_id = 11;
+    string diagnosis = 12;
+    string warranty_evidence = 13;
+    string repair_outcome = 14;
+    string rma_outcome = 15;
+    string miner_identifier = 16;
+    // Client projections retain identity but omit physical details outside live policy.
+    bool outside_policy = 17;
+}
+message TicketAudience {
+    string account_id = 1;
+    string name = 2;
 }
 
 message PartUsage {
@@ -183,6 +235,14 @@ message TicketPartsSelection {
     repeated PartUsage parts = 1;
 }
 
+// Read-only history distinguishes consumed stock from active reservations.
+message RecordedPartUsage {
+    int64 inventory_part_id = 1;
+    string part_name = 2;
+    int32 quantity = 3;
+    optional google.protobuf.Timestamp consumed_at = 4;
+}
+
 message TicketComment {
     int64  id        = 1;
     int64  ticket_id = 2;
@@ -193,6 +253,9 @@ message TicketComment {
     // Derived by the server from the authenticated caller. Never accepted
     // on a mutation request.
     bool authored_by_caller = 7;
+    bool internal = 8;
+    string account_id = 9;
+    string account_name = 10;
 }
 
 message Assignee {
@@ -206,7 +269,7 @@ message Assignee {
 message RepairTicketDetail {
     RepairTicket          ticket   = 1;
     repeated TicketComment comments = 2;
-    repeated PartUsage    parts_used = 3;
+    repeated RecordedPartUsage parts_used = 3;
 }
 
 // RepairTicketSummary is the list-view shape: ticket fields plus
@@ -264,9 +327,16 @@ message GetRepairTicketResponse {
 // CreateRepairTicket
 
 message CreateRepairTicketRequest {
-    TicketCategory category  = 1 [(buf.validate.field).enum = {defined_only: true, not_in: [0]}];
+    option (buf.validate.message).cel = {
+        id: "ticket_target_location_derived"
+        message: "location and miner fields cannot be supplied with targets"
+        expression: "this.targets.size() == 0 || (!has(this.site_id) && !has(this.building_id) && !has(this.rack_id) && !has(this.miner_identifier) && this.zone == '' && this.rack_label == '' && this.group_label == '')"
+    };
+    // Host tickets are internal unless explicitly shared.
+    bool share_with_clients = 20;
+    TicketCategory category  = 1 [(buf.validate.field).enum = {defined_only: true, in: [1, 2, 3, 4]}];
     string         component = 2 [(buf.validate.field).string = {min_len: 1, max_len: 255}];
-    string         diagnosis = 3 [(buf.validate.field).string = {min_len: 1, max_len: 4096}];
+    string         diagnosis = 3 [(buf.validate.field).string.max_len = 4096];
     bool           urgent    = 4;
 
     optional string miner_identifier = 5 [(buf.validate.field).string.max_len = 256];
@@ -287,6 +357,10 @@ message CreateRepairTicketRequest {
 
     // Caller-generated key reused when retrying the same create operation.
     string idempotency_key = 16 [(buf.validate.field).string = {min_len: 1, max_len: 64}];
+    string description = 17 [(buf.validate.field).string = {min_len: 1, max_len: 4096}];
+    repeated TicketAssetSelection targets = 18 [(buf.validate.field).repeated.max_items = 100];
+    // Explicit infrastructure audiences. Asset audiences are derived at opening.
+    repeated string client_account_ids = 19 [(buf.validate.field).repeated = {max_items: 100, unique: true, items: {string: {uuid: true}}}];
 }
 
 message CreateRepairTicketResponse {
@@ -296,6 +370,17 @@ message CreateRepairTicketResponse {
 // UpdateRepairTicket
 
 message UpdateRepairTicketRequest {
+    option (buf.validate.message).cel = {
+        id: "resolution_note_required_on_completion"
+        message: "completing a ticket requires a resolution note"
+        expression: "!has(this.status) || this.status != 5 || (has(this.resolution_note) && this.resolution_note.size() > 0)"
+    };
+    option (buf.validate.message).cel = {
+        id: "resolution_note_completion_only"
+        message: "resolution_note is only accepted when completing a ticket"
+        expression: "!has(this.resolution_note) || (has(this.status) && this.status == 5)"
+    };
+
     int64 id = 1 [(buf.validate.field).int64.gt = 0];
 
     // Mutable fields — only set fields are applied.
@@ -310,6 +395,9 @@ message UpdateRepairTicketRequest {
     optional TicketResolution   resolution      = 8 [(buf.validate.field).enum = {defined_only: true, not_in: [0]}];
     optional RepairLocation     repair_location = 9 [(buf.validate.field).enum.defined_only = true];
     optional TicketPartsSelection parts_selection = 10;
+    optional string           resolution_note = 22 [(buf.validate.field).string.max_len = 4096];
+
+    // Operational notes — independent of completion.
     optional string           notes           = 11 [(buf.validate.field).string.max_len = 4096];
 
     // RMA fields — set when transitioning to SENT_TO_VENDOR.
@@ -325,6 +413,8 @@ message UpdateRepairTicketRequest {
     reserved "expected_parts_selection", "expected_rma_snapshot", "expected_status";
     // Exact version observed when the editor opened. Stale writes require refresh.
     google.protobuf.Timestamp expected_updated_at = 20 [(buf.validate.field).required = true];
+    // Add affected physical boards to this incident without a duplicate ticket.
+    repeated TicketAssetSelection affected_boards = 21 [(buf.validate.field).repeated.max_items = 100];
 }
 
 message UpdateRepairTicketResponse {
@@ -362,7 +452,9 @@ message BulkCloseParams {
     RepairLocation                repair_location   = 2 [(buf.validate.field).enum.defined_only = true];
     reserved 3;
     reserved "parts_used";
-    string                        notes             = 4 [(buf.validate.field).string.max_len = 4096];
+    reserved 4;
+    reserved "notes";
+    string                        resolution_note   = 6 [(buf.validate.field).string = {min_len: 1, max_len: 4096}];
     reserved 5;
     reserved "expected_statuses";
 }
@@ -387,6 +479,9 @@ message CreateTicketCommentRequest {
     int64  ticket_id       = 1 [(buf.validate.field).int64.gt = 0];
     string text            = 2 [(buf.validate.field).string = {min_len: 1, max_len: 4096}];
     string idempotency_key = 3 [(buf.validate.field).string = {min_len: 1, max_len: 64}];
+    // Omission creates a host-only note. False explicitly posts a client reply.
+    optional bool internal = 4;
+
 }
 
 message CreateTicketCommentResponse {
@@ -446,3 +541,85 @@ message GetTicketStatsResponse {
     // Average age in hours for non-completed tickets.
     double avg_age_hours    = 9;
 }
+
+// Physical equipment picker scoped by maintenance permissions.
+message ListTicketAssetOptionsRequest {
+ repeated int64 site_ids = 1 [(buf.validate.field).repeated.items.int64.gt = 0];
+ string search = 2 [(buf.validate.field).string.max_len = 256];
+ // For triage, list the physical boards installed in the ticket's modules
+ // when it opened, including boards subsequently removed or moved.
+ optional int64 ticket_id = 3 [(buf.validate.field).int64.gt = 0];
+ optional TicketCategory kind = 4 [(buf.validate.field).enum = {defined_only: true, in: [1,3,4]}];
+ option (buf.validate.message).cel = {
+   id: "ticket_assets.historical_scope"
+   message: "ticket history uses its recorded site and hashboard kind rather than picker filters"
+   expression: "!has(this.ticket_id) || (this.site_ids.size() == 0 && !has(this.kind))"
+ };
+}
+message ListTicketAssetOptionsResponse { repeated TicketAsset assets = 1; }
+
+// Evidence belongs to the original physical target. Replacement links retain
+// both identities and never rewrite the original snapshot.
+message UpdateTicketTargetRequest {
+ option (buf.validate.message).cel = {
+   id: "target.module_replacement_context"
+   message: "module replacement requires a module target"
+   expression: "this.kind == 3 || (!has(this.replacement_module_id) && !has(this.replacement_module_model) && !this.clear_replacement_module)"
+ };
+ option (buf.validate.message).cel = {
+   id: "target.hashboard_replacement_context"
+   message: "board replacement requires a hashboard target"
+   expression: "this.kind == 4 || (!has(this.replacement_hashboard_id) && !this.clear_replacement_hashboard)"
+ };
+ option (buf.validate.message).cel = {
+   id: "target.module_model_context"
+   message: "module model requires a module or hashboard target"
+   expression: "!has(this.module_model) || this.kind in [3, 4]"
+ };
+ option (buf.validate.message).cel = {
+   id: "target.replacement_model_context"
+   message: "replacement model requires a replacement module"
+   expression: "!has(this.replacement_module_model) || has(this.replacement_module_id)"
+ };
+ option (buf.validate.message).cel = {
+   id: "target.clear_module_conflict"
+   message: "replacement module cannot be set and cleared together"
+   expression: "!this.clear_replacement_module || (!has(this.replacement_module_id) && !has(this.replacement_module_model))"
+ };
+ option (buf.validate.message).cel = {
+   id: "target.clear_hashboard_conflict"
+   message: "replacement hashboard cannot be set and cleared together"
+   expression: "!this.clear_replacement_hashboard || !has(this.replacement_hashboard_id)"
+ };
+ int64 ticket_id = 1 [(buf.validate.field).int64.gt = 0];
+ TicketCategory kind = 2 [(buf.validate.field).enum = {defined_only: true, in: [1,3,4]}];
+ int64 asset_id = 3 [(buf.validate.field).int64.gt = 0];
+ google.protobuf.Timestamp expected_updated_at = 4 [(buf.validate.field).required = true];
+ optional string diagnosis = 5 [(buf.validate.field).string.max_len = 4096];
+ optional string warranty_evidence = 6 [(buf.validate.field).string.max_len = 4096];
+ optional string repair_outcome = 7 [(buf.validate.field).string.max_len = 4096];
+ optional string rma_outcome = 8 [(buf.validate.field).string.max_len = 4096];
+ // Actual module hardware model, recorded by the host when upstream has none.
+ optional string module_model = 9 [(buf.validate.field).string = {min_len: 1, max_len: 255}];
+ optional int64 replacement_module_id = 10 [(buf.validate.field).int64.gt = 0];
+ optional string replacement_module_model = 11 [(buf.validate.field).string = {min_len: 1, max_len: 255}];
+ optional int64 replacement_hashboard_id = 12 [(buf.validate.field).int64.gt = 0];
+ // Omitted replacement IDs preserve links; these flags remove the corresponding link.
+ bool clear_replacement_module = 13;
+ bool clear_replacement_hashboard = 14;
+}
+message UpdateTicketTargetResponse { RepairTicket ticket = 1; }
+
+message ShareRepairTicketRequest {
+    int64 ticket_id = 1 [(buf.validate.field).int64.gt = 0];
+    google.protobuf.Timestamp expected_updated_at = 2 [(buf.validate.field).required = true];
+}
+message ShareRepairTicketResponse { RepairTicket ticket = 1; }
+message SetTicketCommentVisibilityRequest {
+    int64 ticket_id = 1 [(buf.validate.field).int64.gt = 0];
+    int64 comment_id = 2 [(buf.validate.field).int64.gt = 0];
+    // True hides a host note; false exposes it to the ticket audience.
+    optional bool internal = 3 [(buf.validate.field).required = true];
+    google.protobuf.Timestamp expected_updated_at = 4 [(buf.validate.field).required = true];
+}
+message SetTicketCommentVisibilityResponse {}

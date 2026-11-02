@@ -160,10 +160,10 @@ func TestAutomaticHashboardReplacementMigrationPreservesOwnership(t *testing.T) 
 	require.NoError(t, r.store(t, replacementSnapshot(r.base.Add(time.Second), "new")))
 	incoming := r.boardID(t, "new")
 	for _, migration := range []string{
-		"001049_internal_hashboard_allocation_order.down",
-		"001048_internal_automatic_hashboard_allocation.down",
-		"001048_internal_automatic_hashboard_allocation.up",
-		"001049_internal_hashboard_allocation_order.up",
+		"001051_internal_hashboard_allocation_order.down",
+		"001050_internal_automatic_hashboard_allocation.down",
+		"001050_internal_automatic_hashboard_allocation.up",
+		"001051_internal_hashboard_allocation_order.up",
 	} {
 		script, err := migrations.Current.ReadFile("current/" + migration + ".sql")
 		require.NoError(t, err)
@@ -413,7 +413,7 @@ func TestAutomaticHashboardReplacementDoesNotInferPreUpgradeOrdering(t *testing.
 	// Reapply the migration with an existing pending replacement. It cannot
 	// reconstruct which manual decisions followed its installation or removal.
 	for _, direction := range []string{"down", "up"} {
-		script, err := migrations.Current.ReadFile("current/001049_internal_hashboard_allocation_order." + direction + ".sql")
+		script, err := migrations.Current.ReadFile("current/001051_internal_hashboard_allocation_order." + direction + ".sql")
 		require.NoError(t, err)
 		_, err = r.db.ExecContext(t.Context(), string(script))
 		require.NoError(t, err)

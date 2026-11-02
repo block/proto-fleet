@@ -90,7 +90,7 @@ func (r *Repository) ReviewAssignment(ctx context.Context, q sqlc.Querier, scope
 			return Review{}, storageError(err)
 		}
 		if err == nil {
-			if previous.AccountID != scope.account() {
+			if !previous.RetiredAt.Valid && previous.AccountID != scope.account() {
 				return Review{}, fleeterror.NewForbiddenError("equipment belongs to another configuration owner")
 			}
 			if previous.DeviceID != target.DeviceID {
@@ -115,7 +115,11 @@ func (r *Repository) ReviewAssignment(ctx context.Context, q sqlc.Querier, scope
 	if err != nil {
 		return Review{}, storageError(err)
 	}
-	return Review{ID: row.ReviewID, Configuration: public, Targets: targets, ExpiresAt: row.ExpiresAt}, nil
+	summary, err := r.Get(ctx, q, scope, id)
+	if err != nil {
+		return Review{}, err
+	}
+	return Review{ID: row.ReviewID, Configuration: public, Targets: targets, ExpiresAt: row.ExpiresAt, AssignedCount: summary.AssignedCount}, nil
 }
 
 // ReviewEdit prepares an exact, expiring change. The enclosing service must
@@ -264,6 +268,7 @@ func (r *Repository) ConfirmReview(ctx context.Context, q sqlc.Querier, scope Sc
 	changes := make([]AssignmentChange, len(reviewed))
 	for i, item := range reviewed {
 		targets[i], changes[i] = item.Change.Target, item.Change
+		changes[i].ReviewedBinding = item.Binding
 	}
 	bindings, err := reviewTargets(ctx, q, scope, actorID, targets, public.Slots, reviewer)
 	if err != nil {

@@ -159,7 +159,11 @@ func rollbackEmptyHashboardAllocations(t *testing.T, conn *sql.DB) {
 	if !exists {
 		return
 	}
-	down, err := migrations.Current.ReadFile("current/001047_internal_hashboard_allocations.down.sql")
+	consumers, err := migrations.Current.ReadFile("current/001052_internal_hashboard_allocation_consumers.down.sql")
+	require.NoError(t, err)
+	_, err = conn.ExecContext(t.Context(), string(consumers))
+	require.NoError(t, err)
+	down, err := migrations.Current.ReadFile("current/001049_internal_hashboard_allocations.down.sql")
 	require.NoError(t, err)
 	_, err = conn.ExecContext(t.Context(), string(down))
 	require.NoError(t, err)

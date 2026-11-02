@@ -11,10 +11,12 @@ import {
   DeleteTicketCommentResponseSchema,
   GetRepairTicketResponseSchema,
   ListAssigneesResponseSchema,
+  ListTicketAssetOptionsResponseSchema,
   RepairTicketSchema,
   TicketCategory,
   TicketStatus,
   UpdateRepairTicketResponseSchema,
+  UpdateTicketTargetResponseSchema,
 } from "@/protoFleet/api/generated/maintenance/v1/maintenance_pb";
 import { ListSitesResponseSchema } from "@/protoFleet/api/generated/sites/v1/sites_pb";
 import { useFleetStore } from "@/protoFleet/store";
@@ -170,6 +172,84 @@ export const AssignmentError: Story = {
     await openAssignment(context);
     await waitFor(() =>
       expect(within(context.canvasElement.ownerDocument.body).getByRole("button", { name: "Retry" })).toBeVisible(),
+    );
+  },
+};
+
+const moduleIncident = () => {
+  const previousPermissions = useFleetStore.getState().auth.permissions;
+  useFleetStore.setState((store) => {
+    store.auth.permissions = ["maintenance:read", "maintenance:manage"];
+  });
+  const ticket = create(RepairTicketSchema, {
+    id: 272n,
+    ticketNumber: "TK-0272",
+    category: TicketCategory.MODULE,
+    status: TicketStatus.IN_PROGRESS,
+    component: "Hashboard",
+    description: "Module stopped hashing",
+    diagnosis: "Investigating power delivery",
+    updatedAt: { seconds: 1793335200n, nanos: 123456789 },
+    targets: [{ kind: TicketCategory.MODULE, id: 51n, label: "Module 51", model: "Model A" }],
+    audiences: [{ accountId: "11111111-1111-4111-8111-111111111111", name: "Northstar Mining" }],
+  });
+  const mocks = [
+    spyOn(maintenanceClient, "getRepairTicket").mockImplementation(async () =>
+      create(GetRepairTicketResponseSchema, {
+        detail: {
+          ticket,
+          comments: [{ id: 1n, userName: "Technician", text: "Checking the original module", internal: true }],
+        },
+      }),
+    ),
+    spyOn(maintenanceClient, "listAssignees").mockResolvedValue(create(ListAssigneesResponseSchema)),
+    spyOn(sitesClient, "listSites").mockResolvedValue(create(ListSitesResponseSchema)),
+    spyOn(maintenanceClient, "listTicketAssetOptions").mockResolvedValue(
+      create(ListTicketAssetOptionsResponseSchema, {
+        assets: [
+          {
+            kind: TicketCategory.HASHBOARD,
+            id: 84n,
+            label: "Original HB-84 (removed)",
+            moduleId: 51n,
+            installationId: 12n,
+            model: "Model A",
+          },
+        ],
+      }),
+    ),
+    spyOn(maintenanceClient, "updateTicketTarget").mockImplementation(async (request) => {
+      Object.assign(ticket.targets[0], request);
+      return create(UpdateTicketTargetResponseSchema, { ticket });
+    }),
+    spyOn(maintenanceClient, "updateRepairTicket").mockImplementation(async () =>
+      create(UpdateRepairTicketResponseSchema, { ticket }),
+    ),
+    spyOn(maintenanceClient, "createTicketComment").mockResolvedValue(create(CreateTicketCommentResponseSchema)),
+  ];
+  return () => {
+    mocks.forEach((mock) => mock.mockRestore());
+    useFleetStore.setState((store) => {
+      store.auth.permissions = previousPermissions;
+    });
+  };
+};
+export const ModuleIncident: Story = { args: { ticketId: "272" }, beforeEach: moduleIncident };
+export const TargetEvidence: Story = {
+  args: { ticketId: "272" },
+  beforeEach: moduleIncident,
+  play: async ({ canvasElement }) => {
+    await userEvent.click(
+      await within(canvasElement.ownerDocument.body).findByRole("button", { name: "Edit Module 51 evidence" }),
+    );
+  },
+};
+export const HistoricalBoards: Story = {
+  args: { ticketId: "272" },
+  beforeEach: moduleIncident,
+  play: async ({ canvasElement }) => {
+    await userEvent.click(
+      await within(canvasElement.ownerDocument.body).findByRole("button", { name: "Add affected boards" }),
     );
   },
 };

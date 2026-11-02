@@ -282,7 +282,9 @@ message FleetNodeTelemetryResult {
   // JSON encoding of server/internal/domain/telemetry/models/v2.DeviceMetrics.
   // This preserves component-level metrics without duplicating the V2 model in
   // the control proto. Scalar fields above remain for validation and fallback.
-  bytes device_metrics_json = 14 [(buf.validate.field).bytes.max_len = 262144];
+  // Allow CT1 topology and board observations while leaving envelope space in
+  // the 8 MiB ControlAck payload. Keep the node-side encoder limit in sync.
+  bytes device_metrics_json = 14 [(buf.validate.field).bytes.max_len = 8323072];
   // Whole elapsed seconds since device boot; absent means unknown, zero is valid.
   optional uint64 uptime_seconds = 15;
   // Age of the uptime observation when the node builds this result, including

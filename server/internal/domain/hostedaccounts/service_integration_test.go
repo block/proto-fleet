@@ -39,7 +39,7 @@ func setup(t *testing.T) fixture {
 	require.NoError(t, err)
 	var root string
 	require.NoError(t, conn.QueryRowContext(t.Context(), `SELECT account_id FROM hosted_account WHERE organization_id = $1 AND depth = 0`, org).Scan(&root))
-	return fixture{conn, hostedaccounts.NewService(conn), org, host, addUser(t, conn, org), root}
+	return fixture{conn, hostedaccounts.NewService(conn, ticketServiceForTest(conn)), org, host, addUser(t, conn, org), root}
 }
 
 func addUser(t *testing.T, conn *sql.DB, org int64) int64 {

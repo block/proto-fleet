@@ -15,6 +15,7 @@ import (
 
 func TestHostedAccountsMigrationBackfillsRootsAndRollsBack(t *testing.T) {
 	conn := dbtest.GetTestDB(t)
+	rollbackEmptyClientTicketing(t, conn)
 	ctx := t.Context()
 	rollbackEmptyMiningGroups(t, conn)
 	rollbackEmptyAllocationHistory(t, conn)
@@ -104,6 +105,7 @@ func TestHostedAccountSchemaEnforcesHierarchyAndOrganization(t *testing.T) {
 
 func TestHostedAccountsMigrationBackfillsExistingAdmins(t *testing.T) {
 	conn := dbtest.GetTestDB(t)
+	rollbackEmptyClientTicketing(t, conn)
 	ctx := t.Context()
 	rollbackEmptyMiningGroups(t, conn)
 	rollbackEmptyAllocationHistory(t, conn)
@@ -204,6 +206,7 @@ func TestHostedAccountsMigrationBackfillsExistingAdmins(t *testing.T) {
 
 func TestHostedAccountsMigrationIncludesOrganizationsCreatedBeforeItsFence(t *testing.T) {
 	conn := dbtest.GetTestDB(t)
+	rollbackEmptyClientTicketing(t, conn)
 	ctx, cancel := context.WithTimeout(t.Context(), 20*time.Second)
 	defer cancel()
 	rollbackEmptyMiningGroups(t, conn)

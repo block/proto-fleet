@@ -34,6 +34,24 @@ const (
 // reflection-formatted method names, remove the leading slash and convert the remaining slash to a
 // period.
 const (
+	// HostedAccountServiceListAccountTicketsProcedure is the fully-qualified name of the
+	// HostedAccountService's ListAccountTickets RPC.
+	HostedAccountServiceListAccountTicketsProcedure = "/hosted.v1.HostedAccountService/ListAccountTickets"
+	// HostedAccountServiceGetAccountTicketProcedure is the fully-qualified name of the
+	// HostedAccountService's GetAccountTicket RPC.
+	HostedAccountServiceGetAccountTicketProcedure = "/hosted.v1.HostedAccountService/GetAccountTicket"
+	// HostedAccountServiceCreateAccountTicketProcedure is the fully-qualified name of the
+	// HostedAccountService's CreateAccountTicket RPC.
+	HostedAccountServiceCreateAccountTicketProcedure = "/hosted.v1.HostedAccountService/CreateAccountTicket"
+	// HostedAccountServiceCommentAccountTicketProcedure is the fully-qualified name of the
+	// HostedAccountService's CommentAccountTicket RPC.
+	HostedAccountServiceCommentAccountTicketProcedure = "/hosted.v1.HostedAccountService/CommentAccountTicket"
+	// HostedAccountServiceChangeAccountTicketStatusProcedure is the fully-qualified name of the
+	// HostedAccountService's ChangeAccountTicketStatus RPC.
+	HostedAccountServiceChangeAccountTicketStatusProcedure = "/hosted.v1.HostedAccountService/ChangeAccountTicketStatus"
+	// HostedAccountServiceListAccountTicketAssetsProcedure is the fully-qualified name of the
+	// HostedAccountService's ListAccountTicketAssets RPC.
+	HostedAccountServiceListAccountTicketAssetsProcedure = "/hosted.v1.HostedAccountService/ListAccountTicketAssets"
 	// HostedAccountServiceListAccountActivitiesProcedure is the fully-qualified name of the
 	// HostedAccountService's ListAccountActivities RPC.
 	HostedAccountServiceListAccountActivitiesProcedure = "/hosted.v1.HostedAccountService/ListAccountActivities"
@@ -143,6 +161,12 @@ const (
 
 // HostedAccountServiceClient is a client for the hosted.v1.HostedAccountService service.
 type HostedAccountServiceClient interface {
+	ListAccountTickets(context.Context, *connect.Request[v1.ListAccountTicketsRequest]) (*connect.Response[v1.ListAccountTicketsResponse], error)
+	GetAccountTicket(context.Context, *connect.Request[v1.GetAccountTicketRequest]) (*connect.Response[v1.GetAccountTicketResponse], error)
+	CreateAccountTicket(context.Context, *connect.Request[v1.CreateAccountTicketRequest]) (*connect.Response[v1.CreateAccountTicketResponse], error)
+	CommentAccountTicket(context.Context, *connect.Request[v1.CommentAccountTicketRequest]) (*connect.Response[v1.CommentAccountTicketResponse], error)
+	ChangeAccountTicketStatus(context.Context, *connect.Request[v1.ChangeAccountTicketStatusRequest]) (*connect.Response[v1.ChangeAccountTicketStatusResponse], error)
+	ListAccountTicketAssets(context.Context, *connect.Request[v1.ListAccountTicketAssetsRequest]) (*connect.Response[v1.ListAccountTicketAssetsResponse], error)
 	ListAccountActivities(context.Context, *connect.Request[v1.ListAccountActivitiesRequest]) (*connect.Response[v1.ListAccountActivitiesResponse], error)
 	ExportAccountActivities(context.Context, *connect.Request[v1.ExportAccountActivitiesRequest]) (*connect.ServerStreamForClient[v1.ExportAccountActivitiesResponse], error)
 	GetAccountDashboard(context.Context, *connect.Request[v1.GetAccountDashboardRequest]) (*connect.Response[v1.GetAccountDashboardResponse], error)
@@ -190,6 +214,36 @@ type HostedAccountServiceClient interface {
 func NewHostedAccountServiceClient(httpClient connect.HTTPClient, baseURL string, opts ...connect.ClientOption) HostedAccountServiceClient {
 	baseURL = strings.TrimRight(baseURL, "/")
 	return &hostedAccountServiceClient{
+		listAccountTickets: connect.NewClient[v1.ListAccountTicketsRequest, v1.ListAccountTicketsResponse](
+			httpClient,
+			baseURL+HostedAccountServiceListAccountTicketsProcedure,
+			opts...,
+		),
+		getAccountTicket: connect.NewClient[v1.GetAccountTicketRequest, v1.GetAccountTicketResponse](
+			httpClient,
+			baseURL+HostedAccountServiceGetAccountTicketProcedure,
+			opts...,
+		),
+		createAccountTicket: connect.NewClient[v1.CreateAccountTicketRequest, v1.CreateAccountTicketResponse](
+			httpClient,
+			baseURL+HostedAccountServiceCreateAccountTicketProcedure,
+			opts...,
+		),
+		commentAccountTicket: connect.NewClient[v1.CommentAccountTicketRequest, v1.CommentAccountTicketResponse](
+			httpClient,
+			baseURL+HostedAccountServiceCommentAccountTicketProcedure,
+			opts...,
+		),
+		changeAccountTicketStatus: connect.NewClient[v1.ChangeAccountTicketStatusRequest, v1.ChangeAccountTicketStatusResponse](
+			httpClient,
+			baseURL+HostedAccountServiceChangeAccountTicketStatusProcedure,
+			opts...,
+		),
+		listAccountTicketAssets: connect.NewClient[v1.ListAccountTicketAssetsRequest, v1.ListAccountTicketAssetsResponse](
+			httpClient,
+			baseURL+HostedAccountServiceListAccountTicketAssetsProcedure,
+			opts...,
+		),
 		listAccountActivities: connect.NewClient[v1.ListAccountActivitiesRequest, v1.ListAccountActivitiesResponse](
 			httpClient,
 			baseURL+HostedAccountServiceListAccountActivitiesProcedure,
@@ -370,41 +424,77 @@ func NewHostedAccountServiceClient(httpClient connect.HTTPClient, baseURL string
 
 // hostedAccountServiceClient implements HostedAccountServiceClient.
 type hostedAccountServiceClient struct {
-	listAccountActivities    *connect.Client[v1.ListAccountActivitiesRequest, v1.ListAccountActivitiesResponse]
-	exportAccountActivities  *connect.Client[v1.ExportAccountActivitiesRequest, v1.ExportAccountActivitiesResponse]
-	getAccountDashboard      *connect.Client[v1.GetAccountDashboardRequest, v1.GetAccountDashboardResponse]
-	getAccountAssetDetail    *connect.Client[v1.GetAccountAssetDetailRequest, v1.GetAccountAssetDetailResponse]
-	getAccountMiningSummary  *connect.Client[v1.GetAccountMiningSummaryRequest, v1.GetAccountMiningSummaryResponse]
-	listAccountAssets        *connect.Client[v1.ListAccountAssetsRequest, v1.ListAccountAssetsResponse]
-	assignAccountAssets      *connect.Client[v1.AssignAccountAssetsRequest, v1.AssignAccountAssetsResponse]
-	replaceAccountHashboard  *connect.Client[v1.ReplaceAccountHashboardRequest, v1.ReplaceAccountHashboardResponse]
-	listAccounts             *connect.Client[v1.ListAccountsRequest, v1.ListAccountsResponse]
-	getAccount               *connect.Client[v1.GetAccountRequest, v1.GetAccountResponse]
-	listChildren             *connect.Client[v1.ListChildrenRequest, v1.ListChildrenResponse]
-	createAccount            *connect.Client[v1.CreateAccountRequest, v1.CreateAccountResponse]
-	configureAccount         *connect.Client[v1.ConfigureAccountRequest, v1.ConfigureAccountResponse]
-	renameAccount            *connect.Client[v1.RenameAccountRequest, v1.RenameAccountResponse]
-	listMembers              *connect.Client[v1.ListMembersRequest, v1.ListMembersResponse]
-	setMemberRole            *connect.Client[v1.SetMemberRoleRequest, v1.SetMemberRoleResponse]
-	revokeMember             *connect.Client[v1.RevokeMemberRequest, v1.RevokeMemberResponse]
-	listAncestorGrants       *connect.Client[v1.ListAncestorGrantsRequest, v1.ListAncestorGrantsResponse]
-	setAncestorGrant         *connect.Client[v1.SetAncestorGrantRequest, v1.SetAncestorGrantResponse]
-	revokeAncestorGrant      *connect.Client[v1.RevokeAncestorGrantRequest, v1.RevokeAncestorGrantResponse]
-	getSitePolicy            *connect.Client[v1.GetSitePolicyRequest, v1.GetSitePolicyResponse]
-	setSitePolicy            *connect.Client[v1.SetSitePolicyRequest, v1.SetSitePolicyResponse]
-	listInvitations          *connect.Client[v1.ListInvitationsRequest, v1.ListInvitationsResponse]
-	createInvitation         *connect.Client[v1.CreateInvitationRequest, v1.CreateInvitationResponse]
-	revokeInvitation         *connect.Client[v1.RevokeInvitationRequest, v1.RevokeInvitationResponse]
-	createPoolConfiguration  *connect.Client[v1.CreatePoolConfigurationRequest, v1.CreatePoolConfigurationResponse]
-	revisePoolConfiguration  *connect.Client[v1.RevisePoolConfigurationRequest, v1.RevisePoolConfigurationResponse]
-	getPoolRevision          *connect.Client[v1.GetPoolRevisionRequest, v1.GetPoolRevisionResponse]
-	listPoolConfigurations   *connect.Client[v1.ListPoolConfigurationsRequest, v1.ListPoolConfigurationsResponse]
-	archivePoolConfiguration *connect.Client[v1.ArchivePoolConfigurationRequest, v1.ArchivePoolConfigurationResponse]
-	getIncomingPoolProfile   *connect.Client[v1.GetIncomingPoolProfileRequest, v1.GetIncomingPoolProfileResponse]
-	setIncomingPoolProfile   *connect.Client[v1.SetIncomingPoolProfileRequest, v1.SetIncomingPoolProfileResponse]
-	createAccountKey         *connect.Client[v1.CreateAccountKeyRequest, v1.CreateAccountKeyResponse]
-	listAccountKeys          *connect.Client[v1.ListAccountKeysRequest, v1.ListAccountKeysResponse]
-	revokeAccountKey         *connect.Client[v1.RevokeAccountKeyRequest, v1.RevokeAccountKeyResponse]
+	listAccountTickets        *connect.Client[v1.ListAccountTicketsRequest, v1.ListAccountTicketsResponse]
+	getAccountTicket          *connect.Client[v1.GetAccountTicketRequest, v1.GetAccountTicketResponse]
+	createAccountTicket       *connect.Client[v1.CreateAccountTicketRequest, v1.CreateAccountTicketResponse]
+	commentAccountTicket      *connect.Client[v1.CommentAccountTicketRequest, v1.CommentAccountTicketResponse]
+	changeAccountTicketStatus *connect.Client[v1.ChangeAccountTicketStatusRequest, v1.ChangeAccountTicketStatusResponse]
+	listAccountTicketAssets   *connect.Client[v1.ListAccountTicketAssetsRequest, v1.ListAccountTicketAssetsResponse]
+	listAccountActivities     *connect.Client[v1.ListAccountActivitiesRequest, v1.ListAccountActivitiesResponse]
+	exportAccountActivities   *connect.Client[v1.ExportAccountActivitiesRequest, v1.ExportAccountActivitiesResponse]
+	getAccountDashboard       *connect.Client[v1.GetAccountDashboardRequest, v1.GetAccountDashboardResponse]
+	getAccountAssetDetail     *connect.Client[v1.GetAccountAssetDetailRequest, v1.GetAccountAssetDetailResponse]
+	getAccountMiningSummary   *connect.Client[v1.GetAccountMiningSummaryRequest, v1.GetAccountMiningSummaryResponse]
+	listAccountAssets         *connect.Client[v1.ListAccountAssetsRequest, v1.ListAccountAssetsResponse]
+	assignAccountAssets       *connect.Client[v1.AssignAccountAssetsRequest, v1.AssignAccountAssetsResponse]
+	replaceAccountHashboard   *connect.Client[v1.ReplaceAccountHashboardRequest, v1.ReplaceAccountHashboardResponse]
+	listAccounts              *connect.Client[v1.ListAccountsRequest, v1.ListAccountsResponse]
+	getAccount                *connect.Client[v1.GetAccountRequest, v1.GetAccountResponse]
+	listChildren              *connect.Client[v1.ListChildrenRequest, v1.ListChildrenResponse]
+	createAccount             *connect.Client[v1.CreateAccountRequest, v1.CreateAccountResponse]
+	configureAccount          *connect.Client[v1.ConfigureAccountRequest, v1.ConfigureAccountResponse]
+	renameAccount             *connect.Client[v1.RenameAccountRequest, v1.RenameAccountResponse]
+	listMembers               *connect.Client[v1.ListMembersRequest, v1.ListMembersResponse]
+	setMemberRole             *connect.Client[v1.SetMemberRoleRequest, v1.SetMemberRoleResponse]
+	revokeMember              *connect.Client[v1.RevokeMemberRequest, v1.RevokeMemberResponse]
+	listAncestorGrants        *connect.Client[v1.ListAncestorGrantsRequest, v1.ListAncestorGrantsResponse]
+	setAncestorGrant          *connect.Client[v1.SetAncestorGrantRequest, v1.SetAncestorGrantResponse]
+	revokeAncestorGrant       *connect.Client[v1.RevokeAncestorGrantRequest, v1.RevokeAncestorGrantResponse]
+	getSitePolicy             *connect.Client[v1.GetSitePolicyRequest, v1.GetSitePolicyResponse]
+	setSitePolicy             *connect.Client[v1.SetSitePolicyRequest, v1.SetSitePolicyResponse]
+	listInvitations           *connect.Client[v1.ListInvitationsRequest, v1.ListInvitationsResponse]
+	createInvitation          *connect.Client[v1.CreateInvitationRequest, v1.CreateInvitationResponse]
+	revokeInvitation          *connect.Client[v1.RevokeInvitationRequest, v1.RevokeInvitationResponse]
+	createPoolConfiguration   *connect.Client[v1.CreatePoolConfigurationRequest, v1.CreatePoolConfigurationResponse]
+	revisePoolConfiguration   *connect.Client[v1.RevisePoolConfigurationRequest, v1.RevisePoolConfigurationResponse]
+	getPoolRevision           *connect.Client[v1.GetPoolRevisionRequest, v1.GetPoolRevisionResponse]
+	listPoolConfigurations    *connect.Client[v1.ListPoolConfigurationsRequest, v1.ListPoolConfigurationsResponse]
+	archivePoolConfiguration  *connect.Client[v1.ArchivePoolConfigurationRequest, v1.ArchivePoolConfigurationResponse]
+	getIncomingPoolProfile    *connect.Client[v1.GetIncomingPoolProfileRequest, v1.GetIncomingPoolProfileResponse]
+	setIncomingPoolProfile    *connect.Client[v1.SetIncomingPoolProfileRequest, v1.SetIncomingPoolProfileResponse]
+	createAccountKey          *connect.Client[v1.CreateAccountKeyRequest, v1.CreateAccountKeyResponse]
+	listAccountKeys           *connect.Client[v1.ListAccountKeysRequest, v1.ListAccountKeysResponse]
+	revokeAccountKey          *connect.Client[v1.RevokeAccountKeyRequest, v1.RevokeAccountKeyResponse]
+}
+
+// ListAccountTickets calls hosted.v1.HostedAccountService.ListAccountTickets.
+func (c *hostedAccountServiceClient) ListAccountTickets(ctx context.Context, req *connect.Request[v1.ListAccountTicketsRequest]) (*connect.Response[v1.ListAccountTicketsResponse], error) {
+	return c.listAccountTickets.CallUnary(ctx, req)
+}
+
+// GetAccountTicket calls hosted.v1.HostedAccountService.GetAccountTicket.
+func (c *hostedAccountServiceClient) GetAccountTicket(ctx context.Context, req *connect.Request[v1.GetAccountTicketRequest]) (*connect.Response[v1.GetAccountTicketResponse], error) {
+	return c.getAccountTicket.CallUnary(ctx, req)
+}
+
+// CreateAccountTicket calls hosted.v1.HostedAccountService.CreateAccountTicket.
+func (c *hostedAccountServiceClient) CreateAccountTicket(ctx context.Context, req *connect.Request[v1.CreateAccountTicketRequest]) (*connect.Response[v1.CreateAccountTicketResponse], error) {
+	return c.createAccountTicket.CallUnary(ctx, req)
+}
+
+// CommentAccountTicket calls hosted.v1.HostedAccountService.CommentAccountTicket.
+func (c *hostedAccountServiceClient) CommentAccountTicket(ctx context.Context, req *connect.Request[v1.CommentAccountTicketRequest]) (*connect.Response[v1.CommentAccountTicketResponse], error) {
+	return c.commentAccountTicket.CallUnary(ctx, req)
+}
+
+// ChangeAccountTicketStatus calls hosted.v1.HostedAccountService.ChangeAccountTicketStatus.
+func (c *hostedAccountServiceClient) ChangeAccountTicketStatus(ctx context.Context, req *connect.Request[v1.ChangeAccountTicketStatusRequest]) (*connect.Response[v1.ChangeAccountTicketStatusResponse], error) {
+	return c.changeAccountTicketStatus.CallUnary(ctx, req)
+}
+
+// ListAccountTicketAssets calls hosted.v1.HostedAccountService.ListAccountTicketAssets.
+func (c *hostedAccountServiceClient) ListAccountTicketAssets(ctx context.Context, req *connect.Request[v1.ListAccountTicketAssetsRequest]) (*connect.Response[v1.ListAccountTicketAssetsResponse], error) {
+	return c.listAccountTicketAssets.CallUnary(ctx, req)
 }
 
 // ListAccountActivities calls hosted.v1.HostedAccountService.ListAccountActivities.
@@ -584,6 +674,12 @@ func (c *hostedAccountServiceClient) RevokeAccountKey(ctx context.Context, req *
 
 // HostedAccountServiceHandler is an implementation of the hosted.v1.HostedAccountService service.
 type HostedAccountServiceHandler interface {
+	ListAccountTickets(context.Context, *connect.Request[v1.ListAccountTicketsRequest]) (*connect.Response[v1.ListAccountTicketsResponse], error)
+	GetAccountTicket(context.Context, *connect.Request[v1.GetAccountTicketRequest]) (*connect.Response[v1.GetAccountTicketResponse], error)
+	CreateAccountTicket(context.Context, *connect.Request[v1.CreateAccountTicketRequest]) (*connect.Response[v1.CreateAccountTicketResponse], error)
+	CommentAccountTicket(context.Context, *connect.Request[v1.CommentAccountTicketRequest]) (*connect.Response[v1.CommentAccountTicketResponse], error)
+	ChangeAccountTicketStatus(context.Context, *connect.Request[v1.ChangeAccountTicketStatusRequest]) (*connect.Response[v1.ChangeAccountTicketStatusResponse], error)
+	ListAccountTicketAssets(context.Context, *connect.Request[v1.ListAccountTicketAssetsRequest]) (*connect.Response[v1.ListAccountTicketAssetsResponse], error)
 	ListAccountActivities(context.Context, *connect.Request[v1.ListAccountActivitiesRequest]) (*connect.Response[v1.ListAccountActivitiesResponse], error)
 	ExportAccountActivities(context.Context, *connect.Request[v1.ExportAccountActivitiesRequest], *connect.ServerStream[v1.ExportAccountActivitiesResponse]) error
 	GetAccountDashboard(context.Context, *connect.Request[v1.GetAccountDashboardRequest]) (*connect.Response[v1.GetAccountDashboardResponse], error)
@@ -627,6 +723,36 @@ type HostedAccountServiceHandler interface {
 // By default, handlers support the Connect, gRPC, and gRPC-Web protocols with the binary Protobuf
 // and JSON codecs. They also support gzip compression.
 func NewHostedAccountServiceHandler(svc HostedAccountServiceHandler, opts ...connect.HandlerOption) (string, http.Handler) {
+	hostedAccountServiceListAccountTicketsHandler := connect.NewUnaryHandler(
+		HostedAccountServiceListAccountTicketsProcedure,
+		svc.ListAccountTickets,
+		opts...,
+	)
+	hostedAccountServiceGetAccountTicketHandler := connect.NewUnaryHandler(
+		HostedAccountServiceGetAccountTicketProcedure,
+		svc.GetAccountTicket,
+		opts...,
+	)
+	hostedAccountServiceCreateAccountTicketHandler := connect.NewUnaryHandler(
+		HostedAccountServiceCreateAccountTicketProcedure,
+		svc.CreateAccountTicket,
+		opts...,
+	)
+	hostedAccountServiceCommentAccountTicketHandler := connect.NewUnaryHandler(
+		HostedAccountServiceCommentAccountTicketProcedure,
+		svc.CommentAccountTicket,
+		opts...,
+	)
+	hostedAccountServiceChangeAccountTicketStatusHandler := connect.NewUnaryHandler(
+		HostedAccountServiceChangeAccountTicketStatusProcedure,
+		svc.ChangeAccountTicketStatus,
+		opts...,
+	)
+	hostedAccountServiceListAccountTicketAssetsHandler := connect.NewUnaryHandler(
+		HostedAccountServiceListAccountTicketAssetsProcedure,
+		svc.ListAccountTicketAssets,
+		opts...,
+	)
 	hostedAccountServiceListAccountActivitiesHandler := connect.NewUnaryHandler(
 		HostedAccountServiceListAccountActivitiesProcedure,
 		svc.ListAccountActivities,
@@ -804,6 +930,18 @@ func NewHostedAccountServiceHandler(svc HostedAccountServiceHandler, opts ...con
 	)
 	return "/hosted.v1.HostedAccountService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
+		case HostedAccountServiceListAccountTicketsProcedure:
+			hostedAccountServiceListAccountTicketsHandler.ServeHTTP(w, r)
+		case HostedAccountServiceGetAccountTicketProcedure:
+			hostedAccountServiceGetAccountTicketHandler.ServeHTTP(w, r)
+		case HostedAccountServiceCreateAccountTicketProcedure:
+			hostedAccountServiceCreateAccountTicketHandler.ServeHTTP(w, r)
+		case HostedAccountServiceCommentAccountTicketProcedure:
+			hostedAccountServiceCommentAccountTicketHandler.ServeHTTP(w, r)
+		case HostedAccountServiceChangeAccountTicketStatusProcedure:
+			hostedAccountServiceChangeAccountTicketStatusHandler.ServeHTTP(w, r)
+		case HostedAccountServiceListAccountTicketAssetsProcedure:
+			hostedAccountServiceListAccountTicketAssetsHandler.ServeHTTP(w, r)
 		case HostedAccountServiceListAccountActivitiesProcedure:
 			hostedAccountServiceListAccountActivitiesHandler.ServeHTTP(w, r)
 		case HostedAccountServiceExportAccountActivitiesProcedure:
@@ -882,6 +1020,30 @@ func NewHostedAccountServiceHandler(svc HostedAccountServiceHandler, opts ...con
 
 // UnimplementedHostedAccountServiceHandler returns CodeUnimplemented from all methods.
 type UnimplementedHostedAccountServiceHandler struct{}
+
+func (UnimplementedHostedAccountServiceHandler) ListAccountTickets(context.Context, *connect.Request[v1.ListAccountTicketsRequest]) (*connect.Response[v1.ListAccountTicketsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("hosted.v1.HostedAccountService.ListAccountTickets is not implemented"))
+}
+
+func (UnimplementedHostedAccountServiceHandler) GetAccountTicket(context.Context, *connect.Request[v1.GetAccountTicketRequest]) (*connect.Response[v1.GetAccountTicketResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("hosted.v1.HostedAccountService.GetAccountTicket is not implemented"))
+}
+
+func (UnimplementedHostedAccountServiceHandler) CreateAccountTicket(context.Context, *connect.Request[v1.CreateAccountTicketRequest]) (*connect.Response[v1.CreateAccountTicketResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("hosted.v1.HostedAccountService.CreateAccountTicket is not implemented"))
+}
+
+func (UnimplementedHostedAccountServiceHandler) CommentAccountTicket(context.Context, *connect.Request[v1.CommentAccountTicketRequest]) (*connect.Response[v1.CommentAccountTicketResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("hosted.v1.HostedAccountService.CommentAccountTicket is not implemented"))
+}
+
+func (UnimplementedHostedAccountServiceHandler) ChangeAccountTicketStatus(context.Context, *connect.Request[v1.ChangeAccountTicketStatusRequest]) (*connect.Response[v1.ChangeAccountTicketStatusResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("hosted.v1.HostedAccountService.ChangeAccountTicketStatus is not implemented"))
+}
+
+func (UnimplementedHostedAccountServiceHandler) ListAccountTicketAssets(context.Context, *connect.Request[v1.ListAccountTicketAssetsRequest]) (*connect.Response[v1.ListAccountTicketAssetsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("hosted.v1.HostedAccountService.ListAccountTicketAssets is not implemented"))
+}
 
 func (UnimplementedHostedAccountServiceHandler) ListAccountActivities(context.Context, *connect.Request[v1.ListAccountActivitiesRequest]) (*connect.Response[v1.ListAccountActivitiesResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("hosted.v1.HostedAccountService.ListAccountActivities is not implemented"))

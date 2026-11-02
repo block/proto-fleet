@@ -19,16 +19,20 @@ func NewAuthenticatedGatewayClient(serverURL string, tokenSource func() string) 
 	if err != nil {
 		return nil, err
 	}
-	authOption := connect.WithInterceptors(bearerInterceptor(tokenSource))
+	clientOptions := connect.WithClientOptions(
+		connect.WithInterceptors(bearerInterceptor(tokenSource)),
+		connect.WithSendGzip(),
+		connect.WithCompressMinBytes(1024),
+	)
 	connectClient := fleetnodegatewayv1connect.NewFleetNodeGatewayServiceClient(
 		httpClient,
 		serverURL,
-		authOption,
+		clientOptions,
 	)
 	grpcClient := fleetnodegatewayv1connect.NewFleetNodeGatewayServiceClient(
 		httpClient,
 		serverURL,
-		authOption,
+		clientOptions,
 		connect.WithGRPC(),
 	)
 	return &controlStreamGRPCClient{
