@@ -87,16 +87,20 @@ func parseRange(value string) (Range, error) {
 	if err != nil {
 		return Range{}, fmt.Errorf("parse IPv4 range: %w", err)
 	}
+	return r, validateRange(r)
+}
+
+func validateRange(r Range) error {
 	if !r.Start.Is4() || !r.End.Is4() {
-		return Range{}, fmt.Errorf("only IPv4 addresses are supported")
+		return fmt.Errorf("only IPv4 addresses are supported")
 	}
 	if r.Start.Compare(r.End) > 0 {
-		return Range{}, fmt.Errorf("start address must not exceed end address")
+		return fmt.Errorf("start address must not exceed end address")
 	}
 	if !WithinPrivateNetwork(r.Start, r.End) {
-		return Range{}, fmt.Errorf("range must remain within one private IPv4 network")
+		return fmt.Errorf("range must remain within one private IPv4 network")
 	}
-	return r, nil
+	return nil
 }
 
 // WithinPrivateNetwork reports whether both addresses lie in the same RFC 1918 network.
@@ -142,54 +146,18 @@ func (s Scope) ContainsString(address string) bool {
 	return err == nil && s.Contains(parsed)
 }
 
-// IntersectScope returns the addresses permitted by both scopes.
-func (s Scope) IntersectScope(other Scope) Scope {
-	var result []Range
-	for left, right := 0, 0; left < len(s.ranges) && right < len(other.ranges); {
-		a, b := s.ranges[left], other.ranges[right]
-		start, end := a.Start, a.End
-		if b.Start.Compare(start) > 0 {
-			start = b.Start
-		}
-		if b.End.Compare(end) < 0 {
-			end = b.End
-		}
-		if start.Compare(end) <= 0 {
-			result = append(result, Range{Start: start, End: end})
-		}
-		if a.End.Compare(b.End) <= 0 {
-			left++
-		} else {
-			right++
-		}
-	}
-	return Scope{ranges: result}
-}
-
-// Chunks lazily yields unique IPv4 address strings in ascending order.
-// Each chunk contains at most maxAddresses entries. maxAddresses must be positive.
-func (s Scope) Chunks(maxAddresses int) iter.Seq[[]string] {
-	if maxAddresses <= 0 {
-		panic("discoveryranges: chunk size must be positive")
-	}
-	return func(yield func([]string) bool) {
-		var chunk []string
+// Addresses lazily yields each configured IPv4 address once in ascending order.
+func (s Scope) Addresses() iter.Seq[netip.Addr] {
+	return func(yield func(netip.Addr) bool) {
 		for _, r := range s.ranges {
 			for address := r.Start; ; address = address.Next() {
-				chunk = append(chunk, address.String())
-				if len(chunk) == maxAddresses {
-					if !yield(chunk) {
-						return
-					}
-					chunk = nil
+				if !yield(address) {
+					return
 				}
 				if address == r.End {
 					break
 				}
 			}
-		}
-		if len(chunk) > 0 {
-			yield(chunk)
 		}
 	}
 }

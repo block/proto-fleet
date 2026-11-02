@@ -125,90 +125,36 @@ func TestScopeEmpty(t *testing.T) {
 		if !empty {
 			t.Errorf("unexpected nonempty scope: %v", scope)
 		}
-		for chunk := range scope.Chunks(3) {
-			t.Fatalf("empty scope yielded %v", chunk)
+		for address := range scope.Addresses() {
+			t.Fatalf("empty scope yielded %v", address)
 		}
 	}
 }
 
-func TestScopeIntersectScope(t *testing.T) {
-	// Arrange
-	left := mustParse(t, "10.0.0.1-10.0.0.5", "10.0.0.8-10.0.0.12", "172.16.0.1")
-	right := mustParse(t, "10.0.0.3-10.0.0.9", "192.168.1.1")
-	want := []string{"10.0.0.3-10.0.0.5", "10.0.0.8-10.0.0.9"}
-
-	t.Run("overlap is symmetric", func(t *testing.T) {
-		for _, result := range []Scope{left.IntersectScope(right), right.IntersectScope(left)} {
-			// Assert
-			if got := result.Strings(); !reflect.DeepEqual(got, want) {
-				t.Fatalf("IntersectScope() = %v, want %v", got, want)
-			}
-		}
-	})
-
-	t.Run("empty or disjoint scope", func(t *testing.T) {
-		// Act
-		withEmpty := left.IntersectScope(Scope{})
-		withDisjoint := left.IntersectScope(mustParse(t, "192.168.1.1"))
-
-		// Assert
-		if !withEmpty.Empty() || !withDisjoint.Empty() {
-			t.Fatal("intersection with empty or disjoint scope was nonempty")
-		}
-	})
-}
-
-func TestScopeChunksUniqueAcrossIntervals(t *testing.T) {
-	// Arrange
+func TestScopeAddressesUniqueAcrossIntervals(t *testing.T) {
 	scope := mustParse(t, "10.0.0.2-10.0.0.4", "10.0.0.1-10.0.0.3", "10.0.0.8-10.0.0.10")
-
-	// Act
-	var got [][]string
-	for chunk := range scope.Chunks(3) {
-		got = append(got, chunk)
+	var got []string
+	for address := range scope.Addresses() {
+		got = append(got, address.String())
 	}
-
-	// Assert
-	want := [][]string{{"10.0.0.1", "10.0.0.2", "10.0.0.3"}, {"10.0.0.4", "10.0.0.8", "10.0.0.9"}, {"10.0.0.10"}}
+	want := []string{"10.0.0.1", "10.0.0.2", "10.0.0.3", "10.0.0.4", "10.0.0.8", "10.0.0.9", "10.0.0.10"}
 	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("Chunks() = %v, want %v", got, want)
+		t.Fatalf("Addresses() = %v, want %v", got, want)
 	}
 }
 
-func TestLargeScopeChunksStopEarly(t *testing.T) {
-	// Arrange
+func TestLargeScopeAddressesStopEarly(t *testing.T) {
 	scope := mustParse(t, "10.0.0.0/8", "172.16.0.0/12")
-
-	t.Run("breaking yields only the first chunk", func(t *testing.T) {
-		// Act
-		var got [][]string
-		for chunk := range scope.Chunks(2) {
-			got = append(got, chunk)
+	var got []string
+	for address := range scope.Addresses() {
+		got = append(got, address.String())
+		if len(got) == 2 {
 			break
 		}
-
-		// Assert
-		want := [][]string{{"10.0.0.0", "10.0.0.1"}}
-		if !reflect.DeepEqual(got, want) {
-			t.Fatalf("Chunks() = %v, want %v", got, want)
-		}
-	})
-
-	t.Run("narrow scan intersects before enumeration", func(t *testing.T) {
-		// Arrange
-		clipped := scope.IntersectScope(mustParse(t, "10.255.255.254-10.255.255.255"))
-
-		// Act
-		var got []string
-		for chunk := range clipped.Chunks(10) {
-			got = append(got, chunk...)
-		}
-
-		// Assert
-		if want := []string{"10.255.255.254", "10.255.255.255"}; !reflect.DeepEqual(got, want) {
-			t.Fatalf("clipped chunks = %v, want %v", got, want)
-		}
-	})
+	}
+	if want := []string{"10.0.0.0", "10.0.0.1"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("Addresses() = %v, want %v", got, want)
+	}
 }
 
 func mustParse(t *testing.T, values ...string) Scope {

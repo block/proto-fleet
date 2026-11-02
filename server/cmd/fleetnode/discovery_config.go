@@ -11,15 +11,10 @@ import (
 )
 
 func (r *RunCmd) effectiveDiscoveryConfig() (*pb.DiscoveryConfig, error) {
-	r.stateMu.Lock()
 	ranges := r.DiscoveryRanges
 	if ranges == nil {
 		ranges, _ = r.legacyDiscoveryRanges()
 	}
-	if ranges == nil && r.state != nil {
-		ranges = r.state.DiscoveryRanges
-	}
-	r.stateMu.Unlock()
 	scope, err := discoveryranges.Parse(ranges)
 	if err != nil {
 		return nil, err

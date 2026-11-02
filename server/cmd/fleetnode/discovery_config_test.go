@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/block/proto-fleet/server/internal/fleetnode/bootstrap"
 	"github.com/stretchr/testify/require"
 )
 
@@ -13,19 +12,14 @@ func TestEffectiveDiscoveryConfig(t *testing.T) {
 		name       string
 		configured []string
 		legacy     string
-		imported   []string
 		want       []string
 	}{
 		{name: "missing", want: []string{}},
-		{name: "imported", imported: []string{"10.1.0.1-10.1.0.2"}, want: []string{"10.1.0.1-10.1.0.2"}},
 		{name: "legacy subnet", legacy: "10.3.0.0/24", want: []string{"10.3.0.0-10.3.0.255"}},
-		{name: "legacy subnet overrides imported", legacy: "10.3.0.0/24", imported: []string{"10.1.0.1"}, want: []string{"10.3.0.0-10.3.0.255"}},
-		{name: "explicit overrides imported", configured: []string{"10.2.0.1"}, imported: []string{"10.1.0.1"}, want: []string{"10.2.0.1"}},
 		{name: "explicit overrides legacy", configured: []string{"10.2.0.1"}, legacy: "10.3.0.0/24", want: []string{"10.2.0.1"}},
-		{name: "explicit empty disables", configured: []string{}, imported: []string{"10.1.0.1"}, want: []string{}},
 		{name: "explicit empty overrides legacy", configured: []string{}, legacy: "10.3.0.0/24", want: []string{}},
-		{name: "whitespace legacy falls through to imported", legacy: "  ", imported: []string{"10.1.0.1"}, want: []string{"10.1.0.1"}},
-		{name: "invalid legacy falls through to imported", legacy: "8.8.8.8", imported: []string{"10.1.0.1"}, want: []string{"10.1.0.1"}},
+		{name: "whitespace legacy disables", legacy: "  ", want: []string{}},
+		{name: "invalid legacy disables", legacy: "8.8.8.8", want: []string{}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -33,7 +27,6 @@ func TestEffectiveDiscoveryConfig(t *testing.T) {
 			r := &RunCmd{
 				DiscoveryRanges:      tt.configured,
 				LocalDiscoverySubnet: tt.legacy,
-				state:                &bootstrap.State{DiscoveryRanges: tt.imported},
 			}
 
 			// Act
@@ -57,7 +50,6 @@ func TestEffectiveDiscoveryConfigRejectsInvalidRanges(t *testing.T) {
 		contains string
 	}{
 		{name: "public explicit range", r: &RunCmd{DiscoveryRanges: []string{"8.8.8.8"}}, contains: "private"},
-		{name: "public imported range", r: &RunCmd{state: &bootstrap.State{DiscoveryRanges: []string{"8.8.8.8"}}}, contains: "private"},
 		{name: "more than 256 ranges", r: &RunCmd{DiscoveryRanges: tooMany}, contains: "at most 256"},
 	}
 	for _, tt := range tests {
