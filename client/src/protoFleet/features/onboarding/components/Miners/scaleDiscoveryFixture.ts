@@ -32,8 +32,8 @@ export const scaleFleetNodes: FleetNodeItem[] = Array.from({ length: 13 }, (_, i
   lastSeenAt: null,
 }));
 
-export function createScaleDiscoveryMiners() {
-  return Array.from({ length: 50_000 }, (_, index) =>
+export function createScaleDiscoveryMiners(count = 50_000) {
+  return Array.from({ length: count }, (_, index) =>
     create(DeviceSchema, {
       deviceIdentifier: `miner-${index}`,
       ipAddress: `10.${Math.floor(index / 4000)}.${Math.floor((index % 4000) / 256)}.${index % 256}`,
