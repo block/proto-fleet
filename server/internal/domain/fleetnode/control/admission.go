@@ -47,8 +47,6 @@ func AdmissionForCommand(command *gatewaypb.AgentCommand) (CommandAdmissionClass
 		return CommandAdmissionGeneral, "credential_key_export"
 	case *gatewaypb.AgentCommand_InstallCredentialKey:
 		return CommandAdmissionGeneral, "credential_key_install"
-	case *gatewaypb.AgentCommand_InstallDiscoveryConfig:
-		return CommandAdmissionGeneral, "discovery_config_install"
 	case *gatewaypb.AgentCommand_MinerCommand:
 		return AdmissionForMinerCommand(typedCommand.MinerCommand)
 	default:

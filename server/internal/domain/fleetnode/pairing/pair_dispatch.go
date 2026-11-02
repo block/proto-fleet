@@ -77,15 +77,11 @@ func (s *Service) PairOnNode(ctx context.Context, fleetNodeID int64, targets []*
 	if connections, ok := s.dispatcher.(interface{ Connected(fleetNodeID int64) bool }); ok && !connections.Connected(fleetNodeID) {
 		return fleeterror.NewFailedPreconditionError("fleet node has no active control stream")
 	}
-	targets, outOfScope, err := s.splitPairTargetsByDiscoveryScope(ctx, fleetNodeID, orgID, targets)
-	if err != nil {
-		return err
-	}
+	targets, outOfScope := s.splitPairTargetsByDiscoveryScope(fleetNodeID, targets)
+	_ = reportOutOfScope(outOfScope, onResults)
 	if len(targets) == 0 {
 		return fleeterror.NewFailedPreconditionError(outOfScopeMessage)
 	}
-	// Best-effort display, like the results of dispatched targets.
-	_ = reportOutOfScope(outOfScope, onResults)
 	payload, err := proto.Marshal(&gatewaypb.AgentCommand{
 		Command: &gatewaypb.AgentCommand_Pair{Pair: &pairingpb.FleetNodePairRequest{
 			Targets:     targets,
@@ -130,7 +126,7 @@ func (s *Service) PairOnNode(ctx context.Context, fleetNodeID int64, targets []*
 	return err
 }
 
-const outOfScopeMessage = "new device pairing requires all device addresses within this fleet node's live discovery ranges"
+const outOfScopeMessage = "device pairing requires all device addresses within this fleet node's live discovery ranges"
 
 // reportOutOfScope emits an ERROR result for each target withheld from dispatch
 // so the caller counts it as failed.

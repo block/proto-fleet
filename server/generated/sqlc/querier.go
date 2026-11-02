@@ -1610,9 +1610,6 @@ type Querier interface {
 	// unchanged authority; the service then applies the inviter's current hierarchy.
 	ListOrganizationInvitations(ctx context.Context, arg ListOrganizationInvitationsParams) ([]ListOrganizationInvitationsRow, error)
 	ListOrganizations(ctx context.Context) ([]Organization, error)
-	// Unlocked retirement candidates: unowned discoveries with any address outside
-	// the ranges. Callers lock only these rows and re-check under the lock.
-	ListOutOfScopeFleetNodeDiscoveryIDs(ctx context.Context, arg ListOutOfScopeFleetNodeDiscoveryIDsParams) ([]int64, error)
 	ListPartsBySite(ctx context.Context, arg ListPartsBySiteParams) ([]ListPartsBySiteRow, error)
 	ListPendingPoolConfigurationWork(ctx context.Context) ([]ListPendingPoolConfigurationWorkRow, error)
 	ListPermissions(ctx context.Context) ([]Permission, error)
@@ -1892,8 +1889,6 @@ type Querier interface {
 	// Teardown follows dispatch's device-before-child order and retains routing
 	// children until any admitted physical call has actually returned.
 	LockFleetNodeDevicesForRevocation(ctx context.Context, arg LockFleetNodeDevicesForRevocationParams) ([]int64, error)
-	LockFleetNodeDiscoveries(ctx context.Context, arg LockFleetNodeDiscoveriesParams) ([]int64, error)
-	LockFleetNodeDiscoveryDevices(ctx context.Context, arg LockFleetNodeDiscoveryDevicesParams) ([]int64, error)
 	LockFleetNodeHAPair(ctx context.Context, arg LockFleetNodeHAPairParams) (FleetNodeHaPair, error)
 	// Keep the routing identity alive during a device wait without blocking
 	// authentication revocation. Writers revalidate with LockFleetNodeByID after
@@ -2274,9 +2269,6 @@ type Querier interface {
 	// Detach changed placements before inserting their replacements, including swaps.
 	// Identity rows survive retirement; a returning PSU reuses its original ID.
 	RetireContainerModules(ctx context.Context, arg RetireContainerModulesParams) error
-	// Pairing remains authoritative across every live linkage, including inventory
-	// recreated with the same identifier. Config remains live connection metadata.
-	RetireOutOfScopeFleetNodeDiscoveries(ctx context.Context, arg RetireOutOfScopeFleetNodeDiscoveriesParams) (int64, error)
 	RetirePoolConfigurationAssignment(ctx context.Context, arg RetirePoolConfigurationAssignmentParams) (int64, error)
 	RetryPoolConfigurationTarget(ctx context.Context, arg RetryPoolConfigurationTargetParams) (int64, error)
 	RetryRigConfigReconciliation(ctx context.Context, arg RetryRigConfigReconciliationParams) error
@@ -2713,8 +2705,8 @@ type Querier interface {
 	UpsertDiscoveredDevice(ctx context.Context, arg UpsertDiscoveredDeviceParams) (int64, error)
 	// No returned row on conflict signals rejection. A remote report must not redirect the
 	// endpoint/credentials of a miner the cloud owns, so the update is blocked
-	// unless the row is already attributed to this fleet node, inactive and unpaired,
-	// or attributed to a revoked node that can be reclaimed. Devices paired to the reporting node itself stay
+	// unless the row is already attributed to this fleet node or to a revoked node
+	// that can be reclaimed. Devices paired to the reporting node itself stay
 	// refreshable, subject to the attribution guard. Synthetic identifiers include
 	// the physical node id. After attribution moves to an HA peer, reconcile its
 	// new synthetic identifier to the inherited endpoint within that node and org.

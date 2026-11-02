@@ -11,11 +11,10 @@ import (
 var ErrPairChangedForTest = errPairChanged
 
 const (
-	ReasonWaitingForNodes          = reasonWaitingForNodes
-	ReasonUpgradeRequired          = reasonUpgradeRequired
-	ReasonTransferFailed           = reasonTransferFailed
-	ReasonStandbyDiscoveryConflict = reasonStandbyDiscoveryConflict
-	MaxConcurrentFailoversForTest  = maxConcurrentFailovers
+	ReasonWaitingForNodes         = reasonWaitingForNodes
+	ReasonUpgradeRequired         = reasonUpgradeRequired
+	ReasonTransferFailed          = reasonTransferFailed
+	MaxConcurrentFailoversForTest = maxConcurrentFailovers
 )
 
 // SetTimingForTest replaces the failover delay, startup grace, and transfer

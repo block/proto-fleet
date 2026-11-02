@@ -33,7 +33,6 @@ import (
 const (
 	v6 = pb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V6
 	v7 = pb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V7
-	v8 = pb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V8
 )
 
 type harness struct {
@@ -114,13 +113,6 @@ func (h *harness) connect(t *testing.T, nodeID int64, version pb.CommandProtocol
 	stream, err := h.registry.RegisterAuthenticated(nodeID, "", version)
 	require.NoError(t, err)
 	t.Cleanup(stream.Unregister)
-	return stream
-}
-
-func (h *harness) connectConfigured(t *testing.T, nodeID int64, version pb.CommandProtocolVersion) *control.Stream {
-	t.Helper()
-	stream := h.connect(t, nodeID, version)
-	stream.SetDiscoveryConfig(&pb.DiscoveryConfig{Ranges: []string{"10.0.0.1-10.0.0.4"}})
 	return stream
 }
 
@@ -235,30 +227,6 @@ func keyResultAck(result *pb.CredentialKeyResult) *pb.ControlAck {
 		return &pb.ControlAck{Code: pb.AckCode_ACK_CODE_INTERNAL, ErrorMessage: err.Error()}
 	}
 	return &pb.ControlAck{Succeeded: true, Code: pb.AckCode_ACK_CODE_OK, Payload: payload}
-}
-
-func discoveryConfigAck(command *pb.AgentCommand) *pb.ControlAck {
-	payload, err := proto.Marshal(command.GetInstallDiscoveryConfig())
-	if err != nil {
-		return failedAck(err)
-	}
-	return &pb.ControlAck{Succeeded: true, Code: pb.AckCode_ACK_CODE_OK, Payload: payload}
-}
-
-// respondWithDiscoveryConfig models a node that persists ranges before acknowledging
-// them, and counts key commands separately so key-transfer assertions stay precise.
-func respondWithDiscoveryConfig(t *testing.T, stream *control.Stream, reply func(*pb.AgentCommand) *pb.ControlAck) (*atomic.Int32, *atomic.Int32) {
-	t.Helper()
-	var keys, ranges atomic.Int32
-	respond(t, stream, func(command *pb.AgentCommand) *pb.ControlAck {
-		if command.GetInstallDiscoveryConfig() != nil {
-			ranges.Add(1)
-			return discoveryConfigAck(command)
-		}
-		keys.Add(1)
-		return reply(command)
-	})
-	return &keys, &ranges
 }
 
 func failedAck(err error) *pb.ControlAck {
@@ -585,8 +553,8 @@ func TestTick_FingerprintMismatchKeepsStandbyNotReadyAndBacksOff(t *testing.T) {
 	activeKey := make([]byte, credentialkey.KeySize)
 	otherKey := make([]byte, credentialkey.KeySize)
 	otherKey[0] = 1
-	respond(t, h.connectConfigured(t, h.active, v7), exportKey(activeKey))
-	installs, _ := respondWithDiscoveryConfig(t, h.connect(t, h.standby, v8), func(*pb.AgentCommand) *pb.ControlAck {
+	respond(t, h.connect(t, h.active, v7), exportKey(activeKey))
+	installs := respond(t, h.connect(t, h.standby, v7), func(*pb.AgentCommand) *pb.ControlAck {
 		return keyResultAck(&pb.CredentialKeyResult{Fingerprint: credentialkey.Fingerprint(otherKey)})
 	})
 
@@ -598,25 +566,6 @@ func TestTick_FingerprintMismatchKeepsStandbyNotReadyAndBacksOff(t *testing.T) {
 	assert.False(t, pair.ready)
 	assert.Equal(t, ha.ReasonTransferFailed, pair.reason)
 	assert.Equal(t, int32(1), installs.Load(), "the retry backoff suppresses the second attempt")
-}
-
-func TestTick_StandbyDiscoveryRangeConflictSurfacesDedicatedReason(t *testing.T) {
-	// Arrange
-	h := newHarness(t)
-	h.createPair(t, false)
-	respond(t, h.connectConfigured(t, h.active, v7), exportKey(make([]byte, credentialkey.KeySize)))
-	respond(t, h.connect(t, h.standby, v8), func(*pb.AgentCommand) *pb.ControlAck {
-		return &pb.ControlAck{Code: pb.AckCode_ACK_CODE_BAD_REQUEST, ErrorMessage: control.StandbyDiscoveryConflictMessage}
-	})
-
-	// Act
-	h.svc.TickForTest(t.Context(), time.Now())
-
-	// Assert
-	pair, ok := h.pair(t)
-	require.True(t, ok)
-	assert.False(t, pair.ready)
-	assert.Equal(t, ha.ReasonStandbyDiscoveryConflict, pair.reason)
 }
 
 func TestTick_KeyTransferFailuresKeepStandbyNotReady(t *testing.T) {
@@ -662,12 +611,12 @@ func TestTick_KeyTransferFailuresKeepStandbyNotReady(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			h := newHarness(t)
 			h.createPair(t, false)
-			exports := respond(t, h.connectConfigured(t, h.active, v7), tc.export)
+			exports := respond(t, h.connect(t, h.active, v7), tc.export)
 			install := tc.install
 			if install == nil {
 				install = installKey(h.standbyKey)
 			}
-			installs, _ := respondWithDiscoveryConfig(t, h.connect(t, h.standby, v8), install)
+			installs := respond(t, h.connect(t, h.standby, v7), install)
 
 			h.svc.TickForTest(t.Context(), time.Now())
 			h.svc.TickForTest(t.Context(), time.Now())
@@ -690,7 +639,7 @@ func TestTick_DoesNotStartSecondTransferWhileOneIsInFlight(t *testing.T) {
 	var releaseOnce sync.Once
 	releaseExport := func() { releaseOnce.Do(func() { close(release) }) }
 	t.Cleanup(releaseExport)
-	active := h.connectConfigured(t, h.active, v7)
+	active := h.connect(t, h.active, v7)
 	exports := respond(t, active, func(command *pb.AgentCommand) *pb.ControlAck {
 		select {
 		case <-release:
@@ -698,7 +647,7 @@ func TestTick_DoesNotStartSecondTransferWhileOneIsInFlight(t *testing.T) {
 		}
 		return exportKey(key)(command)
 	})
-	installs, _ := respondWithDiscoveryConfig(t, h.connect(t, h.standby, v8), installKey(h.standbyKey))
+	installs := respond(t, h.connect(t, h.standby, v7), installKey(h.standbyKey))
 	firstTick := make(chan struct{})
 	go func() {
 		defer close(firstTick)
@@ -729,10 +678,10 @@ func TestTick_RetriesTransferOnceBackoffExpires(t *testing.T) {
 	h.svc.SetTimingForTest(0, 0, 0)
 	h.createPair(t, false)
 	key := make([]byte, credentialkey.KeySize)
-	exports := respond(t, h.connectConfigured(t, h.active, v7), exportKey(key))
+	exports := respond(t, h.connect(t, h.active, v7), exportKey(key))
 	var attempts atomic.Int32
 	install := installKey(h.standbyKey)
-	_, rangeInstalls := respondWithDiscoveryConfig(t, h.connect(t, h.standby, v8), func(command *pb.AgentCommand) *pb.ControlAck {
+	respond(t, h.connect(t, h.standby, v7), func(command *pb.AgentCommand) *pb.ControlAck {
 		if attempts.Add(1) == 1 {
 			return failedAck(errors.New("install refused"))
 		}
@@ -748,7 +697,6 @@ func TestTick_RetriesTransferOnceBackoffExpires(t *testing.T) {
 	assert.Empty(t, pair.reason)
 	assert.Equal(t, int32(1), exports.Load(), "retry reuses the persisted export")
 	assert.Equal(t, int32(2), attempts.Load(), "the failed installation is retried")
-	assert.Equal(t, int32(1), rangeInstalls.Load(), "the pending key proves ranges were already acknowledged")
 }
 
 func TestTick_ReportsWhyStandbyIsNotReady(t *testing.T) {
@@ -783,62 +731,37 @@ func TestTick_ReportsWhyStandbyIsNotReady(t *testing.T) {
 	}
 }
 
-func TestTick_NewSetupRequiresDiscoveryConfiguration(t *testing.T) {
+func TestTick_KeyTransferDoesNotRequireMatchingDiscoveryRanges(t *testing.T) {
 	for _, tc := range []struct {
-		name           string
-		standbyVersion pb.CommandProtocolVersion
-		config         *pb.DiscoveryConfig
-		wantReason     string
+		name            string
+		active, standby *pb.DiscoveryConfig
 	}{
-		{name: "legacy nodes without reported ranges", standbyVersion: v7, wantReason: "Upgrade standby Fleet Node to support discovery configuration installation"},
-		{name: "active reports empty ranges", standbyVersion: v8, config: &pb.DiscoveryConfig{}, wantReason: "Active Fleet Node must report configured discovery ranges before standby setup"},
+		{name: "unreported"},
+		{name: "missing standby ranges", active: &pb.DiscoveryConfig{Ranges: []string{"10.0.0.1"}}, standby: &pb.DiscoveryConfig{}},
+		{name: "different ranges", active: &pb.DiscoveryConfig{Ranges: []string{"10.0.0.1"}}, standby: &pb.DiscoveryConfig{Ranges: []string{"10.1.0.1"}}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			// Arrange
 			h := newHarness(t)
 			h.createPair(t, false)
 			active := h.connect(t, h.active, v7)
-			active.SetDiscoveryConfig(tc.config)
+			active.SetDiscoveryConfig(tc.active)
+			standby := h.connect(t, h.standby, v7)
+			standby.SetDiscoveryConfig(tc.standby)
 			exports := respond(t, active, exportKey(make([]byte, credentialkey.KeySize)))
-			installs := respond(t, h.connect(t, h.standby, tc.standbyVersion), installKey(h.standbyKey))
+			installs := respond(t, standby, installKey(h.standbyKey))
 
-			// Act
 			h.svc.TickForTest(t.Context(), time.Now())
 
-			// Assert
 			pair, ok := h.pair(t)
 			require.True(t, ok)
-			assert.False(t, pair.ready)
-			assert.Equal(t, tc.wantReason, pair.reason)
-			assert.Zero(t, exports.Load())
-			assert.Zero(t, installs.Load())
+			assert.True(t, pair.ready)
+			assert.Empty(t, pair.reason)
+			assert.Equal(t, int32(1), exports.Load())
+			assert.Equal(t, int32(1), installs.Load())
+			assert.Equal(t, tc.active, h.registry.DiscoveryConfig(h.active))
+			assert.Equal(t, tc.standby, h.registry.DiscoveryConfig(h.standby))
 		})
 	}
-}
-
-func TestTick_LegacyPendingInstallDoesNotNeedActiveConfiguration(t *testing.T) {
-	// Arrange
-	h := newHarness(t)
-	h.createPair(t, false)
-	key := make([]byte, credentialkey.KeySize)
-	sealed, err := credentialkey.Seal(h.standbyKey.PublicKey().Bytes(), key)
-	require.NoError(t, err)
-	pending, err := proto.Marshal(&pb.CredentialKeyResult{SealedKey: sealed, Fingerprint: credentialkey.Fingerprint(key)})
-	require.NoError(t, err)
-	// A key prepared by the prior server version must remain recoverable even
-	// though it predates discovery configuration installation.
-	h.exec(t, `UPDATE fleet_node_ha_pair SET pending_credential_key=$1 WHERE active_node_id=$2`, pending, h.active)
-	h.exec(t, `UPDATE fleet_node SET enrollment_status='REVOKED' WHERE id=$1`, h.active)
-	installs := respond(t, h.connect(t, h.standby, v7), installKey(h.standbyKey))
-
-	// Act
-	h.svc.TickForTest(t.Context(), time.Now())
-
-	// Assert
-	pair, ok := h.pair(t)
-	require.True(t, ok)
-	assert.True(t, pair.ready)
-	assert.Equal(t, int32(1), installs.Load())
 }
 
 func TestHandOff(t *testing.T) {
@@ -1067,9 +990,9 @@ func TestTick_PendingInstallSurvivesTeardownAndRestart(t *testing.T) {
 	h := newHarness(t)
 	h.createPair(t, false)
 	key := make([]byte, credentialkey.KeySize)
-	active := h.connectConfigured(t, h.active, v7)
+	active := h.connect(t, h.active, v7)
 	exports := respond(t, active, exportKey(key))
-	standby := h.connect(t, h.standby, v8)
+	standby := h.connect(t, h.standby, v7)
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 	finished := make(chan struct{})
@@ -1077,19 +1000,6 @@ func TestTick_PendingInstallSurvivesTeardownAndRestart(t *testing.T) {
 		defer close(finished)
 		h.svc.TickForTest(ctx, time.Now())
 	}()
-	// The standby durably installs ranges before any credential key is exported.
-	select {
-	case cmd := <-standby.Outgoing:
-		command := &pb.AgentCommand{}
-		require.NoError(t, proto.Unmarshal(cmd.GetPayload(), command))
-		require.Equal(t, []string{"10.0.0.1-10.0.0.4"}, command.GetInstallDiscoveryConfig().GetRanges())
-		assert.Zero(t, exports.Load(), "ranges must be acknowledged before key export")
-		ack := discoveryConfigAck(command)
-		ack.CommandId = cmd.GetCommandId()
-		standby.PublishAck(ack)
-	case <-time.After(5 * time.Second):
-		t.Fatal("standby did not receive discovery ranges")
-	}
 	var delayed *pb.ControlCommand
 	select {
 	case delayed = <-standby.Outgoing:
@@ -1114,7 +1024,7 @@ func TestTick_PendingInstallSurvivesTeardownAndRestart(t *testing.T) {
 	// Restart loses all connection metadata; only the standby reconnects.
 	standby.Unregister()
 	h.registry = control.NewRegistry()
-	standby = h.connectConfigured(t, h.standby, v8)
+	standby = h.connect(t, h.standby, v7)
 	restarted := ha.NewService(h.db, sqlstores.NewSQLTransactor(h.db), h.registry, nil, nil)
 	restarted.SetTimingForTest(0, 0, 0)
 	retried := make(chan struct{})
@@ -1127,7 +1037,7 @@ func TestTick_PendingInstallSurvivesTeardownAndRestart(t *testing.T) {
 		assert.Equal(t, delayed.GetPayload(), cmd.GetPayload(), "retry must install the same sealed key")
 		command := &pb.AgentCommand{}
 		require.NoError(t, proto.Unmarshal(cmd.GetPayload(), command))
-		require.NotNil(t, command.GetInstallCredentialKey(), "pending recovery must not repeat discovery configuration installation")
+		require.NotNil(t, command.GetInstallCredentialKey())
 		ack := installKey(h.standbyKey)(command)
 		ack.CommandId = cmd.GetCommandId()
 		standby.PublishAck(ack)
@@ -1153,24 +1063,13 @@ func TestTick_PendingInstallSurvivesTeardownAndRestart(t *testing.T) {
 func TestTick_DoesNotInstallAfterTeardownDuringExport(t *testing.T) {
 	h := newHarness(t)
 	h.createPair(t, false)
-	active := h.connectConfigured(t, h.active, v7)
-	standby := h.connect(t, h.standby, v8)
+	active := h.connect(t, h.active, v7)
+	standby := h.connect(t, h.standby, v7)
 	finished := make(chan struct{})
 	go func() {
 		defer close(finished)
 		h.svc.TickForTest(t.Context(), time.Now())
 	}()
-	select {
-	case cmd := <-standby.Outgoing:
-		command := &pb.AgentCommand{}
-		require.NoError(t, proto.Unmarshal(cmd.GetPayload(), command))
-		require.NotNil(t, command.GetInstallDiscoveryConfig())
-		ack := discoveryConfigAck(command)
-		ack.CommandId = cmd.GetCommandId()
-		standby.PublishAck(ack)
-	case <-time.After(5 * time.Second):
-		t.Fatal("standby did not receive discovery ranges")
-	}
 	select {
 	case cmd := <-active.Outgoing:
 		require.NoError(t, h.svc.DeletePair(t.Context(), h.orgID, h.active))

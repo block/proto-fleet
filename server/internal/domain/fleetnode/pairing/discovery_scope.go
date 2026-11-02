@@ -3,8 +3,6 @@ package pairing
 import (
 	"context"
 
-	"google.golang.org/protobuf/proto"
-
 	pairingpb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
 	"github.com/block/proto-fleet/server/internal/domain/discoveryranges"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
@@ -25,85 +23,23 @@ func targetInDiscoveryScope(scope discoveryranges.Scope, target *pairingpb.Fleet
 // splitPairTargetsByDiscoveryScope separates targets the node may pair now from
 // those with an address outside its live ranges, so one stale device cannot
 // block the rest of a batch.
-func (s *Service) splitPairTargetsByDiscoveryScope(ctx context.Context, nodeID, orgID int64, targets []*pairingpb.FleetNodePairTarget) (allowed, rejected []*pairingpb.FleetNodePairTarget, err error) {
+func (s *Service) splitPairTargetsByDiscoveryScope(nodeID int64, targets []*pairingpb.FleetNodePairTarget) (allowed, rejected []*pairingpb.FleetNodePairTarget) {
 	if s.discoveryConfig == nil {
-		return targets, nil, nil
+		return targets, nil
 	}
-	scope, parseErr := discoveryranges.Parse(s.discoveryConfig(nodeID).GetRanges())
-	var repairs map[string]*pairingpb.FleetNodePairTarget
+	scope, err := discoveryranges.Parse(s.discoveryConfig(nodeID).GetRanges())
 	for _, target := range targets {
-		if parseErr == nil && targetInDiscoveryScope(scope, target) {
-			allowed = append(allowed, target)
-			continue
-		}
-		// Authentication repair may retain an existing assignment's saved route
-		// after a range change. An identifier alone cannot authorize a new route.
-		if repairs == nil {
-			repairs, err = s.authenticationRepairRoutes(ctx, nodeID, orgID)
-			if err != nil {
-				return nil, nil, err
-			}
-		}
-		if samePairTargetRoute(repairs[target.GetDeviceIdentifier()], target) {
+		if err == nil && targetInDiscoveryScope(scope, target) {
 			allowed = append(allowed, target)
 		} else {
 			rejected = append(rejected, target)
 		}
 	}
-	return allowed, rejected, nil
-}
-
-func (s *Service) authenticationRepairRoutes(ctx context.Context, nodeID, orgID int64) (map[string]*pairingpb.FleetNodePairTarget, error) {
-	repairs := map[string]*pairingpb.FleetNodePairTarget{}
-	if s.store == nil {
-		return repairs, nil
-	}
-	pairs, err := s.store.ListFleetNodeDevices(ctx, orgID, &nodeID)
-	if err != nil {
-		return nil, logInternal("lookup existing fleet node bindings", clientErrPair, err)
-	}
-	ids := make([]string, 0, len(pairs))
-	for _, pair := range pairs {
-		ids = append(ids, pair.DeviceIdentifier)
-	}
-	if len(ids) == 0 {
-		return repairs, nil
-	}
-	candidates, err := s.store.ListFleetNodeDiscoveredDevices(ctx, orgID, &nodeID, FleetNodeDiscoveredDeviceFilter{Identifiers: ids})
-	if err != nil {
-		return nil, logInternal("lookup authentication repair routes", clientErrPair, err)
-	}
-	for _, candidate := range candidates {
-		if candidate.PairingStatus == StatusAuthenticationNeeded {
-			repairs[candidate.DeviceIdentifier] = pairTargetsFromDiscoveredDevices([]FleetNodeDiscoveredDevice{candidate})[0]
-		}
-	}
-	return repairs, nil
-}
-
-func samePairTargetRoute(saved, target *pairingpb.FleetNodePairTarget) bool {
-	if saved == nil || target == nil || saved.IpAddress != target.IpAddress || saved.Port != target.Port ||
-		saved.UrlScheme != target.UrlScheme || saved.RpcPort != target.RpcPort || saved.RpcTls != target.RpcTls ||
-		saved.DriverName != target.DriverName || saved.DeviceClass != target.DeviceClass || len(saved.Endpoints) != len(target.Endpoints) {
-		return false
-	}
-	for i, endpoint := range saved.Endpoints {
-		if !proto.Equal(endpoint, target.Endpoints[i]) {
-			return false
-		}
-	}
-	return true
+	return allowed, rejected
 }
 
 func (s *Service) validateDeviceDiscoveryScope(ctx context.Context, nodeID, deviceID, orgID int64) error {
 	if s.discoveryConfig == nil {
-		return nil
-	}
-	sameNode, err := s.deviceBoundToFleetNode(ctx, nodeID, deviceID, orgID)
-	if err != nil {
-		return logInternal("lookup existing fleet node binding", clientErrPair, err)
-	}
-	if sameNode {
 		return nil
 	}
 	target, err := s.store.GetFleetNodePairingTarget(ctx, deviceID, orgID)
@@ -112,7 +48,7 @@ func (s *Service) validateDeviceDiscoveryScope(ctx context.Context, nodeID, devi
 	}
 	scope, err := discoveryranges.Parse(s.discoveryConfig(nodeID).GetRanges())
 	if err != nil || !targetInDiscoveryScope(scope, target) {
-		return fleeterror.NewFailedPreconditionError("new device binding requires all device addresses within this fleet node's live discovery ranges")
+		return fleeterror.NewFailedPreconditionError("device binding requires all device addresses within this fleet node's live discovery ranges")
 	}
 	return nil
 }

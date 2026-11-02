@@ -28,16 +28,14 @@ import (
 	"github.com/block/proto-fleet/server/internal/infrastructure/id"
 )
 
-// DiscoverCommandTimeout bounds each command and the window in which a request
-// may dispatch new partitions, so a silent node cannot pin operator streams and
-// registry slots. Must exceed the agent's scan budget (commandTimeout, 10m) plus
-// report/ack slack: too short frees the slot mid-scan, the agent's ack is
+// DiscoverCommandTimeout bounds each request and command so a silent node cannot
+// pin operator streams and registry slots. Must exceed the agent's scan budget
+// (commandTimeout, 10m) plus report/ack slack: too short frees the slot mid-scan, the agent's ack is
 // rejected as stale, and a new command dispatches while the node is still busy.
 // Var for tests.
 var DiscoverCommandTimeout = 12 * time.Minute
 
-// NewRequestContext shares one report budget and dispatch deadline across all
-// sources. Commands already dispatched at the deadline still run to their own timeout.
+// NewRequestContext shares one report budget and deadline across all sources.
 func NewRequestContext(ctx context.Context) (context.Context, context.CancelFunc) {
 	return discoverylimits.WithRequest(ctx, DiscoverCommandTimeout)
 }
@@ -136,57 +134,32 @@ func (s *Service) RunOnNode(ctx context.Context, fleetNodeID int64, source strin
 		}
 		return onBatch(&pairingpb.DiscoverResponse{Warning: fmt.Sprintf("%s: fleet node has no active control stream", source)})
 	}
-	tasks, err := partitionRequests(req, scope)
-	if err != nil {
-		return err
-	}
 	requestedScope := buildReportScope(req)
-	for task, probes := range tasks {
-		if ctx.Err() != nil {
-			if errors.Is(ctx.Err(), context.DeadlineExceeded) {
-				return onBatch(&pairingpb.DiscoverResponse{Warning: fmt.Sprintf("%s: %s", source, discoverylimits.RequestTimeoutWarning)})
-			}
-			return nil
-		}
-		if budget.Exhausted() {
-			return onBatch(&pairingpb.DiscoverResponse{Warning: fmt.Sprintf("%s: %s", source, discoverylimits.ReportLimitWarning)})
-		}
-		taskScope := buildReportScope(task)
-		reportScope := func(ip, port string) bool {
-			address, ok := parseScopeAddr(ip)
-			return ok && scope.Contains(address) && requestedScope(ip, port) && taskScope(ip, port)
-		}
-		complete, err := s.runCommand(ctx, fleetNodeID, source, task, probes, reportScope, onBatch)
-		if err != nil {
-			return err
-		}
-		if errors.Is(ctx.Err(), context.Canceled) {
-			return nil
-		}
-		if budget.Exhausted() {
-			return onBatch(&pairingpb.DiscoverResponse{Warning: fmt.Sprintf("%s: %s", source, discoverylimits.ReportLimitWarning)})
-		}
-		if !complete {
-			return nil
-		}
+	reportScope := func(ip, port string) bool {
+		address, ok := parseScopeAddr(ip)
+		return ok && scope.Contains(address) && requestedScope(ip, port)
 	}
-	return nil
-}
-
-func (s *Service) runCommand(ctx context.Context, fleetNodeID int64, source string, req *pairingpb.DiscoverRequest, probes int, reportScope control.ReportScope, onBatch func(*pairingpb.DiscoverResponse) error) (bool, error) {
+	if ctx.Err() != nil {
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			return onBatch(&pairingpb.DiscoverResponse{Warning: fmt.Sprintf("%s: %s", source, discoverylimits.RequestTimeoutWarning)})
+		}
+		return nil
+	}
+	if budget.Exhausted() {
+		return onBatch(&pairingpb.DiscoverResponse{Warning: fmt.Sprintf("%s: %s", source, discoverylimits.ReportLimitWarning)})
+	}
 	payload, err := proto.Marshal(&gatewaypb.AgentCommand{
 		Command: &gatewaypb.AgentCommand_Discover{Discover: req},
 	})
 	if err != nil {
-		return false, fleeterror.NewInternalErrorf("marshal discover payload: %v", err)
+		return fleeterror.NewInternalErrorf("marshal discover payload: %v", err)
 	}
 
 	cmd := &gatewaypb.ControlCommand{CommandId: id.GenerateID(), Payload: payload}
 	if err := protovalidate.Validate(cmd); err != nil {
-		return false, fleeterror.NewInvalidArgumentError("discovery command exceeds Fleet Node payload limits; split the request or shorten hostnames")
+		return fleeterror.NewInvalidArgumentError("discovery command exceeds Fleet Node payload limits; split the request or shorten hostnames")
 	}
 	var callbackErr error
-	partial := false
 	forward := func(batch *pairingpb.DiscoverResponse) error {
 		for _, device := range batch.GetDevices() {
 			device.FleetNodeId = fleetNodeID
@@ -200,9 +173,7 @@ func (s *Service) runCommand(ctx context.Context, fleetNodeID int64, source stri
 		}
 		return forward(&pairingpb.DiscoverResponse{Warning: fmt.Sprintf("%s: %s", source, detail)})
 	}
-	cmdCtx, stop := detachRequestDeadline(ctx)
-	defer stop()
-	err = control.RunCommand(control.WithCommandReportLimit(cmdCtx, probes), s.registry, fleetNodeID, gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1, cmd, reportScope, control.ReportKindDiscovery, nil, DiscoverCommandTimeout, "discovery",
+	err = control.RunCommand(ctx, s.registry, fleetNodeID, gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1, cmd, reportScope, control.ReportKindDiscovery, nil, DiscoverCommandTimeout, "discovery",
 		func(ev control.CommandEvent) (terminal bool, err error) {
 			if ev.Batch != nil {
 				if sendErr := forward(ev.Batch); sendErr != nil {
@@ -210,7 +181,6 @@ func (s *Service) runCommand(ctx context.Context, fleetNodeID int64, source stri
 				}
 			}
 			if ev.Ack.GetCode() == gatewaypb.AckCode_ACK_CODE_PARTIAL {
-				partial = true
 				detail := ev.Ack.GetErrorMessage()
 				if detail == "" {
 					detail = "discovery completed partially"
@@ -220,43 +190,25 @@ func (s *Service) runCommand(ctx context.Context, fleetNodeID int64, source stri
 			return false, nil
 		})
 	if callbackErr != nil {
-		return false, callbackErr
-	}
-	if discoverylimits.BudgetFromContext(ctx).Exhausted() {
-		return false, nil
-	}
-	if err == nil {
-		return !partial, nil
+		return callbackErr
 	}
 	if errors.Is(ctx.Err(), context.Canceled) {
-		return false, nil
+		return nil
 	}
-	if connect.CodeOf(err) == connect.CodeDeadlineExceeded || (errors.Is(ctx.Err(), context.DeadlineExceeded) && cmdCtx.Err() != nil) {
-		return false, warning(discoverylimits.RequestTimeoutWarning)
+	if budget.Exhausted() {
+		return warning(discoverylimits.ReportLimitWarning)
+	}
+	if err == nil {
+		return nil
+	}
+	if connect.CodeOf(err) == connect.CodeDeadlineExceeded || errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		return warning(discoverylimits.RequestTimeoutWarning)
 	}
 	if IsCallerError(err) {
-		return false, err
+		return err
 	}
 	slog.Warn("fleet node discovery failed", "fleet_node_id", fleetNodeID, "error", err)
-	return false, forward(SourceWarning(source, err))
-}
-
-// detachRequestDeadline keeps ctx's values and cancellation but not the request's
-// aggregate deadline, which only stops new partitions from dispatching. Abandoning
-// an in-flight command there would free the node's slot mid-scan. An earlier
-// caller deadline still cancels it.
-func detachRequestDeadline(ctx context.Context) (context.Context, context.CancelFunc) {
-	detached, cancel := context.WithCancel(context.WithoutCancel(ctx))
-	stop := context.AfterFunc(ctx, func() {
-		if budget := discoverylimits.BudgetFromContext(ctx); budget != nil && errors.Is(ctx.Err(), context.DeadlineExceeded) && budget.DeadlineExpired() {
-			return
-		}
-		cancel()
-	})
-	return detached, func() {
-		stop()
-		cancel()
-	}
+	return forward(SourceWarning(source, err))
 }
 
 // ScansLocalSubnet reports whether the scan defers its target to the node's
@@ -274,9 +226,8 @@ func requestForNode(req *pairingpb.DiscoverRequest) *pairingpb.DiscoverRequest {
 	return out
 }
 
-// ValidateRequest checks target syntax, private-address policy, and raw list and
-// port limits. Range and network requests are clipped and partitioned before
-// applying the per-command target budget.
+// ValidateRequest checks target syntax, private-address policy, and target and
+// port limits. Automatic scans validate ports here and resolve ranges on the node.
 func ValidateRequest(in *pairingpb.DiscoverRequest) error {
 	switch m := in.GetMode().(type) {
 	case *pairingpb.DiscoverRequest_IpList:
@@ -313,17 +264,13 @@ func ValidateRequest(in *pairingpb.DiscoverRequest) error {
 		return nil
 	case *pairingpb.DiscoverRequest_NetworkScan:
 		target := m.NetworkScan.GetTarget()
-		// The local-subnet flag or sentinel defers the target to the agent (it scans
-		// its own private subnet(s)), so there is nothing to validate here; the
-		// report scope (buildReportScope) and validateReport still confine reports
-		// to private addresses.
 		if ScansLocalSubnet(m.NetworkScan) {
 			if err := checkScanLimits(nil, m.NetworkScan.GetPorts()); err != nil {
 				return err
 			}
 			return nil
 		}
-		parsed, err := netscan.ParseTarget(target)
+		parsed, err := netscan.ParseBoundedTarget(target)
 		if err != nil {
 			return fleeterror.NewInvalidArgumentError(err.Error())
 		}
@@ -368,6 +315,9 @@ func validatedIPv4Range(startStr, endStr string) (netscan.Target, error) {
 	}
 	if !target.IsPrivate() {
 		return netscan.Target{}, fleeterror.NewInvalidArgumentError("ip range must be within a private (RFC1918) range")
+	}
+	if target.Count() > discoverylimits.MaxScanTargets {
+		return netscan.Target{}, fleeterror.NewInvalidArgumentErrorf("ip range exceeds %d addresses", discoverylimits.MaxScanTargets)
 	}
 	return target, nil
 }

@@ -34,14 +34,6 @@ func (s *Session) Close() {
 	s.r.removeCmd(s.fleetNodeID, s.cmd)
 }
 
-type commandReportLimitKey struct{}
-
-// WithCommandReportLimit lowers the raw reports one discovery command may submit
-// below the default scan ceiling. Dispatchers pass the command's probe count.
-func WithCommandReportLimit(ctx context.Context, limit int) context.Context {
-	return context.WithValue(ctx, commandReportLimitKey{}, limit)
-}
-
 // Send dispatches a report-bearing command and returns a Session for its batches +
 // terminal ack. scope bounds which reported devices are admitted (nil =
 // unconstrained); kind tags the admitting report RPC; pair is non-nil only for
@@ -62,8 +54,6 @@ func (r *Registry) Send(ctx context.Context, fleetNodeID int64, minimumCommandPr
 	maxReports := maxReportsPerCommand
 	if pair != nil {
 		maxReports = len(pair.Targets)
-	} else if limit, ok := ctx.Value(commandReportLimitKey{}).(int); ok && kind == ReportKindDiscovery {
-		maxReports = min(maxReports, limit)
 	}
 	c := &inflightCommand{
 		id:         cmd.GetCommandId(),

@@ -853,41 +853,48 @@ func TestUpsertDiscoveredDevicesAttributesFleetNode(t *testing.T) {
 }
 
 func TestUpsertDiscoveredDevices_RejectsReportFromOtherFleetNode(t *testing.T) {
-	// Arrange: fleet_node A discovers device first; then fleet_node B
-	// reports the same device_identifier. B's report must be a no-op so
-	// it cannot redirect the IP/endpoint that the org sees for that
-	// device.
-	ctx := t.Context()
-	db, orgID, pairing, enrollment := setupPairingTest(t)
-	fleetNodeA := createFleetNode(t, enrollment, orgID, "node-a")
-	fleetNodeB := createFleetNode(t, enrollment, orgID, "node-b")
-	original := fleetnodepairing.DiscoveredDeviceReport{
-		DeviceIdentifier: "shared",
-		IPAddress:        "10.0.0.10",
-		Port:             "80",
-		URLScheme:        "http",
-		DriverName:       "virtual",
+	for _, active := range []bool{true, false} {
+		t.Run(fmt.Sprintf("active=%t", active), func(t *testing.T) {
+			// Arrange: fleet_node A discovers device first; then fleet_node B
+			// reports the same device_identifier. B's report must be a no-op so
+			// it cannot redirect the IP/endpoint that the org sees for that
+			// device.
+			ctx := t.Context()
+			db, orgID, pairing, enrollment := setupPairingTest(t)
+			fleetNodeA := createFleetNode(t, enrollment, orgID, "node-a")
+			fleetNodeB := createFleetNode(t, enrollment, orgID, "node-b")
+			original := fleetnodepairing.DiscoveredDeviceReport{
+				DeviceIdentifier: "shared",
+				IPAddress:        "10.0.0.10",
+				Port:             "80",
+				URLScheme:        "http",
+				DriverName:       "virtual",
+			}
+			_, _, err := pairing.UpsertDiscoveredDevices(ctx, fleetNodeA, orgID, []fleetnodepairing.DiscoveredDeviceReport{original})
+			require.NoError(t, err)
+
+			_, err = db.Exec(`UPDATE discovered_device SET is_active=$1 WHERE org_id=$2 AND device_identifier=$3`, active, orgID, original.DeviceIdentifier)
+			require.NoError(t, err)
+
+			// Act: fleet_node B tries to overwrite with a different IP.
+			hostile := original
+			hostile.IPAddress = "10.0.0.99"
+			accepted, rejected, err := pairing.UpsertDiscoveredDevices(ctx, fleetNodeB, orgID, []fleetnodepairing.DiscoveredDeviceReport{hostile})
+
+			// Assert
+			require.NoError(t, err)
+			assert.Empty(t, accepted)
+			assert.Equal(t, int64(1), rejected, "report from non-attributing fleet node must be rejected silently")
+			var (
+				ip         string
+				attributed sql.NullInt64
+			)
+			require.NoError(t, db.QueryRow(`SELECT ip_address, discovered_by_fleet_node_id FROM discovered_device WHERE device_identifier = 'shared' AND org_id = $1`, orgID).Scan(&ip, &attributed))
+			assert.Equal(t, "10.0.0.10", ip, "IP must not be overwritten by another fleet node")
+			require.True(t, attributed.Valid)
+			assert.Equal(t, fleetNodeA, attributed.Int64, "attribution must remain with the original discoverer")
+		})
 	}
-	_, _, err := pairing.UpsertDiscoveredDevices(ctx, fleetNodeA, orgID, []fleetnodepairing.DiscoveredDeviceReport{original})
-	require.NoError(t, err)
-
-	// Act: fleet_node B tries to overwrite with a different IP.
-	hostile := original
-	hostile.IPAddress = "10.0.0.99"
-	accepted, rejected, err := pairing.UpsertDiscoveredDevices(ctx, fleetNodeB, orgID, []fleetnodepairing.DiscoveredDeviceReport{hostile})
-
-	// Assert
-	require.NoError(t, err)
-	assert.Empty(t, accepted)
-	assert.Equal(t, int64(1), rejected, "report from non-attributing fleet node must be rejected silently")
-	var (
-		ip         string
-		attributed sql.NullInt64
-	)
-	require.NoError(t, db.QueryRow(`SELECT ip_address, discovered_by_fleet_node_id FROM discovered_device WHERE device_identifier = 'shared' AND org_id = $1`, orgID).Scan(&ip, &attributed))
-	assert.Equal(t, "10.0.0.10", ip, "IP must not be overwritten by another fleet node")
-	require.True(t, attributed.Valid)
-	assert.Equal(t, fleetNodeA, attributed.Int64, "attribution must remain with the original discoverer")
 }
 
 func TestUpsertDiscoveredDevices_PersistsSchemeUpToProtoLimit(t *testing.T) {
@@ -1028,7 +1035,7 @@ func TestUpsertDiscoveredDevices_RefreshesDevicePairedToReportingNode(t *testing
 
 	// Assert: accepted and refreshed — the reporting node owns the device.
 	require.NoError(t, err)
-	assert.Len(t, accepted, 1)
+	require.Len(t, accepted, 1)
 	assert.Equal(t, int64(0), rejected)
 	var ip, port string
 	require.NoError(t, db.QueryRow(`SELECT ip_address, port FROM discovered_device WHERE id = $1`, ddID).Scan(&ip, &port))

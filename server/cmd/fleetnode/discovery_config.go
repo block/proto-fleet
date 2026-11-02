@@ -1,19 +1,15 @@
 package main
 
 import (
-	"errors"
 	"fmt"
 	"iter"
 	"log/slog"
 	"net/netip"
-	"slices"
 	"strings"
 
 	pb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
 	"github.com/block/proto-fleet/server/internal/domain/discoverylimits"
 	"github.com/block/proto-fleet/server/internal/domain/discoveryranges"
-	fleetnodecontrol "github.com/block/proto-fleet/server/internal/domain/fleetnode/control"
-	"github.com/block/proto-fleet/server/internal/fleetnode/bootstrap"
 )
 
 func (r *RunCmd) effectiveDiscoveryConfig() (*pb.DiscoveryConfig, error) {
@@ -25,7 +21,6 @@ func (r *RunCmd) effectiveDiscoveryConfig() (*pb.DiscoveryConfig, error) {
 }
 
 func (r *RunCmd) effectiveDiscoveryScope() (discoveryranges.Scope, error) {
-	r.stateMu.Lock()
 	ranges := r.DiscoveryRanges
 	if ranges == nil {
 		ranges, _ = r.legacyDiscoveryRanges()
@@ -57,40 +52,6 @@ func (r *RunCmd) warnInvalidLegacyDiscoverySubnet(logger *slog.Logger) {
 	if _, err := r.legacyDiscoveryRanges(); err != nil {
 		logger.Warn("ignoring invalid local discovery subnet", "subnet", r.LocalDiscoverySubnet, "err", err)
 	}
-}
-
-func (r *RunCmd) installDiscoveryConfig(ranges []string) error {
-	scope, err := discoveryranges.Parse(ranges)
-	if err != nil {
-		return err
-	}
-	if scope.Empty() {
-		return fmt.Errorf("active node discovery ranges are not configured")
-	}
-	r.saveMu.Lock()
-	defer r.saveMu.Unlock()
-	current, err := r.effectiveDiscoveryScope()
-	if err != nil {
-		return err
-	}
-	if (r.DiscoveryRanges != nil || !current.Empty()) && !slices.Equal(current.Ranges(), scope.Ranges()) {
-		return errors.New(fleetnodecontrol.StandbyDiscoveryConflictMessage)
-	}
-	r.stateMu.Lock()
-	if r.state == nil {
-		r.stateMu.Unlock()
-		return fmt.Errorf("node state is unavailable")
-	}
-	snapshot := *r.state
-	snapshot.DiscoveryRanges = scope.Strings()
-	r.stateMu.Unlock()
-	if err := bootstrap.SaveState(r.statePath, &snapshot); err != nil {
-		return fmt.Errorf("persist discovery configuration: %w", err)
-	}
-	r.stateMu.Lock()
-	r.state.DiscoveryRanges = snapshot.DiscoveryRanges
-	r.stateMu.Unlock()
-	return nil
 }
 
 func (r *RunCmd) scopedDiscoveryTargets(targets iter.Seq[netip.Addr]) (iter.Seq[netip.Addr], error) {

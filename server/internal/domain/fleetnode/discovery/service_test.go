@@ -3,19 +3,15 @@ package discovery
 import (
 	"context"
 	"errors"
-	"fmt"
-	"strings"
 	"testing"
 	"time"
 
-	"buf.build/go/protovalidate"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
 
 	gatewaypb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
 	pairingpb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
-	"github.com/block/proto-fleet/server/internal/domain/discoveryranges"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/control"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/enrollment"
@@ -401,9 +397,9 @@ func TestRunOnNode_InterpretsLocalSubnetFlag(t *testing.T) {
 		localSubnet bool
 		wantTarget  string
 	}{
-		{name: "sentinel expands saved range", target: netscan.LocalSubnetTarget, wantTarget: "10.0.0.1-100"},
-		{name: "true expands saved range", target: "10.0.0.0/28", localSubnet: true, wantTarget: "10.0.0.1-100"},
-		{name: "false clips explicit target", target: "10.0.0.0/28", wantTarget: "10.0.0.1-14"},
+		{name: "sentinel stays on node", target: netscan.LocalSubnetTarget, wantTarget: netscan.LocalSubnetTarget},
+		{name: "flag normalizes to sentinel", target: "10.0.0.0/28", localSubnet: true, wantTarget: netscan.LocalSubnetTarget},
+		{name: "explicit target stays unchanged", target: "10.0.0.0/28", wantTarget: "10.0.0.0/28"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			reg := control.NewRegistry()
@@ -431,34 +427,6 @@ func TestRunOnNode_InterpretsLocalSubnetFlag(t *testing.T) {
 			assert.Equal(t, tc.wantTarget, <-gotTarget)
 		})
 	}
-}
-
-func TestPartitionRequests_SplitsLongHostnamesBeforeEncoding(t *testing.T) {
-	// Arrange
-	addresses := make([]string, 4096)
-	for i := range addresses {
-		addresses[i] = fmt.Sprintf("%04d%s.%s.%s.%s", i, strings.Repeat("a", 59), strings.Repeat("b", 63), strings.Repeat("c", 63), strings.Repeat("d", 61))
-		require.Len(t, addresses[i], 253)
-	}
-	req := ipListReq(addresses, []string{"4028"})
-	require.NoError(t, ValidateRequest(req))
-	scope, err := discoveryranges.Parse([]string{"10.0.0.0/24"})
-	require.NoError(t, err)
-
-	// Act
-	tasks, err := partitionRequests(req, scope)
-
-	// Assert
-	require.NoError(t, err)
-	count := 0
-	for task := range tasks {
-		require.LessOrEqual(t, len(task.GetIpList().GetIpAddresses()), 256)
-		payload, err := proto.Marshal(&gatewaypb.AgentCommand{Command: &gatewaypb.AgentCommand_Discover{Discover: task}})
-		require.NoError(t, err)
-		require.NoError(t, protovalidate.Validate(&gatewaypb.ControlCommand{CommandId: "test", Payload: payload}))
-		count += len(task.GetIpList().GetIpAddresses())
-	}
-	require.Equal(t, len(addresses), count)
 }
 
 func TestDiscoveryReadiness_WarnsWithoutDispatch(t *testing.T) {
@@ -519,7 +487,7 @@ func TestRunOnNode_HostnameReportsStayWithinAssignedRanges(t *testing.T) {
 				return
 			}
 			scope, ok := reg.ReportScopeFor(7, cmd.GetCommandId())
-			checked <- ok && scope("10.0.0.5", "4028") && !scope("10.0.0.6", "4028") && !scope("10.0.0.5", "80") && envelope.GetDiscover().GetIpList().GetIpAddresses()[0] == "miner.lan"
+			checked <- ok && scope("10.0.0.5", "4028") && !scope("10.0.0.6", "4028") && !scope("10.0.0.5", "80") && proto.Equal(envelope.GetDiscover(), ipListReq([]string{"10.0.0.6", "miner.lan"}, []string{"4028"}))
 			stream.PublishAck(&gatewaypb.ControlAck{CommandId: cmd.GetCommandId(), Succeeded: true, Code: gatewaypb.AckCode_ACK_CODE_OK})
 		case <-ctx.Done():
 			checked <- false
@@ -534,46 +502,64 @@ func TestRunOnNode_HostnameReportsStayWithinAssignedRanges(t *testing.T) {
 	require.True(t, <-checked, "node resolves hostname; server constrains its report to assigned IPs and requested ports")
 }
 
-func TestRunOnNode_StopsPartitionsAfterIncompleteCommand(t *testing.T) {
-	for _, code := range []gatewaypb.AckCode{gatewaypb.AckCode_ACK_CODE_SCAN_FAILED, gatewaypb.AckCode_ACK_CODE_PARTIAL} {
-		t.Run(code.String(), func(t *testing.T) {
-			// Arrange
+func TestRunOnNode_ForwardsMixedScopeRequestInOneCommand(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		req  *pairingpb.DiscoverRequest
+	}{
+		{"list", ipListReq([]string{"10.0.0.5", "10.0.0.201", "192.168.1.5"}, []string{"4028"})},
+		{"range", ipRangeReq("10.0.0.5", "10.0.1.255", []string{"4028"})},
+		{"network", networkScanReq("10.0.0.0/23", []string{"4028"})},
+		{"automatic4096", autoNetworkScanReq([]string{"4028"})},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			req := tc.req
 			reg := control.NewRegistry()
-			stream := registerConfiguredNode(reg, 7)
+			stream := reg.Register(7)
 			defer stream.Unregister()
+			ranges := []string{"10.0.0.5-10.0.0.200", "10.0.2.1"}
+			if tc.name == "automatic4096" {
+				ranges = []string{"10.0.0.0/20"}
+			}
+			stream.SetDiscoveryConfig(&gatewaypb.DiscoveryConfig{Ranges: ranges})
 			ctx, cancel := context.WithTimeout(t.Context(), time.Second)
 			defer cancel()
-			commands := make(chan string, 10)
-			finished := make(chan struct{})
+			commands := make(chan *pairingpb.DiscoverRequest, 32)
+			scopes := make(chan control.ReportScope, 32)
+			done := make(chan struct{})
 			go func() {
-				defer close(finished)
+				defer close(done)
 				for {
 					select {
 					case cmd := <-stream.Outgoing:
-						commands <- cmd.GetCommandId()
-						reg.PublishBatch(7, cmd.GetCommandId(), &pairingpb.DiscoverResponse{Devices: []*pairingpb.Device{{DeviceIdentifier: "first-result", IpAddress: "10.0.0.5", Port: "4028"}}})
-						stream.PublishAck(&gatewaypb.ControlAck{CommandId: cmd.GetCommandId(), Code: code})
+						var envelope gatewaypb.AgentCommand
+						if err := proto.Unmarshal(cmd.GetPayload(), &envelope); err != nil {
+							return
+						}
+						commands <- envelope.GetDiscover()
+						scope, _ := reg.ReportScopeFor(7, cmd.GetCommandId())
+						scopes <- scope
+						stream.PublishAck(&gatewaypb.ControlAck{CommandId: cmd.GetCommandId(), Succeeded: true, Code: gatewaypb.AckCode_ACK_CODE_OK})
 					case <-ctx.Done():
 						return
 					}
 				}
 			}()
-			var responses []*pairingpb.DiscoverResponse
 
-			// Act
-			err := NewService(reg, nil).RunOnNode(ctx, 7, "Fleet Node", ipRangeReq("10.0.0.0", "10.0.1.255", nil), collectResponses(&responses))
+			err := NewService(reg, nil).RunOnNode(ctx, 7, "Fleet Node 7", req, func(*pairingpb.DiscoverResponse) error { return nil })
 			cancel()
-			<-finished
+			<-done
 
-			// Assert
 			require.NoError(t, err)
 			require.Len(t, commands, 1)
-			require.Len(t, responses, 2)
-			require.Equal(t, "first-result", responses[0].GetDevices()[0].GetDeviceIdentifier())
-			if code == gatewaypb.AckCode_ACK_CODE_PARTIAL {
-				require.Contains(t, responses[1].GetWarning(), "discovery completed partially")
-			} else {
-				require.Contains(t, responses[1].GetWarning(), "discovery failed")
+			require.True(t, proto.Equal(req, <-commands), "the original target must reach the node unchanged")
+			scope := <-scopes
+			require.True(t, scope("10.0.0.5", "4028"))
+			require.False(t, scope("192.168.1.5", "4028"), "even requested reports must be inside the node's local ranges")
+			require.False(t, scope("10.0.0.5", "80"), "reports must use requested ports")
+			if req.GetNetworkScan().GetTarget() != netscan.LocalSubnetTarget {
+				require.False(t, scope("10.0.2.1", "4028"), "local reports must also be inside the original request")
+				require.False(t, scope("10.0.0.201", "4028"), "requested reports must also be inside the node's local ranges")
 			}
 		})
 	}

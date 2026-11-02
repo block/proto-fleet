@@ -252,7 +252,7 @@ func (r *RunCmd) runControlSession(ctx context.Context, logger *slog.Logger, cli
 		return fmt.Errorf("discovery configuration: %w", err)
 	}
 	if err := stream.Send(&pb.ControlStreamRequest{Kind: &pb.ControlStreamRequest_Hello{Hello: &pb.ControlHello{
-		MaxCommandProtocolVersion: pb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V8,
+		MaxCommandProtocolVersion: pb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V7,
 		DiscoveryConfig:           config,
 	}}}); err != nil {
 		if ctx.Err() != nil {
@@ -546,22 +546,6 @@ func (r *RunCmd) handleCommand(ctx context.Context, client gatewayClient, stream
 		r.handleExportCredentialKey(stream, commandID, k.ExportCredentialKey, logger)
 	case *pb.AgentCommand_InstallCredentialKey:
 		r.handleInstallCredentialKey(stream, commandID, k.InstallCredentialKey, logger)
-	case *pb.AgentCommand_InstallDiscoveryConfig:
-		if err := r.installDiscoveryConfig(k.InstallDiscoveryConfig.GetRanges()); err != nil {
-			r.sendAck(stream, commandID, pb.AckCode_ACK_CODE_BAD_REQUEST, err.Error(), logger)
-			return
-		}
-		config, err := r.effectiveDiscoveryConfig()
-		if err != nil {
-			r.sendAck(stream, commandID, pb.AckCode_ACK_CODE_INTERNAL, err.Error(), logger)
-			return
-		}
-		payload, err := proto.Marshal(config)
-		if err != nil {
-			r.sendAck(stream, commandID, pb.AckCode_ACK_CODE_INTERNAL, err.Error(), logger)
-			return
-		}
-		r.sendAckWithPayload(stream, commandID, pb.AckCode_ACK_CODE_OK, "", payload, logger)
 	default:
 		if len(env.ProtoReflect().GetUnknown()) > 0 {
 			r.sendAck(stream, commandID, pb.AckCode_ACK_CODE_UNIMPLEMENTED, "server-to-node command type is not supported", logger)

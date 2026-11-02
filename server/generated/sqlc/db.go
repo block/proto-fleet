@@ -1914,9 +1914,6 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.listOrganizationsStmt, err = db.PrepareContext(ctx, listOrganizations); err != nil {
 		return nil, fmt.Errorf("error preparing query ListOrganizations: %w", err)
 	}
-	if q.listOutOfScopeFleetNodeDiscoveryIDsStmt, err = db.PrepareContext(ctx, listOutOfScopeFleetNodeDiscoveryIDs); err != nil {
-		return nil, fmt.Errorf("error preparing query ListOutOfScopeFleetNodeDiscoveryIDs: %w", err)
-	}
 	if q.listPartsBySiteStmt, err = db.PrepareContext(ctx, listPartsBySite); err != nil {
 		return nil, fmt.Errorf("error preparing query ListPartsBySite: %w", err)
 	}
@@ -2201,12 +2198,6 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.lockFleetNodeDevicesForRevocationStmt, err = db.PrepareContext(ctx, lockFleetNodeDevicesForRevocation); err != nil {
 		return nil, fmt.Errorf("error preparing query LockFleetNodeDevicesForRevocation: %w", err)
-	}
-	if q.lockFleetNodeDiscoveriesStmt, err = db.PrepareContext(ctx, lockFleetNodeDiscoveries); err != nil {
-		return nil, fmt.Errorf("error preparing query LockFleetNodeDiscoveries: %w", err)
-	}
-	if q.lockFleetNodeDiscoveryDevicesStmt, err = db.PrepareContext(ctx, lockFleetNodeDiscoveryDevices); err != nil {
-		return nil, fmt.Errorf("error preparing query LockFleetNodeDiscoveryDevices: %w", err)
 	}
 	if q.lockFleetNodeHAPairStmt, err = db.PrepareContext(ctx, lockFleetNodeHAPair); err != nil {
 		return nil, fmt.Errorf("error preparing query LockFleetNodeHAPair: %w", err)
@@ -2603,9 +2594,6 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.retireContainerModulesStmt, err = db.PrepareContext(ctx, retireContainerModules); err != nil {
 		return nil, fmt.Errorf("error preparing query RetireContainerModules: %w", err)
-	}
-	if q.retireOutOfScopeFleetNodeDiscoveriesStmt, err = db.PrepareContext(ctx, retireOutOfScopeFleetNodeDiscoveries); err != nil {
-		return nil, fmt.Errorf("error preparing query RetireOutOfScopeFleetNodeDiscoveries: %w", err)
 	}
 	if q.retirePoolConfigurationAssignmentStmt, err = db.PrepareContext(ctx, retirePoolConfigurationAssignment); err != nil {
 		return nil, fmt.Errorf("error preparing query RetirePoolConfigurationAssignment: %w", err)
@@ -6287,11 +6275,6 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing listOrganizationsStmt: %w", cerr)
 		}
 	}
-	if q.listOutOfScopeFleetNodeDiscoveryIDsStmt != nil {
-		if cerr := q.listOutOfScopeFleetNodeDiscoveryIDsStmt.Close(); cerr != nil {
-			err = fmt.Errorf("error closing listOutOfScopeFleetNodeDiscoveryIDsStmt: %w", cerr)
-		}
-	}
 	if q.listPartsBySiteStmt != nil {
 		if cerr := q.listPartsBySiteStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing listPartsBySiteStmt: %w", cerr)
@@ -6765,16 +6748,6 @@ func (q *Queries) Close() error {
 	if q.lockFleetNodeDevicesForRevocationStmt != nil {
 		if cerr := q.lockFleetNodeDevicesForRevocationStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing lockFleetNodeDevicesForRevocationStmt: %w", cerr)
-		}
-	}
-	if q.lockFleetNodeDiscoveriesStmt != nil {
-		if cerr := q.lockFleetNodeDiscoveriesStmt.Close(); cerr != nil {
-			err = fmt.Errorf("error closing lockFleetNodeDiscoveriesStmt: %w", cerr)
-		}
-	}
-	if q.lockFleetNodeDiscoveryDevicesStmt != nil {
-		if cerr := q.lockFleetNodeDiscoveryDevicesStmt.Close(); cerr != nil {
-			err = fmt.Errorf("error closing lockFleetNodeDiscoveryDevicesStmt: %w", cerr)
 		}
 	}
 	if q.lockFleetNodeHAPairStmt != nil {
@@ -7435,11 +7408,6 @@ func (q *Queries) Close() error {
 	if q.retireContainerModulesStmt != nil {
 		if cerr := q.retireContainerModulesStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing retireContainerModulesStmt: %w", cerr)
-		}
-	}
-	if q.retireOutOfScopeFleetNodeDiscoveriesStmt != nil {
-		if cerr := q.retireOutOfScopeFleetNodeDiscoveriesStmt.Close(); cerr != nil {
-			err = fmt.Errorf("error closing retireOutOfScopeFleetNodeDiscoveriesStmt: %w", cerr)
 		}
 	}
 	if q.retirePoolConfigurationAssignmentStmt != nil {
@@ -8986,7 +8954,6 @@ type Queries struct {
 	listNotificationHistoryStmt                                *sql.Stmt
 	listOrganizationInvitationsStmt                            *sql.Stmt
 	listOrganizationsStmt                                      *sql.Stmt
-	listOutOfScopeFleetNodeDiscoveryIDsStmt                    *sql.Stmt
 	listPartsBySiteStmt                                        *sql.Stmt
 	listPendingPoolConfigurationWorkStmt                       *sql.Stmt
 	listPermissionsStmt                                        *sql.Stmt
@@ -9082,8 +9049,6 @@ type Queries struct {
 	lockEndpointDiscoveryDevicesStmt                           *sql.Stmt
 	lockFleetNodeByIDStmt                                      *sql.Stmt
 	lockFleetNodeDevicesForRevocationStmt                      *sql.Stmt
-	lockFleetNodeDiscoveriesStmt                               *sql.Stmt
-	lockFleetNodeDiscoveryDevicesStmt                          *sql.Stmt
 	lockFleetNodeHAPairStmt                                    *sql.Stmt
 	lockFleetNodeIdentityByIDStmt                              *sql.Stmt
 	lockFleetNodePairingDeviceStmt                             *sql.Stmt
@@ -9216,7 +9181,6 @@ type Queries struct {
 	resumeFirmwareRolloutStmt                                  *sql.Stmt
 	resumePausedScheduleStmt                                   *sql.Stmt
 	retireContainerModulesStmt                                 *sql.Stmt
-	retireOutOfScopeFleetNodeDiscoveriesStmt                   *sql.Stmt
 	retirePoolConfigurationAssignmentStmt                      *sql.Stmt
 	retryPoolConfigurationTargetStmt                           *sql.Stmt
 	retryRigConfigReconciliationStmt                           *sql.Stmt
@@ -10028,7 +9992,6 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		listNotificationHistoryStmt:                                q.listNotificationHistoryStmt,
 		listOrganizationInvitationsStmt:                            q.listOrganizationInvitationsStmt,
 		listOrganizationsStmt:                                      q.listOrganizationsStmt,
-		listOutOfScopeFleetNodeDiscoveryIDsStmt:                    q.listOutOfScopeFleetNodeDiscoveryIDsStmt,
 		listPartsBySiteStmt:                                        q.listPartsBySiteStmt,
 		listPendingPoolConfigurationWorkStmt:                       q.listPendingPoolConfigurationWorkStmt,
 		listPermissionsStmt:                                        q.listPermissionsStmt,
@@ -10124,8 +10087,6 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		lockEndpointDiscoveryDevicesStmt:                           q.lockEndpointDiscoveryDevicesStmt,
 		lockFleetNodeByIDStmt:                                      q.lockFleetNodeByIDStmt,
 		lockFleetNodeDevicesForRevocationStmt:                      q.lockFleetNodeDevicesForRevocationStmt,
-		lockFleetNodeDiscoveriesStmt:                               q.lockFleetNodeDiscoveriesStmt,
-		lockFleetNodeDiscoveryDevicesStmt:                          q.lockFleetNodeDiscoveryDevicesStmt,
 		lockFleetNodeHAPairStmt:                                    q.lockFleetNodeHAPairStmt,
 		lockFleetNodeIdentityByIDStmt:                              q.lockFleetNodeIdentityByIDStmt,
 		lockFleetNodePairingDeviceStmt:                             q.lockFleetNodePairingDeviceStmt,
@@ -10258,7 +10219,6 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		resumeFirmwareRolloutStmt:                                  q.resumeFirmwareRolloutStmt,
 		resumePausedScheduleStmt:                                   q.resumePausedScheduleStmt,
 		retireContainerModulesStmt:                                 q.retireContainerModulesStmt,
-		retireOutOfScopeFleetNodeDiscoveriesStmt:                   q.retireOutOfScopeFleetNodeDiscoveriesStmt,
 		retirePoolConfigurationAssignmentStmt:                      q.retirePoolConfigurationAssignmentStmt,
 		retryPoolConfigurationTargetStmt:                           q.retryPoolConfigurationTargetStmt,
 		retryRigConfigReconciliationStmt:                           q.retryRigConfigReconciliationStmt,

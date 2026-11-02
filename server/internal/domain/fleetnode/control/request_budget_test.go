@@ -34,7 +34,7 @@ func TestRegistryDiscoveryBudgetSharedAcrossCommandsAndNodes(t *testing.T) {
 	remaining := discoverylimits.MaxReportsPerRequest
 	for i := 0; remaining > 0; i++ {
 		nodeID := int64(7 + i%2)
-		commandID := fmt.Sprintf("partition-%d", i)
+		commandID := fmt.Sprintf("scan-%d", i)
 		session, err := r.Send(ctx, nodeID, gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1, &gatewaypb.ControlCommand{CommandId: commandID}, nil, ReportKindDiscovery, nil)
 		require.NoError(t, err)
 		<-nodes[i%2].Outgoing
@@ -81,7 +81,7 @@ func TestRegistryDiscoveryBudgetChargesOnlyPublishedBatches(t *testing.T) {
 	r := NewRegistry()
 	stream := r.Register(7)
 	defer stream.Unregister()
-	session, err := r.Send(WithCommandReportLimit(ctx, 1024), 7, gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1, &gatewaypb.ControlCommand{CommandId: "scan"}, nil, ReportKindDiscovery, nil)
+	session, err := r.Send(ctx, 7, gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1, &gatewaypb.ControlCommand{CommandId: "scan"}, nil, ReportKindDiscovery, nil)
 	require.NoError(t, err)
 	defer session.Close()
 	<-stream.Outgoing
@@ -120,23 +120,4 @@ func TestRegistryDiscoveryBudgetRejectsWholeCrossingBatch(t *testing.T) {
 	}
 	require.True(t, budget.Exhausted())
 	require.ErrorIs(t, r.AdmitReport(7, "crossing", 1, ReportKindDiscovery), ErrReportQuotaExceeded)
-}
-
-func TestSendCommandReportLimitLowersDiscoveryQuota(t *testing.T) {
-	// Arrange
-	r := NewRegistry()
-	stream := r.Register(7)
-	defer stream.Unregister()
-	session, err := r.Send(WithCommandReportLimit(t.Context(), 3), 7, gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1, &gatewaypb.ControlCommand{CommandId: "limited"}, nil, ReportKindDiscovery, nil)
-	require.NoError(t, err)
-	defer session.Close()
-	<-stream.Outgoing
-
-	// Act
-	within := r.AdmitReport(7, "limited", 3, ReportKindDiscovery)
-	beyond := r.AdmitReport(7, "limited", 1, ReportKindDiscovery)
-
-	// Assert
-	require.NoError(t, within)
-	require.ErrorIs(t, beyond, ErrReportQuotaExceeded)
 }

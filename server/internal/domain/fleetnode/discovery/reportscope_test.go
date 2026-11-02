@@ -121,7 +121,7 @@ func TestValidateDiscoverRequest_TargetAndPortLimits(t *testing.T) {
 		{"4096 raw targets", ipListReq(addresses, nil), true},
 		{"4097 raw targets", ipListReq(slices.Concat(addresses, []string{"10.0.0.1"}), nil), false},
 		{"/20 network", networkScanReq("10.0.0.0/20", nil), true},
-		{"/19 request is partitioned", networkScanReq("10.0.0.0/19", nil), true},
+		{"/19 network is too broad", networkScanReq("10.0.0.0/19", nil), false},
 		{"ten raw ports", ipListReq([]string{"10.0.0.1"}, ports), true},
 		{"eleven raw ports", ipListReq([]string{"10.0.0.1"}, append(ports, "80")), false},
 	} {
@@ -222,13 +222,14 @@ func TestNormalizeDiscoverRequest_LocalSubnetTarget_RejectsInvalidPort(t *testin
 	assert.Contains(t, err.Error(), "invalid port")
 }
 
-func TestValidateRequest_IPRangeBeforePartitioning(t *testing.T) {
+func TestValidateRequest_IPRangeTargetLimit(t *testing.T) {
 	for _, tc := range []struct {
 		name string
 		end  string
+		ok   bool
 	}{
-		{name: "4096 targets", end: "10.0.16.1"},
-		{name: "4097 targets are partitioned", end: "10.0.16.2"},
+		{name: "4096 targets", end: "10.0.16.1", ok: true},
+		{name: "4097 targets", end: "10.0.16.2", ok: false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			// Arrange
@@ -238,7 +239,11 @@ func TestValidateRequest_IPRangeBeforePartitioning(t *testing.T) {
 			err := ValidateRequest(req)
 
 			// Assert
-			require.NoError(t, err)
+			if tc.ok {
+				require.NoError(t, err)
+			} else {
+				require.True(t, fleeterror.IsInvalidArgumentError(err))
+			}
 			assert.Equal(t, "10.0.0.2", req.GetIpRange().GetStartIp())
 			assert.Equal(t, tc.end, req.GetIpRange().GetEndIp())
 		})

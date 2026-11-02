@@ -219,11 +219,11 @@ func reportServerScanError(ctx context.Context, fwd *dedupForwarder, err error) 
 	if discovery.IsCallerError(err) {
 		return err
 	}
-	if ctx.Err() != nil {
-		return nil
+	if ctx.Err() == nil {
+		slog.Warn("fleet server discovery failed", "error", err)
+		return fwd.forward(discovery.SourceWarning("Fleet Server", err))
 	}
-	slog.Warn("fleet server discovery failed", "error", err)
-	return fwd.forward(discovery.SourceWarning("Fleet Server", err))
+	return nil
 }
 
 // fleetNodeDiscoveryRequest returns requests supported by Fleet Nodes. The

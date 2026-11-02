@@ -29,7 +29,6 @@ type ReportBudget struct {
 	mu        sync.Mutex
 	reported  int
 	exhausted bool
-	deadline  time.Time
 }
 
 type requestBudgetKey struct{}
@@ -38,7 +37,7 @@ type requestBudgetKey struct{}
 // Direct-node callers get the same protection as the public discovery fan-out.
 func WithRequest(ctx context.Context, timeout time.Duration) (context.Context, context.CancelFunc) {
 	if BudgetFromContext(ctx) == nil {
-		ctx = context.WithValue(ctx, requestBudgetKey{}, &ReportBudget{deadline: time.Now().Add(timeout)})
+		ctx = context.WithValue(ctx, requestBudgetKey{}, &ReportBudget{})
 	}
 	return context.WithTimeout(ctx, timeout)
 }
@@ -59,12 +58,6 @@ func (b *ReportBudget) Admit(count int) bool {
 	b.reported += count
 	b.exhausted = b.reported == MaxReportsPerRequest
 	return true
-}
-
-// DeadlineExpired reports whether the request's aggregate deadline has passed,
-// as opposed to an earlier deadline or cancellation from the caller.
-func (b *ReportBudget) DeadlineExpired() bool {
-	return !time.Now().Before(b.deadline)
 }
 
 func (b *ReportBudget) Exhausted() bool {

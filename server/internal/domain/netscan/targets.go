@@ -123,10 +123,6 @@ func Range(start, end string) (Target, error) {
 	return Target{first: first, last: last}, nil
 }
 
-// Bounds returns the inclusive interval Addresses yields; both are invalid for
-// an unresolved hostname.
-func (t Target) Bounds() (first, last netip.Addr) { return t.first, t.last }
-
 // Count returns the number of addresses yielded, or zero for an unresolved host.
 func (t Target) Count() uint64 {
 	if !t.first.IsValid() {

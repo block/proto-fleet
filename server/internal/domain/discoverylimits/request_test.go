@@ -4,7 +4,6 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
-	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/require"
@@ -29,25 +28,6 @@ func TestWithRequestRetainsBudgetAndDeadline(t *testing.T) {
 	require.True(t, ok)
 	require.Equal(t, outerDeadline, innerDeadline)
 	require.NotSame(t, BudgetFromContext(outer), BudgetFromContext(independent))
-}
-
-func TestDeadlineExpiredDistinguishesRequestDeadlineFromEarlierCancellation(t *testing.T) {
-	synctest.Test(t, func(t *testing.T) {
-		// Arrange
-		ctx, cancel := WithRequest(t.Context(), time.Minute)
-		defer cancel()
-		budget := BudgetFromContext(ctx)
-
-		// Act
-		time.Sleep(time.Minute - time.Second)
-		beforeDeadline := budget.DeadlineExpired()
-		time.Sleep(time.Second)
-		atDeadline := budget.DeadlineExpired()
-
-		// Assert
-		require.False(t, beforeDeadline)
-		require.True(t, atDeadline)
-	})
 }
 
 func TestReportBudgetRejectsCrossingBatchAndClosesAdmission(t *testing.T) {

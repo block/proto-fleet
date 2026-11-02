@@ -7166,18 +7166,6 @@ func (q *retryingQuerier) ListOrganizations(ctx context.Context) ([]Organization
 	return result, err
 }
 
-func (q *retryingQuerier) ListOutOfScopeFleetNodeDiscoveryIDs(ctx context.Context, arg ListOutOfScopeFleetNodeDiscoveryIDsParams) ([]int64, error) {
-	var result []int64
-	err := q.retrier.RetryQuery(ctx, "ListOutOfScopeFleetNodeDiscoveryIDs", func() error {
-		callResult, callErr := q.next.ListOutOfScopeFleetNodeDiscoveryIDs(ctx, arg)
-		if callErr == nil {
-			result = callResult
-		}
-		return callErr
-	})
-	return result, err
-}
-
 func (q *retryingQuerier) ListPartsBySite(ctx context.Context, arg ListPartsBySiteParams) ([]ListPartsBySiteRow, error) {
 	var result []ListPartsBySiteRow
 	err := q.retrier.RetryQuery(ctx, "ListPartsBySite", func() error {
@@ -8232,30 +8220,6 @@ func (q *retryingQuerier) LockFleetNodeDevicesForRevocation(ctx context.Context,
 	var result []int64
 	err := q.retrier.RetryQuery(ctx, "LockFleetNodeDevicesForRevocation", func() error {
 		callResult, callErr := q.next.LockFleetNodeDevicesForRevocation(ctx, arg)
-		if callErr == nil {
-			result = callResult
-		}
-		return callErr
-	})
-	return result, err
-}
-
-func (q *retryingQuerier) LockFleetNodeDiscoveries(ctx context.Context, arg LockFleetNodeDiscoveriesParams) ([]int64, error) {
-	var result []int64
-	err := q.retrier.RetryQuery(ctx, "LockFleetNodeDiscoveries", func() error {
-		callResult, callErr := q.next.LockFleetNodeDiscoveries(ctx, arg)
-		if callErr == nil {
-			result = callResult
-		}
-		return callErr
-	})
-	return result, err
-}
-
-func (q *retryingQuerier) LockFleetNodeDiscoveryDevices(ctx context.Context, arg LockFleetNodeDiscoveryDevicesParams) ([]int64, error) {
-	var result []int64
-	err := q.retrier.RetryQuery(ctx, "LockFleetNodeDiscoveryDevices", func() error {
-		callResult, callErr := q.next.LockFleetNodeDiscoveryDevices(ctx, arg)
 		if callErr == nil {
 			result = callResult
 		}
@@ -9612,18 +9576,6 @@ func (q *retryingQuerier) RetireContainerModules(ctx context.Context, arg Retire
 	return q.retrier.RetryQuery(ctx, "RetireContainerModules", func() error {
 		return q.next.RetireContainerModules(ctx, arg)
 	})
-}
-
-func (q *retryingQuerier) RetireOutOfScopeFleetNodeDiscoveries(ctx context.Context, arg RetireOutOfScopeFleetNodeDiscoveriesParams) (int64, error) {
-	var result int64
-	err := q.retrier.RetryQuery(ctx, "RetireOutOfScopeFleetNodeDiscoveries", func() error {
-		callResult, callErr := q.next.RetireOutOfScopeFleetNodeDiscoveries(ctx, arg)
-		if callErr == nil {
-			result = callResult
-		}
-		return callErr
-	})
-	return result, err
 }
 
 func (q *retryingQuerier) RetirePoolConfigurationAssignment(ctx context.Context, arg RetirePoolConfigurationAssignmentParams) (int64, error) {

@@ -8,7 +8,6 @@ import (
 	"strconv"
 
 	"github.com/block/proto-fleet/server/internal/domain/deviceendpoints"
-	"github.com/block/proto-fleet/server/internal/domain/discoveryranges"
 
 	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
 	pairingpb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
@@ -46,40 +45,6 @@ func (s *SQLFleetNodePairingStore) GetFleetNodePairingTarget(ctx context.Context
 		DeviceIdentifier: row.DeviceIdentifier, IpAddress: row.IpAddress, Port: row.Port, UrlScheme: row.UrlScheme,
 		RpcPort: row.RpcPort, RpcTls: row.RpcTls, Endpoints: endpoints,
 	}, nil
-}
-
-func (s *SQLFleetNodePairingStore) RetireOutOfScopeDiscoveries(ctx context.Context, nodeID, orgID int64, scope discoveryranges.Scope) error {
-	starts, ends := []string{}, []string{}
-	for _, interval := range scope.Ranges() {
-		starts = append(starts, interval.Start.String())
-		ends = append(ends, interval.End.String())
-	}
-	nodeParam := sql.NullInt64{Int64: nodeID, Valid: true}
-	return NewSQLTransactor(s.conn.DB).RunInTx(ctx, func(ctx context.Context) error {
-		q := s.q(ctx)
-		// Find candidates without locks so reconnects that retire nothing never
-		// block on paired inventory.
-		candidates, err := q.ListOutOfScopeFleetNodeDiscoveryIDs(ctx, sqlc.ListOutOfScopeFleetNodeDiscoveryIDsParams{
-			OrgID: orgID, FleetNodeID: nodeParam, RangeStarts: starts, RangeEnds: ends,
-		})
-		if err != nil || len(candidates) == 0 {
-			return err
-		}
-		// Match pairing's device-before-discovery lock order. Batch these locks
-		// so reconnect does not issue per-miner database round trips.
-		if _, err := q.LockFleetNodeDiscoveryDevices(ctx, sqlc.LockFleetNodeDiscoveryDevicesParams{OrgID: orgID, DiscoveryIds: candidates}); err != nil {
-			return err
-		}
-		lockedIDs, err := q.LockFleetNodeDiscoveries(ctx, sqlc.LockFleetNodeDiscoveriesParams{OrgID: orgID, FleetNodeID: nodeParam, DiscoveryIds: candidates})
-		if err != nil {
-			return err
-		}
-		// A fresh statement sees ownership committed while either lock waited.
-		_, err = q.RetireOutOfScopeFleetNodeDiscoveries(ctx, sqlc.RetireOutOfScopeFleetNodeDiscoveriesParams{
-			OrgID: orgID, FleetNodeID: nodeParam, RangeStarts: starts, RangeEnds: ends, LockedDiscoveryIds: lockedIDs,
-		})
-		return err
-	})
 }
 
 func (s *SQLFleetNodePairingStore) PairDeviceToFleetNode(ctx context.Context, fleetNodeID, deviceID, orgID int64, assignedBy *int64) (int64, error) {

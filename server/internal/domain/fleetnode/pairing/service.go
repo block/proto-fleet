@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/block/proto-fleet/server/internal/domain/deviceendpoints"
-	"github.com/block/proto-fleet/server/internal/domain/discoveryranges"
 
 	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
 	gatewaypb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
@@ -55,7 +54,6 @@ type Store interface { //nolint:interfacebloat // Pairing coordinates several sq
 	GetDeviceIDByDeviceIdentifier(ctx context.Context, identifier string) (int64, error)
 	GetFleetNodePairedDeviceIdentifier(ctx context.Context, deviceID, orgID int64) (string, error)
 	GetFleetNodePairingTarget(ctx context.Context, deviceID, orgID int64) (*pairingpb.FleetNodePairTarget, error)
-	RetireOutOfScopeDiscoveries(ctx context.Context, fleetNodeID, orgID int64, scope discoveryranges.Scope) error
 }
 
 type minerCredentialDeleter interface {
@@ -115,19 +113,6 @@ func (s *Service) WithProvisioning(deviceStore stores.DeviceStore, discoveredDev
 func (s *Service) WithDiscoveryConfig(config func(int64) *gatewaypb.DiscoveryConfig) *Service {
 	s.discoveryConfig = config
 	return s
-}
-
-// RetireOutOfScopeDiscoveries removes stale unpaired candidates after the node
-// advertises a new partition. Paired inventory remains available for repair.
-func (s *Service) RetireOutOfScopeDiscoveries(ctx context.Context, fleetNodeID, orgID int64, config *gatewaypb.DiscoveryConfig) error {
-	scope, err := discoveryranges.Parse(config.GetRanges())
-	if err != nil {
-		return fleeterror.NewInvalidArgumentErrorf("invalid discovery ranges: %v", err)
-	}
-	if err := s.store.RetireOutOfScopeDiscoveries(ctx, fleetNodeID, orgID, scope); err != nil {
-		return logInternal("retire out-of-scope discoveries", clientErrUpsertDiscoveredDevice, err)
-	}
-	return nil
 }
 
 // WithMinerInvalidator wires the miner-cache invalidator so pair/unpair evicts a stale
