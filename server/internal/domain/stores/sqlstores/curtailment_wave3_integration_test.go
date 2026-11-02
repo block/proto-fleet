@@ -75,7 +75,11 @@ func TestSQLCurtailmentStore_FanCommandsDoNotReplayAfterCommitFailure(t *testing
 			var pgErr *pgconn.PgError
 			require.ErrorAs(t, err, &pgErr)
 			assert.Equal(t, "40001", pgErr.Code)
-			assert.Equal(t, 1, calls, "physical commands must not be replayed after commit failure")
+			expectedCalls := 1
+			if operation == "admin terminate" || operation == "force release" {
+				expectedCalls = 0 // durable recovery intent must commit before physical I/O
+			}
+			assert.Equal(t, expectedCalls, calls, "physical commands must not run before recovery intent commits or replay after failure")
 			persisted, err := store.GetEventByUUID(ctx, user.OrganizationID, eventUUID)
 			require.NoError(t, err)
 			assert.Equal(t, state, persisted.State, "failed transaction must roll back lifecycle changes")

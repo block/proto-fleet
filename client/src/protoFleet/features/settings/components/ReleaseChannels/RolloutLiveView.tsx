@@ -27,6 +27,7 @@ import {
   scopeCounts,
   scopedToBatch,
 } from "./rolloutStatus";
+import { formatCurtailmentDuration as formatElapsed } from "@/protoFleet/api/curtailmentDisplayUtils";
 import {
   type Rollout,
   type RolloutEvidence,
@@ -35,7 +36,6 @@ import {
   RolloutStatus,
 } from "@/protoFleet/api/generated/rollout/v1/rollout_pb";
 import { gatesAfterBatch } from "@/protoFleet/api/rolloutBehavior";
-import { formatCurtailmentDuration as formatElapsed } from "@/protoFleet/features/energy/curtailmentDisplayUtils";
 import { useTemperatureUnit } from "@/protoFleet/store";
 import { Alert, ArrowRight, Info, Success } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";

@@ -20,6 +20,31 @@ type CapabilitiesProvider interface {
 	GetMinerCapabilitiesForDevice(ctx context.Context, device *pairingpb.Device) *capabilitiespb.MinerCapabilities
 }
 
+type commandCapabilityChecker interface {
+	SetDeviceIdentifierResolver(resolver DeviceIdentifierResolver)
+	CheckCapabilities(ctx context.Context, selector *pb.DeviceSelector, commandType pb.CommandType, orgID int64) (*pb.CheckCommandCapabilitiesResponse, error)
+	CheckCurtailCapabilities(ctx context.Context, selector *pb.DeviceSelector, level sdk.CurtailLevel, orgID int64) (*pb.CheckCommandCapabilitiesResponse, error)
+}
+
+// CheckCurtailCapabilities validates the exact requested level at admission.
+func (c *CapabilityChecker) CheckCurtailCapabilities(ctx context.Context, selector *pb.DeviceSelector, level sdk.CurtailLevel, orgID int64) (*pb.CheckCommandCapabilitiesResponse, error) {
+	capability := sdk.CapabilityCurtailFull
+	switch level {
+	case sdk.CurtailLevelFull:
+	case sdk.CurtailLevelEfficiency:
+		capability = sdk.CapabilityCurtailEfficiency
+	case sdk.CurtailLevelUnspecified:
+		return nil, fleeterror.NewInvalidArgumentError("curtail level is required")
+	default:
+		return nil, fleeterror.NewInvalidArgumentError("curtail level is required")
+	}
+	devices, err := c.getDeviceInfo(ctx, selector, orgID)
+	if err != nil {
+		return nil, err
+	}
+	return c.checkDeviceCapabilities(ctx, devices, []string{capability}), nil
+}
+
 // CapabilityChecker validates command support for devices.
 type CapabilityChecker struct {
 	conn                 *sql.DB

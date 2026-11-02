@@ -2,6 +2,7 @@ import type { StateCreator } from "zustand";
 import { DEFAULT_ACTIVE_SITE } from "../types/activeSite";
 import type { FleetStore } from "../useFleetStore";
 import { resetActiveCurtailmentData } from "@/protoFleet/api/activeCurtailmentData";
+import { resetCurtailmentProfileSession } from "@/protoFleet/api/curtailmentProfileSession";
 
 // =============================================================================
 // Auth Slice Interface
@@ -88,6 +89,7 @@ export const createAuthSlice: StateCreator<FleetStore, [["zustand/immer", never]
 
   logout: () => {
     resetActiveCurtailmentData();
+    resetCurtailmentProfileSession();
     set((state) => {
       state.auth.sessionExpiry = null;
       state.auth.isAuthenticated = false;

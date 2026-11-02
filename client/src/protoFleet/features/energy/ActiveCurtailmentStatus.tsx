@@ -1,13 +1,6 @@
 import { type ReactElement, type ReactNode, useEffect, useState } from "react";
 import clsx from "clsx";
-import type {
-  ActiveCurtailmentDisplayState,
-  ActiveCurtailmentEvent,
-  ActiveCurtailmentTargetSiteCoverage,
-  ActiveCurtailmentUnavailableReasonCount,
-} from "@/protoFleet/api/curtailmentTypes";
 
-import { formatCurtailmentKw as formatKw } from "@/protoFleet/api/curtailmentUtils";
 import {
   type ActiveCurtailmentCurtailProgress,
   type ActiveCurtailmentMinerCompliance,
@@ -20,7 +13,14 @@ import {
   getActiveCurtailmentMinerCompliance,
   getActiveCurtailmentRestoreProgress,
   getCurtailmentTargetKw as getTargetKw,
-} from "@/protoFleet/features/energy/curtailmentDisplayUtils";
+} from "@/protoFleet/api/curtailmentDisplayUtils";
+import type {
+  ActiveCurtailmentDisplayState,
+  ActiveCurtailmentEvent,
+  ActiveCurtailmentTargetSiteCoverage,
+  ActiveCurtailmentUnavailableReasonCount,
+} from "@/protoFleet/api/curtailmentTypes";
+import { formatCurtailmentKw as formatKw } from "@/protoFleet/api/curtailmentUtils";
 
 import { Alert, Success } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";

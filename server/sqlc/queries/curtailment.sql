@@ -1626,17 +1626,6 @@ SET fan_off_sent_at = COALESCE(sqlc.narg('fan_off_sent_at'), fan_off_sent_at),
 WHERE id = sqlc.arg('id')
   AND state = sqlc.arg('expected_state');
 
--- name: LockCurtailmentEventForFanCommand :one
--- Physical fan commands run only while this exact lifecycle phase remains
--- current. Holding the row lock through the command serializes Force Release's
--- terminal UPDATE behind an in-flight command and rejects stale commands that
--- begin after the transition.
-SELECT id
-FROM curtailment_event
-WHERE id = sqlc.arg('id')
-  AND state = sqlc.arg('expected_state')
-FOR UPDATE;
-
 -- name: BeginCurtailmentRestoration :one
 -- Stop's event-side flip to 'restoring'. The WHERE state-guard is the
 -- concurrency control; the loser sees zero rows and the store re-reads
@@ -1650,8 +1639,13 @@ RETURNING *;
 -- name: ResetCurtailmentTargetsForRestore :exec
 -- Stop's target-side write; flips non-terminal targets to
 -- desired_state='active' and clears phase-local cursors so the restorer
--- has an unambiguous queue. Terminal states are untouched.
-UPDATE curtailment_target
+-- has an unambiguous queue. A failed Curtail that may have reached the miner
+-- (enqueued, ambiguous send, or a prior restore cycle) still owes a
+-- compensating restore; preserve its curtail phase failure history. Failures
+-- known to be unsent stay terminal. Skip it once another event owns the miner:
+-- that owner decides its power state, and reactivating it would violate the
+-- one-live-target-per-device index.
+UPDATE curtailment_target reset
 SET desired_state      = 'active',
     state              = 'pending',
     retry_count        = 0,
@@ -1667,12 +1661,22 @@ SET desired_state      = 'active',
     restore_retry_count   = 0,
     restore_failure_count = 0,
     restore_last_error    = NULL
-WHERE curtailment_event_id = sqlc.arg('curtailment_event_id')
-  AND state NOT IN ('resolved', 'restore_failed', 'released');
+WHERE reset.curtailment_event_id = sqlc.arg('curtailment_event_id')
+  AND (reset.state NOT IN ('resolved', 'restore_failed', 'released')
+       OR (reset.state = 'restore_failed' AND reset.desired_state = 'curtailed'
+           AND (reset.curtail_dispatched_at IS NOT NULL
+                OR reset.curtail_possibly_sent
+                OR reset.restore_started_at IS NOT NULL)
+           AND NOT EXISTS (
+               SELECT 1 FROM curtailment_target owner
+               WHERE owner.device_identifier = reset.device_identifier
+                 AND owner.curtailment_event_id <> reset.curtailment_event_id
+                 AND owner.state NOT IN ('resolved', 'restore_failed', 'released'))));
 
 -- name: BeginCurtailmentTopologyTargetRestore :execrows
 -- A topology watcher remains active while departed targets restore. Targets
--- with no possible Curtail attempt release immediately; every other target
+-- with no possible Curtail send release immediately; an in-flight dispatching
+-- row with retry history may still be sending, so it and every other target
 -- enters the normal restore queue conservatively.
 WITH locked_event AS MATERIALIZED (
     SELECT id
@@ -1687,7 +1691,8 @@ SET desired_state = CASE
         WHEN target.state IN ('pending', 'unavailable', 'dispatching')
          AND target.last_dispatched_at IS NULL
          AND target.curtail_dispatched_at IS NULL
-         AND target.retry_count = 0
+         AND NOT target.curtail_possibly_sent
+         AND (target.retry_count = 0 OR target.state <> 'dispatching')
          AND target.restore_started_at IS NULL
         THEN target.desired_state
         ELSE 'active'
@@ -1696,7 +1701,8 @@ SET desired_state = CASE
         WHEN target.state IN ('pending', 'unavailable', 'dispatching')
          AND target.last_dispatched_at IS NULL
          AND target.curtail_dispatched_at IS NULL
-         AND target.retry_count = 0
+         AND NOT target.curtail_possibly_sent
+         AND (target.retry_count = 0 OR target.state <> 'dispatching')
          AND target.restore_started_at IS NULL
         THEN 'released'
         ELSE 'pending'
@@ -1705,7 +1711,8 @@ SET desired_state = CASE
         WHEN target.state IN ('pending', 'unavailable', 'dispatching')
          AND target.last_dispatched_at IS NULL
          AND target.curtail_dispatched_at IS NULL
-         AND target.retry_count = 0
+         AND NOT target.curtail_possibly_sent
+         AND (target.retry_count = 0 OR target.state <> 'dispatching')
          AND target.restore_started_at IS NULL
         THEN COALESCE(target.released_at, CURRENT_TIMESTAMP)
         ELSE target.released_at
@@ -1718,7 +1725,8 @@ SET desired_state = CASE
         WHEN target.state IN ('pending', 'unavailable', 'dispatching')
          AND target.last_dispatched_at IS NULL
          AND target.curtail_dispatched_at IS NULL
-         AND target.retry_count = 0
+         AND NOT target.curtail_possibly_sent
+         AND (target.retry_count = 0 OR target.state <> 'dispatching')
          AND target.restore_started_at IS NULL
         THEN COALESCE(target.last_error, 'released after leaving topology scope before Curtail dispatch')
         ELSE NULL
@@ -1727,7 +1735,8 @@ SET desired_state = CASE
         WHEN target.state IN ('pending', 'unavailable', 'dispatching')
          AND target.last_dispatched_at IS NULL
          AND target.curtail_dispatched_at IS NULL
-         AND target.retry_count = 0
+         AND NOT target.curtail_possibly_sent
+         AND (target.retry_count = 0 OR target.state <> 'dispatching')
          AND target.restore_started_at IS NULL
         THEN 'released'
         ELSE target.curtail_state
@@ -1736,7 +1745,8 @@ SET desired_state = CASE
         WHEN target.state IN ('pending', 'unavailable', 'dispatching')
          AND target.last_dispatched_at IS NULL
          AND target.curtail_dispatched_at IS NULL
-         AND target.retry_count = 0
+         AND NOT target.curtail_possibly_sent
+         AND (target.retry_count = 0 OR target.state <> 'dispatching')
          AND target.restore_started_at IS NULL
         THEN COALESCE(target.curtail_completed_at, CURRENT_TIMESTAMP)
         ELSE target.curtail_completed_at
@@ -1745,7 +1755,8 @@ SET desired_state = CASE
         WHEN target.state IN ('pending', 'unavailable', 'dispatching')
          AND target.last_dispatched_at IS NULL
          AND target.curtail_dispatched_at IS NULL
-         AND target.retry_count = 0
+         AND NOT target.curtail_possibly_sent
+         AND (target.retry_count = 0 OR target.state <> 'dispatching')
          AND target.restore_started_at IS NULL
         THEN target.restore_state
         ELSE 'pending'
@@ -1754,7 +1765,8 @@ SET desired_state = CASE
         WHEN target.state IN ('pending', 'unavailable', 'dispatching')
          AND target.last_dispatched_at IS NULL
          AND target.curtail_dispatched_at IS NULL
-         AND target.retry_count = 0
+         AND NOT target.curtail_possibly_sent
+         AND (target.retry_count = 0 OR target.state <> 'dispatching')
          AND target.restore_started_at IS NULL
         THEN target.restore_started_at
         ELSE CURRENT_TIMESTAMP
@@ -1802,11 +1814,12 @@ ORDER BY d.device_identifier;
 -- them before the restore reset so graceful Stop does not enqueue commands
 -- that could wake miners this event never curtailed.
 --
--- "Never attempted" is retry_count = 0 plus NULL dispatch timestamps: every
--- dispatch attempt/failure bumps retry_count and every successful enqueue
--- stamps last_dispatched_at. curtail_failure_count is deliberately NOT
--- checked — readiness flaps (pending -> unavailable reason writes) inflate it
--- without any command ever being sent.
+-- "Never sent" is NULL dispatch timestamps plus curtail_possibly_sent = false:
+-- every successful enqueue stamps last_dispatched_at, and every attempt whose
+-- send is ambiguous sets curtail_possibly_sent. retry_count is deliberately
+-- NOT checked — admission skips and unenqueued devices consume retries without
+-- a command reaching the miner. curtail_failure_count is not checked either —
+-- readiness flaps (pending -> unavailable reason writes) inflate it.
 --
 -- restore_started_at IS NULL guards the Stop -> Recurtail -> Stop cascade:
 -- ResetCurtailmentTargetsForRecurtail wipes retry_count and both dispatch
@@ -1833,7 +1846,7 @@ WHERE curtailment_event_id = sqlc.arg('curtailment_event_id')
   )
   AND last_dispatched_at IS NULL
   AND curtail_dispatched_at IS NULL
-  AND retry_count = 0
+  AND NOT curtail_possibly_sent
   AND restore_started_at IS NULL;
 
 -- name: ResumeCurtailmentFromRestoring :one
@@ -1876,7 +1889,8 @@ reset_targets AS (
         curtail_completed_at  = NULL,
         curtail_retry_count   = 0,
         curtail_failure_count = 0,
-        curtail_last_error    = NULL
+        curtail_last_error    = NULL,
+        curtail_possibly_sent = FALSE
     FROM recurtail_candidates candidate
     WHERE target.curtailment_event_id = candidate.curtailment_event_id
       AND target.device_identifier = candidate.device_identifier
@@ -1964,6 +1978,10 @@ SET state              = sqlc.arg('state'),
         WHEN desired_state = 'curtailed' THEN COALESCE(sqlc.narg('retry_count'), curtail_retry_count)
         ELSE curtail_retry_count
     END,
+    curtail_possibly_sent = CASE
+        WHEN desired_state = 'curtailed' AND COALESCE(sqlc.narg('curtail_possibly_sent')::BOOLEAN, FALSE) THEN TRUE
+        ELSE curtail_possibly_sent
+    END,
     curtail_failure_count = CASE
         WHEN desired_state = 'curtailed'
              AND NULLIF(sqlc.narg('last_error')::text, '') IS NOT NULL THEN curtail_failure_count + 1
@@ -2024,12 +2042,15 @@ WHERE curtailment_event_id = locked_event.id
 -- advance retry_count alone so MaxRetries → RESTORE_FAILED escalation
 -- still lands on the next successful state-change write. EXISTS guard
 -- → zero rows → ErrCurtailmentEventStateRaceLoss on terminal parent.
+-- The failed write may have carried send evidence, so a curtail fallback
+-- conservatively records a possible send.
 UPDATE curtailment_target
 SET retry_count = retry_count + 1,
     curtail_retry_count = CASE
         WHEN desired_state = 'curtailed' THEN curtail_retry_count + 1
         ELSE curtail_retry_count
     END,
+    curtail_possibly_sent = curtail_possibly_sent OR desired_state = 'curtailed',
     restore_retry_count = CASE
         WHEN desired_state = 'active' THEN restore_retry_count + 1
         ELSE restore_retry_count

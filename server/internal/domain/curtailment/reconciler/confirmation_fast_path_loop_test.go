@@ -260,6 +260,9 @@ func TestStart_FastPathEnabledRequiresSampler(t *testing.T) {
 
 func TestStart_RunsStartupRecoveryPass(t *testing.T) {
 	store := newConfirmationFakeStore()
+	// Isolate the independent confirmation recovery from the immediate full
+	// tick; this fake shares target pointers rather than detached SQL snapshots.
+	store.listEventsErr = errors.New("isolate startup confirmation")
 	sampler := newFakeSampler()
 	// Rows already dispatched before startup (e.g. crash recovery).
 	dispatchedAt := fastPathTestNow.Add(-10 * time.Second)
@@ -271,7 +274,7 @@ func TestStart_RunsStartupRecoveryPass(t *testing.T) {
 	require.NoError(t, r.Start(context.Background()))
 	defer func() { require.NoError(t, r.Stop(context.Background())) }()
 
-	// No tick ran (interval 1h); the initial wake alone must confirm.
+	// The initial confirmation wake recovers even if the full tick read fails.
 	require.Eventually(t, func() bool {
 		return store.targetState(10, "miner-1") == models.TargetStateConfirmed
 	}, 2*time.Second, time.Millisecond,
@@ -280,6 +283,7 @@ func TestStart_RunsStartupRecoveryPass(t *testing.T) {
 
 func TestStop_CancelsActiveConfirmationPass(t *testing.T) {
 	store := newConfirmationFakeStore()
+	store.listEventsErr = errors.New("isolate confirmation shutdown")
 	sampler := newFakeSampler()
 	dispatchedAt := fastPathTestNow.Add(-10 * time.Second)
 	item := seedDispatchedWork(store, 10, "miner-1", models.DesiredStateCurtailed, "batch-a", dispatchedAt)
@@ -301,6 +305,7 @@ func TestStop_CancelsActiveConfirmationPass(t *testing.T) {
 
 func TestStart_DisabledFastPathRunsNoPulse(t *testing.T) {
 	store := newConfirmationFakeStore()
+	store.listEventsErr = errors.New("isolate disabled confirmation loop")
 	dispatchedAt := fastPathTestNow.Add(-10 * time.Second)
 	item := seedDispatchedWork(store, 10, "miner-1", models.DesiredStateCurtailed, "batch-a", dispatchedAt)
 	store.setItems(item)

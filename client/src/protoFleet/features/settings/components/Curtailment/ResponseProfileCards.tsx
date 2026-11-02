@@ -1,11 +1,14 @@
 import { type ReactElement } from "react";
+
 import { isEditableResponseProfile, type ResponseProfile } from "@/protoFleet/api/curtailmentTypes";
+
 import SettingsEmptyState from "@/protoFleet/features/settings/components/SettingsEmptyState";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import Card, { cardType } from "@/shared/components/Card";
 import ProgressCircular from "@/shared/components/ProgressCircular";
+import "./CurtailmentSettingsPage.css";
 
-function ResponseProfilesEmptyState(): ReactElement {
+export function ResponseProfilesEmptyState(): ReactElement {
   return (
     <SettingsEmptyState
       size="section"
@@ -15,7 +18,7 @@ function ResponseProfilesEmptyState(): ReactElement {
   );
 }
 
-function ResponseProfilesLoadingState(): ReactElement {
+export function ResponseProfilesLoadingState(): ReactElement {
   return (
     <div className="flex min-h-[220px] w-full items-center justify-center py-14">
       <ProgressCircular indeterminate dataTestId="curtailment-response-profiles-loading" />
@@ -23,20 +26,21 @@ function ResponseProfilesLoadingState(): ReactElement {
   );
 }
 
-type ResponseProfilesErrorStateProps = {
+export type ResponseProfilesErrorStateProps = {
   message: string;
 };
 
-function ResponseProfilesErrorState({ message }: ResponseProfilesErrorStateProps): ReactElement {
+export function ResponseProfilesErrorState({ message }: ResponseProfilesErrorStateProps): ReactElement {
   return <SettingsEmptyState size="section" title="Unable to load response profiles" description={message} />;
 }
 
-type ResponseProfileCardProps = {
+export type ResponseProfileCardProps = {
   profile: ResponseProfile;
   onEdit: (profile: ResponseProfile) => void;
 };
 
-function ResponseProfileCard({ profile, onEdit }: ResponseProfileCardProps): ReactElement {
+export function ResponseProfileCard({ profile, onEdit }: ResponseProfileCardProps): ReactElement {
+  const bound = (profile.enabledAutomationRuleCount ?? 0) > 0 || profile.automationBindingStatus === "enabled";
   return (
     <Card
       title={<span data-testid="response-profile-name">{profile.name}</span>}
@@ -52,9 +56,15 @@ function ResponseProfileCard({ profile, onEdit }: ResponseProfileCardProps): Rea
           variant={variants.secondary}
           size={sizes.compact}
           text="Edit"
-          ariaLabel={isEditableResponseProfile(profile) ? "Edit" : "Editing this profile is unavailable"}
+          ariaLabel={
+            bound
+              ? "Disable automation rules before editing this profile"
+              : isEditableResponseProfile(profile)
+                ? "Edit"
+                : "Editing this profile is unavailable"
+          }
           className="!h-8 !px-3 !py-0"
-          disabled={!isEditableResponseProfile(profile)}
+          disabled={bound || !isEditableResponseProfile(profile)}
           onClick={() => onEdit(profile)}
           testId={`response-profile-edit-${profile.id}`}
         />
@@ -63,12 +73,18 @@ function ResponseProfileCard({ profile, onEdit }: ResponseProfileCardProps): Rea
       <div className="space-y-0 text-300 leading-[18px] text-text-primary-50">
         <p className="truncate">{profile.targetSummary}</p>
         <p className="truncate">{profile.scope}</p>
+        {bound ? (
+          <p className="text-200">
+            Disable {profile.enabledAutomationRuleCount || "enabled"} automation{" "}
+            {profile.enabledAutomationRuleCount === 1 ? "rule" : "rules"} before editing.
+          </p>
+        ) : null}
       </div>
     </Card>
   );
 }
 
-type ResponseProfileCardsProps = {
+export type ResponseProfileCardsProps = {
   profiles: ResponseProfile[];
   isLoading?: boolean;
   loadError?: string | null;

@@ -127,7 +127,8 @@ type Querier interface {
 	// to distinguish "already restoring" from "already terminal."
 	BeginCurtailmentRestoration(ctx context.Context, id int64) (CurtailmentEvent, error)
 	// A topology watcher remains active while departed targets restore. Targets
-	// with no possible Curtail attempt release immediately; every other target
+	// with no possible Curtail send release immediately; an in-flight dispatching
+	// row with retry history may still be sending, so it and every other target
 	// enters the normal restore queue conservatively.
 	BeginCurtailmentTopologyTargetRestore(ctx context.Context, arg BeginCurtailmentTopologyTargetRestoreParams) (int64, error)
 	// Call after locking and revalidating all selected miners and boards. Accepted
@@ -159,6 +160,8 @@ type Querier interface {
 	// Multi-row insert via jsonb_to_recordset (per-row AFTER-INSERT trigger still fires); :execrows lets the caller verify the row count.
 	BulkInsertNotificationHistory(ctx context.Context, rowsJsonb json.RawMessage) (int64, error)
 	BulkMarkTicketsUrgent(ctx context.Context, arg BulkMarkTicketsUrgentParams) (int64, error)
+	// One parent lock preserves Stop/confirmation ordering for the whole page.
+	BulkObserveCurtailmentTargets(ctx context.Context, arg BulkObserveCurtailmentTargetsParams) ([]string, error)
 	// Per-tick readiness refresh for all-paired policy rows, batched into one
 	// statement so a mass readiness flip (fleet-wide recovery or outage) does not
 	// issue one UPDATE round trip per device inside the shared tick budget. The
@@ -187,6 +190,8 @@ type Querier interface {
 	// advance retry_count alone so MaxRetries → RESTORE_FAILED escalation
 	// still lands on the next successful state-change write. EXISTS guard
 	// → zero rows → ErrCurtailmentEventStateRaceLoss on terminal parent.
+	// The failed write may have carried send evidence, so a curtail fallback
+	// conservatively records a possible send.
 	BumpCurtailmentTargetRetry(ctx context.Context, arg BumpCurtailmentTargetRetryParams) (int64, error)
 	// The service holds the ticket row lock, also used by reservation/RMA writers.
 	CanAccountCloseRepairTicket(ctx context.Context, arg CanAccountCloseRepairTicketParams) (bool, error)
@@ -279,6 +284,7 @@ type Querier interface {
 	// Same-event duplicates and cross-event target conflicts are no-ops; the
 	// reconciler retries on a later tick if a conflicting event resolves.
 	ClaimClosedLoopFullFleetTargets(ctx context.Context, arg ClaimClosedLoopFullFleetTargetsParams) ([]ClaimClosedLoopFullFleetTargetsRow, error)
+	ClaimCurtailmentAutomationExecution(ctx context.Context) (ClaimCurtailmentAutomationExecutionRow, error)
 	ClaimDeletionUnpairPermit(ctx context.Context, arg ClaimDeletionUnpairPermitParams) (int64, error)
 	ClaimMessageForProcessing(ctx context.Context, id int64) (sql.Result, error)
 	ClaimPoolConfigurationTarget(ctx context.Context, arg ClaimPoolConfigurationTargetParams) (int32, error)
@@ -338,6 +344,7 @@ type Querier interface {
 	// Closes stale errors only when device was successfully polled after the staleness cutoff time.
 	// This ensures we have confirmed the error is absent from a recent poll.
 	CloseStaleErrors(ctx context.Context, arg CloseStaleErrorsParams) (sql.Result, error)
+	CompleteCurtailmentAutomationExecution(ctx context.Context, arg CompleteCurtailmentAutomationExecutionParams) error
 	CompleteDelegatedFirmwareRollout(ctx context.Context, arg CompleteDelegatedFirmwareRolloutParams) error
 	CompleteRigConfigReconciliation(ctx context.Context, arg CompleteRigConfigReconciliationParams) error
 	ConfigureHostedAccount(ctx context.Context, arg ConfigureHostedAccountParams) error
@@ -382,6 +389,7 @@ type Querier interface {
 	CountCurtailmentScopeConflicts(ctx context.Context, arg CountCurtailmentScopeConflictsParams) (int64, error)
 	// Counts distinct devices that have errors matching filter criteria.
 	CountDevicesWithErrors(ctx context.Context, arg CountDevicesWithErrorsParams) (int64, error)
+	CountEnabledCurtailmentAutomationRulesByResponseProfile(ctx context.Context, arg CountEnabledCurtailmentAutomationRulesByResponseProfileParams) (int64, error)
 	// Counts errors with AND filter logic (same logic as QueryErrors without pagination).
 	CountErrors(ctx context.Context, arg CountErrorsParams) (int64, error)
 	CountFleetNodeDevicesByNode(ctx context.Context, orgID int64) ([]CountFleetNodeDevicesByNodeRow, error)
@@ -391,6 +399,7 @@ type Querier interface {
 	CountInfrastructureDevicesBySite(ctx context.Context, arg CountInfrastructureDevicesBySiteParams) (int64, error)
 	CountInventoryParts(ctx context.Context, arg CountInventoryPartsParams) (int32, error)
 	CountInventoryPartsBySite(ctx context.Context, arg CountInventoryPartsBySiteParams) (int64, error)
+	CountLiveCurtailmentEventsByMQTTSource(ctx context.Context, arg CountLiveCurtailmentEventsByMQTTSourceParams) (int64, error)
 	// Counts miners by their operational state for fleet health dashboard.
 	// Bucket rules must match InsertMinerStateSnapshot (miner_state_snapshots.sql);
 	// the uptime chart stores history against the same classifier.
@@ -596,6 +605,11 @@ type Querier interface {
 	EnsureHashboards(ctx context.Context, arg EnsureHashboardsParams) ([]EnsureHashboardsRow, error)
 	EnsureMiningGroupState(ctx context.Context, arg EnsureMiningGroupStateParams) error
 	ExcludeFirmwareRolloutDevices(ctx context.Context, arg ExcludeFirmwareRolloutDevicesParams) error
+	// Keep ambiguous in-flight intents nonterminal until BeginRestore resets them:
+	// enqueueing may have succeeded before its dispatched timestamp was persisted.
+	// When confirmed miners keep the event curtailed, in-flight intents are left
+	// untouched so the active phase can still confirm them.
+	FailCurtailmentPendingDeadlineTargets(ctx context.Context, arg FailCurtailmentPendingDeadlineTargetsParams) (int64, error)
 	// Returns one row per device whose live rack has a non-NULL
 	// building_id. Devices with no rack, devices in a rack without a
 	// building, and devices in soft-deleted racks produce NO row at all
@@ -747,7 +761,9 @@ type Querier interface {
 	GetContainerTankHistory(ctx context.Context, arg GetContainerTankHistoryParams) ([]GetContainerTankHistoryRow, error)
 	GetContainerTankScope(ctx context.Context, arg GetContainerTankScopeParams) (sql.NullInt64, error)
 	GetContainerTopologyIdentities(ctx context.Context, deviceID int64) ([]GetContainerTopologyIdentitiesRow, error)
+	GetCurtailmentAutomationExecutionGrant(ctx context.Context, arg GetCurtailmentAutomationExecutionGrantParams) (CurtailmentAutomationExecutionGrant, error)
 	GetCurtailmentAutomationRuleByOrg(ctx context.Context, arg GetCurtailmentAutomationRuleByOrgParams) (GetCurtailmentAutomationRuleByOrgRow, error)
+	GetCurtailmentDispatchRejection(ctx context.Context, arg GetCurtailmentDispatchRejectionParams) (sql.NullString, error)
 	// Webhook idempotent replay lookup; mirrors the
 	// uq_curtailment_event_external_ref partial index.
 	GetCurtailmentEventByExternalReference(ctx context.Context, arg GetCurtailmentEventByExternalReferenceParams) (CurtailmentEvent, error)
@@ -760,6 +776,7 @@ type Querier interface {
 	// candidates at the SQL boundary so a single large event cannot force a
 	// fleet-sized JSON snapshot through the handler.
 	GetCurtailmentEventDetailByUUID(ctx context.Context, arg GetCurtailmentEventDetailByUUIDParams) (GetCurtailmentEventDetailByUUIDRow, error)
+	GetCurtailmentEventForFanOperation(ctx context.Context, id int64) (CurtailmentEvent, error)
 	// Global operational gauges; no pending work emits zero to clear old values.
 	GetCurtailmentPendingWorkAges(ctx context.Context) (GetCurtailmentPendingWorkAgesRow, error)
 	GetCurtailmentReconcilerHeartbeat(ctx context.Context) (CurtailmentReconcilerHeartbeat, error)
@@ -1765,6 +1782,9 @@ type Querier interface {
 	// targets committed by a concurrent requester before the claim obtained its
 	// organization lock. Targets refreshed after the claim remain for the next pass.
 	ListRigConfigReconciliationTargets(ctx context.Context, arg ListRigConfigReconciliationTargetsParams) ([]string, error)
+	// Every eligible requested rig receives only source providers whose enabled
+	// rules select it. Empty source_ids actively clears an obsolete fallback.
+	ListRigConfigSourceScopes(ctx context.Context, arg ListRigConfigSourceScopesParams) ([]ListRigConfigSourceScopesRow, error)
 	// Returns every permission key attached to the given role. Used by the
 	// per-request resolver and by the role-edit privilege-parity check
 	// (a caller can only assign a role whose permissions are a subset of
@@ -1870,11 +1890,9 @@ type Querier interface {
 	LockCurtailmentAutomationRuleForExecution(ctx context.Context, arg LockCurtailmentAutomationRuleForExecutionParams) (int64, error)
 	LockCurtailmentAutomationRuleMutation(ctx context.Context, arg LockCurtailmentAutomationRuleMutationParams) error
 	LockCurtailmentEventByUUIDForWrite(ctx context.Context, arg LockCurtailmentEventByUUIDForWriteParams) (CurtailmentEvent, error)
-	// Physical fan commands run only while this exact lifecycle phase remains
-	// current. Holding the row lock through the command serializes Force Release's
-	// terminal UPDATE behind an in-flight command and rejects stale commands that
-	// begin after the transition.
-	LockCurtailmentEventForFanCommand(ctx context.Context, arg LockCurtailmentEventForFanCommandParams) (int64, error)
+	// Serialize lifecycle changes with physical fan I/O without retaining an event row lock.
+	LockCurtailmentEventLifecycle(ctx context.Context, eventID string) error
+	LockCurtailmentEventLifecycleByUUID(ctx context.Context, arg LockCurtailmentEventLifecycleByUUIDParams) error
 	// Admission already has the event ID; derive its organization before taking
 	// the same lock used by Start conflict detection.
 	LockCurtailmentEventScopeForWrite(ctx context.Context, curtailmentEventID int64) error
@@ -1884,11 +1902,13 @@ type Querier interface {
 	// The row lock turns the authorization snapshot into an insert-time invariant:
 	// a concurrent move/delete must wait until this transaction commits.
 	LockCurtailmentFanDevicesForWrite(ctx context.Context, arg LockCurtailmentFanDevicesForWriteParams) ([]LockCurtailmentFanDevicesForWriteRow, error)
+	LockCurtailmentFanSession(ctx context.Context, fanID string) error
 	// Serializes group membership changes with topology target/envelope writes.
 	// AddDevicesToDeviceSet, RemoveDevicesFromDeviceSet, and
 	// RemoveAllDevicesFromDeviceSet take the same device_set row lock before
 	// mutating memberships.
 	LockCurtailmentGroupsForWrite(ctx context.Context, arg LockCurtailmentGroupsForWriteParams) ([]int64, error)
+	LockCurtailmentLifecycleSession(ctx context.Context, eventID string) error
 	// Serializes profile changes with automation create/update/enable. Both sides
 	// re-read their compatibility conditions after acquiring this lock so a
 	// concurrent pair cannot commit an invalid automation binding.
@@ -2142,6 +2162,8 @@ type Querier interface {
 	// Time range and include_closed are always applied as base filters.
 	// Uses cursor-based pagination with (severity, last_seen_at, error_id) ordering.
 	QueryErrors(ctx context.Context, arg QueryErrorsParams) ([]QueryErrorsRow, error)
+	QueueCurrentCurtailmentAutomationExecution(ctx context.Context, ruleID int64) error
+	QueueCurtailmentAutomationExecution(ctx context.Context, arg QueueCurtailmentAutomationExecutionParams) error
 	// Startup reaping fails every PROCESSING row left by the previous process.
 	// Periodic reaping only fails rows that exceeded their command-specific cutoff.
 	ReapMessages(ctx context.Context, arg ReapMessagesParams) ([]ReapMessagesRow, error)
@@ -2223,6 +2245,8 @@ type Querier interface {
 	// their batch, order and baseline but must verify again: their firmware may
 	// have changed while they were out of scope.
 	ReincludeFirmwareRolloutDevices(ctx context.Context, arg ReincludeFirmwareRolloutDevicesParams) error
+	// Latch before attempting restoration, so failover cannot resume dispatch.
+	RejectCurtailmentDispatch(ctx context.Context, arg RejectCurtailmentDispatchParams) (int64, error)
 	ReleaseDeviceWriteFenceToHost(ctx context.Context, arg ReleaseDeviceWriteFenceToHostParams) (int64, error)
 	// A cleanly stopped owner may expire only its exact live term. Keep the row and
 	// fencing history so the next acquisition must advance the epoch.
@@ -2235,11 +2259,12 @@ type Querier interface {
 	// them before the restore reset so graceful Stop does not enqueue commands
 	// that could wake miners this event never curtailed.
 	//
-	// "Never attempted" is retry_count = 0 plus NULL dispatch timestamps: every
-	// dispatch attempt/failure bumps retry_count and every successful enqueue
-	// stamps last_dispatched_at. curtail_failure_count is deliberately NOT
-	// checked — readiness flaps (pending -> unavailable reason writes) inflate it
-	// without any command ever being sent.
+	// "Never sent" is NULL dispatch timestamps plus curtail_possibly_sent = false:
+	// every successful enqueue stamps last_dispatched_at, and every attempt whose
+	// send is ambiguous sets curtail_possibly_sent. retry_count is deliberately
+	// NOT checked — admission skips and unenqueued devices consume retries without
+	// a command reaching the miner. curtail_failure_count is not checked either —
+	// readiness flaps (pending -> unavailable reason writes) inflate it.
 	//
 	// restore_started_at IS NULL guards the Stop -> Recurtail -> Stop cascade:
 	// ResetCurtailmentTargetsForRecurtail wipes retry_count and both dispatch
@@ -2291,7 +2316,12 @@ type Querier interface {
 	ResetCurtailmentTargetsForRecurtail(ctx context.Context, curtailmentEventID int64) (ResetCurtailmentTargetsForRecurtailRow, error)
 	// Stop's target-side write; flips non-terminal targets to
 	// desired_state='active' and clears phase-local cursors so the restorer
-	// has an unambiguous queue. Terminal states are untouched.
+	// has an unambiguous queue. A failed Curtail that may have reached the miner
+	// (enqueued, ambiguous send, or a prior restore cycle) still owes a
+	// compensating restore; preserve its curtail phase failure history. Failures
+	// known to be unsent stay terminal. Skip it once another event owns the miner:
+	// that owner decides its power state, and reactivating it would violate the
+	// one-live-target-per-device index.
 	ResetCurtailmentTargetsForRestore(ctx context.Context, curtailmentEventID int64) error
 	ResetReapedFirmwareStatuses(ctx context.Context, deviceIds []int64) error
 	// Returns authorization coverage for the full live selector plus membership
@@ -2347,7 +2377,11 @@ type Querier interface {
 	// commits retirement and supersession with the physical change. Never erase
 	// the device-write journal: superseding intent is not proof of physical drain.
 	RetirePoolConfigurationEquipmentAssignments(ctx context.Context, arg RetirePoolConfigurationEquipmentAssignmentsParams) error
+	RetryCurtailmentAutomationExecution(ctx context.Context, arg RetryCurtailmentAutomationExecutionParams) error
 	RetryPoolConfigurationTarget(ctx context.Context, arg RetryPoolConfigurationTargetParams) (int64, error)
+	// Each claim counts a delivery attempt. Fast retries back off linearly; once
+	// they are spent the organization keeps retrying on a slow period, so a short
+	// outage cannot strand stale fallback providers on its rigs.
 	RetryRigConfigReconciliation(ctx context.Context, arg RetryRigConfigReconciliationParams) error
 	RevertScheduleToActive(ctx context.Context, id int64) error
 	RevokeAllSessionsByUserID(ctx context.Context, arg RevokeAllSessionsByUserIDParams) error
@@ -2566,6 +2600,8 @@ type Querier interface {
 	UnassignRole(ctx context.Context, id int64) error
 	UndeleteOrganization(ctx context.Context, id int64) error
 	UndeleteRole(ctx context.Context, id int64) error
+	UnlockCurtailmentFanSession(ctx context.Context, fanID string) error
+	UnlockCurtailmentLifecycleSession(ctx context.Context, eventID string) error
 	UnlockTelemetrySeedMaintenance(ctx context.Context) error
 	// A remaining cloud pairing or another inventory owner keeps its saved routes.
 	UnpairDevice(ctx context.Context, arg UnpairDeviceParams) (int64, error)
@@ -2761,6 +2797,7 @@ type Querier interface {
 	UpsertContainerHA(ctx context.Context, arg UpsertContainerHAParams) error
 	UpsertContainerRollup(ctx context.Context, arg UpsertContainerRollupParams) error
 	UpsertContainerTopologyVersion(ctx context.Context, arg UpsertContainerTopologyVersionParams) (int64, error)
+	UpsertCurtailmentAutomationExecutionGrant(ctx context.Context, arg UpsertCurtailmentAutomationExecutionGrantParams) error
 	UpsertCurtailmentAutomationSignalState(ctx context.Context, arg UpsertCurtailmentAutomationSignalStateParams) error
 	// Singleton row at id=1; INSERT path only fires on accidental deletion.
 	UpsertCurtailmentReconcilerHeartbeat(ctx context.Context, arg UpsertCurtailmentReconcilerHeartbeatParams) error

@@ -1,6 +1,8 @@
 package curtailment
 
 import (
+	"context"
+	"errors"
 	"testing"
 
 	"github.com/google/uuid"
@@ -10,6 +12,31 @@ import (
 	activitymodels "github.com/block/proto-fleet/server/internal/domain/activity/models"
 	"github.com/block/proto-fleet/server/internal/domain/curtailment/models"
 )
+
+type committedAdminTerminateStore struct {
+	*fakeStore
+	event         *models.Event
+	recoveryError error
+}
+
+func (s *committedAdminTerminateStore) AdminTerminateEventWithFanRecovery(context.Context, int64, uuid.UUID, models.EventState, string, func(context.Context, *models.Event) *string) (*models.Event, bool, error) {
+	return s.event, true, s.recoveryError
+}
+
+func TestService_AdminTerminate_AuditsCommittedTransitionWhenFanRecoveryFails(t *testing.T) {
+	t.Parallel()
+	event := &models.Event{ID: 1, EventUUID: uuid.New(), OrgID: 42, State: models.EventStateCancelled, FacilityFanDeviceIDs: []int64{501}}
+	store := &committedAdminTerminateStore{fakeStore: newFakeStore(), event: event, recoveryError: errors.New("persist fan recovery result failed")}
+	store.eventsByUUID[event.EventUUID] = event
+	audit := &recordingAuditLogger{}
+	svc := NewService(store, WithAuditLogger(audit), WithFacilityFanController(&fakeTerminalFanController{}))
+	_, err := svc.AdminTerminate(t.Context(), AdminTerminateRequest{OrgID: event.OrgID, EventUUID: event.EventUUID, TargetState: event.State, Reason: "operator recovery"})
+	require.ErrorIs(t, err, store.recoveryError)
+	events := audit.snapshot()
+	require.Len(t, events, 1)
+	assert.Equal(t, ActivityTypeAdminTerminated, events[0].Type)
+	assert.Equal(t, "operator recovery", events[0].Metadata["reason"])
+}
 
 // End-to-end operator-surface walk against the in-memory fake.
 // Reconciler ticks are covered piecewise in reconciler_test.go /

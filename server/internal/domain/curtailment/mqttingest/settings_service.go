@@ -22,6 +22,10 @@ const (
 	rigConfigReapplyActorName = "curtailment-config-reconciler"
 	rigConfigPollInterval     = 5 * time.Second
 	rigConfigRequestTimeout   = 5 * time.Second
+	// rigConfigFastDeliveryAttempts claims back off linearly; later failures
+	// retry every rigConfigSlowRetryInterval until delivery succeeds.
+	rigConfigFastDeliveryAttempts = 10
+	rigConfigSlowRetryInterval    = 10 * time.Minute
 )
 
 // PasswordCipher wraps and unwraps MQTT credentials.
@@ -59,11 +63,9 @@ type RuntimeController interface {
 	SourceRuntimeStatus(sourceID int64) RuntimeStatus
 }
 
-// RigCurtailmentConfigApplier replaces fallback config on paired Proto rigs.
-// Settings changes cover the organization; pairing and delivery retries cover
-// only the explicitly requested devices.
+// RigCurtailmentConfigApplier replaces fallback config on explicit Proto rigs.
+// Each device receives only the providers selected by its granted rule scopes.
 type RigCurtailmentConfigApplier interface {
-	ApplyCurtailmentConfigToProtoRigs(ctx context.Context, config sdk.CurtailmentConfig) error
 	ApplyCurtailmentConfigToDevices(ctx context.Context, config sdk.CurtailmentConfig, identifiers []string) error
 }
 
@@ -385,7 +387,7 @@ func (s *SettingsService) reconcileAfterSettingsWrite(ctx context.Context, orgID
 	}
 }
 
-func (s *SettingsService) buildRigCurtailmentConfig(ctx context.Context, orgID int64) (sdk.CurtailmentConfig, error) {
+func (s *SettingsService) buildScopedRigCurtailmentConfig(ctx context.Context, orgID int64, allowedSourceIDs map[int64]bool) (sdk.CurtailmentConfig, error) {
 	sources, err := s.store.ListSourceConfigsByOrg(ctx, orgID)
 	if err != nil {
 		return sdk.CurtailmentConfig{}, fmt.Errorf("list mqtt sources for rig config: %w", err)
@@ -395,7 +397,7 @@ func (s *SettingsService) buildRigCurtailmentConfig(ctx context.Context, orgID i
 	})
 	providers := make([]sdk.CurtailmentProviderConfig, 0, len(sources))
 	for _, source := range sources {
-		if !source.Enabled {
+		if !source.Enabled || !allowedSourceIDs[source.ID] {
 			continue
 		}
 		if source.BrokerTransport != brokerTransportTCP {
@@ -666,6 +668,8 @@ func sourceStoreError(prefix string, err error) error {
 		return fleeterror.NewAlreadyExistsError("a MaestroOS curtailment source with this name already exists")
 	case errors.Is(err, ErrSourceConfigDeleteBlocked):
 		return fleeterror.NewFailedPreconditionError("disable the MaestroOS source before deleting it")
+	case errors.Is(err, ErrSourceConfigActiveCurtailment):
+		return fleeterror.NewFailedPreconditionError("cannot disable MaestroOS source while its automation events are active; restore or finish those events first")
 	case errors.Is(err, ErrSourceConfigReferenced):
 		return fleeterror.NewFailedPreconditionError("MaestroOS source is referenced by a curtailment automation rule")
 	default:

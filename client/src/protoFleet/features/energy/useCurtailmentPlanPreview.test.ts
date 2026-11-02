@@ -110,6 +110,25 @@ describe("useCurtailmentPlanPreview", () => {
     vi.useRealTimers();
   });
 
+  it("reloads profile options and preserves the conflict recovery message for Preview", async () => {
+    const reload = vi.fn();
+    window.addEventListener("protoFleet:curtailment-profiles-stale", reload);
+    mockPreviewCurtailmentPlan.mockRejectedValueOnce(
+      new ConnectError(
+        "curtailment response profile changed before execution; reload and retry",
+        Code.FailedPrecondition,
+      ),
+    );
+    const { result } = renderHook(() =>
+      useCurtailmentPlanPreview({ open: true, values: baseValues, debounceMs: 0, refreshIntervalMs: 0 }),
+    );
+    await waitFor(() =>
+      expect(result.current.previewError).toContain("Reload the profile and review the updated plan"),
+    );
+    expect(reload).toHaveBeenCalledTimes(1);
+    window.removeEventListener("protoFleet:curtailment-profiles-stale", reload);
+  });
+
   it("builds supported fixed-kW preview requests", () => {
     const wholeFleetRequest = buildPreviewCurtailmentPlanRequest(baseValues);
     expect(wholeFleetRequest?.responseProfileId).toBe(0n);

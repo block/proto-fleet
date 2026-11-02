@@ -56,7 +56,16 @@ func (s *ResponseProfileService) List(ctx context.Context, orgID int64) ([]*mode
 	if orgID <= 0 {
 		return nil, fleeterror.NewInvalidArgumentError("org_id must be set")
 	}
-	return s.store.ListResponseProfiles(ctx, orgID)
+	profiles, err := s.store.ListResponseProfiles(ctx, orgID)
+	if err != nil {
+		return nil, err
+	}
+	for _, profile := range profiles {
+		if err := s.loadAutomationBindingStatus(ctx, profile); err != nil {
+			return nil, err
+		}
+	}
+	return profiles, nil
 }
 
 func (s *ResponseProfileService) Get(ctx context.Context, orgID, profileID int64) (*models.ResponseProfile, error) {
@@ -69,7 +78,30 @@ func (s *ResponseProfileService) Get(ctx context.Context, orgID, profileID int64
 	if profileID <= 0 {
 		return nil, fleeterror.NewInvalidArgumentError("profile_id must be set")
 	}
-	return s.store.GetResponseProfile(ctx, orgID, profileID)
+	profile, err := s.store.GetResponseProfile(ctx, orgID, profileID)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.loadAutomationBindingStatus(ctx, profile); err != nil {
+		return nil, err
+	}
+	return profile, nil
+}
+
+func (s *ResponseProfileService) loadAutomationBindingStatus(ctx context.Context, profile *models.ResponseProfile) error {
+	if profile == nil {
+		return nil
+	}
+	bindings, ok := s.store.(interfaces.ResponseProfileAutomationBindingReader)
+	if !ok {
+		return fleeterror.NewUnimplementedError("curtailment response profile binding reader is not configured")
+	}
+	count, err := bindings.CountEnabledAutomationRulesByResponseProfile(ctx, profile.OrgID, profile.ID)
+	if err != nil {
+		return err
+	}
+	profile.EnabledAutomationRuleCount = count
+	return nil
 }
 
 // ValidateAutomationScope strictly resolves topology selectors before an

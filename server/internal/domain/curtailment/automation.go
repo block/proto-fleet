@@ -113,6 +113,7 @@ func (s *AutomationService) Create(ctx context.Context, req SaveAutomationRuleRe
 	if err != nil {
 		return nil, err
 	}
+	rule.AdminControlsGranted = req.CanUseAdminControls
 	return s.store.CreateAutomationRule(ctx, rule, expectedFanSettings)
 }
 
@@ -140,6 +141,7 @@ func (s *AutomationService) Update(ctx context.Context, req SaveAutomationRuleRe
 	if err := s.ensureNoNonTerminalActiveEvent(ctx, existing, "update"); err != nil {
 		return nil, err
 	}
+	rule.AdminControlsGranted = req.CanUseAdminControls
 	return s.store.UpdateAutomationRule(ctx, rule, expectedFanSettings)
 }
 
@@ -190,6 +192,7 @@ func (s *AutomationService) SetEnabled(
 		enabled,
 		expectedResponseProfileRevision,
 		expectedFanSettings,
+		canUseAdminControls,
 	)
 }
 
@@ -222,6 +225,27 @@ func (s *AutomationService) HandleMQTTSignal(ctx context.Context, signal mqtting
 	rules, err := s.store.ListEnabledAutomationRulesByMQTTSource(ctx, signal.Source.ID)
 	if err != nil {
 		return err
+	}
+	if durable, ok := s.store.(AutomationExecutionStore); ok {
+		for _, rule := range rules {
+			if rule == nil {
+				continue
+			}
+			normalized, err := automationSignalFromMQTTTarget(signal.Target)
+			if err != nil {
+				return err
+			}
+			at := signal.ReceivedAt
+			if at.IsZero() {
+				at = s.clock()
+			}
+			if err := durable.QueueAutomationExecution(ctx, models.AutomationExecution{RuleID: rule.ID, MQTTSourceID: signal.Source.ID, Direction: signal.Direction.String(), Target: normalized, TargetAt: signal.TargetAt, ReceivedAt: at, ReceivedBroker: signal.ReceivedBroker, PriorEdgeAt: signal.PriorEdgeAt}); err != nil {
+				return err
+			}
+		}
+		// Durable acceptance settles the source edge. Each rule now retries its
+		// own desired state without holding healthy rules behind a failed sibling.
+		return nil
 	}
 	var firstErr error
 	for _, rule := range rules {
@@ -306,11 +330,22 @@ func (s *AutomationService) handleRuleOff(ctx context.Context, rule *models.Auto
 		if err != nil && !fleeterror.IsNotFoundError(err) {
 			return err
 		}
+		newDemand := signal.Direction == mqttingest.EdgeOnToOff || signal.Direction == mqttingest.EdgeWatchdogOff
+		if event != nil && !event.State.IsTerminal() && newDemand {
+			if _, expired := MaxDurationElapsed(event, s.clock()); expired {
+				return fleeterror.NewFailedPreconditionError("waiting for prior capped automation event to finish before starting the new demand cycle")
+			}
+		}
 		switch {
 		case event == nil:
 			// Stale state; start a fresh event below.
 		case event.State.IsTerminal():
-			// Stale terminal state; start a fresh event below.
+			// A finite safety cap must remain effective while OFF is continuously
+			// asserted. Only an intervening ON followed by a new OFF can start again.
+			if _, expired := MaxDurationElapsed(event, s.clock()); expired && rule.LastSignal != nil && *rule.LastSignal == models.AutomationSignalOff && !newDemand {
+				return nil
+			}
+			// A new demand cycle may start a fresh event below.
 		case event.State == models.EventStateRestoring:
 			return s.recurtailAutomationEvent(ctx, rule, signal.Source, event, at)
 		default:
@@ -339,6 +374,7 @@ func (s *AutomationService) handleRuleOff(ctx context.Context, rule *models.Auto
 			return err
 		}
 	}
+	// FULL_FLEET automation ends on the source's ON signal, not on a duration cap.
 	if startReq.Mode == models.ModeFullFleet {
 		startReq.AllowUnbounded = true
 		startReq.MaxDurationSeconds = nil

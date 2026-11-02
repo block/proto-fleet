@@ -1,12 +1,6 @@
 import { type KeyboardEvent, type MouseEvent, type ReactElement, useMemo, useState } from "react";
 import clsx from "clsx";
-import type {
-  CurtailmentEventState,
-  CurtailmentHistoryEvent,
-  CurtailmentPriority,
-} from "@/protoFleet/api/curtailmentTypes";
 
-import NoFilterResultsEmptyState from "@/protoFleet/components/NoFilterResultsEmptyState";
 import {
   activeCurtailmentDisplayStateConfigs,
   curtailmentEventStateConfigs,
@@ -14,7 +8,13 @@ import {
   formatCurtailmentAppliesToSummary,
   formatCurtailmentFacilityFanCount,
   formatCurtailmentTargetVsActual as formatTargetVsActual,
-} from "@/protoFleet/features/energy/curtailmentDisplayUtils";
+} from "@/protoFleet/api/curtailmentDisplayUtils";
+import type {
+  CurtailmentEventState,
+  CurtailmentHistoryEvent,
+  CurtailmentPriority,
+} from "@/protoFleet/api/curtailmentTypes";
+import NoFilterResultsEmptyState from "@/protoFleet/components/NoFilterResultsEmptyState";
 import CurtailmentStopConfirmationDialog from "@/protoFleet/features/energy/CurtailmentStopConfirmationDialog";
 import { ChevronDown } from "@/shared/assets/icons";
 import Button, { type ButtonVariant, sizes, variants } from "@/shared/components/Button";

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { create } from "@bufbuild/protobuf";
 import { Code, ConnectError } from "@connectrpc/connect";
+import { notifyCurtailmentProfilesStale } from "./curtailmentProfileErrors";
 
 import { AutomationResponseProfileRevisionConflictError } from "@/protoFleet/api/automationResponseProfileRevisionConflict";
 import { curtailmentClient } from "@/protoFleet/api/clients";
@@ -58,6 +59,8 @@ function mapApiAutomationRule(rule: ApiCurtailmentAutomationRule, priority: numb
     responseProfileName: rule.responseProfileName,
     enabled: rule.enabled,
     lastError: rule.lastError || undefined,
+    bindingStatus: rule.bindingStatus || undefined,
+    executionStatus: rule.executionStatus || undefined,
   };
 }
 
@@ -221,6 +224,7 @@ export default function useCurtailmentAutomationRules(
           ...currentRules.filter((currentRule) => currentRule.ruleId !== createdRule.ruleId),
           createdRule,
         ]);
+        notifyCurtailmentProfilesStale();
         return mapApiAutomationRule(createdRule, apiRules.length + 1);
       } catch (error) {
         const resolvedError = await handleMutationFailure(error, "Failed to create automation rule.");
@@ -253,6 +257,7 @@ export default function useCurtailmentAutomationRules(
           currentRules.map((currentRule) => (currentRule.ruleId === updatedRule.ruleId ? updatedRule : currentRule)),
         );
         const priority = automationRules.find((rule) => rule.id === ruleId)?.priority ?? 0;
+        notifyCurtailmentProfilesStale();
         return mapApiAutomationRule(updatedRule, priority);
       } catch (error) {
         const resolvedError = await handleMutationFailure(error, "Failed to update automation rule.");
@@ -291,6 +296,7 @@ export default function useCurtailmentAutomationRules(
           currentRules.map((currentRule) => (currentRule.ruleId === updatedRule.ruleId ? updatedRule : currentRule)),
         );
         const priority = automationRules.find((rule) => rule.id === ruleId)?.priority ?? 0;
+        notifyCurtailmentProfilesStale();
         return mapApiAutomationRule(updatedRule, priority);
       } catch (error) {
         const resolvedError = await handleMutationFailure(error, "Failed to update automation rule.");
@@ -317,6 +323,7 @@ export default function useCurtailmentAutomationRules(
           }),
         );
         setApiRules((currentRules) => currentRules.filter((currentRule) => currentRule.ruleId.toString() !== ruleId));
+        notifyCurtailmentProfilesStale();
       } catch (error) {
         throw handleFailure(error, "Failed to delete automation rule.");
       } finally {

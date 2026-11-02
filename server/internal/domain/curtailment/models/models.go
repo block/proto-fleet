@@ -20,6 +20,7 @@ type OrgConfig struct {
 // ResponseProfile is reusable curtailment response behavior. Automation rules
 // bind source triggers to these profiles; profiles themselves do not execute.
 type ResponseProfile struct {
+	EnabledAutomationRuleCount  int64
 	ID                          int64
 	OrgID                       int64
 	Revision                    uuid.UUID
@@ -83,6 +84,9 @@ const (
 
 // AutomationRule binds an external trigger source to a response profile.
 type AutomationRule struct {
+	AdminControlsGranted     bool
+	BindingStatus            string
+	ExecutionStatus          string
 	ID                       int64
 	OrgID                    int64
 	RuleName                 string
@@ -423,8 +427,11 @@ type Target struct {
 	RetryCount            int32
 	LastError             *string
 	SelectorRationaleJSON []byte
-	CurtailPhase          TargetPhaseSummary
-	RestorePhase          *TargetPhaseSummary
+	// CurtailPossiblySent reports a Curtail attempt whose send is ambiguous.
+	// Retry history alone does not imply a send.
+	CurtailPossiblySent bool
+	CurtailPhase        TargetPhaseSummary
+	RestorePhase        *TargetPhaseSummary
 }
 
 // TargetPhase identifies the durable per-phase target summary that backs
@@ -533,4 +540,15 @@ type ConfirmationTarget struct {
 	BatchUUID                   string
 	PairingStatus               string
 	ForceIncludeAllPairedMiners bool
+}
+
+// AutomationExecution is one leased desired-state assertion for a rule.
+// Generation fences completion when a newer signal replaces in-flight work.
+type AutomationExecution struct {
+	LeaseExpiresAt                          time.Time
+	RuleID, OrgID, MQTTSourceID, Generation int64
+	Direction                               string
+	Target                                  AutomationSignal
+	TargetAt, ReceivedAt, PriorEdgeAt       time.Time
+	ReceivedBroker                          string
 }

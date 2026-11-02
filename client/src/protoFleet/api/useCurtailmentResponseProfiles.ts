@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { create } from "@bufbuild/protobuf";
 import { Code, ConnectError } from "@connectrpc/connect";
+import { CURTAILMENT_PROFILES_STALE_EVENT } from "./curtailmentProfileErrors";
+import { sessionFormValuesByProfileId } from "./curtailmentProfileSession";
+import { normalizeResponseProfileSiteFields } from "./curtailmentResponseProfileUtils";
 
 import { curtailmentClient } from "@/protoFleet/api/clients";
 import {
   getResponseProfileScopeSummary,
-  getResponseProfileSiteNameForId,
-  getResponseProfileSiteNamesById,
   getSelectedResponseProfileSiteIds,
 } from "@/protoFleet/api/curtailmentResponseProfileUtils";
 import {
@@ -50,7 +51,7 @@ import { useAuthErrors } from "@/protoFleet/store";
 
 const defaultResponseDeadlineMinutes: string = "";
 const responseProfileUpdateConflictMessage = "curtailment response profile changed before update; retry";
-const sessionFormValuesByProfileId = new Map<string, ResponseProfileFormValues>();
+
 const restoreBatchSizeOptions = {
   label: "restore batch size",
   max: curtailmentNumericFieldLimits.restoreBatchSize,
@@ -140,16 +141,19 @@ function getPersistedResponseProfileFormValues(values: ResponseProfileFormValues
     throw new Error("Select a curtailment target scope.");
   }
   const scopeFields = getCurtailmentScopeFormFields(terminalScope);
-  const siteIds = scopeFields.siteIds;
-  const siteId = siteIds[0] ?? "";
-  const siteSelection =
-    scopeFields.scopeType === "wholeOrg"
-      ? "allSites"
-      : values.siteSelection === "allSites" && scopeFields.scopeType === "site"
+  const siteFields = normalizeResponseProfileSiteFields({
+    ...values,
+    ...scopeFields,
+    minerSelectionMode: scopeFields.scopeType === "wholeOrg" ? "all" : "subset",
+    siteSelection:
+      scopeFields.scopeType === "wholeOrg"
         ? "allSites"
-        : siteIds.length > 0
-          ? "site"
-          : "none";
+        : values.siteSelection === "allSites" && scopeFields.scopeType === "site"
+          ? "allSites"
+          : scopeFields.siteIds.length > 0
+            ? "site"
+            : "none",
+  });
 
   return {
     ...values,
@@ -157,12 +161,7 @@ function getPersistedResponseProfileFormValues(values: ResponseProfileFormValues
     fanOffDelaySec: values.fanOffDelaySec?.trim() ?? "",
     fanRestoreDelaySec: values.fanRestoreDelaySec?.trim() ?? "",
     ...scopeFields,
-    minerSelectionMode: scopeFields.scopeType === "wholeOrg" ? "all" : "subset",
-    siteSelection,
-    siteId,
-    siteIds,
-    siteName: siteId ? getResponseProfileSiteNameForId(values, siteId) : "",
-    siteNamesById: getResponseProfileSiteNamesById(values, siteIds),
+    ...siteFields,
   };
 }
 
@@ -248,6 +247,8 @@ function mapApiResponseProfile(profile: ApiCurtailmentResponseProfile, siteNameB
   return {
     id: profile.profileId.toString(),
     revision: profile.revision,
+    enabledAutomationRuleCount: profile.enabledAutomationRuleCount,
+    automationBindingStatus: profile.automationBindingStatus,
     name: profile.profileName,
     targetSummary,
     scope,
@@ -496,6 +497,19 @@ export default function useCurtailmentResponseProfiles(
     };
   }, [enabled, listResponseProfiles]);
 
+  useEffect(() => {
+    if (!enabled) return;
+    const controller = new AbortController();
+    const reload = () => {
+      void listResponseProfiles(controller.signal).catch(() => {});
+    };
+    window.addEventListener(CURTAILMENT_PROFILES_STALE_EVENT, reload);
+    return () => {
+      window.removeEventListener(CURTAILMENT_PROFILES_STALE_EVENT, reload);
+      controller.abort();
+    };
+  }, [enabled, listResponseProfiles]);
+
   const createResponseProfile = useCallback(
     async (values: ResponseProfileFormValues): Promise<ResponseProfile> => {
       setIsCreating(true);
@@ -566,6 +580,15 @@ export default function useCurtailmentResponseProfiles(
         );
         return mapProfile(updatedProfile);
       } catch (error) {
+        if (
+          error instanceof ConnectError &&
+          error.code === Code.FailedPrecondition &&
+          error.rawMessage ===
+            "curtailment response profile is bound to enabled automation rules; disable those rules before editing"
+        ) {
+          await listResponseProfiles().catch(() => {});
+          throw createErrorWithCause("Disable the automation rules using this profile before editing it.", error);
+        }
         if (!isResponseProfileUpdateConflict(error)) {
           throw handleFailure(error, "Failed to update response profile.");
         }

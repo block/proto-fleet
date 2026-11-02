@@ -523,7 +523,15 @@ func (s *Service) AdminTerminate(ctx context.Context, req AdminTerminateRequest)
 	var updated *models.Event
 	var transitioned bool
 	var err error
+	needsFanRecovery := false
 	if s.fans != nil {
+		current, readErr := s.store.GetEventByUUID(ctx, req.OrgID, req.EventUUID)
+		if readErr != nil {
+			return nil, readErr
+		}
+		needsFanRecovery = len(current.FacilityFanDeviceIDs) > 0
+	}
+	if needsFanRecovery {
 		if s.adminTerminateFanStore == nil {
 			return nil, fleeterror.NewInternalError("admin-terminate facility fan recovery store is unavailable")
 		}
@@ -539,6 +547,11 @@ func (s *Service) AdminTerminate(ctx context.Context, req AdminTerminateRequest)
 		)
 	} else {
 		updated, transitioned, err = s.store.AdminTerminateEvent(ctx, req.OrgID, req.EventUUID, req.TargetState, req.Reason)
+	}
+	// Fan recovery follows the committed terminal transition. Preserve its
+	// audit record even when subsequent hardware-result persistence fails.
+	if transitioned {
+		s.emitAdminTerminateAuditTrail(ctx, req, updated, true)
 	}
 	if err != nil {
 		if errors.Is(err, interfaces.ErrCurtailmentEventStateRaceLoss) {
@@ -566,7 +579,9 @@ func (s *Service) AdminTerminate(ctx context.Context, req AdminTerminateRequest)
 	}
 	// Replay rows on transitioned=false preserve a race-loser's actor +
 	// reason that would otherwise be dropped from the audit feed.
-	s.emitAdminTerminateAuditTrail(ctx, req, updated, transitioned)
+	if !transitioned {
+		s.emitAdminTerminateAuditTrail(ctx, req, updated, false)
+	}
 	return updated, nil
 }
 
@@ -679,8 +694,9 @@ func (s *Service) restoreFansForOperatorRecovery(ctx context.Context, event *mod
 	if event == nil || len(event.FacilityFanDeviceIDs) == 0 {
 		return nil
 	}
-	failedTerminalOn := event.FanOnSentAt != nil && event.FanLastError != nil
-	if event.State.IsTerminal() && event.FanOffSentAt == nil && !failedTerminalOn {
+	// Recovery intent can commit before the first physical command. Its
+	// durable error remains actionable even when no attempt timestamp exists.
+	if event.State.IsTerminal() && event.FanOffSentAt == nil && event.FanLastError == nil {
 		return nil
 	}
 	now := time.Now().UTC()
@@ -2259,6 +2275,7 @@ func (s *Service) Stop(ctx context.Context, req StopRequest) (*models.Event, err
 
 	return s.store.BeginRestoreTransition(ctx, req.OrgID, req.EventUUID, interfaces.BeginRestoreTransitionParams{
 		AutomationDemandGuard: automationDemandGuardForStop(event, req),
+		EnforceMinDuration:    !req.Force,
 	})
 }
 
@@ -2330,19 +2347,29 @@ func isAutomationOwnedEvent(event *models.Event) bool {
 		*event.ExternalSource == automationExternalSource
 }
 
-// checkMinCurtailedDurationGate enforces `min_curtailed_duration_sec`
-// only on active events; admin force=true bypasses.
+// checkMinCurtailedDurationGate is the early request check. The store repeats
+// it against the locked row before changing the lifecycle state.
 func checkMinCurtailedDurationGate(event *models.Event, force bool, now time.Time) error {
 	if force {
 		return nil
 	}
-	if event.State != models.EventStateActive {
+	return CheckMinCurtailedDuration(event, now)
+}
+
+// CheckMinCurtailedDuration gates voluntary restoration of pending and active
+// events. Pending time uses creation, while active time uses confirmation.
+func CheckMinCurtailedDuration(event *models.Event, now time.Time) error {
+	if event.State != models.EventStateActive && event.State != models.EventStatePending {
 		return nil
 	}
-	if event.MinCurtailedDurationSec <= 0 || event.StartedAt == nil {
+	if event.MinCurtailedDurationSec <= 0 {
 		return nil
 	}
-	elapsed := now.Sub(*event.StartedAt)
+	start := event.CreatedAt
+	if event.StartedAt != nil {
+		start = *event.StartedAt
+	}
+	elapsed := now.Sub(start)
 	required := time.Duration(event.MinCurtailedDurationSec) * time.Second
 	if elapsed >= required {
 		return nil

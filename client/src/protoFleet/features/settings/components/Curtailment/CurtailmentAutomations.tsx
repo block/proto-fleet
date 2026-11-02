@@ -470,7 +470,11 @@ function createAutomationColConfig(
       component: (rule) => (
         <div>
           <span className="block max-w-full truncate text-emphasis-300 text-text-primary">{rule.name}</span>
-          {rule.lastError ? (
+          {rule.bindingStatus === "rebind_required" ? (
+            <div className="text-200 wrap-anywhere whitespace-normal text-text-critical">
+              Profile changed. Edit this automation and save the current profile to resume.
+            </div>
+          ) : rule.lastError ? (
             <div className="text-200 wrap-anywhere whitespace-normal text-text-critical">{rule.lastError}</div>
           ) : null}
         </div>

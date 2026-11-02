@@ -1,7 +1,12 @@
+import { type ReactElement, useMemo } from "react";
 import clsx from "clsx";
+
 import { type CurtailmentHealth, type CurtailmentSource } from "@/protoFleet/api/curtailmentTypes";
+
+import List from "@/shared/components/List";
 import type { ColConfig, ColTitles } from "@/shared/components/List/types";
 import Switch from "@/shared/components/Switch";
+import "./CurtailmentSettingsPage.css";
 
 const curtailmentSourceCols = {
   name: "name",
@@ -11,9 +16,9 @@ const curtailmentSourceCols = {
   enabled: "enabled",
 } as const;
 
-export type CurtailmentSourceColumn = (typeof curtailmentSourceCols)[keyof typeof curtailmentSourceCols];
+type CurtailmentSourceColumn = (typeof curtailmentSourceCols)[keyof typeof curtailmentSourceCols];
 
-export const activeCurtailmentSourceCols: CurtailmentSourceColumn[] = [
+const activeCurtailmentSourceCols: CurtailmentSourceColumn[] = [
   curtailmentSourceCols.name,
   curtailmentSourceCols.lastSignalValue,
   curtailmentSourceCols.lastSignalUpdate,
@@ -21,7 +26,7 @@ export const activeCurtailmentSourceCols: CurtailmentSourceColumn[] = [
   curtailmentSourceCols.enabled,
 ];
 
-export const curtailmentSourceColTitles: ColTitles<CurtailmentSourceColumn> = {
+const curtailmentSourceColTitles: ColTitles<CurtailmentSourceColumn> = {
   name: "Name",
   lastSignalValue: "Last signal",
   lastSignalUpdate: "Updated",
@@ -29,15 +34,15 @@ export const curtailmentSourceColTitles: ColTitles<CurtailmentSourceColumn> = {
   enabled: "",
 };
 
-export const curtailmentSourceColumnAriaLabels: Partial<Record<CurtailmentSourceColumn, string>> = {
+const curtailmentSourceColumnAriaLabels: Partial<Record<CurtailmentSourceColumn, string>> = {
   enabled: "Enabled",
 };
 
-export const curtailmentSourceColumnsExemptFromDisabledStyling = new Set<CurtailmentSourceColumn>([
+const curtailmentSourceColumnsExemptFromDisabledStyling = new Set<CurtailmentSourceColumn>([
   curtailmentSourceCols.enabled,
 ]);
 
-export const curtailmentSourcesTableClassName = [
+const curtailmentSourcesTableClassName = [
   "mb-2 w-full",
   "phone:table-fixed",
   "phone:[&_thead_th:last-child]:w-14",
@@ -72,7 +77,7 @@ type CurtailmentSourceColConfigOptions = {
   canManageSources: boolean;
 };
 
-export function createCurtailmentSourceColConfig({
+function createCurtailmentSourceColConfig({
   onToggle,
   updatingSourceIds,
   canManageSources,
@@ -126,4 +131,42 @@ export function createCurtailmentSourceColConfig({
       width: "w-[6%] phone:w-14",
     },
   };
+}
+
+export function CurtailmentSourcesTable({
+  sources,
+  onToggle,
+  updatingSourceIds,
+  canManageSources,
+  noDataElement,
+  onEdit,
+}: CurtailmentSourceColConfigOptions & {
+  sources: CurtailmentSource[];
+  noDataElement: ReactElement;
+  onEdit: (source: CurtailmentSource) => void;
+}): ReactElement {
+  const sourceColConfig = useMemo(
+    () => createCurtailmentSourceColConfig({ onToggle, updatingSourceIds, canManageSources }),
+    [onToggle, updatingSourceIds, canManageSources],
+  );
+  return (
+    <List<CurtailmentSource, string, CurtailmentSourceColumn>
+      activeCols={activeCurtailmentSourceCols}
+      colTitles={curtailmentSourceColTitles}
+      columnHeaderAriaLabels={curtailmentSourceColumnAriaLabels}
+      colConfig={sourceColConfig}
+      items={sources}
+      itemKey="id"
+      total={sources.length}
+      hideTotal
+      itemName={{ singular: "source", plural: "sources" }}
+      stickyFirstColumn={false}
+      isRowDisabled={(source) => !source.enabled}
+      columnsExemptFromDisabledStyling={curtailmentSourceColumnsExemptFromDisabledStyling}
+      tableClassName={curtailmentSourcesTableClassName}
+      noDataElement={noDataElement}
+      applyColumnWidthsToCells
+      onRowClick={canManageSources ? onEdit : undefined}
+    />
+  );
 }

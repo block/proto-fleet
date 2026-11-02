@@ -118,6 +118,7 @@ func TestSQLCurtailmentStore_RuleMutationGuardsCoverExternalReference(t *testing
 	require.NoError(t, store.SetAutomationActiveEvent(ctx, ruleID, sourceA, eventUUID, time.Now()))
 
 	_, err = store.UpdateAutomationRule(ctx, models.AutomationRule{
+		AdminControlsGranted:    true,
 		ID:                      ruleID,
 		OrgID:                   orgID,
 		RuleName:                "guard-rule",
@@ -127,7 +128,7 @@ func TestSQLCurtailmentStore_RuleMutationGuardsCoverExternalReference(t *testing
 	}, models.ResponseProfileFanSettings{})
 	require.True(t, fleeterror.IsFailedPreconditionError(err), "re-pointing the rule must be blocked, got %v", err)
 
-	_, err = store.SetAutomationRuleEnabled(ctx, orgID, ruleID, false, uuid.Nil, models.ResponseProfileFanSettings{})
+	_, err = store.SetAutomationRuleEnabled(ctx, orgID, ruleID, false, uuid.Nil, models.ResponseProfileFanSettings{}, true)
 	require.True(t, fleeterror.IsFailedPreconditionError(err), "disabling the rule must be blocked, got %v", err)
 
 	err = store.DeleteAutomationRule(ctx, orgID, ruleID)

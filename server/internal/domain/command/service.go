@@ -78,7 +78,7 @@ type Service struct {
 	telemetryListener   TelemetryListener
 	pluginCaps          PluginCapabilitiesProvider
 	protocolChecker     CommandProtocolChecker
-	capabilityChecker   *CapabilityChecker
+	capabilityChecker   commandCapabilityChecker
 	activitySvc         *activity.Service
 	deviceResolver      DeviceIdentifierResolver
 
@@ -1104,6 +1104,30 @@ func (s *Service) admitCommand(ctx context.Context, command *Command) (*CommandR
 	})
 	if err != nil {
 		return nil, fleeterror.NewInternalErrorf("preflight filter failed: %v", err)
+	}
+
+	if command.commandType == commandtype.Curtail && len(kept) > 0 {
+		payload, ok := command.payload.(dto.CurtailPayload)
+		if !ok {
+			return nil, fleeterror.NewInternalError("invalid curtail payload")
+		}
+		supported, err := s.capabilityChecker.CheckCurtailCapabilities(ctx, &pb.DeviceSelector{SelectionType: &pb.DeviceSelector_IncludeDevices{IncludeDevices: &commonpb.DeviceIdentifierList{DeviceIdentifiers: kept}}}, sdk.CurtailLevel(payload.Level), info.OrganizationID)
+		if err != nil {
+			return nil, err
+		}
+		allowed := make(map[string]bool, len(supported.SupportedDeviceIdentifiers))
+		for _, id := range supported.SupportedDeviceIdentifiers {
+			allowed[id] = true
+		}
+		filtered := make([]string, 0, len(kept))
+		for _, id := range kept {
+			if allowed[id] {
+				filtered = append(filtered, id)
+			} else {
+				skipped = append(skipped, SkippedDevice{DeviceIdentifier: id, FilterName: "capability", Reason: "curtail capability unsupported or live device missing"})
+			}
+		}
+		kept = filtered
 	}
 
 	// External callers fail-closed on any skip. Resolve original identifiers

@@ -361,6 +361,28 @@ describe("CurtailmentStartModal", () => {
     });
   });
 
+  it("requires explicitly reloading a changed profile before running the updated plan", async () => {
+    const user = userEvent.setup();
+    const saved = responseProfiles[0];
+    renderModal({
+      responseProfiles: [saved],
+      initialValues: { ...configuredValues, responseProfileId: saved.id, responseProfileRevision: "older-revision" },
+    });
+    expect(screen.getByRole("button", { name: "Run curtailment" })).toBeDisabled();
+    expect(screen.getByRole("alert")).toHaveTextContent("This profile changed");
+    await user.click(screen.getByRole("button", { name: "Reload profile" }));
+    expect(screen.queryByRole("button", { name: "Reload profile" })).not.toBeInTheDocument();
+    expect(mockUseCurtailmentPlanPreview).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        values: expect.objectContaining({
+          responseProfileId: saved.id,
+          responseProfileRevision: saved.revision,
+          targetKw: "50",
+        }),
+      }),
+    );
+  });
+
   it("renders the empty state and target selectors", () => {
     renderModal();
 

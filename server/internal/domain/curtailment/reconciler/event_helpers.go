@@ -14,14 +14,15 @@ func excludeNonReopenableExistingTargetParams(targets []models.InsertTargetParam
 	if len(targets) == 0 || len(existingTargets) == 0 {
 		return targets
 	}
-	existing := make(map[string]models.TargetState, len(existingTargets))
+	existing := make(map[string]*models.Target, len(existingTargets))
 	for _, target := range existingTargets {
-		existing[target.DeviceIdentifier] = target.State
+		existing[target.DeviceIdentifier] = target
 	}
 	filtered := targets[:0]
 	for _, target := range targets {
-		state, ok := existing[target.DeviceIdentifier]
-		if ok && !isReopenableTargetState(state) {
+		previous, ok := existing[target.DeviceIdentifier]
+		if ok && (!isReopenableTargetState(previous.State) ||
+			(previous.State == models.TargetStateRestoreFailed && previous.DesiredState != models.DesiredStateActive)) {
 			continue
 		}
 		filtered = append(filtered, target)

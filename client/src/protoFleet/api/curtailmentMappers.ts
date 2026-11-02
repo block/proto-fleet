@@ -1,6 +1,17 @@
 import type { Timestamp } from "@bufbuild/protobuf/wkt";
 
 import {
+  getActiveCurtailmentDisplayState,
+  getCurtailmentEventEstimatedReductionKw,
+  getCurtailmentEventLiveTargetCount,
+  getCurtailmentEventObservedReductionKw,
+  getCurtailmentEventScopeLabel,
+  getCurtailmentEventSelectedMinerCount,
+  getCurtailmentTargetRollups,
+  isActiveCurtailmentEventState,
+  mapCurtailmentEventState,
+} from "@/protoFleet/api/curtailmentDisplayUtils";
+import {
   curtailmentScopeSchemaVersion,
   getCurtailmentScopeFormFields,
   getCurtailmentScopeSummary,
@@ -28,17 +39,6 @@ import {
   CurtailmentMode as ProtoCurtailmentMode,
 } from "@/protoFleet/api/generated/curtailment/v1/curtailment_pb";
 import { getSiteDisplayName, type SiteNameById } from "@/protoFleet/api/siteNames";
-import {
-  getActiveCurtailmentDisplayState,
-  getCurtailmentEventEstimatedReductionKw,
-  getCurtailmentEventLiveTargetCount,
-  getCurtailmentEventObservedReductionKw,
-  getCurtailmentEventScopeLabel,
-  getCurtailmentEventSelectedMinerCount,
-  getCurtailmentTargetRollups,
-  isActiveCurtailmentEventState,
-  mapCurtailmentEventState,
-} from "@/protoFleet/features/energy/curtailmentDisplayUtils";
 
 const automationExternalSource = "curtailment_automation";
 const automationSourceLabel = "Curtailment automation";

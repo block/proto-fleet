@@ -264,20 +264,37 @@ func TestService_Stop_EmergencyPriorityNoLongerBypasses(t *testing.T) {
 	assert.Contains(t, fleetErr.DebugMessage, "force=true")
 }
 
-func TestService_Stop_MinDurationDoesNotGatePendingEvents(t *testing.T) {
+func TestService_Stop_MinDurationGatesPendingEvents(t *testing.T) {
 	t.Parallel()
-	// Pending events have nothing to curtail yet; min_curtailed_duration_sec
-	// only counts wall-clock since started_at and the event hasn't transitioned
-	// to active. Stop should pass through to BeginRestoreTransition regardless.
-	f := newStopFixture(t, func(ev *models.Event) {
-		ev.State = models.EventStatePending
-		ev.MinCurtailedDurationSec = 600
-		ev.StartedAt = nil
-	})
-
-	_, err := f.svc.Stop(t.Context(), StopRequest{OrgID: 1, EventUUID: f.event.EventUUID})
-	require.NoError(t, err)
-	assert.Equal(t, 1, f.store.beginRestoreCalls)
+	for _, tc := range []struct {
+		name    string
+		age     time.Duration
+		force   bool
+		blocked bool
+	}{
+		{name: "recent pending event", age: 30 * time.Second, blocked: true},
+		{name: "elapsed pending event", age: 11 * time.Minute},
+		{name: "force override", age: 30 * time.Second, force: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			f := newStopFixture(t, func(ev *models.Event) {
+				ev.State = models.EventStatePending
+				ev.MinCurtailedDurationSec = 600
+				ev.CreatedAt = time.Now().Add(-tc.age)
+				ev.StartedAt = nil
+			})
+			_, err := f.svc.Stop(t.Context(), StopRequest{OrgID: 1, EventUUID: f.event.EventUUID, Force: tc.force})
+			if tc.blocked {
+				require.Error(t, err)
+				assert.True(t, fleeterror.IsFailedPreconditionError(err))
+				assert.Zero(t, f.store.beginRestoreCalls)
+			} else {
+				require.NoError(t, err)
+				assert.Equal(t, 1, f.store.beginRestoreCalls)
+			}
+		})
+	}
 }
 
 func TestService_Stop_RejectsInvalidRequestShape(t *testing.T) {

@@ -1,9 +1,12 @@
+const SOURCES_DESCRIPTION = "MaestroOS MQTT brokers that publish curtailment signals.";
 import { type KeyboardEvent, type ReactElement, useCallback, useMemo, useState } from "react";
+
 import {
   type CurtailmentSourceFormValues,
   DEFAULT_SOURCE_STALENESS_THRESHOLD_SEC,
   MAX_SOURCE_STALENESS_THRESHOLD_SEC,
 } from "@/protoFleet/api/curtailmentTypes";
+
 import { isInputEnterSaveEvent } from "@/protoFleet/features/settings/components/Curtailment/keyboard";
 import { Alert, Success } from "@/shared/assets/icons";
 import { iconSizes } from "@/shared/assets/icons/constants";
@@ -12,11 +15,16 @@ import { DismissibleCalloutWrapper, intents } from "@/shared/components/Callout"
 import Input from "@/shared/components/Input";
 import Modal, { sizes as modalSizes } from "@/shared/components/Modal";
 import { positions } from "@/shared/constants";
+import "./CurtailmentSettingsPage.css";
 
+const SOURCE_CONNECTION_FAILURE_MESSAGE =
+  "We couldn't connect with your source. Review your source details and try again.";
+const MAX_BROKER_PORT = 65_535;
+const savedPasswordPlaceholder = "......";
+export type SourceModalMode = "create" | "edit";
 function getErrorMessage(error: unknown, fallbackMessage: string): string {
   return error instanceof Error && error.message ? error.message : fallbackMessage;
 }
-
 const emptySourceFormValues: CurtailmentSourceFormValues = {
   name: "",
   brokerPrimaryHost: "",
@@ -27,17 +35,6 @@ const emptySourceFormValues: CurtailmentSourceFormValues = {
   password: "",
   stalenessThresholdSec: DEFAULT_SOURCE_STALENESS_THRESHOLD_SEC.toString(),
 };
-
-export const SOURCES_DESCRIPTION = "MaestroOS MQTT brokers that publish curtailment signals.";
-
-const SOURCE_CONNECTION_FAILURE_MESSAGE =
-  "We couldn't connect with your source. Review your source details and try again.";
-
-const MAX_BROKER_PORT = 65_535;
-
-const savedPasswordPlaceholder = "......";
-
-export type SourceModalMode = "create" | "edit";
 
 const sourceInputIds = {
   name: "source-name",
@@ -116,7 +113,7 @@ function validateSourceFormValues(values: CurtailmentSourceFormValues, passwordR
   return errors;
 }
 
-type SourceModalProps = {
+export type SourceModalProps = {
   open: boolean;
   mode?: SourceModalMode;
   initialValues?: CurtailmentSourceFormValues;
@@ -130,9 +127,8 @@ type SourceModalProps = {
   deleting?: boolean;
 };
 
-type SourceFormErrors = Partial<Record<keyof CurtailmentSourceFormValues, string>>;
-
-type SourceValidationIntent = "save" | "testConnection";
+export type SourceFormErrors = Partial<Record<keyof CurtailmentSourceFormValues, string>>;
+export type SourceValidationIntent = "save" | "testConnection";
 
 export function SourceModal({
   open,

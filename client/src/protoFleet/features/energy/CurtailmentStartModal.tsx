@@ -1,13 +1,10 @@
-import { type ReactElement } from "react";
-import { CurtailmentStartModalContent } from "./CurtailmentForm";
-import { CurtailmentStartModalProps } from "./curtailmentModalTypes";
-
+import type { ReactElement } from "react";
+import { CreateCurtailmentModal, EditCurtailmentModal, ResponseProfileModal } from "./CurtailmentModalShells";
+import type { CurtailmentStartModalProps } from "./curtailmentModalTypes";
 function CurtailmentStartModal(props: CurtailmentStartModalProps): ReactElement | null {
-  if (!props.open) {
-    return null;
-  }
-
-  return <CurtailmentStartModalContent {...props} />;
+  if (!props.open) return null;
+  if (props.variant === "responseProfile") return <ResponseProfileModal {...props} />;
+  if (props.mode === "edit") return <EditCurtailmentModal {...props} />;
+  return <CreateCurtailmentModal {...props} />;
 }
-
 export default CurtailmentStartModal;

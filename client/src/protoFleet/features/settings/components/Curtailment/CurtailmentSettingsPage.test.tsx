@@ -557,6 +557,20 @@ describe("CurtailmentSettingsPage", () => {
     });
   });
 
+  it("explains why enabled automation bindings must be disabled before editing a profile", () => {
+    render(
+      <MemoryRouter>
+        <CurtailmentSettingsContent
+          initialResponseProfiles={[
+            { ...testResponseProfiles[0], enabledAutomationRuleCount: 2, automationBindingStatus: "enabled" },
+          ]}
+        />
+      </MemoryRouter>,
+    );
+    expect(screen.getByRole("button", { name: "Disable automation rules before editing this profile" })).toBeDisabled();
+    expect(screen.getByText("Disable 2 automation rules before editing.")).toBeInTheDocument();
+  });
+
   it("renders the curtailment header and section null states", () => {
     vi.mocked(useHasPermission).mockImplementation((key) => key === "curtailment:manage");
 

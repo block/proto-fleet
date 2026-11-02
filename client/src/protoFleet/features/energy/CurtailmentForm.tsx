@@ -12,7 +12,6 @@ import {
 import {
   CurtailmentTargetPath,
   getCurtailmentTargetPath,
-  getInitialCurtailmentTargetPath,
   getSelectedSiteIds,
   getSiteNameForId,
   getValidSiteScopeIds,
@@ -25,12 +24,11 @@ import {
   withTargetPathScope,
   withTerminalScope,
 } from "./curtailmentFormScope";
-import {
-  getInitialValues,
-  hasEditableCurtailmentChanges,
-  validateCurtailmentFormValues,
-} from "./curtailmentFormValidation";
-import { CurtailmentStartModalProps } from "./curtailmentModalTypes";
+import { hasEditableCurtailmentChanges, validateCurtailmentFormValues } from "./curtailmentFormValidation";
+import type { CurtailmentModalShell, CurtailmentStartModalProps } from "./curtailmentModalTypes";
+import { useCurtailmentForm } from "./useCurtailmentForm";
+import { responseProfileExecutionConflictMessage } from "@/protoFleet/api/curtailmentProfileErrors";
+
 import type {
   CurtailmentFormErrors,
   CurtailmentFormValues,
@@ -39,6 +37,7 @@ import type {
   CurtailmentStartModalMode,
   CurtailmentSubmitValues,
 } from "@/protoFleet/api/curtailmentTypes";
+
 import { formatCurtailmentKw as formatKw, isCurtailmentAdmin } from "@/protoFleet/api/curtailmentUtils";
 import { MinerListFilterSchema } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import FullScreenTwoPaneModal, {
@@ -65,7 +64,7 @@ import {
 } from "@/protoFleet/features/energy/useCurtailmentPlanPreview";
 import { useRole } from "@/protoFleet/store";
 import { Alert, LightningAlt, Question } from "@/shared/assets/icons";
-import { variants } from "@/shared/components/Button";
+import Button, { variants } from "@/shared/components/Button";
 import Checkbox from "@/shared/components/Checkbox";
 import Dialog, { DialogIcon } from "@/shared/components/Dialog";
 import Input from "@/shared/components/Input";
@@ -121,7 +120,6 @@ interface SiteScopeOptionProps {
 }
 
 const responseProfileDescription = "Saved configurations that define how much power to shed and how to restore it.";
-
 const fieldHelp = {
   curtailmentMode: "How power reduction is measured: fixed kW target or full shutdown.",
   fixedTargetReduction: "The amount to reduce based on the selected mode.",
@@ -131,14 +129,12 @@ const fieldHelp = {
     "Number of miners to bring back online in each wave. 0 or blank restores pending miners up to the safety limit.",
   restoreBatchInterval: "Seconds to wait between each restore wave. 0 or blank means no wait.",
 } as const;
-
 // Full shutdown leads: whole-fleet curtailment is the primary operator flow
 // (matches the response-profile default and DeviceSettingsModal ordering).
 const curtailmentModeOptions = [
   { value: "fullFleet", label: "Full shutdown" },
   { value: "fixedKwReduction", label: "Fixed kW reduction" },
 ];
-
 const getSiteScopeRowId = (siteId: string) => `site:${siteId}`;
 
 function isCurtailmentMode(value: string): value is CurtailmentMode {
@@ -408,16 +404,14 @@ function responseProfilePreviewState(previewState: PreviewPaneProps): PreviewPan
   };
 }
 
-export function CurtailmentStartModalContent({
+export function CurtailmentForm({
+  shell,
   open,
   onDismiss,
   onSubmit,
   onStopCurtailment,
   onTestCurtailment,
   onDeleteResponseProfile,
-  mode = "create",
-  variant = "curtailment",
-  responseProfileMode = "create",
   initialValues,
   responseProfiles = [],
   siteOptions = [],
@@ -439,38 +433,54 @@ export function CurtailmentStartModalContent({
   isSubmitting = false,
   isTestingCurtailment = false,
   isDeleting = false,
-}: CurtailmentStartModalProps): ReactElement {
+}: CurtailmentStartModalProps & { shell: CurtailmentModalShell }): ReactElement {
+  const {
+    variant,
+    isResponseProfileVariant,
+    isResponseProfileEditMode,
+    isLiveCurtailmentEditMode,
+    shouldResetResponseProfileOnEdit,
+    nameFieldId,
+    nameFieldLabel,
+    modalTitle,
+    closeAriaLabel,
+    primaryButtonText,
+    shouldShowResponseProfileSelector,
+  } = shell;
   const canUseAdminControls = isCurtailmentAdmin(useRole());
-  const [initialFormValues] = useState<CurtailmentFormValues>(() =>
-    getInitialValues(initialValues, variant, defaultSiteScope),
-  );
-  const [values, setValues] = useState<CurtailmentFormValues>(() => initialFormValues);
-  const [targetPath, setTargetPath] = useState<CurtailmentTargetPath>(() =>
-    getInitialCurtailmentTargetPath(initialFormValues, initialValues),
-  );
-  const [showForceInclusionConfirmation, setShowForceInclusionConfirmation] = useState(false);
-  const [pendingForceInclusionValues, setPendingForceInclusionValues] = useState<Partial<ForceInclusionFields> | null>(
-    null,
-  );
-  const [confirmedForceInclusionKey, setConfirmedForceInclusionKey] = useState("");
-  const [submitAfterForceInclusionConfirmation, setSubmitAfterForceInclusionConfirmation] = useState<
-    PendingCurtailmentConfirmation["action"] | null
-  >(null);
-  const [pendingCurtailmentConfirmation, setPendingCurtailmentConfirmation] =
-    useState<PendingCurtailmentConfirmation | null>(null);
-  const [showMinerSelectionModal, setShowMinerSelectionModal] = useState(false);
-  const [showBuildingSelectionModal, setShowBuildingSelectionModal] = useState(false);
-  const [showRackSelectionModal, setShowRackSelectionModal] = useState(false);
-  const [showGroupSelectionModal, setShowGroupSelectionModal] = useState(false);
-  const [showSiteScopeModal, setShowSiteScopeModal] = useState(false);
-  const [showFacilityFanSelectionModal, setShowFacilityFanSelectionModal] = useState(false);
-  const [draftSelectedSiteIds, setDraftSelectedSiteIds] = useState<string[]>([]);
-  const [editedFields, setEditedFields] = useState<ReadonlySet<keyof CurtailmentFormValues>>(() => new Set());
-  const isEditMode = mode === "edit";
-  const isResponseProfileVariant = variant === "responseProfile";
-  const isResponseProfileEditMode = isResponseProfileVariant && responseProfileMode === "edit";
-  const isLiveCurtailmentEditMode = isEditMode && !isResponseProfileVariant;
-  const shouldResetResponseProfileOnEdit = !isResponseProfileVariant && !isEditMode;
+  const {
+    initialFormValues,
+    values,
+    setValues,
+    targetPath,
+    setTargetPath,
+    showForceInclusionConfirmation,
+    setShowForceInclusionConfirmation,
+    pendingForceInclusionValues,
+    setPendingForceInclusionValues,
+    confirmedForceInclusionKey,
+    setConfirmedForceInclusionKey,
+    submitAfterForceInclusionConfirmation,
+    setSubmitAfterForceInclusionConfirmation,
+    pendingCurtailmentConfirmation,
+    setPendingCurtailmentConfirmation,
+    showMinerSelectionModal,
+    setShowMinerSelectionModal,
+    showBuildingSelectionModal,
+    setShowBuildingSelectionModal,
+    showRackSelectionModal,
+    setShowRackSelectionModal,
+    showGroupSelectionModal,
+    setShowGroupSelectionModal,
+    showSiteScopeModal,
+    setShowSiteScopeModal,
+    showFacilityFanSelectionModal,
+    setShowFacilityFanSelectionModal,
+    draftSelectedSiteIds,
+    setDraftSelectedSiteIds,
+    editedFields,
+    setEditedFields,
+  } = useCurtailmentForm(initialValues, variant, defaultSiteScope);
   const hasRestrictedAllPairedTargeting =
     !canUseAdminControls &&
     !isLiveCurtailmentEditMode &&
@@ -576,6 +586,14 @@ export function CurtailmentStartModalContent({
     isEditMode: isLiveCurtailmentEditMode,
   });
 
+  const selectedProfile = responseProfiles.find((profile) => profile.id === values.responseProfileId);
+  const selectedProfileChanged =
+    selectedProfile !== undefined && selectedProfile.revision !== values.responseProfileRevision;
+  const canReloadSelectedProfile =
+    selectedProfile !== undefined &&
+    (selectedProfileChanged ||
+      apiPreview.previewError === responseProfileExecutionConflictMessage ||
+      actionError === responseProfileExecutionConflictMessage);
   const hasLocalFormError = Object.keys(localErrors).length > 0;
   const hasExternalFormError = Object.keys(errors ?? {}).length > 0;
   const hasBlockingRunPreviewState =
@@ -585,6 +603,7 @@ export function CurtailmentStartModalContent({
   const isSubmitDisabled =
     isBusy ||
     hasRestrictedAllPairedTargeting ||
+    selectedProfileChanged ||
     hasBlockingSubmitPreviewState ||
     hasExternalFormError ||
     !hasEditableChanges;
@@ -663,24 +682,6 @@ export function CurtailmentStartModalContent({
   const secondaryPaneClassName = useSinglePaneLayout
     ? "!hidden"
     : "!hidden !bg-transparent laptop:!flex laptop:!pl-0 laptop:!rounded-[24px]";
-  const nameFieldId = isResponseProfileVariant ? "response-profile-name" : "curtailment-reason";
-  const nameFieldLabel = isResponseProfileVariant ? "Profile name" : "Reason";
-  const modalTitle = isResponseProfileVariant
-    ? isResponseProfileEditMode
-      ? "Edit response profile"
-      : "Create response profile"
-    : isEditMode
-      ? "Manage curtailment"
-      : "New curtailment";
-  const closeAriaLabel = isResponseProfileVariant
-    ? isResponseProfileEditMode
-      ? "Close response profile editor"
-      : "Close response profile creator"
-    : isEditMode
-      ? "Close curtailment editor"
-      : "Close curtailment planner";
-  const primaryButtonText = isResponseProfileVariant ? "Save profile" : isEditMode ? "Save" : "Run curtailment";
-  const shouldShowResponseProfileSelector = !isResponseProfileVariant && !isEditMode;
   const scopeSiteOptions = useMemo(() => {
     if (!canSelectSiteScope) {
       return [];
@@ -977,12 +978,12 @@ export function CurtailmentStartModalContent({
       return;
     }
 
-    if (!isResponseProfileVariant && !isEditMode && requiresForceInclusionConfirmation(effectiveValues)) {
+    if (shell.requiresRunConfirmation && requiresForceInclusionConfirmation(effectiveValues)) {
       requestForceInclusionConfirmation({}, "run");
       return;
     }
 
-    if (!isResponseProfileVariant && !isEditMode) {
+    if (shell.requiresRunConfirmation) {
       requestCurtailmentConfirmation("run", effectiveValues);
       return;
     }
@@ -1118,6 +1119,16 @@ export function CurtailmentStartModalContent({
                       testId="curtailment-response-profile-select"
                       onChange={handleResponseProfileChange}
                     />
+                    {canReloadSelectedProfile && selectedProfile ? (
+                      <div className="flex items-center gap-3 text-300 text-text-critical" role="alert">
+                        <span>This profile changed. Reload it and review the updated plan.</span>
+                        <Button
+                          variant={variants.secondary}
+                          text="Reload profile"
+                          onClick={() => handleResponseProfileChange(selectedProfile.id)}
+                        />
+                      </div>
+                    ) : null}
                   </Section>
                 ) : null}
                 <Input

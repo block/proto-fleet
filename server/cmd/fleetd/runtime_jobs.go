@@ -383,6 +383,7 @@ type runtimeJobLifecycles struct {
 	rolloutEnforcement        runtimejobs.Lifecycle
 	curtailmentReconciler     runtimejobs.Lifecycle
 	curtailmentMQTTSubscriber runtimejobs.Lifecycle
+	curtailmentAutomation     runtimejobs.Lifecycle
 	curtailmentRigConfig      runtimejobs.Lifecycle
 	curtailmentAlertMetrics   runtimejobs.Lifecycle
 	chunkedUploadCleanup      runtimejobs.Lifecycle
@@ -423,6 +424,7 @@ func newRuntimeJobs(lifecycles runtimeJobLifecycles) ([]runtimejobs.Job, error) 
 		{name: "schedule-processor", lifecycle: lifecycles.scheduleProcessor},
 		{name: "rollout-enforcement", lifecycle: lifecycles.rolloutEnforcement},
 		{name: "curtailment-reconciler", lifecycle: lifecycles.curtailmentReconciler},
+		{name: "curtailment-automation", lifecycle: lifecycles.curtailmentAutomation},
 		{name: "curtailment-mqtt-subscriber", lifecycle: lifecycles.curtailmentMQTTSubscriber},
 		{name: "curtailment-rig-config", lifecycle: lifecycles.curtailmentRigConfig},
 	}

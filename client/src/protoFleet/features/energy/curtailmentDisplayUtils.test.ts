@@ -1,6 +1,14 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { create } from "@bufbuild/protobuf";
+import {
+  formatCurtailmentDuration,
+  getActiveCurtailmentCurtailProgress,
+  getActiveCurtailmentRestoreProgress,
+  getCurtailmentEventScopeLabel,
+  mapCurtailmentEventState,
+  mapCurtailmentTargetState,
+} from "@/protoFleet/api/curtailmentDisplayUtils";
 import { getCurtailmentScopeSummary } from "@/protoFleet/api/curtailmentScopes";
 import type { CurtailmentTargetRollup } from "@/protoFleet/api/curtailmentTypes";
 
@@ -11,14 +19,6 @@ import {
   CurtailmentTargetState,
   ScopeBuildingSchema,
 } from "@/protoFleet/api/generated/curtailment/v1/curtailment_pb";
-import {
-  formatCurtailmentDuration,
-  getActiveCurtailmentCurtailProgress,
-  getActiveCurtailmentRestoreProgress,
-  getCurtailmentEventScopeLabel,
-  mapCurtailmentEventState,
-  mapCurtailmentTargetState,
-} from "@/protoFleet/features/energy/curtailmentDisplayUtils";
 
 function rollups(counts: Partial<Record<CurtailmentTargetRollup["state"], number>>): CurtailmentTargetRollup[] {
   return Object.entries(counts).map(([state, count]) => ({

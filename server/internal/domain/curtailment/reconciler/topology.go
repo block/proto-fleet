@@ -26,19 +26,15 @@ func (r *Reconciler) prepareClosedLoopTopologyTick(
 		ev.ScopeType != models.ScopeTypeMixed {
 		return nil, false
 	}
-	scope, hasScope, err := curtailment.ScopeFromJSON(ev.ScopeJSON)
-	if err != nil || !hasScope {
-		r.rejectClosedLoopAdmission(ctx, ev, "persisted topology scope is invalid", err)
+	plan := eventPlanFromContext(ctx, ev)
+	if plan.scopeErr != nil {
+		r.rejectClosedLoopAdmission(ctx, ev, "persisted topology scope is invalid", plan.scopeErr)
 		return nil, true
 	}
-	if !curtailment.IsTopologyScope(scope) {
+	if !plan.topology {
 		return nil, false
 	}
-	params, err := curtailment.ListCandidatesParamsForScope(scope)
-	if err != nil {
-		r.rejectClosedLoopAdmission(ctx, ev, "persisted topology scope is invalid", err)
-		return nil, true
-	}
+	params := plan.candidates
 	params.OrgID = ev.OrgID
 	if !r.validateClosedLoopTopologyAdmission(ctx, ev, params) {
 		return nil, true
@@ -78,7 +74,7 @@ func (r *Reconciler) claimClosedLoopFullFleetTargetsFromSnapshot(
 		candidates = topologySnapshot.candidates
 	} else {
 		var ok bool
-		params, ok = listCandidatesParamsForEventScope(ev)
+		params, ok = eventPlanFromContext(ctx, ev).candidates, eventPlanFromContext(ctx, ev).hasCandidateScope
 		if !ok {
 			slog.Warn("curtailment reconciler: unsupported closed-loop full-fleet scope",
 				"event_id", ev.ID, "scope_type", ev.ScopeType)
@@ -134,7 +130,7 @@ func (r *Reconciler) claimClosedLoopFullFleetTargetsFromSnapshot(
 	targets, _ := curtailment.BuildFullFleetAdmissionTargets(
 		candidates,
 		ev.IncludeMaintenance && ev.ForceIncludeMaintenance,
-		candidateMinPowerWForEvent(ev, orgConfig.CandidateMinPowerW),
+		candidateMinPowerWForPlan(ctx, ev, orgConfig.CandidateMinPowerW),
 	)
 	targets = excludeNonReopenableExistingTargetParams(targets, existingTargets)
 	activeDevices, err := r.store.ListActiveCurtailmentTargetDevices(ctx, ev.OrgID)
@@ -144,7 +140,7 @@ func (r *Reconciler) claimClosedLoopFullFleetTargetsFromSnapshot(
 		return nil, false
 	}
 	targets = excludeDeviceIdentifiers(targets, activeDevices)
-	cooldownSec := postEventCooldownSecForEvent(ev)
+	cooldownSec := postEventCooldownForPlan(ctx, ev)
 	if cooldownSec > 0 {
 		candidateIdentifiers := make([]string, 0, len(candidates))
 		for _, candidate := range candidates {
@@ -308,37 +304,13 @@ func (r *Reconciler) validateClosedLoopTopologyAdmission(
 		}
 		return false
 	}
-	envelope, err := curtailment.AuthorizationEnvelopeFromJSON(ev.AuthorizationEnvelopeJSON)
+	reason, err := r.authorizeDispatchPrincipal(ctx, ev, coverage)
 	if err != nil {
-		r.rejectClosedLoopAdmission(ctx, ev, "persisted authorization envelope is invalid", err)
+		slog.Error("curtailment reconciler: admission authorization deferred", "event_id", ev.ID, "error", err)
 		return false
 	}
-	if !topologyCoverageWithinEnvelope(coverage, envelope) {
-		r.rejectClosedLoopAdmission(ctx, ev, "current topology exceeds the persisted authorization envelope", nil)
-		return false
-	}
-	if r.permissions == nil {
-		r.rejectClosedLoopAdmission(ctx, ev, "admission permission resolver is not configured", nil)
-		return false
-	}
-	effective, err := r.permissions.LoadEffective(ctx, ev.CreatedByUserID, ev.OrgID)
-	if err != nil {
-		slog.Error("curtailment reconciler: admission permission validation failed; admission deferred",
-			"event_id", ev.ID, "error", err)
-		return false
-	}
-	if !authorizationEnvelopeAllowsDispatch(effective, envelope, coverage) {
-		r.rejectClosedLoopAdmission(ctx, ev, "event creator no longer has required permissions", nil)
-		return false
-	}
-	adminAllowed, err := r.eventCreatorCanUseRequiredAdminControls(ctx, ev)
-	if err != nil {
-		slog.Error("curtailment reconciler: admission admin-control validation failed; admission deferred",
-			"event_id", ev.ID, "error", err)
-		return false
-	}
-	if !adminAllowed {
-		r.rejectClosedLoopAdmission(ctx, ev, "event creator no longer has the admin role required by this event", nil)
+	if reason != "" {
+		r.rejectClosedLoopAdmission(ctx, ev, reason, nil)
 		return false
 	}
 	return true
@@ -357,6 +329,13 @@ func (r *Reconciler) rejectClosedLoopAdmission(
 	}
 	logAttributes = append(logAttributes, attributes...)
 	slog.Error("curtailment reconciler: closed-loop admission rejected", logAttributes...)
+	latch, ok := r.store.(interfaces.CurtailmentDispatchRejectionStore)
+	if !ok {
+		return
+	}
+	if err := latch.RejectDispatch(ctx, ev.OrgID, ev.ID, reason); err != nil {
+		return
+	}
 	if _, err := r.store.BeginRestoreTransition(
 		ctx,
 		ev.OrgID,

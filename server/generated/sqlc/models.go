@@ -965,6 +965,33 @@ type ContainerTopologyVersion struct {
 	Topology    json.RawMessage
 }
 
+type CurtailmentAutomationExecution struct {
+	RuleID         int64
+	MqttSourceID   int64
+	Generation     int64
+	Direction      string
+	Target         string
+	TargetAt       sql.NullTime
+	ReceivedAt     time.Time
+	ReceivedBroker string
+	PriorEdgeAt    sql.NullTime
+	Status         string
+	Attempts       int32
+	RetryAt        time.Time
+	LeaseExpiresAt sql.NullTime
+	LastError      sql.NullString
+}
+
+type CurtailmentAutomationExecutionGrant struct {
+	RuleID                    int64
+	OrgID                     int64
+	ResponseProfileID         int64
+	ResponseProfileRevision   uuid.UUID
+	AuthorizationEnvelopeJson json.RawMessage
+	AdminControlsGranted      bool
+	CreatedAt                 time.Time
+}
+
 type CurtailmentAutomationRule struct {
 	ID                int64
 	OrgID             int64
@@ -1059,6 +1086,7 @@ type CurtailmentEvent struct {
 	FanLastError                 sql.NullString
 	LastCurtailPendingDispatchAt sql.NullTime
 	AuthorizationEnvelopeJsonb   json.RawMessage
+	DispatchRejectionReason      sql.NullString
 }
 
 type CurtailmentMqttSourceConfig struct {
@@ -1178,6 +1206,12 @@ type CurtailmentResponseProfileWithRevision struct {
 	Revision                    uuid.UUID
 }
 
+type CurtailmentRigConfigDeliveryAttempt struct {
+	OrganizationID int64
+	DeviceID       int64
+	Attempts       int32
+}
+
 type CurtailmentRigConfigReconciliation struct {
 	OrganizationID          int64
 	RequestedBy             int64
@@ -1189,6 +1223,7 @@ type CurtailmentRigConfigReconciliation struct {
 	CreatedAt               time.Time
 	UpdatedAt               time.Time
 	FullReconcileGeneration int64
+	DeliveryAttempts        int32
 }
 
 type CurtailmentRigConfigTarget struct {
@@ -1229,6 +1264,7 @@ type CurtailmentTarget struct {
 	RestoreRetryCount      int32
 	RestoreFailureCount    int32
 	RestoreLastError       sql.NullString
+	CurtailPossiblySent    bool
 }
 
 type Device struct {

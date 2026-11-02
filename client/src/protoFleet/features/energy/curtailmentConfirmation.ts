@@ -1,14 +1,15 @@
 import { getExplicitMinerCount, getSiteScopeIds, hasAllMinersSelected } from "./curtailmentFormScope";
+import {
+  formatCurtailmentAppliesToSummary,
+  formatCurtailmentFacilityFanCount,
+} from "@/protoFleet/api/curtailmentDisplayUtils";
 import type {
   CurtailmentFormValues,
   CurtailmentPlanPreview,
   CurtailmentSubmitValues,
 } from "@/protoFleet/api/curtailmentTypes";
+
 import { getTargetButtonLabel } from "@/protoFleet/components/TargetSelectButton";
-import {
-  formatCurtailmentAppliesToSummary,
-  formatCurtailmentFacilityFanCount,
-} from "@/protoFleet/features/energy/curtailmentDisplayUtils";
 
 export type PendingCurtailmentConfirmation = {
   action: "run" | "test";
@@ -25,7 +26,7 @@ export function formatCountLabel(count: number, singular: string): string {
   return getTargetButtonLabel(count, singular);
 }
 
-function getFacilityFanDeviceCount(values: Pick<CurtailmentFormValues, "facilityFanDeviceIds">): number {
+export function getFacilityFanDeviceCount(values: Pick<CurtailmentFormValues, "facilityFanDeviceIds">): number {
   return values.facilityFanDeviceIds?.length ?? 0;
 }
 
@@ -38,11 +39,14 @@ export function formatCurtailmentPreviewSummary(preview: CurtailmentPlanPreview)
   return `Curtail ${appliesToSummary} ${preview.scopeLabel} immediately`;
 }
 
-function formatScopeLabelForSentence(scopeLabel: string): string {
+export function formatScopeLabelForSentence(scopeLabel: string): string {
   return scopeLabel === "All sites" ? "all sites" : scopeLabel;
 }
 
-function formatCurtailmentConfirmationTarget(values: CurtailmentFormValues, selectedMinerCount?: number): string {
+export function formatCurtailmentConfirmationTarget(
+  values: CurtailmentFormValues,
+  selectedMinerCount?: number,
+): string {
   if (hasAllMinersSelected(values)) {
     return "the whole fleet";
   }
@@ -88,7 +92,7 @@ function formatCurtailmentConfirmationTarget(values: CurtailmentFormValues, sele
   return "miners across the fleet";
 }
 
-function formatCurtailmentConfirmationTargetWithInfrastructure(
+export function formatCurtailmentConfirmationTargetWithInfrastructure(
   values: CurtailmentFormValues,
   selectedMinerCount?: number,
 ): string {

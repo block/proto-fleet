@@ -1,30 +1,16 @@
 import { type ReactElement, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Navigate, useNavigate } from "react-router-dom";
-import {
-  activeCurtailmentSourceCols,
-  createCurtailmentSourceColConfig,
-  curtailmentSourceColTitles,
-  CurtailmentSourceColumn,
-  curtailmentSourceColumnAriaLabels,
-  curtailmentSourceColumnsExemptFromDisabledStyling,
-  curtailmentSourcesTableClassName,
-} from "./CurtailmentSourcesTable";
+import { CurtailmentSourcesTable } from "./CurtailmentSourcesTable";
 import { ResponseProfileCards } from "./ResponseProfileCards";
-import { SourceModal, SourceModalMode, SOURCES_DESCRIPTION } from "./SourceModal";
+import { SourceModal, type SourceModalMode } from "./SourceModal";
 import {
   getResponseProfileScopeSummary,
-  getResponseProfileSiteNameForId,
-  getResponseProfileSiteNamesById,
   getSelectedResponseProfileSiteIds,
 } from "@/protoFleet/api/curtailmentResponseProfileUtils";
-import {
-  type CurtailmentScopeSelection,
-  normalizeCurtailmentSelectionValues,
-} from "@/protoFleet/api/curtailmentScopes";
+
 import {
   type AutomationRule,
   type AutomationRuleFormValues,
-  type CurtailmentFormValues,
   type CurtailmentSiteOption,
   type CurtailmentSource,
   type CurtailmentSourceFormValues,
@@ -36,8 +22,9 @@ import {
   type ResponseProfileFormValues,
   type ResponseProfileModalMode,
 } from "@/protoFleet/api/curtailmentTypes";
+
 import { formatCurtailmentKw, isCurtailmentAdmin } from "@/protoFleet/api/curtailmentUtils";
-import type { SiteWithCounts } from "@/protoFleet/api/generated/sites/v1/sites_pb";
+
 import { useSites } from "@/protoFleet/api/sites";
 import { useCurtailmentApi } from "@/protoFleet/api/useCurtailmentApi";
 import useCurtailmentAutomationRules from "@/protoFleet/api/useCurtailmentAutomationRules";
@@ -45,7 +32,13 @@ import useCurtailmentResponseProfiles from "@/protoFleet/api/useCurtailmentRespo
 import useInfrastructureDevices from "@/protoFleet/api/useInfrastructureDevices";
 import useMqttCurtailmentSources from "@/protoFleet/api/useMqttCurtailmentSources";
 import { useActiveSite } from "@/protoFleet/components/PageHeader/SitePicker";
-import { immediateRestoreBatchSizeInputValue } from "@/protoFleet/features/energy/curtailmentNumericFields";
+import {
+  createCurtailmentFormValuesFromResponseProfile,
+  createResponseProfileFormValuesFromCurtailmentValues,
+  createResponseProfileFormValuesFromProfile,
+  createSiteOptions,
+  normalizeResponseProfileFormValues,
+} from "@/protoFleet/features/energy/curtailmentProfileModel";
 import { getDefaultCurtailmentSiteScope } from "@/protoFleet/features/energy/curtailmentSiteScopeDefaults";
 import CurtailmentStartModal from "@/protoFleet/features/energy/CurtailmentStartModal";
 import type { FacilityFanDeviceOption } from "@/protoFleet/features/energy/FacilityFanSelectionModal";
@@ -62,7 +55,6 @@ import { useFleetStore } from "@/protoFleet/store/useFleetStore";
 import { Info } from "@/shared/assets/icons";
 import { iconSizes } from "@/shared/assets/icons/constants";
 import Callout, { intents } from "@/shared/components/Callout";
-import List from "@/shared/components/List";
 import { PopoverProvider } from "@/shared/components/Popover";
 import ProgressCircular from "@/shared/components/ProgressCircular";
 import type { SelectOption } from "@/shared/components/Select";
@@ -71,9 +63,8 @@ import "./CurtailmentSettingsPage.css";
 
 const CURTAILMENT_PAGE_DESCRIPTION =
   "Configure response profiles, manage external signal sources, and define automations that trigger curtailment.";
-
 const RESPONSE_PROFILES_DESCRIPTION = "Saved configurations that define how much power to shed and how to restore it.";
-
+const SOURCES_DESCRIPTION = "MaestroOS MQTT brokers that publish curtailment signals.";
 const PROTO_RIG_FALLBACK_DESCRIPTION =
   "Proto rigs can use compatible TCP MaestroOS sources as a local fallback. Fleet also sends commands to all targeted miners, confirms curtailment, tracks progress, and restores them.";
 
@@ -106,15 +97,10 @@ const emptySourceFormValues: CurtailmentSourceFormValues = {
 };
 
 const emptyCurtailmentSources: CurtailmentSource[] = [];
-
 const emptyResponseProfiles: ResponseProfile[] = [];
-
 const emptyAutomationRules: AutomationRule[] = [];
-
 const emptyUpdatingSourceIds = new Set<string>();
-
 const emptyUpdatingResponseProfileIds = new Set<string>();
-
 const emptyUpdatingAutomationRuleIds = new Set<string>();
 
 const emptyResponseProfileFormValues: ResponseProfileFormValues = {
@@ -172,27 +158,6 @@ function getResponseProfileTargetSummary(values: ResponseProfileFormValues): str
   }
 }
 
-function createSiteOptions(sites: SiteWithCounts[]): CurtailmentSiteOption[] {
-  return sites
-    .flatMap((siteWithCounts) => {
-      const site = siteWithCounts.site;
-      const id = site?.id ? site.id.toString() : "";
-
-      return id ? [{ id, name: site?.name || `Site ${id}` }] : [];
-    })
-    .sort((left, right) => left.name.localeCompare(right.name, undefined, { sensitivity: "base" }));
-}
-
-function secondsToDeadlineMinutes(value: string): string {
-  const seconds = Number(value);
-
-  if (!Number.isFinite(seconds) || seconds <= 0) {
-    return emptyResponseProfileFormValues.responseDeadlineMinutes;
-  }
-
-  return Math.max(Math.ceil(seconds / 60), 1).toString();
-}
-
 function createResponseProfileId(name: string, existingProfiles: ResponseProfile[]): string {
   const baseSlug =
     name
@@ -212,42 +177,15 @@ function createResponseProfileId(name: string, existingProfiles: ResponseProfile
   return candidate;
 }
 
-function cloneTopologyTargetIds(
-  values: Pick<CurtailmentScopeSelection, "buildingTargetIds" | "rackTargetIds" | "groupTargetIds">,
-) {
-  return {
-    buildingTargetIds: [...(values.buildingTargetIds ?? [])],
-    rackTargetIds: [...(values.rackTargetIds ?? [])],
-    groupTargetIds: [...(values.groupTargetIds ?? [])],
-  };
-}
-
 function createResponseProfileFromFormValues(
   values: ResponseProfileFormValues,
   existingProfiles: ResponseProfile[],
   existingProfile?: ResponseProfile,
 ): ResponseProfile {
-  const hasAllMinersSelected = values.minerSelectionMode === "all";
-  const siteIds = hasAllMinersSelected ? [] : getSelectedResponseProfileSiteIds(values);
-  const siteId = siteIds[0] ?? "";
   const normalizedValues: ResponseProfileFormValues = {
-    ...values,
+    ...normalizeResponseProfileFormValues(values),
     name: values.name.trim(),
     targetKw: values.targetKw.trim(),
-    ...cloneTopologyTargetIds(values),
-    deviceIdentifiers: hasAllMinersSelected ? [] : [...values.deviceIdentifiers],
-    minerSelectionMode: hasAllMinersSelected ? "all" : "subset",
-    siteSelection: hasAllMinersSelected
-      ? "allSites"
-      : values.siteSelection === "allSites"
-        ? "allSites"
-        : siteIds.length > 0
-          ? "site"
-          : "none",
-    siteId,
-    siteName: siteId ? getResponseProfileSiteNameForId(values, siteId) : "",
-    siteIds,
-    siteNamesById: getResponseProfileSiteNamesById(values, siteIds),
     minDurationSec: values.minDurationSec.trim(),
     maxDurationSec: values.maxDurationSec.trim(),
     curtailBatchSize: values.curtailBatchSize.trim(),
@@ -269,169 +207,6 @@ function createResponseProfileFromFormValues(
     restoreBehavior: responseProfileRestoreBehaviorLabel[normalizedValues.restoreBehavior],
     formValues: normalizedValues,
     isAutomationReady: isResponseProfileAutomationReady(normalizedValues.scopeType),
-  };
-}
-
-function removeResponseProfileScope(values: ResponseProfileFormValues): ResponseProfileFormValues {
-  const hasAllMinersSelected = values.minerSelectionMode === "all";
-  const siteIds = hasAllMinersSelected ? [] : getSelectedResponseProfileSiteIds(values);
-  const siteId = siteIds[0] ?? "";
-
-  return {
-    ...values,
-    ...cloneTopologyTargetIds(values),
-    deviceIdentifiers: hasAllMinersSelected ? [] : [...values.deviceIdentifiers],
-    minerSelectionMode: hasAllMinersSelected ? "all" : "subset",
-    siteSelection: hasAllMinersSelected
-      ? "allSites"
-      : values.siteSelection === "allSites"
-        ? "allSites"
-        : siteIds.length > 0
-          ? "site"
-          : "none",
-    siteId,
-    siteName: siteId ? getResponseProfileSiteNameForId(values, siteId) : "",
-    siteIds,
-    siteNamesById: getResponseProfileSiteNamesById(values, siteIds),
-  };
-}
-
-function createResponseProfileFormValuesFromProfile(profile: ResponseProfile): ResponseProfileFormValues | undefined {
-  return profile.formValues ? removeResponseProfileScope(profile.formValues) : undefined;
-}
-
-function createCurtailmentFormValuesFromResponseProfile(
-  values: ResponseProfileFormValues,
-): Partial<CurtailmentFormValues> {
-  const restoreBatchSize =
-    values.restoreBatchSize ||
-    (values.restoreBehavior === "automaticImmediateRestore" ? immediateRestoreBatchSizeInputValue : "");
-  const hasAllMinersSelected = values.minerSelectionMode === "all";
-  const siteIds = hasAllMinersSelected ? [] : getSelectedResponseProfileSiteIds(values);
-  const siteId = siteIds[0] ?? "";
-  const siteNamesById = getResponseProfileSiteNamesById(values, siteIds);
-  const siteName = siteId ? siteNamesById[siteId] || `Site ${siteId}` : "";
-  const deviceIdentifiers = hasAllMinersSelected ? [] : [...values.deviceIdentifiers];
-  const siteSelection = hasAllMinersSelected
-    ? "allSites"
-    : values.siteSelection === "allSites"
-      ? "allSites"
-      : siteIds.length > 0
-        ? "site"
-        : "none";
-
-  return {
-    scopeType:
-      values.scopeType ??
-      (hasAllMinersSelected
-        ? "wholeOrg"
-        : deviceIdentifiers.length > 0
-          ? "explicitMiners"
-          : siteIds.length > 0
-            ? "site"
-            : "wholeOrg"),
-    scopeId: hasAllMinersSelected
-      ? "whole-org"
-      : siteIds.length > 0
-        ? siteIds.length === 1
-          ? siteName
-          : `${siteIds.length} sites`
-        : deviceIdentifiers.length > 0
-          ? undefined
-          : "whole-org",
-    siteSelection,
-    siteId,
-    siteIds,
-    siteNamesById,
-    ...cloneTopologyTargetIds(values),
-    deviceIdentifiers,
-    minerSelectionMode: hasAllMinersSelected ? "all" : "subset",
-    responseProfileId: "customPlan",
-    curtailmentMode: values.actionType,
-    minerSelectionStrategy: values.selectionStrategy,
-    targetKw: values.targetKw,
-    toleranceKw: values.toleranceKw,
-    priority: values.priority,
-    postEventCooldownSec: values.postEventCooldownSec,
-    minDurationSec: values.minDurationSec,
-    maxDurationSec: values.maxDurationSec,
-    curtailBatchSize: values.curtailBatchSize,
-    curtailBatchIntervalSec: values.curtailBatchIntervalSec,
-    restoreBatchSize,
-    restoreIntervalSec: values.restoreIntervalSec,
-    facilityFanDeviceIds: [...(values.facilityFanDeviceIds ?? [])],
-    fanOffDelaySec: values.fanOffDelaySec ?? "",
-    fanRestoreDelaySec: values.fanRestoreDelaySec ?? "",
-    reason: values.name,
-    includeMaintenance: values.includeMaintenance,
-    forceIncludeAllPairedMiners: values.actionType === "fullFleet" && Boolean(values.forceIncludeAllPairedMiners),
-  };
-}
-
-function getResponseProfileRestoreBehavior(
-  values: CurtailmentSubmitValues,
-): ResponseProfileFormValues["restoreBehavior"] {
-  const restoreBatchSize = Number(values.restoreBatchSize);
-  const restoreIntervalSec = Number(values.restoreIntervalSec || "0");
-
-  return Number.isFinite(restoreBatchSize) &&
-    restoreBatchSize === Number(immediateRestoreBatchSizeInputValue) &&
-    Number.isFinite(restoreIntervalSec) &&
-    restoreIntervalSec === 0
-    ? "automaticImmediateRestore"
-    : "automaticBatchRestore";
-}
-
-function createResponseProfileFormValuesFromCurtailmentValues(
-  values: CurtailmentSubmitValues,
-): ResponseProfileFormValues {
-  const hasAllMinersSelected = values.minerSelectionMode === "all";
-  const siteIds =
-    hasAllMinersSelected || (values.siteSelection !== "site" && values.siteSelection !== "allSites")
-      ? []
-      : normalizeCurtailmentSelectionValues(values.siteIds ?? (values.siteId ? [values.siteId] : []));
-  const siteId = siteIds[0] ?? "";
-  const siteNamesById = Object.fromEntries(
-    siteIds.map((currentSiteId) => [
-      currentSiteId,
-      values.siteNamesById?.[currentSiteId] ??
-        (values.siteId === currentSiteId ? values.scopeId : undefined) ??
-        `Site ${currentSiteId}`,
-    ]),
-  );
-  const siteName = siteId ? siteNamesById[siteId] : "";
-  const deviceIdentifiers = hasAllMinersSelected ? [] : [...values.deviceIdentifiers];
-
-  return {
-    name: values.reason,
-    actionType: values.curtailmentMode,
-    targetKw: values.targetKw,
-    toleranceKw: values.toleranceKw,
-    priority: values.priority,
-    postEventCooldownSec: values.postEventCooldownSec ?? "",
-    scopeType: values.scopeType,
-    ...cloneTopologyTargetIds(values),
-    deviceIdentifiers,
-    minerSelectionMode: hasAllMinersSelected ? "all" : "subset",
-    siteSelection: hasAllMinersSelected ? "allSites" : values.siteSelection,
-    siteId: hasAllMinersSelected ? "" : siteId,
-    siteName: hasAllMinersSelected ? "" : siteName,
-    siteIds: hasAllMinersSelected ? [] : siteIds,
-    siteNamesById: hasAllMinersSelected ? {} : siteNamesById,
-    selectionStrategy: values.minerSelectionStrategy,
-    restoreBehavior: getResponseProfileRestoreBehavior(values),
-    minDurationSec: values.minDurationSec,
-    maxDurationSec: values.maxDurationSec,
-    curtailBatchSize: values.curtailBatchSize,
-    curtailBatchIntervalSec: values.curtailBatchIntervalSec,
-    restoreBatchSize: values.restoreBatchSize,
-    restoreIntervalSec: values.restoreIntervalSec,
-    facilityFanDeviceIds: [...(values.facilityFanDeviceIds ?? [])],
-    fanOffDelaySec: values.fanOffDelaySec ?? "",
-    fanRestoreDelaySec: values.fanRestoreDelaySec ?? "",
-    responseDeadlineMinutes: secondsToDeadlineMinutes(values.maxDurationSec),
-    includeMaintenance: values.includeMaintenance,
-    forceIncludeAllPairedMiners: values.curtailmentMode === "fullFleet" && Boolean(values.forceIncludeAllPairedMiners),
   };
 }
 
@@ -917,16 +692,6 @@ export function CurtailmentSettingsContent({
     }
   }, [controlledSources, editingSource, onDeleteSource]);
 
-  const sourceColConfig = useMemo(
-    () =>
-      createCurtailmentSourceColConfig({
-        onToggle: toggleSource,
-        updatingSourceIds,
-        canManageSources,
-      }),
-    [canManageSources, toggleSource, updatingSourceIds],
-  );
-
   const noDataElement = getSourcesEmptyState(loadSourcesError, isLoadingSources);
 
   return (
@@ -967,23 +732,13 @@ export function CurtailmentSettingsContent({
           onButtonClick={canManageSources ? openCreateSourceModal : undefined}
           infoToggle={<SourcesInfoToggle />}
         />
-        <List<CurtailmentSource, string, CurtailmentSourceColumn>
-          activeCols={activeCurtailmentSourceCols}
-          colTitles={curtailmentSourceColTitles}
-          columnHeaderAriaLabels={curtailmentSourceColumnAriaLabels}
-          colConfig={sourceColConfig}
-          items={sources}
-          itemKey="id"
-          total={sources.length}
-          hideTotal
-          itemName={{ singular: "source", plural: "sources" }}
-          stickyFirstColumn={false}
-          isRowDisabled={(source) => !source.enabled}
-          columnsExemptFromDisabledStyling={curtailmentSourceColumnsExemptFromDisabledStyling}
-          tableClassName={curtailmentSourcesTableClassName}
+        <CurtailmentSourcesTable
+          sources={sources}
+          onToggle={toggleSource}
+          updatingSourceIds={updatingSourceIds}
+          canManageSources={canManageSources}
           noDataElement={noDataElement}
-          applyColumnWidthsToCells
-          onRowClick={canManageSources ? openEditSourceModal : undefined}
+          onEdit={openEditSourceModal}
         />
       </section>
 
