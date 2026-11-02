@@ -419,6 +419,9 @@ func (s *SQLCurtailmentStore) ListAutomationRules(ctx context.Context, orgID int
 	for i, row := range rows {
 		out[i] = automationRuleFromListRow(row)
 	}
+	if err := s.attachAutomationSchedules(ctx, orgID, out); err != nil {
+		return nil, err
+	}
 	return out, nil
 }
 
@@ -433,7 +436,11 @@ func (s *SQLCurtailmentStore) GetAutomationRule(ctx context.Context, orgID, rule
 		}
 		return nil, fleeterror.NewInternalErrorf("failed to get curtailment automation rule: %v", err)
 	}
-	return automationRuleFromGetRow(row), nil
+	rule := automationRuleFromGetRow(row)
+	if err := s.attachAutomationSchedule(ctx, rule); err != nil {
+		return nil, err
+	}
+	return rule, nil
 }
 
 func (s *SQLCurtailmentStore) ListEnabledAutomationRulesByMQTTSource(ctx context.Context, mqttSourceID int64) ([]*models.AutomationRule, error) {
@@ -491,7 +498,12 @@ func (s *SQLCurtailmentStore) CreateAutomationRule(
 		if err != nil {
 			return sqlc.CurtailmentAutomationRule{}, mapAutomationRuleWriteError("create", err)
 		}
-		if err := saveAutomationExecutionBinding(ctx, q, inserted.ID, inserted.OrgID, rule.AdminControlsGranted); err != nil {
+		if rule.TriggerType == models.AutomationTriggerTypeSchedule {
+			if err := upsertAutomationSchedule(ctx, q, inserted.ID, rule.Schedule); err != nil {
+				return sqlc.CurtailmentAutomationRule{}, err
+			}
+		}
+		if err := saveAutomationExecutionBinding(ctx, q, inserted.ID, inserted.OrgID, rule.AdminControlsGranted, rule.TriggerType); err != nil {
 			return sqlc.CurtailmentAutomationRule{}, err
 		}
 		return inserted, nil
@@ -549,7 +561,16 @@ func (s *SQLCurtailmentStore) UpdateAutomationRule(
 		if rows != 1 {
 			return automationRuleMutationResult{noRows: true}, nil
 		}
-		if err := saveAutomationExecutionBinding(ctx, q, updated.ID, updated.OrgID, rule.AdminControlsGranted); err != nil {
+		triggerType := models.AutomationTriggerType(updated.TriggerType)
+		if rule.TriggerType != "" && triggerType != rule.TriggerType {
+			return automationRuleMutationResult{}, fleeterror.NewInvalidArgumentError("trigger_type cannot change after a curtailment automation rule is created")
+		}
+		if triggerType == models.AutomationTriggerTypeSchedule {
+			if err := upsertAutomationSchedule(ctx, q, updated.ID, rule.Schedule); err != nil {
+				return automationRuleMutationResult{}, err
+			}
+		}
+		if err := saveAutomationExecutionBinding(ctx, q, updated.ID, updated.OrgID, rule.AdminControlsGranted, triggerType); err != nil {
 			return automationRuleMutationResult{}, err
 		}
 		return automationRuleMutationResult{rule: updated}, err
@@ -627,7 +648,7 @@ func (s *SQLCurtailmentStore) SetAutomationRuleEnabled(
 			if rows != 1 {
 				return automationRuleMutationResult{noRows: true}, nil
 			}
-			if err := saveAutomationExecutionBinding(ctx, q, updated.ID, updated.OrgID, adminControlsGranted); err != nil {
+			if err := saveAutomationExecutionBinding(ctx, q, updated.ID, updated.OrgID, adminControlsGranted, models.AutomationTriggerType(updated.TriggerType)); err != nil {
 				return automationRuleMutationResult{}, err
 			}
 			return automationRuleMutationResult{rule: updated}, err
@@ -762,7 +783,7 @@ func (s *SQLCurtailmentStore) SetAutomationActiveEvent(ctx context.Context, rule
 	}
 	if rows == 0 {
 		return fleeterror.NewFailedPreconditionErrorf(
-			"curtailment automation rule %d is disabled, no longer bound to MQTT source %d, or cannot bind the supplied event", ruleID, mqttSourceID)
+			"curtailment automation rule %d is disabled, no longer bound to its trigger, or cannot bind the supplied event", ruleID)
 	}
 	return nil
 }
@@ -804,7 +825,7 @@ func automationRuleFromListRow(row sqlc.ListCurtailmentAutomationRulesByOrgRow) 
 		row.OrgID,
 		row.RuleName,
 		row.TriggerType,
-		row.MqttSourceID,
+		row.MqttSourceID.Int64,
 		row.MqttSourceName,
 		row.ResponseProfileID,
 		row.ResponseProfileRevision,
@@ -833,7 +854,7 @@ func automationRuleFromGetRow(row sqlc.GetCurtailmentAutomationRuleByOrgRow) *mo
 		row.OrgID,
 		row.RuleName,
 		row.TriggerType,
-		row.MqttSourceID,
+		row.MqttSourceID.Int64,
 		row.MqttSourceName,
 		row.ResponseProfileID,
 		row.ResponseProfileRevision,
@@ -862,7 +883,7 @@ func automationRuleFromEnabledMQTTRow(row sqlc.ListEnabledCurtailmentAutomationR
 		row.OrgID,
 		row.RuleName,
 		row.TriggerType,
-		row.MqttSourceID,
+		row.MqttSourceID.Int64,
 		row.MqttSourceName,
 		row.ResponseProfileID,
 		row.ResponseProfileRevision,
@@ -1245,16 +1266,27 @@ func lockAutomationRuleForExecution(
 	if err := lockAutomationRuleMutation(ctx, q, orgID, ruleID); err != nil {
 		return err
 	}
-	_, err := q.LockCurtailmentAutomationRuleForExecution(
-		ctx,
-		sqlc.LockCurtailmentAutomationRuleForExecutionParams{
+	var err error
+	if mqttSourceID == 0 {
+		_, err = q.LockCurtailmentScheduleRuleForExecution(ctx, sqlc.LockCurtailmentScheduleRuleForExecutionParams{
 			ID:                      ruleID,
 			OrgID:                   orgID,
-			MqttSourceID:            mqttSourceID,
 			ResponseProfileID:       profileID,
 			ResponseProfileRevision: profileRevision,
-		},
-	)
+			ServiceUserID:           serviceUserID,
+		})
+	} else {
+		_, err = q.LockCurtailmentAutomationRuleForExecution(
+			ctx,
+			sqlc.LockCurtailmentAutomationRuleForExecutionParams{
+				ID:                      ruleID,
+				OrgID:                   orgID,
+				MqttSourceID:            mqttSourceID,
+				ResponseProfileID:       profileID,
+				ResponseProfileRevision: profileRevision,
+			},
+		)
+	}
 	if errors.Is(err, sql.ErrNoRows) {
 		return fleeterror.NewFailedPreconditionError(
 			"curtailment automation rule changed before execution; retry",

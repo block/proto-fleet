@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/block/proto-fleet/server/internal/domain/curtailment/schedulewindow"
 )
 
 // OrgConfig is the per-org candidate-power floor.
@@ -66,13 +68,29 @@ type ResponseProfileInfrastructureDevice struct {
 	Enabled bool
 }
 
-// AutomationTriggerType identifies the kind of signal an automation rule
-// listens to. MQTT is the only supported v1 trigger.
+// AutomationTriggerType identifies what drives an automation rule: an MQTT
+// source's signal, or the windows of a time schedule.
 type AutomationTriggerType string
 
 const (
-	AutomationTriggerTypeMQTT AutomationTriggerType = "MQTT"
+	AutomationTriggerTypeMQTT     AutomationTriggerType = "MQTT"
+	AutomationTriggerTypeSchedule AutomationTriggerType = "SCHEDULE"
 )
+
+// AutomationSchedule is a SCHEDULE rule's window definition. ServiceUserID is
+// the user who last saved the schedule; it attributes scheduled events.
+type AutomationSchedule struct {
+	Definition    schedulewindow.Definition
+	ServiceUserID int64
+}
+
+// ScheduledAutomationRule is an enabled SCHEDULE rule as the window producer
+// reads it.
+type ScheduledAutomationRule struct {
+	RuleID   int64
+	OrgID    int64
+	Schedule AutomationSchedule
+}
 
 // AutomationSignal is the latest normalized trigger state for a rule.
 type AutomationSignal string
@@ -93,6 +111,7 @@ type AutomationRule struct {
 	TriggerType              AutomationTriggerType
 	MQTTSourceID             int64
 	MQTTSourceName           string
+	Schedule                 *AutomationSchedule
 	ResponseProfileID        int64
 	ResponseProfileRevision  uuid.UUID
 	ResponseProfileName      string

@@ -114,6 +114,10 @@ type StartRequest struct {
 	// Persisted on the event so reconciler dispatches under a real user
 	// (command_batch_log.created_by has a NOT NULL FK to user.id).
 	CreatedByUserID int64
+
+	// ScheduledStartAt is the start of the schedule window that began a
+	// scheduled event; nil for every other start.
+	ScheduledStartAt *time.Time
 }
 
 // Service plans curtailment and manages event lifecycle, history, and recovery.
@@ -1360,7 +1364,7 @@ func validateStartRequest(req StartRequest) error {
 			)
 		}
 		if strings.HasPrefix(strings.TrimSpace(*req.IdempotencyKey), automationRuleIdempotencyPrefix) &&
-			req.SourceActorType != models.SourceActorAutomation {
+			!isAutomationRuleActor(req.SourceActorType) {
 			return fleeterror.NewInvalidArgumentError("idempotency_key namespace is reserved for curtailment automation")
 		}
 	}
@@ -1370,7 +1374,7 @@ func validateStartRequest(req StartRequest) error {
 				"external_source must be at most %d characters, got %d", startTextFieldMaxLen, n,
 			)
 		}
-		if strings.TrimSpace(*req.ExternalSource) == automationExternalSource && req.SourceActorType != models.SourceActorAutomation {
+		if strings.TrimSpace(*req.ExternalSource) == automationExternalSource && !isAutomationRuleActor(req.SourceActorType) {
 			return fleeterror.NewInvalidArgumentError("external_source is reserved for curtailment automation")
 		}
 	}
@@ -2014,6 +2018,7 @@ func buildInsertParams(
 		ExternalReference:           req.ExternalReference,
 		IdempotencyKey:              req.IdempotencyKey,
 		Reason:                      req.Reason,
+		ScheduledStartAt:            req.ScheduledStartAt,
 		CreatedByUserID:             req.CreatedByUserID,
 		EffectiveBatchSize:          plan.EffectiveBatchSize,
 	}

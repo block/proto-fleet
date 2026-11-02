@@ -97,7 +97,7 @@ func (q *Queries) CompleteRigConfigReconciliation(ctx context.Context, arg Compl
 
 const countLiveCurtailmentEventsByMQTTSource = `-- name: CountLiveCurtailmentEventsByMQTTSource :one
 SELECT count(*) FROM curtailment_automation_rule r
-WHERE r.org_id = $1 AND r.mqtt_source_id = $2
+WHERE r.org_id = $1 AND r.mqtt_source_id = $2::bigint
 AND curtailment_automation_rule_has_live_event(r.id,r.org_id)
 `
 

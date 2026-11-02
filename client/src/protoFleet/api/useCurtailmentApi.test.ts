@@ -18,6 +18,7 @@ import {
   CurtailmentMode,
   CurtailmentPriority,
   CurtailmentScopeSchema,
+  CurtailmentSourceActorType,
   CurtailmentTargetRollupSchema,
   CurtailmentTargetSchema,
   CurtailmentTargetState,
@@ -540,6 +541,40 @@ describe("useCurtailmentApi", () => {
     expect(result.current.historyEvents[0]).toEqual(
       expect.objectContaining({
         sourceLabel: "Curtailment automation",
+      }),
+    );
+  });
+
+  it("labels scheduled and automation events from the actor when history omits the source", async () => {
+    const activeEvent = curtailmentEvent({
+      externalSource: "curtailment_automation",
+      sourceActorType: CurtailmentSourceActorType.SCHEDULER,
+    });
+    const historyEvents = [
+      curtailmentEvent({ eventUuid: "curt-scheduled", sourceActorType: CurtailmentSourceActorType.SCHEDULER }),
+      curtailmentEvent({ eventUuid: "curt-automation", sourceActorType: CurtailmentSourceActorType.AUTOMATION }),
+      curtailmentEvent({ eventUuid: "curt-manual", sourceActorType: CurtailmentSourceActorType.USER }),
+    ];
+    mockListActiveCurtailments.mockResolvedValueOnce({ event: activeEvent });
+    mockListCurtailmentEvents.mockResolvedValueOnce({ events: historyEvents, nextPageToken: "" });
+
+    const { result } = renderHook(() => useCurtailmentApi());
+
+    await act(async () => {
+      await result.current.refreshCurtailment();
+    });
+
+    expect(result.current.activeEvent).toEqual(
+      expect.objectContaining({ isAutomationOwned: true, isScheduleOwned: true, sourceLabel: "Schedule" }),
+    );
+    const labelsById = Object.fromEntries(
+      result.current.historyEvents.map((event) => [event.id, event.sourceLabel] as const),
+    );
+    expect(labelsById).toEqual(
+      expect.objectContaining({
+        "curt-scheduled": "Schedule",
+        "curt-automation": "Curtailment automation",
+        "curt-manual": "Manual",
       }),
     );
   });

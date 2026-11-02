@@ -97,7 +97,6 @@ func TestAutomationService_CreateRejectsUnsupportedTriggerType(t *testing.T) {
 	require.Error(t, err)
 	assert.True(t, fleeterror.IsInvalidArgumentError(err))
 	assert.Contains(t, err.Error(), `trigger_type "marketPriceAbove" is not supported`)
-	assert.Contains(t, err.Error(), "only MQTT (MaestroOS source) is supported")
 	assert.Equal(t, 0, h.rules.createCalls)
 }
 

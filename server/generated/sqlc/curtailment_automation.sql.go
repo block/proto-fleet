@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/lib/pq"
 )
 
 const bindCurtailmentAutomationRuleResponseProfileRevision = `-- name: BindCurtailmentAutomationRuleResponseProfileRevision :execrows
@@ -48,8 +49,9 @@ const claimCurtailmentAutomationExecution = `-- name: ClaimCurtailmentAutomation
 WITH due AS (
  SELECT ex.rule_id, r.org_id FROM curtailment_automation_execution ex
  JOIN curtailment_automation_rule r ON r.id = ex.rule_id AND r.enabled
- JOIN curtailment_mqtt_source_config src ON src.id = ex.mqtt_source_id AND src.enabled
+ LEFT JOIN curtailment_mqtt_source_config src ON src.id = ex.mqtt_source_id
  WHERE ex.status IN ('pending','retry') AND ex.retry_at <= now() AND (ex.lease_expires_at IS NULL OR ex.lease_expires_at <= now())
+ AND (ex.mqtt_source_id IS NULL OR src.enabled)
  ORDER BY ex.retry_at, ex.rule_id FOR UPDATE OF ex SKIP LOCKED LIMIT 1
 )
 UPDATE curtailment_automation_execution ex SET lease_expires_at = now() + interval '90 seconds', attempts = ex.attempts + 1
@@ -58,7 +60,7 @@ FROM due WHERE due.rule_id = ex.rule_id RETURNING ex.rule_id, ex.mqtt_source_id,
 
 type ClaimCurtailmentAutomationExecutionRow struct {
 	RuleID         int64
-	MqttSourceID   int64
+	MqttSourceID   sql.NullInt64
 	Generation     int64
 	Direction      string
 	Target         string
@@ -149,7 +151,7 @@ const countCurtailmentAutomationRulesByMQTTSource = `-- name: CountCurtailmentAu
 SELECT count(*)
 FROM curtailment_automation_rule
 WHERE org_id = $1
-  AND mqtt_source_id = $2
+  AND mqtt_source_id = $2::bigint
 `
 
 type CountCurtailmentAutomationRulesByMQTTSourceParams struct {
@@ -198,6 +200,15 @@ func (q *Queries) CountEnabledCurtailmentAutomationRulesByResponseProfile(ctx co
 	var count int64
 	err := row.Scan(&count)
 	return count, err
+}
+
+const deleteCurtailmentAutomationExecution = `-- name: DeleteCurtailmentAutomationExecution :exec
+DELETE FROM curtailment_automation_execution WHERE rule_id = $1
+`
+
+func (q *Queries) DeleteCurtailmentAutomationExecution(ctx context.Context, ruleID int64) error {
+	_, err := q.exec(ctx, q.deleteCurtailmentAutomationExecutionStmt, deleteCurtailmentAutomationExecution, ruleID)
+	return err
 }
 
 const deleteCurtailmentAutomationRuleByOrg = `-- name: DeleteCurtailmentAutomationRuleByOrg :execrows
@@ -318,7 +329,7 @@ type GetCurtailmentAutomationRuleByOrgRow struct {
 	OrgID                    int64
 	RuleName                 string
 	TriggerType              string
-	MqttSourceID             int64
+	MqttSourceID             sql.NullInt64
 	ResponseProfileID        int64
 	Enabled                  bool
 	CreatedAt                time.Time
@@ -370,6 +381,74 @@ func (q *Queries) GetCurtailmentAutomationRuleByOrg(ctx context.Context, arg Get
 	return i, err
 }
 
+const getCurtailmentAutomationScheduleByRule = `-- name: GetCurtailmentAutomationScheduleByRule :one
+SELECT schedule.rule_id, schedule.schedule_type, schedule.timezone, schedule.start_date, schedule.start_time, schedule.end_time, schedule.end_date, schedule.frequency, schedule.days_of_week, schedule.day_of_month, schedule.until_date, schedule.service_user_id, schedule.created_at, schedule.updated_at
+FROM curtailment_automation_schedule schedule
+JOIN curtailment_automation_rule r ON r.id = schedule.rule_id
+WHERE schedule.rule_id = $1
+  AND r.org_id = $2
+`
+
+type GetCurtailmentAutomationScheduleByRuleParams struct {
+	RuleID int64
+	OrgID  int64
+}
+
+func (q *Queries) GetCurtailmentAutomationScheduleByRule(ctx context.Context, arg GetCurtailmentAutomationScheduleByRuleParams) (CurtailmentAutomationSchedule, error) {
+	row := q.queryRow(ctx, q.getCurtailmentAutomationScheduleByRuleStmt, getCurtailmentAutomationScheduleByRule, arg.RuleID, arg.OrgID)
+	var i CurtailmentAutomationSchedule
+	err := row.Scan(
+		&i.RuleID,
+		&i.ScheduleType,
+		&i.Timezone,
+		&i.StartDate,
+		&i.StartTime,
+		&i.EndTime,
+		&i.EndDate,
+		&i.Frequency,
+		pq.Array(&i.DaysOfWeek),
+		&i.DayOfMonth,
+		&i.UntilDate,
+		&i.ServiceUserID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const getCurtailmentScheduleExecutionGrant = `-- name: GetCurtailmentScheduleExecutionGrant :one
+SELECT grant_row.rule_id, grant_row.org_id, grant_row.response_profile_id, grant_row.response_profile_revision, grant_row.authorization_envelope_json, grant_row.admin_controls_granted, grant_row.created_at
+FROM curtailment_automation_execution_grant grant_row
+JOIN curtailment_automation_rule r ON r.id = grant_row.rule_id AND r.org_id = grant_row.org_id
+JOIN curtailment_automation_rule_profile_revision revision ON revision.automation_rule_id = r.id
+JOIN curtailment_response_profile_with_revision profile ON profile.id = r.response_profile_id AND profile.org_id = r.org_id
+JOIN curtailment_automation_schedule schedule ON schedule.rule_id = r.id
+WHERE r.id = $1 AND r.org_id = $2 AND r.enabled AND r.trigger_type = 'SCHEDULE'
+AND grant_row.response_profile_id = r.response_profile_id AND grant_row.response_profile_revision = revision.response_profile_revision
+AND grant_row.response_profile_revision = profile.revision
+FOR SHARE OF grant_row, r, revision, schedule
+`
+
+type GetCurtailmentScheduleExecutionGrantParams struct {
+	RuleID int64
+	OrgID  int64
+}
+
+func (q *Queries) GetCurtailmentScheduleExecutionGrant(ctx context.Context, arg GetCurtailmentScheduleExecutionGrantParams) (CurtailmentAutomationExecutionGrant, error) {
+	row := q.queryRow(ctx, q.getCurtailmentScheduleExecutionGrantStmt, getCurtailmentScheduleExecutionGrant, arg.RuleID, arg.OrgID)
+	var i CurtailmentAutomationExecutionGrant
+	err := row.Scan(
+		&i.RuleID,
+		&i.OrgID,
+		&i.ResponseProfileID,
+		&i.ResponseProfileRevision,
+		&i.AuthorizationEnvelopeJson,
+		&i.AdminControlsGranted,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
 const getEnabledCurtailmentAutomationRuleByEvent = `-- name: GetEnabledCurtailmentAutomationRuleByEvent :one
 SELECT r.id, r.org_id, r.rule_name, r.trigger_type, r.mqtt_source_id, r.response_profile_id, r.enabled, r.created_at, r.updated_at, r.response_profile_revision, r.mqtt_source_name, r.response_profile_name, r.response_profile_site_id, r.response_profile_scope_json, st.last_signal, st.last_signal_at, st.active_event_uuid,
        st.last_started_at, st.last_restored_at, st.last_error, st.last_error_at,
@@ -406,7 +485,7 @@ type GetEnabledCurtailmentAutomationRuleByEventRow struct {
 	OrgID                    int64
 	RuleName                 string
 	TriggerType              string
-	MqttSourceID             int64
+	MqttSourceID             sql.NullInt64
 	ResponseProfileID        int64
 	Enabled                  bool
 	CreatedAt                time.Time
@@ -470,7 +549,8 @@ INSERT INTO curtailment_automation_rule (
     $1,
     $2,
     $3,
-    $4,
+    -- Zero stores NULL for schedule rules.
+    NULLIF($4::bigint, 0),
     $5,
     $6
 )
@@ -530,7 +610,7 @@ type ListCurtailmentAutomationRulesByOrgRow struct {
 	OrgID                    int64
 	RuleName                 string
 	TriggerType              string
-	MqttSourceID             int64
+	MqttSourceID             sql.NullInt64
 	ResponseProfileID        int64
 	Enabled                  bool
 	CreatedAt                time.Time
@@ -598,6 +678,52 @@ func (q *Queries) ListCurtailmentAutomationRulesByOrg(ctx context.Context, orgID
 	return items, nil
 }
 
+const listCurtailmentAutomationSchedulesByOrg = `-- name: ListCurtailmentAutomationSchedulesByOrg :many
+SELECT schedule.rule_id, schedule.schedule_type, schedule.timezone, schedule.start_date, schedule.start_time, schedule.end_time, schedule.end_date, schedule.frequency, schedule.days_of_week, schedule.day_of_month, schedule.until_date, schedule.service_user_id, schedule.created_at, schedule.updated_at
+FROM curtailment_automation_schedule schedule
+JOIN curtailment_automation_rule r ON r.id = schedule.rule_id
+WHERE r.org_id = $1
+ORDER BY schedule.rule_id
+`
+
+func (q *Queries) ListCurtailmentAutomationSchedulesByOrg(ctx context.Context, orgID int64) ([]CurtailmentAutomationSchedule, error) {
+	rows, err := q.query(ctx, q.listCurtailmentAutomationSchedulesByOrgStmt, listCurtailmentAutomationSchedulesByOrg, orgID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []CurtailmentAutomationSchedule
+	for rows.Next() {
+		var i CurtailmentAutomationSchedule
+		if err := rows.Scan(
+			&i.RuleID,
+			&i.ScheduleType,
+			&i.Timezone,
+			&i.StartDate,
+			&i.StartTime,
+			&i.EndTime,
+			&i.EndDate,
+			&i.Frequency,
+			pq.Array(&i.DaysOfWeek),
+			&i.DayOfMonth,
+			&i.UntilDate,
+			&i.ServiceUserID,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listEnabledCurtailmentAutomationRulesByMQTTSource = `-- name: ListEnabledCurtailmentAutomationRulesByMQTTSource :many
 SELECT r.id, r.org_id, r.rule_name, r.trigger_type, r.mqtt_source_id, r.response_profile_id, r.enabled, r.created_at, r.updated_at, r.response_profile_revision, r.mqtt_source_name, r.response_profile_name, r.response_profile_site_id, r.response_profile_scope_json, st.last_signal, st.last_signal_at, st.active_event_uuid,
        st.last_started_at, st.last_restored_at, st.last_error, st.last_error_at,
@@ -609,7 +735,7 @@ SELECT r.id, r.org_id, r.rule_name, r.trigger_type, r.mqtt_source_id, r.response
        COALESCE((SELECT ex.status FROM curtailment_automation_execution ex WHERE ex.rule_id = r.id), 'idle')::text AS execution_status
 FROM curtailment_automation_rule_binding r
 LEFT JOIN curtailment_automation_rule_state st ON st.rule_id = r.id
-WHERE r.mqtt_source_id = $1
+WHERE r.mqtt_source_id = $1::bigint
   AND r.enabled = TRUE
 ORDER BY r.id
 `
@@ -619,7 +745,7 @@ type ListEnabledCurtailmentAutomationRulesByMQTTSourceRow struct {
 	OrgID                    int64
 	RuleName                 string
 	TriggerType              string
-	MqttSourceID             int64
+	MqttSourceID             sql.NullInt64
 	ResponseProfileID        int64
 	Enabled                  bool
 	CreatedAt                time.Time
@@ -673,6 +799,72 @@ func (q *Queries) ListEnabledCurtailmentAutomationRulesByMQTTSource(ctx context.
 			&i.LastErrorAt,
 			&i.BindingStatus,
 			&i.ExecutionStatus,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listEnabledCurtailmentScheduleRules = `-- name: ListEnabledCurtailmentScheduleRules :many
+SELECT r.org_id, schedule.rule_id, schedule.schedule_type, schedule.timezone, schedule.start_date, schedule.start_time, schedule.end_time, schedule.end_date, schedule.frequency, schedule.days_of_week, schedule.day_of_month, schedule.until_date, schedule.service_user_id, schedule.created_at, schedule.updated_at
+FROM curtailment_automation_schedule schedule
+JOIN curtailment_automation_rule r ON r.id = schedule.rule_id
+WHERE r.enabled AND r.trigger_type = 'SCHEDULE'
+ORDER BY schedule.rule_id
+`
+
+type ListEnabledCurtailmentScheduleRulesRow struct {
+	OrgID         int64
+	RuleID        int64
+	ScheduleType  string
+	Timezone      string
+	StartDate     time.Time
+	StartTime     string
+	EndTime       string
+	EndDate       sql.NullTime
+	Frequency     sql.NullString
+	DaysOfWeek    []int32
+	DayOfMonth    sql.NullInt16
+	UntilDate     sql.NullTime
+	ServiceUserID int64
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
+}
+
+// Every organization's enabled schedule rules, for the window producer.
+func (q *Queries) ListEnabledCurtailmentScheduleRules(ctx context.Context) ([]ListEnabledCurtailmentScheduleRulesRow, error) {
+	rows, err := q.query(ctx, q.listEnabledCurtailmentScheduleRulesStmt, listEnabledCurtailmentScheduleRules)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListEnabledCurtailmentScheduleRulesRow
+	for rows.Next() {
+		var i ListEnabledCurtailmentScheduleRulesRow
+		if err := rows.Scan(
+			&i.OrgID,
+			&i.RuleID,
+			&i.ScheduleType,
+			&i.Timezone,
+			&i.StartDate,
+			&i.StartTime,
+			&i.EndTime,
+			&i.EndDate,
+			&i.Frequency,
+			pq.Array(&i.DaysOfWeek),
+			&i.DayOfMonth,
+			&i.UntilDate,
+			&i.ServiceUserID,
+			&i.CreatedAt,
+			&i.UpdatedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -748,7 +940,7 @@ WHERE rule.id = $1
   AND rule.org_id = $2
   AND rule.enabled = TRUE
   AND rule.trigger_type = 'MQTT'
-  AND rule.mqtt_source_id = $3
+  AND rule.mqtt_source_id = $3::bigint
   AND source.enabled = TRUE
   AND rule.response_profile_id = $4
   AND rule_revision.response_profile_revision = $5
@@ -798,6 +990,44 @@ func (q *Queries) LockCurtailmentAutomationRuleMutation(ctx context.Context, arg
 	return err
 }
 
+const lockCurtailmentScheduleRuleForExecution = `-- name: LockCurtailmentScheduleRuleForExecution :one
+SELECT rule.id
+FROM curtailment_automation_rule AS rule
+JOIN curtailment_automation_rule_profile_revision AS rule_revision
+  ON rule_revision.automation_rule_id = rule.id
+JOIN curtailment_automation_schedule AS schedule
+  ON schedule.rule_id = rule.id
+WHERE rule.id = $1
+  AND rule.org_id = $2
+  AND rule.enabled = TRUE
+  AND rule.trigger_type = 'SCHEDULE'
+  AND rule.response_profile_id = $3
+  AND rule_revision.response_profile_revision = $4
+  AND schedule.service_user_id = $5
+FOR UPDATE OF rule, rule_revision, schedule
+`
+
+type LockCurtailmentScheduleRuleForExecutionParams struct {
+	ID                      int64
+	OrgID                   int64
+	ResponseProfileID       int64
+	ResponseProfileRevision uuid.UUID
+	ServiceUserID           int64
+}
+
+func (q *Queries) LockCurtailmentScheduleRuleForExecution(ctx context.Context, arg LockCurtailmentScheduleRuleForExecutionParams) (int64, error) {
+	row := q.queryRow(ctx, q.lockCurtailmentScheduleRuleForExecutionStmt, lockCurtailmentScheduleRuleForExecution,
+		arg.ID,
+		arg.OrgID,
+		arg.ResponseProfileID,
+		arg.ResponseProfileRevision,
+		arg.ServiceUserID,
+	)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
+}
+
 const queueCurrentCurtailmentAutomationExecution = `-- name: QueueCurrentCurtailmentAutomationExecution :exec
 INSERT INTO curtailment_automation_execution (rule_id, mqtt_source_id, direction, target, target_at, received_at, received_broker, prior_edge_at)
 SELECT r.id, r.mqtt_source_id,
@@ -827,7 +1057,7 @@ func (q *Queries) QueueCurrentCurtailmentAutomationExecution(ctx context.Context
 const queueCurtailmentAutomationExecution = `-- name: QueueCurtailmentAutomationExecution :exec
 INSERT INTO curtailment_automation_execution (rule_id, mqtt_source_id, direction, target, target_at, received_at, received_broker, prior_edge_at)
 SELECT r.id, r.mqtt_source_id, $1, $2, $3, $4, $5, $6
-FROM curtailment_automation_rule r WHERE r.id = $7 AND r.enabled AND r.mqtt_source_id = $8
+FROM curtailment_automation_rule r WHERE r.id = $7 AND r.enabled AND r.mqtt_source_id = $8::bigint
 ON CONFLICT (rule_id) DO UPDATE SET generation = curtailment_automation_execution.generation + 1,
  mqtt_source_id = EXCLUDED.mqtt_source_id, direction = EXCLUDED.direction, target = EXCLUDED.target,
  target_at = EXCLUDED.target_at, received_at = EXCLUDED.received_at, received_broker = EXCLUDED.received_broker, prior_edge_at = EXCLUDED.prior_edge_at,
@@ -869,6 +1099,36 @@ func (q *Queries) QueueCurtailmentAutomationExecution(ctx context.Context, arg Q
 	return err
 }
 
+const queueCurtailmentScheduleExecution = `-- name: QueueCurtailmentScheduleExecution :exec
+INSERT INTO curtailment_automation_execution (rule_id, mqtt_source_id, direction, target, target_at, received_at, received_broker, prior_edge_at)
+SELECT r.id, NULL, $1, $2, $3::timestamptz, $3::timestamptz, '', NULL
+FROM curtailment_automation_rule r WHERE r.id = $4 AND r.enabled AND r.trigger_type = 'SCHEDULE'
+ON CONFLICT (rule_id) DO UPDATE SET generation = curtailment_automation_execution.generation + 1,
+ direction = EXCLUDED.direction, target = EXCLUDED.target, target_at = EXCLUDED.target_at, received_at = EXCLUDED.received_at,
+ status = 'pending', attempts = 0, retry_at = now(), last_error = NULL
+WHERE curtailment_automation_execution.received_at < EXCLUDED.received_at
+ OR (curtailment_automation_execution.received_at = EXCLUDED.received_at AND curtailment_automation_execution.target <> EXCLUDED.target)
+`
+
+type QueueCurtailmentScheduleExecutionParams struct {
+	Direction  string
+	Target     string
+	BoundaryAt time.Time
+	RuleID     int64
+}
+
+// Window boundaries are the assertion times, so re-queueing the same boundary
+// is a no-op even after it completed; a stopped window is not restarted.
+func (q *Queries) QueueCurtailmentScheduleExecution(ctx context.Context, arg QueueCurtailmentScheduleExecutionParams) error {
+	_, err := q.exec(ctx, q.queueCurtailmentScheduleExecutionStmt, queueCurtailmentScheduleExecution,
+		arg.Direction,
+		arg.Target,
+		arg.BoundaryAt,
+		arg.RuleID,
+	)
+	return err
+}
+
 const retryCurtailmentAutomationExecution = `-- name: RetryCurtailmentAutomationExecution :exec
 UPDATE curtailment_automation_execution SET status = CASE WHEN generation = $1 THEN 'retry' ELSE status END, lease_expires_at = NULL,
  retry_at = CASE WHEN generation = $1 THEN now() + LEAST(300, 5 * attempts) * interval '1 second' ELSE retry_at END, last_error = CASE WHEN generation = $1 THEN $2 ELSE last_error END
@@ -894,14 +1154,15 @@ func (q *Queries) RetryCurtailmentAutomationExecution(ctx context.Context, arg R
 
 const setCurtailmentAutomationActiveEvent = `-- name: SetCurtailmentAutomationActiveEvent :execrows
 WITH enabled_rule AS (
-    SELECT curtailment_automation_rule.id, curtailment_automation_rule.org_id
+    SELECT curtailment_automation_rule.id, curtailment_automation_rule.org_id,
+           curtailment_automation_rule.trigger_type
     FROM curtailment_automation_rule
     WHERE curtailment_automation_rule.id = $2
       AND enabled = TRUE
       -- The rule must still be bound to the source whose signal started the
       -- event; a re-point between signal read and event start fails here and
-      -- the caller force-releases the orphaned event.
-      AND mqtt_source_id = $3
+      -- the caller force-releases the orphaned event. Schedule rules pass 0.
+      AND mqtt_source_id IS NOT DISTINCT FROM NULLIF($3::bigint, 0)
     FOR UPDATE
 ),
 owned_event AS (
@@ -910,7 +1171,7 @@ owned_event AS (
     JOIN enabled_rule er
         ON er.org_id = ce.org_id
     WHERE ce.event_uuid = $4
-      AND ce.source_actor_type = 'automation'
+      AND ce.source_actor_type = CASE WHEN er.trigger_type = 'SCHEDULE' THEN 'scheduler' ELSE 'automation' END
       AND ce.source_actor_id = er.id::TEXT
       AND ce.external_source = 'curtailment_automation'
       AND ce.external_reference = er.id::TEXT
@@ -1078,7 +1339,7 @@ const updateCurtailmentAutomationRule = `-- name: UpdateCurtailmentAutomationRul
 UPDATE curtailment_automation_rule
 SET
     rule_name = $1,
-    mqtt_source_id = $2,
+    mqtt_source_id = NULLIF($2::bigint, 0),
     response_profile_id = $3
 WHERE curtailment_automation_rule.id = $4
   AND curtailment_automation_rule.org_id = $5
@@ -1138,6 +1399,63 @@ type UpsertCurtailmentAutomationExecutionGrantParams struct {
 
 func (q *Queries) UpsertCurtailmentAutomationExecutionGrant(ctx context.Context, arg UpsertCurtailmentAutomationExecutionGrantParams) error {
 	_, err := q.exec(ctx, q.upsertCurtailmentAutomationExecutionGrantStmt, upsertCurtailmentAutomationExecutionGrant, arg.AdminControlsGranted, arg.RuleID, arg.OrgID)
+	return err
+}
+
+const upsertCurtailmentAutomationSchedule = `-- name: UpsertCurtailmentAutomationSchedule :exec
+INSERT INTO curtailment_automation_schedule (
+    rule_id, schedule_type, timezone, start_date, start_time, end_time, end_date,
+    frequency, days_of_week, day_of_month, until_date, service_user_id
+) VALUES (
+    $1, $2, $3, $4,
+    $5, $6, $7, $8,
+    $9::integer[], $10, $11, $12
+)
+ON CONFLICT (rule_id) DO UPDATE SET
+    schedule_type = EXCLUDED.schedule_type,
+    timezone = EXCLUDED.timezone,
+    start_date = EXCLUDED.start_date,
+    start_time = EXCLUDED.start_time,
+    end_time = EXCLUDED.end_time,
+    end_date = EXCLUDED.end_date,
+    frequency = EXCLUDED.frequency,
+    days_of_week = EXCLUDED.days_of_week,
+    day_of_month = EXCLUDED.day_of_month,
+    until_date = EXCLUDED.until_date,
+    service_user_id = EXCLUDED.service_user_id,
+    updated_at = CURRENT_TIMESTAMP
+`
+
+type UpsertCurtailmentAutomationScheduleParams struct {
+	RuleID        int64
+	ScheduleType  string
+	Timezone      string
+	StartDate     time.Time
+	StartTime     string
+	EndTime       string
+	EndDate       sql.NullTime
+	Frequency     sql.NullString
+	DaysOfWeek    []int32
+	DayOfMonth    sql.NullInt16
+	UntilDate     sql.NullTime
+	ServiceUserID int64
+}
+
+func (q *Queries) UpsertCurtailmentAutomationSchedule(ctx context.Context, arg UpsertCurtailmentAutomationScheduleParams) error {
+	_, err := q.exec(ctx, q.upsertCurtailmentAutomationScheduleStmt, upsertCurtailmentAutomationSchedule,
+		arg.RuleID,
+		arg.ScheduleType,
+		arg.Timezone,
+		arg.StartDate,
+		arg.StartTime,
+		arg.EndTime,
+		arg.EndDate,
+		arg.Frequency,
+		pq.Array(arg.DaysOfWeek),
+		arg.DayOfMonth,
+		arg.UntilDate,
+		arg.ServiceUserID,
+	)
 	return err
 }
 

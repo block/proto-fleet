@@ -1,7 +1,14 @@
 import type { Meta, StoryObj } from "@storybook/react";
 
 import { CurtailmentSettingsContent } from "./CurtailmentSettingsPage";
-import type { AutomationRule, CurtailmentSource, ResponseProfile } from "@/protoFleet/api/curtailmentTypes";
+import { describeCurtailmentSchedule } from "@/protoFleet/api/curtailmentSchedules";
+import type {
+  AutomationRule,
+  CurtailmentScheduleDefinition,
+  CurtailmentSource,
+  ResponseProfile,
+} from "@/protoFleet/api/curtailmentTypes";
+import { CurtailmentScheduleDayOfWeek } from "@/protoFleet/api/generated/curtailment/v1/curtailment_pb";
 
 import { useFleetStore } from "@/protoFleet/store/useFleetStore";
 import { withMockedMinerSelectionApis } from "@/protoFleet/stories/MockedMinerSelectionApis";
@@ -216,6 +223,25 @@ const storyResponseProfiles: ResponseProfile[] = [
   },
 ];
 
+const storyWeeknightSchedule: CurtailmentScheduleDefinition = {
+  scheduleType: "recurring",
+  timezone: "America/Chicago",
+  startDate: "2026-06-01",
+  startTime: "17:00",
+  endTime: "21:00",
+  endDate: "",
+  frequency: "weekly",
+  daysOfWeek: [
+    CurtailmentScheduleDayOfWeek.MONDAY,
+    CurtailmentScheduleDayOfWeek.TUESDAY,
+    CurtailmentScheduleDayOfWeek.WEDNESDAY,
+    CurtailmentScheduleDayOfWeek.THURSDAY,
+    CurtailmentScheduleDayOfWeek.FRIDAY,
+  ],
+  dayOfMonth: "",
+  untilDate: "",
+};
+
 const storyAutomationRules: AutomationRule[] = [
   {
     id: "ercot-ers-obligation",
@@ -246,6 +272,18 @@ const storyAutomationRules: AutomationRule[] = [
     sourceId: "site-gamma-mqtt",
     responseProfileId: "targeted-miners",
     enabled: false,
+  },
+  {
+    id: "weeknight-peak",
+    priority: 4,
+    name: "Weeknight peak",
+    conditionType: "schedule",
+    conditionSummary: describeCurtailmentSchedule(storyWeeknightSchedule),
+    schedule: storyWeeknightSchedule,
+    windowStartAt: new Date("2026-06-15T22:00:00Z"),
+    windowEndAt: new Date("2026-06-16T02:00:00Z"),
+    responseProfileId: "partial-reduction",
+    enabled: true,
   },
 ];
 

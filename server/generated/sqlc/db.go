@@ -591,6 +591,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.deleteContainerSetpointsStmt, err = db.PrepareContext(ctx, deleteContainerSetpoints); err != nil {
 		return nil, fmt.Errorf("error preparing query DeleteContainerSetpoints: %w", err)
 	}
+	if q.deleteCurtailmentAutomationExecutionStmt, err = db.PrepareContext(ctx, deleteCurtailmentAutomationExecution); err != nil {
+		return nil, fmt.Errorf("error preparing query DeleteCurtailmentAutomationExecution: %w", err)
+	}
 	if q.deleteCurtailmentAutomationRuleByOrgStmt, err = db.PrepareContext(ctx, deleteCurtailmentAutomationRuleByOrg); err != nil {
 		return nil, fmt.Errorf("error preparing query DeleteCurtailmentAutomationRuleByOrg: %w", err)
 	}
@@ -897,6 +900,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.getCurtailmentAutomationRuleByOrgStmt, err = db.PrepareContext(ctx, getCurtailmentAutomationRuleByOrg); err != nil {
 		return nil, fmt.Errorf("error preparing query GetCurtailmentAutomationRuleByOrg: %w", err)
 	}
+	if q.getCurtailmentAutomationScheduleByRuleStmt, err = db.PrepareContext(ctx, getCurtailmentAutomationScheduleByRule); err != nil {
+		return nil, fmt.Errorf("error preparing query GetCurtailmentAutomationScheduleByRule: %w", err)
+	}
 	if q.getCurtailmentDispatchRejectionStmt, err = db.PrepareContext(ctx, getCurtailmentDispatchRejection); err != nil {
 		return nil, fmt.Errorf("error preparing query GetCurtailmentDispatchRejection: %w", err)
 	}
@@ -923,6 +929,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.getCurtailmentResponseProfileByOrgStmt, err = db.PrepareContext(ctx, getCurtailmentResponseProfileByOrg); err != nil {
 		return nil, fmt.Errorf("error preparing query GetCurtailmentResponseProfileByOrg: %w", err)
+	}
+	if q.getCurtailmentScheduleExecutionGrantStmt, err = db.PrepareContext(ctx, getCurtailmentScheduleExecutionGrant); err != nil {
+		return nil, fmt.Errorf("error preparing query GetCurtailmentScheduleExecutionGrant: %w", err)
 	}
 	if q.getCurtailmentTargetRollupByEventStmt, err = db.PrepareContext(ctx, getCurtailmentTargetRollupByEvent); err != nil {
 		return nil, fmt.Errorf("error preparing query GetCurtailmentTargetRollupByEvent: %w", err)
@@ -1767,6 +1776,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.listCurtailmentAutomationRulesByOrgStmt, err = db.PrepareContext(ctx, listCurtailmentAutomationRulesByOrg); err != nil {
 		return nil, fmt.Errorf("error preparing query ListCurtailmentAutomationRulesByOrg: %w", err)
 	}
+	if q.listCurtailmentAutomationSchedulesByOrgStmt, err = db.PrepareContext(ctx, listCurtailmentAutomationSchedulesByOrg); err != nil {
+		return nil, fmt.Errorf("error preparing query ListCurtailmentAutomationSchedulesByOrg: %w", err)
+	}
 	if q.listCurtailmentBuildingScopeCoverageStmt, err = db.PrepareContext(ctx, listCurtailmentBuildingScopeCoverage); err != nil {
 		return nil, fmt.Errorf("error preparing query ListCurtailmentBuildingScopeCoverage: %w", err)
 	}
@@ -1841,6 +1853,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.listEnabledCurtailmentAutomationRulesByMQTTSourceStmt, err = db.PrepareContext(ctx, listEnabledCurtailmentAutomationRulesByMQTTSource); err != nil {
 		return nil, fmt.Errorf("error preparing query ListEnabledCurtailmentAutomationRulesByMQTTSource: %w", err)
+	}
+	if q.listEnabledCurtailmentScheduleRulesStmt, err = db.PrepareContext(ctx, listEnabledCurtailmentScheduleRules); err != nil {
+		return nil, fmt.Errorf("error preparing query ListEnabledCurtailmentScheduleRules: %w", err)
 	}
 	if q.listEnabledMQTTSourcesStmt, err = db.PrepareContext(ctx, listEnabledMQTTSources); err != nil {
 		return nil, fmt.Errorf("error preparing query ListEnabledMQTTSources: %w", err)
@@ -2298,6 +2313,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.lockCurtailmentResponseProfileRevisionForExecutionStmt, err = db.PrepareContext(ctx, lockCurtailmentResponseProfileRevisionForExecution); err != nil {
 		return nil, fmt.Errorf("error preparing query LockCurtailmentResponseProfileRevisionForExecution: %w", err)
 	}
+	if q.lockCurtailmentScheduleRuleForExecutionStmt, err = db.PrepareContext(ctx, lockCurtailmentScheduleRuleForExecution); err != nil {
+		return nil, fmt.Errorf("error preparing query LockCurtailmentScheduleRuleForExecution: %w", err)
+	}
 	if q.lockCurtailmentScopeForWriteStmt, err = db.PrepareContext(ctx, lockCurtailmentScopeForWrite); err != nil {
 		return nil, fmt.Errorf("error preparing query LockCurtailmentScopeForWrite: %w", err)
 	}
@@ -2594,6 +2612,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.queueCurtailmentAutomationExecutionStmt, err = db.PrepareContext(ctx, queueCurtailmentAutomationExecution); err != nil {
 		return nil, fmt.Errorf("error preparing query QueueCurtailmentAutomationExecution: %w", err)
+	}
+	if q.queueCurtailmentScheduleExecutionStmt, err = db.PrepareContext(ctx, queueCurtailmentScheduleExecution); err != nil {
+		return nil, fmt.Errorf("error preparing query QueueCurtailmentScheduleExecution: %w", err)
 	}
 	if q.reapMessagesStmt, err = db.PrepareContext(ctx, reapMessages); err != nil {
 		return nil, fmt.Errorf("error preparing query ReapMessages: %w", err)
@@ -3269,6 +3290,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.upsertCurtailmentAutomationExecutionGrantStmt, err = db.PrepareContext(ctx, upsertCurtailmentAutomationExecutionGrant); err != nil {
 		return nil, fmt.Errorf("error preparing query UpsertCurtailmentAutomationExecutionGrant: %w", err)
+	}
+	if q.upsertCurtailmentAutomationScheduleStmt, err = db.PrepareContext(ctx, upsertCurtailmentAutomationSchedule); err != nil {
+		return nil, fmt.Errorf("error preparing query UpsertCurtailmentAutomationSchedule: %w", err)
 	}
 	if q.upsertCurtailmentAutomationSignalStateStmt, err = db.PrepareContext(ctx, upsertCurtailmentAutomationSignalState); err != nil {
 		return nil, fmt.Errorf("error preparing query UpsertCurtailmentAutomationSignalState: %w", err)
@@ -4283,6 +4307,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing deleteContainerSetpointsStmt: %w", cerr)
 		}
 	}
+	if q.deleteCurtailmentAutomationExecutionStmt != nil {
+		if cerr := q.deleteCurtailmentAutomationExecutionStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing deleteCurtailmentAutomationExecutionStmt: %w", cerr)
+		}
+	}
 	if q.deleteCurtailmentAutomationRuleByOrgStmt != nil {
 		if cerr := q.deleteCurtailmentAutomationRuleByOrgStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing deleteCurtailmentAutomationRuleByOrgStmt: %w", cerr)
@@ -4793,6 +4822,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing getCurtailmentAutomationRuleByOrgStmt: %w", cerr)
 		}
 	}
+	if q.getCurtailmentAutomationScheduleByRuleStmt != nil {
+		if cerr := q.getCurtailmentAutomationScheduleByRuleStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getCurtailmentAutomationScheduleByRuleStmt: %w", cerr)
+		}
+	}
 	if q.getCurtailmentDispatchRejectionStmt != nil {
 		if cerr := q.getCurtailmentDispatchRejectionStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getCurtailmentDispatchRejectionStmt: %w", cerr)
@@ -4836,6 +4870,11 @@ func (q *Queries) Close() error {
 	if q.getCurtailmentResponseProfileByOrgStmt != nil {
 		if cerr := q.getCurtailmentResponseProfileByOrgStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getCurtailmentResponseProfileByOrgStmt: %w", cerr)
+		}
+	}
+	if q.getCurtailmentScheduleExecutionGrantStmt != nil {
+		if cerr := q.getCurtailmentScheduleExecutionGrantStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getCurtailmentScheduleExecutionGrantStmt: %w", cerr)
 		}
 	}
 	if q.getCurtailmentTargetRollupByEventStmt != nil {
@@ -6243,6 +6282,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing listCurtailmentAutomationRulesByOrgStmt: %w", cerr)
 		}
 	}
+	if q.listCurtailmentAutomationSchedulesByOrgStmt != nil {
+		if cerr := q.listCurtailmentAutomationSchedulesByOrgStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listCurtailmentAutomationSchedulesByOrgStmt: %w", cerr)
+		}
+	}
 	if q.listCurtailmentBuildingScopeCoverageStmt != nil {
 		if cerr := q.listCurtailmentBuildingScopeCoverageStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing listCurtailmentBuildingScopeCoverageStmt: %w", cerr)
@@ -6366,6 +6410,11 @@ func (q *Queries) Close() error {
 	if q.listEnabledCurtailmentAutomationRulesByMQTTSourceStmt != nil {
 		if cerr := q.listEnabledCurtailmentAutomationRulesByMQTTSourceStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing listEnabledCurtailmentAutomationRulesByMQTTSourceStmt: %w", cerr)
+		}
+	}
+	if q.listEnabledCurtailmentScheduleRulesStmt != nil {
+		if cerr := q.listEnabledCurtailmentScheduleRulesStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listEnabledCurtailmentScheduleRulesStmt: %w", cerr)
 		}
 	}
 	if q.listEnabledMQTTSourcesStmt != nil {
@@ -7128,6 +7177,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing lockCurtailmentResponseProfileRevisionForExecutionStmt: %w", cerr)
 		}
 	}
+	if q.lockCurtailmentScheduleRuleForExecutionStmt != nil {
+		if cerr := q.lockCurtailmentScheduleRuleForExecutionStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing lockCurtailmentScheduleRuleForExecutionStmt: %w", cerr)
+		}
+	}
 	if q.lockCurtailmentScopeForWriteStmt != nil {
 		if cerr := q.lockCurtailmentScopeForWriteStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing lockCurtailmentScopeForWriteStmt: %w", cerr)
@@ -7621,6 +7675,11 @@ func (q *Queries) Close() error {
 	if q.queueCurtailmentAutomationExecutionStmt != nil {
 		if cerr := q.queueCurtailmentAutomationExecutionStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing queueCurtailmentAutomationExecutionStmt: %w", cerr)
+		}
+	}
+	if q.queueCurtailmentScheduleExecutionStmt != nil {
+		if cerr := q.queueCurtailmentScheduleExecutionStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing queueCurtailmentScheduleExecutionStmt: %w", cerr)
 		}
 	}
 	if q.reapMessagesStmt != nil {
@@ -8748,6 +8807,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing upsertCurtailmentAutomationExecutionGrantStmt: %w", cerr)
 		}
 	}
+	if q.upsertCurtailmentAutomationScheduleStmt != nil {
+		if cerr := q.upsertCurtailmentAutomationScheduleStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing upsertCurtailmentAutomationScheduleStmt: %w", cerr)
+		}
+	}
 	if q.upsertCurtailmentAutomationSignalStateStmt != nil {
 		if cerr := q.upsertCurtailmentAutomationSignalStateStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing upsertCurtailmentAutomationSignalStateStmt: %w", cerr)
@@ -9081,6 +9145,7 @@ type Queries struct {
 	deleteAlertRuleConfigStmt                                   *sql.Stmt
 	deleteContainerControlsStmt                                 *sql.Stmt
 	deleteContainerSetpointsStmt                                *sql.Stmt
+	deleteCurtailmentAutomationExecutionStmt                    *sql.Stmt
 	deleteCurtailmentAutomationRuleByOrgStmt                    *sql.Stmt
 	deleteCurtailmentResponseProfileByOrgStmt                   *sql.Stmt
 	deleteCurtailmentResponseProfilesBySiteStmt                 *sql.Stmt
@@ -9183,6 +9248,7 @@ type Queries struct {
 	getContainerTopologyIdentitiesStmt                          *sql.Stmt
 	getCurtailmentAutomationExecutionGrantStmt                  *sql.Stmt
 	getCurtailmentAutomationRuleByOrgStmt                       *sql.Stmt
+	getCurtailmentAutomationScheduleByRuleStmt                  *sql.Stmt
 	getCurtailmentDispatchRejectionStmt                         *sql.Stmt
 	getCurtailmentEventByExternalReferenceStmt                  *sql.Stmt
 	getCurtailmentEventByIdempotencyKeyStmt                     *sql.Stmt
@@ -9192,6 +9258,7 @@ type Queries struct {
 	getCurtailmentPendingWorkAgesStmt                           *sql.Stmt
 	getCurtailmentReconcilerHeartbeatStmt                       *sql.Stmt
 	getCurtailmentResponseProfileByOrgStmt                      *sql.Stmt
+	getCurtailmentScheduleExecutionGrantStmt                    *sql.Stmt
 	getCurtailmentTargetRollupByEventStmt                       *sql.Stmt
 	getDeletionUnpairPermitStmt                                 *sql.Stmt
 	getDeviceByDeviceIdentifierStmt                             *sql.Stmt
@@ -9473,6 +9540,7 @@ type Queries struct {
 	listContainerSiteStatsStmt                                  *sql.Stmt
 	listContainersStmt                                          *sql.Stmt
 	listCurtailmentAutomationRulesByOrgStmt                     *sql.Stmt
+	listCurtailmentAutomationSchedulesByOrgStmt                 *sql.Stmt
 	listCurtailmentBuildingScopeCoverageStmt                    *sql.Stmt
 	listCurtailmentCandidatesByOrgStmt                          *sql.Stmt
 	listCurtailmentEventsForOrgStmt                             *sql.Stmt
@@ -9498,6 +9566,7 @@ type Queries struct {
 	listEffectivePermissionsForUserForUpdateStmt                *sql.Stmt
 	listEligibleConfirmationTargetsStmt                         *sql.Stmt
 	listEnabledCurtailmentAutomationRulesByMQTTSourceStmt       *sql.Stmt
+	listEnabledCurtailmentScheduleRulesStmt                     *sql.Stmt
 	listEnabledMQTTSourcesStmt                                  *sql.Stmt
 	listExistingDeviceIdentifiersStmt                           *sql.Stmt
 	listFirmwareRolloutDevicesStmt                              *sql.Stmt
@@ -9650,6 +9719,7 @@ type Queries struct {
 	lockCurtailmentResponseProfileAutomationMutationStmt        *sql.Stmt
 	lockCurtailmentResponseProfileDeviceSitesByOrgStmt          *sql.Stmt
 	lockCurtailmentResponseProfileRevisionForExecutionStmt      *sql.Stmt
+	lockCurtailmentScheduleRuleForExecutionStmt                 *sql.Stmt
 	lockCurtailmentScopeForWriteStmt                            *sql.Stmt
 	lockCurtailmentTargetPairingStatusesForWriteStmt            *sql.Stmt
 	lockCurtailmentTopologyMemberDeviceSitesByOrgStmt           *sql.Stmt
@@ -9749,6 +9819,7 @@ type Queries struct {
 	queryErrorsStmt                                             *sql.Stmt
 	queueCurrentCurtailmentAutomationExecutionStmt              *sql.Stmt
 	queueCurtailmentAutomationExecutionStmt                     *sql.Stmt
+	queueCurtailmentScheduleExecutionStmt                       *sql.Stmt
 	reapMessagesStmt                                            *sql.Stmt
 	reassignDevicesUnderBuildingStmt                            *sql.Stmt
 	reassignDevicesUnderBuildingsBulkStmt                       *sql.Stmt
@@ -9974,6 +10045,7 @@ type Queries struct {
 	upsertContainerRollupStmt                                   *sql.Stmt
 	upsertContainerTopologyVersionStmt                          *sql.Stmt
 	upsertCurtailmentAutomationExecutionGrantStmt               *sql.Stmt
+	upsertCurtailmentAutomationScheduleStmt                     *sql.Stmt
 	upsertCurtailmentAutomationSignalStateStmt                  *sql.Stmt
 	upsertCurtailmentReconcilerHeartbeatStmt                    *sql.Stmt
 	upsertCustomRoleForOrgStmt                                  *sql.Stmt
@@ -10190,6 +10262,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		deleteAlertRuleConfigStmt:                                   q.deleteAlertRuleConfigStmt,
 		deleteContainerControlsStmt:                                 q.deleteContainerControlsStmt,
 		deleteContainerSetpointsStmt:                                q.deleteContainerSetpointsStmt,
+		deleteCurtailmentAutomationExecutionStmt:                    q.deleteCurtailmentAutomationExecutionStmt,
 		deleteCurtailmentAutomationRuleByOrgStmt:                    q.deleteCurtailmentAutomationRuleByOrgStmt,
 		deleteCurtailmentResponseProfileByOrgStmt:                   q.deleteCurtailmentResponseProfileByOrgStmt,
 		deleteCurtailmentResponseProfilesBySiteStmt:                 q.deleteCurtailmentResponseProfilesBySiteStmt,
@@ -10292,6 +10365,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getContainerTopologyIdentitiesStmt:                          q.getContainerTopologyIdentitiesStmt,
 		getCurtailmentAutomationExecutionGrantStmt:                  q.getCurtailmentAutomationExecutionGrantStmt,
 		getCurtailmentAutomationRuleByOrgStmt:                       q.getCurtailmentAutomationRuleByOrgStmt,
+		getCurtailmentAutomationScheduleByRuleStmt:                  q.getCurtailmentAutomationScheduleByRuleStmt,
 		getCurtailmentDispatchRejectionStmt:                         q.getCurtailmentDispatchRejectionStmt,
 		getCurtailmentEventByExternalReferenceStmt:                  q.getCurtailmentEventByExternalReferenceStmt,
 		getCurtailmentEventByIdempotencyKeyStmt:                     q.getCurtailmentEventByIdempotencyKeyStmt,
@@ -10301,6 +10375,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getCurtailmentPendingWorkAgesStmt:                           q.getCurtailmentPendingWorkAgesStmt,
 		getCurtailmentReconcilerHeartbeatStmt:                       q.getCurtailmentReconcilerHeartbeatStmt,
 		getCurtailmentResponseProfileByOrgStmt:                      q.getCurtailmentResponseProfileByOrgStmt,
+		getCurtailmentScheduleExecutionGrantStmt:                    q.getCurtailmentScheduleExecutionGrantStmt,
 		getCurtailmentTargetRollupByEventStmt:                       q.getCurtailmentTargetRollupByEventStmt,
 		getDeletionUnpairPermitStmt:                                 q.getDeletionUnpairPermitStmt,
 		getDeviceByDeviceIdentifierStmt:                             q.getDeviceByDeviceIdentifierStmt,
@@ -10582,6 +10657,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		listContainerSiteStatsStmt:                                 q.listContainerSiteStatsStmt,
 		listContainersStmt:                                         q.listContainersStmt,
 		listCurtailmentAutomationRulesByOrgStmt:                    q.listCurtailmentAutomationRulesByOrgStmt,
+		listCurtailmentAutomationSchedulesByOrgStmt:                q.listCurtailmentAutomationSchedulesByOrgStmt,
 		listCurtailmentBuildingScopeCoverageStmt:                   q.listCurtailmentBuildingScopeCoverageStmt,
 		listCurtailmentCandidatesByOrgStmt:                         q.listCurtailmentCandidatesByOrgStmt,
 		listCurtailmentEventsForOrgStmt:                            q.listCurtailmentEventsForOrgStmt,
@@ -10607,6 +10683,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		listEffectivePermissionsForUserForUpdateStmt:               q.listEffectivePermissionsForUserForUpdateStmt,
 		listEligibleConfirmationTargetsStmt:                        q.listEligibleConfirmationTargetsStmt,
 		listEnabledCurtailmentAutomationRulesByMQTTSourceStmt:      q.listEnabledCurtailmentAutomationRulesByMQTTSourceStmt,
+		listEnabledCurtailmentScheduleRulesStmt:                    q.listEnabledCurtailmentScheduleRulesStmt,
 		listEnabledMQTTSourcesStmt:                                 q.listEnabledMQTTSourcesStmt,
 		listExistingDeviceIdentifiersStmt:                          q.listExistingDeviceIdentifiersStmt,
 		listFirmwareRolloutDevicesStmt:                             q.listFirmwareRolloutDevicesStmt,
@@ -10759,6 +10836,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		lockCurtailmentResponseProfileAutomationMutationStmt:       q.lockCurtailmentResponseProfileAutomationMutationStmt,
 		lockCurtailmentResponseProfileDeviceSitesByOrgStmt:         q.lockCurtailmentResponseProfileDeviceSitesByOrgStmt,
 		lockCurtailmentResponseProfileRevisionForExecutionStmt:     q.lockCurtailmentResponseProfileRevisionForExecutionStmt,
+		lockCurtailmentScheduleRuleForExecutionStmt:                q.lockCurtailmentScheduleRuleForExecutionStmt,
 		lockCurtailmentScopeForWriteStmt:                           q.lockCurtailmentScopeForWriteStmt,
 		lockCurtailmentTargetPairingStatusesForWriteStmt:           q.lockCurtailmentTargetPairingStatusesForWriteStmt,
 		lockCurtailmentTopologyMemberDeviceSitesByOrgStmt:          q.lockCurtailmentTopologyMemberDeviceSitesByOrgStmt,
@@ -10858,6 +10936,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		queryErrorsStmt:                                            q.queryErrorsStmt,
 		queueCurrentCurtailmentAutomationExecutionStmt:             q.queueCurrentCurtailmentAutomationExecutionStmt,
 		queueCurtailmentAutomationExecutionStmt:                    q.queueCurtailmentAutomationExecutionStmt,
+		queueCurtailmentScheduleExecutionStmt:                      q.queueCurtailmentScheduleExecutionStmt,
 		reapMessagesStmt:                                           q.reapMessagesStmt,
 		reassignDevicesUnderBuildingStmt:                           q.reassignDevicesUnderBuildingStmt,
 		reassignDevicesUnderBuildingsBulkStmt:                      q.reassignDevicesUnderBuildingsBulkStmt,
@@ -11083,6 +11162,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		upsertContainerRollupStmt:                                  q.upsertContainerRollupStmt,
 		upsertContainerTopologyVersionStmt:                         q.upsertContainerTopologyVersionStmt,
 		upsertCurtailmentAutomationExecutionGrantStmt:              q.upsertCurtailmentAutomationExecutionGrantStmt,
+		upsertCurtailmentAutomationScheduleStmt:                    q.upsertCurtailmentAutomationScheduleStmt,
 		upsertCurtailmentAutomationSignalStateStmt:                 q.upsertCurtailmentAutomationSignalStateStmt,
 		upsertCurtailmentReconcilerHeartbeatStmt:                   q.upsertCurtailmentReconcilerHeartbeatStmt,
 		upsertCustomRoleForOrgStmt:                                 q.upsertCustomRoleForOrgStmt,

@@ -26,15 +26,21 @@ func generatedCurtailmentCommand() *cli.Command {
 						"/curtailment.v1.CurtailmentService/CreateCurtailmentAutomationRule",
 						generatedAuthAuthenticated,
 						[]cli.Flag{
-							&cli.StringFlag{Name: "rule-name", Usage: "(required) rule name", Required: true},
-							&cli.StringFlag{Name: "trigger-type", Usage: "trigger type. Valid options: mqtt"},
-							&cli.Int64Flag{Name: "mqtt-source-id", Usage: "(required) mqtt source id", Required: true},
-							&cli.Int64Flag{Name: "response-profile-id", Usage: "(required) response profile id", Required: true},
+							&cli.StringFlag{Name: "json", Usage: "Path to a request JSON file, or - for stdin"},
+							&cli.StringFlag{Name: "rule-name", Usage: "(required unless provided by --json) rule name"},
+							&cli.StringFlag{Name: "trigger-type", Usage: "trigger type. Valid options: mqtt, schedule"},
+							&cli.Int64Flag{Name: "mqtt-source-id", Usage: "mqtt source id"},
+							&cli.Int64Flag{Name: "response-profile-id", Usage: "(required unless provided by --json) response profile id"},
 							&cli.BoolFlag{Name: "enabled", Usage: "enabled"},
-							&cli.StringFlag{Name: "expected-response-profile-revision", Usage: "(required) expected response profile revision", Required: true},
+							&cli.StringFlag{Name: "expected-response-profile-revision", Usage: "(required unless provided by --json) expected response profile revision"},
 						},
 						func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
 							req := &curtailmentv1.CreateCurtailmentAutomationRuleRequest{}
+							if jsonPath := cmd.String("json"); jsonPath != "" {
+								if err := readProtoJSON(jsonPath, req); err != nil {
+									return nil, err
+								}
+							}
 							if cmd.IsSet("rule-name") {
 								req.RuleName = cmd.String("rule-name")
 							}
@@ -42,8 +48,10 @@ func generatedCurtailmentCommand() *cli.Command {
 								switch normalizeEnum(cmd.String("trigger-type")) {
 								case "mqtt":
 									req.TriggerType = curtailmentv1.CurtailmentAutomationTriggerType_CURTAILMENT_AUTOMATION_TRIGGER_TYPE_MQTT
+								case "schedule":
+									req.TriggerType = curtailmentv1.CurtailmentAutomationTriggerType_CURTAILMENT_AUTOMATION_TRIGGER_TYPE_SCHEDULE
 								default:
-									return nil, fmt.Errorf("invalid value for trigger-type: %s. Valid options: mqtt", cmd.String("trigger-type"))
+									return nil, fmt.Errorf("invalid value for trigger-type: %s. Valid options: mqtt, schedule", cmd.String("trigger-type"))
 								}
 							}
 							if cmd.IsSet("mqtt-source-id") {
@@ -58,6 +66,9 @@ func generatedCurtailmentCommand() *cli.Command {
 							}
 							if cmd.IsSet("expected-response-profile-revision") {
 								req.ExpectedResponseProfileRevision = cmd.String("expected-response-profile-revision")
+							}
+							if err := generatedValidateRequiredFields(req, "expected_response_profile_revision", "response_profile_id", "rule_name"); err != nil {
+								return nil, err
 							}
 							if err := generatedValidateRequest(req); err != nil {
 								return nil, err
@@ -155,15 +166,21 @@ func generatedCurtailmentCommand() *cli.Command {
 						"/curtailment.v1.CurtailmentService/UpdateCurtailmentAutomationRule",
 						generatedAuthAuthenticated,
 						[]cli.Flag{
-							&cli.Int64Flag{Name: "rule-id", Usage: "(required) rule id", Required: true},
-							&cli.StringFlag{Name: "rule-name", Usage: "(required) rule name", Required: true},
-							&cli.StringFlag{Name: "trigger-type", Usage: "trigger type. Valid options: mqtt"},
-							&cli.Int64Flag{Name: "mqtt-source-id", Usage: "(required) mqtt source id", Required: true},
-							&cli.Int64Flag{Name: "response-profile-id", Usage: "(required) response profile id", Required: true},
-							&cli.StringFlag{Name: "expected-response-profile-revision", Usage: "(required) expected response profile revision", Required: true},
+							&cli.StringFlag{Name: "json", Usage: "Path to a request JSON file, or - for stdin"},
+							&cli.Int64Flag{Name: "rule-id", Usage: "(required unless provided by --json) rule id"},
+							&cli.StringFlag{Name: "rule-name", Usage: "(required unless provided by --json) rule name"},
+							&cli.StringFlag{Name: "trigger-type", Usage: "trigger type. Valid options: mqtt, schedule"},
+							&cli.Int64Flag{Name: "mqtt-source-id", Usage: "mqtt source id"},
+							&cli.Int64Flag{Name: "response-profile-id", Usage: "(required unless provided by --json) response profile id"},
+							&cli.StringFlag{Name: "expected-response-profile-revision", Usage: "(required unless provided by --json) expected response profile revision"},
 						},
 						func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
 							req := &curtailmentv1.UpdateCurtailmentAutomationRuleRequest{}
+							if jsonPath := cmd.String("json"); jsonPath != "" {
+								if err := readProtoJSON(jsonPath, req); err != nil {
+									return nil, err
+								}
+							}
 							if cmd.IsSet("rule-id") {
 								req.RuleId = cmd.Int64("rule-id")
 							}
@@ -174,8 +191,10 @@ func generatedCurtailmentCommand() *cli.Command {
 								switch normalizeEnum(cmd.String("trigger-type")) {
 								case "mqtt":
 									req.TriggerType = curtailmentv1.CurtailmentAutomationTriggerType_CURTAILMENT_AUTOMATION_TRIGGER_TYPE_MQTT
+								case "schedule":
+									req.TriggerType = curtailmentv1.CurtailmentAutomationTriggerType_CURTAILMENT_AUTOMATION_TRIGGER_TYPE_SCHEDULE
 								default:
-									return nil, fmt.Errorf("invalid value for trigger-type: %s. Valid options: mqtt", cmd.String("trigger-type"))
+									return nil, fmt.Errorf("invalid value for trigger-type: %s. Valid options: mqtt, schedule", cmd.String("trigger-type"))
 								}
 							}
 							if cmd.IsSet("mqtt-source-id") {
@@ -186,6 +205,9 @@ func generatedCurtailmentCommand() *cli.Command {
 							}
 							if cmd.IsSet("expected-response-profile-revision") {
 								req.ExpectedResponseProfileRevision = cmd.String("expected-response-profile-revision")
+							}
+							if err := generatedValidateRequiredFields(req, "expected_response_profile_revision", "response_profile_id", "rule_id", "rule_name"); err != nil {
+								return nil, err
 							}
 							if err := generatedValidateRequest(req); err != nil {
 								return nil, err

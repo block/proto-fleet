@@ -191,26 +191,31 @@ func ValidateExecutionFence(f ExecutionFence, use ExecutionFenceUse) error {
 	if f.ResponseProfileID < 0 {
 		return fleeterror.NewInvalidArgumentError("response_profile_id must be non-negative")
 	}
-	if use == ExecutionFenceStart && (f.AutomationRuleID > 0) != (f.AutomationMQTTSourceID > 0) {
-		return fleeterror.NewInvalidArgumentError("automation_rule_id and automation_mqtt_source_id must be set together")
-	}
 	if f.AutomationRuleID < 0 || f.AutomationMQTTSourceID < 0 || (use != ExecutionFenceStart && f.AutomationServiceUserID < 0) {
 		return fleeterror.NewInvalidArgumentError("automation execution fence IDs must be non-negative")
 	}
+	if f.AutomationRuleID == 0 && f.AutomationMQTTSourceID > 0 {
+		return fleeterror.NewInvalidArgumentError("automation execution fence requires a rule ID with the MQTT source ID")
+	}
 	if use == ExecutionFenceStart {
-		if f.AutomationRuleID > 0 && (f.SourceActorType != models.SourceActorAutomation || f.ResponseProfileID == 0) {
-			return fleeterror.NewInvalidArgumentError("automation execution fence requires an automation actor and response profile")
+		// MQTT rules execute as the automation actor with their source; schedule
+		// rules execute as the scheduler actor and have no source.
+		if f.AutomationRuleID > 0 {
+			mqtt := f.SourceActorType == models.SourceActorAutomation && f.AutomationMQTTSourceID > 0
+			scheduled := f.SourceActorType == models.SourceActorScheduler && f.AutomationMQTTSourceID == 0
+			if (!mqtt && !scheduled) || f.ResponseProfileID == 0 {
+				return fleeterror.NewInvalidArgumentError("automation execution fence requires a matching automation or scheduler actor and a response profile")
+			}
 		}
 		return nil
 	}
 	if use == ExecutionFenceStore && f.AutomationRuleID == 0 {
-		if f.AutomationMQTTSourceID > 0 {
-			return fleeterror.NewInvalidArgumentError("automation execution fence requires a rule ID with the MQTT source ID")
-		}
 		return nil
 	}
-	if (f.AutomationRuleID > 0) != (f.AutomationMQTTSourceID > 0) || (f.AutomationRuleID > 0) != (f.AutomationServiceUserID > 0) {
-		return fleeterror.NewInvalidArgumentError("automation execution fence requires rule, MQTT source, and service user IDs")
+	// Schedule rules carry no MQTT source; the store's rule lock verifies the
+	// trigger the source ID implies.
+	if (f.AutomationRuleID > 0) != (f.AutomationServiceUserID > 0) {
+		return fleeterror.NewInvalidArgumentError("automation execution fence requires rule and service user IDs")
 	}
 	if f.AutomationRuleID > 0 && (f.ResponseProfileID <= 0 || f.ResponseProfileRevision == uuid.Nil) {
 		return fleeterror.NewInvalidArgumentError("automation execution fence requires a response profile ID and revision")

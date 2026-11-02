@@ -35,6 +35,7 @@ import {
   wattsPerKilowatt,
 } from "@/protoFleet/api/curtailmentUtils";
 import {
+  CurtailmentSourceActorType,
   type CurtailmentEvent as ProtoCurtailmentEvent,
   CurtailmentMode as ProtoCurtailmentMode,
 } from "@/protoFleet/api/generated/curtailment/v1/curtailment_pb";
@@ -42,6 +43,7 @@ import { getSiteDisplayName, type SiteNameById } from "@/protoFleet/api/siteName
 
 const automationExternalSource = "curtailment_automation";
 const automationSourceLabel = "Curtailment automation";
+const scheduleSourceLabel = "Schedule";
 const unavailableReasonLabels: Record<string, string> = {
   active_event: "in another event",
   authentication_needed: "needs authentication",
@@ -247,8 +249,14 @@ function isAutomationExternalSource(externalSource: string): boolean {
   return externalSource === automationExternalSource;
 }
 
-function getSourceLabel(externalSource: string): string {
-  if (isAutomationExternalSource(externalSource)) {
+// History lists omit external_source, so the actor type is what identifies
+// automation and scheduled events there.
+function getSourceLabel(event: ProtoCurtailmentEvent): string {
+  if (event.sourceActorType === CurtailmentSourceActorType.SCHEDULER) {
+    return scheduleSourceLabel;
+  }
+  const externalSource = event.externalSource.trim();
+  if (event.sourceActorType === CurtailmentSourceActorType.AUTOMATION || isAutomationExternalSource(externalSource)) {
     return automationSourceLabel;
   }
 
@@ -339,14 +347,15 @@ export function mapActiveCurtailmentEvent(
 ): ActiveCurtailmentEvent {
   const estimatedReductionKw = getCurtailmentEventEstimatedReductionKw(event);
   const observedPowerSummary = getObservedPowerSummary(event, estimatedReductionKw);
-  const externalSource = event.externalSource.trim();
+  const isAutomationOwned = isAutomationExternalSource(event.externalSource.trim());
 
   return {
     reason: event.reason || "Curtailment",
     state: mapCurtailmentEventState(event.state),
     scopeLabel: getCurtailmentEventScopeLabel(event, options.siteNameById),
-    sourceLabel: getSourceLabel(externalSource),
-    isAutomationOwned: isAutomationExternalSource(externalSource),
+    sourceLabel: getSourceLabel(event),
+    isAutomationOwned,
+    isScheduleOwned: isAutomationOwned && event.sourceActorType === CurtailmentSourceActorType.SCHEDULER,
     targetSiteCoverage: mapTargetSiteCoverage(event),
     createdAt: timestampToIsoString(event.createdAt),
     scheduledStartAt: timestampToIsoString(event.scheduledStartAt),
@@ -381,8 +390,6 @@ export function mapCurtailmentHistoryEvent(
   event: ProtoCurtailmentEvent,
   options: CurtailmentMapperOptions = {},
 ): CurtailmentHistoryEvent {
-  const externalSource = event.externalSource.trim();
-
   return {
     id: event.eventUuid,
     isManageable: mapCurtailmentEventToFormValues(event, options) !== undefined,
@@ -396,7 +403,7 @@ export function mapCurtailmentHistoryEvent(
     targetMetricsAvailable: hasCurtailmentTargetMetrics(event),
     estimatedReductionAvailable: hasCurtailmentEstimatedReductionKw(event),
     targetKw: getFixedKwTarget(event),
-    sourceLabel: getSourceLabel(externalSource),
+    sourceLabel: getSourceLabel(event),
     startedAt: timestampToIsoString(event.startedAt),
     endedAt: timestampToIsoString(event.endedAt),
     scheduledAt: timestampToIsoString(event.scheduledStartAt),

@@ -21,6 +21,7 @@ import {
   type ResponseProfile,
   type ResponseProfileFormValues,
   type ResponseProfileModalMode,
+  type ScheduleRuleFormValues,
 } from "@/protoFleet/api/curtailmentTypes";
 
 import { formatCurtailmentKw, isCurtailmentAdmin } from "@/protoFleet/api/curtailmentUtils";
@@ -43,6 +44,7 @@ import { getDefaultCurtailmentSiteScope } from "@/protoFleet/features/energy/cur
 import CurtailmentStartModal from "@/protoFleet/features/energy/CurtailmentStartModal";
 import type { FacilityFanDeviceOption } from "@/protoFleet/features/energy/FacilityFanSelectionModal";
 import CurtailmentAutomationsContent from "@/protoFleet/features/settings/components/Curtailment/CurtailmentAutomations";
+import CurtailmentSchedulesContent from "@/protoFleet/features/settings/components/Curtailment/CurtailmentSchedules";
 import {
   InfoToggleContent,
   SectionHeader,
@@ -354,7 +356,12 @@ type CurtailmentSettingsContentProps = {
     expectedResponseProfileRevision?: string,
   ) => Promise<AutomationRule | void>;
   onDeleteAutomation?: (rule: AutomationRule) => Promise<void>;
+  onCreateSchedule?: (values: ScheduleRuleFormValues) => Promise<AutomationRule | void>;
+  onUpdateSchedule?: (rule: AutomationRule, values: ScheduleRuleFormValues) => Promise<AutomationRule | void>;
+  onDeleteSchedule?: (rule: AutomationRule) => Promise<void>;
 };
+
+const isScheduleRule = (rule: AutomationRule) => rule.conditionType === "schedule";
 
 function getSourcesEmptyState(loadSourcesError: string | null, isLoadingSources: boolean): ReactElement {
   if (loadSourcesError) {
@@ -416,8 +423,24 @@ export function CurtailmentSettingsContent({
   onUpdateAutomation,
   onToggleAutomation,
   onDeleteAutomation,
+  onCreateSchedule,
+  onUpdateSchedule,
+  onDeleteSchedule,
 }: CurtailmentSettingsContentProps): ReactElement {
   const canManageSources = isCurtailmentAdmin(useRole());
+  const initialTriggerRules = useMemo(
+    () => initialAutomationRules.filter((rule) => !isScheduleRule(rule)),
+    [initialAutomationRules],
+  );
+  const initialScheduleRules = useMemo(() => initialAutomationRules.filter(isScheduleRule), [initialAutomationRules]);
+  const controlledTriggerRules = useMemo(
+    () => controlledAutomationRules?.filter((rule) => !isScheduleRule(rule)),
+    [controlledAutomationRules],
+  );
+  const controlledScheduleRules = useMemo(
+    () => controlledAutomationRules?.filter(isScheduleRule),
+    [controlledAutomationRules],
+  );
   const [localResponseProfiles, setLocalResponseProfiles] = useState<ResponseProfile[]>(() => [
     ...initialResponseProfiles,
   ]);
@@ -743,8 +766,8 @@ export function CurtailmentSettingsContent({
       </section>
 
       <CurtailmentAutomationsContent
-        initialAutomationRules={initialAutomationRules}
-        automationRules={controlledAutomationRules}
+        initialAutomationRules={initialTriggerRules}
+        automationRules={controlledTriggerRules}
         sources={sources}
         responseProfiles={responseProfiles}
         isLoading={isLoadingAutomationRules}
@@ -759,6 +782,22 @@ export function CurtailmentSettingsContent({
         onUpdateAutomation={onUpdateAutomation}
         onToggleAutomation={onToggleAutomation}
         onDeleteAutomation={onDeleteAutomation}
+      />
+
+      <CurtailmentSchedulesContent
+        initialScheduleRules={initialScheduleRules}
+        scheduleRules={controlledScheduleRules}
+        responseProfiles={responseProfiles}
+        isLoading={isLoadingAutomationRules}
+        loadError={loadAutomationRulesError}
+        isCreating={isSavingAutomationRule}
+        updatingRuleIds={updatingAutomationRuleIds}
+        isLoadingResponseProfiles={isLoadingResponseProfiles}
+        loadResponseProfilesError={loadResponseProfilesError}
+        onCreateSchedule={onCreateSchedule}
+        onUpdateSchedule={onUpdateSchedule}
+        onToggleSchedule={onToggleAutomation}
+        onDeleteSchedule={onDeleteSchedule}
       />
 
       <CurtailmentStartModal
@@ -865,6 +904,8 @@ function CurtailmentSettingsPage(): ReactElement {
     loadError: automationRulesLoadError,
     createAutomationRule,
     updateAutomationRule,
+    createScheduleRule,
+    updateScheduleRule,
     setAutomationRuleEnabled,
     deleteAutomationRule,
   } = useCurtailmentAutomationRules(canManageCurtailment, { refreshResponseProfiles: listResponseProfiles });
@@ -1129,6 +1170,41 @@ function CurtailmentSettingsPage(): ReactElement {
     [deleteAutomationRule],
   );
 
+  const handleCreateSchedule = useCallback(
+    async (values: ScheduleRuleFormValues) => {
+      const rule = await createScheduleRule(values);
+      pushToast({
+        message: "Schedule added",
+        status: STATUSES.success,
+      });
+      return rule;
+    },
+    [createScheduleRule],
+  );
+
+  const handleUpdateSchedule = useCallback(
+    async (rule: AutomationRule, values: ScheduleRuleFormValues) => {
+      const updatedRule = await updateScheduleRule(rule.id, values);
+      pushToast({
+        message: "Schedule saved",
+        status: STATUSES.success,
+      });
+      return updatedRule;
+    },
+    [updateScheduleRule],
+  );
+
+  const handleDeleteSchedule = useCallback(
+    async (rule: AutomationRule) => {
+      await deleteAutomationRule(rule.id);
+      pushToast({
+        message: "Schedule deleted",
+        status: STATUSES.success,
+      });
+    },
+    [deleteAutomationRule],
+  );
+
   if (!canManageCurtailment) {
     return <Navigate to="/settings/network" replace />;
   }
@@ -1184,6 +1260,9 @@ function CurtailmentSettingsPage(): ReactElement {
       onUpdateAutomation={handleUpdateAutomation}
       onToggleAutomation={handleToggleAutomation}
       onDeleteAutomation={handleDeleteAutomation}
+      onCreateSchedule={handleCreateSchedule}
+      onUpdateSchedule={handleUpdateSchedule}
+      onDeleteSchedule={handleDeleteSchedule}
     />
   );
 }

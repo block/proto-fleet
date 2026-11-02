@@ -388,6 +388,8 @@ const updateResponseProfileMock = vi.fn();
 const deleteResponseProfileMock = vi.fn();
 const createAutomationRuleMock = vi.fn();
 const updateAutomationRuleMock = vi.fn();
+const createScheduleRuleMock = vi.fn();
+const updateScheduleRuleMock = vi.fn();
 const setAutomationRuleEnabledMock = vi.fn();
 const deleteAutomationRuleMock = vi.fn();
 const startCurtailmentMock = vi.fn();
@@ -440,6 +442,8 @@ const mockAutomationRulesApi = (overrides: Partial<ReturnType<typeof useCurtailm
     listAutomationRules: vi.fn(),
     createAutomationRule: createAutomationRuleMock,
     updateAutomationRule: updateAutomationRuleMock,
+    createScheduleRule: createScheduleRuleMock,
+    updateScheduleRule: updateScheduleRuleMock,
     setAutomationRuleEnabled: setAutomationRuleEnabledMock,
     deleteAutomationRule: deleteAutomationRuleMock,
     ...overrides,
@@ -1447,6 +1451,32 @@ describe("CurtailmentSettingsPage", () => {
     expect(within(disabledRule).getByText("Site Alpha 500 kW")).toBeVisible();
     expect(within(enabledRule).getByRole("checkbox")).toBeChecked();
     expect(within(disabledRule).getByRole("checkbox")).not.toBeChecked();
+  });
+
+  it("lists schedule rules under Schedules instead of Automations", () => {
+    const scheduleRule: AutomationRule = {
+      id: "evening-peak",
+      priority: 3,
+      name: "Evening peak",
+      conditionType: "schedule",
+      conditionSummary: "Daily, 5:00 PM – 9:00 PM",
+      responseProfileId: "emergency-full-shed",
+      enabled: true,
+    };
+    render(
+      <CurtailmentSettingsContent
+        initialResponseProfiles={testResponseProfiles}
+        initialSources={testSources}
+        initialAutomationRules={[...testAutomationRules, scheduleRule]}
+      />,
+    );
+
+    const automationsSection = screen.getByText("Automations").closest("section") as HTMLElement;
+    const schedulesSection = screen.getByText("Schedules").closest("section") as HTMLElement;
+    expect(within(automationsSection).getByText("Site Alpha automation")).toBeVisible();
+    expect(within(automationsSection).queryByText("Evening peak")).not.toBeInTheDocument();
+    expect(within(schedulesSection).getByText("Evening peak")).toBeVisible();
+    expect(within(schedulesSection).queryByText("Site Alpha automation")).not.toBeInTheDocument();
   });
 
   it("disables infrastructure fan edits for a response profile used by an automation", () => {

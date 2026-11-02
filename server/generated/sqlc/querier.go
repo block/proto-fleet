@@ -524,6 +524,7 @@ type Querier interface {
 	DeleteAlertRuleConfig(ctx context.Context, arg DeleteAlertRuleConfigParams) error
 	DeleteContainerControls(ctx context.Context, deviceID int64) error
 	DeleteContainerSetpoints(ctx context.Context, deviceID int64) error
+	DeleteCurtailmentAutomationExecution(ctx context.Context, ruleID int64) error
 	DeleteCurtailmentAutomationRuleByOrg(ctx context.Context, arg DeleteCurtailmentAutomationRuleByOrgParams) (int64, error)
 	DeleteCurtailmentResponseProfileByOrg(ctx context.Context, arg DeleteCurtailmentResponseProfileByOrgParams) (int64, error)
 	// Deletes reusable response profiles tied to a site as part of the
@@ -764,6 +765,7 @@ type Querier interface {
 	GetContainerTopologyIdentities(ctx context.Context, deviceID int64) ([]GetContainerTopologyIdentitiesRow, error)
 	GetCurtailmentAutomationExecutionGrant(ctx context.Context, arg GetCurtailmentAutomationExecutionGrantParams) (CurtailmentAutomationExecutionGrant, error)
 	GetCurtailmentAutomationRuleByOrg(ctx context.Context, arg GetCurtailmentAutomationRuleByOrgParams) (GetCurtailmentAutomationRuleByOrgRow, error)
+	GetCurtailmentAutomationScheduleByRule(ctx context.Context, arg GetCurtailmentAutomationScheduleByRuleParams) (CurtailmentAutomationSchedule, error)
 	GetCurtailmentDispatchRejection(ctx context.Context, arg GetCurtailmentDispatchRejectionParams) (sql.NullString, error)
 	// Webhook idempotent replay lookup; mirrors the
 	// uq_curtailment_event_external_ref partial index.
@@ -782,6 +784,7 @@ type Querier interface {
 	GetCurtailmentPendingWorkAges(ctx context.Context) (GetCurtailmentPendingWorkAgesRow, error)
 	GetCurtailmentReconcilerHeartbeat(ctx context.Context) (CurtailmentReconcilerHeartbeat, error)
 	GetCurtailmentResponseProfileByOrg(ctx context.Context, arg GetCurtailmentResponseProfileByOrgParams) (CurtailmentResponseProfileWithRevision, error)
+	GetCurtailmentScheduleExecutionGrant(ctx context.Context, arg GetCurtailmentScheduleExecutionGrantParams) (CurtailmentAutomationExecutionGrant, error)
 	// Org-scoped aggregate for paginated event detail. Target pages can be
 	// partial, but the rollup must describe the whole event.
 	//
@@ -1374,6 +1377,7 @@ type Querier interface {
 	// freshness, retained partial topology, and retired/replaced hardware.
 	ListContainers(ctx context.Context, arg ListContainersParams) ([]ListContainersRow, error)
 	ListCurtailmentAutomationRulesByOrg(ctx context.Context, orgID int64) ([]ListCurtailmentAutomationRulesByOrgRow, error)
+	ListCurtailmentAutomationSchedulesByOrg(ctx context.Context, orgID int64) ([]CurtailmentAutomationSchedule, error)
 	ListCurtailmentBuildingScopeCoverage(ctx context.Context, arg ListCurtailmentBuildingScopeCoverageParams) ([]ListCurtailmentBuildingScopeCoverageRow, error)
 	// Per-device state for the selector. Returns every in-scope device;
 	// service applies skip-reason attribution. nil power/hash = stale
@@ -1490,6 +1494,8 @@ type Querier interface {
 	// wrap without OFFSET drift as confirmed rows leave the working set.
 	ListEligibleConfirmationTargets(ctx context.Context, arg ListEligibleConfirmationTargetsParams) ([]ListEligibleConfirmationTargetsRow, error)
 	ListEnabledCurtailmentAutomationRulesByMQTTSource(ctx context.Context, mqttSourceID int64) ([]ListEnabledCurtailmentAutomationRulesByMQTTSourceRow, error)
+	// Every organization's enabled schedule rules, for the window producer.
+	ListEnabledCurtailmentScheduleRules(ctx context.Context) ([]ListEnabledCurtailmentScheduleRulesRow, error)
 	// Enabled MQTT sources for subscriber reconciliation.
 	ListEnabledMQTTSources(ctx context.Context) ([]CurtailmentMqttSourceConfig, error)
 	// Filters the requested identifier list down to those that actually
@@ -1929,6 +1935,7 @@ type Querier interface {
 	// inserts can take the foreign-key KEY SHARE lock without self-deadlocking.
 	LockCurtailmentResponseProfileDeviceSitesByOrg(ctx context.Context, arg LockCurtailmentResponseProfileDeviceSitesByOrgParams) ([]LockCurtailmentResponseProfileDeviceSitesByOrgRow, error)
 	LockCurtailmentResponseProfileRevisionForExecution(ctx context.Context, arg LockCurtailmentResponseProfileRevisionForExecutionParams) (int64, error)
+	LockCurtailmentScheduleRuleForExecution(ctx context.Context, arg LockCurtailmentScheduleRuleForExecutionParams) (int64, error)
 	// Serialize hierarchy start checks by org so conflict detection and event
 	// insertion happen under one database-backed critical section.
 	LockCurtailmentScopeForWrite(ctx context.Context, orgID string) error
@@ -2180,6 +2187,9 @@ type Querier interface {
 	// replaces it. Activation re-runs an equal assertion but never a newer one.
 	QueueCurrentCurtailmentAutomationExecution(ctx context.Context, ruleID int64) error
 	QueueCurtailmentAutomationExecution(ctx context.Context, arg QueueCurtailmentAutomationExecutionParams) error
+	// Window boundaries are the assertion times, so re-queueing the same boundary
+	// is a no-op even after it completed; a stopped window is not restarted.
+	QueueCurtailmentScheduleExecution(ctx context.Context, arg QueueCurtailmentScheduleExecutionParams) error
 	// Startup reaping fails every PROCESSING row left by the previous process.
 	// Periodic reaping only fails rows that exceeded their command-specific cutoff.
 	ReapMessages(ctx context.Context, arg ReapMessagesParams) ([]ReapMessagesRow, error)
@@ -2814,6 +2824,7 @@ type Querier interface {
 	UpsertContainerRollup(ctx context.Context, arg UpsertContainerRollupParams) error
 	UpsertContainerTopologyVersion(ctx context.Context, arg UpsertContainerTopologyVersionParams) (int64, error)
 	UpsertCurtailmentAutomationExecutionGrant(ctx context.Context, arg UpsertCurtailmentAutomationExecutionGrantParams) error
+	UpsertCurtailmentAutomationSchedule(ctx context.Context, arg UpsertCurtailmentAutomationScheduleParams) error
 	UpsertCurtailmentAutomationSignalState(ctx context.Context, arg UpsertCurtailmentAutomationSignalStateParams) error
 	// Singleton row at id=1; INSERT path only fires on accidental deletion.
 	UpsertCurtailmentReconcilerHeartbeat(ctx context.Context, arg UpsertCurtailmentReconcilerHeartbeatParams) error

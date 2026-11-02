@@ -20,6 +20,10 @@ Preview does not persist an event. The runtime uses these text values:
 | `scope_type` | `whole_org`, `site`, `device_list`, `mixed` |
 | `source_actor_type` | `user`, `api_key`, `webhook`, `scheduler`, `automation` |
 
+Event responses include `source_actor_type`. List responses omit
+`external_source`, so clients use the actor type to identify automation and
+scheduled events in history.
+
 `scope_jsonb` stores the normalized scope contract. `mixed` is also the storage
 representation for building, rack or group selectors and multiple site IDs;
 the service validates the selected terminal resource type. `device_sets` is not
@@ -186,7 +190,7 @@ replaces the desired state without interrupting an active attempt. New or enable
 immediately queue the currently persisted source state. Debounced ON observations
 remain eligible for processing after the debounce window.
 
-Automation events have no duration cap, because response profiles carry none; they
+MQTT automation events have no duration cap, because response profiles carry none; they
 end when the source sends ON, or when an admin force-stops or aborts them.
 
 If an automation event does carry a cap, a continuing OFF assertion cannot
@@ -195,6 +199,35 @@ new OFF are required to start a new demand cycle. The latest mailbox
 preserves the new cycle even when the worker has not processed its intervening ON, and
 waits for the previous capped event to finish restoring. A watchdog OFF from an ON
 source is also a new demand cycle.
+
+### Schedule rules
+
+`curtailment_automation_rule.trigger_type` is `MQTT`, which requires
+`mqtt_source_id`, or `SCHEDULE`, which has no source. A rule's trigger type cannot
+change after it is created. Each schedule rule has one
+`curtailment_automation_schedule` row. A `ONE_TIME` schedule is a start and end date
+and time at most seven days apart. A `RECURRING` schedule repeats `DAILY`, `WEEKLY` on
+selected days, or `MONTHLY` on a day of the month (skipping months without that day),
+from `start_date` until the optional `until_date`. Its end time may be earlier than its
+start time, in which case each window ends the next day. Dates and times are local to the
+schedule's IANA `timezone`. `service_user_id` is the user who last saved the schedule;
+scheduled events and their commands are attributed to that user.
+
+Schedule rules use the same grants, binding status, and per-rule mailbox as MQTT rules.
+Every five seconds the automation service asserts each enabled schedule's current
+state: OFF stamped with the window's start while a window is open, otherwise ON stamped
+with the most recent window's end. The mailbox accepts only a newer boundary, so each
+boundary runs once. A schedule saved, enabled, or recovered mid-window starts at once
+for the rest of that window; windows that have already ended are skipped. Saving or
+enabling a schedule clears its mailbox so its current state is asserted again.
+
+Each window starts its own event with `source_actor_type` `scheduler` and
+`scheduled_start_at` set to the window's start. The event is never unbounded: its
+`max_duration_seconds` is the time left in the window, as a backstop for the window's
+end restore. A window does not take over a previous window's event; it waits until that
+event is no longer live. Any user with `curtailment:manage` can stop a scheduled event
+early, and the schedule curtails again at its next window. An admin force release does
+not disable the schedule. Rig fallback configuration includes only MQTT rules.
 
 Rig fallback configuration is built per device from enabled, granted rules whose profile
 scopes select that device. A device outside all current scopes receives a disabled

@@ -138,6 +138,9 @@ func (s *AutomationService) Update(ctx context.Context, req SaveAutomationRuleRe
 	if err != nil {
 		return nil, err
 	}
+	if existing.TriggerType != rule.TriggerType {
+		return nil, fleeterror.NewInvalidArgumentError("trigger_type cannot change after a curtailment automation rule is created")
+	}
 	if err := s.ensureNoNonTerminalActiveEvent(ctx, existing, "update"); err != nil {
 		return nil, err
 	}
@@ -392,6 +395,19 @@ func (s *AutomationService) handleRuleOff(ctx context.Context, rule *models.Auto
 		}
 		return s.store.SetAutomationActiveEvent(ctx, rule.ID, signal.Source.ID, replayEvent.EventUUID, at)
 	}
+	return s.startBoundAutomationEvent(ctx, rule, startReq, signal.Source.ID, at)
+}
+
+// startBoundAutomationEvent starts the rule's event from its still-bound
+// profile and records it as the rule's active event, releasing an event the
+// rule can no longer track.
+func (s *AutomationService) startBoundAutomationEvent(
+	ctx context.Context,
+	rule *models.AutomationRule,
+	startReq StartRequest,
+	mqttSourceID int64,
+	at time.Time,
+) error {
 	if _, err := s.currentBoundAutomationProfile(ctx, rule); err != nil {
 		return err
 	}
@@ -410,7 +426,7 @@ func (s *AutomationService) handleRuleOff(ctx context.Context, rule *models.Auto
 			return err
 		}
 	}
-	if err := s.store.SetAutomationActiveEvent(ctx, rule.ID, signal.Source.ID, *plan.EventUUID, at); err != nil {
+	if err := s.store.SetAutomationActiveEvent(ctx, rule.ID, mqttSourceID, *plan.EventUUID, at); err != nil {
 		if fleeterror.IsFailedPreconditionError(err) {
 			if _, releaseErr := s.curtailment.ForceRelease(ctx, ForceReleaseRequest{
 				OrgID:     rule.OrgID,
@@ -526,11 +542,20 @@ func (s *AutomationService) validateAndNormalize(
 	if rule.TriggerType == "" {
 		rule.TriggerType = models.AutomationTriggerTypeMQTT
 	}
-	if rule.TriggerType != models.AutomationTriggerTypeMQTT {
-		return models.AutomationRule{}, models.ResponseProfileFanSettings{}, fleeterror.NewInvalidArgumentErrorf("trigger_type %q is not supported; only MQTT (MaestroOS source) is supported", rule.TriggerType)
-	}
-	if rule.MQTTSourceID <= 0 {
-		return models.AutomationRule{}, models.ResponseProfileFanSettings{}, fleeterror.NewInvalidArgumentError("mqtt_source_id must be set")
+	switch rule.TriggerType {
+	case models.AutomationTriggerTypeMQTT:
+		if rule.MQTTSourceID <= 0 {
+			return models.AutomationRule{}, models.ResponseProfileFanSettings{}, fleeterror.NewInvalidArgumentError("mqtt_source_id must be set")
+		}
+		if rule.Schedule != nil {
+			return models.AutomationRule{}, models.ResponseProfileFanSettings{}, fleeterror.NewInvalidArgumentError("MQTT automation rules cannot set a schedule")
+		}
+	case models.AutomationTriggerTypeSchedule:
+		if err := s.validateAutomationSchedule(rule); err != nil {
+			return models.AutomationRule{}, models.ResponseProfileFanSettings{}, err
+		}
+	default:
+		return models.AutomationRule{}, models.ResponseProfileFanSettings{}, fleeterror.NewInvalidArgumentErrorf("trigger_type %q is not supported", rule.TriggerType)
 	}
 	if rule.ResponseProfileID <= 0 {
 		return models.AutomationRule{}, models.ResponseProfileFanSettings{}, fleeterror.NewInvalidArgumentError("response_profile_id must be set")
@@ -540,8 +565,10 @@ func (s *AutomationService) validateAndNormalize(
 			"expected_response_profile_revision must be set",
 		)
 	}
-	if _, err := s.sourceStore.GetSourceConfigByOrg(ctx, rule.OrgID, rule.MQTTSourceID); err != nil {
-		return models.AutomationRule{}, models.ResponseProfileFanSettings{}, mqttSourceLookupError(err)
+	if rule.TriggerType == models.AutomationTriggerTypeMQTT {
+		if _, err := s.sourceStore.GetSourceConfigByOrg(ctx, rule.OrgID, rule.MQTTSourceID); err != nil {
+			return models.AutomationRule{}, models.ResponseProfileFanSettings{}, mqttSourceLookupError(err)
+		}
 	}
 	if err := s.validateAutomationSaveBinding(ctx, rule.OrgID, rule.ResponseProfileID, expectedResponseProfileRevision, canUseAdminControls, expectedFanSettings); err != nil {
 		return models.AutomationRule{}, models.ResponseProfileFanSettings{}, err
@@ -708,7 +735,25 @@ func automationSignalFromMQTTTarget(target mqttingest.Target) (models.Automation
 	}
 }
 
+// automationPrincipal attributes an automation execution: the trigger that
+// produced it, the user its commands run as, and the event's audit reason.
+type automationPrincipal struct {
+	mqttSourceID  int64
+	serviceUserID int64
+	actor         models.SourceActorType
+	reason        string
+}
+
 func startRequestFromAutomationProfile(rule *models.AutomationRule, profile *models.ResponseProfile, signal mqttingest.SignalEdge) (StartRequest, error) {
+	return automationProfileStartRequest(rule, profile, automationPrincipal{
+		mqttSourceID:  signal.Source.ID,
+		serviceUserID: signal.Source.ServiceUserID,
+		actor:         models.SourceActorAutomation,
+		reason:        fmt.Sprintf("Automation %q from MaestroOS source %q", rule.RuleName, signal.Source.SourceName),
+	})
+}
+
+func automationProfileStartRequest(rule *models.AutomationRule, profile *models.ResponseProfile, principal automationPrincipal) (StartRequest, error) {
 	scope, err := ResponseProfileScope(*profile)
 	if err != nil {
 		return StartRequest{}, fleeterror.NewInvalidArgumentErrorf("invalid response profile scope for automation rule %d: %v", rule.ID, err)
@@ -717,7 +762,6 @@ func startRequestFromAutomationProfile(rule *models.AutomationRule, profile *mod
 	toleranceKW := float64Value(profile.ToleranceKW)
 	externalReference, idempotencyKey := automationRuleEventReference(rule.ID)
 	sourceActorID := externalReference
-	reason := fmt.Sprintf("Automation %q from MaestroOS source %q", rule.RuleName, signal.Source.SourceName)
 	return StartRequest{
 		PreviewRequest: PreviewRequest{
 			OrgID:                       rule.OrgID,
@@ -731,11 +775,11 @@ func startRequestFromAutomationProfile(rule *models.AutomationRule, profile *mod
 			IncludeMaintenance:          profile.IncludeMaintenance,
 			ForceIncludeMaintenance:     profile.ForceIncludeMaintenance,
 			ForceIncludeAllPairedMiners: profile.ForceIncludeAllPairedMiners,
-			// MQTT demand-response signals must execute immediately; profile
+			// MQTT signals and schedule windows must execute on time; profile
 			// cooldown applies only to non-emergency user-driven starts.
 			PostEventCooldownSec: 0,
 		},
-		Reason:                    reason,
+		Reason:                    principal.reason,
 		RestoreBatchSize:          profile.RestoreBatchSize,
 		RestoreBatchIntervalSec:   profile.RestoreBatchIntervalSec,
 		CurtailBatchSize:          cloneInt32Ptr(profile.CurtailBatchSize),
@@ -747,13 +791,13 @@ func startRequestFromAutomationProfile(rule *models.AutomationRule, profile *mod
 		ResponseProfileID:         profile.ID,
 		ResponseProfileRevision:   rule.ResponseProfileRevision,
 		AutomationRuleID:          rule.ID,
-		AutomationMQTTSourceID:    signal.Source.ID,
+		AutomationMQTTSourceID:    principal.mqttSourceID,
 		IdempotencyKey:            &idempotencyKey,
 		ExternalSource:            stringPtr(automationExternalSource),
 		ExternalReference:         &externalReference,
-		SourceActorType:           models.SourceActorAutomation,
+		SourceActorType:           principal.actor,
 		SourceActorID:             &sourceActorID,
-		CreatedByUserID:           signal.Source.ServiceUserID,
+		CreatedByUserID:           principal.serviceUserID,
 		// Automation rule create/update/enable validates that profiles using
 		// admin-only controls are admin-authorized before MQTT can execute them.
 		CanUseAdminControls: true,
@@ -794,15 +838,37 @@ func validateAutomationReplayOwnership(event *models.Event, rule *models.Automat
 	if err != nil || event == nil {
 		return err
 	}
-	return ValidateAutomationEventOwnership(event, rule.OrgID, rule.ID)
+	if err := ValidateAutomationEventOwnership(event, rule.OrgID, rule.ID); err != nil {
+		return err
+	}
+	if event.SourceActorType != automationRuleActor(rule) {
+		return fleeterror.NewFailedPreconditionError(
+			"curtailment event is not owned by this automation rule",
+		)
+	}
+	return nil
+}
+
+// automationRuleActor is the source actor a rule's events carry.
+func automationRuleActor(rule *models.AutomationRule) models.SourceActorType {
+	if rule != nil && rule.TriggerType == models.AutomationTriggerTypeSchedule {
+		return models.SourceActorScheduler
+	}
+	return models.SourceActorAutomation
+}
+
+func isAutomationRuleActor(actor models.SourceActorType) bool {
+	return actor == models.SourceActorAutomation || actor == models.SourceActorScheduler
 }
 
 // ValidateAutomationEventOwnership verifies that a persisted event carries
-// every immutable ownership marker for the expected automation rule.
+// every immutable ownership marker for the expected automation rule. MQTT rule
+// events carry the automation actor and schedule rule events the scheduler
+// actor; the trigger-specific grant lookup ties the actor to the rule.
 func ValidateAutomationEventOwnership(event *models.Event, orgID, ruleID int64) error {
 	externalReference, idempotencyKey := automationRuleEventReference(ruleID)
 	if event == nil || event.OrgID != orgID ||
-		event.SourceActorType != models.SourceActorAutomation ||
+		!isAutomationRuleActor(event.SourceActorType) ||
 		event.ExternalSource == nil || *event.ExternalSource != automationExternalSource ||
 		event.ExternalReference == nil || *event.ExternalReference != externalReference ||
 		event.IdempotencyKey == nil || *event.IdempotencyKey != idempotencyKey ||

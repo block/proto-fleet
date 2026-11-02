@@ -829,10 +829,12 @@
       "command": "create",
       "required_fields": [
         "rule_name",
-        "mqtt_source_id",
         "response_profile_id",
         "expected_response_profile_revision"
-      ]
+      ],
+      "validation_exceptions": {
+        "$message": "trigger fields are conditional: MQTT rules require mqtt_source_id while SCHEDULE rules require schedule; generated request validation enforces the selected trigger"
+      }
     },
     {
       "method": "/curtailment.v1.CurtailmentService/UpdateCurtailmentAutomationRule",
@@ -842,10 +844,12 @@
       "required_fields": [
         "rule_id",
         "rule_name",
-        "mqtt_source_id",
         "response_profile_id",
         "expected_response_profile_revision"
-      ]
+      ],
+      "validation_exceptions": {
+        "$message": "trigger fields are conditional: MQTT rules require mqtt_source_id while SCHEDULE rules require schedule; generated request validation enforces the selected trigger"
+      }
     },
     {
       "method": "/curtailment.v1.CurtailmentService/SetCurtailmentAutomationRuleEnabled",

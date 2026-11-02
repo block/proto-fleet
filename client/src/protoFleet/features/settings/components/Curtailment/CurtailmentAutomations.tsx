@@ -8,8 +8,10 @@ import type {
   CurtailmentSource,
   ResponseProfile,
 } from "@/protoFleet/api/curtailmentTypes";
+import { automationRuleTableClassName } from "@/protoFleet/features/settings/components/Curtailment/automationRuleTable";
 import {
   InfoToggleContent,
+  SectionDependencyMessage,
   SectionHeader,
 } from "@/protoFleet/features/settings/components/Curtailment/CurtailmentSection";
 import { isInputEnterSaveEvent } from "@/protoFleet/features/settings/components/Curtailment/keyboard";
@@ -57,17 +59,6 @@ const automationColumnAriaLabels: Partial<Record<AutomationColumn, string>> = {
 };
 
 const automationColumnsExemptFromDisabledStyling = new Set<AutomationColumn>([automationCols.enabled]);
-
-const automationTableClassName = [
-  "mb-2 w-full",
-  "phone:table-fixed",
-  "phone:[&_thead_th:last-child]:w-14",
-  "phone:[&_thead_th:last-child>div]:w-14",
-  "phone:[&_tbody_td[data-testid=enabled]:last-child>div:first-child]:box-border",
-  "phone:[&_tbody_td[data-testid=enabled]:last-child>div:first-child]:flex",
-  "phone:[&_tbody_td[data-testid=enabled]:last-child>div:first-child]:justify-end",
-  "phone:[&_tbody_td[data-testid=enabled]:last-child>div:first-child]:w-14",
-].join(" ");
 
 const emptyAutomations: AutomationRule[] = [];
 const emptySources: CurtailmentSource[] = [];
@@ -228,15 +219,6 @@ function AutomationsLoadingState(): ReactElement {
 
 function AutomationsErrorState({ message }: { message: string }): ReactElement {
   return <SettingsEmptyState size="section" title="Unable to load automations" description={message} />;
-}
-
-function AutomationDependencyMessage({ children }: { children: string }): ReactElement {
-  return (
-    <p className="mt-2 text-200 text-text-primary-70">
-      <span className="mr-1 inline-block h-1 w-2.5 rounded-full bg-core-primary-20 align-middle" />
-      {children}
-    </p>
-  );
 }
 
 function AutomationModal({
@@ -401,11 +383,9 @@ function AutomationModal({
               testId="automation-trigger-source-select"
               forceBelow
             />
-            {loadSourcesError ? (
-              <AutomationDependencyMessage>Unable to load sources.</AutomationDependencyMessage>
-            ) : null}
+            {loadSourcesError ? <SectionDependencyMessage>Unable to load sources.</SectionDependencyMessage> : null}
             {!isLoadingSources && !loadSourcesError && sourceOptions.length === 0 ? (
-              <AutomationDependencyMessage>No sources available.</AutomationDependencyMessage>
+              <SectionDependencyMessage>No sources available.</SectionDependencyMessage>
             ) : null}
           </div>
         </div>
@@ -448,10 +428,10 @@ function AutomationModal({
               forceBelow
             />
             {loadResponseProfilesError ? (
-              <AutomationDependencyMessage>Unable to load response profiles.</AutomationDependencyMessage>
+              <SectionDependencyMessage>Unable to load response profiles.</SectionDependencyMessage>
             ) : null}
             {!isLoadingResponseProfiles && !loadResponseProfilesError && responseProfileOptions.length === 0 ? (
-              <AutomationDependencyMessage>No response profiles available.</AutomationDependencyMessage>
+              <SectionDependencyMessage>No response profiles available.</SectionDependencyMessage>
             ) : null}
           </div>
         </div>
@@ -718,12 +698,7 @@ export function CurtailmentAutomationsContent({
   const automationsNoDataElement = getAutomationsEmptyState(loadError, isLoading);
 
   return (
-    <section
-      className={clsx(
-        "curtailment-settings__section curtailment-settings__section--last pb-10",
-        automationRules.length === 0 && "min-h-[300px]",
-      )}
-    >
+    <section className={clsx("curtailment-settings__section", automationRules.length === 0 && "min-h-[300px]")}>
       <SectionHeader
         title="Automations"
         buttonText="Create automation"
@@ -743,7 +718,7 @@ export function CurtailmentAutomationsContent({
         stickyFirstColumn={false}
         isRowDisabled={(rule) => !rule.enabled || !rule.isResponseProfileAutomationReady}
         columnsExemptFromDisabledStyling={automationColumnsExemptFromDisabledStyling}
-        tableClassName={automationTableClassName}
+        tableClassName={automationRuleTableClassName}
         noDataElement={automationsNoDataElement}
         applyColumnWidthsToCells
         onRowClick={openEditAutomationModal}

@@ -2,6 +2,7 @@ package curtailment
 
 import (
 	"context"
+	"time"
 
 	"connectrpc.com/connect"
 	"github.com/google/uuid"
@@ -140,7 +141,7 @@ func (h *Handler) CreateCurtailmentAutomationRule(ctx context.Context, req *conn
 	if err := requireAutomationGrantPermission(ctx, profile, expectedProfileRevision); err != nil {
 		return nil, err
 	}
-	rule := automationRuleFromCreateRequest(info.OrganizationID, req.Msg)
+	rule := automationRuleFromCreateRequest(info.OrganizationID, info.UserID, req.Msg)
 	created, err := h.automation.Create(ctx, domainCurtailment.SaveAutomationRuleRequest{
 		Rule:                               rule,
 		CanUseAdminControls:                canUseAdminControls(info),
@@ -178,7 +179,7 @@ func (h *Handler) UpdateCurtailmentAutomationRule(ctx context.Context, req *conn
 	if err := requireAutomationGrantPermission(ctx, profile, expectedProfileRevision); err != nil {
 		return nil, err
 	}
-	rule := automationRuleFromUpdateRequest(info.OrganizationID, req.Msg)
+	rule := automationRuleFromUpdateRequest(info.OrganizationID, info.UserID, req.Msg)
 	updated, err := h.automation.Update(ctx, domainCurtailment.SaveAutomationRuleRequest{
 		Rule:                               rule,
 		CanUseAdminControls:                canUseAdminControls(info),
@@ -347,7 +348,7 @@ func (h *Handler) automationRuleProfileResourceContextRequirements(
 	}, deviceSites, false)
 }
 
-func automationRuleFromCreateRequest(orgID int64, msg *pb.CreateCurtailmentAutomationRuleRequest) models.AutomationRule {
+func automationRuleFromCreateRequest(orgID, userID int64, msg *pb.CreateCurtailmentAutomationRuleRequest) models.AutomationRule {
 	enabled := true
 	if msg.Enabled != nil {
 		enabled = msg.GetEnabled()
@@ -357,18 +358,20 @@ func automationRuleFromCreateRequest(orgID int64, msg *pb.CreateCurtailmentAutom
 		RuleName:          msg.GetRuleName(),
 		TriggerType:       automationTriggerTypeFromProto(msg.GetTriggerType()),
 		MQTTSourceID:      msg.GetMqttSourceId(),
+		Schedule:          automationScheduleFromProto(msg.GetSchedule(), userID),
 		ResponseProfileID: msg.GetResponseProfileId(),
 		Enabled:           enabled,
 	}
 }
 
-func automationRuleFromUpdateRequest(orgID int64, msg *pb.UpdateCurtailmentAutomationRuleRequest) models.AutomationRule {
+func automationRuleFromUpdateRequest(orgID, userID int64, msg *pb.UpdateCurtailmentAutomationRuleRequest) models.AutomationRule {
 	return models.AutomationRule{
 		ID:                msg.GetRuleId(),
 		OrgID:             orgID,
 		RuleName:          msg.GetRuleName(),
 		TriggerType:       automationTriggerTypeFromProto(msg.GetTriggerType()),
 		MQTTSourceID:      msg.GetMqttSourceId(),
+		Schedule:          automationScheduleFromProto(msg.GetSchedule(), userID),
 		ResponseProfileID: msg.GetResponseProfileId(),
 	}
 }
@@ -378,6 +381,8 @@ func automationTriggerTypeFromProto(v pb.CurtailmentAutomationTriggerType) model
 	case pb.CurtailmentAutomationTriggerType_CURTAILMENT_AUTOMATION_TRIGGER_TYPE_MQTT,
 		pb.CurtailmentAutomationTriggerType_CURTAILMENT_AUTOMATION_TRIGGER_TYPE_UNSPECIFIED:
 		return models.AutomationTriggerTypeMQTT
+	case pb.CurtailmentAutomationTriggerType_CURTAILMENT_AUTOMATION_TRIGGER_TYPE_SCHEDULE:
+		return models.AutomationTriggerTypeSchedule
 	default:
 		return models.AutomationTriggerType(v.String())
 	}
@@ -387,6 +392,8 @@ func automationTriggerTypeProto(v models.AutomationTriggerType) pb.CurtailmentAu
 	switch v {
 	case models.AutomationTriggerTypeMQTT:
 		return pb.CurtailmentAutomationTriggerType_CURTAILMENT_AUTOMATION_TRIGGER_TYPE_MQTT
+	case models.AutomationTriggerTypeSchedule:
+		return pb.CurtailmentAutomationTriggerType_CURTAILMENT_AUTOMATION_TRIGGER_TYPE_SCHEDULE
 	default:
 		return pb.CurtailmentAutomationTriggerType_CURTAILMENT_AUTOMATION_TRIGGER_TYPE_UNSPECIFIED
 	}
@@ -422,9 +429,11 @@ func toAutomationRuleProto(rule *models.AutomationRule) *pb.CurtailmentAutomatio
 		ResponseProfileName: rule.ResponseProfileName,
 		Enabled:             rule.Enabled,
 		CurrentSignal:       automationSignalProto(rule.LastSignal),
+		Schedule:            automationScheduleProto(rule.Schedule),
 		CreatedAt:           timestamppb.New(rule.CreatedAt),
 		UpdatedAt:           timestamppb.New(rule.UpdatedAt),
 	}
+	setAutomationScheduleWindow(out, rule.Schedule, time.Now())
 	if rule.LastSignalAt != nil {
 		out.LastSignalAt = timestamppb.New(*rule.LastSignalAt)
 	}

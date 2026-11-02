@@ -49,11 +49,27 @@ WHERE rule.id = sqlc.arg('id')
   AND rule.org_id = sqlc.arg('org_id')
   AND rule.enabled = TRUE
   AND rule.trigger_type = 'MQTT'
-  AND rule.mqtt_source_id = sqlc.arg('mqtt_source_id')
+  AND rule.mqtt_source_id = sqlc.arg('mqtt_source_id')::bigint
   AND source.enabled = TRUE
   AND rule.response_profile_id = sqlc.arg('response_profile_id')
   AND rule_revision.response_profile_revision = sqlc.arg('response_profile_revision')
 FOR UPDATE OF rule, rule_revision, source;
+
+-- name: LockCurtailmentScheduleRuleForExecution :one
+SELECT rule.id
+FROM curtailment_automation_rule AS rule
+JOIN curtailment_automation_rule_profile_revision AS rule_revision
+  ON rule_revision.automation_rule_id = rule.id
+JOIN curtailment_automation_schedule AS schedule
+  ON schedule.rule_id = rule.id
+WHERE rule.id = sqlc.arg('id')
+  AND rule.org_id = sqlc.arg('org_id')
+  AND rule.enabled = TRUE
+  AND rule.trigger_type = 'SCHEDULE'
+  AND rule.response_profile_id = sqlc.arg('response_profile_id')
+  AND rule_revision.response_profile_revision = sqlc.arg('response_profile_revision')
+  AND schedule.service_user_id = sqlc.arg('service_user_id')
+FOR UPDATE OF rule, rule_revision, schedule;
 
 -- name: ListEnabledCurtailmentAutomationRulesByMQTTSource :many
 SELECT r.*, st.last_signal, st.last_signal_at, st.active_event_uuid,
@@ -66,7 +82,7 @@ SELECT r.*, st.last_signal, st.last_signal_at, st.active_event_uuid,
        COALESCE((SELECT ex.status FROM curtailment_automation_execution ex WHERE ex.rule_id = r.id), 'idle')::text AS execution_status
 FROM curtailment_automation_rule_binding r
 LEFT JOIN curtailment_automation_rule_state st ON st.rule_id = r.id
-WHERE r.mqtt_source_id = sqlc.arg('mqtt_source_id')
+WHERE r.mqtt_source_id = sqlc.arg('mqtt_source_id')::bigint
   AND r.enabled = TRUE
 ORDER BY r.id;
 
@@ -106,7 +122,8 @@ INSERT INTO curtailment_automation_rule (
     sqlc.arg('org_id'),
     sqlc.arg('rule_name'),
     sqlc.arg('trigger_type'),
-    sqlc.arg('mqtt_source_id'),
+    -- Zero stores NULL for schedule rules.
+    NULLIF(sqlc.arg('mqtt_source_id')::bigint, 0),
     sqlc.arg('response_profile_id'),
     sqlc.arg('enabled')
 )
@@ -116,7 +133,7 @@ RETURNING *;
 UPDATE curtailment_automation_rule
 SET
     rule_name = sqlc.arg('rule_name'),
-    mqtt_source_id = sqlc.arg('mqtt_source_id'),
+    mqtt_source_id = NULLIF(sqlc.arg('mqtt_source_id')::bigint, 0),
     response_profile_id = sqlc.arg('response_profile_id')
 WHERE curtailment_automation_rule.id = sqlc.arg('id')
   AND curtailment_automation_rule.org_id = sqlc.arg('org_id')
@@ -196,7 +213,7 @@ WHERE curtailment_automation_rule.id = sqlc.arg('id')
 SELECT count(*)
 FROM curtailment_automation_rule
 WHERE org_id = sqlc.arg('org_id')
-  AND mqtt_source_id = sqlc.arg('mqtt_source_id');
+  AND mqtt_source_id = sqlc.arg('mqtt_source_id')::bigint;
 
 -- name: CountCurtailmentAutomationRulesByResponseProfile :one
 SELECT count(*)
@@ -227,14 +244,15 @@ SET
 
 -- name: SetCurtailmentAutomationActiveEvent :execrows
 WITH enabled_rule AS (
-    SELECT curtailment_automation_rule.id, curtailment_automation_rule.org_id
+    SELECT curtailment_automation_rule.id, curtailment_automation_rule.org_id,
+           curtailment_automation_rule.trigger_type
     FROM curtailment_automation_rule
     WHERE curtailment_automation_rule.id = sqlc.arg('rule_id')
       AND enabled = TRUE
       -- The rule must still be bound to the source whose signal started the
       -- event; a re-point between signal read and event start fails here and
-      -- the caller force-releases the orphaned event.
-      AND mqtt_source_id = sqlc.arg('mqtt_source_id')
+      -- the caller force-releases the orphaned event. Schedule rules pass 0.
+      AND mqtt_source_id IS NOT DISTINCT FROM NULLIF(sqlc.arg('mqtt_source_id')::bigint, 0)
     FOR UPDATE
 ),
 owned_event AS (
@@ -243,7 +261,7 @@ owned_event AS (
     JOIN enabled_rule er
         ON er.org_id = ce.org_id
     WHERE ce.event_uuid = sqlc.arg('active_event_uuid')
-      AND ce.source_actor_type = 'automation'
+      AND ce.source_actor_type = CASE WHEN er.trigger_type = 'SCHEDULE' THEN 'scheduler' ELSE 'automation' END
       AND ce.source_actor_id = er.id::TEXT
       AND ce.external_source = 'curtailment_automation'
       AND ce.external_reference = er.id::TEXT
@@ -358,6 +376,18 @@ ON CONFLICT (rule_id) DO UPDATE SET response_profile_id = EXCLUDED.response_prof
  response_profile_revision = EXCLUDED.response_profile_revision, authorization_envelope_json = EXCLUDED.authorization_envelope_json,
  admin_controls_granted = EXCLUDED.admin_controls_granted;
 
+-- name: GetCurtailmentScheduleExecutionGrant :one
+SELECT grant_row.*
+FROM curtailment_automation_execution_grant grant_row
+JOIN curtailment_automation_rule r ON r.id = grant_row.rule_id AND r.org_id = grant_row.org_id
+JOIN curtailment_automation_rule_profile_revision revision ON revision.automation_rule_id = r.id
+JOIN curtailment_response_profile_with_revision profile ON profile.id = r.response_profile_id AND profile.org_id = r.org_id
+JOIN curtailment_automation_schedule schedule ON schedule.rule_id = r.id
+WHERE r.id = sqlc.arg('rule_id') AND r.org_id = sqlc.arg('org_id') AND r.enabled AND r.trigger_type = 'SCHEDULE'
+AND grant_row.response_profile_id = r.response_profile_id AND grant_row.response_profile_revision = revision.response_profile_revision
+AND grant_row.response_profile_revision = profile.revision
+FOR SHARE OF grant_row, r, revision, schedule;
+
 -- name: GetCurtailmentAutomationExecutionGrant :one
 SELECT grant_row.*
 FROM curtailment_automation_execution_grant grant_row
@@ -373,7 +403,7 @@ FOR SHARE OF grant_row, r, revision, source;
 -- name: QueueCurtailmentAutomationExecution :exec
 INSERT INTO curtailment_automation_execution (rule_id, mqtt_source_id, direction, target, target_at, received_at, received_broker, prior_edge_at)
 SELECT r.id, r.mqtt_source_id, sqlc.arg('direction'), sqlc.arg('target'), sqlc.narg('target_at'), sqlc.arg('received_at'), sqlc.arg('received_broker'), sqlc.narg('prior_edge_at')
-FROM curtailment_automation_rule r WHERE r.id = sqlc.arg('rule_id') AND r.enabled AND r.mqtt_source_id = sqlc.arg('mqtt_source_id')
+FROM curtailment_automation_rule r WHERE r.id = sqlc.arg('rule_id') AND r.enabled AND r.mqtt_source_id = sqlc.arg('mqtt_source_id')::bigint
 ON CONFLICT (rule_id) DO UPDATE SET generation = curtailment_automation_execution.generation + 1,
  mqtt_source_id = EXCLUDED.mqtt_source_id, direction = EXCLUDED.direction, target = EXCLUDED.target,
  target_at = EXCLUDED.target_at, received_at = EXCLUDED.received_at, received_broker = EXCLUDED.received_broker, prior_edge_at = EXCLUDED.prior_edge_at,
@@ -413,8 +443,9 @@ WHERE curtailment_automation_execution.received_at <= EXCLUDED.received_at
 WITH due AS (
  SELECT ex.rule_id, r.org_id FROM curtailment_automation_execution ex
  JOIN curtailment_automation_rule r ON r.id = ex.rule_id AND r.enabled
- JOIN curtailment_mqtt_source_config src ON src.id = ex.mqtt_source_id AND src.enabled
+ LEFT JOIN curtailment_mqtt_source_config src ON src.id = ex.mqtt_source_id
  WHERE ex.status IN ('pending','retry') AND ex.retry_at <= now() AND (ex.lease_expires_at IS NULL OR ex.lease_expires_at <= now())
+ AND (ex.mqtt_source_id IS NULL OR src.enabled)
  ORDER BY ex.retry_at, ex.rule_id FOR UPDATE OF ex SKIP LOCKED LIMIT 1
 )
 UPDATE curtailment_automation_execution ex SET lease_expires_at = now() + interval '90 seconds', attempts = ex.attempts + 1
@@ -428,3 +459,63 @@ WHERE rule_id = sqlc.arg('rule_id') AND lease_expires_at = sqlc.arg('lease_expir
 UPDATE curtailment_automation_execution SET status = CASE WHEN generation = sqlc.arg('generation') THEN 'retry' ELSE status END, lease_expires_at = NULL,
  retry_at = CASE WHEN generation = sqlc.arg('generation') THEN now() + LEAST(300, 5 * attempts) * interval '1 second' ELSE retry_at END, last_error = CASE WHEN generation = sqlc.arg('generation') THEN sqlc.narg('last_error') ELSE last_error END
 WHERE rule_id = sqlc.arg('rule_id') AND lease_expires_at = sqlc.arg('lease_expires_at')::timestamptz;
+
+-- name: QueueCurtailmentScheduleExecution :exec
+-- Window boundaries are the assertion times, so re-queueing the same boundary
+-- is a no-op even after it completed; a stopped window is not restarted.
+INSERT INTO curtailment_automation_execution (rule_id, mqtt_source_id, direction, target, target_at, received_at, received_broker, prior_edge_at)
+SELECT r.id, NULL, sqlc.arg('direction'), sqlc.arg('target'), sqlc.arg('boundary_at')::timestamptz, sqlc.arg('boundary_at')::timestamptz, '', NULL
+FROM curtailment_automation_rule r WHERE r.id = sqlc.arg('rule_id') AND r.enabled AND r.trigger_type = 'SCHEDULE'
+ON CONFLICT (rule_id) DO UPDATE SET generation = curtailment_automation_execution.generation + 1,
+ direction = EXCLUDED.direction, target = EXCLUDED.target, target_at = EXCLUDED.target_at, received_at = EXCLUDED.received_at,
+ status = 'pending', attempts = 0, retry_at = now(), last_error = NULL
+WHERE curtailment_automation_execution.received_at < EXCLUDED.received_at
+ OR (curtailment_automation_execution.received_at = EXCLUDED.received_at AND curtailment_automation_execution.target <> EXCLUDED.target);
+
+-- name: DeleteCurtailmentAutomationExecution :exec
+DELETE FROM curtailment_automation_execution WHERE rule_id = sqlc.arg('rule_id');
+
+-- name: UpsertCurtailmentAutomationSchedule :exec
+INSERT INTO curtailment_automation_schedule (
+    rule_id, schedule_type, timezone, start_date, start_time, end_time, end_date,
+    frequency, days_of_week, day_of_month, until_date, service_user_id
+) VALUES (
+    sqlc.arg('rule_id'), sqlc.arg('schedule_type'), sqlc.arg('timezone'), sqlc.arg('start_date'),
+    sqlc.arg('start_time'), sqlc.arg('end_time'), sqlc.narg('end_date'), sqlc.narg('frequency'),
+    sqlc.arg('days_of_week')::integer[], sqlc.narg('day_of_month'), sqlc.narg('until_date'), sqlc.arg('service_user_id')
+)
+ON CONFLICT (rule_id) DO UPDATE SET
+    schedule_type = EXCLUDED.schedule_type,
+    timezone = EXCLUDED.timezone,
+    start_date = EXCLUDED.start_date,
+    start_time = EXCLUDED.start_time,
+    end_time = EXCLUDED.end_time,
+    end_date = EXCLUDED.end_date,
+    frequency = EXCLUDED.frequency,
+    days_of_week = EXCLUDED.days_of_week,
+    day_of_month = EXCLUDED.day_of_month,
+    until_date = EXCLUDED.until_date,
+    service_user_id = EXCLUDED.service_user_id,
+    updated_at = CURRENT_TIMESTAMP;
+
+-- name: ListCurtailmentAutomationSchedulesByOrg :many
+SELECT schedule.*
+FROM curtailment_automation_schedule schedule
+JOIN curtailment_automation_rule r ON r.id = schedule.rule_id
+WHERE r.org_id = sqlc.arg('org_id')
+ORDER BY schedule.rule_id;
+
+-- name: GetCurtailmentAutomationScheduleByRule :one
+SELECT schedule.*
+FROM curtailment_automation_schedule schedule
+JOIN curtailment_automation_rule r ON r.id = schedule.rule_id
+WHERE schedule.rule_id = sqlc.arg('rule_id')
+  AND r.org_id = sqlc.arg('org_id');
+
+-- name: ListEnabledCurtailmentScheduleRules :many
+-- Every organization's enabled schedule rules, for the window producer.
+SELECT r.org_id, schedule.*
+FROM curtailment_automation_schedule schedule
+JOIN curtailment_automation_rule r ON r.id = schedule.rule_id
+WHERE r.enabled AND r.trigger_type = 'SCHEDULE'
+ORDER BY schedule.rule_id;

@@ -184,9 +184,10 @@ type CurtailmentServiceClient interface {
 	CreateCurtailmentResponseProfile(context.Context, *connect.Request[v1.CreateCurtailmentResponseProfileRequest]) (*connect.Response[v1.CreateCurtailmentResponseProfileResponse], error)
 	UpdateCurtailmentResponseProfile(context.Context, *connect.Request[v1.UpdateCurtailmentResponseProfileRequest]) (*connect.Response[v1.UpdateCurtailmentResponseProfileResponse], error)
 	DeleteCurtailmentResponseProfile(context.Context, *connect.Request[v1.DeleteCurtailmentResponseProfileRequest]) (*connect.Response[v1.DeleteCurtailmentResponseProfileResponse], error)
-	// Curtailment automation rules. Automation binds an MQTT source trigger to
-	// a response profile; MQTT target=0 starts curtailment and target=100
-	// restores/no-ops.
+	// Curtailment automation rules. Automation binds a trigger to a response
+	// profile. For MQTT rules, target=0 starts curtailment and target=100
+	// restores/no-ops. SCHEDULE rules curtail during each schedule window and
+	// restore at its end.
 	ListCurtailmentAutomationRules(context.Context, *connect.Request[v1.ListCurtailmentAutomationRulesRequest]) (*connect.Response[v1.ListCurtailmentAutomationRulesResponse], error)
 	GetCurtailmentAutomationRule(context.Context, *connect.Request[v1.GetCurtailmentAutomationRuleRequest]) (*connect.Response[v1.GetCurtailmentAutomationRuleResponse], error)
 	CreateCurtailmentAutomationRule(context.Context, *connect.Request[v1.CreateCurtailmentAutomationRuleRequest]) (*connect.Response[v1.CreateCurtailmentAutomationRuleResponse], error)
@@ -598,9 +599,10 @@ type CurtailmentServiceHandler interface {
 	CreateCurtailmentResponseProfile(context.Context, *connect.Request[v1.CreateCurtailmentResponseProfileRequest]) (*connect.Response[v1.CreateCurtailmentResponseProfileResponse], error)
 	UpdateCurtailmentResponseProfile(context.Context, *connect.Request[v1.UpdateCurtailmentResponseProfileRequest]) (*connect.Response[v1.UpdateCurtailmentResponseProfileResponse], error)
 	DeleteCurtailmentResponseProfile(context.Context, *connect.Request[v1.DeleteCurtailmentResponseProfileRequest]) (*connect.Response[v1.DeleteCurtailmentResponseProfileResponse], error)
-	// Curtailment automation rules. Automation binds an MQTT source trigger to
-	// a response profile; MQTT target=0 starts curtailment and target=100
-	// restores/no-ops.
+	// Curtailment automation rules. Automation binds a trigger to a response
+	// profile. For MQTT rules, target=0 starts curtailment and target=100
+	// restores/no-ops. SCHEDULE rules curtail during each schedule window and
+	// restore at its end.
 	ListCurtailmentAutomationRules(context.Context, *connect.Request[v1.ListCurtailmentAutomationRulesRequest]) (*connect.Response[v1.ListCurtailmentAutomationRulesResponse], error)
 	GetCurtailmentAutomationRule(context.Context, *connect.Request[v1.GetCurtailmentAutomationRuleRequest]) (*connect.Response[v1.GetCurtailmentAutomationRuleResponse], error)
 	CreateCurtailmentAutomationRule(context.Context, *connect.Request[v1.CreateCurtailmentAutomationRuleRequest]) (*connect.Response[v1.CreateCurtailmentAutomationRuleResponse], error)

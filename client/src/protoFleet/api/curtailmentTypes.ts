@@ -1,4 +1,5 @@
 import type { CurtailmentTerminalScopeType } from "@/protoFleet/api/curtailmentScopes";
+import type { CurtailmentScheduleDayOfWeek } from "@/protoFleet/api/generated/curtailment/v1/curtailment_pb";
 
 export type CurtailmentEventState =
   "pending" | "active" | "restoring" | "completed" | "completedWithFailures" | "cancelled" | "failed" | "unknown";
@@ -106,6 +107,8 @@ export interface ActiveCurtailmentEvent {
   scopeLabel: string;
   sourceLabel: string;
   isAutomationOwned: boolean;
+  // Schedule-owned events are automation-owned, but operators may stop them early.
+  isScheduleOwned?: boolean;
   targetSiteCoverage?: ActiveCurtailmentTargetSiteCoverage;
   createdAt?: string;
   scheduledStartAt?: string;
@@ -275,13 +278,38 @@ export function isEditableResponseProfile(profile: ResponseProfile): profile is 
   return !profile.isReadOnly && profile.formValues !== undefined;
 }
 
-export type AutomationConditionType = "mqttTriggerTargetOff" | "marketPriceAbove" | "hashpriceBelow" | "capacityAbove";
+export type AutomationConditionType =
+  "mqttTriggerTargetOff" | "schedule" | "marketPriceAbove" | "hashpriceBelow" | "capacityAbove";
 
 export type AutomationRuleFormValues = {
   name: string;
   sourceId: string;
   responseProfileId: string;
   responseProfileRevision: string;
+};
+
+export type CurtailmentScheduleType = "oneTime" | "recurring";
+export type CurtailmentScheduleFrequency = "daily" | "weekly" | "monthly";
+
+// Dates are YYYY-MM-DD and times are HH:MM, local to timezone.
+export type CurtailmentScheduleDefinition = {
+  scheduleType: CurtailmentScheduleType;
+  timezone: string;
+  startDate: string;
+  startTime: string;
+  endTime: string;
+  endDate: string;
+  frequency: CurtailmentScheduleFrequency;
+  daysOfWeek: CurtailmentScheduleDayOfWeek[];
+  dayOfMonth: string;
+  untilDate: string;
+};
+
+export type ScheduleRuleFormValues = {
+  name: string;
+  responseProfileId: string;
+  responseProfileRevision: string;
+  schedule: CurtailmentScheduleDefinition;
 };
 
 export type AutomationRule = {
@@ -294,6 +322,9 @@ export type AutomationRule = {
   conditionType: AutomationConditionType;
   conditionSummary: string;
   sourceId?: string;
+  schedule?: CurtailmentScheduleDefinition;
+  windowStartAt?: Date;
+  windowEndAt?: Date;
   responseProfileId: string;
   responseProfileName?: string;
   enabled: boolean;

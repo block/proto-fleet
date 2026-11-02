@@ -1,0 +1,169 @@
+package sqlstores_test
+
+import (
+	"fmt"
+	"testing"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/block/proto-fleet/server/internal/domain/curtailment/models"
+	"github.com/block/proto-fleet/server/internal/domain/curtailment/schedulewindow"
+	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
+	"github.com/block/proto-fleet/server/internal/domain/stores/sqlstores"
+	"github.com/block/proto-fleet/server/internal/testutil"
+)
+
+func TestSQLCurtailmentStore_ScheduleAutomationRuleLifecycle(t *testing.T) {
+	if testing.Short() {
+		t.Skip("database integration")
+	}
+	tc := testutil.InitializeDBServiceInfrastructure(t)
+	user := tc.DatabaseService.CreateSuperAdminUser()
+	ctx := t.Context()
+	database := tc.DatabaseService.DB
+	store := sqlstores.NewSQLCurtailmentStore(database)
+	profileID := seedResponseProfile(t, database, user.OrganizationID, "schedule-profile")
+	profile, err := store.GetResponseProfile(ctx, user.OrganizationID, profileID)
+	require.NoError(t, err)
+
+	schedule := &models.AutomationSchedule{
+		Definition: schedulewindow.Definition{
+			Type:       schedulewindow.TypeRecurring,
+			Timezone:   "America/Chicago",
+			StartDate:  "2026-06-01",
+			StartTime:  "22:00",
+			EndTime:    "06:00",
+			Frequency:  schedulewindow.FrequencyWeekly,
+			DaysOfWeek: []time.Weekday{time.Monday, time.Friday},
+			UntilDate:  "2026-12-31",
+		},
+		ServiceUserID: user.DatabaseID,
+	}
+	rule, err := store.CreateAutomationRule(ctx, models.AutomationRule{
+		OrgID: user.OrganizationID, RuleName: "weeknight-peak", TriggerType: models.AutomationTriggerTypeSchedule,
+		Schedule: schedule, ResponseProfileID: profileID, ResponseProfileRevision: profile.Revision,
+		Enabled: true, AdminControlsGranted: true,
+	}, models.ResponseProfileFanSettings{})
+	require.NoError(t, err)
+	assert.Equal(t, models.AutomationTriggerTypeSchedule, rule.TriggerType)
+	assert.Equal(t, int64(0), rule.MQTTSourceID)
+	assert.Empty(t, rule.MQTTSourceName)
+	assert.Equal(t, "bound", rule.BindingStatus)
+	assert.Equal(t, "idle", rule.ExecutionStatus, "saving a schedule clears its mailbox for a fresh assertion")
+	require.NotNil(t, rule.Schedule)
+	assert.Equal(t, *schedule, *rule.Schedule)
+
+	listed, err := store.ListAutomationRules(ctx, user.OrganizationID)
+	require.NoError(t, err)
+	require.Len(t, listed, 1)
+	require.NotNil(t, listed[0].Schedule)
+	assert.Equal(t, schedule.Definition, listed[0].Schedule.Definition)
+
+	enabled, err := store.ListEnabledScheduleAutomationRules(ctx)
+	require.NoError(t, err)
+	var found *models.ScheduledAutomationRule
+	for i := range enabled {
+		if enabled[i].RuleID == rule.ID {
+			found = &enabled[i]
+		}
+	}
+	require.NotNil(t, found)
+	assert.Equal(t, user.OrganizationID, found.OrgID)
+	assert.Equal(t, schedule.Definition, found.Schedule.Definition)
+
+	// Updating the schedule replaces its definition.
+	updated := *rule
+	daily := *schedule
+	daily.Definition.Frequency = schedulewindow.FrequencyDaily
+	daily.Definition.DaysOfWeek = nil
+	updated.Schedule = &daily
+	rule, err = store.UpdateAutomationRule(ctx, updated, models.ResponseProfileFanSettings{})
+	require.NoError(t, err)
+	assert.Equal(t, daily.Definition, rule.Schedule.Definition)
+
+	// A window boundary is applied once; only a newer boundary replaces it.
+	start := time.Now().UTC().Add(-time.Hour).Truncate(time.Second)
+	require.NoError(t, store.QueueScheduleAutomationExecution(ctx, rule.ID, models.AutomationSignalOff, "schedule_start", start))
+	claimed, err := store.ClaimAutomationExecution(ctx)
+	require.NoError(t, err)
+	require.NotNil(t, claimed)
+	assert.Equal(t, int64(0), claimed.MQTTSourceID)
+	assert.Equal(t, models.AutomationSignalOff, claimed.Target)
+	assert.True(t, claimed.ReceivedAt.Equal(start))
+	require.NoError(t, store.CompleteAutomationExecution(ctx, rule.ID, claimed.Generation, claimed.LeaseExpiresAt))
+	require.NoError(t, store.QueueScheduleAutomationExecution(ctx, rule.ID, models.AutomationSignalOff, "schedule_start", start))
+	again, err := store.ClaimAutomationExecution(ctx)
+	require.NoError(t, err)
+	assert.Nil(t, again, "a completed window boundary must not run again")
+	require.NoError(t, store.QueueScheduleAutomationExecution(ctx, rule.ID, models.AutomationSignalOn, "schedule_end", start.Add(time.Hour)))
+	end, err := store.ClaimAutomationExecution(ctx)
+	require.NoError(t, err)
+	require.NotNil(t, end)
+	assert.Equal(t, models.AutomationSignalOn, end.Target)
+	require.NoError(t, store.CompleteAutomationExecution(ctx, rule.ID, end.Generation, end.LeaseExpiresAt))
+
+	// A scheduled event starts under the schedule's grant and service user.
+	ref := fmt.Sprint(rule.ID)
+	external := "curtailment_automation"
+	key := "curtailment_automation_rule:" + ref
+	capSeconds := int32(3600)
+	event := curtailmentStoreClosedLoopFullFleetEvent(user.OrganizationID, user.DatabaseID, uuid.New(), models.ScopeTypeWholeOrg, 0, ref)
+	event.SourceActorType = models.SourceActorScheduler
+	event.ExternalSource = &external
+	event.ExternalReference = &ref
+	event.IdempotencyKey = &key
+	event.ScheduledStartAt = &start
+	event.MaxDurationSeconds = &capSeconds
+	event.ResponseProfileID = profileID
+	event.ResponseProfileRevision = profile.Revision
+	event.AutomationRuleID = rule.ID
+	event.DecisionSnapshotJSON = []byte(fmt.Sprintf(`{"response_profile_id":%d,"response_profile_revision":%q}`, profileID, profile.Revision.String()))
+
+	wrongUser := event
+	wrongUser.CreatedByUserID = tc.DatabaseService.CreateSuperAdminUser2().DatabaseID
+	_, err = store.InsertEventWithTargets(ctx, wrongUser, nil)
+	require.Error(t, err, "a scheduled event must run as the schedule's service user")
+	assert.True(t, fleeterror.IsFailedPreconditionError(err), err)
+	assert.Contains(t, err.Error(), "automation rule changed before execution")
+
+	_, err = store.InsertEventWithTargets(ctx, event, nil)
+	require.NoError(t, err)
+	require.NoError(t, store.SetAutomationActiveEvent(ctx, rule.ID, 0, event.EventUUID, start))
+	persisted, err := store.GetEventByUUID(ctx, user.OrganizationID, event.EventUUID)
+	require.NoError(t, err)
+	assert.Equal(t, models.SourceActorScheduler, persisted.SourceActorType)
+	require.NotNil(t, persisted.ScheduledStartAt)
+	assert.True(t, persisted.ScheduledStartAt.Equal(start))
+	allowed, err := store.AuthorizeAutomationCurtailDispatch(ctx, persisted, interfaces.CurtailmentTopologyScopeCoverage{RequireOrgWide: true})
+	require.NoError(t, err)
+	assert.True(t, allowed)
+
+	rule, err = store.GetAutomationRule(ctx, user.OrganizationID, rule.ID)
+	require.NoError(t, err)
+	require.NotNil(t, rule.ActiveEventUUID)
+	assert.Equal(t, event.EventUUID, *rule.ActiveEventUUID)
+}
+
+func TestSQLCurtailmentStore_AutomationRuleTriggerConstraints(t *testing.T) {
+	if testing.Short() {
+		t.Skip("database integration")
+	}
+	tc := testutil.InitializeDBServiceInfrastructure(t)
+	user := tc.DatabaseService.CreateSuperAdminUser()
+	ctx := t.Context()
+	database := tc.DatabaseService.DB
+	sourceID := seedMQTTSourceConfig(t, database, user.OrganizationID, user.DatabaseID, "constraint-source", true)
+	profileID := seedResponseProfile(t, database, user.OrganizationID, "constraint-profile")
+
+	insert := `INSERT INTO curtailment_automation_rule (org_id, rule_name, trigger_type, mqtt_source_id, response_profile_id) VALUES ($1, $2, $3, $4, $5)`
+	_, err := database.ExecContext(ctx, insert, user.OrganizationID, "schedule-with-source", "SCHEDULE", sourceID, profileID)
+	require.Error(t, err, "schedule rules cannot reference an MQTT source")
+	_, err = database.ExecContext(ctx, insert, user.OrganizationID, "mqtt-without-source", "MQTT", nil, profileID)
+	require.Error(t, err, "MQTT rules require an MQTT source")
+	_, err = database.ExecContext(ctx, insert, user.OrganizationID, "unknown-trigger", "WEBHOOK", nil, profileID)
+	require.Error(t, err)
+}

@@ -20,10 +20,16 @@ type AutomationExecutionStore interface {
 
 // Run drains independent rule mailboxes until shutdown. Failed rules retain
 // their latest assertion with backoff; another rule remains immediately due.
+// Schedule rules assert their current window into the same mailboxes.
 func (s *AutomationService) Run(ctx context.Context) {
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
+	var lastScheduleProduce time.Time
 	for {
+		if now := s.clock(); now.Sub(lastScheduleProduce) >= scheduleProduceInterval {
+			s.produceScheduleAssertions(ctx)
+			lastScheduleProduce = now
+		}
 		s.processDueExecutions(ctx)
 		select {
 		case <-ctx.Done():
@@ -52,7 +58,9 @@ func (s *AutomationService) processDueExecutions(ctx context.Context) {
 		}
 		attemptCtx, cancel := context.WithTimeout(ctx, time.Minute)
 		rule, err := s.store.GetAutomationRule(attemptCtx, work.OrgID, work.RuleID)
-		if err == nil {
+		if err == nil && work.MQTTSourceID == 0 {
+			err = s.handleScheduleExecution(attemptCtx, rule, work)
+		} else if err == nil {
 			var source mqttingest.SourceConfig
 			source, err = s.sourceStore.GetSourceConfigByOrg(attemptCtx, work.OrgID, work.MQTTSourceID)
 			if err == nil && rule.Enabled && source.Enabled && rule.MQTTSourceID == source.ID {

@@ -967,7 +967,7 @@ type ContainerTopologyVersion struct {
 
 type CurtailmentAutomationExecution struct {
 	RuleID         int64
-	MqttSourceID   int64
+	MqttSourceID   sql.NullInt64
 	Generation     int64
 	Direction      string
 	Target         string
@@ -997,7 +997,7 @@ type CurtailmentAutomationRule struct {
 	OrgID             int64
 	RuleName          string
 	TriggerType       string
-	MqttSourceID      int64
+	MqttSourceID      sql.NullInt64
 	ResponseProfileID int64
 	Enabled           bool
 	CreatedAt         time.Time
@@ -1009,7 +1009,7 @@ type CurtailmentAutomationRuleBinding struct {
 	OrgID                    int64
 	RuleName                 string
 	TriggerType              string
-	MqttSourceID             int64
+	MqttSourceID             sql.NullInt64
 	ResponseProfileID        int64
 	Enabled                  bool
 	CreatedAt                time.Time
@@ -1036,6 +1036,23 @@ type CurtailmentAutomationRuleState struct {
 	LastError       sql.NullString
 	LastErrorAt     sql.NullTime
 	UpdatedAt       time.Time
+}
+
+type CurtailmentAutomationSchedule struct {
+	RuleID        int64
+	ScheduleType  string
+	Timezone      string
+	StartDate     time.Time
+	StartTime     string
+	EndTime       string
+	EndDate       sql.NullTime
+	Frequency     sql.NullString
+	DaysOfWeek    []int32
+	DayOfMonth    sql.NullInt16
+	UntilDate     sql.NullTime
+	ServiceUserID int64
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
 }
 
 type CurtailmentEvent struct {
