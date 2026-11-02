@@ -1,7 +1,6 @@
 package pairing
 
 import (
-	"context"
 	"sync"
 	"testing"
 	"time"
@@ -20,11 +19,14 @@ import (
 
 func TestPairOnNodeRejectsOutsideLiveDiscoveryScopeBeforeDispatch(t *testing.T) {
 	for _, tc := range []struct {
-		name   string
-		config *gatewaypb.DiscoveryConfig
-		target *pairingpb.FleetNodePairTarget
+		name        string
+		config      *gatewaypb.DiscoveryConfig
+		target      *pairingpb.FleetNodePairTarget
+		configError bool
 	}{
-		{name: "missing live config", target: &pairingpb.FleetNodePairTarget{DeviceIdentifier: "miner", IpAddress: "10.0.0.1"}},
+		{name: "missing live config", target: &pairingpb.FleetNodePairTarget{DeviceIdentifier: "miner", IpAddress: "10.0.0.1"}, configError: true},
+		{name: "empty live ranges", config: &gatewaypb.DiscoveryConfig{}, target: &pairingpb.FleetNodePairTarget{DeviceIdentifier: "miner", IpAddress: "10.0.0.1"}, configError: true},
+		{name: "invalid live ranges", config: &gatewaypb.DiscoveryConfig{Ranges: []string{"invalid"}}, target: &pairingpb.FleetNodePairTarget{DeviceIdentifier: "miner", IpAddress: "10.0.0.1"}, configError: true},
 		{name: "outside range", config: &gatewaypb.DiscoveryConfig{Ranges: []string{"10.0.0.0/24"}}, target: &pairingpb.FleetNodePairTarget{DeviceIdentifier: "miner", IpAddress: "10.0.1.1"}},
 		{name: "outside group member", config: &gatewaypb.DiscoveryConfig{Ranges: []string{"10.0.0.0/24"}}, target: &pairingpb.FleetNodePairTarget{DeviceIdentifier: "miner", IpAddress: "10.0.0.1", Endpoints: []*commonpb.DeviceEndpoint{{Host: "10.0.0.1"}, {Host: "10.0.1.1"}}}},
 	} {
@@ -34,10 +36,20 @@ func TestPairOnNodeRejectsOutsideLiveDiscoveryScopeBeforeDispatch(t *testing.T) 
 			defer stream.Unregister()
 			stream.SetDiscoveryConfig(tc.config)
 			service := NewService(nil, nil, nil).WithProvisioning(nil, nil, registry)
-			ctx, cancel := context.WithCancel(t.Context())
-			cancel()
-			err := service.PairOnNode(ctx, 7, []*pairingpb.FleetNodePairTarget{tc.target}, nil, 20, nil, func([]*gatewaypb.FleetNodePairResult) error { return nil })
-			require.True(t, fleeterror.IsFailedPreconditionError(err), "got %v", err)
+			var results []*gatewaypb.FleetNodePairResult
+			err := service.PairOnNode(t.Context(), 7, []*pairingpb.FleetNodePairTarget{tc.target}, nil, 20, nil, func(batch []*gatewaypb.FleetNodePairResult) error {
+				results = append(results, batch...)
+				return nil
+			})
+			if tc.configError {
+				require.True(t, fleeterror.IsFailedPreconditionError(err), "got %v", err)
+			} else {
+				require.NoError(t, err, "target failures must not stop the caller's pagination")
+			}
+			require.Len(t, results, 1)
+			assert.Equal(t, tc.target.GetDeviceIdentifier(), results[0].GetDeviceIdentifier())
+			assert.Equal(t, gatewaypb.PairOutcome_PAIR_OUTCOME_ERROR, results[0].GetOutcome())
+			assert.Equal(t, outOfScopeMessage, results[0].GetErrorMessage())
 			require.Empty(t, stream.Outgoing)
 		})
 	}
