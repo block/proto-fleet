@@ -2,13 +2,15 @@
 package discoveryranges
 
 import (
-	"encoding/binary"
+	"cmp"
 	"fmt"
 	"iter"
 	"net/netip"
 	"slices"
 	"sort"
 	"strings"
+
+	"github.com/block/proto-fleet/server/internal/domain/netutil"
 )
 
 // Range is an inclusive IPv4 interval.
@@ -41,10 +43,7 @@ func Parse(values []string) (Scope, error) {
 		ranges = append(ranges, r)
 	}
 	slices.SortFunc(ranges, func(a, b Range) int {
-		if comparison := a.Start.Compare(b.Start); comparison != 0 {
-			return comparison
-		}
-		return a.End.Compare(b.End)
+		return cmp.Or(a.Start.Compare(b.Start), a.End.Compare(b.End))
 	})
 	merged := ranges[:0]
 	for _, r := range ranges {
@@ -62,45 +61,25 @@ func Parse(values []string) (Scope, error) {
 func parseRange(value string) (Range, error) {
 	var r Range
 	var err error
-	switch {
-	case strings.Contains(value, "/"):
+	if start, end, ok := strings.Cut(value, "-"); ok {
+		r.Start, r.End, err = netutil.ParseIPRange(strings.TrimSpace(start), strings.TrimSpace(end))
+	} else {
 		var prefix netip.Prefix
-		prefix, err = netip.ParsePrefix(value)
+		prefix, err = netutil.ParseCIDROrIP(value)
 		if err == nil && prefix.Addr().Is4() {
-			r.Start = prefix.Masked().Addr()
-			start := r.Start.As4()
-			end := binary.BigEndian.Uint32(start[:]) | (^uint32(0) >> prefix.Bits())
-			var endBytes [4]byte
-			binary.BigEndian.PutUint32(endBytes[:], end)
-			r.End = netip.AddrFrom4(endBytes)
+			r.Start, r.End = netutil.IPv4PrefixBounds(prefix)
 		}
-	case strings.Contains(value, "-"):
-		start, end, _ := strings.Cut(value, "-")
-		r.Start, err = netip.ParseAddr(strings.TrimSpace(start))
-		if err == nil {
-			r.End, err = netip.ParseAddr(strings.TrimSpace(end))
-		}
-	default:
-		r.Start, err = netip.ParseAddr(value)
-		r.End = r.Start
 	}
 	if err != nil {
 		return Range{}, fmt.Errorf("parse IPv4 range: %w", err)
 	}
-	return r, validateRange(r)
-}
-
-func validateRange(r Range) error {
 	if !r.Start.Is4() || !r.End.Is4() {
-		return fmt.Errorf("only IPv4 addresses are supported")
-	}
-	if r.Start.Compare(r.End) > 0 {
-		return fmt.Errorf("start address must not exceed end address")
+		return Range{}, fmt.Errorf("only IPv4 addresses are supported")
 	}
 	if !WithinPrivateNetwork(r.Start, r.End) {
-		return fmt.Errorf("range must remain within one private IPv4 network")
+		return Range{}, fmt.Errorf("range must remain within one private IPv4 network")
 	}
-	return nil
+	return r, nil
 }
 
 // WithinPrivateNetwork reports whether both addresses lie in the same RFC 1918 network.
