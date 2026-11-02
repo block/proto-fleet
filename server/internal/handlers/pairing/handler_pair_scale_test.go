@@ -435,7 +435,7 @@ func TestPairFleetNodeDevicesContinuesPastOutOfScopeBatch(t *testing.T) {
 	require.NoError(t, got.err)
 	assert.Len(t, targets, len(inScope))
 	assert.True(t, got.route.remoteSucceeded)
-	assert.True(t, fleetnodepairing.IsOutOfScopeError(got.route.remoteErr), "got %v", got.route.remoteErr)
+	assert.NoError(t, got.route.remoteErr)
 	assert.Equal(t, outOfScope, got.resp.GetFailedDeviceIds())
 }
 

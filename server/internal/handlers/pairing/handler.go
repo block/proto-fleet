@@ -417,9 +417,7 @@ func (h *Handler) pairFleetNodeDevices(ctx context.Context, orgID, userID int64,
 					if item.route.remoteErr == nil {
 						item.route.remoteErr = err
 					}
-					if !fleetnodepairing.IsOutOfScopeError(err) {
-						return
-					}
+					return
 				}
 			}
 		}()
@@ -461,13 +459,7 @@ func (h *Handler) pairAllMatchingFleetNodeDevices(ctx context.Context, nodeID, o
 		}
 		recordFleetNodePairTargets(targets, true, route.routedExplicit, route.routedAllDevices, failed)
 		if err := h.pairFleetNodeTargetBatch(ctx, nodeID, orgID, userID, req, targets, true, route, failed); err != nil {
-			if !fleetnodepairing.IsOutOfScopeError(err) {
-				return err
-			}
-			slog.Warn("fleet node pairing skipped a batch outside discovery ranges", "fleet_node_id", nodeID, "error", err)
-			if route.remoteErr == nil {
-				route.remoteErr = err
-			}
+			return err
 		}
 		cursorID = nextCursor
 		if cursorID == nil {

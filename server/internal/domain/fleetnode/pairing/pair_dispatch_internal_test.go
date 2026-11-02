@@ -390,7 +390,7 @@ func TestPairTargetsOnNodeChunksPublicSelectionAndStopsNewCommands(t *testing.T)
 	}
 }
 
-func TestPairTargetsOnNodeSkipsOutOfScopeBatchAndReturnsItsError(t *testing.T) {
+func TestPairTargetsOnNodeContinuesPastOutOfScopeBatch(t *testing.T) {
 	registry := control.NewRegistry()
 	stream := registry.Register(7)
 	stream.SetDiscoveryConfig(&gatewaypb.DiscoveryConfig{Ranges: []string{"10.0.0.0/24"}})
@@ -432,7 +432,7 @@ func TestPairTargetsOnNodeSkipsOutOfScopeBatchAndReturnsItsError(t *testing.T) {
 		t.Fatal("pairing did not finish")
 	}
 
-	assert.True(t, IsOutOfScopeError(err), "got %v", err)
+	require.NoError(t, err)
 	require.Len(t, dispatched, MaxPairBatch)
 	assert.Equal(t, "miner-128", dispatched[0])
 	assert.Len(t, reported, 2*MaxPairBatch, "every target has a terminal result")
