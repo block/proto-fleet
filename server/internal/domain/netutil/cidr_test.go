@@ -2,8 +2,28 @@ package netutil
 
 import (
 	"errors"
+	"net/netip"
 	"testing"
 )
+
+func TestIPv4PrefixBounds(t *testing.T) {
+	for _, tc := range []struct {
+		prefix, first, last string
+	}{
+		{"10.0.0.1/0", "0.0.0.0", "255.255.255.255"},
+		{"10.1.2.3/8", "10.0.0.0", "10.255.255.255"},
+		{"192.168.1.7/30", "192.168.1.4", "192.168.1.7"},
+		{"10.0.0.1/31", "10.0.0.0", "10.0.0.1"},
+		{"255.255.255.255/32", "255.255.255.255", "255.255.255.255"},
+	} {
+		t.Run(tc.prefix, func(t *testing.T) {
+			first, last := IPv4PrefixBounds(netip.MustParsePrefix(tc.prefix))
+			if first.String() != tc.first || last.String() != tc.last {
+				t.Fatalf("bounds = %s-%s, want %s-%s", first, last, tc.first, tc.last)
+			}
+		})
+	}
+}
 
 func TestParseCIDROrIP(t *testing.T) {
 	cases := []struct {
