@@ -339,7 +339,6 @@ func (h *Handler) pairFleetNodeDevices(ctx context.Context, orgID, userID int64,
 	if len(nodeIDs) == 0 {
 		return resp, route, nil
 	}
-	// Ownership of a device discovered by several nodes goes to the lowest node ID.
 	nodeIDs = slices.Sorted(slices.Values(nodeIDs))
 
 	ctx, cancel := context.WithTimeout(ctx, pairFleetNodeDeadline)
@@ -368,15 +367,11 @@ func (h *Handler) pairFleetNodeDevices(ctx context.Context, orgID, userID int64,
 				if err != nil {
 					return nil, fleetNodePairRoute{}, err
 				}
-				matched := make([]*pb.FleetNodePairTarget, 0, len(targets))
 				for _, target := range targets {
-					if _, needed := pending[target.GetDeviceIdentifier()]; needed {
-						delete(pending, target.GetDeviceIdentifier())
-						matched = append(matched, target)
-					}
+					delete(pending, target.GetDeviceIdentifier())
 				}
-				item.targets = append(item.targets, matched...)
-				recordFleetNodePairTargets(matched, false, item.route.routedExplicit, item.route.routedAllDevices, item.failed)
+				item.targets = append(item.targets, targets...)
+				recordFleetNodePairTargets(targets, false, item.route.routedExplicit, item.route.routedAllDevices, item.failed)
 			}
 			if len(item.targets) == 0 {
 				continue
@@ -405,8 +400,6 @@ func (h *Handler) pairFleetNodeDevices(ctx context.Context, orgID, userID int64,
 			if allDevicesFilter != nil {
 				if err := h.pairAllMatchingFleetNodeDevices(ctx, item.nodeID, orgID, userID, allDevicesFilter, req, &item.route, item.failed); err != nil {
 					slog.Warn("fleet node pairing stopped; returning failed targets in pair response", "fleet_node_id", item.nodeID, "error", err)
-					// A node that failed before dispatching still has to surface its
-					// error through the all-devices route.
 					item.route.allDevices = true
 					if item.route.remoteErr == nil {
 						item.route.remoteErr = err
@@ -453,9 +446,6 @@ func (h *Handler) pairFleetNodeDevices(ctx context.Context, orgID, userID int64,
 	return resp, route, nil
 }
 
-// pairAllMatchingFleetNodeDevices pages through the node's matching devices. A
-// batch outside the node's discovery ranges is recorded and skipped; any other
-// error stops this node and is returned.
 func (h *Handler) pairAllMatchingFleetNodeDevices(ctx context.Context, nodeID, orgID, userID int64, allDevicesFilter *minercommandv1.DeviceFilter, req *pb.PairRequest, route *fleetNodePairRoute, failed map[string]struct{}) error {
 	var cursorID *int64
 	for {

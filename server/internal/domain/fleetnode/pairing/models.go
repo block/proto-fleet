@@ -19,8 +19,6 @@ const (
 )
 
 type DiscoveredDeviceReport struct {
-	// BoundToFleetNode is derived by the store, never trusted from node reports.
-	BoundToFleetNode bool
 	RPCPort          int32
 	RPCTLS           bool
 	Endpoints        []*commonpb.DeviceEndpoint
@@ -50,7 +48,6 @@ type FleetNodeDevice struct {
 // or credential retry. PairingStatus is empty when never attempted, or
 // "AUTHENTICATION_NEEDED" after pairing or recovery needs new credentials.
 type FleetNodeDiscoveredDevice struct {
-	BoundToFleetNode bool
 	RPCPort          int32
 	RPCTLS           bool
 	Endpoints        []*commonpb.DeviceEndpoint

@@ -676,7 +676,6 @@ func defaultPasswordActiveForStatus(status string) *bool {
 
 func toPairingDevice(d pairing.DiscoveredDeviceReport) *pairingpb.Device {
 	return &pairingpb.Device{
-		BoundToFleetNode: d.BoundToFleetNode,
 		DeviceIdentifier: d.DeviceIdentifier,
 		IpAddress:        d.IPAddress,
 		Port:             d.Port,

@@ -89,23 +89,6 @@ beforeEach(() => {
 });
 
 describe("FindNodeMinersModal", () => {
-  it("preserves binding metadata for repair capacity without confusing an unbound auth attempt", async () => {
-    listDiscovered.mockResolvedValue({
-      devices: [
-        create(FleetNodeDiscoveredDeviceSchema, {
-          ...miner,
-          pairingStatus: "AUTHENTICATION_NEEDED",
-          boundToFleetNode: true,
-        }),
-        create(FleetNodeDiscoveredDeviceSchema, { ...otherMiner, pairingStatus: "AUTHENTICATION_NEEDED" }),
-      ],
-      nextCursor: 0n,
-    });
-    useFleetStore.getState().auth.setPermissions(["fleetnode:read"]);
-    renderFinder({ node: { ...node, pairedDeviceCount: 3999 } });
-    expect(await screen.findByText("3,999 paired + 1 new (2 selected) = 4,000 total")).toBeInTheDocument();
-    expect(screen.queryByText(/Above|Exceeds/)).not.toBeInTheDocument();
-  });
   it("scans this Node's local subnet even when an upgrade is recommended", async () => {
     renderFinder({ node: { ...node, commandProtocolUpgradeRecommended: true } });
 

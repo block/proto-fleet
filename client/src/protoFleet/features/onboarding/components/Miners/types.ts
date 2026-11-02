@@ -5,15 +5,6 @@ export type MinerWithModel = Device & {
   model: string;
 };
 
-export type MinerWithSelected = MinerWithModel & {
-  selected: boolean;
-};
-
-export type MinerWithSelectedAndAction = MinerWithSelected & {
-  action?: null;
-  source?: string;
-};
-
 export type MinerDiscoveryMode = "onboarding" | "pairing";
 
 export type RemoteDiscoveryReadiness =

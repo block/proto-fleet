@@ -19,7 +19,7 @@ export const scaleFleetNodes: FleetNodeItem[] = Array.from({ length: 13 }, (_, i
   discoveryCoverageDegraded: false,
   discoveryConfigReported: true,
   discoveryRanges: [`10.${index}.0.0/20`],
-  pairedDeviceCount: index === 0 ? 1200 : index === 1 ? 200 : 0,
+  pairedDeviceCount: 0,
   haRole: FleetNodeHARole.FLEET_NODE_HA_ROLE_UNSPECIFIED,
   haPeerNodeId: null,
   haPeerNodeName: "",

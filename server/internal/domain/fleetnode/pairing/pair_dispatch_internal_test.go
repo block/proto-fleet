@@ -249,7 +249,6 @@ func TestPairOnNodePartialAckPreservesReportedAndMissingResults(t *testing.T) {
 func TestPairTargetsOnNodeChunksPublicSelectionAndStopsNewCommands(t *testing.T) {
 	for _, stop := range []string{"complete", "cancel", "command-error"} {
 		t.Run(stop, func(t *testing.T) {
-			// Arrange
 			registry := control.NewRegistry()
 			stream := registry.Register(7)
 			stream.SetDiscoveryConfig(&gatewaypb.DiscoveryConfig{Ranges: []string{"10.0.0.0/24"}})
@@ -278,7 +277,6 @@ func TestPairTargetsOnNodeChunksPublicSelectionAndStopsNewCommands(t *testing.T)
 				return results
 			}
 
-			// Act
 			go func() {
 				done <- service.PairTargetsOnNode(ctx, 7, targets, credentials, 20, nil, func(results []*gatewaypb.FleetNodePairResult) error {
 					reported += len(results)
@@ -313,7 +311,6 @@ func TestPairTargetsOnNodeChunksPublicSelectionAndStopsNewCommands(t *testing.T)
 					}
 					stream.PublishAck(&gatewaypb.ControlAck{CommandId: cmd.GetCommandId(), Code: code})
 				case err := <-done:
-					// Assert
 					if stop == "complete" {
 						require.NoError(t, err)
 						assert.Equal(t, len(targets)/MaxPairBatch, commands)
@@ -341,7 +338,6 @@ func TestPairTargetsOnNodeChunksPublicSelectionAndStopsNewCommands(t *testing.T)
 }
 
 func TestPairTargetsOnNodeSkipsOutOfScopeBatchAndReturnsItsError(t *testing.T) {
-	// Arrange
 	registry := control.NewRegistry()
 	stream := registry.Register(7)
 	stream.SetDiscoveryConfig(&gatewaypb.DiscoveryConfig{Ranges: []string{"10.0.0.0/24"}})
@@ -358,7 +354,6 @@ func TestPairTargetsOnNodeSkipsOutOfScopeBatchAndReturnsItsError(t *testing.T) {
 	var reported []*gatewaypb.FleetNodePairResult
 	done := make(chan error, 1)
 
-	// Act
 	go func() {
 		done <- service.PairTargetsOnNode(t.Context(), 7, targets, nil, 20, nil, func(results []*gatewaypb.FleetNodePairResult) error {
 			reported = append(reported, results...)
@@ -384,7 +379,6 @@ func TestPairTargetsOnNodeSkipsOutOfScopeBatchAndReturnsItsError(t *testing.T) {
 		t.Fatal("pairing did not finish")
 	}
 
-	// Assert
 	assert.True(t, IsOutOfScopeError(err), "got %v", err)
 	require.Len(t, dispatched, MaxPairBatch)
 	assert.Equal(t, "miner-128", dispatched[0])

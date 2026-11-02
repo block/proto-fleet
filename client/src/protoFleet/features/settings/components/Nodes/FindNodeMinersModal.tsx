@@ -62,7 +62,6 @@ const FindNodeMinersModal = ({
           create(DeviceSchema, {
             deviceIdentifier: device.deviceIdentifier,
             fleetNodeId: BigInt(node.fleetNodeId),
-            boundToFleetNode: device.boundToFleetNode,
             ipAddress: device.ipAddress,
             port: device.port,
             urlScheme: device.urlScheme,

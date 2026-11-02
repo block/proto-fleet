@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/netip"
 	"os"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -18,6 +19,7 @@ import (
 	pairingpb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
 	"github.com/block/proto-fleet/server/internal/domain/authz"
 	"github.com/block/proto-fleet/server/internal/domain/discoverylimits"
+	"github.com/block/proto-fleet/server/internal/domain/discoveryranges"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/auth"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/control"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/discovery"
@@ -53,6 +55,7 @@ func TestFleetNodeScaleDiscoveryAndPairing(t *testing.T) {
 	defer cancel()
 	pairingSvc := pairing.NewService(sqlstores.NewSQLFleetNodePairingStore(h.db), sqlstores.NewSQLFleetNodeEnrollmentStore(h.db), sqlstores.NewSQLTransactor(h.db)).WithProvisioning(sqlstores.NewSQLDeviceStore(h.db), sqlstores.NewSQLDiscoveredDeviceStore(h.db), h.registry)
 	var nodes scaleNodes
+	var discoveryCommands atomic.Int32
 	var discovered, paired atomic.Int64
 	failures := make(chan error, 2*nodeCount)
 	var workers sync.WaitGroup
@@ -73,7 +76,7 @@ func TestFleetNodeScaleDiscoveryAndPairing(t *testing.T) {
 			require.NoError(t, h.db.QueryRowContext(ctx, `INSERT INTO fleet_node (org_id,name,identity_pubkey,encryption_pubkey,enrollment_status) VALUES (1,$1,$2,$2,'CONFIRMED') RETURNING id`, fmt.Sprintf("scale-%d", i), key).Scan(&id))
 		}
 		nodes = append(nodes, enrollment.FleetNodeListing{FleetNode: enrollment.FleetNode{ID: id, OrgID: 1, EnrollmentStatus: enrollment.FleetNodeStatusConfirmed}})
-		stream, err := h.registry.RegisterAuthenticated(id, fmt.Sprintf("scale-session-%d", i), gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V8)
+		stream, err := h.registry.RegisterAuthenticated(id, fmt.Sprintf("scale-session-%d", i), gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V7)
 		require.NoError(t, err)
 		stream.SetDiscoveryConfig(&gatewaypb.DiscoveryConfig{Ranges: []string{first.String() + "-" + last.String()}})
 		workers.Add(1)
@@ -95,7 +98,12 @@ func TestFleetNodeScaleDiscoveryAndPairing(t *testing.T) {
 						return
 					}
 					if scan := env.GetDiscover(); scan != nil {
-						target, err := netscan.ParseTarget(scan.GetNetworkScan().GetTarget())
+						discoveryCommands.Add(1)
+						if scan.GetNetworkScan().GetTarget() != netscan.LocalSubnetTarget {
+							fail(fmt.Errorf("automatic discovery target was expanded by the server: %q", scan.GetNetworkScan().GetTarget()))
+							return
+						}
+						target, err := discoveryranges.Parse(h.registry.DiscoveryConfig(nodeID).GetRanges())
 						if err != nil {
 							fail(err)
 							return
@@ -104,18 +112,20 @@ func TestFleetNodeScaleDiscoveryAndPairing(t *testing.T) {
 						for address := range target.Addresses() {
 							reports = append(reports, &gatewaypb.DiscoveredDeviceReport{DeviceIdentifier: "scale:" + address.String(), IpAddress: address.String(), Port: "4028", UrlScheme: "http", DriverName: "virtual", DeviceClass: commonpb.DeviceClass_DEVICE_CLASS_RIG})
 						}
-						if len(reports) > discoverylimits.MaxPartitionAddresses {
+						if len(reports) > discoverylimits.MaxScanTargets {
 							fail(fmt.Errorf("scan has %d targets", len(reports)))
 							return
 						}
-						response, err := h.handler.ReportDiscoveredDevices(subjectCtx, connect.NewRequest(&gatewaypb.ReportDiscoveredDevicesRequest{CommandId: command.CommandId, Devices: reports}))
-						if err != nil {
-							fail(err)
-							return
-						}
-						if response.Msg.GetAcceptedCount() != int64(len(reports)) || response.Msg.GetRejectedCount() != 0 {
-							fail(fmt.Errorf("discovery rejected targets: %v", response.Msg))
-							return
+						for batch := range slices.Chunk(reports, 1024) {
+							response, err := h.handler.ReportDiscoveredDevices(subjectCtx, connect.NewRequest(&gatewaypb.ReportDiscoveredDevicesRequest{CommandId: command.CommandId, Devices: batch}))
+							if err != nil {
+								fail(err)
+								return
+							}
+							if response.Msg.GetAcceptedCount() != int64(len(batch)) || response.Msg.GetRejectedCount() != 0 {
+								fail(fmt.Errorf("discovery rejected targets: %v", response.Msg))
+								return
+							}
 						}
 					} else if request := env.GetPair(); request != nil {
 						if len(request.Targets) > pairing.MaxPairBatch {
@@ -182,6 +192,7 @@ func TestFleetNodeScaleDiscoveryAndPairing(t *testing.T) {
 	discoveryDuration := time.Since(started)
 
 	// Assert
+	require.EqualValues(t, nodeCount, discoveryCommands.Load())
 	require.Equal(t, int64(total), discovered.Load())
 	var unique int
 	require.NoError(t, h.db.QueryRowContext(ctx, `SELECT count(DISTINCT device_identifier) FROM discovered_device WHERE org_id=1 AND deleted_at IS NULL`).Scan(&unique))

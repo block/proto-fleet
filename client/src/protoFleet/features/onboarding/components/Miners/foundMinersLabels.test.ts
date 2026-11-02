@@ -73,10 +73,8 @@ describe("fleetSourceLabel", () => {
     ["7", "", "Fleet Node 7"],
     ["7", undefined, "Fleet Node 7"],
   ])("labels node %s with name %s as %s", (id, name, expected) => {
-    // Act
     const label = fleetSourceLabel(id, name);
 
-    // Assert
     expect(label).toBe(expected);
   });
 });

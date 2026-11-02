@@ -27,7 +27,8 @@ function MixedScan() {
   return (
     <FoundMinersModal
       open
-      miners={devices.map((device) => ({ ...device, selected: !deselected.includes(device.deviceIdentifier) }))}
+      miners={devices}
+      deselectedMinerIds={new Set(deselected)}
       setDeselectedMiners={setDeselected}
       onDismiss={() => {}}
     />
@@ -57,7 +58,8 @@ function LargeScan() {
   return (
     <FoundMinersModal
       open
-      miners={devices.map((device) => ({ ...device, selected: !deselectedIds.has(device.deviceIdentifier) }))}
+      miners={devices}
+      deselectedMinerIds={deselectedIds}
       fleetNodes={scaleFleetNodes}
       setDeselectedMiners={setDeselected}
       onDismiss={() => {}}

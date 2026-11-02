@@ -1,7 +1,6 @@
 import { Dispatch, SetStateAction, useCallback, useMemo, useState } from "react";
 import { fleetSourceLabel, foundSummary } from "./foundMinersLabels";
 import { createFoundMinersModelFilter, filterFoundMinerByModel } from "./foundMinersModelFilter";
-import type { MinerWithSelected, MinerWithSelectedAndAction } from "./types";
 import { DeviceClass } from "@/protoFleet/api/generated/common/v1/common_pb";
 import { Device } from "@/protoFleet/api/generated/pairing/v1/pairing_pb";
 import { type FleetNodeItem } from "@/protoFleet/api/useFleetNodes";
@@ -12,9 +11,11 @@ import Filters from "@/shared/components/List/Filters";
 import { ActiveFilters } from "@/shared/components/List/Filters/types";
 import Modal, { ModalSelectAllFooter } from "@/shared/components/Modal";
 
+type FoundMinerRow = Device & { source: string };
+
 const PAGE_SIZE = 100;
 
-const activeCols = ["model", "ipAddress", "source"] as (keyof MinerWithSelectedAndAction)[];
+const activeCols = ["model", "ipAddress", "source"] as (keyof FoundMinerRow)[];
 
 const minerColTitles = {
   model: "Model",
@@ -32,8 +33,7 @@ const colConfig = {
     // name ("CU1") leaks into the discovery table, matching the group label and
     // the model filter option. Non-container rows keep their raw model string.
     // Filtering/sorting still key off the untouched `miner.model` field.
-    component: (item: MinerWithSelectedAndAction) =>
-      item.deviceClass === DeviceClass.CONTAINER ? "Proto Container" : item.model,
+    component: (item: FoundMinerRow) => (item.deviceClass === DeviceClass.CONTAINER ? "Proto Container" : item.model),
   },
   ipAddress: {
     width: "w-full pr-10",
@@ -42,13 +42,21 @@ const colConfig = {
 
 type FoundMinersModalProps = {
   open?: boolean;
-  miners: MinerWithSelected[];
+  miners: Device[];
+  deselectedMinerIds: ReadonlySet<string>;
   fleetNodes?: FleetNodeItem[];
   setDeselectedMiners: Dispatch<SetStateAction<Device["deviceIdentifier"][]>>;
   onDismiss: () => void;
 };
 
-const FoundMinersModal = ({ open, miners, fleetNodes, setDeselectedMiners, onDismiss }: FoundMinersModalProps) => {
+const FoundMinersModal = ({
+  open,
+  miners,
+  deselectedMinerIds,
+  fleetNodes,
+  setDeselectedMiners,
+  onDismiss,
+}: FoundMinersModalProps) => {
   const [page, setPage] = useState(0);
   const [activeFilters, setActiveFilters] = useState<ActiveFilters>({
     buttonFilters: [],
@@ -57,7 +65,10 @@ const FoundMinersModal = ({ open, miners, fleetNodes, setDeselectedMiners, onDis
     textareaListFilters: {},
   });
 
-  const selectedCount = useMemo(() => miners.reduce((count, miner) => count + Number(miner.selected), 0), [miners]);
+  const selectedCount = useMemo(
+    () => miners.reduce((count, miner) => count + Number(!deselectedMinerIds.has(miner.deviceIdentifier)), 0),
+    [miners, deselectedMinerIds],
+  );
 
   const updateSelection = useCallback(
     (ids: Set<string>, isSelected: (id: string) => boolean) => {
@@ -140,7 +151,7 @@ const FoundMinersModal = ({ open, miners, fleetNodes, setDeselectedMiners, onDis
             return (
               <section key={label} aria-label={label}>
                 <h3 className="px-3 py-2 text-emphasis-300">{label}</h3>
-                <List<MinerWithSelectedAndAction, MinerWithSelectedAndAction["deviceIdentifier"]>
+                <List<FoundMinerRow, FoundMinerRow["deviceIdentifier"]>
                   activeCols={activeCols}
                   colTitles={minerColTitles}
                   colConfig={colConfig}
@@ -148,7 +159,9 @@ const FoundMinersModal = ({ open, miners, fleetNodes, setDeselectedMiners, onDis
                   itemKey="deviceIdentifier"
                   itemSelectable
                   preserveOffPageSelection
-                  customSelectedItems={group.filter((miner) => miner.selected).map((miner) => miner.deviceIdentifier)}
+                  customSelectedItems={group
+                    .filter((miner) => !deselectedMinerIds.has(miner.deviceIdentifier))
+                    .map((miner) => miner.deviceIdentifier)}
                   customSetSelectedItems={(selected) => {
                     const selectedIds = new Set(selected);
                     updateSelection(groupIds, (id) => selectedIds.has(id));

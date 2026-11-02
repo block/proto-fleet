@@ -1036,7 +1036,6 @@ func TestUpsertDiscoveredDevices_RefreshesDevicePairedToReportingNode(t *testing
 	// Assert: accepted and refreshed — the reporting node owns the device.
 	require.NoError(t, err)
 	require.Len(t, accepted, 1)
-	assert.True(t, accepted[0].BoundToFleetNode, "streamed rediscovery retains the existing assignment")
 	assert.Equal(t, int64(0), rejected)
 	var ip, port string
 	require.NoError(t, db.QueryRow(`SELECT ip_address, port FROM discovered_device WHERE id = $1`, ddID).Scan(&ip, &port))

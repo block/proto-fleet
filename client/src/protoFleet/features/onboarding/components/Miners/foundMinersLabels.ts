@@ -1,8 +1,6 @@
 import { DeviceClass } from "@/protoFleet/api/generated/common/v1/common_pb";
 
-export const FLEET_SERVER_ID = "0";
-export const RECOMMENDED_MINERS_PER_NODE = 4000;
-export const MAX_MINERS_PER_NODE = 5000;
+const FLEET_SERVER_ID = "0";
 
 /** Fleet Server for node id 0, otherwise the node's name or "Fleet Node <id>" when the name is unknown. */
 export function fleetSourceLabel(fleetNodeId: string, name?: string): string {

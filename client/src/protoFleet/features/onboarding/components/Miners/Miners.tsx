@@ -3,7 +3,6 @@ import { Link } from "react-router-dom";
 import clsx from "clsx";
 import FoundMiners from "./FoundMiners";
 import FoundMinersModal from "./FoundMinersModal";
-import NodePairingSummary from "./NodePairingSummary";
 import { type MinerDiscoveryMode, type RemoteDiscoveryReadiness } from "./types";
 import ValidationErrorDialog from "./ValidationErrorDialog";
 import { Device } from "@/protoFleet/api/generated/pairing/v1/pairing_pb";
@@ -139,13 +138,6 @@ const Miners = ({
     });
   }, [foundMiners]);
   const deselectedMinerIds = useMemo(() => new Set(deselectedMiners), [deselectedMiners]);
-  const foundMinersModalMiners = useMemo(
-    () =>
-      showFoundMinersModal
-        ? displayMiners.map((miner) => ({ ...miner, selected: !deselectedMinerIds.has(miner.deviceIdentifier) }))
-        : [],
-    [showFoundMinersModal, displayMiners, deselectedMinerIds],
-  );
   const selectedDisplayMiners = useMemo(
     () => displayMiners.filter((miner) => !deselectedMinerIds.has(miner.deviceIdentifier)),
     [displayMiners, deselectedMinerIds],
@@ -514,9 +506,6 @@ const Miners = ({
                 isScanning={discoveryPending}
                 showSkeleton={showLoadingSkeleton}
               />
-              {visibleFleetNodes ? (
-                <NodePairingSummary miners={selectedDisplayMiners} fleetNodes={visibleFleetNodes} />
-              ) : null}
               {maxSelectedMiners !== undefined && selectedDisplayMiners.length > maxSelectedMiners ? (
                 <p role="status" className="mt-4 text-300 text-intent-warning-fill">
                   Select at most {maxSelectedMiners} miners per request.
@@ -528,7 +517,8 @@ const Miners = ({
                   open
                   setDeselectedMiners={setDeselectedMiners}
                   fleetNodes={visibleFleetNodes}
-                  miners={foundMinersModalMiners}
+                  miners={displayMiners}
+                  deselectedMinerIds={deselectedMinerIds}
                   onDismiss={() => setShowFoundMinersModal(false)}
                 />
               ) : null}
