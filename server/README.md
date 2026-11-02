@@ -565,6 +565,8 @@ replacement periods so sequential boards do not count as simultaneous capacity.
 Each retained metric must have its full source time range inside the displayed
 period. An aggregate that spans a replacement boundary leaves a gap because its
 samples cannot be separated from the retained sum and count alone.
+Each summary checks at most four candidate periods, one per metric. Replacement
+boundaries do not multiply query work for every unaffected board.
 
 Power totals contain only measured equipment readings with reporting counts;
 controller plant power never substitutes for assigned-module power. Efficiency

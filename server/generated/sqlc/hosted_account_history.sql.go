@@ -439,9 +439,9 @@ WITH intervals AS MATERIALIZED (
  SELECT i.kind,i.asset_id,i.started_at,i.ended_at,h.bucket, h.interval_id, h.hashrate_sum, h.hashrate_count, h.hashrate_positive_count, h.hashrate_complete, h.hashrate_source_oldest_at, h.hashrate_source_newest_at, h.power_sum, h.power_count, h.power_complete, h.power_source_oldest_at, h.power_source_newest_at, h.temperature_sum, h.temperature_count, h.temperature_latest_value, h.temperature_latest_at, h.temperature_source_oldest_at, h.temperature_source_newest_at, h.state_count, h.state_latest_value, h.state_latest_at, h.state_source_oldest_at, h.state_source_newest_at
  FROM intervals i JOIN retained h ON h.interval_id=i.interval_id
 ), bucketed AS NOT MATERIALIZED (
- -- Locate only the overlapping output slices. A fleet-sized summary must not
- -- compare each source row with every chart bucket. Retained aggregates cannot
- -- be split without their source samples: keep gaps when a metric spans slices.
+ -- Each metric can belong to only the slice containing its newest source.
+ -- Visit at most four distinct slices per summary, regardless of how many
+ -- replacements split the chart. Full source-window checks preserve gaps.
  SELECT a.kind, a.asset_id, a.started_at, a.ended_at, a.bucket, a.interval_id, a.hashrate_sum, a.hashrate_count, a.hashrate_positive_count, a.hashrate_complete, a.hashrate_source_oldest_at, a.hashrate_source_newest_at, a.power_sum, a.power_count, a.power_complete, a.power_source_oldest_at, a.power_source_newest_at, a.temperature_sum, a.temperature_count, a.temperature_latest_value, a.temperature_latest_at, a.temperature_source_oldest_at, a.temperature_source_newest_at, a.state_count, a.state_latest_value, a.state_latest_at, a.state_source_oldest_at, a.state_source_newest_at,slice_bounds.first AS output_bucket,
  a.hashrate_source_oldest_at>=GREATEST(a.started_at,$10::timestamptz,slice_bounds.first)
   AND a.hashrate_source_newest_at<LEAST(a.ended_at,slice_bounds.last) AS hashrate_authorized,
@@ -452,17 +452,15 @@ WITH intervals AS MATERIALIZED (
  a.state_source_oldest_at>=GREATEST(a.started_at,$10::timestamptz,slice_bounds.first)
   AND a.state_source_newest_at<LEAST(a.ended_at,slice_bounds.last) AS state_authorized
  FROM authorized a
- CROSS JOIN LATERAL (SELECT
-  GREATEST(a.bucket,a.started_at,$7::timestamptz) AS first,
-  LEAST(a.bucket+CASE WHEN $6::boolean THEN INTERVAL '1 hour' ELSE INTERVAL '1 day' END,
-   a.ended_at,$8::timestamptz) AS last) bounds
- CROSS JOIN LATERAL generate_series(
-  GREATEST(1,width_bucket(bounds.first,$11::timestamptz[])),
-  width_bucket(bounds.last-INTERVAL '1 microsecond',$11::timestamptz[])) slice(index)
+ CROSS JOIN LATERAL (
+  SELECT DISTINCT width_bucket(source.newest_at,$11::timestamptz[]) AS index
+  FROM (VALUES (a.hashrate_source_newest_at),(a.power_source_newest_at),
+   (a.temperature_source_newest_at),(a.state_source_newest_at)) source(newest_at)
+  WHERE source.newest_at>=$7::timestamptz AND source.newest_at<$8::timestamptz
+ ) slice
  CROSS JOIN LATERAL (SELECT
   ($11::timestamptz[])[slice.index] AS first,
   COALESCE(($11::timestamptz[])[slice.index+1],$8::timestamptz) AS last) slice_bounds
- WHERE bounds.first<bounds.last
 ), asset_buckets AS (
  SELECT kind,asset_id,
  output_bucket::timestamptz AS bucket,

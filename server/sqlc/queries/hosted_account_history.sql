@@ -210,9 +210,9 @@ WITH intervals AS MATERIALIZED (
  SELECT i.kind,i.asset_id,i.started_at,i.ended_at,h.*
  FROM intervals i JOIN retained h ON h.interval_id=i.interval_id
 ), bucketed AS NOT MATERIALIZED (
- -- Locate only the overlapping output slices. A fleet-sized summary must not
- -- compare each source row with every chart bucket. Retained aggregates cannot
- -- be split without their source samples: keep gaps when a metric spans slices.
+ -- Each metric can belong to only the slice containing its newest source.
+ -- Visit at most four distinct slices per summary, regardless of how many
+ -- replacements split the chart. Full source-window checks preserve gaps.
  SELECT a.*,slice_bounds.first AS output_bucket,
  a.hashrate_source_oldest_at>=GREATEST(a.started_at,sqlc.arg(available_from)::timestamptz,slice_bounds.first)
   AND a.hashrate_source_newest_at<LEAST(a.ended_at,slice_bounds.last) AS hashrate_authorized,
@@ -223,17 +223,15 @@ WITH intervals AS MATERIALIZED (
  a.state_source_oldest_at>=GREATEST(a.started_at,sqlc.arg(available_from)::timestamptz,slice_bounds.first)
   AND a.state_source_newest_at<LEAST(a.ended_at,slice_bounds.last) AS state_authorized
  FROM authorized a
- CROSS JOIN LATERAL (SELECT
-  GREATEST(a.bucket,a.started_at,sqlc.arg(start_time)::timestamptz) AS first,
-  LEAST(a.bucket+CASE WHEN sqlc.arg(hourly)::boolean THEN INTERVAL '1 hour' ELSE INTERVAL '1 day' END,
-   a.ended_at,sqlc.arg(end_time)::timestamptz) AS last) bounds
- CROSS JOIN LATERAL generate_series(
-  GREATEST(1,width_bucket(bounds.first,sqlc.arg(bucket_starts)::timestamptz[])),
-  width_bucket(bounds.last-INTERVAL '1 microsecond',sqlc.arg(bucket_starts)::timestamptz[])) slice(index)
+ CROSS JOIN LATERAL (
+  SELECT DISTINCT width_bucket(source.newest_at,sqlc.arg(bucket_starts)::timestamptz[]) AS index
+  FROM (VALUES (a.hashrate_source_newest_at),(a.power_source_newest_at),
+   (a.temperature_source_newest_at),(a.state_source_newest_at)) source(newest_at)
+  WHERE source.newest_at>=sqlc.arg(start_time)::timestamptz AND source.newest_at<sqlc.arg(end_time)::timestamptz
+ ) slice
  CROSS JOIN LATERAL (SELECT
   (sqlc.arg(bucket_starts)::timestamptz[])[slice.index] AS first,
   COALESCE((sqlc.arg(bucket_starts)::timestamptz[])[slice.index+1],sqlc.arg(end_time)::timestamptz) AS last) slice_bounds
- WHERE bounds.first<bounds.last
 ), asset_buckets AS (
  SELECT kind,asset_id,
  output_bucket::timestamptz AS bucket,

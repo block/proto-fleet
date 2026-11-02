@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import clsx from "clsx";
 
 import { useRequiredAccountScope } from "../AccountScope";
@@ -35,9 +35,10 @@ import {
 import SettingsEmptyState from "@/protoFleet/features/settings/components/SettingsEmptyState";
 import SettingsPageHeader from "@/protoFleet/features/settings/components/SettingsPageHeader";
 import { useFleetStore } from "@/protoFleet/store";
-import { Slider } from "@/shared/assets/icons";
+import { ChevronDown, Slider } from "@/shared/assets/icons";
 import { ActionBarSelectionControls } from "@/shared/components/ActionBar";
 import Button, { sizes } from "@/shared/components/Button";
+import Checkbox from "@/shared/components/Checkbox";
 import List from "@/shared/components/List";
 import FilterChipsBar, { type FilterChipsBarFilter } from "@/shared/components/List/Filters/FilterChipsBar";
 import { formatListCountLabel } from "@/shared/components/List/listCountLabel";
@@ -80,6 +81,7 @@ const AccountAssets = ({
   });
   const [search, setSearch] = useState("");
   const [hashboardsOnly, setHashboardsOnly] = useState(false);
+  const [expandedModules, setExpandedModules] = useState<string[]>([]);
   const [replacing, setReplacing] = useState<AccountAsset | null>(null);
   const [owner, setOwner] = useState("");
   const [model, setModel] = useState("");
@@ -130,6 +132,7 @@ const AccountAssets = ({
   const { invalidate, refresh: revalidate } = query;
   const refresh = useCallback(() => {
     setSelected([]);
+    setExpandedModules([]);
     setReview(null);
     setReplacing(null);
     invalidate();
@@ -151,6 +154,50 @@ const AccountAssets = ({
     () => (query.data?.assets ?? []).map((asset) => ({ ...asset, key: allocationKey(asset) })),
     [query.data],
   );
+  // At most three boards per page row. One bounded page lookup keeps opening
+  // another module from discarding an existing board selection during its load.
+  const pageBoardIds = JSON.stringify(rows.flatMap((asset) => asset.boards.map((board) => String(board.id))));
+  const loadBoards = useCallback(
+    (signal: AbortSignal) =>
+      client.listAccountAssets(
+        {
+          accountId: account.accountId,
+          selectedAssets: (JSON.parse(pageBoardIds) as string[]).map((id) => ({
+            kind: MiningAssetKind.HASHBOARD,
+            id: BigInt(id),
+          })),
+        },
+        { timeoutMs: ACCOUNT_READ_TIMEOUT_MS, signal },
+      ),
+    [client, account.accountId, pageBoardIds],
+  );
+  const boardQuery = useAccountQuery(
+    loadBoards,
+    (expandedModules.length > 0 || selected.some((key) => key.startsWith(`${MiningAssetKind.HASHBOARD}:`))) &&
+      pageBoardIds !== "[]",
+    true,
+    POLL_INTERVAL_MS,
+  );
+  const refreshBoards = boardQuery.refresh;
+  useEffect(() => {
+    window.addEventListener("focus", refreshBoards);
+    return () => window.removeEventListener("focus", refreshBoards);
+  }, [refreshBoards]);
+  const boardRows = (boardQuery.data?.assets ?? []).filter(
+    (asset) =>
+      asset.kind === MiningAssetKind.HASHBOARD &&
+      rows.some((module) =>
+        module.boards.some((board) => board.id === asset.id && board.expectedRevision === asset.revision),
+      ),
+  );
+  const selectableRows = [
+    ...new Map(
+      [...rows, ...boardRows.map((asset) => ({ ...asset, key: allocationKey(asset) }))].map((asset) => [
+        asset.key,
+        asset,
+      ]),
+    ).values(),
+  ];
   const hasFilters = !!(hashboardsOnly || search || owner || container.id || model || site.id);
   const toolbarNeeded = rows.length > 0 || hasFilters || pages.length > 1;
   // Clearing the last filter reloads without data; keep the toolbar mounted until that reload settles.
@@ -176,9 +223,17 @@ const AccountAssets = ({
   const isAssetSelectable = (asset: AccountAsset) =>
     !!asset.ownerAccountId && (assigning ? isAssetAssignable(asset) : asset.ownerAccountId !== account.accountId);
   // A background revalidation can retire, move or reassign selected rows.
-  const liveSelection = selected.filter((key) => rows.some((row) => row.key === key && isAssetSelectable(row)));
+  const selectedModuleBoardKeys = new Set(
+    rows
+      .filter((row) => selected.includes(row.key))
+      .flatMap((row) => row.boards.map((board) => allocationKey({ kind: MiningAssetKind.HASHBOARD, id: board.id }))),
+  );
+  const liveSelection = [...new Set(selected)].filter(
+    (key) =>
+      !selectedModuleBoardKeys.has(key) && selectableRows.some((row) => row.key === key && isAssetSelectable(row)),
+  );
   if (query.data && liveSelection.length !== selected.length) setSelected(liveSelection);
-  const selectedAssets = rows.filter((row) => selected.includes(row.key));
+  const selectedAssets = selectableRows.filter((row) => liveSelection.includes(row.key));
   const recallChild = selectedAssets[0]?.ownerAccountId;
   const recallable =
     selectedAssets.length > 0 &&
@@ -243,6 +298,7 @@ const AccountAssets = ({
   const resetSelection = () => {
     setPages([""]);
     setSelected([]);
+    setExpandedModules([]);
     setReview(null);
     setConflictNotice("");
   };
@@ -276,9 +332,9 @@ const AccountAssets = ({
         if (column === "assignedAccount") {
           return asset.ownerAccountId === account.accountId ? "This account" : asset.ownerAccountName || "—";
         }
-        const cell = <AccountAssetCell asset={asset} column={column} />;
+        let cell = <AccountAssetCell asset={asset} column={column} />;
         if (column === "name" && account.depth > 0 && asset.available && !asset.outsidePolicy) {
-          return (
+          cell = (
             <Button
               variant="textOnly"
               textColor="text-text-primary"
@@ -288,6 +344,33 @@ const AccountAssets = ({
             >
               {cell}
             </Button>
+          );
+        }
+        if (column === "name" && asset.kind === MiningAssetKind.MODULE && asset.boards.length) {
+          const expanded = expandedModules.includes(allocationKey(asset));
+          cell = (
+            <div className="flex min-w-0 items-center">
+              <button
+                type="button"
+                className="-ml-2 flex size-8 shrink-0 items-center justify-center rounded focus-visible:outline-2 focus-visible:outline-offset-2"
+                aria-label={`${expanded ? "Collapse" : "Expand"} hashboards for ${assetName(asset)}`}
+                aria-expanded={expanded}
+                aria-controls={
+                  expanded ? asset.boards.map((board) => `${inputId}-hashboard-${board.id}`).join(" ") : undefined
+                }
+                onClick={() => {
+                  const key = allocationKey(asset);
+                  setExpandedModules((previous) =>
+                    expanded ? previous.filter((value) => value !== key) : [...previous, key],
+                  );
+                }}
+              >
+                <span aria-hidden className={expanded ? "" : "-rotate-90"}>
+                  <ChevronDown />
+                </span>
+              </button>
+              <div className="min-w-0 flex-1">{cell}</div>
+            </div>
           );
         }
         return cell;
@@ -513,13 +596,139 @@ const AccountAssets = ({
             </FleetListActionBar>
           ) : null}
           <List<(typeof rows)[number], string, AssetColumn>
+            getChildRows={(module) => {
+              if (!expandedModules.includes(module.key)) return [];
+              return module.boards.map((expected) => {
+                const board = boardRows.find((asset) => asset.id === expected.id);
+                const key = allocationKey({ kind: MiningAssetKind.HASHBOARD, id: expected.id });
+                const moduleSelected = selected.includes(module.key);
+                const cells: Partial<Record<AssetColumn, ReactNode>> = {};
+                for (const column of activeColumns) {
+                  if (!board) continue;
+                  if (column === "assignedAccount") {
+                    cells[column] =
+                      board.ownerAccountId === account.accountId ? "This account" : board.ownerAccountName || "—";
+                  } else {
+                    cells[column] = (
+                      <div className={column === "name" ? "pl-8" : undefined}>
+                        <AccountAssetCell asset={board} column={column} />
+                      </div>
+                    );
+                  }
+                }
+                if (!board)
+                  cells.name = (
+                    <div className="pl-8">
+                      <span role={boardQuery.loading ? "status" : "alert"}>
+                        {boardQuery.loading ? "Loading hashboard…" : "Hashboard unavailable"}
+                      </span>
+                      {!boardQuery.loading ? (
+                        <Button
+                          variant="textOnly"
+                          text="Retry hashboards"
+                          onClick={() => {
+                            revalidate();
+                            refreshBoards();
+                          }}
+                        />
+                      ) : null}
+                    </div>
+                  );
+                return {
+                  key: `${inputId}-hashboard-${expected.id}`,
+                  label: `${board ? assetName(board) : "Hashboard"} in ${assetName(module)}`,
+                  cells,
+                  selection: editable ? (
+                    <Checkbox
+                      ariaLabel={`Select ${board ? assetName(board) : "unavailable hashboard"} in ${assetName(module)}`}
+                      disabled={
+                        readOnly ||
+                        !board ||
+                        !isAssetSelectable(board) ||
+                        (moduleSelected &&
+                          !module.boards.every((member) =>
+                            boardRows.some((asset) => asset.id === member.id && isAssetSelectable(asset)),
+                          ))
+                      }
+                      checked={moduleSelected || selected.includes(key)}
+                      onChange={(event) => {
+                        const siblings = moduleSelected
+                          ? boardRows
+                              .filter(
+                                (asset) =>
+                                  asset.id !== expected.id &&
+                                  module.boards.some((member) => member.id === asset.id) &&
+                                  isAssetSelectable(asset),
+                              )
+                              .map(allocationKey)
+                          : [];
+                        setSelected((previous) => [
+                          ...new Set([
+                            ...previous.filter((value) => value !== module.key && value !== key),
+                            ...siblings,
+                            ...(event.target.checked ? [key] : []),
+                          ]),
+                        ]);
+                      }}
+                    />
+                  ) : undefined,
+                };
+              });
+            }}
             items={rows}
             itemKey="key"
             itemSelectable={editable}
             pageScopedSelection
             rowSelectionLabel={(asset) => `Select ${assetName(asset)}`}
-            customSelectedItems={selected}
-            customSetSelectedItems={setSelected}
+            isRowPartiallySelected={(asset) =>
+              !selected.includes(asset.key) &&
+              asset.boards.some((board) =>
+                selected.includes(allocationKey({ kind: MiningAssetKind.HASHBOARD, id: board.id })),
+              )
+            }
+            customSelectedItems={rows
+              .filter((row) => selected.includes(row.key) || selectedModuleBoardKeys.has(row.key))
+              .map((row) => row.key)}
+            customSetSelectedItems={(parents) => {
+              const removedBoardKeys = new Set(
+                rows
+                  .filter((row) => selectedModuleBoardKeys.has(row.key) && !parents.includes(row.key))
+                  .map((row) => row.key),
+              );
+              const splitModules = rows.filter(
+                (row) =>
+                  parents.includes(row.key) &&
+                  row.boards.some((board) =>
+                    removedBoardKeys.has(allocationKey({ kind: MiningAssetKind.HASHBOARD, id: board.id })),
+                  ),
+              );
+              const remainingBoards = splitModules.flatMap((module) =>
+                boardRows
+                  .filter(
+                    (board) =>
+                      module.boards.some((member) => member.id === board.id) &&
+                      !removedBoardKeys.has(allocationKey(board)) &&
+                      isAssetSelectable(board),
+                  )
+                  .map(allocationKey),
+              );
+              setSelected((previous) => [
+                ...parents.filter((key) => !splitModules.some((module) => module.key === key)),
+                ...remainingBoards,
+                ...previous.filter(
+                  (key) =>
+                    !rows.some((row) => row.key === key) &&
+                    boardRows.some((board) => allocationKey(board) === key) &&
+                    !rows.some(
+                      (module) =>
+                        parents.includes(module.key) &&
+                        module.boards.some(
+                          (board) => key === allocationKey({ kind: MiningAssetKind.HASHBOARD, id: board.id }),
+                        ),
+                    ),
+                ),
+              ]);
+            }}
             isRowSelectable={isAssetSelectable}
             stickyFirstColumn
             tableClassName={fleetView ? "mb-4 inline-table w-max !min-w-fit !table-fixed" : undefined}
@@ -562,10 +771,12 @@ const AccountAssets = ({
             hasNextPage={!!query.data.nextPageToken}
             onPrevious={() => {
               setSelected([]);
+              setExpandedModules([]);
               setPages((previous) => previous.slice(0, -1));
             }}
             onNext={() => {
               setSelected([]);
+              setExpandedModules([]);
               setPages((previous) => [...previous, query.data!.nextPageToken]);
             }}
           />

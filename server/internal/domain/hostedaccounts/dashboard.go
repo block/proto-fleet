@@ -85,7 +85,8 @@ func dashboardDirectSummaryBuckets(intervals []dashboardInterval, start time.Tim
 	return true
 }
 
-// Each source bucket contains one wide summary row per allocation.
+// Each source bucket contains one wide summary row per allocation. Metric
+// lookup visits at most four output slices per row, independent of replacements.
 // Include the policy-normal daily-to-hourly rollup (up to 54h) for 2,500
 // year-long allocations, separately from the raw poll-density budget.
 const dashboardSummaryBudget = 1_100_000

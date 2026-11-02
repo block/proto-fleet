@@ -76,6 +76,16 @@ const module = create(AccountAssetSchema, {
   },
   partialCoverage: true,
 });
+const boards = module.boards.map((board, index) =>
+  create(AccountAssetSchema, {
+    kind: MiningAssetKind.HASHBOARD,
+    id: board.id,
+    revision: board.expectedRevision,
+    name: `Hashboard ${index + 1}`,
+    available: true,
+    ownerAccountId: accountId,
+  }),
+);
 function mount(
   mask = 31n,
   assets = [miner, module],
@@ -136,6 +146,263 @@ const selectTarget = async (user: ReturnType<typeof userEvent.setup>) => {
 };
 
 describe("account mining asset allocation", () => {
+  it("clears an individual board choice when its allocation changes during refresh", async () => {
+    const { client } = mount(31n, [module], undefined, "", "assign");
+    await screen.findByText("Module One");
+    client.listAccountAssets.mockImplementation((request: { selectedAssets?: unknown[] }) =>
+      Promise.resolve(
+        create(
+          ListAccountAssetsResponseSchema,
+          request.selectedAssets
+            ? { assets: boards }
+            : {
+                assets: [module],
+                canManageAssignments: true,
+                canViewAssignments: true,
+                children: [{ accountId: childId, name: "East" }],
+              },
+        ),
+      ),
+    );
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "Expand hashboards for Module One" }));
+    await user.click(await screen.findByRole("checkbox", { name: "Select Hashboard 1 in Module One" }));
+    expect(screen.getByRole("button", { name: "Allocate selected" })).toBeInTheDocument();
+    client.listAccountAssets.mockImplementation((request: { selectedAssets?: unknown[] }) =>
+      Promise.resolve(
+        create(
+          ListAccountAssetsResponseSchema,
+          request.selectedAssets
+            ? {
+                assets: boards.map((board) =>
+                  create(AccountAssetSchema, { ...board, ownerAccountId: childId, revision: board.revision + 1n }),
+                ),
+              }
+            : {
+                assets: [module],
+                canManageAssignments: true,
+                canViewAssignments: true,
+                children: [{ accountId: childId, name: "East" }],
+              },
+        ),
+      ),
+    );
+    await act(async () => window.dispatchEvent(new Event("focus")));
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Allocate selected" })).not.toBeInTheDocument());
+    expect(client.assignAccountAssets).not.toHaveBeenCalled();
+  });
+
+  it("expands module boards and switches between full-module and individual allocation", async () => {
+    const { client } = mount(31n, undefined, undefined, "", "assign");
+    await screen.findByText("Module One");
+    expect(client.listAccountAssets).toHaveBeenCalledTimes(1);
+    client.listAccountAssets.mockResolvedValueOnce(create(ListAccountAssetsResponseSchema, { assets: boards }));
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "Expand hashboards for Module One" }));
+    const firstBoard = await screen.findByRole("checkbox", { name: "Select Hashboard 1 in Module One" });
+    expect(screen.getByText("2 assets on this page")).toBeInTheDocument();
+    expect(client.listAccountAssets).toHaveBeenLastCalledWith(
+      {
+        accountId,
+        selectedAssets: boards.map((board) => ({ kind: MiningAssetKind.HASHBOARD, id: board.id })),
+      },
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    );
+    await user.click(firstBoard);
+    const wholeModule = screen.getByRole("checkbox", { name: "Select Module One" });
+    expect(wholeModule).toHaveAttribute("aria-checked", "mixed");
+    await user.click(wholeModule);
+    expect(wholeModule).toBeChecked();
+    for (const board of boards)
+      expect(screen.getByRole("checkbox", { name: `Select ${board.name} in Module One` })).toBeChecked();
+    await user.click(firstBoard);
+    expect(firstBoard).not.toBeChecked();
+    expect(wholeModule).toHaveAttribute("aria-checked", "mixed");
+    await user.click(screen.getByRole("button", { name: "Allocate selected" }));
+    const dialog = screen.getByRole("dialog", { name: "Allocate 2 assets?" });
+    await selectTarget(user);
+    await user.click(within(dialog).getByRole("button", { name: "Allocate 2 assets" }));
+    await waitFor(() =>
+      expect(client.assignAccountAssets).toHaveBeenCalledWith({
+        accountId,
+        childAccountId: childId,
+        intent: AssetAssignmentIntent.ASSIGN,
+        assets: boards
+          .slice(1)
+          .map((board) => ({ kind: MiningAssetKind.HASHBOARD, id: board.id, expectedRevision: board.revision })),
+      }),
+    );
+  });
+
+  it("keeps selected boards when modules open or close and clears selection on page changes", async () => {
+    const second = create(AccountAssetSchema, {
+      ...module,
+      id: 2n,
+      name: "Module Two",
+      boards: [{ ...module.boards[0], id: 21n, expectedRevision: 1n }],
+    });
+    const { client } = mount(31n, [module, second], undefined, "next", "assign");
+    await screen.findByText("Module One");
+    client.listAccountAssets.mockResolvedValueOnce(
+      create(ListAccountAssetsResponseSchema, {
+        assets: [...boards, create(AccountAssetSchema, { ...boards[0], id: 21n, revision: 1n, name: "Other board" })],
+      }),
+    );
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "Expand hashboards for Module One" }));
+    await user.click(await screen.findByRole("checkbox", { name: "Select Hashboard 1 in Module One" }));
+    await user.click(screen.getByRole("button", { name: "Expand hashboards for Module Two" }));
+    expect(await screen.findByRole("checkbox", { name: "Select Other board in Module Two" })).not.toBeChecked();
+    expect(screen.getByRole("checkbox", { name: "Select Hashboard 1 in Module One" })).toBeChecked();
+    expect(client.listAccountAssets).toHaveBeenCalledTimes(2);
+    await user.click(screen.getByRole("button", { name: "Collapse hashboards for Module One" }));
+    expect(screen.queryByRole("checkbox", { name: "Select Hashboard 1 in Module One" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Allocate selected" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Collapse hashboards for Module Two" }));
+    await user.click(screen.getByRole("button", { name: "Expand hashboards for Module One" }));
+    expect(screen.getByRole("checkbox", { name: "Select Hashboard 1 in Module One" })).toBeChecked();
+    expect(client.listAccountAssets).toHaveBeenCalledTimes(2);
+    await user.click(screen.getByRole("button", { name: "Next page" }));
+    expect(screen.queryByRole("button", { name: "Allocate selected" })).not.toBeInTheDocument();
+  });
+
+  it.each(["row", "header"])(
+    "clears a top-level board through the %s checkbox after its module loads",
+    async (control) => {
+      const { client } = mount(31n, [module, boards[0]], undefined, "", "assign");
+      await screen.findByText("Module One");
+      client.listAccountAssets.mockResolvedValueOnce(create(ListAccountAssetsResponseSchema, { assets: boards }));
+      const user = userEvent.setup();
+      await user.click(screen.getByRole("button", { name: "Expand hashboards for Module One" }));
+      const child = await screen.findByRole("checkbox", { name: "Select Hashboard 1 in Module One" });
+      const topLevel = screen.getByRole("checkbox", { name: "Select Hashboard 1" });
+      if (control === "row") {
+        await user.click(child);
+        expect(topLevel).toBeChecked();
+        await user.click(topLevel);
+      } else {
+        const header = screen.getByRole("checkbox", { name: "Select all assets on this page" });
+        await user.click(header);
+        expect(header).toBeChecked();
+        expect(child).toBeChecked();
+        await user.click(header);
+      }
+      expect(topLevel).not.toBeChecked();
+      expect(child).not.toBeChecked();
+      expect(screen.getByRole("checkbox", { name: "Select Module One" })).not.toBeChecked();
+      expect(screen.queryByRole("button", { name: "Allocate selected" })).not.toBeInTheDocument();
+      expect(client.assignAccountAssets).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(["parent", "child"])(
+    "removes a covered board through its %s row without restoring its duplicate",
+    async (row) => {
+      const { client } = mount(31n, [module, boards[0]], undefined, "", "assign");
+      await screen.findByText("Module One");
+      client.listAccountAssets.mockResolvedValueOnce(create(ListAccountAssetsResponseSchema, { assets: boards }));
+      const user = userEvent.setup();
+      await user.click(screen.getByRole("button", { name: "Expand hashboards for Module One" }));
+      const child = await screen.findByRole("checkbox", { name: "Select Hashboard 1 in Module One" });
+      const parent = screen.getByRole("checkbox", { name: "Select Hashboard 1" });
+      await user.click(screen.getByRole("checkbox", { name: "Select all assets on this page" }));
+      await user.click(row === "parent" ? parent : child);
+      expect(parent).not.toBeChecked();
+      expect(child).not.toBeChecked();
+      expect(screen.getByRole("checkbox", { name: "Select Module One" })).toHaveAttribute("aria-checked", "mixed");
+      await user.click(screen.getByRole("button", { name: "Allocate selected" }));
+      const dialog = screen.getByRole("dialog", { name: "Allocate 2 assets?" });
+      await selectTarget(user);
+      await user.click(within(dialog).getByRole("button", { name: "Allocate 2 assets" }));
+      await waitFor(() =>
+        expect(client.assignAccountAssets).toHaveBeenCalledWith(
+          expect.objectContaining({
+            assets: boards
+              .slice(1)
+              .map((board) => ({ kind: MiningAssetKind.HASHBOARD, id: board.id, expectedRevision: board.revision })),
+          }),
+        ),
+      );
+    },
+  );
+
+  it.each(["board", "module"])(
+    "does not repeat a board shown in parent and child rows when selecting a %s",
+    async (choice) => {
+      const { client } = mount(31n, [miner, module, boards[0]], undefined, "", "assign");
+      await screen.findByText("Module One");
+      client.listAccountAssets.mockResolvedValueOnce(create(ListAccountAssetsResponseSchema, { assets: boards }));
+      const user = userEvent.setup();
+      await user.click(screen.getByRole("button", { name: "Expand hashboards for Module One" }));
+      const boardCheckbox = await screen.findByRole("checkbox", { name: "Select Hashboard 1 in Module One" });
+      if (choice === "board") {
+        await user.click(boardCheckbox);
+        await user.click(screen.getByRole("checkbox", { name: "Select Miner One" }));
+      } else {
+        await user.click(screen.getByRole("checkbox", { name: "Select all assets on this page" }));
+      }
+      await user.click(screen.getByRole("button", { name: "Allocate selected" }));
+      const dialog = screen.getByRole("dialog", { name: "Allocate 2 assets?" });
+      await selectTarget(user);
+      await user.click(within(dialog).getByRole("button", { name: "Allocate 2 assets" }));
+      const expected =
+        choice === "board"
+          ? { kind: MiningAssetKind.HASHBOARD, id: boards[0].id, expectedRevision: boards[0].revision }
+          : { kind: MiningAssetKind.MODULE, id: module.id, expectedRevision: module.revision, boards: module.boards };
+      await waitFor(() =>
+        expect(client.assignAccountAssets).toHaveBeenCalledWith(
+          expect.objectContaining({
+            assets: [{ kind: MiningAssetKind.MINER, id: miner.id, expectedRevision: miner.revision }, expected],
+          }),
+        ),
+      );
+    },
+  );
+
+  it("disables missing, changed, and ineligible boards without broadening the reviewed module", async () => {
+    const { client } = mount(31n, [module], undefined, "", "assign");
+    await screen.findByText("Module One");
+    client.listAccountAssets.mockResolvedValueOnce(
+      create(ListAccountAssetsResponseSchema, {
+        assets: [
+          create(AccountAssetSchema, { ...boards[0], revision: 100n }),
+          create(AccountAssetSchema, { ...boards[1], outsidePolicy: true }),
+        ],
+      }),
+    );
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "Expand hashboards for Module One" }));
+    await screen.findByText("Hashboard 2");
+    expect(screen.getAllByRole("checkbox", { name: "Select unavailable hashboard in Module One" })).toHaveLength(2);
+    for (const checkbox of screen
+      .getAllByRole("checkbox")
+      .filter((element) => element.getAttribute("aria-label")?.includes("in Module One")))
+      expect(checkbox).toBeDisabled();
+    await user.click(screen.getByRole("checkbox", { name: "Select Module One" }));
+    await user.click(screen.getByRole("button", { name: "Allocate selected" }));
+    await selectTarget(user);
+    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Allocate 1 asset" }));
+    await waitFor(() =>
+      expect(client.assignAccountAssets).toHaveBeenCalledWith(
+        expect.objectContaining({
+          assets: [
+            { kind: MiningAssetKind.MODULE, id: module.id, expectedRevision: module.revision, boards: module.boards },
+          ],
+        }),
+      ),
+    );
+  });
+
+  it("shows module boards without selection controls to a viewer", async () => {
+    const { client } = mount(1n, [module]);
+    await screen.findByText("Module One");
+    client.listAccountAssets.mockResolvedValueOnce(create(ListAccountAssetsResponseSchema, { assets: boards }));
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "Expand hashboards for Module One" }));
+    await screen.findByText("Hashboard 1");
+    expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
+  });
+
   it("keeps the toolbar and filtered empty state when a miner-only account shows hashboards", async () => {
     const { client } = mount(31n, [miner]);
     const user = userEvent.setup();

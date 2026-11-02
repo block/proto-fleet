@@ -57,6 +57,11 @@ The database records decision order separately from device timestamps and physic
 moves. Replacements already pending before migration 1049 require the manual
 fallback because their decision order cannot be reconstructed safely.
 
+If a replacement is replaced again before its allocation transfer is confirmed,
+the original board keeps its allocation. The latest board remains unallocated.
+Later polls do not infer a chain through the unallocated intermediate board.
+A host operator must use the manual fallback to select the intended replacement.
+
 As a manual fallback, host operators can use **Individual hashboards** in a
 client's Mining assets page to select an old board and **Replace hashboard**.
 The replacement must be available and unallocated. The operation preserves the
