@@ -8,6 +8,7 @@ const adminStorageState = path.join(configDir, "playwright", ".auth", "admin.jso
 const SETUP_FILE_GLOB = "**/[0-9][0-9]-*.spec.ts";
 const VISUAL_SPEC_GLOB = "**/onboardingVisual.spec.ts";
 const HELPER_SPEC_GLOBS = [
+  "**/editPoolHelpers.spec.ts",
   "**/toastHelpers.spec.ts",
   "**/rackToastHelpers.spec.ts",
   "**/firmwareRolloutHelpers.spec.ts",

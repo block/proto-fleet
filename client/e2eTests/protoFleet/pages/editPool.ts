@@ -92,6 +92,8 @@ export class EditPoolPage extends BasePage {
 
   async removeAllPools() {
     const poolRows = this.page.getByTestId(/^pool-row-\d+$/);
+    await expect(this.page.getByText("Loading pool configuration...", { exact: true })).toBeHidden();
+    await expect(poolRows.first().or(this.page.getByTestId("add-pool-button"))).toBeVisible();
     const poolCount = await poolRows.count();
 
     for (let i = 0; i < poolCount; i++) {

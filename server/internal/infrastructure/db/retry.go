@@ -105,8 +105,8 @@ func IsUniqueViolationError(err error) bool {
 // This provides transparent retry handling for SQL operations without requiring
 // explicit retry logic at each call site.
 //
-// Methods with retry logic: ExecContext, QueryContext.
-// Methods without retry: QueryRowContext (error is deferred to Scan), PrepareContext.
+// Methods with retry logic: ExecContext, QueryContext, PrepareContext.
+// QueryRowContext errors are deferred to Scan and are not retried here.
 type RetryDB struct {
 	*sql.DB
 	resetPool func()
@@ -176,6 +176,13 @@ func retryOperation[T any](ctx context.Context, opName string, resetPool func(),
 	}
 
 	return zero, fmt.Errorf("%s failed after %d attempts: %w", opName, DefaultRetryConfig.MaxAttempts, lastErr)
+}
+
+// PrepareContext retries statement preparation on retryable PostgreSQL errors.
+func (r *RetryDB) PrepareContext(ctx context.Context, query string) (*sql.Stmt, error) {
+	return retryOperation(ctx, "PrepareContext", r.resetPool, func() (*sql.Stmt, error) {
+		return r.DB.PrepareContext(ctx, query)
+	})
 }
 
 // ExecContext executes a query with automatic retry on retryable PostgreSQL errors.
