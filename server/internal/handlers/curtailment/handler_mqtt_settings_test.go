@@ -126,7 +126,22 @@ func TestHandler_DisableMqttCurtailmentSourceRequiresAdmin(t *testing.T) {
 	assert.Equal(t, connect.CodePermissionDenied, fleetErr.GRPCCode)
 }
 
-func TestHandler_DeleteMqttCurtailmentSourceAllowsManagePermission(t *testing.T) {
+func TestHandler_DeleteMqttCurtailmentSourceRequiresAdmin(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(nil)
+	_, err := h.DeleteMqttCurtailmentSource(
+		sessionCtxWithPerms(42, authz.PermCurtailmentManage),
+		connect.NewRequest(&pb.DeleteMqttCurtailmentSourceRequest{SourceId: 11}),
+	)
+
+	require.Error(t, err)
+	var fleetErr fleeterror.FleetError
+	require.ErrorAs(t, err, &fleetErr)
+	assert.Equal(t, connect.CodePermissionDenied, fleetErr.GRPCCode)
+}
+
+func TestHandler_DeleteMqttCurtailmentSourceAllowsAdmin(t *testing.T) {
 	t.Parallel()
 
 	store := &handlerMqttSettingsStore{}
@@ -138,7 +153,7 @@ func TestHandler_DeleteMqttCurtailmentSourceAllowsManagePermission(t *testing.T)
 	h := newTestHandler(nil, settings)
 
 	_, err = h.DeleteMqttCurtailmentSource(
-		sessionCtxWithPerms(42, authz.PermCurtailmentManage),
+		startSessionCtxWithPerms(t, 42, domainAuth.AdminRoleName, authz.PermCurtailmentManage),
 		connect.NewRequest(&pb.DeleteMqttCurtailmentSourceRequest{SourceId: 11}),
 	)
 

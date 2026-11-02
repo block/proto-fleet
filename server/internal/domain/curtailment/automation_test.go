@@ -852,6 +852,8 @@ func TestAutomationService_HandleMQTTSignal_OffStartsTopologyProfile(t *testing.
 	assert.Equal(t, 1, h.rules.setActiveCalls)
 	assert.Equal(t, models.ScopeTypeMixed, h.curtailments.lastInsertEvent.ScopeType)
 	assert.JSONEq(t, `{"scope_schema_version":1,"building_ids":[7]}`, string(h.curtailments.lastInsertEvent.ScopeJSON))
+	assert.True(t, h.curtailments.lastInsertEvent.AllowUnbounded, "FIXED_KW automation has no cap unless one is set")
+	assert.Nil(t, h.curtailments.lastInsertEvent.MaxDurationSeconds)
 }
 
 func TestValidateAutomationEventOwnership(t *testing.T) {

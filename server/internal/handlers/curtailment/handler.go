@@ -199,7 +199,6 @@ func (h *Handler) StartCurtailment(ctx context.Context, req *connect.Request[pb.
 		return nil, err
 	}
 	if req.Msg.CandidateMinPowerWOverride != nil ||
-		req.Msg.AllowUnbounded ||
 		req.Msg.ForceIncludeMaintenance ||
 		req.Msg.GetForceIncludeAllPairedMiners() {
 		// force_include_maintenance is safety-critical (curtails miners

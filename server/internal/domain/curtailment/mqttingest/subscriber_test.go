@@ -1,7 +1,9 @@
 package mqttingest
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -264,6 +266,45 @@ func (s *failingListStore) ListEnabledSources(ctx context.Context) ([]SourceConf
 		return nil, errors.New("database unavailable")
 	}
 	return s.Store.ListEnabledSources(ctx)
+}
+
+func TestSubscriber_ThrottlesReconcileWarningsWhileRetrying(t *testing.T) {
+	t.Parallel()
+
+	store := &failingListStore{Store: newFakeSourceStore()}
+	store.failing.Store(true)
+	s := newReconcileTestSubscriber(t, store, &clientRegistry{})
+	s.cfg.WatchdogTickEvery = time.Millisecond
+	var logs bytes.Buffer
+	s.cfg.Logger = slog.New(slog.NewJSONHandler(&logs, nil))
+	var clockSeconds atomic.Int64
+	clockSeconds.Store(1_700_000_000)
+	s.cfg.Clock = func() time.Time { return time.Unix(clockSeconds.Load(), 0) }
+	require.NoError(t, s.Start(t.Context()))
+	t.Cleanup(func() { require.NoError(t, s.Stop(context.Background())) })
+	require.Eventually(t, func() bool { return store.calls.Load() >= 5 }, time.Second, time.Millisecond)
+	clockSeconds.Add(int64(reconcileWarningInterval / time.Second))
+	previousCalls := store.calls.Load()
+	require.Eventually(t, func() bool { return store.calls.Load() >= previousCalls+2 }, 2*time.Second, time.Millisecond)
+	require.NoError(t, s.Stop(t.Context()))
+
+	var warnings []uint64
+	for line := range bytes.SplitSeq(logs.Bytes(), []byte("\n")) {
+		if len(line) == 0 {
+			continue
+		}
+		var entry struct {
+			Message    string `json:"msg"`
+			Suppressed uint64 `json:"suppressed_warnings"`
+		}
+		require.NoError(t, json.Unmarshal(line, &entry))
+		if entry.Message == "mqttingest: source reconciliation failed; retrying" {
+			warnings = append(warnings, entry.Suppressed)
+		}
+	}
+	require.Len(t, warnings, 2, "log once per minute while continuing every retry")
+	assert.Zero(t, warnings[0])
+	assert.Positive(t, warnings[1], "the next warning reports suppressed attempts")
 }
 
 func TestSubscriber_StartRetriesSourceListingAndSupportsRestart(t *testing.T) {

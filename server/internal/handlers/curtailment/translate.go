@@ -228,11 +228,10 @@ func toStartRequest(msg *pb.StartCurtailmentRequest, info *session.Info) (curtai
 		CanUseAdminControls:       canUseAdminControls(info),
 	}
 
-	// max_duration_seconds=0 is the sentinel: "use org default" when
-	// !allow_unbounded, "no cap" when allow_unbounded. Both leave the
-	// pointer nil. Non-zero values pass through regardless so the
-	// service-level mutual-exclusion check surfaces a (non-zero cap,
-	// allow_unbounded=true) mismatch instead of silently dropping it.
+	// max_duration_seconds=0 means no cap and leaves the pointer nil. Non-zero
+	// values pass through regardless so the service-level mutual-exclusion
+	// check surfaces a (non-zero cap, allow_unbounded=true) mismatch instead of
+	// silently dropping it.
 	if raw := msg.GetMaxDurationSeconds(); raw > 0 {
 		v, err := uint32ToInt32Strict("max_duration_seconds", raw)
 		if err != nil {
@@ -506,9 +505,8 @@ func int64ToInt32Saturating(n int64) int32 {
 	return int32(n) // #nosec G115 -- bounds-checked above
 }
 
-// effectiveMaxDurationSeconds prefers the persisted value (Service.Start
-// resolves "use org default") so the response reflects the resolved cap;
-// nil → allow_unbounded → 0.
+// effectiveMaxDurationSeconds prefers the persisted value so the response
+// reflects the stored cap; nil (no cap) → 0.
 func effectiveMaxDurationSeconds(plan *curtailment.Plan, req *pb.StartCurtailmentRequest) uint32 {
 	if plan == nil || plan.EffectiveMaxDurationSeconds == nil {
 		return req.GetMaxDurationSeconds()

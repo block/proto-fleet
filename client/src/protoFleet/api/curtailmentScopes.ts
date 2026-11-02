@@ -114,7 +114,7 @@ export function getCurtailmentScopeCountLabel(count: number, singular: string): 
   return count === 1 ? singular : `${singular}s`;
 }
 
-function formatScopeCount(count: number, singular: string): string {
+export function formatScopeCount(count: number, singular: string): string {
   return `${count} ${getCurtailmentScopeCountLabel(count, singular)}`;
 }
 

@@ -592,7 +592,8 @@ function CurtailmentManagementPanel({
   const foregroundRefreshInFlightRef = useRef(false);
   const canUseRecovery = enableManage && enableRecover;
   const recoveryStopError = getRecoveryStopErrorMessage(stopError, activeEvent?.isAutomationOwned, canUseRecovery);
-  const errorMessage = startError ?? updateError ?? recoveryStopError ?? adminTerminateError ?? loadError;
+  const errorMessage =
+    (modalMode === null ? (startError ?? updateError) : null) ?? recoveryStopError ?? adminTerminateError ?? loadError;
   const isInitialLoading = isLoading && !activeEvent && historyEvents.length === 0;
   const isStopConfirmationSubmitting =
     pendingStopConfirmation !== null && stoppingEventId === pendingStopConfirmation.eventId;

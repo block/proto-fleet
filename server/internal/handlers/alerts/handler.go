@@ -850,6 +850,7 @@ var deviceLessTemplates = map[alerts.RuleTemplate]struct{}{
 	alerts.RuleTemplateMQTTCurtailment:       {},
 	alerts.RuleTemplateMQTTDisconnected:      {},
 	alerts.RuleTemplateCurtailmentFanRestore: {},
+	alerts.RuleTemplateCurtailmentHeartbeat:  {},
 	alerts.RuleTemplateTelemetryPoll:         {},
 	alerts.RuleTemplateMetricIngest:          {},
 	alerts.RuleTemplateHAReadiness:           {},
@@ -928,7 +929,7 @@ func ruleTemplateToProto(t alerts.RuleTemplate) alertsv1.RuleTemplate {
 		return alertsv1.RuleTemplate_RULE_TEMPLATE_MQTT_DISCONNECTED
 	// Provisioned-only and carried as raw labels on alert rows, not as rule shapes any client creates or
 	// renders, so they have no proto counterpart and report unspecified like any label this build doesn't know.
-	case alerts.RuleTemplateCurtailmentFanRestore, alerts.RuleTemplateMetricIngest, alerts.RuleTemplateHAReadiness, alerts.RuleTemplateFleetNodeUnavailable:
+	case alerts.RuleTemplateCurtailmentFanRestore, alerts.RuleTemplateCurtailmentHeartbeat, alerts.RuleTemplateMetricIngest, alerts.RuleTemplateHAReadiness, alerts.RuleTemplateFleetNodeUnavailable:
 	}
 	return alertsv1.RuleTemplate_RULE_TEMPLATE_UNSPECIFIED
 }

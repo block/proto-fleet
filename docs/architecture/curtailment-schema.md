@@ -34,13 +34,23 @@ only when their optional keys are present. Terminal history therefore does not
 permanently reserve either key. Multiple events may run in one organization;
 target ownership provides the device-level exclusion.
 
-Finite maximum durations also apply while an event is pending. Events without a
-`started_at` measure the cap from `created_at`, because dispatch timestamps advance
-on retries; otherwise they measure it from `started_at`. Expiry starts restoration
-even when some targets never confirm. The cap must be at least the minimum curtailed
+An event has a maximum duration only when its Start sets `max_duration_seconds`;
+otherwise it is stored with `allow_unbounded` and runs until it is stopped or
+aborted. Any caller with curtailment access may start an unbounded event or set
+a cap up to the absolute ceiling. `curtailment_org_config.max_duration_default_sec`
+no longer supplies a default cap.
+
+A finite cap includes pending time. It starts at `created_at` (or an earlier
+`started_at`) and does not reset when confirmation promotes the event to active
+or when re-curtailment reverses restoration. Expiry starts restoration even when
+some targets never confirm. The cap must be at least the minimum curtailed
 duration. Only admins may shorten an existing cap, and unbounded events reject
 cap updates. Operator updates recheck duration policy against the current row
 so a concurrent extension cannot turn a non-admin update into an early restore.
+
+MQTT source creation, edits, enable/disable changes, connection tests and
+deletion require both administrator status and `curtailment:manage`. Listing
+and reading sources require `curtailment:manage`.
 
 ## Targets and identity
 

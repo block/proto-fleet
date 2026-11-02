@@ -49,6 +49,7 @@ const (
 
 const workerRestartBackoffMax = 30 * time.Second
 const reconcileRetryTimeout = 30 * time.Second
+const reconcileWarningInterval = time.Minute
 
 var errSubscriberNotStarted = errors.New("mqttingest: subscriber is not started")
 var errStartupSourcesQuiesced = errors.New("mqttingest: startup sources are waiting for settings reconciliation")
@@ -216,6 +217,8 @@ func (s *Subscriber) requestReconcileRetry(activation *subscriberActivation) {
 
 func (s *Subscriber) retryReconcile(ctx context.Context, activation *subscriberActivation) {
 	defer activation.workerWG.Done()
+	var nextWarningAt time.Time
+	var suppressedWarnings uint64
 	for {
 		select {
 		case <-ctx.Done():
@@ -238,10 +241,20 @@ func (s *Subscriber) retryReconcile(ctx context.Context, activation *subscriberA
 				return
 			}
 			if err == nil {
+				nextWarningAt = time.Time{}
+				suppressedWarnings = 0
 				break
 			}
 			if !errors.Is(err, errStartupSourcesQuiesced) {
-				s.cfg.Logger.Warn("mqttingest: source reconciliation failed; retrying", slog.Any("error", err))
+				now := s.cfg.Clock()
+				if now.Before(nextWarningAt) {
+					suppressedWarnings++
+				} else {
+					s.cfg.Logger.Warn("mqttingest: source reconciliation failed; retrying",
+						slog.Any("error", err), slog.Uint64("suppressed_warnings", suppressedWarnings))
+					nextWarningAt = now.Add(reconcileWarningInterval)
+					suppressedWarnings = 0
+				}
 			}
 			backoff = nextWorkerRestartBackoff(backoff)
 		}

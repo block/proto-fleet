@@ -13,7 +13,9 @@ func TestCurtailmentOperationalMetricsPersistValuesAndLabels(t *testing.T) {
 	provider.ObserveTickDuration(125 * time.Millisecond)
 	provider.IncTickFailure()
 	provider.IncConfirmationPassFailure()
-	provider.IncCandidateExcluded("stale_telemetry")
+	provider.IncCandidateExcluded("stale_telemetry", 5000)
+	provider.IncCandidateExcluded("stale_telemetry", 0)
+	provider.IncCandidateExcluded("stale_telemetry", -1)
 	provider.IncMaintenanceOverride()
 	provider.IncEventStateRaceLoss()
 	provider.IncTargetWriteFailure()
@@ -31,6 +33,7 @@ func TestCurtailmentOperationalMetricsPersistValuesAndLabels(t *testing.T) {
 	}
 	require.Equal(t, 0.125, byName[MetricCurtailmentTickDurationSeconds][0].Value)
 	require.Equal(t, "stale_telemetry", byName[MetricCurtailmentCandidateExcludedTotal][0].Labels.Kind)
+	require.Equal(t, 5000.0, byName[MetricCurtailmentCandidateExcludedTotal][0].Value)
 	require.Equal(t, "curtailment_facility_fan_command_failed", byName[MetricCurtailmentAuditWriteFailureTotal][0].Labels.Kind)
 	require.Equal(t, 120.0, byName[MetricCurtailmentOldestPendingEventAgeSeconds][0].Value)
 	require.Zero(t, byName[MetricCurtailmentOldestPendingEventAgeSeconds][1].Value)

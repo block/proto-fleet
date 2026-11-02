@@ -76,9 +76,8 @@ type Plan struct {
 	// terminal (an empty FULL_FLEET start); echoed in the Start response so it
 	// matches the stamped row. nil otherwise.
 	EndedAt *time.Time
-	// EffectiveMaxDurationSeconds is the persisted cap after Service.Start
-	// resolves the "use org default" sentinel. nil when AllowUnbounded=true
-	// or for Preview.
+	// EffectiveMaxDurationSeconds is the persisted cap. nil when the event has
+	// no cap or for Preview.
 	EffectiveMaxDurationSeconds *int32
 	// EffectiveRestoreBatchIntervalSec is the persisted inter-batch delay.
 	// Zero means no delay.

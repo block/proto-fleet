@@ -2074,11 +2074,11 @@ func (r *Reconciler) maybeMarkActive(ctx context.Context, ev *models.Event, targ
 
 // allPairedPendingStallWarnAfter is how long an all-paired event may hold in
 // pending (started_at unset, nothing confirmed) before the reconciler starts
-// flagging it each tick. The hold itself is deliberate and open-ended: the
-// event owns its scope — blocking every other curtailment start for that
-// scope via the hierarchy conflict check and scope watcher — until a target
-// confirms or an operator stops it, so a sustained stall (fleet-wide outage,
-// auth-needed population) must surface on dashboards, not only in the UI.
+// flagging it each tick. The event owns its scope, blocking other starts via
+// the hierarchy conflict check and scope watcher, until confirmation, Stop,
+// or finite-cap expiry. Only explicitly unbounded events may hold indefinitely.
+// A sustained stall (fleet-wide outage, auth-needed population) must surface
+// on dashboards, not only in the UI.
 const allPairedPendingStallWarnAfter = 15 * time.Minute
 
 // warnIfAllPairedPendingStalled emits the stall signal for a held pending
@@ -2093,7 +2093,7 @@ func (r *Reconciler) warnIfAllPairedPendingStalled(ev *models.Event, unavailable
 		return
 	}
 	r.metrics.IncAllPairedPendingStall()
-	slog.Warn("curtailment reconciler: all-paired event pending with nothing confirmed; scope stays locked until a target confirms or the event is stopped",
+	slog.Warn("curtailment reconciler: all-paired event pending with nothing confirmed; scope stays locked until confirmation, Stop, or finite-cap expiry",
 		"event_id", ev.ID, "event_uuid", ev.EventUUID,
 		"pending_for", stalledFor.Truncate(time.Second).String(),
 		"unavailable_targets", unavailable, "released_targets", releasedPolicy)
@@ -2271,10 +2271,10 @@ func isCurtailed(latestPowerW *float64, baselinePowerW *float64, latestHashRateH
 }
 
 // enforceMaxDuration restores an event once its finite safety cap expires.
-// Active events use started_at; pending events use creation (see
-// curtailment.MaxDurationElapsed). Incomplete confirmation cannot leave already
-// curtailed miners held indefinitely. A failed transition still suppresses
-// further curtail dispatch until a later tick can retry it.
+// Pending and active work share the clock from event creation (or an earlier
+// started_at; see curtailment.MaxDurationElapsed). Incomplete confirmation
+// cannot leave already curtailed miners held indefinitely. A failed transition
+// still suppresses further curtail dispatch until a later tick can retry it.
 func (r *Reconciler) enforceMaxDuration(ctx context.Context, ev *models.Event, targets []*models.Target) bool {
 	elapsed, expired := curtailment.MaxDurationElapsed(ev, r.now())
 	if !expired {

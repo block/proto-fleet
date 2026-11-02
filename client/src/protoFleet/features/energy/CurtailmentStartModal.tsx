@@ -1260,6 +1260,11 @@ function CurtailmentStartModalContent({
   const isResponseProfileEditMode = isResponseProfileVariant && responseProfileMode === "edit";
   const isLiveCurtailmentEditMode = isEditMode && !isResponseProfileVariant;
   const shouldResetResponseProfileOnEdit = !isResponseProfileVariant && !isEditMode;
+  const hasRestrictedAllPairedTargeting =
+    !canUseAdminControls &&
+    !isLiveCurtailmentEditMode &&
+    values.forceIncludeAllPairedMiners &&
+    supportsAllPairedTargeting(values);
   const resetResponseProfileSelection = (nextValues: CurtailmentFormValues): CurtailmentFormValues => {
     if (!shouldResetResponseProfileOnEdit || nextValues.responseProfileId === customResponseProfileId) {
       return nextValues;
@@ -1352,7 +1357,7 @@ function CurtailmentStartModalContent({
   const apiPreview = useCurtailmentPlanPreview({
     open,
     values: effectiveValues,
-    disabled: isLiveCurtailmentEditMode || controlledPreview !== undefined,
+    disabled: isLiveCurtailmentEditMode || hasRestrictedAllPairedTargeting || controlledPreview !== undefined,
   });
   const previewState = getPreviewState({
     apiPreview,
@@ -1366,10 +1371,16 @@ function CurtailmentStartModalContent({
     previewState.previewError !== undefined || (!isResponseProfileVariant && previewState.isPreviewLoading);
   const hasBlockingSubmitPreviewState = !isResponseProfileVariant && hasBlockingRunPreviewState;
   const hasEditableChanges = !isLiveCurtailmentEditMode || hasEditableCurtailmentChanges(values, initialFormValues);
-  const isSubmitDisabled = isBusy || hasBlockingSubmitPreviewState || hasExternalFormError || !hasEditableChanges;
+  const isSubmitDisabled =
+    isBusy ||
+    hasRestrictedAllPairedTargeting ||
+    hasBlockingSubmitPreviewState ||
+    hasExternalFormError ||
+    !hasEditableChanges;
   const displayedPreviewState = isResponseProfileVariant ? responseProfilePreviewState(previewState) : previewState;
   const isPrimarySubmitDisabled = isSubmitDisabled;
-  const isRunCurtailmentDisabled = isBusy || hasBlockingRunPreviewState || hasExternalFormError;
+  const isRunCurtailmentDisabled =
+    isBusy || hasRestrictedAllPairedTargeting || hasBlockingRunPreviewState || hasExternalFormError;
   const selectedMinerIds = getSelectedMinerIds(effectiveValues);
   const minerApplyToTarget = getMinerApplyToTarget(effectiveValues);
   const targetPathSiteValues = {
@@ -2098,14 +2109,16 @@ function CurtailmentStartModalContent({
               The "Include miners in maintenance" checkbox is intentionally hidden from the UI.
               includeMaintenance defaults to false so non-admin operators with curtailment:manage
               can still start curtailments (force_include_maintenance is admin-gated server-side).
-              "Target all paired miners" is the only operator-controllable inclusion option, and
-              enabling it also opts in maintenance-flagged miners via the request builders.
+              Only admins can enable "Target all paired miners"; non-admins can turn off an
+              inherited value. Enabling it also opts in maintenance-flagged miners via the request builders.
               Re-add the checkbox here if maintenance ever needs to become independently togglable.
 
               The checkbox is also available for logical topology scopes; explicit miner snapshots
               remain ineligible for the all-paired policy.
             */}
-            {canUseAdminControls && isFullFleetMode && supportsAllPairedTargeting(values) ? (
+            {(canUseAdminControls || values.forceIncludeAllPairedMiners) &&
+            isFullFleetMode &&
+            supportsAllPairedTargeting(values) ? (
               <Section title="Miners">
                 <label
                   className={`flex items-start gap-3 text-left ${
@@ -2129,6 +2142,12 @@ function CurtailmentStartModalContent({
                     <span className="block text-300 text-text-primary">Target all paired miners</span>
                   </span>
                 </label>
+                {hasRestrictedAllPairedTargeting ? (
+                  <p className="text-300 text-text-critical" role="alert">
+                    Only administrators can target all paired miners. Turn this off to{" "}
+                    {isResponseProfileVariant ? "continue." : "run a custom plan."}
+                  </p>
+                ) : null}
               </Section>
             ) : null}
           </section>

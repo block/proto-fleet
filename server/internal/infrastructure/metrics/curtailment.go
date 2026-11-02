@@ -14,8 +14,11 @@ func (p *Provider) IncTickFailure() { p.curtailmentIncrement(MetricCurtailmentTi
 func (p *Provider) IncConfirmationPassFailure() {
 	p.curtailmentIncrement(MetricCurtailmentConfirmationPassFailureTotal, "")
 }
-func (p *Provider) IncCandidateExcluded(reason string) {
-	p.curtailmentIncrement(MetricCurtailmentCandidateExcludedTotal, reason)
+func (p *Provider) IncCandidateExcluded(reason string, count int) {
+	if count <= 0 {
+		return
+	}
+	p.record(Sample{Metric: MetricCurtailmentCandidateExcludedTotal, Labels: Labels{Kind: reason}, Value: float64(count)})
 }
 func (p *Provider) IncMaintenanceOverride() {
 	p.curtailmentIncrement(MetricCurtailmentMaintenanceOverrideTotal, "")

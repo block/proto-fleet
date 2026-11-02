@@ -26,7 +26,7 @@ func TestAdminPolicy_FullFleetProfileAndManualStartRemainDifferent(t *testing.T)
 	assert.Equal(t, models.EventStateActive, plan.StartState)
 	required, err := EventRequiresAdminControls(&models.Event{
 		Mode: models.ModeFullFleet, DecisionSnapshotJSON: store.lastInsertEvent.DecisionSnapshotJSON,
-	}, store.orgConfigByOrg[orgID])
+	})
 	require.NoError(t, err)
 	assert.False(t, required, "FULL_FLEET alone must not become a persisted admin requirement")
 
@@ -141,7 +141,7 @@ func TestServiceStart_MinimumDurationBoundsAndEffectiveCap(t *testing.T) {
 		{"minimum at hard ceiling", maxFiniteDurationSeconds, int32Ptr(maxFiniteDurationSeconds), false},
 		{"minimum above hard ceiling", maxFiniteDurationSeconds + 1, int32Ptr(maxFiniteDurationSeconds), true},
 		{"minimum above explicit cap", 601, int32Ptr(600), true},
-		{"minimum above organization default", 14401, nil, true},
+		{"minimum without a cap", 14401, nil, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			store := newFakeStore()
@@ -156,6 +156,37 @@ func TestServiceStart_MinimumDurationBoundsAndEffectiveCap(t *testing.T) {
 			} else {
 				require.NoError(t, err)
 			}
+		})
+	}
+}
+
+func TestServiceStart_MinimumDurationAccessUsesValidatedCap(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name    string
+		minimum int32
+		cap     *int32
+		wantErr string
+	}{
+		{"minimum without a cap", 14401, nil, ""},
+		{"minimum above explicit cap", 14401, int32Ptr(14400), "min_curtailed_duration_sec must be <= max_duration_seconds"},
+		{"elevated minimum and cap", 14401, int32Ptr(14401), ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			store := newFakeStore()
+			store.orgConfigByOrg[42] = defaultOrgConfig(42)
+			store.candidatesByOrg[42] = []*models.Candidate{minerWithEff("a", 6000, 100, 40)}
+			req := validStartRequest(42)
+			req.MinCurtailedDurationSec, req.MaxDurationSeconds = tc.minimum, tc.cap
+			req.CanUseAdminControls = false
+			_, err := NewService(store).Start(t.Context(), req)
+			if tc.wantErr == "" {
+				require.NoError(t, err)
+				return
+			}
+			require.ErrorContains(t, err, tc.wantErr)
+			assert.Zero(t, store.insertEventCalls)
 		})
 	}
 }

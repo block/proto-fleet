@@ -8,9 +8,11 @@ import (
 	"github.com/google/uuid"
 )
 
-// OrgConfig is the per-org default duration and candidate-power floor.
+// OrgConfig is the per-org candidate-power floor.
 type OrgConfig struct {
-	OrgID                 int64
+	OrgID int64
+	// MaxDurationDefaultSec is stored but not applied: events have no cap
+	// unless their Start sets one.
 	MaxDurationDefaultSec int32
 	CandidateMinPowerW    int32
 }

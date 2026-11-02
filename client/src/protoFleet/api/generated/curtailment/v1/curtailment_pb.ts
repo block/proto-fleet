@@ -1203,7 +1203,7 @@ export type StartCurtailmentRequest = Message<"curtailment.v1.StartCurtailmentRe
   /**
    * Operational controls.
    *
-   * 0 = org default unless allow_unbounded
+   * 0 = no cap
    *
    * @generated from field: uint32 max_duration_seconds = 20;
    */
@@ -1265,9 +1265,9 @@ export type StartCurtailmentRequest = Message<"curtailment.v1.StartCurtailmentRe
   candidateMinPowerWOverride?: number | undefined;
 
   /**
-   * Admin-only acknowledgement to opt out of `max_duration_default_sec`
-   * normalization. Default false; otherwise `max_duration_seconds=0` is
-   * normalized to the per-org default by the domain service.
+   * Kept for existing callers: an event without `max_duration_seconds`
+   * already has no cap. Rejected together with a non-zero
+   * `max_duration_seconds`.
    *
    * @generated from field: bool allow_unbounded = 27;
    */
@@ -1435,7 +1435,7 @@ export type UpdateCurtailmentEventRequest = Message<"curtailment.v1.UpdateCurtai
 
   /**
    * Omit to preserve the cap; a supplied value must be positive.
-   * Only admins may shorten it; allow_unbounded events reject a cap update.
+   * Only admins may shorten it; events without a cap reject a cap update.
    *
    * @generated from field: optional uint32 max_duration_seconds = 13;
    */

@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 
+import { formatScopeCount } from "@/protoFleet/api/curtailmentScopes";
 import {
   curtailmentNumericFieldLimits,
   parseOptionalUint32Field,
@@ -50,13 +51,11 @@ interface DeviceGroup {
   devices: FacilityFanDeviceOption[];
 }
 
-function formatCount(count: number, singular: string): string {
-  return `${count} ${count === 1 ? singular : `${singular}s`}`;
-}
-
 function formatDeviceKind(device: FacilityFanDeviceOption): string {
   if (device.deviceKind === "fan_group") {
-    return device.fanCount && device.fanCount > 1 ? `Fan group · ${formatCount(device.fanCount, "fan")}` : "Fan group";
+    return device.fanCount && device.fanCount > 1
+      ? `Fan group · ${formatScopeCount(device.fanCount, "fan")}`
+      : "Fan group";
   }
 
   return "Single fan";
@@ -175,14 +174,14 @@ function FacilityFanSelectionModal({
       open
       onDismiss={onDismiss}
       title="Fan behavior during curtailment"
-      description={`${formatCount(devices.length, "device")} in scope`}
+      description={`${formatScopeCount(devices.length, "device")} in scope`}
       surfaceClassName="!w-[min(calc(100vw-(--spacing(4))),600px)]"
       testId="facility-fan-selection-modal"
       divider={false}
       fixedFooter={
         !isLoading && !loadError && devices.length > 0 ? (
           <ModalSelectAllFooter
-            label={`${formatCount(selectedDeviceIdsInScope.length, "device")} selected${hasReachedSelectionLimit ? " (maximum)" : ""}`}
+            label={`${formatScopeCount(selectedDeviceIdsInScope.length, "device")} selected${hasReachedSelectionLimit ? " (maximum)" : ""}`}
             onSelectAll={() =>
               setSelectedDeviceIds(selectAllFacilityFanDeviceIds(selectedDeviceIdsInScope, selectableDeviceIds))
             }

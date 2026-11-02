@@ -1819,6 +1819,8 @@ describe("CurtailmentManagementPanel", () => {
       expect(within(modal).getByTestId("modal-action-error")).toHaveTextContent(
         mode === "edit" ? "Update rejected" : "Start rejected",
       );
+      expect(screen.getAllByText(mode === "edit" ? "Update rejected" : "Start rejected")).toHaveLength(1);
+      expect(screen.queryByText(mode === "edit" ? "Start rejected" : "Update rejected")).not.toBeInTheDocument();
       await user.click(within(modal).getByRole("button", { name: "Dismiss editor" }));
       expect(clearActionErrors).toHaveBeenCalledOnce();
     },

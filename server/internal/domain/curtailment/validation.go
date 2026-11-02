@@ -98,15 +98,11 @@ func validateReason(reason, emptyMessage string) error {
 
 type adminControls struct {
 	FullFleetProfile            bool
-	AllowUnbounded              bool
 	CandidateMinPowerWOverride  *int32
 	ForceIncludeMaintenance     bool
 	ForceIncludeAllPairedMiners bool
 	CurtailBatchIntervalSec     int32
 	RestoreBatchIntervalSec     int32
-	MaxDurationSeconds          *int32
-	MinCurtailedDurationSec     int32
-	MaxDurationDefaultSec       int32
 }
 
 // adminControlsRequirement is the common policy for profiles, Start, Update,
@@ -116,8 +112,6 @@ func adminControlsRequirement(c adminControls) string {
 	switch {
 	case c.FullFleetProfile:
 		return "only admins can save response profiles with admin-only controls"
-	case c.AllowUnbounded:
-		return "only admins can set allow_unbounded"
 	case c.CandidateMinPowerWOverride != nil:
 		return "only admins can set candidate_min_power_w_override"
 	case c.ForceIncludeMaintenance:
@@ -128,10 +122,6 @@ func adminControlsRequirement(c adminControls) string {
 		return fmt.Sprintf("only admins can set curtail_batch_interval_sec above %d", nonAdminBatchIntervalMax)
 	case c.RestoreBatchIntervalSec > nonAdminBatchIntervalMax:
 		return fmt.Sprintf("only admins can set restore_batch_interval_sec above %d", nonAdminBatchIntervalMax)
-	case c.MinCurtailedDurationSec > c.MaxDurationDefaultSec && c.MaxDurationDefaultSec > 0:
-		return fmt.Sprintf("only admins can set min_curtailed_duration_sec above org default %d", c.MaxDurationDefaultSec)
-	case c.MaxDurationSeconds != nil && c.MaxDurationDefaultSec > 0 && *c.MaxDurationSeconds > c.MaxDurationDefaultSec:
-		return fmt.Sprintf("only admins can set max_duration_seconds above org default %d", c.MaxDurationDefaultSec)
 	default:
 		return ""
 	}
@@ -146,17 +136,12 @@ func validateAdminControlAccess(c adminControls, allowed bool) error {
 	return nil
 }
 
-func startAdminControls(req StartRequest, orgConfig *models.OrgConfig) adminControls {
-	c := adminControls{
-		AllowUnbounded: req.AllowUnbounded, CandidateMinPowerWOverride: req.CandidateMinPowerWOverride,
-		ForceIncludeMaintenance: req.ForceIncludeMaintenance, ForceIncludeAllPairedMiners: req.ForceIncludeAllPairedMiners,
+func startAdminControls(req StartRequest) adminControls {
+	return adminControls{
+		CandidateMinPowerWOverride: req.CandidateMinPowerWOverride,
+		ForceIncludeMaintenance:    req.ForceIncludeMaintenance, ForceIncludeAllPairedMiners: req.ForceIncludeAllPairedMiners,
 		CurtailBatchIntervalSec: req.CurtailBatchIntervalSec, RestoreBatchIntervalSec: req.RestoreBatchIntervalSec,
-		MaxDurationSeconds: req.MaxDurationSeconds, MinCurtailedDurationSec: req.MinCurtailedDurationSec,
 	}
-	if orgConfig != nil {
-		c.MaxDurationDefaultSec = orgConfig.MaxDurationDefaultSec
-	}
-	return c
 }
 
 func responseProfileAdminControls(profile models.ResponseProfile) adminControls {

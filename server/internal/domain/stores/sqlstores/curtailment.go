@@ -1287,14 +1287,12 @@ func authorizeAutomationExecution(
 		)
 	}
 	requiresAdmin, err := domainCurtailment.EventRequiresAdminControls(&models.Event{
-		AllowUnbounded:              event.AllowUnbounded,
 		ForceIncludeMaintenance:     event.ForceIncludeMaintenance,
 		ForceIncludeAllPairedMiners: event.ForceIncludeAllPairedMiners,
 		CurtailBatchIntervalSec:     event.CurtailBatchIntervalSec,
 		RestoreBatchIntervalSec:     event.RestoreBatchIntervalSec,
-		MaxDurationSeconds:          event.MaxDurationSeconds,
 		DecisionSnapshotJSON:        event.DecisionSnapshotJSON,
-	}, nil)
+	})
 	if err != nil {
 		return fleeterror.NewInvalidArgumentErrorf("invalid automation decision snapshot: %v", err)
 	}

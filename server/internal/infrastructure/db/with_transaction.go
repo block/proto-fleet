@@ -105,7 +105,9 @@ func WithTransactionNoResult(ctx context.Context, db *sql.DB, action func(q sqlc
 // database failures. Use it when action performs an external side effect that
 // cannot safely be repeated after a write or commit failure.
 func WithTransactionNoRetry[T any](ctx context.Context, db *sql.DB, action func(q sqlc.Querier) (T, error), opts ...*sql.TxOptions) (T, error) {
-	return executeTransaction(ctx, db, action, firstTxOpts(opts))
+	result, err := executeTransaction(ctx, db, action, firstTxOpts(opts))
+	resetPoolOnFailover(err, poolResetFor(db))
+	return result, err
 }
 
 // WithTransactionNoRetryNoResult is the result-free form of WithTransactionNoRetry.

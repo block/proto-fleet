@@ -638,7 +638,7 @@ func (f *fakeStore) ListNonTerminalEvents(ctx context.Context) ([]*models.Event,
 	return out, nil
 }
 
-func (f *fakeStore) UpdateEventState(_ context.Context, eventID int64, expectedState models.EventState, state models.EventState, _ *time.Time, _ *time.Time) error {
+func (f *fakeStore) UpdateEventState(_ context.Context, eventID int64, expectedState models.EventState, state models.EventState, startedAt *time.Time, endedAt *time.Time) error {
 	f.updateEventCalls++
 	f.updateEventLast[eventID] = state
 	for _, ev := range f.events {
@@ -647,6 +647,12 @@ func (f *fakeStore) UpdateEventState(_ context.Context, eventID int64, expectedS
 				return interfaces.ErrCurtailmentEventStateRaceLoss
 			}
 			ev.State = state
+			if startedAt != nil {
+				ev.StartedAt = startedAt
+			}
+			if endedAt != nil {
+				ev.EndedAt = endedAt
+			}
 		}
 	}
 	return nil
@@ -3907,16 +3913,6 @@ func TestClaimClosedLoopFullFleetTargetsHandlesTopologyAdmissionFailure(t *testi
 			wantRestoreCalls: 1,
 		},
 		{
-			name:        "restores after update raises max duration and creator is demoted",
-			permissions: staticDispatchPermissionResolver{effective: topologyDispatchManagePermission(), roleName: "CUSTOM"},
-			configure: func(store *fakeStore, event *models.Event) {
-				store.orgConfig = &models.OrgConfig{OrgID: event.OrgID, MaxDurationDefaultSec: 100}
-				maxDurationSeconds := int32(101)
-				event.MaxDurationSeconds = &maxDurationSeconds
-			},
-			wantRestoreCalls: 1,
-		},
-		{
 			name:                  "defers transient role failure",
 			permissions:           staticDispatchPermissionResolver{effective: topologyDispatchManagePermission(), roleErr: errors.New("role database unavailable")},
 			requiresAdminControls: true,
@@ -6379,10 +6375,10 @@ func (m *recordingMetrics) IncConfirmationPassFailure() {
 	m.confirmationPassFailures++
 }
 
-func (m *recordingMetrics) IncCandidateExcluded(reason string) {
+func (m *recordingMetrics) IncCandidateExcluded(reason string, count int) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.candidateExcluded[reason]++
+	m.candidateExcluded[reason] += count
 }
 
 func (m *recordingMetrics) IncMaintenanceOverride() {

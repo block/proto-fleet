@@ -11,6 +11,7 @@ import type {
   CurtailmentSiteOption,
 } from "@/protoFleet/api/curtailmentTypes";
 import type { FullScreenTwoPaneModalProps } from "@/protoFleet/components/FullScreenTwoPaneModal";
+import { buildStartCurtailmentRequest } from "@/protoFleet/features/energy/curtailmentRequestBuilders";
 import CurtailmentStartModal from "@/protoFleet/features/energy/CurtailmentStartModal";
 import type { FacilityFanDeviceOption } from "@/protoFleet/features/energy/FacilityFanSelectionModal";
 import { useFleetStore } from "@/protoFleet/store/useFleetStore";
@@ -2745,6 +2746,110 @@ describe("CurtailmentStartModal", () => {
     useFleetStore.getState().auth.setRole("FIELD_TECH");
     renderModal({ initialValues: { ...configuredValues, curtailmentMode: "fullFleet" } });
     expect(screen.queryByText("Target all paired miners")).not.toBeInTheDocument();
+  });
+
+  const allPairedResponseProfile: CurtailmentResponseProfileOption = {
+    ...wholeFleetResponseProfiles[0],
+    id: "7",
+    values: {
+      ...wholeFleetResponseProfiles[0].values,
+      curtailmentMode: "fullFleet",
+      targetKw: "",
+      includeMaintenance: true,
+      forceIncludeAllPairedMiners: true,
+    },
+  };
+
+  it("shows inherited all-paired targeting to operators and detaches the profile only when they turn it off", async () => {
+    useFleetStore.getState().auth.setRole("FIELD_TECH");
+    const user = userEvent.setup();
+    const { onSubmit } = renderModal({ initialValues: configuredValues, responseProfiles: [allPairedResponseProfile] });
+
+    await user.click(screen.getByRole("button", { name: "Profile" }));
+    await user.click(screen.getByText("Standard shed"));
+
+    expect(getAllPairedCheckbox()).toBeChecked();
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "Only administrators can target all paired miners. Turn this off to run a custom plan.",
+    );
+    expect(screen.getByRole("button", { name: "Run curtailment" })).toBeDisabled();
+    expect(mockUseCurtailmentPlanPreview).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        disabled: true,
+        values: expect.objectContaining({
+          responseProfileId: allPairedResponseProfile.id,
+          responseProfileRevision: allPairedResponseProfile.revision,
+          forceIncludeAllPairedMiners: true,
+        }),
+      }),
+    );
+    expect(onSubmit).not.toHaveBeenCalled();
+
+    await user.click(getAllPairedCheckbox());
+
+    expect(screen.getByRole("button", { name: "Profile" })).toHaveTextContent("Custom plan");
+    expect(screen.queryByText("Target all paired miners")).not.toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Run curtailment" }));
+    await confirmCurtailment(user);
+
+    expect(onSubmit).toHaveBeenCalledOnce();
+    expect(buildStartCurtailmentRequest(onSubmit.mock.calls[0][0])).toMatchObject({
+      responseProfileId: 0n,
+      expectedResponseProfileRevision: "",
+      forceIncludeAllPairedMiners: false,
+      includeMaintenance: false,
+      forceIncludeMaintenance: false,
+    });
+  });
+
+  it("does not block operators who narrow inherited all-paired targeting to explicit miners", async () => {
+    useFleetStore.getState().auth.setRole("FIELD_TECH");
+    const user = userEvent.setup();
+    const { onSubmit } = renderModal({
+      initialValues: configuredValues,
+      responseProfiles: [allPairedResponseProfile],
+    });
+
+    await user.click(screen.getByRole("button", { name: "Profile" }));
+    await user.click(screen.getByText("Standard shed"));
+    expect(screen.getByRole("button", { name: "Run curtailment" })).toBeDisabled();
+
+    await user.click(screen.getByRole("button", { name: /^Miners\b/ }));
+    await user.click(screen.getByRole("button", { name: "Save miners" }));
+
+    expect(screen.queryByText("Target all paired miners")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Run curtailment" })).toBeEnabled();
+    await user.click(screen.getByRole("button", { name: "Run curtailment" }));
+    await confirmCurtailment(user);
+
+    expect(onSubmit).toHaveBeenCalledOnce();
+    expect(buildStartCurtailmentRequest(onSubmit.mock.calls[0][0])).toMatchObject({
+      responseProfileId: 0n,
+      forceIncludeAllPairedMiners: false,
+      includeMaintenance: false,
+      forceIncludeMaintenance: false,
+    });
+  });
+
+  it("lets operators edit a reason while inherited all-paired targeting remains read-only", async () => {
+    useFleetStore.getState().auth.setRole("FIELD_TECH");
+    const user = userEvent.setup();
+    const { onSubmit } = renderModal({
+      mode: "edit",
+      initialValues: { ...configuredValues, curtailmentMode: "fullFleet", forceIncludeAllPairedMiners: true },
+    });
+
+    expect(getAllPairedCheckbox()).toBeChecked();
+    expect(getAllPairedCheckbox()).toBeDisabled();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    await user.clear(screen.getByLabelText("Reason"));
+    await user.type(screen.getByLabelText("Reason"), "Updated reason");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    expect(onSubmit).toHaveBeenCalledWith(
+      expect.objectContaining({ reason: "Updated reason", forceIncludeAllPairedMiners: true }),
+    );
   });
 
   it.each(["curtailment-curtail-batch-interval", "curtailment-restore-batch-interval"])(
