@@ -24,6 +24,7 @@ openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj /CN=localhost \
 cat >"$STAGE/upstream.conf" <<'EOF'
 server {
     listen 4000;
+    listen [::]:4000;
     access_log off;
     location = /health/active {
         add_header X-Proto-Fleet-HA-Role $http_x_test_passive_role always;

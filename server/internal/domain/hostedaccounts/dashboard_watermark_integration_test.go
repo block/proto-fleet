@@ -74,7 +74,8 @@ func TestAccountDashboardRetainedBudgetsActualWatermarks(t *testing.T) {
 			if !daily {
 				// Even a caught-up policy must scan the future part of a request.
 				// Its source buckets fit, but the normal raw-tail budget does not.
-				oversized := dashboardRequest(client.AccountID, start, end.Add(3*24*time.Hour), nil)
+				// Stay over budget even when now is near the end of the UTC day.
+				oversized := dashboardRequest(client.AccountID, start, end.Add(4*24*time.Hour), nil)
 				oversized.BucketSeconds = int32(time.Hour / time.Second)
 				_, err = f.svc.Dashboard(t.Context(), f.user, f.org, oversized)
 				require.True(t, fleeterror.IsInvalidArgumentError(err), "inherently oversized work must not be reported as refresh lag: %v", err)
