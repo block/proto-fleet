@@ -23,19 +23,22 @@ func targetInDiscoveryScope(scope discoveryranges.Scope, target *pairingpb.Fleet
 // splitPairTargetsByDiscoveryScope separates targets the node may pair now from
 // those with an address outside its live ranges, so one stale device cannot
 // block the rest of a batch.
-func (s *Service) splitPairTargetsByDiscoveryScope(nodeID int64, targets []*pairingpb.FleetNodePairTarget) (allowed, rejected []*pairingpb.FleetNodePairTarget) {
+func (s *Service) splitPairTargetsByDiscoveryScope(nodeID int64, targets []*pairingpb.FleetNodePairTarget) (allowed, rejected []*pairingpb.FleetNodePairTarget, err error) {
 	if s.discoveryConfig == nil {
-		return targets, nil
+		return targets, nil, nil
 	}
 	scope, err := discoveryranges.Parse(s.discoveryConfig(nodeID).GetRanges())
+	if err != nil || scope.Empty() {
+		return nil, targets, fleeterror.NewFailedPreconditionError(outOfScopeMessage)
+	}
 	for _, target := range targets {
-		if err == nil && targetInDiscoveryScope(scope, target) {
+		if targetInDiscoveryScope(scope, target) {
 			allowed = append(allowed, target)
 		} else {
 			rejected = append(rejected, target)
 		}
 	}
-	return allowed, rejected
+	return allowed, rejected, nil
 }
 
 func (s *Service) validateDeviceDiscoveryScope(ctx context.Context, nodeID, deviceID, orgID int64) error {

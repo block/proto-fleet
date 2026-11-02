@@ -67,12 +67,19 @@ func TestPairOnNodeRejectsExistingBindingOutsideDiscoveryRanges(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, targets, 1)
 	done := make(chan error, 1)
+	var results []*gatewaypb.FleetNodePairResult
 	go func() {
-		done <- svc.PairOnNode(t.Context(), node, targets, nil, org, nil, func([]*gatewaypb.FleetNodePairResult) error { return nil })
+		done <- svc.PairOnNode(t.Context(), node, targets, nil, org, nil, func(batch []*gatewaypb.FleetNodePairResult) error {
+			results = append(results, batch...)
+			return nil
+		})
 	}()
 	select {
 	case err := <-done:
-		require.True(t, fleeterror.IsFailedPreconditionError(err), "got %v", err)
+		require.NoError(t, err)
+		require.Len(t, results, 1)
+		require.Equal(t, report.DeviceIdentifier, results[0].GetDeviceIdentifier())
+		require.Equal(t, gatewaypb.PairOutcome_PAIR_OUTCOME_ERROR, results[0].GetOutcome())
 	case <-stream.Outgoing:
 		t.Fatal("target outside the configured ranges was dispatched")
 	case <-time.After(5 * time.Second):

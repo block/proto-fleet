@@ -74,6 +74,58 @@ func TestPairAllOnNodePagesPastBatchLimit(t *testing.T) {
 	}
 }
 
+func TestPairAllOnNodeContinuesAfterEntirePageOutsideDiscoveryScope(t *testing.T) {
+	store := pairAllTestStore(MaxPairBatch + 1)
+	for i := range MaxPairBatch {
+		store.devices[i].IPAddress = "10.0.1.1"
+	}
+	registry := control.NewRegistry()
+	stream := registry.Register(7)
+	stream.SetDiscoveryConfig(&gatewaypb.DiscoveryConfig{Ranges: []string{"10.0.0.0/24"}})
+	defer stream.Unregister()
+	service := NewService(store, nil, nil).WithProvisioning(nil, nil, registry)
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	done := make(chan error, 1)
+	var results []*gatewaypb.FleetNodePairResult
+	go func() {
+		done <- service.PairAllOnNode(ctx, 7, 20, nil, nil, func(batch []*gatewaypb.FleetNodePairResult) error {
+			results = append(results, batch...)
+			return fmt.Errorf("display disconnected")
+		})
+	}()
+	select {
+	case cmd := <-stream.Outgoing:
+		var payload gatewaypb.AgentCommand
+		require.NoError(t, proto.Unmarshal(cmd.GetPayload(), &payload))
+		require.Len(t, payload.GetPair().GetTargets(), 1)
+		lastID := store.devices[MaxPairBatch].DeviceIdentifier
+		assert.Equal(t, lastID, payload.GetPair().GetTargets()[0].GetDeviceIdentifier())
+		registry.PublishPairResults(7, cmd.GetCommandId(), []*gatewaypb.FleetNodePairResult{{DeviceIdentifier: lastID, Outcome: gatewaypb.PairOutcome_PAIR_OUTCOME_PAIRED}})
+		stream.PublishAck(&gatewaypb.ControlAck{CommandId: cmd.GetCommandId(), Code: gatewaypb.AckCode_ACK_CODE_OK, Succeeded: true})
+	case err := <-done:
+		t.Fatalf("rejected first page stopped pagination: %v", err)
+	case <-ctx.Done():
+		t.Fatal("valid second page was not dispatched")
+	}
+	select {
+	case err := <-done:
+		require.NoError(t, err)
+	case <-ctx.Done():
+		t.Fatal("pair-all did not finish")
+	}
+	require.Len(t, store.calls, 2)
+	require.NotNil(t, store.calls[1].filter.CursorID)
+	assert.Equal(t, int64(MaxPairBatch), *store.calls[1].filter.CursorID)
+	require.Len(t, results, MaxPairBatch+1)
+	for i, result := range results[:MaxPairBatch] {
+		assert.Equal(t, store.devices[i].DeviceIdentifier, result.GetDeviceIdentifier())
+		assert.Equal(t, gatewaypb.PairOutcome_PAIR_OUTCOME_ERROR, result.GetOutcome())
+		assert.Equal(t, outOfScopeMessage, result.GetErrorMessage())
+	}
+	assert.Equal(t, gatewaypb.PairOutcome_PAIR_OUTCOME_PAIRED, results[MaxPairBatch].GetOutcome())
+}
+
 func TestPairAllOnNodeStopsAfterCommandError(t *testing.T) {
 	store := pairAllTestStore(MaxPairBatch + 1)
 	registry := control.NewRegistry()
@@ -210,9 +262,10 @@ func TestPairOnNodeRequiresCommandProtocolV1(t *testing.T) {
 	stream, err := registry.RegisterAuthenticated(7, "legacy", gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_UNSPECIFIED)
 	require.NoError(t, err)
 	defer stream.Unregister()
+	stream.SetDiscoveryConfig(&gatewaypb.DiscoveryConfig{Ranges: []string{"10.0.0.0/24"}})
 	service := NewService(nil, nil, nil).WithProvisioning(nil, nil, registry)
 
-	err = service.PairOnNode(t.Context(), 7, []*pairingpb.FleetNodePairTarget{{DeviceIdentifier: "miner-1"}}, nil, 1, nil, func([]*gatewaypb.FleetNodePairResult) error { return nil })
+	err = service.PairOnNode(t.Context(), 7, []*pairingpb.FleetNodePairTarget{{DeviceIdentifier: "miner-1", IpAddress: "10.0.0.1"}}, nil, 1, nil, func([]*gatewaypb.FleetNodePairResult) error { return nil })
 
 	assert.True(t, fleeterror.IsFailedPreconditionError(err))
 	select {

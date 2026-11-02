@@ -94,6 +94,8 @@ func (s *Service) PairTargetsOnNode(ctx context.Context, fleetNodeID int64, targ
 // invokes onResults per result batch for live operator display. Persistence is
 // authoritative in the gateway ReportPairedDevices handler, not here, so onResults
 // is best-effort display only.
+// Targets outside the live discovery ranges are reported as failed results,
+// including when none can dispatch; only batch-level failures return an error.
 //
 // Dispatch remains cancelable until the command is enqueued. Pairing mutates
 // miners, so an accepted command must finish server-side (the gateway keeps
@@ -113,10 +115,13 @@ func (s *Service) PairOnNode(ctx context.Context, fleetNodeID int64, targets []*
 	if connections, ok := s.dispatcher.(interface{ Connected(fleetNodeID int64) bool }); ok && !connections.Connected(fleetNodeID) {
 		return fleeterror.NewFailedPreconditionError("fleet node has no active control stream")
 	}
-	targets, outOfScope := s.splitPairTargetsByDiscoveryScope(fleetNodeID, targets)
+	targets, outOfScope, err := s.splitPairTargetsByDiscoveryScope(fleetNodeID, targets)
 	_ = reportOutOfScope(outOfScope, onResults)
+	if err != nil {
+		return err
+	}
 	if len(targets) == 0 {
-		return fleeterror.NewFailedPreconditionError(outOfScopeMessage)
+		return nil
 	}
 	payload, err := proto.Marshal(&gatewaypb.AgentCommand{
 		Command: &gatewaypb.AgentCommand_Pair{Pair: &pairingpb.FleetNodePairRequest{
