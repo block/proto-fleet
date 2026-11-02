@@ -394,7 +394,7 @@ func TestDiscoverOnFleetNode_RejectsMDNSMode(t *testing.T) {
 	assert.Equal(t, connect.CodeInvalidArgument, connErr.Code())
 }
 
-func TestDiscoverOnFleetNode_NetworkScanModePreservesUsableTargets(t *testing.T) {
+func TestDiscoverOnFleetNode_NetworkScanModePreservesCIDROnWire(t *testing.T) {
 	// Arrange
 	h := newPairingHarness(t)
 	fleetNodeID := h.createFleetNode(t, "admin-discover-network-scan")
@@ -436,7 +436,7 @@ func TestDiscoverOnFleetNode_NetworkScanModePreservesUsableTargets(t *testing.T)
 	// Assert
 	select {
 	case target := <-gotTarget:
-		assert.Equal(t, "10.0.0.1-14", target)
+		assert.Equal(t, "10.0.0.0/28", target)
 	case <-time.After(2 * time.Second):
 		t.Fatal("agent never received network scan command")
 	}

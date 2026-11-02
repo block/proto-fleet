@@ -14,6 +14,7 @@ import (
 
 	"github.com/block/proto-fleet/server/internal/domain/discoverylimits"
 	"github.com/block/proto-fleet/server/internal/domain/discoveryranges"
+	"github.com/block/proto-fleet/server/internal/domain/netutil"
 )
 
 // LocalSubnetTarget asks a Fleet Node to select its own private IPv4 subnets.
@@ -68,8 +69,7 @@ func ParseTarget(raw string) (Target, error) {
 		if !prefix.Addr().Is4() {
 			return Target{}, fmt.Errorf("scan target %q: IPv6 CIDRs are not supported", raw)
 		}
-		first := prefix.Masked().Addr()
-		last := ipv4Addr(ipv4Value(first) | (^uint32(0) >> prefix.Bits()))
+		first, last := netutil.IPv4PrefixBounds(prefix)
 		if prefix.Bits() <= 30 {
 			first = first.Next()
 			last = last.Prev()
