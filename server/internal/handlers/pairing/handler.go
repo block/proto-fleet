@@ -44,6 +44,8 @@ type fleetNodeDiscoveryRunner interface {
 
 var _ pairingv1connect.PairingServiceHandler = &Handler{}
 
+const pairLookupBatchSize = 1024
+
 // pairFleetNodeDeadline bounds the fleet node fan-out of one Pair call so the
 // response, with its failed device IDs, arrives before the reverse proxy's
 // 75 minute read timeout. A command already accepted by a node still finishes
@@ -359,7 +361,7 @@ func (h *Handler) pairFleetNodeDevices(ctx context.Context, orgID, userID int64,
 		}, failed: map[string]struct{}{}}
 		if allDevicesFilter == nil {
 			targetIDs := pendingSortedIdentifiers(sortedSelected, pending)
-			for ids := range slices.Chunk(targetIDs, fleetnodepairing.MaxPairBatch) {
+			for ids := range slices.Chunk(targetIDs, pairLookupBatchSize) {
 				if err := ctx.Err(); err != nil {
 					return nil, fleetNodePairRoute{}, fmt.Errorf("pair stopped before resolving next batch: %w", err)
 				}
@@ -399,7 +401,7 @@ func (h *Handler) pairFleetNodeDevices(ctx context.Context, orgID, userID int64,
 			}()
 			if allDevicesFilter != nil {
 				if err := h.pairAllMatchingFleetNodeDevices(ctx, item.nodeID, orgID, userID, allDevicesFilter, req, &item.route, item.failed); err != nil {
-					slog.Warn("fleet node pairing stopped; returning failed targets in pair response", "fleet_node_id", item.nodeID, "error", err)
+					slog.Warn("fleet node pair-all stopped", "fleet_node_id", item.nodeID, "error", err)
 					item.route.allDevices = true
 					if item.route.remoteErr == nil {
 						item.route.remoteErr = err
@@ -441,6 +443,9 @@ func (h *Handler) pairFleetNodeDevices(ctx context.Context, orgID, userID int64,
 		}
 	}
 	resp.FailedDeviceIds = sortedKeys(failed)
+	if allDevicesFilter != nil && route.remoteErr != nil {
+		return resp, route, route.remoteErr
+	}
 	return resp, route, nil
 }
 
@@ -534,9 +539,6 @@ func handleAllDevicesCloudPairError(resp *pb.PairResponse, route fleetNodePairRo
 		slog.Warn("cloud pairing failed after fleet node pairing succeeded",
 			"error", err)
 		return nil, err
-	}
-	if route.remoteErr != nil {
-		return nil, route.remoteErr
 	}
 	return nil, err
 }

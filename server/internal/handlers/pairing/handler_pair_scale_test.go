@@ -25,11 +25,15 @@ type nodePairTargetStore struct {
 	fleetnodepairing.Store
 	devices       map[int64][]fleetnodepairing.FleetNodeDiscoveredDevice
 	listErr       map[int64]error
+	lookupSizes   []int
 	afterList     func()
 	afterListOnce sync.Once
 }
 
 func (s *nodePairTargetStore) ListFleetNodeDiscoveredDevices(_ context.Context, _ int64, nodeID *int64, filter fleetnodepairing.FleetNodeDiscoveredDeviceFilter) ([]fleetnodepairing.FleetNodeDiscoveredDevice, error) {
+	if filter.Identifiers != nil {
+		s.lookupSizes = append(s.lookupSizes, len(filter.Identifiers))
+	}
 	if err := s.listErr[*nodeID]; err != nil {
 		return nil, err
 	}
@@ -140,6 +144,7 @@ func TestPairFleetNodeDevicesDispatchesNodesInParallelAndBoundsBatches(t *testin
 						assert.Len(t, got.route.routedAllDevices, 258)
 					} else {
 						assert.Len(t, got.route.routedExplicit, 258)
+						assert.Equal(t, []int{258, 1}, store.lookupSizes)
 					}
 					return
 				case <-time.After(2 * time.Second):
@@ -454,7 +459,7 @@ func TestPairFleetNodeDevicesAllDevicesKeepsOtherNodesWhenOneNodeErrors(t *testi
 	nodes.ack(8, cmd)
 	got := awaitPairResult(t, done)
 
-	require.NoError(t, got.err, "another node's results must not be discarded")
+	require.ErrorContains(t, got.err, "failed to list fleet node devices")
 	assert.True(t, got.route.allDevices)
 	assert.True(t, got.route.remoteSucceeded)
 	assert.Error(t, got.route.remoteErr)
@@ -472,7 +477,7 @@ func TestPairFleetNodeDevicesAllDevicesReportsErrorWhenNoNodeCanPair(t *testing.
 
 	got := awaitPairResult(t, nodes.pair(t.Context(), allUnpairedSelector()))
 
-	require.NoError(t, got.err)
+	require.ErrorContains(t, got.err, "failed to list fleet node devices")
 	assert.True(t, got.route.allDevices, "the node error must flow through the all-devices route")
 	assert.False(t, got.route.remoteSucceeded)
 	assert.Error(t, got.route.remoteErr)
@@ -492,7 +497,7 @@ func TestPairFleetNodeDevicesAllDevicesStopsPaginationOnCancellation(t *testing.
 	nodes.ack(7, cmd)
 	got := awaitPairResult(t, done)
 
-	require.NoError(t, got.err)
+	require.ErrorIs(t, got.err, context.Canceled)
 	assert.True(t, got.route.remoteSucceeded, "the accepted page finished after cancellation")
 	assert.ErrorIs(t, got.route.remoteErr, context.Canceled)
 	assert.Empty(t, got.resp.GetFailedDeviceIds())
@@ -504,7 +509,7 @@ func TestPairFleetNodeDevicesExplicitCancellationDuringResolutionDispatchesNothi
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 	store := &nodePairTargetStore{devices: map[int64][]fleetnodepairing.FleetNodeDiscoveredDevice{}, afterList: cancel}
-	selected := addNodeDevices(store, 7, "a", "10.0.0.1", 1, fleetnodepairing.MaxPairBatch+1)
+	selected := addNodeDevices(store, 7, "a", "10.0.0.1", 1, pairLookupBatchSize+1)
 	nodes := newPairTestNodes(t, store, 7)
 
 	got := awaitPairResult(t, nodes.pair(ctx, includeDevicesSelector(selected)))
@@ -512,5 +517,6 @@ func TestPairFleetNodeDevicesExplicitCancellationDuringResolutionDispatchesNothi
 	require.Error(t, got.err)
 	assert.ErrorIs(t, got.err, context.Canceled)
 	assert.Nil(t, got.resp)
+	assert.Equal(t, []int{pairLookupBatchSize}, store.lookupSizes)
 	nodes.assertNoCommand(t, 7)
 }
