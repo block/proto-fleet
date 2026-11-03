@@ -99,13 +99,13 @@ func (s *PoolService) AuthorizePoolEquipment(ctx context.Context, q sqlc.Querier
 			return "", accessError(err)
 		}
 		if target.Kind == poolconfigurations.TargetInstallation {
-			moduleID, err := q.GetPoolEquipmentInstallationModule(ctx, sqlc.GetPoolEquipmentInstallationModuleParams{OrgID: scope.OrganizationID, ID: target.ID, ID_2: target.DeviceID})
+			installation, err := q.GetPoolEquipmentInstallation(ctx, sqlc.GetPoolEquipmentInstallationParams{OrgID: scope.OrganizationID, ID: target.ID, ID_2: target.DeviceID})
 			if err != nil {
 				return "", accessError(err)
 			}
 			selectedOwners := owners[:0]
 			for _, owner := range owners {
-				if owner.AssetID == moduleID {
+				if owner.AssetID == installation.ModuleID && owner.HashboardID == installation.HashboardID {
 					selectedOwners = append(selectedOwners, owner)
 				}
 			}

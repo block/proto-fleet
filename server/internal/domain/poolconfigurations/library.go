@@ -100,7 +100,7 @@ func (r *Repository) Archive(ctx context.Context, q sqlc.Querier, scope Scope, i
 		return storageError(err)
 	}
 	if n != 1 {
-		return fleeterror.NewFailedPreconditionError("configuration changed or is still assigned; refresh and reassign equipment before archiving")
+		return fleeterror.NewFailedPreconditionError("configuration changed or is still assigned; refresh and reassign equipment before deleting")
 	}
 	return nil
 }

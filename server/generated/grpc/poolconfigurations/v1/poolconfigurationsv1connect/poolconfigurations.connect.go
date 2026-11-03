@@ -67,6 +67,15 @@ const (
 	// PoolConfigurationServiceListOperationsProcedure is the fully-qualified name of the
 	// PoolConfigurationService's ListOperations RPC.
 	PoolConfigurationServiceListOperationsProcedure = "/poolconfigurations.v1.PoolConfigurationService/ListOperations"
+	// PoolConfigurationServiceTestConnectionProcedure is the fully-qualified name of the
+	// PoolConfigurationService's TestConnection RPC.
+	PoolConfigurationServiceTestConnectionProcedure = "/poolconfigurations.v1.PoolConfigurationService/TestConnection"
+	// PoolConfigurationServiceGetAssignmentsProcedure is the fully-qualified name of the
+	// PoolConfigurationService's GetAssignments RPC.
+	PoolConfigurationServiceGetAssignmentsProcedure = "/poolconfigurations.v1.PoolConfigurationService/GetAssignments"
+	// PoolConfigurationServiceCheckConfigurationProcedure is the fully-qualified name of the
+	// PoolConfigurationService's CheckConfiguration RPC.
+	PoolConfigurationServiceCheckConfigurationProcedure = "/poolconfigurations.v1.PoolConfigurationService/CheckConfiguration"
 )
 
 // PoolConfigurationServiceClient is a client for the poolconfigurations.v1.PoolConfigurationService
@@ -83,6 +92,9 @@ type PoolConfigurationServiceClient interface {
 	GetOperation(context.Context, *connect.Request[v1.GetOperationRequest]) (*connect.Response[v1.GetOperationResponse], error)
 	ReviewRetry(context.Context, *connect.Request[v1.ReviewRetryRequest]) (*connect.Response[v1.ReviewRetryResponse], error)
 	ListOperations(context.Context, *connect.Request[v1.ListOperationsRequest]) (*connect.Response[v1.ListOperationsResponse], error)
+	TestConnection(context.Context, *connect.Request[v1.TestConnectionRequest]) (*connect.Response[v1.TestConnectionResponse], error)
+	GetAssignments(context.Context, *connect.Request[v1.GetAssignmentsRequest]) (*connect.Response[v1.GetAssignmentsResponse], error)
+	CheckConfiguration(context.Context, *connect.Request[v1.CheckConfigurationRequest]) (*connect.Response[v1.CheckConfigurationResponse], error)
 }
 
 // NewPoolConfigurationServiceClient constructs a client for the
@@ -151,6 +163,21 @@ func NewPoolConfigurationServiceClient(httpClient connect.HTTPClient, baseURL st
 			baseURL+PoolConfigurationServiceListOperationsProcedure,
 			opts...,
 		),
+		testConnection: connect.NewClient[v1.TestConnectionRequest, v1.TestConnectionResponse](
+			httpClient,
+			baseURL+PoolConfigurationServiceTestConnectionProcedure,
+			opts...,
+		),
+		getAssignments: connect.NewClient[v1.GetAssignmentsRequest, v1.GetAssignmentsResponse](
+			httpClient,
+			baseURL+PoolConfigurationServiceGetAssignmentsProcedure,
+			opts...,
+		),
+		checkConfiguration: connect.NewClient[v1.CheckConfigurationRequest, v1.CheckConfigurationResponse](
+			httpClient,
+			baseURL+PoolConfigurationServiceCheckConfigurationProcedure,
+			opts...,
+		),
 	}
 }
 
@@ -167,6 +194,9 @@ type poolConfigurationServiceClient struct {
 	getOperation           *connect.Client[v1.GetOperationRequest, v1.GetOperationResponse]
 	reviewRetry            *connect.Client[v1.ReviewRetryRequest, v1.ReviewRetryResponse]
 	listOperations         *connect.Client[v1.ListOperationsRequest, v1.ListOperationsResponse]
+	testConnection         *connect.Client[v1.TestConnectionRequest, v1.TestConnectionResponse]
+	getAssignments         *connect.Client[v1.GetAssignmentsRequest, v1.GetAssignmentsResponse]
+	checkConfiguration     *connect.Client[v1.CheckConfigurationRequest, v1.CheckConfigurationResponse]
 }
 
 // CreateConfiguration calls poolconfigurations.v1.PoolConfigurationService.CreateConfiguration.
@@ -225,6 +255,21 @@ func (c *poolConfigurationServiceClient) ListOperations(ctx context.Context, req
 	return c.listOperations.CallUnary(ctx, req)
 }
 
+// TestConnection calls poolconfigurations.v1.PoolConfigurationService.TestConnection.
+func (c *poolConfigurationServiceClient) TestConnection(ctx context.Context, req *connect.Request[v1.TestConnectionRequest]) (*connect.Response[v1.TestConnectionResponse], error) {
+	return c.testConnection.CallUnary(ctx, req)
+}
+
+// GetAssignments calls poolconfigurations.v1.PoolConfigurationService.GetAssignments.
+func (c *poolConfigurationServiceClient) GetAssignments(ctx context.Context, req *connect.Request[v1.GetAssignmentsRequest]) (*connect.Response[v1.GetAssignmentsResponse], error) {
+	return c.getAssignments.CallUnary(ctx, req)
+}
+
+// CheckConfiguration calls poolconfigurations.v1.PoolConfigurationService.CheckConfiguration.
+func (c *poolConfigurationServiceClient) CheckConfiguration(ctx context.Context, req *connect.Request[v1.CheckConfigurationRequest]) (*connect.Response[v1.CheckConfigurationResponse], error) {
+	return c.checkConfiguration.CallUnary(ctx, req)
+}
+
 // PoolConfigurationServiceHandler is an implementation of the
 // poolconfigurations.v1.PoolConfigurationService service.
 type PoolConfigurationServiceHandler interface {
@@ -239,6 +284,9 @@ type PoolConfigurationServiceHandler interface {
 	GetOperation(context.Context, *connect.Request[v1.GetOperationRequest]) (*connect.Response[v1.GetOperationResponse], error)
 	ReviewRetry(context.Context, *connect.Request[v1.ReviewRetryRequest]) (*connect.Response[v1.ReviewRetryResponse], error)
 	ListOperations(context.Context, *connect.Request[v1.ListOperationsRequest]) (*connect.Response[v1.ListOperationsResponse], error)
+	TestConnection(context.Context, *connect.Request[v1.TestConnectionRequest]) (*connect.Response[v1.TestConnectionResponse], error)
+	GetAssignments(context.Context, *connect.Request[v1.GetAssignmentsRequest]) (*connect.Response[v1.GetAssignmentsResponse], error)
+	CheckConfiguration(context.Context, *connect.Request[v1.CheckConfigurationRequest]) (*connect.Response[v1.CheckConfigurationResponse], error)
 }
 
 // NewPoolConfigurationServiceHandler builds an HTTP handler from the service implementation. It
@@ -302,6 +350,21 @@ func NewPoolConfigurationServiceHandler(svc PoolConfigurationServiceHandler, opt
 		svc.ListOperations,
 		opts...,
 	)
+	poolConfigurationServiceTestConnectionHandler := connect.NewUnaryHandler(
+		PoolConfigurationServiceTestConnectionProcedure,
+		svc.TestConnection,
+		opts...,
+	)
+	poolConfigurationServiceGetAssignmentsHandler := connect.NewUnaryHandler(
+		PoolConfigurationServiceGetAssignmentsProcedure,
+		svc.GetAssignments,
+		opts...,
+	)
+	poolConfigurationServiceCheckConfigurationHandler := connect.NewUnaryHandler(
+		PoolConfigurationServiceCheckConfigurationProcedure,
+		svc.CheckConfiguration,
+		opts...,
+	)
 	return "/poolconfigurations.v1.PoolConfigurationService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case PoolConfigurationServiceCreateConfigurationProcedure:
@@ -326,6 +389,12 @@ func NewPoolConfigurationServiceHandler(svc PoolConfigurationServiceHandler, opt
 			poolConfigurationServiceReviewRetryHandler.ServeHTTP(w, r)
 		case PoolConfigurationServiceListOperationsProcedure:
 			poolConfigurationServiceListOperationsHandler.ServeHTTP(w, r)
+		case PoolConfigurationServiceTestConnectionProcedure:
+			poolConfigurationServiceTestConnectionHandler.ServeHTTP(w, r)
+		case PoolConfigurationServiceGetAssignmentsProcedure:
+			poolConfigurationServiceGetAssignmentsHandler.ServeHTTP(w, r)
+		case PoolConfigurationServiceCheckConfigurationProcedure:
+			poolConfigurationServiceCheckConfigurationHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -377,4 +446,16 @@ func (UnimplementedPoolConfigurationServiceHandler) ReviewRetry(context.Context,
 
 func (UnimplementedPoolConfigurationServiceHandler) ListOperations(context.Context, *connect.Request[v1.ListOperationsRequest]) (*connect.Response[v1.ListOperationsResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("poolconfigurations.v1.PoolConfigurationService.ListOperations is not implemented"))
+}
+
+func (UnimplementedPoolConfigurationServiceHandler) TestConnection(context.Context, *connect.Request[v1.TestConnectionRequest]) (*connect.Response[v1.TestConnectionResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("poolconfigurations.v1.PoolConfigurationService.TestConnection is not implemented"))
+}
+
+func (UnimplementedPoolConfigurationServiceHandler) GetAssignments(context.Context, *connect.Request[v1.GetAssignmentsRequest]) (*connect.Response[v1.GetAssignmentsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("poolconfigurations.v1.PoolConfigurationService.GetAssignments is not implemented"))
+}
+
+func (UnimplementedPoolConfigurationServiceHandler) CheckConfiguration(context.Context, *connect.Request[v1.CheckConfigurationRequest]) (*connect.Response[v1.CheckConfigurationResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("poolconfigurations.v1.PoolConfigurationService.CheckConfiguration is not implemented"))
 }

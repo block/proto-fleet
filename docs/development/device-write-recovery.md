@@ -185,6 +185,15 @@ of pending stale ordinary commands together. The original attempt remains retain
 operator resolution is distinguishable from successful physical execution.
 Reusing stale evidence is refused. A database failure rolls the transaction back.
 
+For a mining-group attempt, that same transaction marks its exact active
+controller workflow failed and its unfinished board update results interrupted.
+It discards legacy pool intent belonging to that workflow and excludes the failed
+shared configuration targets from future controller plans. The interrupted step,
+bindings, and recovery evidence remain available for diagnosis; recovery neither
+claims that the requested configuration succeeded nor replays hardware writes.
+Unrelated workflows and settled results remain unchanged. A new pool
+update requires a fresh, explicitly admitted request.
+
 Inspect again before resolving another attempt because each resolution advances
 the fence epoch. Resolving one attempt never clears another outstanding attempt.
 Processing queue status is not changed into proof of physical completion; old

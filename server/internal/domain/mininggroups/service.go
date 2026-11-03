@@ -16,6 +16,8 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/hostedaccounts"
 	"github.com/block/proto-fleet/server/internal/domain/miner/interfaces"
+	"github.com/block/proto-fleet/server/internal/domain/poolapplications"
+	"github.com/block/proto-fleet/server/internal/domain/poolconfigurations"
 	"github.com/block/proto-fleet/server/internal/domain/session"
 	"github.com/block/proto-fleet/server/internal/infrastructure/db"
 	"github.com/block/proto-fleet/server/internal/infrastructure/encrypt"
@@ -32,12 +34,14 @@ type MinerGetter interface {
 	GetMinerForCommand(ctx context.Context, deviceID int64) (interfaces.Miner, error)
 }
 type Service struct {
-	conn    *sql.DB
-	queries sqlc.Querier
-	writes  *devicewrite.Service
-	miners  MinerGetter
-	pools   *hostedaccounts.PoolService
-	secrets *encrypt.Service
+	sharedReviewer   *poolapplications.Reviewer
+	sharedRepository *poolconfigurations.Repository
+	conn             *sql.DB
+	queries          sqlc.Querier
+	writes           *devicewrite.Service
+	miners           MinerGetter
+	pools            *hostedaccounts.PoolService
+	secrets          *encrypt.Service
 }
 
 func NewService(conn *sql.DB, miners MinerGetter, pools *hostedaccounts.PoolService, secrets *encrypt.Service) *Service {
@@ -225,7 +229,7 @@ func (s *Service) Submit(ctx context.Context, identifier, requestID, configID st
 	if done, e := replay(s.queries); e != nil || done {
 		return id, e
 	}
-	err = s.writes.BeginWorkflow(ctx, info.OrganizationID, target.ID, func(q sqlc.Querier, attempt uuid.UUID, epoch int64) error {
+	err = s.writes.BeginWorkflow(ctx, info.OrganizationID, target.ID, func(ctx context.Context, q sqlc.Querier, attempt uuid.UUID, epoch int64) error {
 		current, err := q.LockContainerCommandTarget(ctx, sqlc.LockContainerCommandTargetParams{OrgID: info.OrganizationID, DeviceIdentifier: identifier})
 		if err != nil {
 			return err

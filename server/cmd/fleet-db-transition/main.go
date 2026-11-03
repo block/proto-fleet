@@ -11,10 +11,13 @@ import (
 
 	"github.com/alecthomas/kong"
 	"github.com/block/proto-fleet/server/generated/sqlc"
+	"github.com/block/proto-fleet/server/internal/domain/miner"
+	"github.com/block/proto-fleet/server/internal/domain/plugins"
 	"github.com/block/proto-fleet/server/internal/domain/poolconfigurations"
 	poolmigration "github.com/block/proto-fleet/server/internal/domain/poolconfigurations/migration"
 	"github.com/block/proto-fleet/server/internal/infrastructure/db"
 	"github.com/block/proto-fleet/server/internal/infrastructure/encrypt"
+	"github.com/block/proto-fleet/server/internal/infrastructure/files"
 )
 
 type cli struct {
@@ -32,7 +35,8 @@ type cli struct {
 	ImportPoolConfigurations struct {
 		OrganizationID int64          `required:"" help:"Internal organization ID to import."`
 		Encryption     encrypt.Config `embed:""`
-	} `cmd:"" help:"Consolidate operator and hosted pool libraries while application writers are stopped. Preserves sources and does not assign or change equipment."`
+		Plugins        plugins.Config `embed:"" prefix:"plugins-" envprefix:"PLUGINS_"`
+	} `cmd:"" help:"Import pool libraries and adopt complete current device stacks while application writers are stopped. Identical stacks merge within their owner. Never changes equipment settings."`
 }
 
 func run(ctx context.Context, args []string) error {
@@ -86,8 +90,22 @@ func run(ctx context.Context, args []string) error {
 		if _, err := db.CheckBaseline(ctx, conn, "startup", "", 0); err != nil {
 			return err
 		}
+		pluginManager := plugins.NewManager(&command.ImportPoolConfigurations.Plugins)
+		defer func() { _ = pluginManager.Shutdown(context.WithoutCancel(ctx)) }()
+		if err := pluginManager.LoadPlugins(ctx); err != nil {
+			return err
+		}
+		fileService, err := files.NewService(files.Config{})
+		if err != nil {
+			return err
+		}
+		minerService := miner.NewMinerService(conn, nil, secrets, fileService, pluginManager)
+		snapshots, err := poolmigration.CollectDevices(ctx, sqlc.New(conn), secrets, command.ImportPoolConfigurations.OrganizationID, poolmigration.NewFirmwareReader(conn, minerService))
+		if err != nil {
+			return err
+		}
 		report, err := db.WithTransaction(ctx, conn, func(q sqlc.Querier) (poolconfigurations.ImportReport, error) {
-			return poolmigration.Libraries(ctx, q, secrets, command.ImportPoolConfigurations.OrganizationID)
+			return poolmigration.Import(ctx, q, secrets, command.ImportPoolConfigurations.OrganizationID, snapshots...)
 		})
 		if err != nil {
 			return err

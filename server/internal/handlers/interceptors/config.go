@@ -30,6 +30,7 @@ var RedactedRequestProcedures = []string{
 	poolconfigurationsv1connect.PoolConfigurationServiceConfirmReviewProcedure,
 	poolconfigurationsv1connect.PoolConfigurationServiceCreateConfigurationProcedure,
 	poolconfigurationsv1connect.PoolConfigurationServiceReviewEditProcedure,
+	poolconfigurationsv1connect.PoolConfigurationServiceTestConnectionProcedure,
 
 	mininggroupsv1connect.MiningGroupServiceSetPoolsProcedure,
 	mininggroupsv1connect.MiningGroupServiceCreatePoolConfigurationProcedure,
@@ -270,6 +271,7 @@ var SensitiveBodyProcedures = map[string]bool{
 	poolconfigurationsv1connect.PoolConfigurationServiceConfirmReviewProcedure:       true,
 	poolconfigurationsv1connect.PoolConfigurationServiceCreateConfigurationProcedure: true,
 	poolconfigurationsv1connect.PoolConfigurationServiceReviewEditProcedure:          true,
+	poolconfigurationsv1connect.PoolConfigurationServiceTestConnectionProcedure:      true,
 
 	hostedv1connect.HostedAccountServiceListAccountActivitiesProcedure:   true,
 	hostedv1connect.HostedAccountServiceExportAccountActivitiesProcedure: true,

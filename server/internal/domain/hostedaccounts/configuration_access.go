@@ -35,7 +35,7 @@ func (s *PoolService) AuthorizePoolConfiguration(ctx context.Context, q sqlc.Que
 	if err != nil || info.Actor != "" || info.UserID <= 0 || info.OrganizationID <= 0 {
 		return poolconfigurations.Principal{}, denied()
 	}
-	if access != poolconfigurations.Read && access != poolconfigurations.Manage {
+	if access != poolconfigurations.Read && access != poolconfigurations.Manage && access != poolconfigurations.Observe {
 		return poolconfigurations.Principal{}, denied()
 	}
 	selected, hasSelection := RequestAccountID(ctx)
@@ -46,7 +46,7 @@ func (s *PoolService) AuthorizePoolConfiguration(ctx context.Context, q sqlc.Que
 		return poolconfigurations.Principal{}, denied()
 	}
 	var actor sqlc.User
-	if access == poolconfigurations.Read {
+	if access == poolconfigurations.Read || access == poolconfigurations.Observe {
 		// Match equipment dispatch's shared admission so status reads can
 		// proceed during I/O, while administration still excludes readers.
 		if _, err = q.LockHostedAccountOrganizationForShare(ctx, info.OrganizationID); err == nil {

@@ -13,3 +13,7 @@ WHERE d.org_id=$1 AND d.id=$2 AND d.deleted_at IS NULL AND dd.deleted_at IS NULL
 -- name: ListPoolEquipmentIdentities :many
 SELECT id,device_write_identity_keys(id)::text[] AS identity_keys FROM device
 WHERE org_id=$1 AND id=ANY(sqlc.arg(device_ids)::bigint[]) AND deleted_at IS NULL ORDER BY id;
+
+-- name: RefreshPoolConfigurationReadiness :exec
+UPDATE container_mining_group_state SET observed=$3,observed_at=clock_timestamp(),updated_at=clock_timestamp()
+WHERE organization_id=$1 AND device_id=$2;

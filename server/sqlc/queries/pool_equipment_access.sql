@@ -22,8 +22,8 @@ LEFT JOIN hosted_account_asset a ON a.organization_id=d.org_id AND a.kind=7 AND 
 WHERE d.org_id=$1 AND d.id=$2 AND t.present AND m.retired_at IS NULL
 ORDER BY m.id,b.id;
 
--- name: GetPoolEquipmentInstallationModule :one
-SELECT i.module_id FROM hashboard_installation i
+-- name: GetPoolEquipmentInstallation :one
+SELECT i.module_id,i.hashboard_id FROM hashboard_installation i
 JOIN hashboard h ON h.id=i.hashboard_id
 JOIN container_module m ON m.id=i.module_id JOIN container_tank t ON t.id=m.tank_id
 JOIN device d ON d.id=t.device_id

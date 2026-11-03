@@ -71,6 +71,9 @@ WHERE c.organization_id = sqlc.arg(organization_id)
              WHERE i.organization_id = c.organization_id AND i.configuration_id = c.configuration_id)
 ORDER BY c.configuration_id;
 
+-- name: CountOperatorPoolConfigurations :one
+SELECT count(*) FROM pool_configuration WHERE organization_id=$1 AND account_id IS NULL AND NOT archived;
+
 -- name: GetPoolConfigurationImport :one
 SELECT i.* FROM pool_configuration_import i
 JOIN pool_configuration c ON c.organization_id = i.organization_id AND c.configuration_id = i.configuration_id

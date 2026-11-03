@@ -154,6 +154,11 @@ func TestModulePSUIdentityMigrationPreservesLegacyRecordsAndGuardsRollback(t *te
 		require.True(t, exists, "blank legacy modules must remain even though they receive no mapping")
 	}
 
+	// The assertions above exercise the historical migration in isolation.
+	// Current telemetry also reads pool assignments, so restore that schema
+	// before exercising the upgraded runtime on the preserved legacy records.
+	restoreEmptyPoolConfigurations(t, conn)
+
 	// Anonymous polls after the upgrade must reuse both empty and space-only
 	// legacy rows without inventing another active module at either position.
 	_, err = conn.ExecContext(ctx, "UPDATE discovered_device SET device_class=2 WHERE id=(SELECT discovered_device_id FROM device WHERE id=$1)", firstDevice.DatabaseID)

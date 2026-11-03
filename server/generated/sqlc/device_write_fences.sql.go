@@ -213,13 +213,13 @@ func (q *Queries) CreateDeletionUnpairPermits(ctx context.Context, permits json.
 }
 
 const createDeviceWriteAttempt = `-- name: CreateDeviceWriteAttempt :exec
-INSERT INTO device_write_attempt(attempt_id,device_id,organization_id,epoch,queue_message_id,owner_instance_id,operation_kind,identity_keys,curtailment_command,identity_snapshot)
-SELECT $1,d.id,d.org_id,$2,$3,$4,$5,$6::text[],$7,
+INSERT INTO device_write_attempt(attempt_id,device_id,organization_id,epoch,queue_message_id,owner_instance_id,operation_kind,identity_keys,curtailment_command,command_type,identity_snapshot)
+SELECT $1,d.id,d.org_id,$2,$3,$4,$5,$6::text[],$7,$8,
  jsonb_build_object('device_identifier',d.device_identifier,'serial_number',d.serial_number,'mac_address',d.mac_address,
  'ip_address',dd.ip_address,'port',dd.port,'url_scheme',dd.url_scheme,
  'routing_scope',COALESCE((SELECT fnd.fleet_node_id::text FROM fleet_node_device fnd WHERE fnd.device_id=d.id AND fnd.org_id=d.org_id),'local'))
 FROM device d JOIN discovered_device dd ON dd.id=d.discovered_device_id
-WHERE d.id=$8 AND d.org_id=$9
+WHERE d.id=$9 AND d.org_id=$10
 `
 
 type CreateDeviceWriteAttemptParams struct {
@@ -230,6 +230,7 @@ type CreateDeviceWriteAttemptParams struct {
 	OperationKind      string
 	IdentityKeys       []string
 	CurtailmentCommand sql.NullString
+	CommandType        string
 	DeviceID           int64
 	OrganizationID     int64
 }
@@ -243,6 +244,7 @@ func (q *Queries) CreateDeviceWriteAttempt(ctx context.Context, arg CreateDevice
 		arg.OperationKind,
 		pq.Array(arg.IdentityKeys),
 		arg.CurtailmentCommand,
+		arg.CommandType,
 		arg.DeviceID,
 		arg.OrganizationID,
 	)
@@ -470,7 +472,7 @@ func (q *Queries) ListUnfinishedDeviceWriteCommands(ctx context.Context, arg Lis
 }
 
 const listUnresolvedDeviceWriteAttempts = `-- name: ListUnresolvedDeviceWriteAttempts :many
-SELECT a.attempt_id, a.device_id, a.organization_id, a.epoch, a.queue_message_id, a.owner_instance_id, a.operation_kind, a.identity_snapshot, a.status, a.created_at, a.finished_at, a.identity_keys, a.curtailment_command FROM device_write_attempt a
+SELECT a.attempt_id, a.device_id, a.organization_id, a.epoch, a.queue_message_id, a.owner_instance_id, a.operation_kind, a.identity_snapshot, a.status, a.created_at, a.finished_at, a.identity_keys, a.curtailment_command, a.command_type FROM device_write_attempt a
 WHERE a.organization_id=$1 AND a.device_id=$2 AND a.status IN ('running','unknown')
 ORDER BY a.created_at,a.attempt_id
 `
@@ -503,6 +505,7 @@ func (q *Queries) ListUnresolvedDeviceWriteAttempts(ctx context.Context, arg Lis
 			&i.FinishedAt,
 			pq.Array(&i.IdentityKeys),
 			&i.CurtailmentCommand,
+			&i.CommandType,
 		); err != nil {
 			return nil, err
 		}
@@ -544,7 +547,7 @@ func (q *Queries) LockDeletionUnpairPermit(ctx context.Context, arg LockDeletion
 }
 
 const lockDeviceWriteAttemptForRecovery = `-- name: LockDeviceWriteAttemptForRecovery :one
-SELECT attempt_id, device_id, organization_id, epoch, queue_message_id, owner_instance_id, operation_kind, identity_snapshot, status, created_at, finished_at, identity_keys, curtailment_command FROM device_write_attempt WHERE attempt_id=$1 FOR UPDATE
+SELECT attempt_id, device_id, organization_id, epoch, queue_message_id, owner_instance_id, operation_kind, identity_snapshot, status, created_at, finished_at, identity_keys, curtailment_command, command_type FROM device_write_attempt WHERE attempt_id=$1 FOR UPDATE
 `
 
 func (q *Queries) LockDeviceWriteAttemptForRecovery(ctx context.Context, attemptID uuid.UUID) (DeviceWriteAttempt, error) {
@@ -564,6 +567,7 @@ func (q *Queries) LockDeviceWriteAttemptForRecovery(ctx context.Context, attempt
 		&i.FinishedAt,
 		pq.Array(&i.IdentityKeys),
 		&i.CurtailmentCommand,
+		&i.CommandType,
 	)
 	return i, err
 }
@@ -863,6 +867,46 @@ func (q *Queries) ResolveDeviceWriteAttempt(ctx context.Context, attemptID uuid.
 		return 0, err
 	}
 	return result.RowsAffected()
+}
+
+const resolveRecoveredMiningGroupWorkflow = `-- name: ResolveRecoveredMiningGroupWorkflow :exec
+WITH retired AS (
+ UPDATE container_mining_group_state s
+ SET status='failed',message='Interrupted by verified offline recovery; submit a new request to retry',updated_at=clock_timestamp()
+ WHERE s.organization_id=$1 AND s.device_id=$2
+  AND s.attempt_id=$3 AND s.write_epoch=$4
+  AND s.status IN ('pending','applying','blocked')
+ RETURNING s.organization_id,s.device_id,s.operation_id,s.attempt_id
+), discarded_intents AS (
+ DELETE FROM hashboard_pool_intent i USING retired r
+ WHERE i.organization_id=r.organization_id AND i.device_id=r.device_id AND i.operation_id=r.operation_id
+)
+UPDATE pool_configuration_operation_target t
+SET state='failed',result_code='interrupted',updated_at=clock_timestamp()
+FROM retired r
+WHERE t.organization_id=r.organization_id AND t.physical_attempt_id=r.attempt_id
+ AND t.target_kind='hashboard_installation'
+ AND (t.state='applying' OR (t.state='failed' AND t.result_code='write_uncertain'))
+`
+
+type ResolveRecoveredMiningGroupWorkflowParams struct {
+	OrganizationID int64
+	DeviceID       int64
+	AttemptID      uuid.NullUUID
+	AttemptEpoch   int64
+}
+
+// Called only inside verified offline recovery, with the fence and attempt
+// locked. Retain the journal's step and bindings as evidence, but retire only
+// the exact active workflow and its intent so later work cannot replay it.
+func (q *Queries) ResolveRecoveredMiningGroupWorkflow(ctx context.Context, arg ResolveRecoveredMiningGroupWorkflowParams) error {
+	_, err := q.exec(ctx, q.resolveRecoveredMiningGroupWorkflowStmt, resolveRecoveredMiningGroupWorkflow,
+		arg.OrganizationID,
+		arg.DeviceID,
+		arg.AttemptID,
+		arg.AttemptEpoch,
+	)
+	return err
 }
 
 const setLocalDeviceDeletionLockTimeout = `-- name: SetLocalDeviceDeletionLockTimeout :exec

@@ -17,7 +17,7 @@ import (
 // Libraries must run in a transaction while application writers are stopped.
 // It preserves old records and does not establish equipment assignments. The
 // returned source mappings support the later assignment adoption and cutover.
-func Libraries(ctx context.Context, q sqlc.Querier, secrets *encrypt.Service, orgID int64) (poolconfigurations.ImportReport, error) {
+func Libraries(ctx context.Context, q sqlc.Querier, secrets *encrypt.Service, orgID int64, devices ...poolconfigurations.ImportCandidate) (poolconfigurations.ImportReport, error) {
 	if orgID <= 0 {
 		return poolconfigurations.ImportReport{}, fleeterror.NewInvalidArgumentError("invalid import organization")
 	}
@@ -72,5 +72,6 @@ func Libraries(ctx context.Context, q sqlc.Querier, secrets *encrypt.Service, or
 			Name:   revision.Name, Slots: slots,
 		})
 	}
+	candidates = append(candidates, devices...)
 	return poolconfigurations.NewRepository(secrets).Import(ctx, q, orgID, candidates)
 }

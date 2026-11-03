@@ -15,7 +15,7 @@ import (
 )
 
 const getPoolConfigurationWork = `-- name: GetPoolConfigurationWork :one
-SELECT t.organization_id, t.operation_id, t.target_kind, t.target_id, t.assignment_version, t.state, t.attempts, t.result_code, t.updated_at, t.reviewed_binding, t.physical_attempt_id,a.device_id,o.configuration_id,o.revision_id,o.actor_id,c.account_id,
+SELECT t.organization_id, t.operation_id, t.target_kind, t.target_id, t.assignment_version, t.state, t.attempts, t.result_code, t.updated_at, t.reviewed_binding, t.physical_attempt_id, t.group_snapshot_id,a.device_id,o.configuration_id,o.revision_id,o.actor_id,c.account_id,
  COALESCE(account.account_id,'')::text AS external_account_id,u.username,u.user_id,
  r.slots
 FROM pool_configuration_operation_target t
@@ -48,6 +48,7 @@ type GetPoolConfigurationWorkRow struct {
 	UpdatedAt         time.Time
 	ReviewedBinding   string
 	PhysicalAttemptID uuid.NullUUID
+	GroupSnapshotID   sql.NullString
 	DeviceID          int64
 	ConfigurationID   string
 	RevisionID        string
@@ -79,6 +80,7 @@ func (q *Queries) GetPoolConfigurationWork(ctx context.Context, arg GetPoolConfi
 		&i.UpdatedAt,
 		&i.ReviewedBinding,
 		&i.PhysicalAttemptID,
+		&i.GroupSnapshotID,
 		&i.DeviceID,
 		&i.ConfigurationID,
 		&i.RevisionID,
@@ -128,6 +130,11 @@ SELECT t.organization_id,t.operation_id,t.target_kind,t.target_id,a.device_id
 FROM pool_configuration_operation_target t
 JOIN pool_configuration_assignment a ON a.organization_id=t.organization_id AND a.target_kind=t.target_kind AND a.target_id=t.target_id
 WHERE t.state='pending' AND a.retired_at IS NULL AND a.operation_id=t.operation_id AND a.version=t.assignment_version
+ AND (t.target_kind<>'hashboard_installation' OR NOT EXISTS (
+  SELECT 1 FROM container_mining_group_state s
+  WHERE s.organization_id=t.organization_id AND s.device_id=a.device_id
+   AND s.status IN ('pending','applying','blocked')
+ ))
 ORDER BY t.updated_at,t.operation_id,t.target_kind,t.target_id LIMIT 100
 `
 
@@ -139,6 +146,9 @@ type ListPendingPoolConfigurationWorkRow struct {
 	DeviceID       int64
 }
 
+// Waiting boards must not fill the batch and starve other devices. Keep them
+// pending until their controller workflow settles; admission still rechecks
+// the journal under lock in case it becomes busy after this selection.
 func (q *Queries) ListPendingPoolConfigurationWork(ctx context.Context) ([]ListPendingPoolConfigurationWorkRow, error) {
 	rows, err := q.query(ctx, q.listPendingPoolConfigurationWorkStmt, listPendingPoolConfigurationWork)
 	if err != nil {

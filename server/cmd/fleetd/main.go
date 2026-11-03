@@ -806,9 +806,11 @@ func start(config *Config) (result error) {
 	}
 	poolRepository := poolconfigurationsDomain.NewRepository(encryptSvc)
 	poolReviewer := poolapplications.NewReviewer(hostedPoolsSvc, pluginService)
-	poolConfigurationsSvc := poolconfigurationsDomain.NewService(conn, poolRepository, hostedPoolsSvc, poolReviewer)
+	poolReadiness := poolapplications.NewReadiness(conn, poolReviewer, minerService)
+	poolConfigurationsSvc := poolconfigurationsDomain.NewService(conn, poolRepository, hostedPoolsSvc, poolReviewer).WithDeviceSelector(fleetMgmtSvc).WithReadiness(poolReadiness).WithConnectionTester(poolsSvc).WithChecker(poolapplications.NewChecker(conn, poolReviewer, minerService, encryptSvc, hostedPoolsSvc))
 	poolWorker := poolapplications.NewWorker(conn, poolRepository, poolReviewer, minerService, encryptSvc)
-	groupsSvc := mininggroupsDomain.NewService(conn, minerService, hostedPoolsSvc, encryptSvc)
+	groupsSvc := mininggroupsDomain.NewService(conn, minerService, hostedPoolsSvc, encryptSvc).WithPoolConfigurations(poolRepository, poolReviewer)
+	poolWorker.WithBoardApplications(groupsSvc)
 	jobs, err := newRuntimeJobs(runtimeJobLifecycles{
 		plugins: stopOnlyLifecycle{
 			stop:     pluginService.Shutdown,

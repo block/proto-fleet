@@ -515,6 +515,9 @@ message AccountAsset {
   common.v1.EquipmentCoverage coverage = 22;
   // Exact board membership and allocation revisions for reviewing module changes.
   repeated HashboardAllocationSelection boards = 23;
+  // Live user permission and direct ownership hint, independent of owner-label
+  // visibility. Review rechecks authority, capability and physical readiness.
+  bool can_change_pools = 24;
 }
 message MiningAssetReference {
   MiningAssetKind kind = 1 [(buf.validate.field).enum = {defined_only: true, not_in: [0]}];

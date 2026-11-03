@@ -35,6 +35,19 @@ ON CONFLICT (organization_id, target_kind, target_id) DO UPDATE SET
  retired_at = NULL, updated_at = CURRENT_TIMESTAMP
 RETURNING *;
 
+-- name: AdoptPoolConfigurationAssignment :execrows
+-- Never overwrite even a retired assignment: returning hardware must not
+-- inherit the previous occupant's desired configuration on a repeated import.
+INSERT INTO pool_configuration_assignment(organization_id,target_kind,target_id,device_id,configuration_id,revision_id,version,adopted_at)
+VALUES($1,$2,$3,$4,$5,$6,1,CURRENT_TIMESTAMP)
+ON CONFLICT (organization_id,target_kind,target_id) DO NOTHING;
+
+-- name: HasPoolAssignmentKindConflict :one
+SELECT EXISTS (
+ SELECT 1 FROM pool_configuration_assignment WHERE organization_id=$1 AND device_id=$2
+ AND target_kind<>$3 AND retired_at IS NULL
+);
+
 -- name: RetirePoolConfigurationAssignment :execrows
 UPDATE pool_configuration_assignment a SET retired_at = CURRENT_TIMESTAMP, version = a.version + 1, updated_at = CURRENT_TIMESTAMP
 FROM pool_configuration c

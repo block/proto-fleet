@@ -13,7 +13,7 @@ import (
 // BeginWorkflow commits a durable physical admission together with the caller's
 // journal. Unlike a single RPC, this admission stays running across restarts
 // until the journal verifies the controller's terminal outcome.
-func (s *Service) BeginWorkflow(ctx context.Context, orgID, deviceID int64, record func(sqlc.Querier, uuid.UUID, int64) error) error {
+func (s *Service) BeginWorkflow(ctx context.Context, orgID, deviceID int64, record func(context.Context, sqlc.Querier, uuid.UUID, int64) error) error {
 	return db.WithTransactionTimeoutNoResult(ctx, s.conn, runtimepolicy.CommandTransactionBound, func(q sqlc.Querier) error {
 		keys, err := lockIdentity(ctx, q, deviceID)
 		if err != nil {
@@ -27,10 +27,11 @@ func (s *Service) BeginWorkflow(ctx context.Context, orgID, deviceID int64, reco
 			return blocked()
 		}
 		id := uuid.New()
-		if err := q.CreateDeviceWriteAttempt(ctx, sqlc.CreateDeviceWriteAttemptParams{AttemptID: id, DeviceID: deviceID, OrganizationID: orgID, Epoch: fence.Epoch, IdentityKeys: keys, OwnerInstanceID: processInstanceID, OperationKind: operationMutation}); err != nil {
+		if err := q.CreateDeviceWriteAttempt(ctx, sqlc.CreateDeviceWriteAttemptParams{AttemptID: id, DeviceID: deviceID, OrganizationID: orgID, Epoch: fence.Epoch, IdentityKeys: keys, OwnerInstanceID: processInstanceID, OperationKind: operationMutation, CommandType: "MiningGroups"}); err != nil {
 			return err
 		}
-		return record(q, id, fence.Epoch)
+		admission := &Attempt{service: s, id: id, deviceID: deviceID, organizationID: orgID, epoch: fence.Epoch}
+		return record(admission.Context(ctx), q, id, fence.Epoch)
 	})
 }
 

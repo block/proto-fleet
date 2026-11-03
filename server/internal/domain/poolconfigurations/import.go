@@ -40,6 +40,12 @@ type ImportReport struct {
 	CreatedConfigurations int
 	Imported              []ImportedConfiguration
 	Unresolved            []ImportIssue
+	AdoptedAssignments    []ImportedAssignment
+}
+
+type ImportedAssignment struct {
+	Target                      AssignmentTarget
+	ConfigurationID, RevisionID string
 }
 
 type preparedImport struct {

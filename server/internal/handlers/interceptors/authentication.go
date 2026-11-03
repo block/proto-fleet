@@ -240,6 +240,7 @@ func allowsAccountKey(procedure string) bool {
 		poolconfigurationsv1connect.PoolConfigurationServiceDuplicateConfigurationProcedure,
 		poolconfigurationsv1connect.PoolConfigurationServiceArchiveConfigurationProcedure,
 		poolconfigurationsv1connect.PoolConfigurationServiceReviewEditProcedure,
+		poolconfigurationsv1connect.PoolConfigurationServiceTestConnectionProcedure,
 		poolconfigurationsv1connect.PoolConfigurationServiceConfirmReviewProcedure:
 		return true
 	case hostedv1connect.HostedAccountServiceCreatePoolConfigurationProcedure,
@@ -260,7 +261,9 @@ func allowsSelectedAccount(procedure string) bool {
 	// explicit decision before they can be called from a customer workspace.
 	// Invitation redemption precedes selection and is excluded.
 	switch procedure {
-	case poolconfigurationsv1connect.PoolConfigurationServiceReviewAssignmentProcedure,
+	case poolconfigurationsv1connect.PoolConfigurationServiceGetAssignmentsProcedure,
+		poolconfigurationsv1connect.PoolConfigurationServiceCheckConfigurationProcedure,
+		poolconfigurationsv1connect.PoolConfigurationServiceReviewAssignmentProcedure,
 		poolconfigurationsv1connect.PoolConfigurationServiceGetOperationProcedure,
 		poolconfigurationsv1connect.PoolConfigurationServiceReviewRetryProcedure,
 		poolconfigurationsv1connect.PoolConfigurationServiceListOperationsProcedure,
@@ -270,6 +273,7 @@ func allowsSelectedAccount(procedure string) bool {
 		poolconfigurationsv1connect.PoolConfigurationServiceDuplicateConfigurationProcedure,
 		poolconfigurationsv1connect.PoolConfigurationServiceArchiveConfigurationProcedure,
 		poolconfigurationsv1connect.PoolConfigurationServiceReviewEditProcedure,
+		poolconfigurationsv1connect.PoolConfigurationServiceTestConnectionProcedure,
 		poolconfigurationsv1connect.PoolConfigurationServiceConfirmReviewProcedure:
 		return true
 	case hostedv1connect.HostedAccountServiceListAccountTicketsProcedure,

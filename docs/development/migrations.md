@@ -18,26 +18,60 @@ version or replay the renumbered migrations against it.
 ### Pool configuration library import
 
 The foundation uses shared migration 1045 and private checkpoint 1046, after
-main's hosted-history summaries migration. Both apply in one transaction.
+main's hosted-history summaries migration. Reviewed execution adds private
+migration 1047. Equipment adoption and readback use shared migration 1053 and
+private checkpoint 1054. Each shared/private pair applies in one transaction;
+the separate files preserve the public/private schema boundary.
 Development databases that applied the earlier unmerged pool stack at 1042–1054
 or the unconsolidated foundation at 1047 have a different history. Use a separate
 fresh development database or reconcile that history explicitly before running
 this sequence; do not force the version or run it against those databases unchanged.
 
-After migrating to checkpoint 1046 or later, stop application writers and run
+After migrating to checkpoint 1054 or later, stop application writers and run
 `fleet-db-transition import-pool-configurations --organization-id=<internal-id>`
-with the normal database settings and `SERVICE_MASTER_KEY`. The command stages
+with the normal database settings, `SERVICE_MASTER_KEY`, and the same trusted
+plugin binaries used by Fleet (`--plugins-plugins-dir` / `PLUGINS_DIR`). The command stages
 operator pools, current hosted configurations and revisions referenced by
 hashboard intent in the neutral configuration store. Equivalent ordered stacks
 merge only within the same organization/account owner, including password values
 and worker settings. Operator pools with an omitted password retain an empty
 password; missing device credentials are not treated as empty.
 
+For unmanaged paired miners and containers with mining groups disabled, the
+command reads complete private firmware settings through the plugins before
+opening the import transaction. It sorts the slots by priority and normalizes
+only the exact saved worker-name suffix, preserving the rendered username.
+Complete identical stacks share a configuration within their current owner.
+Ownership, physical identity, and worker settings are rechecked before adoption.
+The readback stays in memory; only encrypted credentials are persisted.
+
+Offline devices, masked passwords, mixed container ownership, and Fleet Node
+devices that cannot be reached through this offline command appear in the
+unresolved report. Their settings remain untouched. Resolve those entries before
+cutover; a URL/username library match is not a substitute for complete readback.
+
 The JSON report contains source-to-configuration mappings and unresolved entries,
 never credentials. A nonzero exit with unresolved entries means valid entries were
 imported but the remaining configurations need review. Repeating the same source
-versions is idempotent. Legacy rows and revisions remain intact. This command does
-not establish hardware assignments, switch library readers, or send device writes.
+versions is idempotent. Legacy rows and revisions remain intact.
+
+The command also adopts existing explicit hashboard intent when the exact
+installation is still current and the configuration owner still owns its module.
+Identical stacks retain a single configuration within that owner. Reallocated or
+removed hardware is reported for review; credentials are never copied to a new
+owner. Unfinished mining-group operations and unresolved writes that could affect
+pools block adoption only for their devices. Those devices appear in the unresolved
+report before firmware reads and are rechecked at commit. Unrelated LED, log,
+cooling, and power-target attempts do not block pool adoption. Unclassified
+operations remain conflicts. Library staging and unaffected equipment continue.
+
+Adopted assignments have an `adopted_at` timestamp and no application operation:
+migration does not send hardware writes or claim that settings were verified.
+Any later application still requires a reviewed operation. Repeating the import
+cannot replace newer intent or revive retired assignments. Rollback of shared migration
+1053 refuses assignments without reviewed operations rather than inventing history.
+Reported pools without complete, authoritative credentials remain unmanaged;
+URL/username matches do not establish an assignment.
 
 Pool update claims retain their physical attempt IDs. Interrupted `running`
 attempts require the existing offline device-write recovery procedure; neither

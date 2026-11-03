@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"connectrpc.com/authn"
+	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
 	"github.com/block/proto-fleet/server/generated/sqlc"
 	"github.com/block/proto-fleet/server/internal/domain/commandtype"
 	"github.com/block/proto-fleet/server/internal/domain/devicewrite"
@@ -22,11 +23,13 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/session"
 	"github.com/block/proto-fleet/server/internal/infrastructure/db"
 	"github.com/block/proto-fleet/server/internal/infrastructure/encrypt"
+	sdk "github.com/block/proto-fleet/server/sdk/v1"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgconn"
 )
 
 const (
+	resultVerified          = "verified"
 	resultUnverified        = "applied_unverified"
 	resultDifferent         = "different"
 	codeReadbackUnavailable = "readback_unavailable"
@@ -37,7 +40,14 @@ type MinerGetter interface {
 	GetMinerForCommand(ctx context.Context, deviceID int64) (interfaces.Miner, error)
 }
 
+type BoardApplications interface {
+	ExecutePoolConfiguration(ctx context.Context, orgID int64, operationID string, deviceID int64) error
+}
+
+func (w *Worker) WithBoardApplications(boards BoardApplications) *Worker { w.boards = boards; return w }
+
 type Worker struct {
+	boards     BoardApplications
 	conn       *sql.DB
 	queries    sqlc.Querier
 	repository *poolconfigurations.Repository
@@ -52,8 +62,8 @@ func NewWorker(conn *sql.DB, repository *poolconfigurations.Repository, reviewer
 }
 
 // Run never resumes an applying target or blindly retries an uncertain write.
-// Claims commit before I/O. A crash therefore leaves visible unfinished work,
-// rather than making the same request eligible for an automatic second dispatch.
+// Physical admission precedes I/O and target claims commit before writes. A
+// crash leaves unfinished work, rather than permitting an automatic second write.
 func (w *Worker) Run(ctx context.Context) {
 	ticker := time.NewTicker(3 * time.Second)
 	defer ticker.Stop()
@@ -106,6 +116,9 @@ func (w *Worker) Run(ctx context.Context) {
 // Execute performs one pending target. The immutable operation revision supplies
 // the credentials; the reviewed binding supplies the rendered worker names.
 func (w *Worker) Execute(ctx context.Context, orgID int64, operationID string, target poolconfigurations.AssignmentTarget) error {
+	if target.Kind == poolconfigurations.TargetInstallation && w.boards != nil {
+		return w.boards.ExecutePoolConfiguration(ctx, orgID, operationID, target.DeviceID)
+	}
 	work, err := w.queries.GetPoolConfigurationWork(ctx, sqlc.GetPoolConfigurationWorkParams{OrganizationID: orgID, OperationID: operationID, TargetKind: target.Kind, TargetID: target.ID})
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil
@@ -159,12 +172,14 @@ func (w *Worker) Execute(ctx context.Context, orgID int64, operationID string, t
 	admitted, invoked := false, false
 	resultRecorded := false
 	var recordingErr error
-	err = w.writes.WithRecordedHostAttempt(ctx, orgID, target.DeviceID, binding.Device.Epoch, commandtype.UpdateMiningPools, func(q sqlc.Querier, physicalID uuid.UUID) error {
+	container := commonpb.DeviceClass(binding.Device.DeviceClass) == commonpb.DeviceClass_DEVICE_CLASS_CONTAINER
+	var physicalID uuid.UUID
+	claim := func(q sqlc.Querier, id uuid.UUID) error {
 		claimed, err := w.repository.ClaimTarget(ctx, q, scope, operationID, target)
 		if err != nil {
 			return err
 		}
-		changed, err := q.LinkPoolConfigurationAttempt(ctx, sqlc.LinkPoolConfigurationAttemptParams{OrganizationID: orgID, OperationID: operationID, TargetKind: target.Kind, TargetID: target.ID, Attempt: claimed, AttemptID: uuid.NullUUID{UUID: physicalID, Valid: true}})
+		changed, err := q.LinkPoolConfigurationAttempt(ctx, sqlc.LinkPoolConfigurationAttemptParams{OrganizationID: orgID, OperationID: operationID, TargetKind: target.Kind, TargetID: target.ID, Attempt: claimed, AttemptID: uuid.NullUUID{UUID: id, Valid: true}})
 		if err != nil {
 			return err
 		}
@@ -173,31 +188,52 @@ func (w *Worker) Execute(ctx context.Context, orgID int64, operationID string, t
 		}
 		attempt = claimed
 		return nil
+	}
+	err = w.writes.WithRecordedHostAttempt(ctx, orgID, target.DeviceID, binding.Device.Epoch, commandtype.UpdateMiningPools, func(q sqlc.Querier, id uuid.UUID) error {
+		physicalID = id
+		if container {
+			// Retain physical admission during the mode read, but leave the
+			// target pending until it succeeds. A read timeout can then retry
+			// without resetting a claimed or potentially dispatched update.
+			return nil
+		}
+		return claim(q, id)
 	}, func(ctx context.Context) error {
 		// The record callback can run and then roll back, so its local attempt
 		// counter is not proof of admission. This callback runs only after COMMIT.
-		admitted = true
+		admitted = !container
 		return w.writes.WithBindingTransaction(ctx, func(ctx context.Context, q sqlc.Querier) error {
 			// Review rechecks committed identity admission and retains organization
 			// and device binding locks through dispatch to exclude recall and supersession.
-			approvals, err := w.reviewer.ReviewTargets(ctx, q, scope, work.ActorID, []poolconfigurations.AssignmentTarget{target}, endpoints)
+			approvals, err := w.reviewer.ReviewBindings(ctx, q, scope, work.ActorID, []poolconfigurations.AssignmentTarget{target}, endpoints)
 			if err != nil {
 				return err
 			}
 			if len(approvals) != 1 || approvals[0].Binding != work.ReviewedBinding {
 				return fleeterror.NewFailedPreconditionError("reviewed equipment binding changed")
 			}
+			if container {
+				if err := w.observeContainerMode(ctx, target.DeviceID); err != nil {
+					return err
+				}
+				// Keep the binding locks while committing the claim on a separate
+				// connection. No pool write may start until this commit succeeds.
+				if err := db.WithTransactionTimeoutNoResult(ctx, w.conn, 5*time.Second, func(q sqlc.Querier) error { return claim(q, physicalID) }); err != nil {
+					return err
+				}
+				admitted = true
+			}
 			fresh, err := q.GetPoolConfigurationWork(ctx, sqlc.GetPoolConfigurationWorkParams{OrganizationID: orgID, OperationID: operationID, TargetKind: target.Kind, TargetID: target.ID})
 			if err != nil {
 				return err
 			}
-			if fresh.State != "applying" || fresh.Attempts != attempt {
+			if fresh.State != stateApplying || fresh.Attempts != attempt {
 				return fleeterror.NewFailedPreconditionError("pool update was superseded")
 			}
 			dispatchErr := w.writes.WithBindingDispatch(ctx, target.DeviceID, func(sqlc.Querier) error { return nil }, func(ctx context.Context) error {
 				miner, err := w.miners.GetMinerForCommand(ctx, target.DeviceID)
 				if err != nil {
-					code = "unavailable"
+					code = codeUnavailable
 					return devicewrite.NotDispatched(err)
 				}
 				desired := make([]dto.MiningPool, len(slots))
@@ -237,7 +273,7 @@ func (w *Worker) Execute(ctx context.Context, orgID int64, operationID string, t
 		return recordingErr
 	}
 	if err != nil {
-		if !invoked && temporaryPreparationFailure(err) {
+		if !invoked && (temporaryPreparationFailure(err) || (container && !admitted && attempt == 0 && fleeterror.IsUnavailableError(err))) {
 			if !admitted {
 				// Leave database state untouched. Rolled-back claims remain pending
 				// for a later poll. An ambiguous COMMIT may have left applying work;
@@ -252,10 +288,38 @@ func (w *Worker) Execute(ctx context.Context, orgID int64, operationID string, t
 		if invoked && !devicewrite.IsNotDispatched(err) {
 			code = "write_uncertain"
 		} else if invoked {
-			code = "unavailable"
+			code = codeUnavailable
 		}
 	}
 	return finish()
+}
+
+// Observe within the write admission and retained binding locks. This must use
+// observation dispatch so a failed read cannot be mistaken for a pool mutation.
+func (w *Worker) observeContainerMode(ctx context.Context, deviceID int64) error {
+	if w.miners == nil {
+		return fleeterror.NewInternalError("container readiness is unavailable")
+	}
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	return w.writes.WithBindingObservation(ctx, deviceID, func(sqlc.Querier) error { return nil }, func(ctx context.Context) error {
+		miner, err := w.miners.GetMinerForCommand(ctx, deviceID)
+		if err != nil {
+			return fleeterror.NewUnavailableErrorf("container is unavailable")
+		}
+		groups, ok := miner.(sdk.DeviceMiningGroups)
+		if !ok {
+			return fleeterror.NewFailedPreconditionError("container mining-group mode is unavailable")
+		}
+		observed, err := groups.MiningGroups(ctx, sdk.MiningGroupRequest{Action: "observe"})
+		if err != nil {
+			return fleeterror.NewUnavailableErrorf("container mode could not be read; waiting to retry")
+		}
+		if !observed.Supported || observed.Enabled || observed.Pending || observed.Suspended {
+			return fleeterror.NewFailedPreconditionError("whole-container pools require mining groups disabled with no unfinished operation")
+		}
+		return nil
+	})
 }
 
 // Only recognized transient preparation errors qualify. A canceled caller
@@ -277,30 +341,43 @@ func temporaryPreparationFailure(err error) bool {
 }
 
 func verifyPools(ctx context.Context, miner interfaces.Miner, desired []dto.MiningPool) (string, string) {
+	state, code, _ := readPools(ctx, miner, desired)
+	return state, code
+}
+
+func readPools(ctx context.Context, miner interfaces.Miner, desired []dto.MiningPool) (string, string, []poolconfigurations.PoolReading) {
+	var reported []poolconfigurations.PoolReading
 	runtime, err := miner.GetMiningPools(ctx)
 	if err != nil {
-		return resultUnverified, codeReadbackUnavailable
+		return resultUnverified, codeReadbackUnavailable, reported
 	}
 	slices.SortFunc(runtime, func(a, b interfaces.MinerConfiguredPool) int { return int(a.Priority) - int(b.Priority) })
+	for _, p := range runtime {
+		reported = append(reported, poolconfigurations.PoolReading{Priority: p.Priority, URL: p.URL, Username: p.Username})
+	}
 	if len(runtime) != len(desired) {
-		return resultDifferent, codeSettingsDiffer
+		return resultDifferent, codeSettingsDiffer, reported
 	}
 	for i, pool := range runtime {
 		if pool.Priority != int32(i) || pool.URL != desired[i].URL || pool.Username != desired[i].Username {
-			return resultDifferent, codeSettingsDiffer
+			return resultDifferent, codeSettingsDiffer, reported
 		}
 	} // #nosec G115 -- at most three slots.
 	reader, ok := miner.(interfaces.StoredMiningPoolReader)
 	if !ok {
-		return resultUnverified, codeReadbackUnavailable
+		return resultUnverified, codeReadbackUnavailable, reported
 	}
 	stored, err := reader.GetStoredMiningPools(ctx)
+	// Public fields alone cannot verify credentials omitted by firmware.
+	if fleeterror.IsUnimplementedError(err) {
+		return resultUnverified, codeReadbackUnavailable, reported
+	}
 	if err != nil {
-		return resultUnverified, codeReadbackUnavailable
+		return resultUnverified, codeReadbackUnavailable, reported
 	}
 	slices.SortFunc(stored, func(a, b interfaces.MinerStoredPool) int { return int(a.Priority) - int(b.Priority) })
 	if len(stored) < len(desired) || len(stored) > 3 {
-		return resultDifferent, codeSettingsDiffer
+		return resultDifferent, codeSettingsDiffer, reported
 	}
 	verified := true
 	for i, pool := range stored {
@@ -311,12 +388,12 @@ func verifyPools(ctx context.Context, miner interfaces.Miner, desired []dto.Mini
 			expected = desired[i]
 		}
 		if pool.Priority != int32(i) || pool.URL != expected.URL || pool.Username != expected.Username || pool.Password != nil && *pool.Password != expected.Password {
-			return resultDifferent, codeSettingsDiffer
+			return resultDifferent, codeSettingsDiffer, reported
 		} // #nosec G115 -- at most three slots.
 		verified = verified && pool.Password != nil
 	}
 	if !verified {
-		return resultUnverified, codeReadbackUnavailable
+		return resultUnverified, codeReadbackUnavailable, reported
 	}
-	return "verified", ""
+	return resultVerified, "", reported
 }

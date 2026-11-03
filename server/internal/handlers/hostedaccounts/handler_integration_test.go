@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -13,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/block/proto-fleet/server/internal/domain/miner/interfaces"
 	"github.com/block/proto-fleet/server/internal/domain/poolapplications"
 	sdk "github.com/block/proto-fleet/server/sdk/v1"
 
@@ -55,19 +57,20 @@ var rpcClientSequence atomic.Uint32
 const rpcPassword = "customer-password123"
 
 type rpcFixture struct {
-	configurations poolconfigurationsv1connect.PoolConfigurationServiceClient
-	maintenance    maintenancev1connect.MaintenanceServiceClient
-	db             *sql.DB
-	accounts       *domain.Service
-	keys           *apikey.Service
-	client         hostedv1connect.HostedAccountServiceClient
-	invitations    invitationv1connect.InvitationServiceClient
-	auth           authv1connect.AuthServiceClient
-	org            int64
-	host           int64
-	root           string
-	cookie         string
-	peerAddress    *atomic.Pointer[string]
+	configurationService *poolconfigurations.Service
+	configurations       poolconfigurationsv1connect.PoolConfigurationServiceClient
+	maintenance          maintenancev1connect.MaintenanceServiceClient
+	db                   *sql.DB
+	accounts             *domain.Service
+	keys                 *apikey.Service
+	client               hostedv1connect.HostedAccountServiceClient
+	invitations          invitationv1connect.InvitationServiceClient
+	auth                 authv1connect.AuthServiceClient
+	org                  int64
+	host                 int64
+	root                 string
+	cookie               string
+	peerAddress          *atomic.Pointer[string]
 }
 
 // The RPC server uses the same identity, session, permission, validation, error
@@ -99,7 +102,10 @@ func newRPCFixture(t *testing.T) rpcFixture {
 		validate.NewInterceptor(),
 	)
 	mux := http.NewServeMux()
-	mux.Handle(poolconfigurationsv1connect.NewPoolConfigurationServiceHandler(poolhandler.NewHandler(poolconfigurations.NewService(db, poolconfigurations.NewRepository(poolSecrets), pools, poolapplications.NewReviewer(pools, rpcPoolCapabilities{}))), options))
+	reviewer := poolapplications.NewReviewer(pools, rpcPoolCapabilities{})
+	configurationService := poolconfigurations.NewService(db, poolconfigurations.NewRepository(poolSecrets), pools, reviewer).
+		WithChecker(poolapplications.NewChecker(db, reviewer, rpcUnavailableMiner{}, poolSecrets, pools))
+	mux.Handle(poolconfigurationsv1connect.NewPoolConfigurationServiceHandler(poolhandler.NewHandler(configurationService), options))
 	mux.Handle(maintenancev1connect.NewMaintenanceServiceHandler(maintenancehandler.NewHandler(ticketService), options))
 	invitations := domain.NewInvitationService(accounts, sessions)
 	mux.Handle(hostedv1connect.NewHostedAccountServiceHandler(hostedhandler.NewHandler(accounts, invitations, accountKeys, pools, users, permissions), options))
@@ -118,7 +124,7 @@ func newRPCFixture(t *testing.T) rpcFixture {
 		wrapped.ServeHTTP(w, r)
 	}))
 	t.Cleanup(server.Close)
-	f := rpcFixture{db: db, accounts: accounts, keys: keys, org: org, peerAddress: peerAddress,
+	f := rpcFixture{configurationService: configurationService, db: db, accounts: accounts, keys: keys, org: org, peerAddress: peerAddress,
 		configurations: poolconfigurationsv1connect.NewPoolConfigurationServiceClient(server.Client(), server.URL),
 		maintenance:    maintenancev1connect.NewMaintenanceServiceClient(server.Client(), server.URL),
 		client:         hostedv1connect.NewHostedAccountServiceClient(server.Client(), server.URL),
@@ -452,4 +458,12 @@ type rpcPoolCapabilities struct{}
 
 func (rpcPoolCapabilities) GetRawCapabilitiesForDevice(context.Context, string, string, string) sdk.Capabilities {
 	return sdk.Capabilities{sdk.CapabilityPoolConfig: true, sdk.CapabilityPoolPriority: true}
+}
+
+// Only the external miner connection is unavailable; checks still exercise real
+// account, equipment and observation authorization.
+type rpcUnavailableMiner struct{}
+
+func (rpcUnavailableMiner) GetMinerForCommand(context.Context, int64) (interfaces.Miner, error) {
+	return nil, errors.New("test miner is offline")
 }

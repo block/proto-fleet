@@ -26,8 +26,8 @@ WHERE m.id=$1 AND m.status='PROCESSING' AND d.deleted_at IS NULL
 FOR UPDATE OF m;
 
 -- name: CreateDeviceWriteAttempt :exec
-INSERT INTO device_write_attempt(attempt_id,device_id,organization_id,epoch,queue_message_id,owner_instance_id,operation_kind,identity_keys,curtailment_command,identity_snapshot)
-SELECT sqlc.arg(attempt_id),d.id,d.org_id,sqlc.arg(epoch),sqlc.arg(queue_message_id),sqlc.arg(owner_instance_id),sqlc.arg(operation_kind),sqlc.arg(identity_keys)::text[],sqlc.arg(curtailment_command),
+INSERT INTO device_write_attempt(attempt_id,device_id,organization_id,epoch,queue_message_id,owner_instance_id,operation_kind,identity_keys,curtailment_command,command_type,identity_snapshot)
+SELECT sqlc.arg(attempt_id),d.id,d.org_id,sqlc.arg(epoch),sqlc.arg(queue_message_id),sqlc.arg(owner_instance_id),sqlc.arg(operation_kind),sqlc.arg(identity_keys)::text[],sqlc.arg(curtailment_command),sqlc.arg(command_type),
  jsonb_build_object('device_identifier',d.device_identifier,'serial_number',d.serial_number,'mac_address',d.mac_address,
  'ip_address',dd.ip_address,'port',dd.port,'url_scheme',dd.url_scheme,
  'routing_scope',COALESCE((SELECT fnd.fleet_node_id::text FROM fleet_node_device fnd WHERE fnd.device_id=d.id AND fnd.org_id=d.org_id),'local'))
@@ -137,6 +137,28 @@ VALUES($1,$2,$3,$4,$5,$6,$7);
 -- name: ResolveDeviceWriteAttempt :execrows
 UPDATE device_write_attempt SET status='resolved',finished_at=statement_timestamp()
 WHERE attempt_id=$1 AND status IN ('running','unknown');
+
+-- name: ResolveRecoveredMiningGroupWorkflow :exec
+-- Called only inside verified offline recovery, with the fence and attempt
+-- locked. Retain the journal's step and bindings as evidence, but retire only
+-- the exact active workflow and its intent so later work cannot replay it.
+WITH retired AS (
+ UPDATE container_mining_group_state s
+ SET status='failed',message='Interrupted by verified offline recovery; submit a new request to retry',updated_at=clock_timestamp()
+ WHERE s.organization_id=sqlc.arg(organization_id) AND s.device_id=sqlc.arg(device_id)
+  AND s.attempt_id=sqlc.arg(attempt_id) AND s.write_epoch=sqlc.arg(attempt_epoch)
+  AND s.status IN ('pending','applying','blocked')
+ RETURNING s.organization_id,s.device_id,s.operation_id,s.attempt_id
+), discarded_intents AS (
+ DELETE FROM hashboard_pool_intent i USING retired r
+ WHERE i.organization_id=r.organization_id AND i.device_id=r.device_id AND i.operation_id=r.operation_id
+)
+UPDATE pool_configuration_operation_target t
+SET state='failed',result_code='interrupted',updated_at=clock_timestamp()
+FROM retired r
+WHERE t.organization_id=r.organization_id AND t.physical_attempt_id=r.attempt_id
+ AND t.target_kind='hashboard_installation'
+ AND (t.state='applying' OR (t.state='failed' AND t.result_code='write_uncertain'));
 
 -- name: AdvanceRecoveredDeviceWriteFence :one
 -- Invalidates stale handles and queue messages, without granting new custody.

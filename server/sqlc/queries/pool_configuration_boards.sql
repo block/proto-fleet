@@ -1,0 +1,115 @@
+-- name: ListPoolSelectionModules :many
+SELECT m.id, d.site_id, m.identity_confirmed,
+ (SELECT count(*)=3 AND bool_and(s.occupancy IN ('empty','occupied') AND s.unavailable_reason=''
+  AND s.observed_at>now()-INTERVAL '2 minutes' AND s.observed_at<=now()+INTERVAL '5 seconds')
+  FROM hashboard_slot s WHERE s.module_id=m.id)::boolean AS ready
+FROM container_module m JOIN container_tank tank ON tank.id=m.tank_id JOIN device d ON d.id=tank.device_id
+WHERE d.org_id=$1 AND m.id=ANY(sqlc.arg(module_ids)::bigint[]) AND d.deleted_at IS NULL AND tank.present AND m.retired_at IS NULL;
+
+-- name: ListPoolSelectionBoards :many
+SELECT i.id AS installation_id,h.id AS hashboard_id,m.id AS module_id,tank.device_id,d.device_identifier,d.site_id,
+ COALESCE(owner.subclient_id,owner.client_id,0)::bigint AS account_id,
+ m.reported_id AS module_name,i.position,COALESCE(i.metadata->>'macAddress','')::text AS mac_address,
+ (s.unavailable_reason='' AND s.observed_at>now()-INTERVAL '2 minutes' AND s.observed_at<=now()+INTERVAL '5 seconds'
+  AND COALESCE(i.metadata->>'macAddress','')<>'' AND i.site_id IS NOT DISTINCT FROM d.site_id)::boolean AS ready
+FROM hashboard_installation i JOIN hashboard h ON h.id=i.hashboard_id
+JOIN container_module m ON m.id=i.module_id JOIN container_tank tank ON tank.id=m.tank_id
+JOIN device d ON d.id=tank.device_id
+LEFT JOIN hosted_account_asset owner ON owner.organization_id=d.org_id AND owner.kind=7 AND owner.asset_id=i.hashboard_id
+JOIN hashboard_slot s ON s.module_id=i.module_id AND s.position=i.position AND s.hashboard_id=i.hashboard_id
+WHERE d.org_id=$1 AND h.org_id=$1 AND d.deleted_at IS NULL AND tank.present AND m.retired_at IS NULL
+ AND i.removed_at IS NULL AND i.device_id=d.id AND s.occupancy='occupied'
+ AND (m.id=ANY(sqlc.arg(module_ids)::bigint[]) OR h.id=ANY(sqlc.arg(hashboard_ids)::bigint[]) OR i.id=ANY(sqlc.arg(installation_ids)::bigint[]))
+ORDER BY i.id;
+
+-- name: ListPoolBoardAssignments :many
+SELECT a.target_id AS installation_id,i.hashboard_id,i.module_id,a.device_id,d.device_identifier,d.site_id,
+ c.configuration_id,c.name,COALESCE(a.operation_id,'')::text AS operation_id,
+ COALESCE(ob.state,t.state,'adopted')::text AS state,COALESCE(ob.result_code,t.result_code,'')::text AS result_code,
+ COALESCE(ob.observed_at,t.updated_at,a.updated_at)::timestamptz AS updated_at
+FROM pool_configuration_assignment a
+JOIN pool_configuration c ON c.organization_id=a.organization_id AND c.configuration_id=a.configuration_id
+JOIN hashboard_installation i ON i.id=a.target_id AND i.device_id=a.device_id AND i.removed_at IS NULL
+JOIN container_module m ON m.id=i.module_id JOIN container_tank tank ON tank.id=m.tank_id AND tank.device_id=a.device_id
+JOIN device d ON d.id=a.device_id AND d.org_id=a.organization_id
+LEFT JOIN hosted_account_asset owner ON owner.organization_id=a.organization_id AND owner.kind=7 AND owner.asset_id=i.hashboard_id
+LEFT JOIN pool_configuration_operation_target t ON t.organization_id=a.organization_id AND t.operation_id=a.operation_id
+ AND t.target_kind=a.target_kind AND t.target_id=a.target_id AND t.assignment_version=a.version
+LEFT JOIN pool_configuration_observation ob ON ob.organization_id=a.organization_id AND ob.target_kind=a.target_kind
+ AND ob.target_id=a.target_id AND ob.assignment_version=a.version AND ob.observed_at>COALESCE(t.updated_at,a.updated_at)
+WHERE a.organization_id=$1 AND a.target_kind='hashboard_installation' AND a.retired_at IS NULL
+ AND a.target_id=ANY(sqlc.arg(installation_ids)::bigint[]) AND d.deleted_at IS NULL AND m.retired_at IS NULL AND tank.present
+ AND c.account_id IS NOT DISTINCT FROM sqlc.narg(account_id)::bigint
+ AND COALESCE(owner.subclient_id,owner.client_id,0)=COALESCE(c.account_id,0)
+ORDER BY a.target_id;
+
+-- name: CreatePoolGroupSnapshot :exec
+INSERT INTO pool_configuration_group_snapshot(snapshot_id,organization_id,device_id,configuration_id,revision_id,slots)
+VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT(snapshot_id) DO NOTHING;
+
+-- name: GetPoolGroupSnapshot :one
+SELECT * FROM pool_configuration_group_snapshot WHERE organization_id=$1 AND device_id=$2 AND snapshot_id=$3;
+
+-- name: LinkPoolGroupSnapshot :execrows
+UPDATE pool_configuration_operation_target SET group_snapshot_id=$5
+WHERE organization_id=$1 AND operation_id=$2 AND target_kind='hashboard_installation' AND target_id=$3 AND attempts=$4
+ AND state='applying' AND group_snapshot_id IS NULL;
+
+-- name: ListPoolGroupWork :many
+SELECT t.target_id,a.device_id FROM pool_configuration_operation_target t
+JOIN pool_configuration_assignment a ON a.organization_id=t.organization_id AND a.target_kind=t.target_kind AND a.target_id=t.target_id
+WHERE t.organization_id=$1 AND t.operation_id=$2 AND a.device_id=$3 AND t.target_kind='hashboard_installation'
+ AND t.state='pending' AND a.retired_at IS NULL AND a.operation_id=t.operation_id AND a.version=t.assignment_version ORDER BY t.target_id;
+
+-- name: ListPoolGroupIntents :many
+SELECT i.hashboard_id,i.id AS installation_id,i.module_id,COALESCE(i.metadata->>'macAddress','')::text AS mac_address,
+ a.device_id,t.group_snapshot_id,t.operation_id,t.physical_attempt_id,c.account_id,o.actor_id,
+ COALESCE(account.account_id,'')::text AS external_account_id
+FROM pool_configuration_assignment a
+JOIN pool_configuration_operation_target t ON t.organization_id=a.organization_id AND t.operation_id=a.operation_id
+ AND t.target_kind=a.target_kind AND t.target_id=a.target_id AND t.assignment_version=a.version
+JOIN pool_configuration_operation o ON o.organization_id=t.organization_id AND o.operation_id=t.operation_id
+JOIN pool_configuration c ON c.organization_id=a.organization_id AND c.configuration_id=a.configuration_id
+LEFT JOIN hosted_account account ON account.id=c.account_id AND account.organization_id=c.organization_id
+JOIN hashboard_installation i ON i.id=a.target_id
+WHERE a.organization_id=$1 AND a.device_id=$2 AND a.target_kind='hashboard_installation' AND a.retired_at IS NULL
+ AND t.group_snapshot_id IS NOT NULL AND t.state IN ('applying','verified','applied_unverified','different') ORDER BY i.hashboard_id;
+
+-- name: ListPoolGroupAttemptTargets :many
+SELECT t.*,a.device_id,c.account_id,o.actor_id,COALESCE(account.account_id,'')::text AS external_account_id
+FROM pool_configuration_operation_target t
+JOIN pool_configuration_operation o ON o.organization_id=t.organization_id AND o.operation_id=t.operation_id
+JOIN pool_configuration c ON c.organization_id=o.organization_id AND c.configuration_id=o.configuration_id
+JOIN pool_configuration_assignment a ON a.organization_id=t.organization_id AND a.target_kind=t.target_kind AND a.target_id=t.target_id
+LEFT JOIN hosted_account account ON account.id=c.account_id AND account.organization_id=c.organization_id
+WHERE t.organization_id=$1 AND t.physical_attempt_id=$2 AND t.target_kind='hashboard_installation' ORDER BY t.target_id;
+
+-- name: FinishPoolGroupAttempt :exec
+UPDATE pool_configuration_operation_target SET state=$3,result_code=$4,updated_at=clock_timestamp()
+WHERE organization_id=$1 AND physical_attempt_id=$2 AND target_kind='hashboard_installation' AND state='applying';
+
+-- name: ListUnreplacedHashboardPoolIntents :many
+-- Adopted assignments retain their legacy controller intent. Managed or retired
+-- assignments suppress it without removing records needed by recovery/cleanup.
+SELECT intent.* FROM hashboard_pool_intent intent
+WHERE intent.organization_id=$1 AND intent.device_id=$2
+ AND NOT EXISTS (
+  SELECT 1 FROM pool_configuration_assignment a
+  WHERE a.organization_id=intent.organization_id AND a.target_kind='hashboard_installation'
+   AND a.target_id=intent.installation_id AND (a.operation_id IS NOT NULL OR a.retired_at IS NOT NULL)
+ )
+ORDER BY intent.hashboard_id;
+
+-- name: DeleteReplacedLegacyPoolIntents :exec
+DELETE FROM hashboard_pool_intent WHERE organization_id=$1 AND installation_id=ANY(sqlc.arg(installation_ids)::bigint[]);
+
+-- name: ListPoolAffectedBoards :many
+SELECT i.id AS installation_id,COALESCE(i.metadata->>'macAddress','')::text AS mac_address
+FROM hashboard_installation i JOIN container_module m ON m.id=i.module_id
+JOIN container_tank tank ON tank.id=m.tank_id JOIN device d ON d.id=tank.device_id
+JOIN hashboard_slot s ON s.module_id=i.module_id AND s.position=i.position AND s.hashboard_id=i.hashboard_id
+WHERE d.org_id=$1 AND d.id=$2 AND d.deleted_at IS NULL AND i.device_id=d.id
+ AND i.removed_at IS NULL AND m.retired_at IS NULL AND tank.present
+ AND i.metadata->>'macAddress'=ANY(sqlc.arg(mac_addresses)::text[])
+ AND s.occupancy='occupied' AND s.unavailable_reason='' AND s.observed_at>now()-INTERVAL '2 minutes'
+ AND s.observed_at<=now()+INTERVAL '5 seconds' AND i.site_id IS NOT DISTINCT FROM d.site_id;

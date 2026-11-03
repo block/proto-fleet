@@ -20,19 +20,19 @@ func IsMutationConflict(err error) bool {
 	return errors.As(err, &conflict)
 }
 
-// RequireNoOtherMutations refuses a new configuration while another physical
-// write has no terminal outcome or a conflicting command is still queued.
+// RequireNoConflictingPoolWrites refuses pool changes while a conflicting
+// physical write is unresolved or a conflicting command is still queued.
 // An executor may retain its own committed admission; observations do not
 // authorize mutations and may finish normally.
 // The caller holds the device fence lock through its decision or dispatch.
-func RequireNoOtherMutations(ctx context.Context, q sqlc.Querier, organizationID, deviceID int64) error {
+func RequireNoConflictingPoolWrites(ctx context.Context, q sqlc.Querier, organizationID, deviceID int64) error {
 	attempts, err := q.ListUnresolvedDeviceWriteAttempts(ctx, sqlc.ListUnresolvedDeviceWriteAttemptsParams{OrganizationID: organizationID, DeviceID: deviceID})
 	if err != nil {
 		return err
 	}
 	current, _ := ctx.Value(attemptContextKey{}).(*Attempt)
 	for _, attempt := range attempts {
-		if attempt.OperationKind == operationObservation {
+		if !MayAffectPools(attempt.OperationKind, attempt.CommandType) {
 			continue
 		}
 		if current != nil && current.id == attempt.AttemptID && current.organizationID == organizationID && current.deviceID == deviceID {

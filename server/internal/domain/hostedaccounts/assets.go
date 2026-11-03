@@ -184,6 +184,7 @@ func (e miningEstate) asset(row sqlc.ListHostedAccountMiningAssetsRow) *pb.Accou
 		}
 		return a
 	}
+	a.CanChangePools = e.canChangePools(row)
 	a.Model = row.Model
 	a.Name = row.Name
 	a.ContainerId = row.ContainerID
@@ -227,6 +228,29 @@ func (e miningEstate) asset(row sqlc.ListHostedAccountMiningAssetsRow) *pb.Accou
 		a.EfficiencyJTh = nil
 	}
 	return a
+}
+
+func (e miningEstate) canChangePools(row sqlc.ListHostedAccountMiningAssetsRow) bool {
+	if e.account.Depth == 0 || e.capabilities&ChangePools == 0 || row.OwnerAccountID != e.account.AccountID || !e.physicalRead(row) {
+		return false
+	}
+	if e.hostPermissions == nil {
+		return true
+	}
+	var site *int64
+	if row.SiteID > 0 {
+		site = &row.SiteID
+	}
+	permissions := []string{authz.PermMinerUpdatePools}
+	if pb.MiningAssetKind(row.Kind) == pb.MiningAssetKind_MINING_ASSET_KIND_MODULE || pb.MiningAssetKind(row.Kind) == pb.MiningAssetKind_MINING_ASSET_KIND_HASHBOARD {
+		permissions = append(permissions, authz.PermMinerStartMining, authz.PermMinerStopMining)
+	}
+	for _, permission := range permissions {
+		if !e.hostPermissions.Has(permission, authz.ResourceContext{SiteID: site}) {
+			return false
+		}
+	}
+	return true
 }
 func finiteNonnegative(value float64) bool {
 	return value >= 0 && !math.IsInf(value, 0) && !math.IsNaN(value)

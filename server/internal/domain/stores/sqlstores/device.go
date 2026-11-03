@@ -1597,6 +1597,10 @@ func (s *SQLDeviceStore) SoftDeleteDevices(ctx context.Context, deviceIdentifier
 			return 0, fleeterror.NewInternalErrorf("failed to soft-delete devices: %v", err)
 		}
 
+		if err := q.RetirePoolConfigurationEquipmentAssignments(ctx, sqlc.RetirePoolConfigurationEquipmentAssignmentsParams{OrganizationID: orgID, DeviceIdentifiers: deviceIdentifiers}); err != nil {
+			return 0, fleeterror.NewInternalErrorf("failed to retire deleted devices' pool assignments: %w", err)
+		}
+
 		err = q.SoftDeleteDiscoveredDevicesForDeletedDevices(ctx, sqlc.SoftDeleteDiscoveredDevicesForDeletedDevicesParams{
 			DeviceIdentifiers: deviceIdentifiers,
 			OrgID:             orgID,

@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/url"
 	"slices"
 	"strings"
@@ -47,10 +48,28 @@ type Binding struct {
 	Ownership    string
 	Device       sqlc.GetPoolConfigurationRuntimeRow
 	Usernames    []string
+	Board        *BoardBinding
 	MiningGroups bool
 }
 
+type BoardBinding struct {
+	InstallationID, HashboardID, ModuleID int64
+	Position                              int32
+	MAC                                   string
+}
+
 func (r *Reviewer) ReviewTargets(ctx context.Context, q sqlc.Querier, scope poolconfigurations.Scope, actorID int64, targets []poolconfigurations.AssignmentTarget, slots []poolconfigurations.Endpoint) ([]poolconfigurations.TargetApproval, error) {
+	return r.reviewTargets(ctx, q, scope, actorID, targets, slots, true)
+}
+
+// ReviewBindings rechecks authority, physical identity and configuration inputs
+// without requiring a recent controller observation. Execution must check live
+// controller mode under its physical admission before dispatching any mutation.
+func (r *Reviewer) ReviewBindings(ctx context.Context, q sqlc.Querier, scope poolconfigurations.Scope, actorID int64, targets []poolconfigurations.AssignmentTarget, slots []poolconfigurations.Endpoint) ([]poolconfigurations.TargetApproval, error) {
+	return r.reviewTargets(ctx, q, scope, actorID, targets, slots, false)
+}
+
+func (r *Reviewer) reviewTargets(ctx context.Context, q sqlc.Querier, scope poolconfigurations.Scope, actorID int64, targets []poolconfigurations.AssignmentTarget, slots []poolconfigurations.Endpoint, requireReadiness bool) ([]poolconfigurations.TargetApproval, error) {
 	if r.authority == nil || r.capabilities == nil {
 		return nil, fleeterror.NewInternalError("equipment review is unavailable")
 	}
@@ -88,19 +107,41 @@ func (r *Reviewer) ReviewTargets(ctx context.Context, q sqlc.Querier, scope pool
 			if err != nil && !errors.Is(err, sql.ErrNoRows) {
 				return nil, err
 			}
-			if err != nil || !state.ObservedAt.Valid || time.Since(state.ObservedAt.Time) > 2*time.Minute || time.Until(state.ObservedAt.Time) > 5*time.Second {
-				return nil, fleeterror.NewFailedPreconditionError("refresh container mining-group readiness before reviewing pools")
-			}
-			var observed sdk.MiningGroupResult
-			if json.Unmarshal(state.Observed, &observed) != nil || !observed.Supported {
+			if err != nil {
 				return nil, fleeterror.NewFailedPreconditionError("container mining-group mode is unknown")
 			}
-			if observed.Pending || observed.Suspended || state.Status == "pending" || state.Status == "applying" || state.Status == "blocked" {
+			if state.Status == "pending" || state.Status == stateApplying || state.Status == "blocked" {
 				return nil, fleeterror.NewFailedPreconditionError("container has an unfinished mining-group operation")
 			}
-			binding.MiningGroups = observed.Enabled
-			if observed.Enabled || target.Kind != poolconfigurations.TargetDevice {
-				return nil, fleeterror.NewFailedPreconditionError("select mining-group hashboards through the mining-group assignment flow")
+			// The reviewed target fixes the required mode. Execution validates it
+			// against fresh hardware state, rather than an expiring cached read.
+			binding.MiningGroups = target.Kind == poolconfigurations.TargetInstallation
+			if requireReadiness {
+				if !state.ObservedAt.Valid || time.Since(state.ObservedAt.Time) > 2*time.Minute || time.Until(state.ObservedAt.Time) > 5*time.Second {
+					return nil, fleeterror.NewFailedPreconditionError("refresh container mining-group readiness before reviewing pools")
+				}
+				var observed sdk.MiningGroupResult
+				if json.Unmarshal(state.Observed, &observed) != nil || !observed.Supported {
+					return nil, fleeterror.NewFailedPreconditionError("container mining-group mode is unknown")
+				}
+				if observed.Pending || observed.Suspended {
+					return nil, fleeterror.NewFailedPreconditionError("container has an unfinished mining-group operation")
+				}
+				if observed.Enabled != binding.MiningGroups {
+					return nil, fleeterror.NewFailedPreconditionError("select whole containers with mining groups disabled, or installed hashboards with mining groups enabled")
+				}
+			}
+			if target.Kind == poolconfigurations.TargetInstallation {
+				boards, err := q.ListPoolSelectionBoards(ctx, sqlc.ListPoolSelectionBoardsParams{OrgID: scope.OrganizationID, InstallationIds: []int64{target.ID}})
+				if err != nil {
+					return nil, err
+				}
+				if len(boards) != 1 || !boards[0].Ready || boards[0].DeviceID != target.DeviceID {
+					return nil, fleeterror.NewFailedPreconditionError("selected board installation changed or is stale")
+				}
+				board := boards[0]
+				binding.Board = &BoardBinding{InstallationID: board.InstallationID, HashboardID: board.HashboardID, ModuleID: board.ModuleID, Position: board.Position, MAC: board.MacAddress}
+				binding.Label = fmt.Sprintf("%s · Hashboard %d", board.ModuleName, board.Position)
 			}
 			seen := map[string]bool{}
 			for _, slot := range slots {
@@ -108,6 +149,9 @@ func (r *Reviewer) ReviewTargets(ctx context.Context, q sqlc.Querier, scope pool
 				key := strings.ToLower(slot.URL)
 				if err != nil || (parsed.Scheme != "stratum+tcp" && parsed.Scheme != "stratum+ssl") || seen[key] {
 					return nil, fleeterror.NewFailedPreconditionError("container requires distinct TCP or TLS pool destinations")
+				}
+				if binding.MiningGroups && parsed.Scheme != "stratum+tcp" {
+					return nil, fleeterror.NewFailedPreconditionError("mining groups require TCP pool destinations")
 				}
 				seen[key] = true
 			}
@@ -135,6 +179,10 @@ func (r *Reviewer) ReviewTargets(ctx context.Context, q sqlc.Querier, scope pool
 // and device-specific locks through I/O so unrelated devices sharing a bucket
 // can still be admitted. Recheck that admission after locking the binding.
 func lockReviewBindings(ctx context.Context, q sqlc.Querier, scope poolconfigurations.Scope, targets []poolconfigurations.AssignmentTarget) error {
+	return lockPoolBindings(ctx, q, scope, targets, false)
+}
+
+func lockPoolBindings(ctx context.Context, q sqlc.Querier, scope poolconfigurations.Scope, targets []poolconfigurations.AssignmentTarget, observation bool) error {
 	if _, err := q.LockPoolEquipmentOrganization(ctx, scope.OrganizationID); err != nil {
 		return err
 	}
@@ -212,8 +260,10 @@ func lockReviewBindings(ctx context.Context, q sqlc.Querier, scope poolconfigura
 		return fleeterror.NewFailedPreconditionError("equipment admission changed")
 	}
 	for _, fence := range fences {
-		if err := devicewrite.RequireNoOtherMutations(ctx, q, scope.OrganizationID, fence.DeviceID); err != nil {
-			return err
+		if !observation {
+			if err := devicewrite.RequireNoConflictingPoolWrites(ctx, q, scope.OrganizationID, fence.DeviceID); err != nil {
+				return err
+			}
 		}
 		if fence.OrganizationID != scope.OrganizationID {
 			return fleeterror.NewForbiddenError("equipment access denied")

@@ -7,6 +7,7 @@ package sqlc
 
 import (
 	"context"
+	"encoding/json"
 
 	"github.com/lib/pq"
 )
@@ -105,4 +106,20 @@ func (q *Queries) LockPoolEquipmentOrganization(ctx context.Context, id int64) (
 	row := q.queryRow(ctx, q.lockPoolEquipmentOrganizationStmt, lockPoolEquipmentOrganization, id)
 	err := row.Scan(&id)
 	return id, err
+}
+
+const refreshPoolConfigurationReadiness = `-- name: RefreshPoolConfigurationReadiness :exec
+UPDATE container_mining_group_state SET observed=$3,observed_at=clock_timestamp(),updated_at=clock_timestamp()
+WHERE organization_id=$1 AND device_id=$2
+`
+
+type RefreshPoolConfigurationReadinessParams struct {
+	OrganizationID int64
+	DeviceID       int64
+	Observed       json.RawMessage
+}
+
+func (q *Queries) RefreshPoolConfigurationReadiness(ctx context.Context, arg RefreshPoolConfigurationReadinessParams) error {
+	_, err := q.exec(ctx, q.refreshPoolConfigurationReadinessStmt, refreshPoolConfigurationReadiness, arg.OrganizationID, arg.DeviceID, arg.Observed)
+	return err
 }

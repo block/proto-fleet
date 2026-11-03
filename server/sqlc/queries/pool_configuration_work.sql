@@ -20,10 +20,18 @@ WHERE t.physical_attempt_id=w.attempt_id AND (
 );
 
 -- name: ListPendingPoolConfigurationWork :many
+-- Waiting boards must not fill the batch and starve other devices. Keep them
+-- pending until their controller workflow settles; admission still rechecks
+-- the journal under lock in case it becomes busy after this selection.
 SELECT t.organization_id,t.operation_id,t.target_kind,t.target_id,a.device_id
 FROM pool_configuration_operation_target t
 JOIN pool_configuration_assignment a ON a.organization_id=t.organization_id AND a.target_kind=t.target_kind AND a.target_id=t.target_id
 WHERE t.state='pending' AND a.retired_at IS NULL AND a.operation_id=t.operation_id AND a.version=t.assignment_version
+ AND (t.target_kind<>'hashboard_installation' OR NOT EXISTS (
+  SELECT 1 FROM container_mining_group_state s
+  WHERE s.organization_id=t.organization_id AND s.device_id=a.device_id
+   AND s.status IN ('pending','applying','blocked')
+ ))
 ORDER BY t.updated_at,t.operation_id,t.target_kind,t.target_id LIMIT 100;
 
 -- name: GetPoolConfigurationWork :one

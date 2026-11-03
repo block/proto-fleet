@@ -7,6 +7,7 @@ import (
 	netUrl "net/url"
 	"strings"
 
+	"github.com/block/proto-fleet/server/internal/infrastructure/pooldial"
 	"github.com/block/proto-fleet/server/internal/infrastructure/secrets"
 	"github.com/sourcegraph/jsonrpc2"
 )
@@ -42,9 +43,9 @@ func Authenticate(ctx context.Context, url string, username string, password *se
 		return false, err
 	}
 
-	netConn, err := net.Dial(protocol, address)
+	netConn, err := pooldial.DialContext(ctx, protocol, address)
 	if err != nil {
-		return false, fmt.Errorf("unable to dial: %v", err)
+		return false, fmt.Errorf("unable to dial: %w", err)
 	}
 	defer netConn.Close()
 
@@ -106,13 +107,9 @@ func parseStratumURL(url string) (string, string, error) {
 	}
 
 	protocol, _ := strings.CutPrefix(parsedURL.Scheme, stratumPrefix)
-	address := []string{parsedURL.Hostname(), ":"}
-
-	if parsedURL.Port() == "" {
-		address = append(address, stratumPort)
-	} else {
-		address = append(address, parsedURL.Port())
+	port := parsedURL.Port()
+	if port == "" {
+		port = stratumPort
 	}
-
-	return protocol, strings.Join(address, ""), nil
+	return protocol, net.JoinHostPort(parsedURL.Hostname(), port), nil
 }

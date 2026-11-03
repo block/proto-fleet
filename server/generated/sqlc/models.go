@@ -1439,6 +1439,7 @@ type DeviceWriteAttempt struct {
 	FinishedAt         sql.NullTime
 	IdentityKeys       []string
 	CurtailmentCommand sql.NullString
+	CommandType        string
 }
 
 type DeviceWriteFence struct {
@@ -2430,9 +2431,19 @@ type PoolConfigurationAssignment struct {
 	ConfigurationID string
 	RevisionID      string
 	Version         int64
-	OperationID     string
+	OperationID     sql.NullString
 	RetiredAt       sql.NullTime
 	UpdatedAt       time.Time
+	AdoptedAt       sql.NullTime
+}
+
+type PoolConfigurationGroupSnapshot struct {
+	SnapshotID      string
+	OrganizationID  int64
+	DeviceID        int64
+	ConfigurationID string
+	RevisionID      string
+	Slots           json.RawMessage
 }
 
 type PoolConfigurationImport struct {
@@ -2443,6 +2454,17 @@ type PoolConfigurationImport struct {
 	ConfigurationID string
 	RevisionID      string
 	CreatedAt       time.Time
+}
+
+type PoolConfigurationObservation struct {
+	OrganizationID    int64
+	TargetKind        string
+	TargetID          int64
+	AssignmentVersion int64
+	State             string
+	ResultCode        string
+	ObservedAt        time.Time
+	LastVerifiedAt    sql.NullTime
 }
 
 type PoolConfigurationOperation struct {
@@ -2466,6 +2488,7 @@ type PoolConfigurationOperationTarget struct {
 	UpdatedAt         time.Time
 	ReviewedBinding   string
 	PhysicalAttemptID uuid.NullUUID
+	GroupSnapshotID   sql.NullString
 }
 
 type PoolConfigurationReview struct {

@@ -20,10 +20,35 @@ import (
 	"github.com/block/proto-fleet/server/generated/grpc/infrastructure/v1/infrastructurev1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/instance/v1/instancev1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/invitation/v1/invitationv1connect"
+	poolpb "github.com/block/proto-fleet/server/generated/grpc/poolconfigurations/v1"
+	"github.com/block/proto-fleet/server/generated/grpc/poolconfigurations/v1/poolconfigurationsv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/sitemap/v1/sitemapv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/sites/v1/sitesv1connect"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 )
+
+func TestPoolConnectionRequestsNeverLogCredentials(t *testing.T) {
+	out := captureSlogWarn(t)
+	procedure := poolconfigurationsv1connect.PoolConfigurationServiceTestConnectionProcedure
+	require.True(t, SensitiveBodyProcedures[procedure])
+	require.True(t, allowsSelectedAccount(procedure))
+	logging := NewRequestLoggingInterceptor(slog.LevelDebug, RedactedRequestProcedures, RedactedResponseProcedures)
+	handler := connect.NewUnaryHandler(procedure,
+		func(context.Context, *connect.Request[poolpb.TestConnectionRequest]) (*connect.Response[poolpb.TestConnectionResponse], error) {
+			return connect.NewResponse(&poolpb.TestConnectionResponse{Connected: true}), nil
+		}, connect.WithInterceptors(logging))
+	server := httptest.NewServer(handler)
+	defer server.Close()
+	client := connect.NewClient[poolpb.TestConnectionRequest, poolpb.TestConnectionResponse](server.Client(), server.URL+procedure)
+	password := "private-connection-password"
+	_, err := client.CallUnary(t.Context(), connect.NewRequest(&poolpb.TestConnectionRequest{Pool: &poolpb.PoolInput{Url: "stratum+tcp://private.example", Username: "private-payout", Password: &password}}))
+	require.NoError(t, err)
+	logged := out.String()
+	require.Contains(t, logged, procedure)
+	require.NotContains(t, logged, password)
+	require.NotContains(t, logged, "private-payout")
+	require.NotContains(t, logged, "private.example")
+}
 
 func TestUpdateWorkerNamesProcedureIsRedacted(t *testing.T) {
 	procedure := fleetmanagementv1connect.FleetManagementServiceUpdateWorkerNamesProcedure

@@ -3,6 +3,8 @@ package poolconfigurations
 import (
 	"context"
 
+	"github.com/block/proto-fleet/server/internal/domain/fleetmanagement"
+
 	"connectrpc.com/connect"
 	pb "github.com/block/proto-fleet/server/generated/grpc/poolconfigurations/v1"
 	"github.com/block/proto-fleet/server/generated/grpc/poolconfigurations/v1/poolconfigurationsv1connect"
@@ -16,6 +18,51 @@ type Handler struct{ service *domain.Service }
 var _ poolconfigurationsv1connect.PoolConfigurationServiceHandler = (*Handler)(nil)
 
 func NewHandler(service *domain.Service) *Handler { return &Handler{service: service} }
+
+func (h *Handler) GetAssignments(ctx context.Context, req *connect.Request[pb.GetAssignmentsRequest]) (*connect.Response[pb.GetAssignmentsResponse], error) {
+	if boards := req.Msg.Boards; boards != nil {
+		result, err := h.service.GetBoardAssignments(ctx, req.Msg.AccountId, domain.BoardSelection{ModuleIDs: boards.ModuleIds, HashboardIDs: boards.HashboardIds, DeviceIDs: req.Msg.DeviceIds})
+		if err != nil {
+			return nil, err
+		}
+		response := &pb.GetAssignmentsResponse{SelectedCount: result.SelectedCount}
+		for _, row := range result.Assignments {
+			response.Assignments = append(response.Assignments, &pb.EquipmentAssignment{DeviceId: row.DeviceID, DeviceIdentifier: row.DeviceIdentifier, ConfigurationId: row.ConfigurationID, Name: row.Name, OperationId: row.OperationID, State: row.State, ResultCode: row.ResultCode, InstallationId: row.InstallationID, HashboardId: row.HashboardID, ModuleId: row.ModuleID, UpdatedAt: timestamppb.New(row.UpdatedAt)})
+		}
+		if len(req.Msg.DeviceIds) > 0 {
+			miners, err := h.service.GetAssignments(ctx, req.Msg.AccountId, nil, req.Msg.DeviceIds, nil)
+			if err != nil {
+				return nil, err
+			}
+			response.SelectedCount += miners.SelectedCount
+			for _, row := range miners.Assignments {
+				response.Assignments = append(response.Assignments, &pb.EquipmentAssignment{DeviceId: row.DeviceID, DeviceIdentifier: row.DeviceIdentifier, DeviceName: fleetmanagement.ComposeDeviceName(row.CustomName, row.Manufacturer, row.Model), MacAddress: row.MacAddress, ConfigurationId: row.ConfigurationID, Name: row.Name, OperationId: row.OperationID, State: row.State, ResultCode: row.ResultCode, UpdatedAt: timestamppb.New(row.UpdatedAt)})
+			}
+		}
+		return connect.NewResponse(response), nil
+	}
+	result, err := h.service.GetAssignments(ctx, req.Msg.AccountId, req.Msg.DeviceIdentifiers, req.Msg.DeviceIds, req.Msg.Filter)
+	if err != nil {
+		return nil, err
+	}
+	response := &pb.GetAssignmentsResponse{SelectedCount: result.SelectedCount}
+	for _, row := range result.Assignments {
+		response.Assignments = append(response.Assignments, &pb.EquipmentAssignment{DeviceId: row.DeviceID, DeviceIdentifier: row.DeviceIdentifier, DeviceName: fleetmanagement.ComposeDeviceName(row.CustomName, row.Manufacturer, row.Model), MacAddress: row.MacAddress, ConfigurationId: row.ConfigurationID, Name: row.Name, OperationId: row.OperationID, State: row.State, ResultCode: row.ResultCode, UpdatedAt: timestamppb.New(row.UpdatedAt)})
+	}
+	return connect.NewResponse(response), nil
+}
+
+func (h *Handler) TestConnection(ctx context.Context, req *connect.Request[pb.TestConnectionRequest]) (*connect.Response[pb.TestConnectionResponse], error) {
+	pool := req.Msg.Pool
+	if pool == nil {
+		return nil, fleeterror.NewInvalidArgumentError("pool is required")
+	}
+	connected, err := h.service.TestConnection(ctx, req.Msg.AccountId, req.Msg.ConfigurationId, req.Msg.ExpectedVersion, domain.SlotOptions{ID: pool.SlotId, URL: pool.Url, Username: pool.Username, Password: pool.Password, WorkerTemplate: pool.WorkerTemplate})
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&pb.TestConnectionResponse{Connected: connected}), nil
+}
 
 func inputOptions(input *pb.ConfigurationInput) (domain.RevisionOptions, error) {
 	if input == nil {
@@ -107,6 +154,9 @@ func reviewDTO(review domain.Review) *pb.ReviewEditResponse {
 			result.AffectedHashboards++
 		}
 	}
+	for _, equipment := range review.Equipment {
+		result.Equipment = append(result.Equipment, &pb.ReviewedEquipment{Kind: equipment.Kind, TargetId: equipment.ID, Label: equipment.Label, DeviceIdentifier: equipment.DeviceIdentifier})
+	}
 	return result
 }
 
@@ -123,21 +173,27 @@ func (h *Handler) ConfirmReview(ctx context.Context, req *connect.Request[pb.Con
 }
 
 func (h *Handler) ReviewAssignment(ctx context.Context, req *connect.Request[pb.ReviewAssignmentRequest]) (*connect.Response[pb.ReviewAssignmentResponse], error) {
-	review, err := h.service.ReviewDevices(ctx, req.Msg.AccountId, req.Msg.ConfigurationId, req.Msg.ExpectedVersion, req.Msg.DeviceIdentifiers)
+	var review domain.Review
+	var err error
+	if boards := req.Msg.Boards; boards != nil {
+		review, err = h.service.ReviewBoards(ctx, req.Msg.AccountId, req.Msg.ConfigurationId, req.Msg.ExpectedVersion, domain.BoardSelection{ModuleIDs: boards.ModuleIds, HashboardIDs: boards.HashboardIds, DeviceIDs: req.Msg.DeviceIds})
+	} else {
+		review, err = h.service.ReviewSelection(ctx, req.Msg.AccountId, req.Msg.ConfigurationId, req.Msg.ExpectedVersion, req.Msg.DeviceIdentifiers, req.Msg.DeviceIds, req.Msg.Filter)
+	}
 	if err != nil {
 		return nil, err
 	}
 	result := reviewDTO(review)
-	return connect.NewResponse(&pb.ReviewAssignmentResponse{ReviewId: result.ReviewId, Configuration: result.Configuration, AffectedMiners: result.AffectedMiners, AffectedHashboards: result.AffectedHashboards, ExpiresAt: result.ExpiresAt}), nil
+	return connect.NewResponse(&pb.ReviewAssignmentResponse{ReviewId: result.ReviewId, Configuration: result.Configuration, AffectedMiners: result.AffectedMiners, AffectedHashboards: result.AffectedHashboards, ExpiresAt: result.ExpiresAt, Equipment: result.Equipment}), nil
 }
 func (h *Handler) GetOperation(ctx context.Context, req *connect.Request[pb.GetOperationRequest]) (*connect.Response[pb.GetOperationResponse], error) {
 	operation, err := h.service.GetOperation(ctx, req.Msg.AccountId, req.Msg.OperationId)
 	if err != nil {
 		return nil, err
 	}
-	result := &pb.GetOperationResponse{OperationId: operation.ID, ConfigurationId: operation.ConfigurationID}
+	result := &pb.GetOperationResponse{OperationId: operation.ID, ConfigurationId: operation.ConfigurationID, ConfigurationName: operation.Name, CreatedAt: timestamppb.New(operation.CreatedAt)}
 	for _, target := range operation.Targets {
-		result.Targets = append(result.Targets, &pb.OperationTarget{Kind: target.Kind, TargetId: target.ID, State: target.State, ResultCode: target.ResultCode, Label: target.Label})
+		result.Targets = append(result.Targets, &pb.OperationTarget{Kind: target.Kind, TargetId: target.ID, State: target.State, ResultCode: target.ResultCode, Label: target.Label, MacAddress: target.MACAddress, DeviceIdentifier: target.DeviceIdentifier, UpdatedAt: timestamppb.New(target.UpdatedAt)})
 	}
 	return connect.NewResponse(result), nil
 }
@@ -155,7 +211,7 @@ func (h *Handler) ReviewRetry(ctx context.Context, req *connect.Request[pb.Revie
 		return nil, err
 	}
 	result := reviewDTO(review)
-	return connect.NewResponse(&pb.ReviewRetryResponse{ReviewId: result.ReviewId, Configuration: result.Configuration, AffectedMiners: result.AffectedMiners, AffectedHashboards: result.AffectedHashboards, ExpiresAt: result.ExpiresAt}), nil
+	return connect.NewResponse(&pb.ReviewRetryResponse{ReviewId: result.ReviewId, Configuration: result.Configuration, AffectedMiners: result.AffectedMiners, AffectedHashboards: result.AffectedHashboards, ExpiresAt: result.ExpiresAt, Equipment: result.Equipment}), nil
 }
 
 func (h *Handler) ListOperations(ctx context.Context, req *connect.Request[pb.ListOperationsRequest]) (*connect.Response[pb.ListOperationsResponse], error) {
@@ -168,4 +224,24 @@ func (h *Handler) ListOperations(ctx context.Context, req *connect.Request[pb.Li
 		result.Operations = append(result.Operations, &pb.OperationSummary{OperationId: operation.OperationID, CreatedAt: timestamppb.New(operation.CreatedAt), TargetCount: operation.TargetCount, PendingCount: operation.PendingCount, FailedCount: operation.FailedCount})
 	}
 	return connect.NewResponse(result), nil
+}
+
+func (h *Handler) CheckConfiguration(ctx context.Context, req *connect.Request[pb.CheckConfigurationRequest]) (*connect.Response[pb.CheckConfigurationResponse], error) {
+	if req.Msg.Target == nil {
+		return nil, fleeterror.NewInvalidArgumentError("select equipment")
+	}
+	result, err := h.service.CheckConfiguration(ctx, req.Msg.AccountId, req.Msg.ConfigurationId, domain.AssignmentTarget{Kind: req.Msg.Target.Kind, ID: req.Msg.Target.TargetId})
+	if err != nil {
+		return nil, err
+	}
+	response := &pb.CheckConfigurationResponse{State: result.State, ResultCode: result.ResultCode, ReadbackAvailable: result.ReadbackAvailable, CheckedAt: timestamppb.New(result.CheckedAt)}
+	for _, p := range result.Expected {
+		response.Expected = append(response.Expected, &pb.ReportedPool{Priority: uint32(p.Priority), Url: p.URL, Username: p.Username})
+	} // #nosec G115 -- bounded pool priorities.
+	for _, p := range result.Reported {
+		if p.Priority >= 0 {
+			response.Reported = append(response.Reported, &pb.ReportedPool{Priority: uint32(p.Priority), Url: p.URL, Username: p.Username})
+		}
+	} // #nosec G115 -- nonnegative int32 priority.
+	return connect.NewResponse(response), nil
 }

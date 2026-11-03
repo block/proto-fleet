@@ -117,29 +117,36 @@ func (s *Service) admitConfirmation(ctx context.Context, accountID, reviewID str
 }
 
 func (s *Service) ReviewAssignment(ctx context.Context, accountID, id string, version int64, targets []AssignmentTarget) (Review, error) {
+	if err := s.refreshReadiness(ctx, accountID, Read, func(sqlc.Querier, Principal) ([]AssignmentTarget, error) { return targets, nil }); err != nil {
+		return Review{}, err
+	}
 	return withAuthority(ctx, s, accountID, Read, func(q sqlc.Querier, p Principal) (Review, error) {
 		return s.repository.ReviewAssignment(ctx, q, p.Scope, p.ActorID, id, version, targets, s.equipment)
 	})
 }
 
 func (s *Service) ReviewDevices(ctx context.Context, accountID, id string, version int64, identifiers []string) (Review, error) {
-	return withAuthority(ctx, s, accountID, Read, func(q sqlc.Querier, p Principal) (Review, error) {
-		if len(identifiers) < 1 || len(identifiers) > 500 {
-			return Review{}, fleeterror.NewInvalidArgumentError("select between 1 and 500 devices")
+	targets, err := withAuthority(ctx, s, accountID, Read, func(q sqlc.Querier, p Principal) ([]AssignmentTarget, error) {
+		if len(identifiers) < 1 || len(identifiers) > 10000 {
+			return nil, fleeterror.NewInvalidArgumentError("select between 1 and 10000 devices")
 		}
 		devices, err := q.GetOrgDeviceIDsWithIdentifiers(ctx, sqlc.GetOrgDeviceIDsWithIdentifiersParams{OrgID: p.Scope.OrganizationID, DeviceIdentifiers: identifiers})
 		if err != nil {
-			return Review{}, storageError(err)
+			return nil, storageError(err)
 		}
 		if len(devices) != len(identifiers) {
-			return Review{}, fleeterror.NewForbiddenError("selected equipment is unavailable")
+			return nil, fleeterror.NewForbiddenError("selected equipment is unavailable")
 		}
 		targets := make([]AssignmentTarget, len(devices))
 		for i, device := range devices {
 			targets[i] = AssignmentTarget{Kind: TargetDevice, ID: device.ID, DeviceID: device.ID}
 		}
-		return s.repository.ReviewAssignment(ctx, q, p.Scope, p.ActorID, id, version, targets, s.equipment)
+		return targets, nil
 	})
+	if err != nil {
+		return Review{}, err
+	}
+	return s.ReviewAssignment(ctx, accountID, id, version, targets)
 }
 
 func (s *Service) GetOperation(ctx context.Context, accountID, operationID string) (Operation, error) {

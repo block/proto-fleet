@@ -220,8 +220,19 @@ func TestWholeContainerAndInstalledBoardAssignments(t *testing.T) {
 	require.NoError(t, err)
 	_, err = sqlc.New(conn).GetPoolAssignmentInstallation(ctx, sqlc.GetPoolAssignmentInstallationParams{OrgID: scope.OrganizationID, ID: installation, DeviceID: otherDevice})
 	require.ErrorIs(t, err, sql.ErrNoRows, "moving a module does not move its old installation identity")
+	// This fixture bypasses inventory reconciliation; explicitly perform its
+	// lifecycle action. Real move-and-return coverage lives with inventory.
+	require.NoError(t, sqlc.New(conn).RetirePoolConfigurationEquipmentAssignments(ctx, sqlc.RetirePoolConfigurationEquipmentAssignmentsParams{OrganizationID: scope.OrganizationID, InstallationIds: []int64{installation}}))
 	_, err = conn.ExecContext(ctx, `UPDATE container_module SET tank_id=$1 WHERE id=$2`, tank, module)
 	require.NoError(t, err)
+	var retired bool
+	var version int64
+	require.NoError(t, conn.QueryRowContext(ctx, `SELECT retired_at IS NOT NULL,version FROM pool_configuration_assignment WHERE target_kind='hashboard_installation' AND target_id=$1`, installation).Scan(&retired, &version))
+	require.True(t, retired, "returning a moved module must not revive its previous assignment")
+	require.Equal(t, assigned.Targets[0].AssignmentVersion+1, version)
+	prior, err := repo.GetOperation(ctx, sqlc.New(conn), scope, assigned.ID)
+	require.NoError(t, err)
+	require.Equal(t, "superseded", prior.Targets[0].State)
 	_, err = conn.ExecContext(ctx, `UPDATE hashboard_installation SET removed_at=now() WHERE id=$1`, installation)
 	require.NoError(t, err)
 	var replacement int64

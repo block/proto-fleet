@@ -7,6 +7,8 @@ import (
 
 	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
 	hostedpb "github.com/block/proto-fleet/server/generated/grpc/hosted/v1"
+	"github.com/block/proto-fleet/server/internal/domain/commandtype"
+	"github.com/block/proto-fleet/server/internal/domain/devicewrite"
 	"github.com/block/proto-fleet/server/internal/domain/hostedaccounts"
 	"github.com/block/proto-fleet/server/internal/domain/miner/dto"
 	"github.com/block/proto-fleet/server/internal/domain/miner/interfaces"
@@ -71,6 +73,9 @@ func (g poolMinerGetter) GetMinerForCommand(context.Context, int64) (interfaces.
 func TestPoolWorkerUsesReviewedRevisionAndVerifiesReadback(t *testing.T) {
 	for _, scenario := range []struct{ name, state, code string }{
 		{"complete readback", "verified", ""},
+		{"unrelated write before review", "verified", ""},
+		{"unrelated write after confirmation", "verified", ""},
+		{"conflicting write after confirmation", "failed", "interrupted"},
 		{"hidden password", "applied_unverified", "readback_unavailable"},
 		{"runtime differs", "different", "settings_differ"},
 		{"lost acknowledgement", "failed", "write_uncertain"},
@@ -102,6 +107,15 @@ func TestPoolWorkerUsesReviewedRevisionAndVerifiesReadback(t *testing.T) {
 			_, err = f.db.ExecContext(ctx, `UPDATE device SET worker_name='worker-1' WHERE id=$1`, miner)
 			require.NoError(t, err)
 			require.NoError(t, f.allocate(t, f.host, f.root, f.account.AccountID, hostedpb.AssetAssignmentIntent_ASSET_ASSIGNMENT_INTENT_ASSIGN, selected(5, miner, 0)))
+			recordUncertain := func(kind commandtype.Type) {
+				writes := devicewrite.NewService(f.db)
+				require.Error(t, writes.WithHostAttempt(ctx, f.org, miner, 0, kind, func(ctx context.Context) error {
+					return devicewrite.Dispatch(ctx, func(context.Context) error { return devicewrite.UncertainDelivery(errors.New("lost response")) })
+				}))
+			}
+			if scenario.name == "unrelated write before review" {
+				recordUncertain(commandtype.BlinkLED)
+			}
 			target := poolconfigurations.AssignmentTarget{Kind: poolconfigurations.TargetDevice, ID: miner, DeviceID: miner}
 			review, err := service.ReviewAssignment(ctx, f.account.AccountID, config.ID, config.Version, []poolconfigurations.AssignmentTarget{target})
 			require.NoError(t, err)
@@ -111,6 +125,10 @@ func TestPoolWorkerUsesReviewedRevisionAndVerifiesReadback(t *testing.T) {
 			switch scenario.name {
 			case "native SV2 unavailable":
 				caps[sdk.CapabilityNativeStratumV2] = false
+			case "unrelated write after confirmation":
+				recordUncertain(commandtype.BlinkLED)
+			case "conflicting write after confirmation":
+				recordUncertain(commandtype.UpdateMiningPools)
 			case "hidden password":
 				device.unknownPassword = true
 			case "runtime differs":
@@ -131,7 +149,7 @@ func TestPoolWorkerUsesReviewedRevisionAndVerifiesReadback(t *testing.T) {
 			require.NoError(t, f.db.QueryRowContext(ctx, `SELECT state,result_code FROM pool_configuration_operation_target WHERE operation_id=$1`, saved.Operation.ID).Scan(&state, &code))
 			require.Equal(t, scenario.state, state)
 			require.Equal(t, scenario.code, code)
-			if code == "rejected" || state == "superseded" {
+			if code == "rejected" || code == "interrupted" || state == "superseded" {
 				require.Zero(t, device.writes)
 			} else {
 				require.Equal(t, 1, device.writes)

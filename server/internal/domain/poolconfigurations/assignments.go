@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"slices"
+	"time"
 
 	"github.com/block/proto-fleet/server/generated/sqlc"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
@@ -33,13 +34,17 @@ type AssignmentChange struct {
 }
 
 type OperationTarget struct {
-	Kind                  string
-	ID, AssignmentVersion int64
-	State, ResultCode     string
-	Label                 string
+	MACAddress              string
+	UpdatedAt               time.Time
+	Kind                    string
+	ID, AssignmentVersion   int64
+	State, ResultCode       string
+	Label, DeviceIdentifier string
 }
 
 type Operation struct {
+	Name                            string
+	CreatedAt                       time.Time
 	ID, ConfigurationID, RevisionID string
 	Targets                         []OperationTarget
 }
@@ -105,13 +110,13 @@ func (r *Repository) Assign(ctx context.Context, q sqlc.Querier, scope Scope, ac
 	if err != nil {
 		return Operation{}, storageError(err)
 	}
-	result := Operation{ID: operation.OperationID, ConfigurationID: configID, RevisionID: revisionID, Targets: make([]OperationTarget, 0, len(changes))}
+	result := Operation{Name: config.Name, CreatedAt: operation.CreatedAt.UTC(), ID: operation.OperationID, ConfigurationID: configID, RevisionID: revisionID, Targets: make([]OperationTarget, 0, len(changes))}
 	for _, change := range changes {
 		target := change.Target
 		if err := q.SupersedePoolConfigurationTarget(ctx, sqlc.SupersedePoolConfigurationTargetParams{OrganizationID: scope.OrganizationID, TargetKind: target.Kind, TargetID: target.ID}); err != nil {
 			return Operation{}, storageError(err)
 		}
-		assignment, err := q.SetPoolConfigurationAssignment(ctx, sqlc.SetPoolConfigurationAssignmentParams{OrganizationID: scope.OrganizationID, TargetKind: target.Kind, TargetID: target.ID, DeviceID: target.DeviceID, ConfigurationID: configID, RevisionID: revisionID, OperationID: result.ID})
+		assignment, err := q.SetPoolConfigurationAssignment(ctx, sqlc.SetPoolConfigurationAssignmentParams{OrganizationID: scope.OrganizationID, TargetKind: target.Kind, TargetID: target.ID, DeviceID: target.DeviceID, ConfigurationID: configID, RevisionID: revisionID, OperationID: sql.NullString{String: result.ID, Valid: true}})
 		if err != nil {
 			return Operation{}, storageError(err)
 		}
@@ -146,8 +151,8 @@ func (r *Repository) RetireAssignment(ctx context.Context, q sqlc.Querier, scope
 }
 
 func publicOperationTarget(row sqlc.PoolConfigurationOperationTarget) OperationTarget {
-	var display struct{ Label string }
-	// Only the deliberately public label leaves the private dispatch binding.
+	var display equipmentDisplay
+	// Only display identity leaves the private dispatch binding.
 	_ = json.Unmarshal([]byte(row.ReviewedBinding), &display)
-	return OperationTarget{Kind: row.TargetKind, ID: row.TargetID, AssignmentVersion: row.AssignmentVersion, State: row.State, ResultCode: row.ResultCode, Label: display.Label}
+	return OperationTarget{UpdatedAt: row.UpdatedAt.UTC(), Kind: row.TargetKind, ID: row.TargetID, AssignmentVersion: row.AssignmentVersion, State: row.State, ResultCode: row.ResultCode, Label: display.Label, DeviceIdentifier: display.Device.DeviceIdentifier}
 }

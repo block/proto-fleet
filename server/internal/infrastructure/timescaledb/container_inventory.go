@@ -162,6 +162,17 @@ func storeContainerInventory(ctx context.Context, q *sqlc.Queries, identifier st
 	if err != nil {
 		return fmt.Errorf("encode container samples: %w", err)
 	}
+	reportedModules := make([]string, 0, len(modules))
+	for _, module := range modules {
+		if identity := strings.TrimSpace(module.ReportedID); identity != "" {
+			reportedModules = append(reportedModules, identity)
+		}
+	}
+	poolSelection := sqlc.ListPoolAssignmentPhysicalBindingsParams{OrganizationID: orgID, DeviceID: id, ReportedModuleIds: reportedModules}
+	poolBindings, err := q.ListPoolAssignmentPhysicalBindings(ctx, poolSelection)
+	if err != nil {
+		return err
+	}
 	if err := q.ReconcileContainerTanks(ctx, sqlc.ReconcileContainerTanksParams{DeviceID: id, ObservedAt: snapshot.ObservedAt, Tanks: tankJSON}); err != nil {
 		return err
 	}
@@ -224,5 +235,8 @@ func storeContainerInventory(ctx context.Context, q *sqlc.Queries, identifier st
 	if err := q.InsertContainerModuleMetrics(ctx, sqlc.InsertContainerModuleMetricsParams{DeviceIdentifier: identifier, CollectedAt: snapshot.ObservedAt, Samples: sampleJSON}); err != nil {
 		return err
 	}
-	return storeContainerEquipment(ctx, q, identifier, snapshot)
+	if err := storeContainerEquipment(ctx, q, identifier, snapshot); err != nil {
+		return err
+	}
+	return retireChangedPoolAssignments(ctx, q, poolSelection, poolBindings)
 }

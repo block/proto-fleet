@@ -3,6 +3,7 @@ syntax = "proto3";
 package poolconfigurations.v1;
 
 import "buf/validate/validate.proto";
+import "fleetmanagement/v1/fleetmanagement.proto";
 import "google/protobuf/timestamp.proto";
 
 // One private library per organization or selected hosted account. Empty
@@ -20,6 +21,67 @@ service PoolConfigurationService {
   rpc GetOperation(GetOperationRequest) returns (GetOperationResponse);
   rpc ReviewRetry(ReviewRetryRequest) returns (ReviewRetryResponse);
   rpc ListOperations(ListOperationsRequest) returns (ListOperationsResponse);
+  rpc TestConnection(TestConnectionRequest) returns (TestConnectionResponse);
+  rpc GetAssignments(GetAssignmentsRequest) returns (GetAssignmentsResponse);
+  rpc CheckConfiguration(CheckConfigurationRequest) returns (CheckConfigurationResponse);
+}
+
+message BoardSelection {
+  option (buf.validate.message).cel = {id: "pool_boards.selection", message: "select modules or hashboards", expression: "this.module_ids.size() + this.hashboard_ids.size() > 0"};
+  repeated int64 module_ids = 1 [(buf.validate.field).repeated = {max_items: 1000, unique: true, items: {int64: {gt: 0}}}];
+  repeated int64 hashboard_ids = 2 [(buf.validate.field).repeated = {max_items: 3000, unique: true, items: {int64: {gt: 0}}}];
+}
+
+message GetAssignmentsRequest {
+  option (buf.validate.message).cel = {
+    id: "pool_assignments.selection"
+    message: "provide exactly one equipment selection"
+    expression: "(this.device_identifiers.size() > 0 ? 1 : 0) + ((this.device_ids.size() > 0 || has(this.boards)) ? 1 : 0) + (has(this.filter) ? 1 : 0) == 1"
+  };
+  string account_id = 1;
+  repeated string device_identifiers = 2 [(buf.validate.field).repeated = {max_items: 10000, unique: true, items: {string: {min_len: 1, max_len: 255}}}];
+  repeated int64 device_ids = 3 [(buf.validate.field).repeated = {max_items: 10000, unique: true, items: {int64: {gt: 0}}}];
+  fleetmanagement.v1.MinerListFilter filter = 4;
+  BoardSelection boards = 5;
+}
+message EquipmentAssignment {
+  int64 device_id = 1;
+  string device_identifier = 2;
+  string configuration_id = 3;
+  string name = 4;
+  string operation_id = 5;
+  // Latest application result, not a claim of continuously verified telemetry.
+  // "adopted" denotes imported settings that Fleet has not applied or verified.
+  string state = 6;
+  string result_code = 7;
+  int64 installation_id = 8;
+  int64 hashboard_id = 9;
+  int64 module_id = 10;
+  google.protobuf.Timestamp updated_at = 11;
+  string device_name = 12;
+  string mac_address = 13;
+}
+message GetAssignmentsResponse {
+  // Visible equipment owned by this scope, including equipment without assignments.
+  repeated EquipmentAssignment assignments = 1;
+  int64 selected_count = 2;
+}
+
+message TestConnectionRequest {
+  option (buf.validate.message).cel = {
+    id: "pool_connection.saved_slot"
+    message: "provide the configuration and version together for a saved slot"
+    expression: "this.configuration_id == '' ? this.expected_version == 0 && this.pool.slot_id == '' : this.expected_version > 0"
+  };
+  string account_id = 1;
+  string configuration_id = 2 [(buf.validate.field).string.uuid = true, (buf.validate.field).ignore = IGNORE_IF_UNPOPULATED];
+  int64 expected_version = 3 [(buf.validate.field).int64.gte = 0];
+  PoolInput pool = 4 [(buf.validate.field).required = true];
+}
+message TestConnectionResponse {
+  // Uses the editor's preview worker values (123 / Miner-123). Success is a
+  // server-to-pool connection result, never proof of equipment application.
+  bool connected = 1;
 }
 
 message PoolInput {
@@ -111,6 +173,13 @@ message ReviewEditResponse {
   int64 affected_miners = 4;
   int64 affected_hashboards = 5;
   google.protobuf.Timestamp expires_at = 6;
+  repeated ReviewedEquipment equipment = 7;
+}
+message ReviewedEquipment {
+  string kind = 1;
+  int64 target_id = 2;
+  string label = 3;
+  string device_identifier = 4;
 }
 message ConfirmReviewRequest {
   string account_id = 1;
@@ -128,10 +197,21 @@ message ConfirmReviewResponse {
 }
 
 message ReviewAssignmentRequest {
+  option (buf.validate.message).cel = {
+    id: "pool_assignment.selection"
+    message: "provide exactly one equipment selection"
+    expression: "(this.device_identifiers.size() > 0 ? 1 : 0) + ((this.device_ids.size() > 0 || has(this.boards)) ? 1 : 0) + (has(this.filter) ? 1 : 0) == 1"
+  };
   string account_id = 1;
   string configuration_id = 2 [(buf.validate.field).string.uuid = true];
   int64 expected_version = 3 [(buf.validate.field).int64.gt = 0];
-  repeated string device_identifiers = 4 [(buf.validate.field).repeated = {min_items: 1, max_items: 500, unique: true, items: {string: {min_len: 1, max_len: 255}}}];
+  repeated string device_identifiers = 4 [(buf.validate.field).repeated = {max_items: 10000, unique: true, items: {string: {min_len: 1, max_len: 255}}}];
+  // Operator fleet selection, expanded once at review. Account workspaces use
+  // explicit equipment; all resulting equipment must pass owner checks.
+  fleetmanagement.v1.MinerListFilter filter = 5;
+  // Account asset lists expose database IDs instead of device identifiers.
+  repeated int64 device_ids = 6 [(buf.validate.field).repeated = {max_items: 10000, unique: true, items: {int64: {gt: 0}}}];
+  BoardSelection boards = 7;
 }
 message GetOperationRequest {
   string account_id = 1;
@@ -143,11 +223,16 @@ message OperationTarget {
   string state = 3;
   string result_code = 4;
   string label = 5;
+  string device_identifier = 6;
+  google.protobuf.Timestamp updated_at = 7;
+  string mac_address = 8;
 }
 message GetOperationResponse {
   string operation_id = 1;
   string configuration_id = 2;
   repeated OperationTarget targets = 3;
+  string configuration_name = 4;
+  google.protobuf.Timestamp created_at = 5;
 }
 
 message ReviewAssignmentResponse {
@@ -156,6 +241,7 @@ message ReviewAssignmentResponse {
   int64 affected_miners = 3;
   int64 affected_hashboards = 4;
   google.protobuf.Timestamp expires_at = 5;
+  repeated ReviewedEquipment equipment = 6;
 }
 
 message RetryTarget {
@@ -173,6 +259,7 @@ message ReviewRetryResponse {
   int64 affected_miners = 3;
   int64 affected_hashboards = 4;
   google.protobuf.Timestamp expires_at = 5;
+  repeated ReviewedEquipment equipment = 6;
 }
 
 message ListOperationsRequest {
@@ -190,4 +277,25 @@ message OperationSummary {
 message ListOperationsResponse {
   repeated OperationSummary operations = 1;
   string next_page_token = 2;
+}
+
+// Explicit readback only. Does not apply settings or resolve uncertain writes.
+message CheckConfigurationRequest {
+  string account_id = 1;
+  // Empty reads device settings only; an active Fleet assignment must not exist.
+  string configuration_id = 2 [(buf.validate.field).string.uuid = true, (buf.validate.field).ignore = IGNORE_IF_UNPOPULATED];
+  RetryTarget target = 3 [(buf.validate.field).required = true];
+}
+message ReportedPool {
+  uint32 priority = 1;
+  string url = 2;
+  string username = 3;
+}
+message CheckConfigurationResponse {
+  string state = 1;
+  string result_code = 2;
+  google.protobuf.Timestamp checked_at = 3;
+  repeated ReportedPool expected = 4;
+  repeated ReportedPool reported = 5;
+  bool readback_available = 6;
 }

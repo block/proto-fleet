@@ -5,7 +5,10 @@ import (
 	"database/sql"
 	"encoding/json"
 
+	fleetpb "github.com/block/proto-fleet/server/generated/grpc/fleetmanagement/v1"
+
 	"github.com/block/proto-fleet/server/generated/sqlc"
+	"github.com/block/proto-fleet/server/internal/domain/activity/models"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/infrastructure/db"
 	"github.com/google/uuid"
@@ -17,6 +20,8 @@ type Access int
 const (
 	Read Access = iota
 	Manage
+	// Observe holds shared authority locks through device readback; it cannot authorize a library mutation.
+	Observe
 )
 
 type Principal struct {
@@ -44,10 +49,29 @@ type Equipment interface {
 }
 
 type Service struct {
-	conn       *sql.DB
-	repository *Repository
-	authority  Authority
-	equipment  Equipment
+	checker          ConfigurationChecker
+	conn             *sql.DB
+	repository       *Repository
+	authority        Authority
+	equipment        Equipment
+	selector         DeviceSelector
+	readiness        Readiness
+	connectionTester ConnectionTester
+}
+
+type Readiness interface {
+	RefreshTargets(ctx context.Context, scope Scope, actorID int64, targets []AssignmentTarget) error
+}
+
+func (s *Service) WithReadiness(readiness Readiness) *Service { s.readiness = readiness; return s }
+
+type DeviceSelector interface {
+	ResolveDeviceIdentifiers(ctx context.Context, selector *fleetpb.DeviceSelector, orgID int64) ([]string, error)
+}
+
+func (s *Service) WithDeviceSelector(selector DeviceSelector) *Service {
+	s.selector = selector
+	return s
 }
 
 func NewService(conn *sql.DB, repository *Repository, authority Authority, equipment Equipment) *Service {
@@ -128,7 +152,7 @@ func configurationAudit(ctx context.Context, q sqlc.Querier, p Principal, event,
 	if err != nil {
 		return fleeterror.NewInternalError("encode configuration audit failed")
 	}
-	err = q.InsertActivityLog(ctx, sqlc.InsertActivityLogParams{EventID: uuid.New(), EventCategory: "pool", EventType: event, Description: event, Result: "success", ActorType: "user", UserID: sql.NullString{String: p.UserID, Valid: true}, Username: sql.NullString{String: p.Username, Valid: true}, OrganizationID: sql.NullInt64{Int64: p.Scope.OrganizationID, Valid: true}, ScopeType: sql.NullString{String: scopeType, Valid: true}, ScopeLabel: sql.NullString{String: scopeLabel, Valid: scopeLabel != ""}, Metadata: pqtype.NullRawMessage{RawMessage: encoded, Valid: true}, MemberSiteIds: []int64{}})
+	err = q.InsertActivityLog(ctx, sqlc.InsertActivityLogParams{EventID: uuid.New(), EventCategory: string(models.CategoryPool), EventType: event, Description: event, Result: string(models.ResultSuccess), ActorType: string(models.ActorUser), UserID: sql.NullString{String: p.UserID, Valid: true}, Username: sql.NullString{String: p.Username, Valid: true}, OrganizationID: sql.NullInt64{Int64: p.Scope.OrganizationID, Valid: true}, ScopeType: sql.NullString{String: scopeType, Valid: true}, ScopeLabel: sql.NullString{String: scopeLabel, Valid: scopeLabel != ""}, Metadata: pqtype.NullRawMessage{RawMessage: encoded, Valid: true}, MemberSiteIds: []int64{}})
 	if err != nil {
 		return storageError(err)
 	}
@@ -138,6 +162,9 @@ func configurationAudit(ctx context.Context, q sqlc.Querier, p Principal, event,
 // ReviewEdit captures proposed changes without changing saved settings. A
 // service without equipment integration refuses assigned settings changes.
 func (s *Service) ReviewEdit(ctx context.Context, accountID, id string, version int64, options RevisionOptions) (Review, error) {
+	if err := s.refreshEdit(ctx, accountID, id, options); err != nil {
+		return Review{}, err
+	}
 	return withAuthority(ctx, s, accountID, Manage, func(q sqlc.Querier, p Principal) (Review, error) {
 		review, err := s.repository.ReviewEdit(ctx, q, p.Scope, p.ActorID, id, version, options, s.equipment)
 		if err != nil {

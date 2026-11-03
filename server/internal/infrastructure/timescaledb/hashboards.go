@@ -328,6 +328,13 @@ func storeHashboards(ctx context.Context, q *sqlc.Queries, orgID, deviceID int64
 	if err := q.CloseHashboardInstallations(ctx, sqlc.CloseHashboardInstallationsParams{ObservedAt: snapshot.ObservedAt, Ids: closeIDs}); err != nil {
 		return err
 	}
+	// Destination-controller inventory may close a source controller's board
+	// installation, even when the module itself did not move.
+	if len(closeIDs) > 0 {
+		if err := q.RetirePoolConfigurationEquipmentAssignments(ctx, sqlc.RetirePoolConfigurationEquipmentAssignmentsParams{OrganizationID: orgID, InstallationIds: closeIDs}); err != nil {
+			return err
+		}
+	}
 	if err := q.ReleaseHashboardObservations(ctx, sqlc.ReleaseHashboardObservationsParams{DeviceID: deviceID, ObservedAt: snapshot.ObservedAt, InstallationIds: closeIDs}); err != nil {
 		return err
 	}

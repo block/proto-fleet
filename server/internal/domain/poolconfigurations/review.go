@@ -37,8 +37,24 @@ type Review struct {
 	Configuration   Configuration
 	SettingsChanged bool
 	Targets         []AssignmentTarget
+	Equipment       []ReviewedEquipment
 	ExpiresAt       time.Time
 	AssignedCount   int64
+}
+
+type ReviewedEquipment struct {
+	Kind, Label, DeviceIdentifier string
+	ID                            int64
+}
+
+func reviewedEquipment(targets []reviewedTarget) []ReviewedEquipment {
+	result := make([]ReviewedEquipment, len(targets))
+	for i, target := range targets {
+		var display equipmentDisplay
+		_ = json.Unmarshal([]byte(target.Binding), &display)
+		result[i] = ReviewedEquipment{Kind: target.Change.Target.Kind, ID: target.Change.Target.ID, Label: display.Label, DeviceIdentifier: display.Device.DeviceIdentifier}
+	}
+	return result
 }
 
 type ReviewedSave struct {
@@ -119,7 +135,7 @@ func (r *Repository) ReviewAssignment(ctx context.Context, q sqlc.Querier, scope
 	if err != nil {
 		return Review{}, err
 	}
-	return Review{ID: row.ReviewID, Configuration: public, Targets: targets, ExpiresAt: row.ExpiresAt, AssignedCount: summary.AssignedCount}, nil
+	return Review{ID: row.ReviewID, Configuration: public, Targets: targets, Equipment: reviewedEquipment(changes), ExpiresAt: row.ExpiresAt, AssignedCount: summary.AssignedCount}, nil
 }
 
 // ReviewEdit prepares an exact, expiring change. The enclosing service must
@@ -213,6 +229,7 @@ func (r *Repository) ReviewEdit(ctx context.Context, q sqlc.Querier, scope Scope
 		return Review{}, storageError(err)
 	}
 	result.ID, result.ExpiresAt = row.ReviewID, row.ExpiresAt
+	result.Equipment = reviewedEquipment(changes)
 	return result, nil
 }
 
@@ -352,4 +369,13 @@ func reviewTargets(ctx context.Context, q sqlc.Querier, scope Scope, actorID int
 
 func staleReview() error {
 	return fleeterror.NewFailedPreconditionError("configuration or equipment changed; refresh and review again")
+}
+
+// Only display identity is exposed from the private, frozen dispatch binding.
+type equipmentDisplay struct {
+	Label  string
+	Device struct {
+		ID               int64
+		DeviceIdentifier string
+	}
 }

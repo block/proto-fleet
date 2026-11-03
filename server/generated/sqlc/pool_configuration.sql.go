@@ -40,6 +40,17 @@ func (q *Queries) ArchivePoolConfiguration(ctx context.Context, arg ArchivePoolC
 	return result.RowsAffected()
 }
 
+const countOperatorPoolConfigurations = `-- name: CountOperatorPoolConfigurations :one
+SELECT count(*) FROM pool_configuration WHERE organization_id=$1 AND account_id IS NULL AND NOT archived
+`
+
+func (q *Queries) CountOperatorPoolConfigurations(ctx context.Context, organizationID int64) (int64, error) {
+	row := q.queryRow(ctx, q.countOperatorPoolConfigurationsStmt, countOperatorPoolConfigurations, organizationID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const createPoolConfiguration = `-- name: CreatePoolConfiguration :one
 INSERT INTO pool_configuration(configuration_id, organization_id, account_id, name)
 VALUES ($1, $2, $3, $4) RETURNING configuration_id, organization_id, account_id, name, archived, version, assignment_version, current_revision_id, created_at, updated_at

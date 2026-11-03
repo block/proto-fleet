@@ -5,6 +5,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/block/proto-fleet/server/internal/infrastructure/pooldial"
+
 	pb "github.com/block/proto-fleet/server/generated/grpc/pools/v1"
 	"github.com/block/proto-fleet/server/internal/domain/activity"
 	activitymodels "github.com/block/proto-fleet/server/internal/domain/activity/models"
@@ -387,4 +389,24 @@ func TestValidateConnection_SV2URLHandshakeFailureSurfaces(t *testing.T) {
 	// Assert
 	assert.False(t, ok)
 	assert.Error(t, err)
+}
+
+func TestValidateConnectionCustomerPolicyCoversBothProtocols(t *testing.T) {
+	svc := NewService(&stubPoolStore{}, stubTransactor{}, Config{Timeout: time.Second}, nil)
+	// X coordinate of secp256k1's generator: a valid Noise authority public key.
+	const authority = "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"
+	for _, url := range []string{
+		"stratum+tcp://127.0.0.1:3333",
+		"stratum+tcp://[::1]:3333",
+		"stratum+tcp://[::ffff:127.0.0.1]:3333",
+		"stratum2+tcp://127.0.0.1:3336/" + authority,
+		"stratum2+tcp://[::1]:3336/" + authority,
+		"stratum2+tcp://[::ffff:127.0.0.1]:3336/" + authority,
+	} {
+		t.Run(url, func(t *testing.T) {
+			connected, err := svc.ValidateConnection(pooldial.PublicOnly(testCtx(t)), url, "payout", nil, nil)
+			require.ErrorContains(t, err, pooldial.ErrPrivateDestination.Error(), "the real protocol path must enforce destination policy before connecting")
+			require.False(t, connected)
+		})
+	}
 }

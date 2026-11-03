@@ -141,6 +141,14 @@ func (s *Service) ResolveOffline(ctx context.Context, evidence RecoveryEvidence,
 		if changed != 1 {
 			return empty, blocked()
 		}
+		if err := q.ResolveRecoveredMiningGroupWorkflow(ctx, sqlc.ResolveRecoveredMiningGroupWorkflowParams{
+			OrganizationID: evidence.OrganizationID,
+			DeviceID:       evidence.DeviceID,
+			AttemptID:      uuid.NullUUID{UUID: attempt.AttemptID, Valid: true},
+			AttemptEpoch:   attempt.Epoch,
+		}); err != nil {
+			return empty, fmt.Errorf("resolve recovered mining group workflow: %w", err)
+		}
 		advanced, err := q.AdvanceRecoveredDeviceWriteFence(ctx, sqlc.AdvanceRecoveredDeviceWriteFenceParams{DeviceID: evidence.DeviceID, OrganizationID: evidence.OrganizationID, Epoch: fence.Epoch})
 		if err != nil {
 			return empty, lookupError(err)

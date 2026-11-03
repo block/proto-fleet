@@ -13,6 +13,8 @@ import (
 func rollbackEmptyPoolConfigurations(t *testing.T, conn *sql.DB) {
 	t.Helper()
 	for _, path := range []string{
+		"current/001054_internal_pool_equipment_integration.down.sql",
+		"current/001053_shared_pool_equipment_state.down.sql",
 		"current/001047_internal_pool_operation_bindings.down.sql",
 		"current/001046_internal_pool_configuration_constraints.down.sql",
 		"current/001045_shared_pool_configurations.down.sql",
@@ -20,6 +22,24 @@ func rollbackEmptyPoolConfigurations(t *testing.T, conn *sql.DB) {
 		down, err := migrations.Current.ReadFile(path)
 		require.NoError(t, err)
 		_, err = conn.ExecContext(t.Context(), string(down))
+		require.NoError(t, err)
+	}
+}
+
+// Restore dependencies before a historical migration fixture invokes current
+// application code. The pool schema is empty in these migration tests.
+func restoreEmptyPoolConfigurations(t *testing.T, conn *sql.DB) {
+	t.Helper()
+	for _, path := range []string{
+		"current/001045_shared_pool_configurations.up.sql",
+		"current/001046_internal_pool_configuration_constraints.up.sql",
+		"current/001047_internal_pool_operation_bindings.up.sql",
+		"current/001053_shared_pool_equipment_state.up.sql",
+		"current/001054_internal_pool_equipment_integration.up.sql",
+	} {
+		up, err := migrations.Current.ReadFile(path)
+		require.NoError(t, err)
+		_, err = conn.ExecContext(t.Context(), string(up))
 		require.NoError(t, err)
 	}
 }
@@ -32,16 +52,7 @@ func TestEmptyPoolConfigurationMigrationRoundTrip(t *testing.T) {
 		SELECT count(*) FROM pg_tables
 		WHERE schemaname = 'public' AND tablename LIKE 'pool_configuration%'`).Scan(&remaining))
 	require.Zero(t, remaining)
-	for _, path := range []string{
-		"current/001045_shared_pool_configurations.up.sql",
-		"current/001046_internal_pool_configuration_constraints.up.sql",
-		"current/001047_internal_pool_operation_bindings.up.sql",
-	} {
-		up, err := migrations.Current.ReadFile(path)
-		require.NoError(t, err)
-		_, err = conn.ExecContext(t.Context(), string(up))
-		require.NoError(t, err)
-	}
+	restoreEmptyPoolConfigurations(t, conn)
 	// A second rollback also checks that no functions or constraints were left
 	// behind by the first one or omitted when recreating the schema.
 	rollbackEmptyPoolConfigurations(t, conn)

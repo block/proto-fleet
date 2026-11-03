@@ -199,7 +199,7 @@ func (s *Service) RunDeletionUnpair(ctx context.Context, organizationID, deviceI
 			return nil, blocked()
 		}
 		attempt := &Attempt{service: s, id: uuid.New(), deviceID: permit.DeviceID, organizationID: organizationID, epoch: permit.Epoch, deletionBinding: permit.BindingHash}
-		if err := q.CreateDeviceWriteAttempt(ctx, sqlc.CreateDeviceWriteAttemptParams{AttemptID: attempt.id, DeviceID: attempt.deviceID, OrganizationID: organizationID, Epoch: attempt.epoch, IdentityKeys: permit.IdentityKeys, OwnerInstanceID: processInstanceID, OperationKind: operationMutation}); err != nil {
+		if err := q.CreateDeviceWriteAttempt(ctx, sqlc.CreateDeviceWriteAttemptParams{AttemptID: attempt.id, DeviceID: attempt.deviceID, OrganizationID: organizationID, Epoch: attempt.epoch, IdentityKeys: permit.IdentityKeys, OwnerInstanceID: processInstanceID, OperationKind: operationMutation, CommandType: "Unpair"}); err != nil {
 			return nil, err
 		}
 		count, err := q.ClaimDeletionUnpairPermit(ctx, sqlc.ClaimDeletionUnpairPermitParams{AttemptID: uuid.NullUUID{UUID: attempt.id, Valid: true}, DeviceID: attempt.deviceID})

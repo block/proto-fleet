@@ -15,6 +15,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/authz"
 	"github.com/block/proto-fleet/server/internal/domain/devicewrite"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/block/proto-fleet/server/internal/domain/poolconfigurations"
 	sdk "github.com/block/proto-fleet/server/sdk/v1"
 	"github.com/google/uuid"
 	"github.com/sqlc-dev/pqtype"
@@ -125,7 +126,11 @@ func (s *Service) Reconcile(ctx context.Context, orgID, deviceID int64, identifi
 			if row.OperationKind == operationActivate {
 				permission = authz.PermMinerActivateMiningGroups
 			}
-			if err := authorize(ctx, q, row.ActorID.Int64, orgID, target.SiteID, permission, authz.PermMinerStartMining, authz.PermMinerStopMining); err != nil {
+			shared, authorityErr := s.authorizeSharedWorkflow(ctx, q, row)
+			if authorityErr == nil && !shared {
+				authorityErr = authorize(ctx, q, row.ActorID.Int64, orgID, target.SiteID, permission, authz.PermMinerStartMining, authz.PermMinerStopMining)
+			}
+			if err := authorityErr; err != nil {
 				if !fleeterror.IsForbiddenError(err) {
 					return err
 				}
@@ -170,6 +175,15 @@ func (s *Service) Reconcile(ctx context.Context, orgID, deviceID int64, identifi
 			if err != nil {
 				return s.block(ctx, q, row, "Pool configuration unavailable; configuration is paused")
 			}
+			if shared && !observed.Pending && (!observed.Enabled || observed.Suspended) {
+				// No saved request or transfer receipt is outstanding on this path.
+				// A confirmed incompatible mode ends the workflow, releasing its
+				// reservation so an operator can correct the controller mode.
+				return s.failOperation(ctx, q, row, desired, snapshot, "Controller mining-group mode changed. Review the controller and submit a new pool request.")
+			}
+			if shared && observed.Suspended {
+				return s.block(ctx, q, row, "Controller is suspended with unfinished work; waiting for a settled observation")
+			}
 			step, err := Plan(desired, snapshot)
 			if err == nil && step.Kind != Wait && step.Kind != Done {
 				// A changed policy may block a later transfer even when this next
@@ -198,7 +212,7 @@ func (s *Service) Reconcile(ctx context.Context, orgID, deviceID int64, identifi
 			case Create:
 				request = sdk.MiningGroupRequest{Action: "create", ConfigID: step.ConfigRevision}
 			case Configure:
-				pools, err := s.pools.HostGroupCredentials(ctx, q, orgID, step.ConfigRevision)
+				pools, err := s.groupCredentials(ctx, q, orgID, deviceID, step.ConfigRevision)
 				if err != nil {
 					return s.block(ctx, q, row, "Pool configuration unavailable")
 				}
@@ -223,7 +237,7 @@ func (s *Service) liveIntent(ctx context.Context, q sqlc.Querier, row sqlc.Conta
 	if row.OperationKind == operationActivate {
 		return desired, nil
 	}
-	intents, err := q.ListHashboardPoolIntents(ctx, sqlc.ListHashboardPoolIntentsParams{OrganizationID: row.OrganizationID, DeviceID: row.DeviceID})
+	intents, err := q.ListUnreplacedHashboardPoolIntents(ctx, sqlc.ListUnreplacedHashboardPoolIntentsParams{OrganizationID: row.OrganizationID, DeviceID: row.DeviceID})
 	if err != nil {
 		return nil, err
 	}
@@ -252,7 +266,21 @@ func (s *Service) liveIntent(ctx context.Context, q sqlc.Querier, row sqlc.Conta
 			return nil, fleeterror.NewFailedPreconditionError("board installation changed")
 		}
 	}
-	return desired, nil
+	affectedBoards := make([]poolconfigurations.AssignmentTarget, len(required))
+	for i, intent := range required {
+		affectedBoards[i] = poolconfigurations.AssignmentTarget{Kind: poolconfigurations.TargetInstallation, ID: intent.InstallationID, DeviceID: row.DeviceID}
+	}
+	if err := s.authorizeWorkflowBoards(ctx, q, row, affectedBoards); err != nil {
+		return nil, err
+	}
+	shared, err := s.sharedIntents(ctx, q, row, affected)
+	if err != nil {
+		return nil, err
+	}
+	for mac, id := range shared {
+		desired[mac] = id
+	}
+	return desired, s.authorizeAffectedWorkflowBoards(ctx, q, row, affected)
 }
 func (s *Service) plannerSnapshot(ctx context.Context, q sqlc.Querier, row sqlc.ContainerMiningGroupState, observed sdk.MiningGroupResult) (Snapshot, error) {
 	bindings := map[string]binding{}
@@ -264,7 +292,7 @@ func (s *Service) plannerSnapshot(ctx context.Context, q sqlc.Querier, row sqlc.
 		b, managed := bindings[g.ID]
 		configured := false
 		if managed && b.Configured {
-			pools, err := s.pools.HostGroupCredentials(ctx, q, row.OrganizationID, b.ConfigID)
+			pools, err := s.groupCredentials(ctx, q, row.OrganizationID, row.DeviceID, b.ConfigID)
 			if err != nil {
 				return Snapshot{}, err
 			}
@@ -308,7 +336,7 @@ func (s *Service) apply(ctx context.Context, q sqlc.Querier, row sqlc.ContainerM
 	}
 	// Re-authorize profiles on replay as well as when preparing a new step.
 	if step.ConfigID != "" {
-		if _, err := s.pools.HostGroupCredentials(ctx, q, row.OrganizationID, step.ConfigID); err != nil {
+		if _, err := s.groupCredentials(ctx, q, row.OrganizationID, row.DeviceID, step.ConfigID); err != nil {
 			return s.block(ctx, q, row, "Pool configuration is no longer available")
 		}
 	}
@@ -383,6 +411,11 @@ func (s *Service) block(ctx context.Context, q sqlc.Querier, row sqlc.ContainerM
 	return save(ctx, q, row)
 }
 func (s *Service) complete(ctx context.Context, q sqlc.Querier, row sqlc.ContainerMiningGroupState) error {
+	// The planner reaches Done only after observed pool fields and board
+	// membership match the intent. MDK passwords are write-only.
+	if err := q.FinishPoolGroupAttempt(ctx, sqlc.FinishPoolGroupAttemptParams{OrganizationID: row.OrganizationID, PhysicalAttemptID: row.AttemptID, State: "verified"}); err != nil {
+		return err
+	}
 	if err := recordOutcomeActivity(ctx, q, row, "completed"); err != nil {
 		return err
 	}
@@ -410,6 +443,9 @@ func (s *Service) failOperation(ctx context.Context, q sqlc.Querier, row sqlc.Co
 		}
 	}
 	if err := q.DeleteUnappliedHashboardPoolIntents(ctx, sqlc.DeleteUnappliedHashboardPoolIntentsParams{OrganizationID: row.OrganizationID, DeviceID: row.DeviceID, AppliedMacs: applied}); err != nil {
+		return err
+	}
+	if err := q.FinishPoolGroupAttempt(ctx, sqlc.FinishPoolGroupAttemptParams{OrganizationID: row.OrganizationID, PhysicalAttemptID: row.AttemptID, State: "failed", ResultCode: "interrupted"}); err != nil {
 		return err
 	}
 	if err := recordOutcomeActivity(ctx, q, row, "failed"); err != nil {

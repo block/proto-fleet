@@ -41,8 +41,8 @@ func (q *Queries) GetPoolEquipmentDevice(ctx context.Context, arg GetPoolEquipme
 	return i, err
 }
 
-const getPoolEquipmentInstallationModule = `-- name: GetPoolEquipmentInstallationModule :one
-SELECT i.module_id FROM hashboard_installation i
+const getPoolEquipmentInstallation = `-- name: GetPoolEquipmentInstallation :one
+SELECT i.module_id,i.hashboard_id FROM hashboard_installation i
 JOIN hashboard h ON h.id=i.hashboard_id
 JOIN container_module m ON m.id=i.module_id JOIN container_tank t ON t.id=m.tank_id
 JOIN device d ON d.id=t.device_id
@@ -53,17 +53,22 @@ WHERE h.org_id=$1 AND d.org_id=$1 AND i.id=$2 AND d.id=$3 AND i.device_id=$3
 FOR SHARE OF i,h,m,t,s
 `
 
-type GetPoolEquipmentInstallationModuleParams struct {
+type GetPoolEquipmentInstallationParams struct {
 	OrgID int64
 	ID    int64
 	ID_2  int64
 }
 
-func (q *Queries) GetPoolEquipmentInstallationModule(ctx context.Context, arg GetPoolEquipmentInstallationModuleParams) (int64, error) {
-	row := q.queryRow(ctx, q.getPoolEquipmentInstallationModuleStmt, getPoolEquipmentInstallationModule, arg.OrgID, arg.ID, arg.ID_2)
-	var module_id int64
-	err := row.Scan(&module_id)
-	return module_id, err
+type GetPoolEquipmentInstallationRow struct {
+	ModuleID    int64
+	HashboardID int64
+}
+
+func (q *Queries) GetPoolEquipmentInstallation(ctx context.Context, arg GetPoolEquipmentInstallationParams) (GetPoolEquipmentInstallationRow, error) {
+	row := q.queryRow(ctx, q.getPoolEquipmentInstallationStmt, getPoolEquipmentInstallation, arg.OrgID, arg.ID, arg.ID_2)
+	var i GetPoolEquipmentInstallationRow
+	err := row.Scan(&i.ModuleID, &i.HashboardID)
+	return i, err
 }
 
 const getPoolEquipmentMinerOwner = `-- name: GetPoolEquipmentMinerOwner :one

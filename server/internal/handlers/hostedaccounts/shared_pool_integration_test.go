@@ -1,10 +1,16 @@
 package hostedaccounts_test
 
 import (
+	"context"
+	"encoding/json"
+	"net"
 	"testing"
+	"time"
 
 	"github.com/block/proto-fleet/server/generated/sqlc"
 	"github.com/block/proto-fleet/server/internal/domain/authz"
+	"github.com/block/proto-fleet/server/internal/domain/pools"
+	"github.com/block/proto-fleet/server/internal/infrastructure/secrets"
 
 	"connectrpc.com/connect"
 	hostedpb "github.com/block/proto-fleet/server/generated/grpc/hosted/v1"
@@ -13,6 +19,42 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 )
+
+type rpcPoolProbe struct{ calls int }
+
+func (p *rpcPoolProbe) ValidateConnection(context.Context, string, string, *secrets.Text, *time.Duration) (bool, error) {
+	p.calls++
+	return true, nil
+}
+
+func TestSharedPoolRPCConnectionTestValidatesSelectionAndAuthority(t *testing.T) {
+	f := newRPCFixture(t)
+	probe := &rpcPoolProbe{}
+	f.configurationService.WithConnectionTester(probe)
+	account := f.account(t, "Customer", f.host, domain.DefaultCapabilities)
+	for _, accountID := range []string{"", account.AccountID} {
+		t.Run(accountID, func(t *testing.T) {
+			request := &pb.TestConnectionRequest{AccountId: accountID, Pool: &pb.PoolInput{Url: "stratum+tcp://pool.example", Username: "payout"}}
+			tested, err := f.configurations.TestConnection(t.Context(), rpcRequest(request, f.cookie, accountID))
+			require.NoError(t, err)
+			require.True(t, tested.Msg.Connected)
+			calls := probe.calls
+			request.ExpectedVersion = 1
+			_, err = f.configurations.TestConnection(t.Context(), rpcRequest(request, f.cookie, accountID))
+			require.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err), "draft versions cannot be silently ignored")
+			request.ExpectedVersion = 0
+			request.Pool.SlotId = uuid.NewString()
+			_, err = f.configurations.TestConnection(t.Context(), rpcRequest(request, f.cookie, accountID))
+			require.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err), "saved slot identity requires its configuration")
+			require.Equal(t, calls, probe.calls)
+		})
+	}
+	require.NoError(t, f.accounts.ConfigureChild(t.Context(), f.host, f.org, account.AccountID, domain.DefaultCapabilities&^domain.ManagePools, false))
+	calls := probe.calls
+	_, err := f.configurations.TestConnection(t.Context(), rpcRequest(&pb.TestConnectionRequest{AccountId: account.AccountID, Pool: &pb.PoolInput{Url: "stratum+tcp://pool.example", Username: "payout"}}, f.cookie, account.AccountID))
+	require.Equal(t, connect.CodePermissionDenied, connect.CodeOf(err))
+	require.Equal(t, calls, probe.calls)
+}
 
 func TestSharedPoolRPCScopesReviewsAndPreservesCredentials(t *testing.T) {
 	f := newRPCFixture(t)
@@ -220,9 +262,18 @@ func TestSharedPoolRPCAppliesWithoutManagePermissionAndPersistsResults(t *testin
 			}
 			_, err = f.configurations.ReviewEdit(t.Context(), rpcRequest(&pb.ReviewEditRequest{AccountId: accountID, ConfigurationId: config.ConfigurationId, ExpectedVersion: config.Version, Configuration: input}, f.cookie, accountID))
 			require.Equal(t, connect.CodePermissionDenied, connect.CodeOf(err), "editing still requires Manage")
-			review, err := f.configurations.ReviewAssignment(t.Context(), rpcRequest(&pb.ReviewAssignmentRequest{AccountId: accountID, ConfigurationId: config.ConfigurationId, ExpectedVersion: config.Version, DeviceIdentifiers: []string{identifier}}, f.cookie, accountID))
+			selection := &pb.ReviewAssignmentRequest{AccountId: accountID, ConfigurationId: config.ConfigurationId, ExpectedVersion: config.Version, DeviceIdentifiers: []string{identifier}}
+			if hosted {
+				selection.DeviceIdentifiers = nil
+				selection.DeviceIds = []int64{device}
+			}
+			review, err := f.configurations.ReviewAssignment(t.Context(), rpcRequest(selection, f.cookie, accountID))
 			require.NoError(t, err)
 			require.EqualValues(t, 1, review.Msg.AffectedMiners)
+			require.Len(t, review.Msg.Equipment, 1)
+			require.Equal(t, device, review.Msg.Equipment[0].TargetId)
+			require.NotEmpty(t, review.Msg.Equipment[0].Label)
+			require.NotContains(t, string(mustProtoJSON(t, review.Msg)), "reviewed_binding")
 			_, err = f.configurations.ConfirmReview(t.Context(), rpcRequest(&pb.ConfirmReviewRequest{AccountId: accountID, ReviewId: review.Msg.ReviewId}, f.cookie, accountID))
 			require.Error(t, err, "hardware changes require a password confirmation")
 			saved, err := f.configurations.ConfirmReview(t.Context(), rpcRequest(&pb.ConfirmReviewRequest{AccountId: accountID, ReviewId: review.Msg.ReviewId, Password: rpcPassword}, f.cookie, accountID))
@@ -258,4 +309,100 @@ func TestSharedPoolRPCAppliesWithoutManagePermissionAndPersistsResults(t *testin
 			})
 		})
 	}
+}
+
+func TestSharedPoolRPCSelectedAccountAssignmentReadsAndChecks(t *testing.T) {
+	f := newRPCFixture(t)
+	ctx := t.Context()
+	username := "customer-" + uuid.NewString()
+	user := f.addUser(t, username, false)
+	account := f.account(t, "Customer", user, domain.DefaultCapabilities)
+	other := f.account(t, "Other customer", f.host, domain.DefaultCapabilities)
+	cookie := f.login(t, username).Header().Get("Set-Cookie")
+	var discovery, device int64
+	identifier := uuid.NewString()
+	require.NoError(t, f.db.QueryRowContext(ctx, `INSERT INTO discovered_device(org_id,device_identifier,ip_address,port,url_scheme,driver_name,device_class) VALUES($1,$2,'192.0.2.1','80','http','proto',1) RETURNING id`, f.org, identifier).Scan(&discovery))
+	require.NoError(t, f.db.QueryRowContext(ctx, `INSERT INTO device(org_id,device_identifier,mac_address,discovered_device_id) VALUES($1,$2,'02:00:00:00:00:01',$3) RETURNING id`, f.org, identifier, discovery).Scan(&device))
+	_, err := f.db.ExecContext(ctx, `INSERT INTO hosted_account_asset(organization_id,kind,asset_id,device_id,miner_id,client_id) VALUES($1,5,$2,$2,$2,$3)`, f.org, device, account.ID)
+	require.NoError(t, err)
+	require.NoError(t, sqlc.New(f.db).EnsureDeviceWriteFences(ctx, []int64{device}))
+
+	assignments, err := f.configurations.GetAssignments(ctx, rpcRequest(&pb.GetAssignmentsRequest{AccountId: account.AccountID, DeviceIds: []int64{device}}, cookie, account.AccountID))
+	require.NoError(t, err)
+	require.EqualValues(t, 1, assignments.Msg.SelectedCount)
+	require.Len(t, assignments.Msg.Assignments, 1)
+	require.Equal(t, device, assignments.Msg.Assignments[0].DeviceId)
+	checked, err := f.configurations.CheckConfiguration(ctx, rpcRequest(&pb.CheckConfigurationRequest{AccountId: account.AccountID, Target: &pb.RetryTarget{Kind: "device", TargetId: device}}, cookie, account.AccountID))
+	require.NoError(t, err)
+	require.False(t, checked.Msg.ReadbackAvailable)
+	require.Equal(t, "check_unavailable", checked.Msg.ResultCode, "authorized check reaches the offline miner")
+
+	for _, tc := range []struct {
+		name, body, header, cookie string
+		code                       connect.Code
+	}{
+		{"missing selection", account.AccountID, "", cookie, connect.CodePermissionDenied},
+		{"mismatched selection", account.AccountID, other.AccountID, cookie, connect.CodePermissionDenied},
+		{"operator fallback", "", account.AccountID, cookie, connect.CodePermissionDenied},
+		{"inaccessible account", other.AccountID, other.AccountID, cookie, connect.CodePermissionDenied},
+		{"unauthenticated", account.AccountID, account.AccountID, "", connect.CodeUnauthenticated},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := f.configurations.GetAssignments(ctx, rpcRequest(&pb.GetAssignmentsRequest{AccountId: tc.body, DeviceIds: []int64{device}}, tc.cookie, tc.header))
+			require.Equal(t, tc.code, connect.CodeOf(err))
+			_, err = f.configurations.CheckConfiguration(ctx, rpcRequest(&pb.CheckConfigurationRequest{AccountId: tc.body, Target: &pb.RetryTarget{Kind: "device", TargetId: device}}, tc.cookie, tc.header))
+			require.Equal(t, tc.code, connect.CodeOf(err))
+		})
+	}
+	// Even an operator authorized in both accounts cannot read another account's equipment.
+	assignments, err = f.configurations.GetAssignments(ctx, rpcRequest(&pb.GetAssignmentsRequest{AccountId: other.AccountID, DeviceIds: []int64{device}}, f.cookie, other.AccountID))
+	require.NoError(t, err)
+	require.Empty(t, assignments.Msg.Assignments)
+	_, err = f.configurations.CheckConfiguration(ctx, rpcRequest(&pb.CheckConfigurationRequest{AccountId: other.AccountID, Target: &pb.RetryTarget{Kind: "device", TargetId: device}}, f.cookie, other.AccountID))
+	require.Equal(t, connect.CodePermissionDenied, connect.CodeOf(err))
+
+	require.NoError(t, f.accounts.ConfigureChild(ctx, f.host, f.org, account.AccountID, domain.DefaultCapabilities&^domain.ChangePools, false))
+	_, err = f.configurations.CheckConfiguration(ctx, rpcRequest(&pb.CheckConfigurationRequest{AccountId: account.AccountID, Target: &pb.RetryTarget{Kind: "device", TargetId: device}}, cookie, account.AccountID))
+	require.Equal(t, connect.CodePermissionDenied, connect.CodeOf(err), "readback still requires equipment authority")
+	assignments, err = f.configurations.GetAssignments(ctx, rpcRequest(&pb.GetAssignmentsRequest{AccountId: account.AccountID, DeviceIds: []int64{device}}, cookie, account.AccountID))
+	require.NoError(t, err)
+	require.Len(t, assignments.Msg.Assignments, 1, "reading saved intent does not require ChangePools")
+}
+
+func TestSharedPoolRPCConnectionTestRestrictsOnlyCustomerDestinations(t *testing.T) {
+	f := newRPCFixture(t)
+	f.configurationService.WithConnectionTester(pools.NewService(nil, nil, pools.Config{Timeout: time.Second}, nil))
+	account := f.account(t, "Customer", f.host, domain.DefaultCapabilities)
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	finished := make(chan struct{})
+	go func() {
+		defer close(finished)
+		for {
+			conn, err := listener.Accept()
+			if err != nil {
+				return
+			}
+			_ = conn.SetDeadline(time.Now().Add(time.Second))
+			var request json.RawMessage
+			if json.NewDecoder(conn).Decode(&request) == nil {
+				_, _ = conn.Write([]byte("{\"id\":1,\"result\":true}\n"))
+			}
+			_ = conn.Close()
+		}
+	}()
+	t.Cleanup(func() { _ = listener.Close(); <-finished })
+	_, port, err := net.SplitHostPort(listener.Addr().String())
+	require.NoError(t, err)
+	input := &pb.PoolInput{Url: "stratum+tcp://" + net.JoinHostPort("127.0.0.1", port), Username: "payout"}
+	tested, err := f.configurations.TestConnection(t.Context(), rpcRequest(&pb.TestConnectionRequest{AccountId: account.AccountID, Pool: input}, f.cookie, account.AccountID))
+	require.NoError(t, err)
+	require.False(t, tested.Msg.Connected, "customer tests must not reach a local pool, even when it is a valid pool server")
+	tested, err = f.configurations.TestConnection(t.Context(), rpcRequest(&pb.TestConnectionRequest{Pool: input}, f.cookie, ""))
+	require.NoError(t, err)
+	require.True(t, tested.Msg.Connected, "operator testing retains private-pool support")
+	// Destination restrictions belong to the probe, not configuration storage.
+	saved, err := f.configurations.CreateConfiguration(t.Context(), rpcRequest(&pb.CreateConfigurationRequest{AccountId: account.AccountID, Configuration: &pb.ConfigurationInput{Name: "Private pool", Pools: []*pb.PoolInput{input}}}, f.cookie, account.AccountID))
+	require.NoError(t, err)
+	require.Equal(t, input.Url, saved.Msg.Configuration.Pools[0].Url)
 }

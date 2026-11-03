@@ -1,6 +1,7 @@
 package hostedaccounts_test
 
 import (
+	"database/sql"
 	"slices"
 	"testing"
 
@@ -39,7 +40,7 @@ func TestSharedPoolRPCOperationHistoryValidatesCursorAndPaginates(t *testing.T) 
 		t.Helper()
 		operation, err := q.CreatePoolConfigurationOperation(ctx, sqlc.CreatePoolConfigurationOperationParams{OperationID: uuid.NewString(), OrganizationID: f.org, ConfigurationID: config.ConfigurationId, RevisionID: config.RevisionId, ActorID: f.host})
 		require.NoError(t, err)
-		assignment, err := q.SetPoolConfigurationAssignment(ctx, sqlc.SetPoolConfigurationAssignmentParams{OrganizationID: f.org, TargetKind: "device", TargetID: device, DeviceID: device, ConfigurationID: config.ConfigurationId, RevisionID: config.RevisionId, OperationID: operation.OperationID})
+		assignment, err := q.SetPoolConfigurationAssignment(ctx, sqlc.SetPoolConfigurationAssignmentParams{OrganizationID: f.org, TargetKind: "device", TargetID: device, DeviceID: device, ConfigurationID: config.ConfigurationId, RevisionID: config.RevisionId, OperationID: sql.NullString{String: operation.OperationID, Valid: true}})
 		require.NoError(t, err)
 		_, err = q.CreatePoolConfigurationOperationTarget(ctx, sqlc.CreatePoolConfigurationOperationTargetParams{OrganizationID: f.org, OperationID: operation.OperationID, TargetKind: "device", TargetID: device, AssignmentVersion: assignment.Version})
 		require.NoError(t, err)
