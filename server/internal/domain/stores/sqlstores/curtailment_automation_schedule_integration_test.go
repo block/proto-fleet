@@ -55,7 +55,10 @@ func TestSQLCurtailmentStore_ScheduleAutomationRuleLifecycle(t *testing.T) {
 	assert.Equal(t, "bound", rule.BindingStatus)
 	assert.Equal(t, "idle", rule.ExecutionStatus, "saving a schedule clears its mailbox for a fresh assertion")
 	require.NotNil(t, rule.Schedule)
-	assert.Equal(t, *schedule, *rule.Schedule)
+	assert.Equal(t, schedule.Definition, rule.Schedule.Definition)
+	assert.Equal(t, schedule.ServiceUserID, rule.Schedule.ServiceUserID)
+	assert.NotEqual(t, uuid.Nil, rule.Schedule.Revision)
+	firstRevision := rule.Schedule.Revision
 
 	listed, err := store.ListAutomationRules(ctx, user.OrganizationID)
 	require.NoError(t, err)
@@ -74,8 +77,9 @@ func TestSQLCurtailmentStore_ScheduleAutomationRuleLifecycle(t *testing.T) {
 	require.NotNil(t, found)
 	assert.Equal(t, user.OrganizationID, found.OrgID)
 	assert.Equal(t, schedule.Definition, found.Schedule.Definition)
+	assert.Equal(t, firstRevision, found.Schedule.Revision)
 
-	// Updating the schedule replaces its definition.
+	// Updating the schedule replaces its definition and revision.
 	updated := *rule
 	daily := *schedule
 	daily.Definition.Frequency = schedulewindow.FrequencyDaily
@@ -84,27 +88,48 @@ func TestSQLCurtailmentStore_ScheduleAutomationRuleLifecycle(t *testing.T) {
 	rule, err = store.UpdateAutomationRule(ctx, updated, models.ResponseProfileFanSettings{})
 	require.NoError(t, err)
 	assert.Equal(t, daily.Definition, rule.Schedule.Definition)
+	assert.NotEqual(t, firstRevision, rule.Schedule.Revision)
+	revision := rule.Schedule.Revision
+
+	// A producer that read the schedule before the edit cannot queue its boundary.
+	start := time.Now().UTC().Add(-time.Hour).Truncate(time.Second)
+	require.NoError(t, store.QueueScheduleAutomationExecution(ctx, rule.ID, firstRevision, models.AutomationSignalOff, "schedule_start", start))
+	stale, err := store.ClaimAutomationExecution(ctx)
+	require.NoError(t, err)
+	assert.Nil(t, stale, "a boundary from an earlier schedule revision must not be queued")
 
 	// A window boundary is applied once; only a newer boundary replaces it.
-	start := time.Now().UTC().Add(-time.Hour).Truncate(time.Second)
-	require.NoError(t, store.QueueScheduleAutomationExecution(ctx, rule.ID, models.AutomationSignalOff, "schedule_start", start))
+	require.NoError(t, store.QueueScheduleAutomationExecution(ctx, rule.ID, revision, models.AutomationSignalOff, "schedule_start", start))
 	claimed, err := store.ClaimAutomationExecution(ctx)
 	require.NoError(t, err)
 	require.NotNil(t, claimed)
 	assert.Equal(t, int64(0), claimed.MQTTSourceID)
 	assert.Equal(t, models.AutomationSignalOff, claimed.Target)
 	assert.True(t, claimed.ReceivedAt.Equal(start))
+	assert.Equal(t, revision, claimed.ScheduleRevision)
 	require.NoError(t, store.CompleteAutomationExecution(ctx, rule.ID, claimed.Generation, claimed.LeaseExpiresAt))
-	require.NoError(t, store.QueueScheduleAutomationExecution(ctx, rule.ID, models.AutomationSignalOff, "schedule_start", start))
+	require.NoError(t, store.QueueScheduleAutomationExecution(ctx, rule.ID, revision, models.AutomationSignalOff, "schedule_start", start))
 	again, err := store.ClaimAutomationExecution(ctx)
 	require.NoError(t, err)
 	assert.Nil(t, again, "a completed window boundary must not run again")
-	require.NoError(t, store.QueueScheduleAutomationExecution(ctx, rule.ID, models.AutomationSignalOn, "schedule_end", start.Add(time.Hour)))
+	require.NoError(t, store.QueueScheduleAutomationExecution(ctx, rule.ID, revision, models.AutomationSignalOn, "schedule_end", start.Add(time.Hour)))
 	end, err := store.ClaimAutomationExecution(ctx)
 	require.NoError(t, err)
 	require.NotNil(t, end)
 	assert.Equal(t, models.AutomationSignalOn, end.Target)
 	require.NoError(t, store.CompleteAutomationExecution(ctx, rule.ID, end.Generation, end.LeaseExpiresAt))
+
+	// A row left by an earlier revision does not hold back the saved schedule's
+	// earlier boundary.
+	_, err = database.ExecContext(ctx, `UPDATE curtailment_automation_execution SET schedule_revision = $1 WHERE rule_id = $2`, firstRevision, rule.ID)
+	require.NoError(t, err)
+	require.NoError(t, store.QueueScheduleAutomationExecution(ctx, rule.ID, revision, models.AutomationSignalOff, "schedule_start", start))
+	replaced, err := store.ClaimAutomationExecution(ctx)
+	require.NoError(t, err)
+	require.NotNil(t, replaced, "the saved revision's boundary replaces an earlier revision's row")
+	assert.True(t, replaced.ReceivedAt.Equal(start))
+	assert.Equal(t, revision, replaced.ScheduleRevision)
+	require.NoError(t, store.CompleteAutomationExecution(ctx, rule.ID, replaced.Generation, replaced.LeaseExpiresAt))
 
 	// A scheduled event starts under the schedule's grant and service user.
 	ref := fmt.Sprint(rule.ID)
@@ -121,6 +146,7 @@ func TestSQLCurtailmentStore_ScheduleAutomationRuleLifecycle(t *testing.T) {
 	event.ResponseProfileID = profileID
 	event.ResponseProfileRevision = profile.Revision
 	event.AutomationRuleID = rule.ID
+	event.AutomationScheduleRevision = revision
 	event.DecisionSnapshotJSON = []byte(fmt.Sprintf(`{"response_profile_id":%d,"response_profile_revision":%q}`, profileID, profile.Revision.String()))
 
 	wrongUser := event
@@ -130,6 +156,21 @@ func TestSQLCurtailmentStore_ScheduleAutomationRuleLifecycle(t *testing.T) {
 	assert.True(t, fleeterror.IsFailedPreconditionError(err), err)
 	assert.Contains(t, err.Error(), "automation rule changed before execution")
 
+	// A worker read the rule, then the schedule was postponed before the worker
+	// inserted the event; the obsolete window must not start.
+	postponed := *rule
+	later := daily
+	later.Definition.StartTime = "23:00"
+	postponed.Schedule = &later
+	rule, err = store.UpdateAutomationRule(ctx, postponed, models.ResponseProfileFanSettings{})
+	require.NoError(t, err)
+	require.NotEqual(t, revision, rule.Schedule.Revision)
+	_, err = store.InsertEventWithTargets(ctx, event, nil)
+	require.Error(t, err, "an event read from an earlier schedule revision must not start")
+	assert.True(t, fleeterror.IsFailedPreconditionError(err), err)
+	assert.Contains(t, err.Error(), "automation rule changed before execution")
+
+	event.AutomationScheduleRevision = rule.Schedule.Revision
 	_, err = store.InsertEventWithTargets(ctx, event, nil)
 	require.NoError(t, err)
 	require.NoError(t, store.SetAutomationActiveEvent(ctx, rule.ID, 0, event.EventUUID, start))

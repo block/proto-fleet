@@ -156,12 +156,13 @@ func responseProfileAdminControls(profile models.ResponseProfile) adminControls 
 // Store inserts carry their creator user even without an automation fence;
 // Recurtail accepts a service user only as part of a complete automation fence.
 type ExecutionFence struct {
-	ResponseProfileID       int64
-	ResponseProfileRevision uuid.UUID
-	AutomationRuleID        int64
-	AutomationMQTTSourceID  int64
-	AutomationServiceUserID int64
-	SourceActorType         models.SourceActorType
+	ResponseProfileID          int64
+	ResponseProfileRevision    uuid.UUID
+	AutomationRuleID           int64
+	AutomationMQTTSourceID     int64
+	AutomationScheduleRevision uuid.UUID
+	AutomationServiceUserID    int64
+	SourceActorType            models.SourceActorType
 }
 
 type ExecutionFenceUse uint8
@@ -196,6 +197,12 @@ func ValidateExecutionFence(f ExecutionFence, use ExecutionFenceUse) error {
 	}
 	if f.AutomationRuleID == 0 && f.AutomationMQTTSourceID > 0 {
 		return fleeterror.NewInvalidArgumentError("automation execution fence requires a rule ID with the MQTT source ID")
+	}
+	// Schedule rules have no MQTT source and are fenced by their schedule
+	// revision instead.
+	scheduleRule := f.AutomationRuleID > 0 && f.AutomationMQTTSourceID == 0
+	if scheduleRule != (f.AutomationScheduleRevision != uuid.Nil) {
+		return fleeterror.NewInvalidArgumentError("automation execution fence requires a schedule revision exactly for schedule rules")
 	}
 	if use == ExecutionFenceStart {
 		// MQTT rules execute as the automation actor with their source; schedule

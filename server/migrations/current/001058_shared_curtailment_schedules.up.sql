@@ -7,10 +7,15 @@ ALTER TABLE curtailment_automation_rule
         OR (trigger_type = 'SCHEDULE' AND mqtt_source_id IS NULL)
     );
 
-ALTER TABLE curtailment_automation_execution ALTER COLUMN mqtt_source_id DROP NOT NULL;
+-- schedule_revision is the schedule revision a queued window boundary was
+-- produced from; work from an earlier revision cannot start or restore events.
+ALTER TABLE curtailment_automation_execution
+    ALTER COLUMN mqtt_source_id DROP NOT NULL,
+    ADD COLUMN schedule_revision uuid;
 
 -- Dates and clock times are local to timezone. service_user_id is the user who
 -- last saved the schedule; it attributes scheduled events and their commands.
+-- revision changes on every save.
 CREATE TABLE curtailment_automation_schedule (
     rule_id bigint PRIMARY KEY,
     schedule_type text NOT NULL,
@@ -24,6 +29,7 @@ CREATE TABLE curtailment_automation_schedule (
     day_of_month smallint,
     until_date date,
     service_user_id bigint NOT NULL,
+    revision uuid NOT NULL DEFAULT gen_random_uuid(),
     created_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT fk_curtailment_automation_schedule_rule

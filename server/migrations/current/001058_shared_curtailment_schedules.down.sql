@@ -3,7 +3,9 @@ DROP TABLE curtailment_automation_schedule;
 -- Schedule rules cannot be represented without a schedule; remove them before
 -- restoring the MQTT-only constraints.
 DELETE FROM curtailment_automation_execution WHERE mqtt_source_id IS NULL;
-ALTER TABLE curtailment_automation_execution ALTER COLUMN mqtt_source_id SET NOT NULL;
+ALTER TABLE curtailment_automation_execution
+    DROP COLUMN schedule_revision,
+    ALTER COLUMN mqtt_source_id SET NOT NULL;
 
 DELETE FROM curtailment_automation_rule WHERE trigger_type = 'SCHEDULE';
 ALTER TABLE curtailment_automation_rule

@@ -2188,7 +2188,9 @@ type Querier interface {
 	QueueCurrentCurtailmentAutomationExecution(ctx context.Context, ruleID int64) error
 	QueueCurtailmentAutomationExecution(ctx context.Context, arg QueueCurtailmentAutomationExecutionParams) error
 	// Window boundaries are the assertion times, so re-queueing the same boundary
-	// is a no-op even after it completed; a stopped window is not restarted.
+	// is a no-op even after it completed; a stopped window is not restarted. A
+	// boundary from an earlier schedule revision is not queued, and one from a
+	// newer revision replaces the row regardless of boundary order.
 	QueueCurtailmentScheduleExecution(ctx context.Context, arg QueueCurtailmentScheduleExecutionParams) error
 	// Startup reaping fails every PROCESSING row left by the previous process.
 	// Periodic reaping only fails rows that exceeded their command-specific cutoff.

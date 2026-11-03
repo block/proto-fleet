@@ -31,31 +31,39 @@ func dailyEveningSchedule() *models.AutomationSchedule {
 			Frequency: schedulewindow.FrequencyDaily,
 		},
 		ServiceUserID: 777,
+		Revision:      uuid.New(),
 	}
 }
 
+type scheduleBoundary struct {
+	at       time.Time
+	revision uuid.UUID
+}
+
 // scheduleDurableFake mirrors the mailbox row: a rule keeps its latest
-// boundary after the work completes, and only a newer boundary replaces it.
+// boundary after the work completes, and only a newer boundary or schedule
+// revision replaces it.
 type scheduleDurableFake struct {
 	*durableAutomationFake
 	schedules []models.ScheduledAutomationRule
-	latest    map[int64]time.Time
+	latest    map[int64]scheduleBoundary
 }
 
 func (f *scheduleDurableFake) ListEnabledScheduleAutomationRules(context.Context) ([]models.ScheduledAutomationRule, error) {
 	return f.schedules, nil
 }
 
-func (f *scheduleDurableFake) QueueScheduleAutomationExecution(_ context.Context, ruleID int64, target models.AutomationSignal, direction string, boundaryAt time.Time) error {
-	if latest, ok := f.latest[ruleID]; ok && !latest.Before(boundaryAt) {
+func (f *scheduleDurableFake) QueueScheduleAutomationExecution(_ context.Context, ruleID int64, scheduleRevision uuid.UUID, target models.AutomationSignal, direction string, boundaryAt time.Time) error {
+	if latest, ok := f.latest[ruleID]; ok && latest.revision == scheduleRevision && !latest.at.Before(boundaryAt) {
 		return nil
 	}
 	if f.latest == nil {
-		f.latest = make(map[int64]time.Time)
+		f.latest = make(map[int64]scheduleBoundary)
 	}
-	f.latest[ruleID] = boundaryAt
+	f.latest[ruleID] = scheduleBoundary{at: boundaryAt, revision: scheduleRevision}
 	f.pending = append(f.pending, models.AutomationExecution{
 		RuleID: ruleID, OrgID: 42, Generation: 1, Direction: direction, Target: target, TargetAt: boundaryAt, ReceivedAt: boundaryAt,
+		ScheduleRevision: scheduleRevision,
 	})
 	return nil
 }
@@ -127,6 +135,7 @@ func TestAutomationService_ScheduleWindowStartsScheduledEvent(t *testing.T) {
 	assert.Equal(t, int64(777), event.CreatedByUserID)
 	require.NotNil(t, event.ScheduledStartAt)
 	assert.True(t, event.ScheduledStartAt.Equal(scheduleWindowStart))
+	assert.Equal(t, h.rule.Schedule.Revision, event.AutomationScheduleRevision, "the store's rule lock rechecks the schedule revision the worker read")
 	// FULL_FLEET profiles are not forced unbounded: the window end caps them.
 	assert.False(t, event.AllowUnbounded)
 	require.NotNil(t, event.MaxDurationSeconds)
@@ -173,6 +182,34 @@ func TestAutomationService_ScheduleWindowEndRestores(t *testing.T) {
 	assert.True(t, h.rules.lastRestoreStartedAt.Equal(scheduleWindowEnd))
 }
 
+func TestAutomationService_ScheduleWindowEndLeavesOtherEventsRunning(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name        string
+		windowStart time.Time
+		createdAt   time.Time
+	}{
+		{"event for a later window", scheduleWindowStart.Add(30 * time.Minute), scheduleWindowStart.Add(30 * time.Minute)},
+		{"event created after the window ended", scheduleWindowStart, scheduleWindowEnd.Add(time.Second)},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			h, durable := newScheduleHarness(t)
+			h.automation.clock = func() time.Time { return scheduleWindowEnd.Add(30 * time.Second) }
+			id := h.seedScheduledEvent(models.EventStateActive, tt.windowStart)
+			h.curtailments.eventsByUUID[id].CreatedAt = tt.createdAt
+
+			h.automation.produceScheduleAssertions(t.Context())
+			h.automation.processDueExecutions(t.Context())
+
+			assert.Equal(t, []int64{h.rule.ID}, durable.completed)
+			assert.Equal(t, 0, h.curtailments.beginRestoreCalls)
+			assert.Equal(t, 0, h.rules.restoreStartedCalls)
+		})
+	}
+}
+
 func TestAutomationService_ScheduleWindowWaitsForPreviousWindowEvent(t *testing.T) {
 	t.Parallel()
 	h, durable := newScheduleHarness(t)
@@ -207,6 +244,7 @@ func TestAutomationService_ScheduleDropsStaleOrEndedWindows(t *testing.T) {
 		h, durable := newScheduleHarness(t)
 		durable.pending = []models.AutomationExecution{{
 			RuleID: h.rule.ID, OrgID: h.orgID, Target: models.AutomationSignalOff, ReceivedAt: scheduleWindowStart.Add(-time.Hour),
+			ScheduleRevision: h.rule.Schedule.Revision,
 		}}
 		h.automation.processDueExecutions(t.Context())
 		assert.Equal(t, []int64{h.rule.ID}, durable.completed)
@@ -219,11 +257,50 @@ func TestAutomationService_ScheduleDropsStaleOrEndedWindows(t *testing.T) {
 		h.automation.clock = func() time.Time { return scheduleWindowEnd }
 		durable.pending = []models.AutomationExecution{{
 			RuleID: h.rule.ID, OrgID: h.orgID, Target: models.AutomationSignalOff, ReceivedAt: scheduleWindowStart,
+			ScheduleRevision: h.rule.Schedule.Revision,
 		}}
 		h.automation.processDueExecutions(t.Context())
 		assert.Equal(t, []int64{h.rule.ID}, durable.completed)
 		assert.Equal(t, 0, h.curtailments.insertEventCalls)
 	})
+
+	t.Run("boundary from an earlier schedule revision", func(t *testing.T) {
+		t.Parallel()
+		h, durable := newScheduleHarness(t)
+		h.automation.clock = func() time.Time { return scheduleWindowEnd.Add(30 * time.Second) }
+		h.seedScheduledEvent(models.EventStateActive, scheduleWindowStart)
+		durable.pending = []models.AutomationExecution{
+			{RuleID: h.rule.ID, OrgID: h.orgID, Target: models.AutomationSignalOff, ReceivedAt: scheduleWindowStart, ScheduleRevision: uuid.New()},
+			{RuleID: h.rule.ID, OrgID: h.orgID, Target: models.AutomationSignalOn, ReceivedAt: scheduleWindowEnd, ScheduleRevision: uuid.New()},
+		}
+		h.automation.processDueExecutions(t.Context())
+		assert.Equal(t, []int64{h.rule.ID, h.rule.ID}, durable.completed)
+		assert.Equal(t, 0, h.curtailments.insertEventCalls)
+		assert.Equal(t, 0, h.curtailments.beginRestoreCalls)
+	})
+}
+
+func TestAutomationService_ScheduleEditRequeuesEarlierBoundary(t *testing.T) {
+	t.Parallel()
+	h, durable := newScheduleHarness(t)
+	h.automation.produceScheduleAssertions(t.Context())
+	h.automation.processDueExecutions(t.Context())
+	require.Equal(t, 1, h.curtailments.insertEventCalls)
+	h.curtailments.eventsByUUID[*h.rule.ActiveEventUUID] = &models.Event{
+		EventUUID: *h.rule.ActiveEventUUID, OrgID: h.orgID, State: models.EventStateCompleted,
+	}
+
+	// The edited schedule's window opened before the boundary already applied.
+	edited := dailyEveningSchedule()
+	edited.Definition.StartTime = "19:00"
+	h.rule.Schedule = edited
+	durable.schedules = []models.ScheduledAutomationRule{{RuleID: h.rule.ID, OrgID: h.orgID, Schedule: *edited}}
+	h.automation.produceScheduleAssertions(t.Context())
+	require.Len(t, durable.pending, 1)
+	assert.True(t, durable.pending[0].ReceivedAt.Equal(scheduleWindowStart.Add(-time.Hour)))
+	h.automation.processDueExecutions(t.Context())
+	assert.Equal(t, 2, h.curtailments.insertEventCalls)
+	assert.Equal(t, edited.Revision, h.curtailments.lastInsertEvent.AutomationScheduleRevision)
 }
 
 func TestAutomationService_CreateScheduleRuleValidation(t *testing.T) {
@@ -323,14 +400,18 @@ func TestValidateExecutionFenceTriggers(t *testing.T) {
 		ok    bool
 	}{
 		{"mqtt start", ExecutionFence{ResponseProfileID: 1, ResponseProfileRevision: revision, AutomationRuleID: 2, AutomationMQTTSourceID: 3, SourceActorType: models.SourceActorAutomation}, ExecutionFenceStart, true},
-		{"schedule start", ExecutionFence{ResponseProfileID: 1, ResponseProfileRevision: revision, AutomationRuleID: 2, SourceActorType: models.SourceActorScheduler}, ExecutionFenceStart, true},
+		{"mqtt start with schedule revision", ExecutionFence{ResponseProfileID: 1, ResponseProfileRevision: revision, AutomationRuleID: 2, AutomationMQTTSourceID: 3, AutomationScheduleRevision: revision, SourceActorType: models.SourceActorAutomation}, ExecutionFenceStart, false},
+		{"schedule start", ExecutionFence{ResponseProfileID: 1, ResponseProfileRevision: revision, AutomationRuleID: 2, AutomationScheduleRevision: revision, SourceActorType: models.SourceActorScheduler}, ExecutionFenceStart, true},
+		{"schedule start without schedule revision", ExecutionFence{ResponseProfileID: 1, ResponseProfileRevision: revision, AutomationRuleID: 2, SourceActorType: models.SourceActorScheduler}, ExecutionFenceStart, false},
 		{"schedule start with source", ExecutionFence{ResponseProfileID: 1, ResponseProfileRevision: revision, AutomationRuleID: 2, AutomationMQTTSourceID: 3, SourceActorType: models.SourceActorScheduler}, ExecutionFenceStart, false},
-		{"automation start without source", ExecutionFence{ResponseProfileID: 1, ResponseProfileRevision: revision, AutomationRuleID: 2, SourceActorType: models.SourceActorAutomation}, ExecutionFenceStart, false},
-		{"user start with rule", ExecutionFence{ResponseProfileID: 1, ResponseProfileRevision: revision, AutomationRuleID: 2, SourceActorType: models.SourceActorUser}, ExecutionFenceStart, false},
+		{"automation start without source", ExecutionFence{ResponseProfileID: 1, ResponseProfileRevision: revision, AutomationRuleID: 2, AutomationScheduleRevision: revision, SourceActorType: models.SourceActorAutomation}, ExecutionFenceStart, false},
+		{"user start with rule", ExecutionFence{ResponseProfileID: 1, ResponseProfileRevision: revision, AutomationRuleID: 2, AutomationScheduleRevision: revision, SourceActorType: models.SourceActorUser}, ExecutionFenceStart, false},
+		{"user start with schedule revision", ExecutionFence{AutomationScheduleRevision: revision, SourceActorType: models.SourceActorUser}, ExecutionFenceStart, false},
 		{"source without rule", ExecutionFence{AutomationMQTTSourceID: 3, SourceActorType: models.SourceActorUser}, ExecutionFenceStart, false},
-		{"schedule store", ExecutionFence{ResponseProfileID: 1, ResponseProfileRevision: revision, AutomationRuleID: 2, AutomationServiceUserID: 4}, ExecutionFenceStore, true},
-		{"schedule recurtail", ExecutionFence{ResponseProfileID: 1, ResponseProfileRevision: revision, AutomationRuleID: 2, AutomationServiceUserID: 4}, ExecutionFenceRecurtail, true},
-		{"rule without service user", ExecutionFence{ResponseProfileID: 1, ResponseProfileRevision: revision, AutomationRuleID: 2}, ExecutionFenceStore, false},
+		{"schedule store", ExecutionFence{ResponseProfileID: 1, ResponseProfileRevision: revision, AutomationRuleID: 2, AutomationScheduleRevision: revision, AutomationServiceUserID: 4}, ExecutionFenceStore, true},
+		{"schedule store without schedule revision", ExecutionFence{ResponseProfileID: 1, ResponseProfileRevision: revision, AutomationRuleID: 2, AutomationServiceUserID: 4}, ExecutionFenceStore, false},
+		{"schedule recurtail", ExecutionFence{ResponseProfileID: 1, ResponseProfileRevision: revision, AutomationRuleID: 2, AutomationScheduleRevision: revision, AutomationServiceUserID: 4}, ExecutionFenceRecurtail, true},
+		{"rule without service user", ExecutionFence{ResponseProfileID: 1, ResponseProfileRevision: revision, AutomationRuleID: 2, AutomationScheduleRevision: revision}, ExecutionFenceStore, false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

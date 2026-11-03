@@ -966,20 +966,21 @@ type ContainerTopologyVersion struct {
 }
 
 type CurtailmentAutomationExecution struct {
-	RuleID         int64
-	MqttSourceID   sql.NullInt64
-	Generation     int64
-	Direction      string
-	Target         string
-	TargetAt       sql.NullTime
-	ReceivedAt     time.Time
-	ReceivedBroker string
-	PriorEdgeAt    sql.NullTime
-	Status         string
-	Attempts       int32
-	RetryAt        time.Time
-	LeaseExpiresAt sql.NullTime
-	LastError      sql.NullString
+	RuleID           int64
+	MqttSourceID     sql.NullInt64
+	Generation       int64
+	Direction        string
+	Target           string
+	TargetAt         sql.NullTime
+	ReceivedAt       time.Time
+	ReceivedBroker   string
+	PriorEdgeAt      sql.NullTime
+	Status           string
+	Attempts         int32
+	RetryAt          time.Time
+	LeaseExpiresAt   sql.NullTime
+	LastError        sql.NullString
+	ScheduleRevision uuid.NullUUID
 }
 
 type CurtailmentAutomationExecutionGrant struct {
@@ -1051,6 +1052,7 @@ type CurtailmentAutomationSchedule struct {
 	DayOfMonth    sql.NullInt16
 	UntilDate     sql.NullTime
 	ServiceUserID int64
+	Revision      uuid.UUID
 	CreatedAt     time.Time
 	UpdatedAt     time.Time
 }

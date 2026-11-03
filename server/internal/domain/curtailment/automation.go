@@ -470,6 +470,12 @@ func (s *AutomationService) recurtailAutomationEvent(
 }
 
 func (s *AutomationService) handleRuleOn(ctx context.Context, rule *models.AutomationRule, at time.Time) error {
+	return s.restoreRuleEvent(ctx, rule, at, nil)
+}
+
+// restoreRuleEvent restores the rule's live event unless keep reports that the
+// event must keep running.
+func (s *AutomationService) restoreRuleEvent(ctx context.Context, rule *models.AutomationRule, at time.Time, keep func(*models.Event) bool) error {
 	event, err := s.restoreCandidateEvent(ctx, rule)
 	if err != nil {
 		if fleeterror.IsNotFoundError(err) {
@@ -481,6 +487,9 @@ func (s *AutomationService) handleRuleOn(ctx context.Context, rule *models.Autom
 		if rule.ActiveEventUUID != nil {
 			return s.store.ClearAutomationActiveEvent(ctx, rule.ID, at)
 		}
+		return nil
+	}
+	if keep != nil && keep(event) {
 		return nil
 	}
 	_, err = s.curtailment.Stop(ctx, StopRequest{

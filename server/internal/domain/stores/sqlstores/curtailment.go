@@ -1256,6 +1256,7 @@ func lockAutomationRuleForExecution(
 	orgID int64,
 	ruleID int64,
 	mqttSourceID int64,
+	scheduleRevision uuid.UUID,
 	profileID int64,
 	profileRevision uuid.UUID,
 	serviceUserID int64,
@@ -1274,6 +1275,7 @@ func lockAutomationRuleForExecution(
 			ResponseProfileID:       profileID,
 			ResponseProfileRevision: profileRevision,
 			ServiceUserID:           serviceUserID,
+			ScheduleRevision:        scheduleRevision,
 		})
 	} else {
 		_, err = q.LockCurtailmentAutomationRuleForExecution(
@@ -1344,7 +1346,8 @@ func (s *SQLCurtailmentStore) InsertEventWithTargets(
 	if err := domainCurtailment.ValidateExecutionFence(domainCurtailment.ExecutionFence{
 		ResponseProfileID: event.ResponseProfileID, ResponseProfileRevision: event.ResponseProfileRevision,
 		AutomationRuleID: event.AutomationRuleID, AutomationMQTTSourceID: event.AutomationMQTTSourceID,
-		AutomationServiceUserID: event.CreatedByUserID,
+		AutomationScheduleRevision: event.AutomationScheduleRevision,
+		AutomationServiceUserID:    event.CreatedByUserID,
 	}, domainCurtailment.ExecutionFenceStore); err != nil {
 		return nil, err
 	}
@@ -1504,6 +1507,7 @@ func (s *SQLCurtailmentStore) InsertEventWithTargets(
 			event.OrgID,
 			event.AutomationRuleID,
 			event.AutomationMQTTSourceID,
+			event.AutomationScheduleRevision,
 			event.ResponseProfileID,
 			event.ResponseProfileRevision,
 			event.CreatedByUserID,
@@ -3063,7 +3067,8 @@ func (s *SQLCurtailmentStore) BeginRecurtailTransition(
 	if err := domainCurtailment.ValidateExecutionFence(domainCurtailment.ExecutionFence{
 		ResponseProfileID: params.ResponseProfileID, ResponseProfileRevision: params.ResponseProfileRevision,
 		AutomationRuleID: params.AutomationRuleID, AutomationMQTTSourceID: params.AutomationMQTTSourceID,
-		AutomationServiceUserID: params.AutomationServiceUserID,
+		AutomationScheduleRevision: params.AutomationScheduleRevision,
+		AutomationServiceUserID:    params.AutomationServiceUserID,
 	}, domainCurtailment.ExecutionFenceStore); err != nil {
 		return nil, err
 	}
@@ -3137,6 +3142,7 @@ func (s *SQLCurtailmentStore) BeginRecurtailTransition(
 			orgID,
 			params.AutomationRuleID,
 			params.AutomationMQTTSourceID,
+			params.AutomationScheduleRevision,
 			params.ResponseProfileID,
 			params.ResponseProfileRevision,
 			params.AutomationServiceUserID,

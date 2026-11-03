@@ -162,11 +162,12 @@ type BeginRestoreTransitionParams struct {
 // current rule, MQTT source principal, and response-profile revision. Manual
 // re-curtail calls leave the automation fields zero.
 type BeginRecurtailTransitionParams struct {
-	ResponseProfileID       int64
-	ResponseProfileRevision uuid.UUID
-	AutomationRuleID        int64
-	AutomationMQTTSourceID  int64
-	AutomationServiceUserID int64
+	ResponseProfileID          int64
+	ResponseProfileRevision    uuid.UUID
+	AutomationRuleID           int64
+	AutomationMQTTSourceID     int64
+	AutomationScheduleRevision uuid.UUID
+	AutomationServiceUserID    int64
 }
 
 type AutomationDemandGuard struct {

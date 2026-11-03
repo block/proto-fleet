@@ -40,6 +40,7 @@ func (s *SQLCurtailmentStore) ListEnabledScheduleAutomationRules(ctx context.Con
 			DayOfMonth:    row.DayOfMonth,
 			UntilDate:     row.UntilDate,
 			ServiceUserID: row.ServiceUserID,
+			Revision:      row.Revision,
 		})
 		out = append(out, models.ScheduledAutomationRule{RuleID: row.RuleID, OrgID: row.OrgID, Schedule: *schedule})
 	}
@@ -166,5 +167,5 @@ func automationScheduleFromRow(row sqlc.CurtailmentAutomationSchedule) *models.A
 	if row.UntilDate.Valid {
 		def.UntilDate = row.UntilDate.Time.Format(scheduleDateLayout)
 	}
-	return &models.AutomationSchedule{Definition: def, ServiceUserID: row.ServiceUserID}
+	return &models.AutomationSchedule{Definition: def, ServiceUserID: row.ServiceUserID, Revision: row.Revision}
 }

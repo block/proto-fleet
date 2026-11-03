@@ -8,6 +8,7 @@ import (
 
 	sqlc "github.com/block/proto-fleet/server/generated/sqlc"
 	"github.com/block/proto-fleet/server/internal/domain/curtailment/models"
+	"github.com/google/uuid"
 )
 
 func (s *SQLCurtailmentStore) CountEnabledAutomationRulesByResponseProfile(ctx context.Context, orgID, profileID int64) (int64, error) {
@@ -22,9 +23,10 @@ func (s *SQLCurtailmentStore) QueueAutomationExecution(ctx context.Context, work
 }
 
 // QueueScheduleAutomationExecution asserts a schedule window boundary. A
-// boundary only replaces an older one, so a stopped window stays stopped.
-func (s *SQLCurtailmentStore) QueueScheduleAutomationExecution(ctx context.Context, ruleID int64, target models.AutomationSignal, direction string, boundaryAt time.Time) error {
-	return s.GetQueries(ctx).QueueCurtailmentScheduleExecution(ctx, sqlc.QueueCurtailmentScheduleExecutionParams{RuleID: ruleID, Target: string(target), Direction: direction, BoundaryAt: boundaryAt})
+// boundary only replaces an older one, so a stopped window stays stopped; a
+// boundary from a schedule revision that is no longer saved is not queued.
+func (s *SQLCurtailmentStore) QueueScheduleAutomationExecution(ctx context.Context, ruleID int64, scheduleRevision uuid.UUID, target models.AutomationSignal, direction string, boundaryAt time.Time) error {
+	return s.GetQueries(ctx).QueueCurtailmentScheduleExecution(ctx, sqlc.QueueCurtailmentScheduleExecutionParams{RuleID: ruleID, ScheduleRevision: scheduleRevision, Target: string(target), Direction: direction, BoundaryAt: boundaryAt})
 }
 
 func (s *SQLCurtailmentStore) ClaimAutomationExecution(ctx context.Context) (*models.AutomationExecution, error) {
@@ -35,7 +37,7 @@ func (s *SQLCurtailmentStore) ClaimAutomationExecution(ctx context.Context) (*mo
 	if err != nil {
 		return nil, err
 	}
-	return &models.AutomationExecution{RuleID: row.RuleID, OrgID: row.OrgID, MQTTSourceID: row.MqttSourceID.Int64, Generation: row.Generation, Direction: row.Direction, Target: models.AutomationSignal(row.Target), TargetAt: row.TargetAt.Time, ReceivedAt: row.ReceivedAt, ReceivedBroker: row.ReceivedBroker, PriorEdgeAt: row.PriorEdgeAt.Time, LeaseExpiresAt: row.LeaseExpiresAt.Time}, nil
+	return &models.AutomationExecution{RuleID: row.RuleID, OrgID: row.OrgID, MQTTSourceID: row.MqttSourceID.Int64, Generation: row.Generation, Direction: row.Direction, Target: models.AutomationSignal(row.Target), TargetAt: row.TargetAt.Time, ReceivedAt: row.ReceivedAt, ReceivedBroker: row.ReceivedBroker, PriorEdgeAt: row.PriorEdgeAt.Time, LeaseExpiresAt: row.LeaseExpiresAt.Time, ScheduleRevision: row.ScheduleRevision.UUID}, nil
 }
 func (s *SQLCurtailmentStore) CompleteAutomationExecution(ctx context.Context, ruleID, generation int64, leaseExpiresAt time.Time) error {
 	return s.GetQueries(ctx).CompleteCurtailmentAutomationExecution(ctx, sqlc.CompleteCurtailmentAutomationExecutionParams{RuleID: ruleID, Generation: generation, LeaseExpiresAt: leaseExpiresAt})

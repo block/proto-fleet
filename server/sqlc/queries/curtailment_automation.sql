@@ -69,6 +69,7 @@ WHERE rule.id = sqlc.arg('id')
   AND rule.response_profile_id = sqlc.arg('response_profile_id')
   AND rule_revision.response_profile_revision = sqlc.arg('response_profile_revision')
   AND schedule.service_user_id = sqlc.arg('service_user_id')
+  AND schedule.revision = sqlc.arg('schedule_revision')
 FOR UPDATE OF rule, rule_revision, schedule;
 
 -- name: ListEnabledCurtailmentAutomationRulesByMQTTSource :many
@@ -462,15 +463,22 @@ WHERE rule_id = sqlc.arg('rule_id') AND lease_expires_at = sqlc.arg('lease_expir
 
 -- name: QueueCurtailmentScheduleExecution :exec
 -- Window boundaries are the assertion times, so re-queueing the same boundary
--- is a no-op even after it completed; a stopped window is not restarted.
-INSERT INTO curtailment_automation_execution (rule_id, mqtt_source_id, direction, target, target_at, received_at, received_broker, prior_edge_at)
-SELECT r.id, NULL, sqlc.arg('direction'), sqlc.arg('target'), sqlc.arg('boundary_at')::timestamptz, sqlc.arg('boundary_at')::timestamptz, '', NULL
-FROM curtailment_automation_rule r WHERE r.id = sqlc.arg('rule_id') AND r.enabled AND r.trigger_type = 'SCHEDULE'
+-- is a no-op even after it completed; a stopped window is not restarted. A
+-- boundary from an earlier schedule revision is not queued, and one from a
+-- newer revision replaces the row regardless of boundary order.
+INSERT INTO curtailment_automation_execution (rule_id, mqtt_source_id, direction, target, target_at, received_at, received_broker, prior_edge_at, schedule_revision)
+SELECT r.id, NULL, sqlc.arg('direction'), sqlc.arg('target'), sqlc.arg('boundary_at')::timestamptz, sqlc.arg('boundary_at')::timestamptz, '', NULL, schedule.revision
+FROM curtailment_automation_rule r
+JOIN curtailment_automation_schedule schedule ON schedule.rule_id = r.id
+WHERE r.id = sqlc.arg('rule_id') AND r.enabled AND r.trigger_type = 'SCHEDULE'
+  AND schedule.revision = sqlc.arg('schedule_revision')
 ON CONFLICT (rule_id) DO UPDATE SET generation = curtailment_automation_execution.generation + 1,
  direction = EXCLUDED.direction, target = EXCLUDED.target, target_at = EXCLUDED.target_at, received_at = EXCLUDED.received_at,
+ schedule_revision = EXCLUDED.schedule_revision,
  status = 'pending', attempts = 0, retry_at = now(), last_error = NULL
 WHERE curtailment_automation_execution.received_at < EXCLUDED.received_at
- OR (curtailment_automation_execution.received_at = EXCLUDED.received_at AND curtailment_automation_execution.target <> EXCLUDED.target);
+ OR (curtailment_automation_execution.received_at = EXCLUDED.received_at AND curtailment_automation_execution.target <> EXCLUDED.target)
+ OR curtailment_automation_execution.schedule_revision IS DISTINCT FROM EXCLUDED.schedule_revision;
 
 -- name: DeleteCurtailmentAutomationExecution :exec
 DELETE FROM curtailment_automation_execution WHERE rule_id = sqlc.arg('rule_id');
@@ -496,6 +504,7 @@ ON CONFLICT (rule_id) DO UPDATE SET
     day_of_month = EXCLUDED.day_of_month,
     until_date = EXCLUDED.until_date,
     service_user_id = EXCLUDED.service_user_id,
+    revision = gen_random_uuid(),
     updated_at = CURRENT_TIMESTAMP;
 
 -- name: ListCurtailmentAutomationSchedulesByOrg :many

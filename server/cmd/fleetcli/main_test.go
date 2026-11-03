@@ -420,7 +420,17 @@ func TestGeneratedReviewedCommandsRejectIncompleteRequestsLocally(t *testing.T) 
 		{
 			name: "automation create",
 			args: []string{"curtailment", "automation-rules", "create"},
-			want: "rule-name",
+			want: `required field "expected_response_profile_revision"`,
+		},
+		{
+			name: "automation create without a trigger source",
+			args: []string{
+				"curtailment", "automation-rules", "create",
+				"--rule-name", "Evening peak",
+				"--response-profile-id", "1",
+				"--expected-response-profile-revision", "00000000-0000-0000-0000-000000000001",
+			},
+			want: "MQTT rules require mqtt_source_id and no schedule",
 		},
 		{
 			name: "response profile partial fan settings update",

@@ -221,6 +221,14 @@ boundary runs once. A schedule saved, enabled, or recovered mid-window starts at
 for the rest of that window; windows that have already ended are skipped. Saving or
 enabling a schedule clears its mailbox so its current state is asserted again.
 
+Every save gives the schedule a new `revision`, and each queued boundary carries the
+revision it was produced from in `curtailment_automation_execution.schedule_revision`.
+A boundary from an earlier revision is not queued, is dropped by the worker, and cannot
+start an event: the event insert rechecks the revision under the rule's execution lock.
+A boundary from the saved revision replaces an earlier revision's row even when its time
+is earlier. A window's end restores only the event that window started, created before
+the window ended, so a delayed end boundary cannot stop a later window's event.
+
 Each window starts its own event with `source_actor_type` `scheduler` and
 `scheduled_start_at` set to the window's start. The event is never unbounded: its
 `max_duration_seconds` is the time left in the window, as a backstop for the window's

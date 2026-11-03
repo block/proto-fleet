@@ -10,6 +10,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/curtailment/models"
 	"github.com/block/proto-fleet/server/internal/domain/curtailment/schedulewindow"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/google/uuid"
 )
 
 const (
@@ -25,7 +26,7 @@ const (
 // boundaries into the per-rule execution mailbox.
 type ScheduleAutomationStore interface {
 	ListEnabledScheduleAutomationRules(ctx context.Context) ([]models.ScheduledAutomationRule, error)
-	QueueScheduleAutomationExecution(ctx context.Context, ruleID int64, target models.AutomationSignal, direction string, boundaryAt time.Time) error
+	QueueScheduleAutomationExecution(ctx context.Context, ruleID int64, scheduleRevision uuid.UUID, target models.AutomationSignal, direction string, boundaryAt time.Time) error
 }
 
 func (s *AutomationService) validateAutomationSchedule(rule models.AutomationRule) error {
@@ -87,16 +88,20 @@ func (s *AutomationService) produceScheduleAssertions(ctx context.Context) {
 		if !ok {
 			continue
 		}
-		if err := store.QueueScheduleAutomationExecution(ctx, rule.RuleID, target, direction, boundary); err != nil {
+		if err := store.QueueScheduleAutomationExecution(ctx, rule.RuleID, rule.Schedule.Revision, target, direction, boundary); err != nil {
 			slog.Error("queue curtailment schedule window", "rule_id", rule.RuleID, "error", err)
 		}
 	}
 }
 
-// handleScheduleExecution applies one queued window boundary. Boundaries that
-// no longer match the saved schedule, or windows already over, are dropped.
+// handleScheduleExecution applies one queued window boundary. Boundaries from
+// an earlier schedule revision or that no longer match the saved schedule, and
+// windows already over, are dropped.
 func (s *AutomationService) handleScheduleExecution(ctx context.Context, rule *models.AutomationRule, work *models.AutomationExecution) error {
 	if rule == nil || !rule.Enabled || rule.TriggerType != models.AutomationTriggerTypeSchedule || rule.Schedule == nil {
+		return nil
+	}
+	if work.ScheduleRevision != rule.Schedule.Revision {
 		return nil
 	}
 	at := work.ReceivedAt
@@ -114,10 +119,22 @@ func (s *AutomationService) handleScheduleExecution(ctx context.Context, rule *m
 		}
 		return s.startScheduleWindow(ctx, rule, *window, at)
 	case models.AutomationSignalOn:
+		window, err := rule.Schedule.Definition.LastEnded(at)
+		if err != nil {
+			return fleeterror.NewInvalidArgumentErrorf("invalid schedule: %v", err)
+		}
+		if window == nil || !window.End.Equal(at) {
+			return nil
+		}
 		if err := s.store.RecordAutomationSignal(ctx, rule.ID, models.AutomationSignalOn, at); err != nil {
 			return err
 		}
-		return s.handleRuleOn(ctx, rule, at)
+		// Only the event this window started is restored. An event created at
+		// or after the window's end belongs to a later window or to an edited
+		// schedule, even if it shares this window's start.
+		return s.restoreRuleEvent(ctx, rule, at, func(event *models.Event) bool {
+			return !eventStartedForWindow(event, *window) || !event.CreatedAt.Before(window.End)
+		})
 	default:
 		return fleeterror.NewInvalidArgumentErrorf("unsupported automation signal %q", work.Target)
 	}
@@ -193,6 +210,7 @@ func scheduleStartRequest(rule *models.AutomationRule, profile *models.ResponseP
 	startReq.AllowUnbounded = false
 	windowStart := window.Start
 	startReq.ScheduledStartAt = &windowStart
+	startReq.AutomationScheduleRevision = rule.Schedule.Revision
 	return startReq, true, nil
 }
 
