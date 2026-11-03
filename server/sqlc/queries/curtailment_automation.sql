@@ -507,6 +507,11 @@ ON CONFLICT (rule_id) DO UPDATE SET
     revision = gen_random_uuid(),
     updated_at = CURRENT_TIMESTAMP;
 
+-- name: RenewCurtailmentAutomationScheduleRevision :exec
+UPDATE curtailment_automation_schedule
+SET revision = gen_random_uuid()
+WHERE rule_id = sqlc.arg('rule_id');
+
 -- name: ListCurtailmentAutomationSchedulesByOrg :many
 SELECT schedule.*
 FROM curtailment_automation_schedule schedule

@@ -223,7 +223,8 @@ enabling a schedule clears its mailbox so its current state is asserted again. T
 schedule assertions run on their own ticker, and up to four rule executions run at once,
 so a slow or failing rule cannot hold back another rule's window.
 
-Every save gives the schedule a new `revision`, and each queued boundary carries the
+Every save, and enabling a disabled schedule, gives the schedule a new `revision`, and
+each queued boundary carries the
 revision it was produced from in `curtailment_automation_execution.schedule_revision`.
 A boundary from an earlier revision is not queued, is dropped by the worker, and cannot
 start an event: the event insert rechecks the revision under the rule's execution lock.
@@ -239,8 +240,10 @@ Each window starts its own event with `source_actor_type` `scheduler` and
 `max_duration_seconds` is the time left in the window, as a backstop for the window's
 end restore. A window does not take over a previous window's event; it waits until that
 event is no longer live. Any user with `curtailment:manage` can stop a scheduled event
-early, and the schedule curtails again at its next window. An admin force release does
-not disable the schedule. Rig fallback configuration includes only MQTT rules.
+early, and the schedule curtails again at its next window; a window's event that already
+ran under the current revision is not started again, even after it was stopped. An admin
+force release disables the schedule, as it does an MQTT rule; enabling it again runs its
+current window. Rig fallback configuration includes only MQTT rules.
 
 Rig fallback configuration is built per device from enabled, granted rules whose profile
 scopes select that device. A device outside all current scopes receives a disabled

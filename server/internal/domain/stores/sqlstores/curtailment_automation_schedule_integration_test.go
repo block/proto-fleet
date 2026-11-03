@@ -212,6 +212,31 @@ func TestSQLCurtailmentStore_ScheduleAutomationRuleLifecycle(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, rule.ActiveEventUUID)
 	assert.Equal(t, event.EventUUID, *rule.ActiveEventUUID)
+
+	// Cancel or Abort disables the owning schedule so later windows don't run.
+	released, err := store.ForceReleaseEvent(ctx, user.OrganizationID, event.EventUUID, "operator needs manual control")
+	require.NoError(t, err)
+	assert.True(t, released.AutomationDisabled)
+	rule, err = store.GetAutomationRule(ctx, user.OrganizationID, rule.ID)
+	require.NoError(t, err)
+	assert.False(t, rule.Enabled)
+	enabled, err = store.ListEnabledScheduleAutomationRules(ctx)
+	require.NoError(t, err)
+	for _, scheduled := range enabled {
+		assert.NotEqual(t, rule.ID, scheduled.RuleID, "a force-released schedule must not produce more windows")
+	}
+
+	// Re-enabling starts a new schedule revision so the current window runs
+	// again; enabling an enabled schedule keeps its revision.
+	stoppedRevision := rule.Schedule.Revision
+	rule, err = store.SetAutomationRuleEnabled(ctx, user.OrganizationID, rule.ID, true, profile.Revision, models.ResponseProfileFanSettings{}, true)
+	require.NoError(t, err)
+	assert.True(t, rule.Enabled)
+	assert.NotEqual(t, stoppedRevision, rule.Schedule.Revision)
+	enabledRevision := rule.Schedule.Revision
+	rule, err = store.SetAutomationRuleEnabled(ctx, user.OrganizationID, rule.ID, true, profile.Revision, models.ResponseProfileFanSettings{}, true)
+	require.NoError(t, err)
+	assert.Equal(t, enabledRevision, rule.Schedule.Revision)
 }
 
 func TestSQLCurtailmentStore_AutomationRuleTriggerConstraints(t *testing.T) {

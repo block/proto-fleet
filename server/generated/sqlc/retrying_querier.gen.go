@@ -10004,6 +10004,12 @@ func (q *retryingQuerier) RenameHostedAccount(ctx context.Context, arg RenameHos
 	})
 }
 
+func (q *retryingQuerier) RenewCurtailmentAutomationScheduleRevision(ctx context.Context, ruleID int64) error {
+	return q.retrier.RetryQuery(ctx, "RenewCurtailmentAutomationScheduleRevision", func() error {
+		return q.next.RenewCurtailmentAutomationScheduleRevision(ctx, ruleID)
+	})
+}
+
 func (q *retryingQuerier) RenewFleetRuntimeLease(ctx context.Context, arg RenewFleetRuntimeLeaseParams) (RenewFleetRuntimeLeaseRow, error) {
 	var result RenewFleetRuntimeLeaseRow
 	err := q.retrier.RetryQuery(ctx, "RenewFleetRuntimeLease", func() error {

@@ -648,6 +648,13 @@ func (s *SQLCurtailmentStore) SetAutomationRuleEnabled(
 			if rows != 1 {
 				return automationRuleMutationResult{noRows: true}, nil
 			}
+			// A re-enabled schedule runs its current window again, even one an
+			// operator stopped, so it starts a new schedule revision.
+			if !rule.Enabled && models.AutomationTriggerType(updated.TriggerType) == models.AutomationTriggerTypeSchedule {
+				if err := q.RenewCurtailmentAutomationScheduleRevision(ctx, ruleID); err != nil {
+					return automationRuleMutationResult{}, mapAutomationRuleWriteError("enable", err)
+				}
+			}
 			if err := saveAutomationExecutionBinding(ctx, q, updated.ID, updated.OrgID, adminControlsGranted, models.AutomationTriggerType(updated.TriggerType)); err != nil {
 				return automationRuleMutationResult{}, err
 			}
@@ -2037,9 +2044,11 @@ func (s *SQLCurtailmentStore) forceReleaseEvent(
 	}, nil
 }
 
+// isAutomationEvent reports whether an MQTT or schedule automation rule owns
+// the event; force release disables that rule.
 func isAutomationEvent(event *models.Event) bool {
 	return event != nil &&
-		event.SourceActorType == models.SourceActorAutomation &&
+		(event.SourceActorType == models.SourceActorAutomation || event.SourceActorType == models.SourceActorScheduler) &&
 		event.ExternalSource != nil &&
 		*event.ExternalSource == automationExternalSource
 }

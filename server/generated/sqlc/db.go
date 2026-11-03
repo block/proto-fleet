@@ -2724,6 +2724,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.renameHostedAccountStmt, err = db.PrepareContext(ctx, renameHostedAccount); err != nil {
 		return nil, fmt.Errorf("error preparing query RenameHostedAccount: %w", err)
 	}
+	if q.renewCurtailmentAutomationScheduleRevisionStmt, err = db.PrepareContext(ctx, renewCurtailmentAutomationScheduleRevision); err != nil {
+		return nil, fmt.Errorf("error preparing query RenewCurtailmentAutomationScheduleRevision: %w", err)
+	}
 	if q.renewFleetRuntimeLeaseStmt, err = db.PrepareContext(ctx, renewFleetRuntimeLease); err != nil {
 		return nil, fmt.Errorf("error preparing query RenewFleetRuntimeLease: %w", err)
 	}
@@ -7862,6 +7865,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing renameHostedAccountStmt: %w", cerr)
 		}
 	}
+	if q.renewCurtailmentAutomationScheduleRevisionStmt != nil {
+		if cerr := q.renewCurtailmentAutomationScheduleRevisionStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing renewCurtailmentAutomationScheduleRevisionStmt: %w", cerr)
+		}
+	}
 	if q.renewFleetRuntimeLeaseStmt != nil {
 		if cerr := q.renewFleetRuntimeLeaseStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing renewFleetRuntimeLeaseStmt: %w", cerr)
@@ -9856,6 +9864,7 @@ type Queries struct {
 	removeDevicesFromAnyRackStmt                                *sql.Stmt
 	removeDevicesFromDeviceSetStmt                              *sql.Stmt
 	renameHostedAccountStmt                                     *sql.Stmt
+	renewCurtailmentAutomationScheduleRevisionStmt              *sql.Stmt
 	renewFleetRuntimeLeaseStmt                                  *sql.Stmt
 	repairTicketContainsModuleStmt                              *sql.Stmt
 	requestRigConfigReconciliationForDevicesStmt                *sql.Stmt
@@ -10973,6 +10982,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		removeDevicesFromAnyRackStmt:                               q.removeDevicesFromAnyRackStmt,
 		removeDevicesFromDeviceSetStmt:                             q.removeDevicesFromDeviceSetStmt,
 		renameHostedAccountStmt:                                    q.renameHostedAccountStmt,
+		renewCurtailmentAutomationScheduleRevisionStmt:             q.renewCurtailmentAutomationScheduleRevisionStmt,
 		renewFleetRuntimeLeaseStmt:                                 q.renewFleetRuntimeLeaseStmt,
 		repairTicketContainsModuleStmt:                             q.repairTicketContainsModuleStmt,
 		requestRigConfigReconciliationForDevicesStmt:               q.requestRigConfigReconciliationForDevicesStmt,

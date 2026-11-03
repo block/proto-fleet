@@ -2319,6 +2319,7 @@ type Querier interface {
 	// count to the prior :execrows shape.
 	RemoveDevicesFromDeviceSet(ctx context.Context, arg RemoveDevicesFromDeviceSetParams) ([]string, error)
 	RenameHostedAccount(ctx context.Context, arg RenameHostedAccountParams) error
+	RenewCurtailmentAutomationScheduleRevision(ctx context.Context, ruleID int64) error
 	RenewFleetRuntimeLease(ctx context.Context, arg RenewFleetRuntimeLeaseParams) (RenewFleetRuntimeLeaseRow, error)
 	RepairTicketContainsModule(ctx context.Context, arg RepairTicketContainsModuleParams) (bool, error)
 	// Lock/update the organization before writing targets. Completion and terminal

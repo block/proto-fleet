@@ -1147,6 +1147,17 @@ func (q *Queries) QueueCurtailmentScheduleExecution(ctx context.Context, arg Que
 	return err
 }
 
+const renewCurtailmentAutomationScheduleRevision = `-- name: RenewCurtailmentAutomationScheduleRevision :exec
+UPDATE curtailment_automation_schedule
+SET revision = gen_random_uuid()
+WHERE rule_id = $1
+`
+
+func (q *Queries) RenewCurtailmentAutomationScheduleRevision(ctx context.Context, ruleID int64) error {
+	_, err := q.exec(ctx, q.renewCurtailmentAutomationScheduleRevisionStmt, renewCurtailmentAutomationScheduleRevision, ruleID)
+	return err
+}
+
 const retryCurtailmentAutomationExecution = `-- name: RetryCurtailmentAutomationExecution :exec
 UPDATE curtailment_automation_execution SET status = CASE WHEN generation = $1 THEN 'retry' ELSE status END, lease_expires_at = NULL,
  retry_at = CASE WHEN generation = $1 THEN now() + LEAST(300, 5 * attempts) * interval '1 second' ELSE retry_at END, last_error = CASE WHEN generation = $1 THEN $2 ELSE last_error END

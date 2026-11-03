@@ -414,6 +414,44 @@ func TestAutomationService_ScheduleDropsStaleOrEndedWindows(t *testing.T) {
 	})
 }
 
+func TestAutomationService_ScheduleRetriedStartAfterOperatorStop(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name        string
+		newRevision bool
+		wantInserts int
+	}{
+		{"same revision does not run the window again", false, 1},
+		{"re-enabled schedule runs the window again", true, 2},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			h, durable := newScheduleHarness(t)
+			h.automation.produceScheduleAssertions(t.Context())
+			work := durable.pending[0]
+			h.automation.processDueExecutions(t.Context())
+			require.Equal(t, 1, h.curtailments.insertEventCalls)
+
+			// The start's acknowledgement was lost, and an operator stopped the
+			// window's event before its lease expired.
+			start := scheduleWindowStart
+			h.curtailments.eventsByUUID[*h.rule.ActiveEventUUID] = &models.Event{
+				EventUUID: *h.rule.ActiveEventUUID, OrgID: h.orgID, State: models.EventStateCompleted,
+				ScheduledStartAt: &start, DecisionSnapshotJSON: scheduleDecisionSnapshot(h.rule.Schedule.Revision),
+			}
+			if tt.newRevision {
+				h.rule.Schedule.Revision = uuid.New()
+				work.ScheduleRevision = h.rule.Schedule.Revision
+			}
+			durable.pending = []models.AutomationExecution{work}
+			h.automation.processDueExecutions(t.Context())
+
+			assert.Equal(t, tt.wantInserts, h.curtailments.insertEventCalls)
+		})
+	}
+}
+
 func TestAutomationService_ScheduleEditRequeuesEarlierBoundary(t *testing.T) {
 	t.Parallel()
 	h, durable := newScheduleHarness(t)

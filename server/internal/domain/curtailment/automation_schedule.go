@@ -148,10 +148,13 @@ func (s *AutomationService) startScheduleWindow(ctx context.Context, rule *model
 		if err != nil && !fleeterror.IsNotFoundError(err) {
 			return err
 		}
+		// The window's event is live, or it already ran under this schedule
+		// revision and was stopped; a retried start must not run the window again.
+		if event != nil && eventStartedForWindow(event, window) &&
+			(!event.State.IsTerminal() || eventScheduleRevision(event) == rule.Schedule.Revision) {
+			return nil
+		}
 		if event != nil && !event.State.IsTerminal() {
-			if eventStartedForWindow(event, window) {
-				return nil
-			}
 			return errWaitingForPreviousScheduleWindow()
 		}
 	}
