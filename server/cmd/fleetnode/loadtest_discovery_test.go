@@ -32,23 +32,37 @@ func TestLoadtestDiscoveryConfigContract(t *testing.T) {
 	require.NotEmpty(t, cases)
 	for _, tc := range cases {
 		t.Run(tc.Name, func(t *testing.T) {
+			// Arrange
 			configuration := filepath.Join(t.TempDir(), "config.yaml")
 			require.NoError(t, os.WriteFile(configuration, []byte(tc.Configuration), 0600))
 			var cli CLI
 			parser, err := kong.New(&cli, kong.Configuration(kongyaml.Loader, configuration), kong.Vars{"version": "test"})
 			require.NoError(t, err)
+
+			// Act
 			_, err = parser.Parse([]string{"run"})
+
+			// Assert
 			require.NoError(t, err)
+
+			// Act
 			advertised, err := cli.Run.effectiveDiscoveryConfig()
+
+			// Assert
 			require.NoError(t, err)
 			require.NotEmpty(t, advertised.GetRanges(), "advertised discovery ranges must cover the generated inventory")
 			require.NotEmpty(t, tc.Addresses)
 			require.NotEmpty(t, tc.Excluded)
 			for batch := range slices.Chunk(tc.Addresses, 1024) {
+				// Arrange
 				discoverer := &scopeRecordingDiscoverer{stubDiscoverer: &stubDiscoverer{}}
 				cli.Run.discoverer = discoverer
 				requested := append(slices.Clone(batch), tc.Excluded...)
+
+				// Act
 				_, truncated, err := cli.Run.discoverForCommand(t.Context(), discoverIPList(requested, []string{"4028"}), discardLogger(t))
+
+				// Assert
 				require.NoError(t, err)
 				require.False(t, truncated)
 				want := make([]string, len(batch))
@@ -57,7 +71,11 @@ func TestLoadtestDiscoveryConfigContract(t *testing.T) {
 				}
 				require.ElementsMatch(t, want, discoverer.probed, "all in-scope endpoints and no excluded addresses reach plugins")
 			}
+
+			// Act
 			_, err = cli.Run.networkScanTargets(t.Context(), discoverNetworkScan(netscan.LocalSubnetTarget, []string{"4028"}).GetNetworkScan())
+
+			// Assert
 			require.ErrorContains(t, err, "automatic scan exceeds", "the full pair still needs bounded explicit discovery commands")
 		})
 	}

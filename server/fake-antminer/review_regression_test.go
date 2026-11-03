@@ -19,6 +19,7 @@ import (
 )
 
 func TestLoadDigestChallengeIsPerMiner(t *testing.T) {
+	// Arrange
 	fleet := loadTestFleet(t, "127.0.0.1\n127.0.0.2\n")
 	const path = "/cgi-bin/stats.cgi"
 	challenge := func(destination string) string {
@@ -46,7 +47,11 @@ func TestLoadDigestChallengeIsPerMiner(t *testing.T) {
 		request := localRequest("GET", path, trial.destination, "")
 		request.Header.Set("Authorization", trial.auth)
 		response := httptest.NewRecorder()
+
+		// Act
 		fleet.ServeHTTP(response, request)
+
+		// Assert
 		if response.Code != trial.status {
 			t.Errorf("destination %s: got %d want %d", trial.destination, response.Code, trial.status)
 		}
@@ -81,6 +86,8 @@ func TestShutdownMetricsIncludeInFlightHTTPAndRPC(t *testing.T) {
 	if testing.Short() {
 		t.Skip("fixture subprocess")
 	}
+
+	// Arrange
 	addressesForServer := make([]string, 2)
 	for i := range addressesForServer {
 		listener, err := net.Listen("tcp4", "127.0.0.1:0")
@@ -102,7 +109,7 @@ func TestShutdownMetricsIncludeInFlightHTTPAndRPC(t *testing.T) {
 		t.Fatal(err)
 	}
 	command := exec.Command(binary, "-test.run=^TestRunFixtureMain$")
-	command.Env = append(os.Environ(), "FAKE_ANTMINER_TEST_MAIN=1", "FAKE_ANTMINER_TEST_ENTERED="+entered, "FAKE_ANTMINER_TEST_RPC="+addressesForServer[0], "FAKE_ANTMINER_TEST_HTTP="+addressesForServer[1], "FAKE_MINER_ADDRESSES_FILE="+addresses, "FAKE_MINER_RESPONSE_DELAY=1s", "FAKE_MINER_METRICS_FILE="+metrics)
+	command.Env = append(os.Environ(), "FAKE_ANTMINER_TEST_MAIN=1", "FAKE_ANTMINER_TEST_ENTERED="+entered, "FAKE_ANTMINER_TEST_RPC="+addressesForServer[0], "FAKE_ANTMINER_TEST_HTTP="+addressesForServer[1], "FAKE_MINER_ADDRESSES_FILE="+addresses, "FAKE_MINER_RESPONSE_DELAY=2s", "FAKE_MINER_METRICS_FILE="+metrics)
 	stderr, err := command.StderrPipe()
 	if err != nil {
 		t.Fatal(err)
@@ -129,6 +136,8 @@ func TestShutdownMetricsIncludeInFlightHTTPAndRPC(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("fixture did not listen")
 	}
+
+	// Act
 	web, err := net.DialTimeout("tcp4", addressesForServer[1], time.Second)
 	if err != nil {
 		t.Fatal(err)
@@ -137,16 +146,8 @@ func TestShutdownMetricsIncludeInFlightHTTPAndRPC(t *testing.T) {
 	if _, err := io.WriteString(web, "GET /health HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n"); err != nil {
 		t.Fatal(err)
 	}
-	rpc, err := net.DialTimeout("tcp4", addressesForServer[0], time.Second)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer rpc.Close()
-	if _, err := io.WriteString(rpc, `{"command":"summary"}`); err != nil {
-		t.Fatal(err)
-	}
-	// Wait for the test-only marker inside the actual HTTP handler. RPC is
-	// either delaying or complete; either outcome must appear in final totals.
+	// The HTTP marker appears only after the response delay, so the RPC is sent
+	// afterwards to guarantee it is still delayed when SIGTERM arrives.
 	deadline := time.Now().Add(5 * time.Second)
 	for {
 		if _, err := os.Stat(entered); err == nil {
@@ -157,6 +158,16 @@ func TestShutdownMetricsIncludeInFlightHTTPAndRPC(t *testing.T) {
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
+	rpc, err := net.DialTimeout("tcp4", addressesForServer[0], time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rpc.Close()
+	if _, err := io.WriteString(rpc, `{"command":"summary"}`); err != nil {
+		t.Fatal(err)
+	}
+	// The server logs nothing in load mode, so acceptance is not observable.
+	time.Sleep(200 * time.Millisecond)
 	if err := command.Process.Signal(syscall.SIGTERM); err != nil {
 		t.Fatal(err)
 	}
@@ -170,6 +181,8 @@ func TestShutdownMetricsIncludeInFlightHTTPAndRPC(t *testing.T) {
 	case <-time.After(8 * time.Second):
 		t.Fatal("shutdown did not finish")
 	}
+
+	// Assert
 	data, err := os.ReadFile(metrics)
 	if err != nil {
 		t.Fatal(err)
@@ -184,5 +197,8 @@ func TestShutdownMetricsIncludeInFlightHTTPAndRPC(t *testing.T) {
 	}
 	if final.Operations["http:/health"].Requests != 1 || final.Operations["rpc:summary"].Requests != 1 {
 		t.Fatalf("final metrics lost accepted requests: %s", data)
+	}
+	if final.Operations["http:/health"].Errors != 0 || final.Operations["rpc:summary"].Errors != 0 {
+		t.Fatalf("in-flight requests were aborted at shutdown: %s", data)
 	}
 }

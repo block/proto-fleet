@@ -14,6 +14,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"sync/atomic"
 	"syscall"
@@ -24,25 +25,40 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// secondLocalIPv4 returns a second destination for the fixture's wildcard
+// listener. Linux routes all of 127.0.0.0/8 to loopback listeners; elsewhere a
+// LAN address is needed.
+func secondLocalIPv4(t *testing.T) string {
+	t.Helper()
+	if runtime.GOOS == "linux" {
+		return "127.0.0.2"
+	}
+	addresses, err := net.InterfaceAddrs()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, address := range addresses {
+		network, ok := address.(*net.IPNet)
+		if ok && network.IP.To4() != nil && !network.IP.IsLoopback() && !network.IP.IsLinkLocalUnicast() {
+			return network.IP.String()
+		}
+	}
+	if os.Getenv("CI") != "" {
+		t.Fatal("two-destination test needs a second local IPv4 address")
+	}
+	t.Skip("two-destination test needs a second local IPv4 address")
+	return ""
+}
+
 // Exercise the owning fixture through the current plugin rather than duplicating
 // its REST expectations. Both destinations reach one wildcard TLS listener.
 func TestLoadFixtureProtoRESTContract(t *testing.T) {
 	if testing.Short() {
 		t.Skip("builds and runs the owning fixture")
 	}
-	addresses, err := net.InterfaceAddrs()
-	require.NoError(t, err)
-	secondIP := ""
-	for _, address := range addresses {
-		ip, ok := address.(*net.IPNet)
-		if ok && ip.IP.To4() != nil && !ip.IP.IsLoopback() && !ip.IP.IsLinkLocalUnicast() {
-			secondIP = ip.IP.String()
-			break
-		}
-	}
-	if secondIP == "" {
-		t.Skip("two-destination test needs another local IPv4 interface")
-	}
+
+	// Arrange
+	secondIP := secondLocalIPv4(t)
 	directory := t.TempDir()
 	binary := filepath.Join(directory, "fake-proto-rig")
 	build := exec.CommandContext(t.Context(), "go", "build", "-o", binary, ".")
@@ -95,6 +111,8 @@ func TestLoadFixtureProtoRESTContract(t *testing.T) {
 	d, err := New(port)
 	require.NoError(t, err)
 	credentials := sdk.SecretBundle{Version: "v1", Kind: sdk.UsernamePassword{Username: "admin", Password: "load-password"}}
+
+	// Act
 	var infos []sdk.DeviceInfo
 	var devices []sdk.Device
 	for index, ip := range []string{"127.0.0.1", secondIP} {
@@ -111,12 +129,22 @@ func TestLoadFixtureProtoRESTContract(t *testing.T) {
 		infos = append(infos, info)
 		devices = append(devices, device)
 	}
+
+	// Assert
 	require.NotEqual(t, infos[0].SerialNumber, infos[1].SerialNumber)
 	require.NotEqual(t, infos[0].MacAddress, infos[1].MacAddress)
+
+	// Act
 	wrong := sdk.SecretBundle{Version: "v1", Kind: sdk.UsernamePassword{Username: "admin", Password: "wrong-password"}}
 	_, err = d.PairDevice(t.Context(), infos[0], wrong)
+
+	// Assert
 	require.Error(t, err, "fixture must reject incorrect credentials")
+
+	// Act
 	require.NoError(t, devices[0].UpdateMiningPools(t.Context(), []sdk.MiningPoolConfig{{URL: "stratum+tcp://pool.example:3333", WorkerName: "worker-a", Password: "pool-password"}}))
+
+	// Arrange
 	// The fixture-only audit reads the effect of the production LED write.
 	// Before the existing per-device checks blink both rigs, prove isolation.
 	roots := x509.NewCertPool()
@@ -124,7 +152,11 @@ func TestLoadFixtureProtoRESTContract(t *testing.T) {
 	transport := &http.Transport{TLSClientConfig: &tls.Config{RootCAs: roots, ServerName: "127.0.0.1", MinVersion: tls.VersionTLS12}}
 	t.Cleanup(transport.CloseIdleConnections)
 	auditClient := &http.Client{Transport: transport, Timeout: 3 * time.Second}
+
+	// Act
 	require.NoError(t, devices[0].BlinkLED(t.Context()))
+
+	// Assert
 	for index, ip := range []string{"127.0.0.1", secondIP} {
 		active, status := readProtoLoadLEDAudit(t, auditClient, ip, port, "load-password")
 		require.Equal(t, http.StatusOK, status)
@@ -147,6 +179,7 @@ func TestLoadFixtureProtoRESTContract(t *testing.T) {
 	}
 
 	t.Run("applied write with lost acknowledgement is not replayed", func(t *testing.T) {
+		// Arrange
 		var attemptedWrites, appliedWrites atomic.Int32
 		proxy := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
 			forwarded := request.Clone(request.Context())
@@ -195,7 +228,11 @@ func TestLoadFixtureProtoRESTContract(t *testing.T) {
 		result, err := d.NewDevice(t.Context(), "lost-ack-rig", paired, credentials)
 		require.NoError(t, err)
 		defer func() { require.NoError(t, result.Device.Close(t.Context())) }()
+
+		// Act
 		err = result.Device.UpdateMiningPools(t.Context(), []sdk.MiningPoolConfig{{URL: "stratum+tcp://lost-ack.example:3333", WorkerName: "applied-without-ack", Password: "pool-secret"}})
+
+		// Assert
 		require.Error(t, err, "lost acknowledgement must not report success")
 		// Independent native readback bypasses the proxy that dropped the ACK.
 		pools, err := devices[0].GetMiningPools(t.Context())
@@ -207,7 +244,10 @@ func TestLoadFixtureProtoRESTContract(t *testing.T) {
 		require.EqualValues(t, 1, appliedWrites.Load())
 	})
 
+	// Act
 	require.NoError(t, devices[0].UpdateMinerPassword(t.Context(), "load-password", "changed-password"))
+
+	// Assert
 	changed := sdk.SecretBundle{Version: "v1", Kind: sdk.UsernamePassword{Username: "admin", Password: "changed-password"}}
 	_, err = d.PairDevice(t.Context(), infos[0], credentials)
 	require.Error(t, err, "changed destination must reject its old password")

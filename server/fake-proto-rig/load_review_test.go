@@ -13,6 +13,7 @@ import (
 func TestCanceledLoadOperationRetainsItsRegisteredRoute(t *testing.T) {
 	for _, mode := range []string{"single", "multiple"} {
 		t.Run(mode, func(t *testing.T) {
+			// Arrange
 			var handler http.Handler = newRESTAPIHandler(NewMinerState("single", "02:00:00:00:00:01"))
 			if mode == "multiple" {
 				multi, err := newMultiMinerHandler(addressFile(t, "127.0.0.1\n"))
@@ -30,7 +31,11 @@ func TestCanceledLoadOperationRetainsItsRegisteredRoute(t *testing.T) {
 			cancel()
 			ctx = context.WithValue(ctx, http.LocalAddrContextKey, &net.TCPAddr{IP: net.ParseIP("127.0.0.1"), Port: 443})
 			request := httptest.NewRequest(http.MethodPost, "/api/v1/mining/stop", nil).WithContext(ctx)
+
+			// Act
 			instrumentMinerHandler(handler, time.Second, metrics).ServeHTTP(httptest.NewRecorder(), request)
+
+			// Assert
 			metrics.mu.Lock()
 			defer metrics.mu.Unlock()
 			value := metrics.operations["http:/api/v1/mining/stop"]

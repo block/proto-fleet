@@ -109,7 +109,12 @@ type metricsResponseWriter struct {
 }
 
 func (w *metricsResponseWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
-	return http.NewResponseController(w.ResponseWriter).Hijack()
+	conn, rw, err := http.NewResponseController(w.ResponseWriter).Hijack()
+	if err == nil && w.status == 0 {
+		// Hijacking only simulates a dropped connection, so record it as a failure.
+		w.status = http.StatusServiceUnavailable
+	}
+	return conn, rw, err
 }
 
 func (w *metricsResponseWriter) Unwrap() http.ResponseWriter { return w.ResponseWriter }

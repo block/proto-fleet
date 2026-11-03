@@ -16,6 +16,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -24,30 +25,43 @@ import (
 	"github.com/block/proto-fleet/server/sdk/v1"
 )
 
+// secondLocalIPv4 returns a second destination for the fixture's wildcard
+// listener. Linux routes all of 127.0.0.0/8 to loopback listeners; elsewhere a
+// LAN address is needed.
+func secondLocalIPv4(t *testing.T) string {
+	t.Helper()
+	if runtime.GOOS == "linux" {
+		return "127.0.0.2"
+	}
+	addresses, err := net.InterfaceAddrs()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, address := range addresses {
+		network, ok := address.(*net.IPNet)
+		if ok && network.IP.To4() != nil && !network.IP.IsLoopback() && !network.IP.IsLinkLocalUnicast() {
+			return network.IP.String()
+		}
+	}
+	if os.Getenv("CI") != "" {
+		t.Fatal("two-destination test needs a second local IPv4 address")
+	}
+	t.Skip("two-destination test needs a second local IPv4 address")
+	return ""
+}
+
 // Exercise the owning fixture and production client together over real sockets;
 // canned API responses would not detect state or credential leaks in dispatch.
 func TestLoadFixtureContract(t *testing.T) {
 	if testing.Short() {
 		t.Skip("fixture subprocess contract")
 	}
+
+	// Arrange
 	for _, key := range []string{"HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "all_proxy"} {
 		t.Setenv(key, "")
 	}
-	addresses := []string{"127.0.0.1"}
-	interfaces, err := net.InterfaceAddrs()
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, addr := range interfaces {
-		ip, _, err := net.ParseCIDR(addr.String())
-		if err == nil && ip.To4() != nil && !ip.IsLoopback() {
-			addresses = append(addresses, ip.String())
-			break
-		}
-	}
-	if len(addresses) != 2 {
-		t.Skip("requires two locally routable IPv4 addresses")
-	}
+	addresses := []string{"127.0.0.1", secondLocalIPv4(t)}
 	fixtureDir, err := filepath.Abs("../../../../server/fake-antminer")
 	if err != nil {
 		t.Fatal(err)
@@ -96,6 +110,8 @@ func TestLoadFixtureContract(t *testing.T) {
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
+
+	// Act
 	clients := make([]*antminer.Client, 2)
 	identities := make([]*antminer.DeviceInfo, 2)
 	for i, address := range addresses {
@@ -117,16 +133,26 @@ func TestLoadFixtureContract(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+
+	// Assert
 	if identities[0].SerialNumber == identities[1].SerialNumber || identities[0].MacAddress == identities[1].MacAddress {
 		t.Fatal("destination identities collided")
 	}
+
+	// Act
 	telemetry, err := clients[0].GetTelemetry(t.Context())
+
+	// Assert
 	if err != nil || telemetry.HashrateHS == nil || *telemetry.HashrateHS <= 0 || len(telemetry.HashBoards) != 3 {
 		t.Fatalf("telemetry: %+v %v", telemetry, err)
 	}
+
+	// Act
 	if err := clients[0].StopMining(t.Context()); err != nil {
 		t.Fatal(err)
 	}
+
+	// Assert
 	first, err := clients[0].GetSummary(t.Context())
 	if err != nil || first.Summary[0].GHS5s != 0 {
 		t.Fatalf("HTTP sleep not reflected by TCP: %+v %v", first, err)
@@ -135,9 +161,13 @@ func TestLoadFixtureContract(t *testing.T) {
 	if err != nil || second.Summary[0].GHS5s <= 0 {
 		t.Fatalf("sleep leaked: %+v %v", second, err)
 	}
+
+	// Act
 	if err := clients[0].UpdatePools(t.Context(), []antminer.Pool{{URL: "stratum+tcp://changed:3333", WorkerName: "changed", Password: "secret"}}); err != nil {
 		t.Fatal(err)
 	}
+
+	// Assert
 	pools, err := clients[0].GetPools(t.Context())
 	if err != nil || pools.Pools[0].User != "changed" {
 		t.Fatalf("HTTP pool write not reflected by TCP: %+v %v", pools, err)
@@ -148,6 +178,7 @@ func TestLoadFixtureContract(t *testing.T) {
 	}
 
 	t.Run("applied write with lost acknowledgement is not replayed", func(t *testing.T) {
+		// Arrange
 		var authenticatedWrites, appliedWrites atomic.Int32
 		transport := &http.Transport{}
 		defer transport.CloseIdleConnections()
@@ -198,7 +229,11 @@ func TestLoadFixtureContract(t *testing.T) {
 		if err := client.Pair(t.Context(), sdk.UsernamePassword{Username: "root", Password: "root"}); err != nil {
 			t.Fatal(err)
 		}
+
+		// Act
 		err = client.UpdatePools(t.Context(), []antminer.Pool{{URL: "stratum+tcp://lost-ack:3333", WorkerName: "applied-without-ack", Password: "secret"}})
+
+		// Assert
 		if err == nil {
 			t.Fatal("lost acknowledgement reported success")
 		}
@@ -210,42 +245,67 @@ func TestLoadFixtureContract(t *testing.T) {
 			t.Fatalf("uncertain write replayed: authenticated=%d applied=%d", got, applied)
 		}
 	})
+
+	// Act
 	if err := clients[0].BlinkLED(t.Context(), time.Minute); err != nil {
 		t.Fatal(err)
 	}
+
+	// Assert
 	for i, address := range addresses {
 		active, status := readLoadLEDAudit(t, address, webPort, "root")
 		if status != http.StatusOK || active != (i == 0) {
 			t.Fatalf("destination %s LED audit: active=%v status=%d", address, active, status)
 		}
 	}
+
+	// Act
 	if err := clients[0].ChangePassword(t.Context(), "root", "changed-password"); err != nil {
 		t.Fatal(err)
 	}
+
+	// Assert
 	if _, status := readLoadLEDAudit(t, addresses[1], webPort, "changed-password"); status != http.StatusUnauthorized {
 		t.Fatalf("other destination's changed password accepted by LED audit: %d", status)
 	}
+
+	// Act
 	if err := clients[1].SetCredentials(sdk.UsernamePassword{Username: "root", Password: "changed-password"}); err != nil {
 		t.Fatal(err)
 	}
+
+	// Assert
 	if _, err := clients[1].GetDeviceInfo(t.Context()); err == nil {
 		t.Fatal("another IP accepted changed password")
 	}
+
+	// Act
 	if err := clients[1].SetCredentials(sdk.UsernamePassword{Username: "root", Password: "root"}); err != nil {
 		t.Fatal(err)
 	}
+
+	// Assert
 	if _, err := clients[1].GetDeviceInfo(t.Context()); err != nil {
 		t.Fatalf("other miner default credential changed: %v", err)
 	}
+
+	// Act
 	if err := clients[0].SetCredentials(sdk.UsernamePassword{Username: "root", Password: "root"}); err != nil {
 		t.Fatal(err)
 	}
+
+	// Assert
 	if _, err := clients[0].GetDeviceInfo(t.Context()); err == nil {
 		t.Fatal("changed miner accepted old password")
 	}
 	deadlineCtx, stop := context.WithTimeout(t.Context(), time.Millisecond)
 	defer stop()
-	if _, err := clients[1].GetDeviceInfo(deadlineCtx); err == nil {
+
+	// Act
+	_, err = clients[1].GetDeviceInfo(deadlineCtx)
+
+	// Assert
+	if err == nil {
 		t.Fatal("deadline did not expire against delayed fixture")
 	}
 }

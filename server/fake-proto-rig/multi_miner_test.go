@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"testing"
@@ -89,11 +90,16 @@ func rigRequest(t *testing.T, client *http.Client, method, url, token string, bo
 }
 
 func TestServerUsesAddressAllowlist(t *testing.T) {
+	// Arrange
 	t.Setenv("FAKE_MINER_ADDRESSES_FILE", addressFile(t, "127.0.0.1\n"))
 	base := startRigServer(t)
 	client := &http.Client{Transport: &http.Transport{Proxy: nil}, Timeout: time.Second}
 	defer client.CloseIdleConnections()
+
+	// Act
 	status, body := rigRequest(t, client, "GET", base+"/api/v1/pairing/info", "", nil)
+
+	// Assert
 	if status != http.StatusOK {
 		t.Fatalf("pairing status %d: %s", status, body)
 	}
@@ -106,8 +112,14 @@ func TestServerUsesAddressAllowlist(t *testing.T) {
 	}
 }
 
+// otherLocalIPv4 returns a second destination for the fixture's wildcard
+// listener. Linux routes all of 127.0.0.0/8 to loopback listeners; elsewhere a
+// LAN address is needed.
 func otherLocalIPv4(t *testing.T) string {
 	t.Helper()
+	if runtime.GOOS == "linux" {
+		return "127.0.0.2"
+	}
 	addresses, err := net.InterfaceAddrs()
 	if err != nil {
 		t.Fatal(err)
@@ -118,7 +130,10 @@ func otherLocalIPv4(t *testing.T) string {
 			return network.IP.String()
 		}
 	}
-	t.Skip("two-destination socket test needs a second local IPv4 interface")
+	if os.Getenv("CI") != "" {
+		t.Fatal("two-destination test needs a second local IPv4 address")
+	}
+	t.Skip("two-destination test needs a second local IPv4 address")
 	return ""
 }
 
@@ -139,6 +154,7 @@ func rigLogin(t *testing.T, client *http.Client, base, password string) string {
 }
 
 func TestMultiMinerSocketStateAndCredentialsAreIsolated(t *testing.T) {
+	// Arrange
 	secondIP := otherLocalIPv4(t)
 	t.Setenv("FAKE_MINER_ADDRESSES_FILE", addressFile(t, "127.0.0.1\n"+secondIP+"\n"))
 	t.Setenv("FAKE_RIG_PASSWORD", "initial-password")
@@ -146,6 +162,8 @@ func TestMultiMinerSocketStateAndCredentialsAreIsolated(t *testing.T) {
 	second := strings.Replace(first, "127.0.0.1", secondIP, 1)
 	client := &http.Client{Transport: &http.Transport{Proxy: nil}, Timeout: time.Second}
 	defer client.CloseIdleConnections()
+
+	// Act
 	var identities []PairingInfoResponse
 	for _, base := range []string{first, second} {
 		status, body := rigRequest(t, client, "GET", base+"/api/v1/pairing/info", "", nil)
@@ -158,16 +176,26 @@ func TestMultiMinerSocketStateAndCredentialsAreIsolated(t *testing.T) {
 		}
 		identities = append(identities, identity)
 	}
+
+	// Assert
 	if identities[0].CBSN == identities[1].CBSN || identities[0].MAC == identities[1].MAC {
 		t.Fatalf("duplicate identities: %+v", identities)
 	}
+
+	// Act
 	tokenA, tokenB := rigLogin(t, client, first, "initial-password"), rigLogin(t, client, second, "initial-password")
+
+	// Assert
 	if status, body := rigRequest(t, client, "GET", second+"/api/v1/pools", tokenA, nil); status != http.StatusUnauthorized {
 		t.Fatalf("cross-miner token accepted: %d %s", status, body)
 	}
+
+	// Act
 	if status, body := rigRequest(t, client, "POST", first+"/api/v1/pools", tokenA, strings.NewReader(`[{"url":"stratum+tcp://pool.example:3333","username":"worker-a","password":"secret-a"}]`)); status != http.StatusOK {
 		t.Fatalf("pool write: %d %s", status, body)
 	}
+
+	// Assert
 	for index, base := range []string{first, second} {
 		token := []string{tokenA, tokenB}[index]
 		status, body := rigRequest(t, client, "GET", base+"/api/v1/pools", token, nil)
@@ -185,9 +213,13 @@ func TestMultiMinerSocketStateAndCredentialsAreIsolated(t *testing.T) {
 			t.Fatalf("pool state leaked: %s", body)
 		}
 	}
+
+	// Act
 	if status, body := rigRequest(t, client, "PUT", first+"/api/v1/auth/change-password", tokenA, strings.NewReader(`{"current_password":"initial-password","new_password":"changed-password"}`)); status != http.StatusOK {
 		t.Fatalf("password write: %d %s", status, body)
 	}
+
+	// Assert
 	if status, body := rigRequest(t, client, "POST", first+"/api/v1/auth/login", "", strings.NewReader(`{"password":"initial-password"}`)); status != http.StatusUnauthorized {
 		t.Fatalf("old password accepted: %d %s", status, body)
 	}
@@ -196,44 +228,67 @@ func TestMultiMinerSocketStateAndCredentialsAreIsolated(t *testing.T) {
 }
 
 func TestAddressAllowlistRejectsOtherSocketDestinations(t *testing.T) {
+	// Arrange
 	secondIP := otherLocalIPv4(t)
 	t.Setenv("FAKE_MINER_ADDRESSES_FILE", addressFile(t, "127.0.0.1\n"))
 	base := strings.Replace(startRigServer(t), "127.0.0.1", secondIP, 1)
 	client := &http.Client{Transport: &http.Transport{Proxy: nil}, Timeout: time.Second}
 	defer client.CloseIdleConnections()
 	for _, path := range []string{"/api/v1/pairing/info", "/health", "/api/v1/auth/login"} {
-		if status, body := rigRequest(t, client, "GET", base+path, "", nil); status != http.StatusNotFound {
+		// Act
+		status, body := rigRequest(t, client, "GET", base+path, "", nil)
+
+		// Assert
+		if status != http.StatusNotFound {
 			t.Fatalf("unlisted socket destination returned %d: %s", status, body)
 		}
 	}
 }
 
 func TestMultiMinerIdentityIsStableAndAddressFileIsExact(t *testing.T) {
+	// Arrange
 	path := addressFile(t, "127.0.0.1\n127.0.0.1\n192.0.2.3\n")
+
+	// Act
 	first, err := newMultiMinerHandler(path)
 	if err != nil {
 		t.Fatal(err)
 	}
+
+	// Assert
 	if len(first.miners) != 2 {
 		t.Fatalf("address entries: %d", len(first.miners))
 	}
+
+	// Act
 	serial, mac := minerIdentityForIP(net.ParseIP("192.0.2.3"))
+
+	// Assert
 	if serial != "PROTO-SIM-C0000203" || mac != "02:00:C0:00:02:03" {
 		t.Fatalf("unstable identity %q %q", serial, mac)
 	}
 	for _, contents := range []string{"", "10.0.0.0/24\n", "::1\n", "::ffff:192.0.2.1\n", "192.0.2.1\nnot-an-ip\n"} {
-		if _, err := newMultiMinerHandler(addressFile(t, contents)); err == nil {
+		// Act
+		_, err := newMultiMinerHandler(addressFile(t, contents))
+
+		// Assert
+		if err == nil {
 			t.Fatalf("accepted invalid address file %q", contents)
 		}
 	}
 }
 
 func TestSingleMinerServerDefaultsArePreserved(t *testing.T) {
+	// Arrange
 	t.Setenv("FAKE_MINER_ADDRESSES_FILE", "")
 	base := startRigServer(t)
 	client := &http.Client{Transport: &http.Transport{Proxy: nil}, Timeout: time.Second}
 	defer client.CloseIdleConnections()
+
+	// Act
 	status, body := rigRequest(t, client, "GET", base+"/api/v1/pairing/info", "", nil)
+
+	// Assert
 	var identity PairingInfoResponse
 	if err := json.Unmarshal(body, &identity); err != nil {
 		t.Fatal(err)

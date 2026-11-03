@@ -111,7 +111,8 @@ func startRPCServer(ctx context.Context, fleet *minerFleet, address string) erro
 		workers.Add(1)
 		go func() {
 			defer workers.Done()
-			fleet.handleRPC(ctx, conn)
+			// Accepted connections drain through shutdown; rpcConnectionTimeout bounds them.
+			fleet.handleRPC(context.WithoutCancel(ctx), conn)
 		}()
 	}
 }

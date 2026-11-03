@@ -30,6 +30,7 @@ func fullLoadConfig() ContainerConfig {
 }
 
 func TestLoadInventoryAndControllerIdentities(t *testing.T) {
+	// Arrange
 	macs, serials, modules, psus := map[string]bool{}, map[string]bool{}, map[string]bool{}, map[string]bool{}
 	total := 0
 	for controller := range 18 {
@@ -39,8 +40,12 @@ func TestLoadInventoryAndControllerIdentities(t *testing.T) {
 		if controller == 17 {
 			cfg.OccupiedBoards = 104
 		}
+
+		// Act
 		state := NewContainerState(cfg)
 		repeated := NewContainerState(cfg)
+
+		// Assert
 		for i, m := range state.Modules {
 			if modules[m.ModuleID] || m.ModuleID != repeated.Modules[i].ModuleID {
 				t.Fatalf("unstable or duplicate module %s", m.ModuleID)
@@ -72,7 +77,11 @@ func TestLoadInventoryAndControllerIdentities(t *testing.T) {
 		if controller != 17 {
 			continue
 		}
+
+		// Act
 		layout := state.containerMapDTO()
+
+		// Assert
 		occupied, empty := 0, 0
 		for _, tank := range layout.ContainerMap.Tanks {
 			for _, module := range tank.Modules {
@@ -104,7 +113,11 @@ func TestLoadInventoryAndControllerIdentities(t *testing.T) {
 			t.Fatal(got)
 		}
 		api := &grpcAPI{state: state}
+
+		// Act
 		changed, err := api.SetPowerTargetScoped(t.Context(), &mdk.SetPowerTargetScopedRequest{Watts: 2700})
+
+		// Assert
 		if err != nil || changed.GetBoardsUpdated() != 104 {
 			t.Fatalf("scoped write: %v %v", changed, err)
 		}
@@ -119,6 +132,8 @@ func TestLoadInventoryAndControllerIdentities(t *testing.T) {
 			t.Fatal("partial module is not first-N occupied")
 		}
 	}
+
+	// Assert
 	if total != 5000 || len(macs) != total || len(serials) != total {
 		t.Fatalf("wrong load inventory: %d", total)
 	}
@@ -130,38 +145,63 @@ func TestLoadInventoryAndControllerIdentities(t *testing.T) {
 
 func TestLoadConfigurationValidation(t *testing.T) {
 	for _, value := range []string{"0", "-1", "289", "104.0", "garbage"} {
-		if _, err := parseOccupiedBoards(value, 288); err == nil {
+		// Act
+		_, err := parseOccupiedBoards(value, 288)
+
+		// Assert
+		if err == nil {
 			t.Fatalf("accepted occupied count %q", value)
 		}
 	}
 	for _, value := range []string{"", "1", "104", "288"} {
-		if _, err := parseOccupiedBoards(value, 288); err != nil {
+		// Act
+		_, err := parseOccupiedBoards(value, 288)
+
+		// Assert
+		if err != nil {
 			t.Fatal(err)
 		}
 	}
 	for _, value := range []string{"-1ms", "oops"} {
-		if _, err := parseResponseDelay(value); err == nil {
+		// Act
+		_, err := parseResponseDelay(value)
+
+		// Assert
+		if err == nil {
 			t.Fatalf("accepted delay %q", value)
 		}
 	}
 	for _, value := range []string{"", "0", "5ms"} {
-		if _, err := parseResponseDelay(value); err != nil {
+		// Act
+		_, err := parseResponseDelay(value)
+
+		// Assert
+		if err != nil {
 			t.Fatal(err)
 		}
 	}
 	for _, value := range []string{"localhost", "127.0.0.1:9095", "0.0.0.0", "::", "10.0.0.999"} {
-		if _, err := parseListenAddress(value); err == nil {
+		// Act
+		_, err := parseListenAddress(value)
+
+		// Assert
+		if err == nil {
 			t.Fatalf("accepted address %q", value)
 		}
 	}
 	for _, value := range []string{"", "127.0.0.1", "::1"} {
-		if _, err := parseListenAddress(value); err != nil {
+		// Act
+		_, err := parseListenAddress(value)
+
+		// Assert
+		if err != nil {
 			t.Fatal(err)
 		}
 	}
 }
 
 func TestDelayedWritesExpireBeforeMutation(t *testing.T) {
+	// Arrange
 	cfg := testConfig()
 	cfg.ResponseDelay = 150 * time.Millisecond
 	state := NewContainerState(cfg)
@@ -186,16 +226,23 @@ func TestDelayedWritesExpireBeforeMutation(t *testing.T) {
 	defer connection.Close()
 	for _, transport := range []string{"grpc", "connect", "rest"} {
 		t.Run(transport, func(t *testing.T) {
+			// Arrange
 			ctx, cancel := context.WithTimeout(t.Context(), 20*time.Millisecond)
 			defer cancel()
 			switch transport {
 			case "grpc":
+				// Act
 				_, err := mdk.NewMiningServiceClient(connection).StopMining(ctx, &mdk.StopMiningRequest{})
+
+				// Assert
 				if status.Code(err) != codes.DeadlineExceeded {
 					t.Fatalf("wanted deadline: %v", err)
 				}
 			case "connect":
+				// Act
 				_, err := mdkv2connect.NewMiningServiceClient(http.DefaultClient, httpServer.URL).StopMining(ctx, connect.NewRequest(&mdk.StopMiningRequest{}))
+
+				// Assert
 				if connect.CodeOf(err) != connect.CodeDeadlineExceeded {
 					t.Fatalf("wanted deadline: %v", err)
 				}
@@ -204,17 +251,25 @@ func TestDelayedWritesExpireBeforeMutation(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
+
+				// Act
 				response, err := http.DefaultClient.Do(req)
 				if response != nil {
 					response.Body.Close()
 				}
+
+				// Assert
 				if err == nil || ctx.Err() == nil {
 					t.Fatalf("wanted deadline: %v", err)
 				}
 			}
 		})
 	}
+
+	// Act
 	time.Sleep(160 * time.Millisecond)
+
+	// Assert
 	state.mu.Lock()
 	defer state.mu.Unlock()
 	for _, b := range state.eachBoard() {
@@ -225,6 +280,7 @@ func TestDelayedWritesExpireBeforeMutation(t *testing.T) {
 }
 
 func TestResponseDelayPrecedesLocks(t *testing.T) {
+	// Arrange
 	state := NewContainerState(testConfig())
 	state.Config.ResponseDelay = time.Hour
 	state.requests.Lock()
@@ -232,7 +288,11 @@ func TestResponseDelayPrecedesLocks(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Millisecond)
 	defer cancel()
 	done := make(chan error, 1)
+
+	// Act
 	go func() { done <- state.serve(ctx, false, func() { t.Error("canceled request dispatched") }) }()
+
+	// Assert
 	select {
 	case err := <-done:
 		if err != context.DeadlineExceeded {
@@ -246,6 +306,7 @@ func TestResponseDelayPrecedesLocks(t *testing.T) {
 }
 
 func TestAggregateMetrics(t *testing.T) {
+	// Arrange
 	state := NewContainerState(testConfig())
 	path := filepath.Join(t.TempDir(), "metrics.jsonl")
 	stop, err := state.startMetrics(t.Context(), path)
@@ -255,11 +316,15 @@ func TestAggregateMetrics(t *testing.T) {
 	handler := NewRESTApiHandler(state)
 	mux := http.NewServeMux()
 	handler.RegisterRoutes(mux)
+
+	// Act
 	for i := range 50 {
 		request := httptest.NewRequest(http.MethodGet, fmt.Sprintf("/api/v2/hashboards/missing-%d/asics", i), nil)
 		mux.ServeHTTP(httptest.NewRecorder(), request)
 	}
 	stop()
+
+	// Assert
 	data, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)
@@ -289,12 +354,16 @@ func TestCT1Process(t *testing.T) {
 func TestProcessListenerBindingAndStartupValidation(t *testing.T) {
 	for _, occupied := range []string{"104", "0", "289", "nonsense"} {
 		t.Run(occupied, func(t *testing.T) {
+			// Arrange
 			ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 			defer cancel()
 			command := exec.CommandContext(ctx, os.Args[0], "-test.run=^TestCT1Process$")
 			command.Env = append(os.Environ(), "CT1_TEST_PROCESS=1", "LISTEN_ADDRESS=127.0.0.1", "GRPC_PORT=0", "HTTP_PORT=0", "CT1_OCCUPIED_BOARDS="+occupied, "CT1_TANKS=6", "CT1_MODULES_PER_TANK=16", "CT1_SLOTS_PER_MODULE=3")
 			if occupied != "104" {
+				// Act
 				output, err := command.CombinedOutput()
+
+				// Assert
 				if err == nil || !strings.Contains(string(output), "invalid CT1_OCCUPIED_BOARDS") || strings.Contains(string(output), "server listening") {
 					t.Fatalf("did not reject invalid count before listen: %v %s", err, output)
 				}
@@ -304,10 +373,14 @@ func TestProcessListenerBindingAndStartupValidation(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
+
+			// Act
 			if err := command.Start(); err != nil {
 				t.Fatal(err)
 			}
 			defer func() { cancel(); _ = command.Wait() }()
+
+			// Assert
 			scanner := bufio.NewScanner(stderr)
 			listeners := 0
 			for scanner.Scan() {

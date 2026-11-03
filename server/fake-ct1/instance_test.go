@@ -21,11 +21,16 @@ func TestLegacyInstanceIDCanBePreserved(t *testing.T) {
 }
 
 func TestDifferentControllersHaveDifferentBoardMACs(t *testing.T) {
+	// Arrange
 	cfg := testConfig()
 	cfg.InstanceID = "controller-1"
+
+	// Act
 	first := NewContainerState(cfg)
 	cfg.InstanceID = "controller-2"
 	second := NewContainerState(cfg)
+
+	// Assert
 	for _, b := range first.eachBoard() {
 		if second.findBoard(b.MAC) != nil {
 			t.Fatalf("controllers share hashboard MAC %s", b.MAC)

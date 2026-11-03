@@ -184,6 +184,7 @@ func TestCT1SimulatorUnlocatedInventory(t *testing.T) {
 }
 
 func TestCT1SimulatorPartialInventory(t *testing.T) {
+	// Arrange
 	addresses := startCT1Simulator(t, "CT1_OCCUPIED_BOARDS=104", "LISTEN_ADDRESS=127.0.0.1", "FAKE_MINER_RESPONSE_DELAY=5ms")
 	t.Setenv("CT1_WEB_PORT", addresses["HTTP"])
 	driver, err := New(0)
@@ -195,8 +196,12 @@ func TestCT1SimulatorPartialInventory(t *testing.T) {
 	handle, err := driver.NewDevice(t.Context(), "partial", info, sdk.SecretBundle{})
 	require.NoError(t, err)
 	defer handle.Device.Close(t.Context())
+
+	// Act
 	metrics, err := handle.Device.Status(t.Context())
 	require.NoError(t, err)
+
+	// Assert
 	occupied, empty := 0, 0
 	totalHashrate := 0.0
 	require.Len(t, metrics.Container.Tanks, 6)
@@ -224,12 +229,17 @@ func TestCT1SimulatorPartialInventory(t *testing.T) {
 	require.True(t, metrics.Container.TopologyComplete)
 	require.NotNil(t, metrics.HashrateHS)
 	require.InEpsilon(t, totalHashrate, metrics.HashrateHS.Value, 1e-12)
+
+	// Arrange
 	tankMiner, ok := handle.Device.(sdk.DeviceTankMiner)
 	require.True(t, ok)
 	for _, mining := range []bool{false, true} {
+		// Act
 		require.NoError(t, tankMiner.SetTankMining(t.Context(), sdk.TankMiningRequest{Positions: []int32{3}, Mining: &mining}))
 		observed, err := handle.Device.Status(t.Context())
 		require.NoError(t, err)
+
+		// Assert
 		for _, tank := range observed.Container.Tanks {
 			for _, module := range tank.Modules {
 				for _, board := range module.Hashboards {

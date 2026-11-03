@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"crypto/x509"
 	"encoding/json"
@@ -18,6 +19,7 @@ import (
 )
 
 func TestServerTLSUsesProvidedCertificate(t *testing.T) {
+	// Arrange
 	reference := httptest.NewTLSServer(http.NotFoundHandler())
 	defer reference.Close()
 	certificate := reference.TLS.Certificates[0]
@@ -38,7 +40,11 @@ func TestServerTLSUsesProvidedCertificate(t *testing.T) {
 	base := startRigServer(t)
 	client := reference.Client()
 	defer client.CloseIdleConnections()
+
+	// Act
 	status, body := rigRequest(t, client, "GET", base+"/api/v1/pairing/info", "", nil)
+
+	// Assert
 	if status != http.StatusOK {
 		t.Fatalf("TLS pairing status %d: %s", status, body)
 	}
@@ -52,10 +58,16 @@ func TestServerRejectsInvalidTLSAndDelayConfiguration(t *testing.T) {
 		{"FAKE_MINER_RESPONSE_DELAY": "-1ms"},
 	} {
 		t.Run("invalid configuration", func(t *testing.T) {
+			// Arrange
 			for key, value := range values {
 				t.Setenv(key, value)
 			}
-			if err := startHTTPServer(t.Context(), NewMinerState("TEST", "02:00:00:00:00:00"), 0); err == nil {
+
+			// Act
+			err := startHTTPServer(t.Context(), NewMinerState("TEST", "02:00:00:00:00:00"), 0)
+
+			// Assert
+			if err == nil {
 				t.Fatal("invalid configuration was accepted")
 			}
 		})
@@ -63,6 +75,7 @@ func TestServerRejectsInvalidTLSAndDelayConfiguration(t *testing.T) {
 }
 
 func TestDelayedWriteDeadlineDoesNotMutateMiner(t *testing.T) {
+	// Arrange
 	t.Setenv("FAKE_MINER_ADDRESSES_FILE", addressFile(t, "127.0.0.1\n"))
 	t.Setenv("FAKE_MINER_RESPONSE_DELAY", "100ms")
 	base := startRigServer(t)
@@ -79,13 +92,18 @@ func TestDelayedWriteDeadlineDoesNotMutateMiner(t *testing.T) {
 		t.Fatal(err)
 	}
 	req.Header.Set("Authorization", "Bearer "+token)
+
+	// Act
 	if response, err := client.Do(req); err == nil {
 		response.Body.Close()
 		t.Fatal("delayed write unexpectedly completed before deadline")
 	}
+
 	// This read waits out the configured delay and observes whether the canceled
 	// write was incorrectly applied after its client disappeared.
 	status, body := rigRequest(t, client, "GET", base+"/api/v1/mining", token, nil)
+
+	// Assert
 	var mining MiningStatus
 	if err := json.Unmarshal(body, &mining); err != nil {
 		t.Fatal(err)
@@ -96,19 +114,25 @@ func TestDelayedWriteDeadlineDoesNotMutateMiner(t *testing.T) {
 }
 
 func TestResponseDelayCancellationHappensBeforeDispatch(t *testing.T) {
+	// Arrange
 	called := false
 	handler := instrumentMinerHandler(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { called = true }), time.Hour, nil)
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 	request := httptest.NewRequest("POST", "/api/v1/pools", nil).WithContext(ctx)
+
+	// Act
 	start := time.Now()
 	handler.ServeHTTP(httptest.NewRecorder(), request)
+
+	// Assert
 	if called || time.Since(start) > time.Second {
 		t.Fatal("canceled delay dispatched or failed to return promptly")
 	}
 }
 
 func TestMetricsAreBoundedAggregatesAndFlushAtShutdown(t *testing.T) {
+	// Arrange
 	path := filepath.Join(t.TempDir(), "metrics.jsonl")
 	metrics, err := newMinerMetrics(path)
 	if err != nil {
@@ -117,11 +141,15 @@ func TestMetricsAreBoundedAggregatesAndFlushAtShutdown(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/v1/pools/", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusUnauthorized) })
 	handler := instrumentMinerHandler(mux, 0, metrics)
+
+	// Act
 	for i := 0; i < 100; i++ {
 		handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("GET", "/api/v1/pools/"+strings.Repeat("x", i+1), nil))
 		handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("GET", "/unrecognized/"+strings.Repeat("x", i+1), nil))
 	}
 	metrics.close()
+
+	// Assert
 	data, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)
@@ -149,6 +177,46 @@ func TestMetricsAreBoundedAggregatesAndFlushAtShutdown(t *testing.T) {
 	}
 }
 
+type hijackableRecorder struct {
+	*httptest.ResponseRecorder
+	conn net.Conn
+}
+
+func (r hijackableRecorder) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	return r.conn, nil, nil
+}
+
+func TestHijackedRequestsAreRecordedAsFailures(t *testing.T) {
+	// Arrange
+	metrics, err := newMinerMetrics(filepath.Join(t.TempDir(), "metrics.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(metrics.close)
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v1/system", func(w http.ResponseWriter, r *http.Request) {
+		conn, _, err := w.(http.Hijacker).Hijack()
+		if err != nil {
+			t.Errorf("hijack: %v", err)
+			return
+		}
+		_ = conn.Close()
+	})
+	server, client := net.Pipe()
+	t.Cleanup(func() { _ = client.Close() })
+	writer := hijackableRecorder{ResponseRecorder: httptest.NewRecorder(), conn: server}
+
+	// Act
+	instrumentMinerHandler(mux, 0, metrics).ServeHTTP(writer, httptest.NewRequest("GET", "/api/v1/system", nil))
+
+	// Assert
+	metrics.mu.Lock()
+	defer metrics.mu.Unlock()
+	if value := metrics.operations["http:/api/v1/system"]; value.Requests != 1 || value.Errors != 1 {
+		t.Fatalf("hijacked request must count as a failure: %+v", value)
+	}
+}
+
 func TestShutdownJoinsHandlersBeforeFinalMetrics(t *testing.T) {
 	for _, hijack := range []bool{false, true} {
 		name := "forced close"
@@ -156,6 +224,7 @@ func TestShutdownJoinsHandlersBeforeFinalMetrics(t *testing.T) {
 			name = "hijacked connection"
 		}
 		t.Run(name, func(t *testing.T) {
+			// Arrange
 			path := filepath.Join(t.TempDir(), "metrics.jsonl")
 			metrics, err := newMinerMetrics(path)
 			if err != nil {
@@ -208,7 +277,11 @@ func TestShutdownJoinsHandlersBeforeFinalMetrics(t *testing.T) {
 			case <-time.After(time.Second):
 				t.Fatal("request did not enter handler")
 			}
+
+			// Act
 			cancel()
+
+			// Assert
 			select {
 			case <-canceled:
 			case <-time.After(time.Second):
@@ -219,6 +292,8 @@ func TestShutdownJoinsHandlersBeforeFinalMetrics(t *testing.T) {
 				t.Fatalf("server returned before handler metrics were recorded: %v", err)
 			case <-time.After(25 * time.Millisecond):
 			}
+
+			// Act
 			releaseHandler()
 			select {
 			case err := <-done:
@@ -228,6 +303,8 @@ func TestShutdownJoinsHandlersBeforeFinalMetrics(t *testing.T) {
 			case <-time.After(time.Second):
 				t.Fatal("server did not finish after handler returned")
 			}
+
+			// Assert
 			data, err := os.ReadFile(path)
 			if err != nil {
 				t.Fatal(err)

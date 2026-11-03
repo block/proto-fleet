@@ -56,10 +56,6 @@ const (
 	thsToGhsConversionFactor = 1000
 )
 
-func handleRPCConnection(conn net.Conn, state *MinerState) {
-	handleRPCRequest(context.Background(), conn, state, 0, nil)
-}
-
 func handleRPCRequest(ctx context.Context, conn net.Conn, state *MinerState, delay time.Duration, metrics *operationMetrics) {
 	defer conn.Close()
 	start := time.Now()
