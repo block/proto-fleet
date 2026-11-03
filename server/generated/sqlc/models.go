@@ -2181,6 +2181,73 @@ type HostedAccountPoolRevision struct {
 	CreatedAt      time.Time
 }
 
+type HostedAccountReportingAllocationSnapshot struct {
+	IntervalID       int64
+	OrganizationID   int64
+	ClientID         int64
+	SubclientID      sql.NullInt64
+	SiteID           sql.NullInt64
+	Kind             int32
+	AssetID          int64
+	DeviceID         int64
+	DeviceIdentifier string
+	StartedAt        time.Time
+	CapturedAt       time.Time
+}
+
+type HostedAccountReportingCaptureStatus struct {
+	IntervalID                    int64
+	OrganizationID                int64
+	ClientID                      int64
+	SubclientID                   sql.NullInt64
+	SiteID                        sql.NullInt64
+	Kind                          int32
+	AssetID                       int64
+	DeviceID                      int64
+	DeviceIdentifier              string
+	AllocationStartedAt           time.Time
+	HoldStartedAt                 time.Time
+	SourceID                      int16
+	Metric                        int16
+	LastEventID                   sql.NullInt64
+	LastEventOperation            sql.NullString
+	LastEventCapturedAt           sql.NullTime
+	LastObservationEventID        sql.NullInt64
+	LastObservationCapturedAt     sql.NullTime
+	LastObservationValue          sql.NullFloat64
+	LastObservationComplete       sql.NullBool
+	LastObservationOriginKey      sql.NullString
+	LastObservationOriginTime     sql.NullTime
+	LastObservationCollectedAt    sql.NullTime
+	LastObservationSourceOldestAt sql.NullTime
+	LastObservationSourceNewestAt sql.NullTime
+}
+
+type HostedAccountReportingEvidence struct {
+	EventID           int64
+	EpochStartedAt    time.Time
+	CapturedAt        time.Time
+	TransactionID     int64
+	Operation         string
+	Image             string
+	Time              time.Time
+	IntervalID        int64
+	Metric            int16
+	Value             sql.NullFloat64
+	Complete          sql.NullBool
+	SourceOldestAt    time.Time
+	SourceNewestAt    time.Time
+	SourceID          int16
+	OriginKey         string
+	OriginTime        time.Time
+	OriginCollectedAt time.Time
+}
+
+type HostedAccountReportingEvidenceEpoch struct {
+	Singleton bool
+	StartedAt time.Time
+}
+
 type HostedAccountSite struct {
 	OrganizationID   int64
 	AccountID        int64

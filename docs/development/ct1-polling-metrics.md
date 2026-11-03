@@ -230,6 +230,10 @@ Chart uptime is positive-hash sample percentage, not contractual uptime. Latest
 authorized temperature/state observations determine distributions. Missing
 measurements remain absent.
 
+The [provisional reporting evidence hold](hosted-reporting-evidence.md) retains
+new normalized observations and their changes separately from these mutable
+chart samples. It does not certify contractual uptime or fill missing sources.
+
 Retained transactions use custom query plans. Aligned source-width buckets with
 one interval per typed asset project summary rows directly; other requests use
 sample-weighted per-asset aggregation. Both routes share per-metric authorization.
@@ -581,9 +585,14 @@ schema rollback; do not delete evidence to make the guards pass.
 ## Local validation and cost
 
 Reproducible checks include `BenchmarkCT1PollNormalization` (6 tanks, 96 modules,
-288 boards), `TestStoredContainerRollupsRepresentativeScale`, timestamp/absence,
-move/retry/partial-map regressions, and API authorization tests. On an Apple M4
-Max with the local Docker TimescaleDB, one representative run measured:
+288 boards), timestamp/absence, move/retry/partial-map regressions, and API
+authorization tests. The allocated reporting-estate fixture,
+`TestStoredContainerRollupsReportingEvidenceRepresentativeScale`, and its current
+capture measurements are documented in the
+[reporting evidence runbook](hosted-reporting-evidence.md#local-capture-cost).
+
+The following are historical CT1 baseline measurements from an Apple M4 Max and
+local Docker TimescaleDB, without an allocated reporting estate:
 
 - Normalization: approximately 20 ms, 12.6 MB allocations, 398k allocations/poll;
   the minimal protobuf fixture is about 26 KB (real diagnostic payloads are larger).

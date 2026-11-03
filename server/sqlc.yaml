@@ -11,6 +11,47 @@ sql:
         emit_interface: true
         sql_package: "database/sql"
         overrides:
+          # Lateral joins leave these status fields NULL for never-observed streams.
+          - column: "hosted_account_reporting_capture_status.last_event_id"
+            go_type:
+              import: "database/sql"
+              type: "NullInt64"
+          - column: "hosted_account_reporting_capture_status.last_event_operation"
+            go_type:
+              import: "database/sql"
+              type: "NullString"
+          - column: "hosted_account_reporting_capture_status.last_event_captured_at"
+            go_type:
+              import: "database/sql"
+              type: "NullTime"
+          - column: "hosted_account_reporting_capture_status.last_observation_event_id"
+            go_type:
+              import: "database/sql"
+              type: "NullInt64"
+          - column: "hosted_account_reporting_capture_status.last_observation_captured_at"
+            go_type:
+              import: "database/sql"
+              type: "NullTime"
+          - column: "hosted_account_reporting_capture_status.last_observation_origin_key"
+            go_type:
+              import: "database/sql"
+              type: "NullString"
+          - column: "hosted_account_reporting_capture_status.last_observation_origin_time"
+            go_type:
+              import: "database/sql"
+              type: "NullTime"
+          - column: "hosted_account_reporting_capture_status.last_observation_collected_at"
+            go_type:
+              import: "database/sql"
+              type: "NullTime"
+          - column: "hosted_account_reporting_capture_status.last_observation_source_oldest_at"
+            go_type:
+              import: "database/sql"
+              type: "NullTime"
+          - column: "hosted_account_reporting_capture_status.last_observation_source_newest_at"
+            go_type:
+              import: "database/sql"
+              type: "NullTime"
           - column: "firmware_rollout.behavior_snapshot"
             go_type:
               import: "github.com/block/proto-fleet/server/internal/infrastructure/dbtypes"

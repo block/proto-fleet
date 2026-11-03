@@ -1865,10 +1865,12 @@ func (s *TimescaleTelemetryStore) InsertMinerStateSnapshot(ctx context.Context, 
 	ctx, cancel := context.WithTimeout(ctx, s.config.WriteTimeout)
 	defer cancel()
 
-	if err := s.queries.InsertMinerStateSnapshot(ctx, at); err != nil {
-		return fmt.Errorf("insert miner state snapshot: %w", err)
-	}
-	return nil
+	return db.WithTransactionNoResult(ctx, s.db, func(q sqlc.Querier) error {
+		if err := q.InsertMinerStateSnapshot(ctx, at); err != nil {
+			return fmt.Errorf("insert miner state snapshot: %w", err)
+		}
+		return nil
+	})
 }
 
 func (s *TimescaleTelemetryStore) UpsertFleetMetricRollups(ctx context.Context, startTime, endTime time.Time) error {

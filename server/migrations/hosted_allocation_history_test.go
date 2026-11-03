@@ -155,6 +155,13 @@ func TestAllocationHistoryMigrationFencesConcurrentRecall(t *testing.T) {
 func rollbackEmptyHashboardAllocations(t *testing.T, conn *sql.DB) {
 	t.Helper()
 	var exists bool
+	require.NoError(t, conn.QueryRowContext(t.Context(), `SELECT to_regclass('hosted_account_reporting_evidence') IS NOT NULL`).Scan(&exists))
+	if exists {
+		evidenceDown, err := migrations.Current.ReadFile("current/001055_internal_hosted_reporting_evidence.down.sql")
+		require.NoError(t, err)
+		_, err = conn.ExecContext(t.Context(), string(evidenceDown))
+		require.NoError(t, err)
+	}
 	require.NoError(t, conn.QueryRowContext(t.Context(), `SELECT to_regclass('hosted_module_membership') IS NOT NULL`).Scan(&exists))
 	if !exists {
 		return

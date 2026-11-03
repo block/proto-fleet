@@ -419,3 +419,25 @@ python3 scripts/check-migration-history.py --base-ref origin/main
 
 Add `--public-only` in public, or `--public-ref <fetched-public-commit>` for
 internal promotion checks.
+
+## Provisional hosted reporting evidence (1055)
+
+Stop telemetry, allocation and scheduled database writers before applying
+migration 1055. It installs a transactional hold on new normalized hosted-history
+samples and records its capture epoch without backfilling existing data.
+Rehearse the upgrade on a representative restored backup to size the maintenance
+window and lock capacity: the seven telemetry/historical table locks include all
+existing chunks, and the hashboard metrics trigger is reinstalled on each chunk.
+Fresh-database tests do not qualify that upgrade footprint.
+
+A pre-1055 binary rejects the 1055 checkpoint. Once capture begins, the populated
+hold refuses downgrade; returning to an older build requires the coordinated
+pre-upgrade database backup and matching application, losing post-backup writes.
+
+The hold is provisional and has no automatic deletion policy. Production rollout
+needs an operations owner and a reviewed interim storage/backup budget. Since
+`fleetd` applies current migrations on startup, keep builds containing 1055 out
+of hosted releases and promotion until that approval and the restore rehearsal
+are recorded. The down migration refuses to discard a populated hold; prefer fixing forward and retain
+coordinated backups. Inspect capture and storage using the
+[reporting evidence runbook](hosted-reporting-evidence.md).
