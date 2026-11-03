@@ -1029,6 +1029,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.getFleetNodePairedDeviceIdentifierStmt, err = db.PrepareContext(ctx, getFleetNodePairedDeviceIdentifier); err != nil {
 		return nil, fmt.Errorf("error preparing query GetFleetNodePairedDeviceIdentifier: %w", err)
 	}
+	if q.getFleetNodePairingTargetStmt, err = db.PrepareContext(ctx, getFleetNodePairingTarget); err != nil {
+		return nil, fmt.Errorf("error preparing query GetFleetNodePairingTarget: %w", err)
+	}
 	if q.getFleetNodeSessionByTokenHashStmt, err = db.PrepareContext(ctx, getFleetNodeSessionByTokenHash); err != nil {
 		return nil, fmt.Errorf("error preparing query GetFleetNodeSessionByTokenHash: %w", err)
 	}
@@ -4795,6 +4798,11 @@ func (q *Queries) Close() error {
 	if q.getFleetNodePairedDeviceIdentifierStmt != nil {
 		if cerr := q.getFleetNodePairedDeviceIdentifierStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getFleetNodePairedDeviceIdentifierStmt: %w", cerr)
+		}
+	}
+	if q.getFleetNodePairingTargetStmt != nil {
+		if cerr := q.getFleetNodePairingTargetStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getFleetNodePairingTargetStmt: %w", cerr)
 		}
 	}
 	if q.getFleetNodeSessionByTokenHashStmt != nil {
@@ -8651,6 +8659,7 @@ type Queries struct {
 	getFleetNodeByIDUnscopedStmt                               *sql.Stmt
 	getFleetNodeHAPairForNodeStmt                              *sql.Stmt
 	getFleetNodePairedDeviceIdentifierStmt                     *sql.Stmt
+	getFleetNodePairingTargetStmt                              *sql.Stmt
 	getFleetNodeSessionByTokenHashStmt                         *sql.Stmt
 	getFleetNodeTelemetryRouteByDeviceIdentifierStmt           *sql.Stmt
 	getGroupRefsForDevicesStmt                                 *sql.Stmt
@@ -9688,6 +9697,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getFleetNodeByIDUnscopedStmt:                               q.getFleetNodeByIDUnscopedStmt,
 		getFleetNodeHAPairForNodeStmt:                              q.getFleetNodeHAPairForNodeStmt,
 		getFleetNodePairedDeviceIdentifierStmt:                     q.getFleetNodePairedDeviceIdentifierStmt,
+		getFleetNodePairingTargetStmt:                              q.getFleetNodePairingTargetStmt,
 		getFleetNodeSessionByTokenHashStmt:                         q.getFleetNodeSessionByTokenHashStmt,
 		getFleetNodeTelemetryRouteByDeviceIdentifierStmt:           q.getFleetNodeTelemetryRouteByDeviceIdentifierStmt,
 		getGroupRefsForDevicesStmt:                                 q.getGroupRefsForDevicesStmt,

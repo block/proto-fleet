@@ -15,6 +15,7 @@ import {
 } from "@/protoFleet/api/generated/fleetnodeadmin/v1/fleetnodeadmin_pb";
 import { createErrorWithCause } from "@/protoFleet/api/requestErrors";
 import type { FleetNodeItem } from "@/protoFleet/api/useFleetNodes";
+import { useFleetStore } from "@/protoFleet/store";
 
 const listDiscovered = vi.hoisted(() => vi.fn());
 const discoverOnNode = vi.hoisted(() => vi.fn());
@@ -81,6 +82,7 @@ const renderFinder = (props: Partial<ComponentProps<typeof FindNodeMinersModal>>
   );
 
 beforeEach(() => {
+  useFleetStore.getState().auth.setPermissions([]);
   listDiscovered.mockReset().mockResolvedValue({ devices: [miner], nextCursor: 0n });
   discoverOnNode.mockReset().mockResolvedValue(undefined);
   pairOnNode.mockReset().mockResolvedValue(undefined);

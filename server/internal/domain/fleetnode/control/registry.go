@@ -180,6 +180,7 @@ type artifactExpectation struct {
 // connection is the server's view of one agent ControlStream. It can hold many
 // concurrent in-flight commands keyed by command_id. Fields guarded by Registry.mu.
 type connection struct {
+	discoveryConfig           *gatewaypb.DiscoveryConfig
 	outgoing                  chan *gatewaypb.ControlCommand // commands to the ControlStream handler (buffered, never closed)
 	done                      chan struct{}                  // closed once on evict/Unregister; wakes the handler and blocked senders
 	cmds                      map[string]*inflightCommand    // in-flight commands by command_id
@@ -194,11 +195,12 @@ type inflightCommand struct {
 	id string
 
 	// report-bearing (events != nil): discovery/pairing batches + terminal ack.
-	kind       ReportKind        // which gateway report RPC may admit reports for this command
-	scope      ReportScope       // admits only reported devices within the requested scope; nil = unconstrained
-	events     chan CommandEvent // buffered, never closed
-	reported   int               // cumulative admitted device count, for quota
-	maxReports int               // per-command report quota: scan ceiling for discovery, target count for pair
+	kind          ReportKind                    // which gateway report RPC may admit reports for this command
+	scope         ReportScope                   // admits only reported devices within the requested scope; nil = unconstrained
+	events        chan CommandEvent             // buffered, never closed
+	reported      int                           // cumulative admitted device count, for quota
+	maxReports    int                           // per-command report quota: scan ceiling for discovery, target count for pair
+	requestBudget *discoverylimits.ReportBudget // server-owned aggregate discovery quota
 
 	// pair-only: gateway persistence metadata, scoped to the dispatched targets
 	// (consuming each to bar replay). nil for discovery/ack-only commands.
@@ -369,6 +371,9 @@ func (r *Registry) addCmd(fleetNodeID int64, minimumCommandProtocolVersion gatew
 	}
 	if _, dup := conn.cmds[c.id]; dup {
 		return nil, nil, errDuplicateCommandID
+	}
+	if c.requestBudget != nil && c.requestBudget.Exhausted() {
+		return nil, nil, ErrReportQuotaExceeded
 	}
 	conn.cmds[c.id] = c
 	return conn.outgoing, conn.done, nil

@@ -41,6 +41,7 @@ func (r *Registry) RegisterAuthenticated(
 	fleetNodeID int64,
 	sessionFingerprint string,
 	maxCommandProtocolVersion gatewaypb.CommandProtocolVersion,
+	opts ...RegisterOption,
 ) (*Stream, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -48,10 +49,23 @@ func (r *Registry) RegisterAuthenticated(
 	if exists && (fence.revoked || fence.fingerprint != sessionFingerprint) {
 		return nil, errSessionInvalidated
 	}
-	return r.registerLocked(fleetNodeID, maxCommandProtocolVersion), nil
+	return r.registerLocked(fleetNodeID, maxCommandProtocolVersion, opts...), nil
 }
 
-func (r *Registry) registerLocked(fleetNodeID int64, maxCommandProtocolVersion gatewaypb.CommandProtocolVersion) *Stream {
+// RegisterOption sets connection metadata before the connection becomes visible.
+type RegisterOption func(*connection)
+
+// WithDiscoveryConfig records the ranges a node reported in ControlHello; a nil
+// config marks a node that did not report any.
+func WithDiscoveryConfig(config *gatewaypb.DiscoveryConfig) RegisterOption {
+	return func(c *connection) { c.discoveryConfig = proto.CloneOf(config) }
+}
+
+func (r *Registry) registerLocked(
+	fleetNodeID int64,
+	maxCommandProtocolVersion gatewaypb.CommandProtocolVersion,
+	opts ...RegisterOption,
+) *Stream {
 	if old, exists := r.conns[fleetNodeID]; exists {
 		teardown(old)
 	}
@@ -62,6 +76,9 @@ func (r *Registry) registerLocked(fleetNodeID int64, maxCommandProtocolVersion g
 		cmds:                      make(map[string]*inflightCommand),
 		maxCommandProtocolVersion: maxCommandProtocolVersion,
 		connectedAt:               time.Now(),
+	}
+	for _, opt := range opts {
+		opt(conn)
 	}
 	r.conns[fleetNodeID] = conn
 	return &Stream{r: r, fleetNodeID: fleetNodeID, conn: conn, Outgoing: conn.outgoing, Done: conn.done}
@@ -134,6 +151,8 @@ func (r *Registry) PublishPairResults(fleetNodeID int64, commandID string, resul
 // AdmitReport reserves quota for deviceCount devices against the in-flight
 // report-bearing command of kind want (a discovery command_id can't admit pair
 // results or vice versa). Returns errNoInFlightCommand or ErrReportQuotaExceeded.
+// This bounds raw reports per command; the shared request budget is charged
+// only for accepted devices, in PublishBatch.
 func (r *Registry) AdmitReport(fleetNodeID int64, commandID string, deviceCount int, want ReportKind) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -141,7 +160,10 @@ func (r *Registry) AdmitReport(fleetNodeID int64, commandID string, deviceCount 
 	if cmd == nil || !cmd.reportBearing() || cmd.kind != want {
 		return errNoInFlightCommand
 	}
-	if cmd.reported+deviceCount > cmd.maxReports {
+	if deviceCount < 0 || deviceCount > cmd.maxReports-cmd.reported {
+		return ErrReportQuotaExceeded
+	}
+	if cmd.requestBudget != nil && cmd.requestBudget.Exhausted() {
 		return ErrReportQuotaExceeded
 	}
 	cmd.reported += deviceCount
@@ -503,6 +525,9 @@ func (r *Registry) deliverEvent(fleetNodeID int64, commandID string, ev CommandE
 	cmd := r.inflightFor(fleetNodeID, commandID)
 	if cmd == nil || !cmd.reportBearing() {
 		return // unknown/stale command_id, or not report-bearing
+	}
+	if ev.Batch != nil && cmd.requestBudget != nil && !cmd.requestBudget.Admit(len(ev.Batch.GetDevices())) {
+		return // request budget crossed; the batch is dropped and the request stops dispatching
 	}
 	select {
 	case cmd.events <- ev:

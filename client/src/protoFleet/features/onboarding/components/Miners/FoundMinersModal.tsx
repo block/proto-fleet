@@ -1,33 +1,39 @@
 import { Dispatch, SetStateAction, useCallback, useMemo, useState } from "react";
-import { foundSummary } from "./foundMinersLabels";
+import { fleetSourceLabel, foundSummary } from "./foundMinersLabels";
 import { createFoundMinersModelFilter, filterFoundMinerByModel } from "./foundMinersModelFilter";
-import type { MinerWithSelected, MinerWithSelectedAndAction } from "./types";
 import { DeviceClass } from "@/protoFleet/api/generated/common/v1/common_pb";
 import { Device } from "@/protoFleet/api/generated/pairing/v1/pairing_pb";
+import { type FleetNodeItem } from "@/protoFleet/api/useFleetNodes";
+import ListPagination from "@/protoFleet/components/ListPagination";
 import { sizes, variants } from "@/shared/components/Button";
 import List from "@/shared/components/List";
 import Filters from "@/shared/components/List/Filters";
 import { ActiveFilters } from "@/shared/components/List/Filters/types";
 import Modal, { ModalSelectAllFooter } from "@/shared/components/Modal";
 
-const activeCols = ["model", "ipAddress"] as (keyof MinerWithSelectedAndAction)[];
+type FoundMinerRow = Device & { source: string };
+
+const PAGE_SIZE = 100;
+
+const activeCols = ["model", "ipAddress", "source"] as (keyof FoundMinerRow)[];
 
 const minerColTitles = {
   model: "Model",
   ipAddress: "IP address",
+  source: "Source",
 } as {
   [key in (typeof activeCols)[number]]: string;
 };
 
 const colConfig = {
+  source: { width: "w-full pr-3" },
   model: {
     width: "w-full pr-10",
     // Relabel a container row's model cell to "Proto Container" so no raw code
     // name ("CU1") leaks into the discovery table, matching the group label and
     // the model filter option. Non-container rows keep their raw model string.
     // Filtering/sorting still key off the untouched `miner.model` field.
-    component: (item: MinerWithSelectedAndAction) =>
-      item.deviceClass === DeviceClass.CONTAINER ? "Proto Container" : item.model,
+    component: (item: FoundMinerRow) => (item.deviceClass === DeviceClass.CONTAINER ? "Proto Container" : item.model),
   },
   ipAddress: {
     width: "w-full pr-10",
@@ -36,12 +42,22 @@ const colConfig = {
 
 type FoundMinersModalProps = {
   open?: boolean;
-  miners: MinerWithSelected[];
+  miners: Device[];
+  deselectedMinerIds: ReadonlySet<string>;
+  fleetNodes?: FleetNodeItem[];
   setDeselectedMiners: Dispatch<SetStateAction<Device["deviceIdentifier"][]>>;
   onDismiss: () => void;
 };
 
-const FoundMinersModal = ({ open, miners, setDeselectedMiners, onDismiss }: FoundMinersModalProps) => {
+const FoundMinersModal = ({
+  open,
+  miners,
+  deselectedMinerIds,
+  fleetNodes,
+  setDeselectedMiners,
+  onDismiss,
+}: FoundMinersModalProps) => {
+  const [page, setPage] = useState(0);
   const [activeFilters, setActiveFilters] = useState<ActiveFilters>({
     buttonFilters: [],
     dropdownFilters: {},
@@ -49,22 +65,23 @@ const FoundMinersModal = ({ open, miners, setDeselectedMiners, onDismiss }: Foun
     textareaListFilters: {},
   });
 
-  const selectedMiners = useMemo(() => {
-    return miners.filter((miner) => miner.selected).map((miner) => miner.deviceIdentifier);
-  }, [miners]);
+  const selectedCount = useMemo(
+    () => miners.reduce((count, miner) => count + Number(!deselectedMinerIds.has(miner.deviceIdentifier)), 0),
+    [miners, deselectedMinerIds],
+  );
 
-  // Since were keeping deslected miners as state in parent component
-  // we need to define a setSelectedMiners function that will update
-  // the deselected miners based on the selected miners
-  const setSelectedMiners = useCallback(
-    (selected: MinerWithSelected["deviceIdentifier"][]) => {
-      const deselected = miners
-        .filter((miner) => !selected.includes(miner.deviceIdentifier))
-        .map((miner) => miner.deviceIdentifier);
-
-      setDeselectedMiners(deselected);
+  const updateSelection = useCallback(
+    (ids: Set<string>, isSelected: (id: string) => boolean) => {
+      setDeselectedMiners((previous) => {
+        const next = new Set(previous);
+        for (const id of ids) {
+          if (isSelected(id)) next.delete(id);
+          else next.add(id);
+        }
+        return [...next];
+      });
     },
-    [miners, setDeselectedMiners],
+    [setDeselectedMiners],
   );
 
   const modelFilter = useMemo(() => createFoundMinersModelFilter(miners), [miners]);
@@ -73,9 +90,19 @@ const FoundMinersModal = ({ open, miners, setDeselectedMiners, onDismiss }: Foun
     return miners.filter((miner) => filterFoundMinerByModel(miner, activeFilters));
   }, [miners, activeFilters]);
 
+  const currentPage = Math.min(page, Math.max(0, Math.ceil(filteredMiners.length / PAGE_SIZE) - 1));
+  const pageStart = currentPage * PAGE_SIZE;
+  const pageMiners = useMemo(() => {
+    const nodes = new Map(fleetNodes?.map((node) => [node.fleetNodeId, node.name]));
+    return filteredMiners.slice(pageStart, pageStart + PAGE_SIZE).map((miner) => {
+      const id = miner.fleetNodeId.toString();
+      return { ...miner, source: fleetSourceLabel(id, nodes.get(id)) };
+    });
+  }, [filteredMiners, fleetNodes, pageStart]);
+  const filteredIds = useMemo(() => new Set(filteredMiners.map((miner) => miner.deviceIdentifier)), [filteredMiners]);
   const deviceGroups = [
-    { label: "Containers", items: filteredMiners.filter((device) => device.deviceClass === DeviceClass.CONTAINER) },
-    { label: "Miners", items: filteredMiners.filter((device) => device.deviceClass !== DeviceClass.CONTAINER) },
+    { label: "Containers", items: pageMiners.filter((device) => device.deviceClass === DeviceClass.CONTAINER) },
+    { label: "Miners", items: pageMiners.filter((device) => device.deviceClass !== DeviceClass.CONTAINER) },
   ];
 
   // Split the discovered total by entity so the modal header matches the inline
@@ -106,7 +133,17 @@ const FoundMinersModal = ({ open, miners, setDeselectedMiners, onDismiss }: Foun
       ]}
     >
       <div className="flex h-full min-h-0 flex-col">
-        <Filters filterItems={[modelFilter]} items={miners} onFilter={setActiveFilters} filterSize={sizes.compact} />
+        <Filters
+          filterItems={[modelFilter]}
+          items={miners}
+          onFilter={(filters) => {
+            if (filters !== activeFilters) {
+              setActiveFilters(filters);
+              setPage(0);
+            }
+          }}
+          filterSize={sizes.compact}
+        />
         <div className="min-h-0 flex-1 overflow-y-auto">
           {deviceGroups.map(({ label, items: group }) => {
             if (!group.length) return null;
@@ -114,7 +151,7 @@ const FoundMinersModal = ({ open, miners, setDeselectedMiners, onDismiss }: Foun
             return (
               <section key={label} aria-label={label}>
                 <h3 className="px-3 py-2 text-emphasis-300">{label}</h3>
-                <List<MinerWithSelectedAndAction, MinerWithSelectedAndAction["deviceIdentifier"]>
+                <List<FoundMinerRow, FoundMinerRow["deviceIdentifier"]>
                   activeCols={activeCols}
                   colTitles={minerColTitles}
                   colConfig={colConfig}
@@ -122,10 +159,13 @@ const FoundMinersModal = ({ open, miners, setDeselectedMiners, onDismiss }: Foun
                   itemKey="deviceIdentifier"
                   itemSelectable
                   preserveOffPageSelection
-                  customSelectedItems={selectedMiners.filter((id) => groupIds.has(id))}
-                  customSetSelectedItems={(selected) =>
-                    setSelectedMiners([...selectedMiners.filter((id) => !groupIds.has(id)), ...selected])
-                  }
+                  customSelectedItems={group
+                    .filter((miner) => !deselectedMinerIds.has(miner.deviceIdentifier))
+                    .map((miner) => miner.deviceIdentifier)}
+                  customSetSelectedItems={(selected) => {
+                    const selectedIds = new Set(selected);
+                    updateSelection(groupIds, (id) => selectedIds.has(id));
+                  }}
                   containerClassName="min-h-0"
                   tableClassName="mb-0"
                   overflowContainer={true}
@@ -135,10 +175,21 @@ const FoundMinersModal = ({ open, miners, setDeselectedMiners, onDismiss }: Foun
             );
           })}
         </div>
+        <ListPagination
+          firstItemIndex={pageStart + 1}
+          lastItemIndex={Math.min(pageStart + PAGE_SIZE, filteredMiners.length)}
+          total={filteredMiners.length}
+          itemName="devices"
+          hasPreviousPage={currentPage > 0}
+          hasNextPage={pageStart + PAGE_SIZE < filteredMiners.length}
+          onPrevious={() => setPage(currentPage - 1)}
+          onNext={() => setPage(currentPage + 1)}
+          className="py-3"
+        />
         <ModalSelectAllFooter
-          label={`${selectedMiners.length} ${selectedMiners.length === 1 ? "device" : "devices"} selected`}
-          onSelectAll={() => setSelectedMiners(filteredMiners.map((miner) => miner.deviceIdentifier))}
-          onSelectNone={() => setSelectedMiners([])}
+          label={`${selectedCount} ${selectedCount === 1 ? "device" : "devices"} selected`}
+          onSelectAll={() => updateSelection(filteredIds, () => true)}
+          onSelectNone={() => updateSelection(filteredIds, () => false)}
         />
       </div>
     </Modal>

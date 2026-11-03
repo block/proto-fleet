@@ -207,6 +207,45 @@ func (q *Queries) GetFleetNodePairedDeviceIdentifier(ctx context.Context, arg Ge
 	return device_identifier, err
 }
 
+const getFleetNodePairingTarget = `-- name: GetFleetNodePairingTarget :one
+SELECT dd.device_identifier, dd.ip_address, dd.port, dd.url_scheme,
+       dd.rpc_port, dd.rpc_tls, dd.endpoints
+FROM device d
+JOIN discovered_device dd ON dd.id = d.discovered_device_id AND dd.org_id = d.org_id
+WHERE d.id = $1 AND d.org_id = $2
+  AND d.deleted_at IS NULL AND dd.deleted_at IS NULL
+`
+
+type GetFleetNodePairingTargetParams struct {
+	DeviceID int64
+	OrgID    int64
+}
+
+type GetFleetNodePairingTargetRow struct {
+	DeviceIdentifier string
+	IpAddress        string
+	Port             string
+	UrlScheme        string
+	RpcPort          int32
+	RpcTls           bool
+	Endpoints        json.RawMessage
+}
+
+func (q *Queries) GetFleetNodePairingTarget(ctx context.Context, arg GetFleetNodePairingTargetParams) (GetFleetNodePairingTargetRow, error) {
+	row := q.queryRow(ctx, q.getFleetNodePairingTargetStmt, getFleetNodePairingTarget, arg.DeviceID, arg.OrgID)
+	var i GetFleetNodePairingTargetRow
+	err := row.Scan(
+		&i.DeviceIdentifier,
+		&i.IpAddress,
+		&i.Port,
+		&i.UrlScheme,
+		&i.RpcPort,
+		&i.RpcTls,
+		&i.Endpoints,
+	)
+	return i, err
+}
+
 const listFleetNodeDevices = `-- name: ListFleetNodeDevices :many
 SELECT fnd.fleet_node_id,
        fnd.device_id,
@@ -795,7 +834,7 @@ AND (
     -- cloud-paired device or one paired to another node; bare and own-node pass.
     SELECT 1
     FROM device d
-    WHERE d.discovered_device_id = discovered_device.id
+    WHERE (d.discovered_device_id = discovered_device.id OR d.device_identifier = discovered_device.device_identifier)
       AND d.org_id = discovered_device.org_id
       AND d.deleted_at IS NULL
       AND (

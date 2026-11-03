@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"iter"
 	"log/slog"
+	"net/netip"
 	"slices"
 	"strconv"
 	"strings"
@@ -20,12 +22,12 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	pb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
-	pairingpb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
 	"github.com/block/proto-fleet/server/internal/domain/discoverylimits"
 	"github.com/block/proto-fleet/server/internal/domain/netscan"
 	"github.com/block/proto-fleet/server/internal/domain/plugins"
 	"github.com/block/proto-fleet/server/internal/domain/stableidentity"
 	"github.com/block/proto-fleet/server/internal/infrastructure/cryptohash"
+	"github.com/block/proto-fleet/server/internal/infrastructure/networking"
 	sdk "github.com/block/proto-fleet/server/sdk/v1"
 )
 
@@ -241,7 +243,7 @@ func (r *RunCmd) scanRecoveryEndpoints(ctx context.Context, scanPorts []string, 
 	if err != nil {
 		return nil, false, cmdErr(pb.AckCode_ACK_CODE_BAD_REQUEST, "invalid recovery scan port: %s", err)
 	}
-	addrs, err := r.networkScanTargets(ctx, &pairingpb.NetworkScanModeRequest{Target: netscan.LocalSubnetTarget})
+	addrs, err := r.recoveryScanTargets()
 	if err != nil {
 		return nil, false, err
 	}
@@ -404,4 +406,65 @@ func recoveryResult(target *pb.MinerConnectionDescriptor, outcome pb.MinerEndpoi
 		Outcome:          pb.MinerEndpointRecoveryOutcome_MINER_ENDPOINT_RECOVERY_OUTCOME_ERROR,
 		ErrorMessage:     "plugin returned invalid recovery evidence",
 	}
+}
+
+var errNoLocalSubnet = errors.New("no local IPv4 subnet found")
+
+func (r *RunCmd) detectLocalSubnets() ([]string, error) {
+	if r.localSubnets != nil {
+		return r.localSubnets()
+	}
+	if configured := strings.TrimSpace(r.LocalDiscoverySubnet); configured != "" {
+		return []string{configured}, nil
+	}
+	info, err := networking.GetLocalNetworkInfo()
+	if err != nil {
+		return nil, fmt.Errorf("get local network info: %w", err)
+	}
+	if info.Subnet == "" {
+		return nil, errNoLocalSubnet
+	}
+	return []string{info.Subnet}, nil
+}
+
+func (r *RunCmd) recoveryScanTargets() (iter.Seq[netip.Addr], error) {
+	subnets, err := r.detectLocalSubnets()
+	if err != nil {
+		return nil, cmdErr(pb.AckCode_ACK_CODE_AGENT_INCAPABLE, "no connected private IPv4 subnet for local-subnet scan: %s", err)
+	}
+	if len(subnets) == 0 {
+		return nil, cmdErr(pb.AckCode_ACK_CODE_AGENT_INCAPABLE, "%s", errNoLocalSubnet)
+	}
+	targets := make([]netscan.Target, 0, len(subnets))
+	var count uint64
+	for _, raw := range subnets {
+		prefix, err := netip.ParsePrefix(raw)
+		if err != nil || !prefix.Addr().Is4() {
+			return nil, cmdErr(pb.AckCode_ACK_CODE_AGENT_INCAPABLE, "local-subnet scan target %q must be an IPv4 CIDR", raw)
+		}
+		target, err := netscan.ParseBoundedTarget(raw)
+		if err != nil {
+			return nil, cmdErr(pb.AckCode_ACK_CODE_AGENT_INCAPABLE, "local-subnet scan target %q is not scannable: %s", raw, err)
+		}
+		if !target.IsPrivate() {
+			return nil, cmdErr(pb.AckCode_ACK_CODE_AGENT_INCAPABLE, "local-subnet scan target %q must be private", raw)
+		}
+		count += target.Count()
+		if count > maxIPsPerCommand {
+			return nil, cmdErr(pb.AckCode_ACK_CODE_AGENT_INCAPABLE, "local subnets contain %d addresses, exceeds the limit of %d", count, maxIPsPerCommand)
+		}
+		targets = append(targets, target)
+	}
+	return func(yield func(netip.Addr) bool) {
+		seen := make(map[netip.Addr]struct{})
+		for addr := range netscan.InterleavedAddresses(targets) {
+			if _, duplicate := seen[addr]; duplicate {
+				continue
+			}
+			seen[addr] = struct{}{}
+			if !yield(addr) {
+				return
+			}
+		}
+	}, nil
 }

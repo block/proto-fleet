@@ -2302,8 +2302,10 @@ type ControlHello struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Highest server-to-node command protocol version this fleet node supports.
 	MaxCommandProtocolVersion CommandProtocolVersion `protobuf:"varint,1,opt,name=max_command_protocol_version,json=maxCommandProtocolVersion,proto3,enum=fleetnodegateway.v1.CommandProtocolVersion" json:"max_command_protocol_version,omitempty"`
-	unknownFields             protoimpl.UnknownFields
-	sizeCache                 protoimpl.SizeCache
+	// Effective node-local configuration. Absent on older nodes.
+	DiscoveryConfig *DiscoveryConfig `protobuf:"bytes,2,opt,name=discovery_config,json=discoveryConfig,proto3" json:"discovery_config,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *ControlHello) Reset() {
@@ -2343,6 +2345,57 @@ func (x *ControlHello) GetMaxCommandProtocolVersion() CommandProtocolVersion {
 	return CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_UNSPECIFIED
 }
 
+func (x *ControlHello) GetDiscoveryConfig() *DiscoveryConfig {
+	if x != nil {
+		return x.DiscoveryConfig
+	}
+	return nil
+}
+
+type DiscoveryConfig struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Ranges        []string               `protobuf:"bytes,1,rep,name=ranges,proto3" json:"ranges,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DiscoveryConfig) Reset() {
+	*x = DiscoveryConfig{}
+	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[30]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DiscoveryConfig) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DiscoveryConfig) ProtoMessage() {}
+
+func (x *DiscoveryConfig) ProtoReflect() protoreflect.Message {
+	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[30]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DiscoveryConfig.ProtoReflect.Descriptor instead.
+func (*DiscoveryConfig) Descriptor() ([]byte, []int) {
+	return file_fleetnodegateway_v1_fleetnodegateway_proto_rawDescGZIP(), []int{30}
+}
+
+func (x *DiscoveryConfig) GetRanges() []string {
+	if x != nil {
+		return x.Ranges
+	}
+	return nil
+}
+
 type ControlAccepted struct {
 	state      protoimpl.MessageState `protogen:"open.v1"`
 	ServerTime *timestamppb.Timestamp `protobuf:"bytes,1,opt,name=server_time,json=serverTime,proto3" json:"server_time,omitempty"`
@@ -2356,7 +2409,7 @@ type ControlAccepted struct {
 
 func (x *ControlAccepted) Reset() {
 	*x = ControlAccepted{}
-	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[30]
+	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[31]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2368,7 +2421,7 @@ func (x *ControlAccepted) String() string {
 func (*ControlAccepted) ProtoMessage() {}
 
 func (x *ControlAccepted) ProtoReflect() protoreflect.Message {
-	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[30]
+	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[31]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2381,7 +2434,7 @@ func (x *ControlAccepted) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ControlAccepted.ProtoReflect.Descriptor instead.
 func (*ControlAccepted) Descriptor() ([]byte, []int) {
-	return file_fleetnodegateway_v1_fleetnodegateway_proto_rawDescGZIP(), []int{30}
+	return file_fleetnodegateway_v1_fleetnodegateway_proto_rawDescGZIP(), []int{31}
 }
 
 func (x *ControlAccepted) GetServerTime() *timestamppb.Timestamp {
@@ -2406,7 +2459,7 @@ type ControlPing struct {
 
 func (x *ControlPing) Reset() {
 	*x = ControlPing{}
-	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[31]
+	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[32]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2418,7 +2471,7 @@ func (x *ControlPing) String() string {
 func (*ControlPing) ProtoMessage() {}
 
 func (x *ControlPing) ProtoReflect() protoreflect.Message {
-	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[31]
+	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[32]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2431,7 +2484,7 @@ func (x *ControlPing) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ControlPing.ProtoReflect.Descriptor instead.
 func (*ControlPing) Descriptor() ([]byte, []int) {
-	return file_fleetnodegateway_v1_fleetnodegateway_proto_rawDescGZIP(), []int{31}
+	return file_fleetnodegateway_v1_fleetnodegateway_proto_rawDescGZIP(), []int{32}
 }
 
 // TraceContext carries W3C trace propagation fields for one server-issued
@@ -2446,7 +2499,7 @@ type TraceContext struct {
 
 func (x *TraceContext) Reset() {
 	*x = TraceContext{}
-	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[32]
+	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[33]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2458,7 +2511,7 @@ func (x *TraceContext) String() string {
 func (*TraceContext) ProtoMessage() {}
 
 func (x *TraceContext) ProtoReflect() protoreflect.Message {
-	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[32]
+	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[33]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2471,7 +2524,7 @@ func (x *TraceContext) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TraceContext.ProtoReflect.Descriptor instead.
 func (*TraceContext) Descriptor() ([]byte, []int) {
-	return file_fleetnodegateway_v1_fleetnodegateway_proto_rawDescGZIP(), []int{32}
+	return file_fleetnodegateway_v1_fleetnodegateway_proto_rawDescGZIP(), []int{33}
 }
 
 func (x *TraceContext) GetTraceparent() string {
@@ -2499,7 +2552,7 @@ type ControlCommand struct {
 
 func (x *ControlCommand) Reset() {
 	*x = ControlCommand{}
-	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[33]
+	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[34]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2511,7 +2564,7 @@ func (x *ControlCommand) String() string {
 func (*ControlCommand) ProtoMessage() {}
 
 func (x *ControlCommand) ProtoReflect() protoreflect.Message {
-	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[33]
+	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[34]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2524,7 +2577,7 @@ func (x *ControlCommand) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ControlCommand.ProtoReflect.Descriptor instead.
 func (*ControlCommand) Descriptor() ([]byte, []int) {
-	return file_fleetnodegateway_v1_fleetnodegateway_proto_rawDescGZIP(), []int{33}
+	return file_fleetnodegateway_v1_fleetnodegateway_proto_rawDescGZIP(), []int{34}
 }
 
 func (x *ControlCommand) GetCommandId() string {
@@ -2577,7 +2630,7 @@ type MinerConnectionDescriptor struct {
 
 func (x *MinerConnectionDescriptor) Reset() {
 	*x = MinerConnectionDescriptor{}
-	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[34]
+	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[35]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2589,7 +2642,7 @@ func (x *MinerConnectionDescriptor) String() string {
 func (*MinerConnectionDescriptor) ProtoMessage() {}
 
 func (x *MinerConnectionDescriptor) ProtoReflect() protoreflect.Message {
-	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[34]
+	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[35]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2602,7 +2655,7 @@ func (x *MinerConnectionDescriptor) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MinerConnectionDescriptor.ProtoReflect.Descriptor instead.
 func (*MinerConnectionDescriptor) Descriptor() ([]byte, []int) {
-	return file_fleetnodegateway_v1_fleetnodegateway_proto_rawDescGZIP(), []int{34}
+	return file_fleetnodegateway_v1_fleetnodegateway_proto_rawDescGZIP(), []int{35}
 }
 
 func (x *MinerConnectionDescriptor) GetDeviceIdentifier() string {
@@ -2712,7 +2765,7 @@ type RecoverMinerEndpointsRequest struct {
 
 func (x *RecoverMinerEndpointsRequest) Reset() {
 	*x = RecoverMinerEndpointsRequest{}
-	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[35]
+	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[36]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2724,7 +2777,7 @@ func (x *RecoverMinerEndpointsRequest) String() string {
 func (*RecoverMinerEndpointsRequest) ProtoMessage() {}
 
 func (x *RecoverMinerEndpointsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[35]
+	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[36]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2737,7 +2790,7 @@ func (x *RecoverMinerEndpointsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RecoverMinerEndpointsRequest.ProtoReflect.Descriptor instead.
 func (*RecoverMinerEndpointsRequest) Descriptor() ([]byte, []int) {
-	return file_fleetnodegateway_v1_fleetnodegateway_proto_rawDescGZIP(), []int{35}
+	return file_fleetnodegateway_v1_fleetnodegateway_proto_rawDescGZIP(), []int{36}
 }
 
 func (x *RecoverMinerEndpointsRequest) GetTargets() []*MinerConnectionDescriptor {
@@ -2773,7 +2826,7 @@ type MinerEndpointRecoveryResult struct {
 
 func (x *MinerEndpointRecoveryResult) Reset() {
 	*x = MinerEndpointRecoveryResult{}
-	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[36]
+	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[37]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2785,7 +2838,7 @@ func (x *MinerEndpointRecoveryResult) String() string {
 func (*MinerEndpointRecoveryResult) ProtoMessage() {}
 
 func (x *MinerEndpointRecoveryResult) ProtoReflect() protoreflect.Message {
-	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[36]
+	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[37]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2798,7 +2851,7 @@ func (x *MinerEndpointRecoveryResult) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MinerEndpointRecoveryResult.ProtoReflect.Descriptor instead.
 func (*MinerEndpointRecoveryResult) Descriptor() ([]byte, []int) {
-	return file_fleetnodegateway_v1_fleetnodegateway_proto_rawDescGZIP(), []int{36}
+	return file_fleetnodegateway_v1_fleetnodegateway_proto_rawDescGZIP(), []int{37}
 }
 
 func (x *MinerEndpointRecoveryResult) GetDeviceIdentifier() string {
@@ -2868,7 +2921,7 @@ type RecoverMinerEndpointsResult struct {
 
 func (x *RecoverMinerEndpointsResult) Reset() {
 	*x = RecoverMinerEndpointsResult{}
-	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[37]
+	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[38]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2880,7 +2933,7 @@ func (x *RecoverMinerEndpointsResult) String() string {
 func (*RecoverMinerEndpointsResult) ProtoMessage() {}
 
 func (x *RecoverMinerEndpointsResult) ProtoReflect() protoreflect.Message {
-	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[37]
+	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[38]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2893,7 +2946,7 @@ func (x *RecoverMinerEndpointsResult) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RecoverMinerEndpointsResult.ProtoReflect.Descriptor instead.
 func (*RecoverMinerEndpointsResult) Descriptor() ([]byte, []int) {
-	return file_fleetnodegateway_v1_fleetnodegateway_proto_rawDescGZIP(), []int{37}
+	return file_fleetnodegateway_v1_fleetnodegateway_proto_rawDescGZIP(), []int{38}
 }
 
 func (x *RecoverMinerEndpointsResult) GetResults() []*MinerEndpointRecoveryResult {
@@ -2939,7 +2992,7 @@ type MinerCommand struct {
 
 func (x *MinerCommand) Reset() {
 	*x = MinerCommand{}
-	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[38]
+	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[39]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2951,7 +3004,7 @@ func (x *MinerCommand) String() string {
 func (*MinerCommand) ProtoMessage() {}
 
 func (x *MinerCommand) ProtoReflect() protoreflect.Message {
-	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[38]
+	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[39]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2964,7 +3017,7 @@ func (x *MinerCommand) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MinerCommand.ProtoReflect.Descriptor instead.
 func (*MinerCommand) Descriptor() ([]byte, []int) {
-	return file_fleetnodegateway_v1_fleetnodegateway_proto_rawDescGZIP(), []int{38}
+	return file_fleetnodegateway_v1_fleetnodegateway_proto_rawDescGZIP(), []int{39}
 }
 
 func (x *MinerCommand) GetTarget() *MinerConnectionDescriptor {
@@ -3308,7 +3361,7 @@ type RebootAction struct {
 
 func (x *RebootAction) Reset() {
 	*x = RebootAction{}
-	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[39]
+	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[40]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3320,7 +3373,7 @@ func (x *RebootAction) String() string {
 func (*RebootAction) ProtoMessage() {}
 
 func (x *RebootAction) ProtoReflect() protoreflect.Message {
-	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[39]
+	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[40]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3333,7 +3386,7 @@ func (x *RebootAction) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RebootAction.ProtoReflect.Descriptor instead.
 func (*RebootAction) Descriptor() ([]byte, []int) {
-	return file_fleetnodegateway_v1_fleetnodegateway_proto_rawDescGZIP(), []int{39}
+	return file_fleetnodegateway_v1_fleetnodegateway_proto_rawDescGZIP(), []int{40}
 }
 
 type StartMiningAction struct {
@@ -3344,7 +3397,7 @@ type StartMiningAction struct {
 
 func (x *StartMiningAction) Reset() {
 	*x = StartMiningAction{}
-	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[40]
+	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[41]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3356,7 +3409,7 @@ func (x *StartMiningAction) String() string {
 func (*StartMiningAction) ProtoMessage() {}
 
 func (x *StartMiningAction) ProtoReflect() protoreflect.Message {
-	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[40]
+	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[41]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3369,7 +3422,7 @@ func (x *StartMiningAction) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StartMiningAction.ProtoReflect.Descriptor instead.
 func (*StartMiningAction) Descriptor() ([]byte, []int) {
-	return file_fleetnodegateway_v1_fleetnodegateway_proto_rawDescGZIP(), []int{40}
+	return file_fleetnodegateway_v1_fleetnodegateway_proto_rawDescGZIP(), []int{41}
 }
 
 type StopMiningAction struct {
@@ -3380,7 +3433,7 @@ type StopMiningAction struct {
 
 func (x *StopMiningAction) Reset() {
 	*x = StopMiningAction{}
-	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[41]
+	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[42]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3392,7 +3445,7 @@ func (x *StopMiningAction) String() string {
 func (*StopMiningAction) ProtoMessage() {}
 
 func (x *StopMiningAction) ProtoReflect() protoreflect.Message {
-	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[41]
+	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[42]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3405,7 +3458,7 @@ func (x *StopMiningAction) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StopMiningAction.ProtoReflect.Descriptor instead.
 func (*StopMiningAction) Descriptor() ([]byte, []int) {
-	return file_fleetnodegateway_v1_fleetnodegateway_proto_rawDescGZIP(), []int{41}
+	return file_fleetnodegateway_v1_fleetnodegateway_proto_rawDescGZIP(), []int{42}
 }
 
 type BlinkLedAction struct {
@@ -3416,7 +3469,7 @@ type BlinkLedAction struct {
 
 func (x *BlinkLedAction) Reset() {
 	*x = BlinkLedAction{}
-	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[42]
+	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[43]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3428,7 +3481,7 @@ func (x *BlinkLedAction) String() string {
 func (*BlinkLedAction) ProtoMessage() {}
 
 func (x *BlinkLedAction) ProtoReflect() protoreflect.Message {
-	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[42]
+	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[43]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3441,7 +3494,7 @@ func (x *BlinkLedAction) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BlinkLedAction.ProtoReflect.Descriptor instead.
 func (*BlinkLedAction) Descriptor() ([]byte, []int) {
-	return file_fleetnodegateway_v1_fleetnodegateway_proto_rawDescGZIP(), []int{42}
+	return file_fleetnodegateway_v1_fleetnodegateway_proto_rawDescGZIP(), []int{43}
 }
 
 type UncurtailAction struct {
@@ -3452,7 +3505,7 @@ type UncurtailAction struct {
 
 func (x *UncurtailAction) Reset() {
 	*x = UncurtailAction{}
-	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[43]
+	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[44]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3464,7 +3517,7 @@ func (x *UncurtailAction) String() string {
 func (*UncurtailAction) ProtoMessage() {}
 
 func (x *UncurtailAction) ProtoReflect() protoreflect.Message {
-	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[43]
+	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[44]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3477,7 +3530,7 @@ func (x *UncurtailAction) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UncurtailAction.ProtoReflect.Descriptor instead.
 func (*UncurtailAction) Descriptor() ([]byte, []int) {
-	return file_fleetnodegateway_v1_fleetnodegateway_proto_rawDescGZIP(), []int{43}
+	return file_fleetnodegateway_v1_fleetnodegateway_proto_rawDescGZIP(), []int{44}
 }
 
 type GetMiningPoolsAction struct {
@@ -3488,7 +3541,7 @@ type GetMiningPoolsAction struct {
 
 func (x *GetMiningPoolsAction) Reset() {
 	*x = GetMiningPoolsAction{}
-	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[44]
+	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[45]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3500,7 +3553,7 @@ func (x *GetMiningPoolsAction) String() string {
 func (*GetMiningPoolsAction) ProtoMessage() {}
 
 func (x *GetMiningPoolsAction) ProtoReflect() protoreflect.Message {
-	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[44]
+	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[45]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3513,7 +3566,7 @@ func (x *GetMiningPoolsAction) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetMiningPoolsAction.ProtoReflect.Descriptor instead.
 func (*GetMiningPoolsAction) Descriptor() ([]byte, []int) {
-	return file_fleetnodegateway_v1_fleetnodegateway_proto_rawDescGZIP(), []int{44}
+	return file_fleetnodegateway_v1_fleetnodegateway_proto_rawDescGZIP(), []int{45}
 }
 
 type GetErrorsAction struct {
@@ -3524,7 +3577,7 @@ type GetErrorsAction struct {
 
 func (x *GetErrorsAction) Reset() {
 	*x = GetErrorsAction{}
-	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[45]
+	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[46]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3536,7 +3589,7 @@ func (x *GetErrorsAction) String() string {
 func (*GetErrorsAction) ProtoMessage() {}
 
 func (x *GetErrorsAction) ProtoReflect() protoreflect.Message {
-	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[45]
+	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[46]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3549,7 +3602,7 @@ func (x *GetErrorsAction) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetErrorsAction.ProtoReflect.Descriptor instead.
 func (*GetErrorsAction) Descriptor() ([]byte, []int) {
-	return file_fleetnodegateway_v1_fleetnodegateway_proto_rawDescGZIP(), []int{45}
+	return file_fleetnodegateway_v1_fleetnodegateway_proto_rawDescGZIP(), []int{46}
 }
 
 type GetFirmwareUpdateStatusAction struct {
@@ -3560,7 +3613,7 @@ type GetFirmwareUpdateStatusAction struct {
 
 func (x *GetFirmwareUpdateStatusAction) Reset() {
 	*x = GetFirmwareUpdateStatusAction{}
-	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[46]
+	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[47]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3572,7 +3625,7 @@ func (x *GetFirmwareUpdateStatusAction) String() string {
 func (*GetFirmwareUpdateStatusAction) ProtoMessage() {}
 
 func (x *GetFirmwareUpdateStatusAction) ProtoReflect() protoreflect.Message {
-	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[46]
+	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[47]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3585,7 +3638,7 @@ func (x *GetFirmwareUpdateStatusAction) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetFirmwareUpdateStatusAction.ProtoReflect.Descriptor instead.
 func (*GetFirmwareUpdateStatusAction) Descriptor() ([]byte, []int) {
-	return file_fleetnodegateway_v1_fleetnodegateway_proto_rawDescGZIP(), []int{46}
+	return file_fleetnodegateway_v1_fleetnodegateway_proto_rawDescGZIP(), []int{47}
 }
 
 type GetCoolingModeAction struct {
@@ -3596,7 +3649,7 @@ type GetCoolingModeAction struct {
 
 func (x *GetCoolingModeAction) Reset() {
 	*x = GetCoolingModeAction{}
-	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[47]
+	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[48]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3608,7 +3661,7 @@ func (x *GetCoolingModeAction) String() string {
 func (*GetCoolingModeAction) ProtoMessage() {}
 
 func (x *GetCoolingModeAction) ProtoReflect() protoreflect.Message {
-	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[47]
+	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[48]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3621,7 +3674,7 @@ func (x *GetCoolingModeAction) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetCoolingModeAction.ProtoReflect.Descriptor instead.
 func (*GetCoolingModeAction) Descriptor() ([]byte, []int) {
-	return file_fleetnodegateway_v1_fleetnodegateway_proto_rawDescGZIP(), []int{47}
+	return file_fleetnodegateway_v1_fleetnodegateway_proto_rawDescGZIP(), []int{48}
 }
 
 type DownloadLogsAction struct {
@@ -3633,7 +3686,7 @@ type DownloadLogsAction struct {
 
 func (x *DownloadLogsAction) Reset() {
 	*x = DownloadLogsAction{}
-	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[48]
+	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[49]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3645,7 +3698,7 @@ func (x *DownloadLogsAction) String() string {
 func (*DownloadLogsAction) ProtoMessage() {}
 
 func (x *DownloadLogsAction) ProtoReflect() protoreflect.Message {
-	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[48]
+	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[49]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3658,7 +3711,7 @@ func (x *DownloadLogsAction) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DownloadLogsAction.ProtoReflect.Descriptor instead.
 func (*DownloadLogsAction) Descriptor() ([]byte, []int) {
-	return file_fleetnodegateway_v1_fleetnodegateway_proto_rawDescGZIP(), []int{48}
+	return file_fleetnodegateway_v1_fleetnodegateway_proto_rawDescGZIP(), []int{49}
 }
 
 func (x *DownloadLogsAction) GetBatchLogUuid() string {
@@ -3680,7 +3733,7 @@ type NodeEncryptedPayload struct {
 
 func (x *NodeEncryptedPayload) Reset() {
 	*x = NodeEncryptedPayload{}
-	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[49]
+	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[50]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3692,7 +3745,7 @@ func (x *NodeEncryptedPayload) String() string {
 func (*NodeEncryptedPayload) ProtoMessage() {}
 
 func (x *NodeEncryptedPayload) ProtoReflect() protoreflect.Message {
-	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[49]
+	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[50]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3705,7 +3758,7 @@ func (x *NodeEncryptedPayload) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use NodeEncryptedPayload.ProtoReflect.Descriptor instead.
 func (*NodeEncryptedPayload) Descriptor() ([]byte, []int) {
-	return file_fleetnodegateway_v1_fleetnodegateway_proto_rawDescGZIP(), []int{49}
+	return file_fleetnodegateway_v1_fleetnodegateway_proto_rawDescGZIP(), []int{50}
 }
 
 func (x *NodeEncryptedPayload) GetAlgorithm() string {
@@ -3745,7 +3798,7 @@ type UpdateMinerPasswordAction struct {
 
 func (x *UpdateMinerPasswordAction) Reset() {
 	*x = UpdateMinerPasswordAction{}
-	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[50]
+	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[51]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3757,7 +3810,7 @@ func (x *UpdateMinerPasswordAction) String() string {
 func (*UpdateMinerPasswordAction) ProtoMessage() {}
 
 func (x *UpdateMinerPasswordAction) ProtoReflect() protoreflect.Message {
-	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[50]
+	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[51]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3770,7 +3823,7 @@ func (x *UpdateMinerPasswordAction) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdateMinerPasswordAction.ProtoReflect.Descriptor instead.
 func (*UpdateMinerPasswordAction) Descriptor() ([]byte, []int) {
-	return file_fleetnodegateway_v1_fleetnodegateway_proto_rawDescGZIP(), []int{50}
+	return file_fleetnodegateway_v1_fleetnodegateway_proto_rawDescGZIP(), []int{51}
 }
 
 func (x *UpdateMinerPasswordAction) GetEncryptedPasswordUpdate() *NodeEncryptedPayload {
@@ -3789,7 +3842,7 @@ type UpdateMinerPasswordResult struct {
 
 func (x *UpdateMinerPasswordResult) Reset() {
 	*x = UpdateMinerPasswordResult{}
-	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[51]
+	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[52]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3801,7 +3854,7 @@ func (x *UpdateMinerPasswordResult) String() string {
 func (*UpdateMinerPasswordResult) ProtoMessage() {}
 
 func (x *UpdateMinerPasswordResult) ProtoReflect() protoreflect.Message {
-	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[51]
+	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[52]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3814,7 +3867,7 @@ func (x *UpdateMinerPasswordResult) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdateMinerPasswordResult.ProtoReflect.Descriptor instead.
 func (*UpdateMinerPasswordResult) Descriptor() ([]byte, []int) {
-	return file_fleetnodegateway_v1_fleetnodegateway_proto_rawDescGZIP(), []int{51}
+	return file_fleetnodegateway_v1_fleetnodegateway_proto_rawDescGZIP(), []int{52}
 }
 
 func (x *UpdateMinerPasswordResult) GetEncryptedCredentials() *EncryptedCredentials {
@@ -3833,7 +3886,7 @@ type FirmwareUpdateAction struct {
 
 func (x *FirmwareUpdateAction) Reset() {
 	*x = FirmwareUpdateAction{}
-	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[52]
+	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[53]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3845,7 +3898,7 @@ func (x *FirmwareUpdateAction) String() string {
 func (*FirmwareUpdateAction) ProtoMessage() {}
 
 func (x *FirmwareUpdateAction) ProtoReflect() protoreflect.Message {
-	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[52]
+	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[53]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3858,7 +3911,7 @@ func (x *FirmwareUpdateAction) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FirmwareUpdateAction.ProtoReflect.Descriptor instead.
 func (*FirmwareUpdateAction) Descriptor() ([]byte, []int) {
-	return file_fleetnodegateway_v1_fleetnodegateway_proto_rawDescGZIP(), []int{52}
+	return file_fleetnodegateway_v1_fleetnodegateway_proto_rawDescGZIP(), []int{53}
 }
 
 func (x *FirmwareUpdateAction) GetArtifact() *CommandArtifactRef {
@@ -3877,7 +3930,7 @@ type CurtailAction struct {
 
 func (x *CurtailAction) Reset() {
 	*x = CurtailAction{}
-	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[53]
+	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[54]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3889,7 +3942,7 @@ func (x *CurtailAction) String() string {
 func (*CurtailAction) ProtoMessage() {}
 
 func (x *CurtailAction) ProtoReflect() protoreflect.Message {
-	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[53]
+	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[54]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3902,7 +3955,7 @@ func (x *CurtailAction) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CurtailAction.ProtoReflect.Descriptor instead.
 func (*CurtailAction) Descriptor() ([]byte, []int) {
-	return file_fleetnodegateway_v1_fleetnodegateway_proto_rawDescGZIP(), []int{53}
+	return file_fleetnodegateway_v1_fleetnodegateway_proto_rawDescGZIP(), []int{54}
 }
 
 func (x *CurtailAction) GetLevel() v11.CurtailmentLevel {
@@ -3921,7 +3974,7 @@ type ApplyCurtailmentConfigAction struct {
 
 func (x *ApplyCurtailmentConfigAction) Reset() {
 	*x = ApplyCurtailmentConfigAction{}
-	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[54]
+	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[55]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3933,7 +3986,7 @@ func (x *ApplyCurtailmentConfigAction) String() string {
 func (*ApplyCurtailmentConfigAction) ProtoMessage() {}
 
 func (x *ApplyCurtailmentConfigAction) ProtoReflect() protoreflect.Message {
-	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[54]
+	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[55]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3946,7 +3999,7 @@ func (x *ApplyCurtailmentConfigAction) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ApplyCurtailmentConfigAction.ProtoReflect.Descriptor instead.
 func (*ApplyCurtailmentConfigAction) Descriptor() ([]byte, []int) {
-	return file_fleetnodegateway_v1_fleetnodegateway_proto_rawDescGZIP(), []int{54}
+	return file_fleetnodegateway_v1_fleetnodegateway_proto_rawDescGZIP(), []int{55}
 }
 
 func (x *ApplyCurtailmentConfigAction) GetEncryptedConfig() *NodeEncryptedPayload {
@@ -3965,7 +4018,7 @@ type SetCoolingModeAction struct {
 
 func (x *SetCoolingModeAction) Reset() {
 	*x = SetCoolingModeAction{}
-	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[55]
+	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[56]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3977,7 +4030,7 @@ func (x *SetCoolingModeAction) String() string {
 func (*SetCoolingModeAction) ProtoMessage() {}
 
 func (x *SetCoolingModeAction) ProtoReflect() protoreflect.Message {
-	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[55]
+	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[56]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3990,7 +4043,7 @@ func (x *SetCoolingModeAction) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SetCoolingModeAction.ProtoReflect.Descriptor instead.
 func (*SetCoolingModeAction) Descriptor() ([]byte, []int) {
-	return file_fleetnodegateway_v1_fleetnodegateway_proto_rawDescGZIP(), []int{55}
+	return file_fleetnodegateway_v1_fleetnodegateway_proto_rawDescGZIP(), []int{56}
 }
 
 func (x *SetCoolingModeAction) GetMode() v1.CoolingMode {
@@ -4009,7 +4062,7 @@ type GetCoolingModeResult struct {
 
 func (x *GetCoolingModeResult) Reset() {
 	*x = GetCoolingModeResult{}
-	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[56]
+	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[57]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4021,7 +4074,7 @@ func (x *GetCoolingModeResult) String() string {
 func (*GetCoolingModeResult) ProtoMessage() {}
 
 func (x *GetCoolingModeResult) ProtoReflect() protoreflect.Message {
-	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[56]
+	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[57]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4034,7 +4087,7 @@ func (x *GetCoolingModeResult) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetCoolingModeResult.ProtoReflect.Descriptor instead.
 func (*GetCoolingModeResult) Descriptor() ([]byte, []int) {
-	return file_fleetnodegateway_v1_fleetnodegateway_proto_rawDescGZIP(), []int{56}
+	return file_fleetnodegateway_v1_fleetnodegateway_proto_rawDescGZIP(), []int{57}
 }
 
 func (x *GetCoolingModeResult) GetMode() v1.CoolingMode {
@@ -4053,7 +4106,7 @@ type SetPowerTargetAction struct {
 
 func (x *SetPowerTargetAction) Reset() {
 	*x = SetPowerTargetAction{}
-	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[57]
+	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[58]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4065,7 +4118,7 @@ func (x *SetPowerTargetAction) String() string {
 func (*SetPowerTargetAction) ProtoMessage() {}
 
 func (x *SetPowerTargetAction) ProtoReflect() protoreflect.Message {
-	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[57]
+	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[58]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4078,7 +4131,7 @@ func (x *SetPowerTargetAction) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SetPowerTargetAction.ProtoReflect.Descriptor instead.
 func (*SetPowerTargetAction) Descriptor() ([]byte, []int) {
-	return file_fleetnodegateway_v1_fleetnodegateway_proto_rawDescGZIP(), []int{57}
+	return file_fleetnodegateway_v1_fleetnodegateway_proto_rawDescGZIP(), []int{58}
 }
 
 func (x *SetPowerTargetAction) GetPerformanceMode() v12.PerformanceMode {
@@ -4099,7 +4152,7 @@ type MiningPoolConfig struct {
 
 func (x *MiningPoolConfig) Reset() {
 	*x = MiningPoolConfig{}
-	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[58]
+	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[59]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4111,7 +4164,7 @@ func (x *MiningPoolConfig) String() string {
 func (*MiningPoolConfig) ProtoMessage() {}
 
 func (x *MiningPoolConfig) ProtoReflect() protoreflect.Message {
-	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[58]
+	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[59]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4124,7 +4177,7 @@ func (x *MiningPoolConfig) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MiningPoolConfig.ProtoReflect.Descriptor instead.
 func (*MiningPoolConfig) Descriptor() ([]byte, []int) {
-	return file_fleetnodegateway_v1_fleetnodegateway_proto_rawDescGZIP(), []int{58}
+	return file_fleetnodegateway_v1_fleetnodegateway_proto_rawDescGZIP(), []int{59}
 }
 
 func (x *MiningPoolConfig) GetPriority() int32 {
@@ -4163,7 +4216,7 @@ type MiningPoolWriteConfig struct {
 
 func (x *MiningPoolWriteConfig) Reset() {
 	*x = MiningPoolWriteConfig{}
-	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[59]
+	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[60]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4175,7 +4228,7 @@ func (x *MiningPoolWriteConfig) String() string {
 func (*MiningPoolWriteConfig) ProtoMessage() {}
 
 func (x *MiningPoolWriteConfig) ProtoReflect() protoreflect.Message {
-	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[59]
+	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[60]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4188,7 +4241,7 @@ func (x *MiningPoolWriteConfig) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MiningPoolWriteConfig.ProtoReflect.Descriptor instead.
 func (*MiningPoolWriteConfig) Descriptor() ([]byte, []int) {
-	return file_fleetnodegateway_v1_fleetnodegateway_proto_rawDescGZIP(), []int{59}
+	return file_fleetnodegateway_v1_fleetnodegateway_proto_rawDescGZIP(), []int{60}
 }
 
 func (x *MiningPoolWriteConfig) GetPriority() int32 {
@@ -4228,7 +4281,7 @@ type MiningPoolWriteConfiguration struct {
 
 func (x *MiningPoolWriteConfiguration) Reset() {
 	*x = MiningPoolWriteConfiguration{}
-	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[60]
+	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[61]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4240,7 +4293,7 @@ func (x *MiningPoolWriteConfiguration) String() string {
 func (*MiningPoolWriteConfiguration) ProtoMessage() {}
 
 func (x *MiningPoolWriteConfiguration) ProtoReflect() protoreflect.Message {
-	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[60]
+	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[61]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4253,7 +4306,7 @@ func (x *MiningPoolWriteConfiguration) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MiningPoolWriteConfiguration.ProtoReflect.Descriptor instead.
 func (*MiningPoolWriteConfiguration) Descriptor() ([]byte, []int) {
-	return file_fleetnodegateway_v1_fleetnodegateway_proto_rawDescGZIP(), []int{60}
+	return file_fleetnodegateway_v1_fleetnodegateway_proto_rawDescGZIP(), []int{61}
 }
 
 func (x *MiningPoolWriteConfiguration) GetPools() []*MiningPoolWriteConfig {
@@ -4272,7 +4325,7 @@ type UpdateMiningPoolsAction struct {
 
 func (x *UpdateMiningPoolsAction) Reset() {
 	*x = UpdateMiningPoolsAction{}
-	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[61]
+	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[62]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4284,7 +4337,7 @@ func (x *UpdateMiningPoolsAction) String() string {
 func (*UpdateMiningPoolsAction) ProtoMessage() {}
 
 func (x *UpdateMiningPoolsAction) ProtoReflect() protoreflect.Message {
-	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[61]
+	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[62]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4297,7 +4350,7 @@ func (x *UpdateMiningPoolsAction) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdateMiningPoolsAction.ProtoReflect.Descriptor instead.
 func (*UpdateMiningPoolsAction) Descriptor() ([]byte, []int) {
-	return file_fleetnodegateway_v1_fleetnodegateway_proto_rawDescGZIP(), []int{61}
+	return file_fleetnodegateway_v1_fleetnodegateway_proto_rawDescGZIP(), []int{62}
 }
 
 func (x *UpdateMiningPoolsAction) GetEncryptedConfig() *NodeEncryptedPayload {
@@ -4316,7 +4369,7 @@ type GetMiningPoolsResult struct {
 
 func (x *GetMiningPoolsResult) Reset() {
 	*x = GetMiningPoolsResult{}
-	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[62]
+	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[63]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4328,7 +4381,7 @@ func (x *GetMiningPoolsResult) String() string {
 func (*GetMiningPoolsResult) ProtoMessage() {}
 
 func (x *GetMiningPoolsResult) ProtoReflect() protoreflect.Message {
-	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[62]
+	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[63]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4341,7 +4394,7 @@ func (x *GetMiningPoolsResult) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetMiningPoolsResult.ProtoReflect.Descriptor instead.
 func (*GetMiningPoolsResult) Descriptor() ([]byte, []int) {
-	return file_fleetnodegateway_v1_fleetnodegateway_proto_rawDescGZIP(), []int{62}
+	return file_fleetnodegateway_v1_fleetnodegateway_proto_rawDescGZIP(), []int{63}
 }
 
 func (x *GetMiningPoolsResult) GetPools() []*MiningPoolConfig {
@@ -4362,7 +4415,7 @@ type FirmwareUpdateStatusResult struct {
 
 func (x *FirmwareUpdateStatusResult) Reset() {
 	*x = FirmwareUpdateStatusResult{}
-	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[63]
+	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[64]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4374,7 +4427,7 @@ func (x *FirmwareUpdateStatusResult) String() string {
 func (*FirmwareUpdateStatusResult) ProtoMessage() {}
 
 func (x *FirmwareUpdateStatusResult) ProtoReflect() protoreflect.Message {
-	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[63]
+	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[64]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4387,7 +4440,7 @@ func (x *FirmwareUpdateStatusResult) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FirmwareUpdateStatusResult.ProtoReflect.Descriptor instead.
 func (*FirmwareUpdateStatusResult) Descriptor() ([]byte, []int) {
-	return file_fleetnodegateway_v1_fleetnodegateway_proto_rawDescGZIP(), []int{63}
+	return file_fleetnodegateway_v1_fleetnodegateway_proto_rawDescGZIP(), []int{64}
 }
 
 func (x *FirmwareUpdateStatusResult) GetState() string {
@@ -4432,7 +4485,7 @@ type MinerErrorReport struct {
 
 func (x *MinerErrorReport) Reset() {
 	*x = MinerErrorReport{}
-	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[64]
+	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[65]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4444,7 +4497,7 @@ func (x *MinerErrorReport) String() string {
 func (*MinerErrorReport) ProtoMessage() {}
 
 func (x *MinerErrorReport) ProtoReflect() protoreflect.Message {
-	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[64]
+	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[65]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4457,7 +4510,7 @@ func (x *MinerErrorReport) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MinerErrorReport.ProtoReflect.Descriptor instead.
 func (*MinerErrorReport) Descriptor() ([]byte, []int) {
-	return file_fleetnodegateway_v1_fleetnodegateway_proto_rawDescGZIP(), []int{64}
+	return file_fleetnodegateway_v1_fleetnodegateway_proto_rawDescGZIP(), []int{65}
 }
 
 func (x *MinerErrorReport) GetMinerError() v13.MinerError {
@@ -4563,7 +4616,7 @@ type GetErrorsResult struct {
 
 func (x *GetErrorsResult) Reset() {
 	*x = GetErrorsResult{}
-	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[65]
+	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[66]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4575,7 +4628,7 @@ func (x *GetErrorsResult) String() string {
 func (*GetErrorsResult) ProtoMessage() {}
 
 func (x *GetErrorsResult) ProtoReflect() protoreflect.Message {
-	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[65]
+	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[66]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4588,7 +4641,7 @@ func (x *GetErrorsResult) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetErrorsResult.ProtoReflect.Descriptor instead.
 func (*GetErrorsResult) Descriptor() ([]byte, []int) {
-	return file_fleetnodegateway_v1_fleetnodegateway_proto_rawDescGZIP(), []int{65}
+	return file_fleetnodegateway_v1_fleetnodegateway_proto_rawDescGZIP(), []int{66}
 }
 
 func (x *GetErrorsResult) GetDeviceId() string {
@@ -4650,7 +4703,7 @@ type AgentCommand struct {
 
 func (x *AgentCommand) Reset() {
 	*x = AgentCommand{}
-	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[66]
+	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[67]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4662,7 +4715,7 @@ func (x *AgentCommand) String() string {
 func (*AgentCommand) ProtoMessage() {}
 
 func (x *AgentCommand) ProtoReflect() protoreflect.Message {
-	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[66]
+	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[67]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4675,7 +4728,7 @@ func (x *AgentCommand) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AgentCommand.ProtoReflect.Descriptor instead.
 func (*AgentCommand) Descriptor() ([]byte, []int) {
-	return file_fleetnodegateway_v1_fleetnodegateway_proto_rawDescGZIP(), []int{66}
+	return file_fleetnodegateway_v1_fleetnodegateway_proto_rawDescGZIP(), []int{67}
 }
 
 func (x *AgentCommand) GetCommand() isAgentCommand_Command {
@@ -4806,7 +4859,7 @@ type ExportCredentialKey struct {
 
 func (x *ExportCredentialKey) Reset() {
 	*x = ExportCredentialKey{}
-	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[67]
+	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[68]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4818,7 +4871,7 @@ func (x *ExportCredentialKey) String() string {
 func (*ExportCredentialKey) ProtoMessage() {}
 
 func (x *ExportCredentialKey) ProtoReflect() protoreflect.Message {
-	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[67]
+	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[68]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4831,7 +4884,7 @@ func (x *ExportCredentialKey) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExportCredentialKey.ProtoReflect.Descriptor instead.
 func (*ExportCredentialKey) Descriptor() ([]byte, []int) {
-	return file_fleetnodegateway_v1_fleetnodegateway_proto_rawDescGZIP(), []int{67}
+	return file_fleetnodegateway_v1_fleetnodegateway_proto_rawDescGZIP(), []int{68}
 }
 
 func (x *ExportCredentialKey) GetRecipientPublicKey() []byte {
@@ -4851,7 +4904,7 @@ type InstallCredentialKey struct {
 
 func (x *InstallCredentialKey) Reset() {
 	*x = InstallCredentialKey{}
-	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[68]
+	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[69]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4863,7 +4916,7 @@ func (x *InstallCredentialKey) String() string {
 func (*InstallCredentialKey) ProtoMessage() {}
 
 func (x *InstallCredentialKey) ProtoReflect() protoreflect.Message {
-	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[68]
+	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[69]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4876,7 +4929,7 @@ func (x *InstallCredentialKey) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use InstallCredentialKey.ProtoReflect.Descriptor instead.
 func (*InstallCredentialKey) Descriptor() ([]byte, []int) {
-	return file_fleetnodegateway_v1_fleetnodegateway_proto_rawDescGZIP(), []int{68}
+	return file_fleetnodegateway_v1_fleetnodegateway_proto_rawDescGZIP(), []int{69}
 }
 
 func (x *InstallCredentialKey) GetSealedKey() *NodeEncryptedPayload {
@@ -4898,7 +4951,7 @@ type CredentialKeyResult struct {
 
 func (x *CredentialKeyResult) Reset() {
 	*x = CredentialKeyResult{}
-	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[69]
+	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[70]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4910,7 +4963,7 @@ func (x *CredentialKeyResult) String() string {
 func (*CredentialKeyResult) ProtoMessage() {}
 
 func (x *CredentialKeyResult) ProtoReflect() protoreflect.Message {
-	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[69]
+	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[70]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4923,7 +4976,7 @@ func (x *CredentialKeyResult) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CredentialKeyResult.ProtoReflect.Descriptor instead.
 func (*CredentialKeyResult) Descriptor() ([]byte, []int) {
-	return file_fleetnodegateway_v1_fleetnodegateway_proto_rawDescGZIP(), []int{69}
+	return file_fleetnodegateway_v1_fleetnodegateway_proto_rawDescGZIP(), []int{70}
 }
 
 func (x *CredentialKeyResult) GetSealedKey() *NodeEncryptedPayload {
@@ -4954,7 +5007,7 @@ type ControlAck struct {
 
 func (x *ControlAck) Reset() {
 	*x = ControlAck{}
-	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[70]
+	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[71]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4966,7 +5019,7 @@ func (x *ControlAck) String() string {
 func (*ControlAck) ProtoMessage() {}
 
 func (x *ControlAck) ProtoReflect() protoreflect.Message {
-	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[70]
+	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[71]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4979,7 +5032,7 @@ func (x *ControlAck) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ControlAck.ProtoReflect.Descriptor instead.
 func (*ControlAck) Descriptor() ([]byte, []int) {
-	return file_fleetnodegateway_v1_fleetnodegateway_proto_rawDescGZIP(), []int{70}
+	return file_fleetnodegateway_v1_fleetnodegateway_proto_rawDescGZIP(), []int{71}
 }
 
 func (x *ControlAck) GetCommandId() string {
@@ -5027,7 +5080,7 @@ type SetContainerControlAction struct {
 
 func (x *SetContainerControlAction) Reset() {
 	*x = SetContainerControlAction{}
-	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[71]
+	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[72]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5039,7 +5092,7 @@ func (x *SetContainerControlAction) String() string {
 func (*SetContainerControlAction) ProtoMessage() {}
 
 func (x *SetContainerControlAction) ProtoReflect() protoreflect.Message {
-	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[71]
+	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[72]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5052,7 +5105,7 @@ func (x *SetContainerControlAction) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SetContainerControlAction.ProtoReflect.Descriptor instead.
 func (*SetContainerControlAction) Descriptor() ([]byte, []int) {
-	return file_fleetnodegateway_v1_fleetnodegateway_proto_rawDescGZIP(), []int{71}
+	return file_fleetnodegateway_v1_fleetnodegateway_proto_rawDescGZIP(), []int{72}
 }
 
 func (x *SetContainerControlAction) GetName() string {
@@ -5079,7 +5132,7 @@ type SetTankMiningAction struct {
 
 func (x *SetTankMiningAction) Reset() {
 	*x = SetTankMiningAction{}
-	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[72]
+	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[73]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5091,7 +5144,7 @@ func (x *SetTankMiningAction) String() string {
 func (*SetTankMiningAction) ProtoMessage() {}
 
 func (x *SetTankMiningAction) ProtoReflect() protoreflect.Message {
-	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[72]
+	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[73]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5104,7 +5157,7 @@ func (x *SetTankMiningAction) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SetTankMiningAction.ProtoReflect.Descriptor instead.
 func (*SetTankMiningAction) Descriptor() ([]byte, []int) {
-	return file_fleetnodegateway_v1_fleetnodegateway_proto_rawDescGZIP(), []int{72}
+	return file_fleetnodegateway_v1_fleetnodegateway_proto_rawDescGZIP(), []int{73}
 }
 
 func (x *SetTankMiningAction) GetPositions() []int32 {
@@ -5132,7 +5185,7 @@ type ModuleMiningTarget struct {
 
 func (x *ModuleMiningTarget) Reset() {
 	*x = ModuleMiningTarget{}
-	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[73]
+	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[74]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5144,7 +5197,7 @@ func (x *ModuleMiningTarget) String() string {
 func (*ModuleMiningTarget) ProtoMessage() {}
 
 func (x *ModuleMiningTarget) ProtoReflect() protoreflect.Message {
-	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[73]
+	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[74]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5157,7 +5210,7 @@ func (x *ModuleMiningTarget) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ModuleMiningTarget.ProtoReflect.Descriptor instead.
 func (*ModuleMiningTarget) Descriptor() ([]byte, []int) {
-	return file_fleetnodegateway_v1_fleetnodegateway_proto_rawDescGZIP(), []int{73}
+	return file_fleetnodegateway_v1_fleetnodegateway_proto_rawDescGZIP(), []int{74}
 }
 
 func (x *ModuleMiningTarget) GetTank() int32 {
@@ -5191,7 +5244,7 @@ type SetModuleMiningAction struct {
 
 func (x *SetModuleMiningAction) Reset() {
 	*x = SetModuleMiningAction{}
-	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[74]
+	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[75]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5203,7 +5256,7 @@ func (x *SetModuleMiningAction) String() string {
 func (*SetModuleMiningAction) ProtoMessage() {}
 
 func (x *SetModuleMiningAction) ProtoReflect() protoreflect.Message {
-	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[74]
+	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[75]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5216,7 +5269,7 @@ func (x *SetModuleMiningAction) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SetModuleMiningAction.ProtoReflect.Descriptor instead.
 func (*SetModuleMiningAction) Descriptor() ([]byte, []int) {
-	return file_fleetnodegateway_v1_fleetnodegateway_proto_rawDescGZIP(), []int{74}
+	return file_fleetnodegateway_v1_fleetnodegateway_proto_rawDescGZIP(), []int{75}
 }
 
 func (x *SetModuleMiningAction) GetModules() []*ModuleMiningTarget {
@@ -5245,7 +5298,7 @@ type MiningGroupsAction struct {
 
 func (x *MiningGroupsAction) Reset() {
 	*x = MiningGroupsAction{}
-	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[75]
+	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[76]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5257,7 +5310,7 @@ func (x *MiningGroupsAction) String() string {
 func (*MiningGroupsAction) ProtoMessage() {}
 
 func (x *MiningGroupsAction) ProtoReflect() protoreflect.Message {
-	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[75]
+	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[76]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5270,7 +5323,7 @@ func (x *MiningGroupsAction) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MiningGroupsAction.ProtoReflect.Descriptor instead.
 func (*MiningGroupsAction) Descriptor() ([]byte, []int) {
-	return file_fleetnodegateway_v1_fleetnodegateway_proto_rawDescGZIP(), []int{75}
+	return file_fleetnodegateway_v1_fleetnodegateway_proto_rawDescGZIP(), []int{76}
 }
 
 func (x *MiningGroupsAction) GetRequest() []byte {
@@ -5653,15 +5706,24 @@ var file_fleetnodegateway_v1_fleetnodegateway_proto_rawDesc = string([]byte{
 	0x65, 0x65, 0x74, 0x6e, 0x6f, 0x64, 0x65, 0x67, 0x61, 0x74, 0x65, 0x77, 0x61, 0x79, 0x2e, 0x76,
 	0x31, 0x2e, 0x43, 0x6f, 0x6e, 0x74, 0x72, 0x6f, 0x6c, 0x43, 0x6f, 0x6d, 0x6d, 0x61, 0x6e, 0x64,
 	0x48, 0x00, 0x52, 0x07, 0x63, 0x6f, 0x6d, 0x6d, 0x61, 0x6e, 0x64, 0x42, 0x0d, 0x0a, 0x04, 0x6b,
-	0x69, 0x6e, 0x64, 0x12, 0x05, 0xba, 0x48, 0x02, 0x08, 0x01, 0x22, 0x7c, 0x0a, 0x0c, 0x43, 0x6f,
-	0x6e, 0x74, 0x72, 0x6f, 0x6c, 0x48, 0x65, 0x6c, 0x6c, 0x6f, 0x12, 0x6c, 0x0a, 0x1c, 0x6d, 0x61,
-	0x78, 0x5f, 0x63, 0x6f, 0x6d, 0x6d, 0x61, 0x6e, 0x64, 0x5f, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x63,
-	0x6f, 0x6c, 0x5f, 0x76, 0x65, 0x72, 0x73, 0x69, 0x6f, 0x6e, 0x18, 0x01, 0x20, 0x01, 0x28, 0x0e,
-	0x32, 0x2b, 0x2e, 0x66, 0x6c, 0x65, 0x65, 0x74, 0x6e, 0x6f, 0x64, 0x65, 0x67, 0x61, 0x74, 0x65,
-	0x77, 0x61, 0x79, 0x2e, 0x76, 0x31, 0x2e, 0x43, 0x6f, 0x6d, 0x6d, 0x61, 0x6e, 0x64, 0x50, 0x72,
-	0x6f, 0x74, 0x6f, 0x63, 0x6f, 0x6c, 0x56, 0x65, 0x72, 0x73, 0x69, 0x6f, 0x6e, 0x52, 0x19, 0x6d,
-	0x61, 0x78, 0x43, 0x6f, 0x6d, 0x6d, 0x61, 0x6e, 0x64, 0x50, 0x72, 0x6f, 0x74, 0x6f, 0x63, 0x6f,
-	0x6c, 0x56, 0x65, 0x72, 0x73, 0x69, 0x6f, 0x6e, 0x22, 0x98, 0x01, 0x0a, 0x0f, 0x43, 0x6f, 0x6e,
+	0x69, 0x6e, 0x64, 0x12, 0x05, 0xba, 0x48, 0x02, 0x08, 0x01, 0x22, 0xcd, 0x01, 0x0a, 0x0c, 0x43,
+	0x6f, 0x6e, 0x74, 0x72, 0x6f, 0x6c, 0x48, 0x65, 0x6c, 0x6c, 0x6f, 0x12, 0x6c, 0x0a, 0x1c, 0x6d,
+	0x61, 0x78, 0x5f, 0x63, 0x6f, 0x6d, 0x6d, 0x61, 0x6e, 0x64, 0x5f, 0x70, 0x72, 0x6f, 0x74, 0x6f,
+	0x63, 0x6f, 0x6c, 0x5f, 0x76, 0x65, 0x72, 0x73, 0x69, 0x6f, 0x6e, 0x18, 0x01, 0x20, 0x01, 0x28,
+	0x0e, 0x32, 0x2b, 0x2e, 0x66, 0x6c, 0x65, 0x65, 0x74, 0x6e, 0x6f, 0x64, 0x65, 0x67, 0x61, 0x74,
+	0x65, 0x77, 0x61, 0x79, 0x2e, 0x76, 0x31, 0x2e, 0x43, 0x6f, 0x6d, 0x6d, 0x61, 0x6e, 0x64, 0x50,
+	0x72, 0x6f, 0x74, 0x6f, 0x63, 0x6f, 0x6c, 0x56, 0x65, 0x72, 0x73, 0x69, 0x6f, 0x6e, 0x52, 0x19,
+	0x6d, 0x61, 0x78, 0x43, 0x6f, 0x6d, 0x6d, 0x61, 0x6e, 0x64, 0x50, 0x72, 0x6f, 0x74, 0x6f, 0x63,
+	0x6f, 0x6c, 0x56, 0x65, 0x72, 0x73, 0x69, 0x6f, 0x6e, 0x12, 0x4f, 0x0a, 0x10, 0x64, 0x69, 0x73,
+	0x63, 0x6f, 0x76, 0x65, 0x72, 0x79, 0x5f, 0x63, 0x6f, 0x6e, 0x66, 0x69, 0x67, 0x18, 0x02, 0x20,
+	0x01, 0x28, 0x0b, 0x32, 0x24, 0x2e, 0x66, 0x6c, 0x65, 0x65, 0x74, 0x6e, 0x6f, 0x64, 0x65, 0x67,
+	0x61, 0x74, 0x65, 0x77, 0x61, 0x79, 0x2e, 0x76, 0x31, 0x2e, 0x44, 0x69, 0x73, 0x63, 0x6f, 0x76,
+	0x65, 0x72, 0x79, 0x43, 0x6f, 0x6e, 0x66, 0x69, 0x67, 0x52, 0x0f, 0x64, 0x69, 0x73, 0x63, 0x6f,
+	0x76, 0x65, 0x72, 0x79, 0x43, 0x6f, 0x6e, 0x66, 0x69, 0x67, 0x22, 0x3c, 0x0a, 0x0f, 0x44, 0x69,
+	0x73, 0x63, 0x6f, 0x76, 0x65, 0x72, 0x79, 0x43, 0x6f, 0x6e, 0x66, 0x69, 0x67, 0x12, 0x29, 0x0a,
+	0x06, 0x72, 0x61, 0x6e, 0x67, 0x65, 0x73, 0x18, 0x01, 0x20, 0x03, 0x28, 0x09, 0x42, 0x11, 0xba,
+	0x48, 0x0e, 0x92, 0x01, 0x0b, 0x10, 0x80, 0x02, 0x22, 0x06, 0x72, 0x04, 0x10, 0x01, 0x18, 0x40,
+	0x52, 0x06, 0x72, 0x61, 0x6e, 0x67, 0x65, 0x73, 0x22, 0x98, 0x01, 0x0a, 0x0f, 0x43, 0x6f, 0x6e,
 	0x74, 0x72, 0x6f, 0x6c, 0x41, 0x63, 0x63, 0x65, 0x70, 0x74, 0x65, 0x64, 0x12, 0x3b, 0x0a, 0x0b,
 	0x73, 0x65, 0x72, 0x76, 0x65, 0x72, 0x5f, 0x74, 0x69, 0x6d, 0x65, 0x18, 0x01, 0x20, 0x01, 0x28,
 	0x0b, 0x32, 0x1a, 0x2e, 0x67, 0x6f, 0x6f, 0x67, 0x6c, 0x65, 0x2e, 0x70, 0x72, 0x6f, 0x74, 0x6f,
@@ -6485,7 +6547,7 @@ func file_fleetnodegateway_v1_fleetnodegateway_proto_rawDescGZIP() []byte {
 }
 
 var file_fleetnodegateway_v1_fleetnodegateway_proto_enumTypes = make([]protoimpl.EnumInfo, 6)
-var file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes = make([]protoimpl.MessageInfo, 77)
+var file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes = make([]protoimpl.MessageInfo, 78)
 var file_fleetnodegateway_v1_fleetnodegateway_proto_goTypes = []any{
 	(EnrollmentStatus)(0),                   // 0: fleetnodegateway.v1.EnrollmentStatus
 	(CommandArtifactPurpose)(0),             // 1: fleetnodegateway.v1.CommandArtifactPurpose
@@ -6523,75 +6585,76 @@ var file_fleetnodegateway_v1_fleetnodegateway_proto_goTypes = []any{
 	(*ControlStreamRequest)(nil),            // 33: fleetnodegateway.v1.ControlStreamRequest
 	(*ControlStreamResponse)(nil),           // 34: fleetnodegateway.v1.ControlStreamResponse
 	(*ControlHello)(nil),                    // 35: fleetnodegateway.v1.ControlHello
-	(*ControlAccepted)(nil),                 // 36: fleetnodegateway.v1.ControlAccepted
-	(*ControlPing)(nil),                     // 37: fleetnodegateway.v1.ControlPing
-	(*TraceContext)(nil),                    // 38: fleetnodegateway.v1.TraceContext
-	(*ControlCommand)(nil),                  // 39: fleetnodegateway.v1.ControlCommand
-	(*MinerConnectionDescriptor)(nil),       // 40: fleetnodegateway.v1.MinerConnectionDescriptor
-	(*RecoverMinerEndpointsRequest)(nil),    // 41: fleetnodegateway.v1.RecoverMinerEndpointsRequest
-	(*MinerEndpointRecoveryResult)(nil),     // 42: fleetnodegateway.v1.MinerEndpointRecoveryResult
-	(*RecoverMinerEndpointsResult)(nil),     // 43: fleetnodegateway.v1.RecoverMinerEndpointsResult
-	(*MinerCommand)(nil),                    // 44: fleetnodegateway.v1.MinerCommand
-	(*RebootAction)(nil),                    // 45: fleetnodegateway.v1.RebootAction
-	(*StartMiningAction)(nil),               // 46: fleetnodegateway.v1.StartMiningAction
-	(*StopMiningAction)(nil),                // 47: fleetnodegateway.v1.StopMiningAction
-	(*BlinkLedAction)(nil),                  // 48: fleetnodegateway.v1.BlinkLedAction
-	(*UncurtailAction)(nil),                 // 49: fleetnodegateway.v1.UncurtailAction
-	(*GetMiningPoolsAction)(nil),            // 50: fleetnodegateway.v1.GetMiningPoolsAction
-	(*GetErrorsAction)(nil),                 // 51: fleetnodegateway.v1.GetErrorsAction
-	(*GetFirmwareUpdateStatusAction)(nil),   // 52: fleetnodegateway.v1.GetFirmwareUpdateStatusAction
-	(*GetCoolingModeAction)(nil),            // 53: fleetnodegateway.v1.GetCoolingModeAction
-	(*DownloadLogsAction)(nil),              // 54: fleetnodegateway.v1.DownloadLogsAction
-	(*NodeEncryptedPayload)(nil),            // 55: fleetnodegateway.v1.NodeEncryptedPayload
-	(*UpdateMinerPasswordAction)(nil),       // 56: fleetnodegateway.v1.UpdateMinerPasswordAction
-	(*UpdateMinerPasswordResult)(nil),       // 57: fleetnodegateway.v1.UpdateMinerPasswordResult
-	(*FirmwareUpdateAction)(nil),            // 58: fleetnodegateway.v1.FirmwareUpdateAction
-	(*CurtailAction)(nil),                   // 59: fleetnodegateway.v1.CurtailAction
-	(*ApplyCurtailmentConfigAction)(nil),    // 60: fleetnodegateway.v1.ApplyCurtailmentConfigAction
-	(*SetCoolingModeAction)(nil),            // 61: fleetnodegateway.v1.SetCoolingModeAction
-	(*GetCoolingModeResult)(nil),            // 62: fleetnodegateway.v1.GetCoolingModeResult
-	(*SetPowerTargetAction)(nil),            // 63: fleetnodegateway.v1.SetPowerTargetAction
-	(*MiningPoolConfig)(nil),                // 64: fleetnodegateway.v1.MiningPoolConfig
-	(*MiningPoolWriteConfig)(nil),           // 65: fleetnodegateway.v1.MiningPoolWriteConfig
-	(*MiningPoolWriteConfiguration)(nil),    // 66: fleetnodegateway.v1.MiningPoolWriteConfiguration
-	(*UpdateMiningPoolsAction)(nil),         // 67: fleetnodegateway.v1.UpdateMiningPoolsAction
-	(*GetMiningPoolsResult)(nil),            // 68: fleetnodegateway.v1.GetMiningPoolsResult
-	(*FirmwareUpdateStatusResult)(nil),      // 69: fleetnodegateway.v1.FirmwareUpdateStatusResult
-	(*MinerErrorReport)(nil),                // 70: fleetnodegateway.v1.MinerErrorReport
-	(*GetErrorsResult)(nil),                 // 71: fleetnodegateway.v1.GetErrorsResult
-	(*AgentCommand)(nil),                    // 72: fleetnodegateway.v1.AgentCommand
-	(*ExportCredentialKey)(nil),             // 73: fleetnodegateway.v1.ExportCredentialKey
-	(*InstallCredentialKey)(nil),            // 74: fleetnodegateway.v1.InstallCredentialKey
-	(*CredentialKeyResult)(nil),             // 75: fleetnodegateway.v1.CredentialKeyResult
-	(*ControlAck)(nil),                      // 76: fleetnodegateway.v1.ControlAck
-	(*SetContainerControlAction)(nil),       // 77: fleetnodegateway.v1.SetContainerControlAction
-	(*SetTankMiningAction)(nil),             // 78: fleetnodegateway.v1.SetTankMiningAction
-	(*ModuleMiningTarget)(nil),              // 79: fleetnodegateway.v1.ModuleMiningTarget
-	(*SetModuleMiningAction)(nil),           // 80: fleetnodegateway.v1.SetModuleMiningAction
-	(*MiningGroupsAction)(nil),              // 81: fleetnodegateway.v1.MiningGroupsAction
-	nil,                                     // 82: fleetnodegateway.v1.MinerErrorReport.VendorAttributesEntry
-	(*timestamppb.Timestamp)(nil),           // 83: google.protobuf.Timestamp
-	(v1.DeviceClass)(0),                     // 84: common.v1.DeviceClass
-	(*v1.DeviceEndpoint)(nil),               // 85: common.v1.DeviceEndpoint
-	(*durationpb.Duration)(nil),             // 86: google.protobuf.Duration
-	(v11.CurtailmentLevel)(0),               // 87: curtailment.v1.CurtailmentLevel
-	(v1.CoolingMode)(0),                     // 88: common.v1.CoolingMode
-	(v12.PerformanceMode)(0),                // 89: minercommand.v1.PerformanceMode
-	(v13.MinerError)(0),                     // 90: errors.v1.MinerError
-	(v13.Severity)(0),                       // 91: errors.v1.Severity
-	(v13.ComponentType)(0),                  // 92: errors.v1.ComponentType
-	(*v14.DiscoverRequest)(nil),             // 93: pairing.v1.DiscoverRequest
-	(*v14.FleetNodePairRequest)(nil),        // 94: pairing.v1.FleetNodePairRequest
-	(*v15.FleetNodeTelemetryRequest)(nil),   // 95: telemetry.v1.FleetNodeTelemetryRequest
+	(*DiscoveryConfig)(nil),                 // 36: fleetnodegateway.v1.DiscoveryConfig
+	(*ControlAccepted)(nil),                 // 37: fleetnodegateway.v1.ControlAccepted
+	(*ControlPing)(nil),                     // 38: fleetnodegateway.v1.ControlPing
+	(*TraceContext)(nil),                    // 39: fleetnodegateway.v1.TraceContext
+	(*ControlCommand)(nil),                  // 40: fleetnodegateway.v1.ControlCommand
+	(*MinerConnectionDescriptor)(nil),       // 41: fleetnodegateway.v1.MinerConnectionDescriptor
+	(*RecoverMinerEndpointsRequest)(nil),    // 42: fleetnodegateway.v1.RecoverMinerEndpointsRequest
+	(*MinerEndpointRecoveryResult)(nil),     // 43: fleetnodegateway.v1.MinerEndpointRecoveryResult
+	(*RecoverMinerEndpointsResult)(nil),     // 44: fleetnodegateway.v1.RecoverMinerEndpointsResult
+	(*MinerCommand)(nil),                    // 45: fleetnodegateway.v1.MinerCommand
+	(*RebootAction)(nil),                    // 46: fleetnodegateway.v1.RebootAction
+	(*StartMiningAction)(nil),               // 47: fleetnodegateway.v1.StartMiningAction
+	(*StopMiningAction)(nil),                // 48: fleetnodegateway.v1.StopMiningAction
+	(*BlinkLedAction)(nil),                  // 49: fleetnodegateway.v1.BlinkLedAction
+	(*UncurtailAction)(nil),                 // 50: fleetnodegateway.v1.UncurtailAction
+	(*GetMiningPoolsAction)(nil),            // 51: fleetnodegateway.v1.GetMiningPoolsAction
+	(*GetErrorsAction)(nil),                 // 52: fleetnodegateway.v1.GetErrorsAction
+	(*GetFirmwareUpdateStatusAction)(nil),   // 53: fleetnodegateway.v1.GetFirmwareUpdateStatusAction
+	(*GetCoolingModeAction)(nil),            // 54: fleetnodegateway.v1.GetCoolingModeAction
+	(*DownloadLogsAction)(nil),              // 55: fleetnodegateway.v1.DownloadLogsAction
+	(*NodeEncryptedPayload)(nil),            // 56: fleetnodegateway.v1.NodeEncryptedPayload
+	(*UpdateMinerPasswordAction)(nil),       // 57: fleetnodegateway.v1.UpdateMinerPasswordAction
+	(*UpdateMinerPasswordResult)(nil),       // 58: fleetnodegateway.v1.UpdateMinerPasswordResult
+	(*FirmwareUpdateAction)(nil),            // 59: fleetnodegateway.v1.FirmwareUpdateAction
+	(*CurtailAction)(nil),                   // 60: fleetnodegateway.v1.CurtailAction
+	(*ApplyCurtailmentConfigAction)(nil),    // 61: fleetnodegateway.v1.ApplyCurtailmentConfigAction
+	(*SetCoolingModeAction)(nil),            // 62: fleetnodegateway.v1.SetCoolingModeAction
+	(*GetCoolingModeResult)(nil),            // 63: fleetnodegateway.v1.GetCoolingModeResult
+	(*SetPowerTargetAction)(nil),            // 64: fleetnodegateway.v1.SetPowerTargetAction
+	(*MiningPoolConfig)(nil),                // 65: fleetnodegateway.v1.MiningPoolConfig
+	(*MiningPoolWriteConfig)(nil),           // 66: fleetnodegateway.v1.MiningPoolWriteConfig
+	(*MiningPoolWriteConfiguration)(nil),    // 67: fleetnodegateway.v1.MiningPoolWriteConfiguration
+	(*UpdateMiningPoolsAction)(nil),         // 68: fleetnodegateway.v1.UpdateMiningPoolsAction
+	(*GetMiningPoolsResult)(nil),            // 69: fleetnodegateway.v1.GetMiningPoolsResult
+	(*FirmwareUpdateStatusResult)(nil),      // 70: fleetnodegateway.v1.FirmwareUpdateStatusResult
+	(*MinerErrorReport)(nil),                // 71: fleetnodegateway.v1.MinerErrorReport
+	(*GetErrorsResult)(nil),                 // 72: fleetnodegateway.v1.GetErrorsResult
+	(*AgentCommand)(nil),                    // 73: fleetnodegateway.v1.AgentCommand
+	(*ExportCredentialKey)(nil),             // 74: fleetnodegateway.v1.ExportCredentialKey
+	(*InstallCredentialKey)(nil),            // 75: fleetnodegateway.v1.InstallCredentialKey
+	(*CredentialKeyResult)(nil),             // 76: fleetnodegateway.v1.CredentialKeyResult
+	(*ControlAck)(nil),                      // 77: fleetnodegateway.v1.ControlAck
+	(*SetContainerControlAction)(nil),       // 78: fleetnodegateway.v1.SetContainerControlAction
+	(*SetTankMiningAction)(nil),             // 79: fleetnodegateway.v1.SetTankMiningAction
+	(*ModuleMiningTarget)(nil),              // 80: fleetnodegateway.v1.ModuleMiningTarget
+	(*SetModuleMiningAction)(nil),           // 81: fleetnodegateway.v1.SetModuleMiningAction
+	(*MiningGroupsAction)(nil),              // 82: fleetnodegateway.v1.MiningGroupsAction
+	nil,                                     // 83: fleetnodegateway.v1.MinerErrorReport.VendorAttributesEntry
+	(*timestamppb.Timestamp)(nil),           // 84: google.protobuf.Timestamp
+	(v1.DeviceClass)(0),                     // 85: common.v1.DeviceClass
+	(*v1.DeviceEndpoint)(nil),               // 86: common.v1.DeviceEndpoint
+	(*durationpb.Duration)(nil),             // 87: google.protobuf.Duration
+	(v11.CurtailmentLevel)(0),               // 88: curtailment.v1.CurtailmentLevel
+	(v1.CoolingMode)(0),                     // 89: common.v1.CoolingMode
+	(v12.PerformanceMode)(0),                // 90: minercommand.v1.PerformanceMode
+	(v13.MinerError)(0),                     // 91: errors.v1.MinerError
+	(v13.Severity)(0),                       // 92: errors.v1.Severity
+	(v13.ComponentType)(0),                  // 93: errors.v1.ComponentType
+	(*v14.DiscoverRequest)(nil),             // 94: pairing.v1.DiscoverRequest
+	(*v14.FleetNodePairRequest)(nil),        // 95: pairing.v1.FleetNodePairRequest
+	(*v15.FleetNodeTelemetryRequest)(nil),   // 96: telemetry.v1.FleetNodeTelemetryRequest
 }
 var file_fleetnodegateway_v1_fleetnodegateway_proto_depIdxs = []int32{
 	0,   // 0: fleetnodegateway.v1.RegisterResponse.enrollment_status:type_name -> fleetnodegateway.v1.EnrollmentStatus
-	83,  // 1: fleetnodegateway.v1.BeginAuthHandshakeResponse.expires_at:type_name -> google.protobuf.Timestamp
-	83,  // 2: fleetnodegateway.v1.CompleteAuthHandshakeResponse.expires_at:type_name -> google.protobuf.Timestamp
-	83,  // 3: fleetnodegateway.v1.UploadTelemetryRequest.captured_at:type_name -> google.protobuf.Timestamp
-	83,  // 4: fleetnodegateway.v1.UploadEventsRequest.captured_at:type_name -> google.protobuf.Timestamp
-	83,  // 5: fleetnodegateway.v1.UploadHeartbeatRequest.sent_at:type_name -> google.protobuf.Timestamp
-	83,  // 6: fleetnodegateway.v1.UploadHeartbeatResponse.received_at:type_name -> google.protobuf.Timestamp
+	84,  // 1: fleetnodegateway.v1.BeginAuthHandshakeResponse.expires_at:type_name -> google.protobuf.Timestamp
+	84,  // 2: fleetnodegateway.v1.CompleteAuthHandshakeResponse.expires_at:type_name -> google.protobuf.Timestamp
+	84,  // 3: fleetnodegateway.v1.UploadTelemetryRequest.captured_at:type_name -> google.protobuf.Timestamp
+	84,  // 4: fleetnodegateway.v1.UploadEventsRequest.captured_at:type_name -> google.protobuf.Timestamp
+	84,  // 5: fleetnodegateway.v1.UploadHeartbeatRequest.sent_at:type_name -> google.protobuf.Timestamp
+	84,  // 6: fleetnodegateway.v1.UploadHeartbeatResponse.received_at:type_name -> google.protobuf.Timestamp
 	1,   // 7: fleetnodegateway.v1.CommandArtifactRef.purpose:type_name -> fleetnodegateway.v1.CommandArtifactPurpose
 	1,   // 8: fleetnodegateway.v1.CommandArtifactUploadHeader.purpose:type_name -> fleetnodegateway.v1.CommandArtifactPurpose
 	19,  // 9: fleetnodegateway.v1.UploadCommandArtifactRequest.header:type_name -> fleetnodegateway.v1.CommandArtifactUploadHeader
@@ -6602,106 +6665,107 @@ var file_fleetnodegateway_v1_fleetnodegateway_proto_depIdxs = []int32{
 	24,  // 14: fleetnodegateway.v1.DownloadCommandArtifactResponse.header:type_name -> fleetnodegateway.v1.CommandArtifactDownloadHeader
 	20,  // 15: fleetnodegateway.v1.DownloadCommandArtifactResponse.chunk:type_name -> fleetnodegateway.v1.CommandArtifactChunk
 	27,  // 16: fleetnodegateway.v1.ReportDiscoveredDevicesRequest.devices:type_name -> fleetnodegateway.v1.DiscoveredDeviceReport
-	84,  // 17: fleetnodegateway.v1.DiscoveredDeviceReport.device_class:type_name -> common.v1.DeviceClass
-	85,  // 18: fleetnodegateway.v1.DiscoveredDeviceReport.endpoints:type_name -> common.v1.DeviceEndpoint
+	85,  // 17: fleetnodegateway.v1.DiscoveredDeviceReport.device_class:type_name -> common.v1.DeviceClass
+	86,  // 18: fleetnodegateway.v1.DiscoveredDeviceReport.endpoints:type_name -> common.v1.DeviceEndpoint
 	2,   // 19: fleetnodegateway.v1.FleetNodePairResult.outcome:type_name -> fleetnodegateway.v1.PairOutcome
-	84,  // 20: fleetnodegateway.v1.FleetNodePairResult.device_class:type_name -> common.v1.DeviceClass
+	85,  // 20: fleetnodegateway.v1.FleetNodePairResult.device_class:type_name -> common.v1.DeviceClass
 	30,  // 21: fleetnodegateway.v1.FleetNodePairResult.encrypted_credentials:type_name -> fleetnodegateway.v1.EncryptedCredentials
 	29,  // 22: fleetnodegateway.v1.ReportPairedDevicesRequest.results:type_name -> fleetnodegateway.v1.FleetNodePairResult
 	35,  // 23: fleetnodegateway.v1.ControlStreamRequest.hello:type_name -> fleetnodegateway.v1.ControlHello
-	76,  // 24: fleetnodegateway.v1.ControlStreamRequest.ack:type_name -> fleetnodegateway.v1.ControlAck
-	37,  // 25: fleetnodegateway.v1.ControlStreamRequest.ping:type_name -> fleetnodegateway.v1.ControlPing
-	36,  // 26: fleetnodegateway.v1.ControlStreamResponse.accepted:type_name -> fleetnodegateway.v1.ControlAccepted
-	39,  // 27: fleetnodegateway.v1.ControlStreamResponse.command:type_name -> fleetnodegateway.v1.ControlCommand
+	77,  // 24: fleetnodegateway.v1.ControlStreamRequest.ack:type_name -> fleetnodegateway.v1.ControlAck
+	38,  // 25: fleetnodegateway.v1.ControlStreamRequest.ping:type_name -> fleetnodegateway.v1.ControlPing
+	37,  // 26: fleetnodegateway.v1.ControlStreamResponse.accepted:type_name -> fleetnodegateway.v1.ControlAccepted
+	40,  // 27: fleetnodegateway.v1.ControlStreamResponse.command:type_name -> fleetnodegateway.v1.ControlCommand
 	3,   // 28: fleetnodegateway.v1.ControlHello.max_command_protocol_version:type_name -> fleetnodegateway.v1.CommandProtocolVersion
-	83,  // 29: fleetnodegateway.v1.ControlAccepted.server_time:type_name -> google.protobuf.Timestamp
-	86,  // 30: fleetnodegateway.v1.ControlAccepted.keepalive_interval:type_name -> google.protobuf.Duration
-	38,  // 31: fleetnodegateway.v1.ControlCommand.trace_context:type_name -> fleetnodegateway.v1.TraceContext
-	84,  // 32: fleetnodegateway.v1.MinerConnectionDescriptor.device_class:type_name -> common.v1.DeviceClass
-	85,  // 33: fleetnodegateway.v1.MinerConnectionDescriptor.endpoints:type_name -> common.v1.DeviceEndpoint
-	40,  // 34: fleetnodegateway.v1.RecoverMinerEndpointsRequest.targets:type_name -> fleetnodegateway.v1.MinerConnectionDescriptor
-	4,   // 35: fleetnodegateway.v1.MinerEndpointRecoveryResult.outcome:type_name -> fleetnodegateway.v1.MinerEndpointRecoveryOutcome
-	42,  // 36: fleetnodegateway.v1.RecoverMinerEndpointsResult.results:type_name -> fleetnodegateway.v1.MinerEndpointRecoveryResult
-	40,  // 37: fleetnodegateway.v1.MinerCommand.target:type_name -> fleetnodegateway.v1.MinerConnectionDescriptor
-	45,  // 38: fleetnodegateway.v1.MinerCommand.reboot:type_name -> fleetnodegateway.v1.RebootAction
-	46,  // 39: fleetnodegateway.v1.MinerCommand.start_mining:type_name -> fleetnodegateway.v1.StartMiningAction
-	47,  // 40: fleetnodegateway.v1.MinerCommand.stop_mining:type_name -> fleetnodegateway.v1.StopMiningAction
-	48,  // 41: fleetnodegateway.v1.MinerCommand.blink_led:type_name -> fleetnodegateway.v1.BlinkLedAction
-	59,  // 42: fleetnodegateway.v1.MinerCommand.curtail:type_name -> fleetnodegateway.v1.CurtailAction
-	49,  // 43: fleetnodegateway.v1.MinerCommand.uncurtail:type_name -> fleetnodegateway.v1.UncurtailAction
-	61,  // 44: fleetnodegateway.v1.MinerCommand.set_cooling_mode:type_name -> fleetnodegateway.v1.SetCoolingModeAction
-	63,  // 45: fleetnodegateway.v1.MinerCommand.set_power_target:type_name -> fleetnodegateway.v1.SetPowerTargetAction
-	67,  // 46: fleetnodegateway.v1.MinerCommand.update_mining_pools:type_name -> fleetnodegateway.v1.UpdateMiningPoolsAction
-	50,  // 47: fleetnodegateway.v1.MinerCommand.get_mining_pools:type_name -> fleetnodegateway.v1.GetMiningPoolsAction
-	51,  // 48: fleetnodegateway.v1.MinerCommand.get_errors:type_name -> fleetnodegateway.v1.GetErrorsAction
-	56,  // 49: fleetnodegateway.v1.MinerCommand.update_miner_password:type_name -> fleetnodegateway.v1.UpdateMinerPasswordAction
-	54,  // 50: fleetnodegateway.v1.MinerCommand.download_logs:type_name -> fleetnodegateway.v1.DownloadLogsAction
-	58,  // 51: fleetnodegateway.v1.MinerCommand.firmware_update:type_name -> fleetnodegateway.v1.FirmwareUpdateAction
-	52,  // 52: fleetnodegateway.v1.MinerCommand.get_firmware_update_status:type_name -> fleetnodegateway.v1.GetFirmwareUpdateStatusAction
-	53,  // 53: fleetnodegateway.v1.MinerCommand.get_cooling_mode:type_name -> fleetnodegateway.v1.GetCoolingModeAction
-	60,  // 54: fleetnodegateway.v1.MinerCommand.apply_curtailment_config:type_name -> fleetnodegateway.v1.ApplyCurtailmentConfigAction
-	77,  // 55: fleetnodegateway.v1.MinerCommand.set_container_control:type_name -> fleetnodegateway.v1.SetContainerControlAction
-	78,  // 56: fleetnodegateway.v1.MinerCommand.set_tank_mining:type_name -> fleetnodegateway.v1.SetTankMiningAction
-	80,  // 57: fleetnodegateway.v1.MinerCommand.set_module_mining:type_name -> fleetnodegateway.v1.SetModuleMiningAction
-	81,  // 58: fleetnodegateway.v1.MinerCommand.mining_groups:type_name -> fleetnodegateway.v1.MiningGroupsAction
-	55,  // 59: fleetnodegateway.v1.UpdateMinerPasswordAction.encrypted_password_update:type_name -> fleetnodegateway.v1.NodeEncryptedPayload
-	30,  // 60: fleetnodegateway.v1.UpdateMinerPasswordResult.encrypted_credentials:type_name -> fleetnodegateway.v1.EncryptedCredentials
-	18,  // 61: fleetnodegateway.v1.FirmwareUpdateAction.artifact:type_name -> fleetnodegateway.v1.CommandArtifactRef
-	87,  // 62: fleetnodegateway.v1.CurtailAction.level:type_name -> curtailment.v1.CurtailmentLevel
-	55,  // 63: fleetnodegateway.v1.ApplyCurtailmentConfigAction.encrypted_config:type_name -> fleetnodegateway.v1.NodeEncryptedPayload
-	88,  // 64: fleetnodegateway.v1.SetCoolingModeAction.mode:type_name -> common.v1.CoolingMode
-	88,  // 65: fleetnodegateway.v1.GetCoolingModeResult.mode:type_name -> common.v1.CoolingMode
-	89,  // 66: fleetnodegateway.v1.SetPowerTargetAction.performance_mode:type_name -> minercommand.v1.PerformanceMode
-	65,  // 67: fleetnodegateway.v1.MiningPoolWriteConfiguration.pools:type_name -> fleetnodegateway.v1.MiningPoolWriteConfig
-	55,  // 68: fleetnodegateway.v1.UpdateMiningPoolsAction.encrypted_config:type_name -> fleetnodegateway.v1.NodeEncryptedPayload
-	64,  // 69: fleetnodegateway.v1.GetMiningPoolsResult.pools:type_name -> fleetnodegateway.v1.MiningPoolConfig
-	90,  // 70: fleetnodegateway.v1.MinerErrorReport.miner_error:type_name -> errors.v1.MinerError
-	91,  // 71: fleetnodegateway.v1.MinerErrorReport.severity:type_name -> errors.v1.Severity
-	83,  // 72: fleetnodegateway.v1.MinerErrorReport.first_seen_at:type_name -> google.protobuf.Timestamp
-	83,  // 73: fleetnodegateway.v1.MinerErrorReport.last_seen_at:type_name -> google.protobuf.Timestamp
-	83,  // 74: fleetnodegateway.v1.MinerErrorReport.closed_at:type_name -> google.protobuf.Timestamp
-	82,  // 75: fleetnodegateway.v1.MinerErrorReport.vendor_attributes:type_name -> fleetnodegateway.v1.MinerErrorReport.VendorAttributesEntry
-	92,  // 76: fleetnodegateway.v1.MinerErrorReport.component_type:type_name -> errors.v1.ComponentType
-	70,  // 77: fleetnodegateway.v1.GetErrorsResult.errors:type_name -> fleetnodegateway.v1.MinerErrorReport
-	93,  // 78: fleetnodegateway.v1.AgentCommand.discover:type_name -> pairing.v1.DiscoverRequest
-	94,  // 79: fleetnodegateway.v1.AgentCommand.pair:type_name -> pairing.v1.FleetNodePairRequest
-	44,  // 80: fleetnodegateway.v1.AgentCommand.miner_command:type_name -> fleetnodegateway.v1.MinerCommand
-	95,  // 81: fleetnodegateway.v1.AgentCommand.telemetry:type_name -> telemetry.v1.FleetNodeTelemetryRequest
-	41,  // 82: fleetnodegateway.v1.AgentCommand.recover_miner_endpoints:type_name -> fleetnodegateway.v1.RecoverMinerEndpointsRequest
-	73,  // 83: fleetnodegateway.v1.AgentCommand.export_credential_key:type_name -> fleetnodegateway.v1.ExportCredentialKey
-	74,  // 84: fleetnodegateway.v1.AgentCommand.install_credential_key:type_name -> fleetnodegateway.v1.InstallCredentialKey
-	55,  // 85: fleetnodegateway.v1.InstallCredentialKey.sealed_key:type_name -> fleetnodegateway.v1.NodeEncryptedPayload
-	55,  // 86: fleetnodegateway.v1.CredentialKeyResult.sealed_key:type_name -> fleetnodegateway.v1.NodeEncryptedPayload
-	5,   // 87: fleetnodegateway.v1.ControlAck.code:type_name -> fleetnodegateway.v1.AckCode
-	79,  // 88: fleetnodegateway.v1.SetModuleMiningAction.modules:type_name -> fleetnodegateway.v1.ModuleMiningTarget
-	55,  // 89: fleetnodegateway.v1.MiningGroupsAction.encrypted_pools:type_name -> fleetnodegateway.v1.NodeEncryptedPayload
-	6,   // 90: fleetnodegateway.v1.FleetNodeGatewayService.Register:input_type -> fleetnodegateway.v1.RegisterRequest
-	8,   // 91: fleetnodegateway.v1.FleetNodeGatewayService.BeginAuthHandshake:input_type -> fleetnodegateway.v1.BeginAuthHandshakeRequest
-	10,  // 92: fleetnodegateway.v1.FleetNodeGatewayService.CompleteAuthHandshake:input_type -> fleetnodegateway.v1.CompleteAuthHandshakeRequest
-	12,  // 93: fleetnodegateway.v1.FleetNodeGatewayService.UploadTelemetry:input_type -> fleetnodegateway.v1.UploadTelemetryRequest
-	14,  // 94: fleetnodegateway.v1.FleetNodeGatewayService.UploadEvents:input_type -> fleetnodegateway.v1.UploadEventsRequest
-	16,  // 95: fleetnodegateway.v1.FleetNodeGatewayService.UploadHeartbeat:input_type -> fleetnodegateway.v1.UploadHeartbeatRequest
-	21,  // 96: fleetnodegateway.v1.FleetNodeGatewayService.UploadCommandArtifact:input_type -> fleetnodegateway.v1.UploadCommandArtifactRequest
-	23,  // 97: fleetnodegateway.v1.FleetNodeGatewayService.DownloadCommandArtifact:input_type -> fleetnodegateway.v1.DownloadCommandArtifactRequest
-	26,  // 98: fleetnodegateway.v1.FleetNodeGatewayService.ReportDiscoveredDevices:input_type -> fleetnodegateway.v1.ReportDiscoveredDevicesRequest
-	31,  // 99: fleetnodegateway.v1.FleetNodeGatewayService.ReportPairedDevices:input_type -> fleetnodegateway.v1.ReportPairedDevicesRequest
-	33,  // 100: fleetnodegateway.v1.FleetNodeGatewayService.ControlStream:input_type -> fleetnodegateway.v1.ControlStreamRequest
-	7,   // 101: fleetnodegateway.v1.FleetNodeGatewayService.Register:output_type -> fleetnodegateway.v1.RegisterResponse
-	9,   // 102: fleetnodegateway.v1.FleetNodeGatewayService.BeginAuthHandshake:output_type -> fleetnodegateway.v1.BeginAuthHandshakeResponse
-	11,  // 103: fleetnodegateway.v1.FleetNodeGatewayService.CompleteAuthHandshake:output_type -> fleetnodegateway.v1.CompleteAuthHandshakeResponse
-	13,  // 104: fleetnodegateway.v1.FleetNodeGatewayService.UploadTelemetry:output_type -> fleetnodegateway.v1.UploadTelemetryResponse
-	15,  // 105: fleetnodegateway.v1.FleetNodeGatewayService.UploadEvents:output_type -> fleetnodegateway.v1.UploadEventsResponse
-	17,  // 106: fleetnodegateway.v1.FleetNodeGatewayService.UploadHeartbeat:output_type -> fleetnodegateway.v1.UploadHeartbeatResponse
-	22,  // 107: fleetnodegateway.v1.FleetNodeGatewayService.UploadCommandArtifact:output_type -> fleetnodegateway.v1.UploadCommandArtifactResponse
-	25,  // 108: fleetnodegateway.v1.FleetNodeGatewayService.DownloadCommandArtifact:output_type -> fleetnodegateway.v1.DownloadCommandArtifactResponse
-	28,  // 109: fleetnodegateway.v1.FleetNodeGatewayService.ReportDiscoveredDevices:output_type -> fleetnodegateway.v1.ReportDiscoveredDevicesResponse
-	32,  // 110: fleetnodegateway.v1.FleetNodeGatewayService.ReportPairedDevices:output_type -> fleetnodegateway.v1.ReportPairedDevicesResponse
-	34,  // 111: fleetnodegateway.v1.FleetNodeGatewayService.ControlStream:output_type -> fleetnodegateway.v1.ControlStreamResponse
-	101, // [101:112] is the sub-list for method output_type
-	90,  // [90:101] is the sub-list for method input_type
-	90,  // [90:90] is the sub-list for extension type_name
-	90,  // [90:90] is the sub-list for extension extendee
-	0,   // [0:90] is the sub-list for field type_name
+	36,  // 29: fleetnodegateway.v1.ControlHello.discovery_config:type_name -> fleetnodegateway.v1.DiscoveryConfig
+	84,  // 30: fleetnodegateway.v1.ControlAccepted.server_time:type_name -> google.protobuf.Timestamp
+	87,  // 31: fleetnodegateway.v1.ControlAccepted.keepalive_interval:type_name -> google.protobuf.Duration
+	39,  // 32: fleetnodegateway.v1.ControlCommand.trace_context:type_name -> fleetnodegateway.v1.TraceContext
+	85,  // 33: fleetnodegateway.v1.MinerConnectionDescriptor.device_class:type_name -> common.v1.DeviceClass
+	86,  // 34: fleetnodegateway.v1.MinerConnectionDescriptor.endpoints:type_name -> common.v1.DeviceEndpoint
+	41,  // 35: fleetnodegateway.v1.RecoverMinerEndpointsRequest.targets:type_name -> fleetnodegateway.v1.MinerConnectionDescriptor
+	4,   // 36: fleetnodegateway.v1.MinerEndpointRecoveryResult.outcome:type_name -> fleetnodegateway.v1.MinerEndpointRecoveryOutcome
+	43,  // 37: fleetnodegateway.v1.RecoverMinerEndpointsResult.results:type_name -> fleetnodegateway.v1.MinerEndpointRecoveryResult
+	41,  // 38: fleetnodegateway.v1.MinerCommand.target:type_name -> fleetnodegateway.v1.MinerConnectionDescriptor
+	46,  // 39: fleetnodegateway.v1.MinerCommand.reboot:type_name -> fleetnodegateway.v1.RebootAction
+	47,  // 40: fleetnodegateway.v1.MinerCommand.start_mining:type_name -> fleetnodegateway.v1.StartMiningAction
+	48,  // 41: fleetnodegateway.v1.MinerCommand.stop_mining:type_name -> fleetnodegateway.v1.StopMiningAction
+	49,  // 42: fleetnodegateway.v1.MinerCommand.blink_led:type_name -> fleetnodegateway.v1.BlinkLedAction
+	60,  // 43: fleetnodegateway.v1.MinerCommand.curtail:type_name -> fleetnodegateway.v1.CurtailAction
+	50,  // 44: fleetnodegateway.v1.MinerCommand.uncurtail:type_name -> fleetnodegateway.v1.UncurtailAction
+	62,  // 45: fleetnodegateway.v1.MinerCommand.set_cooling_mode:type_name -> fleetnodegateway.v1.SetCoolingModeAction
+	64,  // 46: fleetnodegateway.v1.MinerCommand.set_power_target:type_name -> fleetnodegateway.v1.SetPowerTargetAction
+	68,  // 47: fleetnodegateway.v1.MinerCommand.update_mining_pools:type_name -> fleetnodegateway.v1.UpdateMiningPoolsAction
+	51,  // 48: fleetnodegateway.v1.MinerCommand.get_mining_pools:type_name -> fleetnodegateway.v1.GetMiningPoolsAction
+	52,  // 49: fleetnodegateway.v1.MinerCommand.get_errors:type_name -> fleetnodegateway.v1.GetErrorsAction
+	57,  // 50: fleetnodegateway.v1.MinerCommand.update_miner_password:type_name -> fleetnodegateway.v1.UpdateMinerPasswordAction
+	55,  // 51: fleetnodegateway.v1.MinerCommand.download_logs:type_name -> fleetnodegateway.v1.DownloadLogsAction
+	59,  // 52: fleetnodegateway.v1.MinerCommand.firmware_update:type_name -> fleetnodegateway.v1.FirmwareUpdateAction
+	53,  // 53: fleetnodegateway.v1.MinerCommand.get_firmware_update_status:type_name -> fleetnodegateway.v1.GetFirmwareUpdateStatusAction
+	54,  // 54: fleetnodegateway.v1.MinerCommand.get_cooling_mode:type_name -> fleetnodegateway.v1.GetCoolingModeAction
+	61,  // 55: fleetnodegateway.v1.MinerCommand.apply_curtailment_config:type_name -> fleetnodegateway.v1.ApplyCurtailmentConfigAction
+	78,  // 56: fleetnodegateway.v1.MinerCommand.set_container_control:type_name -> fleetnodegateway.v1.SetContainerControlAction
+	79,  // 57: fleetnodegateway.v1.MinerCommand.set_tank_mining:type_name -> fleetnodegateway.v1.SetTankMiningAction
+	81,  // 58: fleetnodegateway.v1.MinerCommand.set_module_mining:type_name -> fleetnodegateway.v1.SetModuleMiningAction
+	82,  // 59: fleetnodegateway.v1.MinerCommand.mining_groups:type_name -> fleetnodegateway.v1.MiningGroupsAction
+	56,  // 60: fleetnodegateway.v1.UpdateMinerPasswordAction.encrypted_password_update:type_name -> fleetnodegateway.v1.NodeEncryptedPayload
+	30,  // 61: fleetnodegateway.v1.UpdateMinerPasswordResult.encrypted_credentials:type_name -> fleetnodegateway.v1.EncryptedCredentials
+	18,  // 62: fleetnodegateway.v1.FirmwareUpdateAction.artifact:type_name -> fleetnodegateway.v1.CommandArtifactRef
+	88,  // 63: fleetnodegateway.v1.CurtailAction.level:type_name -> curtailment.v1.CurtailmentLevel
+	56,  // 64: fleetnodegateway.v1.ApplyCurtailmentConfigAction.encrypted_config:type_name -> fleetnodegateway.v1.NodeEncryptedPayload
+	89,  // 65: fleetnodegateway.v1.SetCoolingModeAction.mode:type_name -> common.v1.CoolingMode
+	89,  // 66: fleetnodegateway.v1.GetCoolingModeResult.mode:type_name -> common.v1.CoolingMode
+	90,  // 67: fleetnodegateway.v1.SetPowerTargetAction.performance_mode:type_name -> minercommand.v1.PerformanceMode
+	66,  // 68: fleetnodegateway.v1.MiningPoolWriteConfiguration.pools:type_name -> fleetnodegateway.v1.MiningPoolWriteConfig
+	56,  // 69: fleetnodegateway.v1.UpdateMiningPoolsAction.encrypted_config:type_name -> fleetnodegateway.v1.NodeEncryptedPayload
+	65,  // 70: fleetnodegateway.v1.GetMiningPoolsResult.pools:type_name -> fleetnodegateway.v1.MiningPoolConfig
+	91,  // 71: fleetnodegateway.v1.MinerErrorReport.miner_error:type_name -> errors.v1.MinerError
+	92,  // 72: fleetnodegateway.v1.MinerErrorReport.severity:type_name -> errors.v1.Severity
+	84,  // 73: fleetnodegateway.v1.MinerErrorReport.first_seen_at:type_name -> google.protobuf.Timestamp
+	84,  // 74: fleetnodegateway.v1.MinerErrorReport.last_seen_at:type_name -> google.protobuf.Timestamp
+	84,  // 75: fleetnodegateway.v1.MinerErrorReport.closed_at:type_name -> google.protobuf.Timestamp
+	83,  // 76: fleetnodegateway.v1.MinerErrorReport.vendor_attributes:type_name -> fleetnodegateway.v1.MinerErrorReport.VendorAttributesEntry
+	93,  // 77: fleetnodegateway.v1.MinerErrorReport.component_type:type_name -> errors.v1.ComponentType
+	71,  // 78: fleetnodegateway.v1.GetErrorsResult.errors:type_name -> fleetnodegateway.v1.MinerErrorReport
+	94,  // 79: fleetnodegateway.v1.AgentCommand.discover:type_name -> pairing.v1.DiscoverRequest
+	95,  // 80: fleetnodegateway.v1.AgentCommand.pair:type_name -> pairing.v1.FleetNodePairRequest
+	45,  // 81: fleetnodegateway.v1.AgentCommand.miner_command:type_name -> fleetnodegateway.v1.MinerCommand
+	96,  // 82: fleetnodegateway.v1.AgentCommand.telemetry:type_name -> telemetry.v1.FleetNodeTelemetryRequest
+	42,  // 83: fleetnodegateway.v1.AgentCommand.recover_miner_endpoints:type_name -> fleetnodegateway.v1.RecoverMinerEndpointsRequest
+	74,  // 84: fleetnodegateway.v1.AgentCommand.export_credential_key:type_name -> fleetnodegateway.v1.ExportCredentialKey
+	75,  // 85: fleetnodegateway.v1.AgentCommand.install_credential_key:type_name -> fleetnodegateway.v1.InstallCredentialKey
+	56,  // 86: fleetnodegateway.v1.InstallCredentialKey.sealed_key:type_name -> fleetnodegateway.v1.NodeEncryptedPayload
+	56,  // 87: fleetnodegateway.v1.CredentialKeyResult.sealed_key:type_name -> fleetnodegateway.v1.NodeEncryptedPayload
+	5,   // 88: fleetnodegateway.v1.ControlAck.code:type_name -> fleetnodegateway.v1.AckCode
+	80,  // 89: fleetnodegateway.v1.SetModuleMiningAction.modules:type_name -> fleetnodegateway.v1.ModuleMiningTarget
+	56,  // 90: fleetnodegateway.v1.MiningGroupsAction.encrypted_pools:type_name -> fleetnodegateway.v1.NodeEncryptedPayload
+	6,   // 91: fleetnodegateway.v1.FleetNodeGatewayService.Register:input_type -> fleetnodegateway.v1.RegisterRequest
+	8,   // 92: fleetnodegateway.v1.FleetNodeGatewayService.BeginAuthHandshake:input_type -> fleetnodegateway.v1.BeginAuthHandshakeRequest
+	10,  // 93: fleetnodegateway.v1.FleetNodeGatewayService.CompleteAuthHandshake:input_type -> fleetnodegateway.v1.CompleteAuthHandshakeRequest
+	12,  // 94: fleetnodegateway.v1.FleetNodeGatewayService.UploadTelemetry:input_type -> fleetnodegateway.v1.UploadTelemetryRequest
+	14,  // 95: fleetnodegateway.v1.FleetNodeGatewayService.UploadEvents:input_type -> fleetnodegateway.v1.UploadEventsRequest
+	16,  // 96: fleetnodegateway.v1.FleetNodeGatewayService.UploadHeartbeat:input_type -> fleetnodegateway.v1.UploadHeartbeatRequest
+	21,  // 97: fleetnodegateway.v1.FleetNodeGatewayService.UploadCommandArtifact:input_type -> fleetnodegateway.v1.UploadCommandArtifactRequest
+	23,  // 98: fleetnodegateway.v1.FleetNodeGatewayService.DownloadCommandArtifact:input_type -> fleetnodegateway.v1.DownloadCommandArtifactRequest
+	26,  // 99: fleetnodegateway.v1.FleetNodeGatewayService.ReportDiscoveredDevices:input_type -> fleetnodegateway.v1.ReportDiscoveredDevicesRequest
+	31,  // 100: fleetnodegateway.v1.FleetNodeGatewayService.ReportPairedDevices:input_type -> fleetnodegateway.v1.ReportPairedDevicesRequest
+	33,  // 101: fleetnodegateway.v1.FleetNodeGatewayService.ControlStream:input_type -> fleetnodegateway.v1.ControlStreamRequest
+	7,   // 102: fleetnodegateway.v1.FleetNodeGatewayService.Register:output_type -> fleetnodegateway.v1.RegisterResponse
+	9,   // 103: fleetnodegateway.v1.FleetNodeGatewayService.BeginAuthHandshake:output_type -> fleetnodegateway.v1.BeginAuthHandshakeResponse
+	11,  // 104: fleetnodegateway.v1.FleetNodeGatewayService.CompleteAuthHandshake:output_type -> fleetnodegateway.v1.CompleteAuthHandshakeResponse
+	13,  // 105: fleetnodegateway.v1.FleetNodeGatewayService.UploadTelemetry:output_type -> fleetnodegateway.v1.UploadTelemetryResponse
+	15,  // 106: fleetnodegateway.v1.FleetNodeGatewayService.UploadEvents:output_type -> fleetnodegateway.v1.UploadEventsResponse
+	17,  // 107: fleetnodegateway.v1.FleetNodeGatewayService.UploadHeartbeat:output_type -> fleetnodegateway.v1.UploadHeartbeatResponse
+	22,  // 108: fleetnodegateway.v1.FleetNodeGatewayService.UploadCommandArtifact:output_type -> fleetnodegateway.v1.UploadCommandArtifactResponse
+	25,  // 109: fleetnodegateway.v1.FleetNodeGatewayService.DownloadCommandArtifact:output_type -> fleetnodegateway.v1.DownloadCommandArtifactResponse
+	28,  // 110: fleetnodegateway.v1.FleetNodeGatewayService.ReportDiscoveredDevices:output_type -> fleetnodegateway.v1.ReportDiscoveredDevicesResponse
+	32,  // 111: fleetnodegateway.v1.FleetNodeGatewayService.ReportPairedDevices:output_type -> fleetnodegateway.v1.ReportPairedDevicesResponse
+	34,  // 112: fleetnodegateway.v1.FleetNodeGatewayService.ControlStream:output_type -> fleetnodegateway.v1.ControlStreamResponse
+	102, // [102:113] is the sub-list for method output_type
+	91,  // [91:102] is the sub-list for method input_type
+	91,  // [91:91] is the sub-list for extension type_name
+	91,  // [91:91] is the sub-list for extension extendee
+	0,   // [0:91] is the sub-list for field type_name
 }
 
 func init() { file_fleetnodegateway_v1_fleetnodegateway_proto_init() }
@@ -6727,7 +6791,7 @@ func file_fleetnodegateway_v1_fleetnodegateway_proto_init() {
 		(*ControlStreamResponse_Accepted)(nil),
 		(*ControlStreamResponse_Command)(nil),
 	}
-	file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[38].OneofWrappers = []any{
+	file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[39].OneofWrappers = []any{
 		(*MinerCommand_Reboot)(nil),
 		(*MinerCommand_StartMining)(nil),
 		(*MinerCommand_StopMining)(nil),
@@ -6750,10 +6814,10 @@ func file_fleetnodegateway_v1_fleetnodegateway_proto_init() {
 		(*MinerCommand_SetModuleMining)(nil),
 		(*MinerCommand_MiningGroups)(nil),
 	}
-	file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[59].OneofWrappers = []any{}
-	file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[63].OneofWrappers = []any{}
+	file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[60].OneofWrappers = []any{}
 	file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[64].OneofWrappers = []any{}
-	file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[66].OneofWrappers = []any{
+	file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[65].OneofWrappers = []any{}
+	file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[67].OneofWrappers = []any{
 		(*AgentCommand_Discover)(nil),
 		(*AgentCommand_Pair)(nil),
 		(*AgentCommand_MinerCommand)(nil),
@@ -6762,16 +6826,16 @@ func file_fleetnodegateway_v1_fleetnodegateway_proto_init() {
 		(*AgentCommand_ExportCredentialKey)(nil),
 		(*AgentCommand_InstallCredentialKey)(nil),
 	}
-	file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[71].OneofWrappers = []any{}
 	file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[72].OneofWrappers = []any{}
-	file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[74].OneofWrappers = []any{}
+	file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[73].OneofWrappers = []any{}
+	file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[75].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_fleetnodegateway_v1_fleetnodegateway_proto_rawDesc), len(file_fleetnodegateway_v1_fleetnodegateway_proto_rawDesc)),
 			NumEnums:      6,
-			NumMessages:   77,
+			NumMessages:   78,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

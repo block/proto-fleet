@@ -731,6 +731,39 @@ func TestTick_ReportsWhyStandbyIsNotReady(t *testing.T) {
 	}
 }
 
+func TestTick_KeyTransferDoesNotRequireMatchingDiscoveryRanges(t *testing.T) {
+	for _, tc := range []struct {
+		name            string
+		active, standby *pb.DiscoveryConfig
+	}{
+		{name: "unreported"},
+		{name: "missing standby ranges", active: &pb.DiscoveryConfig{Ranges: []string{"10.0.0.1"}}, standby: &pb.DiscoveryConfig{}},
+		{name: "different ranges", active: &pb.DiscoveryConfig{Ranges: []string{"10.0.0.1"}}, standby: &pb.DiscoveryConfig{Ranges: []string{"10.1.0.1"}}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newHarness(t)
+			h.createPair(t, false)
+			active := h.connect(t, h.active, v7)
+			active.SetDiscoveryConfig(tc.active)
+			standby := h.connect(t, h.standby, v7)
+			standby.SetDiscoveryConfig(tc.standby)
+			exports := respond(t, active, exportKey(make([]byte, credentialkey.KeySize)))
+			installs := respond(t, standby, installKey(h.standbyKey))
+
+			h.svc.TickForTest(t.Context(), time.Now())
+
+			pair, ok := h.pair(t)
+			require.True(t, ok)
+			assert.True(t, pair.ready)
+			assert.Empty(t, pair.reason)
+			assert.Equal(t, int32(1), exports.Load())
+			assert.Equal(t, int32(1), installs.Load())
+			assert.Equal(t, tc.active, h.registry.DiscoveryConfig(h.active))
+			assert.Equal(t, tc.standby, h.registry.DiscoveryConfig(h.standby))
+		})
+	}
+}
+
 func TestHandOff(t *testing.T) {
 	tests := []struct {
 		name          string
@@ -970,6 +1003,9 @@ func TestTick_PendingInstallSurvivesTeardownAndRestart(t *testing.T) {
 	var delayed *pb.ControlCommand
 	select {
 	case delayed = <-standby.Outgoing:
+		command := &pb.AgentCommand{}
+		require.NoError(t, proto.Unmarshal(delayed.GetPayload(), command))
+		require.NotNil(t, command.GetInstallCredentialKey())
 	case <-time.After(5 * time.Second):
 		t.Fatal("standby did not receive installation")
 	}
@@ -985,6 +1021,10 @@ func TestTick_PendingInstallSurvivesTeardownAndRestart(t *testing.T) {
 		t.Fatal("canceled transfer did not return")
 	}
 
+	// Restart loses all connection metadata; only the standby reconnects.
+	standby.Unregister()
+	h.registry = control.NewRegistry()
+	standby = h.connect(t, h.standby, v7)
 	restarted := ha.NewService(h.db, sqlstores.NewSQLTransactor(h.db), h.registry, nil, nil)
 	restarted.SetTimingForTest(0, 0, 0)
 	retried := make(chan struct{})
@@ -997,6 +1037,7 @@ func TestTick_PendingInstallSurvivesTeardownAndRestart(t *testing.T) {
 		assert.Equal(t, delayed.GetPayload(), cmd.GetPayload(), "retry must install the same sealed key")
 		command := &pb.AgentCommand{}
 		require.NoError(t, proto.Unmarshal(cmd.GetPayload(), command))
+		require.NotNil(t, command.GetInstallCredentialKey())
 		ack := installKey(h.standbyKey)(command)
 		ack.CommandId = cmd.GetCommandId()
 		standby.PublishAck(ack)

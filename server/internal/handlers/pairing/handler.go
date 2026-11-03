@@ -3,14 +3,17 @@ package pairing
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"slices"
 	"sync"
+	"time"
 
 	commonv1 "github.com/block/proto-fleet/server/generated/grpc/common/v1"
 	gatewaypb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
 	minercommandv1 "github.com/block/proto-fleet/server/generated/grpc/minercommand/v1"
 	"github.com/block/proto-fleet/server/internal/domain/authz"
+	"github.com/block/proto-fleet/server/internal/domain/discoverylimits"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/discovery"
 	fleetnodepairing "github.com/block/proto-fleet/server/internal/domain/fleetnode/pairing"
@@ -35,11 +38,19 @@ type Handler struct {
 }
 
 type fleetNodeDiscoveryRunner interface {
-	EligibleNodeIDs(ctx context.Context, orgID int64) ([]int64, error)
+	DiscoveryNodeIDs(ctx context.Context, orgID int64) ([]int64, error)
 	RunOnNode(ctx context.Context, fleetNodeID int64, source string, req *pb.DiscoverRequest, onBatch func(*pb.DiscoverResponse) error) error
 }
 
 var _ pairingv1connect.PairingServiceHandler = &Handler{}
+
+const pairLookupBatchSize = 1024
+
+// pairFleetNodeDeadline bounds the fleet node fan-out of one Pair call so the
+// response, with its failed device IDs, arrives before the reverse proxy's
+// 75 minute read timeout. A command already accepted by a node still finishes
+// (up to PairCommandTimeout) after the deadline. Var for tests.
+var pairFleetNodeDeadline = 45 * time.Minute
 
 type fleetNodePairRoute struct {
 	allDevices       bool
@@ -68,8 +79,7 @@ func (h *Handler) Discover(ctx context.Context, r *connect.Request[pb.DiscoverRe
 	nodeReq := fleetNodeDiscoveryRequest(r.Msg)
 	slog.Debug("Discover: handling discover request", "payload", r.Msg)
 
-	// A send failure (operator disconnected) cancels every source.
-	streamCtx, cancel := context.WithCancel(ctx)
+	streamCtx, cancel := discovery.NewRequestContext(ctx)
 	defer cancel()
 
 	// Serialize the concurrent sources (cloud scan + each node) onto the one
@@ -83,21 +93,19 @@ func (h *Handler) Discover(ctx context.Context, r *connect.Request[pb.DiscoverRe
 	case *pb.DiscoverRequest_IpRange:
 		resultChan, err = h.pairingSvc.DiscoverWithIPRange(streamCtx, r.Msg.GetIpRange())
 	case *pb.DiscoverRequest_NetworkScan:
-		resultChan, err = h.pairingSvc.DiscoverWithNetworkScan(streamCtx, r.Msg.GetNetworkScan())
+		if h.discovery != nil && discovery.ScansLocalSubnet(r.Msg.GetNetworkScan()) {
+			err = discovery.ValidateRequest(r.Msg)
+		} else {
+			resultChan, err = h.pairingSvc.DiscoverWithNetworkScan(streamCtx, r.Msg.GetNetworkScan())
+		}
 	case *pb.DiscoverRequest_Mdns:
 		resultChan, err = h.pairingSvc.DiscoverWithMDNS(streamCtx, r.Msg.GetMdns())
 	default:
 		return fleeterror.NewInternalError("unsupported mode")
 	}
 	if err != nil {
-		if fleeterror.IsInvalidArgumentError(err) || fleeterror.IsAuthenticationError(err) || fleeterror.IsForbiddenError(err) {
+		if err := reportServerScanError(streamCtx, fwd, err); err != nil {
 			return err
-		}
-		if streamCtx.Err() == nil {
-			slog.Warn("fleet server discovery failed", "error", err)
-			if sendErr := fwd.forward(discovery.SourceWarning("Fleet Server", err)); sendErr != nil {
-				return sendErr
-			}
 		}
 	}
 
@@ -112,6 +120,9 @@ func (h *Handler) Discover(ctx context.Context, r *connect.Request[pb.DiscoverRe
 		}
 		return nil
 	}
+	if errors.Is(streamCtx.Err(), context.DeadlineExceeded) {
+		return fwd.forward(&pb.DiscoverResponse{Warning: discoverylimits.RequestTimeoutWarning})
+	}
 	return sourceErr
 }
 
@@ -122,6 +133,8 @@ func (h *Handler) forwardDiscoverySources(
 	nodeReq *pb.DiscoverRequest,
 	fwd *dedupForwarder,
 ) error {
+	ctx, cancelRequest := discovery.NewRequestContext(ctx)
+	defer cancelRequest()
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	var sourceErr error
@@ -130,7 +143,10 @@ func (h *Handler) forwardDiscoverySources(
 		failOnce.Do(func() { sourceErr = err; cancel() })
 	}
 	var wg sync.WaitGroup
-	if serverResults != nil {
+	forwardServer := func(serverResults <-chan *pb.DiscoverResponse) {
+		if serverResults == nil {
+			return
+		}
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
@@ -150,11 +166,13 @@ func (h *Handler) forwardDiscoverySources(
 		}()
 	}
 
+	forwardServer(serverResults)
+
 	if nodeReq != nil && h.discovery != nil {
-		nodeIDs, err := h.discovery.EligibleNodeIDs(ctx, organizationID)
+		nodeIDs, err := h.discovery.DiscoveryNodeIDs(ctx, organizationID)
 		if err != nil {
 			if ctx.Err() == nil {
-				if fleeterror.IsInvalidArgumentError(err) || fleeterror.IsAuthenticationError(err) || fleeterror.IsForbiddenError(err) {
+				if discovery.IsCallerError(err) {
 					fail(err)
 				} else {
 					slog.Warn("skipping fleet node discovery fan-out", "error", err)
@@ -163,6 +181,15 @@ func (h *Handler) forwardDiscoverySources(
 				}
 			}
 		} else {
+			if serverResults == nil && len(nodeIDs) == 0 && nodeReq.GetNetworkScan() != nil &&
+				discovery.ScansLocalSubnet(nodeReq.GetNetworkScan()) {
+				results, scanErr := h.pairingSvc.DiscoverWithNetworkScan(ctx, nodeReq.GetNetworkScan())
+				if scanErr == nil {
+					forwardServer(results)
+				} else if err := reportServerScanError(ctx, fwd, scanErr); err != nil {
+					fail(err)
+				}
+			}
 			for _, nodeID := range nodeIDs {
 				if ctx.Err() != nil {
 					break
@@ -173,10 +200,9 @@ func (h *Handler) forwardDiscoverySources(
 					if ctx.Err() != nil {
 						return
 					}
-					// Each node is bounded by RunOnNode's per-node timeout.
 					runErr := h.discovery.RunOnNode(ctx, nodeID, "Fleet Node", nodeReq, fwd.forward)
 					// Node target policy is narrower than the server's: public
-					// addresses and broad ranges can still be scanned locally.
+					// addresses can still be scanned locally.
 					// Direct-node requests retain their strict validation errors.
 					if runErr == nil || ctx.Err() != nil {
 						return
@@ -195,6 +221,19 @@ func (h *Handler) forwardDiscoverySources(
 
 	wg.Wait()
 	return sourceErr
+}
+
+// reportServerScanError returns caller errors and forwards other Fleet Server
+// scan failures as a warning unless the request has ended.
+func reportServerScanError(ctx context.Context, fwd *dedupForwarder, err error) error {
+	if discovery.IsCallerError(err) {
+		return err
+	}
+	if ctx.Err() == nil {
+		slog.Warn("fleet server discovery failed", "error", err)
+		return fwd.forward(discovery.SourceWarning("Fleet Server", err))
+	}
+	return nil
 }
 
 // fleetNodeDiscoveryRequest returns requests supported by Fleet Nodes. The
@@ -294,7 +333,7 @@ func (h *Handler) pairFleetNodeDevices(ctx context.Context, orgID, userID int64,
 		return resp, route, nil
 	}
 
-	nodeIDs, err := h.discovery.EligibleNodeIDs(ctx, orgID)
+	nodeIDs, err := h.discovery.DiscoveryNodeIDs(ctx, orgID)
 	if err != nil {
 		slog.Warn("skipping fleet node pairing route", "error", err)
 		return resp, route, nil
@@ -302,53 +341,120 @@ func (h *Handler) pairFleetNodeDevices(ctx context.Context, orgID, userID int64,
 	if len(nodeIDs) == 0 {
 		return resp, route, nil
 	}
+	nodeIDs = slices.Sorted(slices.Values(nodeIDs))
 
+	ctx, cancel := context.WithTimeout(ctx, pairFleetNodeDeadline)
+	defer cancel()
+
+	type nodeWork struct {
+		nodeID  int64
+		targets []*pb.FleetNodePairTarget
+		route   fleetNodePairRoute
+		failed  map[string]struct{}
+	}
 	pending := setFromSlice(selected)
 	sortedSelected := sortedKeys(pending)
-	failed := map[string]struct{}{}
+	work := make([]nodeWork, 0, len(nodeIDs))
 	for _, nodeID := range nodeIDs {
-		if allDevicesFilter != nil {
-			if err := h.pairAllMatchingFleetNodeDevices(ctx, nodeID, orgID, userID, allDevicesFilter, req, &route, failed); err != nil {
-				return nil, fleetNodePairRoute{}, err
+		item := nodeWork{nodeID: nodeID, route: fleetNodePairRoute{
+			routedExplicit: map[string]struct{}{}, routedAllDevices: map[string]struct{}{},
+		}, failed: map[string]struct{}{}}
+		if allDevicesFilter == nil {
+			targetIDs := pendingSortedIdentifiers(sortedSelected, pending)
+			for ids := range slices.Chunk(targetIDs, pairLookupBatchSize) {
+				if err := ctx.Err(); err != nil {
+					return nil, fleetNodePairRoute{}, fmt.Errorf("pair stopped before resolving next batch: %w", err)
+				}
+				targets, err := h.fleetNodePairing.ResolvePairTargets(ctx, nodeID, orgID, ids, false, req.GetCredentials())
+				if err != nil {
+					return nil, fleetNodePairRoute{}, err
+				}
+				for _, target := range targets {
+					delete(pending, target.GetDeviceIdentifier())
+				}
+				item.targets = append(item.targets, targets...)
+				recordFleetNodePairTargets(targets, false, item.route.routedExplicit, item.route.routedAllDevices, item.failed)
 			}
-			continue
-		}
-
-		targetIDs := pendingSortedIdentifiers(sortedSelected, pending)
-		for start := 0; start < len(targetIDs); start += fleetnodepairing.MaxPairBatch {
-			end := start + fleetnodepairing.MaxPairBatch
-			if end > len(targetIDs) {
-				end = len(targetIDs)
-			}
-			targets, err := h.fleetNodePairing.ResolvePairTargets(ctx, nodeID, orgID, targetIDs[start:end], false, req.GetCredentials())
-			if err != nil {
-				return nil, fleetNodePairRoute{}, err
-			}
-			if len(targets) == 0 {
+			if len(item.targets) == 0 {
 				continue
 			}
-			recordFleetNodePairTargets(targets, false, route.routedExplicit, route.routedAllDevices, failed, pending)
-			if err := h.pairFleetNodeTargetBatch(ctx, nodeID, orgID, userID, req, targets, false, &route, failed); err != nil {
-				slog.Warn("fleet node pairing command failed; returning failed targets in pair response",
-					"fleet_node_id", nodeID, "error", err)
-				if route.remoteErr == nil {
-					route.remoteErr = err
-				}
-				break
-			}
 		}
-		if len(pending) == 0 {
+		work = append(work, item)
+		if allDevicesFilter == nil && len(pending) == 0 {
 			break
 		}
 	}
 
+	var wg sync.WaitGroup
+	for i := range work {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			item := &work[i]
+			defer func() {
+				if r := recover(); r != nil {
+					slog.Error("panic in fleet node pairing worker", "fleet_node_id", item.nodeID, "panic", r)
+					if item.route.remoteErr == nil {
+						item.route.remoteErr = fleeterror.NewInternalError("fleet node pairing worker panicked")
+					}
+				}
+			}()
+			if allDevicesFilter != nil {
+				if err := h.pairAllMatchingFleetNodeDevices(ctx, item.nodeID, orgID, userID, allDevicesFilter, req, &item.route, item.failed); err != nil {
+					slog.Warn("fleet node pair-all stopped", "fleet_node_id", item.nodeID, "error", err)
+					item.route.allDevices = true
+					if item.route.remoteErr == nil {
+						item.route.remoteErr = err
+					}
+				}
+				return
+			}
+			for targets := range slices.Chunk(item.targets, fleetnodepairing.MaxPairBatch) {
+				if err := ctx.Err(); err != nil {
+					item.route.remoteErr = err
+					return
+				}
+				if err := h.pairFleetNodeTargetBatch(ctx, item.nodeID, orgID, userID, req, targets, false, &item.route, item.failed); err != nil {
+					slog.Warn("fleet node pairing command failed; returning failed targets in pair response", "fleet_node_id", item.nodeID, "error", err)
+					if item.route.remoteErr == nil {
+						item.route.remoteErr = err
+					}
+					return
+				}
+			}
+		}()
+	}
+	wg.Wait()
+	failed := map[string]struct{}{}
+	for _, item := range work {
+		for id := range item.route.routedExplicit {
+			route.routedExplicit[id] = struct{}{}
+		}
+		for id := range item.route.routedAllDevices {
+			route.routedAllDevices[id] = struct{}{}
+		}
+		for id := range item.failed {
+			failed[id] = struct{}{}
+		}
+		route.allDevices = route.allDevices || item.route.allDevices
+		route.remoteSucceeded = route.remoteSucceeded || item.route.remoteSucceeded
+		if route.remoteErr == nil {
+			route.remoteErr = item.route.remoteErr
+		}
+	}
 	resp.FailedDeviceIds = sortedKeys(failed)
+	if allDevicesFilter != nil && route.remoteErr != nil {
+		return resp, route, route.remoteErr
+	}
 	return resp, route, nil
 }
 
 func (h *Handler) pairAllMatchingFleetNodeDevices(ctx context.Context, nodeID, orgID, userID int64, allDevicesFilter *minercommandv1.DeviceFilter, req *pb.PairRequest, route *fleetNodePairRoute, failed map[string]struct{}) error {
 	var cursorID *int64
 	for {
+		if err := ctx.Err(); err != nil {
+			return fmt.Errorf("pair stopped before next page: %w", err)
+		}
 		targets, nextCursor, err := h.fleetNodePairing.ResolvePairTargetsByFilterPage(ctx, nodeID, orgID, allDevicesFilter, req.GetCredentials(), cursorID)
 		if err != nil {
 			return err
@@ -356,14 +462,9 @@ func (h *Handler) pairAllMatchingFleetNodeDevices(ctx context.Context, nodeID, o
 		if len(targets) == 0 {
 			return nil
 		}
-		recordFleetNodePairTargets(targets, true, route.routedExplicit, route.routedAllDevices, failed, nil)
+		recordFleetNodePairTargets(targets, true, route.routedExplicit, route.routedAllDevices, failed)
 		if err := h.pairFleetNodeTargetBatch(ctx, nodeID, orgID, userID, req, targets, true, route, failed); err != nil {
-			slog.Warn("fleet node pairing command failed; returning failed targets in pair response",
-				"fleet_node_id", nodeID, "error", err)
-			if route.remoteErr == nil {
-				route.remoteErr = err
-			}
-			return nil
+			return err
 		}
 		cursorID = nextCursor
 		if cursorID == nil {
@@ -372,7 +473,7 @@ func (h *Handler) pairAllMatchingFleetNodeDevices(ctx context.Context, nodeID, o
 	}
 }
 
-func recordFleetNodePairTargets(targets []*pb.FleetNodePairTarget, allDevices bool, routedExplicit, routedAllDevices, failed, pending map[string]struct{}) {
+func recordFleetNodePairTargets(targets []*pb.FleetNodePairTarget, allDevices bool, routedExplicit, routedAllDevices, failed map[string]struct{}) {
 	for _, target := range targets {
 		id := target.GetDeviceIdentifier()
 		if allDevices {
@@ -381,9 +482,6 @@ func recordFleetNodePairTargets(targets []*pb.FleetNodePairTarget, allDevices bo
 			routedExplicit[id] = struct{}{}
 		}
 		failed[id] = struct{}{}
-		if pending != nil {
-			delete(pending, id)
-		}
 	}
 }
 
@@ -441,9 +539,6 @@ func handleAllDevicesCloudPairError(resp *pb.PairResponse, route fleetNodePairRo
 		slog.Warn("cloud pairing failed after fleet node pairing succeeded",
 			"error", err)
 		return nil, err
-	}
-	if route.remoteErr != nil {
-		return nil, route.remoteErr
 	}
 	return nil, err
 }

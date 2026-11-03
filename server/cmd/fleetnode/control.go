@@ -247,8 +247,13 @@ func (r *RunCmd) runControlSession(ctx context.Context, logger *slog.Logger, cli
 		}
 	}()
 
+	config, err := r.effectiveDiscoveryConfig()
+	if err != nil {
+		return fmt.Errorf("discovery configuration: %w", err)
+	}
 	if err := stream.Send(&pb.ControlStreamRequest{Kind: &pb.ControlStreamRequest_Hello{Hello: &pb.ControlHello{
 		MaxCommandProtocolVersion: pb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V7,
+		DiscoveryConfig:           config,
 	}}}); err != nil {
 		if ctx.Err() != nil {
 			return nil
@@ -636,7 +641,11 @@ func (r *RunCmd) discoverForCommand(ctx context.Context, req *pairingpb.Discover
 			}
 			return nil, false, cmdErr(pb.AckCode_ACK_CODE_BAD_REQUEST, "no usable ip_addresses after normalization (non-private addresses, scoped/link-local IPv6, and unresolvable hostnames are skipped)")
 		}
-		reports, truncated, probeErr := r.probeTargets(ctx, slices.Values(normalized), ports, logger)
+		targets, scopeErr := r.scopedDiscoveryTargets(slices.Values(normalized))
+		if scopeErr != nil {
+			return nil, false, scopeErr
+		}
+		reports, truncated, probeErr := r.probeTargets(ctx, targets, ports, logger)
 		if resolutionErr != nil && !errors.Is(ctx.Err(), context.Canceled) {
 			return reports, truncated, cmdErr(pb.AckCode_ACK_CODE_SCAN_FAILED, "%s", resolutionErr)
 		}
@@ -653,13 +662,21 @@ func (r *RunCmd) discoverForCommand(ctx context.Context, req *pairingpb.Discover
 		if target.Count() > maxIPsPerCommand {
 			return nil, false, cmdErr(pb.AckCode_ACK_CODE_BAD_REQUEST, "ip range expands to %d addresses, exceeds the limit of %d", target.Count(), maxIPsPerCommand)
 		}
-		return r.probeTargets(ctx, target.Addresses(), ports, logger)
+		targets, scopeErr := r.scopedDiscoveryTargets(target.Addresses())
+		if scopeErr != nil {
+			return nil, false, scopeErr
+		}
+		return r.probeTargets(ctx, targets, ports, logger)
 	case *pairingpb.DiscoverRequest_NetworkScan:
 		ports, err := r.resolveAndValidatePorts(ctx, m.NetworkScan.GetPorts())
 		if err != nil {
 			return nil, false, err
 		}
 		targets, err := r.networkScanTargets(ctx, m.NetworkScan)
+		if err != nil {
+			return nil, false, err
+		}
+		targets, err = r.scopedDiscoveryTargets(targets)
 		if err != nil {
 			return nil, false, err
 		}

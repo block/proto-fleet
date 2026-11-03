@@ -11,6 +11,8 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/deviceendpoints"
 
 	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
+	gatewaypb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
+	pairingpb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/control"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/enrollment"
@@ -51,6 +53,7 @@ type Store interface { //nolint:interfacebloat // Pairing coordinates several sq
 	DeviceExistsInOrg(ctx context.Context, deviceID, orgID int64) (bool, error)
 	GetDeviceIDByDeviceIdentifier(ctx context.Context, identifier string) (int64, error)
 	GetFleetNodePairedDeviceIdentifier(ctx context.Context, deviceID, orgID int64) (string, error)
+	GetFleetNodePairingTarget(ctx context.Context, deviceID, orgID int64) (*pairingpb.FleetNodePairTarget, error)
 }
 
 type minerCredentialDeleter interface {
@@ -82,6 +85,7 @@ type Service struct {
 	deviceStore           stores.DeviceStore
 	discoveredDeviceStore stores.DiscoveredDeviceStore
 	dispatcher            control.Sender
+	discoveryConfig       func(int64) *gatewaypb.DiscoveryConfig
 
 	invalidateMiner    func(context.Context, int64)
 	rigConfigReapplier func(context.Context, int64, int64, []string)
@@ -97,6 +101,17 @@ func (s *Service) WithProvisioning(deviceStore stores.DeviceStore, discoveredDev
 	s.deviceStore = deviceStore
 	s.discoveredDeviceStore = discoveredDeviceStore
 	s.dispatcher = dispatcher
+	if source, ok := dispatcher.(interface {
+		DiscoveryConfig(fleetNodeID int64) *gatewaypb.DiscoveryConfig
+	}); ok {
+		s.discoveryConfig = source.DiscoveryConfig
+	}
+	return s
+}
+
+// WithDiscoveryConfig supplies live connection metadata for alternate dispatchers.
+func (s *Service) WithDiscoveryConfig(config func(int64) *gatewaypb.DiscoveryConfig) *Service {
+	s.discoveryConfig = config
 	return s
 }
 
@@ -164,6 +179,9 @@ func (s *Service) pairDeviceLocked(ctx context.Context, fleetNodeID, deviceID, o
 		return err
 	}
 	if err := s.lockFleetNodeForPairing(ctx, fleetNodeID, orgID); err != nil {
+		return err
+	}
+	if err := s.validateDeviceDiscoveryScope(ctx, fleetNodeID, deviceID, orgID); err != nil {
 		return err
 	}
 	if err := s.pairDeviceWithLocks(ctx, fleetNodeID, deviceID, orgID, assignedBy); err != nil {

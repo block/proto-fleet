@@ -12,4 +12,8 @@ const (
 
 	// MaxPortsPerIP caps per-IP port fan-out to bound resource use.
 	MaxPortsPerIP = 10
+
+	// MaxDiscoveryRanges caps a node's configured ranges. It must match max_items
+	// on DiscoveryConfig.ranges in fleetnodegateway.proto.
+	MaxDiscoveryRanges = 256
 )

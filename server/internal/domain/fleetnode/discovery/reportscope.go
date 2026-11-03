@@ -39,10 +39,6 @@ func buildReportScope(req *pairingpb.DiscoverRequest) control.ReportScope {
 		}
 	case *pairingpb.DiscoverRequest_NetworkScan:
 		inPort := portMatcher(m.NetworkScan.GetPorts())
-		// The LocalSubnetTarget sentinel lets the agent pick its own subnet, so
-		// the server can't predict the IPs. Degrade the IP scope to the
-		// private-only invariant (RFC1918/RFC4193) that validateReport
-		// independently enforces; port scoping is still applied.
 		if m.NetworkScan.GetTarget() == netscan.LocalSubnetTarget {
 			return func(ip, port string) bool {
 				if !inPort(port) {

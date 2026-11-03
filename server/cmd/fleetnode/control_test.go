@@ -101,12 +101,12 @@ func TestControlLoop_AcksAndReports(t *testing.T) {
 			wantDevices:   1,
 		},
 		{
-			name:          "iplist normalizes scoped and canonical ipv6",
+			name:          "iplist excludes ipv6 outside assigned IPv4 ranges",
 			discoverer:    happyDisc,
 			request:       discoverIPList([]string{"fe80::1%eth0", "fe80::1", "FD00::1"}, []string{"4028"}),
 			wantSucceeded: true,
 			wantCode:      pb.AckCode_ACK_CODE_OK,
-			wantDevices:   1,
+			wantDevices:   0,
 		},
 		{
 			name:          "iplist all unusable",
@@ -179,7 +179,7 @@ func TestControlLoop_AcksAndReports(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			// Arrange
-			cmd := &RunCmd{discoverer: tc.discoverer}
+			cmd := &RunCmd{DiscoveryRanges: []string{"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"}, discoverer: tc.discoverer}
 			if cmd.discoverer == nil {
 				cmd.discoverer = &stubDiscoverer{}
 			}
@@ -204,6 +204,8 @@ func TestControlLoop_AcksAndReports(t *testing.T) {
 			}
 			reports := fake.reportsCopy()
 			switch {
+			case tc.wantCode == pb.AckCode_ACK_CODE_OK && tc.wantDevices == 0:
+				require.Empty(t, reports)
 			case tc.wantCode == pb.AckCode_ACK_CODE_OK:
 				require.Len(t, reports, 1)
 				assert.Len(t, reports[0].GetDevices(), tc.wantDevices)
@@ -219,18 +221,19 @@ func TestControlLoop_AcksAndReports(t *testing.T) {
 
 func TestDiscoverForCommand_IPListSelectsPrivateAddress(t *testing.T) {
 	for _, tc := range []struct {
-		name    string
-		input   string
-		answers []string
-		wantIP  string
+		name     string
+		input    string
+		answers  []string
+		wantIP   string
+		excluded bool
 	}{
 		{name: "private IPv4 after public IPv4", input: "miner.lan", answers: []string{"8.8.8.8", "10.0.0.5"}, wantIP: "10.0.0.5"},
-		{name: "private IPv6 after public IPv4", input: "miner.lan", answers: []string{"8.8.8.8", "fd00::5"}, wantIP: "fd00::5"},
+		{name: "private IPv6 after public IPv4", input: "miner.lan", answers: []string{"8.8.8.8", "fd00::5"}, wantIP: "fd00::5", excluded: true},
 		{name: "private IPv4 preferred over private IPv6", input: "miner.lan", answers: []string{"fd00::5", "8.8.8.8", "10.0.0.5"}, wantIP: "10.0.0.5"},
 		{name: "mapped private IPv4 DNS answer", input: "miner.lan", answers: []string{"8.8.8.8", "::ffff:10.0.0.5"}, wantIP: "10.0.0.5"},
 		{name: "private IPv4 literal", input: "10.0.0.5", wantIP: "10.0.0.5"},
 		{name: "mapped private IPv4 literal", input: "::ffff:10.0.0.5", wantIP: "10.0.0.5"},
-		{name: "private IPv6 literal", input: "FD00::5", wantIP: "fd00::5"},
+		{name: "private IPv6 literal", input: "FD00::5", wantIP: "fd00::5", excluded: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			// Arrange
@@ -239,7 +242,7 @@ func TestDiscoverForCommand_IPListSelectsPrivateAddress(t *testing.T) {
 				answers = append(answers, net.IPAddr{IP: net.ParseIP(answer)})
 			}
 			originalAnswers := append([]net.IPAddr{}, answers...)
-			r := &RunCmd{
+			r := &RunCmd{DiscoveryRanges: []string{"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"},
 				resolver: stubResolver{"miner.lan": answers},
 				discoverer: &stubDiscoverer{probes: map[string]*pb.DiscoveredDeviceReport{
 					tc.wantIP + "|4028": {
@@ -258,6 +261,11 @@ func TestDiscoverForCommand_IPListSelectsPrivateAddress(t *testing.T) {
 			// Assert
 			require.NoError(t, err)
 			assert.False(t, truncated)
+			if tc.excluded {
+				require.Empty(t, reports)
+				assert.Equal(t, originalAnswers, answers)
+				return
+			}
 			require.Len(t, reports, 1)
 			assert.Equal(t, tc.wantIP, reports[0].GetIpAddress())
 			assert.Equal(t, originalAnswers, answers, "DNS answers must not be filtered in place")
@@ -269,7 +277,7 @@ func TestDiscoverForCommand_SkipsNonPrivateResolvedIPListHostname(t *testing.T) 
 	for _, resolved := range []string{"8.8.8.8", "127.0.0.1", "169.254.1.1", "2001:db8::1"} {
 		t.Run(resolved, func(t *testing.T) {
 			// Arrange
-			r := &RunCmd{
+			r := &RunCmd{DiscoveryRanges: []string{"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"},
 				discoverer: &stubDiscoverer{},
 				resolver:   stubResolver{"miner.lan": {{IP: net.ParseIP(resolved)}}},
 			}
@@ -288,7 +296,7 @@ func TestDiscoverForCommand_SkipsNonPrivateResolvedIPListHostname(t *testing.T) 
 
 func TestDiscoverForCommand_ContinuesAfterNonPrivateResolvedIPListHostname(t *testing.T) {
 	// Arrange
-	r := &RunCmd{
+	r := &RunCmd{DiscoveryRanges: []string{"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"},
 		discoverer: &stubDiscoverer{probes: map[string]*pb.DiscoveredDeviceReport{
 			"10.0.0.5|4028": {
 				DeviceIdentifier: "auto:1",
@@ -316,15 +324,15 @@ func TestDiscoverForCommand_ContinuesAfterNonPrivateResolvedIPListHostname(t *te
 }
 
 func TestControlLoop_UnknownCommandDoesNotCloseStream(t *testing.T) {
-	// Arrange: field 8 is a future top-level AgentCommand oneof arm unknown to
+	// Arrange: field 999 is a future top-level AgentCommand oneof arm unknown to
 	// this node. Follow it with a command the node does understand.
-	unknownPayload := protowire.AppendTag(nil, 8, protowire.BytesType)
+	unknownPayload := protowire.AppendTag(nil, 999, protowire.BytesType)
 	unknownPayload = protowire.AppendBytes(unknownPayload, nil)
 	discoveryPayload := discoverPayload(t, discoverIPList([]string{"10.0.0.5"}, []string{"4028"}))
 	disc := &stubDiscoverer{probes: map[string]*pb.DiscoveredDeviceReport{
 		"10.0.0.5|4028": {DeviceIdentifier: "auto:1", IpAddress: "10.0.0.5", Port: "4028", UrlScheme: "http", DriverName: "antminer"},
 	}}
-	cmd := &RunCmd{discoverer: disc}
+	cmd := &RunCmd{DiscoveryRanges: []string{"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"}, discoverer: disc}
 	fake := &controlFakeGateway{}
 	fake.queueWithID("future-command", unknownPayload)
 	fake.queueWithID("known-command", discoveryPayload)
@@ -365,7 +373,7 @@ func TestControlLoop_KnownCommandIgnoresUnrelatedUnknownFields(t *testing.T) {
 	payload := discoverPayload(t, discoverIPList([]string{"10.0.0.5"}, []string{"4028"}))
 	payload = protowire.AppendTag(payload, 100, protowire.VarintType)
 	payload = protowire.AppendVarint(payload, 1)
-	cmd := &RunCmd{discoverer: &stubDiscoverer{probes: map[string]*pb.DiscoveredDeviceReport{
+	cmd := &RunCmd{DiscoveryRanges: []string{"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"}, discoverer: &stubDiscoverer{probes: map[string]*pb.DiscoveredDeviceReport{
 		"10.0.0.5|4028": {DeviceIdentifier: "auto:1", IpAddress: "10.0.0.5", Port: "4028", UrlScheme: "http", DriverName: "antminer"},
 	}}}
 	fake := &controlFakeGateway{}
@@ -386,7 +394,7 @@ func TestControlLoop_IgnoresRepeatedAccepted(t *testing.T) {
 	disc := &stubDiscoverer{probes: map[string]*pb.DiscoveredDeviceReport{
 		"10.0.0.5|4028": {DeviceIdentifier: "auto:1", IpAddress: "10.0.0.5", Port: "4028", UrlScheme: "http", DriverName: "antminer"},
 	}}
-	cmd := &RunCmd{discoverer: disc}
+	cmd := &RunCmd{DiscoveryRanges: []string{"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"}, discoverer: disc}
 	fake := &controlFakeGateway{}
 	fake.setBehavior(controlFakeBehavior{acceptedLiveness: 2})
 	fake.queue(discoverPayload(t, discoverIPList([]string{"10.0.0.5"}, []string{"4028"})))
@@ -430,7 +438,7 @@ func TestResolveAndValidatePorts(t *testing.T) {
 			t.Parallel()
 
 			// Arrange
-			r := &RunCmd{discoverer: &stubDiscoverer{ports: tc.defaults}}
+			r := &RunCmd{DiscoveryRanges: []string{"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"}, discoverer: &stubDiscoverer{ports: tc.defaults}}
 
 			// Act
 			got, err := r.resolveAndValidatePorts(context.Background(), tc.supplied)
@@ -465,7 +473,7 @@ func TestControlLoop_PartialResultsSurviveScanDeadline(t *testing.T) {
 			"10.0.0.7": true,
 		},
 	}
-	cmd := &RunCmd{discoverer: disc}
+	cmd := &RunCmd{DiscoveryRanges: []string{"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"}, discoverer: disc}
 	state := &bootstrap.State{FleetNodeID: 7}
 
 	fake := &controlFakeGateway{}
@@ -527,7 +535,7 @@ func (s *delayingStubDiscoverer) DefaultDiscoveryPorts(_ context.Context) []stri
 
 func TestControlLoop_PermanentErrorPropagates(t *testing.T) {
 	// Arrange
-	cmd := &RunCmd{discoverer: &stubDiscoverer{}}
+	cmd := &RunCmd{DiscoveryRanges: []string{"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"}, discoverer: &stubDiscoverer{}}
 	state := &bootstrap.State{FleetNodeID: 11}
 
 	fake := &controlFakeGateway{}
@@ -548,7 +556,7 @@ func TestControlLoop_PermanentErrorPropagates(t *testing.T) {
 
 func TestControlLoop_UnimplementedFallsBackToHeartbeatOnly(t *testing.T) {
 	// Arrange
-	cmd := &RunCmd{discoverer: &stubDiscoverer{}}
+	cmd := &RunCmd{DiscoveryRanges: []string{"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"}, discoverer: &stubDiscoverer{}}
 	state := &bootstrap.State{FleetNodeID: 12}
 
 	fake := &controlFakeGateway{}
@@ -567,7 +575,7 @@ func TestControlLoop_UnimplementedFallsBackToHeartbeatOnly(t *testing.T) {
 
 func TestControlLoop_ReconnectsAfterStreamEOF(t *testing.T) {
 	// Arrange
-	cmd := &RunCmd{discoverer: &stubDiscoverer{}}
+	cmd := &RunCmd{DiscoveryRanges: []string{"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"}, discoverer: &stubDiscoverer{}}
 	state := &bootstrap.State{FleetNodeID: 9}
 
 	fake := &controlFakeGateway{}
@@ -592,6 +600,49 @@ func TestControlLoop_ReconnectsAfterStreamEOF(t *testing.T) {
 	assert.GreaterOrEqual(t, fake.helloCount(), 2)
 	for _, got := range fake.helloCommandProtocolVersionsCopy() {
 		assert.Equal(t, pb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V7, got)
+	}
+}
+
+func TestControlSession_HelloCarriesNormalizedDiscoveryRanges(t *testing.T) {
+	tests := []struct {
+		name string
+		cmd  *RunCmd
+		want []string
+	}{
+		{
+			name: "explicit ranges are merged and ordered",
+			cmd:  &RunCmd{DiscoveryRanges: []string{"192.168.1.1", "10.0.0.128/25", "10.0.0.0/25"}},
+			want: []string{"10.0.0.0-10.0.0.255", "192.168.1.1"},
+		},
+		{
+			name: "explicit empty list is reported as disabled",
+			cmd:  &RunCmd{DiscoveryRanges: []string{}, LocalDiscoverySubnet: "10.9.0.0/24"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Arrange
+			tt.cmd.discoverer = &stubDiscoverer{}
+			fake := &controlFakeGateway{}
+			fake.setBehavior(controlFakeBehavior{closeAfterAccepted: true})
+			client := newControlClient(t, fake)
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+
+			// Act
+			done := make(chan error, 1)
+			go func() { done <- tt.cmd.runControlLoop(ctx, client, &bootstrap.State{FleetNodeID: 7}, discardLogger(t)) }()
+			require.Eventually(t, func() bool { return fake.helloCount() >= 1 }, 3*time.Second, 20*time.Millisecond)
+			cancel()
+			<-done
+			tt.cmd.waitForControlWorkers(discardLogger(t))
+
+			// Assert
+			configs := fake.helloDiscoveryConfigsCopy()
+			require.NotEmpty(t, configs)
+			require.NotNil(t, configs[0], "an empty config must still be present so the server sees it as reported")
+			assert.Equal(t, tt.want, configs[0].GetRanges())
+		})
 	}
 }
 
@@ -693,6 +744,7 @@ type controlFakeGateway struct {
 	pending                      []pendingCommand
 	hellos                       int32
 	helloCommandProtocolVersions []pb.CommandProtocolVersion
+	helloDiscoveryConfigs        []*pb.DiscoveryConfig
 	acks                         []*pb.ControlAck
 	reports                      []*pb.ReportDiscoveredDevicesRequest
 	pairReports                  []*pb.ReportPairedDevicesRequest
@@ -737,6 +789,16 @@ func (f *controlFakeGateway) helloCommandProtocolVersionsCopy() []pb.CommandProt
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return append([]pb.CommandProtocolVersion(nil), f.helloCommandProtocolVersions...)
+}
+
+func (f *controlFakeGateway) helloDiscoveryConfigsCopy() []*pb.DiscoveryConfig {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	out := make([]*pb.DiscoveryConfig, len(f.helloDiscoveryConfigs))
+	for i, config := range f.helloDiscoveryConfigs {
+		out[i] = proto.CloneOf(config)
+	}
+	return out
 }
 
 func (f *controlFakeGateway) ReportDiscoveredDevices(_ context.Context, req *connect.Request[pb.ReportDiscoveredDevicesRequest]) (*connect.Response[pb.ReportDiscoveredDevicesResponse], error) {
@@ -791,6 +853,7 @@ func (f *controlFakeGateway) ControlStream(ctx context.Context, stream *connect.
 	}
 	f.mu.Lock()
 	f.helloCommandProtocolVersions = append(f.helloCommandProtocolVersions, hello.GetMaxCommandProtocolVersion())
+	f.helloDiscoveryConfigs = append(f.helloDiscoveryConfigs, proto.CloneOf(hello.GetDiscoveryConfig()))
 	f.mu.Unlock()
 	atomic.AddInt32(&f.hellos, 1)
 
@@ -1220,7 +1283,7 @@ func TestControlLoop_SecondConcurrentDiscoveryGetsBusy(t *testing.T) {
 	// Arrange: discovery is single-flight per node. The first discovery blocks in its
 	// probe, holding the exclusive discovery slot.
 	disc := newBlockingDiscoverer("10.0.0.1")
-	cmd := &RunCmd{discoverer: disc}
+	cmd := &RunCmd{DiscoveryRanges: []string{"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"}, discoverer: disc}
 	state := &bootstrap.State{FleetNodeID: 7}
 
 	fake := &controlFakeGateway{}
@@ -1272,7 +1335,7 @@ func TestControlLoop_CommandPoolCeilingAcksBusy(t *testing.T) {
 	drv := mocks.NewMockDriver(ctrl)
 	drv.EXPECT().NewDevice(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 		Return(sdk.NewDeviceResult{Device: dev}, nil).AnyTimes()
-	cmd := &RunCmd{driverGetter: fakeDriverGetter{d: drv}, minerSecrets: nodeSecretProvider{}}
+	cmd := &RunCmd{DiscoveryRanges: []string{"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"}, driverGetter: fakeDriverGetter{d: drv}, minerSecrets: nodeSecretProvider{}}
 	state := &bootstrap.State{FleetNodeID: 7}
 
 	payload := mustMarshal(t, &pb.AgentCommand{
@@ -1397,7 +1460,7 @@ func TestClassifyControlCommand(t *testing.T) {
 }
 
 func TestTryAcquireControlCommandSlot_ReservesCapacityForGeneralCommands(t *testing.T) {
-	cmd := &RunCmd{}
+	cmd := &RunCmd{DiscoveryRanges: []string{"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"}}
 	cmd.initControlConcurrency()
 	releases := make([]func(), 0, commandPoolSize)
 	for range deferrableReadCommandPoolSize {
@@ -1450,7 +1513,7 @@ func TestTryAcquireControlCommandSlot_ReservesCapacityForGeneralCommands(t *test
 }
 
 func TestTryAcquireControlCommandSlotDetailed_ReportsSaturatedLane(t *testing.T) {
-	cmd := &RunCmd{
+	cmd := &RunCmd{DiscoveryRanges: []string{"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"},
 		controlCommandSlots:        make(chan struct{}, 1),
 		controlDeferrableReadSlots: make(chan struct{}, 1),
 		controlDiscoverySlot:       make(chan struct{}, 1),
@@ -1511,7 +1574,7 @@ func TestControlLoop_DeferrableReadsReserveOperatorCapacity(t *testing.T) {
 	driver := mocks.NewMockDriver(controller)
 	driver.EXPECT().NewDevice(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 		Return(sdk.NewDeviceResult{Device: device}, nil).AnyTimes()
-	cmd := &RunCmd{driverGetter: fakeDriverGetter{d: driver}, minerSecrets: nodeSecretProvider{}}
+	cmd := &RunCmd{DiscoveryRanges: []string{"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"}, driverGetter: fakeDriverGetter{d: driver}, minerSecrets: nodeSecretProvider{}}
 	state := &bootstrap.State{FleetNodeID: 7}
 
 	lowPayload := mustMarshal(t, &pb.AgentCommand{
@@ -1596,7 +1659,7 @@ func TestControlLoop_ReconnectRetainsDeferrableReadPermitsAndOperatorCapacity(t 
 	driver := mocks.NewMockDriver(controller)
 	driver.EXPECT().NewDevice(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 		Return(sdk.NewDeviceResult{Device: device}, nil).AnyTimes()
-	cmd := &RunCmd{driverGetter: fakeDriverGetter{d: driver}, minerSecrets: nodeSecretProvider{}}
+	cmd := &RunCmd{DiscoveryRanges: []string{"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"}, driverGetter: fakeDriverGetter{d: driver}, minerSecrets: nodeSecretProvider{}}
 	lowPayload := mustMarshal(t, &pb.AgentCommand{
 		Command: &pb.AgentCommand_MinerCommand{MinerCommand: withTarget(
 			&pb.MinerCommand{Action: &pb.MinerCommand_GetCoolingMode{GetCoolingMode: &pb.GetCoolingModeAction{}}},
@@ -1706,7 +1769,7 @@ func TestControlLoop_ReconnectDoesNotWaitForOldWorkersAndRetainsTheirPermits(t *
 	driver := mocks.NewMockDriver(controller)
 	driver.EXPECT().NewDevice(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 		Return(sdk.NewDeviceResult{Device: device}, nil).AnyTimes()
-	cmd := &RunCmd{driverGetter: fakeDriverGetter{d: driver}, minerSecrets: nodeSecretProvider{}}
+	cmd := &RunCmd{DiscoveryRanges: []string{"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"}, driverGetter: fakeDriverGetter{d: driver}, minerSecrets: nodeSecretProvider{}}
 	payload := mustMarshal(t, &pb.AgentCommand{
 		Command: &pb.AgentCommand_MinerCommand{MinerCommand: withTarget(
 			&pb.MinerCommand{Action: &pb.MinerCommand_Reboot{Reboot: &pb.RebootAction{}}},
@@ -1787,7 +1850,7 @@ func TestControlLoop_ReconnectDoesNotWaitForOldWorkersAndRetainsTheirPermits(t *
 func TestControlLoop_CtxCancelDuringInFlightUnblocks(t *testing.T) {
 	// Arrange: probe blocks until ctx cancellation.
 	disc := newBlockingDiscoverer("10.0.0.99")
-	cmd := &RunCmd{discoverer: disc}
+	cmd := &RunCmd{DiscoveryRanges: []string{"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"}, discoverer: disc}
 	state := &bootstrap.State{FleetNodeID: 7}
 
 	fake := &controlFakeGateway{}
@@ -1905,7 +1968,7 @@ func TestControlLoop_SupervisorTruncatedScanAcksPartial(t *testing.T) {
 		},
 		stuckIPs: map[string]bool{"10.0.0.2": true},
 	}
-	cmd := &RunCmd{discoverer: disc}
+	cmd := &RunCmd{DiscoveryRanges: []string{"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"}, discoverer: disc}
 	state := &bootstrap.State{FleetNodeID: 7}
 
 	fake := &controlFakeGateway{}
@@ -2019,7 +2082,7 @@ func TestControlLoop_DroppedStreamCancelsInFlightScan(t *testing.T) {
 	// it on `streamClose`, so the test can drop the stream at a precise
 	// moment (after observing the probe started).
 	disc := newBlockingDiscoverer("10.0.0.42")
-	cmd := &RunCmd{discoverer: disc}
+	cmd := &RunCmd{DiscoveryRanges: []string{"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"}, discoverer: disc}
 	state := &bootstrap.State{FleetNodeID: 7}
 
 	streamClose := make(chan struct{})
@@ -2087,7 +2150,7 @@ func TestControlLoop_DropsCommandWithInvalidCommandID(t *testing.T) {
 	disc := &stubDiscoverer{probes: map[string]*pb.DiscoveredDeviceReport{
 		"10.0.0.1|4028": {DeviceIdentifier: "auto:1", IpAddress: "10.0.0.1", Port: "4028", UrlScheme: "http", DriverName: "antminer"},
 	}}
-	cmd := &RunCmd{discoverer: disc}
+	cmd := &RunCmd{DiscoveryRanges: []string{"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"}, discoverer: disc}
 	state := &bootstrap.State{FleetNodeID: 7}
 
 	fake := &controlFakeGateway{}
@@ -2127,7 +2190,7 @@ func TestControlLoop_ConcurrentAcksSerialize(t *testing.T) {
 		"10.0.0.1|4028": {DeviceIdentifier: "auto:a", IpAddress: "10.0.0.1", Port: "4028", UrlScheme: "http", DriverName: "antminer"},
 		"10.0.0.2|4028": {DeviceIdentifier: "auto:b", IpAddress: "10.0.0.2", Port: "4028", UrlScheme: "http", DriverName: "antminer"},
 	}}
-	cmd := &RunCmd{discoverer: disc}
+	cmd := &RunCmd{DiscoveryRanges: []string{"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"}, discoverer: disc}
 	state := &bootstrap.State{FleetNodeID: 7}
 
 	fake := &controlFakeGateway{}
@@ -2157,7 +2220,7 @@ func TestControlLoop_ConcurrentAcksSerialize(t *testing.T) {
 func TestSendAck_TruncationPreservesUTF8Boundaries(t *testing.T) {
 	// Arrange: 4-byte emoji + ASCII padding sized so the naive byte cut
 	// would land in the middle of an emoji's continuation bytes.
-	r := &RunCmd{}
+	r := &RunCmd{DiscoveryRanges: []string{"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"}}
 	captured := &capturingAcker{}
 	const emoji = "🚨" // 4 bytes
 	// Choose padding so the cut at 4093 (maxAckErrorMessageBytes-3) lands
@@ -2214,7 +2277,7 @@ func TestSendAck_ClosedSessionDropsWithoutWarning(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(&logs, nil))
 
 	// Act
-	(&RunCmd{}).sendAck(sender, "old-command", pb.AckCode_ACK_CODE_OK, "", logger)
+	(&RunCmd{DiscoveryRanges: []string{"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"}}).sendAck(sender, "old-command", pb.AckCode_ACK_CODE_OK, "", logger)
 
 	// Assert
 	assert.Empty(t, inner.sent, "a late ack must not reach the discarded session")
@@ -2227,7 +2290,7 @@ func TestSendAck_TransportFailureWarns(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(&logs, nil))
 
 	// Act
-	(&RunCmd{}).sendAck(errorAcker{err: io.ErrClosedPipe}, "current-command", pb.AckCode_ACK_CODE_OK, "", logger)
+	(&RunCmd{DiscoveryRanges: []string{"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"}}).sendAck(errorAcker{err: io.ErrClosedPipe}, "current-command", pb.AckCode_ACK_CODE_OK, "", logger)
 
 	// Assert
 	assert.Contains(t, logs.String(), "send ack failed")

@@ -10,6 +10,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/deviceendpoints"
 
 	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
+	pairingpb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
 	"github.com/block/proto-fleet/server/generated/sqlc"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/pairing"
 )
@@ -26,6 +27,24 @@ func NewSQLFleetNodePairingStore(conn *sql.DB) *SQLFleetNodePairingStore {
 
 func (s *SQLFleetNodePairingStore) q(ctx context.Context) sqlc.Querier {
 	return s.GetQueries(ctx)
+}
+
+func (s *SQLFleetNodePairingStore) GetFleetNodePairingTarget(ctx context.Context, deviceID, orgID int64) (*pairingpb.FleetNodePairTarget, error) {
+	row, err := s.q(ctx).GetFleetNodePairingTarget(ctx, sqlc.GetFleetNodePairingTargetParams{DeviceID: deviceID, OrgID: orgID})
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	endpoints, err := deviceendpoints.Decode(row.Endpoints)
+	if err != nil {
+		return nil, err
+	}
+	return &pairingpb.FleetNodePairTarget{
+		DeviceIdentifier: row.DeviceIdentifier, IpAddress: row.IpAddress, Port: row.Port, UrlScheme: row.UrlScheme,
+		RpcPort: row.RpcPort, RpcTls: row.RpcTls, Endpoints: endpoints,
+	}, nil
 }
 
 func (s *SQLFleetNodePairingStore) PairDeviceToFleetNode(ctx context.Context, fleetNodeID, deviceID, orgID int64, assignedBy *int64) (int64, error) {

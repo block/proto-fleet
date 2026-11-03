@@ -225,7 +225,26 @@ func TestWithTransactionNoRetryResetsPoolWithoutReplayingAction(t *testing.T) {
 	}
 }
 
+func TestPreparedQuerierRetriesDeadlockAndStopsOnPermanentError(t *testing.T) {
+	permanent := errors.New("invalid query")
+	attempts := 0
+	conn := sql.OpenDB(&haResetConnector{prepare: func(string) (driver.Stmt, error) {
+		attempts++
+		if attempts == 1 {
+			return nil, &pgconn.PgError{Code: PGDeadlockDetected}
+		}
+		return nil, permanent
+	}})
+	t.Cleanup(func() { _ = conn.Close() })
+
+	queries, err := NewPreparedQuerier(t.Context(), conn)
+	if queries != nil || !errors.Is(err, permanent) || attempts != 2 {
+		t.Fatalf("queries = %v, error = %v, attempts = %d; want permanent error after two attempts", queries, err, attempts)
+	}
+}
+
 type haResetConnector struct {
+	prepare   func(string) (driver.Stmt, error)
 	beginErr  error
 	commitErr error
 	execErr   error
@@ -253,7 +272,10 @@ type haResetConn struct {
 	connector *haResetConnector
 }
 
-func (c *haResetConn) Prepare(string) (driver.Stmt, error) {
+func (c *haResetConn) Prepare(query string) (driver.Stmt, error) {
+	if c.connector.prepare != nil {
+		return c.connector.prepare(query)
+	}
 	return nil, errors.New("prepare not implemented")
 }
 

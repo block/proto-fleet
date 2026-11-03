@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import { create } from "@bufbuild/protobuf";
 import userEvent from "@testing-library/user-event";
 import FoundMinersModal from "./FoundMinersModal";
+import { createScaleDiscoveryMiners, scaleFleetNodes } from "./scaleDiscoveryFixture";
 import { DeviceClass } from "@/protoFleet/api/generated/common/v1/common_pb";
 import { DeviceSchema } from "@/protoFleet/api/generated/pairing/v1/pairing_pb";
 
@@ -26,7 +27,8 @@ function MixedScan() {
   return (
     <FoundMinersModal
       open
-      miners={devices.map((device) => ({ ...device, selected: !deselected.includes(device.deviceIdentifier) }))}
+      miners={devices}
+      deselectedMinerIds={new Set(deselected)}
       setDeselectedMiners={setDeselected}
       onDismiss={() => {}}
     />
@@ -46,5 +48,58 @@ describe("mixed discovery selection", () => {
     expect(screen.getByText("1 device selected")).toBeInTheDocument();
     const minerChecks = within(miners).getAllByRole("checkbox");
     expect(minerChecks[minerChecks.length - 1]).toBeChecked();
+  });
+});
+
+function Scan({ count }: { count: number }) {
+  const [devices] = useState(() => createScaleDiscoveryMiners(count));
+  const [deselected, setDeselected] = useState<string[]>([]);
+  const deselectedIds = new Set(deselected);
+  return (
+    <FoundMinersModal
+      open
+      miners={devices}
+      deselectedMinerIds={deselectedIds}
+      fleetNodes={scaleFleetNodes}
+      setDeselectedMiners={setDeselected}
+      onDismiss={() => {}}
+    />
+  );
+}
+
+describe("discovery pagination and selection", () => {
+  it("bounds 50,000 devices to 100 rows per page", async () => {
+    const user = userEvent.setup();
+    render(<Scan count={50_000} />);
+    expect(within(screen.getByRole("region", { name: "Miners" })).getAllByRole("checkbox")).toHaveLength(101);
+    expect(screen.getByText("Showing 1–100 of 50000 devices")).toBeInTheDocument();
+    expect(screen.getByText("50000 devices selected")).toBeInTheDocument();
+    expect(screen.getAllByText("Mining hall 1")).toHaveLength(100);
+    await user.click(screen.getByRole("button", { name: "Next page" }));
+    expect(screen.getByText("Showing 101–200 of 50000 devices")).toBeInTheDocument();
+    expect(within(screen.getByRole("region", { name: "Miners" })).getAllByRole("checkbox")).toHaveLength(101);
+  });
+
+  it("preserves selection between pages and applies bulk changes to every filtered result", async () => {
+    const user = userEvent.setup();
+    render(<Scan count={202} />);
+    const minerRegion = () => screen.getByRole("region", { name: "Miners" });
+    const checks = () => within(minerRegion()).getAllByRole("checkbox");
+    await user.click(checks()[1]);
+    await user.click(screen.getByRole("button", { name: "Next page" }));
+    await user.click(checks()[1]);
+    expect(screen.getByText("200 devices selected")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Previous page" }));
+    expect(checks()[1]).not.toBeChecked();
+    await user.click(screen.getByTestId("filter-dropdown-Model"));
+    await user.click(screen.getByTestId("filter-option-model:S21 Pro"));
+    await user.click(screen.getByRole("button", { name: /^Select none$/ }));
+    expect(screen.getByText("101 devices selected")).toBeInTheDocument();
+    expect(screen.getByText("Showing 1–100 of 101 devices")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /^Select all$/ }));
+    expect(screen.getByText("202 devices selected")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Next page" }));
+    expect(screen.getByText("Showing 101–101 of 101 devices")).toBeInTheDocument();
+    expect(checks()[1]).toBeChecked();
   });
 });

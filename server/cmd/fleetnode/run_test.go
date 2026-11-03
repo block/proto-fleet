@@ -632,6 +632,31 @@ func TestRunLocked_PluginBootstrapFailureRemainsRetryable(t *testing.T) {
 	assert.False(t, errors.As(err, &exitCoder), "transient plugin startup failures must remain restartable")
 }
 
+func TestRunLocked_InvalidExplicitDiscoveryRangesRequireOperatorAction(t *testing.T) {
+	t.Parallel()
+
+	// Arrange
+	stateDir := t.TempDir()
+	freshState(t, stateDir, time.Now().Add(24*time.Hour))
+	clientBuilt := false
+	cmd := &RunCmd{
+		DiscoveryRanges: []string{"8.8.8.8"},
+		clientFactory: func(_ string, _ func() string) (gatewayClient, error) {
+			clientBuilt = true
+			return &stubGatewayClient{}, nil
+		},
+	}
+
+	// Act
+	err := cmd.runLocked(t.Context(), &Context{StateDir: stateDir}, "", discardLogger(t))
+
+	// Assert
+	require.Error(t, err)
+	requireOperatorActionExit(t, err)
+	assert.Contains(t, err.Error(), "discovery ranges")
+	assert.False(t, clientBuilt, "workers must not start with an invalid discovery configuration")
+}
+
 func TestRunCmd_StateLockErrorClassification(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("Windows does not use the filesystem state lock")

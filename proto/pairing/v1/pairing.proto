@@ -50,6 +50,8 @@ message Device {
   int32 rpc_port = 13 [(buf.validate.field).int32 = {gte: 0, lte: 65535}];
   bool rpc_tls = 14;
   repeated common.v1.DeviceEndpoint endpoints = 15 [(buf.validate.field).repeated.max_items = 16];
+  // Discovering Fleet Node; zero for direct Fleet Server discovery.
+  int64 fleet_node_id = 16;
 }
 
 // Represents login credentials used for device pairing

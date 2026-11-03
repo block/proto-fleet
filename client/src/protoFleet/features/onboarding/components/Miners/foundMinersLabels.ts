@@ -1,4 +1,12 @@
 import { DeviceClass } from "@/protoFleet/api/generated/common/v1/common_pb";
+
+const FLEET_SERVER_ID = "0";
+
+/** Fleet Server for node id 0, otherwise the node's name or "Fleet Node <id>" when the name is unknown. */
+export function fleetSourceLabel(fleetNodeId: string, name?: string): string {
+  return fleetNodeId === FLEET_SERVER_ID ? "Fleet Server" : name || `Fleet Node ${fleetNodeId}`;
+}
+
 /** Entity noun for a group's count, pluralized: "container(s)" for containers, "miner(s)" otherwise. */
 export function entityNoun(deviceClass: DeviceClass, count: number): string {
   if (deviceClass === DeviceClass.CONTAINER) return count === 1 ? "container" : "containers";

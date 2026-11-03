@@ -3,6 +3,7 @@ package admin
 import (
 	"context"
 	"fmt"
+	"slices"
 	"time"
 
 	"connectrpc.com/connect"
@@ -101,6 +102,10 @@ func (h *Handler) ListFleetNodes(ctx context.Context, _ *connect.Request[pb.List
 		}
 		if includeAdministrativeDetails {
 			summary.FleetNodeId = n.ID
+			if config := h.registry.DiscoveryConfig(n.ID); config != nil {
+				summary.DiscoveryRanges = config.GetRanges()
+				summary.DiscoveryConfigReported = true
+			}
 			summary.PairedDeviceCount = pairedCounts[n.ID]
 			summary.Name = n.Name
 			summary.IpAddresses = n.IPAddresses
@@ -115,6 +120,10 @@ func (h *Handler) ListFleetNodes(ctx context.Context, _ *connect.Request[pb.List
 				summary.LastSeenAt = timestamppb.New(*n.LastSeenAt)
 			}
 			setHASummary(summary, n, names)
+			if peerID := summary.HaPeerNodeId; peerID != nil {
+				config, peer := h.registry.DiscoveryConfig(n.ID), h.registry.DiscoveryConfig(*peerID)
+				summary.DiscoveryConfigMismatch = config != nil && peer != nil && !slices.Equal(config.GetRanges(), peer.GetRanges())
+			}
 		}
 		resp.FleetNodes = append(resp.FleetNodes, summary)
 	}

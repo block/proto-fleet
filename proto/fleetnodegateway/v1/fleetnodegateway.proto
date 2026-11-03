@@ -310,6 +310,12 @@ enum CommandProtocolVersion {
 message ControlHello {
     // Highest server-to-node command protocol version this fleet node supports.
     CommandProtocolVersion max_command_protocol_version = 1;
+    // Effective node-local configuration. Absent on older nodes.
+    DiscoveryConfig discovery_config = 2;
+}
+
+message DiscoveryConfig {
+    repeated string ranges = 1 [(buf.validate.field).repeated = {max_items: 256, items: {string: {min_len: 1, max_len: 64}}}];
 }
 
 message ControlAccepted {

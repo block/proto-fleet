@@ -22,12 +22,13 @@ import { pushToast, STATUSES } from "@/shared/features/toaster";
 import { usePoll } from "@/shared/hooks/usePoll";
 import { getRelativeTimeFromEpoch } from "@/shared/utils/datetime";
 
-type NodeColumns = "name" | "ipAddresses" | "role" | "status" | "version" | "miners" | "lastSeen";
+type NodeColumns = "name" | "ipAddresses" | "ranges" | "role" | "status" | "version" | "miners" | "lastSeen";
 type NodeTableItem = FleetNodeItem & { endsGroup: boolean };
 
 const colTitles: ColTitles<NodeColumns> = {
   name: "Name",
   ipAddresses: "IP address",
+  ranges: "Discovery ranges",
   role: "Role",
   status: "Connection",
   version: "Version",
@@ -35,7 +36,13 @@ const colTitles: ColTitles<NodeColumns> = {
   lastSeen: "Last heartbeat",
 };
 
-const activeCols: NodeColumns[] = ["name", "ipAddresses", "role", "status", "version", "miners", "lastSeen"];
+const discoveryRangesLabel = (node: FleetNodeItem) => {
+  if (!node.controlStreamConnected) return "Unavailable";
+  if (!node.discoveryConfigReported) return "Upgrade node to report ranges";
+  return node.discoveryRanges?.join(", ") || "Not configured";
+};
+
+const activeCols: NodeColumns[] = ["name", "ipAddresses", "ranges", "role", "status", "version", "miners", "lastSeen"];
 
 const NodesPage = () => {
   const { listFleetNodes, listFleetNodeDevices, revokeFleetNode, discoverOnFleetNode } = useFleetNodes();
@@ -292,6 +299,20 @@ const NodesPage = () => {
       version: {
         component: (node: FleetNodeItem) => <span className="break-all">{node.version || "—"}</span>,
         width: "w-44",
+        allowWrap: true,
+      },
+      ranges: {
+        component: (node: FleetNodeItem) => {
+          const label = discoveryRangesLabel(node);
+          const rangesReported = node.controlStreamConnected && node.discoveryConfigReported;
+          return (
+            <span className="break-all" title={rangesReported ? label : undefined}>
+              {rangesReported && node.discoveryConfigMismatch ? "HA ranges differ: " : ""}
+              {label}
+            </span>
+          );
+        },
+        width: "w-56",
         allowWrap: true,
       },
       role: {

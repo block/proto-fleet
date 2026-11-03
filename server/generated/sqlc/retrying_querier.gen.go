@@ -3746,6 +3746,18 @@ func (q *retryingQuerier) GetFleetNodePairedDeviceIdentifier(ctx context.Context
 	return result, err
 }
 
+func (q *retryingQuerier) GetFleetNodePairingTarget(ctx context.Context, arg GetFleetNodePairingTargetParams) (GetFleetNodePairingTargetRow, error) {
+	var result GetFleetNodePairingTargetRow
+	err := q.retrier.RetryQuery(ctx, "GetFleetNodePairingTarget", func() error {
+		callResult, callErr := q.next.GetFleetNodePairingTarget(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) GetFleetNodeSessionByTokenHash(ctx context.Context, arg GetFleetNodeSessionByTokenHashParams) (GetFleetNodeSessionByTokenHashRow, error) {
 	var result GetFleetNodeSessionByTokenHashRow
 	err := q.retrier.RetryQuery(ctx, "GetFleetNodeSessionByTokenHash", func() error {

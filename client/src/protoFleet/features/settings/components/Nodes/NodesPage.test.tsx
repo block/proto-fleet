@@ -193,6 +193,83 @@ const openNodeRevoke = async (name = "node-01") => {
 };
 
 describe("NodesPage", () => {
+  it("shows effective discovery ranges only while connected", async () => {
+    permissionsMock.current = ["fleetnode:read"];
+    listFleetNodesMock.mockResolvedValue([
+      {
+        ...confirmedNode,
+        controlStreamConnected: true,
+        discoveryConfigReported: true,
+        discoveryRanges: ["10.0.0.1-10.0.15.254"],
+      },
+    ]);
+    renderNodesPage();
+    expect(await screen.findByText("10.0.0.1-10.0.15.254")).toBeVisible();
+  });
+
+  it("hides stale discovery ranges while the node is disconnected", async () => {
+    permissionsMock.current = ["fleetnode:read"];
+    listFleetNodesMock.mockResolvedValue([
+      {
+        ...confirmedNode,
+        controlStreamConnected: false,
+        discoveryConfigReported: true,
+        discoveryRanges: ["10.0.0.1-10.0.15.254"],
+      },
+    ]);
+    renderNodesPage();
+    const label = await screen.findByText("Unavailable");
+    expect(label).not.toHaveAttribute("title");
+    expect(screen.queryByText("10.0.0.1-10.0.15.254")).not.toBeInTheDocument();
+  });
+
+  it("asks for an upgrade when a connected node has not reported ranges", async () => {
+    permissionsMock.current = ["fleetnode:read"];
+    listFleetNodesMock.mockResolvedValue([{ ...confirmedNode, controlStreamConnected: true }]);
+    renderNodesPage();
+    const label = await screen.findByText("Upgrade node to report ranges");
+    expect(label).not.toHaveAttribute("title");
+  });
+
+  it("shows when a connected node reports no ranges", async () => {
+    permissionsMock.current = ["fleetnode:read"];
+    listFleetNodesMock.mockResolvedValue([
+      { ...confirmedNode, controlStreamConnected: true, discoveryConfigReported: true, discoveryRanges: [] },
+    ]);
+    renderNodesPage();
+    expect(await screen.findByText("Not configured")).toBeVisible();
+  });
+
+  it("flags differing HA ranges only for a connected node that reported them", async () => {
+    permissionsMock.current = ["fleetnode:read"];
+    listFleetNodesMock.mockResolvedValue([
+      {
+        ...confirmedNode,
+        controlStreamConnected: true,
+        discoveryConfigReported: true,
+        discoveryConfigMismatch: true,
+        discoveryRanges: ["10.0.0.1-10.0.15.254"],
+      },
+    ]);
+    renderNodesPage();
+    expect(await screen.findByText("HA ranges differ: 10.0.0.1-10.0.15.254")).toBeVisible();
+  });
+
+  it.each([
+    ["disconnected", { controlStreamConnected: false, discoveryConfigReported: true }, "Unavailable"],
+    [
+      "not reporting ranges",
+      { controlStreamConnected: true, discoveryConfigReported: false },
+      "Upgrade node to report ranges",
+    ],
+  ])("omits the HA ranges prefix while a mismatched node is %s", async (_state, overrides, label) => {
+    permissionsMock.current = ["fleetnode:read"];
+    listFleetNodesMock.mockResolvedValue([{ ...confirmedNode, ...overrides, discoveryConfigMismatch: true }]);
+    renderNodesPage();
+    expect(await screen.findByText(label)).toBeVisible();
+    expect(screen.queryByText(/HA ranges differ/)).not.toBeInTheDocument();
+  });
+
   afterEach(() => vi.useRealTimers());
   beforeEach(() => {
     permissionsMock.current = ["fleetnode:read", "fleetnode:manage"];

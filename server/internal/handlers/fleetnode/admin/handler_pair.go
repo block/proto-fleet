@@ -125,7 +125,7 @@ func (h *Handler) PairDiscoveredDevicesOnFleetNode(ctx context.Context, req *con
 	if len(targets) == 0 {
 		return fleeterror.NewInvalidArgumentError("no pairable devices for the requested selection")
 	}
-	return h.pairing.PairOnNode(ctx, fleetNodeID, targets, credentials, info.OrganizationID, &assignedBy, onResults)
+	return h.pairing.PairTargetsOnNode(ctx, fleetNodeID, targets, credentials, info.OrganizationID, &assignedBy, onResults)
 }
 
 func devicePairingResultFromGatewayResult(result *gatewaypb.FleetNodePairResult) *pb.DevicePairingResult {

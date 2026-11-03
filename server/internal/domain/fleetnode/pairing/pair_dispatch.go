@@ -54,10 +54,30 @@ func (s *Service) PairAllOnNode(ctx context.Context, fleetNodeID, orgID int64, c
 	}
 }
 
+// PairTargetsOnNode splits an explicit selection into sequential commands. An
+// accepted command finishes even when the operator cancels; cancellation and a
+// command error stop the next batch, without retrying any target.
+func (s *Service) PairTargetsOnNode(ctx context.Context, fleetNodeID int64, targets []*pairingpb.FleetNodePairTarget, credentials *pairingpb.Credentials, orgID int64, assignedBy *int64, onResults func([]*gatewaypb.FleetNodePairResult) error) error {
+	if len(targets) == 0 {
+		return fleeterror.NewInvalidArgumentError("pair command requires at least one target")
+	}
+	for batch := range slices.Chunk(targets, MaxPairBatch) {
+		if err := ctx.Err(); err != nil {
+			return fmt.Errorf("pair stopped before next batch: %w", err)
+		}
+		if err := s.PairOnNode(ctx, fleetNodeID, batch, credentials, orgID, assignedBy, onResults); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // PairOnNode dispatches a batch pair command over the node's ControlStream and
 // invokes onResults per result batch for live operator display. Persistence is
 // authoritative in the gateway ReportPairedDevices handler, not here, so onResults
 // is best-effort display only.
+// Targets outside the live discovery ranges are reported as failed results,
+// including when none can dispatch; only batch-level failures return an error.
 //
 // Dispatch remains cancelable until the command is enqueued. Pairing mutates
 // miners, so an accepted command must finish server-side (the gateway keeps
@@ -73,6 +93,17 @@ func (s *Service) PairOnNode(ctx context.Context, fleetNodeID int64, targets []*
 	}
 	if s.dispatcher == nil {
 		return fleeterror.NewInternalError("fleet node pairing dispatch is not configured")
+	}
+	if connections, ok := s.dispatcher.(interface{ Connected(fleetNodeID int64) bool }); ok && !connections.Connected(fleetNodeID) {
+		return fleeterror.NewFailedPreconditionError("fleet node has no active control stream")
+	}
+	targets, outOfScope, err := s.splitPairTargetsByDiscoveryScope(fleetNodeID, targets)
+	_ = reportOutOfScope(outOfScope, onResults)
+	if err != nil {
+		return err
+	}
+	if len(targets) == 0 {
+		return nil
 	}
 	payload, err := proto.Marshal(&gatewaypb.AgentCommand{
 		Command: &gatewaypb.AgentCommand_Pair{Pair: &pairingpb.FleetNodePairRequest{
@@ -116,6 +147,25 @@ func (s *Service) PairOnNode(ctx context.Context, fleetNodeID int64, targets []*
 	// error (timeout/disconnect); onResults is best-effort when the operator is gone.
 	_ = reportUnpaired(displayPending, onResults)
 	return err
+}
+
+const outOfScopeMessage = "device pairing requires all device addresses within this fleet node's live discovery ranges"
+
+// reportOutOfScope emits an ERROR result for each target withheld from dispatch
+// so the caller counts it as failed.
+func reportOutOfScope(rejected []*pairingpb.FleetNodePairTarget, onResults func([]*gatewaypb.FleetNodePairResult) error) error {
+	if len(rejected) == 0 {
+		return nil
+	}
+	results := make([]*gatewaypb.FleetNodePairResult, 0, len(rejected))
+	for _, target := range rejected {
+		results = append(results, &gatewaypb.FleetNodePairResult{
+			DeviceIdentifier: target.GetDeviceIdentifier(),
+			Outcome:          gatewaypb.PairOutcome_PAIR_OUTCOME_ERROR,
+			ErrorMessage:     outOfScopeMessage,
+		})
+	}
+	return onResults(results)
 }
 
 // reportUnpaired emits a synthesized ERROR result for each requested device the

@@ -31,6 +31,7 @@ const (
 var controlWorkerShutdownTimeout = 10 * time.Second
 
 type RunCmd struct {
+	DiscoveryRanges      []string      `name:"discovery-ranges" help:"Assigned private IPv4 CIDRs or start-end ranges; file changes require restart"`
 	HeartbeatInterval    time.Duration `name:"heartbeat-interval" default:"30s" help:"interval between UploadHeartbeat calls (maximum 30s)"`
 	LocalDiscoverySubnet string        `name:"local-discovery-subnet" env:"FLEETNODE_LOCAL_DISCOVERY_SUBNET" help:"CIDR to scan for automatic local-subnet discovery instead of detecting the host subnet"`
 
@@ -217,6 +218,10 @@ func (r *RunCmd) runLocked(ctx context.Context, c *Context, resolvedPluginsDir s
 		return operatorActionRequired(err)
 	}
 	r.statePath, r.state = path, st
+	r.warnInvalidLegacyDiscoverySubnet(logger)
+	if _, err := r.effectiveDiscoveryConfig(); err != nil {
+		return operatorActionRequired(fmt.Errorf("discovery ranges: %w", err))
+	}
 	r.firmwareTempRoot = filepath.Join(c.StateDir, firmwareArtifactTempDirName)
 	if err := prepareFirmwareArtifactTempRoot(r.firmwareTempRoot); err != nil {
 		return operatorActionRequired(fmt.Errorf("prepare firmware temp dir: %w", err))

@@ -103,7 +103,7 @@ AND (
     -- cloud-paired device or one paired to another node; bare and own-node pass.
     SELECT 1
     FROM device d
-    WHERE d.discovered_device_id = discovered_device.id
+    WHERE (d.discovered_device_id = discovered_device.id OR d.device_identifier = discovered_device.device_identifier)
       AND d.org_id = discovered_device.org_id
       AND d.deleted_at IS NULL
       AND (
@@ -437,3 +437,12 @@ FROM candidate
 WHERE (sqlc.narg('pairing_statuses')::text[] IS NULL OR pairing_status = ANY(sqlc.narg('pairing_statuses')::text[]))
 ORDER BY id ASC
 LIMIT sqlc.narg('limit')::bigint;
+
+
+-- name: GetFleetNodePairingTarget :one
+SELECT dd.device_identifier, dd.ip_address, dd.port, dd.url_scheme,
+       dd.rpc_port, dd.rpc_tls, dd.endpoints
+FROM device d
+JOIN discovered_device dd ON dd.id = d.discovered_device_id AND dd.org_id = d.org_id
+WHERE d.id = sqlc.arg(device_id) AND d.org_id = sqlc.arg(org_id)
+  AND d.deleted_at IS NULL AND dd.deleted_at IS NULL;

@@ -15,6 +15,9 @@ import { toError } from "@/protoFleet/api/requestErrors";
 import { useAuthErrors } from "@/protoFleet/store";
 
 export interface FleetNodeItem {
+  discoveryRanges?: string[];
+  discoveryConfigReported?: boolean;
+  discoveryConfigMismatch?: boolean;
   fleetNodeId: string;
   pendingEnrollmentId: string | null;
   name: string;
@@ -48,6 +51,9 @@ const toDate = (timestamp?: Timestamp): Date | null =>
 
 function toFleetNodeItem(summary: FleetNodeSummary): FleetNodeItem {
   return {
+    discoveryRanges: summary.discoveryRanges,
+    discoveryConfigReported: summary.discoveryConfigReported,
+    discoveryConfigMismatch: summary.discoveryConfigMismatch,
     fleetNodeId: summary.fleetNodeId.toString(),
     pendingEnrollmentId: summary.pendingEnrollmentId?.toString() ?? null,
     name: summary.name,

@@ -9,6 +9,8 @@ import (
 
 	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
 	pb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
+	"github.com/block/proto-fleet/server/generated/sqlc"
+	"github.com/block/proto-fleet/server/internal/domain/deviceendpoints"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	nodepairing "github.com/block/proto-fleet/server/internal/domain/fleetnode/pairing"
 	discovery "github.com/block/proto-fleet/server/internal/domain/minerdiscovery/models"
@@ -106,4 +108,56 @@ func TestNodeEndpointDiscoveryRejectsClusterReplacement(t *testing.T) {
 	row, err := sqlstores.NewSQLDiscoveredDeviceStore(db).GetDevice(t.Context(), discovery.DeviceOrgIdentifier{OrgID: org, DeviceIdentifier: before.DeviceIdentifier})
 	require.NoError(t, err)
 	require.Equal(t, "opaque-pair", row.Endpoints[0].DeviceKey)
+}
+
+func TestNodeEndpointDiscoveryKeepsInactiveLiveNodeInventorySeparate(t *testing.T) {
+	for _, group := range []string{"opaque-pair", "another-cluster"} {
+		t.Run(group, func(t *testing.T) {
+			db, _, org := ct1HAStore(t)
+			var nodes [2]int64
+			for i := range nodes {
+				require.NoError(t, db.QueryRowContext(t.Context(), `INSERT INTO fleet_node (org_id, name, identity_pubkey, encryption_pubkey, enrollment_status)
+        VALUES ($1,$2,decode(repeat($3,32),'hex'),decode(repeat('22',32),'hex'),'CONFIRMED') RETURNING id`,
+					org, fmt.Sprintf("node-%d", i), fmt.Sprintf("%02x", i+1)).Scan(&nodes[i]))
+			}
+			store := sqlstores.NewSQLFleetNodePairingStore(db)
+			device := ct1HADiscovery(org, "a", "10.0.0.11")
+			report := nodepairing.DiscoveredDeviceReport{DeviceIdentifier: "container", IPAddress: device.IpAddress, Port: device.Port,
+				URLScheme: device.UrlScheme, RPCPort: device.RpcPort, DriverName: device.DriverName, DeviceClass: device.DeviceClass, Endpoints: device.Endpoints}
+			first, stored, err := store.UpsertDiscoveredDeviceFromFleetNode(t.Context(), org, nodes[0], report)
+			require.NoError(t, err)
+			require.True(t, stored)
+			_, err = db.ExecContext(t.Context(), `UPDATE discovered_device SET is_active = FALSE WHERE org_id = $1 AND device_identifier = $2`, org, first.DeviceIdentifier)
+			require.NoError(t, err)
+			q := sqlc.New(db)
+			firstParams := sqlc.GetDiscoveredDeviceByDeviceIdentifierParams{OrgID: org, DeviceIdentifier: first.DeviceIdentifier}
+			before, err := q.GetDiscoveredDeviceByDeviceIdentifier(t.Context(), firstParams)
+			require.NoError(t, err)
+			require.False(t, before.IsActive)
+
+			// Both nodes remain live, so even an identical group at this socket
+			// belongs to the reporting node's own inventory namespace.
+			report.Endpoints[0].DeviceKey = group
+			second, stored, err := store.UpsertDiscoveredDeviceFromFleetNode(t.Context(), org, nodes[1], report)
+			require.NoError(t, err)
+			require.True(t, stored)
+			expectedID, err := deviceendpoints.NodeIdentifier(nodes[1], report.DriverName, report.Endpoints)
+			require.NoError(t, err)
+			require.Equal(t, expectedID, second.DeviceIdentifier)
+			require.NotEqual(t, first.DeviceIdentifier, second.DeviceIdentifier)
+			incoming, err := q.GetDiscoveredDeviceByDeviceIdentifier(t.Context(), sqlc.GetDiscoveredDeviceByDeviceIdentifierParams{OrgID: org, DeviceIdentifier: second.DeviceIdentifier})
+			require.NoError(t, err)
+			require.True(t, incoming.IsActive)
+			require.Equal(t, nodes[1], incoming.DiscoveredByFleetNodeID.Int64)
+			require.Equal(t, device.IpAddress, incoming.IpAddress)
+			require.Equal(t, device.RpcPort, incoming.RpcPort)
+			endpoints, err := deviceendpoints.Decode(incoming.Endpoints)
+			require.NoError(t, err)
+			require.Len(t, endpoints, 1)
+			require.Equal(t, group, endpoints[0].DeviceKey)
+			after, err := q.GetDiscoveredDeviceByDeviceIdentifier(t.Context(), firstParams)
+			require.NoError(t, err)
+			require.Equal(t, before, after, "the first node's inactive inventory must remain intact")
+		})
+	}
 }
