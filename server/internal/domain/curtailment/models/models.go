@@ -392,15 +392,18 @@ type InsertEventParams struct {
 	AutomationRuleID           int64
 	AutomationMQTTSourceID     int64
 	AutomationScheduleRevision uuid.UUID
-	DecisionSnapshotJSON       []byte
-	SourceActorType            SourceActorType
-	SourceActorID              *string
-	ExternalSource             *string
-	ExternalReference          *string
-	IdempotencyKey             *string
-	Reason                     string
-	ScheduledStartAt           *time.Time
-	StartedAt                  *time.Time
+	// AutomationWindowEndAt is a scheduled event's window end; the store
+	// rejects the insert once it passes and caps the event at it.
+	AutomationWindowEndAt time.Time
+	DecisionSnapshotJSON  []byte
+	SourceActorType       SourceActorType
+	SourceActorID         *string
+	ExternalSource        *string
+	ExternalReference     *string
+	IdempotencyKey        *string
+	Reason                string
+	ScheduledStartAt      *time.Time
+	StartedAt             *time.Time
 	// EndedAt is set only when an event is inserted already terminal — a
 	// vacuously-COMPLETED FULL_FLEET start with no eligible targets — so the
 	// completion time is recorded; the reconciler/restorer set it otherwise.

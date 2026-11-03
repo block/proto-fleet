@@ -226,8 +226,11 @@ revision it was produced from in `curtailment_automation_execution.schedule_revi
 A boundary from an earlier revision is not queued, is dropped by the worker, and cannot
 start an event: the event insert rechecks the revision under the rule's execution lock.
 A boundary from the saved revision replaces an earlier revision's row even when its time
-is earlier. A window's end restores only the event that window started, created before
-the window ended, so a delayed end boundary cannot stop a later window's event.
+is earlier. A scheduled event records its schedule revision in `decision_snapshot`, and a
+window's end restores only the event that window started under the same revision, so a
+delayed end boundary cannot stop a later window's or an edited schedule's event. The
+event insert also rejects a start whose window has already ended and caps the event at
+the window's end, counted from insertion.
 
 Each window starts its own event with `source_actor_type` `scheduler` and
 `scheduled_start_at` set to the window's start. The event is never unbounded: its

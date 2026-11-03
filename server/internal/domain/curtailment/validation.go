@@ -3,6 +3,7 @@ package curtailment
 import (
 	"fmt"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/google/uuid"
@@ -161,6 +162,7 @@ type ExecutionFence struct {
 	AutomationRuleID           int64
 	AutomationMQTTSourceID     int64
 	AutomationScheduleRevision uuid.UUID
+	AutomationWindowEndAt      time.Time
 	AutomationServiceUserID    int64
 	SourceActorType            models.SourceActorType
 }
@@ -203,6 +205,9 @@ func ValidateExecutionFence(f ExecutionFence, use ExecutionFenceUse) error {
 	scheduleRule := f.AutomationRuleID > 0 && f.AutomationMQTTSourceID == 0
 	if scheduleRule != (f.AutomationScheduleRevision != uuid.Nil) {
 		return fleeterror.NewInvalidArgumentError("automation execution fence requires a schedule revision exactly for schedule rules")
+	}
+	if use == ExecutionFenceStart && scheduleRule == f.AutomationWindowEndAt.IsZero() {
+		return fleeterror.NewInvalidArgumentError("automation execution fence requires a window end exactly for schedule rule starts")
 	}
 	if use == ExecutionFenceStart {
 		// MQTT rules execute as the automation actor with their source; schedule

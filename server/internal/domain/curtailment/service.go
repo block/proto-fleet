@@ -94,6 +94,7 @@ type StartRequest struct {
 	AutomationRuleID           int64
 	AutomationMQTTSourceID     int64
 	AutomationScheduleRevision uuid.UUID
+	AutomationWindowEndAt      time.Time
 
 	// MaxDurationSeconds: nil when AllowUnbounded=true, else a finite cap.
 	MaxDurationSeconds  *int32
@@ -1352,6 +1353,7 @@ func validateStartRequest(req StartRequest) error {
 		ResponseProfileID: req.ResponseProfileID, ResponseProfileRevision: req.ResponseProfileRevision,
 		AutomationRuleID: req.AutomationRuleID, AutomationMQTTSourceID: req.AutomationMQTTSourceID,
 		AutomationScheduleRevision: req.AutomationScheduleRevision,
+		AutomationWindowEndAt:      req.AutomationWindowEndAt,
 		SourceActorType:            req.SourceActorType,
 	}, ExecutionFenceStart); err != nil {
 		return err
@@ -1965,6 +1967,7 @@ func buildInsertParams(
 		requiresAdminControls,
 		req.ResponseProfileID,
 		req.ResponseProfileRevision,
+		req.AutomationScheduleRevision,
 	)
 	if err != nil {
 		return models.InsertEventParams{}, nil, err
@@ -2014,6 +2017,7 @@ func buildInsertParams(
 		AutomationRuleID:            req.AutomationRuleID,
 		AutomationMQTTSourceID:      req.AutomationMQTTSourceID,
 		AutomationScheduleRevision:  req.AutomationScheduleRevision,
+		AutomationWindowEndAt:       req.AutomationWindowEndAt,
 		DecisionSnapshotJSON:        decisionJSON,
 		SourceActorType:             req.SourceActorType,
 		SourceActorID:               req.SourceActorID,
@@ -2458,6 +2462,7 @@ func marshalDecisionSnapshot(
 	requiresAdminControls bool,
 	responseProfileID int64,
 	responseProfileRevision uuid.UUID,
+	scheduleRevision uuid.UUID,
 ) ([]byte, error) {
 	skipped := make([]map[string]string, len(plan.Skipped))
 	for i, s := range plan.Skipped {
@@ -2477,6 +2482,9 @@ func marshalDecisionSnapshot(
 		"force_include_all_paired_miners": forceIncludeAllPairedMiners,
 		"requires_admin_controls":         requiresAdminControls,
 		"skipped":                         skipped,
+	}
+	if scheduleRevision != uuid.Nil {
+		snapshot["schedule_revision"] = scheduleRevision.String()
 	}
 	if responseProfileID > 0 {
 		snapshot["response_profile_id"] = responseProfileID

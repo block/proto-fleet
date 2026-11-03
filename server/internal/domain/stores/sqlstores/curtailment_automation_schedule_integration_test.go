@@ -147,6 +147,7 @@ func TestSQLCurtailmentStore_ScheduleAutomationRuleLifecycle(t *testing.T) {
 	event.ResponseProfileRevision = profile.Revision
 	event.AutomationRuleID = rule.ID
 	event.AutomationScheduleRevision = revision
+	event.AutomationWindowEndAt = time.Now().Add(30 * time.Minute)
 	event.DecisionSnapshotJSON = []byte(fmt.Sprintf(`{"response_profile_id":%d,"response_profile_revision":%q}`, profileID, profile.Revision.String()))
 
 	wrongUser := event
@@ -171,6 +172,15 @@ func TestSQLCurtailmentStore_ScheduleAutomationRuleLifecycle(t *testing.T) {
 	assert.Contains(t, err.Error(), "automation rule changed before execution")
 
 	event.AutomationScheduleRevision = rule.Schedule.Revision
+
+	// A start delayed past its window's end must not curtail.
+	ended := event
+	ended.AutomationWindowEndAt = time.Now().Add(-time.Second)
+	_, err = store.InsertEventWithTargets(ctx, ended, nil)
+	require.Error(t, err, "a scheduled start whose window ended must not insert")
+	assert.True(t, fleeterror.IsFailedPreconditionError(err), err)
+	assert.Contains(t, err.Error(), "window ended before its event could start")
+
 	_, err = store.InsertEventWithTargets(ctx, event, nil)
 	require.NoError(t, err)
 	require.NoError(t, store.SetAutomationActiveEvent(ctx, rule.ID, 0, event.EventUUID, start))
@@ -179,6 +189,9 @@ func TestSQLCurtailmentStore_ScheduleAutomationRuleLifecycle(t *testing.T) {
 	assert.Equal(t, models.SourceActorScheduler, persisted.SourceActorType)
 	require.NotNil(t, persisted.ScheduledStartAt)
 	assert.True(t, persisted.ScheduledStartAt.Equal(start))
+	require.NotNil(t, persisted.MaxDurationSeconds)
+	assert.LessOrEqual(t, *persisted.MaxDurationSeconds, int32(30*60), "the cap ends at the window's end, measured from insertion")
+	assert.Greater(t, *persisted.MaxDurationSeconds, int32(29*60))
 	allowed, err := store.AuthorizeAutomationCurtailDispatch(ctx, persisted, interfaces.CurtailmentTopologyScopeCoverage{RequireOrgWide: true})
 	require.NoError(t, err)
 	assert.True(t, allowed)

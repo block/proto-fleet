@@ -2,6 +2,7 @@ package curtailment
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"math"
@@ -129,11 +130,10 @@ func (s *AutomationService) handleScheduleExecution(ctx context.Context, rule *m
 		if err := s.store.RecordAutomationSignal(ctx, rule.ID, models.AutomationSignalOn, at); err != nil {
 			return err
 		}
-		// Only the event this window started is restored. An event created at
-		// or after the window's end belongs to a later window or to an edited
-		// schedule, even if it shares this window's start.
+		// Only the event this window started under this schedule revision is
+		// restored; an edited schedule's event can share the window's start.
 		return s.restoreRuleEvent(ctx, rule, at, func(event *models.Event) bool {
-			return !eventStartedForWindow(event, *window) || !event.CreatedAt.Before(window.End)
+			return !eventStartedForWindow(event, *window) || eventScheduleRevision(event) != work.ScheduleRevision
 		})
 	default:
 		return fleeterror.NewInvalidArgumentErrorf("unsupported automation signal %q", work.Target)
@@ -211,11 +211,28 @@ func scheduleStartRequest(rule *models.AutomationRule, profile *models.ResponseP
 	windowStart := window.Start
 	startReq.ScheduledStartAt = &windowStart
 	startReq.AutomationScheduleRevision = rule.Schedule.Revision
+	startReq.AutomationWindowEndAt = window.End
 	return startReq, true, nil
 }
 
 func eventStartedForWindow(event *models.Event, window schedulewindow.Window) bool {
 	return event != nil && event.ScheduledStartAt != nil && event.ScheduledStartAt.Equal(window.Start)
+}
+
+// eventScheduleRevision is the schedule revision a scheduled event recorded in
+// its decision snapshot, or uuid.Nil.
+func eventScheduleRevision(event *models.Event) uuid.UUID {
+	var snapshot struct {
+		ScheduleRevision string `json:"schedule_revision"`
+	}
+	if event == nil || json.Unmarshal(event.DecisionSnapshotJSON, &snapshot) != nil {
+		return uuid.Nil
+	}
+	revision, err := uuid.Parse(snapshot.ScheduleRevision)
+	if err != nil {
+		return uuid.Nil
+	}
+	return revision
 }
 
 func errWaitingForPreviousScheduleWindow() error {

@@ -1514,6 +1514,9 @@ func (s *SQLCurtailmentStore) InsertEventWithTargets(
 		); err != nil {
 			return nil, err
 		}
+		if err := capScheduledEventAtWindowEnd(&event, time.Now()); err != nil {
+			return nil, err
+		}
 		if err := authorizeAutomationExecution(
 			ctx,
 			q,

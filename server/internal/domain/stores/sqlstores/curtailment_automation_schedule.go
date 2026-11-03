@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"math"
 	"time"
 
 	sqlc "github.com/block/proto-fleet/server/generated/sqlc"
@@ -90,6 +91,24 @@ func (s *SQLCurtailmentStore) attachAutomationSchedule(ctx context.Context, rule
 		return fleeterror.NewInternalErrorf("failed to get curtailment automation schedule: %v", err)
 	}
 	rule.Schedule = automationScheduleFromRow(row)
+	return nil
+}
+
+// capScheduledEventAtWindowEnd rejects a scheduled start whose window ended
+// before insertion and caps the event, whose duration counts from insertion,
+// at the window's end.
+func capScheduledEventAtWindowEnd(event *models.InsertEventParams, now time.Time) error {
+	if event.AutomationWindowEndAt.IsZero() {
+		return nil
+	}
+	remaining := event.AutomationWindowEndAt.Sub(now)
+	if remaining <= 0 {
+		return fleeterror.NewFailedPreconditionError("curtailment schedule window ended before its event could start")
+	}
+	capSeconds := int32(min(math.Ceil(remaining.Seconds()), math.MaxInt32))
+	if event.MaxDurationSeconds == nil || capSeconds < *event.MaxDurationSeconds {
+		event.MaxDurationSeconds = &capSeconds
+	}
 	return nil
 }
 

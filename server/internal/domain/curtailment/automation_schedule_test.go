@@ -90,7 +90,12 @@ func (h *automationHarness) seedScheduledEvent(state models.EventState, windowSt
 	id := h.seedAutomationEvent(state)
 	start := windowStart
 	h.curtailments.eventsByUUID[id].ScheduledStartAt = &start
+	h.curtailments.eventsByUUID[id].DecisionSnapshotJSON = scheduleDecisionSnapshot(h.rule.Schedule.Revision)
 	return id
+}
+
+func scheduleDecisionSnapshot(revision uuid.UUID) []byte {
+	return []byte(`{"schedule_revision":"` + revision.String() + `"}`)
 }
 
 func TestScheduleAssertionAt(t *testing.T) {
@@ -136,6 +141,8 @@ func TestAutomationService_ScheduleWindowStartsScheduledEvent(t *testing.T) {
 	require.NotNil(t, event.ScheduledStartAt)
 	assert.True(t, event.ScheduledStartAt.Equal(scheduleWindowStart))
 	assert.Equal(t, h.rule.Schedule.Revision, event.AutomationScheduleRevision, "the store's rule lock rechecks the schedule revision the worker read")
+	assert.True(t, event.AutomationWindowEndAt.Equal(scheduleWindowEnd), "the store rejects the start once the window ends")
+	assert.Equal(t, h.rule.Schedule.Revision, eventScheduleRevision(&models.Event{DecisionSnapshotJSON: event.DecisionSnapshotJSON}))
 	// FULL_FLEET profiles are not forced unbounded: the window end caps them.
 	assert.False(t, event.AllowUnbounded)
 	require.NotNil(t, event.MaxDurationSeconds)
@@ -185,12 +192,12 @@ func TestAutomationService_ScheduleWindowEndRestores(t *testing.T) {
 func TestAutomationService_ScheduleWindowEndLeavesOtherEventsRunning(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
-		name        string
-		windowStart time.Time
-		createdAt   time.Time
+		name          string
+		windowStart   time.Time
+		otherRevision bool
 	}{
-		{"event for a later window", scheduleWindowStart.Add(30 * time.Minute), scheduleWindowStart.Add(30 * time.Minute)},
-		{"event created after the window ended", scheduleWindowStart, scheduleWindowEnd.Add(time.Second)},
+		{"event for a later window", scheduleWindowStart.Add(30 * time.Minute), false},
+		{"event from an edited schedule with the same window start", scheduleWindowStart, true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -198,7 +205,9 @@ func TestAutomationService_ScheduleWindowEndLeavesOtherEventsRunning(t *testing.
 			h, durable := newScheduleHarness(t)
 			h.automation.clock = func() time.Time { return scheduleWindowEnd.Add(30 * time.Second) }
 			id := h.seedScheduledEvent(models.EventStateActive, tt.windowStart)
-			h.curtailments.eventsByUUID[id].CreatedAt = tt.createdAt
+			if tt.otherRevision {
+				h.curtailments.eventsByUUID[id].DecisionSnapshotJSON = scheduleDecisionSnapshot(uuid.New())
+			}
 
 			h.automation.produceScheduleAssertions(t.Context())
 			h.automation.processDueExecutions(t.Context())
@@ -401,8 +410,10 @@ func TestValidateExecutionFenceTriggers(t *testing.T) {
 	}{
 		{"mqtt start", ExecutionFence{ResponseProfileID: 1, ResponseProfileRevision: revision, AutomationRuleID: 2, AutomationMQTTSourceID: 3, SourceActorType: models.SourceActorAutomation}, ExecutionFenceStart, true},
 		{"mqtt start with schedule revision", ExecutionFence{ResponseProfileID: 1, ResponseProfileRevision: revision, AutomationRuleID: 2, AutomationMQTTSourceID: 3, AutomationScheduleRevision: revision, SourceActorType: models.SourceActorAutomation}, ExecutionFenceStart, false},
-		{"schedule start", ExecutionFence{ResponseProfileID: 1, ResponseProfileRevision: revision, AutomationRuleID: 2, AutomationScheduleRevision: revision, SourceActorType: models.SourceActorScheduler}, ExecutionFenceStart, true},
-		{"schedule start without schedule revision", ExecutionFence{ResponseProfileID: 1, ResponseProfileRevision: revision, AutomationRuleID: 2, SourceActorType: models.SourceActorScheduler}, ExecutionFenceStart, false},
+		{"schedule start", ExecutionFence{ResponseProfileID: 1, ResponseProfileRevision: revision, AutomationRuleID: 2, AutomationScheduleRevision: revision, AutomationWindowEndAt: scheduleWindowEnd, SourceActorType: models.SourceActorScheduler}, ExecutionFenceStart, true},
+		{"schedule start without schedule revision", ExecutionFence{ResponseProfileID: 1, ResponseProfileRevision: revision, AutomationRuleID: 2, AutomationWindowEndAt: scheduleWindowEnd, SourceActorType: models.SourceActorScheduler}, ExecutionFenceStart, false},
+		{"schedule start without window end", ExecutionFence{ResponseProfileID: 1, ResponseProfileRevision: revision, AutomationRuleID: 2, AutomationScheduleRevision: revision, SourceActorType: models.SourceActorScheduler}, ExecutionFenceStart, false},
+		{"mqtt start with window end", ExecutionFence{ResponseProfileID: 1, ResponseProfileRevision: revision, AutomationRuleID: 2, AutomationMQTTSourceID: 3, AutomationWindowEndAt: scheduleWindowEnd, SourceActorType: models.SourceActorAutomation}, ExecutionFenceStart, false},
 		{"schedule start with source", ExecutionFence{ResponseProfileID: 1, ResponseProfileRevision: revision, AutomationRuleID: 2, AutomationMQTTSourceID: 3, SourceActorType: models.SourceActorScheduler}, ExecutionFenceStart, false},
 		{"automation start without source", ExecutionFence{ResponseProfileID: 1, ResponseProfileRevision: revision, AutomationRuleID: 2, AutomationScheduleRevision: revision, SourceActorType: models.SourceActorAutomation}, ExecutionFenceStart, false},
 		{"user start with rule", ExecutionFence{ResponseProfileID: 1, ResponseProfileRevision: revision, AutomationRuleID: 2, AutomationScheduleRevision: revision, SourceActorType: models.SourceActorUser}, ExecutionFenceStart, false},
