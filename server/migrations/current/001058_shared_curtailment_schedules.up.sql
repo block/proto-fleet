@@ -13,6 +13,12 @@ ALTER TABLE curtailment_automation_execution
     ALTER COLUMN mqtt_source_id DROP NOT NULL,
     ADD COLUMN schedule_revision uuid;
 
+-- A schedule window runs at most one event per schedule revision, including
+-- after that event ends; this finds the window's event in any state.
+CREATE INDEX ix_curtailment_event_schedule_window
+    ON curtailment_event (org_id, external_reference, scheduled_start_at)
+    WHERE source_actor_type = 'scheduler';
+
 -- Dates and clock times are local to timezone. service_user_id is the user who
 -- last saved the schedule; it attributes scheduled events and their commands.
 -- revision changes on every save.

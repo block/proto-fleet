@@ -933,6 +933,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.getCurtailmentScheduleExecutionGrantStmt, err = db.PrepareContext(ctx, getCurtailmentScheduleExecutionGrant); err != nil {
 		return nil, fmt.Errorf("error preparing query GetCurtailmentScheduleExecutionGrant: %w", err)
 	}
+	if q.getCurtailmentScheduleWindowEventStateStmt, err = db.PrepareContext(ctx, getCurtailmentScheduleWindowEventState); err != nil {
+		return nil, fmt.Errorf("error preparing query GetCurtailmentScheduleWindowEventState: %w", err)
+	}
 	if q.getCurtailmentTargetRollupByEventStmt, err = db.PrepareContext(ctx, getCurtailmentTargetRollupByEvent); err != nil {
 		return nil, fmt.Errorf("error preparing query GetCurtailmentTargetRollupByEvent: %w", err)
 	}
@@ -4878,6 +4881,11 @@ func (q *Queries) Close() error {
 	if q.getCurtailmentScheduleExecutionGrantStmt != nil {
 		if cerr := q.getCurtailmentScheduleExecutionGrantStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getCurtailmentScheduleExecutionGrantStmt: %w", cerr)
+		}
+	}
+	if q.getCurtailmentScheduleWindowEventStateStmt != nil {
+		if cerr := q.getCurtailmentScheduleWindowEventStateStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getCurtailmentScheduleWindowEventStateStmt: %w", cerr)
 		}
 	}
 	if q.getCurtailmentTargetRollupByEventStmt != nil {
@@ -9267,6 +9275,7 @@ type Queries struct {
 	getCurtailmentReconcilerHeartbeatStmt                       *sql.Stmt
 	getCurtailmentResponseProfileByOrgStmt                      *sql.Stmt
 	getCurtailmentScheduleExecutionGrantStmt                    *sql.Stmt
+	getCurtailmentScheduleWindowEventStateStmt                  *sql.Stmt
 	getCurtailmentTargetRollupByEventStmt                       *sql.Stmt
 	getDeletionUnpairPermitStmt                                 *sql.Stmt
 	getDeviceByDeviceIdentifierStmt                             *sql.Stmt
@@ -10385,6 +10394,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getCurtailmentReconcilerHeartbeatStmt:                       q.getCurtailmentReconcilerHeartbeatStmt,
 		getCurtailmentResponseProfileByOrgStmt:                      q.getCurtailmentResponseProfileByOrgStmt,
 		getCurtailmentScheduleExecutionGrantStmt:                    q.getCurtailmentScheduleExecutionGrantStmt,
+		getCurtailmentScheduleWindowEventStateStmt:                  q.getCurtailmentScheduleWindowEventStateStmt,
 		getCurtailmentTargetRollupByEventStmt:                       q.getCurtailmentTargetRollupByEventStmt,
 		getDeletionUnpairPermitStmt:                                 q.getDeletionUnpairPermitStmt,
 		getDeviceByDeviceIdentifierStmt:                             q.getDeviceByDeviceIdentifierStmt,

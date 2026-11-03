@@ -49,10 +49,20 @@ type scheduleDurableFake struct {
 	*durableAutomationFake
 	schedules []models.ScheduledAutomationRule
 	latest    map[int64]scheduleBoundary
+	events    map[uuid.UUID]*models.Event
 }
 
 func (f *scheduleDurableFake) ListEnabledScheduleAutomationRules(context.Context) ([]models.ScheduledAutomationRule, error) {
 	return f.schedules, nil
+}
+
+func (f *scheduleDurableFake) ScheduleWindowEventState(_ context.Context, _, _ int64, windowStart time.Time, scheduleRevision uuid.UUID) (models.EventState, bool, error) {
+	for _, event := range f.events {
+		if eventStartedForWindow(event, schedulewindow.Window{Start: windowStart}) && eventScheduleRevision(event) == scheduleRevision {
+			return event.State, true, nil
+		}
+	}
+	return "", false, nil
 }
 
 func (f *scheduleDurableFake) QueueScheduleAutomationExecution(_ context.Context, ruleID int64, scheduleRevision uuid.UUID, target models.AutomationSignal, direction string, boundaryAt time.Time) error {
@@ -82,6 +92,7 @@ func newScheduleHarness(t *testing.T) (*automationHarness, *scheduleDurableFake)
 	durable := &scheduleDurableFake{
 		durableAutomationFake: &durableAutomationFake{automationFakeStore: h.rules},
 		schedules:             []models.ScheduledAutomationRule{{RuleID: h.rule.ID, OrgID: h.orgID, Schedule: *h.rule.Schedule}},
+		events:                h.curtailments.eventsByUUID,
 	}
 	h.automation.store = durable
 	return h, durable
@@ -417,27 +428,37 @@ func TestAutomationService_ScheduleDropsStaleOrEndedWindows(t *testing.T) {
 func TestAutomationService_ScheduleRetriedStartAfterOperatorStop(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
-		name        string
-		newRevision bool
-		wantInserts int
+		name              string
+		pointerWriteFails bool
+		newRevision       bool
+		wantInserts       int
 	}{
-		{"same revision does not run the window again", false, 1},
-		{"re-enabled schedule runs the window again", true, 2},
+		{"same revision does not run the window again", false, false, 1},
+		{"same revision without the active-event pointer does not run the window again", true, false, 1},
+		{"re-enabled schedule runs the window again", false, true, 2},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			h, durable := newScheduleHarness(t)
+			if tt.pointerWriteFails {
+				h.rules.setActiveErr = fleeterror.NewInternalError("connection reset")
+			}
 			h.automation.produceScheduleAssertions(t.Context())
 			work := durable.pending[0]
 			h.automation.processDueExecutions(t.Context())
 			require.Equal(t, 1, h.curtailments.insertEventCalls)
+			eventUUID := h.rules.lastActiveEvent
+			if tt.pointerWriteFails {
+				require.Nil(t, h.rule.ActiveEventUUID)
+				h.rules.setActiveErr = nil
+			}
 
-			// The start's acknowledgement was lost, and an operator stopped the
-			// window's event before its lease expired.
+			// The start's acknowledgement or active-event pointer was lost, and
+			// an operator stopped the window's event before the retry.
 			start := scheduleWindowStart
-			h.curtailments.eventsByUUID[*h.rule.ActiveEventUUID] = &models.Event{
-				EventUUID: *h.rule.ActiveEventUUID, OrgID: h.orgID, State: models.EventStateCompleted,
+			h.curtailments.eventsByUUID[eventUUID] = &models.Event{
+				EventUUID: eventUUID, OrgID: h.orgID, State: models.EventStateCompleted,
 				ScheduledStartAt: &start, DecisionSnapshotJSON: scheduleDecisionSnapshot(h.rule.Schedule.Revision),
 			}
 			if tt.newRevision {

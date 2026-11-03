@@ -172,6 +172,7 @@ func TestSQLCurtailmentStore_ScheduleAutomationRuleLifecycle(t *testing.T) {
 	assert.Contains(t, err.Error(), "automation rule changed before execution")
 
 	event.AutomationScheduleRevision = rule.Schedule.Revision
+	event.DecisionSnapshotJSON = []byte(fmt.Sprintf(`{"response_profile_id":%d,"response_profile_revision":%q,"schedule_revision":%q}`, profileID, profile.Revision.String(), rule.Schedule.Revision.String()))
 
 	// A start delayed past its window's end must not curtail.
 	ended := event
@@ -225,6 +226,16 @@ func TestSQLCurtailmentStore_ScheduleAutomationRuleLifecycle(t *testing.T) {
 	for _, scheduled := range enabled {
 		assert.NotEqual(t, rule.ID, scheduled.RuleID, "a force-released schedule must not produce more windows")
 	}
+
+	// The window's ended event is still found for its schedule revision, so a
+	// retried start does not run the window again.
+	state, ran, err := store.ScheduleWindowEventState(ctx, user.OrganizationID, rule.ID, start, event.AutomationScheduleRevision)
+	require.NoError(t, err)
+	assert.True(t, ran)
+	assert.Equal(t, models.EventStateCancelled, state)
+	_, ran, err = store.ScheduleWindowEventState(ctx, user.OrganizationID, rule.ID, start, uuid.New())
+	require.NoError(t, err)
+	assert.False(t, ran, "another schedule revision's window has not run")
 
 	// Re-enabling starts a new schedule revision so the current window runs
 	// again; enabling an enabled schedule keeps its revision.

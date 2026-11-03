@@ -452,6 +452,40 @@ func (q *Queries) GetCurtailmentScheduleExecutionGrant(ctx context.Context, arg 
 	return i, err
 }
 
+const getCurtailmentScheduleWindowEventState = `-- name: GetCurtailmentScheduleWindowEventState :one
+SELECT e.state
+FROM curtailment_event e
+WHERE e.org_id = $1
+  AND e.source_actor_type = 'scheduler'
+  AND e.external_source = 'curtailment_automation'
+  AND e.external_reference = $2::bigint::text
+  AND e.scheduled_start_at = $3::timestamptz
+  AND e.decision_snapshot_jsonb->>'schedule_revision' = $4::uuid::text
+ORDER BY e.created_at DESC
+LIMIT 1
+`
+
+type GetCurtailmentScheduleWindowEventStateParams struct {
+	OrgID            int64
+	RuleID           int64
+	WindowStart      time.Time
+	ScheduleRevision uuid.UUID
+}
+
+// The state of the latest event a schedule rule started for a window under a
+// schedule revision, including events that have already ended.
+func (q *Queries) GetCurtailmentScheduleWindowEventState(ctx context.Context, arg GetCurtailmentScheduleWindowEventStateParams) (string, error) {
+	row := q.queryRow(ctx, q.getCurtailmentScheduleWindowEventStateStmt, getCurtailmentScheduleWindowEventState,
+		arg.OrgID,
+		arg.RuleID,
+		arg.WindowStart,
+		arg.ScheduleRevision,
+	)
+	var state string
+	err := row.Scan(&state)
+	return state, err
+}
+
 const getEnabledCurtailmentAutomationRuleByEvent = `-- name: GetEnabledCurtailmentAutomationRuleByEvent :one
 SELECT r.id, r.org_id, r.rule_name, r.trigger_type, r.mqtt_source_id, r.response_profile_id, r.enabled, r.created_at, r.updated_at, r.response_profile_revision, r.mqtt_source_name, r.response_profile_name, r.response_profile_site_id, r.response_profile_scope_json, st.last_signal, st.last_signal_at, st.active_event_uuid,
        st.last_started_at, st.last_restored_at, st.last_error, st.last_error_at,

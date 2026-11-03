@@ -3308,6 +3308,18 @@ func (q *retryingQuerier) GetCurtailmentScheduleExecutionGrant(ctx context.Conte
 	return result, err
 }
 
+func (q *retryingQuerier) GetCurtailmentScheduleWindowEventState(ctx context.Context, arg GetCurtailmentScheduleWindowEventStateParams) (string, error) {
+	var result string
+	err := q.retrier.RetryQuery(ctx, "GetCurtailmentScheduleWindowEventState", func() error {
+		callResult, callErr := q.next.GetCurtailmentScheduleWindowEventState(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) GetCurtailmentTargetRollupByEvent(ctx context.Context, arg GetCurtailmentTargetRollupByEventParams) (GetCurtailmentTargetRollupByEventRow, error) {
 	var result GetCurtailmentTargetRollupByEventRow
 	err := q.retrier.RetryQuery(ctx, "GetCurtailmentTargetRollupByEvent", func() error {

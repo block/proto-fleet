@@ -8,6 +8,7 @@ import (
 
 	sqlc "github.com/block/proto-fleet/server/generated/sqlc"
 	"github.com/block/proto-fleet/server/internal/domain/curtailment/models"
+	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/google/uuid"
 )
 
@@ -27,6 +28,19 @@ func (s *SQLCurtailmentStore) QueueAutomationExecution(ctx context.Context, work
 // boundary from a schedule revision that is no longer saved is not queued.
 func (s *SQLCurtailmentStore) QueueScheduleAutomationExecution(ctx context.Context, ruleID int64, scheduleRevision uuid.UUID, target models.AutomationSignal, direction string, boundaryAt time.Time) error {
 	return s.GetQueries(ctx).QueueCurtailmentScheduleExecution(ctx, sqlc.QueueCurtailmentScheduleExecutionParams{RuleID: ruleID, ScheduleRevision: scheduleRevision, Target: string(target), Direction: direction, BoundaryAt: boundaryAt})
+}
+
+// ScheduleWindowEventState reports the state of the latest event a schedule
+// rule started for a window under a schedule revision, in any state.
+func (s *SQLCurtailmentStore) ScheduleWindowEventState(ctx context.Context, orgID, ruleID int64, windowStart time.Time, scheduleRevision uuid.UUID) (models.EventState, bool, error) {
+	state, err := s.GetQueries(ctx).GetCurtailmentScheduleWindowEventState(ctx, sqlc.GetCurtailmentScheduleWindowEventStateParams{OrgID: orgID, RuleID: ruleID, WindowStart: windowStart, ScheduleRevision: scheduleRevision})
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, fleeterror.NewInternalErrorf("failed to look up curtailment schedule window event: %v", err)
+	}
+	return models.EventState(state), true, nil
 }
 
 func (s *SQLCurtailmentStore) ClaimAutomationExecution(ctx context.Context) (*models.AutomationExecution, error) {

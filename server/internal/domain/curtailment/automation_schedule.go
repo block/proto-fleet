@@ -28,6 +28,7 @@ const (
 type ScheduleAutomationStore interface {
 	ListEnabledScheduleAutomationRules(ctx context.Context) ([]models.ScheduledAutomationRule, error)
 	QueueScheduleAutomationExecution(ctx context.Context, ruleID int64, scheduleRevision uuid.UUID, target models.AutomationSignal, direction string, boundaryAt time.Time) error
+	ScheduleWindowEventState(ctx context.Context, orgID, ruleID int64, windowStart time.Time, scheduleRevision uuid.UUID) (models.EventState, bool, error)
 }
 
 func (s *AutomationService) validateAutomationSchedule(rule models.AutomationRule) error {
@@ -148,14 +149,23 @@ func (s *AutomationService) startScheduleWindow(ctx context.Context, rule *model
 		if err != nil && !fleeterror.IsNotFoundError(err) {
 			return err
 		}
-		// The window's event is live, or it already ran under this schedule
-		// revision and was stopped; a retried start must not run the window again.
-		if event != nil && eventStartedForWindow(event, window) &&
-			(!event.State.IsTerminal() || eventScheduleRevision(event) == rule.Schedule.Revision) {
-			return nil
-		}
 		if event != nil && !event.State.IsTerminal() {
+			if eventStartedForWindow(event, window) {
+				return nil
+			}
 			return errWaitingForPreviousScheduleWindow()
+		}
+	}
+	// A window runs once per schedule revision: a retried start does not run it
+	// again after its event was stopped, even when the rule's active-event
+	// pointer was never recorded.
+	if store, ok := s.store.(ScheduleAutomationStore); ok {
+		state, found, err := store.ScheduleWindowEventState(ctx, rule.OrgID, rule.ID, window.Start, rule.Schedule.Revision)
+		if err != nil {
+			return err
+		}
+		if found && state.IsTerminal() {
+			return nil
 		}
 	}
 

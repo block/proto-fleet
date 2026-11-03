@@ -785,6 +785,9 @@ type Querier interface {
 	GetCurtailmentReconcilerHeartbeat(ctx context.Context) (CurtailmentReconcilerHeartbeat, error)
 	GetCurtailmentResponseProfileByOrg(ctx context.Context, arg GetCurtailmentResponseProfileByOrgParams) (CurtailmentResponseProfileWithRevision, error)
 	GetCurtailmentScheduleExecutionGrant(ctx context.Context, arg GetCurtailmentScheduleExecutionGrantParams) (CurtailmentAutomationExecutionGrant, error)
+	// The state of the latest event a schedule rule started for a window under a
+	// schedule revision, including events that have already ended.
+	GetCurtailmentScheduleWindowEventState(ctx context.Context, arg GetCurtailmentScheduleWindowEventStateParams) (string, error)
 	// Org-scoped aggregate for paginated event detail. Target pages can be
 	// partial, but the rollup must describe the whole event.
 	//

@@ -507,6 +507,20 @@ ON CONFLICT (rule_id) DO UPDATE SET
     revision = gen_random_uuid(),
     updated_at = CURRENT_TIMESTAMP;
 
+-- name: GetCurtailmentScheduleWindowEventState :one
+-- The state of the latest event a schedule rule started for a window under a
+-- schedule revision, including events that have already ended.
+SELECT e.state
+FROM curtailment_event e
+WHERE e.org_id = sqlc.arg('org_id')
+  AND e.source_actor_type = 'scheduler'
+  AND e.external_source = 'curtailment_automation'
+  AND e.external_reference = sqlc.arg('rule_id')::bigint::text
+  AND e.scheduled_start_at = sqlc.arg('window_start')::timestamptz
+  AND e.decision_snapshot_jsonb->>'schedule_revision' = sqlc.arg('schedule_revision')::uuid::text
+ORDER BY e.created_at DESC
+LIMIT 1;
+
 -- name: RenewCurtailmentAutomationScheduleRevision :exec
 UPDATE curtailment_automation_schedule
 SET revision = gen_random_uuid()
