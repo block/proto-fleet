@@ -260,6 +260,14 @@ func (s *Service) Submit(ctx context.Context, identifier, requestID, configID st
 			return fleeterror.NewFailedPreconditionError("controller firmware does not support mining groups")
 		}
 		if kind == "pools" {
+			disabled, err := q.LegacyPoolWritersDisabled(ctx, info.OrganizationID)
+			if err != nil {
+				return err
+			}
+			if disabled {
+				return fleeterror.NewFailedPreconditionError("Use reviewed pool configurations to assign board pools.")
+			}
+
 			if err := q.PruneDetachedHashboardPoolIntents(ctx, sqlc.PruneDetachedHashboardPoolIntentsParams{OrganizationID: info.OrganizationID, DeviceID: target.ID}); err != nil {
 				return err
 			}

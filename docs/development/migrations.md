@@ -82,6 +82,118 @@ password-confirmed retry without claiming the previous settings were verified.
 The one-minute delay allows normal result bookkeeping to finish; only the
 attempt's terminal state establishes that its physical work has settled.
 
+### Pool backend cutover (checkpoint 1056)
+
+This backend release is the intermediate change between pool backend PR3 and
+UI PR4. Checkpoint 1056 adds durable, installation-scoped board execution intent
+and a maintenance gate. Successfully applied board effects survive a failed
+operation or a later rejected request. Pending work overlays those retained
+settings only while it is applying. Adoption records provenance, without a
+physical attempt or a fabricated successful operation. Observation still compares
+URLs/usernames; passwords are preserved privately and are not read back to prove
+application.
+
+Before maintenance, existing UI endpoints remain available. After completion,
+normal reconciliation, interruption and offline recovery use canonical board
+intent and immutable execution snapshots. Legacy storage remains read-only for
+history. Legacy pool library writes, board submissions and raw queued pool
+commands are rejected. PR4 owns the UI switch and final endpoint removal; deploy
+that switch together with final completion. Do not complete this gate with the
+old UI or external pool callers still active.
+
+The maintenance command exposes identifiers and counts, never credentials:
+
+```sh
+fleet-db-transition pool-cutover --organization-id=<internal-id> --action=inspect
+```
+
+Inventory covers legacy intents, retained bindings (including binding-only
+archived revisions), canonical snapshots, queued/processing commands, unresolved
+physical attempts, pending canonical operations, and devices lacking complete
+adoption. External callers cannot be discovered from database contents: inventory
+API keys, integrations and installed CLI versions separately. Production volume
+and conversion latency have not been measured by this change. Rehearse with a
+representative database and record counts, elapsed time and unresolved reasons
+before scheduling maintenance. An empty inventory can use the same gate without
+inventing legacy execution state.
+
+Use this order for each organization, with a coordinated database backup:
+
+1. Stop new pool admission. Drain queued/processing pool and lifecycle commands
+   and unfinished mining-group work while dispatchers can still finish it.
+   Resolve running/unknown physical attempts through the existing
+   [device-write recovery procedure](device-write-recovery.md); age, restarts and
+   a failed UI result are not proof that hardware writes ended.
+   Inspect before freezing. Attempted board configurations without matching
+   retained effective state are also unresolved, including older failures that
+   may have partially applied. Explicitly verify a reviewed configuration or
+   retire the assignment before maintenance; the gate never infers success from
+   a failed operation or silently substitutes an older verified configuration.
+2. Stop all application writers and dispatchers, including standby processes,
+   integrations, schedules and Fleet Node command delivery. With writers stopped,
+   run `import-pool-configurations` with the encryption key and trusted plugins
+   described above, **before setting the persistent freeze**. It creates controller
+   snapshots and rewrites retained bindings, preserving group IDs and configuration
+   evidence. Equal library settings may share a configuration, but retained
+   controller groups keep distinct execution identities. Board assignment adoption
+   joins import mappings in one SQL batch. Ambiguous group membership is unresolved,
+   not guessed. Source-table locks protect each import transaction.
+3. Save the JSON report, rerun inspection, and resolve every remaining gap. The
+   importer can commit eligible records and then exit nonzero: **this is partial
+   progress, not rollback and not permission to resume ordinary writers**. A clean
+   import report alone is insufficient: empty device readback and containers in
+   mining-group mode may be skipped by collection and still appear in inspection.
+   Fleet Node devices cannot be collected offline. These cases, missing credentials,
+   removed/reallocated boards, and ambiguous controller membership need an explicit
+   resolution before freezing. If repair requires normal assignment or recovery,
+   bring up only the required services under controlled admission, perform the
+   reviewed repair and let it settle, then stop writers again and rerun import and
+   inspection. Do not invent credentials, adopt a previous owner's configuration,
+   or manufacture a successful write to clear a gap. Known-empty passwords are
+   valid; unknown passwords require complete authoritative settings. There is no blanket
+   ignore-unresolved switch or implicit unmanaged acceptance in this command.
+4. Only after import and inspection are clear, freeze legacy writers:
+   `fleet-db-transition pool-cutover --organization-id=<internal-id> --action=freeze`.
+   Freeze uses the same persisted completeness check as completion, under the
+   source locks. Any remaining or newly introduced gap rejects freeze without
+   setting its marker, leaving normal assignment and audited recovery available.
+   Database guards serialize with already-admitted legacy writers and reject new
+   writes, including attempts to requeue terminal raw pool commands. Normal
+   canonical writes are also paused until completion. Do not rely on fixing
+   migration gaps after freezing.
+5. Repeat inspection, then run
+   `fleet-db-transition pool-cutover --organization-id=<internal-id> --action=complete`.
+   The transaction rechecks completeness under the source locks and writes the
+   completion marker only with zero gaps. Repeating completion is safe.
+6. Start the coordinated PR4 UI/backend and migrated integrations. Verify
+   configuration reads and a deliberately reviewed update, then confirm the
+   completed marker and expected controller identities.
+
+This uses a controlled writer freeze, not online per-device conversion. The
+source-table SHARE locks remain deliberately in place to exclude inventory,
+ownership and queue races during conversion. Lock acquisition times out after
+five seconds; import transactions are bounded to two minutes and gate transactions
+to thirty seconds. Firmware collection happens before the import transaction.
+A timeout rolls back that transaction; earlier committed imports remain. If
+measured volume exceeds these bounds, redesign/rehearse batching before deployment
+rather than relaxing locks on a live fleet.
+
+If import or freeze readiness fails, resolve gaps using step 3 before retrying;
+no freeze is created on rejection. If completion fails after a successful freeze,
+keep writers stopped and investigate the reported change. To abandon maintenance,
+restore the coordinated pre-maintenance backup before restarting the old deployment.
+After new canonical writes, rollback requires a coordinated restore or a forward fix;
+schema down refuses to erase effective intent or the maintenance marker.
+
+Backend consumer changes in this release:
+
+| Consumer | Behavior |
+| --- | --- |
+| Fleet CLI `pools` commands | Use `PoolConfigurationService`; assignment/edit/retry use review then confirmation. Structured pool stacks/targets use `--json`; confirmation passwords use `--password-stdin`. |
+| Foreman import | The UI imports groups, racks, assignments, and names with pool import disabled, and explains that pools need separate configuration. Foreman does not return pool passwords; explicit API requests to import pools still fail before creating entities. |
+| Legacy pool-ID/raw pool update and worker-name pool rewrite | Available before maintenance; rejected after freeze. Use a reviewed canonical configuration update after cutover. |
+| Existing UI and legacy RPC definitions | Retained for the deployment transition; PR4 switches callers and removes endpoints. |
+
 ### Baseline reconciliation
 
 `fleet-db-transition apply` reconciles recognized source schemas without replaying

@@ -2504,6 +2504,26 @@ type PoolConfigurationAssignment struct {
 	AdoptedAt       sql.NullTime
 }
 
+type PoolConfigurationBoardIntent struct {
+	OrganizationID    int64
+	InstallationID    int64
+	DeviceID          int64
+	HashboardID       int64
+	MacAddress        string
+	GroupSnapshotID   string
+	OperationID       sql.NullString
+	PhysicalAttemptID uuid.NullUUID
+	AdoptedAt         sql.NullTime
+	UpdatedAt         time.Time
+}
+
+type PoolConfigurationCutover struct {
+	OrganizationID int64
+	FrozenAt       time.Time
+	CompletedAt    sql.NullTime
+	Report         json.RawMessage
+}
+
 type PoolConfigurationGroupSnapshot struct {
 	SnapshotID      string
 	OrganizationID  int64

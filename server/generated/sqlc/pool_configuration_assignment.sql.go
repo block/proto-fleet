@@ -535,6 +535,11 @@ func (q *Queries) RetryPoolConfigurationTarget(ctx context.Context, arg RetryPoo
 }
 
 const setPoolConfigurationAssignment = `-- name: SetPoolConfigurationAssignment :one
+WITH discarded AS (
+ DELETE FROM pool_configuration_board_intent p USING pool_configuration_assignment a
+ WHERE a.organization_id=$1 AND a.target_kind=$2 AND a.target_id=$3 AND a.retired_at IS NOT NULL
+  AND p.organization_id=a.organization_id AND p.installation_id=a.target_id AND a.target_kind='hashboard_installation'
+)
 INSERT INTO pool_configuration_assignment(organization_id, target_kind, target_id, device_id, configuration_id, revision_id, version, operation_id)
 VALUES($1, $2, $3, $4, $5, $6, 1, $7)
 ON CONFLICT (organization_id, target_kind, target_id) DO UPDATE SET
@@ -554,6 +559,8 @@ type SetPoolConfigurationAssignmentParams struct {
 	OperationID     sql.NullString
 }
 
+// Explicitly returning retired equipment must not resurrect its former intent
+// while the new reviewed operation is pending or if admission later fails.
 func (q *Queries) SetPoolConfigurationAssignment(ctx context.Context, arg SetPoolConfigurationAssignmentParams) (PoolConfigurationAssignment, error) {
 	row := q.queryRow(ctx, q.setPoolConfigurationAssignmentStmt, setPoolConfigurationAssignment,
 		arg.OrganizationID,

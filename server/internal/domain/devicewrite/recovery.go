@@ -149,6 +149,15 @@ func (s *Service) ResolveOffline(ctx context.Context, evidence RecoveryEvidence,
 		}); err != nil {
 			return empty, fmt.Errorf("resolve recovered mining group workflow: %w", err)
 		}
+		cutover, err := q.HasPoolConfigurationCutover(ctx, evidence.OrganizationID)
+		if err != nil {
+			return empty, err
+		}
+		if !cutover {
+			if err := q.DiscardRecoveredLegacyPoolIntents(ctx, sqlc.DiscardRecoveredLegacyPoolIntentsParams{OrganizationID: evidence.OrganizationID, DeviceID: evidence.DeviceID, AttemptID: uuid.NullUUID{UUID: attempt.AttemptID, Valid: true}}); err != nil {
+				return empty, err
+			}
+		}
 		advanced, err := q.AdvanceRecoveredDeviceWriteFence(ctx, sqlc.AdvanceRecoveredDeviceWriteFenceParams{DeviceID: evidence.DeviceID, OrganizationID: evidence.OrganizationID, Epoch: fence.Epoch})
 		if err != nil {
 			return empty, lookupError(err)

@@ -87,8 +87,8 @@ func TestGeneratedLeafCommandsMatchManifest(t *testing.T) {
 		want[strings.Join(parts, " ")] = true
 	}
 	got := leafCommandPaths(generatedCommands())
-	if len(got) != 119 || len(want) != 119 {
-		t.Fatalf("generated leaves = %d, manifest leaves = %d, want 119 each", len(got), len(want))
+	if len(got) != 127 || len(want) != 127 {
+		t.Fatalf("generated leaves = %d, manifest leaves = %d, want 127 each", len(got), len(want))
 	}
 	for path := range want {
 		if !got[path] {
@@ -100,8 +100,8 @@ func TestGeneratedLeafCommandsMatchManifest(t *testing.T) {
 			t.Errorf("generated command %q missing from manifest", path)
 		}
 	}
-	if gotAll := leafCommandPaths(allCommands()); len(gotAll) != 134 {
-		t.Fatalf("all command leaves = %d, want 134", len(gotAll))
+	if gotAll := leafCommandPaths(allCommands()); len(gotAll) != 142 {
+		t.Fatalf("all command leaves = %d, want 142", len(gotAll))
 	}
 }
 
@@ -454,9 +454,9 @@ func TestGeneratedReviewedCommandsRejectIncompleteRequestsLocally(t *testing.T) 
 			want: "invalid value for --fan-restore-delay-sec: 4294967296 exceeds maximum 4294967295",
 		},
 		{
-			name: "pool validate",
-			args: []string{"pools", "validate", "--pool-password-stdin"},
-			want: `required field "url"`,
+			name: "pool connection",
+			args: []string{"pools", "test-connection"},
+			want: "pool",
 		},
 	}
 
@@ -1558,18 +1558,21 @@ func TestResolvedAuthInputs(t *testing.T) {
 			wantPass: "p",
 		},
 		{
-			name:    "pools update local username does not leak into auth",
-			env:     map[string]string{envFleetAPIKey: "k"},
-			path:    []string{"pools", "update"},
-			argv:    []string{"pools", "update", "--username", "pooluser"},
-			wantKey: "k",
+			name:     "pool confirmation secret flag preserves Fleet auth identity",
+			env:      map[string]string{envFleetAPIKey: "k", envFleetUsername: "admin", envFleetPassword: "fleet-secret"},
+			path:     []string{"pools", "confirm"},
+			argv:     []string{"pools", "confirm", "--review-id", "11111111-1111-4111-8111-111111111111", "--password-stdin"},
+			wantKey:  "k",
+			wantUser: "admin",
+			wantPass: "fleet-secret",
 		},
 		{
-			name:    "pools validate local username does not leak into auth",
-			env:     map[string]string{envFleetAPIKey: "k"},
-			path:    []string{"pools", "validate"},
-			argv:    []string{"pools", "validate", "--username", "pooluser"},
-			wantKey: "k",
+			name:     "pool account selection does not become Fleet login identity",
+			env:      map[string]string{envFleetAPIKey: "k", envFleetUsername: "admin"},
+			path:     []string{"pools", "create"},
+			argv:     []string{"pools", "create", "--account-id", "pool-account"},
+			wantKey:  "k",
+			wantUser: "admin",
 		},
 		{
 			name: "onboarding create-admin credentials do not leak into auth",
@@ -1869,274 +1872,192 @@ func TestApiKeyCommandsRejectAPIKeyOnly(t *testing.T) {
 	}
 }
 
-// TestPoolsValidateBearerWithLocalUsername covers the bug where the
-// subcommand-local --username flag hijacked Fleet auth and discarded the API
-// key: the pool username must reach the request body while auth stays authenticated.
-func TestPoolsValidateAuthenticatedWithLocalUsername(t *testing.T) {
+func TestPoolsTestConnectionAuthenticatedWithJSONUsername(t *testing.T) {
 	pinFleetAuthEnv(t, map[string]string{envFleetAPIKey: "k"})
-
+	requestPath := filepath.Join(t.TempDir(), "connection.json")
+	if err := os.WriteFile(requestPath, []byte(`{"pool":{"url":"stratum+tcp://pool.example.com:3333","username":"pooluser","password":"pool-secret"}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	var gotAuth string
 	var gotBody map[string]any
 	mux := http.NewServeMux()
 	forbidFirmwareEndpoint(t, mux, "POST /auth.v1.AuthService/Authenticate")
-	mux.HandleFunc("POST /pools.v1.PoolsService/ValidatePool", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("POST /poolconfigurations.v1.PoolConfigurationService/TestConnection", func(w http.ResponseWriter, r *http.Request) {
 		gotAuth = r.Header.Get("Authorization")
-		if err := json.NewDecoder(r.Body).Decode(&gotBody); err != nil {
-			t.Errorf("decode validate request: %v", err)
-		}
+		gotBody = requestBodyMap(t, r)
 		w.Header().Set("Content-Type", contentTypeJSON)
-		_, _ = w.Write([]byte("{}"))
+		_, _ = w.Write([]byte(`{"connected":true}`))
 	})
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
-
-	err := newRootCommand().Run(context.Background(), []string{
-		"fleetcli", "--server", srv.URL + "/",
-		"pools", "validate", "--url", "stratum+tcp://pool.example.com:3333", "--username", "pooluser",
-	})
-	if err != nil {
-		t.Fatalf("pools validate with env api key should succeed, got: %v", err)
+	if err := newRootCommand().Run(context.Background(), []string{"fleetcli", "--server", srv.URL + "/", "pools", "test-connection", "--json", requestPath}); err != nil {
+		t.Fatalf("test-connection with env API key: %v", err)
 	}
 	if gotAuth != "Bearer k" {
-		t.Errorf("Authorization = %q, want %q", gotAuth, "Bearer k")
+		t.Errorf("Authorization = %q, want Bearer k", gotAuth)
 	}
-	if gotBody["username"] != "pooluser" {
-		t.Errorf("request username = %v, want pooluser", gotBody["username"])
-	}
-	if gotBody["url"] != "stratum+tcp://pool.example.com:3333" {
-		t.Errorf("request url = %v, want the pool url", gotBody["url"])
+	pool, _ := gotBody["pool"].(map[string]any)
+	if pool["username"] != "pooluser" || pool["url"] != "stratum+tcp://pool.example.com:3333" || pool["password"] != "pool-secret" {
+		t.Fatalf("connection pool = %#v, want supplied connection details", pool)
 	}
 }
 
-func TestPoolsCreateRequiresCompletePoolDetails(t *testing.T) {
+func TestPoolsCreateRequiresCompleteConfiguration(t *testing.T) {
 	pinFleetAuthEnv(t, nil)
-
-	requestCount := 0
+	requests := 0
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		requestCount++
+		requests++
 		http.Error(w, "unexpected request", http.StatusTeapot)
 	}))
 	t.Cleanup(srv.Close)
-
-	emptyJSONPath := filepath.Join(t.TempDir(), "empty-pool.json")
-	if err := os.WriteFile(emptyJSONPath, []byte(`{}`), 0o600); err != nil {
-		t.Fatalf("write empty pool json: %v", err)
-	}
-
-	tests := []struct {
-		name string
-		args []string
-	}{
-		{name: "no inputs"},
-		{name: "empty JSON", args: []string{"--json", emptyJSONPath}},
-		{name: "partial flags", args: []string{"--pool-name", "incomplete"}},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			err := newRootCommand().Run(context.Background(), append([]string{
-				"fleetcli", "--server", srv.URL + "/", "--api-key", "test-key",
-				"pools", "create",
-			}, tt.args...))
-			if err == nil || !strings.Contains(err.Error(), "pool_config.") {
-				t.Fatalf("pools create error = %v, want missing nested pool field", err)
+	for _, test := range []struct{ name, payload string }{
+		{"no inputs", ""},
+		{"empty JSON", `{}`},
+		{"no pools", `{"configuration":{"name":"Incomplete"}}`},
+		{"missing username", `{"configuration":{"name":"Incomplete","pools":[{"url":"stratum+tcp://pool.example"}]}}`},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			args := []string{"fleetcli", "--server", srv.URL + "/", "--api-key", "test-key", "pools", "create"}
+			if test.payload != "" {
+				path := filepath.Join(t.TempDir(), "configuration.json")
+				if err := os.WriteFile(path, []byte(test.payload), 0o600); err != nil {
+					t.Fatal(err)
+				}
+				args = append(args, "--json", path)
+			}
+			if err := newRootCommand().Run(context.Background(), args); err == nil || !strings.Contains(err.Error(), "configuration") {
+				t.Fatalf("create error = %v, want invalid configuration", err)
 			}
 		})
 	}
-	if requestCount != 0 {
-		t.Fatalf("request count = %d, want no requests for incomplete pool details", requestCount)
+	if requests != 0 {
+		t.Fatalf("requests = %d, want zero for invalid configuration", requests)
 	}
 }
 
-func TestPoolsCreateJSONPoolConfigFlagOverridePreservesFields(t *testing.T) {
+func TestPoolsCreateJSONAccountOverridePreservesConfiguration(t *testing.T) {
 	pinFleetAuthEnv(t, nil)
-
-	jsonPath := filepath.Join(t.TempDir(), "pool.json")
-	if err := os.WriteFile(jsonPath, []byte(`{
-		"pool_config": {
-			"pool_name": "old-name",
-			"url": "stratum+tcp://pool.example.com:3333",
-			"username": "pool-user",
-			"password": "pool-pass"
-		}
-	}`), 0o600); err != nil {
-		t.Fatalf("write pool json: %v", err)
+	requestPath := filepath.Join(t.TempDir(), "configuration.json")
+	if err := os.WriteFile(requestPath, []byte(`{"account_id":"old-account","configuration":{"name":"Shared stack","pools":[{"url":"stratum+tcp://primary.example:3333","username":"payout","password":"primary-secret","worker_template":"{miner_name}"},{"url":"stratum+tcp://backup.example:3333","username":"backup","password":""}]}}`), 0o600); err != nil {
+		t.Fatal(err)
 	}
-
 	var gotAuth string
 	var gotBody map[string]any
 	mux := http.NewServeMux()
-	mux.HandleFunc("POST /pools.v1.PoolsService/CreatePool", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("POST /poolconfigurations.v1.PoolConfigurationService/CreateConfiguration", func(w http.ResponseWriter, r *http.Request) {
 		gotAuth = r.Header.Get("Authorization")
-		if err := json.NewDecoder(r.Body).Decode(&gotBody); err != nil {
-			t.Errorf("decode create pool request: %v", err)
-		}
+		gotBody = requestBodyMap(t, r)
 		w.Header().Set("Content-Type", contentTypeJSON)
-		_, _ = w.Write([]byte("{}"))
+		_, _ = w.Write([]byte(`{}`))
 	})
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
+	if err := newRootCommand().Run(context.Background(), []string{"fleetcli", "--server", srv.URL + "/", "--api-key", "test-key", "pools", "create", "--json", requestPath, "--account-id", "new-account"}); err != nil {
+		t.Fatal(err)
+	}
+	if gotAuth != "Bearer test-key" || gotBody["account_id"] != "new-account" {
+		t.Fatalf("auth = %q, request = %#v", gotAuth, gotBody)
+	}
+	configuration, _ := gotBody["configuration"].(map[string]any)
+	if configuration["name"] != "Shared stack" {
+		t.Fatalf("configuration = %#v", configuration)
+	}
+	pools, _ := configuration["pools"].([]any)
+	if len(pools) != 2 {
+		t.Fatalf("pools = %#v, want ordered primary and backup", pools)
+	}
+	primary, _ := pools[0].(map[string]any)
+	backup, _ := pools[1].(map[string]any)
+	if primary["url"] != "stratum+tcp://primary.example:3333" || primary["password"] != "primary-secret" || primary["worker_template"] != "{miner_name}" || backup["url"] != "stratum+tcp://backup.example:3333" || backup["password"] != "" {
+		t.Fatalf("pools = %#v, want intact ordered settings and explicit empty backup password", pools)
+	}
+}
 
-	err := newRootCommand().Run(context.Background(), []string{
-		"fleetcli", "--server", srv.URL + "/", "--api-key", "test-key",
-		"pools", "create", "--json", jsonPath, "--pool-name", "new-name",
-	})
-	if err != nil {
-		t.Fatalf("pools create with json override should succeed, got: %v", err)
-	}
-	if gotAuth != "Bearer test-key" {
-		t.Errorf("Authorization = %q, want %q", gotAuth, "Bearer test-key")
-	}
-	poolConfig, ok := gotBody["pool_config"].(map[string]any)
-	if !ok {
-		t.Fatalf("pool_config = %#v, want object", gotBody["pool_config"])
-	}
-	want := map[string]string{
-		"pool_name": "new-name",
-		"url":       "stratum+tcp://pool.example.com:3333",
-		"username":  "pool-user",
-		"password":  "pool-pass",
-	}
-	for field, wantValue := range want {
-		if got := poolConfig[field]; got != wantValue {
-			t.Errorf("pool_config.%s = %v, want %q", field, got, wantValue)
+func TestPoolsArchiveRequiresConfigurationAndVersion(t *testing.T) {
+	pinFleetAuthEnv(t, nil)
+	for _, test := range []struct {
+		args    []string
+		missing string
+	}{
+		{nil, "configuration-id"},
+		{[]string{"--configuration-id", "11111111-1111-4111-8111-111111111111"}, "expected-version"},
+	} {
+		args := append([]string{"fleetcli", "pools", "archive"}, test.args...)
+		if err := newRootCommand().Run(context.Background(), args); err == nil || !strings.Contains(err.Error(), test.missing) {
+			t.Fatalf("archive error = %v, want required %s", err, test.missing)
 		}
 	}
 }
 
-func TestPoolsDeleteRequiresPoolID(t *testing.T) {
-	pinFleetAuthEnv(t, nil)
-
-	err := newRootCommand().Run(context.Background(), []string{"fleetcli", "pools", "delete"})
-	if err == nil || !strings.Contains(err.Error(), "pool-id") {
-		t.Fatalf("pools delete without pool-id error = %v, want required pool-id error", err)
-	}
-}
-
-func TestPoolsReadPasswordFromStdin(t *testing.T) {
-	tests := []struct {
-		name     string
-		route    string
-		args     []string
-		password func(map[string]any) any
+func TestPoolsReadSecretsAndJSONFromStdin(t *testing.T) {
+	for _, test := range []struct {
+		name, route, input string
+		args               []string
+		password           func(map[string]any) any
 	}{
-		{
-			name:  "create",
-			route: "POST /pools.v1.PoolsService/CreatePool",
-			args: []string{
-				"pools", "create",
-				"--pool-name", "pool-name",
-				"--url", "stratum+tcp://pool.example.com:3333",
-				"--username", "pool-user",
-				"--pool-password-stdin",
-			},
-			password: func(body map[string]any) any {
-				poolConfig, _ := body["pool_config"].(map[string]any)
-				return poolConfig["password"]
-			},
-		},
-		{
-			name:  "update",
-			route: "POST /pools.v1.PoolsService/UpdatePool",
-			args: []string{
-				"pools", "update",
-				"--pool-id", "12",
-				"--pool-password-stdin",
-			},
-			password: func(body map[string]any) any {
-				return body["password"]
-			},
-		},
-		{
-			name:  "validate",
-			route: "POST /pools.v1.PoolsService/ValidatePool",
-			args: []string{
-				"pools", "validate",
-				"--url", "stratum+tcp://pool.example.com:3333",
-				"--username", "pool-user",
-				"--pool-password-stdin",
-			},
-			password: func(body map[string]any) any {
-				return body["password"]
-			},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
+		{"create", "CreateConfiguration", `{"configuration":{"name":"Shared","pools":[{"url":"stratum+tcp://pool.example:3333","username":"worker","password":"pool-secret"}]}}`, []string{"create", "--json", "-"}, func(body map[string]any) any {
+			c, _ := body["configuration"].(map[string]any)
+			pools, _ := c["pools"].([]any)
+			if len(pools) != 1 {
+				return nil
+			}
+			p, _ := pools[0].(map[string]any)
+			return p["password"]
+		}},
+		{"test connection", "TestConnection", `{"pool":{"url":"stratum+tcp://pool.example:3333","username":"worker","password":"pool-secret"}}`, []string{"test-connection", "--json", "-"}, func(body map[string]any) any { p, _ := body["pool"].(map[string]any); return p["password"] }},
+		{"confirmation", "ConfirmReview", "pool-secret\n", []string{"confirm", "--review-id", "11111111-1111-4111-8111-111111111111", "--password-stdin"}, func(body map[string]any) any { return body["password"] }},
+	} {
+		t.Run(test.name, func(t *testing.T) {
 			pinFleetAuthEnv(t, nil)
-
-			var gotBody map[string]any
+			var body map[string]any
 			mux := http.NewServeMux()
-			mux.HandleFunc(tt.route, func(w http.ResponseWriter, r *http.Request) {
-				if err := json.NewDecoder(r.Body).Decode(&gotBody); err != nil {
-					t.Errorf("decode pool request: %v", err)
-				}
+			mux.HandleFunc("POST /poolconfigurations.v1.PoolConfigurationService/"+test.route, func(w http.ResponseWriter, r *http.Request) {
+				body = requestBodyMap(t, r)
 				w.Header().Set("Content-Type", contentTypeJSON)
-				_, _ = w.Write([]byte("{}"))
+				_, _ = w.Write([]byte(`{}`))
 			})
 			srv := httptest.NewServer(mux)
 			t.Cleanup(srv.Close)
-
-			withStdin(t, "pool-secret\n", func() {
-				err := newRootCommand().Run(context.Background(), append([]string{
-					"fleetcli", "--server", srv.URL + "/", "--api-key", "test-key",
-				}, tt.args...))
-				if err != nil {
-					t.Fatalf("fleetcli %s error = %v, want success", strings.Join(tt.args, " "), err)
+			withStdin(t, test.input, func() {
+				args := append([]string{"fleetcli", "--server", srv.URL + "/", "--api-key", "test-key", "pools"}, test.args...)
+				if err := newRootCommand().Run(context.Background(), args); err != nil {
+					t.Fatal(err)
 				}
 			})
-
-			if got := tt.password(gotBody); got != "pool-secret" {
-				t.Fatalf("pool password = %v, want pool-secret; body = %#v", got, gotBody)
+			if got := test.password(body); got != "pool-secret" {
+				t.Fatalf("password = %v, want stdin secret", got)
 			}
 		})
 	}
 }
 
-func TestPoolsReadFleetAndPoolPasswordsFromSeparateStdinLines(t *testing.T) {
+func TestPoolsReadFleetAndConfirmationPasswordsFromSeparateStdinLines(t *testing.T) {
 	pinFleetAuthEnv(t, nil)
-
-	var authBody map[string]any
-	var createBody map[string]any
+	var authBody, confirmBody map[string]any
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /auth.v1.AuthService/Authenticate", func(w http.ResponseWriter, r *http.Request) {
-		if err := json.NewDecoder(r.Body).Decode(&authBody); err != nil {
-			t.Errorf("decode authenticate request: %v", err)
-		}
+		authBody = requestBodyMap(t, r)
 		http.SetCookie(w, &http.Cookie{Name: "fleet_session", Value: "sess", Path: "/", Secure: true})
 		w.Header().Set("Content-Type", contentTypeJSON)
-		_, _ = w.Write([]byte("{}"))
+		_, _ = w.Write([]byte(`{}`))
 	})
-	mux.HandleFunc("POST /pools.v1.PoolsService/CreatePool", func(w http.ResponseWriter, r *http.Request) {
-		if err := json.NewDecoder(r.Body).Decode(&createBody); err != nil {
-			t.Errorf("decode pool create request: %v", err)
-		}
+	mux.HandleFunc("POST /poolconfigurations.v1.PoolConfigurationService/ConfirmReview", func(w http.ResponseWriter, r *http.Request) {
+		confirmBody = requestBodyMap(t, r)
 		w.Header().Set("Content-Type", contentTypeJSON)
-		_, _ = w.Write([]byte("{}"))
+		_, _ = w.Write([]byte(`{}`))
 	})
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
-
-	withStdin(t, "fleet-secret\npool-secret\n", func() {
-		err := newRootCommand().Run(context.Background(), []string{
-			"fleetcli", "--server", srv.URL + "/", "--username", "admin", "--password-stdin",
-			"pools", "create",
-			"--pool-name", "pool-name",
-			"--url", "stratum+tcp://pool.example.com:3333",
-			"--username", "pool-user",
-			"--pool-password-stdin",
-		})
-		if err != nil {
-			t.Fatalf("pools create with Fleet and pool password stdin error = %v", err)
+	withStdin(t, "fleet-secret\nconfirmation-secret\n", func() {
+		if err := newRootCommand().Run(context.Background(), []string{"fleetcli", "--server", srv.URL + "/", "--username", "admin", "--password-stdin", "pools", "confirm", "--review-id", "11111111-1111-4111-8111-111111111111", "--password-stdin"}); err != nil {
+			t.Fatal(err)
 		}
 	})
-
 	if authBody["username"] != "admin" || authBody["password"] != "fleet-secret" {
-		t.Errorf("authenticate body = %v, want first stdin line as Fleet password", authBody)
+		t.Errorf("authenticate body = %#v, want first stdin line", authBody)
 	}
-	poolConfig, _ := createBody["pool_config"].(map[string]any)
-	if poolConfig["password"] != "pool-secret" {
-		t.Errorf("pool create body = %v, want second stdin line as pool password", createBody)
+	if confirmBody["password"] != "confirmation-secret" {
+		t.Errorf("confirm body = %#v, want second stdin line", confirmBody)
 	}
 }
 
@@ -2189,8 +2110,8 @@ func TestGeneratedSecretsReadFleetPasswordBeforeCommandSecret(t *testing.T) {
 func TestPoolsRejectPasswordFlag(t *testing.T) {
 	tests := [][]string{
 		{"pools", "create", "--password", "pool-secret"},
-		{"pools", "update", "--password", "pool-secret"},
-		{"pools", "validate", "--password", "pool-secret"},
+		{"pools", "confirm", "--review-id", "11111111-1111-4111-8111-111111111111", "--password", "pool-secret"},
+		{"pools", "test-connection", "--password", "pool-secret"},
 	}
 
 	for _, args := range tests {

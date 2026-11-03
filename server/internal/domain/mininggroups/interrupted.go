@@ -84,16 +84,29 @@ func (s *Service) interrupt(ctx context.Context, q sqlc.Querier, row sqlc.Contai
 	}
 	// Cleanup and admission release commit together. Pruning earlier could erase
 	// the evidence of interruption while an observation or transfer is pending.
-	if err := q.PruneDetachedHashboardPoolIntents(ctx, sqlc.PruneDetachedHashboardPoolIntentsParams{OrganizationID: row.OrganizationID, DeviceID: row.DeviceID}); err != nil {
+	if err := pruneDetachedIntents(ctx, q, row.OrganizationID, row.DeviceID); err != nil {
 		return err
 	}
-	intents, err := q.ListHashboardPoolIntents(ctx, sqlc.ListHashboardPoolIntentsParams{OrganizationID: row.OrganizationID, DeviceID: row.DeviceID})
+	cutover, err := q.HasPoolConfigurationCutover(ctx, row.OrganizationID)
 	if err != nil {
 		return err
 	}
 	desired := map[string]string{}
+	if !cutover {
+		intents, err := q.ListHashboardPoolIntents(ctx, sqlc.ListHashboardPoolIntentsParams{OrganizationID: row.OrganizationID, DeviceID: row.DeviceID})
+		if err != nil {
+			return err
+		}
+		for _, intent := range intents {
+			desired[intent.MacAddress] = intent.PoolRevisionID
+		}
+	}
+	intents, err := q.ListPoolGroupIntents(ctx, sqlc.ListPoolGroupIntentsParams{OrganizationID: row.OrganizationID, DeviceID: row.DeviceID})
+	if err != nil {
+		return err
+	}
 	for _, intent := range intents {
-		desired[intent.MacAddress] = intent.PoolRevisionID
+		desired[intent.MacAddress] = intent.GroupSnapshotID.String
 	}
 	return s.failOperation(ctx, q, row, desired, snapshot, message)
 }

@@ -16,7 +16,7 @@ import (
 )
 
 func TestWholeContainerImportUsesCompleteBoardOwnership(t *testing.T) {
-	for _, scenario := range []string{"unallocated", "one customer", "mixed ownership", "incomplete membership", "ownership changed after collection"} {
+	for _, scenario := range []string{"unallocated", "one customer", "mixed ownership", "incomplete membership", "ownership changed after collection", "mining groups mode"} {
 		t.Run(scenario, func(t *testing.T) {
 			database := testutil.NewDatabaseService(t, nil)
 			conn, ctx := database.DB, t.Context()
@@ -71,7 +71,10 @@ func TestWholeContainerImportUsesCompleteBoardOwnership(t *testing.T) {
 				require.NoError(t, err)
 			}
 			password := "saved-password"
-			snapshots, err := CollectDevices(ctx, sqlc.New(conn), cipher, org, snapshotReader(func(sqlc.ListPoolDeviceImportSourcesRow) ([]interfaces.MinerStoredPool, error) {
+			snapshots, err := CollectDevices(ctx, sqlc.New(conn), cipher, org, snapshotReader(func(source sqlc.ListPoolDeviceImportSourcesRow) ([]interfaces.MinerStoredPool, error) {
+				if scenario == "mining groups mode" && source.ID == container.DatabaseID {
+					return nil, errMiningGroups
+				}
 				return []interfaces.MinerStoredPool{{URL: "stratum+tcp://pool.example", Username: "worker", Password: &password}}, nil
 			}))
 			require.NoError(t, err)
@@ -99,7 +102,9 @@ func TestWholeContainerImportUsesCompleteBoardOwnership(t *testing.T) {
 				}
 				require.NoError(t, tx.Rollback())
 			}
-			checkAdoption(owner, valid)
+			if scenario != "mining groups mode" {
+				checkAdoption(owner, valid)
+			}
 			if valid {
 				wrongOwner := customer
 				if owner == customer {
@@ -115,10 +120,15 @@ func TestWholeContainerImportUsesCompleteBoardOwnership(t *testing.T) {
 			if valid {
 				wantAssignments = 2
 				require.Empty(t, report.Unresolved)
-			} else {
+			} else if scenario != "mining groups mode" {
 				require.Len(t, report.Unresolved, 1)
 			}
 			require.Len(t, report.AdoptedAssignments, wantAssignments)
+			if valid {
+				freezeCutoverFixture(t, conn, org)
+			} else {
+				requireFreezeRejected(t, conn, org, "unmanaged_device")
+			}
 			if valid {
 				var actualOwner int64
 				require.NoError(t, conn.QueryRowContext(ctx, `SELECT COALESCE(c.account_id,0) FROM pool_configuration_assignment a JOIN pool_configuration c ON c.configuration_id=a.configuration_id WHERE a.device_id=$1`, container.DatabaseID).Scan(&actualOwner))

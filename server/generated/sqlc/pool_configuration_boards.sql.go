@@ -329,18 +329,30 @@ func (q *Queries) ListPoolGroupAttemptTargets(ctx context.Context, arg ListPoolG
 }
 
 const listPoolGroupIntents = `-- name: ListPoolGroupIntents :many
+WITH candidates AS (
+ SELECT a.organization_id,a.target_id AS installation_id,a.device_id,t.group_snapshot_id,
+  t.operation_id,t.physical_attempt_id,0 AS priority
+ FROM pool_configuration_assignment a
+ JOIN pool_configuration_operation_target t ON t.organization_id=a.organization_id AND t.operation_id=a.operation_id
+  AND t.target_kind=a.target_kind AND t.target_id=a.target_id AND t.assignment_version=a.version
+ WHERE a.organization_id=$1 AND a.device_id=$2 AND a.target_kind='hashboard_installation' AND a.retired_at IS NULL
+  AND t.state='applying' AND t.group_snapshot_id IS NOT NULL
+ UNION ALL
+ SELECT p.organization_id,p.installation_id,p.device_id,p.group_snapshot_id,p.operation_id,NULL::uuid,1
+ FROM pool_configuration_board_intent p
+ JOIN pool_configuration_assignment a ON a.organization_id=p.organization_id AND a.target_kind='hashboard_installation' AND a.target_id=p.installation_id
+ JOIN pool_configuration_group_snapshot s ON s.organization_id=p.organization_id AND s.snapshot_id=p.group_snapshot_id
+ JOIN pool_configuration c ON c.organization_id=s.organization_id AND c.configuration_id=s.configuration_id
+ JOIN pool_configuration current_config ON current_config.organization_id=a.organization_id AND current_config.configuration_id=a.configuration_id
+ WHERE p.organization_id=$1 AND p.device_id=$2 AND a.retired_at IS NULL
+  AND c.account_id IS NOT DISTINCT FROM current_config.account_id
+), selected AS (
+ SELECT DISTINCT ON(installation_id) organization_id, installation_id, device_id, group_snapshot_id, operation_id, physical_attempt_id, priority FROM candidates ORDER BY installation_id,priority
+)
 SELECT i.hashboard_id,i.id AS installation_id,i.module_id,COALESCE(i.metadata->>'macAddress','')::text AS mac_address,
- a.device_id,t.group_snapshot_id,t.operation_id,t.physical_attempt_id,c.account_id,o.actor_id,
- COALESCE(account.account_id,'')::text AS external_account_id
-FROM pool_configuration_assignment a
-JOIN pool_configuration_operation_target t ON t.organization_id=a.organization_id AND t.operation_id=a.operation_id
- AND t.target_kind=a.target_kind AND t.target_id=a.target_id AND t.assignment_version=a.version
-JOIN pool_configuration_operation o ON o.organization_id=t.organization_id AND o.operation_id=t.operation_id
-JOIN pool_configuration c ON c.organization_id=a.organization_id AND c.configuration_id=a.configuration_id
-LEFT JOIN hosted_account account ON account.id=c.account_id AND account.organization_id=c.organization_id
-JOIN hashboard_installation i ON i.id=a.target_id
-WHERE a.organization_id=$1 AND a.device_id=$2 AND a.target_kind='hashboard_installation' AND a.retired_at IS NULL
- AND t.group_snapshot_id IS NOT NULL AND t.state IN ('applying','verified','applied_unverified','different') ORDER BY i.hashboard_id
+ p.device_id,p.group_snapshot_id,COALESCE(p.operation_id,'')::text AS operation_id,p.physical_attempt_id
+FROM selected p JOIN hashboard_installation i ON i.id=p.installation_id
+ORDER BY i.hashboard_id
 `
 
 type ListPoolGroupIntentsParams struct {
@@ -357,11 +369,10 @@ type ListPoolGroupIntentsRow struct {
 	GroupSnapshotID   sql.NullString
 	OperationID       string
 	PhysicalAttemptID uuid.NullUUID
-	AccountID         sql.NullInt64
-	ActorID           int64
-	ExternalAccountID string
 }
 
+// An admitted operation overlays retained effects only while it is applying.
+// A later rejected/pending/failed request cannot erase previously applied intent.
 func (q *Queries) ListPoolGroupIntents(ctx context.Context, arg ListPoolGroupIntentsParams) ([]ListPoolGroupIntentsRow, error) {
 	rows, err := q.query(ctx, q.listPoolGroupIntentsStmt, listPoolGroupIntents, arg.OrganizationID, arg.DeviceID)
 	if err != nil {
@@ -380,9 +391,6 @@ func (q *Queries) ListPoolGroupIntents(ctx context.Context, arg ListPoolGroupInt
 			&i.GroupSnapshotID,
 			&i.OperationID,
 			&i.PhysicalAttemptID,
-			&i.AccountID,
-			&i.ActorID,
-			&i.ExternalAccountID,
 		); err != nil {
 			return nil, err
 		}

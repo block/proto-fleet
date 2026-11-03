@@ -445,7 +445,7 @@ const Miners = ({
                       inline
                       title="Import from Foreman"
                       titleSize="text-heading-200"
-                      description="Import miners, pool settings, and groups from Foreman."
+                      description="Import miners, groups, racks, and names from Foreman."
                     />
                     <div>
                       <Button variant={variants.primary} size={sizes.base} onClick={() => setShowForemanModal(true)}>
@@ -530,7 +530,7 @@ const Miners = ({
       <Modal
         open={showForemanModal}
         title="Import from Foreman"
-        description="Connect your Foreman account to import miners"
+        description="Import miners and their details. Configure pools separately in Fleet; Foreman does not provide pool passwords."
         onDismiss={() => setShowForemanModal(false)}
         buttons={[
           {

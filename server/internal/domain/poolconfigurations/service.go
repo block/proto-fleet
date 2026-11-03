@@ -91,6 +91,15 @@ func withAuthority[T any](ctx context.Context, s *Service, accountID string, acc
 		if principal.ActorID <= 0 || principal.Scope.validate() != nil {
 			return zero, fleeterror.NewInternalError("invalid configuration authority")
 		}
+		if access == Manage {
+			frozen, err := q.PoolConfigurationWritersFrozen(ctx, principal.Scope.OrganizationID)
+			if err != nil {
+				return zero, err
+			}
+			if frozen {
+				return zero, fleeterror.NewFailedPreconditionError("Pool configuration maintenance is in progress.")
+			}
+		}
 		return fn(q, principal)
 	})
 }

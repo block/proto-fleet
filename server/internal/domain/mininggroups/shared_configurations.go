@@ -149,8 +149,14 @@ func (s *Service) ExecutePoolConfiguration(ctx context.Context, orgID int64, ope
 		for i, target := range targets {
 			installationIDs[i] = target.ID
 		}
-		if err := q.DeleteReplacedLegacyPoolIntents(ctx, sqlc.DeleteReplacedLegacyPoolIntentsParams{OrganizationID: orgID, InstallationIds: installationIDs}); err != nil {
+		cutover, err := q.HasPoolConfigurationCutover(ctx, orgID)
+		if err != nil {
 			return err
+		}
+		if !cutover {
+			if err := q.DeleteReplacedLegacyPoolIntents(ctx, sqlc.DeleteReplacedLegacyPoolIntentsParams{OrganizationID: orgID, InstallationIds: installationIDs}); err != nil {
+				return err
+			}
 		}
 		row, err := q.LockMiningGroupState(ctx, sqlc.LockMiningGroupStateParams{OrganizationID: orgID, DeviceID: deviceID})
 		if err != nil {
@@ -235,7 +241,13 @@ func poolActorContext(ctx context.Context, orgID, actorID int64, accountID strin
 func (s *Service) groupCredentials(ctx context.Context, q sqlc.Querier, orgID, deviceID int64, id string) ([]sdk.MiningGroupPoolInput, error) {
 	snapshot, err := q.GetPoolGroupSnapshot(ctx, sqlc.GetPoolGroupSnapshotParams{OrganizationID: orgID, DeviceID: deviceID, SnapshotID: id})
 	if errors.Is(err, sql.ErrNoRows) {
-		return s.pools.HostGroupCredentials(ctx, q, orgID, id)
+		cutover, gateErr := q.HasPoolConfigurationCutover(ctx, orgID)
+		if gateErr != nil {
+			return nil, gateErr
+		}
+		if !cutover {
+			return s.pools.HostGroupCredentials(ctx, q, orgID, id)
+		}
 	}
 	if err != nil {
 		return nil, err
@@ -310,19 +322,31 @@ func (s *Service) sharedIntents(ctx context.Context, q sqlc.Querier, row sqlc.Co
 	}
 	requiredBoards := []poolconfigurations.AssignmentTarget{}
 	desired := map[string]string{}
+	if len(intents) == 0 {
+		return desired, nil
+	}
+	installations := make([]int64, len(intents))
+	for i, intent := range intents {
+		installations[i] = intent.InstallationID
+	}
+	boards, err := q.ListPoolSelectionBoards(ctx, sqlc.ListPoolSelectionBoardsParams{OrgID: row.OrganizationID, InstallationIds: installations})
+	if err != nil {
+		return nil, err
+	}
+	byInstallation := make(map[int64]sqlc.ListPoolSelectionBoardsRow, len(boards))
+	for _, board := range boards {
+		byInstallation[board.InstallationID] = board
+	}
 	for _, intent := range intents {
-		boards, err := q.ListPoolSelectionBoards(ctx, sqlc.ListPoolSelectionBoardsParams{OrgID: row.OrganizationID, InstallationIds: []int64{intent.InstallationID}})
-		if err != nil {
-			return nil, err
-		}
-		if len(boards) != 1 || boards[0].DeviceID != row.DeviceID || boards[0].MacAddress != intent.MacAddress {
+		board, found := byInstallation[intent.InstallationID]
+		if !found || board.DeviceID != row.DeviceID || board.MacAddress != intent.MacAddress {
 			return nil, fmt.Errorf("board installation changed")
 		}
 		required := intent.PhysicalAttemptID == row.AttemptID
 		for _, mac := range affected {
 			required = required || mac == intent.MacAddress
 		}
-		if required && !boards[0].Ready {
+		if required && !board.Ready {
 			return nil, fmt.Errorf("board inventory is stale")
 		}
 		if required {

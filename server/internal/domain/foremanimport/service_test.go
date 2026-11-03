@@ -11,8 +11,9 @@ import (
 
 	collectionpb "github.com/block/proto-fleet/server/generated/grpc/collection/v1"
 	pb "github.com/block/proto-fleet/server/generated/grpc/foremanimport/v1"
-	poolspb "github.com/block/proto-fleet/server/generated/grpc/pools/v1"
 	"github.com/block/proto-fleet/server/internal/domain/collection"
+	models "github.com/block/proto-fleet/server/internal/domain/miner/models"
+	"github.com/block/proto-fleet/server/internal/domain/poolconfigurations"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces/mocks"
 	"github.com/block/proto-fleet/server/internal/infrastructure/foreman"
@@ -41,9 +42,9 @@ type fakePoolCreator struct {
 	created int
 }
 
-func (f *fakePoolCreator) CreatePool(_ context.Context, _ *poolspb.PoolConfig) (*poolspb.Pool, error) {
+func (f *fakePoolCreator) Create(_ context.Context, _ string, _ poolconfigurations.RevisionOptions) (poolconfigurations.Configuration, error) {
 	f.created++
-	return &poolspb.Pool{}, nil
+	return poolconfigurations.Configuration{}, nil
 }
 
 // fakeCollectionManager is a test double for CollectionManager.
@@ -52,13 +53,15 @@ type fakeCollectionManager struct {
 	nextID             int64
 	collectionsCreated int
 	devicesAdded       int32
+	createdRequests    []*collectionpb.CreateCollectionRequest
 }
 
-func (f *fakeCollectionManager) CreateCollection(_ context.Context, _ *collectionpb.CreateCollectionRequest) (*collectionpb.CreateCollectionResponse, error) {
+func (f *fakeCollectionManager) CreateCollection(_ context.Context, req *collectionpb.CreateCollectionRequest) (*collectionpb.CreateCollectionResponse, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.nextID++
 	f.collectionsCreated++
+	f.createdRequests = append(f.createdRequests, req)
 	return &collectionpb.CreateCollectionResponse{
 		Collection: &collectionpb.DeviceCollection{Id: f.nextID},
 		AddedCount: 0,
@@ -121,7 +124,7 @@ func TestImportFromForeman_ReturnsMinersForDiscovery(t *testing.T) {
 	assert.Equal(t, "M60S", resp.Miners[1].Model)
 }
 
-func TestCompleteImport_CreatesPoolsFromMiners(t *testing.T) {
+func TestCompleteImport_RejectsPoolsWithoutPasswordsFromMiners(t *testing.T) {
 	// Arrange
 	ctrl := gomock.NewController(t)
 	poolCreator := &fakePoolCreator{}
@@ -151,10 +154,6 @@ func TestCompleteImport_CreatesPoolsFromMiners(t *testing.T) {
 	svc := NewService(poolCreator, collectionMgr, deviceStore)
 	svc.newClient = func(_, _ string) ForemanClient { return mockClient }
 
-	deviceStore.EXPECT().
-		GetPairedDevicesByMACAddresses(gomock.Any(), gomock.Any(), int64(1)).
-		Return(nil, nil)
-
 	ctx := testutil.MockAuthContextForTesting(context.Background(), 1, 1)
 
 	// Act
@@ -166,9 +165,9 @@ func TestCompleteImport_CreatesPoolsFromMiners(t *testing.T) {
 	})
 
 	// Assert
-	require.NoError(t, err)
-	assert.Equal(t, int32(1), resp.PoolsCreated)
-	assert.Equal(t, 1, poolCreator.created)
+	require.ErrorContains(t, err, "password")
+	require.Nil(t, resp)
+	assert.Zero(t, poolCreator.created)
 }
 
 func TestCompleteImport_CreatesGroupsAndRacksWithDeviceAssignment(t *testing.T) {
@@ -224,6 +223,62 @@ func TestCompleteImport_CreatesGroupsAndRacksWithDeviceAssignment(t *testing.T) 
 	assert.Equal(t, int32(1), resp.GroupsCreated)
 	assert.Equal(t, int32(1), resp.RacksCreated)
 	assert.Equal(t, 2, collectionMgr.collectionsCreated) // 1 group + 1 rack
+}
+
+func TestCompleteImport_WithoutPoolsPreservesCollectionsAndNames(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	poolCreator := &fakePoolCreator{}
+	collectionMgr := &fakeCollectionManager{}
+	deviceStore := mocks.NewMockDeviceStore(ctrl)
+	groupID := 100
+	mockClient := &mockForemanClient{
+		miners: []foreman.Miner{{
+			ID: 1, Name: "North miner", IP: "10.0.0.1", MAC: "AA:BB:CC:DD:EE:01",
+			Type:     foreman.MinerType{Name: "Antminer S21"},
+			Location: &foreman.MinerLocation{RackID: 200, Row: 0, Index: 0},
+			Pools:    []foreman.Pool{{URL: "pool.example.com:3333", Worker: "account.worker1"}},
+		}},
+		groups: []foreman.SiteMapGroup{{ID: groupID, Name: "Building A"}},
+		racks:  []foreman.SiteMapRack{{ID: 200, Name: "Rack 1", GroupID: &groupID}},
+	}
+	svc := NewService(poolCreator, collectionMgr, deviceStore)
+	svc.newClient = func(_, _ string) ForemanClient { return mockClient }
+
+	// Resolve the allowlist and then the importer assignments for the paired miner.
+	deviceStore.EXPECT().
+		GetPairedDevicesByMACAddresses(gomock.Any(), []string{"AA:BB:CC:DD:EE:01"}, int64(1)).
+		Return(map[string]*interfaces.PairedDeviceInfo{
+			"AA:BB:CC:DD:EE:01": {DeviceIdentifier: "fleet-device-1", MacAddress: "AA:BB:CC:DD:EE:01"},
+		}, nil).Times(2)
+	deviceStore.EXPECT().
+		UpdateWorkerName(gomock.Any(), models.DeviceIdentifier("fleet-device-1"), "worker1").
+		Return(nil)
+	deviceStore.EXPECT().
+		UpdateDeviceCustomNames(gomock.Any(), int64(1), map[string]string{"fleet-device-1": "North miner"}).
+		Return(nil)
+
+	ctx := testutil.MockAuthContextForTesting(context.Background(), 1, 1)
+	resp, err := svc.CompleteImport(ctx, &pb.CompleteImportRequest{
+		Credentials:             &pb.ForemanCredentials{ApiKey: "key", ClientId: "1"},
+		ImportPools:             false,
+		ImportGroups:            true,
+		ImportRacks:             true,
+		PairedDeviceIdentifiers: []string{"fleet-device-1"},
+	})
+
+	require.NoError(t, err)
+	assert.Zero(t, resp.PoolsCreated)
+	assert.Zero(t, poolCreator.created)
+	assert.Equal(t, int32(1), resp.GroupsCreated)
+	assert.Equal(t, int32(1), resp.RacksCreated)
+	assert.Equal(t, int32(1), resp.WorkerNamesSet)
+	assert.Equal(t, int32(1), resp.MinerNamesSet)
+	require.Len(t, collectionMgr.createdRequests, 2)
+	assert.Equal(t, "Building A", collectionMgr.createdRequests[0].Label)
+	assert.Equal(t, "Rack 1", collectionMgr.createdRequests[1].Label)
+	for _, req := range collectionMgr.createdRequests {
+		assert.Equal(t, []string{"fleet-device-1"}, req.DeviceSelector.GetDeviceList().DeviceIdentifiers)
+	}
 }
 
 func TestNormalizeForemanData_DeduplicatesPoolsAndSkipsDevfee(t *testing.T) {

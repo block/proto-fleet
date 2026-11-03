@@ -30,6 +30,13 @@ func (s *Service) ConfirmReview(ctx context.Context, accountID, reviewID, passwo
 		}
 	}
 	return withAuthority(ctx, s, accountID, admission.access, func(q sqlc.Querier, p Principal) (ReviewedSave, error) {
+		frozen, err := q.PoolConfigurationWritersFrozen(ctx, p.Scope.OrganizationID)
+		if err != nil {
+			return ReviewedSave{}, err
+		}
+		if frozen {
+			return ReviewedSave{}, fleeterror.NewFailedPreconditionError("Pool configuration maintenance is in progress.")
+		}
 		if proof != nil {
 			if err := proof(ctx, q); err != nil {
 				return ReviewedSave{}, err

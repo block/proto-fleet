@@ -15,6 +15,9 @@ import (
 // board intent and complete private device snapshots can be adopted. Matching
 // reported URL/username values alone cannot establish a configuration.
 func Import(ctx context.Context, q sqlc.Querier, secrets *encrypt.Service, orgID int64, snapshots ...DeviceSnapshot) (poolconfigurations.ImportReport, error) {
+	if err := q.BoundPoolConfigurationImportLocks(ctx); err != nil {
+		return poolconfigurations.ImportReport{}, err
+	}
 	if _, err := q.LockPoolConfigurationImportOrganization(ctx, orgID); err != nil {
 		return poolconfigurations.ImportReport{}, err
 	}
@@ -38,6 +41,10 @@ func Import(ctx context.Context, q sqlc.Querier, secrets *encrypt.Service, orgID
 	for _, imported := range report.Imported {
 		bySource[imported.Source] = imported
 	}
+	controllers, err := importControllers(ctx, q, orgID, blocked, &report)
+	if err != nil {
+		return report, err
+	}
 	rows, err := q.ListLegacyHashboardPoolAdoptions(ctx, orgID)
 	if err != nil {
 		return poolconfigurations.ImportReport{}, err
@@ -58,10 +65,12 @@ func Import(ctx context.Context, q sqlc.Querier, secrets *encrypt.Service, orgID
 		}
 		report.AdoptedAssignments = append(report.AdoptedAssignments, poolconfigurations.ImportedAssignment{Target: target, ConfigurationID: imported.ConfigurationID, RevisionID: imported.RevisionID})
 	}
+	candidates := []int64{}
+	eligible := map[int64]sqlc.ListLegacyHashboardPoolAdoptionsRow{}
 	for _, row := range rows {
 		source := poolconfigurations.ImportSource{Kind: "hashboard_intent", ID: strconv.FormatInt(row.HashboardID, 10), Version: row.OperationID.String()}
 		reason := ""
-		imported, found := bySource[poolconfigurations.ImportSource{Kind: "hosted_revision", ID: row.PoolRevisionID, Version: strconv.FormatInt(row.SourceVersion, 10)}]
+		_, found := bySource[poolconfigurations.ImportSource{Kind: "hosted_revision", ID: row.PoolRevisionID, Version: strconv.FormatInt(row.SourceVersion, 10)}]
 		switch {
 		case blocked[row.DeviceID]:
 			reason = unsettledPoolReason
@@ -76,16 +85,29 @@ func Import(ctx context.Context, q sqlc.Querier, secrets *encrypt.Service, orgID
 			report.Unresolved = append(report.Unresolved, poolconfigurations.ImportIssue{Source: source, Reason: reason})
 			continue
 		}
-		target := poolconfigurations.AssignmentTarget{Kind: poolconfigurations.TargetInstallation, ID: row.InstallationID, DeviceID: row.DeviceID}
-		err := repository.Adopt(ctx, q, poolconfigurations.Scope{OrganizationID: orgID, AccountID: row.ConfigurationOwner}, target, imported.ConfigurationID, imported.RevisionID)
-		if err != nil {
-			if fleeterror.IsFailedPreconditionError(err) {
-				report.Unresolved = append(report.Unresolved, poolconfigurations.ImportIssue{Source: source, Reason: "Equipment or configuration intent changed; import did not replace it."})
-				continue
+		candidates = append(candidates, row.InstallationID)
+		eligible[row.InstallationID] = row
+	}
+	adopted, err := q.AdoptLegacyPoolBoardAssignments(ctx, sqlc.AdoptLegacyPoolBoardAssignmentsParams{OrganizationID: orgID, InstallationIds: candidates})
+	if err != nil {
+		return report, err
+	}
+	for _, assignment := range adopted {
+		row := eligible[assignment.TargetID]
+		imported := bySource[poolconfigurations.ImportSource{Kind: "hosted_revision", ID: row.PoolRevisionID, Version: strconv.FormatInt(row.SourceVersion, 10)}]
+		if err := adoptBoardExecution(ctx, q, orgID, row, imported, controllers[row.DeviceID]); err != nil {
+			if !fleeterror.IsFailedPreconditionError(err) {
+				return report, err
 			}
-			return poolconfigurations.ImportReport{}, err
+			report.Unresolved = append(report.Unresolved, poolconfigurations.ImportIssue{Source: poolconfigurations.ImportSource{Kind: "hashboard_intent", ID: strconv.FormatInt(row.HashboardID, 10), Version: row.OperationID.String()}, Reason: "Controller membership is ambiguous; resolve retained group identity before completing adoption."})
+			delete(eligible, assignment.TargetID)
+			continue
 		}
-		report.AdoptedAssignments = append(report.AdoptedAssignments, poolconfigurations.ImportedAssignment{Target: target, ConfigurationID: imported.ConfigurationID, RevisionID: imported.RevisionID})
+		report.AdoptedAssignments = append(report.AdoptedAssignments, poolconfigurations.ImportedAssignment{Target: poolconfigurations.AssignmentTarget{Kind: poolconfigurations.TargetInstallation, ID: row.InstallationID, DeviceID: row.DeviceID}, ConfigurationID: assignment.ConfigurationID, RevisionID: assignment.RevisionID})
+		delete(eligible, assignment.TargetID)
+	}
+	for _, row := range eligible {
+		report.Unresolved = append(report.Unresolved, poolconfigurations.ImportIssue{Source: poolconfigurations.ImportSource{Kind: "hashboard_intent", ID: strconv.FormatInt(row.HashboardID, 10), Version: row.OperationID.String()}, Reason: "Equipment or configuration intent changed; import did not replace it."})
 	}
 	return report, nil
 }

@@ -187,6 +187,9 @@ func (s *Service) CompleteImport(ctx context.Context, req *pb.CompleteImportRequ
 		data.PruneUnreferencedRacks()
 	}
 
+	if req.ImportPools && len(data.Pools) > 0 {
+		return nil, fleeterror.NewFailedPreconditionError("Foreman does not provide pool passwords. Import without pools, then create complete pool configurations in Fleet.")
+	}
 	if !req.ImportPools {
 		data.Pools = nil
 	}

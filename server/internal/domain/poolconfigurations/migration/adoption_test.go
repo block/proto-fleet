@@ -90,6 +90,7 @@ func TestImportAdoptsOnlyCurrentSameOwnerBoardIntentWithoutDispatch(t *testing.T
 	require.Equal(t, 1, first.CreatedConfigurations, "identical legacy stacks merge within their owner")
 	require.Len(t, first.AdoptedAssignments, 2)
 	require.Len(t, first.Unresolved, 2, "reallocated and removed boards need explicit review")
+	requireFreezeRejected(t, f.conn, f.org, "legacy_board_intent")
 	require.Equal(t, first.AdoptedAssignments[0].ConfigurationID, first.AdoptedAssignments[1].ConfigurationID)
 	second := run()
 	require.Zero(t, second.CreatedConfigurations)

@@ -140,7 +140,7 @@ func (s *Service) Reconcile(ctx context.Context, orgID, deviceID int64, identifi
 				return s.interrupt(ctx, q, row, "Operator access changed. Applied assignments were kept; an authorized operator can submit a new request.")
 			}
 			if row.OperationKind != operationActivate {
-				detached, err := q.HasDetachedHashboardPoolIntents(ctx, sqlc.HasDetachedHashboardPoolIntentsParams{OrganizationID: orgID, DeviceID: deviceID})
+				detached, err := hasDetachedIntents(ctx, q, orgID, deviceID)
 				if err != nil {
 					return err
 				}
@@ -174,6 +174,9 @@ func (s *Service) Reconcile(ctx context.Context, orgID, deviceID int64, identifi
 			snapshot, err := s.plannerSnapshot(ctx, q, row, observed)
 			if err != nil {
 				return s.block(ctx, q, row, "Pool configuration unavailable; configuration is paused")
+			}
+			if err := retainObservedIntents(ctx, q, row, snapshot); err != nil {
+				return err
 			}
 			if shared && !observed.Pending && (!observed.Enabled || observed.Suspended) {
 				// No saved request or transfer receipt is outstanding on this path.
@@ -236,6 +239,17 @@ func (s *Service) liveIntent(ctx context.Context, q sqlc.Querier, row sqlc.Conta
 	desired := map[string]string{}
 	if row.OperationKind == operationActivate {
 		return desired, nil
+	}
+	cutover, err := q.HasPoolConfigurationCutover(ctx, row.OrganizationID)
+	if err != nil {
+		return nil, err
+	}
+	if cutover {
+		desired, err := s.sharedIntents(ctx, q, row, affected)
+		if err != nil {
+			return nil, err
+		}
+		return desired, s.authorizeAffectedWorkflowBoards(ctx, q, row, affected)
 	}
 	intents, err := q.ListUnreplacedHashboardPoolIntents(ctx, sqlc.ListUnreplacedHashboardPoolIntentsParams{OrganizationID: row.OrganizationID, DeviceID: row.DeviceID})
 	if err != nil {
@@ -388,6 +402,11 @@ func (s *Service) apply(ctx context.Context, q sqlc.Querier, row sqlc.ContainerM
 			return s.block(ctx, q, row, "Waiting for a valid pool configuration receipt")
 		}
 		bindings[request.GroupID] = binding{ConfigID: step.ConfigID, Configured: true}
+		if poolsMatch(response.Group.Pools, request.Pools) {
+			if err := q.RetainAppliedPoolGroupIntents(ctx, sqlc.RetainAppliedPoolGroupIntentsParams{OrganizationID: row.OrganizationID, PhysicalAttemptID: row.AttemptID, GroupSnapshotID: sql.NullString{String: step.ConfigID, Valid: true}, MacAddresses: response.Group.MACs}); err != nil {
+				return err
+			}
+		}
 	case "start":
 		if response.Group == nil || response.Group.ID != request.GroupID || !response.Group.Mining {
 			return s.block(ctx, q, row, "Waiting for a valid mining intent receipt")
@@ -442,8 +461,17 @@ func (s *Service) failOperation(ctx context.Context, q sqlc.Querier, row sqlc.Co
 			}
 		}
 	}
-	if err := q.DeleteUnappliedHashboardPoolIntents(ctx, sqlc.DeleteUnappliedHashboardPoolIntentsParams{OrganizationID: row.OrganizationID, DeviceID: row.DeviceID, AppliedMacs: applied}); err != nil {
+	if err := retainObservedIntents(ctx, q, row, snapshot); err != nil {
 		return err
+	}
+	cutover, err := q.HasPoolConfigurationCutover(ctx, row.OrganizationID)
+	if err != nil {
+		return err
+	}
+	if !cutover {
+		if err := q.DeleteUnappliedHashboardPoolIntents(ctx, sqlc.DeleteUnappliedHashboardPoolIntentsParams{OrganizationID: row.OrganizationID, DeviceID: row.DeviceID, AppliedMacs: applied}); err != nil {
+			return err
+		}
 	}
 	if err := q.FinishPoolGroupAttempt(ctx, sqlc.FinishPoolGroupAttemptParams{OrganizationID: row.OrganizationID, PhysicalAttemptID: row.AttemptID, State: "failed", ResultCode: "interrupted"}); err != nil {
 		return err

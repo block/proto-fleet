@@ -15,8 +15,13 @@ func TestWriteCommandMigrationPreservesUnclassifiedDirectAttempts(t *testing.T) 
 	require.NoError(t, err)
 	_, err = writes.BeginHost(t.Context(), orgID, deviceID, 0)
 	require.NoError(t, err)
-	for _, direction := range []string{"down", "up"} {
-		script, err := migrations.Current.ReadFile("current/001054_internal_pool_equipment_integration." + direction + ".sql")
+	for _, filename := range []string{
+		"001056_internal_pool_configuration_cutover.down.sql",
+		"001054_internal_pool_equipment_integration.down.sql",
+		"001054_internal_pool_equipment_integration.up.sql",
+		"001056_internal_pool_configuration_cutover.up.sql",
+	} {
+		script, err := migrations.Current.ReadFile("current/" + filename)
 		require.NoError(t, err)
 		_, err = database.DB.ExecContext(t.Context(), string(script))
 		require.NoError(t, err)

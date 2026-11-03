@@ -5,10 +5,9 @@ package main
 import (
 	"context"
 
-	poolsv1 "github.com/block/proto-fleet/server/generated/grpc/pools/v1"
+	poolconfigurationsv1 "github.com/block/proto-fleet/server/generated/grpc/poolconfigurations/v1"
 	"github.com/urfave/cli/v3"
 	proto "google.golang.org/protobuf/proto"
-	wrapperspb "google.golang.org/protobuf/types/known/wrapperspb"
 )
 
 func generatedPoolsCommand() *cli.Command {
@@ -17,186 +16,447 @@ func generatedPoolsCommand() *cli.Command {
 		Usage: "Manage pools commands",
 		Commands: []*cli.Command{
 			generatedRequestCommand(
-				"create",
-				"Create pool",
-				"/pools.v1.PoolsService/CreatePool",
+				"archive",
+				"Archive configuration",
+				"/poolconfigurations.v1.PoolConfigurationService/ArchiveConfiguration",
+				generatedAuthAuthenticated,
+				[]cli.Flag{
+					&cli.StringFlag{Name: "account-id", Usage: "account id"},
+					&cli.StringFlag{Name: "configuration-id", Usage: "(required) configuration id", Required: true},
+					&cli.Int64Flag{Name: "expected-version", Usage: "(required) expected version", Required: true},
+				},
+				func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
+					req := &poolconfigurationsv1.ArchiveConfigurationRequest{}
+					if cmd.IsSet("account-id") {
+						req.AccountId = cmd.String("account-id")
+					}
+					if cmd.IsSet("configuration-id") {
+						req.ConfigurationId = cmd.String("configuration-id")
+					}
+					if cmd.IsSet("expected-version") {
+						req.ExpectedVersion = cmd.Int64("expected-version")
+					}
+					if err := generatedValidateRequest(req); err != nil {
+						return nil, err
+					}
+					return req, nil
+				},
+				func() proto.Message { return &poolconfigurationsv1.ArchiveConfigurationResponse{} },
+			),
+			generatedRequestCommand(
+				"assignments",
+				"Get assignments",
+				"/poolconfigurations.v1.PoolConfigurationService/GetAssignments",
 				generatedAuthAuthenticated,
 				[]cli.Flag{
 					&cli.StringFlag{Name: "json", Usage: "Path to a request JSON file, or - for stdin"},
-					&cli.StringFlag{Name: "pool-name", Usage: "(required unless provided by --json) pool name"},
-					&cli.StringFlag{Name: "url", Usage: "(required unless provided by --json) url"},
-					&cli.StringFlag{Name: "username", Usage: "(required unless provided by --json) username"},
-					&cli.BoolFlag{Name: "pool-password-stdin", Usage: "Read pool authentication password from stdin"},
+					&cli.StringFlag{Name: "account-id", Usage: "account id"},
+					&cli.StringSliceFlag{Name: "device-identifiers", Usage: "device identifiers"},
+					&cli.StringSliceFlag{Name: "device-ids", Usage: "device ids"},
 				},
 				func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
-					req := &poolsv1.CreatePoolRequest{}
+					req := &poolconfigurationsv1.GetAssignmentsRequest{}
 					if jsonPath := cmd.String("json"); jsonPath != "" {
 						if err := readProtoJSON(jsonPath, req); err != nil {
 							return nil, err
 						}
 					}
-					if cmd.IsSet("pool-name") {
-						if req.PoolConfig == nil {
-							req.PoolConfig = &poolsv1.PoolConfig{}
-						}
-						req.PoolConfig.PoolName = cmd.String("pool-name")
+					if cmd.IsSet("account-id") {
+						req.AccountId = cmd.String("account-id")
 					}
-					if cmd.IsSet("url") {
-						if req.PoolConfig == nil {
-							req.PoolConfig = &poolsv1.PoolConfig{}
-						}
-						req.PoolConfig.Url = cmd.String("url")
+					if cmd.IsSet("device-identifiers") {
+						req.DeviceIdentifiers = cmd.StringSlice("device-identifiers")
 					}
-					if cmd.IsSet("username") {
-						if req.PoolConfig == nil {
-							req.PoolConfig = &poolsv1.PoolConfig{}
-						}
-						req.PoolConfig.Username = cmd.String("username")
-					}
-					if err := generatedValidateRequiredFields(req, "pool_config.pool_name", "pool_config.url", "pool_config.username"); err != nil {
-						return nil, err
-					}
-					if cmd.IsSet("pool-password-stdin") {
-						secretPoolConfigPassword, err := generatedReadSecret(cmd, "pool-password-stdin", "pool password")
+					if cmd.IsSet("device-ids") {
+						values, err := parseInt64Slice(cmd.StringSlice("device-ids"))
 						if err != nil {
 							return nil, err
 						}
-						if req.PoolConfig == nil {
-							req.PoolConfig = &poolsv1.PoolConfig{}
-						}
-						req.PoolConfig.Password = wrapperspb.String(secretPoolConfigPassword)
+						req.DeviceIds = values
 					}
 					if err := generatedValidateRequest(req); err != nil {
 						return nil, err
 					}
 					return req, nil
 				},
-				func() proto.Message { return &poolsv1.CreatePoolResponse{} },
+				func() proto.Message { return &poolconfigurationsv1.GetAssignmentsResponse{} },
 			),
 			generatedRequestCommand(
-				"delete",
-				"Delete pool",
-				"/pools.v1.PoolsService/DeletePool",
+				"check",
+				"Check configuration",
+				"/poolconfigurations.v1.PoolConfigurationService/CheckConfiguration",
 				generatedAuthAuthenticated,
 				[]cli.Flag{
-					&cli.Int64Flag{Name: "pool-id", Usage: "(required) pool id", Required: true},
+					&cli.StringFlag{Name: "json", Usage: "Path to a request JSON file, or - for stdin"},
+					&cli.StringFlag{Name: "account-id", Usage: "account id"},
+					&cli.StringFlag{Name: "configuration-id", Usage: "configuration id"},
 				},
 				func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
-					req := &poolsv1.DeletePoolRequest{}
-					if cmd.IsSet("pool-id") {
-						req.PoolId = cmd.Int64("pool-id")
+					req := &poolconfigurationsv1.CheckConfigurationRequest{}
+					if jsonPath := cmd.String("json"); jsonPath != "" {
+						if err := readProtoJSON(jsonPath, req); err != nil {
+							return nil, err
+						}
+					}
+					if cmd.IsSet("account-id") {
+						req.AccountId = cmd.String("account-id")
+					}
+					if cmd.IsSet("configuration-id") {
+						req.ConfigurationId = cmd.String("configuration-id")
 					}
 					if err := generatedValidateRequest(req); err != nil {
 						return nil, err
 					}
 					return req, nil
 				},
-				func() proto.Message { return &poolsv1.DeletePoolResponse{} },
+				func() proto.Message { return &poolconfigurationsv1.CheckConfigurationResponse{} },
+			),
+			generatedRequestCommand(
+				"confirm",
+				"Confirm review",
+				"/poolconfigurations.v1.PoolConfigurationService/ConfirmReview",
+				generatedAuthAuthenticated,
+				[]cli.Flag{
+					&cli.StringFlag{Name: "account-id", Usage: "account id"},
+					&cli.StringFlag{Name: "review-id", Usage: "(required) review id", Required: true},
+					&cli.BoolFlag{Name: "password-stdin", Usage: "Read confirmation password from stdin"},
+				},
+				func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
+					req := &poolconfigurationsv1.ConfirmReviewRequest{}
+					if cmd.IsSet("account-id") {
+						req.AccountId = cmd.String("account-id")
+					}
+					if cmd.IsSet("review-id") {
+						req.ReviewId = cmd.String("review-id")
+					}
+					if cmd.IsSet("password-stdin") {
+						secretPassword, err := generatedReadSecret(cmd, "password-stdin", "password")
+						if err != nil {
+							return nil, err
+						}
+						req.Password = secretPassword
+					}
+					if err := generatedValidateRequest(req); err != nil {
+						return nil, err
+					}
+					return req, nil
+				},
+				func() proto.Message { return &poolconfigurationsv1.ConfirmReviewResponse{} },
+			),
+			generatedRequestCommand(
+				"create",
+				"Create configuration",
+				"/poolconfigurations.v1.PoolConfigurationService/CreateConfiguration",
+				generatedAuthAuthenticated,
+				[]cli.Flag{
+					&cli.StringFlag{Name: "json", Usage: "Path to a request JSON file, or - for stdin"},
+					&cli.StringFlag{Name: "account-id", Usage: "account id"},
+				},
+				func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
+					req := &poolconfigurationsv1.CreateConfigurationRequest{}
+					if jsonPath := cmd.String("json"); jsonPath != "" {
+						if err := readProtoJSON(jsonPath, req); err != nil {
+							return nil, err
+						}
+					}
+					if cmd.IsSet("account-id") {
+						req.AccountId = cmd.String("account-id")
+					}
+					if err := generatedValidateRequest(req); err != nil {
+						return nil, err
+					}
+					return req, nil
+				},
+				func() proto.Message { return &poolconfigurationsv1.CreateConfigurationResponse{} },
+			),
+			generatedRequestCommand(
+				"duplicate",
+				"Duplicate configuration",
+				"/poolconfigurations.v1.PoolConfigurationService/DuplicateConfiguration",
+				generatedAuthAuthenticated,
+				[]cli.Flag{
+					&cli.StringFlag{Name: "account-id", Usage: "account id"},
+					&cli.StringFlag{Name: "configuration-id", Usage: "(required) configuration id", Required: true},
+					&cli.StringFlag{Name: "name", Usage: "(required) name", Required: true},
+				},
+				func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
+					req := &poolconfigurationsv1.DuplicateConfigurationRequest{}
+					if cmd.IsSet("account-id") {
+						req.AccountId = cmd.String("account-id")
+					}
+					if cmd.IsSet("configuration-id") {
+						req.ConfigurationId = cmd.String("configuration-id")
+					}
+					if cmd.IsSet("name") {
+						req.Name = cmd.String("name")
+					}
+					if err := generatedValidateRequest(req); err != nil {
+						return nil, err
+					}
+					return req, nil
+				},
+				func() proto.Message { return &poolconfigurationsv1.DuplicateConfigurationResponse{} },
+			),
+			generatedRequestCommand(
+				"get",
+				"Get configuration",
+				"/poolconfigurations.v1.PoolConfigurationService/GetConfiguration",
+				generatedAuthAuthenticated,
+				[]cli.Flag{
+					&cli.StringFlag{Name: "account-id", Usage: "account id"},
+					&cli.StringFlag{Name: "configuration-id", Usage: "(required) configuration id", Required: true},
+				},
+				func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
+					req := &poolconfigurationsv1.GetConfigurationRequest{}
+					if cmd.IsSet("account-id") {
+						req.AccountId = cmd.String("account-id")
+					}
+					if cmd.IsSet("configuration-id") {
+						req.ConfigurationId = cmd.String("configuration-id")
+					}
+					if err := generatedValidateRequest(req); err != nil {
+						return nil, err
+					}
+					return req, nil
+				},
+				func() proto.Message { return &poolconfigurationsv1.GetConfigurationResponse{} },
 			),
 			generatedRequestCommand(
 				"list",
-				"List pools",
-				"/pools.v1.PoolsService/ListPools",
+				"List configurations",
+				"/poolconfigurations.v1.PoolConfigurationService/ListConfigurations",
 				generatedAuthAuthenticated,
-				[]cli.Flag{},
+				[]cli.Flag{
+					&cli.StringFlag{Name: "account-id", Usage: "account id"},
+					&cli.StringFlag{Name: "page-token", Usage: "page token"},
+					&cli.IntFlag{Name: "page-size", Usage: "page size"},
+					&cli.BoolFlag{Name: "include-archived", Usage: "include archived"},
+				},
 				func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
-					req := &poolsv1.ListPoolsRequest{}
+					req := &poolconfigurationsv1.ListConfigurationsRequest{}
+					if cmd.IsSet("account-id") {
+						req.AccountId = cmd.String("account-id")
+					}
+					if cmd.IsSet("page-token") {
+						req.PageToken = cmd.String("page-token")
+					}
+					if cmd.IsSet("page-size") {
+						req.PageSize = int32(cmd.Int("page-size"))
+					}
+					if cmd.IsSet("include-archived") {
+						req.IncludeArchived = cmd.Bool("include-archived")
+					}
 					if err := generatedValidateRequest(req); err != nil {
 						return nil, err
 					}
 					return req, nil
 				},
-				func() proto.Message { return &poolsv1.ListPoolsResponse{} },
+				func() proto.Message { return &poolconfigurationsv1.ListConfigurationsResponse{} },
 			),
 			generatedRequestCommand(
-				"update",
-				"Update pool",
-				"/pools.v1.PoolsService/UpdatePool",
+				"operation",
+				"Get operation",
+				"/poolconfigurations.v1.PoolConfigurationService/GetOperation",
+				generatedAuthAuthenticated,
+				[]cli.Flag{
+					&cli.StringFlag{Name: "account-id", Usage: "account id"},
+					&cli.StringFlag{Name: "operation-id", Usage: "(required) operation id", Required: true},
+				},
+				func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
+					req := &poolconfigurationsv1.GetOperationRequest{}
+					if cmd.IsSet("account-id") {
+						req.AccountId = cmd.String("account-id")
+					}
+					if cmd.IsSet("operation-id") {
+						req.OperationId = cmd.String("operation-id")
+					}
+					if err := generatedValidateRequest(req); err != nil {
+						return nil, err
+					}
+					return req, nil
+				},
+				func() proto.Message { return &poolconfigurationsv1.GetOperationResponse{} },
+			),
+			generatedRequestCommand(
+				"operations",
+				"List operations",
+				"/poolconfigurations.v1.PoolConfigurationService/ListOperations",
+				generatedAuthAuthenticated,
+				[]cli.Flag{
+					&cli.StringFlag{Name: "account-id", Usage: "account id"},
+					&cli.StringFlag{Name: "configuration-id", Usage: "(required) configuration id", Required: true},
+					&cli.StringFlag{Name: "page-token", Usage: "page token"},
+				},
+				func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
+					req := &poolconfigurationsv1.ListOperationsRequest{}
+					if cmd.IsSet("account-id") {
+						req.AccountId = cmd.String("account-id")
+					}
+					if cmd.IsSet("configuration-id") {
+						req.ConfigurationId = cmd.String("configuration-id")
+					}
+					if cmd.IsSet("page-token") {
+						req.PageToken = cmd.String("page-token")
+					}
+					if err := generatedValidateRequest(req); err != nil {
+						return nil, err
+					}
+					return req, nil
+				},
+				func() proto.Message { return &poolconfigurationsv1.ListOperationsResponse{} },
+			),
+			generatedRequestCommand(
+				"review-assignment",
+				"Review assignment",
+				"/poolconfigurations.v1.PoolConfigurationService/ReviewAssignment",
 				generatedAuthAuthenticated,
 				[]cli.Flag{
 					&cli.StringFlag{Name: "json", Usage: "Path to a request JSON file, or - for stdin"},
-					&cli.Int64Flag{Name: "pool-id", Usage: "pool id"},
-					&cli.StringFlag{Name: "pool-name", Usage: "pool name"},
-					&cli.StringFlag{Name: "url", Usage: "url"},
-					&cli.StringFlag{Name: "username", Usage: "username"},
-					&cli.BoolFlag{Name: "pool-password-stdin", Usage: "Read pool authentication password from stdin"},
+					&cli.StringFlag{Name: "account-id", Usage: "account id"},
+					&cli.StringFlag{Name: "configuration-id", Usage: "(required unless provided by --json) configuration id"},
+					&cli.Int64Flag{Name: "expected-version", Usage: "(required unless provided by --json) expected version"},
+					&cli.StringSliceFlag{Name: "device-identifiers", Usage: "device identifiers"},
+					&cli.StringSliceFlag{Name: "device-ids", Usage: "device ids"},
 				},
 				func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
-					req := &poolsv1.UpdatePoolRequest{}
+					req := &poolconfigurationsv1.ReviewAssignmentRequest{}
 					if jsonPath := cmd.String("json"); jsonPath != "" {
 						if err := readProtoJSON(jsonPath, req); err != nil {
 							return nil, err
 						}
 					}
-					if cmd.IsSet("pool-id") {
-						req.PoolId = cmd.Int64("pool-id")
+					if cmd.IsSet("account-id") {
+						req.AccountId = cmd.String("account-id")
 					}
-					if cmd.IsSet("pool-name") {
-						value := cmd.String("pool-name")
-						req.PoolName = &value
+					if cmd.IsSet("configuration-id") {
+						req.ConfigurationId = cmd.String("configuration-id")
 					}
-					if cmd.IsSet("url") {
-						value := cmd.String("url")
-						req.Url = &value
+					if cmd.IsSet("expected-version") {
+						req.ExpectedVersion = cmd.Int64("expected-version")
 					}
-					if cmd.IsSet("username") {
-						value := cmd.String("username")
-						req.Username = &value
+					if cmd.IsSet("device-identifiers") {
+						req.DeviceIdentifiers = cmd.StringSlice("device-identifiers")
 					}
-					if cmd.IsSet("pool-password-stdin") {
-						secretPassword, err := generatedReadSecret(cmd, "pool-password-stdin", "pool password")
+					if cmd.IsSet("device-ids") {
+						values, err := parseInt64Slice(cmd.StringSlice("device-ids"))
 						if err != nil {
 							return nil, err
 						}
-						req.Password = wrapperspb.String(secretPassword)
+						req.DeviceIds = values
+					}
+					if err := generatedValidateRequiredFields(req, "configuration_id", "expected_version"); err != nil {
+						return nil, err
 					}
 					if err := generatedValidateRequest(req); err != nil {
 						return nil, err
 					}
 					return req, nil
 				},
-				func() proto.Message { return &poolsv1.UpdatePoolResponse{} },
+				func() proto.Message { return &poolconfigurationsv1.ReviewAssignmentResponse{} },
 			),
 			generatedRequestCommand(
-				"validate",
-				"Validate pool",
-				"/pools.v1.PoolsService/ValidatePool",
+				"review-edit",
+				"Review edit",
+				"/poolconfigurations.v1.PoolConfigurationService/ReviewEdit",
 				generatedAuthAuthenticated,
 				[]cli.Flag{
 					&cli.StringFlag{Name: "json", Usage: "Path to a request JSON file, or - for stdin"},
-					&cli.StringFlag{Name: "url", Usage: "(required unless provided by --json) url"},
-					&cli.StringFlag{Name: "username", Usage: "(required unless provided by --json) username"},
-					&cli.BoolFlag{Name: "pool-password-stdin", Usage: "Read pool authentication password from stdin"},
+					&cli.StringFlag{Name: "account-id", Usage: "account id"},
+					&cli.StringFlag{Name: "configuration-id", Usage: "(required unless provided by --json) configuration id"},
+					&cli.Int64Flag{Name: "expected-version", Usage: "(required unless provided by --json) expected version"},
 				},
 				func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
-					req := &poolsv1.ValidatePoolRequest{}
+					req := &poolconfigurationsv1.ReviewEditRequest{}
 					if jsonPath := cmd.String("json"); jsonPath != "" {
 						if err := readProtoJSON(jsonPath, req); err != nil {
 							return nil, err
 						}
 					}
-					if cmd.IsSet("url") {
-						req.Url = cmd.String("url")
+					if cmd.IsSet("account-id") {
+						req.AccountId = cmd.String("account-id")
 					}
-					if cmd.IsSet("username") {
-						req.Username = cmd.String("username")
+					if cmd.IsSet("configuration-id") {
+						req.ConfigurationId = cmd.String("configuration-id")
 					}
-					if err := generatedValidateRequiredFields(req, "url", "username"); err != nil {
+					if cmd.IsSet("expected-version") {
+						req.ExpectedVersion = cmd.Int64("expected-version")
+					}
+					if err := generatedValidateRequiredFields(req, "configuration_id", "expected_version"); err != nil {
 						return nil, err
-					}
-					if cmd.IsSet("pool-password-stdin") {
-						secretPassword, err := generatedReadSecret(cmd, "pool-password-stdin", "pool password")
-						if err != nil {
-							return nil, err
-						}
-						req.Password = wrapperspb.String(secretPassword)
 					}
 					if err := generatedValidateRequest(req); err != nil {
 						return nil, err
 					}
 					return req, nil
 				},
-				func() proto.Message { return &poolsv1.ValidatePoolResponse{} },
+				func() proto.Message { return &poolconfigurationsv1.ReviewEditResponse{} },
+			),
+			generatedRequestCommand(
+				"review-retry",
+				"Review retry",
+				"/poolconfigurations.v1.PoolConfigurationService/ReviewRetry",
+				generatedAuthAuthenticated,
+				[]cli.Flag{
+					&cli.StringFlag{Name: "json", Usage: "Path to a request JSON file, or - for stdin"},
+					&cli.StringFlag{Name: "account-id", Usage: "account id"},
+					&cli.StringFlag{Name: "operation-id", Usage: "(required unless provided by --json) operation id"},
+				},
+				func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
+					req := &poolconfigurationsv1.ReviewRetryRequest{}
+					if jsonPath := cmd.String("json"); jsonPath != "" {
+						if err := readProtoJSON(jsonPath, req); err != nil {
+							return nil, err
+						}
+					}
+					if cmd.IsSet("account-id") {
+						req.AccountId = cmd.String("account-id")
+					}
+					if cmd.IsSet("operation-id") {
+						req.OperationId = cmd.String("operation-id")
+					}
+					if err := generatedValidateRequiredFields(req, "operation_id"); err != nil {
+						return nil, err
+					}
+					if err := generatedValidateRequest(req); err != nil {
+						return nil, err
+					}
+					return req, nil
+				},
+				func() proto.Message { return &poolconfigurationsv1.ReviewRetryResponse{} },
+			),
+			generatedRequestCommand(
+				"test-connection",
+				"Test connection",
+				"/poolconfigurations.v1.PoolConfigurationService/TestConnection",
+				generatedAuthAuthenticated,
+				[]cli.Flag{
+					&cli.StringFlag{Name: "json", Usage: "Path to a request JSON file, or - for stdin"},
+					&cli.StringFlag{Name: "account-id", Usage: "account id"},
+					&cli.StringFlag{Name: "configuration-id", Usage: "configuration id"},
+					&cli.Int64Flag{Name: "expected-version", Usage: "expected version"},
+				},
+				func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
+					req := &poolconfigurationsv1.TestConnectionRequest{}
+					if jsonPath := cmd.String("json"); jsonPath != "" {
+						if err := readProtoJSON(jsonPath, req); err != nil {
+							return nil, err
+						}
+					}
+					if cmd.IsSet("account-id") {
+						req.AccountId = cmd.String("account-id")
+					}
+					if cmd.IsSet("configuration-id") {
+						req.ConfigurationId = cmd.String("configuration-id")
+					}
+					if cmd.IsSet("expected-version") {
+						req.ExpectedVersion = cmd.Int64("expected-version")
+					}
+					if err := generatedValidateRequest(req); err != nil {
+						return nil, err
+					}
+					return req, nil
+				},
+				func() proto.Message { return &poolconfigurationsv1.TestConnectionResponse{} },
 			),
 		},
 	}

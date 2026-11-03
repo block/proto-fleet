@@ -439,7 +439,8 @@ const MinersPage = ({
           onPairingCompleted?.();
         }
 
-        // If this was a Foreman import, create pools/groups/racks and assign devices before refreshing
+        // Import Foreman metadata for paired miners before refreshing. Pool
+        // configurations need credentials that Foreman does not provide.
         if (lastDiscoveryMode === minerDiscoveryModes.foreman && foremanCredsRef.current) {
           const failedIds = new Set(failedDeviceIds);
           const creds = foremanCredsRef.current;
@@ -448,7 +449,7 @@ const MinersPage = ({
             await completeImport({
               apiKey: creds.apiKey,
               clientId: creds.clientId,
-              importPools: true,
+              importPools: false,
               importGroups: true,
               importRacks: true,
               pairedDeviceIdentifiers: selectedMinerIdentifiers.filter((id) => !failedIds.has(id)),
@@ -456,7 +457,7 @@ const MinersPage = ({
               onError: (error) => {
                 console.error("Foreman complete import failed:", error);
                 pushToast({
-                  message: "Miners added but failed to import pools/groups/racks from Foreman.",
+                  message: "Miners added but failed to import groups, racks, and names from Foreman.",
                   status: TOAST_STATUSES.error,
                 });
               },

@@ -10,7 +10,79 @@ import (
 	"encoding/json"
 
 	"github.com/google/uuid"
+	"github.com/lib/pq"
 )
+
+const adoptLegacyPoolBoardAssignments = `-- name: AdoptLegacyPoolBoardAssignments :many
+WITH candidates AS (
+ SELECT i.installation_id,i.device_id,m.configuration_id,m.revision_id
+ FROM hashboard_pool_intent i
+ JOIN hosted_account_pool_revision r ON r.organization_id=i.organization_id AND r.revision_id=i.pool_revision_id
+ JOIN pool_configuration_import m ON m.organization_id=i.organization_id
+  AND m.source_kind='hosted_revision' AND m.source_id=i.pool_revision_id AND m.source_version=r.number::text
+ JOIN pool_configuration c ON c.organization_id=m.organization_id AND c.configuration_id=m.configuration_id
+ WHERE i.organization_id=$1 AND i.installation_id=ANY($2::bigint[])
+  AND NOT c.archived AND c.current_revision_id=m.revision_id
+  AND NOT EXISTS(SELECT 1 FROM pool_configuration_assignment a WHERE a.organization_id=m.organization_id
+   AND a.device_id=i.device_id AND a.target_kind<>'hashboard_installation' AND a.retired_at IS NULL)
+), inserted AS (
+ INSERT INTO pool_configuration_assignment(organization_id,target_kind,target_id,device_id,configuration_id,revision_id,version,adopted_at)
+ SELECT $1,'hashboard_installation',c.installation_id,c.device_id,c.configuration_id,c.revision_id,1,clock_timestamp()
+ FROM candidates c WHERE NOT EXISTS(SELECT 1 FROM pool_configuration_assignment a
+  WHERE a.organization_id=$1 AND a.target_kind='hashboard_installation' AND a.target_id=c.installation_id)
+ RETURNING target_id,device_id,configuration_id,revision_id
+)
+SELECT target_id, device_id, configuration_id, revision_id FROM inserted
+UNION ALL
+SELECT a.target_id,a.device_id,a.configuration_id,a.revision_id
+FROM candidates c JOIN pool_configuration_assignment a ON a.organization_id=$1
+ AND a.target_kind='hashboard_installation' AND a.target_id=c.installation_id AND a.device_id=c.device_id
+ AND a.configuration_id=c.configuration_id AND a.revision_id=c.revision_id
+WHERE a.operation_id IS NULL AND a.retired_at IS NULL
+ORDER BY target_id
+`
+
+type AdoptLegacyPoolBoardAssignmentsParams struct {
+	OrganizationID  int64
+	InstallationIds []int64
+}
+
+type AdoptLegacyPoolBoardAssignmentsRow struct {
+	TargetID        int64
+	DeviceID        int64
+	ConfigurationID string
+	RevisionID      string
+}
+
+// Eligibility was checked under the maintenance source locks. Join the durable
+// source mapping once and never fire insert triggers for idempotent reruns.
+func (q *Queries) AdoptLegacyPoolBoardAssignments(ctx context.Context, arg AdoptLegacyPoolBoardAssignmentsParams) ([]AdoptLegacyPoolBoardAssignmentsRow, error) {
+	rows, err := q.query(ctx, q.adoptLegacyPoolBoardAssignmentsStmt, adoptLegacyPoolBoardAssignments, arg.OrganizationID, pq.Array(arg.InstallationIds))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []AdoptLegacyPoolBoardAssignmentsRow
+	for rows.Next() {
+		var i AdoptLegacyPoolBoardAssignmentsRow
+		if err := rows.Scan(
+			&i.TargetID,
+			&i.DeviceID,
+			&i.ConfigurationID,
+			&i.RevisionID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
 
 const listHostedPoolImportSources = `-- name: ListHostedPoolImportSources :many
 SELECT r.revision_id, r.number, r.name, r.slots,
@@ -25,6 +97,10 @@ WHERE r.organization_id = $1 AND (
     SELECT 1 FROM hashboard_pool_intent intent WHERE intent.organization_id = r.organization_id AND intent.pool_revision_id = r.revision_id
  ) OR EXISTS (
     SELECT 1 FROM hosted_account_pool_profile profile WHERE profile.organization_id = r.organization_id AND profile.revision_id = r.revision_id
+ ) OR EXISTS (
+    SELECT 1 FROM container_mining_group_state state,
+      LATERAL jsonb_each(state.bindings) binding
+    WHERE state.organization_id=r.organization_id AND binding.value->>'config_id'=r.revision_id
  ))
 ORDER BY r.revision_id
 `
@@ -68,7 +144,7 @@ func (q *Queries) ListHostedPoolImportSources(ctx context.Context, organizationI
 
 const listLegacyHashboardPoolAdoptions = `-- name: ListLegacyHashboardPoolAdoptions :many
 SELECT intent.hashboard_id,intent.installation_id,intent.device_id,intent.operation_id,
- intent.pool_revision_id,revision.number AS source_version,
+ intent.pool_revision_id,intent.mac_address,revision.number AS source_version,
  CASE WHEN owner.depth=0 THEN 0 ELSE owner.id END::bigint AS configuration_owner,
  COALESCE(asset.subclient_id,asset.client_id,0)::bigint AS equipment_owner,
  COALESCE(installation.removed_at IS NULL AND module.retired_at IS NULL AND tank.present
@@ -95,6 +171,7 @@ type ListLegacyHashboardPoolAdoptionsRow struct {
 	DeviceID           int64
 	OperationID        uuid.UUID
 	PoolRevisionID     string
+	MacAddress         string
 	SourceVersion      int64
 	ConfigurationOwner int64
 	EquipmentOwner     int64
@@ -116,10 +193,51 @@ func (q *Queries) ListLegacyHashboardPoolAdoptions(ctx context.Context, organiza
 			&i.DeviceID,
 			&i.OperationID,
 			&i.PoolRevisionID,
+			&i.MacAddress,
 			&i.SourceVersion,
 			&i.ConfigurationOwner,
 			&i.EquipmentOwner,
 			&i.PhysicalMatch,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listPoolImportControllerBindings = `-- name: ListPoolImportControllerBindings :many
+SELECT s.device_id,s.bindings,s.observed,s.status FROM container_mining_group_state s
+WHERE s.organization_id=$1 ORDER BY s.device_id
+`
+
+type ListPoolImportControllerBindingsRow struct {
+	DeviceID int64
+	Bindings json.RawMessage
+	Observed json.RawMessage
+	Status   string
+}
+
+func (q *Queries) ListPoolImportControllerBindings(ctx context.Context, organizationID int64) ([]ListPoolImportControllerBindingsRow, error) {
+	rows, err := q.query(ctx, q.listPoolImportControllerBindingsStmt, listPoolImportControllerBindings, organizationID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListPoolImportControllerBindingsRow
+	for rows.Next() {
+		var i ListPoolImportControllerBindingsRow
+		if err := rows.Scan(
+			&i.DeviceID,
+			&i.Bindings,
+			&i.Observed,
+			&i.Status,
 		); err != nil {
 			return nil, err
 		}
@@ -189,7 +307,8 @@ func (q *Queries) LockLegacyPoolLibraryForImport(ctx context.Context) error {
 }
 
 const lockPoolAssignmentAdoptionSources = `-- name: LockPoolAssignmentAdoptionSources :exec
-LOCK TABLE hashboard_pool_intent, container_mining_group_state, hashboard_installation,
+LOCK TABLE hosted_account_pool, hosted_account_pool_revision, hosted_account_pool_profile,
+ pool_configuration, pool_configuration_assignment, pool_configuration_operation_target, hashboard_pool_intent, container_mining_group_state, hashboard_installation,
  container_module, container_tank, container_inventory, hashboard_slot, hashboard_observation,
  hosted_account_asset, device_write_attempt, queue_message,
  device, discovered_device, device_pairing, device_write_fence, fleet_node_device IN SHARE MODE
@@ -197,5 +316,21 @@ LOCK TABLE hashboard_pool_intent, container_mining_group_state, hashboard_instal
 
 func (q *Queries) LockPoolAssignmentAdoptionSources(ctx context.Context) error {
 	_, err := q.exec(ctx, q.lockPoolAssignmentAdoptionSourcesStmt, lockPoolAssignmentAdoptionSources)
+	return err
+}
+
+const rewritePoolImportControllerBindings = `-- name: RewritePoolImportControllerBindings :exec
+UPDATE container_mining_group_state SET bindings=$3,updated_at=clock_timestamp()
+WHERE organization_id=$1 AND device_id=$2
+`
+
+type RewritePoolImportControllerBindingsParams struct {
+	OrganizationID int64
+	DeviceID       int64
+	Bindings       json.RawMessage
+}
+
+func (q *Queries) RewritePoolImportControllerBindings(ctx context.Context, arg RewritePoolImportControllerBindingsParams) error {
+	_, err := q.exec(ctx, q.rewritePoolImportControllerBindingsStmt, rewritePoolImportControllerBindings, arg.OrganizationID, arg.DeviceID, arg.Bindings)
 	return err
 }

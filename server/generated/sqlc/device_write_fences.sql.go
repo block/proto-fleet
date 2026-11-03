@@ -274,6 +274,23 @@ func (q *Queries) DeleteUndispatchedDirectAttempt(ctx context.Context, arg Delet
 	return err
 }
 
+const discardRecoveredLegacyPoolIntents = `-- name: DiscardRecoveredLegacyPoolIntents :exec
+DELETE FROM hashboard_pool_intent i USING container_mining_group_state s
+WHERE s.organization_id=$1 AND s.device_id=$2 AND s.attempt_id=$3
+ AND s.status='failed' AND i.organization_id=s.organization_id AND i.device_id=s.device_id AND i.operation_id=s.operation_id
+`
+
+type DiscardRecoveredLegacyPoolIntentsParams struct {
+	OrganizationID int64
+	DeviceID       int64
+	AttemptID      uuid.NullUUID
+}
+
+func (q *Queries) DiscardRecoveredLegacyPoolIntents(ctx context.Context, arg DiscardRecoveredLegacyPoolIntentsParams) error {
+	_, err := q.exec(ctx, q.discardRecoveredLegacyPoolIntentsStmt, discardRecoveredLegacyPoolIntents, arg.OrganizationID, arg.DeviceID, arg.AttemptID)
+	return err
+}
+
 const ensureDeviceWriteFences = `-- name: EnsureDeviceWriteFences :exec
 INSERT INTO device_write_fence(device_id,organization_id)
 SELECT d.id,d.org_id FROM device d
@@ -877,9 +894,7 @@ WITH retired AS (
   AND s.attempt_id=$3 AND s.write_epoch=$4
   AND s.status IN ('pending','applying','blocked')
  RETURNING s.organization_id,s.device_id,s.operation_id,s.attempt_id
-), discarded_intents AS (
- DELETE FROM hashboard_pool_intent i USING retired r
- WHERE i.organization_id=r.organization_id AND i.device_id=r.device_id AND i.operation_id=r.operation_id
+
 )
 UPDATE pool_configuration_operation_target t
 SET state='failed',result_code='interrupted',updated_at=clock_timestamp()

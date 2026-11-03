@@ -26,6 +26,7 @@ type ImportMiner struct {
 
 // ImportPool is a pool configuration to create.
 type ImportPool struct {
+	Password *string // nil means unknown; an explicit empty password is valid.
 	URL      string
 	Username string
 	Name     string

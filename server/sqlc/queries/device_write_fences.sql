@@ -149,9 +149,7 @@ WITH retired AS (
   AND s.attempt_id=sqlc.arg(attempt_id) AND s.write_epoch=sqlc.arg(attempt_epoch)
   AND s.status IN ('pending','applying','blocked')
  RETURNING s.organization_id,s.device_id,s.operation_id,s.attempt_id
-), discarded_intents AS (
- DELETE FROM hashboard_pool_intent i USING retired r
- WHERE i.organization_id=r.organization_id AND i.device_id=r.device_id AND i.operation_id=r.operation_id
+
 )
 UPDATE pool_configuration_operation_target t
 SET state='failed',result_code='interrupted',updated_at=clock_timestamp()
@@ -273,3 +271,8 @@ UPDATE device_deletion_unpair_permit SET attempt_id=$1 WHERE device_id=$2 AND at
 -- name: GetDeletionUnpairPermit :one
 SELECT p.* FROM device_deletion_unpair_permit p JOIN device d ON d.id=p.device_id AND d.org_id=p.organization_id
 WHERE d.id=$1 AND d.org_id=$2 AND d.deleted_at IS NOT NULL AND p.attempt_id IS NULL;
+
+-- name: DiscardRecoveredLegacyPoolIntents :exec
+DELETE FROM hashboard_pool_intent i USING container_mining_group_state s
+WHERE s.organization_id=$1 AND s.device_id=$2 AND s.attempt_id=$3
+ AND s.status='failed' AND i.organization_id=s.organization_id AND i.device_id=s.device_id AND i.operation_id=s.operation_id;

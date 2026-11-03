@@ -40,9 +40,13 @@ type Querier interface {
 	// forced termination. Zero-row return lets the caller route active,
 	// in-flight, and already-terminal cases.
 	AdminTerminateCurtailmentEvent(ctx context.Context, arg AdminTerminateCurtailmentEventParams) (CurtailmentEvent, error)
+	// Eligibility was checked under the maintenance source locks. Join the durable
+	// source mapping once and never fire insert triggers for idempotent reruns.
+	AdoptLegacyPoolBoardAssignments(ctx context.Context, arg AdoptLegacyPoolBoardAssignmentsParams) ([]AdoptLegacyPoolBoardAssignmentsRow, error)
 	// Never overwrite even a retired assignment: returning hardware must not
 	// inherit the previous occupant's desired configuration on a repeated import.
 	AdoptPoolConfigurationAssignment(ctx context.Context, arg AdoptPoolConfigurationAssignmentParams) (int64, error)
+	AdoptPoolGroupIntent(ctx context.Context, arg AdoptPoolGroupIntentParams) error
 	// The parent upsert serializes replacement of its controls and setpoints.
 	AdvanceContainerControls(ctx context.Context, arg AdvanceContainerControlsParams) (int64, error)
 	AdvanceContainerInventory(ctx context.Context, arg AdvanceContainerInventoryParams) (int64, error)
@@ -132,6 +136,7 @@ type Querier interface {
 	BindCurtailmentAutomationRuleResponseProfileRevision(ctx context.Context, arg BindCurtailmentAutomationRuleResponseProfileRevisionParams) (int64, error)
 	BindEnrollmentToFleetNode(ctx context.Context, arg BindEnrollmentToFleetNodeParams) (int64, error)
 	BindHostedAccountKey(ctx context.Context, arg BindHostedAccountKeyParams) error
+	BoundPoolConfigurationImportLocks(ctx context.Context) error
 	BuildingBelongsToOrg(ctx context.Context, arg BuildingBelongsToOrgParams) (bool, error)
 	// Returns the subset of requested IDs that correspond to live
 	// buildings in the org. Caller diffs against the requested set
@@ -575,6 +580,7 @@ type Querier interface {
 	DeviceSetsByIDs(ctx context.Context, arg DeviceSetsByIDsParams) ([]int64, error)
 	DisableCurtailmentAutomationRuleByActiveEvent(ctx context.Context, arg DisableCurtailmentAutomationRuleByActiveEventParams) (int64, error)
 	DisableSyncCommit(ctx context.Context) error
+	DiscardRecoveredLegacyPoolIntents(ctx context.Context, arg DiscardRecoveredLegacyPoolIntentsParams) error
 	// Read after taking inventory locks so a pairing that won the wait is visible.
 	EndpointDiscoveryHasPairing(ctx context.Context, arg EndpointDiscoveryHasPairingParams) (bool, error)
 	// A keyless fallback must not create another row for a known group's peer.
@@ -654,6 +660,7 @@ type Querier interface {
 	// intentionally supports ACTIVE events and has no in-flight command gate because
 	// the operator intent is to clear policy ownership, not report graceful restore.
 	ForceReleaseCurtailmentEvent(ctx context.Context, arg ForceReleaseCurtailmentEventParams) (CurtailmentEvent, error)
+	FreezePoolConfigurationWriters(ctx context.Context, organizationID int64) error
 	GetAccountRepairTicket(ctx context.Context, arg GetAccountRepairTicketParams) (RepairTicket, error)
 	GetAccountTicketAccess(ctx context.Context, arg GetAccountTicketAccessParams) (GetAccountTicketAccessRow, error)
 	GetActiveFirmwareRolloutForPair(ctx context.Context, arg GetActiveFirmwareRolloutForPairParams) (FirmwareRollout, error)
@@ -1035,6 +1042,7 @@ type Querier interface {
 	GetPoolConfigurationRevision(ctx context.Context, arg GetPoolConfigurationRevisionParams) (PoolConfigurationRevision, error)
 	GetPoolConfigurationRuntime(ctx context.Context, arg GetPoolConfigurationRuntimeParams) (GetPoolConfigurationRuntimeRow, error)
 	GetPoolConfigurationWork(ctx context.Context, arg GetPoolConfigurationWorkParams) (GetPoolConfigurationWorkRow, error)
+	GetPoolCutoverInventory(ctx context.Context, organizationID int64) (GetPoolCutoverInventoryRow, error)
 	GetPoolEquipmentDevice(ctx context.Context, arg GetPoolEquipmentDeviceParams) (GetPoolEquipmentDeviceRow, error)
 	GetPoolEquipmentInstallation(ctx context.Context, arg GetPoolEquipmentInstallationParams) (GetPoolEquipmentInstallationRow, error)
 	GetPoolEquipmentMinerOwner(ctx context.Context, arg GetPoolEquipmentMinerOwnerParams) (GetPoolEquipmentMinerOwnerRow, error)
@@ -1126,11 +1134,13 @@ type Querier interface {
 	// Stale telemetry alone is not evidence of removal. Match the exact saved
 	// installation, controller and MAC without imposing a freshness requirement.
 	HasDetachedHashboardPoolIntents(ctx context.Context, arg HasDetachedHashboardPoolIntentsParams) (bool, error)
+	HasDetachedPoolGroupIntents(ctx context.Context, arg HasDetachedPoolGroupIntentsParams) (bool, error)
 	HasDueTelemetrySeedRecovery(ctx context.Context) (bool, error)
 	HasHostedAccountHostAuthority(ctx context.Context, arg HasHostedAccountHostAuthorityParams) (bool, error)
 	HasPendingContainerControl(ctx context.Context, deviceID int64) (bool, error)
 	HasPendingScopedMining(ctx context.Context, deviceID int64) (bool, error)
 	HasPoolAssignmentKindConflict(ctx context.Context, arg HasPoolAssignmentKindConflictParams) (bool, error)
+	HasPoolConfigurationCutover(ctx context.Context, organizationID int64) (bool, error)
 	HasUser(ctx context.Context) (bool, error)
 	// The unique partial index on (batch_id, event_type) for '*.completed' event
 	// types lets the Go layer detect idempotent re-inserts via pq unique_violation.
@@ -1214,6 +1224,7 @@ type Querier interface {
 	IsDeviceWriteFenceDrained(ctx context.Context, arg IsDeviceWriteFenceDrainedParams) (bool, error)
 	IsFleetNodeHAStandby(ctx context.Context, arg IsFleetNodeHAStandbyParams) (bool, error)
 	IsRetiredDeviceWriteDrained(ctx context.Context, identityKeys []string) (bool, error)
+	LegacyPoolWritersDisabled(ctx context.Context, organizationID int64) (bool, error)
 	LinkPoolConfigurationAttempt(ctx context.Context, arg LinkPoolConfigurationAttemptParams) (int64, error)
 	LinkPoolGroupSnapshot(ctx context.Context, arg LinkPoolGroupSnapshotParams) (int64, error)
 	ListAccountRepairTicketComments(ctx context.Context, arg ListAccountRepairTicketCommentsParams) ([]ListAccountRepairTicketCommentsRow, error)
@@ -1644,6 +1655,10 @@ type Querier interface {
 	ListPoolConfigurationOperationTargets(ctx context.Context, arg ListPoolConfigurationOperationTargetsParams) ([]PoolConfigurationOperationTarget, error)
 	ListPoolConfigurationOperations(ctx context.Context, arg ListPoolConfigurationOperationsParams) ([]ListPoolConfigurationOperationsRow, error)
 	ListPoolConfigurations(ctx context.Context, arg ListPoolConfigurationsParams) ([]ListPoolConfigurationsRow, error)
+	// A completeness check, not a hardware-state inference. Return identifiers only.
+	// Pre-upgrade failures can contain partial hardware effects. A snapshot alone
+	// cannot establish them, even when an older verified intent was backfilled.
+	ListPoolCutoverGaps(ctx context.Context, organizationID int64) ([]ListPoolCutoverGapsRow, error)
 	// Only unmanaged paired devices. A tombstone is deliberately not eligible for
 	// automatic adoption when hardware is recalled or returns to a previous owner.
 	ListPoolDeviceImportSources(ctx context.Context, orgID int64) ([]ListPoolDeviceImportSourcesRow, error)
@@ -1651,8 +1666,11 @@ type Querier interface {
 	ListPoolEquipmentIdentities(ctx context.Context, arg ListPoolEquipmentIdentitiesParams) ([]ListPoolEquipmentIdentitiesRow, error)
 	ListPoolEquipmentModuleOwners(ctx context.Context, arg ListPoolEquipmentModuleOwnersParams) ([]ListPoolEquipmentModuleOwnersRow, error)
 	ListPoolGroupAttemptTargets(ctx context.Context, arg ListPoolGroupAttemptTargetsParams) ([]ListPoolGroupAttemptTargetsRow, error)
+	// An admitted operation overlays retained effects only while it is applying.
+	// A later rejected/pending/failed request cannot erase previously applied intent.
 	ListPoolGroupIntents(ctx context.Context, arg ListPoolGroupIntentsParams) ([]ListPoolGroupIntentsRow, error)
 	ListPoolGroupWork(ctx context.Context, arg ListPoolGroupWorkParams) ([]ListPoolGroupWorkRow, error)
+	ListPoolImportControllerBindings(ctx context.Context, organizationID int64) ([]ListPoolImportControllerBindingsRow, error)
 	ListPoolSelectionBoards(ctx context.Context, arg ListPoolSelectionBoardsParams) ([]ListPoolSelectionBoardsRow, error)
 	ListPoolSelectionModules(ctx context.Context, arg ListPoolSelectionModulesParams) ([]ListPoolSelectionModulesRow, error)
 	ListPools(ctx context.Context, orgID int64) ([]Pool, error)
@@ -2074,6 +2092,7 @@ type Querier interface {
 	// Timestamp the pause after the header lock, never before the creation or
 	// stage transition the caller observed. Repeated pauses keep the first event.
 	PauseFirmwareRollout(ctx context.Context, arg PauseFirmwareRolloutParams) (int64, error)
+	PoolConfigurationWritersFrozen(ctx context.Context, organizationID int64) (bool, error)
 	PrepareFleetNodeHAKeyInstall(ctx context.Context, arg PrepareFleetNodeHAKeyInstallParams) ([]byte, error)
 	PrepareTelemetrySeed(ctx context.Context, arg PrepareTelemetrySeedParams) (time.Time, error)
 	// Retrying a failed deployment preserves its original health expectations.
@@ -2084,6 +2103,7 @@ type Querier interface {
 	// after all controller work is known to be terminal.
 	// A new board/installation never inherits the previous occupant's intent.
 	PruneDetachedHashboardPoolIntents(ctx context.Context, arg PruneDetachedHashboardPoolIntentsParams) error
+	PruneDetachedPoolGroupIntents(ctx context.Context, arg PruneDetachedPoolGroupIntentsParams) error
 	// Retention: reclaims the org's expired windows (ends_at <= now) that ended before the cutoff,
 	// plus any beyond the newest keep_newest (see maxRetainedExpiredWindowsPerOrg for the why).
 	PruneExpiredAlertMaintenanceWindows(ctx context.Context, arg PruneExpiredAlertMaintenanceWindowsParams) (int64, error)
@@ -2177,6 +2197,7 @@ type Querier interface {
 	RecordHostedHashboardInventory(ctx context.Context, arg RecordHostedHashboardInventoryParams) error
 	RecordMaintenanceModuleModel(ctx context.Context, arg RecordMaintenanceModuleModelParams) (int64, error)
 	RecordMiningGroupRequest(ctx context.Context, arg RecordMiningGroupRequestParams) error
+	RecordPoolConfigurationCutover(ctx context.Context, arg RecordPoolConfigurationCutoverParams) error
 	RecordPoolConfigurationImport(ctx context.Context, arg RecordPoolConfigurationImportParams) error
 	// Never redispatch work. Running admissions need explicit offline recovery,
 	// regardless of their age or process owner. A settled attempt proves drain,
@@ -2308,6 +2329,9 @@ type Querier interface {
 	// exclude the pause; commands already sent continue while paused.
 	ResumeFirmwareRollout(ctx context.Context, arg ResumeFirmwareRolloutParams) (int64, error)
 	ResumePausedSchedule(ctx context.Context, arg ResumePausedScheduleParams) (int64, error)
+	// Called with a settled controller observation or a successful configuration
+	// receipt, before operation outcomes change. Never invent a successful attempt.
+	RetainAppliedPoolGroupIntents(ctx context.Context, arg RetainAppliedPoolGroupIntentsParams) error
 	// Detach changed placements before inserting their replacements, including swaps.
 	// Identity rows survive retirement; a returning PSU reuses its original ID.
 	RetireContainerModules(ctx context.Context, arg RetireContainerModulesParams) error
@@ -2329,6 +2353,7 @@ type Querier interface {
 	RevokeOrganizationInvitation(ctx context.Context, arg RevokeOrganizationInvitationParams) (int64, error)
 	RevokePermissionFromRole(ctx context.Context, arg RevokePermissionFromRoleParams) error
 	RevokeSession(ctx context.Context, arg RevokeSessionParams) error
+	RewritePoolImportControllerBindings(ctx context.Context, arg RewritePoolImportControllerBindingsParams) error
 	SaveMiningGroupState(ctx context.Context, arg SaveMiningGroupStateParams) error
 	SavePoolConfigurationObservation(ctx context.Context, arg SavePoolConfigurationObservationParams) error
 	SavePoolConfigurationReviewResult(ctx context.Context, arg SavePoolConfigurationReviewResultParams) (int64, error)
@@ -2365,6 +2390,8 @@ type Querier interface {
 	SetLocalFleetNodeHAFailoverLockTimeout(ctx context.Context, timeoutMilliseconds int64) error
 	SetLocalTransactionTimeout(ctx context.Context, timeoutMilliseconds int64) error
 	SetMQTTSourceConfigEnabled(ctx context.Context, arg SetMQTTSourceConfigEnabledParams) (SetMQTTSourceConfigEnabledRow, error)
+	// Explicitly returning retired equipment must not resurrect its former intent
+	// while the new reviewed operation is pending or if admission later fails.
 	SetPoolConfigurationAssignment(ctx context.Context, arg SetPoolConfigurationAssignmentParams) (PoolConfigurationAssignment, error)
 	SetPoolConfigurationCurrentRevision(ctx context.Context, arg SetPoolConfigurationCurrentRevisionParams) (PoolConfiguration, error)
 	// Writes the rack's grid placement (aisle_index, position_in_aisle).

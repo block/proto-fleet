@@ -7,9 +7,14 @@ import {
   FleetNodeEnrollmentStatus,
   FleetNodeHARole,
 } from "@/protoFleet/api/generated/fleetnodeadmin/v1/fleetnodeadmin_pb";
+import {
+  CompleteImportResponseSchema,
+  ImportFromForemanResponseSchema,
+} from "@/protoFleet/api/generated/foremanimport/v1/foremanimport_pb";
 import { NetworkInfoSchema } from "@/protoFleet/api/generated/networkinfo/v1/networkinfo_pb";
 import { DeviceSchema } from "@/protoFleet/api/generated/pairing/v1/pairing_pb";
 import { type FleetNodeItem, useFleetNodes } from "@/protoFleet/api/useFleetNodes";
+import { useForemanImport } from "@/protoFleet/api/useForemanImport";
 import { useMinerPairing } from "@/protoFleet/api/useMinerPairing";
 import { useNetworkInfo } from "@/protoFleet/api/useNetworkInfo";
 import { useOnboardedStatus } from "@/protoFleet/api/useOnboardedStatus";
@@ -17,6 +22,7 @@ import { useHasPermission } from "@/protoFleet/store";
 import { pushToast } from "@/shared/features/toaster";
 
 vi.mock("@/protoFleet/api/useFleetNodes");
+vi.mock("@/protoFleet/api/useForemanImport");
 vi.mock("@/protoFleet/api/useMinerPairing");
 vi.mock("@/protoFleet/api/useNetworkInfo");
 vi.mock("@/protoFleet/api/useOnboardedStatus");
@@ -53,10 +59,20 @@ vi.mock("@/shared/features/toaster", () => ({
 const mockDiscover = vi.fn().mockResolvedValue(undefined);
 const mockPair = vi.fn();
 const mockListFleetNodes = vi.fn().mockResolvedValue([]);
+const mockImportFromForeman = vi.fn();
+const mockCompleteImport = vi.fn();
 
 beforeEach(() => {
   vi.clearAllMocks();
   mockDiscover.mockReset().mockResolvedValue(undefined);
+  mockPair.mockReset();
+  mockImportFromForeman.mockReset();
+  mockCompleteImport.mockReset();
+  vi.mocked(useForemanImport).mockReturnValue({
+    importPending: false,
+    importFromForeman: mockImportFromForeman,
+    completeImport: mockCompleteImport,
+  });
 
   vi.mocked(useMinerPairing).mockReturnValue({
     discover: mockDiscover,
@@ -131,6 +147,137 @@ function fleetNode(overrides: Partial<FleetNodeItem> = {}): FleetNodeItem {
 }
 
 describe("MinersWrapper", () => {
+  describe("Foreman import", () => {
+    beforeEach(() => {
+      vi.mocked(useNetworkInfo).mockReturnValue({
+        data: create(NetworkInfoSchema, { subnet: "192.168.1.0/24" }),
+        pending: false,
+        error: undefined,
+        fetchData: vi.fn(),
+        updateNetworkInfo: vi.fn(),
+      });
+      mockImportFromForeman.mockImplementation(async ({ onSuccess }) => {
+        onSuccess(
+          create(ImportFromForemanResponseSchema, {
+            miners: [{ ipAddress: "192.168.1.100" }, { ipAddress: "192.168.1.101" }],
+          }),
+        );
+      });
+      mockDiscover.mockImplementation(async ({ onStreamData }) => {
+        onStreamData([
+          createDiscoveredMiner("miner-1", "192.168.1.100"),
+          createDiscoveredMiner("miner-2", "192.168.1.101"),
+        ]);
+      });
+      mockCompleteImport.mockImplementation(async ({ onSuccess }) => {
+        onSuccess(create(CompleteImportResponseSchema, { groupsCreated: 1, racksCreated: 1 }));
+      });
+    });
+
+    async function discoverForemanMiners(mode: "onboarding" | "pairing") {
+      renderMinersPage(mode);
+      if (mode === "onboarding") fireEvent.click(screen.getByText("Get started"));
+      fireEvent.click(screen.getByRole("button", { name: "Connect Foreman" }));
+      fireEvent.change(screen.getByLabelText("API key"), { target: { value: "foreman-api-key" } });
+      fireEvent.change(screen.getByLabelText("Client ID"), { target: { value: "123" } });
+      fireEvent.click(screen.getByRole("button", { name: "Import" }));
+      await screen.findByRole("button", { name: "Continue with 2 miners" });
+    }
+
+    it("explains before importing that pools need separate configuration because Foreman lacks passwords", async () => {
+      renderMinersPage("pairing");
+      await waitFor(() =>
+        expect(screen.getByText("Import miners, groups, racks, and names from Foreman.")).toBeVisible(),
+      );
+      fireEvent.click(screen.getByRole("button", { name: "Connect Foreman" }));
+
+      await waitFor(() =>
+        expect(
+          screen.getByText(
+            "Import miners and their details. Configure pools separately in Fleet; Foreman does not provide pool passwords.",
+          ),
+        ).toBeVisible(),
+      );
+    });
+
+    it.each(["onboarding", "pairing"] as const)(
+      "imports groups, racks, and names without pools after successful %s pairing",
+      async (mode) => {
+        mockPair.mockImplementation(async ({ onSuccess }) => onSuccess([]));
+        await discoverForemanMiners(mode);
+
+        fireEvent.click(screen.getByRole("button", { name: "Continue with 2 miners" }));
+
+        await waitFor(() =>
+          expect(mockCompleteImport).toHaveBeenCalledWith(
+            expect.objectContaining({
+              apiKey: "foreman-api-key",
+              clientId: "123",
+              importPools: false,
+              importGroups: true,
+              importRacks: true,
+              pairedDeviceIdentifiers: ["miner-1", "miner-2"],
+            }),
+          ),
+        );
+        expect(pushToast).not.toHaveBeenCalledWith(expect.objectContaining({ status: "error" }));
+      },
+    );
+
+    it("limits imported Foreman details to miners that paired successfully", async () => {
+      mockPair.mockImplementation(async ({ onSuccess }) => onSuccess(["miner-2"]));
+      await discoverForemanMiners("pairing");
+
+      fireEvent.click(screen.getByRole("button", { name: "Continue with 2 miners" }));
+
+      await waitFor(() =>
+        expect(mockCompleteImport).toHaveBeenCalledWith(
+          expect.objectContaining({
+            importPools: false,
+            importGroups: true,
+            importRacks: true,
+            pairedDeviceIdentifiers: ["miner-1"],
+          }),
+        ),
+      );
+    });
+
+    it("skips Foreman completion when no selected miners pair successfully", async () => {
+      mockPair.mockImplementation(async ({ onSuccess }) => onSuccess(["miner-1", "miner-2"]));
+      await discoverForemanMiners("pairing");
+
+      fireEvent.click(screen.getByRole("button", { name: "Continue with 2 miners" }));
+
+      await waitFor(() =>
+        expect(pushToast).toHaveBeenCalledWith({
+          message: "Failed to add 2 miners. Please check that miners are online and try again.",
+          status: "error",
+        }),
+      );
+      expect(mockCompleteImport).not.toHaveBeenCalled();
+    });
+
+    it("reports a details import failure without claiming it attempted to import pools", async () => {
+      const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+      try {
+        mockPair.mockImplementation(async ({ onSuccess }) => onSuccess([]));
+        mockCompleteImport.mockImplementation(async ({ onError }) => onError("Foreman unavailable"));
+        await discoverForemanMiners("pairing");
+
+        fireEvent.click(screen.getByRole("button", { name: "Continue with 2 miners" }));
+
+        await waitFor(() =>
+          expect(pushToast).toHaveBeenCalledWith({
+            message: "Miners added but failed to import groups, racks, and names from Foreman.",
+            status: "error",
+          }),
+        );
+      } finally {
+        consoleError.mockRestore();
+      }
+    });
+  });
+
   describe("network scan discovery", () => {
     it.each(["network", "manual"])("retains and refreshes found miners on a %s rescan", async (mode) => {
       vi.mocked(useNetworkInfo).mockReturnValue({

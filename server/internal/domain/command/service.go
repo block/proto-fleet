@@ -1622,6 +1622,18 @@ func (s *Service) UpdateMiningPools(
 		return nil, err
 	}
 
+	info, err := session.GetInfo(ctx)
+	if err != nil {
+		return nil, err
+	}
+	disabled, err := sqlc.New(s.conn).LegacyPoolWritersDisabled(ctx, info.OrganizationID)
+	if err != nil {
+		return nil, err
+	}
+	if disabled {
+		return nil, fleeterror.NewFailedPreconditionError("Use a reviewed pool configuration to update equipment pools.")
+	}
+
 	dispatched, sv2Skipped, err := s.preflightSV2Capabilities(ctx, deviceSelector, pld)
 	if err != nil {
 		return nil, err
@@ -1676,6 +1688,13 @@ func (s *Service) ReapplyCurrentPoolsWithWorkerNames(
 		return "", fleeterror.NewInternalError("transactional command dispatch requires post-commit callbacks")
 	}
 
+	disabled, err := sqlc.New(s.conn).LegacyPoolWritersDisabled(ctx, info.OrganizationID)
+	if err != nil {
+		return "", err
+	}
+	if disabled {
+		return "", fleeterror.NewFailedPreconditionError("Use a reviewed pool configuration to apply changed worker names.")
+	}
 	deviceIdentifiers := make([]string, 0, len(desiredWorkerNamesByDeviceIdentifier))
 	for deviceIdentifier := range desiredWorkerNamesByDeviceIdentifier {
 		deviceIdentifiers = append(deviceIdentifiers, deviceIdentifier)

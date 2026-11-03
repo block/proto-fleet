@@ -11,10 +11,10 @@ import (
 
 	collectionpb "github.com/block/proto-fleet/server/generated/grpc/collection/v1"
 	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
-	poolspb "github.com/block/proto-fleet/server/generated/grpc/pools/v1"
 	"github.com/block/proto-fleet/server/internal/domain/collection"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	models "github.com/block/proto-fleet/server/internal/domain/miner/models"
+	"github.com/block/proto-fleet/server/internal/domain/poolconfigurations"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 	"github.com/block/proto-fleet/server/internal/infrastructure/db"
 	"github.com/block/proto-fleet/server/internal/infrastructure/networking"
@@ -36,7 +36,7 @@ func isDuplicateError(err error) bool {
 // PoolCreator abstracts pool creation so the importer can use the pool service
 // (with validation and activity logging) instead of the raw store.
 type PoolCreator interface {
-	CreatePool(ctx context.Context, poolConfig *poolspb.PoolConfig) (*poolspb.Pool, error)
+	Create(ctx context.Context, accountID string, options poolconfigurations.RevisionOptions) (poolconfigurations.Configuration, error)
 }
 
 // CollectionManager abstracts collection operations so the importer can use the
@@ -117,13 +117,12 @@ func (imp *Importer) createPools(ctx context.Context, pools []ImportPool) int32 
 		}
 		seen[key] = true
 
-		poolConfig := &poolspb.PoolConfig{
-			Url:      normalizedURL,
-			Username: pool.Username,
-			PoolName: pool.Name,
+		if pool.Password == nil {
+			slog.Warn("pool import requires complete credentials", "pool_name", pool.Name)
+			continue
 		}
-
-		if _, err := imp.poolCreator.CreatePool(ctx, poolConfig); err != nil {
+		options := poolconfigurations.RevisionOptions{Name: pool.Name, Slots: []poolconfigurations.SlotOptions{{URL: normalizedURL, Username: pool.Username, Password: pool.Password}}}
+		if _, err := imp.poolCreator.Create(ctx, "", options); err != nil {
 			if !isDuplicateError(err) {
 				slog.Warn("failed to create pool", "url", pool.URL, "error", err)
 			}
