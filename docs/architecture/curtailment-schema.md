@@ -210,7 +210,9 @@ and time at most seven days apart. A `RECURRING` schedule repeats `DAILY`, `WEEK
 selected days, or `MONTHLY` on a day of the month (skipping months without that day),
 from `start_date` until the optional `until_date`. Its end time may be earlier than its
 start time, in which case each window ends the next day. Dates and times are local to the
-schedule's IANA `timezone`. `service_user_id` is the user who last saved the schedule;
+schedule's IANA `timezone`. A time skipped by a spring-forward transition runs at the
+same instant as under the offset before it, so 02:30 in a 02:00-03:00 gap runs at 03:30;
+a time repeated by a fall-back transition uses its first occurrence. `service_user_id` is the user who last saved the schedule;
 scheduled events and their commands are attributed to that user.
 
 Schedule rules use the same grants, binding status, and per-rule mailbox as MQTT rules.

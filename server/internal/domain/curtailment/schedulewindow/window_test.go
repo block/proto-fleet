@@ -215,6 +215,45 @@ func TestDaylightSavingTransitions(t *testing.T) {
 	assert.Equal(t, 9*time.Hour, current.End.Sub(current.Start))
 }
 
+func TestDaylightSavingNonexistentAndRepeatedTimes(t *testing.T) {
+	newYork := mustLoad(t, "America/New_York")
+	utc := func(month time.Month, day, hour, minute int) time.Time {
+		return time.Date(2027, month, day, hour, minute, 0, 0, time.UTC)
+	}
+	tests := []struct {
+		name               string
+		startTime, endTime string
+		day                int
+		month              time.Month
+		wantStart, wantEnd time.Time
+	}{
+		// Spring forward on 2027-03-14: 02:00-03:00 EST does not exist.
+		{"start inside the gap runs after it", "02:30", "04:00", 14, time.March, utc(time.March, 14, 7, 30), utc(time.March, 14, 8, 0)},
+		{"end inside the gap runs after it", "01:00", "02:30", 14, time.March, utc(time.March, 14, 6, 0), utc(time.March, 14, 7, 30)},
+		{"window inside the gap still runs", "02:00", "02:30", 14, time.March, utc(time.March, 14, 7, 0), utc(time.March, 14, 7, 30)},
+		// Fall back on 2027-11-07: 01:00-02:00 repeats; the first occurrence is EDT.
+		{"repeated start uses its first occurrence", "01:30", "03:00", 7, time.November, utc(time.November, 7, 5, 30), utc(time.November, 7, 8, 0)},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			def := Definition{
+				Type:      TypeRecurring,
+				Timezone:  "America/New_York",
+				StartDate: "2027-01-01",
+				StartTime: tt.startTime,
+				EndTime:   tt.endTime,
+				Frequency: FrequencyDaily,
+			}
+			require.NoError(t, def.Validate())
+			next, err := def.Next(at(newYork, 2027, tt.month, tt.day, 0, 0))
+			require.NoError(t, err)
+			require.NotNil(t, next)
+			assert.True(t, next.Start.Equal(tt.wantStart), "start %s, want %s", next.Start.UTC(), tt.wantStart)
+			assert.True(t, next.End.Equal(tt.wantEnd), "end %s, want %s", next.End.UTC(), tt.wantEnd)
+		})
+	}
+}
+
 func TestCurrentOrNext(t *testing.T) {
 	def := Definition{Type: TypeRecurring, Timezone: "UTC", StartDate: "2026-07-01", StartTime: "08:00", EndTime: "09:00", Frequency: FrequencyDaily}
 

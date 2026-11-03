@@ -343,8 +343,18 @@ func (p *parsed) next(at time.Time) *Window {
 	return nil
 }
 
+// at resolves a local date and clock time. A time skipped by a spring-forward
+// gap runs at the same instant as under the offset before the gap, so 02:30
+// in a 02:00-03:00 gap runs at 03:30; a time repeated by a fall-back
+// transition resolves to its first occurrence.
 func (p *parsed) at(day civilDate, c clock) time.Time {
-	return time.Date(day.year, day.month, day.day, c.hour, c.minute, 0, 0, p.loc)
+	t := time.Date(day.year, day.month, day.day, c.hour, c.minute, 0, 0, p.loc)
+	if t.Day() == day.day && t.Hour() == c.hour && t.Minute() == c.minute {
+		return t
+	}
+	_, offsetBeforeGap := t.Add(-12 * time.Hour).Zone()
+	wall := time.Date(day.year, day.month, day.day, c.hour, c.minute, 0, 0, time.UTC)
+	return wall.Add(-time.Duration(offsetBeforeGap) * time.Second).In(p.loc)
 }
 
 func parseDate(field, value string) (civilDate, error) {
