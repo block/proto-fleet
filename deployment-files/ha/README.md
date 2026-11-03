@@ -266,6 +266,58 @@ sudo docker exec -u postgres proto-fleet-ha-patroni-1 \
 No restart is required. Increasing retention does not recover WAL that has
 already been removed.
 
+### PostgreSQL worker and connection capacity
+
+The profile reserves 19 PostgreSQL worker slots for eight Timescale workers,
+eight parallel-query workers, and headroom. It also sets a limit of 300 database
+connections; Fleet API defaults to a maximum pool of 250 connections. Patroni
+accepts `max_worker_processes` and `max_connections` only from its shared cluster
+configuration. Values in the local `postgresql.parameters` section are ignored.
+New clusters set these limits through `bootstrap.dcs.postgresql.parameters`.
+
+An application update does not change the shared configuration of an existing
+cluster. Before changing it, record the current settings and identify the
+primary and synchronous standby:
+
+```bash
+sudo docker exec -u postgres proto-fleet-ha-patroni-1 \
+  patronictl -c /run/proto-fleet-ha/patroni.yml list
+sudo docker exec -u postgres proto-fleet-ha-patroni-1 \
+  patronictl -c /run/proto-fleet-ha/patroni.yml show-config
+sudo docker exec -u postgres proto-fleet-ha-patroni-1 \
+  psql -X -d postgres -c 'SHOW max_worker_processes; SHOW max_connections;'
+```
+
+Check both effective limits on both database hosts. If the worker limit is below
+19 or the connection limit is below 300, schedule a database maintenance window.
+Confirm healthy HA, synchronous replication, and no replication lag. Apply the
+shared settings once. Omit any parameter already at or above its target so this
+procedure only increases limits:
+
+```bash
+sudo docker exec -u postgres proto-fleet-ha-patroni-1 \
+  patronictl -c /run/proto-fleet-ha/patroni.yml \
+  edit-config proto-fleet --pg max_worker_processes=19 --pg max_connections=300 --force
+```
+
+Restart the current standby with `patronictl restart proto-fleet <standby>
+--pending --force`. Confirm that it uses the target limits and has returned to
+synchronous streaming with no lag. Then restart the current primary with
+`patronictl restart proto-fleet <primary> --pending --force`. Run these commands
+through the same `docker exec` and Patroni configuration path shown above. Do not
+restart both databases together. The primary restart can interrupt database access.
+The `--force` option skips interactive prompts; complete the checks above first.
+
+Verify the effective limits on both hosts, no pending restart, healthy
+`fleet-ha status`, fresh telemetry, and successful scheduled jobs. Record the
+change and observe the next busy maintenance interval for worker-start failures.
+Changing these limits does not enable topology cleanup.
+
+If a rollback decreases either limit, restart the primary before the standby.
+Follow [Patroni's shared-memory parameter procedure](https://patroni.readthedocs.io/en/latest/patroni_configuration.html#postgresql-parameters-that-touch-shared-memory)
+for restart ordering. Restoring previous limits can restore worker or connection
+pressure.
+
 ### HA readiness alerts
 
 Each database host runs the same file-provisioned Grafana rule. The active
