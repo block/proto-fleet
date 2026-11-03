@@ -1,4 +1,4 @@
--- requires-shared: 1051
+-- requires-shared: 1058
 
 -- Schedule rules have no MQTT source; keep them visible to every rule read.
 DROP VIEW curtailment_automation_rule_binding;
