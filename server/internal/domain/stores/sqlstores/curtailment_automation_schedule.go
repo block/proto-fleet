@@ -95,17 +95,17 @@ func (s *SQLCurtailmentStore) attachAutomationSchedule(ctx context.Context, rule
 }
 
 // capScheduledEventAtWindowEnd rejects a scheduled start whose window ended
-// before insertion and caps the event, whose duration counts from insertion,
-// at the window's end.
-func capScheduledEventAtWindowEnd(event *models.InsertEventParams, now time.Time) error {
+// before insertion and caps the event at the window's end. The event's
+// duration counts from its created_at, the transaction start, so the cap is
+// measured from txStart rather than from after the transaction's lock waits.
+func capScheduledEventAtWindowEnd(event *models.InsertEventParams, txStart, now time.Time) error {
 	if event.AutomationWindowEndAt.IsZero() {
 		return nil
 	}
-	remaining := event.AutomationWindowEndAt.Sub(now)
-	if remaining <= 0 {
+	if !now.Before(event.AutomationWindowEndAt) {
 		return fleeterror.NewFailedPreconditionError("curtailment schedule window ended before its event could start")
 	}
-	capSeconds := int32(min(math.Ceil(remaining.Seconds()), math.MaxInt32))
+	capSeconds := int32(min(math.Ceil(event.AutomationWindowEndAt.Sub(txStart).Seconds()), math.MaxInt32))
 	if event.MaxDurationSeconds == nil || capSeconds < *event.MaxDurationSeconds {
 		event.MaxDurationSeconds = &capSeconds
 	}

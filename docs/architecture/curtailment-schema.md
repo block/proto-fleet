@@ -231,8 +231,8 @@ A boundary from the saved revision replaces an earlier revision's row even when 
 is earlier. A scheduled event records its schedule revision in `decision_snapshot`, and a
 window's end restores only the event that window started under the same revision, so a
 delayed end boundary cannot stop a later window's or an edited schedule's event. The
-event insert also rejects a start whose window has already ended and caps the event at
-the window's end, counted from insertion.
+event insert also rejects a start whose window has already ended and caps the event so
+that, counted from its `created_at`, it ends at the window's end.
 
 Each window starts its own event with `source_actor_type` `scheduler` and
 `scheduled_start_at` set to the window's start. The event is never unbounded: its

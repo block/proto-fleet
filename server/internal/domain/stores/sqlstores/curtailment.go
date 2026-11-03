@@ -1359,7 +1359,10 @@ func (s *SQLCurtailmentStore) InsertEventWithTargets(
 		)
 	}
 	replayRace := false
+	requestedMaxDurationSeconds := event.MaxDurationSeconds
 	result, err := db.WithTransaction(ctx, s.conn.DB, func(q sqlc.Querier) (*models.InsertEventResult, error) {
+		txStart := time.Now()
+		event.MaxDurationSeconds = requestedMaxDurationSeconds
 		if replay, err := lookupReplayEventInTx(ctx, q, event); err != nil {
 			return nil, err
 		} else if replay != nil {
@@ -1514,7 +1517,7 @@ func (s *SQLCurtailmentStore) InsertEventWithTargets(
 		); err != nil {
 			return nil, err
 		}
-		if err := capScheduledEventAtWindowEnd(&event, time.Now()); err != nil {
+		if err := capScheduledEventAtWindowEnd(&event, txStart, time.Now()); err != nil {
 			return nil, err
 		}
 		if err := authorizeAutomationExecution(

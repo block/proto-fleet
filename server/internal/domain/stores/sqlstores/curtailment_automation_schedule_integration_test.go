@@ -181,8 +181,20 @@ func TestSQLCurtailmentStore_ScheduleAutomationRuleLifecycle(t *testing.T) {
 	assert.True(t, fleeterror.IsFailedPreconditionError(err), err)
 	assert.Contains(t, err.Error(), "window ended before its event could start")
 
-	_, err = store.InsertEventWithTargets(ctx, event, nil)
+	// The insert waits on the rule's lock inside its transaction; the wait must
+	// not shorten the cap, which counts from the transaction's created_at.
+	holder, err := database.BeginTx(ctx, nil)
 	require.NoError(t, err)
+	_, err = holder.ExecContext(ctx, `SELECT pg_advisory_xact_lock(hashtextextended('curtailment_automation_rule:' || $1::bigint::text || ':' || $2::bigint::text, 0))`, user.OrganizationID, rule.ID)
+	require.NoError(t, err)
+	inserted := make(chan error, 1)
+	go func() {
+		_, insertErr := store.InsertEventWithTargets(ctx, event, nil)
+		inserted <- insertErr
+	}()
+	time.Sleep(2 * time.Second)
+	require.NoError(t, holder.Commit())
+	require.NoError(t, <-inserted)
 	require.NoError(t, store.SetAutomationActiveEvent(ctx, rule.ID, 0, event.EventUUID, start))
 	persisted, err := store.GetEventByUUID(ctx, user.OrganizationID, event.EventUUID)
 	require.NoError(t, err)
@@ -190,8 +202,8 @@ func TestSQLCurtailmentStore_ScheduleAutomationRuleLifecycle(t *testing.T) {
 	require.NotNil(t, persisted.ScheduledStartAt)
 	assert.True(t, persisted.ScheduledStartAt.Equal(start))
 	require.NotNil(t, persisted.MaxDurationSeconds)
-	assert.LessOrEqual(t, *persisted.MaxDurationSeconds, int32(30*60), "the cap ends at the window's end, measured from insertion")
-	assert.Greater(t, *persisted.MaxDurationSeconds, int32(29*60))
+	deadline := persisted.CreatedAt.Add(time.Duration(*persisted.MaxDurationSeconds) * time.Second)
+	assert.WithinDuration(t, event.AutomationWindowEndAt, deadline, time.Second, "the cap ends at the window's end")
 	allowed, err := store.AuthorizeAutomationCurtailDispatch(ctx, persisted, interfaces.CurtailmentTopologyScopeCoverage{RequireOrgWide: true})
 	require.NoError(t, err)
 	assert.True(t, allowed)
