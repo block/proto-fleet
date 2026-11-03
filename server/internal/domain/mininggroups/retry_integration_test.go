@@ -226,7 +226,10 @@ func TestScheduledReconciliationBacksOffErrorsBeforeBlock(t *testing.T) {
 func TestScheduledReconciliationBacksOffTimeout(t *testing.T) {
 	ctx, f := newRetryFixture(t)
 	f.miner.wait = true
-	require.Error(t, f.service.reconcileScheduled(ctx, f.target))
+	err := f.service.reconcileScheduledWithTimeout(ctx, f.target, time.Second)
+	require.ErrorIs(t, err, context.DeadlineExceeded)
+	require.NotEmpty(t, f.miner.calls, "the deadline must expire during controller I/O")
+	require.NoError(t, ctx.Err(), "the active lifetime must outlive the timed-out attempt")
 	row := f.state(t)
 	require.EqualValues(t, 1, row.RetryCount, "an expired attempt must still persist backoff using the active lifetime")
 	require.True(t, row.NextReconcileAt.After(time.Now()))

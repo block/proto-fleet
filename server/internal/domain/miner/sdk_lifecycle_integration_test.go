@@ -13,6 +13,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/miner/models"
 	"github.com/block/proto-fleet/server/internal/domain/stores/sqlstores"
 	sdk "github.com/block/proto-fleet/server/sdk/v1"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -93,7 +94,7 @@ func registryIntegrationClientWithStop(t *testing.T, name string, creates, calls
 
 func TestFreshCommandFacadesRetainRealSDKBackendAcrossReadCacheExpiry(t *testing.T) {
 	if testing.Short() {
-		t.Skip("requires real Postgres and the actual read-cache TTL")
+		t.Skip("requires real Postgres")
 	}
 	conn, crypto, files := setupTestDB(t)
 	identifier := models.DeviceIdentifier("sdk-registry-lifetime")
@@ -102,6 +103,7 @@ func TestFreshCommandFacadesRetainRealSDKBackendAcrossReadCacheExpiry(t *testing
 	var creates, calls atomic.Int64
 	manager := &registryIntegrationManager{clients: map[string]sdk.Driver{"antminer": registryIntegrationClient(t, "antminer", &creates, &calls)}, caps: sdk.Capabilities{sdk.CapabilityCurtailFull: true}}
 	service := miner.NewMinerService(conn, sqlstores.NewSQLUserStore(conn), crypto, files, manager)
+	miner.SetReadCacheTTL(service, time.Second)
 	first, err := service.GetMinerFromDeviceIdentifier(t.Context(), identifier)
 	require.NoError(t, err)
 	fresh, err := service.GetMinerForCommand(t.Context(), id)
@@ -113,17 +115,16 @@ func TestFreshCommandFacadesRetainRealSDKBackendAcrossReadCacheExpiry(t *testing
 	require.NoError(t, err)
 	require.NotSame(t, first, invalidated)
 	require.Equal(t, int64(1), creates.Load())
-	// Expiring the real facade cache must not evict the active SDK registry state.
-	timer := time.NewTimer(time.Minute + 250*time.Millisecond)
-	defer timer.Stop()
-	select {
-	case <-timer.C:
-	case <-t.Context().Done():
-		t.Fatal(t.Context().Err())
-	}
-	expired, err := service.GetMinerFromDeviceIdentifier(t.Context(), identifier)
+	cached, err := service.GetMinerFromDeviceIdentifier(t.Context(), identifier)
 	require.NoError(t, err)
-	require.NotSame(t, invalidated, expired)
+	require.Same(t, invalidated, cached)
+	// Exercise real TTL expiry while retaining the SDK backend and its state.
+	expired := invalidated
+	require.EventuallyWithT(t, func(c *assert.CollectT) {
+		expired, err = service.GetMinerFromDeviceIdentifier(t.Context(), identifier)
+		require.NoError(c, err)
+		require.NotSame(c, invalidated, expired)
+	}, 5*time.Second, 10*time.Millisecond)
 	require.Equal(t, int64(1), creates.Load())
 	var site int64
 	require.NoError(t, conn.QueryRowContext(t.Context(), "INSERT INTO site(org_id,name,slug) VALUES(1,'Registry Site','registry-site') RETURNING id").Scan(&site))

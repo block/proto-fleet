@@ -99,15 +99,15 @@ func TestContainerCompressionCleanupMakesProgressWithinJobDeadline(t *testing.T)
 	 SELECT id,device_id,now() FROM container_topology_observation WHERE device_id=$1 AND collected_at>$2 AND collected_at<=$2::timestamptz+INTERVAL '500 seconds'`, r.databaseID, r.base)
 	require.NoError(t, err)
 
-	// Three million retained samples, spread over almost nine days of hourly
-	// chunks. FK checks must not scan these for each expired receipt deletion.
+	// Cover nine days of hourly chunks with multiple tanks. The plan assertion
+	// below detects per-tank scans without needing millions of retained rows.
 	recent := time.Now().UTC().Truncate(time.Hour).Add(-9 * 24 * time.Hour)
 	_, err = r.db.ExecContext(t.Context(), `INSERT INTO container_tank(device_id,position,first_seen_at,last_seen_at)
-	 SELECT $1,n,$2,$2 FROM generate_series(3,60) n`, r.databaseID, recent)
+	 SELECT $1,n,$2,$2 FROM generate_series(3,6) n`, r.databaseID, recent)
 	require.NoError(t, err)
 	_, err = r.db.ExecContext(t.Context(), `INSERT INTO container_topology_observation(device_id,version_id,collected_at,complete)
-	 SELECT device_id,version_id,$3::timestamptz+n*INTERVAL '15 seconds',complete
-	 FROM container_topology_observation CROSS JOIN generate_series(1,50000) n WHERE device_id=$1 AND collected_at=$2`, r.databaseID, r.base, recent)
+	 SELECT device_id,version_id,$3::timestamptz+n*INTERVAL '1 hour',complete
+	 FROM container_topology_observation CROSS JOIN generate_series(1,216) n WHERE device_id=$1 AND collected_at=$2`, r.databaseID, r.base, recent)
 	require.NoError(t, err)
 	_, err = r.db.ExecContext(t.Context(), `INSERT INTO container_tank_metrics(tank_id,time,topology_observation_id,topology_version_id,coverage)
 	 SELECT t.id,o.collected_at,o.id,o.version_id,'{}' FROM container_topology_observation o
@@ -151,5 +151,5 @@ func TestContainerCompressionCleanupMakesProgressWithinJobDeadline(t *testing.T)
 	require.Zero(t, remaining)
 	var retained int
 	require.NoError(t, r.db.QueryRowContext(t.Context(), `SELECT count(*) FROM container_tank_metrics`).Scan(&retained))
-	require.Equal(t, 3000002, retained, "cleanup must retain all compressed telemetry and its FK targets")
+	require.Equal(t, 1298, retained, "cleanup must retain all compressed telemetry and its FK targets")
 }

@@ -13,7 +13,11 @@ import (
 // The HA runtime owns execution. These fields only schedule retries; they never
 // release write admission, replace a saved request, or expire controller work.
 func (s *Service) reconcileScheduled(ctx context.Context, row sqlc.ListMiningGroupControllersRow) error {
-	callCtx, cancel := context.WithTimeout(ctx, reconciliationTimeout)
+	return s.reconcileScheduledWithTimeout(ctx, row, reconciliationTimeout)
+}
+
+func (s *Service) reconcileScheduledWithTimeout(ctx context.Context, row sqlc.ListMiningGroupControllersRow, timeout time.Duration) error {
+	callCtx, cancel := context.WithTimeout(ctx, timeout)
 	err := s.Reconcile(callCtx, row.OrganizationID, row.DeviceID, row.DeviceIdentifier)
 	cancel()
 	if ctx.Err() != nil {

@@ -21,8 +21,7 @@ permissions:
   contents: read
 
 jobs:
-  # Lint and test run as separate jobs so they execute in parallel on
-  # two runners instead of serially on one. They share the Go build cache.
+  # Lint and test shards run independently on separate runners.
   lint:
     name: Lint
     runs-on: ubuntu-latest
@@ -73,9 +72,13 @@ jobs:
       - name: Test
         run: GOWORK=off go test ./...
 
-  test:
-    name: Test
+  test-shards:
+    name: Test (${{ matrix.shard }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [accounts, storage, domain-control, domain, other]
     defaults:
       run:
         working-directory: server
@@ -98,6 +101,26 @@ jobs:
 
       - name: Configure Go cache
         uses: ./.github/actions/go-cache-setup
+        with:
+          build-cache-scope: server-test-${{ matrix.shard }}
+          build-cache-restore-scope: ${{ startsWith(matrix.shard, 'domain') && 'server-test-domain' || 'workspace' }}
+          # Cache entries are immutable. Save each revision so source-only
+          # changes do not repeatedly compile against an old dependency cache.
+          build-cache-revision: -${{ github.sha }}
+
+      - name: Select test packages
+        env:
+          SHARD: ${{ matrix.shard }}
+        run: |
+          case "$SHARD" in
+            accounts) go list ./internal/domain/hostedaccounts/... ;;
+            storage) go list ./internal/domain/stores/... ./internal/infrastructure/timescaledb/... ;;
+            domain-control) go list ./internal/domain/{command,devicewrite,miner,mininggroups,rollout}/... ;;
+            domain) go list ./internal/domain/... | grep -Ev '/internal/domain/(command|devicewrite|hostedaccounts|miner|mininggroups|rollout|stores)(/|$)' ;;
+            other) go list ./... | grep -Ev '/internal/(domain|infrastructure/timescaledb)(/|$)' ;;
+          esac > "$RUNNER_TEMP/server-test-packages.txt"
+          test -s "$RUNNER_TEMP/server-test-packages.txt"
+          cat "$RUNNER_TEMP/server-test-packages.txt"
 
       # The timescaledb service is built from server/timescaledb/ and has no
       # `image:`, so a cold runner rebuilds it on every `just db-up` (~30s of
@@ -149,10 +172,65 @@ jobs:
       - name: Start database
         run: just db-up
 
-      # Test binaries share one PostgreSQL instance; avoid cross-package
-      # database cloning pressure inside admission/dispatch deadline checks.
+      # Each shard owns its runner and PostgreSQL instance. Within a shard,
+      # preserve the package isolation required by dispatch deadline tests.
       - name: Test
-        run: GOFLAGS="${GOFLAGS:-} -p=1" just test
+        shell: bash
+        run: |
+          DB_PASSWORD="${DB_PASSWORD:-fleet}" xargs go test -json -count=1 -p=1 \
+            < "$RUNNER_TEMP/server-test-packages.txt" | tee "$RUNNER_TEMP/server-test-results.jsonl" | \
+            python3 -u -c '
+          import json
+          import sys
+
+          for line in sys.stdin:
+              event = json.loads(line)
+              action = event["Action"]
+              package = event.get("Package", event.get("ImportPath", ""))
+              if "Test" not in event and action in {"start", "pass", "skip", "fail"}:
+                  print(event["Time"], action.upper(), package, "elapsed=", event.get("Elapsed", 0), "s")
+              elif action in {"fail", "build-fail", "build-output"}:
+                  print(action.upper(), package, event.get("Output", event.get("Test", "")))
+          '
+
+      - name: Summarize test timings
+        if: always()
+        env:
+          SHARD: ${{ matrix.shard }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          results = Path(os.environ["RUNNER_TEMP"]) / "server-test-results.jsonl"
+          if not results.exists():
+              raise SystemExit(0)
+          events = [json.loads(line) for line in results.read_text().splitlines()]
+          failed = {e.get("Package", e.get("ImportPath")) for e in events if e["Action"] in {"fail", "build-fail"}}
+          for event in events:
+              if event.get("Package", event.get("ImportPath")) in failed and "Output" in event:
+                  print(event["Output"], end="")
+          tests = sorted(
+              (e for e in events if e["Action"] in {"pass", "fail"} and "Test" in e and "/" not in e["Test"]),
+              key=lambda e: e.get("Elapsed", 0), reverse=True,
+          )
+          lines = [f"### Server tests: {os.environ['SHARD']}", "", "| Slowest tests | Seconds |", "| --- | ---: |"]
+          lines += [f"| {e['Test']} | {e.get('Elapsed', 0):.2f} |" for e in tests[:20]]
+          summary = "\n".join(lines) + "\n"
+          print(summary)
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as output:
+              output.write(summary)
+          PY
+
+      - name: Upload test timings
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: server-test-results-${{ matrix.shard }}
+          path: ${{ runner.temp }}/server-test-results.jsonl
+          if-no-files-found: ignore
+          retention-days: 7
 
       - name: Show database diagnostics
         if: failure()
@@ -163,3 +241,15 @@ jobs:
           docker compose logs --no-color timescaledb || true
           docker compose exec -T timescaledb postgres --version || true
           docker compose exec -T timescaledb dpkg-query -W 'timescaledb-*' || true
+
+  # Preserve the existing check name for branch rules and other consumers.
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    if: always()
+    needs: test-shards
+    steps:
+      - name: Check all test shards
+        env:
+          RESULT: ${{ needs.test-shards.result }}
+        run: test "$RESULT" = success

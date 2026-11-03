@@ -514,8 +514,11 @@ func createMigrationBridgeTestDB(t *testing.T) (*sql.DB, *Config, func()) {
 	assert.NoError(t, err)
 	dbName := "fleet_bridge_" + hex.EncodeToString(suffix)
 
+	// TimescaleDB excludes templates from automatic background scheduling.
+	// Preserve policy metadata and normal migration hooks while keeping workers
+	// from racing schema changes in these raw migration fixtures.
 	// nolint:forbidigo // Test-only database lifecycle DDL cannot be parameterized.
-	_, err = admin.ExecContext(t.Context(), "CREATE DATABASE "+quoteTestIdentifier(dbName))
+	_, err = admin.ExecContext(t.Context(), "CREATE DATABASE "+quoteTestIdentifier(dbName)+" IS_TEMPLATE true")
 	assert.NoError(t, err)
 	var conn *sql.DB
 	drop := func() {
@@ -527,6 +530,11 @@ func createMigrationBridgeTestDB(t *testing.T) (*sql.DB, *Config, func()) {
 		cleanup, cleanupErr := ConnectToDatabase(&adminConfig)
 		assert.NoError(t, cleanupErr)
 		defer cleanup.Close()
+		// PostgreSQL cannot drop templates. Unmark and seal atomically so the
+		// database never becomes eligible for automatic background scheduling.
+		// nolint:forbidigo // Test-only database lifecycle DDL cannot be parameterized.
+		_, cleanupErr = cleanup.ExecContext(ctx, "ALTER DATABASE "+quoteTestIdentifier(dbName)+" WITH IS_TEMPLATE false ALLOW_CONNECTIONS false")
+		assert.NoError(t, cleanupErr)
 		// FORCE terminates attached sessions, including TimescaleDB workers,
 		// while holding the database lock, then waits for them to exit.
 		// nolint:forbidigo // Test-only database lifecycle DDL cannot be parameterized.

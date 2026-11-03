@@ -294,6 +294,19 @@ go test ./internal/domain/pairing -v
 go test ./internal/domain/pairing -v -run TestFunctionName
 ```
 
+The Server Checks workflow divides `go list ./...` across five runners: hosted
+accounts, storage (SQL stores and TimescaleDB), device control (commands, write
+fences, miner access, mining groups, and rollouts), remaining domain packages,
+and all other packages. Each runner has its own database and runs one package at a
+time to avoid database contention inside dispatch and admission deadline tests.
+New packages fall into the domain or other shard automatically.
+
+Each shard streams package progress, uploads `go test -json` results, and lists
+its slowest tests in the job summary. Build caches are scoped by shard and saved
+per revision so source-only changes can reuse compiled code from earlier runs.
+The domain shards can restore the original domain cache when their own cache is
+not yet available.
+
 ### Code Generation
 
 ```bash
