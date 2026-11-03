@@ -1,4 +1,4 @@
--- requires-shared: 1053
+-- requires-shared: 1055
 CREATE OR REPLACE FUNCTION request_curtailment_rig_config_reconciliation(p_org_id bigint, p_requested_by bigint, p_full boolean)
 RETURNS bigint LANGUAGE plpgsql VOLATILE SECURITY INVOKER AS $$
 DECLARE result bigint;
