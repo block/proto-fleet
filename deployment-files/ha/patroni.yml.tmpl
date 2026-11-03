@@ -56,9 +56,10 @@ bootstrap:
       use_slots: true
       parameters:
         hot_standby: "on"
+        # Patroni only accepts these shared-memory limits from cluster configuration.
+        max_connections: 300
         max_replication_slots: 10
         max_wal_senders: 10
-        # Patroni only accepts this shared-memory limit from cluster configuration.
         max_worker_processes: 19
         wal_level: replica
   initdb:
@@ -89,7 +90,6 @@ postgresql:
       sslrootcert: /run/proto-fleet-ha/service-ca.crt
   parameters:
     hot_standby: "on"
-    max_connections: 300
     max_replication_slots: 10
     max_wal_senders: 10
     shared_buffers: 256MB

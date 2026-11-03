@@ -94,6 +94,7 @@ from unittest.mock import Mock, patch
 from patroni.dcs.etcd3 import Etcd3Client, InvalidAuthToken
 from patroni.log import PatroniLogger
 from patroni.config import Config
+from patroni.postgresql.config import ConfigHandler
 
 with open(sys.argv[1], encoding="utf-8") as config_file:
     config = yaml.safe_load(config_file)
@@ -103,11 +104,16 @@ assert config["restapi"]["authentication"]["password"] == "quoted \"value\": wit
 assert config["postgresql"]["authentication"]["superuser"]["password"] == "true"
 assert config["postgresql"]["authentication"]["replication"]["password"] == "colon: space"
 
-# Local max_worker_processes is ignored by Patroni. Test the effective setting
-# after a new cluster adopts its bootstrap configuration.
+# Test the effective limits after a new cluster adopts its bootstrap configuration.
 effective = Config(sys.argv[1], validator=None)
 effective.set_dynamic_configuration(config["bootstrap"]["dcs"])
 assert effective["postgresql"]["parameters"]["max_worker_processes"] == 19
+assert effective["postgresql"]["parameters"]["max_connections"] == 300
+
+# Catch local parameters that Patroni overrides with cluster settings or defaults.
+for name, value in config["postgresql"]["parameters"].items():
+    if name in ConfigHandler.CMDLINE_OPTIONS:
+        assert str(effective["postgresql"]["parameters"][name]) == str(value), name
 
 # Exercise Patroni itself: a missing JSON dependency otherwise silently falls
 # back to plain text, even when the configuration validator succeeds.
