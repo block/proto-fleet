@@ -294,15 +294,16 @@ and no replication lag. Apply the shared setting once:
 ```bash
 sudo docker exec -u postgres proto-fleet-ha-patroni-1 \
   patronictl -c /run/proto-fleet-ha/patroni.yml \
-  edit-config proto-fleet --pg max_worker_processes=19
+  edit-config proto-fleet --pg max_worker_processes=19 --force
 ```
 
 Restart the current standby with `patronictl restart proto-fleet <standby>
---pending`. Confirm that it uses 19 slots and has returned to synchronous
+--pending --force`. Confirm that it uses 19 slots and has returned to synchronous
 streaming with no lag. Then restart the current primary with
-`patronictl restart proto-fleet <primary> --pending`. Run these commands through
+`patronictl restart proto-fleet <primary> --pending --force`. Run these commands through
 the same `docker exec` and Patroni configuration path shown above. Do not restart
 both databases together. The primary restart can interrupt database access.
+The `--force` option skips interactive prompts; complete the checks above first.
 
 Verify the effective value on both hosts, no pending restart, healthy
 `fleet-ha status`, fresh telemetry, and successful scheduled jobs. Record the
