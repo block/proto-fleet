@@ -148,3 +148,13 @@ TCP readback and deadlines. No Docker service or privileged port is required.
 In multi-address load mode, authenticated `GET /fake-api/v1/load/led`
 returns `{"active": true|false}` for command readback. This fixture audit is
 separate from the hardware API and is absent from single-miner mode.
+
+### Real Fleet Node sandbox discovery
+
+The mixed-miner sandbox requires the discovery/pairing stack merged in #326–328.
+Its preparation writes identical explicit discovery ranges on both peers and
+uses bounded IP-list commands: a full shard exceeds the 4,096-target automatic
+scan limit. Sandbox PR [squareup/tf-protofleet#82](https://github.com/squareup/tf-protofleet/pull/82)
+contains the cross-repository test command in `fleet-sandbox/LOADTEST.md`. That
+test runs `TestLoadtestDiscoveryConfigContract` in the real Node package against
+all twenty generated configurations and full endpoint inventories.
