@@ -2,6 +2,8 @@ package curtailment
 
 import (
 	"context"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -96,6 +98,129 @@ func (h *automationHarness) seedScheduledEvent(state models.EventState, windowSt
 
 func scheduleDecisionSnapshot(revision uuid.UUID) []byte {
 	return []byte(`{"schedule_revision":"` + revision.String() + `"}`)
+}
+
+// slowExecutionStore blocks the execution claim until shutdown and counts
+// schedule production passes.
+type slowExecutionStore struct {
+	*scheduleDurableFake
+	claimed chan struct{}
+	once    sync.Once
+	lists   atomic.Int32
+}
+
+func (f *slowExecutionStore) ClaimAutomationExecution(ctx context.Context) (*models.AutomationExecution, error) {
+	f.once.Do(func() { close(f.claimed) })
+	<-ctx.Done()
+	return nil, nil
+}
+
+func (f *slowExecutionStore) ListEnabledScheduleAutomationRules(context.Context) ([]models.ScheduledAutomationRule, error) {
+	f.lists.Add(1)
+	return nil, nil
+}
+
+func TestAutomationService_RunAssertsSchedulesWhileExecutionIsSlow(t *testing.T) {
+	t.Parallel()
+	h, durable := newScheduleHarness(t)
+	store := &slowExecutionStore{scheduleDurableFake: durable, claimed: make(chan struct{})}
+	h.automation.store = store
+	h.automation.scheduleProduceInterval = 10 * time.Millisecond
+	ctx, cancel := context.WithCancel(t.Context())
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		h.automation.Run(ctx)
+	}()
+	select {
+	case <-store.claimed:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Run did not claim execution work")
+	}
+	base := store.lists.Load()
+	assert.Eventually(t, func() bool { return store.lists.Load() >= base+3 }, 2*time.Second, 5*time.Millisecond,
+		"schedule production must not wait for a slow execution")
+	cancel()
+	<-done
+}
+
+// isolatedExecutionStore hands queued work to concurrent workers; the slow
+// rule's lookup blocks until shutdown.
+type isolatedExecutionStore struct {
+	*automationFakeStore
+	mu          sync.Mutex
+	queue       []models.AutomationExecution
+	slowRuleID  int64
+	slowStarted chan struct{}
+	completed   chan int64
+}
+
+func (f *isolatedExecutionStore) QueueAutomationExecution(context.Context, models.AutomationExecution) error {
+	return nil
+}
+
+func (f *isolatedExecutionStore) ClaimAutomationExecution(context.Context) (*models.AutomationExecution, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if len(f.queue) == 0 {
+		return nil, nil
+	}
+	work := f.queue[0]
+	f.queue = f.queue[1:]
+	return &work, nil
+}
+
+func (f *isolatedExecutionStore) CompleteAutomationExecution(_ context.Context, ruleID, _ int64, _ time.Time) error {
+	f.completed <- ruleID
+	return nil
+}
+
+func (f *isolatedExecutionStore) RetryAutomationExecution(context.Context, int64, int64, time.Time, string) error {
+	return nil
+}
+
+func (f *isolatedExecutionStore) GetAutomationRule(ctx context.Context, orgID, ruleID int64) (*models.AutomationRule, error) {
+	if ruleID == f.slowRuleID {
+		close(f.slowStarted)
+		<-ctx.Done()
+		return nil, fleeterror.NewInternalError("rule lookup interrupted")
+	}
+	return &models.AutomationRule{ID: ruleID, OrgID: orgID, TriggerType: models.AutomationTriggerTypeSchedule}, nil
+}
+
+func TestAutomationService_RunIsolatesSlowExecutions(t *testing.T) {
+	t.Parallel()
+	h := newAutomationHarness(t)
+	store := &isolatedExecutionStore{
+		automationFakeStore: h.rules,
+		queue: []models.AutomationExecution{
+			{RuleID: 1, OrgID: h.orgID, Generation: 1},
+			{RuleID: 2, OrgID: h.orgID, Generation: 1},
+		},
+		slowRuleID:  1,
+		slowStarted: make(chan struct{}),
+		completed:   make(chan int64, 2),
+	}
+	h.automation.store = store
+	ctx, cancel := context.WithCancel(t.Context())
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		h.automation.Run(ctx)
+	}()
+	select {
+	case <-store.slowStarted:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Run did not start the slow rule")
+	}
+	select {
+	case ruleID := <-store.completed:
+		assert.Equal(t, int64(2), ruleID)
+	case <-time.After(2 * time.Second):
+		t.Fatal("a slow rule blocked another rule's due work")
+	}
+	cancel()
+	<-done
 }
 
 func TestScheduleAssertionAt(t *testing.T) {

@@ -34,6 +34,8 @@ type AutomationService struct {
 	sourceStore mqttingest.SettingsStore
 	curtailment *Service
 	clock       func() time.Time
+	// scheduleProduceInterval overrides how often Run asserts schedules.
+	scheduleProduceInterval time.Duration
 }
 
 type AutomationServiceConfig struct {

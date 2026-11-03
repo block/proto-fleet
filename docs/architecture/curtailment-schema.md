@@ -219,7 +219,9 @@ state: OFF stamped with the window's start while a window is open, otherwise ON 
 with the most recent window's end. The mailbox accepts only a newer boundary, so each
 boundary runs once. A schedule saved, enabled, or recovered mid-window starts at once
 for the rest of that window; windows that have already ended are skipped. Saving or
-enabling a schedule clears its mailbox so its current state is asserted again.
+enabling a schedule clears its mailbox so its current state is asserted again. The
+schedule assertions run on their own ticker, and up to four rule executions run at once,
+so a slow or failing rule cannot hold back another rule's window.
 
 Every save gives the schedule a new `revision`, and each queued boundary carries the
 revision it was produced from in `curtailment_automation_execution.schedule_revision`.

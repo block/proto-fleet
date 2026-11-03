@@ -3,6 +3,7 @@ package curtailment
 import (
 	"context"
 	"log/slog"
+	"sync"
 	"time"
 
 	"github.com/block/proto-fleet/server/internal/domain/curtailment/models"
@@ -18,19 +19,53 @@ type AutomationExecutionStore interface {
 	RetryAutomationExecution(ctx context.Context, ruleID, generation int64, leaseExpiresAt time.Time, message string) error
 }
 
+// automationExecutionWorkers bounds concurrent rule executions. Claims lease
+// one rule's row each, so a slow rule occupies a single worker.
+const automationExecutionWorkers = 4
+
 // Run drains independent rule mailboxes until shutdown. Failed rules retain
 // their latest assertion with backoff; another rule remains immediately due.
-// Schedule rules assert their current window into the same mailboxes.
+// Schedule rules assert their current window into the same mailboxes on their
+// own ticker, so a slow execution cannot delay a window's assertion.
 func (s *AutomationService) Run(ctx context.Context) {
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		s.runScheduleProducer(ctx)
+	}()
+	for range automationExecutionWorkers {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			s.runExecutionWorker(ctx)
+		}()
+	}
+	wg.Wait()
+}
+
+func (s *AutomationService) runExecutionWorker(ctx context.Context) {
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
-	var lastScheduleProduce time.Time
 	for {
-		if now := s.clock(); now.Sub(lastScheduleProduce) >= scheduleProduceInterval {
-			s.produceScheduleAssertions(ctx)
-			lastScheduleProduce = now
-		}
 		s.processDueExecutions(ctx)
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
+	}
+}
+
+func (s *AutomationService) runScheduleProducer(ctx context.Context) {
+	interval := s.scheduleProduceInterval
+	if interval <= 0 {
+		interval = scheduleProduceInterval
+	}
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		s.produceScheduleAssertions(ctx)
 		select {
 		case <-ctx.Done():
 			return
