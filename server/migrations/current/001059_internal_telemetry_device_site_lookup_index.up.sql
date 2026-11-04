@@ -1,6 +1,7 @@
 -- requires-shared: 1000
 
 -- Match telemetry's site lookup, including soft-deleted device history.
+-- Index-only scans need the raw deleted_at column, not just the expression key.
 CREATE INDEX idx_device_telemetry_site_lookup
     ON device (device_identifier, (deleted_at IS NULL) DESC, updated_at DESC, id DESC)
-    INCLUDE (site_id);
+    INCLUDE (site_id, deleted_at);
