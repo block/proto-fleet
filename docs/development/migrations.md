@@ -414,11 +414,12 @@ plan for collection-bound batch filtering.
    `server/migrations/current/`.
    The command also updates `server/migrations/LATEST`, a single line containing
    the highest migration's full name without `.up.sql` or `.down.sql`. Commit it
-   with the pair. Different migration names change the same line, making concurrent
-   allocations conflict in Git even when they chose the same number.
-   Resolve the conflict by renumbering only the unmerged, undeployed pair above
-   current main and updating `LATEST` to match. Never renumber merged or deployed SQL.
-   Migration hygiene rejects missing/stale markers, duplicate versions and
+   with the pair. Branches that add different migration names change the same line.
+   Git reports a merge conflict even if those branches chose the same number.
+   To resolve the conflict, give the unmerged, undeployed pair a number higher
+   than the highest on current main, then update `LATEST` to match.
+   Never renumber merged or deployed SQL.
+   Migration hygiene rejects missing or stale markers, duplicate versions and
    mismatched up/down pairs. Public promotion does not use this internal allocation
    marker. The marker is developer metadata; the database runner does not read it.
 2. Each private up file declares its required earlier shared version:
