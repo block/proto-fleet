@@ -118,6 +118,7 @@ type WorkerNamePoolReapplyService interface {
 }
 
 type Service struct {
+	minerWebCapability    interface{ SupportsMinerWeb(fleetNodeID int64) bool }
 	deviceStore           interfaces.DeviceStore
 	discoveredDeviceStore interfaces.DiscoveredDeviceStore
 	telemetry             TelemetryCollector
@@ -181,6 +182,11 @@ func NewService(
 		unpairSem:             make(chan struct{}, concurrentUnpairLimit),
 		refreshMinerSem:       make(chan struct{}, refreshMinersConcurrencyLimit),
 	}
+}
+
+// WithMinerWebCapability enables views for compatible live Fleet Nodes.
+func (s *Service) WithMinerWebCapability(provider interface{ SupportsMinerWeb(fleetNodeID int64) bool }) {
+	s.minerWebCapability = provider
 }
 
 // WithOptionsCache wires the per-org options cache used to serve
@@ -827,7 +833,7 @@ func (s *Service) buildSnapshotsFromUnifiedQuery(
 			DeviceIdentifier:         row.DeviceIdentifier,
 			DriverName:               row.DriverName,
 			DeviceClass:              commonpb.DeviceClass(row.DeviceClass),
-			EmbeddedWebViewAvailable: row.EmbeddedWebViewAvailable,
+			EmbeddedWebViewAvailable: row.EmbeddedWebViewAvailable && (!row.FleetNodeID.Valid || (s.minerWebCapability != nil && s.minerWebCapability.SupportsMinerWeb(row.FleetNodeID.Int64))),
 		}
 
 		if row.SiteID.Valid {

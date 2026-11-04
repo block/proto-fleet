@@ -34,11 +34,12 @@ import (
 	"github.com/block/proto-fleet/server/internal/handlers/middleware"
 	"github.com/block/proto-fleet/server/internal/infrastructure/db"
 	"github.com/block/proto-fleet/server/internal/infrastructure/encrypt"
+	"github.com/block/proto-fleet/server/internal/runtimepolicy"
 )
 
 const (
 	minerLoginPath        = "/api/v1/auth/login"
-	proxyClientTimeout    = 30 * time.Second
+	proxyClientTimeout    = runtimepolicy.MinerWebRequestTimeout
 	maxProxyBodyBytes     = 64 << 20
 	maxLoginResponseBytes = 64 << 10
 	defaultProtoURLScheme = "http"
@@ -79,6 +80,7 @@ func (c Config) Validate() error {
 }
 
 type Handler struct {
+	nodeSender         MinerWebSender
 	conn               *sql.DB
 	config             Config
 	proxySlotsOnce     sync.Once
@@ -99,11 +101,13 @@ type Handler struct {
 
 type proxyTarget struct {
 	dispatch         func(context.Context, bool, func(context.Context) error) error
-	binding          sqlc.GetDirectProtoMinerProxyTargetRow
+	binding          sqlc.GetProtoMinerProxyTargetRow
 	deviceIdentifier string
 	baseURL          string
 	siteID           *int64
 	passwordEnc      sql.NullString
+	password         func(context.Context) (string, error) // node-local credential provider
+	tokenKey         string
 }
 
 // hasCredentials reports whether the target has a usable stored password. An
@@ -118,6 +122,9 @@ func (t proxyTarget) hasCredentials() bool {
 // token minted for the old endpoint is never replayed to (or credentials
 // re-sent under the assumption of) a different address.
 func (t proxyTarget) cacheKey() string {
+	if t.tokenKey != "" {
+		return t.tokenKey
+	}
 	return t.deviceIdentifier + "\x00" + t.baseURL
 }
 
@@ -128,8 +135,10 @@ func NewHandler(
 	permissionResolver *authz.PermissionResolver,
 	encryptService *encrypt.Service,
 	config Config,
+	nodeSender MinerWebSender,
 ) http.Handler {
 	return &Handler{
+		nodeSender:         nodeSender,
 		conn:               conn,
 		config:             config,
 		writeService:       devicewrite.NewService(conn),
@@ -210,6 +219,9 @@ func (h *Handler) acquireProxySlot() (func(), error) {
 }
 
 func (h *Handler) responseTimeout(target proxyTarget) time.Duration {
+	if target.binding.FleetNodeID.Valid {
+		return runtimepolicy.MinerWebResponseTimeout
+	}
 	timeout := h.clientFor(target.baseURL).Timeout
 	if timeout <= 0 {
 		return proxyClientTimeout
@@ -348,7 +360,7 @@ func (h *Handler) forwardAndCopy(ctx context.Context, w http.ResponseWriter, r *
 		if err := http.NewResponseController(w).SetWriteDeadline(time.Time{}); err != nil {
 			return fleeterror.NewUnavailableErrorf("miner response write deadline could not be enforced")
 		}
-		resp, err := h.forward(ctx, r, target, proxyPath, body, false)
+		resp, err := h.forwardAuthenticated(ctx, r, target, proxyPath, body)
 		if err != nil {
 			return err
 		}
@@ -360,19 +372,6 @@ func (h *Handler) forwardAndCopy(ctx context.Context, w http.ResponseWriter, r *
 				resultErr = fleeterror.NewUnavailableErrorf("miner response could not be closed")
 			}
 		}()
-		if resp.StatusCode == http.StatusUnauthorized && target.hasCredentials() && requiresMinerAuthentication(proxyPath) {
-			if _, err := io.Copy(io.Discard, resp.Body); err != nil {
-				return fleeterror.NewUnavailableErrorf("miner response could not be consumed")
-			}
-			h.clearToken(target.cacheKey())
-			if err := resp.Body.Close(); err != nil {
-				return fleeterror.NewUnavailableErrorf("miner response could not be closed")
-			}
-			resp, err = h.forward(ctx, r, target, proxyPath, body, true)
-			if err != nil {
-				return err
-			}
-		}
 		if resp.StatusCode == http.StatusAccepted && proxyMutatesMiner(r.Method, proxyPath) {
 			// An explicit asynchronous acknowledgement overrides the endpoint's
 			// ordinary synchronous contract, even if response copying fails.
@@ -464,7 +463,7 @@ func (h *Handler) authenticate(r *http.Request) (context.Context, *session.Info,
 }
 
 func (h *Handler) resolveTarget(ctx context.Context, deviceIdentifier string, orgID int64) (proxyTarget, error) {
-	row, err := h.queries.GetDirectProtoMinerProxyTarget(ctx, sqlc.GetDirectProtoMinerProxyTargetParams{
+	row, err := h.queries.GetProtoMinerProxyTarget(ctx, sqlc.GetProtoMinerProxyTargetParams{
 		DeviceIdentifier: deviceIdentifier,
 		OrgID:            orgID,
 	})
@@ -578,6 +577,26 @@ func (h *Handler) forward(
 	return resp, nil
 }
 
+func (h *Handler) forwardAuthenticated(ctx context.Context, source *http.Request, target proxyTarget, proxyPath string, body []byte) (*http.Response, error) {
+	if target.binding.FleetNodeID.Valid {
+		return h.forwardViaNode(ctx, source, target, proxyPath, body)
+	}
+	resp, err := h.forward(ctx, source, target, proxyPath, body, false)
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode != http.StatusUnauthorized || !target.hasCredentials() || !requiresMinerAuthentication(proxyPath) {
+		return resp, nil
+	}
+	_, readErr := io.Copy(io.Discard, resp.Body)
+	closeErr := resp.Body.Close()
+	if readErr != nil || closeErr != nil {
+		return nil, fleeterror.NewUnavailableErrorf("miner authentication response did not complete")
+	}
+	h.clearToken(target.cacheKey())
+	return h.forward(ctx, source, target, proxyPath, body, true)
+}
+
 func (h *Handler) tokenFor(ctx context.Context, target proxyTarget, forceLogin bool) (string, error) {
 	if !target.hasCredentials() {
 		return "", nil
@@ -595,18 +614,26 @@ func (h *Handler) tokenFor(ctx context.Context, target proxyTarget, forceLogin b
 	// already rejected non-routable addresses). An earlier serial/MAC preflight
 	// was removed as disproportionate for this threat model; revisit if the
 	// trust assumption changes.
-	passwordBytes, err := h.encryptService.Decrypt(target.passwordEnc.String)
+	password, err := h.targetPassword(ctx, target)
 	if err != nil {
 		return "", fleeterror.NewInternalErrorf("failed to decrypt miner credentials: %v", err)
 	}
 
-	token, err := h.loginTarget(ctx, target, string(passwordBytes))
+	token, err := h.loginTarget(ctx, target, password)
 	if err != nil {
 		return "", err
 	}
 
 	h.storeToken(target.cacheKey(), token)
 	return token, nil
+}
+
+func (h *Handler) targetPassword(ctx context.Context, target proxyTarget) (string, error) {
+	if target.password != nil {
+		return target.password(ctx)
+	}
+	password, err := h.encryptService.Decrypt(target.passwordEnc.String)
+	return string(password), err
 }
 
 func (h *Handler) lookupToken(key string) (string, bool) {
@@ -667,8 +694,8 @@ func (h *Handler) loginTarget(ctx context.Context, target proxyTarget, password 
 	return token, err
 }
 
-func (h *Handler) revalidateTarget(ctx context.Context, q sqlc.Querier, binding sqlc.GetDirectProtoMinerProxyTargetRow) error {
-	fresh, err := q.GetDirectProtoMinerProxyTarget(ctx, sqlc.GetDirectProtoMinerProxyTargetParams{DeviceIdentifier: binding.DeviceIdentifier, OrgID: binding.OrgID})
+func (h *Handler) revalidateTarget(ctx context.Context, q sqlc.Querier, binding sqlc.GetProtoMinerProxyTargetRow) error {
+	fresh, err := q.GetProtoMinerProxyTarget(ctx, sqlc.GetProtoMinerProxyTargetParams{DeviceIdentifier: binding.DeviceIdentifier, OrgID: binding.OrgID})
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return fleeterror.NewFailedPreconditionError("miner proxy connection changed")
@@ -1072,23 +1099,26 @@ func copyRequestHeaders(dst http.Header, src http.Header) {
 	}
 }
 
-// responseHeaderAllowlist is the set of upstream (miner) response headers safe
+// responseHeaderPolicy is the set of upstream (miner) response headers safe
 // to surface from the Fleet origin. Default-deny is deliberate: the miner is
 // untrusted and its bytes are served same-origin, so a compromised/misbehaving
 // miner must not set origin-affecting headers — Set-Cookie, Clear-Site-Data,
 // Strict-Transport-Security, or its own CSP/X-Frame-Options — that the browser
 // would apply to Fleet. Only content-negotiation, caching, and range metadata
 // pass through; the proxy sets its own security headers afterward.
-var responseHeaderAllowlist = map[string]bool{
+// Values select the bounded node relay subset. The remaining headers are
+// allowed only by the direct proxy; adding a relay header also requires checking
+// MinerWebResponseHead's count and frame-size limits.
+var responseHeaderPolicy = map[string]bool{
 	"content-type":        true,
 	"content-length":      true,
 	"content-encoding":    true,
-	"content-language":    true,
+	"content-language":    false,
 	"content-disposition": true,
 	"content-range":       true,
 	"accept-ranges":       true,
-	"vary":                true,
-	"date":                true,
+	"vary":                false,
+	"date":                false,
 	// Caching headers (cache-control, expires, etag, last-modified, age) are
 	// deliberately not forwarded: these are authenticated, per-user, RBAC-gated
 	// responses that must never be served from the browser cache after a
@@ -1098,7 +1128,7 @@ var responseHeaderAllowlist = map[string]bool{
 
 func copyResponseHeaders(dst http.Header, src http.Header) {
 	for key, values := range src {
-		if !responseHeaderAllowlist[strings.ToLower(key)] {
+		if _, allowed := responseHeaderPolicy[strings.ToLower(key)]; !allowed {
 			continue
 		}
 		for _, value := range values {

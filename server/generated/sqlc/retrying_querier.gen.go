@@ -2948,6 +2948,18 @@ func (q *retryingQuerier) GetContainerIdentifiersForCommands(ctx context.Context
 	return result, err
 }
 
+func (q *retryingQuerier) GetContainerMiningTarget(ctx context.Context, arg GetContainerMiningTargetParams) (GetContainerMiningTargetRow, error) {
+	var result GetContainerMiningTargetRow
+	err := q.retrier.RetryQuery(ctx, "GetContainerMiningTarget", func() error {
+		callResult, callErr := q.next.GetContainerMiningTarget(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) GetContainerModuleIdentities(ctx context.Context, arg GetContainerModuleIdentitiesParams) ([]GetContainerModuleIdentitiesRow, error) {
 	var result []GetContainerModuleIdentitiesRow
 	err := q.retrier.RetryQuery(ctx, "GetContainerModuleIdentities", func() error {
@@ -3540,18 +3552,6 @@ func (q *retryingQuerier) GetDeviceWriteIdentityKeys(ctx context.Context, target
 	var result []string
 	err := q.retrier.RetryQuery(ctx, "GetDeviceWriteIdentityKeys", func() error {
 		callResult, callErr := q.next.GetDeviceWriteIdentityKeys(ctx, targetID)
-		if callErr == nil {
-			result = callResult
-		}
-		return callErr
-	})
-	return result, err
-}
-
-func (q *retryingQuerier) GetDirectProtoMinerProxyTarget(ctx context.Context, arg GetDirectProtoMinerProxyTargetParams) (GetDirectProtoMinerProxyTargetRow, error) {
-	var result GetDirectProtoMinerProxyTargetRow
-	err := q.retrier.RetryQuery(ctx, "GetDirectProtoMinerProxyTarget", func() error {
-		callResult, callErr := q.next.GetDirectProtoMinerProxyTarget(ctx, arg)
 		if callErr == nil {
 			result = callResult
 		}
@@ -4988,6 +4988,18 @@ func (q *retryingQuerier) GetPoolGroupSnapshot(ctx context.Context, arg GetPoolG
 	return result, err
 }
 
+func (q *retryingQuerier) GetProtoMinerProxyTarget(ctx context.Context, arg GetProtoMinerProxyTargetParams) (GetProtoMinerProxyTargetRow, error) {
+	var result GetProtoMinerProxyTargetRow
+	err := q.retrier.RetryQuery(ctx, "GetProtoMinerProxyTarget", func() error {
+		callResult, callErr := q.next.GetProtoMinerProxyTarget(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) GetQueueMessagesByBatch(ctx context.Context, commandBatchLogUuid string) ([]GetQueueMessagesByBatchRow, error) {
 	var result []GetQueueMessagesByBatchRow
 	err := q.retrier.RetryQuery(ctx, "GetQueueMessagesByBatch", func() error {
@@ -5582,22 +5594,10 @@ func (q *retryingQuerier) HasHostedAccountHostAuthority(ctx context.Context, arg
 	return result, err
 }
 
-func (q *retryingQuerier) HasPendingContainerControl(ctx context.Context, deviceID int64) (bool, error) {
+func (q *retryingQuerier) HasPendingContainerCommand(ctx context.Context, arg HasPendingContainerCommandParams) (bool, error) {
 	var result bool
-	err := q.retrier.RetryQuery(ctx, "HasPendingContainerControl", func() error {
-		callResult, callErr := q.next.HasPendingContainerControl(ctx, deviceID)
-		if callErr == nil {
-			result = callResult
-		}
-		return callErr
-	})
-	return result, err
-}
-
-func (q *retryingQuerier) HasPendingScopedMining(ctx context.Context, deviceID int64) (bool, error) {
-	var result bool
-	err := q.retrier.RetryQuery(ctx, "HasPendingScopedMining", func() error {
-		callResult, callErr := q.next.HasPendingScopedMining(ctx, deviceID)
+	err := q.retrier.RetryQuery(ctx, "HasPendingContainerCommand", func() error {
+		callResult, callErr := q.next.HasPendingContainerCommand(ctx, arg)
 		if callErr == nil {
 			result = callResult
 		}

@@ -7,6 +7,7 @@ import (
 	"crypto/tls"
 	"database/sql"
 	"errors"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -20,6 +21,8 @@ import (
 	"github.com/stretchr/testify/require"
 	"golang.org/x/net/http2"
 	"golang.org/x/net/http2/h2c"
+	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/durationpb"
 
 	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
 	pb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
@@ -129,6 +132,70 @@ func TestControlStream_DispatchesCommandAndRoutesAck(t *testing.T) {
 		assert.True(t, ev.Ack.GetSucceeded())
 	case <-time.After(time.Second):
 		t.Fatal("expected ack on events channel")
+	}
+}
+
+func TestControlStream_RoutesMinerWebResponseAndAck(t *testing.T) {
+	h := newControlHarness(t)
+	client := startControlServer(t, h)
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	stream := client.ControlStream(ctx)
+	t.Cleanup(func() { _ = stream.CloseRequest(); _ = stream.CloseResponse() })
+	require.NoError(t, stream.Send(&pb.ControlStreamRequest{Kind: &pb.ControlStreamRequest_Hello{Hello: &pb.ControlHello{
+		MaxCommandProtocolVersion: pb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V8,
+	}}}))
+	accepted, err := stream.Receive()
+	require.NoError(t, err)
+	require.NotNil(t, accepted.GetAccepted())
+	payload, err := proto.Marshal(&pb.AgentCommand{Command: &pb.AgentCommand_MinerWeb{MinerWeb: &pb.MinerWebRequest{
+		Timeout: durationpb.New(5 * time.Second), Method: http.MethodGet, Path: "/api/v1/info",
+	}}})
+	require.NoError(t, err)
+	type result struct {
+		status  int
+		headers http.Header
+		body    []byte
+		err     error
+	}
+	results := make(chan result, 1)
+	go func() {
+		response, err := h.registry.SendMinerWeb(ctx, h.fleetNodeID, &pb.ControlCommand{CommandId: "web-response", Payload: payload})
+		if err != nil {
+			results <- result{err: err}
+			return
+		}
+		defer response.Body.Close()
+		body, err := io.ReadAll(response.Body)
+		results <- result{status: response.StatusCode, headers: response.Header, body: body, err: err}
+	}()
+	dispatched, err := stream.Receive()
+	require.NoError(t, err)
+	require.NotNil(t, dispatched.GetCommand())
+	require.Equal(t, "web-response", dispatched.GetCommand().GetCommandId())
+	require.Equal(t, payload, dispatched.GetCommand().GetPayload())
+	body := strings.Repeat("miner response\n", 10000)
+	frames := []*pb.MinerWebResponseChunk{
+		{CommandId: "web-response", Part: &pb.MinerWebResponseChunk_Head{Head: &pb.MinerWebResponseHead{StatusCode: http.StatusConflict, Headers: []*pb.MinerWebHeader{{Name: "Content-Type", Value: "text/plain"}, {Name: "Cache-Control", Value: "no-store"}}}}},
+	}
+	for offset := 0; offset < len(body); offset += control.MinerWebChunkBytes {
+		end := min(offset+control.MinerWebChunkBytes, len(body))
+		frames = append(frames, &pb.MinerWebResponseChunk{CommandId: "web-response", Part: &pb.MinerWebResponseChunk_Data{Data: []byte(body[offset:end])}})
+	}
+	frames = append(frames, &pb.MinerWebResponseChunk{CommandId: "web-response", Part: &pb.MinerWebResponseChunk_End{End: true}})
+	for _, frame := range frames {
+		require.NoError(t, stream.Send(&pb.ControlStreamRequest{Kind: &pb.ControlStreamRequest_MinerWebResponse{MinerWebResponse: frame}}))
+	}
+	require.NoError(t, stream.Send(&pb.ControlStreamRequest{Kind: &pb.ControlStreamRequest_Ack{Ack: &pb.ControlAck{CommandId: "web-response", Succeeded: true, Code: pb.AckCode_ACK_CODE_OK}}}))
+	select {
+	case got := <-results:
+		require.NoError(t, got.err)
+		require.Equal(t, http.StatusConflict, got.status)
+		require.Equal(t, "text/plain", got.headers.Get("Content-Type"))
+		require.Equal(t, "no-store", got.headers.Get("Cache-Control"))
+		require.Equal(t, body, string(got.body))
+	case <-ctx.Done():
+		t.Fatal("miner response did not complete over ControlStream")
 	}
 }
 

@@ -143,10 +143,36 @@ the warning and narrow manual targets before retrying.
 `run` opens a bidirectional `ControlStream` over the gateway:
 
 1. Agent dials gateway, sends `ControlHello`.
-2. Server replies `ControlAccepted`; stream stays open. For nodes that speak command protocol V7, `ControlAccepted.keepalive_interval` is set (five seconds): the node sends `ControlPing` at that interval, and either side closes the stream after three intervals without receiving anything, so a half-open connection reconnects within seconds.
+2. Server replies `ControlAccepted`; stream stays open. For nodes that speak command protocol V7 or later, `ControlAccepted.keepalive_interval` is set (five seconds): the node sends `ControlPing` at that interval, and either side closes the stream after three intervals without receiving anything, so a half-open connection reconnects within seconds.
 3. Server pushes `ControlCommand{command_id, payload}`. Payload is a serialized `AgentCommand` envelope containing discovery, pairing, telemetry, or a per-miner command.
 4. Agent executes the command locally and sends any command-specific reports or acknowledgement payload. For discovery, it scans the requested TCP endpoints and identifies open ports using plugins, then sends results via `ReportDiscoveredDevices` in batches of 1,024 under one 90-second upload budget. Each batch carries `command_id`; identified results survive a late scan failure or deadline. Fleet Nodes do not support mDNS discovery.
 5. Agent sends `ControlAck{command_id, succeeded}` on completion.
+
+Command protocol V8 adds embedded ProtoOS views for paired Proto rigs. Fleet keeps
+session authentication, permissions, same-origin write checks, and device-write
+admission at the existing miner proxy. It sends the assigned node a restricted
+HTTP request with an absolute deadline and encrypted miner credentials. The node
+checks the paired identity, decrypts credentials locally, and returns HTTP status,
+allowlisted headers, and body chunks on the control stream. Pool and password
+mutations remain on their existing Fleet workflows.
+
+Embedded requests accept up to 512 KiB of body data. Responses use 64 KiB chunks,
+with a 64 MiB total limit. Fleet reserves capacity for four buffered responses
+across all nodes, retaining each reservation through browser response closure;
+the node separately allows four web requests at a time. Requests waiting for
+capacity share the request deadline. Browser cancellation discards buffered bytes
+but retains capacity until the node acknowledges completion or the original
+execution deadline expires (at most 30 seconds). Stream loss also retains that
+reservation until the deadline. A BUSY rejection before any response frames is
+not dispatched and does not quarantine the device's write fence. A response
+requires its end frame and a successful terminal acknowledgement before Fleet
+delivers it. A disconnect,
+timeout, or incomplete response after enqueue leaves a mutation's delivery
+uncertain, with no automatic replay. Nodes use the handshake server time and a
+local monotonic deadline to reject expired work despite clock differences.
+
+Only a live V8 connection advertises an embedded view. Upgrade both Fleet and its
+Fleet Nodes to use this path; older nodes retain their existing Fleet controls.
 
 Discovery and pairing share one exclusive process-wide slot. All other commands share 512 process-wide slots. Fleet and Fleet Node use the same fixed admission policy:
 

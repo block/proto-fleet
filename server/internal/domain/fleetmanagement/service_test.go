@@ -20,6 +20,7 @@ import (
 	commonv1 "github.com/block/proto-fleet/server/generated/grpc/common/v1"
 	errorsv1 "github.com/block/proto-fleet/server/generated/grpc/errors/v1"
 	pb "github.com/block/proto-fleet/server/generated/grpc/fleetmanagement/v1"
+	gatewaypb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
 	pairingpb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
 	"github.com/block/proto-fleet/server/generated/sqlc"
 	"github.com/block/proto-fleet/server/internal/domain/activity"
@@ -28,6 +29,7 @@ import (
 	diagnosticsmodels "github.com/block/proto-fleet/server/internal/domain/diagnostics/models"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/fleetmanagement"
+	"github.com/block/proto-fleet/server/internal/domain/fleetnode/control"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/passwordupdate"
 	minermodels "github.com/block/proto-fleet/server/internal/domain/miner/models"
 	discoverymodels "github.com/block/proto-fleet/server/internal/domain/minerdiscovery/models"
@@ -2822,4 +2824,43 @@ func TestService_RenameMiners_EmptySelectorReturnsSuccess(t *testing.T) {
 
 	// Assert — no error when fleet is empty
 	require.NoError(t, err)
+}
+
+func TestService_EmbeddedNodeViewRequiresLiveCompatibleConnection(t *testing.T) {
+	testContext := testutil.InitializeDBServiceInfrastructure(t)
+	user := testContext.DatabaseService.CreateSuperAdminUser()
+	device := testContext.DatabaseService.CreateDevice(user.OrganizationID, "proto")
+	database := testContext.ServiceProvider.DB
+	q := sqlc.New(database)
+	_, err := q.UpsertDevicePairing(t.Context(), sqlc.UpsertDevicePairingParams{DeviceID: device.DatabaseID, PairingStatus: sqlc.PairingStatusEnumPAIRED})
+	require.NoError(t, err)
+	pairMinerToFleetNode(t, database, user.OrganizationID, device.ID)
+	nodes, err := q.ListFleetNodeDevices(t.Context(), sqlc.ListFleetNodeDevicesParams{OrgID: user.OrganizationID})
+	require.NoError(t, err)
+	require.Len(t, nodes, 1)
+	require.Equal(t, device.DatabaseID, nodes[0].DeviceID)
+	nodeID := nodes[0].FleetNodeID
+	rows, err := q.TransferDiscoveredDeviceAttribution(t.Context(), sqlc.TransferDiscoveredDeviceAttributionParams{FleetNodeID: nodeID, DeviceID: device.DatabaseID, OrgID: user.OrganizationID})
+	require.NoError(t, err)
+	require.EqualValues(t, 1, rows)
+	registry := control.NewRegistry()
+	service := testContext.ServiceProvider.FleetManagementService
+	service.WithMinerWebCapability(registry)
+	ctx := testutil.MockAuthContextForTesting(t.Context(), user.DatabaseID, user.OrganizationID)
+	assertAvailable := func(want bool) {
+		response, err := service.ListMinerStateSnapshots(ctx, &pb.ListMinerStateSnapshotsRequest{PageSize: 10})
+		require.NoError(t, err)
+		require.Len(t, response.Miners, 1)
+		require.Equal(t, want, response.Miners[0].EmbeddedWebViewAvailable)
+	}
+	assertAvailable(false)
+	legacy, err := registry.RegisterAuthenticated(nodeID, "session", gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V7)
+	require.NoError(t, err)
+	assertAvailable(false)
+	legacy.Unregister()
+	current, err := registry.RegisterAuthenticated(nodeID, "session", gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V8)
+	require.NoError(t, err)
+	assertAvailable(true)
+	current.Unregister()
+	assertAvailable(false)
 }

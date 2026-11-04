@@ -135,7 +135,12 @@ func (s *Stream) Unregister() {
 // receives it as the terminal event on `events`; an ack-only command receives it on
 // `ack`. Unknown/stale/duplicate command_ids are dropped.
 func (s *Stream) PublishAck(ack *gatewaypb.ControlAck) {
-	s.r.deliverAck(s.fleetNodeID, ack)
+	s.r.mu.Lock()
+	defer s.r.mu.Unlock()
+	if s.r.conns[s.fleetNodeID] != s.conn {
+		return
+	}
+	s.r.deliverAckLocked(s.fleetNodeID, ack)
 }
 
 // PublishBatch routes an agent discovery batch to the in-flight report-bearing command.
@@ -538,9 +543,7 @@ func (r *Registry) deliverEvent(fleetNodeID int64, commandID string, ev CommandE
 }
 
 // deliverAck routes a terminal ack to its in-flight command under the mutex, by kind.
-func (r *Registry) deliverAck(fleetNodeID int64, ack *gatewaypb.ControlAck) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
+func (r *Registry) deliverAckLocked(fleetNodeID int64, ack *gatewaypb.ControlAck) {
 	cmd := r.inflightFor(fleetNodeID, ack.GetCommandId())
 	if cmd == nil {
 		return // unknown/stale/duplicate command_id

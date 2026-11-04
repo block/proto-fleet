@@ -48,29 +48,24 @@ const meta = {
               headers: { "Content-Type": "application/json" },
             });
           }
-          if (String(input).startsWith("/api-proxy/miners/ct1-actions-demo/")) {
+          if (url.includes("/containers.v1.ContainerService/")) {
             if (context.parameters.containerUnavailable) {
-              return new Response(JSON.stringify({ error: "miner not found or cannot be proxied" }), {
-                status: 404,
+              return new Response(JSON.stringify({ code: "unavailable", message: "Controller unavailable" }), {
+                status: 503,
                 headers: { "Content-Type": "application/json" },
               });
             }
-            const body = init?.body ? JSON.parse(String(init.body)) : {};
-            if (String(input).endsWith("/mining/stop")) mining = false;
-            if (String(input).endsWith("/mining/start")) mining = true;
-            return new Response(
-              JSON.stringify(
-                String(input).endsWith("/mining/status")
-                  ? { mining }
-                  : String(input).endsWith("/target-power")
-                    ? { watts: body.watts ?? 920000, minimumWatts: 0, maximumWatts: 1200000 }
-                    : {},
-              ),
-              {
-                status: 200,
-                headers: { "Content-Type": "application/json" },
-              },
-            );
+            const body =
+              input instanceof Request ? await input.clone().json() : init?.body ? JSON.parse(String(init.body)) : {};
+            if (url.endsWith("/SetMining")) mining = body.mining;
+            const result = url.endsWith("/GetMiningStatus")
+              ? { mining }
+              : url.endsWith("/GetPowerTarget")
+                ? { watts: 3000, minimumWatts: 1000, maximumWatts: 5000 }
+                : url.endsWith("/GetEquipmentCommandResult")
+                  ? { result: { status: "finished", successCount: 1 } }
+                  : { batchIdentifier: "story-command" };
+            return new Response(JSON.stringify(result), { headers: { "Content-Type": "application/json" } });
           }
           return previousFetch(input, init);
         };

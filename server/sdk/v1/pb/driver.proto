@@ -781,6 +781,7 @@ service Driver {
 
   // Optional controller-only equipment command. Backend support is checked at execution.
   rpc SetTankMining(SetTankMiningRequest) returns (google.protobuf.Empty);
+  rpc ContainerMining(ContainerMiningRequest) returns (ContainerMiningResponse);
   rpc MiningGroups(MiningGroupsRequest) returns (MiningGroupsResponse);
   rpc SetModuleMining(SetModuleMiningRequest) returns (google.protobuf.Empty);
   rpc SetContainerControl(SetContainerControlRequest) returns (google.protobuf.Empty);
@@ -1040,3 +1041,6 @@ message DeviceEndpoint {
 // Requests can contain credentials and must never be logged.
 message MiningGroupsRequest { DeviceRef ref = 1; bytes payload = 2; }
 message MiningGroupsResponse { bytes payload = 1; }
+
+message ContainerMiningRequest { DeviceRef ref = 1; bytes payload = 2; }
+message ContainerMiningResponse { bytes payload = 1; }

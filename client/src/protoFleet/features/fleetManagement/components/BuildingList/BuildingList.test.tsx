@@ -43,6 +43,7 @@ vi.mock("@/shared/hooks/useClickOutside", () => ({
 }));
 
 vi.mock("@/protoFleet/api/clients", () => ({
+  containersClient: { getMiningStatus: vi.fn().mockResolvedValue({ mining: true }) },
   miningGroupsClient: {
     getState: vi.fn().mockResolvedValue({ supported: false, enabled: false }),
   },
@@ -274,9 +275,6 @@ describe("combined building and container rows", () => {
     expect(screen.queryByText("HA degraded") !== null).toBe(warning);
   });
   it("opens container actions without navigating or offering miner-only commands", async () => {
-    const fetchStatus = vi
-      .spyOn(globalThis, "fetch")
-      .mockResolvedValueOnce(new Response(JSON.stringify({ mining: true })));
     const onContainerUnpaired = vi.fn();
     renderList({ containers: [container], onContainerUnpaired });
     fireEvent.click(screen.getByRole("button", { name: "Actions for A container" }));
@@ -288,7 +286,6 @@ describe("combined building and container rows", () => {
     fireEvent.click(within(screen.getByTestId("container-unpair-dialog")).getByRole("button", { name: "Unpair" }));
     await waitFor(() => expect(onContainerUnpaired).toHaveBeenCalledExactlyOnceWith(container.deviceIdentifier));
     expect(screen.getByTestId("probe-path")).toHaveTextContent("/fleet/buildings");
-    fetchStatus.mockRestore();
   });
   it("sorts both types together and shares columns and a count", () => {
     renderList({ containers: [container] });

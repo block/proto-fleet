@@ -24,7 +24,11 @@ const embeddedWebViewAvailableExpr = `(
     device.id IS NOT NULL
     AND COALESCE(device_pairing.pairing_status::text, 'UNPAIRED') IN ('PAIRED', 'DEFAULT_PASSWORD')
     AND discovered_device.driver_name = 'proto'
-    AND fleet_node_assignment.device_id IS NULL
+    AND (fleet_node_assignment.device_id IS NULL OR (
+        assigned_fleet_node.id IS NOT NULL
+        AND assigned_fleet_node.enrollment_status = 'CONFIRMED'
+        AND COALESCE(discovered_device.discovered_by_fleet_node_id = fleet_node_assignment.fleet_node_id, FALSE)
+    ))
 )`
 
 // Four missed 30-second heartbeats marks a Fleet Node unavailable.
@@ -69,7 +73,8 @@ const minerSelectColumns = `SELECT
     device.building_id,
     COALESCE(building.name, '') as building_label,
     effective_status.fleet_node_unavailable,
-    ` + embeddedWebViewAvailableExpr + ` as embedded_web_view_available`
+    ` + embeddedWebViewAvailableExpr + ` as embedded_web_view_available,
+    fleet_node_assignment.fleet_node_id`
 
 // minerFromJoins contains the FROM clause and LEFT JOINs for miner state queries.
 // Parameter: $1 = org_id (used in device join condition)

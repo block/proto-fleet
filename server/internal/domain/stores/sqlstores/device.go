@@ -1318,6 +1318,7 @@ func (s *SQLDeviceStore) executeListQuery(ctx context.Context, orgID int64, curs
 			&row.BuildingLabel,
 			&row.FleetNodeUnavailable,
 			&row.EmbeddedWebViewAvailable,
+			&row.FleetNodeID,
 			&row.SortValue,
 		)
 		if err != nil {

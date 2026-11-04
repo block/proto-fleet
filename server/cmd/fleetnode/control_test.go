@@ -599,7 +599,7 @@ func TestControlLoop_ReconnectsAfterStreamEOF(t *testing.T) {
 	// Assert: the loop reconnected at least once.
 	assert.GreaterOrEqual(t, fake.helloCount(), 2)
 	for _, got := range fake.helloCommandProtocolVersionsCopy() {
-		assert.Equal(t, pb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V7, got)
+		assert.Equal(t, pb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V8, got)
 	}
 }
 
@@ -722,6 +722,7 @@ func (s *stubDiscoverer) DefaultDiscoveryPorts(_ context.Context) []string {
 type controlFakeBehavior struct {
 	closeAfterAccepted bool
 	acceptedLiveness   int
+	serverTimeOffset   time.Duration
 	// closeOnSignal lets tests force a server-side stream close at a precise
 	// moment (e.g., after the agent has started executing a command). The
 	// fake closes its ControlStream handler when this channel becomes ready.
@@ -746,6 +747,7 @@ type controlFakeGateway struct {
 	helloCommandProtocolVersions []pb.CommandProtocolVersion
 	helloDiscoveryConfigs        []*pb.DiscoveryConfig
 	acks                         []*pb.ControlAck
+	commandFrames                []*pb.ControlStreamRequest
 	reports                      []*pb.ReportDiscoveredDevicesRequest
 	pairReports                  []*pb.ReportPairedDevicesRequest
 	behavior                     controlFakeBehavior
@@ -776,6 +778,11 @@ func (f *controlFakeGateway) acksCopy() []*pb.ControlAck {
 	out := make([]*pb.ControlAck, len(f.acks))
 	copy(out, f.acks)
 	return out
+}
+func (f *controlFakeGateway) commandFramesCopy() []*pb.ControlStreamRequest {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]*pb.ControlStreamRequest(nil), f.commandFrames...)
 }
 func (f *controlFakeGateway) reportsCopy() []*pb.ReportDiscoveredDevicesRequest {
 	f.mu.Lock()
@@ -838,6 +845,7 @@ func (f *controlFakeGateway) pairReportsCopy() []*pb.ReportPairedDevicesRequest 
 func (f *controlFakeGateway) ControlStream(ctx context.Context, stream *connect.BidiStream[pb.ControlStreamRequest, pb.ControlStreamResponse]) error {
 	f.mu.Lock()
 	rejectCode := f.behavior.rejectWithCode
+	serverTimeOffset := f.behavior.serverTimeOffset
 	f.mu.Unlock()
 	if rejectCode != 0 {
 		atomic.AddInt32(&f.hellos, 1)
@@ -857,7 +865,7 @@ func (f *controlFakeGateway) ControlStream(ctx context.Context, stream *connect.
 	f.mu.Unlock()
 	atomic.AddInt32(&f.hellos, 1)
 
-	if err := stream.Send(&pb.ControlStreamResponse{Kind: &pb.ControlStreamResponse_Accepted{Accepted: &pb.ControlAccepted{ServerTime: timestamppb.Now()}}}); err != nil {
+	if err := stream.Send(&pb.ControlStreamResponse{Kind: &pb.ControlStreamResponse_Accepted{Accepted: &pb.ControlAccepted{ServerTime: timestamppb.New(time.Now().Add(serverTimeOffset))}}}); err != nil {
 		return fmt.Errorf("send accepted: %w", err)
 	}
 
@@ -872,7 +880,7 @@ func (f *controlFakeGateway) ControlStream(ctx context.Context, stream *connect.
 		return nil
 	}
 	for range acceptedLiveness {
-		if err := stream.Send(&pb.ControlStreamResponse{Kind: &pb.ControlStreamResponse_Accepted{Accepted: &pb.ControlAccepted{ServerTime: timestamppb.Now()}}}); err != nil {
+		if err := stream.Send(&pb.ControlStreamResponse{Kind: &pb.ControlStreamResponse_Accepted{Accepted: &pb.ControlAccepted{ServerTime: timestamppb.New(time.Now().Add(serverTimeOffset))}}}); err != nil {
 			return fmt.Errorf("send accepted liveness: %w", err)
 		}
 	}
@@ -916,11 +924,14 @@ func (f *controlFakeGateway) ControlStream(ctx context.Context, stream *connect.
 				}
 				return r.err
 			}
-			if ack := r.msg.GetAck(); ack != nil {
-				f.mu.Lock()
-				f.acks = append(f.acks, ack)
-				f.mu.Unlock()
+			f.mu.Lock()
+			if r.msg.GetMinerWebResponse() != nil || r.msg.GetAck() != nil {
+				f.commandFrames = append(f.commandFrames, r.msg)
 			}
+			if ack := r.msg.GetAck(); ack != nil {
+				f.acks = append(f.acks, ack)
+			}
+			f.mu.Unlock()
 		}
 	}
 }

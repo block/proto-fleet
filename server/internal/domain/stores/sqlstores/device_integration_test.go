@@ -1131,7 +1131,7 @@ func TestListMinerStateSnapshots_EmbeddedWebViewAvailable(t *testing.T) {
 		{id: 9103, identifier: "direct-auth-proto", driverName: "proto", pairingStatus: "AUTHENTICATION_NEEDED"},
 		{id: 9104, identifier: "direct-paired-ant", driverName: "antminer", pairingStatus: "PAIRED"},
 		{id: 9105, identifier: "discovered-only-proto", driverName: "proto"},
-		{id: 9106, identifier: "fleet-node-proto", driverName: "proto", pairingStatus: "PAIRED", fleetNodeOwned: true},
+		{id: 9106, identifier: "fleet-node-proto", driverName: "proto", pairingStatus: "PAIRED", fleetNodeOwned: true, wantAvailable: true},
 	}
 
 	var fleetNodeID int64
@@ -1167,6 +1167,9 @@ func TestListMinerStateSnapshots_EmbeddedWebViewAvailable(t *testing.T) {
 		require.NoError(t, err)
 
 		if fixture.fleetNodeOwned {
+			rows, err := sqlc.New(conn).TransferDiscoveredDeviceAttribution(ctx, sqlc.TransferDiscoveredDeviceAttributionParams{FleetNodeID: fleetNodeID, DeviceID: fixture.id, OrgID: 1})
+			require.NoError(t, err)
+			require.EqualValues(t, 1, rows)
 			_, err = conn.Exec(`
 				INSERT INTO fleet_node_device (fleet_node_id, device_id, org_id)
 				VALUES ($1, $2, 1)

@@ -4,16 +4,11 @@ import (
 	"context"
 	"database/sql"
 	"errors"
-	"log/slog"
 	"time"
 
-	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
 	containerpb "github.com/block/proto-fleet/server/generated/grpc/containers/v1"
-	pb "github.com/block/proto-fleet/server/generated/grpc/minercommand/v1"
 	"github.com/block/proto-fleet/server/generated/sqlc"
-	"github.com/block/proto-fleet/server/internal/domain/devicewrite"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
-	"github.com/block/proto-fleet/server/internal/domain/fleetnode/control"
 	"github.com/block/proto-fleet/server/internal/domain/session"
 	"github.com/block/proto-fleet/server/internal/infrastructure/db"
 	sdk "github.com/block/proto-fleet/server/sdk/v1"
@@ -132,7 +127,7 @@ func (s *Service) getMiningOptions(ctx context.Context, ids []int64, authorize m
 			if row.DeviceID != previous {
 				previous = row.DeviceID
 				supported = s.miningSupported(ctx, row, scope)
-				pending, err = q.HasPendingScopedMining(ctx, row.DeviceID)
+				pending, err = q.HasPendingContainerCommand(ctx, sqlc.HasPendingContainerCommandParams{DeviceID: row.DeviceID, CommandTypes: []string{"SetTankMining", "SetModuleMining"}})
 				if err != nil {
 					return nil, err
 				}
@@ -202,10 +197,7 @@ func (s *Service) setMining(ctx context.Context, ids []int64, mining *bool, auth
 	if err != nil {
 		return nil, err
 	}
-	var commit func()
-	result, err := db.WithTransaction(ctx, s.conn, func(q sqlc.Querier) ([]miningCommand, error) {
-		txCtx, after := db.WithCommitHooks(db.WithTxQueries(ctx, q))
-		commit = after
+	return withContainerCommandTransaction(ctx, s, func(txCtx context.Context, q sqlc.Querier) ([]miningCommand, error) {
 		rows, err := scope.resolve(txCtx, q, ids, info.OrganizationID)
 		if err != nil {
 			return nil, err
@@ -248,7 +240,7 @@ func (s *Service) setMining(ctx context.Context, ids []int64, mining *bool, auth
 				continue
 			}
 			previous = row.DeviceID
-			pending, err := q.HasPendingScopedMining(txCtx, row.DeviceID)
+			pending, err := q.HasPendingContainerCommand(txCtx, sqlc.HasPendingContainerCommandParams{DeviceID: row.DeviceID, CommandTypes: []string{"SetTankMining", "SetModuleMining"}})
 			if err != nil {
 				return nil, err
 			}
@@ -286,19 +278,12 @@ func (s *Service) setMining(ctx context.Context, ids []int64, mining *bool, auth
 			if err := payload.Validate(); err != nil {
 				return nil, fleeterror.NewFailedPreconditionError(err.Error())
 			}
-			batch, err := s.processCommand(txCtx, &Command{
-				commandType: scope.commandType(),
-				payload:     payload,
-				deviceSelector: &pb.DeviceSelector{
-					SelectionType: &pb.DeviceSelector_IncludeDevices{
-						IncludeDevices: &commonpb.DeviceIdentifierList{DeviceIdentifiers: []string{first.DeviceIdentifier}},
-					},
-				},
-			})
+			batch, err := s.queueContainerCommand(txCtx, first.DeviceIdentifier, &Command{
+				commandType: scope.commandType(), payload: payload,
+			}, scope.eventType(), payload.activityDescription(first.ContainerName))
 			if err != nil {
 				return nil, err
 			}
-			s.finalizeDispatch(txCtx, batch, scope.eventType(), payload.activityDescription(first.ContainerName))
 			response = append(response, miningCommand{
 				DeviceIdentifier: first.DeviceIdentifier,
 				ContainerName:    first.ContainerName,
@@ -308,10 +293,6 @@ func (s *Service) setMining(ctx context.Context, ids []int64, mining *bool, auth
 		}
 		return response, nil
 	})
-	if err == nil && commit != nil {
-		commit()
-	}
-	return result, err
 }
 
 func (es *ExecutionService) executeTankMining(ctx context.Context, deviceID, orgID int64, payload scopedMiningPayload, controller sdk.DeviceTankMiner) error {
@@ -326,27 +307,10 @@ func (es *ExecutionService) executeScopedMining(ctx context.Context, deviceID, o
 	if payload.OrgID != orgID || (scope == moduleScope) != (len(payload.ModuleIDs) > 0) {
 		return fleeterror.NewFailedPreconditionError(scope.noun() + " command ownership or site changed")
 	}
-	// Hold placement stable through gate admission and the physical write, which
-	// must never be replayed by a transaction retry.
-	dispatchStarted := false
-	err := devicewrite.NewService(es.conn).WithBindingTransaction(ctx, func(ctx context.Context, q sqlc.Querier) error {
-		device, err := q.GetDeviceByID(ctx, sqlc.GetDeviceByIDParams{ID: deviceID, OrgID: orgID})
-		if errors.Is(err, sql.ErrNoRows) {
-			return fleeterror.NewFailedPreconditionError("selected " + scope.noun() + " controller unavailable")
-		}
-		if err != nil {
-			return err
-		}
-		target, err := q.LockContainerCommandTarget(ctx, sqlc.LockContainerCommandTargetParams{DeviceIdentifier: device.DeviceIdentifier, OrgID: orgID})
-		if errors.Is(err, sql.ErrNoRows) {
-			return fleeterror.NewFailedPreconditionError("selected " + scope.noun() + " controller unavailable")
-		}
-		if err != nil {
-			return err
-		}
-		if target.ID != deviceID || target.SiteID.Int64 != payload.SiteID {
-			return fleeterror.NewFailedPreconditionError(scope.noun() + " command ownership or site changed")
-		}
+	return es.executeContainerWrite(ctx, containerWriteScope{
+		deviceID: deviceID, orgID: orgID, siteID: payload.SiteID,
+		noun: scope.noun(), upgradeMessage: scope.upgradeMessage(),
+	}, func(ctx context.Context, q sqlc.Querier) error {
 		rows, err := scope.resolve(ctx, q, payload.ids(), orgID)
 		if fleeterror.IsNotFoundError(err) {
 			return fleeterror.NewFailedPreconditionError("selected " + scope.noun() + " no longer exists")
@@ -365,31 +329,6 @@ func (es *ExecutionService) executeScopedMining(ctx context.Context, deviceID, o
 				return fleeterror.NewFailedPreconditionError(scope.noun() + " topology or placement changed; refresh before retrying")
 			}
 		}
-		dispatchStarted = true
-		if err := devicewrite.Dispatch(ctx, func(ctx context.Context) error {
-			return write(ctx)
-		}); err != nil {
-			if errors.Is(err, control.ErrCommandProtocolUpgradeRequired) {
-				return devicewrite.NotDispatched(fleeterror.NewFailedPreconditionError(scope.upgradeMessage()))
-			}
-			if devicewrite.IsNotDispatched(err) {
-				return err
-			}
-			slog.ErrorContext(ctx, scope.noun()+" mining outcome unconfirmed", "device_id", deviceID, "error", err)
-			return fleeterror.NewFailedPreconditionError(scope.noun() + " mining outcome unconfirmed")
-		}
 		return nil
-	})
-	if err != nil {
-		if fleeterror.IsFailedPreconditionError(err) {
-			return err
-		}
-		if dispatchStarted && !devicewrite.IsNotDispatched(err) {
-			slog.ErrorContext(ctx, scope.noun()+" mining outcome unconfirmed", "device_id", deviceID, "error", err)
-			return fleeterror.NewFailedPreconditionError(scope.noun() + " mining outcome unconfirmed")
-		}
-		slog.ErrorContext(ctx, scope.noun()+" mining preparation failed", "device_id", deviceID, "error", err)
-		return fleeterror.NewInternalError(scope.noun() + " mining preparation failed; retry shortly")
-	}
-	return nil
+	}, write)
 }

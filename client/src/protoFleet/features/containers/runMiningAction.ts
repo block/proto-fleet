@@ -1,4 +1,4 @@
-import { Code, ConnectError } from "@connectrpc/connect";
+import { awaitEquipmentCommand } from "./awaitEquipmentCommand";
 import { containersClient } from "@/protoFleet/api/clients";
 import { getErrorMessage } from "@/protoFleet/api/getErrorMessage";
 import { pushToast, STATUSES, updateToast } from "@/shared/features/toaster";
@@ -31,37 +31,10 @@ export async function runMiningAction(
 
     await Promise.all(
       commands.map(async (command) => {
-        const deadline = Date.now() + 120_000;
         try {
-          while (Date.now() < deadline) {
-            const { result } = await containersClient
-              .getEquipmentCommandResult(
-                { deviceIdentifier: command.deviceIdentifier, batchIdentifier: command.batchIdentifier },
-                { timeoutMs: 10_000 },
-              )
-              .catch((cause: unknown) => {
-                // Dispatch holds the ownership lock used by result reads. A
-                // timed-out read can be retried without resending the action.
-                if (ConnectError.from(cause).code === Code.DeadlineExceeded) return { result: undefined };
-                throw cause;
-              });
-            // As with miner bulk actions, counts alone do not confirm completion.
-            if (result?.status !== "finished") {
-              await new Promise<void>((resolve) => setTimeout(resolve, 1000));
-              continue;
-            }
-            const succeeded = result.successCount === 1 && result.failureCount === 0;
-            // A failed controller batch can contain partial or unknown writes;
-            // it cannot identify confirmed failures within that controller’s selection.
-            if (result.detailsPruned || !succeeded) {
-              unconfirmed = true;
-              return;
-            }
-            successCount += "tankIds" in command ? command.tankIds.length : command.moduleIds.length;
-            updateToast(toastId, { message: successMessage(), status: STATUSES.loading });
-            return;
-          }
-          unconfirmed = true;
+          await awaitEquipmentCommand(command.deviceIdentifier, command.batchIdentifier);
+          successCount += "tankIds" in command ? command.tankIds.length : command.moduleIds.length;
+          updateToast(toastId, { message: successMessage(), status: STATUSES.loading });
         } catch {
           unconfirmed = true;
         }

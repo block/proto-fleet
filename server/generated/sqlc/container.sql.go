@@ -19,7 +19,7 @@ const containerOwnsCommandBatch = `-- name: ContainerOwnsCommandBatch :one
 SELECT EXISTS (
  SELECT 1 FROM command_batch_log b JOIN queue_message m ON m.command_batch_log_uuid=b.uuid
  WHERE b.uuid=$1 AND b.organization_id=$2
- AND b.type IN ('SetContainerControl', 'SetTankMining', 'SetModuleMining') AND b.devices_count=1 AND m.device_id=$3
+ AND b.type IN ('SetContainerControl', 'SetTankMining', 'SetModuleMining', 'ContainerMining') AND b.devices_count=1 AND m.device_id=$3
 )::boolean
 `
 
@@ -74,30 +74,51 @@ func (q *Queries) GetContainerIdentifiersForCommands(ctx context.Context, arg Ge
 	return items, nil
 }
 
-const hasPendingContainerControl = `-- name: HasPendingContainerControl :one
+const getContainerMiningTarget = `-- name: GetContainerMiningTarget :one
+SELECT d.id, d.site_id, COALESCE(f.epoch,0)::bigint AS write_epoch
+FROM device d
+JOIN discovered_device dd ON dd.id=d.discovered_device_id AND dd.org_id=d.org_id
+JOIN device_pairing dp ON dp.device_id=d.id
+LEFT JOIN device_write_fence f ON f.device_id=d.id AND f.organization_id=d.org_id
+WHERE d.device_identifier=$1 AND d.org_id=$2
+  AND d.deleted_at IS NULL AND dd.deleted_at IS NULL AND dd.is_active
+  AND dd.device_class=2 AND dd.driver_name='proto'
+  AND dp.pairing_status IN ('PAIRED','DEFAULT_PASSWORD')
+`
+
+type GetContainerMiningTargetParams struct {
+	DeviceIdentifier string
+	OrgID            int64
+}
+
+type GetContainerMiningTargetRow struct {
+	ID         int64
+	SiteID     sql.NullInt64
+	WriteEpoch int64
+}
+
+func (q *Queries) GetContainerMiningTarget(ctx context.Context, arg GetContainerMiningTargetParams) (GetContainerMiningTargetRow, error) {
+	row := q.queryRow(ctx, q.getContainerMiningTargetStmt, getContainerMiningTarget, arg.DeviceIdentifier, arg.OrgID)
+	var i GetContainerMiningTargetRow
+	err := row.Scan(&i.ID, &i.SiteID, &i.WriteEpoch)
+	return i, err
+}
+
+const hasPendingContainerCommand = `-- name: HasPendingContainerCommand :one
 SELECT EXISTS (
  SELECT 1 FROM queue_message
- WHERE device_id=$1 AND command_type='SetContainerControl'
+ WHERE device_id=$1 AND command_type=ANY($2::text[])
  AND status IN ('PENDING','PROCESSING')
 )::boolean
 `
 
-func (q *Queries) HasPendingContainerControl(ctx context.Context, deviceID int64) (bool, error) {
-	row := q.queryRow(ctx, q.hasPendingContainerControlStmt, hasPendingContainerControl, deviceID)
-	var column_1 bool
-	err := row.Scan(&column_1)
-	return column_1, err
+type HasPendingContainerCommandParams struct {
+	DeviceID     int64
+	CommandTypes []string
 }
 
-const hasPendingScopedMining = `-- name: HasPendingScopedMining :one
-SELECT EXISTS (
- SELECT 1 FROM queue_message WHERE device_id=$1
- AND command_type IN ('SetTankMining','SetModuleMining') AND status IN ('PENDING','PROCESSING')
-)::boolean
-`
-
-func (q *Queries) HasPendingScopedMining(ctx context.Context, deviceID int64) (bool, error) {
-	row := q.queryRow(ctx, q.hasPendingScopedMiningStmt, hasPendingScopedMining, deviceID)
+func (q *Queries) HasPendingContainerCommand(ctx context.Context, arg HasPendingContainerCommandParams) (bool, error) {
+	row := q.queryRow(ctx, q.hasPendingContainerCommandStmt, hasPendingContainerCommand, arg.DeviceID, pq.Array(arg.CommandTypes))
 	var column_1 bool
 	err := row.Scan(&column_1)
 	return column_1, err
@@ -468,7 +489,7 @@ func (q *Queries) ListTankCommandTargets(ctx context.Context, arg ListTankComman
 }
 
 const lockContainerCommandTarget = `-- name: LockContainerCommandTarget :one
-SELECT d.id, d.site_id
+SELECT d.id, d.site_id, dd.is_active, dd.driver_name
 FROM device d
 JOIN discovered_device dd ON dd.id=d.discovered_device_id AND dd.org_id=d.org_id
 JOIN device_pairing dp ON dp.device_id=d.id
@@ -484,14 +505,21 @@ type LockContainerCommandTargetParams struct {
 }
 
 type LockContainerCommandTargetRow struct {
-	ID     int64
-	SiteID sql.NullInt64
+	ID         int64
+	SiteID     sql.NullInt64
+	IsActive   bool
+	DriverName string
 }
 
 // Lock current ownership/site through dispatch; child inventory IDs are never targets.
 func (q *Queries) LockContainerCommandTarget(ctx context.Context, arg LockContainerCommandTargetParams) (LockContainerCommandTargetRow, error) {
 	row := q.queryRow(ctx, q.lockContainerCommandTargetStmt, lockContainerCommandTarget, arg.DeviceIdentifier, arg.OrgID)
 	var i LockContainerCommandTargetRow
-	err := row.Scan(&i.ID, &i.SiteID)
+	err := row.Scan(
+		&i.ID,
+		&i.SiteID,
+		&i.IsActive,
+		&i.DriverName,
+	)
 	return i, err
 }

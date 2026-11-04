@@ -171,6 +171,10 @@ var ProcedurePermissions = map[string]string{
 	fleetinventoryv1connect.FleetInventoryServiceListModuleHistoryProcedure:    authz.PermSiteRead,
 	fleetinventoryv1connect.FleetInventoryServiceGetModuleHashboardsProcedure:  authz.PermSiteRead,
 	fleetinventoryv1connect.FleetInventoryServiceListHashboardHistoryProcedure: authz.PermSiteRead,
+	containersv1connect.ContainerServiceGetMiningStatusProcedure:               authz.PermSiteRead,
+	containersv1connect.ContainerServiceGetPowerTargetProcedure:                authz.PermSiteRead,
+	containersv1connect.ContainerServiceSetMiningProcedure:                     authz.PermSiteRead,
+	containersv1connect.ContainerServiceSetPowerTargetProcedure:                authz.PermMinerSetPowerTarget,
 	containersv1connect.ContainerServiceGetContainerProcedure:                  authz.PermSiteRead,
 	fleetinventoryv1connect.FleetInventoryServiceGetTankHistoryProcedure:       authz.PermSiteRead,
 	// Equipment results enforce the same current-site read permissions as the

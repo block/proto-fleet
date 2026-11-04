@@ -840,6 +840,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.getContainerIdentifiersForCommandsStmt, err = db.PrepareContext(ctx, getContainerIdentifiersForCommands); err != nil {
 		return nil, fmt.Errorf("error preparing query GetContainerIdentifiersForCommands: %w", err)
 	}
+	if q.getContainerMiningTargetStmt, err = db.PrepareContext(ctx, getContainerMiningTarget); err != nil {
+		return nil, fmt.Errorf("error preparing query GetContainerMiningTarget: %w", err)
+	}
 	if q.getContainerModuleIdentitiesStmt, err = db.PrepareContext(ctx, getContainerModuleIdentities); err != nil {
 		return nil, fmt.Errorf("error preparing query GetContainerModuleIdentities: %w", err)
 	}
@@ -989,9 +992,6 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.getDeviceWriteIdentityKeysStmt, err = db.PrepareContext(ctx, getDeviceWriteIdentityKeys); err != nil {
 		return nil, fmt.Errorf("error preparing query GetDeviceWriteIdentityKeys: %w", err)
-	}
-	if q.getDirectProtoMinerProxyTargetStmt, err = db.PrepareContext(ctx, getDirectProtoMinerProxyTarget); err != nil {
-		return nil, fmt.Errorf("error preparing query GetDirectProtoMinerProxyTarget: %w", err)
 	}
 	if q.getDiscoveredDeviceByDeviceIdentifierStmt, err = db.PrepareContext(ctx, getDiscoveredDeviceByDeviceIdentifier); err != nil {
 		return nil, fmt.Errorf("error preparing query GetDiscoveredDeviceByDeviceIdentifier: %w", err)
@@ -1350,6 +1350,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.getPoolGroupSnapshotStmt, err = db.PrepareContext(ctx, getPoolGroupSnapshot); err != nil {
 		return nil, fmt.Errorf("error preparing query GetPoolGroupSnapshot: %w", err)
 	}
+	if q.getProtoMinerProxyTargetStmt, err = db.PrepareContext(ctx, getProtoMinerProxyTarget); err != nil {
+		return nil, fmt.Errorf("error preparing query GetProtoMinerProxyTarget: %w", err)
+	}
 	if q.getQueueMessagesByBatchStmt, err = db.PrepareContext(ctx, getQueueMessagesByBatch); err != nil {
 		return nil, fmt.Errorf("error preparing query GetQueueMessagesByBatch: %w", err)
 	}
@@ -1500,11 +1503,8 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.hasHostedAccountHostAuthorityStmt, err = db.PrepareContext(ctx, hasHostedAccountHostAuthority); err != nil {
 		return nil, fmt.Errorf("error preparing query HasHostedAccountHostAuthority: %w", err)
 	}
-	if q.hasPendingContainerControlStmt, err = db.PrepareContext(ctx, hasPendingContainerControl); err != nil {
-		return nil, fmt.Errorf("error preparing query HasPendingContainerControl: %w", err)
-	}
-	if q.hasPendingScopedMiningStmt, err = db.PrepareContext(ctx, hasPendingScopedMining); err != nil {
-		return nil, fmt.Errorf("error preparing query HasPendingScopedMining: %w", err)
+	if q.hasPendingContainerCommandStmt, err = db.PrepareContext(ctx, hasPendingContainerCommand); err != nil {
+		return nil, fmt.Errorf("error preparing query HasPendingContainerCommand: %w", err)
 	}
 	if q.hasPoolAssignmentKindConflictStmt, err = db.PrepareContext(ctx, hasPoolAssignmentKindConflict); err != nil {
 		return nil, fmt.Errorf("error preparing query HasPoolAssignmentKindConflict: %w", err)
@@ -4614,6 +4614,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing getContainerIdentifiersForCommandsStmt: %w", cerr)
 		}
 	}
+	if q.getContainerMiningTargetStmt != nil {
+		if cerr := q.getContainerMiningTargetStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getContainerMiningTargetStmt: %w", cerr)
+		}
+	}
 	if q.getContainerModuleIdentitiesStmt != nil {
 		if cerr := q.getContainerModuleIdentitiesStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getContainerModuleIdentitiesStmt: %w", cerr)
@@ -4862,11 +4867,6 @@ func (q *Queries) Close() error {
 	if q.getDeviceWriteIdentityKeysStmt != nil {
 		if cerr := q.getDeviceWriteIdentityKeysStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getDeviceWriteIdentityKeysStmt: %w", cerr)
-		}
-	}
-	if q.getDirectProtoMinerProxyTargetStmt != nil {
-		if cerr := q.getDirectProtoMinerProxyTargetStmt.Close(); cerr != nil {
-			err = fmt.Errorf("error closing getDirectProtoMinerProxyTargetStmt: %w", cerr)
 		}
 	}
 	if q.getDiscoveredDeviceByDeviceIdentifierStmt != nil {
@@ -5464,6 +5464,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing getPoolGroupSnapshotStmt: %w", cerr)
 		}
 	}
+	if q.getProtoMinerProxyTargetStmt != nil {
+		if cerr := q.getProtoMinerProxyTargetStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getProtoMinerProxyTargetStmt: %w", cerr)
+		}
+	}
 	if q.getQueueMessagesByBatchStmt != nil {
 		if cerr := q.getQueueMessagesByBatchStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getQueueMessagesByBatchStmt: %w", cerr)
@@ -5714,14 +5719,9 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing hasHostedAccountHostAuthorityStmt: %w", cerr)
 		}
 	}
-	if q.hasPendingContainerControlStmt != nil {
-		if cerr := q.hasPendingContainerControlStmt.Close(); cerr != nil {
-			err = fmt.Errorf("error closing hasPendingContainerControlStmt: %w", cerr)
-		}
-	}
-	if q.hasPendingScopedMiningStmt != nil {
-		if cerr := q.hasPendingScopedMiningStmt.Close(); cerr != nil {
-			err = fmt.Errorf("error closing hasPendingScopedMiningStmt: %w", cerr)
+	if q.hasPendingContainerCommandStmt != nil {
+		if cerr := q.hasPendingContainerCommandStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing hasPendingContainerCommandStmt: %w", cerr)
 		}
 	}
 	if q.hasPoolAssignmentKindConflictStmt != nil {
@@ -8940,6 +8940,7 @@ type Queries struct {
 	getCancelledEnrollmentByFleetNodeStmt                      *sql.Stmt
 	getConnectedPostgresIdentityStmt                           *sql.Stmt
 	getContainerIdentifiersForCommandsStmt                     *sql.Stmt
+	getContainerMiningTargetStmt                               *sql.Stmt
 	getContainerModuleIdentitiesStmt                           *sql.Stmt
 	getContainerModuleScopeStmt                                *sql.Stmt
 	getContainerPollHistoryStmt                                *sql.Stmt
@@ -8990,7 +8991,6 @@ type Queries struct {
 	getDeviceWriteDeletionBindingsStmt                         *sql.Stmt
 	getDeviceWriteDeletionTargetsStmt                          *sql.Stmt
 	getDeviceWriteIdentityKeysStmt                             *sql.Stmt
-	getDirectProtoMinerProxyTargetStmt                         *sql.Stmt
 	getDiscoveredDeviceByDeviceIdentifierStmt                  *sql.Stmt
 	getDiscoveredDeviceByIDStmt                                *sql.Stmt
 	getDiscoveredDeviceByIPAndPortStmt                         *sql.Stmt
@@ -9110,6 +9110,7 @@ type Queries struct {
 	getPoolEquipmentInstallationStmt                           *sql.Stmt
 	getPoolEquipmentMinerOwnerStmt                             *sql.Stmt
 	getPoolGroupSnapshotStmt                                   *sql.Stmt
+	getProtoMinerProxyTargetStmt                               *sql.Stmt
 	getQueueMessagesByBatchStmt                                *sql.Stmt
 	getRackDetailsForDevicesStmt                               *sql.Stmt
 	getRackInfoStmt                                            *sql.Stmt
@@ -9160,8 +9161,7 @@ type Queries struct {
 	hasDetachedPoolGroupIntentsStmt                            *sql.Stmt
 	hasDueTelemetrySeedRecoveryStmt                            *sql.Stmt
 	hasHostedAccountHostAuthorityStmt                          *sql.Stmt
-	hasPendingContainerControlStmt                             *sql.Stmt
-	hasPendingScopedMiningStmt                                 *sql.Stmt
+	hasPendingContainerCommandStmt                             *sql.Stmt
 	hasPoolAssignmentKindConflictStmt                          *sql.Stmt
 	hasPoolConfigurationCutoverStmt                            *sql.Stmt
 	hasUserStmt                                                *sql.Stmt
@@ -10021,6 +10021,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getCancelledEnrollmentByFleetNodeStmt:                      q.getCancelledEnrollmentByFleetNodeStmt,
 		getConnectedPostgresIdentityStmt:                           q.getConnectedPostgresIdentityStmt,
 		getContainerIdentifiersForCommandsStmt:                     q.getContainerIdentifiersForCommandsStmt,
+		getContainerMiningTargetStmt:                               q.getContainerMiningTargetStmt,
 		getContainerModuleIdentitiesStmt:                           q.getContainerModuleIdentitiesStmt,
 		getContainerModuleScopeStmt:                                q.getContainerModuleScopeStmt,
 		getContainerPollHistoryStmt:                                q.getContainerPollHistoryStmt,
@@ -10071,7 +10072,6 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getDeviceWriteDeletionBindingsStmt:                         q.getDeviceWriteDeletionBindingsStmt,
 		getDeviceWriteDeletionTargetsStmt:                          q.getDeviceWriteDeletionTargetsStmt,
 		getDeviceWriteIdentityKeysStmt:                             q.getDeviceWriteIdentityKeysStmt,
-		getDirectProtoMinerProxyTargetStmt:                         q.getDirectProtoMinerProxyTargetStmt,
 		getDiscoveredDeviceByDeviceIdentifierStmt:                  q.getDiscoveredDeviceByDeviceIdentifierStmt,
 		getDiscoveredDeviceByIDStmt:                                q.getDiscoveredDeviceByIDStmt,
 		getDiscoveredDeviceByIPAndPortStmt:                         q.getDiscoveredDeviceByIPAndPortStmt,
@@ -10191,6 +10191,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getPoolEquipmentInstallationStmt:                           q.getPoolEquipmentInstallationStmt,
 		getPoolEquipmentMinerOwnerStmt:                             q.getPoolEquipmentMinerOwnerStmt,
 		getPoolGroupSnapshotStmt:                                   q.getPoolGroupSnapshotStmt,
+		getProtoMinerProxyTargetStmt:                               q.getProtoMinerProxyTargetStmt,
 		getQueueMessagesByBatchStmt:                                q.getQueueMessagesByBatchStmt,
 		getRackDetailsForDevicesStmt:                               q.getRackDetailsForDevicesStmt,
 		getRackInfoStmt:                                            q.getRackInfoStmt,
@@ -10241,8 +10242,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		hasDetachedPoolGroupIntentsStmt:                            q.hasDetachedPoolGroupIntentsStmt,
 		hasDueTelemetrySeedRecoveryStmt:                            q.hasDueTelemetrySeedRecoveryStmt,
 		hasHostedAccountHostAuthorityStmt:                          q.hasHostedAccountHostAuthorityStmt,
-		hasPendingContainerControlStmt:                             q.hasPendingContainerControlStmt,
-		hasPendingScopedMiningStmt:                                 q.hasPendingScopedMiningStmt,
+		hasPendingContainerCommandStmt:                             q.hasPendingContainerCommandStmt,
 		hasPoolAssignmentKindConflictStmt:                          q.hasPoolAssignmentKindConflictStmt,
 		hasPoolConfigurationCutoverStmt:                            q.hasPoolConfigurationCutoverStmt,
 		hasUserStmt:                                                q.hasUserStmt,

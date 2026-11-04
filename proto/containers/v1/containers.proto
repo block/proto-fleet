@@ -10,6 +10,10 @@ import "google/protobuf/timestamp.proto";
 // Containers are paired controllers with observed internal topology. Their
 // modules are not Fleet miners, and tanks are not user-managed racks.
 service ContainerService {
+  rpc GetMiningStatus(GetMiningStatusRequest) returns (GetMiningStatusResponse);
+  rpc GetPowerTarget(GetPowerTargetRequest) returns (GetPowerTargetResponse);
+  rpc SetMining(SetMiningRequest) returns (SetMiningResponse);
+  rpc SetPowerTarget(SetPowerTargetRequest) returns (SetPowerTargetResponse);
   rpc GetModuleMiningOptions(GetModuleMiningOptionsRequest) returns (GetModuleMiningOptionsResponse);
   rpc SetModuleMining(SetModuleMiningRequest) returns (SetModuleMiningResponse);
   rpc GetTankMiningOptions(GetTankMiningOptionsRequest) returns (GetTankMiningOptionsResponse);
@@ -204,4 +208,42 @@ message ModuleMiningCommand {
 message SetModuleMiningResponse {
   // One batch per controller; the server resolves exact module scope and identity.
   repeated ModuleMiningCommand commands = 1;
+}
+
+message GetMiningStatusResponse {
+  bool mining = 1;
+  string operating_state = 2;
+}
+message GetPowerTargetResponse {
+  double watts = 1;
+  optional double minimum_watts = 2;
+  optional double maximum_watts = 3;
+  string performance_mode = 4;
+  optional bool balance_bays = 5;
+  optional bool hash_on_disconnect = 6;
+}
+message SetMiningRequest {
+  string device_identifier = 1 [(buf.validate.field).string = {min_len: 1, max_len: 255}];
+  optional bool mining = 2 [(buf.validate.field).required = true];
+}
+message SetPowerTargetRequest {
+  string device_identifier = 1 [(buf.validate.field).string = {min_len: 1, max_len: 255}];
+  double watts = 2 [(buf.validate.field).double = {gt: 0, finite: true}];
+  string performance_mode = 3 [(buf.validate.field).string = {in: ["", "PERFORMANCE_MODE_UNSPECIFIED", "PERFORMANCE_MODE_MAXIMUM_HASHRATE", "PERFORMANCE_MODE_EFFICIENCY"]}];
+  optional bool balance_bays = 4;
+  optional bool hash_on_disconnect = 5;
+}
+message SetMiningResponse {
+  // Use GetEquipmentCommandResult to observe this controller's command completion.
+  string batch_identifier = 1;
+}
+
+message GetMiningStatusRequest {
+  string device_identifier = 1 [(buf.validate.field).string = {min_len: 1, max_len: 255}];
+}
+message GetPowerTargetRequest {
+  string device_identifier = 1 [(buf.validate.field).string = {min_len: 1, max_len: 255}];
+}
+message SetPowerTargetResponse {
+  string batch_identifier = 1;
 }

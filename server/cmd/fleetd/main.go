@@ -578,6 +578,7 @@ func start(config *Config) (result error) {
 	siteStore := sqlstores.NewSQLSiteStore(conn)
 	buildingStore := sqlstores.NewSQLBuildingStore(conn)
 	fleetMgmtSvc := fleetmanagementDomain.NewService(deviceStore, discoveredDeviceStore, telemetryService, minerService, pluginService, poolStore, errorStore, collectionStore, buildingStore, commandSvc, activitySvc)
+	fleetMgmtSvc.WithMinerWebCapability(fleetNodeControlRegistry)
 	fleetMgmtSvc.WithOptionsCache(fleetOptionsCache)
 	// Filtered "select all" command dispatch resolves its MinerListFilter through
 	// the fleetmanagement resolver; wire it now that fleetMgmtSvc exists (it
@@ -911,7 +912,7 @@ func start(config *Config) (result error) {
 	mux.Handle("PATCH /api/v1/firmware/files/{fileId}", activeHTTP.Wrap(firmwareHandler.NewUpdateMetadataHandler(filesService, requestAuth, activitySvc)))
 	mux.Handle("DELETE /api/v1/firmware/files/{fileId}", activeHTTP.Wrap(firmwareHandler.NewDeleteFileHandler(filesService, requestAuth)))
 	mux.Handle("DELETE /api/v1/firmware/files", activeHTTP.Wrap(firmwareHandler.NewDeleteAllFilesHandler(filesService, requestAuth)))
-	mux.Handle("/miners/{deviceIdentifier}/api/{apiVersion}/{rest...}", activeHTTP.Wrap(minerProxyHandler.NewHandler(conn, sessionSvc, userStore, permissionResolver, encryptSvc, config.MinerProxy)))
+	mux.Handle("/miners/{deviceIdentifier}/api/{apiVersion}/{rest...}", activeHTTP.Wrap(minerProxyHandler.NewHandler(conn, sessionSvc, userStore, permissionResolver, encryptSvc, config.MinerProxy, fleetNodeControlRegistry)))
 
 	if len(reflectEnabledServices) != 0 {
 		slog.Debug("enabling reflection", "services", reflectEnabledServices)

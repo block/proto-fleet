@@ -1,6 +1,7 @@
-import { API_PROXY_BASE } from "@/protoFleet/api/constants";
+import { awaitEquipmentCommand } from "./awaitEquipmentCommand";
+import { containersClient } from "@/protoFleet/api/clients";
 
-// Container-wide operations from proto-rig-api/openapi/MDK-v2-API.json.
+// Native controller operations retain the existing MDK v2 menu semantics.
 // Never resolve these into module identifiers: the controller owns dispatch.
 export const CONTAINER_ACTIONS = [
   { label: "Sleep container", path: "mining/stop", permission: "miner:stop_mining", kind: "command" },
@@ -29,25 +30,45 @@ export async function requestContainerAction(
   body?: Record<string, unknown>,
   signal?: AbortSignal,
 ): Promise<ContainerActionResponse> {
-  const response = await fetch(`${API_PROXY_BASE}/miners/${encodeURIComponent(deviceIdentifier)}/api/v2/${path}`, {
-    method,
-    credentials: "include",
-    headers: body ? { "Content-Type": "application/json" } : undefined,
-    body: body ? JSON.stringify(body) : undefined,
-    signal,
-  });
-  const data = await response.json().catch(() => undefined);
-  if (!response.ok) {
-    throw new Error(
-      typeof data?.message === "string"
-        ? data.message
-        : typeof data?.error === "string"
-          ? data.error
-          : `Container request failed (${response.status}).`,
-    );
+  const options = { signal, timeoutMs: 10_000 };
+  if (method === "GET" && path === "mining/status") {
+    return containersClient.getMiningStatus({ deviceIdentifier }, options);
   }
-  if (!data || typeof data !== "object" || Array.isArray(data)) throw new Error("Invalid response from the container.");
-  return data;
+  if (method === "GET" && path === "mining/target-power") {
+    return containersClient.getPowerTarget({ deviceIdentifier }, options);
+  }
+  let batchIdentifier: string;
+  if (method === "POST" && (path === "mining/start" || path === "mining/stop")) {
+    ({ batchIdentifier } = await containersClient.setMining(
+      { deviceIdentifier, mining: path === "mining/start" },
+      options,
+    ));
+  } else if (method === "PUT" && path === "mining/target-power") {
+    if (typeof body?.watts !== "number") throw new Error("Power target is required.");
+    ({ batchIdentifier } = await containersClient.setPowerTarget(
+      {
+        deviceIdentifier,
+        watts: body.watts,
+        performanceMode: typeof body.performanceMode === "string" ? body.performanceMode : "",
+        balanceBays: typeof body.balanceBays === "boolean" ? body.balanceBays : undefined,
+        hashOnDisconnect: typeof body.hashOnDisconnect === "boolean" ? body.hashOnDisconnect : undefined,
+      },
+      options,
+    ));
+  } else {
+    throw new Error("Unsupported container action.");
+  }
+  if (!batchIdentifier) throw new Error("Command outcome unconfirmed. Refresh before retrying.");
+  await awaitEquipmentCommand(deviceIdentifier, batchIdentifier, signal);
+  if (path === "mining/target-power") {
+    // A failed refresh cannot turn an acknowledged write into a retry.
+    try {
+      return await containersClient.getPowerTarget({ deviceIdentifier }, options);
+    } catch {
+      return {};
+    }
+  }
+  return {};
 }
 
 export function containerMiningCommand(status: ContainerActionResponse): "mining/start" | "mining/stop" | undefined {

@@ -13,6 +13,7 @@ vi.mock("@/shared/components/Popover/usePopoverPosition", () => ({
 }));
 
 vi.mock("@/protoFleet/api/clients", () => ({
+  containersClient: { getMiningStatus: vi.fn().mockResolvedValue({ mining: true }) },
   miningGroupsClient: {
     getState: vi.fn().mockResolvedValue({ supported: false, enabled: false }),
   },
@@ -30,9 +31,6 @@ vi.mock("@/protoFleet/store", () => ({
 
 describe("ContainerCard", () => {
   it("uses the same proportion bands as building racks", async () => {
-    const fetchStatus = vi
-      .spyOn(globalThis, "fetch")
-      .mockResolvedValueOnce(new Response(JSON.stringify({ mining: true })));
     const tank = create(TankHealthSchema, { position: 1, hashingCount: 15, attentionCount: 1 });
     expect(tankHealth(tank, false).band).toBe(healthHeatBand(1 / 16));
     const container = create(ContainerSchema, {
@@ -57,7 +55,6 @@ describe("ContainerCard", () => {
     expect(await screen.findByText("Sleep container")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Unpair" }));
     expect(screen.getByTestId("container-unpair-dialog")).toHaveTextContent("Unpair Container 1?");
-    fetchStatus.mockRestore();
   });
   it("never renders incomplete or stale observations as healthy", () => {
     expect(tankHealth(create(TankHealthSchema, { hashingCount: 15, unknownCount: 1 }), false).incomplete).toBe(true);

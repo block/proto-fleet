@@ -47,6 +47,8 @@ func AdmissionForCommand(command *gatewaypb.AgentCommand) (CommandAdmissionClass
 		return CommandAdmissionGeneral, "credential_key_export"
 	case *gatewaypb.AgentCommand_InstallCredentialKey:
 		return CommandAdmissionGeneral, "credential_key_install"
+	case *gatewaypb.AgentCommand_MinerWeb:
+		return CommandAdmissionGeneral, "miner_web"
 	case *gatewaypb.AgentCommand_MinerCommand:
 		return AdmissionForMinerCommand(typedCommand.MinerCommand)
 	default:
@@ -69,6 +71,8 @@ func AdmissionForMinerCommand(command *gatewaypb.MinerCommand) (CommandAdmission
 		return CommandAdmissionDeferrableRead, "get_cooling_mode"
 	case *gatewaypb.MinerCommand_GetErrors:
 		return CommandAdmissionDeferrableRead, "get_errors"
+	case *gatewaypb.MinerCommand_ContainerMining:
+		return CommandAdmissionGeneral, "container_mining"
 	case *gatewaypb.MinerCommand_MiningGroups:
 		return CommandAdmissionGeneral, "mining_groups"
 	case *gatewaypb.MinerCommand_SetModuleMining:

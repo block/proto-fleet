@@ -903,6 +903,13 @@ impl Driver for DriverService {
 
     // --- Configuration ---
 
+    async fn container_mining(
+        &self,
+        _req: Request<pb::ContainerMiningRequest>,
+    ) -> Result<Response<pb::ContainerMiningResponse>, Status> {
+        Err(Status::unimplemented("container mining is unsupported"))
+    }
+
     async fn mining_groups(
         &self,
         _req: Request<pb::MiningGroupsRequest>,

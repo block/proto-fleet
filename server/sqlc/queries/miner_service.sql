@@ -80,7 +80,7 @@ WHERE d.id = ANY(sqlc.arg(device_ids)::bigint[])
     )
 ORDER BY d.id;
 
--- name: GetDirectProtoMinerProxyTarget :one
+-- name: GetProtoMinerProxyTarget :one
 SELECT
     d.id,
     d.device_identifier,
@@ -95,6 +95,8 @@ SELECT
     dd.rpc_tls,
     dd.endpoints::text AS endpoints,
     dd.driver_name,
+    dd.device_class,
+    fnd.fleet_node_id,
     mc.username_enc,
     mc.password_enc,
     d.discovered_device_id,
@@ -106,6 +108,8 @@ JOIN discovered_device dd ON d.discovered_device_id = dd.id
 JOIN device_pairing dp ON d.id = dp.device_id
 LEFT JOIN miner_credentials mc ON d.id = mc.device_id
 LEFT JOIN device_write_fence f ON f.device_id=d.id AND f.organization_id=d.org_id
+LEFT JOIN fleet_node_device fnd ON fnd.device_id=d.id AND fnd.org_id=d.org_id
+LEFT JOIN fleet_node fn ON fn.id=fnd.fleet_node_id AND fn.org_id=fnd.org_id
 WHERE d.device_identifier = $1
     AND d.org_id = $2
     AND d.deleted_at IS NULL
@@ -116,12 +120,11 @@ WHERE d.device_identifier = $1
     AND dd.deleted_at IS NULL
     AND dp.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD')
     AND dd.driver_name = 'proto'
-    -- This HTTP proxy dials the miner from fleet-api. Fleet-node-owned
-    -- devices need a result-capable typed control command instead.
-    AND NOT EXISTS (
-        SELECT 1 FROM fleet_node_device fnd
-        WHERE fnd.device_id = d.id AND fnd.org_id = d.org_id
-    )
+    AND (fnd.device_id IS NULL OR (
+        dd.device_class = 1
+        AND fn.deleted_at IS NULL AND fn.enrollment_status = 'CONFIRMED'
+        AND dd.discovered_by_fleet_node_id = fnd.fleet_node_id
+    ))
 LIMIT 1;
 
 -- name: GetFleetNodeTelemetryRouteByDeviceIdentifier :one

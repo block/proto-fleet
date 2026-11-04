@@ -2405,7 +2405,8 @@ SELECT
     d.building_id,
     COALESCE(b.name, '') as building_label,
     FALSE as fleet_node_unavailable,
-    FALSE as embedded_web_view_available
+    FALSE as embedded_web_view_available,
+    NULL::bigint as fleet_node_id
 FROM discovered_device dd
 LEFT JOIN device d ON dd.id = d.discovered_device_id
 LEFT JOIN device_pairing dp ON d.id = dp.device_id
@@ -2441,6 +2442,7 @@ type ListMinerStateSnapshotsRow struct {
 	BuildingLabel            string
 	FleetNodeUnavailable     bool
 	EmbeddedWebViewAvailable bool
+	FleetNodeID              sql.NullInt64
 }
 
 // TYPE GENERATION STUB - This query is never executed.
@@ -2482,6 +2484,7 @@ func (q *Queries) ListMinerStateSnapshots(ctx context.Context) ([]ListMinerState
 			&i.BuildingLabel,
 			&i.FleetNodeUnavailable,
 			&i.EmbeddedWebViewAvailable,
+			&i.FleetNodeID,
 		); err != nil {
 			return nil, err
 		}

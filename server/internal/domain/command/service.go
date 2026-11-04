@@ -255,6 +255,8 @@ func activityEventType(t commandtype.Type) string {
 		return "set_module_mining"
 	case commandtype.SetTankMining:
 		return "set_tank_mining"
+	case commandtype.ContainerMining:
+		return "container_mining"
 	case commandtype.SetContainerControl:
 		return "set_container_control"
 	case commandtype.ApplyCurtailmentConfig:

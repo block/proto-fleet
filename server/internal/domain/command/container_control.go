@@ -6,7 +6,6 @@ import (
 	"errors"
 	"time"
 
-	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
 	containerpb "github.com/block/proto-fleet/server/generated/grpc/containers/v1"
 	pb "github.com/block/proto-fleet/server/generated/grpc/minercommand/v1"
 	"github.com/block/proto-fleet/server/generated/sqlc"
@@ -31,10 +30,7 @@ func (s *Service) SetContainerControl(ctx context.Context, identifier string, re
 	if err != nil {
 		return nil, err
 	}
-	var commit func()
-	result, err := db.WithTransaction(ctx, s.conn, func(q sqlc.Querier) (*CommandResult, error) {
-		txCtx, after := db.WithCommitHooks(db.WithTxQueries(ctx, q))
-		commit = after
+	return withContainerCommandTransaction(ctx, s, func(txCtx context.Context, q sqlc.Querier) (*CommandResult, error) {
 		target, err := q.LockContainerCommandTarget(txCtx, sqlc.LockContainerCommandTargetParams{DeviceIdentifier: identifier, OrgID: info.OrganizationID})
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, fleeterror.NewNotFoundError("container not found")
@@ -49,7 +45,7 @@ func (s *Service) SetContainerControl(ctx context.Context, identifier string, re
 		if err := authorize(txCtx, site); err != nil {
 			return nil, err
 		}
-		pending, err := q.HasPendingContainerControl(txCtx, target.ID)
+		pending, err := q.HasPendingContainerCommand(txCtx, sqlc.HasPendingContainerCommandParams{DeviceID: target.ID, CommandTypes: []string{"SetContainerControl"}})
 		if err != nil {
 			return nil, err
 		}
@@ -67,16 +63,8 @@ func (s *Service) SetContainerControl(ctx context.Context, identifier string, re
 		if len(projected) != 1 || !equipmentWritable(projected[0].Controls, req, time.Now()) {
 			return nil, fleeterror.NewFailedPreconditionError("equipment control unsupported or current state unavailable; refresh before retrying")
 		}
-		result, err := s.processCommand(txCtx, &Command{commandType: commandtype.SetContainerControl, payload: req, deviceSelector: &pb.DeviceSelector{SelectionType: &pb.DeviceSelector_IncludeDevices{IncludeDevices: &commonpb.DeviceIdentifierList{DeviceIdentifiers: []string{identifier}}}}})
-		if err == nil {
-			s.finalizeDispatch(txCtx, result, "set_container_control", "Equipment "+req.Name+" desired state changed")
-		}
-		return result, err
+		return s.queueContainerCommand(txCtx, identifier, &Command{commandType: commandtype.SetContainerControl, payload: req}, "set_container_control", "Equipment "+req.Name+" desired state changed")
 	})
-	if err == nil && commit != nil {
-		commit()
-	}
-	return result, err
 }
 
 func equipmentWritable(c *containerpb.ContainerControls, req sdk.ContainerControlRequest, now time.Time) bool {

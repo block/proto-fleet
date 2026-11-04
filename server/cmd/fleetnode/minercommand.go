@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -177,7 +178,7 @@ func (r *RunCmd) handleMinerCommand(ctx context.Context, client gatewayClient, s
 		MacAddress:   target.GetMacAddress(),
 	}
 	// This action addresses the controller, never a derived module or a rig.
-	if mc.GetSetContainerControl() != nil || mc.GetSetTankMining() != nil || mc.GetSetModuleMining() != nil || mc.GetMiningGroups() != nil {
+	if mc.GetContainerMining() != nil || mc.GetSetContainerControl() != nil || mc.GetSetTankMining() != nil || mc.GetSetModuleMining() != nil || mc.GetMiningGroups() != nil {
 		deviceInfo.DeviceClass = sdk.DeviceClassContainer
 	}
 	result, err := driver.NewDevice(cmdCtx, handleID, deviceInfo, bundle)
@@ -383,6 +384,27 @@ func (r *RunCmd) firmwareTempRootForDownloads() string {
 
 func runMinerAction(ctx context.Context, client gatewayClient, commandID, firmwareTempRoot string, caps sdk.Capabilities, dev sdk.Device, mc *pb.MinerCommand) ([]byte, error) {
 	switch a := mc.GetAction().(type) {
+	case *pb.MinerCommand_ContainerMining:
+		controller, ok := dev.(sdk.DeviceContainerMining)
+		if !ok {
+			return nil, sdk.NewErrUnsupportedCapability(sdk.CapabilityContainerMining)
+		}
+		req, err := sdk.DecodeContainerMiningRequest(a.ContainerMining.Request)
+		if err != nil {
+			return nil, err
+		}
+		result, err := controller.ContainerMining(ctx, req)
+		if err != nil {
+			return nil, err
+		}
+		if err := result.Validate(req); err != nil {
+			return nil, err
+		}
+		data, err := json.Marshal(result)
+		if err != nil {
+			return nil, fmt.Errorf("encode container mining result: %w", err)
+		}
+		return data, nil
 	case *pb.MinerCommand_SetTankMining:
 		controller, ok := dev.(sdk.DeviceTankMiner)
 		if !ok {

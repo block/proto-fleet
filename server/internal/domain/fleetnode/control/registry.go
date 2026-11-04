@@ -210,6 +210,7 @@ type inflightCommand struct {
 	ack chan *gatewaypb.ControlAck // cap 1, never closed
 
 	artifacts []artifactExpectation
+	web       *minerWebResult // only for a restricted miner-web command; guarded by Registry.mu
 
 	done chan struct{} // closed once on teardown/free; wakes the waiter
 }
@@ -219,6 +220,7 @@ type inflightCommand struct {
 func (c *inflightCommand) reportBearing() bool { return c.events != nil }
 
 type Registry struct {
+	minerWebSlots            chan struct{}
 	mu                       sync.Mutex
 	conns                    map[int64]*connection
 	sessionFences            map[int64]sessionFence
@@ -235,6 +237,7 @@ type sessionFence struct {
 
 func NewRegistry() *Registry {
 	return &Registry{
+		minerWebSlots:            make(chan struct{}, MaxConcurrentMinerWebRequests),
 		conns:                    make(map[int64]*connection),
 		sessionFences:            make(map[int64]sessionFence),
 		commandArtifactUploads:   make(map[int64]int),
@@ -374,6 +377,17 @@ func (r *Registry) addCmd(fleetNodeID int64, minimumCommandProtocolVersion gatew
 	}
 	if c.requestBudget != nil && c.requestBudget.Exhausted() {
 		return nil, nil, ErrReportQuotaExceeded
+	}
+	if c.web != nil {
+		count := 0
+		for _, pending := range conn.cmds {
+			if pending.web != nil {
+				count++
+			}
+		}
+		if count >= MaxConcurrentMinerWebRequestsPerNode {
+			return nil, nil, fleeterror.NewUnavailableErrorf("fleet node embedded view capacity reached")
+		}
 	}
 	conn.cmds[c.id] = c
 	return conn.outgoing, conn.done, nil

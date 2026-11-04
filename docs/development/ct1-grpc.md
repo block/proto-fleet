@@ -1,7 +1,7 @@
 # CT1 native gRPC transport
 
 The Proto plugin uses Frigate MDK v2 gRPC for CT1 discovery, pairing,
-current telemetry, and the existing boolean equipment controls. ProtoOS and
+current telemetry, equipment controls, and container-menu sleep, wake, and power actions. ProtoOS and
 Fleet's web proxy continue to use HTTP(S). Poll frequency is unchanged. Concurrent polling, physical-equipment rollups,
 and topology persistence are described in [polling measurements](ct1-polling-metrics.md).
 Retained historical ingestion remains #179.
@@ -282,3 +282,22 @@ and unconfirmed writes during the canary. Roll back application/plugin builds
 before removing the additive schema. The endpoint-group down migration removes
 saved endpoint lists and HA observations; it does not remove hashboard telemetry.
 Both peers must support the new HA API before a new group can be established.
+
+## Container menu commands
+
+Fleet's container menu uses typed Fleet RPCs for current mining status and power
+settings, and queued commands for sleep, wake, and power changes. Direct controllers
+execute through the Proto plugin; node-owned controllers execute the same native
+MDK operations on their assigned Fleet Node. These commands require node protocol
+V8. The embedded HTTP relay remains limited to Proto rigs; existing direct CT1
+HTTP views remain supported.
+
+The plugin verifies the saved controller identity and uses the existing HA
+controller-selection policy before dispatch. It does not replay a mutation after
+an uncertain result or fail over after sending it. Fleet waits for the queued
+command result before reporting acknowledgement, then refreshes applied power
+without resending the write if that read fails. Power mode and optional balance
+and disconnect settings retain their presence and values.
+
+Global start/stop retains the firmware semantics: with mining groups enabled it
+changes only the default group; isolated boards retain their individual state.

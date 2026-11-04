@@ -733,6 +733,7 @@ type Querier interface {
 	GetConnectedPostgresIdentity(ctx context.Context) (ConnectedPostgresIdentity, error)
 	// Class metadata excludes known containers without live capability discovery.
 	GetContainerIdentifiersForCommands(ctx context.Context, arg GetContainerIdentifiersForCommandsParams) ([]string, error)
+	GetContainerMiningTarget(ctx context.Context, arg GetContainerMiningTargetParams) (GetContainerMiningTargetRow, error)
 	GetContainerModuleIdentities(ctx context.Context, arg GetContainerModuleIdentitiesParams) ([]GetContainerModuleIdentitiesRow, error)
 	GetContainerModuleScope(ctx context.Context, arg GetContainerModuleScopeParams) (GetContainerModuleScopeRow, error)
 	GetContainerPollHistory(ctx context.Context, arg GetContainerPollHistoryParams) ([]GetContainerPollHistoryRow, error)
@@ -824,7 +825,6 @@ type Querier interface {
 	GetDeviceWriteDeletionBindings(ctx context.Context, arg GetDeviceWriteDeletionBindingsParams) ([]GetDeviceWriteDeletionBindingsRow, error)
 	GetDeviceWriteDeletionTargets(ctx context.Context, arg GetDeviceWriteDeletionTargetsParams) ([]GetDeviceWriteDeletionTargetsRow, error)
 	GetDeviceWriteIdentityKeys(ctx context.Context, targetID int64) ([]string, error)
-	GetDirectProtoMinerProxyTarget(ctx context.Context, arg GetDirectProtoMinerProxyTargetParams) (GetDirectProtoMinerProxyTargetRow, error)
 	GetDiscoveredDeviceByDeviceIdentifier(ctx context.Context, arg GetDiscoveredDeviceByDeviceIdentifierParams) (DiscoveredDevice, error)
 	GetDiscoveredDeviceByID(ctx context.Context, arg GetDiscoveredDeviceByIDParams) (DiscoveredDevice, error)
 	// Endpoint reconciliation is server-local; private addresses on nodes are separate namespaces.
@@ -1047,6 +1047,7 @@ type Querier interface {
 	GetPoolEquipmentInstallation(ctx context.Context, arg GetPoolEquipmentInstallationParams) (GetPoolEquipmentInstallationRow, error)
 	GetPoolEquipmentMinerOwner(ctx context.Context, arg GetPoolEquipmentMinerOwnerParams) (GetPoolEquipmentMinerOwnerRow, error)
 	GetPoolGroupSnapshot(ctx context.Context, arg GetPoolGroupSnapshotParams) (PoolConfigurationGroupSnapshot, error)
+	GetProtoMinerProxyTarget(ctx context.Context, arg GetProtoMinerProxyTargetParams) (GetProtoMinerProxyTargetRow, error)
 	GetQueueMessagesByBatch(ctx context.Context, commandBatchLogUuid string) ([]GetQueueMessagesByBatchRow, error)
 	// Batch query to get rack label and formatted slot position for multiple devices at once.
 	// Returns at most one rack per device due to partial unique index.
@@ -1137,8 +1138,7 @@ type Querier interface {
 	HasDetachedPoolGroupIntents(ctx context.Context, arg HasDetachedPoolGroupIntentsParams) (bool, error)
 	HasDueTelemetrySeedRecovery(ctx context.Context) (bool, error)
 	HasHostedAccountHostAuthority(ctx context.Context, arg HasHostedAccountHostAuthorityParams) (bool, error)
-	HasPendingContainerControl(ctx context.Context, deviceID int64) (bool, error)
-	HasPendingScopedMining(ctx context.Context, deviceID int64) (bool, error)
+	HasPendingContainerCommand(ctx context.Context, arg HasPendingContainerCommandParams) (bool, error)
 	HasPoolAssignmentKindConflict(ctx context.Context, arg HasPoolAssignmentKindConflictParams) (bool, error)
 	HasPoolConfigurationCutover(ctx context.Context, organizationID int64) (bool, error)
 	HasUser(ctx context.Context) (bool, error)

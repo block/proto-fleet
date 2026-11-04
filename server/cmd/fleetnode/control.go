@@ -252,7 +252,7 @@ func (r *RunCmd) runControlSession(ctx context.Context, logger *slog.Logger, cli
 		return fmt.Errorf("discovery configuration: %w", err)
 	}
 	if err := stream.Send(&pb.ControlStreamRequest{Kind: &pb.ControlStreamRequest_Hello{Hello: &pb.ControlHello{
-		MaxCommandProtocolVersion: pb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V7,
+		MaxCommandProtocolVersion: pb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V8,
 		DiscoveryConfig:           config,
 	}}}); err != nil {
 		if ctx.Err() != nil {
@@ -534,6 +534,8 @@ func (r *RunCmd) handleCommand(ctx context.Context, client gatewayClient, stream
 	switch k := env.GetCommand().(type) {
 	case *pb.AgentCommand_Discover:
 		r.handleDiscover(ctx, client, stream, commandID, k.Discover, logger)
+	case *pb.AgentCommand_MinerWeb:
+		r.handleMinerWeb(ctx, stream, commandID, k.MinerWeb, logger)
 	case *pb.AgentCommand_MinerCommand:
 		r.handleMinerCommand(ctx, client, stream, commandID, k.MinerCommand, logger)
 	case *pb.AgentCommand_Pair:

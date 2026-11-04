@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { timestampDate } from "@bufbuild/protobuf/wkt";
+import { awaitEquipmentCommand } from "../awaitEquipmentCommand";
 import { containersClient } from "@/protoFleet/api/clients";
 import type { Container } from "@/protoFleet/api/generated/containers/v1/containers_pb";
 import { getErrorMessage } from "@/protoFleet/api/getErrorMessage";
@@ -63,58 +64,42 @@ export function useEquipmentCommand(identifier: string, container: Container | u
 
   useEffect(() => {
     if (!pending || pending.identifier !== identifier) return;
-    let stopped = false;
-    let fetching = false;
-    const check = async () => {
-      if (stopped || active.current !== pending) return;
-      if (Date.now() > pending.deadline) {
-        finish(
-          pending,
-          pending.phase === "readback"
-            ? "Write acknowledged; physical state remains unconfirmed. Refresh before retrying."
-            : "Command outcome unknown. Refresh before retrying.",
-          true,
-        );
-        return;
-      }
-      if (fetching || pending.phase !== "pending" || !pending.batch) return;
-      fetching = true;
-      try {
-        const { result } = await containersClient.getEquipmentCommandResult(
-          { deviceIdentifier: identifier, batchIdentifier: pending.batch },
-          { timeoutMs: 10_000 },
-        );
-        if (stopped || active.current !== pending || !result || result.status !== "finished") return;
-        if (result.failureCount > 0 || result.successCount !== 1 || result.detailsPruned) {
+    if (pending.phase === "readback") {
+      const timer = setTimeout(
+        () => finish(pending, "Write acknowledged; physical state remains unconfirmed. Refresh before retrying.", true),
+        Math.max(0, pending.deadline - Date.now()),
+      );
+      return () => clearTimeout(timer);
+    }
+    if (pending.phase !== "pending" || !pending.batch) return;
+    const abort = new AbortController();
+    void awaitEquipmentCommand(identifier, pending.batch, abort.signal, pending.deadline)
+      .then((result) => {
+        if (abort.signal.aborted || active.current !== pending) return;
+        // Only telemetry newer than server-recorded command completion confirms state.
+        const completedAt = result.deviceResults[0]?.updatedAt;
+        const next: Pending = {
+          ...pending,
+          phase: "readback",
+          after: completedAt ? timestampDate(completedAt).getTime() : undefined,
+          deadline: Date.now() + 120_000,
+        };
+        active.current = next;
+        setPending(next);
+        refreshRef.current();
+      })
+      .catch((error: unknown) => {
+        if (!abort.signal.aborted) {
           finish(
             pending,
-            result.deviceResults.find((device) => device.errorMessage)?.errorMessage ||
-              "Equipment command failed; state unconfirmed.",
+            Date.now() >= pending.deadline
+              ? "Command outcome unknown. Refresh before retrying."
+              : getErrorMessage(error),
             true,
           );
-        } else {
-          // Only telemetry newer than server-recorded command completion confirms state.
-          pending.phase = "readback";
-          const completedAt = result.deviceResults[0]?.updatedAt;
-          pending.after = completedAt ? timestampDate(completedAt).getTime() : undefined;
-          pending.deadline = Date.now() + 120_000;
-          const next = { ...pending };
-          active.current = next;
-          setPending(next);
-          refreshRef.current();
         }
-      } catch (error) {
-        if (!stopped) finish(pending, `${getErrorMessage(error)} Command outcome unconfirmed.`, true);
-      } finally {
-        fetching = false;
-      }
-    };
-    void check();
-    const timer = setInterval(() => void check(), 1000);
-    return () => {
-      stopped = true;
-      clearInterval(timer);
-    };
+      });
+    return () => abort.abort();
   }, [pending, identifier, finish]);
 
   useEffect(() => {

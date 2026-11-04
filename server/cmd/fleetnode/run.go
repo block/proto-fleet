@@ -11,6 +11,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/block/proto-fleet/server/internal/handlers/minerproxy"
+
 	"connectrpc.com/connect"
 	"github.com/coreos/go-systemd/v22/daemon"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -41,6 +43,9 @@ type RunCmd struct {
 	parentCtx                context.Context                                                          `kong:"-"` //nolint:containedctx // test seam for daemon shutdown without OS signals
 	discoverer               discoverer                                                               `kong:"-"`
 	driverGetter             driverGetter                                                             `kong:"-"`
+	webOnce                  sync.Once                                                                `kong:"-"`
+	webClient                *minerproxy.NodeClient                                                   `kong:"-"`
+	webSlots                 chan struct{}                                                            `kong:"-"`
 	minerSecrets             secretProvider                                                           `kong:"-"`
 	credentials              *credentialCodec                                                         `kong:"-"`
 	statePath                string                                                                   `kong:"-"`

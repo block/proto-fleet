@@ -273,6 +273,7 @@ message ControlStreamRequest {
         ControlHello hello = 1;
         ControlAck   ack   = 2;
         ControlPing  ping  = 3;
+        MinerWebResponseChunk miner_web_response = 4;
     }
 }
 
@@ -305,6 +306,9 @@ enum CommandProtocolVersion {
     COMMAND_PROTOCOL_VERSION_V6 = 6;
     // V7 adds standby credential key transfer and ControlPing keepalive.
     COMMAND_PROTOCOL_VERSION_V7 = 7;
+    // V8 adds the restricted Proto miner API transport, chunked responses,
+    // and typed container mining/status/power commands.
+    COMMAND_PROTOCOL_VERSION_V8 = 8;
 }
 
 message ControlHello {
@@ -370,6 +374,46 @@ message MinerConnectionDescriptor {
   bool rpc_tls = 11;
   common.v1.DeviceClass device_class = 12 [(buf.validate.field).enum.defined_only = true];
   repeated common.v1.DeviceEndpoint endpoints = 13 [(buf.validate.field).repeated.max_items = 16];
+}
+
+// An authorized request to an assigned Proto rig, never an arbitrary URL.
+// Authentication is performed by the node using target's encrypted credentials.
+// Existing embedded controls send small JSON bodies; firmware check/install do
+// not upload a firmware file through this API.
+message MinerWebRequest {
+    MinerConnectionDescriptor target = 1 [(buf.validate.field).required = true];
+    string method = 2 [(buf.validate.field).string = {in: ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE"]}];
+    string path = 3 [(buf.validate.field).string = {min_len: 1, max_len: 2048}];
+    string query = 4 [(buf.validate.field).string.max_len = 8192];
+    repeated MinerWebHeader headers = 5 [(buf.validate.field).repeated.max_items = 32];
+    bytes body = 6 [(buf.validate.field).bytes.max_len = 524288];
+    // Execution budget starts when the node handles the request; delivery time
+    // does not consume it. The server bounds its response wait independently.
+    google.protobuf.Duration timeout = 7 [(buf.validate.field).required = true, (buf.validate.field).duration.gt = {}];
+}
+
+message MinerWebHeader {
+    string name = 1 [(buf.validate.field).string = {min_len: 1, max_len: 128}];
+    string value = 2 [(buf.validate.field).string.max_len = 8192];
+}
+
+message MinerWebResponseHead {
+    uint32 status_code = 1 [(buf.validate.field).uint32 = {gte: 200, lte: 599}];
+    repeated MinerWebHeader headers = 2 [(buf.validate.field).repeated.max_items = 7];
+}
+
+// Bound to one command on the authenticated node's current ControlStream.
+// One head, zero or more data chunks, and one end precede the terminal ack.
+// Success requires both a complete response and an OK ack. Aggregate response
+// limits are enforced by the server independently of the per-frame limit.
+message MinerWebResponseChunk {
+    string command_id = 1 [(buf.validate.field).string = {min_len: 1, max_len: 128}];
+    oneof part {
+        option (buf.validate.oneof).required = true;
+        MinerWebResponseHead head = 2;
+        bytes data = 3 [(buf.validate.field).bytes = {min_len: 1, max_len: 65536}];
+        bool end = 4 [(buf.validate.field).bool.const = true];
+    }
 }
 
 // RecoverMinerEndpointsRequest asks a fleet node to find the current endpoints
@@ -460,6 +504,7 @@ message MinerCommand {
         SetTankMiningAction set_tank_mining = 20;
         SetModuleMiningAction set_module_mining = 21;
         MiningGroupsAction mining_groups = 22;
+        ContainerMiningAction container_mining = 23;
     }
 }
 
@@ -623,6 +668,7 @@ message AgentCommand {
         RecoverMinerEndpointsRequest recover_miner_endpoints = 5;
         ExportCredentialKey export_credential_key = 6;
         InstallCredentialKey install_credential_key = 7;
+        MinerWebRequest miner_web = 8;
     }
 }
 
@@ -710,4 +756,9 @@ message SetModuleMiningAction {
 message MiningGroupsAction {
  bytes request = 1 [(buf.validate.field).bytes = {min_len: 1, max_len: 16384}];
  NodeEncryptedPayload encrypted_pools = 2;
+}
+
+// Closed SDK container operation; request/result JSON is validated at both ends.
+message ContainerMiningAction {
+  bytes request = 1 [(buf.validate.field).bytes = {min_len: 1, max_len: 4096}];
 }

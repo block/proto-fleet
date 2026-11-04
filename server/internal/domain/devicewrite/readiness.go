@@ -74,7 +74,7 @@ func MayAffectPools(operationKind, commandName string) bool {
 		commandtype.Reboot, commandtype.FirmwareUpdate, commandtype.Unpair,
 		commandtype.UpdateMinerPassword, commandtype.Curtail, commandtype.Uncurtail,
 		commandtype.ApplyCurtailmentConfig, commandtype.SetContainerControl,
-		commandtype.SetTankMining, commandtype.SetModuleMining:
+		commandtype.SetTankMining, commandtype.SetModuleMining, commandtype.ContainerMining:
 		return true
 	default:
 		return true

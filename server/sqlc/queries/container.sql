@@ -93,7 +93,7 @@ ON CONFLICT (device_id,time) DO NOTHING;
 
 -- name: LockContainerCommandTarget :one
 -- Lock current ownership/site through dispatch; child inventory IDs are never targets.
-SELECT d.id, d.site_id
+SELECT d.id, d.site_id, dd.is_active, dd.driver_name
 FROM device d
 JOIN discovered_device dd ON dd.id=d.discovered_device_id AND dd.org_id=d.org_id
 JOIN device_pairing dp ON dp.device_id=d.id
@@ -102,10 +102,10 @@ WHERE d.device_identifier=sqlc.arg('device_identifier') AND d.org_id=sqlc.arg('o
   AND dp.pairing_status IN ('PAIRED','DEFAULT_PASSWORD')
 FOR UPDATE OF d, dp;
 
--- name: HasPendingContainerControl :one
+-- name: HasPendingContainerCommand :one
 SELECT EXISTS (
  SELECT 1 FROM queue_message
- WHERE device_id=sqlc.arg('device_id') AND command_type='SetContainerControl'
+ WHERE device_id=sqlc.arg('device_id') AND command_type=ANY(sqlc.arg('command_types')::text[])
  AND status IN ('PENDING','PROCESSING')
 )::boolean;
 
@@ -113,7 +113,7 @@ SELECT EXISTS (
 SELECT EXISTS (
  SELECT 1 FROM command_batch_log b JOIN queue_message m ON m.command_batch_log_uuid=b.uuid
  WHERE b.uuid=sqlc.arg('batch_identifier') AND b.organization_id=sqlc.arg('org_id')
- AND b.type IN ('SetContainerControl', 'SetTankMining', 'SetModuleMining') AND b.devices_count=1 AND m.device_id=sqlc.arg('device_id')
+ AND b.type IN ('SetContainerControl', 'SetTankMining', 'SetModuleMining', 'ContainerMining') AND b.devices_count=1 AND m.device_id=sqlc.arg('device_id')
 )::boolean;
 
 -- name: ListTankCommandTargets :many
@@ -129,12 +129,6 @@ WHERE t.id=ANY(sqlc.arg('tank_ids')::bigint[]) AND t.present
   AND d.org_id=sqlc.arg('org_id') AND d.deleted_at IS NULL AND dd.deleted_at IS NULL
   AND dd.device_class=2 AND dp.pairing_status IN ('PAIRED','DEFAULT_PASSWORD')
 ORDER BY d.id, t.id;
-
--- name: HasPendingScopedMining :one
-SELECT EXISTS (
- SELECT 1 FROM queue_message WHERE device_id=sqlc.arg('device_id')
- AND command_type IN ('SetTankMining','SetModuleMining') AND status IN ('PENDING','PROCESSING')
-)::boolean;
 
 -- name: ListModuleCommandTargets :many
 SELECT m.id AS module_id, t.device_id, t.position AS tank_position,
@@ -153,3 +147,14 @@ WHERE m.id=ANY(sqlc.arg('module_ids')::bigint[]) AND m.retired_at IS NULL
   AND d.org_id=sqlc.arg('org_id') AND d.deleted_at IS NULL AND dd.deleted_at IS NULL
   AND dd.device_class=2 AND dp.pairing_status IN ('PAIRED','DEFAULT_PASSWORD')
 ORDER BY d.id, m.id;
+
+-- name: GetContainerMiningTarget :one
+SELECT d.id, d.site_id, COALESCE(f.epoch,0)::bigint AS write_epoch
+FROM device d
+JOIN discovered_device dd ON dd.id=d.discovered_device_id AND dd.org_id=d.org_id
+JOIN device_pairing dp ON dp.device_id=d.id
+LEFT JOIN device_write_fence f ON f.device_id=d.id AND f.organization_id=d.org_id
+WHERE d.device_identifier=sqlc.arg('device_identifier') AND d.org_id=sqlc.arg('org_id')
+  AND d.deleted_at IS NULL AND dd.deleted_at IS NULL AND dd.is_active
+  AND dd.device_class=2 AND dd.driver_name='proto'
+  AND dp.pairing_status IN ('PAIRED','DEFAULT_PASSWORD');

@@ -36,6 +36,7 @@ const (
 	Driver_BlinkLED_FullMethodName                = "/sdk.v1.Driver/BlinkLED"
 	Driver_Reboot_FullMethodName                  = "/sdk.v1.Driver/Reboot"
 	Driver_SetTankMining_FullMethodName           = "/sdk.v1.Driver/SetTankMining"
+	Driver_ContainerMining_FullMethodName         = "/sdk.v1.Driver/ContainerMining"
 	Driver_MiningGroups_FullMethodName            = "/sdk.v1.Driver/MiningGroups"
 	Driver_SetModuleMining_FullMethodName         = "/sdk.v1.Driver/SetModuleMining"
 	Driver_SetContainerControl_FullMethodName     = "/sdk.v1.Driver/SetContainerControl"
@@ -88,6 +89,7 @@ type DriverClient interface {
 	Reboot(ctx context.Context, in *DeviceRef, opts ...grpc.CallOption) (*emptypb.Empty, error)
 	// Optional controller-only equipment command. Backend support is checked at execution.
 	SetTankMining(ctx context.Context, in *SetTankMiningRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
+	ContainerMining(ctx context.Context, in *ContainerMiningRequest, opts ...grpc.CallOption) (*ContainerMiningResponse, error)
 	MiningGroups(ctx context.Context, in *MiningGroupsRequest, opts ...grpc.CallOption) (*MiningGroupsResponse, error)
 	SetModuleMining(ctx context.Context, in *SetModuleMiningRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
 	SetContainerControl(ctx context.Context, in *SetContainerControlRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
@@ -261,6 +263,15 @@ func (c *driverClient) Reboot(ctx context.Context, in *DeviceRef, opts ...grpc.C
 func (c *driverClient) SetTankMining(ctx context.Context, in *SetTankMiningRequest, opts ...grpc.CallOption) (*emptypb.Empty, error) {
 	out := new(emptypb.Empty)
 	err := c.cc.Invoke(ctx, Driver_SetTankMining_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *driverClient) ContainerMining(ctx context.Context, in *ContainerMiningRequest, opts ...grpc.CallOption) (*ContainerMiningResponse, error) {
+	out := new(ContainerMiningResponse)
+	err := c.cc.Invoke(ctx, Driver_ContainerMining_FullMethodName, in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -524,6 +535,7 @@ type DriverServer interface {
 	Reboot(context.Context, *DeviceRef) (*emptypb.Empty, error)
 	// Optional controller-only equipment command. Backend support is checked at execution.
 	SetTankMining(context.Context, *SetTankMiningRequest) (*emptypb.Empty, error)
+	ContainerMining(context.Context, *ContainerMiningRequest) (*ContainerMiningResponse, error)
 	MiningGroups(context.Context, *MiningGroupsRequest) (*MiningGroupsResponse, error)
 	SetModuleMining(context.Context, *SetModuleMiningRequest) (*emptypb.Empty, error)
 	SetContainerControl(context.Context, *SetContainerControlRequest) (*emptypb.Empty, error)
@@ -609,6 +621,9 @@ func (UnimplementedDriverServer) Reboot(context.Context, *DeviceRef) (*emptypb.E
 }
 func (UnimplementedDriverServer) SetTankMining(context.Context, *SetTankMiningRequest) (*emptypb.Empty, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method SetTankMining not implemented")
+}
+func (UnimplementedDriverServer) ContainerMining(context.Context, *ContainerMiningRequest) (*ContainerMiningResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ContainerMining not implemented")
 }
 func (UnimplementedDriverServer) MiningGroups(context.Context, *MiningGroupsRequest) (*MiningGroupsResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method MiningGroups not implemented")
@@ -958,6 +973,24 @@ func _Driver_SetTankMining_Handler(srv interface{}, ctx context.Context, dec fun
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(DriverServer).SetTankMining(ctx, req.(*SetTankMiningRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Driver_ContainerMining_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ContainerMiningRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DriverServer).ContainerMining(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Driver_ContainerMining_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DriverServer).ContainerMining(ctx, req.(*ContainerMiningRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -1445,6 +1478,10 @@ var Driver_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "SetTankMining",
 			Handler:    _Driver_SetTankMining_Handler,
+		},
+		{
+			MethodName: "ContainerMining",
+			Handler:    _Driver_ContainerMining_Handler,
 		},
 		{
 			MethodName: "MiningGroups",

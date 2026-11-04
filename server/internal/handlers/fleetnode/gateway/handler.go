@@ -850,6 +850,9 @@ func (h *Handler) ControlStream(ctx context.Context, stream *connect.BidiStream[
 				}
 				regHandle.PublishAck(ack)
 			}
+			if frame := r.msg.GetMinerWebResponse(); frame != nil {
+				regHandle.PublishMinerWebResponse(frame)
+			}
 		}
 	}
 }

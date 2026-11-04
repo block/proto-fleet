@@ -939,6 +939,17 @@ func (es *ExecutionService) executeCommandOnDevice(ctx context.Context, commandT
 		}
 		siteID = payload.SiteID
 		err = es.executeModuleMining(ctx, message.DeviceID, orgID, payload, controller)
+	case commandtype.ContainerMining:
+		var payload containerMiningPayload
+		if decodeErr := json.Unmarshal(message.Payload, &payload); decodeErr != nil {
+			return orgID, siteID, fleeterror.NewFailedPreconditionError("invalid container mining write")
+		}
+		controller, ok := minerInfo.(sdk.DeviceContainerMining)
+		if !ok {
+			return orgID, siteID, fleeterror.NewUnimplementedError("container mining unsupported")
+		}
+		siteID = payload.SiteID
+		err = es.executeContainerMining(ctx, message.DeviceID, orgID, payload, controller)
 	case commandtype.SetContainerControl:
 		var payload sdk.ContainerControlRequest
 		if decodeErr := json.Unmarshal(message.Payload, &payload); decodeErr != nil {

@@ -11,11 +11,21 @@ const state = vi.hoisted(() => ({
   deleteMiners: vi.fn(),
   pushToast: vi.fn(),
   getState: vi.fn(),
+  request: vi.fn(),
+  statusRequest: vi.fn(),
+  commandResult: vi.fn(),
 }));
 vi.mock("@/protoFleet/store", () => ({ usePermissions: () => state.permissions }));
 vi.mock("@/protoFleet/api/clients", () => ({
   fleetManagementClient: { deleteMiners: state.deleteMiners },
   miningGroupsClient: { getState: state.getState },
+  containersClient: {
+    getMiningStatus: state.statusRequest,
+    getPowerTarget: state.request,
+    setMining: state.request,
+    setPowerTarget: state.request,
+    getEquipmentCommandResult: state.commandResult,
+  },
 }));
 
 vi.mock("@/shared/features/toaster", async (importOriginal) => ({
@@ -32,9 +42,9 @@ const container = create(ContainerSchema, {
   deviceIdentifier: "ct1/board",
   name: "Container 1",
 });
-const request = vi.fn<typeof fetch>();
-const statusRequest = vi.fn<typeof fetch>();
-const json = (data: unknown, status = 200) => new Response(JSON.stringify(data), { status });
+const request = state.request;
+const statusRequest = state.statusRequest;
+const json = (data: Record<string, unknown>) => ({ batchIdentifier: "batch", ...data });
 const openAction = async (name: string) => {
   fireEvent.click(screen.getByRole("button", { name: "Actions for Container 1" }));
   const button = await screen.findByRole("button", { name });
@@ -70,8 +80,14 @@ beforeEach(() => {
   request.mockReset().mockResolvedValue(json({}));
   state.deleteMiners.mockReset().mockResolvedValue({ deletedCount: 1 });
   statusRequest.mockReset().mockImplementation(async () => json({ mining: true }));
-  vi.stubGlobal("fetch", (...args: Parameters<typeof fetch>) =>
-    String(args[0]).endsWith("/mining/status") ? statusRequest(...args) : request(...args),
+  state.commandResult
+    .mockReset()
+    .mockResolvedValue({ result: { status: "finished", successCount: 1, failureCount: 0, deviceResults: [] } });
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(() => {
+      throw new Error("container menu must use Fleet commands");
+    }),
   );
 });
 afterEach(() => vi.unstubAllGlobals());
@@ -109,12 +125,8 @@ describe("container command dispatch", () => {
     await waitFor(() => expect(screen.queryByTestId("container-action-dialog")).not.toBeInTheDocument());
     expect(request).toHaveBeenCalledTimes(1);
     expect(request).toHaveBeenCalledWith(
-      `/api-proxy/miners/ct1%2Fboard/api/v2/${path}`,
-      expect.objectContaining({
-        method: "POST",
-        credentials: "include",
-        body: "{}",
-      }),
+      { deviceIdentifier: "ct1/board", mining: path === "mining/start" },
+      expect.objectContaining({ timeoutMs: 10_000 }),
     );
   });
 
@@ -132,15 +144,15 @@ describe("container command dispatch", () => {
       status: 503,
       detail: "Controller unavailable",
     },
-    { source: "proxy authorization", body: { error: "Permission denied" }, status: 403, detail: "Permission denied" },
+    { source: "command authorization", body: { error: "Permission denied" }, status: 403, detail: "Permission denied" },
     {
-      source: "proxy connection",
+      source: "node connection",
       body: { error: "Failed to connect to container" },
       status: 502,
       detail: "Failed to connect to container",
     },
-  ])("shows $source errors and lets the operator retry", async ({ body, status, detail }) => {
-    request.mockResolvedValueOnce(json(body, status)).mockResolvedValueOnce(json({}));
+  ])("shows $source errors and lets the operator retry", async ({ detail }) => {
+    request.mockRejectedValueOnce(new Error(detail)).mockResolvedValueOnce(json({}));
     renderMenu();
     await openAction("Sleep container");
     fireEvent.click(screen.getByRole("button", { name: "Confirm" }));
@@ -152,7 +164,7 @@ describe("container command dispatch", () => {
 
   it("prevents duplicate dispatch while a command is pending", async () => {
     statusRequest.mockResolvedValueOnce(json({ mining: false }));
-    let finish!: (response: Response) => void;
+    let finish!: (response: Record<string, unknown>) => void;
     request.mockReturnValue(
       new Promise((resolve) => {
         finish = resolve;
@@ -169,6 +181,35 @@ describe("container command dispatch", () => {
     await waitFor(() => expect(screen.queryByTestId("container-action-dialog")).not.toBeInTheDocument());
   });
 
+  it("waits for controller acknowledgement after queue acceptance", async () => {
+    let finish!: (response: unknown) => void;
+    state.commandResult.mockReturnValueOnce(
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+    );
+    renderMenu();
+    await openAction("Sleep container");
+    fireEvent.click(screen.getByRole("button", { name: "Confirm" }));
+    await waitFor(() => expect(state.commandResult).toHaveBeenCalledTimes(1));
+    expect(screen.getByRole("button", { name: "Sending…" })).toBeDisabled();
+    expect(state.pushToast).not.toHaveBeenCalled();
+    expect(request).toHaveBeenCalledTimes(1);
+    finish({ result: { status: "finished", successCount: 1, failureCount: 0, deviceResults: [] } });
+    await waitFor(() => expect(screen.queryByTestId("container-action-dialog")).not.toBeInTheDocument());
+    expect(request).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not resend a write when its result cannot be read", async () => {
+    state.commandResult.mockRejectedValueOnce(new Error("node disconnected"));
+    renderMenu();
+    await openAction("Sleep container");
+    fireEvent.click(screen.getByRole("button", { name: "Confirm" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Command outcome unconfirmed");
+    expect(state.pushToast).not.toHaveBeenCalled();
+    expect(request).toHaveBeenCalledTimes(1);
+  });
+
   it("validates power bounds and preserves other target settings", async () => {
     request
       .mockResolvedValueOnce(
@@ -176,7 +217,7 @@ describe("container command dispatch", () => {
           watts: 1000,
           minimumWatts: 500,
           maximumWatts: 2000,
-          performanceMode: "PERFORMANCE_MODE_NORMAL",
+          performanceMode: "PERFORMANCE_MODE_EFFICIENCY",
           balanceBays: true,
           hashOnDisconnect: true,
         }),
@@ -194,17 +235,16 @@ describe("container command dispatch", () => {
     fireEvent.change(input, { target: { value: "1500" } });
     fireEvent.click(confirm);
     await waitFor(() => expect(screen.queryByTestId("container-action-dialog")).not.toBeInTheDocument());
-    expect(request).toHaveBeenLastCalledWith(
-      "/api-proxy/miners/ct1%2Fboard/api/v2/mining/target-power",
-      expect.objectContaining({
-        method: "PUT",
-        body: JSON.stringify({
-          watts: 1500,
-          performanceMode: "PERFORMANCE_MODE_NORMAL",
-          balanceBays: true,
-          hashOnDisconnect: true,
-        }),
-      }),
+    expect(request).toHaveBeenNthCalledWith(
+      2,
+      {
+        deviceIdentifier: "ct1/board",
+        watts: 1500,
+        performanceMode: "PERFORMANCE_MODE_EFFICIENCY",
+        balanceBays: true,
+        hashOnDisconnect: true,
+      },
+      expect.objectContaining({ timeoutMs: 10_000 }),
     );
   });
 
@@ -228,9 +268,10 @@ describe("container command dispatch", () => {
     expect(confirm).toBeEnabled();
     fireEvent.click(confirm);
     await waitFor(() => expect(screen.queryByTestId("container-action-dialog")).not.toBeInTheDocument());
-    expect(request).toHaveBeenLastCalledWith(
-      "/api-proxy/miners/ct1%2Fboard/api/v2/mining/target-power",
-      expect.objectContaining({ method: "PUT", body: JSON.stringify({ watts: 1 }) }),
+    expect(request).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ deviceIdentifier: "ct1/board", watts: 1 }),
+      expect.objectContaining({ timeoutMs: 10_000 }),
     );
   });
 
@@ -254,13 +295,13 @@ describe("container command dispatch", () => {
       "Unpair",
     ]);
     expect(statusRequest).toHaveBeenCalledWith(
-      "/api-proxy/miners/ct1%2Fboard/api/v2/mining/status",
-      expect.objectContaining({ method: "GET", credentials: "include" }),
+      { deviceIdentifier: "ct1/board" },
+      expect.objectContaining({ timeoutMs: 10_000 }),
     );
   });
 
   it("hides both commands while status is loading and refreshes after a command", async () => {
-    let finish!: (response: Response) => void;
+    let finish!: (response: Record<string, unknown>) => void;
     statusRequest.mockReturnValueOnce(
       new Promise((resolve) => {
         finish = resolve;
@@ -296,7 +337,7 @@ describe("container command dispatch", () => {
   );
 
   it("ignores an old status response after closing and reopening the menu", async () => {
-    let finish!: (response: Response) => void;
+    let finish!: (response: Record<string, unknown>) => void;
     statusRequest.mockReturnValueOnce(
       new Promise((resolve) => {
         finish = resolve;
@@ -394,8 +435,8 @@ describe("container command dispatch", () => {
     [404, "miner not found or cannot be proxied"],
     [502, "Failed to connect to container"],
     [403, "Permission denied"],
-  ])("keeps native navigation available when the proxy returns %s", async (code, error) => {
-    statusRequest.mockResolvedValueOnce(json({ error }, code));
+  ])("keeps native navigation available when the command API returns %s", async (_code, error) => {
+    statusRequest.mockRejectedValueOnce(new Error(error));
     renderMenu();
     const trigger = screen.getByRole("button", { name: "Actions for Container 1" });
     expect(trigger).toBeEnabled();
@@ -410,9 +451,9 @@ describe("container command dispatch", () => {
     expect(screen.getByTestId("location")).toHaveTextContent("/containers/ct1%2Fboard");
   });
 
-  it("checks proxy availability for operators with only power permissions", async () => {
+  it("checks command availability for operators with only power permissions", async () => {
     state.permissions = ["miner:read", "miner:set_power_target"];
-    statusRequest.mockResolvedValueOnce(json({ error: "miner not found or cannot be proxied" }, 404));
+    statusRequest.mockRejectedValueOnce(new Error("container not found"));
     renderMenu();
     const trigger = screen.getByRole("button", { name: "Actions for Container 1" });
     fireEvent.click(trigger);
@@ -427,8 +468,8 @@ describe("container command dispatch", () => {
 });
 
 describe("container unpair", () => {
-  it("confirms and unpairs only the controller even when its proxy is unavailable", async () => {
-    statusRequest.mockResolvedValueOnce(json({ error: "Controller unavailable" }, 502));
+  it("confirms and unpairs only the controller even when its controller is unavailable", async () => {
+    statusRequest.mockRejectedValueOnce(new Error("Controller unavailable"));
     renderMenu();
     await openAction("Unpair");
     expect(state.deleteMiners).not.toHaveBeenCalled();

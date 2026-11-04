@@ -227,105 +227,6 @@ func (q *Queries) GetDeviceWriteDeletionBindings(ctx context.Context, arg GetDev
 	return items, nil
 }
 
-const getDirectProtoMinerProxyTarget = `-- name: GetDirectProtoMinerProxyTarget :one
-SELECT
-    d.id,
-    d.device_identifier,
-    d.org_id,
-    d.site_id,
-    d.serial_number,
-    d.mac_address,
-    dd.ip_address,
-    dd.port,
-    dd.url_scheme,
-    dd.rpc_port,
-    dd.rpc_tls,
-    dd.endpoints::text AS endpoints,
-    dd.driver_name,
-    mc.username_enc,
-    mc.password_enc,
-    d.discovered_device_id,
-    dp.paired_at,
-    mc.updated_at AS credential_version,
-    COALESCE(f.epoch,0)::bigint AS write_epoch
-FROM device d
-JOIN discovered_device dd ON d.discovered_device_id = dd.id
-JOIN device_pairing dp ON d.id = dp.device_id
-LEFT JOIN miner_credentials mc ON d.id = mc.device_id
-LEFT JOIN device_write_fence f ON f.device_id=d.id AND f.organization_id=d.org_id
-WHERE d.device_identifier = $1
-    AND d.org_id = $2
-    AND d.deleted_at IS NULL
-    -- Match the miner-list eligibility: a soft-deleted or inactive discovery
-    -- row must not be proxyable via a bookmarked /miners/:id URL, or the proxy
-    -- could keep dialing a stale/reassigned address with stored credentials.
-    AND dd.is_active = TRUE
-    AND dd.deleted_at IS NULL
-    AND dp.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD')
-    AND dd.driver_name = 'proto'
-    -- This HTTP proxy dials the miner from fleet-api. Fleet-node-owned
-    -- devices need a result-capable typed control command instead.
-    AND NOT EXISTS (
-        SELECT 1 FROM fleet_node_device fnd
-        WHERE fnd.device_id = d.id AND fnd.org_id = d.org_id
-    )
-LIMIT 1
-`
-
-type GetDirectProtoMinerProxyTargetParams struct {
-	DeviceIdentifier string
-	OrgID            int64
-}
-
-type GetDirectProtoMinerProxyTargetRow struct {
-	ID                 int64
-	DeviceIdentifier   string
-	OrgID              int64
-	SiteID             sql.NullInt64
-	SerialNumber       sql.NullString
-	MacAddress         string
-	IpAddress          string
-	Port               string
-	UrlScheme          string
-	RpcPort            int32
-	RpcTls             bool
-	Endpoints          string
-	DriverName         string
-	UsernameEnc        sql.NullString
-	PasswordEnc        sql.NullString
-	DiscoveredDeviceID int64
-	PairedAt           sql.NullTime
-	CredentialVersion  sql.NullTime
-	WriteEpoch         int64
-}
-
-func (q *Queries) GetDirectProtoMinerProxyTarget(ctx context.Context, arg GetDirectProtoMinerProxyTargetParams) (GetDirectProtoMinerProxyTargetRow, error) {
-	row := q.queryRow(ctx, q.getDirectProtoMinerProxyTargetStmt, getDirectProtoMinerProxyTarget, arg.DeviceIdentifier, arg.OrgID)
-	var i GetDirectProtoMinerProxyTargetRow
-	err := row.Scan(
-		&i.ID,
-		&i.DeviceIdentifier,
-		&i.OrgID,
-		&i.SiteID,
-		&i.SerialNumber,
-		&i.MacAddress,
-		&i.IpAddress,
-		&i.Port,
-		&i.UrlScheme,
-		&i.RpcPort,
-		&i.RpcTls,
-		&i.Endpoints,
-		&i.DriverName,
-		&i.UsernameEnc,
-		&i.PasswordEnc,
-		&i.DiscoveredDeviceID,
-		&i.PairedAt,
-		&i.CredentialVersion,
-		&i.WriteEpoch,
-	)
-	return i, err
-}
-
 const getFleetNodeTelemetryRouteByDeviceIdentifier = `-- name: GetFleetNodeTelemetryRouteByDeviceIdentifier :one
 SELECT
     fnd.fleet_node_id,
@@ -421,6 +322,112 @@ func (q *Queries) GetFleetNodeTelemetryRouteByDeviceIdentifier(ctx context.Conte
 		&i.RpcTls,
 		&i.Endpoints,
 		&i.FirmwareVersion,
+		&i.DiscoveredDeviceID,
+		&i.PairedAt,
+		&i.CredentialVersion,
+		&i.WriteEpoch,
+	)
+	return i, err
+}
+
+const getProtoMinerProxyTarget = `-- name: GetProtoMinerProxyTarget :one
+SELECT
+    d.id,
+    d.device_identifier,
+    d.org_id,
+    d.site_id,
+    d.serial_number,
+    d.mac_address,
+    dd.ip_address,
+    dd.port,
+    dd.url_scheme,
+    dd.rpc_port,
+    dd.rpc_tls,
+    dd.endpoints::text AS endpoints,
+    dd.driver_name,
+    dd.device_class,
+    fnd.fleet_node_id,
+    mc.username_enc,
+    mc.password_enc,
+    d.discovered_device_id,
+    dp.paired_at,
+    mc.updated_at AS credential_version,
+    COALESCE(f.epoch,0)::bigint AS write_epoch
+FROM device d
+JOIN discovered_device dd ON d.discovered_device_id = dd.id
+JOIN device_pairing dp ON d.id = dp.device_id
+LEFT JOIN miner_credentials mc ON d.id = mc.device_id
+LEFT JOIN device_write_fence f ON f.device_id=d.id AND f.organization_id=d.org_id
+LEFT JOIN fleet_node_device fnd ON fnd.device_id=d.id AND fnd.org_id=d.org_id
+LEFT JOIN fleet_node fn ON fn.id=fnd.fleet_node_id AND fn.org_id=fnd.org_id
+WHERE d.device_identifier = $1
+    AND d.org_id = $2
+    AND d.deleted_at IS NULL
+    -- Match the miner-list eligibility: a soft-deleted or inactive discovery
+    -- row must not be proxyable via a bookmarked /miners/:id URL, or the proxy
+    -- could keep dialing a stale/reassigned address with stored credentials.
+    AND dd.is_active = TRUE
+    AND dd.deleted_at IS NULL
+    AND dp.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD')
+    AND dd.driver_name = 'proto'
+    AND (fnd.device_id IS NULL OR (
+        dd.device_class = 1
+        AND fn.deleted_at IS NULL AND fn.enrollment_status = 'CONFIRMED'
+        AND dd.discovered_by_fleet_node_id = fnd.fleet_node_id
+    ))
+LIMIT 1
+`
+
+type GetProtoMinerProxyTargetParams struct {
+	DeviceIdentifier string
+	OrgID            int64
+}
+
+type GetProtoMinerProxyTargetRow struct {
+	ID                 int64
+	DeviceIdentifier   string
+	OrgID              int64
+	SiteID             sql.NullInt64
+	SerialNumber       sql.NullString
+	MacAddress         string
+	IpAddress          string
+	Port               string
+	UrlScheme          string
+	RpcPort            int32
+	RpcTls             bool
+	Endpoints          string
+	DriverName         string
+	DeviceClass        int32
+	FleetNodeID        sql.NullInt64
+	UsernameEnc        sql.NullString
+	PasswordEnc        sql.NullString
+	DiscoveredDeviceID int64
+	PairedAt           sql.NullTime
+	CredentialVersion  sql.NullTime
+	WriteEpoch         int64
+}
+
+func (q *Queries) GetProtoMinerProxyTarget(ctx context.Context, arg GetProtoMinerProxyTargetParams) (GetProtoMinerProxyTargetRow, error) {
+	row := q.queryRow(ctx, q.getProtoMinerProxyTargetStmt, getProtoMinerProxyTarget, arg.DeviceIdentifier, arg.OrgID)
+	var i GetProtoMinerProxyTargetRow
+	err := row.Scan(
+		&i.ID,
+		&i.DeviceIdentifier,
+		&i.OrgID,
+		&i.SiteID,
+		&i.SerialNumber,
+		&i.MacAddress,
+		&i.IpAddress,
+		&i.Port,
+		&i.UrlScheme,
+		&i.RpcPort,
+		&i.RpcTls,
+		&i.Endpoints,
+		&i.DriverName,
+		&i.DeviceClass,
+		&i.FleetNodeID,
+		&i.UsernameEnc,
+		&i.PasswordEnc,
 		&i.DiscoveredDeviceID,
 		&i.PairedAt,
 		&i.CredentialVersion,

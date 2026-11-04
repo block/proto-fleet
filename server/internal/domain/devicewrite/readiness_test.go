@@ -23,6 +23,7 @@ func TestPoolReadinessIgnoresOnlyUnrelatedWrites(t *testing.T) {
 		{commandtype.UpdateMiningPools, true}, {commandtype.Reboot, true},
 		{commandtype.FirmwareUpdate, true}, {commandtype.Unpair, true},
 		{commandtype.ApplyCurtailmentConfig, true}, {commandtype.Curtail, true},
+		{commandtype.ContainerMining, true},
 		{commandtype.UpdateMinerPassword, true}, {commandtype.Type(-1), true},
 	} {
 		for _, crashed := range []bool{false, true} {

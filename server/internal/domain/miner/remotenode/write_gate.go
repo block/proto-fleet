@@ -50,6 +50,9 @@ func (m *Miner) withPhysicalWriteAdmission(ctx context.Context, command *gateway
 // Future actions remain fenced until their behavior has been classified.
 func physicalWriteKind(command *gatewaypb.MinerCommand) (commandtype.Type, bool) {
 	switch command.GetAction().(type) {
+	case *gatewaypb.MinerCommand_ContainerMining:
+		r, err := sdk.DecodeContainerMiningRequest(command.GetContainerMining().Request)
+		return commandtype.ContainerMining, err != nil || !r.ReadOnly()
 	case *gatewaypb.MinerCommand_MiningGroups:
 		r, err := sdk.DecodeMiningGroupRequest(command.GetMiningGroups().Request)
 		return commandtype.Type(-1), err != nil || !r.ReadOnly()
