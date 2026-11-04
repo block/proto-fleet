@@ -21,15 +21,20 @@ export class SingleMinerPage extends BasePage {
   }
 
   private async ensureNavigationVisible() {
-    const navigation = this.page.getByTestId("navigation");
-    if (await navigation.isVisible().catch(() => false)) {
+    if (!this.isMobile) {
       return;
     }
 
-    if (this.isMobile) {
-      await this.page.getByTestId("navigation-menu-button").click();
-      await expect(navigation).toBeVisible();
-    }
+    // The hosted miner layout is hidden, with its menu state kept, while a lazy
+    // page chunk loads, so a single visibility check can miss an open menu.
+    const navigation = this.page.getByTestId("navigation");
+    await expect(async () => {
+      if (await navigation.isVisible().catch(() => false)) {
+        return;
+      }
+      await this.page.getByTestId("navigation-menu-button").click({ timeout: DEFAULT_INTERVAL });
+      await expect(navigation).toBeVisible({ timeout: DEFAULT_INTERVAL });
+    }).toPass({ timeout: DEFAULT_TIMEOUT, intervals: [DEFAULT_INTERVAL] });
   }
 
   async validateSingleMinerSurfaceOpened() {
