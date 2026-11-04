@@ -34,7 +34,11 @@ func startRigServer(t *testing.T) string {
 	listener.Close()
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
-	go func() { done <- startHTTPServer(ctx, NewMinerState("SINGLE", "02:00:00:00:00:00"), port) }()
+	handler, err := configuredMinerHandler()
+	if err != nil {
+		t.Fatal(err)
+	}
+	go func() { done <- startHTTPServer(ctx, handler, port) }()
 	t.Cleanup(func() {
 		cancel()
 		select {
@@ -278,9 +282,11 @@ func TestMultiMinerIdentityIsStableAndAddressFileIsExact(t *testing.T) {
 	}
 }
 
-func TestSingleMinerServerDefaultsArePreserved(t *testing.T) {
+func TestSingleMinerServerUsesConfiguredIdentity(t *testing.T) {
 	// Arrange
 	t.Setenv("FAKE_MINER_ADDRESSES_FILE", "")
+	t.Setenv("SERIAL_NUMBER", "SINGLE")
+	t.Setenv("MAC_ADDRESS", "02:00:00:00:00:00")
 	base := startRigServer(t)
 	client := &http.Client{Transport: &http.Transport{Proxy: nil}, Timeout: time.Second}
 	defer client.CloseIdleConnections()
@@ -293,7 +299,7 @@ func TestSingleMinerServerDefaultsArePreserved(t *testing.T) {
 	if err := json.Unmarshal(body, &identity); err != nil {
 		t.Fatal(err)
 	}
-	if status != http.StatusOK || identity.CBSN != "SINGLE" {
+	if status != http.StatusOK || identity.CBSN != "SINGLE" || identity.MAC != "02:00:00:00:00:00" {
 		t.Fatalf("single miner default changed: %d %s", status, body)
 	}
 }

@@ -44,9 +44,59 @@ jobs:
       - name: Lint
         run: just lint
 
-  # fake-ct1 is a standalone Go module (its own go.mod, not in go.work) like
-  # server/fake-proto-rig, so `just build`/`just test` above never compile it.
-  # Build, vet, and test it directly with GOWORK=off in its own lightweight job.
+  # Fixtures are standalone Go modules outside go.work. Build, vet, and
+  # race-test each directly so their regression tests run independently of
+  # the plugin contracts' narrow subprocess helpers.
+  fake-antminer:
+    name: Fake Antminer
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: server/fake-antminer
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup Hermit
+        uses: ./.github/actions/hermit-setup
+
+      - name: Configure Go cache
+        uses: ./.github/actions/go-cache-setup
+
+      - name: Build
+        run: GOWORK=off go build ./...
+
+      - name: Vet
+        run: GOWORK=off go vet ./...
+
+      - name: Test
+        run: GOWORK=off go test -race ./...
+
+  fake-proto-rig:
+    name: Fake Proto Rig
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: server/fake-proto-rig
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup Hermit
+        uses: ./.github/actions/hermit-setup
+
+      - name: Configure Go cache
+        uses: ./.github/actions/go-cache-setup
+
+      - name: Build
+        run: GOWORK=off go build ./...
+
+      - name: Vet
+        run: GOWORK=off go vet ./...
+
+      - name: Test
+        run: GOWORK=off go test -race ./...
+
   fake-ct1:
     name: Fake CT1
     runs-on: ubuntu-latest
@@ -70,7 +120,7 @@ jobs:
         run: GOWORK=off go vet ./...
 
       - name: Test
-        run: GOWORK=off go test ./...
+        run: GOWORK=off go test -race ./...
 
   test-shards:
     name: Test (${{ matrix.shard }})

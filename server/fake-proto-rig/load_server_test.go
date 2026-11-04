@@ -64,7 +64,7 @@ func TestServerRejectsInvalidTLSAndDelayConfiguration(t *testing.T) {
 			}
 
 			// Act
-			err := startHTTPServer(t.Context(), NewMinerState("TEST", "02:00:00:00:00:00"), 0)
+			err := startHTTPServer(t.Context(), newRESTAPIHandler(NewMinerState("TEST", "02:00:00:00:00:00")), 0)
 
 			// Assert
 			if err == nil {

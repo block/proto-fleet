@@ -34,22 +34,10 @@ const (
 )
 
 func main() {
-	// Generate unique identifiers for this instance
-	instanceID := uuid.New().String()[:8]
-	serialNumber := getEnv("SERIAL_NUMBER", "PROTO-SIM-"+instanceID)
-	macAddress := getEnv("MAC_ADDRESS", generateMACAddress(instanceID))
-
-	log.Printf("Starting fake Proto miner: SN=%s MAC=%s", serialNumber, macAddress)
-
-	// Create miner state
-	state := NewMinerState(serialNumber, macAddress)
-	configureStartupAuthState(state)
-
-	// Apply error configuration from environment
-	applyErrorConfig(state)
-
-	// Set IP address based on outbound interface
-	state.IPAddress = getOutboundIP().String()
+	handler, err := configuredMinerHandler()
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	// Create context for graceful shutdown
 	ctx, cancel := context.WithCancel(context.Background())
@@ -63,20 +51,33 @@ func main() {
 			port = p
 		}
 	}
-	if err := startHTTPServer(ctx, state, port); err != nil {
+	if err := startHTTPServer(ctx, handler, port); err != nil {
 		log.Fatalf("Failed to start HTTP server: %v", err)
 	}
 }
 
-func startHTTPServer(ctx context.Context, state *MinerState, port int) error {
-	handler := newRESTAPIHandler(state)
+func configuredMinerHandler() (http.Handler, error) {
 	if path := os.Getenv("FAKE_MINER_ADDRESSES_FILE"); path != "" {
-		multi, err := newMultiMinerHandler(path)
+		handler, err := newMultiMinerHandler(path)
 		if err != nil {
-			return err
+			return nil, err
 		}
-		handler = multi
+		log.Printf("Starting fake Proto miner fleet: destinations=%d", len(handler.miners))
+		return handler, nil
 	}
+
+	instanceID := uuid.New().String()[:8]
+	serialNumber := getEnv("SERIAL_NUMBER", "PROTO-SIM-"+instanceID)
+	macAddress := getEnv("MAC_ADDRESS", generateMACAddress(instanceID))
+	state := NewMinerState(serialNumber, macAddress)
+	configureStartupAuthState(state)
+	applyErrorConfig(state)
+	state.IPAddress = getOutboundIP().String()
+	log.Printf("Starting fake Proto miner: SN=%s MAC=%s", serialNumber, macAddress)
+	return newRESTAPIHandler(state), nil
+}
+
+func startHTTPServer(ctx context.Context, handler http.Handler, port int) error {
 	delay, err := time.ParseDuration(getEnv("FAKE_MINER_RESPONSE_DELAY", "0s"))
 	if err != nil || delay < 0 {
 		return fmt.Errorf("FAKE_MINER_RESPONSE_DELAY must be a nonnegative Go duration")

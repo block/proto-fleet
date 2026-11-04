@@ -66,20 +66,65 @@ func TestRunFixtureMain(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// A test-only handler gate marks entry before delaying completion. The
-	// parent can signal only after the actual HTTP request has been accepted.
-	for ip, endpoint := range fleet.miners {
-		handler := endpoint.http
-		endpoint.http = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	// Test-only gates keep both handlers in flight until the parent observes
+	// shutdown. The RPC marker requires the accepted handler to read bytes.
+	for _, endpoint := range fleet.miners {
+		handler := endpoint.http.protected
+		endpoint.http.protected = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if err := os.WriteFile(os.Getenv("FAKE_ANTMINER_TEST_ENTERED"), []byte("entered"), 0600); err != nil {
 				panic(err)
 			}
-			time.Sleep(time.Second)
+			if err := waitForFixtureFile(os.Getenv("FAKE_ANTMINER_TEST_RELEASE")); err != nil {
+				panic(err)
+			}
 			handler.ServeHTTP(w, r)
 		})
-		fleet.miners[ip] = endpoint
 	}
-	runMinerFleet(fleet, os.Getenv("FAKE_ANTMINER_TEST_RPC"), os.Getenv("FAKE_ANTMINER_TEST_HTTP"))
+	rpc, err := net.Listen("tcp4", os.Getenv("FAKE_ANTMINER_TEST_RPC"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	runMinerFleet(fleet, &fixtureRPCListener{rpc}, os.Getenv("FAKE_ANTMINER_TEST_HTTP"))
+}
+
+type fixtureRPCListener struct{ net.Listener }
+
+func (l *fixtureRPCListener) Accept() (net.Conn, error) {
+	conn, err := l.Listener.Accept()
+	if err != nil {
+		return nil, err
+	}
+	return &fixtureRPCConn{conn}, nil
+}
+
+type fixtureRPCConn struct{ net.Conn }
+
+func (c *fixtureRPCConn) Read(p []byte) (int, error) {
+	n, err := c.Conn.Read(p)
+	if n > 0 {
+		if err := os.WriteFile(os.Getenv("FAKE_ANTMINER_TEST_RPC_ENTERED"), []byte("entered"), 0600); err != nil {
+			return 0, err
+		}
+		if err := waitForFixtureFile(os.Getenv("FAKE_ANTMINER_TEST_RELEASE")); err != nil {
+			return 0, err
+		}
+	}
+	return n, err
+}
+
+func waitForFixtureFile(path string) error {
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		if _, err := os.Stat(path); err == nil {
+			return nil
+		} else if !os.IsNotExist(err) {
+			return err
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("timed out waiting for %s", path)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
 }
 
 func TestShutdownMetricsIncludeInFlightHTTPAndRPC(t *testing.T) {
@@ -104,12 +149,14 @@ func TestShutdownMetricsIncludeInFlightHTTPAndRPC(t *testing.T) {
 	}
 	metrics := filepath.Join(dir, "metrics.jsonl")
 	entered := filepath.Join(dir, "entered")
+	rpcEntered := filepath.Join(dir, "rpc-entered")
+	release := filepath.Join(dir, "release")
 	binary, err := os.Executable()
 	if err != nil {
 		t.Fatal(err)
 	}
 	command := exec.Command(binary, "-test.run=^TestRunFixtureMain$")
-	command.Env = append(os.Environ(), "FAKE_ANTMINER_TEST_MAIN=1", "FAKE_ANTMINER_TEST_ENTERED="+entered, "FAKE_ANTMINER_TEST_RPC="+addressesForServer[0], "FAKE_ANTMINER_TEST_HTTP="+addressesForServer[1], "FAKE_MINER_ADDRESSES_FILE="+addresses, "FAKE_MINER_RESPONSE_DELAY=2s", "FAKE_MINER_METRICS_FILE="+metrics)
+	command.Env = append(os.Environ(), "FAKE_ANTMINER_TEST_MAIN=1", "FAKE_ANTMINER_TEST_ENTERED="+entered, "FAKE_ANTMINER_TEST_RPC_ENTERED="+rpcEntered, "FAKE_ANTMINER_TEST_RELEASE="+release, "FAKE_ANTMINER_TEST_RPC="+addressesForServer[0], "FAKE_ANTMINER_TEST_HTTP="+addressesForServer[1], "FAKE_MINER_ADDRESSES_FILE="+addresses, "FAKE_MINER_RESPONSE_DELAY=0", "FAKE_MINER_METRICS_FILE="+metrics)
 	stderr, err := command.StderrPipe()
 	if err != nil {
 		t.Fatal(err)
@@ -119,10 +166,14 @@ func TestShutdownMetricsIncludeInFlightHTTPAndRPC(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = command.Process.Kill() })
 	ready := make(chan struct{})
+	shuttingDown := make(chan struct{})
 	go func() {
 		scanner := bufio.NewScanner(stderr)
 		seen := 0
 		for scanner.Scan() {
+			if strings.Contains(scanner.Text(), "Shutting down fake Antminer server") {
+				close(shuttingDown)
+			}
 			if strings.Contains(scanner.Text(), "server listening") {
 				seen++
 				if seen == 2 {
@@ -146,17 +197,8 @@ func TestShutdownMetricsIncludeInFlightHTTPAndRPC(t *testing.T) {
 	if _, err := io.WriteString(web, "GET /health HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n"); err != nil {
 		t.Fatal(err)
 	}
-	// The HTTP marker appears only after the response delay, so the RPC is sent
-	// afterwards to guarantee it is still delayed when SIGTERM arrives.
-	deadline := time.Now().Add(5 * time.Second)
-	for {
-		if _, err := os.Stat(entered); err == nil {
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatal("HTTP handler did not enter")
-		}
-		time.Sleep(10 * time.Millisecond)
+	if err := waitForFixtureFile(entered); err != nil {
+		t.Fatal(err)
 	}
 	rpc, err := net.DialTimeout("tcp4", addressesForServer[0], time.Second)
 	if err != nil {
@@ -166,10 +208,40 @@ func TestShutdownMetricsIncludeInFlightHTTPAndRPC(t *testing.T) {
 	if _, err := io.WriteString(rpc, `{"command":"summary"}`); err != nil {
 		t.Fatal(err)
 	}
-	// The server logs nothing in load mode, so acceptance is not observable.
-	time.Sleep(200 * time.Millisecond)
+	if err := waitForFixtureFile(rpcEntered); err != nil {
+		t.Fatal(err)
+	}
 	if err := command.Process.Signal(syscall.SIGTERM); err != nil {
 		t.Fatal(err)
+	}
+	select {
+	case <-shuttingDown:
+	case <-time.After(5 * time.Second):
+		t.Fatal("fixture did not begin shutdown")
+	}
+	if err := os.WriteFile(release, []byte("release"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := web.SetReadDeadline(time.Now().Add(5 * time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	response, err := http.ReadResponse(bufio.NewReader(web), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	if body, err := io.ReadAll(response.Body); err != nil || response.StatusCode != http.StatusOK {
+		t.Fatalf("HTTP request did not drain successfully: status=%d body=%s err=%v", response.StatusCode, body, err)
+	}
+	if err := rpc.SetReadDeadline(time.Now().Add(5 * time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	var summary SummaryResponse
+	if err := json.NewDecoder(rpc).Decode(&summary); err != nil {
+		t.Fatal(err)
+	}
+	if len(summary.Summary) != 1 {
+		t.Fatalf("RPC request did not drain successfully: %+v", summary)
 	}
 	done := make(chan error, 1)
 	go func() { done <- command.Wait() }()

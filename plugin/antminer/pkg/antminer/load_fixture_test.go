@@ -268,6 +268,9 @@ func TestLoadFixtureContract(t *testing.T) {
 	if _, status := readLoadLEDAudit(t, addresses[1], webPort, "changed-password"); status != http.StatusUnauthorized {
 		t.Fatalf("other destination's changed password accepted by LED audit: %d", status)
 	}
+	if _, status := readLoadLEDAudit(t, addresses[0], webPort, "changed-password"); status != http.StatusOK {
+		t.Fatalf("changed destination rejected its new password: %d", status)
+	}
 
 	// Act
 	if err := clients[1].SetCredentials(sdk.UsernamePassword{Username: "root", Password: "changed-password"}); err != nil {

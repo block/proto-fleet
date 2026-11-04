@@ -17,7 +17,7 @@ import (
 
 type minerEndpoint struct {
 	state *MinerState
-	http  http.Handler
+	http  *minerHTTPHandler
 }
 
 type minerFleet struct {
@@ -125,9 +125,6 @@ func waitResponse(ctx context.Context, delay time.Duration) error {
 func (f *minerFleet) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	start := time.Now()
 	operation := "http:unknown"
-	if r.URL.Path == "/health" || pathNeedsAuth(r.URL.Path) || r.URL.Path == "/cgi-bin/summary.cgi" || r.URL.Path == "/cgi-bin/get_network_info.cgi" {
-		operation = "http:" + r.URL.Path
-	}
 	response := &statusWriter{ResponseWriter: w, status: http.StatusOK}
 	defer func() { f.metrics.record(operation, time.Since(start), response.status >= 400) }()
 	address, _ := r.Context().Value(http.LocalAddrContextKey).(net.Addr)
@@ -135,6 +132,9 @@ func (f *minerFleet) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		http.NotFound(response, r)
 		return
+	}
+	if _, pattern := endpoint.http.Handler(r); pattern != "" {
+		operation = "http:" + pattern
 	}
 	if err := waitResponse(r.Context(), f.delay); err != nil {
 		response.status = http.StatusRequestTimeout

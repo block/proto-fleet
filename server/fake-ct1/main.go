@@ -38,34 +38,7 @@ func main() {
 	webRoot := flag.String("web-root", "", "Serve a built ProtoOS directory on the API origin (disabled by default)")
 	flag.Parse()
 
-	unlocatedBoards, err := parseUnlocatedBoards(os.Getenv("CT1_UNLOCATED_BOARDS"))
-	if err != nil {
-		log.Fatal(err)
-	}
-	instanceID := simulatorInstanceID()
-
-	cfg := ContainerConfig{
-		InstanceID:        instanceID,
-		IdentityNamespace: getEnv("CT1_IDENTITY_NAMESPACE", getEnv("CT1_INSTANCE_ID", os.Getenv("SERVER_ID"))),
-		Seed:              getEnvInt("CT1_SEED", 1),
-		ServerID:          getEnv("SERVER_ID", "ct1-sim-"+instanceID),
-		Hostname:          getEnv("HOSTNAME", "fake-ct1-"+instanceID),
-		Version:           getEnv("CT1_VERSION", defaultVersion),
-		Tanks:             getEnvInt("CT1_TANKS", defaultTanks),
-		ModulesPerTank:    getEnvInt("CT1_MODULES_PER_TANK", defaultModulesPerTank),
-		SlotsPerModule:    getEnvInt("CT1_SLOTS_PER_MODULE", defaultSlotsPerModule),
-		AsicsPerBoard:     getEnvInt("CT1_ASICS_PER_BOARD", defaultAsicsPerBoard),
-		DemoModuleStates:  getEnv("CT1_DEMO_MODULE_STATES", "true") == "true",
-		UnlocatedBoards:   unlocatedBoards,
-
-		DemoAllBoardFaults: getEnv("CT1_DEMO_ALL_BOARD_FAULTS", "false") == "true",
-	}
-
-	cfg.OccupiedBoards, err = parseOccupiedBoards(os.Getenv("CT1_OCCUPIED_BOARDS"), cfg.Tanks*cfg.ModulesPerTank*cfg.SlotsPerModule)
-	if err != nil {
-		log.Fatal(err)
-	}
-	cfg.ResponseDelay, err = parseResponseDelay(os.Getenv("FAKE_MINER_RESPONSE_DELAY"))
+	cfg, err := containerConfigFromEnv()
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -89,14 +62,52 @@ func main() {
 	}
 }
 
+func containerConfigFromEnv() (ContainerConfig, error) {
+	unlocatedBoards, err := parseUnlocatedBoards(os.Getenv("CT1_UNLOCATED_BOARDS"))
+	if err != nil {
+		return ContainerConfig{}, err
+	}
+	instanceID := simulatorInstanceID()
+	cfg := ContainerConfig{
+		InstanceID:        instanceID,
+		IdentityNamespace: getEnv("CT1_IDENTITY_NAMESPACE", getEnv("CT1_INSTANCE_ID", os.Getenv("SERVER_ID"))),
+		Seed:              getEnvInt("CT1_SEED", 1),
+		ServerID:          getEnv("SERVER_ID", "ct1-sim-"+instanceID),
+		Hostname:          getEnv("HOSTNAME", "fake-ct1-"+instanceID),
+		Version:           getEnv("CT1_VERSION", defaultVersion),
+		Tanks:             getEnvInt("CT1_TANKS", defaultTanks),
+		ModulesPerTank:    getEnvInt("CT1_MODULES_PER_TANK", defaultModulesPerTank),
+		SlotsPerModule:    getEnvInt("CT1_SLOTS_PER_MODULE", defaultSlotsPerModule),
+		AsicsPerBoard:     getEnvInt("CT1_ASICS_PER_BOARD", defaultAsicsPerBoard),
+		DemoModuleStates:  getEnv("CT1_DEMO_MODULE_STATES", "true") == "true",
+		UnlocatedBoards:   unlocatedBoards,
+
+		DemoAllBoardFaults: getEnv("CT1_DEMO_ALL_BOARD_FAULTS", "false") == "true",
+	}
+
+	cfg.OccupiedBoards, err = parseOccupiedBoards(os.Getenv("CT1_OCCUPIED_BOARDS"), cfg.Tanks*cfg.ModulesPerTank*cfg.SlotsPerModule)
+	if err != nil {
+		return ContainerConfig{}, err
+	}
+	cfg.ResponseDelay, err = parseResponseDelay(os.Getenv("FAKE_MINER_RESPONSE_DELAY"))
+	return cfg, err
+}
+
 func runContainer(state *ContainerState, address string, rpcPort, httpPort int, webRoot string, options ...grpc.ServerOption) error {
-	ctx, cancel := context.WithCancel(context.Background())
+	// Keep repeated termination signals intercepted until both transports have
+	// drained and the deferred final metrics snapshot has been written.
+	ctx, stopSignals := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stopSignals()
+	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	stopMetrics, err := state.startMetrics(context.Background(), os.Getenv("FAKE_MINER_METRICS_FILE"))
 	if err != nil {
 		return err
 	}
-	defer stopMetrics()
+	defer func() {
+		log.Println("Flushing final fake CT1 metrics...")
+		stopMetrics()
+	}()
 
 	rpcListener, err := net.Listen("tcp", net.JoinHostPort(address, strconv.Itoa(rpcPort)))
 	if err != nil {
@@ -104,7 +115,16 @@ func runContainer(state *ContainerState, address string, rpcPort, httpPort int, 
 		return fmt.Errorf("listen for gRPC: %w", err)
 	}
 	rpcServer := newGRPCServer(state, options...)
-	defer stopGRPCServer(rpcServer)
+	rpcShutdownDone := make(chan struct{})
+	go func() {
+		defer close(rpcShutdownDone)
+		<-ctx.Done()
+		stopGRPCServer(rpcServer)
+	}()
+	defer func() {
+		cancel()
+		<-rpcShutdownDone
+	}()
 	go func() {
 		if err := rpcServer.Serve(rpcListener); err != nil {
 			log.Printf("gRPC server failed: %v", err)
@@ -118,6 +138,8 @@ func runContainer(state *ContainerState, address string, rpcPort, httpPort int, 
 }
 
 func startHTTPServer(ctx context.Context, state *ContainerState, address string, port int, webRoot string) error {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
 	handler, closeHandler, err := newHTTPHandler(state, webRoot)
 	if err != nil {
 		return err
@@ -153,17 +175,11 @@ func startHTTPServer(ctx context.Context, state *ContainerState, address string,
 	// listener so Serve returns immediately, and without this the process could
 	// exit mid-drain.
 	shutdownDone := make(chan struct{})
-	sigs := make(chan os.Signal, 1)
-	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
-	defer signal.Stop(sigs)
 	go func() {
 		defer close(shutdownDone)
 
-		select {
-		case <-sigs:
-			log.Println("Shutting down fake CT1 container...")
-		case <-ctx.Done():
-		}
+		<-ctx.Done()
+		log.Println("Shutting down fake CT1 container...")
 
 		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), serverShutdownTimeout)
 		defer shutdownCancel()
@@ -175,12 +191,13 @@ func startHTTPServer(ctx context.Context, state *ContainerState, address string,
 	}()
 
 	log.Printf("HTTP server listening on %s", listener.Addr())
-	if err := server.Serve(listener); err != nil && err != http.ErrServerClosed {
-		return fmt.Errorf("server error: %w", err)
-	}
+	serveErr := server.Serve(listener)
+	cancel()
 	<-shutdownDone
 	connections.Wait()
-
+	if serveErr != nil && serveErr != http.ErrServerClosed {
+		return fmt.Errorf("server error: %w", serveErr)
+	}
 	return nil
 }
 

@@ -20,10 +20,14 @@ func main() {
 		log.Fatal(err)
 	}
 
-	runMinerFleet(fleet, ":4028", ":80")
+	rpc, err := net.Listen("tcp", ":4028")
+	if err != nil {
+		log.Fatalf("failed to start RPC server: %v", err)
+	}
+	runMinerFleet(fleet, rpc, ":80")
 }
 
-func runMinerFleet(fleet *minerFleet, rpcAddress, httpAddress string) {
+func runMinerFleet(fleet *minerFleet, rpc net.Listener, httpAddress string) {
 	// Create context for graceful shutdown
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -41,7 +45,7 @@ func runMinerFleet(fleet *minerFleet, rpcAddress, httpAddress string) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		if err := startRPCServer(ctx, fleet, rpcAddress); err != nil && err != context.Canceled {
+		if err := startRPCServer(ctx, fleet, rpc); err != nil && err != context.Canceled {
 			log.Printf("RPC server error: %v", err)
 		}
 	}()
@@ -78,12 +82,7 @@ func runMinerFleet(fleet *minerFleet, rpcAddress, httpAddress string) {
 	}
 }
 
-func startRPCServer(ctx context.Context, fleet *minerFleet, address string) error {
-	// Listen on the standard cgminer API port
-	listener, err := net.Listen("tcp", address)
-	if err != nil {
-		return fmt.Errorf("failed to start RPC server: %w", err)
-	}
+func startRPCServer(ctx context.Context, fleet *minerFleet, listener net.Listener) error {
 	defer listener.Close()
 	var workers sync.WaitGroup
 	defer workers.Wait()
@@ -94,7 +93,7 @@ func startRPCServer(ctx context.Context, fleet *minerFleet, address string) erro
 		listener.Close()
 	}()
 
-	log.Printf("RPC server listening on %s", address)
+	log.Printf("RPC server listening on %s", listener.Addr())
 
 	for {
 		conn, err := listener.Accept()
@@ -117,7 +116,16 @@ func startRPCServer(ctx context.Context, fleet *minerFleet, address string) erro
 	}
 }
 
-func createHTTPHandler(state *MinerState) http.Handler {
+type minerHTTPHandler struct {
+	*http.ServeMux
+	protected http.Handler
+}
+
+func (h *minerHTTPHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	h.protected.ServeHTTP(w, r)
+}
+
+func createHTTPHandler(state *MinerState) *minerHTTPHandler {
 	mux := http.NewServeMux()
 	if state.LoadMode {
 		mux.Handle("/fake-api/v1/load/led", digestAuthMiddleware(state)(loadLEDAudit(state)))
@@ -153,10 +161,16 @@ func createHTTPHandler(state *MinerState) http.Handler {
 		}
 	})
 
-	return protectedHandler
+	return &minerHTTPHandler{ServeMux: mux, protected: protectedHandler}
 }
 
 func startHTTPServer(ctx context.Context, fleet *minerFleet, address string) error {
+	listener, err := net.Listen("tcp", address)
+	if err != nil {
+		return fmt.Errorf("failed to start HTTP server: %w", err)
+	}
+	defer listener.Close()
+
 	var connections sync.WaitGroup
 	server := &http.Server{
 		Addr:    address,
@@ -173,7 +187,7 @@ func startHTTPServer(ctx context.Context, fleet *minerFleet, address string) err
 		},
 	}
 
-	// ListenAndServe returns when listeners close, before Shutdown drains handlers.
+	// Serve returns when listeners close, before Shutdown drains handlers.
 	shutdownDone := make(chan struct{})
 	go func() {
 		defer close(shutdownDone)
@@ -185,8 +199,8 @@ func startHTTPServer(ctx context.Context, fleet *minerFleet, address string) err
 		}
 	}()
 
-	log.Printf("HTTP server listening on %s", address)
-	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+	log.Printf("HTTP server listening on %s", listener.Addr())
+	if err := server.Serve(listener); err != nil && err != http.ErrServerClosed {
 		return fmt.Errorf("failed to start HTTP server: %w", err)
 	}
 	<-shutdownDone

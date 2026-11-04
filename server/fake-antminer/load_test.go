@@ -165,6 +165,25 @@ func TestLoadMetricsBoundedAndFlush(t *testing.T) {
 	}
 
 	// Act
+	const ledPath = "/fake-api/v1/load/led"
+	challenge := httptest.NewRecorder()
+	fleet.ServeHTTP(challenge, localRequest("GET", ledPath, "127.0.0.1", ""))
+	if challenge.Code != http.StatusUnauthorized {
+		t.Fatalf("LED challenge status: %d", challenge.Code)
+	}
+	nonce := loadDigestNonce(challenge.Header().Get("WWW-Authenticate"))
+	if nonce == "" {
+		t.Fatal("LED challenge omitted nonce")
+	}
+	hash := md5Hash(md5Hash("root:Antminer:root") + ":" + nonce + ":00000001:test:auth:" + md5Hash("GET:"+ledPath))
+	request := localRequest("GET", ledPath, "127.0.0.1", "")
+	request.Header.Set("Authorization", fmt.Sprintf(`Digest username="root", realm="Antminer", nonce="%s", uri="%s", qop=auth, nc=00000001, cnonce="test", response="%s"`, nonce, ledPath, hash))
+	response := httptest.NewRecorder()
+	fleet.ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("authenticated LED read status: %d", response.Code)
+	}
+
 	path := filepath.Join(t.TempDir(), "metrics.jsonl")
 	t.Setenv("FAKE_MINER_METRICS_FILE", path)
 	if err := fleet.startMetrics(context.Background()); err != nil {
@@ -178,14 +197,21 @@ func TestLoadMetricsBoundedAndFlush(t *testing.T) {
 
 	// Assert
 	var metrics struct {
-		Requests uint64 `json:"requests_total"`
-		Errors   uint64 `json:"errors_total"`
+		Requests   uint64                   `json:"requests_total"`
+		Errors     uint64                   `json:"errors_total"`
+		Operations map[string]operationStat `json:"operations"`
 	}
 	if err := json.Unmarshal(data, &metrics); err != nil {
 		t.Fatal(err)
 	}
-	if metrics.Requests != 100 || metrics.Errors != 100 {
+	if metrics.Requests != 102 || metrics.Errors != 101 {
 		t.Fatalf("unexpected metrics: %s", data)
+	}
+	if len(metrics.Operations) != 2 || metrics.Operations["http:unknown"].Requests != 100 || metrics.Operations["http:unknown"].Errors != 100 {
+		t.Fatalf("unrouted requests were not bounded separately: %s", data)
+	}
+	if led := metrics.Operations["http:"+ledPath]; led.Requests != 2 || led.Errors != 1 {
+		t.Fatalf("LED audit and challenge missing from route metrics: %s", data)
 	}
 }
 
