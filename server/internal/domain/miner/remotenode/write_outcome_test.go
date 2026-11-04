@@ -167,3 +167,44 @@ func TestMiner_RegistryAdmissionEvidencePreservesTransportUncertainty(t *testing
 		}
 	}
 }
+
+func TestMinerAcknowledgementsCarryExecutionEvidence(t *testing.T) {
+	for _, outcome := range []string{sdk.WriteNotDispatched, sdk.WriteCompleted, sdk.WriteUnknown, ""} {
+		t.Run(outcome, func(t *testing.T) {
+			ack := &gatewaypb.ControlAck{Code: gatewaypb.AckCode_ACK_CODE_UNIMPLEMENTED}
+			if outcome != "" {
+				ack.WriteOutcome = &gatewaypb.DeviceWriteOutcome{Outcome: outcome, Stage: "capability", Reason: "unsupported"}
+			}
+			sender := &fakeSender{ack: ack}
+			miner := newTestMiner(t, sender)
+			err := miner.Reboot(t.Context())
+			require.Error(t, err)
+			require.True(t, fleeterror.IsUnimplementedError(err))
+			require.Equal(t, outcome == sdk.WriteNotDispatched, devicewrite.IsNotDispatched(err))
+			require.Equal(t, outcome == sdk.WriteCompleted, devicewrite.IsCompleted(err))
+			require.Equal(t, outcome, sdk.WriteEvidence(err).GetReason())
+		})
+	}
+}
+
+func TestMinerUnrecognizedAckEvidenceRemainsUncertain(t *testing.T) {
+	for _, tc := range []struct{ name, outcome, stage, reason string }{
+		{"outcome", "DEVICE_WRITE_FUTURE", "dispatch", "finished"},
+		{"stage", sdk.WriteNotDispatched, "future_stage", "rejected"},
+		{"reason", sdk.WriteNotDispatched, "validation", "future_reason"},
+		{"empty", "", "", ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			sender := &fakeSender{ack: &gatewaypb.ControlAck{
+				Code:         gatewaypb.AckCode_ACK_CODE_INTERNAL,
+				WriteOutcome: &gatewaypb.DeviceWriteOutcome{Outcome: tc.outcome, Stage: tc.stage, Reason: tc.reason},
+			}}
+			err := newTestMiner(t, sender).StopMining(t.Context())
+			require.Error(t, err)
+			require.True(t, devicewrite.IsUncertainDelivery(err))
+			require.False(t, devicewrite.IsNotDispatched(err))
+			require.False(t, devicewrite.IsCompleted(err))
+			require.Nil(t, sdk.WriteEvidence(err))
+		})
+	}
+}

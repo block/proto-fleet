@@ -11,11 +11,11 @@ import (
 
 func (s *DriverGRPCServer) MiningGroups(ctx context.Context, req *pb.MiningGroupsRequest) (*pb.MiningGroupsResponse, error) {
 	if req == nil || req.Ref == nil {
-		return nil, grpcStatusError("missing device", codes.InvalidArgument, "missing device")
+		return nil, sdkErrorToGRPCStatus(InvalidWriteRequest(grpcStatusError("missing device", codes.InvalidArgument, "missing device")))
 	}
 	payload, err := DecodeMiningGroupRequest(req.Payload)
 	if err != nil {
-		return nil, grpcStatusError(err.Error(), codes.InvalidArgument, err.Error())
+		return nil, sdkErrorToGRPCStatus(InvalidWriteRequest(grpcStatusError(err.Error(), codes.InvalidArgument, err.Error())))
 	}
 	device, err := s.selectDevice(req.Ref)
 	if err != nil {
@@ -23,7 +23,7 @@ func (s *DriverGRPCServer) MiningGroups(ctx context.Context, req *pb.MiningGroup
 	}
 	controller, ok := device.(DeviceMiningGroups)
 	if !ok {
-		return nil, sdkErrorToGRPCStatus(NewErrUnsupportedCapability(CapabilityMiningGroups))
+		return nil, sdkErrorToGRPCStatus(UnsupportedWrite(CapabilityMiningGroups))
 	}
 	result, err := controller.MiningGroups(ctx, payload)
 	if err != nil {
@@ -41,7 +41,7 @@ func (s *DriverGRPCServer) MiningGroups(ctx context.Context, req *pb.MiningGroup
 func (d *DeviceGRPCClient) MiningGroups(ctx context.Context, req MiningGroupRequest) (MiningGroupResult, error) {
 	var result MiningGroupResult
 	if err := req.Validate(); err != nil {
-		return result, err
+		return result, InvalidWriteRequest(err)
 	}
 	data, err := json.Marshal(req)
 	if err != nil {

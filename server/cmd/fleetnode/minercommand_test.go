@@ -558,6 +558,37 @@ func TestHandleMinerCommand_UpdateMinerPasswordSealsBeforeUpdatingDevice(t *test
 
 	// Assert: gomock fails the test if UpdateMinerPassword is called.
 	assert.Equal(t, pb.AckCode_ACK_CODE_INTERNAL, ack.only(t).GetCode())
+	require.NotNil(t, ack.only(t).GetWriteOutcome())
+	assert.Equal(t, sdk.WriteNotDispatched, ack.only(t).GetWriteOutcome().GetOutcome())
+	assert.Equal(t, "credentials", ack.only(t).GetWriteOutcome().GetStage())
+}
+
+func TestHandleMinerCommand_OversizedPasswordIsNotDispatched(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	dev := mocks.NewMockDevice(ctrl)
+	dev.EXPECT().Close(gomock.Any()).Return(nil)
+	driver := mocks.NewMockDriver(ctrl)
+	driver.EXPECT().NewDevice(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(sdk.NewDeviceResult{Device: dev}, nil)
+	codec := &credentialCodec{key: bytes.Repeat([]byte{6}, credentialKeySize)}
+	credentials, err := codec.Seal(sdk.SecretBundle{Version: "v1", Kind: sdk.UsernamePassword{Username: "root", Password: "old-password"}})
+	require.NoError(t, err)
+	action, privateKey := encryptedPasswordUpdateAction(t, "old-password", strings.Repeat("x", maxCredentialBlobBytes))
+	command := withTarget(&pb.MinerCommand{Action: &pb.MinerCommand_UpdateMinerPassword{UpdateMinerPassword: action}})
+	command.Target.CredentialUsername = credentials.Username
+	command.Target.CredentialPassword = credentials.Password
+	r := &RunCmd{driverGetter: fakeDriverGetter{d: driver}, minerSecrets: codec, passwordUpdatePrivateKey: privateKey}
+	ack := &captureAcker{}
+
+	r.handleMinerCommand(t.Context(), nil, ack, "oversized-password", command, discardLogger(t))
+
+	// No UpdateMinerPassword expectation: any device write fails the test.
+	got := ack.only(t)
+	require.False(t, got.Succeeded)
+	require.Contains(t, got.ErrorMessage, "encrypted credential exceeds")
+	require.NotNil(t, got.WriteOutcome)
+	require.Equal(t, sdk.WriteNotDispatched, got.WriteOutcome.Outcome)
+	require.Equal(t, string(sdk.WriteStageCredentials), got.WriteOutcome.Stage)
+	require.Equal(t, string(sdk.WriteReasonInvalidRequest), got.WriteOutcome.Reason)
 }
 
 func TestHandleMinerCommand_UpdateMinerPasswordFailedPreconditionAcksUnauthenticated(t *testing.T) {
@@ -1494,7 +1525,13 @@ func TestEquipmentCommandBuildsControllerAndPreservesDesiredState(t *testing.T) 
 func TestEquipmentCommandUnsupportedOldPlugin(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	_, err := runMinerAction(t.Context(), nil, "equipment", "", nil, mocks.NewMockDevice(ctrl), &pb.MinerCommand{Action: &pb.MinerCommand_SetContainerControl{SetContainerControl: &pb.SetContainerControlAction{Name: "dry_cooler", Enabled: new(true)}}})
-	require.Error(t, err)
+	require.EqualError(t, err, "unsupported capability: container_control")
+	code, _ := classifyMinerCommandError("execute command", err)
+	require.Equal(t, pb.AckCode_ACK_CODE_UNIMPLEMENTED, code)
+	evidence := sdk.WriteEvidence(err)
+	require.Equal(t, sdk.WriteNotDispatched, evidence.GetReason())
+	require.Equal(t, string(sdk.WriteStageCapability), evidence.Metadata["stage"])
+	require.Equal(t, string(sdk.WriteReasonUnsupported), evidence.Metadata["reason"])
 }
 
 type tankMiningDevice struct {
@@ -1588,4 +1625,35 @@ func TestHandleMinerCommand_RejectsLegacyPlaintextPoolWrite(t *testing.T) {
 	assert.Equal(t, pb.AckCode_ACK_CODE_BAD_REQUEST, ack.only(t).GetCode())
 	assert.NotContains(t, ack.only(t).GetErrorMessage(), "legacy-secret")
 	assert.NotContains(t, logs.String(), "legacy-secret")
+}
+
+func TestMinerCommandAckPreservesExecutionEvidence(t *testing.T) {
+	for _, outcome := range []string{sdk.WriteNotDispatched, sdk.WriteCompleted, sdk.WriteUnknown, ""} {
+		t.Run(outcome, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			dev := mocks.NewMockDevice(ctrl)
+			var failure error = sdk.NewErrUnsupportedCapability("reboot")
+			if outcome != "" {
+				failure = sdk.WithWriteOutcome(failure, outcome, "capability", "unsupported")
+			}
+			dev.EXPECT().Reboot(gomock.Any()).Return(failure).Times(1)
+			dev.EXPECT().Close(gomock.Any()).Return(nil)
+			drv := mocks.NewMockDriver(ctrl)
+			drv.EXPECT().NewDevice(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(sdk.NewDeviceResult{Device: dev}, nil)
+			r := &RunCmd{driverGetter: fakeDriverGetter{d: drv}, minerSecrets: nodeSecretProvider{}}
+			ack := &captureAcker{}
+			r.handleMinerCommand(t.Context(), nil, ack, "cmd-evidence", withTarget(&pb.MinerCommand{Action: &pb.MinerCommand_Reboot{Reboot: &pb.RebootAction{}}}), discardLogger(t))
+			got := ack.only(t)
+			require.False(t, got.Succeeded)
+			require.Equal(t, pb.AckCode_ACK_CODE_UNIMPLEMENTED, got.Code)
+			if outcome == "" {
+				require.Nil(t, got.WriteOutcome)
+				return
+			}
+			require.NotNil(t, got.WriteOutcome)
+			require.Equal(t, outcome, got.WriteOutcome.Outcome)
+			require.Equal(t, "capability", got.WriteOutcome.Stage)
+			require.Equal(t, "unsupported", got.WriteOutcome.Reason)
+		})
+	}
 }

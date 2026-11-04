@@ -252,6 +252,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.claimPoolConfigurationTargetStmt, err = db.PrepareContext(ctx, claimPoolConfigurationTarget); err != nil {
 		return nil, fmt.Errorf("error preparing query ClaimPoolConfigurationTarget: %w", err)
 	}
+	if q.claimReapedRigConfigRetryStmt, err = db.PrepareContext(ctx, claimReapedRigConfigRetry); err != nil {
+		return nil, fmt.Errorf("error preparing query ClaimReapedRigConfigRetry: %w", err)
+	}
 	if q.claimRigConfigReconciliationStmt, err = db.PrepareContext(ctx, claimRigConfigReconciliation); err != nil {
 		return nil, fmt.Errorf("error preparing query ClaimRigConfigReconciliation: %w", err)
 	}
@@ -2118,6 +2121,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.listResponseProfileInfrastructureDevicesByOrgStmt, err = db.PrepareContext(ctx, listResponseProfileInfrastructureDevicesByOrg); err != nil {
 		return nil, fmt.Errorf("error preparing query ListResponseProfileInfrastructureDevicesByOrg: %w", err)
 	}
+	if q.listRetryableReapedRigConfigMessagesStmt, err = db.PrepareContext(ctx, listRetryableReapedRigConfigMessages); err != nil {
+		return nil, fmt.Errorf("error preparing query ListRetryableReapedRigConfigMessages: %w", err)
+	}
 	if q.listRigConfigReconciliationTargetsStmt, err = db.PrepareContext(ctx, listRigConfigReconciliationTargets); err != nil {
 		return nil, fmt.Errorf("error preparing query ListRigConfigReconciliationTargets: %w", err)
 	}
@@ -3632,6 +3638,11 @@ func (q *Queries) Close() error {
 	if q.claimPoolConfigurationTargetStmt != nil {
 		if cerr := q.claimPoolConfigurationTargetStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing claimPoolConfigurationTargetStmt: %w", cerr)
+		}
+	}
+	if q.claimReapedRigConfigRetryStmt != nil {
+		if cerr := q.claimReapedRigConfigRetryStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing claimReapedRigConfigRetryStmt: %w", cerr)
 		}
 	}
 	if q.claimRigConfigReconciliationStmt != nil {
@@ -6744,6 +6755,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing listResponseProfileInfrastructureDevicesByOrgStmt: %w", cerr)
 		}
 	}
+	if q.listRetryableReapedRigConfigMessagesStmt != nil {
+		if cerr := q.listRetryableReapedRigConfigMessagesStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listRetryableReapedRigConfigMessagesStmt: %w", cerr)
+		}
+	}
 	if q.listRigConfigReconciliationTargetsStmt != nil {
 		if cerr := q.listRigConfigReconciliationTargetsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing listRigConfigReconciliationTargetsStmt: %w", cerr)
@@ -8744,6 +8760,7 @@ type Queries struct {
 	claimDeletionUnpairPermitStmt                              *sql.Stmt
 	claimMessageForProcessingStmt                              *sql.Stmt
 	claimPoolConfigurationTargetStmt                           *sql.Stmt
+	claimReapedRigConfigRetryStmt                              *sql.Stmt
 	claimRigConfigReconciliationStmt                           *sql.Stmt
 	classifyFleetRuntimeLeaseAcquisitionStmt                   *sql.Stmt
 	clearCurtailmentAutomationActiveEventStmt                  *sql.Stmt
@@ -9366,6 +9383,7 @@ type Queries struct {
 	listRepairTicketPartsStmt                                  *sql.Stmt
 	listRepairTicketsStmt                                      *sql.Stmt
 	listResponseProfileInfrastructureDevicesByOrgStmt          *sql.Stmt
+	listRetryableReapedRigConfigMessagesStmt                   *sql.Stmt
 	listRigConfigReconciliationTargetsStmt                     *sql.Stmt
 	listRolePermissionKeysStmt                                 *sql.Stmt
 	listRolesStmt                                              *sql.Stmt
@@ -9825,6 +9843,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		claimDeletionUnpairPermitStmt:                              q.claimDeletionUnpairPermitStmt,
 		claimMessageForProcessingStmt:                              q.claimMessageForProcessingStmt,
 		claimPoolConfigurationTargetStmt:                           q.claimPoolConfigurationTargetStmt,
+		claimReapedRigConfigRetryStmt:                              q.claimReapedRigConfigRetryStmt,
 		claimRigConfigReconciliationStmt:                           q.claimRigConfigReconciliationStmt,
 		classifyFleetRuntimeLeaseAcquisitionStmt:                   q.classifyFleetRuntimeLeaseAcquisitionStmt,
 		clearCurtailmentAutomationActiveEventStmt:                  q.clearCurtailmentAutomationActiveEventStmt,
@@ -10447,6 +10466,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		listRepairTicketPartsStmt:                                  q.listRepairTicketPartsStmt,
 		listRepairTicketsStmt:                                      q.listRepairTicketsStmt,
 		listResponseProfileInfrastructureDevicesByOrgStmt:          q.listResponseProfileInfrastructureDevicesByOrgStmt,
+		listRetryableReapedRigConfigMessagesStmt:                   q.listRetryableReapedRigConfigMessagesStmt,
 		listRigConfigReconciliationTargetsStmt:                     q.listRigConfigReconciliationTargetsStmt,
 		listRolePermissionKeysStmt:                                 q.listRolePermissionKeysStmt,
 		listRolesStmt:                                              q.listRolesStmt,

@@ -14,7 +14,7 @@ const mainCircuitBreakerControl = "main_circuit_breaker"
 
 func (d *Device) SetContainerControl(ctx context.Context, req sdk.ContainerControlRequest) error {
 	if err := req.Validate(); err != nil {
-		return err
+		return sdk.InvalidWriteRequest(err)
 	}
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
@@ -22,19 +22,19 @@ func (d *Device) SetContainerControl(ctx context.Context, req sdk.ContainerContr
 	defer d.writeMu.Unlock()
 	c, err := d.selectClient(ctx, true)
 	if err != nil {
-		return err
+		return sdk.WriteRefused(err, sdk.WriteStageBackendSelection, sdk.WriteReasonTransportFailed)
 	}
 	wire, err := c.power.GetContainerControls(ctx, &mdk.GetContainerControlsRequest{})
 	if err != nil {
-		return err
+		return sdk.WriteRefused(err, sdk.WriteStageConfigurationRead, sdk.WriteReasonReadFailed)
 	}
 	observed := controlObservation(wire).observation(time.Now())
 	if observed == nil {
-		return sdk.NewErrUnsupportedCapability(req.Name)
+		return sdk.UnsupportedWrite(req.Name)
 	}
 	if req.Name == mainCircuitBreakerControl {
 		if observed.MainCircuitBreakerSupported == nil || !*observed.MainCircuitBreakerSupported || observed.MainCircuitBreakerClosed == nil {
-			return sdk.NewErrUnsupportedCapability(req.Name)
+			return sdk.UnsupportedWrite(req.Name)
 		}
 	} else {
 		known := false
@@ -46,7 +46,7 @@ func (d *Device) SetContainerControl(ctx context.Context, req sdk.ContainerContr
 			}
 		}
 		if !known {
-			return sdk.NewErrUnsupportedCapability(req.Name)
+			return sdk.UnsupportedWrite(req.Name)
 		}
 	}
 	// Write once. A transport error after dispatch cannot prove whether the PLC applied it.

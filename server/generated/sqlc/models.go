@@ -1440,6 +1440,7 @@ type DeviceWriteAttempt struct {
 	IdentityKeys       []string
 	CurtailmentCommand sql.NullString
 	CommandType        string
+	WriteOutcome       json.RawMessage
 }
 
 type DeviceWriteFence struct {

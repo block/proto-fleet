@@ -5,9 +5,11 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"sync"
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
@@ -19,12 +21,14 @@ import (
 	"github.com/block/proto-fleet/server/generated/sqlc"
 	commandmocks "github.com/block/proto-fleet/server/internal/domain/command/mocks"
 	"github.com/block/proto-fleet/server/internal/domain/commandtype"
+	"github.com/block/proto-fleet/server/internal/domain/devicewrite"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	minerDomain "github.com/block/proto-fleet/server/internal/domain/miner"
 	"github.com/block/proto-fleet/server/internal/domain/miner/dto"
 	"github.com/block/proto-fleet/server/internal/domain/miner/interfaces"
 	minerIfaceMocks "github.com/block/proto-fleet/server/internal/domain/miner/interfaces/mocks"
 	"github.com/block/proto-fleet/server/internal/domain/stores/sqlstores"
+	"github.com/block/proto-fleet/server/internal/infrastructure/db"
 	"github.com/block/proto-fleet/server/internal/infrastructure/files"
 	"github.com/block/proto-fleet/server/internal/infrastructure/queue"
 	sdk "github.com/block/proto-fleet/server/sdk/v1"
@@ -374,4 +378,258 @@ func TestRigConfigBindingChangeRetriesWithFreshHandle(t *testing.T) {
 			require.Equal(t, 1, successes)
 		})
 	}
+}
+
+func TestRigConfigRecoveryDoesNotReplayUnresolvedWrites(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		finish  bool
+		outcome error
+		requeue bool
+	}{
+		{name: "running", outcome: devicewrite.UncertainDelivery(context.DeadlineExceeded)},
+		{name: "unknown after completion", finish: true, outcome: devicewrite.UncertainDelivery(context.DeadlineExceeded)},
+		{name: "definite refusal", finish: true, outcome: devicewrite.NotDispatched(errors.New("preparation failed")), requeue: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			svc, conn, deviceID, identifier := newRigConfigCommandFixture(t)
+			ctx := manualSessionCtx(1)
+			_, err := conn.ExecContext(ctx, `INSERT INTO curtailment_rig_config_reconciliation
+				(organization_id, requested_by, desired_generation, enqueued_generation) VALUES (1, 42, 1, 1)`)
+			require.NoError(t, err)
+			require.NoError(t, svc.ApplyCurtailmentConfigToDevices(ctx, sdk.CurtailmentConfig{}, []string{identifier}))
+			message := queue.Message{OrgID: 1, DeviceID: deviceID, CommandType: commandtype.ApplyCurtailmentConfig}
+			require.NoError(t, conn.QueryRowContext(ctx, `UPDATE queue_message SET status = 'PROCESSING'
+				WHERE device_id = $1 RETURNING id, command_batch_log_uuid, payload, write_epoch`, deviceID).
+				Scan(&message.ID, &message.BatchLogUUID, &message.Payload, &message.WriteEpoch))
+			attempt, err := devicewrite.NewService(conn).BeginQueuedHost(ctx, message)
+			require.NoError(t, err)
+			outcome := devicewrite.Dispatch(attempt.Context(ctx), func(context.Context) error { return tc.outcome })
+			require.Error(t, outcome)
+			if tc.finish {
+				require.NoError(t, attempt.Finish(ctx, outcome))
+			}
+			// The attempt has committed, but the worker never records the queue
+			// result. Restart recovery must use that durable physical evidence.
+			before, err := sqlc.New(conn).ListUnresolvedDeviceWriteAttempts(ctx, sqlc.ListUnresolvedDeviceWriteAttemptsParams{OrganizationID: 1, DeviceID: deviceID})
+			require.NoError(t, err)
+			if tc.requeue {
+				require.Empty(t, before)
+			} else {
+				require.Len(t, before, 1)
+				if tc.finish {
+					require.Equal(t, "unknown", before[0].Status)
+				} else {
+					require.Equal(t, "running", before[0].Status)
+				}
+			}
+			reaped, err := svc.executionService.reapMessages(ctx, reapModeRestart)
+			require.NoError(t, err)
+			require.Len(t, reaped, 1)
+			var queuedStatus string
+			require.NoError(t, conn.QueryRowContext(ctx, "SELECT status FROM queue_message WHERE id=$1", message.ID).Scan(&queuedStatus))
+			require.Equal(t, "FAILED", queuedStatus)
+			var targets int
+			require.NoError(t, conn.QueryRowContext(ctx, "SELECT count(*) FROM curtailment_rig_config_target WHERE organization_id=1 AND device_id=$1", deviceID).Scan(&targets))
+			if tc.requeue {
+				require.Equal(t, 1, targets, "a known preparation refusal can retry")
+			} else {
+				require.Zero(t, targets, "recovery must not replay possibly accepted work")
+			}
+			after, err := sqlc.New(conn).ListUnresolvedDeviceWriteAttempts(ctx, sqlc.ListUnresolvedDeviceWriteAttemptsParams{OrganizationID: 1, DeviceID: deviceID})
+			require.NoError(t, err)
+			require.Equal(t, before, after, "queue recovery must retain physical attempt evidence")
+		})
+	}
+}
+
+func TestRigConfigRecoverySeesAdmissionCommittedWhileWaiting(t *testing.T) {
+	svc, conn, deviceID, identifier := newRigConfigCommandFixture(t)
+	ctx := manualSessionCtx(1)
+	_, err := conn.ExecContext(ctx, `INSERT INTO curtailment_rig_config_reconciliation
+		(organization_id, requested_by, desired_generation, enqueued_generation) VALUES (1, 42, 1, 1)`)
+	require.NoError(t, err)
+	require.NoError(t, svc.ApplyCurtailmentConfigToDevices(ctx, sdk.CurtailmentConfig{}, []string{identifier}))
+	var messageID, epoch int64
+	require.NoError(t, conn.QueryRowContext(ctx, `UPDATE queue_message SET status='PROCESSING'
+		WHERE device_id=$1 RETURNING id,write_epoch`, deviceID).Scan(&messageID, &epoch))
+	keys, err := sqlc.New(conn).GetDeviceWriteIdentityKeys(ctx, deviceID)
+	require.NoError(t, err)
+
+	// Match admission's queue lock and attempt insert, then delay its commit
+	// until the reaper has taken its first statement snapshot and is waiting.
+	admission, err := conn.BeginTx(ctx, nil)
+	require.NoError(t, err)
+	defer func() { _ = admission.Rollback() }()
+	var ownerPID, lockedID int64
+	require.NoError(t, admission.QueryRowContext(ctx, "SELECT pg_backend_pid()").Scan(&ownerPID))
+	require.NoError(t, admission.QueryRowContext(ctx, "SELECT id FROM queue_message WHERE id=$1 FOR UPDATE", messageID).Scan(&lockedID))
+	require.Equal(t, messageID, lockedID)
+	kind := commandtype.ApplyCurtailmentConfig
+	require.NoError(t, sqlc.New(admission).CreateDeviceWriteAttempt(ctx, sqlc.CreateDeviceWriteAttemptParams{
+		AttemptID: uuid.New(), DeviceID: deviceID, OrganizationID: 1, Epoch: epoch,
+		QueueMessageID: sql.NullInt64{Int64: messageID, Valid: true}, OwnerInstanceID: uuid.New(),
+		OperationKind: "mutation", IdentityKeys: keys, CommandType: kind.String(),
+		CurtailmentCommand: sql.NullString{String: kind.String(), Valid: true},
+	}))
+	done := make(chan error, 1)
+	go func() {
+		_, err := svc.executionService.reapMessages(ctx, reapModeRestart)
+		done <- err
+	}()
+	require.Eventually(t, func() bool {
+		var blocked bool
+		err := conn.QueryRowContext(ctx, "SELECT EXISTS (SELECT 1 FROM pg_stat_activity WHERE $1=ANY(pg_blocking_pids(pid)))", ownerPID).Scan(&blocked)
+		return err == nil && blocked
+	}, 2*time.Second, 10*time.Millisecond, "recovery must wait for admission's queue lock")
+	require.NoError(t, admission.Commit())
+	select {
+	case err := <-done:
+		require.NoError(t, err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("recovery did not finish")
+	}
+	var targets int
+	require.NoError(t, conn.QueryRowContext(ctx, "SELECT count(*) FROM curtailment_rig_config_target WHERE organization_id=1 AND device_id=$1", deviceID).Scan(&targets))
+	require.Zero(t, targets, "recovery must see the attempt committed while it waited")
+}
+
+func TestRigConfigLateWorkerRequeuesOnlySettledFailures(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		outcome error
+		requeue bool
+	}{
+		{name: "safe refusal", outcome: devicewrite.NotDispatched(fleeterror.NewUnavailableErrorf("preparation failed")), requeue: true},
+		{name: "unknown", outcome: devicewrite.UncertainDelivery(context.DeadlineExceeded)},
+		{name: "success"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			svc, conn, deviceID, identifier := newRigConfigCommandFixture(t)
+			ctx := manualSessionCtx(1)
+			_, err := conn.ExecContext(ctx, `INSERT INTO curtailment_rig_config_reconciliation
+				(organization_id, requested_by, desired_generation, enqueued_generation) VALUES (1, 42, 1, 1)`)
+			require.NoError(t, err)
+			require.NoError(t, svc.ApplyCurtailmentConfigToDevices(ctx, sdk.CurtailmentConfig{}, []string{identifier}))
+			messages, err := svc.messageQueue.Dequeue(ctx, 1)
+			require.NoError(t, err)
+			require.Len(t, messages, 1)
+			message := messages[0]
+			entered, release := make(chan struct{}), make(chan struct{})
+			resume := sync.OnceFunc(func() { close(release) })
+			t.Cleanup(resume)
+			ctrl := gomock.NewController(t)
+			getter := commandmocks.NewMockCachedMinerGetter(ctrl)
+			miner := minerIfaceMocks.NewMockMiner(ctrl)
+			miner.EXPECT().GetOrgID().Return(int64(1))
+			miner.EXPECT().GetSiteID().Return(int64(0))
+			handle := &fencedCurtailmentConfigMiner{MockMiner: miner, configure: func(ctx context.Context, _ dto.ApplyCurtailmentConfigPayload) error {
+				return devicewrite.Dispatch(ctx, func(context.Context) error {
+					close(entered)
+					<-release
+					return tc.outcome
+				})
+			}}
+			getter.EXPECT().GetMinerForCommand(gomock.Any(), deviceID).Return(handle, nil)
+			svc.executionService.minerService = getter
+			done := make(chan struct{})
+			go func() {
+				svc.executionService.workerProcessCommand(ctx, message)
+				close(done)
+			}()
+			select {
+			case <-entered:
+			case <-time.After(5 * time.Second):
+				t.Fatal("worker did not enter dispatch")
+			}
+			reaped, err := svc.executionService.reapMessages(ctx, reapModeRestart)
+			require.NoError(t, err)
+			require.Len(t, reaped, 1)
+			before, err := sqlc.New(conn).GetQueueMessagesByBatch(ctx, message.BatchLogUUID)
+			require.NoError(t, err)
+			readAudit := func() string {
+				var audit string
+				require.NoError(t, conn.QueryRowContext(ctx, `SELECT cdl.error_info FROM command_on_device_log cdl
+					JOIN command_batch_log cbl ON cbl.id=cdl.command_batch_log_id
+					WHERE cbl.uuid=$1 AND cdl.device_id=$2`, message.BatchLogUUID, deviceID).Scan(&audit))
+				return audit
+			}
+			auditBefore := readAudit()
+			resume()
+			select {
+			case <-done:
+			case <-time.After(5 * time.Second):
+				t.Fatal("late worker did not finish")
+			}
+			after, err := sqlc.New(conn).GetQueueMessagesByBatch(ctx, message.BatchLogUUID)
+			require.NoError(t, err)
+			require.Equal(t, before, after, "late completion must preserve the reaper's queue result")
+			require.Equal(t, auditBefore, readAudit(), "late completion must preserve the reaper's audit result")
+			var generation, targets int64
+			require.NoError(t, conn.QueryRowContext(ctx, `SELECT desired_generation,
+				(SELECT count(*) FROM curtailment_rig_config_target WHERE organization_id=1 AND device_id=$1)
+				FROM curtailment_rig_config_reconciliation WHERE organization_id=1`, deviceID).Scan(&generation, &targets))
+			if tc.requeue {
+				require.Equal(t, int64(2), generation, "late safe failure must request exactly one retry")
+				require.Equal(t, int64(1), targets)
+				// A competing recovery still has the original dequeued retry count.
+				// Its claim must not request another generation for this failure.
+				require.NoError(t, db.WithTransactionNoResult(ctx, conn, func(q sqlc.Querier) error {
+					return requeueSettledRigConfigMessages(ctx, q, []queue.Message{message})
+				}))
+				require.NoError(t, conn.QueryRowContext(ctx, `SELECT desired_generation FROM curtailment_rig_config_reconciliation WHERE organization_id=1`).Scan(&generation))
+				require.Equal(t, int64(2), generation)
+			} else {
+				require.Equal(t, int64(1), generation)
+				require.Zero(t, targets)
+			}
+		})
+	}
+}
+
+func TestRigConfigReaperAndLateWorkerShareRetryClaim(t *testing.T) {
+	svc, conn, deviceID, identifier := newRigConfigCommandFixture(t)
+	ctx := manualSessionCtx(1)
+	_, err := conn.ExecContext(ctx, `INSERT INTO curtailment_rig_config_reconciliation
+		(organization_id, requested_by, desired_generation, enqueued_generation) VALUES (1, 42, 1, 1)`)
+	require.NoError(t, err)
+	require.NoError(t, svc.ApplyCurtailmentConfigToDevices(ctx, sdk.CurtailmentConfig{}, []string{identifier}))
+	messages, err := svc.messageQueue.Dequeue(ctx, 1)
+	require.NoError(t, err)
+	require.Len(t, messages, 1)
+	message := messages[0]
+	require.Equal(t, deviceID, message.DeviceID)
+	attempt, err := devicewrite.NewService(conn).BeginQueuedHost(ctx, message)
+	require.NoError(t, err)
+	failure := devicewrite.Dispatch(attempt.Context(ctx), func(context.Context) error {
+		return devicewrite.NotDispatched(errors.New("preparation failed"))
+	})
+	require.Error(t, failure)
+	require.NoError(t, attempt.Finish(ctx, failure))
+	reaped, err := svc.executionService.reapMessages(ctx, reapModeRestart)
+	require.NoError(t, err)
+	require.Len(t, reaped, 1)
+
+	// The reaper saw completion first. Late-worker recoveries must lose the
+	// same claim even when they run concurrently with the original retry count.
+	start := make(chan struct{})
+	done := make(chan error, 2)
+	for range 2 {
+		go func() {
+			<-start
+			done <- db.WithTransactionNoResult(ctx, conn, func(q sqlc.Querier) error {
+				return requeueSettledRigConfigMessages(ctx, q, []queue.Message{message})
+			})
+		}()
+	}
+	close(start)
+	for range 2 {
+		require.NoError(t, <-done)
+	}
+	var generation int64
+	var retryCount int32
+	require.NoError(t, conn.QueryRowContext(ctx, `SELECT desired_generation FROM curtailment_rig_config_reconciliation WHERE organization_id=1`).Scan(&generation))
+	require.Equal(t, int64(2), generation, "the reaper and late workers must request one generation")
+	require.NoError(t, conn.QueryRowContext(ctx, `SELECT retry_count FROM queue_message WHERE id=$1`, message.ID).Scan(&retryCount))
+	require.Equal(t, message.RetryCount+1, retryCount, "count the reaped failure once")
 }

@@ -35,8 +35,12 @@ func grpcStatusError(label string, code codes.Code, message string) error {
 	return fmt.Errorf("%s: %w", label, status.Error(code, message))
 }
 
-// Helper function to convert SDK errors to gRPC status errors
+// Preserve execution evidence independently of the public error code.
 func sdkErrorToGRPCStatus(err error) error {
+	return sdkServerError(WithWriteEvidence(sdkErrorStatus(err), localWriteEvidence(err)))
+}
+
+func sdkErrorStatus(err error) error {
 	if err == nil {
 		return nil
 	}
@@ -214,7 +218,7 @@ func (s *DriverGRPCServer) retainClosingDeviceLocked(deviceID string, device Dev
 func (s *DriverGRPCServer) Handshake(ctx context.Context, _ *emptypb.Empty) (*pb.HandshakeResponse, error) {
 	handshake, err := s.Impl.Handshake(ctx)
 	if err != nil {
-		return nil, err
+		return nil, sdkServerError(err)
 	}
 
 	return &pb.HandshakeResponse{
@@ -226,7 +230,7 @@ func (s *DriverGRPCServer) Handshake(ctx context.Context, _ *emptypb.Empty) (*pb
 func (s *DriverGRPCServer) DescribeDriver(ctx context.Context, _ *emptypb.Empty) (*pb.DescribeDriverResponse, error) {
 	handshake, caps, err := s.Impl.DescribeDriver(ctx)
 	if err != nil {
-		return nil, err
+		return nil, sdkServerError(err)
 	}
 
 	reuseCaps := make(Capabilities, len(caps)+1)
@@ -588,7 +592,7 @@ func (s *DriverGRPCServer) GetCoolingMode(ctx context.Context, req *pb.DeviceRef
 
 	mode, err := device.GetCoolingMode(ctx)
 	if err != nil {
-		return nil, err
+		return nil, sdkServerError(err)
 	}
 
 	// #nosec G115 -- CoolingMode enum values are small constants (0-3), safe for int32
@@ -614,7 +618,7 @@ func (s *DriverGRPCServer) UpdateMiningPools(ctx context.Context, req *pb.Update
 	pools := make([]MiningPoolConfig, len(req.Pools))
 	for i, pool := range req.Pools {
 		if pool == nil || pool.Password == nil {
-			return nil, status.Errorf(codes.InvalidArgument, "pool %d requires an explicit password", i)
+			return nil, sdkErrorToGRPCStatus(InvalidWriteRequest(status.Errorf(codes.InvalidArgument, "pool %d requires an explicit password", i)))
 		}
 		pools[i] = MiningPoolConfig{
 			Priority:   pool.Priority,
@@ -636,7 +640,7 @@ func (s *DriverGRPCServer) GetMiningPools(ctx context.Context, req *pb.GetMining
 
 	pools, err := device.GetMiningPools(ctx)
 	if err != nil {
-		return nil, err
+		return nil, sdkServerError(err)
 	}
 
 	return &pb.GetMiningPoolsResponse{Pools: configuredPoolsToProto(pools)}, nil
@@ -714,7 +718,7 @@ func (s *DriverGRPCServer) DownloadLogs(ctx context.Context, req *pb.DownloadLog
 
 	logData, moreData, err := device.DownloadLogs(ctx, since, req.BatchLogUuid)
 	if err != nil {
-		return nil, err
+		return nil, sdkServerError(err)
 	}
 
 	return &pb.DownloadLogsResponse{
@@ -741,12 +745,12 @@ func (s *DriverGRPCServer) UpdateFirmware(ctx context.Context, req *pb.UpdateFir
 
 	fw := req.Firmware
 	if fw == nil || fw.FilePath == "" {
-		return nil, sdkErrorToGRPCStatus(NewErrorInvalidConfig(req.Ref.DeviceId, fmt.Errorf("firmware file info is required")))
+		return nil, sdkErrorToGRPCStatus(InvalidWriteRequest(NewErrorInvalidConfig(req.Ref.DeviceId, fmt.Errorf("firmware file info is required"))))
 	}
 
 	file, err := os.Open(fw.FilePath)
 	if err != nil {
-		return nil, sdkErrorToGRPCStatus(NewErrorDeviceUnavailable(req.Ref.DeviceId, fmt.Errorf("failed to open firmware file: %w", err)))
+		return nil, sdkErrorToGRPCStatus(InvalidWriteRequest(NewErrorDeviceUnavailable(req.Ref.DeviceId, fmt.Errorf("failed to open firmware file: %w", err))))
 	}
 	defer file.Close()
 
@@ -778,7 +782,7 @@ func (s *DriverGRPCServer) GetFirmwareUpdateStatus(ctx context.Context, req *pb.
 
 	fwStatus, err := provider.GetFirmwareUpdateStatus(ctx)
 	if err != nil {
-		return nil, err
+		return nil, sdkServerError(err)
 	}
 	if fwStatus == nil {
 		return &pb.GetFirmwareUpdateStatusResponse{}, nil
@@ -819,7 +823,7 @@ func (s *DriverGRPCServer) UpdateMinerPassword(ctx context.Context, req *pb.Upda
 
 func (s *DriverGRPCServer) Curtail(ctx context.Context, req *pb.CurtailRequest) (*emptypb.Empty, error) {
 	if req.Ref == nil {
-		return nil, grpcStatusError("missing device ref", codes.InvalidArgument, "missing device ref")
+		return nil, sdkErrorToGRPCStatus(InvalidWriteRequest(grpcStatusError("missing device ref", codes.InvalidArgument, "missing device ref")))
 	}
 	device, lookupErr := s.selectDevice(req.Ref)
 	if lookupErr != nil {
@@ -828,7 +832,7 @@ func (s *DriverGRPCServer) Curtail(ctx context.Context, req *pb.CurtailRequest) 
 
 	curtailer, ok := device.(DeviceCurtailment)
 	if !ok {
-		return nil, grpcStatusError(errDeviceDoesNotSupportCurtailment, codes.Unimplemented, errDeviceDoesNotSupportCurtailment)
+		return nil, writeRefused(grpcStatusError(errDeviceDoesNotSupportCurtailment, codes.Unimplemented, errDeviceDoesNotSupportCurtailment), WriteStageCapability, WriteReasonUnsupported)
 	}
 
 	err := curtailer.Curtail(ctx, CurtailRequest{
@@ -839,7 +843,7 @@ func (s *DriverGRPCServer) Curtail(ctx context.Context, req *pb.CurtailRequest) 
 
 func (s *DriverGRPCServer) Uncurtail(ctx context.Context, req *pb.UncurtailRequest) (*emptypb.Empty, error) {
 	if req.Ref == nil {
-		return nil, grpcStatusError("missing device ref", codes.InvalidArgument, "missing device ref")
+		return nil, sdkErrorToGRPCStatus(InvalidWriteRequest(grpcStatusError("missing device ref", codes.InvalidArgument, "missing device ref")))
 	}
 	device, lookupErr := s.selectDevice(req.Ref)
 	if lookupErr != nil {
@@ -848,7 +852,7 @@ func (s *DriverGRPCServer) Uncurtail(ctx context.Context, req *pb.UncurtailReque
 
 	curtailer, ok := device.(DeviceCurtailment)
 	if !ok {
-		return nil, grpcStatusError(errDeviceDoesNotSupportCurtailment, codes.Unimplemented, errDeviceDoesNotSupportCurtailment)
+		return nil, writeRefused(grpcStatusError(errDeviceDoesNotSupportCurtailment, codes.Unimplemented, errDeviceDoesNotSupportCurtailment), WriteStageCapability, WriteReasonUnsupported)
 	}
 
 	err := curtailer.Uncurtail(ctx, UncurtailRequest{})
@@ -857,7 +861,7 @@ func (s *DriverGRPCServer) Uncurtail(ctx context.Context, req *pb.UncurtailReque
 
 func (s *DriverGRPCServer) ApplyCurtailmentConfig(ctx context.Context, req *pb.ApplyCurtailmentConfigRequest) (*emptypb.Empty, error) {
 	if req == nil || req.Ref == nil || req.Config == nil {
-		return nil, grpcStatusError("missing device ref or curtailment config", codes.InvalidArgument, "missing device ref or curtailment config")
+		return nil, sdkErrorToGRPCStatus(InvalidWriteRequest(grpcStatusError("missing device ref or curtailment config", codes.InvalidArgument, "missing device ref or curtailment config")))
 	}
 	device, lookupErr := s.selectDevice(req.Ref)
 	if lookupErr != nil {
@@ -866,7 +870,7 @@ func (s *DriverGRPCServer) ApplyCurtailmentConfig(ctx context.Context, req *pb.A
 
 	configurator, ok := device.(DeviceCurtailmentConfigurator)
 	if !ok {
-		return nil, grpcStatusError("device does not support curtailment configuration", codes.Unimplemented, "device does not support curtailment configuration")
+		return nil, writeRefused(grpcStatusError("device does not support curtailment configuration", codes.Unimplemented, "device does not support curtailment configuration"), WriteStageCapability, WriteReasonUnsupported)
 	}
 
 	err := configurator.ApplyCurtailmentConfig(ctx, curtailmentConfigFromProto(req.Config))
@@ -898,7 +902,7 @@ func (s *DriverGRPCServer) GetTimeSeriesData(ctx context.Context, req *pb.GetTim
 		return nil, sdkErrorToGRPCStatus(NewErrUnsupportedCapability("time_series_data"))
 	}
 	if err != nil {
-		return nil, err
+		return nil, sdkServerError(err)
 	}
 
 	pbSeries := make([]*pb.DeviceMetrics, len(series))
@@ -923,7 +927,7 @@ func (s *DriverGRPCServer) GetDeviceWebViewURL(ctx context.Context, req *pb.GetD
 		return nil, sdkErrorToGRPCStatus(NewErrUnsupportedCapability("web_view_url"))
 	}
 	if err != nil {
-		return nil, err
+		return nil, sdkServerError(err)
 	}
 
 	return &pb.GetDeviceWebViewURLResponse{
@@ -951,7 +955,7 @@ func (s *DriverGRPCServer) BatchStatus(ctx context.Context, req *pb.BatchStatusR
 		return nil, sdkErrorToGRPCStatus(NewErrUnsupportedCapability("batch_status"))
 	}
 	if err != nil {
-		return nil, err
+		return nil, sdkServerError(err)
 	}
 
 	batch := &pb.StatusBatchResponse{
@@ -984,7 +988,7 @@ func (s *DriverGRPCServer) Subscribe(req *pb.SubscribeRequest, stream pb.Driver_
 		return sdkErrorToGRPCStatus(NewErrUnsupportedCapability("streaming"))
 	}
 	if err != nil {
-		return err
+		return sdkServerError(err)
 	}
 
 	for {

@@ -30,10 +30,11 @@ var _ sdk.DeviceStoredPoolReader = (*Device)(nil)
 // passwords cannot be read) or replay onto another HA controller. A subsequent
 // explicitly admitted attempt starts from current stored pools and converges.
 func (d *Device) UpdateMiningPools(ctx context.Context, desired []sdk.MiningPoolConfig) error {
+	writeStarted := false
 	desired = slices.Clone(desired)
 	slices.SortFunc(desired, func(a, b sdk.MiningPoolConfig) int { return cmp.Compare(a.Priority, b.Priority) })
 	if err := validateWholePoolStack(desired); err != nil {
-		return err
+		return sdk.InvalidWriteRequest(err)
 	}
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
@@ -41,35 +42,36 @@ func (d *Device) UpdateMiningPools(ctx context.Context, desired []sdk.MiningPool
 	defer d.writeMu.Unlock()
 	c, err := d.selectClient(ctx, true)
 	if err != nil {
-		return err
+		return sdk.WriteRefused(err, sdk.WriteStageBackendSelection, sdk.WriteReasonTransportFailed)
 	}
 	groups := mdk.NewMiningGroupServiceClient(c.conn)
-	if err := requireLegacyPoolMode(ctx, groups); err != nil {
-		return err
+	if reason, err := requireLegacyPoolMode(ctx, groups); err != nil {
+		return poolPreparationError(err, reason, writeStarted)
 	}
 	client := mdk.NewPoolServiceClient(c.conn)
 	current, err := readWholePools(ctx, client)
 	if err != nil {
-		return err
+		return sdk.WriteRefused(err, sdk.WriteStageConfigurationRead, sdk.WriteReasonReadFailed)
 	}
 	for _, pool := range current {
 		if pool.ShareWeight != nil {
-			return fmt.Errorf("pool mode check: %w", status.Error(codes.FailedPrecondition, "weighted pool allocation cannot be replaced by a priority configuration"))
+			return sdk.WriteRefused(fmt.Errorf("pool mode check: %w", status.Error(codes.FailedPrecondition, "weighted pool allocation cannot be replaced by a priority configuration")), sdk.WriteStageConfigurationRead, sdk.WriteReasonInvalidRequest)
 		}
 	}
-	if err := verifyRuntimePools(ctx, client, current); err != nil {
-		return err
+	if reason, err := verifyRuntimePools(ctx, client, current); err != nil {
+		return sdk.WriteRefused(err, sdk.WriteStageConfigurationRead, reason)
 	}
 	if !canUpdatePoolsInPlace(current, desired) {
 		for _, pool := range current {
 			if !pool.Enabled {
 				continue
 			}
-			if err := requireLegacyPoolMode(ctx, groups); err != nil {
-				return err
+			if reason, err := requireLegacyPoolMode(ctx, groups); err != nil {
+				return poolPreparationError(err, reason, writeStarted)
 			}
 			disabled := proto.CloneOf(pool)
 			disabled.Enabled = false
+			writeStarted = true
 			if _, err := client.UpdatePool(ctx, &mdk.UpdatePoolRequest{Pool: disabled, UpdateMask: &fieldmaskpb.FieldMask{Paths: []string{"enabled"}}}); err != nil {
 				return poolWriteError("disable pool", err)
 			}
@@ -84,23 +86,25 @@ func (d *Device) UpdateMiningPools(ctx context.Context, desired []sdk.MiningPool
 				pool.Name = current[i].Name
 			}
 		}
-		if err := requireLegacyPoolMode(ctx, groups); err != nil {
-			return err
+		if reason, err := requireLegacyPoolMode(ctx, groups); err != nil {
+			return poolPreparationError(err, reason, writeStarted)
 		}
 		if pool.Id != 0 && want.Password == "" {
 			// Empty UpdatePool passwords mean preserve. Deletion/recreation is
 			// the only current firmware operation that writes no credential.
 			// Frigate 6acbeba0 pkg/api/pool_service.go CreatePool stores NULL
 			// for an empty password; the pool manager renders NULL as empty.
+			writeStarted = true
 			if _, err := client.DeletePool(ctx, &mdk.DeletePoolRequest{Id: pool.Id}); err != nil {
 				return poolWriteError("remove credential", err)
 			}
 			pool.Id = 0
-			if err := requireLegacyPoolMode(ctx, groups); err != nil {
-				return err
+			if reason, err := requireLegacyPoolMode(ctx, groups); err != nil {
+				return poolPreparationError(err, reason, writeStarted)
 			}
 		}
 		if pool.Id == 0 {
+			writeStarted = true
 			if _, err := client.CreatePool(ctx, &mdk.CreatePoolRequest{Pool: pool, Password: want.Password}); err != nil {
 				return poolWriteError("create pool", err)
 			}
@@ -108,21 +112,23 @@ func (d *Device) UpdateMiningPools(ctx context.Context, desired []sdk.MiningPool
 			// Include every mutable field explicitly; the firmware has different
 			// legacy semantics for an empty mask and a share_weight-only mask.
 			mask := &fieldmaskpb.FieldMask{Paths: []string{"name", "url", "username", "priority", "enabled", "share_weight"}}
+			writeStarted = true
 			if _, err := client.UpdatePool(ctx, &mdk.UpdatePoolRequest{Pool: pool, Password: want.Password, UpdateMask: mask}); err != nil {
 				return poolWriteError("update pool", err)
 			}
 		}
 	}
 	for i := len(desired); i < len(current); i++ {
-		if err := requireLegacyPoolMode(ctx, groups); err != nil {
-			return err
+		if reason, err := requireLegacyPoolMode(ctx, groups); err != nil {
+			return poolPreparationError(err, reason, writeStarted)
 		}
+		writeStarted = true
 		if _, err := client.DeletePool(ctx, &mdk.DeletePoolRequest{Id: current[i].Id}); err != nil {
 			return poolWriteError("remove obsolete pool", err)
 		}
 	}
-	if err := requireLegacyPoolMode(ctx, groups); err != nil {
-		return err
+	if reason, err := requireLegacyPoolMode(ctx, groups); err != nil {
+		return poolPreparationError(err, reason, writeStarted)
 	}
 	actual, err := readWholePools(ctx, client)
 	if err != nil {
@@ -137,12 +143,19 @@ func (d *Device) UpdateMiningPools(ctx context.Context, desired []sdk.MiningPool
 			return fmt.Errorf("pool update readback does not match the requested stack")
 		}
 	}
-	if err := verifyRuntimePools(ctx, client, actual); err != nil {
+	if _, err := verifyRuntimePools(ctx, client, actual); err != nil {
 		return err
 	}
 	// Credentials remain unverified: firmware never returns passwords. The
 	// optional stored-reader below deliberately reports nil password evidence.
 	return nil
+}
+
+func poolPreparationError(err error, reason sdk.WriteReason, writeStarted bool) error {
+	if writeStarted {
+		return err
+	}
+	return sdk.WriteRefused(err, sdk.WriteStageConfigurationRead, reason)
 }
 
 // Both stacks are sorted by priority. Matching positions cannot introduce URL
@@ -196,13 +209,13 @@ func (d *Device) readPoolStack(ctx context.Context, runtime bool) ([]*mdk.Pool, 
 	if err != nil {
 		return nil, err
 	}
-	if err := requireLegacyPoolMode(ctx, mdk.NewMiningGroupServiceClient(c.conn)); err != nil {
+	if _, err := requireLegacyPoolMode(ctx, mdk.NewMiningGroupServiceClient(c.conn)); err != nil {
 		return nil, err
 	}
 	client := mdk.NewPoolServiceClient(c.conn)
 	pools, err := readWholePools(ctx, client)
 	if err == nil && runtime {
-		err = verifyRuntimePools(ctx, client, pools)
+		_, err = verifyRuntimePools(ctx, client, pools)
 	}
 	return pools, err
 }
@@ -211,10 +224,10 @@ func (d *Device) readPoolStack(ctx context.Context, runtime bool) ([]*mdk.Pool, 
 // manager. Diagnostics identify the rows actually loaded by this controller.
 // Connection health is deliberately not required: an unreachable destination
 // does not mean its configuration failed to apply.
-func verifyRuntimePools(ctx context.Context, client mdk.PoolServiceClient, stored []*mdk.Pool) error {
+func verifyRuntimePools(ctx context.Context, client mdk.PoolServiceClient, stored []*mdk.Pool) (sdk.WriteReason, error) {
 	response, err := client.GetPoolDiagnostics(ctx, &mdk.GetPoolDiagnosticsRequest{})
 	if err != nil {
-		return fmt.Errorf("container runtime pool verification unavailable")
+		return sdk.WriteReasonReadFailed, fmt.Errorf("container runtime pool verification unavailable")
 	}
 	expected := make(map[int64]*mdk.Pool)
 	for _, pool := range stored {
@@ -223,30 +236,30 @@ func verifyRuntimePools(ctx context.Context, client mdk.PoolServiceClient, store
 		}
 	}
 	if response.GetWeightedMode() || len(response.GetPools()) != len(expected) {
-		return fmt.Errorf("container runtime pools differ from stored configuration")
+		return sdk.WriteReasonStaleBinding, fmt.Errorf("container runtime pools differ from stored configuration")
 	}
 	for _, pool := range response.GetPools() {
 		match := expected[pool.GetPoolId()]
 		if match == nil || pool.GetPoolName() != match.Name || pool.GetConfiguredShareWeight() != 0 {
-			return fmt.Errorf("container runtime pools differ from stored configuration")
+			return sdk.WriteReasonStaleBinding, fmt.Errorf("container runtime pools differ from stored configuration")
 		}
 		delete(expected, pool.GetPoolId())
 	}
-	return nil
+	return "", nil
 }
 
-func requireLegacyPoolMode(ctx context.Context, client mdk.MiningGroupServiceClient) error {
+func requireLegacyPoolMode(ctx context.Context, client mdk.MiningGroupServiceClient) (sdk.WriteReason, error) {
 	response, err := client.GetMiningGroupCapability(ctx, &mdk.GetMiningGroupCapabilityRequest{})
 	if err != nil {
-		return fmt.Errorf("pool mode check: %w", status.Error(status.Code(err), "cannot verify container mining group mode"))
+		return sdk.WriteReasonReadFailed, fmt.Errorf("pool mode check: %w", status.Error(status.Code(err), "cannot verify container mining group mode"))
 	}
 	if response.GetCapability() == nil {
-		return fmt.Errorf("container mining group mode is unavailable")
+		return sdk.WriteReasonStaleBinding, fmt.Errorf("container mining group mode is unavailable")
 	}
 	if response.Capability.Enabled {
-		return fmt.Errorf("pool mode check: %w", status.Error(codes.FailedPrecondition, "whole-container pools cannot change while mining groups are enabled"))
+		return sdk.WriteReasonInvalidRequest, fmt.Errorf("pool mode check: %w", status.Error(codes.FailedPrecondition, "whole-container pools cannot change while mining groups are enabled"))
 	}
-	return nil
+	return "", nil
 }
 
 func unusedPoolName(current []*mdk.Pool, slot int) string {

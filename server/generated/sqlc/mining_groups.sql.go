@@ -321,7 +321,7 @@ func (q *Queries) GetMiningGroupTarget(ctx context.Context, arg GetMiningGroupTa
 }
 
 const getMiningGroupWorkflowAttempt = `-- name: GetMiningGroupWorkflowAttempt :one
-SELECT a.attempt_id, a.device_id, a.organization_id, a.epoch, a.queue_message_id, a.owner_instance_id, a.operation_kind, a.identity_snapshot, a.status, a.created_at, a.finished_at, a.identity_keys, a.curtailment_command, a.command_type FROM device_write_attempt a JOIN container_mining_group_state s ON s.attempt_id=a.attempt_id AND s.device_id=a.device_id AND s.organization_id=a.organization_id
+SELECT a.attempt_id, a.device_id, a.organization_id, a.epoch, a.queue_message_id, a.owner_instance_id, a.operation_kind, a.identity_snapshot, a.status, a.created_at, a.finished_at, a.identity_keys, a.curtailment_command, a.command_type, a.write_outcome FROM device_write_attempt a JOIN container_mining_group_state s ON s.attempt_id=a.attempt_id AND s.device_id=a.device_id AND s.organization_id=a.organization_id
 WHERE a.attempt_id=$1 AND a.device_id=$2 AND a.organization_id=$3 AND a.status='running' AND s.status IN ('pending','applying','blocked')
 `
 
@@ -349,6 +349,7 @@ func (q *Queries) GetMiningGroupWorkflowAttempt(ctx context.Context, arg GetMini
 		pq.Array(&i.IdentityKeys),
 		&i.CurtailmentCommand,
 		&i.CommandType,
+		&i.WriteOutcome,
 	)
 	return i, err
 }

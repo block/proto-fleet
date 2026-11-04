@@ -142,12 +142,36 @@ WHERE message.id = candidates.id
   AND message.device_id = device.id
 RETURNING
     message.id,
+    message.retry_count,
     message.device_id,
     message.command_batch_log_uuid,
     message.error_info,
     message.command_type,
     device.org_id,
     device.site_id;
+
+-- name: ListRetryableReapedRigConfigMessages :many
+-- Run after ReapMessages establishes FAILED status. A separate statement sees
+-- admissions committed before the reaper obtained its queue locks. FAILED
+-- entries cannot admit new attempts; a later retry claim arbitrates recovery.
+SELECT message.id FROM queue_message AS message
+WHERE message.id = ANY(sqlc.arg('message_ids')::BIGINT[])
+  AND message.status = 'FAILED'
+  AND message.command_type = 'ApplyCurtailmentConfig'
+  AND NOT EXISTS (
+      SELECT 1 FROM device_write_attempt AS attempt
+      WHERE attempt.queue_message_id = message.id
+        AND attempt.status IN ('running', 'unknown')
+  )
+ORDER BY message.id;
+
+-- name: ClaimReapedRigConfigRetry :execrows
+-- The reaper and a late worker share the dequeued retry count. Count the
+-- reaped failure once so only one transaction requests reconciliation.
+UPDATE queue_message
+SET retry_count = retry_count + 1
+WHERE id = sqlc.arg('message_id') AND retry_count = sqlc.arg('retry_count')
+  AND status = 'FAILED' AND command_type = 'ApplyCurtailmentConfig';
 
 -- name: ResetReapedFirmwareStatuses :exec
 UPDATE device_status

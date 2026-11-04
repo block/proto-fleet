@@ -34,6 +34,7 @@ const (
 	resultDifferent         = "different"
 	codeReadbackUnavailable = "readback_unavailable"
 	codeSettingsDiffer      = "settings_differ"
+	codeWriteFailed         = "write_failed"
 )
 
 type MinerGetter interface {
@@ -285,10 +286,15 @@ func (w *Worker) Execute(ctx context.Context, orgID int64, operationID string, t
 			code = "interrupted"
 		}
 		state = "failed"
-		if invoked && !devicewrite.IsNotDispatched(err) {
-			code = "write_uncertain"
-		} else if invoked {
-			code = codeUnavailable
+		if invoked {
+			switch {
+			case devicewrite.IsNotDispatched(err):
+				code = codeUnavailable
+			case devicewrite.IsCompleted(err):
+				code = codeWriteFailed
+			default:
+				code = "write_uncertain"
+			}
 		}
 	}
 	return finish()

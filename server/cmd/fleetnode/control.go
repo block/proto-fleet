@@ -18,6 +18,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"google.golang.org/genproto/googleapis/rpc/errdetails"
+
 	"github.com/block/proto-fleet/server/internal/domain/deviceendpoints"
 
 	"buf.build/go/protovalidate"
@@ -820,6 +822,10 @@ func (r *RunCmd) sendAck(stream acker, commandID string, code pb.AckCode, errMsg
 }
 
 func (r *RunCmd) sendAckWithPayload(stream acker, commandID string, code pb.AckCode, errMsg string, payload []byte, logger *slog.Logger) {
+	r.sendAckWithWriteEvidence(stream, commandID, code, errMsg, payload, nil, logger)
+}
+
+func (r *RunCmd) sendAckWithWriteEvidence(stream acker, commandID string, code pb.AckCode, errMsg string, payload []byte, evidence *errdetails.ErrorInfo, logger *slog.Logger) {
 	if len(payload) > maxAckPayloadBytes {
 		originalBytes := len(payload)
 		payload = nil
@@ -838,6 +844,7 @@ func (r *RunCmd) sendAckWithPayload(stream acker, commandID string, code pb.AckC
 		ErrorMessage: errMsg,
 		Code:         code,
 		Payload:      payload,
+		WriteOutcome: nodeWriteOutcome(evidence),
 	}}}); err != nil && !errors.Is(err, errControlSenderClosed) {
 		logger.Warn("send ack failed", "command_id", commandID, "err", err)
 	}
@@ -978,4 +985,11 @@ func synthesizeIdentifier(dev *discoverymodels.DiscoveredDevice, ip, port string
 	node := strconv.FormatInt(fleetNodeID, 10)
 	sum := sha256.Sum256([]byte(strings.Join([]string{node, ip, port, dev.GetDriverName(), dev.GetModel()}, "\x00")))
 	return "auto:" + hex.EncodeToString(sum[:8])
+}
+
+func nodeWriteOutcome(evidence *errdetails.ErrorInfo) *pb.DeviceWriteOutcome {
+	if evidence == nil {
+		return nil
+	}
+	return &pb.DeviceWriteOutcome{Outcome: evidence.Reason, Stage: evidence.Metadata["stage"], Reason: evidence.Metadata["reason"]}
 }

@@ -10,11 +10,11 @@ import (
 
 func (s *DriverGRPCServer) SetTankMining(ctx context.Context, req *pb.SetTankMiningRequest) (*emptypb.Empty, error) {
 	if req == nil || req.Ref == nil {
-		return nil, grpcStatusError("missing device", codes.InvalidArgument, "missing device")
+		return nil, sdkErrorToGRPCStatus(InvalidWriteRequest(grpcStatusError("missing device", codes.InvalidArgument, "missing device")))
 	}
 	payload := TankMiningRequest{Positions: req.Positions, Mining: req.Mining}
 	if err := payload.Validate(); err != nil {
-		return nil, grpcStatusError(err.Error(), codes.InvalidArgument, err.Error())
+		return nil, sdkErrorToGRPCStatus(InvalidWriteRequest(grpcStatusError(err.Error(), codes.InvalidArgument, err.Error())))
 	}
 	device, err := s.selectDevice(req.Ref)
 	if err != nil {
@@ -22,13 +22,13 @@ func (s *DriverGRPCServer) SetTankMining(ctx context.Context, req *pb.SetTankMin
 	}
 	controller, ok := device.(DeviceTankMiner)
 	if !ok {
-		return nil, sdkErrorToGRPCStatus(NewErrUnsupportedCapability(CapabilityTankMining))
+		return nil, sdkErrorToGRPCStatus(UnsupportedWrite(CapabilityTankMining))
 	}
 	return &emptypb.Empty{}, sdkErrorToGRPCStatus(controller.SetTankMining(ctx, payload))
 }
 func (d *DeviceGRPCClient) SetTankMining(ctx context.Context, req TankMiningRequest) error {
 	if err := req.Validate(); err != nil {
-		return err
+		return InvalidWriteRequest(err)
 	}
 	_, err := d.client.SetTankMining(ctx, &pb.SetTankMiningRequest{Ref: d.deviceRef(), Positions: req.Positions, Mining: req.Mining})
 	return err

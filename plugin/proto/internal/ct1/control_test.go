@@ -64,6 +64,7 @@ func TestEquipmentControlRequiresLiveSupportAndExplicitState(t *testing.T) {
 			err = dev.SetContainerControl(t.Context(), sdk.ContainerControlRequest{Name: tc.control, Enabled: tc.enabled})
 			if tc.reject {
 				require.Error(t, err)
+				require.Equal(t, sdk.WriteNotDispatched, sdk.WriteEvidence(err).GetReason())
 			} else {
 				require.NoError(t, err)
 			}
@@ -112,6 +113,7 @@ func TestEquipmentWriteFailureIsNotRetried(t *testing.T) {
 			defer cancel()
 			err = dev.SetContainerControl(ctx, sdk.ContainerControlRequest{Name: "dry_cooler", Enabled: new(false)})
 			require.Error(t, err)
+			require.Nil(t, sdk.WriteEvidence(err), "a dispatched write must not become a preparation refusal")
 			require.Equal(t, int32(1), writes.Load())
 		})
 	}
