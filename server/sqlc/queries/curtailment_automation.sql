@@ -390,17 +390,24 @@ WHERE (
 );
 
 -- name: QueueCurrentCurtailmentAutomationExecution :exec
+-- Seed the rule with the source's current assertion, ordered by when that
+-- assertion was received, so a newer signal still waiting to be processed
+-- replaces it. Activation re-runs an equal assertion but never a newer one.
 INSERT INTO curtailment_automation_execution (rule_id, mqtt_source_id, direction, target, target_at, received_at, received_broker, prior_edge_at)
 SELECT r.id, r.mqtt_source_id,
  CASE COALESCE(st.pending_target, st.last_target) WHEN 'OFF' THEN 'reassert_off' ELSE 'off_to_on' END,
- COALESCE(st.pending_target, st.last_target), COALESCE(st.pending_target_at, st.last_target_at), now(), COALESCE(st.last_received_broker,''), st.last_edge_at
+ COALESCE(st.pending_target, st.last_target), COALESCE(st.pending_target_at, st.last_target_at),
+ COALESCE(CASE WHEN st.pending_target IS NOT NULL THEN st.pending_received_at ELSE st.last_received_at END, now()),
+ COALESCE(st.last_received_broker,''), st.last_edge_at
 FROM curtailment_automation_rule r JOIN curtailment_mqtt_source_state st ON st.source_config_id = r.mqtt_source_id
 JOIN curtailment_mqtt_source_config src ON src.id = r.mqtt_source_id
 WHERE r.id = sqlc.arg('rule_id') AND r.enabled AND src.enabled AND COALESCE(st.pending_target, st.last_target) IN ('ON','OFF')
 ON CONFLICT (rule_id) DO UPDATE SET generation = curtailment_automation_execution.generation + 1,
  mqtt_source_id = EXCLUDED.mqtt_source_id, direction = EXCLUDED.direction, target = EXCLUDED.target, target_at = EXCLUDED.target_at,
  received_at = EXCLUDED.received_at, received_broker = EXCLUDED.received_broker, prior_edge_at = EXCLUDED.prior_edge_at,
- status = 'pending', attempts = 0, retry_at = now(), last_error = NULL;
+ status = 'pending', attempts = 0, retry_at = now(), last_error = NULL
+WHERE curtailment_automation_execution.received_at <= EXCLUDED.received_at
+ OR curtailment_automation_execution.mqtt_source_id <> EXCLUDED.mqtt_source_id;
 
 -- name: ClaimCurtailmentAutomationExecution :one
 WITH due AS (

@@ -18,6 +18,42 @@ import (
 	"github.com/block/proto-fleet/server/internal/testutil"
 )
 
+func TestSQLCurtailmentStore_AutomationActivationKeepsNewerSignals(t *testing.T) {
+	if testing.Short() {
+		t.Skip("database integration")
+	}
+	tc := testutil.InitializeDBServiceInfrastructure(t)
+	user := tc.DatabaseService.CreateSuperAdminUser()
+	ctx := t.Context()
+	database := tc.DatabaseService.DB
+	store := sqlstores.NewSQLCurtailmentStore(database)
+	sourceID := seedMQTTSourceConfig(t, database, user.OrganizationID, user.DatabaseID, "activation-source", true)
+	profileID := seedResponseProfile(t, database, user.OrganizationID, "activation-profile")
+	profile, err := store.GetResponseProfile(ctx, user.OrganizationID, profileID)
+	require.NoError(t, err)
+	settledOff := time.Now().UTC().Add(-time.Minute).Truncate(time.Microsecond)
+	require.NoError(t, mqttingest.NewSQLCStore(sqlc.New(database)).UpsertSourceState(ctx, mqttingest.StateUpdate{SourceConfigID: sourceID, LastTarget: mqttingest.TargetOff, LastTargetAt: settledOff, LastReceivedAt: settledOff}))
+	bufferedOn := settledOff.Add(30 * time.Second)
+
+	// The ON was received before the rule was enabled but is processed after.
+	rule, err := store.CreateAutomationRule(ctx, models.AutomationRule{OrgID: user.OrganizationID, RuleName: "activation-rule", MQTTSourceID: sourceID, ResponseProfileID: profileID, ResponseProfileRevision: profile.Revision, TriggerType: models.AutomationTriggerTypeMQTT, Enabled: true, AdminControlsGranted: true}, models.ResponseProfileFanSettings{})
+	require.NoError(t, err)
+	require.NoError(t, store.QueueAutomationExecution(ctx, models.AutomationExecution{RuleID: rule.ID, MQTTSourceID: sourceID, Target: models.AutomationSignalOn, Direction: "off_to_on", ReceivedAt: bufferedOn}))
+	claimed, err := store.ClaimAutomationExecution(ctx)
+	require.NoError(t, err)
+	require.NotNil(t, claimed)
+	assert.Equal(t, models.AutomationSignalOn, claimed.Target, "the buffered ON replaces the OFF state the enable queued")
+	assert.True(t, claimed.ReceivedAt.Equal(bufferedOn))
+
+	// Re-enabling while the source state still shows the older OFF keeps the newer ON.
+	_, err = store.SetAutomationRuleEnabled(ctx, user.OrganizationID, rule.ID, true, profile.Revision, models.ResponseProfileFanSettings{}, true)
+	require.NoError(t, err)
+	require.NoError(t, store.CompleteAutomationExecution(ctx, rule.ID, claimed.Generation, claimed.LeaseExpiresAt))
+	next, err := store.ClaimAutomationExecution(ctx)
+	require.NoError(t, err)
+	assert.Nil(t, next, "re-enabling does not queue the source's older OFF over the newer ON")
+}
+
 func TestSQLCurtailmentStore_AutomationMailboxAppliesCurrentStateAndSerializesSupersession(t *testing.T) {
 	if testing.Short() {
 		t.Skip("database integration")

@@ -2162,6 +2162,9 @@ type Querier interface {
 	// Time range and include_closed are always applied as base filters.
 	// Uses cursor-based pagination with (severity, last_seen_at, error_id) ordering.
 	QueryErrors(ctx context.Context, arg QueryErrorsParams) ([]QueryErrorsRow, error)
+	// Seed the rule with the source's current assertion, ordered by when that
+	// assertion was received, so a newer signal still waiting to be processed
+	// replaces it. Activation re-runs an equal assertion but never a newer one.
 	QueueCurrentCurtailmentAutomationExecution(ctx context.Context, ruleID int64) error
 	QueueCurtailmentAutomationExecution(ctx context.Context, arg QueueCurtailmentAutomationExecutionParams) error
 	// Startup reaping fails every PROCESSING row left by the previous process.

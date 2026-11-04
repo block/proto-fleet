@@ -173,7 +173,10 @@ revision. Rule responses expose `binding_status` (`bound`, `rebind_required`,
 responses include the number of enabled bindings.
 
 MQTT receipt persists each enabled rule's latest desired assertion in its own mailbox
-before acknowledging the source edge. A leased worker drains those mailboxes
+before acknowledging the source edge. Assertions are ordered by receive time. Creating
+or enabling a rule seeds its mailbox with the source's current state, stamped with when
+that state was received, so a newer signal still being processed replaces it, and the
+seed never replaces a newer queued assertion. A leased worker drains those mailboxes
 independently. Generation and lease-expiry fences prevent an old attempt from completing
 or retrying replacement work. Errors retain only the failing rule for retry with
 backoff. Same-target OFF reassertions preserve a pending cycle's original direction,
