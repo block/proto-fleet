@@ -664,15 +664,23 @@ WITH eligible AS MATERIALIZED (
       AND dd.device_class <> $3::integer
       AND dp.pairing_status = 'PAIRED'
 ), budget AS (
+ -- The first ten terminal failures retry after five seconds; later ones keep
+ -- retrying on the ten-minute slow period, so a rig that was unreachable for
+ -- longer still receives its current config once it reconnects.
  INSERT INTO curtailment_rig_config_delivery_attempt AS attempt (organization_id, device_id, attempts)
  SELECT org_id,id,1 FROM eligible
  ON CONFLICT (organization_id,device_id) DO UPDATE SET attempts = attempt.attempts + 1
- WHERE attempt.attempts < 10
- RETURNING organization_id,device_id
+ RETURNING organization_id,device_id,attempts
 ), requested AS (
 UPDATE curtailment_rig_config_reconciliation reconciliation
 SET desired_generation = reconciliation.desired_generation + 1,
-    retry_at = CURRENT_TIMESTAMP + INTERVAL '5 seconds',
+    retry_at = CASE
+        WHEN budget.attempts <= 10 THEN CURRENT_TIMESTAMP + INTERVAL '5 seconds'
+        -- A slow retry never postpones other devices' work that is already due.
+        WHEN reconciliation.desired_generation > reconciliation.enqueued_generation
+            THEN LEAST(reconciliation.retry_at, CURRENT_TIMESTAMP + INTERVAL '10 minutes')
+        ELSE CURRENT_TIMESTAMP + INTERVAL '10 minutes'
+    END,
     last_error = 'config command reached terminal failure',
     delivery_attempts = 0
 FROM eligible JOIN budget ON budget.organization_id = eligible.org_id AND budget.device_id = eligible.id

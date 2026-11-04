@@ -3,6 +3,14 @@ ALTER TABLE curtailment_event ADD COLUMN dispatch_rejection_reason text;
 -- Retry history alone does not prove a Curtail was sent: admission skips and
 -- unenqueued devices also consume retries. Only possible sends owe Uncurtail.
 ALTER TABLE curtailment_target ADD COLUMN curtail_possibly_sent boolean NOT NULL DEFAULT false;
+-- Before this column, retry history was the only evidence that a Curtail may
+-- have reached a miner, so live events' targets with retries keep owing one.
+UPDATE curtailment_target AS target
+SET curtail_possibly_sent = TRUE
+FROM curtailment_event AS event
+WHERE event.id = target.curtailment_event_id
+  AND event.state IN ('pending', 'active', 'restoring')
+  AND (target.retry_count > 0 OR target.curtail_retry_count > 0);
 
 CREATE TABLE curtailment_automation_execution_grant (
  rule_id bigint PRIMARY KEY REFERENCES curtailment_automation_rule(id) ON DELETE CASCADE,

@@ -69,7 +69,9 @@ enqueued command, an ambiguous send (an enqueue error, an interrupted dispatch, 
 lost result write), recorded in `curtail_possibly_sent`, and a prior restore cycle.
 Retry history alone is not evidence of a send: admission skips and unenqueued devices
 consume retries without reaching the miner, so those targets release or stay
-`restore_failed` without an Uncurtail. Completion
+`restore_failed` without an Uncurtail. Before this column existed retry history was the
+only evidence, so the upgrade marks every target of a live event that has retries as a
+possible send. Completion
 reports failures even when that later restore succeeds. Deleted all-paired
 topology restore targets terminalize as failures; live temporarily unavailable
 policy targets can remain parked until commandable.
@@ -204,7 +206,10 @@ delivery once per organization per statement, so a bulk reassignment does not re
 request for every moved rig. After an organization enqueue failure, the first nine
 retries back off linearly (5 to 45 seconds); from the tenth consecutive failure,
 delivery retries every ten minutes until it succeeds, and reaching that slow period is
-logged. Terminal command requeues for a device have a budget of ten attempts.
-A new source/rule settings change restarts delivery, and an explicit device reapply on
-pairing/recovery resets that device's terminal retry budget. Failed device work remains
+logged. After a device's config command fails terminally, the first ten requeues retry
+after five seconds and later ones every ten minutes, so a rig that was unreachable for
+longer still receives its current config once it reconnects. A slow retry never
+postpones other devices' work that is already due. A new source/rule settings change
+restarts delivery, and an explicit device reapply on pairing/recovery resets that
+device's terminal retry count. Failed device work remains
 persisted with its error after its budget is exhausted.

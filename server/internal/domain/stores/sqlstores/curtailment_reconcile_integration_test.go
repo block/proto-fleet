@@ -13,7 +13,65 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 	"github.com/block/proto-fleet/server/internal/domain/stores/sqlstores"
 	"github.com/block/proto-fleet/server/internal/testutil"
+	"github.com/block/proto-fleet/server/migrations"
 )
+
+// Retry history was the only send evidence before curtail_possibly_sent, so
+// the upgrade keeps live events' retried targets owing a compensating Uncurtail.
+func TestSQLCurtailmentStore_SendEvidenceUpgradeKeepsRetriedLiveTargets(t *testing.T) {
+	if testing.Short() {
+		t.Skip("requires Postgres")
+	}
+	fixture := testutil.InitializeDBServiceInfrastructure(t)
+	user := fixture.DatabaseService.CreateSuperAdminUser()
+	ctx := t.Context()
+	db := fixture.DatabaseService.DB
+	store := sqlstores.NewSQLCurtailmentStore(db)
+	insert := func(label string, devices ...string) int64 {
+		t.Helper()
+		targets := make([]models.InsertTargetParams, 0, len(devices))
+		for _, device := range devices {
+			targets = append(targets, curtailmentStoreTestTarget(device, models.TargetStatePending, models.DesiredStateCurtailed))
+		}
+		inserted, err := store.InsertEventWithTargets(ctx, curtailmentStoreTestEvent(user.OrganizationID, user.DatabaseID, uuid.New(), models.EventStateActive, label), targets)
+		require.NoError(t, err)
+		return inserted.ID
+	}
+	insert("upgrade-live", "upgrade-retried", "upgrade-curtail-retried", "upgrade-fresh")
+	ended := insert("upgrade-ended", "upgrade-ended-retried")
+	for _, statement := range []string{
+		`UPDATE curtailment_target SET retry_count = 2 WHERE device_identifier IN ('upgrade-retried', 'upgrade-ended-retried')`,
+		`UPDATE curtailment_target SET curtail_retry_count = 1 WHERE device_identifier = 'upgrade-curtail-retried'`,
+	} {
+		_, err := db.ExecContext(ctx, statement)
+		require.NoError(t, err)
+	}
+	_, err := db.ExecContext(ctx, `UPDATE curtailment_event SET state = 'completed', ended_at = now() WHERE id = $1`, ended)
+	require.NoError(t, err)
+
+	for _, name := range []string{
+		"current/001058_internal_curtailment_wave4_runtime.down.sql",
+		"current/001057_shared_curtailment_wave4_runtime.down.sql",
+		"current/001057_shared_curtailment_wave4_runtime.up.sql",
+		"current/001058_internal_curtailment_wave4_runtime.up.sql",
+	} {
+		migration, err := migrations.Current.ReadFile(name)
+		require.NoError(t, err)
+		_, err = db.ExecContext(ctx, string(migration))
+		require.NoError(t, err, name)
+	}
+
+	possiblySent := func(device string) bool {
+		t.Helper()
+		var sent bool
+		require.NoError(t, db.QueryRowContext(ctx, `SELECT curtail_possibly_sent FROM curtailment_target WHERE device_identifier = $1`, device).Scan(&sent))
+		return sent
+	}
+	assert.True(t, possiblySent("upgrade-retried"), "a live target with retry history may have received a Curtail")
+	assert.True(t, possiblySent("upgrade-curtail-retried"))
+	assert.False(t, possiblySent("upgrade-fresh"), "a live target without retries was never sent")
+	assert.False(t, possiblySent("upgrade-ended-retried"), "ended events are not restored again")
+}
 
 func TestSQLCurtailmentStore_ReconcileObservationsGuardStateAndSurviveStop(t *testing.T) {
 	if testing.Short() {
