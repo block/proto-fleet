@@ -35,6 +35,16 @@ RENAMED_MIGRATIONS = {
         CURRENT + "001027_internal_container_telemetry_compression.down.sql",
         "8ab20fb3ec8d6de03966b3e2601e83b0f03eb16cde4e28b723f55be6cba9c0e2",
     ),
+    # Device-write outcomes merged first at 1057. Preserve that checkpoint and
+    # move only the unchanged topology-reference pair past the collision.
+    CURRENT + "001057_internal_bound_topology_reference_planning.up.sql": (
+        CURRENT + "001058_internal_bound_topology_reference_planning.up.sql",
+        "d00fd55b0aaf5ed1ce0c31b5993412fdae83fc170682f404be3ee8e3ed0cce00",
+    ),
+    CURRENT + "001057_internal_bound_topology_reference_planning.down.sql": (
+        CURRENT + "001058_internal_bound_topology_reference_planning.down.sql",
+        "7ab7b00e6956fdf83b8552ad6eba2b5912ee4705a886b4a80363c9ab8968f00d",
+    ),
 }
 
 
