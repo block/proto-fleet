@@ -10,11 +10,11 @@ import (
 
 func (s *DriverGRPCServer) SetContainerControl(ctx context.Context, req *pb.SetContainerControlRequest) (*emptypb.Empty, error) {
 	if req == nil || req.Ref == nil {
-		return nil, grpcStatusError("missing device", codes.InvalidArgument, "missing device")
+		return nil, sdkErrorToGRPCStatus(InvalidWriteRequest(grpcStatusError("missing device", codes.InvalidArgument, "missing device")))
 	}
 	payload := ContainerControlRequest{Name: req.Name, Enabled: req.Enabled}
 	if err := payload.Validate(); err != nil {
-		return nil, grpcStatusError(err.Error(), codes.InvalidArgument, err.Error())
+		return nil, sdkErrorToGRPCStatus(InvalidWriteRequest(grpcStatusError(err.Error(), codes.InvalidArgument, err.Error())))
 	}
 	device, err := s.selectDevice(req.Ref)
 	if err != nil {
@@ -22,13 +22,13 @@ func (s *DriverGRPCServer) SetContainerControl(ctx context.Context, req *pb.SetC
 	}
 	controller, ok := device.(DeviceContainerController)
 	if !ok {
-		return nil, sdkErrorToGRPCStatus(NewErrUnsupportedCapability(CapabilityContainerControl))
+		return nil, sdkErrorToGRPCStatus(UnsupportedWrite(CapabilityContainerControl))
 	}
 	return &emptypb.Empty{}, sdkErrorToGRPCStatus(controller.SetContainerControl(ctx, payload))
 }
 func (d *DeviceGRPCClient) SetContainerControl(ctx context.Context, req ContainerControlRequest) error {
 	if err := req.Validate(); err != nil {
-		return err
+		return InvalidWriteRequest(err)
 	}
 	_, err := d.client.SetContainerControl(ctx, &pb.SetContainerControlRequest{Ref: d.deviceRef(), Name: req.Name, Enabled: req.Enabled})
 	return err

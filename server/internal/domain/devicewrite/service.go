@@ -5,6 +5,7 @@ package devicewrite
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -13,6 +14,7 @@ import (
 	"sync/atomic"
 
 	"github.com/google/uuid"
+	"google.golang.org/genproto/googleapis/rpc/errdetails"
 
 	"github.com/block/proto-fleet/server/generated/sqlc"
 	"github.com/block/proto-fleet/server/internal/domain/commandtype"
@@ -51,11 +53,12 @@ type Attempt struct {
 	deviceID           int64
 	organizationID     int64
 	epoch              int64
-	dispatched         atomic.Bool
+	dispatched         atomic.Bool // Invocations without explicit terminal evidence.
 	ordered            atomic.Bool
 	deletionBinding    string
 	observation        bool
 	curtailmentCommand string
+	writeEvidence      atomic.Pointer[errdetails.ErrorInfo]
 }
 
 // BeginQueuedHost checks persisted host work. Curtailment control is independent
@@ -119,15 +122,35 @@ func (a *Attempt) Accepted() {
 // Asynchronous operations and unresolved node delivery remain unknown. A panic
 // or bookkeeping failure leaves the separately committed attempt running.
 func (a *Attempt) Finish(ctx context.Context, outcome error) error {
+	classification := classifyOutcome(outcome)
 	return db.WithTransactionTimeoutNoResult(ctx, a.service.conn, runtimepolicy.CommandTransactionBound, func(q sqlc.Querier) error {
 		if _, err := q.LockDeviceWriteFenceRecord(ctx, sqlc.LockDeviceWriteFenceRecordParams{DeviceID: a.deviceID, OrganizationID: a.organizationID}); err != nil {
 			return err
 		}
 		status := "complete"
-		if a.dispatched.Load() && (!a.ordered.Load() || isUncertainDelivery(outcome)) {
+		if a.dispatched.Load() && (!a.ordered.Load() || classification.kind == sdk.WriteUnknown) {
 			status = "unknown"
 		}
-		changed, err := q.FinishDeviceWriteAttempt(ctx, sqlc.FinishDeviceWriteAttemptParams{Status: status, AttemptID: a.id})
+		evidence := a.writeEvidence.Load()
+		if evidence == nil {
+			evidence = classification.evidence
+		}
+		if status == "unknown" {
+			if evidence.GetReason() != sdk.WriteUnknown {
+				evidence = sdk.NewWriteEvidence(sdk.WriteUnknown, sdk.WriteStageDispatch, sdk.WriteReasonUnknown)
+			}
+		} else if a.dispatched.Load() {
+			// Ordering can retire calls without an SDK receipt. A later call's
+			// terminal evidence cannot certify those earlier invocations.
+			evidence = nil
+		}
+		diagnostic := []byte("{}")
+		if evidence != nil {
+			// The SDK accepts only fixed identifiers. Never persist error text,
+			// credentials, firmware replies, or request bodies here.
+			diagnostic, _ = json.Marshal(map[string]string{"outcome": evidence.Reason, "stage": evidence.Metadata["stage"], "reason": evidence.Metadata["reason"]})
+		}
+		changed, err := q.FinishDeviceWriteAttempt(ctx, sqlc.FinishDeviceWriteAttemptParams{Status: status, AttemptID: a.id, WriteOutcome: diagnostic})
 		if err != nil {
 			return fmt.Errorf("complete device write attempt: %w", err)
 		}
@@ -278,17 +301,41 @@ func dispatch(ctx context.Context, operation func(context.Context) error, mutati
 	if sdk.IsBackendGenerationRejected(outcome) {
 		outcome = NotDispatched(outcome)
 	}
+	if !ok || !mutation {
+		return outcome
+	}
 	// The durable attempt remains running during the operation, including if
 	// the process crashes. A confirmed admission rejection cannot erase a
 	// previous invocation that may already have reached the device.
-	if ok && mutation && !IsNotDispatched(outcome) {
-		attempt.dispatched.Store(true)
-		// Preserve uncertainty even if an outer handler sanitizes the error.
-		if isUncertainDelivery(outcome) {
-			attempt.ordered.Store(false)
-		}
+	classification := classifyOutcome(outcome)
+	if classification.evidence != nil {
+		attempt.recordWriteEvidence(classification.evidence)
+	}
+	// A finished invocation adds no outstanding work. It must never clear an
+	// earlier invocation that lacks completion evidence in the same attempt.
+	if classification.kind == sdk.WriteNotDispatched || classification.kind == sdk.WriteCompleted {
+		return outcome
+	}
+	attempt.dispatched.Store(true)
+	// Preserve uncertainty even if an outer handler sanitizes the error.
+	if classification.kind == sdk.WriteUnknown {
+		attempt.ordered.Store(false)
 	}
 	return outcome
+}
+
+func (a *Attempt) recordWriteEvidence(evidence *errdetails.ErrorInfo) {
+	for {
+		previous := a.writeEvidence.Load()
+		// Unknown work stays unresolved. A refusal cannot erase a completed
+		// mutation when every invocation has authoritative terminal evidence.
+		if previous.GetReason() == sdk.WriteUnknown || (previous.GetReason() == sdk.WriteCompleted && evidence.Reason == sdk.WriteNotDispatched) {
+			return
+		}
+		if a.writeEvidence.CompareAndSwap(previous, evidence) {
+			return
+		}
+	}
 }
 
 // BeginHost commits an attempt before direct device I/O. The captured epoch

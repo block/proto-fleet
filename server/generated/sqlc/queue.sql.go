@@ -26,6 +26,28 @@ func (q *Queries) ClaimMessageForProcessing(ctx context.Context, id int64) (sql.
 	return q.exec(ctx, q.claimMessageForProcessingStmt, claimMessageForProcessing, id)
 }
 
+const claimReapedRigConfigRetry = `-- name: ClaimReapedRigConfigRetry :execrows
+UPDATE queue_message
+SET retry_count = retry_count + 1
+WHERE id = $1 AND retry_count = $2
+  AND status = 'FAILED' AND command_type = 'ApplyCurtailmentConfig'
+`
+
+type ClaimReapedRigConfigRetryParams struct {
+	MessageID  int64
+	RetryCount int32
+}
+
+// The reaper and a late worker share the dequeued retry count. Count the
+// reaped failure once so only one transaction requests reconciliation.
+func (q *Queries) ClaimReapedRigConfigRetry(ctx context.Context, arg ClaimReapedRigConfigRetryParams) (int64, error) {
+	result, err := q.exec(ctx, q.claimReapedRigConfigRetryStmt, claimReapedRigConfigRetry, arg.MessageID, arg.RetryCount)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const countQueueMessagesByBatch = `-- name: CountQueueMessagesByBatch :one
 SELECT COUNT(*)
 FROM queue_message
@@ -295,6 +317,45 @@ func (q *Queries) IsBatchFinished(ctx context.Context, commandBatchLogUuid strin
 	return is_finished, err
 }
 
+const listRetryableReapedRigConfigMessages = `-- name: ListRetryableReapedRigConfigMessages :many
+SELECT message.id FROM queue_message AS message
+WHERE message.id = ANY($1::BIGINT[])
+  AND message.status = 'FAILED'
+  AND message.command_type = 'ApplyCurtailmentConfig'
+  AND NOT EXISTS (
+      SELECT 1 FROM device_write_attempt AS attempt
+      WHERE attempt.queue_message_id = message.id
+        AND attempt.status IN ('running', 'unknown')
+  )
+ORDER BY message.id
+`
+
+// Run after ReapMessages establishes FAILED status. A separate statement sees
+// admissions committed before the reaper obtained its queue locks. FAILED
+// entries cannot admit new attempts; a later retry claim arbitrates recovery.
+func (q *Queries) ListRetryableReapedRigConfigMessages(ctx context.Context, messageIds []int64) ([]int64, error) {
+	rows, err := q.query(ctx, q.listRetryableReapedRigConfigMessagesStmt, listRetryableReapedRigConfigMessages, pq.Array(messageIds))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const reapMessages = `-- name: ReapMessages :many
 WITH candidates AS (
     SELECT message.id
@@ -327,6 +388,7 @@ WHERE message.id = candidates.id
   AND message.device_id = device.id
 RETURNING
     message.id,
+    message.retry_count,
     message.device_id,
     message.command_batch_log_uuid,
     message.error_info,
@@ -346,6 +408,7 @@ type ReapMessagesParams struct {
 
 type ReapMessagesRow struct {
 	ID                  int64
+	RetryCount          int32
 	DeviceID            int64
 	CommandBatchLogUuid string
 	ErrorInfo           sql.NullString
@@ -374,6 +437,7 @@ func (q *Queries) ReapMessages(ctx context.Context, arg ReapMessagesParams) ([]R
 		var i ReapMessagesRow
 		if err := rows.Scan(
 			&i.ID,
+			&i.RetryCount,
 			&i.DeviceID,
 			&i.CommandBatchLogUuid,
 			&i.ErrorInfo,

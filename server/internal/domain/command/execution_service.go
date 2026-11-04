@@ -399,9 +399,17 @@ func (es *ExecutionService) reapMessages(ctx context.Context, mode reapMode) ([]
 		}
 
 		reapedCmds = make([]reapedCommand, 0, len(reaped))
+		if len(reaped) == 0 {
+			return nil
+		}
+		configMessages := make([]queue.Message, 0, len(reaped))
+		configKind := commandtype.ApplyCurtailmentConfig
+		for _, msg := range reaped {
+			if msg.CommandType == configKind.String() {
+				configMessages = append(configMessages, queue.Message{ID: msg.ID, RetryCount: msg.RetryCount, DeviceID: msg.DeviceID, OrgID: msg.OrgID})
+			}
+		}
 		firmwareDeviceIDs := make([]int64, 0)
-		type configTarget struct{ orgID, deviceID int64 }
-		requeueTargets := make(map[configTarget]struct{})
 		for _, msg := range reaped {
 			if err := q.UpsertCommandOnDeviceLog(ctx, sqlc.UpsertCommandOnDeviceLogParams{
 				Uuid:      msg.CommandBatchLogUuid,
@@ -413,9 +421,6 @@ func (es *ExecutionService) reapMessages(ctx context.Context, mode reapMode) ([]
 				return err
 			}
 			kind, kindErr := commandtype.FromString(msg.CommandType)
-			if kindErr == nil && kind == commandtype.ApplyCurtailmentConfig {
-				requeueTargets[configTarget{orgID: msg.OrgID, deviceID: msg.DeviceID}] = struct{}{}
-			}
 			if kindErr == nil && kind == commandtype.FirmwareUpdate {
 				firmwareDeviceIDs = append(firmwareDeviceIDs, msg.DeviceID)
 			}
@@ -429,25 +434,8 @@ func (es *ExecutionService) reapMessages(ctx context.Context, mode reapMode) ([]
 				commandType: msg.CommandType,
 			})
 		}
-		// Match organization-then-device lock order across concurrent reapers.
-		targets := make([]configTarget, 0, len(requeueTargets))
-		for target := range requeueTargets {
-			targets = append(targets, target)
-		}
-		sort.Slice(targets, func(i, j int) bool {
-			if targets[i].orgID != targets[j].orgID {
-				return targets[i].orgID < targets[j].orgID
-			}
-			return targets[i].deviceID < targets[j].deviceID
-		})
-		for _, target := range targets {
-			if err := q.RequeueRigConfigReconciliationAfterTerminalFailure(ctx, sqlc.RequeueRigConfigReconciliationAfterTerminalFailureParams{
-				ContainerDeviceClass: int32(commonpb.DeviceClass_DEVICE_CLASS_CONTAINER),
-				OrganizationID:       target.orgID,
-				DeviceID:             target.deviceID,
-			}); err != nil {
-				return fmt.Errorf("requeue reaped rig config reconciliation: %w", err)
-			}
+		if err := requeueSettledRigConfigMessages(ctx, q, configMessages); err != nil {
+			return err
 		}
 		if len(firmwareDeviceIDs) > 0 {
 			if err := q.ResetReapedFirmwareStatuses(ctx, firmwareDeviceIDs); err != nil {
@@ -457,6 +445,61 @@ func (es *ExecutionService) reapMessages(ctx context.Context, mode reapMode) ([]
 		return nil
 	})
 	return reapedCmds, err
+}
+
+func requeueSettledRigConfigMessages(ctx context.Context, q sqlc.Querier, messages []queue.Message) error {
+	if len(messages) == 0 {
+		return nil
+	}
+	ids := make([]int64, len(messages))
+	for i, message := range messages {
+		ids[i] = message.ID
+	}
+	// Failed entries cannot admit new attempts. This fresh statement sees any
+	// admission committed before the reaper acquired its queue row locks.
+	retryableIDs, err := q.ListRetryableReapedRigConfigMessages(ctx, ids)
+	if err != nil {
+		return fmt.Errorf("check reaped rig config write outcomes: %w", err)
+	}
+	retryable := make(map[int64]bool, len(retryableIDs))
+	for _, id := range retryableIDs {
+		retryable[id] = true
+	}
+	type configTarget struct{ orgID, deviceID int64 }
+	requeueTargets := make(map[configTarget]struct{})
+	for _, message := range messages {
+		if !retryable[message.ID] {
+			continue
+		}
+		claimed, err := q.ClaimReapedRigConfigRetry(ctx, sqlc.ClaimReapedRigConfigRetryParams{MessageID: message.ID, RetryCount: message.RetryCount})
+		if err != nil {
+			return fmt.Errorf("claim reaped rig config retry: %w", err)
+		}
+		if claimed == 1 {
+			requeueTargets[configTarget{orgID: message.OrgID, deviceID: message.DeviceID}] = struct{}{}
+		}
+	}
+	// Match organization-then-device lock order across concurrent recoveries.
+	targets := make([]configTarget, 0, len(requeueTargets))
+	for target := range requeueTargets {
+		targets = append(targets, target)
+	}
+	sort.Slice(targets, func(i, j int) bool {
+		if targets[i].orgID != targets[j].orgID {
+			return targets[i].orgID < targets[j].orgID
+		}
+		return targets[i].deviceID < targets[j].deviceID
+	})
+	for _, target := range targets {
+		if err := q.RequeueRigConfigReconciliationAfterTerminalFailure(ctx, sqlc.RequeueRigConfigReconciliationAfterTerminalFailureParams{
+			ContainerDeviceClass: int32(commonpb.DeviceClass_DEVICE_CLASS_CONTAINER),
+			OrganizationID:       target.orgID,
+			DeviceID:             target.deviceID,
+		}); err != nil {
+			return fmt.Errorf("requeue reaped rig config reconciliation: %w", err)
+		}
+	}
+	return nil
 }
 
 var errReapedCommand = errors.New("reaped command")
@@ -642,7 +685,8 @@ func (es *ExecutionService) workerProcessCommand(ctx context.Context, message qu
 
 	// Step 2: Atomically update queue status AND write device log in a single transaction.
 	// If the queue row is no longer PROCESSING (reaped), the transaction commits
-	// as a no-op and neither the queue status nor the device log is modified.
+	// without changing queue status or the device log. A settled late failure
+	// can still claim its one reconciliation retry by counting the reaped failure.
 	dbCtx, dbCancel := context.WithTimeout(context.WithoutCancel(ctx), dbWriteTimeout)
 	defer dbCancel()
 
@@ -661,6 +705,9 @@ func (es *ExecutionService) workerProcessCommand(ctx context.Context, message qu
 		if !updated {
 			slog.Warn("skipping audit log for stale message",
 				"message_id", message.ID, "device_id", message.DeviceID)
+			if shouldRequeueRigConfig(message.CommandType, true, workerError) {
+				return requeueSettledRigConfigMessages(dbCtx, q, []queue.Message{message})
+			}
 			return nil
 		}
 		if !terminal {
@@ -708,6 +755,7 @@ func (es *ExecutionService) workerProcessCommand(ctx context.Context, message qu
 
 func shouldRequeueRigConfig(commandType commandtype.Type, terminal bool, commandErr error) bool {
 	return commandType == commandtype.ApplyCurtailmentConfig && terminal && commandErr != nil &&
+		!devicewrite.IsUncertainDelivery(commandErr) &&
 		!fleeterror.IsUnimplementedError(commandErr) &&
 		(!fleeterror.IsFailedPreconditionError(commandErr) || errors.Is(commandErr, devicewrite.ErrStaleBinding))
 }
@@ -732,7 +780,8 @@ func (es *ExecutionService) markQueueMessageStatus(ctx context.Context, q sqlc.Q
 			Status: sqlc.QueueStatusEnumSUCCESS,
 		})
 		terminal = true
-	case fleeterror.IsUnimplementedError(workerError),
+	case devicewrite.IsUncertainDelivery(workerError),
+		fleeterror.IsUnimplementedError(workerError),
 		fleeterror.IsFailedPreconditionError(workerError):
 		result, err = q.UpdateMessagePermanentlyFailed(ctx, sqlc.UpdateMessagePermanentlyFailedParams{
 			ID:        message.ID,

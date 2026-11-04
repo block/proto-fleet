@@ -35,8 +35,12 @@ func grpcStatusError(label string, code codes.Code, message string) error {
 	return fmt.Errorf("%s: %w", label, status.Error(code, message))
 }
 
-// Helper function to convert SDK errors to gRPC status errors
+// Preserve execution evidence independently of the public error code.
 func sdkErrorToGRPCStatus(err error) error {
+	return WithWriteEvidence(sdkErrorStatus(err), WriteEvidence(err))
+}
+
+func sdkErrorStatus(err error) error {
 	if err == nil {
 		return nil
 	}
@@ -614,7 +618,7 @@ func (s *DriverGRPCServer) UpdateMiningPools(ctx context.Context, req *pb.Update
 	pools := make([]MiningPoolConfig, len(req.Pools))
 	for i, pool := range req.Pools {
 		if pool == nil || pool.Password == nil {
-			return nil, status.Errorf(codes.InvalidArgument, "pool %d requires an explicit password", i)
+			return nil, sdkErrorToGRPCStatus(InvalidWriteRequest(status.Errorf(codes.InvalidArgument, "pool %d requires an explicit password", i)))
 		}
 		pools[i] = MiningPoolConfig{
 			Priority:   pool.Priority,
@@ -741,12 +745,12 @@ func (s *DriverGRPCServer) UpdateFirmware(ctx context.Context, req *pb.UpdateFir
 
 	fw := req.Firmware
 	if fw == nil || fw.FilePath == "" {
-		return nil, sdkErrorToGRPCStatus(NewErrorInvalidConfig(req.Ref.DeviceId, fmt.Errorf("firmware file info is required")))
+		return nil, sdkErrorToGRPCStatus(InvalidWriteRequest(NewErrorInvalidConfig(req.Ref.DeviceId, fmt.Errorf("firmware file info is required"))))
 	}
 
 	file, err := os.Open(fw.FilePath)
 	if err != nil {
-		return nil, sdkErrorToGRPCStatus(NewErrorDeviceUnavailable(req.Ref.DeviceId, fmt.Errorf("failed to open firmware file: %w", err)))
+		return nil, sdkErrorToGRPCStatus(InvalidWriteRequest(NewErrorDeviceUnavailable(req.Ref.DeviceId, fmt.Errorf("failed to open firmware file: %w", err))))
 	}
 	defer file.Close()
 
@@ -819,7 +823,7 @@ func (s *DriverGRPCServer) UpdateMinerPassword(ctx context.Context, req *pb.Upda
 
 func (s *DriverGRPCServer) Curtail(ctx context.Context, req *pb.CurtailRequest) (*emptypb.Empty, error) {
 	if req.Ref == nil {
-		return nil, grpcStatusError("missing device ref", codes.InvalidArgument, "missing device ref")
+		return nil, sdkErrorToGRPCStatus(InvalidWriteRequest(grpcStatusError("missing device ref", codes.InvalidArgument, "missing device ref")))
 	}
 	device, lookupErr := s.selectDevice(req.Ref)
 	if lookupErr != nil {
@@ -828,7 +832,7 @@ func (s *DriverGRPCServer) Curtail(ctx context.Context, req *pb.CurtailRequest) 
 
 	curtailer, ok := device.(DeviceCurtailment)
 	if !ok {
-		return nil, grpcStatusError(errDeviceDoesNotSupportCurtailment, codes.Unimplemented, errDeviceDoesNotSupportCurtailment)
+		return nil, writeRefused(grpcStatusError(errDeviceDoesNotSupportCurtailment, codes.Unimplemented, errDeviceDoesNotSupportCurtailment), WriteStageCapability, WriteReasonUnsupported)
 	}
 
 	err := curtailer.Curtail(ctx, CurtailRequest{
@@ -839,7 +843,7 @@ func (s *DriverGRPCServer) Curtail(ctx context.Context, req *pb.CurtailRequest) 
 
 func (s *DriverGRPCServer) Uncurtail(ctx context.Context, req *pb.UncurtailRequest) (*emptypb.Empty, error) {
 	if req.Ref == nil {
-		return nil, grpcStatusError("missing device ref", codes.InvalidArgument, "missing device ref")
+		return nil, sdkErrorToGRPCStatus(InvalidWriteRequest(grpcStatusError("missing device ref", codes.InvalidArgument, "missing device ref")))
 	}
 	device, lookupErr := s.selectDevice(req.Ref)
 	if lookupErr != nil {
@@ -848,7 +852,7 @@ func (s *DriverGRPCServer) Uncurtail(ctx context.Context, req *pb.UncurtailReque
 
 	curtailer, ok := device.(DeviceCurtailment)
 	if !ok {
-		return nil, grpcStatusError(errDeviceDoesNotSupportCurtailment, codes.Unimplemented, errDeviceDoesNotSupportCurtailment)
+		return nil, writeRefused(grpcStatusError(errDeviceDoesNotSupportCurtailment, codes.Unimplemented, errDeviceDoesNotSupportCurtailment), WriteStageCapability, WriteReasonUnsupported)
 	}
 
 	err := curtailer.Uncurtail(ctx, UncurtailRequest{})
@@ -857,7 +861,7 @@ func (s *DriverGRPCServer) Uncurtail(ctx context.Context, req *pb.UncurtailReque
 
 func (s *DriverGRPCServer) ApplyCurtailmentConfig(ctx context.Context, req *pb.ApplyCurtailmentConfigRequest) (*emptypb.Empty, error) {
 	if req == nil || req.Ref == nil || req.Config == nil {
-		return nil, grpcStatusError("missing device ref or curtailment config", codes.InvalidArgument, "missing device ref or curtailment config")
+		return nil, sdkErrorToGRPCStatus(InvalidWriteRequest(grpcStatusError("missing device ref or curtailment config", codes.InvalidArgument, "missing device ref or curtailment config")))
 	}
 	device, lookupErr := s.selectDevice(req.Ref)
 	if lookupErr != nil {
@@ -866,7 +870,7 @@ func (s *DriverGRPCServer) ApplyCurtailmentConfig(ctx context.Context, req *pb.A
 
 	configurator, ok := device.(DeviceCurtailmentConfigurator)
 	if !ok {
-		return nil, grpcStatusError("device does not support curtailment configuration", codes.Unimplemented, "device does not support curtailment configuration")
+		return nil, writeRefused(grpcStatusError("device does not support curtailment configuration", codes.Unimplemented, "device does not support curtailment configuration"), WriteStageCapability, WriteReasonUnsupported)
 	}
 
 	err := configurator.ApplyCurtailmentConfig(ctx, curtailmentConfigFromProto(req.Config))

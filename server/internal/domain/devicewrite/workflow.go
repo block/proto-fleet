@@ -54,7 +54,7 @@ func (s *Service) ResumeWorkflow(ctx context.Context, orgID, deviceID int64, id 
 // transfers. A terminal failed workflow can release admission without claiming
 // its requested configuration succeeded; the journal retains that outcome.
 func CompleteWorkflow(ctx context.Context, q sqlc.Querier, id uuid.UUID) error {
-	n, err := q.FinishDeviceWriteAttempt(ctx, sqlc.FinishDeviceWriteAttemptParams{AttemptID: id, Status: "complete"})
+	n, err := q.FinishDeviceWriteAttempt(ctx, sqlc.FinishDeviceWriteAttemptParams{AttemptID: id, Status: "complete", WriteOutcome: []byte("{}")})
 	if err != nil {
 		return err
 	}

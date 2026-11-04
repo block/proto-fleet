@@ -10,6 +10,7 @@ package antminer
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -632,7 +633,7 @@ func (c *Client) SetCoolingMode(_ context.Context, _ web.CoolingMode) error {
 // UpdatePools updates mining pool configuration
 func (c *Client) UpdatePools(ctx context.Context, pools []Pool) error {
 	if c.credentials == nil {
-		return fmt.Errorf("credentials required for pool configuration")
+		return sdk.WriteRefused(fmt.Errorf("credentials required for pool configuration"), sdk.WriteStageCredentials, sdk.WriteReasonMissingCredentials)
 	}
 
 	connInfo := c.getWebConnectionInfo()
@@ -640,7 +641,12 @@ func (c *Client) UpdatePools(ctx context.Context, pools []Pool) error {
 	// Get current config
 	config, err := c.webClient.GetMinerConfig(ctx, connInfo)
 	if err != nil {
-		return fmt.Errorf("failed to get current config: %w", err)
+		reason := sdk.WriteReasonReadFailed
+		var sdkErr sdk.SDKError
+		if errors.As(err, &sdkErr) && sdkErr.Code == sdk.ErrCodeAuthenticationFailed {
+			reason = sdk.WriteReasonAuthenticationFailed
+		}
+		return sdk.WriteRefused(fmt.Errorf("failed to get current config: %w", err), sdk.WriteStageConfigurationRead, reason)
 	}
 
 	// Convert pools to web API format

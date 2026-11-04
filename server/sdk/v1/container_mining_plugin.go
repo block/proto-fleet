@@ -11,11 +11,11 @@ import (
 
 func (s *DriverGRPCServer) ContainerMining(ctx context.Context, req *pb.ContainerMiningRequest) (*pb.ContainerMiningResponse, error) {
 	if req == nil || req.Ref == nil {
-		return nil, grpcStatusError("missing device", codes.InvalidArgument, "missing device")
+		return nil, sdkErrorToGRPCStatus(InvalidWriteRequest(grpcStatusError("missing device", codes.InvalidArgument, "missing device")))
 	}
 	payload, err := DecodeContainerMiningRequest(req.Payload)
 	if err != nil {
-		return nil, grpcStatusError(err.Error(), codes.InvalidArgument, err.Error())
+		return nil, sdkErrorToGRPCStatus(InvalidWriteRequest(grpcStatusError(err.Error(), codes.InvalidArgument, err.Error())))
 	}
 	device, err := s.selectDevice(req.Ref)
 	if err != nil {
@@ -23,7 +23,7 @@ func (s *DriverGRPCServer) ContainerMining(ctx context.Context, req *pb.Containe
 	}
 	controller, ok := device.(DeviceContainerMining)
 	if !ok {
-		return nil, sdkErrorToGRPCStatus(NewErrUnsupportedCapability(CapabilityContainerMining))
+		return nil, sdkErrorToGRPCStatus(UnsupportedWrite(CapabilityContainerMining))
 	}
 	result, err := controller.ContainerMining(ctx, payload)
 	if err != nil {
@@ -41,7 +41,7 @@ func (s *DriverGRPCServer) ContainerMining(ctx context.Context, req *pb.Containe
 func (d *DeviceGRPCClient) ContainerMining(ctx context.Context, req ContainerMiningRequest) (ContainerMiningResult, error) {
 	var result ContainerMiningResult
 	if err := req.Validate(); err != nil {
-		return result, err
+		return result, InvalidWriteRequest(err)
 	}
 	data, err := json.Marshal(req)
 	if err != nil {

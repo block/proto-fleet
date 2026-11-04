@@ -219,6 +219,9 @@ func TestWholeContainerPasswordUpdatesKeepPoolsEnabled(t *testing.T) {
 				require.EqualValues(t, i+1, pool.Id, "password updates retain existing pools")
 			}
 			require.Equal(t, test.wantWrites, stub.writes, "only credential updates are needed; failures stop further writes")
+			if err != nil {
+				require.Equal(t, test.wantWrites == 0, sdk.WriteEvidence(err).GetReason() == sdk.WriteNotDispatched, "preparation evidence must not hide a prior pool write")
+			}
 			wantPasswords := map[int64]string{1: "old-primary", 2: "old-backup"}
 			if test.wantWrites >= 1 {
 				wantPasswords[2] = "new-backup"
@@ -265,6 +268,9 @@ func TestWholeContainerPoolStackRejectsGroupsAndWeightedModeBeforeWriting(t *tes
 			err := device.UpdateMiningPools(t.Context(), []sdk.MiningPoolConfig{{URL: "stratum+tcp://pool.example", WorkerName: "payout"}})
 			require.Error(t, err)
 			require.Equal(t, codes.FailedPrecondition, status.Code(err))
+			evidence := sdk.WriteEvidence(err)
+			require.Equal(t, sdk.WriteNotDispatched, evidence.GetReason())
+			require.Equal(t, string(sdk.WriteReasonInvalidRequest), evidence.GetMetadata()["reason"])
 			require.Zero(t, stub.writes)
 		})
 	}
@@ -310,6 +316,9 @@ func TestWholeContainerPoolStackRequiresKnownMode(t *testing.T) {
 			err := poolTestDevice(t, stub).UpdateMiningPools(t.Context(), []sdk.MiningPoolConfig{{URL: "stratum+tcp://pool.example", WorkerName: "worker"}})
 			require.Error(t, err)
 			require.Equal(t, code, status.Code(err), "preserve transport failures")
+			evidence := sdk.WriteEvidence(err)
+			require.Equal(t, sdk.WriteNotDispatched, evidence.GetReason())
+			require.Equal(t, string(sdk.WriteReasonReadFailed), evidence.GetMetadata()["reason"])
 			require.Zero(t, stub.writes)
 		})
 	}
@@ -378,8 +387,12 @@ func TestWholeContainerPoolStackRejectsRuntimeOverrides(t *testing.T) {
 			require.ErrorContains(t, err, "runtime pools differ")
 			if before {
 				require.Zero(t, stub.writes)
+				evidence := sdk.WriteEvidence(err)
+				require.Equal(t, sdk.WriteNotDispatched, evidence.GetReason())
+				require.Equal(t, string(sdk.WriteReasonStaleBinding), evidence.GetMetadata()["reason"])
 			} else {
 				require.Equal(t, 1, stub.writes)
+				require.Nil(t, sdk.WriteEvidence(err), "runtime validation cannot hide a prior write")
 			}
 		})
 	}

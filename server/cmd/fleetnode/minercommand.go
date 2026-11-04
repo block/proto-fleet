@@ -96,61 +96,64 @@ func (nodeSecretProvider) Seal(_ sdk.SecretBundle) (*pb.EncryptedCredentials, er
 }
 
 func (r *RunCmd) handleMinerCommand(ctx context.Context, client gatewayClient, stream acker, commandID string, mc *pb.MinerCommand, logger *slog.Logger) {
+	reject := func(code pb.AckCode, message string, stage sdk.WriteStage, reason sdk.WriteReason) {
+		r.sendAckWithWriteEvidence(stream, commandID, code, message, nil, sdk.NewWriteEvidence(sdk.WriteNotDispatched, stage, reason), logger)
+	}
 	if r.driverGetter == nil || r.minerSecrets == nil {
-		r.sendAck(stream, commandID, pb.AckCode_ACK_CODE_AGENT_INCAPABLE, "fleet node has no plugins loaded", logger)
+		reject(pb.AckCode_ACK_CODE_AGENT_INCAPABLE, "fleet node has no plugins loaded", sdk.WriteStageCapability, sdk.WriteReasonUnsupported)
 		return
 	}
 	// handleCommand validated only the outer ControlCommand; validate the inner one here.
 	if vErr := protovalidate.Validate(mc); vErr != nil {
-		r.sendAck(stream, commandID, pb.AckCode_ACK_CODE_BAD_REQUEST, fmt.Sprintf("invalid miner command: %v", vErr), logger)
+		reject(pb.AckCode_ACK_CODE_BAD_REQUEST, fmt.Sprintf("invalid miner command: %v", vErr), sdk.WriteStageValidation, sdk.WriteReasonInvalidRequest)
 		return
 	}
 	target := mc.GetTarget()
 	if err := validateDialTarget(target); err != nil {
-		r.sendAck(stream, commandID, pb.AckCode_ACK_CODE_BAD_REQUEST, err.Error(), logger)
+		reject(pb.AckCode_ACK_CODE_BAD_REQUEST, err.Error(), sdk.WriteStageValidation, sdk.WriteReasonInvalidRequest)
 		return
 	}
 	port, err := sdk.ParsePort(target.GetPort())
 	if err != nil {
-		r.sendAck(stream, commandID, pb.AckCode_ACK_CODE_BAD_REQUEST, fmt.Sprintf("invalid port: %v", err), logger)
+		reject(pb.AckCode_ACK_CODE_BAD_REQUEST, fmt.Sprintf("invalid port: %v", err), sdk.WriteStageValidation, sdk.WriteReasonInvalidRequest)
 		return
 	}
 	driver, err := r.driverGetter.GetDriverByDriverName(target.GetDriverName())
 	if err != nil {
-		r.sendAck(stream, commandID, pb.AckCode_ACK_CODE_AGENT_INCAPABLE, fmt.Sprintf("no plugin for driver %q: %v", target.GetDriverName(), err), logger)
+		reject(pb.AckCode_ACK_CODE_AGENT_INCAPABLE, fmt.Sprintf("no plugin for driver %q: %v", target.GetDriverName(), err), sdk.WriteStageCapability, sdk.WriteReasonUnsupported)
 		return
 	}
 	bundle, err := r.minerSecrets.SecretBundle(target)
 	if err != nil {
 		code, msg := classifyMinerCommandError("build secret bundle", err)
-		r.sendAck(stream, commandID, code, msg, logger)
+		reject(code, msg, sdk.WriteStageCredentials, sdk.WriteReasonMissingCredentials)
 		return
 	}
 	passwordUpdate, err := newPasswordUpdateCommand(r.passwordUpdatePrivateKey, target, mc)
 	if err != nil {
 		code, msg := classifyMinerCommandError("decrypt password update", err)
-		r.sendAck(stream, commandID, code, msg, logger)
+		reject(code, msg, sdk.WriteStageCredentials, sdk.WriteReasonInvalidRequest)
 		return
 	}
 	bundle = passwordUpdate.secretBundle(target, bundle)
 	curtailmentConfig, err := newCurtailmentConfigCommand(r.passwordUpdatePrivateKey, target, mc)
 	if err != nil {
 		code, msg := classifyMinerCommandError("decrypt curtailment config", err)
-		r.sendAck(stream, commandID, code, msg, logger)
+		reject(code, msg, sdk.WriteStageCredentials, sdk.WriteReasonInvalidRequest)
 		return
 	}
 
 	poolConfig, err := newPoolConfigCommand(r.passwordUpdatePrivateKey, target, mc)
 	if err != nil {
 		code, msg := classifyMinerCommandError("decrypt pool config", err)
-		r.sendAck(stream, commandID, code, msg, logger)
+		reject(code, msg, sdk.WriteStageCredentials, sdk.WriteReasonInvalidRequest)
 		return
 	}
 
 	groups, err := newMiningGroupsCommand(r.passwordUpdatePrivateKey, target, mc)
 	if err != nil {
 		code, msg := classifyMinerCommandError("prepare mining groups", err)
-		r.sendAck(stream, commandID, code, msg, logger)
+		reject(code, msg, sdk.WriteStageValidation, sdk.WriteReasonInvalidRequest)
 		return
 	}
 	cmdCtx, cancel := context.WithTimeout(ctx, minerCommandActionTimeout(mc))
@@ -159,7 +162,7 @@ func (r *RunCmd) handleMinerCommand(ctx context.Context, client gatewayClient, s
 	lease, err := r.getDeviceHandlePool().acquire()
 	if err != nil {
 		code, msg := classifyMinerCommandError("reserve device handle", err)
-		r.sendAck(stream, commandID, code, msg, logger)
+		reject(code, msg, sdk.WriteStageDispatch, sdk.WriteReasonRejected)
 		return
 	}
 
@@ -185,7 +188,7 @@ func (r *RunCmd) handleMinerCommand(ctx context.Context, client gatewayClient, s
 	if err != nil {
 		lease.releaseAfterFailedCreation(cmdCtx, driver, handleID, err)
 		code, msg := classifyMinerCommandError("connect to miner", err)
-		r.sendAck(stream, commandID, code, msg, logger)
+		reject(code, msg, sdk.WriteStageBackendSelection, sdk.WriteReasonTransportFailed)
 		return
 	}
 	dev := result.Device
@@ -194,7 +197,7 @@ func (r *RunCmd) handleMinerCommand(ctx context.Context, client gatewayClient, s
 	caps, err := commandCapabilities(cmdCtx, driver, mc)
 	if err != nil {
 		code, msg := classifyMinerCommandError("load driver capabilities", err)
-		r.sendAck(stream, commandID, code, msg, logger)
+		reject(code, msg, sdk.WriteStageCapability, sdk.WriteReasonReadFailed)
 		return
 	}
 
@@ -212,7 +215,7 @@ func (r *RunCmd) handleMinerCommand(ctx context.Context, client gatewayClient, s
 	}
 	if err != nil {
 		code, msg := classifyMinerActionError("execute command", mc, err)
-		r.sendAck(stream, commandID, code, msg, logger)
+		r.sendAckWithWriteEvidence(stream, commandID, code, msg, nil, sdk.WriteEvidence(err), logger)
 		return
 	}
 	r.sendAckWithPayload(stream, commandID, pb.AckCode_ACK_CODE_OK, "", payload, logger)
@@ -261,7 +264,7 @@ func newCurtailmentConfigCommand(privateKey []byte, target *pb.MinerConnectionDe
 func (c *curtailmentConfigCommand) run(ctx context.Context, dev sdk.Device) ([]byte, error) {
 	configurator, ok := dev.(sdk.DeviceCurtailmentConfigurator)
 	if !ok {
-		return nil, sdk.NewErrUnsupportedCapability("curtailment configuration")
+		return nil, sdk.UnsupportedWrite("curtailment configuration")
 	}
 	return nil, configurator.ApplyCurtailmentConfig(ctx, c.config)
 }
@@ -312,11 +315,11 @@ func (u *passwordUpdateCommand) secretBundle(target *pb.MinerConnectionDescripto
 
 func (u *passwordUpdateCommand) run(ctx context.Context, dev sdk.Device, bundle sdk.SecretBundle, sealer secretProvider) ([]byte, error) {
 	if u == nil {
-		return nil, cmdErr(pb.AckCode_ACK_CODE_BAD_REQUEST, "encrypted password update is required")
+		return nil, sdk.InvalidWriteRequest(cmdErr(pb.AckCode_ACK_CODE_BAD_REQUEST, "encrypted password update is required"))
 	}
 	payload, err := updateMinerPasswordResultPayload(bundle, u.secret.NewPassword, sealer)
 	if err != nil {
-		return nil, err
+		return nil, sdk.WriteRefused(err, sdk.WriteStageCredentials, sdk.WriteReasonInvalidRequest)
 	}
 	if err := dev.UpdateMinerPassword(ctx, u.secret.CurrentPassword, u.secret.NewPassword); err != nil {
 		return nil, err
@@ -387,11 +390,11 @@ func runMinerAction(ctx context.Context, client gatewayClient, commandID, firmwa
 	case *pb.MinerCommand_ContainerMining:
 		controller, ok := dev.(sdk.DeviceContainerMining)
 		if !ok {
-			return nil, sdk.NewErrUnsupportedCapability(sdk.CapabilityContainerMining)
+			return nil, sdk.UnsupportedWrite(sdk.CapabilityContainerMining)
 		}
 		req, err := sdk.DecodeContainerMiningRequest(a.ContainerMining.Request)
 		if err != nil {
-			return nil, err
+			return nil, sdk.InvalidWriteRequest(err)
 		}
 		result, err := controller.ContainerMining(ctx, req)
 		if err != nil {
@@ -408,37 +411,37 @@ func runMinerAction(ctx context.Context, client gatewayClient, commandID, firmwa
 	case *pb.MinerCommand_SetTankMining:
 		controller, ok := dev.(sdk.DeviceTankMiner)
 		if !ok {
-			return nil, sdk.NewErrUnsupportedCapability(sdk.CapabilityTankMining)
+			return nil, sdk.UnsupportedWrite(sdk.CapabilityTankMining)
 		}
 		req := sdk.TankMiningRequest{Positions: a.SetTankMining.Positions, Mining: a.SetTankMining.Mining}
 		if err := req.Validate(); err != nil {
-			return nil, err
+			return nil, sdk.InvalidWriteRequest(err)
 		}
 		return nil, controller.SetTankMining(ctx, req)
 	case *pb.MinerCommand_SetModuleMining:
 		controller, ok := dev.(sdk.DeviceModuleMiner)
 		if !ok {
-			return nil, sdk.NewErrUnsupportedCapability(sdk.CapabilityModuleMining)
+			return nil, sdk.UnsupportedWrite(sdk.CapabilityModuleMining)
 		}
 		req := sdk.ModuleMiningRequest{Mining: a.SetModuleMining.Mining}
 		for _, m := range a.SetModuleMining.Modules {
 			if m == nil {
-				return nil, fmt.Errorf("missing module")
+				return nil, sdk.InvalidWriteRequest(fmt.Errorf("missing module"))
 			}
 			req.Modules = append(req.Modules, sdk.ModuleMiningTarget{Tank: m.Tank, Module: m.Module, ReportedID: m.ReportedId})
 		}
 		if err := req.Validate(); err != nil {
-			return nil, err
+			return nil, sdk.InvalidWriteRequest(err)
 		}
 		return nil, controller.SetModuleMining(ctx, req)
 	case *pb.MinerCommand_SetContainerControl:
 		controller, ok := dev.(sdk.DeviceContainerController)
 		if !ok {
-			return nil, sdk.NewErrUnsupportedCapability(sdk.CapabilityContainerControl)
+			return nil, sdk.UnsupportedWrite(sdk.CapabilityContainerControl)
 		}
 		req := sdk.ContainerControlRequest{Name: a.SetContainerControl.GetName(), Enabled: a.SetContainerControl.Enabled}
 		if err := req.Validate(); err != nil {
-			return nil, err
+			return nil, sdk.InvalidWriteRequest(err)
 		}
 		return nil, controller.SetContainerControl(ctx, req)
 	case *pb.MinerCommand_Reboot:
@@ -452,23 +455,23 @@ func runMinerAction(ctx context.Context, client gatewayClient, commandID, firmwa
 	case *pb.MinerCommand_Curtail:
 		level, err := toSDKCurtailLevel(a.Curtail.GetLevel())
 		if err != nil {
-			return nil, err
+			return nil, sdk.InvalidWriteRequest(err)
 		}
 		curtailer, ok := dev.(sdk.DeviceCurtailment)
 		if !ok {
-			return nil, sdk.NewErrUnsupportedCapability("curtailment")
+			return nil, sdk.UnsupportedWrite("curtailment")
 		}
 		return nil, curtailer.Curtail(ctx, sdk.CurtailRequest{Level: level})
 	case *pb.MinerCommand_Uncurtail:
 		curtailer, ok := dev.(sdk.DeviceCurtailment)
 		if !ok {
-			return nil, sdk.NewErrUnsupportedCapability("curtailment")
+			return nil, sdk.UnsupportedWrite("curtailment")
 		}
 		return nil, curtailer.Uncurtail(ctx, sdk.UncurtailRequest{})
 	case *pb.MinerCommand_SetCoolingMode:
 		mode, err := toSDKCoolingMode(a.SetCoolingMode.GetMode())
 		if err != nil {
-			return nil, err
+			return nil, sdk.InvalidWriteRequest(err)
 		}
 		return nil, dev.SetCoolingMode(ctx, mode)
 	case *pb.MinerCommand_GetCoolingMode:
@@ -480,11 +483,11 @@ func runMinerAction(ctx context.Context, client gatewayClient, commandID, firmwa
 	case *pb.MinerCommand_SetPowerTarget:
 		mode, err := toSDKPerformanceMode(a.SetPowerTarget.GetPerformanceMode())
 		if err != nil {
-			return nil, err
+			return nil, sdk.InvalidWriteRequest(err)
 		}
 		return nil, dev.SetPowerTarget(ctx, mode)
 	case *pb.MinerCommand_UpdateMiningPools:
-		return nil, cmdErr(pb.AckCode_ACK_CODE_BAD_REQUEST, "pool config must be decrypted before device execution")
+		return nil, sdk.InvalidWriteRequest(cmdErr(pb.AckCode_ACK_CODE_BAD_REQUEST, "pool config must be decrypted before device execution"))
 	case *pb.MinerCommand_GetMiningPools:
 		pools, err := dev.GetMiningPools(ctx)
 		if err != nil {
@@ -522,7 +525,7 @@ func runMinerAction(ctx context.Context, client gatewayClient, commandID, firmwa
 	case *pb.MinerCommand_GetFirmwareUpdateStatus:
 		return getFirmwareUpdateStatusResultPayload(ctx, dev)
 	default:
-		return nil, cmdErr(pb.AckCode_ACK_CODE_BAD_REQUEST, "unrecognized miner command action")
+		return nil, sdk.InvalidWriteRequest(cmdErr(pb.AckCode_ACK_CODE_BAD_REQUEST, "unrecognized miner command action"))
 	}
 }
 

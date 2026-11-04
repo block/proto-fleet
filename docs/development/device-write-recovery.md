@@ -25,9 +25,63 @@ or failed/missing Fleet Node acknowledgement also retains uncertainty: the inter
 dispatch the command before it reaches the firmware API. Even a failed terminal
 node acknowledgement may report a timed-out plugin RPC whose backend still runs.
 A successful synchronous plugin gRPC response or Fleet Node acknowledgement
-completes an ordered write. Most returned RPC errors lack a backend-completion
-guarantee and retain uncertainty. Preparation refusals remain known to be
-undispatched.
+completes an ordered write. Failed calls can also carry explicit SDK execution
+evidence, independent of their public error code:
+
+- `DEVICE_WRITE_NOT_DISPATCHED`: no mutation began and no downstream handler can
+  dispatch it later. SDK validation, missing optional capabilities, stale backend
+  selection, and audited driver preparation failures use this outcome.
+- `DEVICE_WRITE_COMPLETED`: the invocation and all downstream work have ended.
+  This retires the attempt without reporting command success. Drivers may use it
+  only with authoritative completion evidence, including for asynchronous work.
+- `DEVICE_WRITE_UNKNOWN`: accepted background work or an unresolved outcome.
+  Missing or invalid evidence on a failed plugin RPC or node acknowledgement
+  also remains uncertain. Transport codes and error-message text are insufficient.
+
+The SDK carries this contract in `google.rpc.ErrorInfo` status details under
+`protofleet.sdk.write`. Fleet Node forwards the same outcome, stage and reason in
+`ControlAck.write_outcome`. Old nodes without evidence remain conservative.
+The gateway bounds evidence field sizes. Unrecognized identifiers do not discard
+the acknowledgement's result or payload; failed writes with such evidence remain
+uncertain.
+Successful asynchronous acknowledgements still follow the command's existing
+completion policy; a nil error is not an asynchronous completion receipt.
+
+CT1 local unsupported operations and preparation reads for pool changes,
+tank/module controls, and container controls can prove no mutation began.
+A failure after the first firmware write remains uncertain, including a later
+read failure during a multi-step pool update. Antminer pool changes distinguish
+missing credentials and a failed preparatory configuration GET from an attempted
+configuration POST. Digest authentication itself sends a POST challenge, so a
+failure during POST authentication is conservatively uncertain.
+
+Uncertain delivery permanently fails that queue entry and suppresses automatic
+curtailment-configuration requeue. It does not resolve the physical attempt or
+retry accepted work. A completed or refused invocation cannot clear an earlier
+unresolved invocation in the same attempt.
+Restart and periodic queue recovery also check the saved attempts for that
+exact queue entry. Running or unknown attempts prevent automatic requeue;
+completed refusals and entries that never began a write can still retry.
+A worker that finishes after its queue entry was reaped can also request
+reconciliation for a known, retryable failure. The reaper and the worker claim
+that retry once by counting the reaped failure. They keep the terminal queue
+status and audit result. Running or unknown physical attempts still block retry.
+
+Migration 1057 adds `device_write_attempt.write_outcome`. It stores only fixed
+outcome, stage, and reason identifiers, with no error text, credentials or device
+payloads. Direct refusals with these diagnostics remain as nonblocking completed
+records. Existing records default to empty evidence and retain their status.
+The diagnostic describes the whole attempt. A later refusal cannot replace a
+completed mutation receipt, and unknown work takes precedence over both.
+If ordering retires an invocation without an SDK receipt, the diagnostic stays
+empty rather than using another invocation's receipt for the entire attempt.
+
+Pool update results also distinguish execution from configuration success.
+A terminal failed write uses `failed/write_failed`; the configuration may have
+changed. A refusal before dispatch uses `failed/unavailable`. Neither reports a
+successful apply. Uncertain writes use `failed/write_uncertain` and require
+recovery before retry. A successful apply with unavailable readback uses
+`applied_unverified/readback_unavailable`.
 
 A canceled caller cannot retire an adapter that is still running. Crashed or
 hung dispatchers, panics, and failures to persist completion leave durable
@@ -39,9 +93,8 @@ retried merely because their attempts remain unresolved.
 A local admission refusal is known to be undispatched when the adapter never
 invoked its device or transport callback. Fleet Node `BAD_REQUEST` and
 `AGENT_INCAPABLE` acknowledgements may describe early refusals, but their codes
-do not certify that backend work never began. These failures retain unknown
-evidence after a send, including for ordered writes, because no explicit backend-completion guarantee distinguishes them from
-intermediary failure. A failed `BUSY` acknowledgement is the documented
+do not certify that backend work never began. Without valid `write_outcome` evidence, these failures retain unknown
+evidence after a send, including for ordered writes. A failed `BUSY` acknowledgement is the documented
 undispatched exception: the node refuses it before device dispatch. Error-message
 text alone is not evidence of an early refusal.
 
@@ -57,6 +110,15 @@ It uses privileged database access, not customer API permissions. The named
 operator attests to external evidence; the command verifies its binding to the
 database record, not the truth of external runtime or hardware receipts. Do not
 use it unless the operator can establish all the required facts.
+
+## Historical failures
+
+Migration 1057 does not infer outcomes for older records. An unsupported error
+message, short request duration, current pool readback, or an old process owner
+is not proof that the original request never dispatched. Records without an
+authoritative receipt still require the offline recovery procedure below.
+Inspect and resolve exact attempts with their captured identities; do not bulk
+clear records by command type, age, or message text.
 
 ## Dispatch binding
 
@@ -229,8 +291,9 @@ The miner proxy commits `observation` admission before forwarding endpoints
 classified as reads by its authorization contract. The admitted context cannot
 dispatch a mutation. The captured binding stays locked through login, forwarding, response reads,
 downstream flush and upstream body close. All of these remain inside admission. A completed read removes its transient
-admission, as does a completed direct mutation admission that never dispatched.
-Dispatched, queued and claimed deletion-permit evidence remains retained. Process
+admission. A completed direct mutation admission that never dispatched is also
+removed when it has no write-outcome diagnostic or linked work record.
+Dispatched, queued, diagnostic and claimed deletion-permit evidence remains retained. Process
 interruption or failed completion leaves a running record.
 
 Recover that record only after authoritative termination of its recorded owner
@@ -238,7 +301,8 @@ and the maintenance shutdown described above. No device mutation verification
 is required for a durably classified observation, unless restoring host custody.
 Deletion and rediscovery do not clear the block. Other direct calls and queued
 commands remain conservatively classified as mutations. Direct admissions that
-finish without dispatch are removed; interruption cannot establish that fact.
+finish without dispatch are removed only when they have no evidence to retain.
+Interruption cannot establish that no dispatch occurred.
 
 Fleet handles SIGINT and SIGTERM by stopping new HTTP admissions and canceling
 active request contexts. After graceful shutdown, it closes remaining sockets,

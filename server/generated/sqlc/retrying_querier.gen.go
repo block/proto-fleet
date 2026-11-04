@@ -860,6 +860,18 @@ func (q *retryingQuerier) ClaimPoolConfigurationTarget(ctx context.Context, arg 
 	return result, err
 }
 
+func (q *retryingQuerier) ClaimReapedRigConfigRetry(ctx context.Context, arg ClaimReapedRigConfigRetryParams) (int64, error) {
+	var result int64
+	err := q.retrier.RetryQuery(ctx, "ClaimReapedRigConfigRetry", func() error {
+		callResult, callErr := q.next.ClaimReapedRigConfigRetry(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) ClaimRigConfigReconciliation(ctx context.Context) (CurtailmentRigConfigReconciliation, error) {
 	var result CurtailmentRigConfigReconciliation
 	err := q.retrier.RetryQuery(ctx, "ClaimRigConfigReconciliation", func() error {
@@ -7932,6 +7944,18 @@ func (q *retryingQuerier) ListResponseProfileInfrastructureDevicesByOrg(ctx cont
 	var result []ListResponseProfileInfrastructureDevicesByOrgRow
 	err := q.retrier.RetryQuery(ctx, "ListResponseProfileInfrastructureDevicesByOrg", func() error {
 		callResult, callErr := q.next.ListResponseProfileInfrastructureDevicesByOrg(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) ListRetryableReapedRigConfigMessages(ctx context.Context, messageIds []int64) ([]int64, error) {
+	var result []int64
+	err := q.retrier.RetryQuery(ctx, "ListRetryableReapedRigConfigMessages", func() error {
+		callResult, callErr := q.next.ListRetryableReapedRigConfigMessages(ctx, messageIds)
 		if callErr == nil {
 			result = callResult
 		}

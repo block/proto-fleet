@@ -698,6 +698,17 @@ message ControlAck {
     AckCode code         = 4;
     // Optional typed result payload for command kinds that return data.
     bytes payload        = 5 [(buf.validate.field).bytes.max_len = 8388608];
+    // SDK execution evidence, independent of the command result code. Absent or
+    // invalid evidence does not establish that a failed device write ended.
+    DeviceWriteOutcome write_outcome = 6;
+}
+
+// DeviceWriteOutcome carries bounded SDK evidence, never firmware error text.
+// Consumers ignore unrecognized identifiers without discarding the command result.
+message DeviceWriteOutcome {
+    string outcome = 1 [(buf.validate.field).string.max_len = 64];
+    string stage = 2 [(buf.validate.field).string.max_len = 32];
+    string reason = 3 [(buf.validate.field).string.max_len = 32];
 }
 
 // AckCode is the structured outcome class for a ControlCommand. error_message

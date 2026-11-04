@@ -41,19 +41,19 @@ func IsBackendGenerationRejected(err error) bool {
 // Later registry replacements cannot redirect an admitted call to another object.
 func (s *DriverGRPCServer) selectDevice(ref *pb.DeviceRef) (Device, error) {
 	if ref == nil || ref.DeviceId == "" {
-		return nil, grpcStatusError("select SDK backend", codes.InvalidArgument, "device reference is required")
+		return nil, sdkErrorToGRPCStatus(InvalidWriteRequest(grpcStatusError("select SDK backend", codes.InvalidArgument, "device reference is required")))
 	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	device, exists := s.devices[ref.DeviceId]
 	if !exists {
 		if len(ref.BackendGeneration) != 0 {
-			return nil, backendGenerationRejected()
+			return nil, WriteRefused(backendGenerationRejected(), WriteStageBackendSelection, WriteReasonStaleBinding)
 		}
-		return nil, sdkErrorToGRPCStatus(NewErrorDeviceNotFound(ref.DeviceId))
+		return nil, writeRefused(NewErrorDeviceNotFound(ref.DeviceId), WriteStageBackendSelection, WriteReasonDeviceNotFound)
 	}
 	if !bytes.Equal(s.generations[ref.DeviceId], ref.BackendGeneration) {
-		return nil, backendGenerationRejected()
+		return nil, WriteRefused(backendGenerationRejected(), WriteStageBackendSelection, WriteReasonStaleBinding)
 	}
 	return device, nil
 }

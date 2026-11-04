@@ -25,6 +25,7 @@ type poolDevice struct {
 	unknownPassword bool
 	different       bool
 	writeError      error
+	readError       error
 	onWrite         func()
 }
 
@@ -43,6 +44,9 @@ func (m *poolDevice) UpdateMiningPools(_ context.Context, p dto.UpdateMiningPool
 	return m.writeError
 }
 func (m *poolDevice) GetMiningPools(context.Context) ([]interfaces.MinerConfiguredPool, error) {
+	if m.readError != nil {
+		return nil, m.readError
+	}
 	result := make([]interfaces.MinerConfiguredPool, len(m.pools))
 	for i, p := range m.pools {
 		result[i] = interfaces.MinerConfiguredPool{Priority: int32(p.Priority), URL: p.URL, Username: p.Username} // #nosec G115 -- fixture payload contains at most three slots.
@@ -79,6 +83,8 @@ func TestPoolWorkerUsesReviewedRevisionAndVerifiesReadback(t *testing.T) {
 		{"hidden password", "applied_unverified", "readback_unavailable"},
 		{"runtime differs", "different", "settings_differ"},
 		{"lost acknowledgement", "failed", "write_uncertain"},
+		{"terminal write failure", "failed", "write_failed"},
+		{"refused readback", "applied_unverified", "readback_unavailable"},
 		{"permission revoked", "failed", "rejected"},
 		{"allocation recalled", "superseded", ""},
 		{"worker changed", "failed", "rejected"},
@@ -135,6 +141,10 @@ func TestPoolWorkerUsesReviewedRevisionAndVerifiesReadback(t *testing.T) {
 				device.different = true
 			case "lost acknowledgement":
 				device.writeError = errors.New(password)
+			case "terminal write failure":
+				device.writeError = sdk.WithWriteOutcome(errors.New(password), sdk.WriteCompleted, sdk.WriteStageDispatch, sdk.WriteReasonFinished)
+			case "refused readback":
+				device.readError = sdk.WriteRefused(errors.New("reader backend changed"), sdk.WriteStageBackendSelection, sdk.WriteReasonStaleBinding)
 			case "permission revoked":
 				require.NoError(t, f.svc.ConfigureChild(t.Context(), f.host, f.org, f.account.AccountID, hostedaccounts.AllCapabilities&^hostedaccounts.ChangePools, false))
 			case "allocation recalled":
@@ -162,7 +172,7 @@ func TestPoolWorkerUsesReviewedRevisionAndVerifiesReadback(t *testing.T) {
 			require.NoError(t, worker.Execute(t.Context(), f.org, saved.Operation.ID, target))
 			require.Equal(t, previous, device.writes, "finished or uncertain work is never automatically replayed")
 			retry, retryErr := service.ReviewRetry(ctx, f.account.AccountID, saved.Operation.ID, []poolconfigurations.AssignmentTarget{target})
-			if scenario.name == "hidden password" || scenario.name == "runtime differs" || scenario.name == "worker changed" {
+			if scenario.name == "hidden password" || scenario.name == "runtime differs" || scenario.name == "worker changed" || scenario.name == "terminal write failure" || scenario.name == "refused readback" {
 				require.NoError(t, retryErr)
 				retried, err := service.ConfirmReview(ctx, f.account.AccountID, retry.ID, "actor-password")
 				require.NoError(t, err)

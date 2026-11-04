@@ -125,3 +125,27 @@ func TestPostInstallFenceDatabaseErrorPermanentlyFailsFirmwareCommand(t *testing
 	require.Empty(t, next, "completed installation must not be retried")
 	require.Equal(t, 1, uploads)
 }
+
+func TestUncertainQueuedWriteIsNotDeliveredAgain(t *testing.T) {
+	_, conn, _, deviceID, _ := setupPasswordCommandDevice(t, "proto", false)
+	q := sqlc.New(conn)
+	userID, err := q.CreateUser(t.Context(), sqlc.CreateUserParams{UserID: id.GenerateID(), Username: "uncertain-write-actor", PasswordHash: "unused", CreatedAt: time.Now()})
+	require.NoError(t, err)
+	batch := id.GenerateID()
+	kind := commandtype.Reboot
+	_, err = q.CreateCommandBatchLog(t.Context(), sqlc.CreateCommandBatchLogParams{Uuid: batch, Type: kind.String(), CreatedBy: userID, CreatedAt: time.Now(), Status: sqlc.BatchStatusEnumPENDING, DevicesCount: 1, OrganizationID: sql.NullInt64{Int64: 1, Valid: true}})
+	require.NoError(t, err)
+	messages := queue.NewDatabaseMessageQueue(&queue.Config{MaxFailureRetries: 3}, conn)
+	require.NoError(t, messages.Enqueue(t.Context(), batch, kind, []int64{deviceID}, nil))
+	rows, err := messages.Dequeue(t.Context(), 1)
+	require.NoError(t, err)
+	require.Len(t, rows, 1)
+	service := &ExecutionService{conn: conn, messageQueue: messages}
+	updated, terminal, err := service.markQueueMessageStatus(t.Context(), q, rows[0], devicewrite.UncertainDelivery(context.DeadlineExceeded))
+	require.NoError(t, err)
+	require.True(t, updated)
+	require.True(t, terminal)
+	next, err := messages.Dequeue(t.Context(), 1)
+	require.NoError(t, err)
+	require.Empty(t, next, "lost response must not replay an accepted asynchronous operation")
+}

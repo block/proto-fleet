@@ -48,7 +48,7 @@ SELECT EXISTS (
 )::boolean AS valid;
 
 -- name: FinishDeviceWriteAttempt :execrows
-UPDATE device_write_attempt SET status=$1,finished_at=statement_timestamp()
+UPDATE device_write_attempt SET status=$1,finished_at=statement_timestamp(),write_outcome=sqlc.arg(write_outcome)::jsonb
 WHERE attempt_id=$2 AND status='running';
 
 -- name: DeleteUndispatchedDirectAttempt :exec
@@ -58,7 +58,7 @@ WHERE attempt_id=$2 AND status='running';
 DELETE FROM device_write_attempt a
 WHERE a.attempt_id=sqlc.arg(attempt_id) AND a.device_id=sqlc.arg(device_id)
  AND a.organization_id=sqlc.arg(organization_id)
- AND a.status='complete' AND a.queue_message_id IS NULL
+ AND a.status='complete' AND a.queue_message_id IS NULL AND a.write_outcome='{}'::jsonb
  AND NOT EXISTS (SELECT 1 FROM device_deletion_unpair_permit p WHERE p.attempt_id=a.attempt_id)
  AND NOT EXISTS (SELECT 1 FROM pool_configuration_operation_target t WHERE t.physical_attempt_id=a.attempt_id);
 

@@ -36,7 +36,7 @@ func (r *Repository) FinishTarget(ctx context.Context, q sqlc.Querier, scope Sco
 	case "different":
 		valid = resultCode == "settings_differ"
 	case "failed":
-		valid = resultCode == "unavailable" || resultCode == "unsupported" || resultCode == "rejected" || resultCode == "write_uncertain" || resultCode == "interrupted"
+		valid = resultCode == "unavailable" || resultCode == "unsupported" || resultCode == "rejected" || resultCode == "write_failed" || resultCode == "write_uncertain" || resultCode == "interrupted"
 	}
 	if !valid || attempt <= 0 {
 		return fleeterror.NewInvalidArgumentError("invalid pool update result")

@@ -8,12 +8,13 @@ import (
 
 	mdk "github.com/block/proto-fleet/sdk/mdk/generated/mdk/v2"
 	sdk "github.com/block/proto-fleet/server/sdk/v1"
+	"google.golang.org/grpc/status"
 )
 
 func (d *Device) ContainerMining(ctx context.Context, req sdk.ContainerMiningRequest) (sdk.ContainerMiningResult, error) {
 	var result sdk.ContainerMiningResult
 	if err := req.Validate(); err != nil {
-		return result, err
+		return result, sdk.InvalidWriteRequest(err)
 	}
 	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
@@ -23,16 +24,20 @@ func (d *Device) ContainerMining(ctx context.Context, req sdk.ContainerMiningReq
 	}
 	c, err := d.selectClient(ctx, !req.ReadOnly())
 	if err != nil {
-		return result, err
+		return result, sdk.WriteRefused(err, sdk.WriteStageBackendSelection, sdk.WriteReasonTransportFailed)
 	}
 	// HA selection verifies the group and controller. Standalone reads and writes
 	// also verify live identity before sending an operation to a saved address.
 	if len(d.info.Endpoints) == 0 {
 		if strings.TrimSpace(d.info.SerialNumber) == "" {
-			return result, fmt.Errorf("container identity unavailable")
+			return result, sdk.WriteRefused(fmt.Errorf("container identity unavailable"), sdk.WriteStageConfigurationRead, sdk.WriteReasonStaleBinding)
 		}
 		if _, err := c.Discover(ctx, d.info); err != nil {
-			return result, fmt.Errorf("container identity unavailable: %w", err)
+			reason := sdk.WriteReasonStaleBinding
+			if _, rpcError := status.FromError(err); rpcError {
+				reason = sdk.WriteReasonReadFailed
+			}
+			return result, sdk.WriteRefused(fmt.Errorf("container identity unavailable: %w", err), sdk.WriteStageConfigurationRead, reason)
 		}
 	}
 	switch req.Action {

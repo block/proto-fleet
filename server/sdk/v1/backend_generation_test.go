@@ -59,6 +59,41 @@ func TestBackendGenerationAdmissionMarkerIsSpecific(t *testing.T) {
 	require.False(t, IsBackendGenerationRejected(fmt.Errorf("transport failure")))
 }
 
+func TestSelectDeviceRefusalDiagnostics(t *testing.T) {
+	server := &DriverGRPCServer{
+		devices:     map[string]Device{"device": fakeDevice{}},
+		generations: map[string][]byte{"device": []byte("current")},
+	}
+	for _, tc := range []struct {
+		name       string
+		ref        *pb.DeviceRef
+		code       codes.Code
+		stage      WriteStage
+		reason     WriteReason
+		generation bool
+	}{
+		{name: "missing reference", code: codes.InvalidArgument, stage: WriteStageValidation, reason: WriteReasonInvalidRequest},
+		{name: "empty device ID", ref: &pb.DeviceRef{}, code: codes.InvalidArgument, stage: WriteStageValidation, reason: WriteReasonInvalidRequest},
+		{name: "missing unversioned device", ref: &pb.DeviceRef{DeviceId: "missing"}, code: codes.NotFound, stage: WriteStageBackendSelection, reason: WriteReasonDeviceNotFound},
+		{name: "missing versioned device", ref: &pb.DeviceRef{DeviceId: "missing", BackendGeneration: []byte("old")}, code: codes.FailedPrecondition, stage: WriteStageBackendSelection, reason: WriteReasonStaleBinding, generation: true},
+		{name: "replaced device", ref: &pb.DeviceRef{DeviceId: "device", BackendGeneration: []byte("old")}, code: codes.FailedPrecondition, stage: WriteStageBackendSelection, reason: WriteReasonStaleBinding, generation: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			device, err := server.selectDevice(tc.ref)
+			require.Nil(t, device)
+			require.Error(t, err)
+			err = status.Convert(err).Err()
+			require.Equal(t, tc.code, status.Code(err))
+			require.Equal(t, tc.generation, IsBackendGenerationRejected(err))
+			evidence := WriteEvidence(err)
+			require.NotNil(t, evidence)
+			require.Equal(t, WriteNotDispatched, evidence.Reason)
+			require.Equal(t, string(tc.stage), evidence.Metadata["stage"])
+			require.Equal(t, string(tc.reason), evidence.Metadata["reason"])
+		})
+	}
+}
+
 type namedBackend struct {
 	fakeDevice
 	id string
