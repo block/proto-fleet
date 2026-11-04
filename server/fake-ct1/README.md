@@ -184,8 +184,10 @@ the native gRPC group service.
 | Variable                 | Description                                                                                                                                    | Default           |
 | ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------- | ----------------- |
 | `GRPC_PORT`              | Native gRPC listener port (zero selects an ephemeral port) | `9095` |
+| `LISTEN_ADDRESS` | Specific local IP shared by the native gRPC and HTTP listeners; omit to bind all interfaces. Invalid or wildcard addresses fail before listening. | unset |
 | `HTTP_PORT`              | HTTP listener port (zero selects an ephemeral port)                                                                                                                              | `8080`            |
-| `CT1_INSTANCE_ID`        | Board serial prefix; defaults to `SERVER_ID` when configured. Set to an existing fixture’s old prefix to retain previously paired inventory. | `SERVER_ID` or random |
+| `CT1_INSTANCE_ID` | Board serial prefix and default identity namespace; defaults to `SERVER_ID` when configured. Set to an existing fixture’s old prefix to retain board serials. | `SERVER_ID` or random |
+| `CT1_IDENTITY_NAMESPACE` | Optional explicit namespace for board MACs, module IDs and PSU serials. Configured `CT1_INSTANCE_ID` or `SERVER_ID` supplies the default; give every controller a unique stable value. | configured controller ID |
 | `SERVER_ID`              | Container server id                                                                                                                            | `ct1-sim-<uuid>`  |
 | `HOSTNAME`               | Reported hostname                                                                                                                              | `fake-ct1-<uuid>` |
 | `CT1_VERSION`            | Reported firmware/OS version                                                                                                                   | `2.0.0`           |
@@ -195,6 +197,9 @@ the native gRPC group service.
 | `CT1_ASICS_PER_BOARD`    | ASICs reported per board                                                                                                                       | `312`             |
 | `CT1_DEMO_MODULE_STATES` | Set to `true` for mixed failures in tank 2, a single-board fault in tank 3, and sleeping/offline modules in tank 4 (tanks 1, 5, and 6 healthy) | `true`            |
 | `CT1_DEMO_ALL_BOARD_FAULTS` | Report every current MDK fault cause on every board to exercise telemetry payload limits; use with `CT1_DEMO_MODULE_STATES=false` | `false` |
+| `CT1_OCCUPIED_BOARDS` | Populate the first N slots in tank/module/slot order, in `1..capacity`. Remaining physical slots are empty, with configured locations and no hashboard identity or telemetry. Invalid values fail before listening. | all slots |
+| `FAKE_MINER_RESPONSE_DELAY` | Nonnegative Go duration before each REST, Connect or native gRPC operation, outside simulation locks and canceled by request deadlines. Set `5ms` for the load campaign. | `0` |
+| `FAKE_MINER_METRICS_FILE` | Append cumulative operation counts, errors and latency sums as JSONL every ten seconds and on graceful shutdown; omit to disable file output. | unset |
 | `CT1_UNLOCATED_BOARDS` | Number of existing boards to report under tank/module zero, or `all` for entirely unlocated inventory | `0` |
 | `CT1_SEED`               | Positive integer controlling deterministic variation                                                                                           | `1`               |
 
@@ -319,3 +324,35 @@ GOWORK=off go test ./...
 > here can ripple into contract and E2E suites.
 
 The dry-cooler inlet temperature models the mixed return from the two tank outlets. Fleet can display this dedicated plant reading alongside the average of current individual fan speeds; the automatic temperature setpoint is a target, not a measured temperature.
+
+### Multiple controllers and partial inventory
+
+Run one process per CT1 IP, with a distinct stable `SERVER_ID` (or
+`CT1_INSTANCE_ID`). Both listeners bind `LISTEN_ADDRESS`, keeping native gRPC
+9095 and HTTP 8080 available independently on each controller IP. This models
+independent controllers; it does not emulate controller HA.
+
+For the 5,000-board campaign, use seventeen normal 288-board controllers and
+one with `CT1_OCCUPIED_BOARDS=104`. Keep the normal six tanks, sixteen modules
+per tank and three slots per module on all eighteen processes. The last
+controller has 104 accepted boards and 184 confirmed empty slots. Use
+`CT1_DEMO_MODULE_STATES=false` for healthy boards and
+`FAKE_MINER_RESPONSE_DELAY=5ms` on every campaign process. Existing single
+process defaults, including demo failures, remain available.
+
+Board serials retain their existing controller prefix. Board MACs now derive
+from the controller namespace and position, fixing collisions between
+controllers. A configured controller also namespaces module IDs and PSU
+serials; numeric tank/module/slot coordinates remain local physical positions.
+Previously paired fixtures may need fresh discovery after their MACs change.
+Give duplicate-controller negative controls the same namespace to deliberately
+reproduce duplicate identities.
+
+Metrics contain UTC `timestamp`, `requests_total`, `errors_total` and an
+`operations` map. Each operation records `requests_total`, `errors_total` and
+`latency_sum_ms`, including any configured delay. Keys are fixed registered
+REST patterns or RPC methods, without per-board, per-IP or credential labels.
+Files grow by one aggregate snapshot every ten seconds; rotate or retain them
+through the campaign supervisor. Deadlines that expire during the delay never
+dispatch their write and are counted as errors. No automatic retries or write
+replay are added.

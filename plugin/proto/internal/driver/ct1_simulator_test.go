@@ -182,3 +182,77 @@ func TestCT1SimulatorUnlocatedInventory(t *testing.T) {
 		})
 	}
 }
+
+func TestCT1SimulatorPartialInventory(t *testing.T) {
+	// Arrange
+	addresses := startCT1Simulator(t, "CT1_OCCUPIED_BOARDS=104", "LISTEN_ADDRESS=127.0.0.1", "FAKE_MINER_RESPONSE_DELAY=5ms")
+	t.Setenv("CT1_WEB_PORT", addresses["HTTP"])
+	driver, err := New(0)
+	require.NoError(t, err)
+	info, err := driver.DiscoverDevice(t.Context(), "127.0.0.1", addresses["gRPC"])
+	require.NoError(t, err)
+	info, err = driver.PairDevice(t.Context(), info, sdk.SecretBundle{})
+	require.NoError(t, err)
+	handle, err := driver.NewDevice(t.Context(), "partial", info, sdk.SecretBundle{})
+	require.NoError(t, err)
+	defer handle.Device.Close(t.Context())
+
+	// Act
+	metrics, err := handle.Device.Status(t.Context())
+	require.NoError(t, err)
+
+	// Assert
+	occupied, empty := 0, 0
+	totalHashrate := 0.0
+	require.Len(t, metrics.Container.Tanks, 6)
+	for _, tank := range metrics.Container.Tanks {
+		require.Len(t, tank.Modules, 16)
+		for _, module := range tank.Modules {
+			require.Len(t, module.Hashboards, 3)
+			for _, board := range module.Hashboards {
+				if board.Occupancy == "occupied" {
+					occupied++
+					require.NotNil(t, board.HashrateHS)
+					totalHashrate += *board.HashrateHS
+				} else {
+					require.Equal(t, "empty", board.Occupancy)
+					require.Empty(t, board.Serial)
+					require.Empty(t, board.MACAddress)
+					require.Nil(t, board.HashrateHS)
+					empty++
+				}
+			}
+		}
+	}
+	require.Equal(t, 104, occupied)
+	require.Equal(t, 184, empty)
+	require.True(t, metrics.Container.TopologyComplete)
+	require.NotNil(t, metrics.HashrateHS)
+	require.InEpsilon(t, totalHashrate, metrics.HashrateHS.Value, 1e-12)
+
+	// Arrange
+	tankMiner, ok := handle.Device.(sdk.DeviceTankMiner)
+	require.True(t, ok)
+	for _, mining := range []bool{false, true} {
+		// Act
+		require.NoError(t, tankMiner.SetTankMining(t.Context(), sdk.TankMiningRequest{Positions: []int32{3}, Mining: &mining}))
+		observed, err := handle.Device.Status(t.Context())
+		require.NoError(t, err)
+
+		// Assert
+		for _, tank := range observed.Container.Tanks {
+			for _, module := range tank.Modules {
+				for _, board := range module.Hashboards {
+					if board.Occupancy != "occupied" {
+						continue
+					}
+					expected := sdk.MinerStatusActive
+					if tank.Position == 3 && !mining {
+						expected = sdk.MinerStatusInactive
+					}
+					require.Equal(t, expected, board.State)
+				}
+			}
+		}
+	}
+}
