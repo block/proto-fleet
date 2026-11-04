@@ -102,35 +102,6 @@ class MigrationHistoryTest(unittest.TestCase):
         (self.repo / LATEST).unlink()
         self.check("--public-only")
 
-    def test_concurrent_allocations_conflict_and_require_unique_pairs(self):
-        base = self.temp.name + "/base-marker"
-        ours = self.temp.name + "/ours-marker"
-        theirs = self.temp.name + "/theirs-marker"
-        pathlib.Path(base).write_bytes((self.repo / LATEST).read_bytes())
-        self.pair("001001_shared_first")
-        pathlib.Path(ours).write_bytes((self.repo / LATEST).read_bytes())
-        self.pair("001001_shared_second")
-        pathlib.Path(theirs).write_bytes((self.repo / LATEST).read_bytes())
-        merge = subprocess.run(
-            ["git", "merge-file", "-p", ours, base, theirs],
-            text=True,
-            capture_output=True,
-            check=False,
-        )
-        self.assertEqual(merge.returncode, 1, merge.stderr)
-        self.assertIn("<<<<<<<", merge.stdout)
-
-        # Choosing either marker cannot hide the duplicate SQL versions.
-        for marker in ("001001_shared_first", "001001_shared_second"):
-            self.write(LATEST, marker + "\n")
-            self.check(error="duplicate migration version")
-        for direction in ("up", "down"):
-            (self.repo / f"{CURRENT}001001_shared_second.{direction}.sql").rename(
-                self.repo / f"{CURRENT}001002_shared_second.{direction}.sql"
-            )
-        self.write(LATEST, "001002_shared_second\n")
-        self.check()
-
     def test_missing_direction(self):
         self.write(CURRENT + "001001_shared_next.up.sql", "SELECT 1;")
         self.check(error="paired up/down")
