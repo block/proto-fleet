@@ -75,9 +75,9 @@ class MigrationHistoryTest(unittest.TestCase):
             self.assertNotEqual(result.returncode, 0)
             self.assertIn(error, result.stderr)
 
-    def test_public_gaps_are_valid_without_private_repository(self):
+    def test_version_gaps_are_valid(self):
         self.pair("001003_shared_next")
-        self.check("--public-only")
+        self.check()
 
     def test_internal_prerequisite_and_public_prefix(self):
         self.pair("001001_internal_private", "-- requires-shared: 1000\nSELECT 1;\n")
@@ -96,11 +96,6 @@ class MigrationHistoryTest(unittest.TestCase):
                 self.check(error="LATEST")
         self.write(LATEST, "001001_shared_next\n")
         self.check()
-
-    def test_public_promotion_does_not_require_allocation_marker(self):
-        self.pair("001003_shared_promoted")
-        (self.repo / LATEST).unlink()
-        self.check("--public-only")
 
     def test_missing_direction(self):
         self.write(CURRENT + "001001_shared_next.up.sql", "SELECT 1;")
@@ -126,10 +121,6 @@ class MigrationHistoryTest(unittest.TestCase):
             with self.subTest(declaration=declaration):
                 self.pair("001001_internal_next", declaration)
                 self.check(error="requires-shared")
-
-    def test_public_rejects_private_sql(self):
-        self.pair("001001_internal_next", "-- requires-shared: 1000\n")
-        self.check("--public-only", error="private migration")
 
     def test_immutable_sql_changed_deleted_or_renamed(self):
         for relative in (

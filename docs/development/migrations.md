@@ -420,13 +420,12 @@ plan for collection-bound batch filtering.
    than the highest on current main, then update `LATEST` to match.
    Never renumber merged or deployed SQL.
    Migration hygiene rejects missing or stale markers, duplicate versions and
-   mismatched up/down pairs. Public promotion does not use this internal allocation
-   marker. The marker is developer metadata; the database runner does not read it.
+   mismatched up/down pairs. The marker is developer metadata; the database
+   runner does not read it.
 2. Each private up file declares its required earlier shared version:
    `-- requires-shared: 1000`.
-3. Test shared changes in both applications, then promote them to public unchanged
-   and in order. Public skips private numbers; private changes to shared tables
-   stay private.
+3. Add new migrations only to the internal repository. Public migration history
+   is frozen until repository consolidation. Preserve the frozen public SQL unchanged.
 4. Never edit, delete or renumber merged/released SQL. Correct it with a new pair.
    Retain legacy SQL and the migration-143 bridge as historical fixtures and
    evidence for explicit upgrade waypoints. Current startup reads only
@@ -557,8 +556,8 @@ python3 scripts/check-migration-history_test.py
 python3 scripts/check-migration-history.py --base-ref origin/main
 ```
 
-Add `--public-only` in public, or `--public-ref <fetched-public-commit>` for
-internal promotion checks.
+Use `--public-ref <fetched-public-commit>` to compare against the frozen public
+migration history.
 
 ## Provisional hosted reporting evidence (1055)
 
