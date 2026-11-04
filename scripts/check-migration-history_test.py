@@ -248,6 +248,37 @@ class MigrationHistoryTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "immutable migration"):
                 HISTORY.check(self.repo, unknown_base)
 
+    def test_topology_collision_repair_uses_pinned_repository_sql(self):
+        old = CURRENT + "001057_internal_bound_topology_reference_planning"
+        new = CURRENT + "001058_internal_bound_topology_reference_planning"
+        self.pair(
+            "001057_internal_device_write_outcomes",
+            "-- requires-shared: 1000\nSELECT 1;\n",
+        )
+        before_collision = self.commit()
+        for direction in ("up", "down"):
+            target = f"{new}.{direction}.sql"
+            self.write(
+                f"{old}.{direction}.sql", (CHECKER.parent.parent / target).read_text()
+            )
+        self.base = self.commit()
+        self.check(error="duplicate migration version")
+
+        for direction in ("up", "down"):
+            (self.repo / f"{old}.{direction}.sql").rename(
+                self.repo / f"{new}.{direction}.sql"
+            )
+        self.check()
+        HISTORY.check(self.repo, before_collision)
+
+        for direction in ("up", "down"):
+            path = f"{new}.{direction}.sql"
+            original = (self.repo / path).read_text()
+            with self.subTest(direction=direction):
+                self.write(path, original + "-- unapproved change\n")
+                self.check(error="immutable migration")
+                self.write(path, original)
+
     def test_public_shared_files_cannot_skip_internal_shared_migration(self):
         self.pair("001002_shared_promoted")
         public = self.commit()

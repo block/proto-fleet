@@ -437,7 +437,7 @@ Set `enabled` false and `scheduled` false to stop future work and worker launche
 Track state-table examined/deleted totals, last duration/error, pending depth,
 and Timescale job statistics. Worker termination
 may only appear in Timescale job statistics; the committed scheduling lease remains.
-Migration 1057 also bounds reference lookup planning to the candidate collection-time
+Migration 1058 also bounds reference lookup planning to the candidate collection-time
 range. It forces a custom plan inside the lookup so prepared callers do not plan
 every retained metric chunk before excluding unrelated chunks at runtime. This
 leaves more of the runtime budget for deletion and synchronous commits; it does

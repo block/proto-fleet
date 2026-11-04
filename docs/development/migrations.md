@@ -474,6 +474,24 @@ standalone #232 branch may instead have compression recorded at 1026 without
 Fleet Node details; that history requires separate reconciliation before using
 this sequence. Do not force its version or assume this rename repairs it.
 
+### Migration 1057 collision recovery
+
+Device-write outcomes merged first at 1057. Topology reference planning then
+merged a second up/down pair at the same version. This duplicate prevents both
+the migration source and cloud release metadata from loading; a later corrective
+migration alone cannot run.
+
+Keep device-write outcomes at 1057 and move the topology reference pair to 1058
+with both SQL files byte-for-byte unchanged. The history checker permits only
+this exact rename, pinned by SHA-256 checksums. Fresh databases and databases at
+1056 apply both migrations in order. A database at the device-write 1057 checkpoint
+keeps its recorded outcomes and applies the cleanup fix at 1058.
+
+A database that applied the standalone topology-reference branch at 1057 has a
+different history and requires separate reconciliation. Do not force its version
+or assume the rename supplies the missing device-write column. Staging was still
+at 1052 before this repair; deployment and the cleanup trial remain separate steps.
+
 ## Constraint and index names
 
 Use explicit lowercase snake_case names in new and unmerged migrations:
