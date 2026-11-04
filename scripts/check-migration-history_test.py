@@ -12,6 +12,7 @@ from unittest import mock
 
 CHECKER = pathlib.Path(__file__).with_name("check-migration-history.py")
 CURRENT = "server/migrations/current/"
+LATEST = "server/migrations/LATEST"
 SPEC = importlib.util.spec_from_file_location("migration_history", CHECKER)
 HISTORY = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(HISTORY)
@@ -42,6 +43,9 @@ class MigrationHistoryTest(unittest.TestCase):
     def pair(self, name, body="SELECT 1;\n", directory=CURRENT):
         for direction in ("up", "down"):
             self.write(f"{directory}{name}.{direction}.sql", body)
+        if directory == CURRENT:
+            latest = max((self.repo / CURRENT).glob("*.up.sql"))
+            self.write(LATEST, latest.name.removesuffix(".up.sql") + "\n")
 
     def commit(self):
         self.git("add", ".")
@@ -71,15 +75,27 @@ class MigrationHistoryTest(unittest.TestCase):
             self.assertNotEqual(result.returncode, 0)
             self.assertIn(error, result.stderr)
 
-    def test_public_gaps_are_valid_without_private_repository(self):
+    def test_version_gaps_are_valid(self):
         self.pair("001003_shared_next")
-        self.check("--public-only")
+        self.check()
 
     def test_internal_prerequisite_and_public_prefix(self):
         self.pair("001001_internal_private", "-- requires-shared: 1000\nSELECT 1;\n")
         self.pair("001002_shared_pending")
         self.pair("001003_internal_checkpoint", "-- requires-shared: 1002\nSELECT 1;\n")
         self.check("--public-ref", self.base)
+
+    def test_latest_marker_missing_stale_or_wrong_name(self):
+        self.pair("001001_shared_next")
+        for marker in (None, "001000_shared_baseline\n", "001001_shared_other\n"):
+            with self.subTest(marker=marker):
+                if marker is None:
+                    (self.repo / LATEST).unlink()
+                else:
+                    self.write(LATEST, marker)
+                self.check(error="LATEST")
+        self.write(LATEST, "001001_shared_next\n")
+        self.check()
 
     def test_missing_direction(self):
         self.write(CURRENT + "001001_shared_next.up.sql", "SELECT 1;")
@@ -105,10 +121,6 @@ class MigrationHistoryTest(unittest.TestCase):
             with self.subTest(declaration=declaration):
                 self.pair("001001_internal_next", declaration)
                 self.check(error="requires-shared")
-
-    def test_public_rejects_private_sql(self):
-        self.pair("001001_internal_next", "-- requires-shared: 1000\n")
-        self.check("--public-only", error="private migration")
 
     def test_immutable_sql_changed_deleted_or_renamed(self):
         for relative in (
@@ -207,6 +219,7 @@ class MigrationHistoryTest(unittest.TestCase):
                 HISTORY.check(self.repo, self.base)
             for source, (target, _) in renames.items():
                 (self.repo / source).rename(self.repo / target)
+            self.write(LATEST, new.removeprefix(CURRENT) + "\n")
             HISTORY.check(self.repo, self.base)
             HISTORY.check(self.repo, before_collision)
 
@@ -268,6 +281,7 @@ class MigrationHistoryTest(unittest.TestCase):
             (self.repo / f"{old}.{direction}.sql").rename(
                 self.repo / f"{new}.{direction}.sql"
             )
+        self.write(LATEST, new.removeprefix(CURRENT) + "\n")
         self.check()
         HISTORY.check(self.repo, before_collision)
 
