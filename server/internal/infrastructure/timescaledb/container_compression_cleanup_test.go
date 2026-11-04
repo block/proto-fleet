@@ -1,7 +1,6 @@
 package timescaledb
 
 import (
-	"encoding/json"
 	"os"
 	"testing"
 	"time"
@@ -9,23 +8,6 @@ import (
 	"github.com/lib/pq"
 	"github.com/stretchr/testify/require"
 )
-
-type topologyReferencePlan struct {
-	Relation string                  `json:"Relation Name"`
-	Loops    float64                 `json:"Actual Loops"`
-	Plans    []topologyReferencePlan `json:"Plans"`
-}
-
-func (p topologyReferencePlan) tankLookups() float64 {
-	if p.Relation == "container_tank_metrics" {
-		return p.Loops
-	}
-	var lookups float64
-	for _, child := range p.Plans {
-		lookups += child.tankLookups()
-	}
-	return lookups
-}
 
 func TestContainerTankObservationRequiresMatchingCollectionTime(t *testing.T) {
 	r := newContainerRollupRig(t)
@@ -63,7 +45,7 @@ func TestTopologyReferenceMigrationPreservesCompressedAndLatestPins(t *testing.T
 	require.Len(t, ids, 4)
 	for _, direction := range []string{"down", "up"} {
 		t.Run(direction, func(t *testing.T) {
-			migration, err := os.ReadFile("../../../migrations/current/001029_internal_bound_topology_reference_checks." + direction + ".sql")
+			migration, err := os.ReadFile("../../../migrations/current/001057_internal_bound_topology_reference_planning." + direction + ".sql")
 			require.NoError(t, err)
 			_, err = r.db.ExecContext(t.Context(), string(migration))
 			require.NoError(t, err)
@@ -76,6 +58,45 @@ func TestTopologyReferenceMigrationPreservesCompressedAndLatestPins(t *testing.T
 			require.NoError(t, r.db.QueryRowContext(t.Context(), `SELECT count(*) FROM container_tank_metrics`).Scan(&samples))
 			require.Equal(t, 6, samples, "replacing the lookup must preserve retained telemetry")
 		})
+	}
+}
+
+func TestTopologyReferenceBoundsPreserveDeviceAndLatestPins(t *testing.T) {
+	r := newContainerRollupRig(t)
+	r.db.SetMaxOpenConns(1)
+	r.base = time.Now().UTC().Truncate(time.Hour).Add(-20 * 24 * time.Hour)
+	for _, offset := range []time.Duration{0, 48 * time.Hour, 96 * time.Hour} {
+		r.store(t, r.snapshot(offset, false, 100e12, 200e12))
+	}
+	_, err := r.db.ExecContext(t.Context(), `SELECT compress_chunk(c) FROM show_chunks('device_metrics') c;
+ SELECT drop_chunks('container_tank_metrics',older_than=>now()-INTERVAL '10 days');
+ SET plan_cache_mode=force_generic_plan`)
+	require.NoError(t, err)
+	var ids pq.Int64Array
+	require.NoError(t, r.db.QueryRowContext(t.Context(), `SELECT array_agg(id ORDER BY collected_at) FROM container_topology_observation WHERE device_id=$1`, r.databaseID).Scan(&ids))
+	require.Len(t, ids, 3)
+	stmt, err := r.db.PrepareContext(t.Context(), `SELECT count(*) FILTER(WHERE reference_kind='raw'),count(*) FILTER(WHERE reference_kind='latest') FROM container_topology_references($1)`)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = stmt.Close() })
+	for i := range 12 {
+		selected := pq.Int64Array{ids[i%len(ids)]}
+		if i%2 == 0 {
+			selected = ids
+		}
+		var raw, latest int
+		require.NoError(t, stmt.QueryRowContext(t.Context(), pq.Array(selected)).Scan(&raw, &latest))
+		require.Equal(t, len(selected), raw, "changing bounds must preserve compressed device references")
+	}
+	_, err = r.db.ExecContext(t.Context(), `SELECT drop_chunks('device_metrics',older_than=>now()-INTERVAL '10 days')`)
+	require.NoError(t, err)
+	var raw, latest int
+	require.NoError(t, stmt.QueryRowContext(t.Context(), pq.Array(ids)).Scan(&raw, &latest))
+	require.Zero(t, raw)
+	require.Equal(t, 1, latest, "latest references must survive after raw history expires")
+	for _, empty := range []pq.Int64Array{nil, {}, {-1}} {
+		require.NoError(t, stmt.QueryRowContext(t.Context(), pq.Array(empty)).Scan(&raw, &latest))
+		require.Zero(t, raw)
+		require.Zero(t, latest)
 	}
 }
 
@@ -113,20 +134,31 @@ func TestContainerCompressionCleanupMakesProgressWithinJobDeadline(t *testing.T)
 	 SELECT t.id,o.collected_at,o.id,o.version_id,'{}' FROM container_topology_observation o
 	 JOIN container_tank t ON t.device_id=o.device_id WHERE o.device_id=$1 AND o.collected_at>$2`, r.databaseID, recent)
 	require.NoError(t, err)
-	_, err = r.db.ExecContext(t.Context(), `SELECT compress_chunk(c) FROM show_chunks('container_tank_metrics') c; ANALYZE container_tank_metrics`)
+	_, err = r.db.ExecContext(t.Context(), `INSERT INTO device_metrics(time,device_identifier,topology_observation_id)
+ SELECT o.collected_at,d.device_identifier,o.id FROM container_topology_observation o JOIN device d ON d.id=o.device_id
+ WHERE o.device_id=$1 AND o.collected_at>$2`, r.databaseID, recent)
 	require.NoError(t, err)
-	// Bound the actual hypertable executions independently of machine speed:
-	// chunk pruning must run per receipt, rather than per receipt and tank.
+	_, err = r.db.ExecContext(t.Context(), `SELECT compress_chunk(c) FROM show_chunks('device_metrics') c;
+ SELECT compress_chunk(c) FROM show_chunks('container_tank_metrics') c; ANALYZE container_tank_metrics`)
+	require.NoError(t, err)
+	// Planning must not lock every retained chunk for receipts older than those
+	// chunks. This catches the cost even when execution prunes all of them.
 	var ids pq.Int64Array
 	require.NoError(t, r.db.QueryRowContext(t.Context(), `SELECT ARRAY(SELECT observation_id FROM container_topology_compaction_pending WHERE device_id=$1 ORDER BY observation_id LIMIT 50)`, r.databaseID).Scan(&ids))
-	var rawPlan []byte
-	require.NoError(t, r.db.QueryRowContext(t.Context(), `EXPLAIN (ANALYZE,FORMAT JSON) SELECT observation_id,reference_kind FROM container_topology_references($1)`, pq.Array(ids)).Scan(&rawPlan))
-	var plans []struct{ Plan topologyReferencePlan }
-	require.NoError(t, json.Unmarshal(rawPlan, &plans))
-	require.Len(t, plans, 1)
-	lookups := plans[0].Plan.tankLookups()
-	require.Positive(t, lookups, "the plan must include the executed tank reference lookup")
-	require.LessOrEqual(t, lookups, float64(len(ids)), "tank count must not multiply receipt chunk-pruning work")
+	tx, err := r.db.BeginTx(t.Context(), nil)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = tx.Rollback() })
+	_, err = tx.ExecContext(t.Context(), `SET LOCAL plan_cache_mode=force_generic_plan`)
+	require.NoError(t, err)
+	var refs int
+	require.NoError(t, tx.QueryRowContext(t.Context(), `SELECT count(*) FROM container_topology_references($1)`, pq.Array(ids)).Scan(&refs))
+	require.Zero(t, refs)
+	var unrelatedLocks int
+	require.NoError(t, tx.QueryRowContext(t.Context(), `SELECT count(*) FROM pg_locks l
+ JOIN timescaledb_information.chunks c ON l.relation=format('%I.%I',c.chunk_schema,c.chunk_name)::regclass
+ WHERE l.pid=pg_backend_pid() AND c.hypertable_name IN ('container_tank_metrics','device_metrics') AND c.range_start>$1`, r.base.Add(time.Hour)).Scan(&unrelatedLocks))
+	require.Zero(t, unrelatedLocks, "expired receipts must not plan or lock unrelated retained chunks")
+	require.NoError(t, tx.Commit())
 	var job int
 	require.NoError(t, r.db.QueryRowContext(t.Context(), `SELECT job_id FROM timescaledb_information.jobs WHERE proc_name='compact_container_topology_job'`).Scan(&job))
 	// Run the actual job procedure and its scheduling commit. Manual run_job
