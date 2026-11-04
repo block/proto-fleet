@@ -120,7 +120,9 @@ func TestDriverRPCDoesNotTrustDownstreamWriteEvidence(t *testing.T) {
 			require.False(t, IsBackendGenerationRejected(err))
 			details := status.Convert(err).Details()
 			require.Len(t, details, 1)
-			require.True(t, proto.Equal(firmwareDetail, details[0].(*errdetails.ErrorInfo)))
+			info, ok := details[0].(*errdetails.ErrorInfo)
+			require.True(t, ok)
+			require.True(t, proto.Equal(firmwareDetail, info))
 		})
 	}
 }
