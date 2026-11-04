@@ -276,3 +276,20 @@ func TestPluginAdmissionObservesClassifiedSDKFailure(t *testing.T) {
 	require.False(t, devicewrite.IsNotDispatched(err), "errors after the SDK call remain possibly dispatched")
 	require.False(t, active)
 }
+
+func TestPluginWriteEvidenceSurvivesFleetErrorMapping(t *testing.T) {
+	for _, outcome := range []string{sdk.WriteNotDispatched, sdk.WriteCompleted, sdk.WriteUnknown} {
+		t.Run(outcome, func(t *testing.T) {
+			miner, device := createGatedTestPluginMiner()
+			device.onWrite = func(context.Context, commandtype.Type) error {
+				return sdk.WithWriteOutcome(grpcstatus.Error(codes.Unimplemented, "rejected"), outcome, "capability", "unsupported")
+			}
+			err := miner.ApplyCurtailmentConfig(t.Context(), dto.ApplyCurtailmentConfigPayload{Config: &sdk.CurtailmentConfig{}})
+			require.Error(t, err)
+			require.True(t, fleeterror.IsUnimplementedError(err))
+			require.Equal(t, outcome, sdk.WriteEvidence(err).GetReason())
+			require.Equal(t, outcome == sdk.WriteNotDispatched, devicewrite.IsNotDispatched(err))
+			require.Equal(t, outcome == sdk.WriteCompleted, devicewrite.IsCompleted(err))
+		})
+	}
+}

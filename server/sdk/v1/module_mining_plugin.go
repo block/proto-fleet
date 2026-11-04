@@ -10,17 +10,17 @@ import (
 
 func (s *DriverGRPCServer) SetModuleMining(ctx context.Context, req *pb.SetModuleMiningRequest) (*emptypb.Empty, error) {
 	if req == nil || req.Ref == nil {
-		return nil, grpcStatusError("missing device", codes.InvalidArgument, "missing device")
+		return nil, sdkErrorToGRPCStatus(InvalidWriteRequest(grpcStatusError("missing device", codes.InvalidArgument, "missing device")))
 	}
 	payload := ModuleMiningRequest{Mining: req.Mining}
 	for _, m := range req.Modules {
 		if m == nil {
-			return nil, grpcStatusError("missing module", codes.InvalidArgument, "missing module")
+			return nil, sdkErrorToGRPCStatus(InvalidWriteRequest(grpcStatusError("missing module", codes.InvalidArgument, "missing module")))
 		}
 		payload.Modules = append(payload.Modules, ModuleMiningTarget{Tank: m.Tank, Module: m.Module, ReportedID: m.ReportedId})
 	}
 	if err := payload.Validate(); err != nil {
-		return nil, grpcStatusError(err.Error(), codes.InvalidArgument, err.Error())
+		return nil, sdkErrorToGRPCStatus(InvalidWriteRequest(grpcStatusError(err.Error(), codes.InvalidArgument, err.Error())))
 	}
 	device, err := s.selectDevice(req.Ref)
 	if err != nil {
@@ -28,13 +28,13 @@ func (s *DriverGRPCServer) SetModuleMining(ctx context.Context, req *pb.SetModul
 	}
 	controller, ok := device.(DeviceModuleMiner)
 	if !ok {
-		return nil, sdkErrorToGRPCStatus(NewErrUnsupportedCapability(CapabilityModuleMining))
+		return nil, sdkErrorToGRPCStatus(UnsupportedWrite(CapabilityModuleMining))
 	}
 	return &emptypb.Empty{}, sdkErrorToGRPCStatus(controller.SetModuleMining(ctx, payload))
 }
 func (d *DeviceGRPCClient) SetModuleMining(ctx context.Context, req ModuleMiningRequest) error {
 	if err := req.Validate(); err != nil {
-		return err
+		return InvalidWriteRequest(err)
 	}
 	wire := &pb.SetModuleMiningRequest{Ref: d.deviceRef(), Mining: req.Mining}
 	for _, m := range req.Modules {

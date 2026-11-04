@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"testing"
 
@@ -16,10 +17,14 @@ import (
 type containerMiningDevice struct {
 	sdk.Device
 	received sdk.ContainerMiningRequest
+	err      error
 }
 
 func (d *containerMiningDevice) ContainerMining(_ context.Context, r sdk.ContainerMiningRequest) (sdk.ContainerMiningResult, error) {
 	d.received = r
+	if d.err != nil {
+		return sdk.ContainerMiningResult{}, d.err
+	}
 	if r.Action == "status" {
 		return sdk.ContainerMiningResult{Status: &sdk.ContainerMiningStatus{Mining: new(false), OperatingState: "MINING_OPERATING_STATE_STOPPED"}}, nil
 	}
@@ -49,4 +54,30 @@ func TestContainerMiningNodeDispatchPreservesTypedRequestsAndResults(t *testing.
 			require.NoError(t, err)
 		})
 	}
+}
+
+func TestContainerMiningNodeEvidenceDistinguishesRefusalFromDispatch(t *testing.T) {
+	command := func(data []byte) *pb.MinerCommand {
+		return &pb.MinerCommand{Action: &pb.MinerCommand_ContainerMining{ContainerMining: &pb.ContainerMiningAction{Request: data}}}
+	}
+	request := sdk.ContainerMiningRequest{Action: "set_mining", Mining: new(false)}
+	data, err := json.Marshal(request)
+	require.NoError(t, err)
+	_, err = runMinerAction(t.Context(), nil, "container", "", nil, mocks.NewMockDevice(gomock.NewController(t)), command(data))
+	require.Error(t, err)
+	require.Equal(t, sdk.WriteNotDispatched, sdk.WriteEvidence(err).GetReason())
+	code, _ := classifyMinerCommandError("execute command", err)
+	require.Equal(t, pb.AckCode_ACK_CODE_UNIMPLEMENTED, code)
+
+	device := &containerMiningDevice{}
+	_, err = runMinerAction(t.Context(), nil, "container", "", nil, device, command([]byte(`{"action":"set_mining"}`)))
+	require.Error(t, err)
+	require.Equal(t, sdk.WriteNotDispatched, sdk.WriteEvidence(err).GetReason())
+	require.Empty(t, device.received.Action)
+
+	device.err = errors.New("controller response lost")
+	_, err = runMinerAction(t.Context(), nil, "container", "", nil, device, command(data))
+	require.ErrorIs(t, err, device.err)
+	require.Equal(t, request, device.received)
+	require.Nil(t, sdk.WriteEvidence(err))
 }

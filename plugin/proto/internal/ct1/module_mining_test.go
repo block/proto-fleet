@@ -70,6 +70,13 @@ func TestModuleMiningExactScopeAndIdentity(t *testing.T) {
 				err = dev.SetModuleMining(t.Context(), sdk.ModuleMiningRequest{Mining: &mining, Modules: []sdk.ModuleMiningTarget{{Tank: 1, Module: 1, ReportedID: "module-a"}}})
 				if tc.wantError != "" {
 					require.ErrorContains(t, err, tc.wantError)
+					if tc.wantWrites == 0 {
+						evidence := sdk.WriteEvidence(err)
+						require.Equal(t, sdk.WriteNotDispatched, evidence.GetReason())
+						require.Equal(t, string(sdk.WriteReasonStaleBinding), evidence.GetMetadata()["reason"])
+					} else {
+						require.Nil(t, sdk.WriteEvidence(err), "a dispatched write remains uncertain")
+					}
 				} else {
 					require.NoError(t, err)
 				}

@@ -587,7 +587,8 @@ func isAuthError(err error) bool {
 // PermissionDenied statuses so the command system can skip retries for permanent
 // failures, cache eviction can fire on auth errors, device-rejected operations
 // (e.g. 413) fail immediately, and default-password lockouts surface as forbidden.
-func wrapPluginError(err error, format string, a ...any) error {
+func wrapPluginError(err error, format string, a ...any) (resultErr error) {
+	defer func() { resultErr = sdk.WithWriteEvidence(resultErr, sdk.WriteEvidence(err)) }()
 	if err == nil {
 		return nil
 	}
@@ -627,7 +628,8 @@ func wrapPluginError(err error, format string, a ...any) error {
 
 // wrapCurtailmentPluginError preserves Unavailable for retryable dispatches.
 // wrapPluginError maps Unavailable to Internal for legacy control RPCs.
-func wrapCurtailmentPluginError(err error, format string, a ...any) error {
+func wrapCurtailmentPluginError(err error, format string, a ...any) (resultErr error) {
+	defer func() { resultErr = sdk.WithWriteEvidence(resultErr, sdk.WriteEvidence(err)) }()
 	if err == nil {
 		return nil
 	}
@@ -746,7 +748,7 @@ func (p *PluginMiner) dispatchWrite(ctx context.Context, kind commandtype.Type, 
 		err := call(ctx)
 		// A failed plugin RPC can return before its backend handler has stopped.
 		// Error mapping does not supply terminal execution evidence.
-		if _, rpc := p.sdkDevice.(*sdk.DeviceGRPCClient); rpc && err != nil && !devicewrite.IsNotDispatched(err) {
+		if _, rpc := p.sdkDevice.(*sdk.DeviceGRPCClient); rpc && err != nil && sdk.WriteEvidence(err) == nil && !devicewrite.IsNotDispatched(err) {
 			return devicewrite.UncertainDelivery(err)
 		}
 		return err

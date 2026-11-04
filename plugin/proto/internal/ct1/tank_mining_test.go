@@ -60,6 +60,13 @@ func TestTankMiningVerifiesContainerIdentityBeforeWriting(t *testing.T) {
 				err = dev.SetTankMining(t.Context(), sdk.TankMiningRequest{Positions: []int32{1}, Mining: &mining})
 				if tc.wantError {
 					require.ErrorContains(t, err, "container identity")
+					wantReason := sdk.WriteReasonStaleBinding
+					if tc.name == "unavailable_info" || tc.name == "malformed_info" {
+						wantReason = sdk.WriteReasonReadFailed
+					}
+					evidence := sdk.WriteEvidence(err)
+					require.Equal(t, sdk.WriteNotDispatched, evidence.GetReason())
+					require.Equal(t, string(wantReason), evidence.GetMetadata()["reason"])
 					require.Zero(t, writes.Load())
 					require.Zero(t, mapReads.Load())
 				} else {
@@ -108,6 +115,9 @@ func TestTankMiningRejectsIncompleteModuleSlotsBeforeWriting(t *testing.T) {
 				err = dev.SetTankMining(t.Context(), sdk.TankMiningRequest{Positions: []int32{1}, Mining: &mining})
 				require.Zero(t, writes.Load(), "incomplete slot topology must prevent every write")
 				require.ErrorContains(t, err, "slot topology unavailable")
+				evidence := sdk.WriteEvidence(err)
+				require.Equal(t, sdk.WriteNotDispatched, evidence.GetReason())
+				require.Equal(t, string(sdk.WriteReasonStaleBinding), evidence.GetMetadata()["reason"])
 			})
 		}
 	}

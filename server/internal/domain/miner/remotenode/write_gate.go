@@ -26,10 +26,11 @@ func (m *Miner) withPhysicalWriteAdmission(ctx context.Context, command *gateway
 			return err
 		}
 		if physical {
-			outcome := ackToError(ack)
+			evidence := ack.GetWriteOutcome()
+			outcome := sdk.WithWriteOutcome(ackToError(ack), evidence.GetOutcome(), sdk.WriteStage(evidence.GetStage()), sdk.WriteReason(evidence.GetReason()))
 			// Failed acknowledgements may describe a plugin RPC whose backend
 			// still runs; only explicit pre-dispatch refusals prove no work began.
-			if outcome != nil && !devicewrite.IsNotDispatched(outcome) {
+			if outcome != nil && sdk.WriteEvidence(outcome) == nil && !devicewrite.IsNotDispatched(outcome) {
 				return devicewrite.UncertainDelivery(outcome)
 			}
 			return outcome

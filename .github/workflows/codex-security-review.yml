@@ -310,6 +310,8 @@ jobs:
 
   security-review:
     name: security-review
+    outputs:
+      superseded: ${{ steps.classify_agent.outputs.classification == 'superseded' }}
     needs: review-agent
     if: ${{ always() && github.event.pull_request.head.repo.full_name == github.repository }}
     runs-on: ubuntu-latest
@@ -444,6 +446,9 @@ jobs:
         run: |
           case "$REVIEW_AGENT_RESULT:$AGENT_CLASSIFICATION" in
             success:completed|cancelled:budget-timeout) ;;
+            cancelled:superseded)
+              echo "Review superseded by a newer run; retaining that run's result."
+              ;;
             *)
               echo "Review automation did not produce a completed review or verified budget timeout: $REVIEW_AGENT_RESULT/$AGENT_CLASSIFICATION ($AGENT_CLASSIFICATION_DETAIL)" >&2
               exit 1
@@ -460,7 +465,7 @@ jobs:
 
       - name: Write completed or fail-closed security review result
         id: write_review_result
-        if: ${{ always() && steps.validate_agent.outcome == 'success' && (needs.review-agent.result == 'cancelled' || steps.download_raw.outcome == 'success') }}
+        if: ${{ always() && steps.classify_agent.outputs.classification != 'superseded' && steps.validate_agent.outcome == 'success' && (needs.review-agent.result == 'cancelled' || steps.download_raw.outcome == 'success') }}
         run: |
           python3 - <<'PY'
           import json
@@ -639,7 +644,7 @@ jobs:
   post-review:
     name: Post Codex Security Review
     needs: security-review
-    if: ${{ always() && needs.security-review.result == 'success' && github.event.pull_request.head.repo.full_name == github.repository }}
+    if: ${{ always() && needs.security-review.result == 'success' && needs.security-review.outputs.superseded != 'true' && github.event.pull_request.head.repo.full_name == github.repository }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     # Serialize posters without cancellation. A stale poster must reach the

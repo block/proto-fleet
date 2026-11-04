@@ -310,6 +310,65 @@ func TestControlStream_AckPayloadLimit(t *testing.T) {
 	}
 }
 
+func TestControlStream_WriteEvidenceValidation(t *testing.T) {
+	for _, tc := range []struct {
+		name, outcome, stage, reason string
+		oversized                    bool
+	}{
+		{"known", "DEVICE_WRITE_NOT_DISPATCHED", "validation", "invalid_request", false},
+		{"unknown outcome", "DEVICE_WRITE_FUTURE", "dispatch", "finished", false},
+		{"unknown stage", "DEVICE_WRITE_NOT_DISPATCHED", "future_stage", "rejected", false},
+		{"unknown reason", "DEVICE_WRITE_NOT_DISPATCHED", "validation", "future_reason", false},
+		{"empty evidence", "", "", "", false},
+		{"oversized outcome", strings.Repeat("x", 65), "dispatch", "finished", true},
+		{"oversized stage", "DEVICE_WRITE_NOT_DISPATCHED", strings.Repeat("x", 33), "rejected", true},
+		{"oversized reason", "DEVICE_WRITE_NOT_DISPATCHED", "validation", strings.Repeat("x", 33), true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			registry := control.NewRegistry()
+			h := &controlHarness{handler: gateway.NewHandler(nil, nil, nil, registry, nil), registry: registry, fleetNodeID: 42}
+			client := startControlServer(t, h)
+			ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+			defer cancel()
+			stream := client.ControlStream(ctx)
+			t.Cleanup(func() { _ = stream.CloseRequest(); _ = stream.CloseResponse() })
+			require.NoError(t, stream.Send(&pb.ControlStreamRequest{Kind: &pb.ControlStreamRequest_Hello{Hello: &pb.ControlHello{
+				MaxCommandProtocolVersion: pb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1,
+			}}}))
+			accepted, err := stream.Receive()
+			require.NoError(t, err)
+			require.NotNil(t, accepted.GetAccepted())
+			session := waitForSend(t, registry, h.fleetNodeID, "evidence", []byte("command"))
+			defer session.Close()
+			command, err := stream.Receive()
+			require.NoError(t, err)
+			require.Equal(t, "evidence", command.GetCommand().GetCommandId())
+			for _, ack := range []*pb.ControlAck{
+				{CommandId: "evidence", Code: pb.AckCode_ACK_CODE_INTERNAL, Payload: []byte("original result"),
+					WriteOutcome: &pb.DeviceWriteOutcome{Outcome: tc.outcome, Stage: tc.stage, Reason: tc.reason}},
+				{CommandId: "evidence", Code: pb.AckCode_ACK_CODE_OK, Succeeded: true, Payload: []byte("fallback")},
+			} {
+				require.NoError(t, stream.Send(&pb.ControlStreamRequest{Kind: &pb.ControlStreamRequest_Ack{Ack: ack}}))
+			}
+			select {
+			case event := <-session.Events():
+				require.NotNil(t, event.Ack)
+				if tc.oversized {
+					require.Equal(t, pb.AckCode_ACK_CODE_OK, event.Ack.Code)
+					require.True(t, event.Ack.Succeeded)
+					require.Equal(t, []byte("fallback"), event.Ack.Payload)
+				} else {
+					require.Equal(t, pb.AckCode_ACK_CODE_INTERNAL, event.Ack.Code)
+					require.False(t, event.Ack.Succeeded)
+					require.Equal(t, []byte("original result"), event.Ack.Payload)
+				}
+			case <-ctx.Done():
+				t.Fatal("gateway did not route the ACK")
+			}
+		})
+	}
+}
+
 func TestControlStream_SecondStreamEvictsFirst(t *testing.T) {
 	// Arrange
 	h := newControlHarness(t)

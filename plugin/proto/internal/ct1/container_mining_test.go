@@ -21,10 +21,14 @@ type nativeMiningFixture struct {
 	identity atomic.Value
 	writes   atomic.Int32
 	fail     bool
+	infoErr  atomic.Value
 	power    *mdk.SetTargetPowerRequest
 }
 
 func (f *nativeMiningFixture) GetSystemInfo(context.Context, *mdk.GetSystemInfoRequest) (*mdk.GetSystemInfoResponse, error) {
+	if err, ok := f.infoErr.Load().(error); ok {
+		return nil, err
+	}
 	id, _ := f.identity.Load().(string)
 	return &mdk.GetSystemInfoResponse{Info: &mdk.SystemInfo{Id: id, Model: "CT1"}}, nil
 }
@@ -104,6 +108,10 @@ func TestContainerMiningRejectsChangedIdentityAndDoesNotReplay(t *testing.T) {
 			_, err := d.ContainerMining(t.Context(), action)
 			require.Error(t, err)
 			require.Zero(t, f.writes.Load())
+			evidence := sdk.WriteEvidence(err)
+			require.Equal(t, sdk.WriteNotDispatched, evidence.GetReason())
+			require.Equal(t, string(sdk.WriteStageConfigurationRead), evidence.GetMetadata()["stage"])
+			require.Equal(t, string(sdk.WriteReasonStaleBinding), evidence.GetMetadata()["reason"])
 		})
 	}
 	d, f := newNativeMiningFixture(t)
@@ -111,6 +119,7 @@ func TestContainerMiningRejectsChangedIdentityAndDoesNotReplay(t *testing.T) {
 	_, err := d.ContainerMining(t.Context(), sdk.ContainerMiningRequest{Action: "set_mining", Mining: new(false)})
 	require.Error(t, err)
 	require.EqualValues(t, 1, f.writes.Load())
+	require.Nil(t, sdk.WriteEvidence(err), "a dispatched native write must remain uncertain")
 }
 
 func (s *haServer) StopMining(context.Context, *mdk.StopMiningRequest) (*mdk.StopMiningResponse, error) {
@@ -136,4 +145,41 @@ func TestContainerMiningUsesVerifiedHAPrimaryWithoutReplay(t *testing.T) {
 	require.Error(t, err)
 	require.Zero(t, a.writes.Load())
 	require.EqualValues(t, 2, b.writes.Load())
+	require.Nil(t, sdk.WriteEvidence(err), "a dispatched HA write must remain uncertain")
+}
+
+func TestContainerMiningPreparationFailuresDoNotDispatch(t *testing.T) {
+	for _, tc := range []struct {
+		name          string
+		invalid       bool
+		missingSerial bool
+		infoErr       error
+		stage         sdk.WriteStage
+		reason        sdk.WriteReason
+	}{
+		{name: "invalid request", invalid: true, stage: sdk.WriteStageValidation, reason: sdk.WriteReasonInvalidRequest},
+		{name: "missing expected identity", missingSerial: true, stage: sdk.WriteStageConfigurationRead, reason: sdk.WriteReasonStaleBinding},
+		{name: "identity read failed", infoErr: status.Error(codes.Unavailable, "identity unavailable"), stage: sdk.WriteStageConfigurationRead, reason: sdk.WriteReasonReadFailed},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			d, f := newNativeMiningFixture(t)
+			if tc.infoErr != nil {
+				f.infoErr.Store(tc.infoErr)
+			}
+			if tc.missingSerial {
+				d.info.SerialNumber = ""
+			}
+			req := sdk.ContainerMiningRequest{Action: "set_mining", Mining: new(false)}
+			if tc.invalid {
+				req.Mining = nil
+			}
+			_, err := d.ContainerMining(t.Context(), req)
+			require.Error(t, err)
+			require.Zero(t, f.writes.Load())
+			evidence := sdk.WriteEvidence(err)
+			require.Equal(t, sdk.WriteNotDispatched, evidence.GetReason())
+			require.Equal(t, string(tc.stage), evidence.GetMetadata()["stage"])
+			require.Equal(t, string(tc.reason), evidence.GetMetadata()["reason"])
+		})
+	}
 }

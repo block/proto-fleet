@@ -282,6 +282,9 @@ type Querier interface {
 	ClaimDeletionUnpairPermit(ctx context.Context, arg ClaimDeletionUnpairPermitParams) (int64, error)
 	ClaimMessageForProcessing(ctx context.Context, id int64) (sql.Result, error)
 	ClaimPoolConfigurationTarget(ctx context.Context, arg ClaimPoolConfigurationTargetParams) (int32, error)
+	// The reaper and a late worker share the dequeued retry count. Count the
+	// reaped failure once so only one transaction requests reconciliation.
+	ClaimReapedRigConfigRetry(ctx context.Context, arg ClaimReapedRigConfigRetryParams) (int64, error)
 	ClaimRigConfigReconciliation(ctx context.Context) (CurtailmentRigConfigReconciliation, error)
 	ClassifyFleetRuntimeLeaseAcquisition(ctx context.Context, arg ClassifyFleetRuntimeLeaseAcquisitionParams) (string, error)
 	ClearCurtailmentAutomationActiveEvent(ctx context.Context, arg ClearCurtailmentAutomationActiveEventParams) error
@@ -1754,6 +1757,10 @@ type Querier interface {
 	ListRepairTicketParts(ctx context.Context, arg ListRepairTicketPartsParams) ([]ListRepairTicketPartsRow, error)
 	ListRepairTickets(ctx context.Context, arg ListRepairTicketsParams) ([]ListRepairTicketsRow, error)
 	ListResponseProfileInfrastructureDevicesByOrg(ctx context.Context, arg ListResponseProfileInfrastructureDevicesByOrgParams) ([]ListResponseProfileInfrastructureDevicesByOrgRow, error)
+	// Run after ReapMessages establishes FAILED status. A separate statement sees
+	// admissions committed before the reaper obtained its queue locks. FAILED
+	// entries cannot admit new attempts; a later retry claim arbitrates recovery.
+	ListRetryableReapedRigConfigMessages(ctx context.Context, messageIds []int64) ([]int64, error)
 	// Run after claiming in a separate statement: its fresh snapshot includes
 	// targets committed by a concurrent requester before the claim obtained its
 	// organization lock. Targets refreshed after the claim remain for the next pass.

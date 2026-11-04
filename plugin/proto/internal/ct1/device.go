@@ -117,30 +117,34 @@ func (d *Device) Close(context.Context) error {
 // Unpair is a Fleet-side removal. It does not reset the container or its peers.
 func (d *Device) Unpair(context.Context) error { return nil }
 func (d *Device) StartMining(context.Context) error {
-	return sdk.NewErrUnsupportedCapability("mining_start")
+	return sdk.UnsupportedWrite("mining_start")
 }
 func (d *Device) StopMining(context.Context) error {
-	return sdk.NewErrUnsupportedCapability("mining_stop")
+	return sdk.UnsupportedWrite("mining_stop")
 }
-func (d *Device) BlinkLED(context.Context) error { return sdk.NewErrUnsupportedCapability("led_blink") }
-func (d *Device) Reboot(context.Context) error   { return sdk.NewErrUnsupportedCapability("reboot") }
+func (d *Device) BlinkLED(context.Context) error {
+	return sdk.UnsupportedWrite("led_blink")
+}
+func (d *Device) Reboot(context.Context) error {
+	return sdk.UnsupportedWrite("reboot")
+}
 func (d *Device) SetCoolingMode(context.Context, sdk.CoolingMode) error {
-	return sdk.NewErrUnsupportedCapability("cooling_mode")
+	return sdk.UnsupportedWrite("cooling_mode")
 }
 func (d *Device) GetCoolingMode(context.Context) (sdk.CoolingMode, error) {
 	return sdk.CoolingModeUnspecified, sdk.NewErrUnsupportedCapability("cooling_mode")
 }
 func (d *Device) SetPowerTarget(context.Context, sdk.PerformanceMode) error {
-	return sdk.NewErrUnsupportedCapability("power_target")
+	return sdk.UnsupportedWrite("power_target")
 }
 func (d *Device) UpdateMinerPassword(context.Context, string, string) error {
-	return sdk.NewErrUnsupportedCapability("password")
+	return sdk.UnsupportedWrite("password")
 }
 func (d *Device) DownloadLogs(context.Context, *time.Time, string) (string, bool, error) {
 	return "", false, sdk.NewErrUnsupportedCapability("logs")
 }
 func (d *Device) FirmwareUpdate(context.Context, sdk.FirmwareFile) error {
-	return sdk.NewErrUnsupportedCapability("firmware")
+	return sdk.UnsupportedWrite("firmware")
 }
 func (d *Device) GetErrors(context.Context) (sdk.DeviceErrors, error) {
 	return sdk.DeviceErrors{}, sdk.NewErrUnsupportedCapability("errors")

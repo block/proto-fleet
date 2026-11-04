@@ -19,8 +19,13 @@ func backendGenerationRejected() error {
 	if err != nil {
 		panic(err)
 	}
-	return fmt.Errorf("select SDK backend: %w", rejection.Err())
+	return fmt.Errorf("select SDK backend: %w", &backendGenerationError{err: rejection.Err()})
 }
+
+type backendGenerationError struct{ err error }
+
+func (e *backendGenerationError) Error() string { return e.err.Error() }
+func (e *backendGenerationError) Unwrap() error { return e.err }
 
 // IsBackendGenerationRejected identifies the SDK's pre-backend admission failure.
 // Arbitrary driver FailedPrecondition errors do not establish a known outcome.
@@ -41,19 +46,19 @@ func IsBackendGenerationRejected(err error) bool {
 // Later registry replacements cannot redirect an admitted call to another object.
 func (s *DriverGRPCServer) selectDevice(ref *pb.DeviceRef) (Device, error) {
 	if ref == nil || ref.DeviceId == "" {
-		return nil, grpcStatusError("select SDK backend", codes.InvalidArgument, "device reference is required")
+		return nil, sdkErrorToGRPCStatus(InvalidWriteRequest(grpcStatusError("select SDK backend", codes.InvalidArgument, "device reference is required")))
 	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	device, exists := s.devices[ref.DeviceId]
 	if !exists {
 		if len(ref.BackendGeneration) != 0 {
-			return nil, backendGenerationRejected()
+			return nil, WriteRefused(backendGenerationRejected(), WriteStageBackendSelection, WriteReasonStaleBinding)
 		}
-		return nil, sdkErrorToGRPCStatus(NewErrorDeviceNotFound(ref.DeviceId))
+		return nil, writeRefused(NewErrorDeviceNotFound(ref.DeviceId), WriteStageBackendSelection, WriteReasonDeviceNotFound)
 	}
 	if !bytes.Equal(s.generations[ref.DeviceId], ref.BackendGeneration) {
-		return nil, backendGenerationRejected()
+		return nil, WriteRefused(backendGenerationRejected(), WriteStageBackendSelection, WriteReasonStaleBinding)
 	}
 	return device, nil
 }

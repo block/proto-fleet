@@ -14,6 +14,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/block/proto-fleet/server/internal/domain/devicewrite"
+
 	_ "github.com/jackc/pgx/v5/stdlib" // register the pgx SQL driver for sql.Open
 
 	minerMocks "github.com/block/proto-fleet/server/internal/domain/command/mocks"
@@ -347,6 +349,7 @@ func TestShouldRequeueRigConfig(t *testing.T) {
 		err         error
 		want        bool
 	}{
+		{name: "unresolved config delivery", commandType: commandtype.ApplyCurtailmentConfig, terminal: true, err: devicewrite.UncertainDelivery(terminalErr)},
 		{name: "terminal config failure", commandType: commandtype.ApplyCurtailmentConfig, terminal: true, err: terminalErr, want: true},
 		{name: "retryable config failure", commandType: commandtype.ApplyCurtailmentConfig, err: terminalErr},
 		{name: "successful config", commandType: commandtype.ApplyCurtailmentConfig, terminal: true},
