@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"math"
+	"slices"
 	"sort"
 	"time"
 
@@ -760,6 +761,10 @@ func (s *TimescaleTelemetryStore) rawBucketAggregates(ctx context.Context, query
 	return buckets, nil
 }
 
+// bucketAggregatesPreferRollup serves org-wide fleet requests from the 90s
+// rollup where coverage exists and from raw telemetry elsewhere, including the
+// newest buckets. Device-list and site-scoped queries stay raw because the
+// rollup cannot enforce the service-resolved device predicate.
 func (s *TimescaleTelemetryStore) bucketAggregatesPreferRollup(ctx context.Context, query models.CombinedMetricsQuery, startTime, endTime time.Time, bucketDuration time.Duration) ([]rawMetricBucket, error) {
 	if !fleetMetricRollupEligible(query, startTime, endTime, bucketDuration) {
 		return s.rawBucketAggregates(ctx, query, startTime, endTime, bucketDuration)
@@ -813,7 +818,7 @@ func (s *TimescaleTelemetryStore) bucketAggregatesPreferRollup(ctx context.Conte
 	if err != nil {
 		return nil, err
 	}
-	return append(append(head, body...), tail...), nil
+	return slices.Concat(head, body, tail), nil
 }
 
 func fleetMetricRollupEligible(query models.CombinedMetricsQuery, startTime, endTime time.Time, bucketDuration time.Duration) bool {
@@ -848,15 +853,15 @@ func fleetRollupBucketCountExclusive(startTime, endTime time.Time) int64 {
 	return rawMetricBucketCount(startTime, endTime.Add(-time.Nanosecond), models.FleetMetricRollupBucketDuration)
 }
 
-func fleetMetricRollupCoveredWindow(bodyStart, bodyEndExclusive, earliestBucket, latestBucket time.Time) (time.Time, time.Time, bool) {
-	if earliestBucket.After(bodyStart) {
-		bodyStart = earliestBucket
+func fleetMetricRollupCoveredWindow(bodyStart, bodyEndExclusive, earliestBucket, latestBucket time.Time) (start, endExclusive time.Time, ok bool) {
+	start, endExclusive = bodyStart, bodyEndExclusive
+	if earliestBucket.After(start) {
+		start = earliestBucket
 	}
-	coverageEnd := latestBucket.Add(models.FleetMetricRollupBucketDuration)
-	if coverageEnd.Before(bodyEndExclusive) {
-		bodyEndExclusive = coverageEnd
+	if coverageEnd := latestBucket.Add(models.FleetMetricRollupBucketDuration); coverageEnd.Before(endExclusive) {
+		endExclusive = coverageEnd
 	}
-	return bodyStart, bodyEndExclusive, bodyEndExclusive.After(bodyStart)
+	return start, endExclusive, endExclusive.After(start)
 }
 
 func (s *TimescaleTelemetryStore) readFleetMetricRollupBuckets(ctx context.Context, query models.CombinedMetricsQuery, startTime, endTime time.Time) ([]rawMetricBucket, error) {

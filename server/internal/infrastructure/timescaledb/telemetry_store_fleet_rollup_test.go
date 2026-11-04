@@ -44,7 +44,7 @@ func TestTelemetryStore_FleetMetricRollupServesOrgCoveredMiddleAndRawEdges(t *te
 	})
 
 	start := fleetRollupTestStartTime()
-	for i := range 6 {
+	for i := range 7 {
 		at := start.Add(time.Duration(i) * models.FleetMetricRollupBucketDuration)
 		require.NoError(t, store.StoreDeviceMetrics(ctx,
 			modelsV2.DeviceMetrics{
@@ -66,16 +66,18 @@ func TestTelemetryStore_FleetMetricRollupServesOrgCoveredMiddleAndRawEdges(t *te
 	}
 
 	coverageStart := start.Add(models.FleetMetricRollupBucketDuration)
-	coverageEnd := start.Add(3 * models.FleetMetricRollupBucketDuration)
+	coverageEnd := start.Add(4 * models.FleetMetricRollupBucketDuration)
 	require.NoError(t, store.UpsertFleetMetricRollups(ctx, coverageStart, coverageEnd))
-	// Remove one covered bucket to prove the middle comes from rollups. Keep
-	// raw data at the left seam so an inclusive prefix would duplicate it.
+	// Remove the inner covered bucket to prove the middle comes from rollups.
+	// Keep raw data at both seams so an overlapping prefix or suffix would
+	// duplicate it.
+	innerBucket := coverageStart.Add(models.FleetMetricRollupBucketDuration)
 	_, err = db.ExecContext(ctx, `DELETE FROM device_metrics
 		WHERE device_identifier IN ($1, $2, $3) AND time >= $4 AND time < $5`,
-		deviceA.ID, deviceB.ID, otherDevice.ID, coverageStart.Add(models.FleetMetricRollupBucketDuration), coverageEnd)
+		deviceA.ID, deviceB.ID, otherDevice.ID, innerBucket, innerBucket.Add(models.FleetMetricRollupBucketDuration))
 	require.NoError(t, err)
 
-	end := start.Add(6*models.FleetMetricRollupBucketDuration - time.Nanosecond)
+	end := start.Add(7*models.FleetMetricRollupBucketDuration - time.Nanosecond)
 	slide := models.FleetMetricRollupBucketDuration
 	result, err := store.GetCombinedMetrics(ctx, models.CombinedMetricsQuery{
 		OrganizationID:   orgID,
@@ -88,7 +90,7 @@ func TestTelemetryStore_FleetMetricRollupServesOrgCoveredMiddleAndRawEdges(t *te
 		SlideInterval: &slide,
 	})
 	require.NoError(t, err)
-	require.Len(t, result.Metrics, 6)
+	require.Len(t, result.Metrics, 7)
 
 	for i, metric := range result.Metrics {
 		assert.Equal(t, models.MeasurementTypeHashrate, metric.MeasurementType)
