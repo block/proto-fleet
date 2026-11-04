@@ -1582,7 +1582,7 @@ class ReviewPolicyTest(unittest.TestCase):
             ("success", "completed", 0),
             ("cancelled", "budget-timeout", 0),
             ("cancelled", "unexpected-cancellation", 1),
-            ("cancelled", "superseded", 1),
+            ("cancelled", "superseded", 0),
             ("failure", "automation-failure", 1),
         ]
         for result, classification, expected_code in cases:
@@ -1601,6 +1601,14 @@ class ReviewPolicyTest(unittest.TestCase):
                 )
                 self.assertEqual(completed.returncode, expected_code)
 
+        self.assertIn(
+            "classification != 'superseded'",
+            find_step(workflow, "security-review", "write_review_result")["if"],
+        )
+        self.assertIn(
+            "needs.security-review.outputs.superseded != 'true'",
+            workflow["jobs"]["post-review"]["if"],
+        )
         raw_writer = extract_python_heredoc(
             find_step(workflow, "review-agent", "write_raw_review")["run"]
         )
