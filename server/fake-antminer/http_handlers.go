@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"log"
 	"net/http"
 	"regexp"
 	"strings"
@@ -57,7 +56,7 @@ func createSystemInfoHandler(state *MinerState) http.HandlerFunc {
 
 		w.Header().Set("Content-Type", "application/json")
 		if err := json.NewEncoder(w).Encode(systemInfo); err != nil {
-			log.Printf("Failed to encode system info response: %v", err)
+			state.logf("Failed to encode system info response: %v", err)
 			http.Error(w, "Failed to encode response", http.StatusInternalServerError)
 			return
 		}
@@ -117,7 +116,7 @@ func createMinerSummaryHandler(state *MinerState) http.HandlerFunc {
 
 		w.Header().Set("Content-Type", "application/json")
 		if err := json.NewEncoder(w).Encode(summary); err != nil {
-			log.Printf("Failed to encode miner summary response: %v", err)
+			state.logf("Failed to encode miner summary response: %v", err)
 			http.Error(w, "Failed to encode response", http.StatusInternalServerError)
 			return
 		}
@@ -163,7 +162,7 @@ func createStatsHandler(state *MinerState) http.HandlerFunc {
 				"temp_pcb":   []float64{baseTemp - 5, baseTemp - 5, baseTemp + 10, baseTemp + 10},
 				"temp_chip":  []float64{baseTemp, baseTemp, baseTemp + 14, baseTemp + 14},
 				"hw":         0,
-				"sn":         fmt.Sprintf("SMTTYRHBDJAAI019%c", 'D'+i),
+				"sn":         state.boardSerial(i),
 				"hwp":        0.0,
 			}
 		}
@@ -216,7 +215,7 @@ func createStatsHandler(state *MinerState) http.HandlerFunc {
 
 		w.Header().Set("Content-Type", "application/json")
 		if err := json.NewEncoder(w).Encode(stats); err != nil {
-			log.Printf("Failed to encode stats response: %v", err)
+			state.logf("Failed to encode stats response: %v", err)
 			http.Error(w, "Failed to encode response", http.StatusInternalServerError)
 			return
 		}
@@ -267,7 +266,7 @@ func createMinerConfigHandler(state *MinerState) http.HandlerFunc {
 
 		w.Header().Set("Content-Type", "application/json")
 		if err := json.NewEncoder(w).Encode(config); err != nil {
-			log.Printf("Failed to encode miner config response: %v", err)
+			state.logf("Failed to encode miner config response: %v", err)
 			http.Error(w, "Failed to encode response", http.StatusInternalServerError)
 			return
 		}
@@ -301,7 +300,7 @@ func createNetworkInfoHandler(state *MinerState) http.HandlerFunc {
 
 		w.Header().Set("Content-Type", "application/json")
 		if err := json.NewEncoder(w).Encode(networkInfo); err != nil {
-			log.Printf("Failed to encode network info response: %v", err)
+			state.logf("Failed to encode network info response: %v", err)
 			http.Error(w, "Failed to encode response", http.StatusInternalServerError)
 			return
 		}
@@ -351,7 +350,7 @@ func createRebootHandler(state *MinerState) http.HandlerFunc {
 			return
 		}
 
-		log.Println("Received reboot request")
+		state.logf("Received reboot request")
 
 		state.mu.Lock()
 		if state.PendingFirmwareVersion != "" {
@@ -390,7 +389,7 @@ func createBlinkHandler(state *MinerState) http.HandlerFunc {
 		state.IsBlinking = (blinkRequest.Blink == "true")
 		state.mu.Unlock()
 
-		log.Printf("Received blink request: %s", blinkRequest.Blink)
+		state.logf("Received blink request: %s", blinkRequest.Blink)
 
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
@@ -431,12 +430,15 @@ func digestAuthMiddleware(state *MinerState) func(http.Handler) http.Handler {
 			state.mu.RLock()
 			username := state.Username
 			password := state.Password
+			nonce := state.digestNonce
 			state.mu.RUnlock()
 
 			auth := r.Header.Get("Authorization")
 			if auth == "" {
 				// No auth header, send challenge
-				nonce := generateNonce()
+				if !state.LoadMode {
+					nonce = generateNonce()
+				}
 				opaque := generateOpaque()
 
 				w.Header().Set("WWW-Authenticate", fmt.Sprintf(
@@ -448,7 +450,8 @@ func digestAuthMiddleware(state *MinerState) func(http.Handler) http.Handler {
 			}
 
 			// Parse the auth header and validate
-			if isValidDigestAuth(auth, username, password, r.Method) {
+			if (!state.LoadMode && isValidDigestAuth(auth, username, password, r.Method)) ||
+				(state.LoadMode && loadDigestNonce(auth) == nonce && isValidLoadDigestAuth(auth, username, password, r.Method, r.URL.RequestURI())) {
 				next.ServeHTTP(w, r)
 			} else {
 				w.WriteHeader(http.StatusUnauthorized)
@@ -605,7 +608,7 @@ func createKernelLogHandler(state *MinerState) http.HandlerFunc {
 		w.Header().Set("Content-Type", "text/plain")
 		w.WriteHeader(http.StatusOK)
 		if _, err := w.Write([]byte(kernelLog)); err != nil {
-			log.Printf("Failed to write kernel log response: %v", err)
+			state.logf("Failed to write kernel log response: %v", err)
 		}
 	}
 }
@@ -630,13 +633,56 @@ func createUpgradeHandler(state *MinerState) http.HandlerFunc {
 		state.mu.Unlock()
 
 		if hasVersion {
-			log.Printf("Firmware upgrade received: filename=%s, size=%d, staged_version=%s", header.Filename, header.Size, version)
+			state.logf("Firmware upgrade received: filename=%s, size=%d, staged_version=%s", header.Filename, header.Size, version)
 		} else {
-			log.Printf("Firmware upgrade received: filename=%s, size=%d", header.Filename, header.Size)
+			state.logf("Firmware upgrade received: filename=%s, size=%d", header.Filename, header.Size)
 		}
 
 		w.Header().Set("Content-Type", "text/html")
 		w.WriteHeader(http.StatusOK)
 		fmt.Fprint(w, "<html><body>System Upgrade Successed</body></html>")
 	}
+}
+
+var digestParamRE = regexp.MustCompile(`(\w+)=(?:"([^"]*)"|([^,\s]+))`)
+
+func loadDigestNonce(header string) string {
+	var nonce string
+	for _, match := range digestParamRE.FindAllStringSubmatch(strings.TrimPrefix(header, "Digest "), -1) {
+		if match[1] == "nonce" {
+			nonce = match[2]
+			if nonce == "" {
+				nonce = match[3]
+			}
+		}
+	}
+	return nonce
+}
+
+// Unlike the legacy fixture's username-only check, load mode must reject a
+// password valid for a different destination. Match the real plugin's MD5 qop.
+func isValidLoadDigestAuth(header, username, password, method, uri string) bool {
+	if !strings.HasPrefix(header, "Digest ") {
+		return false
+	}
+	params := make(map[string]string)
+	for _, match := range digestParamRE.FindAllStringSubmatch(strings.TrimPrefix(header, "Digest "), -1) {
+		value := match[2]
+		if value == "" {
+			value = match[3]
+		}
+		params[match[1]] = value
+	}
+	if params["username"] != username || params["realm"] != "Antminer" || params["uri"] != uri || params["nonce"] == "" || params["qop"] != "auth" || params["nc"] == "" || params["cnonce"] == "" {
+		return false
+	}
+	expected := md5Hash(md5Hash(username+":Antminer:"+password) + ":" + params["nonce"] + ":" + params["nc"] + ":" + params["cnonce"] + ":auth:" + md5Hash(method+":"+uri))
+	return params["response"] == expected
+}
+
+func (s *MinerState) boardSerial(index int) string {
+	if s.LoadMode {
+		return fmt.Sprintf("%s-board-%d", s.SerialNumber, index)
+	}
+	return fmt.Sprintf("SMTTYRHBDJAAI019%c", 'D'+index)
 }

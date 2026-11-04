@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"time"
 
 	"connectrpc.com/connect"
 	mdk "github.com/block/proto-fleet/sdk/mdk/generated/mdk/v2"
@@ -39,7 +40,11 @@ func registerConnectRoutes(mux *http.ServeMux, state *ContainerState) {
 func simulationInterceptor(state *ContainerState) connect.UnaryInterceptorFunc {
 	return func(next connect.UnaryFunc) connect.UnaryFunc {
 		return func(ctx context.Context, req connect.AnyRequest) (res connect.AnyResponse, err error) {
-			state.serve(!boundToGET(req.Spec().Procedure), func() { res, err = next(ctx, req) })
+			started := time.Now()
+			defer func() { state.metrics.record(req.Spec().Procedure, started, err != nil) }()
+			if serveErr := state.serve(ctx, !boundToGET(req.Spec().Procedure), func() { res, err = next(ctx, req) }); serveErr != nil {
+				err = status.FromContextError(serveErr).Err()
+			}
 			if err == nil {
 				return res, nil
 			}

@@ -41,7 +41,12 @@ func NewRESTApiHandler(state *ContainerState) *RESTApiHandler {
 func (h *RESTApiHandler) RegisterRoutes(mux *http.ServeMux) {
 	register := func(pattern string, handler http.HandlerFunc) {
 		mux.HandleFunc(pattern, func(w http.ResponseWriter, r *http.Request) {
-			h.state.serve(r.Method != http.MethodGet, func() { handler(w, r) })
+			started := time.Now()
+			response := &operationResponse{ResponseWriter: w}
+			if err := h.state.serve(r.Context(), r.Method != http.MethodGet, func() { handler(response, r) }); err != nil {
+				writeError(response, http.StatusRequestTimeout, err.Error())
+			}
+			h.state.metrics.record(pattern, started, response.status >= 400)
 		})
 	}
 
@@ -205,10 +210,11 @@ type moduleDTO struct {
 }
 
 type slotDTO struct {
-	BreakerID   string        `json:"breakerId"`
-	Hashboard   *hashboardDTO `json:"hashboard,omitempty"`
-	Occupied    bool          `json:"occupied"`
-	PowerFeedID string        `json:"powerFeedId"`
+	ConfiguredLocation *hashboardLoc `json:"configuredLocation,omitempty"`
+	BreakerID          string        `json:"breakerId"`
+	Hashboard          *hashboardDTO `json:"hashboard,omitempty"`
+	Occupied           bool          `json:"occupied"`
+	PowerFeedID        string        `json:"powerFeedId"`
 }
 
 type hashboardDTO struct {
@@ -664,9 +670,10 @@ func (s *ContainerState) containerMapDTO() containerMapResponse {
 			md := moduleDTO{ID: module.ID}
 			for _, slot := range module.Slots {
 				sd := slotDTO{
-					BreakerID:   slot.BreakerID,
-					Occupied:    slot.Occupied,
-					PowerFeedID: slot.PowerFeedID,
+					ConfiguredLocation: &hashboardLoc{Tank: tank.ID, Module: module.ID, HashboardPosition: int64str(slot.Index + 1), PowerFeedID: slot.PowerFeedID},
+					BreakerID:          slot.BreakerID,
+					Occupied:           slot.Occupied,
+					PowerFeedID:        slot.PowerFeedID,
 				}
 				if slot.Board != nil {
 					sd.Hashboard = s.hashboardDTO(slot.Board)
@@ -677,6 +684,7 @@ func (s *ContainerState) containerMapDTO() containerMapResponse {
 						sd.Hashboard.ModuleID = ""
 						sd.Hashboard.Source = "HASHBOARD_SOURCE_INVENTORY"
 						sd.BreakerID, sd.PowerFeedID = "", ""
+						sd.ConfiguredLocation = nil
 						unlocated = append(unlocated, sd)
 						remaining--
 						continue

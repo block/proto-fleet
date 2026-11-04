@@ -10,6 +10,7 @@ import sys
 
 MIGRATIONS = "server/migrations/"
 CURRENT = MIGRATIONS + "current/"
+LATEST = MIGRATIONS + "LATEST"
 NAME = re.compile(r"([0-9]{6})_(shared|internal)_[a-z0-9_]+\.(up|down)\.sql")
 REQUIRES = re.compile(rb"^-- requires-shared: ([0-9]+)\r?$", re.MULTILINE)
 
@@ -34,6 +35,16 @@ RENAMED_MIGRATIONS = {
     CURRENT + "001026_internal_container_telemetry_compression.down.sql": (
         CURRENT + "001027_internal_container_telemetry_compression.down.sql",
         "8ab20fb3ec8d6de03966b3e2601e83b0f03eb16cde4e28b723f55be6cba9c0e2",
+    ),
+    # Device-write outcomes merged first at 1057. Preserve that checkpoint and
+    # move only the unchanged topology-reference pair past the collision.
+    CURRENT + "001057_internal_bound_topology_reference_planning.up.sql": (
+        CURRENT + "001058_internal_bound_topology_reference_planning.up.sql",
+        "d00fd55b0aaf5ed1ce0c31b5993412fdae83fc170682f404be3ee8e3ed0cce00",
+    ),
+    CURRENT + "001057_internal_bound_topology_reference_planning.down.sql": (
+        CURRENT + "001058_internal_bound_topology_reference_planning.down.sql",
+        "7ab7b00e6956fdf83b8552ad6eba2b5912ee4705a886b4a80363c9ab8968f00d",
     ),
 }
 
@@ -65,7 +76,7 @@ def revision_sql(repo, ref):
     }
 
 
-def active_migrations(files, public_only=False):
+def active_migrations(files):
     versions = {}
     for path, body in sorted(files.items()):
         if not path.startswith(CURRENT):
@@ -79,8 +90,6 @@ def active_migrations(files, public_only=False):
             raise ValueError(
                 f"migration {version}: numbers below 1000 are reserved for legacy history"
             )
-        if public_only and kind == "internal":
-            raise ValueError(f"private migration in public source: {path}")
         pair = versions.setdefault(version, {})
         if direction in pair:
             raise ValueError(f"duplicate migration version {version}: {path}")
@@ -104,7 +113,7 @@ def active_migrations(files, public_only=False):
     return versions
 
 
-def check(repo, base_ref, public_ref=None, public_only=False):
+def check(repo, base_ref, public_ref=None):
     base = revision_sql(repo, base_ref)
     local = {}
     for path in (repo / MIGRATIONS).rglob("*.sql"):
@@ -140,7 +149,7 @@ def check(repo, base_ref, public_ref=None, public_only=False):
     for path in local.keys() - base.keys():
         if pathlib.PurePosixPath(path).parent.as_posix() == MIGRATIONS.rstrip("/"):
             raise ValueError(f"new migrations belong in {CURRENT}: {path}")
-    current = active_migrations(local, public_only)
+    current = active_migrations(local)
     if not current:
         raise ValueError("active migration source is empty")
     if (
@@ -148,7 +157,17 @@ def check(repo, base_ref, public_ref=None, public_only=False):
         and current[max(current)]["up"][2] != "internal"
     ):
         raise ValueError("internal releases must end at a private checkpoint")
-    previous = active_migrations(base, public_only)
+    latest = repo / LATEST
+    expected = pathlib.PurePosixPath(current[max(current)]["up"][0]).name.removesuffix(
+        ".up.sql"
+    )
+    if not latest.is_file() or latest.is_symlink():
+        raise ValueError(f"{LATEST} must be a regular file containing {expected}")
+    if latest.read_text() != expected + "\n":
+        raise ValueError(
+            f"{LATEST} must contain exactly {expected} followed by a newline"
+        )
+    previous = active_migrations(base)
     high_water = max(previous, default=-1)
     for version in current.keys() - previous.keys():
         if version <= high_water:
@@ -156,7 +175,7 @@ def check(repo, base_ref, public_ref=None, public_only=False):
                 f"new migration {version} is below merged high-water {high_water}"
             )
     if public_ref:
-        public = active_migrations(revision_sql(repo, public_ref), public_only=True)
+        public = active_migrations(revision_sql(repo, public_ref))
         shared = sorted(
             version for version, pair in current.items() if pair["up"][2] == "shared"
         )
@@ -181,16 +200,11 @@ def main():
         help="merged/released Git revision whose SQL is immutable",
     )
     parser.add_argument(
-        "--public-ref", help="exact fetched public commit to compare; internal CI only"
-    )
-    parser.add_argument(
-        "--public-only",
-        action="store_true",
-        help="reject private SQL in the active source",
+        "--public-ref", help="frozen public migration history to compare (optional)"
     )
     args = parser.parse_args()
     try:
-        check(args.repo.resolve(), args.base_ref, args.public_ref, args.public_only)
+        check(args.repo.resolve(), args.base_ref, args.public_ref)
     except ValueError as error:
         print(f"Migration history check failed: {error}", file=sys.stderr)
         return 1

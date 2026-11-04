@@ -57,6 +57,7 @@ antminer_plugin:
   - just/go-plugin.just
   - proto/**
   - plugin/antminer/**
+  - server/fake-antminer/**
   - server/go.mod
   - server/go.sum
   - server/sdk/**
