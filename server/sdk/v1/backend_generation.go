@@ -19,8 +19,13 @@ func backendGenerationRejected() error {
 	if err != nil {
 		panic(err)
 	}
-	return fmt.Errorf("select SDK backend: %w", rejection.Err())
+	return fmt.Errorf("select SDK backend: %w", &backendGenerationError{err: rejection.Err()})
 }
+
+type backendGenerationError struct{ err error }
+
+func (e *backendGenerationError) Error() string { return e.err.Error() }
+func (e *backendGenerationError) Unwrap() error { return e.err }
 
 // IsBackendGenerationRejected identifies the SDK's pre-backend admission failure.
 // Arbitrary driver FailedPrecondition errors do not establish a known outcome.

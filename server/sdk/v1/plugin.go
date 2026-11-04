@@ -37,7 +37,7 @@ func grpcStatusError(label string, code codes.Code, message string) error {
 
 // Preserve execution evidence independently of the public error code.
 func sdkErrorToGRPCStatus(err error) error {
-	return WithWriteEvidence(sdkErrorStatus(err), WriteEvidence(err))
+	return sdkServerError(WithWriteEvidence(sdkErrorStatus(err), localWriteEvidence(err)))
 }
 
 func sdkErrorStatus(err error) error {
@@ -218,7 +218,7 @@ func (s *DriverGRPCServer) retainClosingDeviceLocked(deviceID string, device Dev
 func (s *DriverGRPCServer) Handshake(ctx context.Context, _ *emptypb.Empty) (*pb.HandshakeResponse, error) {
 	handshake, err := s.Impl.Handshake(ctx)
 	if err != nil {
-		return nil, err
+		return nil, sdkServerError(err)
 	}
 
 	return &pb.HandshakeResponse{
@@ -230,7 +230,7 @@ func (s *DriverGRPCServer) Handshake(ctx context.Context, _ *emptypb.Empty) (*pb
 func (s *DriverGRPCServer) DescribeDriver(ctx context.Context, _ *emptypb.Empty) (*pb.DescribeDriverResponse, error) {
 	handshake, caps, err := s.Impl.DescribeDriver(ctx)
 	if err != nil {
-		return nil, err
+		return nil, sdkServerError(err)
 	}
 
 	reuseCaps := make(Capabilities, len(caps)+1)
@@ -592,7 +592,7 @@ func (s *DriverGRPCServer) GetCoolingMode(ctx context.Context, req *pb.DeviceRef
 
 	mode, err := device.GetCoolingMode(ctx)
 	if err != nil {
-		return nil, err
+		return nil, sdkServerError(err)
 	}
 
 	// #nosec G115 -- CoolingMode enum values are small constants (0-3), safe for int32
@@ -640,7 +640,7 @@ func (s *DriverGRPCServer) GetMiningPools(ctx context.Context, req *pb.GetMining
 
 	pools, err := device.GetMiningPools(ctx)
 	if err != nil {
-		return nil, err
+		return nil, sdkServerError(err)
 	}
 
 	return &pb.GetMiningPoolsResponse{Pools: configuredPoolsToProto(pools)}, nil
@@ -718,7 +718,7 @@ func (s *DriverGRPCServer) DownloadLogs(ctx context.Context, req *pb.DownloadLog
 
 	logData, moreData, err := device.DownloadLogs(ctx, since, req.BatchLogUuid)
 	if err != nil {
-		return nil, err
+		return nil, sdkServerError(err)
 	}
 
 	return &pb.DownloadLogsResponse{
@@ -782,7 +782,7 @@ func (s *DriverGRPCServer) GetFirmwareUpdateStatus(ctx context.Context, req *pb.
 
 	fwStatus, err := provider.GetFirmwareUpdateStatus(ctx)
 	if err != nil {
-		return nil, err
+		return nil, sdkServerError(err)
 	}
 	if fwStatus == nil {
 		return &pb.GetFirmwareUpdateStatusResponse{}, nil
@@ -902,7 +902,7 @@ func (s *DriverGRPCServer) GetTimeSeriesData(ctx context.Context, req *pb.GetTim
 		return nil, sdkErrorToGRPCStatus(NewErrUnsupportedCapability("time_series_data"))
 	}
 	if err != nil {
-		return nil, err
+		return nil, sdkServerError(err)
 	}
 
 	pbSeries := make([]*pb.DeviceMetrics, len(series))
@@ -927,7 +927,7 @@ func (s *DriverGRPCServer) GetDeviceWebViewURL(ctx context.Context, req *pb.GetD
 		return nil, sdkErrorToGRPCStatus(NewErrUnsupportedCapability("web_view_url"))
 	}
 	if err != nil {
-		return nil, err
+		return nil, sdkServerError(err)
 	}
 
 	return &pb.GetDeviceWebViewURLResponse{
@@ -955,7 +955,7 @@ func (s *DriverGRPCServer) BatchStatus(ctx context.Context, req *pb.BatchStatusR
 		return nil, sdkErrorToGRPCStatus(NewErrUnsupportedCapability("batch_status"))
 	}
 	if err != nil {
-		return nil, err
+		return nil, sdkServerError(err)
 	}
 
 	batch := &pb.StatusBatchResponse{
@@ -988,7 +988,7 @@ func (s *DriverGRPCServer) Subscribe(req *pb.SubscribeRequest, stream pb.Driver_
 		return sdkErrorToGRPCStatus(NewErrUnsupportedCapability("streaming"))
 	}
 	if err != nil {
-		return err
+		return sdkServerError(err)
 	}
 
 	for {

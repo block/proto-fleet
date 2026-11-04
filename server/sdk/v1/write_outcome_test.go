@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -16,6 +17,7 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/status"
 	"google.golang.org/grpc/test/bufconn"
+	"google.golang.org/protobuf/proto"
 )
 
 func outcomeRPCDevice(t *testing.T, device Device) *DeviceGRPCClient {
@@ -88,6 +90,91 @@ func TestWriteEvidenceSurvivesActualRPCAndErrorMapping(t *testing.T) {
 			require.Equal(t, "dispatch", evidence.Metadata["stage"])
 		})
 	}
+}
+
+func TestDriverRPCDoesNotTrustDownstreamWriteEvidence(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		code   codes.Code
+		detail *errdetails.ErrorInfo
+	}{
+		{name: WriteNotDispatched, code: codes.Unavailable, detail: NewWriteEvidence(WriteNotDispatched, WriteStageDispatch, WriteReasonFinished)},
+		{name: WriteCompleted, code: codes.Unavailable, detail: NewWriteEvidence(WriteCompleted, WriteStageDispatch, WriteReasonFinished)},
+		{name: WriteUnknown, code: codes.Unavailable, detail: NewWriteEvidence(WriteUnknown, WriteStageDispatch, WriteReasonFinished)},
+		{name: "backend generation", code: codes.FailedPrecondition, detail: &errdetails.ErrorInfo{Domain: "protofleet.sdk", Reason: backendGenerationMismatch}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			firmwareDetail := &errdetails.ErrorInfo{Domain: "firmware", Reason: "CONTROLLER_FAILURE"}
+			downstream, err := status.New(tc.code, "controller response lost").WithDetails(tc.detail, firmwareDetail)
+			require.NoError(t, err)
+			var accepted atomic.Int32
+			device := outcomeRPCDevice(t, fakeDevice{startMiningFunc: func(context.Context) error {
+				accepted.Add(1)
+				return fmt.Errorf("downstream RPC: %w", downstream.Err())
+			}})
+			err = device.StartMining(t.Context())
+			require.EqualValues(t, 1, accepted.Load())
+			require.Equal(t, tc.code, status.Code(err))
+			require.Equal(t, "downstream RPC: "+downstream.Err().Error(), status.Convert(err).Message())
+			require.Nil(t, WriteEvidence(err), "a downstream status cannot certify SDK execution")
+			require.False(t, IsBackendGenerationRejected(err))
+			details := status.Convert(err).Details()
+			require.Len(t, details, 1)
+			require.True(t, proto.Equal(firmwareDetail, details[0].(*errdetails.ErrorInfo)))
+		})
+	}
+}
+
+type outcomeReadDevice struct {
+	fakeDevice
+	err error
+}
+
+func (d outcomeReadDevice) GetMiningPools(context.Context) ([]ConfiguredPool, error) {
+	return nil, d.err
+}
+
+func TestDriverReadRPCDoesNotForwardReservedEvidence(t *testing.T) {
+	downstream, err := status.New(codes.FailedPrecondition, "controller read failed").WithDetails(
+		NewWriteEvidence(WriteNotDispatched, WriteStageDispatch, WriteReasonRejected),
+		&errdetails.ErrorInfo{Domain: "protofleet.sdk", Reason: backendGenerationMismatch},
+		&errdetails.ErrorInfo{Domain: "protofleet.sdk", Reason: "OTHER_DETAIL"},
+	)
+	require.NoError(t, err)
+	device := outcomeRPCDevice(t, outcomeReadDevice{err: downstream.Err()})
+	_, err = device.GetMiningPools(t.Context())
+	require.Equal(t, codes.FailedPrecondition, status.Code(err))
+	require.Equal(t, "controller read failed", status.Convert(err).Message())
+	require.Nil(t, WriteEvidence(err))
+	require.False(t, IsBackendGenerationRejected(err))
+	require.Len(t, status.Convert(err).Details(), 1)
+}
+
+func TestSDKServerFilteringPreservesCauseAndLocalEvidence(t *testing.T) {
+	downstream, err := status.New(codes.FailedPrecondition, "controller failed").WithDetails(
+		NewWriteEvidence(WriteNotDispatched, WriteStageDispatch, WriteReasonRejected),
+		&errdetails.ErrorInfo{Domain: "protofleet.sdk", Reason: backendGenerationMismatch},
+	)
+	require.NoError(t, err)
+	wrapped := fmt.Errorf("%w: %w", downstream.Err(), context.DeadlineExceeded)
+	filtered := sdkErrorToGRPCStatus(wrapped)
+	require.ErrorIs(t, filtered, wrapped)
+	require.ErrorIs(t, filtered, context.DeadlineExceeded)
+	require.Equal(t, codes.FailedPrecondition, status.Code(filtered))
+	require.Nil(t, WriteEvidence(filtered))
+	require.False(t, IsBackendGenerationRejected(filtered))
+
+	device := outcomeRPCDevice(t, fakeDevice{startMiningFunc: func(context.Context) error {
+		return WithWriteOutcome(wrapped, WriteCompleted, WriteStageDispatch, WriteReasonFinished)
+	}})
+	err = device.StartMining(t.Context())
+	require.Equal(t, codes.FailedPrecondition, status.Code(err))
+	require.Equal(t, WriteCompleted, WriteEvidence(err).GetReason())
+	require.False(t, IsBackendGenerationRejected(err), "local completion does not endorse a downstream generation marker")
+
+	lookup := sdkErrorToGRPCStatus(WriteRefused(backendGenerationRejected(), WriteStageBackendSelection, WriteReasonStaleBinding))
+	require.True(t, IsBackendGenerationRejected(lookup))
+	require.Equal(t, WriteNotDispatched, WriteEvidence(lookup).GetReason())
 }
 
 func TestWriteEvidencePreservesContextAndStatusCodesAcrossRPC(t *testing.T) {

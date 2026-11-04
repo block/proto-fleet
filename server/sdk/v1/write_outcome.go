@@ -116,15 +116,75 @@ func (e *writeOutcomeError) GRPCStatus() *status.Status {
 	return withEvidence
 }
 
+func localWriteEvidence(err error) *errdetails.ErrorInfo {
+	var local *writeOutcomeError
+	if errors.As(err, &local) {
+		return proto.CloneOf(local.evidence)
+	}
+	return nil
+}
+
+// SDK-owned receipts must originate in this process. A controller's gRPC
+// status may use the same detail names without proving SDK execution state.
+func sdkServerError(err error) error {
+	if err == nil {
+		return nil
+	}
+	var localOutcome *writeOutcomeError
+	var localGeneration *backendGenerationError
+	errors.As(err, &localOutcome)
+	errors.As(err, &localGeneration)
+	base, ok := status.FromError(err)
+	if !ok {
+		return err
+	}
+	wire := base.Proto()
+	details := wire.Details[:0]
+	filtered := false
+	for _, detail := range wire.Details {
+		var info errdetails.ErrorInfo
+		if detail.UnmarshalTo(&info) == nil && (info.Domain == writeOutcomeDomain ||
+			(info.Domain == "protofleet.sdk" && info.Reason == backendGenerationMismatch)) {
+			filtered = true
+			continue
+		}
+		details = append(details, detail)
+	}
+	if !filtered {
+		return err
+	}
+	wire.Details = details
+	filteredStatus := status.FromProto(wire)
+	if localOutcome != nil {
+		if withEvidence, addErr := filteredStatus.WithDetails(localOutcome.evidence); addErr == nil {
+			filteredStatus = withEvidence
+		}
+	}
+	if localGeneration != nil {
+		if withGeneration, addErr := filteredStatus.WithDetails(&errdetails.ErrorInfo{Domain: "protofleet.sdk", Reason: backendGenerationMismatch}); addErr == nil {
+			filteredStatus = withGeneration
+		}
+	}
+	return &sdkFilteredError{err: err, status: filteredStatus}
+}
+
+type sdkFilteredError struct {
+	err    error
+	status *status.Status
+}
+
+func (e *sdkFilteredError) Error() string              { return e.err.Error() }
+func (e *sdkFilteredError) Unwrap() error              { return e.err }
+func (e *sdkFilteredError) GRPCStatus() *status.Status { return e.status }
+
 // WriteEvidence accepts only the SDK's structured contract. Codes, message
 // text, unknown versions, and extra metadata do not certify execution outcomes.
 func WriteEvidence(err error) *errdetails.ErrorInfo {
 	if err == nil {
 		return nil
 	}
-	var local *writeOutcomeError
-	if errors.As(err, &local) {
-		return proto.CloneOf(local.evidence)
+	if local := localWriteEvidence(err); local != nil {
+		return local
 	}
 	s, ok := status.FromError(err)
 	if !ok {

@@ -39,7 +39,10 @@ evidence, independent of their public error code:
   also remains uncertain. Transport codes and error-message text are insufficient.
 
 The SDK carries this contract in `google.rpc.ErrorInfo` status details under
-`protofleet.sdk.write`. Fleet Node forwards the same outcome, stage and reason in
+`protofleet.sdk.write`. The SDK server strips reserved outcome and backend-generation
+details from downstream errors. Only local SDK wrappers can create these receipts;
+a firmware controller cannot certify its own SDK execution state.
+Fleet Node forwards the same outcome, stage and reason in
 `ControlAck.write_outcome`. Old nodes without evidence remain conservative.
 The gateway bounds evidence field sizes. Unrecognized identifiers do not discard
 the acknowledgement's result or payload; failed writes with such evidence remain
