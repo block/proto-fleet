@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, onTestFinished, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
 
 import { describeNextScheduleWindow } from "@/protoFleet/api/curtailmentSchedules";
@@ -63,6 +63,12 @@ describe("CurtailmentSchedulesContent", () => {
   });
 
   it("creates a one-time schedule after validating the form", async () => {
+    // The form defaults to 17:00-21:00 today, which must still be in the future.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-06-11T12:00:00"));
+    onTestFinished(() => {
+      vi.useRealTimers();
+    });
     const user = userEvent.setup();
     const onCreateSchedule = vi.fn().mockResolvedValue(undefined);
     render(
