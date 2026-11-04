@@ -14,7 +14,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/testutil"
 )
 
-func TestTelemetryStore_FleetMetricRollupServesOrgBodyAndRawTail(t *testing.T) {
+func TestTelemetryStore_FleetMetricRollupServesOrgCoveredMiddleAndRawEdges(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping integration test in short mode")
 	}
@@ -41,8 +41,8 @@ func TestTelemetryStore_FleetMetricRollupServesOrgBodyAndRawTail(t *testing.T) {
 	})
 
 	start := fleetRollupTestStartTime()
-	for i := range 5 {
-		at := start.Add(time.Duration(i)*models.FleetMetricRollupBucketDuration + 10*time.Second)
+	for i := range 6 {
+		at := start.Add(time.Duration(i) * models.FleetMetricRollupBucketDuration)
 		require.NoError(t, store.StoreDeviceMetrics(ctx,
 			modelsV2.DeviceMetrics{
 				DeviceIdentifier: deviceA.ID,
@@ -62,10 +62,17 @@ func TestTelemetryStore_FleetMetricRollupServesOrgBodyAndRawTail(t *testing.T) {
 		))
 	}
 
-	bodyEnd := start.Add(3 * models.FleetMetricRollupBucketDuration)
-	require.NoError(t, store.UpsertFleetMetricRollups(ctx, start, bodyEnd))
+	coverageStart := start.Add(models.FleetMetricRollupBucketDuration)
+	coverageEnd := start.Add(3 * models.FleetMetricRollupBucketDuration)
+	require.NoError(t, store.UpsertFleetMetricRollups(ctx, coverageStart, coverageEnd))
+	// Remove one covered bucket to prove the middle comes from rollups. Keep
+	// raw data at the left seam so an inclusive prefix would duplicate it.
+	_, err = db.ExecContext(ctx, `DELETE FROM device_metrics
+		WHERE device_identifier IN ($1, $2, $3) AND time >= $4 AND time < $5`,
+		deviceA.ID, deviceB.ID, otherDevice.ID, coverageStart.Add(models.FleetMetricRollupBucketDuration), coverageEnd)
+	require.NoError(t, err)
 
-	end := start.Add(5*models.FleetMetricRollupBucketDuration - time.Nanosecond)
+	end := start.Add(6*models.FleetMetricRollupBucketDuration - time.Nanosecond)
 	slide := models.FleetMetricRollupBucketDuration
 	result, err := store.GetCombinedMetrics(ctx, models.CombinedMetricsQuery{
 		OrganizationID:   orgID,
@@ -78,7 +85,7 @@ func TestTelemetryStore_FleetMetricRollupServesOrgBodyAndRawTail(t *testing.T) {
 		SlideInterval: &slide,
 	})
 	require.NoError(t, err)
-	require.Len(t, result.Metrics, 5)
+	require.Len(t, result.Metrics, 6)
 
 	for i, metric := range result.Metrics {
 		assert.Equal(t, models.MeasurementTypeHashrate, metric.MeasurementType)

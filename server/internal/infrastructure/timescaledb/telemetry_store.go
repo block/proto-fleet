@@ -760,10 +760,6 @@ func (s *TimescaleTelemetryStore) rawBucketAggregates(ctx context.Context, query
 	return buckets, nil
 }
 
-// bucketAggregatesPreferRollup serves dashboard-shaped org-wide fleet requests
-// from the app-maintained 90s rollup, plus the two newest complete buckets
-// from raw telemetry. Device-list and site-scoped queries keep the raw path
-// because the rollup cannot enforce the service-resolved device predicate.
 func (s *TimescaleTelemetryStore) bucketAggregatesPreferRollup(ctx context.Context, query models.CombinedMetricsQuery, startTime, endTime time.Time, bucketDuration time.Duration) ([]rawMetricBucket, error) {
 	if !fleetMetricRollupEligible(query, startTime, endTime, bucketDuration) {
 		return s.rawBucketAggregates(ctx, query, startTime, endTime, bucketDuration)
@@ -784,7 +780,8 @@ func (s *TimescaleTelemetryStore) bucketAggregatesPreferRollup(ctx context.Conte
 		return s.rawBucketAggregates(ctx, query, startTime, endTime, bucketDuration)
 	}
 	requiredLatest := bodyEndExclusive.Add(-models.FleetMetricRollupBucketDuration)
-	if coverage.EarliestBucket.After(bodyStart) || coverage.LatestBucket.Before(requiredLatest) {
+	rollupStart, rollupEnd, ok := fleetMetricRollupCoveredWindow(bodyStart, bodyEndExclusive, coverage.EarliestBucket, coverage.LatestBucket)
+	if !ok {
 		s.logger.Warn("fleet metric rollup coverage incomplete, falling back to raw",
 			slog.Int64("org_id", query.OrganizationID),
 			slog.Bool("site_scoped", query.DeviceListFromSiteScope),
@@ -796,22 +793,29 @@ func (s *TimescaleTelemetryStore) bucketAggregatesPreferRollup(ctx context.Conte
 		return s.rawBucketAggregates(ctx, query, startTime, endTime, bucketDuration)
 	}
 
-	body, err := s.readFleetMetricRollupBuckets(ctx, query, bodyStart, bodyEndExclusive)
+	body, err := s.readFleetMetricRollupBuckets(ctx, query, rollupStart, rollupEnd)
 	if err != nil {
 		s.logger.Warn("fleet metric rollup read failed, falling back to raw",
 			slog.Int64("org_id", query.OrganizationID),
 			slog.Bool("site_scoped", query.DeviceListFromSiteScope),
-			slog.Time("start_time", bodyStart),
-			slog.Time("end_time", bodyEndExclusive),
+			slog.Time("start_time", rollupStart),
+			slog.Time("end_time", rollupEnd),
 			slog.String("error", err.Error()))
 		return s.rawBucketAggregates(ctx, query, startTime, endTime, bucketDuration)
 	}
 
-	tail, err := s.rawBucketAggregates(ctx, query, bodyEndExclusive, endTime, bucketDuration)
+	var head []rawMetricBucket
+	if rollupStart.After(startTime) {
+		head, err = s.rawBucketAggregates(ctx, query, startTime, rollupStart.Add(-time.Nanosecond), bucketDuration)
+		if err != nil {
+			return nil, err
+		}
+	}
+	tail, err := s.rawBucketAggregates(ctx, query, rollupEnd, endTime, bucketDuration)
 	if err != nil {
 		return nil, err
 	}
-	return append(body, tail...), nil
+	return append(append(head, body...), tail...), nil
 }
 
 func fleetMetricRollupEligible(query models.CombinedMetricsQuery, startTime, endTime time.Time, bucketDuration time.Duration) bool {
@@ -844,6 +848,17 @@ func fleetRollupBucketCountExclusive(startTime, endTime time.Time) int64 {
 		return 0
 	}
 	return rawMetricBucketCount(startTime, endTime.Add(-time.Nanosecond), models.FleetMetricRollupBucketDuration)
+}
+
+func fleetMetricRollupCoveredWindow(bodyStart, bodyEndExclusive, earliestBucket, latestBucket time.Time) (time.Time, time.Time, bool) {
+	if earliestBucket.After(bodyStart) {
+		bodyStart = earliestBucket
+	}
+	coverageEnd := latestBucket.Add(models.FleetMetricRollupBucketDuration)
+	if coverageEnd.Before(bodyEndExclusive) {
+		bodyEndExclusive = coverageEnd
+	}
+	return bodyStart, bodyEndExclusive, bodyEndExclusive.After(bodyStart)
 }
 
 func (s *TimescaleTelemetryStore) readFleetMetricRollupBuckets(ctx context.Context, query models.CombinedMetricsQuery, startTime, endTime time.Time) ([]rawMetricBucket, error) {

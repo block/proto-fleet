@@ -225,6 +225,36 @@ func TestFleetMetricRollupWindows(t *testing.T) {
 	assert.False(t, ok, "two-bucket windows are served entirely from raw tail")
 }
 
+func TestFleetMetricRollupCoveredWindow(t *testing.T) {
+	start := time.Date(2026, time.January, 10, 12, 0, 0, 0, time.UTC)
+	bucket := models.FleetMetricRollupBucketDuration
+	for _, tt := range []struct {
+		name               string
+		earliest, latest   int
+		wantStart, wantEnd int
+		wantCovered        bool
+	}{
+		{"complete body", 0, 2, 0, 3, true},
+		{"coverage extends beyond body", -2, 8, 0, 3, true},
+		{"raw prefix", 1, 2, 1, 3, true},
+		{"lagging coverage", 0, 1, 0, 2, true},
+		{"raw edges around one covered bucket", 1, 1, 1, 2, true},
+		{"latest is first requested bucket", -1, 0, 0, 1, true},
+		{"coverage ends before body", -3, -1, 0, 0, false},
+		{"coverage begins at raw tail", 3, 5, 0, 0, false},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			bodyStart, bodyEnd, covered := fleetMetricRollupCoveredWindow(start, start.Add(3*bucket),
+				start.Add(time.Duration(tt.earliest)*bucket), start.Add(time.Duration(tt.latest)*bucket))
+			require.Equal(t, tt.wantCovered, covered)
+			if covered {
+				assert.Equal(t, start.Add(time.Duration(tt.wantStart)*bucket), bodyStart)
+				assert.Equal(t, start.Add(time.Duration(tt.wantEnd)*bucket), bodyEnd)
+			}
+		})
+	}
+}
+
 func TestCompleteRawBucketWindow(t *testing.T) {
 	// Arrange: grid-aligned reference on the 90s time_bucket grid
 	aligned := time.Date(2026, time.January, 10, 12, 0, 0, 0, time.UTC)
