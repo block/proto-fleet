@@ -10,6 +10,7 @@ import sys
 
 MIGRATIONS = "server/migrations/"
 CURRENT = MIGRATIONS + "current/"
+LATEST = MIGRATIONS + "LATEST"
 NAME = re.compile(r"([0-9]{6})_(shared|internal)_[a-z0-9_]+\.(up|down)\.sql")
 REQUIRES = re.compile(rb"^-- requires-shared: ([0-9]+)\r?$", re.MULTILINE)
 
@@ -158,6 +159,17 @@ def check(repo, base_ref, public_ref=None, public_only=False):
         and current[max(current)]["up"][2] != "internal"
     ):
         raise ValueError("internal releases must end at a private checkpoint")
+    if not public_only:
+        latest = repo / LATEST
+        expected = pathlib.PurePosixPath(
+            current[max(current)]["up"][0]
+        ).name.removesuffix(".up.sql")
+        if not latest.is_file() or latest.is_symlink():
+            raise ValueError(f"{LATEST} must be a regular file containing {expected}")
+        if latest.read_text() != expected + "\n":
+            raise ValueError(
+                f"{LATEST} must contain exactly {expected} followed by a newline"
+            )
     previous = active_migrations(base, public_only)
     high_water = max(previous, default=-1)
     for version in current.keys() - previous.keys():

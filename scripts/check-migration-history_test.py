@@ -12,6 +12,7 @@ from unittest import mock
 
 CHECKER = pathlib.Path(__file__).with_name("check-migration-history.py")
 CURRENT = "server/migrations/current/"
+LATEST = "server/migrations/LATEST"
 SPEC = importlib.util.spec_from_file_location("migration_history", CHECKER)
 HISTORY = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(HISTORY)
@@ -42,6 +43,9 @@ class MigrationHistoryTest(unittest.TestCase):
     def pair(self, name, body="SELECT 1;\n", directory=CURRENT):
         for direction in ("up", "down"):
             self.write(f"{directory}{name}.{direction}.sql", body)
+        if directory == CURRENT:
+            latest = max((self.repo / CURRENT).glob("*.up.sql"))
+            self.write(LATEST, latest.name.removesuffix(".up.sql") + "\n")
 
     def commit(self):
         self.git("add", ".")
@@ -80,6 +84,52 @@ class MigrationHistoryTest(unittest.TestCase):
         self.pair("001002_shared_pending")
         self.pair("001003_internal_checkpoint", "-- requires-shared: 1002\nSELECT 1;\n")
         self.check("--public-ref", self.base)
+
+    def test_latest_marker_missing_stale_or_wrong_name(self):
+        self.pair("001001_shared_next")
+        for marker in (None, "001000_shared_baseline\n", "001001_shared_other\n"):
+            with self.subTest(marker=marker):
+                if marker is None:
+                    (self.repo / LATEST).unlink()
+                else:
+                    self.write(LATEST, marker)
+                self.check(error="LATEST")
+        self.write(LATEST, "001001_shared_next\n")
+        self.check()
+
+    def test_public_promotion_does_not_require_allocation_marker(self):
+        self.pair("001003_shared_promoted")
+        (self.repo / LATEST).unlink()
+        self.check("--public-only")
+
+    def test_concurrent_allocations_conflict_and_require_unique_pairs(self):
+        base = self.temp.name + "/base-marker"
+        ours = self.temp.name + "/ours-marker"
+        theirs = self.temp.name + "/theirs-marker"
+        pathlib.Path(base).write_bytes((self.repo / LATEST).read_bytes())
+        self.pair("001001_shared_first")
+        pathlib.Path(ours).write_bytes((self.repo / LATEST).read_bytes())
+        self.pair("001001_shared_second")
+        pathlib.Path(theirs).write_bytes((self.repo / LATEST).read_bytes())
+        merge = subprocess.run(
+            ["git", "merge-file", "-p", ours, base, theirs],
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        self.assertEqual(merge.returncode, 1, merge.stderr)
+        self.assertIn("<<<<<<<", merge.stdout)
+
+        # Choosing either marker cannot hide the duplicate SQL versions.
+        for marker in ("001001_shared_first", "001001_shared_second"):
+            self.write(LATEST, marker + "\n")
+            self.check(error="duplicate migration version")
+        for direction in ("up", "down"):
+            (self.repo / f"{CURRENT}001001_shared_second.{direction}.sql").rename(
+                self.repo / f"{CURRENT}001002_shared_second.{direction}.sql"
+            )
+        self.write(LATEST, "001002_shared_second\n")
+        self.check()
 
     def test_missing_direction(self):
         self.write(CURRENT + "001001_shared_next.up.sql", "SELECT 1;")
@@ -207,6 +257,7 @@ class MigrationHistoryTest(unittest.TestCase):
                 HISTORY.check(self.repo, self.base)
             for source, (target, _) in renames.items():
                 (self.repo / source).rename(self.repo / target)
+            self.write(LATEST, new.removeprefix(CURRENT) + "\n")
             HISTORY.check(self.repo, self.base)
             HISTORY.check(self.repo, before_collision)
 
@@ -268,6 +319,7 @@ class MigrationHistoryTest(unittest.TestCase):
             (self.repo / f"{old}.{direction}.sql").rename(
                 self.repo / f"{new}.{direction}.sql"
             )
+        self.write(LATEST, new.removeprefix(CURRENT) + "\n")
         self.check()
         HISTORY.check(self.repo, before_collision)
 
