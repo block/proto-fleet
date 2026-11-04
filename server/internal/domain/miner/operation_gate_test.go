@@ -108,7 +108,7 @@ func TestCachedRemoteHandleRejectsChangedRouteBeforeNodeSend(t *testing.T) {
 			case "deleted":
 				exec("UPDATE device SET deleted_at=statement_timestamp() WHERE id=$1", deviceID)
 			}
-			require.Error(t, handle.Reboot(t.Context()))
+			require.ErrorIs(t, handle.Reboot(t.Context()), devicewrite.ErrStaleBinding)
 			require.False(t, sender.called, "a stale remote descriptor must not reach the node")
 		})
 	}
