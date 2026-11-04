@@ -359,17 +359,14 @@ func TestFleetNodeRoutePreparedPlanReadsCurrentBinding(t *testing.T) {
 	_, err = reader.ExecContext(t.Context(), "SET plan_cache_mode=force_generic_plan")
 	require.NoError(t, err)
 	queries := sqlc.New(reader)
-	var before sqlc.GetFleetNodeTelemetryRouteByDeviceIdentifierRow
-	for range 10 {
-		before, err = queries.GetFleetNodeTelemetryRouteByDeviceIdentifier(t.Context(), identifier)
-		require.NoError(t, err)
-	}
+	before, err := queries.GetFleetNodeTelemetryRouteByDeviceIdentifier(t.Context(), identifier)
+	require.NoError(t, err)
 	var generic int
 	require.NoError(t, reader.QueryRowContext(t.Context(), `SELECT sum(generic_plans) FROM pg_prepared_statements
   WHERE statement LIKE '-- name: GetFleetNodeTelemetryRouteByDeviceIdentifier%'`).Scan(&generic))
 	require.Positive(t, generic)
 	require.Equal(t, nodeID, before.FleetNodeID)
-	require.Equal(t, int64(0), before.WriteEpoch)
+	require.Zero(t, before.WriteEpoch)
 
 	require.NoError(t, writer.UpsertMinerCredentials(t.Context(), sqlc.UpsertMinerCredentialsParams{DeviceID: deviceID, UsernameEnc: "rotated", PasswordEnc: "rotated"}))
 	epoch, err := devicewrite.NewService(conn).Reserve(t.Context(), 1, deviceID)
@@ -410,12 +407,12 @@ func TestFleetNodeRoutePreparedPlanReadsCurrentBinding(t *testing.T) {
 		require.Equal(t, otherNode, row.FleetNodeID)
 		require.False(t, row.CredentialVersion.Valid)
 		require.False(t, row.PasswordEnc.Valid)
-		require.Equal(t, int64(0), row.WriteEpoch)
+		require.Zero(t, row.WriteEpoch)
 	}
 	checkOtherOrg(queries)
 
-	// Connection loss discards the prepared plan. A replacement session must read
-	// the same current binding; this exercises reconnect, not a primary promotion.
+	// Connection loss discards the prepared plan; a replacement session must read
+	// the same binding.
 	var pid int
 	require.NoError(t, reader.QueryRowContext(t.Context(), "SELECT pg_backend_pid()").Scan(&pid))
 	var terminated bool

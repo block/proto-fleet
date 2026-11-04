@@ -241,17 +241,17 @@ WITH route AS MATERIALIZED (
         AND fn.enrollment_status = 'CONFIRMED'
 )
 SELECT
-    d.fleet_node_id,
-    d.id,
-    d.device_identifier,
-    d.site_id,
+    r.fleet_node_id,
+    r.id,
+    r.device_identifier,
+    r.site_id,
     dd.device_class,
     dd.model,
     dd.manufacturer,
     dd.driver_name,
-    d.org_id,
-    d.serial_number,
-    d.mac_address,
+    r.org_id,
+    r.serial_number,
+    r.mac_address,
     mc.username_enc,
     mc.password_enc,
     dd.ip_address,
@@ -261,14 +261,14 @@ SELECT
     dd.rpc_tls,
     dd.endpoints::text AS endpoints,
     dd.firmware_version,
-    d.discovered_device_id,
-    d.paired_at,
+    r.discovered_device_id,
+    r.paired_at,
     mc.updated_at AS credential_version,
     COALESCE(f.epoch,0)::bigint AS write_epoch
-FROM route d
-JOIN discovered_device dd ON dd.id = d.discovered_device_id
-LEFT JOIN miner_credentials mc ON d.id = mc.device_id
-LEFT JOIN device_write_fence f ON f.device_id=d.id AND f.organization_id=d.org_id
+FROM route r
+JOIN discovered_device dd ON dd.id = r.discovered_device_id
+LEFT JOIN miner_credentials mc ON r.id = mc.device_id
+LEFT JOIN device_write_fence f ON f.device_id=r.id AND f.organization_id=r.org_id
 LIMIT 1
 `
 
@@ -303,9 +303,8 @@ type GetFleetNodeTelemetryRouteByDeviceIdentifierRow struct {
 // telemetry sample and remote miner command routing. The server sends this to
 // the node because the node has no database, then validates that the returned
 // telemetry matches this trusted device identifier before storing it.
-// Bound join search to the identity/ownership lookup and then its metadata.
-// MATERIALIZED prevents inlining back into a seven-table join; this is evaluated
-// for every execution, so credentials and fencing remain fresh in this statement.
+// MATERIALIZED keeps the planner from flattening this back into a seven-table
+// join: ownership resolves first, then metadata, credentials and fence.
 func (q *Queries) GetFleetNodeTelemetryRouteByDeviceIdentifier(ctx context.Context, deviceIdentifier string) (GetFleetNodeTelemetryRouteByDeviceIdentifierRow, error) {
 	row := q.queryRow(ctx, q.getFleetNodeTelemetryRouteByDeviceIdentifierStmt, getFleetNodeTelemetryRouteByDeviceIdentifier, deviceIdentifier)
 	var i GetFleetNodeTelemetryRouteByDeviceIdentifierRow

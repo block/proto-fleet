@@ -85,29 +85,28 @@ func TestCachedRemoteHandleRejectsChangedRouteBeforeNodeSend(t *testing.T) {
 			require.NoError(t, err)
 			require.NoError(t, handle.Reboot(t.Context()))
 			sender.called = false
+			exec := func(query string, args ...any) {
+				_, err := conn.ExecContext(t.Context(), query, args...)
+				require.NoError(t, err)
+			}
 			switch change {
 			case "endpoint":
 				require.NoError(t, q.UpdateDeviceIPAssignment(t.Context(), sqlc.UpdateDeviceIPAssignmentParams{ID: deviceID, IpAddress: "192.0.2.26", Port: "4028", UrlScheme: "https"}))
 			case "credentials":
 				require.NoError(t, q.UpsertMinerCredentials(t.Context(), sqlc.UpsertMinerCredentialsParams{DeviceID: deviceID, UsernameEnc: "changed-node-blob", PasswordEnc: "changed-node-blob"}))
 			case "credential version":
-				_, err = conn.ExecContext(t.Context(), "UPDATE miner_credentials SET updated_at=updated_at+interval '1 second' WHERE device_id=$1", deviceID)
-				require.NoError(t, err)
+				exec("UPDATE miner_credentials SET updated_at=updated_at+interval '1 second' WHERE device_id=$1", deviceID)
 			case "unpaired":
 				_, err = q.UpsertDevicePairing(t.Context(), sqlc.UpsertDevicePairingParams{DeviceID: deviceID, PairingStatus: sqlc.PairingStatusEnumUNPAIRED})
 				require.NoError(t, err)
 			case "revoked node":
-				_, err = conn.ExecContext(t.Context(), "UPDATE fleet_node SET enrollment_status='REVOKED' WHERE id=$1", nodeID)
-				require.NoError(t, err)
+				exec("UPDATE fleet_node SET enrollment_status='REVOKED' WHERE id=$1", nodeID)
 			case "deleted node":
-				_, err = conn.ExecContext(t.Context(), "UPDATE fleet_node SET deleted_at=statement_timestamp() WHERE id=$1", nodeID)
-				require.NoError(t, err)
+				exec("UPDATE fleet_node SET deleted_at=statement_timestamp() WHERE id=$1", nodeID)
 			case "node route":
-				_, err = conn.ExecContext(t.Context(), "DELETE FROM fleet_node_device WHERE device_id=$1", deviceID)
-				require.NoError(t, err)
+				exec("DELETE FROM fleet_node_device WHERE device_id=$1", deviceID)
 			case "deleted":
-				_, err = conn.ExecContext(t.Context(), "UPDATE device SET deleted_at=statement_timestamp() WHERE id=$1", deviceID)
-				require.NoError(t, err)
+				exec("UPDATE device SET deleted_at=statement_timestamp() WHERE id=$1", deviceID)
 			}
 			require.Error(t, handle.Reboot(t.Context()))
 			require.False(t, sender.called, "a stale remote descriptor must not reach the node")
