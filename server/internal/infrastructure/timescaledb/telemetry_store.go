@@ -779,17 +779,15 @@ func (s *TimescaleTelemetryStore) bucketAggregatesPreferRollup(ctx context.Conte
 			slog.String("error", err.Error()))
 		return s.rawBucketAggregates(ctx, query, startTime, endTime, bucketDuration)
 	}
-	requiredLatest := bodyEndExclusive.Add(-models.FleetMetricRollupBucketDuration)
 	rollupStart, rollupEnd, ok := fleetMetricRollupCoveredWindow(bodyStart, bodyEndExclusive, coverage.EarliestBucket, coverage.LatestBucket)
 	if !ok {
-		s.logger.Warn("fleet metric rollup coverage incomplete, falling back to raw",
+		s.logger.Warn("fleet metric rollup coverage does not overlap request, falling back to raw",
 			slog.Int64("org_id", query.OrganizationID),
 			slog.Bool("site_scoped", query.DeviceListFromSiteScope),
 			slog.Time("start_time", bodyStart),
 			slog.Time("end_time", bodyEndExclusive),
 			slog.Time("coverage_earliest_bucket", coverage.EarliestBucket),
-			slog.Time("coverage_latest_bucket", coverage.LatestBucket),
-			slog.Time("required_latest_bucket", requiredLatest))
+			slog.Time("coverage_latest_bucket", coverage.LatestBucket))
 		return s.rawBucketAggregates(ctx, query, startTime, endTime, bucketDuration)
 	}
 
