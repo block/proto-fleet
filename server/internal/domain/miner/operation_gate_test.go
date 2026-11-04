@@ -69,7 +69,7 @@ func TestCachedDirectHandleRejectsChangedBindingBeforeSDKCall(t *testing.T) {
 }
 
 func TestCachedRemoteHandleRejectsChangedRouteBeforeNodeSend(t *testing.T) {
-	for _, change := range []string{"endpoint", "credentials", "node route", "deleted"} {
+	for _, change := range []string{"endpoint", "credentials", "credential version", "node route", "unpaired", "revoked node", "deleted node", "deleted"} {
 		t.Run(change, func(t *testing.T) {
 			conn, crypto, files := setupTestDB(t)
 			identifier := models.DeviceIdentifier("guarded-remote-binding")
@@ -77,18 +77,31 @@ func TestCachedRemoteHandleRejectsChangedRouteBeforeNodeSend(t *testing.T) {
 			nodeID := createTestFleetNode(t, conn, "guard-remote-node", []byte("guard-remote-identity"))
 			_, err := conn.ExecContext(t.Context(), "INSERT INTO fleet_node_device(fleet_node_id,device_id,org_id) VALUES($1,$2,1)", nodeID, deviceID)
 			require.NoError(t, err)
+			q := sqlc.New(conn)
+			require.NoError(t, q.UpsertMinerCredentials(t.Context(), sqlc.UpsertMinerCredentialsParams{DeviceID: deviceID, UsernameEnc: "initial-node-blob", PasswordEnc: "initial-node-blob"}))
 			sender := &fakeCommandSender{}
 			service := miner.NewMinerService(conn, sqlstores.NewSQLUserStore(conn), crypto, files, &fakePluginManager{driverName: "antminer"}).WithCommandSender(sender)
 			handle, err := service.GetMinerFromDeviceIdentifier(t.Context(), identifier)
 			require.NoError(t, err)
 			require.NoError(t, handle.Reboot(t.Context()))
 			sender.called = false
-			q := sqlc.New(conn)
 			switch change {
 			case "endpoint":
 				require.NoError(t, q.UpdateDeviceIPAssignment(t.Context(), sqlc.UpdateDeviceIPAssignmentParams{ID: deviceID, IpAddress: "192.0.2.26", Port: "4028", UrlScheme: "https"}))
 			case "credentials":
 				require.NoError(t, q.UpsertMinerCredentials(t.Context(), sqlc.UpsertMinerCredentialsParams{DeviceID: deviceID, UsernameEnc: "changed-node-blob", PasswordEnc: "changed-node-blob"}))
+			case "credential version":
+				_, err = conn.ExecContext(t.Context(), "UPDATE miner_credentials SET updated_at=updated_at+interval '1 second' WHERE device_id=$1", deviceID)
+				require.NoError(t, err)
+			case "unpaired":
+				_, err = q.UpsertDevicePairing(t.Context(), sqlc.UpsertDevicePairingParams{DeviceID: deviceID, PairingStatus: sqlc.PairingStatusEnumUNPAIRED})
+				require.NoError(t, err)
+			case "revoked node":
+				_, err = conn.ExecContext(t.Context(), "UPDATE fleet_node SET enrollment_status='REVOKED' WHERE id=$1", nodeID)
+				require.NoError(t, err)
+			case "deleted node":
+				_, err = conn.ExecContext(t.Context(), "UPDATE fleet_node SET deleted_at=statement_timestamp() WHERE id=$1", nodeID)
+				require.NoError(t, err)
 			case "node route":
 				_, err = conn.ExecContext(t.Context(), "DELETE FROM fleet_node_device WHERE device_id=$1", deviceID)
 				require.NoError(t, err)

@@ -878,6 +878,9 @@ type Querier interface {
 	// telemetry sample and remote miner command routing. The server sends this to
 	// the node because the node has no database, then validates that the returned
 	// telemetry matches this trusted device identifier before storing it.
+	// Bound join search to the identity/ownership lookup and then its metadata.
+	// MATERIALIZED prevents inlining back into a seven-table join; this is evaluated
+	// for every execution, so credentials and fencing remain fresh in this statement.
 	GetFleetNodeTelemetryRouteByDeviceIdentifier(ctx context.Context, deviceIdentifier string) (GetFleetNodeTelemetryRouteByDeviceIdentifierRow, error)
 	// Batch query to get group refs for multiple devices at once (for miner list)
 	GetGroupRefsForDevices(ctx context.Context, arg GetGroupRefsForDevicesParams) ([]GetGroupRefsForDevicesRow, error)

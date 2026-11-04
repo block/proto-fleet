@@ -132,8 +132,23 @@ LIMIT 1;
 -- telemetry sample and remote miner command routing. The server sends this to
 -- the node because the node has no database, then validates that the returned
 -- telemetry matches this trusted device identifier before storing it.
+-- Bound join search to the identity/ownership lookup and then its metadata.
+-- MATERIALIZED prevents inlining back into a seven-table join; this is evaluated
+-- for every execution, so credentials and fencing remain fresh in this statement.
+WITH route AS MATERIALIZED (
+    SELECT d.id, d.device_identifier, d.site_id, d.org_id, d.serial_number,
+        d.mac_address, d.discovered_device_id, fnd.fleet_node_id, dp.paired_at
+    FROM fleet_node_device fnd
+    JOIN device d ON d.id = fnd.device_id AND d.org_id = fnd.org_id AND d.deleted_at IS NULL
+    JOIN device_pairing dp ON dp.device_id = d.id
+    JOIN fleet_node fn ON fn.id = fnd.fleet_node_id AND fn.org_id = fnd.org_id
+    WHERE d.device_identifier = $1
+        AND dp.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD')
+        AND fn.deleted_at IS NULL
+        AND fn.enrollment_status = 'CONFIRMED'
+)
 SELECT
-    fnd.fleet_node_id,
+    d.fleet_node_id,
     d.id,
     d.device_identifier,
     d.site_id,
@@ -154,18 +169,11 @@ SELECT
     dd.endpoints::text AS endpoints,
     dd.firmware_version,
     d.discovered_device_id,
-    dp.paired_at,
+    d.paired_at,
     mc.updated_at AS credential_version,
     COALESCE(f.epoch,0)::bigint AS write_epoch
-FROM fleet_node_device fnd
-JOIN device d ON d.id = fnd.device_id AND d.org_id = fnd.org_id AND d.deleted_at IS NULL
-JOIN device_pairing dp ON dp.device_id = d.id
-JOIN fleet_node fn ON fn.id = fnd.fleet_node_id AND fn.org_id = fnd.org_id
+FROM route d
 JOIN discovered_device dd ON dd.id = d.discovered_device_id
 LEFT JOIN miner_credentials mc ON d.id = mc.device_id
 LEFT JOIN device_write_fence f ON f.device_id=d.id AND f.organization_id=d.org_id
-WHERE d.device_identifier = $1
-    AND dp.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD')
-    AND fn.deleted_at IS NULL
-    AND fn.enrollment_status = 'CONFIRMED'
 LIMIT 1;

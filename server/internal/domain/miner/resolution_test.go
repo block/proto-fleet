@@ -2,6 +2,7 @@ package miner_test
 
 import (
 	"context"
+	"database/sql"
 	"encoding/base64"
 	"testing"
 
@@ -11,6 +12,7 @@ import (
 
 	gatewaypb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
 	"github.com/block/proto-fleet/server/generated/sqlc"
+	"github.com/block/proto-fleet/server/internal/domain/devicewrite"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/passwordupdate"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/poolconfig"
 	"github.com/block/proto-fleet/server/internal/domain/miner"
@@ -338,4 +340,93 @@ func TestMinerService_PoolWritesUseFreshNodeKeyAndRejectChangedRoute(t *testing.
 	sender.called = false
 	require.ErrorContains(t, m.UpdateMiningPools(t.Context(), pools), "node route changed")
 	assert.False(t, sender.called)
+}
+
+// A prepared execution strategy must still resolve the current binding on every
+// call, including after a lost connection and identifier reuse in another org.
+func TestFleetNodeRoutePreparedPlanReadsCurrentBinding(t *testing.T) {
+	conn, _, _ := setupTestDB(t)
+	identifier := "prepared-route-binding"
+	deviceID := createTestDevice(t, conn, identifier)
+	nodeID := createTestFleetNode(t, conn, "prepared-route-node", []byte("prepared-route-node"))
+	_, err := conn.ExecContext(t.Context(), "INSERT INTO fleet_node_device(fleet_node_id,device_id,org_id) VALUES($1,$2,1)", nodeID, deviceID)
+	require.NoError(t, err)
+	writer := sqlc.New(conn)
+	require.NoError(t, writer.UpsertMinerCredentials(t.Context(), sqlc.UpsertMinerCredentialsParams{DeviceID: deviceID, UsernameEnc: "first", PasswordEnc: "first"}))
+	reader, err := conn.Conn(t.Context())
+	require.NoError(t, err)
+	defer reader.Close()
+	_, err = reader.ExecContext(t.Context(), "SET plan_cache_mode=force_generic_plan")
+	require.NoError(t, err)
+	queries := sqlc.New(reader)
+	var before sqlc.GetFleetNodeTelemetryRouteByDeviceIdentifierRow
+	for range 10 {
+		before, err = queries.GetFleetNodeTelemetryRouteByDeviceIdentifier(t.Context(), identifier)
+		require.NoError(t, err)
+	}
+	var generic int
+	require.NoError(t, reader.QueryRowContext(t.Context(), `SELECT sum(generic_plans) FROM pg_prepared_statements
+  WHERE statement LIKE '-- name: GetFleetNodeTelemetryRouteByDeviceIdentifier%'`).Scan(&generic))
+	require.Positive(t, generic)
+	require.Equal(t, nodeID, before.FleetNodeID)
+	require.Equal(t, int64(0), before.WriteEpoch)
+
+	require.NoError(t, writer.UpsertMinerCredentials(t.Context(), sqlc.UpsertMinerCredentialsParams{DeviceID: deviceID, UsernameEnc: "rotated", PasswordEnc: "rotated"}))
+	epoch, err := devicewrite.NewService(conn).Reserve(t.Context(), 1, deviceID)
+	require.NoError(t, err)
+	replacementNode := createTestFleetNode(t, conn, "replacement-route-node", []byte("replacement-route-node"))
+	_, err = conn.ExecContext(t.Context(), "UPDATE fleet_node_device SET fleet_node_id=$1 WHERE device_id=$2", replacementNode, deviceID)
+	require.NoError(t, err)
+	after, err := queries.GetFleetNodeTelemetryRouteByDeviceIdentifier(t.Context(), identifier)
+	require.NoError(t, err)
+	require.Equal(t, sql.NullString{String: "rotated", Valid: true}, after.PasswordEnc)
+	require.NotEqual(t, before.CredentialVersion, after.CredentialVersion)
+	require.Equal(t, epoch, after.WriteEpoch)
+	require.Equal(t, replacementNode, after.FleetNodeID)
+
+	// The live identifier is unique; a deleted incarnation in another organization
+	// must contribute neither ownership, credentials nor its nonzero fence epoch.
+	_, err = conn.ExecContext(t.Context(), "UPDATE device SET deleted_at=statement_timestamp() WHERE id=$1", deviceID)
+	require.NoError(t, err)
+	_, err = conn.ExecContext(t.Context(), "INSERT INTO organization(id,org_id,name) VALUES(2,'route-org-2','Route org 2')")
+	require.NoError(t, err)
+	discoveredID, err := writer.UpsertDiscoveredDevice(t.Context(), sqlc.UpsertDiscoveredDeviceParams{OrgID: 2, DeviceIdentifier: identifier, IpAddress: "192.0.2.99", Port: "80", UrlScheme: "http", DriverName: "proto", IsActive: true})
+	require.NoError(t, err)
+	otherID, err := writer.InsertDevice(t.Context(), sqlc.InsertDeviceParams{OrgID: 2, DiscoveredDeviceID: discoveredID, DeviceIdentifier: identifier, MacAddress: "02:00:00:00:00:99"})
+	require.NoError(t, err)
+	_, err = writer.UpsertDevicePairing(t.Context(), sqlc.UpsertDevicePairingParams{DeviceID: otherID, PairingStatus: sqlc.PairingStatusEnumDEFAULTPASSWORD})
+	require.NoError(t, err)
+	var otherNode int64
+	require.NoError(t, conn.QueryRowContext(t.Context(), `INSERT INTO fleet_node(org_id,name,identity_pubkey,encryption_pubkey,enrollment_status)
+  VALUES(2,'other-org-node','other-org-key','01234567890123456789012345678901','CONFIRMED') RETURNING id`).Scan(&otherNode))
+	_, err = conn.ExecContext(t.Context(), "INSERT INTO fleet_node_device(fleet_node_id,device_id,org_id) VALUES($1,$2,2)", otherNode, otherID)
+	require.NoError(t, err)
+	checkOtherOrg := func(q *sqlc.Queries) {
+		t.Helper()
+		row, err := q.GetFleetNodeTelemetryRouteByDeviceIdentifier(t.Context(), identifier)
+		require.NoError(t, err)
+		require.Equal(t, otherID, row.ID)
+		require.Equal(t, int64(2), row.OrgID)
+		require.Equal(t, otherNode, row.FleetNodeID)
+		require.False(t, row.CredentialVersion.Valid)
+		require.False(t, row.PasswordEnc.Valid)
+		require.Equal(t, int64(0), row.WriteEpoch)
+	}
+	checkOtherOrg(queries)
+
+	// Connection loss discards the prepared plan. A replacement session must read
+	// the same current binding; this exercises reconnect, not a primary promotion.
+	var pid int
+	require.NoError(t, reader.QueryRowContext(t.Context(), "SELECT pg_backend_pid()").Scan(&pid))
+	var terminated bool
+	require.NoError(t, conn.QueryRowContext(t.Context(), "SELECT pg_terminate_backend($1)", pid).Scan(&terminated))
+	require.True(t, terminated)
+	_, err = queries.GetFleetNodeTelemetryRouteByDeviceIdentifier(t.Context(), identifier)
+	require.Error(t, err)
+	require.NoError(t, reader.Close())
+	checkOtherOrg(writer)
+	_, err = conn.ExecContext(t.Context(), "UPDATE fleet_node SET enrollment_status='REVOKED' WHERE id=$1", otherNode)
+	require.NoError(t, err)
+	_, err = writer.GetFleetNodeTelemetryRouteByDeviceIdentifier(t.Context(), identifier)
+	require.ErrorIs(t, err, sql.ErrNoRows)
 }
