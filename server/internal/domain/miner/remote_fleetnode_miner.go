@@ -214,19 +214,12 @@ func (m *RemoteFleetNodeMiner) fetchTelemetry(ctx context.Context) (*telemetrypb
 		return nil, fleeterror.NewConnectionError(m.route.deviceIdentifier, errors.New("fleet node control registry is not configured"))
 	}
 	commandTimeout := remoteTelemetryCommandTimeoutFromContext(ctx)
-	if m.gate != nil {
-		gateCtx, cancel := remoteTelemetryGateContext(ctx)
-		release, err := m.gate.Acquire(gateCtx, m.route.fleetNodeID)
-		cancel()
-		if err != nil {
-			return nil, fleeterror.NewPlainError(
-				fmt.Sprintf("timed out waiting for a fleet node telemetry command slot: %v", err),
-				connect.CodeResourceExhausted,
-			)
-		}
-		defer release()
+	release, err := m.acquireTelemetryGate(ctx)
+	if err != nil {
+		return nil, err
 	}
 	if err := ctx.Err(); err != nil {
+		release()
 		return nil, fleeterror.NewPlainError(
 			fmt.Sprintf("fleet node telemetry context ended before command send: %v", err),
 			connect.CodeDeadlineExceeded,
@@ -234,18 +227,34 @@ func (m *RemoteFleetNodeMiner) fetchTelemetry(ctx context.Context) (*telemetrypb
 	}
 	commandCtx, cancel := remoteTelemetryCommandContext(ctx, commandTimeout)
 	defer cancel()
-	payload, err := proto.Marshal(&gatewaypb.AgentCommand{
-		Command: &gatewaypb.AgentCommand_Telemetry{
-			Telemetry: m.telemetryRequest(commandCtx),
-		},
-	})
-	if err != nil {
-		return nil, fleeterror.NewInternalErrorf("marshal fleet node telemetry command: %v", err)
+	var ack *gatewaypb.ControlAck
+	for _, backoff := range [...]time.Duration{0, 25 * time.Millisecond, 100 * time.Millisecond} {
+		if backoff > 0 {
+			timer := time.NewTimer(backoff)
+			select {
+			case <-commandCtx.Done():
+				timer.Stop()
+				err = commandCtx.Err()
+			case <-timer.C:
+				err = commandCtx.Err()
+			}
+			if err != nil {
+				break
+			}
+			release, err = m.acquireTelemetryGate(commandCtx)
+			if err != nil {
+				break
+			}
+		}
+		ack, err = m.sendTelemetry(commandCtx)
+		release()
+		// BUSY is a terminal pre-dispatch rejection. Release the server permits
+		// before waiting, then retry with a fresh ID within the original budget.
+		if err != nil || ack.GetCode() != gatewaypb.AckCode_ACK_CODE_BUSY || ack.GetSucceeded() {
+			break
+		}
 	}
-	ack, err := m.sender.SendCommand(commandCtx, m.route.fleetNodeID, gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1, &gatewaypb.ControlCommand{
-		CommandId: id.GenerateID(),
-		Payload:   payload,
-	})
+
 	if err != nil {
 		if errors.Is(err, control.ErrNoActiveStream) || errors.Is(err, context.DeadlineExceeded) {
 			return nil, fleeterror.NewConnectionError(m.route.deviceIdentifier, err)
@@ -273,6 +282,37 @@ func (m *RemoteFleetNodeMiner) fetchTelemetry(ctx context.Context) (*telemetrypb
 		)
 	}
 	return result, nil
+}
+
+func (m *RemoteFleetNodeMiner) acquireTelemetryGate(ctx context.Context) (func(), error) {
+	if m.gate == nil {
+		return func() {}, nil
+	}
+	gateCtx, cancel := remoteTelemetryGateContext(ctx)
+	defer cancel()
+	release, err := m.gate.Acquire(gateCtx, m.route.fleetNodeID)
+	if err != nil {
+		return nil, fleeterror.NewPlainError(
+			fmt.Sprintf("timed out waiting for a fleet node telemetry command slot: %v", err),
+			connect.CodeResourceExhausted,
+		)
+	}
+	return release, nil
+}
+
+func (m *RemoteFleetNodeMiner) sendTelemetry(ctx context.Context) (*gatewaypb.ControlAck, error) {
+	payload, err := proto.Marshal(&gatewaypb.AgentCommand{
+		Command: &gatewaypb.AgentCommand_Telemetry{
+			Telemetry: m.telemetryRequest(ctx),
+		},
+	})
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("marshal fleet node telemetry command: %v", err)
+	}
+	return m.sender.SendCommand(ctx, m.route.fleetNodeID, gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1, &gatewaypb.ControlCommand{
+		CommandId: id.GenerateID(),
+		Payload:   payload,
+	})
 }
 
 func (m *RemoteFleetNodeMiner) telemetryRequest(ctx context.Context) *telemetrypb.FleetNodeTelemetryRequest {

@@ -267,13 +267,41 @@ func (m *Miner) sendWithCommandTimeout(ctx context.Context, timeout time.Duratio
 	if err != nil {
 		return nil, err
 	}
-	defer release()
 
+	// The initial queue wait retains its existing budget. Once admitted, every
+	// attempt, backoff, and subsequent queue wait shares this one deadline.
 	commandCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
+	class, _ := control.AdmissionForMinerCommand(mc)
+	var ack *gatewaypb.ControlAck
+	for _, backoff := range [...]time.Duration{0, 25 * time.Millisecond, 100 * time.Millisecond} {
+		if backoff > 0 {
+			timer := time.NewTimer(backoff)
+			select {
+			case <-commandCtx.Done():
+				timer.Stop()
+				err = commandCtx.Err()
+			case <-timer.C:
+				err = commandCtx.Err()
+			}
+			if err != nil {
+				break
+			}
+			release, err = m.acquireGate(commandCtx, mc)
+			if err != nil {
+				break
+			}
+		}
+		ack, err = m.sendInSlot(commandCtx, mc)
+		release()
+		// Only an explicit pre-dispatch rejection of a deferrable read proves
+		// it is safe to submit a fresh command. Transport errors are ambiguous.
+		if err != nil || class != control.CommandAdmissionDeferrableRead || ack.GetCode() != gatewaypb.AckCode_ACK_CODE_BUSY || ack.GetSucceeded() {
+			break
+		}
+	}
 
-	ack, err := m.sendInSlot(commandCtx, mc)
-	if err != nil && errors.Is(err, context.DeadlineExceeded) {
+	if errors.Is(err, context.DeadlineExceeded) {
 		return nil, fleeterror.NewConnectionError(m.desc.GetDeviceIdentifier(), err)
 	}
 	return ack, err

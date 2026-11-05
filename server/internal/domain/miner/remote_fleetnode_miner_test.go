@@ -337,12 +337,14 @@ func TestRemoteFleetNodeMinerGetDeviceMetricsMapsBusyAckToResourceExhausted(t *t
 		results <- metricsResult{metrics: metrics, err: err}
 	}()
 
-	cmd := receiveRemoteCommand(t, stream)
-	stream.PublishAck(&gatewaypb.ControlAck{
-		CommandId:    cmd.GetCommandId(),
-		Code:         gatewaypb.AckCode_ACK_CODE_BUSY,
-		ErrorMessage: "retry shortly",
-	})
+	for range 3 {
+		cmd := receiveRemoteCommand(t, stream)
+		stream.PublishAck(&gatewaypb.ControlAck{
+			CommandId:    cmd.GetCommandId(),
+			Code:         gatewaypb.AckCode_ACK_CODE_BUSY,
+			ErrorMessage: "retry shortly",
+		})
+	}
 
 	got := receiveMetricsResult(t, results)
 	require.Error(t, got.err)
