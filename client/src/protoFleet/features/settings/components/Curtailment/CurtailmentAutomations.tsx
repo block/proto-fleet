@@ -698,7 +698,12 @@ export function CurtailmentAutomationsContent({
   const automationsNoDataElement = getAutomationsEmptyState(loadError, isLoading);
 
   return (
-    <section className={clsx("curtailment-settings__section", automationRules.length === 0 && "min-h-[300px]")}>
+    <section
+      className={clsx(
+        "curtailment-settings__section curtailment-settings__section--last pb-10",
+        automationRules.length === 0 && "min-h-[300px]",
+      )}
+    >
       <SectionHeader
         title="Automations"
         buttonText="Create automation"

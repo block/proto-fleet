@@ -747,6 +747,22 @@ export function CurtailmentSettingsContent({
         />
       </section>
 
+      <CurtailmentSchedulesContent
+        initialScheduleRules={initialScheduleRules}
+        scheduleRules={controlledScheduleRules}
+        responseProfiles={responseProfiles}
+        isLoading={isLoadingAutomationRules}
+        loadError={loadAutomationRulesError}
+        isCreating={isSavingAutomationRule}
+        updatingRuleIds={updatingAutomationRuleIds}
+        isLoadingResponseProfiles={isLoadingResponseProfiles}
+        loadResponseProfilesError={loadResponseProfilesError}
+        onCreateSchedule={onCreateSchedule}
+        onUpdateSchedule={onUpdateSchedule}
+        onToggleSchedule={onToggleAutomation}
+        onDeleteSchedule={onDeleteSchedule}
+      />
+
       <section className="curtailment-settings__section">
         <SectionHeader
           variant="settings"
@@ -782,22 +798,6 @@ export function CurtailmentSettingsContent({
         onUpdateAutomation={onUpdateAutomation}
         onToggleAutomation={onToggleAutomation}
         onDeleteAutomation={onDeleteAutomation}
-      />
-
-      <CurtailmentSchedulesContent
-        initialScheduleRules={initialScheduleRules}
-        scheduleRules={controlledScheduleRules}
-        responseProfiles={responseProfiles}
-        isLoading={isLoadingAutomationRules}
-        loadError={loadAutomationRulesError}
-        isCreating={isSavingAutomationRule}
-        updatingRuleIds={updatingAutomationRuleIds}
-        isLoadingResponseProfiles={isLoadingResponseProfiles}
-        loadResponseProfilesError={loadResponseProfilesError}
-        onCreateSchedule={onCreateSchedule}
-        onUpdateSchedule={onUpdateSchedule}
-        onToggleSchedule={onToggleAutomation}
-        onDeleteSchedule={onDeleteSchedule}
       />
 
       <CurtailmentStartModal

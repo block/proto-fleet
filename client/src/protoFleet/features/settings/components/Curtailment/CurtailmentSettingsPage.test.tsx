@@ -1453,6 +1453,17 @@ describe("CurtailmentSettingsPage", () => {
     expect(within(disabledRule).getByRole("checkbox")).not.toBeChecked();
   });
 
+  it("orders the sections response profiles, schedules, sources, then automations", () => {
+    render(<CurtailmentSettingsContent initialResponseProfiles={testResponseProfiles} initialSources={testSources} />);
+
+    expect(screen.getAllByRole("heading", { level: 2 }).map((heading) => heading.textContent)).toEqual([
+      "Response profiles",
+      "Schedules",
+      "Sources",
+      "Automations",
+    ]);
+  });
+
   it("lists schedule rules under Schedules instead of Automations", () => {
     const scheduleRule: AutomationRule = {
       id: "evening-peak",

@@ -685,12 +685,7 @@ export function CurtailmentSchedulesContent({
   const isEditingBusy = editingRule ? updatingRuleIds.has(editingRule.id) : false;
 
   return (
-    <section
-      className={clsx(
-        "curtailment-settings__section curtailment-settings__section--last pb-10",
-        scheduleRules.length === 0 && "min-h-[300px]",
-      )}
-    >
+    <section className={clsx("curtailment-settings__section", scheduleRules.length === 0 && "min-h-[300px]")}>
       <SectionHeader
         title="Schedules"
         buttonText="Create schedule"
