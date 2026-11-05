@@ -160,7 +160,14 @@ func (r *RunCmd) handleMinerCommand(ctx context.Context, client gatewayClient, s
 	cmdCtx, cancel := context.WithTimeout(ctx, minerCommandActionTimeout(mc))
 	defer cancel()
 
-	lease, err := r.getDeviceHandlePool().acquire()
+	pool := r.getDeviceHandlePool()
+	class, _ := fleetnodecontrol.AdmissionForMinerCommand(mc)
+	isRead := class == fleetnodecontrol.CommandAdmissionDeferrableRead
+	acquire := pool.acquire
+	if isRead {
+		acquire = pool.acquireRead
+	}
+	lease, err := acquire()
 	if err != nil {
 		code, msg := classifyMinerCommandError("reserve device handle", err)
 		reject(code, msg, sdk.WriteStageDispatch, sdk.WriteReasonRejected)
@@ -193,9 +200,11 @@ func (r *RunCmd) handleMinerCommand(ctx context.Context, client gatewayClient, s
 		return
 	}
 	dev := result.Device
-	if class, _ := fleetnodecontrol.AdmissionForMinerCommand(mc); class == fleetnodecontrol.CommandAdmissionDeferrableRead {
+	if isRead {
 		// The bounded handle pool owns cleanup. A completed read must not keep
 		// its control slot waiting for Close after Fleet has received its ACK.
+		// Shutdown may therefore cancel an in-flight read Close; built-in
+		// drivers only release local state there.
 		defer lease.close(dev)
 	} else {
 		defer lease.closeAndWait(dev)

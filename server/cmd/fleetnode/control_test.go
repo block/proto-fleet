@@ -1640,6 +1640,60 @@ func TestControlLoop_ReadCleanupDoesNotRetainControlSlots(t *testing.T) {
 	}
 }
 
+func TestControlLoop_StuckReadCleanupsLeaveHandlesForOperatorCommands(t *testing.T) {
+	const handles, reads = 3, 4
+	controller := gomock.NewController(t)
+	releaseClose := make(chan struct{})
+	unblockClose := sync.OnceFunc(func() { close(releaseClose) })
+	device := mocks.NewMockDevice(controller)
+	device.EXPECT().GetCoolingMode(gomock.Any()).Return(sdk.CoolingModeAirCooled, nil).AnyTimes()
+	device.EXPECT().Reboot(gomock.Any()).Return(nil).Times(1)
+	device.EXPECT().Close(gomock.Any()).DoAndReturn(func(context.Context) error {
+		<-releaseClose // Ignore the cleanup deadline to model a stuck plugin.
+		return nil
+	}).AnyTimes()
+	driver := mocks.NewMockDriver(controller)
+	driver.EXPECT().NewDevice(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+		Return(sdk.NewDeviceResult{Device: device}, nil).AnyTimes()
+	pool := newCleanupTestPool(t, handles)
+	pool.readHeadroom = 1
+	cmd := &RunCmd{driverGetter: fakeDriverGetter{d: driver}, minerSecrets: nodeSecretProvider{}, deviceHandles: pool}
+	fake := &controlFakeGateway{}
+	readPayload := mustMarshal(t, &pb.AgentCommand{Command: &pb.AgentCommand_MinerCommand{MinerCommand: withTarget(
+		&pb.MinerCommand{Action: &pb.MinerCommand_GetCoolingMode{GetCoolingMode: &pb.GetCoolingModeAction{}}},
+	)}})
+	for i := range reads {
+		fake.queueWithID(fmt.Sprintf("read-%d", i), readPayload)
+	}
+	fake.queueWithID("operator", mustMarshal(t, &pb.AgentCommand{Command: &pb.AgentCommand_MinerCommand{MinerCommand: withTarget(
+		&pb.MinerCommand{Action: &pb.MinerCommand_Reboot{Reboot: &pb.RebootAction{}}},
+	)}}))
+	client := newControlClient(t, fake)
+	ctx, cancel := context.WithCancel(t.Context())
+	done := make(chan error, 1)
+	go func() { done <- cmd.runControlLoop(ctx, client, &bootstrap.State{FleetNodeID: 7}, discardLogger(t)) }()
+	t.Cleanup(func() {
+		unblockClose()
+		cancel()
+		<-done
+		cmd.waitForControlWorkers(discardLogger(t))
+	})
+
+	require.Eventually(t, func() bool { return fake.ackCount() == reads+1 }, 2*time.Second, 5*time.Millisecond)
+	readsByCode := map[pb.AckCode]int{}
+	for _, ack := range fake.acksCopy() {
+		if ack.GetCommandId() == "operator" {
+			require.Equal(t, pb.AckCode_ACK_CODE_OK, ack.GetCode(), "stuck read cleanups must not consume the operator handle headroom")
+			continue
+		}
+		readsByCode[ack.GetCode()]++
+	}
+	require.Equal(t, reads, readsByCode[pb.AckCode_ACK_CODE_OK]+readsByCode[pb.AckCode_ACK_CODE_BUSY])
+	require.LessOrEqual(t, readsByCode[pb.AckCode_ACK_CODE_OK], handles-pool.readHeadroom)
+	unblockClose()
+	require.Eventually(t, func() bool { return len(pool.slots) == 0 }, time.Second, 5*time.Millisecond)
+}
+
 func TestControlLoop_DeferrableReadsReserveOperatorCapacity(t *testing.T) {
 	controller := gomock.NewController(t)
 	release := make(chan struct{})
