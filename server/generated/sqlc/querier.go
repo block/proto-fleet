@@ -1361,8 +1361,7 @@ type Querier interface {
 	ListCompletedTickets(ctx context.Context, arg ListCompletedTicketsParams) ([]ListCompletedTicketsRow, error)
 	// Raw reads retain the original nullable fields; older/longer windows return
 	// source-bucket averages, with authorization before combining topology versions.
-	// Bound the raw lookup directly so TimescaleDB can prune unrelated chunks
-	// instead of revisiting old history for each readable sample.
+	// Read raw samples once, authorizing their recorded sites before pagination.
 	ListContainerModuleHistory(ctx context.Context, arg ListContainerModuleHistoryParams) ([]ListContainerModuleHistoryRow, error)
 	// Membership lists need identity and topology counts, never telemetry.
 	ListContainerPlacements(ctx context.Context, orgID int64) ([]ListContainerPlacementsRow, error)
