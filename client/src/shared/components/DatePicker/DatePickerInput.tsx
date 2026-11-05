@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { type KeyboardEvent, useCallback, useId, useState } from "react";
 import clsx from "clsx";
 
 import { SelectionMode, WithInputs } from "./types";
@@ -28,6 +28,7 @@ const DatePickerInput = ({
   testId,
 }: DatePickerInputProps) => {
   const includeTime = withInputs === "date-and-time";
+  const inputId = useId();
 
   const formatValue = useCallback(
     (date?: Date): string => {
@@ -88,6 +89,14 @@ const DatePickerInput = ({
     [startValue, endValue, includeTime, selectedStartDate, selectedEndDate, onRangeChange],
   );
 
+  // Enter applies the typed value here and is marked handled, so an enclosing
+  // form's Enter-to-submit does not act on the previously selected date.
+  const commitOnEnter = useCallback((event: KeyboardEvent<HTMLInputElement>, commit: () => void) => {
+    if (event.key !== "Enter" || event.nativeEvent.isComposing) return;
+    event.preventDefault();
+    commit();
+  }, []);
+
   const inputClasses = clsx(
     // pointer-coarse:text-400 = 16px on touch devices. iOS auto-zooms a focused field whose
     // font is under 16px and never zooms back out, leaving later views zoomed/overflowing.
@@ -105,12 +114,16 @@ const DatePickerInput = ({
   if (selectionMode === "single") {
     return (
       <div className="mb-3" data-testid={testId}>
-        <label className="mb-1 block text-200 text-text-primary-50">Date</label>
+        <label htmlFor={inputId} className="mb-1 block text-200 text-text-primary-50">
+          Date
+        </label>
         <input
+          id={inputId}
           type="text"
           className={inputClasses}
           value={dateValue}
           onChange={(e) => setDateValue(e.target.value)}
+          onKeyDown={(e) => commitOnEnter(e, handleSingleBlur)}
           onBlur={handleSingleBlur}
           placeholder={placeholder}
           disabled={disabled}
@@ -123,12 +136,16 @@ const DatePickerInput = ({
   return (
     <div className="mb-3 flex gap-2" data-testid={testId}>
       <div className="flex-1">
-        <label className="mb-1 block text-200 text-text-primary-50">Start Date</label>
+        <label htmlFor={`${inputId}-start`} className="mb-1 block text-200 text-text-primary-50">
+          Start Date
+        </label>
         <input
+          id={`${inputId}-start`}
           type="text"
           className={inputClasses}
           value={startValue}
           onChange={(e) => setStartValue(e.target.value)}
+          onKeyDown={(e) => commitOnEnter(e, () => handleRangeBlur("start"))}
           onBlur={() => handleRangeBlur("start")}
           placeholder={placeholder}
           disabled={disabled}
@@ -136,12 +153,16 @@ const DatePickerInput = ({
         />
       </div>
       <div className="flex-1">
-        <label className="mb-1 block text-200 text-text-primary-50">End Date</label>
+        <label htmlFor={`${inputId}-end`} className="mb-1 block text-200 text-text-primary-50">
+          End Date
+        </label>
         <input
+          id={`${inputId}-end`}
           type="text"
           className={inputClasses}
           value={endValue}
           onChange={(e) => setEndValue(e.target.value)}
+          onKeyDown={(e) => commitOnEnter(e, () => handleRangeBlur("end"))}
           onBlur={() => handleRangeBlur("end")}
           placeholder={placeholder}
           disabled={disabled}

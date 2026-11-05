@@ -505,6 +505,25 @@ describe("DatePicker", () => {
     expect(onChange).not.toHaveBeenCalled();
   });
 
+  test("applies a typed date on Enter and marks the key handled", () => {
+    const onChange = vi.fn();
+    const onEnclosingKeyDown = vi.fn();
+    render(
+      <div onKeyDown={(event) => onEnclosingKeyDown(event.defaultPrevented)}>
+        <DatePicker selectionMode="single" withInputs="date" onSelectedDateChange={onChange} testId="dp" />
+      </div>,
+    );
+
+    fireEvent.click(screen.getByTestId("dp-trigger"));
+    const input = screen.getByLabelText("Date");
+    fireEvent.change(input, { target: { value: "2026-01-20" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+
+    expect(onChange).toHaveBeenCalledTimes(1);
+    expect(formatDate(onChange.mock.calls[0][0])).toBe("2026-01-20");
+    expect(onEnclosingKeyDown).toHaveBeenCalledWith(true);
+  });
+
   test("clears the displayed value when a controlled date is reset", () => {
     const { rerender } = render(<DatePicker selectedDate={new Date(2026, 0, 15)} testId="dp" />);
 

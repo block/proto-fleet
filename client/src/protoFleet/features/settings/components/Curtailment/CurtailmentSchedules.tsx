@@ -30,11 +30,12 @@ import {
 import {
   frequencyOptions,
   scheduleTypeOptions,
-  timeOptions,
 } from "@/protoFleet/features/settings/components/Schedules/scheduleValidation";
 import WeekdaySelect from "@/protoFleet/features/settings/components/Schedules/WeekdaySelect";
 import SettingsEmptyState from "@/protoFleet/features/settings/components/SettingsEmptyState";
 import { formatDateValue, parseDate } from "@/protoFleet/features/settings/utils/scheduleDateUtils";
+import { Info } from "@/shared/assets/icons";
+import { iconSizes } from "@/shared/assets/icons/constants";
 import { variants } from "@/shared/components/Button";
 import { DatePickerField } from "@/shared/components/DatePicker";
 import Input from "@/shared/components/Input";
@@ -313,27 +314,28 @@ function ScheduleRuleModal({
       selectedDate={parseDate(schedule.startDate) ?? undefined}
       onSelectedDateChange={(date) => updateSchedule({ startDate: formatDateValue(date) })}
       error={visibleErrors.startDate}
+      withInputs="date"
       popoverRenderMode="portal-scrolling"
       testId="schedule-rule-start-date"
     />
   );
   const startTimeField = (
-    <Select
+    <Input
       id="schedule-rule-start-time"
       label="Start time"
-      options={timeOptions}
-      value={schedule.startTime}
+      type="time"
+      initValue={schedule.startTime}
       onChange={(startTime) => updateSchedule({ startTime })}
       error={visibleErrors.startTime}
       testId="schedule-rule-start-time"
     />
   );
   const endTimeField = (
-    <Select
+    <Input
       id="schedule-rule-end-time"
       label="End time"
-      options={timeOptions}
-      value={schedule.endTime}
+      type="time"
+      initValue={schedule.endTime}
       onChange={(endTime) => updateSchedule({ endTime })}
       error={visibleErrors.endTime}
       testId="schedule-rule-end-time"
@@ -415,9 +417,18 @@ function ScheduleRuleModal({
               </div>
               <div className="grid gap-3 tablet:grid-cols-2">
                 {startTimeField}
-                {endTimeField}
+                <div>
+                  {endTimeField}
+                  <div role="status">
+                    {crossesMidnight ? (
+                      <p className="mt-2 flex items-center gap-1.5 text-200 text-intent-info-text">
+                        <Info width={iconSizes.small} className="shrink-0" />
+                        Ends the next day.
+                      </p>
+                    ) : null}
+                  </div>
+                </div>
               </div>
-              {crossesMidnight ? <p className="text-300 text-text-primary-70">Ends the next day.</p> : null}
               <div className="grid gap-3 tablet:grid-cols-2">
                 {startDateField}
                 <DatePickerField
@@ -429,6 +440,7 @@ function ScheduleRuleModal({
                   clearable
                   onClear={() => updateSchedule({ untilDate: "" })}
                   error={visibleErrors.untilDate}
+                  withInputs="date"
                   popoverRenderMode="portal-scrolling"
                   testId="schedule-rule-until-date"
                 />
@@ -448,6 +460,7 @@ function ScheduleRuleModal({
                   selectedDate={parseDate(schedule.endDate) ?? undefined}
                   onSelectedDateChange={(date) => updateSchedule({ endDate: formatDateValue(date) })}
                   error={visibleErrors.endDate}
+                  withInputs="date"
                   popoverRenderMode="portal-scrolling"
                   testId="schedule-rule-end-date"
                 />

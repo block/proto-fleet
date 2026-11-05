@@ -71,10 +71,10 @@ export function validateScheduleRuleFormValues(
     errors.startDate = "Select a start date.";
   }
   if (schedule.startTime === "") {
-    errors.startTime = "Select a start time.";
+    errors.startTime = "Enter a start time.";
   }
   if (schedule.endTime === "") {
-    errors.endTime = "Select an end time.";
+    errors.endTime = "Enter an end time.";
   }
 
   if (schedule.scheduleType === "oneTime") {

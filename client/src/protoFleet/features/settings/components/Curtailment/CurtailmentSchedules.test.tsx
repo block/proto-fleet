@@ -139,6 +139,67 @@ describe("CurtailmentSchedulesContent", () => {
     );
   });
 
+  it("accepts any minute and flags an end time on the next day", async () => {
+    const onUpdateSchedule = vi.fn().mockResolvedValue(undefined);
+    render(
+      <CurtailmentSchedulesContent
+        scheduleRules={[
+          { ...weeknightRule, schedule: weeknightRule.schedule && { ...weeknightRule.schedule, startTime: "22:07" } },
+        ]}
+        responseProfiles={responseProfiles}
+        onUpdateSchedule={onUpdateSchedule}
+      />,
+    );
+
+    fireEvent.click(screen.getByText("Weeknight peak"));
+    expect(screen.getByLabelText("Start time")).toHaveValue("22:07");
+    expect(screen.getByLabelText("End time")).toHaveValue("06:00");
+    expect(screen.getByRole("status")).toHaveTextContent("Ends the next day.");
+
+    fireEvent.change(screen.getByLabelText("Start time"), { target: { value: "05:13" } });
+    fireEvent.change(screen.getByLabelText("End time"), { target: { value: "09:41" } });
+    expect(screen.getByRole("status")).toBeEmptyDOMElement();
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() =>
+      expect(onUpdateSchedule).toHaveBeenCalledWith(
+        expect.objectContaining({ id: weeknightRule.id }),
+        expect.objectContaining({
+          schedule: expect.objectContaining({ startTime: "05:13", endTime: "09:41" }),
+        }),
+      ),
+    );
+  });
+
+  it("applies a typed date on Enter without saving the previous date", async () => {
+    const user = userEvent.setup();
+    const onUpdateSchedule = vi.fn().mockResolvedValue(undefined);
+    render(
+      <CurtailmentSchedulesContent
+        scheduleRules={[weeknightRule]}
+        responseProfiles={responseProfiles}
+        onUpdateSchedule={onUpdateSchedule}
+      />,
+    );
+
+    fireEvent.click(screen.getByText("Weeknight peak"));
+    await user.click(screen.getByTestId("schedule-rule-start-date-trigger"));
+    const dateInput = screen.getByTestId("schedule-rule-start-date-inputs-date-input");
+    await user.clear(dateInput);
+    await user.type(dateInput, "2026-07-04{Enter}");
+
+    expect(onUpdateSchedule).not.toHaveBeenCalled();
+    expect(screen.getByTestId("schedule-rule-start-date-trigger")).toHaveTextContent("Jul 4, 2026");
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() =>
+      expect(onUpdateSchedule).toHaveBeenCalledWith(
+        expect.objectContaining({ id: weeknightRule.id }),
+        expect.objectContaining({ schedule: expect.objectContaining({ startDate: "2026-07-04" }) }),
+      ),
+    );
+  });
+
   it("disables enabling a schedule whose response profile is not automation-ready", () => {
     const onToggleSchedule = vi.fn().mockResolvedValue(undefined);
     render(
