@@ -3,18 +3,21 @@ package timescaledb
 import (
 	"context"
 	"database/sql"
+	"errors"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/block/proto-fleet/server/generated/sqlc"
 	"github.com/block/proto-fleet/server/internal/domain/telemetry/models"
 	modelsV2 "github.com/block/proto-fleet/server/internal/domain/telemetry/models/v2"
 	"github.com/block/proto-fleet/server/internal/testutil"
 )
 
-func TestTelemetryStore_FleetMetricRollupServesOrgBodyAndRawTail(t *testing.T) {
+func TestTelemetryStore_FleetMetricRollupServesOrgCoveredMiddleAndRawEdges(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping integration test in short mode")
 	}
@@ -41,8 +44,8 @@ func TestTelemetryStore_FleetMetricRollupServesOrgBodyAndRawTail(t *testing.T) {
 	})
 
 	start := fleetRollupTestStartTime()
-	for i := range 5 {
-		at := start.Add(time.Duration(i)*models.FleetMetricRollupBucketDuration + 10*time.Second)
+	for i := range 7 {
+		at := start.Add(time.Duration(i) * models.FleetMetricRollupBucketDuration)
 		require.NoError(t, store.StoreDeviceMetrics(ctx,
 			modelsV2.DeviceMetrics{
 				DeviceIdentifier: deviceA.ID,
@@ -62,10 +65,24 @@ func TestTelemetryStore_FleetMetricRollupServesOrgBodyAndRawTail(t *testing.T) {
 		))
 	}
 
-	bodyEnd := start.Add(3 * models.FleetMetricRollupBucketDuration)
-	require.NoError(t, store.UpsertFleetMetricRollups(ctx, start, bodyEnd))
+	coverageStart := start.Add(models.FleetMetricRollupBucketDuration)
+	coverageEnd := start.Add(4 * models.FleetMetricRollupBucketDuration)
+	require.NoError(t, store.UpsertFleetMetricRollups(ctx, start, start.Add(5*models.FleetMetricRollupBucketDuration)))
+	// Progress resets can leave stale rollups outside the acknowledged coverage.
+	_, err = db.ExecContext(ctx, `UPDATE fleet_metric_rollup_progress
+		SET earliest_bucket = $1, latest_bucket = $2 WHERE id = TRUE`,
+		coverageStart, coverageEnd.Add(-models.FleetMetricRollupBucketDuration))
+	require.NoError(t, err)
+	// Remove the inner covered bucket to prove the middle comes from rollups.
+	// Keep raw data at both seams so an overlapping prefix or suffix would
+	// duplicate it.
+	innerBucket := coverageStart.Add(models.FleetMetricRollupBucketDuration)
+	_, err = db.ExecContext(ctx, `DELETE FROM device_metrics
+		WHERE device_identifier IN ($1, $2, $3) AND time >= $4 AND time < $5`,
+		deviceA.ID, deviceB.ID, otherDevice.ID, innerBucket, innerBucket.Add(models.FleetMetricRollupBucketDuration))
+	require.NoError(t, err)
 
-	end := start.Add(5*models.FleetMetricRollupBucketDuration - time.Nanosecond)
+	end := start.Add(7*models.FleetMetricRollupBucketDuration - time.Nanosecond)
 	slide := models.FleetMetricRollupBucketDuration
 	result, err := store.GetCombinedMetrics(ctx, models.CombinedMetricsQuery{
 		OrganizationID:   orgID,
@@ -78,7 +95,7 @@ func TestTelemetryStore_FleetMetricRollupServesOrgBodyAndRawTail(t *testing.T) {
 		SlideInterval: &slide,
 	})
 	require.NoError(t, err)
-	require.Len(t, result.Metrics, 5)
+	require.Len(t, result.Metrics, 7)
 
 	for i, metric := range result.Metrics {
 		assert.Equal(t, models.MeasurementTypeHashrate, metric.MeasurementType)
@@ -87,6 +104,72 @@ func TestTelemetryStore_FleetMetricRollupServesOrgBodyAndRawTail(t *testing.T) {
 		assert.Equal(t, 1100+2*float64(i), metric.AggregatedValues[0].Value)
 		assert.Equal(t, int32(2), metric.DeviceCount)
 	}
+}
+
+func TestTelemetryStore_FleetMetricRollupRawPrefixErrorPropagates(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration test in short mode")
+	}
+
+	dbSvc := testutil.NewDatabaseService(t, nil)
+	db := dbSvc.DB
+	store, err := NewTelemetryStore(db, DefaultConfig())
+	require.NoError(t, err)
+	ctx := t.Context()
+
+	user := dbSvc.CreateSuperAdminUser()
+	orgID := user.OrganizationID
+	device := dbSvc.CreateDevice(orgID, "proto")
+	t.Cleanup(func() {
+		cleanupFleetMetricRollupTestRows(t, db, orgID, device.ID)
+	})
+
+	start := fleetRollupTestStartTime()
+	for i := range 6 {
+		require.NoError(t, store.StoreDeviceMetrics(ctx, modelsV2.DeviceMetrics{
+			DeviceIdentifier: device.ID,
+			Timestamp:        start.Add(time.Duration(i) * models.FleetMetricRollupBucketDuration),
+			HashrateHS:       &modelsV2.MetricValue{Value: 100 + float64(i)},
+		}))
+	}
+	require.NoError(t, store.UpsertFleetMetricRollups(ctx,
+		start.Add(models.FleetMetricRollupBucketDuration), start.Add(3*models.FleetMetricRollupBucketDuration)))
+
+	injected := errors.New("injected raw prefix failure")
+	failing := &failFirstOrgRawBucketQuery{DB: db, err: injected}
+	store.queries = sqlc.New(failing)
+
+	end := start.Add(6*models.FleetMetricRollupBucketDuration - time.Nanosecond)
+	slide := models.FleetMetricRollupBucketDuration
+
+	_, err = store.GetCombinedMetrics(ctx, models.CombinedMetricsQuery{
+		OrganizationID:   orgID,
+		MeasurementTypes: []models.MeasurementType{models.MeasurementTypeHashrate},
+		AggregationTypes: []models.AggregationType{models.AggregationTypeAverage},
+		TimeRange:        models.TimeRange{StartTime: &start, EndTime: &end},
+		SlideInterval:    &slide,
+	})
+
+	require.ErrorIs(t, err, injected)
+	assert.Equal(t, 1, failing.orgRawCalls, "prefix failure must not fall back to another raw read")
+}
+
+// failFirstOrgRawBucketQuery fails the first org raw bucket aggregate query,
+// which is the raw prefix when rollup coverage starts after the request.
+type failFirstOrgRawBucketQuery struct {
+	*sql.DB
+	err         error
+	orgRawCalls int
+}
+
+func (f *failFirstOrgRawBucketQuery) QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
+	if strings.Contains(query, "-- name: GetOrgDeviceMetricsRawBucketAggregates ") {
+		f.orgRawCalls++
+		if f.orgRawCalls == 1 {
+			return nil, f.err
+		}
+	}
+	return f.DB.QueryContext(ctx, query, args...) //nolint:wrapcheck // transparent sqlc.DBTX passthrough
 }
 
 func TestTelemetryStore_FleetMetricRollupProgressAdvancesOnEmptyWindow(t *testing.T) {
