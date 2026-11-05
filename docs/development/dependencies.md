@@ -16,6 +16,12 @@ quarterly because they feed the HA release compatibility fingerprint.
 Security updates are grouped per ecosystem. Major versions and `golang`
 images are excluded; see `.github/dependabot.yml`.
 
+Docker and Compose images receive patch releases and digest refreshes only.
+A newer minor release of an image, such as a later Alpine branch, a
+non-LTS Ubuntu release, or a new etcd or OpenTelemetry collector minor
+version, can change runtime behavior, so move to it in a dedicated pull
+request after checking the release notes.
+
 Dependabot cannot move the Go toolchain. When a module requires a newer Go
 release, update the Hermit `go` package, the `go` line in `go.work`, and every
 `golang:` base image together in the dependency pull request.
