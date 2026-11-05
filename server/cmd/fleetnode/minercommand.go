@@ -32,6 +32,7 @@ import (
 	pb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
 	minercommandpb "github.com/block/proto-fleet/server/generated/grpc/minercommand/v1"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/commandresult"
+	fleetnodecontrol "github.com/block/proto-fleet/server/internal/domain/fleetnode/control"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/curtailmentconfig"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/passwordupdate"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/poolconfig"
@@ -192,7 +193,13 @@ func (r *RunCmd) handleMinerCommand(ctx context.Context, client gatewayClient, s
 		return
 	}
 	dev := result.Device
-	defer lease.closeAndWait(dev)
+	if class, _ := fleetnodecontrol.AdmissionForMinerCommand(mc); class == fleetnodecontrol.CommandAdmissionDeferrableRead {
+		// The bounded handle pool owns cleanup. A completed read must not keep
+		// its control slot waiting for Close after Fleet has received its ACK.
+		defer lease.close(dev)
+	} else {
+		defer lease.closeAndWait(dev)
+	}
 
 	caps, err := commandCapabilities(cmdCtx, driver, mc)
 	if err != nil {

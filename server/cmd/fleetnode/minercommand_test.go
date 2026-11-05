@@ -304,6 +304,8 @@ func TestHandleMinerCommand_GetsCoolingMode(t *testing.T) {
 	r.handleMinerCommand(context.Background(), nil, ack, "cmd-1",
 		withTarget(&pb.MinerCommand{Action: &pb.MinerCommand_GetCoolingMode{GetCoolingMode: &pb.GetCoolingModeAction{}}}), discardLogger(t))
 
+	require.Eventually(t, func() bool { return len(r.getDeviceHandlePool().slots) == 0 }, time.Second, time.Millisecond)
+
 	// Assert
 	got := ack.only(t)
 	require.Equal(t, pb.AckCode_ACK_CODE_OK, got.GetCode())
@@ -921,6 +923,8 @@ func TestHandleMinerCommand_GetErrorsReturnsPayload(t *testing.T) {
 	r.handleMinerCommand(context.Background(), nil, ack, "cmd-1",
 		withTarget(&pb.MinerCommand{Action: &pb.MinerCommand_GetErrors{GetErrors: &pb.GetErrorsAction{}}}), discardLogger(t))
 
+	require.Eventually(t, func() bool { return len(r.getDeviceHandlePool().slots) == 0 }, time.Second, time.Millisecond)
+
 	// Assert
 	got := ack.only(t)
 	assert.Equal(t, pb.AckCode_ACK_CODE_OK, got.GetCode())
@@ -1243,6 +1247,8 @@ func TestHandleMinerCommand_GetErrorsReturnsTruncatedPayloadForOversizedPayload(
 	// Act
 	r.handleMinerCommand(context.Background(), nil, ack, "cmd-1",
 		withTarget(&pb.MinerCommand{Action: &pb.MinerCommand_GetErrors{GetErrors: &pb.GetErrorsAction{}}}), discardLogger(t))
+
+	require.Eventually(t, func() bool { return len(r.getDeviceHandlePool().slots) == 0 }, time.Second, time.Millisecond)
 
 	// Assert
 	got := ack.only(t)
