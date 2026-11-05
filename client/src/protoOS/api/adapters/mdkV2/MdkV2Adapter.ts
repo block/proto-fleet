@@ -25,6 +25,7 @@ import {
   type TelemetryServiceQueryTimeSeriesParams,
   V2HashboardIdentifyLEDMode,
   V2PerformanceMode,
+  V2PlantWriteConfirmationState,
   V2PLLAlgorithm,
 } from "./generated/generatedApi";
 import {
@@ -440,12 +441,27 @@ export class MdkV2Adapter implements MinerAdapter {
   }
 
   async setContainerControl(name: string, enabled: boolean, params: AdapterRequestOptions = {}) {
-    await this.client.powerServiceSetContainerControl({ name }, { enabled }, this.decorate(params));
+    const { data } = await this.client.powerServiceSetContainerControl({ name }, { enabled }, this.decorate(params));
+    this.checkContainerWriteConfirmation(data.confirmation);
   }
 
   async setContainerSetpoint(name: string, value: number, params: AdapterRequestOptions = {}) {
     if (!Number.isFinite(value) || !Number.isFinite(Math.fround(value))) throw new Error("Enter a finite number");
-    await this.client.powerServiceSetContainerSetpoint({ name }, { value }, this.decorate(params));
+    const { data } = await this.client.powerServiceSetContainerSetpoint({ name }, { value }, this.decorate(params));
+    this.checkContainerWriteConfirmation(data.confirmation);
+  }
+
+  private checkContainerWriteConfirmation(confirmation?: { state?: V2PlantWriteConfirmationState }) {
+    if (!confirmation || confirmation.state === V2PlantWriteConfirmationState.PLANT_WRITE_CONFIRMATION_STATE_CONFIRMED)
+      return;
+    if (confirmation.state === V2PlantWriteConfirmationState.PLANT_WRITE_CONFIRMATION_STATE_MISMATCH) {
+      throw new Error(
+        "Controller readback did not match the requested change. Check the current setting before trying again.",
+      );
+    }
+    throw new Error(
+      "The command was sent, but controller readback is unavailable. Check the current setting before trying again.",
+    );
   }
 
   async startModuleRunIn(moduleId: string, request: ModuleRunInRequest, params: AdapterRequestOptions = {}) {

@@ -37,10 +37,14 @@ const ContainerPreview = ({ children }: { children: ReactNode }) => {
       },
       powerServiceGetContainerControls: async () => ({ data: { supported: true, controls, setpoints } }),
       powerServiceSetContainerControl: async ({ name }, { enabled }) => {
-        controls.find((control) => control.name === name)!.enabled = enabled!;
+        const control = controls.find((control) => control.name === name)!;
+        control.enabled = enabled!;
+        return { data: { control } };
       },
       powerServiceSetContainerSetpoint: async ({ name }, { value }) => {
-        setpoints.find((setting) => setting.name === name)!.value = value!;
+        const setpoint = setpoints.find((setting) => setting.name === name)!;
+        setpoint.value = value!;
+        return { data: { setpoint } };
       },
     };
     return new MdkV2Adapter(client as MdkV2Client);

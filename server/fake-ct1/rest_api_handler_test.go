@@ -77,7 +77,7 @@ func TestContainerSetpointFloat32Bounds(t *testing.T) {
 		initial := state.ContainerSetpoints["dry_cooler_auto_temp_c"]
 		status := postJSON(t, srv, "/api/v2/power/container/setpoints/dry_cooler_auto_temp_c", setContainerSetpointRequest{Value: value}, nil)
 		wantStatus, wantValue := http.StatusOK, value
-		if value < 20 || value > 55 {
+		if math.Abs(value) > math.MaxFloat32 {
 			wantStatus, wantValue = http.StatusBadRequest, initial
 		}
 		if status != wantStatus {
@@ -1130,7 +1130,7 @@ func TestContainerControlsReadback(t *testing.T) {
 			}
 		}
 	}
-	if len(response.Setpoints) != 1 || response.Setpoints[0].Name != "dry_cooler_auto_temp_c" {
+	if len(response.Setpoints) != 5 || response.Setpoints[0].Name != "dry_cooler_auto_temp_c" {
 		t.Fatalf("missing existing setpoint: %+v", response.Setpoints)
 	}
 }

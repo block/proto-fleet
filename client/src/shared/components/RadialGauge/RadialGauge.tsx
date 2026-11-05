@@ -28,6 +28,12 @@ interface RadialGaugeProps {
   strokeLinecap?: "round" | "butt";
   /** Opacity of the low-opacity track arc (0–1). */
   trackOpacity?: number;
+  /** Compact readout rendered at the exact centre of the gauge SVG. */
+  centerText?: string;
+  /** Font size in px for `centerText`. */
+  centerTextFontSize?: number;
+  /** Classes applied to the SVG `centerText` element. */
+  centerTextClassName?: string;
   /** Large centred readout, e.g. "72%" or "3,200". */
   label?: string;
   /** Small caption under the label, e.g. "PWM" or "RPM". */
@@ -51,6 +57,9 @@ const RadialGauge = ({
   colorClassName = "text-core-accent-fill",
   strokeLinecap = "round",
   trackOpacity = 0.1,
+  centerText,
+  centerTextFontSize = 12,
+  centerTextClassName,
   label,
   caption,
   className,
@@ -102,6 +111,19 @@ const RadialGauge = ({
             strokeDasharray={`${valueLength} ${valueGap}`}
             transform={`rotate(${rotation} ${size / 2} ${size / 2})`}
           />
+        ) : null}
+        {centerText ? (
+          <text
+            x={size / 2}
+            y={size / 2}
+            fill="currentColor"
+            fontSize={centerTextFontSize}
+            textAnchor="middle"
+            dominantBaseline="central"
+            className={centerTextClassName}
+          >
+            {centerText}
+          </text>
         ) : null}
       </svg>
       {label || caption ? (

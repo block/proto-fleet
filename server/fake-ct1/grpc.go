@@ -136,7 +136,8 @@ func (a *grpcAPI) SetContainerSetpoint(ctx context.Context, in *mdk.SetContainer
 	if err := a.state.setContainerSetpoint(in.GetName(), in.GetValue()); err != nil {
 		return nil, err
 	}
-	return &mdk.SetContainerSetpointResponse{Setpoint: &mdk.ContainerSetpoint{Name: in.GetName(), Value: in.GetValue(), Unit: "°C"}}, nil
+	point := a.state.containerSetpoint(in.GetName())
+	return &mdk.SetContainerSetpointResponse{Setpoint: &mdk.ContainerSetpoint{Name: point.Name, Value: point.Value, Unit: point.Unit}}, nil
 }
 
 func (a *grpcAPI) SetContainerControl(ctx context.Context, in *mdk.SetContainerControlRequest) (*mdk.SetContainerControlResponse, error) {

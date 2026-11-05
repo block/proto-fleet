@@ -86,12 +86,12 @@ func (s *ContainerState) containerTelemetry() containerTelemetryResponse {
 	fraction := targetLoad / (float64(max(1, s.BoardCount())) * boardPowerTargetW)
 	speed := 80 + 32*(fraction-78.0/96)
 	if !s.ContainerControls["dry_cooler_auto"] {
-		speed = 80
+		speed = s.ContainerSetpoints["dry_cooler_manual_speed_percent"]
 	}
 	for i, id := range dryCoolerFanIDs {
 		v := 0.0
 		if cooler {
-			v = speed + s.wave(i+500, 240)
+			v = math.Max(0, math.Min(100, speed*(1+s.wave(i+500, 240)/80)))
 		}
 		power := 3000 * math.Pow(v/80, 3)
 		fans = append(fans, plantCoolingFan{ComponentID: id, PowerW: power, SpeedPct: v, AlarmActive: i == 3})
@@ -130,7 +130,7 @@ func (s *ContainerState) containerTelemetry() containerTelemetryResponse {
 	// static pressure when stopped, with zero speed and zero pressure differences.
 	pumpSpeed, pumpPressureRise := 0.0, 0.0
 	if pump {
-		pumpSpeed = 50 + .5*s.wave(706, 360)
+		pumpSpeed = math.Max(0, s.ContainerSetpoints["coolant_pump_speed_hz"]*(1+.01*s.wave(706, 360)))
 		pumpPressureRise = 100000 * math.Pow(pumpSpeed/50, 2)
 	}
 	pumpInletPressure := 190000.0
@@ -178,6 +178,10 @@ func (s *ContainerState) containerTelemetry() containerTelemetryResponse {
 	for _, name := range []string{"air_conditioner_1", "air_conditioner_2", "coolant_pump", "dry_cooler", "dry_cooler_auto", "tank_led_light"} {
 		controls = append(controls, containerControl{Name: name, Enabled: s.ContainerControls[name], StateKnown: true})
 	}
+	setpoints := make([]containerSetpoint, 0, len(containerSetpointDefaults))
+	for _, point := range containerSetpointDefaults {
+		setpoints = append(setpoints, s.containerSetpoint(point.Name))
+	}
 	return containerTelemetryResponse{
 		Timestamp:          s.sampleTime,
 		Phases:             phases,
@@ -185,7 +189,7 @@ func (s *ContainerState) containerTelemetry() containerTelemetryResponse {
 		PowerDistributions: pdus,
 		PowerFeeds:         feeds,
 		Controls:           controls,
-		Setpoints:          []containerSetpoint{{Name: "dry_cooler_auto_temp_c", Value: s.ContainerSetpoints["dry_cooler_auto_temp_c"], Unit: "°C"}},
+		Setpoints:          setpoints,
 		Tank: tankTelemetry{
 			State: tankState(mining), Powered: true,
 			InletTemperature: inlet, OutletTemperature: outlet, AmbientTemperature: ambient,

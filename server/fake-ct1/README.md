@@ -74,6 +74,7 @@ is a write unless its `google.api.http` binding is a GET.
 | GET | `/api/v2/telemetry/container` | plant (PUE), phase, fan, distribution, and feed telemetry |
 | GET | `/api/v2/power/container/controls` | six supported boolean controls and current known states, plus setpoints; dedicated main breaker unsupported |
 | POST | `/api/v2/power/container/controls/{name}` | explicit desired state; subsequent equipment and telemetry reads return the same state |
+| POST | `/api/v2/power/container/setpoints/{name}` | write one of five analog settings; controls and telemetry reads share the same values and units |
 | GET | `/api/v2/telemetry/timeseries` | recorded board and plant history, including fans, PDUs, phases and feed power/voltage |
 | GET | `/api/v2/hashboards/{identifier}/asics` | 312 ASICs + layout (`identifier` = MAC or serial) |
 | POST | `/api/v2/mining/scoped/power` · `/power/clear` | set/clear per-board power target |
@@ -85,6 +86,21 @@ is a write unless its `google.api.http` binding is a GET.
 **Scopes.** The scoped write endpoints accept a `scope` of `identifiers`
 (MAC/serial) and/or `modules` (`{tank, module}` coordinates). An empty scope
 matches every board.
+
+**Plant settings.** REST, Connect, and native gRPC expose the same five settings:
+
+| Name | Unit | Demo default |
+| --- | --- | --- |
+| `dry_cooler_auto_temp_c` | °C | 32 |
+| `coolant_pump_speed_hz` | Hz | 50 |
+| `dry_cooler_manual_speed_percent` | % | 80 |
+| `air_conditioner_1_temp_c` | °C | 24 |
+| `air_conditioner_2_temp_c` | °C | 24 |
+
+Writes accept finite values within the float32 wire range, matching MDKv2.
+The fixture does not enforce or qualify PLC operational limits. AC temperature
+settings are stored and read back; room temperature and AC power do not model
+thermostat behavior. All settings reset on restart.
 
 **Pools demo.** Pool 1 is active while any board is mining; pools 2 and 3
 remain ready on standby. The explicit demo cadence is 199 accepted / 1 rejected
@@ -274,13 +290,18 @@ them.
   with all boards mining. The original 80% reference corresponds to 234 active
   boards; the same load-based curve now reflects the healthier default scenario.
   Disabling the cooler zeros fan speed and power. Manual cooler
-  mode uses an explicit 80% demo command; automatic mode follows mining load.
+  mode follows `dry_cooler_manual_speed_percent` (80% by default); automatic mode
+  follows mining load. Seeded speed variation is at most 1.25% of the command.
+  Demo fan readings stay within 0–100%, independently of the stored setpoint.
 - The 32°C inlet and 7–8°C rise are imposed test conditions. Flow is the required
   thermal flow using 0.8 kg/L density, 2 kJ/kg·K heat capacity, all PSU input heat,
   and a provisional 16 kW pump heat allowance. No hydraulic calibration is claimed.
   The normal rise/flow model is disabled when mining, pump, or cooler is off;
   it does not model transient overheating or circulation in those conditions.
-- Live pump speed is a seeded, slowly varying **50 ± 0.5 Hz** demo reading.
+- Live pump speed follows `coolant_pump_speed_hz` with seeded variation of at most
+  1% (**50 ± 0.5 Hz** by default). Demo readings cannot be negative; a zero command
+  produces zero speed. Changing this setting does not change the imposed thermal
+  flow, temperature rise, or 16 kW pump allowance.
   Pump inlet pressure is **190 kPa**; the nominal **100 kPa** pump pressure rise
   scales with squared speed. The cooler accounts for 80% of that pressure drop.
   These are illustrative readings in the API's Hz/Pa fields, not calibrated
@@ -291,8 +312,8 @@ them.
   at 385 mV. No new contract fields or hardware identifiers are invented.
 - The other-auxiliary allowance is provisionally split into 1 kW controls and
   0.5 kW per enabled AC unit, so those controls affect facility power.
-- Power targets clamp to **2,500–3,000 W**, fixed module voltage accepts
-  **26–30 V**, and the cooling setpoint accepts **20–55°C**. These are simulator
+- Power targets clamp to **2,500–3,000 W** and fixed module voltage accepts
+  **26–30 V**. These are simulator
   bounds, not qualified hardware limits. Below 3 kW, constant nominal efficiency
   is an uncalibrated extrapolation.
 - Sleeping/error temperatures decay toward fluid temperature. Disconnected

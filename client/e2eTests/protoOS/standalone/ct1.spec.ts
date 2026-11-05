@@ -1,5 +1,11 @@
+import { fromBinary } from "@bufbuild/protobuf";
 import { type APIRequestContext, expect, type Request, type Response, test } from "@playwright/test";
 import type { V2GetContainerMapResponse } from "../../../src/protoOS/api/adapters/mdkV2/generated/generatedApi";
+import type { V2GetContainerControlsResponse } from "../../../src/protoOS/api/adapters/mdkV2/generated/generatedApi";
+import {
+  SetContainerControlRequestSchema,
+  SetContainerSetpointRequestSchema,
+} from "../../../src/protoOS/api/adapters/mdkV2/generated/proto/mdk/v2/power_pb";
 import { ContainerStandalonePage } from "../pages/containerStandalone";
 
 async function miningStates(request: APIRequestContext) {
@@ -66,6 +72,304 @@ const scope = {
     { tank: 1, module: 2 },
   ],
 };
+
+test("diagram view fits, zooms below Fit, and keeps its view across system controls", async ({ page }) => {
+  const dashboard = new ContainerStandalonePage(page);
+  const writes: string[] = [];
+  page.on("request", (request) => {
+    if (/\/SetContainer(Control|Setpoint)$/.test(new URL(request.url()).pathname)) writes.push(request.url());
+  });
+  await dashboard.openOverview();
+  const canvas = dashboard.diagramCanvas();
+  const frame = await canvas.boundingBox();
+  const content = await dashboard.schematic().getByTestId("system-diagram-content").boundingBox();
+  expect(content!.x).toBeGreaterThanOrEqual(frame!.x);
+  expect(content!.y).toBeGreaterThanOrEqual(frame!.y);
+  expect(content!.x + content!.width).toBeLessThanOrEqual(frame!.x + frame!.width);
+  expect(content!.y + content!.height).toBeLessThanOrEqual(frame!.y + frame!.height);
+  await expect(dashboard.schematic().getByText(/Drag to pan/)).toBeVisible();
+  const fitted = await dashboard.diagramZoom();
+  await dashboard.zoomDiagram("out");
+  await dashboard.fitDiagram();
+  await expect.poll(() => dashboard.diagramZoom()).toBe(fitted);
+
+  await canvas.press("+");
+  await expect.poll(() => dashboard.diagramZoom()).toBeGreaterThan(fitted);
+  await dashboard.zoomDiagramToReadableSize();
+  const beforeDrag = await dashboard.diagramTransform();
+  await dashboard.dragPump();
+  await expect.poll(() => dashboard.diagramTransform()).not.toBe(beforeDrag);
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  const inspected = await dashboard.diagramTransform();
+  await dashboard.openEquipmentSettings("Coolant pump");
+  await dashboard.closeEquipmentSettings("Coolant pump");
+  expect(await dashboard.diagramTransform()).toBe(inspected);
+  await canvas.focus();
+  await canvas.press("0");
+  await expect.poll(() => dashboard.diagramZoom()).toBe(fitted);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  expect(writes).toEqual([]);
+  await dashboard.schematic().screenshot({ path: test.info().outputPath("diagram-view.png") });
+});
+
+test("diagram pinch zoom keeps equipment closed and Fit restores the complete system", async ({ page }) => {
+  const dashboard = new ContainerStandalonePage(page);
+  await dashboard.openOverview();
+  const fitted = await dashboard.diagramZoom();
+  await dashboard.pinchDiagram();
+  await expect.poll(() => dashboard.diagramZoom()).toBeGreaterThan(fitted * 2);
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await dashboard.fitDiagram();
+  await expect.poll(() => dashboard.diagramZoom()).toBe(fitted);
+});
+
+const systemTest = test.extend<{ systemBaseline: V2GetContainerControlsResponse }>({
+  systemBaseline: [
+    async ({ playwright, baseURL }, provide) => {
+      const cleanup = await playwright.request.newContext({ baseURL, timeout: 10_000 });
+      const headers = { "X-Frigate-Actor": "proto-os" };
+      try {
+        const response = await cleanup.get("/api/v2/power/container/controls");
+        expect(response.ok()).toBe(true);
+        const before = (await response.json()) as V2GetContainerControlsResponse;
+        const names = [
+          "coolant_pump_speed_hz",
+          "dry_cooler_manual_speed_percent",
+          "air_conditioner_1_temp_c",
+          "air_conditioner_2_temp_c",
+        ];
+        const setpoints = before.setpoints!.filter((item) => names.includes(item.name!));
+        const controls = before.controls!.filter((item) =>
+          ["dry_cooler_auto", "coolant_pump", "air_conditioner_1", "air_conditioner_2", "tank_led_light"].includes(
+            item.name!,
+          ),
+        );
+        expect(setpoints).toHaveLength(4);
+        expect(controls).toHaveLength(5);
+        expect(controls.every((control) => control.stateKnown)).toBe(true);
+        try {
+          await provide(before);
+        } finally {
+          for (const setting of setpoints) {
+            const restored = await cleanup.post(`/api/v2/power/container/setpoints/${setting.name}`, {
+              headers,
+              data: { value: setting.value },
+            });
+            expect(restored.ok()).toBe(true);
+          }
+          for (const control of controls) {
+            const restored = await cleanup.post(`/api/v2/power/container/controls/${control.name}`, {
+              headers,
+              data: { enabled: control.enabled },
+            });
+            expect(restored.ok()).toBe(true);
+          }
+          const after = (await (
+            await cleanup.get("/api/v2/power/container/controls")
+          ).json()) as V2GetContainerControlsResponse;
+          expect(after.setpoints!.filter((item) => names.includes(item.name!))).toEqual(setpoints);
+          expect(after.controls!.filter((item) => controls.some((control) => control.name === item.name))).toEqual(
+            controls,
+          );
+        }
+      } finally {
+        await cleanup.dispose();
+      }
+    },
+    { auto: true, timeout: 30_000 },
+  ],
+});
+
+systemTest(
+  "schematic pump and dry-cooler settings round trip through native MDKv2",
+  async ({ page, request, baseURL, systemBaseline }) => {
+    expect(systemBaseline.supported).toBe(true);
+    const dashboard = new ContainerStandalonePage(page);
+    await dashboard.openOverview();
+    await page.getByRole("region", { name: "Container cooling system schematic" }).scrollIntoViewIfNeeded();
+    await page
+      .getByRole("region", { name: "Container cooling system schematic" })
+      .screenshot({ path: test.info().outputPath("system-overview.png") });
+    await dashboard.openEquipmentSettings("Coolant pump");
+    await expect(
+      dashboard.equipmentSettings("Coolant pump").getByRole("button", { name: "Apply", exact: true }),
+    ).toHaveCount(0);
+    const powerWrite = await dashboard.setEquipmentPower("Coolant pump", false);
+    expect(powerWrite.ok()).toBe(true);
+    expectDirectRequest(powerWrite.request(), baseURL!);
+    expect(fromBinary(SetContainerControlRequestSchema, powerWrite.request().postDataBuffer()!)).toMatchObject({
+      name: "coolant_pump",
+      enabled: false,
+    });
+    await dashboard.setEquipmentPower("Coolant pump", true);
+    await page.screenshot({ path: test.info().outputPath("pump-settings.png") });
+    const pumpWrite = await dashboard.applyPumpSpeed(45);
+    expect(pumpWrite.ok()).toBe(true);
+    expectDirectRequest(pumpWrite.request(), baseURL!);
+    expect(fromBinary(SetContainerSetpointRequestSchema, pumpWrite.request().postDataBuffer()!)).toMatchObject({
+      name: "coolant_pump_speed_hz",
+      value: 45,
+    });
+    await dashboard.closeEquipmentSettings("Coolant pump");
+    await dashboard.openEquipmentSettings("Coolant pump");
+    await expect(
+      dashboard.equipmentSettings("Coolant pump").getByLabel("Pump speed (Hz)", { exact: true }),
+    ).toHaveValue("45");
+    await dashboard.closeEquipmentSettings("Coolant pump");
+
+    await dashboard.openEquipmentSettings("Dry cooler");
+    const fanWrite = await dashboard.applyManualFanSpeed(65);
+    expect(fanWrite.ok()).toBe(true);
+    expectDirectRequest(fanWrite.request(), baseURL!);
+    expect(fromBinary(SetContainerSetpointRequestSchema, fanWrite.request().postDataBuffer()!)).toMatchObject({
+      name: "dry_cooler_manual_speed_percent",
+      value: 65,
+    });
+    const settings = (await (
+      await request.get("/api/v2/power/container/controls")
+    ).json()) as V2GetContainerControlsResponse;
+    expect(settings.controls!.find((item) => item.name === "dry_cooler_auto")).toMatchObject({
+      enabled: false,
+      stateKnown: true,
+    });
+    expect(settings.setpoints!.find((item) => item.name === "dry_cooler_manual_speed_percent")).toMatchObject({
+      value: 65,
+      unit: "%",
+    });
+    await dashboard.closeEquipmentSettings("Dry cooler");
+    await dashboard.openEquipmentSettings("Dry cooler");
+    await expect(dashboard.equipmentSettings("Dry cooler").getByLabel("Fan speed (%)", { exact: true })).toHaveValue(
+      "65",
+    );
+    await page.screenshot({ path: test.info().outputPath("cooler-settings.png") });
+  },
+);
+
+systemTest(
+  "central controls expose air conditioning and lighting with responsive equipment groups",
+  async ({ page, baseURL, systemBaseline }, testInfo) => {
+    const dashboard = new ContainerStandalonePage(page);
+    await dashboard.openOverview();
+    await dashboard.openEquipmentSettings("Coolant pump");
+    await dashboard.expectResponsiveControls(testInfo.project.name === "desktop");
+    for (const [name, label] of [
+      ["air_conditioner_1", "Air conditioner 1 power"],
+      ["air_conditioner_2", "Air conditioner 2 power"],
+      ["tank_led_light", "Tank lights"],
+    ]) {
+      const desired = !systemBaseline.controls!.find((item) => item.name === name)!.enabled;
+      const response = await dashboard.setSystemControl(name, label, desired);
+      expectDirectRequest(response.request(), baseURL!);
+      expect(fromBinary(SetContainerControlRequestSchema, response.request().postDataBuffer()!)).toMatchObject({
+        name,
+        enabled: desired,
+      });
+    }
+    for (const number of [1, 2] as const) {
+      const desired =
+        systemBaseline.setpoints!.find((item) => item.name === `air_conditioner_${number}_temp_c`)!.value! + 1;
+      const response = await dashboard.applyAirConditionerTemperature(number, desired);
+      expectDirectRequest(response.request(), baseURL!);
+      expect(fromBinary(SetContainerSetpointRequestSchema, response.request().postDataBuffer()!)).toMatchObject({
+        name: `air_conditioner_${number}_temp_c`,
+        value: desired,
+      });
+    }
+    await page.screenshot({ path: test.info().outputPath("central-system-controls.png") });
+  },
+);
+
+systemTest("numeric blur preserves a single Mode click and waits for target readback", async ({ page }) => {
+  const dashboard = new ContainerStandalonePage(page);
+  await dashboard.openOverview();
+  await dashboard.openEquipmentSettings("Dry cooler");
+  await dashboard.coolerMode().click();
+  await dashboard.coolerModeOption("Manual").click();
+  await expect(page.getByTestId("toast").filter({ hasText: "Mode set to Manual." })).toBeVisible();
+  await expect(dashboard.manualFanSpeed()).toBeEnabled();
+  const desired = Number(await dashboard.manualFanSpeed().inputValue()) - 1;
+  const setpoints: Request[] = [];
+  const controls: Request[] = [];
+  page.on("request", (request) => {
+    const path = new URL(request.url()).pathname;
+    if (path.endsWith("/SetContainerSetpoint")) setpoints.push(request);
+    if (path.endsWith("/SetContainerControl")) controls.push(request);
+  });
+  let releaseReadback!: () => void;
+  const heldReadback = new Promise<void>((resolve) => {
+    releaseReadback = resolve;
+  });
+  await page.route(
+    "**/mdk.v2.PowerService/GetContainerControls",
+    async (route) => {
+      const response = await route.fetch();
+      await heldReadback;
+      await route.fulfill({ response });
+    },
+    { times: 1 },
+  );
+  try {
+    await dashboard.manualFanSpeed().fill(String(desired));
+    await dashboard.coolerMode().click();
+    await expect(dashboard.coolerModeOption("Auto")).toBeVisible();
+    await expect.poll(() => setpoints.length).toBe(1);
+    await dashboard.coolerModeOption("Auto").click();
+    expect(controls).toHaveLength(0);
+  } finally {
+    releaseReadback();
+  }
+  await expect(page.getByTestId("toast").filter({ hasText: "Mode set to Auto." })).toBeVisible();
+  expect(controls).toHaveLength(1);
+  expect(setpoints).toHaveLength(1);
+  expect(fromBinary(SetContainerSetpointRequestSchema, setpoints[0].postDataBuffer()!)).toMatchObject({
+    name: "dry_cooler_manual_speed_percent",
+    value: desired,
+  });
+  expect(fromBinary(SetContainerControlRequestSchema, controls[0].postDataBuffer()!)).toMatchObject({
+    name: "dry_cooler_auto",
+    enabled: true,
+  });
+});
+
+systemTest(
+  "autosave reports rejected writes inline and in a toast, then retries on Enter",
+  async ({ page, request }) => {
+    const dashboard = new ContainerStandalonePage(page);
+    await dashboard.openOverview();
+    await dashboard.openEquipmentSettings("Coolant pump");
+    const dialog = dashboard.equipmentSettings("Coolant pump");
+    const input = dialog.getByLabel("Pump speed (Hz)", { exact: true });
+    const original = await input.inputValue();
+    const desired = Number(original) + 1;
+    await page.route(
+      "**/mdk.v2.PowerService/SetContainerSetpoint",
+      (route) =>
+        route.fulfill({
+          status: 500,
+          contentType: "application/json",
+          body: JSON.stringify({ code: "internal", message: "Simulated command rejection" }),
+        }),
+      { times: 1 },
+    );
+    await input.fill(String(desired));
+    await input.press("Enter");
+    await expect(dialog.getByText(/Simulated command rejection/)).toBeVisible();
+    await expect(page.getByTestId("toast").filter({ hasText: /Could not save pump speed/ })).toBeVisible();
+    await expect(input).toHaveAttribute("aria-invalid", "true");
+    await expect(input).toHaveValue(String(desired));
+    const settings = (await (
+      await request.get("/api/v2/power/container/controls")
+    ).json()) as V2GetContainerControlsResponse;
+    expect(settings.setpoints!.find((item) => item.name === "coolant_pump_speed_hz")!.value).toBe(Number(original));
+    await expect(input).toBeEnabled();
+    await input.press("Enter");
+    await expect(page.getByTestId("toast").filter({ hasText: "Pump speed saved." })).toBeVisible();
+    await expect(input).not.toHaveAttribute("aria-invalid", "true");
+    await dashboard.closeEquipmentSettings("Coolant pump");
+    await dashboard.openEquipmentSettings("Coolant pump");
+    await expect(dialog.getByLabel("Pump speed (Hz)", { exact: true })).toHaveValue(String(desired));
+  },
+);
 
 test("production bundle probes CT1 and survives tank/module deep-link refreshes without login", async ({
   page,
@@ -137,6 +441,8 @@ test("production bundle probes CT1 and survives tank/module deep-link refreshes 
   const info = await (await probe).json();
   expect(info.info.product).toBe("CT1");
   await dashboard.expectNoLogin();
+  expect(apiRequests.some((request) => new URL(request.url()).pathname.endsWith("/QueryTimeSeries"))).toBe(false);
+  await dashboard.openHashrate();
 
   await dashboard.openTank(1);
   await expect(dashboard.tank(1).getByRole("button", { name: "Module 01, Healthy", exact: true })).toBeVisible();

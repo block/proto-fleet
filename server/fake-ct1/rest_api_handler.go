@@ -900,14 +900,13 @@ func (h *RESTApiHandler) handleContainerSetpoint(w http.ResponseWriter, r *http.
 	}
 	h.state.mu.Lock()
 	err := h.state.setContainerSetpoint(name, request.Value)
+	point := h.state.containerSetpoint(name)
 	h.state.mu.Unlock()
 	if err != nil {
 		writeAPIError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, setContainerSetpointResponse{Setpoint: containerSetpoint{
-		Name: name, Value: request.Value, Unit: "°C",
-	}})
+	writeJSON(w, http.StatusOK, setContainerSetpointResponse{Setpoint: point})
 }
 
 func (h *RESTApiHandler) handleTimeSeries(w http.ResponseWriter, r *http.Request) {

@@ -32,7 +32,7 @@ export default function ContainerHomeToolbar({ tab, links, duration, onDurationC
           />
         ))}
       </nav>
-      <DurationSelector duration={duration} onSelect={onDurationChange} />
+      {tab === "overview" ? null : <DurationSelector duration={duration} onSelect={onDurationChange} />}
     </div>
   );
 }

@@ -11,7 +11,7 @@ describe("container Home presentation", () => {
     render(
       <MemoryRouter>
         <ContainerHomeToolbar
-          tab="overview"
+          tab="power"
           duration="12h"
           onDurationChange={onDurationChange}
           links={{
@@ -24,7 +24,7 @@ describe("container Home presentation", () => {
         />
       </MemoryRouter>,
     );
-    expect(screen.getByRole("link", { name: "Overview" })).toHaveAttribute("aria-current", "page");
+    expect(screen.getByRole("link", { name: "Power" })).toHaveAttribute("aria-current", "page");
     expect(screen.getByRole("link", { name: "Power" })).toHaveAttribute("href", "/miners/ct1/power-usage");
     fireEvent.click(screen.getByRole("button", { name: "48h" }));
     expect(onDurationChange).toHaveBeenCalledWith("48h");

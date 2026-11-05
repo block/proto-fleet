@@ -9,13 +9,11 @@ import {
   categorySummaries,
   efficiencyHistory,
   formatReading,
-  latest,
   sumHistory,
   temperatureValue,
   toHomeSeries,
 } from "./utils/buildContainerHome";
 import { containerHistoryKey, type ContainerHistorySelection } from "@/protoOS/api/adapters/containerHistory";
-import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
 import { useDuration, useMinerStore } from "@/protoOS/store";
 import { useTemperatureUnit } from "@/protoOS/store/hooks/useUI";
 
@@ -28,7 +26,6 @@ const powerModes = [
 const temperatureModes = [...powerModes, { id: "fluid" as const, label: "Fluid" }];
 
 export default function ContainerHomePage({ tab }: { tab: HomeTab }) {
-  const { minerRoot } = useMinerHosting();
   const duration = useDuration();
   const unit = useTemperatureUnit();
   const hardware = useMinerStore((state) => state.hardware);
@@ -43,7 +40,8 @@ export default function ContainerHomePage({ tab }: { tab: HomeTab }) {
     [hardware.fans],
   );
   const selections = useMemo<ContainerHistorySelection[]>(() => {
-    if (tab === "overview" || tab === "hashrate") return [{ metric: "hashrate" }];
+    if (tab === "overview") return [];
+    if (tab === "hashrate") return [{ metric: "hashrate" }];
     if (tab === "efficiency") return [{ metric: "hashrate" }, { metric: "facilityPower" }];
     if (mode !== "system") return [];
     if (tab === "power")
@@ -86,39 +84,7 @@ export default function ContainerHomePage({ tab }: { tab: HomeTab }) {
       return params;
     });
 
-  if (tab === "overview")
-    return (
-      <ContainerOverviewView
-        hashrate={{
-          id: "hashrate",
-          label: "Hashrate",
-          value: formatReading(live.hashrate, "TH/s"),
-        }}
-        power={{
-          id: "power",
-          label: "Power",
-          value: formatReading(live.power === null ? null : live.power / 1000, "kW"),
-        }}
-        fluid={{
-          id: "fluid",
-          label: "Fluid levels and temperature",
-          value: formatReading(temperatureValue(latest(live.plant?.inletTemperature), unit), `°${unit}`),
-        }}
-        boardCount={live.boardCount}
-        powerLocations={live.powerLocations}
-        fluidLocations={live.fluidLocations}
-        history={{
-          ...baseHistory,
-          units: "TH/s",
-          series: [toHomeSeries("hashrate", "Hashrate", ORANGE, source({ metric: "hashrate" }), window, "TH/s")],
-        }}
-        links={{
-          hashrate: `${minerRoot}/hashrate`,
-          power: `${minerRoot}/power-usage`,
-          fluid: `${minerRoot}/temperature?mode=fluid`,
-        }}
-      />
-    );
+  if (tab === "overview") return <ContainerOverviewView plant={live.plant} fans={fans} power={live.power} />;
 
   if (tab === "power") {
     const series =

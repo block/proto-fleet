@@ -1,4 +1,7 @@
+import { fromBinary } from "@bufbuild/protobuf";
 import { expect, test } from "@playwright/test";
+import { TimeSeriesMetric } from "../../../src/protoOS/api/adapters/mdkV2/generated/proto/mdk/v2/common_pb";
+import { QueryTimeSeriesRequestSchema } from "../../../src/protoOS/api/adapters/mdkV2/generated/proto/mdk/v2/telemetry_pb";
 
 // Run against an isolated fake-ct1-backed ProtoOS server, not the rig fixture
 // used by the existing onboarding/settings suite.
@@ -9,16 +12,21 @@ test.describe("Container Home", () => {
   test.use({ baseURL: process.env.CT1_BASE_URL });
 
   test("Overview, metric modes and durations use aggregate requests", async ({ page }) => {
-    const histories: URL[] = [];
+    const histories: { metric: TimeSeriesMetric; identifier: string }[] = [];
     page.on("request", (request) => {
       const url = new URL(request.url());
-      if (url.pathname.endsWith("/telemetry/timeseries")) histories.push(url);
+      if (url.pathname === "/mdk.v2.TelemetryService/QueryTimeSeries")
+        histories.push(fromBinary(QueryTimeSeriesRequestSchema, request.postDataBuffer()!));
     });
     await page.goto("/");
     const navigation = page.getByRole("navigation", { name: "Container Home" });
     await expect(navigation.getByRole("link", { name: "Overview" })).toHaveAttribute("aria-current", "page");
     await expect(page.getByRole("heading", { name: "Container overview" })).toBeAttached();
-    await expect(page.getByRole("link", { name: "View Hashrate" })).toBeVisible();
+    await expect(page.getByRole("region", { name: "Container cooling system schematic" })).toBeVisible();
+    await expect(page.getByRole("region", { name: "Live readings" })).toContainText("Container power");
+    await expect(page.getByRole("figure")).toHaveCount(0);
+    expect(histories).toHaveLength(0);
+    await navigation.getByRole("link", { name: "Hashrate", exact: true }).click();
     await expect(page.locator(".recharts-line-curve")).toHaveCount(1);
     await page.getByRole("button", { name: "48h" }).click();
     await expect(page.getByRole("button", { name: "48h" })).toHaveAttribute("aria-pressed", "true");
@@ -34,20 +42,16 @@ test.describe("Container Home", () => {
     await expect(page.getByRole("list", { name: "Readings by tank" })).toBeVisible();
     await expect(page.getByRole("button", { name: "Fluid" })).toHaveAttribute("aria-pressed", "true");
     expect(histories.length).toBeGreaterThan(0);
-    expect(
-      histories.every(
-        (url) =>
-          !url.searchParams.has("identifier") ||
-          url.searchParams.get("metric") === "TIME_SERIES_METRIC_PLANT_FAN_POWER",
-      ),
-    ).toBe(true);
+    expect(histories.every((query) => !query.identifier || query.metric === TimeSeriesMetric.PLANT_FAN_POWER)).toBe(
+      true,
+    );
   });
 
   test("partial telemetry stays usable and small screens do not overflow", async ({ page }) => {
     await page.setViewportSize({ width: 393, height: 852 });
-    await page.route("**/api/v2/telemetry/timeseries?**", async (route) => {
-      const metric = new URL(route.request().url()).searchParams.get("metric");
-      if (metric === "TIME_SERIES_METRIC_PLANT_FAN_POWER")
+    await page.route("**/mdk.v2.TelemetryService/QueryTimeSeries", async (route) => {
+      const { metric } = fromBinary(QueryTimeSeriesRequestSchema, route.request().postDataBuffer()!);
+      if (metric === TimeSeriesMetric.PLANT_FAN_POWER)
         await route.fulfill({ status: 404, contentType: "application/json", body: '{"message":"Metric unavailable"}' });
       else await route.continue();
     });

@@ -1,7 +1,6 @@
 import { useState } from "react";
 import ContainerHomeToolbar from "./components/ContainerHomeToolbar";
 import ContainerMetricView from "./components/ContainerMetricView";
-import ContainerOverviewView from "./components/ContainerOverviewView";
 import type { HomeChartMode, HomeHistory, HomeReading, HomeSeries } from "./types";
 import type { Duration } from "@/shared/components/DurationSelector";
 
@@ -185,19 +184,5 @@ export const TemperatureFluid = () => <MetricStory temperature initialMode="flui
 export const Loading = () => <MetricStory empty loading />;
 export const StaleHistory = () => <MetricStory error />;
 export const ZeroPower = () => <MetricStory zero />;
-export const Overview = () => (
-  <div className="bg-surface-base p-10 text-text-primary">
-    <ContainerOverviewView
-      hashrate={{ id: "hashrate", label: "Hashrate", value: "16.1k TH/s" }}
-      power={{ id: "power", label: "Power", value: "220 kW" }}
-      fluid={{ id: "fluid", label: "Fluid levels and temperature", value: "—" }}
-      boardCount="188/200 hashboards"
-      history={{ ...history, stacked: false, units: "TH/s", series: [series[0]] }}
-      powerLocations={locations}
-      fluidLocations={locations.map((item) => ({ ...item, amount: null, value: "—" }))}
-      links={{ hashrate: links.hashrate, power: links.power, fluid: "/temperature?mode=fluid" }}
-    />
-  </div>
-);
 
 export default { title: "Proto OS/Containers/Home", component: ContainerMetricView };

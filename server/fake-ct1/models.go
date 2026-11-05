@@ -53,6 +53,24 @@ const (
 	miningStateError        = "MINING_STATE_ERROR"
 )
 
+var containerSetpointDefaults = []containerSetpoint{
+	{Name: "dry_cooler_auto_temp_c", Value: 32, Unit: "°C"},
+	{Name: "coolant_pump_speed_hz", Value: 50, Unit: "Hz"},
+	{Name: "dry_cooler_manual_speed_percent", Value: 80, Unit: "%"},
+	{Name: "air_conditioner_1_temp_c", Value: 24, Unit: "°C"},
+	{Name: "air_conditioner_2_temp_c", Value: 24, Unit: "°C"},
+}
+
+func (s *ContainerState) containerSetpoint(name string) containerSetpoint {
+	for _, point := range containerSetpointDefaults {
+		if point.Name == name {
+			point.Value = s.ContainerSetpoints[name]
+			return point
+		}
+	}
+	return containerSetpoint{Name: name}
+}
+
 const (
 	demoFaultTank              = 2
 	demoLightFaultTank         = 3
@@ -206,10 +224,13 @@ func newContainerState(cfg ContainerConfig, now time.Time) *ContainerState {
 			"dry_cooler_auto":   true,
 			"tank_led_light":    true,
 		},
-		ContainerSetpoints: map[string]float64{"dry_cooler_auto_temp_c": 32},
+		ContainerSetpoints: make(map[string]float64, len(containerSetpointDefaults)),
 		boardsByMAC:        make(map[string]*Hashboard),
 		boardsBySerial:     make(map[string]*Hashboard),
 		modulesByID:        make(map[string]*Module),
+	}
+	for _, point := range containerSetpointDefaults {
+		s.ContainerSetpoints[point.Name] = point.Value
 	}
 
 	globalBoard := 0

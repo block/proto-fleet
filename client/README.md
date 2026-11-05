@@ -173,6 +173,21 @@ npm run storybook
 - Fleet, UI, Auth, Onboarding slices
 - Fleet slice handles miner collection, device status counts, filtering, and streaming telemetry
 
+### ProtoOS container Home
+
+The container Home overview includes a live cooling schematic using its existing
+telemetry poll. The diagram toolbar's System controls launcher opens a shared
+modal for pump power/speed, dry-cooler power and auto/manual targets, both air
+conditioners' power and target temperatures, and tank lights. It loads the
+controller's supported controls when opened. Each power switch stays in its own
+row; equipment groups sit side by side on larger screens and stack on phones.
+Power and mode save immediately, while numeric values save on Enter or blur.
+Each write is followed by settings readback before a success toast; errors retain
+the draft. Requests have deadlines, and connection changes cancel pending work.
+Temperature inputs follow the display preference and write Celsius to MDKv2.
+Flow and pressures remain readings. Fluid levels are reported per bank in mm;
+the schematic does not infer individual tank fill percentages.
+
 ### Native container overview
 
 Fleet's Buildings cards and rows open `/containers/:identifier` inside Fleet's

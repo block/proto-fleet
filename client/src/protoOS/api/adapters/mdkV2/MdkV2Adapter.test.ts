@@ -5,6 +5,7 @@ import {
   V2HashboardErrorCause,
   V2MiningOperatingState,
   V2PerformanceMode,
+  V2PlantWriteConfirmationState,
   V2PLLAlgorithm,
   V2PoolConnState,
   V2Severity,
@@ -20,8 +21,8 @@ const client = (overrides: Partial<MdkV2Client> = {}) =>
     miningServiceStopMiningScoped: vi.fn(),
     miningServiceSetModuleFixedVoltage: vi.fn(),
     miningServiceClearModuleFixedVoltage: vi.fn(),
-    powerServiceSetContainerControl: vi.fn(),
-    powerServiceSetContainerSetpoint: vi.fn(),
+    powerServiceSetContainerControl: vi.fn().mockResolvedValue({ data: {} }),
+    powerServiceSetContainerSetpoint: vi.fn().mockResolvedValue({ data: {} }),
     runInServiceStartModuleRunIn: vi.fn(),
     telemetryServiceQueryTimeSeries: vi.fn(),
     telemetryServiceGetContainerHealth: vi.fn().mockResolvedValue({ data: {} }),
@@ -104,8 +105,8 @@ describe("MdkV2Adapter", () => {
   });
 
   test("container controls retain unknown states and only reported bounds", async () => {
-    const setpoint = vi.fn();
-    const control = vi.fn();
+    const setpoint = vi.fn().mockResolvedValue({ data: {} });
+    const control = vi.fn().mockResolvedValue({ data: {} });
     const adapter = new MdkV2Adapter(
       client({
         powerServiceGetContainerControls: vi.fn().mockResolvedValue({
@@ -494,8 +495,8 @@ describe("MdkV2Adapter", () => {
   });
 
   test("forwards container controls and setpoints with actor attribution", async () => {
-    const setControl = vi.fn().mockResolvedValue(undefined);
-    const setSetpoint = vi.fn().mockResolvedValue(undefined);
+    const setControl = vi.fn().mockResolvedValue({ data: {} });
+    const setSetpoint = vi.fn().mockResolvedValue({ data: {} });
     const adapter = new MdkV2Adapter(
       client({ powerServiceSetContainerControl: setControl, powerServiceSetContainerSetpoint: setSetpoint }),
     );
@@ -513,6 +514,33 @@ describe("MdkV2Adapter", () => {
       { value: 18.3 },
       { headers: { "X-Frigate-Actor": "proto-os" } },
     );
+  });
+
+  test.each([
+    V2PlantWriteConfirmationState.PLANT_WRITE_CONFIRMATION_STATE_MISMATCH,
+    V2PlantWriteConfirmationState.PLANT_WRITE_CONFIRMATION_STATE_UNAVAILABLE,
+    V2PlantWriteConfirmationState.PLANT_WRITE_CONFIRMATION_STATE_UNSPECIFIED,
+  ])("does not report unconfirmed container writes as applied: %s", async (state) => {
+    const adapter = new MdkV2Adapter(
+      client({
+        powerServiceSetContainerControl: vi.fn().mockResolvedValue({ data: { confirmation: { state } } }),
+        powerServiceSetContainerSetpoint: vi.fn().mockResolvedValue({ data: { confirmation: { state } } }),
+      }),
+    );
+    await expect(adapter.setContainerControl("coolant_pump", false)).rejects.toThrow(/readback/);
+    await expect(adapter.setContainerSetpoint("coolant_pump_speed_hz", 45)).rejects.toThrow(/readback/);
+  });
+
+  test("accepts independently confirmed controller writes", async () => {
+    const confirmation = { state: V2PlantWriteConfirmationState.PLANT_WRITE_CONFIRMATION_STATE_CONFIRMED };
+    const adapter = new MdkV2Adapter(
+      client({
+        powerServiceSetContainerControl: vi.fn().mockResolvedValue({ data: { confirmation } }),
+        powerServiceSetContainerSetpoint: vi.fn().mockResolvedValue({ data: { confirmation } }),
+      }),
+    );
+    await expect(adapter.setContainerControl("coolant_pump", false)).resolves.toBeUndefined();
+    await expect(adapter.setContainerSetpoint("coolant_pump_speed_hz", 45)).resolves.toBeUndefined();
   });
 
   test("uses the generated miner-wide target-power endpoints", async () => {

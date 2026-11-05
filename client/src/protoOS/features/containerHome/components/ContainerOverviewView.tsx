@@ -1,84 +1,54 @@
-import type { ReactNode } from "react";
-import type { HomeHistory, HomeReading, LocationReading } from "../types";
-import { HomeHistoryChart, LocationBarChart } from "./HomeCharts";
-import Button from "@/shared/components/Button";
-import Card, { cardType } from "@/shared/components/Card";
-import Stat from "@/shared/components/Stat";
-
-function OverviewCard({
-  reading,
-  status,
-  to,
-  children,
-}: {
-  reading: HomeReading;
-  status?: string;
-  to: string;
-  children: ReactNode;
-}) {
-  return (
-    <Card
-      type={cardType.default}
-      headerTone="neutral"
-      className="min-w-0"
-      headerClassName="items-start px-6 pt-6 pb-0"
-      bodyClassName="p-6 pt-0"
-      title={<Stat label={reading.label} value={reading.value} size="medium" />}
-      headerAction={
-        <div className="flex flex-wrap items-center justify-end gap-3 text-200 text-text-primary-50">
-          {status ? <span>{status}</span> : null}
-          <Button
-            variant="textOnly"
-            text="View"
-            to={to}
-            ariaLabel={`View ${reading.label}`}
-            textColor="text-text-primary"
-            textOnlyUnderlineOnHover={false}
-            className="underline"
-          />
-        </div>
-      }
-    >
-      {children}
-    </Card>
-  );
-}
+import { formatReading, latest, temperatureValue } from "../utils/buildContainerHome";
+import ContainerSystem from "./ContainerSystem";
+import type { FanHardware, PlantTelemetry } from "@/protoOS/store/contract";
+import { useFlowUnit, useTemperatureUnit } from "@/protoOS/store/hooks/useUI";
+import useMinerStore from "@/protoOS/store/useMinerStore";
+import Stats from "@/shared/components/Stats";
+import { formatFlowRate } from "@/shared/utils/flowRate";
 
 interface Props {
-  hashrate: HomeReading;
-  power: HomeReading;
-  fluid: HomeReading;
-  boardCount?: string;
-  history: HomeHistory;
-  powerLocations: LocationReading[];
-  fluidLocations: LocationReading[];
-  links: { hashrate: string; power: string; fluid: string };
+  plant?: PlantTelemetry;
+  fans: FanHardware[];
+  power: number | null;
 }
 
-export default function ContainerOverviewView({
-  hashrate,
-  power,
-  fluid,
-  boardCount,
-  history,
-  powerLocations,
-  fluidLocations,
-  links,
-}: Props) {
+export default function ContainerOverviewView({ plant, fans, power }: Props) {
+  const temperatureUnit = useTemperatureUnit();
+  const flowUnit = useFlowUnit();
+  const fanTelemetry = useMinerStore((state) => state.telemetry.fans);
+  const speeds = fans.map((fan) => latest(fanTelemetry.get(fan.ref.id)?.speedPercent));
+  const averageFanSpeed =
+    speeds.length && speeds.every((speed) => speed !== null)
+      ? speeds.reduce((sum, speed) => sum + speed, 0) / speeds.length
+      : null;
+  const temperature = (value: number | null) =>
+    formatReading(temperatureValue(value, temperatureUnit), `°${temperatureUnit}`);
+  const pressure = (value: number | null) => formatReading(value === null ? null : value / 6_894.757, "psi");
+  const stats = [
+    { label: "Container power", value: formatReading(power === null ? null : power / 1000, "kW") },
+    { label: "Flow rate", value: formatFlowRate(latest(plant?.flowRate), flowUnit) },
+    { label: "Tank inlet temp", value: temperature(latest(plant?.inletTemperature)) },
+    { label: "Tank outlet temp", value: temperature(latest(plant?.outletTemperature)) },
+    { label: "Dry cooler outlet pressure", value: pressure(latest(plant?.heatRejectionOutletPressure)) },
+    { label: "Pump outlet pressure", value: pressure(latest(plant?.pumpOutletPressure)) },
+    { label: "Pump speed", value: formatReading(latest(plant?.coolantPumpSpeed), "Hz") },
+    { label: "Avg fan speed", value: formatReading(averageFanSpeed, "%") },
+    { label: "Internal temp", value: temperature(latest(plant?.insideAmbientTemperature)) },
+    { label: "Ambient temp", value: temperature(latest(plant?.outsideAmbientTemperature)) },
+  ];
+
   return (
-    <div className="flex flex-col gap-1">
+    <div className="flex min-w-0 flex-col gap-6">
       <h1 className="sr-only">Container overview</h1>
-      <OverviewCard reading={hashrate} status={boardCount} to={links.hashrate}>
-        <HomeHistoryChart history={history} compact />
-      </OverviewCard>
-      <div className="grid grid-cols-1 gap-1 tablet:grid-cols-2">
-        <OverviewCard reading={power} to={links.power}>
-          <LocationBarChart readings={powerLocations} color="var(--color-core-primary-fill)" />
-        </OverviewCard>
-        <OverviewCard reading={fluid} to={links.fluid}>
-          <LocationBarChart readings={fluidLocations} />
-        </OverviewCard>
-      </div>
+      <ContainerSystem plant={plant} fans={fans} />
+      <section aria-label="Live readings">
+        <Stats
+          stats={stats.map((stat) => ({ ...stat, preformatted: true }))}
+          grid="grid-cols-2 items-end tablet:grid-cols-3 desktop:grid-cols-5"
+          gap="gap-x-4 gap-y-6"
+          padding="pb-6"
+        />
+      </section>
     </div>
   );
 }

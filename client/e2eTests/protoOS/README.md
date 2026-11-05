@@ -33,11 +33,13 @@ npx playwright test --config e2eTests/protoOS/playwright.ct1.config.ts --project
 The suite refuses to reuse a running server, so an occupied port is a setup error, not permission to test a different miner. It does not use `CT1_BASE_URL` or the rig's local configuration. Tests assert:
 
 - CT1 probe resolution and successful production JavaScript, stylesheets, and body/monospace font loads from the same server;
-- container Home's successful aggregate history response, plotted data, and live readings; tank/module deep-link refreshes without login/onboarding, including successful selected-board ASIC reads and populated temperatures;
+- container Home's chart-free schematic Overview and live stat labels, plus successful aggregate history and plotted data on Hashrate; tank/module deep-link refreshes without login/onboarding, including successful selected-board ASIC reads and populated temperatures;
+- diagram Fit, zoom below Fit, bounded pan, keyboard navigation, native two-finger pinch, and equipment clicks after dragging, without issuing control writes;
 - fresh-storage boot separately from returning users with persisted synthetic v1 bearer credentials;
 - completed entry assets for each document and current-document assets; optional prefetches from replaced documents need not finish, but all observed HTTP errors and failures other than old-document navigation cancellations still fail the test;
 - adapter reads and writes without `Authorization`, with `X-Frigate-Actor: proto-os`, even with a persisted synthetic v1 bearer session; only the first system-info resolver probe per document load is undecorated;
 - confirmed scoped tank stop/start, exact module coordinates, visible observed state, and unchanged boards in the neighboring tank;
+- schematic pump-speed and whole-cooler manual-fan edits, native MDKv2 payloads and actor headers, persisted values on reopening, and restoration of the touched setpoints and cooler mode;
 - narrow restoration of the touched scope in a fixture with its own 30-second timeout and independent API context, even after a browser test timeout.
 
 Reports go to `playwright-report/ct1/`, within the existing lint/git artifact exclusions; traces and failure screenshots go to `test-results/ct1/`. The ProtoOS E2E workflow runs this suite on desktop and mobile alongside the independent rig job. Simulator unit tests run once in Server Checks' Fake CT1 job. No visual baselines are created or replaced.

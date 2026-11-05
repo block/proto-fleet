@@ -9,6 +9,7 @@ import { useAuthRetry } from "@/protoOS/store/hooks/useAuthRetry";
 import { beginStoreWrite } from "@/protoOS/store/storeWriteGuard";
 import useMinerStore from "@/protoOS/store/useMinerStore";
 import type { RowAction } from "@/shared/components/RowActionsMenu";
+import { withDeadline } from "@/shared/utils/withDeadline";
 
 interface Request {
   action: HashboardAction;
@@ -20,30 +21,6 @@ export interface ModuleActionOutcome {
   error?: string;
   refreshFailed?: boolean;
 }
-
-// Bound the caller's wait even when a transport or authentication refresh does
-// not settle on abort. The same signal also prevents a late auth retry from
-// issuing another command after the outcome has become unknown.
-const withDeadline = async <T>(request: () => Promise<T>, controller: AbortController, timeoutMs: number) => {
-  const { signal } = controller;
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  let onAbort: () => void = () => {};
-  try {
-    return await new Promise<T>((resolve, reject) => {
-      onAbort = () => reject(signal.reason);
-      if (signal.aborted) {
-        onAbort();
-        return;
-      }
-      signal.addEventListener("abort", onAbort, { once: true });
-      timer = setTimeout(() => controller.abort(new DOMException("Request timed out", "TimeoutError")), timeoutMs);
-      request().then(resolve, reject);
-    });
-  } finally {
-    clearTimeout(timer);
-    signal.removeEventListener("abort", onAbort);
-  }
-};
 
 export const useModuleActions = (rows: ModuleListItem[], topology?: Topology) => {
   const { adapter } = useMinerHosting();

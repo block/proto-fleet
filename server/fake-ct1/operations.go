@@ -139,8 +139,8 @@ func (s *ContainerState) targetPower(update *targetPowerUpdate) (targetPowerResp
 }
 
 func (s *ContainerState) setContainerSetpoint(name string, value float64) error {
-	if math.IsNaN(value) || math.IsInf(value, 0) || value < 20 || value > 55 {
-		return invalidArgument("temperature target must be between 20 and 55°C (simulator bounds)")
+	if math.IsNaN(value) || math.IsInf(float64(float32(value)), 0) {
+		return invalidArgument("setpoint must be representable as a finite float32 PLC value")
 	}
 	if _, supported := s.ContainerSetpoints[name]; !supported {
 		return notFoundf("unknown container setpoint")
