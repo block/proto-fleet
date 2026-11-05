@@ -41,9 +41,10 @@ const (
 
 var remoteTelemetryDefaultCommandTimeout = 5 * time.Second
 
-// A retry needs room for the node timeout plus ack slack, otherwise a known
-// BUSY rejection turns into an ambiguous server-side timeout.
-var remoteTelemetryBusyRetryMinRemaining = 2 * remoteTelemetryAckSlack
+// A retry must leave the node most of its usual 4s fetch budget plus ack slack.
+// With less, a slow but healthy device would fail the retry where a requeue
+// gets the full budget next cycle.
+var remoteTelemetryBusyRetryMinRemaining = 3*time.Second + remoteTelemetryAckSlack
 
 var _ interfaces.Miner = (*RemoteFleetNodeMiner)(nil)
 var _ interfaces.FirmwareUpdateStatusProvider = (*RemoteFleetNodeMiner)(nil)
@@ -231,7 +232,8 @@ func (m *RemoteFleetNodeMiner) fetchTelemetry(ctx context.Context) (*telemetrypb
 	}
 	commandCtx, cancel := remoteTelemetryCommandContext(ctx, commandTimeout)
 	defer cancel()
-	ack, err := remotenode.RetryRejectedBusy(commandCtx, release, remoteTelemetryBusyRetryMinRemaining, m.acquireTelemetryGate, m.sendTelemetry)
+	ack, err := remotenode.RetryRejectedBusy(commandCtx, release, remoteTelemetryBusyRetryMinRemaining, m.acquireTelemetryGate, m.sendTelemetry,
+		"fleet_node_id", m.route.fleetNodeID, "device_identifier", m.route.deviceIdentifier, "command", "telemetry")
 	if err != nil {
 		if errors.Is(err, control.ErrNoActiveStream) || errors.Is(err, context.DeadlineExceeded) {
 			return nil, fleeterror.NewConnectionError(m.route.deviceIdentifier, err)

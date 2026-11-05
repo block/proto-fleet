@@ -278,7 +278,8 @@ func (m *Miner) sendWithCommandTimeout(ctx context.Context, timeout time.Duratio
 	// safe to submit a fresh command. Transport errors are ambiguous.
 	if class, _ := control.AdmissionForMinerCommand(mc); class == control.CommandAdmissionDeferrableRead {
 		acquire := func(ctx context.Context) (func(), error) { return m.acquireGate(ctx, mc) }
-		ack, err = RetryRejectedBusy(commandCtx, release, busyRetryMinRemaining, acquire, send)
+		ack, err = RetryRejectedBusy(commandCtx, release, busyRetryMinRemaining, acquire, send,
+			"fleet_node_id", m.fleetNodeID, "device_identifier", m.desc.GetDeviceIdentifier())
 	} else {
 		ack, err = sendThenRelease(commandCtx, release, send)
 	}
