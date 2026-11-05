@@ -40,8 +40,7 @@ func preparePermissionPoolAssignment(t *testing.T, ctx context.Context, f retryF
 	t.Helper()
 	info, err := session.GetInfo(ctx)
 	require.NoError(t, err)
-	profile, err := f.service.pools.CreateHost(ctx, info.UserID, info.OrganizationID, poolconfigurations.RevisionOptions{Name: "Pools", Slots: []poolconfigurations.SlotOptions{{URL: "stratum+tcp://pool.example:3333", Username: "worker"}}})
-	require.NoError(t, err)
+	profile := seedLegacyHostPoolRevision(t, ctx, sqlc.New(f.conn), f.service.secrets, info.OrganizationID, poolconfigurations.RevisionOptions{Name: "Pools", Slots: []poolconfigurations.SlotOptions{{URL: "stratum+tcp://pool.example:3333", Username: "worker"}}})
 	_, err = sqlc.New(f.conn).AdvanceContainerInventory(ctx, sqlc.AdvanceContainerInventoryParams{DeviceIdentifier: f.target.DeviceIdentifier, ObservedAt: time.Now()})
 	require.NoError(t, err)
 	var tank, module, board int64
@@ -80,7 +79,7 @@ func TestMiningGroupSubmissionRequiresStartAndStopPermissions(t *testing.T) {
 				state, err := f.service.GetState(ctx, f.target.DeviceIdentifier)
 				require.NoError(t, err, "state reads do not require start or stop authority")
 				requestID := uuid.NewString()
-				_, err = f.service.Submit(ctx, f.target.DeviceIdentifier, requestID, config, boards, state.Record.Revision)
+				_, err = f.service.submitLegacyRequest(ctx, f.target.DeviceIdentifier, requestID, config, boards, state.Record.Revision)
 				var denied fleeterror.FleetError
 				require.ErrorAs(t, err, &denied)
 				require.Equal(t, connect.CodePermissionDenied, denied.GRPCCode)
@@ -94,7 +93,7 @@ func TestMiningGroupSubmissionRequiresStartAndStopPermissions(t *testing.T) {
 				require.NoError(t, err)
 				require.Len(t, permissions, 1)
 				require.NoError(t, sqlc.New(f.conn).AssignPermissionToRole(ctx, sqlc.AssignPermissionToRoleParams{RoleID: role, PermissionID: permissions[0].ID}))
-				_, err = f.service.Submit(ctx, f.target.DeviceIdentifier, requestID, config, boards, state.Record.Revision)
+				_, err = f.service.submitLegacyRequest(ctx, f.target.DeviceIdentifier, requestID, config, boards, state.Record.Revision)
 				require.NoError(t, err, "the same request is accepted once the missing permission is granted")
 			})
 		}
@@ -114,7 +113,7 @@ func TestMiningGroupWorkerRechecksStartAndStopPermissions(t *testing.T) {
 					config, boards = preparePermissionPoolAssignment(t, ctx, f)
 				}
 				role := setMiningGroupPermissions(t, ctx, f, []string{authz.PermSiteRead, authz.PermFleetRead, authz.PermMinerRead, permission, authz.PermMinerStartMining, authz.PermMinerStopMining})
-				_, err := f.service.Submit(ctx, f.target.DeviceIdentifier, uuid.NewString(), config, boards, f.state(t).Revision)
+				_, err := f.service.submitLegacyRequest(ctx, f.target.DeviceIdentifier, uuid.NewString(), config, boards, f.state(t).Revision)
 				require.NoError(t, err)
 				if kind == operationActivate {
 					f.prepareActivation(t, ctx)

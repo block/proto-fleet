@@ -50,8 +50,8 @@ func TestPoolConnectionRequestsNeverLogCredentials(t *testing.T) {
 	require.NotContains(t, logged, "private.example")
 }
 
-func TestUpdateWorkerNamesProcedureIsRedacted(t *testing.T) {
-	procedure := fleetmanagementv1connect.FleetManagementServiceUpdateWorkerNamesProcedure
+func TestReviewWorkerNamesProcedureIsRedacted(t *testing.T) {
+	procedure := fleetmanagementv1connect.FleetManagementServiceReviewWorkerNamesProcedure
 
 	assert.Contains(t, RedactedRequestProcedures, procedure)
 	assert.True(t, SensitiveBodyProcedures[procedure])
@@ -373,13 +373,6 @@ func TestAuthInterceptor_UpdateUserRoleRejectsApiKeyAuth(t *testing.T) {
 	var fleetErr fleeterror.FleetError
 	require.ErrorAs(t, err, &fleetErr)
 	assert.Equal(t, connect.CodePermissionDenied, fleetErr.GRPCCode)
-}
-
-func TestReviewWorkerNamesProcedureIsRedacted(t *testing.T) {
-	procedure := fleetmanagementv1connect.FleetManagementServiceReviewWorkerNamesProcedure
-
-	assert.Contains(t, RedactedRequestProcedures, procedure)
-	assert.True(t, SensitiveBodyProcedures[procedure])
 }
 
 func TestWorkerNameBatchAuthorizationRequiresSessionAndRedactsPasswords(t *testing.T) {

@@ -135,7 +135,7 @@ describe("MinerList modal flow orchestration", () => {
     expect(screen.getByTestId("authenticate-miners")).toBeInTheDocument();
   });
 
-  it("opens fleet auth then pool selection for needs-mining-pool miners and resets on close", async () => {
+  it("opens configuration selection before credential confirmation for needs-mining-pool miners and resets on close", async () => {
     const user = userEvent.setup();
     minersById["miner-1"] = {
       pairingStatus: PairingStatus.PAIRED,
@@ -144,9 +144,7 @@ describe("MinerList modal flow orchestration", () => {
 
     renderMinerList();
     await user.click(screen.getByTestId("open-status-flow"));
-    expect(screen.getByTestId("authenticate-fleet-modal")).toBeInTheDocument();
-
-    await user.click(screen.getByTestId("authenticate-fleet-success"));
+    expect(screen.queryByTestId("authenticate-fleet-modal")).not.toBeInTheDocument();
     expect(screen.getByTestId("pool-selection-page")).toBeInTheDocument();
 
     await user.click(screen.getByTestId("pool-selection-close"));

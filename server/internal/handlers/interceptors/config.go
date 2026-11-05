@@ -15,7 +15,6 @@ import (
 	"github.com/block/proto-fleet/server/generated/grpc/instance/v1/instancev1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/invitation/v1/invitationv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/minercommand/v1/minercommandv1connect"
-	mininggroupsv1connect "github.com/block/proto-fleet/server/generated/grpc/mininggroups/v1/mininggroupsv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/onboarding/v1/onboardingv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/poolconfigurations/v1/poolconfigurationsv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/serverlog/v1/serverlogv1connect"
@@ -33,11 +32,6 @@ var RedactedRequestProcedures = []string{
 	poolconfigurationsv1connect.PoolConfigurationServiceReviewEditProcedure,
 	poolconfigurationsv1connect.PoolConfigurationServiceTestConnectionProcedure,
 
-	mininggroupsv1connect.MiningGroupServiceSetPoolsProcedure,
-	mininggroupsv1connect.MiningGroupServiceCreatePoolConfigurationProcedure,
-	hostedv1connect.HostedAccountServiceCreatePoolConfigurationProcedure,
-	hostedv1connect.HostedAccountServiceRevisePoolConfigurationProcedure,
-	hostedv1connect.HostedAccountServiceSetIncomingPoolProfileProcedure,
 	invitationv1connect.InvitationServicePreviewInvitationProcedure,
 	invitationv1connect.InvitationServiceRegisterInvitedUserProcedure,
 	invitationv1connect.InvitationServiceAcceptInvitationProcedure,
@@ -48,10 +42,8 @@ var RedactedRequestProcedures = []string{
 	curtailmentv1connect.CurtailmentServiceUpdateMqttCurtailmentSourceProcedure,
 	curtailmentv1connect.CurtailmentServiceTestMqttCurtailmentSourceConnectionProcedure,
 	curtailmentv1connect.CurtailmentServiceIngestCurtailmentSignalProcedure,
-	fleetmanagementv1connect.FleetManagementServiceUpdateWorkerNamesProcedure,
 	fleetmanagementv1connect.FleetManagementServiceReviewWorkerNamesProcedure,
 	onboardingv1connect.OnboardingServiceCreateAdminLoginProcedure,
-	minercommandv1connect.MinerCommandServiceUpdateMiningPoolsProcedure,
 	minercommandv1connect.MinerCommandServiceUpdateMinerPasswordProcedure,
 	fleetnodegatewayv1connect.FleetNodeGatewayServiceRegisterProcedure,
 	fleetnodegatewayv1connect.FleetNodeGatewayServiceBeginAuthHandshakeProcedure,
@@ -285,9 +277,6 @@ var SensitiveBodyProcedures = map[string]bool{
 	hostedv1connect.HostedAccountServiceListAccountAssetsProcedure:       true,
 	hostedv1connect.HostedAccountServiceAssignAccountAssetsProcedure:     true,
 	hostedv1connect.HostedAccountServiceReplaceAccountHashboardProcedure: true,
-	hostedv1connect.HostedAccountServiceCreatePoolConfigurationProcedure: true,
-	hostedv1connect.HostedAccountServiceRevisePoolConfigurationProcedure: true,
-	hostedv1connect.HostedAccountServiceSetIncomingPoolProfileProcedure:  true,
 	hostedv1connect.HostedAccountServiceCreateAccountKeyProcedure:        true,
 	hostedv1connect.HostedAccountServiceCreateInvitationProcedure:        true,
 	invitationv1connect.InvitationServicePreviewInvitationProcedure:      true,
@@ -301,7 +290,6 @@ var SensitiveBodyProcedures = map[string]bool{
 	foremanimportv1connect.ForemanImportServiceCompleteImportProcedure:                true,
 	authv1connect.AuthServiceAuthenticateProcedure:                                    true,
 	authv1connect.AuthServiceVerifyCredentialsProcedure:                               true,
-	fleetmanagementv1connect.FleetManagementServiceUpdateWorkerNamesProcedure:         true,
 	fleetmanagementv1connect.FleetManagementServiceReviewWorkerNamesProcedure:         true,
 	fleetnodegatewayv1connect.FleetNodeGatewayServiceControlStreamProcedure:           true,
 	fleetnodegatewayv1connect.FleetNodeGatewayServiceUploadTelemetryProcedure:         true,

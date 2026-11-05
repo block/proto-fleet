@@ -12,6 +12,28 @@ vi.mock("motion/react", () => ({
 }));
 
 describe("Modal", () => {
+  it("can focus the dialog without focusing the close button", () => {
+    const rects = vi
+      .spyOn(HTMLElement.prototype, "getClientRects")
+      .mockReturnValue(Object.assign([new DOMRect()], { item: () => null }));
+    try {
+      render(
+        <Modal open manageFocus initialFocus="dialog" dialogLabel="Edit pool" title="Edit pool">
+          <input aria-label="Configuration" />
+        </Modal>,
+      );
+      const dialog = screen.getByRole("dialog", { name: "Edit pool" });
+      const close = screen.getByRole("button", { name: "Close dialog" });
+      expect(dialog).toHaveFocus();
+      expect(close).not.toHaveFocus();
+      fireEvent.keyDown(dialog, { key: "Tab" });
+      expect(close).toHaveFocus();
+      fireEvent.keyDown(close, { key: "Tab", shiftKey: true });
+      expect(screen.getByLabelText("Configuration")).toHaveFocus();
+    } finally {
+      rects.mockRestore();
+    }
+  });
   it("includes editable fields in the optional focus trap", () => {
     const rects = vi
       .spyOn(HTMLElement.prototype, "getClientRects")

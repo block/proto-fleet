@@ -8,6 +8,7 @@ import {
   HashboardReadingSchema,
   type HashboardSlot,
 } from "@/protoFleet/api/generated/fleetinventory/v1/fleetinventory_pb";
+import { BoardPoolConfigurationCell } from "@/protoFleet/features/poolConfigurations/BoardPoolConfigurationCell";
 import { useTemperatureUnit } from "@/protoFleet/store";
 import { Alert } from "@/shared/assets/icons";
 import HashboardCard from "@/shared/components/HashboardCard";
@@ -94,6 +95,7 @@ export default function ModuleHashboardCard({
         ) : null
       }
     >
+      {slot.board?.hashboardId ? <BoardPoolConfigurationCell hashboardId={slot.board.hashboardId} /> : null}
       {deviceIdentifier ? (
         <div className="flex justify-end">
           <HashboardPoolAction deviceIdentifier={deviceIdentifier} slot={slot} />

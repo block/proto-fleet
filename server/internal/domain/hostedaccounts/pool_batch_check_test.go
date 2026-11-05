@@ -406,3 +406,72 @@ func TestReadDevicePoolsIsolatesAndLogsControllerFailures(t *testing.T) {
 		})
 	}
 }
+
+func TestReadDevicePoolsInheritsContainerConfigurationWithoutGroups(t *testing.T) {
+	f := newPoolStepUpFixture(t)
+	_, _, _, cipher, _ := poolFixture(t, f.fixture)
+	ctx, err := hostedaccounts.WithRequestAccountID(f.sessionContext(t), f.account.AccountID)
+	require.NoError(t, err)
+	module, _ := f.miningModule(t)
+	_, err = f.db.ExecContext(ctx, `UPDATE hashboard_installation SET metadata=jsonb_build_object('macAddress','board-' || id::text) WHERE module_id=$1`, module)
+	require.NoError(t, err)
+	require.NoError(t, f.allocate(t, f.host, f.root, f.account.AccountID, hostedpb.AssetAssignmentIntent_ASSET_ASSIGNMENT_INTENT_ASSIGN, selected(6, module, 0)))
+	boards, err := sqlc.New(f.db).ListPoolSelectionBoards(ctx, sqlc.ListPoolSelectionBoardsParams{OrgID: f.org, ModuleIds: []int64{module}})
+	require.NoError(t, err)
+	require.Len(t, boards, 3)
+	targets := make([]poolconfigurations.AssignmentTarget, len(boards))
+	for i, board := range boards {
+		require.True(t, board.Ready)
+		targets[i] = poolconfigurations.AssignmentTarget{Kind: poolconfigurations.TargetInstallation, ID: board.InstallationID}
+	}
+	device := &inheritedPoolContainer{poolContainer: poolContainer{result: sdk.MiningGroupResult{Supported: true}, poolDevice: poolDevice{pools: []dto.MiningPool{{URL: "stratum+tcp://container.example:3333", Username: "container.worker"}, {URL: "stratum+tcp://backup.example:3333", Username: "backup.worker", Priority: 1}}}}}
+	reviewer := poolapplications.NewReviewer(f.pools, poolCapabilities{sdk.CapabilityPoolConfig: true})
+	service := poolconfigurations.NewService(f.db, poolconfigurations.NewRepository(cipher), f.pools, reviewer).WithChecker(poolapplications.NewChecker(f.db, reviewer, poolMinerGetter{device}, cipher, f.pools))
+	results, err := service.ReadDevicePools(ctx, f.account.AccountID, targets)
+	require.NoError(t, err)
+	require.Len(t, results, 3)
+	for _, reading := range results {
+		require.Equal(t, "container_configuration", reading.State)
+		require.True(t, reading.ReadbackAvailable)
+		require.Len(t, reading.Reported, 2)
+		require.Equal(t, "container.worker", reading.Reported[0].Username)
+	}
+	require.Equal(t, 1, device.poolReads, "one shared pool read per controller")
+	checked, err := service.CheckConfiguration(ctx, f.account.AccountID, "", targets[0])
+	require.NoError(t, err)
+	require.Equal(t, "container_configuration", checked.State)
+	require.Equal(t, results[0].Reported, checked.Reported)
+	// An empty container configuration is still inherited, not a failed read.
+	device.pools = nil
+	results, err = service.ReadDevicePools(ctx, f.account.AccountID, targets)
+	require.NoError(t, err)
+	require.Equal(t, "container_configuration", results[0].State)
+	require.True(t, results[0].ReadbackAvailable)
+	require.Empty(t, results[0].Reported)
+	for _, mode := range []sdk.MiningGroupResult{{}, {Supported: true, Pending: true}, {Supported: true, Suspended: true}, {Supported: true, Enabled: true}} {
+		device.result = mode
+		before := device.poolReads
+		results, err = service.ReadDevicePools(ctx, f.account.AccountID, targets)
+		require.NoError(t, err)
+		require.Equal(t, "unavailable", results[0].State)
+		require.False(t, results[0].ReadbackAvailable)
+		require.Equal(t, before, device.poolReads, "must not fall back to container pools in another mode")
+	}
+	device.result = sdk.MiningGroupResult{Supported: true}
+	device.poolDevice.readError = errors.New("unreachable")
+	results, err = service.ReadDevicePools(ctx, f.account.AccountID, targets)
+	require.NoError(t, err)
+	require.Equal(t, "unavailable", results[0].State)
+	require.Empty(t, results[0].Reported)
+	require.Zero(t, device.writes)
+}
+
+type inheritedPoolContainer struct {
+	poolContainer
+	poolReads int
+}
+
+func (m *inheritedPoolContainer) GetMiningPools(ctx context.Context) ([]interfaces.MinerConfiguredPool, error) {
+	m.poolReads++
+	return m.poolDevice.GetMiningPools(ctx)
+}

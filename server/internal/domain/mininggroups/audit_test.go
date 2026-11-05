@@ -51,7 +51,7 @@ func TestPoolAssignmentActivityPreservesHistoryAndDeduplicatesReplay(t *testing.
 	require.Equal(t, f.target.DeviceID, metadata.DeviceID)
 	require.Equal(t, boards, metadata.HashboardIDs)
 	require.Equal(t, config, metadata.PoolRevisionID)
-	_, err := f.service.Submit(ctx, f.target.DeviceIdentifier, initial.OperationID.UUID.String(), config, boards, initial.Revision-1)
+	_, err := f.service.submitLegacyRequest(ctx, f.target.DeviceIdentifier, initial.OperationID.UUID.String(), config, boards, initial.Revision-1)
 	require.NoError(t, err)
 	require.Len(t, groupActivities(t, f), 1)
 	m.transferPhase = transferPhaseComplete
@@ -70,7 +70,7 @@ func TestPoolAssignmentActivityPreservesHistoryAndDeduplicatesReplay(t *testing.
 		}
 	}
 	// A later request must append history rather than replacing the earlier record.
-	_, err = f.service.Submit(ctx, f.target.DeviceIdentifier, uuid.NewString(), config, boards, f.state(t).Revision)
+	_, err = f.service.submitLegacyRequest(ctx, f.target.DeviceIdentifier, uuid.NewString(), config, boards, f.state(t).Revision)
 	require.NoError(t, err)
 	require.Equal(t, completed, groupActivities(t, f)[:2])
 	require.Len(t, groupActivities(t, f), 3)
@@ -83,7 +83,7 @@ func TestMiningGroupActivityScopesActivationToItsSiteAndOrganization(t *testing.
 	require.NoError(t, err)
 	_, err = f.conn.ExecContext(ctx, `UPDATE device SET site_id=$1 WHERE id=$2`, site.ID, f.target.DeviceID)
 	require.NoError(t, err)
-	operation, err := f.service.Submit(ctx, f.target.DeviceIdentifier, uuid.NewString(), "", nil, 0)
+	operation, err := f.service.submitLegacyRequest(ctx, f.target.DeviceIdentifier, uuid.NewString(), "", nil, 0)
 	require.NoError(t, err)
 	// Later placement changes must not move the operation's audit history.
 	_, err = f.conn.ExecContext(ctx, `UPDATE device SET site_id=NULL WHERE id=$1`, f.target.DeviceID)
@@ -145,7 +145,7 @@ func TestMiningGroupAdmissionRollsBackWhenAuditFails(t *testing.T) {
 	_, err := f.conn.ExecContext(ctx, `CREATE FUNCTION reject_group_audit() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.event_type LIKE 'mining_groups.%' THEN RAISE EXCEPTION 'audit unavailable'; END IF; RETURN NEW; END $$;
  CREATE TRIGGER reject_group_audit BEFORE INSERT ON activity_log FOR EACH ROW EXECUTE FUNCTION reject_group_audit()`)
 	require.NoError(t, err)
-	_, err = f.service.Submit(ctx, f.target.DeviceIdentifier, uuid.NewString(), config, boards, before.Revision)
+	_, err = f.service.submitLegacyRequest(ctx, f.target.DeviceIdentifier, uuid.NewString(), config, boards, before.Revision)
 	require.ErrorContains(t, err, "audit unavailable")
 	require.Equal(t, before, f.state(t))
 	var requests, intents, attempts int

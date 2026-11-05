@@ -162,7 +162,7 @@ func assertRolloutDispatchRows(t *testing.T, conn *sql.DB, want int) {
 }
 
 func TestCommandRejectsTransactionWithoutCommitHooksBeforeWriting(t *testing.T) {
-	for _, operation := range []string{"reboot", "download logs", "worker names"} {
+	for _, operation := range []string{"reboot", "download logs"} {
 		t.Run(operation, func(t *testing.T) {
 			svc, conn, identifier, finalizers := newTransactionalCommandFixture(t)
 			ctx := manualSessionCtx(1)
@@ -187,8 +187,6 @@ func TestSpecializedCommandDispatchWaitsForCommit(t *testing.T) {
 		queueError bool
 	}{
 		{operation: "download logs"},
-		{operation: "worker names"},
-		{operation: "worker names", queueError: true},
 	} {
 		name := failure.operation
 		if failure.queueError {
@@ -272,9 +270,6 @@ func newTransactionalCommandFixture(t *testing.T) (*Service, *sql.DB, string, *i
 }
 
 func dispatchTransactionalCommand(ctx context.Context, svc *Service, identifier, operation string) (string, error) {
-	if operation == "worker names" {
-		return svc.ReapplyCurrentPoolsWithWorkerNames(ctx, map[string]string{identifier: "new-worker"})
-	}
 	dispatch := svc.Reboot
 	if operation == "download logs" {
 		dispatch = svc.DownloadLogs

@@ -76,7 +76,6 @@ beforeEach(async () => {
     stopMining: vi.fn(),
     deleteMiners: vi.fn(),
     reboot: vi.fn(),
-    updateMiningPools: vi.fn(),
     setPowerTarget: vi.fn(),
     setCoolingMode: vi.fn(),
     updateMinerPassword: vi.fn(),
@@ -342,11 +341,7 @@ describe("CompleteSetup", () => {
       const configureButton = screen.getByText("Configure");
       fireEvent.click(configureButton);
 
-      await waitFor(() => {
-        expect(screen.getByTestId("auth-fleet-modal")).toBeInTheDocument();
-      });
-
-      fireEvent.click(screen.getByText("Submit Auth"));
+      expect(screen.queryByTestId("auth-fleet-modal")).not.toBeInTheDocument();
 
       await waitFor(() => {
         expect(screen.getByTestId("pool-selection-modal")).toBeInTheDocument();
@@ -843,11 +838,7 @@ describe("CompleteSetup", () => {
       const configureButton = screen.getByText("Configure");
       fireEvent.click(configureButton);
 
-      await waitFor(() => {
-        expect(screen.getByTestId("auth-fleet-modal")).toBeInTheDocument();
-      });
-
-      fireEvent.click(screen.getByText("Submit Auth"));
+      expect(screen.queryByTestId("auth-fleet-modal")).not.toBeInTheDocument();
 
       await waitFor(() => {
         expect(screen.getByTestId("pool-selection-modal")).toBeInTheDocument();

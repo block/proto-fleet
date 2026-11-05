@@ -80,7 +80,7 @@ func TestService_DeleteMiners_UnpairsAfterCachedBindingChanges(t *testing.T) {
 			require.NoError(t, err)
 			require.Same(t, cached, stillCached, "the ordinary lookup remains primed with the stale facade")
 
-			service := fleetmanagement.NewService(deps.DeviceStore, nil, fleetmanagement.NewMockTelemetryCollector(), minerService, nil, nil, nil, nil, nil, nil, nil)
+			service := fleetmanagement.NewService(deps.DeviceStore, nil, fleetmanagement.NewMockTelemetryCollector(), minerService, nil, nil, nil, nil, nil, nil)
 			response, err := service.DeleteMiners(ctx, &pb.DeleteMinersRequest{DeviceSelector: &pb.DeviceSelector{
 				SelectionType: &pb.DeviceSelector_IncludeDevices{IncludeDevices: &commonpb.DeviceIdentifierList{DeviceIdentifiers: []string{identifier}}},
 			}})

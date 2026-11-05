@@ -45,7 +45,6 @@ import NoFilterResultsEmptyState from "@/protoFleet/components/NoFilterResultsEm
 import { useOpenMinerView } from "@/protoFleet/components/SingleMinerWrapper/useOpenMinerView";
 import { ProtoFleetStatusModal } from "@/protoFleet/components/StatusModal";
 import { PAGE_SCROLL_CHROME_WIDTH } from "@/protoFleet/constants/layout";
-import AuthenticateFleetModal from "@/protoFleet/features/auth/components/AuthenticateFleetModal";
 import { AuthenticateMiners } from "@/protoFleet/features/auth/components/AuthenticateMiners";
 import { HashboardCell } from "@/protoFleet/features/containers/HashboardCell";
 import { InventoryCell } from "@/protoFleet/features/containers/InventoryCell";
@@ -85,6 +84,7 @@ import {
   type AssetReference,
   useFleetAccountInventory,
 } from "@/protoFleet/features/hostedAccounts/useFleetAccountInventory";
+import { PoolAssignments } from "@/protoFleet/features/poolConfigurations/PoolAssignments";
 import { useHasPermission, useUsername } from "@/protoFleet/store";
 
 import { ChevronDown, LogoAlt, Plus, Slider } from "@/shared/assets/icons";
@@ -110,17 +110,13 @@ type MiningListItem = { selectionKey: MiningSelectionKey } & (
   { kind: "miner"; row: DeviceListItem } | { kind: "module"; row: InventoryItem }
 );
 
-type FleetCredentials = { username: string; password: string };
-
 type MinerModalFlow =
   | { kind: "closed" }
   | { kind: "authenticate-miners"; deviceIdentifier: string }
-  | { kind: "authenticate-fleet"; deviceIdentifier: string; deviceStatus?: DeviceStatus }
   | {
       kind: "pool-selection";
       deviceIdentifier: string;
       deviceStatus?: DeviceStatus;
-      credentials: FleetCredentials;
     }
   | { kind: "status-modal"; deviceIdentifier: string }
   | { kind: "firmware-history"; deviceIdentifier: string; minerName: string };
@@ -598,7 +594,11 @@ const ScopedMinerListBody = ({
   );
 
   return (
-    <>
+    <PoolAssignments
+      deviceIdentifiers={deviceItems.map((item) => item.deviceIdentifier)}
+      moduleIds={listItems.flatMap((item) => (item.kind === "module" && item.row.ref ? [item.row.ref.id] : []))}
+      enabled={activeCols.includes("poolConfiguration")}
+    >
       <List<MiningListItem, MiningSelectionKey, MinerColumn>
         getChildRows={(item) => {
           if (item.kind !== "module" || !expanded.has(String(item.row.ref?.id))) return [];
@@ -808,7 +808,7 @@ const ScopedMinerListBody = ({
           testId="miners-pagination"
         />
       ) : null}
-    </>
+    </PoolAssignments>
   );
 };
 
@@ -979,7 +979,7 @@ const MinerList = ({
 
       if (needsMiningPool) {
         setModalFlow({
-          kind: "authenticate-fleet",
+          kind: "pool-selection",
           deviceIdentifier,
           deviceStatus: miner.deviceStatus,
         });
@@ -991,21 +991,6 @@ const MinerList = ({
     // minersRef is stable — read at call time, not memoization time
     [],
   );
-
-  const handleFleetAuthenticated = useCallback((username: string, password: string) => {
-    setModalFlow((current) => {
-      if (current.kind !== "authenticate-fleet") {
-        return current;
-      }
-
-      return {
-        kind: "pool-selection",
-        deviceIdentifier: current.deviceIdentifier,
-        deviceStatus: current.deviceStatus,
-        credentials: { username, password },
-      };
-    });
-  }, []);
 
   const openMinerView = useOpenMinerView();
   const handleRowClick = useCallback((item: DeviceListItem) => openMinerView(item.miner), [openMinerView]);
@@ -1615,15 +1600,6 @@ const MinerList = ({
         />
       ) : null}
 
-      {modalFlow.kind === "authenticate-fleet" ? (
-        <AuthenticateFleetModal
-          open
-          purpose="pool"
-          onAuthenticated={handleFleetAuthenticated}
-          onDismiss={closeModalFlow}
-        />
-      ) : null}
-
       {modalFlow.kind === "pool-selection" ? (
         <PoolSelectionPageWrapper
           open
@@ -1634,10 +1610,6 @@ const MinerList = ({
             },
           ]}
           selectionMode="subset"
-          userUsername={modalFlow.credentials.username}
-          userPassword={modalFlow.credentials.password}
-          onSuccess={closeModalFlow}
-          onError={closeModalFlow}
           onDismiss={closeModalFlow}
         />
       ) : null}

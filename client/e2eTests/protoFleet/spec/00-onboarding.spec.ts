@@ -38,9 +38,11 @@ test.describe("Proto Fleet - Onboarding", () => {
 
     await test.step("Validate Pools screen null state due to no pools added", async () => {
       await groupsPage.navigateToMiningPoolsSettings();
-      await settingsPoolsPage.validateTitle("Pools");
-      await settingsPoolsPage.validateTextIsVisible("Add a pool to start assigning your miners.");
-      await settingsPoolsPage.validateButtonIsVisible("Add pool");
+      await settingsPoolsPage.validateTitle("Pool configurations");
+      await settingsPoolsPage.validateTextIsVisible(
+        "Create a configuration with a primary pool and up to two backups.",
+      );
+      await settingsPoolsPage.validateButtonIsVisible("Create configuration");
     });
   });
 

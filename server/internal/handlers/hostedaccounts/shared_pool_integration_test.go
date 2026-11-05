@@ -385,7 +385,7 @@ func TestSharedPoolRPCSelectedAccountAssignmentReadsAndChecks(t *testing.T) {
 
 func TestSharedPoolRPCConnectionTestRestrictsOnlyCustomerDestinations(t *testing.T) {
 	f := newRPCFixture(t)
-	f.configurationService.WithConnectionTester(pools.NewService(nil, nil, pools.Config{Timeout: time.Second}, nil))
+	f.configurationService.WithConnectionTester(pools.NewService(pools.Config{Timeout: time.Second}))
 	account := f.account(t, "Customer", f.host, domain.DefaultCapabilities)
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)

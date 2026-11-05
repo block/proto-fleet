@@ -157,10 +157,6 @@ func (a *grpcAPI) SetMainCircuitBreakerState(context.Context, *mdk.SetMainCircui
 	return nil, status.Error(codes.Unimplemented, fmt.Sprintf("%s simulator has no dedicated breaker readback", product))
 }
 
-func (a *grpcAPI) ListPools(context.Context, *mdk.ListPoolsRequest) (*mdk.ListPoolsResponse, error) {
-	return project(listPoolsResponse{Pools: demoPools()}, nil, new(mdk.ListPoolsResponse))
-}
-
 func (a *grpcAPI) GetPoolDiagnostics(context.Context, *mdk.GetPoolDiagnosticsRequest) (*mdk.GetPoolDiagnosticsResponse, error) {
 	a.state.mu.RLock()
 	dto := a.state.poolDiagnosticsDTO()

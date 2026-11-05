@@ -126,12 +126,8 @@ const MinerActionsMenu = ({
     popoverActions,
     handleConfirmation,
     handleCancel,
-    handleMiningPoolSuccess,
-    handleMiningPoolError,
-    handleMiningPoolWarning,
     showPoolSelectionPage,
     poolFilteredDeviceIds,
-    fleetCredentials,
     withCapabilityCheck,
     unsupportedMinersInfo,
     handleUnsupportedMinersContinue,
@@ -348,7 +344,7 @@ const MinerActionsMenu = ({
         />
       </div>
       <PoolSelectionPageWrapper
-        open={showPoolSelectionPage ? !!fleetCredentials : false}
+        open={showPoolSelectionPage}
         selectedMiners={poolMiners}
         // Once capability filtering narrows to explicit supported ids, dispatch
         // to exactly those (subset) rather than re-expanding via the selector.
@@ -357,11 +353,6 @@ const MinerActionsMenu = ({
         // (all_matching_filter); only when not already narrowed to explicit ids.
         minerListFilter={selectionMode === "all" && !poolFilteredDeviceIds ? currentFilter : undefined}
         poolNeededCount={poolFilteredDeviceIds ? poolFilteredDeviceIds.length : totalCount}
-        userUsername={fleetCredentials?.username}
-        userPassword={fleetCredentials?.password}
-        onSuccess={handleMiningPoolSuccess}
-        onError={handleMiningPoolError}
-        onWarning={handleMiningPoolWarning}
         onDismiss={handleCancel}
       />
       <MinerActionModalStack

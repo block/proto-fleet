@@ -2,11 +2,12 @@
 
 Fleet uses MDK v2 `mining-groups-v1` to assign exact physical hashboards to
 independent pool configurations. Enable mining groups from the container actions
-menu, then use **Edit pool** on modules or individual hashboards. The action uses the
-same login confirmation and full-screen **Assign pools** page as miner actions. Module selections
-are expanded into existing board identities before confirmation. Missing boards,
-replacements, stale inventory, and boards belonging to another container are
-rejected by the server.
+menu, then use **Edit pool** on modules or individual hashboards. The action uses
+the shared configuration picker after login confirmation. Module selections expand
+into currently installed boards at review, with overlapping module/board selections
+deduplicated. Selections can span controllers and include ordinary miners. Missing
+boards, replacements and stale inventory are rejected. Replacement boards do not
+inherit an earlier installation's assignment.
 
 Enable mining groups requires `miner:activate_mining_groups`, `miner:start_mining`,
 and `miner:stop_mining` at the container's site. The activation permission is initially
@@ -25,15 +26,15 @@ Fleet stops issuing writes and settles the interrupted workflow when its earlier
 controller work is known to be terminal. Unresolved requests retain their identity
 and write admission. State reads do not require
 start/stop permissions. Ordinary miner pool updates continue to require
-`miner:update_pools` without start/stop permissions; profile creation separately
+`miner:update_pools` without start/stop permissions; configuration creation separately
 requires `pool:manage`.
 
-This implementation is available to operator sessions. Customer allocations and
-API-key workflow authority are not implemented. Reporting-only account/module
-allocations never authorize these writes. Host pool profiles occupy the host's
-root account in the existing encrypted, immutable pool-revision store. Future
-customer authorization must resolve authoritative board allocations and select
-only revisions belonging to the authorized account before admitting intent.
+Operator and hosted-account sessions use the same configuration library and
+assignment records. Hosted writes require the selected account's **Change pools**
+capability and current ownership of every selected module. Allocation alone grants
+no write permission. Account API keys cannot apply configurations. Ownership and
+the initiating user's authority are checked again before each mutation, including
+all other boards affected by a group-wide change.
 
 ## Database migration
 
@@ -42,16 +43,21 @@ activation, and transfer-failure state. Its down migration locks the tables and
 refuses rollback while operations are active or failed, or while bindings or
 pool intents remain.
 
-Earlier development versions of this branch used separate migrations through
-`1042`. Those checkpoints are not an upgrade path to the consolidated migration:
-recreate disposable development databases. Preserve any database with real
-operation history for an explicit migration decision; do not force its version
-or delete state to make it start.
+Migration `1051` adds immutable rendered execution snapshots and links shared
+board targets to their controller workflow. Its rollback refuses to discard
+snapshots retained by controller bindings. The pool-import command reports devices
+with conflicting unresolved writes or unfinished mining-group operations without
+adopting their assignments. Libraries and unaffected equipment still import.
+Unrelated LED, log, cooling, and power-target attempts do not block pool updates;
+unknown operations, pool changes, curtailment, and device-lifecycle work remain
+conflicts. These attempts retain their existing ownership-recovery protections.
 
 ## Desired and observed state
 
-`hashboard_pool_intent` records the desired revision for an exact board,
-installation, MAC, and controller. `container_mining_group_state` records the
+`pool_configuration_assignment` records the desired shared configuration and
+revision for an exact installation. The approved target freezes its board, MAC,
+controller and ownership. `hashboard_pool_intent` is retained only for legacy
+assignments; new shared work replaces the selected legacy intents atomically. `container_mining_group_state` records the
 last successful controller observation, timestamp, Fleet group bindings, and
 current operation. The observation contains groups, memberships, revisions,
 and every primary/backup pool's nonsecret settings. Observed board assignments
@@ -63,25 +69,51 @@ memberships and public pool settings are observed. Completion means the
 configuration is applied, not that a pool is connected or producing accepted
 shares. Pool outages do not trigger fallback to another group's configuration.
 
-The Assign pools page selects saved Fleet pools in primary/backup order. Fleet
-snapshots those selections into an encrypted immutable host profile, reusing the
-revision for the same ordered saved pool IDs and update versions. Editing a saved
-pool does not change an already accepted assignment; assigning it again captures
-a new revision. Assignment submission verifies the current operator’s login
-credentials again on the server.
+Users select a named configuration containing a primary pool and up to two
+backups. After authentication, assigning to a single miner, module or hashboard
+uses **Assign** directly; bulk selections use a count-based confirmation. Both
+paths resolve and confirm a canonical review on the server. Editing an assigned
+configuration shows its affected equipment and, after password confirmation,
+advances its assignments to the approved immutable revision. Saved
+assignments, pending progress and results are visible on module and board views;
+a module with different or partially assigned boards displays mixed configurations.
 
-Profiles currently support up to three ordered TCP Stratum V1 pools and fixed
-worker usernames. Each Fleet profile revision has its own grouping identity;
-equal credentials in two revisions do not merge their groups. Passwords are
-write-only in MDK, encrypted at rest in Fleet, and encrypted for Fleet Node
-transport. A password-only out-of-band change cannot be detected by readback.
+Mining groups support ordered TCP Stratum V1 pools. Fleet appends the controller's
+existing worker name when the configuration uses hardware-managed worker names,
+and freezes the rendered usernames in an encrypted execution snapshot. Imported
+fixed usernames retain their original values. Each controller/configuration
+revision/rendering has its own group identity; equal credentials in independently
+owned configurations do not merge their groups. Passwords are write-only in MDK,
+encrypted at rest and encrypted for Fleet Node transport. Successful application
+is reported as **verified** once the readable pool settings and board membership
+match the intended configuration. Passwords are compared when firmware exposes
+them; write-only passwords do not prevent verification. A failed readback remains
+unverified.
+
+## Pairing, import, and worker names
+
+Ordinary miners have a Fleet worker name independent of shared pool configurations.
+Pairing initializes it from the normalized MAC address and preserves a saved name
+when re-pairing. Import initializes missing names from an explicit worker-name
+field when supplied, otherwise from the same MAC default. Re-import preserves
+saved names. Foreman's pool `Worker` field is a full pool username, so it is never
+used to infer a Fleet worker name. Dots may be part of the pool account itself.
+Foreman onboarding continues importing groups, racks, assignments, and display
+names with pool import disabled.
+
+Pairing does not automatically recognize or adopt a library configuration.
+Unassigned equipment displays **Device configuration** with its full observed
+username unchanged. Assigning a configuration renders its username using the
+miner's independent Fleet worker name when its naming rule calls for one.
+Changing that worker name on assigned equipment requires a reviewed reapply.
+Imported fixed pool usernames retain the full username without an inferred suffix.
 
 ## Reconciliation and recovery
 
-Before accepting a pool assignment, Fleet projects its complete sequence with
-the same planner used for reconciliation. Unsupported custom-policy moves and
-insufficient group capacity reject the submission without committing new intent,
-request identity, or write admission. Whole-group pool changes that preserve
+After shared assignment confirmation, the worker projects the complete sequence
+with the same planner used for reconciliation, before admitting a controller
+workflow. Unsupported custom-policy moves or insufficient group capacity mark
+the accepted operation failed without dispatching firmware writes. Whole-group pool changes that preserve
 custom policy remain supported. A pending controller transfer requires a refresh
 after it finishes before a new assignment can be accepted.
 
@@ -105,17 +137,16 @@ ownership before planning another attempt with fresh revisions and a new key.
 The workflow permits two automatic retries (three confirmed transfer failures
 in total); this budget survives server restarts and is separate from retry backoff.
 After the budget is exhausted, a fresh observation with no pending controller work
-allows Fleet to mark the operation failed and release its write admission. Applied
-assignments and group bindings are retained; unapplied assignment intents are
-removed so later requests cannot silently retry abandoned moves. The operator can
+allows Fleet to mark the operation failed and release its write admission. Group bindings and shared assignment records are retained, with failed targets
+excluded from future reconciliation until an explicit reviewed retry. Unapplied
+legacy intents are removed. The operator can
 then submit a new request. A timeout, lost response, or pending transfer never
 consumes this budget or permits releasing unresolved controller work.
 
 Each fresh reconciliation observation also checks the remaining sequence before
 preparing another mutation. If controller changes make the assignment unsupported,
-Fleet ends it as failed once its dispatched work is settled. Applied assignments
-and group bindings remain; unapplied intent is removed so a corrected request can
-be submitted. An unresolved saved write or pending transfer still retains its
+Fleet ends it as failed once its dispatched work is settled. Group bindings remain and shared targets are marked failed; unapplied legacy
+intent is removed so a corrected request can be submitted. An unresolved saved write or pending transfer still retains its
 identity and admission, even if a newer snapshot would reject the original plan.
 
 One durable `device_write_attempt` spans the workflow. Its identity and epoch are

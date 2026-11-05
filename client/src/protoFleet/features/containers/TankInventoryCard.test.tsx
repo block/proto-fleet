@@ -6,7 +6,10 @@ import TankInventoryCard from "./TankInventoryCard";
 import { EquipmentCoverageSchema } from "@/protoFleet/api/generated/common/v1/equipment_coverage_pb";
 import { EntityKind, InventoryItemSchema } from "@/protoFleet/api/generated/fleetinventory/v1/fleetinventory_pb";
 
-vi.mock("@/protoFleet/store", () => ({ useTemperatureUnit: () => "C" }));
+vi.mock("@/protoFleet/store", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/protoFleet/store")>()),
+  useTemperatureUnit: () => "C",
+}));
 
 const tank = () =>
   create(InventoryItemSchema, {

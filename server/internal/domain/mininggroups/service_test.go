@@ -141,17 +141,16 @@ func testDurableGroupReconciliation(t *testing.T, archive bool) {
 	require.NoError(t, err)
 	pools := hostedaccounts.NewPoolService(hostedaccounts.NewService(conn, nil), secrets, nil, nil)
 	password := "private-password"
-	config, err := pools.CreateHost(ctx, user.DatabaseID, user.OrganizationID, poolconfigurations.RevisionOptions{Name: "Customer pools", Slots: []poolconfigurations.SlotOptions{{URL: "stratum+tcp://primary.example:3333", Username: "customer.worker", Password: &password}, {URL: "stratum+tcp://backup.example:3333", Username: "customer.worker"}}})
-	require.NoError(t, err)
+	config := seedLegacyHostPoolRevision(t, ctx, sqlc.New(conn), secrets, user.OrganizationID, poolconfigurations.RevisionOptions{Name: "Customer pools", Slots: []poolconfigurations.SlotOptions{{URL: "stratum+tcp://primary.example:3333", Username: "customer.worker", Password: &password}, {URL: "stratum+tcp://backup.example:3333", Username: "customer.worker"}}})
 	firmware := &simulatedGroups{snapshot: sdk.MiningGroupResult{Supported: true, Enabled: true, Revision: 1, MaxGroups: 289, Groups: []sdk.MiningGroup{{ID: "default", Revision: 1, MACs: []string{"02:00:00:00:00:01", "02:00:00:00:00:02"}}}}, receipts: map[string]sdk.MiningGroupResult{}}
 	service := NewService(conn, firmware, pools, secrets)
 	state, err := service.GetState(ctx, controller.ID)
 	require.NoError(t, err)
 	requestID := uuid.NewString()
 	initialRevision := state.Record.Revision
-	_, err = service.Submit(ctx, controller.ID, requestID, config.RevisionID, []int64{board}, state.Record.Revision)
+	_, err = service.submitLegacyRequest(ctx, controller.ID, requestID, config.RevisionID, []int64{board}, state.Record.Revision)
 	require.NoError(t, err)
-	_, err = service.Submit(ctx, controller.ID, requestID, config.RevisionID, []int64{board}, state.Record.Revision)
+	_, err = service.submitLegacyRequest(ctx, controller.ID, requestID, config.RevisionID, []int64{board}, state.Record.Revision)
 	require.NoError(t, err)
 	q := sqlc.New(conn)
 	if archive {
@@ -162,9 +161,8 @@ func testDurableGroupReconciliation(t *testing.T, archive bool) {
 		rows, err := q.ArchiveHostedAccountPool(ctx, sqlc.ArchiveHostedAccountPoolParams{OrganizationID: user.OrganizationID, AccountID: host.ID, PoolID: config.PoolID})
 		require.NoError(t, err)
 		require.EqualValues(t, 1, rows)
-		available, err := pools.ListHost(ctx, user.DatabaseID, user.OrganizationID)
-		require.NoError(t, err)
-		require.Empty(t, available, "archived configurations cannot be selected for new assignments")
+		_, err = q.GetHostMiningGroupPoolRevision(ctx, sqlc.GetHostMiningGroupPoolRevisionParams{OrganizationID: user.OrganizationID, RevisionID: config.RevisionID})
+		require.Error(t, err, "archived configurations cannot be selected for new assignments")
 	}
 	// Independent replicas may advance the same journal concurrently; database
 	// locks must still serialize the committed step and exact replay key.
@@ -201,10 +199,10 @@ func testDurableGroupReconciliation(t *testing.T, archive bool) {
 	require.NoError(t, err)
 	require.Equal(t, "complete", state.Record.Status)
 	if archive {
-		_, err = service.Submit(ctx, controller.ID, uuid.NewString(), config.RevisionID, []int64{board}, state.Record.Revision)
+		_, err = service.submitLegacyRequest(ctx, controller.ID, uuid.NewString(), config.RevisionID, []int64{board}, state.Record.Revision)
 		require.ErrorContains(t, err, "pool configuration not found", "new assignments must reject archived revisions")
 		// Idempotent replay is the already accepted operation, not a new assignment.
-		_, err = service.Submit(ctx, controller.ID, requestID, config.RevisionID, []int64{board}, initialRevision)
+		_, err = service.submitLegacyRequest(ctx, controller.ID, requestID, config.RevisionID, []int64{board}, initialRevision)
 		require.NoError(t, err)
 	}
 	queued, err := q.ListMiningGroupControllers(ctx)
@@ -221,7 +219,7 @@ func testDurableGroupReconciliation(t *testing.T, archive bool) {
 	}
 	require.Len(t, creates, 2)
 	require.Equal(t, creates[0].Key, creates[1].Key)
-	_, err = service.Submit(ctx, controller.ID, requestID, config.RevisionID, []int64{board + 1}, state.Record.Revision)
+	_, err = service.submitLegacyRequest(ctx, controller.ID, requestID, config.RevisionID, []int64{board + 1}, state.Record.Revision)
 	require.Error(t, err)
 	var privateSlots string
 	require.NoError(t, conn.QueryRowContext(ctx, `SELECT slots::text FROM hosted_account_pool_revision WHERE revision_id=$1`, config.RevisionID).Scan(&privateSlots))
@@ -233,9 +231,8 @@ func testDurableGroupReconciliation(t *testing.T, archive bool) {
 	require.NoError(t, err)
 	require.NotContains(t, string(observation), password)
 	if archive {
-		replacement, err := pools.CreateHost(ctx, user.DatabaseID, user.OrganizationID, poolconfigurations.RevisionOptions{Name: "Replacement", Slots: []poolconfigurations.SlotOptions{{URL: "stratum+tcp://replacement.example:3333", Username: "replacement.worker"}}})
-		require.NoError(t, err)
-		_, err = service.Submit(ctx, controller.ID, uuid.NewString(), replacement.RevisionID, []int64{board}, state.Record.Revision)
+		replacement := seedLegacyHostPoolRevision(t, ctx, sqlc.New(conn), secrets, user.OrganizationID, poolconfigurations.RevisionOptions{Name: "Replacement", Slots: []poolconfigurations.SlotOptions{{URL: "stratum+tcp://replacement.example:3333", Username: "replacement.worker"}}})
+		_, err = service.submitLegacyRequest(ctx, controller.ID, uuid.NewString(), replacement.RevisionID, []int64{board}, state.Record.Revision)
 		require.NoError(t, err)
 		for range 8 {
 			require.NoError(t, service.Reconcile(ctx, user.OrganizationID, controller.DatabaseID, controller.ID))
@@ -254,15 +251,30 @@ func testDurableGroupReconciliation(t *testing.T, archive bool) {
 	_, err = service.GetState(foreign, controller.ID)
 	require.Error(t, err, "observations must be organization-scoped")
 	apiKey := authn.SetInfo(ctx, &session.Info{UserID: user.DatabaseID, OrganizationID: user.OrganizationID, AuthMethod: session.AuthMethodAPIKey, AccountKey: true})
-	_, err = service.Submit(apiKey, controller.ID, uuid.NewString(), config.RevisionID, []int64{board}, state.Record.Revision)
+	_, err = service.submitLegacyRequest(apiKey, controller.ID, uuid.NewString(), config.RevisionID, []int64{board}, state.Record.Revision)
 	require.Error(t, err, "customer keys cannot borrow host authority")
 	// A removed board cannot be selected through its former module position.
 	_, err = conn.ExecContext(ctx, `UPDATE hashboard_installation SET removed_at=now() WHERE hashboard_id=$1`, board)
 	require.NoError(t, err)
-	_, err = service.Submit(ctx, controller.ID, uuid.NewString(), config.RevisionID, []int64{board}, state.Record.Revision)
+	_, err = service.submitLegacyRequest(ctx, controller.ID, uuid.NewString(), config.RevisionID, []int64{board}, state.Record.Revision)
 	require.Error(t, err)
 	var status string
 	require.NoError(t, conn.QueryRowContext(ctx, `SELECT status FROM device_write_attempt WHERE attempt_id=$1`, state.Record.AttemptID.UUID).Scan(&status))
 	require.Equal(t, "complete", status)
 
+}
+
+// seedLegacyHostPoolRevision models an encrypted pre-cutover revision retained by
+// durable mining-group workflows; no removed library API is exercised here.
+func seedLegacyHostPoolRevision(t *testing.T, ctx context.Context, q sqlc.Querier, cipher *encrypt.Service, orgID int64, options poolconfigurations.RevisionOptions) sqlc.HostedAccountPoolRevision {
+	t.Helper()
+	host, err := q.GetHostPoolAccount(ctx, orgID)
+	require.NoError(t, err)
+	pool, err := q.CreateHostedAccountPool(ctx, sqlc.CreateHostedAccountPoolParams{PoolID: uuid.NewString(), OrganizationID: orgID, AccountID: host.ID})
+	require.NoError(t, err)
+	slots, err := poolconfigurations.EncryptSlots(cipher, options.Slots, nil)
+	require.NoError(t, err)
+	revision, err := q.CreateHostedAccountPoolRevision(ctx, sqlc.CreateHostedAccountPoolRevisionParams{RevisionID: uuid.NewString(), OrganizationID: orgID, AccountID: host.ID, PoolID: pool.PoolID, Number: 1, Name: options.Name, Slots: slots})
+	require.NoError(t, err)
+	return revision
 }

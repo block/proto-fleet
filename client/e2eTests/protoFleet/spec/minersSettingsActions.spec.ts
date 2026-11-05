@@ -35,7 +35,7 @@ test.describe("Miner Settings Actions", () => {
   });
 
   if (testConfig.target !== "real") {
-    test("Single worker-name update rejects a Proto rig without stored pool readback @smoke", async ({
+    test("Single worker-name review rejects changes when a configuration is required @smoke", async ({
       minersPage,
       commonSteps,
       loginModal,
@@ -46,27 +46,39 @@ test.describe("Miner Settings Actions", () => {
       await minersPage.filterRigMiners();
       const [miner] = await minersPage.getAuthenticatedMinersWithNonEmptyWorkerNames(1);
       const updatedWorkerName = generateRandomText("worker-rejected");
+      await page.route(/\/ReviewWorkerNames$/, (route) =>
+        route.fulfill({
+          status: 400,
+          json: { code: "failed_precondition", message: "Assign a pool configuration before changing worker names." },
+        }),
+      );
+      const confirmations: string[] = [];
+      page.on("request", (request) => {
+        if (/\/ConfirmReview$/.test(request.url())) confirmations.push(request.url());
+      });
 
       await minersPage.clickMinerThreeDotsButton(miner.ipAddress);
       await minersPage.clickUpdateWorkerNameButton();
       await loginModal.loginAsAdminForWorkerNames();
       await minersPage.validateUpdateWorkerNameModalOpened();
       await minersPage.fillUpdateWorkerNameInput(updatedWorkerName);
-      const response = await submitWithPasswordAttemptRetry(page, /\/UpdateWorkerNames$/, async () => {
+      const response = await submitWithPasswordAttemptRetry(page, /\/ReviewWorkerNames$/, async () => {
         await minersPage.clickSaveInModal();
       });
       test.expect(response.status()).toBe(400);
       test.expect(await response.json()).toMatchObject({
         code: "failed_precondition",
-        message: test.expect.stringContaining("complete stored pool readback is unsupported"),
+        message: "Assign a pool configuration before changing worker names.",
       });
       await minersPage.validateTextInToastGroup("Failed to update worker name");
+      await test.expect(page.getByRole("dialog", { name: "Review worker names", exact: true })).toBeHidden();
+      test.expect(confirmations).toEqual([]);
       await page.reload();
       await minersPage.validateMinersPageOpened();
       await test.expect.poll(() => minersPage.getMinerWorkerName(miner.ipAddress)).toBe(miner.workerName);
     });
 
-    test("Bulk worker-name update rejects Proto rigs without changing their names", async ({
+    test("Bulk worker-name review rejects changes when a configuration is required", async ({
       minersPage,
       commonSteps,
       loginModal,
@@ -77,6 +89,16 @@ test.describe("Miner Settings Actions", () => {
       await minersPage.filterRigMiners();
       const selectedMiners = await minersPage.getAuthenticatedMinersWithNonEmptyWorkerNames(2);
       const updatedWorkerNamePrefix = generateRandomText("worker-bulk-rejected");
+      await page.route(/\/ReviewWorkerNames$/, (route) =>
+        route.fulfill({
+          status: 400,
+          json: { code: "failed_precondition", message: "Assign a pool configuration before changing worker names." },
+        }),
+      );
+      const confirmations: string[] = [];
+      page.on("request", (request) => {
+        if (/\/ConfirmReview$/.test(request.url())) confirmations.push(request.url());
+      });
       for (const miner of selectedMiners) {
         await minersPage.clickMinerCheckbox(miner.ipAddress);
       }
@@ -92,7 +114,7 @@ test.describe("Miner Settings Actions", () => {
       await minersPage.fillCustomPropertyPrefix(updatedWorkerNamePrefix);
       await minersPage.saveCustomPropertyOptions();
       await minersPage.validateModalIsClosed();
-      const response = await submitWithPasswordAttemptRetry(page, /\/UpdateWorkerNames$/, async () => {
+      const response = await submitWithPasswordAttemptRetry(page, /\/ReviewWorkerNames$/, async () => {
         await minersPage.clickBulkWorkerNameSave();
         await minersPage.continueBulkRenameOverwriteWarningIfVisible();
       });
@@ -103,9 +125,11 @@ test.describe("Miner Settings Actions", () => {
       test.expect(response.status()).toBe(400);
       test.expect(await response.json()).toMatchObject({
         code: "failed_precondition",
-        message: test.expect.stringContaining("complete stored pool readback is unsupported"),
+        message: "Assign a pool configuration before changing worker names.",
       });
       await minersPage.validateTextInToastGroup("Failed to update worker names");
+      await test.expect(page.getByRole("dialog", { name: "Review worker names", exact: true })).toBeHidden();
+      test.expect(confirmations).toEqual([]);
       await page.reload();
       await minersPage.validateMinersPageOpened();
       for (const miner of selectedMiners) {

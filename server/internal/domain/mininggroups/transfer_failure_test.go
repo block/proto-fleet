@@ -91,7 +91,7 @@ func newIdlePoolAssignmentFixture(t *testing.T) (context.Context, retryFixture, 
 func newTransferFailureFixture(t *testing.T) (context.Context, retryFixture, *transferFailureMiner, string, []int64) {
 	t.Helper()
 	ctx, f, m, config, boards := newIdlePoolAssignmentFixture(t)
-	_, err := f.service.Submit(ctx, f.target.DeviceIdentifier, uuid.NewString(), config, boards, f.state(t).Revision)
+	_, err := f.service.submitLegacyRequest(ctx, f.target.DeviceIdentifier, uuid.NewString(), config, boards, f.state(t).Revision)
 	require.NoError(t, err)
 	return ctx, f, m, config, boards
 }
@@ -170,7 +170,7 @@ func TestFailedTransfersEventuallyReleaseWorkflow(t *testing.T) {
 	require.NoError(t, err, "terminal failure must no longer block custody reservation")
 	// Reservation made no controller changes; return the unchanged configuration.
 	require.NoError(t, f.service.writes.ReleaseHost(ctx, f.target.OrganizationID, f.target.DeviceID, epoch))
-	_, err = f.service.Submit(ctx, f.target.DeviceIdentifier, uuid.NewString(), config, boards, row.Revision)
+	_, err = f.service.submitLegacyRequest(ctx, f.target.DeviceIdentifier, uuid.NewString(), config, boards, row.Revision)
 	require.NoError(t, err)
 	f.reconcile(t, ctx)
 	require.True(t, f.state(t).Step.Valid, "new user requests get a fresh failure budget")

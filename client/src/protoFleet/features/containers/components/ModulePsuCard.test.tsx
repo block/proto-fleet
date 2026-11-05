@@ -12,7 +12,10 @@ import {
 } from "@/protoFleet/api/generated/fleetinventory/v1/fleetinventory_pb";
 
 const settings = vi.hoisted(() => ({ unit: "C" }));
-vi.mock("@/protoFleet/store", () => ({ useTemperatureUnit: () => settings.unit }));
+vi.mock("@/protoFleet/store", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/protoFleet/store")>()),
+  useTemperatureUnit: () => settings.unit,
+}));
 beforeEach(() => {
   settings.unit = "C";
 });

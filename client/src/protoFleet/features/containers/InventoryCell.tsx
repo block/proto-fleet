@@ -3,6 +3,7 @@ import { ModuleStatus } from "./ModuleStatus";
 import { type TankMetric, tankMetricCoverage } from "./tankMetricCoverage";
 import { EntityKind, type InventoryItem } from "@/protoFleet/api/generated/fleetinventory/v1/fleetinventory_pb";
 import { HealthBar } from "@/protoFleet/components/HealthBar";
+import { BoardPoolConfigurationCell } from "@/protoFleet/features/poolConfigurations/BoardPoolConfigurationCell";
 import { useTemperatureUnit } from "@/protoFleet/store";
 import { getDisplayValue } from "@/shared/utils/stringUtils";
 import {
@@ -38,6 +39,12 @@ export function InventoryCell({
     );
   };
   switch (column) {
+    case "poolConfiguration":
+      return item.ref?.kind === EntityKind.MODULE ? (
+        <BoardPoolConfigurationCell moduleId={item.ref.id} />
+      ) : (
+        <span>—</span>
+      );
     case "name":
       return (
         <span className="block truncate text-emphasis-300" title={item.name}>

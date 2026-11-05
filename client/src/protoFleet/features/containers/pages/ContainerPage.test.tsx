@@ -30,7 +30,11 @@ vi.mock("@/protoFleet/api/SitesContext", () => ({
     sites: [create(SiteWithCountsSchema, { site: { id: 2n, name: "North", slug: "north" } })],
   }),
 }));
-vi.mock("@/protoFleet/store", () => ({ useTemperatureUnit: () => "C", usePermissions: () => [] }));
+vi.mock("@/protoFleet/store", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/protoFleet/store")>()),
+  useTemperatureUnit: () => "C",
+  usePermissions: () => [],
+}));
 
 function Location() {
   const location = useLocation();

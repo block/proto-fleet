@@ -11,6 +11,7 @@ import (
 	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
 	"github.com/block/proto-fleet/server/generated/sqlc"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/block/proto-fleet/server/internal/domain/miner/interfaces"
 	"github.com/block/proto-fleet/server/internal/domain/poolconfigurations"
 	"github.com/block/proto-fleet/server/internal/infrastructure/db"
 	sdk "github.com/block/proto-fleet/server/sdk/v1"
@@ -201,30 +202,51 @@ func (c *Checker) readControllerPools(ctx context.Context, p poolconfigurations.
 						return err
 					}
 				}
+				// Hashboards without groups inherit the one whole-container stack.
+				// Keep that observation shared across the authorized board selection.
+				var whole boardPoolReadback
+				var wholeErr error
+				wholeRead := false
+				readWhole := func() boardPoolReadback {
+					if !wholeRead {
+						pools, err := miner.GetMiningPools(ctx)
+						wholeErr = err
+						if err == nil {
+							whole.Available = true
+							for _, pool := range pools {
+								whole.Pools = append(whole.Pools, poolconfigurations.PoolReading{Priority: pool.Priority, URL: pool.URL, Username: pool.Username})
+							}
+							slices.SortFunc(whole.Pools, func(a, b poolconfigurations.PoolReading) int { return int(a.Priority) - int(b.Priority) })
+						}
+						wholeRead = true
+					}
+					return whole
+				}
 				checkedAt := time.Now()
 				for i, binding := range bindings {
 					var reading boardPoolReadback
 					if targets[i].Kind == poolconfigurations.TargetInstallation {
-						reading = reportedBoardPools(observed, binding.board.MAC)
+						if wholeContainerPoolMode(observed) {
+							reading = readWhole()
+						} else {
+							reading = reportedBoardPools(observed, binding.board.MAC)
+						}
 					} else {
 						if commonpb.DeviceClass(runtime.DeviceClass) == commonpb.DeviceClass_DEVICE_CLASS_CONTAINER && (!observed.Supported || observed.Enabled || observed.Pending || observed.Suspended) {
 							continue
 						}
-						pools, err := miner.GetMiningPools(ctx)
-						if err != nil {
-							return err
-						}
-						reading.Available = true
-						for _, pool := range pools {
-							reading.Pools = append(reading.Pools, poolconfigurations.PoolReading{Priority: pool.Priority, URL: pool.URL, Username: pool.Username})
-						}
-						slices.SortFunc(reading.Pools, func(a, b poolconfigurations.PoolReading) int { return int(a.Priority) - int(b.Priority) })
+						reading = readWhole()
+					}
+					if wholeErr != nil {
+						return wholeErr
 					}
 					if !reading.Available {
 						continue
 					}
 					results[i] = poolconfigurations.CheckResult{ReadbackAvailable: true, Reported: reading.Pools, CheckedAt: checkedAt}
-					if len(reading.Pools) > 0 {
+					if targets[i].Kind == poolconfigurations.TargetInstallation && wholeContainerPoolMode(observed) {
+						results[i].State = stateContainerConfiguration
+					} else if len(reading.Pools) > 0 {
 						results[i].State = "device_configuration"
 					}
 				}
@@ -233,4 +255,23 @@ func (c *Checker) readControllerPools(ctx context.Context, p poolconfigurations.
 		})
 	})
 	return results, err
+}
+
+const stateContainerConfiguration = "container_configuration"
+
+func wholeContainerPoolMode(observed sdk.MiningGroupResult) bool {
+	return observed.Supported && !observed.Enabled && !observed.Pending && !observed.Suspended
+}
+
+func readCurrentPoolStack(ctx context.Context, miner interfaces.Miner) boardPoolReadback {
+	pools, err := miner.GetMiningPools(ctx)
+	if err != nil {
+		return boardPoolReadback{}
+	}
+	reading := boardPoolReadback{Available: true}
+	for _, pool := range pools {
+		reading.Pools = append(reading.Pools, poolconfigurations.PoolReading{Priority: pool.Priority, URL: pool.URL, Username: pool.Username})
+	}
+	slices.SortFunc(reading.Pools, func(a, b poolconfigurations.PoolReading) int { return int(a.Priority) - int(b.Priority) })
+	return reading
 }

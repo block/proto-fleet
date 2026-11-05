@@ -45,7 +45,7 @@ func TestInterruptedPoolOperationWithoutOutstandingStepIsReleased(t *testing.T) 
 			require.NoError(t, f.service.writes.ReleaseHost(ctx, f.target.OrganizationID, f.target.DeviceID, epoch))
 			if reason == "revoked" {
 				setMiningGroupPermissions(t, ctx, f, []string{authz.PermSiteRead, authz.PermFleetRead, authz.PermMinerRead, authz.PermMinerUpdatePools, authz.PermMinerStartMining, authz.PermMinerStopMining})
-				_, err = f.service.Submit(ctx, f.target.DeviceIdentifier, uuid.NewString(), config, boards, f.state(t).Revision)
+				_, err = f.service.submitLegacyRequest(ctx, f.target.DeviceIdentifier, uuid.NewString(), config, boards, f.state(t).Revision)
 				require.NoError(t, err, "a currently authorized operator can submit a fresh operation")
 			}
 		})

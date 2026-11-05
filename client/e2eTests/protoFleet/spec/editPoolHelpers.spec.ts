@@ -3,25 +3,22 @@ import { EditPoolPage } from "../pages/editPool";
 
 test.use({ storageState: { cookies: [], origins: [] } });
 
-test("removing pools waits for existing assignments to load", async ({ page, isMobile }) => {
+test("configuration selection waits for the saved configurations to load", async ({ page, isMobile }) => {
   await page.setContent(`
-    <p id="loading">Loading pool configuration...</p>
-    <div id="editor"></div>
+    <div role="dialog" aria-label="Edit pool">
+      <p id="loading">Loading configurations</p>
+      <div id="configurations"></div>
+    </div>
     <script>
       setTimeout(() => {
         document.getElementById('loading').remove();
-        document.getElementById('editor').innerHTML = \`
-          <div data-testid="pool-row-0">
-            <button aria-label="Pool actions" onclick="document.getElementById('remove').hidden = false">Actions</button>
-          </div>
-          <button id="remove" hidden onclick="document.querySelector('[data-testid=pool-row-0]').remove(); this.remove()">Remove</button>
-        \`;
+        document.getElementById('configurations').innerHTML =
+          '<label><input type="radio" name="configuration">Production</label>';
       }, 150);
     </script>
   `);
-
-  await new EditPoolPage(page, isMobile).removeAllPools();
-
-  await expect(page.getByText("Loading pool configuration...", { exact: true })).toBeHidden();
-  await expect(page.getByTestId(/^pool-row-\d+$/)).toHaveCount(0, { timeout: 500 });
+  const picker = new EditPoolPage(page, isMobile);
+  await picker.selectConfiguration("Production");
+  await picker.validateSelectedConfiguration("Production");
+  await expect(page.getByText("Loading configurations")).toBeHidden();
 });

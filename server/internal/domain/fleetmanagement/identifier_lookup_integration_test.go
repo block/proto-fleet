@@ -36,7 +36,7 @@ func TestLookupMinerByInternalIdentifier(t *testing.T) {
 	_, err = collections.AddDevicesToCollection(t.Context(), admin.OrganizationID, group.Id, []string{created.ID})
 	require.NoError(t, err)
 	telemetry := &identifierLookupTelemetry{TelemetryCollector: fleetmanagement.NewMockTelemetryCollector(), t: t, deviceID: created.ID}
-	service := fleetmanagement.NewService(store, nil, telemetry, nil, testContext.ServiceProvider.PluginService, nil, nil, collections, nil, nil, nil)
+	service := fleetmanagement.NewService(store, nil, telemetry, nil, testContext.ServiceProvider.PluginService, nil, collections, nil, nil, nil)
 	ctx := testutil.MockAuthContextForTesting(t.Context(), admin.DatabaseID, admin.OrganizationID)
 	request := &pb.LookupMinerByIdentifierRequest{
 		Identifier: created.ID, IdentifierType: pb.MinerIdentifierType_MINER_IDENTIFIER_TYPE_DEVICE_IDENTIFIER,

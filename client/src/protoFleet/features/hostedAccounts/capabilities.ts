@@ -10,8 +10,8 @@ export const capabilities = [
   },
   {
     value: 4n,
-    label: "Select stored pool profile",
-    description: "Choose a saved revision; does not apply pools to mining assets.",
+    label: "Change pools",
+    description: "Apply pool configurations to equipment allocated to this account.",
   },
   {
     value: 16n,

@@ -31,7 +31,8 @@ vi.mock("@/protoFleet/api/useOnboardedStatus", () => ({
 
 // site:read gates whether the org catalog is fetched (and the picker mounts).
 const permMock = vi.hoisted(() => ({ current: (_key: string): boolean => true }));
-vi.mock("@/protoFleet/store", () => ({
+vi.mock("@/protoFleet/store", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/protoFleet/store")>()),
   useDuration: () => "24h",
   useSetDuration: () => vi.fn(),
   useTemperatureUnit: () => "C",

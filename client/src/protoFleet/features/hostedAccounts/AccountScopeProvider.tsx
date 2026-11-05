@@ -2,6 +2,7 @@ import { type ReactNode, useLayoutEffect, useState } from "react";
 
 import { type AccountScope, AccountScopeContext } from "./AccountScope";
 import { createAccountConnection } from "./api";
+import { PoolAssignmentFeedback } from "@/protoFleet/features/poolConfigurations/PoolAssignmentFeedback";
 
 export const AccountScopeProvider = ({
   account,
@@ -29,6 +30,7 @@ export const AccountScopeProvider = ({
       }}
     >
       {children}
+      <PoolAssignmentFeedback />
     </AccountScopeContext.Provider>
   );
 };

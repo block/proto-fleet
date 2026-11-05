@@ -3,12 +3,17 @@ import { minerCols } from "./constants";
 import {
   buildActiveMinerColumns,
   configurableMinerColumns,
+  createDefaultMinerTableColumnPreferences,
   normalizeMinerTableColumnPreferences,
   reorderMinerTableColumns,
   updateMinerTableColumnVisibility,
 } from "./minerTableColumnPreferences";
 
 describe("minerTableColumnPreferences", () => {
+  it("places pool configuration immediately after issues by default", () => {
+    const columns = buildActiveMinerColumns(createDefaultMinerTableColumnPreferences());
+    expect(columns[columns.indexOf(minerCols.issues) + 1]).toBe(minerCols.poolConfiguration);
+  });
   it("normalizes persisted preferences, drops invalid entries, and appends missing columns", () => {
     const normalized = normalizeMinerTableColumnPreferences({
       columns: [
@@ -50,12 +55,7 @@ describe("minerTableColumnPreferences", () => {
       minerCols.model,
     );
 
-    expect(buildActiveMinerColumns(reordered).slice(0, 4)).toEqual([
-      minerCols.name,
-      minerCols.groups,
-      minerCols.model,
-      minerCols.macAddress,
-    ]);
+    expect(buildActiveMinerColumns(reordered).slice(0, 3)).toEqual([minerCols.name, minerCols.groups, minerCols.model]);
   });
   it("lets allocation visibility and position follow saved column choices", () => {
     const preferences = normalizeMinerTableColumnPreferences({

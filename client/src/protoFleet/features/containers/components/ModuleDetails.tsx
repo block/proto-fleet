@@ -13,6 +13,8 @@ import {
   type InventoryItem,
 } from "@/protoFleet/api/generated/fleetinventory/v1/fleetinventory_pb";
 import { useModuleHashboards } from "@/protoFleet/api/useModuleHashboards";
+import { BoardPoolConfigurationCell } from "@/protoFleet/features/poolConfigurations/BoardPoolConfigurationCell";
+import { PoolAssignments } from "@/protoFleet/features/poolConfigurations/PoolAssignments";
 import { useTemperatureUnit } from "@/protoFleet/store";
 import Button from "@/shared/components/Button";
 import Stats from "@/shared/components/Stats";
@@ -76,7 +78,7 @@ export default function ModuleDetails({
     },
   ];
   return (
-    <>
+    <PoolAssignments moduleIds={[module.ref!.id]} enabled={enabled}>
       <div className="flex flex-col items-start justify-between gap-4 tablet:flex-row">
         <div className="w-full min-w-0 tablet:flex-1">{header}</div>
         <div className="flex shrink-0 flex-wrap items-center gap-3">
@@ -110,6 +112,10 @@ export default function ModuleDetails({
         gap="gap-x-10 phone:gap-6"
         padding=""
       />
+      <div>
+        <span className="text-200 text-text-primary-70">Pool configuration</span>
+        <BoardPoolConfigurationCell moduleId={module.ref!.id} />
+      </div>
       <section aria-label="Hashboards" className="flex flex-col gap-4">
         <h2 className="text-heading-200">Hashboards</h2>
         {enabled && !result ? <p role="status">Loading hashboards…</p> : null}
@@ -140,6 +146,6 @@ export default function ModuleDetails({
         <ModulePsuCard module={module} slots={result?.data?.slots ?? []} unavailable={unavailable} now={now} />
       </section>
       <ModulePerformance moduleId={module.ref!.id} enabled={enabled} />
-    </>
+    </PoolAssignments>
   );
 }

@@ -1,6 +1,7 @@
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { act, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import userEvent from "@testing-library/user-event";
 
 import AccountWorkspace from "../AccountWorkspace";
 import { HostedAccountsContext } from "../HostedAccountsContext";
@@ -72,10 +73,10 @@ describe("account mining asset details", () => {
     for (const link of screen.getAllByRole("link", { name: "Mining assets" }))
       expect(link).toHaveAttribute("href", "/accounts/client/assets");
     deferDetail = true;
-    const poll = polling.mock.calls.filter(([, interval]) => interval === POLL_INTERVAL_MS).slice(-1)[0]?.[0];
-    expect(poll).toBeTypeOf("function");
+    const polls = polling.mock.calls.filter(([, interval]) => interval === POLL_INTERVAL_MS).map(([poll]) => poll);
+    expect(polls.length).toBeGreaterThan(0);
     act(() => {
-      if (typeof poll === "function") poll();
+      for (const poll of polls) if (typeof poll === "function") poll();
     });
     await waitFor(() => expect(finishDetail).toBeTypeOf("function"));
     expect(screen.getByText("Current allocated mining asset")).toBeInTheDocument();
@@ -88,3 +89,98 @@ describe("account mining asset details", () => {
     expect(calls.filter((call) => call.method !== "enabled" && !call.method.startsWith("Get"))).toEqual([]);
   });
 });
+
+it.each([
+  { kind: "hashboard", assetId: "11", assetKind: "MINING_ASSET_KIND_HASHBOARD", boards: { hashboardIds: ["11"] } },
+  { kind: "module", assetId: "7", assetKind: "MINING_ASSET_KIND_MODULE", boards: { moduleIds: ["7"] } },
+])(
+  "uses the exact $kind identity and account scope for direct canonical pool assignment",
+  async ({ kind, assetId, assetKind, boards }) => {
+    const user = userEvent.setup();
+    const calls: { method: string; account: string | null; body: Record<string, unknown> }[] = [];
+    const configuration = {
+      configurationId: "config-1",
+      name: "Available pool",
+      version: "1",
+      pools: [{ slotId: "slot-1", url: "stratum+tcp://pool.example:3333", username: "payout" }],
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
+        const method = String(input).split("/").slice(-1)[0];
+        const body = init?.body ? JSON.parse(new TextDecoder().decode(init.body as Uint8Array)) : {};
+        calls.push({ method, account: new Headers(init?.headers).get("X-Fleet-Account-ID"), body });
+        const data =
+          method === "GetAccount"
+            ? { account: { accountId: "client", name: "Customer", depth: 1, effectiveCapabilities: "5" } }
+            : method === "GetAccountAssetDetail"
+              ? {
+                  asset: {
+                    kind: assetKind,
+                    id: assetId,
+                    name: "Allocated board asset",
+                    available: true,
+                    canChangePools: true,
+                  },
+                }
+              : method === "GetAssignments"
+                ? {
+                    selectedCount: "1",
+                    assignments: [
+                      {
+                        installationId: "100",
+                        moduleId: "7",
+                        hashboardId: "11",
+                        configurationId: "config-1",
+                        name: "Assigned pool",
+                        state: "verified",
+                      },
+                    ],
+                  }
+                : method === "ListConfigurations"
+                  ? { configurations: [configuration] }
+                  : method === "ReviewAssignment"
+                    ? { reviewId: "review-1", configuration, affectedMiners: "0", affectedHashboards: "1" }
+                    : method === "ConfirmReview"
+                      ? { configuration }
+                      : {};
+        return new Response(JSON.stringify(data), { headers: { "Content-Type": "application/json" } });
+      }),
+    );
+    render(
+      <MemoryRouter initialEntries={[`/accounts/client/assets/${kind}/${assetId}`]}>
+        <HostedAccountsContext.Provider
+          value={{ accounts: [], hostAccess: false, loading: false, error: null, refresh: vi.fn() }}
+        >
+          <Routes>
+            <Route path="/accounts/:accountId/assets/:kind/:assetId" element={<AccountWorkspace />} />
+          </Routes>
+        </HostedAccountsContext.Provider>
+      </MemoryRouter>,
+    );
+    expect(await screen.findByText("Assigned pool")).toBeInTheDocument();
+    expect(calls.find((call) => call.method === "GetAssignments")).toMatchObject({
+      account: "client",
+      body: { accountId: "client", boards },
+    });
+    expect(calls.find((call) => call.method === "GetAssignments")!.body.boards).toEqual(boards);
+    await user.click(screen.getByRole("button", { name: "Edit pool" }));
+    await user.type(screen.getByLabelText("Username"), "pool-operator");
+    await user.type(screen.getByLabelText("Password"), "actor-password");
+    await user.click(screen.getByRole("button", { name: "Continue" }));
+    await screen.findByRole("radio", { name: "Available pool" });
+    await waitFor(() => expect(screen.getByRole("button", { name: "Assign" })).toBeEnabled());
+    await user.click(screen.getByRole("button", { name: "Assign" }));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Edit pool" })).not.toBeInTheDocument());
+    expect(calls.find((call) => call.method === "ReviewAssignment")).toMatchObject({
+      account: "client",
+      body: { accountId: "client", boards },
+    });
+    expect(calls.find((call) => call.method === "ReviewAssignment")!.body.boards).toEqual(boards);
+    expect(calls.find((call) => call.method === "ConfirmReview")).toMatchObject({
+      account: "client",
+      body: { accountId: "client", reviewId: "review-1", password: "actor-password" },
+    });
+    expect(screen.queryByRole("dialog", { name: /Assign pool configuration to/ })).not.toBeInTheDocument();
+  },
+);

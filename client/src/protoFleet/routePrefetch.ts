@@ -36,7 +36,7 @@ export const importSettingsLayout = () => import("@/protoFleet/features/settings
 export const importSettingsNetwork = () => import("@/protoFleet/features/settings/components/Network");
 export const importSettingsPreferences = () => import("@/protoFleet/features/settings/components/Preferences");
 export const importSettingsAuth = () => import("@/protoFleet/features/settings/components/Auth");
-export const importSettingsMiningPools = () => import("@/protoFleet/features/settings/components/MiningPools");
+export const importSettingsMiningPools = () => import("@/protoFleet/features/poolConfigurations/ConfigurationLibrary");
 export const importSettingsTeam = () => import("@/protoFleet/features/settings/components/Team");
 export const importSettingsFirmware = () => import("@/protoFleet/features/settings/components/Firmware");
 export const importSettingsNodes = () => import("@/protoFleet/features/settings/components/Nodes/NodesPage");

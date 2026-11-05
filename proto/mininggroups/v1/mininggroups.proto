@@ -2,16 +2,11 @@ syntax = "proto3";
 package mininggroups.v1;
 import "buf/validate/validate.proto";
 import "google/protobuf/timestamp.proto";
-import "hosted/v1/hosted.proto";
 
 // Operator-only until authoritative customer hashboard allocations are available.
 service MiningGroupService {
  rpc GetState(GetStateRequest) returns (GetStateResponse);
  rpc Activate(ActivateRequest) returns (ActivateResponse);
- rpc SetPools(SetPoolsRequest) returns (SetPoolsResponse);
- rpc ListPoolConfigurations(ListPoolConfigurationsRequest) returns (ListPoolConfigurationsResponse);
- rpc CreatePoolConfiguration(CreatePoolConfigurationRequest) returns (CreatePoolConfigurationResponse);
- rpc ResolveFleetPools(ResolveFleetPoolsRequest) returns (ResolveFleetPoolsResponse);
 }
 message GetStateRequest { string device_identifier = 1 [(buf.validate.field).string = {min_len:1,max_len:255}]; }
 message Pool {
@@ -56,23 +51,3 @@ message ActivateRequest {
  string request_id = 3 [(buf.validate.field).string.uuid = true];
 }
 message ActivateResponse { string operation_id = 1; }
-message SetPoolsRequest {
- string device_identifier = 1 [(buf.validate.field).string = {min_len:1,max_len:255}];
- repeated int64 hashboard_ids = 2 [(buf.validate.field).repeated = {min_items:1,max_items:288,unique:true,items:{int64:{gt:0}}}];
- string pool_revision_id = 3 [(buf.validate.field).string.uuid = true];
- string request_id = 4 [(buf.validate.field).string.uuid = true];
- int64 expected_revision = 5 [(buf.validate.field).int64.gt = 0];
- string user_username = 6 [(buf.validate.field).string.min_len = 1];
- string user_password = 7 [(buf.validate.field).string.min_len = 1];
-}
-message SetPoolsResponse { string operation_id = 1; }
-message ListPoolConfigurationsRequest {}
-message ListPoolConfigurationsResponse { repeated hosted.v1.PoolRevision configurations = 1; }
-message CreatePoolConfigurationRequest { hosted.v1.PoolRevisionInput configuration = 1 [(buf.validate.field).required = true]; }
-message CreatePoolConfigurationResponse { hosted.v1.PoolRevision revision = 1; }
-// Snapshot ordered saved Fleet pools without returning their credentials.
-message ResolveFleetPoolsRequest {
- repeated int64 pool_ids = 1 [(buf.validate.field).repeated = {min_items:1,max_items:3,unique:true,items:{int64:{gt:0}}}];
-}
-
-message ResolveFleetPoolsResponse { hosted.v1.PoolRevision revision = 1; }

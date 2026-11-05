@@ -256,3 +256,43 @@ func TestCT1SimulatorPartialInventory(t *testing.T) {
 		}
 	}
 }
+
+func TestCT1SimulatorPoolConfigurationThenActivation(t *testing.T) {
+	addresses := startCT1Simulator(t)
+	t.Setenv("CT1_WEB_PORT", addresses["HTTP"])
+	driver, err := New(0)
+	require.NoError(t, err)
+	info, err := driver.DiscoverDevice(t.Context(), "127.0.0.1", addresses["gRPC"])
+	require.NoError(t, err)
+	handle, err := driver.NewDevice(t.Context(), "ct1-integration", info, sdk.SecretBundle{})
+	require.NoError(t, err)
+	defer handle.Device.Close(t.Context())
+	desired := []sdk.MiningPoolConfig{{URL: "stratum+tcp://custom.example:3333", WorkerName: "custom.ct1", Password: "secret", Priority: 0}}
+	require.NoError(t, handle.Device.UpdateMiningPools(t.Context(), desired))
+	desired[0].Password = ""
+	require.NoError(t, handle.Device.UpdateMiningPools(t.Context(), desired))
+	desired[0].Password = "replacement"
+	require.NoError(t, handle.Device.UpdateMiningPools(t.Context(), desired))
+	pools, err := handle.Device.GetMiningPools(t.Context())
+	require.NoError(t, err)
+	require.Len(t, pools, 1)
+	require.Equal(t, desired[0].URL, pools[0].URL)
+	groups, ok := handle.Device.(sdk.DeviceMiningGroups)
+	require.True(t, ok)
+	_, err = groups.MiningGroups(t.Context(), sdk.MiningGroupRequest{Action: "stop_legacy", Key: "stop-before-activation"})
+	require.NoError(t, err)
+	observed, err := groups.MiningGroups(t.Context(), sdk.MiningGroupRequest{Action: "observe"})
+	require.NoError(t, err)
+	_, err = groups.MiningGroups(t.Context(), sdk.MiningGroupRequest{Action: "activate", Revision: observed.Revision, Key: "activate-custom-pools"})
+	require.NoError(t, err)
+	observed, err = groups.MiningGroups(t.Context(), sdk.MiningGroupRequest{Action: "observe"})
+	require.NoError(t, err)
+	require.True(t, observed.Enabled)
+	require.Len(t, observed.Groups, 1)
+	require.Equal(t, "default", observed.Groups[0].ID)
+	require.Len(t, observed.Groups[0].MACs, 288)
+	require.Len(t, observed.Groups[0].Pools, 1)
+	require.Equal(t, desired[0].URL, observed.Groups[0].Pools[0].URL)
+	require.Equal(t, desired[0].WorkerName, observed.Groups[0].Pools[0].Username)
+	require.Error(t, handle.Device.UpdateMiningPools(t.Context(), desired))
+}

@@ -10,6 +10,7 @@ import (
 	"github.com/block/proto-fleet/server/generated/grpc/hosted/v1/hostedv1connect"
 	invpb "github.com/block/proto-fleet/server/generated/grpc/invitation/v1"
 	"github.com/block/proto-fleet/server/generated/grpc/invitation/v1/invitationv1connect"
+	poolpb "github.com/block/proto-fleet/server/generated/grpc/poolconfigurations/v1"
 	"github.com/block/proto-fleet/server/internal/domain/authz"
 	domain "github.com/block/proto-fleet/server/internal/domain/hostedaccounts"
 	"github.com/stretchr/testify/require"
@@ -122,21 +123,18 @@ func TestHostedRPCPoolPasswordsAndCiphertextStayOutOfLogs(t *testing.T) {
 	f := newRPCFixture(t)
 	account := f.account(t, "Customer", f.host, domain.DefaultCapabilities)
 	secret := "secret-for-customer-stratum-password"
-	created, err := f.client.CreatePoolConfiguration(t.Context(), rpcRequest(&pb.CreatePoolConfigurationRequest{AccountId: account.AccountID, Configuration: &pb.PoolRevisionInput{Name: "Private credentials", Slots: []*pb.PoolSlotInput{{Url: "stratum+tcp://private.customer.example:3333", Username: "customer.wallet", Password: &secret}}}}, f.cookie, account.AccountID))
+	created, err := f.configurations.CreateConfiguration(t.Context(), rpcRequest(&poolpb.CreateConfigurationRequest{AccountId: account.AccountID, Configuration: &poolpb.ConfigurationInput{Name: "Private credentials", Pools: []*poolpb.PoolInput{{Url: "stratum+tcp://private.customer.example:3333", Username: "customer.wallet", Password: &secret}}}}, f.cookie, account.AccountID))
 	require.NoError(t, err)
-	revisionID := created.Msg.Revision.RevisionId
-	_, err = f.client.SetIncomingPoolProfile(t.Context(), rpcRequest(&pb.SetIncomingPoolProfileRequest{AccountId: account.AccountID, RevisionId: &revisionID, Password: rpcPassword}, f.cookie, account.AccountID))
-	require.NoError(t, err)
+	revisionID := created.Msg.Configuration.RevisionId
 	var ciphertext, activity string
-	require.NoError(t, f.db.QueryRowContext(t.Context(), `SELECT slots->0->>'password_ciphertext' FROM hosted_account_pool_revision WHERE revision_id=$1`, revisionID).Scan(&ciphertext))
+	require.NoError(t, f.db.QueryRowContext(t.Context(), `SELECT slots->0->>'password_ciphertext' FROM pool_configuration_revision WHERE revision_id=$1`, revisionID).Scan(&ciphertext))
 	require.NotEmpty(t, ciphertext)
-	listed, err := f.client.ListPoolConfigurations(t.Context(), rpcRequest(&pb.ListPoolConfigurationsRequest{AccountId: account.AccountID}, f.cookie, account.AccountID))
+	listed, err := f.configurations.ListConfigurations(t.Context(), rpcRequest(&poolpb.ListConfigurationsRequest{AccountId: account.AccountID}, f.cookie, account.AccountID))
 	require.NoError(t, err)
 	response := string(mustProtoJSON(t, listed.Msg))
 	require.NotContains(t, response, secret)
 	require.NotContains(t, response, ciphertext)
-	require.Contains(t, output.String(), "CreatePoolConfiguration", "debug logging actually ran")
-	require.Contains(t, output.String(), "SetIncomingPoolProfile")
+	require.Contains(t, output.String(), "CreateConfiguration", "debug logging actually ran")
 	require.NotContains(t, output.String(), secret)
 	require.NotContains(t, output.String(), rpcPassword)
 	require.NotContains(t, output.String(), ciphertext)

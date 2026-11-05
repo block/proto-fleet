@@ -123,8 +123,8 @@ export default function MiningActionsMenu({
               ) : (
                 <MiningPools />
               ),
-            hidden: !canEditPools || groups?.supported === false,
-            disabled: unavailable || !oneContainer || !canEditHashboardPools(groups),
+            hidden: !canEditPools || (oneContainer && groups?.supported === false),
+            disabled: unavailable || (oneContainer && !canEditHashboardPools(groups)),
             onClick: () => setPoolsOpen(true),
           },
           {

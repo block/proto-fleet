@@ -70,20 +70,28 @@ func (s *ContainerState) poolDiagnosticsDTO() poolDiagnosticsResponse {
 	var activePoolID *int64str
 	if active {
 		state = "POOL_CONN_STATE_ACTIVE"
-		id := int64str(1)
-		activePoolID = &id
+		for _, pool := range s.poolDTOs() {
+			if pool.Enabled {
+				id := pool.ID
+				activePoolID = &id
+				break
+			}
+		}
 	}
 	var diagnostics []poolDiagnostics
-	for _, pool := range demoPools() {
+	for _, pool := range s.poolDTOs() {
+		if !pool.Enabled {
+			continue
+		}
 		connectionState := "POOL_CONN_STATE_IDLE"
-		if pool.ID == 1 {
+		if activePoolID != nil && pool.ID == *activePoolID {
 			connectionState = state
 		}
 		diagnostics = append(diagnostics, poolDiagnostics{
 			PoolID:     pool.ID,
 			PoolName:   pool.Name,
 			ConnState:  connectionState,
-			IsActive:   pool.ID == 1 && active,
+			IsActive:   activePoolID != nil && pool.ID == *activePoolID,
 			IsReady:    true,
 			Difficulty: 2048,
 		})

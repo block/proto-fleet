@@ -43,7 +43,7 @@ func TestUnsupportedAssignmentIsRejectedBeforeAdmission(t *testing.T) {
 			before := f.state(t)
 			m.calls = nil
 			request := uuid.NewString()
-			_, err = f.service.Submit(ctx, f.target.DeviceIdentifier, request, config, boards, before.Revision)
+			_, err = f.service.submitLegacyRequest(ctx, f.target.DeviceIdentifier, request, config, boards, before.Revision)
 			require.Error(t, err)
 			require.True(t, fleeterror.IsFailedPreconditionError(err))
 			require.Equal(t, before, f.state(t), "rejected submissions must leave the journal unchanged")
@@ -106,7 +106,7 @@ func TestPolicyChangeAfterConfigurationPreservesCompletedSetup(t *testing.T) {
 	f.service.miners = controller
 	_, err := f.service.GetState(ctx, f.target.DeviceIdentifier)
 	require.NoError(t, err)
-	_, err = f.service.Submit(ctx, f.target.DeviceIdentifier, uuid.NewString(), config, boards, f.state(t).Revision)
+	_, err = f.service.submitLegacyRequest(ctx, f.target.DeviceIdentifier, uuid.NewString(), config, boards, f.state(t).Revision)
 	require.NoError(t, err)
 	f.reconcile(t, ctx) // Prepare pool configuration.
 	f.reconcile(t, ctx) // Apply it and retain the successful receipt.
@@ -141,10 +141,9 @@ func TestRejectedAssignmentPreservesEarlierIntent(t *testing.T) {
 	require.NoError(t, err)
 	info, err := session.GetInfo(ctx)
 	require.NoError(t, err)
-	profile, err := f.service.pools.CreateHost(ctx, info.UserID, info.OrganizationID, poolconfigurations.RevisionOptions{Name: "Other pools", Slots: []poolconfigurations.SlotOptions{{URL: "stratum+tcp://other.example:3333", Username: "other"}}})
-	require.NoError(t, err)
+	profile := seedLegacyHostPoolRevision(t, ctx, sqlc.New(f.conn), f.service.secrets, info.OrganizationID, poolconfigurations.RevisionOptions{Name: "Other pools", Slots: []poolconfigurations.SlotOptions{{URL: "stratum+tcp://other.example:3333", Username: "other"}}})
 	before := f.state(t)
-	_, err = f.service.Submit(ctx, f.target.DeviceIdentifier, uuid.NewString(), profile.RevisionID, boards, before.Revision)
+	_, err = f.service.submitLegacyRequest(ctx, f.target.DeviceIdentifier, uuid.NewString(), profile.RevisionID, boards, before.Revision)
 	require.ErrorContains(t, err, "operator policy")
 	require.Equal(t, before, f.state(t))
 	intents, err := f.service.queries.ListHashboardPoolIntents(ctx, sqlc.ListHashboardPoolIntentsParams{OrganizationID: f.target.OrganizationID, DeviceID: f.target.DeviceID})

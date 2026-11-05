@@ -583,7 +583,9 @@ describe("MinerList", () => {
     await screen.findByText("Hashboard 1 - board-A");
     expect(screen.getAllByTestId("list-child-row")).toHaveLength(3);
     expect(screen.getByText("Empty slot")).toBeInTheDocument();
-    expect(screen.getByText("Unavailable")).toBeInTheDocument();
+    expect(
+      within(screen.getByRole("row", { name: "Hashboard 3 in Module 7" })).getByText("Unavailable"),
+    ).toBeInTheDocument();
     for (const row of screen.getAllByTestId("list-child-row")) expect(within(row).queryByRole("checkbox")).toBeNull();
     expect(button).toHaveAttribute("aria-expanded", "true");
     expect(fetch.mock.calls[0][0]).toEqual({ moduleIds: [7n] });

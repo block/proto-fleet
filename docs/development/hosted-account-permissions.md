@@ -10,7 +10,7 @@ bits; changing a label does not change authorization.
 | --- | ----------------- | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 1   | `View`            | View account data          | Read the selected account's permitted data. Authentication method also limits which endpoints can be called.                                                                          |
 | 2   | `ManagePools`     | Manage pool configurations | Create, revise and archive saved pool configurations.                                                                                                                                 |
-| 4   | `ChangePools`     | Select stored pool profile | Select or clear the stored profile's pinned pool revision using a Fleet session and the current login password.                                                                       |
+| 4   | `ChangePools`     | Change pools               | Apply shared configurations to currently owned miners or installed module boards using a Fleet session and current login password.                                                                       |
 | 8   | `ManageMembers`   | Manage memberships         | Manage the account's team, invitations and explicit ancestor grants; also rename the account and manage site policy within the permitted scope.                                       |
 | 16  | `Delegate`        | Allocate and recall assets | Manage permitted child accounts and reporting allocations. Customer administrators allocate directly held miners or hashboards (including module selections) to subclients and recall those allocations to the parent. |
 
@@ -97,10 +97,17 @@ The account ticket endpoints are `ListAccountTickets`, `GetAccountTicket`,
 `CreateAccountTicket`, `CommentAccountTicket`, `ChangeAccountTicketStatus`,
 `ListAccountTicketAssets` on `HostedAccountService`.
 
-Saved pool configurations and stored profile selection are separate permissions.
-Neither operation applies pool settings to existing or newly assigned mining
-assets. Allocation moves reporting responsibility; it does not move physical
-equipment, apply pools or enable firmware commands.
+Managing configurations and applying them are separate permissions. Creating an
+unassigned configuration does not change equipment. Editing an assigned
+configuration requires review and Change pools authority for every affected
+target. Allocation alone does not grant Change pools or apply any configuration;
+the initiating user's team permissions and current equipment ownership are
+checked at confirmation and before each device write.
+
+The shared `PoolConfigurationService` supplies the current library, revision,
+assignment and result APIs for operators and accounts. The endpoint matrix below
+documents retained `HostedAccountService` APIs. Legacy account pool library and
+stored-profile methods have been removed; use the shared configuration service.
 
 ## Hashboard allocations
 
@@ -196,9 +203,6 @@ Host recovery and direct-parent management paths have additional checks.
 | Endpoints                                                                                      | Required capability                                                    | Fleet session                    | Account API key                            |
 | ---------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------- | -------------------------------- | ------------------------------------------ |
 | `GetAccount`, `GetSitePolicy`                                                                  | `View`                                                                 | Yes                              | Yes, for the key's selected target account |
-| `ListPoolConfigurations`, `GetPoolRevision`, `GetIncomingPoolProfile`                          | `View`                                                                 | Yes                              | Yes                                        |
-| `CreatePoolConfiguration`, `RevisePoolConfiguration`, `ArchivePoolConfiguration`               | `ManagePools`                                                          | Yes                              | Yes                                        |
-| `SetIncomingPoolProfile`                                                                       | `ChangePools`                                                          | Yes, with current login password | No                                         |
 | `GetAccountDashboard`, `GetAccountMiningSummary`, `ListAccountAssets`, `GetAccountAssetDetail` | `View`                                                                 | Yes                              | No                                         |
 | `ListAccountActivities`, `ExportAccountActivities`                                             | `View`                                                                 | Yes                              | No                                         |
 | `AssignAccountAssets`, `ReplaceAccountHashboard`                                                                          | `Delegate`                                                             | Yes                              | No                                         |

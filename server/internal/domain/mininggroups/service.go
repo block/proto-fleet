@@ -7,7 +7,6 @@ import (
 	"encoding/hex"
 
 	"errors"
-	"slices"
 	"time"
 
 	"github.com/block/proto-fleet/server/generated/sqlc"
@@ -29,6 +28,7 @@ import (
 const statusApplying = "applying"
 const statusComplete = "complete"
 const operationActivate = "activate"
+const messageWaitingToApply = "Waiting to apply configuration"
 
 type MinerGetter interface {
 	GetMinerForCommand(ctx context.Context, deviceID int64) (interfaces.Miner, error)
@@ -181,7 +181,7 @@ func (s *Service) call(ctx context.Context, id int64, r sdk.MiningGroupRequest) 
 	}
 	return c.MiningGroups(ctx, r)
 }
-func (s *Service) Submit(ctx context.Context, identifier, requestID, configID string, boards []int64, expected int64) (uuid.UUID, error) {
+func (s *Service) Activate(ctx context.Context, identifier, requestID string) (uuid.UUID, error) {
 	info, err := OperatorPrincipal(ctx)
 	if err != nil {
 		return uuid.Nil, err
@@ -190,18 +190,7 @@ func (s *Service) Submit(ctx context.Context, identifier, requestID, configID st
 	if err != nil {
 		return uuid.Nil, fleeterror.NewInvalidArgumentError("request ID must be a UUID")
 	}
-	boards = slices.Clone(boards)
-	slices.Sort(boards)
-	kind, permission := "pools", authz.PermMinerUpdatePools
-	if configID == "" {
-		kind, permission = operationActivate, authz.PermMinerActivateMiningGroups
-		if len(boards) != 0 {
-			return uuid.Nil, fleeterror.NewInvalidArgumentError("activation cannot select boards")
-		}
-	} else if len(boards) == 0 || len(boards) > 288 || len(slices.Compact(slices.Clone(boards))) != len(boards) {
-		return uuid.Nil, fleeterror.NewInvalidArgumentError("select unique hashboards")
-	}
-	raw, err := encode([]any{identifier, kind, configID, boards, expected})
+	raw, err := encode([]any{identifier, operationActivate, "", []int64(nil), int64(0)})
 	if err != nil {
 		return uuid.Nil, err
 	}
@@ -234,7 +223,7 @@ func (s *Service) Submit(ctx context.Context, identifier, requestID, configID st
 		if err != nil {
 			return err
 		}
-		if err := authorize(ctx, q, info.UserID, info.OrganizationID, current.SiteID, permission, authz.PermMinerStartMining, authz.PermMinerStopMining); err != nil {
+		if err := authorize(ctx, q, info.UserID, info.OrganizationID, current.SiteID, authz.PermMinerActivateMiningGroups, authz.PermMinerStartMining, authz.PermMinerStopMining); err != nil {
 			return err
 		}
 		row, err := q.LockMiningGroupState(ctx, sqlc.LockMiningGroupStateParams{DeviceID: target.ID, OrganizationID: info.OrganizationID})
@@ -250,7 +239,7 @@ func (s *Service) Submit(ctx context.Context, identifier, requestID, configID st
 			return fleeterror.NewFailedPreconditionError("a mining group change is already pending")
 		}
 		if !row.ObservedAt.Valid || time.Since(row.ObservedAt.Time) > 2*time.Minute {
-			return fleeterror.NewFailedPreconditionError("refresh the container before changing pools")
+			return fleeterror.NewFailedPreconditionError("refresh the container before enabling mining groups")
 		}
 		var observation sdk.MiningGroupResult
 		if err := decode(row.Observed, &observation); err != nil {
@@ -259,69 +248,14 @@ func (s *Service) Submit(ctx context.Context, identifier, requestID, configID st
 		if !observation.Supported {
 			return fleeterror.NewFailedPreconditionError("controller firmware does not support mining groups")
 		}
-		if kind == "pools" {
-			disabled, err := q.LegacyPoolWritersDisabled(ctx, info.OrganizationID)
-			if err != nil {
-				return err
-			}
-			if disabled {
-				return fleeterror.NewFailedPreconditionError("Use reviewed pool configurations to assign board pools.")
-			}
-
-			if err := q.PruneDetachedHashboardPoolIntents(ctx, sqlc.PruneDetachedHashboardPoolIntentsParams{OrganizationID: info.OrganizationID, DeviceID: target.ID}); err != nil {
-				return err
-			}
-			if !observation.Enabled || row.Revision != expected {
-				return fleeterror.NewFailedPreconditionError("refresh the mining group configuration and try again")
-			}
-			profile, err := q.GetHostMiningGroupPoolRevision(ctx, sqlc.GetHostMiningGroupPoolRevisionParams{OrganizationID: info.OrganizationID, RevisionID: configID})
-			if err != nil {
-				return fleeterror.NewNotFoundError("pool configuration not found")
-			}
-			if _, err := s.pools.HostGroupCredentials(ctx, q, info.OrganizationID, configID); err != nil {
-				return err
-			}
-			resolved, err := q.GetMiningGroupBoards(ctx, sqlc.GetMiningGroupBoardsParams{OrganizationID: info.OrganizationID, HashboardIds: boards})
-			if err != nil {
-				return err
-			}
-			if len(resolved) != len(boards) {
-				return fleeterror.NewFailedPreconditionError("selected boards changed or their inventory is stale")
-			}
-			for _, b := range resolved {
-				if b.DeviceID != target.ID {
-					return fleeterror.NewInvalidArgumentError("boards must belong to this container")
-				}
-				if err := q.SetHashboardPoolIntent(ctx, sqlc.SetHashboardPoolIntentParams{OrganizationID: info.OrganizationID, HashboardID: b.HashboardID, DeviceID: target.ID, InstallationID: b.InstallationID, MacAddress: b.MacAddress, AccountID: profile.AccountID, PoolRevisionID: configID, OperationID: id}); err != nil {
-					return err
-				}
-			}
-			// These intents and admission are still uncommitted. A failed full
-			// preflight rolls them back, including replacements of earlier intent.
-			intents, err := q.ListHashboardPoolIntents(ctx, sqlc.ListHashboardPoolIntentsParams{OrganizationID: info.OrganizationID, DeviceID: target.ID})
-			if err != nil {
-				return err
-			}
-			desired := map[string]string{}
-			for _, intent := range intents {
-				desired[intent.MacAddress] = intent.PoolRevisionID
-			}
-			snapshot, err := s.plannerSnapshot(ctx, q, row, observation)
-			if err != nil {
-				return err
-			}
-			if err := ValidateAssignment(desired, snapshot); err != nil {
-				return fleeterror.NewFailedPreconditionError(err.Error())
-			}
-		}
 		row.OperationID = uuid.NullUUID{UUID: id, Valid: true}
 		row.AttemptID = uuid.NullUUID{UUID: attempt, Valid: true}
 		row.ActorID = sql.NullInt64{Int64: info.UserID, Valid: true}
-		row.OperationKind = kind
+		row.OperationKind = operationActivate
 		row.ActivationResumeMining = sql.NullBool{}
 		row.ActivationStopRequested = false
 		row.Status = "pending"
-		row.Message = "Waiting to apply configuration"
+		row.Message = messageWaitingToApply
 		row.Step = pqtype.NullRawMessage{}
 		row.StepKey = uuid.NullUUID{}
 		row.ControllerOperationID = ""
@@ -333,7 +267,7 @@ func (s *Service) Submit(ctx context.Context, identifier, requestID, configID st
 		if err := q.RecordMiningGroupRequest(ctx, sqlc.RecordMiningGroupRequestParams{OrganizationID: info.OrganizationID, RequestID: id, DeviceID: target.ID, Fingerprint: fingerprint}); err != nil {
 			return err
 		}
-		if err := recordAcceptedActivity(ctx, q, row, identifier, current.SiteID, configID, boards); err != nil {
+		if err := recordAcceptedActivity(ctx, q, row, identifier, current.SiteID, "", nil); err != nil {
 			return err
 		}
 		return save(ctx, q, row)

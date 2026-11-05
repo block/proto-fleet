@@ -52,6 +52,7 @@ interface ModalProps {
   testId?: string;
   forceTitleCollapsed?: boolean;
   manageFocus?: boolean;
+  initialFocus?: "firstControl" | "dialog";
   /** Preserve scroll separately for each step of an in-modal navigation flow. */
   navigationKey?: string;
   fixedFooter?: ReactNode;
@@ -83,6 +84,7 @@ const Modal = ({
   testId = "modal",
   forceTitleCollapsed = false,
   manageFocus = false,
+  initialFocus = "firstControl",
   navigationKey,
   fixedFooter,
 }: ModalProps) => {
@@ -121,7 +123,7 @@ const Modal = ({
       [...dialog.querySelectorAll<HTMLElement>("button, input, select, textarea, a[href], [tabindex]")].filter(
         (element) => !element.matches(':disabled, [tabindex="-1"]') && element.getClientRects().length > 0,
       );
-    focusableElements()[0]?.focus({ preventScroll: true });
+    (initialFocus === "dialog" ? dialog : focusableElements()[0])?.focus({ preventScroll: true });
     const trapFocus = (event: KeyboardEvent) => {
       if (event.key !== "Tab" || [...document.querySelectorAll('[role="dialog"]')].slice(-1)[0] !== dialog) return;
       const targets = focusableElements();
@@ -139,7 +141,7 @@ const Modal = ({
       document.removeEventListener("keydown", trapFocus);
       if (previous instanceof HTMLElement && previous.isConnected) previous.focus({ preventScroll: true });
     };
-  }, [manageFocus, open]);
+  }, [manageFocus, open, initialFocus]);
 
   const dismissModal = useCallback(() => {
     onDismiss?.();
@@ -175,9 +177,11 @@ const Modal = ({
       <div
         role={dialogLabel ? "dialog" : undefined}
         aria-modal={dialogLabel ? true : undefined}
+        tabIndex={manageFocus ? -1 : undefined}
         aria-label={dialogLabel}
         className={clsx(
           "h-fit overflow-hidden rounded-3xl bg-surface-elevated-base shadow-300",
+          manageFocus && "outline-none",
           sizeClasses[size],
           {
             "flex flex-col": fixedFooter,

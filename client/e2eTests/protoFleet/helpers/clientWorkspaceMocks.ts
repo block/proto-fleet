@@ -407,8 +407,9 @@ export async function mockClientWorkspace(
     }
     if (
       [
-        "ListPoolConfigurations",
-        "GetIncomingPoolProfile",
+        "ListConfigurations",
+        "GetAssignments",
+        "CheckConfiguration",
         "ListMembers",
         "ListInvitations",
         "ListAccountKeys",

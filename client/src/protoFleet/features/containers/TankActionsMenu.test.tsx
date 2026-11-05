@@ -29,7 +29,10 @@ vi.mock("@/protoFleet/api/clients", () => ({
     getEquipmentCommandResult: mocks.results,
   },
 }));
-vi.mock("@/protoFleet/store", () => ({ usePermissions: () => mocks.permissions }));
+vi.mock("@/protoFleet/store", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/protoFleet/store")>()),
+  usePermissions: () => mocks.permissions,
+}));
 vi.mock("@/shared/components/Popover/usePopoverPosition", () => ({
   default: () => ({ popoverRef: { current: null }, popoverStyle: {}, popoverAnimation: "" }),
 }));

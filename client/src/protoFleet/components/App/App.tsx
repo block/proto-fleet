@@ -6,6 +6,7 @@ import { onboardingClient } from "@/protoFleet/api/clients";
 import AppLayout from "@/protoFleet/components/AppLayout";
 import { HostedAccountsProvider } from "@/protoFleet/features/hostedAccounts/HostedAccountsProvider";
 import { HostWorkspaceGate } from "@/protoFleet/features/hostedAccounts/HostWorkspaceGate";
+import { PoolAssignmentFeedback } from "@/protoFleet/features/poolConfigurations/PoolAssignmentFeedback";
 import { requiresAuth } from "@/protoFleet/routeAuth";
 import { globalRoutePrefetch } from "@/protoFleet/routePrefetch";
 import type { ProtoFleetRouteHandle } from "@/protoFleet/routing/routeHandle";
@@ -141,6 +142,7 @@ const App = ({ children, fullscreen }: AppProps) => {
           <Toaster />
         </div>
 
+        <PoolAssignmentFeedback />
         <Suspense
           fallback={
             <div className="flex min-h-screen items-center justify-center">

@@ -26,12 +26,24 @@ vi.mock("@/protoFleet/api/clients", () => ({
   authClient: { verifyCredentials: mocks.verify },
   containersClient: { getModuleMiningOptions: mocks.options },
 }));
-vi.mock("@/protoFleet/store", () => ({ usePermissions: () => mocks.permissions }));
-vi.mock("./MiningGroupsDialog", () => ({
-  default: (props: { onClose: () => void }) => {
-    mocks.editor(props);
-    return <button onClick={props.onClose}>Close pool editor</button>;
-  },
+vi.mock("@/protoFleet/store", async (original) => ({
+  ...(await original<typeof import("@/protoFleet/store")>()),
+  usePermissions: () => mocks.permissions,
+}));
+vi.mock("@/protoFleet/features/poolConfigurations/api", () => ({
+  usePoolConfigurationClient: () => ({
+    accountId: "",
+    readOnly: false,
+    client: {
+      listConfigurations: async () => ({ configurations: [], nextPageToken: "" }),
+      getAssignments: mocks.editor,
+    },
+  }),
+  usePoolConfigurationPermissions: () => ({
+    read: true,
+    manage: false,
+    change: mocks.permissions.includes("miner:update_pools"),
+  }),
 }));
 vi.mock("@/shared/components/Popover/usePopoverPosition", () => ({
   default: () => ({ popoverRef: { current: null }, popoverStyle: {}, popoverAnimation: "" }),
@@ -41,6 +53,7 @@ beforeEach(() => {
   mocks.permissions = ["miner:update_pools", "pool:read", "miner:start_mining", "miner:stop_mining"];
   mocks.options.mockResolvedValue({ canStart: false, canStop: false, unavailableReason: "" });
   mocks.verify.mockResolvedValue({});
+  mocks.editor.mockResolvedValue({ assignments: [], selectedCount: 1n });
   mocks.groups.mockReset().mockResolvedValue({
     supported: true,
     enabled: true,
@@ -98,16 +111,15 @@ it.each(["module", "hashboard"] as const)(
     await screen.findByText("Invalid credentials entered.");
     expect(mocks.editor).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "Continue" }));
-    await screen.findByRole("button", { name: "Close pool editor" });
+    await screen.findByRole("dialog", { name: "Edit pool" });
     expect(mocks.verify).toHaveBeenLastCalledWith({ username: "operator", password: "password" });
     expect(mocks.editor).toHaveBeenLastCalledWith(
       expect.objectContaining({
-        deviceIdentifier: "ct1",
-        ...(kind === "module" ? { moduleIds: [11n] } : { hashboardIds: [101n] }),
-        credentials: { username: "operator", password: "password" },
+        boards: expect.objectContaining(kind === "module" ? { moduleIds: [11n] } : { hashboardIds: [101n] }),
       }),
+      expect.any(Object),
     );
-    fireEvent.click(screen.getByRole("button", { name: "Close pool editor" }));
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
     await openEditor();
     expect(screen.getByLabelText("Username")).toHaveValue("");
     expect(screen.getByLabelText("Password")).toHaveValue("");
@@ -223,7 +235,7 @@ it("preserves the selected hashboard and credentials across inventory changes", 
   expect(screen.getByLabelText("Username")).toHaveValue("operator");
   expect(screen.getByLabelText("Password")).toHaveValue("password");
   fireEvent.click(screen.getByRole("button", { name: "Continue" }));
-  await screen.findByRole("button", { name: "Close pool editor" });
+  await screen.findByRole("dialog", { name: "Edit pool" });
 
   rerender(
     <HashboardPoolAction
@@ -238,11 +250,11 @@ it("preserves the selected hashboard and credentials across inventory changes", 
   );
   expect(mocks.editor).toHaveBeenLastCalledWith(
     expect.objectContaining({
-      hashboardIds: [101n],
-      credentials: { username: "operator", password: "password" },
+      boards: expect.objectContaining({ hashboardIds: [101n] }),
     }),
+    expect.any(Object),
   );
-  fireEvent.click(screen.getByRole("button", { name: "Close pool editor" }));
+  fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
   await openEditor();
   expect(screen.getByLabelText("Username")).toHaveValue("");
 });

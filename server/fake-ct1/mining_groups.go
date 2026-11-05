@@ -131,8 +131,9 @@ func (a *grpcAPI) ActivateMiningGroups(ctx context.Context, r *mdk.ActivateMinin
 		}
 		now := timestamppb.New(s.now())
 		g.groups["default"] = &mdk.MiningGroupRecord{Id: "default", Name: "Default", Revision: 1, CreatedAt: now, UpdatedAt: now}
-		for _, p := range demoPools() {
-			g.pools["default"] = append(g.pools["default"], &mdk.MiningGroupPoolInput{Pool: &mdk.MiningGroupPoolRecord{Id: int32(p.ID), Name: p.Name, Url: p.URL, Username: p.Username, Priority: p.Priority, Enabled: p.Enabled}})
+		for _, p := range s.poolDTOs() {
+			password := s.pools[int64(p.ID)].password
+			g.pools["default"] = append(g.pools["default"], &mdk.MiningGroupPoolInput{Pool: &mdk.MiningGroupPoolRecord{Id: int32(p.ID), Name: p.Name, Url: p.URL, Username: p.Username, Priority: p.Priority, Enabled: p.Enabled}, Password: &password})
 		}
 		for _, b := range s.eachBoard() {
 			g.members[strings.ToLower(b.MAC)] = &mdk.MiningGroupMembershipRecord{MacAddress: strings.ToLower(b.MAC), GroupId: "default", Generation: 1, AssignedAt: now}

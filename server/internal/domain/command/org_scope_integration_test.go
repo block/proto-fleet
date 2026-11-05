@@ -89,15 +89,4 @@ func TestIncludeDevicesSelectorResolvesOnlyWithinSessionOrg(t *testing.T) {
 		require.Zero(t, *finalizers)
 	})
 
-	t.Run("worker-name reapply rejects another org's device", func(t *testing.T) {
-		svc, conn, _, finalizers := newTransactionalCommandFixture(t)
-		_, foreignIdentifier := insertOtherOrgDevice(t, conn)
-
-		batch, err := svc.ReapplyCurrentPoolsWithWorkerNames(manualSessionCtx(1), map[string]string{foreignIdentifier: "new-worker"})
-
-		require.Empty(t, batch)
-		require.True(t, fleeterror.IsNotFoundError(err), "foreign devices must look like unknown ones: %v", err)
-		assertCommandDispatchRows(t, conn, 0)
-		require.Zero(t, *finalizers)
-	})
 }

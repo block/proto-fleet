@@ -22,6 +22,7 @@ import {
   getMinerRackLabel,
   getMinerSiteLabel,
 } from "@/protoFleet/features/fleetManagement/utils/minerPlacement";
+import { PoolConfigurationCell } from "@/protoFleet/features/poolConfigurations/PoolConfigurationCell";
 import { type ColConfig } from "@/shared/components/List/types";
 import SkeletonBar from "@/shared/components/SkeletonBar";
 
@@ -84,6 +85,11 @@ const createMinerColConfig = ({
       );
     },
     width: miningColumnWidths.name,
+  },
+  [minerCols.poolConfiguration]: {
+    component: (device: DeviceListItem) => <PoolConfigurationCell deviceIdentifier={device.miner.deviceIdentifier} />,
+    width: miningColumnWidths.poolConfiguration,
+    allowWrap: true,
   },
   [minerCols.workerName]: {
     component: (device: DeviceListItem) => <MinerWorkerName miner={device.miner} />,

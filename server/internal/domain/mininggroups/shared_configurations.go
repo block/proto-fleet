@@ -171,7 +171,7 @@ func (s *Service) ExecutePoolConfiguration(ctx context.Context, orgID int64, ope
 		row.OperationKind = "pools"
 		row.WriteEpoch = epoch
 		row.Status = "pending"
-		row.Message = "Waiting to apply configuration"
+		row.Message = messageWaitingToApply
 		row.Step = pqtype.NullRawMessage{}
 		row.StepKey = uuid.NullUUID{}
 		row.ControllerOperationID = ""

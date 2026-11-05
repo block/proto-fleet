@@ -43,11 +43,6 @@ service FleetManagementService {
   // More efficient than ListMinerStateSnapshots when only counts are needed
   rpc GetMinerStateCounts(GetMinerStateCountsRequest) returns (GetMinerStateCountsResponse);
 
-  // Get the current pool assignments for a specific miner
-  // Returns the fleet pool IDs that match the miner's currently configured pools
-  // Used to pre-populate the pool selection UI when editing a miner's pools
-  rpc GetMinerPoolAssignments(GetMinerPoolAssignmentsRequest) returns (GetMinerPoolAssignmentsResponse);
-
   // Get the current cooling mode for a specific miner
   // Returns the cooling mode configuration from the miner
   // Used to pre-populate the cooling mode selection UI when editing a miner's settings
@@ -67,10 +62,6 @@ service FleetManagementService {
   // Persists all names atomically in a single transaction.
   rpc RenameMiners(RenameMinersRequest) returns (RenameMinersResponse);
 
-  // Update worker names by applying a name config to all selected devices.
-  // Reapplies the miners' current pool settings first, then persists worker names
-  // only for miners whose pool updates succeed so Fleet stays aligned with device state.
-  rpc UpdateWorkerNames(UpdateWorkerNamesRequest) returns (UpdateWorkerNamesResponse);
   // Review generated worker names against each miner's current configuration.
   // ConfirmReview atomically saves names and schedules canonical pool execution;
   // device verification is reported separately through the resulting operation.
@@ -553,35 +544,6 @@ message GetMinerStateCountsResponse {
   telemetry.v1.MinerStateCounts state_counts = 2;
 }
 
-// Request to get the current pool assignments for a specific miner
-message GetMinerPoolAssignmentsRequest {
-  // Device identifier of the miner to get pool assignments for
-  string device_identifier = 1 [(buf.validate.field).required = true];
-}
-
-// A single pool assignment from a miner's configuration
-// Groups the pool ID (if matched to a fleet pool) with the raw URL and username
-message PoolAssignment {
-  // Fleet pool ID if this pool matches a fleet pool definition
-  // Absent if the pool doesn't match any fleet pool
-  optional int64 pool_id = 1;
-
-  // Raw pool URL as configured on the miner
-  string url = 2;
-
-  // Username as configured on the miner
-  string username = 3;
-}
-
-// Response containing the miner's current pool assignments
-// Pools are returned in priority order: index 0 = default (priority 0), index 1 = backup1 (priority 1), etc.
-// If a pool is configured on the miner but doesn't match any fleet pool, the pool_id will be absent
-message GetMinerPoolAssignmentsResponse {
-  // Pool assignments in priority order (max 3: default, backup1, backup2)
-  // Empty if no pools are configured on the miner
-  repeated PoolAssignment pools = 1;
-}
-
 // A single model group result with count
 message MinerModelGroup {
   string model = 1;
@@ -654,34 +616,6 @@ message RenameMinersResponse {
   int32 renamed_count = 1;
   int32 unchanged_count = 2;
   int32 failed_count = 3;
-}
-
-// Request to update worker names using a configurable name pattern.
-message UpdateWorkerNamesRequest {
-  // Selects which miners to update (specific IDs or all devices).
-  DeviceSelector device_selector = 1 [(buf.validate.field).required = true];
-
-  // Naming pattern applied to the worker name that will be pushed to each selected miner
-  // and persisted back to Fleet after the device update succeeds.
-  MinerNameConfig name_config = 2 [(buf.validate.field).required = true];
-
-  // Current fleet table sort used to assign counter order during generation.
-  // If omitted, the backend falls back to the default name ascending order.
-  repeated common.v1.SortConfig sort = 3;
-
-  // Fleet user's username for authorization.
-  string user_username = 4 [(buf.validate.field).string.min_len = 1];
-
-  // Fleet user's password for authorization.
-  string user_password = 5 [(buf.validate.field).string.min_len = 1];
-}
-
-// Response from updating worker names.
-message UpdateWorkerNamesResponse {
-  int32 updated_count = 1;
-  int32 unchanged_count = 2;
-  int32 failed_count = 3;
-  string batch_identifier = 4;
 }
 
 // Review worker names using a configurable name pattern.

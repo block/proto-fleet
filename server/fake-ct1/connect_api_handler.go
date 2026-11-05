@@ -166,3 +166,13 @@ func (a *connectAPI) GetPoolDiagnostics(ctx context.Context, req *connect.Reques
 func (a *connectAPI) StartModuleRunIn(ctx context.Context, req *connect.Request[mdk.StartModuleRunInRequest]) (*connect.Response[mdk.StartModuleRunInResponse], error) {
 	return connectResult(a.native.StartModuleRunIn(ctx, req.Msg))
 }
+
+func (a *connectAPI) CreatePool(ctx context.Context, req *connect.Request[mdk.CreatePoolRequest]) (*connect.Response[mdk.CreatePoolResponse], error) {
+	return connectResult(a.native.CreatePool(ctx, req.Msg))
+}
+func (a *connectAPI) UpdatePool(ctx context.Context, req *connect.Request[mdk.UpdatePoolRequest]) (*connect.Response[mdk.UpdatePoolResponse], error) {
+	return connectResult(a.native.UpdatePool(ctx, req.Msg))
+}
+func (a *connectAPI) DeletePool(ctx context.Context, req *connect.Request[mdk.DeletePoolRequest]) (*connect.Response[mdk.DeletePoolResponse], error) {
+	return connectResult(a.native.DeletePool(ctx, req.Msg))
+}

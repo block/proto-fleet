@@ -7,7 +7,6 @@ import (
 	"log/slog"
 	"math"
 	"net/netip"
-	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -41,7 +40,6 @@ import (
 	errorsv1 "github.com/block/proto-fleet/server/generated/grpc/errors/v1"
 	pb "github.com/block/proto-fleet/server/generated/grpc/fleetmanagement/v1"
 	pairingpb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
-	poolspb "github.com/block/proto-fleet/server/generated/grpc/pools/v1"
 	telemetrypb "github.com/block/proto-fleet/server/generated/grpc/telemetry/v1"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
@@ -114,15 +112,6 @@ type WorkerNamePoolReviewService interface {
 	ReviewWorkerNames(ctx context.Context, names map[string]string) ([]poolconfigurations.Review, error)
 }
 
-type WorkerNamePoolReapplyService interface {
-	VerifyCredentials(ctx context.Context, userUsername string, userPassword string) error
-
-	ReapplyCurrentPoolsWithWorkerNames(
-		ctx context.Context,
-		desiredWorkerNamesByDeviceIdentifier map[string]string,
-	) (batchIdentifier string, err error)
-}
-
 type Service struct {
 	minerWebCapability    interface{ SupportsMinerWeb(fleetNodeID int64) bool }
 	deviceStore           interfaces.DeviceStore
@@ -131,12 +120,10 @@ type Service struct {
 	minerService          *miner.Service
 	capabilitiesProvider  CapabilitiesProvider
 	capabilitiesCache     sync.Map
-	poolStore             interfaces.PoolStore
 	errorStore            interfaces.ErrorStore
 	collectionStore       interfaces.CollectionStore
 	buildingStore         interfaces.BuildingStore
-	workerNameReviewer    WorkerNamePoolReviewService
-	workerNamePoolService WorkerNamePoolReapplyService
+	workerNamePoolService WorkerNamePoolReviewService
 	deviceResolver        *deviceresolver.Resolver
 	activitySvc           *activity.Service
 
@@ -165,11 +152,10 @@ func NewService(
 	t TelemetryCollector,
 	minerService *miner.Service,
 	capabilitiesProvider CapabilitiesProvider,
-	poolStore interfaces.PoolStore,
 	errorStore interfaces.ErrorStore,
 	collectionStore interfaces.CollectionStore,
 	buildingStore interfaces.BuildingStore,
-	workerNamePoolService WorkerNamePoolReapplyService,
+	workerNamePoolService WorkerNamePoolReviewService,
 	activitySvc *activity.Service,
 ) *Service {
 	return &Service{
@@ -178,7 +164,6 @@ func NewService(
 		telemetry:             t,
 		minerService:          minerService,
 		capabilitiesProvider:  capabilitiesProvider,
-		poolStore:             poolStore,
 		errorStore:            errorStore,
 		collectionStore:       collectionStore,
 		buildingStore:         buildingStore,
@@ -1489,66 +1474,6 @@ func convertDeviceStatusStringToProto(status string) pb.DeviceStatus {
 	}
 }
 
-// GetMinerPoolAssignments retrieves the currently configured pools from a miner
-// and matches them with fleet pool definitions to return pool IDs
-func (s *Service) GetMinerPoolAssignments(ctx context.Context, req *pb.GetMinerPoolAssignmentsRequest) (*pb.GetMinerPoolAssignmentsResponse, error) {
-	info, err := session.GetInfo(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	// Get the miner by device identifier
-	minerDevice, err := s.minerService.GetMinerFromDeviceIdentifier(ctx, mm.DeviceIdentifier(req.DeviceIdentifier))
-	if err != nil {
-		if isMinerNotFoundError(err) {
-			return nil, fleeterror.NewNotFoundErrorf("miner not found: %s", req.DeviceIdentifier)
-		}
-		return nil, fleeterror.NewInternalErrorf("failed to get miner: %v", err)
-	}
-
-	// Verify the miner belongs to the user's organization
-	if minerDevice.GetOrgID() != info.OrganizationID {
-		return nil, fleeterror.NewNotFoundErrorf("miner not found: %s", req.DeviceIdentifier)
-	}
-
-	// Get currently configured pools from the miner
-	configuredPools, err := minerDevice.GetMiningPools(ctx)
-	if err != nil {
-		slog.Error("failed to get mining pools from miner", "deviceID", req.DeviceIdentifier, "error", err)
-		return nil, fleeterror.NewInternalErrorf("failed to get mining pools from miner: %v", err)
-	}
-
-	// If no pools configured, return empty response
-	if len(configuredPools) == 0 {
-		return &pb.GetMinerPoolAssignmentsResponse{}, nil
-	}
-
-	// Get all fleet pools for matching
-	fleetPools, err := s.poolStore.ListPools(ctx, info.OrganizationID)
-	if err != nil {
-		slog.Error("failed to list fleet pools", "orgID", info.OrganizationID, "error", err)
-		return nil, fleeterror.NewInternalErrorf("failed to list fleet pools: %v", err)
-	}
-
-	// Sort pools by priority to ensure consistent ordering
-	// (miner API does not guarantee order)
-	sort.Slice(configuredPools, func(i, j int) bool {
-		return configuredPools[i].Priority < configuredPools[j].Priority
-	})
-
-	pools := make([]*pb.PoolAssignment, 0, len(configuredPools))
-	for _, configuredPool := range configuredPools {
-		assignment := &pb.PoolAssignment{
-			Url:      configuredPool.URL,
-			Username: configuredPool.Username,
-			PoolId:   findMatchingFleetPoolID(configuredPool.URL, configuredPool.Username, fleetPools),
-		}
-		pools = append(pools, assignment)
-	}
-
-	return &pb.GetMinerPoolAssignmentsResponse{Pools: pools}, nil
-}
-
 // GetMinerCoolingMode retrieves the currently configured cooling mode from a miner.
 func (s *Service) GetMinerCoolingMode(ctx context.Context, req *pb.GetMinerCoolingModeRequest) (*pb.GetMinerCoolingModeResponse, error) {
 	info, err := session.GetInfo(ctx)
@@ -1578,40 +1503,6 @@ func (s *Service) GetMinerCoolingMode(ctx context.Context, req *pb.GetMinerCooli
 	}
 
 	return &pb.GetMinerCoolingModeResponse{CoolingMode: coolingMode}, nil
-}
-
-// findMatchingFleetPoolID finds a fleet pool that matches the given URL and username.
-// Username matching tries the exact stored username first, then falls back to the
-// base username before the first dot so normalized Fleet pools still match miner
-// usernames that include an appended worker suffix.
-func findMatchingFleetPoolID(url, username string, fleetPools []*poolspb.Pool) *int64 {
-	for _, candidate := range poolUsernameMatchCandidates(username) {
-		for _, pool := range fleetPools {
-			if pool.Url == url && candidate == pool.Username {
-				return &pool.PoolId
-			}
-		}
-	}
-	return nil
-}
-
-func poolUsernameMatchCandidates(username string) []string {
-	trimmed := strings.TrimSpace(username)
-	if trimmed == "" {
-		return []string{""}
-	}
-
-	firstSeparator := strings.Index(trimmed, ".")
-	if firstSeparator < 0 {
-		return []string{trimmed}
-	}
-
-	baseUsername := strings.TrimSpace(trimmed[:firstSeparator])
-	if baseUsername == trimmed {
-		return []string{trimmed}
-	}
-
-	return []string{trimmed, baseUsername}
 }
 
 // DeleteMiners soft-deletes devices from the fleet and attempts best-effort Unpair on Proto devices.
@@ -1772,6 +1663,6 @@ func isMinerNotFoundError(err error) bool {
 }
 
 func (s *Service) WithWorkerNameReviews(reviewer WorkerNamePoolReviewService) *Service {
-	s.workerNameReviewer = reviewer
+	s.workerNamePoolService = reviewer
 	return s
 }

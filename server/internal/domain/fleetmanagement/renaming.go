@@ -14,7 +14,6 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/session"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
-	"github.com/block/proto-fleet/server/internal/domain/workername"
 )
 
 var defaultRenameSortConfig = &interfaces.SortConfig{
@@ -109,7 +108,7 @@ func (s *Service) RenameMiners(ctx context.Context, req *pb.RenameMinersRequest)
 	}, nil
 }
 
-func (s *Service) UpdateWorkerNames(ctx context.Context, req *pb.UpdateWorkerNamesRequest) (*pb.UpdateWorkerNamesResponse, error) {
+func (s *Service) ReviewWorkerNames(ctx context.Context, req *pb.ReviewWorkerNamesRequest) (*pb.ReviewWorkerNamesResponse, error) {
 	info, err := session.GetInfo(ctx)
 	if err != nil {
 		return nil, err
@@ -119,10 +118,7 @@ func (s *Service) UpdateWorkerNames(ctx context.Context, req *pb.UpdateWorkerNam
 		return nil, err
 	}
 	if s.workerNamePoolService == nil {
-		return nil, fleeterror.NewInternalError("worker-name pool reapply service is not configured")
-	}
-	if err := s.workerNamePoolService.VerifyCredentials(ctx, req.UserUsername, req.UserPassword); err != nil {
-		return nil, err
+		return nil, fleeterror.NewInternalError("worker-name configuration review service is not configured")
 	}
 
 	deviceIdentifiers, err := s.ResolveDeviceIdentifiers(ctx, req.DeviceSelector, info.OrganizationID)
@@ -130,7 +126,7 @@ func (s *Service) UpdateWorkerNames(ctx context.Context, req *pb.UpdateWorkerNam
 		return nil, err
 	}
 	if len(deviceIdentifiers) == 0 {
-		return &pb.UpdateWorkerNamesResponse{}, nil
+		return &pb.ReviewWorkerNamesResponse{}, nil
 	}
 
 	sortConfig := parseSortConfig(req.Sort)
@@ -164,54 +160,29 @@ func (s *Service) UpdateWorkerNames(ctx context.Context, req *pb.UpdateWorkerNam
 			continue
 		}
 
-		if isUnchangedWorkerName(name, props) {
-			if shouldReapplyWorkerNamePools(props) {
-				desiredWorkerNamesByDeviceIdentifier[props.DeviceIdentifier] = name
-				continue
-			}
-
-			unchangedCount++
-			continue
-		}
-
+		// A matching saved name may still need a canonical pool retry.
 		desiredWorkerNamesByDeviceIdentifier[props.DeviceIdentifier] = name
 	}
 
-	var batchIdentifier string
-	if len(desiredWorkerNamesByDeviceIdentifier) > 0 {
-		batchIdentifier, err = s.workerNamePoolService.ReapplyCurrentPoolsWithWorkerNames(
-			ctx,
-			desiredWorkerNamesByDeviceIdentifier,
-		)
-		if err != nil {
-			return nil, err
+	result := &pb.ReviewWorkerNamesResponse{UnchangedCount: renameResponseCount(unchangedCount), FailedCount: renameResponseCount(failedCount)}
+	if len(desiredWorkerNamesByDeviceIdentifier) == 0 {
+		return result, nil
+	}
+	reviews, err := s.workerNamePoolService.ReviewWorkerNames(ctx, desiredWorkerNamesByDeviceIdentifier)
+	if err != nil {
+		return nil, err
+	}
+	unchangedCount += len(desiredWorkerNamesByDeviceIdentifier)
+	for _, review := range reviews {
+		unchangedCount -= len(review.WorkerNames)
+		item := &pb.WorkerNameReview{ReviewId: review.ID, ConfigurationId: review.Configuration.ID, ConfigurationName: review.Configuration.Name}
+		for _, change := range review.WorkerNames {
+			item.Changes = append(item.Changes, &pb.WorkerNameChange{DeviceIdentifier: change.DeviceIdentifier, Before: change.Before, After: change.After})
 		}
+		result.Reviews = append(result.Reviews, item)
 	}
-
-	count := len(deviceIdentifiers)
-	workerNameEvent := activitymodels.Event{
-		Category:       activitymodels.CategoryFleetManagement,
-		Type:           "update_worker_names",
-		Description:    "Update worker names",
-		ScopeCount:     &count,
-		UserID:         &info.ExternalUserID,
-		Username:       &info.Username,
-		OrganizationID: &info.OrganizationID,
-		Metadata:       map[string]any{"batch_id": batchIdentifier},
-	}
-	workerNameEvent.ApplySiteScope(s.resolveDeviceSetSiteScope(ctx, info.OrganizationID, deviceIdentifiers))
-	s.logActivity(ctx, workerNameEvent)
-
-	return &pb.UpdateWorkerNamesResponse{
-		UpdatedCount:    renameResponseCount(len(desiredWorkerNamesByDeviceIdentifier)),
-		UnchangedCount:  renameResponseCount(unchangedCount),
-		FailedCount:     renameResponseCount(failedCount),
-		BatchIdentifier: batchIdentifier,
-	}, nil
-}
-
-func shouldReapplyWorkerNamePools(props interfaces.DeviceRenameProperties) bool {
-	return !workername.IsPoolSyncComplete(props.WorkerNamePoolSyncStatus)
+	result.UnchangedCount = renameResponseCount(unchangedCount)
+	return result, nil
 }
 
 func (s *Service) loadDevicePropertiesForNameGeneration(
@@ -798,81 +769,4 @@ func generateQualifierSegment(qp *pb.QualifierProperty, props interfaces.DeviceR
 // formatCounter formats an integer as a zero-padded string with the given number of digits.
 func formatCounter(value, scale int) string {
 	return fmt.Sprintf("%0*d", scale, value)
-}
-
-func (s *Service) ReviewWorkerNames(ctx context.Context, req *pb.ReviewWorkerNamesRequest) (*pb.ReviewWorkerNamesResponse, error) {
-	info, err := session.GetInfo(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	if err := validateRenameNameConfig(req.NameConfig); err != nil {
-		return nil, err
-	}
-	if s.workerNameReviewer == nil {
-		return nil, fleeterror.NewInternalError("worker-name configuration review service is not configured")
-	}
-
-	deviceIdentifiers, err := s.ResolveDeviceIdentifiers(ctx, req.DeviceSelector, info.OrganizationID)
-	if err != nil {
-		return nil, err
-	}
-	if len(deviceIdentifiers) == 0 {
-		return &pb.ReviewWorkerNamesResponse{}, nil
-	}
-
-	sortConfig := parseSortConfig(req.Sort)
-	deviceProps, err := s.loadDevicePropertiesForNameGeneration(ctx, info.OrganizationID, deviceIdentifiers, sortConfig, req.NameConfig)
-	if err != nil {
-		return nil, err
-	}
-
-	if len(deviceProps) != len(deviceIdentifiers) {
-		return nil, fleeterror.NewNotFoundErrorf("one or more device identifiers not found")
-	}
-
-	sortDevicePropsForRename(deviceProps, sortConfig)
-
-	if err := validateRequestWideGeneratedNames(req.NameConfig, len(deviceProps)); err != nil {
-		return nil, err
-	}
-
-	desiredWorkerNamesByDeviceIdentifier := make(map[string]string, len(deviceProps))
-	unchangedCount := 0
-	failedCount := 0
-	for idx, props := range deviceProps {
-		name, err := generateName(req.NameConfig, props, idx)
-		if err != nil {
-			failedCount++
-			continue
-		}
-
-		if strings.TrimSpace(name) == "" {
-			unchangedCount++
-			continue
-		}
-
-		// A matching saved name may still need a canonical pool retry.
-		desiredWorkerNamesByDeviceIdentifier[props.DeviceIdentifier] = name
-	}
-
-	result := &pb.ReviewWorkerNamesResponse{UnchangedCount: renameResponseCount(unchangedCount), FailedCount: renameResponseCount(failedCount)}
-	if len(desiredWorkerNamesByDeviceIdentifier) == 0 {
-		return result, nil
-	}
-	reviews, err := s.workerNameReviewer.ReviewWorkerNames(ctx, desiredWorkerNamesByDeviceIdentifier)
-	if err != nil {
-		return nil, err
-	}
-	unchangedCount += len(desiredWorkerNamesByDeviceIdentifier)
-	for _, review := range reviews {
-		unchangedCount -= len(review.WorkerNames)
-		item := &pb.WorkerNameReview{ReviewId: review.ID, ConfigurationId: review.Configuration.ID, ConfigurationName: review.Configuration.Name}
-		for _, change := range review.WorkerNames {
-			item.Changes = append(item.Changes, &pb.WorkerNameChange{DeviceIdentifier: change.DeviceIdentifier, Before: change.Before, After: change.After})
-		}
-		result.Reviews = append(result.Reviews, item)
-	}
-	result.UnchangedCount = renameResponseCount(unchangedCount)
-	return result, nil
 }

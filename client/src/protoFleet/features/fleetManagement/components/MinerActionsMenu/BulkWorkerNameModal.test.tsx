@@ -15,6 +15,7 @@ import {
   type MinerStateSnapshot,
   MinerStateSnapshotSchema,
 } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
+import { useFleetStore } from "@/protoFleet/store";
 
 const {
   mockBulkRenameDialogs,
@@ -65,7 +66,8 @@ const workerNamePreferences = updateBulkRenameProperty(
 
 type MinerOverrides = Partial<Pick<MinerStateSnapshot, "manufacturer" | "model" | "name" | "workerName">>;
 
-vi.mock("@/protoFleet/store", () => ({
+vi.mock("@/protoFleet/store", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/protoFleet/store")>()),
   useAuthErrors: vi.fn(() => ({
     handleAuthErrors: mockHandleAuthErrors,
   })),
@@ -213,72 +215,103 @@ describe("BulkWorkerNameModal", () => {
     mockUseSetBulkWorkerNamePreferences.mockReturnValue(vi.fn());
   });
 
-  it("waits for the batch result, tracks the batch, updates successful visible rows, and shows mixed-result toasts", async () => {
-    mockUpdateWorkerNames.mockResolvedValue({
-      updatedCount: 3,
-      unchangedCount: 0,
-      failedCount: 0,
-      batchIdentifier: "batch-1",
-    });
-    mockStreamCommandBatchUpdates.mockImplementation(async ({ onStreamData }) => {
-      onStreamData({
-        status: {
-          commandBatchDeviceCount: {
-            total: 3,
-            success: 1,
-            failure: 2,
-            successDeviceIdentifiers: ["miner-2"],
-            failureDeviceIdentifiers: ["miner-1", "miner-3"],
-          },
-        },
-      });
-    });
-
+  it("reports partially accepted saved names without guessing which visible rows changed", async () => {
+    mockUpdateWorkerNames.mockResolvedValue({ updatedCount: 1, unchangedCount: 0, failedCount: 2 });
     const onDismiss = vi.fn();
     const onRefetchMiners = vi.fn();
     const onWorkerNameUpdated = vi.fn();
-
-    renderModal({
-      onDismiss,
-      onRefetchMiners,
-      onWorkerNameUpdated,
+    renderModal({ onDismiss, onRefetchMiners, onWorkerNameUpdated });
+    await waitFor(() => expect(mockFullScreenTwoPaneModal).toHaveBeenCalled());
+    await act(async () => {
+      getLatestFullScreenModalProps().buttons[0]?.onClick();
     });
-
-    await waitFor(() => {
-      expect(mockFullScreenTwoPaneModal).toHaveBeenCalled();
-    });
-
-    getLatestFullScreenModalProps().buttons[0]?.onClick();
-
-    await waitFor(() => {
-      expect(mockUpdateWorkerNames).toHaveBeenCalledTimes(1);
-      expect(mockStreamCommandBatchUpdates).toHaveBeenCalledTimes(1);
-    });
-
-    expect(mockStartBatchOperation).toHaveBeenCalledWith({
-      batchIdentifier: "batch-1",
-      action: "update-worker-names",
-      deviceIdentifiers: ["miner-1", "miner-2", "miner-3"],
-    });
-    expect(mockCompleteBatchOperation).toHaveBeenCalledWith("batch-1");
-    expect(mockPushToast).toHaveBeenNthCalledWith(1, {
-      message: "Updating worker names",
-      status: "loading",
-      longRunning: true,
-    });
-    expect(mockUpdateToast).toHaveBeenCalledWith(1, {
-      message: "Updated 1 miner",
-      status: "success",
-    });
-    expect(mockPushToast).toHaveBeenNthCalledWith(2, {
+    await waitFor(() => expect(mockUpdateWorkerNames).toHaveBeenCalledOnce());
+    expect(mockUpdateToast).toHaveBeenCalledWith(1, { message: "Updated 1 miner", status: "success" });
+    expect(mockPushToast).toHaveBeenCalledWith({
       message: "Failed to update worker names for 2 miners",
       status: "error",
       longRunning: true,
     });
-    expect(onWorkerNameUpdated).toHaveBeenCalledTimes(1);
-    expect(onWorkerNameUpdated).toHaveBeenCalledWith("miner-2", "worker-2");
-    expect(onRefetchMiners).toHaveBeenCalledTimes(1);
-    expect(onDismiss).toHaveBeenCalledTimes(1);
+    expect(onWorkerNameUpdated).not.toHaveBeenCalled();
+    expect(onRefetchMiners).toHaveBeenCalledOnce();
+    expect(onDismiss).toHaveBeenCalledOnce();
+    expect(mockStreamCommandBatchUpdates).not.toHaveBeenCalled();
+    expect(mockStartBatchOperation).not.toHaveBeenCalled();
+    expect(mockCompleteBatchOperation).not.toHaveBeenCalled();
+  });
+
+  it.each([false, true])("guards bulk completion when session changed = %s", async (sessionChanged) => {
+    let accept!: (result: { updatedCount: number; unchangedCount: number; failedCount: number }) => void;
+    mockUpdateWorkerNames.mockReturnValue(
+      new Promise((resolve) => {
+        accept = resolve;
+      }),
+    );
+    const onWorkerNameUpdated = vi.fn();
+    const onRefetchMiners = vi.fn();
+    const onDismiss = vi.fn();
+    renderModal({ onWorkerNameUpdated, onRefetchMiners, onDismiss });
+    await waitFor(() => expect(mockFullScreenTwoPaneModal).toHaveBeenCalled());
+    await act(async () => {
+      getLatestFullScreenModalProps().buttons[0]?.onClick();
+    });
+    expect(mockUpdateWorkerNames).toHaveBeenCalledOnce();
+    expect(onWorkerNameUpdated).not.toHaveBeenCalled();
+    expect(onRefetchMiners).not.toHaveBeenCalled();
+    expect(onDismiss).not.toHaveBeenCalled();
+    if (sessionChanged) act(() => useFleetStore.getState().auth.logout());
+    await act(async () => {
+      accept({ updatedCount: 3, unchangedCount: 0, failedCount: 0 });
+    });
+    if (sessionChanged) {
+      expect(onWorkerNameUpdated).not.toHaveBeenCalled();
+      expect(onRefetchMiners).not.toHaveBeenCalled();
+      expect(onDismiss).not.toHaveBeenCalled();
+      expect(mockUpdateToast).not.toHaveBeenCalled();
+    } else expect(onWorkerNameUpdated).toHaveBeenCalledTimes(3);
+    expect(mockStreamCommandBatchUpdates).not.toHaveBeenCalled();
+  });
+
+  it("reports unknown and untouched names without optimistic updates", async () => {
+    mockUpdateWorkerNames.mockResolvedValue({
+      updatedCount: 1,
+      unchangedCount: 0,
+      failedCount: 0,
+      unknownCount: 1,
+      notSubmittedCount: 1,
+    });
+    const onWorkerNameUpdated = vi.fn();
+    renderModal({ onWorkerNameUpdated });
+    await waitFor(() => expect(mockFullScreenTwoPaneModal).toHaveBeenCalled());
+    await act(async () => {
+      getLatestFullScreenModalProps().buttons[0]?.onClick();
+    });
+    expect(onWorkerNameUpdated).not.toHaveBeenCalled();
+    expect(mockUpdateToast).toHaveBeenCalledWith(
+      1,
+      expect.objectContaining({ status: "error", message: expect.stringContaining("1 confirmations unknown") }),
+    );
+    expect(mockUpdateToast).toHaveBeenCalledWith(
+      1,
+      expect.objectContaining({ message: expect.stringContaining("1 not submitted") }),
+    );
+  });
+
+  it("leaves saved names alone when canonical review is canceled", async () => {
+    mockUpdateWorkerNames.mockRejectedValue(new Error("Worker name update canceled."));
+    const onWorkerNameUpdated = vi.fn();
+    const onRefetchMiners = vi.fn();
+    const onDismiss = vi.fn();
+    renderModal({ onWorkerNameUpdated, onRefetchMiners, onDismiss });
+    await waitFor(() => expect(mockFullScreenTwoPaneModal).toHaveBeenCalled());
+    await act(async () => {
+      getLatestFullScreenModalProps().buttons[0]?.onClick();
+    });
+    expect(mockUpdateWorkerNames).toHaveBeenCalledOnce();
+    expect(onWorkerNameUpdated).not.toHaveBeenCalled();
+    expect(onRefetchMiners).not.toHaveBeenCalled();
+    expect(onDismiss).not.toHaveBeenCalled();
+    expect(mockStreamCommandBatchUpdates).not.toHaveBeenCalled();
   });
 
   it("returns to the miners table when the no-changes warning is confirmed", async () => {
@@ -375,7 +408,7 @@ describe("BulkWorkerNameModal", () => {
     expect(onDismiss).toHaveBeenCalledTimes(1);
   });
 
-  it("updates visible worker names immediately when the request completes without a batch", async () => {
+  it("updates visible saved names once the canonical review accepts every change", async () => {
     mockUpdateWorkerNames.mockResolvedValue({
       updatedCount: 3,
       unchangedCount: 0,

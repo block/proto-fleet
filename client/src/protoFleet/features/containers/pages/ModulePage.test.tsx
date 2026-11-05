@@ -24,7 +24,11 @@ vi.mock("@/protoFleet/hooks/useSyncScopeToEntity", () => ({
   entityScopeTarget: () => ({ kind: "all" }),
   useSyncScopeToEntity: () => {},
 }));
-vi.mock("@/protoFleet/store", () => ({ useTemperatureUnit: () => "C", usePermissions: () => [] }));
+vi.mock("@/protoFleet/store", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/protoFleet/store")>()),
+  useTemperatureUnit: () => "C",
+  usePermissions: () => [],
+}));
 vi.mock("../components/ModulePerformance", () => ({
   default: ({ moduleId }: { moduleId: bigint }) => (
     <section aria-label="Performance">module {String(moduleId)} history</section>
