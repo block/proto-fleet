@@ -71,6 +71,10 @@ service FleetManagementService {
   // Reapplies the miners' current pool settings first, then persists worker names
   // only for miners whose pool updates succeed so Fleet stays aligned with device state.
   rpc UpdateWorkerNames(UpdateWorkerNamesRequest) returns (UpdateWorkerNamesResponse);
+  // Review generated worker names against each miner's current configuration.
+  // ConfirmReview atomically saves names and schedules canonical pool execution;
+  // device verification is reported separately through the resulting operation.
+  rpc ReviewWorkerNames(ReviewWorkerNamesRequest) returns (ReviewWorkerNamesResponse);
 }
 
 enum FleetManagementServiceErrorCode {
@@ -678,6 +682,40 @@ message UpdateWorkerNamesResponse {
   int32 unchanged_count = 2;
   int32 failed_count = 3;
   string batch_identifier = 4;
+}
+
+// Review worker names using a configurable name pattern.
+message ReviewWorkerNamesRequest {
+  // Selects which miners to update (specific IDs or all devices).
+  DeviceSelector device_selector = 1 [(buf.validate.field).required = true];
+
+  // Naming pattern reviewed against each miner’s current canonical configuration.
+  // ConfirmReview saves the name and schedules the reviewed pool update together.
+  MinerNameConfig name_config = 2 [(buf.validate.field).required = true];
+
+  // Current fleet table sort used to assign counter order during generation.
+  // If omitted, the backend falls back to the default name ascending order.
+  repeated common.v1.SortConfig sort = 3;
+}
+
+// Expiring reviews; no worker names have been saved yet.
+message ReviewWorkerNamesResponse {
+  int32 unchanged_count = 1;
+  int32 failed_count = 2;
+  repeated WorkerNameReview reviews = 3;
+}
+
+message WorkerNameReview {
+  string review_id = 1;
+  string configuration_id = 2;
+  string configuration_name = 3;
+  repeated WorkerNameChange changes = 4;
+}
+
+message WorkerNameChange {
+  string device_identifier = 1;
+  string before = 2;
+  string after = 3;
 }
 
 // Configures how names are generated for a batch of miners.

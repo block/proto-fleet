@@ -122,6 +122,7 @@ type Querier interface {
 	// after UnassignRole is allowed.
 	AssignRole(ctx context.Context, arg AssignRoleParams) (UserOrganizationRole, error)
 	AssociateRepairTicketAccount(ctx context.Context, arg AssociateRepairTicketAccountParams) (int64, error)
+	AuthorizePoolConfigurationReviews(ctx context.Context, arg AuthorizePoolConfigurationReviewsParams) (int64, error)
 	// Stop's event-side flip to 'restoring'. The WHERE state-guard is the
 	// concurrency control; the loser sees zero rows and the store re-reads
 	// to distinguish "already restoring" from "already terminal."
@@ -1064,7 +1065,6 @@ type Querier interface {
 	GetPoolConfigurationWork(ctx context.Context, arg GetPoolConfigurationWorkParams) (GetPoolConfigurationWorkRow, error)
 	GetPoolCutoverInventory(ctx context.Context, organizationID int64) (GetPoolCutoverInventoryRow, error)
 	GetPoolEquipmentDevice(ctx context.Context, arg GetPoolEquipmentDeviceParams) (GetPoolEquipmentDeviceRow, error)
-	GetPoolEquipmentInstallation(ctx context.Context, arg GetPoolEquipmentInstallationParams) (GetPoolEquipmentInstallationRow, error)
 	GetPoolEquipmentMinerOwner(ctx context.Context, arg GetPoolEquipmentMinerOwnerParams) (GetPoolEquipmentMinerOwnerRow, error)
 	GetPoolGroupSnapshot(ctx context.Context, arg GetPoolGroupSnapshotParams) (PoolConfigurationGroupSnapshot, error)
 	GetProtoMinerProxyTarget(ctx context.Context, arg GetProtoMinerProxyTargetParams) (GetProtoMinerProxyTargetRow, error)
@@ -1161,7 +1161,11 @@ type Querier interface {
 	HasPendingContainerCommand(ctx context.Context, arg HasPendingContainerCommandParams) (bool, error)
 	HasPoolAssignmentKindConflict(ctx context.Context, arg HasPoolAssignmentKindConflictParams) (bool, error)
 	HasPoolConfigurationCutover(ctx context.Context, organizationID int64) (bool, error)
+	// Confirmation holds the review lock and checks replay/expiry first. Use that
+	// single deadline decision so expiry cannot become a missing-approval error.
+	HasPoolConfigurationReviewAuthorization(ctx context.Context, arg HasPoolConfigurationReviewAuthorizationParams) (bool, error)
 	HasUser(ctx context.Context) (bool, error)
+	InitializeDeviceWorkerName(ctx context.Context, arg InitializeDeviceWorkerNameParams) (int64, error)
 	// The unique partial index on (batch_id, event_type) for '*.completed' event
 	// types lets the Go layer detect idempotent re-inserts via pq unique_violation.
 	//
@@ -1292,6 +1296,7 @@ type Querier interface {
 	// per-org built-ins. The onboarding flow also seeds built-ins for
 	// new orgs inside its creation transaction.
 	ListActiveOrganizationIDs(ctx context.Context) ([]int64, error)
+	ListActivePoolAssignmentsForTargets(ctx context.Context, arg ListActivePoolAssignmentsForTargetsParams) ([]ListActivePoolAssignmentsForTargetsRow, error)
 	// Array filter contract: the Go store layer must pass nil (not empty slice)
 	// for the narg text[] filters below. An empty non-nil array
 	// (pq.Array([]string{})) produces '{}' which matches nothing via ANY, leading
@@ -1667,6 +1672,7 @@ type Querier interface {
 	ListPoolAssignmentPhysicalBindings(ctx context.Context, arg ListPoolAssignmentPhysicalBindingsParams) ([]ListPoolAssignmentPhysicalBindingsRow, error)
 	ListPoolBoardAssignments(ctx context.Context, arg ListPoolBoardAssignmentsParams) ([]ListPoolBoardAssignmentsRow, error)
 	ListPoolConfigurationAssignments(ctx context.Context, arg ListPoolConfigurationAssignmentsParams) ([]PoolConfigurationAssignment, error)
+	ListPoolConfigurationAssignmentsForDevices(ctx context.Context, arg ListPoolConfigurationAssignmentsForDevicesParams) ([]ListPoolConfigurationAssignmentsForDevicesRow, error)
 	// Assignment identity is retained across retirement and reassignment. Use its
 	// device's current committed site for read authorization, not the old reviewed
 	// snapshot. This read must not take device locks held across hardware I/O;
@@ -1684,6 +1690,7 @@ type Querier interface {
 	ListPoolDeviceImportSources(ctx context.Context, orgID int64) ([]ListPoolDeviceImportSourcesRow, error)
 	ListPoolEquipmentAssignments(ctx context.Context, arg ListPoolEquipmentAssignmentsParams) ([]ListPoolEquipmentAssignmentsRow, error)
 	ListPoolEquipmentIdentities(ctx context.Context, arg ListPoolEquipmentIdentitiesParams) ([]ListPoolEquipmentIdentitiesRow, error)
+	ListPoolEquipmentInstallations(ctx context.Context, arg ListPoolEquipmentInstallationsParams) ([]ListPoolEquipmentInstallationsRow, error)
 	ListPoolEquipmentModuleOwners(ctx context.Context, arg ListPoolEquipmentModuleOwnersParams) ([]ListPoolEquipmentModuleOwnersRow, error)
 	ListPoolGroupAttemptTargets(ctx context.Context, arg ListPoolGroupAttemptTargetsParams) ([]ListPoolGroupAttemptTargetsRow, error)
 	// An admitted operation overlays retained effects only while it is applying.
@@ -1884,6 +1891,9 @@ type Querier interface {
 	// Lock current ownership/site through dispatch; child inventory IDs are never targets.
 	LockContainerCommandTarget(ctx context.Context, arg LockContainerCommandTargetParams) (LockContainerCommandTargetRow, error)
 	LockContainersForSiteAssignment(ctx context.Context, arg LockContainersForSiteAssignmentParams) ([]LockContainersForSiteAssignmentRow, error)
+	// Acquire only after the equipment reviewer holds physical admission locks.
+	// Keep outcome changes from racing a matching-name retry confirmation.
+	LockCurrentPoolConfigurationOperationTarget(ctx context.Context, arg LockCurrentPoolConfigurationOperationTargetParams) (string, error)
 	// Keep the current event and its immutable selector in the same transaction
 	// as dynamic membership fencing and target admission.
 	LockCurtailmentAdmissionEventForWrite(ctx context.Context, curtailmentEventID int64) (LockCurtailmentAdmissionEventForWriteRow, error)
@@ -2036,6 +2046,7 @@ type Querier interface {
 	LockPoolConfiguration(ctx context.Context, arg LockPoolConfigurationParams) (PoolConfiguration, error)
 	// Preserve serialization without blocking foreign-key KEY SHARE admission.
 	LockPoolConfigurationImportOrganization(ctx context.Context, id int64) (int64, error)
+	// Evaluate the deadline after acquiring the row lock, including any lock wait.
 	LockPoolConfigurationReview(ctx context.Context, arg LockPoolConfigurationReviewParams) (LockPoolConfigurationReviewRow, error)
 	// Hardware updates may overlap, while assignment/account mutations wait.
 	LockPoolEquipmentOrganization(ctx context.Context, id int64) (int64, error)

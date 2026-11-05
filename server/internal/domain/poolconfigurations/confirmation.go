@@ -17,7 +17,7 @@ func (s *Service) ConfirmReview(ctx context.Context, accountID, reviewID, passwo
 		return ReviewedSave{}, fleeterror.NewInvalidArgumentError("omit the confirmation password when saving settings without equipment updates")
 	}
 	var proof CredentialProof
-	if admission.changesEquipment {
+	if admission.changesEquipment && password != "" {
 		if s.equipment == nil {
 			return ReviewedSave{}, fleeterror.NewInternalError("equipment confirmation is unavailable")
 		}
@@ -37,12 +37,19 @@ func (s *Service) ConfirmReview(ctx context.Context, accountID, reviewID, passwo
 		if frozen {
 			return ReviewedSave{}, fleeterror.NewFailedPreconditionError("Pool configuration maintenance is in progress.")
 		}
-		if proof != nil {
-			if err := proof(ctx, q); err != nil {
-				return ReviewedSave{}, err
+		// Evaluate credential approval only after the final locked review has
+		// been classified as unaccepted and live. A concurrent acceptance must
+		// replay, and expiry must not masquerade as missing password approval.
+		authorize := func(ctx context.Context, q sqlc.Querier) error {
+			if admission.changesEquipment && password == "" {
+				return checkReviewAuthorization(ctx, q, p, reviewID)
 			}
+			if proof != nil {
+				return proof(ctx, q)
+			}
+			return nil
 		}
-		result, err := s.repository.ConfirmReview(ctx, q, p.Scope, p.ActorID, reviewID, s.equipment)
+		result, err := s.repository.ConfirmReview(ctx, q, p.Scope, p.ActorID, reviewID, s.equipment, authorize)
 		if err != nil {
 			return ReviewedSave{}, err
 		}
@@ -92,7 +99,7 @@ func (s *Service) admitConfirmation(ctx context.Context, accountID, reviewID str
 			return admission, nil
 		}
 		if !review.Valid {
-			return confirmationAdmission{}, staleReview()
+			return confirmationAdmission{}, expiredUnacceptedReview()
 		}
 		var reviewed []reviewedTarget
 		if json.Unmarshal(review.Targets, &reviewed) != nil {
@@ -100,6 +107,11 @@ func (s *Service) admitConfirmation(ctx context.Context, accountID, reviewID str
 		}
 		if len(reviewed) == 0 {
 			return admission, nil
+		}
+		if len(workerNameChanges(reviewed)) > 0 {
+			if err := authorizeWorkerNames(ctx, q, p.Scope, p.ActorID); err != nil {
+				return confirmationAdmission{}, err
+			}
 		}
 		public, err := publicConfiguration(sqlc.PoolConfiguration{}, review.Slots)
 		if err != nil {

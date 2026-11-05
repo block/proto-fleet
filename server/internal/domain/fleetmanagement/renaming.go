@@ -799,3 +799,80 @@ func generateQualifierSegment(qp *pb.QualifierProperty, props interfaces.DeviceR
 func formatCounter(value, scale int) string {
 	return fmt.Sprintf("%0*d", scale, value)
 }
+
+func (s *Service) ReviewWorkerNames(ctx context.Context, req *pb.ReviewWorkerNamesRequest) (*pb.ReviewWorkerNamesResponse, error) {
+	info, err := session.GetInfo(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := validateRenameNameConfig(req.NameConfig); err != nil {
+		return nil, err
+	}
+	if s.workerNameReviewer == nil {
+		return nil, fleeterror.NewInternalError("worker-name configuration review service is not configured")
+	}
+
+	deviceIdentifiers, err := s.ResolveDeviceIdentifiers(ctx, req.DeviceSelector, info.OrganizationID)
+	if err != nil {
+		return nil, err
+	}
+	if len(deviceIdentifiers) == 0 {
+		return &pb.ReviewWorkerNamesResponse{}, nil
+	}
+
+	sortConfig := parseSortConfig(req.Sort)
+	deviceProps, err := s.loadDevicePropertiesForNameGeneration(ctx, info.OrganizationID, deviceIdentifiers, sortConfig, req.NameConfig)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(deviceProps) != len(deviceIdentifiers) {
+		return nil, fleeterror.NewNotFoundErrorf("one or more device identifiers not found")
+	}
+
+	sortDevicePropsForRename(deviceProps, sortConfig)
+
+	if err := validateRequestWideGeneratedNames(req.NameConfig, len(deviceProps)); err != nil {
+		return nil, err
+	}
+
+	desiredWorkerNamesByDeviceIdentifier := make(map[string]string, len(deviceProps))
+	unchangedCount := 0
+	failedCount := 0
+	for idx, props := range deviceProps {
+		name, err := generateName(req.NameConfig, props, idx)
+		if err != nil {
+			failedCount++
+			continue
+		}
+
+		if strings.TrimSpace(name) == "" {
+			unchangedCount++
+			continue
+		}
+
+		// A matching saved name may still need a canonical pool retry.
+		desiredWorkerNamesByDeviceIdentifier[props.DeviceIdentifier] = name
+	}
+
+	result := &pb.ReviewWorkerNamesResponse{UnchangedCount: renameResponseCount(unchangedCount), FailedCount: renameResponseCount(failedCount)}
+	if len(desiredWorkerNamesByDeviceIdentifier) == 0 {
+		return result, nil
+	}
+	reviews, err := s.workerNameReviewer.ReviewWorkerNames(ctx, desiredWorkerNamesByDeviceIdentifier)
+	if err != nil {
+		return nil, err
+	}
+	unchangedCount += len(desiredWorkerNamesByDeviceIdentifier)
+	for _, review := range reviews {
+		unchangedCount -= len(review.WorkerNames)
+		item := &pb.WorkerNameReview{ReviewId: review.ID, ConfigurationId: review.Configuration.ID, ConfigurationName: review.Configuration.Name}
+		for _, change := range review.WorkerNames {
+			item.Changes = append(item.Changes, &pb.WorkerNameChange{DeviceIdentifier: change.DeviceIdentifier, Before: change.Before, After: change.After})
+		}
+		result.Reviews = append(result.Reviews, item)
+	}
+	result.UnchangedCount = renameResponseCount(unchangedCount)
+	return result, nil
+}

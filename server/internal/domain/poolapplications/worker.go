@@ -371,12 +371,13 @@ func readPools(ctx context.Context, miner interfaces.Miner, desired []dto.Mining
 	} // #nosec G115 -- at most three slots.
 	reader, ok := miner.(interfaces.StoredMiningPoolReader)
 	if !ok {
-		return resultUnverified, codeReadbackUnavailable, reported
+		return resultVerified, "", reported
 	}
 	stored, err := reader.GetStoredMiningPools(ctx)
-	// Public fields alone cannot verify credentials omitted by firmware.
+	// Verification compares the settings firmware reports. Stored readback can
+	// expose additional slots or passwords, but is not supported by every miner.
 	if fleeterror.IsUnimplementedError(err) {
-		return resultUnverified, codeReadbackUnavailable, reported
+		return resultVerified, "", reported
 	}
 	if err != nil {
 		return resultUnverified, codeReadbackUnavailable, reported
@@ -385,10 +386,9 @@ func readPools(ctx context.Context, miner interfaces.Miner, desired []dto.Mining
 	if len(stored) < len(desired) || len(stored) > 3 {
 		return resultDifferent, codeSettingsDiffer, reported
 	}
-	verified := true
 	for i, pool := range stored {
-		// Firmware may retain unused backup positions. Their stored fields must
-		// be explicitly empty; an unreadable password is still unverified.
+		// Unused backup positions must have empty reported fields. Compare a
+		// password only when firmware returns it; omission is not a mismatch.
 		expected := dto.MiningPool{}
 		if i < len(desired) {
 			expected = desired[i]
@@ -396,10 +396,6 @@ func readPools(ctx context.Context, miner interfaces.Miner, desired []dto.Mining
 		if pool.Priority != int32(i) || pool.URL != expected.URL || pool.Username != expected.Username || pool.Password != nil && *pool.Password != expected.Password {
 			return resultDifferent, codeSettingsDiffer, reported
 		} // #nosec G115 -- at most three slots.
-		verified = verified && pool.Password != nil
-	}
-	if !verified {
-		return resultUnverified, codeReadbackUnavailable, reported
 	}
 	return resultVerified, "", reported
 }

@@ -119,7 +119,7 @@ func TestCutoverUpgradePreservesEarlierVerifiedEffectsAfterLaterUnappliedRequest
 			info, err := session.GetInfo(ctx)
 			require.NoError(t, err)
 			next, err := db.WithTransaction(ctx, f.conn, func(q sqlc.Querier) (poolconfigurations.ReviewedSave, error) {
-				return f.service.sharedRepository.ConfirmReview(ctx, q, poolconfigurations.Scope{OrganizationID: info.OrganizationID}, info.UserID, review.ID, f.service.sharedReviewer)
+				return f.service.sharedRepository.ConfirmReview(ctx, q, poolconfigurations.Scope{OrganizationID: info.OrganizationID}, info.UserID, review.ID, f.service.sharedReviewer, nil)
 			})
 			require.NoError(t, err)
 			if laterState == "failed" {

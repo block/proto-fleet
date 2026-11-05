@@ -21,7 +21,7 @@ type ImportMiner struct {
 	RackID     string // source-specific rack ID this miner belongs to (empty if none)
 	Row        int32  // position within rack
 	Column     int32  // position within rack
-	WorkerName string // per-miner worker name extracted from pool config (e.g., "worker1")
+	WorkerName string // explicit per-miner worker name, never inferred from a pool username
 }
 
 // ImportPool is a pool configuration to create.

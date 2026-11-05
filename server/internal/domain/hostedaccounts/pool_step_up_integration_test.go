@@ -249,3 +249,10 @@ func TestPoolStepUpPreservesCredentialLookupDatabaseFailure(t *testing.T) {
 	require.ErrorAs(t, err, &postgresErr, "the database cause must remain available to callers")
 	require.Equal(t, "42501", postgresErr.Code)
 }
+
+func (f poolStepUpFixture) requireNoPoolOperations(t *testing.T) {
+	t.Helper()
+	var operations int
+	require.NoError(t, f.db.QueryRowContext(t.Context(), "SELECT count(*) FROM pool_configuration_operation WHERE organization_id=$1", f.org).Scan(&operations))
+	require.Zero(t, operations, "credential verification must not dispatch equipment work")
+}

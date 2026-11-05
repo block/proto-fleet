@@ -26,7 +26,7 @@ type ForemanClient interface {
 // ForemanClientFactory creates a ForemanClient from credentials.
 type ForemanClientFactory func(apiKey, clientID string) ForemanClient
 
-// Service fetches data from Foreman and delegates to the shared fleet importer.
+// Service imports Foreman equipment metadata without creating or applying pool configurations.
 type Service struct {
 	importer    *fleetimport.Importer
 	deviceStore interfaces.DeviceStore
@@ -102,7 +102,7 @@ func (s *Service) fetchForemanData(ctx context.Context, creds *pb.ForemanCredent
 }
 
 // ImportFromForeman validates Foreman credentials and returns miner IPs for discovery+pairing.
-// Does NOT create pools/groups/racks — call CompleteImport after pairing.
+// Does not create groups or racks; call CompleteImport after pairing to import metadata.
 func (s *Service) ImportFromForeman(ctx context.Context, req *pb.ImportFromForemanRequest) (*pb.ImportFromForemanResponse, error) {
 	miners, _, _, err := s.fetchForemanData(ctx, req.Credentials, false, false)
 	if err != nil {
@@ -155,14 +155,18 @@ func (s *Service) filterMinersByAllowlist(ctx context.Context, orgID int64, mine
 	return filtered, nil
 }
 
-// CompleteImport re-fetches Foreman data, creates pools/groups/racks, and assigns
-// paired devices to their collections. Call after miners have been discovered and paired.
+// CompleteImport re-fetches Foreman metadata, creates groups/racks, and assigns
+// paired devices to their collections. Pool configurations are never imported.
+// Call after miners have been discovered and paired.
 func (s *Service) CompleteImport(ctx context.Context, req *pb.CompleteImportRequest) (*pb.CompleteImportResponse, error) {
 	info, err := session.GetInfo(ctx)
 	if err != nil {
 		return nil, err
 	}
 	orgID := info.OrganizationID
+	if req.ImportPools {
+		return nil, fleeterror.NewFailedPreconditionError("Foreman does not provide pool passwords. Import without pools, then create complete pool configurations in Fleet.")
+	}
 
 	miners, groups, racks, err := s.fetchForemanData(ctx, req.Credentials, req.ImportGroups, req.ImportRacks)
 	if err != nil {
@@ -170,8 +174,8 @@ func (s *Service) CompleteImport(ctx context.Context, req *pb.CompleteImportRequ
 	}
 
 	// If an allowlist is provided, filter Foreman miners to only those whose
-	// paired Fleet device is in the list. This scopes everything — pools,
-	// groups, racks, and device assignments — to the selected subset.
+	// paired Fleet device is in the list. This scopes groups, racks, names,
+	// and collection assignments to the selected subset.
 	if len(req.PairedDeviceIdentifiers) > 0 {
 		miners, err = s.filterMinersByAllowlist(ctx, orgID, miners, req.PairedDeviceIdentifiers)
 		if err != nil {
@@ -187,12 +191,6 @@ func (s *Service) CompleteImport(ctx context.Context, req *pb.CompleteImportRequ
 		data.PruneUnreferencedRacks()
 	}
 
-	if req.ImportPools && len(data.Pools) > 0 {
-		return nil, fleeterror.NewFailedPreconditionError("Foreman does not provide pool passwords. Import without pools, then create complete pool configurations in Fleet.")
-	}
-	if !req.ImportPools {
-		data.Pools = nil
-	}
 	if !req.ImportGroups {
 		data.Groups = nil
 	}

@@ -2,6 +2,7 @@ package hostedaccounts
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 
 	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
@@ -19,19 +20,63 @@ import (
 // reallocation even when the equipment eventually returns to the same account.
 // This does not check firmware capabilities, mining-group readiness or step-up.
 func (s *PoolService) AuthorizePoolEquipment(ctx context.Context, q sqlc.Querier, scope poolconfigurations.Scope, actorID int64, target poolconfigurations.AssignmentTarget) (string, error) {
+	access, err := s.poolEquipmentAccess(ctx, q, scope, actorID, []poolconfigurations.AssignmentTarget{target})
+	if err != nil {
+		return "", err
+	}
+	return access.authorize(scope, target)
+}
+
+// AuthorizePoolEquipmentBatch shares authorization reads only within this
+// controller and transaction. Missing entries are denied, never inherited from
+// another target on the same controller.
+func (s *PoolService) AuthorizePoolEquipmentBatch(ctx context.Context, q sqlc.Querier, scope poolconfigurations.Scope, actorID int64, targets []poolconfigurations.AssignmentTarget) (map[int]string, error) {
+	access, err := s.poolEquipmentAccess(ctx, q, scope, actorID, targets)
+	if err != nil {
+		return nil, err
+	}
+	bindings := make(map[int]string, len(targets))
+	for i, target := range targets {
+		binding, err := access.authorize(scope, target)
+		if err == nil {
+			bindings[i] = binding
+		}
+	}
+	return bindings, nil
+}
+
+type poolEquipmentAccess struct {
+	device        sqlc.GetPoolEquipmentDeviceRow
+	host          *authz.EffectivePermissions
+	owners        []sqlc.ListPoolEquipmentModuleOwnersRow
+	ownersByBoard map[[2]int64][]sqlc.ListPoolEquipmentModuleOwnersRow
+	installations map[int64]sqlc.ListPoolEquipmentInstallationsRow
+}
+
+func (s *PoolService) poolEquipmentAccess(ctx context.Context, q sqlc.Querier, scope poolconfigurations.Scope, actorID int64, targets []poolconfigurations.AssignmentTarget) (*poolEquipmentAccess, error) {
 	info, err := session.GetInfo(ctx)
 	if err != nil || info.Actor != "" || info.UserID != actorID || actorID <= 0 || info.OrganizationID != scope.OrganizationID || info.AuthMethod != session.AuthMethodSession || info.AccountKey {
-		return "", denied()
+		return nil, denied()
 	}
 	selected, hasSelection := RequestAccountID(ctx)
 	if scope.AccountID < 0 || (scope.AccountID == 0 && hasSelection) || (scope.AccountID != 0 && !hasSelection) {
-		return "", denied()
+		return nil, denied()
 	}
-	if target.ID <= 0 || target.DeviceID <= 0 || (target.Kind != poolconfigurations.TargetDevice && target.Kind != poolconfigurations.TargetInstallation) || (target.Kind == poolconfigurations.TargetDevice && target.ID != target.DeviceID) {
-		return "", fleeterror.NewInvalidArgumentError("invalid pool assignment target")
+	if len(targets) == 0 {
+		return nil, fleeterror.NewInvalidArgumentError("select equipment")
+	}
+	deviceID := targets[0].DeviceID
+	var installationIDs []int64
+	for _, target := range targets {
+		if target.ID <= 0 || deviceID <= 0 || target.DeviceID != deviceID || (target.Kind != poolconfigurations.TargetDevice && target.Kind != poolconfigurations.TargetInstallation) || (target.Kind == poolconfigurations.TargetDevice && target.ID != deviceID) {
+			return nil, fleeterror.NewInvalidArgumentError("invalid pool assignment target")
+		}
+		if target.Kind == poolconfigurations.TargetInstallation {
+			installationIDs = append(installationIDs, target.ID)
+		}
 	}
 	if err := lockActorForRead(ctx, q, scope.OrganizationID, actorID); err != nil {
-		return "", err
+		return nil, err
 	}
 	var policy Sites
 	var host *authz.EffectivePermissions
@@ -41,7 +86,7 @@ func (s *PoolService) AuthorizePoolEquipment(ctx context.Context, q sqlc.Querier
 		var account Account
 		account, err = s.authorizePoolAccess(ctx, q, actorID, scope.OrganizationID, selected, View|ChangePools)
 		if err == nil && account.ID != scope.AccountID {
-			return "", denied()
+			return nil, denied()
 		}
 		if err == nil {
 			var path []sqlc.HostedAccount
@@ -55,66 +100,80 @@ func (s *PoolService) AuthorizePoolEquipment(ctx context.Context, q sqlc.Querier
 		}
 	}
 	if err != nil {
-		return "", err
+		return nil, err
 	}
-	device, err := q.GetPoolEquipmentDevice(ctx, sqlc.GetPoolEquipmentDeviceParams{OrgID: scope.OrganizationID, ID: target.DeviceID})
+	device, err := q.GetPoolEquipmentDevice(ctx, sqlc.GetPoolEquipmentDeviceParams{OrgID: scope.OrganizationID, ID: deviceID})
 	if err != nil {
-		return "", accessError(err)
+		return nil, accessError(err)
 	}
 	if !siteAllowed(policy, device.SiteID.Int64) {
-		return "", denied()
+		return nil, denied()
 	}
-	if host != nil {
+	access := &poolEquipmentAccess{device: device, host: host,
+		ownersByBoard: make(map[[2]int64][]sqlc.ListPoolEquipmentModuleOwnersRow),
+		installations: make(map[int64]sqlc.ListPoolEquipmentInstallationsRow)}
+	switch commonpb.DeviceClass(device.DeviceClass) {
+	case commonpb.DeviceClass_DEVICE_CLASS_RIG:
+		owner, err := q.GetPoolEquipmentMinerOwner(ctx, sqlc.GetPoolEquipmentMinerOwnerParams{OrgID: scope.OrganizationID, ID: deviceID})
+		if err != nil {
+			return nil, accessError(err)
+		}
+		access.owners = []sqlc.ListPoolEquipmentModuleOwnersRow{sqlc.ListPoolEquipmentModuleOwnersRow(owner)}
+	case commonpb.DeviceClass_DEVICE_CLASS_CONTAINER:
+		if err := q.LockHostedAccountAssetInventory(ctx, []int64{deviceID}); err != nil {
+			return nil, accessError(err)
+		}
+		access.owners, err = q.ListPoolEquipmentModuleOwners(ctx, sqlc.ListPoolEquipmentModuleOwnersParams{OrgID: scope.OrganizationID, ID: deviceID})
+		if err != nil {
+			return nil, accessError(err)
+		}
+		for _, owner := range access.owners {
+			key := [2]int64{owner.AssetID, owner.HashboardID}
+			access.ownersByBoard[key] = append(access.ownersByBoard[key], owner)
+		}
+		if len(installationIDs) > 0 {
+			installations, err := q.ListPoolEquipmentInstallations(ctx, sqlc.ListPoolEquipmentInstallationsParams{OrgID: scope.OrganizationID, InstallationIds: installationIDs, DeviceID: deviceID})
+			if err != nil {
+				return nil, accessError(err)
+			}
+			for _, installation := range installations {
+				access.installations[installation.ID] = installation
+			}
+		}
+	case commonpb.DeviceClass_DEVICE_CLASS_UNSPECIFIED:
+		return nil, denied()
+	default:
+		return nil, denied()
+	}
+	return access, nil
+}
+
+func (a *poolEquipmentAccess) authorize(scope poolconfigurations.Scope, target poolconfigurations.AssignmentTarget) (string, error) {
+	if a.host != nil {
 		var site *int64
-		if device.SiteID.Valid {
-			site = &device.SiteID.Int64
+		if a.device.SiteID.Valid {
+			site = &a.device.SiteID.Int64
 		}
 		permissions := []string{authz.PermSiteRead, authz.PermFleetRead, authz.PermMinerRead, authz.PermMinerUpdatePools}
 		if target.Kind == poolconfigurations.TargetInstallation {
 			permissions = append(permissions, authz.PermMinerStartMining, authz.PermMinerStopMining)
 		}
 		for _, permission := range permissions {
-			if !host.Has(permission, authz.ResourceContext{SiteID: site}) {
+			if !a.host.Has(permission, authz.ResourceContext{SiteID: site}) {
 				return "", denied()
 			}
 		}
 	}
-	owners := []sqlc.ListPoolEquipmentModuleOwnersRow{}
-	switch commonpb.DeviceClass(device.DeviceClass) {
-	case commonpb.DeviceClass_DEVICE_CLASS_RIG:
-		if target.Kind != poolconfigurations.TargetDevice {
+	owners := a.owners
+	if target.Kind == poolconfigurations.TargetInstallation {
+		if commonpb.DeviceClass(a.device.DeviceClass) != commonpb.DeviceClass_DEVICE_CLASS_CONTAINER {
 			return "", denied()
 		}
-		owner, err := q.GetPoolEquipmentMinerOwner(ctx, sqlc.GetPoolEquipmentMinerOwnerParams{OrgID: scope.OrganizationID, ID: target.DeviceID})
-		if err != nil {
-			return "", accessError(err)
+		installation, ok := a.installations[target.ID]
+		if !ok {
+			return "", accessError(sql.ErrNoRows)
 		}
-		owners = append(owners, sqlc.ListPoolEquipmentModuleOwnersRow(owner))
-	case commonpb.DeviceClass_DEVICE_CLASS_CONTAINER:
-		if err := q.LockHostedAccountAssetInventory(ctx, []int64{target.DeviceID}); err != nil {
-			return "", accessError(err)
-		}
-		owners, err = q.ListPoolEquipmentModuleOwners(ctx, sqlc.ListPoolEquipmentModuleOwnersParams{OrgID: scope.OrganizationID, ID: target.DeviceID})
-		if err != nil {
-			return "", accessError(err)
-		}
-		if target.Kind == poolconfigurations.TargetInstallation {
-			installation, err := q.GetPoolEquipmentInstallation(ctx, sqlc.GetPoolEquipmentInstallationParams{OrgID: scope.OrganizationID, ID: target.ID, ID_2: target.DeviceID})
-			if err != nil {
-				return "", accessError(err)
-			}
-			selectedOwners := owners[:0]
-			for _, owner := range owners {
-				if owner.AssetID == installation.ModuleID && owner.HashboardID == installation.HashboardID {
-					selectedOwners = append(selectedOwners, owner)
-				}
-			}
-			owners = selectedOwners
-		}
-	case commonpb.DeviceClass_DEVICE_CLASS_UNSPECIFIED:
-		return "", denied()
-	default:
-		return "", denied()
+		owners = a.ownersByBoard[[2]int64{installation.ModuleID, installation.HashboardID}]
 	}
 	if len(owners) == 0 {
 		return "", fleeterror.NewFailedPreconditionError("equipment inventory is unavailable; refresh and review again")
@@ -127,7 +186,7 @@ func (s *PoolService) AuthorizePoolEquipment(ctx context.Context, q sqlc.Querier
 	encoded, err := json.Marshal(struct {
 		Device sqlc.GetPoolEquipmentDeviceRow
 		Owners []sqlc.ListPoolEquipmentModuleOwnersRow
-	}{device, owners})
+	}{a.device, owners})
 	if err != nil {
 		return "", fleeterror.NewInternalError("encode equipment ownership failed")
 	}

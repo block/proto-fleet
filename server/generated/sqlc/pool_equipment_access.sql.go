@@ -8,6 +8,8 @@ package sqlc
 import (
 	"context"
 	"database/sql"
+
+	"github.com/lib/pq"
 )
 
 const getPoolEquipmentDevice = `-- name: GetPoolEquipmentDevice :one
@@ -41,36 +43,6 @@ func (q *Queries) GetPoolEquipmentDevice(ctx context.Context, arg GetPoolEquipme
 	return i, err
 }
 
-const getPoolEquipmentInstallation = `-- name: GetPoolEquipmentInstallation :one
-SELECT i.module_id,i.hashboard_id FROM hashboard_installation i
-JOIN hashboard h ON h.id=i.hashboard_id
-JOIN container_module m ON m.id=i.module_id JOIN container_tank t ON t.id=m.tank_id
-JOIN device d ON d.id=t.device_id
-JOIN hashboard_slot s ON s.module_id=i.module_id AND s.position=i.position AND s.hashboard_id=i.hashboard_id
-WHERE h.org_id=$1 AND d.org_id=$1 AND i.id=$2 AND d.id=$3 AND i.device_id=$3
- AND i.removed_at IS NULL AND m.retired_at IS NULL AND t.present AND d.deleted_at IS NULL
- AND s.occupancy='occupied' AND s.unavailable_reason='' AND i.site_id IS NOT DISTINCT FROM d.site_id
-FOR SHARE OF i,h,m,t,s
-`
-
-type GetPoolEquipmentInstallationParams struct {
-	OrgID int64
-	ID    int64
-	ID_2  int64
-}
-
-type GetPoolEquipmentInstallationRow struct {
-	ModuleID    int64
-	HashboardID int64
-}
-
-func (q *Queries) GetPoolEquipmentInstallation(ctx context.Context, arg GetPoolEquipmentInstallationParams) (GetPoolEquipmentInstallationRow, error) {
-	row := q.queryRow(ctx, q.getPoolEquipmentInstallationStmt, getPoolEquipmentInstallation, arg.OrgID, arg.ID, arg.ID_2)
-	var i GetPoolEquipmentInstallationRow
-	err := row.Scan(&i.ModuleID, &i.HashboardID)
-	return i, err
-}
-
 const getPoolEquipmentMinerOwner = `-- name: GetPoolEquipmentMinerOwner :one
 SELECT d.id AS asset_id,0::bigint AS hashboard_id,COALESCE(a.subclient_id,a.client_id,0)::bigint AS account_id,
  COALESCE(a.revision,0)::bigint AS revision
@@ -100,6 +72,55 @@ func (q *Queries) GetPoolEquipmentMinerOwner(ctx context.Context, arg GetPoolEqu
 		&i.Revision,
 	)
 	return i, err
+}
+
+const listPoolEquipmentInstallations = `-- name: ListPoolEquipmentInstallations :many
+SELECT i.id,i.module_id,i.hashboard_id FROM hashboard_installation i
+JOIN hashboard h ON h.id=i.hashboard_id
+JOIN container_module m ON m.id=i.module_id JOIN container_tank t ON t.id=m.tank_id
+JOIN device d ON d.id=t.device_id
+JOIN hashboard_slot s ON s.module_id=i.module_id AND s.position=i.position AND s.hashboard_id=i.hashboard_id
+WHERE h.org_id=$1 AND d.org_id=$1
+ AND i.id=ANY($2::bigint[]) AND d.id=$3 AND i.device_id=$3
+ AND i.removed_at IS NULL AND m.retired_at IS NULL AND t.present AND d.deleted_at IS NULL
+ AND s.occupancy='occupied' AND s.unavailable_reason='' AND i.site_id IS NOT DISTINCT FROM d.site_id
+ORDER BY i.id
+FOR SHARE OF i,h,m,t,s
+`
+
+type ListPoolEquipmentInstallationsParams struct {
+	OrgID           int64
+	InstallationIds []int64
+	DeviceID        int64
+}
+
+type ListPoolEquipmentInstallationsRow struct {
+	ID          int64
+	ModuleID    int64
+	HashboardID int64
+}
+
+func (q *Queries) ListPoolEquipmentInstallations(ctx context.Context, arg ListPoolEquipmentInstallationsParams) ([]ListPoolEquipmentInstallationsRow, error) {
+	rows, err := q.query(ctx, q.listPoolEquipmentInstallationsStmt, listPoolEquipmentInstallations, arg.OrgID, pq.Array(arg.InstallationIds), arg.DeviceID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListPoolEquipmentInstallationsRow
+	for rows.Next() {
+		var i ListPoolEquipmentInstallationsRow
+		if err := rows.Scan(&i.ID, &i.ModuleID, &i.HashboardID); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const listPoolEquipmentModuleOwners = `-- name: ListPoolEquipmentModuleOwners :many

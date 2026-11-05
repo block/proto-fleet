@@ -190,7 +190,7 @@ Backend consumer changes in this release:
 | Consumer | Behavior |
 | --- | --- |
 | Fleet CLI `pools` commands | Use `PoolConfigurationService`; assignment/edit/retry use review then confirmation. Structured pool stacks/targets use `--json`; confirmation passwords use `--password-stdin`. |
-| Foreman import | The UI imports groups, racks, assignments, and names with pool import disabled, and explains that pools need separate configuration. Foreman does not return pool passwords; explicit API requests to import pools still fail before creating entities. |
+| Foreman import | Imports groups, racks, collection assignments, and names only. Foreman does not return pool passwords, so its reported usernames never become Fleet pool configurations. Existing miner pools and Fleet configuration assignments are preserved; newly imported miners with readable pools remain in Device Configuration until explicitly assigned a Fleet configuration. Explicit API requests to import pools fail before fetching Foreman data. |
 | Legacy pool-ID/raw pool update and worker-name pool rewrite | Available before maintenance; rejected after freeze. Use a reviewed canonical configuration update after cutover. |
 | Existing UI and legacy RPC definitions | Retained for the deployment transition; PR4 switches callers and removes endpoints. |
 
@@ -500,6 +500,35 @@ A database that applied the standalone topology-reference branch at 1057 has a
 different history and requires separate reconciliation. Do not force its version
 or assume the rename supplies the missing device-write column. Staging was still
 at 1052 before this repair; deployment and the cleanup trial remain separate steps.
+
+## Worker-name batch password approval (1062–1063)
+
+Bulk worker-name changes authorize the exact immutable review IDs with one password
+check, then confirm each review independently. Authorization does not submit any
+hardware work. The approval is stored per review and session in
+`pool_configuration_review_authorization`; it contains a session hash and a
+fingerprint of the verified user credentials, never a password. It expires with
+the review and cannot be used from another session or after a credential change.
+Each confirmation still checks current permissions, configuration/equipment
+bindings, and maintenance state before saving intent and queuing execution.
+
+The client retains the existing per-review recovery IDs. Closing the dialog or
+ending its account/session lifetime stops further submissions. Retrying an
+uncertain confirmation resolves that review; it does not submit the untouched
+remainder of the batch. Recovery after navigation or reload can verify a fresh
+password for the individual review. Accepted reviews replay their existing result.
+
+Migration 1062 adds the approval records without changing existing review data;
+1063 is the internal release checkpoint. Rolling back 1062 removes approvals,
+without changing accepted operations or worker names. Review deletion cascades to
+its approval records; history cleanup remains a separate concern.
+
+Development databases that applied the earlier unmerged approval migrations at
+1057–1058 or 1058–1059 have a different history: main's migrations 1057–1059
+add device write outcomes, topology reference planning, and the telemetry site
+lookup index. Preserve those databases and use a fresh development database, or
+reconcile their schema explicitly before using this sequence. Do not force their
+version or replay the renumbered migrations against them unchanged.
 
 ## Constraint and index names
 

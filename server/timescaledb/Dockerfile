@@ -61,7 +61,7 @@ RUN set -eux; \
     locale-gen en_US.UTF-8; \
     \
     # --- PostgreSQL PGDG repository ---
-    curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc \
+    curl -fsSL https://apt.postgresql.org/pub/repos/apt/ACCC4CF8.asc \
         | gpg --dearmor -o /usr/share/keyrings/postgresql.gpg; \
     echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/postgresql.gpg] \
         https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" \

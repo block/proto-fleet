@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"buf.build/go/protovalidate"
-	poolspb "github.com/block/proto-fleet/server/generated/grpc/pools/v1"
+	poolspb "github.com/block/proto-fleet/server/generated/grpc/poolconfigurations/v1"
 	"github.com/stretchr/testify/require"
 )
 
@@ -31,7 +31,7 @@ func TestPoolValidationBoundariesAndSupportedSchemes(t *testing.T) {
 	} {
 		options, err := Validate(RevisionOptions{Name: "  Choice  ", Slots: []SlotOptions{{URL: destination, Username: "payout.with.periods"}}})
 		require.NoError(t, err, destination)
-		require.NoError(t, protovalidate.Validate(&poolspb.PoolConfig{Url: destination}), "saved hosted destinations must satisfy the host pool contract")
+		require.NoError(t, protovalidate.Validate(&poolspb.PoolInput{Url: destination, Username: "validation"}), "saved hosted destinations must satisfy the canonical pool input contract")
 		require.Equal(t, "Choice", options.Name)
 	}
 	for _, destination := range []string{"stratum+tcp://-invalid.example", "stratum+tcp://pool..example", "stratum+tcp://pool.example:", "stratum+tcp://pool.example?", "stratum+tcp://pool.example#", "stratum+tcp://[invalid-ip]", "stratum+tcp://", "stratum+tcp://localhost:3333", "stratum+tcp://10.0.0:3333", "stratum+tcp://pool.example:3333/", "stratum+tcp://pool.example:65536"} {

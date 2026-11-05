@@ -1908,6 +1908,19 @@ func (s *SQLDeviceStore) UpdateFirmwareVersion(ctx context.Context, deviceIdenti
 	return nil
 }
 
+// InitializeWorkerName preserves saved names even if pairing or import races a rename.
+func (s *SQLDeviceStore) InitializeWorkerName(ctx context.Context, orgID int64, deviceIdentifier models.DeviceIdentifier, workerName string) (bool, error) {
+	affected, err := s.getQueries(ctx).InitializeDeviceWorkerName(ctx, sqlc.InitializeDeviceWorkerNameParams{
+		OrgID:            orgID,
+		DeviceIdentifier: string(deviceIdentifier),
+		WorkerName:       workerName,
+	})
+	if err != nil {
+		return false, fleeterror.NewInternalErrorf("failed to initialize worker name for device %s: %v", deviceIdentifier, err)
+	}
+	return affected > 0, nil
+}
+
 func (s *SQLDeviceStore) UpdateWorkerName(ctx context.Context, deviceIdentifier models.DeviceIdentifier, workerName string) error {
 	affected, err := s.getQueries(ctx).UpdateDeviceWorkerName(ctx, sqlc.UpdateDeviceWorkerNameParams{
 		DeviceIdentifier: string(deviceIdentifier),

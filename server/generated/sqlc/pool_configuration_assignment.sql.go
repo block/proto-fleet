@@ -9,6 +9,8 @@ import (
 	"context"
 	"database/sql"
 	"time"
+
+	"github.com/lib/pq"
 )
 
 const adoptPoolConfigurationAssignment = `-- name: AdoptPoolConfigurationAssignment :execrows
@@ -329,6 +331,47 @@ func (q *Queries) HasPoolAssignmentKindConflict(ctx context.Context, arg HasPool
 	return exists, err
 }
 
+const listActivePoolAssignmentsForTargets = `-- name: ListActivePoolAssignmentsForTargets :many
+SELECT a.target_kind, a.target_id FROM pool_configuration_assignment a
+WHERE a.organization_id = $1 AND a.retired_at IS NULL
+ AND ((a.target_kind = 'device' AND a.target_id = ANY($2::bigint[]))
+  OR (a.target_kind = 'hashboard_installation' AND a.target_id = ANY($3::bigint[])))
+`
+
+type ListActivePoolAssignmentsForTargetsParams struct {
+	OrganizationID  int64
+	DeviceIds       []int64
+	InstallationIds []int64
+}
+
+type ListActivePoolAssignmentsForTargetsRow struct {
+	TargetKind string
+	TargetID   int64
+}
+
+func (q *Queries) ListActivePoolAssignmentsForTargets(ctx context.Context, arg ListActivePoolAssignmentsForTargetsParams) ([]ListActivePoolAssignmentsForTargetsRow, error) {
+	rows, err := q.query(ctx, q.listActivePoolAssignmentsForTargetsStmt, listActivePoolAssignmentsForTargets, arg.OrganizationID, pq.Array(arg.DeviceIds), pq.Array(arg.InstallationIds))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListActivePoolAssignmentsForTargetsRow
+	for rows.Next() {
+		var i ListActivePoolAssignmentsForTargetsRow
+		if err := rows.Scan(&i.TargetKind, &i.TargetID); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listPoolConfigurationAssignments = `-- name: ListPoolConfigurationAssignments :many
 SELECT a.organization_id, a.target_kind, a.target_id, a.device_id, a.configuration_id, a.revision_id, a.version, a.operation_id, a.retired_at, a.updated_at, a.adopted_at FROM pool_configuration_assignment a
 JOIN pool_configuration c ON c.organization_id = a.organization_id AND c.configuration_id = a.configuration_id
@@ -364,6 +407,58 @@ func (q *Queries) ListPoolConfigurationAssignments(ctx context.Context, arg List
 			&i.RetiredAt,
 			&i.UpdatedAt,
 			&i.AdoptedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listPoolConfigurationAssignmentsForDevices = `-- name: ListPoolConfigurationAssignmentsForDevices :many
+SELECT d.id AS target_id, COALESCE(d.worker_name, '')::text AS worker_name,
+ COALESCE(a.configuration_id, '')::text AS configuration_id, a.retired_at, c.account_id
+FROM device d
+LEFT JOIN pool_configuration_assignment a ON a.organization_id = d.org_id AND a.target_kind = 'device' AND a.target_id = d.id
+LEFT JOIN pool_configuration c ON c.organization_id = a.organization_id AND c.configuration_id = a.configuration_id
+WHERE d.org_id = $1 AND d.deleted_at IS NULL
+ AND d.id = ANY($2::bigint[])
+`
+
+type ListPoolConfigurationAssignmentsForDevicesParams struct {
+	OrganizationID int64
+	DeviceIds      []int64
+}
+
+type ListPoolConfigurationAssignmentsForDevicesRow struct {
+	TargetID        int64
+	WorkerName      string
+	ConfigurationID string
+	RetiredAt       sql.NullTime
+	AccountID       sql.NullInt64
+}
+
+func (q *Queries) ListPoolConfigurationAssignmentsForDevices(ctx context.Context, arg ListPoolConfigurationAssignmentsForDevicesParams) ([]ListPoolConfigurationAssignmentsForDevicesRow, error) {
+	rows, err := q.query(ctx, q.listPoolConfigurationAssignmentsForDevicesStmt, listPoolConfigurationAssignmentsForDevices, arg.OrganizationID, pq.Array(arg.DeviceIds))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListPoolConfigurationAssignmentsForDevicesRow
+	for rows.Next() {
+		var i ListPoolConfigurationAssignmentsForDevicesRow
+		if err := rows.Scan(
+			&i.TargetID,
+			&i.WorkerName,
+			&i.ConfigurationID,
+			&i.RetiredAt,
+			&i.AccountID,
 		); err != nil {
 			return nil, err
 		}
@@ -461,6 +556,29 @@ func (q *Queries) ListPoolConfigurationOperationTargets(ctx context.Context, arg
 		return nil, err
 	}
 	return items, nil
+}
+
+const lockCurrentPoolConfigurationOperationTarget = `-- name: LockCurrentPoolConfigurationOperationTarget :one
+SELECT t.operation_id FROM pool_configuration_operation_target t
+JOIN pool_configuration_assignment a ON a.organization_id=t.organization_id AND a.target_kind=t.target_kind AND a.target_id=t.target_id
+ AND a.operation_id=t.operation_id AND a.version=t.assignment_version
+WHERE t.organization_id=$1 AND t.target_kind=$2 AND t.target_id=$3 AND a.retired_at IS NULL
+FOR UPDATE OF t
+`
+
+type LockCurrentPoolConfigurationOperationTargetParams struct {
+	OrganizationID int64
+	TargetKind     string
+	TargetID       int64
+}
+
+// Acquire only after the equipment reviewer holds physical admission locks.
+// Keep outcome changes from racing a matching-name retry confirmation.
+func (q *Queries) LockCurrentPoolConfigurationOperationTarget(ctx context.Context, arg LockCurrentPoolConfigurationOperationTargetParams) (string, error) {
+	row := q.queryRow(ctx, q.lockCurrentPoolConfigurationOperationTargetStmt, lockCurrentPoolConfigurationOperationTarget, arg.OrganizationID, arg.TargetKind, arg.TargetID)
+	var operation_id string
+	err := row.Scan(&operation_id)
+	return operation_id, err
 }
 
 const retirePoolConfigurationAssignment = `-- name: RetirePoolConfigurationAssignment :execrows

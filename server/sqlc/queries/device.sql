@@ -300,6 +300,15 @@ SET worker_name = $2
 WHERE device_identifier = $1
   AND deleted_at IS NULL;
 
+-- name: InitializeDeviceWorkerName :execrows
+UPDATE device
+SET worker_name = sqlc.arg('worker_name')::text
+WHERE device_identifier = sqlc.arg('device_identifier')
+  AND org_id = sqlc.arg('org_id')
+  AND deleted_at IS NULL
+  AND NULLIF(btrim(worker_name), '') IS NULL
+  AND btrim(sqlc.arg('worker_name')::text) <> '';
+
 -- name: UpdateDeviceWorkerNamePoolSyncStatusByID :exec
 UPDATE device
 SET worker_name_pool_sync_status = $2

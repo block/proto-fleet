@@ -810,6 +810,7 @@ func start(config *Config) (result error) {
 	poolConfigurationsSvc := poolconfigurationsDomain.NewService(conn, poolRepository, hostedPoolsSvc, poolReviewer).WithDeviceSelector(fleetMgmtSvc).WithReadiness(poolReadiness).WithConnectionTester(poolsSvc).WithChecker(poolapplications.NewChecker(conn, poolReviewer, minerService, encryptSvc, hostedPoolsSvc))
 	foremanImportSvc := foremanImportDomain.NewService(poolConfigurationsSvc, collectionSvc, deviceStore)
 
+	fleetMgmtSvc.WithWorkerNameReviews(poolConfigurationsSvc)
 	poolWorker := poolapplications.NewWorker(conn, poolRepository, poolReviewer, minerService, encryptSvc)
 	groupsSvc := mininggroupsDomain.NewService(conn, minerService, hostedPoolsSvc, encryptSvc).WithPoolConfigurations(poolRepository, poolReviewer)
 	poolWorker.WithBoardApplications(groupsSvc)

@@ -5,8 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"sort"
-	"strings"
 	"time"
 
 	"github.com/block/proto-fleet/server/internal/domain/deviceendpoints"
@@ -23,7 +21,6 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/miner/models"
 	"github.com/block/proto-fleet/server/internal/domain/pairing"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
-	"github.com/block/proto-fleet/server/internal/domain/workername"
 	"github.com/block/proto-fleet/server/internal/infrastructure/encrypt"
 	"github.com/block/proto-fleet/server/internal/infrastructure/id"
 	"github.com/block/proto-fleet/server/internal/infrastructure/networking"
@@ -186,8 +183,7 @@ func (p *Pairer) pairWithDefaultCredentials(ctx context.Context, plugin *LoadedP
 			return classifyPairingDriverError(err, "plugin pairing failed")
 		}
 
-		workerName, fallbackWorkerName := p.resolveFleetWorkerName(ctx, plugin, discoveredDevice, credentials)
-		if err := p.handlePairViaStore(ctx, discoveredDevice, expected, expectedFleetNodeID, credentials, workerName, fallbackWorkerName, plugin); err != nil {
+		if err := p.handlePairViaStore(ctx, discoveredDevice, expected, expectedFleetNodeID, credentials, plugin); err != nil {
 			if fleeterror.IsFailedPreconditionError(err) {
 				return err
 			}
@@ -257,8 +253,7 @@ func (p *Pairer) executePairing(ctx context.Context, plugin *LoadedPlugin, disco
 		return classifyPairingDriverError(err, "plugin pairing failed")
 	}
 
-	workerName, fallbackWorkerName := p.resolveFleetWorkerName(ctx, plugin, discoveredDevice, credentials)
-	if err := p.handlePairViaStore(ctx, discoveredDevice, expected, expectedFleetNodeID, credentials, workerName, fallbackWorkerName, plugin); err != nil {
+	if err := p.handlePairViaStore(ctx, discoveredDevice, expected, expectedFleetNodeID, credentials, plugin); err != nil {
 		if fleeterror.IsFailedPreconditionError(err) {
 			return err
 		}
@@ -275,8 +270,6 @@ func (p *Pairer) handlePairViaStore(
 	expected *pb.Device,
 	expectedFleetNodeID *int64,
 	credentials *pb.Credentials,
-	workerName string,
-	fallbackWorkerName bool,
 	plugin *LoadedPlugin,
 ) error {
 	originalIdentifier := discoveredDevice.DeviceIdentifier
@@ -341,17 +334,11 @@ func (p *Pairer) handlePairViaStore(
 			}
 		}
 
-		shouldUpdateWorkerName := strings.TrimSpace(workerName) != ""
-		if shouldUpdateWorkerName && fallbackWorkerName && existingDevice != nil {
-			keepExistingWorkerName, err := workername.HasStored(ctx, p.deviceStore, discoveredDevice.OrgID, discoveredDevice.DeviceIdentifier)
-			if err != nil {
+		// Pool usernames are opaque: a dot does not identify a worker suffix.
+		// Initialize only missing names, including when reconciling a re-paired miner.
+		if workerName := defaultFleetWorkerName(discoveredDevice.MacAddress); workerName != "" && discoveredDevice.DeviceClass != commonpb.DeviceClass_DEVICE_CLASS_CONTAINER {
+			if _, err := p.deviceStore.InitializeWorkerName(ctx, discoveredDevice.OrgID, models.DeviceIdentifier(discoveredDevice.DeviceIdentifier), workerName); err != nil {
 				return err
-			}
-			shouldUpdateWorkerName = !keepExistingWorkerName
-		}
-		if shouldUpdateWorkerName {
-			if err := p.deviceStore.UpdateWorkerName(ctx, models.DeviceIdentifier(discoveredDevice.DeviceIdentifier), workerName); err != nil {
-				return fleeterror.NewInternalErrorf("failed to update worker name: %v", err)
 			}
 		}
 
@@ -379,96 +366,8 @@ func (p *Pairer) handlePairViaStore(
 	})
 }
 
-func (p *Pairer) resolveFleetWorkerName(
-	ctx context.Context,
-	plugin *LoadedPlugin,
-	discoveredDevice *discoverymodels.DiscoveredDevice,
-	credentials *pb.Credentials,
-) (string, bool) {
-	if discoveredDevice.DeviceClass == commonpb.DeviceClass_DEVICE_CLASS_CONTAINER {
-		return "", false
-	}
-	fallback := defaultFleetWorkerName(discoveredDevice.MacAddress)
-	if !plugin.Caps[sdk.CapabilityPoolConfig] {
-		return fallback, true
-	}
-
-	workerName, err := p.fetchWorkerNameFromPairedDevice(ctx, plugin, discoveredDevice, credentials)
-	if err != nil {
-		slog.Debug("failed to fetch worker name during pairing",
-			"device_identifier", discoveredDevice.DeviceIdentifier,
-			"error", err)
-		return fallback, true
-	}
-	if workerName == "" {
-		return fallback, true
-	}
-
-	return workerName, false
-}
-
 func defaultFleetWorkerName(macAddress string) string {
 	return networking.NormalizeMAC(macAddress)
-}
-
-func (p *Pairer) fetchWorkerNameFromPairedDevice(
-	ctx context.Context,
-	plugin *LoadedPlugin,
-	discoveredDevice *discoverymodels.DiscoveredDevice,
-	credentials *pb.Credentials,
-) (string, error) {
-	secretBundle, err := p.getSecretBundleForDeviceInfo(ctx, discoveredDevice, credentials)
-	if err != nil {
-		return "", err
-	}
-
-	result, err := plugin.Driver.NewDevice(
-		ctx,
-		discoveredDevice.DeviceIdentifier,
-		convertFleetDeviceToSDKDeviceInfo(&discoveredDevice.Device),
-		secretBundle,
-	)
-	if err != nil {
-		return "", err
-	}
-	if result.Device == nil {
-		return "", fleeterror.NewInternalError("paired device client was not returned by plugin")
-	}
-	defer func() {
-		closeCtx, cancel := context.WithTimeout(context.Background(), pairerDeviceCloseTimeout)
-		defer cancel()
-		if closeErr := result.Device.Close(closeCtx); closeErr != nil {
-			slog.Debug("failed to close paired device client after worker-name lookup",
-				"device_identifier", discoveredDevice.DeviceIdentifier,
-				"error", closeErr)
-		}
-	}()
-
-	pools, err := result.Device.GetMiningPools(ctx)
-	if err != nil {
-		return "", err
-	}
-
-	return extractWorkerNameFromConfiguredPools(pools), nil
-}
-
-func extractWorkerNameFromConfiguredPools(pools []sdk.ConfiguredPool) string {
-	if len(pools) == 0 {
-		return ""
-	}
-
-	sortedPools := append([]sdk.ConfiguredPool(nil), pools...)
-	sort.SliceStable(sortedPools, func(i, j int) bool {
-		return sortedPools[i].Priority < sortedPools[j].Priority
-	})
-
-	for _, pool := range sortedPools {
-		if workerName := workername.FromPoolUsername(pool.Username); workerName != "" {
-			return workerName
-		}
-	}
-
-	return ""
 }
 
 // reconcileExistingDevice tries to find an existing paired device that matches the newly

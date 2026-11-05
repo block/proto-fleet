@@ -517,6 +517,21 @@ func (mr *MockDeviceStoreMockRecorder) GetTotalPairedMiners(ctx, orgID, filter a
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetTotalPairedMiners", reflect.TypeOf((*MockDeviceStore)(nil).GetTotalPairedMiners), ctx, orgID, filter)
 }
 
+// InitializeWorkerName mocks base method.
+func (m *MockDeviceStore) InitializeWorkerName(ctx context.Context, orgID int64, deviceIdentifier models1.DeviceIdentifier, workerName string) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "InitializeWorkerName", ctx, orgID, deviceIdentifier, workerName)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// InitializeWorkerName indicates an expected call of InitializeWorkerName.
+func (mr *MockDeviceStoreMockRecorder) InitializeWorkerName(ctx, orgID, deviceIdentifier, workerName any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "InitializeWorkerName", reflect.TypeOf((*MockDeviceStore)(nil).InitializeWorkerName), ctx, orgID, deviceIdentifier, workerName)
+}
+
 // InsertDevice mocks base method.
 func (m *MockDeviceStore) InsertDevice(ctx context.Context, device *pairingv1.Device, orgID int64, discoveredDeviceIdentifier string) error {
 	m.ctrl.T.Helper()

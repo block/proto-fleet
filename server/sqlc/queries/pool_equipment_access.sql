@@ -22,13 +22,15 @@ LEFT JOIN hosted_account_asset a ON a.organization_id=d.org_id AND a.kind=7 AND 
 WHERE d.org_id=$1 AND d.id=$2 AND t.present AND m.retired_at IS NULL
 ORDER BY m.id,b.id;
 
--- name: GetPoolEquipmentInstallation :one
-SELECT i.module_id,i.hashboard_id FROM hashboard_installation i
+-- name: ListPoolEquipmentInstallations :many
+SELECT i.id,i.module_id,i.hashboard_id FROM hashboard_installation i
 JOIN hashboard h ON h.id=i.hashboard_id
 JOIN container_module m ON m.id=i.module_id JOIN container_tank t ON t.id=m.tank_id
 JOIN device d ON d.id=t.device_id
 JOIN hashboard_slot s ON s.module_id=i.module_id AND s.position=i.position AND s.hashboard_id=i.hashboard_id
-WHERE h.org_id=$1 AND d.org_id=$1 AND i.id=$2 AND d.id=$3 AND i.device_id=$3
+WHERE h.org_id=sqlc.arg(org_id) AND d.org_id=sqlc.arg(org_id)
+ AND i.id=ANY(sqlc.arg(installation_ids)::bigint[]) AND d.id=sqlc.arg(device_id) AND i.device_id=sqlc.arg(device_id)
  AND i.removed_at IS NULL AND m.retired_at IS NULL AND t.present AND d.deleted_at IS NULL
  AND s.occupancy='occupied' AND s.unavailable_reason='' AND i.site_id IS NOT DISTINCT FROM d.site_id
+ORDER BY i.id
 FOR SHARE OF i,h,m,t,s;

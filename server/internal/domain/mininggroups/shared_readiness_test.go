@@ -64,7 +64,7 @@ func TestSharedBoardReconciliationOwnsExecutionReadiness(t *testing.T) {
 			info, err := session.GetInfo(ctx)
 			require.NoError(t, err)
 			saved, err := db.WithTransaction(ctx, f.conn, func(q sqlc.Querier) (poolconfigurations.ReviewedSave, error) {
-				return repo.ConfirmReview(ctx, q, poolconfigurations.Scope{OrganizationID: info.OrganizationID}, info.UserID, review.ID, reviewer)
+				return repo.ConfirmReview(ctx, q, poolconfigurations.Scope{OrganizationID: info.OrganizationID}, info.UserID, review.ID, reviewer, nil)
 			})
 			require.NoError(t, err)
 			// Only the controller mode observation expires; inventory remains fresh.

@@ -135,13 +135,8 @@ func TestHandleAuthenticationRequiredPairing_PreservesExistingWorkerName(t *test
 		GetDeviceByDeviceIdentifier(gomock.Any(), "device-123", int64(1)).
 		Return(&pb.Device{DeviceIdentifier: "device-123"}, nil)
 	mockDeviceStore.EXPECT().
-		GetDevicePropertiesForRename(gomock.Any(), int64(1), []string{"device-123"}, false).
-		Return([]stores.DeviceRenameProperties{
-			{
-				DeviceIdentifier: "device-123",
-				WorkerName:       "rig-01",
-			},
-		}, nil)
+		InitializeWorkerName(gomock.Any(), int64(1), minermodels.DeviceIdentifier("device-123"), "AA:BB:CC:DD:EE:FF").
+		Return(false, nil)
 	mockDeviceStore.EXPECT().
 		SetDevicePairingAuthNeededIfNotPaired(gomock.Any(), gomock.Any(), int64(1)).
 		Return(true, nil)

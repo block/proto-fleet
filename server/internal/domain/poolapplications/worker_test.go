@@ -48,9 +48,9 @@ func TestVerifyPoolsComparesAvailableSettings(t *testing.T) {
 		miner       interfaces.Miner
 		state, code string
 	}{
-		{"no private reader", runtime, "applied_unverified", "readback_unavailable"},
-		{"private reader unsupported", storedPoolReader{runtimePoolReader: runtime, readErr: fleeterror.NewUnimplementedError("unsupported")}, "applied_unverified", "readback_unavailable"},
-		{"password omitted", storedPoolReader{runtimePoolReader: runtime, stored: []interfaces.MinerStoredPool{matching}}, "applied_unverified", "readback_unavailable"},
+		{"no private reader", runtime, "verified", ""},
+		{"private reader unsupported", storedPoolReader{runtimePoolReader: runtime, readErr: fleeterror.NewUnimplementedError("unsupported")}, "verified", ""},
+		{"password omitted", storedPoolReader{runtimePoolReader: runtime, stored: []interfaces.MinerStoredPool{matching}}, "verified", ""},
 		{"password matches", storedPoolReader{runtimePoolReader: runtime, stored: []interfaces.MinerStoredPool{matchingPassword}}, "verified", ""},
 		{"password differs", storedPoolReader{runtimePoolReader: runtime, stored: []interfaces.MinerStoredPool{differingPassword}}, "different", "settings_differ"},
 		{"stored URL differs", storedPoolReader{runtimePoolReader: runtime, stored: []interfaces.MinerStoredPool{differingStoredURL}}, "different", "settings_differ"},

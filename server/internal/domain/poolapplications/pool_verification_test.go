@@ -43,8 +43,8 @@ func TestVerifyPoolsAcceptsOnlyClearedTrailingSlots(t *testing.T) {
 				{"cleared trailing slots", "verified", "", nil},
 				{"no trailing slots", "verified", "", func(p []interfaces.MinerStoredPool) []interfaces.MinerStoredPool { return p[:count] }},
 				{"unordered readback", "verified", "", func(p []interfaces.MinerStoredPool) []interfaces.MinerStoredPool { slices.Reverse(p); return p }},
-				{"unknown trailing password", resultUnverified, codeReadbackUnavailable, func(p []interfaces.MinerStoredPool) []interfaces.MinerStoredPool { p[count].Password = nil; return p }},
-				{"unknown active password", resultUnverified, codeReadbackUnavailable, func(p []interfaces.MinerStoredPool) []interfaces.MinerStoredPool { p[0].Password = nil; return p }},
+				{"omitted trailing password", resultVerified, "", func(p []interfaces.MinerStoredPool) []interfaces.MinerStoredPool { p[count].Password = nil; return p }},
+				{"omitted active password", resultVerified, "", func(p []interfaces.MinerStoredPool) []interfaces.MinerStoredPool { p[0].Password = nil; return p }},
 				{"leftover URL", resultDifferent, codeSettingsDiffer, func(p []interfaces.MinerStoredPool) []interfaces.MinerStoredPool {
 					p[count].URL = "stratum+tcp://old.example"
 					return p

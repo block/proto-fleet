@@ -374,3 +374,19 @@ func TestAuthInterceptor_UpdateUserRoleRejectsApiKeyAuth(t *testing.T) {
 	require.ErrorAs(t, err, &fleetErr)
 	assert.Equal(t, connect.CodePermissionDenied, fleetErr.GRPCCode)
 }
+
+func TestReviewWorkerNamesProcedureIsRedacted(t *testing.T) {
+	procedure := fleetmanagementv1connect.FleetManagementServiceReviewWorkerNamesProcedure
+
+	assert.Contains(t, RedactedRequestProcedures, procedure)
+	assert.True(t, SensitiveBodyProcedures[procedure])
+}
+
+func TestWorkerNameBatchAuthorizationRequiresSessionAndRedactsPasswords(t *testing.T) {
+	procedure := poolconfigurationsv1connect.PoolConfigurationServiceAuthorizeWorkerNameReviewsProcedure
+	assert.Contains(t, SessionOnlyProcedures, procedure)
+	assert.Contains(t, RedactedRequestProcedures, procedure)
+	assert.True(t, SensitiveBodyProcedures[procedure])
+	assert.False(t, allowsSelectedAccount(procedure))
+	assert.False(t, allowsAccountKey(procedure))
+}

@@ -14,6 +14,8 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/block/proto-fleet/server/internal/domain/poolconfigurations"
+
 	"golang.org/x/sync/singleflight"
 
 	"github.com/block/proto-fleet/server/internal/domain/activity"
@@ -108,6 +110,10 @@ type CapabilitiesProvider interface {
 	GetMinerCapabilitiesForDevice(ctx context.Context, device *pairingpb.Device) *capabilitiespb.MinerCapabilities
 }
 
+type WorkerNamePoolReviewService interface {
+	ReviewWorkerNames(ctx context.Context, names map[string]string) ([]poolconfigurations.Review, error)
+}
+
 type WorkerNamePoolReapplyService interface {
 	VerifyCredentials(ctx context.Context, userUsername string, userPassword string) error
 
@@ -129,6 +135,7 @@ type Service struct {
 	errorStore            interfaces.ErrorStore
 	collectionStore       interfaces.CollectionStore
 	buildingStore         interfaces.BuildingStore
+	workerNameReviewer    WorkerNamePoolReviewService
 	workerNamePoolService WorkerNamePoolReapplyService
 	deviceResolver        *deviceresolver.Resolver
 	activitySvc           *activity.Service
@@ -1762,4 +1769,9 @@ func (s *Service) collectProtoMinersForUnpair(ctx context.Context, deviceIdentif
 // isMinerNotFoundError checks if an error from the miner service indicates the device was not found.
 func isMinerNotFoundError(err error) bool {
 	return fleeterror.IsNotFoundError(err)
+}
+
+func (s *Service) WithWorkerNameReviews(reviewer WorkerNamePoolReviewService) *Service {
+	s.workerNameReviewer = reviewer
+	return s
 }

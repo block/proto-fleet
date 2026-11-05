@@ -11,7 +11,7 @@ import (
 	"unicode/utf8"
 
 	"buf.build/go/protovalidate"
-	poolspb "github.com/block/proto-fleet/server/generated/grpc/pools/v1"
+	poolspb "github.com/block/proto-fleet/server/generated/grpc/poolconfigurations/v1"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/sv2"
 	"github.com/google/uuid"
@@ -76,9 +76,9 @@ func validPoolText(value string, maxBytes int, allowSpace bool) bool {
 }
 
 func ValidURL(raw string) bool {
-	// Use the host pool contract as the common destination grammar. Additional
+	// Use the canonical pool input contract as the common destination grammar. Additional
 	// checks below reject malformed hosts, unsafe ports and invalid V2 keys.
-	if !validPoolText(raw, 256, false) || protovalidate.Validate(&poolspb.PoolConfig{Url: raw}) != nil {
+	if !validPoolText(raw, 256, false) || protovalidate.Validate(&poolspb.PoolInput{Url: raw, Username: "validation"}) != nil {
 		return false
 	}
 	u, err := url.Parse(raw)

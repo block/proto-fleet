@@ -207,8 +207,17 @@ func (c *Checker) CheckConfiguration(ctx context.Context, p poolconfigurations.P
 			if result.ResultCode == codeReadbackUnavailable {
 				result.ResultCode = "check_unavailable"
 			}
-			result.CheckedAt = time.Now()
-			return q.SavePoolConfigurationObservation(ctx, sqlc.SavePoolConfigurationObservationParams{OrganizationID: p.Scope.OrganizationID, TargetKind: target.Kind, TargetID: target.ID, AssignmentVersion: a.Version, State: result.State, ResultCode: result.ResultCode})
+			if err := q.SavePoolConfigurationObservation(ctx, sqlc.SavePoolConfigurationObservationParams{OrganizationID: p.Scope.OrganizationID, TargetKind: target.Kind, TargetID: target.ID, AssignmentVersion: a.Version, State: result.State, ResultCode: result.ResultCode}); err != nil {
+				return err
+			}
+			// Return the persisted evidence timestamp so assignment polling does
+			// not make this same check look like a newer, separate observation.
+			observation, err := q.GetPoolConfigurationObservation(ctx, sqlc.GetPoolConfigurationObservationParams{OrganizationID: p.Scope.OrganizationID, TargetKind: target.Kind, TargetID: target.ID, AssignmentVersion: a.Version})
+			if err != nil {
+				return err
+			}
+			result.CheckedAt = observation.ObservedAt
+			return nil
 		})
 	})
 	return result, err

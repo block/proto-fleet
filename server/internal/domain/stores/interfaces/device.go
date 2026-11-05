@@ -254,6 +254,8 @@ type DeviceStore interface {
 	GetMinerStateCountsByDeviceIDs(ctx context.Context, orgID int64, deviceIdentifiers []string) (MinerStateCounts, error)
 	GetComponentErrorCounts(ctx context.Context, orgID int64, scope ComponentErrorScope) ([]ComponentErrorCount, error)
 	UpdateFirmwareVersion(ctx context.Context, deviceIdentifier models.DeviceIdentifier, firmwareVersion string) error
+	// InitializeWorkerName sets a missing name atomically and reports whether it changed.
+	InitializeWorkerName(ctx context.Context, orgID int64, deviceIdentifier models.DeviceIdentifier, workerName string) (bool, error)
 	UpdateWorkerName(ctx context.Context, deviceIdentifier models.DeviceIdentifier, workerName string) error
 	GetDevicePropertiesForRename(ctx context.Context, orgID int64, deviceIdentifiers []string, includeTelemetry bool) ([]DeviceRenameProperties, error)
 	UpdateDeviceCustomNames(ctx context.Context, orgID int64, names map[string]string) error

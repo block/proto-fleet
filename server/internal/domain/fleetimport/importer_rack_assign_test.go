@@ -73,13 +73,10 @@ func TestImporter_RackReimport_UsesNewlyAssignedCount(t *testing.T) {
 			norm(mac2): {DeviceIdentifier: "device-2", MacAddress: norm(mac2)},
 			norm(mac3): {DeviceIdentifier: "device-3", MacAddress: norm(mac3)},
 		}, nil)
-	// setWorkerNames falls back to the normalized MAC when no
-	// per-miner worker name is provided. AnyTimes — we don't care how
-	// many it makes; this test only asserts the rack-assignment count.
+	// Worker-name initialization is independent of rack assignment counts.
 	deviceStore.EXPECT().
-		UpdateWorkerName(gomock.Any(), gomock.Any(), gomock.Any()).
-		AnyTimes().
-		Return(nil)
+		InitializeWorkerName(gomock.Any(), int64(1), gomock.Any(), gomock.Any()).AnyTimes().
+		Return(true, nil)
 	// setMinerNames is skipped when ImportMiner.Name is empty (all
 	// miners here lack Name), so UpdateDeviceCustomNames is never
 	// called — no mock expectation needed.

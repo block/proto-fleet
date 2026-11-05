@@ -27,6 +27,7 @@ import (
 // (passwords, pool credentials, provider attestations) and must not be
 // logged at debug level.
 var RedactedRequestProcedures = []string{
+	poolconfigurationsv1connect.PoolConfigurationServiceAuthorizeWorkerNameReviewsProcedure,
 	poolconfigurationsv1connect.PoolConfigurationServiceConfirmReviewProcedure,
 	poolconfigurationsv1connect.PoolConfigurationServiceCreateConfigurationProcedure,
 	poolconfigurationsv1connect.PoolConfigurationServiceReviewEditProcedure,
@@ -48,6 +49,7 @@ var RedactedRequestProcedures = []string{
 	curtailmentv1connect.CurtailmentServiceTestMqttCurtailmentSourceConnectionProcedure,
 	curtailmentv1connect.CurtailmentServiceIngestCurtailmentSignalProcedure,
 	fleetmanagementv1connect.FleetManagementServiceUpdateWorkerNamesProcedure,
+	fleetmanagementv1connect.FleetManagementServiceReviewWorkerNamesProcedure,
 	onboardingv1connect.OnboardingServiceCreateAdminLoginProcedure,
 	minercommandv1connect.MinerCommandServiceUpdateMiningPoolsProcedure,
 	minercommandv1connect.MinerCommandServiceUpdateMinerPasswordProcedure,
@@ -98,6 +100,7 @@ var RedactedResponseProcedures = []string{
 // endpoints to prevent a leaked API key from escalating to interactive
 // credentials or modifying user accounts.
 var SessionOnlyProcedures = []string{
+	poolconfigurationsv1connect.PoolConfigurationServiceAuthorizeWorkerNameReviewsProcedure,
 	hostedv1connect.HostedAccountServiceListAccountActivitiesProcedure,
 	hostedv1connect.HostedAccountServiceExportAccountActivitiesProcedure,
 	hostedv1connect.HostedAccountServiceGetAccountDashboardProcedure,
@@ -268,10 +271,11 @@ var FleetNodeAuthenticatedProcedures = []string{
 // For streaming RPCs, this also suppresses individual message bodies in
 // loggingStreamingHandlerConn.
 var SensitiveBodyProcedures = map[string]bool{
-	poolconfigurationsv1connect.PoolConfigurationServiceConfirmReviewProcedure:       true,
-	poolconfigurationsv1connect.PoolConfigurationServiceCreateConfigurationProcedure: true,
-	poolconfigurationsv1connect.PoolConfigurationServiceReviewEditProcedure:          true,
-	poolconfigurationsv1connect.PoolConfigurationServiceTestConnectionProcedure:      true,
+	poolconfigurationsv1connect.PoolConfigurationServiceAuthorizeWorkerNameReviewsProcedure: true,
+	poolconfigurationsv1connect.PoolConfigurationServiceConfirmReviewProcedure:              true,
+	poolconfigurationsv1connect.PoolConfigurationServiceCreateConfigurationProcedure:        true,
+	poolconfigurationsv1connect.PoolConfigurationServiceReviewEditProcedure:                 true,
+	poolconfigurationsv1connect.PoolConfigurationServiceTestConnectionProcedure:             true,
 
 	hostedv1connect.HostedAccountServiceListAccountActivitiesProcedure:   true,
 	hostedv1connect.HostedAccountServiceExportAccountActivitiesProcedure: true,
@@ -298,6 +302,7 @@ var SensitiveBodyProcedures = map[string]bool{
 	authv1connect.AuthServiceAuthenticateProcedure:                                    true,
 	authv1connect.AuthServiceVerifyCredentialsProcedure:                               true,
 	fleetmanagementv1connect.FleetManagementServiceUpdateWorkerNamesProcedure:         true,
+	fleetmanagementv1connect.FleetManagementServiceReviewWorkerNamesProcedure:         true,
 	fleetnodegatewayv1connect.FleetNodeGatewayServiceControlStreamProcedure:           true,
 	fleetnodegatewayv1connect.FleetNodeGatewayServiceUploadTelemetryProcedure:         true,
 	fleetnodegatewayv1connect.FleetNodeGatewayServiceUploadEventsProcedure:            true,

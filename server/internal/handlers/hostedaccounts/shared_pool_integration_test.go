@@ -3,19 +3,23 @@ package hostedaccounts_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net"
 	"testing"
 	"time"
 
+	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
 	"github.com/block/proto-fleet/server/generated/sqlc"
 	"github.com/block/proto-fleet/server/internal/domain/authz"
 	"github.com/block/proto-fleet/server/internal/domain/pools"
 	"github.com/block/proto-fleet/server/internal/infrastructure/secrets"
 
+	"connectrpc.com/authn"
 	"connectrpc.com/connect"
 	hostedpb "github.com/block/proto-fleet/server/generated/grpc/hosted/v1"
 	pb "github.com/block/proto-fleet/server/generated/grpc/poolconfigurations/v1"
 	domain "github.com/block/proto-fleet/server/internal/domain/hostedaccounts"
+	"github.com/block/proto-fleet/server/internal/domain/session"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 )
@@ -337,6 +341,13 @@ func TestSharedPoolRPCSelectedAccountAssignmentReadsAndChecks(t *testing.T) {
 	require.False(t, checked.Msg.ReadbackAvailable)
 	require.Equal(t, "check_unavailable", checked.Msg.ResultCode, "authorized check reaches the offline miner")
 
+	batch, err := f.configurations.ReadDevicePools(ctx, rpcRequest(&pb.ReadDevicePoolsRequest{AccountId: account.AccountID, Targets: []*pb.RetryTarget{{Kind: "device", TargetId: device}}}, cookie, account.AccountID))
+	require.NoError(t, err)
+	require.Len(t, batch.Msg.Readings, 1)
+	require.Equal(t, device, batch.Msg.Readings[0].Target.TargetId)
+	require.Equal(t, "unavailable", batch.Msg.Readings[0].Reading.State)
+	require.Empty(t, batch.Msg.Readings[0].Reading.Reported)
+
 	for _, tc := range []struct {
 		name, body, header, cookie string
 		code                       connect.Code
@@ -350,6 +361,9 @@ func TestSharedPoolRPCSelectedAccountAssignmentReadsAndChecks(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			_, err := f.configurations.GetAssignments(ctx, rpcRequest(&pb.GetAssignmentsRequest{AccountId: tc.body, DeviceIds: []int64{device}}, tc.cookie, tc.header))
 			require.Equal(t, tc.code, connect.CodeOf(err))
+			_, err = f.configurations.ReadDevicePools(ctx, rpcRequest(&pb.ReadDevicePoolsRequest{AccountId: tc.body, Targets: []*pb.RetryTarget{{Kind: "device", TargetId: device}}}, tc.cookie, tc.header))
+			require.Equal(t, tc.code, connect.CodeOf(err))
+
 			_, err = f.configurations.CheckConfiguration(ctx, rpcRequest(&pb.CheckConfigurationRequest{AccountId: tc.body, Target: &pb.RetryTarget{Kind: "device", TargetId: device}}, tc.cookie, tc.header))
 			require.Equal(t, tc.code, connect.CodeOf(err))
 		})
@@ -405,4 +419,65 @@ func TestSharedPoolRPCConnectionTestRestrictsOnlyCustomerDestinations(t *testing
 	saved, err := f.configurations.CreateConfiguration(t.Context(), rpcRequest(&pb.CreateConfigurationRequest{AccountId: account.AccountID, Configuration: &pb.ConfigurationInput{Name: "Private pool", Pools: []*pb.PoolInput{input}}}, f.cookie, account.AccountID))
 	require.NoError(t, err)
 	require.Equal(t, input.Url, saved.Msg.Configuration.Pools[0].Url)
+}
+
+func TestSharedPoolRPCExpiredUnacceptedReviewDetails(t *testing.T) {
+	f := newRPCFixture(t)
+	input := &pb.ConfigurationInput{Name: "Production", Pools: []*pb.PoolInput{{Url: "stratum+tcp://pool.example", Username: "payout"}}}
+	created, err := f.configurations.CreateConfiguration(t.Context(), rpcRequest(&pb.CreateConfigurationRequest{Configuration: input}, f.cookie, ""))
+	require.NoError(t, err)
+	c := created.Msg.Configuration
+	input.Pools[0].SlotId = c.Pools[0].SlotId
+	input.Name = "Updated production"
+	reviewed, err := f.configurations.ReviewEdit(t.Context(), rpcRequest(&pb.ReviewEditRequest{ConfigurationId: c.ConfigurationId, ExpectedVersion: c.Version, Configuration: input}, f.cookie, ""))
+	require.NoError(t, err)
+	expired := uuid.NewString()
+	_, err = f.db.ExecContext(t.Context(), `INSERT INTO pool_configuration_review(review_id,kind,organization_id,configuration_id,actor_id,configuration_version,assignment_version,name,slots,settings_changed,targets,expires_at)
+ SELECT $1,kind,organization_id,configuration_id,actor_id,configuration_version,assignment_version,name,slots,settings_changed,targets,clock_timestamp()-interval '1 second' FROM pool_configuration_review WHERE review_id=$2`, expired, reviewed.Msg.ReviewId)
+	require.NoError(t, err)
+	_, err = f.configurations.ConfirmReview(t.Context(), rpcRequest(&pb.ConfirmReviewRequest{ReviewId: expired}, f.cookie, ""))
+	require.Equal(t, connect.CodeFailedPrecondition, connect.CodeOf(err))
+	var rpcError *connect.Error
+	require.True(t, errors.As(err, &rpcError))
+	require.Len(t, rpcError.Details(), 1)
+	detail, err := rpcError.Details()[0].Value()
+	require.NoError(t, err)
+	fleetDetail, ok := detail.(*commonpb.FleetErrorDetails)
+	require.True(t, ok)
+	require.EqualValues(t, pb.ConfirmReviewErrorCode_CONFIRM_REVIEW_ERROR_CODE_EXPIRED_UNACCEPTED, fleetDetail.GetEndpoint())
+}
+
+func TestSharedPoolRPCWorkerBatchAuthorizationAndConfirmation(t *testing.T) {
+	f := newRPCFixture(t)
+	created, err := f.configurations.CreateConfiguration(t.Context(), rpcRequest(&pb.CreateConfigurationRequest{Configuration: &pb.ConfigurationInput{Name: "Worker config", Pools: []*pb.PoolInput{{Url: "stratum+tcp://pool.example", Username: "payout.with.periods", WorkerTemplate: "{miner_name}"}}}}, f.cookie, ""))
+	require.NoError(t, err)
+	config := created.Msg.Configuration
+	identifier := uuid.NewString()
+	var discovery, device int64
+	require.NoError(t, f.db.QueryRowContext(t.Context(), `INSERT INTO discovered_device(org_id,device_identifier,ip_address,port,url_scheme,driver_name,device_class) VALUES($1,$2,'192.0.2.1','80','http','proto',1) RETURNING id`, f.org, identifier).Scan(&discovery))
+	require.NoError(t, f.db.QueryRowContext(t.Context(), `INSERT INTO device(org_id,device_identifier,mac_address,discovered_device_id) VALUES($1,$2,'02:00:00:00:00:01',$3) RETURNING id`, f.org, identifier, discovery).Scan(&device))
+	_, err = sqlc.New(f.db).AdoptPoolConfigurationAssignment(t.Context(), sqlc.AdoptPoolConfigurationAssignmentParams{OrganizationID: f.org, TargetKind: "device", TargetID: device, DeviceID: device, ConfigurationID: config.ConfigurationId, RevisionID: config.RevisionId})
+	require.NoError(t, err)
+	ctx := authn.SetInfo(t.Context(), &session.Info{AuthMethod: session.AuthMethodSession, UserID: f.host, OrganizationID: f.org})
+	reviews, err := f.configurationService.ReviewWorkerNames(ctx, map[string]string{identifier: "new-worker"})
+	require.NoError(t, err)
+	ids := []string{reviews[0].ID}
+	_, err = f.configurations.AuthorizeWorkerNameReviews(t.Context(), rpcRequest(&pb.AuthorizeWorkerNameReviewsRequest{ReviewIds: ids, Password: rpcPassword}, "", ""))
+	require.Equal(t, connect.CodeUnauthenticated, connect.CodeOf(err))
+	_, err = f.configurations.AuthorizeWorkerNameReviews(t.Context(), rpcRequest(&pb.AuthorizeWorkerNameReviewsRequest{ReviewIds: []string{ids[0], ids[0]}, Password: rpcPassword}, f.cookie, ""))
+	require.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
+	_, err = f.configurations.AuthorizeWorkerNameReviews(t.Context(), rpcRequest(&pb.AuthorizeWorkerNameReviewsRequest{ReviewIds: ids, Password: rpcPassword}, f.cookie, ""))
+	require.NoError(t, err)
+	var operations int
+	require.NoError(t, f.db.QueryRowContext(t.Context(), `SELECT count(*) FROM pool_configuration_operation`).Scan(&operations))
+	require.Zero(t, operations, "authorization does not submit equipment updates")
+	saved, err := f.configurations.ConfirmReview(t.Context(), rpcRequest(&pb.ConfirmReviewRequest{ReviewId: ids[0]}, f.cookie, ""))
+	require.NoError(t, err)
+	require.NotEmpty(t, saved.Msg.OperationId)
+	var worker string
+	require.NoError(t, f.db.QueryRowContext(t.Context(), `SELECT worker_name FROM device WHERE id=$1`, device).Scan(&worker))
+	require.Equal(t, "new-worker", worker)
+	replay, err := f.configurations.ConfirmReview(t.Context(), rpcRequest(&pb.ConfirmReviewRequest{ReviewId: ids[0]}, f.cookie, ""))
+	require.NoError(t, err)
+	require.Equal(t, saved.Msg.OperationId, replay.Msg.OperationId)
 }

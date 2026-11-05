@@ -2341,6 +2341,30 @@ func (q *Queries) GetTotalPairedMiners(ctx context.Context, arg GetTotalPairedMi
 	return count, err
 }
 
+const initializeDeviceWorkerName = `-- name: InitializeDeviceWorkerName :execrows
+UPDATE device
+SET worker_name = $1::text
+WHERE device_identifier = $2
+  AND org_id = $3
+  AND deleted_at IS NULL
+  AND NULLIF(btrim(worker_name), '') IS NULL
+  AND btrim($1::text) <> ''
+`
+
+type InitializeDeviceWorkerNameParams struct {
+	WorkerName       string
+	DeviceIdentifier string
+	OrgID            int64
+}
+
+func (q *Queries) InitializeDeviceWorkerName(ctx context.Context, arg InitializeDeviceWorkerNameParams) (int64, error) {
+	result, err := q.exec(ctx, q.initializeDeviceWorkerNameStmt, initializeDeviceWorkerName, arg.WorkerName, arg.DeviceIdentifier, arg.OrgID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const insertDevice = `-- name: InsertDevice :one
 INSERT INTO device (
     org_id,

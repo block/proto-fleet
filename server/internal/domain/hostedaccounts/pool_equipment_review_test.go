@@ -51,7 +51,7 @@ func TestPoolEquipmentReviewBindsWorkerInputsAndLiveOwnership(t *testing.T) {
 	require.NoError(t, err)
 	confirm := func(reviewID string) (poolconfigurations.ReviewedSave, error) {
 		return db.WithTransaction(ctx, f.db, func(q sqlc.Querier) (poolconfigurations.ReviewedSave, error) {
-			return repo.ConfirmReview(ctx, q, scope, f.user, reviewID, reviewer)
+			return repo.ConfirmReview(ctx, q, scope, f.user, reviewID, reviewer, nil)
 		})
 	}
 	_, err = f.db.ExecContext(t.Context(), `UPDATE device SET worker_name='renamed-worker' WHERE id=$1`, miner)

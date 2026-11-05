@@ -60,7 +60,7 @@ func TestReviewSelectionFreezesFilteredTargetsWithoutMutatingFilter(t *testing.T
 	require.Equal(t, []fleetpb.PairingStatus{fleetpb.PairingStatus_PAIRING_STATUS_PAIRED, fleetpb.PairingStatus_PAIRING_STATUS_DEFAULT_PASSWORD}, resolver.filter.PairingStatuses)
 	resolver.identifiers = nil
 	accepted, err := db.WithTransaction(ctx, conn, func(q sqlc.Querier) (ReviewedSave, error) {
-		return repo.ConfirmReview(ctx, q, scope, 1, review.ID, equipment)
+		return repo.ConfirmReview(ctx, q, scope, 1, review.ID, equipment, nil)
 	})
 	require.NoError(t, err)
 	require.Len(t, accepted.Operation.Targets, 1)

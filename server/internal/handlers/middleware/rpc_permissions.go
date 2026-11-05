@@ -62,6 +62,9 @@ import (
 // glance: shrinking ProceduresPendingMigration to zero is the exit
 // criterion for retiring the legacy RequireAdmin middleware.
 var ProcedurePermissions = map[string]string{
+	poolconfigurationsv1connect.PoolConfigurationServiceAuthorizeWorkerNameReviewsProcedure: authz.PermMinerUpdateWorkerName,
+	poolconfigurationsv1connect.PoolConfigurationServiceReadDevicePoolsProcedure:            authz.PermPoolRead,
+	fleetmanagementv1connect.FleetManagementServiceReviewWorkerNamesProcedure:               authz.PermMinerUpdateWorkerName,
 	// Shared pool operations resolve operator permission or selected-account
 	// capability inside a transaction through AuthorizePoolConfiguration.
 	poolconfigurationsv1connect.PoolConfigurationServiceCreateConfigurationProcedure:    authz.PermPoolManage,

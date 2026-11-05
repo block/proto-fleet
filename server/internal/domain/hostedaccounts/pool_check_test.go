@@ -63,7 +63,9 @@ func TestPoolConfigurationCheckReadsWithoutWritingAndPreservesUncertainty(t *tes
 	require.NoError(t, err)
 	saved, err := service.ConfirmReview(ctx, f.account.AccountID, review.ID, "actor-password")
 	require.NoError(t, err)
+	device.readError = errors.New("temporary readback failure")
 	require.NoError(t, poolapplications.NewWorker(f.db, repo, reviewer, poolMinerGetter{device}, cipher).Execute(t.Context(), f.org, saved.Operation.ID, target))
+	device.readError = nil
 	device.different = true
 	checked, err := service.CheckConfiguration(ctx, f.account.AccountID, config.ID, target)
 	require.NoError(t, err)
@@ -72,6 +74,7 @@ func TestPoolConfigurationCheckReadsWithoutWritingAndPreservesUncertainty(t *tes
 	assignments, err := service.GetAssignments(ctx, f.account.AccountID, nil, []int64{miner}, nil)
 	require.NoError(t, err)
 	require.Equal(t, "different", assignments.Assignments[0].State)
+	require.True(t, checked.CheckedAt.Equal(assignments.Assignments[0].UpdatedAt), "polling must return the same evidence timestamp as the explicit check")
 	_, err = service.ReviewRetry(ctx, f.account.AccountID, saved.Operation.ID, []poolconfigurations.AssignmentTarget{target})
 	require.NoError(t, err, "an acknowledged application with a later mismatch can be reapplied")
 	// Later observations do not change the original unverified application.
@@ -81,7 +84,8 @@ func TestPoolConfigurationCheckReadsWithoutWritingAndPreservesUncertainty(t *tes
 	device.different = false
 	checked, err = service.CheckConfiguration(ctx, f.account.AccountID, config.ID, target)
 	require.NoError(t, err)
-	require.Equal(t, "applied_unverified", checked.State, "matching public settings cannot verify an omitted password")
+	require.Equal(t, "verified", checked.State, "matching reported settings verify even when the miner omits its password")
+	require.Empty(t, checked.ResultCode)
 	device.unknownPassword = false
 	checked, err = service.CheckConfiguration(ctx, f.account.AccountID, config.ID, target)
 	require.NoError(t, err)

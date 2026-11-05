@@ -16,6 +16,7 @@ service PoolConfigurationService {
   rpc DuplicateConfiguration(DuplicateConfigurationRequest) returns (DuplicateConfigurationResponse);
   rpc ArchiveConfiguration(ArchiveConfigurationRequest) returns (ArchiveConfigurationResponse);
   rpc ReviewEdit(ReviewEditRequest) returns (ReviewEditResponse);
+  rpc AuthorizeWorkerNameReviews(AuthorizeWorkerNameReviewsRequest) returns (AuthorizeWorkerNameReviewsResponse);
   rpc ConfirmReview(ConfirmReviewRequest) returns (ConfirmReviewResponse);
   rpc ReviewAssignment(ReviewAssignmentRequest) returns (ReviewAssignmentResponse);
   rpc GetOperation(GetOperationRequest) returns (GetOperationResponse);
@@ -24,6 +25,7 @@ service PoolConfigurationService {
   rpc TestConnection(TestConnectionRequest) returns (TestConnectionResponse);
   rpc GetAssignments(GetAssignmentsRequest) returns (GetAssignmentsResponse);
   rpc CheckConfiguration(CheckConfigurationRequest) returns (CheckConfigurationResponse);
+  rpc ReadDevicePools(ReadDevicePoolsRequest) returns (ReadDevicePoolsResponse);
 }
 
 message BoardSelection {
@@ -90,7 +92,14 @@ message PoolInput {
   // from another configuration. Password omission preserves only an unchanged
   // URL and username.
   string slot_id = 1 [(buf.validate.field).string.max_bytes = 36];
-  string url = 2 [(buf.validate.field).string = {min_len: 1, max_bytes: 256}];
+  string url = 2 [(buf.validate.field) = {
+    string: {
+      pattern: "^(stratum\\+(tcp|ssl|ws):\\/\\/(([a-zA-Z0-9][a-zA-Z0-9.-]*[a-zA-Z0-9]\\.[a-zA-Z]{2,})|(\\d{1,3}\\.){3}\\d{1,3}|\\[([0-9a-fA-F:]+)\\])(:\\d{1,5})?|stratum2\\+tcp:\\/\\/(([a-zA-Z0-9][a-zA-Z0-9.-]*[a-zA-Z0-9]\\.[a-zA-Z]{2,})|(\\d{1,3}\\.){3}\\d{1,3}|\\[([0-9a-fA-F:]+)\\]):\\d{1,5}\\/[A-Za-z0-9_+\\/=:.-]+)$"
+      min_len: 12
+      max_len: 256
+    }
+    required: true
+  }];
   string username = 3 [(buf.validate.field).string = {min_len: 1, max_bytes: 255}];
   optional string password = 4 [(buf.validate.field).string.max_bytes = 255];
   string worker_template = 5 [(buf.validate.field).string.max_bytes = 255];
@@ -181,10 +190,22 @@ message ReviewedEquipment {
   string label = 3;
   string device_identifier = 4;
 }
+// Password approval for this exact set of immutable worker-name reviews. This
+// does not submit any changes. Only the initiating operator session can use it;
+// each ConfirmReview still rechecks credentials, live authority, and bindings.
+// Approval expires with each review. Never persists the password.
+message AuthorizeWorkerNameReviewsRequest {
+  repeated string review_ids = 1 [(buf.validate.field).repeated = {min_items: 1, max_items: 10000, unique: true, items: {string: {uuid: true}}}];
+  string password = 2 [(buf.validate.field).string = {min_len: 1, max_len: 1024}];
+}
+message AuthorizeWorkerNameReviewsResponse {}
+
 message ConfirmReviewRequest {
   string account_id = 1;
   string review_id = 2 [(buf.validate.field).string.uuid = true];
-  // Required when this confirmation starts equipment updates. Must be empty
+  // Required when this confirmation starts equipment updates unless this exact
+  // worker-name review was authorized for the current session and credential
+  // by AuthorizeWorkerNameReviews. Must be empty
   // for settings-only saves, including replays. Replaying an accepted equipment
   // confirmation returns its original result without rechecking the password.
   string password = 3 [(buf.validate.field).string.max_len = 1024];
@@ -194,6 +215,20 @@ message ConfirmReviewResponse {
   // Saving settings and applying them are distinct. An operation ID denotes
   // durable equipment work, not successful application.
   string operation_id = 2;
+}
+
+// ConfirmReview errors carried in common.v1.FleetErrorDetails.endpoint.
+enum ConfirmReviewErrorCode {
+  CONFIRM_REVIEW_ERROR_CODE_UNSPECIFIED = 0;
+  // FailedPrecondition: under the review lock, the server verified that this
+  // review expired without a saved result. It cannot subsequently be accepted.
+  // An accepted review replays its original result even after expiry. Generic
+  // permission, missing-review, and precondition errors do not imply this outcome.
+  CONFIRM_REVIEW_ERROR_CODE_EXPIRED_UNACCEPTED = 1;
+  // FailedPrecondition: this live, unaccepted review requires password approval
+  // for the current session and credential. Verify the password and confirm
+  // again. This code does not guarantee that the review remains valid later.
+  CONFIRM_REVIEW_ERROR_CODE_AUTHORIZATION_REQUIRED = 2;
 }
 
 message ReviewAssignmentRequest {
@@ -298,4 +333,27 @@ message CheckConfigurationResponse {
   repeated ReportedPool expected = 4;
   repeated ReportedPool reported = 5;
   bool readback_available = 6;
+}
+
+// Read-only batch for equipment without active Fleet assignments. The server
+// authorizes each target and shares one fresh observation per controller.
+// No observations or settings are written to canonical assignments.
+message ReadDevicePoolsRequest {
+  string account_id = 1;
+  // Select at most 4 controllers (resolved from current server bindings), and
+  // continue larger selections in subsequent requests. This avoids queueing
+  // controllers behind slow observations within a shared request deadline.
+  // Duplicate targets are rejected. Per-target denial, changed bindings,
+  // assigned equipment and unreadable hardware return unavailable readings.
+  repeated RetryTarget targets = 2 [(buf.validate.field).repeated = {min_items: 1, max_items: 500}];
+}
+message DevicePoolReading {
+  RetryTarget target = 1;
+  CheckConfigurationResponse reading = 2;
+}
+message ReadDevicePoolsResponse {
+  // Exactly one entry per requested target, in request order. Only authorized
+  // targets expose reported settings; a failing controller does not erase other
+  // controllers' results. Invalid requests or account-level denial fail the RPC.
+  repeated DevicePoolReading readings = 1;
 }

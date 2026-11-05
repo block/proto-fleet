@@ -68,11 +68,14 @@ func (q *Queries) CreatePoolConfigurationReview(ctx context.Context, arg CreateP
 }
 
 const lockPoolConfigurationReview = `-- name: LockPoolConfigurationReview :one
-SELECT r.review_id, r.kind, r.organization_id, r.configuration_id, r.actor_id, r.configuration_version, r.assignment_version, r.name, r.slots, r.settings_changed, r.targets, r.created_at, r.expires_at, r.saved_version, r.saved_revision_id, r.operation_id, (r.expires_at > clock_timestamp())::boolean AS valid FROM pool_configuration_review r
-JOIN pool_configuration c ON c.organization_id = r.organization_id AND c.configuration_id = r.configuration_id
-WHERE r.organization_id = $1 AND r.review_id = $2 AND r.actor_id = $3
- AND c.account_id IS NOT DISTINCT FROM $4::bigint
-FOR UPDATE OF r
+WITH locked AS MATERIALIZED (
+ SELECT r.review_id, r.kind, r.organization_id, r.configuration_id, r.actor_id, r.configuration_version, r.assignment_version, r.name, r.slots, r.settings_changed, r.targets, r.created_at, r.expires_at, r.saved_version, r.saved_revision_id, r.operation_id FROM pool_configuration_review r
+ JOIN pool_configuration c ON c.organization_id = r.organization_id AND c.configuration_id = r.configuration_id
+ WHERE r.organization_id = $1 AND r.review_id = $2 AND r.actor_id = $3
+  AND c.account_id IS NOT DISTINCT FROM $4::bigint
+ FOR UPDATE OF r
+)
+SELECT locked.review_id, locked.kind, locked.organization_id, locked.configuration_id, locked.actor_id, locked.configuration_version, locked.assignment_version, locked.name, locked.slots, locked.settings_changed, locked.targets, locked.created_at, locked.expires_at, locked.saved_version, locked.saved_revision_id, locked.operation_id, (locked.expires_at > clock_timestamp())::boolean AS valid FROM locked
 `
 
 type LockPoolConfigurationReviewParams struct {
@@ -102,6 +105,7 @@ type LockPoolConfigurationReviewRow struct {
 	Valid                bool
 }
 
+// Evaluate the deadline after acquiring the row lock, including any lock wait.
 func (q *Queries) LockPoolConfigurationReview(ctx context.Context, arg LockPoolConfigurationReviewParams) (LockPoolConfigurationReviewRow, error) {
 	row := q.queryRow(ctx, q.lockPoolConfigurationReviewStmt, lockPoolConfigurationReview,
 		arg.OrganizationID,

@@ -61,12 +61,12 @@ func TestReviewedEditIsAtomicBoundAndReplayable(t *testing.T) {
  SELECT $1,kind,organization_id,configuration_id,actor_id,configuration_version,assignment_version,name,slots,settings_changed,targets,clock_timestamp()-INTERVAL '1 second' FROM pool_configuration_review WHERE review_id=$2`, expiredID, review.ID)
 	require.NoError(t, err)
 	_, err = db.WithTransaction(ctx, conn, func(q sqlc.Querier) (ReviewedSave, error) {
-		return repo.ConfirmReview(ctx, q, scope, 1, expiredID, authority)
+		return repo.ConfirmReview(ctx, q, scope, 1, expiredID, authority, nil)
 	})
 	require.True(t, fleeterror.IsFailedPreconditionError(err), "expired reviews require a fresh impact check")
 	confirm := func(actor int64) (ReviewedSave, error) {
 		return db.WithTransaction(ctx, conn, func(q sqlc.Querier) (ReviewedSave, error) {
-			return repo.ConfirmReview(ctx, q, scope, actor, review.ID, authority)
+			return repo.ConfirmReview(ctx, q, scope, actor, review.ID, authority, nil)
 		})
 	}
 	_, err = confirm(2)
@@ -123,7 +123,7 @@ func TestReviewRejectsChangedAssignmentSetAndRenameSendsNoWork(t *testing.T) {
 	})
 	require.NoError(t, err)
 	_, err = db.WithTransaction(ctx, conn, func(q sqlc.Querier) (ReviewedSave, error) {
-		return repo.ConfirmReview(ctx, q, scope, 1, review.ID, authority)
+		return repo.ConfirmReview(ctx, q, scope, 1, review.ID, authority, nil)
 	})
 	require.True(t, fleeterror.IsFailedPreconditionError(err), "reviewing zero targets cannot authorize newly assigned equipment")
 	options.Name = "Renamed"
@@ -135,7 +135,7 @@ func TestReviewRejectsChangedAssignmentSetAndRenameSendsNoWork(t *testing.T) {
 	require.NoError(t, err, "metadata-only edits do not require hardware command permissions")
 	require.Empty(t, review.Targets)
 	saved, err := db.WithTransaction(ctx, conn, func(q sqlc.Querier) (ReviewedSave, error) {
-		return repo.ConfirmReview(ctx, q, scope, 1, review.ID, authority)
+		return repo.ConfirmReview(ctx, q, scope, 1, review.ID, authority, nil)
 	})
 	require.NoError(t, err)
 	require.Nil(t, saved.Operation)
@@ -161,7 +161,9 @@ func TestAssignmentReviewFreezesSelectionAndRejectsInterveningAssignment(t *test
 	}
 	first, stale := prepare(), prepare()
 	confirm := func(id string) (ReviewedSave, error) {
-		return db.WithTransaction(ctx, conn, func(q sqlc.Querier) (ReviewedSave, error) { return repo.ConfirmReview(ctx, q, scope, 1, id, authority) })
+		return db.WithTransaction(ctx, conn, func(q sqlc.Querier) (ReviewedSave, error) {
+			return repo.ConfirmReview(ctx, q, scope, 1, id, authority, nil)
+		})
 	}
 	result, err := confirm(first.ID)
 	require.NoError(t, err)

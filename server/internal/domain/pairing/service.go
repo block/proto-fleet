@@ -27,7 +27,6 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 	tmodels "github.com/block/proto-fleet/server/internal/domain/telemetry/models"
 	tokenDomain "github.com/block/proto-fleet/server/internal/domain/token"
-	"github.com/block/proto-fleet/server/internal/domain/workername"
 
 	pb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
 	"github.com/block/proto-fleet/server/internal/infrastructure/encrypt"
@@ -1232,18 +1231,9 @@ func (s *Service) handleAuthenticationRequiredPairing(ctx context.Context, disco
 			return nil
 		}
 
-		workerName := networking.NormalizeMAC(discoveredDevice.MacAddress)
-		shouldUpdateWorkerName := workerName != ""
-		if shouldUpdateWorkerName && existingDevice != nil {
-			keepExistingWorkerName, err := workername.HasStored(ctx, s.deviceStore, discoveredDevice.OrgID, discoveredDevice.DeviceIdentifier)
-			if err != nil {
+		if workerName := networking.NormalizeMAC(discoveredDevice.MacAddress); workerName != "" {
+			if _, err := s.deviceStore.InitializeWorkerName(ctx, discoveredDevice.OrgID, models.DeviceIdentifier(discoveredDevice.DeviceIdentifier), workerName); err != nil {
 				return err
-			}
-			shouldUpdateWorkerName = !keepExistingWorkerName
-		}
-		if shouldUpdateWorkerName {
-			if err := s.deviceStore.UpdateWorkerName(ctx, models.DeviceIdentifier(discoveredDevice.DeviceIdentifier), workerName); err != nil {
-				return fleeterror.NewInternalErrorf("failed to update worker name: %v", err)
 			}
 		}
 

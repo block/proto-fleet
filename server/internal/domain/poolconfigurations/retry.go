@@ -9,6 +9,8 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 )
 
+const resultWriteUncertain = "write_uncertain"
+
 // ReviewRetry produces a fresh, password-confirmed operation under the retrying
 // actor. It must retain the original exact revision and current assignment;
 // it never revives superseded work or changes who authorized an old operation.
@@ -50,19 +52,35 @@ func (s *Service) ReviewRetry(ctx context.Context, accountID, operationID string
 			if err != nil {
 				return Review{}, storageError(err)
 			}
-			state, code := work.State, work.ResultCode
-			observation, err := q.GetPoolConfigurationObservation(ctx, sqlc.GetPoolConfigurationObservationParams{OrganizationID: p.Scope.OrganizationID, TargetKind: target.Kind, TargetID: target.ID, AssignmentVersion: work.AssignmentVersion})
-			if err != nil && !errors.Is(err, sql.ErrNoRows) {
-				return Review{}, storageError(err)
+			state, code, err := latestRetryOutcome(ctx, q, work)
+			if err != nil {
+				return Review{}, err
 			}
-			if err == nil && observation.ObservedAt.After(work.UpdatedAt) {
-				state, code = observation.State, observation.ResultCode
-			}
-			if code == "write_uncertain" || (state != "failed" && state != "different" && state != "applied_unverified") {
-				return Review{}, fleeterror.NewFailedPreconditionError("this update cannot be retried; refresh its results")
+			if !retryableOutcome(state, code) {
+				return Review{}, retryUnavailable()
 			}
 			resolved[i] = AssignmentTarget{Kind: work.TargetKind, ID: work.TargetID, DeviceID: work.DeviceID}
 		}
 		return s.repository.ReviewAssignment(ctx, q, p.Scope, p.ActorID, operation.ConfigurationID, configuration.Version, resolved, s.equipment)
 	})
+}
+
+func latestRetryOutcome(ctx context.Context, q sqlc.Querier, work sqlc.GetPoolConfigurationWorkRow) (string, string, error) {
+	state, code := work.State, work.ResultCode
+	observation, err := q.GetPoolConfigurationObservation(ctx, sqlc.GetPoolConfigurationObservationParams{OrganizationID: work.OrganizationID, TargetKind: work.TargetKind, TargetID: work.TargetID, AssignmentVersion: work.AssignmentVersion})
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return "", "", storageError(err)
+	}
+	if err == nil && observation.ObservedAt.After(work.UpdatedAt) {
+		state, code = observation.State, observation.ResultCode
+	}
+	return state, code, nil
+}
+
+func retryableOutcome(state, code string) bool {
+	return code != resultWriteUncertain && (state == "failed" || state == "different" || state == "applied_unverified")
+}
+
+func retryUnavailable() error {
+	return fleeterror.NewFailedPreconditionError("this update cannot be retried; refresh its results")
 }

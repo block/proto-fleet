@@ -15,6 +15,15 @@ SELECT a.*, c.account_id FROM pool_configuration_assignment a
 JOIN pool_configuration c ON c.organization_id = a.organization_id AND c.configuration_id = a.configuration_id
 WHERE a.organization_id = $1 AND a.target_kind = $2 AND a.target_id = $3;
 
+-- name: ListPoolConfigurationAssignmentsForDevices :many
+SELECT d.id AS target_id, COALESCE(d.worker_name, '')::text AS worker_name,
+ COALESCE(a.configuration_id, '')::text AS configuration_id, a.retired_at, c.account_id
+FROM device d
+LEFT JOIN pool_configuration_assignment a ON a.organization_id = d.org_id AND a.target_kind = 'device' AND a.target_id = d.id
+LEFT JOIN pool_configuration c ON c.organization_id = a.organization_id AND c.configuration_id = a.configuration_id
+WHERE d.org_id = sqlc.arg(organization_id) AND d.deleted_at IS NULL
+ AND d.id = ANY(sqlc.arg(device_ids)::bigint[]);
+
 -- name: ListPoolConfigurationAssignments :many
 SELECT a.* FROM pool_configuration_assignment a
 JOIN pool_configuration c ON c.organization_id = a.organization_id AND c.configuration_id = a.configuration_id
@@ -127,3 +136,18 @@ WHERE t.organization_id = sqlc.arg(organization_id) AND t.operation_id = sqlc.ar
  AND a.operation_id = t.operation_id AND a.version = t.assignment_version AND a.retired_at IS NULL
  AND c.organization_id = a.organization_id AND c.configuration_id = a.configuration_id
  AND c.account_id IS NOT DISTINCT FROM sqlc.narg(account_id)::bigint;
+
+-- name: ListActivePoolAssignmentsForTargets :many
+SELECT a.target_kind, a.target_id FROM pool_configuration_assignment a
+WHERE a.organization_id = sqlc.arg(organization_id) AND a.retired_at IS NULL
+ AND ((a.target_kind = 'device' AND a.target_id = ANY(sqlc.arg(device_ids)::bigint[]))
+  OR (a.target_kind = 'hashboard_installation' AND a.target_id = ANY(sqlc.arg(installation_ids)::bigint[])));
+
+-- name: LockCurrentPoolConfigurationOperationTarget :one
+-- Acquire only after the equipment reviewer holds physical admission locks.
+-- Keep outcome changes from racing a matching-name retry confirmation.
+SELECT t.operation_id FROM pool_configuration_operation_target t
+JOIN pool_configuration_assignment a ON a.organization_id=t.organization_id AND a.target_kind=t.target_kind AND a.target_id=t.target_id
+ AND a.operation_id=t.operation_id AND a.version=t.assignment_version
+WHERE t.organization_id=$1 AND t.target_kind=$2 AND t.target_id=$3 AND a.retired_at IS NULL
+FOR UPDATE OF t;

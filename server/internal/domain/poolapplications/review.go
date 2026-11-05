@@ -22,6 +22,7 @@ import (
 )
 
 type Authority interface {
+	AuthorizePoolEquipmentBatch(ctx context.Context, q sqlc.Querier, scope poolconfigurations.Scope, actorID int64, targets []poolconfigurations.AssignmentTarget) (map[int]string, error)
 	VerifyPoolEquipmentCredentials(ctx context.Context, accountID, password string) (poolconfigurations.CredentialProof, error)
 	AuthorizePoolEquipment(ctx context.Context, q sqlc.Querier, scope poolconfigurations.Scope, actorID int64, target poolconfigurations.AssignmentTarget) (string, error)
 }

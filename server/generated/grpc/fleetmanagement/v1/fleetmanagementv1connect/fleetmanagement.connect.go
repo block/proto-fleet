@@ -67,6 +67,9 @@ const (
 	// FleetManagementServiceUpdateWorkerNamesProcedure is the fully-qualified name of the
 	// FleetManagementService's UpdateWorkerNames RPC.
 	FleetManagementServiceUpdateWorkerNamesProcedure = "/fleetmanagement.v1.FleetManagementService/UpdateWorkerNames"
+	// FleetManagementServiceReviewWorkerNamesProcedure is the fully-qualified name of the
+	// FleetManagementService's ReviewWorkerNames RPC.
+	FleetManagementServiceReviewWorkerNamesProcedure = "/fleetmanagement.v1.FleetManagementService/ReviewWorkerNames"
 )
 
 // FleetManagementServiceClient is a client for the fleetmanagement.v1.FleetManagementService
@@ -116,6 +119,10 @@ type FleetManagementServiceClient interface {
 	// Reapplies the miners' current pool settings first, then persists worker names
 	// only for miners whose pool updates succeed so Fleet stays aligned with device state.
 	UpdateWorkerNames(context.Context, *connect.Request[v1.UpdateWorkerNamesRequest]) (*connect.Response[v1.UpdateWorkerNamesResponse], error)
+	// Review generated worker names against each miner's current configuration.
+	// ConfirmReview atomically saves names and schedules canonical pool execution;
+	// device verification is reported separately through the resulting operation.
+	ReviewWorkerNames(context.Context, *connect.Request[v1.ReviewWorkerNamesRequest]) (*connect.Response[v1.ReviewWorkerNamesResponse], error)
 }
 
 // NewFleetManagementServiceClient constructs a client for the
@@ -183,6 +190,11 @@ func NewFleetManagementServiceClient(httpClient connect.HTTPClient, baseURL stri
 			baseURL+FleetManagementServiceUpdateWorkerNamesProcedure,
 			opts...,
 		),
+		reviewWorkerNames: connect.NewClient[v1.ReviewWorkerNamesRequest, v1.ReviewWorkerNamesResponse](
+			httpClient,
+			baseURL+FleetManagementServiceReviewWorkerNamesProcedure,
+			opts...,
+		),
 	}
 }
 
@@ -199,6 +211,7 @@ type fleetManagementServiceClient struct {
 	getMinerModelGroups     *connect.Client[v1.GetMinerModelGroupsRequest, v1.GetMinerModelGroupsResponse]
 	renameMiners            *connect.Client[v1.RenameMinersRequest, v1.RenameMinersResponse]
 	updateWorkerNames       *connect.Client[v1.UpdateWorkerNamesRequest, v1.UpdateWorkerNamesResponse]
+	reviewWorkerNames       *connect.Client[v1.ReviewWorkerNamesRequest, v1.ReviewWorkerNamesResponse]
 }
 
 // ListMinerStateSnapshots calls fleetmanagement.v1.FleetManagementService.ListMinerStateSnapshots.
@@ -256,6 +269,11 @@ func (c *fleetManagementServiceClient) UpdateWorkerNames(ctx context.Context, re
 	return c.updateWorkerNames.CallUnary(ctx, req)
 }
 
+// ReviewWorkerNames calls fleetmanagement.v1.FleetManagementService.ReviewWorkerNames.
+func (c *fleetManagementServiceClient) ReviewWorkerNames(ctx context.Context, req *connect.Request[v1.ReviewWorkerNamesRequest]) (*connect.Response[v1.ReviewWorkerNamesResponse], error) {
+	return c.reviewWorkerNames.CallUnary(ctx, req)
+}
+
 // FleetManagementServiceHandler is an implementation of the
 // fleetmanagement.v1.FleetManagementService service.
 type FleetManagementServiceHandler interface {
@@ -303,6 +321,10 @@ type FleetManagementServiceHandler interface {
 	// Reapplies the miners' current pool settings first, then persists worker names
 	// only for miners whose pool updates succeed so Fleet stays aligned with device state.
 	UpdateWorkerNames(context.Context, *connect.Request[v1.UpdateWorkerNamesRequest]) (*connect.Response[v1.UpdateWorkerNamesResponse], error)
+	// Review generated worker names against each miner's current configuration.
+	// ConfirmReview atomically saves names and schedules canonical pool execution;
+	// device verification is reported separately through the resulting operation.
+	ReviewWorkerNames(context.Context, *connect.Request[v1.ReviewWorkerNamesRequest]) (*connect.Response[v1.ReviewWorkerNamesResponse], error)
 }
 
 // NewFleetManagementServiceHandler builds an HTTP handler from the service implementation. It
@@ -366,6 +388,11 @@ func NewFleetManagementServiceHandler(svc FleetManagementServiceHandler, opts ..
 		svc.UpdateWorkerNames,
 		opts...,
 	)
+	fleetManagementServiceReviewWorkerNamesHandler := connect.NewUnaryHandler(
+		FleetManagementServiceReviewWorkerNamesProcedure,
+		svc.ReviewWorkerNames,
+		opts...,
+	)
 	return "/fleetmanagement.v1.FleetManagementService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case FleetManagementServiceListMinerStateSnapshotsProcedure:
@@ -390,6 +417,8 @@ func NewFleetManagementServiceHandler(svc FleetManagementServiceHandler, opts ..
 			fleetManagementServiceRenameMinersHandler.ServeHTTP(w, r)
 		case FleetManagementServiceUpdateWorkerNamesProcedure:
 			fleetManagementServiceUpdateWorkerNamesHandler.ServeHTTP(w, r)
+		case FleetManagementServiceReviewWorkerNamesProcedure:
+			fleetManagementServiceReviewWorkerNamesHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -441,4 +470,8 @@ func (UnimplementedFleetManagementServiceHandler) RenameMiners(context.Context, 
 
 func (UnimplementedFleetManagementServiceHandler) UpdateWorkerNames(context.Context, *connect.Request[v1.UpdateWorkerNamesRequest]) (*connect.Response[v1.UpdateWorkerNamesResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("fleetmanagement.v1.FleetManagementService.UpdateWorkerNames is not implemented"))
+}
+
+func (UnimplementedFleetManagementServiceHandler) ReviewWorkerNames(context.Context, *connect.Request[v1.ReviewWorkerNamesRequest]) (*connect.Response[v1.ReviewWorkerNamesResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("fleetmanagement.v1.FleetManagementService.ReviewWorkerNames is not implemented"))
 }

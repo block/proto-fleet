@@ -58,7 +58,7 @@ func TestSharedBoardConfigurationAssignmentAndEdit(t *testing.T) {
 	require.Equal(t, installation, review.Targets[0].ID)
 	confirm := func(review poolconfigurations.Review) poolconfigurations.ReviewedSave {
 		saved, err := db.WithTransaction(ctx, f.conn, func(q sqlc.Querier) (poolconfigurations.ReviewedSave, error) {
-			return repo.ConfirmReview(ctx, q, scope, info.UserID, review.ID, reviewer)
+			return repo.ConfirmReview(ctx, q, scope, info.UserID, review.ID, reviewer, nil)
 		})
 		require.NoError(t, err)
 		return saved
@@ -133,7 +133,7 @@ func TestSharedBoardApplicationRechecksPermissionAndInstallation(t *testing.T) {
 			info, err := session.GetInfo(ctx)
 			require.NoError(t, err)
 			saved, err := db.WithTransaction(ctx, f.conn, func(q sqlc.Querier) (poolconfigurations.ReviewedSave, error) {
-				return repo.ConfirmReview(ctx, q, poolconfigurations.Scope{OrganizationID: info.OrganizationID}, info.UserID, review.ID, reviewer)
+				return repo.ConfirmReview(ctx, q, poolconfigurations.Scope{OrganizationID: info.OrganizationID}, info.UserID, review.ID, reviewer, nil)
 			})
 			require.NoError(t, err)
 			if phase != "before admission" {
@@ -214,7 +214,7 @@ func newConfirmedSharedBoardApplication(t *testing.T, ctx context.Context, f ret
 	info, err := session.GetInfo(ctx)
 	require.NoError(t, err)
 	saved, err := db.WithTransaction(ctx, f.conn, func(q sqlc.Querier) (poolconfigurations.ReviewedSave, error) {
-		return repo.ConfirmReview(ctx, q, poolconfigurations.Scope{OrganizationID: info.OrganizationID}, info.UserID, review.ID, reviewer)
+		return repo.ConfirmReview(ctx, q, poolconfigurations.Scope{OrganizationID: info.OrganizationID}, info.UserID, review.ID, reviewer, nil)
 	})
 	require.NoError(t, err)
 	return service, saved, firmware

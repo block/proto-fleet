@@ -263,6 +263,7 @@ func allowsSelectedAccount(procedure string) bool {
 	switch procedure {
 	case poolconfigurationsv1connect.PoolConfigurationServiceGetAssignmentsProcedure,
 		poolconfigurationsv1connect.PoolConfigurationServiceCheckConfigurationProcedure,
+		poolconfigurationsv1connect.PoolConfigurationServiceReadDevicePoolsProcedure,
 		poolconfigurationsv1connect.PoolConfigurationServiceReviewAssignmentProcedure,
 		poolconfigurationsv1connect.PoolConfigurationServiceGetOperationProcedure,
 		poolconfigurationsv1connect.PoolConfigurationServiceReviewRetryProcedure,

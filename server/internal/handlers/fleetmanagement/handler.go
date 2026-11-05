@@ -171,3 +171,15 @@ func (h *Handler) UpdateWorkerNames(ctx context.Context, r *connect.Request[pb.U
 
 	return connect.NewResponse(result), nil
 }
+
+func (h *Handler) ReviewWorkerNames(ctx context.Context, r *connect.Request[pb.ReviewWorkerNamesRequest]) (*connect.Response[pb.ReviewWorkerNamesResponse], error) {
+	if _, err := middleware.RequirePermission(ctx, authz.PermMinerUpdateWorkerName, authz.ResourceContext{}); err != nil {
+		return nil, err
+	}
+	result, err := h.fleetMgmtSvc.ReviewWorkerNames(ctx, r.Msg)
+	if err != nil {
+		return nil, err
+	}
+
+	return connect.NewResponse(result), nil
+}

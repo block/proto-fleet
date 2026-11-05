@@ -49,7 +49,7 @@ func TestPoolReadsContinueDuringDeviceWrite(t *testing.T) {
 			review, err := service.ReviewAssignment(ctx, accountID, config.ID, config.Version, []poolconfigurations.AssignmentTarget{target})
 			require.NoError(t, err)
 			saved, err := db.WithTransaction(ctx, f.db, func(q sqlc.Querier) (poolconfigurations.ReviewedSave, error) {
-				return repo.ConfirmReview(ctx, q, scope, actor, review.ID, reviewer)
+				return repo.ConfirmReview(ctx, q, scope, actor, review.ID, reviewer, nil)
 			})
 			require.NoError(t, err)
 			started, resume := make(chan struct{}), make(chan struct{})

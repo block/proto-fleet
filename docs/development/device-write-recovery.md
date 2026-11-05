@@ -108,6 +108,41 @@ block a new ownership reservation. Running attempts continue to block drain.
 An unknown curtailment control on reserved or active custody quarantines its
 fence; successful synchronous controls leave that custody unchanged.
 
+Pool assignment readiness is narrower than ownership recovery. Migration 1052
+records each admitted command type, backfilling queued attempts from their original
+queue entries. LED, log, cooling, and power-target attempts do not block pool
+updates, even if retained as running or unknown. Other operations, including
+unclassified legacy direct attempts, remain conflicts because they can affect
+pools, access, device lifecycle, or mining-group reconciliation. Unrelated attempts
+are not erased or automatically resolved, and still protect ownership handoff.
+
+The pool configuration dialog's **Check configuration** action reads current
+settings without dispatching a pool update. It checks access and the current
+assignment again, then records an observation for that assignment version.
+The table uses that observation without rewriting the original update result.
+Matching settings cannot resolve an uncertain write: a conflicting unresolved
+attempt keeps matching settings **Not verified** and prevents a blind retry.
+If readback shows a mismatch, the result is **Settings differ**; the dialog
+separately explains why reapplying is blocked. Neither result clears the attempt.
+Ordinary miners are verified during assignment and explicit checks; refreshing
+the table reloads saved results and does not periodically read pools from devices.
+Pool connection health is separate from matching the assigned settings.
+
+Pool configuration verification compares the reported pool count, priorities,
+URLs, and usernames. A password is compared only when the miner returns it;
+omitted passwords and unsupported stored-configuration readback do not prevent
+otherwise matching settings from being verified. Available stored readback also
+checks unused backup slots. Actual read failures remain unverified, returned
+differences remain mismatches, and matching readback never clears an unresolved
+write. This user-facing status does not establish credential readback for offline
+ownership recovery.
+
+For visible equipment without a Fleet assignment, the table reads the current
+pool settings with bounded concurrency. Reported pools display **Device
+configuration**; a successful empty read displays **—**. Failed or unauthorized
+reads display **Unavailable**. These reads do not create a configuration or an
+assignment and do not change device settings.
+
 `fleet-device-write-recovery` provides an offline host-operations recovery path.
 It uses privileged database access, not customer API permissions. The named
 operator attests to external evidence; the command verifies its binding to the

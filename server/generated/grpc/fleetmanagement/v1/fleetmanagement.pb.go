@@ -2761,6 +2761,261 @@ func (x *UpdateWorkerNamesResponse) GetBatchIdentifier() string {
 	return ""
 }
 
+// Review worker names using a configurable name pattern.
+type ReviewWorkerNamesRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Selects which miners to update (specific IDs or all devices).
+	DeviceSelector *DeviceSelector `protobuf:"bytes,1,opt,name=device_selector,json=deviceSelector,proto3" json:"device_selector,omitempty"`
+	// Naming pattern reviewed against each miner’s current canonical configuration.
+	// ConfirmReview saves the name and schedules the reviewed pool update together.
+	NameConfig *MinerNameConfig `protobuf:"bytes,2,opt,name=name_config,json=nameConfig,proto3" json:"name_config,omitempty"`
+	// Current fleet table sort used to assign counter order during generation.
+	// If omitted, the backend falls back to the default name ascending order.
+	Sort          []*v1.SortConfig `protobuf:"bytes,3,rep,name=sort,proto3" json:"sort,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ReviewWorkerNamesRequest) Reset() {
+	*x = ReviewWorkerNamesRequest{}
+	mi := &file_fleetmanagement_v1_fleetmanagement_proto_msgTypes[29]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ReviewWorkerNamesRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ReviewWorkerNamesRequest) ProtoMessage() {}
+
+func (x *ReviewWorkerNamesRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_fleetmanagement_v1_fleetmanagement_proto_msgTypes[29]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ReviewWorkerNamesRequest.ProtoReflect.Descriptor instead.
+func (*ReviewWorkerNamesRequest) Descriptor() ([]byte, []int) {
+	return file_fleetmanagement_v1_fleetmanagement_proto_rawDescGZIP(), []int{29}
+}
+
+func (x *ReviewWorkerNamesRequest) GetDeviceSelector() *DeviceSelector {
+	if x != nil {
+		return x.DeviceSelector
+	}
+	return nil
+}
+
+func (x *ReviewWorkerNamesRequest) GetNameConfig() *MinerNameConfig {
+	if x != nil {
+		return x.NameConfig
+	}
+	return nil
+}
+
+func (x *ReviewWorkerNamesRequest) GetSort() []*v1.SortConfig {
+	if x != nil {
+		return x.Sort
+	}
+	return nil
+}
+
+// Expiring reviews; no worker names have been saved yet.
+type ReviewWorkerNamesResponse struct {
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	UnchangedCount int32                  `protobuf:"varint,1,opt,name=unchanged_count,json=unchangedCount,proto3" json:"unchanged_count,omitempty"`
+	FailedCount    int32                  `protobuf:"varint,2,opt,name=failed_count,json=failedCount,proto3" json:"failed_count,omitempty"`
+	Reviews        []*WorkerNameReview    `protobuf:"bytes,3,rep,name=reviews,proto3" json:"reviews,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *ReviewWorkerNamesResponse) Reset() {
+	*x = ReviewWorkerNamesResponse{}
+	mi := &file_fleetmanagement_v1_fleetmanagement_proto_msgTypes[30]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ReviewWorkerNamesResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ReviewWorkerNamesResponse) ProtoMessage() {}
+
+func (x *ReviewWorkerNamesResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_fleetmanagement_v1_fleetmanagement_proto_msgTypes[30]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ReviewWorkerNamesResponse.ProtoReflect.Descriptor instead.
+func (*ReviewWorkerNamesResponse) Descriptor() ([]byte, []int) {
+	return file_fleetmanagement_v1_fleetmanagement_proto_rawDescGZIP(), []int{30}
+}
+
+func (x *ReviewWorkerNamesResponse) GetUnchangedCount() int32 {
+	if x != nil {
+		return x.UnchangedCount
+	}
+	return 0
+}
+
+func (x *ReviewWorkerNamesResponse) GetFailedCount() int32 {
+	if x != nil {
+		return x.FailedCount
+	}
+	return 0
+}
+
+func (x *ReviewWorkerNamesResponse) GetReviews() []*WorkerNameReview {
+	if x != nil {
+		return x.Reviews
+	}
+	return nil
+}
+
+type WorkerNameReview struct {
+	state             protoimpl.MessageState `protogen:"open.v1"`
+	ReviewId          string                 `protobuf:"bytes,1,opt,name=review_id,json=reviewId,proto3" json:"review_id,omitempty"`
+	ConfigurationId   string                 `protobuf:"bytes,2,opt,name=configuration_id,json=configurationId,proto3" json:"configuration_id,omitempty"`
+	ConfigurationName string                 `protobuf:"bytes,3,opt,name=configuration_name,json=configurationName,proto3" json:"configuration_name,omitempty"`
+	Changes           []*WorkerNameChange    `protobuf:"bytes,4,rep,name=changes,proto3" json:"changes,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
+}
+
+func (x *WorkerNameReview) Reset() {
+	*x = WorkerNameReview{}
+	mi := &file_fleetmanagement_v1_fleetmanagement_proto_msgTypes[31]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *WorkerNameReview) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*WorkerNameReview) ProtoMessage() {}
+
+func (x *WorkerNameReview) ProtoReflect() protoreflect.Message {
+	mi := &file_fleetmanagement_v1_fleetmanagement_proto_msgTypes[31]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use WorkerNameReview.ProtoReflect.Descriptor instead.
+func (*WorkerNameReview) Descriptor() ([]byte, []int) {
+	return file_fleetmanagement_v1_fleetmanagement_proto_rawDescGZIP(), []int{31}
+}
+
+func (x *WorkerNameReview) GetReviewId() string {
+	if x != nil {
+		return x.ReviewId
+	}
+	return ""
+}
+
+func (x *WorkerNameReview) GetConfigurationId() string {
+	if x != nil {
+		return x.ConfigurationId
+	}
+	return ""
+}
+
+func (x *WorkerNameReview) GetConfigurationName() string {
+	if x != nil {
+		return x.ConfigurationName
+	}
+	return ""
+}
+
+func (x *WorkerNameReview) GetChanges() []*WorkerNameChange {
+	if x != nil {
+		return x.Changes
+	}
+	return nil
+}
+
+type WorkerNameChange struct {
+	state            protoimpl.MessageState `protogen:"open.v1"`
+	DeviceIdentifier string                 `protobuf:"bytes,1,opt,name=device_identifier,json=deviceIdentifier,proto3" json:"device_identifier,omitempty"`
+	Before           string                 `protobuf:"bytes,2,opt,name=before,proto3" json:"before,omitempty"`
+	After            string                 `protobuf:"bytes,3,opt,name=after,proto3" json:"after,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
+}
+
+func (x *WorkerNameChange) Reset() {
+	*x = WorkerNameChange{}
+	mi := &file_fleetmanagement_v1_fleetmanagement_proto_msgTypes[32]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *WorkerNameChange) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*WorkerNameChange) ProtoMessage() {}
+
+func (x *WorkerNameChange) ProtoReflect() protoreflect.Message {
+	mi := &file_fleetmanagement_v1_fleetmanagement_proto_msgTypes[32]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use WorkerNameChange.ProtoReflect.Descriptor instead.
+func (*WorkerNameChange) Descriptor() ([]byte, []int) {
+	return file_fleetmanagement_v1_fleetmanagement_proto_rawDescGZIP(), []int{32}
+}
+
+func (x *WorkerNameChange) GetDeviceIdentifier() string {
+	if x != nil {
+		return x.DeviceIdentifier
+	}
+	return ""
+}
+
+func (x *WorkerNameChange) GetBefore() string {
+	if x != nil {
+		return x.Before
+	}
+	return ""
+}
+
+func (x *WorkerNameChange) GetAfter() string {
+	if x != nil {
+		return x.After
+	}
+	return ""
+}
+
 // Configures how names are generated for a batch of miners.
 type MinerNameConfig struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -2774,7 +3029,7 @@ type MinerNameConfig struct {
 
 func (x *MinerNameConfig) Reset() {
 	*x = MinerNameConfig{}
-	mi := &file_fleetmanagement_v1_fleetmanagement_proto_msgTypes[29]
+	mi := &file_fleetmanagement_v1_fleetmanagement_proto_msgTypes[33]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2786,7 +3041,7 @@ func (x *MinerNameConfig) String() string {
 func (*MinerNameConfig) ProtoMessage() {}
 
 func (x *MinerNameConfig) ProtoReflect() protoreflect.Message {
-	mi := &file_fleetmanagement_v1_fleetmanagement_proto_msgTypes[29]
+	mi := &file_fleetmanagement_v1_fleetmanagement_proto_msgTypes[33]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2799,7 +3054,7 @@ func (x *MinerNameConfig) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MinerNameConfig.ProtoReflect.Descriptor instead.
 func (*MinerNameConfig) Descriptor() ([]byte, []int) {
-	return file_fleetmanagement_v1_fleetmanagement_proto_rawDescGZIP(), []int{29}
+	return file_fleetmanagement_v1_fleetmanagement_proto_rawDescGZIP(), []int{33}
 }
 
 func (x *MinerNameConfig) GetProperties() []*NameProperty {
@@ -2833,7 +3088,7 @@ type NameProperty struct {
 
 func (x *NameProperty) Reset() {
 	*x = NameProperty{}
-	mi := &file_fleetmanagement_v1_fleetmanagement_proto_msgTypes[30]
+	mi := &file_fleetmanagement_v1_fleetmanagement_proto_msgTypes[34]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2845,7 +3100,7 @@ func (x *NameProperty) String() string {
 func (*NameProperty) ProtoMessage() {}
 
 func (x *NameProperty) ProtoReflect() protoreflect.Message {
-	mi := &file_fleetmanagement_v1_fleetmanagement_proto_msgTypes[30]
+	mi := &file_fleetmanagement_v1_fleetmanagement_proto_msgTypes[34]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2858,7 +3113,7 @@ func (x *NameProperty) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use NameProperty.ProtoReflect.Descriptor instead.
 func (*NameProperty) Descriptor() ([]byte, []int) {
-	return file_fleetmanagement_v1_fleetmanagement_proto_rawDescGZIP(), []int{30}
+	return file_fleetmanagement_v1_fleetmanagement_proto_rawDescGZIP(), []int{34}
 }
 
 func (x *NameProperty) GetKind() isNameProperty_Kind {
@@ -2964,7 +3219,7 @@ type StringAndCounterProperty struct {
 
 func (x *StringAndCounterProperty) Reset() {
 	*x = StringAndCounterProperty{}
-	mi := &file_fleetmanagement_v1_fleetmanagement_proto_msgTypes[31]
+	mi := &file_fleetmanagement_v1_fleetmanagement_proto_msgTypes[35]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2976,7 +3231,7 @@ func (x *StringAndCounterProperty) String() string {
 func (*StringAndCounterProperty) ProtoMessage() {}
 
 func (x *StringAndCounterProperty) ProtoReflect() protoreflect.Message {
-	mi := &file_fleetmanagement_v1_fleetmanagement_proto_msgTypes[31]
+	mi := &file_fleetmanagement_v1_fleetmanagement_proto_msgTypes[35]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2989,7 +3244,7 @@ func (x *StringAndCounterProperty) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StringAndCounterProperty.ProtoReflect.Descriptor instead.
 func (*StringAndCounterProperty) Descriptor() ([]byte, []int) {
-	return file_fleetmanagement_v1_fleetmanagement_proto_rawDescGZIP(), []int{31}
+	return file_fleetmanagement_v1_fleetmanagement_proto_rawDescGZIP(), []int{35}
 }
 
 func (x *StringAndCounterProperty) GetPrefix() string {
@@ -3033,7 +3288,7 @@ type CounterProperty struct {
 
 func (x *CounterProperty) Reset() {
 	*x = CounterProperty{}
-	mi := &file_fleetmanagement_v1_fleetmanagement_proto_msgTypes[32]
+	mi := &file_fleetmanagement_v1_fleetmanagement_proto_msgTypes[36]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3045,7 +3300,7 @@ func (x *CounterProperty) String() string {
 func (*CounterProperty) ProtoMessage() {}
 
 func (x *CounterProperty) ProtoReflect() protoreflect.Message {
-	mi := &file_fleetmanagement_v1_fleetmanagement_proto_msgTypes[32]
+	mi := &file_fleetmanagement_v1_fleetmanagement_proto_msgTypes[36]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3058,7 +3313,7 @@ func (x *CounterProperty) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CounterProperty.ProtoReflect.Descriptor instead.
 func (*CounterProperty) Descriptor() ([]byte, []int) {
-	return file_fleetmanagement_v1_fleetmanagement_proto_rawDescGZIP(), []int{32}
+	return file_fleetmanagement_v1_fleetmanagement_proto_rawDescGZIP(), []int{36}
 }
 
 func (x *CounterProperty) GetCounterStart() int32 {
@@ -3086,7 +3341,7 @@ type StringProperty struct {
 
 func (x *StringProperty) Reset() {
 	*x = StringProperty{}
-	mi := &file_fleetmanagement_v1_fleetmanagement_proto_msgTypes[33]
+	mi := &file_fleetmanagement_v1_fleetmanagement_proto_msgTypes[37]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3098,7 +3353,7 @@ func (x *StringProperty) String() string {
 func (*StringProperty) ProtoMessage() {}
 
 func (x *StringProperty) ProtoReflect() protoreflect.Message {
-	mi := &file_fleetmanagement_v1_fleetmanagement_proto_msgTypes[33]
+	mi := &file_fleetmanagement_v1_fleetmanagement_proto_msgTypes[37]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3111,7 +3366,7 @@ func (x *StringProperty) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StringProperty.ProtoReflect.Descriptor instead.
 func (*StringProperty) Descriptor() ([]byte, []int) {
-	return file_fleetmanagement_v1_fleetmanagement_proto_rawDescGZIP(), []int{33}
+	return file_fleetmanagement_v1_fleetmanagement_proto_rawDescGZIP(), []int{37}
 }
 
 func (x *StringProperty) GetValue() string {
@@ -3137,7 +3392,7 @@ type FixedValueProperty struct {
 
 func (x *FixedValueProperty) Reset() {
 	*x = FixedValueProperty{}
-	mi := &file_fleetmanagement_v1_fleetmanagement_proto_msgTypes[34]
+	mi := &file_fleetmanagement_v1_fleetmanagement_proto_msgTypes[38]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3149,7 +3404,7 @@ func (x *FixedValueProperty) String() string {
 func (*FixedValueProperty) ProtoMessage() {}
 
 func (x *FixedValueProperty) ProtoReflect() protoreflect.Message {
-	mi := &file_fleetmanagement_v1_fleetmanagement_proto_msgTypes[34]
+	mi := &file_fleetmanagement_v1_fleetmanagement_proto_msgTypes[38]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3162,7 +3417,7 @@ func (x *FixedValueProperty) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FixedValueProperty.ProtoReflect.Descriptor instead.
 func (*FixedValueProperty) Descriptor() ([]byte, []int) {
-	return file_fleetmanagement_v1_fleetmanagement_proto_rawDescGZIP(), []int{34}
+	return file_fleetmanagement_v1_fleetmanagement_proto_rawDescGZIP(), []int{38}
 }
 
 func (x *FixedValueProperty) GetType() FixedValueType {
@@ -3201,7 +3456,7 @@ type QualifierProperty struct {
 
 func (x *QualifierProperty) Reset() {
 	*x = QualifierProperty{}
-	mi := &file_fleetmanagement_v1_fleetmanagement_proto_msgTypes[35]
+	mi := &file_fleetmanagement_v1_fleetmanagement_proto_msgTypes[39]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3213,7 +3468,7 @@ func (x *QualifierProperty) String() string {
 func (*QualifierProperty) ProtoMessage() {}
 
 func (x *QualifierProperty) ProtoReflect() protoreflect.Message {
-	mi := &file_fleetmanagement_v1_fleetmanagement_proto_msgTypes[35]
+	mi := &file_fleetmanagement_v1_fleetmanagement_proto_msgTypes[39]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3226,7 +3481,7 @@ func (x *QualifierProperty) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use QualifierProperty.ProtoReflect.Descriptor instead.
 func (*QualifierProperty) Descriptor() ([]byte, []int) {
-	return file_fleetmanagement_v1_fleetmanagement_proto_rawDescGZIP(), []int{35}
+	return file_fleetmanagement_v1_fleetmanagement_proto_rawDescGZIP(), []int{39}
 }
 
 func (x *QualifierProperty) GetType() QualifierType {
@@ -3654,7 +3909,52 @@ var file_fleetmanagement_v1_fleetmanagement_proto_rawDesc = string([]byte{
 	0x0b, 0x66, 0x61, 0x69, 0x6c, 0x65, 0x64, 0x43, 0x6f, 0x75, 0x6e, 0x74, 0x12, 0x29, 0x0a, 0x10,
 	0x62, 0x61, 0x74, 0x63, 0x68, 0x5f, 0x69, 0x64, 0x65, 0x6e, 0x74, 0x69, 0x66, 0x69, 0x65, 0x72,
 	0x18, 0x04, 0x20, 0x01, 0x28, 0x09, 0x52, 0x0f, 0x62, 0x61, 0x74, 0x63, 0x68, 0x49, 0x64, 0x65,
-	0x6e, 0x74, 0x69, 0x66, 0x69, 0x65, 0x72, 0x22, 0x8d, 0x01, 0x0a, 0x0f, 0x4d, 0x69, 0x6e, 0x65,
+	0x6e, 0x74, 0x69, 0x66, 0x69, 0x65, 0x72, 0x22, 0xe8, 0x01, 0x0a, 0x18, 0x52, 0x65, 0x76, 0x69,
+	0x65, 0x77, 0x57, 0x6f, 0x72, 0x6b, 0x65, 0x72, 0x4e, 0x61, 0x6d, 0x65, 0x73, 0x52, 0x65, 0x71,
+	0x75, 0x65, 0x73, 0x74, 0x12, 0x53, 0x0a, 0x0f, 0x64, 0x65, 0x76, 0x69, 0x63, 0x65, 0x5f, 0x73,
+	0x65, 0x6c, 0x65, 0x63, 0x74, 0x6f, 0x72, 0x18, 0x01, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x22, 0x2e,
+	0x66, 0x6c, 0x65, 0x65, 0x74, 0x6d, 0x61, 0x6e, 0x61, 0x67, 0x65, 0x6d, 0x65, 0x6e, 0x74, 0x2e,
+	0x76, 0x31, 0x2e, 0x44, 0x65, 0x76, 0x69, 0x63, 0x65, 0x53, 0x65, 0x6c, 0x65, 0x63, 0x74, 0x6f,
+	0x72, 0x42, 0x06, 0xba, 0x48, 0x03, 0xc8, 0x01, 0x01, 0x52, 0x0e, 0x64, 0x65, 0x76, 0x69, 0x63,
+	0x65, 0x53, 0x65, 0x6c, 0x65, 0x63, 0x74, 0x6f, 0x72, 0x12, 0x4c, 0x0a, 0x0b, 0x6e, 0x61, 0x6d,
+	0x65, 0x5f, 0x63, 0x6f, 0x6e, 0x66, 0x69, 0x67, 0x18, 0x02, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x23,
+	0x2e, 0x66, 0x6c, 0x65, 0x65, 0x74, 0x6d, 0x61, 0x6e, 0x61, 0x67, 0x65, 0x6d, 0x65, 0x6e, 0x74,
+	0x2e, 0x76, 0x31, 0x2e, 0x4d, 0x69, 0x6e, 0x65, 0x72, 0x4e, 0x61, 0x6d, 0x65, 0x43, 0x6f, 0x6e,
+	0x66, 0x69, 0x67, 0x42, 0x06, 0xba, 0x48, 0x03, 0xc8, 0x01, 0x01, 0x52, 0x0a, 0x6e, 0x61, 0x6d,
+	0x65, 0x43, 0x6f, 0x6e, 0x66, 0x69, 0x67, 0x12, 0x29, 0x0a, 0x04, 0x73, 0x6f, 0x72, 0x74, 0x18,
+	0x03, 0x20, 0x03, 0x28, 0x0b, 0x32, 0x15, 0x2e, 0x63, 0x6f, 0x6d, 0x6d, 0x6f, 0x6e, 0x2e, 0x76,
+	0x31, 0x2e, 0x53, 0x6f, 0x72, 0x74, 0x43, 0x6f, 0x6e, 0x66, 0x69, 0x67, 0x52, 0x04, 0x73, 0x6f,
+	0x72, 0x74, 0x22, 0xa7, 0x01, 0x0a, 0x19, 0x52, 0x65, 0x76, 0x69, 0x65, 0x77, 0x57, 0x6f, 0x72,
+	0x6b, 0x65, 0x72, 0x4e, 0x61, 0x6d, 0x65, 0x73, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65,
+	0x12, 0x27, 0x0a, 0x0f, 0x75, 0x6e, 0x63, 0x68, 0x61, 0x6e, 0x67, 0x65, 0x64, 0x5f, 0x63, 0x6f,
+	0x75, 0x6e, 0x74, 0x18, 0x01, 0x20, 0x01, 0x28, 0x05, 0x52, 0x0e, 0x75, 0x6e, 0x63, 0x68, 0x61,
+	0x6e, 0x67, 0x65, 0x64, 0x43, 0x6f, 0x75, 0x6e, 0x74, 0x12, 0x21, 0x0a, 0x0c, 0x66, 0x61, 0x69,
+	0x6c, 0x65, 0x64, 0x5f, 0x63, 0x6f, 0x75, 0x6e, 0x74, 0x18, 0x02, 0x20, 0x01, 0x28, 0x05, 0x52,
+	0x0b, 0x66, 0x61, 0x69, 0x6c, 0x65, 0x64, 0x43, 0x6f, 0x75, 0x6e, 0x74, 0x12, 0x3e, 0x0a, 0x07,
+	0x72, 0x65, 0x76, 0x69, 0x65, 0x77, 0x73, 0x18, 0x03, 0x20, 0x03, 0x28, 0x0b, 0x32, 0x24, 0x2e,
+	0x66, 0x6c, 0x65, 0x65, 0x74, 0x6d, 0x61, 0x6e, 0x61, 0x67, 0x65, 0x6d, 0x65, 0x6e, 0x74, 0x2e,
+	0x76, 0x31, 0x2e, 0x57, 0x6f, 0x72, 0x6b, 0x65, 0x72, 0x4e, 0x61, 0x6d, 0x65, 0x52, 0x65, 0x76,
+	0x69, 0x65, 0x77, 0x52, 0x07, 0x72, 0x65, 0x76, 0x69, 0x65, 0x77, 0x73, 0x22, 0xc9, 0x01, 0x0a,
+	0x10, 0x57, 0x6f, 0x72, 0x6b, 0x65, 0x72, 0x4e, 0x61, 0x6d, 0x65, 0x52, 0x65, 0x76, 0x69, 0x65,
+	0x77, 0x12, 0x1b, 0x0a, 0x09, 0x72, 0x65, 0x76, 0x69, 0x65, 0x77, 0x5f, 0x69, 0x64, 0x18, 0x01,
+	0x20, 0x01, 0x28, 0x09, 0x52, 0x08, 0x72, 0x65, 0x76, 0x69, 0x65, 0x77, 0x49, 0x64, 0x12, 0x29,
+	0x0a, 0x10, 0x63, 0x6f, 0x6e, 0x66, 0x69, 0x67, 0x75, 0x72, 0x61, 0x74, 0x69, 0x6f, 0x6e, 0x5f,
+	0x69, 0x64, 0x18, 0x02, 0x20, 0x01, 0x28, 0x09, 0x52, 0x0f, 0x63, 0x6f, 0x6e, 0x66, 0x69, 0x67,
+	0x75, 0x72, 0x61, 0x74, 0x69, 0x6f, 0x6e, 0x49, 0x64, 0x12, 0x2d, 0x0a, 0x12, 0x63, 0x6f, 0x6e,
+	0x66, 0x69, 0x67, 0x75, 0x72, 0x61, 0x74, 0x69, 0x6f, 0x6e, 0x5f, 0x6e, 0x61, 0x6d, 0x65, 0x18,
+	0x03, 0x20, 0x01, 0x28, 0x09, 0x52, 0x11, 0x63, 0x6f, 0x6e, 0x66, 0x69, 0x67, 0x75, 0x72, 0x61,
+	0x74, 0x69, 0x6f, 0x6e, 0x4e, 0x61, 0x6d, 0x65, 0x12, 0x3e, 0x0a, 0x07, 0x63, 0x68, 0x61, 0x6e,
+	0x67, 0x65, 0x73, 0x18, 0x04, 0x20, 0x03, 0x28, 0x0b, 0x32, 0x24, 0x2e, 0x66, 0x6c, 0x65, 0x65,
+	0x74, 0x6d, 0x61, 0x6e, 0x61, 0x67, 0x65, 0x6d, 0x65, 0x6e, 0x74, 0x2e, 0x76, 0x31, 0x2e, 0x57,
+	0x6f, 0x72, 0x6b, 0x65, 0x72, 0x4e, 0x61, 0x6d, 0x65, 0x43, 0x68, 0x61, 0x6e, 0x67, 0x65, 0x52,
+	0x07, 0x63, 0x68, 0x61, 0x6e, 0x67, 0x65, 0x73, 0x22, 0x6d, 0x0a, 0x10, 0x57, 0x6f, 0x72, 0x6b,
+	0x65, 0x72, 0x4e, 0x61, 0x6d, 0x65, 0x43, 0x68, 0x61, 0x6e, 0x67, 0x65, 0x12, 0x2b, 0x0a, 0x11,
+	0x64, 0x65, 0x76, 0x69, 0x63, 0x65, 0x5f, 0x69, 0x64, 0x65, 0x6e, 0x74, 0x69, 0x66, 0x69, 0x65,
+	0x72, 0x18, 0x01, 0x20, 0x01, 0x28, 0x09, 0x52, 0x10, 0x64, 0x65, 0x76, 0x69, 0x63, 0x65, 0x49,
+	0x64, 0x65, 0x6e, 0x74, 0x69, 0x66, 0x69, 0x65, 0x72, 0x12, 0x16, 0x0a, 0x06, 0x62, 0x65, 0x66,
+	0x6f, 0x72, 0x65, 0x18, 0x02, 0x20, 0x01, 0x28, 0x09, 0x52, 0x06, 0x62, 0x65, 0x66, 0x6f, 0x72,
+	0x65, 0x12, 0x14, 0x0a, 0x05, 0x61, 0x66, 0x74, 0x65, 0x72, 0x18, 0x03, 0x20, 0x01, 0x28, 0x09,
+	0x52, 0x05, 0x61, 0x66, 0x74, 0x65, 0x72, 0x22, 0x8d, 0x01, 0x0a, 0x0f, 0x4d, 0x69, 0x6e, 0x65,
 	0x72, 0x4e, 0x61, 0x6d, 0x65, 0x43, 0x6f, 0x6e, 0x66, 0x69, 0x67, 0x12, 0x4a, 0x0a, 0x0a, 0x70,
 	0x72, 0x6f, 0x70, 0x65, 0x72, 0x74, 0x69, 0x65, 0x73, 0x18, 0x01, 0x20, 0x03, 0x28, 0x0b, 0x32,
 	0x20, 0x2e, 0x66, 0x6c, 0x65, 0x65, 0x74, 0x6d, 0x61, 0x6e, 0x61, 0x67, 0x65, 0x6d, 0x65, 0x6e,
@@ -3860,7 +4160,7 @@ var file_fleetmanagement_v1_fleetmanagement_proto_rawDesc = string([]byte{
 	0x17, 0x0a, 0x13, 0x51, 0x55, 0x41, 0x4c, 0x49, 0x46, 0x49, 0x45, 0x52, 0x5f, 0x54, 0x59, 0x50,
 	0x45, 0x5f, 0x52, 0x41, 0x43, 0x4b, 0x10, 0x02, 0x12, 0x20, 0x0a, 0x1c, 0x51, 0x55, 0x41, 0x4c,
 	0x49, 0x46, 0x49, 0x45, 0x52, 0x5f, 0x54, 0x59, 0x50, 0x45, 0x5f, 0x52, 0x41, 0x43, 0x4b, 0x5f,
-	0x50, 0x4f, 0x53, 0x49, 0x54, 0x49, 0x4f, 0x4e, 0x10, 0x03, 0x32, 0xa4, 0x0a, 0x0a, 0x16, 0x46,
+	0x50, 0x4f, 0x53, 0x49, 0x54, 0x49, 0x4f, 0x4e, 0x10, 0x03, 0x32, 0x96, 0x0b, 0x0a, 0x16, 0x46,
 	0x6c, 0x65, 0x65, 0x74, 0x4d, 0x61, 0x6e, 0x61, 0x67, 0x65, 0x6d, 0x65, 0x6e, 0x74, 0x53, 0x65,
 	0x72, 0x76, 0x69, 0x63, 0x65, 0x12, 0x82, 0x01, 0x0a, 0x17, 0x4c, 0x69, 0x73, 0x74, 0x4d, 0x69,
 	0x6e, 0x65, 0x72, 0x53, 0x74, 0x61, 0x74, 0x65, 0x53, 0x6e, 0x61, 0x70, 0x73, 0x68, 0x6f, 0x74,
@@ -3943,22 +4243,29 @@ var file_fleetmanagement_v1_fleetmanagement_proto_rawDesc = string([]byte{
 	0x73, 0x74, 0x1a, 0x2d, 0x2e, 0x66, 0x6c, 0x65, 0x65, 0x74, 0x6d, 0x61, 0x6e, 0x61, 0x67, 0x65,
 	0x6d, 0x65, 0x6e, 0x74, 0x2e, 0x76, 0x31, 0x2e, 0x55, 0x70, 0x64, 0x61, 0x74, 0x65, 0x57, 0x6f,
 	0x72, 0x6b, 0x65, 0x72, 0x4e, 0x61, 0x6d, 0x65, 0x73, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73,
-	0x65, 0x42, 0xf0, 0x01, 0x0a, 0x16, 0x63, 0x6f, 0x6d, 0x2e, 0x66, 0x6c, 0x65, 0x65, 0x74, 0x6d,
-	0x61, 0x6e, 0x61, 0x67, 0x65, 0x6d, 0x65, 0x6e, 0x74, 0x2e, 0x76, 0x31, 0x42, 0x14, 0x46, 0x6c,
-	0x65, 0x65, 0x74, 0x6d, 0x61, 0x6e, 0x61, 0x67, 0x65, 0x6d, 0x65, 0x6e, 0x74, 0x50, 0x72, 0x6f,
-	0x74, 0x6f, 0x50, 0x01, 0x5a, 0x57, 0x67, 0x69, 0x74, 0x68, 0x75, 0x62, 0x2e, 0x63, 0x6f, 0x6d,
-	0x2f, 0x62, 0x6c, 0x6f, 0x63, 0x6b, 0x2f, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x2d, 0x66, 0x6c, 0x65,
-	0x65, 0x74, 0x2f, 0x73, 0x65, 0x72, 0x76, 0x65, 0x72, 0x2f, 0x67, 0x65, 0x6e, 0x65, 0x72, 0x61,
-	0x74, 0x65, 0x64, 0x2f, 0x67, 0x72, 0x70, 0x63, 0x2f, 0x66, 0x6c, 0x65, 0x65, 0x74, 0x6d, 0x61,
-	0x6e, 0x61, 0x67, 0x65, 0x6d, 0x65, 0x6e, 0x74, 0x2f, 0x76, 0x31, 0x3b, 0x66, 0x6c, 0x65, 0x65,
-	0x74, 0x6d, 0x61, 0x6e, 0x61, 0x67, 0x65, 0x6d, 0x65, 0x6e, 0x74, 0x76, 0x31, 0xa2, 0x02, 0x03,
-	0x46, 0x58, 0x58, 0xaa, 0x02, 0x12, 0x46, 0x6c, 0x65, 0x65, 0x74, 0x6d, 0x61, 0x6e, 0x61, 0x67,
-	0x65, 0x6d, 0x65, 0x6e, 0x74, 0x2e, 0x56, 0x31, 0xca, 0x02, 0x12, 0x46, 0x6c, 0x65, 0x65, 0x74,
-	0x6d, 0x61, 0x6e, 0x61, 0x67, 0x65, 0x6d, 0x65, 0x6e, 0x74, 0x5c, 0x56, 0x31, 0xe2, 0x02, 0x1e,
-	0x46, 0x6c, 0x65, 0x65, 0x74, 0x6d, 0x61, 0x6e, 0x61, 0x67, 0x65, 0x6d, 0x65, 0x6e, 0x74, 0x5c,
-	0x56, 0x31, 0x5c, 0x47, 0x50, 0x42, 0x4d, 0x65, 0x74, 0x61, 0x64, 0x61, 0x74, 0x61, 0xea, 0x02,
-	0x13, 0x46, 0x6c, 0x65, 0x65, 0x74, 0x6d, 0x61, 0x6e, 0x61, 0x67, 0x65, 0x6d, 0x65, 0x6e, 0x74,
-	0x3a, 0x3a, 0x56, 0x31, 0x62, 0x06, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x33,
+	0x65, 0x12, 0x70, 0x0a, 0x11, 0x52, 0x65, 0x76, 0x69, 0x65, 0x77, 0x57, 0x6f, 0x72, 0x6b, 0x65,
+	0x72, 0x4e, 0x61, 0x6d, 0x65, 0x73, 0x12, 0x2c, 0x2e, 0x66, 0x6c, 0x65, 0x65, 0x74, 0x6d, 0x61,
+	0x6e, 0x61, 0x67, 0x65, 0x6d, 0x65, 0x6e, 0x74, 0x2e, 0x76, 0x31, 0x2e, 0x52, 0x65, 0x76, 0x69,
+	0x65, 0x77, 0x57, 0x6f, 0x72, 0x6b, 0x65, 0x72, 0x4e, 0x61, 0x6d, 0x65, 0x73, 0x52, 0x65, 0x71,
+	0x75, 0x65, 0x73, 0x74, 0x1a, 0x2d, 0x2e, 0x66, 0x6c, 0x65, 0x65, 0x74, 0x6d, 0x61, 0x6e, 0x61,
+	0x67, 0x65, 0x6d, 0x65, 0x6e, 0x74, 0x2e, 0x76, 0x31, 0x2e, 0x52, 0x65, 0x76, 0x69, 0x65, 0x77,
+	0x57, 0x6f, 0x72, 0x6b, 0x65, 0x72, 0x4e, 0x61, 0x6d, 0x65, 0x73, 0x52, 0x65, 0x73, 0x70, 0x6f,
+	0x6e, 0x73, 0x65, 0x42, 0xf0, 0x01, 0x0a, 0x16, 0x63, 0x6f, 0x6d, 0x2e, 0x66, 0x6c, 0x65, 0x65,
+	0x74, 0x6d, 0x61, 0x6e, 0x61, 0x67, 0x65, 0x6d, 0x65, 0x6e, 0x74, 0x2e, 0x76, 0x31, 0x42, 0x14,
+	0x46, 0x6c, 0x65, 0x65, 0x74, 0x6d, 0x61, 0x6e, 0x61, 0x67, 0x65, 0x6d, 0x65, 0x6e, 0x74, 0x50,
+	0x72, 0x6f, 0x74, 0x6f, 0x50, 0x01, 0x5a, 0x57, 0x67, 0x69, 0x74, 0x68, 0x75, 0x62, 0x2e, 0x63,
+	0x6f, 0x6d, 0x2f, 0x62, 0x6c, 0x6f, 0x63, 0x6b, 0x2f, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x2d, 0x66,
+	0x6c, 0x65, 0x65, 0x74, 0x2f, 0x73, 0x65, 0x72, 0x76, 0x65, 0x72, 0x2f, 0x67, 0x65, 0x6e, 0x65,
+	0x72, 0x61, 0x74, 0x65, 0x64, 0x2f, 0x67, 0x72, 0x70, 0x63, 0x2f, 0x66, 0x6c, 0x65, 0x65, 0x74,
+	0x6d, 0x61, 0x6e, 0x61, 0x67, 0x65, 0x6d, 0x65, 0x6e, 0x74, 0x2f, 0x76, 0x31, 0x3b, 0x66, 0x6c,
+	0x65, 0x65, 0x74, 0x6d, 0x61, 0x6e, 0x61, 0x67, 0x65, 0x6d, 0x65, 0x6e, 0x74, 0x76, 0x31, 0xa2,
+	0x02, 0x03, 0x46, 0x58, 0x58, 0xaa, 0x02, 0x12, 0x46, 0x6c, 0x65, 0x65, 0x74, 0x6d, 0x61, 0x6e,
+	0x61, 0x67, 0x65, 0x6d, 0x65, 0x6e, 0x74, 0x2e, 0x56, 0x31, 0xca, 0x02, 0x12, 0x46, 0x6c, 0x65,
+	0x65, 0x74, 0x6d, 0x61, 0x6e, 0x61, 0x67, 0x65, 0x6d, 0x65, 0x6e, 0x74, 0x5c, 0x56, 0x31, 0xe2,
+	0x02, 0x1e, 0x46, 0x6c, 0x65, 0x65, 0x74, 0x6d, 0x61, 0x6e, 0x61, 0x67, 0x65, 0x6d, 0x65, 0x6e,
+	0x74, 0x5c, 0x56, 0x31, 0x5c, 0x47, 0x50, 0x42, 0x4d, 0x65, 0x74, 0x61, 0x64, 0x61, 0x74, 0x61,
+	0xea, 0x02, 0x13, 0x46, 0x6c, 0x65, 0x65, 0x74, 0x6d, 0x61, 0x6e, 0x61, 0x67, 0x65, 0x6d, 0x65,
+	0x6e, 0x74, 0x3a, 0x3a, 0x56, 0x31, 0x62, 0x06, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x33,
 })
 
 var (
@@ -3974,7 +4281,7 @@ func file_fleetmanagement_v1_fleetmanagement_proto_rawDescGZIP() []byte {
 }
 
 var file_fleetmanagement_v1_fleetmanagement_proto_enumTypes = make([]protoimpl.EnumInfo, 10)
-var file_fleetmanagement_v1_fleetmanagement_proto_msgTypes = make([]protoimpl.MessageInfo, 37)
+var file_fleetmanagement_v1_fleetmanagement_proto_msgTypes = make([]protoimpl.MessageInfo, 41)
 var file_fleetmanagement_v1_fleetmanagement_proto_goTypes = []any{
 	(FleetManagementServiceErrorCode)(0),    // 0: fleetmanagement.v1.FleetManagementServiceErrorCode
 	(DeviceStatus)(0),                       // 1: fleetmanagement.v1.DeviceStatus
@@ -4015,110 +4322,121 @@ var file_fleetmanagement_v1_fleetmanagement_proto_goTypes = []any{
 	(*RenameMinersResponse)(nil),            // 36: fleetmanagement.v1.RenameMinersResponse
 	(*UpdateWorkerNamesRequest)(nil),        // 37: fleetmanagement.v1.UpdateWorkerNamesRequest
 	(*UpdateWorkerNamesResponse)(nil),       // 38: fleetmanagement.v1.UpdateWorkerNamesResponse
-	(*MinerNameConfig)(nil),                 // 39: fleetmanagement.v1.MinerNameConfig
-	(*NameProperty)(nil),                    // 40: fleetmanagement.v1.NameProperty
-	(*StringAndCounterProperty)(nil),        // 41: fleetmanagement.v1.StringAndCounterProperty
-	(*CounterProperty)(nil),                 // 42: fleetmanagement.v1.CounterProperty
-	(*StringProperty)(nil),                  // 43: fleetmanagement.v1.StringProperty
-	(*FixedValueProperty)(nil),              // 44: fleetmanagement.v1.FixedValueProperty
-	(*QualifierProperty)(nil),               // 45: fleetmanagement.v1.QualifierProperty
-	nil,                                     // 46: fleetmanagement.v1.RefreshMinersResponse.ErrorsEntry
-	(*v1.Measurement)(nil),                  // 47: common.v1.Measurement
-	(*timestamppb.Timestamp)(nil),           // 48: google.protobuf.Timestamp
-	(v1.DeviceClass)(0),                     // 49: common.v1.DeviceClass
-	(*v11.MinerCapabilities)(nil),           // 50: capabilities.v1.MinerCapabilities
-	(v12.TemperatureStatus)(0),              // 51: telemetry.v1.TemperatureStatus
-	(*v1.PlacementRefs)(nil),                // 52: common.v1.PlacementRefs
-	(*v1.SortConfig)(nil),                   // 53: common.v1.SortConfig
-	(v13.ComponentType)(0),                  // 54: errors.v1.ComponentType
-	(*v1.ZoneKey)(nil),                      // 55: common.v1.ZoneKey
-	(*wrapperspb.DoubleValue)(nil),          // 56: google.protobuf.DoubleValue
-	(*v12.MinerStateCounts)(nil),            // 57: telemetry.v1.MinerStateCounts
-	(v1.CoolingMode)(0),                     // 58: common.v1.CoolingMode
-	(*v1.DeviceIdentifierList)(nil),         // 59: common.v1.DeviceIdentifierList
+	(*ReviewWorkerNamesRequest)(nil),        // 39: fleetmanagement.v1.ReviewWorkerNamesRequest
+	(*ReviewWorkerNamesResponse)(nil),       // 40: fleetmanagement.v1.ReviewWorkerNamesResponse
+	(*WorkerNameReview)(nil),                // 41: fleetmanagement.v1.WorkerNameReview
+	(*WorkerNameChange)(nil),                // 42: fleetmanagement.v1.WorkerNameChange
+	(*MinerNameConfig)(nil),                 // 43: fleetmanagement.v1.MinerNameConfig
+	(*NameProperty)(nil),                    // 44: fleetmanagement.v1.NameProperty
+	(*StringAndCounterProperty)(nil),        // 45: fleetmanagement.v1.StringAndCounterProperty
+	(*CounterProperty)(nil),                 // 46: fleetmanagement.v1.CounterProperty
+	(*StringProperty)(nil),                  // 47: fleetmanagement.v1.StringProperty
+	(*FixedValueProperty)(nil),              // 48: fleetmanagement.v1.FixedValueProperty
+	(*QualifierProperty)(nil),               // 49: fleetmanagement.v1.QualifierProperty
+	nil,                                     // 50: fleetmanagement.v1.RefreshMinersResponse.ErrorsEntry
+	(*v1.Measurement)(nil),                  // 51: common.v1.Measurement
+	(*timestamppb.Timestamp)(nil),           // 52: google.protobuf.Timestamp
+	(v1.DeviceClass)(0),                     // 53: common.v1.DeviceClass
+	(*v11.MinerCapabilities)(nil),           // 54: capabilities.v1.MinerCapabilities
+	(v12.TemperatureStatus)(0),              // 55: telemetry.v1.TemperatureStatus
+	(*v1.PlacementRefs)(nil),                // 56: common.v1.PlacementRefs
+	(*v1.SortConfig)(nil),                   // 57: common.v1.SortConfig
+	(v13.ComponentType)(0),                  // 58: errors.v1.ComponentType
+	(*v1.ZoneKey)(nil),                      // 59: common.v1.ZoneKey
+	(*wrapperspb.DoubleValue)(nil),          // 60: google.protobuf.DoubleValue
+	(*v12.MinerStateCounts)(nil),            // 61: telemetry.v1.MinerStateCounts
+	(v1.CoolingMode)(0),                     // 62: common.v1.CoolingMode
+	(*v1.DeviceIdentifierList)(nil),         // 63: common.v1.DeviceIdentifierList
 }
 var file_fleetmanagement_v1_fleetmanagement_proto_depIdxs = []int32{
-	47, // 0: fleetmanagement.v1.MinerStateSnapshot.power_usage:type_name -> common.v1.Measurement
-	47, // 1: fleetmanagement.v1.MinerStateSnapshot.temperature:type_name -> common.v1.Measurement
-	47, // 2: fleetmanagement.v1.MinerStateSnapshot.hashrate:type_name -> common.v1.Measurement
-	47, // 3: fleetmanagement.v1.MinerStateSnapshot.efficiency:type_name -> common.v1.Measurement
-	48, // 4: fleetmanagement.v1.MinerStateSnapshot.timestamp:type_name -> google.protobuf.Timestamp
+	51, // 0: fleetmanagement.v1.MinerStateSnapshot.power_usage:type_name -> common.v1.Measurement
+	51, // 1: fleetmanagement.v1.MinerStateSnapshot.temperature:type_name -> common.v1.Measurement
+	51, // 2: fleetmanagement.v1.MinerStateSnapshot.hashrate:type_name -> common.v1.Measurement
+	51, // 3: fleetmanagement.v1.MinerStateSnapshot.efficiency:type_name -> common.v1.Measurement
+	52, // 4: fleetmanagement.v1.MinerStateSnapshot.timestamp:type_name -> google.protobuf.Timestamp
 	1,  // 5: fleetmanagement.v1.MinerStateSnapshot.device_status:type_name -> fleetmanagement.v1.DeviceStatus
 	3,  // 6: fleetmanagement.v1.MinerStateSnapshot.pairing_status:type_name -> fleetmanagement.v1.PairingStatus
-	49, // 7: fleetmanagement.v1.MinerStateSnapshot.device_class:type_name -> common.v1.DeviceClass
-	50, // 8: fleetmanagement.v1.MinerStateSnapshot.capabilities:type_name -> capabilities.v1.MinerCapabilities
-	51, // 9: fleetmanagement.v1.MinerStateSnapshot.temperature_status:type_name -> telemetry.v1.TemperatureStatus
-	52, // 10: fleetmanagement.v1.MinerStateSnapshot.placement:type_name -> common.v1.PlacementRefs
+	53, // 7: fleetmanagement.v1.MinerStateSnapshot.device_class:type_name -> common.v1.DeviceClass
+	54, // 8: fleetmanagement.v1.MinerStateSnapshot.capabilities:type_name -> capabilities.v1.MinerCapabilities
+	55, // 9: fleetmanagement.v1.MinerStateSnapshot.temperature_status:type_name -> telemetry.v1.TemperatureStatus
+	56, // 10: fleetmanagement.v1.MinerStateSnapshot.placement:type_name -> common.v1.PlacementRefs
 	2,  // 11: fleetmanagement.v1.MinerStateSnapshot.offline_reason:type_name -> fleetmanagement.v1.DeviceOfflineReason
 	12, // 12: fleetmanagement.v1.ListMinerStateSnapshotsRequest.filter:type_name -> fleetmanagement.v1.MinerListFilter
-	53, // 13: fleetmanagement.v1.ListMinerStateSnapshotsRequest.sort:type_name -> common.v1.SortConfig
+	57, // 13: fleetmanagement.v1.ListMinerStateSnapshotsRequest.sort:type_name -> common.v1.SortConfig
 	1,  // 14: fleetmanagement.v1.MinerListFilter.device_status:type_name -> fleetmanagement.v1.DeviceStatus
-	54, // 15: fleetmanagement.v1.MinerListFilter.error_component_types:type_name -> errors.v1.ComponentType
+	58, // 15: fleetmanagement.v1.MinerListFilter.error_component_types:type_name -> errors.v1.ComponentType
 	3,  // 16: fleetmanagement.v1.MinerListFilter.pairing_statuses:type_name -> fleetmanagement.v1.PairingStatus
 	14, // 17: fleetmanagement.v1.MinerListFilter.numeric_ranges:type_name -> fleetmanagement.v1.NumericRangeFilter
-	55, // 18: fleetmanagement.v1.MinerListFilter.zone_keys:type_name -> common.v1.ZoneKey
+	59, // 18: fleetmanagement.v1.MinerListFilter.zone_keys:type_name -> common.v1.ZoneKey
 	13, // 19: fleetmanagement.v1.MinerListFilter.ip_ranges:type_name -> fleetmanagement.v1.IpRange
 	4,  // 20: fleetmanagement.v1.NumericRangeFilter.field:type_name -> fleetmanagement.v1.NumericField
-	56, // 21: fleetmanagement.v1.NumericRangeFilter.min:type_name -> google.protobuf.DoubleValue
-	56, // 22: fleetmanagement.v1.NumericRangeFilter.max:type_name -> google.protobuf.DoubleValue
+	60, // 21: fleetmanagement.v1.NumericRangeFilter.min:type_name -> google.protobuf.DoubleValue
+	60, // 22: fleetmanagement.v1.NumericRangeFilter.max:type_name -> google.protobuf.DoubleValue
 	10, // 23: fleetmanagement.v1.ListMinerStateSnapshotsResponse.miners:type_name -> fleetmanagement.v1.MinerStateSnapshot
-	57, // 24: fleetmanagement.v1.ListMinerStateSnapshotsResponse.total_state_counts:type_name -> telemetry.v1.MinerStateCounts
+	61, // 24: fleetmanagement.v1.ListMinerStateSnapshotsResponse.total_state_counts:type_name -> telemetry.v1.MinerStateCounts
 	10, // 25: fleetmanagement.v1.RefreshMinersResponse.snapshots:type_name -> fleetmanagement.v1.MinerStateSnapshot
-	46, // 26: fleetmanagement.v1.RefreshMinersResponse.errors:type_name -> fleetmanagement.v1.RefreshMinersResponse.ErrorsEntry
+	50, // 26: fleetmanagement.v1.RefreshMinersResponse.errors:type_name -> fleetmanagement.v1.RefreshMinersResponse.ErrorsEntry
 	5,  // 27: fleetmanagement.v1.LookupMinerByIdentifierRequest.identifier_type:type_name -> fleetmanagement.v1.MinerIdentifierType
 	10, // 28: fleetmanagement.v1.LookupMinerByIdentifierResponse.snapshot:type_name -> fleetmanagement.v1.MinerStateSnapshot
 	12, // 29: fleetmanagement.v1.ExportMinerListCsvRequest.filter:type_name -> fleetmanagement.v1.MinerListFilter
 	6,  // 30: fleetmanagement.v1.ExportMinerListCsvRequest.temperature_unit:type_name -> fleetmanagement.v1.CsvTemperatureUnit
-	57, // 31: fleetmanagement.v1.GetMinerStateCountsResponse.state_counts:type_name -> telemetry.v1.MinerStateCounts
+	61, // 31: fleetmanagement.v1.GetMinerStateCountsResponse.state_counts:type_name -> telemetry.v1.MinerStateCounts
 	25, // 32: fleetmanagement.v1.GetMinerPoolAssignmentsResponse.pools:type_name -> fleetmanagement.v1.PoolAssignment
 	12, // 33: fleetmanagement.v1.GetMinerModelGroupsRequest.filter:type_name -> fleetmanagement.v1.MinerListFilter
 	27, // 34: fleetmanagement.v1.GetMinerModelGroupsResponse.groups:type_name -> fleetmanagement.v1.MinerModelGroup
-	58, // 35: fleetmanagement.v1.GetMinerCoolingModeResponse.cooling_mode:type_name -> common.v1.CoolingMode
+	62, // 35: fleetmanagement.v1.GetMinerCoolingModeResponse.cooling_mode:type_name -> common.v1.CoolingMode
 	12, // 36: fleetmanagement.v1.DeviceSelector.all_devices:type_name -> fleetmanagement.v1.MinerListFilter
-	59, // 37: fleetmanagement.v1.DeviceSelector.include_devices:type_name -> common.v1.DeviceIdentifierList
+	63, // 37: fleetmanagement.v1.DeviceSelector.include_devices:type_name -> common.v1.DeviceIdentifierList
 	32, // 38: fleetmanagement.v1.DeleteMinersRequest.device_selector:type_name -> fleetmanagement.v1.DeviceSelector
 	32, // 39: fleetmanagement.v1.RenameMinersRequest.device_selector:type_name -> fleetmanagement.v1.DeviceSelector
-	39, // 40: fleetmanagement.v1.RenameMinersRequest.name_config:type_name -> fleetmanagement.v1.MinerNameConfig
-	53, // 41: fleetmanagement.v1.RenameMinersRequest.sort:type_name -> common.v1.SortConfig
+	43, // 40: fleetmanagement.v1.RenameMinersRequest.name_config:type_name -> fleetmanagement.v1.MinerNameConfig
+	57, // 41: fleetmanagement.v1.RenameMinersRequest.sort:type_name -> common.v1.SortConfig
 	32, // 42: fleetmanagement.v1.UpdateWorkerNamesRequest.device_selector:type_name -> fleetmanagement.v1.DeviceSelector
-	39, // 43: fleetmanagement.v1.UpdateWorkerNamesRequest.name_config:type_name -> fleetmanagement.v1.MinerNameConfig
-	53, // 44: fleetmanagement.v1.UpdateWorkerNamesRequest.sort:type_name -> common.v1.SortConfig
-	40, // 45: fleetmanagement.v1.MinerNameConfig.properties:type_name -> fleetmanagement.v1.NameProperty
-	41, // 46: fleetmanagement.v1.NameProperty.string_and_counter:type_name -> fleetmanagement.v1.StringAndCounterProperty
-	42, // 47: fleetmanagement.v1.NameProperty.counter:type_name -> fleetmanagement.v1.CounterProperty
-	43, // 48: fleetmanagement.v1.NameProperty.string_value:type_name -> fleetmanagement.v1.StringProperty
-	44, // 49: fleetmanagement.v1.NameProperty.fixed_value:type_name -> fleetmanagement.v1.FixedValueProperty
-	45, // 50: fleetmanagement.v1.NameProperty.qualifier:type_name -> fleetmanagement.v1.QualifierProperty
-	7,  // 51: fleetmanagement.v1.FixedValueProperty.type:type_name -> fleetmanagement.v1.FixedValueType
-	8,  // 52: fleetmanagement.v1.FixedValueProperty.section:type_name -> fleetmanagement.v1.CharacterSection
-	9,  // 53: fleetmanagement.v1.QualifierProperty.type:type_name -> fleetmanagement.v1.QualifierType
-	11, // 54: fleetmanagement.v1.FleetManagementService.ListMinerStateSnapshots:input_type -> fleetmanagement.v1.ListMinerStateSnapshotsRequest
-	16, // 55: fleetmanagement.v1.FleetManagementService.RefreshMiners:input_type -> fleetmanagement.v1.RefreshMinersRequest
-	18, // 56: fleetmanagement.v1.FleetManagementService.LookupMinerByIdentifier:input_type -> fleetmanagement.v1.LookupMinerByIdentifierRequest
-	20, // 57: fleetmanagement.v1.FleetManagementService.ExportMinerListCsv:input_type -> fleetmanagement.v1.ExportMinerListCsvRequest
-	22, // 58: fleetmanagement.v1.FleetManagementService.GetMinerStateCounts:input_type -> fleetmanagement.v1.GetMinerStateCountsRequest
-	24, // 59: fleetmanagement.v1.FleetManagementService.GetMinerPoolAssignments:input_type -> fleetmanagement.v1.GetMinerPoolAssignmentsRequest
-	30, // 60: fleetmanagement.v1.FleetManagementService.GetMinerCoolingMode:input_type -> fleetmanagement.v1.GetMinerCoolingModeRequest
-	33, // 61: fleetmanagement.v1.FleetManagementService.DeleteMiners:input_type -> fleetmanagement.v1.DeleteMinersRequest
-	28, // 62: fleetmanagement.v1.FleetManagementService.GetMinerModelGroups:input_type -> fleetmanagement.v1.GetMinerModelGroupsRequest
-	35, // 63: fleetmanagement.v1.FleetManagementService.RenameMiners:input_type -> fleetmanagement.v1.RenameMinersRequest
-	37, // 64: fleetmanagement.v1.FleetManagementService.UpdateWorkerNames:input_type -> fleetmanagement.v1.UpdateWorkerNamesRequest
-	15, // 65: fleetmanagement.v1.FleetManagementService.ListMinerStateSnapshots:output_type -> fleetmanagement.v1.ListMinerStateSnapshotsResponse
-	17, // 66: fleetmanagement.v1.FleetManagementService.RefreshMiners:output_type -> fleetmanagement.v1.RefreshMinersResponse
-	19, // 67: fleetmanagement.v1.FleetManagementService.LookupMinerByIdentifier:output_type -> fleetmanagement.v1.LookupMinerByIdentifierResponse
-	21, // 68: fleetmanagement.v1.FleetManagementService.ExportMinerListCsv:output_type -> fleetmanagement.v1.ExportMinerListCsvResponse
-	23, // 69: fleetmanagement.v1.FleetManagementService.GetMinerStateCounts:output_type -> fleetmanagement.v1.GetMinerStateCountsResponse
-	26, // 70: fleetmanagement.v1.FleetManagementService.GetMinerPoolAssignments:output_type -> fleetmanagement.v1.GetMinerPoolAssignmentsResponse
-	31, // 71: fleetmanagement.v1.FleetManagementService.GetMinerCoolingMode:output_type -> fleetmanagement.v1.GetMinerCoolingModeResponse
-	34, // 72: fleetmanagement.v1.FleetManagementService.DeleteMiners:output_type -> fleetmanagement.v1.DeleteMinersResponse
-	29, // 73: fleetmanagement.v1.FleetManagementService.GetMinerModelGroups:output_type -> fleetmanagement.v1.GetMinerModelGroupsResponse
-	36, // 74: fleetmanagement.v1.FleetManagementService.RenameMiners:output_type -> fleetmanagement.v1.RenameMinersResponse
-	38, // 75: fleetmanagement.v1.FleetManagementService.UpdateWorkerNames:output_type -> fleetmanagement.v1.UpdateWorkerNamesResponse
-	65, // [65:76] is the sub-list for method output_type
-	54, // [54:65] is the sub-list for method input_type
-	54, // [54:54] is the sub-list for extension type_name
-	54, // [54:54] is the sub-list for extension extendee
-	0,  // [0:54] is the sub-list for field type_name
+	43, // 43: fleetmanagement.v1.UpdateWorkerNamesRequest.name_config:type_name -> fleetmanagement.v1.MinerNameConfig
+	57, // 44: fleetmanagement.v1.UpdateWorkerNamesRequest.sort:type_name -> common.v1.SortConfig
+	32, // 45: fleetmanagement.v1.ReviewWorkerNamesRequest.device_selector:type_name -> fleetmanagement.v1.DeviceSelector
+	43, // 46: fleetmanagement.v1.ReviewWorkerNamesRequest.name_config:type_name -> fleetmanagement.v1.MinerNameConfig
+	57, // 47: fleetmanagement.v1.ReviewWorkerNamesRequest.sort:type_name -> common.v1.SortConfig
+	41, // 48: fleetmanagement.v1.ReviewWorkerNamesResponse.reviews:type_name -> fleetmanagement.v1.WorkerNameReview
+	42, // 49: fleetmanagement.v1.WorkerNameReview.changes:type_name -> fleetmanagement.v1.WorkerNameChange
+	44, // 50: fleetmanagement.v1.MinerNameConfig.properties:type_name -> fleetmanagement.v1.NameProperty
+	45, // 51: fleetmanagement.v1.NameProperty.string_and_counter:type_name -> fleetmanagement.v1.StringAndCounterProperty
+	46, // 52: fleetmanagement.v1.NameProperty.counter:type_name -> fleetmanagement.v1.CounterProperty
+	47, // 53: fleetmanagement.v1.NameProperty.string_value:type_name -> fleetmanagement.v1.StringProperty
+	48, // 54: fleetmanagement.v1.NameProperty.fixed_value:type_name -> fleetmanagement.v1.FixedValueProperty
+	49, // 55: fleetmanagement.v1.NameProperty.qualifier:type_name -> fleetmanagement.v1.QualifierProperty
+	7,  // 56: fleetmanagement.v1.FixedValueProperty.type:type_name -> fleetmanagement.v1.FixedValueType
+	8,  // 57: fleetmanagement.v1.FixedValueProperty.section:type_name -> fleetmanagement.v1.CharacterSection
+	9,  // 58: fleetmanagement.v1.QualifierProperty.type:type_name -> fleetmanagement.v1.QualifierType
+	11, // 59: fleetmanagement.v1.FleetManagementService.ListMinerStateSnapshots:input_type -> fleetmanagement.v1.ListMinerStateSnapshotsRequest
+	16, // 60: fleetmanagement.v1.FleetManagementService.RefreshMiners:input_type -> fleetmanagement.v1.RefreshMinersRequest
+	18, // 61: fleetmanagement.v1.FleetManagementService.LookupMinerByIdentifier:input_type -> fleetmanagement.v1.LookupMinerByIdentifierRequest
+	20, // 62: fleetmanagement.v1.FleetManagementService.ExportMinerListCsv:input_type -> fleetmanagement.v1.ExportMinerListCsvRequest
+	22, // 63: fleetmanagement.v1.FleetManagementService.GetMinerStateCounts:input_type -> fleetmanagement.v1.GetMinerStateCountsRequest
+	24, // 64: fleetmanagement.v1.FleetManagementService.GetMinerPoolAssignments:input_type -> fleetmanagement.v1.GetMinerPoolAssignmentsRequest
+	30, // 65: fleetmanagement.v1.FleetManagementService.GetMinerCoolingMode:input_type -> fleetmanagement.v1.GetMinerCoolingModeRequest
+	33, // 66: fleetmanagement.v1.FleetManagementService.DeleteMiners:input_type -> fleetmanagement.v1.DeleteMinersRequest
+	28, // 67: fleetmanagement.v1.FleetManagementService.GetMinerModelGroups:input_type -> fleetmanagement.v1.GetMinerModelGroupsRequest
+	35, // 68: fleetmanagement.v1.FleetManagementService.RenameMiners:input_type -> fleetmanagement.v1.RenameMinersRequest
+	37, // 69: fleetmanagement.v1.FleetManagementService.UpdateWorkerNames:input_type -> fleetmanagement.v1.UpdateWorkerNamesRequest
+	39, // 70: fleetmanagement.v1.FleetManagementService.ReviewWorkerNames:input_type -> fleetmanagement.v1.ReviewWorkerNamesRequest
+	15, // 71: fleetmanagement.v1.FleetManagementService.ListMinerStateSnapshots:output_type -> fleetmanagement.v1.ListMinerStateSnapshotsResponse
+	17, // 72: fleetmanagement.v1.FleetManagementService.RefreshMiners:output_type -> fleetmanagement.v1.RefreshMinersResponse
+	19, // 73: fleetmanagement.v1.FleetManagementService.LookupMinerByIdentifier:output_type -> fleetmanagement.v1.LookupMinerByIdentifierResponse
+	21, // 74: fleetmanagement.v1.FleetManagementService.ExportMinerListCsv:output_type -> fleetmanagement.v1.ExportMinerListCsvResponse
+	23, // 75: fleetmanagement.v1.FleetManagementService.GetMinerStateCounts:output_type -> fleetmanagement.v1.GetMinerStateCountsResponse
+	26, // 76: fleetmanagement.v1.FleetManagementService.GetMinerPoolAssignments:output_type -> fleetmanagement.v1.GetMinerPoolAssignmentsResponse
+	31, // 77: fleetmanagement.v1.FleetManagementService.GetMinerCoolingMode:output_type -> fleetmanagement.v1.GetMinerCoolingModeResponse
+	34, // 78: fleetmanagement.v1.FleetManagementService.DeleteMiners:output_type -> fleetmanagement.v1.DeleteMinersResponse
+	29, // 79: fleetmanagement.v1.FleetManagementService.GetMinerModelGroups:output_type -> fleetmanagement.v1.GetMinerModelGroupsResponse
+	36, // 80: fleetmanagement.v1.FleetManagementService.RenameMiners:output_type -> fleetmanagement.v1.RenameMinersResponse
+	38, // 81: fleetmanagement.v1.FleetManagementService.UpdateWorkerNames:output_type -> fleetmanagement.v1.UpdateWorkerNamesResponse
+	40, // 82: fleetmanagement.v1.FleetManagementService.ReviewWorkerNames:output_type -> fleetmanagement.v1.ReviewWorkerNamesResponse
+	71, // [71:83] is the sub-list for method output_type
+	59, // [59:71] is the sub-list for method input_type
+	59, // [59:59] is the sub-list for extension type_name
+	59, // [59:59] is the sub-list for extension extendee
+	0,  // [0:59] is the sub-list for field type_name
 }
 
 func init() { file_fleetmanagement_v1_fleetmanagement_proto_init() }
@@ -4131,21 +4449,21 @@ func file_fleetmanagement_v1_fleetmanagement_proto_init() {
 		(*DeviceSelector_AllDevices)(nil),
 		(*DeviceSelector_IncludeDevices)(nil),
 	}
-	file_fleetmanagement_v1_fleetmanagement_proto_msgTypes[30].OneofWrappers = []any{
+	file_fleetmanagement_v1_fleetmanagement_proto_msgTypes[34].OneofWrappers = []any{
 		(*NameProperty_StringAndCounter)(nil),
 		(*NameProperty_Counter)(nil),
 		(*NameProperty_StringValue)(nil),
 		(*NameProperty_FixedValue)(nil),
 		(*NameProperty_Qualifier)(nil),
 	}
-	file_fleetmanagement_v1_fleetmanagement_proto_msgTypes[34].OneofWrappers = []any{}
+	file_fleetmanagement_v1_fleetmanagement_proto_msgTypes[38].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_fleetmanagement_v1_fleetmanagement_proto_rawDesc), len(file_fleetmanagement_v1_fleetmanagement_proto_rawDesc)),
 			NumEnums:      10,
-			NumMessages:   37,
+			NumMessages:   41,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

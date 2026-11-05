@@ -160,6 +160,13 @@ func reviewDTO(review domain.Review) *pb.ReviewEditResponse {
 	return result
 }
 
+func (h *Handler) AuthorizeWorkerNameReviews(ctx context.Context, req *connect.Request[pb.AuthorizeWorkerNameReviewsRequest]) (*connect.Response[pb.AuthorizeWorkerNameReviewsResponse], error) {
+	if err := h.service.AuthorizeWorkerNameReviews(ctx, req.Msg.ReviewIds, req.Msg.Password); err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&pb.AuthorizeWorkerNameReviewsResponse{}), nil
+}
+
 func (h *Handler) ConfirmReview(ctx context.Context, req *connect.Request[pb.ConfirmReviewRequest]) (*connect.Response[pb.ConfirmReviewResponse], error) {
 	saved, err := h.service.ConfirmReview(ctx, req.Msg.AccountId, req.Msg.ReviewId, req.Msg.Password)
 	if err != nil {
@@ -234,7 +241,33 @@ func (h *Handler) CheckConfiguration(ctx context.Context, req *connect.Request[p
 	if err != nil {
 		return nil, err
 	}
-	response := &pb.CheckConfigurationResponse{State: result.State, ResultCode: result.ResultCode, ReadbackAvailable: result.ReadbackAvailable, CheckedAt: timestamppb.New(result.CheckedAt)}
+	return connect.NewResponse(checkResponse(result)), nil
+}
+
+func (h *Handler) ReadDevicePools(ctx context.Context, req *connect.Request[pb.ReadDevicePoolsRequest]) (*connect.Response[pb.ReadDevicePoolsResponse], error) {
+	targets := make([]domain.AssignmentTarget, len(req.Msg.Targets))
+	for i, target := range req.Msg.Targets {
+		if target == nil {
+			return nil, fleeterror.NewInvalidArgumentError("select equipment")
+		}
+		targets[i] = domain.AssignmentTarget{Kind: target.Kind, ID: target.TargetId}
+	}
+	results, err := h.service.ReadDevicePools(ctx, req.Msg.AccountId, targets)
+	if err != nil {
+		return nil, err
+	}
+	response := &pb.ReadDevicePoolsResponse{}
+	for i, result := range results {
+		response.Readings = append(response.Readings, &pb.DevicePoolReading{Target: req.Msg.Targets[i], Reading: checkResponse(result)})
+	}
+	return connect.NewResponse(response), nil
+}
+
+func checkResponse(result domain.CheckResult) *pb.CheckConfigurationResponse {
+	response := &pb.CheckConfigurationResponse{State: result.State, ResultCode: result.ResultCode, ReadbackAvailable: result.ReadbackAvailable}
+	if !result.CheckedAt.IsZero() {
+		response.CheckedAt = timestamppb.New(result.CheckedAt)
+	}
 	for _, p := range result.Expected {
 		response.Expected = append(response.Expected, &pb.ReportedPool{Priority: uint32(p.Priority), Url: p.URL, Username: p.Username})
 	} // #nosec G115 -- bounded pool priorities.
@@ -243,5 +276,5 @@ func (h *Handler) CheckConfiguration(ctx context.Context, req *connect.Request[p
 			response.Reported = append(response.Reported, &pb.ReportedPool{Priority: uint32(p.Priority), Url: p.URL, Username: p.Username})
 		}
 	} // #nosec G115 -- nonnegative int32 priority.
-	return connect.NewResponse(response), nil
+	return response
 }

@@ -2634,6 +2634,13 @@ type PoolConfigurationReview struct {
 	OperationID          sql.NullString
 }
 
+type PoolConfigurationReviewAuthorization struct {
+	ReviewID              string
+	SessionHash           string
+	CredentialFingerprint string
+	AuthorizedAt          time.Time
+}
+
 type PoolConfigurationRevision struct {
 	RevisionID      string
 	OrganizationID  int64

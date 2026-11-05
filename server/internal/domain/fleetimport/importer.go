@@ -80,7 +80,7 @@ func (imp *Importer) Import(ctx context.Context, orgID int64, data *ImportData) 
 
 	result.PoolsCreated = imp.createPools(ctx, data.Pools)
 	result.GroupsCreated, result.RacksCreated, result.DevicesAssigned = imp.createGroupsAndRacks(ctx, orgID, data, macToDevice)
-	result.WorkerNamesSet = imp.setWorkerNames(ctx, data, macToDevice)
+	result.WorkerNamesSet = imp.setWorkerNames(ctx, orgID, data, macToDevice)
 	result.MinerNamesSet = imp.setMinerNames(ctx, orgID, data, macToDevice)
 	return result
 }
@@ -134,7 +134,7 @@ func (imp *Importer) createPools(ctx context.Context, pools []ImportPool) int32 
 	return created
 }
 
-func (imp *Importer) setWorkerNames(ctx context.Context, data *ImportData, macToDevice map[string]*interfaces.PairedDeviceInfo) int32 {
+func (imp *Importer) setWorkerNames(ctx context.Context, orgID int64, data *ImportData, macToDevice map[string]*interfaces.PairedDeviceInfo) int32 {
 	var set int32
 	for _, m := range data.Miners {
 		if m.MAC == "" {
@@ -146,14 +146,15 @@ func (imp *Importer) setWorkerNames(ctx context.Context, data *ImportData, macTo
 			continue
 		}
 
-		// Use Foreman worker name if available, otherwise normalized MAC (matches regular pairing flow)
+		// Seed missing names from explicit import data or the same default as pairing.
+		// Re-import must not rename managed equipment without a reviewed reapply.
 		workerName := strings.TrimSpace(m.WorkerName)
 		if workerName == "" {
 			workerName = normalizedMAC
 		}
-		if err := imp.deviceStore.UpdateWorkerName(ctx, models.DeviceIdentifier(info.DeviceIdentifier), workerName); err != nil {
+		if initialized, err := imp.deviceStore.InitializeWorkerName(ctx, orgID, models.DeviceIdentifier(info.DeviceIdentifier), workerName); err != nil {
 			slog.Warn("failed to set worker name", "device", info.DeviceIdentifier, "error", err)
-		} else {
+		} else if initialized {
 			set++
 		}
 	}

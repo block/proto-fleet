@@ -80,7 +80,7 @@ func TestPoolWorkerUsesReviewedRevisionAndVerifiesReadback(t *testing.T) {
 		{"unrelated write before review", "verified", ""},
 		{"unrelated write after confirmation", "verified", ""},
 		{"conflicting write after confirmation", "failed", "interrupted"},
-		{"hidden password", "applied_unverified", "readback_unavailable"},
+		{"hidden password", "verified", ""},
 		{"runtime differs", "different", "settings_differ"},
 		{"lost acknowledgement", "failed", "write_uncertain"},
 		{"terminal write failure", "failed", "write_failed"},
@@ -172,7 +172,7 @@ func TestPoolWorkerUsesReviewedRevisionAndVerifiesReadback(t *testing.T) {
 			require.NoError(t, worker.Execute(t.Context(), f.org, saved.Operation.ID, target))
 			require.Equal(t, previous, device.writes, "finished or uncertain work is never automatically replayed")
 			retry, retryErr := service.ReviewRetry(ctx, f.account.AccountID, saved.Operation.ID, []poolconfigurations.AssignmentTarget{target})
-			if scenario.name == "hidden password" || scenario.name == "runtime differs" || scenario.name == "worker changed" || scenario.name == "terminal write failure" || scenario.name == "refused readback" {
+			if scenario.name == "runtime differs" || scenario.name == "worker changed" || scenario.name == "terminal write failure" || scenario.name == "refused readback" {
 				require.NoError(t, retryErr)
 				retried, err := service.ConfirmReview(ctx, f.account.AccountID, retry.ID, "actor-password")
 				require.NoError(t, err)

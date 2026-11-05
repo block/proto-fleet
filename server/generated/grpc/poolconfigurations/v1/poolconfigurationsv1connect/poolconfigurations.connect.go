@@ -52,6 +52,9 @@ const (
 	// PoolConfigurationServiceReviewEditProcedure is the fully-qualified name of the
 	// PoolConfigurationService's ReviewEdit RPC.
 	PoolConfigurationServiceReviewEditProcedure = "/poolconfigurations.v1.PoolConfigurationService/ReviewEdit"
+	// PoolConfigurationServiceAuthorizeWorkerNameReviewsProcedure is the fully-qualified name of the
+	// PoolConfigurationService's AuthorizeWorkerNameReviews RPC.
+	PoolConfigurationServiceAuthorizeWorkerNameReviewsProcedure = "/poolconfigurations.v1.PoolConfigurationService/AuthorizeWorkerNameReviews"
 	// PoolConfigurationServiceConfirmReviewProcedure is the fully-qualified name of the
 	// PoolConfigurationService's ConfirmReview RPC.
 	PoolConfigurationServiceConfirmReviewProcedure = "/poolconfigurations.v1.PoolConfigurationService/ConfirmReview"
@@ -76,6 +79,9 @@ const (
 	// PoolConfigurationServiceCheckConfigurationProcedure is the fully-qualified name of the
 	// PoolConfigurationService's CheckConfiguration RPC.
 	PoolConfigurationServiceCheckConfigurationProcedure = "/poolconfigurations.v1.PoolConfigurationService/CheckConfiguration"
+	// PoolConfigurationServiceReadDevicePoolsProcedure is the fully-qualified name of the
+	// PoolConfigurationService's ReadDevicePools RPC.
+	PoolConfigurationServiceReadDevicePoolsProcedure = "/poolconfigurations.v1.PoolConfigurationService/ReadDevicePools"
 )
 
 // PoolConfigurationServiceClient is a client for the poolconfigurations.v1.PoolConfigurationService
@@ -87,6 +93,7 @@ type PoolConfigurationServiceClient interface {
 	DuplicateConfiguration(context.Context, *connect.Request[v1.DuplicateConfigurationRequest]) (*connect.Response[v1.DuplicateConfigurationResponse], error)
 	ArchiveConfiguration(context.Context, *connect.Request[v1.ArchiveConfigurationRequest]) (*connect.Response[v1.ArchiveConfigurationResponse], error)
 	ReviewEdit(context.Context, *connect.Request[v1.ReviewEditRequest]) (*connect.Response[v1.ReviewEditResponse], error)
+	AuthorizeWorkerNameReviews(context.Context, *connect.Request[v1.AuthorizeWorkerNameReviewsRequest]) (*connect.Response[v1.AuthorizeWorkerNameReviewsResponse], error)
 	ConfirmReview(context.Context, *connect.Request[v1.ConfirmReviewRequest]) (*connect.Response[v1.ConfirmReviewResponse], error)
 	ReviewAssignment(context.Context, *connect.Request[v1.ReviewAssignmentRequest]) (*connect.Response[v1.ReviewAssignmentResponse], error)
 	GetOperation(context.Context, *connect.Request[v1.GetOperationRequest]) (*connect.Response[v1.GetOperationResponse], error)
@@ -95,6 +102,7 @@ type PoolConfigurationServiceClient interface {
 	TestConnection(context.Context, *connect.Request[v1.TestConnectionRequest]) (*connect.Response[v1.TestConnectionResponse], error)
 	GetAssignments(context.Context, *connect.Request[v1.GetAssignmentsRequest]) (*connect.Response[v1.GetAssignmentsResponse], error)
 	CheckConfiguration(context.Context, *connect.Request[v1.CheckConfigurationRequest]) (*connect.Response[v1.CheckConfigurationResponse], error)
+	ReadDevicePools(context.Context, *connect.Request[v1.ReadDevicePoolsRequest]) (*connect.Response[v1.ReadDevicePoolsResponse], error)
 }
 
 // NewPoolConfigurationServiceClient constructs a client for the
@@ -138,6 +146,11 @@ func NewPoolConfigurationServiceClient(httpClient connect.HTTPClient, baseURL st
 			baseURL+PoolConfigurationServiceReviewEditProcedure,
 			opts...,
 		),
+		authorizeWorkerNameReviews: connect.NewClient[v1.AuthorizeWorkerNameReviewsRequest, v1.AuthorizeWorkerNameReviewsResponse](
+			httpClient,
+			baseURL+PoolConfigurationServiceAuthorizeWorkerNameReviewsProcedure,
+			opts...,
+		),
 		confirmReview: connect.NewClient[v1.ConfirmReviewRequest, v1.ConfirmReviewResponse](
 			httpClient,
 			baseURL+PoolConfigurationServiceConfirmReviewProcedure,
@@ -178,25 +191,32 @@ func NewPoolConfigurationServiceClient(httpClient connect.HTTPClient, baseURL st
 			baseURL+PoolConfigurationServiceCheckConfigurationProcedure,
 			opts...,
 		),
+		readDevicePools: connect.NewClient[v1.ReadDevicePoolsRequest, v1.ReadDevicePoolsResponse](
+			httpClient,
+			baseURL+PoolConfigurationServiceReadDevicePoolsProcedure,
+			opts...,
+		),
 	}
 }
 
 // poolConfigurationServiceClient implements PoolConfigurationServiceClient.
 type poolConfigurationServiceClient struct {
-	createConfiguration    *connect.Client[v1.CreateConfigurationRequest, v1.CreateConfigurationResponse]
-	getConfiguration       *connect.Client[v1.GetConfigurationRequest, v1.GetConfigurationResponse]
-	listConfigurations     *connect.Client[v1.ListConfigurationsRequest, v1.ListConfigurationsResponse]
-	duplicateConfiguration *connect.Client[v1.DuplicateConfigurationRequest, v1.DuplicateConfigurationResponse]
-	archiveConfiguration   *connect.Client[v1.ArchiveConfigurationRequest, v1.ArchiveConfigurationResponse]
-	reviewEdit             *connect.Client[v1.ReviewEditRequest, v1.ReviewEditResponse]
-	confirmReview          *connect.Client[v1.ConfirmReviewRequest, v1.ConfirmReviewResponse]
-	reviewAssignment       *connect.Client[v1.ReviewAssignmentRequest, v1.ReviewAssignmentResponse]
-	getOperation           *connect.Client[v1.GetOperationRequest, v1.GetOperationResponse]
-	reviewRetry            *connect.Client[v1.ReviewRetryRequest, v1.ReviewRetryResponse]
-	listOperations         *connect.Client[v1.ListOperationsRequest, v1.ListOperationsResponse]
-	testConnection         *connect.Client[v1.TestConnectionRequest, v1.TestConnectionResponse]
-	getAssignments         *connect.Client[v1.GetAssignmentsRequest, v1.GetAssignmentsResponse]
-	checkConfiguration     *connect.Client[v1.CheckConfigurationRequest, v1.CheckConfigurationResponse]
+	createConfiguration        *connect.Client[v1.CreateConfigurationRequest, v1.CreateConfigurationResponse]
+	getConfiguration           *connect.Client[v1.GetConfigurationRequest, v1.GetConfigurationResponse]
+	listConfigurations         *connect.Client[v1.ListConfigurationsRequest, v1.ListConfigurationsResponse]
+	duplicateConfiguration     *connect.Client[v1.DuplicateConfigurationRequest, v1.DuplicateConfigurationResponse]
+	archiveConfiguration       *connect.Client[v1.ArchiveConfigurationRequest, v1.ArchiveConfigurationResponse]
+	reviewEdit                 *connect.Client[v1.ReviewEditRequest, v1.ReviewEditResponse]
+	authorizeWorkerNameReviews *connect.Client[v1.AuthorizeWorkerNameReviewsRequest, v1.AuthorizeWorkerNameReviewsResponse]
+	confirmReview              *connect.Client[v1.ConfirmReviewRequest, v1.ConfirmReviewResponse]
+	reviewAssignment           *connect.Client[v1.ReviewAssignmentRequest, v1.ReviewAssignmentResponse]
+	getOperation               *connect.Client[v1.GetOperationRequest, v1.GetOperationResponse]
+	reviewRetry                *connect.Client[v1.ReviewRetryRequest, v1.ReviewRetryResponse]
+	listOperations             *connect.Client[v1.ListOperationsRequest, v1.ListOperationsResponse]
+	testConnection             *connect.Client[v1.TestConnectionRequest, v1.TestConnectionResponse]
+	getAssignments             *connect.Client[v1.GetAssignmentsRequest, v1.GetAssignmentsResponse]
+	checkConfiguration         *connect.Client[v1.CheckConfigurationRequest, v1.CheckConfigurationResponse]
+	readDevicePools            *connect.Client[v1.ReadDevicePoolsRequest, v1.ReadDevicePoolsResponse]
 }
 
 // CreateConfiguration calls poolconfigurations.v1.PoolConfigurationService.CreateConfiguration.
@@ -228,6 +248,12 @@ func (c *poolConfigurationServiceClient) ArchiveConfiguration(ctx context.Contex
 // ReviewEdit calls poolconfigurations.v1.PoolConfigurationService.ReviewEdit.
 func (c *poolConfigurationServiceClient) ReviewEdit(ctx context.Context, req *connect.Request[v1.ReviewEditRequest]) (*connect.Response[v1.ReviewEditResponse], error) {
 	return c.reviewEdit.CallUnary(ctx, req)
+}
+
+// AuthorizeWorkerNameReviews calls
+// poolconfigurations.v1.PoolConfigurationService.AuthorizeWorkerNameReviews.
+func (c *poolConfigurationServiceClient) AuthorizeWorkerNameReviews(ctx context.Context, req *connect.Request[v1.AuthorizeWorkerNameReviewsRequest]) (*connect.Response[v1.AuthorizeWorkerNameReviewsResponse], error) {
+	return c.authorizeWorkerNameReviews.CallUnary(ctx, req)
 }
 
 // ConfirmReview calls poolconfigurations.v1.PoolConfigurationService.ConfirmReview.
@@ -270,6 +296,11 @@ func (c *poolConfigurationServiceClient) CheckConfiguration(ctx context.Context,
 	return c.checkConfiguration.CallUnary(ctx, req)
 }
 
+// ReadDevicePools calls poolconfigurations.v1.PoolConfigurationService.ReadDevicePools.
+func (c *poolConfigurationServiceClient) ReadDevicePools(ctx context.Context, req *connect.Request[v1.ReadDevicePoolsRequest]) (*connect.Response[v1.ReadDevicePoolsResponse], error) {
+	return c.readDevicePools.CallUnary(ctx, req)
+}
+
 // PoolConfigurationServiceHandler is an implementation of the
 // poolconfigurations.v1.PoolConfigurationService service.
 type PoolConfigurationServiceHandler interface {
@@ -279,6 +310,7 @@ type PoolConfigurationServiceHandler interface {
 	DuplicateConfiguration(context.Context, *connect.Request[v1.DuplicateConfigurationRequest]) (*connect.Response[v1.DuplicateConfigurationResponse], error)
 	ArchiveConfiguration(context.Context, *connect.Request[v1.ArchiveConfigurationRequest]) (*connect.Response[v1.ArchiveConfigurationResponse], error)
 	ReviewEdit(context.Context, *connect.Request[v1.ReviewEditRequest]) (*connect.Response[v1.ReviewEditResponse], error)
+	AuthorizeWorkerNameReviews(context.Context, *connect.Request[v1.AuthorizeWorkerNameReviewsRequest]) (*connect.Response[v1.AuthorizeWorkerNameReviewsResponse], error)
 	ConfirmReview(context.Context, *connect.Request[v1.ConfirmReviewRequest]) (*connect.Response[v1.ConfirmReviewResponse], error)
 	ReviewAssignment(context.Context, *connect.Request[v1.ReviewAssignmentRequest]) (*connect.Response[v1.ReviewAssignmentResponse], error)
 	GetOperation(context.Context, *connect.Request[v1.GetOperationRequest]) (*connect.Response[v1.GetOperationResponse], error)
@@ -287,6 +319,7 @@ type PoolConfigurationServiceHandler interface {
 	TestConnection(context.Context, *connect.Request[v1.TestConnectionRequest]) (*connect.Response[v1.TestConnectionResponse], error)
 	GetAssignments(context.Context, *connect.Request[v1.GetAssignmentsRequest]) (*connect.Response[v1.GetAssignmentsResponse], error)
 	CheckConfiguration(context.Context, *connect.Request[v1.CheckConfigurationRequest]) (*connect.Response[v1.CheckConfigurationResponse], error)
+	ReadDevicePools(context.Context, *connect.Request[v1.ReadDevicePoolsRequest]) (*connect.Response[v1.ReadDevicePoolsResponse], error)
 }
 
 // NewPoolConfigurationServiceHandler builds an HTTP handler from the service implementation. It
@@ -323,6 +356,11 @@ func NewPoolConfigurationServiceHandler(svc PoolConfigurationServiceHandler, opt
 	poolConfigurationServiceReviewEditHandler := connect.NewUnaryHandler(
 		PoolConfigurationServiceReviewEditProcedure,
 		svc.ReviewEdit,
+		opts...,
+	)
+	poolConfigurationServiceAuthorizeWorkerNameReviewsHandler := connect.NewUnaryHandler(
+		PoolConfigurationServiceAuthorizeWorkerNameReviewsProcedure,
+		svc.AuthorizeWorkerNameReviews,
 		opts...,
 	)
 	poolConfigurationServiceConfirmReviewHandler := connect.NewUnaryHandler(
@@ -365,6 +403,11 @@ func NewPoolConfigurationServiceHandler(svc PoolConfigurationServiceHandler, opt
 		svc.CheckConfiguration,
 		opts...,
 	)
+	poolConfigurationServiceReadDevicePoolsHandler := connect.NewUnaryHandler(
+		PoolConfigurationServiceReadDevicePoolsProcedure,
+		svc.ReadDevicePools,
+		opts...,
+	)
 	return "/poolconfigurations.v1.PoolConfigurationService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case PoolConfigurationServiceCreateConfigurationProcedure:
@@ -379,6 +422,8 @@ func NewPoolConfigurationServiceHandler(svc PoolConfigurationServiceHandler, opt
 			poolConfigurationServiceArchiveConfigurationHandler.ServeHTTP(w, r)
 		case PoolConfigurationServiceReviewEditProcedure:
 			poolConfigurationServiceReviewEditHandler.ServeHTTP(w, r)
+		case PoolConfigurationServiceAuthorizeWorkerNameReviewsProcedure:
+			poolConfigurationServiceAuthorizeWorkerNameReviewsHandler.ServeHTTP(w, r)
 		case PoolConfigurationServiceConfirmReviewProcedure:
 			poolConfigurationServiceConfirmReviewHandler.ServeHTTP(w, r)
 		case PoolConfigurationServiceReviewAssignmentProcedure:
@@ -395,6 +440,8 @@ func NewPoolConfigurationServiceHandler(svc PoolConfigurationServiceHandler, opt
 			poolConfigurationServiceGetAssignmentsHandler.ServeHTTP(w, r)
 		case PoolConfigurationServiceCheckConfigurationProcedure:
 			poolConfigurationServiceCheckConfigurationHandler.ServeHTTP(w, r)
+		case PoolConfigurationServiceReadDevicePoolsProcedure:
+			poolConfigurationServiceReadDevicePoolsHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -428,6 +475,10 @@ func (UnimplementedPoolConfigurationServiceHandler) ReviewEdit(context.Context, 
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("poolconfigurations.v1.PoolConfigurationService.ReviewEdit is not implemented"))
 }
 
+func (UnimplementedPoolConfigurationServiceHandler) AuthorizeWorkerNameReviews(context.Context, *connect.Request[v1.AuthorizeWorkerNameReviewsRequest]) (*connect.Response[v1.AuthorizeWorkerNameReviewsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("poolconfigurations.v1.PoolConfigurationService.AuthorizeWorkerNameReviews is not implemented"))
+}
+
 func (UnimplementedPoolConfigurationServiceHandler) ConfirmReview(context.Context, *connect.Request[v1.ConfirmReviewRequest]) (*connect.Response[v1.ConfirmReviewResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("poolconfigurations.v1.PoolConfigurationService.ConfirmReview is not implemented"))
 }
@@ -458,4 +509,8 @@ func (UnimplementedPoolConfigurationServiceHandler) GetAssignments(context.Conte
 
 func (UnimplementedPoolConfigurationServiceHandler) CheckConfiguration(context.Context, *connect.Request[v1.CheckConfigurationRequest]) (*connect.Response[v1.CheckConfigurationResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("poolconfigurations.v1.PoolConfigurationService.CheckConfiguration is not implemented"))
+}
+
+func (UnimplementedPoolConfigurationServiceHandler) ReadDevicePools(context.Context, *connect.Request[v1.ReadDevicePoolsRequest]) (*connect.Response[v1.ReadDevicePoolsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("poolconfigurations.v1.PoolConfigurationService.ReadDevicePools is not implemented"))
 }
