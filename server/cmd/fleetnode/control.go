@@ -73,7 +73,9 @@ var commandTimeout = 10 * time.Minute
 var perProbeTimeout = 10 * time.Second
 
 // Bound the initial Hello/Accepted exchange; accepted streams are long-lived.
-// var so transport tests can exercise expiry without waiting 30 seconds.
+// Keep it at or above stableSessionThreshold so a timed-out handshake resets
+// reconnect backoff instead of doubling it. var so transport tests can exercise
+// expiry without waiting 30 seconds.
 var controlHandshakeTimeout = 30 * time.Second
 
 type discoverer interface {

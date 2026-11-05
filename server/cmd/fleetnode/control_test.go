@@ -605,7 +605,7 @@ func TestControlLoop_ReconnectsAfterStreamEOF(t *testing.T) {
 
 func TestControlLoop_HandshakeTimeoutReconnects(t *testing.T) {
 	original := controlHandshakeTimeout
-	controlHandshakeTimeout = 100 * time.Millisecond
+	controlHandshakeTimeout = 500 * time.Millisecond
 	t.Cleanup(func() { controlHandshakeTimeout = original })
 
 	for _, early503 := range []bool{false, true} {
@@ -645,7 +645,7 @@ func TestControlLoop_HandshakeTimeoutReconnects(t *testing.T) {
 			case <-time.After(time.Second):
 				t.Fatal("first handshake did not start")
 			}
-			require.Eventually(t, func() bool { return gateway.helloCount() == 1 }, 3*time.Second, 10*time.Millisecond,
+			require.Eventually(t, func() bool { return gateway.helloCount() == 1 }, 5*time.Second, 10*time.Millisecond,
 				"handshake must expire and reconnect within its budget plus reconnect backoff")
 			select {
 			case <-gateway.exited:
@@ -675,7 +675,7 @@ func TestControlLoop_HandshakeTimeoutReconnects(t *testing.T) {
 
 func TestControlSession_HandshakeTimeoutAndCancellation(t *testing.T) {
 	original := controlHandshakeTimeout
-	controlHandshakeTimeout = 100 * time.Millisecond
+	controlHandshakeTimeout = 500 * time.Millisecond
 	t.Cleanup(func() { controlHandshakeTimeout = original })
 	for _, cancelParent := range []bool{false, true} {
 		t.Run(fmt.Sprintf("cancel_parent=%t", cancelParent), func(t *testing.T) {
@@ -835,6 +835,17 @@ func TestControlReconnectDelayGenericFailuresRemainExponential(t *testing.T) {
 	assert.GreaterOrEqual(t, secondDelay, 2*time.Second)
 	assert.LessOrEqual(t, secondDelay, 3*time.Second)
 	assert.Equal(t, 4*time.Second, backoff)
+}
+
+func TestControlReconnectDelayHandshakeTimeoutResetsBackoff(t *testing.T) {
+	t.Parallel()
+
+	rng := rand.New(rand.NewSource(42)) //nolint:gosec // deterministic jitter test
+	err := fmt.Errorf("control session ended while awaiting acceptance: %w", errControlHandshakeTimeout)
+	delay, nextBackoff := controlReconnectDelay(err, controlHandshakeTimeout+time.Millisecond, 16*time.Second, rng)
+	assert.GreaterOrEqual(t, delay, time.Second)
+	assert.LessOrEqual(t, delay, 1500*time.Millisecond)
+	assert.Equal(t, 2*controlReconnectInitial, nextBackoff)
 }
 
 type stubDiscoverer struct {
