@@ -1,8 +1,21 @@
-import { type KeyboardEvent, type ReactElement, useCallback, useEffect, useMemo, useState } from "react";
+import {
+  type KeyboardEvent,
+  type ReactElement,
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 import clsx from "clsx";
 
 import { AutomationResponseProfileRevisionConflictError } from "@/protoFleet/api/automationResponseProfileRevisionConflict";
-import { describeCurtailmentSchedule, describeNextScheduleWindow } from "@/protoFleet/api/curtailmentSchedules";
+import { formatCurtailmentDuration } from "@/protoFleet/api/curtailmentDisplayUtils";
+import {
+  describeCurtailmentSchedule,
+  describeNextScheduleWindow,
+  formatScheduleDate,
+} from "@/protoFleet/api/curtailmentSchedules";
 import type {
   AutomationRule,
   CurtailmentScheduleDefinition,
@@ -23,6 +36,10 @@ import {
   type ScheduleRuleFormErrors,
   validateScheduleRuleFormValues,
 } from "@/protoFleet/features/settings/components/Curtailment/scheduleRuleValidation";
+import {
+  getScheduleWindowTiming,
+  type ScheduleWindowTiming,
+} from "@/protoFleet/features/settings/components/Curtailment/scheduleWindowTiming";
 import {
   formatClientTimezoneLabel,
   formatTimezoneLabel,
@@ -168,6 +185,48 @@ function SchedulesInfoToggle(): ReactElement {
   );
 }
 
+function ScheduleInfoNote({ children, className }: { children: ReactNode; className?: string }): ReactElement {
+  return (
+    <p className={clsx("flex items-start gap-1.5 text-200 text-intent-info-text", className)}>
+      <Info width={iconSizes.small} className="mt-0.5 shrink-0" />
+      {children}
+    </p>
+  );
+}
+
+const formatWindowDuration = (durationMs: number) =>
+  formatCurtailmentDuration(durationMs / 1000, { style: "estimate", approximate: false });
+
+function ScheduleWindowDuration({
+  timing,
+  isRecurring,
+}: {
+  timing: ScheduleWindowTiming;
+  isRecurring: boolean;
+}): ReactElement {
+  const { clockDurationMs, clockChange } = timing;
+  const durationMs = isRecurring ? clockDurationMs : (clockChange?.durationMs ?? clockDurationMs);
+  const shiftMs = clockChange ? clockChange.durationMs - clockDurationMs : 0;
+  const shift = `${formatWindowDuration(Math.abs(shiftMs))} ${shiftMs > 0 ? "longer" : "shorter"}`;
+  return (
+    <div>
+      <p className="text-300 text-text-primary-70" data-testid="schedule-rule-duration">
+        Curtails for <span className="text-emphasis-300 text-text-primary">{formatWindowDuration(durationMs)}</span>
+        {isRecurring ? " each time." : "."}
+      </p>
+      <div role="status">
+        {clockChange ? (
+          <ScheduleInfoNote className="mt-2">
+            {isRecurring
+              ? `A daylight saving time change makes the window starting ${formatScheduleDate(clockChange.startDate)} run ${shift}.`
+              : `A daylight saving time change makes this window run ${shift} than its start and end times suggest.`}
+          </ScheduleInfoNote>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
 function getSchedulesEmptyState(loadError: string | null, isLoading: boolean): ReactElement {
   if (loadError) {
     return <SettingsEmptyState size="section" title="Unable to load schedules" description={loadError} />;
@@ -216,6 +275,7 @@ function ScheduleRuleModal({
   const isSaveUnavailable = isLoadingResponseProfiles || isSelectedResponseProfileUnavailable || isBusy;
   const isRecurring = schedule.scheduleType === "recurring";
   const crossesMidnight = isRecurring && schedule.endTime !== "" && schedule.endTime < schedule.startTime;
+  const windowTiming = useMemo(() => getScheduleWindowTiming(schedule), [schedule]);
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- response profiles can load after the modal opens
@@ -420,12 +480,7 @@ function ScheduleRuleModal({
                 <div>
                   {endTimeField}
                   <div role="status">
-                    {crossesMidnight ? (
-                      <p className="mt-2 flex items-center gap-1.5 text-200 text-intent-info-text">
-                        <Info width={iconSizes.small} className="shrink-0" />
-                        Ends the next day.
-                      </p>
-                    ) : null}
+                    {crossesMidnight ? <ScheduleInfoNote className="mt-2">Ends the next day.</ScheduleInfoNote> : null}
                   </div>
                 </div>
               </div>
@@ -468,6 +523,7 @@ function ScheduleRuleModal({
               </div>
             </>
           )}
+          {windowTiming ? <ScheduleWindowDuration timing={windowTiming} isRecurring={isRecurring} /> : null}
           <div className="text-200 text-text-primary-70">
             {mode === "edit" ? formatTimezoneLabel(schedule.timezone) : formatClientTimezoneLabel()}
           </div>

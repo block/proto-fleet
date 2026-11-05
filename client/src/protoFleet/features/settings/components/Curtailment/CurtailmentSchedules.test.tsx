@@ -154,11 +154,17 @@ describe("CurtailmentSchedulesContent", () => {
     fireEvent.click(screen.getByText("Weeknight peak"));
     expect(screen.getByLabelText("Start time")).toHaveValue("22:07");
     expect(screen.getByLabelText("End time")).toHaveValue("06:00");
-    expect(screen.getByRole("status")).toHaveTextContent("Ends the next day.");
+    expect(screen.getByText("Ends the next day.")).toBeInTheDocument();
+    expect(screen.getByTestId("schedule-rule-duration")).toHaveTextContent(
+      "Curtails for 7 hours 53 minutes each time.",
+    );
 
     fireEvent.change(screen.getByLabelText("Start time"), { target: { value: "05:13" } });
     fireEvent.change(screen.getByLabelText("End time"), { target: { value: "09:41" } });
-    expect(screen.getByRole("status")).toBeEmptyDOMElement();
+    expect(screen.queryByText("Ends the next day.")).not.toBeInTheDocument();
+    expect(screen.getByTestId("schedule-rule-duration")).toHaveTextContent(
+      "Curtails for 4 hours 28 minutes each time.",
+    );
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
     await waitFor(() =>
@@ -169,6 +175,49 @@ describe("CurtailmentSchedulesContent", () => {
         }),
       ),
     );
+  });
+
+  it("notes the next recurring window that a daylight saving time change lengthens", () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-10-20T12:00:00Z"));
+    onTestFinished(() => {
+      vi.useRealTimers();
+    });
+    const dailyRule: AutomationRule = {
+      ...weeknightRule,
+      schedule: weeknightRule.schedule && { ...weeknightRule.schedule, frequency: "daily", daysOfWeek: [] },
+    };
+    render(<CurtailmentSchedulesContent scheduleRules={[dailyRule]} responseProfiles={responseProfiles} />);
+
+    fireEvent.click(screen.getByText("Weeknight peak"));
+
+    expect(screen.getByTestId("schedule-rule-duration")).toHaveTextContent("Curtails for 8 hours each time.");
+    expect(
+      screen.getByText("A daylight saving time change makes the window starting Oct 31, 2026 run 1 hour longer."),
+    ).toBeInTheDocument();
+  });
+
+  it("shows a one-time window's actual duration across a daylight saving time change", () => {
+    const oneTimeRule: AutomationRule = {
+      ...weeknightRule,
+      schedule: weeknightRule.schedule && {
+        ...weeknightRule.schedule,
+        scheduleType: "oneTime",
+        startDate: "2026-10-31",
+        endDate: "2026-11-01",
+        daysOfWeek: [],
+      },
+    };
+    render(<CurtailmentSchedulesContent scheduleRules={[oneTimeRule]} responseProfiles={responseProfiles} />);
+
+    fireEvent.click(screen.getByText("Weeknight peak"));
+
+    expect(screen.getByTestId("schedule-rule-duration")).toHaveTextContent("Curtails for 9 hours.");
+    expect(
+      screen.getByText(
+        "A daylight saving time change makes this window run 1 hour longer than its start and end times suggest.",
+      ),
+    ).toBeInTheDocument();
   });
 
   it("applies a typed date on Enter without saving the previous date", async () => {
