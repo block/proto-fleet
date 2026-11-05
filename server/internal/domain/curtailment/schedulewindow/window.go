@@ -349,12 +349,25 @@ func (p *parsed) next(at time.Time) *Window {
 // transition resolves to its first occurrence.
 func (p *parsed) at(day civilDate, c clock) time.Time {
 	t := time.Date(day.year, day.month, day.day, c.hour, c.minute, 0, 0, p.loc)
-	if t.Day() == day.day && t.Hour() == c.hour && t.Minute() == c.minute {
+	wall := time.Date(day.year, day.month, day.day, c.hour, c.minute, 0, 0, time.UTC)
+	if showsWallClock(t, day, c) {
+		// time.Date may return either occurrence of a repeated time; an earlier
+		// one lies in the zone period before t's.
+		if start, _ := t.ZoneBounds(); !start.IsZero() {
+			_, offsetBefore := start.Add(-time.Second).Zone()
+			earlier := wall.Add(-time.Duration(offsetBefore) * time.Second).In(p.loc)
+			if earlier.Before(start) && showsWallClock(earlier, day, c) {
+				return earlier
+			}
+		}
 		return t
 	}
 	_, offsetBeforeGap := t.Add(-12 * time.Hour).Zone()
-	wall := time.Date(day.year, day.month, day.day, c.hour, c.minute, 0, 0, time.UTC)
 	return wall.Add(-time.Duration(offsetBeforeGap) * time.Second).In(p.loc)
+}
+
+func showsWallClock(t time.Time, day civilDate, c clock) bool {
+	return civilDateOf(t) == day && t.Hour() == c.hour && t.Minute() == c.minute
 }
 
 func parseDate(field, value string) (civilDate, error) {

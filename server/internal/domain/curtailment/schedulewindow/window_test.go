@@ -216,36 +216,45 @@ func TestDaylightSavingTransitions(t *testing.T) {
 }
 
 func TestDaylightSavingNonexistentAndRepeatedTimes(t *testing.T) {
-	newYork := mustLoad(t, "America/New_York")
 	utc := func(month time.Month, day, hour, minute int) time.Time {
 		return time.Date(2027, month, day, hour, minute, 0, 0, time.UTC)
 	}
 	tests := []struct {
 		name               string
+		timezone           string
 		startTime, endTime string
 		day                int
 		month              time.Month
 		wantStart, wantEnd time.Time
 	}{
 		// Spring forward on 2027-03-14: 02:00-03:00 EST does not exist.
-		{"start inside the gap runs after it", "02:30", "04:00", 14, time.March, utc(time.March, 14, 7, 30), utc(time.March, 14, 8, 0)},
-		{"end inside the gap runs after it", "01:00", "02:30", 14, time.March, utc(time.March, 14, 6, 0), utc(time.March, 14, 7, 30)},
-		{"window inside the gap still runs", "02:00", "02:30", 14, time.March, utc(time.March, 14, 7, 0), utc(time.March, 14, 7, 30)},
+		{"start inside the gap runs after it", "America/New_York", "02:30", "04:00", 14, time.March, utc(time.March, 14, 7, 30), utc(time.March, 14, 8, 0)},
+		{"end inside the gap runs after it", "America/New_York", "01:00", "02:30", 14, time.March, utc(time.March, 14, 6, 0), utc(time.March, 14, 7, 30)},
+		{"window inside the gap still runs", "America/New_York", "02:00", "02:30", 14, time.March, utc(time.March, 14, 7, 0), utc(time.March, 14, 7, 30)},
+		// Spring forward on 2027-03-28: 01:00-02:00 GMT does not exist.
+		{"start inside the gap runs after it east of UTC", "Europe/London", "01:30", "04:00", 28, time.March, utc(time.March, 28, 1, 30), utc(time.March, 28, 3, 0)},
 		// Fall back on 2027-11-07: 01:00-02:00 repeats; the first occurrence is EDT.
-		{"repeated start uses its first occurrence", "01:30", "03:00", 7, time.November, utc(time.November, 7, 5, 30), utc(time.November, 7, 8, 0)},
+		{"repeated start uses its first occurrence", "America/New_York", "01:30", "03:00", 7, time.November, utc(time.November, 7, 5, 30), utc(time.November, 7, 8, 0)},
+		// Zones at or east of UTC, where time.Date returns the second occurrence.
+		// London and Berlin fall back on 2027-10-31, Sydney on 2027-04-04.
+		{"repeated start in London uses its first occurrence", "Europe/London", "01:30", "03:00", 31, time.October, utc(time.October, 31, 0, 30), utc(time.October, 31, 3, 0)},
+		{"repeated end in London uses its first occurrence", "Europe/London", "00:30", "01:30", 31, time.October, utc(time.October, 30, 23, 30), utc(time.October, 31, 0, 30)},
+		{"repeated start in Berlin uses its first occurrence", "Europe/Berlin", "02:30", "04:00", 31, time.October, utc(time.October, 31, 0, 30), utc(time.October, 31, 3, 0)},
+		{"repeated end in Berlin uses its first occurrence", "Europe/Berlin", "01:30", "02:30", 31, time.October, utc(time.October, 30, 23, 30), utc(time.October, 31, 0, 30)},
+		{"repeated start in Sydney uses its first occurrence", "Australia/Sydney", "02:30", "04:00", 4, time.April, utc(time.April, 3, 15, 30), utc(time.April, 3, 18, 0)},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			def := Definition{
 				Type:      TypeRecurring,
-				Timezone:  "America/New_York",
+				Timezone:  tt.timezone,
 				StartDate: "2027-01-01",
 				StartTime: tt.startTime,
 				EndTime:   tt.endTime,
 				Frequency: FrequencyDaily,
 			}
 			require.NoError(t, def.Validate())
-			next, err := def.Next(at(newYork, 2027, tt.month, tt.day, 0, 0))
+			next, err := def.Next(at(mustLoad(t, tt.timezone), 2027, tt.month, tt.day, 0, 0))
 			require.NoError(t, err)
 			require.NotNil(t, next)
 			assert.True(t, next.Start.Equal(tt.wantStart), "start %s, want %s", next.Start.UTC(), tt.wantStart)
