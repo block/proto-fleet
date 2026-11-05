@@ -683,9 +683,25 @@ func (s *TelemetryService) gatherMetricsRoutine(ctx context.Context, tasks chan<
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
+			cycleStartedAt := time.Now()
 			lookback := time.Now().Add(s.lookBackDuration)
 			devices, err := s.updateScheduler.FetchDevices(ctx, lookback)
+			schedulerFetchDuration := time.Since(cycleStartedAt)
+			logSlowCycle := func(dispatched int) {
+				cycleDuration := time.Since(cycleStartedAt)
+				if cycleDuration <= fetchInterval {
+					return
+				}
+				slog.Warn("telemetry gather cycle slow",
+					"cycle_duration", cycleDuration,
+					"scheduler_fetch_duration", schedulerFetchDuration,
+					"enqueue_duration", cycleDuration-schedulerFetchDuration,
+					"devices_fetched", len(devices),
+					"tasks_dispatched", dispatched,
+				)
+			}
 			if err != nil {
+				logSlowCycle(0)
 				slog.Error("failed to fetch devices for telemetry", "error", err)
 				reportProgress()
 				continue
@@ -693,11 +709,15 @@ func (s *TelemetryService) gatherMetricsRoutine(ctx context.Context, tasks chan<
 			for index, device := range devices {
 				select {
 				case tasks <- device:
+					// A completed handoff is gather progress, not a successful miner poll.
+					reportProgress()
 				case <-ctx.Done():
+					logSlowCycle(index)
 					s.requeueTelemetryTasks(devices[index:])
 					return
 				}
 			}
+			logSlowCycle(len(devices))
 			reportProgress()
 		}
 	}
