@@ -464,7 +464,7 @@ func (r *RunCmd) tick(ctx context.Context, client gatewayClient, logger *slog.Lo
 		}
 	}
 
-	err := r.sendHeartbeat(ctx, client)
+	err := r.sendHeartbeat(ctx, client, logger)
 	if err == nil {
 		logger.Info("heartbeat sent", "fleet_node_id", st.FleetNodeID)
 		return nil
@@ -488,7 +488,7 @@ func (r *RunCmd) tick(ctx context.Context, client gatewayClient, logger *slog.Lo
 		logger.Error("post-Unauthenticated refresh failed; will retry on next tick", "fleet_node_id", st.FleetNodeID, "err", refreshErr)
 		return nil
 	}
-	retryErr := r.sendHeartbeat(ctx, client)
+	retryErr := r.sendHeartbeat(ctx, client, logger)
 	if retryErr == nil {
 		logger.Info("heartbeat sent after refresh", "fleet_node_id", st.FleetNodeID)
 		return nil
@@ -502,14 +502,40 @@ func (r *RunCmd) tick(ctx context.Context, client gatewayClient, logger *slog.Lo
 
 const heartbeatTimeout = 30 * time.Second
 
-func (r *RunCmd) sendHeartbeat(ctx context.Context, client gatewayClient) error {
+func (r *RunCmd) sendHeartbeat(ctx context.Context, client gatewayClient, logger *slog.Logger) error {
 	callCtx, cancel := context.WithTimeout(ctx, heartbeatTimeout)
 	defer cancel()
-	_, err := client.UploadHeartbeat(callCtx, connect.NewRequest(&pb.UploadHeartbeatRequest{
+	req := connect.NewRequest(&pb.UploadHeartbeatRequest{
 		SentAt:      timestamppb.New(r.now()),
 		IpAddresses: localIPAddresses(),
 		Version:     truncateUTF8(version, maxHeartbeatVersionBytes),
-	}))
+	})
+	// This metadata update is idempotent; hardware commands must not use this retry.
+	var err error
+	for attempt, backoff := range [...]time.Duration{0, 250 * time.Millisecond, time.Second} {
+		if backoff > 0 {
+			timer := time.NewTimer(backoff)
+			select {
+			case <-callCtx.Done():
+				timer.Stop()
+				return fmt.Errorf("heartbeat interrupted: %w", callCtx.Err())
+			case <-timer.C:
+			}
+		}
+		if err := callCtx.Err(); err != nil {
+			return fmt.Errorf("heartbeat interrupted: %w", err)
+		}
+		_, err = client.UploadHeartbeat(callCtx, req)
+		if err == nil {
+			if attempt > 0 {
+				logger.Info("heartbeat recovered after transient failure", "attempts", attempt+1, "code", connect.CodeUnavailable.String())
+			}
+			return nil
+		}
+		if connect.CodeOf(err) != connect.CodeUnavailable {
+			return err
+		}
+	}
 	return err
 }
 

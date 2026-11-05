@@ -133,7 +133,7 @@ func TestSendHeartbeatClampsVersion(t *testing.T) {
 	r := &RunCmd{now: time.Now}
 
 	// Act
-	err := r.sendHeartbeat(t.Context(), client)
+	err := r.sendHeartbeat(t.Context(), client, discardLogger(t))
 
 	// Assert
 	require.NoError(t, err)
