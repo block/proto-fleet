@@ -41,6 +41,10 @@ const (
 
 var remoteTelemetryDefaultCommandTimeout = 5 * time.Second
 
+// A retry needs room for the node timeout plus ack slack, otherwise a known
+// BUSY rejection turns into an ambiguous server-side timeout.
+var remoteTelemetryBusyRetryMinRemaining = 2 * remoteTelemetryAckSlack
+
 var _ interfaces.Miner = (*RemoteFleetNodeMiner)(nil)
 var _ interfaces.FirmwareUpdateStatusProvider = (*RemoteFleetNodeMiner)(nil)
 var _ interfaces.MinerCurtailmentConfigurator = (*RemoteFleetNodeMiner)(nil)
@@ -227,34 +231,7 @@ func (m *RemoteFleetNodeMiner) fetchTelemetry(ctx context.Context) (*telemetrypb
 	}
 	commandCtx, cancel := remoteTelemetryCommandContext(ctx, commandTimeout)
 	defer cancel()
-	var ack *gatewaypb.ControlAck
-	for _, backoff := range [...]time.Duration{0, 25 * time.Millisecond, 100 * time.Millisecond} {
-		if backoff > 0 {
-			timer := time.NewTimer(backoff)
-			select {
-			case <-commandCtx.Done():
-				timer.Stop()
-				err = commandCtx.Err()
-			case <-timer.C:
-				err = commandCtx.Err()
-			}
-			if err != nil {
-				break
-			}
-			release, err = m.acquireTelemetryGate(commandCtx)
-			if err != nil {
-				break
-			}
-		}
-		ack, err = m.sendTelemetry(commandCtx)
-		release()
-		// BUSY is a terminal pre-dispatch rejection. Release the server permits
-		// before waiting, then retry with a fresh ID within the original budget.
-		if err != nil || ack.GetCode() != gatewaypb.AckCode_ACK_CODE_BUSY || ack.GetSucceeded() {
-			break
-		}
-	}
-
+	ack, err := remotenode.RetryRejectedBusy(commandCtx, release, remoteTelemetryBusyRetryMinRemaining, m.acquireTelemetryGate, m.sendTelemetry)
 	if err != nil {
 		if errors.Is(err, control.ErrNoActiveStream) || errors.Is(err, context.DeadlineExceeded) {
 			return nil, fleeterror.NewConnectionError(m.route.deviceIdentifier, err)

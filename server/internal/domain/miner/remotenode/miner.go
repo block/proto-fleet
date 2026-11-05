@@ -272,33 +272,15 @@ func (m *Miner) sendWithCommandTimeout(ctx context.Context, timeout time.Duratio
 	// attempt, backoff, and subsequent queue wait shares this one deadline.
 	commandCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	class, _ := control.AdmissionForMinerCommand(mc)
+	send := func(ctx context.Context) (*gatewaypb.ControlAck, error) { return m.sendInSlot(ctx, mc) }
 	var ack *gatewaypb.ControlAck
-	for _, backoff := range [...]time.Duration{0, 25 * time.Millisecond, 100 * time.Millisecond} {
-		if backoff > 0 {
-			timer := time.NewTimer(backoff)
-			select {
-			case <-commandCtx.Done():
-				timer.Stop()
-				err = commandCtx.Err()
-			case <-timer.C:
-				err = commandCtx.Err()
-			}
-			if err != nil {
-				break
-			}
-			release, err = m.acquireGate(commandCtx, mc)
-			if err != nil {
-				break
-			}
-		}
-		ack, err = m.sendInSlot(commandCtx, mc)
-		release()
-		// Only an explicit pre-dispatch rejection of a deferrable read proves
-		// it is safe to submit a fresh command. Transport errors are ambiguous.
-		if err != nil || class != control.CommandAdmissionDeferrableRead || ack.GetCode() != gatewaypb.AckCode_ACK_CODE_BUSY || ack.GetSucceeded() {
-			break
-		}
+	// Only an explicit pre-dispatch rejection of a deferrable read proves it is
+	// safe to submit a fresh command. Transport errors are ambiguous.
+	if class, _ := control.AdmissionForMinerCommand(mc); class == control.CommandAdmissionDeferrableRead {
+		acquire := func(ctx context.Context) (func(), error) { return m.acquireGate(ctx, mc) }
+		ack, err = RetryRejectedBusy(commandCtx, release, busyRetryMinRemaining, acquire, send)
+	} else {
+		ack, err = sendThenRelease(commandCtx, release, send)
 	}
 
 	if errors.Is(err, context.DeadlineExceeded) {
@@ -462,7 +444,7 @@ func ackToError(ack *gatewaypb.ControlAck) error {
 			fmt.Sprintf("fleet node busy; retry shortly: %s", reason),
 			connect.CodeResourceExhausted,
 		)
-		if !ack.GetSucceeded() {
+		if IsRejectedBusy(ack) {
 			// The node rejects BUSY commands before device dispatch.
 			return devicewrite.NotDispatched(err)
 		}

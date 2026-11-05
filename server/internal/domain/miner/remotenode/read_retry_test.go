@@ -100,26 +100,25 @@ func TestMinerGetErrorsRetriesRejectedBusy(t *testing.T) {
 	}
 }
 
-func TestMinerReadRetryCancellationAndDeadline(t *testing.T) {
+func TestMinerReadRetryKeepsBusyWhenRetryCannotStart(t *testing.T) {
 	for _, cancelOnRelease := range []bool{true, false} {
-		t.Run(map[bool]string{true: "cancel during backoff", false: "deadline during backoff"}[cancelOnRelease], func(t *testing.T) {
+		t.Run(map[bool]string{true: "cancel during backoff", false: "budget too small to retry"}[cancelOnRelease], func(t *testing.T) {
 			ctx, cancel := context.WithCancel(t.Context())
 			defer cancel()
 			gate := &readRetryGate{}
+			timeout := 50 * time.Millisecond
 			if cancelOnRelease {
 				gate.onRelease = cancel
+				timeout = 5 * time.Second
 			}
 			calls := 0
 			m := newTestMinerWithGate(t, readRetrySender(func(context.Context, *gatewaypb.ControlCommand) (*gatewaypb.ControlAck, error) {
 				calls++
 				return &gatewaypb.ControlAck{Code: gatewaypb.AckCode_ACK_CODE_BUSY}, nil
 			}), gate)
-			_, err := m.sendWithCommandTimeout(ctx, 10*time.Millisecond, &gatewaypb.MinerCommand{Action: &gatewaypb.MinerCommand_GetErrors{GetErrors: &gatewaypb.GetErrorsAction{}}})
-			if cancelOnRelease {
-				require.ErrorIs(t, err, context.Canceled)
-			} else {
-				require.ErrorIs(t, err, context.DeadlineExceeded)
-			}
+			ack, err := m.sendWithCommandTimeout(ctx, timeout, &gatewaypb.MinerCommand{Action: &gatewaypb.MinerCommand_GetErrors{GetErrors: &gatewaypb.GetErrorsAction{}}})
+			require.NoError(t, err)
+			require.True(t, fleeterror.IsResourceExhaustedError(ackToError(ack)))
 			require.Equal(t, 1, calls)
 			require.False(t, gate.held)
 		})
@@ -165,6 +164,9 @@ func TestMinerReadRetryNeverRetriesOtherFailuresOrWrites(t *testing.T) {
 }
 
 func TestMinerReadRetryReacquiresWithinOriginalDeadline(t *testing.T) {
+	oldMinRemaining := busyRetryMinRemaining
+	busyRetryMinRemaining = 0
+	t.Cleanup(func() { busyRetryMinRemaining = oldMinRemaining })
 	var deadline time.Time
 	gate := &readRetryGate{onReacquire: func(ctx context.Context) error {
 		got, ok := ctx.Deadline()
@@ -180,8 +182,9 @@ func TestMinerReadRetryReacquiresWithinOriginalDeadline(t *testing.T) {
 		return &gatewaypb.ControlAck{Code: gatewaypb.AckCode_ACK_CODE_BUSY}, nil
 	}), gate)
 	started := time.Now()
-	_, err := m.sendWithCommandTimeout(t.Context(), 60*time.Millisecond, &gatewaypb.MinerCommand{Action: &gatewaypb.MinerCommand_GetErrors{GetErrors: &gatewaypb.GetErrorsAction{}}})
-	require.Error(t, err)
+	ack, err := m.sendWithCommandTimeout(t.Context(), 60*time.Millisecond, &gatewaypb.MinerCommand{Action: &gatewaypb.MinerCommand_GetErrors{GetErrors: &gatewaypb.GetErrorsAction{}}})
+	require.NoError(t, err)
+	require.True(t, fleeterror.IsResourceExhaustedError(ackToError(ack)))
 	require.Equal(t, 1, calls)
 	require.False(t, gate.held)
 	require.Less(t, time.Since(started), time.Second)

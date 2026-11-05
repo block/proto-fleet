@@ -108,15 +108,16 @@ func TestRemoteTelemetryRetriesRejectedBusy(t *testing.T) {
 	}
 }
 
-func TestRemoteTelemetryRetryCancellationAndDeadline(t *testing.T) {
+func TestRemoteTelemetryRetryKeepsBusyWhenRetryCannotStart(t *testing.T) {
 	for _, cancelOnRelease := range []bool{true, false} {
-		t.Run(map[bool]string{true: "cancel during backoff", false: "deadline during backoff"}[cancelOnRelease], func(t *testing.T) {
-			ctx, cancel := context.WithTimeout(t.Context(), 10*time.Millisecond)
-			defer cancel()
+		t.Run(map[bool]string{true: "cancel during backoff", false: "budget too small to retry"}[cancelOnRelease], func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(t.Context(), 50*time.Millisecond)
 			gate := &telemetryRetryGate{}
 			if cancelOnRelease {
+				ctx, cancel = context.WithCancel(t.Context())
 				gate.onRelease = cancel
 			}
+			defer cancel()
 			m := newTestRemoteFleetNodeMiner(t, control.NewRegistry())
 			m.gate = gate
 			calls := 0
@@ -125,14 +126,10 @@ func TestRemoteTelemetryRetryCancellationAndDeadline(t *testing.T) {
 				return &gatewaypb.ControlAck{Code: gatewaypb.AckCode_ACK_CODE_BUSY}, nil
 			})
 			_, err := m.GetDeviceMetrics(ctx)
-			require.Error(t, err)
+			require.True(t, fleeterror.IsResourceExhaustedError(err), "got %v", err)
+			require.False(t, fleeterror.IsConnectionError(err))
 			require.Equal(t, 1, calls)
 			require.False(t, gate.held)
-			if cancelOnRelease {
-				require.ErrorIs(t, err, context.Canceled)
-			} else {
-				require.ErrorIs(t, err, context.DeadlineExceeded)
-			}
 		})
 	}
 }
@@ -166,6 +163,9 @@ func TestRemoteTelemetryRetryNeverRetriesOtherFailures(t *testing.T) {
 }
 
 func TestRemoteTelemetryRetryReacquiresWithinOriginalDeadline(t *testing.T) {
+	oldMinRemaining := remoteTelemetryBusyRetryMinRemaining
+	remoteTelemetryBusyRetryMinRemaining = 0
+	t.Cleanup(func() { remoteTelemetryBusyRetryMinRemaining = oldMinRemaining })
 	var deadline time.Time
 	gate := &telemetryRetryGate{onReacquire: func(ctx context.Context) error {
 		got, ok := ctx.Deadline()
@@ -185,7 +185,7 @@ func TestRemoteTelemetryRetryReacquiresWithinOriginalDeadline(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 60*time.Millisecond)
 	defer cancel()
 	_, err := m.GetDeviceMetrics(ctx)
-	require.Error(t, err)
+	require.True(t, fleeterror.IsResourceExhaustedError(err), "got %v", err)
 	require.Equal(t, 1, calls)
 	require.False(t, gate.held)
 }
