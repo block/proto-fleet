@@ -267,13 +267,24 @@ func (m *Miner) sendWithCommandTimeout(ctx context.Context, timeout time.Duratio
 	if err != nil {
 		return nil, err
 	}
-	defer release()
 
+	// The initial queue wait retains its existing budget. Once admitted, every
+	// attempt, backoff, and subsequent queue wait shares this one deadline.
 	commandCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
+	send := func(ctx context.Context) (*gatewaypb.ControlAck, error) { return m.sendInSlot(ctx, mc) }
+	var ack *gatewaypb.ControlAck
+	// Only an explicit pre-dispatch rejection of a deferrable read proves it is
+	// safe to submit a fresh command. Transport errors are ambiguous.
+	if class, _ := control.AdmissionForMinerCommand(mc); class == control.CommandAdmissionDeferrableRead {
+		acquire := func(ctx context.Context) (func(), error) { return m.acquireGate(ctx, mc) }
+		ack, err = RetryRejectedBusy(commandCtx, release, busyRetryMinRemaining, acquire, send,
+			"fleet_node_id", m.fleetNodeID, "device_identifier", m.desc.GetDeviceIdentifier())
+	} else {
+		ack, err = sendThenRelease(commandCtx, release, send)
+	}
 
-	ack, err := m.sendInSlot(commandCtx, mc)
-	if err != nil && errors.Is(err, context.DeadlineExceeded) {
+	if errors.Is(err, context.DeadlineExceeded) {
 		return nil, fleeterror.NewConnectionError(m.desc.GetDeviceIdentifier(), err)
 	}
 	return ack, err
@@ -434,7 +445,7 @@ func ackToError(ack *gatewaypb.ControlAck) error {
 			fmt.Sprintf("fleet node busy; retry shortly: %s", reason),
 			connect.CodeResourceExhausted,
 		)
-		if !ack.GetSucceeded() {
+		if IsRejectedBusy(ack) {
 			// The node rejects BUSY commands before device dispatch.
 			return devicewrite.NotDispatched(err)
 		}
