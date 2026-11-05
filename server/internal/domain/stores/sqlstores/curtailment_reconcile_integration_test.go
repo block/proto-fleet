@@ -50,10 +50,10 @@ func TestSQLCurtailmentStore_SendEvidenceUpgradeKeepsRetriedLiveTargets(t *testi
 	require.NoError(t, err)
 
 	for _, name := range []string{
-		"current/001060_internal_curtailment_wave4_runtime.down.sql",
-		"current/001059_shared_curtailment_wave4_runtime.down.sql",
-		"current/001059_shared_curtailment_wave4_runtime.up.sql",
-		"current/001060_internal_curtailment_wave4_runtime.up.sql",
+		"current/001061_internal_curtailment_wave4_runtime.down.sql",
+		"current/001060_shared_curtailment_wave4_runtime.down.sql",
+		"current/001060_shared_curtailment_wave4_runtime.up.sql",
+		"current/001061_internal_curtailment_wave4_runtime.up.sql",
 	} {
 		migration, err := migrations.Current.ReadFile(name)
 		require.NoError(t, err)
