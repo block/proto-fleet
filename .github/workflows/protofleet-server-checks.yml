@@ -224,10 +224,12 @@ jobs:
 
       # Each shard owns its runner and PostgreSQL instance. Within a shard,
       # preserve the package isolation required by dispatch deadline tests.
+      # hostedaccounts alone runs close to go test's 10-minute default, so
+      # packages get an explicit timeout with headroom that still catches hangs.
       - name: Test
         shell: bash
         run: |
-          DB_PASSWORD="${DB_PASSWORD:-fleet}" xargs go test -json -count=1 -p=1 \
+          DB_PASSWORD="${DB_PASSWORD:-fleet}" xargs go test -json -count=1 -p=1 -timeout=20m \
             < "$RUNNER_TEMP/server-test-packages.txt" | tee "$RUNNER_TEMP/server-test-results.jsonl" | \
             python3 -u -c '
           import json
