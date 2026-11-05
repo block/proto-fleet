@@ -778,7 +778,7 @@ func (j *gatherMetricsJobForTest) Stop(ctx context.Context) error {
 	case <-j.done:
 		return nil
 	case <-ctx.Done():
-		return ctx.Err()
+		return fmt.Errorf("stop gather metrics test job: %w", ctx.Err())
 	}
 }
 
@@ -924,10 +924,15 @@ func TestGatherMetricsRoutineLogsSlowCycleWithSeparateFetchAndEnqueueTiming(t *t
 	assert.Equal(t, "WARN", cycle["level"])
 	assert.Equal(t, float64(2), cycle["devices_fetched"])
 	assert.Equal(t, float64(2), cycle["tasks_dispatched"])
-	assert.GreaterOrEqual(t, cycle["scheduler_fetch_duration"].(float64), float64(2*fetchInterval))
-	assert.GreaterOrEqual(t, cycle["enqueue_duration"].(float64), float64(2*fetchInterval))
-	assert.Equal(t, cycle["cycle_duration"].(float64),
-		cycle["scheduler_fetch_duration"].(float64)+cycle["enqueue_duration"].(float64))
+	schedulerFetchDuration, ok := cycle["scheduler_fetch_duration"].(float64)
+	require.True(t, ok)
+	enqueueDuration, ok := cycle["enqueue_duration"].(float64)
+	require.True(t, ok)
+	cycleDuration, ok := cycle["cycle_duration"].(float64)
+	require.True(t, ok)
+	assert.GreaterOrEqual(t, schedulerFetchDuration, float64(2*fetchInterval))
+	assert.GreaterOrEqual(t, enqueueDuration, float64(2*fetchInterval))
+	assert.Equal(t, cycleDuration, schedulerFetchDuration+enqueueDuration)
 	assert.Len(t, cycle, 8, "cycle logs contain only timestamps, level, message, durations, and counts")
 }
 
