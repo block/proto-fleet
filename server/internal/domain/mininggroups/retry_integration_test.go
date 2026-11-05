@@ -129,7 +129,7 @@ func newIdleRetryFixture(t *testing.T) (context.Context, retryFixture) {
 func newRetryFixture(t *testing.T) (context.Context, retryFixture) {
 	t.Helper()
 	ctx, f := newIdleRetryFixture(t)
-	_, err := f.service.Submit(ctx, f.target.DeviceIdentifier, uuid.NewString(), "", nil, 0)
+	_, err := f.service.submitLegacyRequest(ctx, f.target.DeviceIdentifier, uuid.NewString(), "", nil, 0)
 	require.NoError(t, err)
 	rows, err := f.service.queries.ListMiningGroupControllers(ctx)
 	require.NoError(t, err)
@@ -198,7 +198,7 @@ func TestScheduledReconciliationPreservesRequestsAndRecovers(t *testing.T) {
 			require.Equal(t, prepared.StepKey.UUID.String(), call.Key, "every replay must use the committed request identity")
 		}
 	}
-	_, err := f.service.Submit(ctx, f.target.DeviceIdentifier, uuid.NewString(), "", nil, 0)
+	_, err := f.service.submitLegacyRequest(ctx, f.target.DeviceIdentifier, uuid.NewString(), "", nil, 0)
 	require.NoError(t, err)
 	fresh := f.state(t)
 	require.Zero(t, fresh.RetryCount)

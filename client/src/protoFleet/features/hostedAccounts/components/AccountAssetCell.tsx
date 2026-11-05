@@ -5,12 +5,22 @@ import { EntityKind, InventoryItemSchema } from "@/protoFleet/api/generated/flee
 import { type AccountAsset, MiningAssetKind } from "@/protoFleet/api/generated/hosted/v1/hosted_pb";
 import { InventoryCell } from "@/protoFleet/features/containers/InventoryCell";
 import { MinerMetricValue } from "@/protoFleet/features/fleetManagement/components/MinerList/MinerMeasurement";
+import { BoardPoolConfigurationCell } from "@/protoFleet/features/poolConfigurations/BoardPoolConfigurationCell";
+import { PoolConfigurationCell } from "@/protoFleet/features/poolConfigurations/PoolConfigurationCell";
 import { useTemperatureUnit } from "@/protoFleet/store";
 import StatusCircle from "@/shared/components/StatusCircle";
 import { convertCtoF } from "@/shared/utils/telemetryFormat";
 
 export function AccountAssetCell({ asset, column }: { asset: AccountAsset; column: AssetColumn }) {
   const unit = useTemperatureUnit();
+  if (column === "poolConfiguration")
+    return asset.kind === MiningAssetKind.MINER ? (
+      <PoolConfigurationCell deviceId={asset.id} />
+    ) : asset.kind === MiningAssetKind.HASHBOARD ? (
+      <BoardPoolConfigurationCell hashboardId={asset.id} />
+    ) : (
+      <BoardPoolConfigurationCell moduleId={asset.id} />
+    );
   if (column === "model") return <span>{asset.model || "—"}</span>;
   if (column === "kind") return <span>{assetKindLabel(asset.kind)}</span>;
   if (column === "container")

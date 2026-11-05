@@ -10,6 +10,7 @@ import ContainerSiteDialog from "./ContainerSiteDialog";
 import ContainerUnpairDialog from "./ContainerUnpairDialog";
 import { hasMiningGroupPermissions } from "./miningGroupPermissions";
 import MiningGroupsDialog from "./MiningGroupsDialog";
+import { isCurrentObservation } from "./moduleDetail";
 import { useMiningGroupState } from "./useMiningGroupState";
 import { useOpenContainerView } from "./useOpenContainerView";
 import type { Container } from "@/protoFleet/api/generated/containers/v1/containers_pb";
@@ -18,15 +19,14 @@ import {
   deviceActions,
   settingsActions,
 } from "@/protoFleet/features/fleetManagement/components/MinerActionsMenu/constants";
+import { ConfigurationSelector } from "@/protoFleet/features/poolConfigurations/ConfigurationSelector";
 import { usePermissions } from "@/protoFleet/store";
 import { ArrowRight, MiningPools, Play, Power, Settings, Speedometer, Unpair } from "@/shared/assets/icons";
 import RowActionsMenu, { type RowAction } from "@/shared/components/RowActionsMenu";
 
-// CT1 does not implement Fleet's pool configuration or firmware capabilities.
-// Worker-name updates also require pool configuration to reapply the credentials.
+// Firmware and standalone worker-name updates are not available for CT1.
 const unavailableSettings = [
   { label: "Update firmware", action: deviceActions.firmwareUpdate, icon: <Settings /> },
-  { label: "Edit pool", action: settingsActions.miningPool, icon: <MiningPools /> },
   { label: "Update worker name", action: settingsActions.updateWorkerNames, icon: <MiningPools /> },
 ];
 
@@ -41,6 +41,7 @@ export default function ContainerActionsMenu({
 }) {
   const permissions = usePermissions();
   const [groupsOpen, setGroupsOpen] = useState(false);
+  const [poolTarget, setPoolTarget] = useState<string>();
   const openContainerView = useOpenContainerView();
   const [action, setAction] = useState<ContainerAction>();
   const [unpairOpen, setUnpairOpen] = useState(false);
@@ -60,6 +61,13 @@ export default function ContainerActionsMenu({
   const currentStatus = status?.deviceIdentifier === deviceIdentifier ? status : undefined;
   const { state: groups } = useMiningGroupState(deviceIdentifier, open && permissions.includes("miner:read"));
   const groupsEnabled = groups?.enabled;
+  const canEditPools = permissions.includes("pool:read") && permissions.includes("miner:update_pools");
+  const poolsReady =
+    !!groups?.supported &&
+    !groups.enabled &&
+    !groups.suspended &&
+    isCurrentObservation(groups.observedAt) &&
+    !["pending", "applying", "blocked"].includes(groups.status);
 
   useEffect(() => {
     if (!open || !hasControls) return;
@@ -129,6 +137,13 @@ export default function ContainerActionsMenu({
             disabled: !currentStatus?.available,
             onClick: () => setAction(entry),
           })),
+        {
+          label: "Edit pool",
+          icon: <MiningPools />,
+          hidden: !canEditPools,
+          disabled: !poolsReady,
+          onClick: () => setPoolTarget(deviceIdentifier),
+        },
         ...unavailableSettings
           .filter((entry) => {
             const required = ACTION_PERMISSIONS[entry.action];
@@ -177,6 +192,14 @@ export default function ContainerActionsMenu({
           setOpen(nextOpen);
         }}
       />
+      {poolTarget === deviceIdentifier && canEditPools && permissions.includes("miner:read") ? (
+        <ConfigurationSelector
+          key={poolTarget}
+          deviceIdentifiers={[poolTarget]}
+          selectionDescription="Applies to the whole container."
+          onDismiss={() => setPoolTarget(undefined)}
+        />
+      ) : null}
       {groupsOpen ? (
         <MiningGroupsDialog deviceIdentifier={deviceIdentifier} onClose={() => setGroupsOpen(false)} />
       ) : null}

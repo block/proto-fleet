@@ -9,6 +9,7 @@ import {
   ModuleIssuesSchema,
 } from "@/protoFleet/api/generated/fleetinventory/v1/fleetinventory_pb";
 import type { HashboardSlot } from "@/protoFleet/api/generated/fleetinventory/v1/fleetinventory_pb";
+import { BoardPoolConfigurationCell } from "@/protoFleet/features/poolConfigurations/BoardPoolConfigurationCell";
 import { useTemperatureUnit } from "@/protoFleet/store";
 import ComponentMetadata from "@/shared/components/StatusModal/ComponentMetadata";
 import { formatEfficiencyOrDash, formatHashrateOrDash, formatPowerKwOrDash } from "@/shared/utils/telemetryFormat";
@@ -91,6 +92,12 @@ export function HashboardCell({
   const identity = board?.serial || board?.macAddress;
   const name = `Hashboard ${slot.position}${identity ? ` - ${identity}` : ""}`;
   switch (column) {
+    case "poolConfiguration":
+      return slot.board?.hashboardId ? (
+        <BoardPoolConfigurationCell hashboardId={slot.board.hashboardId} />
+      ) : (
+        <span>—</span>
+      );
     case "name":
       return (
         <div className="flex items-center justify-between gap-2 pl-8">

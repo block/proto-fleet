@@ -79,24 +79,31 @@ func (f poolStepUpFixture) keyContext(t *testing.T, capabilities hostedaccounts.
 	require.NoError(t, err)
 	return machineCtx, issued, record.ID
 }
-func (f poolStepUpFixture) requireUnchangedProfile(t *testing.T) {
+func (f poolStepUpFixture) verifyPoolCredentials(t *testing.T, ctx context.Context, password string) error {
 	t.Helper()
-	var profiles, events int
-	require.NoError(t, f.db.QueryRowContext(t.Context(), `SELECT count(*) FROM hosted_account_pool_profile WHERE organization_id=$1 AND account_id=$2`, f.org, f.account.ID).Scan(&profiles))
-	require.NoError(t, f.db.QueryRowContext(t.Context(), `SELECT count(*) FROM activity_log WHERE organization_id=$1 AND event_type='set_hosted_account_pool_profile'`, f.org).Scan(&events))
-	require.Zero(t, profiles)
-	require.Zero(t, events, "denied step-up must not mutate or audit a successful profile change")
+	selected, err := hostedaccounts.WithRequestAccountID(ctx, f.account.AccountID)
+	if err != nil {
+		return err
+	}
+	_, err = f.pools.VerifyPoolEquipmentCredentials(selected, f.account.AccountID, password)
+	return err
+}
+func (f poolStepUpFixture) requireNoPoolOperations(t *testing.T) {
+	t.Helper()
+	var operations int
+	require.NoError(t, f.db.QueryRowContext(t.Context(), "SELECT count(*) FROM pool_configuration_operation WHERE organization_id=$1", f.org).Scan(&operations))
+	require.Zero(t, operations, "credential verification must not dispatch equipment work")
 }
 
 func TestViewOnlyPoolKeyCannotSpendIssuerStepUpBudget(t *testing.T) {
 	f := newPoolStepUpFixture(t)
 	ctx, _, _ := f.keyContext(t, hostedaccounts.View)
 	for range 12 {
-		require.Error(t, f.pools.SetIncomingProfile(ctx, f.user, f.org, f.account.AccountID, "", "wrong-password"))
+		require.Error(t, f.verifyPoolCredentials(t, ctx, "wrong-password"))
 	}
 	assert.Zero(t, f.verifier.calls, "read-only keys must never reach credential verification")
 	require.NoError(t, f.verifier.real.VerifySessionCredentials(f.sessionContext(t), f.info.Username, "actor-password"), "denied key traffic must leave the real issuer's shared step-up budget available")
-	f.requireUnchangedProfile(t)
+	f.requireNoPoolOperations(t)
 }
 
 func TestPoolStepUpRequiresLiveAuthorityBeforeVerifier(t *testing.T) {
@@ -135,9 +142,9 @@ func TestPoolStepUpRequiresLiveAuthorityBeforeVerifier(t *testing.T) {
 					require.NoError(t, f.svc.ConfigureChild(t.Context(), f.host, f.org, f.account.AccountID, hostedaccounts.AllCapabilities, true))
 				}
 			}
-			require.Error(t, f.pools.SetIncomingProfile(ctx, f.user, f.org, f.account.AccountID, "", "wrong-password"))
+			require.Error(t, f.verifyPoolCredentials(t, ctx, "wrong-password"))
 			require.Zero(t, f.verifier.calls, "live denied authority must precede credential loading and hashing")
-			f.requireUnchangedProfile(t)
+			f.requireNoPoolOperations(t)
 		})
 	}
 }
@@ -147,60 +154,23 @@ func TestPoolChangeKeyCannotSpendIssuerStepUpBudget(t *testing.T) {
 	ctx, _, _ := f.keyContext(t, hostedaccounts.View|hostedaccounts.ChangePools)
 	for _, password := range []string{"wrong-password", "actor-password"} {
 		for range 12 {
-			require.Error(t, f.pools.SetIncomingProfile(ctx, f.user, f.org, f.account.AccountID, "", password))
+			require.Error(t, f.verifyPoolCredentials(t, ctx, password))
 		}
 	}
 	require.Zero(t, f.verifier.calls, "even authorized machine keys must not load or verify issuer credentials")
-	f.requireUnchangedProfile(t)
+	f.requireNoPoolOperations(t)
 	require.NoError(t, f.verifier.real.VerifySessionCredentials(f.sessionContext(t), f.info.Username, "actor-password"), "key traffic must not exhaust the issuer's step-up allowance")
 }
 
 func TestAuthorizedPoolStepUpStillVerifiesCredentials(t *testing.T) {
 	f := newPoolStepUpFixture(t)
 	ctx := f.sessionContext(t)
-	require.Error(t, f.pools.SetIncomingProfile(ctx, f.user, f.org, f.account.AccountID, "", "wrong-password"))
+	require.Error(t, f.verifyPoolCredentials(t, ctx, "wrong-password"))
 	require.Equal(t, 1, f.verifier.calls)
-	f.requireUnchangedProfile(t)
-	require.NoError(t, f.pools.SetIncomingProfile(ctx, f.user, f.org, f.account.AccountID, "", "actor-password"))
+	f.requireNoPoolOperations(t)
+	require.NoError(t, f.verifyPoolCredentials(t, ctx, "actor-password"))
 	require.Equal(t, 2, f.verifier.calls)
-	profile, err := f.pools.IncomingProfile(ctx, f.user, f.org, f.account.AccountID)
-	require.NoError(t, err)
-	require.Equal(t, int64(1), profile.Revision)
-}
-
-func TestPoolStepUpRechecksAuthorityAfterVerification(t *testing.T) {
-	for _, change := range []string{"membership", "hierarchy-ceiling"} {
-		t.Run(change, func(t *testing.T) {
-			f := newPoolStepUpFixture(t)
-			// Provide another administrator so a live membership removal is valid.
-			require.NoError(t, f.svc.SetMembership(t.Context(), f.user, f.org, f.account.AccountID, f.host, hostedaccounts.RoleAdministrator))
-			source := f.sessionContext(t)
-			ctx, cancel := context.WithTimeout(source, 10*time.Second)
-			defer cancel()
-			changed := false
-			f.verifier.afterVerification = func() error {
-				// These real mutations can acquire the organization lock while the
-				// verifier is still active; admission must not retain that lock.
-				mutationCtx, mutationCancel := context.WithTimeout(t.Context(), 5*time.Second)
-				defer mutationCancel()
-				var changeErr error
-				switch change {
-				case "membership":
-					changeErr = f.svc.SetMembership(mutationCtx, f.host, f.org, f.account.AccountID, f.user, hostedaccounts.RoleViewer)
-				case "hierarchy-ceiling":
-					changeErr = f.svc.ConfigureChild(mutationCtx, f.host, f.org, f.account.AccountID, hostedaccounts.AllCapabilities&^hostedaccounts.ChangePools, false)
-				}
-				require.NoError(t, changeErr, "the authority change itself must commit before final reauthorization")
-				changed = true
-				return nil
-			}
-			require.Error(t, f.pools.SetIncomingProfile(ctx, f.user, f.org, f.account.AccountID, "", "actor-password"), "final transactional authority must reject changes during verification")
-			require.Equal(t, 1, f.verifier.calls)
-			require.True(t, changed)
-			require.NoError(t, ctx.Err(), "live authority mutation must not wait behind a lock held during verification")
-			f.requireUnchangedProfile(t)
-		})
-	}
+	f.requireNoPoolOperations(t)
 }
 
 func TestPoolStepUpPreservesCredentialLookupDatabaseFailure(t *testing.T) {
@@ -237,22 +207,15 @@ func TestPoolStepUpPreservesCredentialLookupDatabaseFailure(t *testing.T) {
 	require.NoError(t, err)
 	_, err = f.svc.Resolve(f.sessionContext(t), f.user, f.org, f.account.AccountID)
 	require.NoError(t, err, "live account admission must remain authorized")
-	err = f.pools.SetIncomingProfile(f.sessionContext(t), f.user, f.org, f.account.AccountID, "", "actor-password")
+	err = f.verifyPoolCredentials(t, f.sessionContext(t), "actor-password")
 	_, resetErr := f.db.ExecContext(t.Context(), "RESET ROLE")
 	require.NoError(t, resetErr)
 	require.Zero(t, f.verifier.calls, "credential loading must fail before password verification")
-	f.requireUnchangedProfile(t)
+	f.requireNoPoolOperations(t)
 	var fleetErr fleeterror.FleetError
 	require.ErrorAs(t, err, &fleetErr)
 	require.Equal(t, connect.CodeInternal, fleetErr.GRPCCode, "database failure must not become an authorization denial")
 	var postgresErr *pgconn.PgError
 	require.ErrorAs(t, err, &postgresErr, "the database cause must remain available to callers")
 	require.Equal(t, "42501", postgresErr.Code)
-}
-
-func (f poolStepUpFixture) requireNoPoolOperations(t *testing.T) {
-	t.Helper()
-	var operations int
-	require.NoError(t, f.db.QueryRowContext(t.Context(), "SELECT count(*) FROM pool_configuration_operation WHERE organization_id=$1", f.org).Scan(&operations))
-	require.Zero(t, operations, "credential verification must not dispatch equipment work")
 }

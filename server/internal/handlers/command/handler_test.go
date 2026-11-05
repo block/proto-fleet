@@ -225,16 +225,3 @@ func (v *poolPermissionVerifier) VerifySessionCredentials(context.Context, strin
 	v.called = true
 	return v.err
 }
-
-func TestOrdinaryPoolUpdateDoesNotRequireStartOrStopPermissions(t *testing.T) {
-	// Stop at credential verification: reaching it proves that the handler
-	// accepted a pool-only role without dispatching a device command.
-	stop := errors.New("credential verification reached")
-	verifier := &poolPermissionVerifier{err: stop}
-	service := command.NewService(nil, nil, nil, nil, nil, nil, nil, nil, nil, verifier, nil, nil, nil)
-	h := handler.NewHandler(service)
-	ctx := handlerstest.CtxWithPermissions(t, 1, authz.PermMinerUpdatePools)
-	_, err := h.UpdateMiningPools(ctx, connect.NewRequest(&pb.UpdateMiningPoolsRequest{UserUsername: "operator", UserPassword: "password"}))
-	require.ErrorIs(t, err, stop)
-	require.True(t, verifier.called)
-}

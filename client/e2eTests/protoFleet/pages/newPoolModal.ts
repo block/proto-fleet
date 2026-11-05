@@ -2,67 +2,71 @@ import { expect } from "@playwright/test";
 import { BasePage } from "./base";
 
 export class NewPoolModalPage extends BasePage {
-  private modal() {
-    return this.page.getByTestId("modal");
+  private editor() {
+    return this.page.getByRole("dialog", { name: /^(Create|Edit) pool configuration$/ });
   }
 
   async validatePoolModalOpened() {
-    await expect(this.modal().getByText(`Default mining pool`).first()).toBeVisible();
+    await expect(this.editor().getByRole("group", { name: "Primary pool", exact: true })).toBeVisible();
   }
 
   async inputPoolName(name: string) {
-    await this.page.getByTestId(`pool-name-0-input`).fill(name);
+    await this.editor().getByLabel("Name", { exact: true }).fill(name);
   }
 
   async inputPoolUrl(url: string) {
-    await this.page.getByTestId(`url-0-input`).fill(url);
+    await this.editor()
+      .getByRole("group", { name: "Primary pool", exact: true })
+      .getByLabel("Pool URL", { exact: true })
+      .fill(url);
   }
 
   async inputPoolUsername(username: string) {
-    await this.page.getByTestId(`username-0-input`).fill(username);
+    await this.editor()
+      .getByRole("group", { name: "Primary pool", exact: true })
+      .getByLabel("Username", { exact: true })
+      .fill(username);
+  }
+
+  async validateConnectionDisabled() {
+    await expect(
+      this.editor()
+        .getByRole("group", { name: "Primary pool", exact: true })
+        .getByRole("button", { name: "Test connection", exact: true }),
+    ).toBeDisabled();
   }
 
   async clickTestConnection() {
-    const modal = this.modal();
-    const desktopButton = modal.getByTestId("pool-test-connection-button");
-
-    if (await desktopButton.isVisible().catch(() => false)) {
-      await desktopButton.click();
-      return;
-    }
-
-    await modal.getByTestId("overflow-menu-trigger").click();
-    await this.page
-      .getByTestId("modal-overflow-sheet-content")
-      .getByTestId("pool-test-connection-button-overflow-item")
+    await this.editor()
+      .getByRole("group", { name: "Primary pool", exact: true })
+      .getByRole("button", { name: "Test connection", exact: true })
       .click();
   }
 
   async validateConnectionFailed() {
-    await expect(
-      this.page.locator(`//div[@data-testid='pool-not-connected-callout' and not(contains(@class,'hidden'))]`),
-    ).toBeVisible();
-  }
-
-  async validateEmptyPoolUrlError() {
-    await this.validateTextIsVisible("A Pool URL is required to connect to this pool.");
+    await expect(this.editor().getByRole("status")).toContainText("We couldn't connect with your pool.");
   }
 
   async validateConnectionSuccessful() {
-    await expect(
-      this.page.locator(`//div[@data-testid='pool-connected-callout' and not(contains(@class,'hidden'))]`),
-    ).toBeVisible();
+    await expect(this.editor().getByRole("status")).toContainText("Pool connection successful");
+  }
+
+  async addBackup(url: string, username: string) {
+    await this.editor().getByRole("button", { name: "Add backup pool", exact: true }).click();
+    const backup = this.editor().getByRole("group", { name: "Backup 1", exact: true });
+    await backup.getByLabel("Pool URL", { exact: true }).fill(url);
+    await backup.getByLabel("Username", { exact: true }).fill(username);
+  }
+
+  async moveBackupToPrimary() {
+    await this.editor()
+      .getByRole("group", { name: "Backup 1", exact: true })
+      .getByRole("button", { name: "Move up", exact: true })
+      .click();
   }
 
   async clickSaveNewPool() {
-    const modal = this.modal();
-    const saveButton = modal.getByTestId(this.isMobile ? "pool-save-button-mobile" : "pool-save-button");
-
-    if (await saveButton.isVisible().catch(() => false)) {
-      await saveButton.click();
-      return;
-    }
-
-    await modal.getByTestId("pool-save-button").click();
+    await this.editor().getByRole("button", { name: "Save configuration", exact: true }).click();
+    await expect(this.editor()).toBeHidden();
   }
 }

@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createAccountClient, createAccountConnection, hostedAccountsClient } from "./api";
+import { createClient } from "@connectrpc/connect";
+import { createAccountClient, createAccountConnection, createAccountTransport, hostedAccountsClient } from "./api";
+import { PoolConfigurationService } from "@/protoFleet/api/generated/poolconfigurations/v1/poolconfigurations_pb";
 
 const accountA = "11111111-1111-4111-8111-111111111111";
 const accountB = "22222222-2222-4222-8222-222222222222";
@@ -13,6 +15,20 @@ describe("hosted account request scope", () => {
     await preview.client.getAccount({ accountId: accountA });
     await expect(preview.client.renameAccount({ accountId: accountA, name: "Changed" })).rejects.toThrow(/preview/i);
     expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+  it("allows canonical configuration checks in preview while refusing review confirmation", async () => {
+    const fetcher = vi.fn(async () => new Response("{}", { headers: { "Content-Type": "application/json" } }));
+    vi.stubGlobal("fetch", fetcher);
+    const client = createClient(
+      PoolConfigurationService,
+      createAccountTransport(accountA, new AbortController().signal, { readOnly: true }),
+    );
+    await client.checkConfiguration({ accountId: accountA, target: { kind: "device", targetId: 42n } });
+    await client.readDevicePools({ accountId: accountA, targets: [{ kind: "device", targetId: 42n }] });
+    await expect(client.confirmReview({ accountId: accountA, reviewId: "review", password: "secret" })).rejects.toThrow(
+      /preview/i,
+    );
+    expect(fetcher).toHaveBeenCalledTimes(2);
   });
   it("captures each page's account and leaves unscoped directory calls alone", async () => {
     const requests: { account: string | null; body: unknown }[] = [];

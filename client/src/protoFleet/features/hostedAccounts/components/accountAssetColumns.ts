@@ -11,6 +11,7 @@ export const assetColumnTitles = {
   model: minerColTitles.model,
   kind: "Type",
   status: minerColTitles.status,
+  poolConfiguration: minerColTitles.poolConfiguration,
   hashrate: minerColTitles.hashrate,
   efficiency: minerColTitles.efficiency,
   powerUsage: minerColTitles.powerUsage,

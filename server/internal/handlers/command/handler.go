@@ -4,7 +4,6 @@ import (
 	"context"
 	"log/slog"
 	"math"
-	"sort"
 
 	"github.com/block/proto-fleet/server/internal/domain/authz"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
@@ -97,65 +96,6 @@ func (h *Handler) SetPowerTarget(
 		return nil, err
 	}
 	return connect.NewResponse(&pb.SetPowerTargetResponse{BatchIdentifier: result.BatchIdentifier}), nil
-}
-
-func (h *Handler) UpdateMiningPools(
-	ctx context.Context,
-	req *connect.Request[pb.UpdateMiningPoolsRequest],
-) (*connect.Response[pb.UpdateMiningPoolsResponse], error) {
-	if _, err := middleware.RequirePermission(ctx, authz.PermMinerUpdatePools, authz.ResourceContext{}); err != nil {
-		return nil, err
-	}
-	result, err := h.commandSvc.UpdateMiningPools(
-		ctx,
-		req.Msg.DeviceSelector,
-		req.Msg.DefaultPool,
-		req.Msg.Backup_1Pool,
-		req.Msg.Backup_2Pool,
-		req.Msg.UserUsername,
-		req.Msg.UserPassword,
-	)
-	if err != nil {
-		return nil, err
-	}
-	resp := &pb.UpdateMiningPoolsResponse{
-		BatchIdentifier:             result.BatchIdentifier,
-		DispatchedDeviceIdentifiers: result.DispatchedDeviceIdentifiers,
-	}
-	if skips := poolAssignmentSkipsFromResult(result); skips != nil {
-		resp.Skips = skips
-	}
-	return connect.NewResponse(resp), nil
-}
-
-// poolAssignmentSkipsFromResult derives the SV2 toast summary from the
-// per-device skip list. Returns nil when no SV2 skips were recorded.
-func poolAssignmentSkipsFromResult(result *command.CommandResult) *pb.PoolAssignmentSkips {
-	var sv2Count int
-	typeSet := map[string]struct{}{}
-	for _, sk := range result.Skipped {
-		if sk.FilterName != command.SV2FilterName {
-			continue
-		}
-		sv2Count++
-		typeSet[sk.Reason] = struct{}{}
-	}
-	if sv2Count == 0 {
-		return nil
-	}
-	types := make([]string, 0, len(typeSet))
-	for t := range typeSet {
-		types = append(types, t)
-	}
-	sort.Strings(types)
-	// Selected = everything originally resolved by the selector = all skips
-	// (sv2 + any other filter) + the post-filter dispatched set.
-	selected := len(result.Skipped) + len(result.DispatchedDeviceIdentifiers)
-	return &pb.PoolAssignmentSkips{
-		SkippedCount:      clampToInt32(sv2Count),
-		SelectedCount:     clampToInt32(selected),
-		IncompatibleTypes: types,
-	}
 }
 
 // clampToInt32 satisfies gosec; device counts never approach the bounds.

@@ -175,7 +175,7 @@ export class OnboardingVisualHelper {
 
     await settingsPage.navigateToMiningPoolsSettings();
     await settingsPoolsPage.validateMiningPoolsPageOpened();
-    await settingsPoolsPage.validateTextIsVisible("Add a pool to start assigning your miners.");
+    await settingsPoolsPage.validateTextIsVisible("Create a configuration with a primary pool and up to two backups.");
     await snapshots.capturePage(page, VISUAL_SNAPSHOTS.settingsPools);
   }
 
@@ -311,6 +311,8 @@ export class OnboardingVisualHelper {
     const { minersPage, snapshots } = this.deps;
     await snapshots.captureLocator(minersPage.getBulkActionsPopover(), VISUAL_SNAPSHOTS.bulkMoreMenu, {
       stylePath: MINER_ACTIONS_SCREENSHOT_STYLE,
+      // The rounded menu's top-right corner includes one pixel of the underlying page.
+      maxDiffPixels: 1,
     });
   }
 

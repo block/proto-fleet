@@ -17,7 +17,7 @@ export const useAccountMutation = () => {
   }, []);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const run = async (operation: () => Promise<void>) => {
+  const run = async (operation: (current: () => boolean) => Promise<void>) => {
     if (submitting.current || scope?.readOnly || scope?.signal.aborted) return false;
     submitting.current = true;
     const generation = useFleetStore.getState().auth.sessionGeneration;
@@ -26,7 +26,9 @@ export const useAccountMutation = () => {
     setBusy(true);
     setError("");
     try {
-      await operation();
+      // Multi-request operations must check their initiating lifetime between
+      // requests, before dispatching a follow-up mutation or delivering callbacks.
+      await operation(current);
       return current();
     } catch (cause) {
       if (!current()) return false;

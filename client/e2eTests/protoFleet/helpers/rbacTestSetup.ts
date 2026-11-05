@@ -243,7 +243,6 @@ export async function createPool(
     await newPoolModal.inputPoolUrl(VALID_POOL_URL);
     await newPoolModal.inputPoolUsername(poolUsername);
     await newPoolModal.clickSaveNewPool();
-    await settingsPoolsPage.validateTextInToast("Pool added");
     await settingsPoolsPage.validatePoolEntryByUniqueName(poolName, VALID_POOL_URL, poolUsername);
   });
 }

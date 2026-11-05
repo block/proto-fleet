@@ -10,7 +10,8 @@ import type { InventoryItem } from "@/protoFleet/api/generated/fleetinventory/v1
 
 const { mockSetActionBarVisible } = vi.hoisted(() => ({ mockSetActionBarVisible: vi.fn() }));
 
-vi.mock("@/protoFleet/store", () => ({
+vi.mock("@/protoFleet/store", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/protoFleet/store")>()),
   useSetActionBarVisible: () => mockSetActionBarVisible,
 }));
 vi.mock("@/protoFleet/features/containers/MiningActionsMenu", () => ({

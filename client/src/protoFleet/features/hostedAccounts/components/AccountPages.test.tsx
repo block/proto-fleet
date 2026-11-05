@@ -9,7 +9,6 @@ import { type AccountScope, AccountScopeContext } from "../AccountScope";
 import { HostedAccountsContext } from "../HostedAccountsContext";
 import AccountAccess from "./AccountAccess";
 import AccountChildren from "./AccountChildren";
-import AccountPools from "./AccountPools";
 import AccountTeam from "./AccountTeam";
 import { ClientPermissions } from "./ClientPermissions";
 import {
@@ -20,7 +19,6 @@ import {
   ListAccountAssetsResponseSchema,
   MemberSchema,
   MiningAssetKind,
-  PoolRevisionSchema,
 } from "@/protoFleet/api/generated/hosted/v1/hosted_pb";
 import { useFleetStore } from "@/protoFleet/store";
 import { pushToast, STATUSES } from "@/shared/features/toaster";
@@ -32,39 +30,12 @@ vi.mock("@/shared/features/toaster", () => ({
 
 const initialAuth = useFleetStore.getState().auth;
 const accountId = "11111111-1111-4111-8111-111111111111";
-const poolId = "22222222-2222-4222-8222-222222222222";
-const oldRevisionId = "33333333-3333-4333-8333-333333333333";
-const newRevisionId = "44444444-4444-4444-8444-444444444444";
 const CurrentLocation = () => {
   const location = useLocation();
   return <output data-testid="location">{location.pathname + location.search}</output>;
 };
-const getPools = () => {
-  const latest = create(PoolRevisionSchema, {
-    poolId,
-    revisionId: newRevisionId,
-    number: 4n,
-    name: "New destination",
-    slots: [
-      { url: "stratum+tcp://new.example:3333", username: "payout", workerTemplate: "{miner_name}", hasPassword: true },
-    ],
-  });
-  const pinned = create(PoolRevisionSchema, {
-    poolId,
-    revisionId: oldRevisionId,
-    number: 3n,
-    name: "Original destination",
-    slots: [{ url: "stratum+tcp://old.example:3333", username: "payout", hasPassword: true }],
-  });
-  return { latest, pinned };
-};
 function scope(mask = 31n) {
-  const { latest, pinned } = getPools();
   const client = {
-    listPoolConfigurations: vi.fn().mockResolvedValue({ configurations: [latest], nextPageToken: "" }),
-    getIncomingPoolProfile: vi.fn().mockResolvedValue({ profile: { poolId, revisionId: oldRevisionId, revision: 1n } }),
-    getPoolRevision: vi.fn().mockResolvedValue({ revision: pinned }),
-    revisePoolConfiguration: vi.fn().mockResolvedValue({}),
     createAccount: vi.fn().mockResolvedValue({}),
     configureAccount: vi.fn().mockResolvedValue({}),
     listChildren: vi.fn().mockResolvedValue({
@@ -78,7 +49,6 @@ function scope(mask = 31n) {
         }),
       ],
     }),
-    setIncomingPoolProfile: vi.fn().mockResolvedValue({}),
     listMembers: vi.fn().mockResolvedValue({
       members: [
         create(MemberSchema, {
@@ -135,7 +105,6 @@ const mount = (element: ReactNode, value: AccountScope) =>
 
 describe("hosted account pages", () => {
   it.each([
-    { page: <AccountPools />, controls: ["Add pool", "Change selection"] },
     { page: <AccountAccess />, controls: ["Create API key", "Grant host or parent access"] },
     { page: <AccountTeam />, controls: ["Invite team member"] },
     { page: <AccountChildren />, controls: ["Create subclient"] },
@@ -143,49 +112,6 @@ describe("hosted account pages", () => {
     const { value } = scope();
     mount(page, { ...value, readOnly: true });
     for (const name of controls) expect(await screen.findByRole("button", { name })).toBeDisabled();
-  });
-  it("renders the exact pinned revision and gives a Viewer no pool mutations", async () => {
-    const { value, client } = scope(1n);
-    mount(<AccountPools />, value);
-    expect(await screen.findByRole("button", { name: "Original destination · revision 3" })).toBeInTheDocument();
-    expect(screen.getByText("Stored pool profile")).toBeInTheDocument();
-    expect(screen.getByText("Pools", { exact: true })).toBeInTheDocument();
-    for (const title of ["Name", "URL", "Username"])
-      expect(screen.getByRole("columnheader", { name: title })).toBeInTheDocument();
-    expect(screen.getByText("stratum+tcp://new.example:3333")).toBeInTheDocument();
-    expect(screen.getByText("payout", { exact: true })).toBeInTheDocument();
-    expect(screen.queryByText("Pools for newly assigned miners.")).not.toBeInTheDocument();
-    expect(client.getPoolRevision).toHaveBeenCalledWith(
-      { accountId, poolId, revisionId: oldRevisionId },
-      expect.objectContaining({ signal: expect.any(AbortSignal) }),
-    );
-    expect(screen.queryByRole("button", { name: "Change selection" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Add pool" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Row actions" })).not.toBeInTheDocument();
-  });
-  it("submits the selected immutable revision with the current login password", async () => {
-    const user = userEvent.setup(),
-      { value, client } = scope(7n);
-    mount(<AccountPools />, value);
-    await user.click(await screen.findByRole("button", { name: "Change selection" }));
-    const dialog = screen.getByRole("dialog", { name: "Stored pool profile" });
-    expect(
-      within(dialog).getByText(
-        "This changes the stored profile. It does not apply pool settings to existing or newly assigned miners or modules.",
-      ),
-    ).toBeInTheDocument();
-    await user.click(within(dialog).getByRole("button", { name: "Revision" }));
-    await user.click(await screen.findByRole("option", { name: "New destination · revision 4" }));
-    await user.type(within(dialog).getByLabelText("Your Fleet password"), "test-current-password");
-    await user.click(within(dialog).getByRole("button", { name: "Confirm selection" }));
-    await waitFor(() =>
-      expect(client.setIncomingPoolProfile).toHaveBeenCalledWith({
-        accountId,
-        revisionId: newRevisionId,
-        password: "test-current-password",
-      }),
-    );
-    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
   });
   it("shows members and unaccepted invitation statuses with applicable actions", async () => {
     const { value, client } = scope();
@@ -451,7 +377,7 @@ describe("hosted account pages", () => {
     expect(screen.getByRole("heading", { name: "Host and parent access" })).toBeInTheDocument();
     const permissions = within(screen.getByRole("region", { name: "Your permissions" }));
     expect(permissions.getByText("Allocate and recall assets")).toBeInTheDocument();
-    expect(permissions.getByText("Select stored pool profile")).toBeInTheDocument();
+    expect(permissions.getByText("Change pools")).toBeInTheDocument();
     await user.click(within(details).getByRole("button", { name: "Rename account" }));
     const dialog = screen.getByRole("dialog", { name: "Rename account" });
     await user.clear(within(dialog).getByLabelText("Account name"));
@@ -479,7 +405,6 @@ describe("hosted account pages", () => {
     expect(dialog.getByRole("checkbox", { name: "View account data" })).toBeChecked();
     expect(dialog.getByRole("checkbox", { name: "View account data" })).toBeDisabled();
     expect(dialog.getByRole("checkbox", { name: "Manage pool configurations" })).toBeDisabled();
-    expect(dialog.queryByRole("checkbox", { name: "Select stored pool profile" })).not.toBeInTheDocument();
     expect(dialog.queryByRole("checkbox", { name: "Change pools" })).not.toBeInTheDocument();
     await user.type(screen.getByLabelText("Key name"), "Pool reader");
     await user.click(screen.getByRole("button", { name: "Create key" }));
@@ -503,7 +428,6 @@ describe("hosted account pages", () => {
     mount(<AccountAccess />, value);
     await user.click(await screen.findByRole("button", { name: "Create API key" }));
     const dialog = within(screen.getByRole("dialog", { name: "Create API key" }));
-    expect(dialog.queryByRole("checkbox", { name: "Select stored pool profile" })).not.toBeInTheDocument();
     expect(dialog.queryByRole("checkbox", { name: "Change pools" })).not.toBeInTheDocument();
     await user.click(dialog.getByRole("checkbox", { name: "Manage pool configurations" }));
     await user.type(dialog.getByLabelText("Key name"), "Pool automation");
@@ -539,97 +463,10 @@ describe("hosted account pages", () => {
     const dialog = within(screen.getByRole("dialog", { name: "Host and parent access" }));
     expect(dialog.getByRole("button", { name: "Host or parent account" })).toHaveTextContent("North Hosting");
     expect(dialog.getByText("Create, revise and archive saved pool configurations.")).toBeInTheDocument();
-    expect(dialog.getByText("Choose a saved revision; does not apply pools to mining assets.")).toBeInTheDocument();
+    expect(dialog.getByText("Apply pool configurations to equipment allocated to this account.")).toBeInTheDocument();
     expect(dialog.getByText("Allocate assets to subclients and recall them to this account.")).toBeInTheDocument();
   });
 
-  it("saves an edited revision with an unchanged password omitted", async () => {
-    const user = userEvent.setup(),
-      { value, client } = scope();
-    mount(<AccountPools />, value);
-    const row = (await screen.findByText("New destination", { exact: true })).closest("tr")!;
-    await user.click(within(row).getByRole("button", { name: "Row actions" }));
-    await user.click(await screen.findByRole("button", { name: "Edit configuration" }));
-    const dialog = screen.getByRole("dialog", { name: "Edit pool configuration" });
-    expect(within(dialog).queryByLabelText("Pool password (optional)")).not.toBeInTheDocument();
-    await user.click(within(dialog).getByRole("button", { name: "Save new revision" }));
-    await waitFor(() =>
-      expect(client.revisePoolConfiguration).toHaveBeenCalledWith({
-        accountId,
-        poolId,
-        expectedRevisionId: newRevisionId,
-        configuration: {
-          name: "New destination",
-          slots: [{ url: "stratum+tcp://new.example:3333", username: "payout", workerTemplate: "{miner_name}" }],
-        },
-      }),
-    );
-  });
-  it.each(["", "replacement-test-password"])(
-    "requires explicit password replacement/clearing after changing destination (%s)",
-    async (replacement) => {
-      const user = userEvent.setup(),
-        { value, client } = scope();
-      mount(<AccountPools />, value);
-      const row = (await screen.findByText("New destination", { exact: true })).closest("tr")!;
-      await user.click(within(row).getByRole("button", { name: "Row actions" }));
-      await user.click(await screen.findByRole("button", { name: "Edit configuration" }));
-      const dialog = screen.getByRole("dialog", { name: "Edit pool configuration" });
-      await user.clear(within(dialog).getByLabelText("Pool URL"));
-      await user.type(within(dialog).getByLabelText("Pool URL"), "stratum+tcp://changed.example:3333");
-      expect(within(dialog).getByRole("button", { name: "Save new revision" })).toBeDisabled();
-      await user.click(within(dialog).getByRole("checkbox", { name: "Keep saved password" }));
-      if (replacement) await user.type(within(dialog).getByLabelText("Pool password (optional)"), replacement);
-      await user.click(within(dialog).getByRole("button", { name: "Save new revision" }));
-      await waitFor(() =>
-        expect(client.revisePoolConfiguration).toHaveBeenCalledWith(
-          expect.objectContaining({
-            expectedRevisionId: newRevisionId,
-            configuration: expect.objectContaining({
-              slots: [expect.objectContaining({ url: "stratum+tcp://changed.example:3333", password: replacement })],
-            }),
-          }),
-        ),
-      );
-    },
-  );
-  it("does not retain a shifted backup's password from another priority", async () => {
-    const user = userEvent.setup(),
-      { value, client } = scope();
-    const { latest } = getPools();
-    latest.slots.push(
-      ...["backup-one", "backup-two"].map((name) => ({
-        ...latest.slots[0],
-        url: `stratum+tcp://${name}.example:3333`,
-      })),
-    );
-    client.listPoolConfigurations.mockResolvedValue({ configurations: [latest], nextPageToken: "" });
-    mount(<AccountPools />, value);
-    const row = (await screen.findByText("New destination", { exact: true })).closest("tr")!;
-    await user.click(within(row).getByRole("button", { name: "Row actions" }));
-    await user.click(await screen.findByRole("button", { name: "Edit configuration" }));
-    await user.click(
-      within(screen.getByRole("group", { name: "Backup 1" })).getByRole("button", { name: "Remove backup" }),
-    );
-    expect(screen.getByRole("button", { name: "Save new revision" })).toBeDisabled();
-    const backup = screen.getByRole("group", { name: "Backup 1" });
-    expect(within(backup).getByLabelText("Pool URL")).toHaveValue("stratum+tcp://backup-two.example:3333");
-    await user.click(within(backup).getByRole("checkbox", { name: "Keep saved password" }));
-    await user.type(within(backup).getByLabelText("Pool password (optional)"), "backup-test-secret");
-    await user.click(screen.getByRole("button", { name: "Save new revision" }));
-    await waitFor(() =>
-      expect(client.revisePoolConfiguration).toHaveBeenCalledWith(
-        expect.objectContaining({
-          configuration: expect.objectContaining({
-            slots: [
-              expect.not.objectContaining({ password: expect.anything() }),
-              expect.objectContaining({ url: "stratum+tcp://backup-two.example:3333", password: "backup-test-secret" }),
-            ],
-          }),
-        }),
-      ),
-    );
-  });
   it.each([false, true])("keeps subclient allocation on its existing route (suspended=%s)", async (suspended) => {
     const { value, client } = scope(16n);
     const child = create(AccountSchema, {
@@ -815,7 +652,7 @@ describe("hosted account pages", () => {
     );
     const permissions = within(screen.getByRole("region", { name: "Client permissions" }));
     expect(permissions.queryByRole("button", { name: "Save permissions" })).not.toBeInTheDocument();
-    const changePools = permissions.getByRole("checkbox", { name: "Select stored pool profile" });
+    const changePools = permissions.getByRole("checkbox", { name: "Change pools" });
     await user.click(changePools);
     expect(changePools).not.toBeChecked();
     expect(changePools).toBeDisabled();
@@ -861,7 +698,7 @@ describe("hosted account pages", () => {
       />,
       value,
     );
-    await user.click(screen.getByRole("checkbox", { name: "Select stored pool profile" }));
+    await user.click(screen.getByRole("checkbox", { name: "Change pools" }));
     view.unmount();
     await act(async () => finish());
     expect(onSaved).not.toHaveBeenCalled();
@@ -924,7 +761,7 @@ describe("hosted account pages", () => {
     await user.click(screen.getByRole("button", { name: "Suspend account" }));
     await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Suspend account" }));
     await waitFor(() => expect(onSaved).toHaveBeenCalledOnce());
-    await user.click(screen.getByRole("checkbox", { name: "Select stored pool profile" }));
+    await user.click(screen.getByRole("checkbox", { name: "Change pools" }));
     await waitFor(() => expect(onSaved).toHaveBeenCalledTimes(2));
     expect(client.configureAccount).toHaveBeenLastCalledWith({
       accountId,
@@ -950,7 +787,7 @@ describe("hosted account pages", () => {
       />,
       { ...value, readOnly: true },
     );
-    expect(screen.getByRole("checkbox", { name: "Select stored pool profile" })).toBeDisabled();
+    expect(screen.getByRole("checkbox", { name: "Change pools" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Suspend account" })).toBeDisabled();
     expect(client.configureAccount).not.toHaveBeenCalled();
   });
@@ -1002,7 +839,7 @@ describe("hosted account pages", () => {
     await user.click(await screen.findByRole("button", { name: "Manage permissions" }));
     expect(screen.getByRole("checkbox", { name: "Manage memberships" })).toBeDisabled();
     expect(screen.getByRole("checkbox", { name: "View account data" })).toBeDisabled();
-    await user.click(screen.getByRole("checkbox", { name: "Select stored pool profile" }));
+    await user.click(screen.getByRole("checkbox", { name: "Change pools" }));
     await user.click(screen.getByRole("button", { name: "Save permissions" }));
     await waitFor(() =>
       expect(client.configureAccount).toHaveBeenCalledWith({

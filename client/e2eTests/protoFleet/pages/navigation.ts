@@ -66,7 +66,7 @@ export class NavigationPage {
         { width: 1024, height: 768 },
       ]) {
         await this.page.setViewportSize(viewport);
-        await this.page.getByText("Add and manage the pools for your fleet.", { exact: true }).click();
+        await this.page.getByText("Pool configurations", { exact: true }).click();
         await expect(trigger).toBeHidden();
         await expect(navigation).toHaveCSS("width", "64px");
         await expect(this.page.getByTestId("app-content")).toHaveCSS("left", "64px");
@@ -94,7 +94,7 @@ export class NavigationPage {
         await expect(toggle).toBeFocused();
         await this.page.keyboard.press("Space");
         await expect(navigation).toHaveCSS("width", "200px");
-        await this.page.getByText("Add and manage the pools for your fleet.", { exact: true }).click();
+        await this.page.getByText("Pool configurations", { exact: true }).click();
         await expect(navigation).toHaveCSS("width", "64px");
       }
       const logo = await navigation.getByTestId("navigation-logo").innerHTML();
@@ -159,7 +159,7 @@ export class NavigationPage {
       await expect(this.page.getByRole("button", { name: "Expand navigation", exact: true })).toBeHidden();
       await this.page.setViewportSize({ width: 768, height: 1024 });
       await expect(dialog).toBeHidden();
-      await this.page.getByText("Add and manage the pools for your fleet.", { exact: true }).click();
+      await this.page.getByText("Pool configurations", { exact: true }).click();
       await expect(navigation).toHaveCSS("width", "64px");
     } finally {
       if (originalViewport) await this.page.setViewportSize(originalViewport);

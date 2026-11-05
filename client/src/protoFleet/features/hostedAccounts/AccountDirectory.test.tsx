@@ -200,7 +200,7 @@ describe("owner Clients directory", () => {
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Save permissions" })).not.toBeInTheDocument();
     expect(screen.getByRole("checkbox", { name: "Manage memberships" })).toBeDisabled();
-    await user.click(screen.getByRole("checkbox", { name: "Select stored pool profile" }));
+    await user.click(screen.getByRole("checkbox", { name: "Change pools" }));
     await waitFor(() =>
       expect(calls).toContainEqual({
         method: "ConfigureAccount",

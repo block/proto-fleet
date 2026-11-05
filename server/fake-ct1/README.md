@@ -41,9 +41,15 @@ elapsed times reproduce it, independent of request order.
 
 The native gRPC listener defaults to `:9095` (`GRPC_PORT`; zero selects an
 ephemeral port). It implements the System, Hashboard, Mining, Telemetry, Power,
-Pool, and RunIn reads and controls that ProtoOS and the CT1 plugin use, except
-pool create, update, and delete, plus the MiningGroup service described in
+Pool, and RunIn reads and controls that ProtoOS and the CT1 plugin use,
+plus the MiningGroup service described in
 [Mining groups in Fleet](#mining-groups-in-fleet). They share the REST state and clock.
+Whole-container priority pool writes are held in memory and visible through REST,
+Connect, and gRPC reads. Enabling mining groups copies the configured pools and
+credentials into the Default group and assigns all boards to it. Whole-container
+pool writes are refused after activation. Restarting the simulator resets its pools.
+Weighted pool allocation and real pool connections are not simulated.
+
 SetContainerControl writes return controller-register confirmation. The dedicated main breaker remains unsupported, matching the REST
 fixture. Other generated services and historical RPCs are not enabled. This
 development listener is plaintext without authentication; see

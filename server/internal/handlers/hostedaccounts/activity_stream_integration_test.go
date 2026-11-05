@@ -65,7 +65,7 @@ func TestHostedActivityStreamReauthorizesBetweenChunks(t *testing.T) {
 			require.NoError(t, err)
 			entered, proceed := make(chan struct{}), make(chan struct{})
 			release := sync.OnceFunc(func() { close(proceed) })
-			_, handler := hostedv1connect.NewHostedAccountServiceHandler(hostedhandler.NewHandler(f.accounts, nil, nil, nil, nil, nil), connect.WithInterceptors(interceptors.NewErrorMappingInterceptor()))
+			_, handler := hostedv1connect.NewHostedAccountServiceHandler(hostedhandler.NewHandler(f.accounts, nil, nil, nil, nil), connect.WithInterceptors(interceptors.NewErrorMappingInterceptor()))
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				ctx := authn.SetInfo(r.Context(), &session.Info{UserID: viewer, OrganizationID: f.org, AuthMethod: session.AuthMethodSession})
 				handler.ServeHTTP(&heldActivityExportWriter{ResponseWriter: w, entered: entered, release: proceed}, r.WithContext(ctx))

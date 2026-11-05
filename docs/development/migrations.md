@@ -93,13 +93,15 @@ physical attempt or a fabricated successful operation. Observation still compare
 URLs/usernames; passwords are preserved privately and are not read back to prove
 application.
 
-Before maintenance, existing UI endpoints remain available. After completion,
+The backend cutover release (#362) retains the old UI endpoints before maintenance.
+The consumer release (#325) removes them. Merging or deploying #362 alone does
+not complete cutover. After completion,
 normal reconciliation, interruption and offline recovery use canonical board
 intent and immutable execution snapshots. Legacy storage remains read-only for
 history. Legacy pool library writes, board submissions and raw queued pool
-commands are rejected. PR4 owns the UI switch and final endpoint removal; deploy
-that switch together with final completion. Do not complete this gate with the
-old UI or external pool callers still active.
+commands are rejected. Deploy the PR4 UI/backend as one release during this
+maintenance window. Do not complete the gate or reopen traffic while an old UI,
+old API replica, or unmigrated external pool caller can still send writes.
 
 The maintenance command exposes identifiers and counts, never credentials:
 
@@ -161,13 +163,22 @@ Use this order for each organization, with a coordinated database backup:
    writes, including attempts to requeue terminal raw pool commands. Normal
    canonical writes are also paused until completion. Do not rely on fixing
    migration gaps after freezing.
-5. Repeat inspection, then run
+5. With traffic and writers still stopped, install the PR4 backend and UI artifacts
+   together on every replica. Replace cached/static UI assets and require existing
+   browser sessions to reload before reopening traffic. Do not send the old UI to
+   the new backend or serve the new UI from a remaining old replica. Stage the
+   migrated integrations and CLI versions listed in the consumer inventory below.
+   Repeat inspection, then run
    `fleet-db-transition pool-cutover --organization-id=<internal-id> --action=complete`.
    The transaction rechecks completeness under the source locks and writes the
    completion marker only with zero gaps. Repeating completion is safe.
-6. Start the coordinated PR4 UI/backend and migrated integrations. Verify
-   configuration reads and a deliberately reviewed update, then confirm the
-   completed marker and expected controller identities.
+6. Start the coordinated PR4 UI/backend and only the inventoried migrated callers.
+   Verify configuration creation/editing, equipment review/confirmation and results,
+   operator onboarding counts, worker-name review and Foreman's non-pool import.
+   Confirm the completed marker and preserved controller identities. Check that
+   retired RPCs are absent and canonical writes succeed after completion before
+   reopening normal traffic. While frozen, attempted writes must show
+   "Pool configuration maintenance is in progress." and leave saved state unchanged.
 
 This uses a controlled writer freeze, not online per-device conversion. The
 source-table SHARE locks remain deliberately in place to exclude inventory,
@@ -185,14 +196,65 @@ restore the coordinated pre-maintenance backup before restarting the old deploym
 After new canonical writes, rollback requires a coordinated restore or a forward fix;
 schema down refuses to erase effective intent or the maintenance marker.
 
-Backend consumer changes in this release:
+### Consumer release and retired APIs
 
-| Consumer | Behavior |
+Merge order is PR3 (#324), backend cutover (#362), then consumer cleanup (#325).
+The consumer release builds on `main` including #362. A PR merge is not a
+maintenance completion signal. The application can start before completion;
+therefore pre-cutover reconciliation, credential readers and recovery remain
+supported until the marker switches them to canonical intent. Migration readers,
+legacy history tables, underlying device pool transport and the controller
+planner remain in place. Endpoint retirement does not authorize dropping storage.
+
+| Retired public API | Replacement / disposition |
 | --- | --- |
-| Fleet CLI `pools` commands | Use `PoolConfigurationService`; assignment/edit/retry use review then confirmation. Structured pool stacks/targets use `--json`; confirmation passwords use `--password-stdin`. |
-| Foreman import | Imports groups, racks, collection assignments, and names only. Foreman does not return pool passwords, so its reported usernames never become Fleet pool configurations. Existing miner pools and Fleet configuration assignments are preserved; newly imported miners with readable pools remain in Device Configuration until explicitly assigned a Fleet configuration. Explicit API requests to import pools fail before fetching Foreman data. |
-| Legacy pool-ID/raw pool update and worker-name pool rewrite | Available before maintenance; rejected after freeze. Use a reviewed canonical configuration update after cutover. |
-| Existing UI and legacy RPC definitions | Retained for the deployment transition; PR4 switches callers and removes endpoints. |
+| `pools.v1.PoolsService` (all library CRUD and validation) | `PoolConfigurationService` library APIs and `TestConnection` |
+| `HostedAccountService.CreatePoolConfiguration`, `RevisePoolConfiguration`, `GetPoolRevision`, `ListPoolConfigurations`, `ArchivePoolConfiguration` | Shared configuration service with the selected `account_id` and account header |
+| `HostedAccountService.GetIncomingPoolProfile`, `SetIncomingPoolProfile` | Stored profiles never applied equipment settings. Import retained library state, then explicitly review and confirm assignments; allocation does not apply pools. |
+| `MiningGroupService.SetPools`, `CreatePoolConfiguration`, `ListPoolConfigurations`, `ResolveFleetPools` | Canonical library and board/module `ReviewAssignment` → `ConfirmReview`; `GetState` and `Activate` remain |
+| `MinerCommandService.UpdateMiningPools` | Canonical configuration review/confirmation; no public raw write replacement |
+| `FleetManagementService.GetMinerPoolAssignments` | Canonical `GetAssignments` and `CheckConfiguration` |
+| `FleetManagementService.UpdateWorkerNames` | `ReviewWorkerNames`, `AuthorizeWorkerNameReviews` once for the exact batch, then `ConfirmReview` for each returned review |
+
+Worker-name reviews group miners by their current canonical configuration and
+show old/new names. Review does not save names. Confirmation checks the original
+worker inputs, live naming and pool permissions, ownership, and configuration
+version, then atomically saves names and queues canonical execution. Unassigned
+miners require a configuration assignment first. A multi-configuration request
+can be partly confirmed; submitted operations continue and retries reuse only
+the unconfirmed reviews. Device results remain separate from saved intent.
+
+Fleet CLI `pools` commands from #362 use canonical APIs. Structured pool stacks
+and targets use `--json`; confirmation passwords use `--password-stdin`.
+Foreman onboarding sends `importPools: false` while still importing groups,
+racks, assignments and names. Foreman does not return pool passwords; explicit
+API requests to import pools fail before fetching Foreman data. Existing miner
+pools and Fleet configuration assignments are preserved; newly imported miners
+with readable pools remain in Device Configuration until explicitly assigned a
+Fleet configuration.
+
+### External consumer inventory and release gate
+
+Database inspection cannot discover scripts, third-party integrations, installed
+CLIs or cached browsers. The rollout owner must maintain a separate inventory
+with **caller/owner, authentication scope, current version, RPCs used, replacement,
+verified version, and stop/resume status**. Check API-key owners, scheduled jobs,
+service deployments, operator workstations and observed gateway/RPC traffic.
+Absence in recent logs is not proof that an infrequent caller is migrated.
+
+For each caller, verify canonical library access, exact equipment review,
+confirmation, results and retry handling against the release. Record how it
+obtains configuration IDs instead of legacy pool IDs and how its credentials
+are supplied without logging them. Upgrade or explicitly disable every obsolete
+caller before completion; an old CLI binary must remain stopped until replaced.
+Do not rely on database triggers or a rejected legacy write as a migration plan.
+There is no compatibility route or silent translation of raw writes.
+
+Keep the deployment inventory, rehearsal report, backup reference, inspection and
+conversion reports, zero-gap completion result, artifact revisions, and smoke
+results with the maintenance record. Production caller inventory, production
+volume and conversion rehearsal are deployment prerequisites; repository tests
+do not establish that they are complete.
 
 ### Baseline reconciliation
 

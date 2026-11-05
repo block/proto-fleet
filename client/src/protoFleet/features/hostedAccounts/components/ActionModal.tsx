@@ -11,18 +11,22 @@ import Modal from "@/shared/components/Modal";
 export const ActionModal = ({
   title,
   confirm = "Save",
+  cancel = "Cancel",
   valid = true,
   presentation = "modal",
+  initialFocus,
   children,
   onSubmit,
   onDismiss,
 }: {
   title: string;
   confirm?: string;
+  cancel?: string;
   valid?: boolean;
   presentation?: "modal" | "dialog";
+  initialFocus?: "firstControl" | "dialog";
   children: ReactNode;
-  onSubmit: () => Promise<void>;
+  onSubmit: (current: () => boolean) => Promise<void>;
   onDismiss: () => void;
 }) => {
   const scope = useAccountScope();
@@ -32,7 +36,7 @@ export const ActionModal = ({
   };
   const buttons: ButtonProps[] = [
     {
-      text: "Cancel",
+      text: cancel,
       variant: "secondary",
       onClick: () => {
         clearError();
@@ -72,6 +76,7 @@ export const ActionModal = ({
       dialogLabel={title}
       onDismiss={busy ? undefined : onDismiss}
       manageFocus
+      initialFocus={initialFocus}
       buttons={buttons.map((button) => ({ ...button, dismissModalOnClick: false }))}
     >
       {content}

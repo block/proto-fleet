@@ -40,28 +40,12 @@ const (
 	// MiningGroupServiceActivateProcedure is the fully-qualified name of the MiningGroupService's
 	// Activate RPC.
 	MiningGroupServiceActivateProcedure = "/mininggroups.v1.MiningGroupService/Activate"
-	// MiningGroupServiceSetPoolsProcedure is the fully-qualified name of the MiningGroupService's
-	// SetPools RPC.
-	MiningGroupServiceSetPoolsProcedure = "/mininggroups.v1.MiningGroupService/SetPools"
-	// MiningGroupServiceListPoolConfigurationsProcedure is the fully-qualified name of the
-	// MiningGroupService's ListPoolConfigurations RPC.
-	MiningGroupServiceListPoolConfigurationsProcedure = "/mininggroups.v1.MiningGroupService/ListPoolConfigurations"
-	// MiningGroupServiceCreatePoolConfigurationProcedure is the fully-qualified name of the
-	// MiningGroupService's CreatePoolConfiguration RPC.
-	MiningGroupServiceCreatePoolConfigurationProcedure = "/mininggroups.v1.MiningGroupService/CreatePoolConfiguration"
-	// MiningGroupServiceResolveFleetPoolsProcedure is the fully-qualified name of the
-	// MiningGroupService's ResolveFleetPools RPC.
-	MiningGroupServiceResolveFleetPoolsProcedure = "/mininggroups.v1.MiningGroupService/ResolveFleetPools"
 )
 
 // MiningGroupServiceClient is a client for the mininggroups.v1.MiningGroupService service.
 type MiningGroupServiceClient interface {
 	GetState(context.Context, *connect.Request[v1.GetStateRequest]) (*connect.Response[v1.GetStateResponse], error)
 	Activate(context.Context, *connect.Request[v1.ActivateRequest]) (*connect.Response[v1.ActivateResponse], error)
-	SetPools(context.Context, *connect.Request[v1.SetPoolsRequest]) (*connect.Response[v1.SetPoolsResponse], error)
-	ListPoolConfigurations(context.Context, *connect.Request[v1.ListPoolConfigurationsRequest]) (*connect.Response[v1.ListPoolConfigurationsResponse], error)
-	CreatePoolConfiguration(context.Context, *connect.Request[v1.CreatePoolConfigurationRequest]) (*connect.Response[v1.CreatePoolConfigurationResponse], error)
-	ResolveFleetPools(context.Context, *connect.Request[v1.ResolveFleetPoolsRequest]) (*connect.Response[v1.ResolveFleetPoolsResponse], error)
 }
 
 // NewMiningGroupServiceClient constructs a client for the mininggroups.v1.MiningGroupService
@@ -84,37 +68,13 @@ func NewMiningGroupServiceClient(httpClient connect.HTTPClient, baseURL string, 
 			baseURL+MiningGroupServiceActivateProcedure,
 			opts...,
 		),
-		setPools: connect.NewClient[v1.SetPoolsRequest, v1.SetPoolsResponse](
-			httpClient,
-			baseURL+MiningGroupServiceSetPoolsProcedure,
-			opts...,
-		),
-		listPoolConfigurations: connect.NewClient[v1.ListPoolConfigurationsRequest, v1.ListPoolConfigurationsResponse](
-			httpClient,
-			baseURL+MiningGroupServiceListPoolConfigurationsProcedure,
-			opts...,
-		),
-		createPoolConfiguration: connect.NewClient[v1.CreatePoolConfigurationRequest, v1.CreatePoolConfigurationResponse](
-			httpClient,
-			baseURL+MiningGroupServiceCreatePoolConfigurationProcedure,
-			opts...,
-		),
-		resolveFleetPools: connect.NewClient[v1.ResolveFleetPoolsRequest, v1.ResolveFleetPoolsResponse](
-			httpClient,
-			baseURL+MiningGroupServiceResolveFleetPoolsProcedure,
-			opts...,
-		),
 	}
 }
 
 // miningGroupServiceClient implements MiningGroupServiceClient.
 type miningGroupServiceClient struct {
-	getState                *connect.Client[v1.GetStateRequest, v1.GetStateResponse]
-	activate                *connect.Client[v1.ActivateRequest, v1.ActivateResponse]
-	setPools                *connect.Client[v1.SetPoolsRequest, v1.SetPoolsResponse]
-	listPoolConfigurations  *connect.Client[v1.ListPoolConfigurationsRequest, v1.ListPoolConfigurationsResponse]
-	createPoolConfiguration *connect.Client[v1.CreatePoolConfigurationRequest, v1.CreatePoolConfigurationResponse]
-	resolveFleetPools       *connect.Client[v1.ResolveFleetPoolsRequest, v1.ResolveFleetPoolsResponse]
+	getState *connect.Client[v1.GetStateRequest, v1.GetStateResponse]
+	activate *connect.Client[v1.ActivateRequest, v1.ActivateResponse]
 }
 
 // GetState calls mininggroups.v1.MiningGroupService.GetState.
@@ -127,34 +87,10 @@ func (c *miningGroupServiceClient) Activate(ctx context.Context, req *connect.Re
 	return c.activate.CallUnary(ctx, req)
 }
 
-// SetPools calls mininggroups.v1.MiningGroupService.SetPools.
-func (c *miningGroupServiceClient) SetPools(ctx context.Context, req *connect.Request[v1.SetPoolsRequest]) (*connect.Response[v1.SetPoolsResponse], error) {
-	return c.setPools.CallUnary(ctx, req)
-}
-
-// ListPoolConfigurations calls mininggroups.v1.MiningGroupService.ListPoolConfigurations.
-func (c *miningGroupServiceClient) ListPoolConfigurations(ctx context.Context, req *connect.Request[v1.ListPoolConfigurationsRequest]) (*connect.Response[v1.ListPoolConfigurationsResponse], error) {
-	return c.listPoolConfigurations.CallUnary(ctx, req)
-}
-
-// CreatePoolConfiguration calls mininggroups.v1.MiningGroupService.CreatePoolConfiguration.
-func (c *miningGroupServiceClient) CreatePoolConfiguration(ctx context.Context, req *connect.Request[v1.CreatePoolConfigurationRequest]) (*connect.Response[v1.CreatePoolConfigurationResponse], error) {
-	return c.createPoolConfiguration.CallUnary(ctx, req)
-}
-
-// ResolveFleetPools calls mininggroups.v1.MiningGroupService.ResolveFleetPools.
-func (c *miningGroupServiceClient) ResolveFleetPools(ctx context.Context, req *connect.Request[v1.ResolveFleetPoolsRequest]) (*connect.Response[v1.ResolveFleetPoolsResponse], error) {
-	return c.resolveFleetPools.CallUnary(ctx, req)
-}
-
 // MiningGroupServiceHandler is an implementation of the mininggroups.v1.MiningGroupService service.
 type MiningGroupServiceHandler interface {
 	GetState(context.Context, *connect.Request[v1.GetStateRequest]) (*connect.Response[v1.GetStateResponse], error)
 	Activate(context.Context, *connect.Request[v1.ActivateRequest]) (*connect.Response[v1.ActivateResponse], error)
-	SetPools(context.Context, *connect.Request[v1.SetPoolsRequest]) (*connect.Response[v1.SetPoolsResponse], error)
-	ListPoolConfigurations(context.Context, *connect.Request[v1.ListPoolConfigurationsRequest]) (*connect.Response[v1.ListPoolConfigurationsResponse], error)
-	CreatePoolConfiguration(context.Context, *connect.Request[v1.CreatePoolConfigurationRequest]) (*connect.Response[v1.CreatePoolConfigurationResponse], error)
-	ResolveFleetPools(context.Context, *connect.Request[v1.ResolveFleetPoolsRequest]) (*connect.Response[v1.ResolveFleetPoolsResponse], error)
 }
 
 // NewMiningGroupServiceHandler builds an HTTP handler from the service implementation. It returns
@@ -173,40 +109,12 @@ func NewMiningGroupServiceHandler(svc MiningGroupServiceHandler, opts ...connect
 		svc.Activate,
 		opts...,
 	)
-	miningGroupServiceSetPoolsHandler := connect.NewUnaryHandler(
-		MiningGroupServiceSetPoolsProcedure,
-		svc.SetPools,
-		opts...,
-	)
-	miningGroupServiceListPoolConfigurationsHandler := connect.NewUnaryHandler(
-		MiningGroupServiceListPoolConfigurationsProcedure,
-		svc.ListPoolConfigurations,
-		opts...,
-	)
-	miningGroupServiceCreatePoolConfigurationHandler := connect.NewUnaryHandler(
-		MiningGroupServiceCreatePoolConfigurationProcedure,
-		svc.CreatePoolConfiguration,
-		opts...,
-	)
-	miningGroupServiceResolveFleetPoolsHandler := connect.NewUnaryHandler(
-		MiningGroupServiceResolveFleetPoolsProcedure,
-		svc.ResolveFleetPools,
-		opts...,
-	)
 	return "/mininggroups.v1.MiningGroupService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case MiningGroupServiceGetStateProcedure:
 			miningGroupServiceGetStateHandler.ServeHTTP(w, r)
 		case MiningGroupServiceActivateProcedure:
 			miningGroupServiceActivateHandler.ServeHTTP(w, r)
-		case MiningGroupServiceSetPoolsProcedure:
-			miningGroupServiceSetPoolsHandler.ServeHTTP(w, r)
-		case MiningGroupServiceListPoolConfigurationsProcedure:
-			miningGroupServiceListPoolConfigurationsHandler.ServeHTTP(w, r)
-		case MiningGroupServiceCreatePoolConfigurationProcedure:
-			miningGroupServiceCreatePoolConfigurationHandler.ServeHTTP(w, r)
-		case MiningGroupServiceResolveFleetPoolsProcedure:
-			miningGroupServiceResolveFleetPoolsHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -222,20 +130,4 @@ func (UnimplementedMiningGroupServiceHandler) GetState(context.Context, *connect
 
 func (UnimplementedMiningGroupServiceHandler) Activate(context.Context, *connect.Request[v1.ActivateRequest]) (*connect.Response[v1.ActivateResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("mininggroups.v1.MiningGroupService.Activate is not implemented"))
-}
-
-func (UnimplementedMiningGroupServiceHandler) SetPools(context.Context, *connect.Request[v1.SetPoolsRequest]) (*connect.Response[v1.SetPoolsResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("mininggroups.v1.MiningGroupService.SetPools is not implemented"))
-}
-
-func (UnimplementedMiningGroupServiceHandler) ListPoolConfigurations(context.Context, *connect.Request[v1.ListPoolConfigurationsRequest]) (*connect.Response[v1.ListPoolConfigurationsResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("mininggroups.v1.MiningGroupService.ListPoolConfigurations is not implemented"))
-}
-
-func (UnimplementedMiningGroupServiceHandler) CreatePoolConfiguration(context.Context, *connect.Request[v1.CreatePoolConfigurationRequest]) (*connect.Response[v1.CreatePoolConfigurationResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("mininggroups.v1.MiningGroupService.CreatePoolConfiguration is not implemented"))
-}
-
-func (UnimplementedMiningGroupServiceHandler) ResolveFleetPools(context.Context, *connect.Request[v1.ResolveFleetPoolsRequest]) (*connect.Response[v1.ResolveFleetPoolsResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("mininggroups.v1.MiningGroupService.ResolveFleetPools is not implemented"))
 }

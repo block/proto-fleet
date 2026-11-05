@@ -218,14 +218,7 @@ func requiresSelectedAccount(procedure string) bool {
 		hostedv1connect.HostedAccountServiceGetAccountMiningSummaryProcedure,
 		hostedv1connect.HostedAccountServiceListAccountAssetsProcedure,
 		hostedv1connect.HostedAccountServiceAssignAccountAssetsProcedure,
-		hostedv1connect.HostedAccountServiceReplaceAccountHashboardProcedure,
-		hostedv1connect.HostedAccountServiceCreatePoolConfigurationProcedure,
-		hostedv1connect.HostedAccountServiceRevisePoolConfigurationProcedure,
-		hostedv1connect.HostedAccountServiceGetPoolRevisionProcedure,
-		hostedv1connect.HostedAccountServiceListPoolConfigurationsProcedure,
-		hostedv1connect.HostedAccountServiceArchivePoolConfigurationProcedure,
-		hostedv1connect.HostedAccountServiceGetIncomingPoolProfileProcedure,
-		hostedv1connect.HostedAccountServiceSetIncomingPoolProfileProcedure:
+		hostedv1connect.HostedAccountServiceReplaceAccountHashboardProcedure:
 		return true
 	default:
 		return false
@@ -243,13 +236,7 @@ func allowsAccountKey(procedure string) bool {
 		poolconfigurationsv1connect.PoolConfigurationServiceTestConnectionProcedure,
 		poolconfigurationsv1connect.PoolConfigurationServiceConfirmReviewProcedure:
 		return true
-	case hostedv1connect.HostedAccountServiceCreatePoolConfigurationProcedure,
-		hostedv1connect.HostedAccountServiceRevisePoolConfigurationProcedure,
-		hostedv1connect.HostedAccountServiceGetPoolRevisionProcedure,
-		hostedv1connect.HostedAccountServiceListPoolConfigurationsProcedure,
-		hostedv1connect.HostedAccountServiceArchivePoolConfigurationProcedure,
-		hostedv1connect.HostedAccountServiceGetIncomingPoolProfileProcedure,
-		hostedv1connect.HostedAccountServiceGetAccountProcedure, hostedv1connect.HostedAccountServiceGetSitePolicyProcedure:
+	case hostedv1connect.HostedAccountServiceGetAccountProcedure, hostedv1connect.HostedAccountServiceGetSitePolicyProcedure:
 		return true
 	default:
 		return false
@@ -291,13 +278,6 @@ func allowsSelectedAccount(procedure string) bool {
 		hostedv1connect.HostedAccountServiceListAccountAssetsProcedure,
 		hostedv1connect.HostedAccountServiceAssignAccountAssetsProcedure,
 		hostedv1connect.HostedAccountServiceReplaceAccountHashboardProcedure,
-		hostedv1connect.HostedAccountServiceCreatePoolConfigurationProcedure,
-		hostedv1connect.HostedAccountServiceRevisePoolConfigurationProcedure,
-		hostedv1connect.HostedAccountServiceGetPoolRevisionProcedure,
-		hostedv1connect.HostedAccountServiceListPoolConfigurationsProcedure,
-		hostedv1connect.HostedAccountServiceArchivePoolConfigurationProcedure,
-		hostedv1connect.HostedAccountServiceGetIncomingPoolProfileProcedure,
-		hostedv1connect.HostedAccountServiceSetIncomingPoolProfileProcedure,
 		hostedv1connect.HostedAccountServiceCreateAccountKeyProcedure,
 		hostedv1connect.HostedAccountServiceListAccountKeysProcedure,
 		hostedv1connect.HostedAccountServiceRevokeAccountKeyProcedure,

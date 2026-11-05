@@ -475,6 +475,8 @@ test.describe("Groups", () => {
       const groupName = generateRandomText("automation");
       const poolName = generateRandomText("PoolName");
       const poolUsername = generateRandomText("PoolUsername");
+      let originalConfiguration = "";
+      let overviewUrl = "";
       let selectedDeviceIdentifiers: string[] = [];
 
       try {
@@ -503,11 +505,12 @@ test.describe("Groups", () => {
           await groupsPage.openGroupOverviewActionsMenu();
           await groupsPage.clickGroupOverviewAssignPools();
           await loginModal.loginAsAdmin();
+          overviewUrl = page.url();
+          originalConfiguration = await editPoolPage.selectedConfigurationName();
         });
 
         await test.step("Create a pool from the overview flow", async () => {
-          await editPoolPage.clickPoolAddButton();
-          await editPoolPage.clickAddNewPool();
+          await editPoolPage.createConfiguration();
           await newPoolModal.inputPoolName(poolName);
           await newPoolModal.inputPoolUrl(VALID_POOL_URL);
           await newPoolModal.inputPoolUsername(poolUsername);
@@ -516,27 +519,30 @@ test.describe("Groups", () => {
         });
 
         await test.step("Assign the created pool to the grouped miners", async () => {
-          const requestPromise = page.waitForRequest(/UpdateMiningPools/);
-          const responsePromise = page.waitForResponse(/UpdateMiningPools/);
+          const requestPromise = page.waitForRequest(/ReviewAssignment/);
+          const responsePromise = page.waitForResponse(/ReviewAssignment/);
 
-          await editPoolPage.clickAssignToXMiners(2);
+          await editPoolPage.reviewAssignment(2);
 
           const request = await requestPromise;
           const response = await responsePromise;
           const requestBody = request.postDataJSON();
-          const targetedDeviceIdentifiers = requestBody.deviceSelector.includeDevices.deviceIdentifiers;
+          const targetedDeviceIdentifiers = requestBody.deviceIdentifiers;
           const sortedTargetedDeviceIdentifiers = [...targetedDeviceIdentifiers].sort();
           const sortedSelectedDeviceIdentifiers = [...selectedDeviceIdentifiers].sort();
 
           test.expect(request.method()).toBe("POST");
-          test.expect(requestBody).toHaveProperty("defaultPool");
-          test.expect(requestBody).toHaveProperty("deviceSelector");
-          test.expect(requestBody.deviceSelector).toHaveProperty("includeDevices");
+          test.expect(requestBody).toHaveProperty("configurationId");
           test.expect(sortedTargetedDeviceIdentifiers).toEqual(sortedSelectedDeviceIdentifiers);
           test.expect(response.status()).toBe(200);
-          await groupsPage.validateTextInToastGroup("Assigned pools");
+          await editPoolPage.confirmAssignment();
         });
       } finally {
+        await editPoolPage.restoreConfiguration(originalConfiguration, overviewUrl, 2, async () => {
+          await groupsPage.openGroupOverviewActionsMenu();
+          await groupsPage.clickGroupOverviewAssignPools();
+          await loginModal.loginAsAdmin();
+        });
         await cleanupPoolIfPageOpen(page, settingsPage, settingsPoolsPage, poolName);
       }
     });

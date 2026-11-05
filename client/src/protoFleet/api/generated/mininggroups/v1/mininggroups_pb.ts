@@ -7,8 +7,6 @@ import { fileDesc, messageDesc, serviceDesc } from "@bufbuild/protobuf/codegenv2
 import { file_buf_validate_validate } from "../../buf/validate/validate_pb";
 import type { Timestamp } from "@bufbuild/protobuf/wkt";
 import { file_google_protobuf_timestamp } from "@bufbuild/protobuf/wkt";
-import type { PoolRevision, PoolRevisionInput } from "../../hosted/v1/hosted_pb";
-import { file_hosted_v1_hosted } from "../../hosted/v1/hosted_pb";
 import type { Message } from "@bufbuild/protobuf";
 
 /**
@@ -17,8 +15,8 @@ import type { Message } from "@bufbuild/protobuf";
 export const file_mininggroups_v1_mininggroups: GenFile =
   /*@__PURE__*/
   fileDesc(
-    "CiJtaW5pbmdncm91cHMvdjEvbWluaW5nZ3JvdXBzLnByb3RvEg9taW5pbmdncm91cHMudjEiOAoPR2V0U3RhdGVSZXF1ZXN0EiUKEWRldmljZV9pZGVudGlmaWVyGAEgASgJQgq6SAdyBRABGP8BIo4BCgRQb29sEgoKAmlkGAEgASgFEgwKBG5hbWUYAiABKAkSCwoDdXJsGAMgASgJEhAKCHVzZXJuYW1lGAQgASgJEhAKCHByaW9yaXR5GAUgASgFEg8KB2VuYWJsZWQYBiABKAgSGQoMc2hhcmVfd2VpZ2h0GAcgASgBSACIAQFCDwoNX3NoYXJlX3dlaWdodCKaAQoFR3JvdXASCgoCaWQYASABKAkSDAoEbmFtZRgCIAEoCRIQCghyZXZpc2lvbhgDIAEoAxIVCg1tYWNfYWRkcmVzc2VzGAQgAygJEiQKBXBvb2xzGAUgAygLMhUubWluaW5nZ3JvdXBzLnYxLlBvb2wSDgoGbWluaW5nGAYgASgIEhgKEHBvb2xfcmV2aXNpb25faWQYByABKAkiUgoLQm9hcmRJbnRlbnQSFAoMaGFzaGJvYXJkX2lkGAEgASgDEhMKC21hY19hZGRyZXNzGAIgASgJEhgKEHBvb2xfcmV2aXNpb25faWQYAyABKAkimgIKEEdldFN0YXRlUmVzcG9uc2USDwoHZW5hYmxlZBgBIAEoCBIRCglzdXNwZW5kZWQYAiABKAgSJgoGZ3JvdXBzGAMgAygLMhYubWluaW5nZ3JvdXBzLnYxLkdyb3VwEi0KB2Rlc2lyZWQYBCADKAsyHC5taW5pbmdncm91cHMudjEuQm9hcmRJbnRlbnQSLwoLb2JzZXJ2ZWRfYXQYBSABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEhQKDG9wZXJhdGlvbl9pZBgGIAEoCRIOCgZzdGF0dXMYByABKAkSDwoHbWVzc2FnZRgIIAEoCRIQCghyZXZpc2lvbhgJIAEoAxIRCglzdXBwb3J0ZWQYCiABKAgigQEKD0FjdGl2YXRlUmVxdWVzdBIlChFkZXZpY2VfaWRlbnRpZmllchgBIAEoCUIKukgHcgUQARj/ARIpChhhY2tub3dsZWRnZV9pbnRlcnJ1cHRpb24YAiABKAhCB7pIBGoCCAESHAoKcmVxdWVzdF9pZBgDIAEoCUIIukgFcgOwAQEiKAoQQWN0aXZhdGVSZXNwb25zZRIUCgxvcGVyYXRpb25faWQYASABKAkiigIKD1NldFBvb2xzUmVxdWVzdBIlChFkZXZpY2VfaWRlbnRpZmllchgBIAEoCUIKukgHcgUQARj/ARIqCg1oYXNoYm9hcmRfaWRzGAIgAygDQhO6SBCSAQ0IARCgAhgBIgQiAiAAEiIKEHBvb2xfcmV2aXNpb25faWQYAyABKAlCCLpIBXIDsAEBEhwKCnJlcXVlc3RfaWQYBCABKAlCCLpIBXIDsAEBEiIKEWV4cGVjdGVkX3JldmlzaW9uGAUgASgDQge6SAQiAiAAEh4KDXVzZXJfdXNlcm5hbWUYBiABKAlCB7pIBHICEAESHgoNdXNlcl9wYXNzd29yZBgHIAEoCUIHukgEcgIQASIoChBTZXRQb29sc1Jlc3BvbnNlEhQKDG9wZXJhdGlvbl9pZBgBIAEoCSIfCh1MaXN0UG9vbENvbmZpZ3VyYXRpb25zUmVxdWVzdCJRCh5MaXN0UG9vbENvbmZpZ3VyYXRpb25zUmVzcG9uc2USLwoOY29uZmlndXJhdGlvbnMYASADKAsyFy5ob3N0ZWQudjEuUG9vbFJldmlzaW9uIl0KHkNyZWF0ZVBvb2xDb25maWd1cmF0aW9uUmVxdWVzdBI7Cg1jb25maWd1cmF0aW9uGAEgASgLMhwuaG9zdGVkLnYxLlBvb2xSZXZpc2lvbklucHV0Qga6SAPIAQEiTAofQ3JlYXRlUG9vbENvbmZpZ3VyYXRpb25SZXNwb25zZRIpCghyZXZpc2lvbhgBIAEoCzIXLmhvc3RlZC52MS5Qb29sUmV2aXNpb24iQAoYUmVzb2x2ZUZsZWV0UG9vbHNSZXF1ZXN0EiQKCHBvb2xfaWRzGAEgAygDQhK6SA+SAQwIARADGAEiBCICIAAiRgoZUmVzb2x2ZUZsZWV0UG9vbHNSZXNwb25zZRIpCghyZXZpc2lvbhgBIAEoCzIXLmhvc3RlZC52MS5Qb29sUmV2aXNpb24y7AQKEk1pbmluZ0dyb3VwU2VydmljZRJPCghHZXRTdGF0ZRIgLm1pbmluZ2dyb3Vwcy52MS5HZXRTdGF0ZVJlcXVlc3QaIS5taW5pbmdncm91cHMudjEuR2V0U3RhdGVSZXNwb25zZRJPCghBY3RpdmF0ZRIgLm1pbmluZ2dyb3Vwcy52MS5BY3RpdmF0ZVJlcXVlc3QaIS5taW5pbmdncm91cHMudjEuQWN0aXZhdGVSZXNwb25zZRJPCghTZXRQb29scxIgLm1pbmluZ2dyb3Vwcy52MS5TZXRQb29sc1JlcXVlc3QaIS5taW5pbmdncm91cHMudjEuU2V0UG9vbHNSZXNwb25zZRJ5ChZMaXN0UG9vbENvbmZpZ3VyYXRpb25zEi4ubWluaW5nZ3JvdXBzLnYxLkxpc3RQb29sQ29uZmlndXJhdGlvbnNSZXF1ZXN0Gi8ubWluaW5nZ3JvdXBzLnYxLkxpc3RQb29sQ29uZmlndXJhdGlvbnNSZXNwb25zZRJ8ChdDcmVhdGVQb29sQ29uZmlndXJhdGlvbhIvLm1pbmluZ2dyb3Vwcy52MS5DcmVhdGVQb29sQ29uZmlndXJhdGlvblJlcXVlc3QaMC5taW5pbmdncm91cHMudjEuQ3JlYXRlUG9vbENvbmZpZ3VyYXRpb25SZXNwb25zZRJqChFSZXNvbHZlRmxlZXRQb29scxIpLm1pbmluZ2dyb3Vwcy52MS5SZXNvbHZlRmxlZXRQb29sc1JlcXVlc3QaKi5taW5pbmdncm91cHMudjEuUmVzb2x2ZUZsZWV0UG9vbHNSZXNwb25zZULYAQoTY29tLm1pbmluZ2dyb3Vwcy52MUIRTWluaW5nZ3JvdXBzUHJvdG9QAVpRZ2l0aHViLmNvbS9ibG9jay9wcm90by1mbGVldC9zZXJ2ZXIvZ2VuZXJhdGVkL2dycGMvbWluaW5nZ3JvdXBzL3YxO21pbmluZ2dyb3Vwc3YxogIDTVhYqgIPTWluaW5nZ3JvdXBzLlYxygIPTWluaW5nZ3JvdXBzXFYx4gIbTWluaW5nZ3JvdXBzXFYxXEdQQk1ldGFkYXRh6gIQTWluaW5nZ3JvdXBzOjpWMWIGcHJvdG8z",
-    [file_buf_validate_validate, file_google_protobuf_timestamp, file_hosted_v1_hosted],
+    "CiJtaW5pbmdncm91cHMvdjEvbWluaW5nZ3JvdXBzLnByb3RvEg9taW5pbmdncm91cHMudjEiOAoPR2V0U3RhdGVSZXF1ZXN0EiUKEWRldmljZV9pZGVudGlmaWVyGAEgASgJQgq6SAdyBRABGP8BIo4BCgRQb29sEgoKAmlkGAEgASgFEgwKBG5hbWUYAiABKAkSCwoDdXJsGAMgASgJEhAKCHVzZXJuYW1lGAQgASgJEhAKCHByaW9yaXR5GAUgASgFEg8KB2VuYWJsZWQYBiABKAgSGQoMc2hhcmVfd2VpZ2h0GAcgASgBSACIAQFCDwoNX3NoYXJlX3dlaWdodCKaAQoFR3JvdXASCgoCaWQYASABKAkSDAoEbmFtZRgCIAEoCRIQCghyZXZpc2lvbhgDIAEoAxIVCg1tYWNfYWRkcmVzc2VzGAQgAygJEiQKBXBvb2xzGAUgAygLMhUubWluaW5nZ3JvdXBzLnYxLlBvb2wSDgoGbWluaW5nGAYgASgIEhgKEHBvb2xfcmV2aXNpb25faWQYByABKAkiUgoLQm9hcmRJbnRlbnQSFAoMaGFzaGJvYXJkX2lkGAEgASgDEhMKC21hY19hZGRyZXNzGAIgASgJEhgKEHBvb2xfcmV2aXNpb25faWQYAyABKAkimgIKEEdldFN0YXRlUmVzcG9uc2USDwoHZW5hYmxlZBgBIAEoCBIRCglzdXNwZW5kZWQYAiABKAgSJgoGZ3JvdXBzGAMgAygLMhYubWluaW5nZ3JvdXBzLnYxLkdyb3VwEi0KB2Rlc2lyZWQYBCADKAsyHC5taW5pbmdncm91cHMudjEuQm9hcmRJbnRlbnQSLwoLb2JzZXJ2ZWRfYXQYBSABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEhQKDG9wZXJhdGlvbl9pZBgGIAEoCRIOCgZzdGF0dXMYByABKAkSDwoHbWVzc2FnZRgIIAEoCRIQCghyZXZpc2lvbhgJIAEoAxIRCglzdXBwb3J0ZWQYCiABKAgigQEKD0FjdGl2YXRlUmVxdWVzdBIlChFkZXZpY2VfaWRlbnRpZmllchgBIAEoCUIKukgHcgUQARj/ARIpChhhY2tub3dsZWRnZV9pbnRlcnJ1cHRpb24YAiABKAhCB7pIBGoCCAESHAoKcmVxdWVzdF9pZBgDIAEoCUIIukgFcgOwAQEiKAoQQWN0aXZhdGVSZXNwb25zZRIUCgxvcGVyYXRpb25faWQYASABKAkytgEKEk1pbmluZ0dyb3VwU2VydmljZRJPCghHZXRTdGF0ZRIgLm1pbmluZ2dyb3Vwcy52MS5HZXRTdGF0ZVJlcXVlc3QaIS5taW5pbmdncm91cHMudjEuR2V0U3RhdGVSZXNwb25zZRJPCghBY3RpdmF0ZRIgLm1pbmluZ2dyb3Vwcy52MS5BY3RpdmF0ZVJlcXVlc3QaIS5taW5pbmdncm91cHMudjEuQWN0aXZhdGVSZXNwb25zZULYAQoTY29tLm1pbmluZ2dyb3Vwcy52MUIRTWluaW5nZ3JvdXBzUHJvdG9QAVpRZ2l0aHViLmNvbS9ibG9jay9wcm90by1mbGVldC9zZXJ2ZXIvZ2VuZXJhdGVkL2dycGMvbWluaW5nZ3JvdXBzL3YxO21pbmluZ2dyb3Vwc3YxogIDTVhYqgIPTWluaW5nZ3JvdXBzLlYxygIPTWluaW5nZ3JvdXBzXFYx4gIbTWluaW5nZ3JvdXBzXFYxXEdQQk1ldGFkYXRh6gIQTWluaW5nZ3JvdXBzOjpWMWIGcHJvdG8z",
+    [file_buf_validate_validate, file_google_protobuf_timestamp],
   );
 
 /**
@@ -271,177 +269,6 @@ export const ActivateResponseSchema: GenMessage<ActivateResponse> =
   messageDesc(file_mininggroups_v1_mininggroups, 6);
 
 /**
- * @generated from message mininggroups.v1.SetPoolsRequest
- */
-export type SetPoolsRequest = Message<"mininggroups.v1.SetPoolsRequest"> & {
-  /**
-   * @generated from field: string device_identifier = 1;
-   */
-  deviceIdentifier: string;
-
-  /**
-   * @generated from field: repeated int64 hashboard_ids = 2;
-   */
-  hashboardIds: bigint[];
-
-  /**
-   * @generated from field: string pool_revision_id = 3;
-   */
-  poolRevisionId: string;
-
-  /**
-   * @generated from field: string request_id = 4;
-   */
-  requestId: string;
-
-  /**
-   * @generated from field: int64 expected_revision = 5;
-   */
-  expectedRevision: bigint;
-
-  /**
-   * @generated from field: string user_username = 6;
-   */
-  userUsername: string;
-
-  /**
-   * @generated from field: string user_password = 7;
-   */
-  userPassword: string;
-};
-
-/**
- * Describes the message mininggroups.v1.SetPoolsRequest.
- * Use `create(SetPoolsRequestSchema)` to create a new message.
- */
-export const SetPoolsRequestSchema: GenMessage<SetPoolsRequest> =
-  /*@__PURE__*/
-  messageDesc(file_mininggroups_v1_mininggroups, 7);
-
-/**
- * @generated from message mininggroups.v1.SetPoolsResponse
- */
-export type SetPoolsResponse = Message<"mininggroups.v1.SetPoolsResponse"> & {
-  /**
-   * @generated from field: string operation_id = 1;
-   */
-  operationId: string;
-};
-
-/**
- * Describes the message mininggroups.v1.SetPoolsResponse.
- * Use `create(SetPoolsResponseSchema)` to create a new message.
- */
-export const SetPoolsResponseSchema: GenMessage<SetPoolsResponse> =
-  /*@__PURE__*/
-  messageDesc(file_mininggroups_v1_mininggroups, 8);
-
-/**
- * @generated from message mininggroups.v1.ListPoolConfigurationsRequest
- */
-export type ListPoolConfigurationsRequest = Message<"mininggroups.v1.ListPoolConfigurationsRequest"> & {};
-
-/**
- * Describes the message mininggroups.v1.ListPoolConfigurationsRequest.
- * Use `create(ListPoolConfigurationsRequestSchema)` to create a new message.
- */
-export const ListPoolConfigurationsRequestSchema: GenMessage<ListPoolConfigurationsRequest> =
-  /*@__PURE__*/
-  messageDesc(file_mininggroups_v1_mininggroups, 9);
-
-/**
- * @generated from message mininggroups.v1.ListPoolConfigurationsResponse
- */
-export type ListPoolConfigurationsResponse = Message<"mininggroups.v1.ListPoolConfigurationsResponse"> & {
-  /**
-   * @generated from field: repeated hosted.v1.PoolRevision configurations = 1;
-   */
-  configurations: PoolRevision[];
-};
-
-/**
- * Describes the message mininggroups.v1.ListPoolConfigurationsResponse.
- * Use `create(ListPoolConfigurationsResponseSchema)` to create a new message.
- */
-export const ListPoolConfigurationsResponseSchema: GenMessage<ListPoolConfigurationsResponse> =
-  /*@__PURE__*/
-  messageDesc(file_mininggroups_v1_mininggroups, 10);
-
-/**
- * @generated from message mininggroups.v1.CreatePoolConfigurationRequest
- */
-export type CreatePoolConfigurationRequest = Message<"mininggroups.v1.CreatePoolConfigurationRequest"> & {
-  /**
-   * @generated from field: hosted.v1.PoolRevisionInput configuration = 1;
-   */
-  configuration?: PoolRevisionInput | undefined;
-};
-
-/**
- * Describes the message mininggroups.v1.CreatePoolConfigurationRequest.
- * Use `create(CreatePoolConfigurationRequestSchema)` to create a new message.
- */
-export const CreatePoolConfigurationRequestSchema: GenMessage<CreatePoolConfigurationRequest> =
-  /*@__PURE__*/
-  messageDesc(file_mininggroups_v1_mininggroups, 11);
-
-/**
- * @generated from message mininggroups.v1.CreatePoolConfigurationResponse
- */
-export type CreatePoolConfigurationResponse = Message<"mininggroups.v1.CreatePoolConfigurationResponse"> & {
-  /**
-   * @generated from field: hosted.v1.PoolRevision revision = 1;
-   */
-  revision?: PoolRevision | undefined;
-};
-
-/**
- * Describes the message mininggroups.v1.CreatePoolConfigurationResponse.
- * Use `create(CreatePoolConfigurationResponseSchema)` to create a new message.
- */
-export const CreatePoolConfigurationResponseSchema: GenMessage<CreatePoolConfigurationResponse> =
-  /*@__PURE__*/
-  messageDesc(file_mininggroups_v1_mininggroups, 12);
-
-/**
- * Snapshot ordered saved Fleet pools without returning their credentials.
- *
- * @generated from message mininggroups.v1.ResolveFleetPoolsRequest
- */
-export type ResolveFleetPoolsRequest = Message<"mininggroups.v1.ResolveFleetPoolsRequest"> & {
-  /**
-   * @generated from field: repeated int64 pool_ids = 1;
-   */
-  poolIds: bigint[];
-};
-
-/**
- * Describes the message mininggroups.v1.ResolveFleetPoolsRequest.
- * Use `create(ResolveFleetPoolsRequestSchema)` to create a new message.
- */
-export const ResolveFleetPoolsRequestSchema: GenMessage<ResolveFleetPoolsRequest> =
-  /*@__PURE__*/
-  messageDesc(file_mininggroups_v1_mininggroups, 13);
-
-/**
- * @generated from message mininggroups.v1.ResolveFleetPoolsResponse
- */
-export type ResolveFleetPoolsResponse = Message<"mininggroups.v1.ResolveFleetPoolsResponse"> & {
-  /**
-   * @generated from field: hosted.v1.PoolRevision revision = 1;
-   */
-  revision?: PoolRevision | undefined;
-};
-
-/**
- * Describes the message mininggroups.v1.ResolveFleetPoolsResponse.
- * Use `create(ResolveFleetPoolsResponseSchema)` to create a new message.
- */
-export const ResolveFleetPoolsResponseSchema: GenMessage<ResolveFleetPoolsResponse> =
-  /*@__PURE__*/
-  messageDesc(file_mininggroups_v1_mininggroups, 14);
-
-/**
  * Operator-only until authoritative customer hashboard allocations are available.
  *
  * @generated from service mininggroups.v1.MiningGroupService
@@ -462,37 +289,5 @@ export const MiningGroupService: GenService<{
     methodKind: "unary";
     input: typeof ActivateRequestSchema;
     output: typeof ActivateResponseSchema;
-  };
-  /**
-   * @generated from rpc mininggroups.v1.MiningGroupService.SetPools
-   */
-  setPools: {
-    methodKind: "unary";
-    input: typeof SetPoolsRequestSchema;
-    output: typeof SetPoolsResponseSchema;
-  };
-  /**
-   * @generated from rpc mininggroups.v1.MiningGroupService.ListPoolConfigurations
-   */
-  listPoolConfigurations: {
-    methodKind: "unary";
-    input: typeof ListPoolConfigurationsRequestSchema;
-    output: typeof ListPoolConfigurationsResponseSchema;
-  };
-  /**
-   * @generated from rpc mininggroups.v1.MiningGroupService.CreatePoolConfiguration
-   */
-  createPoolConfiguration: {
-    methodKind: "unary";
-    input: typeof CreatePoolConfigurationRequestSchema;
-    output: typeof CreatePoolConfigurationResponseSchema;
-  };
-  /**
-   * @generated from rpc mininggroups.v1.MiningGroupService.ResolveFleetPools
-   */
-  resolveFleetPools: {
-    methodKind: "unary";
-    input: typeof ResolveFleetPoolsRequestSchema;
-    output: typeof ResolveFleetPoolsResponseSchema;
   };
 }> = /*@__PURE__*/ serviceDesc(file_mininggroups_v1_mininggroups, 0);

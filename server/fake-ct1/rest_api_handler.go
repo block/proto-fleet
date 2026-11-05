@@ -818,7 +818,10 @@ func demoPools() []poolDTO {
 }
 
 func (h *RESTApiHandler) handlePools(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, listPoolsResponse{Pools: demoPools()})
+	h.state.mu.RLock()
+	pools := h.state.poolDTOs()
+	h.state.mu.RUnlock()
+	writeJSON(w, http.StatusOK, listPoolsResponse{Pools: pools})
 }
 
 func (h *RESTApiHandler) handlePoolDiagnostics(w http.ResponseWriter, r *http.Request) {

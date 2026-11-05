@@ -43,7 +43,6 @@ import (
 	"github.com/block/proto-fleet/server/generated/grpc/networkinfo/v1/networkinfov1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/onboarding/v1/onboardingv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/pairing/v1/pairingv1connect"
-	"github.com/block/proto-fleet/server/generated/grpc/pools/v1/poolsv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/rollout/v1/rolloutv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/schedule/v1/schedulev1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/serverlog/v1/serverlogv1connect"
@@ -105,7 +104,6 @@ var registeredServices = []struct {
 	{onboardingv1connect.OnboardingServiceName, reflect.TypeOf((*onboardingv1connect.OnboardingServiceHandler)(nil)).Elem()},
 	{pairingv1connect.PairingServiceName, reflect.TypeOf((*pairingv1connect.PairingServiceHandler)(nil)).Elem()},
 	{poolconfigurationsv1connect.PoolConfigurationServiceName, reflect.TypeOf((*poolconfigurationsv1connect.PoolConfigurationServiceHandler)(nil)).Elem()},
-	{poolsv1connect.PoolsServiceName, reflect.TypeOf((*poolsv1connect.PoolsServiceHandler)(nil)).Elem()},
 	{rolloutv1connect.RolloutServiceName, reflect.TypeOf((*rolloutv1connect.RolloutServiceHandler)(nil)).Elem()},
 	{schedulev1connect.ScheduleServiceName, reflect.TypeOf((*schedulev1connect.ScheduleServiceHandler)(nil)).Elem()},
 	{serverlogv1connect.ServerLogServiceName, reflect.TypeOf((*serverlogv1connect.ServerLogServiceHandler)(nil)).Elem()},
@@ -296,6 +294,7 @@ func locateMainGo(t *testing.T) string {
 	return mainPath
 }
 
-func TestRPCContract_OrdinaryPoolUpdatesUsePoolUpdatePermission(t *testing.T) {
-	require.Equal(t, authz.PermMinerUpdatePools, middleware.ProcedurePermissions[minercommandv1connect.MinerCommandServiceUpdateMiningPoolsProcedure])
+func TestRPCContract_ConfigurationReviewRequiresReadPermission(t *testing.T) {
+	// Equipment authority is checked against the resolved targets by the domain service.
+	require.Equal(t, authz.PermPoolRead, middleware.ProcedurePermissions[poolconfigurationsv1connect.PoolConfigurationServiceReviewAssignmentProcedure])
 }

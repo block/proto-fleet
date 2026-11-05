@@ -352,7 +352,7 @@ describe("useMinerActions", () => {
       expect(onActionStart).toHaveBeenCalled();
     });
 
-    it("should show authentication modal when mining pool action handler is called", async () => {
+    it("should open the configuration selector when mining pool action handler is called", async () => {
       const onActionStart = vi.fn();
 
       const { result } = renderHook(() =>
@@ -370,7 +370,8 @@ describe("useMinerActions", () => {
         await poolAction?.actionHandler();
       });
 
-      expect(result.current.showAuthenticateFleetModal).toBe(true);
+      expect(result.current.showAuthenticateFleetModal).toBe(false);
+      expect(result.current.showPoolSelectionPage).toBe(true);
       expect(result.current.currentAction).toBe(settingsActions.miningPool);
       expect(onActionStart).toHaveBeenCalled();
     });
@@ -1687,150 +1688,6 @@ describe("useMinerActions", () => {
     });
   });
 
-  describe("handleMiningPoolSuccess", () => {
-    it("falls back to selected miners when no dispatched set is provided", () => {
-      // Arrange
-      const batchIdentifier = "batch-pool";
-      const { result } = renderHook(() =>
-        useMinerActions({
-          ...batchOpsParams(),
-          selectedMiners: [{ deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE }],
-          selectionMode: "subset",
-        }),
-      );
-
-      // Act
-      act(() => {
-        result.current.handleMiningPoolSuccess(batchIdentifier, []);
-      });
-
-      // Assert
-      expect(mockStartBatchOperation).toHaveBeenCalledWith({
-        batchIdentifier,
-        action: settingsActions.miningPool,
-        deviceIdentifiers: ["device-1"],
-      });
-      expect(toaster.pushToast).toHaveBeenCalledWith(
-        expect.objectContaining({
-          message: "Assigning pools miners",
-          status: toaster.STATUSES.loading,
-          longRunning: true,
-        }),
-      );
-      expect(result.current.currentAction).toBeNull();
-    });
-
-    it("uses the server's dispatched set when the SV2 gate filtered miners", () => {
-      // Arrange
-      const batchIdentifier = "batch-pool";
-      const { result } = renderHook(() =>
-        useMinerActions({
-          ...batchOpsParams(),
-          selectedMiners: [
-            { deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE },
-            { deviceIdentifier: "device-2", deviceStatus: DeviceStatus.ONLINE },
-            { deviceIdentifier: "device-3", deviceStatus: DeviceStatus.ONLINE },
-          ],
-          selectionMode: "subset",
-        }),
-      );
-
-      // Act
-      act(() => {
-        result.current.handleMiningPoolSuccess(batchIdentifier, ["device-2"]);
-      });
-
-      // Assert
-      expect(mockStartBatchOperation).toHaveBeenCalledWith({
-        batchIdentifier,
-        action: settingsActions.miningPool,
-        deviceIdentifiers: ["device-2"],
-      });
-    });
-
-    it("uses capability-filtered subset when no SV2 dispatch set is provided", async () => {
-      // Arrange
-      const batchIdentifier = "batch-pool";
-      mockCheckCommandCapabilities.mockImplementationOnce(({ onSuccess }: any) => {
-        onSuccess({
-          allSupported: false,
-          noneSupported: false,
-          supportedCount: 1,
-          unsupportedCount: 1,
-          totalCount: 2,
-          unsupportedGroups: [{ model: "S19", firmwareVersion: "1.0.0", count: 1 }],
-          supportedDeviceIdentifiers: ["device-1"],
-        });
-      });
-      const { result } = renderHook(() =>
-        useMinerActions({
-          ...batchOpsParams(),
-          selectedMiners: [
-            { deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE },
-            { deviceIdentifier: "device-2", deviceStatus: DeviceStatus.ONLINE },
-          ],
-          selectionMode: "subset",
-        }),
-      );
-      const poolAction = result.current.popoverActions.find((a) => a.action === settingsActions.miningPool);
-      await act(async () => {
-        await poolAction?.actionHandler();
-      });
-      await act(async () => {
-        result.current.handleUnsupportedMinersContinue();
-      });
-
-      // Act
-      act(() => {
-        result.current.handleMiningPoolSuccess(batchIdentifier, []);
-      });
-
-      // Assert — batch tracks only the capability-supported subset, not the original selection.
-      expect(mockStartBatchOperation).toHaveBeenCalledWith({
-        batchIdentifier,
-        action: settingsActions.miningPool,
-        deviceIdentifiers: ["device-1"],
-      });
-    });
-  });
-
-  describe("handleMiningPoolError", () => {
-    it("should push error toast and reset current action", () => {
-      const onActionComplete = vi.fn();
-      const errorMessage = "Failed to assign pool";
-
-      const { result } = renderHook(() =>
-        useMinerActions({
-          ...batchOpsParams(),
-          selectedMiners: [{ deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE }],
-          selectionMode: "subset",
-          onActionComplete,
-        }),
-      );
-
-      // Set current action first
-      const poolAction = result.current.popoverActions.find((a) => a.action === settingsActions.miningPool);
-
-      act(() => {
-        poolAction?.actionHandler();
-      });
-
-      // Trigger error
-      act(() => {
-        result.current.handleMiningPoolError(errorMessage);
-      });
-
-      expect(toaster.pushToast).toHaveBeenCalledWith({
-        message: errorMessage,
-        status: toaster.STATUSES.error,
-        longRunning: true,
-      });
-
-      expect(result.current.currentAction).toBeNull();
-      expect(onActionComplete).toHaveBeenCalled();
-    });
-  });
-
   describe("Status polling optimization with visible miners", () => {
     it("should filter telemetry fetch to only visible miners", () => {
       // This test verifies the filtering logic without relying on polling timing
@@ -2555,172 +2412,30 @@ describe("useMinerActions", () => {
     });
   });
 
-  describe("Mining pool authentication flow", () => {
-    it("should show authentication modal when mining pool action handler is called", async () => {
+  describe("Reviewed pool configuration flow", () => {
+    it("opens the shared selector without dropping unsupported targets or prompting for credentials early", async () => {
       const onActionStart = vi.fn();
-
       const { result } = renderHook(() =>
         useMinerActions({
           ...batchOpsParams(),
-          selectedMiners: [{ deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE }],
+          selectedMiners: [{ deviceIdentifier: "device-1" }, { deviceIdentifier: "device-2" }],
           selectionMode: "subset",
           onActionStart,
         }),
       );
-
-      const poolAction = result.current.popoverActions.find((a) => a.action === settingsActions.miningPool);
-
+      const action = result.current.popoverActions.find((item) => item.action === settingsActions.miningPool);
       await act(async () => {
-        await poolAction?.actionHandler();
+        await action?.actionHandler();
       });
-
-      expect(result.current.showAuthenticateFleetModal).toBe(true);
-      expect(result.current.currentAction).toBe(settingsActions.miningPool);
       expect(onActionStart).toHaveBeenCalled();
-    });
-
-    it("should show pool selection page after successful authentication", async () => {
-      const { result } = renderHook(() =>
-        useMinerActions({
-          ...batchOpsParams(),
-          selectedMiners: [{ deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE }],
-          selectionMode: "subset",
-        }),
-      );
-
-      // Trigger mining pool action
-      const poolAction = result.current.popoverActions.find((a) => a.action === settingsActions.miningPool);
-
-      await act(async () => {
-        await poolAction?.actionHandler();
-      });
-
-      expect(result.current.showAuthenticateFleetModal).toBe(true);
-
-      // Authenticate with credentials
-      await act(async () => {
-        await result.current.handleFleetAuthenticated("testuser", "testpass");
-      });
-
+      expect(result.current.showPoolSelectionPage).toBe(true);
       expect(result.current.showAuthenticateFleetModal).toBe(false);
-      expect(result.current.showPoolSelectionPage).toBe(true);
-      expect(result.current.fleetCredentials).toEqual({ username: "testuser", password: "testpass" });
-    });
-
-    it("should store pool filtered device IDs when capability check returns partial support", async () => {
-      mockCheckCommandCapabilities.mockImplementationOnce(({ onSuccess }: any) => {
-        onSuccess({
-          allSupported: false,
-          noneSupported: false,
-          supportedCount: 1,
-          unsupportedCount: 1,
-          totalCount: 2,
-          unsupportedGroups: [{ model: "S19", firmwareVersion: "1.0.0", count: 1 }],
-          supportedDeviceIdentifiers: ["device-1"],
-        });
-      });
-
-      const { result } = renderHook(() =>
-        useMinerActions({
-          ...batchOpsParams(),
-          selectedMiners: [
-            { deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE },
-            { deviceIdentifier: "device-2", deviceStatus: DeviceStatus.ONLINE },
-          ],
-          selectionMode: "subset",
-        }),
-      );
-
-      const poolAction = result.current.popoverActions.find((a) => a.action === settingsActions.miningPool);
-
-      await act(async () => {
-        await poolAction?.actionHandler();
-      });
-
-      // Unsupported miners modal should be shown
-      expect(result.current.unsupportedMinersInfo.visible).toBe(true);
-      expect(result.current.unsupportedMinersInfo.supportedDeviceIdentifiers).toEqual(["device-1"]);
-
-      // Continue with supported miners only
-      await act(async () => {
-        result.current.handleUnsupportedMinersContinue();
-      });
-
-      // Should show auth modal with filtered device IDs stored
-      expect(result.current.showAuthenticateFleetModal).toBe(true);
-      expect(result.current.poolFilteredDeviceIds).toEqual(["device-1"]);
-    });
-
-    it("should dismiss pool selection page and reset state when handleCancel is called", async () => {
-      const onActionComplete = vi.fn();
-
-      const { result } = renderHook(() =>
-        useMinerActions({
-          ...batchOpsParams(),
-          selectedMiners: [{ deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE }],
-          selectionMode: "subset",
-          onActionComplete,
-        }),
-      );
-
-      // Trigger mining pool action and authenticate
-      const poolAction = result.current.popoverActions.find((a) => a.action === settingsActions.miningPool);
-
-      await act(async () => {
-        await poolAction?.actionHandler();
-      });
-
-      await act(async () => {
-        await result.current.handleFleetAuthenticated("testuser", "testpass");
-      });
-
-      expect(result.current.showPoolSelectionPage).toBe(true);
-
-      // Cancel/dismiss
-      act(() => {
-        result.current.handleCancel();
-      });
-
+      expect(mockCheckCommandCapabilities).not.toHaveBeenCalled();
+      expect(result.current.poolFilteredDeviceIds).toBeUndefined();
+      expect(result.current.fleetCredentials).toBeUndefined();
+      act(() => result.current.handleCancel());
       expect(result.current.showPoolSelectionPage).toBe(false);
       expect(result.current.currentAction).toBeNull();
-      expect(result.current.fleetCredentials).toBeUndefined();
-      expect(onActionComplete).toHaveBeenCalled();
-    });
-
-    it("should proceed directly to pool selection when all miners support the action", async () => {
-      mockCheckCommandCapabilities.mockImplementationOnce(({ onSuccess }: any) => {
-        onSuccess({
-          allSupported: true,
-          noneSupported: false,
-          supportedCount: 2,
-          unsupportedCount: 0,
-          totalCount: 2,
-          unsupportedGroups: [],
-          supportedDeviceIdentifiers: ["device-1", "device-2"],
-        });
-      });
-
-      const { result } = renderHook(() =>
-        useMinerActions({
-          ...batchOpsParams(),
-          selectedMiners: [
-            { deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE },
-            { deviceIdentifier: "device-2", deviceStatus: DeviceStatus.ONLINE },
-          ],
-          selectionMode: "subset",
-        }),
-      );
-
-      const poolAction = result.current.popoverActions.find((a) => a.action === settingsActions.miningPool);
-
-      await act(async () => {
-        await poolAction?.actionHandler();
-      });
-
-      // Should show auth modal directly (no unsupported miners modal)
-      expect(result.current.unsupportedMinersInfo.visible).toBe(false);
-      expect(result.current.showAuthenticateFleetModal).toBe(true);
-      expect(result.current.poolFilteredDeviceIds).toBeUndefined();
     });
   });
 

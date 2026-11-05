@@ -29,7 +29,6 @@ import (
 	"github.com/block/proto-fleet/server/generated/grpc/onboarding/v1/onboardingv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/pairing/v1/pairingv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/poolconfigurations/v1/poolconfigurationsv1connect"
-	"github.com/block/proto-fleet/server/generated/grpc/pools/v1/poolsv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/rollout/v1/rolloutv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/schedule/v1/schedulev1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/serverlog/v1/serverlogv1connect"
@@ -62,25 +61,24 @@ import (
 // glance: shrinking ProceduresPendingMigration to zero is the exit
 // criterion for retiring the legacy RequireAdmin middleware.
 var ProcedurePermissions = map[string]string{
-	poolconfigurationsv1connect.PoolConfigurationServiceAuthorizeWorkerNameReviewsProcedure: authz.PermMinerUpdateWorkerName,
-	poolconfigurationsv1connect.PoolConfigurationServiceReadDevicePoolsProcedure:            authz.PermPoolRead,
-	fleetmanagementv1connect.FleetManagementServiceReviewWorkerNamesProcedure:               authz.PermMinerUpdateWorkerName,
 	// Shared pool operations resolve operator permission or selected-account
 	// capability inside a transaction through AuthorizePoolConfiguration.
-	poolconfigurationsv1connect.PoolConfigurationServiceCreateConfigurationProcedure:    authz.PermPoolManage,
-	poolconfigurationsv1connect.PoolConfigurationServiceGetConfigurationProcedure:       authz.PermPoolRead,
-	poolconfigurationsv1connect.PoolConfigurationServiceListConfigurationsProcedure:     authz.PermPoolRead,
-	poolconfigurationsv1connect.PoolConfigurationServiceDuplicateConfigurationProcedure: authz.PermPoolManage,
-	poolconfigurationsv1connect.PoolConfigurationServiceArchiveConfigurationProcedure:   authz.PermPoolManage,
-	poolconfigurationsv1connect.PoolConfigurationServiceReviewEditProcedure:             authz.PermPoolManage,
-	poolconfigurationsv1connect.PoolConfigurationServiceTestConnectionProcedure:         authz.PermPoolManage,
-	poolconfigurationsv1connect.PoolConfigurationServiceConfirmReviewProcedure:          authz.PermPoolRead,
-	poolconfigurationsv1connect.PoolConfigurationServiceReviewAssignmentProcedure:       authz.PermPoolRead,
-	poolconfigurationsv1connect.PoolConfigurationServiceGetOperationProcedure:           authz.PermPoolRead,
-	poolconfigurationsv1connect.PoolConfigurationServiceGetAssignmentsProcedure:         authz.PermPoolRead,
-	poolconfigurationsv1connect.PoolConfigurationServiceCheckConfigurationProcedure:     authz.PermPoolRead,
-	poolconfigurationsv1connect.PoolConfigurationServiceReviewRetryProcedure:            authz.PermPoolRead,
-	poolconfigurationsv1connect.PoolConfigurationServiceListOperationsProcedure:         authz.PermPoolRead,
+	poolconfigurationsv1connect.PoolConfigurationServiceCreateConfigurationProcedure:        authz.PermPoolManage,
+	poolconfigurationsv1connect.PoolConfigurationServiceGetConfigurationProcedure:           authz.PermPoolRead,
+	poolconfigurationsv1connect.PoolConfigurationServiceListConfigurationsProcedure:         authz.PermPoolRead,
+	poolconfigurationsv1connect.PoolConfigurationServiceDuplicateConfigurationProcedure:     authz.PermPoolManage,
+	poolconfigurationsv1connect.PoolConfigurationServiceArchiveConfigurationProcedure:       authz.PermPoolManage,
+	poolconfigurationsv1connect.PoolConfigurationServiceReviewEditProcedure:                 authz.PermPoolManage,
+	poolconfigurationsv1connect.PoolConfigurationServiceTestConnectionProcedure:             authz.PermPoolManage,
+	poolconfigurationsv1connect.PoolConfigurationServiceAuthorizeWorkerNameReviewsProcedure: authz.PermMinerUpdateWorkerName,
+	poolconfigurationsv1connect.PoolConfigurationServiceConfirmReviewProcedure:              authz.PermPoolRead,
+	poolconfigurationsv1connect.PoolConfigurationServiceReviewAssignmentProcedure:           authz.PermPoolRead,
+	poolconfigurationsv1connect.PoolConfigurationServiceGetOperationProcedure:               authz.PermPoolRead,
+	poolconfigurationsv1connect.PoolConfigurationServiceGetAssignmentsProcedure:             authz.PermPoolRead,
+	poolconfigurationsv1connect.PoolConfigurationServiceCheckConfigurationProcedure:         authz.PermPoolRead,
+	poolconfigurationsv1connect.PoolConfigurationServiceReadDevicePoolsProcedure:            authz.PermPoolRead,
+	poolconfigurationsv1connect.PoolConfigurationServiceReviewRetryProcedure:                authz.PermPoolRead,
+	poolconfigurationsv1connect.PoolConfigurationServiceListOperationsProcedure:             authz.PermPoolRead,
 
 	maintenancev1connect.MaintenanceServiceListTicketAssetOptionsProcedure:     authz.PermMaintenanceRead,
 	maintenancev1connect.MaintenanceServiceShareRepairTicketProcedure:          authz.PermMaintenanceManage,
@@ -187,13 +185,9 @@ var ProcedurePermissions = map[string]string{
 	containersv1connect.ContainerServiceGetTankMiningOptionsProcedure:      authz.PermSiteRead,
 	containersv1connect.ContainerServiceGetModuleMiningOptionsProcedure:    authz.PermSiteRead,
 	// Handler resolves every tank/module and enforces the requested mining permission at its current site.
-	containersv1connect.ContainerServiceSetTankMiningProcedure:               authz.PermSiteRead,
-	mininggroupsv1connect.MiningGroupServiceGetStateProcedure:                authz.PermSiteRead,
-	mininggroupsv1connect.MiningGroupServiceActivateProcedure:                authz.PermSiteRead,
-	mininggroupsv1connect.MiningGroupServiceSetPoolsProcedure:                authz.PermSiteRead,
-	mininggroupsv1connect.MiningGroupServiceListPoolConfigurationsProcedure:  authz.PermPoolRead,
-	mininggroupsv1connect.MiningGroupServiceCreatePoolConfigurationProcedure: authz.PermPoolManage,
-	mininggroupsv1connect.MiningGroupServiceResolveFleetPoolsProcedure:       authz.PermPoolRead,
+	containersv1connect.ContainerServiceSetTankMiningProcedure: authz.PermSiteRead,
+	mininggroupsv1connect.MiningGroupServiceGetStateProcedure:  authz.PermSiteRead,
+	mininggroupsv1connect.MiningGroupServiceActivateProcedure:  authz.PermSiteRead,
 
 	containersv1connect.ContainerServiceSetModuleMiningProcedure:     authz.PermSiteRead,
 	containersv1connect.ContainerServiceSetEquipmentControlProcedure: authz.PermMinerSetCoolingMode,
@@ -323,14 +317,13 @@ var ProcedurePermissions = map[string]string{
 	// mutations against matching miner action keys.
 	fleetmanagementv1connect.FleetManagementServiceListMinerStateSnapshotsProcedure: authz.PermMinerRead,
 	fleetmanagementv1connect.FleetManagementServiceRefreshMinersProcedure:           authz.PermMinerRead,
-	fleetmanagementv1connect.FleetManagementServiceGetMinerPoolAssignmentsProcedure: authz.PermMinerRead,
 	fleetmanagementv1connect.FleetManagementServiceGetMinerCoolingModeProcedure:     authz.PermMinerRead,
 	// LookupMinerByIdentifier resolves a scanned MAC/serial to a miner for
 	// the rack-assignment QR flow; handler gates on miner:read.
 	fleetmanagementv1connect.FleetManagementServiceLookupMinerByIdentifierProcedure: authz.PermMinerRead,
 	fleetmanagementv1connect.FleetManagementServiceGetMinerStateCountsProcedure:     authz.PermFleetRead,
 	fleetmanagementv1connect.FleetManagementServiceGetMinerModelGroupsProcedure:     authz.PermFleetRead,
-	fleetmanagementv1connect.FleetManagementServiceUpdateWorkerNamesProcedure:       authz.PermMinerUpdateWorkerName,
+	fleetmanagementv1connect.FleetManagementServiceReviewWorkerNamesProcedure:       authz.PermMinerUpdateWorkerName,
 	fleetmanagementv1connect.FleetManagementServiceRenameMinersProcedure:            authz.PermMinerRename,
 	fleetmanagementv1connect.FleetManagementServiceDeleteMinersProcedure:            authz.PermMinerDelete,
 	fleetmanagementv1connect.FleetManagementServiceExportMinerListCsvProcedure:      authz.PermMinerExportCSV,
@@ -361,13 +354,12 @@ var ProcedurePermissions = map[string]string{
 	// MinerCommandService — each action gates on its matching catalog
 	// key. Stream/batch endpoints gate on fleet:read since they're
 	// status surfaces.
-	minercommandv1connect.MinerCommandServiceBlinkLEDProcedure:          authz.PermMinerBlinkLED,
-	minercommandv1connect.MinerCommandServiceRebootProcedure:            authz.PermMinerReboot,
-	minercommandv1connect.MinerCommandServiceStartMiningProcedure:       authz.PermMinerStartMining,
-	minercommandv1connect.MinerCommandServiceStopMiningProcedure:        authz.PermMinerStopMining,
-	minercommandv1connect.MinerCommandServiceUpdateMiningPoolsProcedure: authz.PermMinerUpdatePools,
-	minercommandv1connect.MinerCommandServiceSetCoolingModeProcedure:    authz.PermMinerSetCoolingMode,
-	minercommandv1connect.MinerCommandServiceSetPowerTargetProcedure:    authz.PermMinerSetPowerTarget,
+	minercommandv1connect.MinerCommandServiceBlinkLEDProcedure:       authz.PermMinerBlinkLED,
+	minercommandv1connect.MinerCommandServiceRebootProcedure:         authz.PermMinerReboot,
+	minercommandv1connect.MinerCommandServiceStartMiningProcedure:    authz.PermMinerStartMining,
+	minercommandv1connect.MinerCommandServiceStopMiningProcedure:     authz.PermMinerStopMining,
+	minercommandv1connect.MinerCommandServiceSetCoolingModeProcedure: authz.PermMinerSetCoolingMode,
+	minercommandv1connect.MinerCommandServiceSetPowerTargetProcedure: authz.PermMinerSetPowerTarget,
 	// Primary procedure gate remains miner:firmware_update; the handler
 	// also requires miner:reboot because successful installs now reboot.
 	minercommandv1connect.MinerCommandServiceFirmwareUpdateProcedure:               authz.PermMinerFirmwareUpdate,
@@ -413,20 +405,6 @@ var ProcedurePermissions = map[string]string{
 	pairingv1connect.PairingServiceDiscoverProcedure: authz.PermMinerPair,
 	pairingv1connect.PairingServicePairProcedure:     authz.PermMinerPair,
 
-	// PoolsService — saved mining pool definitions. ValidatePool drives
-	// an outbound Stratum/SV2 handshake against the caller-supplied
-	// URL, so it sits on the manage key alongside the mutations to
-	// prevent a read-only role from triggering server-side network
-	// probes.
-	poolsv1connect.PoolsServiceListPoolsProcedure:    authz.PermPoolRead,
-	poolsv1connect.PoolsServiceValidatePoolProcedure: authz.PermPoolManage,
-	poolsv1connect.PoolsServiceCreatePoolProcedure:   authz.PermPoolManage,
-	poolsv1connect.PoolsServiceUpdatePoolProcedure:   authz.PermPoolManage,
-	poolsv1connect.PoolsServiceDeletePoolProcedure:   authz.PermPoolManage,
-
-	// RolloutService — release channels exist solely to drive firmware
-	// updates, so every RPC (including reads) sits on the firmware-update
-	// permission; the handler re-checks it.
 	rolloutv1connect.RolloutServiceListReleaseChannelsProcedure:                   authz.PermMinerFirmwareUpdate,
 	rolloutv1connect.RolloutServiceGetReleaseChannelProcedure:                     authz.PermMinerFirmwareUpdate,
 	rolloutv1connect.RolloutServiceListReleaseChannelMinersProcedure:              authz.PermMinerFirmwareUpdate,
@@ -571,13 +549,6 @@ var AccountProcedureCapabilities = map[string]hostedaccounts.Capabilities{
 	hostedv1connect.HostedAccountServiceGetAccountMiningSummaryProcedure:   hostedaccounts.View,
 	hostedv1connect.HostedAccountServiceListAccountAssetsProcedure:         hostedaccounts.View,
 	hostedv1connect.HostedAccountServiceAssignAccountAssetsProcedure:       hostedaccounts.Delegate,
-	hostedv1connect.HostedAccountServiceCreatePoolConfigurationProcedure:   hostedaccounts.ManagePools,
-	hostedv1connect.HostedAccountServiceRevisePoolConfigurationProcedure:   hostedaccounts.ManagePools,
-	hostedv1connect.HostedAccountServiceGetPoolRevisionProcedure:           hostedaccounts.View,
-	hostedv1connect.HostedAccountServiceListPoolConfigurationsProcedure:    hostedaccounts.View,
-	hostedv1connect.HostedAccountServiceArchivePoolConfigurationProcedure:  hostedaccounts.ManagePools,
-	hostedv1connect.HostedAccountServiceGetIncomingPoolProfileProcedure:    hostedaccounts.View,
-	hostedv1connect.HostedAccountServiceSetIncomingPoolProfileProcedure:    hostedaccounts.ChangePools,
 	hostedv1connect.HostedAccountServiceCreateAccountKeyProcedure:          hostedaccounts.View,
 	hostedv1connect.HostedAccountServiceListAccountKeysProcedure:           hostedaccounts.View,
 	hostedv1connect.HostedAccountServiceRevokeAccountKeyProcedure:          hostedaccounts.View,

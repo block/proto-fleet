@@ -14,7 +14,7 @@ export const hostedAccountsClient = createClient(HostedAccountService, transport
 
 // A page owns its client. No global mutable account selection can retarget a
 // queued mutation, another browser tab, or a host fleet operation.
-export const createAccountClient = (
+export const createAccountTransport = (
   accountId: string,
   lifetime: AbortSignal | (() => AbortSignal),
   { readOnly = false }: { readOnly?: boolean } = {},
@@ -23,7 +23,11 @@ export const createAccountClient = (
     const signal = typeof lifetime === "function" ? lifetime() : lifetime;
     if (signal.aborted || request.signal.aborted)
       throw new ConnectError("Account workspace is no longer active", Code.Canceled);
-    if (readOnly && !/^(Get|List)/.test(request.method.name) && request.method.name !== "ExportAccountActivities")
+    if (
+      readOnly &&
+      !/^(Get|List)/.test(request.method.name) &&
+      !["ExportAccountActivities", "CheckConfiguration", "ReadDevicePools"].includes(request.method.name)
+    )
       throw new ConnectError("Actions are unavailable in this read-only preview.", Code.PermissionDenied);
     request.header.set("X-Fleet-Account-ID", accountId);
     return next({
@@ -31,15 +35,18 @@ export const createAccountClient = (
       signal: AbortSignal.any([request.signal, signal]),
     });
   };
-  return createClient(
-    HostedAccountService,
-    createConnectTransport({
-      baseUrl: `${API_PROXY_BASE}/`,
-      fetch: (input, init) => fetch(input, { ...init, credentials: "include" }),
-      interceptors: [...observabilityInterceptors(), scope],
-    }),
-  );
+  return createConnectTransport({
+    baseUrl: `${API_PROXY_BASE}/`,
+    fetch: (input, init) => fetch(input, { ...init, credentials: "include" }),
+    interceptors: [...observabilityInterceptors(), scope],
+  });
 };
+
+export const createAccountClient = (
+  accountId: string,
+  lifetime: AbortSignal | (() => AbortSignal),
+  options: { readOnly?: boolean } = {},
+) => createClient(HostedAccountService, createAccountTransport(accountId, lifetime, options));
 
 // Effect replay can reopen the same mounted scope in StrictMode; a different
 // account or login always gets a different connection object.

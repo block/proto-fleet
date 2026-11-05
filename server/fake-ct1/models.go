@@ -117,6 +117,8 @@ type ContainerState struct {
 	observedAt   time.Time
 	history      *simulationHistory
 	miningGroups *simulatedMiningGroups
+	pools        map[int64]simulatedPool
+	nextPoolID   int64
 
 	Config    ContainerConfig
 	ServerID  string
@@ -233,6 +235,7 @@ func newContainerState(cfg ContainerConfig, now time.Time) *ContainerState {
 		s.ContainerSetpoints[point.Name] = point.Value
 	}
 
+	s.initPools()
 	globalBoard := 0
 	for t := 1; t <= cfg.Tanks; t++ {
 		tank := &Tank{ID: t}

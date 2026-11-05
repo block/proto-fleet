@@ -1,24 +1,14 @@
-import { useState } from "react";
-import MiningGroupsDialog from "./MiningGroupsDialog";
-import AuthenticateFleetModal from "@/protoFleet/features/auth/components/AuthenticateFleetModal";
+import { ConfigurationSelector } from "@/protoFleet/features/poolConfigurations/ConfigurationSelector";
 
-export default function EditHashboardPoolDialog(props: {
+export default function EditHashboardPoolDialog({
+  moduleIds,
+  hashboardIds,
+  onClose,
+}: {
   deviceIdentifier: string;
   moduleIds?: bigint[];
   hashboardIds?: bigint[];
   onClose: () => void;
 }) {
-  const [credentials, setCredentials] = useState<{ username: string; password: string }>();
-
-  if (!credentials)
-    return (
-      <AuthenticateFleetModal
-        open
-        purpose="pool"
-        onAuthenticated={(username, password) => setCredentials({ username, password })}
-        onDismiss={props.onClose}
-      />
-    );
-
-  return <MiningGroupsDialog {...props} credentials={credentials} />;
+  return <ConfigurationSelector boards={{ moduleIds, hashboardIds }} onDismiss={onClose} />;
 }

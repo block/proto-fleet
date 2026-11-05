@@ -91,6 +91,7 @@ export const createAuthSlice: StateCreator<FleetStore, [["zustand/immer", never]
     resetActiveCurtailmentData();
     resetCurtailmentProfileSession();
     set((state) => {
+      state.auth.sessionGeneration += 1;
       state.auth.sessionExpiry = null;
       state.auth.isAuthenticated = false;
       state.auth.username = "";

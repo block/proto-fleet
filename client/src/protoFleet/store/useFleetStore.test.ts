@@ -147,3 +147,10 @@ describe("useFleetStore persistence", () => {
     expect(useFleetStore.getState().auth.authLoading).toBe(false);
   });
 });
+
+it("advances the session generation immediately on logout", async () => {
+  const { useFleetStore } = await import("./useFleetStore");
+  const before = useFleetStore.getState().auth.sessionGeneration;
+  useFleetStore.getState().auth.logout();
+  expect(useFleetStore.getState().auth.sessionGeneration).toBe(before + 1);
+});

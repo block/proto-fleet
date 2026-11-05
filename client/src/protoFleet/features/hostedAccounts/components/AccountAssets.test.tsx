@@ -23,6 +23,22 @@ vi.mock("@/shared/features/toaster", () => ({
   STATUSES: { success: "success" },
 }));
 
+vi.mock("@/protoFleet/features/poolConfigurations/ConfigurationSelector", () => ({
+  ConfigurationSelector: ({
+    deviceIds = [],
+    boards,
+  }: {
+    deviceIds?: bigint[];
+    boards?: { moduleIds?: bigint[]; hashboardIds?: bigint[] };
+  }) => (
+    <div role="dialog" aria-label="Pool selection">
+      <span aria-label="Selected miners">{deviceIds.map(String).join(",")}</span>
+      <span aria-label="Selected modules">{boards?.moduleIds?.map(String).join(",")}</span>
+      <span aria-label="Selected hashboards">{boards?.hashboardIds?.map(String).join(",")}</span>
+    </div>
+  ),
+}));
+
 beforeEach(() => {
   vi.mocked(pushToast).mockClear();
   // Popovers require a visible trigger; JSDOM does not calculate layout.
@@ -585,8 +601,8 @@ describe("account mining asset allocation", () => {
     expect(screen.getByRole("columnheader", { name: "Power" })).toBeInTheDocument();
   });
 
-  it("keeps the account’s own inventory read-only, including its subclient allocations", async () => {
-    const { client } = mount(31n, [miner, create(AccountAssetSchema, { ...module, ownerAccountId: childId })]);
+  it("keeps inventory read-only without Change pools, including subclient allocations", async () => {
+    const { client } = mount(27n, [miner, create(AccountAssetSchema, { ...module, ownerAccountId: childId })]);
     await screen.findByText("Miner One");
     expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Allocate selected" })).not.toBeInTheDocument();
@@ -601,6 +617,35 @@ describe("account mining asset allocation", () => {
       `/accounts/${accountId}/children?assets=${childId}`,
     );
     expect(client.assignAccountAssets).not.toHaveBeenCalled();
+  });
+
+  it("offers pool changes only for eligible miners and clears the action when user permission is revoked", async () => {
+    const user = userEvent.setup();
+    const { scope, rerenderAccount, client } = mount(5n, [
+      create(AccountAssetSchema, { ...miner, canChangePools: true, ownerAccountId: "" }),
+      module,
+    ]);
+    await user.click(await screen.findByRole("checkbox", { name: "Select Miner One" }));
+    expect(screen.getByRole("checkbox", { name: "Select Module One" })).toBeDisabled();
+    await user.click(screen.getByRole("button", { name: "Edit pool" }));
+    expect(screen.getByRole("dialog", { name: "Pool selection" })).toHaveTextContent("1");
+    expect(client.assignAccountAssets).not.toHaveBeenCalled();
+    rerenderAccount(create(AccountSchema, { ...scope.account, effectiveCapabilities: 1n }));
+    expect(screen.queryByRole("dialog", { name: "Pool selection" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
+    rerenderAccount(scope.account);
+    expect(screen.queryByRole("dialog", { name: "Pool selection" })).not.toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: "Select Miner One" })).not.toBeChecked();
+  });
+  it("passes an individually selected hosted hashboard to the shared pool picker", async () => {
+    const user = userEvent.setup();
+    mount(5n, [create(AccountAssetSchema, { ...boards[0], canChangePools: true })]);
+    await user.click(await screen.findByRole("checkbox", { name: "Select Hashboard 1" }));
+    await user.click(screen.getByRole("button", { name: "Edit pool" }));
+    const selection = within(screen.getByRole("dialog", { name: "Pool selection" }));
+    expect(selection.getByLabelText("Selected hashboards")).toHaveTextContent("11");
+    expect(selection.getByLabelText("Selected miners")).toBeEmptyDOMElement();
+    expect(selection.getByLabelText("Selected modules")).toBeEmptyDOMElement();
   });
   it("scopes a child inventory and its recall to the parent authority", async () => {
     const { client } = mount(

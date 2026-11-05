@@ -5,7 +5,10 @@ import { InventoryCell } from "./InventoryCell";
 import { EntityKind, InventoryItemSchema } from "@/protoFleet/api/generated/fleetinventory/v1/fleetinventory_pb";
 
 const preferences = vi.hoisted(() => ({ unit: "C" as "C" | "F" }));
-vi.mock("@/protoFleet/store", () => ({ useTemperatureUnit: () => preferences.unit }));
+vi.mock("@/protoFleet/store", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/protoFleet/store")>()),
+  useTemperatureUnit: () => preferences.unit,
+}));
 
 it.each([
   ["C", 60.1, "60.1 °C"],

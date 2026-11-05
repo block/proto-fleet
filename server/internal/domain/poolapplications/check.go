@@ -41,6 +41,7 @@ func (c *Checker) CheckConfiguration(ctx context.Context, p poolconfigurations.P
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	var result poolconfigurations.CheckResult
+	inheritedContainerPools := false
 	var version int64
 	authorize := func(q sqlc.Querier) (sqlc.GetPoolConfigurationAssignmentRow, sqlc.GetPoolConfigurationRuntimeRow, error) {
 		var runtime sqlc.GetPoolConfigurationRuntimeRow
@@ -173,6 +174,10 @@ func (c *Checker) CheckConfiguration(ctx context.Context, p poolconfigurations.P
 				}
 				if configID == "" {
 					readback := reportedBoardPools(observed, boards[0].MacAddress)
+					if wholeContainerPoolMode(observed) {
+						readback = readCurrentPoolStack(ctx, miner)
+						inheritedContainerPools = readback.Available
+					}
 					result.Reported, result.ReadbackAvailable = readback.Pools, readback.Available
 				} else {
 					result.State, result.ResultCode, result.Reported = checkBoardPools(observed, boards[0].MacAddress, result.Expected)
@@ -187,7 +192,9 @@ func (c *Checker) CheckConfiguration(ctx context.Context, p poolconfigurations.P
 				result.State, result.ResultCode = codeUnavailable, "check_unavailable"
 				if result.ReadbackAvailable {
 					result.State, result.ResultCode = "", ""
-					if len(result.Reported) > 0 {
+					if inheritedContainerPools {
+						result.State = stateContainerConfiguration
+					} else if len(result.Reported) > 0 {
 						result.State = "device_configuration"
 					}
 				}

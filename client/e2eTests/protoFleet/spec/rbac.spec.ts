@@ -121,7 +121,6 @@ test.describe("Proto Fleet - RBAC", () => {
 
     await test.step("Delete the pool again", async () => {
       await settingsPoolsPage.deletePoolByNameIfVisible(poolName);
-      await settingsPoolsPage.validateTextInToast("Pool deleted");
     });
   });
 

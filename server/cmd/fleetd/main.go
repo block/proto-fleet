@@ -76,7 +76,6 @@ import (
 	"github.com/block/proto-fleet/server/generated/grpc/networkinfo/v1/networkinfov1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/onboarding/v1/onboardingv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/pairing/v1/pairingv1connect"
-	"github.com/block/proto-fleet/server/generated/grpc/pools/v1/poolsv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/rollout/v1/rolloutv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/schedule/v1/schedulev1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/serverlog/v1/serverlogv1connect"
@@ -157,7 +156,6 @@ import (
 	"github.com/block/proto-fleet/server/internal/handlers/networkinfo"
 	"github.com/block/proto-fleet/server/internal/handlers/onboarding"
 	"github.com/block/proto-fleet/server/internal/handlers/pairing"
-	"github.com/block/proto-fleet/server/internal/handlers/pools"
 	rolloutHandler "github.com/block/proto-fleet/server/internal/handlers/rollout"
 	scheduleHandler "github.com/block/proto-fleet/server/internal/handlers/schedule"
 	serverlogHandler "github.com/block/proto-fleet/server/internal/handlers/serverlog"
@@ -332,7 +330,6 @@ func start(config *Config) (result error) {
 	}
 
 	userStore := sqlstores.NewSQLUserStore(conn)
-	poolStore := sqlstores.NewSQLPoolStore(conn, encryptSvc)
 	deviceStore := sqlstores.NewSQLDeviceStore(conn)
 	collectionStore := sqlstores.NewSQLCollectionStore(conn, config.TimescaleDB.MaxAge)
 	activityStore := sqlstores.NewSQLActivityStore(conn)
@@ -577,15 +574,15 @@ func start(config *Config) (result error) {
 	// zone_keys. Hoist the construction so fleetMgmtSvc can depend on it.
 	siteStore := sqlstores.NewSQLSiteStore(conn)
 	buildingStore := sqlstores.NewSQLBuildingStore(conn)
-	fleetMgmtSvc := fleetmanagementDomain.NewService(deviceStore, discoveredDeviceStore, telemetryService, minerService, pluginService, poolStore, errorStore, collectionStore, buildingStore, commandSvc, activitySvc)
+	fleetMgmtSvc := fleetmanagementDomain.NewService(deviceStore, discoveredDeviceStore, telemetryService, minerService, pluginService, errorStore, collectionStore, buildingStore, nil, activitySvc)
 	fleetMgmtSvc.WithMinerWebCapability(fleetNodeControlRegistry)
 	fleetMgmtSvc.WithOptionsCache(fleetOptionsCache)
 	// Filtered "select all" command dispatch resolves its MinerListFilter through
 	// the fleetmanagement resolver; wire it now that fleetMgmtSvc exists (it
 	// depends on commandSvc, so this can't be passed to NewService).
 	commandSvc.SetDeviceIdentifierResolver(fleetMgmtSvc)
-	onboardingSvc := onboardingDomain.NewService(deviceStore, poolStore, userStore)
-	poolsSvc := poolsDomain.NewService(poolStore, transactor, config.Pools, activitySvc)
+	onboardingSvc := onboardingDomain.NewService(deviceStore, db.NewFailoverResettingQuerier(db.NewRetryDB(conn)), userStore)
+	poolsSvc := poolsDomain.NewService(config.Pools)
 	scheduleStore := sqlstores.NewSQLScheduleStore(conn)
 	scheduleSvc := scheduleDomain.NewService(scheduleStore, scheduleStore, scheduleStore, transactor, activitySvc)
 
@@ -810,8 +807,8 @@ func start(config *Config) (result error) {
 	poolConfigurationsSvc := poolconfigurationsDomain.NewService(conn, poolRepository, hostedPoolsSvc, poolReviewer).WithDeviceSelector(fleetMgmtSvc).WithReadiness(poolReadiness).WithConnectionTester(poolsSvc).WithChecker(poolapplications.NewChecker(conn, poolReviewer, minerService, encryptSvc, hostedPoolsSvc))
 	foremanImportSvc := foremanImportDomain.NewService(poolConfigurationsSvc, collectionSvc, deviceStore)
 
-	fleetMgmtSvc.WithWorkerNameReviews(poolConfigurationsSvc)
 	poolWorker := poolapplications.NewWorker(conn, poolRepository, poolReviewer, minerService, encryptSvc)
+	fleetMgmtSvc.WithWorkerNameReviews(poolConfigurationsSvc)
 	groupsSvc := mininggroupsDomain.NewService(conn, minerService, hostedPoolsSvc, encryptSvc).WithPoolConfigurations(poolRepository, poolReviewer)
 	poolWorker.WithBoardApplications(groupsSvc)
 	jobs, err := newRuntimeJobs(runtimeJobLifecycles{
@@ -926,7 +923,7 @@ func start(config *Config) (result error) {
 	}
 
 	mux.Handle(authv1connect.NewAuthServiceHandler(auth.NewHandler(authSvc), li))
-	mux.Handle(hostedv1connect.NewHostedAccountServiceHandler(hostedaccountsHandler.NewHandler(hostedaccountsSvc, hostedInvitationsSvc, hostedKeysSvc, hostedPoolsSvc, userStore, permissionResolver), li))
+	mux.Handle(hostedv1connect.NewHostedAccountServiceHandler(hostedaccountsHandler.NewHandler(hostedaccountsSvc, hostedInvitationsSvc, hostedKeysSvc, userStore, permissionResolver), li))
 	mux.Handle(invitationv1connect.NewInvitationServiceHandler(invitationHandler.NewHandler(hostedInvitationsSvc, teamInvitationsSvc), li))
 	mux.Handle(onboardingv1connect.NewOnboardingServiceHandler(onboarding.NewHandler(authSvc, onboardingSvc), li))
 	mux.Handle(pairingv1connect.NewPairingServiceHandler(pairing.NewHandler(pairingSvc, fleetNodeDiscoverySvc, fleetNodePairingSvc), li))
@@ -934,7 +931,6 @@ func start(config *Config) (result error) {
 	mux.Handle(marketdatav1connect.NewMarketDataServiceHandler(marketdataHandler.NewHandler(marketDataSvc), li))
 	mux.Handle(fleetmanagementv1connect.NewFleetManagementServiceHandler(fleetmanagement.NewHandler(fleetMgmtSvc), li))
 	mux.Handle(minercommandv1connect.NewMinerCommandServiceHandler(command.NewHandler(commandSvc), li))
-	mux.Handle(poolsv1connect.NewPoolsServiceHandler(pools.NewHandler(poolsSvc), li))
 	mux.Handle(poolconfigurationsv1connect.NewPoolConfigurationServiceHandler(poolconfigurationsHandler.NewHandler(poolConfigurationsSvc), li))
 	mux.Handle(schedulev1connect.NewScheduleServiceHandler(scheduleHandler.NewHandler(scheduleSvc), li))
 	rolloutPath, rolloutHTTP := rolloutv1connect.NewRolloutServiceHandler(rolloutHandler.NewHandler(rolloutSvc), li)
@@ -947,7 +943,7 @@ func start(config *Config) (result error) {
 	))
 	mux.Handle(sitesv1connect.NewSiteServiceHandler(sitesHandler.NewHandler(sitesSvc), li))
 	mux.Handle(buildingsv1connect.NewBuildingServiceHandler(buildingsHandler.NewHandler(buildingsSvc), li))
-	mux.Handle(mininggroupsv1connect.NewMiningGroupServiceHandler(mininggroupsHandler.NewHandler(groupsSvc, hostedPoolsSvc, authSvc), li))
+	mux.Handle(mininggroupsv1connect.NewMiningGroupServiceHandler(mininggroupsHandler.NewHandler(groupsSvc), li))
 	mux.Handle(containersv1connect.NewContainerServiceHandler(containersHandler.NewHandler(containersDomain.NewService(sqlstores.NewSQLContainerStore(conn))).WithCommands(commandSvc), li))
 	mux.Handle(fleetinventoryv1connect.NewFleetInventoryServiceHandler(fleetInventoryHandler.NewHandler(fleetInventoryDomain.NewService(db.NewFailoverResettingQuerier(db.NewRetryDB(conn))).WithBuildings(buildingStore).WithMiners(fleetMgmtSvc)), li))
 	mux.Handle(infrastructurev1connect.NewInfrastructureServiceHandler(infrastructureHandler.NewHandler(infrastructureSvc), li))

@@ -132,7 +132,7 @@ func TestOfflineRecoveryPreservesUnrelatedJournal(t *testing.T) {
 	for _, mismatch := range []string{"attempt", "epoch", "terminal"} {
 		t.Run(mismatch, func(t *testing.T) {
 			ctx, f := newIdleRetryFixture(t)
-			_, err := f.service.Submit(ctx, f.target.DeviceIdentifier, uuid.NewString(), "", nil, 0)
+			_, err := f.service.submitLegacyRequest(ctx, f.target.DeviceIdentifier, uuid.NewString(), "", nil, 0)
 			require.NoError(t, err)
 			evidence := recoveryEvidence(t, ctx, f)
 			row := f.state(t)

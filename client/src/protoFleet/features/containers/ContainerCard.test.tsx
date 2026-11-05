@@ -19,7 +19,8 @@ vi.mock("@/protoFleet/api/clients", () => ({
   },
 }));
 
-vi.mock("@/protoFleet/store", () => ({
+vi.mock("@/protoFleet/store", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/protoFleet/store")>()),
   usePermissions: () => [
     "miner:stop_mining",
     "miner:start_mining",

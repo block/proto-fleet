@@ -100,18 +100,6 @@ func (h *Handler) GetMinerStateCounts(ctx context.Context, r *connect.Request[pb
 	return connect.NewResponse(result), nil
 }
 
-func (h *Handler) GetMinerPoolAssignments(ctx context.Context, r *connect.Request[pb.GetMinerPoolAssignmentsRequest]) (*connect.Response[pb.GetMinerPoolAssignmentsResponse], error) {
-	if _, err := middleware.RequirePermission(ctx, authz.PermMinerRead, authz.ResourceContext{}); err != nil {
-		return nil, err
-	}
-	result, err := h.fleetMgmtSvc.GetMinerPoolAssignments(ctx, r.Msg)
-	if err != nil {
-		return nil, err
-	}
-
-	return connect.NewResponse(result), nil
-}
-
 func (h *Handler) GetMinerCoolingMode(ctx context.Context, r *connect.Request[pb.GetMinerCoolingModeRequest]) (*connect.Response[pb.GetMinerCoolingModeResponse], error) {
 	if _, err := middleware.RequirePermission(ctx, authz.PermMinerRead, authz.ResourceContext{}); err != nil {
 		return nil, err
@@ -153,18 +141,6 @@ func (h *Handler) RenameMiners(ctx context.Context, r *connect.Request[pb.Rename
 		return nil, err
 	}
 	result, err := h.fleetMgmtSvc.RenameMiners(ctx, r.Msg)
-	if err != nil {
-		return nil, err
-	}
-
-	return connect.NewResponse(result), nil
-}
-
-func (h *Handler) UpdateWorkerNames(ctx context.Context, r *connect.Request[pb.UpdateWorkerNamesRequest]) (*connect.Response[pb.UpdateWorkerNamesResponse], error) {
-	if _, err := middleware.RequirePermission(ctx, authz.PermMinerUpdateWorkerName, authz.ResourceContext{}); err != nil {
-		return nil, err
-	}
-	result, err := h.fleetMgmtSvc.UpdateWorkerNames(ctx, r.Msg)
 	if err != nil {
 		return nil, err
 	}

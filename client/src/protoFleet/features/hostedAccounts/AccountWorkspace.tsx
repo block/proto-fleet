@@ -12,7 +12,6 @@ import AccountAssets from "./components/AccountAssets";
 import AccountChildren from "./components/AccountChildren";
 import AccountDetails from "./components/AccountDetails";
 import AccountOverview from "./components/AccountOverview";
-import AccountPools from "./components/AccountPools";
 import { AccountState } from "./components/AccountState";
 import AccountTeam from "./components/AccountTeam";
 import AccountTickets from "./components/AccountTickets";
@@ -20,6 +19,7 @@ import { useHostedAccounts } from "./HostedAccountsContext";
 import { useAccountQuery } from "./useAccountQuery";
 import { type NavItem, type SecondaryNavItem } from "@/protoFleet/config/navItems";
 import { POLL_INTERVAL_MS } from "@/protoFleet/constants/polling";
+import ConfigurationLibrary from "@/protoFleet/features/poolConfigurations/ConfigurationLibrary";
 import Preferences from "@/protoFleet/features/settings/components/Preferences";
 import { useFleetStore, usePermissions } from "@/protoFleet/store";
 import { Activity, Fleet, Groups, Home, LightningAlt, Lock, Repair, Settings, Team } from "@/shared/assets/icons";
@@ -177,7 +177,7 @@ const AccountPage = ({
       case "team":
         return <AccountTeam />;
       case "pools":
-        return <AccountPools />;
+        return <ConfigurationLibrary />;
       case "children":
         return <AccountChildren />;
       case "access":

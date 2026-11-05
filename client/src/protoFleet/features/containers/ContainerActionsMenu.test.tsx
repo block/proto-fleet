@@ -2,6 +2,7 @@ import { MemoryRouter, useLocation } from "react-router-dom";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { create } from "@bufbuild/protobuf";
+import { timestampFromDate } from "@bufbuild/protobuf/wkt";
 import ContainerActionsMenu from "./ContainerActionsMenu";
 import { ContainerSchema } from "@/protoFleet/api/generated/containers/v1/containers_pb";
 import { STATUSES } from "@/shared/features/toaster";
@@ -15,7 +16,10 @@ const state = vi.hoisted(() => ({
   statusRequest: vi.fn(),
   commandResult: vi.fn(),
 }));
-vi.mock("@/protoFleet/store", () => ({ usePermissions: () => state.permissions }));
+vi.mock("@/protoFleet/store", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/protoFleet/store")>()),
+  usePermissions: () => state.permissions,
+}));
 vi.mock("@/protoFleet/api/clients", () => ({
   fleetManagementClient: { deleteMiners: state.deleteMiners },
   miningGroupsClient: { getState: state.getState },
@@ -26,6 +30,24 @@ vi.mock("@/protoFleet/api/clients", () => ({
     setPowerTarget: state.request,
     getEquipmentCommandResult: state.commandResult,
   },
+}));
+
+vi.mock("@/protoFleet/features/poolConfigurations/ConfigurationSelector", () => ({
+  ConfigurationSelector: ({
+    deviceIdentifiers,
+    selectionDescription,
+    onDismiss,
+  }: {
+    deviceIdentifiers: string[];
+    selectionDescription?: string;
+    onDismiss: () => void;
+  }) => (
+    <div role="dialog" aria-label="Pool configuration">
+      <p>{deviceIdentifiers.join(",")}</p>
+      <p>{selectionDescription}</p>
+      <button onClick={onDismiss}>Cancel pool edit</button>
+    </div>
+  ),
 }));
 
 vi.mock("@/shared/features/toaster", async (importOriginal) => ({
@@ -289,8 +311,8 @@ describe("container command dispatch", () => {
       "View container",
       mining ? "Sleep container" : "Wake container",
       "Manage power",
-      "Update firmware",
       "Edit pool",
+      "Update firmware",
       "Update worker name",
       "Unpair",
     ]);
@@ -385,7 +407,7 @@ describe("container command dispatch", () => {
     expect(request).not.toHaveBeenCalled();
   });
 
-  it("shows unsupported settings disabled without dispatching requests", async () => {
+  it("keeps unsupported settings and pools with unknown readiness disabled", async () => {
     renderMenu();
     fireEvent.click(screen.getByRole("button", { name: "Actions for Container 1" }));
     await screen.findByRole("button", { name: "Sleep container" });
@@ -623,4 +645,53 @@ it.each(["miner:start_mining", "miner:stop_mining"])("hides activation without %
   fireEvent.click(screen.getByRole("button", { name: "Actions for Container 1" }));
   await waitFor(() => expect(state.getState).toHaveBeenCalled());
   expect(screen.queryByRole("button", { name: "Enable mining groups" })).not.toBeInTheDocument();
+});
+
+describe("whole-container pool configuration", () => {
+  const ready = () => ({ supported: true, enabled: false, observedAt: timestampFromDate(new Date()), status: "idle" });
+
+  it("opens the shared picker for the whole container without activation or start/stop permissions", async () => {
+    state.permissions = ["miner:read", "pool:read", "miner:update_pools"];
+    state.getState.mockResolvedValue(ready());
+    renderMenu();
+    await openAction("Edit pool");
+    const dialog = screen.getByRole("dialog", { name: "Pool configuration" });
+    expect(dialog).toHaveTextContent("ct1/board");
+    expect(dialog).toHaveTextContent("Applies to the whole container.");
+    expect(request).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Cancel pool edit" }));
+    expect(screen.queryByRole("dialog", { name: "Pool configuration" })).not.toBeInTheDocument();
+  });
+
+  it.each([
+    { enabled: true },
+    { supported: false },
+    { suspended: true },
+    { observedAt: undefined },
+    { observedAt: timestampFromDate(new Date(Date.now() - 180_000)) },
+    { status: "pending" },
+    { status: "applying" },
+    { status: "blocked" },
+  ])("disables whole-container editing for unavailable mode %#", async (mode) => {
+    state.getState.mockResolvedValue({ ...ready(), ...mode });
+    renderMenu();
+    fireEvent.click(screen.getByRole("button", { name: "Actions for Container 1" }));
+    await screen.findByRole("button", { name: /Sleep/ });
+    expect(screen.getByRole("button", { name: "Edit pool" })).toBeDisabled();
+  });
+
+  it("keeps editing disabled if group observation fails", async () => {
+    state.getState.mockRejectedValue(new Error("Controller unavailable"));
+    renderMenu();
+    fireEvent.click(screen.getByRole("button", { name: "Actions for Container 1" }));
+    await screen.findByRole("button", { name: "Sleep" });
+    expect(screen.getByRole("button", { name: "Edit pool" })).toBeDisabled();
+  });
+
+  it("keeps editing disabled until group mode is known", async () => {
+    state.getState.mockReturnValue(new Promise(() => {}));
+    renderMenu();
+    fireEvent.click(screen.getByRole("button", { name: "Actions for Container 1" }));
+    expect(screen.getByRole("button", { name: "Edit pool" })).toBeDisabled();
+  });
 });

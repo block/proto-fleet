@@ -289,7 +289,7 @@ describe("real account workspace routing", () => {
     expect(screen.queryByRole("navigation", { name: "Account sections" })).not.toBeInTheDocument();
     const settings = within(screen.getByRole("navigation", { name: "Settings" }));
     await user.click(settings.getByRole("link", { name: "Pools" }));
-    await screen.findByRole("button", { name: "Add pool" });
+    await screen.findByRole("button", { name: "Create configuration" });
     expect(within(screen.getByTestId("navigation-menu")).getByRole("link", { name: "Settings" })).toHaveAttribute(
       "aria-current",
       "page",
@@ -297,7 +297,7 @@ describe("real account workspace routing", () => {
     expect(
       within(screen.getByRole("navigation", { name: "Settings" })).getByRole("link", { name: "Pools" }),
     ).toHaveAttribute("aria-current", "page");
-    expect(screen.getByRole("button", { name: "Add pool" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Create configuration" })).toBeDisabled();
     await user.keyboard("{Escape}");
     await screen.findByRole("link", { name: "Customer" });
     expect(screen.queryByRole("dialog", { name: "Viewing as Customer" })).not.toBeInTheDocument();
@@ -531,14 +531,35 @@ describe("real account workspace routing", () => {
     });
     const calls = fetchRpc((method) => {
       if (method === "GetAccount") return { account: toJson(AccountSchema, account) };
-      if (method === "ListPoolConfigurations") return { configurations: [{ poolId: "test-pool", name: "Test pool" }] };
+      const configuration = {
+        configurationId: "11111111-1111-4111-8111-111111111122",
+        name: "Test pool",
+        version: "1",
+        assignedCount: "2",
+        pools: [
+          {
+            slotId: "11111111-1111-4111-8111-111111111133",
+            url: "stratum+tcp://pool.example",
+            username: "payout",
+            hasPassword: false,
+          },
+        ],
+      };
+      if (method === "ListConfigurations") return { configurations: [configuration] };
+      if (method === "ReviewEdit")
+        return {
+          reviewId: "11111111-1111-4111-8111-111111111144",
+          configuration,
+          settingsChanged: true,
+          affectedMiners: "2",
+        };
       return {};
     });
     const originalFetch = globalThis.fetch;
     vi.stubGlobal(
       "fetch",
       vi.fn((input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) =>
-        String(input).endsWith("/SetIncomingPoolProfile")
+        String(input).endsWith("/ConfirmReview")
           ? Promise.resolve(
               new Response(JSON.stringify({ code: "permission_denied", message: "Incorrect confirmation password" }), {
                 status: 403,
@@ -550,15 +571,17 @@ describe("real account workspace routing", () => {
     );
     const user = userEvent.setup();
     mount(account, "pools");
-    await user.click(await screen.findByRole("button", { name: "Change selection" }));
-    const dialog = screen.getByRole("dialog", { name: "Stored pool profile" });
-    await user.click(within(dialog).getByRole("checkbox", { name: /Clear/ }));
-    await user.type(within(dialog).getByLabelText("Your Fleet password"), "incorrect-test-password");
-    await user.click(within(dialog).getByRole("button", { name: "Confirm selection" }));
+    await user.click(await screen.findByRole("button", { name: "Actions for Test pool" }));
+    await user.click(await screen.findByText("Edit configuration"));
+    await user.type(screen.getByLabelText("Name"), " revised");
+    await user.click(screen.getByRole("button", { name: "Review changes" }));
+    const dialog = await screen.findByRole("dialog", { name: "Review pool configuration changes" });
+    await user.type(within(dialog).getByLabelText("Your password"), "incorrect-test-password");
+    await user.click(within(dialog).getByRole("button", { name: "Save and update equipment" }));
     expect(await screen.findByText(/Incorrect confirmation password/)).toBeInTheDocument();
     await waitFor(() => expect(calls.filter((c) => c.method === "GetAccount").length).toBeGreaterThanOrEqual(2));
-    expect(screen.getByRole("dialog", { name: "Stored pool profile" })).toBeInTheDocument();
-    expect(screen.getByLabelText("Your Fleet password")).toHaveValue("incorrect-test-password");
+    expect(screen.getByRole("dialog", { name: "Review pool configuration changes" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Your password")).toHaveValue("incorrect-test-password");
   });
   it("discards forms and secrets when the login changes on the same account route", async () => {
     fetchRpc((method) =>

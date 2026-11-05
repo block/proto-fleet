@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { create } from "@bufbuild/protobuf";
+import { Code, ConnectError } from "@connectrpc/connect";
 import { type DragEndEvent } from "@dnd-kit/core";
 
 import {
@@ -27,13 +28,11 @@ import {
 } from "./bulkRenamePreview";
 import BulkRenamePreviewPanel, { type PreviewRow } from "./BulkRenamePreviewPanel";
 import BulkRenamePropertyForm from "./BulkRenamePropertyForm";
-import { settingsActions } from "./constants";
 import {
   type CustomPropertyOptionsValues,
   type FixedValueOptionsValues,
   type QualifierOptionsValues,
 } from "./RenameOptionsModals/types";
-import { waitForWorkerNameBatchResult, type WorkerNameBatchResult } from "./waitForWorkerNameBatchResult";
 import { fleetManagementClient } from "@/protoFleet/api/clients";
 import { DeviceIdentifierListSchema } from "@/protoFleet/api/generated/common/v1/device_selector_pb";
 import {
@@ -48,15 +47,18 @@ import {
   type MinerListFilter,
   type MinerStateSnapshot,
 } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
-import { useMinerCommand } from "@/protoFleet/api/useMinerCommand";
 import useUpdateWorkerNames from "@/protoFleet/api/useUpdateWorkerNames";
 import FullScreenTwoPaneModal from "@/protoFleet/components/FullScreenTwoPaneModal";
-import { useBatchActions } from "@/protoFleet/features/fleetManagement/hooks/useBatchOperations";
 import {
   applyFleetSelectablePairingStatuses,
   isFleetSelectablePairingStatus,
 } from "@/protoFleet/features/fleetManagement/utils/fleetVisiblePairingFilter";
-import { useAuthErrors, useBulkWorkerNamePreferences, useSetBulkWorkerNamePreferences } from "@/protoFleet/store";
+import {
+  useAuthErrors,
+  useBulkWorkerNamePreferences,
+  useFleetStore,
+  useSetBulkWorkerNamePreferences,
+} from "@/protoFleet/store";
 import { Info } from "@/shared/assets/icons";
 import { variants } from "@/shared/components/Button";
 import Callout from "@/shared/components/Callout";
@@ -305,6 +307,8 @@ type WorkerNameUpdateCompletion = {
   updatedCount: number;
   unchangedCount: number;
   failedCount: number;
+  unknownCount?: number;
+  notSubmittedCount?: number;
   successfulDeviceIds?: string[];
   submittedWorkerNamesByDeviceIdentifier?: Record<string, string>;
 };
@@ -345,12 +349,10 @@ const BulkWorkerNameModal = ({
   getWorkerNameCredentials,
   onDismiss,
 }: BulkWorkerNameModalProps) => {
-  const { startBatchOperation, completeBatchOperation } = useBatchActions();
   const preferences = useBulkWorkerNamePreferences();
   const setBulkWorkerNamePreferences = useSetBulkWorkerNamePreferences();
   const { handleAuthErrors } = useAuthErrors();
-  const { streamCommandBatchUpdates } = useMinerCommand();
-  const { updateWorkerNames } = useUpdateWorkerNames();
+  const { updateWorkerNames, workerNameReview } = useUpdateWorkerNames();
   const { isPhone, isTablet } = useWindowDimensions();
 
   const [previewMiners, setPreviewMiners] = useState<BulkRenamePreviewMiner[]>([]);
@@ -437,6 +439,8 @@ const BulkWorkerNameModal = ({
         updatedCount,
         unchangedCount,
         failedCount,
+        unknownCount = 0,
+        notSubmittedCount = 0,
         successfulDeviceIds = [],
         submittedWorkerNamesByDeviceIdentifier = {},
       } = completion;
@@ -444,7 +448,19 @@ const BulkWorkerNameModal = ({
       applyVisibleWorkerNameUpdates(successfulDeviceIds, submittedWorkerNamesByDeviceIdentifier);
       onRefetchMiners?.();
 
-      if (updatedCount > 0 || unchangedCount > 0) {
+      if (unknownCount || notSubmittedCount) {
+        updateToast(toastId, {
+          message: [
+            updatedCount ? `${updatedCount} worker names submitted` : "",
+            unknownCount ? `${unknownCount} confirmations unknown — use Review update to resolve` : "",
+            notSubmittedCount ? `${notSubmittedCount} not submitted` : "",
+            failedCount ? `${failedCount} failed` : "",
+          ]
+            .filter(Boolean)
+            .join("; "),
+          status: TOAST_STATUSES.error,
+        });
+      } else if (updatedCount > 0 || unchangedCount > 0) {
         updateToast(toastId, {
           message: getBulkWorkerNameSuccessMessage(updatedCount, unchangedCount),
           status: TOAST_STATUSES.success,
@@ -458,7 +474,7 @@ const BulkWorkerNameModal = ({
         removeToast(toastId);
       }
 
-      if (failedCount > 0 && (updatedCount > 0 || unchangedCount > 0)) {
+      if (!unknownCount && !notSubmittedCount && failedCount > 0 && (updatedCount > 0 || unchangedCount > 0)) {
         pushToast({
           message: getBulkWorkerNameFailureMessage(failedCount),
           status: TOAST_STATUSES.error,
@@ -469,18 +485,6 @@ const BulkWorkerNameModal = ({
       onDismiss();
     },
     [applyVisibleWorkerNameUpdates, onDismiss, onRefetchMiners],
-  );
-
-  const handleWorkerNameBatchRequestFailure = useCallback(
-    (toastId: number) => {
-      updateToast(toastId, {
-        message: getBulkWorkerNameRequestFailureMessage(selectionCount),
-        status: TOAST_STATUSES.error,
-      });
-      onRefetchMiners?.();
-      onDismiss();
-    },
-    [onDismiss, onRefetchMiners, selectionCount],
   );
 
   const loadPreviewMiners = useCallback(async (): Promise<{
@@ -727,63 +731,43 @@ const BulkWorkerNameModal = ({
 
       setIsSubmitting(true);
 
+      const generation = useFleetStore.getState().auth.sessionGeneration;
+      const current = () => useFleetStore.getState().auth.sessionGeneration === generation;
       try {
         const response = await updateWorkerNames(deviceSelector, config, username, password, previewSort);
+        if (!current()) return;
         const unchangedCount = Number(response.unchangedCount || 0);
         const failedCount = Number(response.failedCount || 0);
-
-        if (response.batchIdentifier) {
-          startBatchOperation({
-            batchIdentifier: response.batchIdentifier,
-            action: settingsActions.updateWorkerNames,
-            deviceIdentifiers: selectedMinerIds,
-          });
-
-          let batchResult: WorkerNameBatchResult;
-          try {
-            batchResult = await waitForWorkerNameBatchResult(streamCommandBatchUpdates, response.batchIdentifier);
-          } finally {
-            completeBatchOperation(response.batchIdentifier);
-          }
-
-          if (batchResult.streamFailed) {
-            handleWorkerNameBatchRequestFailure(toastId);
-            return;
-          }
-
-          finishWorkerNameUpdate(toastId, {
-            updatedCount: batchResult.successCount,
-            unchangedCount,
-            failedCount: failedCount + batchResult.failedCount,
-            successfulDeviceIds: batchResult.successDeviceIds,
-            submittedWorkerNamesByDeviceIdentifier,
-          });
-          return;
-        }
 
         finishWorkerNameUpdate(toastId, {
           updatedCount: Number(response.updatedCount || 0),
           unchangedCount,
           failedCount,
+          unknownCount: response.unknownCount,
+          notSubmittedCount: response.notSubmittedCount,
           successfulDeviceIds: getVisibleSuccessfulWorkerNameDeviceIds(
             submittedWorkerNamesByDeviceIdentifier,
-            failedCount,
+            failedCount + (response.unknownCount ?? 0) + (response.notSubmittedCount ?? 0),
           ),
           submittedWorkerNamesByDeviceIdentifier,
         });
-      } catch {
+      } catch (error) {
+        if (ConnectError.from(error).code === Code.Canceled) {
+          removeToast(toastId);
+          return;
+        }
+        if (!current()) return;
         updateToast(toastId, {
           message: getBulkWorkerNameRequestFailureMessage(selectionCount),
           status: TOAST_STATUSES.error,
         });
       } finally {
-        setIsSubmitting(false);
+        if (current()) setIsSubmitting(false);
+        else removeToast(toastId);
       }
     },
     [
-      completeBatchOperation,
       finishWorkerNameUpdate,
-      handleWorkerNameBatchRequestFailure,
       currentFilter,
       canOptimisticallyUpdateVisibleWorkerNames,
       localValidationMiners,
@@ -792,8 +776,6 @@ const BulkWorkerNameModal = ({
       selectedMinerIds,
       selectionCount,
       selectionMode,
-      startBatchOperation,
-      streamCommandBatchUpdates,
       updateWorkerNames,
     ],
   );
@@ -916,6 +898,7 @@ const BulkWorkerNameModal = ({
 
   return (
     <>
+      {workerNameReview}
       <FullScreenTwoPaneModal
         open={open}
         title="Update worker names"

@@ -15,7 +15,7 @@ interface ReadOnlyMiningPoolsProps {
 
 /**
  * Read-only pool list for the embedded (fleet-hosted) miner view. Pool edits are
- * blocked at the proxy and go through Fleet's audited UpdateMiningPools flow, but
+ * blocked at the proxy and go through Fleet's reviewed pool configuration flow, but
  * operators still need to see which pools the miner is currently running — so
  * this shows the configuration without any edit/add/delete/reorder affordances.
  */

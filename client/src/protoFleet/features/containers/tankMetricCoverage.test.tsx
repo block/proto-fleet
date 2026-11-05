@@ -10,7 +10,10 @@ import { EquipmentCoverageSchema } from "@/protoFleet/api/generated/common/v1/eq
 import { ContainerSchema } from "@/protoFleet/api/generated/containers/v1/containers_pb";
 import { EntityKind, InventoryItemSchema } from "@/protoFleet/api/generated/fleetinventory/v1/fleetinventory_pb";
 import Stats from "@/shared/components/Stats";
-vi.mock("@/protoFleet/store", () => ({ useTemperatureUnit: () => "C" }));
+vi.mock("@/protoFleet/store", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/protoFleet/store")>()),
+  useTemperatureUnit: () => "C",
+}));
 function fixture(): ContainerOverviewData {
   return {
     container: create(ContainerSchema, { id: 7n, name: "CT1" }),

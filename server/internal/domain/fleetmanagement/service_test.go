@@ -203,11 +203,10 @@ func TestService_RefreshMiners_ShouldReturnErrorWithoutSnapshotWhenRefreshTimesO
 		deadlineRefreshTelemetryCollector{},
 		testContext.ServiceProvider.MinerService,
 		testContext.ServiceProvider.PluginService,
-		sqlstores.NewSQLPoolStore(testContext.ServiceProvider.DB, testContext.ServiceProvider.EncryptService),
 		sqlstores.NewSQLErrorStore(testContext.ServiceProvider.DB, transactor),
 		sqlstores.NewSQLCollectionStore(testContext.ServiceProvider.DB),
 		sqlstores.NewSQLBuildingStore(testContext.ServiceProvider.DB),
-		testContext.ServiceProvider.CommandService,
+		nil,
 		activity.NewService(sqlstores.NewSQLActivityStore(testContext.ServiceProvider.DB)),
 	)
 
@@ -238,11 +237,10 @@ func TestService_RefreshMiners_ShouldTrimDeviceIDs(t *testing.T) {
 		collector,
 		testContext.ServiceProvider.MinerService,
 		testContext.ServiceProvider.PluginService,
-		sqlstores.NewSQLPoolStore(testContext.ServiceProvider.DB, testContext.ServiceProvider.EncryptService),
 		sqlstores.NewSQLErrorStore(testContext.ServiceProvider.DB, transactor),
 		sqlstores.NewSQLCollectionStore(testContext.ServiceProvider.DB),
 		sqlstores.NewSQLBuildingStore(testContext.ServiceProvider.DB),
-		testContext.ServiceProvider.CommandService,
+		nil,
 		activity.NewService(sqlstores.NewSQLActivityStore(testContext.ServiceProvider.DB)),
 	)
 
@@ -291,7 +289,6 @@ func TestService_RefreshMiners_ShouldRejectWhitespaceOnlyDeviceID(t *testing.T) 
 		nil,
 		nil,
 		nil,
-		nil,
 	)
 
 	resp, err := service.RefreshMiners(ctx, &pb.RefreshMinersRequest{
@@ -305,7 +302,7 @@ func TestService_RefreshMiners_ShouldRejectWhitespaceOnlyDeviceID(t *testing.T) 
 
 func TestService_LookupMinerByIdentifier_ShouldRejectEmptyIdentifier(t *testing.T) {
 	ctx := testutil.MockAuthContextForTesting(t.Context(), 1, 1)
-	service := fleetmanagement.NewService(nil, nil, fleetmanagement.NewMockTelemetryCollector(), nil, nil, nil, nil, nil, nil, nil, nil)
+	service := fleetmanagement.NewService(nil, nil, fleetmanagement.NewMockTelemetryCollector(), nil, nil, nil, nil, nil, nil, nil)
 
 	resp, err := service.LookupMinerByIdentifier(ctx, &pb.LookupMinerByIdentifierRequest{Identifier: ""})
 
@@ -316,7 +313,7 @@ func TestService_LookupMinerByIdentifier_ShouldRejectEmptyIdentifier(t *testing.
 
 func TestService_LookupMinerByIdentifier_ShouldRejectWhitespaceOnlyIdentifier(t *testing.T) {
 	ctx := testutil.MockAuthContextForTesting(t.Context(), 1, 1)
-	service := fleetmanagement.NewService(nil, nil, fleetmanagement.NewMockTelemetryCollector(), nil, nil, nil, nil, nil, nil, nil, nil)
+	service := fleetmanagement.NewService(nil, nil, fleetmanagement.NewMockTelemetryCollector(), nil, nil, nil, nil, nil, nil, nil)
 
 	resp, err := service.LookupMinerByIdentifier(ctx, &pb.LookupMinerByIdentifierRequest{Identifier: "   "})
 
@@ -338,7 +335,7 @@ func TestService_LookupMinerByIdentifier_ShouldPropagateStoreNotFound(t *testing
 		GetPairedDeviceBySerialNumber(gomock.Any(), serial, orgID).
 		Return(nil, fleeterror.NewNotFoundErrorf("no paired device found with serial_number=%s org_id=%d", serial, orgID))
 
-	service := fleetmanagement.NewService(deviceStore, nil, fleetmanagement.NewMockTelemetryCollector(), nil, nil, nil, nil, nil, nil, nil, nil)
+	service := fleetmanagement.NewService(deviceStore, nil, fleetmanagement.NewMockTelemetryCollector(), nil, nil, nil, nil, nil, nil, nil)
 
 	ctx := testutil.MockAuthContextForTesting(t.Context(), 1, orgID)
 	resp, err := service.LookupMinerByIdentifier(ctx, &pb.LookupMinerByIdentifierRequest{
@@ -375,7 +372,7 @@ func TestService_LookupMinerByIdentifier_ShouldTrimIdentifierBeforeLookup(t *tes
 			}}, "", int64(1), nil
 		})
 
-	service := fleetmanagement.NewService(deviceStore, nil, fleetmanagement.NewMockTelemetryCollector(), nil, nil, nil, nil, nil, nil, nil, nil)
+	service := fleetmanagement.NewService(deviceStore, nil, fleetmanagement.NewMockTelemetryCollector(), nil, nil, nil, nil, nil, nil, nil)
 
 	ctx := testutil.MockAuthContextForTesting(t.Context(), 1, orgID)
 	resp, err := service.LookupMinerByIdentifier(ctx, &pb.LookupMinerByIdentifierRequest{
@@ -409,7 +406,7 @@ func TestService_LookupMinerByIdentifier_ShouldLookupByMACWhenTypeIsMAC(t *testi
 			PairingStatus:    "UNPAIRED",
 		}}, "", int64(1), nil)
 
-	service := fleetmanagement.NewService(deviceStore, nil, fleetmanagement.NewMockTelemetryCollector(), nil, nil, nil, nil, nil, nil, nil, nil)
+	service := fleetmanagement.NewService(deviceStore, nil, fleetmanagement.NewMockTelemetryCollector(), nil, nil, nil, nil, nil, nil, nil)
 
 	ctx := testutil.MockAuthContextForTesting(t.Context(), 1, orgID)
 	resp, err := service.LookupMinerByIdentifier(ctx, &pb.LookupMinerByIdentifierRequest{
@@ -442,7 +439,7 @@ func TestService_LookupMinerByIdentifier_ShouldInferMACWhenTypeUnspecified(t *te
 			PairingStatus:    "UNPAIRED",
 		}}, "", int64(1), nil)
 
-	service := fleetmanagement.NewService(deviceStore, nil, fleetmanagement.NewMockTelemetryCollector(), nil, nil, nil, nil, nil, nil, nil, nil)
+	service := fleetmanagement.NewService(deviceStore, nil, fleetmanagement.NewMockTelemetryCollector(), nil, nil, nil, nil, nil, nil, nil)
 
 	ctx := testutil.MockAuthContextForTesting(t.Context(), 1, orgID)
 	resp, err := service.LookupMinerByIdentifier(ctx, &pb.LookupMinerByIdentifierRequest{
@@ -474,7 +471,7 @@ func TestService_LookupMinerByIdentifier_ShouldInferSerialWhenTypeUnspecified(t 
 			PairingStatus:    "UNPAIRED",
 		}}, "", int64(1), nil)
 
-	service := fleetmanagement.NewService(deviceStore, nil, fleetmanagement.NewMockTelemetryCollector(), nil, nil, nil, nil, nil, nil, nil, nil)
+	service := fleetmanagement.NewService(deviceStore, nil, fleetmanagement.NewMockTelemetryCollector(), nil, nil, nil, nil, nil, nil, nil)
 
 	ctx := testutil.MockAuthContextForTesting(t.Context(), 1, orgID)
 	resp, err := service.LookupMinerByIdentifier(ctx, &pb.LookupMinerByIdentifierRequest{
@@ -518,7 +515,7 @@ func TestService_LookupMinerByIdentifier_ShouldReturnHydratedSnapshot(t *testing
 		GetRackDetailsForDevices(gomock.Any(), orgID, []string{deviceID}).
 		Return(map[string]interfaces.DeviceRackDetails{}, nil)
 
-	service := fleetmanagement.NewService(deviceStore, nil, fleetmanagement.NewMockTelemetryCollector(), nil, nil, nil, nil, collectionStore, nil, nil, nil)
+	service := fleetmanagement.NewService(deviceStore, nil, fleetmanagement.NewMockTelemetryCollector(), nil, nil, nil, collectionStore, nil, nil, nil)
 
 	ctx := testutil.MockAuthContextForTesting(t.Context(), 1, orgID)
 	resp, err := service.LookupMinerByIdentifier(ctx, &pb.LookupMinerByIdentifierRequest{
@@ -555,11 +552,10 @@ func TestService_RefreshMiners_ShouldRefreshFleetNodeOwnedMiner(t *testing.T) {
 		collector,
 		testContext.ServiceProvider.MinerService,
 		testContext.ServiceProvider.PluginService,
-		sqlstores.NewSQLPoolStore(testContext.ServiceProvider.DB, testContext.ServiceProvider.EncryptService),
 		sqlstores.NewSQLErrorStore(testContext.ServiceProvider.DB, transactor),
 		sqlstores.NewSQLCollectionStore(testContext.ServiceProvider.DB),
 		sqlstores.NewSQLBuildingStore(testContext.ServiceProvider.DB),
-		testContext.ServiceProvider.CommandService,
+		nil,
 		activity.NewService(sqlstores.NewSQLActivityStore(testContext.ServiceProvider.DB)),
 	)
 
@@ -591,7 +587,6 @@ func TestService_RefreshMiners_ShouldReturnSanitizedRefreshFailure(t *testing.T)
 		deviceStore,
 		nil,
 		failingRefreshTelemetryCollector{err: errors.New("secret database host: db.internal")},
-		nil,
 		nil,
 		nil,
 		nil,
@@ -654,7 +649,6 @@ func TestService_RefreshMinerResourceContexts_ShouldResolveHiddenDeviceSites(t *
 		deviceStore,
 		nil,
 		fleetmanagement.NewMockTelemetryCollector(),
-		nil,
 		nil,
 		nil,
 		nil,
@@ -1255,7 +1249,6 @@ func TestService_ListMinerStateSnapshots_ShouldPopulateCapabilitiesForPairedDevi
 
 	deviceStore := sqlstores.NewSQLDeviceStore(testContext.ServiceProvider.DB)
 	discoveredDeviceStore := sqlstores.NewSQLDiscoveredDeviceStore(testContext.ServiceProvider.DB)
-	poolStore := sqlstores.NewSQLPoolStore(testContext.ServiceProvider.DB, testContext.ServiceProvider.EncryptService)
 	errorStore := sqlstores.NewSQLErrorStore(testContext.ServiceProvider.DB, sqlstores.NewSQLTransactor(testContext.ServiceProvider.DB))
 	collectionStore := sqlstores.NewSQLCollectionStore(testContext.ServiceProvider.DB)
 	activitySvc := activity.NewService(sqlstores.NewSQLActivityStore(testContext.ServiceProvider.DB))
@@ -1265,7 +1258,6 @@ func TestService_ListMinerStateSnapshots_ShouldPopulateCapabilitiesForPairedDevi
 		fleetmanagement.NewMockTelemetryCollector(),
 		testContext.ServiceProvider.MinerService,
 		mockCapabilities,
-		poolStore,
 		errorStore,
 		collectionStore,
 		sqlstores.NewSQLBuildingStore(testContext.ServiceProvider.DB),
@@ -1373,7 +1365,6 @@ func TestService_ListMinerStateSnapshots_ShouldPopulateCapabilitiesForUnpairedDe
 
 	// Create service with mock capabilities provider
 	deviceStore := sqlstores.NewSQLDeviceStore(testContext.ServiceProvider.DB)
-	poolStore := sqlstores.NewSQLPoolStore(testContext.ServiceProvider.DB, testContext.ServiceProvider.EncryptService)
 	errorStore := sqlstores.NewSQLErrorStore(testContext.ServiceProvider.DB, sqlstores.NewSQLTransactor(testContext.ServiceProvider.DB))
 	collectionStore := sqlstores.NewSQLCollectionStore(testContext.ServiceProvider.DB)
 	activitySvc := activity.NewService(sqlstores.NewSQLActivityStore(testContext.ServiceProvider.DB))
@@ -1383,7 +1374,6 @@ func TestService_ListMinerStateSnapshots_ShouldPopulateCapabilitiesForUnpairedDe
 		fleetmanagement.NewMockTelemetryCollector(),
 		testContext.ServiceProvider.MinerService,
 		mockCapabilities,
-		poolStore,
 		errorStore,
 		collectionStore,
 		sqlstores.NewSQLBuildingStore(testContext.ServiceProvider.DB),
@@ -1459,7 +1449,6 @@ func TestService_ListMinerStateSnapshots_ShouldCacheCapabilities(t *testing.T) {
 
 	deviceStore := sqlstores.NewSQLDeviceStore(testContext.ServiceProvider.DB)
 	discoveredDeviceStore := sqlstores.NewSQLDiscoveredDeviceStore(testContext.ServiceProvider.DB)
-	poolStore := sqlstores.NewSQLPoolStore(testContext.ServiceProvider.DB, testContext.ServiceProvider.EncryptService)
 	errorStore := sqlstores.NewSQLErrorStore(testContext.ServiceProvider.DB, sqlstores.NewSQLTransactor(testContext.ServiceProvider.DB))
 	collectionStore := sqlstores.NewSQLCollectionStore(testContext.ServiceProvider.DB)
 	activitySvc := activity.NewService(sqlstores.NewSQLActivityStore(testContext.ServiceProvider.DB))
@@ -1469,7 +1458,6 @@ func TestService_ListMinerStateSnapshots_ShouldCacheCapabilities(t *testing.T) {
 		fleetmanagement.NewMockTelemetryCollector(),
 		testContext.ServiceProvider.MinerService,
 		mockCapabilities,
-		poolStore,
 		errorStore,
 		collectionStore,
 		sqlstores.NewSQLBuildingStore(testContext.ServiceProvider.DB),

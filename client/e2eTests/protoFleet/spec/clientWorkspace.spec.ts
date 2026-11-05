@@ -13,6 +13,25 @@ test.describe("Client workspace and read-only host preview", () => {
   test.use({ storageState: { cookies: [], origins: [] } });
 
   for (const preview of [false, true]) {
+    test(`${preview ? "host preview" : "client administrator"} uses the canonical pool library`, async ({
+      page,
+      context,
+    }) => {
+      const mock = await mockClientWorkspace(context, preview);
+      await page.goto(`/accounts/${clientA}/pools`);
+      await expect(page.getByText("Pool configurations", { exact: true })).toBeVisible();
+      await expect(page.getByText("No pool configurations yet", { exact: true })).toBeVisible();
+      await expect(page.getByRole("button", { name: "Create configuration", exact: true })).toBeEnabled({
+        enabled: !preview,
+      });
+      const reads = mock.calls.filter((call) => call.method === "ListConfigurations");
+      expect(reads.length).toBeGreaterThan(0);
+      expect(reads.every((call) => call.account === clientA && call.body.accountId === clientA)).toBe(true);
+      expect(mock.unexpected).toEqual([]);
+    });
+  }
+
+  for (const preview of [false, true]) {
     test(`${preview ? "host preview" : "actual client administrator"} shares dashboard and account navigation`, async ({
       page,
       context,
@@ -117,9 +136,13 @@ test.describe("Client workspace and read-only host preview", () => {
         await workspace.clearAssetFilter("Model");
         await expect(page.getByText("Customer A miner", { exact: true })).toBeVisible();
         await workspace.navigate("Pools", clientA, "pools");
-        await expect(page.getByText("Add and manage the pools for your account.", { exact: true })).toBeVisible();
-        await expect(page.getByText("No pools yet", { exact: true })).toBeVisible();
-        await expect(page.getByRole("button", { name: "Add pool", exact: true })).toBeEnabled({ enabled: !preview });
+        await expect(
+          page.getByText("Save a primary pool and optional backups to apply to your equipment.", { exact: true }),
+        ).toBeVisible();
+        await expect(page.getByText("No pool configurations yet", { exact: true })).toBeVisible();
+        await expect(page.getByRole("button", { name: "Create configuration", exact: true })).toBeEnabled({
+          enabled: !preview,
+        });
         await expect(page.getByText("Stored pool profile", { exact: true })).toHaveCount(0);
         await workspace.navigate("Team", clientA, "team");
         await expect(page.getByRole("button", { name: "Invite team member", exact: true })).toBeEnabled({
@@ -301,9 +324,9 @@ test.describe("Client workspace and read-only host preview", () => {
     await expect(page.getByRole("button", { name: "Manage permissions", exact: true })).toHaveCount(0);
     await expect(permissions.getByRole("checkbox", { name: "View account data", exact: true })).toBeDisabled();
     await expect(permissions.getByRole("button", { name: "Save permissions", exact: true })).toHaveCount(0);
-    await permissions.getByRole("checkbox", { name: "Select stored pool profile", exact: true }).uncheck();
+    await permissions.getByRole("checkbox", { name: "Change pools", exact: true }).uncheck();
     await expect.poll(() => mock.calls.filter((call) => call.method === "ConfigureAccount").length).toBe(1);
-    await expect(permissions.getByRole("checkbox", { name: "Select stored pool profile", exact: true })).toBeEnabled();
+    await expect(permissions.getByRole("checkbox", { name: "Change pools", exact: true })).toBeEnabled();
     await permissions.getByRole("button", { name: "Suspend account", exact: true }).click();
     const suspend = page.getByRole("dialog", { name: "Suspend Customer A?", exact: true });
     await expect(suspend).toBeVisible();
@@ -329,10 +352,8 @@ test.describe("Client workspace and read-only host preview", () => {
     await expect(page.getByRole("dialog", { name: "Viewing as Customer A", exact: true })).toBeVisible();
     await workspace.closePreview();
     await expect(page).toHaveURL(new RegExp(`/accounts/${clientA}/manage/permissions$`));
-    await expect(
-      permissions.getByRole("checkbox", { name: "Select stored pool profile", exact: true }),
-    ).not.toBeChecked();
-    await expect(permissions.getByRole("checkbox", { name: "Select stored pool profile", exact: true })).toBeEnabled();
+    await expect(permissions.getByRole("checkbox", { name: "Change pools", exact: true })).not.toBeChecked();
+    await expect(permissions.getByRole("checkbox", { name: "Change pools", exact: true })).toBeEnabled();
     expect(mock.unexpected).toEqual([]);
   });
 
