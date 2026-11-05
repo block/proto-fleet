@@ -613,31 +613,27 @@ func TestControlLoop_HandshakeTimeoutReconnects(t *testing.T) {
 			gateway := &handshakeControlGateway{
 				entered: make(chan struct{}), exited: make(chan struct{}), acceptedExited: make(chan struct{}, 1),
 			}
-			path, handler := fleetnodegatewayv1connect.NewFleetNodeGatewayServiceHandler(gateway)
+			var wrap []func(http.Handler) http.Handler
 			if early503 {
-				next := handler
-				handler = http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-					if gateway.attempts.Add(1) != 1 {
-						next.ServeHTTP(w, req)
-						return
-					}
-					assert.Equal(t, 2, req.ProtoMajor, "exercise the real HTTP/2 transport")
-					w.WriteHeader(http.StatusServiceUnavailable)
-					_, _ = io.WriteString(w, "maintenance")
-					require.NoError(t, http.NewResponseController(w).Flush())
-					close(gateway.entered)
-					// Keep the request/response open, as an intermediary can do
-					// while the client has not finished its streaming request.
-					<-req.Context().Done()
-					close(gateway.exited)
+				wrap = append(wrap, func(next http.Handler) http.Handler {
+					return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+						if !gateway.attempts.CompareAndSwap(0, 1) {
+							next.ServeHTTP(w, req)
+							return
+						}
+						assert.Equal(t, 2, req.ProtoMajor, "exercise the real HTTP/2 transport")
+						w.WriteHeader(http.StatusServiceUnavailable)
+						_, _ = io.WriteString(w, "maintenance")
+						assert.NoError(t, http.NewResponseController(w).Flush())
+						close(gateway.entered)
+						// Keep the request/response open, as an intermediary can do
+						// while the client has not finished its streaming request.
+						<-req.Context().Done()
+						close(gateway.exited)
+					})
 				})
 			}
-			mux := http.NewServeMux()
-			mux.Handle(path, handler)
-			srv := testutil.NewH2CServer(t, mux)
-			httpClient := testutil.NewH2CClient()
-			t.Cleanup(httpClient.CloseIdleConnections)
-			client := fleetnodegatewayv1connect.NewFleetNodeGatewayServiceClient(httpClient, srv.URL, connect.WithGRPC())
+			client := newControlClient(t, gateway, wrap...)
 			cmd := &RunCmd{discoverer: &stubDiscoverer{}}
 			ctx, cancel := context.WithCancel(t.Context())
 			defer cancel()
@@ -684,13 +680,7 @@ func TestControlSession_HandshakeTimeoutAndCancellation(t *testing.T) {
 	for _, cancelParent := range []bool{false, true} {
 		t.Run(fmt.Sprintf("cancel_parent=%t", cancelParent), func(t *testing.T) {
 			gateway := &handshakeControlGateway{entered: make(chan struct{}), exited: make(chan struct{})}
-			path, handler := fleetnodegatewayv1connect.NewFleetNodeGatewayServiceHandler(gateway)
-			mux := http.NewServeMux()
-			mux.Handle(path, handler)
-			srv := testutil.NewH2CServer(t, mux)
-			httpClient := testutil.NewH2CClient()
-			t.Cleanup(httpClient.CloseIdleConnections)
-			client := fleetnodegatewayv1connect.NewFleetNodeGatewayServiceClient(httpClient, srv.URL, connect.WithGRPC())
+			client := newControlClient(t, gateway)
 			cmd := &RunCmd{discoverer: &stubDiscoverer{}}
 			ctx, cancel := context.WithCancel(t.Context())
 			defer cancel()
@@ -724,8 +714,8 @@ func TestControlSession_HandshakeTimeoutAndCancellation(t *testing.T) {
 	}
 }
 
-// The first session consumes Hello but never sends Accepted. Subsequent
-// sessions use the normal fake so reconnect and healthy lifetime are observed.
+// The first session consumes Hello but never sends Accepted; later sessions
+// delegate to the normal fake.
 type handshakeControlGateway struct {
 	controlFakeGateway
 	attempts       atomic.Int32
@@ -1088,7 +1078,7 @@ func (f *controlFakeGateway) ControlStream(ctx context.Context, stream *connect.
 
 // newControlClient serves fake over h2c. Optional wrap middlewares are applied
 // server-side around the connect handler, outermost last.
-func newControlClient(t *testing.T, fake *controlFakeGateway, wrap ...func(http.Handler) http.Handler) gatewayClient {
+func newControlClient(t *testing.T, fake fleetnodegatewayv1connect.FleetNodeGatewayServiceHandler, wrap ...func(http.Handler) http.Handler) gatewayClient {
 	t.Helper()
 	mux := http.NewServeMux()
 	path, h := fleetnodegatewayv1connect.NewFleetNodeGatewayServiceHandler(fake)
