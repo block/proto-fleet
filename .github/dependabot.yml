@@ -57,8 +57,10 @@ updates:
     cooldown:
       default-days: 7
     ignore:
+      # Image upgrades past a patch release are manual; see
+      # docs/development/dependencies.md.
       - dependency-name: "*"
-        update-types: ["version-update:semver-major"]
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
 
   - package-ecosystem: gomod
     directories:
@@ -128,8 +130,10 @@ updates:
     cooldown:
       default-days: 7
     ignore:
+      # Image upgrades past a patch release are manual; see
+      # docs/development/dependencies.md.
       - dependency-name: "*"
-        update-types: ["version-update:semver-major"]
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
       # golang images move with the Hermit Go toolchain and go.work.
       - dependency-name: "golang"
 
@@ -144,8 +148,10 @@ updates:
     cooldown:
       default-days: 7
     ignore:
+      # Image upgrades past a patch release are manual; see
+      # docs/development/dependencies.md.
       - dependency-name: "*"
-        update-types: ["version-update:semver-major"]
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
       - dependency-name: "proto-fleet-*"
 
   # Patroni requirements feed the HA release compatibility fingerprint, so
