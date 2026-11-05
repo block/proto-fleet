@@ -9,6 +9,7 @@ import type {
   CurtailmentSubmitValues,
   ResponseProfileModalMode,
 } from "@/protoFleet/api/curtailmentTypes";
+
 import { type FacilityFanDeviceOption } from "@/protoFleet/features/energy/FacilityFanSelectionModal";
 
 export interface CurtailmentStartModalProps {
@@ -46,4 +47,21 @@ export interface CurtailmentStartModalProps {
   isSubmitting?: boolean;
   isTestingCurtailment?: boolean;
   isDeleting?: boolean;
+}
+
+export interface CurtailmentModalShell {
+  mode: CurtailmentStartModalMode;
+  variant: CurtailmentStartModalVariant;
+  isEditMode: boolean;
+  isResponseProfileVariant: boolean;
+  isResponseProfileEditMode: boolean;
+  isLiveCurtailmentEditMode: boolean;
+  shouldResetResponseProfileOnEdit: boolean;
+  requiresRunConfirmation: boolean;
+  nameFieldId: string;
+  nameFieldLabel: string;
+  modalTitle: string;
+  closeAriaLabel: string;
+  primaryButtonText: string;
+  shouldShowResponseProfileSelector: boolean;
 }

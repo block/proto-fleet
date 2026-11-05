@@ -37,6 +37,17 @@ describe("useFleetStore persistence", () => {
     localStorage.clear();
   });
 
+  it("clears cached curtailment profile form values on logout", async () => {
+    const { sessionFormValuesByProfileId } = await import("../api/curtailmentProfileSession");
+    const { createResponseProfileFormValuesFromCurtailmentValues } =
+      await import("../features/energy/curtailmentProfileModel");
+    const { defaultValues } = await import("../features/energy/curtailmentFormValidation");
+    const { useFleetStore } = await import("./useFleetStore");
+    sessionFormValuesByProfileId.set("7", createResponseProfileFormValuesFromCurtailmentValues(defaultValues));
+    useFleetStore.getState().auth.logout();
+    expect(sessionFormValuesByProfileId.size).toBe(0);
+  });
+
   it("falls back to the default fleet duration when persisted duration is no longer supported", async () => {
     seedPersistedDuration("3d");
 

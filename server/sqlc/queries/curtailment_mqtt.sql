@@ -153,6 +153,11 @@ UPDATE curtailment_mqtt_source_config config
 SET enabled = sqlc.arg('enabled')
 WHERE config.id = sqlc.arg('id')
   AND config.organization_id = sqlc.arg('organization_id')
+AND (sqlc.arg('enabled') = TRUE OR NOT EXISTS (
+ SELECT 1 FROM curtailment_automation_rule rule
+ WHERE rule.mqtt_source_id = config.id AND rule.org_id = config.organization_id
+ AND curtailment_automation_rule_has_live_event(rule.id, rule.org_id)
+))
 RETURNING *
 )
 SELECT changed.*
@@ -189,6 +194,9 @@ WITH eligible AS MATERIALIZED (
       AND dd.manufacturer = 'Proto'
       AND dd.device_class <> sqlc.arg('container_device_class')::integer
       AND dp.pairing_status = 'PAIRED'
+), reset_budget AS (
+ DELETE FROM curtailment_rig_config_delivery_attempt attempt USING eligible
+ WHERE attempt.organization_id = eligible.org_id AND attempt.device_id = eligible.id RETURNING attempt.device_id
 ), requested AS (
     SELECT organizations.org_id AS organization_id,
            request_curtailment_rig_config_reconciliation(
@@ -234,7 +242,7 @@ WITH candidate AS (
     LIMIT 1
 )
 UPDATE curtailment_rig_config_reconciliation reconciliation
-SET lease_expires_at = CURRENT_TIMESTAMP + INTERVAL '90 seconds'
+SET lease_expires_at = CURRENT_TIMESTAMP + INTERVAL '90 seconds', delivery_attempts = delivery_attempts + 1
 FROM candidate
 WHERE reconciliation.organization_id = candidate.organization_id
 RETURNING reconciliation.*;
@@ -266,7 +274,8 @@ SET enqueued_generation = GREATEST(reconciliation.enqueued_generation, sqlc.arg(
         ELSE reconciliation.retry_at
     END,
     lease_expires_at = NULL,
-    last_error = NULL
+    last_error = NULL,
+    delivery_attempts = 0
 WHERE reconciliation.organization_id = sqlc.arg('organization_id')
   AND reconciliation.enqueued_generation < sqlc.arg('enqueued_generation')
 RETURNING reconciliation.organization_id
@@ -277,8 +286,15 @@ WHERE target.organization_id = completed.organization_id
   AND target.requested_generation <= sqlc.arg('enqueued_generation');
 
 -- name: RetryRigConfigReconciliation :exec
+-- Each claim counts a delivery attempt. Fast retries back off linearly; once
+-- they are spent the organization keeps retrying on a slow period, so a short
+-- outage cannot strand stale fallback providers on its rigs.
 UPDATE curtailment_rig_config_reconciliation
-SET retry_at = CURRENT_TIMESTAMP + INTERVAL '5 seconds',
+SET retry_at = CURRENT_TIMESTAMP + CASE
+        WHEN delivery_attempts >= sqlc.arg('fast_attempts')::INTEGER
+            THEN make_interval(secs => sqlc.arg('slow_retry_seconds')::INTEGER)
+        ELSE make_interval(secs => 5 * GREATEST(delivery_attempts, 1))
+    END,
     lease_expires_at = NULL,
     last_error = sqlc.arg('last_error')
 WHERE organization_id = sqlc.arg('organization_id')
@@ -298,12 +314,27 @@ WITH eligible AS MATERIALIZED (
       AND dd.manufacturer = 'Proto'
       AND dd.device_class <> sqlc.arg('container_device_class')::integer
       AND dp.pairing_status = 'PAIRED'
+), budget AS (
+ -- The first ten terminal failures retry after five seconds; later ones keep
+ -- retrying on the ten-minute slow period, so a rig that was unreachable for
+ -- longer still receives its current config once it reconnects.
+ INSERT INTO curtailment_rig_config_delivery_attempt AS attempt (organization_id, device_id, attempts)
+ SELECT org_id,id,1 FROM eligible
+ ON CONFLICT (organization_id,device_id) DO UPDATE SET attempts = attempt.attempts + 1
+ RETURNING organization_id,device_id,attempts
 ), requested AS (
 UPDATE curtailment_rig_config_reconciliation reconciliation
 SET desired_generation = reconciliation.desired_generation + 1,
-    retry_at = CURRENT_TIMESTAMP + INTERVAL '5 seconds',
-    last_error = 'config command reached terminal failure'
-FROM eligible
+    retry_at = CASE
+        WHEN budget.attempts <= 10 THEN CURRENT_TIMESTAMP + INTERVAL '5 seconds'
+        -- A slow retry never postpones other devices' work that is already due.
+        WHEN reconciliation.desired_generation > reconciliation.enqueued_generation
+            THEN LEAST(reconciliation.retry_at, CURRENT_TIMESTAMP + INTERVAL '10 minutes')
+        ELSE CURRENT_TIMESTAMP + INTERVAL '10 minutes'
+    END,
+    last_error = 'config command reached terminal failure',
+    delivery_attempts = 0
+FROM eligible JOIN budget ON budget.organization_id = eligible.org_id AND budget.device_id = eligible.id
 WHERE reconciliation.organization_id = eligible.org_id
 RETURNING reconciliation.organization_id, reconciliation.desired_generation
 )
@@ -317,3 +348,53 @@ FROM requested
 JOIN eligible ON eligible.org_id = requested.organization_id
 ON CONFLICT (organization_id, device_id) DO UPDATE
 SET requested_generation = EXCLUDED.requested_generation;
+
+-- name: CountLiveCurtailmentEventsByMQTTSource :one
+SELECT count(*) FROM curtailment_automation_rule r
+WHERE r.org_id = sqlc.arg('organization_id') AND r.mqtt_source_id = sqlc.arg('source_id')
+AND curtailment_automation_rule_has_live_event(r.id,r.org_id);
+
+-- name: ListRigConfigSourceScopes :many
+-- Every eligible requested rig receives only source providers whose enabled
+-- rules select it. Empty source_ids actively clears an obsolete fallback.
+SELECT d.device_identifier,
+ COALESCE(array_agg(DISTINCT rule.mqtt_source_id) FILTER (WHERE rule.id IS NOT NULL), ARRAY[]::bigint[])::bigint[] AS source_ids
+FROM device d
+JOIN discovered_device dd ON dd.id = d.discovered_device_id
+JOIN device_pairing dp ON dp.device_id = d.id
+LEFT JOIN (curtailment_automation_rule rule
+ JOIN curtailment_response_profile profile ON profile.id = rule.response_profile_id AND profile.org_id = rule.org_id
+ JOIN curtailment_response_profile_revision revision ON revision.response_profile_id = profile.id
+ JOIN curtailment_automation_execution_grant grant_row ON grant_row.rule_id = rule.id AND grant_row.org_id = rule.org_id AND grant_row.response_profile_id = profile.id AND grant_row.response_profile_revision = revision.revision
+ JOIN curtailment_mqtt_source_config src ON src.id = rule.mqtt_source_id AND src.organization_id = rule.org_id AND src.enabled)
+ON rule.org_id = d.org_id AND rule.enabled
+AND ((grant_row.authorization_envelope_json->>'miner_scope_unbounded')::boolean = TRUE
+ OR (grant_row.authorization_envelope_json->'selected_resource_site_ids') @> jsonb_build_array(d.site_id)
+ OR (grant_row.authorization_envelope_json->'current_member_site_ids') @> jsonb_build_array(d.site_id))
+AND (
+ (profile.scope_json->>'whole_org')::boolean = TRUE
+ OR (profile.scope_json = '{}'::jsonb AND profile.site_id IS NULL)
+ OR profile.site_id = d.site_id
+ OR (profile.scope_json->>'site_id')::bigint = d.site_id
+ OR (profile.scope_json->'site_ids') @> jsonb_build_array(d.site_id)
+ OR (profile.scope_json->'device_identifiers') @> jsonb_build_array(d.device_identifier)
+ OR EXISTS (
+  SELECT 1 FROM building b WHERE b.org_id = d.org_id AND b.deleted_at IS NULL
+  AND (profile.scope_json->'building_ids') @> jsonb_build_array(b.id)
+  AND (d.building_id = b.id OR EXISTS (
+   SELECT 1 FROM device_set_membership membership JOIN device_set rack ON rack.id = membership.device_set_id AND rack.org_id = membership.org_id AND rack.type = 'rack' AND rack.deleted_at IS NULL
+   JOIN device_set_rack placement ON placement.device_set_id = rack.id AND placement.org_id = rack.org_id
+   WHERE membership.device_id = d.id AND membership.org_id = d.org_id AND membership.device_set_type = 'rack' AND placement.building_id = b.id
+  ))
+ )
+ OR EXISTS (
+  SELECT 1 FROM device_set_membership membership JOIN device_set selected ON selected.id = membership.device_set_id AND selected.org_id = membership.org_id AND selected.deleted_at IS NULL
+  WHERE membership.device_id = d.id AND membership.org_id = d.org_id
+  AND ((membership.device_set_type = 'rack' AND selected.type = 'rack' AND (profile.scope_json->'rack_ids') @> jsonb_build_array(selected.id))
+   OR (membership.device_set_type = 'group' AND selected.type = 'group' AND (profile.scope_json->'group_ids') @> jsonb_build_array(selected.id)))
+ )
+)
+WHERE d.org_id = sqlc.arg('organization_id') AND d.deleted_at IS NULL
+AND dd.manufacturer = 'Proto' AND dd.device_class <> sqlc.arg('container_device_class')::integer AND dp.pairing_status = 'PAIRED'
+AND (cardinality(sqlc.arg('device_identifiers')::text[]) = 0 OR d.device_identifier = ANY(sqlc.arg('device_identifiers')::text[]))
+GROUP BY d.device_identifier ORDER BY d.device_identifier;

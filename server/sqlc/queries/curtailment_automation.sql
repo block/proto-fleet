@@ -1,6 +1,12 @@
 -- name: ListCurtailmentAutomationRulesByOrg :many
 SELECT r.*, st.last_signal, st.last_signal_at, st.active_event_uuid,
-       st.last_started_at, st.last_restored_at, st.last_error, st.last_error_at
+       st.last_started_at, st.last_restored_at, st.last_error, st.last_error_at,
+       CASE WHEN NOT r.enabled THEN 'disabled'
+            WHEN EXISTS (SELECT 1 FROM curtailment_automation_execution_grant g
+                 JOIN curtailment_response_profile_with_revision p ON p.id = g.response_profile_id AND p.org_id = g.org_id
+                 WHERE g.rule_id = r.id AND g.response_profile_revision = r.response_profile_revision AND p.revision = r.response_profile_revision)
+            THEN 'bound' ELSE 'rebind_required' END::text AS binding_status,
+       COALESCE((SELECT ex.status FROM curtailment_automation_execution ex WHERE ex.rule_id = r.id), 'idle')::text AS execution_status
 FROM curtailment_automation_rule_binding r
 LEFT JOIN curtailment_automation_rule_state st ON st.rule_id = r.id
 WHERE r.org_id = sqlc.arg('org_id')
@@ -8,7 +14,13 @@ ORDER BY r.id;
 
 -- name: GetCurtailmentAutomationRuleByOrg :one
 SELECT r.*, st.last_signal, st.last_signal_at, st.active_event_uuid,
-       st.last_started_at, st.last_restored_at, st.last_error, st.last_error_at
+       st.last_started_at, st.last_restored_at, st.last_error, st.last_error_at,
+       CASE WHEN NOT r.enabled THEN 'disabled'
+            WHEN EXISTS (SELECT 1 FROM curtailment_automation_execution_grant g
+                 JOIN curtailment_response_profile_with_revision p ON p.id = g.response_profile_id AND p.org_id = g.org_id
+                 WHERE g.rule_id = r.id AND g.response_profile_revision = r.response_profile_revision AND p.revision = r.response_profile_revision)
+            THEN 'bound' ELSE 'rebind_required' END::text AS binding_status,
+       COALESCE((SELECT ex.status FROM curtailment_automation_execution ex WHERE ex.rule_id = r.id), 'idle')::text AS execution_status
 FROM curtailment_automation_rule_binding r
 LEFT JOIN curtailment_automation_rule_state st ON st.rule_id = r.id
 WHERE r.id = sqlc.arg('id')
@@ -38,14 +50,20 @@ WHERE rule.id = sqlc.arg('id')
   AND rule.enabled = TRUE
   AND rule.trigger_type = 'MQTT'
   AND rule.mqtt_source_id = sqlc.arg('mqtt_source_id')
-  AND source.service_user_id = sqlc.arg('service_user_id')
+  AND source.enabled = TRUE
   AND rule.response_profile_id = sqlc.arg('response_profile_id')
   AND rule_revision.response_profile_revision = sqlc.arg('response_profile_revision')
 FOR UPDATE OF rule, rule_revision, source;
 
 -- name: ListEnabledCurtailmentAutomationRulesByMQTTSource :many
 SELECT r.*, st.last_signal, st.last_signal_at, st.active_event_uuid,
-       st.last_started_at, st.last_restored_at, st.last_error, st.last_error_at
+       st.last_started_at, st.last_restored_at, st.last_error, st.last_error_at,
+       CASE WHEN NOT r.enabled THEN 'disabled'
+            WHEN EXISTS (SELECT 1 FROM curtailment_automation_execution_grant g
+                 JOIN curtailment_response_profile_with_revision p ON p.id = g.response_profile_id AND p.org_id = g.org_id
+                 WHERE g.rule_id = r.id AND g.response_profile_revision = r.response_profile_revision AND p.revision = r.response_profile_revision)
+            THEN 'bound' ELSE 'rebind_required' END::text AS binding_status,
+       COALESCE((SELECT ex.status FROM curtailment_automation_execution ex WHERE ex.rule_id = r.id), 'idle')::text AS execution_status
 FROM curtailment_automation_rule_binding r
 LEFT JOIN curtailment_automation_rule_state st ON st.rule_id = r.id
 WHERE r.mqtt_source_id = sqlc.arg('mqtt_source_id')
@@ -54,7 +72,13 @@ ORDER BY r.id;
 
 -- name: GetEnabledCurtailmentAutomationRuleByEvent :one
 SELECT r.*, st.last_signal, st.last_signal_at, st.active_event_uuid,
-       st.last_started_at, st.last_restored_at, st.last_error, st.last_error_at
+       st.last_started_at, st.last_restored_at, st.last_error, st.last_error_at,
+       CASE WHEN NOT r.enabled THEN 'disabled'
+            WHEN EXISTS (SELECT 1 FROM curtailment_automation_execution_grant g
+                 JOIN curtailment_response_profile_with_revision p ON p.id = g.response_profile_id AND p.org_id = g.org_id
+                 WHERE g.rule_id = r.id AND g.response_profile_revision = r.response_profile_revision AND p.revision = r.response_profile_revision)
+            THEN 'bound' ELSE 'rebind_required' END::text AS binding_status,
+       COALESCE((SELECT ex.status FROM curtailment_automation_execution ex WHERE ex.rule_id = r.id), 'idle')::text AS execution_status
 FROM curtailment_automation_rule_binding r
 JOIN curtailment_automation_rule_state st ON st.rule_id = r.id
 WHERE r.org_id = sqlc.arg('org_id')
@@ -319,3 +343,88 @@ JOIN curtailment_mqtt_source_config src
     AND src.organization_id = r.org_id
 WHERE e.external_source = 'curtailment_automation'
   AND e.state IN ('pending', 'active', 'restoring');
+
+-- name: CountEnabledCurtailmentAutomationRulesByResponseProfile :one
+SELECT count(*) FROM curtailment_automation_rule
+WHERE org_id = sqlc.arg('org_id') AND response_profile_id = sqlc.arg('response_profile_id') AND enabled;
+
+-- name: UpsertCurtailmentAutomationExecutionGrant :exec
+INSERT INTO curtailment_automation_execution_grant (rule_id, org_id, response_profile_id, response_profile_revision, authorization_envelope_json, admin_controls_granted)
+SELECT r.id, r.org_id, p.id, p.revision, p.authorization_envelope_jsonb, sqlc.arg('admin_controls_granted')
+FROM curtailment_automation_rule r
+JOIN curtailment_response_profile_with_revision p ON p.id = r.response_profile_id AND p.org_id = r.org_id
+WHERE r.id = sqlc.arg('rule_id') AND r.org_id = sqlc.arg('org_id')
+ON CONFLICT (rule_id) DO UPDATE SET response_profile_id = EXCLUDED.response_profile_id,
+ response_profile_revision = EXCLUDED.response_profile_revision, authorization_envelope_json = EXCLUDED.authorization_envelope_json,
+ admin_controls_granted = EXCLUDED.admin_controls_granted;
+
+-- name: GetCurtailmentAutomationExecutionGrant :one
+SELECT grant_row.*
+FROM curtailment_automation_execution_grant grant_row
+JOIN curtailment_automation_rule r ON r.id = grant_row.rule_id AND r.org_id = grant_row.org_id
+JOIN curtailment_automation_rule_profile_revision revision ON revision.automation_rule_id = r.id
+JOIN curtailment_response_profile_with_revision profile ON profile.id = r.response_profile_id AND profile.org_id = r.org_id
+JOIN curtailment_mqtt_source_config source ON source.id = r.mqtt_source_id AND source.organization_id = r.org_id
+WHERE r.id = sqlc.arg('rule_id') AND r.org_id = sqlc.arg('org_id') AND r.enabled AND source.enabled
+AND grant_row.response_profile_id = r.response_profile_id AND grant_row.response_profile_revision = revision.response_profile_revision
+AND grant_row.response_profile_revision = profile.revision
+FOR SHARE OF grant_row, r, revision, source;
+
+-- name: QueueCurtailmentAutomationExecution :exec
+INSERT INTO curtailment_automation_execution (rule_id, mqtt_source_id, direction, target, target_at, received_at, received_broker, prior_edge_at)
+SELECT r.id, r.mqtt_source_id, sqlc.arg('direction'), sqlc.arg('target'), sqlc.narg('target_at'), sqlc.arg('received_at'), sqlc.arg('received_broker'), sqlc.narg('prior_edge_at')
+FROM curtailment_automation_rule r WHERE r.id = sqlc.arg('rule_id') AND r.enabled AND r.mqtt_source_id = sqlc.arg('mqtt_source_id')
+ON CONFLICT (rule_id) DO UPDATE SET generation = curtailment_automation_execution.generation + 1,
+ mqtt_source_id = EXCLUDED.mqtt_source_id, direction = EXCLUDED.direction, target = EXCLUDED.target,
+ target_at = EXCLUDED.target_at, received_at = EXCLUDED.received_at, received_broker = EXCLUDED.received_broker, prior_edge_at = EXCLUDED.prior_edge_at,
+ status = 'pending', attempts = 0, retry_at = now(), last_error = NULL
+WHERE (
+ curtailment_automation_execution.received_at < EXCLUDED.received_at
+ OR (curtailment_automation_execution.received_at = EXCLUDED.received_at AND curtailment_automation_execution.target <> EXCLUDED.target)
+ OR curtailment_automation_execution.mqtt_source_id <> EXCLUDED.mqtt_source_id
+) AND NOT (
+ curtailment_automation_execution.mqtt_source_id = EXCLUDED.mqtt_source_id
+ AND curtailment_automation_execution.target = EXCLUDED.target
+ AND curtailment_automation_execution.status IN ('pending','retry')
+ AND EXCLUDED.direction = 'reassert_off'
+);
+
+-- name: QueueCurrentCurtailmentAutomationExecution :exec
+-- Seed the rule with the source's current assertion, ordered by when that
+-- assertion was received, so a newer signal still waiting to be processed
+-- replaces it. Activation re-runs an equal assertion but never a newer one.
+INSERT INTO curtailment_automation_execution (rule_id, mqtt_source_id, direction, target, target_at, received_at, received_broker, prior_edge_at)
+SELECT r.id, r.mqtt_source_id,
+ CASE COALESCE(st.pending_target, st.last_target) WHEN 'OFF' THEN 'reassert_off' ELSE 'off_to_on' END,
+ COALESCE(st.pending_target, st.last_target), COALESCE(st.pending_target_at, st.last_target_at),
+ COALESCE(CASE WHEN st.pending_target IS NOT NULL THEN st.pending_received_at ELSE st.last_received_at END, now()),
+ COALESCE(st.last_received_broker,''), st.last_edge_at
+FROM curtailment_automation_rule r JOIN curtailment_mqtt_source_state st ON st.source_config_id = r.mqtt_source_id
+JOIN curtailment_mqtt_source_config src ON src.id = r.mqtt_source_id
+WHERE r.id = sqlc.arg('rule_id') AND r.enabled AND src.enabled AND COALESCE(st.pending_target, st.last_target) IN ('ON','OFF')
+ON CONFLICT (rule_id) DO UPDATE SET generation = curtailment_automation_execution.generation + 1,
+ mqtt_source_id = EXCLUDED.mqtt_source_id, direction = EXCLUDED.direction, target = EXCLUDED.target, target_at = EXCLUDED.target_at,
+ received_at = EXCLUDED.received_at, received_broker = EXCLUDED.received_broker, prior_edge_at = EXCLUDED.prior_edge_at,
+ status = 'pending', attempts = 0, retry_at = now(), last_error = NULL
+WHERE curtailment_automation_execution.received_at <= EXCLUDED.received_at
+ OR curtailment_automation_execution.mqtt_source_id <> EXCLUDED.mqtt_source_id;
+
+-- name: ClaimCurtailmentAutomationExecution :one
+WITH due AS (
+ SELECT ex.rule_id, r.org_id FROM curtailment_automation_execution ex
+ JOIN curtailment_automation_rule r ON r.id = ex.rule_id AND r.enabled
+ JOIN curtailment_mqtt_source_config src ON src.id = ex.mqtt_source_id AND src.enabled
+ WHERE ex.status IN ('pending','retry') AND ex.retry_at <= now() AND (ex.lease_expires_at IS NULL OR ex.lease_expires_at <= now())
+ ORDER BY ex.retry_at, ex.rule_id FOR UPDATE OF ex SKIP LOCKED LIMIT 1
+)
+UPDATE curtailment_automation_execution ex SET lease_expires_at = now() + interval '90 seconds', attempts = ex.attempts + 1
+FROM due WHERE due.rule_id = ex.rule_id RETURNING ex.*, due.org_id;
+
+-- name: CompleteCurtailmentAutomationExecution :exec
+UPDATE curtailment_automation_execution SET status = CASE WHEN generation = sqlc.arg('generation') THEN 'completed' ELSE status END, lease_expires_at = NULL, last_error = CASE WHEN generation = sqlc.arg('generation') THEN NULL ELSE last_error END
+WHERE rule_id = sqlc.arg('rule_id') AND lease_expires_at = sqlc.arg('lease_expires_at')::timestamptz;
+
+-- name: RetryCurtailmentAutomationExecution :exec
+UPDATE curtailment_automation_execution SET status = CASE WHEN generation = sqlc.arg('generation') THEN 'retry' ELSE status END, lease_expires_at = NULL,
+ retry_at = CASE WHEN generation = sqlc.arg('generation') THEN now() + LEAST(300, 5 * attempts) * interval '1 second' ELSE retry_at END, last_error = CASE WHEN generation = sqlc.arg('generation') THEN sqlc.narg('last_error') ELSE last_error END
+WHERE rule_id = sqlc.arg('rule_id') AND lease_expires_at = sqlc.arg('lease_expires_at')::timestamptz;

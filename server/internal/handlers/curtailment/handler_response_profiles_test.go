@@ -1229,3 +1229,7 @@ func ptrFloat64(v float64) *float64 {
 func ptrUint32(v uint32) *uint32 {
 	return &v
 }
+
+func (*handlerResponseProfileStore) CountEnabledAutomationRulesByResponseProfile(context.Context, int64, int64) (int64, error) {
+	return 0, nil
+}

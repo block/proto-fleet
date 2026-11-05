@@ -1,0 +1,6 @@
+DROP TABLE curtailment_rig_config_delivery_attempt;
+ALTER TABLE curtailment_rig_config_reconciliation DROP COLUMN delivery_attempts;
+DROP TABLE curtailment_automation_execution;
+DROP TABLE curtailment_automation_execution_grant;
+ALTER TABLE curtailment_target DROP COLUMN curtail_possibly_sent;
+ALTER TABLE curtailment_event DROP COLUMN dispatch_rejection_reason;

@@ -975,3 +975,22 @@ func TestSettingsService_DeleteDisabledSourceWithSignalState(t *testing.T) {
 
 	require.NoError(t, err)
 }
+
+func (f *fakeSettingsStore) ListRigConfigSourceScopes(_ context.Context, orgID int64, identifiers []string) (map[string][]int64, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if len(identifiers) == 0 {
+		identifiers = []string{"fixture-rig"}
+	}
+	var sourceIDs []int64
+	for _, source := range f.configs {
+		if source.OrganizationID == orgID && source.Enabled {
+			sourceIDs = append(sourceIDs, source.ID)
+		}
+	}
+	scopes := make(map[string][]int64, len(identifiers))
+	for _, id := range identifiers {
+		scopes[id] = append([]int64(nil), sourceIDs...)
+	}
+	return scopes, nil
+}

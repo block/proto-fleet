@@ -1,8 +1,5 @@
-// Package reconciler drives non-terminal curtailment events: dispatches
-// Curtail commands for pending targets, watches telemetry for drift on
-// confirmed targets, and restores targets when events stop. Curtail retries
-// remain open while OFF is asserted. Restore retries are bounded, with
-// all-paired topology obligations able to park until they become commandable.
+// Package reconciler drives curtailment events through bounded command retries,
+// telemetry confirmation, drift correction and restoration.
 package reconciler
 
 import (
@@ -61,7 +58,7 @@ type Config struct {
 	DriftThresholdFactor float64
 	// CurtailDispatchTimeoutSec ages out curtail-phase targets stuck in
 	// Dispatched without confirming telemetry (increments retry_count).
-	CurtailDispatchTimeoutSec int `help:"Seconds a curtail target may stay dispatched without telemetry confirmation before incrementing retry_count and retrying. Curtail targets keep retrying while OFF remains asserted. Zero uses the default; positive values must be at least 1." default:"0" env:"CURTAIL_DISPATCH_TIMEOUT_SEC"`
+	CurtailDispatchTimeoutSec int `help:"Seconds a curtail target may stay dispatched without telemetry confirmation before incrementing retry_count and retrying. Curtail targets give up after CurtailMaxRetries attempts. Zero uses the default; positive values must be at least 1." default:"0" env:"CURTAIL_DISPATCH_TIMEOUT_SEC"`
 	// RestoreDispatchTimeoutSec ages out restore-phase targets stuck in
 	// Dispatched without confirming telemetry (increments retry_count).
 	RestoreDispatchTimeoutSec int `help:"Seconds a restore target may stay dispatched without telemetry confirmation before consuming retry budget. Zero uses the default." default:"0" env:"RESTORE_DISPATCH_TIMEOUT_SEC"`
@@ -127,10 +124,6 @@ type Reconciler struct {
 	// eligibility read advances it even when no target promotes, preventing
 	// a nonconfirming page from monopolizing the active pulse.
 	confirmationCursor interfaces.ConfirmationPageCursor
-	// topologyDispatchRejects latches a failed dispatch authorization until
-	// the durable restoring transition succeeds. This prevents a transient
-	// transition failure from letting a later tick resume Curtail commands.
-	topologyDispatchRejects sync.Map
 
 	loopCancel  context.CancelFunc
 	workCancel  context.CancelFunc
@@ -323,6 +316,11 @@ func (r *Reconciler) tickLoop(loopCtx, workCtx context.Context, runDone chan<- s
 		defer func() { <-confirmationDone }()
 	}
 
+	// HA activation must recover pending and restoring work immediately.
+	if loopCtx.Err() == nil {
+		r.safeTick(workCtx)
+		reportProgress()
+	}
 	ticker := time.NewTicker(r.cfg.TickInterval)
 	defer ticker.Stop()
 	for {
@@ -446,6 +444,7 @@ func (r *Reconciler) processEvent(ctx context.Context, ev *models.Event) {
 				"event_id", ev.ID, "event_uuid", ev.EventUUID, "panic", rec)
 		}
 	}()
+	ctx = context.WithValue(ctx, eventPlanContextKey{}, decodeEventPlan(ev))
 	switch ev.State { //nolint:exhaustive // Terminal states are filtered upstream by ListNonTerminalEvents; default logs if one slips through.
 	case models.EventStatePending:
 		r.dispatchPending(ctx, ev)

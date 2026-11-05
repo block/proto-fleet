@@ -1,4 +1,5 @@
 import { type ReactElement, useCallback, useState } from "react";
+
 import {
   adminTerminateReasonRequiredMessage,
   type ForceReleaseCurtailmentOptions,
@@ -32,7 +33,6 @@ const terminateRecoveryStateOptions: { label: string; value: TerminateRecoverySt
   { label: "Cancelled", value: "cancelled" },
   { label: "Failed", value: "failed" },
 ];
-
 export function CurtailmentRecoveryTerminateDialog({
   error,
   isSubmitting = false,

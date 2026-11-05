@@ -2,27 +2,20 @@ import { type ReactElement, useCallback, useEffect, useMemo, useRef, useState } 
 import { useNavigate } from "react-router-dom";
 import clsx from "clsx";
 import { Code, ConnectError } from "@connectrpc/connect";
+import { createCurtailmentResponseProfileOption, createSiteOptions } from "./curtailmentProfileModel";
 import { CurtailmentForceReleaseDialog, CurtailmentRecoveryTerminateDialog } from "./CurtailmentRecoveryDialogs";
-import {
-  getResponseProfileSiteNameForId,
-  getResponseProfileSiteNamesById,
-  getSelectedResponseProfileSiteIds,
-} from "@/protoFleet/api/curtailmentResponseProfileUtils";
-import { getCurtailmentScopeSummary, getCurtailmentTerminalScope } from "@/protoFleet/api/curtailmentScopes";
+
 import {
   type ActiveCurtailmentEvent,
   type CurtailmentEventState,
   type CurtailmentHistoryEvent,
   type CurtailmentPlanPreview,
-  type CurtailmentResponseProfileOption,
   type CurtailmentSiteOption,
   type CurtailmentStartModalMode,
   type CurtailmentSubmitValues,
-  type EditableResponseProfile,
   isEditableResponseProfile,
-  type ResponseProfileFormValues,
 } from "@/protoFleet/api/curtailmentTypes";
-import type { SiteWithCounts } from "@/protoFleet/api/generated/sites/v1/sites_pb";
+
 import { getErrorCause } from "@/protoFleet/api/requestErrors";
 import { buildSiteNameById } from "@/protoFleet/api/siteNames";
 import { useSites } from "@/protoFleet/api/sites";
@@ -32,12 +25,12 @@ import {
   type AdminTerminateCurtailmentOptions as TerminateRecoveryOptions,
   useCurtailmentApi,
 } from "@/protoFleet/api/useCurtailmentApi";
+import { useCurtailmentPolling } from "@/protoFleet/api/useCurtailmentPolling";
 import useCurtailmentResponseProfiles from "@/protoFleet/api/useCurtailmentResponseProfiles";
 import useInfrastructureDevices from "@/protoFleet/api/useInfrastructureDevices";
 import { useActiveSite } from "@/protoFleet/components/PageHeader/SitePicker";
 import ActiveCurtailmentStatus from "@/protoFleet/features/energy/ActiveCurtailmentStatus";
 import CurtailmentHistory from "@/protoFleet/features/energy/CurtailmentHistory";
-import { immediateRestoreBatchSizeInputValue } from "@/protoFleet/features/energy/curtailmentNumericFields";
 import { getDefaultCurtailmentSiteScope } from "@/protoFleet/features/energy/curtailmentSiteScopeDefaults";
 import CurtailmentStartModal from "@/protoFleet/features/energy/CurtailmentStartModal";
 import CurtailmentStopConfirmationDialog, {
@@ -72,15 +65,11 @@ interface CurtailmentMessageProps {
 }
 
 const activeCurtailmentRefreshIntervalMs = 3_000;
-
 const nonTerminalActiveEventStates = new Set<CurtailmentEventState>(["pending", "active", "restoring"]);
-
 const updateableCurtailmentEventStates = new Set<CurtailmentEventState>(["pending", "active"]);
-
 const forceRestorableCurtailmentEventStates = new Set<CurtailmentEventState>(["pending", "active"]);
 
 const automationRestoreBlockedErrorPrefix = "cannot restore automation-owned curtailment event";
-
 const transientTerminateRecoveryErrorCodes = new Set<Code>([
   Code.Aborted,
   Code.Canceled,
@@ -128,116 +117,6 @@ function getRecoveryStopErrorMessage(
       : "Automation is still requesting curtailment. Ask an admin to Abort this event and disable the automation before restoring miners.";
   }
   return stopError;
-}
-
-function createSiteOptions(sites: SiteWithCounts[]): CurtailmentSiteOption[] {
-  return sites
-    .flatMap((siteWithCounts) => {
-      const site = siteWithCounts.site;
-      const id = site?.id ? site.id.toString() : "";
-
-      return id ? [{ id, name: site?.name || `Site ${id}` }] : [];
-    })
-    .sort((left, right) => left.name.localeCompare(right.name, undefined, { sensitivity: "base" }));
-}
-
-function createResponseProfileFormValuesFromProfile(profile: EditableResponseProfile): ResponseProfileFormValues {
-  const hasAllMinersSelected = profile.formValues.minerSelectionMode === "all";
-  const siteIds = hasAllMinersSelected ? [] : getSelectedResponseProfileSiteIds(profile.formValues);
-  const siteId = siteIds[0] ?? "";
-
-  return {
-    ...profile.formValues,
-    deviceIdentifiers: hasAllMinersSelected ? [] : [...profile.formValues.deviceIdentifiers],
-    minerSelectionMode: hasAllMinersSelected ? "all" : "subset",
-    siteSelection: hasAllMinersSelected
-      ? "allSites"
-      : profile.formValues.siteSelection === "allSites"
-        ? "allSites"
-        : siteIds.length > 0
-          ? "site"
-          : "none",
-    siteId,
-    siteName: siteId ? getResponseProfileSiteNameForId(profile.formValues, siteId) : "",
-    siteIds,
-    siteNamesById: getResponseProfileSiteNamesById(profile.formValues, siteIds),
-  };
-}
-
-function createCurtailmentResponseProfileOption(profile: EditableResponseProfile): CurtailmentResponseProfileOption {
-  const values = createResponseProfileFormValuesFromProfile(profile);
-  const restoreBatchSize =
-    values.restoreBatchSize ||
-    (values.restoreBehavior === "automaticImmediateRestore" ? immediateRestoreBatchSizeInputValue : "");
-  const hasAllMinersSelected = values.minerSelectionMode === "all";
-  const siteIds = hasAllMinersSelected ? [] : getSelectedResponseProfileSiteIds(values);
-  const siteId = siteIds[0] ?? "";
-  const siteNamesById = getResponseProfileSiteNamesById(values, siteIds);
-  const siteName = siteId ? siteNamesById[siteId] || `Site ${siteId}` : "";
-  const deviceIdentifiers = hasAllMinersSelected ? [] : [...values.deviceIdentifiers];
-  const siteSelection = hasAllMinersSelected
-    ? "allSites"
-    : values.siteSelection === "allSites"
-      ? "allSites"
-      : siteIds.length > 0
-        ? "site"
-        : "none";
-  const terminalScope = getCurtailmentTerminalScope(values);
-  const scopeType = hasAllMinersSelected
-    ? "wholeOrg"
-    : terminalScope?.type === "deviceIdentifiers"
-      ? "explicitMiners"
-      : (terminalScope?.type ??
-        (deviceIdentifiers.length > 0 ? "explicitMiners" : siteIds.length > 0 ? "site" : "wholeOrg"));
-  const scopeId =
-    scopeType === "wholeOrg"
-      ? "whole-org"
-      : siteIds.length > 0
-        ? siteIds.length === 1
-          ? siteName
-          : `${siteIds.length} sites`
-        : scopeType === "explicitMiners"
-          ? undefined
-          : terminalScope
-            ? getCurtailmentScopeSummary(terminalScope, {
-                fallbackLabel: "Whole organization",
-                getSiteLabel: (id) => siteNamesById[id],
-              })
-            : undefined;
-
-  return {
-    id: profile.id,
-    label: profile.name,
-    revision: profile.revision,
-    values: {
-      scopeType,
-      scopeId,
-      siteSelection,
-      siteId,
-      siteIds,
-      siteNamesById,
-      buildingTargetIds: [...(values.buildingTargetIds ?? [])],
-      rackTargetIds: [...(values.rackTargetIds ?? [])],
-      groupTargetIds: [...(values.groupTargetIds ?? [])],
-      deviceIdentifiers,
-      minerSelectionMode: hasAllMinersSelected ? "all" : "subset",
-      curtailmentMode: values.actionType,
-      minerSelectionStrategy: values.selectionStrategy,
-      targetKw: values.targetKw,
-      toleranceKw: values.toleranceKw,
-      priority: values.priority,
-      postEventCooldownSec: values.postEventCooldownSec,
-      curtailBatchSize: values.curtailBatchSize,
-      curtailBatchIntervalSec: values.curtailBatchIntervalSec,
-      restoreBatchSize,
-      restoreIntervalSec: values.restoreIntervalSec,
-      facilityFanDeviceIds: [...(values.facilityFanDeviceIds ?? [])],
-      fanOffDelaySec: values.fanOffDelaySec ?? "",
-      fanRestoreDelaySec: values.fanRestoreDelaySec ?? "",
-      includeMaintenance: values.includeMaintenance,
-      forceIncludeAllPairedMiners: values.actionType === "fullFleet" && Boolean(values.forceIncludeAllPairedMiners),
-    },
-  };
 }
 
 function CurtailmentMessage({ message }: CurtailmentMessageProps): ReactElement {
@@ -360,7 +239,7 @@ function CurtailmentManagementPanel({
     adminTerminateCurtailment,
     forceReleaseCurtailment,
   } = useCurtailmentApi({ siteNameById });
-  const { responseProfiles } = useCurtailmentResponseProfiles(enableManage, { siteNameById });
+  const { responseProfiles, listResponseProfiles } = useCurtailmentResponseProfiles(enableManage, { siteNameById });
   const {
     devices: infrastructureDevices,
     isLoading: isLoadingInfrastructureDevices,
@@ -464,42 +343,27 @@ function CurtailmentManagementPanel({
     return () => refreshAbortControllerRef.current?.abort();
   }, [refreshCurtailment, runAbortableRefresh]);
 
-  useEffect(() => {
-    if (!shouldPollCurtailment) {
-      return undefined;
-    }
-
-    const refreshActiveCurtailment = (): void => {
-      if (
-        foregroundRefreshInFlightRef.current ||
-        refreshAbortControllerRef.current ||
-        activeRefreshAbortControllerRef.current
-      ) {
-        return;
+  useCurtailmentPolling({
+    enabled: true,
+    priority: 1,
+    intervalMs: shouldPollCurtailment ? activeCurtailmentRefreshIntervalMs : 30_000,
+    refresh: async (signal) => {
+      if (foregroundRefreshInFlightRef.current) return;
+      const controller = new AbortController();
+      activeRefreshAbortControllerRef.current = controller;
+      const abort = () => controller.abort();
+      signal.addEventListener("abort", abort, { once: true });
+      try {
+        await Promise.all([
+          refreshCurtailment({ background: true, signal: controller.signal }),
+          enableManage ? listResponseProfiles(controller.signal) : undefined,
+        ]);
+      } finally {
+        signal.removeEventListener("abort", abort);
+        if (activeRefreshAbortControllerRef.current === controller) activeRefreshAbortControllerRef.current = null;
       }
-
-      const abortController = new AbortController();
-      activeRefreshAbortControllerRef.current = abortController;
-
-      void refreshCurtailment({ background: true, signal: abortController.signal })
-        .catch(() => {})
-        .finally(() => {
-          if (activeRefreshAbortControllerRef.current === abortController) {
-            activeRefreshAbortControllerRef.current = null;
-          }
-        });
-    };
-
-    const intervalId = window.setInterval(() => {
-      refreshActiveCurtailment();
-    }, activeCurtailmentRefreshIntervalMs);
-
-    return () => {
-      window.clearInterval(intervalId);
-      activeRefreshAbortControllerRef.current?.abort();
-      activeRefreshAbortControllerRef.current = null;
-    };
-  }, [refreshCurtailment, shouldPollCurtailment]);
+    },
+  });
 
   useEffect(
     () => () => {
@@ -522,10 +386,11 @@ function CurtailmentManagementPanel({
   }, [cancelManageSelection, clearActionErrors]);
 
   const openCreateModal = useCallback(() => {
+    void listResponseProfiles().catch(() => {});
     cancelManageSelection();
     setEditSession(null);
     setModalMode("create");
-  }, [cancelManageSelection]);
+  }, [cancelManageSelection, listResponseProfiles]);
 
   const openEditModal = useCallback(() => {
     if (!enableManage || !activeEvent || !activeEventId || !activeEventFormValues) {

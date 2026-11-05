@@ -601,3 +601,27 @@ func (f *fakeSignalExecutor) HandleMQTTSignal(_ context.Context, signal SignalEd
 	f.last = signal
 	return f.err
 }
+
+func TestSourceWorker_DebouncedOnCanSettleWhenRedeliveredAfterWindow(t *testing.T) {
+	t.Parallel()
+	store := newFakeSourceStore()
+	src := testSourceConfig()
+	offAt := time.Unix(1781092800, 0).UTC()
+	onAt := offAt.Add(time.Second)
+	now := onAt
+	w := newTestSourceWorker(store, src, func() time.Time { return now })
+	executor := &fakeSignalExecutor{}
+	w.cfg.SignalExecutor = executor
+	prior := SourceState{SourceConfigID: src.ID, LastTarget: TargetOff, LastTargetAt: offAt, LastProcessedTarget: TargetOff, LastProcessedTargets: []Target{TargetOff}, LastReceivedAt: offAt, LastEdgeAt: offAt}
+	obs := observation{broker: src.BrokerPrimaryHost, payload: []byte(`{"target":100,"timestamp":1781092801}`), receivedAt: onAt}
+	state := w.handleMessage(t.Context(), prior, obs)
+	require.Equal(t, TargetOff, state.LastTarget)
+	require.NotContains(t, state.LastProcessedTargets, TargetOn)
+	assert.Zero(t, executor.calls)
+	now = offAt.Add(DebounceWindow + time.Second)
+	obs.receivedAt = now
+	state = w.handleMessage(t.Context(), state, obs)
+	require.Equal(t, TargetOn, state.LastTarget)
+	assert.Contains(t, state.LastProcessedTargets, TargetOn)
+	assert.Equal(t, 1, executor.calls)
+}

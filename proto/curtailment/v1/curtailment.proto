@@ -1137,6 +1137,10 @@ message DeleteMqttCurtailmentSourceResponse {}
 // --- Response profiles ---
 
 message CurtailmentResponseProfile {
+    // Enabled bindings prevent editing until their rules are disabled.
+    uint32 enabled_automation_rule_count = 26;
+    // "enabled" when at least one rule is enabled; otherwise "unbound".
+    string automation_binding_status = 27;
     int64 profile_id = 1;
     string profile_name = 2;
 
@@ -1391,6 +1395,10 @@ enum CurtailmentAutomationSignal {
 }
 
 message CurtailmentAutomationRule {
+    // bound, rebind_required, or disabled. Only bound rules can execute.
+    string binding_status = 22;
+    // idle, pending, retry, or completed for the latest source assertion.
+    string execution_status = 23;
     int64 rule_id = 1;
     string rule_name = 2;
     CurtailmentAutomationTriggerType trigger_type = 3;

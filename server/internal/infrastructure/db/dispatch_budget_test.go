@@ -61,11 +61,11 @@ func TestDispatchBudgetConfiguredLimitAndPoolResize(t *testing.T) {
 	conn.SetMaxOpenConns(4)
 	// Replace the test fixture's default registration before its first dispatch.
 	dispatchBudgets.Store(conn, &dispatchBudget{configuredLimit: 1})
-	release, err := acquireDispatchBudget(t.Context(), conn)
+	release, err := AcquireDispatchBudget(t.Context(), conn)
 	require.NoError(t, err)
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
-	_, err = acquireDispatchBudget(ctx, conn)
+	_, err = AcquireDispatchBudget(ctx, conn)
 	require.True(t, errors.Is(err, context.Canceled))
 	require.Zero(t, conn.Stats().InUse)
 	release()

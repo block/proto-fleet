@@ -11,6 +11,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/authz"
 	domainCurtailment "github.com/block/proto-fleet/server/internal/domain/curtailment"
 	"github.com/block/proto-fleet/server/internal/domain/curtailment/models"
+	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/handlers/middleware"
 )
 
@@ -136,6 +137,9 @@ func (h *Handler) CreateCurtailmentAutomationRule(ctx context.Context, req *conn
 	if err != nil {
 		return nil, err
 	}
+	if err := requireAutomationGrantPermission(ctx, profile, expectedProfileRevision); err != nil {
+		return nil, err
+	}
 	rule := automationRuleFromCreateRequest(info.OrganizationID, req.Msg)
 	created, err := h.automation.Create(ctx, domainCurtailment.SaveAutomationRuleRequest{
 		Rule:                               rule,
@@ -169,6 +173,9 @@ func (h *Handler) UpdateCurtailmentAutomationRule(ctx context.Context, req *conn
 		req.Msg.GetExpectedResponseProfileRevision(),
 	)
 	if err != nil {
+		return nil, err
+	}
+	if err := requireAutomationGrantPermission(ctx, profile, expectedProfileRevision); err != nil {
 		return nil, err
 	}
 	rule := automationRuleFromUpdateRequest(info.OrganizationID, req.Msg)
@@ -205,6 +212,9 @@ func (h *Handler) SetCurtailmentAutomationRuleEnabled(ctx context.Context, req *
 		if err != nil {
 			return nil, err
 		}
+		if err := requireAutomationGrantPermission(ctx, profile, expectedProfileRevision); err != nil {
+			return nil, err
+		}
 	}
 	updatedRule, err := h.automation.SetEnabled(
 		ctx,
@@ -236,6 +246,20 @@ func (h *Handler) DeleteCurtailmentAutomationRule(ctx context.Context, req *conn
 		return nil, err
 	}
 	return connect.NewResponse(&pb.DeleteCurtailmentAutomationRuleResponse{}), nil
+}
+
+// requireAutomationGrantPermission authorizes the caller for the persisted
+// authorization envelope that binding copies into the rule's execution grant,
+// which can cover more sites than the profile's miners occupy today. The store
+// pins the same revision, and the revision changes whenever the envelope does.
+func requireAutomationGrantPermission(ctx context.Context, profile *models.ResponseProfile, expectedRevision uuid.UUID) error {
+	if profile == nil {
+		return fleeterror.NewNotFoundError("curtailment response profile not found")
+	}
+	if profile.Revision != expectedRevision {
+		return fleeterror.NewFailedPreconditionError("curtailment response profile changed before automation rule save; retry")
+	}
+	return requireAuthorizationEnvelopePermissions(ctx, authz.PermCurtailmentManage, profile.AuthorizationEnvelopeJSON)
 }
 
 func (h *Handler) getAutomationRuleWithProfilePermission(ctx context.Context, orgID, ruleID int64) (*models.AutomationRule, error) {
@@ -387,6 +411,8 @@ func toAutomationRuleProto(rule *models.AutomationRule) *pb.CurtailmentAutomatio
 		return nil
 	}
 	out := &pb.CurtailmentAutomationRule{
+		BindingStatus:       rule.BindingStatus,
+		ExecutionStatus:     rule.ExecutionStatus,
 		RuleId:              rule.ID,
 		RuleName:            rule.RuleName,
 		TriggerType:         automationTriggerTypeProto(rule.TriggerType),

@@ -24,7 +24,10 @@ func registerDispatchBudget(database *sql.DB, limit int) {
 	dispatchBudgets.LoadOrStore(database, &dispatchBudget{configuredLimit: limit})
 }
 
-func acquireDispatchBudget(ctx context.Context, database *sql.DB) (func(), error) {
+// AcquireDispatchBudget reserves shared physical-I/O capacity before leasing a
+// connection. Callers must retain the reservation until their backend returns,
+// including after caller cancellation, to leave capacity for follow-up SQL.
+func AcquireDispatchBudget(ctx context.Context, database *sql.DB) (func(), error) {
 	value, _ := dispatchBudgets.LoadOrStore(database, &dispatchBudget{})
 	budget, ok := value.(*dispatchBudget)
 	if !ok {

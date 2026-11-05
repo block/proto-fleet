@@ -1770,7 +1770,7 @@ func (f *automationFakeStore) UpdateAutomationRule(_ context.Context, rule model
 	return nil, fleeterror.NewNotFoundErrorf("curtailment automation rule not found: %d", rule.ID)
 }
 
-func (f *automationFakeStore) SetAutomationRuleEnabled(_ context.Context, orgID, ruleID int64, enabled bool, responseProfileRevision uuid.UUID, expectedFanSettings models.ResponseProfileFanSettings) (*models.AutomationRule, error) {
+func (f *automationFakeStore) SetAutomationRuleEnabled(_ context.Context, orgID, ruleID int64, enabled bool, responseProfileRevision uuid.UUID, expectedFanSettings models.ResponseProfileFanSettings, _ bool) (*models.AutomationRule, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.setEnabledCalls++
@@ -1964,4 +1964,124 @@ func (s *automationSourceStore) DeleteDisabledSourceConfig(_ context.Context, or
 
 func (s *automationSourceStore) CountAutomationRulesByMQTTSource(context.Context, int64, int64) (int64, error) {
 	return 0, nil
+}
+
+func (f *automationFakeStore) CountEnabledAutomationRulesByResponseProfile(context.Context, int64, int64) (int64, error) {
+	return 0, nil
+}
+
+// Mailbox acceptance is independent from execution: a broken rule must not
+// keep a source edge pending or replay successful sibling starts.
+func TestAutomationService_DurableExecutionsRetryRulesIndependently(t *testing.T) {
+	t.Parallel()
+	h := newAutomationHarness(t)
+	h.seedRunnableProfile()
+	h.source.Enabled = true
+	h.sources.configs[h.source.ID] = h.source
+	broken := *h.rule
+	broken.ID++
+	broken.ResponseProfileID++
+	h.rules.rules = []*models.AutomationRule{&broken, h.rule}
+	durable := &durableAutomationFake{automationFakeStore: h.rules}
+	h.automation.store = durable
+	at := h.automation.clock()
+	err := h.automation.HandleMQTTSignal(t.Context(), mqttingest.SignalEdge{Source: h.source, Target: mqttingest.TargetOff, Direction: mqttingest.EdgeOnToOff, ReceivedAt: at})
+	require.NoError(t, err)
+	require.Len(t, durable.pending, 2)
+	assert.Equal(t, 0, h.curtailments.insertEventCalls)
+	h.automation.processDueExecutions(t.Context())
+	assert.Equal(t, []int64{broken.ID}, durable.retried)
+	assert.Equal(t, []int64{h.rule.ID}, durable.completed)
+	assert.Equal(t, 1, h.curtailments.insertEventCalls)
+}
+
+type durableAutomationFake struct {
+	*automationFakeStore
+	pending            []models.AutomationExecution
+	retried, completed []int64
+}
+
+func (f *durableAutomationFake) QueueAutomationExecution(_ context.Context, work models.AutomationExecution) error {
+	work.OrgID = 42
+	work.Generation = 1
+	f.pending = append(f.pending, work)
+	return nil
+}
+func (f *durableAutomationFake) ClaimAutomationExecution(context.Context) (*models.AutomationExecution, error) {
+	if len(f.pending) == 0 {
+		return nil, nil
+	}
+	work := f.pending[0]
+	f.pending = f.pending[1:]
+	return &work, nil
+}
+func (f *durableAutomationFake) CompleteAutomationExecution(_ context.Context, ruleID, _ int64, _ time.Time) error {
+	f.completed = append(f.completed, ruleID)
+	return nil
+}
+func (f *durableAutomationFake) RetryAutomationExecution(_ context.Context, ruleID, _ int64, _ time.Time, _ string) error {
+	f.retried = append(f.retried, ruleID)
+	return nil
+}
+
+func TestAutomationService_ContinuousOffDoesNotRestartAfterSafetyCap(t *testing.T) {
+	t.Parallel()
+	h := newAutomationHarness(t)
+	id := h.seedAutomationEvent(models.EventStateCompleted)
+	off := models.AutomationSignalOff
+	h.rule.LastSignal = &off
+	h.rule.ActiveEventUUID = &id
+	duration := int32(300)
+	event := h.curtailments.eventsByUUID[id]
+	event.MaxDurationSeconds = &duration
+	event.CreatedAt = h.automation.clock().Add(-time.Hour)
+	event.StartedAt = nil
+	require.NoError(t, h.automation.HandleMQTTSignal(t.Context(), mqttingest.SignalEdge{Source: h.source, Target: mqttingest.TargetOff, Direction: mqttingest.EdgeReassertOff, ReceivedAt: h.automation.clock()}))
+	assert.Zero(t, h.curtailments.insertEventCalls)
+	require.NoError(t, h.automation.HandleMQTTSignal(t.Context(), mqttingest.SignalEdge{Source: h.source, Target: mqttingest.TargetOn, Direction: mqttingest.EdgeOffToOn, ReceivedAt: h.automation.clock().Add(time.Second)}))
+	h.seedRunnableProfile()
+	require.NoError(t, h.automation.HandleMQTTSignal(t.Context(), mqttingest.SignalEdge{Source: h.source, Target: mqttingest.TargetOff, Direction: mqttingest.EdgeOnToOff, ReceivedAt: h.automation.clock().Add(2 * time.Second)}))
+	assert.Equal(t, 1, h.curtailments.insertEventCalls)
+}
+
+func TestAutomationService_NewSourceOffEdgeRestartsAfterCapEvenWhenRuleMissedInterveningOn(t *testing.T) {
+	t.Parallel()
+	h := newAutomationHarness(t)
+	h.seedRunnableProfile()
+	id := h.seedAutomationEvent(models.EventStateCompleted)
+	off := models.AutomationSignalOff
+	h.rule.LastSignal = &off
+	h.rule.ActiveEventUUID = &id
+	duration := int32(300)
+	event := h.curtailments.eventsByUUID[id]
+	event.MaxDurationSeconds = &duration
+	event.CreatedAt = h.automation.clock().Add(-time.Hour)
+	event.StartedAt = nil
+	// The source already debounced/settled the intervening ON. The latest rule
+	// mailbox can replace that ON before this worker drains it.
+	require.NoError(t, h.automation.HandleMQTTSignal(t.Context(), mqttingest.SignalEdge{Source: h.source, Target: mqttingest.TargetOff, Direction: mqttingest.EdgeOnToOff, ReceivedAt: h.automation.clock()}))
+	assert.Equal(t, 1, h.curtailments.insertEventCalls)
+}
+
+func TestAutomationService_NewDemandWaitsForCappedRestoreToFinish(t *testing.T) {
+	t.Parallel()
+	h := newAutomationHarness(t)
+	h.seedRunnableProfile()
+	id := h.seedAutomationEvent(models.EventStateRestoring)
+	off := models.AutomationSignalOff
+	h.rule.LastSignal = &off
+	h.rule.ActiveEventUUID = &id
+	duration := int32(300)
+	event := h.curtailments.eventsByUUID[id]
+	event.MaxDurationSeconds = &duration
+	event.CreatedAt = h.automation.clock().Add(-time.Hour)
+	event.StartedAt = nil
+	signal := mqttingest.SignalEdge{Source: h.source, Target: mqttingest.TargetOff, Direction: mqttingest.EdgeOnToOff, ReceivedAt: h.automation.clock()}
+	err := h.automation.HandleMQTTSignal(t.Context(), signal)
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsFailedPreconditionError(err))
+	assert.Zero(t, h.curtailments.beginRecurtailCalls)
+	event.State = models.EventStateCompleted
+	require.NoError(t, h.automation.HandleMQTTSignal(t.Context(), signal))
+	assert.Equal(t, 1, h.curtailments.insertEventCalls)
 }

@@ -5,6 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"sort"
+	"strconv"
+	"strings"
 	"time"
 
 	"connectrpc.com/authn"
@@ -116,8 +119,16 @@ func (s *SettingsService) processRigConfigReconciliation(ctx context.Context, re
 		slog.Error("enqueue Proto rig curtailment config reconciliation",
 			"org_id", request.OrganizationID,
 			"generation", request.DesiredGeneration,
+			"attempt", request.DeliveryAttempts,
 			"error", err,
 		)
+		if request.DeliveryAttempts == rigConfigFastDeliveryAttempts {
+			slog.Error("Proto rig curtailment config delivery exhausted fast retries; retrying on a slow period until it succeeds",
+				"org_id", request.OrganizationID,
+				"generation", request.DesiredGeneration,
+				"retry_interval", rigConfigSlowRetryInterval,
+			)
+		}
 		s.retryRigConfigReconciliation(ctx, request, err)
 		return
 	}
@@ -147,14 +158,45 @@ func (s *SettingsService) applyRigConfigReconciliation(ctx context.Context, requ
 			return nil
 		}
 	}
-	config, err := s.buildRigCurtailmentConfig(ctx, request.OrganizationID)
-	if err != nil {
-		return err
+	if scoped, ok := s.store.(RigConfigScopeStore); ok {
+		scopes, err := scoped.ListRigConfigSourceScopes(ctx, request.OrganizationID, identifiers)
+		if err != nil {
+			return err
+		}
+		groups := make(map[string][]string)
+		sourceGroups := make(map[string][]int64)
+		for identifier, sourceIDs := range scopes {
+			sort.Slice(sourceIDs, func(i, j int) bool { return sourceIDs[i] < sourceIDs[j] })
+			parts := make([]string, len(sourceIDs))
+			for i, id := range sourceIDs {
+				parts[i] = strconv.FormatInt(id, 10)
+			}
+			key := strings.Join(parts, ",")
+			groups[key] = append(groups[key], identifier)
+			sourceGroups[key] = sourceIDs
+		}
+		keys := make([]string, 0, len(groups))
+		for key := range groups {
+			keys = append(keys, key)
+		}
+		sort.Strings(keys)
+		for _, key := range keys {
+			allowed := make(map[int64]bool)
+			for _, id := range sourceGroups[key] {
+				allowed[id] = true
+			}
+			config, err := s.buildScopedRigCurtailmentConfig(ctx, request.OrganizationID, allowed)
+			if err != nil {
+				return err
+			}
+			sort.Strings(groups[key])
+			if err := s.rigConfigApplier.ApplyCurtailmentConfigToDevices(ctx, config, groups[key]); err != nil {
+				return err
+			}
+		}
+		return nil
 	}
-	if !targeted {
-		return s.rigConfigApplier.ApplyCurtailmentConfigToProtoRigs(ctx, config)
-	}
-	return s.rigConfigApplier.ApplyCurtailmentConfigToDevices(ctx, config, identifiers)
+	return errors.New("rig config reconciliation requires a rule scope resolver")
 }
 
 func (s *SettingsService) retryRigConfigReconciliation(ctx context.Context, request RigConfigReconciliation, deliveryErr error) {

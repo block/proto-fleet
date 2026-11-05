@@ -3,6 +3,7 @@ import {
   normalizeCurtailmentSelectionValues,
   parseCurtailmentTargetId,
 } from "@/protoFleet/api/curtailmentScopes";
+
 import type {
   CurtailmentFormValues,
   CurtailmentResponseProfileOption,
@@ -60,11 +61,11 @@ export function getSiteNameForId(values: Partial<CurtailmentFormValues>, siteId:
   );
 }
 
-function createSiteNamesById(sites: readonly CurtailmentSiteOption[]): Record<string, string> {
+export function createSiteNamesById(sites: readonly CurtailmentSiteOption[]): Record<string, string> {
   return Object.fromEntries(sites.map((site) => [site.id, site.name]));
 }
 
-function getSiteScopeLabel(sites: readonly CurtailmentSiteOption[]): string {
+export function getSiteScopeLabel(sites: readonly CurtailmentSiteOption[]): string {
   if (sites.length === 1) {
     return sites[0].name || `Site ${sites[0].id}`;
   }
@@ -82,7 +83,7 @@ export function getExplicitMinerCount(
   return hasAllMinersSelected(values) ? 0 : values.deviceIdentifiers.length;
 }
 
-function hasSelectedCurtailmentTarget(
+export function hasSelectedCurtailmentTarget(
   values: Pick<
     CurtailmentFormValues,
     | "buildingTargetIds"
@@ -177,7 +178,7 @@ export function withTargetPathScope(values: CurtailmentFormValues, path: Curtail
   return withWholeFleetScope(values);
 }
 
-function withWholeFleetScope(values: CurtailmentFormValues): CurtailmentFormValues {
+export function withWholeFleetScope(values: CurtailmentFormValues): CurtailmentFormValues {
   return {
     ...values,
     scopeType: "wholeOrg",
@@ -202,7 +203,7 @@ export function withAllMinerScope(values: CurtailmentFormValues): CurtailmentFor
   };
 }
 
-function withAllSitesScope(
+export function withAllSitesScope(
   values: CurtailmentFormValues,
   sites: readonly CurtailmentSiteOption[] = getSiteScopeIds(values).map((siteId) => ({
     id: siteId,
@@ -233,7 +234,7 @@ function withAllSitesScope(
   };
 }
 
-function withNoSiteScope(values: CurtailmentFormValues): CurtailmentFormValues {
+export function withNoSiteScope(values: CurtailmentFormValues): CurtailmentFormValues {
   const hasSelectedMiners = getExplicitMinerCount(values) > 0;
 
   return {
@@ -350,7 +351,7 @@ export function hasResponseProfileScopeValues(
   );
 }
 
-function removeResponseProfileScopeValues(
+export function removeResponseProfileScopeValues(
   values: CurtailmentResponseProfileOption["values"],
 ): CurtailmentResponseProfileOption["values"] {
   const behaviorValues = { ...values };

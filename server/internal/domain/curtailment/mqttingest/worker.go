@@ -420,12 +420,11 @@ func (w *sourceWorker) handleMessage(ctx context.Context, prior SourceState, obs
 	state = w.advanceLiveness(state, canonical, liveness)
 
 	if settled && direction == EdgeNone && !suppressRepeatedOff {
-		recordProcessedTarget(&state, canonical)
-
 		// Failed settlements and debounced flips must not settle the source target.
 		debouncedFlip := canonical.Target != prior.LastTarget &&
 			prior.LastTarget != TargetUnknown
 		if !debouncedFlip {
+			recordProcessedTarget(&state, canonical)
 			state.LastTarget = canonical.Target
 		}
 	}

@@ -2,6 +2,12 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { create, toJsonString } from "@bufbuild/protobuf";
 
 import { curtailmentClient } from "@/protoFleet/api/clients";
+import { formatCurtailmentDuration, formatCurtailmentPlanScopeLabel } from "@/protoFleet/api/curtailmentDisplayUtils";
+import {
+  isResponseProfileExecutionConflict,
+  notifyCurtailmentProfilesStale,
+  responseProfileExecutionConflictMessage,
+} from "@/protoFleet/api/curtailmentProfileErrors";
 import { buildCurtailmentScopes, curtailmentScopeSchemaVersion } from "@/protoFleet/api/curtailmentScopes";
 import type { CurtailmentFormValues, CurtailmentPlanPreview } from "@/protoFleet/api/curtailmentTypes";
 import { toApiCurtailmentPriority } from "@/protoFleet/api/curtailmentUtils";
@@ -13,10 +19,6 @@ import {
   type PreviewCurtailmentPlanResponse,
 } from "@/protoFleet/api/generated/curtailment/v1/curtailment_pb";
 import { getErrorMessage } from "@/protoFleet/api/getErrorMessage";
-import {
-  formatCurtailmentDuration,
-  formatCurtailmentPlanScopeLabel,
-} from "@/protoFleet/features/energy/curtailmentDisplayUtils";
 import { curtailmentNumericFieldLimits } from "@/protoFleet/features/energy/curtailmentNumericFields";
 import {
   buildForceInclusionFields,
@@ -429,6 +431,7 @@ export function useCurtailmentPlanPreview({
             return;
           }
 
+          if (isResponseProfileExecutionConflict(error)) notifyCurtailmentProfilesStale();
           handleAuthErrors({
             error,
             onError: (err) => {
@@ -440,7 +443,9 @@ export function useCurtailmentPlanPreview({
                 response: undefined,
                 responseRequestKey: undefined,
                 responseRequestValues: undefined,
-                previewError: getErrorMessage(err, "Preview is unavailable."),
+                previewError: isResponseProfileExecutionConflict(error)
+                  ? responseProfileExecutionConflictMessage
+                  : getErrorMessage(err, "Preview is unavailable."),
                 isPreviewLoading: false,
                 requestKey: requestState.requestKey,
               });
@@ -508,6 +513,7 @@ export function useCurtailmentPlanPreview({
             return;
           }
 
+          if (isResponseProfileExecutionConflict(error)) notifyCurtailmentProfilesStale();
           handleAuthErrors({
             error,
             onError: (err) => {
@@ -519,7 +525,9 @@ export function useCurtailmentPlanPreview({
                 response: undefined,
                 responseRequestKey: undefined,
                 responseRequestValues: undefined,
-                previewError: getErrorMessage(err, "Preview is unavailable."),
+                previewError: isResponseProfileExecutionConflict(error)
+                  ? responseProfileExecutionConflictMessage
+                  : getErrorMessage(err, "Preview is unavailable."),
                 isPreviewLoading: false,
                 requestKey: requestState.requestKey,
               });

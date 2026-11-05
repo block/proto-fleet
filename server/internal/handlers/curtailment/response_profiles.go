@@ -828,6 +828,8 @@ func toResponseProfileProto(profile *models.ResponseProfile) *pb.CurtailmentResp
 	}
 	out := &pb.CurtailmentResponseProfile{
 		ProfileId:                   profile.ID,
+		EnabledAutomationRuleCount:  uint32SaturatingInt64(profile.EnabledAutomationRuleCount),
+		AutomationBindingStatus:     "unbound",
 		ProfileName:                 profile.ProfileName,
 		Mode:                        modeProto(profile.Mode),
 		Strategy:                    strategyProto(profile.Strategy),
@@ -846,6 +848,9 @@ func toResponseProfileProto(profile *models.ResponseProfile) *pb.CurtailmentResp
 		FanRestoreDelaySec:          uint32Saturating(profile.FanRestoreDelaySec),
 		CreatedAt:                   timeProto(profile.CreatedAt),
 		UpdatedAt:                   timeProto(profile.UpdatedAt),
+	}
+	if profile.EnabledAutomationRuleCount > 0 {
+		out.AutomationBindingStatus = "enabled"
 	}
 	if profile.Revision != uuid.Nil {
 		out.Revision = profile.Revision.String()

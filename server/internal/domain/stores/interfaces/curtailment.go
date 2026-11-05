@@ -64,6 +64,9 @@ type UpdateCurtailmentTargetStateParams struct {
 	ExpectedDesiredState      *string
 	ExpectedState             *models.TargetState
 	ExpectedDispatchBatchUUID *string
+	// CurtailPossiblySent durably records that a Curtail may have reached the
+	// miner without an enqueue timestamp. It is never cleared by this write.
+	CurtailPossiblySent bool
 }
 
 // AllPairedReadinessUpdate is one pending/unavailable readiness flip in the
@@ -147,6 +150,9 @@ type UpsertCurtailmentHeartbeatParams struct {
 
 type BeginRestoreTransitionParams struct {
 	AutomationDemandGuard *AutomationDemandGuard
+	// EnforceMinDuration applies to voluntary Stop. Safety restoration and
+	// administrator force-stop intentionally bypass this gate.
+	EnforceMinDuration bool
 	// KnownUnsentDeviceIdentifiers identifies DISPATCHING rows for which the
 	// caller knows the physical command boundary was never crossed.
 	KnownUnsentDeviceIdentifiers []string
@@ -201,6 +207,12 @@ type ResponseProfileStore interface {
 	SiteBelongsToOrg(ctx context.Context, orgID, siteID int64) (bool, error)
 }
 
+// ResponseProfileAutomationBindingReader exposes enabled automation bindings
+// independently from profile CRUD and selector reads.
+type ResponseProfileAutomationBindingReader interface {
+	CountEnabledAutomationRulesByResponseProfile(ctx context.Context, orgID, profileID int64) (int64, error)
+}
+
 // AutomationStore is the persistence boundary for curtailment automation rule
 // CRUD and executor state.
 //
@@ -211,7 +223,7 @@ type AutomationStore interface {
 	ListEnabledAutomationRulesByMQTTSource(ctx context.Context, mqttSourceID int64) ([]*models.AutomationRule, error)
 	CreateAutomationRule(ctx context.Context, rule models.AutomationRule, expectedFanSettings models.ResponseProfileFanSettings) (*models.AutomationRule, error)
 	UpdateAutomationRule(ctx context.Context, rule models.AutomationRule, expectedFanSettings models.ResponseProfileFanSettings) (*models.AutomationRule, error)
-	SetAutomationRuleEnabled(ctx context.Context, orgID, ruleID int64, enabled bool, responseProfileRevision uuid.UUID, expectedFanSettings models.ResponseProfileFanSettings) (*models.AutomationRule, error)
+	SetAutomationRuleEnabled(ctx context.Context, orgID, ruleID int64, enabled bool, responseProfileRevision uuid.UUID, expectedFanSettings models.ResponseProfileFanSettings, adminControlsGranted bool) (*models.AutomationRule, error)
 	DeleteAutomationRule(ctx context.Context, orgID, ruleID int64) error
 	CountAutomationRulesByMQTTSource(ctx context.Context, orgID, sourceID int64) (int64, error)
 	RecordAutomationSignal(ctx context.Context, ruleID int64, signal models.AutomationSignal, at time.Time) error
@@ -400,8 +412,9 @@ type CurtailmentTerminalFanRecoveryStore interface {
 
 // CurtailmentAdminTerminateFanRecoveryStore serializes an operator admin
 // termination against fan recovery and concurrent lifecycle transitions. The
-// implementation holds the event lock while deciding whether recovery is
-// required, commanding fans ON, persisting the fan result, and terminalizing.
+// implementation serializes fan commands and lifecycle changes with advisory
+// locks. It persists terminal recovery evidence before I/O, then records the
+// result without holding an event row lock during the physical command.
 type CurtailmentAdminTerminateFanRecoveryStore interface {
 	AdminTerminateEventWithFanRecovery(
 		ctx context.Context,
@@ -611,4 +624,44 @@ type CurtailmentStore interface {
 		eventUUID uuid.UUID,
 		params BeginRecurtailTransitionParams,
 	) (*models.Event, error)
+}
+
+// CurtailmentDispatchRejectionStore persists dispatch denial before restoration.
+// Read errors defer dispatch; a stored denial is never cleared by a retry.
+type CurtailmentDispatchRejectionStore interface {
+	GetDispatchRejection(ctx context.Context, orgID, eventID int64) (*string, error)
+	RejectDispatch(ctx context.Context, orgID, eventID int64, reason string) error
+}
+
+// CurtailmentTargetObservation batches guarded drift/telemetry refresh writes.
+type CurtailmentTargetObservation struct {
+	ExpectedBatchUUID *string            `json:"expected_batch_uuid"`
+	DeviceIdentifier  string             `json:"device_identifier"`
+	State             models.TargetState `json:"state"`
+	ObservedPowerW    *float64           `json:"observed_power_w"`
+	ObservedAt        time.Time          `json:"observed_at"`
+	ConfirmedAt       *time.Time         `json:"confirmed_at"`
+}
+
+type CurtailmentTargetObservationStore interface {
+	ObserveTargets(ctx context.Context, event *models.Event, observations []CurtailmentTargetObservation) ([]string, error)
+}
+
+// CurtailmentAutomationDispatchAuthorizationStore validates the durable rule
+// execution grant and its current source/profile binding at each dispatch.
+type CurtailmentAutomationDispatchAuthorizationStore interface {
+	AuthorizeAutomationCurtailDispatch(ctx context.Context, ev *models.Event, coverage CurtailmentTopologyScopeCoverage) (bool, error)
+}
+
+// CurtailmentDispatchFenceStore also protects ordinary site/device scopes
+// against device moves and permission revocations through enqueueing.
+type CurtailmentDispatchFenceStore interface {
+	WithCurtailmentDispatchFence(ctx context.Context, event *models.Event, params ListCandidatesParams, deviceIdentifiers []string, command func(CurtailmentTopologyDispatchFenceSnapshot) error) error
+}
+
+// CurtailmentPendingDeadlineStore records failed curtail phase evidence. With
+// includeInFlight, in-flight intents keep their state for the compensating
+// restore transition; without it, they are left untouched.
+type CurtailmentPendingDeadlineStore interface {
+	FailPendingCurtailTargets(ctx context.Context, event *models.Event, reason string, includeInFlight bool) error
 }

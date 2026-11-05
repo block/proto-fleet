@@ -34,17 +34,24 @@ func (r *Reconciler) reconcileActiveFans(ctx context.Context, ev *models.Event, 
 		// airflow-reopen command remains the lower bound when applicable.
 		return false
 	}
-	if desiredPower == driver.PowerOff && ev.FanOffSentAt == nil {
-		// Persist the first OFF intent before hardware I/O. If the command
+	if ev.FanLastError == nil && ((desiredPower == driver.PowerOff && ev.FanOffSentAt != nil && ev.FanAirflowReopenedAt == nil) ||
+		(desiredPower == driver.PowerOn && ev.FanAirflowReopenedAt != nil)) {
+		return true
+	}
+	if desiredPower == driver.PowerOff && (ev.FanOffSentAt == nil || ev.FanAirflowReopenedAt != nil) {
+		// Persist every OFF transition intent before hardware I/O. If the command
 		// succeeds but its follow-up state write is lost, later admission and
 		// operator recovery must conservatively assume the fans may be off.
+		pendingError := "facility fan OFF command is pending"
 		intent := interfaces.UpdateCurtailmentFanStateParams{
 			ExpectedEventState: models.EventStateActive,
-			FanOffSentAt:       &now,
-			LastError:          ev.FanLastError,
+			LastError:          &pendingError,
+		}
+		if ev.FanOffSentAt == nil {
+			intent.FanOffSentAt = &now
 		}
 		_, err := r.fanStore.CommandFanState(ctx, ev.ID, intent, func(context.Context) *string {
-			return ev.FanLastError
+			return &pendingError
 		})
 		if err != nil {
 			if !errors.Is(err, interfaces.ErrCurtailmentEventStateRaceLoss) {
@@ -52,7 +59,10 @@ func (r *Reconciler) reconcileActiveFans(ctx context.Context, ev *models.Event, 
 			}
 			return false
 		}
-		ev.FanOffSentAt = &now
+		if ev.FanOffSentAt == nil {
+			ev.FanOffSentAt = &now
+		}
+		ev.FanLastError = &pendingError
 	}
 
 	params := interfaces.UpdateCurtailmentFanStateParams{
@@ -170,6 +180,9 @@ func activeFanOffDelayElapsed(ev *models.Event, targets []*models.Target, now ti
 }
 
 func (r *Reconciler) reopenEventFans(ctx context.Context, ev *models.Event) bool {
+	if ev != nil && ev.FanAirflowReopenedAt != nil && ev.FanLastError == nil {
+		return true
+	}
 	if r.fans == nil || r.fanStore == nil || ev == nil || len(ev.FacilityFanDeviceIDs) == 0 || ev.FanOffSentAt == nil {
 		return false
 	}
@@ -198,6 +211,9 @@ func (r *Reconciler) reopenEventFans(ctx context.Context, ev *models.Event) bool
 }
 
 func (r *Reconciler) reconcileRestoringFans(ctx context.Context, ev *models.Event) {
+	if ev != nil && ev.FanOnSentAt != nil && ev.FanLastError == nil {
+		return
+	}
 	if r.fans == nil || r.fanStore == nil || ev == nil || len(ev.FacilityFanDeviceIDs) == 0 {
 		return
 	}

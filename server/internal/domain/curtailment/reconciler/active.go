@@ -32,11 +32,13 @@ func (r *Reconciler) observeActive(ctx context.Context, ev *models.Event) {
 		return
 	}
 
-	// Per-tick liveness check; per-target race closure is in dispatchOneCurtail.
-	if !r.eventStillDispatchable(ctx, ev) {
-		return
-	}
+	// State-guarded observations and dispatch claims fence a stale active tick.
 	cmdCtx := reconcilerCommandContext(ctx, ev.OrgID, ev.CreatedByUserID)
+	var observations *observationBatch
+	if _, ok := r.store.(interfaces.CurtailmentTargetObservationStore); ok {
+		observations = &observationBatch{}
+		cmdCtx = context.WithValue(cmdCtx, observationContextKey{}, observations)
+	}
 	airflowReopened := false
 	deferredDrifted := make([]*models.Target, 0)
 	if len(targets) > 0 {
@@ -89,7 +91,7 @@ func (r *Reconciler) observeActive(ctx context.Context, ev *models.Event) {
 					// Recovery, timeout retry, or closed-loop admission claim;
 					// redispatched after observation in batch-aware order.
 					if r.retryBudgetTerminalizes(t, t.RetryCount) {
-						// Defensive budget guard; curtail targets remain retryable.
+						// Recover an interrupted write at the retry ceiling.
 						r.recordDispatchFailure(cmdCtx, ev, t,
 							"retry budget exhausted from interrupted dispatch",
 							models.TargetStateDispatching)
@@ -97,7 +99,7 @@ func (r *Reconciler) observeActive(ctx context.Context, ev *models.Event) {
 					}
 				case models.TargetStateDrifted:
 					if r.retryBudgetTerminalizes(t, t.RetryCount) {
-						// Defensive budget guard; curtail targets remain retryable.
+						// Recover an interrupted write at the retry ceiling.
 						r.recordDispatchFailure(cmdCtx, ev, t,
 							"retry budget exhausted on drifted target",
 							models.TargetStateDrifted)
@@ -106,7 +108,7 @@ func (r *Reconciler) observeActive(ctx context.Context, ev *models.Event) {
 					// Mirror the confirm/drift paired-like guards: a drifted
 					// all-paired row whose device unpaired must not receive
 					// re-curtail commands every tick.
-					if isAllPairedPolicyEvent(ev) {
+					{
 						if c := candByID[t.DeviceIdentifier]; c == nil {
 							r.recordDispatchFailure(cmdCtx, ev, t,
 								"candidate row missing (device unpaired or deleted)",
@@ -123,12 +125,25 @@ func (r *Reconciler) observeActive(ctx context.Context, ev *models.Event) {
 						deferredDrifted = append(deferredDrifted, t)
 						continue
 					}
-					r.dispatchOneCurtail(cmdCtx, ev, t, models.TargetStateDrifted)
+					deferredDrifted = append(deferredDrifted, t)
 				case models.TargetStatePending, models.TargetStateUnavailable,
 					models.TargetStateResolved, models.TargetStateReleased,
 					models.TargetStateRestoreFailed:
 					// Pending rows are handled by the active closed-loop dispatch pass
 					// below. Terminal states are restorer-owned.
+				}
+			}
+			if observations != nil {
+				r.flushObservations(cmdCtx, ev, observations)
+				// Include newly observed drift only after its guarded batch write.
+				deferredDrifted = nil
+				for _, target := range targets {
+					if target.State == models.TargetStateDrifted && isCurtailRetryTarget(target) && target.RetryCount < r.cfg.CurtailMaxRetries {
+						c := candByID[target.DeviceIdentifier]
+						if c != nil && curtailment.IsAllPairedPolicyPairingStatus(c.PairingStatus) {
+							deferredDrifted = append(deferredDrifted, target)
+						}
+					}
 				}
 			}
 			if activeFanTargetsNeedAirflow(ev, targets) {
@@ -137,9 +152,7 @@ func (r *Reconciler) observeActive(ctx context.Context, ev *models.Event) {
 				}
 				airflowReopened = true
 			}
-			for _, target := range deferredDrifted {
-				r.dispatchOneCurtail(cmdCtx, ev, target, models.TargetStateDrifted)
-			}
+			r.dispatchDriftedBatches(cmdCtx, ev, deferredDrifted)
 			r.dispatchPendingCurtailBatches(cmdCtx, ev, targets)
 		}
 	}
@@ -217,60 +230,15 @@ func hasTopologyRestoreWork(targets []*models.Target) bool {
 // shows curtailment, resetting retry_count. Missing candidate row goes
 // through guarded failure aging so a vanished device can't stall.
 func (r *Reconciler) confirmOneDispatched(ctx context.Context, ev *models.Event, t *models.Target, c *models.Candidate, nonTerminalState models.TargetState) {
-	if c == nil {
-		r.recordDispatchedObservationFailure(ctx, ev, t, "candidate row missing (device unpaired or deleted)", nonTerminalState)
-		return
-	}
-	if isAllPairedPolicyEvent(ev) && !curtailment.IsAllPairedPolicyPairingStatus(c.PairingStatus) {
-		r.recordDispatchedObservationFailure(ctx, ev, t, "device is no longer paired-like", nonTerminalState)
-		return
-	}
-	if !isCurtailed(c.LatestPowerW, t.BaselinePowerW, c.LatestHashRateHS, r.cfg.DriftThresholdFactor, true) {
-		if t.LastDispatchedAt != nil && r.cfg.CurtailDispatchTimeoutSec > 0 {
-			timeout := time.Duration(r.cfg.CurtailDispatchTimeoutSec) * time.Second
-			if r.now().Sub(*t.LastDispatchedAt) > timeout {
-				slog.Info("curtailment reconciler: curtail telemetry timeout aging initiated",
-					"event_id", ev.ID, "device", t.DeviceIdentifier,
-					"timeout_sec", r.cfg.CurtailDispatchTimeoutSec)
-				// Guard on dispatched: if the confirmation pulse already
-				// confirmed this target from a fresh sample, this stale-snapshot
-				// aging write race-loses instead of reverting it and burning retry.
-				r.recordDispatchedObservationFailure(ctx, ev, t,
-					"curtail telemetry timeout",
-					models.TargetStateDispatching)
-			}
-		}
-		return
-	}
-	now := r.now()
-	params := confirmedCurtailTargetParams(now, c.LatestPowerW)
-	expectedTargetState := models.TargetStateDispatched
-	params.ExpectedState = &expectedTargetState
-	params.ExpectedDispatchBatchUUID = loadedDispatchBatchUUID(t)
-	if err := r.writeTargetState(ctx, ev, t.DeviceIdentifier, params); err != nil {
-		if !errors.Is(err, interfaces.ErrCurtailmentEventStateRaceLoss) {
-			slog.Error("curtailment reconciler: target confirm update failed",
-				"event_id", ev.ID, "device", t.DeviceIdentifier, "error", err)
-		}
-		return
-	}
-	t.State = models.TargetStateConfirmed
-	t.ConfirmedAt = &now
-	t.ObservedAt = &now
-	t.RetryCount = 0
-	if params.ObservedPowerW != nil {
-		t.ObservedPowerW = params.ObservedPowerW
-	}
+	r.confirmTarget(ctx, ev, t, c, false, nonTerminalState)
 }
 
-// checkDrift evaluates a confirmed target against telemetry. Uncurtailed
-// → Drifted, re-dispatch while OFF remains asserted.
 func (r *Reconciler) checkDrift(ctx context.Context, ev *models.Event, t *models.Target, c *models.Candidate) {
 	if c == nil {
 		r.recordDispatchFailure(ctx, ev, t, "candidate row missing (device unpaired or deleted)", models.TargetStateDrifted)
 		return
 	}
-	if isAllPairedPolicyEvent(ev) && !curtailment.IsAllPairedPolicyPairingStatus(c.PairingStatus) {
+	if !curtailment.IsAllPairedPolicyPairingStatus(c.PairingStatus) {
 		r.recordDispatchFailure(ctx, ev, t, "device is no longer paired-like", models.TargetStateDrifted)
 		return
 	}
@@ -284,6 +252,9 @@ func (r *Reconciler) checkDrift(ctx context.Context, ev *models.Event, t *models
 			power := *c.LatestPowerW
 			params.ObservedPowerW = &power
 		}
+		if queueObservation(ctx, t, params) {
+			return
+		}
 		if err := r.writeTargetState(ctx, ev, t.DeviceIdentifier, params); err != nil {
 			if !errors.Is(err, interfaces.ErrCurtailmentEventStateRaceLoss) {
 				slog.Error("curtailment reconciler: target drift update failed",
@@ -296,8 +267,7 @@ func (r *Reconciler) checkDrift(ctx context.Context, ev *models.Event, t *models
 		if params.ObservedPowerW != nil {
 			t.ObservedPowerW = params.ObservedPowerW
 		}
-		// Restore targets terminalize at budget; curtail targets keep retrying
-		// while OFF is asserted.
+		// A target at its retry ceiling is no longer dispatchable.
 		if r.retryBudgetTerminalizes(t, t.RetryCount) {
 			return
 		}
@@ -321,6 +291,9 @@ func (r *Reconciler) checkDrift(ctx context.Context, ev *models.Event, t *models
 		power := *c.LatestPowerW
 		params.ObservedPowerW = &power
 	}
+	if queueObservation(ctx, t, params) {
+		return
+	}
 	if err := r.writeTargetState(ctx, ev, t.DeviceIdentifier, params); err != nil {
 		if !errors.Is(err, interfaces.ErrCurtailmentEventStateRaceLoss) {
 			slog.Error("curtailment reconciler: target observe update failed",
@@ -339,11 +312,10 @@ func (r *Reconciler) checkDrift(ctx context.Context, ev *models.Event, t *models
 
 // maybeMarkActive flips Pending → Active once in-flight work has settled,
 // while preserving policy readiness holds and topology restore obligations.
-// The all-failed branch handles retained or defensive failure states; normal
-// curtail retries never terminalize.
+// Failed command attempts terminalize at their configured retry ceiling.
 func (r *Reconciler) maybeMarkActive(ctx context.Context, ev *models.Event, targets []*models.Target) {
 	confirmed, terminalFailures, unavailable, releasedPolicy := 0, 0, 0, 0
-	topologyWatcher := isClosedLoopTopologyEvent(ev)
+	topologyWatcher := isClosedLoopTopologyEvent(ctx, ev)
 	if len(targets) == 0 && isAllPairedPolicyEvent(ev) {
 		r.warnIfAllPairedPendingStalled(ev, 0, 0)
 		return
@@ -396,12 +368,29 @@ func (r *Reconciler) maybeMarkActive(ctx context.Context, ev *models.Event, targ
 	}
 	if confirmed == 0 && (unavailable > 0 || releasedPolicy > 0) {
 		// Keep readiness and admission running while no miner is confirmed.
-		// Bounded events still expire from creation through the pending cap
-		// guard; unbounded policy events retain their scope until stopped.
+		// Capped events still end at cap expiry or the readiness deadline;
+		// unbounded events wait until Stop or abort.
 		r.warnIfAllPairedPendingStalled(ev, unavailable, releasedPolicy)
 		return
 	}
 	if confirmed == 0 && terminalFailures > 0 {
+		// A successful or ambiguous send can have physically curtailed a miner
+		// even if telemetry never confirms. Restore that obligation before
+		// releasing the event; fan intent also requires recovery. Known-unsent
+		// failures owe nothing.
+		needsRestore := ev.FanOffSentAt != nil
+		for _, target := range targets {
+			if target.CurtailPhase.DispatchedAt != nil || target.LastDispatchedAt != nil || target.CurtailPossiblySent || target.RestorePhase != nil {
+				needsRestore = true
+			}
+		}
+		if needsRestore {
+			_, err := r.store.BeginRestoreTransition(ctx, ev.OrgID, ev.EventUUID, interfaces.BeginRestoreTransitionParams{})
+			if err != nil {
+				r.logEventStateUpdateError(ev, "pending→restoring(give-up)", err)
+			}
+			return
+		}
 		// All-failed: nothing curtailed → skip Active.
 		now := r.now()
 		slog.Warn("curtailment reconciler: pending event has all-terminal targets; marking completed_with_failures",
@@ -424,8 +413,8 @@ func (r *Reconciler) maybeMarkActive(ctx context.Context, ev *models.Event, targ
 // allPairedPendingStallWarnAfter is how long an all-paired event may hold in
 // pending (started_at unset, nothing confirmed) before the reconciler starts
 // flagging it each tick. The event owns its scope, blocking other starts via
-// the hierarchy conflict check and scope watcher, until confirmation, Stop,
-// or finite-cap expiry. Only explicitly unbounded events may hold indefinitely.
+// the hierarchy conflict check and scope watcher, until confirmation or Stop;
+// a capped event also ends at cap expiry or the pending readiness deadline.
 // A sustained stall (fleet-wide outage, auth-needed population) must surface
 // on dashboards, not only in the UI.
 const allPairedPendingStallWarnAfter = 15 * time.Minute
@@ -442,7 +431,7 @@ func (r *Reconciler) warnIfAllPairedPendingStalled(ev *models.Event, unavailable
 		return
 	}
 	r.metrics.IncAllPairedPendingStall()
-	slog.Warn("curtailment reconciler: all-paired event pending with nothing confirmed; scope stays locked until confirmation, Stop, or finite-cap expiry",
+	slog.Warn("curtailment reconciler: all-paired event pending with nothing confirmed; scope stays locked until confirmation or Stop",
 		"event_id", ev.ID, "event_uuid", ev.EventUUID,
 		"pending_for", stalledFor.Truncate(time.Second).String(),
 		"unavailable_targets", unavailable, "released_targets", releasedPolicy)

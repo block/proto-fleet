@@ -6,6 +6,7 @@ import type {
   CurtailmentStartModalMode,
   CurtailmentStartModalVariant,
 } from "@/protoFleet/api/curtailmentTypes";
+
 import {
   curtailmentNumericFieldLimits,
   nonAdminBatchIntervalMax,
@@ -13,11 +14,7 @@ import {
 } from "@/protoFleet/features/energy/curtailmentNumericFields";
 import { customResponseProfileId } from "@/protoFleet/features/energy/curtailmentRequestBuilders";
 
-type ParsedNumberField = { parsed?: number; error?: string };
-
-type EditableCurtailmentField = "reason" | "restoreIntervalSec";
-
-const defaultValues: CurtailmentFormValues = {
+export const defaultValues: CurtailmentFormValues = {
   scopeType: "wholeOrg",
   scopeId: "whole-org",
   siteSelection: "none",
@@ -54,9 +51,7 @@ const defaultValues: CurtailmentFormValues = {
   includeMaintenance: false,
   forceIncludeAllPairedMiners: false,
 };
-
-const editableCurtailmentFields: EditableCurtailmentField[] = ["reason", "restoreIntervalSec"];
-
+export const editableCurtailmentFields: EditableCurtailmentField[] = ["reason", "restoreIntervalSec"];
 export function getInitialValues(
   initialValues?: Partial<CurtailmentFormValues>,
   variant: CurtailmentStartModalVariant = "curtailment",
@@ -77,7 +72,7 @@ export function getInitialValues(
     : valuesWithDefaultSiteScope;
 }
 
-function parseRequiredPositiveNumberField(value: string, fieldLabel: string): ParsedNumberField {
+export function parseRequiredPositiveNumberField(value: string, fieldLabel: string): ParsedNumberField {
   const trimmed = value.trim();
   if (trimmed === "") {
     return { error: `Enter ${fieldLabel}.` };
@@ -91,7 +86,7 @@ function parseRequiredPositiveNumberField(value: string, fieldLabel: string): Pa
   return { parsed };
 }
 
-function parseOptionalNonNegativeNumberField(value: string, fieldLabel: string): ParsedNumberField {
+export function parseOptionalNonNegativeNumberField(value: string, fieldLabel: string): ParsedNumberField {
   const trimmed = value.trim();
   if (trimmed === "") {
     return {};
@@ -105,7 +100,7 @@ function parseOptionalNonNegativeNumberField(value: string, fieldLabel: string):
   return { parsed };
 }
 
-function parseComparableUint32Field(value: string, max: number): number {
+export function parseComparableUint32Field(value: string, max: number): number {
   const parsedField = parseOptionalUint32Field(value, { label: "value", max });
   return parsedField.parsed ?? 0;
 }
@@ -231,3 +226,6 @@ export function validateCurtailmentFormValues(
   }
   return localErrors;
 }
+
+type ParsedNumberField = { parsed?: number; error?: string };
+type EditableCurtailmentField = "reason" | "restoreIntervalSec";

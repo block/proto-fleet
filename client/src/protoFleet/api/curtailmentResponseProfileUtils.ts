@@ -31,7 +31,7 @@ export function getResponseProfileSiteNameForId(values: Partial<ResponseProfileF
 }
 
 export function getResponseProfileSiteNamesById(
-  values: ResponseProfileFormValues,
+  values: Partial<ResponseProfileFormValues>,
   siteIds: readonly string[],
 ): Record<string, string> {
   return Object.fromEntries(
@@ -49,4 +49,24 @@ export function getResponseProfileScopeSummary(
     fallbackLabel: getResponseProfileScopeLabel(mode),
     getSiteLabel: (siteId) => getResponseProfileSiteNameForId(values, siteId),
   });
+}
+
+type ResponseProfileSiteFields = Pick<
+  ResponseProfileFormValues,
+  "minerSelectionMode" | "siteSelection" | "siteId" | "siteName" | "siteIds" | "siteNamesById"
+>;
+export function normalizeResponseProfileSiteFields(
+  values: ResponseProfileSiteFields,
+): ResponseProfileSiteFields & { siteIds: string[]; siteNamesById: Record<string, string> } {
+  const allMiners = values.minerSelectionMode === "all";
+  const siteIds = allMiners ? [] : getSelectedResponseProfileSiteIds(values);
+  const siteId = siteIds[0] ?? "";
+  return {
+    minerSelectionMode: allMiners ? "all" : "subset",
+    siteSelection: allMiners || values.siteSelection === "allSites" ? "allSites" : siteIds.length > 0 ? "site" : "none",
+    siteId,
+    siteName: siteId ? getResponseProfileSiteNameForId(values, siteId) : "",
+    siteIds,
+    siteNamesById: getResponseProfileSiteNamesById(values, siteIds),
+  };
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"sort"
 	"time"
 
 	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
@@ -42,92 +43,13 @@ func (r *Reconciler) observeRestoring(ctx context.Context, ev *models.Event) {
 // confirmDispatchedRestores promotes restore-phase Dispatched targets to
 // Resolved when telemetry shows mining has resumed.
 func (r *Reconciler) confirmDispatchedRestores(ctx context.Context, ev *models.Event, targets []*models.Target) {
-	deviceIDs := make([]string, 0, len(targets))
-	for _, t := range targets {
-		if t.DesiredState == models.DesiredStateActive && t.State == models.TargetStateDispatched {
-			deviceIDs = append(deviceIDs, t.DeviceIdentifier)
-		}
-	}
-	if len(deviceIDs) == 0 {
-		return
-	}
-	cands, err := r.store.ListCandidates(ctx, interfaces.ListCandidatesParams{
-		OrgID:             ev.OrgID,
-		DeviceIdentifiers: deviceIDs,
-	})
-	if err != nil {
-		slog.Error("curtailment reconciler: list candidates (restore confirm) failed",
-			"event_id", ev.ID, "error", err)
-		return
-	}
-	candByID := candidatesByDeviceID(cands)
-	for _, t := range targets {
-		if t.DesiredState != models.DesiredStateActive || t.State != models.TargetStateDispatched {
-			continue
-		}
-		r.confirmOneRestore(ctx, ev, t, candByID[t.DeviceIdentifier])
-	}
+	r.confirmDispatchedTargets(ctx, ev, targets, models.DesiredStateActive)
 }
 
-// confirmOneRestore promotes Dispatched → Resolved when telemetry shows
-// the miner is back above the restore threshold; mirrors
-// confirmOneDispatched. Vanished devices normally burn retry budget to keep
-// progress; all-paired topology obligations park until commandable instead.
 func (r *Reconciler) confirmOneRestore(ctx context.Context, ev *models.Event, t *models.Target, c *models.Candidate) {
-	if isAllPairedTopologyPolicyEvent(ev) && r.parkUncommandableTopologyRestore(ctx, ev, t, c) {
-		return
-	}
-	if c == nil {
-		r.recordDispatchedObservationFailure(ctx, ev, t,
-			"candidate row missing (device unpaired or deleted)",
-			models.TargetStatePending)
-		return
-	}
-	if !isRestored(c.LatestPowerW, t.BaselinePowerW, c.LatestHashRateHS, r.cfg.DriftThresholdFactor) {
-		// Age out targets whose telemetry never confirms so a stale
-		// candidate can't pin the event in restoring forever.
-		if t.LastDispatchedAt != nil && r.cfg.RestoreDispatchTimeoutSec > 0 {
-			timeout := time.Duration(r.cfg.RestoreDispatchTimeoutSec) * time.Second
-			if r.now().Sub(*t.LastDispatchedAt) > timeout {
-				slog.Info("curtailment reconciler: restore telemetry timeout aging initiated",
-					"event_id", ev.ID, "device", t.DeviceIdentifier,
-					"timeout_sec", r.cfg.RestoreDispatchTimeoutSec)
-				// Guard on dispatched: if the confirmation pulse already
-				// resolved this restore target, this stale-snapshot aging write
-				// race-loses instead of reverting it — critically avoiding a
-				// spurious RESTORE_FAILED when retry budget is at the ceiling.
-				r.recordDispatchedObservationFailure(ctx, ev, t,
-					"restore telemetry timeout",
-					models.TargetStatePending)
-			}
-		}
-		return
-	}
-	now := r.now()
-	params := resolvedRestoreTargetParams(now, c.LatestPowerW)
-	desiredActive := models.DesiredStateActive
-	params.ExpectedDesiredState = &desiredActive
-	expectedTargetState := models.TargetStateDispatched
-	params.ExpectedState = &expectedTargetState
-	params.ExpectedDispatchBatchUUID = loadedDispatchBatchUUID(t)
-	if err := r.writeTargetState(ctx, ev, t.DeviceIdentifier, params); err != nil {
-		if !errors.Is(err, interfaces.ErrCurtailmentEventStateRaceLoss) {
-			slog.Error("curtailment reconciler: restore confirm update failed",
-				"event_id", ev.ID, "device", t.DeviceIdentifier, "error", err)
-		}
-		return
-	}
-	t.State = models.TargetStateResolved
-	t.ConfirmedAt = &now
-	t.ObservedAt = &now
-	if params.ObservedPowerW != nil {
-		t.ObservedPowerW = params.ObservedPowerW
-	}
+	r.confirmTarget(ctx, ev, t, c, true, models.TargetStatePending)
 }
 
-// maybeCompleteRestoring transitions the event terminal once every target
-// is in a terminal state. Returns true when the transition was attempted so
-// the caller skips further work this tick.
 func (r *Reconciler) maybeCompleteRestoring(ctx context.Context, ev *models.Event, targets []*models.Target) bool {
 	if len(ev.FacilityFanDeviceIDs) > 0 && ev.FanOnSentAt == nil {
 		return false
@@ -136,7 +58,11 @@ func (r *Reconciler) maybeCompleteRestoring(ctx context.Context, ev *models.Even
 	for _, t := range targets {
 		switch t.State { //nolint:exhaustive // default arm is load-bearing: a future schema-added state must stay non-terminal until it ships its handling, not be silently swept into "complete." TestReconciler_Restoring_UnknownTargetStateKeepsEventNonTerminal pins the contract.
 		case models.TargetStateResolved, models.TargetStateReleased:
-			successful++
+			if t.CurtailPhase.State == models.TargetStateRestoreFailed {
+				failed++
+			} else {
+				successful++
+			}
 		case models.TargetStateRestoreFailed:
 			failed++
 		case models.TargetStatePending, models.TargetStateDispatching,
@@ -198,6 +124,28 @@ func (r *Reconciler) maybeClaimRestoreBatch(ctx context.Context, ev *models.Even
 			return
 		}
 	}
+	// Revisit parked obligations: deletion is permanent and must not pin the
+	// event in restoring forever. Offline live devices remain parked.
+	if isAllPairedTopologyPolicyEvent(ctx, ev) {
+		var parked []*models.Target
+		var ids []string
+		for _, target := range targets {
+			if target.DesiredState == models.DesiredStateActive && target.State == models.TargetStateUnavailable {
+				parked = append(parked, target)
+				ids = append(ids, target.DeviceIdentifier)
+			}
+		}
+		if len(ids) > 0 {
+			candidates, err := r.store.ListCandidates(ctx, interfaces.ListCandidatesParams{OrgID: ev.OrgID, DeviceIdentifiers: ids})
+			if err != nil {
+				return
+			}
+			byID := candidatesByDeviceID(candidates)
+			for _, target := range parked {
+				r.parkUncommandableTopologyRestore(ctx, ev, target, byID[target.DeviceIdentifier])
+			}
+		}
+	}
 	// Gate 1: no in-flight restore batch.
 	for _, t := range targets {
 		if t.DesiredState != models.DesiredStateActive {
@@ -240,42 +188,18 @@ func (r *Reconciler) maybeClaimRestoreBatch(ctx context.Context, ev *models.Even
 		batchCapacity = len(targets)
 	}
 
-	// First pass: redispatch any DISPATCHING orphans from an interrupted
-	// prior tick. Uncurtail is device-idempotent, so re-sending the
-	// command is safe. Orphan recovery consumes this tick's batch slot
-	// on its own — mixing orphans with fresh PENDING would double the
-	// inrush and bypass the one-batch-per-interval throttle.
-	orphans := make([]*models.Target, 0, batchCapacity)
-	for _, t := range targets {
-		if t.DesiredState != models.DesiredStateActive {
-			continue
-		}
-		if t.State != models.TargetStateDispatching {
-			continue
-		}
-		orphans = append(orphans, t)
-		if int32(len(orphans)) >= batchSize { //nolint:gosec // batchSize already bounded
-			break
-		}
-	}
-	if len(orphans) > 0 {
-		r.dispatchRestoreBatch(ctx, ev, orphans)
-		return
-	}
+	// Prefer targets with fewer failed attempts, so healthy restores make
+	// progress before a persistent failure can reuse the next slot.
+	targets = append([]*models.Target(nil), targets...)
+	sort.SliceStable(targets, func(i, j int) bool { return targets[i].RetryCount < targets[j].RetryCount })
 
-	// Second pass: claim fresh PENDING up to batchSize.
-	claim := make([]*models.Target, 0, batchCapacity)
-	for _, t := range targets {
-		if t.DesiredState != models.DesiredStateActive {
-			continue
-		}
-		if t.State != models.TargetStatePending {
-			continue
-		}
-		claim = append(claim, t)
-		if int32(len(claim)) >= batchSize { //nolint:gosec // batchSize already bounded
-			break
-		}
+	// DISPATCHING orphans from an interrupted tick may already have an
+	// accepted Uncurtail, so they go first. With restore pacing they take this
+	// tick's slot on their own: mixing them with fresh PENDING would exceed
+	// the batch size and the interval. Re-sending Uncurtail is idempotent.
+	claim := claimRestoreTargets(targets, models.TargetStateDispatching, batchSize, batchCapacity)
+	if remaining := batchSize - int32(len(claim)); remaining > 0 && (len(claim) == 0 || ev.RestoreBatchSize == 0) { //nolint:gosec // bounded by restore batch size
+		claim = append(claim, claimRestoreTargets(targets, models.TargetStatePending, remaining, batchCapacity)...)
 	}
 	if len(claim) == 0 {
 		return
@@ -284,35 +208,29 @@ func (r *Reconciler) maybeClaimRestoreBatch(ctx context.Context, ev *models.Even
 	r.dispatchRestoreBatch(ctx, ev, claim)
 }
 
+func claimRestoreTargets(targets []*models.Target, state models.TargetState, batchSize int32, batchCapacity int) []*models.Target {
+	claim := make([]*models.Target, 0, batchCapacity)
+	for _, t := range targets {
+		if t.DesiredState != models.DesiredStateActive || t.State != state {
+			continue
+		}
+		claim = append(claim, t)
+		if int32(len(claim)) >= batchSize { //nolint:gosec // bounded by restore batch size
+			break
+		}
+	}
+	return claim
+}
+
 // dispatchRestoreBatch issues one Uncurtail for every device in the batch
 // and per-device commits transitions from the dispatched/skipped split.
 // DISPATCHING pre-writes provide the same race-closure as dispatchOneCurtail;
 // per-target pre-write failures burn one retry slot via recordDispatchFailure
 // so persistent failures escalate to RESTORE_FAILED instead of cycling.
 func (r *Reconciler) dispatchRestoreBatch(ctx context.Context, ev *models.Event, claim []*models.Target) {
-	if !r.eventStillDispatchable(ctx, ev) {
+	dispatchSet, ok := r.claimDispatchTargets(ctx, ev, claim, models.DesiredStateActive, models.TargetStatePending)
+	if !ok {
 		return
-	}
-	dispatchSet := make([]*models.Target, 0, len(claim))
-	desiredActive := models.DesiredStateActive
-	for _, t := range claim {
-		expectedState := t.State
-		dispatchingParams := interfaces.UpdateCurtailmentTargetStateParams{
-			State:                models.TargetStateDispatching,
-			ExpectedDesiredState: &desiredActive,
-			ExpectedState:        &expectedState,
-		}
-		if err := r.writeTargetState(ctx, ev, t.DeviceIdentifier, dispatchingParams); err != nil {
-			if errors.Is(err, interfaces.ErrCurtailmentEventStateRaceLoss) {
-				return
-			}
-			slog.Error("curtailment reconciler: restore dispatching pre-write failed",
-				"event_id", ev.ID, "device", t.DeviceIdentifier, "error", err)
-			r.recordDispatchFailure(ctx, ev, t, err.Error(), models.TargetStatePending)
-			continue
-		}
-		t.State = models.TargetStateDispatching
-		dispatchSet = append(dispatchSet, t)
 	}
 	if len(dispatchSet) == 0 {
 		return
@@ -372,75 +290,13 @@ func (r *Reconciler) dispatchRestoreBatch(ctx context.Context, ev *models.Event,
 	} else {
 		runCommand(commandTargets)
 	}
-	if dispatchErr != nil {
-		errMsg := dispatchErr.Error()
-		slog.Error("curtailment reconciler: restore batch dispatch failed",
-			"event_id", ev.ID, "batch_size", len(commandTargets), "error", dispatchErr)
-		r.recordRestoreDispatchFailures(ctx, ev, restoreDispatchFailures(commandTargets, errMsg))
-		return
-	}
-
-	// Empty BatchIdentifier = no device resolved through the queue.
-	if result == nil || result.BatchIdentifier == "" {
-		const reason = "uncurtail command produced no batch (no live devices to dispatch)"
-		slog.Warn("curtailment reconciler: restore batch produced empty result",
-			"event_id", ev.ID, "batch_size", len(commandTargets))
-		r.recordRestoreDispatchFailures(ctx, ev, restoreDispatchFailures(commandTargets, reason))
-		return
-	}
-
-	skippedSet := make(map[string]string, len(result.Skipped))
-	for _, s := range result.Skipped {
-		skippedSet[s.DeviceIdentifier] = skippedDeviceReason(s)
-	}
-	dispatchedSet := curtailment.ToStringSet(result.DispatchedDeviceIdentifiers)
-
-	now := r.now()
-	batchID := result.BatchIdentifier
-	failures := make([]restoreDispatchFailure, 0, len(commandTargets))
-	for _, t := range commandTargets {
-		if reason, skipped := skippedSet[t.DeviceIdentifier]; skipped {
-			slog.Warn("curtailment reconciler: restore device filter-skipped",
-				"event_id", ev.ID, "device", t.DeviceIdentifier, "reason", reason)
-			failures = append(failures, restoreDispatchFailure{target: t, reason: reason})
-			continue
-		}
-		if _, dispatched := dispatchedSet[t.DeviceIdentifier]; !dispatched {
-			const reason = "uncurtail command did not enqueue device"
-			slog.Warn("curtailment reconciler: restore device not dispatched",
-				"event_id", ev.ID, "device", t.DeviceIdentifier)
-			failures = append(failures, restoreDispatchFailure{target: t, reason: reason})
-			continue
-		}
-		emptyErr := ""
-		// Symmetric to the Curtail-phase post-cmd write above.
-		desiredActive := models.DesiredStateActive
-		params := interfaces.UpdateCurtailmentTargetStateParams{
-			State:                models.TargetStateDispatched,
-			LastDispatchedAt:     &now,
-			LastBatchUUID:        &batchID,
-			LastError:            &emptyErr,
-			ExpectedDesiredState: &desiredActive,
-		}
-		if err := r.writeTargetState(ctx, ev, t.DeviceIdentifier, params); err != nil {
-			if !errors.Is(err, interfaces.ErrCurtailmentEventStateRaceLoss) {
-				slog.Error("curtailment reconciler: restore dispatch state update failed",
-					"event_id", ev.ID, "device", t.DeviceIdentifier, "error", err)
-				r.recordDispatchFailure(ctx, ev, t, err.Error(), models.TargetStatePending)
-			}
-			continue
-		}
-		t.State = models.TargetStateDispatched
-		t.LastDispatchedAt = &now
-		t.LastBatchUUID = &batchID
-		t.LastError = nil
-	}
-	r.recordRestoreDispatchFailures(ctx, ev, failures)
+	r.applyDispatchResult(ctx, ev, commandTargets, result, dispatchErr, models.DesiredStateActive, models.TargetStatePending, nil)
 }
 
 type restoreDispatchFailure struct {
-	target *models.Target
-	reason string
+	target       *models.Target
+	reason       string
+	possiblySent bool
 }
 
 func restoreDispatchFailures(targets []*models.Target, reason string) []restoreDispatchFailure {
@@ -465,7 +321,7 @@ func (r *Reconciler) recordRestoreDispatchFailures(
 	}
 
 	parked := make(map[string]struct{}, len(failures))
-	if isAllPairedTopologyPolicyEvent(ev) {
+	if isAllPairedTopologyPolicyEvent(ctx, ev) {
 		deviceIdentifiers := make([]string, 0, len(failures))
 		for _, failure := range failures {
 			if failure.target != nil && failure.target.DeviceIdentifier != "" {
@@ -508,6 +364,7 @@ func (r *Reconciler) recordRestoreDispatchFailures(
 			failure.reason,
 			models.TargetStatePending,
 			&dispatchFailureGuard{expectedState: models.TargetStateDispatching},
+			false,
 		)
 	}
 }
@@ -518,6 +375,13 @@ func (r *Reconciler) parkUncommandableTopologyRestore(
 	target *models.Target,
 	candidate *models.Candidate,
 ) bool {
+	if candidate == nil && ev.State == models.EventStateRestoring {
+		// ListCandidates includes live unpaired/offline rows; absence means the
+		// device was deleted. Preserve the failed restore obligation in history.
+		target.RetryCount = r.cfg.MaxRetries - 1
+		r.recordDispatchFailure(ctx, ev, target, "restore target device deleted", models.TargetStatePending)
+		return true
+	}
 	nextState, reason := curtailment.AllPairedPolicyRestoreTargetState(candidate)
 	if nextState != models.TargetStateUnavailable {
 		return false

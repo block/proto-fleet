@@ -3,13 +3,13 @@ import { Link } from "react-router-dom";
 
 import type { CurtailmentPillEvent, CurtailmentPillProps, CurtailmentPillState } from "./curtailmentPillTypes";
 import PageHeaderPopoverPill from "./PageHeaderPopoverPill";
-import type { CurtailmentEventState } from "@/protoFleet/api/curtailmentTypes";
-import { formatCurtailmentKw } from "@/protoFleet/api/curtailmentUtils";
 import {
   activeCurtailmentDisplayStateConfigs,
   curtailmentEventStateConfigs,
   formatCurtailmentSelectedMinerCount,
-} from "@/protoFleet/features/energy/curtailmentDisplayUtils";
+} from "@/protoFleet/api/curtailmentDisplayUtils";
+import type { CurtailmentEventState } from "@/protoFleet/api/curtailmentTypes";
+import { formatCurtailmentKw } from "@/protoFleet/api/curtailmentUtils";
 
 export type { CurtailmentPillEvent, CurtailmentPillProps, CurtailmentPillState } from "./curtailmentPillTypes";
 

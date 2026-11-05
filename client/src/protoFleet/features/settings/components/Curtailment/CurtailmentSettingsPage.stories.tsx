@@ -342,3 +342,17 @@ export const OperatorRuntimeErrors: Story = {
     ],
   },
 };
+
+export const ProfileBindingRecovery: Story = {
+  args: {
+    initialResponseProfiles: storyResponseProfiles.map((profile, index) => ({
+      ...profile,
+      enabledAutomationRuleCount: index === 0 ? 2 : 0,
+      automationBindingStatus: index === 0 ? "enabled" : "unbound",
+    })),
+    initialSources: storySources,
+    initialAutomationRules: [
+      { ...storyAutomationRules[0], bindingStatus: "rebind_required", lastError: "rebind_required" },
+    ],
+  },
+};

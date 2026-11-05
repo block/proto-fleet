@@ -44,6 +44,59 @@ func (q *Queries) BindCurtailmentAutomationRuleResponseProfileRevision(ctx conte
 	return result.RowsAffected()
 }
 
+const claimCurtailmentAutomationExecution = `-- name: ClaimCurtailmentAutomationExecution :one
+WITH due AS (
+ SELECT ex.rule_id, r.org_id FROM curtailment_automation_execution ex
+ JOIN curtailment_automation_rule r ON r.id = ex.rule_id AND r.enabled
+ JOIN curtailment_mqtt_source_config src ON src.id = ex.mqtt_source_id AND src.enabled
+ WHERE ex.status IN ('pending','retry') AND ex.retry_at <= now() AND (ex.lease_expires_at IS NULL OR ex.lease_expires_at <= now())
+ ORDER BY ex.retry_at, ex.rule_id FOR UPDATE OF ex SKIP LOCKED LIMIT 1
+)
+UPDATE curtailment_automation_execution ex SET lease_expires_at = now() + interval '90 seconds', attempts = ex.attempts + 1
+FROM due WHERE due.rule_id = ex.rule_id RETURNING ex.rule_id, ex.mqtt_source_id, ex.generation, ex.direction, ex.target, ex.target_at, ex.received_at, ex.received_broker, ex.prior_edge_at, ex.status, ex.attempts, ex.retry_at, ex.lease_expires_at, ex.last_error, due.org_id
+`
+
+type ClaimCurtailmentAutomationExecutionRow struct {
+	RuleID         int64
+	MqttSourceID   int64
+	Generation     int64
+	Direction      string
+	Target         string
+	TargetAt       sql.NullTime
+	ReceivedAt     time.Time
+	ReceivedBroker string
+	PriorEdgeAt    sql.NullTime
+	Status         string
+	Attempts       int32
+	RetryAt        time.Time
+	LeaseExpiresAt sql.NullTime
+	LastError      sql.NullString
+	OrgID          int64
+}
+
+func (q *Queries) ClaimCurtailmentAutomationExecution(ctx context.Context) (ClaimCurtailmentAutomationExecutionRow, error) {
+	row := q.queryRow(ctx, q.claimCurtailmentAutomationExecutionStmt, claimCurtailmentAutomationExecution)
+	var i ClaimCurtailmentAutomationExecutionRow
+	err := row.Scan(
+		&i.RuleID,
+		&i.MqttSourceID,
+		&i.Generation,
+		&i.Direction,
+		&i.Target,
+		&i.TargetAt,
+		&i.ReceivedAt,
+		&i.ReceivedBroker,
+		&i.PriorEdgeAt,
+		&i.Status,
+		&i.Attempts,
+		&i.RetryAt,
+		&i.LeaseExpiresAt,
+		&i.LastError,
+		&i.OrgID,
+	)
+	return i, err
+}
+
 const clearCurtailmentAutomationActiveEvent = `-- name: ClearCurtailmentAutomationActiveEvent :exec
 INSERT INTO curtailment_automation_rule_state (
     rule_id,
@@ -73,6 +126,22 @@ type ClearCurtailmentAutomationActiveEventParams struct {
 
 func (q *Queries) ClearCurtailmentAutomationActiveEvent(ctx context.Context, arg ClearCurtailmentAutomationActiveEventParams) error {
 	_, err := q.exec(ctx, q.clearCurtailmentAutomationActiveEventStmt, clearCurtailmentAutomationActiveEvent, arg.RuleID, arg.LastRestoredAt)
+	return err
+}
+
+const completeCurtailmentAutomationExecution = `-- name: CompleteCurtailmentAutomationExecution :exec
+UPDATE curtailment_automation_execution SET status = CASE WHEN generation = $1 THEN 'completed' ELSE status END, lease_expires_at = NULL, last_error = CASE WHEN generation = $1 THEN NULL ELSE last_error END
+WHERE rule_id = $2 AND lease_expires_at = $3::timestamptz
+`
+
+type CompleteCurtailmentAutomationExecutionParams struct {
+	Generation     int64
+	RuleID         int64
+	LeaseExpiresAt time.Time
+}
+
+func (q *Queries) CompleteCurtailmentAutomationExecution(ctx context.Context, arg CompleteCurtailmentAutomationExecutionParams) error {
+	_, err := q.exec(ctx, q.completeCurtailmentAutomationExecutionStmt, completeCurtailmentAutomationExecution, arg.Generation, arg.RuleID, arg.LeaseExpiresAt)
 	return err
 }
 
@@ -109,6 +178,23 @@ type CountCurtailmentAutomationRulesByResponseProfileParams struct {
 
 func (q *Queries) CountCurtailmentAutomationRulesByResponseProfile(ctx context.Context, arg CountCurtailmentAutomationRulesByResponseProfileParams) (int64, error) {
 	row := q.queryRow(ctx, q.countCurtailmentAutomationRulesByResponseProfileStmt, countCurtailmentAutomationRulesByResponseProfile, arg.OrgID, arg.ResponseProfileID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
+const countEnabledCurtailmentAutomationRulesByResponseProfile = `-- name: CountEnabledCurtailmentAutomationRulesByResponseProfile :one
+SELECT count(*) FROM curtailment_automation_rule
+WHERE org_id = $1 AND response_profile_id = $2 AND enabled
+`
+
+type CountEnabledCurtailmentAutomationRulesByResponseProfileParams struct {
+	OrgID             int64
+	ResponseProfileID int64
+}
+
+func (q *Queries) CountEnabledCurtailmentAutomationRulesByResponseProfile(ctx context.Context, arg CountEnabledCurtailmentAutomationRulesByResponseProfileParams) (int64, error) {
+	row := q.queryRow(ctx, q.countEnabledCurtailmentAutomationRulesByResponseProfileStmt, countEnabledCurtailmentAutomationRulesByResponseProfile, arg.OrgID, arg.ResponseProfileID)
 	var count int64
 	err := row.Scan(&count)
 	return count, err
@@ -174,9 +260,48 @@ func (q *Queries) DisableCurtailmentAutomationRuleByActiveEvent(ctx context.Cont
 	return result.RowsAffected()
 }
 
+const getCurtailmentAutomationExecutionGrant = `-- name: GetCurtailmentAutomationExecutionGrant :one
+SELECT grant_row.rule_id, grant_row.org_id, grant_row.response_profile_id, grant_row.response_profile_revision, grant_row.authorization_envelope_json, grant_row.admin_controls_granted, grant_row.created_at
+FROM curtailment_automation_execution_grant grant_row
+JOIN curtailment_automation_rule r ON r.id = grant_row.rule_id AND r.org_id = grant_row.org_id
+JOIN curtailment_automation_rule_profile_revision revision ON revision.automation_rule_id = r.id
+JOIN curtailment_response_profile_with_revision profile ON profile.id = r.response_profile_id AND profile.org_id = r.org_id
+JOIN curtailment_mqtt_source_config source ON source.id = r.mqtt_source_id AND source.organization_id = r.org_id
+WHERE r.id = $1 AND r.org_id = $2 AND r.enabled AND source.enabled
+AND grant_row.response_profile_id = r.response_profile_id AND grant_row.response_profile_revision = revision.response_profile_revision
+AND grant_row.response_profile_revision = profile.revision
+FOR SHARE OF grant_row, r, revision, source
+`
+
+type GetCurtailmentAutomationExecutionGrantParams struct {
+	RuleID int64
+	OrgID  int64
+}
+
+func (q *Queries) GetCurtailmentAutomationExecutionGrant(ctx context.Context, arg GetCurtailmentAutomationExecutionGrantParams) (CurtailmentAutomationExecutionGrant, error) {
+	row := q.queryRow(ctx, q.getCurtailmentAutomationExecutionGrantStmt, getCurtailmentAutomationExecutionGrant, arg.RuleID, arg.OrgID)
+	var i CurtailmentAutomationExecutionGrant
+	err := row.Scan(
+		&i.RuleID,
+		&i.OrgID,
+		&i.ResponseProfileID,
+		&i.ResponseProfileRevision,
+		&i.AuthorizationEnvelopeJson,
+		&i.AdminControlsGranted,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
 const getCurtailmentAutomationRuleByOrg = `-- name: GetCurtailmentAutomationRuleByOrg :one
 SELECT r.id, r.org_id, r.rule_name, r.trigger_type, r.mqtt_source_id, r.response_profile_id, r.enabled, r.created_at, r.updated_at, r.response_profile_revision, r.mqtt_source_name, r.response_profile_name, r.response_profile_site_id, r.response_profile_scope_json, st.last_signal, st.last_signal_at, st.active_event_uuid,
-       st.last_started_at, st.last_restored_at, st.last_error, st.last_error_at
+       st.last_started_at, st.last_restored_at, st.last_error, st.last_error_at,
+       CASE WHEN NOT r.enabled THEN 'disabled'
+            WHEN EXISTS (SELECT 1 FROM curtailment_automation_execution_grant g
+                 JOIN curtailment_response_profile_with_revision p ON p.id = g.response_profile_id AND p.org_id = g.org_id
+                 WHERE g.rule_id = r.id AND g.response_profile_revision = r.response_profile_revision AND p.revision = r.response_profile_revision)
+            THEN 'bound' ELSE 'rebind_required' END::text AS binding_status,
+       COALESCE((SELECT ex.status FROM curtailment_automation_execution ex WHERE ex.rule_id = r.id), 'idle')::text AS execution_status
 FROM curtailment_automation_rule_binding r
 LEFT JOIN curtailment_automation_rule_state st ON st.rule_id = r.id
 WHERE r.id = $1
@@ -210,6 +335,8 @@ type GetCurtailmentAutomationRuleByOrgRow struct {
 	LastRestoredAt           sql.NullTime
 	LastError                sql.NullString
 	LastErrorAt              sql.NullTime
+	BindingStatus            string
+	ExecutionStatus          string
 }
 
 func (q *Queries) GetCurtailmentAutomationRuleByOrg(ctx context.Context, arg GetCurtailmentAutomationRuleByOrgParams) (GetCurtailmentAutomationRuleByOrgRow, error) {
@@ -237,13 +364,21 @@ func (q *Queries) GetCurtailmentAutomationRuleByOrg(ctx context.Context, arg Get
 		&i.LastRestoredAt,
 		&i.LastError,
 		&i.LastErrorAt,
+		&i.BindingStatus,
+		&i.ExecutionStatus,
 	)
 	return i, err
 }
 
 const getEnabledCurtailmentAutomationRuleByEvent = `-- name: GetEnabledCurtailmentAutomationRuleByEvent :one
 SELECT r.id, r.org_id, r.rule_name, r.trigger_type, r.mqtt_source_id, r.response_profile_id, r.enabled, r.created_at, r.updated_at, r.response_profile_revision, r.mqtt_source_name, r.response_profile_name, r.response_profile_site_id, r.response_profile_scope_json, st.last_signal, st.last_signal_at, st.active_event_uuid,
-       st.last_started_at, st.last_restored_at, st.last_error, st.last_error_at
+       st.last_started_at, st.last_restored_at, st.last_error, st.last_error_at,
+       CASE WHEN NOT r.enabled THEN 'disabled'
+            WHEN EXISTS (SELECT 1 FROM curtailment_automation_execution_grant g
+                 JOIN curtailment_response_profile_with_revision p ON p.id = g.response_profile_id AND p.org_id = g.org_id
+                 WHERE g.rule_id = r.id AND g.response_profile_revision = r.response_profile_revision AND p.revision = r.response_profile_revision)
+            THEN 'bound' ELSE 'rebind_required' END::text AS binding_status,
+       COALESCE((SELECT ex.status FROM curtailment_automation_execution ex WHERE ex.rule_id = r.id), 'idle')::text AS execution_status
 FROM curtailment_automation_rule_binding r
 JOIN curtailment_automation_rule_state st ON st.rule_id = r.id
 WHERE r.org_id = $1
@@ -288,6 +423,8 @@ type GetEnabledCurtailmentAutomationRuleByEventRow struct {
 	LastRestoredAt           sql.NullTime
 	LastError                sql.NullString
 	LastErrorAt              sql.NullTime
+	BindingStatus            string
+	ExecutionStatus          string
 }
 
 func (q *Queries) GetEnabledCurtailmentAutomationRuleByEvent(ctx context.Context, arg GetEnabledCurtailmentAutomationRuleByEventParams) (GetEnabledCurtailmentAutomationRuleByEventRow, error) {
@@ -315,6 +452,8 @@ func (q *Queries) GetEnabledCurtailmentAutomationRuleByEvent(ctx context.Context
 		&i.LastRestoredAt,
 		&i.LastError,
 		&i.LastErrorAt,
+		&i.BindingStatus,
+		&i.ExecutionStatus,
 	)
 	return i, err
 }
@@ -373,7 +512,13 @@ func (q *Queries) InsertCurtailmentAutomationRule(ctx context.Context, arg Inser
 
 const listCurtailmentAutomationRulesByOrg = `-- name: ListCurtailmentAutomationRulesByOrg :many
 SELECT r.id, r.org_id, r.rule_name, r.trigger_type, r.mqtt_source_id, r.response_profile_id, r.enabled, r.created_at, r.updated_at, r.response_profile_revision, r.mqtt_source_name, r.response_profile_name, r.response_profile_site_id, r.response_profile_scope_json, st.last_signal, st.last_signal_at, st.active_event_uuid,
-       st.last_started_at, st.last_restored_at, st.last_error, st.last_error_at
+       st.last_started_at, st.last_restored_at, st.last_error, st.last_error_at,
+       CASE WHEN NOT r.enabled THEN 'disabled'
+            WHEN EXISTS (SELECT 1 FROM curtailment_automation_execution_grant g
+                 JOIN curtailment_response_profile_with_revision p ON p.id = g.response_profile_id AND p.org_id = g.org_id
+                 WHERE g.rule_id = r.id AND g.response_profile_revision = r.response_profile_revision AND p.revision = r.response_profile_revision)
+            THEN 'bound' ELSE 'rebind_required' END::text AS binding_status,
+       COALESCE((SELECT ex.status FROM curtailment_automation_execution ex WHERE ex.rule_id = r.id), 'idle')::text AS execution_status
 FROM curtailment_automation_rule_binding r
 LEFT JOIN curtailment_automation_rule_state st ON st.rule_id = r.id
 WHERE r.org_id = $1
@@ -402,6 +547,8 @@ type ListCurtailmentAutomationRulesByOrgRow struct {
 	LastRestoredAt           sql.NullTime
 	LastError                sql.NullString
 	LastErrorAt              sql.NullTime
+	BindingStatus            string
+	ExecutionStatus          string
 }
 
 func (q *Queries) ListCurtailmentAutomationRulesByOrg(ctx context.Context, orgID int64) ([]ListCurtailmentAutomationRulesByOrgRow, error) {
@@ -435,6 +582,8 @@ func (q *Queries) ListCurtailmentAutomationRulesByOrg(ctx context.Context, orgID
 			&i.LastRestoredAt,
 			&i.LastError,
 			&i.LastErrorAt,
+			&i.BindingStatus,
+			&i.ExecutionStatus,
 		); err != nil {
 			return nil, err
 		}
@@ -451,7 +600,13 @@ func (q *Queries) ListCurtailmentAutomationRulesByOrg(ctx context.Context, orgID
 
 const listEnabledCurtailmentAutomationRulesByMQTTSource = `-- name: ListEnabledCurtailmentAutomationRulesByMQTTSource :many
 SELECT r.id, r.org_id, r.rule_name, r.trigger_type, r.mqtt_source_id, r.response_profile_id, r.enabled, r.created_at, r.updated_at, r.response_profile_revision, r.mqtt_source_name, r.response_profile_name, r.response_profile_site_id, r.response_profile_scope_json, st.last_signal, st.last_signal_at, st.active_event_uuid,
-       st.last_started_at, st.last_restored_at, st.last_error, st.last_error_at
+       st.last_started_at, st.last_restored_at, st.last_error, st.last_error_at,
+       CASE WHEN NOT r.enabled THEN 'disabled'
+            WHEN EXISTS (SELECT 1 FROM curtailment_automation_execution_grant g
+                 JOIN curtailment_response_profile_with_revision p ON p.id = g.response_profile_id AND p.org_id = g.org_id
+                 WHERE g.rule_id = r.id AND g.response_profile_revision = r.response_profile_revision AND p.revision = r.response_profile_revision)
+            THEN 'bound' ELSE 'rebind_required' END::text AS binding_status,
+       COALESCE((SELECT ex.status FROM curtailment_automation_execution ex WHERE ex.rule_id = r.id), 'idle')::text AS execution_status
 FROM curtailment_automation_rule_binding r
 LEFT JOIN curtailment_automation_rule_state st ON st.rule_id = r.id
 WHERE r.mqtt_source_id = $1
@@ -481,6 +636,8 @@ type ListEnabledCurtailmentAutomationRulesByMQTTSourceRow struct {
 	LastRestoredAt           sql.NullTime
 	LastError                sql.NullString
 	LastErrorAt              sql.NullTime
+	BindingStatus            string
+	ExecutionStatus          string
 }
 
 func (q *Queries) ListEnabledCurtailmentAutomationRulesByMQTTSource(ctx context.Context, mqttSourceID int64) ([]ListEnabledCurtailmentAutomationRulesByMQTTSourceRow, error) {
@@ -514,6 +671,8 @@ func (q *Queries) ListEnabledCurtailmentAutomationRulesByMQTTSource(ctx context.
 			&i.LastRestoredAt,
 			&i.LastError,
 			&i.LastErrorAt,
+			&i.BindingStatus,
+			&i.ExecutionStatus,
 		); err != nil {
 			return nil, err
 		}
@@ -590,9 +749,9 @@ WHERE rule.id = $1
   AND rule.enabled = TRUE
   AND rule.trigger_type = 'MQTT'
   AND rule.mqtt_source_id = $3
-  AND source.service_user_id = $4
-  AND rule.response_profile_id = $5
-  AND rule_revision.response_profile_revision = $6
+  AND source.enabled = TRUE
+  AND rule.response_profile_id = $4
+  AND rule_revision.response_profile_revision = $5
 FOR UPDATE OF rule, rule_revision, source
 `
 
@@ -600,7 +759,6 @@ type LockCurtailmentAutomationRuleForExecutionParams struct {
 	ID                      int64
 	OrgID                   int64
 	MqttSourceID            int64
-	ServiceUserID           int64
 	ResponseProfileID       int64
 	ResponseProfileRevision uuid.UUID
 }
@@ -610,7 +768,6 @@ func (q *Queries) LockCurtailmentAutomationRuleForExecution(ctx context.Context,
 		arg.ID,
 		arg.OrgID,
 		arg.MqttSourceID,
-		arg.ServiceUserID,
 		arg.ResponseProfileID,
 		arg.ResponseProfileRevision,
 	)
@@ -638,6 +795,100 @@ type LockCurtailmentAutomationRuleMutationParams struct {
 
 func (q *Queries) LockCurtailmentAutomationRuleMutation(ctx context.Context, arg LockCurtailmentAutomationRuleMutationParams) error {
 	_, err := q.exec(ctx, q.lockCurtailmentAutomationRuleMutationStmt, lockCurtailmentAutomationRuleMutation, arg.OrgID, arg.RuleID)
+	return err
+}
+
+const queueCurrentCurtailmentAutomationExecution = `-- name: QueueCurrentCurtailmentAutomationExecution :exec
+INSERT INTO curtailment_automation_execution (rule_id, mqtt_source_id, direction, target, target_at, received_at, received_broker, prior_edge_at)
+SELECT r.id, r.mqtt_source_id,
+ CASE COALESCE(st.pending_target, st.last_target) WHEN 'OFF' THEN 'reassert_off' ELSE 'off_to_on' END,
+ COALESCE(st.pending_target, st.last_target), COALESCE(st.pending_target_at, st.last_target_at),
+ COALESCE(CASE WHEN st.pending_target IS NOT NULL THEN st.pending_received_at ELSE st.last_received_at END, now()),
+ COALESCE(st.last_received_broker,''), st.last_edge_at
+FROM curtailment_automation_rule r JOIN curtailment_mqtt_source_state st ON st.source_config_id = r.mqtt_source_id
+JOIN curtailment_mqtt_source_config src ON src.id = r.mqtt_source_id
+WHERE r.id = $1 AND r.enabled AND src.enabled AND COALESCE(st.pending_target, st.last_target) IN ('ON','OFF')
+ON CONFLICT (rule_id) DO UPDATE SET generation = curtailment_automation_execution.generation + 1,
+ mqtt_source_id = EXCLUDED.mqtt_source_id, direction = EXCLUDED.direction, target = EXCLUDED.target, target_at = EXCLUDED.target_at,
+ received_at = EXCLUDED.received_at, received_broker = EXCLUDED.received_broker, prior_edge_at = EXCLUDED.prior_edge_at,
+ status = 'pending', attempts = 0, retry_at = now(), last_error = NULL
+WHERE curtailment_automation_execution.received_at <= EXCLUDED.received_at
+ OR curtailment_automation_execution.mqtt_source_id <> EXCLUDED.mqtt_source_id
+`
+
+// Seed the rule with the source's current assertion, ordered by when that
+// assertion was received, so a newer signal still waiting to be processed
+// replaces it. Activation re-runs an equal assertion but never a newer one.
+func (q *Queries) QueueCurrentCurtailmentAutomationExecution(ctx context.Context, ruleID int64) error {
+	_, err := q.exec(ctx, q.queueCurrentCurtailmentAutomationExecutionStmt, queueCurrentCurtailmentAutomationExecution, ruleID)
+	return err
+}
+
+const queueCurtailmentAutomationExecution = `-- name: QueueCurtailmentAutomationExecution :exec
+INSERT INTO curtailment_automation_execution (rule_id, mqtt_source_id, direction, target, target_at, received_at, received_broker, prior_edge_at)
+SELECT r.id, r.mqtt_source_id, $1, $2, $3, $4, $5, $6
+FROM curtailment_automation_rule r WHERE r.id = $7 AND r.enabled AND r.mqtt_source_id = $8
+ON CONFLICT (rule_id) DO UPDATE SET generation = curtailment_automation_execution.generation + 1,
+ mqtt_source_id = EXCLUDED.mqtt_source_id, direction = EXCLUDED.direction, target = EXCLUDED.target,
+ target_at = EXCLUDED.target_at, received_at = EXCLUDED.received_at, received_broker = EXCLUDED.received_broker, prior_edge_at = EXCLUDED.prior_edge_at,
+ status = 'pending', attempts = 0, retry_at = now(), last_error = NULL
+WHERE (
+ curtailment_automation_execution.received_at < EXCLUDED.received_at
+ OR (curtailment_automation_execution.received_at = EXCLUDED.received_at AND curtailment_automation_execution.target <> EXCLUDED.target)
+ OR curtailment_automation_execution.mqtt_source_id <> EXCLUDED.mqtt_source_id
+) AND NOT (
+ curtailment_automation_execution.mqtt_source_id = EXCLUDED.mqtt_source_id
+ AND curtailment_automation_execution.target = EXCLUDED.target
+ AND curtailment_automation_execution.status IN ('pending','retry')
+ AND EXCLUDED.direction = 'reassert_off'
+)
+`
+
+type QueueCurtailmentAutomationExecutionParams struct {
+	Direction      string
+	Target         string
+	TargetAt       sql.NullTime
+	ReceivedAt     time.Time
+	ReceivedBroker string
+	PriorEdgeAt    sql.NullTime
+	RuleID         int64
+	MqttSourceID   int64
+}
+
+func (q *Queries) QueueCurtailmentAutomationExecution(ctx context.Context, arg QueueCurtailmentAutomationExecutionParams) error {
+	_, err := q.exec(ctx, q.queueCurtailmentAutomationExecutionStmt, queueCurtailmentAutomationExecution,
+		arg.Direction,
+		arg.Target,
+		arg.TargetAt,
+		arg.ReceivedAt,
+		arg.ReceivedBroker,
+		arg.PriorEdgeAt,
+		arg.RuleID,
+		arg.MqttSourceID,
+	)
+	return err
+}
+
+const retryCurtailmentAutomationExecution = `-- name: RetryCurtailmentAutomationExecution :exec
+UPDATE curtailment_automation_execution SET status = CASE WHEN generation = $1 THEN 'retry' ELSE status END, lease_expires_at = NULL,
+ retry_at = CASE WHEN generation = $1 THEN now() + LEAST(300, 5 * attempts) * interval '1 second' ELSE retry_at END, last_error = CASE WHEN generation = $1 THEN $2 ELSE last_error END
+WHERE rule_id = $3 AND lease_expires_at = $4::timestamptz
+`
+
+type RetryCurtailmentAutomationExecutionParams struct {
+	Generation     int64
+	LastError      sql.NullString
+	RuleID         int64
+	LeaseExpiresAt time.Time
+}
+
+func (q *Queries) RetryCurtailmentAutomationExecution(ctx context.Context, arg RetryCurtailmentAutomationExecutionParams) error {
+	_, err := q.exec(ctx, q.retryCurtailmentAutomationExecutionStmt, retryCurtailmentAutomationExecution,
+		arg.Generation,
+		arg.LastError,
+		arg.RuleID,
+		arg.LeaseExpiresAt,
+	)
 	return err
 }
 
@@ -866,6 +1117,28 @@ func (q *Queries) UpdateCurtailmentAutomationRule(ctx context.Context, arg Updat
 		&i.UpdatedAt,
 	)
 	return i, err
+}
+
+const upsertCurtailmentAutomationExecutionGrant = `-- name: UpsertCurtailmentAutomationExecutionGrant :exec
+INSERT INTO curtailment_automation_execution_grant (rule_id, org_id, response_profile_id, response_profile_revision, authorization_envelope_json, admin_controls_granted)
+SELECT r.id, r.org_id, p.id, p.revision, p.authorization_envelope_jsonb, $1
+FROM curtailment_automation_rule r
+JOIN curtailment_response_profile_with_revision p ON p.id = r.response_profile_id AND p.org_id = r.org_id
+WHERE r.id = $2 AND r.org_id = $3
+ON CONFLICT (rule_id) DO UPDATE SET response_profile_id = EXCLUDED.response_profile_id,
+ response_profile_revision = EXCLUDED.response_profile_revision, authorization_envelope_json = EXCLUDED.authorization_envelope_json,
+ admin_controls_granted = EXCLUDED.admin_controls_granted
+`
+
+type UpsertCurtailmentAutomationExecutionGrantParams struct {
+	AdminControlsGranted bool
+	RuleID               int64
+	OrgID                int64
+}
+
+func (q *Queries) UpsertCurtailmentAutomationExecutionGrant(ctx context.Context, arg UpsertCurtailmentAutomationExecutionGrantParams) error {
+	_, err := q.exec(ctx, q.upsertCurtailmentAutomationExecutionGrantStmt, upsertCurtailmentAutomationExecutionGrant, arg.AdminControlsGranted, arg.RuleID, arg.OrgID)
+	return err
 }
 
 const upsertCurtailmentAutomationSignalState = `-- name: UpsertCurtailmentAutomationSignalState :exec

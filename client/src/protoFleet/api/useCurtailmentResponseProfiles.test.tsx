@@ -382,6 +382,32 @@ describe("useCurtailmentResponseProfiles", () => {
     );
   });
 
+  it("refreshes binding metadata and explains an edit blocked by newly enabled automation rules", async () => {
+    mockListCurtailmentResponseProfiles.mockResolvedValue({
+      profiles: [wholeOrgApiProfile({ enabledAutomationRuleCount: 2, automationBindingStatus: "enabled" })],
+    });
+    mockUpdateCurtailmentResponseProfile.mockRejectedValueOnce(
+      new ConnectError(
+        "curtailment response profile is bound to enabled automation rules; disable those rules before editing",
+        Code.FailedPrecondition,
+      ),
+    );
+    const { result } = renderHook(() => useCurtailmentResponseProfiles(false));
+    await act(async () => {
+      await result.current.listResponseProfiles();
+    });
+    await expect(
+      act(async () => {
+        await result.current.updateResponseProfile("7", fixedKwFormValues);
+      }),
+    ).rejects.toThrow("Disable the automation rules using this profile before editing it.");
+    expect(result.current.responseProfiles[0]).toMatchObject({
+      enabledAutomationRuleCount: 2,
+      automationBindingStatus: "enabled",
+    });
+    expect(mockListCurtailmentResponseProfiles).toHaveBeenCalledTimes(2);
+  });
+
   it("does not treat other failed preconditions as revision conflicts", async () => {
     mockListCurtailmentResponseProfiles.mockResolvedValueOnce({ profiles: [wholeOrgApiProfile()] });
     mockUpdateCurtailmentResponseProfile.mockRejectedValueOnce(

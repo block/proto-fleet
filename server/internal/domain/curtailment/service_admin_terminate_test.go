@@ -403,6 +403,43 @@ func TestService_ForceRelease_RetriesTerminalFanFailureWithoutOffTimestamp(t *te
 	assert.Equal(t, 1, store.forceReleaseCalls)
 }
 
+func TestService_ForceRelease_RecoversDurablePendingFanIntentWithoutAttemptTimestamps(t *testing.T) {
+	t.Parallel()
+	for _, terminalState := range []models.EventState{models.EventStateCancelled, models.EventStateFailed} {
+		t.Run(string(terminalState), func(t *testing.T) {
+			t.Parallel()
+			eventUUID := uuid.New()
+			pendingRecovery := "facility fan recovery is pending"
+			store := newFakeStore()
+			// Terminalization committed its recovery marker, then the process
+			// stopped before issuing ON or persisting the first attempt.
+			store.eventsByUUID[eventUUID] = &models.Event{
+				ID: 97, EventUUID: eventUUID, OrgID: 1, State: terminalState,
+				FacilityFanDeviceIDs: []int64{701}, FacilityFanSiteIDs: []int64{2},
+				FanLastError: &pendingRecovery,
+			}
+			store.forceReleaseResult = store.eventsByUUID[eventUUID]
+			fans := &fakeTerminalFanController{}
+			svc := NewService(store, WithFacilityFanController(fans))
+
+			result, err := svc.ForceRelease(t.Context(), ForceReleaseRequest{
+				OrgID: 1, EventUUID: eventUUID, Reason: "recover interrupted terminal fan command",
+			})
+
+			require.NoError(t, err)
+			require.NotNil(t, result.Event)
+			assert.Equal(t, []driver.PowerMode{driver.PowerOn}, fans.powers)
+			assert.Equal(t, 1, store.updateFanStateCalls)
+			assert.Equal(t, terminalState, store.lastUpdateFanStateParams.ExpectedEventState)
+			assert.NotNil(t, store.lastUpdateFanStateParams.FanOnSentAt)
+			assert.Nil(t, store.lastUpdateFanStateParams.LastError)
+			assert.Nil(t, result.Event.FanLastError)
+			assert.NotNil(t, result.Event.FanOnSentAt)
+			assert.Equal(t, []string{"terminal fan recovery", "force release"}, store.operatorFanCallOrder)
+		})
+	}
+}
+
 func TestService_ForceRelease_DoesNotReassertRecoveredTerminalFanState(t *testing.T) {
 	t.Parallel()
 	eventUUID := uuid.New()

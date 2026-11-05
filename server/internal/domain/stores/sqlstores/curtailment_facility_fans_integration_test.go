@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/block/proto-fleet/server/generated/sqlc"
 	"github.com/block/proto-fleet/server/internal/domain/curtailment/models"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/infrastructure"
@@ -19,6 +20,7 @@ import (
 	sitesmodels "github.com/block/proto-fleet/server/internal/domain/sites/models"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 	"github.com/block/proto-fleet/server/internal/domain/stores/sqlstores"
+	dbinfra "github.com/block/proto-fleet/server/internal/infrastructure/db"
 	"github.com/block/proto-fleet/server/internal/testutil"
 )
 
@@ -129,8 +131,7 @@ func TestSQLCurtailmentStore_FacilityFanClaimSnapshotAndRelease(t *testing.T) {
 			return nil
 		},
 	)
-	require.Error(t, err)
-	assert.True(t, fleeterror.IsFailedPreconditionError(err))
+	require.NoError(t, err, "an already-recovered terminal retry must return idempotently")
 	assert.False(t, commandCalled, "stale terminal recovery must not override the newer active fan claim")
 }
 
@@ -564,4 +565,160 @@ func seedCurtailmentFacilityFan(t *testing.T, db *sql.DB, orgID int64, name stri
 	})
 	require.NoError(t, err)
 	return site.ID, device.ID
+}
+
+func TestSQLCurtailmentStore_StaleFanONRetriesKeepSuccessfulResult(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping database integration test in short mode")
+	}
+	for _, operation := range []string{"active airflow", "restoring", "terminal recovery", "force release"} {
+		t.Run(operation, func(t *testing.T) {
+			testContext := testutil.InitializeDBServiceInfrastructure(t)
+			user := testContext.DatabaseService.CreateSuperAdminUser()
+			ctx := t.Context()
+			database := testContext.DatabaseService.DB
+			store := sqlstores.NewSQLCurtailmentStore(database)
+			siteID, fanID := seedCurtailmentFacilityFan(t, database, user.OrganizationID, "stale-fan-on")
+			eventUUID := uuid.New()
+			state := models.EventStateActive
+			if operation == "restoring" {
+				state = models.EventStateRestoring
+			}
+			event := curtailmentStoreTestEvent(user.OrganizationID, user.DatabaseID, eventUUID, state, "stale-fan-on")
+			event.FacilityFanDeviceIDs = []int64{fanID}
+			event.ExpectedFacilityFanSites = map[int64]int64{fanID: siteID}
+			inserted, err := store.InsertEventWithTargets(ctx, event, []models.InsertTargetParams{
+				curtailmentStoreTestTarget("stale-fan-on-miner", models.TargetStateConfirmed, models.DesiredStateCurtailed),
+			})
+			require.NoError(t, err)
+			if operation == "terminal recovery" {
+				_, err = store.ForceReleaseEvent(ctx, user.OrganizationID, eventUUID, "seed terminal recovery")
+				require.NoError(t, err)
+			}
+			firstAttempt := time.Now().UTC().Add(-time.Minute)
+			staleAttempt := firstAttempt.Add(30 * time.Second)
+			invoke := func(at time.Time, command func(context.Context) *string) error {
+				params := interfaces.UpdateCurtailmentFanStateParams{ExpectedEventState: state, FanOnSentAt: &at}
+				switch operation {
+				case "active airflow":
+					params.FanOnSentAt = nil
+					params.FanAirflowReopenedAtOnSuccess = &at
+					_, err := store.CommandFanState(ctx, inserted.ID, params, command)
+					return err
+				case "restoring":
+					_, err := store.CommandFanState(ctx, inserted.ID, params, command)
+					return err
+				case "terminal recovery":
+					params.ExpectedEventState = models.EventStateCancelled
+					return store.RecoverTerminalFanState(ctx, inserted.ID, user.OrganizationID, []int64{fanID}, []int64{siteID}, params, command)
+				default:
+					params.ExpectedEventState = models.EventStateCancelled
+					_, err := store.ForceReleaseEventWithFanRecovery(ctx, user.OrganizationID, eventUUID, "operator recovery", inserted.ID, []int64{fanID}, []int64{siteID}, params, command)
+					return err
+				}
+			}
+			entered := make(chan struct{})
+			unblock := make(chan struct{})
+			finish := sync.OnceFunc(func() { close(unblock) })
+			t.Cleanup(finish)
+			firstDone := make(chan error, 1)
+			go func() {
+				firstDone <- invoke(firstAttempt, func(context.Context) *string {
+					close(entered)
+					<-unblock
+					return nil
+				})
+			}()
+			select {
+			case <-entered:
+			case <-time.After(5 * time.Second):
+				t.Fatal("first fan command did not enter")
+			}
+			staleCommandCalled := make(chan struct{}, 1)
+			secondDone := make(chan error, 1)
+			go func() {
+				secondDone <- invoke(staleAttempt, func(context.Context) *string {
+					staleCommandCalled <- struct{}{}
+					return nil
+				})
+			}()
+			select {
+			case err := <-secondDone:
+				require.Failf(t, "stale retry escaped serialization", "error: %v", err)
+			case <-time.After(100 * time.Millisecond):
+			}
+			finish()
+			require.NoError(t, <-firstDone)
+			require.NoError(t, <-secondDone)
+			assert.Empty(t, staleCommandCalled, "a stale request must not repeat a durably successful ON command")
+			current, err := store.GetEventByUUID(ctx, user.OrganizationID, eventUUID)
+			require.NoError(t, err)
+			if operation == "active airflow" {
+				require.NotNil(t, current.FanAirflowReopenedAt)
+				assert.WithinDuration(t, firstAttempt, *current.FanAirflowReopenedAt, time.Microsecond)
+			} else {
+				require.NotNil(t, current.FanOnSentAt)
+				assert.WithinDuration(t, firstAttempt, *current.FanOnSentAt, time.Microsecond)
+			}
+			assert.Nil(t, current.FanLastError)
+		})
+	}
+}
+
+func TestSQLCurtailmentStore_CanceledFanCommandRetainsEndpointLocksUntilAdapterReturns(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping database integration test in short mode")
+	}
+	testContext := testutil.InitializeDBServiceInfrastructure(t)
+	user := testContext.DatabaseService.CreateSuperAdminUser()
+	ctx := t.Context()
+	database := testContext.DatabaseService.DB
+	database.SetMaxOpenConns(2)
+	store := sqlstores.NewSQLCurtailmentStore(database)
+	siteID, fanID := seedCurtailmentFacilityFan(t, database, user.OrganizationID, "cancelled-fan-lock")
+	eventUUID := uuid.New()
+	event := curtailmentStoreTestEvent(user.OrganizationID, user.DatabaseID, eventUUID, models.EventStateActive, "cancelled-fan-lock")
+	event.FacilityFanDeviceIDs = []int64{fanID}
+	event.ExpectedFacilityFanSites = map[int64]int64{fanID: siteID}
+	inserted, err := store.InsertEventWithTargets(ctx, event, []models.InsertTargetParams{
+		curtailmentStoreTestTarget("cancelled-fan-lock-miner", models.TargetStateConfirmed, models.DesiredStateCurtailed),
+	})
+	require.NoError(t, err)
+	commandCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	entered := make(chan struct{})
+	unblock := make(chan struct{})
+	finish := sync.OnceFunc(func() { close(unblock) })
+	t.Cleanup(finish)
+	done := make(chan error, 1)
+	go func() {
+		_, err := store.CommandFanState(commandCtx, inserted.ID, interfaces.UpdateCurtailmentFanStateParams{ExpectedEventState: models.EventStateActive}, func(context.Context) *string {
+			close(entered)
+			<-unblock // An adapter can still be returning after caller cancellation.
+			return nil
+		})
+		done <- err
+	}()
+	select {
+	case <-entered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("fan command did not enter")
+	}
+	cancel()
+	budgetCtx, cancelBudget := context.WithTimeout(ctx, 100*time.Millisecond)
+	defer cancelBudget()
+	err = dbinfra.WithDispatchTransaction(budgetCtx, database, func(sqlc.Querier) error {
+		t.Error("another physical dispatcher entered while the canceled fan adapter retained the only slot")
+		return nil
+	})
+	require.ErrorIs(t, err, context.DeadlineExceeded)
+	assert.Equal(t, 1, database.Stats().InUse, "waiting dispatchers must leave a connection available for completion SQL")
+	mutationCtx, cancelMutation := context.WithTimeout(ctx, 100*time.Millisecond)
+	defer cancelMutation()
+	_, err = database.ExecContext(mutationCtx, `UPDATE infrastructure_device SET name = name || '-changed' WHERE id = $1`, fanID)
+	require.Error(t, err, "caller cancellation must not release endpoint locks while the physical adapter is running")
+	finish()
+	require.Error(t, <-done, "the canceled caller cannot persist a successful hardware result")
+	_, err = database.ExecContext(ctx, `UPDATE infrastructure_device SET name = name || '-changed' WHERE id = $1`, fanID)
+	require.NoError(t, err, "endpoint locks must release when the adapter returns")
 }

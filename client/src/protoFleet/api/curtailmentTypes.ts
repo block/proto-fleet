@@ -255,6 +255,8 @@ export type ResponseProfileFormValues = {
 };
 
 export type ResponseProfile = {
+  enabledAutomationRuleCount?: number;
+  automationBindingStatus?: string;
   id: string;
   revision?: string;
   name: string;
@@ -283,6 +285,8 @@ export type AutomationRuleFormValues = {
 };
 
 export type AutomationRule = {
+  bindingStatus?: string;
+  executionStatus?: string;
   lastError?: string;
   id: string;
   priority: number;

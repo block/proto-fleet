@@ -381,6 +381,7 @@ func TestRigConfigStore_RetryAndTerminalFailureRetainOnlyFailedTargets(t *testin
 	require.NoError(t, err)
 	require.NoError(t, f.queries.RetryRigConfigReconciliation(t.Context(), sqlc.RetryRigConfigReconciliationParams{
 		OrganizationID: f.orgID, DesiredGeneration: claim.DesiredGeneration, LastError: sql.NullString{String: "transient", Valid: true},
+		FastAttempts: rigConfigFastDeliveryAttempts, SlowRetrySeconds: int32(rigConfigSlowRetryInterval / time.Second),
 	}))
 	require.ElementsMatch(t, []string{first.identifier, second.identifier}, f.targets(t, claim.DesiredGeneration))
 	_, err = f.queries.ClaimRigConfigReconciliation(t.Context())
@@ -410,4 +411,151 @@ func TestRigConfigStore_RetryAndTerminalFailureRetainOnlyFailedTargets(t *testin
 	var desiredGeneration int64
 	require.NoError(t, f.db.QueryRowContext(t.Context(), "SELECT desired_generation FROM curtailment_rig_config_reconciliation WHERE organization_id = $1", f.orgID).Scan(&desiredGeneration))
 	require.Equal(t, terminal.DesiredGeneration, desiredGeneration, "container failures must not reopen rig config work")
+}
+
+// A short outage must not strand stale fallback providers: once fast retries
+// are spent, delivery keeps retrying on the slow period instead of stopping.
+func TestRigConfigStore_DeliveryRetriesBackOffThenContinueSlowly(t *testing.T) {
+	f := newRigConfigStoreFixture(t)
+	rig := f.createRig(t, "Proto", "PAIRED")
+	f.request(t, rig.identifier)
+	retryDelay := func() time.Duration {
+		t.Helper()
+		claim, err := f.queries.ClaimRigConfigReconciliation(t.Context())
+		require.NoError(t, err, "delivery is still claimable after earlier failures")
+		require.NoError(t, f.queries.RetryRigConfigReconciliation(t.Context(), sqlc.RetryRigConfigReconciliationParams{
+			OrganizationID: f.orgID, DesiredGeneration: claim.DesiredGeneration, LastError: sql.NullString{String: "queue unavailable", Valid: true},
+			FastAttempts: rigConfigFastDeliveryAttempts, SlowRetrySeconds: int32(rigConfigSlowRetryInterval / time.Second),
+		}))
+		var seconds float64
+		require.NoError(t, f.db.QueryRowContext(t.Context(), "SELECT EXTRACT(EPOCH FROM retry_at - CURRENT_TIMESTAMP)::float8 FROM curtailment_rig_config_reconciliation WHERE organization_id=$1", f.orgID).Scan(&seconds))
+		_, err = f.db.ExecContext(t.Context(), "UPDATE curtailment_rig_config_reconciliation SET retry_at=now() WHERE organization_id=$1", f.orgID)
+		require.NoError(t, err)
+		return time.Duration(seconds * float64(time.Second))
+	}
+	delays := make([]time.Duration, 0, rigConfigFastDeliveryAttempts+2)
+	for range rigConfigFastDeliveryAttempts + 2 {
+		delays = append(delays, retryDelay())
+	}
+	for attempt, delay := range delays[:rigConfigFastDeliveryAttempts-1] {
+		require.InDelta(t, float64(5*(attempt+1)), delay.Seconds(), 2, "fast retry %d backs off linearly", attempt+1)
+	}
+	for _, delay := range delays[rigConfigFastDeliveryAttempts-1:] {
+		require.InDelta(t, rigConfigSlowRetryInterval.Seconds(), delay.Seconds(), 2, "spent fast retries continue on the slow period")
+	}
+}
+
+func TestRigConfigStore_DeviceDeliveryKeepsRetryingAfterFastBudget(t *testing.T) {
+	f := newRigConfigStoreFixture(t)
+	rig := f.createRig(t, "Proto", "PAIRED")
+	f.request(t, rig.identifier)
+	recovered, err := f.queries.ClaimRigConfigReconciliation(t.Context())
+	require.NoError(t, err)
+	f.complete(t, recovered.DesiredGeneration)
+	requeue := func() {
+		require.NoError(t, f.queries.RequeueRigConfigReconciliationAfterTerminalFailure(t.Context(), sqlc.RequeueRigConfigReconciliationAfterTerminalFailureParams{OrganizationID: f.orgID, DeviceID: rig.id, ContainerDeviceClass: int32(commonpb.DeviceClass_DEVICE_CLASS_CONTAINER)}))
+	}
+	retryDelay := func() time.Duration {
+		var seconds float64
+		require.NoError(t, f.db.QueryRowContext(t.Context(), "SELECT EXTRACT(EPOCH FROM retry_at - CURRENT_TIMESTAMP)::float8 FROM curtailment_rig_config_reconciliation WHERE organization_id=$1", f.orgID).Scan(&seconds))
+		return time.Duration(seconds * float64(time.Second))
+	}
+	claimWhenDue := func() {
+		_, err := f.db.ExecContext(t.Context(), "UPDATE curtailment_rig_config_reconciliation SET retry_at=now() WHERE organization_id=$1", f.orgID)
+		require.NoError(t, err)
+		claim, err := f.queries.ClaimRigConfigReconciliation(t.Context())
+		require.NoError(t, err)
+		targets, err := f.queries.ListRigConfigReconciliationTargets(t.Context(), sqlc.ListRigConfigReconciliationTargetsParams{
+			ContainerDeviceClass: int32(commonpb.DeviceClass_DEVICE_CLASS_CONTAINER),
+			OrganizationID:       f.orgID, EnqueuedGeneration: claim.EnqueuedGeneration, DesiredGeneration: claim.DesiredGeneration,
+		})
+		require.NoError(t, err)
+		require.Contains(t, targets, rig.identifier, "the failed rig is delivered again")
+		f.complete(t, claim.DesiredGeneration)
+	}
+	for range 10 {
+		requeue()
+		require.InDelta(t, 5, retryDelay().Seconds(), 2, "the first ten terminal failures retry quickly")
+		claimWhenDue()
+	}
+
+	// A rig unreachable past the fast budget still converges once it reconnects.
+	for range 2 {
+		requeue()
+		require.InDelta(t, (10 * time.Minute).Seconds(), retryDelay().Seconds(), 2, "later terminal failures retry on the slow period")
+		_, err = f.queries.ClaimRigConfigReconciliation(t.Context())
+		require.ErrorIs(t, err, sql.ErrNoRows, "the slow retry is not due yet")
+		claimWhenDue()
+	}
+
+	f.request(t, rig.identifier)
+	recovered, err = f.queries.ClaimRigConfigReconciliation(t.Context())
+	require.NoError(t, err)
+	f.complete(t, recovered.DesiredGeneration)
+	require.NoError(t, f.queries.RequeueRigConfigReconciliationAfterTerminalFailure(t.Context(), sqlc.RequeueRigConfigReconciliationAfterTerminalFailureParams{OrganizationID: f.orgID, DeviceID: rig.id, ContainerDeviceClass: int32(commonpb.DeviceClass_DEVICE_CLASS_CONTAINER)}))
+	var attempts int
+	require.NoError(t, f.db.QueryRowContext(t.Context(), "SELECT attempts FROM curtailment_rig_config_delivery_attempt WHERE organization_id=$1 AND device_id=$2", f.orgID, rig.id).Scan(&attempts))
+	require.Equal(t, 1, attempts, "pairing/recovery request restarts the device's terminal retry budget")
+}
+
+func TestRigConfigStore_SlowDeviceRetryKeepsOtherDevicesDue(t *testing.T) {
+	f := newRigConfigStoreFixture(t)
+	slow := f.createRig(t, "Proto", "PAIRED")
+	fast := f.createRig(t, "Proto", "PAIRED")
+	f.request(t, slow.identifier, fast.identifier)
+	claim, err := f.queries.ClaimRigConfigReconciliation(t.Context())
+	require.NoError(t, err)
+	f.complete(t, claim.DesiredGeneration)
+	_, err = f.db.ExecContext(t.Context(), "INSERT INTO curtailment_rig_config_delivery_attempt (organization_id, device_id, attempts) VALUES ($1, $2, 10)", f.orgID, slow.id)
+	require.NoError(t, err)
+	requeue := func(deviceID int64) time.Duration {
+		require.NoError(t, f.queries.RequeueRigConfigReconciliationAfterTerminalFailure(t.Context(), sqlc.RequeueRigConfigReconciliationAfterTerminalFailureParams{OrganizationID: f.orgID, DeviceID: deviceID, ContainerDeviceClass: int32(commonpb.DeviceClass_DEVICE_CLASS_CONTAINER)}))
+		var seconds float64
+		require.NoError(t, f.db.QueryRowContext(t.Context(), "SELECT EXTRACT(EPOCH FROM retry_at - CURRENT_TIMESTAMP)::float8 FROM curtailment_rig_config_reconciliation WHERE organization_id=$1", f.orgID).Scan(&seconds))
+		return time.Duration(seconds * float64(time.Second))
+	}
+
+	require.InDelta(t, 5, requeue(fast.id).Seconds(), 2)
+	require.InDelta(t, 5, requeue(slow.id).Seconds(), 2, "the exhausted rig's slow retry does not postpone the other rig's due retry")
+}
+
+// Rigs keep a fallback config delivered before scoped providers until delivery
+// is requested, so the upgrade rebuilds every organization that may hold one.
+func TestRigConfigStore_ScopedFallbackUpgradeRebuildsDeliveredConfigs(t *testing.T) {
+	f := newRigConfigStoreFixture(t)
+	rig := f.createRig(t, "Proto", "PAIRED")
+	f.request(t, rig.identifier)
+	claim, err := f.queries.ClaimRigConfigReconciliation(t.Context())
+	require.NoError(t, err)
+	f.complete(t, claim.DesiredGeneration)
+
+	sourceOnlyOrg, err := f.queries.CreateOrganization(t.Context(), sqlc.CreateOrganizationParams{OrgID: uuid.NewString(), Name: "source only"})
+	require.NoError(t, err)
+	source := validSettingsSource()
+	source.OrganizationID = sourceOnlyOrg
+	source.ServiceUserID = f.userID
+	source.MQTTPasswordEncrypted = "enc:secret"
+	_, err = NewSQLCSettingsStore(f.queries).CreateSourceConfig(t.Context(), source)
+	require.NoError(t, err)
+	_, err = f.db.ExecContext(t.Context(), "DELETE FROM curtailment_rig_config_reconciliation WHERE organization_id = $1", sourceOnlyOrg)
+	require.NoError(t, err)
+
+	for _, name := range []string{
+		"current/001061_internal_curtailment_wave4_runtime.down.sql",
+		"current/001061_internal_curtailment_wave4_runtime.up.sql",
+	} {
+		migration, err := migrations.Current.ReadFile(name)
+		require.NoError(t, err)
+		_, err = f.db.ExecContext(t.Context(), string(migration))
+		require.NoError(t, err, name)
+	}
+	for _, orgID := range []int64{f.orgID, sourceOnlyOrg} {
+		var desired, enqueued, full int64
+		require.NoError(t, f.db.QueryRowContext(t.Context(), `
+			SELECT desired_generation, enqueued_generation, full_reconcile_generation
+			FROM curtailment_rig_config_reconciliation WHERE organization_id = $1
+		`, orgID).Scan(&desired, &enqueued, &full))
+		require.Greater(t, desired, enqueued, "the upgrade leaves delivery pending")
+		require.Equal(t, desired, full, "the pending delivery covers every rig")
+	}
 }

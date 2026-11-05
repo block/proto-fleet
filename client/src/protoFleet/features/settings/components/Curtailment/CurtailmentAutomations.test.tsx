@@ -87,6 +87,22 @@ function getAutomationRow(ruleName: string): HTMLTableRowElement {
 }
 
 describe("CurtailmentAutomationsContent", () => {
+  it("shows the recovery action for a stale profile binding instead of its internal error", () => {
+    render(
+      <CurtailmentAutomationsContent
+        initialAutomationRules={[
+          { ...testAutomationRules[0], bindingStatus: "rebind_required", lastError: "rebind_required" },
+        ]}
+        sources={testSources}
+        responseProfiles={testResponseProfiles}
+      />,
+    );
+    expect(
+      screen.getByText("Profile changed. Edit this automation and save the current profile to resume."),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("rebind_required")).not.toBeInTheDocument();
+  });
+
   it("renders the automations table with the info popover text", () => {
     render(
       <CurtailmentAutomationsContent

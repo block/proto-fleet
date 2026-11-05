@@ -176,6 +176,26 @@ describe("useCurtailmentApi", () => {
     mockListCurtailmentEvents.mockResolvedValue({ events: [], nextPageToken: "" });
   });
 
+  it("reloads profile options and explains recovery when Start loses its profile revision", async () => {
+    const reload = vi.fn();
+    window.addEventListener("protoFleet:curtailment-profiles-stale", reload);
+    mockStartCurtailment.mockRejectedValueOnce(
+      new ConnectError(
+        "curtailment response profile changed before execution; reload and retry",
+        Code.FailedPrecondition,
+      ),
+    );
+    const { result } = renderHook(() => useCurtailmentApi());
+    await act(async () => {
+      await expect(result.current.startCurtailment(baseSubmitValues)).rejects.toThrow(
+        "Reload the profile and review the updated plan",
+      );
+    });
+    expect(reload).toHaveBeenCalledTimes(1);
+    expect(result.current.startError).toContain("This profile changed");
+    window.removeEventListener("protoFleet:curtailment-profiles-stale", reload);
+  });
+
   it("loads and maps active curtailment plus history", async () => {
     const activeEvent = curtailmentEvent({
       facilityFanDeviceIds: [31n, 32n],
@@ -2862,5 +2882,16 @@ describe("useCurtailmentApi", () => {
     expect(changedListener).not.toHaveBeenCalled();
 
     window.removeEventListener(CURTAILMENT_CHANGED_EVENT, changedListener);
+  });
+});
+
+describe("curtailment catalog updates", () => {
+  it("keeps refresh stable when only site names load", () => {
+    const { result, rerender } = renderHook(({ names }) => useCurtailmentApi({ siteNameById: names }), {
+      initialProps: { names: new Map<string, string>() },
+    });
+    const refresh = result.current.refreshCurtailment;
+    rerender({ names: new Map([["1", "North site"]]) });
+    expect(result.current.refreshCurtailment).toBe(refresh);
   });
 });

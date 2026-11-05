@@ -832,6 +832,7 @@ func start(config *Config) (result error) {
 		rolloutEnforcement:        rolloutEnforcement,
 		curtailmentReconciler:     curtailmentRec,
 		curtailmentMQTTSubscriber: mqttSubscriber,
+		curtailmentAutomation:     newBackgroundLoop(curtailmentAutomationSvc.Run),
 		curtailmentRigConfig:      mqttSettingsSvc,
 		curtailmentAlertMetrics:   curtailmentAlertMetrics,
 		chunkedUploadCleanup:      chunkedUploadCleanup,

@@ -542,6 +542,18 @@ func (q *retryingQuerier) BulkMarkTicketsUrgent(ctx context.Context, arg BulkMar
 	return result, err
 }
 
+func (q *retryingQuerier) BulkObserveCurtailmentTargets(ctx context.Context, arg BulkObserveCurtailmentTargetsParams) ([]string, error) {
+	var result []string
+	err := q.retrier.RetryQuery(ctx, "BulkObserveCurtailmentTargets", func() error {
+		callResult, callErr := q.next.BulkObserveCurtailmentTargets(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) BulkRefreshAllPairedTargetReadiness(ctx context.Context, arg BulkRefreshAllPairedTargetReadinessParams) ([]string, error) {
 	var result []string
 	err := q.retrier.RetryQuery(ctx, "BulkRefreshAllPairedTargetReadiness", func() error {
@@ -824,6 +836,18 @@ func (q *retryingQuerier) ClaimClosedLoopFullFleetTargets(ctx context.Context, a
 	return result, err
 }
 
+func (q *retryingQuerier) ClaimCurtailmentAutomationExecution(ctx context.Context) (ClaimCurtailmentAutomationExecutionRow, error) {
+	var result ClaimCurtailmentAutomationExecutionRow
+	err := q.retrier.RetryQuery(ctx, "ClaimCurtailmentAutomationExecution", func() error {
+		callResult, callErr := q.next.ClaimCurtailmentAutomationExecution(ctx)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) ClaimDeletionUnpairPermit(ctx context.Context, arg ClaimDeletionUnpairPermitParams) (int64, error) {
 	var result int64
 	err := q.retrier.RetryQuery(ctx, "ClaimDeletionUnpairPermit", func() error {
@@ -1008,6 +1032,12 @@ func (q *retryingQuerier) CloseStaleErrors(ctx context.Context, arg CloseStaleEr
 		return callErr
 	})
 	return result, err
+}
+
+func (q *retryingQuerier) CompleteCurtailmentAutomationExecution(ctx context.Context, arg CompleteCurtailmentAutomationExecutionParams) error {
+	return q.retrier.RetryQuery(ctx, "CompleteCurtailmentAutomationExecution", func() error {
+		return q.next.CompleteCurtailmentAutomationExecution(ctx, arg)
+	})
 }
 
 func (q *retryingQuerier) CompleteDelegatedFirmwareRollout(ctx context.Context, arg CompleteDelegatedFirmwareRolloutParams) error {
@@ -1292,6 +1322,18 @@ func (q *retryingQuerier) CountDevicesWithErrors(ctx context.Context, arg CountD
 	return result, err
 }
 
+func (q *retryingQuerier) CountEnabledCurtailmentAutomationRulesByResponseProfile(ctx context.Context, arg CountEnabledCurtailmentAutomationRulesByResponseProfileParams) (int64, error) {
+	var result int64
+	err := q.retrier.RetryQuery(ctx, "CountEnabledCurtailmentAutomationRulesByResponseProfile", func() error {
+		callResult, callErr := q.next.CountEnabledCurtailmentAutomationRulesByResponseProfile(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) CountErrors(ctx context.Context, arg CountErrorsParams) (int64, error) {
 	var result int64
 	err := q.retrier.RetryQuery(ctx, "CountErrors", func() error {
@@ -1356,6 +1398,18 @@ func (q *retryingQuerier) CountInventoryPartsBySite(ctx context.Context, arg Cou
 	var result int64
 	err := q.retrier.RetryQuery(ctx, "CountInventoryPartsBySite", func() error {
 		callResult, callErr := q.next.CountInventoryPartsBySite(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) CountLiveCurtailmentEventsByMQTTSource(ctx context.Context, arg CountLiveCurtailmentEventsByMQTTSourceParams) (int64, error) {
+	var result int64
+	err := q.retrier.RetryQuery(ctx, "CountLiveCurtailmentEventsByMQTTSource", func() error {
+		callResult, callErr := q.next.CountLiveCurtailmentEventsByMQTTSource(ctx, arg)
 		if callErr == nil {
 			result = callResult
 		}
@@ -2348,6 +2402,18 @@ func (q *retryingQuerier) ExcludeFirmwareRolloutDevices(ctx context.Context, arg
 	})
 }
 
+func (q *retryingQuerier) FailCurtailmentPendingDeadlineTargets(ctx context.Context, arg FailCurtailmentPendingDeadlineTargetsParams) (int64, error) {
+	var result int64
+	err := q.retrier.RetryQuery(ctx, "FailCurtailmentPendingDeadlineTargets", func() error {
+		callResult, callErr := q.next.FailCurtailmentPendingDeadlineTargets(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) FindDeviceBuildingConflicts(ctx context.Context, arg FindDeviceBuildingConflictsParams) ([]FindDeviceBuildingConflictsRow, error) {
 	var result []FindDeviceBuildingConflictsRow
 	err := q.retrier.RetryQuery(ctx, "FindDeviceBuildingConflicts", func() error {
@@ -3068,10 +3134,34 @@ func (q *retryingQuerier) GetContainerTopologyIdentities(ctx context.Context, de
 	return result, err
 }
 
+func (q *retryingQuerier) GetCurtailmentAutomationExecutionGrant(ctx context.Context, arg GetCurtailmentAutomationExecutionGrantParams) (CurtailmentAutomationExecutionGrant, error) {
+	var result CurtailmentAutomationExecutionGrant
+	err := q.retrier.RetryQuery(ctx, "GetCurtailmentAutomationExecutionGrant", func() error {
+		callResult, callErr := q.next.GetCurtailmentAutomationExecutionGrant(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) GetCurtailmentAutomationRuleByOrg(ctx context.Context, arg GetCurtailmentAutomationRuleByOrgParams) (GetCurtailmentAutomationRuleByOrgRow, error) {
 	var result GetCurtailmentAutomationRuleByOrgRow
 	err := q.retrier.RetryQuery(ctx, "GetCurtailmentAutomationRuleByOrg", func() error {
 		callResult, callErr := q.next.GetCurtailmentAutomationRuleByOrg(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) GetCurtailmentDispatchRejection(ctx context.Context, arg GetCurtailmentDispatchRejectionParams) (sql.NullString, error) {
+	var result sql.NullString
+	err := q.retrier.RetryQuery(ctx, "GetCurtailmentDispatchRejection", func() error {
+		callResult, callErr := q.next.GetCurtailmentDispatchRejection(ctx, arg)
 		if callErr == nil {
 			result = callResult
 		}
@@ -3120,6 +3210,18 @@ func (q *retryingQuerier) GetCurtailmentEventDetailByUUID(ctx context.Context, a
 	var result GetCurtailmentEventDetailByUUIDRow
 	err := q.retrier.RetryQuery(ctx, "GetCurtailmentEventDetailByUUID", func() error {
 		callResult, callErr := q.next.GetCurtailmentEventDetailByUUID(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) GetCurtailmentEventForFanOperation(ctx context.Context, id int64) (CurtailmentEvent, error) {
+	var result CurtailmentEvent
+	err := q.retrier.RetryQuery(ctx, "GetCurtailmentEventForFanOperation", func() error {
+		callResult, callErr := q.next.GetCurtailmentEventForFanOperation(ctx, id)
 		if callErr == nil {
 			result = callResult
 		}
@@ -7976,6 +8078,18 @@ func (q *retryingQuerier) ListRigConfigReconciliationTargets(ctx context.Context
 	return result, err
 }
 
+func (q *retryingQuerier) ListRigConfigSourceScopes(ctx context.Context, arg ListRigConfigSourceScopesParams) ([]ListRigConfigSourceScopesRow, error) {
+	var result []ListRigConfigSourceScopesRow
+	err := q.retrier.RetryQuery(ctx, "ListRigConfigSourceScopes", func() error {
+		callResult, callErr := q.next.ListRigConfigSourceScopes(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) ListRolePermissionKeys(ctx context.Context, roleID int64) ([]string, error) {
 	var result []string
 	err := q.retrier.RetryQuery(ctx, "ListRolePermissionKeys", func() error {
@@ -8324,16 +8438,16 @@ func (q *retryingQuerier) LockCurtailmentEventByUUIDForWrite(ctx context.Context
 	return result, err
 }
 
-func (q *retryingQuerier) LockCurtailmentEventForFanCommand(ctx context.Context, arg LockCurtailmentEventForFanCommandParams) (int64, error) {
-	var result int64
-	err := q.retrier.RetryQuery(ctx, "LockCurtailmentEventForFanCommand", func() error {
-		callResult, callErr := q.next.LockCurtailmentEventForFanCommand(ctx, arg)
-		if callErr == nil {
-			result = callResult
-		}
-		return callErr
+func (q *retryingQuerier) LockCurtailmentEventLifecycle(ctx context.Context, eventID string) error {
+	return q.retrier.RetryQuery(ctx, "LockCurtailmentEventLifecycle", func() error {
+		return q.next.LockCurtailmentEventLifecycle(ctx, eventID)
 	})
-	return result, err
+}
+
+func (q *retryingQuerier) LockCurtailmentEventLifecycleByUUID(ctx context.Context, arg LockCurtailmentEventLifecycleByUUIDParams) error {
+	return q.retrier.RetryQuery(ctx, "LockCurtailmentEventLifecycleByUUID", func() error {
+		return q.next.LockCurtailmentEventLifecycleByUUID(ctx, arg)
+	})
 }
 
 func (q *retryingQuerier) LockCurtailmentEventScopeForWrite(ctx context.Context, curtailmentEventID int64) error {
@@ -8360,6 +8474,12 @@ func (q *retryingQuerier) LockCurtailmentFanDevicesForWrite(ctx context.Context,
 	return result, err
 }
 
+func (q *retryingQuerier) LockCurtailmentFanSession(ctx context.Context, fanID string) error {
+	return q.retrier.RetryQuery(ctx, "LockCurtailmentFanSession", func() error {
+		return q.next.LockCurtailmentFanSession(ctx, fanID)
+	})
+}
+
 func (q *retryingQuerier) LockCurtailmentGroupsForWrite(ctx context.Context, arg LockCurtailmentGroupsForWriteParams) ([]int64, error) {
 	var result []int64
 	err := q.retrier.RetryQuery(ctx, "LockCurtailmentGroupsForWrite", func() error {
@@ -8370,6 +8490,12 @@ func (q *retryingQuerier) LockCurtailmentGroupsForWrite(ctx context.Context, arg
 		return callErr
 	})
 	return result, err
+}
+
+func (q *retryingQuerier) LockCurtailmentLifecycleSession(ctx context.Context, eventID string) error {
+	return q.retrier.RetryQuery(ctx, "LockCurtailmentLifecycleSession", func() error {
+		return q.next.LockCurtailmentLifecycleSession(ctx, eventID)
+	})
 }
 
 func (q *retryingQuerier) LockCurtailmentResponseProfileAutomationMutation(ctx context.Context, arg LockCurtailmentResponseProfileAutomationMutationParams) error {
@@ -9386,6 +9512,18 @@ func (q *retryingQuerier) QueryErrors(ctx context.Context, arg QueryErrorsParams
 	return result, err
 }
 
+func (q *retryingQuerier) QueueCurrentCurtailmentAutomationExecution(ctx context.Context, ruleID int64) error {
+	return q.retrier.RetryQuery(ctx, "QueueCurrentCurtailmentAutomationExecution", func() error {
+		return q.next.QueueCurrentCurtailmentAutomationExecution(ctx, ruleID)
+	})
+}
+
+func (q *retryingQuerier) QueueCurtailmentAutomationExecution(ctx context.Context, arg QueueCurtailmentAutomationExecutionParams) error {
+	return q.retrier.RetryQuery(ctx, "QueueCurtailmentAutomationExecution", func() error {
+		return q.next.QueueCurtailmentAutomationExecution(ctx, arg)
+	})
+}
+
 func (q *retryingQuerier) ReapMessages(ctx context.Context, arg ReapMessagesParams) ([]ReapMessagesRow, error) {
 	var result []ReapMessagesRow
 	err := q.retrier.RetryQuery(ctx, "ReapMessages", func() error {
@@ -9612,6 +9750,18 @@ func (q *retryingQuerier) ReincludeFirmwareRolloutDevices(ctx context.Context, a
 	return q.retrier.RetryQuery(ctx, "ReincludeFirmwareRolloutDevices", func() error {
 		return q.next.ReincludeFirmwareRolloutDevices(ctx, arg)
 	})
+}
+
+func (q *retryingQuerier) RejectCurtailmentDispatch(ctx context.Context, arg RejectCurtailmentDispatchParams) (int64, error) {
+	var result int64
+	err := q.retrier.RetryQuery(ctx, "RejectCurtailmentDispatch", func() error {
+		callResult, callErr := q.next.RejectCurtailmentDispatch(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
 }
 
 func (q *retryingQuerier) ReleaseDeviceWriteFenceToHost(ctx context.Context, arg ReleaseDeviceWriteFenceToHostParams) (int64, error) {
@@ -10019,6 +10169,12 @@ func (q *retryingQuerier) RetirePoolConfigurationAssignment(ctx context.Context,
 func (q *retryingQuerier) RetirePoolConfigurationEquipmentAssignments(ctx context.Context, arg RetirePoolConfigurationEquipmentAssignmentsParams) error {
 	return q.retrier.RetryQuery(ctx, "RetirePoolConfigurationEquipmentAssignments", func() error {
 		return q.next.RetirePoolConfigurationEquipmentAssignments(ctx, arg)
+	})
+}
+
+func (q *retryingQuerier) RetryCurtailmentAutomationExecution(ctx context.Context, arg RetryCurtailmentAutomationExecutionParams) error {
+	return q.retrier.RetryQuery(ctx, "RetryCurtailmentAutomationExecution", func() error {
+		return q.next.RetryCurtailmentAutomationExecution(ctx, arg)
 	})
 }
 
@@ -10868,6 +11024,18 @@ func (q *retryingQuerier) UndeleteRole(ctx context.Context, id int64) error {
 	})
 }
 
+func (q *retryingQuerier) UnlockCurtailmentFanSession(ctx context.Context, fanID string) error {
+	return q.retrier.RetryQuery(ctx, "UnlockCurtailmentFanSession", func() error {
+		return q.next.UnlockCurtailmentFanSession(ctx, fanID)
+	})
+}
+
+func (q *retryingQuerier) UnlockCurtailmentLifecycleSession(ctx context.Context, eventID string) error {
+	return q.retrier.RetryQuery(ctx, "UnlockCurtailmentLifecycleSession", func() error {
+		return q.next.UnlockCurtailmentLifecycleSession(ctx, eventID)
+	})
+}
+
 func (q *retryingQuerier) UnlockTelemetrySeedMaintenance(ctx context.Context) error {
 	return q.retrier.RetryQuery(ctx, "UnlockTelemetrySeedMaintenance", func() error {
 		return q.next.UnlockTelemetrySeedMaintenance(ctx)
@@ -11400,6 +11568,12 @@ func (q *retryingQuerier) UpsertContainerTopologyVersion(ctx context.Context, ar
 		return callErr
 	})
 	return result, err
+}
+
+func (q *retryingQuerier) UpsertCurtailmentAutomationExecutionGrant(ctx context.Context, arg UpsertCurtailmentAutomationExecutionGrantParams) error {
+	return q.retrier.RetryQuery(ctx, "UpsertCurtailmentAutomationExecutionGrant", func() error {
+		return q.next.UpsertCurtailmentAutomationExecutionGrant(ctx, arg)
+	})
 }
 
 func (q *retryingQuerier) UpsertCurtailmentAutomationSignalState(ctx context.Context, arg UpsertCurtailmentAutomationSignalStateParams) error {

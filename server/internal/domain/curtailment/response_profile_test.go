@@ -1011,3 +1011,7 @@ func ptrInt64(v int64) *int64 {
 func ptrFloat64(v float64) *float64 {
 	return &v
 }
+
+func (f *responseProfileFakeStore) CountEnabledAutomationRulesByResponseProfile(context.Context, int64, int64) (int64, error) {
+	return 0, nil
+}

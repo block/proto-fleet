@@ -34,6 +34,7 @@ WHERE ct.state = 'dispatched'
   AND (
         (ce.state IN ('pending', 'active')
             AND ct.desired_state = 'curtailed'
+            AND ct.curtail_state = 'dispatched'
             AND ct.curtail_dispatched_at IS NOT NULL
             AND ct.curtail_batch_uuid IS NOT NULL)
      OR (ce.state = 'restoring'
@@ -121,7 +122,7 @@ WHERE target.curtailment_event_id = locked_event.id
   AND target.device_identifier = u.device_identifier
   AND target.state = 'dispatched'
   AND (
-        (u.phase = 'curtail' AND target.desired_state = 'curtailed')
+        (u.phase = 'curtail' AND target.desired_state = 'curtailed' AND target.curtail_state = 'dispatched')
      OR (u.phase = 'restore' AND target.desired_state = 'active')
       )
   AND (CASE
