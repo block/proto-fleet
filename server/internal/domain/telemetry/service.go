@@ -706,11 +706,22 @@ func (s *TelemetryService) gatherMetricsRoutine(ctx context.Context, tasks chan<
 				reportProgress()
 				continue
 			}
+			slowDrainLogged := false
 			for index, device := range devices {
 				select {
 				case tasks <- device:
 					// A completed handoff is gather progress, not a successful miner poll.
 					reportProgress()
+					// Handoffs keep the job fresh, so warn here when a slow drain outlasts the stale window.
+					if cycleDuration := time.Since(cycleStartedAt); !slowDrainLogged && cycleDuration > 3*fetchInterval {
+						slowDrainLogged = true
+						slog.Warn("telemetry gather cycle still draining",
+							"cycle_duration", cycleDuration,
+							"scheduler_fetch_duration", schedulerFetchDuration,
+							"devices_fetched", len(devices),
+							"tasks_dispatched", index+1,
+						)
+					}
 				case <-ctx.Done():
 					logSlowCycle(index)
 					s.requeueTelemetryTasks(devices[index:])

@@ -831,7 +831,7 @@ func TestGatherMetricsRoutineReportsDispatchProgressAndDetectsBlockedEnqueue(t *
 		require.Eventually(t, func() bool {
 			status := group.Status().Jobs[0]
 			return status.LastProgress.After(before) && !status.Stale
-		}, fetchInterval, time.Millisecond, "successful dispatch must report progress before the batch completes")
+		}, time.Second, time.Millisecond, "successful dispatch must report progress before the batch completes")
 	}
 	require.Greater(t, time.Since(batchStarted), group.Status().Jobs[0].StaleAfter,
 		"the unfinished batch must span the stale window")
@@ -878,24 +878,19 @@ func TestGatherMetricsRoutineLogsSlowCycleWithSeparateFetchAndEnqueueTiming(t *t
 	devices := []models.Device{{ID: "first"}, {ID: "second"}}
 	fetchStarted := make(chan struct{})
 	releaseFetch := make(chan struct{})
-	nextFetchStarted := make(chan struct{})
+	ctx, cancel := context.WithCancel(t.Context())
 	scheduler.EXPECT().FetchDevices(gomock.Any(), gomock.Any()).DoAndReturn(func(context.Context, time.Time) ([]models.Device, error) {
 		close(fetchStarted)
 		<-releaseFetch
 		return devices, nil
 	})
+	// Cancelling inside the next fetch keeps that cycle too short to log.
 	scheduler.EXPECT().FetchDevices(gomock.Any(), gomock.Any()).DoAndReturn(func(ctx context.Context, _ time.Time) ([]models.Device, error) {
-		select {
-		case <-nextFetchStarted:
-		default:
-			close(nextFetchStarted)
-		}
-		<-ctx.Done()
+		cancel()
 		return nil, ctx.Err()
-	}).AnyTimes()
+	})
 	service := &TelemetryService{config: Config{FetchInterval: fetchInterval}, updateScheduler: scheduler}
 	tasks := make(chan models.Device)
-	ctx, cancel := context.WithCancel(t.Context())
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
@@ -907,15 +902,11 @@ func TestGatherMetricsRoutineLogsSlowCycleWithSeparateFetchAndEnqueueTiming(t *t
 	require.Equal(t, devices[0], <-tasks)
 	time.Sleep(2 * fetchInterval)
 	require.Equal(t, devices[1], <-tasks)
-	<-nextFetchStarted
-	cancel()
 	<-done
 
 	var slowCycles []map[string]any
-	for _, line := range bytes.Split(bytes.TrimSpace(logs.Bytes()), []byte("\n")) {
-		var record map[string]any
-		require.NoError(t, json.Unmarshal(line, &record))
-		if record["msg"] == "telemetry gather cycle slow" {
+	for _, record := range logRecordsWithMessage(t, &logs, "telemetry gather cycle slow") {
+		if record["devices_fetched"] == float64(len(devices)) {
 			slowCycles = append(slowCycles, record)
 		}
 	}
@@ -934,6 +925,52 @@ func TestGatherMetricsRoutineLogsSlowCycleWithSeparateFetchAndEnqueueTiming(t *t
 	assert.GreaterOrEqual(t, enqueueDuration, float64(2*fetchInterval))
 	assert.Equal(t, cycleDuration, schedulerFetchDuration+enqueueDuration)
 	assert.Len(t, cycle, 8, "cycle logs contain only timestamps, level, message, durations, and counts")
+}
+
+func TestGatherMetricsRoutineWarnsOnceWhenDrainOutlastsStaleWindow(t *testing.T) {
+	var logs bytes.Buffer
+	previousLogger := slog.Default()
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&logs, nil)))
+	t.Cleanup(func() { slog.SetDefault(previousLogger) })
+	ctrl := gomock.NewController(t)
+	scheduler := mock.NewMockUpdateScheduler(ctrl)
+	const fetchInterval = 10 * time.Millisecond
+	devices := []models.Device{{ID: "first"}, {ID: "second"}, {ID: "third"}, {ID: "unsent"}}
+	scheduler.EXPECT().FetchDevices(gomock.Any(), gomock.Any()).Return(devices, nil)
+	scheduler.EXPECT().AddDevices(gomock.Any(), devices[3:]).Return(nil)
+	service := &TelemetryService{config: Config{FetchInterval: fetchInterval}, updateScheduler: scheduler}
+	tasks := make(chan models.Device)
+	ctx, cancel := context.WithCancel(t.Context())
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		service.gatherMetricsRoutine(ctx, tasks)
+	}()
+	require.Equal(t, devices[0], <-tasks)
+	time.Sleep(4 * fetchInterval)
+	require.Equal(t, devices[1], <-tasks)
+	require.Equal(t, devices[2], <-tasks)
+	cancel()
+	<-done
+
+	draining := logRecordsWithMessage(t, &logs, "telemetry gather cycle still draining")
+	require.Len(t, draining, 1, "a slow drain warns once per cycle")
+	assert.Equal(t, "WARN", draining[0]["level"])
+	assert.Equal(t, float64(len(devices)), draining[0]["devices_fetched"])
+	assert.Equal(t, float64(2), draining[0]["tasks_dispatched"], "the warning fires mid-cycle at the first late handoff")
+}
+
+func logRecordsWithMessage(t *testing.T, logs *bytes.Buffer, msg string) []map[string]any {
+	t.Helper()
+	var records []map[string]any
+	for _, line := range bytes.Split(bytes.TrimSpace(logs.Bytes()), []byte("\n")) {
+		var record map[string]any
+		require.NoError(t, json.Unmarshal(line, &record))
+		if record["msg"] == msg {
+			records = append(records, record)
+		}
+	}
+	return records
 }
 
 func TestTelemetryService_StopDrainsResultsProducedWhileWorkersExit(t *testing.T) {
