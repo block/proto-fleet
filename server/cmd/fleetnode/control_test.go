@@ -603,6 +603,156 @@ func TestControlLoop_ReconnectsAfterStreamEOF(t *testing.T) {
 	}
 }
 
+func TestControlLoop_HandshakeTimeoutReconnects(t *testing.T) {
+	original := controlHandshakeTimeout
+	controlHandshakeTimeout = 100 * time.Millisecond
+	t.Cleanup(func() { controlHandshakeTimeout = original })
+
+	for _, early503 := range []bool{false, true} {
+		t.Run(fmt.Sprintf("early_503=%t", early503), func(t *testing.T) {
+			gateway := &handshakeControlGateway{
+				entered: make(chan struct{}), exited: make(chan struct{}), acceptedExited: make(chan struct{}, 1),
+			}
+			path, handler := fleetnodegatewayv1connect.NewFleetNodeGatewayServiceHandler(gateway)
+			if early503 {
+				next := handler
+				handler = http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+					if gateway.attempts.Add(1) != 1 {
+						next.ServeHTTP(w, req)
+						return
+					}
+					assert.Equal(t, 2, req.ProtoMajor, "exercise the real HTTP/2 transport")
+					w.WriteHeader(http.StatusServiceUnavailable)
+					_, _ = io.WriteString(w, "maintenance")
+					require.NoError(t, http.NewResponseController(w).Flush())
+					close(gateway.entered)
+					// Keep the request/response open, as an intermediary can do
+					// while the client has not finished its streaming request.
+					<-req.Context().Done()
+					close(gateway.exited)
+				})
+			}
+			mux := http.NewServeMux()
+			mux.Handle(path, handler)
+			srv := testutil.NewH2CServer(t, mux)
+			httpClient := testutil.NewH2CClient()
+			t.Cleanup(httpClient.CloseIdleConnections)
+			client := fleetnodegatewayv1connect.NewFleetNodeGatewayServiceClient(httpClient, srv.URL, connect.WithGRPC())
+			cmd := &RunCmd{discoverer: &stubDiscoverer{}}
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			done := make(chan error, 1)
+			go func() { done <- cmd.runControlLoop(ctx, client, &bootstrap.State{FleetNodeID: 7}, discardLogger(t)) }()
+
+			select {
+			case <-gateway.entered:
+			case <-time.After(time.Second):
+				t.Fatal("first handshake did not start")
+			}
+			require.Eventually(t, func() bool { return gateway.helloCount() == 1 }, 3*time.Second, 10*time.Millisecond,
+				"handshake must expire and reconnect within its budget plus reconnect backoff")
+			select {
+			case <-gateway.exited:
+			case <-time.After(time.Second):
+				t.Fatal("timed-out server stream did not exit")
+			}
+			// The replacement Accepted stream must outlive the handshake
+			// budget, even when the server predates keepalive negotiation.
+			select {
+			case err := <-done:
+				t.Fatalf("accepted stream ended: %v", err)
+			case <-gateway.acceptedExited:
+				t.Fatal("accepted server stream ended at the handshake deadline")
+			case <-time.After(3 * controlHandshakeTimeout):
+			}
+			assert.Equal(t, 1, gateway.helloCount(), "healthy stream must not reconnect at the handshake deadline")
+			cancel()
+			select {
+			case err := <-done:
+				require.NoError(t, err)
+			case <-time.After(time.Second):
+				t.Fatal("parent cancellation did not stop the control loop")
+			}
+		})
+	}
+}
+
+func TestControlSession_HandshakeTimeoutAndCancellation(t *testing.T) {
+	original := controlHandshakeTimeout
+	controlHandshakeTimeout = 100 * time.Millisecond
+	t.Cleanup(func() { controlHandshakeTimeout = original })
+	for _, cancelParent := range []bool{false, true} {
+		t.Run(fmt.Sprintf("cancel_parent=%t", cancelParent), func(t *testing.T) {
+			gateway := &handshakeControlGateway{entered: make(chan struct{}), exited: make(chan struct{})}
+			path, handler := fleetnodegatewayv1connect.NewFleetNodeGatewayServiceHandler(gateway)
+			mux := http.NewServeMux()
+			mux.Handle(path, handler)
+			srv := testutil.NewH2CServer(t, mux)
+			httpClient := testutil.NewH2CClient()
+			t.Cleanup(httpClient.CloseIdleConnections)
+			client := fleetnodegatewayv1connect.NewFleetNodeGatewayServiceClient(httpClient, srv.URL, connect.WithGRPC())
+			cmd := &RunCmd{discoverer: &stubDiscoverer{}}
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			done := make(chan error, 1)
+			go func() { done <- cmd.runControlSession(ctx, discardLogger(t), client, &bootstrap.State{FleetNodeID: 7}) }()
+			select {
+			case <-gateway.entered:
+			case <-time.After(time.Second):
+				t.Fatal("handshake did not start")
+			}
+			if cancelParent {
+				cancel()
+			}
+			select {
+			case err := <-done:
+				if cancelParent {
+					require.NoError(t, err)
+				} else {
+					require.ErrorIs(t, err, errControlHandshakeTimeout)
+					require.NoError(t, ctx.Err(), "handshake timeout must leave the reconnect parent live")
+				}
+			case <-time.After(time.Second):
+				t.Fatal("handshake did not stop within its budget")
+			}
+			select {
+			case <-gateway.exited:
+			case <-time.After(time.Second):
+				t.Fatal("canceled server stream did not exit")
+			}
+		})
+	}
+}
+
+// The first session consumes Hello but never sends Accepted. Subsequent
+// sessions use the normal fake so reconnect and healthy lifetime are observed.
+type handshakeControlGateway struct {
+	controlFakeGateway
+	attempts       atomic.Int32
+	entered        chan struct{}
+	exited         chan struct{}
+	acceptedExited chan struct{}
+}
+
+func (f *handshakeControlGateway) ControlStream(ctx context.Context, stream *connect.BidiStream[pb.ControlStreamRequest, pb.ControlStreamResponse]) error {
+	if f.attempts.Add(1) != 1 {
+		defer func() {
+			select {
+			case f.acceptedExited <- struct{}{}:
+			default:
+			}
+		}()
+		return f.controlFakeGateway.ControlStream(ctx, stream)
+	}
+	if _, err := stream.Receive(); err != nil {
+		return fmt.Errorf("receive hello: %w", err)
+	}
+	close(f.entered)
+	<-ctx.Done()
+	close(f.exited)
+	return nil
+}
+
 func TestControlSession_HelloCarriesNormalizedDiscoveryRanges(t *testing.T) {
 	tests := []struct {
 		name string
