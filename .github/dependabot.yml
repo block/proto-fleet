@@ -1,26 +1,47 @@
 version: 2
 enable-beta-ecosystems: true
+
+multi-ecosystem-groups:
+  server:
+    schedule:
+      interval: monthly
+  client:
+    schedule:
+      interval: monthly
+
 updates:
   - package-ecosystem: github-actions
-    directory: /
+    directories:
+      - /
+      - /.github/actions/*
     schedule:
       interval: monthly
     # github-actions and docker ecosystems do not track semver, so only
     # default-days is supported on their cooldown blocks.
     cooldown:
       default-days: 7
+    groups:
+      github-actions:
+        applies-to: version-updates
+        patterns:
+          - "*"
+      github-actions-security:
+        applies-to: security-updates
+        patterns:
+          - "*"
 
   - package-ecosystem: npm
     directory: /client
-    schedule:
-      interval: monthly
+    multi-ecosystem-group: client
+    patterns:
+      - "*"
     cooldown:
       default-days: 7
       semver-major-days: 14
       semver-patch-days: 3
     groups:
-      node-dependencies:
-        applies-to: version-updates
+      node-security:
+        applies-to: security-updates
         patterns:
           - "*"
     ignore:
@@ -29,49 +50,121 @@ updates:
       - dependency-name: "swagger-typescript-api"
 
   - package-ecosystem: docker
-    directory: /
-    schedule:
-      interval: monthly
+    directory: /deployment-files/client
+    multi-ecosystem-group: client
+    patterns:
+      - "*"
     cooldown:
       default-days: 7
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: gomod
     directories:
       - /server
       - /server/fake-antminer
+      - /server/fake-ct1
       - /server/fake-proto-rig
       - /plugin/proto
       - /plugin/antminer
       - /plugin/virtual
+      - /sdk/mdk
       - /tests/plugin-contract
-    schedule:
-      interval: monthly
+    multi-ecosystem-group: server
+    patterns:
+      - "*"
     cooldown:
       default-days: 7
       semver-major-days: 14
       semver-patch-days: 3
     groups:
-      go-dependencies:
-        applies-to: version-updates
+      go-security:
+        applies-to: security-updates
+        patterns:
+          - "*"
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+      # v0.8.0 and later link connect-go v2 into fleetd; lift this once the
+      # server moves to connectrpc.com/connect/v2.
+      - dependency-name: "connectrpc.com/validate"
+        versions: [">= 0.8.0"]
+
+  - package-ecosystem: cargo
+    directories:
+      - /sdk/rust/proto-fleet-plugin
+      - /plugin/asicrs
+    multi-ecosystem-group: server
+    patterns:
+      - "*"
+    cooldown:
+      default-days: 7
+      semver-major-days: 14
+      semver-patch-days: 3
+    groups:
+      rust-security:
+        applies-to: security-updates
         patterns:
           - "*"
     ignore:
       - dependency-name: "*"
         update-types: ["version-update:semver-major"]
 
-  - package-ecosystem: cargo
+  - package-ecosystem: docker
     directories:
-      - /sdk/rust/proto-fleet-plugin
-      - /plugin/asicrs
+      - /deployment-files/server
+      - /plugin/example-python
+      - /server
+      - /server/devtools/modbussim
+      - /server/devtools/mqttsim
+      - /server/fake-antminer
+      - /server/fake-ct1
+      - /server/fake-proto-rig
+      - /server/timescaledb
+    multi-ecosystem-group: server
+    patterns:
+      - "*"
+    cooldown:
+      default-days: 7
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+      # golang images move with the Hermit Go toolchain and go.work.
+      - dependency-name: "golang"
+
+  - package-ecosystem: docker-compose
+    directories:
+      - /deployment-files
+      - /deployment-files/ha
+      - /server
+    multi-ecosystem-group: server
+    patterns:
+      - "*"
+    cooldown:
+      default-days: 7
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "proto-fleet-*"
+
+  # Patroni requirements feed the HA release compatibility fingerprint, so
+  # they update quarterly instead of with the monthly server group.
+  - package-ecosystem: pip
+    directory: /deployment-files/ha
     schedule:
-      interval: monthly
+      interval: quarterly
     cooldown:
       default-days: 7
       semver-major-days: 14
       semver-patch-days: 3
     groups:
-      rust-dependencies:
+      ha-python:
         applies-to: version-updates
+        patterns:
+          - "*"
+      ha-python-security:
+        applies-to: security-updates
         patterns:
           - "*"
     ignore:

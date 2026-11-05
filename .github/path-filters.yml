@@ -131,6 +131,17 @@ powershell:
   - *global
   - "**/*.ps1"
 
+dependencies:
+  - *global
+  - osv-scanner.toml
+  - go.work
+  - go.work.sum
+  - "**/go.mod"
+  - "**/go.sum"
+  - "**/package-lock.json"
+  - "**/Cargo.lock"
+  - "**/*requirements*.txt"
+
 developer_workflows:
   - .agents/**
   - .claude/**

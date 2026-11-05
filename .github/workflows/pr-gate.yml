@@ -32,6 +32,7 @@ jobs:
       rust_sdk: ${{ github.event_name != 'pull_request' || steps.filter.outputs.rust_sdk == 'true' }}
       windows: ${{ github.event_name != 'pull_request' || steps.filter.outputs.windows == 'true' }}
       powershell: ${{ github.event_name != 'pull_request' || steps.filter.outputs.powershell == 'true' }}
+      dependencies: ${{ github.event_name != 'pull_request' || steps.filter.outputs.dependencies == 'true' }}
       developer_workflows: ${{ github.event_name != 'pull_request' || steps.filter.outputs.developer_workflows == 'true' }}
       protofleet_e2e: ${{ github.event_name != 'pull_request' || steps.filter.outputs.protofleet_e2e == 'true' }}
       protoos_e2e: ${{ github.event_name != 'pull_request' || steps.filter.outputs.protoos_e2e == 'true' }}
@@ -58,6 +59,12 @@ jobs:
     if: github.event_name == 'pull_request'
     uses: ./.github/workflows/dependency-review.yml
     secrets: inherit
+
+  vulnerability-scan:
+    name: Vulnerability Scan
+    needs: changes
+    if: github.event_name == 'pull_request' && needs.changes.outputs.dependencies == 'true'
+    uses: ./.github/workflows/vulnerability-scan.yml
 
   deployment-config-checks:
     name: Deployment Config Checks
@@ -215,6 +222,7 @@ jobs:
       - changes
       - generated-code
       - dependency-review
+      - vulnerability-scan
       - deployment-config-checks
       - proto-checks
       - client-checks

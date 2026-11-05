@@ -1,0 +1,23 @@
+# Accepted findings for `just vuln-scan-lockfiles`. Each entry expires on its
+# ignoreUntil date so the scan fails again until someone re-reviews it.
+
+[[IgnoredVulns]]
+id = "GHSA-g3hv-75wg-m249"
+ignoreUntil = 2027-02-05
+reason = """
+minimatch 10.2.6 is a dev-only dependency of eslint, typescript-eslint, and \
+eslint-plugin-import-x. The fix is minimatch 11, which removes makeRe() that \
+eslint-plugin-import-x imports, and no released consumer accepts 11 yet. The \
+vulnerable path needs optimizationLevel >= 2, which only glob sets, and glob \
+uses its own minimatch 11 copy.
+"""
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2024-0449"
+ignoreUntil = 2027-02-05
+reason = """
+unsafe-libyaml is unmaintained and has no fixed release. ASIC-rs reaches it \
+through serde_yaml_ng to parse its trusted plugin configuration. Replacing \
+serde_yaml_ng is tracked in \
+https://github.com/btc-mining/proto-fleet-internal/issues/397.
+"""

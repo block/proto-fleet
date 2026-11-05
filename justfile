@@ -430,6 +430,41 @@ update-go-deps:
   mkdir -p .cache/go-work-sync && touch .cache/go-work-sync/stamp
   echo "All Go dependencies updated successfully"
 
+govulncheck_version := "v1.9.0"
+# osv-scanner v2.6.0 and later require Go 1.27.
+osv_scanner_version := "v2.5.1"
+
+# scan Go modules and dependency lockfiles for known vulnerabilities
+vuln-scan: vuln-scan-go vuln-scan-lockfiles
+
+# report known vulnerabilities reachable from each Go module's code
+vuln-scan-go:
+  #!/usr/bin/env bash
+  set -euo pipefail
+  workspace_modules="$(go work edit -json | jq -r '.Use[].DiskPath | ltrimstr("./")')"
+  status=0
+  while IFS= read -r go_mod; do
+    module="$(dirname "$go_mod")"
+    gowork=off
+    if grep -qxF "$module" <<<"$workspace_modules"; then
+      gowork=""
+    fi
+    echo "govulncheck: $module"
+    (cd "$module" && GOWORK="$gowork" go run golang.org/x/vuln/cmd/govulncheck@{{govulncheck_version}} ./...) || status=1
+  done < <(git ls-files -- '*/go.mod')
+  exit "$status"
+
+# report known vulnerabilities in npm, Cargo, and pip lockfiles
+vuln-scan-lockfiles:
+  go run github.com/google/osv-scanner/v2/cmd/osv-scanner@{{osv_scanner_version}} scan source \
+    --config osv-scanner.toml \
+    -L client/package-lock.json \
+    -L plugin/asicrs/Cargo.lock \
+    -L sdk/rust/proto-fleet-plugin/Cargo.lock \
+    -L requirements.txt:deployment-files/ha/patroni-requirements.txt \
+    -L requirements.txt:deployment-files/ha/patroni-build-requirements.txt \
+    -L packages/proto-python-gen/requirements.txt
+
 # --- Packaging ---
 
 # Build the fleetnode operator CLI into server/.fleetnode/ along with native
