@@ -67,7 +67,12 @@ func TestTelemetryStore_FleetMetricRollupServesOrgCoveredMiddleAndRawEdges(t *te
 
 	coverageStart := start.Add(models.FleetMetricRollupBucketDuration)
 	coverageEnd := start.Add(4 * models.FleetMetricRollupBucketDuration)
-	require.NoError(t, store.UpsertFleetMetricRollups(ctx, coverageStart, coverageEnd))
+	require.NoError(t, store.UpsertFleetMetricRollups(ctx, start, start.Add(5*models.FleetMetricRollupBucketDuration)))
+	// Progress resets can leave stale rollups outside the acknowledged coverage.
+	_, err = db.ExecContext(ctx, `UPDATE fleet_metric_rollup_progress
+		SET earliest_bucket = $1, latest_bucket = $2 WHERE id = TRUE`,
+		coverageStart, coverageEnd.Add(-models.FleetMetricRollupBucketDuration))
+	require.NoError(t, err)
 	// Remove the inner covered bucket to prove the middle comes from rollups.
 	// Keep raw data at both seams so an overlapping prefix or suffix would
 	// duplicate it.

@@ -796,6 +796,13 @@ func (s *TimescaleTelemetryStore) bucketAggregatesPreferRollup(ctx context.Conte
 		return s.rawBucketAggregates(ctx, query, startTime, endTime, bucketDuration)
 	}
 
+	s.logger.Debug("selected fleet metric rollup coverage",
+		slog.Int64("org_id", query.OrganizationID),
+		slog.Time("start_time", startTime),
+		slog.Time("end_time", endTime),
+		slog.Time("rollup_start", rollupStart),
+		slog.Time("rollup_end", rollupEnd))
+
 	body, err := s.readFleetMetricRollupBuckets(ctx, query, rollupStart, rollupEnd)
 	if err != nil {
 		s.logger.Warn("fleet metric rollup read failed, falling back to raw",
@@ -809,6 +816,8 @@ func (s *TimescaleTelemetryStore) bucketAggregatesPreferRollup(ctx context.Conte
 
 	var head []rawMetricBucket
 	if rollupStart.After(startTime) {
+		// Raw reads include their end; pgx truncates this to the preceding
+		// microsecond so a sample at rollupStart belongs only to the rollup.
 		head, err = s.rawBucketAggregates(ctx, query, startTime, rollupStart.Add(-time.Nanosecond), bucketDuration)
 		if err != nil {
 			return nil, err
