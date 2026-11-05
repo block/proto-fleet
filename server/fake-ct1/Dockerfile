@@ -1,4 +1,4 @@
-FROM golang:1.26.5-alpine AS builder
+FROM golang:1.26.10-alpine AS builder
 
 WORKDIR /app/server/fake-ct1
 
@@ -13,7 +13,7 @@ COPY server/fake-ct1/ ./
 RUN CGO_ENABLED=0 GOOS=linux GOWORK=off go build -o /fake-ct1 .
 
 # Final stage - minimal runtime image
-FROM alpine:3.21
+FROM alpine:3.22
 
 RUN apk add --no-cache ca-certificates wget
 

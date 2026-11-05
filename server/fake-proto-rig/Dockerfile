@@ -1,4 +1,4 @@
-FROM golang:1.26.6-alpine AS builder
+FROM golang:1.26.10-alpine AS builder
 
 WORKDIR /app
 
@@ -22,7 +22,7 @@ WORKDIR /app/server/fake-proto-rig
 RUN CGO_ENABLED=0 GOOS=linux go build -o /fake-proto-rig .
 
 # Final stage - minimal runtime image
-FROM alpine:3.21
+FROM alpine:3.22
 
 RUN apk add --no-cache ca-certificates wget
 
