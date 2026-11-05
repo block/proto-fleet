@@ -96,13 +96,14 @@ services:
         target: /dev/shm
         tmpfs:
           size: 256M
-    # Faster health checks for development
+    # Faster health checks for development. A fresh volume runs initdb and
+    # timescaledb-tune before the server listens, which can exceed 10s on CI.
     healthcheck:
       test: [ "CMD-SHELL", "psql -U fleet -d fleet -c 'SELECT 1' > /dev/null 2>&1" ]
       interval: 1s
       timeout: 3s
       retries: 5
-      start_period: 5s
+      start_period: 60s
 
   # Development-specific services
   fake-proto-rig:
