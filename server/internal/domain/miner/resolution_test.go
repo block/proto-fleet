@@ -4,6 +4,8 @@ import (
 	"context"
 	"database/sql"
 	"encoding/base64"
+	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -361,10 +363,7 @@ func TestFleetNodeRoutePreparedPlanReadsCurrentBinding(t *testing.T) {
 	queries := sqlc.New(reader)
 	before, err := queries.GetFleetNodeTelemetryRouteByDeviceIdentifier(t.Context(), identifier)
 	require.NoError(t, err)
-	var generic int
-	require.NoError(t, reader.QueryRowContext(t.Context(), `SELECT sum(generic_plans) FROM pg_prepared_statements
-  WHERE statement LIKE '-- name: GetFleetNodeTelemetryRouteByDeviceIdentifier%'`).Scan(&generic))
-	require.Positive(t, generic)
+	assertFleetNodeRoutePreparedPlan(t, reader)
 	require.Equal(t, nodeID, before.FleetNodeID)
 	require.Zero(t, before.WriteEpoch)
 
@@ -411,8 +410,8 @@ func TestFleetNodeRoutePreparedPlanReadsCurrentBinding(t *testing.T) {
 	}
 	checkOtherOrg(queries)
 
-	// Connection loss discards the prepared plan; a replacement session must read
-	// the same binding.
+	// Connection loss discards the prepared plan; a replacement session must
+	// prepare a new generic plan and read the same binding.
 	var pid int
 	require.NoError(t, reader.QueryRowContext(t.Context(), "SELECT pg_backend_pid()").Scan(&pid))
 	var terminated bool
@@ -421,9 +420,53 @@ func TestFleetNodeRoutePreparedPlanReadsCurrentBinding(t *testing.T) {
 	_, err = queries.GetFleetNodeTelemetryRouteByDeviceIdentifier(t.Context(), identifier)
 	require.Error(t, err)
 	require.NoError(t, reader.Close())
-	checkOtherOrg(writer)
+	replacement, err := conn.Conn(t.Context())
+	require.NoError(t, err)
+	defer replacement.Close()
+	_, err = replacement.ExecContext(t.Context(), "SET plan_cache_mode=force_generic_plan")
+	require.NoError(t, err)
+	var prepared int
+	require.NoError(t, replacement.QueryRowContext(t.Context(), `SELECT count(*) FROM pg_prepared_statements
+  WHERE statement LIKE '-- name: GetFleetNodeTelemetryRouteByDeviceIdentifier%'`).Scan(&prepared))
+	require.Zero(t, prepared, "the replacement session has not prepared the route query")
+	replacementQueries := sqlc.New(replacement)
+	checkOtherOrg(replacementQueries)
+	assertFleetNodeRoutePreparedPlan(t, replacement)
 	_, err = conn.ExecContext(t.Context(), "UPDATE fleet_node SET enrollment_status='REVOKED' WHERE id=$1", otherNode)
 	require.NoError(t, err)
-	_, err = writer.GetFleetNodeTelemetryRouteByDeviceIdentifier(t.Context(), identifier)
+	_, err = replacementQueries.GetFleetNodeTelemetryRouteByDeviceIdentifier(t.Context(), identifier)
 	require.ErrorIs(t, err, sql.ErrNoRows)
+}
+
+func assertFleetNodeRoutePreparedPlan(t *testing.T, reader *sql.Conn) {
+	t.Helper()
+	var name string
+	var generic int
+	require.NoError(t, reader.QueryRowContext(t.Context(), `SELECT name, generic_plans FROM pg_prepared_statements
+  WHERE statement LIKE '-- name: GetFleetNodeTelemetryRouteByDeviceIdentifier%'`).Scan(&name, &generic))
+	require.Positive(t, generic, "the route query must have used a generic plan")
+	var encoded []byte
+	// Prepared statement names are server-generated identifiers, not SQL values.
+	quotedName := `"` + strings.ReplaceAll(name, `"`, `""`) + `"`
+	require.NoError(t, reader.QueryRowContext(t.Context(), `EXPLAIN (FORMAT JSON) EXECUTE `+quotedName+`('prepared-route-binding')`).Scan(&encoded))
+	type planNode struct {
+		SubplanName string `json:"Subplan Name"`
+		Plans       []planNode
+	}
+	var plans []struct{ Plan planNode }
+	require.NoError(t, json.Unmarshal(encoded, &plans))
+	require.Len(t, plans, 1)
+	var hasRouteCTE func(planNode) bool
+	hasRouteCTE = func(node planNode) bool {
+		if node.SubplanName == "CTE route" {
+			return true
+		}
+		for _, child := range node.Plans {
+			if hasRouteCTE(child) {
+				return true
+			}
+		}
+		return false
+	}
+	require.True(t, hasRouteCTE(plans[0].Plan), "the route CTE must remain materialized to bound planning cost")
 }
