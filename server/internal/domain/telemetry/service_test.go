@@ -1,9 +1,12 @@
 package telemetry
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"slices"
 	"sync/atomic"
 	"testing"
@@ -27,6 +30,7 @@ import (
 	modelsV2 "github.com/block/proto-fleet/server/internal/domain/telemetry/models/v2"
 	telemetryScheduler "github.com/block/proto-fleet/server/internal/domain/telemetry/scheduler"
 	"github.com/block/proto-fleet/server/internal/infrastructure/networking"
+	"github.com/block/proto-fleet/server/internal/runtimejobs"
 )
 
 func TestProcessDevice_ResourceExhaustedSkipsStatusRetry(t *testing.T) {
@@ -747,6 +751,226 @@ func TestGatherMetricsRoutineRequeuesUnsentFetchedDevicesOnCancellation(t *testi
 	<-fetched
 	cancel()
 	<-done
+}
+
+// gatherMetricsJobForTest runs only the gather loop in a real managed job, so
+// freshness assertions observe the same reporting contract as HA diagnostics.
+type gatherMetricsJobForTest struct {
+	service *TelemetryService
+	tasks   chan models.Device
+	cancel  context.CancelFunc
+	done    chan struct{}
+}
+
+func (j *gatherMetricsJobForTest) Start(ctx context.Context) error {
+	ctx, j.cancel = context.WithCancel(ctx)
+	j.done = make(chan struct{})
+	go func() {
+		defer close(j.done)
+		j.service.gatherMetricsRoutine(ctx, j.tasks)
+	}()
+	return nil
+}
+
+func (j *gatherMetricsJobForTest) Stop(ctx context.Context) error {
+	j.cancel()
+	select {
+	case <-j.done:
+		return nil
+	case <-ctx.Done():
+		return fmt.Errorf("stop gather metrics test job: %w", ctx.Err())
+	}
+}
+
+func startGatherMetricsJobForTest(t *testing.T, service *TelemetryService, tasks chan models.Device) *runtimejobs.Group {
+	t.Helper()
+	job, err := runtimejobs.NewJob("telemetry", &gatherMetricsJobForTest{service: service, tasks: tasks})
+	require.NoError(t, err)
+	group, err := runtimejobs.NewGroup([]runtimejobs.Job{job})
+	require.NoError(t, err)
+	require.NoError(t, group.Start(t.Context()))
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+		require.NoError(t, group.Stop(ctx))
+	})
+	return group
+}
+
+func TestGatherMetricsRoutineReportsDispatchProgressAndDetectsBlockedEnqueue(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	scheduler := mock.NewMockUpdateScheduler(ctrl)
+	const fetchInterval = 20 * time.Millisecond
+	devices := []models.Device{{ID: "first"}, {ID: "second"}, {ID: "third"}, {ID: "unsent"}}
+	fetched := make(chan struct{})
+	scheduler.EXPECT().FetchDevices(gomock.Any(), gomock.Any()).DoAndReturn(func(context.Context, time.Time) ([]models.Device, error) {
+		close(fetched)
+		return devices, nil
+	})
+	// Only the devices accepted by the consumer leave gather's ownership.
+	var requeued []models.Device
+	scheduler.EXPECT().AddDevices(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, devices ...models.Device) error {
+		requeued = append(requeued, devices...)
+		return nil
+	}).AnyTimes()
+	service := &TelemetryService{config: Config{FetchInterval: fetchInterval}, updateScheduler: scheduler}
+	tasks := make(chan models.Device)
+	group := startGatherMetricsJobForTest(t, service, tasks)
+	<-fetched
+
+	batchStarted := time.Now()
+	for _, device := range devices[:3] {
+		before := group.Status().Jobs[0].LastProgress
+		time.Sleep(2 * fetchInterval)
+		select {
+		case received := <-tasks:
+			require.Equal(t, device, received)
+		case <-time.After(time.Second):
+			t.Fatal("gather did not dispatch a fetched device")
+		}
+		require.Eventually(t, func() bool {
+			status := group.Status().Jobs[0]
+			return status.LastProgress.After(before) && !status.Stale
+		}, time.Second, time.Millisecond, "successful dispatch must report progress before the batch completes")
+	}
+	require.Greater(t, time.Since(batchStarted), group.Status().Jobs[0].StaleAfter,
+		"the unfinished batch must span the stale window")
+	lastDispatch := group.Status().Jobs[0].LastProgress
+	require.Eventually(t, func() bool {
+		return group.Status().Jobs[0].Stale
+	}, time.Second, time.Millisecond, "a blocked enqueue must still become stale")
+	assert.Equal(t, lastDispatch, group.Status().Jobs[0].LastProgress)
+	require.NoError(t, group.Stop(t.Context()))
+	assert.Equal(t, devices[3:], requeued)
+}
+
+func TestGatherMetricsRoutineBlockedSchedulerFetchBecomesStale(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	scheduler := mock.NewMockUpdateScheduler(ctrl)
+	fetchStarted := make(chan struct{})
+	scheduler.EXPECT().FetchDevices(gomock.Any(), gomock.Any()).DoAndReturn(func(ctx context.Context, _ time.Time) ([]models.Device, error) {
+		select {
+		case <-fetchStarted:
+		default:
+			close(fetchStarted)
+		}
+		<-ctx.Done()
+		return nil, ctx.Err()
+	}).AnyTimes()
+	service := &TelemetryService{config: Config{FetchInterval: 20 * time.Millisecond}, updateScheduler: scheduler}
+	group := startGatherMetricsJobForTest(t, service, make(chan models.Device))
+	<-fetchStarted
+	before := group.Status().Jobs[0].LastProgress
+	require.Eventually(t, func() bool {
+		return group.Status().Jobs[0].Stale
+	}, time.Second, time.Millisecond, "a blocked scheduler fetch must become stale")
+	assert.Equal(t, before, group.Status().Jobs[0].LastProgress)
+}
+
+func TestGatherMetricsRoutineLogsSlowCycleWithSeparateFetchAndEnqueueTiming(t *testing.T) {
+	var logs bytes.Buffer
+	previousLogger := slog.Default()
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&logs, nil)))
+	t.Cleanup(func() { slog.SetDefault(previousLogger) })
+	ctrl := gomock.NewController(t)
+	scheduler := mock.NewMockUpdateScheduler(ctrl)
+	const fetchInterval = 10 * time.Millisecond
+	devices := []models.Device{{ID: "first"}, {ID: "second"}}
+	fetchStarted := make(chan struct{})
+	releaseFetch := make(chan struct{})
+	ctx, cancel := context.WithCancel(t.Context())
+	scheduler.EXPECT().FetchDevices(gomock.Any(), gomock.Any()).DoAndReturn(func(context.Context, time.Time) ([]models.Device, error) {
+		close(fetchStarted)
+		<-releaseFetch
+		return devices, nil
+	})
+	// Cancelling inside the next fetch keeps that cycle too short to log.
+	scheduler.EXPECT().FetchDevices(gomock.Any(), gomock.Any()).DoAndReturn(func(ctx context.Context, _ time.Time) ([]models.Device, error) {
+		cancel()
+		return nil, ctx.Err()
+	})
+	service := &TelemetryService{config: Config{FetchInterval: fetchInterval}, updateScheduler: scheduler}
+	tasks := make(chan models.Device)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		service.gatherMetricsRoutine(ctx, tasks)
+	}()
+	<-fetchStarted
+	time.Sleep(2 * fetchInterval)
+	close(releaseFetch)
+	require.Equal(t, devices[0], <-tasks)
+	time.Sleep(2 * fetchInterval)
+	require.Equal(t, devices[1], <-tasks)
+	<-done
+
+	var slowCycles []map[string]any
+	for _, record := range logRecordsWithMessage(t, &logs, "telemetry gather cycle slow") {
+		if record["devices_fetched"] == float64(len(devices)) {
+			slowCycles = append(slowCycles, record)
+		}
+	}
+	require.Len(t, slowCycles, 1, "one warning summarizes the whole slow cycle")
+	cycle := slowCycles[0]
+	assert.Equal(t, "WARN", cycle["level"])
+	assert.Equal(t, float64(2), cycle["devices_fetched"])
+	assert.Equal(t, float64(2), cycle["tasks_dispatched"])
+	schedulerFetchDuration, ok := cycle["scheduler_fetch_duration"].(float64)
+	require.True(t, ok)
+	enqueueDuration, ok := cycle["enqueue_duration"].(float64)
+	require.True(t, ok)
+	cycleDuration, ok := cycle["cycle_duration"].(float64)
+	require.True(t, ok)
+	assert.GreaterOrEqual(t, schedulerFetchDuration, float64(2*fetchInterval))
+	assert.GreaterOrEqual(t, enqueueDuration, float64(2*fetchInterval))
+	assert.Equal(t, cycleDuration, schedulerFetchDuration+enqueueDuration)
+	assert.Len(t, cycle, 8, "cycle logs contain only timestamps, level, message, durations, and counts")
+}
+
+func TestGatherMetricsRoutineWarnsOnceWhenDrainOutlastsStaleWindow(t *testing.T) {
+	var logs bytes.Buffer
+	previousLogger := slog.Default()
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&logs, nil)))
+	t.Cleanup(func() { slog.SetDefault(previousLogger) })
+	ctrl := gomock.NewController(t)
+	scheduler := mock.NewMockUpdateScheduler(ctrl)
+	const fetchInterval = 10 * time.Millisecond
+	devices := []models.Device{{ID: "first"}, {ID: "second"}, {ID: "third"}, {ID: "unsent"}}
+	scheduler.EXPECT().FetchDevices(gomock.Any(), gomock.Any()).Return(devices, nil)
+	scheduler.EXPECT().AddDevices(gomock.Any(), devices[3:]).Return(nil)
+	service := &TelemetryService{config: Config{FetchInterval: fetchInterval}, updateScheduler: scheduler}
+	tasks := make(chan models.Device)
+	ctx, cancel := context.WithCancel(t.Context())
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		service.gatherMetricsRoutine(ctx, tasks)
+	}()
+	require.Equal(t, devices[0], <-tasks)
+	time.Sleep(4 * fetchInterval)
+	require.Equal(t, devices[1], <-tasks)
+	require.Equal(t, devices[2], <-tasks)
+	cancel()
+	<-done
+
+	draining := logRecordsWithMessage(t, &logs, "telemetry gather cycle still draining")
+	require.Len(t, draining, 1, "a slow drain warns once per cycle")
+	assert.Equal(t, "WARN", draining[0]["level"])
+	assert.Equal(t, float64(len(devices)), draining[0]["devices_fetched"])
+	assert.Equal(t, float64(2), draining[0]["tasks_dispatched"], "the warning fires mid-cycle at the first late handoff")
+}
+
+func logRecordsWithMessage(t *testing.T, logs *bytes.Buffer, msg string) []map[string]any {
+	t.Helper()
+	var records []map[string]any
+	for _, line := range bytes.Split(bytes.TrimSpace(logs.Bytes()), []byte("\n")) {
+		var record map[string]any
+		require.NoError(t, json.Unmarshal(line, &record))
+		if record["msg"] == msg {
+			records = append(records, record)
+		}
+	}
+	return records
 }
 
 func TestTelemetryService_StopDrainsResultsProducedWhileWorkersExit(t *testing.T) {
