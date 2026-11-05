@@ -1563,6 +1563,137 @@ func requireOperatorSlotReleased(t *testing.T, cmd *RunCmd) {
 	}, 2*time.Second, 20*time.Millisecond)
 }
 
+func TestControlLoop_ReadCleanupDoesNotRetainControlSlots(t *testing.T) {
+	for _, action := range []string{"get_errors", "get_cooling_mode", "reboot"} {
+		for _, actionFails := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/fails=%t", action, actionFails), func(t *testing.T) {
+				controller := gomock.NewController(t)
+				device := mocks.NewMockDevice(controller)
+				var actionErr error
+				wantCode := pb.AckCode_ACK_CODE_OK
+				if actionFails {
+					actionErr = errors.New("device action failed")
+					wantCode = pb.AckCode_ACK_CODE_INTERNAL
+				}
+				mc := &pb.MinerCommand{}
+				switch action {
+				case "get_errors":
+					mc.Action = &pb.MinerCommand_GetErrors{GetErrors: &pb.GetErrorsAction{}}
+					device.EXPECT().GetErrors(gomock.Any()).Return(sdk.DeviceErrors{}, actionErr)
+				case "get_cooling_mode":
+					mc.Action = &pb.MinerCommand_GetCoolingMode{GetCoolingMode: &pb.GetCoolingModeAction{}}
+					device.EXPECT().GetCoolingMode(gomock.Any()).Return(sdk.CoolingModeAirCooled, actionErr)
+				case "reboot":
+					mc.Action = &pb.MinerCommand_Reboot{Reboot: &pb.RebootAction{}}
+					device.EXPECT().Reboot(gomock.Any()).Return(actionErr)
+				}
+				closeStarted := make(chan struct{})
+				releaseClose := make(chan struct{})
+				unblockClose := sync.OnceFunc(func() { close(releaseClose) })
+				device.EXPECT().Close(gomock.Any()).DoAndReturn(func(context.Context) error {
+					close(closeStarted)
+					<-releaseClose // Ignore the cleanup deadline to model a stuck plugin.
+					return nil
+				})
+				driver := mocks.NewMockDriver(controller)
+				driver.EXPECT().NewDevice(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+					Return(sdk.NewDeviceResult{Device: device}, nil)
+				pool := newCleanupTestPool(t, 1)
+				pool.closeTimeout = 5 * time.Second
+				cmd := &RunCmd{driverGetter: fakeDriverGetter{d: driver}, minerSecrets: nodeSecretProvider{}, deviceHandles: pool}
+				fake := &controlFakeGateway{}
+				fake.queue(mustMarshal(t, &pb.AgentCommand{Command: &pb.AgentCommand_MinerCommand{MinerCommand: withTarget(mc)}}))
+				client := newControlClient(t, fake)
+				ctx, cancel := context.WithCancel(t.Context())
+				done := make(chan error, 1)
+				go func() { done <- cmd.runControlLoop(ctx, client, &bootstrap.State{FleetNodeID: 7}, discardLogger(t)) }()
+				t.Cleanup(func() {
+					unblockClose()
+					cancel()
+					<-done
+					cmd.waitForControlWorkers(discardLogger(t))
+				})
+
+				require.Eventually(t, func() bool { return fake.ackCount() == 1 }, time.Second, 5*time.Millisecond,
+					"cleanup must not delay the result ACK")
+				require.Equal(t, wantCode, fake.acksCopy()[0].GetCode())
+				select {
+				case <-closeStarted:
+				case <-time.After(time.Second):
+					t.Fatal("device cleanup did not start")
+				}
+				if action == "reboot" {
+					require.Len(t, cmd.controlCommandSlots, 1, "writes must keep their existing cleanup wait")
+				} else {
+					require.Eventually(t, func() bool {
+						return len(cmd.controlCommandSlots) == 0 && len(cmd.controlDeferrableReadSlots) == 0
+					}, time.Second, 5*time.Millisecond, "completed reads must release control capacity while cleanup is stuck")
+				}
+				_, err := pool.acquire()
+				require.ErrorContains(t, err, "device handle capacity exhausted", "cleanup must keep its separate handle permit")
+				unblockClose()
+				require.Eventually(t, func() bool {
+					return len(cmd.controlCommandSlots) == 0 && len(cmd.controlDeferrableReadSlots) == 0 && len(pool.slots) == 0
+				}, time.Second, 5*time.Millisecond)
+			})
+		}
+	}
+}
+
+func TestControlLoop_StuckReadCleanupsLeaveHandlesForOperatorCommands(t *testing.T) {
+	const handles, reads = 3, 4
+	controller := gomock.NewController(t)
+	releaseClose := make(chan struct{})
+	unblockClose := sync.OnceFunc(func() { close(releaseClose) })
+	device := mocks.NewMockDevice(controller)
+	device.EXPECT().GetCoolingMode(gomock.Any()).Return(sdk.CoolingModeAirCooled, nil).AnyTimes()
+	device.EXPECT().Reboot(gomock.Any()).Return(nil).Times(1)
+	device.EXPECT().Close(gomock.Any()).DoAndReturn(func(context.Context) error {
+		<-releaseClose // Ignore the cleanup deadline to model a stuck plugin.
+		return nil
+	}).AnyTimes()
+	driver := mocks.NewMockDriver(controller)
+	driver.EXPECT().NewDevice(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+		Return(sdk.NewDeviceResult{Device: device}, nil).AnyTimes()
+	pool := newCleanupTestPool(t, handles)
+	pool.readHeadroom = 1
+	cmd := &RunCmd{driverGetter: fakeDriverGetter{d: driver}, minerSecrets: nodeSecretProvider{}, deviceHandles: pool}
+	fake := &controlFakeGateway{}
+	readPayload := mustMarshal(t, &pb.AgentCommand{Command: &pb.AgentCommand_MinerCommand{MinerCommand: withTarget(
+		&pb.MinerCommand{Action: &pb.MinerCommand_GetCoolingMode{GetCoolingMode: &pb.GetCoolingModeAction{}}},
+	)}})
+	for i := range reads {
+		fake.queueWithID(fmt.Sprintf("read-%d", i), readPayload)
+	}
+	fake.queueWithID("operator", mustMarshal(t, &pb.AgentCommand{Command: &pb.AgentCommand_MinerCommand{MinerCommand: withTarget(
+		&pb.MinerCommand{Action: &pb.MinerCommand_Reboot{Reboot: &pb.RebootAction{}}},
+	)}}))
+	client := newControlClient(t, fake)
+	ctx, cancel := context.WithCancel(t.Context())
+	done := make(chan error, 1)
+	go func() { done <- cmd.runControlLoop(ctx, client, &bootstrap.State{FleetNodeID: 7}, discardLogger(t)) }()
+	t.Cleanup(func() {
+		unblockClose()
+		cancel()
+		<-done
+		cmd.waitForControlWorkers(discardLogger(t))
+	})
+
+	require.Eventually(t, func() bool { return fake.ackCount() == reads+1 }, 2*time.Second, 5*time.Millisecond)
+	readsByCode := map[pb.AckCode]int{}
+	for _, ack := range fake.acksCopy() {
+		if ack.GetCommandId() == "operator" {
+			require.Equal(t, pb.AckCode_ACK_CODE_OK, ack.GetCode(), "stuck read cleanups must not consume the operator handle headroom")
+			continue
+		}
+		readsByCode[ack.GetCode()]++
+	}
+	require.Equal(t, reads, readsByCode[pb.AckCode_ACK_CODE_OK]+readsByCode[pb.AckCode_ACK_CODE_BUSY])
+	require.LessOrEqual(t, readsByCode[pb.AckCode_ACK_CODE_OK], handles-pool.readHeadroom)
+	unblockClose()
+	require.Eventually(t, func() bool { return len(pool.slots) == 0 }, time.Second, 5*time.Millisecond)
+}
+
 func TestControlLoop_DeferrableReadsReserveOperatorCapacity(t *testing.T) {
 	controller := gomock.NewController(t)
 	release := make(chan struct{})

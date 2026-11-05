@@ -32,6 +32,7 @@ import (
 	pb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
 	minercommandpb "github.com/block/proto-fleet/server/generated/grpc/minercommand/v1"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/commandresult"
+	fleetnodecontrol "github.com/block/proto-fleet/server/internal/domain/fleetnode/control"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/curtailmentconfig"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/passwordupdate"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/poolconfig"
@@ -159,7 +160,14 @@ func (r *RunCmd) handleMinerCommand(ctx context.Context, client gatewayClient, s
 	cmdCtx, cancel := context.WithTimeout(ctx, minerCommandActionTimeout(mc))
 	defer cancel()
 
-	lease, err := r.getDeviceHandlePool().acquire()
+	pool := r.getDeviceHandlePool()
+	class, _ := fleetnodecontrol.AdmissionForMinerCommand(mc)
+	isRead := class == fleetnodecontrol.CommandAdmissionDeferrableRead
+	acquire := pool.acquire
+	if isRead {
+		acquire = pool.acquireRead
+	}
+	lease, err := acquire()
 	if err != nil {
 		code, msg := classifyMinerCommandError("reserve device handle", err)
 		reject(code, msg, sdk.WriteStageDispatch, sdk.WriteReasonRejected)
@@ -192,7 +200,15 @@ func (r *RunCmd) handleMinerCommand(ctx context.Context, client gatewayClient, s
 		return
 	}
 	dev := result.Device
-	defer lease.closeAndWait(dev)
+	if isRead {
+		// The bounded handle pool owns cleanup. A completed read must not keep
+		// its control slot waiting for Close after Fleet has received its ACK.
+		// Shutdown may therefore cancel an in-flight read Close; built-in
+		// drivers only release local state there.
+		defer lease.close(dev)
+	} else {
+		defer lease.closeAndWait(dev)
+	}
 
 	caps, err := commandCapabilities(cmdCtx, driver, mc)
 	if err != nil {

@@ -204,7 +204,7 @@ func (f *pluginTelemetryFetcher) Fetch(ctx context.Context, req *telemetrypb.Fle
 	redactions := telemetrySecretRedactions(secret)
 	entry := f.takeCachedDevice(req.GetDeviceIdentifier(), plugin, key)
 	if entry == nil {
-		lease, acquireErr := f.deviceHandles.acquire()
+		lease, acquireErr := f.deviceHandles.acquireRead()
 		if acquireErr != nil {
 			return nil, acquireErr
 		}

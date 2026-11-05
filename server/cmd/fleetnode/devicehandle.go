@@ -11,6 +11,7 @@ import (
 	grpcstatus "google.golang.org/grpc/status"
 
 	pb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
+	fleetnodecontrol "github.com/block/proto-fleet/server/internal/domain/fleetnode/control"
 	sdk "github.com/block/proto-fleet/server/sdk/v1"
 )
 
@@ -30,6 +31,10 @@ type deviceHandlePool struct {
 	// caller stops waiting, so NotFound proves absence only after this grace.
 	creationGrace         time.Duration
 	creationRetryInterval time.Duration
+	// Deferrable reads must leave this many handles free, so their cleanup
+	// backlog cannot exhaust the handles reserved operator commands need.
+	readHeadroom int
+	admitMu      sync.Mutex
 }
 
 func newDeviceHandlePool(parent context.Context, capacity int) *deviceHandlePool {
@@ -43,16 +48,24 @@ func newDeviceHandlePool(parent context.Context, capacity int) *deviceHandlePool
 
 func (p *deviceHandlePool) shutdown() { p.cancel() }
 
-func (p *deviceHandlePool) acquire() (*deviceHandleLease, error) {
+func (p *deviceHandlePool) acquire() (*deviceHandleLease, error) { return p.acquireLeaving(0) }
+
+func (p *deviceHandlePool) acquireRead() (*deviceHandleLease, error) {
+	return p.acquireLeaving(p.readHeadroom)
+}
+
+func (p *deviceHandlePool) acquireLeaving(headroom int) (*deviceHandleLease, error) {
 	if p.ctx.Err() != nil {
 		return nil, cmdErr(pb.AckCode_ACK_CODE_BUSY, "plugin device cleanup is shutting down")
 	}
-	select {
-	case p.slots <- struct{}{}:
-		return &deviceHandleLease{pool: p, firstAttemptDone: make(chan struct{})}, nil
-	default:
+	p.admitMu.Lock()
+	defer p.admitMu.Unlock()
+	if cap(p.slots)-len(p.slots) <= headroom {
 		return nil, cmdErr(pb.AckCode_ACK_CODE_BUSY, "plugin device handle capacity exhausted; waiting for cleanup")
 	}
+	// Only releases run concurrently with admission, so this send cannot block.
+	p.slots <- struct{}{}
+	return &deviceHandleLease{pool: p, firstAttemptDone: make(chan struct{})}, nil
 }
 
 // getDeviceHandlePool returns the node's only handle pool. Plugin bootstrap
@@ -61,6 +74,7 @@ func (r *RunCmd) getDeviceHandlePool() *deviceHandlePool {
 	r.deviceHandlesOnce.Do(func() {
 		if r.deviceHandles == nil {
 			r.deviceHandles = newDeviceHandlePool(context.Background(), maxOwnedDeviceHandles)
+			r.deviceHandles.readHeadroom = fleetnodecontrol.ReservedGeneralCommandSlotsPerFleetNode
 		}
 	})
 	return r.deviceHandles
