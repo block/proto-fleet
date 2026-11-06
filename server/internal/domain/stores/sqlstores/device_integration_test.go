@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/base64"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -2042,6 +2043,80 @@ func TestUpsertDeviceStatuses_Update(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "OFFLINE", getDeviceStatusFromDB(t, conn, 1))
 	require.Equal(t, "MAINTENANCE", getDeviceStatusFromDB(t, conn, 2))
+}
+
+func TestUpsertDeviceStatuses_CoalescesUnchangedStatus(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+
+	conn := testutil.GetTestDB(t)
+	store := sqlstores.NewSQLDeviceStore(conn)
+	now := time.Now().UTC().Truncate(time.Microsecond)
+	cases := []struct {
+		identifier string
+		status     string
+		timestamp  sql.NullTime
+		nextStatus minermodels.MinerStatus
+		wantWrite  bool
+	}{
+		{"recent", "ACTIVE", sql.NullTime{Time: now, Valid: true}, minermodels.MinerStatusActive, false},
+		{"under-one-minute", "ACTIVE", sql.NullTime{Time: now.Add(-30 * time.Second), Valid: true}, minermodels.MinerStatusActive, false},
+		{"over-one-minute", "ACTIVE", sql.NullTime{Time: now.Add(-61 * time.Second), Valid: true}, minermodels.MinerStatusActive, true},
+		{"missing-timestamp", "ACTIVE", sql.NullTime{}, minermodels.MinerStatusActive, true},
+		{"goes-offline", "ACTIVE", sql.NullTime{Time: now, Valid: true}, minermodels.MinerStatusOffline, true},
+		{"recovers", "OFFLINE", sql.NullTime{Time: now, Valid: true}, minermodels.MinerStatusActive, true},
+	}
+	devices := make([]testDevice, 0, len(cases))
+	updates := make([]interfaces.DeviceStatusUpdate, 0, len(cases))
+	for i, tc := range cases {
+		devices = append(devices, testDevice{id: int64(i + 1), identifier: tc.identifier, status: tc.status, pairingStatus: "PAIRED"})
+		updates = append(updates, interfaces.DeviceStatusUpdate{DeviceIdentifier: minermodels.DeviceIdentifier(tc.identifier), Status: tc.nextStatus})
+	}
+	setupUpsertDeviceStatusesTestData(t, conn, devices)
+	for i, tc := range cases {
+		_, err := conn.Exec(`UPDATE device_status SET status_timestamp = $1 WHERE device_id = $2`, tc.timestamp, i+1)
+		require.NoError(t, err)
+	}
+
+	type persistedStatus struct {
+		status    string
+		timestamp sql.NullTime
+		tuple     string
+	}
+	readStatus := func(id int) persistedStatus {
+		t.Helper()
+		var result persistedStatus
+		// ctid also detects a row mutation that leaves every column unchanged.
+		err := conn.QueryRow(`SELECT status, status_timestamp, ctid::text FROM device_status WHERE device_id = $1`, id).
+			Scan(&result.status, &result.timestamp, &result.tuple)
+		require.NoError(t, err)
+		return result
+	}
+	before := make([]persistedStatus, len(cases))
+	for i := range cases {
+		before[i] = readStatus(i + 1)
+	}
+
+	require.NoError(t, store.UpsertDeviceStatuses(t.Context(), updates))
+	after := make([]persistedStatus, len(cases))
+	for i, tc := range cases {
+		after[i] = readStatus(i + 1)
+		if tc.wantWrite {
+			require.NotEqual(t, before[i].tuple, after[i].tuple, tc.identifier)
+			require.True(t, after[i].timestamp.Valid, tc.identifier)
+			require.False(t, after[i].timestamp.Time.Before(now), tc.identifier)
+			require.Equal(t, strings.ToUpper(tc.nextStatus.String()), after[i].status, tc.identifier)
+		} else {
+			require.Equal(t, before[i], after[i], tc.identifier)
+		}
+	}
+
+	// An entirely coalesced batch still succeeds, and refreshes restart the interval.
+	require.NoError(t, store.UpsertDeviceStatuses(t.Context(), updates))
+	for i, tc := range cases {
+		require.Equal(t, after[i], readStatus(i+1), tc.identifier)
+	}
 }
 
 // =============================================================================
