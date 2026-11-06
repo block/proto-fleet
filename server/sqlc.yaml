@@ -117,3 +117,7 @@ sql:
             go_type:
               import: "database/sql"
               type: "NullString"
+          - column: "curtailment_automation_schedule.start_time"
+            go_type: "string"
+          - column: "curtailment_automation_schedule.end_time"
+            go_type: "string"

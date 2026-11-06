@@ -104,9 +104,10 @@ service CurtailmentService {
     rpc DeleteCurtailmentResponseProfile(DeleteCurtailmentResponseProfileRequest)
         returns (DeleteCurtailmentResponseProfileResponse);
 
-    // Curtailment automation rules. Automation binds an MQTT source trigger to
-    // a response profile; MQTT target=0 starts curtailment and target=100
-    // restores/no-ops.
+    // Curtailment automation rules. Automation binds a trigger to a response
+    // profile. For MQTT rules, target=0 starts curtailment and target=100
+    // restores/no-ops. SCHEDULE rules curtail during each schedule window and
+    // restore at its end.
     rpc ListCurtailmentAutomationRules(ListCurtailmentAutomationRulesRequest)
         returns (ListCurtailmentAutomationRulesResponse);
     rpc GetCurtailmentAutomationRule(GetCurtailmentAutomationRuleRequest)
@@ -177,6 +178,18 @@ enum CurtailmentPriority {
     // EMERGENCY disables post-event cooldown during selection. Only Stop's
     // admin-gated force bypasses min-duration; maintenance checks still apply.
     CURTAILMENT_PRIORITY_EMERGENCY   = 3;
+}
+
+// CurtailmentSourceActorType identifies what started an event.
+enum CurtailmentSourceActorType {
+    CURTAILMENT_SOURCE_ACTOR_TYPE_UNSPECIFIED = 0;
+    CURTAILMENT_SOURCE_ACTOR_TYPE_USER        = 1;
+    CURTAILMENT_SOURCE_ACTOR_TYPE_API_KEY     = 2;
+    CURTAILMENT_SOURCE_ACTOR_TYPE_WEBHOOK     = 3;
+    // A SCHEDULE automation rule window.
+    CURTAILMENT_SOURCE_ACTOR_TYPE_SCHEDULER   = 4;
+    // An MQTT automation rule.
+    CURTAILMENT_SOURCE_ACTOR_TYPE_AUTOMATION  = 5;
 }
 
 // CurtailmentEventState tracks one event lifecycle.
@@ -370,7 +383,12 @@ message CurtailmentEvent {
     string external_reference = 22;
     string idempotency_key    = 23;
 
-    // scheduled_start_at is null for "start now" events.
+    // What started the event. List responses keep it while omitting the
+    // external attribution fields.
+    CurtailmentSourceActorType source_actor_type = 53;
+
+    // For scheduled events, the start of the schedule window that began the
+    // event. Null for "start now" events.
     google.protobuf.Timestamp scheduled_start_at = 30;
     google.protobuf.Timestamp started_at         = 31;
     google.protobuf.Timestamp ended_at           = 32;
@@ -1386,6 +1404,114 @@ message DeleteCurtailmentResponseProfileResponse {}
 enum CurtailmentAutomationTriggerType {
     CURTAILMENT_AUTOMATION_TRIGGER_TYPE_UNSPECIFIED = 0;
     CURTAILMENT_AUTOMATION_TRIGGER_TYPE_MQTT        = 1;
+    // Curtails during each window of the rule's schedule.
+    CURTAILMENT_AUTOMATION_TRIGGER_TYPE_SCHEDULE    = 2;
+}
+
+enum CurtailmentScheduleType {
+    CURTAILMENT_SCHEDULE_TYPE_UNSPECIFIED = 0;
+    CURTAILMENT_SCHEDULE_TYPE_ONE_TIME    = 1;
+    CURTAILMENT_SCHEDULE_TYPE_RECURRING   = 2;
+}
+
+enum CurtailmentScheduleFrequency {
+    CURTAILMENT_SCHEDULE_FREQUENCY_UNSPECIFIED = 0;
+    CURTAILMENT_SCHEDULE_FREQUENCY_DAILY       = 1;
+    CURTAILMENT_SCHEDULE_FREQUENCY_WEEKLY      = 2;
+    CURTAILMENT_SCHEDULE_FREQUENCY_MONTHLY     = 3;
+}
+
+enum CurtailmentScheduleDayOfWeek {
+    CURTAILMENT_SCHEDULE_DAY_OF_WEEK_UNSPECIFIED = 0;
+    CURTAILMENT_SCHEDULE_DAY_OF_WEEK_SUNDAY      = 1;
+    CURTAILMENT_SCHEDULE_DAY_OF_WEEK_MONDAY      = 2;
+    CURTAILMENT_SCHEDULE_DAY_OF_WEEK_TUESDAY     = 3;
+    CURTAILMENT_SCHEDULE_DAY_OF_WEEK_WEDNESDAY   = 4;
+    CURTAILMENT_SCHEDULE_DAY_OF_WEEK_THURSDAY    = 5;
+    CURTAILMENT_SCHEDULE_DAY_OF_WEEK_FRIDAY      = 6;
+    CURTAILMENT_SCHEDULE_DAY_OF_WEEK_SATURDAY    = 7;
+}
+
+// CurtailmentSchedule defines when a SCHEDULE automation rule curtails. Dates
+// and clock times are local to timezone. Each window starts curtailment from
+// the rule's response profile and restores at its end; a window already in
+// progress when the rule is enabled starts immediately for its remainder.
+message CurtailmentSchedule {
+    CurtailmentScheduleType schedule_type = 1 [(buf.validate.field).enum = {
+        defined_only: true
+        not_in: [0]
+    }];
+
+    // IANA time zone, for example "America/Chicago".
+    string timezone = 2 [(buf.validate.field).string = { min_len: 1, max_len: 64 }];
+
+    // Date of the first (or only) window, YYYY-MM-DD.
+    string start_date = 3 [(buf.validate.field).string = {
+        len: 10
+        pattern: "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
+    }];
+
+    // Window start time, HH:MM.
+    string start_time = 4 [(buf.validate.field).string = {
+        len: 5
+        pattern: "^[0-9]{2}:[0-9]{2}$"
+    }];
+
+    // Window end time, HH:MM. A recurring window whose end_time is at or before
+    // start_time ends on the following day.
+    string end_time = 5 [(buf.validate.field).string = {
+        len: 5
+        pattern: "^[0-9]{2}:[0-9]{2}$"
+    }];
+
+    // ONE_TIME: date the window ends, YYYY-MM-DD. A window lasts at most 7 days.
+    string end_date = 6 [(buf.validate.field) = {
+        ignore: IGNORE_IF_UNPOPULATED
+        string: {
+            len: 10
+            pattern: "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
+        }
+    }];
+
+    // RECURRING: cadence of the windows.
+    CurtailmentScheduleFrequency frequency = 7 [(buf.validate.field).enum.defined_only = true];
+
+    // RECURRING WEEKLY: days a window starts on.
+    repeated CurtailmentScheduleDayOfWeek days_of_week = 8 [(buf.validate.field).repeated = {
+        max_items: 7
+        unique: true
+        items: { enum: { defined_only: true, not_in: [0] } }
+    }];
+
+    // RECURRING MONTHLY: day of the month a window starts on. Months without
+    // this day are skipped.
+    uint32 day_of_month = 9 [(buf.validate.field).uint32.lte = 31];
+
+    // RECURRING: last date a window may start, YYYY-MM-DD. Unset repeats
+    // until the rule is disabled or deleted.
+    string until_date = 10 [(buf.validate.field) = {
+        ignore: IGNORE_IF_UNPOPULATED
+        string: {
+            len: 10
+            pattern: "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
+        }
+    }];
+
+    option (buf.validate.message).cel = {
+        id: "one_time_schedule_fields"
+        message: "one-time schedules require end_date and cannot set recurrence fields"
+        expression: "this.schedule_type != 1 || (this.end_date != '' && this.frequency == 0 && this.days_of_week.size() == 0 && this.day_of_month == 0u && this.until_date == '')"
+    };
+    option (buf.validate.message).cel = {
+        id: "recurring_schedule_fields"
+        message: "recurring schedules require a frequency and cannot set end_date"
+        expression: "this.schedule_type != 2 || (this.frequency != 0 && this.end_date == '')"
+    };
+    option (buf.validate.message).cel = {
+        id: "recurring_schedule_days"
+        message: "weekly schedules require days_of_week, monthly schedules require day_of_month, and each cadence accepts only its own field"
+        expression: "this.schedule_type != 2 || (this.frequency == 1 && this.days_of_week.size() == 0 && this.day_of_month == 0u) || (this.frequency == 2 && this.days_of_week.size() > 0 && this.day_of_month == 0u) || (this.frequency == 3 && this.days_of_week.size() == 0 && this.day_of_month >= 1u)"
+    };
 }
 
 enum CurtailmentAutomationSignal {
@@ -1397,14 +1523,23 @@ enum CurtailmentAutomationSignal {
 message CurtailmentAutomationRule {
     // bound, rebind_required, or disabled. Only bound rules can execute.
     string binding_status = 22;
-    // idle, pending, retry, or completed for the latest source assertion.
+    // idle, pending, retry, or completed for the latest trigger assertion.
     string execution_status = 23;
     int64 rule_id = 1;
     string rule_name = 2;
     CurtailmentAutomationTriggerType trigger_type = 3;
 
+    // MQTT rules only.
     int64 mqtt_source_id = 4;
     string mqtt_source_name = 5;
+
+    // SCHEDULE rules only.
+    CurtailmentSchedule schedule = 24;
+    // SCHEDULE rules: the window in progress, or else the next one. Unset when
+    // no windows remain.
+    google.protobuf.Timestamp window_start_at = 25;
+    google.protobuf.Timestamp window_end_at = 26;
+
     int64 response_profile_id = 6;
     string response_profile_name = 7;
 
@@ -1438,11 +1573,21 @@ message GetCurtailmentAutomationRuleResponse {
 
 message CreateCurtailmentAutomationRuleRequest {
     string rule_name = 1 [(buf.validate.field).string = { min_len: 1, max_len: 64 }];
+    // Unspecified means MQTT.
     CurtailmentAutomationTriggerType trigger_type = 2 [(buf.validate.field).enum.defined_only = true];
-    int64 mqtt_source_id = 3 [(buf.validate.field).int64.gt = 0];
+    // Required for MQTT rules; must be unset for SCHEDULE rules.
+    int64 mqtt_source_id = 3 [(buf.validate.field).int64.gte = 0];
     int64 response_profile_id = 4 [(buf.validate.field).int64.gt = 0];
     optional bool enabled = 5;
     string expected_response_profile_revision = 6 [(buf.validate.field).string = { min_len: 1, max_len: 36 }];
+    // Required for SCHEDULE rules; must be unset for MQTT rules.
+    CurtailmentSchedule schedule = 7;
+
+    option (buf.validate.message).cel = {
+        id: "automation_rule_trigger_fields"
+        message: "MQTT rules require mqtt_source_id and no schedule; SCHEDULE rules require schedule and no mqtt_source_id"
+        expression: "this.trigger_type == 2 ? (has(this.schedule) && this.mqtt_source_id == 0) : (this.mqtt_source_id > 0 && !has(this.schedule))"
+    };
 }
 
 message CreateCurtailmentAutomationRuleResponse {
@@ -1452,10 +1597,20 @@ message CreateCurtailmentAutomationRuleResponse {
 message UpdateCurtailmentAutomationRuleRequest {
     int64 rule_id = 1 [(buf.validate.field).int64.gt = 0];
     string rule_name = 2 [(buf.validate.field).string = { min_len: 1, max_len: 64 }];
+    // Must match the rule's trigger type; unspecified means MQTT.
     CurtailmentAutomationTriggerType trigger_type = 3 [(buf.validate.field).enum.defined_only = true];
-    int64 mqtt_source_id = 4 [(buf.validate.field).int64.gt = 0];
+    // Required for MQTT rules; must be unset for SCHEDULE rules.
+    int64 mqtt_source_id = 4 [(buf.validate.field).int64.gte = 0];
     int64 response_profile_id = 5 [(buf.validate.field).int64.gt = 0];
     string expected_response_profile_revision = 6 [(buf.validate.field).string = { min_len: 1, max_len: 36 }];
+    // Required for SCHEDULE rules; must be unset for MQTT rules.
+    CurtailmentSchedule schedule = 7;
+
+    option (buf.validate.message).cel = {
+        id: "automation_rule_trigger_fields"
+        message: "MQTT rules require mqtt_source_id and no schedule; SCHEDULE rules require schedule and no mqtt_source_id"
+        expression: "this.trigger_type == 2 ? (has(this.schedule) && this.mqtt_source_id == 0) : (this.mqtt_source_id > 0 && !has(this.schedule))"
+    };
 }
 
 message UpdateCurtailmentAutomationRuleResponse {

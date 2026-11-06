@@ -16,11 +16,28 @@ import (
 	"github.com/google/uuid"
 )
 
-func saveAutomationExecutionBinding(ctx context.Context, q sqlc.Querier, ruleID, orgID int64, admin bool) error {
+func saveAutomationExecutionBinding(ctx context.Context, q sqlc.Querier, ruleID, orgID int64, admin bool, triggerType models.AutomationTriggerType) error {
 	if err := q.UpsertCurtailmentAutomationExecutionGrant(ctx, sqlc.UpsertCurtailmentAutomationExecutionGrantParams{RuleID: ruleID, OrgID: orgID, AdminControlsGranted: admin}); err != nil {
 		return err
 	}
+	if triggerType == models.AutomationTriggerTypeSchedule {
+		// The window producer asserts the saved schedule from scratch. A save
+		// that changes the schedule's timing, or a re-enable from disabled,
+		// also renews the schedule revision. Any other save or enable keeps it;
+		// clearing the row lets that rebind retry the current window now
+		// instead of after its backoff.
+		return q.DeleteCurtailmentAutomationExecution(ctx, ruleID)
+	}
 	return q.QueueCurrentCurtailmentAutomationExecution(ctx, ruleID)
+}
+
+// getAutomationExecutionGrant reads the rule's grant with the trigger-specific
+// locks: MQTT grants require the enabled source, schedule grants the schedule.
+func getAutomationExecutionGrant(ctx context.Context, q sqlc.Querier, event *models.Event, ruleID int64) (sqlc.CurtailmentAutomationExecutionGrant, error) {
+	if event.SourceActorType == models.SourceActorScheduler {
+		return q.GetCurtailmentScheduleExecutionGrant(ctx, sqlc.GetCurtailmentScheduleExecutionGrantParams{RuleID: ruleID, OrgID: event.OrgID})
+	}
+	return q.GetCurtailmentAutomationExecutionGrant(ctx, sqlc.GetCurtailmentAutomationExecutionGrantParams{RuleID: ruleID, OrgID: event.OrgID})
 }
 
 // AuthorizeAutomationCurtailDispatch evaluates the organization's revocable,
@@ -43,7 +60,7 @@ func authorizePersistedAutomationGrant(ctx context.Context, q sqlc.Querier, rule
 	if err := curtailment.ValidateAutomationEventOwnership(event, event.OrgID, ruleID); err != nil {
 		return err
 	}
-	grant, err := q.GetCurtailmentAutomationExecutionGrant(ctx, sqlc.GetCurtailmentAutomationExecutionGrantParams{RuleID: ruleID, OrgID: event.OrgID})
+	grant, err := getAutomationExecutionGrant(ctx, q, event, ruleID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return fleeterror.NewForbiddenError("automation execution grant revoked or binding changed; rebind_required")
 	}
@@ -158,7 +175,7 @@ func lockAutomationGrantForDispatch(ctx context.Context, q sqlc.Querier, event *
 	if !valid {
 		return fleeterror.NewFailedPreconditionError("invalid automation rule identity")
 	}
-	_, err := q.GetCurtailmentAutomationExecutionGrant(ctx, sqlc.GetCurtailmentAutomationExecutionGrantParams{RuleID: ruleID, OrgID: event.OrgID})
+	_, err := getAutomationExecutionGrant(ctx, q, event, ruleID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil
 	}

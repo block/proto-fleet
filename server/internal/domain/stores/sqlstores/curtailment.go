@@ -33,6 +33,7 @@ const deviceNonTerminalUniqueIndex = "uq_curtailment_target_one_non_terminal_per
 const (
 	idempotencyKeyUniqueIndex    = "uq_curtailment_event_idempotency"
 	externalReferenceUniqueIndex = "uq_curtailment_event_external_ref"
+	scheduleWindowUniqueIndex    = "idx_curtailment_event_schedule_window"
 	automationRuleOrgNameUnique  = "uq_curtailment_automation_rule_org_name"
 	automationExternalSource     = "curtailment_automation"
 )
@@ -419,6 +420,9 @@ func (s *SQLCurtailmentStore) ListAutomationRules(ctx context.Context, orgID int
 	for i, row := range rows {
 		out[i] = automationRuleFromListRow(row)
 	}
+	if err := s.attachAutomationSchedules(ctx, orgID, out); err != nil {
+		return nil, err
+	}
 	return out, nil
 }
 
@@ -433,7 +437,11 @@ func (s *SQLCurtailmentStore) GetAutomationRule(ctx context.Context, orgID, rule
 		}
 		return nil, fleeterror.NewInternalErrorf("failed to get curtailment automation rule: %v", err)
 	}
-	return automationRuleFromGetRow(row), nil
+	rule := automationRuleFromGetRow(row)
+	if err := s.attachAutomationSchedules(ctx, orgID, []*models.AutomationRule{rule}); err != nil {
+		return nil, err
+	}
+	return rule, nil
 }
 
 func (s *SQLCurtailmentStore) ListEnabledAutomationRulesByMQTTSource(ctx context.Context, mqttSourceID int64) ([]*models.AutomationRule, error) {
@@ -491,7 +499,12 @@ func (s *SQLCurtailmentStore) CreateAutomationRule(
 		if err != nil {
 			return sqlc.CurtailmentAutomationRule{}, mapAutomationRuleWriteError("create", err)
 		}
-		if err := saveAutomationExecutionBinding(ctx, q, inserted.ID, inserted.OrgID, rule.AdminControlsGranted); err != nil {
+		if rule.TriggerType == models.AutomationTriggerTypeSchedule {
+			if err := upsertAutomationSchedule(ctx, q, inserted.ID, rule.Schedule); err != nil {
+				return sqlc.CurtailmentAutomationRule{}, err
+			}
+		}
+		if err := saveAutomationExecutionBinding(ctx, q, inserted.ID, inserted.OrgID, rule.AdminControlsGranted, rule.TriggerType); err != nil {
 			return sqlc.CurtailmentAutomationRule{}, err
 		}
 		return inserted, nil
@@ -549,7 +562,16 @@ func (s *SQLCurtailmentStore) UpdateAutomationRule(
 		if rows != 1 {
 			return automationRuleMutationResult{noRows: true}, nil
 		}
-		if err := saveAutomationExecutionBinding(ctx, q, updated.ID, updated.OrgID, rule.AdminControlsGranted); err != nil {
+		triggerType := models.AutomationTriggerType(updated.TriggerType)
+		if rule.TriggerType != "" && triggerType != rule.TriggerType {
+			return automationRuleMutationResult{}, fleeterror.NewInvalidArgumentError("trigger_type cannot change after a curtailment automation rule is created")
+		}
+		if triggerType == models.AutomationTriggerTypeSchedule {
+			if err := upsertAutomationSchedule(ctx, q, updated.ID, rule.Schedule); err != nil {
+				return automationRuleMutationResult{}, err
+			}
+		}
+		if err := saveAutomationExecutionBinding(ctx, q, updated.ID, updated.OrgID, rule.AdminControlsGranted, triggerType); err != nil {
 			return automationRuleMutationResult{}, err
 		}
 		return automationRuleMutationResult{rule: updated}, err
@@ -627,7 +649,14 @@ func (s *SQLCurtailmentStore) SetAutomationRuleEnabled(
 			if rows != 1 {
 				return automationRuleMutationResult{noRows: true}, nil
 			}
-			if err := saveAutomationExecutionBinding(ctx, q, updated.ID, updated.OrgID, adminControlsGranted); err != nil {
+			// A re-enabled schedule runs its current window again, even one an
+			// operator stopped, so it starts a new schedule revision.
+			if !rule.Enabled && models.AutomationTriggerType(updated.TriggerType) == models.AutomationTriggerTypeSchedule {
+				if err := q.RenewCurtailmentAutomationScheduleRevision(ctx, ruleID); err != nil {
+					return automationRuleMutationResult{}, mapAutomationRuleWriteError("enable", err)
+				}
+			}
+			if err := saveAutomationExecutionBinding(ctx, q, updated.ID, updated.OrgID, adminControlsGranted, models.AutomationTriggerType(updated.TriggerType)); err != nil {
 				return automationRuleMutationResult{}, err
 			}
 			return automationRuleMutationResult{rule: updated}, err
@@ -762,7 +791,7 @@ func (s *SQLCurtailmentStore) SetAutomationActiveEvent(ctx context.Context, rule
 	}
 	if rows == 0 {
 		return fleeterror.NewFailedPreconditionErrorf(
-			"curtailment automation rule %d is disabled, no longer bound to MQTT source %d, or cannot bind the supplied event", ruleID, mqttSourceID)
+			"curtailment automation rule %d is disabled, no longer bound to its trigger, or cannot bind the supplied event", ruleID)
 	}
 	return nil
 }
@@ -804,7 +833,7 @@ func automationRuleFromListRow(row sqlc.ListCurtailmentAutomationRulesByOrgRow) 
 		row.OrgID,
 		row.RuleName,
 		row.TriggerType,
-		row.MqttSourceID,
+		row.MqttSourceID.Int64,
 		row.MqttSourceName,
 		row.ResponseProfileID,
 		row.ResponseProfileRevision,
@@ -833,7 +862,7 @@ func automationRuleFromGetRow(row sqlc.GetCurtailmentAutomationRuleByOrgRow) *mo
 		row.OrgID,
 		row.RuleName,
 		row.TriggerType,
-		row.MqttSourceID,
+		row.MqttSourceID.Int64,
 		row.MqttSourceName,
 		row.ResponseProfileID,
 		row.ResponseProfileRevision,
@@ -862,7 +891,7 @@ func automationRuleFromEnabledMQTTRow(row sqlc.ListEnabledCurtailmentAutomationR
 		row.OrgID,
 		row.RuleName,
 		row.TriggerType,
-		row.MqttSourceID,
+		row.MqttSourceID.Int64,
 		row.MqttSourceName,
 		row.ResponseProfileID,
 		row.ResponseProfileRevision,
@@ -1233,28 +1262,36 @@ func lockAutomationRuleForExecution(
 	ctx context.Context,
 	q sqlc.Querier,
 	orgID int64,
-	ruleID int64,
-	mqttSourceID int64,
-	profileID int64,
-	profileRevision uuid.UUID,
-	serviceUserID int64,
+	fence domainCurtailment.ExecutionFence,
 ) error {
-	if ruleID == 0 {
+	if fence.AutomationRuleID == 0 {
 		return nil
 	}
-	if err := lockAutomationRuleMutation(ctx, q, orgID, ruleID); err != nil {
+	if err := lockAutomationRuleMutation(ctx, q, orgID, fence.AutomationRuleID); err != nil {
 		return err
 	}
-	_, err := q.LockCurtailmentAutomationRuleForExecution(
-		ctx,
-		sqlc.LockCurtailmentAutomationRuleForExecutionParams{
-			ID:                      ruleID,
+	var err error
+	if fence.ForScheduleRule() {
+		_, err = q.LockCurtailmentScheduleRuleForExecution(ctx, sqlc.LockCurtailmentScheduleRuleForExecutionParams{
+			ID:                      fence.AutomationRuleID,
 			OrgID:                   orgID,
-			MqttSourceID:            mqttSourceID,
-			ResponseProfileID:       profileID,
-			ResponseProfileRevision: profileRevision,
-		},
-	)
+			ResponseProfileID:       fence.ResponseProfileID,
+			ResponseProfileRevision: fence.ResponseProfileRevision,
+			ServiceUserID:           fence.AutomationServiceUserID,
+			ScheduleRevision:        fence.AutomationScheduleRevision,
+		})
+	} else {
+		_, err = q.LockCurtailmentAutomationRuleForExecution(
+			ctx,
+			sqlc.LockCurtailmentAutomationRuleForExecutionParams{
+				ID:                      fence.AutomationRuleID,
+				OrgID:                   orgID,
+				MqttSourceID:            fence.AutomationMQTTSourceID,
+				ResponseProfileID:       fence.ResponseProfileID,
+				ResponseProfileRevision: fence.ResponseProfileRevision,
+			},
+		)
+	}
 	if errors.Is(err, sql.ErrNoRows) {
 		return fleeterror.NewFailedPreconditionError(
 			"curtailment automation rule changed before execution; retry",
@@ -1309,11 +1346,13 @@ func (s *SQLCurtailmentStore) InsertEventWithTargets(
 	event models.InsertEventParams,
 	targets []models.InsertTargetParams,
 ) (*models.InsertEventResult, error) {
-	if err := domainCurtailment.ValidateExecutionFence(domainCurtailment.ExecutionFence{
+	fence := domainCurtailment.ExecutionFence{
 		ResponseProfileID: event.ResponseProfileID, ResponseProfileRevision: event.ResponseProfileRevision,
 		AutomationRuleID: event.AutomationRuleID, AutomationMQTTSourceID: event.AutomationMQTTSourceID,
-		AutomationServiceUserID: event.CreatedByUserID,
-	}, domainCurtailment.ExecutionFenceStore); err != nil {
+		AutomationScheduleRevision: event.AutomationScheduleRevision,
+		AutomationServiceUserID:    event.CreatedByUserID,
+	}
+	if err := domainCurtailment.ValidateExecutionFence(fence, domainCurtailment.ExecutionFenceStore); err != nil {
 		return nil, err
 	}
 	// A closed-loop FULL_FLEET event may begin as a targetless active watcher.
@@ -1325,6 +1364,10 @@ func (s *SQLCurtailmentStore) InsertEventWithTargets(
 	}
 	replayRace := false
 	result, err := db.WithTransaction(ctx, s.conn.DB, func(q sqlc.Querier) (*models.InsertEventResult, error) {
+		// A retried transaction starts from the caller's event, not an earlier
+		// attempt's window-end cap or authorization envelope.
+		event := event
+		txStart := time.Now()
 		if replay, err := lookupReplayEventInTx(ctx, q, event); err != nil {
 			return nil, err
 		} else if replay != nil {
@@ -1466,16 +1509,10 @@ func (s *SQLCurtailmentStore) InsertEventWithTargets(
 		); err != nil {
 			return nil, err
 		}
-		if err := lockAutomationRuleForExecution(
-			ctx,
-			q,
-			event.OrgID,
-			event.AutomationRuleID,
-			event.AutomationMQTTSourceID,
-			event.ResponseProfileID,
-			event.ResponseProfileRevision,
-			event.CreatedByUserID,
-		); err != nil {
+		if err := lockAutomationRuleForExecution(ctx, q, event.OrgID, fence); err != nil {
+			return nil, err
+		}
+		if err := capScheduledEventAtWindowEnd(&event, txStart, time.Now()); err != nil {
 			return nil, err
 		}
 		if err := authorizeAutomationExecution(
@@ -1525,6 +1562,7 @@ func (s *SQLCurtailmentStore) InsertEventWithTargets(
 			IdempotencyKey:              ptrToNullString(event.IdempotencyKey),
 			Reason:                      event.Reason,
 			ScheduledStartAt:            ptrToNullTime(event.ScheduledStartAt),
+			ScheduleRevision:            uuid.NullUUID{UUID: event.AutomationScheduleRevision, Valid: event.AutomationScheduleRevision != uuid.Nil},
 			StartedAt:                   ptrToNullTime(event.StartedAt),
 			EndedAt:                     ptrToNullTime(event.EndedAt),
 			CreatedByUserID:             event.CreatedByUserID,
@@ -1538,6 +1576,10 @@ func (s *SQLCurtailmentStore) InsertEventWithTargets(
 					// Replay path: caller re-issues the matching lookup.
 					replayRace = true
 					return nil, nil
+				case scheduleWindowUniqueIndex:
+					return nil, fleeterror.NewFailedPreconditionError(
+						"schedule window already has a curtailment event for this schedule revision",
+					)
 				}
 				// Unknown constraint: sanitize the response and log the
 				// name server-side so it doesn't leak through %v.
@@ -1995,9 +2037,11 @@ func (s *SQLCurtailmentStore) forceReleaseEvent(
 	}, nil
 }
 
+// isAutomationEvent reports whether an MQTT or schedule automation rule owns
+// the event; force release disables that rule.
 func isAutomationEvent(event *models.Event) bool {
 	return event != nil &&
-		event.SourceActorType == models.SourceActorAutomation &&
+		(event.SourceActorType == models.SourceActorAutomation || event.SourceActorType == models.SourceActorScheduler) &&
 		event.ExternalSource != nil &&
 		*event.ExternalSource == automationExternalSource
 }
@@ -3028,11 +3072,12 @@ func (s *SQLCurtailmentStore) BeginRecurtailTransition(
 	eventUUID uuid.UUID,
 	params interfaces.BeginRecurtailTransitionParams,
 ) (*models.Event, error) {
-	if err := domainCurtailment.ValidateExecutionFence(domainCurtailment.ExecutionFence{
+	fence := domainCurtailment.ExecutionFence{
 		ResponseProfileID: params.ResponseProfileID, ResponseProfileRevision: params.ResponseProfileRevision,
 		AutomationRuleID: params.AutomationRuleID, AutomationMQTTSourceID: params.AutomationMQTTSourceID,
 		AutomationServiceUserID: params.AutomationServiceUserID,
-	}, domainCurtailment.ExecutionFenceStore); err != nil {
+	}
+	if err := domainCurtailment.ValidateExecutionFence(fence, domainCurtailment.ExecutionFenceStore); err != nil {
 		return nil, err
 	}
 	return db.WithTransaction(ctx, s.conn.DB, func(q sqlc.Querier) (*models.Event, error) {
@@ -3099,16 +3144,7 @@ func (s *SQLCurtailmentStore) BeginRecurtailTransition(
 		); err != nil {
 			return nil, err
 		}
-		if err := lockAutomationRuleForExecution(
-			ctx,
-			q,
-			orgID,
-			params.AutomationRuleID,
-			params.AutomationMQTTSourceID,
-			params.ResponseProfileID,
-			params.ResponseProfileRevision,
-			params.AutomationServiceUserID,
-		); err != nil {
+		if err := lockAutomationRuleForExecution(ctx, q, orgID, fence); err != nil {
 			return nil, err
 		}
 		if err := authorizeAutomationExecution(
@@ -3853,6 +3889,7 @@ func convertEventRow(row sqlc.CurtailmentEvent) *models.Event {
 		row.CreatedAt,
 		row.UpdatedAt,
 		row.AuthorizationEnvelopeJsonb,
+		row.ScheduleRevision,
 	)
 	return event
 }
@@ -3906,6 +3943,7 @@ func convertEventDetailRow(row sqlc.GetCurtailmentEventDetailByUUIDRow) *models.
 		row.CreatedAt,
 		row.UpdatedAt,
 		row.AuthorizationEnvelopeJsonb,
+		row.ScheduleRevision,
 	)
 }
 
@@ -3958,6 +3996,7 @@ func convertEventListRow(row sqlc.ListCurtailmentEventsForOrgRow) *models.Event 
 		row.CreatedAt,
 		row.UpdatedAt,
 		row.AuthorizationEnvelopeJsonb,
+		row.ScheduleRevision,
 	)
 }
 
@@ -4010,6 +4049,7 @@ func convertActiveEventRow(row sqlc.ListActiveCurtailmentEventsRow) *models.Even
 		row.CreatedAt,
 		row.UpdatedAt,
 		row.AuthorizationEnvelopeJsonb,
+		row.ScheduleRevision,
 	)
 	// The active-list query aggregates target counts per row; events with no
 	// target rows carry a zeroed (non-nil) rollup so active displays can trust
@@ -4114,6 +4154,7 @@ func convertEventFields(
 	createdAt time.Time,
 	updatedAt time.Time,
 	authorizationEnvelopeJSON []byte,
+	scheduleRevision uuid.NullUUID,
 ) *models.Event {
 	return &models.Event{
 		ID:                           id,
@@ -4158,6 +4199,7 @@ func convertEventFields(
 		SupersedesEventID:            nullInt64ToPtr(supersedesEventID),
 		Reason:                       reason,
 		ScheduledStartAt:             nullTimeToPtr(scheduledStartAt),
+		ScheduleRevision:             scheduleRevision.UUID,
 		StartedAt:                    nullTimeToPtr(startedAt),
 		EndedAt:                      nullTimeToPtr(endedAt),
 		CreatedByUserID:              createdByUserID,

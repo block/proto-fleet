@@ -97,7 +97,6 @@ func TestAutomationService_CreateRejectsUnsupportedTriggerType(t *testing.T) {
 	require.Error(t, err)
 	assert.True(t, fleeterror.IsInvalidArgumentError(err))
 	assert.Contains(t, err.Error(), `trigger_type "marketPriceAbove" is not supported`)
-	assert.Contains(t, err.Error(), "only MQTT (MaestroOS source) is supported")
 	assert.Equal(t, 0, h.rules.createCalls)
 }
 
@@ -1886,6 +1885,18 @@ func (f *automationFakeStore) RecordAutomationRestoreStarted(_ context.Context, 
 		}
 	}
 	return fleeterror.NewNotFoundErrorf("curtailment automation rule not found: %d", ruleID)
+}
+
+func (*automationFakeStore) ListEnabledScheduleAutomationRules(context.Context) ([]models.ScheduledAutomationRule, error) {
+	return nil, nil
+}
+
+func (*automationFakeStore) QueueScheduleAutomationExecution(context.Context, models.AutomationExecution) error {
+	return nil
+}
+
+func (*automationFakeStore) ScheduleWindowEventState(context.Context, int64, int64, time.Time, uuid.UUID) (models.EventState, bool, error) {
+	return "", false, nil
 }
 
 func (f *automationFakeStore) RecordAutomationExecutionError(_ context.Context, ruleID int64, message string, at time.Time) error {

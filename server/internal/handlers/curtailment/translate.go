@@ -546,6 +546,23 @@ func nonEmptyPtr(s string) *string {
 	return &s
 }
 
+func sourceActorTypeProto(actor models.SourceActorType) pb.CurtailmentSourceActorType {
+	switch actor {
+	case models.SourceActorUser:
+		return pb.CurtailmentSourceActorType_CURTAILMENT_SOURCE_ACTOR_TYPE_USER
+	case models.SourceActorAPIKey:
+		return pb.CurtailmentSourceActorType_CURTAILMENT_SOURCE_ACTOR_TYPE_API_KEY
+	case models.SourceActorWebhook:
+		return pb.CurtailmentSourceActorType_CURTAILMENT_SOURCE_ACTOR_TYPE_WEBHOOK
+	case models.SourceActorScheduler:
+		return pb.CurtailmentSourceActorType_CURTAILMENT_SOURCE_ACTOR_TYPE_SCHEDULER
+	case models.SourceActorAutomation:
+		return pb.CurtailmentSourceActorType_CURTAILMENT_SOURCE_ACTOR_TYPE_AUTOMATION
+	default:
+		return pb.CurtailmentSourceActorType_CURTAILMENT_SOURCE_ACTOR_TYPE_UNSPECIFIED
+	}
+}
+
 // deriveSourceActorType maps session.Info to the audit actor vocabulary;
 // scheduler actor wins over auth method.
 func deriveSourceActorType(info *session.Info) models.SourceActorType {
@@ -902,6 +919,7 @@ func toEventProto(event *models.Event) *pb.CurtailmentEvent {
 	if event.IdempotencyKey != nil {
 		out.IdempotencyKey = *event.IdempotencyKey
 	}
+	out.SourceActorType = sourceActorTypeProto(event.SourceActorType)
 	if event.ScheduledStartAt != nil {
 		out.ScheduledStartAt = timestamppb.New(*event.ScheduledStartAt)
 	}

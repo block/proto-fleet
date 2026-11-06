@@ -786,6 +786,22 @@ describe("CurtailmentManagementPanel", () => {
     expect(screen.queryByRole("button", { name: "Request restore now" })).not.toBeInTheDocument();
   });
 
+  it("lets operators stop schedule-owned events early", async () => {
+    const user = userEvent.setup();
+    mocks.useCurtailmentApi.mockReturnValue(
+      createApiResult({
+        activeEvent: { ...activeEvent, isAutomationOwned: true, isScheduleOwned: true },
+        activeEvents: [{ ...historyEvent, state: "active" }],
+        activeEventId: "curt-1",
+      }),
+    );
+
+    render(<CurtailmentManagementPanel enableRecover />);
+
+    await user.click(screen.getByRole("button", { name: "Request restore now" }));
+    expect(screen.getByRole("dialog", { name: "restore confirmation" })).toBeInTheDocument();
+  });
+
   it("aborts restoring curtailment ownership for admin recovery users", async () => {
     const user = userEvent.setup();
     mocks.useCurtailmentApi.mockReturnValue(

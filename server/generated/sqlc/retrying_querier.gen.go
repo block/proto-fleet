@@ -2048,6 +2048,12 @@ func (q *retryingQuerier) DeleteContainerSetpoints(ctx context.Context, deviceID
 	})
 }
 
+func (q *retryingQuerier) DeleteCurtailmentAutomationExecution(ctx context.Context, ruleID int64) error {
+	return q.retrier.RetryQuery(ctx, "DeleteCurtailmentAutomationExecution", func() error {
+		return q.next.DeleteCurtailmentAutomationExecution(ctx, ruleID)
+	})
+}
+
 func (q *retryingQuerier) DeleteCurtailmentAutomationRuleByOrg(ctx context.Context, arg DeleteCurtailmentAutomationRuleByOrgParams) (int64, error) {
 	var result int64
 	err := q.retrier.RetryQuery(ctx, "DeleteCurtailmentAutomationRuleByOrg", func() error {
@@ -3270,6 +3276,30 @@ func (q *retryingQuerier) GetCurtailmentResponseProfileByOrg(ctx context.Context
 	var result CurtailmentResponseProfileWithRevision
 	err := q.retrier.RetryQuery(ctx, "GetCurtailmentResponseProfileByOrg", func() error {
 		callResult, callErr := q.next.GetCurtailmentResponseProfileByOrg(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) GetCurtailmentScheduleExecutionGrant(ctx context.Context, arg GetCurtailmentScheduleExecutionGrantParams) (CurtailmentAutomationExecutionGrant, error) {
+	var result CurtailmentAutomationExecutionGrant
+	err := q.retrier.RetryQuery(ctx, "GetCurtailmentScheduleExecutionGrant", func() error {
+		callResult, callErr := q.next.GetCurtailmentScheduleExecutionGrant(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) GetCurtailmentScheduleWindowEventState(ctx context.Context, arg GetCurtailmentScheduleWindowEventStateParams) (string, error) {
+	var result string
+	err := q.retrier.RetryQuery(ctx, "GetCurtailmentScheduleWindowEventState", func() error {
+		callResult, callErr := q.next.GetCurtailmentScheduleWindowEventState(ctx, arg)
 		if callErr == nil {
 			result = callResult
 		}
@@ -6530,6 +6560,18 @@ func (q *retryingQuerier) ListCurtailmentAutomationRulesByOrg(ctx context.Contex
 	return result, err
 }
 
+func (q *retryingQuerier) ListCurtailmentAutomationSchedulesByOrg(ctx context.Context, orgID int64) ([]CurtailmentAutomationSchedule, error) {
+	var result []CurtailmentAutomationSchedule
+	err := q.retrier.RetryQuery(ctx, "ListCurtailmentAutomationSchedulesByOrg", func() error {
+		callResult, callErr := q.next.ListCurtailmentAutomationSchedulesByOrg(ctx, orgID)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) ListCurtailmentBuildingScopeCoverage(ctx context.Context, arg ListCurtailmentBuildingScopeCoverageParams) ([]ListCurtailmentBuildingScopeCoverageRow, error) {
 	var result []ListCurtailmentBuildingScopeCoverageRow
 	err := q.retrier.RetryQuery(ctx, "ListCurtailmentBuildingScopeCoverage", func() error {
@@ -6822,6 +6864,18 @@ func (q *retryingQuerier) ListEnabledCurtailmentAutomationRulesByMQTTSource(ctx 
 	var result []ListEnabledCurtailmentAutomationRulesByMQTTSourceRow
 	err := q.retrier.RetryQuery(ctx, "ListEnabledCurtailmentAutomationRulesByMQTTSource", func() error {
 		callResult, callErr := q.next.ListEnabledCurtailmentAutomationRulesByMQTTSource(ctx, mqttSourceID)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) ListEnabledCurtailmentScheduleRules(ctx context.Context) ([]CurtailmentAutomationSchedule, error) {
+	var result []CurtailmentAutomationSchedule
+	err := q.retrier.RetryQuery(ctx, "ListEnabledCurtailmentScheduleRules", func() error {
+		callResult, callErr := q.next.ListEnabledCurtailmentScheduleRules(ctx)
 		if callErr == nil {
 			result = callResult
 		}
@@ -8600,6 +8654,18 @@ func (q *retryingQuerier) LockCurtailmentResponseProfileRevisionForExecution(ctx
 	return result, err
 }
 
+func (q *retryingQuerier) LockCurtailmentScheduleRuleForExecution(ctx context.Context, arg LockCurtailmentScheduleRuleForExecutionParams) (int64, error) {
+	var result int64
+	err := q.retrier.RetryQuery(ctx, "LockCurtailmentScheduleRuleForExecution", func() error {
+		callResult, callErr := q.next.LockCurtailmentScheduleRuleForExecution(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) LockCurtailmentScopeForWrite(ctx context.Context, orgID string) error {
 	return q.retrier.RetryQuery(ctx, "LockCurtailmentScopeForWrite", func() error {
 		return q.next.LockCurtailmentScopeForWrite(ctx, orgID)
@@ -9596,6 +9662,12 @@ func (q *retryingQuerier) QueueCurtailmentAutomationExecution(ctx context.Contex
 	})
 }
 
+func (q *retryingQuerier) QueueCurtailmentScheduleExecution(ctx context.Context, arg QueueCurtailmentScheduleExecutionParams) error {
+	return q.retrier.RetryQuery(ctx, "QueueCurtailmentScheduleExecution", func() error {
+		return q.next.QueueCurtailmentScheduleExecution(ctx, arg)
+	})
+}
+
 func (q *retryingQuerier) ReapMessages(ctx context.Context, arg ReapMessagesParams) ([]ReapMessagesRow, error) {
 	var result []ReapMessagesRow
 	err := q.retrier.RetryQuery(ctx, "ReapMessages", func() error {
@@ -9929,6 +10001,12 @@ func (q *retryingQuerier) RemoveDevicesFromDeviceSet(ctx context.Context, arg Re
 func (q *retryingQuerier) RenameHostedAccount(ctx context.Context, arg RenameHostedAccountParams) error {
 	return q.retrier.RetryQuery(ctx, "RenameHostedAccount", func() error {
 		return q.next.RenameHostedAccount(ctx, arg)
+	})
+}
+
+func (q *retryingQuerier) RenewCurtailmentAutomationScheduleRevision(ctx context.Context, ruleID int64) error {
+	return q.retrier.RetryQuery(ctx, "RenewCurtailmentAutomationScheduleRevision", func() error {
+		return q.next.RenewCurtailmentAutomationScheduleRevision(ctx, ruleID)
 	})
 }
 
@@ -11645,6 +11723,12 @@ func (q *retryingQuerier) UpsertContainerTopologyVersion(ctx context.Context, ar
 func (q *retryingQuerier) UpsertCurtailmentAutomationExecutionGrant(ctx context.Context, arg UpsertCurtailmentAutomationExecutionGrantParams) error {
 	return q.retrier.RetryQuery(ctx, "UpsertCurtailmentAutomationExecutionGrant", func() error {
 		return q.next.UpsertCurtailmentAutomationExecutionGrant(ctx, arg)
+	})
+}
+
+func (q *retryingQuerier) UpsertCurtailmentAutomationSchedule(ctx context.Context, arg UpsertCurtailmentAutomationScheduleParams) error {
+	return q.retrier.RetryQuery(ctx, "UpsertCurtailmentAutomationSchedule", func() error {
+		return q.next.UpsertCurtailmentAutomationSchedule(ctx, arg)
 	})
 }
 

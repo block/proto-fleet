@@ -3,6 +3,7 @@ package curtailment
 import (
 	"context"
 	"log/slog"
+	"sync"
 	"time"
 
 	"github.com/block/proto-fleet/server/internal/domain/curtailment/models"
@@ -18,13 +19,45 @@ type AutomationExecutionStore interface {
 	RetryAutomationExecution(ctx context.Context, ruleID, generation int64, leaseExpiresAt time.Time, message string) error
 }
 
+// automationExecutionWorkers bounds concurrent rule executions. Claims lease
+// one rule's row each, so a slow rule occupies a single worker.
+const automationExecutionWorkers = 4
+
 // Run drains independent rule mailboxes until shutdown. Failed rules retain
 // their latest assertion with backoff; another rule remains immediately due.
+// Schedule rules assert their current window into the same mailboxes on their
+// own ticker, so a slow execution cannot delay a window's assertion.
 func (s *AutomationService) Run(ctx context.Context) {
+	var wg sync.WaitGroup
+	wg.Go(func() { s.runScheduleProducer(ctx) })
+	for range automationExecutionWorkers {
+		wg.Go(func() { s.runExecutionWorker(ctx) })
+	}
+	wg.Wait()
+}
+
+func (s *AutomationService) runExecutionWorker(ctx context.Context) {
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
 	for {
 		s.processDueExecutions(ctx)
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
+	}
+}
+
+func (s *AutomationService) runScheduleProducer(ctx context.Context) {
+	interval := s.scheduleProduceInterval
+	if interval <= 0 {
+		interval = scheduleProduceInterval
+	}
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		s.produceScheduleAssertions(ctx)
 		select {
 		case <-ctx.Done():
 			return
@@ -52,7 +85,9 @@ func (s *AutomationService) processDueExecutions(ctx context.Context) {
 		}
 		attemptCtx, cancel := context.WithTimeout(ctx, time.Minute)
 		rule, err := s.store.GetAutomationRule(attemptCtx, work.OrgID, work.RuleID)
-		if err == nil {
+		if err == nil && rule.TriggerType == models.AutomationTriggerTypeSchedule {
+			err = s.handleScheduleExecution(attemptCtx, rule, work)
+		} else if err == nil {
 			var source mqttingest.SourceConfig
 			source, err = s.sourceStore.GetSourceConfigByOrg(attemptCtx, work.OrgID, work.MQTTSourceID)
 			if err == nil && rule.Enabled && source.Enabled && rule.MQTTSourceID == source.ID {

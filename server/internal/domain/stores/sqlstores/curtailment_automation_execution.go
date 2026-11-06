@@ -8,6 +8,8 @@ import (
 
 	sqlc "github.com/block/proto-fleet/server/generated/sqlc"
 	"github.com/block/proto-fleet/server/internal/domain/curtailment/models"
+	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/google/uuid"
 )
 
 func (s *SQLCurtailmentStore) CountEnabledAutomationRulesByResponseProfile(ctx context.Context, orgID, profileID int64) (int64, error) {
@@ -20,6 +22,27 @@ func automationNullTime(value time.Time) sql.NullTime {
 func (s *SQLCurtailmentStore) QueueAutomationExecution(ctx context.Context, work models.AutomationExecution) error {
 	return s.GetQueries(ctx).QueueCurtailmentAutomationExecution(ctx, sqlc.QueueCurtailmentAutomationExecutionParams{RuleID: work.RuleID, MqttSourceID: work.MQTTSourceID, Direction: work.Direction, Target: string(work.Target), TargetAt: automationNullTime(work.TargetAt), ReceivedAt: work.ReceivedAt, ReceivedBroker: work.ReceivedBroker, PriorEdgeAt: automationNullTime(work.PriorEdgeAt)})
 }
+
+// QueueScheduleAutomationExecution asserts a schedule window boundary. A
+// boundary only replaces an older one, so a stopped window stays stopped; a
+// boundary from a schedule revision that is no longer saved is not queued.
+func (s *SQLCurtailmentStore) QueueScheduleAutomationExecution(ctx context.Context, work models.AutomationExecution) error {
+	return s.GetQueries(ctx).QueueCurtailmentScheduleExecution(ctx, sqlc.QueueCurtailmentScheduleExecutionParams{RuleID: work.RuleID, ScheduleRevision: work.ScheduleRevision, Target: string(work.Target), Direction: work.Direction, BoundaryAt: work.ReceivedAt})
+}
+
+// ScheduleWindowEventState reports the state of the latest event a schedule
+// rule started for a window under a schedule revision, in any state.
+func (s *SQLCurtailmentStore) ScheduleWindowEventState(ctx context.Context, orgID, ruleID int64, windowStart time.Time, scheduleRevision uuid.UUID) (models.EventState, bool, error) {
+	state, err := s.GetQueries(ctx).GetCurtailmentScheduleWindowEventState(ctx, sqlc.GetCurtailmentScheduleWindowEventStateParams{OrgID: orgID, RuleID: ruleID, WindowStart: windowStart, ScheduleRevision: scheduleRevision})
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, fleeterror.NewInternalErrorf("failed to look up curtailment schedule window event: %v", err)
+	}
+	return models.EventState(state), true, nil
+}
+
 func (s *SQLCurtailmentStore) ClaimAutomationExecution(ctx context.Context) (*models.AutomationExecution, error) {
 	row, err := s.GetQueries(ctx).ClaimCurtailmentAutomationExecution(ctx)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -28,7 +51,7 @@ func (s *SQLCurtailmentStore) ClaimAutomationExecution(ctx context.Context) (*mo
 	if err != nil {
 		return nil, err
 	}
-	return &models.AutomationExecution{RuleID: row.RuleID, OrgID: row.OrgID, MQTTSourceID: row.MqttSourceID, Generation: row.Generation, Direction: row.Direction, Target: models.AutomationSignal(row.Target), TargetAt: row.TargetAt.Time, ReceivedAt: row.ReceivedAt, ReceivedBroker: row.ReceivedBroker, PriorEdgeAt: row.PriorEdgeAt.Time, LeaseExpiresAt: row.LeaseExpiresAt.Time}, nil
+	return &models.AutomationExecution{RuleID: row.RuleID, OrgID: row.OrgID, MQTTSourceID: row.MqttSourceID.Int64, Generation: row.Generation, Direction: row.Direction, Target: models.AutomationSignal(row.Target), TargetAt: row.TargetAt.Time, ReceivedAt: row.ReceivedAt, ReceivedBroker: row.ReceivedBroker, PriorEdgeAt: row.PriorEdgeAt.Time, LeaseExpiresAt: row.LeaseExpiresAt.Time, ScheduleRevision: row.ScheduleRevision.UUID}, nil
 }
 func (s *SQLCurtailmentStore) CompleteAutomationExecution(ctx context.Context, ruleID, generation int64, leaseExpiresAt time.Time) error {
 	return s.GetQueries(ctx).CompleteCurtailmentAutomationExecution(ctx, sqlc.CompleteCurtailmentAutomationExecutionParams{RuleID: ruleID, Generation: generation, LeaseExpiresAt: leaseExpiresAt})

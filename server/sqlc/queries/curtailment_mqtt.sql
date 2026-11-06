@@ -351,7 +351,7 @@ SET requested_generation = EXCLUDED.requested_generation;
 
 -- name: CountLiveCurtailmentEventsByMQTTSource :one
 SELECT count(*) FROM curtailment_automation_rule r
-WHERE r.org_id = sqlc.arg('organization_id') AND r.mqtt_source_id = sqlc.arg('source_id')
+WHERE r.org_id = sqlc.arg('organization_id') AND r.mqtt_source_id = sqlc.arg('source_id')::bigint
 AND curtailment_automation_rule_has_live_event(r.id,r.org_id);
 
 -- name: ListRigConfigSourceScopes :many

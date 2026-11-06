@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/block/proto-fleet/server/internal/domain/curtailment/schedulewindow"
 )
 
 // OrgConfig is the per-org candidate-power floor.
@@ -66,13 +68,30 @@ type ResponseProfileInfrastructureDevice struct {
 	Enabled bool
 }
 
-// AutomationTriggerType identifies the kind of signal an automation rule
-// listens to. MQTT is the only supported v1 trigger.
+// AutomationTriggerType identifies what drives an automation rule: an MQTT
+// source's signal, or the windows of a time schedule.
 type AutomationTriggerType string
 
 const (
-	AutomationTriggerTypeMQTT AutomationTriggerType = "MQTT"
+	AutomationTriggerTypeMQTT     AutomationTriggerType = "MQTT"
+	AutomationTriggerTypeSchedule AutomationTriggerType = "SCHEDULE"
 )
+
+// AutomationSchedule is a SCHEDULE rule's window definition. ServiceUserID is
+// the user who last saved the schedule; it attributes scheduled events.
+// Revision changes on every save and fences window execution.
+type AutomationSchedule struct {
+	Definition    schedulewindow.Definition
+	ServiceUserID int64
+	Revision      uuid.UUID
+}
+
+// ScheduledAutomationRule is an enabled SCHEDULE rule as the window producer
+// reads it.
+type ScheduledAutomationRule struct {
+	RuleID   int64
+	Schedule AutomationSchedule
+}
 
 // AutomationSignal is the latest normalized trigger state for a rule.
 type AutomationSignal string
@@ -93,6 +112,7 @@ type AutomationRule struct {
 	TriggerType              AutomationTriggerType
 	MQTTSourceID             int64
 	MQTTSourceName           string
+	Schedule                 *AutomationSchedule
 	ResponseProfileID        int64
 	ResponseProfileRevision  uuid.UUID
 	ResponseProfileName      string
@@ -281,6 +301,7 @@ type Event struct {
 	SupersedesEventID            *int64
 	Reason                       string
 	ScheduledStartAt             *time.Time
+	ScheduleRevision             uuid.UUID
 	StartedAt                    *time.Time
 	EndedAt                      *time.Time
 	CreatedByUserID              int64
@@ -366,19 +387,23 @@ type InsertEventParams struct {
 	FanRestoreDelaySec       int32
 	// Execution-fence fields are consumed by the store and are not persisted on
 	// the event.
-	ResponseProfileID       int64
-	ResponseProfileRevision uuid.UUID
-	AutomationRuleID        int64
-	AutomationMQTTSourceID  int64
-	DecisionSnapshotJSON    []byte
-	SourceActorType         SourceActorType
-	SourceActorID           *string
-	ExternalSource          *string
-	ExternalReference       *string
-	IdempotencyKey          *string
-	Reason                  string
-	ScheduledStartAt        *time.Time
-	StartedAt               *time.Time
+	ResponseProfileID          int64
+	ResponseProfileRevision    uuid.UUID
+	AutomationRuleID           int64
+	AutomationMQTTSourceID     int64
+	AutomationScheduleRevision uuid.UUID
+	// AutomationWindowEndAt is a scheduled event's window end; the store
+	// rejects the insert once it passes and caps the event at it.
+	AutomationWindowEndAt time.Time
+	DecisionSnapshotJSON  []byte
+	SourceActorType       SourceActorType
+	SourceActorID         *string
+	ExternalSource        *string
+	ExternalReference     *string
+	IdempotencyKey        *string
+	Reason                string
+	ScheduledStartAt      *time.Time
+	StartedAt             *time.Time
 	// EndedAt is set only when an event is inserted already terminal — a
 	// vacuously-COMPLETED FULL_FLEET start with no eligible targets — so the
 	// completion time is recorded; the reconciler/restorer set it otherwise.
@@ -544,6 +569,8 @@ type ConfirmationTarget struct {
 
 // AutomationExecution is one leased desired-state assertion for a rule.
 // Generation fences completion when a newer signal replaces in-flight work.
+// ScheduleRevision is the schedule revision a window boundary was produced
+// from; it is nil for MQTT work.
 type AutomationExecution struct {
 	LeaseExpiresAt                          time.Time
 	RuleID, OrgID, MQTTSourceID, Generation int64
@@ -551,4 +578,5 @@ type AutomationExecution struct {
 	Target                                  AutomationSignal
 	TargetAt, ReceivedAt, PriorEdgeAt       time.Time
 	ReceivedBroker                          string
+	ScheduleRevision                        uuid.UUID
 }

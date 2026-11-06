@@ -20,6 +20,10 @@ Preview does not persist an event. The runtime uses these text values:
 | `scope_type` | `whole_org`, `site`, `device_list`, `mixed` |
 | `source_actor_type` | `user`, `api_key`, `webhook`, `scheduler`, `automation` |
 
+Event responses include `source_actor_type`. List responses omit
+`external_source`, so clients use the actor type to identify automation and
+scheduled events in history.
+
 `scope_jsonb` stores the normalized scope contract. `mixed` is also the storage
 representation for building, rack or group selectors and multiple site IDs;
 the service validates the selected terminal resource type. `device_sets` is not
@@ -186,7 +190,7 @@ replaces the desired state without interrupting an active attempt. New or enable
 immediately queue the currently persisted source state. Debounced ON observations
 remain eligible for processing after the debounce window.
 
-Automation events have no duration cap, because response profiles carry none; they
+MQTT automation events have no duration cap, because response profiles carry none; they
 end when the source sends ON, or when an admin force-stops or aborts them.
 
 If an automation event does carry a cap, a continuing OFF assertion cannot
@@ -195,6 +199,87 @@ new OFF are required to start a new demand cycle. The latest mailbox
 preserves the new cycle even when the worker has not processed its intervening ON, and
 waits for the previous capped event to finish restoring. A watchdog OFF from an ON
 source is also a new demand cycle.
+
+### Schedule rules
+
+`curtailment_automation_rule.trigger_type` is `MQTT`, which requires
+`mqtt_source_id`, or `SCHEDULE`, which has no source. A rule's trigger type cannot
+change after it is created. Each schedule rule has one
+`curtailment_automation_schedule` row. A `ONE_TIME` schedule is a start and end date
+and time at most seven days apart. A `RECURRING` schedule repeats `DAILY`, `WEEKLY` on
+selected days, or `MONTHLY` on a day of the month (skipping months without that day),
+from `start_date` until the optional `until_date`. Its end time may be earlier than its
+start time, in which case each window ends the next day. Dates and times are local to the
+schedule's IANA `timezone`. A time skipped by a spring-forward transition runs at the
+same instant as under the offset before it, so 02:30 in a 02:00-03:00 gap runs at 03:30;
+a time repeated by a fall-back transition uses its first occurrence. `service_user_id` is the user who last saved the schedule;
+scheduled events and their commands are attributed to that user.
+
+Schedule rules use the same grants, binding status, and per-rule mailbox as MQTT rules.
+Every five seconds the automation service asserts each enabled schedule's current
+state: OFF stamped with the window's start while a window is open, otherwise ON stamped
+with the most recent window's end. The mailbox accepts only a newer boundary, so each
+boundary runs once. A schedule saved, enabled, or recovered mid-window starts at once
+for the rest of that window; windows that have already ended are skipped. Saving or
+enabling a schedule clears its mailbox so its current state is asserted again. The
+schedule assertions run on their own ticker, and up to four rule executions run at once,
+so a slow or failing rule cannot hold back another rule's window.
+
+A save that changes the schedule's timing (its type, timezone, dates, times, frequency,
+days, or until date) gives the schedule a new `revision`, as does enabling a disabled
+schedule. Other saves, such as a rename or a response profile change, keep the revision.
+Each queued boundary carries the
+revision it was produced from in `curtailment_automation_execution.schedule_revision`.
+A boundary from an earlier revision is not queued, is dropped by the worker, and cannot
+start an event: the event insert rechecks the revision under the rule's execution lock.
+A boundary from the saved revision replaces an earlier revision's row even when its time
+is earlier. A scheduled event records its schedule revision in
+`curtailment_event.schedule_revision`, and the unique index
+`idx_curtailment_event_schedule_window` on the rule, window start, and revision allows at
+most one event per window per revision, including after that event ends. A window's end
+restores only the event that window started under the same revision, so a delayed end
+boundary cannot stop a later window's or an edited schedule's event. The event insert
+also rejects a start whose window has already ended and caps the event so that, counted
+from its `created_at`, it ends at the window's end.
+
+Each window starts its own event with `source_actor_type` `scheduler` and
+`scheduled_start_at` set to the window's start. The event is never unbounded: its
+`max_duration_seconds` is the time left in the window, as a backstop for the window's
+end restore. A window does not take over a previous window's event; it waits until that
+event is no longer live. Any user with `curtailment:manage` can stop a scheduled event
+early, and the schedule curtails again at its next window; a window's event that already
+ran under the current revision is not started again, even after it was stopped, so
+renaming the schedule or changing its response profile does not run the window again.
+Changing its timing does. An admin
+force release disables the schedule, as it does an MQTT rule; enabling it again runs its
+current window. Rig fallback configuration includes only MQTT rules.
+
+The Fleet CLI takes a schedule rule's trigger and schedule through `--json`, for example
+`fleetcli curtailment automation-rules create --json weeknight.json` with:
+
+```json
+{
+  "rule_name": "Weeknight peak",
+  "trigger_type": "CURTAILMENT_AUTOMATION_TRIGGER_TYPE_SCHEDULE",
+  "response_profile_id": 3001,
+  "expected_response_profile_revision": "<the response profile's revision>",
+  "schedule": {
+    "schedule_type": "CURTAILMENT_SCHEDULE_TYPE_RECURRING",
+    "timezone": "America/Chicago",
+    "start_date": "2026-06-01",
+    "start_time": "22:00",
+    "end_time": "06:00",
+    "frequency": "CURTAILMENT_SCHEDULE_FREQUENCY_WEEKLY",
+    "days_of_week": ["CURTAILMENT_SCHEDULE_DAY_OF_WEEK_MONDAY", "CURTAILMENT_SCHEDULE_DAY_OF_WEEK_FRIDAY"]
+  }
+}
+```
+
+A one-time window sets an end date instead of a frequency:
+`"schedule": {"schedule_type": "CURTAILMENT_SCHEDULE_TYPE_ONE_TIME", "timezone": "UTC",
+"start_date": "2026-06-11", "start_time": "20:00", "end_date": "2026-06-12", "end_time": "02:00"}`.
+`update` takes the same body plus `rule_id`. Miner schedules (`fleetcli schedules`) are a
+separate feature and cannot curtail.
 
 Rig fallback configuration is built per device from enabled, granted rules whose profile
 scopes select that device. A device outside all current scopes receives a disabled

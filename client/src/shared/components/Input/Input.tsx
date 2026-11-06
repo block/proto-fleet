@@ -131,7 +131,8 @@ const Input = ({
   const [focused, setFocused] = useState(false);
   const fallbackRef = useRef<HTMLInputElement>(null) as RefObject<HTMLInputElement>;
   const valueWidth = useValueWidth(value, inputRef || fallbackRef, units);
-  const hasFloatingLabel = type === "date" || !!length(value) || focused;
+  // Date and time inputs always render their own placeholder segments, so the label stays floated above them.
+  const hasFloatingLabel = type === "date" || type === "time" || !!length(value) || focused;
   const showPasswordToggle = type === "password" && !hidePasswordToggle;
   const showTrailingIcon = showPasswordToggle || statusIcon !== undefined;
   const trailingAdornmentCount = [tooltip, showTrailingIcon, suffixAction].filter(Boolean).length;

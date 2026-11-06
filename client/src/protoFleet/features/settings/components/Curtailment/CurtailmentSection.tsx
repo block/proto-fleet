@@ -96,3 +96,12 @@ export function SectionHeader({
     </div>
   );
 }
+
+export function SectionDependencyMessage({ children }: { children: string }): ReactElement {
+  return (
+    <p className="mt-2 text-200 text-text-primary-70">
+      <span className="mr-1 inline-block h-1 w-2.5 rounded-full bg-core-primary-20 align-middle" />
+      {children}
+    </p>
+  );
+}
