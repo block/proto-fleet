@@ -421,7 +421,7 @@ keep the container visible for retry. Single-container unpairing records
 miner and bulk deletion retain their existing activity labels.
 
 The action contract is `proto-rig-api/openapi/MDK-v2-API.json`, checked against
-Frigate revision `7a033dbff47e3521d8b87358c1be63bb337ea636`. Host reboot and firmware
+Frigate revision `6acbeba0dcde568d33ca7121aee15a3b567abb4f`. Host reboot and firmware
 update remain unimplemented in that revision's SystemService. Update firmware is
 visible but disabled; the CT1 Fleet driver also lacks the firmware capability. Edit
 pool and Update worker name are visible but disabled because the CT1 Fleet driver

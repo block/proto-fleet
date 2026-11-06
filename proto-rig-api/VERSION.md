@@ -5,13 +5,14 @@
 ### MDK v1
 
 - Repository: miner-firmware (private)
-  - Commit SHA: 10bc4cdf7e3ab3cc8bc9a3558baf10f66d12cbb8
-  - Commit Date: 2026-10-19
-  - Extraction Date: 2026-10-26
+  - Commit SHA: 461b880ae3f2c04177d14335fabcfa531ad1cc0b
+  - Commit Date: 2026-11-05
+  - Extraction Date: 2026-11-06
 - Published mirror: btc-mining/proto-api `mdk/MDK-API.json` at
   c6fdc5a0fae634ea0853b885f65ae32e3e2f0592, identical to the source file
 
-This snapshot is 12 commits after the `proto-apps-1.9.4` source revision
+The spec is unchanged since `10bc4cdf`, 12 commits after the `proto-apps-1.9.4`
+source revision
 (`def3bae4`). The `GET /api/v1/system/logs` contract counts `lines` in journal
 entries and returns an empty result for `lines=0`. The default `miner_sw`
 source now scans until the requested matching tail is complete or the journal
@@ -54,7 +55,7 @@ describe compatible contracts. Refresh both from the same Frigate commit.
 
 ## Files Extracted
 
-### MDK v1 OpenAPI Spec (from `crates/miner-api-server/docs/`)
+### MDK v1 OpenAPI Spec (from `services/mdk-server/docs/`)
 
 - MDK-API.json
 
@@ -68,7 +69,7 @@ To update the MDK v1 API specification:
 
 1. Clone or access the miner-firmware repository
 2. Checkout the desired commit/tag
-3. Copy MDK-API.json from `crates/miner-api-server/docs/` to `openapi/`
+3. Copy MDK-API.json from `services/mdk-server/docs/` to `openapi/`
 4. Update this VERSION.md with the new commit SHA and dates
 5. Regenerate the dependent generated code:
    - Client: `cd client && npm run generate-api-types` (adapter-local TypeScript client from the OpenAPI spec)
