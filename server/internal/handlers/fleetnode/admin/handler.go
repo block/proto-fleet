@@ -2,6 +2,7 @@ package admin
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"time"
@@ -13,6 +14,7 @@ import (
 	"github.com/block/proto-fleet/server/generated/grpc/fleetnodeadmin/v1/fleetnodeadminv1connect"
 	pairingpb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
 	"github.com/block/proto-fleet/server/internal/domain/authz"
+	"github.com/block/proto-fleet/server/internal/domain/discoverylimits"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/control"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/discovery"
@@ -25,17 +27,36 @@ import (
 type Handler struct {
 	fleetnodeadminv1connect.UnimplementedFleetNodeAdminServiceHandler
 
-	enrollment *enrollment.Service
-	pairing    *pairing.Service
-	discovery  *discovery.Service
-	registry   *control.Registry
-	ha         *ha.Service
+	enrollment   *enrollment.Service
+	pairing      *pairing.Service
+	discovery    *discovery.Service
+	pairingState pairingStateAnnotator
+	registry     *control.Registry
+	ha           *ha.Service
+}
+
+type pairingStateAnnotator interface {
+	AnnotateAlreadyPaired(ctx context.Context, orgID int64, devices []*pairingpb.Device) error
 }
 
 var _ fleetnodeadminv1connect.FleetNodeAdminServiceHandler = &Handler{}
 
-func NewHandler(enrollment *enrollment.Service, pairing *pairing.Service, discoverySvc *discovery.Service, registry *control.Registry, haSvc *ha.Service) *Handler {
-	return &Handler{enrollment: enrollment, pairing: pairing, discovery: discoverySvc, registry: registry, ha: haSvc}
+func NewHandler(
+	enrollment *enrollment.Service,
+	pairing *pairing.Service,
+	discoverySvc *discovery.Service,
+	registry *control.Registry,
+	haSvc *ha.Service,
+	pairingState pairingStateAnnotator,
+) *Handler {
+	return &Handler{
+		enrollment:   enrollment,
+		pairing:      pairing,
+		discovery:    discoverySvc,
+		pairingState: pairingState,
+		registry:     registry,
+		ha:           haSvc,
+	}
 }
 
 func (h *Handler) CreateEnrollmentCode(ctx context.Context, req *connect.Request[pb.CreateEnrollmentCodeRequest]) (*connect.Response[pb.CreateEnrollmentCodeResponse], error) {
@@ -248,12 +269,38 @@ func (h *Handler) DiscoverOnFleetNode(ctx context.Context, req *connect.Request[
 		return err
 	}
 
-	return h.discovery.RunOnNode(ctx, fleetNodeID, fmt.Sprintf("Fleet Node %d", fleetNodeID), discoverReq, func(batch *pairingpb.DiscoverResponse) error {
+	discoveryCtx, cancel := discovery.NewRequestContext(ctx)
+	defer cancel()
+	runErr := h.discovery.RunOnNode(discoveryCtx, fleetNodeID, fmt.Sprintf("Fleet Node %d", fleetNodeID), discoverReq, func(batch *pairingpb.DiscoverResponse) error {
+		if err := h.pairingState.AnnotateAlreadyPaired(discoveryCtx, info.OrganizationID, batch.GetDevices()); err != nil {
+			if discoveryCtx.Err() != nil {
+				return discoveryCtx.Err()
+			}
+			return fleeterror.NewInternalErrorf("annotate discovered devices with pairing state: %v", err)
+		}
 		if sendErr := stream.Send(&pb.DiscoverOnFleetNodeResponse{Response: batch}); sendErr != nil {
 			return fleeterror.NewInternalErrorf("send batch to operator: %v", sendErr)
 		}
 		return nil
 	})
+	if runErr == nil {
+		return nil
+	}
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		if errors.Is(ctxErr, context.DeadlineExceeded) {
+			return connect.NewError(connect.CodeDeadlineExceeded, ctxErr)
+		}
+		return nil
+	}
+	if errors.Is(discoveryCtx.Err(), context.DeadlineExceeded) {
+		if err := stream.Send(&pb.DiscoverOnFleetNodeResponse{Response: &pairingpb.DiscoverResponse{
+			Warning: fmt.Sprintf("Fleet Node %d: %s", fleetNodeID, discoverylimits.RequestTimeoutWarning),
+		}}); err != nil {
+			return fleeterror.NewInternalErrorf("send discovery timeout warning: %v", err)
+		}
+		return nil
+	}
+	return runErr
 }
 
 func setHASummary(summary *pb.FleetNodeSummary, n enrollment.FleetNodeListing, names map[int64]string) {

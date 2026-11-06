@@ -458,7 +458,6 @@ const Fleet = () => {
         <Miners
           mode="pairing"
           onExit={handleAddMinersClose}
-          pairedMinerIds={minerIds}
           onPairingCompleted={notifyPairingCompleted}
           onRefetchMiners={refetchAll}
         />

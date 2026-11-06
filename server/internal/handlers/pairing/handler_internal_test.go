@@ -26,6 +26,7 @@ import (
 	pb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
 	"github.com/block/proto-fleet/server/generated/grpc/pairing/v1/pairingv1connect"
 	"github.com/block/proto-fleet/server/internal/domain/authz"
+	"github.com/block/proto-fleet/server/internal/domain/discoverylimits"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/control"
 	fleetnodediscovery "github.com/block/proto-fleet/server/internal/domain/fleetnode/discovery"
@@ -34,6 +35,7 @@ import (
 	domainpairing "github.com/block/proto-fleet/server/internal/domain/pairing"
 	pairingmocks "github.com/block/proto-fleet/server/internal/domain/pairing/mocks"
 	"github.com/block/proto-fleet/server/internal/domain/session"
+	storeinterfaces "github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 	storemocks "github.com/block/proto-fleet/server/internal/domain/stores/interfaces/mocks"
 	"github.com/block/proto-fleet/server/internal/handlers/interceptors"
 	"github.com/block/proto-fleet/server/internal/handlers/middleware"
@@ -46,6 +48,7 @@ type stubFleetNodeDiscoveryRunner struct {
 	requests    []*pb.DiscoverRequest
 	runErr      error
 	warning     string
+	devices     []*pb.Device
 }
 
 func (s *stubFleetNodeDiscoveryRunner) DiscoveryNodeIDs(context.Context, int64) ([]int64, error) {
@@ -69,10 +72,14 @@ func (s *stubFleetNodeDiscoveryRunner) RunOnNode(
 	if s.runErr != nil {
 		return s.runErr
 	}
-	if err := onBatch(&pb.DiscoverResponse{Devices: []*pb.Device{
-		{DeviceIdentifier: "shared", IpAddress: "192.168.1.10", Port: "4028"},
-		{DeviceIdentifier: fmt.Sprintf("node-%d", nodeID), IpAddress: "192.168.1.11", Port: "4028"},
-	}}); err != nil {
+	devices := s.devices
+	if devices == nil {
+		devices = []*pb.Device{
+			{DeviceIdentifier: "shared", IpAddress: "192.168.1.10", Port: "4028"},
+			{DeviceIdentifier: fmt.Sprintf("node-%d", nodeID), IpAddress: "192.168.1.11", Port: "4028"},
+		}
+	}
+	if err := onBatch(&pb.DiscoverResponse{Devices: devices}); err != nil {
 		return err
 	}
 	if s.warning != "" {
@@ -81,6 +88,93 @@ func (s *stubFleetNodeDiscoveryRunner) RunOnNode(
 		}
 	}
 	return nil
+}
+
+type alreadyPairedLookupStore struct {
+	storeinterfaces.DeviceStore
+	pairedIdentifiers []string
+	requestedOrgID    int64
+	requestedIDs      []string
+	lookupErr         func(context.Context) error
+}
+
+func (s *alreadyPairedLookupStore) GetAlreadyPairedDeviceIdentifiers(ctx context.Context, orgID int64, deviceIdentifiers []string) ([]string, error) {
+	s.requestedOrgID = orgID
+	s.requestedIDs = slices.Clone(deviceIdentifiers)
+	if s.lookupErr != nil {
+		if err := s.lookupErr(ctx); err != nil {
+			return nil, err
+		}
+	}
+	return slices.Clone(s.pairedIdentifiers), nil
+}
+
+type blockingAlreadyPairedLookupStore struct {
+	storeinterfaces.DeviceStore
+	started chan<- struct{}
+	release <-chan struct{}
+}
+
+type failingAlreadyPairedLookupStore struct {
+	storeinterfaces.DeviceStore
+	err error
+}
+
+func (s *failingAlreadyPairedLookupStore) GetAlreadyPairedDeviceIdentifiers(context.Context, int64, []string) ([]string, error) {
+	return nil, s.err
+}
+
+func (s *blockingAlreadyPairedLookupStore) GetAlreadyPairedDeviceIdentifiers(ctx context.Context, _ int64, _ []string) ([]string, error) {
+	s.started <- struct{}{}
+	select {
+	case <-s.release:
+		return nil, nil
+	case <-ctx.Done():
+		return nil, fmt.Errorf("pairing-state lookup canceled: %w", ctx.Err())
+	}
+}
+
+type concurrentDiscoveryRunner struct{}
+
+func (concurrentDiscoveryRunner) DiscoveryNodeIDs(context.Context, int64) ([]int64, error) {
+	return []int64{7, 8}, nil
+}
+
+func (concurrentDiscoveryRunner) RunOnNode(
+	ctx context.Context,
+	nodeID int64,
+	_ string,
+	_ *pb.DiscoverRequest,
+	onBatch func(*pb.DiscoverResponse) error,
+) error {
+	return onBatch(&pb.DiscoverResponse{Devices: []*pb.Device{{DeviceIdentifier: fmt.Sprintf("node-%d", nodeID)}}})
+}
+
+type terminalErrorAfterLookupStartsRunner struct {
+	lookupStarted <-chan struct{}
+	terminalErr   error
+}
+
+func (terminalErrorAfterLookupStartsRunner) DiscoveryNodeIDs(context.Context, int64) ([]int64, error) {
+	return []int64{7, 8}, nil
+}
+
+func (r terminalErrorAfterLookupStartsRunner) RunOnNode(
+	ctx context.Context,
+	nodeID int64,
+	_ string,
+	_ *pb.DiscoverRequest,
+	onBatch func(*pb.DiscoverResponse) error,
+) error {
+	if nodeID == 7 {
+		return onBatch(&pb.DiscoverResponse{Devices: []*pb.Device{{DeviceIdentifier: "blocked-annotation"}}})
+	}
+	select {
+	case <-r.lookupStarted:
+		return r.terminalErr
+	case <-ctx.Done():
+		return fmt.Errorf("waiting to fail discovery: %w", ctx.Err())
+	}
 }
 
 // ctxWithPerms builds the request context the auth interceptor would produce:
@@ -140,6 +234,183 @@ func TestDiscoverRequest_IPListTargetLimit(t *testing.T) {
 	assert.Error(t, protovalidate.Validate(request))
 }
 
+func TestDiscover_AnnotatesAuthoritativePairingState(t *testing.T) {
+	store := &alreadyPairedLookupStore{pairedIdentifiers: []string{"paired-rig-on-later-page", "paired-container-controller"}}
+	runner := &stubFleetNodeDiscoveryRunner{
+		nodeIDs: []int64{7},
+		devices: []*pb.Device{
+			{DeviceIdentifier: "paired-rig-on-later-page", DeviceClass: commonv1.DeviceClass_DEVICE_CLASS_RIG},
+			{DeviceIdentifier: "paired-container-controller", DeviceClass: commonv1.DeviceClass_DEVICE_CLASS_CONTAINER},
+			{DeviceIdentifier: "new-rig", DeviceClass: commonv1.DeviceClass_DEVICE_CLASS_RIG},
+		},
+	}
+	client := discoveryClientForHandler(t, &Handler{
+		pairingSvc: domainpairing.NewService(nil, store, nil, nil, nil, nil, nil, nil, nil),
+		discovery:  runner,
+	})
+	stream, err := client.Discover(t.Context(), connect.NewRequest(&pb.DiscoverRequest{
+		Mode: &pb.DiscoverRequest_NetworkScan{NetworkScan: &pb.NetworkScanModeRequest{UseFleetNodeLocalSubnet: true}},
+	}))
+	require.NoError(t, err)
+
+	var devices []*pb.Device
+	for stream.Receive() {
+		devices = append(devices, stream.Msg().GetDevices()...)
+	}
+	require.NoError(t, stream.Err())
+	require.Len(t, devices, 3)
+	assert.Equal(t, int64(1), store.requestedOrgID)
+	assert.ElementsMatch(t, []string{"paired-rig-on-later-page", "paired-container-controller", "new-rig"}, store.requestedIDs)
+	pairedByID := make(map[string]bool, len(devices))
+	for _, device := range devices {
+		pairedByID[device.GetDeviceIdentifier()] = device.GetAlreadyPaired()
+	}
+	assert.True(t, pairedByID["paired-rig-on-later-page"])
+	assert.True(t, pairedByID["paired-container-controller"])
+	assert.False(t, pairedByID["new-rig"])
+}
+
+func TestDiscover_AnnotatesConcurrentSourcesBeforeSerializingResponses(t *testing.T) {
+	started := make(chan struct{}, 2)
+	release := make(chan struct{})
+	store := &blockingAlreadyPairedLookupStore{started: started, release: release}
+	client := discoveryClientForHandler(t, &Handler{
+		pairingSvc: domainpairing.NewService(nil, store, nil, nil, nil, nil, nil, nil, nil),
+		discovery:  concurrentDiscoveryRunner{},
+	})
+
+	done := make(chan error, 1)
+	go func() {
+		stream, err := client.Discover(t.Context(), connect.NewRequest(&pb.DiscoverRequest{
+			Mode: &pb.DiscoverRequest_NetworkScan{NetworkScan: &pb.NetworkScanModeRequest{UseFleetNodeLocalSubnet: true}},
+		}))
+		if err != nil {
+			done <- err
+			return
+		}
+		for stream.Receive() {
+		}
+		done <- stream.Err()
+	}()
+
+	for range 2 {
+		select {
+		case <-started:
+		case <-time.After(time.Second):
+			close(release)
+			t.Fatal("pairing-state lookups were serialized")
+		}
+	}
+	close(release)
+	require.NoError(t, <-done)
+}
+
+func TestDiscover_TerminalSourceErrorCancelsBlockedAnnotation(t *testing.T) {
+	started := make(chan struct{}, 1)
+	release := make(chan struct{})
+	store := &blockingAlreadyPairedLookupStore{started: started, release: release}
+	terminalErr := fleeterror.NewUnauthenticatedError("expired Fleet Node session")
+	h := &Handler{
+		pairingSvc: domainpairing.NewService(nil, store, nil, nil, nil, nil, nil, nil, nil),
+		discovery: terminalErrorAfterLookupStartsRunner{
+			lookupStarted: started,
+			terminalErr:   terminalErr,
+		},
+	}
+
+	done := make(chan error, 1)
+	go func() {
+		done <- h.Discover(ctxWithPerms(authz.PermMinerPair), connect.NewRequest(&pb.DiscoverRequest{
+			Mode: &pb.DiscoverRequest_NetworkScan{NetworkScan: &pb.NetworkScanModeRequest{UseFleetNodeLocalSubnet: true}},
+		}), nil)
+	}()
+
+	select {
+	case err := <-done:
+		require.ErrorIs(t, err, terminalErr)
+	case <-time.After(time.Second):
+		t.Fatal("terminal source error did not cancel the blocked pairing-state lookup")
+	}
+}
+
+func TestDiscover_AnnotationDeadlineReturnsPartialResultWarning(t *testing.T) {
+	previousTimeout := fleetnodediscovery.DiscoverCommandTimeout
+	fleetnodediscovery.DiscoverCommandTimeout = 200 * time.Millisecond
+	t.Cleanup(func() { fleetnodediscovery.DiscoverCommandTimeout = previousTimeout })
+
+	store := &alreadyPairedLookupStore{lookupErr: func(ctx context.Context) error {
+		<-ctx.Done()
+		return fmt.Errorf("lookup stopped: %w", ctx.Err())
+	}}
+	client := discoveryClientForHandler(t, &Handler{
+		pairingSvc: domainpairing.NewService(nil, store, nil, nil, nil, nil, nil, nil, nil),
+		discovery: &stubFleetNodeDiscoveryRunner{
+			nodeIDs: []int64{7},
+			devices: []*pb.Device{{DeviceIdentifier: "discovered-before-timeout"}},
+		},
+	})
+	stream, err := client.Discover(t.Context(), connect.NewRequest(&pb.DiscoverRequest{
+		Mode: &pb.DiscoverRequest_NetworkScan{NetworkScan: &pb.NetworkScanModeRequest{UseFleetNodeLocalSubnet: true}},
+	}))
+	require.NoError(t, err)
+
+	var devices []*pb.Device
+	var warnings []string
+	for stream.Receive() {
+		devices = append(devices, stream.Msg().GetDevices()...)
+		if warning := stream.Msg().GetWarning(); warning != "" {
+			warnings = append(warnings, warning)
+		}
+	}
+	require.NoError(t, stream.Err())
+	assert.Empty(t, devices)
+	assert.Equal(t, []string{discoverylimits.RequestTimeoutWarning}, warnings)
+	assert.Equal(t, []string{"discovered-before-timeout"}, store.requestedIDs)
+}
+
+func TestDiscover_CallerCancellationDuringAnnotationIsQuiet(t *testing.T) {
+	ctx, cancel := context.WithCancel(ctxWithPerms(authz.PermMinerPair))
+	store := &alreadyPairedLookupStore{lookupErr: func(lookupCtx context.Context) error {
+		cancel()
+		<-lookupCtx.Done()
+		return fmt.Errorf("lookup stopped: %w", lookupCtx.Err())
+	}}
+	h := &Handler{
+		pairingSvc: domainpairing.NewService(nil, store, nil, nil, nil, nil, nil, nil, nil),
+		discovery: &stubFleetNodeDiscoveryRunner{
+			nodeIDs: []int64{7},
+			devices: []*pb.Device{{DeviceIdentifier: "canceled-device"}},
+		},
+	}
+
+	err := h.Discover(ctx, connect.NewRequest(&pb.DiscoverRequest{
+		Mode: &pb.DiscoverRequest_NetworkScan{NetworkScan: &pb.NetworkScanModeRequest{UseFleetNodeLocalSubnet: true}},
+	}), nil)
+	require.NoError(t, err)
+}
+
+func TestDiscover_AnnotationLookupFailureFailsClosed(t *testing.T) {
+	lookupErr := errors.New("pairing lookup failed")
+	store := &failingAlreadyPairedLookupStore{err: lookupErr}
+	client := discoveryClientForHandler(t, &Handler{
+		pairingSvc: domainpairing.NewService(nil, store, nil, nil, nil, nil, nil, nil, nil),
+		discovery:  concurrentDiscoveryRunner{},
+	})
+
+	stream, err := client.Discover(t.Context(), connect.NewRequest(&pb.DiscoverRequest{
+		Mode: &pb.DiscoverRequest_NetworkScan{NetworkScan: &pb.NetworkScanModeRequest{UseFleetNodeLocalSubnet: true}},
+	}))
+	require.NoError(t, err)
+
+	var devices []*pb.Device
+	for stream.Receive() {
+		devices = append(devices, stream.Msg().GetDevices()...)
+	}
+	assert.Empty(t, devices)
+	assert.Equal(t, connect.CodeInternal, connect.CodeOf(stream.Err()))
+	assert.ErrorContains(t, stream.Err(), lookupErr.Error())
+}
+
 func TestDiscoverRequest_RawPortLimit(t *testing.T) {
 	requests := []func([]string) *pb.DiscoverRequest{
 		func(ports []string) *pb.DiscoverRequest {
@@ -192,7 +463,7 @@ func TestForwardDiscoverySources_FansOutManualRequestsAndDeduplicates(t *testing
 			close(serverResults)
 			var sent []*pb.Device
 			var warnings []string
-			fwd := newDedupForwarder(func(resp *pb.DiscoverResponse) error {
+			fwd := newDedupForwarder(nil, func(resp *pb.DiscoverResponse) error {
 				sent = append(sent, resp.GetDevices()...)
 				if resp.GetWarning() != "" {
 					warnings = append(warnings, resp.GetWarning())
@@ -216,6 +487,33 @@ func TestForwardDiscoverySources_FansOutManualRequestsAndDeduplicates(t *testing
 	}
 }
 
+func TestForwardServerDiscoveryResults_BatchesSingletonsBeforeLookup(t *testing.T) {
+	results := make(chan *pb.DiscoverResponse, 3)
+	for _, identifier := range []string{"server-1", "server-2", "server-3"} {
+		results <- &pb.DiscoverResponse{Devices: []*pb.Device{{DeviceIdentifier: identifier}}}
+	}
+	close(results)
+	lookupCalls := 0
+	var lookedUp, sent []*pb.Device
+	fwd := newDedupForwarder(
+		func(_ context.Context, devices []*pb.Device) error {
+			lookupCalls++
+			lookedUp = append(lookedUp, devices...)
+			return nil
+		},
+		func(response *pb.DiscoverResponse) error {
+			sent = append(sent, response.GetDevices()...)
+			return nil
+		},
+		nil,
+	)
+
+	require.NoError(t, forwardServerDiscoveryResults(t.Context(), results, fwd, time.Hour))
+	assert.Equal(t, 1, lookupCalls)
+	assert.Len(t, lookedUp, 3)
+	assert.Len(t, sent, 3)
+}
+
 func TestForwardDiscoverySources_CanceledContextDoesNotDispatch(t *testing.T) {
 	runner := &stubFleetNodeDiscoveryRunner{nodeIDs: []int64{7, 8}}
 	h := &Handler{discovery: runner}
@@ -223,7 +521,7 @@ func TestForwardDiscoverySources_CanceledContextDoesNotDispatch(t *testing.T) {
 	close(serverResults)
 	ctx, cancel := context.WithCancel(ctxWithPerms(authz.PermMinerPair))
 	cancel()
-	fwd := newDedupForwarder(func(*pb.DiscoverResponse) error { return nil }, nil)
+	fwd := newDedupForwarder(nil, func(*pb.DiscoverResponse) error { return nil }, nil)
 
 	require.NoError(t, h.forwardDiscoverySources(ctx, 1, serverResults, &pb.DiscoverRequest{
 		Mode: &pb.DiscoverRequest_IpList{IpList: &pb.IPListModeRequest{IpAddresses: []string{"192.168.1.10"}}},
@@ -240,7 +538,7 @@ func TestForwardDiscoverySources_EligibleNodeLookupFailureKeepsServerResults(t *
 	close(serverResults)
 	var sent []*pb.Device
 	var warnings []string
-	fwd := newDedupForwarder(func(resp *pb.DiscoverResponse) error {
+	fwd := newDedupForwarder(nil, func(resp *pb.DiscoverResponse) error {
 		sent = append(sent, resp.GetDevices()...)
 		if resp.GetWarning() != "" {
 			warnings = append(warnings, resp.GetWarning())
@@ -270,7 +568,7 @@ func TestForwardDiscoverySources_AuthenticationAndLookupValidationErrorsAreTermi
 				h := &Handler{discovery: runner}
 				serverResults := make(chan *pb.DiscoverResponse)
 				close(serverResults)
-				fwd := newDedupForwarder(func(resp *pb.DiscoverResponse) error { assert.Empty(t, resp.GetWarning()); return nil }, nil)
+				fwd := newDedupForwarder(nil, func(resp *pb.DiscoverResponse) error { assert.Empty(t, resp.GetWarning()); return nil }, nil)
 				err := h.forwardDiscoverySources(t.Context(), 1, serverResults, &pb.DiscoverRequest{Mode: &pb.DiscoverRequest_IpList{IpList: &pb.IPListModeRequest{IpAddresses: []string{"192.168.1.10"}}}}, fwd)
 				require.ErrorIs(t, err, sourceErr)
 			})
@@ -361,7 +659,7 @@ func TestDiscover_NodeFailureKeepsLaterServerResults(t *testing.T) {
 func TestForwardDiscoverySources_StreamInvalidArgumentStaysTerminal(t *testing.T) {
 	sendErr := fleeterror.NewInvalidArgumentError("stream rejected response")
 	h := &Handler{discovery: &stubFleetNodeDiscoveryRunner{nodeIDs: []int64{7}}}
-	fwd := newDedupForwarder(func(*pb.DiscoverResponse) error { return sendErr }, nil)
+	fwd := newDedupForwarder(nil, func(*pb.DiscoverResponse) error { return sendErr }, nil)
 	err := h.forwardDiscoverySources(t.Context(), 1, nil, &pb.DiscoverRequest{Mode: &pb.DiscoverRequest_IpList{IpList: &pb.IPListModeRequest{IpAddresses: []string{"10.0.0.1"}}}}, fwd)
 	require.ErrorIs(t, err, sendErr)
 	require.ErrorIs(t, fwd.failure(), sendErr)

@@ -125,6 +125,21 @@ func (mr *MockDeviceStoreMockRecorder) GetAllPairedDeviceIdentifiers(ctx any) *g
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAllPairedDeviceIdentifiers", reflect.TypeOf((*MockDeviceStore)(nil).GetAllPairedDeviceIdentifiers), ctx)
 }
 
+// GetAlreadyPairedDeviceIdentifiers mocks base method.
+func (m *MockDeviceStore) GetAlreadyPairedDeviceIdentifiers(ctx context.Context, orgID int64, deviceIdentifiers []string) ([]string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetAlreadyPairedDeviceIdentifiers", ctx, orgID, deviceIdentifiers)
+	ret0, _ := ret[0].([]string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetAlreadyPairedDeviceIdentifiers indicates an expected call of GetAlreadyPairedDeviceIdentifiers.
+func (mr *MockDeviceStoreMockRecorder) GetAlreadyPairedDeviceIdentifiers(ctx, orgID, deviceIdentifiers any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAlreadyPairedDeviceIdentifiers", reflect.TypeOf((*MockDeviceStore)(nil).GetAlreadyPairedDeviceIdentifiers), ctx, orgID, deviceIdentifiers)
+}
+
 // GetAvailableFirmwareVersions mocks base method.
 func (m *MockDeviceStore) GetAvailableFirmwareVersions(ctx context.Context, orgID int64) ([]string, error) {
 	m.ctrl.T.Helper()
