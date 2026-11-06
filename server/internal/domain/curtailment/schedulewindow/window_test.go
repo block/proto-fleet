@@ -19,6 +19,18 @@ func at(loc *time.Location, year int, month time.Month, day, hour, minute int) t
 	return time.Date(year, month, day, hour, minute, 0, 0, loc)
 }
 
+func validate(def Definition) error {
+	_, err := def.parse()
+	return err
+}
+
+func nextWindow(t *testing.T, def Definition, at time.Time) *Window {
+	t.Helper()
+	p, err := def.parse()
+	require.NoError(t, err)
+	return p.next(at)
+}
+
 func TestOneTimeWindow(t *testing.T) {
 	chicago := mustLoad(t, "America/Chicago")
 	def := Definition{
@@ -29,15 +41,14 @@ func TestOneTimeWindow(t *testing.T) {
 		EndDate:   "2026-07-02",
 		EndTime:   "09:30",
 	}
-	require.NoError(t, def.Validate())
+	require.NoError(t, validate(def))
 	want := Window{Start: at(chicago, 2026, 7, 1, 14, 0), End: at(chicago, 2026, 7, 2, 9, 30)}
 
 	before := at(chicago, 2026, 7, 1, 13, 59)
 	current, err := def.Current(before)
 	require.NoError(t, err)
 	assert.Nil(t, current)
-	next, err := def.Next(before)
-	require.NoError(t, err)
+	next := nextWindow(t, def, before)
 	require.NotNil(t, next)
 	assert.True(t, next.Start.Equal(want.Start))
 	assert.True(t, next.End.Equal(want.End))
@@ -59,8 +70,7 @@ func TestOneTimeWindow(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, ended)
 	assert.True(t, ended.End.Equal(want.End))
-	next, err = def.Next(after)
-	require.NoError(t, err)
+	next = nextWindow(t, def, after)
 	assert.Nil(t, next)
 }
 
@@ -69,15 +79,15 @@ func TestOneTimeWindowBounds(t *testing.T) {
 
 	endsAtStart := base
 	endsAtStart.EndDate, endsAtStart.EndTime = "2026-07-01", "00:00"
-	assert.ErrorContains(t, endsAtStart.Validate(), "must end after it starts")
+	assert.ErrorContains(t, validate(endsAtStart), "must end after it starts")
 
 	sevenDays := base
 	sevenDays.EndDate, sevenDays.EndTime = "2026-07-08", "00:00"
-	assert.NoError(t, sevenDays.Validate())
+	assert.NoError(t, validate(sevenDays))
 
 	tooLong := base
 	tooLong.EndDate, tooLong.EndTime = "2026-07-08", "00:01"
-	assert.ErrorContains(t, tooLong.Validate(), "at most")
+	assert.ErrorContains(t, validate(tooLong), "at most")
 }
 
 func TestDailyWindowCrossingMidnight(t *testing.T) {
@@ -89,7 +99,7 @@ func TestDailyWindowCrossingMidnight(t *testing.T) {
 		EndTime:   "06:00",
 		Frequency: FrequencyDaily,
 	}
-	require.NoError(t, def.Validate())
+	require.NoError(t, validate(def))
 
 	current, err := def.Current(at(time.UTC, 2026, 7, 3, 3, 0))
 	require.NoError(t, err)
@@ -105,8 +115,7 @@ func TestDailyWindowCrossingMidnight(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, ended)
 	assert.True(t, ended.End.Equal(at(time.UTC, 2026, 7, 3, 6, 0)))
-	next, err := def.Next(gap)
-	require.NoError(t, err)
+	next := nextWindow(t, def, gap)
 	require.NotNil(t, next)
 	assert.True(t, next.Start.Equal(at(time.UTC, 2026, 7, 3, 22, 0)))
 
@@ -131,16 +140,14 @@ func TestWeeklyWindow(t *testing.T) {
 		Frequency:  FrequencyWeekly,
 		DaysOfWeek: []time.Weekday{time.Monday, time.Thursday},
 	}
-	require.NoError(t, def.Validate())
+	require.NoError(t, validate(def))
 
 	// 2026-07-01 is a Wednesday, so the first occurrence is Thursday the 2nd.
-	next, err := def.Next(at(time.UTC, 2026, 7, 1, 0, 0))
-	require.NoError(t, err)
+	next := nextWindow(t, def, at(time.UTC, 2026, 7, 1, 0, 0))
 	require.NotNil(t, next)
 	assert.True(t, next.Start.Equal(at(time.UTC, 2026, 7, 2, 16, 0)))
 
-	next, err = def.Next(at(time.UTC, 2026, 7, 2, 16, 0))
-	require.NoError(t, err)
+	next = nextWindow(t, def, at(time.UTC, 2026, 7, 2, 16, 0))
 	require.NotNil(t, next)
 	assert.True(t, next.Start.Equal(at(time.UTC, 2026, 7, 6, 16, 0)), "the following Monday")
 
@@ -159,10 +166,9 @@ func TestMonthlyWindowSkipsShortMonths(t *testing.T) {
 		Frequency:  FrequencyMonthly,
 		DayOfMonth: 31,
 	}
-	require.NoError(t, def.Validate())
+	require.NoError(t, validate(def))
 
-	next, err := def.Next(at(time.UTC, 2026, 1, 31, 11, 0))
-	require.NoError(t, err)
+	next := nextWindow(t, def, at(time.UTC, 2026, 1, 31, 11, 0))
 	require.NotNil(t, next)
 	assert.True(t, next.Start.Equal(at(time.UTC, 2026, 3, 31, 10, 0)), "February has no 31st")
 }
@@ -177,7 +183,7 @@ func TestUntilDateLimitsOccurrences(t *testing.T) {
 		Frequency: FrequencyDaily,
 		UntilDate: "2026-07-02",
 	}
-	require.NoError(t, def.Validate())
+	require.NoError(t, validate(def))
 
 	// The last occurrence starts on the until date and may end after it.
 	current, err := def.Current(at(time.UTC, 2026, 7, 3, 0, 30))
@@ -185,8 +191,7 @@ func TestUntilDateLimitsOccurrences(t *testing.T) {
 	require.NotNil(t, current)
 	assert.True(t, current.Start.Equal(at(time.UTC, 2026, 7, 2, 23, 0)))
 
-	next, err := def.Next(at(time.UTC, 2026, 7, 2, 23, 0))
-	require.NoError(t, err)
+	next := nextWindow(t, def, at(time.UTC, 2026, 7, 2, 23, 0))
 	assert.Nil(t, next)
 }
 
@@ -200,7 +205,7 @@ func TestDaylightSavingTransitions(t *testing.T) {
 		EndTime:   "06:00",
 		Frequency: FrequencyDaily,
 	}
-	require.NoError(t, def.Validate())
+	require.NoError(t, validate(def))
 
 	// Spring forward on 2026-03-08: the overnight window loses an hour.
 	current, err := def.Current(at(newYork, 2026, 3, 8, 5, 0))
@@ -253,9 +258,8 @@ func TestDaylightSavingNonexistentAndRepeatedTimes(t *testing.T) {
 				EndTime:   tt.endTime,
 				Frequency: FrequencyDaily,
 			}
-			require.NoError(t, def.Validate())
-			next, err := def.Next(at(mustLoad(t, tt.timezone), 2027, tt.month, tt.day, 0, 0))
-			require.NoError(t, err)
+			require.NoError(t, validate(def))
+			next := nextWindow(t, def, at(mustLoad(t, tt.timezone), 2027, tt.month, tt.day, 0, 0))
 			require.NotNil(t, next)
 			assert.True(t, next.Start.Equal(tt.wantStart), "start %s, want %s", next.Start.UTC(), tt.wantStart)
 			assert.True(t, next.End.Equal(tt.wantEnd), "end %s, want %s", next.End.UTC(), tt.wantEnd)
@@ -311,7 +315,7 @@ func TestValidateRejectsMalformedDefinitions(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			def := valid
 			tt.mutate(&def)
-			assert.ErrorContains(t, def.Validate(), tt.want)
+			assert.ErrorContains(t, validate(def), tt.want)
 		})
 	}
 }

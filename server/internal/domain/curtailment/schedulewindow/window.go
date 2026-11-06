@@ -6,7 +6,6 @@ package schedulewindow
 import (
 	"errors"
 	"fmt"
-	"slices"
 	"time"
 )
 
@@ -31,7 +30,6 @@ const (
 const MaxOneTimeDuration = 7 * 24 * time.Hour
 
 const (
-	dateLayout  = "2006-01-02"
 	clockLayout = "15:04"
 	// A recurring window is shorter than 24 hours of wall-clock time, plus at
 	// most one hour of DST shift, so the window containing any instant starts
@@ -71,32 +69,18 @@ func (w Window) Contains(at time.Time) bool {
 	return !at.Before(w.Start) && at.Before(w.End)
 }
 
-type civilDate struct {
-	year  int
-	month time.Month
-	day   int
-}
-
-type clock struct {
-	hour   int
-	minute int
-}
-
+// parsed holds local dates as UTC midnights and clock times as offsets from
+// midnight; at converts a date and clock time into an instant in loc.
 type parsed struct {
 	def       Definition
 	loc       *time.Location
-	startDate civilDate
-	startTime clock
-	endTime   clock
-	endDate   civilDate
-	untilDate *civilDate
+	startDate time.Time
+	startTime time.Duration
+	endTime   time.Duration
+	endDate   time.Time
+	// untilDate is zero when the definition has no until date.
+	untilDate time.Time
 	days      map[time.Weekday]bool
-}
-
-// Validate checks the definition's shape without regard to the current time.
-func (d Definition) Validate() error {
-	_, err := d.parse()
-	return err
 }
 
 // Current returns the window that contains at, or nil.
@@ -117,15 +101,6 @@ func (d Definition) LastEnded(at time.Time) (*Window, error) {
 		return nil, err
 	}
 	return p.lastEnded(at), nil
-}
-
-// Next returns the first window that starts after at, or nil when none remain.
-func (d Definition) Next(at time.Time) (*Window, error) {
-	p, err := d.parse()
-	if err != nil {
-		return nil, err
-	}
-	return p.next(at), nil
 }
 
 // CurrentOrNext returns the window containing at, or else the next window.
@@ -237,10 +212,10 @@ func (p *parsed) parseRecurring() error {
 		if err != nil {
 			return err
 		}
-		if until.before(p.startDate) {
+		if until.Before(p.startDate) {
 			return errors.New("until_date must not be before start_date")
 		}
-		p.untilDate = &until
+		p.untilDate = until
 	}
 	return nil
 }
@@ -252,25 +227,29 @@ func (p *parsed) oneTimeWindow() Window {
 	}
 }
 
+func (p *parsed) afterUntil(day time.Time) bool {
+	return !p.untilDate.IsZero() && p.untilDate.Before(day)
+}
+
 // occurrence returns the recurring window starting on local date day, if any.
-func (p *parsed) occurrence(day civilDate) (Window, bool) {
-	if day.before(p.startDate) || (p.untilDate != nil && p.untilDate.before(day)) {
+func (p *parsed) occurrence(day time.Time) (Window, bool) {
+	if day.Before(p.startDate) || p.afterUntil(day) {
 		return Window{}, false
 	}
 	switch p.def.Frequency {
 	case FrequencyWeekly:
-		if !p.days[day.weekday()] {
+		if !p.days[day.Weekday()] {
 			return Window{}, false
 		}
 	case FrequencyMonthly:
-		if day.day != p.def.DayOfMonth {
+		if day.Day() != p.def.DayOfMonth {
 			return Window{}, false
 		}
 	case FrequencyDaily:
 	}
 	endDay := day
-	if !p.startTime.before(p.endTime) {
-		endDay = day.addDays(1)
+	if p.startTime >= p.endTime {
+		endDay = day.AddDate(0, 0, 1)
 	}
 	w := Window{Start: p.at(day, p.startTime), End: p.at(endDay, p.endTime)}
 	if !w.End.After(w.Start) {
@@ -279,17 +258,26 @@ func (p *parsed) occurrence(day civilDate) (Window, bool) {
 	return w, true
 }
 
-func (p *parsed) current(at time.Time) *Window {
+// recent returns the one-time window, or the recurring windows that start on
+// at's local date or the days before it. It looks one day further back than a
+// window containing at can start, so lastEnded also sees the window before.
+func (p *parsed) recent(at time.Time) []Window {
 	if p.def.Type == TypeOneTime {
-		w := p.oneTimeWindow()
-		if w.Contains(at) {
-			return &w
-		}
-		return nil
+		return []Window{p.oneTimeWindow()}
 	}
-	today := civilDateOf(at.In(p.loc))
-	for offset := 0; offset <= recurringLookbackDays; offset++ {
-		if w, ok := p.occurrence(today.addDays(-offset)); ok && w.Contains(at) {
+	today := localDate(at.In(p.loc))
+	windows := make([]Window, 0, recurringLookbackDays+2)
+	for offset := 0; offset <= recurringLookbackDays+1; offset++ {
+		if w, ok := p.occurrence(today.AddDate(0, 0, -offset)); ok {
+			windows = append(windows, w)
+		}
+	}
+	return windows
+}
+
+func (p *parsed) current(at time.Time) *Window {
+	for _, w := range p.recent(at) {
+		if w.Contains(at) {
 			return &w
 		}
 	}
@@ -297,23 +285,10 @@ func (p *parsed) current(at time.Time) *Window {
 }
 
 func (p *parsed) lastEnded(at time.Time) *Window {
-	if p.def.Type == TypeOneTime {
-		w := p.oneTimeWindow()
-		if !w.End.After(at) {
-			return &w
-		}
-		return nil
-	}
-	today := civilDateOf(at.In(p.loc))
 	var latest *Window
-	for offset := 0; offset <= recurringLookbackDays+1; offset++ {
-		w, ok := p.occurrence(today.addDays(-offset))
-		if !ok || w.End.After(at) {
-			continue
-		}
-		if latest == nil || w.End.After(latest.End) {
-			candidate := w
-			latest = &candidate
+	for _, w := range p.recent(at) {
+		if !w.End.After(at) && (latest == nil || w.End.After(latest.End)) {
+			latest = &w
 		}
 	}
 	return latest
@@ -327,18 +302,18 @@ func (p *parsed) next(at time.Time) *Window {
 		}
 		return nil
 	}
-	day := civilDateOf(at.In(p.loc)).addDays(-recurringLookbackDays)
-	if day.before(p.startDate) {
+	day := localDate(at.In(p.loc)).AddDate(0, 0, -recurringLookbackDays)
+	if day.Before(p.startDate) {
 		day = p.startDate
 	}
 	for range nextSearchDays {
-		if p.untilDate != nil && p.untilDate.before(day) {
+		if p.afterUntil(day) {
 			return nil
 		}
 		if w, ok := p.occurrence(day); ok && w.Start.After(at) {
 			return &w
 		}
-		day = day.addDays(1)
+		day = day.AddDate(0, 0, 1)
 	}
 	return nil
 }
@@ -347,16 +322,16 @@ func (p *parsed) next(at time.Time) *Window {
 // gap runs at the same instant as under the offset before the gap, so 02:30
 // in a 02:00-03:00 gap runs at 03:30; a time repeated by a fall-back
 // transition resolves to its first occurrence.
-func (p *parsed) at(day civilDate, c clock) time.Time {
-	t := time.Date(day.year, day.month, day.day, c.hour, c.minute, 0, 0, p.loc)
-	wall := time.Date(day.year, day.month, day.day, c.hour, c.minute, 0, 0, time.UTC)
-	if showsWallClock(t, day, c) {
+func (p *parsed) at(day time.Time, clock time.Duration) time.Time {
+	wall := day.Add(clock)
+	t := time.Date(wall.Year(), wall.Month(), wall.Day(), wall.Hour(), wall.Minute(), 0, 0, p.loc)
+	if wallClock(t).Equal(wall) {
 		// time.Date may return either occurrence of a repeated time; an earlier
 		// one lies in the zone period before t's.
 		if start, _ := t.ZoneBounds(); !start.IsZero() {
 			_, offsetBefore := start.Add(-time.Second).Zone()
 			earlier := wall.Add(-time.Duration(offsetBefore) * time.Second).In(p.loc)
-			if earlier.Before(start) && showsWallClock(earlier, day, c) {
+			if earlier.Before(start) && wallClock(earlier).Equal(wall) {
 				return earlier
 			}
 		}
@@ -366,43 +341,28 @@ func (p *parsed) at(day civilDate, c clock) time.Time {
 	return wall.Add(-time.Duration(offsetBeforeGap) * time.Second).In(p.loc)
 }
 
-func showsWallClock(t time.Time, day civilDate, c clock) bool {
-	return civilDateOf(t) == day && t.Hour() == c.hour && t.Minute() == c.minute
-}
-
-func parseDate(field, value string) (civilDate, error) {
-	t, err := time.Parse(dateLayout, value)
+func parseDate(field, value string) (time.Time, error) {
+	date, err := time.Parse(time.DateOnly, value)
 	if err != nil {
-		return civilDate{}, fmt.Errorf("%s must be a YYYY-MM-DD date", field)
+		return time.Time{}, fmt.Errorf("%s must be a YYYY-MM-DD date", field)
 	}
-	return civilDateOf(t), nil
+	return date, nil
 }
 
-func parseClock(field, value string) (clock, error) {
+func parseClock(field, value string) (time.Duration, error) {
 	t, err := time.Parse(clockLayout, value)
 	if err != nil || len(value) != len(clockLayout) {
-		return clock{}, fmt.Errorf("%s must be an HH:MM time", field)
+		return 0, fmt.Errorf("%s must be an HH:MM time", field)
 	}
-	return clock{hour: t.Hour(), minute: t.Minute()}, nil
+	return time.Duration(t.Hour())*time.Hour + time.Duration(t.Minute())*time.Minute, nil
 }
 
-func civilDateOf(t time.Time) civilDate {
-	y, m, d := t.Date()
-	return civilDate{year: y, month: m, day: d}
+// wallClock is t's local date and clock time, expressed in UTC.
+func wallClock(t time.Time) time.Time {
+	return time.Date(t.Year(), t.Month(), t.Day(), t.Hour(), t.Minute(), 0, 0, time.UTC)
 }
 
-func (c civilDate) addDays(n int) civilDate {
-	return civilDateOf(time.Date(c.year, c.month, c.day+n, 12, 0, 0, 0, time.UTC))
-}
-
-func (c civilDate) weekday() time.Weekday {
-	return time.Date(c.year, c.month, c.day, 12, 0, 0, 0, time.UTC).Weekday()
-}
-
-func (c civilDate) before(other civilDate) bool {
-	return slices.Compare([]int{c.year, int(c.month), c.day}, []int{other.year, int(other.month), other.day}) < 0
-}
-
-func (c clock) before(other clock) bool {
-	return c.hour < other.hour || (c.hour == other.hour && c.minute < other.minute)
+// localDate is t's local date as a UTC midnight.
+func localDate(t time.Time) time.Time {
+	return time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, time.UTC)
 }
