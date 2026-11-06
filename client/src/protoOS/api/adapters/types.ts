@@ -261,6 +261,8 @@ export interface MinerAdapter {
   rebootSystem(params?: AdapterRequestOptions): Promise<void>;
   startFirmwareUpdate(params?: AdapterRequestOptions): Promise<void>;
   checkForFirmwareUpdate(params?: AdapterRequestOptions): Promise<void>;
+  /** Upload a local image and start installation. Unsupported adapters omit this capability. */
+  uploadFirmware?(file: File, params?: AdapterRequestOptions): Promise<void>;
   locateSystem(options: { enable?: boolean; ledOnTime?: number }, params?: AdapterRequestOptions): Promise<void>;
   createPools(pools: PoolFormInput[], params?: AdapterRequestOptions): Promise<void>;
   editPool(poolId: number, pool: PoolFormInput, params?: AdapterRequestOptions): Promise<void>;

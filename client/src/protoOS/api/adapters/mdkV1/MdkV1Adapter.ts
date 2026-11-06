@@ -284,6 +284,10 @@ export class MdkV1Adapter implements MinerAdapter {
     await runEmptyBodyCommand(() => this.client.updateCheck(this.decorate(params)));
   }
 
+  async uploadFirmware(file: File, params: AdapterRequestOptions = {}) {
+    await this.client.putUpdateSystem({ file }, this.decorate(params));
+  }
+
   async locateSystem(options: { enable?: boolean; ledOnTime?: number }, params: AdapterRequestOptions = {}) {
     const query: LocateSystemParams = {};
     if (options.enable !== undefined) query.enable = options.enable;

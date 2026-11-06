@@ -102,6 +102,18 @@ npm run preview:protoFleet
 
 Vite is configured with mode-based builds. Each app has its own `index.html` entry point in `src/{app}/` and builds to `dist/{app}/`. Always specify the mode when building: `vite build --mode protoOS`.
 
+### R2 local firmware updates
+
+On a direct R2 connection, **Settings → General → Firmware → Upload firmware**
+accepts a local, non-empty `.swu` file. The confirmation uploads the selected file
+through the authenticated MDK v1 multipart endpoint, which starts installation
+automatically. Keep the page open during upload; the existing firmware status
+and reboot controls follow installation. The rig validates the image and enforces
+its upload limits. If upload completion is uncertain, check the device status
+before retrying. This control is unavailable in Fleet-hosted views and on CT1;
+the catalog update flow remains available. R2 images must bundle a ProtoOS release
+containing this feature before operators can use it on-device.
+
 ### CT1 on-device standalone
 
 CT1 uses the same `dist/protoOS` build as the standalone rig dashboard. The browser opens the MDK v2 API listener at `http://<controller>:8080/` and probes `/api/v2/system/info` on that origin. The CT1 adapter then makes same-origin Connect calls (`/mdk.v2.<Service>/<Method>`, binary protobuf) with the required `X-Frigate-Actor: proto-os` wire header, without a v1 bearer token or login/onboarding gate. No Vite server, minerproxy, CORS setup, or `PROXY_URL` is needed on the device. Locally, the ProtoOS Vite server proxies `/api/v1`, `/api/v2`, and `/mdk.v2.*` to `PROXY_URL`. Fleet-hosted CT1 views keep using the `/api/v2` REST routes because Fleet's miner proxy allowlists and authorizes those routes.

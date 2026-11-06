@@ -147,7 +147,7 @@ export class FirmwareHelper {
     );
   }
 
-  private async assertSafeDummyUploadTarget() {
+  async assertSafeDummyUploadTarget() {
     if (this.hasValidatedDummyUploadTarget) {
       return;
     }
@@ -174,29 +174,6 @@ export class FirmwareHelper {
     }
 
     this.hasValidatedDummyUploadTarget = true;
-  }
-
-  async uploadBundle() {
-    if (!this.authAccessToken) {
-      throw new Error("Firmware helper is missing an auth access token");
-    }
-
-    await this.assertSafeDummyUploadTarget();
-
-    const response = await this.request.put("/api/v1/system/update", {
-      headers: {
-        Authorization: `Bearer ${this.authAccessToken}`,
-      },
-      multipart: {
-        file: {
-          name: "proto-os-test-update.swu",
-          mimeType: "application/octet-stream",
-          buffer: Buffer.from("fake firmware bundle for e2e"),
-        },
-      },
-    });
-
-    expect(response.status()).toBe(200);
   }
 
   private async startInstall() {
