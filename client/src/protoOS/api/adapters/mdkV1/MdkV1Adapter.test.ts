@@ -1,5 +1,5 @@
 import { describe, expect, test, vi } from "vitest";
-import { MetricUnit } from "./generated/generatedApi";
+import { Api, MetricUnit } from "./generated/generatedApi";
 import { MdkV1Adapter } from "./MdkV1Adapter";
 import { poolInfoToPoolConfig, poolInfoToTestConnection } from "@/protoOS/api/poolAdapters";
 import { getAsicId } from "@/protoOS/store";
@@ -423,6 +423,7 @@ describe("MdkV1Adapter decorates every authenticated method", () => {
     ["stopMining", (a) => a.stopMining()],
     ["rebootSystem", (a) => a.rebootSystem()],
     ["postUpdateSystem", (a) => a.startFirmwareUpdate()],
+    ["putUpdateSystem", (a) => a.uploadFirmware(new File(["swu"], "r2.swu"))],
     ["updateCheck", (a) => a.checkForFirmwareUpdate()],
     ["locateSystem", (a) => a.locateSystem({ enable: true })],
     ["createPools", (a) => a.createPools([])],
@@ -444,5 +445,35 @@ describe("MdkV1Adapter decorates every authenticated method", () => {
     const lastCall = clientCall.mock.calls[clientCall.mock.calls.length - 1];
     const lastArg = lastCall[lastCall.length - 1];
     expect(lastArg).toMatchObject({ headers: AUTH });
+  });
+});
+
+describe("MdkV1Adapter.uploadFirmware", () => {
+  test("sends one authenticated multipart PUT with the selected file and accepts an empty response", async () => {
+    const fetch = vi.fn().mockResolvedValue(new Response(null, { status: 200 }));
+    const adapter = new MdkV1Adapter(new Api({ baseUrl: "http://rig", customFetch: fetch }).api, () => "token");
+    const file = new File(["swu bytes"], "r2.swu", { type: "application/octet-stream" });
+    const controller = new AbortController();
+
+    await adapter.uploadFirmware(file, { signal: controller.signal });
+
+    expect(fetch).toHaveBeenCalledOnce();
+    const [url, params] = fetch.mock.calls[0];
+    expect(url).toBe("http://rig/api/v1/system/update");
+    expect(params).toMatchObject({
+      method: "PUT",
+      headers: { Authorization: "Bearer token" },
+      signal: controller.signal,
+    });
+    expect(new Headers(params.headers).has("Content-Type")).toBe(false);
+    expect(params.body).toBeInstanceOf(FormData);
+    expect([...params.body.keys()]).toEqual(["file"]);
+    expect(params.body.get("file")).toBe(file);
+  });
+
+  test.each([400, 401, 409, 413, 500])("preserves HTTP %s failures", async (status) => {
+    const fetch = vi.fn().mockResolvedValue(new Response(null, { status }));
+    const adapter = new MdkV1Adapter(new Api({ customFetch: fetch }).api);
+    await expect(adapter.uploadFirmware(new File(["swu"], "r2.swu"))).rejects.toMatchObject({ status });
   });
 });

@@ -55,7 +55,7 @@ async function validateDownloadedWidget(
     await headerComponent.validateFirmwareStatusModalTitle("Ready to install");
     await headerComponent.validateFirmwareStatusModalVersionLabel("Current Version:", startingVersion);
     await headerComponent.validateFirmwareStatusModalVersionLabel("New Version:", installedVersion);
-    await headerComponent.clickFirmwareStatusModalInstallButton();
+    await headerComponent.clickFirmwareStatusModalDismissButton();
   } finally {
     await page.unroute(SYSTEM_INFO_ROUTE, fulfillDownloadedSystemInfo);
   }
@@ -128,6 +128,7 @@ test.describe("Firmware updates", () => {
     await page.goto("/");
     await commonSteps.authenticateAsAdmin();
     await firmwareHelper.initializeAuthAccessToken();
+    await firmwareHelper.assertSafeDummyUploadTarget();
     await firmwareHelper.ensureCurrentState();
     await page.goto("/");
     await commonSteps.navigateToGeneralSettings();
@@ -174,9 +175,21 @@ test.describe("Firmware updates", () => {
     const startingVersion = await generalPage.getFirmwareVersion();
     let installedVersion = "";
     let uploadState: UploadState = "installing";
+    const writes: string[] = [];
+    page.on("request", (request) => {
+      if (request.url().endsWith("/api/v1/system/update")) writes.push(request.method());
+    });
 
     await test.step("Upload a firmware bundle and validate the update becomes actionable", async () => {
-      await firmwareHelper.uploadBundle();
+      await generalPage.chooseFirmwareFile();
+      expect(writes).toEqual([]);
+      const upload = page.waitForRequest(
+        (request) => request.method() === "PUT" && request.url().endsWith("/api/v1/system/update"),
+      );
+      await generalPage.confirmFirmwareUpload();
+      const request = await upload;
+      expect(request.headers()["content-type"]).toContain("multipart/form-data; boundary=");
+      expect(request.headers().authorization).toMatch(/^Bearer /);
 
       const stateAfterUpload = await firmwareHelper.waitForAnyStatus(["downloaded", "installing", "installed"]);
       uploadState = stateAfterUpload.status as UploadState;
@@ -184,6 +197,8 @@ test.describe("Firmware updates", () => {
 
       expect(installedVersion).not.toBe("");
       expect(installedVersion).not.toBe(startingVersion);
+      // Upload itself starts installation; the browser must not request a catalog install too.
+      expect(writes).toEqual(["PUT"]);
 
       await handleUploadedFirmwareState(
         uploadState,
@@ -220,6 +235,7 @@ test.describe("Firmware updates", () => {
       await headerComponent.clickFirmwareStatusModalRebootButton();
 
       const currentState = await firmwareHelper.waitForStatus("current");
+      expect(writes).toEqual(["PUT"]);
       expect(currentState.currentVersion).toBe(installedVersion);
       expect(currentState.previousVersion).toBe(startingVersion);
 
@@ -229,5 +245,16 @@ test.describe("Firmware updates", () => {
       await generalPage.validateCheckForUpdatesButtonVisible();
       await headerComponent.validateFirmwareStatusWidgetHidden();
     });
+  });
+
+  test("Rejected local uploads retain the file and allow another attempt", async ({ page, generalPage }) => {
+    await page.route("**/api/v1/system/update", (route) =>
+      route.fulfill({ status: 400, json: { message: "Invalid firmware" } }),
+    );
+    await generalPage.chooseFirmwareFile();
+    await generalPage.confirmFirmwareUpload();
+    await generalPage.validateFirmwareUploadError(/The rig rejected this firmware file/);
+    await generalPage.confirmFirmwareUpload();
+    await generalPage.validateFirmwareUploadError(/The rig rejected this firmware file/);
   });
 });

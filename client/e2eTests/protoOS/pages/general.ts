@@ -84,6 +84,30 @@ export class GeneralPage extends BasePage {
     await this.page.getByTestId("check-for-updates-button").click();
   }
 
+  async chooseFirmwareFile() {
+    await this.page.getByRole("button", { name: "Upload firmware", exact: true }).click();
+    const dialog = this.page.getByRole("dialog", { name: "Upload firmware", exact: true });
+    await dialog.getByLabel("Firmware file").setInputFiles({
+      name: "proto-os-test-update.swu",
+      mimeType: "application/octet-stream",
+      buffer: Buffer.from("fake firmware bundle for e2e"),
+    });
+    await expect(dialog.getByText("proto-os-test-update.swu", { exact: true })).toBeVisible();
+  }
+
+  async confirmFirmwareUpload() {
+    await this.page
+      .getByRole("dialog", { name: "Upload firmware", exact: true })
+      .getByRole("button", { name: "Upload and install", exact: true })
+      .click();
+  }
+
+  async validateFirmwareUploadError(message: RegExp) {
+    await expect(this.page.getByRole("dialog", { name: "Upload firmware", exact: true }).getByRole("alert")).toHaveText(
+      message,
+    );
+  }
+
   async validateInlineFirmwareStatus(expected: string | RegExp) {
     await expect(this.page.getByTestId("firmware-update-inline-status")).toHaveText(expected);
   }

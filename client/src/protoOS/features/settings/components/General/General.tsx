@@ -175,7 +175,7 @@ const General = () => {
         ) : null}
         {!isContainer ? (
           <div className="mt-6 flex justify-center">
-            <CheckForUpdate />
+            <CheckForUpdate key={minerRoot} />
           </div>
         ) : null}
       </div>
