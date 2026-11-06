@@ -4,8 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"sync"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/google/uuid"
@@ -417,6 +419,134 @@ func TestCoordinatorSuccessfulRenewalExtendsWatchdog(t *testing.T) {
 
 	require.Eventually(t, func() bool { return activeCtx.Err() != nil }, time.Second, time.Millisecond)
 	require.Equal(t, StatePassive, coordinator.Snapshot().State)
+}
+
+func TestCoordinatorRejectsLateRenewalBeforeWatchdogCallback(t *testing.T) {
+	for _, phase := range []string{"store response", "closing proof"} {
+		for _, delay := range []time.Duration{6 * time.Second, 7 * time.Second, 8 * time.Second} {
+			t.Run(fmt.Sprintf("%s/%s", phase, delay), func(t *testing.T) {
+				synctest.Test(t, func(t *testing.T) {
+					config := coordinatorTestConfig()
+					config.LeaseDuration = 10 * time.Second
+					config.RenewInterval = 3 * time.Second
+					store := &delayedRenewalStore{}
+					observed := coordinatorObservation("cluster-a", 41, time.Minute)
+					coordinator := newCoordinatorWithHolder(staticObserver{observation: observed}, store, config, uuid.New())
+					require.NoError(t, coordinator.step(t.Context()))
+					activeCtx, _, active := coordinator.ActiveLifetime()
+					require.True(t, active)
+					gate := newGate()
+					gate.activate(activeCtx)
+					defer coordinator.deactivate(ErrPlannedStop)
+					defer gate.deactivate()
+
+					// Delay delivery of the old watchdog callback independently of
+					// renewal completion, as can happen when goroutines resume late.
+					coordinator.mu.Lock()
+					stopped := coordinator.leaseTimer.Stop()
+					coordinator.mu.Unlock()
+					require.True(t, stopped)
+					time.Sleep(config.RenewInterval)
+					if phase == "store response" {
+						store.delay = delay
+					} else {
+						coordinator.observer = delayedClosingProofObserver{observation: observed, delay: delay}
+					}
+
+					// The write succeeds before expiry. The completion is timely,
+					// exactly at the old deadline, or late; the new TTL stays live.
+					err := coordinator.renewActive(t.Context(), activeCtx)
+
+					require.Equal(t, []string{"acquire", "renew", "renew"}, store.callSequence())
+					if delay < config.LeaseDuration-config.RenewInterval {
+						require.NoError(t, err)
+						time.Sleep(2 * time.Second)
+						require.NoError(t, activeCtx.Err())
+						require.True(t, gate.Active())
+						time.Sleep(2 * time.Second)
+						synctest.Wait()
+						require.ErrorIs(t, context.Cause(activeCtx), ErrOwnershipExpired)
+						return
+					}
+					require.ErrorIs(t, err, ErrOwnershipExpired)
+					require.ErrorContains(t, err, "HA renewal completed after prior local deadline")
+					require.ErrorIs(t, context.Cause(activeCtx), ErrOwnershipExpired)
+					require.Equal(t, StatePassive, coordinator.Snapshot().State)
+					require.False(t, gate.Active())
+					_, _, err = gate.Admit(t.Context())
+					require.ErrorIs(t, err, ErrNotActive)
+				})
+			})
+		}
+	}
+}
+
+func TestCoordinatorDoesNotAcceptOrReplayUncertainRenewal(t *testing.T) {
+	for _, outcome := range []string{"parent canceled", "response lost"} {
+		t.Run(outcome, func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				store := &delayedRenewalStore{}
+				coordinator := newCoordinatorWithHolder(
+					staticObserver{observation: coordinatorObservation("cluster-a", 41, time.Minute)},
+					store, coordinatorTestConfig(), uuid.New(),
+				)
+				ctx, cancel := context.WithCancelCause(t.Context())
+				defer cancel(ErrPlannedStop)
+				defer coordinator.deactivate(ErrPlannedStop)
+				require.NoError(t, coordinator.step(ctx))
+				activeCtx, _, active := coordinator.ActiveLifetime()
+				require.True(t, active)
+				wantErr := io.ErrUnexpectedEOF
+				if outcome == "parent canceled" {
+					store.afterRenew = func() { cancel(ErrPlannedStop) }
+					wantErr = ErrPlannedStop
+				} else {
+					store.responseErr = wantErr
+				}
+
+				err := coordinator.renewActive(ctx, activeCtx)
+
+				require.ErrorIs(t, err, wantErr)
+				require.Error(t, activeCtx.Err())
+				require.Equal(t, StatePassive, coordinator.Snapshot().State)
+				require.Equal(t, []string{"acquire", "renew", "renew"}, store.callSequence())
+			})
+		})
+	}
+}
+
+type delayedRenewalStore struct {
+	fakeLeaseStore
+	delay       time.Duration
+	afterRenew  func()
+	responseErr error
+}
+
+func (s *delayedRenewalStore) Renew(ctx context.Context, observed WriterObservation, active Ownership, duration time.Duration) (Ownership, error) {
+	renewed, err := s.fakeLeaseStore.Renew(ctx, observed, active, duration)
+	if s.afterRenew != nil {
+		s.afterRenew()
+	}
+	// A committed response can arrive after cancellation; do not simulate a
+	// rollback or a second mutation when its delivery is delayed.
+	time.Sleep(s.delay)
+	if s.responseErr != nil {
+		return Ownership{}, s.responseErr
+	}
+	return renewed, err
+}
+
+type delayedClosingProofObserver struct {
+	observation WriterObservation
+	delay       time.Duration
+}
+
+func (o delayedClosingProofObserver) ObserveAndRun(ctx context.Context, action func(context.Context, WriterObservation) error) (WriterObservation, error) {
+	if err := action(ctx, o.observation); err != nil {
+		return WriterObservation{}, err
+	}
+	time.Sleep(o.delay)
+	return o.observation, nil
 }
 
 func requireCall(t *testing.T, calls <-chan struct{}) {
