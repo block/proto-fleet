@@ -41,7 +41,7 @@ WITH resolution AS (
  JOIN container_tank t ON t.id=m.tank_id JOIN device d ON d.id=t.device_id
  LEFT JOIN container_module_identity i ON i.module_id=m.id
  CROSS JOIN resolution
- WHERE mm.equipment_kind=6 AND mm.resolution_seconds=resolution.seconds AND m.id=sqlc.arg('module_id')
+ WHERE resolution.seconds>0 AND mm.equipment_kind=6 AND mm.resolution_seconds=resolution.seconds AND m.id=sqlc.arg('module_id')
  AND COALESCE(i.org_id,d.org_id)=sqlc.arg('org_id')
  AND mm.bucket>=CASE WHEN resolution.seconds=0 THEN sqlc.arg('start_time')::timestamptz ELSE to_timestamp(floor(extract(epoch FROM sqlc.arg('start_time')::timestamptz)/resolution.seconds)*resolution.seconds) END AND mm.bucket<sqlc.arg('end_time')::timestamptz
  AND NOT EXISTS (
@@ -63,12 +63,19 @@ WITH resolution AS (
  FROM metrics GROUP BY bucket,collected_at
 )
 SELECT mm.time,mm.collected_at,mm.hashrate_hs,mm.power_w,mm.temperature_c,mm.efficiency_jh,mm.coverage
-FROM container_module_metrics mm JOIN readable r ON r.resolution_seconds=0 AND r.measurement_type=2
- AND r.module_id=mm.module_id AND r.bucket=mm.time AND r.collected_at=mm.collected_at
--- Bound the raw lookup directly so TimescaleDB can prune unrelated chunks
--- instead of revisiting old history for each readable sample.
-WHERE mm.module_id=sqlc.arg('module_id')
+FROM container_module_metrics mm
+JOIN container_module m ON m.id=mm.module_id
+JOIN container_tank t ON t.id=m.tank_id JOIN device d ON d.id=t.device_id
+LEFT JOIN container_module_identity i ON i.module_id=m.id
+CROSS JOIN resolution
+-- Read raw samples once, authorizing their recorded sites before pagination.
+WHERE resolution.seconds=0 AND mm.module_id=sqlc.arg('module_id')
+ AND COALESCE(i.org_id,d.org_id)=sqlc.arg('org_id')
  AND mm.time>=sqlc.arg('start_time')::timestamptz AND mm.time<sqlc.arg('end_time')::timestamptz
+ AND NOT EXISTS (
+ SELECT 1 FROM jsonb_to_recordset(sqlc.arg('authority')::jsonb) AS a(org_wide boolean,sites bigint[])
+ WHERE NOT (CASE WHEN a.org_wide THEN mm.site_id IS NULL OR NOT(mm.site_id=ANY(a.sites)) ELSE COALESCE(mm.site_id=ANY(a.sites),FALSE) END)
+ )
  AND (NOT sqlc.arg('has_cursor')::boolean OR (mm.time,mm.collected_at)>(sqlc.arg('after_time')::timestamptz,sqlc.arg('after_collected_at')::timestamptz))
 UNION ALL
 SELECT time,collected_at,hashrate_hs,power_w,temperature_c,efficiency_jh,coverage FROM summaries

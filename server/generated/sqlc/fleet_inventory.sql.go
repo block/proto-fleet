@@ -225,7 +225,7 @@ WITH resolution AS (
  JOIN container_tank t ON t.id=m.tank_id JOIN device d ON d.id=t.device_id
  LEFT JOIN container_module_identity i ON i.module_id=m.id
  CROSS JOIN resolution
- WHERE mm.equipment_kind=6 AND mm.resolution_seconds=resolution.seconds AND m.id=$3
+ WHERE resolution.seconds>0 AND mm.equipment_kind=6 AND mm.resolution_seconds=resolution.seconds AND m.id=$3
  AND COALESCE(i.org_id,d.org_id)=$4
  AND mm.bucket>=CASE WHEN resolution.seconds=0 THEN $5::timestamptz ELSE to_timestamp(floor(extract(epoch FROM $5::timestamptz)/resolution.seconds)*resolution.seconds) END AND mm.bucket<$6::timestamptz
  AND NOT EXISTS (
@@ -247,10 +247,18 @@ WITH resolution AS (
  FROM metrics GROUP BY bucket,collected_at
 )
 SELECT mm.time,mm.collected_at,mm.hashrate_hs,mm.power_w,mm.temperature_c,mm.efficiency_jh,mm.coverage
-FROM container_module_metrics mm JOIN readable r ON r.resolution_seconds=0 AND r.measurement_type=2
- AND r.module_id=mm.module_id AND r.bucket=mm.time AND r.collected_at=mm.collected_at
-WHERE mm.module_id=$3
+FROM container_module_metrics mm
+JOIN container_module m ON m.id=mm.module_id
+JOIN container_tank t ON t.id=m.tank_id JOIN device d ON d.id=t.device_id
+LEFT JOIN container_module_identity i ON i.module_id=m.id
+CROSS JOIN resolution
+WHERE resolution.seconds=0 AND mm.module_id=$3
+ AND COALESCE(i.org_id,d.org_id)=$4
  AND mm.time>=$5::timestamptz AND mm.time<$6::timestamptz
+ AND NOT EXISTS (
+ SELECT 1 FROM jsonb_to_recordset($7::jsonb) AS a(org_wide boolean,sites bigint[])
+ WHERE NOT (CASE WHEN a.org_wide THEN mm.site_id IS NULL OR NOT(mm.site_id=ANY(a.sites)) ELSE COALESCE(mm.site_id=ANY(a.sites),FALSE) END)
+ )
  AND (NOT $8::boolean OR (mm.time,mm.collected_at)>($9::timestamptz,$10::timestamptz))
 UNION ALL
 SELECT time,collected_at,hashrate_hs,power_w,temperature_c,efficiency_jh,coverage FROM summaries
@@ -283,8 +291,7 @@ type ListContainerModuleHistoryRow struct {
 
 // Raw reads retain the original nullable fields; older/longer windows return
 // source-bucket averages, with authorization before combining topology versions.
-// Bound the raw lookup directly so TimescaleDB can prune unrelated chunks
-// instead of revisiting old history for each readable sample.
+// Read raw samples once, authorizing their recorded sites before pagination.
 func (q *Queries) ListContainerModuleHistory(ctx context.Context, arg ListContainerModuleHistoryParams) ([]ListContainerModuleHistoryRow, error) {
 	rows, err := q.query(ctx, q.listContainerModuleHistoryStmt, listContainerModuleHistory,
 		arg.PageLimit,
