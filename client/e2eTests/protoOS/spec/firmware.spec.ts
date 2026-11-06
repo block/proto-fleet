@@ -55,7 +55,7 @@ async function validateDownloadedWidget(
     await headerComponent.validateFirmwareStatusModalTitle("Ready to install");
     await headerComponent.validateFirmwareStatusModalVersionLabel("Current Version:", startingVersion);
     await headerComponent.validateFirmwareStatusModalVersionLabel("New Version:", installedVersion);
-    await page.getByTestId("firmware-status-modal").getByRole("button", { name: "Dismiss", exact: true }).click();
+    await headerComponent.clickFirmwareStatusModalDismissButton();
   } finally {
     await page.unroute(SYSTEM_INFO_ROUTE, fulfillDownloadedSystemInfo);
   }

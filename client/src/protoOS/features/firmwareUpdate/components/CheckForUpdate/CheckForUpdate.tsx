@@ -17,6 +17,7 @@ const CheckForUpdate = () => {
   const { rebootSystem, pending: rebootPending } = useSystemReboot();
   const {
     uploadFirmware,
+    clearError: clearUploadError,
     pending: uploadPending,
     error: uploadError,
     supported: uploadSupported,
@@ -91,6 +92,7 @@ const CheckForUpdate = () => {
           }
           pending={uploadPending}
           error={uploadError}
+          onClearError={clearUploadError}
           onUpload={uploadFirmware}
         />
       ) : null}

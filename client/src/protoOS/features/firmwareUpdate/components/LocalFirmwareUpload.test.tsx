@@ -40,6 +40,19 @@ describe("LocalFirmwareUpload", () => {
     expect(onUpload).not.toHaveBeenCalled();
   });
 
+  it("clears a previous upload error when a new file is chosen or the dialog closes", () => {
+    const onClearError = vi.fn();
+    render(
+      <LocalFirmwareUpload pending={false} error="Upload failed" onClearError={onClearError} onUpload={vi.fn()} />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Upload firmware" }));
+    expect(onClearError).not.toHaveBeenCalled();
+    selectFile();
+    expect(onClearError).toHaveBeenCalledOnce();
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(onClearError).toHaveBeenCalledTimes(2);
+  });
+
   it("locks selection and dismissal while uploading and retains the file on failure", async () => {
     const onUpload = vi.fn().mockResolvedValue(false);
     const { rerender } = render(<LocalFirmwareUpload pending={false} onUpload={onUpload} />);

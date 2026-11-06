@@ -86,6 +86,17 @@ describe("useFirmwareUpload", () => {
     expect(result.current.error).toBeUndefined();
   });
 
+  it("clears a failed upload's error on request", async () => {
+    mocks.upload.mockRejectedValue({ status: 400 });
+    const { result } = renderHook(() => useFirmwareUpload(mocks.reload));
+    await act(async () => {
+      await result.current.uploadFirmware(file);
+    });
+    expect(result.current.error).toMatch(/rejected this firmware file/);
+    act(() => result.current.clearError());
+    expect(result.current.error).toBeUndefined();
+  });
+
   it.each([new File([], "empty.swu"), new File(["x"], "wrong.zip")])("rejects invalid selections", async (invalid) => {
     const { result } = renderHook(() => useFirmwareUpload(mocks.reload));
     await act(async () => {

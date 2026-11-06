@@ -66,5 +66,7 @@ export const useFirmwareUpload = (reloadStatus: (signal: AbortSignal) => void) =
     [adapter, authRetry, reloadStatus, supported],
   );
 
-  return { uploadFirmware, pending, error, supported };
+  const clearError = useCallback(() => setError(undefined), []);
+
+  return { uploadFirmware, clearError, pending, error, supported };
 };

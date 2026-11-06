@@ -8,10 +8,11 @@ interface LocalFirmwareUploadProps {
   disabled?: boolean;
   pending: boolean;
   error?: string;
+  onClearError?: () => void;
   onUpload: (file: File) => Promise<boolean>;
 }
 
-const LocalFirmwareUpload = ({ disabled, pending, error, onUpload }: LocalFirmwareUploadProps) => {
+const LocalFirmwareUpload = ({ disabled, pending, error, onClearError, onUpload }: LocalFirmwareUploadProps) => {
   const [open, setOpen] = useState(false);
   const [file, setFile] = useState<File>();
   const [validationError, setValidationError] = useState<string>();
@@ -21,6 +22,7 @@ const LocalFirmwareUpload = ({ disabled, pending, error, onUpload }: LocalFirmwa
     setOpen(false);
     setFile(undefined);
     setValidationError(undefined);
+    onClearError?.();
   };
 
   return (
@@ -65,6 +67,7 @@ const LocalFirmwareUpload = ({ disabled, pending, error, onUpload }: LocalFirmwa
                 const selected = event.target.files?.[0];
                 event.target.value = "";
                 if (!selected) return;
+                onClearError?.();
                 if (!selected.name.toLowerCase().endsWith(".swu") || selected.size === 0) {
                   setFile(undefined);
                   setValidationError("Choose a non-empty .swu firmware file.");
