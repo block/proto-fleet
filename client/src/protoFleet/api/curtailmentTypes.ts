@@ -288,8 +288,8 @@ export type AutomationRuleFormValues = {
   responseProfileRevision: string;
 };
 
-export type CurtailmentScheduleType = "oneTime" | "recurring";
-export type CurtailmentScheduleFrequency = "daily" | "weekly" | "monthly";
+type CurtailmentScheduleType = "oneTime" | "recurring";
+type CurtailmentScheduleFrequency = "daily" | "weekly" | "monthly";
 
 // Dates are YYYY-MM-DD and times are HH:MM, local to timezone.
 export type CurtailmentScheduleDefinition = {

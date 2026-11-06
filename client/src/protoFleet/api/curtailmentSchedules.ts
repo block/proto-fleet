@@ -8,6 +8,7 @@ import {
   type CurtailmentScheduleSchema,
   CurtailmentScheduleType,
 } from "@/protoFleet/api/generated/curtailment/v1/curtailment_pb";
+import { parseDate } from "@/protoFleet/features/settings/utils/scheduleDateUtils";
 
 const weekdayShortLabels: Record<CurtailmentScheduleDayOfWeek, string> = {
   [CurtailmentScheduleDayOfWeek.UNSPECIFIED]: "",
@@ -83,14 +84,6 @@ export function curtailmentScheduleToApi(
   };
 }
 
-function parseDateValue(value: string): Date | null {
-  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
-  if (!match) {
-    return null;
-  }
-  return new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
-}
-
 export function formatScheduleClockTime(value: string): string {
   const match = /^(\d{2}):(\d{2})$/.exec(value);
   if (!match) {
@@ -102,7 +95,7 @@ export function formatScheduleClockTime(value: string): string {
 }
 
 export function formatScheduleDate(value: string): string {
-  const date = parseDateValue(value);
+  const date = parseDate(value);
   if (!date) {
     return value;
   }

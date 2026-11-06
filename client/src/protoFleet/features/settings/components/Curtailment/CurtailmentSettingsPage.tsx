@@ -361,7 +361,14 @@ type CurtailmentSettingsContentProps = {
   onDeleteSchedule?: (rule: AutomationRule) => Promise<void>;
 };
 
-const isScheduleRule = (rule: AutomationRule) => rule.conditionType === "schedule";
+function partitionScheduleRules(rules: AutomationRule[]): [AutomationRule[], AutomationRule[]] {
+  const triggers: AutomationRule[] = [];
+  const schedules: AutomationRule[] = [];
+  for (const rule of rules) {
+    (rule.conditionType === "schedule" ? schedules : triggers).push(rule);
+  }
+  return [triggers, schedules];
+}
 
 function getSourcesEmptyState(loadSourcesError: string | null, isLoadingSources: boolean): ReactElement {
   if (loadSourcesError) {
@@ -428,17 +435,12 @@ export function CurtailmentSettingsContent({
   onDeleteSchedule,
 }: CurtailmentSettingsContentProps): ReactElement {
   const canManageSources = isCurtailmentAdmin(useRole());
-  const initialTriggerRules = useMemo(
-    () => initialAutomationRules.filter((rule) => !isScheduleRule(rule)),
+  const [initialTriggerRules, initialScheduleRules] = useMemo(
+    () => partitionScheduleRules(initialAutomationRules),
     [initialAutomationRules],
   );
-  const initialScheduleRules = useMemo(() => initialAutomationRules.filter(isScheduleRule), [initialAutomationRules]);
-  const controlledTriggerRules = useMemo(
-    () => controlledAutomationRules?.filter((rule) => !isScheduleRule(rule)),
-    [controlledAutomationRules],
-  );
-  const controlledScheduleRules = useMemo(
-    () => controlledAutomationRules?.filter(isScheduleRule),
+  const [controlledTriggerRules, controlledScheduleRules] = useMemo(
+    () => (controlledAutomationRules ? partitionScheduleRules(controlledAutomationRules) : [undefined, undefined]),
     [controlledAutomationRules],
   );
   const [localResponseProfiles, setLocalResponseProfiles] = useState<ResponseProfile[]>(() => [

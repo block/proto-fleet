@@ -1,15 +1,6 @@
-import {
-  type KeyboardEvent,
-  type ReactElement,
-  type ReactNode,
-  useCallback,
-  useEffect,
-  useMemo,
-  useState,
-} from "react";
+import { type ReactElement, type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
 import clsx from "clsx";
 
-import { AutomationResponseProfileRevisionConflictError } from "@/protoFleet/api/automationResponseProfileRevisionConflict";
 import { formatCurtailmentDuration } from "@/protoFleet/api/curtailmentDisplayUtils";
 import {
   describeCurtailmentSchedule,
@@ -24,13 +15,24 @@ import type {
 } from "@/protoFleet/api/curtailmentTypes";
 import type { CurtailmentScheduleDayOfWeek } from "@/protoFleet/api/generated/curtailment/v1/curtailment_pb";
 import type { DayOfWeek } from "@/protoFleet/api/generated/schedule/v1/schedule_pb";
-import { automationRuleTableClassName } from "@/protoFleet/features/settings/components/Curtailment/automationRuleTable";
+import {
+  automationRuleModalSectionLabelClassName,
+  AutomationRuleResponseProfileField,
+  AutomationRuleSaveError,
+} from "@/protoFleet/features/settings/components/Curtailment/automationRuleModal";
+import {
+  automationRuleEnabledColumn,
+  automationRuleListEmptyState,
+  automationRuleNameColumn,
+  automationRuleTableClassName,
+  type AutomationRuleWithDetails,
+  emptyUpdatingRuleIds,
+  withResponseProfileDetails,
+} from "@/protoFleet/features/settings/components/Curtailment/automationRuleTable";
 import {
   InfoToggleContent,
-  SectionDependencyMessage,
   SectionHeader,
 } from "@/protoFleet/features/settings/components/Curtailment/CurtailmentSection";
-import { isInputEnterSaveEvent } from "@/protoFleet/features/settings/components/Curtailment/keyboard";
 import {
   getDefaultScheduleRuleFormValues,
   type ScheduleRuleFormErrors,
@@ -40,6 +42,7 @@ import {
   getScheduleWindowTiming,
   type ScheduleWindowTiming,
 } from "@/protoFleet/features/settings/components/Curtailment/scheduleWindowTiming";
+import { useAutomationRuleModalActions } from "@/protoFleet/features/settings/components/Curtailment/useAutomationRuleModalActions";
 import {
   formatClientTimezoneLabel,
   formatTimezoneLabel,
@@ -49,26 +52,21 @@ import {
   scheduleTypeOptions,
 } from "@/protoFleet/features/settings/components/Schedules/scheduleValidation";
 import WeekdaySelect from "@/protoFleet/features/settings/components/Schedules/WeekdaySelect";
-import SettingsEmptyState from "@/protoFleet/features/settings/components/SettingsEmptyState";
 import { formatDateValue, parseDate } from "@/protoFleet/features/settings/utils/scheduleDateUtils";
 import { Info } from "@/shared/assets/icons";
 import { iconSizes } from "@/shared/assets/icons/constants";
-import { variants } from "@/shared/components/Button";
 import { DatePickerField } from "@/shared/components/DatePicker";
 import Input from "@/shared/components/Input";
 import List from "@/shared/components/List";
 import type { ColConfig, ColTitles } from "@/shared/components/List/types";
 import Modal, { sizes as modalSizes } from "@/shared/components/Modal";
 import { PopoverProvider } from "@/shared/components/Popover";
-import ProgressCircular from "@/shared/components/ProgressCircular";
-import Select, { type SelectOption } from "@/shared/components/Select";
-import Switch from "@/shared/components/Switch";
+import Select from "@/shared/components/Select";
 import { useWindowDimensions } from "@/shared/hooks/useWindowDimensions";
 
 const SCHEDULES_DESCRIPTION = "Times that automatically trigger a response profile.";
-const sectionLabelClassName = "text-200 font-semibold tracking-[0.08em] text-text-primary-50 uppercase";
 
-const scheduleCols = {
+const scheduleRuleCols = {
   name: "name",
   schedule: "schedule",
   nextWindow: "nextWindow",
@@ -76,19 +74,23 @@ const scheduleCols = {
   enabled: "enabled",
 } as const;
 
-type ScheduleColumn = (typeof scheduleCols)[keyof typeof scheduleCols];
+type ScheduleRuleColumn = (typeof scheduleRuleCols)[keyof typeof scheduleRuleCols];
 
-const activeScheduleCols: ScheduleColumn[] = [
-  scheduleCols.name,
-  scheduleCols.schedule,
-  scheduleCols.nextWindow,
-  scheduleCols.responseProfile,
-  scheduleCols.enabled,
+const activeScheduleRuleCols: ScheduleRuleColumn[] = [
+  scheduleRuleCols.name,
+  scheduleRuleCols.schedule,
+  scheduleRuleCols.nextWindow,
+  scheduleRuleCols.responseProfile,
+  scheduleRuleCols.enabled,
 ];
 
-const phoneScheduleCols: ScheduleColumn[] = [scheduleCols.name, scheduleCols.schedule, scheduleCols.enabled];
+const phoneScheduleRuleCols: ScheduleRuleColumn[] = [
+  scheduleRuleCols.name,
+  scheduleRuleCols.schedule,
+  scheduleRuleCols.enabled,
+];
 
-const scheduleColTitles: ColTitles<ScheduleColumn> = {
+const scheduleRuleColTitles: ColTitles<ScheduleRuleColumn> = {
   name: "Name",
   schedule: "Schedule",
   nextWindow: "Next window",
@@ -96,19 +98,14 @@ const scheduleColTitles: ColTitles<ScheduleColumn> = {
   enabled: "",
 };
 
-const scheduleColumnAriaLabels: Partial<Record<ScheduleColumn, string>> = {
+const scheduleRuleColumnAriaLabels: Partial<Record<ScheduleRuleColumn, string>> = {
   enabled: "Enabled",
 };
 
-const scheduleColumnsExemptFromDisabledStyling = new Set<ScheduleColumn>([scheduleCols.enabled]);
+const scheduleRuleColumnsExemptFromDisabledStyling = new Set<ScheduleRuleColumn>([scheduleRuleCols.enabled]);
 
 const emptyScheduleRules: AutomationRule[] = [];
 const emptyResponseProfiles: ResponseProfile[] = [];
-
-type ScheduleRuleWithDetails = AutomationRule & {
-  responseProfileName: string;
-  isResponseProfileAutomationReady: boolean;
-};
 
 type CurtailmentSchedulesContentProps = {
   initialScheduleRules?: AutomationRule[];
@@ -168,10 +165,6 @@ function getScheduleRuleFormValues(
   };
 }
 
-function createOption(profile: ResponseProfile): SelectOption {
-  return { value: profile.id, label: profile.name };
-}
-
 function SchedulesInfoToggle(): ReactElement {
   return (
     <PopoverProvider>
@@ -227,26 +220,6 @@ function ScheduleWindowDuration({
   );
 }
 
-function getSchedulesEmptyState(loadError: string | null, isLoading: boolean): ReactElement {
-  if (loadError) {
-    return <SettingsEmptyState size="section" title="Unable to load schedules" description={loadError} />;
-  }
-  if (isLoading) {
-    return (
-      <div className="flex min-h-[220px] w-full items-center justify-center py-14">
-        <ProgressCircular indeterminate />
-      </div>
-    );
-  }
-  return (
-    <SettingsEmptyState
-      size="section"
-      title="No schedules configured"
-      description="Add a schedule to curtail at planned times."
-    />
-  );
-}
-
 function ScheduleRuleModal({
   open,
   mode,
@@ -261,10 +234,8 @@ function ScheduleRuleModal({
   onDelete,
 }: ScheduleRuleModalProps): ReactElement {
   const [values, setValues] = useState<ScheduleRuleFormValues>(() => initialValues);
-  const [saveError, setSaveError] = useState<string | null>(null);
   const [showValidationErrors, setShowValidationErrors] = useState(false);
   const { schedule } = values;
-  const responseProfileOptions = useMemo(() => responseProfiles.map(createOption), [responseProfiles]);
   const isBusy = saving || deleting;
   const validationErrors = useMemo(() => validateScheduleRuleFormValues(values), [values]);
   const visibleErrors: ScheduleRuleFormErrors = showValidationErrors ? validationErrors : {};
@@ -297,74 +268,20 @@ function ScheduleRuleModal({
     setValues((currentValues) => ({ ...currentValues, schedule: { ...currentValues.schedule, ...patch } }));
   }, []);
 
-  const handleSave = useCallback(async () => {
-    if (isSaveUnavailable) {
-      return;
-    }
-    if (hasValidationErrors) {
-      setShowValidationErrors(true);
-      return;
-    }
-
-    try {
-      setSaveError(null);
-      await onSave(values);
-      onDismiss();
-    } catch (error) {
-      if (error instanceof AutomationResponseProfileRevisionConflictError) {
-        const latestRevision = error.latestResponseProfileRevisionById.get(values.responseProfileId) ?? "";
-        setValues((currentValues) => ({ ...currentValues, responseProfileRevision: latestRevision }));
-      }
-      setSaveError(error instanceof Error && error.message ? error.message : "Failed to save schedule.");
-    }
-  }, [hasValidationErrors, isSaveUnavailable, onDismiss, onSave, values]);
-
-  const handleFormKeyDown = useCallback(
-    (event: KeyboardEvent<HTMLDivElement>) => {
-      if (!isInputEnterSaveEvent(event)) {
-        return;
-      }
-      event.preventDefault();
-      void handleSave();
-    },
-    [handleSave],
-  );
-
-  const handleDelete = useCallback(async () => {
-    if (!onDelete || isBusy) {
-      return;
-    }
-    try {
-      setSaveError(null);
-      await onDelete();
-      onDismiss();
-    } catch (error) {
-      setSaveError(error instanceof Error && error.message ? error.message : "Failed to delete schedule.");
-    }
-  }, [isBusy, onDelete, onDismiss]);
-
-  const modalButtons = [
-    ...(mode === "edit" && onDelete
-      ? [
-          {
-            text: "Delete",
-            variant: variants.secondaryDanger,
-            disabled: isBusy,
-            loading: deleting,
-            dismissModalOnClick: false,
-            onClick: () => void handleDelete(),
-          },
-        ]
-      : []),
-    {
-      text: "Save",
-      variant: variants.primary,
-      disabled: isSaveUnavailable,
-      loading: saving,
-      dismissModalOnClick: false,
-      onClick: () => void handleSave(),
-    },
-  ];
+  const { saveError, handleFormKeyDown, modalButtons } = useAutomationRuleModalActions({
+    mode,
+    ruleNoun: "schedule",
+    values,
+    setValues,
+    setShowValidationErrors,
+    hasValidationErrors,
+    isSaveUnavailable,
+    saving,
+    deleting,
+    onSave,
+    onDelete,
+    onDismiss,
+  });
 
   const startDateField = (
     <DatePickerField
@@ -415,9 +332,7 @@ function ScheduleRuleModal({
       bodyClassName="text-text-primary"
     >
       <div className="grid gap-6 pb-2" onKeyDown={handleFormKeyDown}>
-        {saveError ? (
-          <div className="rounded-lg bg-intent-critical-10 px-4 py-3 text-300 text-text-critical">{saveError}</div>
-        ) : null}
+        <AutomationRuleSaveError message={saveError} />
         <Input
           id="schedule-rule-name"
           label="Schedule name"
@@ -427,7 +342,7 @@ function ScheduleRuleModal({
         />
 
         <div className="grid gap-3">
-          <div className={sectionLabelClassName}>When</div>
+          <div className={automationRuleModalSectionLabelClassName}>When</div>
           <Select
             id="schedule-rule-type"
             label="Type"
@@ -530,82 +445,45 @@ function ScheduleRuleModal({
         </div>
 
         <div className="grid gap-3">
-          <div className={sectionLabelClassName}>Then</div>
-          <div>
-            <Select
-              id="schedule-rule-response-profile"
-              label="Response profile"
-              options={responseProfileOptions}
-              value={values.responseProfileId}
-              onChange={(responseProfileId) => {
-                const responseProfileRevision =
-                  responseProfiles.find((profile) => profile.id === responseProfileId)?.revision ?? "";
-                setValues((currentValues) => ({ ...currentValues, responseProfileId, responseProfileRevision }));
-              }}
-              disabled={isLoadingResponseProfiles || responseProfileOptions.length === 0}
-              error={visibleErrors.responseProfileId}
-              testId="schedule-rule-response-profile-select"
-              forceBelow
-            />
-            {loadResponseProfilesError ? (
-              <SectionDependencyMessage>Unable to load response profiles.</SectionDependencyMessage>
-            ) : null}
-            {!isLoadingResponseProfiles && !loadResponseProfilesError && responseProfileOptions.length === 0 ? (
-              <SectionDependencyMessage>No response profiles available.</SectionDependencyMessage>
-            ) : null}
-          </div>
+          <div className={automationRuleModalSectionLabelClassName}>Then</div>
+          <AutomationRuleResponseProfileField
+            id="schedule-rule-response-profile"
+            testId="schedule-rule-response-profile-select"
+            responseProfiles={responseProfiles}
+            value={values.responseProfileId}
+            onChange={(responseProfileId, responseProfileRevision) =>
+              setValues((currentValues) => ({ ...currentValues, responseProfileId, responseProfileRevision }))
+            }
+            error={visibleErrors.responseProfileId}
+            isLoading={isLoadingResponseProfiles}
+            loadError={loadResponseProfilesError}
+          />
         </div>
       </div>
     </Modal>
   );
 }
 
-function createScheduleColConfig(
+function createScheduleRuleColConfig(
   onToggle: (ruleId: string) => void,
   updatingRuleIds: ReadonlySet<string>,
-): ColConfig<ScheduleRuleWithDetails, string, ScheduleColumn> {
+): ColConfig<AutomationRuleWithDetails, string, ScheduleRuleColumn> {
   return {
-    [scheduleCols.name]: {
-      allowWrap: true,
-      component: (rule) => (
-        <div>
-          <span className="block max-w-full truncate text-emphasis-300 text-text-primary">{rule.name}</span>
-          {rule.bindingStatus === "rebind_required" ? (
-            <div className="text-200 wrap-anywhere whitespace-normal text-text-critical">
-              Profile changed. Edit this schedule and save the current profile to resume.
-            </div>
-          ) : rule.lastError ? (
-            <div className="text-200 wrap-anywhere whitespace-normal text-text-critical">{rule.lastError}</div>
-          ) : null}
-        </div>
-      ),
-      width: "w-[24%] phone:w-auto",
-    },
-    [scheduleCols.schedule]: {
+    [scheduleRuleCols.name]: automationRuleNameColumn("schedule", "w-[24%] phone:w-auto"),
+    [scheduleRuleCols.schedule]: {
       allowWrap: true,
       component: (rule) => <span className="text-text-primary">{rule.conditionSummary}</span>,
       width: "w-[30%] phone:w-auto",
     },
-    [scheduleCols.nextWindow]: {
+    [scheduleRuleCols.nextWindow]: {
       component: (rule) => <span className="truncate text-text-primary">{describeNextScheduleWindow(rule)}</span>,
       width: "w-[20%] phone:w-auto",
     },
-    [scheduleCols.responseProfile]: {
+    [scheduleRuleCols.responseProfile]: {
       component: (rule) => <span className="truncate text-text-primary">{rule.responseProfileName}</span>,
       width: "w-[20%] phone:w-auto",
     },
-    [scheduleCols.enabled]: {
-      component: (rule) => (
-        <div className="flex justify-end" data-interactive>
-          <Switch
-            checked={rule.enabled}
-            setChecked={() => onToggle(rule.id)}
-            disabled={updatingRuleIds.has(rule.id) || (!rule.enabled && !rule.isResponseProfileAutomationReady)}
-          />
-        </div>
-      ),
-      width: "w-[6%] phone:w-14",
-    },
+    [scheduleRuleCols.enabled]: automationRuleEnabledColumn(onToggle, updatingRuleIds),
   };
 }
 
@@ -629,7 +507,7 @@ export function CurtailmentSchedulesContent({
   isLoading = false,
   loadError = null,
   isCreating = false,
-  updatingRuleIds = new Set<string>(),
+  updatingRuleIds = emptyUpdatingRuleIds,
   isLoadingResponseProfiles = false,
   loadResponseProfilesError = null,
   onCreateSchedule,
@@ -647,17 +525,10 @@ export function CurtailmentSchedulesContent({
     [responseProfiles],
   );
 
-  const rulesWithDetails = useMemo<ScheduleRuleWithDetails[]>(() => {
-    const responseProfilesById = new Map(responseProfiles.map((profile) => [profile.id, profile]));
-    return scheduleRules.map((rule) => {
-      const responseProfile = responseProfilesById.get(rule.responseProfileId);
-      return {
-        ...rule,
-        responseProfileName: responseProfile?.name ?? rule.responseProfileName ?? "Unknown profile",
-        isResponseProfileAutomationReady: responseProfile?.isAutomationReady === true,
-      };
-    });
-  }, [responseProfiles, scheduleRules]);
+  const rulesWithDetails = useMemo(
+    () => withResponseProfileDetails(scheduleRules, responseProfiles),
+    [responseProfiles, scheduleRules],
+  );
 
   const modalMode = editingRule ? "edit" : "create";
   const modalInitialValues = useMemo(
@@ -705,7 +576,7 @@ export function CurtailmentSchedulesContent({
   );
 
   const colConfig = useMemo(
-    () => createScheduleColConfig(toggleSchedule, updatingRuleIds),
+    () => createScheduleRuleColConfig(toggleSchedule, updatingRuleIds),
     [toggleSchedule, updatingRuleIds],
   );
 
@@ -748,10 +619,10 @@ export function CurtailmentSchedulesContent({
         onButtonClick={openCreateModal}
         infoToggle={<SchedulesInfoToggle />}
       />
-      <List<ScheduleRuleWithDetails, string, ScheduleColumn>
-        activeCols={isPhone ? phoneScheduleCols : activeScheduleCols}
-        colTitles={scheduleColTitles}
-        columnHeaderAriaLabels={scheduleColumnAriaLabels}
+      <List<AutomationRuleWithDetails, string, ScheduleRuleColumn>
+        activeCols={isPhone ? phoneScheduleRuleCols : activeScheduleRuleCols}
+        colTitles={scheduleRuleColTitles}
+        columnHeaderAriaLabels={scheduleRuleColumnAriaLabels}
         colConfig={colConfig}
         items={rulesWithDetails}
         itemKey="id"
@@ -760,9 +631,15 @@ export function CurtailmentSchedulesContent({
         itemName={{ singular: "schedule", plural: "schedules" }}
         stickyFirstColumn={false}
         isRowDisabled={(rule) => !rule.enabled || !rule.isResponseProfileAutomationReady}
-        columnsExemptFromDisabledStyling={scheduleColumnsExemptFromDisabledStyling}
+        columnsExemptFromDisabledStyling={scheduleRuleColumnsExemptFromDisabledStyling}
         tableClassName={automationRuleTableClassName}
-        noDataElement={getSchedulesEmptyState(loadError, isLoading)}
+        noDataElement={automationRuleListEmptyState({
+          loadError,
+          isLoading,
+          errorTitle: "Unable to load schedules",
+          emptyTitle: "No schedules configured",
+          emptyDescription: "Add a schedule to curtail at planned times.",
+        })}
         applyColumnWidthsToCells
         onRowClick={openEditModal}
       />
