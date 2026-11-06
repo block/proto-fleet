@@ -5,6 +5,8 @@ import { useAuthRetry } from "@/protoOS/store/hooks/useAuthRetry";
 import { useTemperatureUnit } from "@/protoOS/store/hooks/useUI";
 import { beginStoreWrite } from "@/protoOS/store/storeWriteGuard";
 import useMinerStore from "@/protoOS/store/useMinerStore";
+import { variants } from "@/shared/components/Button";
+import Dialog from "@/shared/components/Dialog";
 import Divider from "@/shared/components/Divider";
 import Input from "@/shared/components/Input";
 import Modal from "@/shared/components/Modal";
@@ -22,6 +24,7 @@ const isTemperature = (unit?: string) => unit === "C" || unit === "°C";
 const setpointLabel = (name: string) => {
   if (name === "coolant_pump_speed_hz") return "Pump speed";
   if (name === "dry_cooler_manual_speed_percent") return "Fan speed";
+  if (name === "dry_cooler_auto_temp_c") return "Target inlet temperature";
   return "Target temperature";
 };
 
@@ -81,6 +84,13 @@ function SystemControlsForm({ settings, onDismiss }: { settings: ContainerSettin
   );
   const [pending, setPending] = useState(false);
   const [controlPending, setControlPending] = useState(false);
+  const [powerConfirmation, setPowerConfirmation] = useState<{
+    name: string;
+    value: boolean;
+    equipment: string;
+    label: string;
+    generation: number;
+  }>();
   const [errors, setErrors] = useState<Record<string, string | undefined>>({});
   const dirty = useRef(new Set<string>());
   const queue = useRef<Promise<boolean>>(Promise.resolve(true));
@@ -312,7 +322,15 @@ function SystemControlsForm({ settings, onDismiss }: { settings: ContainerSettin
               ariaLabel={label === "Power" ? `${equipment} power` : label}
               checked={controls[name] === true}
               disabled={controlPending || controls[name] === undefined || !adapter?.setContainerControl}
-              setChecked={() => saveControl(name, !controls[name], label === "Power" ? `${equipment} power` : label)}
+              setChecked={() =>
+                setPowerConfirmation({
+                  name,
+                  value: !controls[name],
+                  equipment,
+                  label: label === "Power" ? `${equipment} power` : label,
+                  generation: useMinerStore.getState().connectionGeneration,
+                })
+              }
             />
           </div>
         </div>
@@ -356,72 +374,98 @@ function SystemControlsForm({ settings, onDismiss }: { settings: ContainerSettin
     );
   };
   return (
-    <Modal
-      open
-      manageFocus
-      title="System controls"
-      dialogLabel="System controls"
-      onDismiss={pending ? undefined : onDismiss}
-    >
-      <div className="space-y-6" aria-busy={pending}>
-        <p className="text-300 text-text-primary-50">Changes save automatically.</p>
-        {hasPump || hasCooler ? (
-          <div className="grid grid-cols-1 gap-6 tablet:grid-cols-2">
-            {hasPump ? (
-              <section aria-label="Coolant pump controls" className="min-w-0 space-y-4">
-                <h2 className="text-heading-100">Coolant pump</h2>
-                {powerRow("coolant_pump", "Coolant pump")}
-                {setpointField("coolant_pump_speed_hz")}
-              </section>
-            ) : null}
-            {hasCooler ? (
-              <section aria-label="Dry cooler controls" className="min-w-0 space-y-4">
-                <h2 className="text-heading-100">Dry cooler</h2>
-                {powerRow("dry_cooler", "Dry cooler")}
-                {hasControl("dry_cooler_auto") ? (
-                  <Select
-                    id="system-dry-cooler-mode"
-                    label="Mode"
-                    options={[
-                      { value: "auto", label: "Auto" },
-                      { value: "manual", label: "Manual" },
-                    ]}
-                    value={controls.dry_cooler_auto === undefined ? "" : controls.dry_cooler_auto ? "auto" : "manual"}
-                    placeholder="Select mode"
-                    disabled={controlPending || !adapter?.setContainerControl}
-                    error={errors.dry_cooler_auto}
-                    onChange={(value) => saveControl("dry_cooler_auto", value === "auto", "Mode")}
-                  />
-                ) : null}
-                {coolerTarget ? setpointField(coolerTarget) : null}
-              </section>
-            ) : null}
-          </div>
-        ) : null}
-        {airConditioners.length ? (
-          <>
-            {hasPump || hasCooler ? <Divider /> : null}
+    <>
+      <Modal
+        open
+        manageFocus
+        title="System controls"
+        dialogLabel="System controls"
+        onDismiss={pending || powerConfirmation ? undefined : onDismiss}
+      >
+        <div className="space-y-6" aria-busy={pending}>
+          <p className="text-300 text-text-primary-50">Changes save automatically.</p>
+          {hasPump || hasCooler ? (
             <div className="grid grid-cols-1 gap-6 tablet:grid-cols-2">
-              {airConditioners.map((number) => (
-                <section key={number} aria-label={`Air conditioner ${number} controls`} className="min-w-0 space-y-4">
-                  <h2 className="text-heading-100">Air conditioner {number}</h2>
-                  {powerRow(`air_conditioner_${number}`, `Air conditioner ${number}`)}
-                  {setpointField(`air_conditioner_${number}_temp_c`, `Air conditioner ${number} target temperature`)}
+              {hasPump ? (
+                <section aria-label="Coolant pump controls" className="min-w-0 space-y-4">
+                  <h2 className="text-heading-100">Coolant pump</h2>
+                  {powerRow("coolant_pump", "Coolant pump")}
+                  {setpointField("coolant_pump_speed_hz")}
                 </section>
-              ))}
+              ) : null}
+              {hasCooler ? (
+                <section aria-label="Dry cooler controls" className="min-w-0 space-y-4">
+                  <h2 className="text-heading-100">Dry cooler</h2>
+                  {powerRow("dry_cooler", "Dry cooler")}
+                  {hasControl("dry_cooler_auto") ? (
+                    <Select
+                      id="system-dry-cooler-mode"
+                      label="Mode"
+                      options={[
+                        { value: "auto", label: "Auto" },
+                        { value: "manual", label: "Manual" },
+                      ]}
+                      value={controls.dry_cooler_auto === undefined ? "" : controls.dry_cooler_auto ? "auto" : "manual"}
+                      placeholder="Select mode"
+                      disabled={controlPending || !adapter?.setContainerControl}
+                      error={errors.dry_cooler_auto}
+                      onChange={(value) => saveControl("dry_cooler_auto", value === "auto", "Mode")}
+                    />
+                  ) : null}
+                  {coolerTarget ? setpointField(coolerTarget) : null}
+                </section>
+              ) : null}
             </div>
-          </>
-        ) : null}
-        {hasControl("tank_led_light") ? (
-          <>
-            {hasPump || hasCooler || airConditioners.length ? <Divider /> : null}
-            <section aria-label="Lighting controls">{powerRow("tank_led_light", "Tank lights", "Tank lights")}</section>
-          </>
-        ) : null}
-        {!hasPump && !hasCooler && !airConditioners.length && !hasControl("tank_led_light") ? (
-          <p>No controls are available on this container.</p>
-        ) : null}
-      </div>
-    </Modal>
+          ) : null}
+          {airConditioners.length ? (
+            <>
+              {hasPump || hasCooler ? <Divider /> : null}
+              <div className="grid grid-cols-1 gap-6 tablet:grid-cols-2">
+                {airConditioners.map((number) => (
+                  <section key={number} aria-label={`Air conditioner ${number} controls`} className="min-w-0 space-y-4">
+                    <h2 className="text-heading-100">Air conditioner {number}</h2>
+                    {powerRow(`air_conditioner_${number}`, `Air conditioner ${number}`)}
+                    {setpointField(`air_conditioner_${number}_temp_c`, `Air conditioner ${number} target temperature`)}
+                  </section>
+                ))}
+              </div>
+            </>
+          ) : null}
+          {hasControl("tank_led_light") ? (
+            <>
+              {hasPump || hasCooler || airConditioners.length ? <Divider /> : null}
+              <section aria-label="Lighting controls">
+                {powerRow("tank_led_light", "Tank lights", "Tank lights")}
+              </section>
+            </>
+          ) : null}
+          {!hasPump && !hasCooler && !airConditioners.length && !hasControl("tank_led_light") ? (
+            <p>No controls are available on this container.</p>
+          ) : null}
+        </div>
+      </Modal>
+      {powerConfirmation ? (
+        <Dialog
+          title={`${powerConfirmation.value ? "Turn on" : "Turn off"} ${powerConfirmation.equipment}?`}
+          manageFocus
+          preventScroll
+          onDismiss={() => setPowerConfirmation(undefined)}
+          buttons={[
+            { text: "Cancel", variant: variants.secondary, onClick: () => setPowerConfirmation(undefined) },
+            {
+              text: powerConfirmation.value ? "Turn on" : "Turn off",
+              variant: variants.primary,
+              disabled: controlPending,
+              onClick: () => {
+                setPowerConfirmation(undefined);
+                if (useMinerStore.getState().connectionGeneration === powerConfirmation.generation) {
+                  saveControl(powerConfirmation.name, powerConfirmation.value, powerConfirmation.label);
+                }
+              },
+            },
+          ]}
+        />
+      ) : null}
+    </>
   );
 }

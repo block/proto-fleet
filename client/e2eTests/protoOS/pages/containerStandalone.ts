@@ -177,6 +177,24 @@ export class ContainerStandalonePage {
     return this.setSystemControl(name, `${equipment} power`, enabled);
   }
 
+  powerConfirmation(label: string, enabled: boolean) {
+    const equipment = label.replace(/ power$/, "");
+    return this.page.getByRole("dialog", { name: `${enabled ? "Turn on" : "Turn off"} ${equipment}?`, exact: true });
+  }
+
+  async cancelEquipmentPower(equipment: "Coolant pump" | "Dry cooler", dismiss: "Cancel" | "Escape") {
+    const power = this.equipmentSettings(equipment).getByRole("checkbox", { name: `${equipment} power`, exact: true });
+    const enabled = await power.isChecked();
+    await power.locator("..").click();
+    const confirmation = this.powerConfirmation(`${equipment} power`, !enabled);
+    await expect(confirmation).toBeVisible();
+    if (dismiss === "Escape") await this.page.keyboard.press("Escape");
+    else await confirmation.getByRole("button", { name: "Cancel", exact: true }).click();
+    await expect(confirmation).toBeHidden();
+    await expect(this.systemControls()).toBeVisible();
+    await expect(power).toBeChecked({ checked: enabled });
+  }
+
   async setSystemControl(name: string, label: string, enabled: boolean) {
     const written = this.page.waitForResponse(
       (response) =>
@@ -185,6 +203,9 @@ export class ContainerStandalonePage {
     );
     const power = this.systemControls().getByRole("checkbox", { name: label, exact: true });
     await power.locator("..").click();
+    await this.powerConfirmation(label, enabled)
+      .getByRole("button", { name: enabled ? "Turn on" : "Turn off", exact: true })
+      .click();
     const response = await written;
     await expect(power).toBeChecked({ checked: enabled });
     await expect(power).toBeEnabled();

@@ -194,6 +194,17 @@ systemTest(
     await expect(
       dashboard.equipmentSettings("Coolant pump").getByRole("button", { name: "Apply", exact: true }),
     ).toHaveCount(0);
+    const cancelledRequests: Request[] = [];
+    const captureRequest = (request: Request) => {
+      cancelledRequests.push(request);
+    };
+    page.on("request", captureRequest);
+    await dashboard.cancelEquipmentPower("Coolant pump", "Cancel");
+    await dashboard.cancelEquipmentPower("Coolant pump", "Escape");
+    expect(
+      cancelledRequests.filter((request) => new URL(request.url()).pathname.endsWith("/SetContainerControl")),
+    ).toHaveLength(0);
+    page.off("request", captureRequest);
     const powerWrite = await dashboard.setEquipmentPower("Coolant pump", false);
     expect(powerWrite.ok()).toBe(true);
     expectDirectRequest(powerWrite.request(), baseURL!);
@@ -218,6 +229,9 @@ systemTest(
     await dashboard.closeEquipmentSettings("Coolant pump");
 
     await dashboard.openEquipmentSettings("Dry cooler");
+    await expect(
+      dashboard.equipmentSettings("Dry cooler").getByLabel("Target inlet temperature (°C)", { exact: true }),
+    ).toBeVisible();
     const fanWrite = await dashboard.applyManualFanSpeed(65);
     expect(fanWrite.ok()).toBe(true);
     expectDirectRequest(fanWrite.request(), baseURL!);

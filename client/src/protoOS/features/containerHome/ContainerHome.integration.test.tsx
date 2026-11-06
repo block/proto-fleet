@@ -197,32 +197,55 @@ describe("container Home integration", () => {
     expect(stat("Avg fan speed")).toHaveTextContent("—");
   });
 
-  it.each([
-    ["air_conditioner_1", "Air conditioner 1 power"],
-    ["air_conditioner_2", "Air conditioner 2 power"],
-    ["tank_led_light", "Tank lights"],
-  ])("saves %s from the central launcher without changing other controls", async (name, label) => {
-    configureSettings({
-      supported: true,
-      controls: [
-        { name: "coolant_pump", enabled: true },
-        { name: "air_conditioner_1", enabled: true },
-        { name: "air_conditioner_2", enabled: true },
-        { name: "tank_led_light", enabled: true },
-      ],
-      setpoints: [],
-    });
-    const router = createMemoryRouter(routes, { initialEntries: ["/miners/ct1/"] });
-    render(<RouterProvider router={router} />);
-    expect(screen.queryByRole("button", { name: /Manage coolant pump|Manage dry cooler/ })).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "System controls" }));
-    fireEvent.click(await screen.findByRole("checkbox", { name: label }));
-    await waitFor(() =>
-      expect(mocks.pushToast).toHaveBeenCalledWith({ message: `${label} turned off.`, status: "success" }),
-    );
-    expect(mocks.adapter.setContainerControl).toHaveBeenCalledExactlyOnceWith(name, false, expect.anything());
-    expect(currentSettings.controls.filter((item) => item.name !== name).every((item) => item.enabled)).toBe(true);
-  });
+  it.each(
+    [
+      ["coolant_pump", "Coolant pump", "Coolant pump power"],
+      ["dry_cooler", "Dry cooler", "Dry cooler power"],
+      ["air_conditioner_1", "Air conditioner 1", "Air conditioner 1 power"],
+      ["air_conditioner_2", "Air conditioner 2", "Air conditioner 2 power"],
+      ["tank_led_light", "Tank lights", "Tank lights"],
+    ].flatMap(([name, equipment, label]) => [true, false].map((enabled) => ({ name, equipment, label, enabled }))),
+  )(
+    "confirms $name power changes from $enabled and cancels without writing",
+    async ({ name, equipment, label, enabled }) => {
+      const names = ["coolant_pump", "dry_cooler", "air_conditioner_1", "air_conditioner_2", "tank_led_light"];
+      configureSettings({
+        supported: true,
+        controls: names.map((name) => ({ name, enabled })),
+        setpoints: [],
+      });
+      const router = createMemoryRouter(routes, { initialEntries: ["/miners/ct1/"] });
+      render(<RouterProvider router={router} />);
+      fireEvent.click(screen.getByRole("button", { name: "System controls" }));
+      const power = await screen.findByRole("checkbox", { name: label });
+      const action = enabled ? "Turn off" : "Turn on";
+      fireEvent.click(power);
+      expect(mocks.adapter.setContainerControl).not.toHaveBeenCalled();
+      expect(power).toHaveProperty("checked", enabled);
+      const confirmation = screen.getByRole("dialog", { name: `${action} ${equipment}?` });
+      fireEvent.click(within(confirmation).getByRole("button", { name: "Cancel" }));
+      expect(screen.queryByRole("dialog", { name: `${action} ${equipment}?` })).not.toBeInTheDocument();
+      expect(screen.getByRole("dialog", { name: "System controls" })).toBeInTheDocument();
+      expect(mocks.adapter.setContainerControl).not.toHaveBeenCalled();
+      fireEvent.click(power);
+      fireEvent.keyDown(document, { key: "Escape" });
+      expect(screen.queryByRole("dialog", { name: `${action} ${equipment}?` })).not.toBeInTheDocument();
+      expect(screen.getByRole("dialog", { name: "System controls" })).toBeInTheDocument();
+      expect(mocks.adapter.setContainerControl).not.toHaveBeenCalled();
+      fireEvent.click(power);
+      fireEvent.click(screen.getByRole("button", { name: action }));
+      await waitFor(() =>
+        expect(mocks.pushToast).toHaveBeenCalledWith({
+          message: `${label} turned ${enabled ? "off" : "on"}.`,
+          status: "success",
+        }),
+      );
+      expect(mocks.adapter.setContainerControl).toHaveBeenCalledExactlyOnceWith(name, !enabled, expect.anything());
+      expect(
+        currentSettings.controls.filter((item) => item.name !== name).every((item) => item.enabled === enabled),
+      ).toBe(true);
+    },
+  );
 
   it.each([1, 2])("saves air conditioner %s temperature and retains the other target", async (number) => {
     configureSettings({
@@ -300,7 +323,7 @@ describe("container Home integration", () => {
     expect(screen.getByRole("dialog", { name: "System controls" })).toBeInTheDocument();
   });
 
-  it("autosaves power immediately and waits for readback before showing success", async () => {
+  it("confirms power and waits for readback before showing success", async () => {
     let completeRead!: (settings: ContainerSettings) => void;
     const router = createMemoryRouter(routes, { initialEntries: ["/miners/ct1/"] });
     render(<RouterProvider router={router} />);
@@ -313,6 +336,8 @@ describe("container Home integration", () => {
         }),
     );
     fireEvent.click(power);
+    expect(mocks.adapter.setContainerControl).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Turn off" }));
     await waitFor(() =>
       expect(mocks.adapter.setContainerControl).toHaveBeenCalledWith("coolant_pump", false, expect.anything()),
     );
@@ -381,7 +406,7 @@ describe("container Home integration", () => {
       const router = createMemoryRouter(routes, { initialEntries: ["/miners/ct1/"] });
       render(<RouterProvider router={router} />);
       fireEvent.click(screen.getByRole("button", { name: "System controls" }));
-      const input = await screen.findByLabelText("Target temperature (°C)");
+      const input = await screen.findByLabelText("Target inlet temperature (°C)");
       await user.clear(input);
       await user.type(input, "35");
       let completeRead!: (settings: ContainerSettings) => void;
@@ -398,6 +423,7 @@ describe("container Home integration", () => {
           await user.click(screen.getByRole("option", { name: "Manual" }));
         } else {
           await user.click(screen.getByRole("checkbox", { name: "Dry cooler power" }));
+          await user.click(screen.getByRole("button", { name: "Turn off" }));
         }
         expect(mocks.adapter.setContainerSetpoint).toHaveBeenCalledTimes(1);
         expect(mocks.adapter.setContainerControl).not.toHaveBeenCalled();
@@ -422,6 +448,17 @@ describe("container Home integration", () => {
     },
   );
 
+  it("discards a power confirmation when the device connection changes", async () => {
+    const router = createMemoryRouter(routes, { initialEntries: ["/miners/ct1/"] });
+    render(<RouterProvider router={router} />);
+    fireEvent.click(screen.getByRole("button", { name: "System controls" }));
+    fireEvent.click(await screen.findByRole("checkbox", { name: "Coolant pump power" }));
+    expect(screen.getByRole("dialog", { name: "Turn off Coolant pump?" })).toBeInTheDocument();
+    act(() => useMinerStore.getState().resetDeviceData());
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(mocks.adapter.setContainerControl).not.toHaveBeenCalled();
+  });
+
   it("keeps an unknown power state unavailable", async () => {
     configureSettings({ supported: true, controls: [{ name: "coolant_pump" }], setpoints: [] });
     const router = createMemoryRouter(routes, { initialEntries: ["/miners/ct1/"] });
@@ -437,9 +474,10 @@ describe("container Home integration", () => {
     const router = createMemoryRouter(routes, { initialEntries: ["/miners/ct1/"] });
     render(<RouterProvider router={router} />);
     fireEvent.click(screen.getByRole("button", { name: "System controls" }));
-    const target = await screen.findByLabelText("Target temperature (°C)");
+    const target = await screen.findByLabelText("Target inlet temperature (°C)");
     currentSettings.setpoints.find((item) => item.name === "dry_cooler_auto_temp_c")!.value = 36;
     fireEvent.click(screen.getByRole("checkbox", { name: "Dry cooler power" }));
+    fireEvent.click(screen.getByRole("button", { name: "Turn off" }));
     await waitFor(() => expect(target).toHaveValue("36"));
     await waitFor(() => expect(target).toBeEnabled());
     await selectMode("Manual");
@@ -478,7 +516,7 @@ describe("container Home integration", () => {
     const router = createMemoryRouter(routes, { initialEntries: ["/miners/ct1/"] });
     render(<RouterProvider router={router} />);
     fireEvent.click(screen.getByRole("button", { name: "System controls" }));
-    const input = await screen.findByLabelText("Target temperature (°F)");
+    const input = await screen.findByLabelText("Target inlet temperature (°F)");
     fireEvent.change(input, { target: { value: "104" } });
     await selectMode("Manual");
     expect(await screen.findByText("Mode command failed")).toBeInTheDocument();
@@ -505,7 +543,7 @@ describe("container Home integration", () => {
     const router = createMemoryRouter(routes, { initialEntries: ["/miners/ct1/"] });
     render(<RouterProvider router={router} />);
     fireEvent.click(screen.getByRole("button", { name: "System controls" }));
-    const input = await screen.findByLabelText("Target temperature (°C)");
+    const input = await screen.findByLabelText("Target inlet temperature (°C)");
     fireEvent.change(input, { target: { value: "35" } });
     await selectMode("Manual");
     expect(await screen.findByText("Save the current setting before changing mode.")).toBeInTheDocument();
@@ -545,7 +583,7 @@ describe("container Home integration", () => {
     const router = createMemoryRouter(routes, { initialEntries: ["/miners/ct1/"] });
     render(<RouterProvider router={router} />);
     fireEvent.click(screen.getByRole("button", { name: "System controls" }));
-    const input = await screen.findByLabelText("Target temperature (°C)");
+    const input = await screen.findByLabelText("Target inlet temperature (°C)");
     fireEvent.change(input, { target: { value: "35" } });
     await selectMode("Manual");
     await waitFor(() => expect(mocks.adapter.setContainerSetpoint).toHaveBeenCalledTimes(1));
