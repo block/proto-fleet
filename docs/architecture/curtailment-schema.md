@@ -225,17 +225,22 @@ enabling a schedule clears its mailbox so its current state is asserted again. T
 schedule assertions run on their own ticker, and up to four rule executions run at once,
 so a slow or failing rule cannot hold back another rule's window.
 
-Every save, and enabling a disabled schedule, gives the schedule a new `revision`, and
-each queued boundary carries the
+A save that changes the schedule's timing (its type, timezone, dates, times, frequency,
+days, or until date) gives the schedule a new `revision`, as does enabling a disabled
+schedule. Other saves, such as a rename or a response profile change, keep the revision.
+Each queued boundary carries the
 revision it was produced from in `curtailment_automation_execution.schedule_revision`.
 A boundary from an earlier revision is not queued, is dropped by the worker, and cannot
 start an event: the event insert rechecks the revision under the rule's execution lock.
 A boundary from the saved revision replaces an earlier revision's row even when its time
-is earlier. A scheduled event records its schedule revision in `decision_snapshot`, and a
-window's end restores only the event that window started under the same revision, so a
-delayed end boundary cannot stop a later window's or an edited schedule's event. The
-event insert also rejects a start whose window has already ended and caps the event so
-that, counted from its `created_at`, it ends at the window's end.
+is earlier. A scheduled event records its schedule revision in
+`curtailment_event.schedule_revision`, and the unique index
+`idx_curtailment_event_schedule_window` on the rule, window start, and revision allows at
+most one event per window per revision, including after that event ends. A window's end
+restores only the event that window started under the same revision, so a delayed end
+boundary cannot stop a later window's or an edited schedule's event. The event insert
+also rejects a start whose window has already ended and caps the event so that, counted
+from its `created_at`, it ends at the window's end.
 
 Each window starts its own event with `source_actor_type` `scheduler` and
 `scheduled_start_at` set to the window's start. The event is never unbounded: its
@@ -243,7 +248,9 @@ Each window starts its own event with `source_actor_type` `scheduler` and
 end restore. A window does not take over a previous window's event; it waits until that
 event is no longer live. Any user with `curtailment:manage` can stop a scheduled event
 early, and the schedule curtails again at its next window; a window's event that already
-ran under the current revision is not started again, even after it was stopped. An admin
+ran under the current revision is not started again, even after it was stopped, so
+renaming the schedule or changing its response profile does not run the window again.
+Changing its timing does. An admin
 force release disables the schedule, as it does an MQTT rule; enabling it again runs its
 current window. Rig fallback configuration includes only MQTT rules.
 

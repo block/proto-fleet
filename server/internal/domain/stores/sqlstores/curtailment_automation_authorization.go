@@ -21,10 +21,11 @@ func saveAutomationExecutionBinding(ctx context.Context, q sqlc.Querier, ruleID,
 		return err
 	}
 	if triggerType == models.AutomationTriggerTypeSchedule {
-		// The window producer asserts the saved schedule from scratch. A save or
-		// a re-enable from disabled also renews the schedule revision, but
-		// enabling an already-enabled schedule keeps it; clearing the row lets
-		// that rebind retry the current window now instead of after its backoff.
+		// The window producer asserts the saved schedule from scratch. A save
+		// that changes the schedule's timing, or a re-enable from disabled,
+		// also renews the schedule revision. Any other save or enable keeps it;
+		// clearing the row lets that rebind retry the current window now
+		// instead of after its backoff.
 		return q.DeleteCurtailmentAutomationExecution(ctx, ruleID)
 	}
 	return q.QueueCurrentCurtailmentAutomationExecution(ctx, ruleID)

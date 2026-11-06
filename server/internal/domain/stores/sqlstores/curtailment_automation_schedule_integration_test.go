@@ -171,7 +171,6 @@ func TestSQLCurtailmentStore_ScheduleAutomationRuleLifecycle(t *testing.T) {
 	assert.Contains(t, err.Error(), "automation rule changed before execution")
 
 	event.AutomationScheduleRevision = rule.Schedule.Revision
-	event.DecisionSnapshotJSON = []byte(fmt.Sprintf(`{"response_profile_id":%d,"response_profile_revision":%q,"schedule_revision":%q}`, profileID, profile.Revision.String(), rule.Schedule.Revision.String()))
 
 	// A start delayed past its window's end must not curtail.
 	ended := event
@@ -192,7 +191,18 @@ func TestSQLCurtailmentStore_ScheduleAutomationRuleLifecycle(t *testing.T) {
 		_, insertErr := store.InsertEventWithTargets(ctx, event, nil)
 		inserted <- insertErr
 	}()
-	time.Sleep(2 * time.Second)
+	require.Eventually(t, func() bool {
+		var waiting bool
+		err := database.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM pg_locks WHERE locktype = 'advisory' AND NOT granted AND database = (SELECT oid FROM pg_database WHERE datname = current_database()))`).Scan(&waiting)
+		return err == nil && waiting
+	}, 10*time.Second, 10*time.Millisecond, "the insert must wait on the rule's lock")
+	// Hold the lock longer than the cap's tolerance below, so a cap counted
+	// from after the wait would miss the window's end.
+	select {
+	case insertErr := <-inserted:
+		t.Fatalf("the insert finished while the rule's lock was held: %v", insertErr)
+	case <-time.After(2 * time.Second):
+	}
 	require.NoError(t, holder.Commit())
 	require.NoError(t, <-inserted)
 	require.NoError(t, store.SetAutomationActiveEvent(ctx, rule.ID, 0, event.EventUUID, start))
@@ -201,6 +211,7 @@ func TestSQLCurtailmentStore_ScheduleAutomationRuleLifecycle(t *testing.T) {
 	assert.Equal(t, models.SourceActorScheduler, persisted.SourceActorType)
 	require.NotNil(t, persisted.ScheduledStartAt)
 	assert.True(t, persisted.ScheduledStartAt.Equal(start))
+	assert.Equal(t, event.AutomationScheduleRevision, persisted.ScheduleRevision)
 	require.NotNil(t, persisted.MaxDurationSeconds)
 	deadline := persisted.CreatedAt.Add(time.Duration(*persisted.MaxDurationSeconds) * time.Second)
 	assert.WithinDuration(t, event.AutomationWindowEndAt, deadline, time.Second, "the cap ends at the window's end")
@@ -235,6 +246,31 @@ func TestSQLCurtailmentStore_ScheduleAutomationRuleLifecycle(t *testing.T) {
 	_, ran, err = store.ScheduleWindowEventState(ctx, user.OrganizationID, rule.ID, start, uuid.New())
 	require.NoError(t, err)
 	assert.False(t, ran, "another schedule revision's window has not run")
+
+	// The database also refuses a second event for the window and revision,
+	// even with the rule enabled and the first event ended.
+	_, err = database.ExecContext(ctx, `UPDATE curtailment_automation_rule SET enabled = true WHERE id = $1`, rule.ID)
+	require.NoError(t, err)
+	duplicate := event
+	duplicate.EventUUID = uuid.New()
+	_, err = store.InsertEventWithTargets(ctx, duplicate, nil)
+	require.Error(t, err, "a window runs at most one event per schedule revision")
+	assert.True(t, fleeterror.IsFailedPreconditionError(err), err)
+	assert.Contains(t, err.Error(), "schedule window already has a curtailment event")
+	_, err = database.ExecContext(ctx, `UPDATE curtailment_automation_rule SET enabled = false WHERE id = $1`, rule.ID)
+	require.NoError(t, err)
+
+	// A save that leaves the schedule's timing unchanged keeps its revision, so
+	// the stopped window is still found and does not run again.
+	renamed := *rule
+	renamed.RuleName = "weeknight-peak-renamed"
+	rule, err = store.UpdateAutomationRule(ctx, renamed, models.ResponseProfileFanSettings{})
+	require.NoError(t, err)
+	assert.Equal(t, "weeknight-peak-renamed", rule.RuleName)
+	assert.Equal(t, event.AutomationScheduleRevision, rule.Schedule.Revision)
+	_, ran, err = store.ScheduleWindowEventState(ctx, user.OrganizationID, rule.ID, start, rule.Schedule.Revision)
+	require.NoError(t, err)
+	assert.True(t, ran)
 
 	// Re-enabling starts a new schedule revision so the current window runs
 	// again; enabling an enabled schedule keeps its revision.

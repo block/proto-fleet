@@ -58,7 +58,7 @@ func (f *scheduleDurableFake) ListEnabledScheduleAutomationRules(context.Context
 
 func (f *scheduleDurableFake) ScheduleWindowEventState(_ context.Context, _, _ int64, windowStart time.Time, scheduleRevision uuid.UUID) (models.EventState, bool, error) {
 	for _, event := range f.events {
-		if eventStartedForWindow(event, windowStart) && eventScheduleRevision(event) == scheduleRevision {
+		if eventStartedForWindow(event, windowStart) && event.ScheduleRevision == scheduleRevision {
 			return event.State, true, nil
 		}
 	}
@@ -103,12 +103,20 @@ func (h *automationHarness) seedScheduledEvent(state models.EventState, windowSt
 	id := h.seedAutomationEvent(state)
 	start := windowStart
 	h.curtailments.eventsByUUID[id].ScheduledStartAt = &start
-	h.curtailments.eventsByUUID[id].DecisionSnapshotJSON = scheduleDecisionSnapshot(h.rule.Schedule.Revision)
+	h.curtailments.eventsByUUID[id].ScheduleRevision = h.rule.Schedule.Revision
 	return id
 }
 
-func scheduleDecisionSnapshot(revision uuid.UUID) []byte {
-	return []byte(`{"schedule_revision":"` + revision.String() + `"}`)
+// seedScheduledReplayEvent seeds a scheduler event that the start's replay
+// lookup finds, with no active-event pointer on the rule.
+func (h *automationHarness) seedScheduledReplayEvent(state models.EventState, windowStart time.Time) *models.Event {
+	h.t.Helper()
+	event := h.seedAutomationReplayEvent(state)
+	start := windowStart
+	event.SourceActorType = models.SourceActorScheduler
+	event.ScheduledStartAt = &start
+	event.ScheduleRevision = h.rule.Schedule.Revision
+	return event
 }
 
 // slowExecutionStore blocks the execution claim until shutdown and counts
@@ -283,7 +291,6 @@ func TestAutomationService_ScheduleWindowStartsScheduledEvent(t *testing.T) {
 	assert.True(t, event.ScheduledStartAt.Equal(scheduleWindowStart))
 	assert.Equal(t, h.rule.Schedule.Revision, event.AutomationScheduleRevision, "the store's rule lock rechecks the schedule revision the worker read")
 	assert.True(t, event.AutomationWindowEndAt.Equal(scheduleWindowEnd), "the store rejects the start once the window ends")
-	assert.Equal(t, h.rule.Schedule.Revision, eventScheduleRevision(&models.Event{DecisionSnapshotJSON: event.DecisionSnapshotJSON}))
 	// FULL_FLEET profiles are not forced unbounded: the window end caps them.
 	assert.False(t, event.AllowUnbounded)
 	require.NotNil(t, event.MaxDurationSeconds)
@@ -347,7 +354,7 @@ func TestAutomationService_ScheduleWindowEndLeavesOtherEventsRunning(t *testing.
 			h.automation.clock = func() time.Time { return scheduleWindowEnd.Add(30 * time.Second) }
 			id := h.seedScheduledEvent(models.EventStateActive, tt.windowStart)
 			if tt.otherRevision {
-				h.curtailments.eventsByUUID[id].DecisionSnapshotJSON = scheduleDecisionSnapshot(uuid.New())
+				h.curtailments.eventsByUUID[id].ScheduleRevision = uuid.New()
 			}
 
 			h.automation.produceScheduleAssertions(t.Context())
@@ -464,7 +471,7 @@ func TestAutomationService_ScheduleRetriedStartAfterOperatorStop(t *testing.T) {
 			start := scheduleWindowStart
 			h.curtailments.eventsByUUID[eventUUID] = &models.Event{
 				EventUUID: eventUUID, OrgID: h.orgID, State: models.EventStateCompleted,
-				ScheduledStartAt: &start, DecisionSnapshotJSON: scheduleDecisionSnapshot(h.rule.Schedule.Revision),
+				ScheduledStartAt: &start, ScheduleRevision: h.rule.Schedule.Revision,
 			}
 			if tt.newRevision {
 				h.rule.Schedule.Revision = uuid.New()
@@ -474,6 +481,58 @@ func TestAutomationService_ScheduleRetriedStartAfterOperatorStop(t *testing.T) {
 			h.automation.processDueExecutions(t.Context())
 
 			assert.Equal(t, tt.wantInserts, h.curtailments.insertEventCalls)
+		})
+	}
+}
+
+func TestAutomationService_ScheduleRetriedStartAfterStoppedEventFinishesRestoring(t *testing.T) {
+	t.Parallel()
+	h, durable := newScheduleHarness(t)
+	// The window's event was restoring when the retry read the window's history
+	// and finished before the replay lookup, which matches only live events.
+	eventUUID := uuid.New()
+	start := scheduleWindowStart
+	h.curtailments.eventsByUUID[eventUUID] = &models.Event{
+		EventUUID: eventUUID, OrgID: h.orgID, State: models.EventStateRestoring,
+		SourceActorType: models.SourceActorScheduler, ScheduledStartAt: &start, ScheduleRevision: h.rule.Schedule.Revision,
+	}
+
+	h.automation.produceScheduleAssertions(t.Context())
+	h.automation.processDueExecutions(t.Context())
+
+	assert.Equal(t, []int64{h.rule.ID}, durable.completed)
+	assert.Equal(t, 0, h.curtailments.insertEventCalls, "a window whose event an operator stopped must not start again")
+}
+
+func TestAutomationService_ScheduleStartReplay(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name        string
+		eventWindow time.Time
+		wantAdopted bool
+	}{
+		{"adopts the window's own live event", scheduleWindowStart, true},
+		{"waits for an earlier window's live event", scheduleWindowStart.AddDate(0, 0, -1), false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			h, durable := newScheduleHarness(t)
+			event := h.seedScheduledReplayEvent(models.EventStateActive, tt.eventWindow)
+
+			h.automation.produceScheduleAssertions(t.Context())
+			h.automation.processDueExecutions(t.Context())
+
+			assert.Equal(t, 0, h.curtailments.insertEventCalls)
+			if tt.wantAdopted {
+				assert.Equal(t, []int64{h.rule.ID}, durable.completed)
+				assert.Equal(t, event.EventUUID, h.rules.lastActiveEvent)
+				return
+			}
+			assert.Equal(t, []int64{h.rule.ID}, durable.retried)
+			assert.Equal(t, uuid.Nil, h.rules.lastActiveEvent)
+			require.NotEmpty(t, h.rules.executionErrors)
+			assert.Contains(t, h.rules.executionErrors[0], "previous schedule window")
 		})
 	}
 }

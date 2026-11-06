@@ -2,7 +2,6 @@ package curtailment
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log/slog"
 	"math"
@@ -11,7 +10,6 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/curtailment/models"
 	"github.com/block/proto-fleet/server/internal/domain/curtailment/schedulewindow"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
-	"github.com/google/uuid"
 )
 
 const (
@@ -125,7 +123,7 @@ func (s *AutomationService) handleScheduleExecution(ctx context.Context, rule *m
 		// Only the event this window started under this schedule revision is
 		// restored; an edited schedule's event can share the window's start.
 		return s.restoreRuleEvent(ctx, rule, at, func(event *models.Event) bool {
-			return !eventStartedForWindow(event, window.Start) || eventScheduleRevision(event) != work.ScheduleRevision
+			return !eventStartedForWindow(event, window.Start) || event.ScheduleRevision != work.ScheduleRevision
 		})
 	default:
 		return fleeterror.NewInvalidArgumentErrorf("unsupported automation signal %q", work.Target)
@@ -150,11 +148,11 @@ func (s *AutomationService) startScheduleWindow(ctx context.Context, rule *model
 	// A window runs once per schedule revision: a retried start does not run it
 	// again after its event was stopped, even when the rule's active-event
 	// pointer was never recorded.
-	state, found, err := s.store.ScheduleWindowEventState(ctx, rule.OrgID, rule.ID, window.Start, rule.Schedule.Revision)
+	state, windowRan, err := s.store.ScheduleWindowEventState(ctx, rule.OrgID, rule.ID, window.Start, rule.Schedule.Revision)
 	if err != nil {
 		return err
 	}
-	if found && state.IsTerminal() {
+	if windowRan && state.IsTerminal() {
 		return nil
 	}
 
@@ -188,6 +186,10 @@ func (s *AutomationService) startScheduleWindow(ctx context.Context, rule *model
 		}
 		return s.store.SetAutomationActiveEvent(ctx, rule.ID, 0, replayEvent.EventUUID, at)
 	}
+	if windowRan {
+		// The window's event ended after the lookup above.
+		return nil
+	}
 	return s.startBoundAutomationEvent(ctx, rule, startReq, at)
 }
 
@@ -220,22 +222,6 @@ func scheduleStartRequest(rule *models.AutomationRule, profile *models.ResponseP
 
 func eventStartedForWindow(event *models.Event, windowStart time.Time) bool {
 	return event != nil && event.ScheduledStartAt != nil && event.ScheduledStartAt.Equal(windowStart)
-}
-
-// eventScheduleRevision is the schedule revision a scheduled event recorded in
-// its decision snapshot, or uuid.Nil.
-func eventScheduleRevision(event *models.Event) uuid.UUID {
-	var snapshot struct {
-		ScheduleRevision string `json:"schedule_revision"`
-	}
-	if event == nil || json.Unmarshal(event.DecisionSnapshotJSON, &snapshot) != nil {
-		return uuid.Nil
-	}
-	revision, err := uuid.Parse(snapshot.ScheduleRevision)
-	if err != nil {
-		return uuid.Nil
-	}
-	return revision
 }
 
 func errWaitingForPreviousScheduleWindow() error {

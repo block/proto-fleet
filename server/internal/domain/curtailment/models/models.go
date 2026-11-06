@@ -301,6 +301,7 @@ type Event struct {
 	SupersedesEventID            *int64
 	Reason                       string
 	ScheduledStartAt             *time.Time
+	ScheduleRevision             uuid.UUID
 	StartedAt                    *time.Time
 	EndedAt                      *time.Time
 	CreatedByUserID              int64

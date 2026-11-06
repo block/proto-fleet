@@ -33,6 +33,7 @@ const deviceNonTerminalUniqueIndex = "uq_curtailment_target_one_non_terminal_per
 const (
 	idempotencyKeyUniqueIndex    = "uq_curtailment_event_idempotency"
 	externalReferenceUniqueIndex = "uq_curtailment_event_external_ref"
+	scheduleWindowUniqueIndex    = "idx_curtailment_event_schedule_window"
 	automationRuleOrgNameUnique  = "uq_curtailment_automation_rule_org_name"
 	automationExternalSource     = "curtailment_automation"
 )
@@ -1561,6 +1562,7 @@ func (s *SQLCurtailmentStore) InsertEventWithTargets(
 			IdempotencyKey:              ptrToNullString(event.IdempotencyKey),
 			Reason:                      event.Reason,
 			ScheduledStartAt:            ptrToNullTime(event.ScheduledStartAt),
+			ScheduleRevision:            uuid.NullUUID{UUID: event.AutomationScheduleRevision, Valid: event.AutomationScheduleRevision != uuid.Nil},
 			StartedAt:                   ptrToNullTime(event.StartedAt),
 			EndedAt:                     ptrToNullTime(event.EndedAt),
 			CreatedByUserID:             event.CreatedByUserID,
@@ -1574,6 +1576,10 @@ func (s *SQLCurtailmentStore) InsertEventWithTargets(
 					// Replay path: caller re-issues the matching lookup.
 					replayRace = true
 					return nil, nil
+				case scheduleWindowUniqueIndex:
+					return nil, fleeterror.NewFailedPreconditionError(
+						"schedule window already has a curtailment event for this schedule revision",
+					)
 				}
 				// Unknown constraint: sanitize the response and log the
 				// name server-side so it doesn't leak through %v.
@@ -3883,6 +3889,7 @@ func convertEventRow(row sqlc.CurtailmentEvent) *models.Event {
 		row.CreatedAt,
 		row.UpdatedAt,
 		row.AuthorizationEnvelopeJsonb,
+		row.ScheduleRevision,
 	)
 	return event
 }
@@ -3936,6 +3943,7 @@ func convertEventDetailRow(row sqlc.GetCurtailmentEventDetailByUUIDRow) *models.
 		row.CreatedAt,
 		row.UpdatedAt,
 		row.AuthorizationEnvelopeJsonb,
+		row.ScheduleRevision,
 	)
 }
 
@@ -3988,6 +3996,7 @@ func convertEventListRow(row sqlc.ListCurtailmentEventsForOrgRow) *models.Event 
 		row.CreatedAt,
 		row.UpdatedAt,
 		row.AuthorizationEnvelopeJsonb,
+		row.ScheduleRevision,
 	)
 }
 
@@ -4040,6 +4049,7 @@ func convertActiveEventRow(row sqlc.ListActiveCurtailmentEventsRow) *models.Even
 		row.CreatedAt,
 		row.UpdatedAt,
 		row.AuthorizationEnvelopeJsonb,
+		row.ScheduleRevision,
 	)
 	// The active-list query aggregates target counts per row; events with no
 	// target rows carry a zeroed (non-nil) rollup so active displays can trust
@@ -4144,6 +4154,7 @@ func convertEventFields(
 	createdAt time.Time,
 	updatedAt time.Time,
 	authorizationEnvelopeJSON []byte,
+	scheduleRevision uuid.NullUUID,
 ) *models.Event {
 	return &models.Event{
 		ID:                           id,
@@ -4188,6 +4199,7 @@ func convertEventFields(
 		SupersedesEventID:            nullInt64ToPtr(supersedesEventID),
 		Reason:                       reason,
 		ScheduledStartAt:             nullTimeToPtr(scheduledStartAt),
+		ScheduleRevision:             scheduleRevision.UUID,
 		StartedAt:                    nullTimeToPtr(startedAt),
 		EndedAt:                      nullTimeToPtr(endedAt),
 		CreatedByUserID:              createdByUserID,

@@ -409,6 +409,7 @@ INSERT INTO curtailment_event (
     idempotency_key,
     reason,
     scheduled_start_at,
+    schedule_revision,
     started_at,
     ended_at,
     created_by_user_id,
@@ -449,6 +450,7 @@ INSERT INTO curtailment_event (
     sqlc.narg('idempotency_key'),
     sqlc.arg('reason'),
     sqlc.narg('scheduled_start_at'),
+    sqlc.narg('schedule_revision'),
     sqlc.narg('started_at'),
     sqlc.narg('ended_at'),
     sqlc.arg('created_by_user_id'),
@@ -542,7 +544,8 @@ SELECT
     source_actor_type, source_actor_id,
     external_source, external_reference, idempotency_key,
     supersedes_event_id, reason, scheduled_start_at, started_at, ended_at,
-    created_at, updated_at, created_by_user_id, authorization_envelope_jsonb
+    created_at, updated_at, created_by_user_id, authorization_envelope_jsonb,
+    schedule_revision
 FROM curtailment_event
 WHERE event_uuid = sqlc.arg('event_uuid')
     AND org_id = sqlc.arg('org_id');
@@ -760,7 +763,8 @@ SELECT
     source_actor_type, source_actor_id,
     external_source, external_reference, idempotency_key,
     supersedes_event_id, reason, scheduled_start_at, started_at, ended_at,
-    created_at, updated_at, created_by_user_id, authorization_envelope_jsonb
+    created_at, updated_at, created_by_user_id, authorization_envelope_jsonb,
+    schedule_revision
 FROM curtailment_event
 WHERE org_id = sqlc.arg('org_id')
     AND (sqlc.arg('cursor_id')::BIGINT = 0 OR id < sqlc.arg('cursor_id')::BIGINT)
@@ -799,6 +803,7 @@ SELECT
     ce.external_source, ce.external_reference, ce.idempotency_key,
     ce.supersedes_event_id, ce.reason, ce.scheduled_start_at, ce.started_at, ce.ended_at,
     ce.created_at, ce.updated_at, ce.created_by_user_id, ce.authorization_envelope_jsonb,
+    ce.schedule_revision,
     COALESCE(rollup.pending, 0)::BIGINT AS rollup_pending,
     COALESCE(rollup.dispatched, 0)::BIGINT AS rollup_dispatched,
     COALESCE(rollup.confirmed, 0)::BIGINT AS rollup_confirmed,

@@ -2469,9 +2469,6 @@ func marshalDecisionSnapshot(
 		"requires_admin_controls":         requiresAdminControls,
 		"skipped":                         skipped,
 	}
-	if req.AutomationScheduleRevision != uuid.Nil {
-		snapshot["schedule_revision"] = req.AutomationScheduleRevision.String()
-	}
 	if req.ResponseProfileID > 0 {
 		snapshot["response_profile_id"] = req.ResponseProfileID
 		snapshot["response_profile_revision"] = req.ResponseProfileRevision.String()

@@ -484,6 +484,10 @@ WHERE curtailment_automation_execution.received_at < EXCLUDED.received_at
 DELETE FROM curtailment_automation_execution WHERE rule_id = sqlc.arg('rule_id');
 
 -- name: UpsertCurtailmentAutomationSchedule :exec
+-- A save that changes the schedule's timing starts a new revision, so the
+-- current window runs again under the new timing. Any other save, such as a
+-- rename or a response profile change, keeps the revision, so a window that
+-- already ran, including one an operator stopped, does not run again.
 INSERT INTO curtailment_automation_schedule (
     rule_id, schedule_type, timezone, start_date, start_time, end_time, end_date,
     frequency, days_of_week, day_of_month, until_date, service_user_id
@@ -504,12 +508,25 @@ ON CONFLICT (rule_id) DO UPDATE SET
     day_of_month = EXCLUDED.day_of_month,
     until_date = EXCLUDED.until_date,
     service_user_id = EXCLUDED.service_user_id,
-    revision = gen_random_uuid(),
+    revision = CASE
+        WHEN (
+            curtailment_automation_schedule.schedule_type, curtailment_automation_schedule.timezone,
+            curtailment_automation_schedule.start_date, curtailment_automation_schedule.start_time,
+            curtailment_automation_schedule.end_time, curtailment_automation_schedule.end_date,
+            curtailment_automation_schedule.frequency, curtailment_automation_schedule.days_of_week,
+            curtailment_automation_schedule.day_of_month, curtailment_automation_schedule.until_date
+        ) IS DISTINCT FROM (
+            EXCLUDED.schedule_type, EXCLUDED.timezone, EXCLUDED.start_date, EXCLUDED.start_time,
+            EXCLUDED.end_time, EXCLUDED.end_date, EXCLUDED.frequency, EXCLUDED.days_of_week,
+            EXCLUDED.day_of_month, EXCLUDED.until_date
+        ) THEN gen_random_uuid()
+        ELSE curtailment_automation_schedule.revision
+    END,
     updated_at = CURRENT_TIMESTAMP;
 
 -- name: GetCurtailmentScheduleWindowEventState :one
--- The state of the latest event a schedule rule started for a window under a
--- schedule revision, including events that have already ended.
+-- The state of the event a schedule rule started for a window under a
+-- schedule revision, including an event that has already ended.
 SELECT e.state
 FROM curtailment_event e
 WHERE e.org_id = sqlc.arg('org_id')
@@ -517,9 +534,7 @@ WHERE e.org_id = sqlc.arg('org_id')
   AND e.external_source = 'curtailment_automation'
   AND e.external_reference = sqlc.arg('rule_id')::bigint::text
   AND e.scheduled_start_at = sqlc.arg('window_start')::timestamptz
-  AND e.decision_snapshot_jsonb->>'schedule_revision' = sqlc.arg('schedule_revision')::uuid::text
-ORDER BY e.created_at DESC
-LIMIT 1;
+  AND e.schedule_revision = sqlc.arg('schedule_revision')::uuid;
 
 -- name: RenewCurtailmentAutomationScheduleRevision :exec
 UPDATE curtailment_automation_schedule

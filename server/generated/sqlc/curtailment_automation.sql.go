@@ -424,9 +424,7 @@ WHERE e.org_id = $1
   AND e.external_source = 'curtailment_automation'
   AND e.external_reference = $2::bigint::text
   AND e.scheduled_start_at = $3::timestamptz
-  AND e.decision_snapshot_jsonb->>'schedule_revision' = $4::uuid::text
-ORDER BY e.created_at DESC
-LIMIT 1
+  AND e.schedule_revision = $4::uuid
 `
 
 type GetCurtailmentScheduleWindowEventStateParams struct {
@@ -436,8 +434,8 @@ type GetCurtailmentScheduleWindowEventStateParams struct {
 	ScheduleRevision uuid.UUID
 }
 
-// The state of the latest event a schedule rule started for a window under a
-// schedule revision, including events that have already ended.
+// The state of the event a schedule rule started for a window under a
+// schedule revision, including an event that has already ended.
 func (q *Queries) GetCurtailmentScheduleWindowEventState(ctx context.Context, arg GetCurtailmentScheduleWindowEventStateParams) (string, error) {
 	row := q.queryRow(ctx, q.getCurtailmentScheduleWindowEventStateStmt, getCurtailmentScheduleWindowEventState,
 		arg.OrgID,
@@ -1430,7 +1428,20 @@ ON CONFLICT (rule_id) DO UPDATE SET
     day_of_month = EXCLUDED.day_of_month,
     until_date = EXCLUDED.until_date,
     service_user_id = EXCLUDED.service_user_id,
-    revision = gen_random_uuid(),
+    revision = CASE
+        WHEN (
+            curtailment_automation_schedule.schedule_type, curtailment_automation_schedule.timezone,
+            curtailment_automation_schedule.start_date, curtailment_automation_schedule.start_time,
+            curtailment_automation_schedule.end_time, curtailment_automation_schedule.end_date,
+            curtailment_automation_schedule.frequency, curtailment_automation_schedule.days_of_week,
+            curtailment_automation_schedule.day_of_month, curtailment_automation_schedule.until_date
+        ) IS DISTINCT FROM (
+            EXCLUDED.schedule_type, EXCLUDED.timezone, EXCLUDED.start_date, EXCLUDED.start_time,
+            EXCLUDED.end_time, EXCLUDED.end_date, EXCLUDED.frequency, EXCLUDED.days_of_week,
+            EXCLUDED.day_of_month, EXCLUDED.until_date
+        ) THEN gen_random_uuid()
+        ELSE curtailment_automation_schedule.revision
+    END,
     updated_at = CURRENT_TIMESTAMP
 `
 
@@ -1449,6 +1460,10 @@ type UpsertCurtailmentAutomationScheduleParams struct {
 	ServiceUserID int64
 }
 
+// A save that changes the schedule's timing starts a new revision, so the
+// current window runs again under the new timing. Any other save, such as a
+// rename or a response profile change, keeps the revision, so a window that
+// already ran, including one an operator stopped, does not run again.
 func (q *Queries) UpsertCurtailmentAutomationSchedule(ctx context.Context, arg UpsertCurtailmentAutomationScheduleParams) error {
 	_, err := q.exec(ctx, q.upsertCurtailmentAutomationScheduleStmt, upsertCurtailmentAutomationSchedule,
 		arg.RuleID,

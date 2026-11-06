@@ -784,8 +784,8 @@ type Querier interface {
 	GetCurtailmentReconcilerHeartbeat(ctx context.Context) (CurtailmentReconcilerHeartbeat, error)
 	GetCurtailmentResponseProfileByOrg(ctx context.Context, arg GetCurtailmentResponseProfileByOrgParams) (CurtailmentResponseProfileWithRevision, error)
 	GetCurtailmentScheduleExecutionGrant(ctx context.Context, arg GetCurtailmentScheduleExecutionGrantParams) (CurtailmentAutomationExecutionGrant, error)
-	// The state of the latest event a schedule rule started for a window under a
-	// schedule revision, including events that have already ended.
+	// The state of the event a schedule rule started for a window under a
+	// schedule revision, including an event that has already ended.
 	GetCurtailmentScheduleWindowEventState(ctx context.Context, arg GetCurtailmentScheduleWindowEventStateParams) (string, error)
 	// Org-scoped aggregate for paginated event detail. Target pages can be
 	// partial, but the rollup must describe the whole event.
@@ -2829,6 +2829,10 @@ type Querier interface {
 	UpsertContainerRollup(ctx context.Context, arg UpsertContainerRollupParams) error
 	UpsertContainerTopologyVersion(ctx context.Context, arg UpsertContainerTopologyVersionParams) (int64, error)
 	UpsertCurtailmentAutomationExecutionGrant(ctx context.Context, arg UpsertCurtailmentAutomationExecutionGrantParams) error
+	// A save that changes the schedule's timing starts a new revision, so the
+	// current window runs again under the new timing. Any other save, such as a
+	// rename or a response profile change, keeps the revision, so a window that
+	// already ran, including one an operator stopped, does not run again.
 	UpsertCurtailmentAutomationSchedule(ctx context.Context, arg UpsertCurtailmentAutomationScheduleParams) error
 	UpsertCurtailmentAutomationSignalState(ctx context.Context, arg UpsertCurtailmentAutomationSignalStateParams) error
 	// Singleton row at id=1; INSERT path only fires on accidental deletion.

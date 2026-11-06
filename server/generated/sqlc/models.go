@@ -1106,6 +1106,7 @@ type CurtailmentEvent struct {
 	LastCurtailPendingDispatchAt sql.NullTime
 	AuthorizationEnvelopeJsonb   json.RawMessage
 	DispatchRejectionReason      sql.NullString
+	ScheduleRevision             uuid.NullUUID
 }
 
 type CurtailmentMqttSourceConfig struct {

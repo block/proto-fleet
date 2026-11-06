@@ -1,5 +1,6 @@
 DROP TABLE curtailment_automation_schedule;
-DROP INDEX ix_curtailment_event_schedule_window;
+DROP INDEX idx_curtailment_event_schedule_window;
+ALTER TABLE curtailment_event DROP COLUMN schedule_revision;
 
 -- Schedule rules cannot be represented without a schedule; remove them before
 -- restoring the MQTT-only constraints.
