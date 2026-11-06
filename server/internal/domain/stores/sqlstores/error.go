@@ -6,7 +6,9 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/sqlc-dev/pqtype"
 
@@ -20,8 +22,6 @@ import (
 const (
 	// minValidEnumValue represents the minimum valid value for enum types
 	minValidEnumValue = 0
-	// unsetDatabaseID represents an uninitialized or invalid database ID
-	unsetDatabaseID = 0
 )
 
 var _ interfaces.ErrorStore = &SQLErrorStore{}
@@ -40,64 +40,6 @@ func NewSQLErrorStore(conn *sql.DB, transactor interfaces.Transactor) *SQLErrorS
 
 func (s *SQLErrorStore) getQueries(ctx context.Context) sqlc.Querier {
 	return s.GetQueries(ctx)
-}
-
-// UpsertError inserts a new error or updates an existing open error with the same dedup key.
-func (s *SQLErrorStore) UpsertError(ctx context.Context, orgID int64, deviceIdentifier string, errMsg *models.ErrorMessage) (*models.ErrorMessage, error) {
-	var result *models.ErrorMessage
-	err := s.transactor.RunInTx(ctx, func(txCtx context.Context) error {
-		q := s.getQueries(txCtx)
-
-		deviceID, err := q.GetDeviceIDByIdentifier(txCtx, sqlc.GetDeviceIDByIdentifierParams{
-			DeviceIdentifier: deviceIdentifier,
-			OrgID:            orgID,
-		})
-		if err != nil {
-			if errors.Is(err, sql.ErrNoRows) {
-				return fleeterror.NewNotFoundErrorf("device not found: %s", deviceIdentifier)
-			}
-			return fleeterror.NewInternalErrorf("failed to resolve device identifier: %v", err)
-		}
-
-		componentID := sql.NullString{String: "", Valid: false}
-		if errMsg.ComponentID != nil {
-			componentID = sql.NullString{String: *errMsg.ComponentID, Valid: true}
-		}
-
-		componentType := sql.NullInt32{Int32: unsetDatabaseID, Valid: false}
-		if errMsg.ComponentType != models.ComponentTypeUnspecified {
-			componentType = sql.NullInt32{Int32: int32(errMsg.ComponentType), Valid: true} // #nosec G115 -- ComponentType enum values bounded (max 4), safe for int32
-		}
-
-		existingError, dbErr := q.GetOpenErrorByDedupKey(txCtx, sqlc.GetOpenErrorByDedupKeyParams{
-			OrgID:         orgID,
-			DeviceID:      deviceID,
-			MinerError:    int32(errMsg.MinerError), // #nosec G115 -- MinerError enum values bounded by protobuf (max ~9000)
-			ComponentID:   componentID,
-			ComponentType: componentType,
-		})
-
-		if dbErr != nil && !errors.Is(dbErr, sql.ErrNoRows) {
-			return fleeterror.NewInternalErrorf("failed to check for existing error: %v", dbErr)
-		}
-		noOpenErrorExists := errors.Is(dbErr, sql.ErrNoRows) || existingError.ID == unsetDatabaseID
-
-		extra, err := json.Marshal(errMsg.VendorAttributes)
-		if err != nil {
-			return fleeterror.NewInternalErrorf("failed to marshal vendor attributes: %v", err)
-		}
-
-		if noOpenErrorExists {
-			result, err = s.insertNewError(txCtx, q, orgID, deviceID, errMsg, componentID, componentType, extra)
-		} else {
-			result, err = s.updateExistingError(txCtx, q, orgID, &existingError, errMsg, extra)
-		}
-		return err
-	})
-	if err != nil {
-		return nil, err
-	}
-	return result, nil
 }
 
 type errorBatchReport struct {
@@ -140,12 +82,17 @@ func (s *SQLErrorStore) UpsertErrors(
 	reportIndexes := make(map[errorBatchDedupKey]int, len(errorsToUpsert))
 	for i := range errorsToUpsert {
 		errMsg := &errorsToUpsert[i]
+		var componentID *string
+		if errMsg.ComponentID != nil {
+			sanitized := sanitizeBoundedText(*errMsg.ComponentID)
+			componentID = &sanitized
+		}
 		key := errorBatchDedupKey{
 			MinerError:    errMsg.MinerError,
 			ComponentType: errMsg.ComponentType,
 		}
-		if errMsg.ComponentID != nil {
-			key.ComponentID = *errMsg.ComponentID
+		if componentID != nil {
+			key.ComponentID = *componentID
 			key.HasComponent = true
 		}
 
@@ -153,17 +100,17 @@ func (s *SQLErrorStore) UpsertErrors(
 			ErrorID:           id.GenerateID(),
 			MinerError:        int32(errMsg.MinerError), // #nosec G115 -- MinerError enum bounded by protobuf
 			Severity:          int32(errMsg.Severity),   // #nosec G115 -- Severity enum bounded (max 4)
-			Summary:           errMsg.Summary,
-			Impact:            nonEmptyStringPtr(errMsg.Impact),
-			CauseSummary:      nonEmptyStringPtr(errMsg.CauseSummary),
-			RecommendedAction: nonEmptyStringPtr(errMsg.RecommendedAction),
+			Summary:           stripNUL(errMsg.Summary),
+			Impact:            nonEmptyStringPtr(stripNUL(errMsg.Impact)),
+			CauseSummary:      nonEmptyStringPtr(stripNUL(errMsg.CauseSummary)),
+			RecommendedAction: nonEmptyStringPtr(stripNUL(errMsg.RecommendedAction)),
 			FirstSeenAt:       errMsg.FirstSeenAt,
 			LastSeenAt:        errMsg.LastSeenAt,
-			ComponentID:       errMsg.ComponentID,
+			ComponentID:       componentID,
 			ComponentType:     nullableComponentType(errMsg.ComponentType),
-			VendorCode:        nonEmptyStringPtr(errMsg.VendorCode),
-			Firmware:          nonEmptyStringPtr(errMsg.Firmware),
-			Extra:             errMsg.VendorAttributes,
+			VendorCode:        nonEmptyStringPtr(sanitizeBoundedText(errMsg.VendorCode)),
+			Firmware:          nonEmptyStringPtr(sanitizeBoundedText(errMsg.Firmware)),
+			Extra:             sanitizeVendorAttributes(errMsg.VendorAttributes),
 			ClosedAt:          errMsg.ClosedAt,
 		}
 		if index, ok := reportIndexes[key]; ok {
@@ -204,94 +151,42 @@ func (s *SQLErrorStore) UpsertErrors(
 	return nil
 }
 
+// maxBoundedTextRunes matches the varchar(255) columns, which count characters.
+const maxBoundedTextRunes = 255
+
+// stripNUL removes NUL characters, which jsonb and text columns reject.
+func stripNUL(value string) string {
+	if !strings.ContainsRune(value, 0) {
+		return value
+	}
+	return strings.ReplaceAll(value, "\x00", "")
+}
+
+func sanitizeBoundedText(value string) string {
+	value = stripNUL(value)
+	if utf8.RuneCountInString(value) <= maxBoundedTextRunes {
+		return value
+	}
+	return string([]rune(value)[:maxBoundedTextRunes])
+}
+
+func sanitizeVendorAttributes(attributes map[string]string) map[string]string {
+	if attributes == nil {
+		return nil
+	}
+	sanitized := make(map[string]string, len(attributes))
+	for key, value := range attributes {
+		sanitized[stripNUL(key)] = stripNUL(value)
+	}
+	return sanitized
+}
+
 func nullableComponentType(componentType models.ComponentType) *int32 {
 	if componentType == models.ComponentTypeUnspecified {
 		return nil
 	}
 	value := int32(componentType) // #nosec G115 -- ComponentType enum values bounded (max 4)
 	return &value
-}
-
-func (s *SQLErrorStore) insertNewError(
-	ctx context.Context,
-	q sqlc.Querier,
-	orgID int64,
-	deviceID int64,
-	errMsg *models.ErrorMessage,
-	componentID sql.NullString,
-	componentType sql.NullInt32,
-	extra json.RawMessage,
-) (*models.ErrorMessage, error) {
-	errorID := id.GenerateID()
-
-	insertedID, err := q.InsertError(ctx, sqlc.InsertErrorParams{
-		ErrorID:           errorID,
-		OrgID:             orgID,
-		DeviceID:          deviceID,
-		MinerError:        int32(errMsg.MinerError), // #nosec G115 -- MinerError enum bounded by protobuf
-		Severity:          int32(errMsg.Severity),   // #nosec G115 -- Severity enum bounded (max 4)
-		Summary:           errMsg.Summary,
-		Impact:            toNullString(errMsg.Impact),
-		CauseSummary:      toNullString(errMsg.CauseSummary),
-		RecommendedAction: toNullString(errMsg.RecommendedAction),
-		FirstSeenAt:       errMsg.FirstSeenAt,
-		LastSeenAt:        errMsg.LastSeenAt,
-		ComponentID:       componentID,
-		ComponentType:     componentType,
-		VendorCode:        toNullString(errMsg.VendorCode),
-		Firmware:          toNullString(errMsg.Firmware),
-		Extra:             pqtype.NullRawMessage{RawMessage: extra, Valid: len(extra) > 0},
-		ClosedAt:          toNullTime(errMsg.ClosedAt),
-	})
-	if err != nil {
-		return nil, fleeterror.NewInternalErrorf("failed to insert error: %v", err)
-	}
-
-	dbError, err := q.GetErrorByID(ctx, sqlc.GetErrorByIDParams{
-		ID:    insertedID,
-		OrgID: orgID,
-	})
-	if err != nil {
-		return nil, fleeterror.NewInternalErrorf("failed to fetch inserted error: %v", err)
-	}
-
-	return toErrorMessage(&dbError, errMsg.DeviceID), nil
-}
-
-func (s *SQLErrorStore) updateExistingError(
-	ctx context.Context,
-	q sqlc.Querier,
-	orgID int64,
-	existingError *sqlc.Error,
-	errMsg *models.ErrorMessage,
-	extra json.RawMessage,
-) (*models.ErrorMessage, error) {
-	err := q.UpdateOpenError(ctx, sqlc.UpdateOpenErrorParams{
-		LastSeenAt:        errMsg.LastSeenAt,
-		Severity:          int32(errMsg.Severity), // #nosec G115 -- Severity enum values bounded (max 4)
-		Summary:           errMsg.Summary,
-		Impact:            toNullString(errMsg.Impact),
-		CauseSummary:      toNullString(errMsg.CauseSummary),
-		RecommendedAction: toNullString(errMsg.RecommendedAction),
-		VendorCode:        toNullString(errMsg.VendorCode),
-		Firmware:          toNullString(errMsg.Firmware),
-		Extra:             pqtype.NullRawMessage{RawMessage: extra, Valid: len(extra) > 0},
-		ClosedAt:          toNullTime(errMsg.ClosedAt),
-		ID:                existingError.ID,
-	})
-	if err != nil {
-		return nil, fleeterror.NewInternalErrorf("failed to update error: %v", err)
-	}
-
-	dbError, err := q.GetErrorByID(ctx, sqlc.GetErrorByIDParams{
-		ID:    existingError.ID,
-		OrgID: orgID,
-	})
-	if err != nil {
-		return nil, fleeterror.NewInternalErrorf("failed to fetch updated error: %v", err)
-	}
-
-	return toErrorMessage(&dbError, errMsg.DeviceID), nil
 }
 
 // GetErrorByErrorID retrieves a single error by its error_id (ULID).
@@ -379,28 +274,6 @@ func buildErrorMessage(fields errorFields) *models.ErrorMessage {
 	}
 }
 
-// toErrorMessage converts a sqlc.Error to a domain models.ErrorMessage.
-func toErrorMessage(dbError *sqlc.Error, deviceIdentifier string) *models.ErrorMessage {
-	return buildErrorMessage(errorFields{
-		ErrorID:           dbError.ErrorID,
-		MinerError:        dbError.MinerError,
-		CauseSummary:      dbError.CauseSummary,
-		RecommendedAction: dbError.RecommendedAction,
-		Severity:          dbError.Severity,
-		FirstSeenAt:       dbError.FirstSeenAt,
-		LastSeenAt:        dbError.LastSeenAt,
-		ClosedAt:          dbError.ClosedAt,
-		Extra:             dbError.Extra,
-		ComponentID:       dbError.ComponentID,
-		ComponentType:     dbError.ComponentType,
-		Impact:            dbError.Impact,
-		Summary:           dbError.Summary,
-		VendorCode:        dbError.VendorCode,
-		Firmware:          dbError.Firmware,
-		DeviceIdentifier:  deviceIdentifier,
-	})
-}
-
 // toErrorMessageFromRow converts a GetErrorByErrorIDRow to a domain models.ErrorMessage.
 func toErrorMessageFromRow(row *sqlc.GetErrorByErrorIDRow) *models.ErrorMessage {
 	return buildErrorMessage(errorFields{
@@ -448,14 +321,6 @@ func safeInt32ToComponentType(val int32) models.ComponentType {
 		return models.ComponentTypeUnspecified
 	}
 	return models.ComponentType(uint(val))
-}
-
-// toNullTime converts a *time.Time to sql.NullTime for database operations.
-func toNullTime(t *time.Time) sql.NullTime {
-	if t == nil {
-		return sql.NullTime{Valid: false}
-	}
-	return sql.NullTime{Time: *t, Valid: true}
 }
 
 // nullStringToPtr converts a sql.NullString to a *string pointer.

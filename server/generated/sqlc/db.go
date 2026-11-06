@@ -1287,9 +1287,6 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.getOfflineFleetNodeDevicesStmt, err = db.PrepareContext(ctx, getOfflineFleetNodeDevices); err != nil {
 		return nil, fmt.Errorf("error preparing query GetOfflineFleetNodeDevices: %w", err)
 	}
-	if q.getOpenErrorByDedupKeyStmt, err = db.PrepareContext(ctx, getOpenErrorByDedupKey); err != nil {
-		return nil, fmt.Errorf("error preparing query GetOpenErrorByDedupKey: %w", err)
-	}
 	if q.getOrgDeviceIDsWithIdentifiersStmt, err = db.PrepareContext(ctx, getOrgDeviceIDsWithIdentifiers); err != nil {
 		return nil, fmt.Errorf("error preparing query GetOrgDeviceIDsWithIdentifiers: %w", err)
 	}
@@ -1613,9 +1610,6 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.insertDeviceMetricsStmt, err = db.PrepareContext(ctx, insertDeviceMetrics); err != nil {
 		return nil, fmt.Errorf("error preparing query InsertDeviceMetrics: %w", err)
-	}
-	if q.insertErrorStmt, err = db.PrepareContext(ctx, insertError); err != nil {
-		return nil, fmt.Errorf("error preparing query InsertError: %w", err)
 	}
 	if q.insertHashboardDiagnosticObservationsStmt, err = db.PrepareContext(ctx, insertHashboardDiagnosticObservations); err != nil {
 		return nil, fmt.Errorf("error preparing query InsertHashboardDiagnosticObservations: %w", err)
@@ -3215,9 +3209,6 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.updateMinerPasswordStmt, err = db.PrepareContext(ctx, updateMinerPassword); err != nil {
 		return nil, fmt.Errorf("error preparing query UpdateMinerPassword: %w", err)
-	}
-	if q.updateOpenErrorStmt, err = db.PrepareContext(ctx, updateOpenError); err != nil {
-		return nil, fmt.Errorf("error preparing query UpdateOpenError: %w", err)
 	}
 	if q.updateOrganizationStmt, err = db.PrepareContext(ctx, updateOrganization); err != nil {
 		return nil, fmt.Errorf("error preparing query UpdateOrganization: %w", err)
@@ -5476,11 +5467,6 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing getOfflineFleetNodeDevicesStmt: %w", cerr)
 		}
 	}
-	if q.getOpenErrorByDedupKeyStmt != nil {
-		if cerr := q.getOpenErrorByDedupKeyStmt.Close(); cerr != nil {
-			err = fmt.Errorf("error closing getOpenErrorByDedupKeyStmt: %w", cerr)
-		}
-	}
 	if q.getOrgDeviceIDsWithIdentifiersStmt != nil {
 		if cerr := q.getOrgDeviceIDsWithIdentifiersStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getOrgDeviceIDsWithIdentifiersStmt: %w", cerr)
@@ -6019,11 +6005,6 @@ func (q *Queries) Close() error {
 	if q.insertDeviceMetricsStmt != nil {
 		if cerr := q.insertDeviceMetricsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing insertDeviceMetricsStmt: %w", cerr)
-		}
-	}
-	if q.insertErrorStmt != nil {
-		if cerr := q.insertErrorStmt.Close(); cerr != nil {
-			err = fmt.Errorf("error closing insertErrorStmt: %w", cerr)
 		}
 	}
 	if q.insertHashboardDiagnosticObservationsStmt != nil {
@@ -8691,11 +8672,6 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing updateMinerPasswordStmt: %w", cerr)
 		}
 	}
-	if q.updateOpenErrorStmt != nil {
-		if cerr := q.updateOpenErrorStmt.Close(); cerr != nil {
-			err = fmt.Errorf("error closing updateOpenErrorStmt: %w", cerr)
-		}
-	}
 	if q.updateOrganizationStmt != nil {
 		if cerr := q.updateOrganizationStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing updateOrganizationStmt: %w", cerr)
@@ -9401,7 +9377,6 @@ type Queries struct {
 	getModuleRollupWatermarksStmt                               *sql.Stmt
 	getOfflineDevicesStmt                                       *sql.Stmt
 	getOfflineFleetNodeDevicesStmt                              *sql.Stmt
-	getOpenErrorByDedupKeyStmt                                  *sql.Stmt
 	getOrgDeviceIDsWithIdentifiersStmt                          *sql.Stmt
 	getOrgDeviceMetricsHourlyAggregatesStmt                     *sql.Stmt
 	getOrgDeviceMetricsRawBucketAggregatesStmt                  *sql.Stmt
@@ -9510,7 +9485,6 @@ type Queries struct {
 	insertCurtailmentResponseProfileStmt                        *sql.Stmt
 	insertDeviceStmt                                            *sql.Stmt
 	insertDeviceMetricsStmt                                     *sql.Stmt
-	insertErrorStmt                                             *sql.Stmt
 	insertHashboardDiagnosticObservationsStmt                   *sql.Stmt
 	insertHashboardMetricsStmt                                  *sql.Stmt
 	insertMQTTSourceConfigStmt                                  *sql.Stmt
@@ -10044,7 +10018,6 @@ type Queries struct {
 	updateMessagePermanentlyFailedStmt                          *sql.Stmt
 	updateMessageStatusStmt                                     *sql.Stmt
 	updateMinerPasswordStmt                                     *sql.Stmt
-	updateOpenErrorStmt                                         *sql.Stmt
 	updateOrganizationStmt                                      *sql.Stmt
 	updatePoolStmt                                              *sql.Stmt
 	updateRackInfoStmt                                          *sql.Stmt
@@ -10521,7 +10494,6 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getModuleRollupWatermarksStmt:                               q.getModuleRollupWatermarksStmt,
 		getOfflineDevicesStmt:                                       q.getOfflineDevicesStmt,
 		getOfflineFleetNodeDevicesStmt:                              q.getOfflineFleetNodeDevicesStmt,
-		getOpenErrorByDedupKeyStmt:                                  q.getOpenErrorByDedupKeyStmt,
 		getOrgDeviceIDsWithIdentifiersStmt:                          q.getOrgDeviceIDsWithIdentifiersStmt,
 		getOrgDeviceMetricsHourlyAggregatesStmt:                     q.getOrgDeviceMetricsHourlyAggregatesStmt,
 		getOrgDeviceMetricsRawBucketAggregatesStmt:                  q.getOrgDeviceMetricsRawBucketAggregatesStmt,
@@ -10630,7 +10602,6 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		insertCurtailmentResponseProfileStmt:                       q.insertCurtailmentResponseProfileStmt,
 		insertDeviceStmt:                                           q.insertDeviceStmt,
 		insertDeviceMetricsStmt:                                    q.insertDeviceMetricsStmt,
-		insertErrorStmt:                                            q.insertErrorStmt,
 		insertHashboardDiagnosticObservationsStmt:                  q.insertHashboardDiagnosticObservationsStmt,
 		insertHashboardMetricsStmt:                                 q.insertHashboardMetricsStmt,
 		insertMQTTSourceConfigStmt:                                 q.insertMQTTSourceConfigStmt,
@@ -11164,7 +11135,6 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		updateMessagePermanentlyFailedStmt:                         q.updateMessagePermanentlyFailedStmt,
 		updateMessageStatusStmt:                                    q.updateMessageStatusStmt,
 		updateMinerPasswordStmt:                                    q.updateMinerPasswordStmt,
-		updateOpenErrorStmt:                                        q.updateOpenErrorStmt,
 		updateOrganizationStmt:                                     q.updateOrganizationStmt,
 		updatePoolStmt:                                             q.updatePoolStmt,
 		updateRackInfoStmt:                                         q.updateRackInfoStmt,
