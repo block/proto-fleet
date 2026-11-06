@@ -11,6 +11,7 @@ export interface StatusModalLayoutError {
   title: string;
   subtitle?: string;
   onClick?: () => void;
+  action?: ReactNode;
 }
 
 export interface StatusModalLayoutProps {
@@ -79,6 +80,7 @@ const StatusModalLayout = ({
                 title={error.title}
                 subtitle={error.subtitle}
                 onClick={error.onClick}
+                action={error.action}
                 divider={index !== errors.length - 1}
               />
             ))}

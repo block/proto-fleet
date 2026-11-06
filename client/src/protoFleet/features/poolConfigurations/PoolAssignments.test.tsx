@@ -65,7 +65,7 @@ describe("saved pool assignments", () => {
     mocks.getAssignments.mockResolvedValue(response());
     const view = render(page());
     expect(await screen.findByText("Production")).toBeVisible();
-    expect(screen.queryByRole("button", { name: "Production" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Production" })).toBeVisible();
     expect(screen.getByText("Updating…")).toBeVisible();
     expect(screen.getByTestId("pool-configuration-progress")).toHaveClass("animate-spin");
     expect(mocks.getAssignments).toHaveBeenCalledTimes(1);

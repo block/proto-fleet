@@ -5,6 +5,7 @@ import { type MinerStatusModalProps } from "./types";
 import { formatReportedTimestamp } from "./utils";
 import { Alert, ControlBoard, Fan, Hashboard, Info, LightningAlt, Success } from "@/shared/assets/icons";
 import { iconSizes } from "@/shared/assets/icons/constants";
+import Button, { sizes, variants } from "@/shared/components/Button";
 
 const componentIcons = {
   fan: <Fan />,
@@ -25,6 +26,8 @@ const MinerStatusModalContent = ({
   isOffline,
   needsAuthentication,
   needsMiningPool,
+  onAssignPoolConfiguration,
+  onAuthenticateMiner,
 }: MinerStatusModalProps) => {
   const haserrors = Object.values(errors || {}).some((errorList) => errorList.length > 0);
 
@@ -61,10 +64,39 @@ const MinerStatusModalContent = ({
 
   // Transform grouped errors into flat array for layout
   const layoutErrors: StatusModalLayoutError[] = useMemo(() => {
-    if (!errors) return [];
-
     const flatErrors: StatusModalLayoutError[] = [];
-    Object.entries(errors).forEach(([componentType, componentErrors]) => {
+    if (needsAuthentication) {
+      flatErrors.push({
+        key: "authentication-needed",
+        icon: <Alert />,
+        title: "Authentication needed",
+        subtitle: "Enter miner credentials so Fleet can connect to this miner.",
+        action: onAuthenticateMiner ? (
+          <Button size={sizes.compact} variant={variants.secondary} onClick={onAuthenticateMiner}>
+            Authenticate miner
+          </Button>
+        ) : undefined,
+      });
+    }
+    if (needsMiningPool) {
+      flatErrors.push({
+        key: "pool-required",
+        icon: <Alert />,
+        title: "Pool required",
+        subtitle: "This miner needs a pool configuration to start mining.",
+        action: onAssignPoolConfiguration ? (
+          <Button
+            size={sizes.compact}
+            variant={variants.secondary}
+            disabled={needsAuthentication}
+            onClick={onAssignPoolConfiguration}
+          >
+            Assign pool configuration
+          </Button>
+        ) : undefined,
+      });
+    }
+    Object.entries(errors || {}).forEach(([componentType, componentErrors]) => {
       componentErrors.forEach((error, idx) => {
         flatErrors.push({
           key: `${componentType}_${idx}_${error.timestamp || idx}`,
@@ -76,7 +108,7 @@ const MinerStatusModalContent = ({
       });
     });
     return flatErrors;
-  }, [errors]);
+  }, [errors, needsAuthentication, needsMiningPool, onAssignPoolConfiguration, onAuthenticateMiner]);
 
   return (
     <StatusModalLayout

@@ -28,9 +28,11 @@ export const usePoolConfigurationClient = () => {
 export const usePoolConfigurationPermissions = () => {
   const scope = useAccountScope();
   const permissions = usePermissions();
+  const change = scope ? can(scope.account, 4n) : permissions.includes("miner:update_pools");
   return {
     read: scope ? can(scope.account, 1n) : permissions.includes("pool:read"),
     manage: scope ? can(scope.account, 2n) : permissions.includes("pool:manage"),
-    change: scope ? can(scope.account, 4n) : permissions.includes("miner:update_pools"),
+    change,
+    assign: change && !(scope?.readOnly ?? false),
   };
 };

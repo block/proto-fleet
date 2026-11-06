@@ -34,6 +34,8 @@ export type MinerStatusModalProps = {
   isOffline?: boolean;
   needsAuthentication?: boolean;
   needsMiningPool?: boolean;
+  onAssignPoolConfiguration?: () => void;
+  onAuthenticateMiner?: () => void;
 };
 
 /**

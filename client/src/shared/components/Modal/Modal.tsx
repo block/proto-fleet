@@ -139,7 +139,15 @@ const Modal = ({
     document.addEventListener("keydown", trapFocus);
     return () => {
       document.removeEventListener("keydown", trapFocus);
-      if (previous instanceof HTMLElement && previous.isConnected) previous.focus({ preventScroll: true });
+      // A replacement dialog may already have focused its first input. Preserve
+      // that focus when handing off instead of returning to the original opener.
+      if (
+        previous instanceof HTMLElement &&
+        previous.isConnected &&
+        (document.activeElement === document.body || dialog.contains(document.activeElement))
+      ) {
+        previous.focus({ preventScroll: true });
+      }
     };
   }, [manageFocus, open, initialFocus]);
 

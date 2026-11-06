@@ -21,7 +21,7 @@ let controller: AbortController;
 beforeEach(() => {
   vi.useFakeTimers();
   controller = new AbortController();
-  usePoolAssignmentProgress.setState({ jobs: [], detailsJobId: undefined });
+  usePoolAssignmentProgress.setState({ jobs: [], detailsJobId: undefined, detailsSelection: undefined });
 });
 afterEach(async () => {
   controller.abort();
@@ -89,8 +89,8 @@ describe("accepted pool operation progress in miner rows", () => {
       expect(screen.queryByRole("button")).not.toBeInTheDocument();
     } else {
       expect(screen.queryByTestId("pool-configuration-progress")).not.toBeInTheDocument();
-      if (label === "Production") expect(screen.queryByRole("button")).not.toBeInTheDocument();
-      else expect(screen.getByRole("button", { name: label })).toHaveClass("underline");
+      expect(screen.getByRole("button", { name: label })).toHaveClass("hover:underline");
+      expect(screen.getByRole("button", { name: label })).not.toHaveClass("underline");
     }
   });
 });
@@ -124,7 +124,7 @@ it("replaces unavailable operation progress with fresh server evidence", async (
   expect(screen.getByText("Unavailable")).toBeVisible();
   rendered.rerender(view(Date.now() + 1));
   expect(screen.getByText("New assignment")).toBeVisible();
-  expect(screen.queryByRole("button")).not.toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "New assignment" })).toBeVisible();
 });
 
 it("maps an accepted board operation to its module and hashboard until fresh assignments arrive", async () => {

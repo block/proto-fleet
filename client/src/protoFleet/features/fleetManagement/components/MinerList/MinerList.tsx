@@ -84,6 +84,7 @@ import {
   type AssetReference,
   useFleetAccountInventory,
 } from "@/protoFleet/features/hostedAccounts/useFleetAccountInventory";
+import { usePoolConfigurationPermissions } from "@/protoFleet/features/poolConfigurations/api";
 import { PoolAssignments } from "@/protoFleet/features/poolConfigurations/PoolAssignments";
 import { useHasPermission, useUsername } from "@/protoFleet/store";
 
@@ -116,7 +117,6 @@ type MinerModalFlow =
   | {
       kind: "pool-selection";
       deviceIdentifier: string;
-      deviceStatus?: DeviceStatus;
     }
   | { kind: "status-modal"; deviceIdentifier: string }
   | { kind: "firmware-history"; deviceIdentifier: string; minerName: string };
@@ -868,6 +868,7 @@ const MinerList = ({
 
   const [modalFlow, setModalFlow] = useState<MinerModalFlow>({ kind: "closed" });
   const canViewFirmwareHistory = useHasPermission("miner:firmware_update");
+  const { assign: canAssignPoolConfiguration } = usePoolConfigurationPermissions();
   const [showManageColumnsModal, setShowManageColumnsModal] = useState(false);
   const [refreshingMinerIds, setRefreshingMinerIds] = useState<Set<string>>(() => new Set());
 
@@ -972,17 +973,8 @@ const MinerList = ({
       const needsAuthentication = miner.pairingStatus === PairingStatus.AUTHENTICATION_NEEDED;
       const needsMiningPool = miner.deviceStatus === DeviceStatus.NEEDS_MINING_POOL;
 
-      if (needsAuthentication) {
+      if (needsAuthentication && !needsMiningPool) {
         setModalFlow({ kind: "authenticate-miners", deviceIdentifier });
-        return;
-      }
-
-      if (needsMiningPool) {
-        setModalFlow({
-          kind: "pool-selection",
-          deviceIdentifier,
-          deviceStatus: miner.deviceStatus,
-        });
         return;
       }
 
@@ -1600,13 +1592,12 @@ const MinerList = ({
         />
       ) : null}
 
-      {modalFlow.kind === "pool-selection" ? (
+      {modalFlow.kind === "pool-selection" && canAssignPoolConfiguration ? (
         <PoolSelectionPageWrapper
           open
           selectedMiners={[
             {
               deviceIdentifier: modalFlow.deviceIdentifier,
-              deviceStatus: modalFlow.deviceStatus,
             },
           ]}
           selectionMode="subset"
@@ -1621,6 +1612,14 @@ const MinerList = ({
           deviceId={modalFlow.deviceIdentifier}
           miner={miners[modalFlow.deviceIdentifier]}
           onMergeMiners={onMergeMiners}
+          onAuthenticateMiner={() =>
+            setModalFlow({ kind: "authenticate-miners", deviceIdentifier: modalFlow.deviceIdentifier })
+          }
+          onAssignPoolConfiguration={
+            canAssignPoolConfiguration
+              ? () => setModalFlow({ kind: "pool-selection", deviceIdentifier: modalFlow.deviceIdentifier })
+              : undefined
+          }
         />
       ) : null}
 

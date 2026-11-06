@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import { create } from "@bufbuild/protobuf";
 import { type Timestamp, timestampDate } from "@bufbuild/protobuf/wkt";
 import { Code } from "@connectrpc/connect";
@@ -8,20 +8,14 @@ import { ConfigurationReview, type ConfigurationReviewData } from "./Configurati
 import { PoolSettingsComparison } from "./PoolSettingsComparison";
 import { poolStatusExplanation, poolUpdateStatus } from "./status";
 import { poolTargetKey, useDevicePoolReadings } from "./useDevicePoolReadings";
-import { DeviceClass } from "@/protoFleet/api/generated/common/v1/common_pb";
-import { MinerIdentifierType } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import {
   type CheckConfigurationResponse,
   type EquipmentAssignment,
   OperationTargetSchema,
 } from "@/protoFleet/api/generated/poolconfigurations/v1/poolconfigurations_pb";
-import { lookupMinerByIdentifier, type LookupMinerResult } from "@/protoFleet/api/lookupMinerByIdentifier";
-import { useOpenMinerView } from "@/protoFleet/components/SingleMinerWrapper/useOpenMinerView";
-import { containerDetailPath } from "@/protoFleet/features/containers/useOpenContainerView";
 import { ACCOUNT_READ_TIMEOUT_MS } from "@/protoFleet/features/hostedAccounts/api";
 import { useAccountMutation } from "@/protoFleet/features/hostedAccounts/useAccountMutation";
 import { useAccountQuery } from "@/protoFleet/features/hostedAccounts/useAccountQuery";
-import { useFleetStore } from "@/protoFleet/store";
 import { Alert } from "@/shared/assets/icons";
 import Button from "@/shared/components/Button";
 import Callout from "@/shared/components/Callout";
@@ -39,57 +33,6 @@ const isNewerThan = (evidence: Timestamp | undefined, checkedAt: Timestamp | und
   (!checkedAt ||
     evidence.seconds > checkedAt.seconds ||
     (evidence.seconds === checkedAt.seconds && evidence.nanos > checkedAt.nanos));
-
-// Scope shared lookups to this results view and session. Each controller resolves
-// independently so a slow controller does not block navigation to the others.
-const useEquipmentLookups = (identifiers: string[]) => {
-  const selection = JSON.stringify([...new Set(identifiers)].sort());
-  const generation = useFleetStore((state) => state.auth.sessionGeneration);
-  const [result, setResult] = useState<{
-    selection: string;
-    generation: number;
-    lookups: Map<string, LookupMinerResult>;
-  }>();
-  useEffect(() => {
-    const controller = new AbortController();
-    for (const identifier of JSON.parse(selection) as string[]) {
-      void lookupMinerByIdentifier(identifier, MinerIdentifierType.DEVICE_IDENTIFIER, controller.signal).then(
-        (lookup) => {
-          if (controller.signal.aborted) return;
-          setResult((previous) => ({
-            selection,
-            generation,
-            lookups: new Map(
-              previous?.selection === selection && previous.generation === generation ? previous.lookups : [],
-            ).set(identifier, lookup),
-          }));
-        },
-      );
-    }
-    return () => controller.abort();
-  }, [selection, generation]);
-  return result?.selection === selection && result.generation === generation
-    ? result.lookups
-    : new Map<string, LookupMinerResult>();
-};
-
-const EquipmentNavigation = ({ lookup }: { lookup?: LookupMinerResult }) => {
-  const openMinerView = useOpenMinerView();
-  const miner = lookup?.status === "found" ? lookup.snapshot : undefined;
-  if (miner?.deviceClass === DeviceClass.CONTAINER)
-    return <Button variant="textOnly" text="View container" className="mr-auto" to={containerDetailPath(miner)} />;
-  if (lookup && (!miner || (!miner.embeddedWebViewAvailable && !miner.url)))
-    return <span className="mr-auto text-200 text-text-primary-50">Equipment view unavailable</span>;
-  return (
-    <Button
-      variant="textOnly"
-      text="View miner"
-      className="mr-auto"
-      loading={!lookup}
-      onClick={() => miner && openMinerView(miner)}
-    />
-  );
-};
 
 export const OperationResults = ({
   operationId,
@@ -179,9 +122,6 @@ export const OperationResults = ({
       createdAt: undefined,
     });
   }
-  const equipmentLookups = useEquipmentLookups(
-    accountId || review ? [] : rows.map((row) => row.target.deviceIdentifier).filter(Boolean),
-  );
   if (review)
     return (
       <ConfigurationReview
@@ -266,7 +206,11 @@ export const OperationResults = ({
               setChecks((values) => ({ ...values, [checkKey]: checked }));
               onRefresh?.();
             });
-          const lastVerified = row.target.state === "verified" ? row.target.updatedAt : undefined;
+          const lastVerified = [
+            poolUpdateStatus(row.target) === "Verified" ? row.target.updatedAt : undefined,
+            assignment && poolUpdateStatus(assignment) === "Verified" ? assignment.updatedAt : undefined,
+            check && poolUpdateStatus(check) === "Verified" ? check.checkedAt : undefined,
+          ].reduce<Timestamp | undefined>((latest, time) => (isNewerThan(time, latest) ? time : latest), undefined);
           const blocked =
             !assignmentChanged && result.state !== "superseded" && result.resultCode === "write_uncertain";
           const readable = check?.readbackAvailable || (check && check.reported.length > 0);
@@ -288,7 +232,7 @@ export const OperationResults = ({
                 <h2 className="text-heading-200 [overflow-wrap:anywhere]">{name}</h2>
                 {row.configurationId ? (
                   <p className="mt-1 text-300 text-text-primary-50">
-                    Configuration: <span className="text-text-primary">{row.name || assignment?.name}</span>
+                    Configuration: <span className="text-text-primary">{assignment?.name || row.name}</span>
                   </p>
                 ) : null}
               </div>
@@ -329,47 +273,46 @@ export const OperationResults = ({
                   </dl>
                 </div>
               ) : null}
-              <div className="flex flex-col gap-4 border-t border-border-10 pt-4">
-                {blocked ? (
-                  <Callout
-                    intent="warning"
-                    prefixIcon={<Alert />}
-                    title="Reapply unavailable"
-                    subtitle="Fleet couldn’t confirm that an earlier device update finished. Another pool update is blocked until that is resolved."
-                  />
-                ) : null}
-                <div className="flex flex-wrap items-center justify-end gap-3">
-                  {row.target.deviceIdentifier && !accountId ? (
-                    <EquipmentNavigation lookup={equipmentLookups.get(row.target.deviceIdentifier)} />
-                  ) : null}
-                  {canCheck ? (
-                    <Button
-                      variant="secondary"
-                      text={check ? "Check again" : "Check configuration"}
-                      loading={mutation.busy}
-                      onClick={checkConfiguration}
+              {blocked || canCheck || canRetry ? (
+                <div className="flex flex-col gap-4">
+                  {blocked ? (
+                    <Callout
+                      intent="warning"
+                      prefixIcon={<Alert />}
+                      title="Reapply unavailable"
+                      subtitle="Fleet couldn’t confirm that an earlier device update finished. Another pool update is blocked until that is resolved."
                     />
                   ) : null}
-                  {canRetry || (blocked && change && !readOnly) ? (
-                    <Button
-                      variant="primary"
-                      text={blocked || result.state === "different" ? "Reapply" : "Retry"}
-                      disabled={mutation.busy || blocked}
-                      onClick={() =>
-                        void mutation.run(async () =>
-                          setReview(
-                            await client.reviewRetry({
-                              accountId,
-                              operationId: row.operationId,
-                              targets: [{ kind: row.target.kind, targetId: row.target.targetId }],
-                            }),
-                          ),
-                        )
-                      }
-                    />
-                  ) : null}
+                  <div className="flex flex-wrap items-center justify-end gap-3">
+                    {canCheck ? (
+                      <Button
+                        variant="secondary"
+                        text={check ? "Check again" : "Check configuration"}
+                        loading={mutation.busy}
+                        onClick={checkConfiguration}
+                      />
+                    ) : null}
+                    {canRetry || (blocked && change && !readOnly) ? (
+                      <Button
+                        variant="primary"
+                        text={blocked || result.state === "different" ? "Reapply" : "Retry"}
+                        disabled={mutation.busy || blocked}
+                        onClick={() =>
+                          void mutation.run(async () =>
+                            setReview(
+                              await client.reviewRetry({
+                                accountId,
+                                operationId: row.operationId,
+                                targets: [{ kind: row.target.kind, targetId: row.target.targetId }],
+                              }),
+                            ),
+                          )
+                        }
+                      />
+                    ) : null}
+                  </div>
                 </div>
-              </div>
+              ) : null}
             </section>
           );
         })}
