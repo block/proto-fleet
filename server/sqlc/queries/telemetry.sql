@@ -1,56 +1,17 @@
 -- Telemetry queries for device_metrics table and continuous aggregates
 -- Note: All device identification uses device_identifier (TEXT), not device_id (BIGINT)
 
--- name: InsertDeviceMetrics :exec
+-- name: InsertDeviceMetricsBatch :exec
+-- Inserts one row per element of the parallel arrays. An empty kind marks
+-- an absent measurement, so its value is stored as NULL rather than 0.
 -- site_id is row-stamped from device.site_id (looked up by
 -- device_identifier) so per-site telemetry filters use the row-stamped
--- site even after the device is reassigned. Inline sub-select rather
--- than a CTE+SELECT INSERT — ON CONFLICT on the device_metrics
--- hypertable PK requires VALUES-shape INSERT. The sub-select does NOT
+-- site even after the device is reassigned. The sub-select does NOT
 -- filter by deleted_at: telemetry from a soft-deleted device is still
 -- legitimate per-site history, matching InsertError /
 -- InsertMinerStateSnapshot which also stamp from the device row
 -- regardless of soft-delete state. Duplicate historical identifiers are
 -- resolved deterministically, preferring the live device row.
-INSERT INTO device_metrics (
-    time,
-    device_identifier,
-    hash_rate_hs,
-    hash_rate_hs_kind,
-    temp_c,
-    temp_c_kind,
-    fan_rpm,
-    fan_rpm_kind,
-    power_w,
-    power_w_kind,
-    efficiency_jh,
-    efficiency_jh_kind,
-    voltage_v,
-    voltage_v_kind,
-    current_a,
-    current_a_kind,
-    inlet_temp_c,
-    outlet_temp_c,
-    ambient_temp_c,
-    chip_count,
-    chip_count_kind,
-    chip_frequency_mhz,
-    health,
-    site_id
-) VALUES (
-    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
-    $11, $12, $13, $14, $15, $16, $17, $18, $19, $20,
-    $21, $22, $23,
-    (
-        SELECT site_id
-        FROM device
-        WHERE device_identifier = $2
-        ORDER BY (deleted_at IS NULL) DESC, updated_at DESC, id DESC
-        LIMIT 1
-    )
-) ON CONFLICT (time, device_identifier) DO NOTHING;
-
--- name: InsertDeviceMetricsBatch :exec
 INSERT INTO device_metrics (
     time,
     device_identifier,

@@ -2858,7 +2858,6 @@ func TestMetricsWriterRoutine_FlushesOnRequest(t *testing.T) {
 func TestMetricsWriterRoutine_FlushRequestChunksDrainedMetrics(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
-	require.Equal(t, 2000, maxMetricsBatchSize)
 
 	mockDataStore := mock.NewMockTelemetryDataStore(ctrl)
 	mockMinerGetter := mock.NewMockCachedMinerGetter(ctrl)
@@ -3120,6 +3119,52 @@ func TestMetricsWriterRoutine_IdentifiesMalformedSampleAfterBatchError(t *testin
 
 	err := service.FlushMetricsForDevice(ctx, models.DeviceIdentifier(metric2.DeviceIdentifier))
 	require.ErrorIs(t, err, malformedErr)
+}
+
+func TestStoreDeviceMetricsIsolatingFailures_BisectsToBadSample(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockDataStore := mock.NewMockTelemetryDataStore(ctrl)
+	service := NewTelemetryService(Config{}, mockDataStore, mock.NewMockCachedMinerGetter(ctrl), mock.NewMockUpdateScheduler(ctrl), storesMocks.NewMockDeviceStore(ctrl), mock.NewMockErrorPoller(ctrl))
+
+	batch := []modelsV2.DeviceMetrics{
+		{DeviceIdentifier: "device-1"},
+		{DeviceIdentifier: "device-2"},
+		{DeviceIdentifier: "device-3"},
+		{DeviceIdentifier: "device-4"},
+	}
+	malformedErr := errors.New("malformed telemetry sample")
+
+	gomock.InOrder(
+		mockDataStore.EXPECT().StoreDeviceMetrics(gomock.Any(), batch[0], batch[1], batch[2], batch[3]).Return(malformedErr),
+		mockDataStore.EXPECT().StoreDeviceMetrics(gomock.Any(), batch[0], batch[1]).Return(nil),
+		mockDataStore.EXPECT().StoreDeviceMetrics(gomock.Any(), batch[2], batch[3]).Return(malformedErr),
+		mockDataStore.EXPECT().StoreDeviceMetrics(gomock.Any(), batch[2]).Return(malformedErr),
+		mockDataStore.EXPECT().StoreDeviceMetrics(gomock.Any(), batch[3]).Return(nil),
+	)
+
+	result := metricsFlushResult{deviceErrors: make(map[models.DeviceIdentifier]error)}
+	service.storeDeviceMetricsIsolatingFailures(t.Context(), batch, &result)
+
+	require.ErrorIs(t, result.err, malformedErr)
+	require.Len(t, result.deviceErrors, 1)
+	require.ErrorIs(t, result.deviceErrors["device-3"], malformedErr)
+}
+
+func TestStoreDeviceMetricsIsolatingFailures_DoesNotRetryTimeouts(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockDataStore := mock.NewMockTelemetryDataStore(ctrl)
+	service := NewTelemetryService(Config{}, mockDataStore, mock.NewMockCachedMinerGetter(ctrl), mock.NewMockUpdateScheduler(ctrl), storesMocks.NewMockDeviceStore(ctrl), mock.NewMockErrorPoller(ctrl))
+
+	batch := []modelsV2.DeviceMetrics{{DeviceIdentifier: "device-1"}, {DeviceIdentifier: "device-2"}}
+	timeoutErr := fmt.Errorf("failed to insert 2 device metrics: %w", context.DeadlineExceeded)
+	mockDataStore.EXPECT().StoreDeviceMetrics(gomock.Any(), batch[0], batch[1]).Return(timeoutErr).Times(1)
+
+	result := metricsFlushResult{deviceErrors: make(map[models.DeviceIdentifier]error)}
+	service.storeDeviceMetricsIsolatingFailures(t.Context(), batch, &result)
+
+	require.ErrorIs(t, result.err, context.DeadlineExceeded)
+	require.ErrorIs(t, result.deviceErrors["device-1"], context.DeadlineExceeded)
+	require.ErrorIs(t, result.deviceErrors["device-2"], context.DeadlineExceeded)
 }
 
 func TestRefreshDevice_WaitsForExistingInFlightCollectionAndFlushesWriters(t *testing.T) {
@@ -3392,10 +3437,6 @@ func TestRefreshDevice_ReturnsRequestedMetricFlushError(t *testing.T) {
 	mockErrorPoller.EXPECT().
 		PollErrors(gomock.Any(), mockMiner).
 		Return(diagnostics.PollResult{}).
-		Times(1)
-	mockDataStore.EXPECT().
-		StoreDeviceMetrics(gomock.Any(), requestedMetric).
-		Return(requestedErr).
 		Times(1)
 	mockDataStore.EXPECT().
 		StoreDeviceMetrics(gomock.Any(), requestedMetric).

@@ -392,8 +392,7 @@ func (s *TimescaleTelemetryStore) StoreDeviceMetrics(ctx context.Context, data .
 		}
 	}
 
-	var params sqlc.InsertDeviceMetricsBatchParams
-
+	params := newDeviceMetricsBatchParams(len(data))
 	for _, metrics := range data {
 		if metrics.Container != nil {
 			if err := storeContainerDeviceMetrics(ctx, qtx, metrics); err != nil {
@@ -401,33 +400,7 @@ func (s *TimescaleTelemetryStore) StoreDeviceMetrics(ctx context.Context, data .
 			}
 			continue
 		}
-		if params.Times == nil {
-			params = newDeviceMetricsBatchParams(len(data))
-		}
-
-		params.Times = append(params.Times, metrics.Timestamp)
-		params.DeviceIdentifiers = append(params.DeviceIdentifiers, metrics.DeviceIdentifier)
-		params.Health = append(params.Health, metrics.Health.String())
-
-		value, kind := metricColumns(metrics.HashrateHS)
-		params.HashRateHs = append(params.HashRateHs, value)
-		params.HashRateHsKinds = append(params.HashRateHsKinds, kind)
-
-		value, kind = metricColumns(metrics.TempC)
-		params.TempC = append(params.TempC, value)
-		params.TempCKinds = append(params.TempCKinds, kind)
-
-		value, kind = metricColumns(metrics.FanRPM)
-		params.FanRpm = append(params.FanRpm, value)
-		params.FanRpmKinds = append(params.FanRpmKinds, kind)
-
-		value, kind = metricColumns(metrics.PowerW)
-		params.PowerW = append(params.PowerW, value)
-		params.PowerWKinds = append(params.PowerWKinds, kind)
-
-		value, kind = metricColumns(metrics.EfficiencyJH)
-		params.EfficiencyJh = append(params.EfficiencyJh, value)
-		params.EfficiencyJhKinds = append(params.EfficiencyJhKinds, kind)
+		appendDeviceMetricsRow(&params, metrics)
 	}
 
 	if len(params.Times) > 0 {
@@ -460,33 +433,9 @@ func storeContainerDeviceMetrics(ctx context.Context, q *sqlc.Queries, metrics m
 		}
 	}
 
-	params := sqlc.InsertDeviceMetricsParams{
-		Time:             metrics.Timestamp,
-		DeviceIdentifier: metrics.DeviceIdentifier,
-		Health:           toNullString(metrics.Health.String()),
-	}
-	if metrics.HashrateHS != nil {
-		params.HashRateHs = sql.NullFloat64{Float64: metrics.HashrateHS.Value, Valid: true}
-		params.HashRateHsKind = toNullString(metrics.HashrateHS.Kind.String())
-	}
-	if metrics.TempC != nil {
-		params.TempC = sql.NullFloat64{Float64: metrics.TempC.Value, Valid: true}
-		params.TempCKind = toNullString(metrics.TempC.Kind.String())
-	}
-	if metrics.FanRPM != nil {
-		params.FanRpm = sql.NullFloat64{Float64: metrics.FanRPM.Value, Valid: true}
-		params.FanRpmKind = toNullString(metrics.FanRPM.Kind.String())
-	}
-	if metrics.PowerW != nil {
-		params.PowerW = sql.NullFloat64{Float64: metrics.PowerW.Value, Valid: true}
-		params.PowerWKind = toNullString(metrics.PowerW.Kind.String())
-	}
-	if metrics.EfficiencyJH != nil {
-		params.EfficiencyJh = sql.NullFloat64{Float64: metrics.EfficiencyJH.Value, Valid: true}
-		params.EfficiencyJhKind = toNullString(metrics.EfficiencyJH.Kind.String())
-	}
-
-	if err := q.InsertDeviceMetrics(ctx, params); err != nil {
+	params := newDeviceMetricsBatchParams(1)
+	appendDeviceMetricsRow(&params, metrics)
+	if err := q.InsertDeviceMetricsBatch(ctx, params); err != nil {
 		return fmt.Errorf("failed to insert metrics for device %s: %w", metrics.DeviceIdentifier, err)
 	}
 	return q.StampContainerSample(ctx, sqlc.StampContainerSampleParams{DeviceIdentifier: metrics.DeviceIdentifier, Time: metrics.Timestamp})
@@ -2247,6 +2196,32 @@ func metricColumns(metric *modelsV2.MetricValue) (value float64, kind string) {
 	return metric.Value, metric.Kind.String()
 }
 
+func appendDeviceMetricsRow(params *sqlc.InsertDeviceMetricsBatchParams, metrics modelsV2.DeviceMetrics) {
+	params.Times = append(params.Times, metrics.Timestamp)
+	params.DeviceIdentifiers = append(params.DeviceIdentifiers, metrics.DeviceIdentifier)
+	params.Health = append(params.Health, metrics.Health.String())
+
+	value, kind := metricColumns(metrics.HashrateHS)
+	params.HashRateHs = append(params.HashRateHs, value)
+	params.HashRateHsKinds = append(params.HashRateHsKinds, kind)
+
+	value, kind = metricColumns(metrics.TempC)
+	params.TempC = append(params.TempC, value)
+	params.TempCKinds = append(params.TempCKinds, kind)
+
+	value, kind = metricColumns(metrics.FanRPM)
+	params.FanRpm = append(params.FanRpm, value)
+	params.FanRpmKinds = append(params.FanRpmKinds, kind)
+
+	value, kind = metricColumns(metrics.PowerW)
+	params.PowerW = append(params.PowerW, value)
+	params.PowerWKinds = append(params.PowerWKinds, kind)
+
+	value, kind = metricColumns(metrics.EfficiencyJH)
+	params.EfficiencyJh = append(params.EfficiencyJh, value)
+	params.EfficiencyJhKinds = append(params.EfficiencyJhKinds, kind)
+}
+
 func newDeviceMetricsBatchParams(capacity int) sqlc.InsertDeviceMetricsBatchParams {
 	return sqlc.InsertDeviceMetricsBatchParams{
 		Times:             make([]time.Time, 0, capacity),
@@ -2263,13 +2238,6 @@ func newDeviceMetricsBatchParams(capacity int) sqlc.InsertDeviceMetricsBatchPara
 		EfficiencyJhKinds: make([]string, 0, capacity),
 		Health:            make([]string, 0, capacity),
 	}
-}
-
-func toNullString(s string) sql.NullString {
-	if s == "" {
-		return sql.NullString{}
-	}
-	return sql.NullString{String: s, Valid: true}
 }
 
 func sqlcMetricsToDeviceMetrics(row sqlc.DeviceMetric) modelsV2.DeviceMetrics {

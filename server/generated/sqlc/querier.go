@@ -1204,17 +1204,16 @@ type Querier interface {
 	InsertDevice(ctx context.Context, arg InsertDeviceParams) (int64, error)
 	// Telemetry queries for device_metrics table and continuous aggregates
 	// Note: All device identification uses device_identifier (TEXT), not device_id (BIGINT)
+	// Inserts one row per element of the parallel arrays. An empty kind marks
+	// an absent measurement, so its value is stored as NULL rather than 0.
 	// site_id is row-stamped from device.site_id (looked up by
 	// device_identifier) so per-site telemetry filters use the row-stamped
-	// site even after the device is reassigned. Inline sub-select rather
-	// than a CTE+SELECT INSERT — ON CONFLICT on the device_metrics
-	// hypertable PK requires VALUES-shape INSERT. The sub-select does NOT
+	// site even after the device is reassigned. The sub-select does NOT
 	// filter by deleted_at: telemetry from a soft-deleted device is still
 	// legitimate per-site history, matching InsertError /
 	// InsertMinerStateSnapshot which also stamp from the device row
 	// regardless of soft-delete state. Duplicate historical identifiers are
 	// resolved deterministically, preferring the live device row.
-	InsertDeviceMetrics(ctx context.Context, arg InsertDeviceMetricsParams) error
 	InsertDeviceMetricsBatch(ctx context.Context, arg InsertDeviceMetricsBatchParams) error
 	// site_id is row-stamped from device.site_id at insert time so per-site
 	// error history doesn't shift when the device is later reassigned.
