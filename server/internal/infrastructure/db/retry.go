@@ -122,6 +122,12 @@ func NewRetryDB(db *sql.DB) *RetryDB {
 	return &RetryDB{DB: db, resetPool: poolResetFor(db)}
 }
 
+// RetryQuery applies the complete-operation retry policy, including errors
+// deferred until QueryRow.Scan.
+func (r *RetryDB) RetryQuery(ctx context.Context, opName string, fn func() error) error {
+	return (Retrier{resetPool: r.resetPool}).RetryQuery(ctx, opName, fn)
+}
+
 func newRetrier(conn *sql.DB) Retrier {
 	return Retrier{resetPool: poolResetFor(conn)}
 }

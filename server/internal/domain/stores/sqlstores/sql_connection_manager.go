@@ -34,3 +34,10 @@ func (b *SQLConnectionManager) GetQueries(ctx context.Context) sqlc.Querier {
 func (b *SQLConnectionManager) GetTxQueries(ctx context.Context) sqlc.Querier {
 	return db.GetTxQueries(ctx)
 }
+
+func (b *SQLConnectionManager) retryQuery(ctx context.Context, operationName string, fn func() error) error {
+	if b.GetTxQueries(ctx) != nil {
+		return fn()
+	}
+	return b.conn.RetryQuery(ctx, operationName, fn)
+}

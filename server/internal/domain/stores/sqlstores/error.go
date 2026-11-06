@@ -180,16 +180,22 @@ func (s *SQLErrorStore) UpsertErrors(
 		return fleeterror.NewInternalErrorf("failed to marshal error reports: %v", err)
 	}
 
-	deviceFound, err := s.getQueries(ctx).UpsertDeviceErrors(ctx, sqlc.UpsertDeviceErrorsParams{
+	params := sqlc.UpsertDeviceErrorsParams{
 		OrgID:            orgID,
 		DeviceIdentifier: deviceIdentifier,
 		ErrorReports:     reportsJSON,
 		ObservedAt:       observedAt,
 		HeartbeatCutoff:  observedAt.Add(-refreshHeartbeat),
 		RefreshAllOpen:   refreshAllOpen,
+	}
+	var deviceFound bool
+	err = s.retryQuery(ctx, "UpsertDeviceErrors", func() error {
+		var queryErr error
+		deviceFound, queryErr = s.getQueries(ctx).UpsertDeviceErrors(ctx, params)
+		return queryErr
 	})
 	if err != nil {
-		return fleeterror.NewInternalErrorf("failed to upsert device errors: %v", err)
+		return fleeterror.NewInternalErrorf("failed to upsert device errors: %w", err)
 	}
 	if !deviceFound {
 		return fleeterror.NewNotFoundErrorf("device not found: %s", deviceIdentifier)

@@ -462,27 +462,58 @@ func TestSQLErrorStore_UpsertErrors_ShouldKeepDifferentComponentTypesDistinct(t 
 		false,
 	))
 
-	rows, err := db.QueryContext(ctx, `
-		SELECT component_type
-		FROM errors
-		WHERE org_id = $1
-		  AND miner_error = $2
-		  AND component_id = $3
-		  AND closed_at IS NULL`, orgID, hashboard.MinerError, componentID)
-	require.NoError(t, err)
-	defer rows.Close()
-
-	var componentTypes []models.ComponentType
-	for rows.Next() {
-		var componentType models.ComponentType
-		require.NoError(t, rows.Scan(&componentType))
-		componentTypes = append(componentTypes, componentType)
+	type persistedError struct {
+		errorID string
+		summary string
 	}
-	require.NoError(t, rows.Err())
-	require.ElementsMatch(t,
-		[]models.ComponentType{models.ComponentTypeHashBoards, models.ComponentTypeControlBoard},
-		componentTypes,
-	)
+	loadErrors := func() map[models.ComponentType]persistedError {
+		rows, err := db.QueryContext(ctx, `
+			SELECT error_id, component_type, summary
+			FROM errors
+			WHERE org_id = $1
+			  AND miner_error = $2
+			  AND component_id = $3
+			  AND closed_at IS NULL`, orgID, hashboard.MinerError, componentID)
+		require.NoError(t, err)
+		defer rows.Close()
+
+		persisted := make(map[models.ComponentType]persistedError)
+		for rows.Next() {
+			var componentType models.ComponentType
+			var occurrence persistedError
+			require.NoError(t, rows.Scan(&occurrence.errorID, &componentType, &occurrence.summary))
+			persisted[componentType] = occurrence
+		}
+		require.NoError(t, rows.Err())
+		return persisted
+	}
+
+	original := loadErrors()
+	require.Len(t, original, 2)
+	require.Contains(t, original, models.ComponentTypeHashBoards)
+	require.Contains(t, original, models.ComponentTypeControlBoard)
+
+	updatedAt := observedAt.Add(30 * time.Second)
+	hashboard.LastSeenAt = updatedAt
+	hashboard.Summary = "Updated hashboard temperature"
+	controlBoard.LastSeenAt = updatedAt
+	controlBoard.Summary = "Updated control board temperature"
+	require.NoError(t, store.UpsertErrors(
+		ctx,
+		orgID,
+		deviceIdentifier,
+		[]models.ErrorMessage{controlBoard, *hashboard},
+		updatedAt,
+		time.Minute,
+		false,
+	))
+
+	updated := loadErrors()
+	require.Len(t, updated, 2)
+	require.Equal(t, original[models.ComponentTypeHashBoards].errorID, updated[models.ComponentTypeHashBoards].errorID)
+	require.Equal(t, hashboard.Summary, updated[models.ComponentTypeHashBoards].summary)
+	require.Equal(t, original[models.ComponentTypeControlBoard].errorID, updated[models.ComponentTypeControlBoard].errorID)
+	require.Equal(t, controlBoard.Summary, updated[models.ComponentTypeControlBoard].summary)
 }
 
 func TestSQLErrorStore_UpsertErrors_ShouldPreserveCloseAndReopenLifecycle(t *testing.T) {
@@ -710,6 +741,82 @@ func TestSQLErrorStore_UpsertErrors_ShouldPreventConcurrentCloserAfterRefresh(t 
 		Scan(&openCount, &lastSeenAt))
 	require.Equal(t, 1, openCount)
 	require.True(t, lastSeenAt.Equal(refreshedAt))
+}
+
+func TestSQLErrorStore_UpsertErrors_ShouldRetryCompleteBatchAfterDeadlock(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+
+	db, orgID, deviceIdentifier := setupErrorTestData(t)
+	store := newErrorStore(db)
+	ctx := t.Context()
+	observedAt := time.Now().UTC().Truncate(time.Microsecond)
+	first := createTestErrorMessage(deviceIdentifier)
+	first.FirstSeenAt = observedAt.Add(-time.Hour)
+	first.LastSeenAt = observedAt
+	second := *first
+	second.MinerError = models.FanFailed
+	second.Summary = "Fan failed"
+	require.NoError(t, store.UpsertErrors(
+		ctx,
+		orgID,
+		deviceIdentifier,
+		[]models.ErrorMessage{*first, second},
+		observedAt,
+		time.Minute,
+		false,
+	))
+
+	_, err := db.ExecContext(ctx, `
+		CREATE SEQUENCE error_batch_retry_attempt;
+		CREATE FUNCTION fail_first_error_batch_update() RETURNS trigger AS $$
+		BEGIN
+			IF nextval('error_batch_retry_attempt') = 1 THEN
+				RAISE EXCEPTION 'injected deadlock victim' USING ERRCODE = '40P01';
+			END IF;
+			RETURN NEW;
+		END;
+		$$ LANGUAGE plpgsql;
+		CREATE TRIGGER error_batch_retry
+		BEFORE UPDATE ON errors
+		FOR EACH ROW EXECUTE FUNCTION fail_first_error_batch_update();`)
+	require.NoError(t, err)
+
+	retriedAt := observedAt.Add(30 * time.Second)
+	first.LastSeenAt = retriedAt
+	first.Summary = "Hashboard recovered after retry"
+	second.LastSeenAt = retriedAt
+	second.Summary = "Fan recovered after retry"
+	require.NoError(t, store.UpsertErrors(
+		ctx,
+		orgID,
+		deviceIdentifier,
+		[]models.ErrorMessage{second, *first},
+		retriedAt,
+		time.Minute,
+		false,
+	))
+
+	rows, err := db.QueryContext(ctx, `
+		SELECT miner_error, summary
+		FROM errors
+		WHERE org_id = $1 AND closed_at IS NULL`, orgID)
+	require.NoError(t, err)
+	defer rows.Close()
+
+	summaries := make(map[models.MinerError]string)
+	for rows.Next() {
+		var minerError models.MinerError
+		var summary string
+		require.NoError(t, rows.Scan(&minerError, &summary))
+		summaries[minerError] = summary
+	}
+	require.NoError(t, rows.Err())
+	require.Equal(t, map[models.MinerError]string{
+		first.MinerError:  first.Summary,
+		second.MinerError: second.Summary,
+	}, summaries)
 }
 
 func TestSQLErrorStore_UpsertError_ShouldCloseErrorWhenClosedAtSet(t *testing.T) {
