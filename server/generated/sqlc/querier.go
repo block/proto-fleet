@@ -764,6 +764,7 @@ type Querier interface {
 	GetContainerTankHistory(ctx context.Context, arg GetContainerTankHistoryParams) ([]GetContainerTankHistoryRow, error)
 	GetContainerTankScope(ctx context.Context, arg GetContainerTankScopeParams) (sql.NullInt64, error)
 	GetContainerTopologyIdentities(ctx context.Context, deviceID int64) ([]GetContainerTopologyIdentitiesRow, error)
+	GetContainerTopologyVersionID(ctx context.Context, arg GetContainerTopologyVersionIDParams) (int64, error)
 	GetCurtailmentAutomationExecutionGrant(ctx context.Context, arg GetCurtailmentAutomationExecutionGrantParams) (CurtailmentAutomationExecutionGrant, error)
 	GetCurtailmentAutomationRuleByOrg(ctx context.Context, arg GetCurtailmentAutomationRuleByOrgParams) (GetCurtailmentAutomationRuleByOrgRow, error)
 	GetCurtailmentDispatchRejection(ctx context.Context, arg GetCurtailmentDispatchRejectionParams) (sql.NullString, error)
@@ -1197,6 +1198,7 @@ type Querier interface {
 	InsertContainerSetpoints(ctx context.Context, arg InsertContainerSetpointsParams) error
 	InsertContainerTankRollups(ctx context.Context, arg InsertContainerTankRollupsParams) error
 	InsertContainerTopologyObservation(ctx context.Context, arg InsertContainerTopologyObservationParams) (int64, error)
+	InsertContainerTopologyVersion(ctx context.Context, arg InsertContainerTopologyVersionParams) error
 	InsertCurtailmentAutomationRule(ctx context.Context, arg InsertCurtailmentAutomationRuleParams) (CurtailmentAutomationRule, error)
 	// Full column list mirrors the migration so callers can't rely on DEFAULTs
 	// for values the API layer should be normalizing.
@@ -2827,7 +2829,6 @@ type Querier interface {
 	UpsertContainerFans(ctx context.Context, arg UpsertContainerFansParams) error
 	UpsertContainerHA(ctx context.Context, arg UpsertContainerHAParams) error
 	UpsertContainerRollup(ctx context.Context, arg UpsertContainerRollupParams) error
-	UpsertContainerTopologyVersion(ctx context.Context, arg UpsertContainerTopologyVersionParams) (int64, error)
 	UpsertCurtailmentAutomationExecutionGrant(ctx context.Context, arg UpsertCurtailmentAutomationExecutionGrantParams) error
 	// A save that changes the schedule's timing starts a new revision, so the
 	// current window runs again under the new timing. Any other save, such as a

@@ -111,6 +111,20 @@ func rejectRegressedRollup(r *sdk.ContainerRollup, previous []byte) error {
 	return nil
 }
 
+func getOrInsertContainerTopologyVersion(ctx context.Context, q *sqlc.Queries, deviceID int64, fingerprint string, topology json.RawMessage) (int64, error) {
+	if err := q.InsertContainerTopologyVersion(ctx, sqlc.InsertContainerTopologyVersionParams{
+		DeviceID:    deviceID,
+		Fingerprint: fingerprint,
+		Topology:    topology,
+	}); err != nil {
+		return 0, err
+	}
+	return q.GetContainerTopologyVersionID(ctx, sqlc.GetContainerTopologyVersionIDParams{
+		DeviceID:    deviceID,
+		Fingerprint: fingerprint,
+	})
+}
+
 func storeContainerRollups(ctx context.Context, q *sqlc.Queries, id int64, s *sdk.ContainerSnapshot) error {
 	parent, err := q.GetContainerRollupContext(ctx, id)
 	if err != nil {
@@ -166,7 +180,7 @@ func storeContainerRollups(ctx context.Context, q *sqlc.Queries, id int64, s *sd
 		return fmt.Errorf("encode topology: %w", err)
 	}
 	digest := sha256.Sum256(topology)
-	version, err := q.UpsertContainerTopologyVersion(ctx, sqlc.UpsertContainerTopologyVersionParams{DeviceID: id, Fingerprint: hex.EncodeToString(digest[:]), Topology: topology})
+	version, err := getOrInsertContainerTopologyVersion(ctx, q, id, hex.EncodeToString(digest[:]), topology)
 	if err != nil {
 		return err
 	}
