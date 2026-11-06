@@ -22,7 +22,7 @@ func generatedCurtailmentCommand() *cli.Command {
 				Commands: []*cli.Command{
 					generatedRequestCommand(
 						"create",
-						"Create curtailment automation rule",
+						"Create curtailment automation rule; an MQTT rule sets --mqtt-source-id, a SCHEDULE rule passes trigger_type and schedule through --json",
 						"/curtailment.v1.CurtailmentService/CreateCurtailmentAutomationRule",
 						generatedAuthAuthenticated,
 						[]cli.Flag{
@@ -162,7 +162,7 @@ func generatedCurtailmentCommand() *cli.Command {
 					),
 					generatedRequestCommand(
 						"update",
-						"Update curtailment automation rule",
+						"Update curtailment automation rule; an MQTT rule sets --mqtt-source-id, a SCHEDULE rule passes trigger_type and schedule through --json",
 						"/curtailment.v1.CurtailmentService/UpdateCurtailmentAutomationRule",
 						generatedAuthAuthenticated,
 						[]cli.Flag{

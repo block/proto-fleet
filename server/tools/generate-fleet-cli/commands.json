@@ -827,6 +827,7 @@
       "group": "curtailment",
       "subgroup": "automation-rules",
       "command": "create",
+      "usage": "Create curtailment automation rule; an MQTT rule sets --mqtt-source-id, a SCHEDULE rule passes trigger_type and schedule through --json",
       "required_fields": [
         "rule_name",
         "response_profile_id",
@@ -841,6 +842,7 @@
       "group": "curtailment",
       "subgroup": "automation-rules",
       "command": "update",
+      "usage": "Update curtailment automation rule; an MQTT rule sets --mqtt-source-id, a SCHEDULE rule passes trigger_type and schedule through --json",
       "required_fields": [
         "rule_id",
         "rule_name",

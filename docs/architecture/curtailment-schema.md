@@ -254,6 +254,33 @@ Changing its timing does. An admin
 force release disables the schedule, as it does an MQTT rule; enabling it again runs its
 current window. Rig fallback configuration includes only MQTT rules.
 
+The Fleet CLI takes a schedule rule's trigger and schedule through `--json`, for example
+`fleetcli curtailment automation-rules create --json weeknight.json` with:
+
+```json
+{
+  "rule_name": "Weeknight peak",
+  "trigger_type": "CURTAILMENT_AUTOMATION_TRIGGER_TYPE_SCHEDULE",
+  "response_profile_id": 3001,
+  "expected_response_profile_revision": "<the response profile's revision>",
+  "schedule": {
+    "schedule_type": "CURTAILMENT_SCHEDULE_TYPE_RECURRING",
+    "timezone": "America/Chicago",
+    "start_date": "2026-06-01",
+    "start_time": "22:00",
+    "end_time": "06:00",
+    "frequency": "CURTAILMENT_SCHEDULE_FREQUENCY_WEEKLY",
+    "days_of_week": ["CURTAILMENT_SCHEDULE_DAY_OF_WEEK_MONDAY", "CURTAILMENT_SCHEDULE_DAY_OF_WEEK_FRIDAY"]
+  }
+}
+```
+
+A one-time window sets an end date instead of a frequency:
+`"schedule": {"schedule_type": "CURTAILMENT_SCHEDULE_TYPE_ONE_TIME", "timezone": "UTC",
+"start_date": "2026-06-11", "start_time": "20:00", "end_date": "2026-06-12", "end_time": "02:00"}`.
+`update` takes the same body plus `rule_id`. Miner schedules (`fleetcli schedules`) are a
+separate feature and cannot curtail.
+
 Rig fallback configuration is built per device from enabled, granted rules whose profile
 scopes select that device. A device outside all current scopes receives a disabled
 config to clear previous providers. Full source/rule configuration changes rebuild these

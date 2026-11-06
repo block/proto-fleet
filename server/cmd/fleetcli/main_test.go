@@ -151,6 +151,53 @@ func TestGeneratedRequiredFieldsAcceptJSONOrFlags(t *testing.T) {
 	}
 }
 
+func TestCurtailmentScheduleRuleCreateFromJSON(t *testing.T) {
+	pinFleetAuthEnv(t, nil)
+
+	var request map[string]any
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /curtailment.v1.CurtailmentService/CreateCurtailmentAutomationRule", func(w http.ResponseWriter, r *http.Request) {
+		request = requestBodyMap(t, r)
+		w.Header().Set("Content-Type", contentTypeJSON)
+		_, _ = w.Write([]byte(`{}`))
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	// The example in docs/architecture/curtailment-schema.md.
+	requestPath := filepath.Join(t.TempDir(), "weeknight.json")
+	requestJSON := []byte(`{
+		"rule_name": "Weeknight peak",
+		"trigger_type": "CURTAILMENT_AUTOMATION_TRIGGER_TYPE_SCHEDULE",
+		"response_profile_id": 3001,
+		"expected_response_profile_revision": "11111111-1111-4111-8111-111111111111",
+		"schedule": {
+			"schedule_type": "CURTAILMENT_SCHEDULE_TYPE_RECURRING",
+			"timezone": "America/Chicago",
+			"start_date": "2026-06-01",
+			"start_time": "22:00",
+			"end_time": "06:00",
+			"frequency": "CURTAILMENT_SCHEDULE_FREQUENCY_WEEKLY",
+			"days_of_week": ["CURTAILMENT_SCHEDULE_DAY_OF_WEEK_MONDAY", "CURTAILMENT_SCHEDULE_DAY_OF_WEEK_FRIDAY"]
+		}
+	}`)
+	if err := os.WriteFile(requestPath, requestJSON, 0o600); err != nil {
+		t.Fatalf("write schedule rule request: %v", err)
+	}
+
+	err := newRootCommand().Run(context.Background(), []string{
+		"fleetcli", "--server", srv.URL + "/", "--api-key", "test-key",
+		"curtailment", "automation-rules", "create", "--json", requestPath,
+	})
+	if err != nil {
+		t.Fatalf("schedule rule create from JSON: %v", err)
+	}
+	schedule, ok := request["schedule"].(map[string]any)
+	if request["trigger_type"] != "CURTAILMENT_AUTOMATION_TRIGGER_TYPE_SCHEDULE" || !ok || schedule["timezone"] != "America/Chicago" {
+		t.Fatalf("schedule rule request = %#v, want the JSON trigger and schedule", request)
+	}
+}
+
 func TestGeneratedJSONOnlyCommandCanMakeJSONOptional(t *testing.T) {
 	pinFleetAuthEnv(t, nil)
 
