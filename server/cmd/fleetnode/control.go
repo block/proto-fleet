@@ -72,6 +72,12 @@ var commandTimeout = 10 * time.Minute
 // supervisor test can shrink it.
 var perProbeTimeout = 10 * time.Second
 
+// Bound the initial Hello/Accepted exchange; accepted streams are long-lived.
+// Keep it at or above stableSessionThreshold so a timed-out handshake resets
+// reconnect backoff instead of doubling it. var so transport tests can exercise
+// expiry without waiting 30 seconds.
+var controlHandshakeTimeout = 30 * time.Second
+
 type discoverer interface {
 	Probe(ctx context.Context, ipAddress, port string) (*pb.DiscoveredDeviceReport, error)
 	DefaultDiscoveryPorts(ctx context.Context) []string
@@ -108,9 +114,10 @@ const (
 var errControlSenderClosed = errors.New("control session sender closed")
 
 var (
-	errControlSessionRotated = errors.New("control session credentials rotated")
-	errControlSessionExpired = errors.New("control session credentials expired")
-	errControlStreamSilent   = errors.New("control stream silent past keepalive deadline")
+	errControlSessionRotated   = errors.New("control session credentials rotated")
+	errControlSessionExpired   = errors.New("control session credentials expired")
+	errControlStreamSilent     = errors.New("control stream silent past keepalive deadline")
+	errControlHandshakeTimeout = errors.New("control stream handshake timed out")
 )
 
 const minControlKeepaliveInterval = time.Second
@@ -232,6 +239,10 @@ func (r *RunCmd) runControlSession(ctx context.Context, logger *slog.Logger, cli
 	defer endSession()
 	streamCtx, cancelStream := context.WithCancelCause(credentialCtx)
 	defer cancelStream(context.Canceled)
+	handshakeTimer := time.AfterFunc(controlHandshakeTimeout, func() {
+		cancelStream(errControlHandshakeTimeout)
+	})
+	defer handshakeTimer.Stop()
 	stream := client.ControlStream(streamCtx)
 	// stream.Receive parks in http2.pipe on a sync.Cond ctx can't unblock;
 	// the watcher below closes the stream so Ctrl+C returns. Defers run
@@ -278,6 +289,7 @@ func (r *RunCmd) runControlSession(ctx context.Context, logger *slog.Logger, cli
 	if first.GetAccepted() == nil {
 		return fmt.Errorf("first server message was not Accepted")
 	}
+	handshakeTimer.Stop()
 	logger.Info("control stream opened",
 		"shared_command_limit", commandPoolSize,
 		"deferrable_read_limit", deferrableReadCommandPoolSize,
