@@ -383,42 +383,6 @@ func (q *Queries) GetCurtailmentAutomationRuleByOrg(ctx context.Context, arg Get
 	return i, err
 }
 
-const getCurtailmentAutomationScheduleByRule = `-- name: GetCurtailmentAutomationScheduleByRule :one
-SELECT schedule.rule_id, schedule.schedule_type, schedule.timezone, schedule.start_date, schedule.start_time, schedule.end_time, schedule.end_date, schedule.frequency, schedule.days_of_week, schedule.day_of_month, schedule.until_date, schedule.service_user_id, schedule.revision, schedule.created_at, schedule.updated_at
-FROM curtailment_automation_schedule schedule
-JOIN curtailment_automation_rule r ON r.id = schedule.rule_id
-WHERE schedule.rule_id = $1
-  AND r.org_id = $2
-`
-
-type GetCurtailmentAutomationScheduleByRuleParams struct {
-	RuleID int64
-	OrgID  int64
-}
-
-func (q *Queries) GetCurtailmentAutomationScheduleByRule(ctx context.Context, arg GetCurtailmentAutomationScheduleByRuleParams) (CurtailmentAutomationSchedule, error) {
-	row := q.queryRow(ctx, q.getCurtailmentAutomationScheduleByRuleStmt, getCurtailmentAutomationScheduleByRule, arg.RuleID, arg.OrgID)
-	var i CurtailmentAutomationSchedule
-	err := row.Scan(
-		&i.RuleID,
-		&i.ScheduleType,
-		&i.Timezone,
-		&i.StartDate,
-		&i.StartTime,
-		&i.EndTime,
-		&i.EndDate,
-		&i.Frequency,
-		pq.Array(&i.DaysOfWeek),
-		&i.DayOfMonth,
-		&i.UntilDate,
-		&i.ServiceUserID,
-		&i.Revision,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-	)
-	return i, err
-}
-
 const getCurtailmentScheduleExecutionGrant = `-- name: GetCurtailmentScheduleExecutionGrant :one
 SELECT grant_row.rule_id, grant_row.org_id, grant_row.response_profile_id, grant_row.response_profile_revision, grant_row.authorization_envelope_json, grant_row.admin_controls_granted, grant_row.created_at
 FROM curtailment_automation_execution_grant grant_row

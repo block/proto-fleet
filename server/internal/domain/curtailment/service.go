@@ -1959,16 +1959,7 @@ func buildInsertParams(
 			)
 		}
 	}
-	decisionJSON, err := marshalDecisionSnapshot(
-		plan,
-		minPowerW,
-		req.PostEventCooldownSec,
-		req.ForceIncludeAllPairedMiners,
-		requiresAdminControls,
-		req.ResponseProfileID,
-		req.ResponseProfileRevision,
-		req.AutomationScheduleRevision,
-	)
+	decisionJSON, err := marshalDecisionSnapshot(req, plan, minPowerW, requiresAdminControls)
 	if err != nil {
 		return models.InsertEventParams{}, nil, err
 	}
@@ -2344,7 +2335,7 @@ func validateStopRequest(req StopRequest) error {
 }
 
 func automationDemandGuardForStop(event *models.Event, req StopRequest) *interfaces.AutomationDemandGuard {
-	if event == nil || req.Force || req.AutomationRestore || !isAutomationOwnedEvent(event) {
+	if event == nil || req.Force || req.AutomationRestore || !isMQTTAutomationEvent(event) {
 		return nil
 	}
 	return &interfaces.AutomationDemandGuard{
@@ -2352,7 +2343,9 @@ func automationDemandGuardForStop(event *models.Event, req StopRequest) *interfa
 	}
 }
 
-func isAutomationOwnedEvent(event *models.Event) bool {
+// isMQTTAutomationEvent reports whether an MQTT automation rule owns the event.
+// Scheduled events are left out: an operator may stop a window early.
+func isMQTTAutomationEvent(event *models.Event) bool {
 	return event != nil &&
 		event.SourceActorType == models.SourceActorAutomation &&
 		event.ExternalSource != nil &&
@@ -2452,14 +2445,10 @@ func cloneInt32Ptr(v *int32) *int32 {
 // decision_snapshot column (rejection counters, realized vs. requested
 // kW, resolved candidate floor).
 func marshalDecisionSnapshot(
+	req StartRequest,
 	plan *Plan,
 	minPowerW int32,
-	postEventCooldownSec int32,
-	forceIncludeAllPairedMiners bool,
 	requiresAdminControls bool,
-	responseProfileID int64,
-	responseProfileRevision uuid.UUID,
-	scheduleRevision uuid.UUID,
 ) ([]byte, error) {
 	skipped := make([]map[string]string, len(plan.Skipped))
 	for i, s := range plan.Skipped {
@@ -2470,22 +2459,22 @@ func marshalDecisionSnapshot(
 	}
 	snapshot := map[string]any{
 		"candidate_min_power_w":           minPowerW,
-		"post_event_cooldown_sec":         postEventCooldownSec,
+		"post_event_cooldown_sec":         req.PostEventCooldownSec,
 		"estimated_reduction_kw":          plan.EstimatedReductionKW,
 		"estimated_remaining_power_kw":    plan.EstimatedRemainingPowerKW,
 		"selected_count":                  len(plan.Selected),
 		"policy_target_count":             plan.PolicyTargetCount,
 		"unavailable_target_count":        plan.UnavailableTargetCount,
-		"force_include_all_paired_miners": forceIncludeAllPairedMiners,
+		"force_include_all_paired_miners": req.ForceIncludeAllPairedMiners,
 		"requires_admin_controls":         requiresAdminControls,
 		"skipped":                         skipped,
 	}
-	if scheduleRevision != uuid.Nil {
-		snapshot["schedule_revision"] = scheduleRevision.String()
+	if req.AutomationScheduleRevision != uuid.Nil {
+		snapshot["schedule_revision"] = req.AutomationScheduleRevision.String()
 	}
-	if responseProfileID > 0 {
-		snapshot["response_profile_id"] = responseProfileID
-		snapshot["response_profile_revision"] = responseProfileRevision.String()
+	if req.ResponseProfileID > 0 {
+		snapshot["response_profile_id"] = req.ResponseProfileID
+		snapshot["response_profile_revision"] = req.ResponseProfileRevision.String()
 	}
 	b, err := json.Marshal(snapshot)
 	if err != nil {

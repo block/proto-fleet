@@ -125,7 +125,7 @@ func (s *AutomationService) handleScheduleExecution(ctx context.Context, rule *m
 		// Only the event this window started under this schedule revision is
 		// restored; an edited schedule's event can share the window's start.
 		return s.restoreRuleEvent(ctx, rule, at, func(event *models.Event) bool {
-			return !eventStartedForWindow(event, *window) || eventScheduleRevision(event) != work.ScheduleRevision
+			return !eventStartedForWindow(event, window.Start) || eventScheduleRevision(event) != work.ScheduleRevision
 		})
 	default:
 		return fleeterror.NewInvalidArgumentErrorf("unsupported automation signal %q", work.Target)
@@ -141,7 +141,7 @@ func (s *AutomationService) startScheduleWindow(ctx context.Context, rule *model
 			return err
 		}
 		if event != nil && !event.State.IsTerminal() {
-			if eventStartedForWindow(event, window) {
+			if eventStartedForWindow(event, window.Start) {
 				return nil
 			}
 			return errWaitingForPreviousScheduleWindow()
@@ -183,7 +183,7 @@ func (s *AutomationService) startScheduleWindow(ctx context.Context, rule *model
 		if err := validateAutomationReplayEvent(replayEvent, rule); err != nil {
 			return err
 		}
-		if !eventStartedForWindow(replayEvent, window) {
+		if !eventStartedForWindow(replayEvent, window.Start) {
 			return errWaitingForPreviousScheduleWindow()
 		}
 		return s.store.SetAutomationActiveEvent(ctx, rule.ID, 0, replayEvent.EventUUID, at)
@@ -207,18 +207,19 @@ func scheduleStartRequest(rule *models.AutomationRule, profile *models.ResponseP
 	if err != nil {
 		return StartRequest{}, false, err
 	}
-	capSeconds := int32(min(math.Ceil(remaining.Seconds()), float64(maxFiniteDurationSeconds)))
+	// One-time windows last at most the duration cap and recurring windows
+	// under a day, so the time left always fits it.
+	capSeconds := int32(math.Ceil(remaining.Seconds()))
 	startReq.MaxDurationSeconds = &capSeconds
 	startReq.AllowUnbounded = false
-	windowStart := window.Start
-	startReq.ScheduledStartAt = &windowStart
+	startReq.ScheduledStartAt = &window.Start
 	startReq.AutomationScheduleRevision = rule.Schedule.Revision
 	startReq.AutomationWindowEndAt = window.End
 	return startReq, true, nil
 }
 
-func eventStartedForWindow(event *models.Event, window schedulewindow.Window) bool {
-	return event != nil && event.ScheduledStartAt != nil && event.ScheduledStartAt.Equal(window.Start)
+func eventStartedForWindow(event *models.Event, windowStart time.Time) bool {
+	return event != nil && event.ScheduledStartAt != nil && event.ScheduledStartAt.Equal(windowStart)
 }
 
 // eventScheduleRevision is the schedule revision a scheduled event recorded in

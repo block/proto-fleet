@@ -3,7 +3,6 @@ package sqlstores
 import (
 	"context"
 	"database/sql"
-	"errors"
 	"math"
 	"time"
 
@@ -59,24 +58,6 @@ func (s *SQLCurtailmentStore) attachAutomationSchedules(ctx context.Context, org
 			rule.Schedule = byRule[rule.ID]
 		}
 	}
-	return nil
-}
-
-func (s *SQLCurtailmentStore) attachAutomationSchedule(ctx context.Context, rule *models.AutomationRule) error {
-	if rule == nil || rule.TriggerType != models.AutomationTriggerTypeSchedule {
-		return nil
-	}
-	row, err := s.GetQueries(ctx).GetCurtailmentAutomationScheduleByRule(ctx, sqlc.GetCurtailmentAutomationScheduleByRuleParams{
-		RuleID: rule.ID,
-		OrgID:  rule.OrgID,
-	})
-	if errors.Is(err, sql.ErrNoRows) {
-		return nil
-	}
-	if err != nil {
-		return fleeterror.NewInternalErrorf("failed to get curtailment automation schedule: %v", err)
-	}
-	rule.Schedule = automationScheduleFromRow(row)
 	return nil
 }
 

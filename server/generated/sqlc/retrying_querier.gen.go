@@ -3176,18 +3176,6 @@ func (q *retryingQuerier) GetCurtailmentAutomationRuleByOrg(ctx context.Context,
 	return result, err
 }
 
-func (q *retryingQuerier) GetCurtailmentAutomationScheduleByRule(ctx context.Context, arg GetCurtailmentAutomationScheduleByRuleParams) (CurtailmentAutomationSchedule, error) {
-	var result CurtailmentAutomationSchedule
-	err := q.retrier.RetryQuery(ctx, "GetCurtailmentAutomationScheduleByRule", func() error {
-		callResult, callErr := q.next.GetCurtailmentAutomationScheduleByRule(ctx, arg)
-		if callErr == nil {
-			result = callResult
-		}
-		return callErr
-	})
-	return result, err
-}
-
 func (q *retryingQuerier) GetCurtailmentDispatchRejection(ctx context.Context, arg GetCurtailmentDispatchRejectionParams) (sql.NullString, error) {
 	var result sql.NullString
 	err := q.retrier.RetryQuery(ctx, "GetCurtailmentDispatchRejection", func() error {

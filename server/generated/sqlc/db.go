@@ -900,9 +900,6 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.getCurtailmentAutomationRuleByOrgStmt, err = db.PrepareContext(ctx, getCurtailmentAutomationRuleByOrg); err != nil {
 		return nil, fmt.Errorf("error preparing query GetCurtailmentAutomationRuleByOrg: %w", err)
 	}
-	if q.getCurtailmentAutomationScheduleByRuleStmt, err = db.PrepareContext(ctx, getCurtailmentAutomationScheduleByRule); err != nil {
-		return nil, fmt.Errorf("error preparing query GetCurtailmentAutomationScheduleByRule: %w", err)
-	}
 	if q.getCurtailmentDispatchRejectionStmt, err = db.PrepareContext(ctx, getCurtailmentDispatchRejection); err != nil {
 		return nil, fmt.Errorf("error preparing query GetCurtailmentDispatchRejection: %w", err)
 	}
@@ -4826,11 +4823,6 @@ func (q *Queries) Close() error {
 	if q.getCurtailmentAutomationRuleByOrgStmt != nil {
 		if cerr := q.getCurtailmentAutomationRuleByOrgStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getCurtailmentAutomationRuleByOrgStmt: %w", cerr)
-		}
-	}
-	if q.getCurtailmentAutomationScheduleByRuleStmt != nil {
-		if cerr := q.getCurtailmentAutomationScheduleByRuleStmt.Close(); cerr != nil {
-			err = fmt.Errorf("error closing getCurtailmentAutomationScheduleByRuleStmt: %w", cerr)
 		}
 	}
 	if q.getCurtailmentDispatchRejectionStmt != nil {
@@ -9264,7 +9256,6 @@ type Queries struct {
 	getContainerTopologyIdentitiesStmt                          *sql.Stmt
 	getCurtailmentAutomationExecutionGrantStmt                  *sql.Stmt
 	getCurtailmentAutomationRuleByOrgStmt                       *sql.Stmt
-	getCurtailmentAutomationScheduleByRuleStmt                  *sql.Stmt
 	getCurtailmentDispatchRejectionStmt                         *sql.Stmt
 	getCurtailmentEventByExternalReferenceStmt                  *sql.Stmt
 	getCurtailmentEventByIdempotencyKeyStmt                     *sql.Stmt
@@ -10383,7 +10374,6 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getContainerTopologyIdentitiesStmt:                          q.getContainerTopologyIdentitiesStmt,
 		getCurtailmentAutomationExecutionGrantStmt:                  q.getCurtailmentAutomationExecutionGrantStmt,
 		getCurtailmentAutomationRuleByOrgStmt:                       q.getCurtailmentAutomationRuleByOrgStmt,
-		getCurtailmentAutomationScheduleByRuleStmt:                  q.getCurtailmentAutomationScheduleByRuleStmt,
 		getCurtailmentDispatchRejectionStmt:                         q.getCurtailmentDispatchRejectionStmt,
 		getCurtailmentEventByExternalReferenceStmt:                  q.getCurtailmentEventByExternalReferenceStmt,
 		getCurtailmentEventByIdempotencyKeyStmt:                     q.getCurtailmentEventByIdempotencyKeyStmt,

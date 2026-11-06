@@ -437,7 +437,7 @@ func (s *SQLCurtailmentStore) GetAutomationRule(ctx context.Context, orgID, rule
 		return nil, fleeterror.NewInternalErrorf("failed to get curtailment automation rule: %v", err)
 	}
 	rule := automationRuleFromGetRow(row)
-	if err := s.attachAutomationSchedule(ctx, rule); err != nil {
+	if err := s.attachAutomationSchedules(ctx, orgID, []*models.AutomationRule{rule}); err != nil {
 		return nil, err
 	}
 	return rule, nil
@@ -1362,10 +1362,11 @@ func (s *SQLCurtailmentStore) InsertEventWithTargets(
 		)
 	}
 	replayRace := false
-	requestedMaxDurationSeconds := event.MaxDurationSeconds
 	result, err := db.WithTransaction(ctx, s.conn.DB, func(q sqlc.Querier) (*models.InsertEventResult, error) {
+		// A retried transaction starts from the caller's event, not an earlier
+		// attempt's window-end cap or authorization envelope.
+		event := event
 		txStart := time.Now()
-		event.MaxDurationSeconds = requestedMaxDurationSeconds
 		if replay, err := lookupReplayEventInTx(ctx, q, event); err != nil {
 			return nil, err
 		} else if replay != nil {

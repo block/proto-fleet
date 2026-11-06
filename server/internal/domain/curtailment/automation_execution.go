@@ -29,17 +29,9 @@ const automationExecutionWorkers = 4
 // own ticker, so a slow execution cannot delay a window's assertion.
 func (s *AutomationService) Run(ctx context.Context) {
 	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		s.runScheduleProducer(ctx)
-	}()
+	wg.Go(func() { s.runScheduleProducer(ctx) })
 	for range automationExecutionWorkers {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			s.runExecutionWorker(ctx)
-		}()
+		wg.Go(func() { s.runExecutionWorker(ctx) })
 	}
 	wg.Wait()
 }

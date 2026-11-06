@@ -533,13 +533,6 @@ JOIN curtailment_automation_rule r ON r.id = schedule.rule_id
 WHERE r.org_id = sqlc.arg('org_id')
 ORDER BY schedule.rule_id;
 
--- name: GetCurtailmentAutomationScheduleByRule :one
-SELECT schedule.*
-FROM curtailment_automation_schedule schedule
-JOIN curtailment_automation_rule r ON r.id = schedule.rule_id
-WHERE schedule.rule_id = sqlc.arg('rule_id')
-  AND r.org_id = sqlc.arg('org_id');
-
 -- name: ListEnabledCurtailmentScheduleRules :many
 -- Every organization's enabled schedule rules, for the window producer.
 SELECT schedule.*

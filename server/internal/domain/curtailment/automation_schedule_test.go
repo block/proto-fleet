@@ -58,7 +58,7 @@ func (f *scheduleDurableFake) ListEnabledScheduleAutomationRules(context.Context
 
 func (f *scheduleDurableFake) ScheduleWindowEventState(_ context.Context, _, _ int64, windowStart time.Time, scheduleRevision uuid.UUID) (models.EventState, bool, error) {
 	for _, event := range f.events {
-		if eventStartedForWindow(event, schedulewindow.Window{Start: windowStart}) && eventScheduleRevision(event) == scheduleRevision {
+		if eventStartedForWindow(event, windowStart) && eventScheduleRevision(event) == scheduleRevision {
 			return event.State, true, nil
 		}
 	}
@@ -232,6 +232,11 @@ func TestAutomationService_RunIsolatesSlowExecutions(t *testing.T) {
 	}
 	cancel()
 	<-done
+}
+
+func TestScheduleOneTimeWindowFitsDurationCap(t *testing.T) {
+	assert.Equal(t, schedulewindow.MaxOneTimeDuration, time.Duration(maxFiniteDurationSeconds)*time.Second,
+		"scheduleStartRequest caps a window's event at its time left without clamping it to the duration cap")
 }
 
 func TestScheduleBoundaryAt(t *testing.T) {
