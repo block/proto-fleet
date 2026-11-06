@@ -1647,9 +1647,6 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.recordFirmwareRolloutActionStmt, err = db.PrepareContext(ctx, recordFirmwareRolloutAction); err != nil {
 		return nil, fmt.Errorf("error preparing query RecordFirmwareRolloutAction: %w", err)
 	}
-	if q.refreshOpenErrorsLastSeenByDeviceStmt, err = db.PrepareContext(ctx, refreshOpenErrorsLastSeenByDevice); err != nil {
-		return nil, fmt.Errorf("error preparing query RefreshOpenErrorsLastSeenByDevice: %w", err)
-	}
 	if q.reincludeFirmwareRolloutDevicesStmt, err = db.PrepareContext(ctx, reincludeFirmwareRolloutDevices); err != nil {
 		return nil, fmt.Errorf("error preparing query ReincludeFirmwareRolloutDevices: %w", err)
 	}
@@ -2084,6 +2081,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.upsertCustomRoleForOrgStmt, err = db.PrepareContext(ctx, upsertCustomRoleForOrg); err != nil {
 		return nil, fmt.Errorf("error preparing query UpsertCustomRoleForOrg: %w", err)
+	}
+	if q.upsertDeviceErrorsStmt, err = db.PrepareContext(ctx, upsertDeviceErrors); err != nil {
+		return nil, fmt.Errorf("error preparing query UpsertDeviceErrors: %w", err)
 	}
 	if q.upsertDevicePairingStmt, err = db.PrepareContext(ctx, upsertDevicePairing); err != nil {
 		return nil, fmt.Errorf("error preparing query UpsertDevicePairing: %w", err)
@@ -4831,11 +4831,6 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing recordFirmwareRolloutActionStmt: %w", cerr)
 		}
 	}
-	if q.refreshOpenErrorsLastSeenByDeviceStmt != nil {
-		if cerr := q.refreshOpenErrorsLastSeenByDeviceStmt.Close(); cerr != nil {
-			err = fmt.Errorf("error closing refreshOpenErrorsLastSeenByDeviceStmt: %w", cerr)
-		}
-	}
 	if q.reincludeFirmwareRolloutDevicesStmt != nil {
 		if cerr := q.reincludeFirmwareRolloutDevicesStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing reincludeFirmwareRolloutDevicesStmt: %w", cerr)
@@ -5561,6 +5556,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing upsertCustomRoleForOrgStmt: %w", cerr)
 		}
 	}
+	if q.upsertDeviceErrorsStmt != nil {
+		if cerr := q.upsertDeviceErrorsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing upsertDeviceErrorsStmt: %w", cerr)
+		}
+	}
 	if q.upsertDevicePairingStmt != nil {
 		if cerr := q.upsertDevicePairingStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing upsertDevicePairingStmt: %w", cerr)
@@ -6201,7 +6201,6 @@ type Queries struct {
 	recordCurtailPendingDispatchStmt                             *sql.Stmt
 	recordFirmwareDeploymentStmt                                 *sql.Stmt
 	recordFirmwareRolloutActionStmt                              *sql.Stmt
-	refreshOpenErrorsLastSeenByDeviceStmt                        *sql.Stmt
 	reincludeFirmwareRolloutDevicesStmt                          *sql.Stmt
 	releaseInventoryPartStmt                                     *sql.Stmt
 	releaseUndispatchedTargetsForRestoreStmt                     *sql.Stmt
@@ -6347,6 +6346,7 @@ type Queries struct {
 	upsertCurtailmentAutomationSignalStateStmt                   *sql.Stmt
 	upsertCurtailmentReconcilerHeartbeatStmt                     *sql.Stmt
 	upsertCustomRoleForOrgStmt                                   *sql.Stmt
+	upsertDeviceErrorsStmt                                       *sql.Stmt
 	upsertDevicePairingStmt                                      *sql.Stmt
 	upsertDeviceStatusStmt                                       *sql.Stmt
 	upsertDiscoveredDeviceStmt                                   *sql.Stmt
@@ -6906,7 +6906,6 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		recordCurtailPendingDispatchStmt:                             q.recordCurtailPendingDispatchStmt,
 		recordFirmwareDeploymentStmt:                                 q.recordFirmwareDeploymentStmt,
 		recordFirmwareRolloutActionStmt:                              q.recordFirmwareRolloutActionStmt,
-		refreshOpenErrorsLastSeenByDeviceStmt:                        q.refreshOpenErrorsLastSeenByDeviceStmt,
 		reincludeFirmwareRolloutDevicesStmt:                          q.reincludeFirmwareRolloutDevicesStmt,
 		releaseInventoryPartStmt:                                     q.releaseInventoryPartStmt,
 		releaseUndispatchedTargetsForRestoreStmt:                     q.releaseUndispatchedTargetsForRestoreStmt,
@@ -7052,6 +7051,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		upsertCurtailmentAutomationSignalStateStmt:                   q.upsertCurtailmentAutomationSignalStateStmt,
 		upsertCurtailmentReconcilerHeartbeatStmt:                     q.upsertCurtailmentReconcilerHeartbeatStmt,
 		upsertCustomRoleForOrgStmt:                                   q.upsertCustomRoleForOrgStmt,
+		upsertDeviceErrorsStmt:                                       q.upsertDeviceErrorsStmt,
 		upsertDevicePairingStmt:                                      q.upsertDevicePairingStmt,
 		upsertDeviceStatusStmt:                                       q.upsertDeviceStatusStmt,
 		upsertDiscoveredDeviceStmt:                                   q.upsertDiscoveredDeviceStmt,

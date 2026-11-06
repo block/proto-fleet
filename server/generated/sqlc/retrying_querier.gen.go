@@ -6156,18 +6156,6 @@ func (q *retryingQuerier) RecordFirmwareRolloutAction(ctx context.Context, arg R
 	})
 }
 
-func (q *retryingQuerier) RefreshOpenErrorsLastSeenByDevice(ctx context.Context, arg RefreshOpenErrorsLastSeenByDeviceParams) (sql.Result, error) {
-	var result sql.Result
-	err := q.retrier.RetryQuery(ctx, "RefreshOpenErrorsLastSeenByDevice", func() error {
-		callResult, callErr := q.next.RefreshOpenErrorsLastSeenByDevice(ctx, arg)
-		if callErr == nil {
-			result = callResult
-		}
-		return callErr
-	})
-	return result, err
-}
-
 func (q *retryingQuerier) ReincludeFirmwareRolloutDevices(ctx context.Context, arg ReincludeFirmwareRolloutDevicesParams) error {
 	return q.retrier.RetryQuery(ctx, "ReincludeFirmwareRolloutDevices", func() error {
 		return q.next.ReincludeFirmwareRolloutDevices(ctx, arg)
@@ -7510,6 +7498,18 @@ func (q *retryingQuerier) UpsertCustomRoleForOrg(ctx context.Context, arg Upsert
 	var result int64
 	err := q.retrier.RetryQuery(ctx, "UpsertCustomRoleForOrg", func() error {
 		callResult, callErr := q.next.UpsertCustomRoleForOrg(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) UpsertDeviceErrors(ctx context.Context, arg UpsertDeviceErrorsParams) (bool, error) {
+	var result bool
+	err := q.retrier.RetryQuery(ctx, "UpsertDeviceErrors", func() error {
+		callResult, callErr := q.next.UpsertDeviceErrors(ctx, arg)
 		if callErr == nil {
 			result = callResult
 		}

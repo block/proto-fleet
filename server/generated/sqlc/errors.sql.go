@@ -8,6 +8,7 @@ package sqlc
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"time"
 
 	"github.com/lib/pq"
@@ -15,6 +16,7 @@ import (
 )
 
 const closeStaleErrors = `-- name: CloseStaleErrors :execresult
+
 UPDATE errors
 SET closed_at = CURRENT_TIMESTAMP
 WHERE closed_at IS NULL
@@ -32,6 +34,9 @@ type CloseStaleErrorsParams struct {
 	StatusCutoffTime sql.NullTime
 }
 
+// ============================================================================
+// Error Lifecycle Management
+// ============================================================================
 // Closes stale errors only when device was successfully polled after the staleness cutoff time.
 // This ensures we have confirmed the error is absent from a recent poll.
 func (q *Queries) CloseStaleErrors(ctx context.Context, arg CloseStaleErrorsParams) (sql.Result, error) {
@@ -884,37 +889,6 @@ func (q *Queries) QueryErrors(ctx context.Context, arg QueryErrorsParams) ([]Que
 	return items, nil
 }
 
-const refreshOpenErrorsLastSeenByDevice = `-- name: RefreshOpenErrorsLastSeenByDevice :execresult
-
-UPDATE errors
-SET last_seen_at = GREATEST(last_seen_at, $1::timestamptz),
-    updated_at = CURRENT_TIMESTAMP
-WHERE errors.org_id = $2
-  AND errors.closed_at IS NULL
-  AND errors.device_id = (
-    SELECT id
-    FROM device
-    WHERE device_identifier = $3
-      AND device.org_id = $2
-      AND deleted_at IS NULL
-  )
-`
-
-type RefreshOpenErrorsLastSeenByDeviceParams struct {
-	ObservedAt       time.Time
-	OrgID            int64
-	DeviceIdentifier string
-}
-
-// ============================================================================
-// Error Lifecycle Management
-// ============================================================================
-// Refreshes open errors for a device after an incomplete diagnostics poll.
-// Uses GREATEST so a delayed partial poll cannot move newer observations backward.
-func (q *Queries) RefreshOpenErrorsLastSeenByDevice(ctx context.Context, arg RefreshOpenErrorsLastSeenByDeviceParams) (sql.Result, error) {
-	return q.exec(ctx, q.refreshOpenErrorsLastSeenByDeviceStmt, refreshOpenErrorsLastSeenByDevice, arg.ObservedAt, arg.OrgID, arg.DeviceIdentifier)
-}
-
 const updateOpenError = `-- name: UpdateOpenError :exec
 UPDATE errors SET
     last_seen_at = $1,
@@ -962,4 +936,154 @@ func (q *Queries) UpdateOpenError(ctx context.Context, arg UpdateOpenErrorParams
 		arg.ID,
 	)
 	return err
+}
+
+const upsertDeviceErrors = `-- name: UpsertDeviceErrors :one
+WITH target_device AS (
+    SELECT id, site_id
+    FROM device
+    WHERE device.device_identifier = $1
+      AND device.org_id = $2
+      AND device.deleted_at IS NULL
+), reports AS (
+    SELECT
+        report ->> 'error_id' AS error_id,
+        (report ->> 'miner_error')::int AS miner_error,
+        (report ->> 'severity')::int AS severity,
+        report ->> 'summary' AS summary,
+        report ->> 'impact' AS impact,
+        report ->> 'cause_summary' AS cause_summary,
+        report ->> 'recommended_action' AS recommended_action,
+        (report ->> 'first_seen_at')::timestamptz AS first_seen_at,
+        (report ->> 'last_seen_at')::timestamptz AS last_seen_at,
+        report ->> 'component_id' AS component_id,
+        (report ->> 'component_type')::int AS component_type,
+        report ->> 'vendor_code' AS vendor_code,
+        report ->> 'firmware' AS firmware,
+        NULLIF(report -> 'extra', 'null'::jsonb) AS extra,
+        (report ->> 'closed_at')::timestamptz AS closed_at
+    FROM jsonb_array_elements($3::jsonb) AS item(report)
+), matched AS (
+    SELECT report.error_id, report.miner_error, report.severity, report.summary, report.impact, report.cause_summary, report.recommended_action, report.first_seen_at, report.last_seen_at, report.component_id, report.component_type, report.vendor_code, report.firmware, report.extra, report.closed_at, existing.id AS existing_id
+    FROM reports report
+    CROSS JOIN target_device target
+    JOIN LATERAL (
+        SELECT id
+        FROM errors
+        WHERE errors.org_id = $2
+          AND errors.device_id = target.id
+          AND errors.miner_error = report.miner_error
+          AND errors.component_id IS NOT DISTINCT FROM report.component_id
+          AND errors.component_type IS NOT DISTINCT FROM report.component_type
+          AND errors.closed_at IS NULL
+        ORDER BY id
+        LIMIT 1
+        FOR UPDATE
+    ) existing ON TRUE
+), updated AS (
+    UPDATE errors
+    SET last_seen_at = CASE
+            WHEN $4::boolean
+              OR errors.last_seen_at <= $5::timestamptz
+            THEN GREATEST(errors.last_seen_at, matched.last_seen_at, $6::timestamptz)
+            ELSE GREATEST(errors.last_seen_at, matched.last_seen_at)
+        END,
+        severity = matched.severity,
+        summary = matched.summary,
+        impact = matched.impact,
+        cause_summary = matched.cause_summary,
+        recommended_action = matched.recommended_action,
+        vendor_code = matched.vendor_code,
+        firmware = matched.firmware,
+        extra = matched.extra,
+        closed_at = matched.closed_at
+    FROM matched
+    WHERE errors.id = matched.existing_id
+      AND errors.closed_at IS NULL
+      AND (
+          $4::boolean
+          OR errors.last_seen_at <= $5::timestamptz
+          OR errors.severity IS DISTINCT FROM matched.severity
+          OR errors.summary IS DISTINCT FROM matched.summary
+          OR errors.impact IS DISTINCT FROM matched.impact
+          OR errors.cause_summary IS DISTINCT FROM matched.cause_summary
+          OR errors.recommended_action IS DISTINCT FROM matched.recommended_action
+          OR errors.vendor_code IS DISTINCT FROM matched.vendor_code
+          OR errors.firmware IS DISTINCT FROM matched.firmware
+          OR errors.extra IS DISTINCT FROM matched.extra
+          OR errors.closed_at IS DISTINCT FROM matched.closed_at
+      )
+), inserted AS (
+    INSERT INTO errors (
+        error_id, org_id, device_id, miner_error, severity, summary, impact,
+        cause_summary, recommended_action, first_seen_at, last_seen_at,
+        component_id, component_type, vendor_code, firmware, extra, closed_at,
+        site_id
+    )
+    SELECT
+        report.error_id,
+        $2,
+        target.id,
+        report.miner_error,
+        report.severity,
+        report.summary,
+        report.impact,
+        report.cause_summary,
+        report.recommended_action,
+        report.first_seen_at,
+        report.last_seen_at,
+        report.component_id,
+        report.component_type,
+        report.vendor_code,
+        report.firmware,
+        report.extra,
+        report.closed_at,
+        target.site_id
+    FROM reports report
+    CROSS JOIN target_device target
+    WHERE NOT EXISTS (
+        SELECT 1
+        FROM matched
+        WHERE matched.miner_error = report.miner_error
+          AND matched.component_id IS NOT DISTINCT FROM report.component_id
+          AND matched.component_type IS NOT DISTINCT FROM report.component_type
+    )
+), refreshed_omitted AS (
+    UPDATE errors
+    SET last_seen_at = GREATEST(errors.last_seen_at, $6::timestamptz)
+    FROM target_device target
+    WHERE $4::boolean
+      AND errors.org_id = $2
+      AND errors.device_id = target.id
+      AND errors.closed_at IS NULL
+      AND NOT EXISTS (
+          SELECT 1
+          FROM matched
+          WHERE matched.existing_id = errors.id
+      )
+)
+SELECT EXISTS(SELECT 1 FROM target_device) AS device_found
+`
+
+type UpsertDeviceErrorsParams struct {
+	DeviceIdentifier string
+	OrgID            int64
+	ErrorReports     json.RawMessage
+	RefreshAllOpen   bool
+	HeartbeatCutoff  time.Time
+	ObservedAt       time.Time
+}
+
+func (q *Queries) UpsertDeviceErrors(ctx context.Context, arg UpsertDeviceErrorsParams) (bool, error) {
+	row := q.queryRow(ctx, q.upsertDeviceErrorsStmt, upsertDeviceErrors,
+		arg.DeviceIdentifier,
+		arg.OrgID,
+		arg.ErrorReports,
+		arg.RefreshAllOpen,
+		arg.HeartbeatCutoff,
+		arg.ObservedAt,
+	)
+	var device_found bool
+	err := row.Scan(&device_found)
+	return device_found, err
 }

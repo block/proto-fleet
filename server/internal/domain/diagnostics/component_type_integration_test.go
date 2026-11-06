@@ -2,6 +2,7 @@ package diagnostics
 
 import (
 	"context"
+	"slices"
 	"testing"
 	"time"
 
@@ -136,6 +137,13 @@ func TestPollErrors_WithSDKErrorsHavingComponentTypes_ShouldPreserveComponentTyp
 		assert.Equal(t, models.ComponentTypeUnspecified, fleetErrors[4].ComponentType,
 			"EEPROM should map to Unspecified (no Fleet equivalent)")
 	})
+	expectedPersistedErrors := slices.Clone(fleetErrors)
+	for i := range expectedPersistedErrors {
+		if expectedPersistedErrors[i].ComponentID != nil {
+			componentID := *expectedPersistedErrors[i].ComponentID
+			expectedPersistedErrors[i].ComponentID = &componentID
+		}
+	}
 
 	// Mock miner that returns the converted Fleet errors
 	mockMiner := minerMocks.NewMockMiner(ctrl)
@@ -149,34 +157,31 @@ func TestPollErrors_WithSDKErrorsHavingComponentTypes_ShouldPreserveComponentTyp
 	// Mock error store that verifies ComponentType is preserved when storing
 	mockErrorStore := storeMocks.NewMockErrorStore(ctrl)
 
-	// Set up expectations for each error to be upserted with correct ComponentType
-	for i, expectedErr := range fleetErrors {
-		capturedErr := expectedErr // Capture for closure
-		mockErrorStore.EXPECT().
-			UpsertError(gomock.Any(), int64(1), testDeviceID, gomock.Any()).
-			DoAndReturn(func(_ context.Context, _ int64, _ string, errMsg *models.ErrorMessage) (*models.ErrorMessage, error) {
+	mockErrorStore.EXPECT().
+		UpsertErrors(gomock.Any(), int64(1), testDeviceID, gomock.Any(), gomock.Any(), gomock.Any(), false).
+		DoAndReturn(func(_ context.Context, _ int64, _ string, errors []models.ErrorMessage, _ time.Time, _ time.Duration, _ bool) error {
+			require.Len(t, errors, len(expectedPersistedErrors))
+			for i, expectedErr := range expectedPersistedErrors {
+				errMsg := &errors[i]
 				// Verify ComponentType is preserved
-				assert.Equal(t, capturedErr.ComponentType, errMsg.ComponentType,
+				assert.Equal(t, expectedErr.ComponentType, errMsg.ComponentType,
 					"ComponentType should be preserved for error %d", i)
 
 				// Verify ComponentID is preserved
-				if capturedErr.ComponentID != nil {
+				if expectedErr.ComponentID != nil {
 					require.NotNil(t, errMsg.ComponentID, "ComponentID should be preserved for error %d", i)
-					assert.Equal(t, *capturedErr.ComponentID, *errMsg.ComponentID,
+					assert.Equal(t, *expectedErr.ComponentID, *errMsg.ComponentID,
 						"ComponentID value should match for error %d", i)
 				} else {
 					assert.Nil(t, errMsg.ComponentID, "ComponentID should be nil for error %d", i)
 				}
 
 				// Verify other critical fields
-				assert.Equal(t, capturedErr.MinerError, errMsg.MinerError)
-				assert.Equal(t, capturedErr.Severity, errMsg.Severity)
-
-				// Return the error as if it was stored
-				errMsg.ErrorID = "ULID-" + string(rune('A'+i)) // Simulate DB-assigned ID
-				return errMsg, nil
-			})
-	}
+				assert.Equal(t, expectedErr.MinerError, errMsg.MinerError)
+				assert.Equal(t, expectedErr.Severity, errMsg.Severity)
+			}
+			return nil
+		})
 
 	// Create service and poll errors
 	svc := newTestService(ctrl, mockErrorStore)
@@ -190,65 +195,4 @@ func TestPollErrors_WithSDKErrorsHavingComponentTypes_ShouldPreserveComponentTyp
 		assert.Equal(t, 0, result.UpsertsFailed, "Should have no upsert failures")
 		assert.False(t, result.Cancelled, "Should not be cancelled")
 	})
-}
-
-// TestUpsertError_WithSameErrorCodeButDifferentComponentTypes_ShouldTreatAsDistinctErrors verifies that errors with the same MinerError but
-// different ComponentType values are treated as distinct errors in deduplication.
-func TestUpsertError_WithSameErrorCodeButDifferentComponentTypes_ShouldTreatAsDistinctErrors(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	now := time.Now()
-	testDeviceID := "test-miner-002"
-	componentZero := "0"
-
-	// Two temperature errors on different component types
-	hashboardTempError := models.ErrorMessage{
-		MinerError:    models.HashboardOverTemperature,
-		ComponentID:   &componentZero,
-		ComponentType: models.ComponentTypeHashBoards, // Fleet value: 3
-		Severity:      models.SeverityMajor,
-		Summary:       "Hashboard 0 overheating",
-		FirstSeenAt:   now.Add(-time.Hour),
-		LastSeenAt:    now,
-	}
-
-	// Same error code but for control board
-	controlBoardTempError := models.ErrorMessage{
-		MinerError:    models.HashboardOverTemperature, // Same error code
-		ComponentID:   nil,
-		ComponentType: models.ComponentTypeControlBoard, // Fleet value: 1
-		Severity:      models.SeverityMajor,
-		Summary:       "Control board overheating",
-		FirstSeenAt:   now.Add(-30 * time.Minute),
-		LastSeenAt:    now,
-	}
-
-	mockMiner := minerMocks.NewMockMiner(ctrl)
-	mockMiner.EXPECT().GetID().Return(minerModels.DeviceIdentifier(testDeviceID)).AnyTimes()
-	mockMiner.EXPECT().GetOrgID().Return(int64(1)).AnyTimes()
-	mockMiner.EXPECT().GetErrors(gomock.Any()).Return(models.DeviceErrors{
-		DeviceID: testDeviceID,
-		Errors:   []models.ErrorMessage{hashboardTempError, controlBoardTempError},
-	}, nil)
-
-	mockErrorStore := storeMocks.NewMockErrorStore(ctrl)
-
-	// Both errors should be upserted separately due to different ComponentType
-	mockErrorStore.EXPECT().
-		UpsertError(gomock.Any(), int64(1), testDeviceID, gomock.Any()).
-		Times(2). // Expect two separate upserts
-		DoAndReturn(func(_ context.Context, _ int64, _ string, errMsg *models.ErrorMessage) (*models.ErrorMessage, error) {
-			// Verify ComponentType is preserved for deduplication
-			assert.Contains(t,
-				[]models.ComponentType{models.ComponentTypeHashBoards, models.ComponentTypeControlBoard},
-				errMsg.ComponentType,
-				"ComponentType should be one of the expected values")
-			return errMsg, nil
-		})
-
-	svc := newTestService(ctrl, mockErrorStore)
-	result := svc.PollErrors(context.Background(), mockMiner)
-
-	assert.Equal(t, 2, result.ErrorsUpserted, "Both errors should be upserted (different ComponentType)")
 }
