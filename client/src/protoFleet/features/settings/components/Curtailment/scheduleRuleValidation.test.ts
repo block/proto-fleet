@@ -81,4 +81,36 @@ describe("validateScheduleRuleFormValues", () => {
     ).toBe("End must be in the future.");
     expect(validateScheduleRuleFormValues(oneTime({ endDate: "" }), now).endDate).toBe("Select an end date.");
   });
+
+  it("checks one-time windows across daylight saving time changes like the server", () => {
+    const oneTime = (patch: Partial<ScheduleRuleFormValues["schedule"]>) =>
+      withSchedule({ scheduleType: "oneTime", ...patch });
+
+    // 02:30 and 02:15 on 2027-03-14 are skipped in New York and run at 03:30 and 03:15.
+    expect(
+      validateScheduleRuleFormValues(
+        oneTime({
+          timezone: "America/New_York",
+          startDate: "2027-03-14",
+          startTime: "02:30",
+          endDate: "2027-03-14",
+          endTime: "02:15",
+        }),
+        now,
+      ).endTime,
+    ).toBe("End must be after start.");
+    // 02:30 on 2027-10-31 repeats in Berlin; its first occurrence keeps this window at exactly 7 days.
+    expect(
+      validateScheduleRuleFormValues(
+        oneTime({
+          timezone: "Europe/Berlin",
+          startDate: "2027-10-24",
+          startTime: "02:30",
+          endDate: "2027-10-31",
+          endTime: "02:30",
+        }),
+        now,
+      ),
+    ).toEqual({});
+  });
 });

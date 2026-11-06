@@ -1,6 +1,6 @@
 import type { ResponseProfile, ScheduleRuleFormValues } from "@/protoFleet/api/curtailmentTypes";
+import { resolveScheduleTime } from "@/protoFleet/features/settings/components/Curtailment/scheduleWindowTiming";
 import {
-  buildDateInTimeZone,
   formatDateParts,
   getTimeZoneDateTimeParts,
   parseDate,
@@ -82,16 +82,16 @@ export function validateScheduleRuleFormValues(
       errors.endDate = "Select an end date.";
       return errors;
     }
-    const start = buildDateInTimeZone(schedule.startDate, schedule.startTime, schedule.timezone);
-    const end = buildDateInTimeZone(schedule.endDate, schedule.endTime, schedule.timezone);
-    if (!start || !end) {
+    const start = resolveScheduleTime(schedule.startDate, schedule.startTime, schedule.timezone);
+    const end = resolveScheduleTime(schedule.endDate, schedule.endTime, schedule.timezone);
+    if (start === null || end === null) {
       return errors;
     }
     if (end <= start) {
       errors.endTime = "End must be after start.";
-    } else if (end.getTime() - start.getTime() > maxOneTimeDurationMs) {
+    } else if (end - start > maxOneTimeDurationMs) {
       errors.endDate = "One-time schedules can last up to 7 days.";
-    } else if (end <= now) {
+    } else if (end <= now.getTime()) {
       errors.endTime = "End must be in the future.";
     }
     return errors;
