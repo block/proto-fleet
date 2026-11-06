@@ -7,6 +7,7 @@ package sqlc
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"time"
 )
@@ -37,6 +38,44 @@ func (q *Queries) AdvanceContainerControls(ctx context.Context, arg AdvanceConta
 	var device_id int64
 	err := row.Scan(&device_id)
 	return device_id, err
+}
+
+const containerControlsChildrenMatch = `-- name: ContainerControlsChildrenMatch :one
+SELECT
+ COALESCE((
+  SELECT jsonb_agg(jsonb_build_object('name', c.name, 'enabled', c.enabled)
+                   ORDER BY c.name)
+  FROM container_control_observation c
+  WHERE c.device_id=$1
+ ), '[]'::jsonb) = COALESCE((
+  SELECT jsonb_agg(jsonb_build_object('name', x.name, 'enabled', x.enabled)
+                   ORDER BY x.name)
+  FROM jsonb_to_recordset($2::jsonb) AS x(name text, enabled boolean)
+ ), '[]'::jsonb)
+ AND
+ COALESCE((
+  SELECT jsonb_agg(jsonb_build_object('name', s.name, 'value', s.value, 'unit', s.unit)
+                   ORDER BY s.name)
+  FROM container_setpoint_observation s
+  WHERE s.device_id=$1
+ ), '[]'::jsonb) = COALESCE((
+  SELECT jsonb_agg(jsonb_build_object('name', x.name, 'value', x.value, 'unit', x.unit)
+                   ORDER BY x.name)
+  FROM jsonb_to_recordset($3::jsonb) AS x(name text, value double precision, unit text)
+ ), '[]'::jsonb)
+`
+
+type ContainerControlsChildrenMatchParams struct {
+	DeviceID  int64
+	Controls  json.RawMessage
+	Setpoints json.RawMessage
+}
+
+func (q *Queries) ContainerControlsChildrenMatch(ctx context.Context, arg ContainerControlsChildrenMatchParams) (sql.NullBool, error) {
+	row := q.queryRow(ctx, q.containerControlsChildrenMatchStmt, containerControlsChildrenMatch, arg.DeviceID, arg.Controls, arg.Setpoints)
+	var column_1 sql.NullBool
+	err := row.Scan(&column_1)
+	return column_1, err
 }
 
 const deleteContainerControls = `-- name: DeleteContainerControls :exec

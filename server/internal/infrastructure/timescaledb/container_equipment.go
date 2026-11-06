@@ -77,12 +77,6 @@ func storeContainerEquipment(ctx context.Context, q *sqlc.Queries, identifier st
 	if err != nil {
 		return err
 	}
-	if err := q.DeleteContainerControls(ctx, id); err != nil {
-		return err
-	}
-	if err := q.DeleteContainerSetpoints(ctx, id); err != nil {
-		return err
-	}
 	controls, setpoints := c.Controls, c.Setpoints
 	if controls == nil {
 		controls = []sdk.ContainerControl{}
@@ -90,16 +84,33 @@ func storeContainerEquipment(ctx context.Context, q *sqlc.Queries, identifier st
 	if setpoints == nil {
 		setpoints = []sdk.ContainerSetpoint{}
 	}
-	data, err = json.Marshal(controls)
+	controlsData, err := json.Marshal(controls)
 	if err != nil {
 		return fmt.Errorf("encode control states: %w", err)
 	}
-	if err := q.InsertContainerControls(ctx, sqlc.InsertContainerControlsParams{DeviceID: id, Controls: data}); err != nil {
-		return err
-	}
-	data, err = json.Marshal(setpoints)
+	setpointsData, err := json.Marshal(setpoints)
 	if err != nil {
 		return fmt.Errorf("encode setpoints: %w", err)
 	}
-	return q.InsertContainerSetpoints(ctx, sqlc.InsertContainerSetpointsParams{DeviceID: id, Setpoints: data})
+	childrenMatch, err := q.ContainerControlsChildrenMatch(ctx, sqlc.ContainerControlsChildrenMatchParams{
+		DeviceID:  id,
+		Controls:  controlsData,
+		Setpoints: setpointsData,
+	})
+	if err != nil {
+		return err
+	}
+	if childrenMatch.Valid && childrenMatch.Bool {
+		return nil
+	}
+	if err := q.DeleteContainerControls(ctx, id); err != nil {
+		return err
+	}
+	if err := q.DeleteContainerSetpoints(ctx, id); err != nil {
+		return err
+	}
+	if err := q.InsertContainerControls(ctx, sqlc.InsertContainerControlsParams{DeviceID: id, Controls: controlsData}); err != nil {
+		return err
+	}
+	return q.InsertContainerSetpoints(ctx, sqlc.InsertContainerSetpointsParams{DeviceID: id, Setpoints: setpointsData})
 }

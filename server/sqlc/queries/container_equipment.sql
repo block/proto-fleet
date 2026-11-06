@@ -25,6 +25,30 @@ SET observed_at = EXCLUDED.observed_at, supported = EXCLUDED.supported,
 WHERE container_controls_observation.observed_at < EXCLUDED.observed_at
 RETURNING device_id;
 
+-- name: ContainerControlsChildrenMatch :one
+SELECT
+ COALESCE((
+  SELECT jsonb_agg(jsonb_build_object('name', c.name, 'enabled', c.enabled)
+                   ORDER BY c.name)
+  FROM container_control_observation c
+  WHERE c.device_id=sqlc.arg('device_id')
+ ), '[]'::jsonb) = COALESCE((
+  SELECT jsonb_agg(jsonb_build_object('name', x.name, 'enabled', x.enabled)
+                   ORDER BY x.name)
+  FROM jsonb_to_recordset(sqlc.arg('controls')::jsonb) AS x(name text, enabled boolean)
+ ), '[]'::jsonb)
+ AND
+ COALESCE((
+  SELECT jsonb_agg(jsonb_build_object('name', s.name, 'value', s.value, 'unit', s.unit)
+                   ORDER BY s.name)
+  FROM container_setpoint_observation s
+  WHERE s.device_id=sqlc.arg('device_id')
+ ), '[]'::jsonb) = COALESCE((
+  SELECT jsonb_agg(jsonb_build_object('name', x.name, 'value', x.value, 'unit', x.unit)
+                   ORDER BY x.name)
+  FROM jsonb_to_recordset(sqlc.arg('setpoints')::jsonb) AS x(name text, value double precision, unit text)
+ ), '[]'::jsonb);
+
 -- name: DeleteContainerControls :exec
 DELETE FROM container_control_observation WHERE device_id = $1;
 -- name: DeleteContainerSetpoints :exec

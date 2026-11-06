@@ -1154,6 +1154,18 @@ func (q *retryingQuerier) ConsumeReservedInventoryPart(ctx context.Context, arg 
 	return result, err
 }
 
+func (q *retryingQuerier) ContainerControlsChildrenMatch(ctx context.Context, arg ContainerControlsChildrenMatchParams) (sql.NullBool, error) {
+	var result sql.NullBool
+	err := q.retrier.RetryQuery(ctx, "ContainerControlsChildrenMatch", func() error {
+		callResult, callErr := q.next.ContainerControlsChildrenMatch(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) ContainerOwnsCommandBatch(ctx context.Context, arg ContainerOwnsCommandBatchParams) (bool, error) {
 	var result bool
 	err := q.retrier.RetryQuery(ctx, "ContainerOwnsCommandBatch", func() error {
