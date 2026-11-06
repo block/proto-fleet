@@ -925,10 +925,18 @@ func TestSQLErrorStore_UpsertErrors_ShouldCloseErrorWhenClosedAtSet(t *testing.T
 	require.Nil(t, first.ClosedAt)
 	originalErrorID := first.ErrorID
 
-	// Arrange: Close via upsert
+	// Arrange: Close via upsert with revised details
 	closedAt := time.Now().Truncate(time.Microsecond)
 	errMsg.ClosedAt = &closedAt
 	errMsg.LastSeenAt = closedAt
+	errMsg.Severity = models.SeverityCritical
+	errMsg.Summary = "Revised summary"
+	errMsg.Impact = "Revised impact"
+	errMsg.CauseSummary = "Revised cause"
+	errMsg.RecommendedAction = "Revised action"
+	errMsg.VendorCode = "E002"
+	errMsg.Firmware = "v2.0.0"
+	errMsg.VendorAttributes = map[string]string{"key2": "value2"}
 
 	// Act
 	closed, err := upsertSingleError(ctx, db, store, orgID, deviceIdentifier, errMsg)
@@ -939,6 +947,14 @@ func TestSQLErrorStore_UpsertErrors_ShouldCloseErrorWhenClosedAtSet(t *testing.T
 	assert.Equal(t, originalErrorID, closed.ErrorID, "ErrorID should be preserved")
 	require.NotNil(t, closed.ClosedAt, "ClosedAt should be set")
 	assert.Equal(t, closedAt.Unix(), closed.ClosedAt.Unix(), "ClosedAt should match")
+	assert.Equal(t, errMsg.Severity, closed.Severity)
+	assert.Equal(t, errMsg.Summary, closed.Summary)
+	assert.Equal(t, errMsg.Impact, closed.Impact)
+	assert.Equal(t, errMsg.CauseSummary, closed.CauseSummary)
+	assert.Equal(t, errMsg.RecommendedAction, closed.RecommendedAction)
+	assert.Equal(t, errMsg.VendorCode, closed.VendorCode)
+	assert.Equal(t, errMsg.Firmware, closed.Firmware)
+	assert.Equal(t, errMsg.VendorAttributes, closed.VendorAttributes)
 }
 
 func TestSQLErrorStore_UpsertErrors_ShouldInsertAlreadyClosedError(t *testing.T) {

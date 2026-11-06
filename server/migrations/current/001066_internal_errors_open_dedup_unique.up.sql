@@ -1,3 +1,5 @@
+-- requires-shared: 1064
+
 -- Keep the oldest open occurrence per dedup key; the unique index cannot be built over duplicates.
 UPDATE errors
 SET closed_at = CURRENT_TIMESTAMP

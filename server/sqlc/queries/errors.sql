@@ -29,7 +29,15 @@ WITH target_device AS (
 ), closed AS (
     UPDATE errors
     SET closed_at = report.closed_at,
-        last_seen_at = GREATEST(errors.last_seen_at, report.last_seen_at)
+        last_seen_at = GREATEST(errors.last_seen_at, report.last_seen_at),
+        severity = report.severity,
+        summary = report.summary,
+        impact = report.impact,
+        cause_summary = report.cause_summary,
+        recommended_action = report.recommended_action,
+        vendor_code = report.vendor_code,
+        firmware = report.firmware,
+        extra = report.extra
     FROM reports report, target_device target
     WHERE report.closed_at IS NOT NULL
       AND errors.org_id = sqlc.arg('org_id')
