@@ -135,12 +135,7 @@ func (s *SQLErrorStore) UpsertErrors(
 		HeartbeatCutoff:  observedAt.Add(-refreshHeartbeat),
 		RefreshAllOpen:   refreshAllOpen,
 	}
-	var deviceFound bool
-	err = s.retryQuery(ctx, "UpsertDeviceErrors", func() error {
-		var queryErr error
-		deviceFound, queryErr = s.getQueries(ctx).UpsertDeviceErrors(ctx, params)
-		return queryErr
-	})
+	deviceFound, err := s.getQueries(ctx).UpsertDeviceErrors(ctx, params)
 	if err != nil {
 		return fleeterror.NewInternalErrorf("failed to upsert device errors: %w", err)
 	}

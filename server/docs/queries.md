@@ -14,18 +14,18 @@ This document explains the SQL queries in `sqlc/queries/errors.sql` for reviewer
 
 ### UpsertDeviceErrors
 
-Persists one device's error snapshot in a single statement. Reports are matched to open rows by the deduplication key.
+Persists one device's error snapshot in a single `INSERT ... ON CONFLICT` statement. The partial unique index `idx_errors_open_dedup` (`NULLS NOT DISTINCT`, `WHERE closed_at IS NULL`) allows one open occurrence per key:
 
 ```
 Dedup Key = (org_id, device_id, miner_error, component_id, component_type)
 ```
 
-**Key point**: Uses `IS NOT DISTINCT FROM` (NULL-safe equals) for `component_id` and `component_type` because these can be NULL for device-level errors.
-
-- Matched open rows are locked with `FOR UPDATE` so a concurrent `CloseStaleErrors` either finishes first (the report then inserts a new occurrence) or waits for this statement.
-- Matched rows are rewritten only when a detail changed or `last_seen_at` is older than the heartbeat cutoff; `last_seen_at` never moves backwards.
-- Reports with no matching open row are inserted. With `refresh_all_open`, open rows omitted from a partial report get `last_seen_at` refreshed.
-- Returns whether the device exists in the organization.
+- Open reports insert or update the open row. Unchanged rows are rewritten only when `refresh_all_open` is set or `last_seen_at` is older than the heartbeat cutoff; `last_seen_at` never moves backwards.
+- If `CloseStaleErrors` closes the row first, the conflict disappears and the report inserts a new occurrence.
+- Reports carrying `closed_at` close the matching open row, or insert a closed row when none is open.
+- With `refresh_all_open`, open rows omitted from a partial report get `last_seen_at` refreshed.
+- Callers must deduplicate reports by key first: `ON CONFLICT` cannot update one row twice in a statement.
+- Returns whether the device exists in the organization. The statement is not retried; the next poll replays it.
 
 ### GetErrorByErrorID
 

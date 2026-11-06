@@ -2828,6 +2828,9 @@ type Querier interface {
 	// SUPER_ADMIN/ADMIN/FIELD_TECH would also be rejected by
 	// chk_role_custom_name_not_reserved.
 	UpsertCustomRoleForOrg(ctx context.Context, arg UpsertCustomRoleForOrgParams) (int64, error)
+	// Persists one device's deduplicated error report. idx_errors_open_dedup keeps one open
+	// occurrence per key; unchanged open rows are rewritten only after the heartbeat cutoff.
+	// Reports carrying closed_at close the matching open row; partial reports refresh omitted rows.
 	UpsertDeviceErrors(ctx context.Context, arg UpsertDeviceErrorsParams) (bool, error)
 	UpsertDevicePairing(ctx context.Context, arg UpsertDevicePairingParams) (sql.Result, error)
 	// Zone / building filters are not handled by this static query.
