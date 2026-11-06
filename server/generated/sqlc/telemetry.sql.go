@@ -7,7 +7,6 @@ package sqlc
 
 import (
 	"context"
-	"database/sql"
 	"time"
 
 	"github.com/lib/pq"
@@ -1629,7 +1628,7 @@ func (q *Queries) GetOrgDeviceStatusHourlyAggregates(ctx context.Context, arg Ge
 	return items, nil
 }
 
-const insertDeviceMetrics = `-- name: InsertDeviceMetrics :exec
+const insertDeviceMetricsBatch = `-- name: InsertDeviceMetricsBatch :exec
 
 INSERT INTO device_metrics (
     time,
@@ -1644,95 +1643,89 @@ INSERT INTO device_metrics (
     power_w_kind,
     efficiency_jh,
     efficiency_jh_kind,
-    voltage_v,
-    voltage_v_kind,
-    current_a,
-    current_a_kind,
-    inlet_temp_c,
-    outlet_temp_c,
-    ambient_temp_c,
-    chip_count,
-    chip_count_kind,
-    chip_frequency_mhz,
     health,
     site_id
-) VALUES (
-    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
-    $11, $12, $13, $14, $15, $16, $17, $18, $19, $20,
-    $21, $22, $23,
+) SELECT
+    metrics.time,
+    metrics.device_identifier,
+    CASE WHEN metrics.hash_rate_hs_kind <> '' THEN metrics.hash_rate_hs END,
+    NULLIF(metrics.hash_rate_hs_kind, ''),
+    CASE WHEN metrics.temp_c_kind <> '' THEN metrics.temp_c END,
+    NULLIF(metrics.temp_c_kind, ''),
+    CASE WHEN metrics.fan_rpm_kind <> '' THEN metrics.fan_rpm END,
+    NULLIF(metrics.fan_rpm_kind, ''),
+    CASE WHEN metrics.power_w_kind <> '' THEN metrics.power_w END,
+    NULLIF(metrics.power_w_kind, ''),
+    CASE WHEN metrics.efficiency_jh_kind <> '' THEN metrics.efficiency_jh END,
+    NULLIF(metrics.efficiency_jh_kind, ''),
+    metrics.health,
     (
         SELECT site_id
         FROM device
-        WHERE device_identifier = $2
+        WHERE device_identifier = metrics.device_identifier
         ORDER BY (deleted_at IS NULL) DESC, updated_at DESC, id DESC
         LIMIT 1
     )
-) ON CONFLICT (time, device_identifier) DO NOTHING
+FROM (
+    SELECT
+        unnest($1::timestamptz[]) AS time,
+        unnest($2::text[]) AS device_identifier,
+        unnest($3::double precision[]) AS hash_rate_hs,
+        unnest($4::text[]) AS hash_rate_hs_kind,
+        unnest($5::double precision[]) AS temp_c,
+        unnest($6::text[]) AS temp_c_kind,
+        unnest($7::double precision[]) AS fan_rpm,
+        unnest($8::text[]) AS fan_rpm_kind,
+        unnest($9::double precision[]) AS power_w,
+        unnest($10::text[]) AS power_w_kind,
+        unnest($11::double precision[]) AS efficiency_jh,
+        unnest($12::text[]) AS efficiency_jh_kind,
+        unnest($13::text[]) AS health
+) AS metrics
+ON CONFLICT (time, device_identifier) DO NOTHING
 `
 
-type InsertDeviceMetricsParams struct {
-	Time             time.Time
-	DeviceIdentifier string
-	HashRateHs       sql.NullFloat64
-	HashRateHsKind   sql.NullString
-	TempC            sql.NullFloat64
-	TempCKind        sql.NullString
-	FanRpm           sql.NullFloat64
-	FanRpmKind       sql.NullString
-	PowerW           sql.NullFloat64
-	PowerWKind       sql.NullString
-	EfficiencyJh     sql.NullFloat64
-	EfficiencyJhKind sql.NullString
-	VoltageV         sql.NullFloat64
-	VoltageVKind     sql.NullString
-	CurrentA         sql.NullFloat64
-	CurrentAKind     sql.NullString
-	InletTempC       sql.NullFloat64
-	OutletTempC      sql.NullFloat64
-	AmbientTempC     sql.NullFloat64
-	ChipCount        sql.NullInt32
-	ChipCountKind    sql.NullString
-	ChipFrequencyMhz sql.NullFloat64
-	Health           sql.NullString
+type InsertDeviceMetricsBatchParams struct {
+	Times             []time.Time
+	DeviceIdentifiers []string
+	HashRateHs        []float64
+	HashRateHsKinds   []string
+	TempC             []float64
+	TempCKinds        []string
+	FanRpm            []float64
+	FanRpmKinds       []string
+	PowerW            []float64
+	PowerWKinds       []string
+	EfficiencyJh      []float64
+	EfficiencyJhKinds []string
+	Health            []string
 }
 
 // Telemetry queries for device_metrics table and continuous aggregates
 // Note: All device identification uses device_identifier (TEXT), not device_id (BIGINT)
 // site_id is row-stamped from device.site_id (looked up by
 // device_identifier) so per-site telemetry filters use the row-stamped
-// site even after the device is reassigned. Inline sub-select rather
-// than a CTE+SELECT INSERT — ON CONFLICT on the device_metrics
-// hypertable PK requires VALUES-shape INSERT. The sub-select does NOT
+// site even after the device is reassigned. The sub-select does NOT
 // filter by deleted_at: telemetry from a soft-deleted device is still
 // legitimate per-site history, matching InsertError /
 // InsertMinerStateSnapshot which also stamp from the device row
 // regardless of soft-delete state. Duplicate historical identifiers are
 // resolved deterministically, preferring the live device row.
-func (q *Queries) InsertDeviceMetrics(ctx context.Context, arg InsertDeviceMetricsParams) error {
-	_, err := q.exec(ctx, q.insertDeviceMetricsStmt, insertDeviceMetrics,
-		arg.Time,
-		arg.DeviceIdentifier,
-		arg.HashRateHs,
-		arg.HashRateHsKind,
-		arg.TempC,
-		arg.TempCKind,
-		arg.FanRpm,
-		arg.FanRpmKind,
-		arg.PowerW,
-		arg.PowerWKind,
-		arg.EfficiencyJh,
-		arg.EfficiencyJhKind,
-		arg.VoltageV,
-		arg.VoltageVKind,
-		arg.CurrentA,
-		arg.CurrentAKind,
-		arg.InletTempC,
-		arg.OutletTempC,
-		arg.AmbientTempC,
-		arg.ChipCount,
-		arg.ChipCountKind,
-		arg.ChipFrequencyMhz,
-		arg.Health,
+func (q *Queries) InsertDeviceMetricsBatch(ctx context.Context, arg InsertDeviceMetricsBatchParams) error {
+	_, err := q.exec(ctx, q.insertDeviceMetricsBatchStmt, insertDeviceMetricsBatch,
+		pq.Array(arg.Times),
+		pq.Array(arg.DeviceIdentifiers),
+		pq.Array(arg.HashRateHs),
+		pq.Array(arg.HashRateHsKinds),
+		pq.Array(arg.TempC),
+		pq.Array(arg.TempCKinds),
+		pq.Array(arg.FanRpm),
+		pq.Array(arg.FanRpmKinds),
+		pq.Array(arg.PowerW),
+		pq.Array(arg.PowerWKinds),
+		pq.Array(arg.EfficiencyJh),
+		pq.Array(arg.EfficiencyJhKinds),
+		pq.Array(arg.Health),
 	)
 	return err
 }

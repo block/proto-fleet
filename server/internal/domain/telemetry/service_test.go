@@ -2520,6 +2520,7 @@ func TestMetricsWriterRoutine_FlushesOnRequest(t *testing.T) {
 func TestMetricsWriterRoutine_FlushRequestChunksDrainedMetrics(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
+	require.Equal(t, 2000, maxMetricsBatchSize)
 
 	mockDataStore := mock.NewMockTelemetryDataStore(ctrl)
 	mockMinerGetter := mock.NewMockCachedMinerGetter(ctrl)
@@ -2726,7 +2727,7 @@ func TestMetricsWriterRoutine_DrainsChannelOnContextCancel(t *testing.T) {
 	}
 }
 
-func TestMetricsWriterRoutine_RetriesIndividuallyOnBatchError(t *testing.T) {
+func TestMetricsWriterRoutine_IdentifiesMalformedSampleAfterBatchError(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
@@ -2739,6 +2740,7 @@ func TestMetricsWriterRoutine_RetriesIndividuallyOnBatchError(t *testing.T) {
 	metric1 := modelsV2.DeviceMetrics{DeviceIdentifier: "test-device-1"}
 	metric2 := modelsV2.DeviceMetrics{DeviceIdentifier: "test-device-2"}
 	batchErr := errors.New("batch write failed")
+	malformedErr := errors.New("malformed telemetry sample")
 
 	mockMinerGetter.EXPECT().
 		GetMinerFromDeviceIdentifier(gomock.Any(), gomock.Any()).
@@ -2751,37 +2753,35 @@ func TestMetricsWriterRoutine_RetriesIndividuallyOnBatchError(t *testing.T) {
 		Return(batchErr).
 		Times(1)
 
-	// Individual retries succeed
 	mockDataStore.EXPECT().
 		StoreDeviceMetrics(gomock.Any(), metric1).
 		Return(nil).
 		Times(1)
 	mockDataStore.EXPECT().
 		StoreDeviceMetrics(gomock.Any(), metric2).
-		Return(nil).
+		Return(malformedErr).
 		Times(1)
 
 	config := Config{
 		StalenessThreshold:  1 * time.Minute,
 		FetchInterval:       10 * time.Second,
 		ConcurrencyLimit:    5,
-		StatusFlushInterval: 50 * time.Millisecond,
+		StatusFlushInterval: 10 * time.Second,
 	}
 
 	service := NewTelemetryService(config, mockDataStore, mockMinerGetter, mockScheduler, mockDeviceStore, mock.NewMockErrorPoller(ctrl))
 
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
+	markTelemetryServiceActiveForTest(service, ctx)
 
 	// Act
 	go service.metricsWriterRoutine(ctx, telemetryActivationForTest(service))
 	telemetryActivationForTest(service).results.metrics <- metricsResult{metrics: metric1}
 	telemetryActivationForTest(service).results.metrics <- metricsResult{metrics: metric2}
 
-	// Assert - wait for flush interval to trigger batch + individual retries
-	time.Sleep(100 * time.Millisecond)
-	cancel()
-	time.Sleep(50 * time.Millisecond)
+	err := service.FlushMetricsForDevice(ctx, models.DeviceIdentifier(metric2.DeviceIdentifier))
+	require.ErrorIs(t, err, malformedErr)
 }
 
 func TestRefreshDevice_WaitsForExistingInFlightCollectionAndFlushesWriters(t *testing.T) {

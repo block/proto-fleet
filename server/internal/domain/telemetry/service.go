@@ -122,8 +122,12 @@ const (
 	resultsChannelBuffer = 5000
 
 	// Batch limits
-	maxStatusBatchSize  = 500
-	maxMetricsBatchSize = 500
+	maxStatusBatchSize = 500
+	// Large polling waves routinely contain tens of thousands of miners. Keep
+	// enough rows in each SQL insert to amortize those bursts without turning a
+	// full-fleet wave into one oversized transaction; the timed flush below
+	// still bounds low-volume write latency.
+	maxMetricsBatchSize = 2000
 
 	// Default status flush interval if not configured.
 	defaultStatusFlushInterval = 1 * time.Second

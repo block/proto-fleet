@@ -12,6 +12,7 @@ import (
 	"github.com/block/proto-fleet/server/generated/sqlc"
 	stores "github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 	"github.com/block/proto-fleet/server/internal/domain/stores/sqlstores"
+	modelsV2 "github.com/block/proto-fleet/server/internal/domain/telemetry/models/v2"
 	"github.com/block/proto-fleet/server/internal/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -496,10 +497,22 @@ func TestCountMinersByState_NumericAndCIDRFiltersMatchList(t *testing.T) {
 func insertMetric(t *testing.T, db *sql.DB, deviceIdentifier string, ts time.Time, hashRateHs float64) {
 	t.Helper()
 	q := sqlc.New(db)
-	require.NoError(t, q.InsertDeviceMetrics(context.Background(), sqlc.InsertDeviceMetricsParams{
-		Time:             ts,
-		DeviceIdentifier: deviceIdentifier,
-		HashRateHs:       sql.NullFloat64{Float64: hashRateHs, Valid: true},
+	metricKind := modelsV2.MetricKindUnknown
+	health := modelsV2.HealthUnknown
+	require.NoError(t, q.InsertDeviceMetricsBatch(context.Background(), sqlc.InsertDeviceMetricsBatchParams{
+		Times:             []time.Time{ts},
+		DeviceIdentifiers: []string{deviceIdentifier},
+		HashRateHs:        []float64{hashRateHs},
+		HashRateHsKinds:   []string{metricKind.String()},
+		TempC:             []float64{0},
+		TempCKinds:        []string{""},
+		FanRpm:            []float64{0},
+		FanRpmKinds:       []string{""},
+		PowerW:            []float64{0},
+		PowerWKinds:       []string{""},
+		EfficiencyJh:      []float64{0},
+		EfficiencyJhKinds: []string{""},
+		Health:            []string{health.String()},
 	}))
 }
 

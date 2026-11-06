@@ -63,6 +63,160 @@ func TestTelemetryStore_StoreDeviceMetrics(t *testing.T) {
 	assert.Equal(t, 1500.0, power)
 }
 
+func TestTelemetryStore_StoreDeviceMetricsUsesSingleStatement(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration test in short mode")
+	}
+
+	db := testutil.GetTestDB(t)
+	store, err := timescaledb.NewTelemetryStore(db, timescaledb.DefaultConfig())
+	require.NoError(t, err)
+	ctx := t.Context()
+
+	_, err = db.ExecContext(ctx, `
+		CREATE TABLE telemetry_insert_audit (
+			trigger_level TEXT PRIMARY KEY,
+			invocations INTEGER NOT NULL DEFAULT 0
+		);
+		INSERT INTO telemetry_insert_audit (trigger_level) VALUES ('row'), ('statement');
+
+		CREATE FUNCTION audit_device_metrics_row_insert() RETURNS TRIGGER AS $$
+		BEGIN
+			UPDATE telemetry_insert_audit SET invocations = invocations + 1 WHERE trigger_level = 'row';
+			RETURN NEW;
+		END;
+		$$ LANGUAGE plpgsql;
+		CREATE TRIGGER audit_device_metrics_row_insert
+			AFTER INSERT ON device_metrics
+			FOR EACH ROW EXECUTE FUNCTION audit_device_metrics_row_insert();
+
+		CREATE FUNCTION audit_device_metrics_statement_insert() RETURNS TRIGGER AS $$
+		BEGIN
+			UPDATE telemetry_insert_audit SET invocations = invocations + 1 WHERE trigger_level = 'statement';
+			RETURN NULL;
+		END;
+		$$ LANGUAGE plpgsql;
+		CREATE TRIGGER audit_device_metrics_statement_insert
+			AFTER INSERT ON device_metrics
+			FOR EACH STATEMENT EXECUTE FUNCTION audit_device_metrics_statement_insert();
+	`)
+	require.NoError(t, err)
+
+	now := time.Now().UTC().Truncate(time.Millisecond)
+	metrics := []modelsV2.DeviceMetrics{
+		{
+			DeviceIdentifier: "batch-device-1",
+			Timestamp:        now,
+			Health:           modelsV2.HealthHealthyActive,
+			HashrateHS:       &modelsV2.MetricValue{Value: 100_000_000, Kind: modelsV2.MetricKindRate},
+			FanRPM:           &modelsV2.MetricValue{Value: 0, Kind: modelsV2.MetricKindGauge},
+			EfficiencyJH:     &modelsV2.MetricValue{Value: 15.5, Kind: modelsV2.MetricKindGauge},
+		},
+		{
+			DeviceIdentifier: "batch-device-2",
+			Timestamp:        now,
+			Health:           modelsV2.HealthWarning,
+			TempC:            &modelsV2.MetricValue{Value: 82.5, Kind: modelsV2.MetricKindGauge},
+			PowerW:           &modelsV2.MetricValue{Value: 3200, Kind: modelsV2.MetricKindGauge},
+		},
+		{
+			DeviceIdentifier: "batch-device-1",
+			Timestamp:        now,
+			Health:           modelsV2.HealthCritical,
+			HashrateHS:       &modelsV2.MetricValue{Value: 50_000_000, Kind: modelsV2.MetricKindRate},
+		},
+	}
+
+	require.NoError(t, store.StoreDeviceMetrics(ctx, metrics...))
+
+	var storedRows int
+	require.NoError(t, db.QueryRowContext(ctx, `
+		SELECT COUNT(*)
+		FROM device_metrics
+		WHERE device_identifier IN ('batch-device-1', 'batch-device-2')
+	`).Scan(&storedRows))
+	assert.Equal(t, 2, storedRows, "the duplicate timestamp/device key should retain ON CONFLICT DO NOTHING behavior")
+
+	type storedMetrics struct {
+		hashRateHS       sql.NullFloat64
+		hashRateHSKind   sql.NullString
+		tempC            sql.NullFloat64
+		tempCKind        sql.NullString
+		fanRPM           sql.NullFloat64
+		fanRPMKind       sql.NullString
+		powerW           sql.NullFloat64
+		powerWKind       sql.NullString
+		efficiencyJH     sql.NullFloat64
+		efficiencyJHKind sql.NullString
+		health           sql.NullString
+	}
+
+	readStoredMetrics := func(deviceIdentifier string) storedMetrics {
+		t.Helper()
+		var stored storedMetrics
+		require.NoError(t, db.QueryRowContext(ctx, `
+			SELECT
+				hash_rate_hs,
+				hash_rate_hs_kind,
+				temp_c,
+				temp_c_kind,
+				fan_rpm,
+				fan_rpm_kind,
+				power_w,
+				power_w_kind,
+				efficiency_jh,
+				efficiency_jh_kind,
+				health
+			FROM device_metrics
+			WHERE time = $1 AND device_identifier = $2
+		`, now, deviceIdentifier).Scan(
+			&stored.hashRateHS,
+			&stored.hashRateHSKind,
+			&stored.tempC,
+			&stored.tempCKind,
+			&stored.fanRPM,
+			&stored.fanRPMKind,
+			&stored.powerW,
+			&stored.powerWKind,
+			&stored.efficiencyJH,
+			&stored.efficiencyJHKind,
+			&stored.health,
+		))
+		return stored
+	}
+
+	assert.Equal(t, storedMetrics{
+		hashRateHS:       sql.NullFloat64{Float64: metrics[0].HashrateHS.Value, Valid: true},
+		hashRateHSKind:   sql.NullString{String: metrics[0].HashrateHS.Kind.String(), Valid: true},
+		fanRPM:           sql.NullFloat64{Float64: metrics[0].FanRPM.Value, Valid: true},
+		fanRPMKind:       sql.NullString{String: metrics[0].FanRPM.Kind.String(), Valid: true},
+		efficiencyJH:     sql.NullFloat64{Float64: metrics[0].EfficiencyJH.Value, Valid: true},
+		efficiencyJHKind: sql.NullString{String: metrics[0].EfficiencyJH.Kind.String(), Valid: true},
+		health:           sql.NullString{String: metrics[0].Health.String(), Valid: true},
+	}, readStoredMetrics(metrics[0].DeviceIdentifier))
+	assert.Equal(t, storedMetrics{
+		tempC:      sql.NullFloat64{Float64: metrics[1].TempC.Value, Valid: true},
+		tempCKind:  sql.NullString{String: metrics[1].TempC.Kind.String(), Valid: true},
+		powerW:     sql.NullFloat64{Float64: metrics[1].PowerW.Value, Valid: true},
+		powerWKind: sql.NullString{String: metrics[1].PowerW.Kind.String(), Valid: true},
+		health:     sql.NullString{String: metrics[1].Health.String(), Valid: true},
+	}, readStoredMetrics(metrics[1].DeviceIdentifier))
+
+	triggerInvocations := make(map[string]int)
+	rows, err := db.QueryContext(ctx, "SELECT trigger_level, invocations FROM telemetry_insert_audit")
+	require.NoError(t, err)
+	defer rows.Close()
+	for rows.Next() {
+		var level string
+		var invocations int
+		require.NoError(t, rows.Scan(&level, &invocations))
+		triggerInvocations[level] = invocations
+	}
+	require.NoError(t, rows.Err())
+	assert.Equal(t, 2, triggerInvocations["row"], "each inserted row should fire row-level triggers")
+	assert.Equal(t, 1, triggerInvocations["statement"], "the batch should execute as one INSERT statement")
+}
+
 func TestTelemetryStore_StoreDeviceMetricsWithAsyncCommit(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping integration test in short mode")

@@ -1,12 +1,10 @@
 -- Telemetry queries for device_metrics table and continuous aggregates
 -- Note: All device identification uses device_identifier (TEXT), not device_id (BIGINT)
 
--- name: InsertDeviceMetrics :exec
+-- name: InsertDeviceMetricsBatch :exec
 -- site_id is row-stamped from device.site_id (looked up by
 -- device_identifier) so per-site telemetry filters use the row-stamped
--- site even after the device is reassigned. Inline sub-select rather
--- than a CTE+SELECT INSERT — ON CONFLICT on the device_metrics
--- hypertable PK requires VALUES-shape INSERT. The sub-select does NOT
+-- site even after the device is reassigned. The sub-select does NOT
 -- filter by deleted_at: telemetry from a soft-deleted device is still
 -- legitimate per-site history, matching InsertError /
 -- InsertMinerStateSnapshot which also stamp from the device row
@@ -25,30 +23,46 @@ INSERT INTO device_metrics (
     power_w_kind,
     efficiency_jh,
     efficiency_jh_kind,
-    voltage_v,
-    voltage_v_kind,
-    current_a,
-    current_a_kind,
-    inlet_temp_c,
-    outlet_temp_c,
-    ambient_temp_c,
-    chip_count,
-    chip_count_kind,
-    chip_frequency_mhz,
     health,
     site_id
-) VALUES (
-    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
-    $11, $12, $13, $14, $15, $16, $17, $18, $19, $20,
-    $21, $22, $23,
+) SELECT
+    metrics.time,
+    metrics.device_identifier,
+    CASE WHEN metrics.hash_rate_hs_kind <> '' THEN metrics.hash_rate_hs END,
+    NULLIF(metrics.hash_rate_hs_kind, ''),
+    CASE WHEN metrics.temp_c_kind <> '' THEN metrics.temp_c END,
+    NULLIF(metrics.temp_c_kind, ''),
+    CASE WHEN metrics.fan_rpm_kind <> '' THEN metrics.fan_rpm END,
+    NULLIF(metrics.fan_rpm_kind, ''),
+    CASE WHEN metrics.power_w_kind <> '' THEN metrics.power_w END,
+    NULLIF(metrics.power_w_kind, ''),
+    CASE WHEN metrics.efficiency_jh_kind <> '' THEN metrics.efficiency_jh END,
+    NULLIF(metrics.efficiency_jh_kind, ''),
+    metrics.health,
     (
         SELECT site_id
         FROM device
-        WHERE device_identifier = $2
+        WHERE device_identifier = metrics.device_identifier
         ORDER BY (deleted_at IS NULL) DESC, updated_at DESC, id DESC
         LIMIT 1
     )
-) ON CONFLICT (time, device_identifier) DO NOTHING;
+FROM (
+    SELECT
+        unnest(sqlc.arg('times')::timestamptz[]) AS time,
+        unnest(sqlc.arg('device_identifiers')::text[]) AS device_identifier,
+        unnest(sqlc.arg('hash_rate_hs')::double precision[]) AS hash_rate_hs,
+        unnest(sqlc.arg('hash_rate_hs_kinds')::text[]) AS hash_rate_hs_kind,
+        unnest(sqlc.arg('temp_c')::double precision[]) AS temp_c,
+        unnest(sqlc.arg('temp_c_kinds')::text[]) AS temp_c_kind,
+        unnest(sqlc.arg('fan_rpm')::double precision[]) AS fan_rpm,
+        unnest(sqlc.arg('fan_rpm_kinds')::text[]) AS fan_rpm_kind,
+        unnest(sqlc.arg('power_w')::double precision[]) AS power_w,
+        unnest(sqlc.arg('power_w_kinds')::text[]) AS power_w_kind,
+        unnest(sqlc.arg('efficiency_jh')::double precision[]) AS efficiency_jh,
+        unnest(sqlc.arg('efficiency_jh_kinds')::text[]) AS efficiency_jh_kind,
+        unnest(sqlc.arg('health')::text[]) AS health
+) AS metrics
+ON CONFLICT (time, device_identifier) DO NOTHING;
 
 -- name: GetLatestDeviceMetrics :many
 SELECT
