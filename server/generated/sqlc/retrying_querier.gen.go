@@ -3152,6 +3152,18 @@ func (q *retryingQuerier) GetContainerTopologyIdentities(ctx context.Context, de
 	return result, err
 }
 
+func (q *retryingQuerier) GetContainerTopologyVersionID(ctx context.Context, arg GetContainerTopologyVersionIDParams) (int64, error) {
+	var result int64
+	err := q.retrier.RetryQuery(ctx, "GetContainerTopologyVersionID", func() error {
+		callResult, callErr := q.next.GetContainerTopologyVersionID(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) GetCurtailmentAutomationExecutionGrant(ctx context.Context, arg GetCurtailmentAutomationExecutionGrantParams) (CurtailmentAutomationExecutionGrant, error) {
 	var result CurtailmentAutomationExecutionGrant
 	err := q.retrier.RetryQuery(ctx, "GetCurtailmentAutomationExecutionGrant", func() error {
@@ -5886,6 +5898,12 @@ func (q *retryingQuerier) InsertContainerTopologyObservation(ctx context.Context
 		return callErr
 	})
 	return result, err
+}
+
+func (q *retryingQuerier) InsertContainerTopologyVersion(ctx context.Context, arg InsertContainerTopologyVersionParams) error {
+	return q.retrier.RetryQuery(ctx, "InsertContainerTopologyVersion", func() error {
+		return q.next.InsertContainerTopologyVersion(ctx, arg)
+	})
 }
 
 func (q *retryingQuerier) InsertCurtailmentAutomationRule(ctx context.Context, arg InsertCurtailmentAutomationRuleParams) (CurtailmentAutomationRule, error) {
@@ -11706,18 +11724,6 @@ func (q *retryingQuerier) UpsertContainerRollup(ctx context.Context, arg UpsertC
 	return q.retrier.RetryQuery(ctx, "UpsertContainerRollup", func() error {
 		return q.next.UpsertContainerRollup(ctx, arg)
 	})
-}
-
-func (q *retryingQuerier) UpsertContainerTopologyVersion(ctx context.Context, arg UpsertContainerTopologyVersionParams) (int64, error) {
-	var result int64
-	err := q.retrier.RetryQuery(ctx, "UpsertContainerTopologyVersion", func() error {
-		callResult, callErr := q.next.UpsertContainerTopologyVersion(ctx, arg)
-		if callErr == nil {
-			result = callResult
-		}
-		return callErr
-	})
-	return result, err
 }
 
 func (q *retryingQuerier) UpsertCurtailmentAutomationExecutionGrant(ctx context.Context, arg UpsertCurtailmentAutomationExecutionGrantParams) error {

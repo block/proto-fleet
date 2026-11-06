@@ -1,8 +1,11 @@
--- name: UpsertContainerTopologyVersion :one
+-- name: InsertContainerTopologyVersion :exec
 INSERT INTO container_topology_version(device_id, fingerprint, topology)
 VALUES (sqlc.arg('device_id'), sqlc.arg('fingerprint'), sqlc.arg('topology'))
-ON CONFLICT(device_id, fingerprint) DO UPDATE SET fingerprint=EXCLUDED.fingerprint
-RETURNING id;
+ON CONFLICT(device_id, fingerprint) DO NOTHING;
+
+-- name: GetContainerTopologyVersionID :one
+SELECT id FROM container_topology_version
+WHERE device_id=sqlc.arg('device_id') AND fingerprint=sqlc.arg('fingerprint');
 
 -- Board health time can precede the poll. Stamp only samples inserted by this
 -- collection. The function groups by exact source time and supplies explicit

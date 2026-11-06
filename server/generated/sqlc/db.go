@@ -894,6 +894,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.getContainerTopologyIdentitiesStmt, err = db.PrepareContext(ctx, getContainerTopologyIdentities); err != nil {
 		return nil, fmt.Errorf("error preparing query GetContainerTopologyIdentities: %w", err)
 	}
+	if q.getContainerTopologyVersionIDStmt, err = db.PrepareContext(ctx, getContainerTopologyVersionID); err != nil {
+		return nil, fmt.Errorf("error preparing query GetContainerTopologyVersionID: %w", err)
+	}
 	if q.getCurtailmentAutomationExecutionGrantStmt, err = db.PrepareContext(ctx, getCurtailmentAutomationExecutionGrant); err != nil {
 		return nil, fmt.Errorf("error preparing query GetCurtailmentAutomationExecutionGrant: %w", err)
 	}
@@ -1589,6 +1592,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.insertContainerTopologyObservationStmt, err = db.PrepareContext(ctx, insertContainerTopologyObservation); err != nil {
 		return nil, fmt.Errorf("error preparing query InsertContainerTopologyObservation: %w", err)
+	}
+	if q.insertContainerTopologyVersionStmt, err = db.PrepareContext(ctx, insertContainerTopologyVersion); err != nil {
+		return nil, fmt.Errorf("error preparing query InsertContainerTopologyVersion: %w", err)
 	}
 	if q.insertCurtailmentAutomationRuleStmt, err = db.PrepareContext(ctx, insertCurtailmentAutomationRule); err != nil {
 		return nil, fmt.Errorf("error preparing query InsertCurtailmentAutomationRule: %w", err)
@@ -3288,9 +3294,6 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.upsertContainerRollupStmt, err = db.PrepareContext(ctx, upsertContainerRollup); err != nil {
 		return nil, fmt.Errorf("error preparing query UpsertContainerRollup: %w", err)
 	}
-	if q.upsertContainerTopologyVersionStmt, err = db.PrepareContext(ctx, upsertContainerTopologyVersion); err != nil {
-		return nil, fmt.Errorf("error preparing query UpsertContainerTopologyVersion: %w", err)
-	}
 	if q.upsertCurtailmentAutomationExecutionGrantStmt, err = db.PrepareContext(ctx, upsertCurtailmentAutomationExecutionGrant); err != nil {
 		return nil, fmt.Errorf("error preparing query UpsertCurtailmentAutomationExecutionGrant: %w", err)
 	}
@@ -4815,6 +4818,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing getContainerTopologyIdentitiesStmt: %w", cerr)
 		}
 	}
+	if q.getContainerTopologyVersionIDStmt != nil {
+		if cerr := q.getContainerTopologyVersionIDStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getContainerTopologyVersionIDStmt: %w", cerr)
+		}
+	}
 	if q.getCurtailmentAutomationExecutionGrantStmt != nil {
 		if cerr := q.getCurtailmentAutomationExecutionGrantStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getCurtailmentAutomationExecutionGrantStmt: %w", cerr)
@@ -5973,6 +5981,11 @@ func (q *Queries) Close() error {
 	if q.insertContainerTopologyObservationStmt != nil {
 		if cerr := q.insertContainerTopologyObservationStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing insertContainerTopologyObservationStmt: %w", cerr)
+		}
+	}
+	if q.insertContainerTopologyVersionStmt != nil {
+		if cerr := q.insertContainerTopologyVersionStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing insertContainerTopologyVersionStmt: %w", cerr)
 		}
 	}
 	if q.insertCurtailmentAutomationRuleStmt != nil {
@@ -8805,11 +8818,6 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing upsertContainerRollupStmt: %w", cerr)
 		}
 	}
-	if q.upsertContainerTopologyVersionStmt != nil {
-		if cerr := q.upsertContainerTopologyVersionStmt.Close(); cerr != nil {
-			err = fmt.Errorf("error closing upsertContainerTopologyVersionStmt: %w", cerr)
-		}
-	}
 	if q.upsertCurtailmentAutomationExecutionGrantStmt != nil {
 		if cerr := q.upsertCurtailmentAutomationExecutionGrantStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing upsertCurtailmentAutomationExecutionGrantStmt: %w", cerr)
@@ -9254,6 +9262,7 @@ type Queries struct {
 	getContainerTankHistoryStmt                                 *sql.Stmt
 	getContainerTankScopeStmt                                   *sql.Stmt
 	getContainerTopologyIdentitiesStmt                          *sql.Stmt
+	getContainerTopologyVersionIDStmt                           *sql.Stmt
 	getCurtailmentAutomationExecutionGrantStmt                  *sql.Stmt
 	getCurtailmentAutomationRuleByOrgStmt                       *sql.Stmt
 	getCurtailmentDispatchRejectionStmt                         *sql.Stmt
@@ -9486,6 +9495,7 @@ type Queries struct {
 	insertContainerSetpointsStmt                                *sql.Stmt
 	insertContainerTankRollupsStmt                              *sql.Stmt
 	insertContainerTopologyObservationStmt                      *sql.Stmt
+	insertContainerTopologyVersionStmt                          *sql.Stmt
 	insertCurtailmentAutomationRuleStmt                         *sql.Stmt
 	insertCurtailmentEventStmt                                  *sql.Stmt
 	insertCurtailmentResponseProfileStmt                        *sql.Stmt
@@ -10052,7 +10062,6 @@ type Queries struct {
 	upsertContainerFansStmt                                     *sql.Stmt
 	upsertContainerHAStmt                                       *sql.Stmt
 	upsertContainerRollupStmt                                   *sql.Stmt
-	upsertContainerTopologyVersionStmt                          *sql.Stmt
 	upsertCurtailmentAutomationExecutionGrantStmt               *sql.Stmt
 	upsertCurtailmentAutomationScheduleStmt                     *sql.Stmt
 	upsertCurtailmentAutomationSignalStateStmt                  *sql.Stmt
@@ -10372,6 +10381,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getContainerTankHistoryStmt:                                 q.getContainerTankHistoryStmt,
 		getContainerTankScopeStmt:                                   q.getContainerTankScopeStmt,
 		getContainerTopologyIdentitiesStmt:                          q.getContainerTopologyIdentitiesStmt,
+		getContainerTopologyVersionIDStmt:                           q.getContainerTopologyVersionIDStmt,
 		getCurtailmentAutomationExecutionGrantStmt:                  q.getCurtailmentAutomationExecutionGrantStmt,
 		getCurtailmentAutomationRuleByOrgStmt:                       q.getCurtailmentAutomationRuleByOrgStmt,
 		getCurtailmentDispatchRejectionStmt:                         q.getCurtailmentDispatchRejectionStmt,
@@ -10604,6 +10614,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		insertContainerSetpointsStmt:                               q.insertContainerSetpointsStmt,
 		insertContainerTankRollupsStmt:                             q.insertContainerTankRollupsStmt,
 		insertContainerTopologyObservationStmt:                     q.insertContainerTopologyObservationStmt,
+		insertContainerTopologyVersionStmt:                         q.insertContainerTopologyVersionStmt,
 		insertCurtailmentAutomationRuleStmt:                        q.insertCurtailmentAutomationRuleStmt,
 		insertCurtailmentEventStmt:                                 q.insertCurtailmentEventStmt,
 		insertCurtailmentResponseProfileStmt:                       q.insertCurtailmentResponseProfileStmt,
@@ -11170,7 +11181,6 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		upsertContainerFansStmt:                                    q.upsertContainerFansStmt,
 		upsertContainerHAStmt:                                      q.upsertContainerHAStmt,
 		upsertContainerRollupStmt:                                  q.upsertContainerRollupStmt,
-		upsertContainerTopologyVersionStmt:                         q.upsertContainerTopologyVersionStmt,
 		upsertCurtailmentAutomationExecutionGrantStmt:              q.upsertCurtailmentAutomationExecutionGrantStmt,
 		upsertCurtailmentAutomationScheduleStmt:                    q.upsertCurtailmentAutomationScheduleStmt,
 		upsertCurtailmentAutomationSignalStateStmt:                 q.upsertCurtailmentAutomationSignalStateStmt,

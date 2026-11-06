@@ -181,6 +181,23 @@ func (q *Queries) GetContainerTopologyIdentities(ctx context.Context, deviceID i
 	return items, nil
 }
 
+const getContainerTopologyVersionID = `-- name: GetContainerTopologyVersionID :one
+SELECT id FROM container_topology_version
+WHERE device_id=$1 AND fingerprint=$2
+`
+
+type GetContainerTopologyVersionIDParams struct {
+	DeviceID    int64
+	Fingerprint string
+}
+
+func (q *Queries) GetContainerTopologyVersionID(ctx context.Context, arg GetContainerTopologyVersionIDParams) (int64, error) {
+	row := q.queryRow(ctx, q.getContainerTopologyVersionIDStmt, getContainerTopologyVersionID, arg.DeviceID, arg.Fingerprint)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
+}
+
 const getHashboardMetricWatermarks = `-- name: GetHashboardMetricWatermarks :many
 SELECT hashboard_id, time FROM hashboard_latest_metrics WHERE hashboard_id=ANY($1::bigint[])
 `
@@ -345,6 +362,23 @@ func (q *Queries) InsertContainerTopologyObservation(ctx context.Context, arg In
 	return id, err
 }
 
+const insertContainerTopologyVersion = `-- name: InsertContainerTopologyVersion :exec
+INSERT INTO container_topology_version(device_id, fingerprint, topology)
+VALUES ($1, $2, $3)
+ON CONFLICT(device_id, fingerprint) DO NOTHING
+`
+
+type InsertContainerTopologyVersionParams struct {
+	DeviceID    int64
+	Fingerprint string
+	Topology    json.RawMessage
+}
+
+func (q *Queries) InsertContainerTopologyVersion(ctx context.Context, arg InsertContainerTopologyVersionParams) error {
+	_, err := q.exec(ctx, q.insertContainerTopologyVersionStmt, insertContainerTopologyVersion, arg.DeviceID, arg.Fingerprint, arg.Topology)
+	return err
+}
+
 const isContainerMetricSelector = `-- name: IsContainerMetricSelector :one
 SELECT EXISTS(SELECT 1 FROM device d JOIN discovered_device dd ON dd.id=d.discovered_device_id WHERE d.device_identifier=$1 AND dd.device_class=2)::boolean
 `
@@ -421,26 +455,6 @@ func (q *Queries) UpsertContainerRollup(ctx context.Context, arg UpsertContainer
 		arg.Coverage,
 	)
 	return err
-}
-
-const upsertContainerTopologyVersion = `-- name: UpsertContainerTopologyVersion :one
-INSERT INTO container_topology_version(device_id, fingerprint, topology)
-VALUES ($1, $2, $3)
-ON CONFLICT(device_id, fingerprint) DO UPDATE SET fingerprint=EXCLUDED.fingerprint
-RETURNING id
-`
-
-type UpsertContainerTopologyVersionParams struct {
-	DeviceID    int64
-	Fingerprint string
-	Topology    json.RawMessage
-}
-
-func (q *Queries) UpsertContainerTopologyVersion(ctx context.Context, arg UpsertContainerTopologyVersionParams) (int64, error) {
-	row := q.queryRow(ctx, q.upsertContainerTopologyVersionStmt, upsertContainerTopologyVersion, arg.DeviceID, arg.Fingerprint, arg.Topology)
-	var id int64
-	err := row.Scan(&id)
-	return id, err
 }
 
 const withdrawHashboardReadings = `-- name: WithdrawHashboardReadings :exec

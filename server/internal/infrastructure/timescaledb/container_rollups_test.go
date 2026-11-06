@@ -1,6 +1,7 @@
 package timescaledb
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -92,6 +93,85 @@ func TestStoredContainerRollupsVersionTopologyIndependentlyOfMeasurements(t *tes
 	require.Equal(t, 2, semantics)
 	require.Equal(t, 300e12, savedHash)
 	require.True(t, observationID.Valid)
+}
+
+func TestStoredContainerRollupsReuseTopologyWithoutUpdate(t *testing.T) {
+	r := newContainerRollupRig(t)
+	r.store(t, r.snapshot(0, false, 100e12, 200e12))
+
+	_, err := r.db.ExecContext(t.Context(), `
+CREATE FUNCTION reject_container_topology_version_update() RETURNS trigger
+LANGUAGE plpgsql AS $$
+BEGIN
+ RAISE EXCEPTION 'container topology versions are immutable';
+END;
+$$`)
+	require.NoError(t, err)
+	_, err = r.db.ExecContext(t.Context(), `
+CREATE TRIGGER reject_container_topology_version_update
+BEFORE UPDATE ON container_topology_version
+FOR EACH ROW EXECUTE FUNCTION reject_container_topology_version_update()`)
+	require.NoError(t, err)
+
+	r.store(t, r.snapshot(time.Second, false, 110e12, 220e12))
+}
+
+func TestGetOrInsertContainerTopologyVersionReturnsOneConcurrentID(t *testing.T) {
+	r := newContainerRollupRig(t)
+	ctx := t.Context()
+	topology := json.RawMessage(`{"schema":1}`)
+	const fingerprint = "concurrent-topology-version"
+
+	winner, err := r.db.BeginTx(ctx, nil)
+	require.NoError(t, err)
+	defer winner.Rollback() //nolint:errcheck // Commit is checked below; rollback is best-effort cleanup.
+	var expectedID int64
+	require.NoError(t, winner.QueryRowContext(ctx, `
+INSERT INTO container_topology_version(device_id, fingerprint, topology)
+VALUES ($1, $2, $3) RETURNING id`, r.databaseID, fingerprint, topology).Scan(&expectedID))
+
+	loser, err := r.db.BeginTx(ctx, nil)
+	require.NoError(t, err)
+	defer loser.Rollback() //nolint:errcheck // The goroutine checks commit; rollback also unblocks failures.
+	loserCtx, cancelLoser := context.WithCancel(ctx)
+	defer cancelLoser()
+	var loserPID int64
+	require.NoError(t, loser.QueryRowContext(ctx, `SELECT pg_backend_pid()`).Scan(&loserPID))
+	type versionResult struct {
+		id  int64
+		err error
+	}
+	result := make(chan versionResult, 1)
+	go func() {
+		id, insertErr := getOrInsertContainerTopologyVersion(loserCtx, sqlc.New(loser), r.databaseID, fingerprint, topology)
+		if insertErr == nil {
+			insertErr = loser.Commit()
+		}
+		result <- versionResult{id: id, err: insertErr}
+	}()
+
+	require.Eventually(t, func() bool {
+		var waiting bool
+		err := r.db.QueryRowContext(ctx, `
+SELECT COALESCE(wait_event_type='Lock', false)
+FROM pg_stat_activity WHERE pid=$1`, loserPID).Scan(&waiting)
+		return err == nil && waiting
+	}, 5*time.Second, 10*time.Millisecond, "losing insert never waited on the winner transaction")
+	require.NoError(t, winner.Commit())
+
+	var got versionResult
+	select {
+	case got = <-result:
+	case <-time.After(5 * time.Second):
+		t.Fatal("losing transaction did not finish after winner committed")
+	}
+	require.NoError(t, got.err)
+	require.Equal(t, expectedID, got.id)
+	var versions int
+	require.NoError(t, r.db.QueryRowContext(ctx, `
+SELECT count(*) FROM container_topology_version
+WHERE device_id=$1 AND fingerprint=$2`, r.databaseID, fingerprint).Scan(&versions))
+	require.Equal(t, 1, versions)
 }
 
 func TestStoredContainerRollupsMovesPreserveSavedTankTotals(t *testing.T) {
