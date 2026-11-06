@@ -2,6 +2,7 @@ import { act, renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, expect, it, vi } from "vitest";
 import { create } from "@bufbuild/protobuf";
 import { timestampFromMs } from "@bufbuild/protobuf/wkt";
+import { moduleHistoryChart } from "../moduleHistoryChart";
 import { useModuleHistory } from "./useModuleHistory";
 import { ModuleSampleSchema } from "@/protoFleet/api/generated/fleetinventory/v1/fleetinventory_pb";
 
@@ -30,6 +31,63 @@ it("loads every page within one fixed time window before publishing history", as
     ...api.listModuleHistory.mock.calls[0][0],
     pageToken: "next",
   });
+});
+it("publishes a complete 1000+2 sample window and keeps cross-page tuple ties and missing values correct in charts", async () => {
+  const start = Math.floor((Date.now() - 20 * 3600_000) / 90_000) * 90_000;
+  const firstPage = Array.from({ length: 1000 }, (_, index) =>
+    create(ModuleSampleSchema, {
+      observedAt: timestampFromMs(start + index * 60_000),
+      collectedAt: timestampFromMs(start + index * 60_000 + 1000),
+      hashrateHs: 10e12,
+    }),
+  );
+  const lastAt = start + 999 * 60_000;
+  const secondPage = [
+    create(ModuleSampleSchema, {
+      observedAt: timestampFromMs(lastAt),
+      collectedAt: timestampFromMs(lastAt + 2000),
+      hashrateHs: 0,
+      efficiencyJh: 0,
+    }),
+    create(ModuleSampleSchema, { observedAt: timestampFromMs(lastAt + 180_000) }),
+  ];
+  let finish!: (value: unknown) => void;
+  api.listModuleHistory
+    .mockResolvedValueOnce({ samples: firstPage, nextPageToken: "second" })
+    .mockImplementationOnce(() => new Promise((resolve) => (finish = resolve)));
+  const { result } = renderHook(() => useModuleHistory(91n, "24h", true));
+  await waitFor(() => expect(api.listModuleHistory).toHaveBeenCalledTimes(2));
+  expect(result.current.samples).toBeUndefined();
+  const [initial, initialOptions] = api.listModuleHistory.mock.calls[0];
+  const [continuation, continuationOptions] = api.listModuleHistory.mock.calls[1];
+  expect(initial).toMatchObject({ moduleId: 91n, pageSize: 1000, pageToken: "" });
+  expect(continuation).toEqual({ ...initial, pageToken: "second" });
+  expect(initialOptions.timeoutMs).toBe(10_000);
+  expect(continuationOptions).toEqual(initialOptions);
+  expect(Number(initial.endTime.seconds - initial.startTime.seconds)).toBe(24 * 3600);
+  await act(async () => finish({ samples: secondPage, nextPageToken: "" }));
+  expect(result.current.samples).toHaveLength(1002);
+  expect(result.current.error).toBeUndefined();
+  const points = moduleHistoryChart(result.current.samples!, "24h", "C");
+  expect(points.find((point) => point.datetime === lastAt)).toMatchObject({
+    hashrate: 0,
+    power: null,
+    efficiency: 0,
+    temperature: null,
+  });
+  expect(points.find((point) => point.datetime === lastAt + 90_000)?.hashrate).toBeNull();
+  expect(points.find((point) => point.datetime === lastAt + 180_000)?.hashrate).toBeNull();
+});
+
+it("reports a failed continuation without publishing the successful first page as a complete chart", async () => {
+  api.listModuleHistory
+    .mockResolvedValueOnce({ samples: [sample], nextPageToken: "second" })
+    .mockRejectedValueOnce(new Error("History deadline exceeded"));
+  const { result } = renderHook(() => useModuleHistory(91n, "24h", true));
+  await waitFor(() => expect(result.current.error).toContain("History deadline exceeded"));
+  expect(result.current.samples).toEqual([]);
+  expect(result.current.endTime).toBeUndefined();
+  expect(api.listModuleHistory).toHaveBeenCalledTimes(2);
 });
 it("clears history on failure and retries", async () => {
   const { result } = renderHook(() => useModuleHistory(91n, "1h", true));
