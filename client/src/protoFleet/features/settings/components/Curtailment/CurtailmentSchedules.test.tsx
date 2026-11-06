@@ -261,6 +261,37 @@ describe("CurtailmentSchedulesContent", () => {
 
     expect(screen.getByRole("checkbox")).toBeDisabled();
   });
+
+  it("disables an enabled schedule without a profile revision", () => {
+    const onToggleSchedule = vi.fn().mockResolvedValue(undefined);
+    render(
+      <CurtailmentSchedulesContent
+        scheduleRules={[weeknightRule]}
+        responseProfiles={responseProfiles}
+        onToggleSchedule={onToggleSchedule}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("checkbox"));
+
+    expect(onToggleSchedule).toHaveBeenCalledWith(weeknightRule, false, undefined);
+  });
+
+  it("sends the response profile revision when enabling a schedule", () => {
+    const onToggleSchedule = vi.fn().mockResolvedValue(undefined);
+    const disabledRule = { ...weeknightRule, enabled: false };
+    render(
+      <CurtailmentSchedulesContent
+        scheduleRules={[disabledRule]}
+        responseProfiles={responseProfiles}
+        onToggleSchedule={onToggleSchedule}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("checkbox"));
+
+    expect(onToggleSchedule).toHaveBeenCalledWith(disabledRule, true, responseProfiles[0].revision);
+  });
 });
 
 describe("describeNextScheduleWindow", () => {

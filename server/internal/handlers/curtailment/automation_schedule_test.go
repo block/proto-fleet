@@ -62,6 +62,32 @@ func TestAutomationScheduleRequestRoundTrip(t *testing.T) {
 	assert.Equal(t, 8*time.Hour, out.GetWindowEndAt().AsTime().Sub(out.GetWindowStartAt().AsTime()))
 }
 
+func TestAutomationScheduleUpdateRequest(t *testing.T) {
+	t.Parallel()
+	rule := automationRuleFromUpdateRequest(42, 502, &pb.UpdateCurtailmentAutomationRuleRequest{
+		RuleId:            9,
+		RuleName:          "Weeknight peak",
+		TriggerType:       pb.CurtailmentAutomationTriggerType_CURTAILMENT_AUTOMATION_TRIGGER_TYPE_SCHEDULE,
+		Schedule:          weeknightScheduleProto(),
+		ResponseProfileId: 3001,
+	})
+
+	assert.Equal(t, int64(9), rule.ID)
+	assert.Equal(t, models.AutomationTriggerTypeSchedule, rule.TriggerType)
+	assert.Equal(t, int64(0), rule.MQTTSourceID)
+	require.NotNil(t, rule.Schedule)
+	assert.Equal(t, int64(502), rule.Schedule.ServiceUserID, "the updating user runs the schedule")
+	assert.Equal(t, schedulewindow.Definition{
+		Type:       schedulewindow.TypeRecurring,
+		Timezone:   "America/Chicago",
+		StartDate:  "2026-06-01",
+		StartTime:  "22:00",
+		EndTime:    "06:00",
+		Frequency:  schedulewindow.FrequencyWeekly,
+		DaysOfWeek: []time.Weekday{time.Monday, time.Friday},
+	}, rule.Schedule.Definition)
+}
+
 func TestSetAutomationScheduleWindow(t *testing.T) {
 	t.Parallel()
 	schedule := &models.AutomationSchedule{Definition: schedulewindow.Definition{
@@ -114,6 +140,39 @@ func TestCreateAutomationRuleRequestTriggerValidation(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
+			tt.req.RuleName = "rule"
+			tt.req.ResponseProfileId = 3001
+			tt.req.ExpectedResponseProfileRevision = uuid.NewString()
+			err := protovalidate.Validate(tt.req)
+			if tt.ok {
+				assert.NoError(t, err)
+				return
+			}
+			assert.Error(t, err)
+		})
+	}
+}
+
+func TestUpdateAutomationRuleRequestTriggerValidation(t *testing.T) {
+	t.Parallel()
+	schedule := pb.CurtailmentAutomationTriggerType_CURTAILMENT_AUTOMATION_TRIGGER_TYPE_SCHEDULE
+	mqtt := pb.CurtailmentAutomationTriggerType_CURTAILMENT_AUTOMATION_TRIGGER_TYPE_MQTT
+	tests := []struct {
+		name string
+		req  *pb.UpdateCurtailmentAutomationRuleRequest
+		ok   bool
+	}{
+		{"schedule rule", &pb.UpdateCurtailmentAutomationRuleRequest{TriggerType: schedule, Schedule: weeknightScheduleProto()}, true},
+		{"mqtt rule", &pb.UpdateCurtailmentAutomationRuleRequest{TriggerType: mqtt, MqttSourceId: 7}, true},
+		{"schedule rule with source", &pb.UpdateCurtailmentAutomationRuleRequest{TriggerType: schedule, Schedule: weeknightScheduleProto(), MqttSourceId: 7}, false},
+		{"schedule rule without schedule", &pb.UpdateCurtailmentAutomationRuleRequest{TriggerType: schedule}, false},
+		{"mqtt rule without source", &pb.UpdateCurtailmentAutomationRuleRequest{TriggerType: mqtt}, false},
+		{"mqtt rule with schedule", &pb.UpdateCurtailmentAutomationRuleRequest{TriggerType: mqtt, MqttSourceId: 7, Schedule: weeknightScheduleProto()}, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			tt.req.RuleId = 9
 			tt.req.RuleName = "rule"
 			tt.req.ResponseProfileId = 3001
 			tt.req.ExpectedResponseProfileRevision = uuid.NewString()
