@@ -321,10 +321,9 @@ When implementing or updating endpoints, verify these common patterns from the O
 ### Cross-Reference with miner-firmware
 
 The reference implementation is in the private `miner-firmware` repository at:
-- `crates/miner-api-server/src/models/` - Rust struct definitions with `#[serde(rename = "...")]`
-- `crates/miner-api-server/src/controllers/` - Handler implementations
+- `services/mdk-server/` - MDK server, including the MDK v1 handlers
 
-When in doubt, check the Rust models to see the exact JSON field names expected.
+When in doubt, check the MDK v1 handlers to see the exact JSON field names expected.
 
 ### Source of Truth
 
