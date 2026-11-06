@@ -114,3 +114,28 @@ func TestUploadHeartbeat_NotFoundForUnknownFleetNode(t *testing.T) {
 	require.Error(t, err)
 	assert.True(t, fleeterror.IsNotFoundError(err))
 }
+
+func TestHeartbeatStoreReplayPreservesNewerMetadata(t *testing.T) {
+	_, db, nodeID := newHeartbeatHandler(t)
+	store := sqlstores.NewSQLFleetNodeEnrollmentStore(db)
+	newer := time.Now().UTC().Truncate(time.Microsecond)
+	for _, observation := range []struct {
+		at      time.Time
+		address string
+		version string
+	}{
+		{newer, "10.0.0.2", "newer-version"},
+		{newer.Add(-time.Minute), "10.0.0.1", "older-version"},
+		{newer, "10.0.0.2", "newer-version"},
+	} {
+		rows, err := store.UpdateLastSeen(t.Context(), nodeID, 1, observation.at, []string{observation.address}, observation.version)
+		require.NoError(t, err)
+		require.EqualValues(t, 1, rows)
+		var at time.Time
+		var address, version string
+		require.NoError(t, db.QueryRow(`SELECT last_seen_at, ip_addresses[1], version FROM fleet_node_heartbeat WHERE fleet_node_id=$1`, nodeID).Scan(&at, &address, &version))
+		assert.Equal(t, newer, at.UTC())
+		assert.Equal(t, "10.0.0.2", address)
+		assert.Equal(t, "newer-version", version)
+	}
+}
