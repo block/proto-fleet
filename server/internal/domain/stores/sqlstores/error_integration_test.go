@@ -11,6 +11,8 @@ import (
 	"github.com/block/proto-fleet/server/generated/sqlc"
 	"github.com/block/proto-fleet/server/internal/domain/diagnostics/models"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	minermodels "github.com/block/proto-fleet/server/internal/domain/miner/models"
+	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 	"github.com/block/proto-fleet/server/internal/domain/stores/sqlstores"
 	"github.com/block/proto-fleet/server/internal/testutil"
 	"github.com/stretchr/testify/assert"
@@ -1002,48 +1004,70 @@ func TestSQLErrorStore_CloseStaleErrors_ShouldCloseOnlyStaleErrorsWithRecentPoll
 		t.Skip("Skipping database integration test in short mode")
 	}
 
-	db, orgID, deviceIdentifier := setupErrorTestData(t)
-	store := newErrorStore(db)
-	queries := sqlc.New(db)
-	ctx := t.Context()
+	for _, tc := range []struct {
+		name      string
+		threshold time.Duration
+		statusAge time.Duration
+	}{
+		{"default freshness", 2 * time.Minute, 5 * time.Minute},
+		{"short freshness", 20 * time.Second, 30 * time.Second},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			db, orgID, deviceIdentifier := setupErrorTestData(t)
+			store := newErrorStore(db)
+			queries := sqlc.New(db)
+			ctx := t.Context()
 
-	// Get device ID for status insertion
-	deviceID, err := queries.GetDeviceIDByIdentifier(ctx, sqlc.GetDeviceIDByIdentifierParams{
-		DeviceIdentifier: deviceIdentifier,
-		OrgID:            orgID,
-	})
-	require.NoError(t, err)
+			// Get device ID for status insertion
+			deviceID, err := queries.GetDeviceIDByIdentifier(ctx, sqlc.GetDeviceIDByIdentifierParams{
+				DeviceIdentifier: deviceIdentifier,
+				OrgID:            orgID,
+			})
+			require.NoError(t, err)
 
-	// Arrange: Create a stale error (last seen 5 minutes ago)
-	staleError := createTestErrorMessage(deviceIdentifier)
-	staleTime := time.Now().Add(-5 * time.Minute).Truncate(time.Microsecond)
-	staleError.FirstSeenAt = staleTime.Add(-time.Hour)
-	staleError.LastSeenAt = staleTime
-	inserted, err := store.UpsertError(ctx, orgID, deviceIdentifier, staleError)
-	require.NoError(t, err)
+			// Arrange: Create a stale error (last seen 5 minutes ago)
+			staleError := createTestErrorMessage(deviceIdentifier)
+			staleTime := time.Now().Add(-5 * time.Minute).Truncate(time.Microsecond)
+			staleError.FirstSeenAt = staleTime.Add(-time.Hour)
+			staleError.LastSeenAt = staleTime
+			inserted, err := store.UpsertError(ctx, orgID, deviceIdentifier, staleError)
+			require.NoError(t, err)
 
-	// Arrange: Insert recent device status (1 minute ago) - confirms device was polled
-	recentStatus := time.Now().Add(-1 * time.Minute).Truncate(time.Microsecond)
-	err = queries.UpsertDeviceStatus(ctx, sqlc.UpsertDeviceStatusParams{
-		DeviceID:        deviceID,
-		StatusTimestamp: sql.NullTime{Time: recentStatus, Valid: true},
-		Status:          sqlc.DeviceStatusEnumACTIVE,
-		StatusDetails:   sql.NullString{String: "{}", Valid: true},
-	})
-	require.NoError(t, err)
+			// An unchanged status must still refresh periodically so the closer has
+			// recent evidence of polling, even when the device stays ACTIVE indefinitely.
+			oldStatus := time.Now().Add(-tc.statusAge).Truncate(time.Microsecond)
+			err = queries.UpsertDeviceStatus(ctx, sqlc.UpsertDeviceStatusParams{
+				DeviceID:        deviceID,
+				StatusTimestamp: sql.NullTime{Time: oldStatus, Valid: true},
+				Status:          sqlc.DeviceStatusEnumACTIVE,
+				StatusDetails:   sql.NullString{String: "{}", Valid: true},
+			})
+			require.NoError(t, err)
 
-	// Act: Close errors stale for more than 3 minutes
-	threshold := 3 * time.Minute
-	closed, err := store.CloseStaleErrors(ctx, threshold)
+			threshold := tc.threshold
+			closed, err := store.CloseStaleErrors(ctx, threshold)
+			require.NoError(t, err)
+			require.Zero(t, closed, "old status cannot confirm a recent poll")
 
-	// Assert
-	require.NoError(t, err)
-	assert.Equal(t, int64(1), closed, "Should close 1 stale error")
+			deviceStore := sqlstores.NewSQLDeviceStore(db).WithStatusFreshnessThreshold(threshold)
+			updates := []interfaces.DeviceStatusUpdate{{DeviceIdentifier: minermodels.DeviceIdentifier(deviceIdentifier), Status: minermodels.MinerStatusActive}}
+			require.NoError(t, deviceStore.UpsertDeviceStatuses(ctx, updates))
+			// A coalesced follow-up poll must also report success.
+			require.NoError(t, deviceStore.UpsertDeviceStatuses(ctx, updates))
 
-	// Assert: Verify error is now closed
-	closedError, err := store.GetErrorByErrorID(ctx, orgID, inserted.ErrorID)
-	require.NoError(t, err)
-	assert.NotNil(t, closedError.ClosedAt, "Error should be closed")
+			// Act: Close stale errors using the refreshed unchanged status.
+			closed, err = store.CloseStaleErrors(ctx, threshold)
+
+			// Assert
+			require.NoError(t, err)
+			assert.Equal(t, int64(1), closed, "Should close 1 stale error")
+
+			// Assert: Verify error is now closed
+			closedError, err := store.GetErrorByErrorID(ctx, orgID, inserted.ErrorID)
+			require.NoError(t, err)
+			assert.NotNil(t, closedError.ClosedAt, "Error should be closed")
+		})
+	}
 }
 
 func TestSQLErrorStore_CloseStaleErrors_ShouldNotCloseIfNoRecentPoll(t *testing.T) {

@@ -59,12 +59,24 @@ func handleQueryError(err error, notFoundMsg, internalMsg string) error {
 
 type SQLDeviceStore struct {
 	SQLConnectionManager
+	statusRefreshInterval time.Duration
 }
 
 func NewSQLDeviceStore(conn *sql.DB) *SQLDeviceStore {
 	return &SQLDeviceStore{
-		SQLConnectionManager: NewSQLConnectionManager(conn),
+		SQLConnectionManager:  NewSQLConnectionManager(conn),
+		statusRefreshInterval: time.Minute,
 	}
+}
+
+// WithStatusFreshnessThreshold limits the refresh interval to half the closer's
+// freshness threshold, capped at one minute. Call it before polling starts.
+// Nonpositive thresholds retain the default, matching diagnostics configuration.
+func (s *SQLDeviceStore) WithStatusFreshnessThreshold(threshold time.Duration) *SQLDeviceStore {
+	if threshold > 0 {
+		s.statusRefreshInterval = min(time.Minute, threshold/2)
+	}
+	return s
 }
 
 func (s *SQLDeviceStore) getQueries(ctx context.Context) sqlc.Querier {
@@ -765,7 +777,8 @@ func (s *SQLDeviceStore) ReconcileRebootRequiredStatus(ctx context.Context, devi
 	return updated > 0, nil
 }
 
-// UpsertDeviceStatuses upserts multiple device statuses in a single bulk query.
+// UpsertDeviceStatuses writes status changes immediately and refreshes unchanged
+// statuses at most once per refresh interval in a single bulk query.
 func (s *SQLDeviceStore) UpsertDeviceStatuses(ctx context.Context, updates []stores.DeviceStatusUpdate) error {
 	if len(updates) == 0 {
 		return nil
@@ -829,10 +842,11 @@ func (s *SQLDeviceStore) UpsertDeviceStatuses(ctx context.Context, updates []sto
 
 	// Build args in sorted order
 	now := time.Now()
-	args := make([]any, 0, len(validUpdates)*4)
+	args := make([]any, 0, len(validUpdates)*4+1)
 	for _, v := range validUpdates {
 		args = append(args, v.deviceID, toDeviceStatus(v.update.Status), now, "")
 	}
+	args = append(args, now.Add(-s.statusRefreshInterval))
 
 	query := buildDeviceStatusBulkUpsert(len(validUpdates))
 	_, err = s.conn.ExecContext(ctx, query, args...)
@@ -854,6 +868,8 @@ func (s *SQLDeviceStore) UpsertDeviceStatuses(ctx context.Context, updates []sto
 // The WHERE clause prevents telemetry status writes from overwriting firmware update
 // states (UPDATING, REBOOT_REQUIRED) that are managed by the command execution
 // service, and ignores late results for unpaired Node-discovered miners.
+// Unchanged statuses refresh periodically to keep recent-poll evidence for
+// CloseStaleErrors without rewriting a stable device's row on every poll.
 func buildDeviceStatusBulkUpsert(rowCount int) string {
 	var b strings.Builder
 	paramNum := 1
@@ -874,6 +890,9 @@ func buildDeviceStatusBulkUpsert(rowCount int) string {
 			"reboot_required_after = NULL "+
 			"WHERE device_status.status NOT IN ('UPDATING', 'REBOOT_REQUIRED') "+
 			"AND device_status.status_details IS DISTINCT FROM 'fleet_node_revoked' "+
+			"AND (device_status.status IS DISTINCT FROM EXCLUDED.status "+
+			"OR device_status.status_timestamp IS NULL "+
+			"OR device_status.status_timestamp <= $%d) "+
 			"AND NOT EXISTS ("+
 			"SELECT 1 FROM device d "+
 			"JOIN device_pairing dp ON dp.device_id = d.id AND dp.pairing_status = 'UNPAIRED' "+
@@ -881,7 +900,7 @@ func buildDeviceStatusBulkUpsert(rowCount int) string {
 			"WHERE d.id = EXCLUDED.device_id "+
 			"AND dd.discovered_by_fleet_node_id IS NOT NULL "+
 			"AND NOT EXISTS (SELECT 1 FROM fleet_node_device fnd WHERE fnd.device_id = d.id))",
-		b.String(),
+		b.String(), paramNum,
 	)
 }
 

@@ -330,7 +330,8 @@ func start(config *Config) (result error) {
 	}
 
 	userStore := sqlstores.NewSQLUserStore(conn)
-	deviceStore := sqlstores.NewSQLDeviceStore(conn)
+	deviceStore := sqlstores.NewSQLDeviceStore(conn).
+		WithStatusFreshnessThreshold(config.Diagnostics.CloserStalenessThreshold)
 	collectionStore := sqlstores.NewSQLCollectionStore(conn, config.TimescaleDB.MaxAge)
 	activityStore := sqlstores.NewSQLActivityStore(conn)
 	notificationHistoryStore := sqlstores.NewSQLNotificationHistoryStore(conn)
