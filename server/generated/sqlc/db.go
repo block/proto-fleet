@@ -2688,6 +2688,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.recoverTelemetrySeedBatchStmt, err = db.PrepareContext(ctx, recoverTelemetrySeedBatch); err != nil {
 		return nil, fmt.Errorf("error preparing query RecoverTelemetrySeedBatch: %w", err)
 	}
+	if q.refreshOpenErrorsLastSeenByDeviceStmt, err = db.PrepareContext(ctx, refreshOpenErrorsLastSeenByDevice); err != nil {
+		return nil, fmt.Errorf("error preparing query RefreshOpenErrorsLastSeenByDevice: %w", err)
+	}
 	if q.refreshPoolConfigurationReadinessStmt, err = db.PrepareContext(ctx, refreshPoolConfigurationReadiness); err != nil {
 		return nil, fmt.Errorf("error preparing query RefreshPoolConfigurationReadiness: %w", err)
 	}
@@ -7802,6 +7805,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing recoverTelemetrySeedBatchStmt: %w", cerr)
 		}
 	}
+	if q.refreshOpenErrorsLastSeenByDeviceStmt != nil {
+		if cerr := q.refreshOpenErrorsLastSeenByDeviceStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing refreshOpenErrorsLastSeenByDeviceStmt: %w", cerr)
+		}
+	}
 	if q.refreshPoolConfigurationReadinessStmt != nil {
 		if cerr := q.refreshPoolConfigurationReadinessStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing refreshPoolConfigurationReadinessStmt: %w", cerr)
@@ -9844,6 +9852,7 @@ type Queries struct {
 	recordPoolConfigurationImportStmt                           *sql.Stmt
 	recoverSettledPoolConfigurationWorkStmt                     *sql.Stmt
 	recoverTelemetrySeedBatchStmt                               *sql.Stmt
+	refreshOpenErrorsLastSeenByDeviceStmt                       *sql.Stmt
 	refreshPoolConfigurationReadinessStmt                       *sql.Stmt
 	reincludeFirmwareRolloutDevicesStmt                         *sql.Stmt
 	rejectCurtailmentDispatchStmt                               *sql.Stmt
@@ -10961,6 +10970,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		recordPoolConfigurationImportStmt:                          q.recordPoolConfigurationImportStmt,
 		recoverSettledPoolConfigurationWorkStmt:                    q.recoverSettledPoolConfigurationWorkStmt,
 		recoverTelemetrySeedBatchStmt:                              q.recoverTelemetrySeedBatchStmt,
+		refreshOpenErrorsLastSeenByDeviceStmt:                      q.refreshOpenErrorsLastSeenByDeviceStmt,
 		refreshPoolConfigurationReadinessStmt:                      q.refreshPoolConfigurationReadinessStmt,
 		reincludeFirmwareRolloutDevicesStmt:                        q.reincludeFirmwareRolloutDevicesStmt,
 		rejectCurtailmentDispatchStmt:                              q.rejectCurtailmentDispatchStmt,

@@ -76,7 +76,6 @@ func (s *SQLErrorStore) UpsertErrors(
 	errorsToUpsert []models.ErrorMessage,
 	observedAt time.Time,
 	refreshHeartbeat time.Duration,
-	refreshAllOpen bool,
 ) error {
 	reports := make([]errorBatchReport, 0, len(errorsToUpsert))
 	reportIndexes := make(map[errorBatchDedupKey]int, len(errorsToUpsert))
@@ -133,7 +132,6 @@ func (s *SQLErrorStore) UpsertErrors(
 		ErrorReports:     reportsJSON,
 		ObservedAt:       observedAt,
 		HeartbeatCutoff:  observedAt.Add(-refreshHeartbeat),
-		RefreshAllOpen:   refreshAllOpen,
 	}
 	deviceFound, err := s.getQueries(ctx).UpsertDeviceErrors(ctx, params)
 	if err != nil {
@@ -934,6 +932,27 @@ func (s *SQLErrorStore) CloseStaleErrors(ctx context.Context, threshold time.Dur
 	})
 	if err != nil {
 		return 0, fleeterror.NewInternalErrorf("failed to close stale errors: %v", err)
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return 0, fleeterror.NewInternalErrorf("failed to get rows affected: %v", err)
+	}
+
+	return rowsAffected, nil
+}
+
+// RefreshOpenErrorsLastSeen updates all open errors for a device after an incomplete poll.
+func (s *SQLErrorStore) RefreshOpenErrorsLastSeen(ctx context.Context, orgID int64, deviceIdentifier string, observedAt time.Time) (int64, error) {
+	q := s.getQueries(ctx)
+
+	result, err := q.RefreshOpenErrorsLastSeenByDevice(ctx, sqlc.RefreshOpenErrorsLastSeenByDeviceParams{
+		OrgID:            orgID,
+		DeviceIdentifier: deviceIdentifier,
+		ObservedAt:       observedAt,
+	})
+	if err != nil {
+		return 0, fleeterror.NewInternalErrorf("failed to refresh open errors: %v", err)
 	}
 
 	rowsAffected, err := result.RowsAffected()

@@ -1140,7 +1140,7 @@ func TestService_ListMinerStateSnapshots_ShouldFilterByErrorComponentTypes(t *te
 				DeviceID:          deviceIDs[0],
 				ComponentID:       &psuComponentID,
 				ComponentType:     diagnosticsmodels.ComponentTypePSU,
-			}}, time.Now(), time.Minute, false)
+			}}, time.Now(), time.Minute)
 			require.NoError(t, err)
 
 			// Create FAN error for device 1
@@ -1157,7 +1157,7 @@ func TestService_ListMinerStateSnapshots_ShouldFilterByErrorComponentTypes(t *te
 				DeviceID:          deviceIDs[1],
 				ComponentID:       &fanComponentID,
 				ComponentType:     diagnosticsmodels.ComponentTypeFans,
-			}}, time.Now(), time.Minute, false)
+			}}, time.Now(), time.Minute)
 			require.NoError(t, err)
 
 			// Create HASH_BOARD error for device 2
@@ -1174,7 +1174,7 @@ func TestService_ListMinerStateSnapshots_ShouldFilterByErrorComponentTypes(t *te
 				DeviceID:          deviceIDs[2],
 				ComponentID:       &hashboardComponentID,
 				ComponentType:     diagnosticsmodels.ComponentTypeHashBoards,
-			}}, time.Now(), time.Minute, false)
+			}}, time.Now(), time.Minute)
 			require.NoError(t, err)
 
 			// Device 3 has no errors

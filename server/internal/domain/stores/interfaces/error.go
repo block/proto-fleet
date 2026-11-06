@@ -12,9 +12,12 @@ import (
 // ErrorStore defines the interface for error-related operations in the store layer.
 type ErrorStore interface {
 	// UpsertErrors persists one device's reported errors as a batch. Unchanged errors
-	// refresh on a bounded heartbeat; refreshAllOpen keeps omitted errors alive when
-	// the device returned only a partial report.
-	UpsertErrors(ctx context.Context, orgID int64, deviceIdentifier string, errors []models.ErrorMessage, observedAt time.Time, refreshHeartbeat time.Duration, refreshAllOpen bool) error
+	// refresh on a bounded heartbeat.
+	UpsertErrors(ctx context.Context, orgID int64, deviceIdentifier string, errors []models.ErrorMessage, observedAt time.Time, refreshHeartbeat time.Duration) error
+
+	// RefreshOpenErrorsLastSeen updates all open errors for a device after an incomplete poll.
+	// This prevents the stale closer from resolving errors that were omitted from a partial snapshot.
+	RefreshOpenErrorsLastSeen(ctx context.Context, orgID int64, deviceIdentifier string, observedAt time.Time) (int64, error)
 
 	// QueryErrors retrieves errors matching filter criteria using AND logic.
 	// All provided filter criteria must match for an error to be returned.

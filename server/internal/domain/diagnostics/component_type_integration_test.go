@@ -158,8 +158,8 @@ func TestPollErrors_WithSDKErrorsHavingComponentTypes_ShouldPreserveComponentTyp
 	mockErrorStore := storeMocks.NewMockErrorStore(ctrl)
 
 	mockErrorStore.EXPECT().
-		UpsertErrors(gomock.Any(), int64(1), testDeviceID, gomock.Any(), gomock.Any(), gomock.Any(), false).
-		DoAndReturn(func(_ context.Context, _ int64, _ string, errors []models.ErrorMessage, _ time.Time, _ time.Duration, _ bool) error {
+		UpsertErrors(gomock.Any(), int64(1), testDeviceID, gomock.Any(), gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, _ int64, _ string, errors []models.ErrorMessage, _ time.Time, _ time.Duration) error {
 			require.Len(t, errors, len(expectedPersistedErrors))
 			for i, expectedErr := range expectedPersistedErrors {
 				errMsg := &errors[i]

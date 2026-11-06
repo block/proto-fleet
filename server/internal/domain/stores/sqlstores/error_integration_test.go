@@ -45,7 +45,7 @@ func upsertSingleError(
 	deviceIdentifier string,
 	errMsg *models.ErrorMessage,
 ) (*models.ErrorMessage, error) {
-	if err := store.UpsertErrors(ctx, orgID, deviceIdentifier, []models.ErrorMessage{*errMsg}, errMsg.LastSeenAt, 0, false); err != nil {
+	if err := store.UpsertErrors(ctx, orgID, deviceIdentifier, []models.ErrorMessage{*errMsg}, errMsg.LastSeenAt, 0); err != nil {
 		return nil, err
 	}
 
@@ -266,38 +266,6 @@ func encodeDeviceCursor(severity models.Severity, deviceID int64) string {
 	return base64.URLEncoding.EncodeToString(jsonBytes)
 }
 
-func TestSQLErrorStore_UpsertErrors_ShouldInsertNewError(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping database integration test in short mode")
-	}
-
-	db, orgID, deviceIdentifier := setupErrorTestData(t)
-	store := newErrorStore(db)
-	ctx := t.Context()
-
-	// Arrange
-	errMsg := createTestErrorMessage(deviceIdentifier)
-
-	// Act
-	result, err := upsertSingleError(ctx, db, store, orgID, deviceIdentifier, errMsg)
-
-	// Assert
-	require.NoError(t, err)
-	require.NotNil(t, result)
-	assert.NotEmpty(t, result.ErrorID, "ErrorID should be populated")
-	assert.Equal(t, models.HashboardOverTemperature, result.MinerError)
-	assert.Equal(t, models.SeverityMajor, result.Severity)
-	assert.Equal(t, "Test hashboard over temperature", result.Summary)
-	assert.Equal(t, "Reduced hashrate", result.Impact)
-	assert.Equal(t, "Cooling system degraded", result.CauseSummary)
-	assert.Equal(t, "Check fans and airflow", result.RecommendedAction)
-	assert.Equal(t, "E001", result.VendorCode)
-	assert.Equal(t, "v1.2.3", result.Firmware)
-	assert.Nil(t, result.ClosedAt, "ClosedAt should be nil for open error")
-	assert.False(t, result.FirstSeenAt.IsZero())
-	assert.False(t, result.LastSeenAt.IsZero())
-}
-
 func TestSQLErrorStore_UpsertErrors_ShouldUpdateExistingOpenError(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping database integration test in short mode")
@@ -348,7 +316,7 @@ func TestSQLErrorStore_UpsertErrors_ShouldCoalesceUnchangedErrorsUntilHeartbeat(
 	errMsg.FirstSeenAt = observedAt.Add(-time.Hour)
 	errMsg.LastSeenAt = observedAt
 
-	require.NoError(t, store.UpsertErrors(ctx, orgID, deviceIdentifier, []models.ErrorMessage{*errMsg}, observedAt, time.Minute, false))
+	require.NoError(t, store.UpsertErrors(ctx, orgID, deviceIdentifier, []models.ErrorMessage{*errMsg}, observedAt, time.Minute))
 
 	type persistedError struct {
 		lastSeenAt time.Time
@@ -373,112 +341,22 @@ func TestSQLErrorStore_UpsertErrors_ShouldCoalesceUnchangedErrorsUntilHeartbeat(
 
 	initial := readError()
 	errMsg.LastSeenAt = observedAt.Add(30 * time.Second)
-	require.NoError(t, store.UpsertErrors(ctx, orgID, deviceIdentifier, []models.ErrorMessage{*errMsg}, errMsg.LastSeenAt, time.Minute, false))
+	require.NoError(t, store.UpsertErrors(ctx, orgID, deviceIdentifier, []models.ErrorMessage{*errMsg}, errMsg.LastSeenAt, time.Minute))
 	require.Equal(t, initial, readError(), "an unchanged error inside the heartbeat must not rewrite its row")
 
 	errMsg.LastSeenAt = observedAt.Add(60 * time.Second)
-	require.NoError(t, store.UpsertErrors(ctx, orgID, deviceIdentifier, []models.ErrorMessage{*errMsg}, errMsg.LastSeenAt, time.Minute, false))
+	require.NoError(t, store.UpsertErrors(ctx, orgID, deviceIdentifier, []models.ErrorMessage{*errMsg}, errMsg.LastSeenAt, time.Minute))
 	afterHeartbeat := readError()
-	require.NotEqual(t, initial.tuple, afterHeartbeat.tuple)
+	require.NotEqual(t, initial.tuple, afterHeartbeat.tuple, "an unchanged error at the heartbeat cutoff must be rewritten")
 	require.True(t, afterHeartbeat.lastSeenAt.Equal(errMsg.LastSeenAt))
 
 	errMsg.Summary = "Changed before the next heartbeat"
 	errMsg.LastSeenAt = observedAt.Add(61 * time.Second)
-	require.NoError(t, store.UpsertErrors(ctx, orgID, deviceIdentifier, []models.ErrorMessage{*errMsg}, errMsg.LastSeenAt, time.Minute, false))
+	require.NoError(t, store.UpsertErrors(ctx, orgID, deviceIdentifier, []models.ErrorMessage{*errMsg}, errMsg.LastSeenAt, time.Minute))
 	afterChange := readError()
 	require.NotEqual(t, afterHeartbeat.tuple, afterChange.tuple, "changed details must be written immediately")
 	require.Equal(t, errMsg.Summary, afterChange.summary)
 	require.True(t, afterChange.lastSeenAt.Equal(errMsg.LastSeenAt))
-}
-
-func TestSQLErrorStore_UpsertErrors_ShouldRefreshBeforeConfiguredStaleness(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping database integration test in short mode")
-	}
-
-	db, orgID, deviceIdentifier := setupErrorTestData(t)
-	store := newErrorStore(db)
-	queries := sqlc.New(db)
-	ctx := t.Context()
-	now := time.Now().UTC().Truncate(time.Microsecond)
-	initialObservedAt := now.Add(-30 * time.Second)
-	errMsg := createTestErrorMessage(deviceIdentifier)
-	errMsg.FirstSeenAt = initialObservedAt.Add(-time.Hour)
-	errMsg.LastSeenAt = initialObservedAt
-	require.NoError(t, store.UpsertErrors(ctx, orgID, deviceIdentifier, []models.ErrorMessage{*errMsg}, initialObservedAt, 10*time.Second, false))
-
-	recentObservedAt := now.Add(-15 * time.Second)
-	require.NoError(t, store.UpsertErrors(ctx, orgID, deviceIdentifier, []models.ErrorMessage{*errMsg}, recentObservedAt, 10*time.Second, false))
-
-	deviceID, err := queries.GetDeviceIDByIdentifier(ctx, sqlc.GetDeviceIDByIdentifierParams{
-		DeviceIdentifier: deviceIdentifier,
-		OrgID:            orgID,
-	})
-	require.NoError(t, err)
-	require.NoError(t, queries.UpsertDeviceStatus(ctx, sqlc.UpsertDeviceStatusParams{
-		DeviceID:        deviceID,
-		StatusTimestamp: sql.NullTime{Time: now, Valid: true},
-		Status:          sqlc.DeviceStatusEnumACTIVE,
-		StatusDetails:   sql.NullString{String: "{}", Valid: true},
-	}))
-
-	closed, err := store.CloseStaleErrors(ctx, 20*time.Second)
-	require.NoError(t, err)
-	require.Zero(t, closed)
-
-	var lastSeenAt time.Time
-	require.NoError(t, db.QueryRowContext(ctx, `
-		SELECT last_seen_at
-		FROM errors
-		WHERE org_id = $1 AND miner_error = $2 AND closed_at IS NULL`, orgID, errMsg.MinerError).
-		Scan(&lastSeenAt))
-	require.True(t, lastSeenAt.Equal(recentObservedAt))
-}
-
-func TestSQLErrorStore_UpsertErrors_ShouldRefreshAllOpenErrorsForPartialReport(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping database integration test in short mode")
-	}
-
-	db, orgID, deviceIdentifier := setupErrorTestData(t)
-	store := newErrorStore(db)
-	ctx := t.Context()
-	observedAt := time.Now().UTC().Truncate(time.Microsecond)
-	reported := createTestErrorMessage(deviceIdentifier)
-	reported.FirstSeenAt = observedAt.Add(-time.Hour)
-	reported.LastSeenAt = observedAt
-	omitted := createTestErrorMessage(deviceIdentifier)
-	omitted.MinerError = models.FanFailed
-	omitted.FirstSeenAt = observedAt.Add(-time.Hour)
-	omitted.LastSeenAt = observedAt
-
-	require.NoError(t, store.UpsertErrors(ctx, orgID, deviceIdentifier, []models.ErrorMessage{*reported, *omitted}, observedAt, time.Minute, false))
-
-	partialObservedAt := observedAt.Add(30 * time.Second)
-	reported.LastSeenAt = partialObservedAt
-	require.NoError(t, store.UpsertErrors(ctx, orgID, deviceIdentifier, []models.ErrorMessage{*reported}, partialObservedAt, time.Minute, true))
-
-	rows, err := db.QueryContext(ctx, `
-		SELECT e.miner_error, e.last_seen_at
-		FROM errors e
-		JOIN device d ON d.id = e.device_id
-		WHERE e.org_id = $1
-		  AND d.device_identifier = $2
-		  AND e.closed_at IS NULL
-		ORDER BY e.miner_error`, orgID, deviceIdentifier)
-	require.NoError(t, err)
-	defer rows.Close()
-
-	lastSeenByError := make(map[models.MinerError]time.Time)
-	for rows.Next() {
-		var minerError models.MinerError
-		var lastSeenAt time.Time
-		require.NoError(t, rows.Scan(&minerError, &lastSeenAt))
-		lastSeenByError[minerError] = lastSeenAt
-	}
-	require.NoError(t, rows.Err())
-	require.True(t, lastSeenByError[reported.MinerError].Equal(partialObservedAt))
-	require.True(t, lastSeenByError[omitted.MinerError].Equal(partialObservedAt), "partial reports must keep omitted open errors alive")
 }
 
 func TestSQLErrorStore_UpsertErrors_ShouldPreserveFirstDuplicateObservation(t *testing.T) {
@@ -498,15 +376,7 @@ func TestSQLErrorStore_UpsertErrors_ShouldPreserveFirstDuplicateObservation(t *t
 	last.Severity = models.SeverityCritical
 	last.Summary = "Final duplicate details"
 
-	require.NoError(t, store.UpsertErrors(
-		ctx,
-		orgID,
-		deviceIdentifier,
-		[]models.ErrorMessage{*first, last},
-		observedAt,
-		time.Minute,
-		false,
-	))
+	require.NoError(t, store.UpsertErrors(ctx, orgID, deviceIdentifier, []models.ErrorMessage{*first, last}, observedAt, time.Minute))
 
 	var count int
 	var firstSeenAt time.Time
@@ -524,7 +394,7 @@ func TestSQLErrorStore_UpsertErrors_ShouldPreserveFirstDuplicateObservation(t *t
 	require.Equal(t, last.Summary, summary)
 }
 
-func TestSQLErrorStore_UpsertErrors_ShouldKeepDifferentComponentTypesDistinct(t *testing.T) {
+func TestSQLErrorStore_UpsertErrors_ShouldKeepComponentIdentitiesDistinct(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping database integration test in short mode")
 	}
@@ -533,287 +403,69 @@ func TestSQLErrorStore_UpsertErrors_ShouldKeepDifferentComponentTypesDistinct(t 
 	store := newErrorStore(db)
 	ctx := t.Context()
 	observedAt := time.Now().UTC().Truncate(time.Microsecond)
-	componentID := "0"
-	hashboard := createTestErrorMessage(deviceIdentifier)
-	hashboard.ComponentID = &componentID
-	hashboard.ComponentType = models.ComponentTypeHashBoards
-	hashboard.FirstSeenAt = observedAt.Add(-time.Hour)
-	hashboard.LastSeenAt = observedAt
-	controlBoard := *hashboard
-	controlBoard.ComponentType = models.ComponentTypeControlBoard
-	controlBoard.Summary = "Control board temperature"
 
-	require.NoError(t, store.UpsertErrors(
-		ctx,
-		orgID,
-		deviceIdentifier,
-		[]models.ErrorMessage{*hashboard, controlBoard},
-		observedAt,
-		time.Minute,
-		false,
-	))
-
-	type persistedError struct {
-		errorID string
-		summary string
+	cases := []struct {
+		name          string
+		componentID   *string
+		componentType models.ComponentType
+	}{
+		{name: "no component", componentID: nil, componentType: models.ComponentTypeUnspecified},
+		{name: "nil id with type", componentID: nil, componentType: models.ComponentTypeHashBoards},
+		{name: "empty id", componentID: strPtr(""), componentType: models.ComponentTypeHashBoards},
+		{name: "id 0", componentID: strPtr("0"), componentType: models.ComponentTypeHashBoards},
+		{name: "id 1", componentID: strPtr("1"), componentType: models.ComponentTypeHashBoards},
+		{name: "id 0 other type", componentID: strPtr("0"), componentType: models.ComponentTypeControlBoard},
 	}
-	loadErrors := func() map[models.ComponentType]persistedError {
-		rows, err := db.QueryContext(ctx, `
-			SELECT error_id, component_type, summary
-			FROM errors
-			WHERE org_id = $1
-			  AND miner_error = $2
-			  AND component_id = $3
-			  AND closed_at IS NULL`, orgID, hashboard.MinerError, componentID)
-		require.NoError(t, err)
-		defer rows.Close()
-
-		persisted := make(map[models.ComponentType]persistedError)
-		for rows.Next() {
-			var componentType models.ComponentType
-			var occurrence persistedError
-			require.NoError(t, rows.Scan(&occurrence.errorID, &componentType, &occurrence.summary))
-			persisted[componentType] = occurrence
+	buildBatch := func(summarySuffix string, lastSeenAt time.Time) []models.ErrorMessage {
+		batch := make([]models.ErrorMessage, 0, len(cases))
+		for _, tt := range cases {
+			errMsg := createTestErrorMessage(deviceIdentifier)
+			errMsg.ComponentID = tt.componentID
+			errMsg.ComponentType = tt.componentType
+			errMsg.Summary = tt.name + summarySuffix
+			errMsg.FirstSeenAt = observedAt.Add(-time.Hour)
+			errMsg.LastSeenAt = lastSeenAt
+			batch = append(batch, *errMsg)
 		}
-		require.NoError(t, rows.Err())
-		return persisted
+		return batch
+	}
+	rowsBySummary := func(rows []errorRow) map[string]errorRow {
+		bySummary := make(map[string]errorRow, len(rows))
+		for _, row := range rows {
+			bySummary[row.summary] = row
+		}
+		return bySummary
 	}
 
-	original := loadErrors()
-	require.Len(t, original, 2)
-	require.Contains(t, original, models.ComponentTypeHashBoards)
-	require.Contains(t, original, models.ComponentTypeControlBoard)
+	require.NoError(t, store.UpsertErrors(ctx, orgID, deviceIdentifier, buildBatch("", observedAt), observedAt, time.Minute))
+	original := rowsBySummary(loadErrorRows(t, ctx, db, orgID))
+	require.Len(t, original, len(cases), "every component identity must have its own open row")
 
 	updatedAt := observedAt.Add(30 * time.Second)
-	hashboard.LastSeenAt = updatedAt
-	hashboard.Summary = "Updated hashboard temperature"
-	controlBoard.LastSeenAt = updatedAt
-	controlBoard.Summary = "Updated control board temperature"
-	require.NoError(t, store.UpsertErrors(
-		ctx,
-		orgID,
-		deviceIdentifier,
-		[]models.ErrorMessage{controlBoard, *hashboard},
-		updatedAt,
-		time.Minute,
-		false,
-	))
+	require.NoError(t, store.UpsertErrors(ctx, orgID, deviceIdentifier, buildBatch(" updated", updatedAt), updatedAt, time.Minute))
+	updated := rowsBySummary(loadErrorRows(t, ctx, db, orgID))
+	require.Len(t, updated, len(cases), "re-reporting the same identities must not add rows")
 
-	updated := loadErrors()
-	require.Len(t, updated, 2)
-	require.Equal(t, original[models.ComponentTypeHashBoards].errorID, updated[models.ComponentTypeHashBoards].errorID)
-	require.Equal(t, hashboard.Summary, updated[models.ComponentTypeHashBoards].summary)
-	require.Equal(t, original[models.ComponentTypeControlBoard].errorID, updated[models.ComponentTypeControlBoard].errorID)
-	require.Equal(t, controlBoard.Summary, updated[models.ComponentTypeControlBoard].summary)
-}
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			before, ok := original[tt.name]
+			require.True(t, ok)
+			after, ok := updated[tt.name+" updated"]
+			require.True(t, ok)
 
-func TestSQLErrorStore_UpsertErrors_ShouldPreserveCloseAndReopenLifecycle(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping database integration test in short mode")
-	}
-
-	db, orgID, deviceIdentifier := setupErrorTestData(t)
-	store := newErrorStore(db)
-	ctx := t.Context()
-	observedAt := time.Now().UTC().Truncate(time.Microsecond)
-	errMsg := createTestErrorMessage(deviceIdentifier)
-	errMsg.FirstSeenAt = observedAt.Add(-time.Hour)
-	errMsg.LastSeenAt = observedAt
-	require.NoError(t, store.UpsertErrors(ctx, orgID, deviceIdentifier, []models.ErrorMessage{*errMsg}, observedAt, time.Minute, false))
-
-	var originalErrorID string
-	var originalFirstSeenAt time.Time
-	require.NoError(t, db.QueryRowContext(ctx, `
-		SELECT error_id, first_seen_at
-		FROM errors
-		WHERE org_id = $1 AND miner_error = $2 AND closed_at IS NULL`, orgID, errMsg.MinerError).
-		Scan(&originalErrorID, &originalFirstSeenAt))
-
-	closedAt := observedAt.Add(time.Second)
-	errMsg.LastSeenAt = closedAt
-	errMsg.ClosedAt = &closedAt
-	require.NoError(t, store.UpsertErrors(ctx, orgID, deviceIdentifier, []models.ErrorMessage{*errMsg}, closedAt, time.Minute, false))
-
-	reopenedAt := closedAt.Add(time.Second)
-	errMsg.FirstSeenAt = reopenedAt
-	errMsg.LastSeenAt = reopenedAt
-	errMsg.ClosedAt = nil
-	require.NoError(t, store.UpsertErrors(ctx, orgID, deviceIdentifier, []models.ErrorMessage{*errMsg}, reopenedAt, time.Minute, false))
-
-	rows, err := db.QueryContext(ctx, `
-		SELECT error_id, first_seen_at, closed_at
-		FROM errors
-		WHERE org_id = $1 AND miner_error = $2
-		ORDER BY id`, orgID, errMsg.MinerError)
-	require.NoError(t, err)
-	defer rows.Close()
-
-	type occurrence struct {
-		errorID     string
-		firstSeenAt time.Time
-		closedAt    sql.NullTime
-	}
-	var occurrences []occurrence
-	for rows.Next() {
-		var occurrence occurrence
-		require.NoError(t, rows.Scan(&occurrence.errorID, &occurrence.firstSeenAt, &occurrence.closedAt))
-		occurrences = append(occurrences, occurrence)
-	}
-	require.NoError(t, rows.Err())
-	require.Len(t, occurrences, 2)
-	require.Equal(t, originalErrorID, occurrences[0].errorID)
-	require.True(t, occurrences[0].firstSeenAt.Equal(originalFirstSeenAt))
-	require.True(t, occurrences[0].closedAt.Valid)
-	require.NotEqual(t, originalErrorID, occurrences[1].errorID)
-	require.True(t, occurrences[1].firstSeenAt.Equal(reopenedAt))
-	require.False(t, occurrences[1].closedAt.Valid)
-}
-
-func TestSQLErrorStore_UpsertErrors_ShouldRecoverWhenCloserLocksFirst(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping database integration test in short mode")
-	}
-
-	for _, refreshAllOpen := range []bool{false, true} {
-		t.Run(fmt.Sprintf("refresh_all_open=%t", refreshAllOpen), func(t *testing.T) {
-			db, orgID, deviceIdentifier := setupErrorTestData(t)
-			store := newErrorStore(db)
-			queries := sqlc.New(db)
-			ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
-			defer cancel()
-
-			deviceID, err := queries.GetDeviceIDByIdentifier(ctx, sqlc.GetDeviceIDByIdentifierParams{
-				DeviceIdentifier: deviceIdentifier,
-				OrgID:            orgID,
-			})
-			require.NoError(t, err)
-
-			staleAt := time.Now().UTC().Add(-5 * time.Minute).Truncate(time.Microsecond)
-			errMsg := createTestErrorMessage(deviceIdentifier)
-			errMsg.FirstSeenAt = staleAt.Add(-time.Hour)
-			errMsg.LastSeenAt = staleAt
-			require.NoError(t, store.UpsertErrors(ctx, orgID, deviceIdentifier, []models.ErrorMessage{*errMsg}, staleAt, time.Minute, false))
-			require.NoError(t, queries.UpsertDeviceStatus(ctx, sqlc.UpsertDeviceStatusParams{
-				DeviceID:        deviceID,
-				StatusTimestamp: sql.NullTime{Time: time.Now().UTC(), Valid: true},
-				Status:          sqlc.DeviceStatusEnumACTIVE,
-				StatusDetails:   sql.NullString{String: "{}", Valid: true},
-			}))
-
-			tx, err := db.BeginTx(ctx, nil)
-			require.NoError(t, err)
-			t.Cleanup(func() { _ = tx.Rollback() })
-			closeResult, err := sqlc.New(tx).CloseStaleErrors(ctx, sqlc.CloseStaleErrorsParams{
-				CutoffTime:       time.Now().UTC().Add(-3 * time.Minute),
-				StatusCutoffTime: sql.NullTime{Time: time.Now().UTC().Add(-3 * time.Minute), Valid: true},
-			})
-			require.NoError(t, err)
-			closed, err := closeResult.RowsAffected()
-			require.NoError(t, err)
-			require.Equal(t, int64(1), closed)
-
-			errMsg.LastSeenAt = time.Now().UTC().Truncate(time.Microsecond)
-			upsertDone := make(chan error, 1)
-			go func() {
-				upsertDone <- store.UpsertErrors(ctx, orgID, deviceIdentifier, []models.ErrorMessage{*errMsg}, errMsg.LastSeenAt, time.Minute, refreshAllOpen)
-			}()
-
-			requireDatabaseLockWait(t, ctx, db)
-			require.NoError(t, tx.Commit())
-			select {
-			case err := <-upsertDone:
-				require.NoError(t, err)
-			case <-ctx.Done():
-				t.Fatalf("upsert did not finish after closer committed: %v", ctx.Err())
+			wantComponentID := sql.NullString{}
+			if tt.componentID != nil {
+				wantComponentID = sql.NullString{String: *tt.componentID, Valid: true}
 			}
-
-			var openCount int
-			require.NoError(t, db.QueryRowContext(ctx, `
-				SELECT count(*)
-				FROM errors
-				WHERE org_id = $1 AND miner_error = $2 AND closed_at IS NULL`, orgID, errMsg.MinerError).
-				Scan(&openCount))
-			require.Equal(t, 1, openCount)
+			assert.Equal(t, wantComponentID, before.componentID)
+			assert.Equal(t, tt.componentType != models.ComponentTypeUnspecified, before.componentType.Valid)
+			assert.False(t, before.closedAt.Valid)
+			assert.Equal(t, before.errorID, after.errorID, "error_id must be stable across upserts")
 		})
 	}
 }
 
-func TestSQLErrorStore_UpsertErrors_ShouldReopenReportedAndKeepOmittedClosedWhenCloserLocksFirst(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping database integration test in short mode")
-	}
-
-	db, orgID, deviceIdentifier := setupErrorTestData(t)
-	store := newErrorStore(db)
-	queries := sqlc.New(db)
-	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
-	defer cancel()
-
-	deviceID, err := queries.GetDeviceIDByIdentifier(ctx, sqlc.GetDeviceIDByIdentifierParams{
-		DeviceIdentifier: deviceIdentifier,
-		OrgID:            orgID,
-	})
-	require.NoError(t, err)
-
-	staleAt := time.Now().UTC().Add(-5 * time.Minute).Truncate(time.Microsecond)
-	reported := createTestErrorMessage(deviceIdentifier)
-	reported.FirstSeenAt = staleAt.Add(-time.Hour)
-	reported.LastSeenAt = staleAt
-	omitted := *reported
-	omitted.MinerError = models.FanFailed
-	require.NoError(t, store.UpsertErrors(ctx, orgID, deviceIdentifier, []models.ErrorMessage{*reported, omitted}, staleAt, time.Minute, false))
-	require.NoError(t, queries.UpsertDeviceStatus(ctx, sqlc.UpsertDeviceStatusParams{
-		DeviceID:        deviceID,
-		StatusTimestamp: sql.NullTime{Time: time.Now().UTC(), Valid: true},
-		Status:          sqlc.DeviceStatusEnumACTIVE,
-		StatusDetails:   sql.NullString{String: "{}", Valid: true},
-	}))
-
-	tx, err := db.BeginTx(ctx, nil)
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = tx.Rollback() })
-	closeResult, err := sqlc.New(tx).CloseStaleErrors(ctx, sqlc.CloseStaleErrorsParams{
-		CutoffTime:       time.Now().UTC().Add(-3 * time.Minute),
-		StatusCutoffTime: sql.NullTime{Time: time.Now().UTC().Add(-3 * time.Minute), Valid: true},
-	})
-	require.NoError(t, err)
-	closed, err := closeResult.RowsAffected()
-	require.NoError(t, err)
-	require.Equal(t, int64(2), closed)
-
-	reportedAt := time.Now().UTC().Truncate(time.Microsecond)
-	reported.LastSeenAt = reportedAt
-	upsertDone := make(chan error, 1)
-	go func() {
-		upsertDone <- store.UpsertErrors(ctx, orgID, deviceIdentifier, []models.ErrorMessage{*reported}, reportedAt, time.Minute, true)
-	}()
-
-	requireDatabaseLockWait(t, ctx, db)
-	require.NoError(t, tx.Commit())
-	select {
-	case err := <-upsertDone:
-		require.NoError(t, err)
-	case <-ctx.Done():
-		t.Fatalf("upsert did not finish after closer committed: %v", ctx.Err())
-	}
-
-	var reportedOpen, reportedClosed, omittedOpen, omittedClosed int
-	require.NoError(t, db.QueryRowContext(ctx, `
-		SELECT
-			count(*) FILTER (WHERE miner_error = $2 AND closed_at IS NULL),
-			count(*) FILTER (WHERE miner_error = $2 AND closed_at IS NOT NULL),
-			count(*) FILTER (WHERE miner_error = $3 AND closed_at IS NULL),
-			count(*) FILTER (WHERE miner_error = $3 AND closed_at IS NOT NULL)
-		FROM errors
-		WHERE org_id = $1`, orgID, reported.MinerError, omitted.MinerError).
-		Scan(&reportedOpen, &reportedClosed, &omittedOpen, &omittedClosed))
-	require.Equal(t, 1, reportedOpen, "the reported error must reopen as a new occurrence")
-	require.Equal(t, 1, reportedClosed)
-	require.Zero(t, omittedOpen, "an omitted error the closer already closed must not be resurrected")
-	require.Equal(t, 1, omittedClosed)
-}
-
-func TestSQLErrorStore_UpsertErrors_ShouldPreventConcurrentCloserAfterRefresh(t *testing.T) {
+func TestSQLErrorStore_UpsertErrors_ShouldRecoverWhenCloserLocksFirst(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping database integration test in short mode")
 	}
@@ -834,7 +486,7 @@ func TestSQLErrorStore_UpsertErrors_ShouldPreventConcurrentCloserAfterRefresh(t 
 	errMsg := createTestErrorMessage(deviceIdentifier)
 	errMsg.FirstSeenAt = staleAt.Add(-time.Hour)
 	errMsg.LastSeenAt = staleAt
-	require.NoError(t, store.UpsertErrors(ctx, orgID, deviceIdentifier, []models.ErrorMessage{*errMsg}, staleAt, time.Minute, false))
+	require.NoError(t, store.UpsertErrors(ctx, orgID, deviceIdentifier, []models.ErrorMessage{*errMsg}, staleAt, time.Minute))
 	require.NoError(t, queries.UpsertDeviceStatus(ctx, sqlc.UpsertDeviceStatusParams{
 		DeviceID:        deviceID,
 		StatusTimestamp: sql.NullTime{Time: time.Now().UTC(), Valid: true},
@@ -842,71 +494,40 @@ func TestSQLErrorStore_UpsertErrors_ShouldPreventConcurrentCloserAfterRefresh(t 
 		StatusDetails:   sql.NullString{String: "{}", Valid: true},
 	}))
 
-	refreshedAt := time.Now().UTC().Truncate(time.Microsecond)
-	errMsg.LastSeenAt = refreshedAt
-	refreshComplete := make(chan struct{})
-	releaseRefresh := make(chan struct{})
-	upsertDone := make(chan error, 1)
-	transactor := sqlstores.NewSQLTransactor(db)
-	go func() {
-		upsertDone <- transactor.RunInTxNoRetry(ctx, func(txCtx context.Context) error {
-			if err := store.UpsertErrors(txCtx, orgID, deviceIdentifier, []models.ErrorMessage{*errMsg}, refreshedAt, time.Minute, false); err != nil {
-				return err
-			}
-			close(refreshComplete)
-			select {
-			case <-releaseRefresh:
-				return nil
-			case <-txCtx.Done():
-				return txCtx.Err()
-			}
-		})
-	}()
-	select {
-	case <-refreshComplete:
-	case err := <-upsertDone:
-		require.NoError(t, err)
-		t.Fatal("refresh transaction ended before the competing closer started")
-	case <-ctx.Done():
-		t.Fatalf("refresh transaction did not acquire its row lock: %v", ctx.Err())
-	}
+	tx, err := db.BeginTx(ctx, nil)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = tx.Rollback() })
+	closeResult, err := sqlc.New(tx).CloseStaleErrors(ctx, sqlc.CloseStaleErrorsParams{
+		CutoffTime:       time.Now().UTC().Add(-3 * time.Minute),
+		StatusCutoffTime: sql.NullTime{Time: time.Now().UTC().Add(-3 * time.Minute), Valid: true},
+	})
+	require.NoError(t, err)
+	closed, err := closeResult.RowsAffected()
+	require.NoError(t, err)
+	require.Equal(t, int64(1), closed)
 
-	type closeResult struct {
-		count int64
-		err   error
-	}
-	closerDone := make(chan closeResult, 1)
+	errMsg.LastSeenAt = time.Now().UTC().Truncate(time.Microsecond)
+	upsertDone := make(chan error, 1)
 	go func() {
-		count, err := store.CloseStaleErrors(ctx, 3*time.Minute)
-		closerDone <- closeResult{count: count, err: err}
+		upsertDone <- store.UpsertErrors(ctx, orgID, deviceIdentifier, []models.ErrorMessage{*errMsg}, errMsg.LastSeenAt, time.Minute)
 	}()
 
 	requireDatabaseLockWait(t, ctx, db)
-	close(releaseRefresh)
+	require.NoError(t, tx.Commit())
 	select {
 	case err := <-upsertDone:
 		require.NoError(t, err)
 	case <-ctx.Done():
-		t.Fatalf("refresh transaction did not finish after release: %v", ctx.Err())
+		t.Fatalf("upsert did not finish after closer committed: %v", ctx.Err())
 	}
-	var result closeResult
-	select {
-	case result = <-closerDone:
-	case <-ctx.Done():
-		t.Fatalf("closer did not finish after refresh committed: %v", ctx.Err())
-	}
-	require.NoError(t, result.err)
-	require.Zero(t, result.count)
 
 	var openCount int
-	var lastSeenAt time.Time
 	require.NoError(t, db.QueryRowContext(ctx, `
-		SELECT count(*) OVER (), last_seen_at
+		SELECT count(*)
 		FROM errors
 		WHERE org_id = $1 AND miner_error = $2 AND closed_at IS NULL`, orgID, errMsg.MinerError).
-		Scan(&openCount, &lastSeenAt))
+		Scan(&openCount))
 	require.Equal(t, 1, openCount)
-	require.True(t, lastSeenAt.Equal(refreshedAt))
 }
 
 func TestSQLErrorStore_UpsertErrors_ShouldCloseErrorWhenClosedAtSet(t *testing.T) {
@@ -1025,81 +646,6 @@ func TestSQLErrorStore_UpsertErrors_ShouldCreateNewErrorWhenExistingIsClosed(t *
 	assert.Equal(t, 2, count, "Both error A and B should exist in DB")
 }
 
-func TestSQLErrorStore_UpsertErrors_ShouldDedupWithNullComponents(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping database integration test in short mode")
-	}
-
-	db, orgID, deviceIdentifier := setupErrorTestData(t)
-	store := newErrorStore(db)
-	ctx := t.Context()
-
-	// Arrange: Insert error with NULL component_id and Unspecified component_type
-	errMsg := createTestErrorMessage(deviceIdentifier)
-	errMsg.ComponentID = nil
-	errMsg.ComponentType = models.ComponentTypeUnspecified
-
-	first, err := upsertSingleError(ctx, db, store, orgID, deviceIdentifier, errMsg)
-	require.NoError(t, err)
-	originalErrorID := first.ErrorID
-
-	// Arrange: Update with same dedup key (both components NULL)
-	errMsg.Summary = "Updated with null components"
-
-	// Act
-	updated, err := upsertSingleError(ctx, db, store, orgID, deviceIdentifier, errMsg)
-
-	// Assert
-	require.NoError(t, err)
-	require.NotNil(t, updated)
-	assert.Equal(t, originalErrorID, updated.ErrorID, "Should update existing error")
-	assert.Equal(t, "Updated with null components", updated.Summary)
-
-	// Assert: Verify only one record exists
-	var count int
-	err = db.QueryRowContext(ctx, "SELECT COUNT(*) FROM errors WHERE org_id = $1", orgID).Scan(&count)
-	require.NoError(t, err)
-	assert.Equal(t, 1, count, "Should have only one error record")
-}
-
-func TestSQLErrorStore_UpsertErrors_ShouldNotDedupWhenComponentsDiffer(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping database integration test in short mode")
-	}
-
-	db, orgID, deviceIdentifier := setupErrorTestData(t)
-	store := newErrorStore(db)
-	ctx := t.Context()
-
-	// Arrange: Insert error with ComponentID="hashboard-0"
-	errMsg := createTestErrorMessage(deviceIdentifier)
-	componentID := "hashboard-0"
-	errMsg.ComponentID = &componentID
-	errMsg.ComponentType = models.ComponentTypeHashBoards
-
-	first, err := upsertSingleError(ctx, db, store, orgID, deviceIdentifier, errMsg)
-	require.NoError(t, err)
-	firstErrorID := first.ErrorID
-
-	// Arrange: Insert error with ComponentID=nil (different dedup key)
-	errMsg.ComponentID = nil
-	errMsg.ComponentType = models.ComponentTypeUnspecified
-
-	// Act
-	second, err := upsertSingleError(ctx, db, store, orgID, deviceIdentifier, errMsg)
-
-	// Assert
-	require.NoError(t, err)
-	require.NotNil(t, second)
-	assert.NotEqual(t, firstErrorID, second.ErrorID, "Should create NEW error (different dedup key)")
-
-	// Assert: Verify two records exist
-	var count int
-	err = db.QueryRowContext(ctx, "SELECT COUNT(*) FROM errors WHERE org_id = $1", orgID).Scan(&count)
-	require.NoError(t, err)
-	assert.Equal(t, 2, count, "Should have two error records")
-}
-
 func TestSQLErrorStore_UpsertErrors_ShouldReturnNotFoundForUnavailableDevice(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping database integration test in short mode")
@@ -1129,7 +675,7 @@ func TestSQLErrorStore_UpsertErrors_ShouldReturnNotFoundForUnavailableDevice(t *
 		t.Run(tt.name, func(t *testing.T) {
 			errMsg := createTestErrorMessage(tt.deviceIdentifier)
 
-			err := store.UpsertErrors(ctx, owner.OrganizationID, tt.deviceIdentifier, []models.ErrorMessage{*errMsg}, errMsg.LastSeenAt, time.Minute, true)
+			err := store.UpsertErrors(ctx, owner.OrganizationID, tt.deviceIdentifier, []models.ErrorMessage{*errMsg}, errMsg.LastSeenAt, time.Minute)
 
 			require.Error(t, err)
 			assert.True(t, fleeterror.IsNotFoundError(err), "expected NotFound, got %v", err)
@@ -1191,7 +737,7 @@ func TestSQLErrorStore_UpsertErrors_ShouldPersistEveryField(t *testing.T) {
 		VendorAttributes:  map[string]string{"rpm": "0"},
 	}
 
-	require.NoError(t, store.UpsertErrors(ctx, orgID, deviceIdentifier, []models.ErrorMessage{open, alreadyClosed}, now, time.Minute, false))
+	require.NoError(t, store.UpsertErrors(ctx, orgID, deviceIdentifier, []models.ErrorMessage{open, alreadyClosed}, now, time.Minute))
 
 	rows := errorRowsByMinerError(loadErrorRows(t, ctx, db, orgID))
 	require.Len(t, rows, 2)
@@ -1253,138 +799,82 @@ func TestSQLErrorStore_UpsertErrors_ShouldPersistEveryField(t *testing.T) {
 	assert.True(t, mappedClosed.ClosedAt.Equal(closedAt))
 }
 
-func TestSQLErrorStore_UpsertErrors_ShouldKeepComponentIdentitiesDistinct(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping database integration test in short mode")
-	}
-
-	db, orgID, deviceIdentifier := setupErrorTestData(t)
-	store := newErrorStore(db)
-	ctx := t.Context()
-	observedAt := time.Now().UTC().Truncate(time.Microsecond)
-
-	cases := []struct {
-		name        string
-		componentID *string
-	}{
-		{name: "nil", componentID: nil},
-		{name: "empty", componentID: strPtr("")},
-		{name: "zero", componentID: strPtr("0")},
-		{name: "one", componentID: strPtr("1")},
-	}
-	buildBatch := func(summarySuffix string, lastSeenAt time.Time) []models.ErrorMessage {
-		batch := make([]models.ErrorMessage, 0, len(cases))
-		for _, tt := range cases {
-			errMsg := createTestErrorMessage(deviceIdentifier)
-			errMsg.ComponentID = tt.componentID
-			errMsg.ComponentType = models.ComponentTypeHashBoards
-			errMsg.Summary = tt.name + summarySuffix
-			errMsg.FirstSeenAt = observedAt.Add(-time.Hour)
-			errMsg.LastSeenAt = lastSeenAt
-			batch = append(batch, *errMsg)
-		}
-		return batch
-	}
-	rowForComponent := func(rows []errorRow, componentID *string) (errorRow, bool) {
-		for _, row := range rows {
-			if componentID == nil && !row.componentID.Valid {
-				return row, true
-			}
-			if componentID != nil && row.componentID.Valid && row.componentID.String == *componentID {
-				return row, true
-			}
-		}
-		return errorRow{}, false
-	}
-
-	require.NoError(t, store.UpsertErrors(ctx, orgID, deviceIdentifier, buildBatch("", observedAt), observedAt, time.Minute, false))
-	original := loadErrorRows(t, ctx, db, orgID)
-	require.Len(t, original, len(cases))
-
-	updatedAt := observedAt.Add(30 * time.Second)
-	require.NoError(t, store.UpsertErrors(ctx, orgID, deviceIdentifier, buildBatch(" updated", updatedAt), updatedAt, time.Minute, false))
-	updated := loadErrorRows(t, ctx, db, orgID)
-	require.Len(t, updated, len(cases))
-
-	for _, tt := range cases {
-		t.Run(tt.name, func(t *testing.T) {
-			before, ok := rowForComponent(original, tt.componentID)
-			require.True(t, ok, "component identity must have its own open row")
-			after, ok := rowForComponent(updated, tt.componentID)
-			require.True(t, ok)
-			assert.False(t, before.closedAt.Valid)
-			assert.Equal(t, before.errorID, after.errorID, "error_id must be stable across upserts")
-			assert.Equal(t, tt.name, before.summary)
-			assert.Equal(t, tt.name+" updated", after.summary)
-		})
-	}
-}
-
 func TestSQLErrorStore_UpsertErrors_ShouldNeverMoveLastSeenAtBackwards(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping database integration test in short mode")
 	}
 
-	for _, refreshAllOpen := range []bool{false, true} {
-		t.Run(fmt.Sprintf("refresh_all_open=%t", refreshAllOpen), func(t *testing.T) {
-			db, orgID, deviceIdentifier := setupErrorTestData(t)
-			store := newErrorStore(db)
-			ctx := t.Context()
-			storedAt := time.Now().UTC().Truncate(time.Microsecond)
+	db, orgID, deviceIdentifier := setupErrorTestData(t)
+	store := newErrorStore(db)
+	ctx := t.Context()
+	storedAt := time.Now().UTC().Truncate(time.Microsecond)
 
-			reported := createTestErrorMessage(deviceIdentifier)
-			reported.FirstSeenAt = storedAt.Add(-time.Hour)
-			reported.LastSeenAt = storedAt
-			omitted := *reported
-			omitted.MinerError = models.FanFailed
-			require.NoError(t, store.UpsertErrors(ctx, orgID, deviceIdentifier, []models.ErrorMessage{*reported, omitted}, storedAt, time.Minute, false))
+	errMsg := createTestErrorMessage(deviceIdentifier)
+	errMsg.FirstSeenAt = storedAt.Add(-time.Hour)
+	errMsg.LastSeenAt = storedAt
+	require.NoError(t, store.UpsertErrors(ctx, orgID, deviceIdentifier, []models.ErrorMessage{*errMsg}, storedAt, time.Minute))
 
-			staleReportAt := storedAt.Add(-10 * time.Minute)
-			staleObservedAt := storedAt.Add(-5 * time.Minute)
-			reported.LastSeenAt = staleReportAt
-			reported.Summary = "Changed with an older report"
-			require.NoError(t, store.UpsertErrors(ctx, orgID, deviceIdentifier, []models.ErrorMessage{*reported}, staleObservedAt, time.Minute, refreshAllOpen))
+	errMsg.LastSeenAt = storedAt.Add(-10 * time.Minute)
+	errMsg.Summary = "Changed with an older report"
+	require.NoError(t, store.UpsertErrors(ctx, orgID, deviceIdentifier, []models.ErrorMessage{*errMsg}, storedAt.Add(-5*time.Minute), time.Minute))
 
-			rows := errorRowsByMinerError(loadErrorRows(t, ctx, db, orgID))
-			require.Len(t, rows, 2)
-			assert.Equal(t, reported.Summary, rows[reported.MinerError].summary, "changed details are written even when timestamps are older")
-			assert.True(t, rows[reported.MinerError].lastSeenAt.Equal(storedAt), "reported row last_seen_at moved to %s", rows[reported.MinerError].lastSeenAt)
-			assert.True(t, rows[omitted.MinerError].lastSeenAt.Equal(storedAt), "omitted row last_seen_at moved to %s", rows[omitted.MinerError].lastSeenAt)
-		})
-	}
+	rows := loadErrorRows(t, ctx, db, orgID)
+	require.Len(t, rows, 1)
+	assert.Equal(t, errMsg.Summary, rows[0].summary, "changed details are written even when timestamps are older")
+	assert.True(t, rows[0].lastSeenAt.Equal(storedAt), "last_seen_at moved to %s", rows[0].lastSeenAt)
 }
 
-func TestSQLErrorStore_UpsertErrors_ShouldRefreshOpenErrorsWithoutReports(t *testing.T) {
+func TestSQLErrorStore_RefreshOpenErrorsLastSeen_ShouldRefreshOnlyOpenErrorsForDevice(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping database integration test in short mode")
 	}
 
-	db, orgID, deviceIdentifier := setupErrorTestData(t)
+	db, orgID, deviceIdentifiers := setupMultiDeviceErrorData(t, 2)
 	store := newErrorStore(db)
 	ctx := t.Context()
 	seededAt := time.Now().UTC().Truncate(time.Microsecond)
+	device, otherDevice := deviceIdentifiers[0], deviceIdentifiers[1]
 
-	first := createTestErrorMessage(deviceIdentifier)
-	first.FirstSeenAt = seededAt.Add(-time.Hour)
-	first.LastSeenAt = seededAt
-	second := *first
-	second.MinerError = models.FanFailed
-	require.NoError(t, store.UpsertErrors(ctx, orgID, deviceIdentifier, []models.ErrorMessage{*first, second}, seededAt, time.Minute, false))
+	build := func(deviceID string, minerError models.MinerError) models.ErrorMessage {
+		errMsg := createTestErrorMessage(deviceID)
+		errMsg.MinerError = minerError
+		errMsg.FirstSeenAt = seededAt.Add(-time.Hour)
+		errMsg.LastSeenAt = seededAt
+		return *errMsg
+	}
+	closedLastSeenAt := seededAt.Add(-time.Minute)
+	closed := build(device, models.PSUOverTemperature)
+	closed.ClosedAt = &closedLastSeenAt
+	closed.LastSeenAt = closedLastSeenAt
+
+	require.NoError(t, store.UpsertErrors(ctx, orgID, device, []models.ErrorMessage{
+		build(device, models.HashboardOverTemperature),
+		build(device, models.FanFailed),
+		closed,
+	}, seededAt, time.Minute))
+	require.NoError(t, store.UpsertErrors(ctx, orgID, otherDevice, []models.ErrorMessage{build(otherDevice, models.DeviceOverTemperature)}, seededAt, time.Minute))
 
 	refreshedAt := seededAt.Add(10 * time.Second)
-	require.NoError(t, store.UpsertErrors(ctx, orgID, deviceIdentifier, nil, refreshedAt, time.Minute, true))
-	rows := loadErrorRows(t, ctx, db, orgID)
-	require.Len(t, rows, 2)
-	for _, row := range rows {
-		assert.False(t, row.closedAt.Valid)
-		assert.True(t, row.lastSeenAt.Equal(refreshedAt), "partial report with no entries must refresh every open error")
-	}
+	refreshed, err := store.RefreshOpenErrorsLastSeen(ctx, orgID, device, refreshedAt)
+	require.NoError(t, err)
+	assert.Equal(t, int64(2), refreshed, "only the device's open errors are refreshed")
 
-	ignoredAt := refreshedAt.Add(10 * time.Second)
-	require.NoError(t, store.UpsertErrors(ctx, orgID, deviceIdentifier, nil, ignoredAt, time.Minute, false))
-	for _, row := range loadErrorRows(t, ctx, db, orgID) {
-		assert.True(t, row.lastSeenAt.Equal(refreshedAt), "an empty report without refreshAllOpen must not touch open errors")
-	}
+	rows := errorRowsByMinerError(loadErrorRows(t, ctx, db, orgID))
+	require.Len(t, rows, 4)
+	assert.True(t, rows[models.HashboardOverTemperature].lastSeenAt.Equal(refreshedAt))
+	assert.True(t, rows[models.FanFailed].lastSeenAt.Equal(refreshedAt))
+	assert.True(t, rows[models.PSUOverTemperature].lastSeenAt.Equal(closedLastSeenAt), "closed errors must not be refreshed")
+	assert.True(t, rows[models.DeviceOverTemperature].lastSeenAt.Equal(seededAt), "other devices must not be refreshed")
+
+	_, err = store.RefreshOpenErrorsLastSeen(ctx, orgID, device, seededAt.Add(-5*time.Minute))
+	require.NoError(t, err)
+	rows = errorRowsByMinerError(loadErrorRows(t, ctx, db, orgID))
+	assert.True(t, rows[models.HashboardOverTemperature].lastSeenAt.Equal(refreshedAt), "last_seen_at must never move backwards")
+	assert.True(t, rows[models.FanFailed].lastSeenAt.Equal(refreshedAt), "last_seen_at must never move backwards")
+
+	refreshed, err = store.RefreshOpenErrorsLastSeen(ctx, orgID, "non-existent-device", refreshedAt)
+	require.NoError(t, err)
+	assert.Zero(t, refreshed)
 }
 
 func TestSQLErrorStore_UpsertErrors_ShouldSanitizeUnstorableReports(t *testing.T) {
@@ -1418,7 +908,7 @@ func TestSQLErrorStore_UpsertErrors_ShouldSanitizeUnstorableReports(t *testing.T
 	bad.LastSeenAt = observedAt
 
 	batch := []models.ErrorMessage{*good, *bad}
-	require.NoError(t, store.UpsertErrors(ctx, orgID, deviceIdentifier, batch, observedAt, time.Minute, false))
+	require.NoError(t, store.UpsertErrors(ctx, orgID, deviceIdentifier, batch, observedAt, time.Minute))
 
 	original := loadErrorRows(t, ctx, db, orgID)
 	rows := errorRowsByMinerError(original)
@@ -1437,7 +927,7 @@ func TestSQLErrorStore_UpsertErrors_ShouldSanitizeUnstorableReports(t *testing.T
 
 	later := observedAt.Add(30 * time.Second)
 	batch[1].Summary = "Fan\x00 still failed"
-	require.NoError(t, store.UpsertErrors(ctx, orgID, deviceIdentifier, batch, later, time.Minute, false))
+	require.NoError(t, store.UpsertErrors(ctx, orgID, deviceIdentifier, batch, later, time.Minute))
 	updated := errorRowsByMinerError(loadErrorRows(t, ctx, db, orgID))
 	require.Len(t, updated, 2)
 	assert.Equal(t, fan.errorID, updated[models.FanFailed].errorID, "a truncated component id must keep matching its open row")

@@ -1,7 +1,7 @@
 -- name: UpsertDeviceErrors :one
--- Persists one device's deduplicated error report. idx_errors_open_dedup keeps one open
--- occurrence per key; unchanged open rows are rewritten only after the heartbeat cutoff.
--- Reports carrying closed_at close the matching open row; partial reports refresh omitted rows.
+-- Persists one device's deduplicated error report. Reports carrying closed_at close the
+-- matching open row; the rest insert or update it through idx_errors_open_dedup.
+-- Unchanged open rows are rewritten only once last_seen_at passes the heartbeat cutoff.
 WITH target_device AS (
     SELECT id, site_id
     FROM device
@@ -44,8 +44,8 @@ WITH target_device AS (
       AND errors.device_id = target.id
       AND errors.closed_at IS NULL
       AND errors.miner_error = report.miner_error
-      AND errors.component_id IS NOT DISTINCT FROM report.component_id
-      AND errors.component_type IS NOT DISTINCT FROM report.component_type
+      AND (errors.component_id, errors.component_type)
+          IS NOT DISTINCT FROM (report.component_id, report.component_type)
     RETURNING errors.miner_error, errors.component_id, errors.component_type
 ), upserted AS (
     INSERT INTO errors (
@@ -65,9 +65,8 @@ WITH target_device AS (
     WHERE NOT EXISTS (
         SELECT 1
         FROM closed
-        WHERE closed.miner_error = report.miner_error
-          AND closed.component_id IS NOT DISTINCT FROM report.component_id
-          AND closed.component_type IS NOT DISTINCT FROM report.component_type
+        WHERE (closed.miner_error, closed.component_id, closed.component_type)
+              IS NOT DISTINCT FROM (report.miner_error, report.component_id, report.component_type)
     )
     ON CONFLICT (org_id, device_id, miner_error, component_id, component_type)
         WHERE closed_at IS NULL
@@ -81,30 +80,29 @@ WITH target_device AS (
         vendor_code = EXCLUDED.vendor_code,
         firmware = EXCLUDED.firmware,
         extra = EXCLUDED.extra
-    WHERE sqlc.arg('refresh_all_open')::boolean
-       OR errors.last_seen_at <= sqlc.arg('heartbeat_cutoff')::timestamptz
+    WHERE errors.last_seen_at <= sqlc.arg('heartbeat_cutoff')::timestamptz
        OR (errors.severity, errors.summary, errors.impact, errors.cause_summary,
            errors.recommended_action, errors.vendor_code, errors.firmware, errors.extra)
           IS DISTINCT FROM
           (EXCLUDED.severity, EXCLUDED.summary, EXCLUDED.impact, EXCLUDED.cause_summary,
            EXCLUDED.recommended_action, EXCLUDED.vendor_code, EXCLUDED.firmware, EXCLUDED.extra)
-), refreshed_omitted AS (
-    UPDATE errors
-    SET last_seen_at = GREATEST(errors.last_seen_at, sqlc.arg('observed_at')::timestamptz)
-    FROM target_device target
-    WHERE sqlc.arg('refresh_all_open')::boolean
-      AND errors.org_id = sqlc.arg('org_id')
-      AND errors.device_id = target.id
-      AND errors.closed_at IS NULL
-      AND NOT EXISTS (
-          SELECT 1
-          FROM reports report
-          WHERE report.miner_error = errors.miner_error
-            AND report.component_id IS NOT DISTINCT FROM errors.component_id
-            AND report.component_type IS NOT DISTINCT FROM errors.component_type
-      )
 )
 SELECT EXISTS(SELECT 1 FROM target_device) AS device_found;
+
+-- name: RefreshOpenErrorsLastSeenByDevice :execresult
+-- Refreshes open errors for a device after an incomplete diagnostics poll.
+-- Uses GREATEST so a delayed partial poll cannot move newer observations backward.
+UPDATE errors
+SET last_seen_at = GREATEST(last_seen_at, sqlc.arg('observed_at')::timestamptz)
+WHERE errors.org_id = sqlc.arg('org_id')
+  AND errors.closed_at IS NULL
+  AND errors.device_id = (
+    SELECT id
+    FROM device
+    WHERE device_identifier = sqlc.arg('device_identifier')
+      AND device.org_id = sqlc.arg('org_id')
+      AND deleted_at IS NULL
+  );
 
 -- name: GetErrorByID :one
 -- Fetches an error by internal ID, scoped to organization.

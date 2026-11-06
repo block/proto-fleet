@@ -163,13 +163,17 @@ func (s *Service) PollErrors(ctx context.Context, miners ...minerInterfaces.Mine
 		result.MinersProcessed++
 		if deviceErrors.Partial {
 			result.MinersPartial++
+			if _, err := s.errorStore.RefreshOpenErrorsLastSeen(ctx, orgID, string(deviceID), time.Now()); err != nil {
+				slog.Warn("failed to refresh open errors after partial poll", "deviceID", deviceID, "orgID", orgID, "omittedReportCount", deviceErrors.OmittedReportCount, "error", err)
+				result.UpsertsFailed++
+			}
 		}
 
-		if len(deviceErrors.Errors) == 0 && !deviceErrors.Partial {
+		if len(deviceErrors.Errors) == 0 {
 			continue
 		}
 
-		upserted, failed := s.upsertErrors(ctx, orgID, deviceID, deviceErrors.Errors, deviceErrors.Partial)
+		upserted, failed := s.upsertErrors(ctx, orgID, deviceID, deviceErrors.Errors)
 		result.ErrorsUpserted += upserted
 		result.UpsertsFailed += failed
 	}
@@ -180,7 +184,7 @@ func (s *Service) PollErrors(ctx context.Context, miners ...minerInterfaces.Mine
 // Returns the count of successful upserts and failed upserts.
 // Applies default ComponentType based on MinerError if not already specified.
 // Sets LastSeenAt to the poll time if the plugin didn't provide it or reported a future time.
-func (s *Service) upsertErrors(ctx context.Context, orgID int64, deviceID minerModels.DeviceIdentifier, errors []models.ErrorMessage, refreshAllOpen bool) (upserted, failed int) {
+func (s *Service) upsertErrors(ctx context.Context, orgID int64, deviceID minerModels.DeviceIdentifier, errors []models.ErrorMessage) (upserted, failed int) {
 	observedAt := time.Now()
 	for i := range errors {
 		if errors[i].ComponentType == models.ComponentTypeUnspecified {
@@ -195,8 +199,8 @@ func (s *Service) upsertErrors(ctx context.Context, orgID int64, deviceID minerM
 
 	stalenessThreshold := getConfigDurationOrDefault(s.config.CloserStalenessThreshold, defaultCloserStalenessThreshold)
 	refreshHeartbeat := errorRefreshHeartbeat(stalenessThreshold)
-	if err := s.errorStore.UpsertErrors(ctx, orgID, string(deviceID), errors, observedAt, refreshHeartbeat, refreshAllOpen); err != nil {
-		slog.Warn("failed to upsert device errors", "deviceID", deviceID, "orgID", orgID, "errorCount", len(errors), "refreshAllOpen", refreshAllOpen, "error", err)
+	if err := s.errorStore.UpsertErrors(ctx, orgID, string(deviceID), errors, observedAt, refreshHeartbeat); err != nil {
+		slog.Warn("failed to upsert device errors", "deviceID", deviceID, "orgID", orgID, "errorCount", len(errors), "error", err)
 		return 0, max(1, len(errors))
 	}
 

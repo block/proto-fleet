@@ -730,11 +730,11 @@ func TestCollectionStore_ListCollections_SortsByIssueCount(t *testing.T) {
 	_, err = store.AddDevicesToCollection(ctx, adminUser.OrganizationID, threeIssues.Id, []string{deviceIDs[0], deviceIDs[1]})
 	require.NoError(t, err)
 
-	err = errorStore.UpsertErrors(ctx, adminUser.OrganizationID, deviceIDs[0], []models.ErrorMessage{*createCollectionIssue(deviceIDs[0], models.FanFailed, models.ComponentTypeFans)}, time.Now(), time.Minute, false)
+	err = errorStore.UpsertErrors(ctx, adminUser.OrganizationID, deviceIDs[0], []models.ErrorMessage{*createCollectionIssue(deviceIDs[0], models.FanFailed, models.ComponentTypeFans)}, time.Now(), time.Minute)
 	require.NoError(t, err)
-	err = errorStore.UpsertErrors(ctx, adminUser.OrganizationID, deviceIDs[1], []models.ErrorMessage{*createCollectionIssue(deviceIDs[1], models.PSUNotPresent, models.ComponentTypePSU)}, time.Now(), time.Minute, false)
+	err = errorStore.UpsertErrors(ctx, adminUser.OrganizationID, deviceIDs[1], []models.ErrorMessage{*createCollectionIssue(deviceIDs[1], models.PSUNotPresent, models.ComponentTypePSU)}, time.Now(), time.Minute)
 	require.NoError(t, err)
-	err = errorStore.UpsertErrors(ctx, adminUser.OrganizationID, deviceIDs[1], []models.ErrorMessage{*createCollectionIssue(deviceIDs[1], models.HashboardOverTemperature, models.ComponentTypeHashBoards)}, time.Now(), time.Minute, false)
+	err = errorStore.UpsertErrors(ctx, adminUser.OrganizationID, deviceIDs[1], []models.ErrorMessage{*createCollectionIssue(deviceIDs[1], models.HashboardOverTemperature, models.ComponentTypeHashBoards)}, time.Now(), time.Minute)
 	require.NoError(t, err)
 
 	sort := &sqlstoresinterfaces.SortConfig{

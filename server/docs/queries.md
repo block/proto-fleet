@@ -20,10 +20,10 @@ Persists one device's error snapshot in a single `INSERT ... ON CONFLICT` statem
 Dedup Key = (org_id, device_id, miner_error, component_id, component_type)
 ```
 
-- Open reports insert or update the open row. Unchanged rows are rewritten only when `refresh_all_open` is set or `last_seen_at` is older than the heartbeat cutoff; `last_seen_at` never moves backwards.
+- Open reports insert or update the open row. Unchanged rows are rewritten only once `last_seen_at` is older than the heartbeat cutoff; `last_seen_at` never moves backwards.
 - If `CloseStaleErrors` closes the row first, the conflict disappears and the report inserts a new occurrence.
-- Reports carrying `closed_at` close the matching open row, or insert a closed row when none is open.
-- With `refresh_all_open`, open rows omitted from a partial report get `last_seen_at` refreshed.
+- Reports carrying `closed_at` close the matching open row and write its latest details, or insert a closed row when none is open.
+- Partial polls call `RefreshOpenErrorsLastSeenByDevice` separately so omitted open rows stay fresh.
 - Callers must deduplicate reports by key first: `ON CONFLICT` cannot update one row twice in a statement.
 - Returns whether the device exists in the organization. The statement is not retried; the next poll replays it.
 

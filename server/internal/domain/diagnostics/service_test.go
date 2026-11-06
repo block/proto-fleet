@@ -82,8 +82,7 @@ func TestPollErrors_WithSingleMiner_ShouldUpsertErrors(t *testing.T) {
 		gomock.Any(),
 		gomock.Any(),
 		gomock.Any(),
-		false,
-	).DoAndReturn(func(_ context.Context, _ int64, _ string, errors []models.ErrorMessage, _ time.Time, refreshHeartbeat time.Duration, _ bool) error {
+	).DoAndReturn(func(_ context.Context, _ int64, _ string, errors []models.ErrorMessage, _ time.Time, refreshHeartbeat time.Duration) error {
 		require.Len(t, errors, 1)
 		assert.Equal(t, 30*time.Second, refreshHeartbeat)
 		errMsg := &errors[0]
@@ -128,13 +127,11 @@ func TestPollErrors_WithPartialResult_ShouldRefreshOpenErrorsAndUpsertIncludedRe
 
 	mockErrorStore := storeMocks.NewMockErrorStore(ctrl)
 	mockErrorStore.EXPECT().
-		UpsertErrors(gomock.Any(), int64(1), testDeviceID, gomock.Any(), gomock.Any(), gomock.Any(), true).
-		DoAndReturn(func(_ context.Context, _ int64, _ string, errors []models.ErrorMessage, observedAt time.Time, _ time.Duration, refreshAllOpen bool) error {
-			require.Len(t, errors, 1)
-			assert.False(t, observedAt.IsZero())
-			assert.True(t, refreshAllOpen)
-			return nil
-		})
+		RefreshOpenErrorsLastSeen(gomock.Any(), int64(1), testDeviceID, gomock.Any()).
+		Return(int64(3), nil)
+	mockErrorStore.EXPECT().
+		UpsertErrors(gomock.Any(), int64(1), testDeviceID, gomock.Len(1), gomock.Any(), gomock.Any()).
+		Return(nil)
 
 	svc := newTestService(ctrl, mockErrorStore)
 	result := svc.PollErrors(t.Context(), mockMiner)
@@ -145,33 +142,6 @@ func TestPollErrors_WithPartialResult_ShouldRefreshOpenErrorsAndUpsertIncludedRe
 	assert.Equal(t, 1, result.ErrorsUpserted)
 	assert.Equal(t, 0, result.UpsertsFailed)
 	assert.False(t, result.Cancelled)
-}
-
-func TestPollErrors_WithEmptyPartialResult_ShouldStillRefreshOpenErrors(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	testDeviceID := "test-device-123"
-
-	mockMiner := minerMocks.NewMockMiner(ctrl)
-	mockMiner.EXPECT().GetID().Return(minerModels.DeviceIdentifier(testDeviceID)).AnyTimes()
-	mockMiner.EXPECT().GetOrgID().Return(int64(1)).AnyTimes()
-	mockMiner.EXPECT().GetErrors(gomock.Any()).Return(models.DeviceErrors{
-		DeviceID:           testDeviceID,
-		Partial:            true,
-		OmittedReportCount: 3,
-	}, nil)
-
-	mockErrorStore := storeMocks.NewMockErrorStore(ctrl)
-	mockErrorStore.EXPECT().
-		UpsertErrors(gomock.Any(), int64(1), testDeviceID, gomock.Len(0), gomock.Any(), gomock.Any(), true).
-		Return(nil)
-
-	svc := newTestService(ctrl, mockErrorStore)
-	result := svc.PollErrors(t.Context(), mockMiner)
-
-	assert.Equal(t, 1, result.MinersProcessed)
-	assert.Equal(t, 1, result.MinersPartial)
-	assert.Zero(t, result.ErrorsUpserted)
-	assert.Zero(t, result.UpsertsFailed)
 }
 
 func TestPollErrors_WithRemoteNodeMiner_ShouldDispatchAndUpsertErrors(t *testing.T) {
@@ -196,8 +166,8 @@ func TestPollErrors_WithRemoteNodeMiner_ShouldDispatchAndUpsertErrors(t *testing
 	now := time.Now().UTC().Truncate(time.Millisecond).Add(-time.Hour)
 	mockErrorStore := storeMocks.NewMockErrorStore(ctrl)
 	mockErrorStore.EXPECT().
-		UpsertErrors(gomock.Any(), int64(7), "dev-remote", gomock.Any(), gomock.Any(), gomock.Any(), false).
-		DoAndReturn(func(_ context.Context, _ int64, _ string, errors []models.ErrorMessage, _ time.Time, _ time.Duration, _ bool) error {
+		UpsertErrors(gomock.Any(), int64(7), "dev-remote", gomock.Any(), gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, _ int64, _ string, errors []models.ErrorMessage, _ time.Time, _ time.Duration) error {
 			require.Len(t, errors, 1)
 			errMsg := &errors[0]
 			assert.Equal(t, models.PSUFaultGeneric, errMsg.MinerError)
@@ -289,16 +259,16 @@ func TestPollErrors_WithMultipleMiners_ShouldProcessAll(t *testing.T) {
 	}, nil)
 
 	mockErrorStore := storeMocks.NewMockErrorStore(ctrl)
-	mockErrorStore.EXPECT().UpsertErrors(gomock.Any(), int64(1), "device-1", gomock.Any(), gomock.Any(), gomock.Any(), false).DoAndReturn(
-		func(_ context.Context, _ int64, _ string, errors []models.ErrorMessage, _ time.Time, _ time.Duration, _ bool) error {
+	mockErrorStore.EXPECT().UpsertErrors(gomock.Any(), int64(1), "device-1", gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, _ int64, _ string, errors []models.ErrorMessage, _ time.Time, _ time.Duration) error {
 			require.Len(t, errors, 1)
 			errMsg := &errors[0]
 			assert.Equal(t, models.PSUNotPresent, errMsg.MinerError)
 			assert.Equal(t, models.SeverityCritical, errMsg.Severity)
 			return nil
 		})
-	mockErrorStore.EXPECT().UpsertErrors(gomock.Any(), int64(1), "device-2", gomock.Any(), gomock.Any(), gomock.Any(), false).DoAndReturn(
-		func(_ context.Context, _ int64, _ string, errors []models.ErrorMessage, _ time.Time, _ time.Duration, _ bool) error {
+	mockErrorStore.EXPECT().UpsertErrors(gomock.Any(), int64(1), "device-2", gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, _ int64, _ string, errors []models.ErrorMessage, _ time.Time, _ time.Duration) error {
 			require.Len(t, errors, 1)
 			errMsg := &errors[0]
 			assert.Equal(t, models.FanFailed, errMsg.MinerError)
@@ -335,7 +305,7 @@ func TestPollErrors_WhenMinerGetErrorsFails_ShouldContinueToNextMiner(t *testing
 	}, nil)
 
 	mockErrorStore := storeMocks.NewMockErrorStore(ctrl)
-	mockErrorStore.EXPECT().UpsertErrors(gomock.Any(), int64(1), "success-device", gomock.Any(), gomock.Any(), gomock.Any(), false).Return(nil)
+	mockErrorStore.EXPECT().UpsertErrors(gomock.Any(), int64(1), "success-device", gomock.Any(), gomock.Any(), gomock.Any()).Return(nil)
 
 	svc := newTestService(ctrl, mockErrorStore)
 	result := svc.PollErrors(t.Context(), failingMiner, successMiner)
@@ -365,7 +335,7 @@ func TestPollErrors_WhenBatchUpsertFails_ShouldCountEveryReportedError(t *testin
 
 	mockErrorStore := storeMocks.NewMockErrorStore(ctrl)
 	mockErrorStore.EXPECT().
-		UpsertErrors(gomock.Any(), int64(1), "test-device", gomock.Any(), gomock.Any(), gomock.Any(), false).
+		UpsertErrors(gomock.Any(), int64(1), "test-device", gomock.Any(), gomock.Any(), gomock.Any()).
 		Return(errors.New("db error"))
 
 	svc := newTestService(ctrl, mockErrorStore)
@@ -417,8 +387,8 @@ func TestPollErrors_WithMultipleErrorsFromSingleMiner_ShouldUpsertAll(t *testing
 
 	mockErrorStore := storeMocks.NewMockErrorStore(ctrl)
 	mockErrorStore.EXPECT().
-		UpsertErrors(gomock.Any(), int64(1), "multi-error-device", gomock.Any(), gomock.Any(), gomock.Any(), false).
-		DoAndReturn(func(_ context.Context, _ int64, _ string, errors []models.ErrorMessage, _ time.Time, _ time.Duration, _ bool) error {
+		UpsertErrors(gomock.Any(), int64(1), "multi-error-device", gomock.Any(), gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, _ int64, _ string, errors []models.ErrorMessage, _ time.Time, _ time.Duration) error {
 			require.Len(t, errors, 3)
 			return nil
 		})
@@ -463,8 +433,8 @@ func TestPollErrors_WithMixedMinerResults_ShouldHandleGracefully(t *testing.T) {
 	}, nil)
 
 	mockErrorStore := storeMocks.NewMockErrorStore(ctrl)
-	mockErrorStore.EXPECT().UpsertErrors(gomock.Any(), int64(1), "device-1", gomock.Any(), gomock.Any(), gomock.Any(), false).Return(nil)
-	mockErrorStore.EXPECT().UpsertErrors(gomock.Any(), int64(1), "device-4", gomock.Any(), gomock.Any(), gomock.Any(), false).Return(nil)
+	mockErrorStore.EXPECT().UpsertErrors(gomock.Any(), int64(1), "device-1", gomock.Any(), gomock.Any(), gomock.Any()).Return(nil)
+	mockErrorStore.EXPECT().UpsertErrors(gomock.Any(), int64(1), "device-4", gomock.Any(), gomock.Any(), gomock.Any()).Return(nil)
 
 	svc := newTestService(ctrl, mockErrorStore)
 	result := svc.PollErrors(t.Context(), miner1, miner2, miner3, miner4)
@@ -838,8 +808,7 @@ func TestUpsertErrors_WithZeroLastSeenAt_ShouldSetToCurrentTime(t *testing.T) {
 		gomock.Any(),
 		gomock.Any(),
 		gomock.Any(),
-		false,
-	).DoAndReturn(func(_ context.Context, _ int64, _ string, errors []models.ErrorMessage, _ time.Time, _ time.Duration, _ bool) error {
+	).DoAndReturn(func(_ context.Context, _ int64, _ string, errors []models.ErrorMessage, _ time.Time, _ time.Duration) error {
 		require.Len(t, errors, 1)
 		*capturedError = errors[0]
 		return nil
@@ -898,8 +867,7 @@ func TestUpsertErrors_WithNonZeroLastSeenAt_ShouldPreserveIt(t *testing.T) {
 		gomock.Any(),
 		gomock.Any(),
 		gomock.Any(),
-		false,
-	).DoAndReturn(func(_ context.Context, _ int64, _ string, errors []models.ErrorMessage, _ time.Time, _ time.Duration, _ bool) error {
+	).DoAndReturn(func(_ context.Context, _ int64, _ string, errors []models.ErrorMessage, _ time.Time, _ time.Duration) error {
 		require.Len(t, errors, 1)
 		*capturedError = errors[0]
 		return nil
@@ -946,8 +914,7 @@ func TestUpsertErrors_WithFutureLastSeenAt_ShouldClampToObservedAt(t *testing.T)
 		gomock.Any(),
 		gomock.Any(),
 		gomock.Any(),
-		false,
-	).DoAndReturn(func(_ context.Context, _ int64, _ string, errors []models.ErrorMessage, observedAt time.Time, _ time.Duration, _ bool) error {
+	).DoAndReturn(func(_ context.Context, _ int64, _ string, errors []models.ErrorMessage, observedAt time.Time, _ time.Duration) error {
 		require.Len(t, errors, 1)
 		assert.Equal(t, observedAt, errors[0].LastSeenAt)
 		assert.True(t, errors[0].LastSeenAt.Before(futureLastSeenAt))
@@ -961,48 +928,8 @@ func TestUpsertErrors_WithFutureLastSeenAt_ShouldClampToObservedAt(t *testing.T)
 	assert.Zero(t, result.UpsertsFailed)
 }
 
-func TestPollErrors_ShouldBoundHeartbeatByStalenessThreshold(t *testing.T) {
-	const deviceID = "test-device-123"
-	tests := []struct {
-		name               string
-		stalenessThreshold time.Duration
-		want               time.Duration
-	}{
-		{name: "default threshold", want: 30 * time.Second},
-		{name: "lower configured threshold", stalenessThreshold: 20 * time.Second, want: 5 * time.Second},
-		{name: "higher configured threshold", stalenessThreshold: 5 * time.Minute, want: 30 * time.Second},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			ctrl := gomock.NewController(t)
-			mockMiner := minerMocks.NewMockMiner(ctrl)
-			mockMiner.EXPECT().GetID().Return(minerModels.DeviceIdentifier(deviceID)).AnyTimes()
-			mockMiner.EXPECT().GetOrgID().Return(int64(1)).AnyTimes()
-			mockMiner.EXPECT().GetErrors(gomock.Any()).Return(models.DeviceErrors{
-				DeviceID: deviceID,
-				Errors: []models.ErrorMessage{{
-					MinerError: models.HashboardOverTemperature,
-					Severity:   models.SeverityMajor,
-					Summary:    "Test error",
-				}},
-			}, nil)
-
-			mockErrorStore := storeMocks.NewMockErrorStore(ctrl)
-			mockErrorStore.EXPECT().UpsertErrors(
-				gomock.Any(),
-				int64(1),
-				deviceID,
-				gomock.Len(1),
-				gomock.Any(),
-				tt.want,
-				false,
-			).Return(nil)
-
-			svc := NewService(Config{CloserStalenessThreshold: tt.stalenessThreshold}, mockErrorStore, nil)
-			result := svc.PollErrors(t.Context(), mockMiner)
-			assert.Equal(t, 1, result.ErrorsUpserted)
-			assert.Zero(t, result.UpsertsFailed)
-		})
-	}
+func TestErrorRefreshHeartbeat_ShouldBoundByStalenessThreshold(t *testing.T) {
+	assert.Equal(t, 30*time.Second, errorRefreshHeartbeat(defaultCloserStalenessThreshold))
+	assert.Equal(t, 5*time.Second, errorRefreshHeartbeat(20*time.Second))
+	assert.Equal(t, 30*time.Second, errorRefreshHeartbeat(5*time.Minute))
 }

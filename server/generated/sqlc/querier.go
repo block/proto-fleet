@@ -2258,6 +2258,9 @@ type Querier interface {
 	// after completion; this delay is not evidence of physical safety.
 	RecoverSettledPoolConfigurationWork(ctx context.Context) error
 	RecoverTelemetrySeedBatch(ctx context.Context) error
+	// Refreshes open errors for a device after an incomplete diagnostics poll.
+	// Uses GREATEST so a delayed partial poll cannot move newer observations backward.
+	RefreshOpenErrorsLastSeenByDevice(ctx context.Context, arg RefreshOpenErrorsLastSeenByDeviceParams) (sql.Result, error)
 	RefreshPoolConfigurationReadiness(ctx context.Context, arg RefreshPoolConfigurationReadinessParams) error
 	// Re-includes miners that left the channel scope and came back. They keep
 	// their batch, order and baseline but must verify again: their firmware may
@@ -2828,9 +2831,9 @@ type Querier interface {
 	// SUPER_ADMIN/ADMIN/FIELD_TECH would also be rejected by
 	// chk_role_custom_name_not_reserved.
 	UpsertCustomRoleForOrg(ctx context.Context, arg UpsertCustomRoleForOrgParams) (int64, error)
-	// Persists one device's deduplicated error report. idx_errors_open_dedup keeps one open
-	// occurrence per key; unchanged open rows are rewritten only after the heartbeat cutoff.
-	// Reports carrying closed_at close the matching open row; partial reports refresh omitted rows.
+	// Persists one device's deduplicated error report. Reports carrying closed_at close the
+	// matching open row; the rest insert or update it through idx_errors_open_dedup.
+	// Unchanged open rows are rewritten only once last_seen_at passes the heartbeat cutoff.
 	UpsertDeviceErrors(ctx context.Context, arg UpsertDeviceErrorsParams) (bool, error)
 	UpsertDevicePairing(ctx context.Context, arg UpsertDevicePairingParams) (sql.Result, error)
 	// Zone / building filters are not handled by this static query.

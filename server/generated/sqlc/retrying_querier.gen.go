@@ -9878,6 +9878,18 @@ func (q *retryingQuerier) RecoverTelemetrySeedBatch(ctx context.Context) error {
 	})
 }
 
+func (q *retryingQuerier) RefreshOpenErrorsLastSeenByDevice(ctx context.Context, arg RefreshOpenErrorsLastSeenByDeviceParams) (sql.Result, error) {
+	var result sql.Result
+	err := q.retrier.RetryQuery(ctx, "RefreshOpenErrorsLastSeenByDevice", func() error {
+		callResult, callErr := q.next.RefreshOpenErrorsLastSeenByDevice(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) RefreshPoolConfigurationReadiness(ctx context.Context, arg RefreshPoolConfigurationReadinessParams) error {
 	return q.retrier.RetryQuery(ctx, "RefreshPoolConfigurationReadiness", func() error {
 		return q.next.RefreshPoolConfigurationReadiness(ctx, arg)
