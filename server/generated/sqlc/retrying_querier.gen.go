@@ -3198,18 +3198,6 @@ func (q *retryingQuerier) GetOfflineFleetNodeDevices(ctx context.Context) ([]Get
 	return result, err
 }
 
-func (q *retryingQuerier) GetOpenErrorByDedupKey(ctx context.Context, arg GetOpenErrorByDedupKeyParams) (Error, error) {
-	var result Error
-	err := q.retrier.RetryQuery(ctx, "GetOpenErrorByDedupKey", func() error {
-		callResult, callErr := q.next.GetOpenErrorByDedupKey(ctx, arg)
-		if callErr == nil {
-			result = callResult
-		}
-		return callErr
-	})
-	return result, err
-}
-
 func (q *retryingQuerier) GetOrgDeviceMetricsHourlyAggregates(ctx context.Context, arg GetOrgDeviceMetricsHourlyAggregatesParams) ([]DeviceMetricsHourly, error) {
 	var result []DeviceMetricsHourly
 	err := q.retrier.RetryQuery(ctx, "GetOrgDeviceMetricsHourlyAggregates", func() error {
@@ -4000,18 +3988,6 @@ func (q *retryingQuerier) InsertDeviceMetrics(ctx context.Context, arg InsertDev
 	return q.retrier.RetryQuery(ctx, "InsertDeviceMetrics", func() error {
 		return q.next.InsertDeviceMetrics(ctx, arg)
 	})
-}
-
-func (q *retryingQuerier) InsertError(ctx context.Context, arg InsertErrorParams) (int64, error) {
-	var result int64
-	err := q.retrier.RetryQuery(ctx, "InsertError", func() error {
-		callResult, callErr := q.next.InsertError(ctx, arg)
-		if callErr == nil {
-			result = callResult
-		}
-		return callErr
-	})
-	return result, err
 }
 
 func (q *retryingQuerier) InsertMQTTSourceConfig(ctx context.Context, arg InsertMQTTSourceConfigParams) (InsertMQTTSourceConfigRow, error) {
@@ -7312,12 +7288,6 @@ func (q *retryingQuerier) UpdateMinerPassword(ctx context.Context, arg UpdateMin
 		return callErr
 	})
 	return result, err
-}
-
-func (q *retryingQuerier) UpdateOpenError(ctx context.Context, arg UpdateOpenErrorParams) error {
-	return q.retrier.RetryQuery(ctx, "UpdateOpenError", func() error {
-		return q.next.UpdateOpenError(ctx, arg)
-	})
 }
 
 func (q *retryingQuerier) UpdateOrganization(ctx context.Context, arg UpdateOrganizationParams) error {

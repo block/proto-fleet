@@ -85,7 +85,7 @@ func TestPollErrors_WithSingleMiner_ShouldUpsertErrors(t *testing.T) {
 		false,
 	).DoAndReturn(func(_ context.Context, _ int64, _ string, errors []models.ErrorMessage, _ time.Time, refreshHeartbeat time.Duration, _ bool) error {
 		require.Len(t, errors, 1)
-		assert.Equal(t, time.Minute, refreshHeartbeat)
+		assert.Equal(t, 30*time.Second, refreshHeartbeat)
 		errMsg := &errors[0]
 		assert.Equal(t, models.HashboardOverTemperature, errMsg.MinerError)
 		assert.Equal(t, models.SeverityMajor, errMsg.Severity)
@@ -193,7 +193,7 @@ func TestPollErrors_WithRemoteNodeMiner_ShouldDispatchAndUpsertErrors(t *testing
 	})
 	require.NoError(t, err)
 
-	now := time.Now().UTC().Truncate(time.Millisecond)
+	now := time.Now().UTC().Truncate(time.Millisecond).Add(-time.Hour)
 	mockErrorStore := storeMocks.NewMockErrorStore(ctrl)
 	mockErrorStore.EXPECT().
 		UpsertErrors(gomock.Any(), int64(7), "dev-remote", gomock.Any(), gomock.Any(), gomock.Any(), false).
@@ -918,6 +918,49 @@ func TestUpsertErrors_WithNonZeroLastSeenAt_ShouldPreserveIt(t *testing.T) {
 		"LastSeenAt should be preserved when provided by plugin")
 }
 
+func TestUpsertErrors_WithFutureLastSeenAt_ShouldClampToObservedAt(t *testing.T) {
+	ctrl := gomock.NewController(t)
+
+	const testDeviceID = "test-device-123"
+	futureLastSeenAt := time.Now().Add(24 * time.Hour)
+
+	mockMiner := minerMocks.NewMockMiner(ctrl)
+	mockMiner.EXPECT().GetID().Return(minerModels.DeviceIdentifier(testDeviceID)).AnyTimes()
+	mockMiner.EXPECT().GetOrgID().Return(int64(1)).AnyTimes()
+	mockMiner.EXPECT().GetErrors(gomock.Any()).Return(models.DeviceErrors{
+		DeviceID: testDeviceID,
+		Errors: []models.ErrorMessage{{
+			MinerError:  models.PSUNotPresent,
+			Severity:    models.SeverityCritical,
+			Summary:     "Plugin reported a future observation",
+			FirstSeenAt: time.Unix(testErrorFirstSeenTimestamp, 0),
+			LastSeenAt:  futureLastSeenAt,
+		}},
+	}, nil)
+
+	mockErrorStore := storeMocks.NewMockErrorStore(ctrl)
+	mockErrorStore.EXPECT().UpsertErrors(
+		gomock.Any(),
+		int64(1),
+		testDeviceID,
+		gomock.Any(),
+		gomock.Any(),
+		gomock.Any(),
+		false,
+	).DoAndReturn(func(_ context.Context, _ int64, _ string, errors []models.ErrorMessage, observedAt time.Time, _ time.Duration, _ bool) error {
+		require.Len(t, errors, 1)
+		assert.Equal(t, observedAt, errors[0].LastSeenAt)
+		assert.True(t, errors[0].LastSeenAt.Before(futureLastSeenAt))
+		return nil
+	})
+
+	svc := newTestService(ctrl, mockErrorStore)
+	result := svc.PollErrors(t.Context(), mockMiner)
+
+	assert.Equal(t, 1, result.ErrorsUpserted)
+	assert.Zero(t, result.UpsertsFailed)
+}
+
 func TestPollErrors_ShouldBoundHeartbeatByStalenessThreshold(t *testing.T) {
 	const deviceID = "test-device-123"
 	tests := []struct {
@@ -925,9 +968,9 @@ func TestPollErrors_ShouldBoundHeartbeatByStalenessThreshold(t *testing.T) {
 		stalenessThreshold time.Duration
 		want               time.Duration
 	}{
-		{name: "default threshold", want: time.Minute},
-		{name: "lower configured threshold", stalenessThreshold: 20 * time.Second, want: 10 * time.Second},
-		{name: "higher configured threshold", stalenessThreshold: 5 * time.Minute, want: time.Minute},
+		{name: "default threshold", want: 30 * time.Second},
+		{name: "lower configured threshold", stalenessThreshold: 20 * time.Second, want: 5 * time.Second},
+		{name: "higher configured threshold", stalenessThreshold: 5 * time.Minute, want: 30 * time.Second},
 	}
 
 	for _, tt := range tests {

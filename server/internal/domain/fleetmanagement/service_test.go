@@ -1124,7 +1124,7 @@ func TestService_ListMinerStateSnapshots_ShouldFilterByErrorComponentTypes(t *te
 
 			// Create PSU error for device 0
 			psuComponentID := makeComponentID(0, "psu", 0)
-			_, err := errorStore.UpsertError(ctx, testUser.OrganizationID, deviceIDs[0], &diagnosticsmodels.ErrorMessage{
+			err := errorStore.UpsertErrors(ctx, testUser.OrganizationID, deviceIDs[0], []diagnosticsmodels.ErrorMessage{{
 				MinerError:        diagnosticsmodels.PSUFaultGeneric,
 				Severity:          diagnosticsmodels.SeverityMajor,
 				Summary:           "PSU fault detected",
@@ -1136,12 +1136,12 @@ func TestService_ListMinerStateSnapshots_ShouldFilterByErrorComponentTypes(t *te
 				DeviceID:          deviceIDs[0],
 				ComponentID:       &psuComponentID,
 				ComponentType:     diagnosticsmodels.ComponentTypePSU,
-			})
+			}}, time.Now(), time.Minute, false)
 			require.NoError(t, err)
 
 			// Create FAN error for device 1
 			fanComponentID := makeComponentID(1, "fan", 0)
-			_, err = errorStore.UpsertError(ctx, testUser.OrganizationID, deviceIDs[1], &diagnosticsmodels.ErrorMessage{
+			err = errorStore.UpsertErrors(ctx, testUser.OrganizationID, deviceIDs[1], []diagnosticsmodels.ErrorMessage{{
 				MinerError:        diagnosticsmodels.FanFailed,
 				Severity:          diagnosticsmodels.SeverityMajor,
 				Summary:           "Fan failure detected",
@@ -1153,12 +1153,12 @@ func TestService_ListMinerStateSnapshots_ShouldFilterByErrorComponentTypes(t *te
 				DeviceID:          deviceIDs[1],
 				ComponentID:       &fanComponentID,
 				ComponentType:     diagnosticsmodels.ComponentTypeFans,
-			})
+			}}, time.Now(), time.Minute, false)
 			require.NoError(t, err)
 
 			// Create HASH_BOARD error for device 2
 			hashboardComponentID := makeComponentID(2, "hashboard", 0)
-			_, err = errorStore.UpsertError(ctx, testUser.OrganizationID, deviceIDs[2], &diagnosticsmodels.ErrorMessage{
+			err = errorStore.UpsertErrors(ctx, testUser.OrganizationID, deviceIDs[2], []diagnosticsmodels.ErrorMessage{{
 				MinerError:        diagnosticsmodels.HashboardOverTemperature,
 				Severity:          diagnosticsmodels.SeverityCritical,
 				Summary:           "Hashboard over temperature",
@@ -1170,7 +1170,7 @@ func TestService_ListMinerStateSnapshots_ShouldFilterByErrorComponentTypes(t *te
 				DeviceID:          deviceIDs[2],
 				ComponentID:       &hashboardComponentID,
 				ComponentType:     diagnosticsmodels.ComponentTypeHashBoards,
-			})
+			}}, time.Now(), time.Minute, false)
 			require.NoError(t, err)
 
 			// Device 3 has no errors

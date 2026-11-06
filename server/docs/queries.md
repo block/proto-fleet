@@ -12,23 +12,20 @@ This document explains the SQL queries in `sqlc/queries/errors.sql` for reviewer
 
 ## Deduplication & CRUD
 
-### GetOpenErrorByDedupKey
+### UpsertDeviceErrors
 
-Finds an existing open error by its deduplication key.
+Persists one device's error snapshot in a single statement. Reports are matched to open rows by the deduplication key.
 
 ```
 Dedup Key = (org_id, device_id, miner_error, component_id, component_type)
 ```
 
-**Key point**: Uses `<=>` (NULL-safe equals) for `component_id` and `component_type` because these can be NULL for device-level errors.
+**Key point**: Uses `IS NOT DISTINCT FROM` (NULL-safe equals) for `component_id` and `component_type` because these can be NULL for device-level errors.
 
-```sql
-WHERE component_id <=> ?   -- TRUE when both are NULL or both equal
-```
-
-### InsertError / UpdateOpenError
-
-Standard insert and update. Note that `UpdateOpenError` includes `AND closed_at IS NULL` to prevent accidentally updating closed errors.
+- Matched open rows are locked with `FOR UPDATE` so a concurrent `CloseStaleErrors` either finishes first (the report then inserts a new occurrence) or waits for this statement.
+- Matched rows are rewritten only when a detail changed or `last_seen_at` is older than the heartbeat cutoff; `last_seen_at` never moves backwards.
+- Reports with no matching open row are inserted. With `refresh_all_open`, open rows omitted from a partial report get `last_seen_at` refreshed.
+- Returns whether the device exists in the organization.
 
 ### GetErrorByErrorID
 

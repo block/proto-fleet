@@ -2,7 +2,7 @@ package diagnostics
 
 import "time"
 
-const maxErrorRefreshHeartbeat = 60 * time.Second
+const maxErrorRefreshHeartbeat = 30 * time.Second
 
 // Config contains configuration for the diagnostics service.
 type Config struct {
@@ -23,7 +23,7 @@ func getConfigDurationOrDefault(configValue, defaultValue time.Duration) time.Du
 }
 
 func errorRefreshHeartbeat(stalenessThreshold time.Duration) time.Duration {
-	return min(maxErrorRefreshHeartbeat, stalenessThreshold/2)
+	return min(maxErrorRefreshHeartbeat, stalenessThreshold/4)
 }
 
 // getConfigIntOrDefault returns the configured int value, or the default if the value is zero or negative.
