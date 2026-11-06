@@ -42,6 +42,8 @@ type fakeFleetNodeGateway struct {
 	signatureVerified bool
 
 	heartbeatMu          sync.Mutex
+	heartbeatCalls       int
+	heartbeatResponder   func(call int, req *connect.Request[pb.UploadHeartbeatRequest]) error
 	heartbeatsReceived   []heartbeatRecord
 	expectedSessionToken string
 	onHeartbeat          func(count int)
@@ -117,6 +119,16 @@ func (f *fakeFleetNodeGateway) completeAuthCount() int {
 }
 
 func (f *fakeFleetNodeGateway) UploadHeartbeat(_ context.Context, req *connect.Request[pb.UploadHeartbeatRequest]) (*connect.Response[pb.UploadHeartbeatResponse], error) {
+	f.heartbeatMu.Lock()
+	f.heartbeatCalls++
+	call := f.heartbeatCalls
+	responder := f.heartbeatResponder
+	f.heartbeatMu.Unlock()
+	if responder != nil {
+		if err := responder(call, req); err != nil {
+			return nil, err
+		}
+	}
 	auth := req.Header().Get("Authorization")
 	if f.expectedSessionToken != "" && auth != "Bearer "+f.expectedSessionToken {
 		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("invalid session token"))

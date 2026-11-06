@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math/rand"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -464,7 +465,8 @@ func (r *RunCmd) tick(ctx context.Context, client gatewayClient, logger *slog.Lo
 		}
 	}
 
-	err := r.sendHeartbeat(ctx, client, logger)
+	heartbeatLogger := logger.With("fleet_node_id", st.FleetNodeID)
+	err := r.sendHeartbeat(ctx, client, heartbeatLogger)
 	if err == nil {
 		logger.Info("heartbeat sent", "fleet_node_id", st.FleetNodeID)
 		return nil
@@ -488,7 +490,7 @@ func (r *RunCmd) tick(ctx context.Context, client gatewayClient, logger *slog.Lo
 		logger.Error("post-Unauthenticated refresh failed; will retry on next tick", "fleet_node_id", st.FleetNodeID, "err", refreshErr)
 		return nil
 	}
-	retryErr := r.sendHeartbeat(ctx, client, logger)
+	retryErr := r.sendHeartbeat(ctx, client, heartbeatLogger)
 	if retryErr == nil {
 		logger.Info("heartbeat sent after refresh", "fleet_node_id", st.FleetNodeID)
 		return nil
@@ -514,16 +516,16 @@ func (r *RunCmd) sendHeartbeat(ctx context.Context, client gatewayClient, logger
 	var err error
 	for attempt, backoff := range [...]time.Duration{0, 250 * time.Millisecond, time.Second} {
 		if backoff > 0 {
-			timer := time.NewTimer(backoff)
+			timer := time.NewTimer(backoff + time.Duration(rand.Int63n(int64(backoff/2)+1)))
 			select {
 			case <-callCtx.Done():
 				timer.Stop()
-				return fmt.Errorf("heartbeat interrupted: %w", callCtx.Err())
+				return errors.Join(fmt.Errorf("heartbeat interrupted: %w", callCtx.Err()), err)
 			case <-timer.C:
 			}
 		}
-		if err := callCtx.Err(); err != nil {
-			return fmt.Errorf("heartbeat interrupted: %w", err)
+		if ctxErr := callCtx.Err(); ctxErr != nil {
+			return errors.Join(fmt.Errorf("heartbeat interrupted: %w", ctxErr), err)
 		}
 		_, err = client.UploadHeartbeat(callCtx, req)
 		if err == nil {

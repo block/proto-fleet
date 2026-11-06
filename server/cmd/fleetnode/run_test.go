@@ -877,57 +877,94 @@ func TestRunCmd_RefreshFailureCannotExtendControlStreamPastExpiry(t *testing.T) 
 
 func TestRunCmd_RefreshesOnUnauthenticatedResponse(t *testing.T) {
 	t.Parallel()
+	for _, retryUnavailable := range []bool{false, true} {
+		t.Run(fmt.Sprintf("retry-unavailable=%t", retryUnavailable), func(t *testing.T) {
+			t.Parallel()
 
-	// Arrange
-	dir := t.TempDir()
-	pubKey, priv, err := ed25519.GenerateKey(rand.Reader)
-	require.NoError(t, err)
-	fake := &fakeFleetNodeGateway{
-		expectedAPIKey:       "fleet_known_key",
-		identityPub:          pubKey,
-		challenge:            bytes.Repeat([]byte{0x44}, 32),
-		sessionToken:         "session-2",
-		sessionExpiresAt:     time.Now().Add(24 * time.Hour).UTC().Truncate(time.Second),
-		expectedSessionToken: "session-2",
+			// Arrange
+			dir := t.TempDir()
+			pubKey, priv, err := ed25519.GenerateKey(rand.Reader)
+			require.NoError(t, err)
+			fake := &fakeFleetNodeGateway{
+				expectedAPIKey:       "fleet_known_key",
+				identityPub:          pubKey,
+				challenge:            bytes.Repeat([]byte{0x44}, 32),
+				sessionToken:         "session-2",
+				sessionExpiresAt:     time.Now().Add(24 * time.Hour).UTC().Truncate(time.Second),
+				expectedSessionToken: "session-2",
+			}
+			var attempts []heartbeatRecord
+			fake.heartbeatResponder = func(call int, req *connect.Request[pb.UploadHeartbeatRequest]) error {
+				attempts = append(attempts, heartbeatRecord{
+					authHeader: req.Header().Get("Authorization"),
+					sentAt:     req.Msg.GetSentAt().AsTime(),
+				})
+				if retryUnavailable && (call == 1 || call == 3) {
+					return connect.NewError(connect.CodeUnavailable, errors.New("transient transport failure"))
+				}
+				return nil
+			}
+			srv := newFakeServer(t, fake)
+			require.NoError(t, bootstrap.SaveState(bootstrap.StatePath(dir), &bootstrap.State{
+				ServerURL:              srv.URL,
+				AllowInsecureTransport: true,
+				FleetNodeID:            42,
+				IdentityFingerprint:    "0011223344556677",
+				IdentityPrivateKeyHex:  hex.EncodeToString(priv),
+				IdentityPublicKeyHex:   hex.EncodeToString(pubKey),
+				APIKey:                 "fleet_known_key",
+				SessionToken:           "session-1",
+				SessionExpiresAt:       time.Now().Add(24 * time.Hour),
+			}))
+
+			parent, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			successfulHeartbeats := atomic.Int64{}
+			fake.onHeartbeat = func(count int) {
+				successfulHeartbeats.Store(int64(count))
+				if count >= 3 {
+					cancel()
+				}
+			}
+
+			cmd := &RunCmd{HeartbeatInterval: 5 * time.Millisecond, parentCtx: parent}
+
+			var logs bytes.Buffer
+			done := make(chan error, 1)
+			go func() { done <- cmd.run(&Context{StateDir: dir}, slog.New(slog.NewJSONHandler(&logs, nil))) }()
+
+			select {
+			case err := <-done:
+				require.NoError(t, err)
+			case <-time.After(3 * time.Second):
+				t.Fatalf("daemon did not recover and reach 3 successful heartbeats; got %d", successfulHeartbeats.Load())
+			}
+
+			// Assert
+			loaded, _, _ := bootstrap.LoadState(bootstrap.StatePath(dir))
+			assert.Equal(t, "session-2", loaded.SessionToken, "Unauthenticated rejection must trigger a refresh that persists the new token")
+
+			assert.Equal(t, 1, fake.completeAuthCount())
+			if retryUnavailable {
+				require.GreaterOrEqual(t, len(attempts), 4)
+				assert.Equal(t, "Bearer session-1", attempts[0].authHeader)
+				assert.Equal(t, "Bearer session-1", attempts[1].authHeader)
+				assert.Equal(t, attempts[0].sentAt, attempts[1].sentAt, "retry must replay the same metadata")
+				assert.Equal(t, "Bearer session-2", attempts[2].authHeader)
+				assert.Equal(t, "Bearer session-2", attempts[3].authHeader)
+				assert.Equal(t, attempts[2].sentAt, attempts[3].sentAt)
+				recoveries := 0
+				for line := range bytes.SplitSeq(logs.Bytes(), []byte("\n")) {
+					if bytes.Contains(line, []byte(`"msg":"heartbeat recovered after transient failure"`)) {
+						recoveries++
+						assert.Contains(t, string(line), `"fleet_node_id":42`)
+						assert.Contains(t, string(line), `"attempts":2`)
+					}
+				}
+				assert.Equal(t, 1, recoveries)
+			}
+		})
 	}
-	srv := newFakeServer(t, fake)
-	require.NoError(t, bootstrap.SaveState(bootstrap.StatePath(dir), &bootstrap.State{
-		ServerURL:              srv.URL,
-		AllowInsecureTransport: true,
-		FleetNodeID:            42,
-		IdentityFingerprint:    "0011223344556677",
-		IdentityPrivateKeyHex:  hex.EncodeToString(priv),
-		IdentityPublicKeyHex:   hex.EncodeToString(pubKey),
-		APIKey:                 "fleet_known_key",
-		SessionToken:           "session-1",
-		SessionExpiresAt:       time.Now().Add(24 * time.Hour),
-	}))
-
-	parent, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	successfulHeartbeats := atomic.Int64{}
-	fake.onHeartbeat = func(count int) {
-		successfulHeartbeats.Store(int64(count))
-		if count >= 3 {
-			cancel()
-		}
-	}
-
-	cmd := &RunCmd{HeartbeatInterval: 5 * time.Millisecond, parentCtx: parent}
-
-	done := make(chan error, 1)
-	go func() { done <- cmd.run(&Context{StateDir: dir}, slog.New(slog.DiscardHandler)) }()
-
-	select {
-	case err := <-done:
-		require.NoError(t, err)
-	case <-time.After(3 * time.Second):
-		t.Fatalf("daemon did not recover and reach 3 successful heartbeats; got %d", successfulHeartbeats.Load())
-	}
-
-	// Assert
-	loaded, _, _ := bootstrap.LoadState(bootstrap.StatePath(dir))
-	assert.Equal(t, "session-2", loaded.SessionToken, "Unauthenticated rejection must trigger a refresh that persists the new token")
 }
 
 func TestRunCmd_FailsWhenStateIsMissing(t *testing.T) {
@@ -1173,7 +1210,8 @@ func TestSendHeartbeatRetriesUnavailable(t *testing.T) {
 		err := (&RunCmd{now: time.Now}).sendHeartbeat(t.Context(), client, slog.New(slog.NewJSONHandler(&logs, nil)))
 		require.NoError(t, err)
 		assert.Equal(t, 3, calls)
-		assert.Equal(t, 1250*time.Millisecond, time.Since(started))
+		assert.GreaterOrEqual(t, time.Since(started), 1250*time.Millisecond)
+		assert.LessOrEqual(t, time.Since(started), 1875*time.Millisecond)
 		assert.Equal(t, 1, bytes.Count(logs.Bytes(), []byte("\n")))
 		assert.Contains(t, logs.String(), `"msg":"heartbeat recovered after transient failure"`)
 		assert.Contains(t, logs.String(), `"attempts":3`)
@@ -1207,25 +1245,48 @@ func TestSendHeartbeatUnavailableRetryLimit(t *testing.T) {
 		require.ErrorIs(t, err, expected)
 		calls, _ := client.snapshot()
 		assert.Equal(t, 3, calls)
-		assert.Equal(t, 1250*time.Millisecond, time.Since(started))
+		assert.GreaterOrEqual(t, time.Since(started), 1250*time.Millisecond)
+		assert.LessOrEqual(t, time.Since(started), 1875*time.Millisecond)
 	})
 }
 
-func TestSendHeartbeatCanceledDuringBackoff(t *testing.T) {
-	synctest.Test(t, func(t *testing.T) {
-		ctx, cancel := context.WithCancel(t.Context())
-		defer cancel()
-		client := &stubGatewayClient{responder: func(int) error {
-			time.AfterFunc(100*time.Millisecond, cancel)
-			return connect.NewError(connect.CodeUnavailable, errors.New("temporarily unavailable"))
-		}}
-		started := time.Now()
-		err := (&RunCmd{now: time.Now}).sendHeartbeat(ctx, client, discardLogger(t))
-		require.ErrorIs(t, err, context.Canceled)
-		calls, _ := client.snapshot()
-		assert.Equal(t, 1, calls)
-		assert.Equal(t, 100*time.Millisecond, time.Since(started))
-	})
+func TestSendHeartbeatInterruptedDuringBackoff(t *testing.T) {
+	for _, timeout := range []bool{false, true} {
+		t.Run(fmt.Sprintf("deadline=%t", timeout), func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				ctx, cancel := context.WithCancel(t.Context())
+				contextErr := context.Canceled
+				if timeout {
+					cancel()
+					ctx, cancel = context.WithTimeout(t.Context(), 100*time.Millisecond)
+					contextErr = context.DeadlineExceeded
+				} else {
+					time.AfterFunc(100*time.Millisecond, cancel)
+				}
+				defer cancel()
+				transportErr := connect.NewError(connect.CodeUnavailable, errors.New("temporarily unavailable"))
+				client := &stubGatewayClient{responder: func(int) error { return transportErr }}
+				started := time.Now()
+				err := (&RunCmd{now: time.Now}).sendHeartbeat(ctx, client, discardLogger(t))
+				require.ErrorIs(t, err, contextErr)
+				require.ErrorIs(t, err, transportErr)
+				assert.Equal(t, connect.CodeUnavailable, connect.CodeOf(err))
+				calls, _ := client.snapshot()
+				assert.Equal(t, 1, calls)
+				assert.Equal(t, 100*time.Millisecond, time.Since(started))
+			})
+		})
+	}
+}
+
+func TestSendHeartbeatAlreadyCanceled(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	client := &stubGatewayClient{}
+	err := (&RunCmd{now: time.Now}).sendHeartbeat(ctx, client, discardLogger(t))
+	require.ErrorIs(t, err, context.Canceled)
+	calls, _ := client.snapshot()
+	assert.Zero(t, calls)
 }
 
 func TestSendHeartbeatRetriesShareOriginalDeadline(t *testing.T) {
