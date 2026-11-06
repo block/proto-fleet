@@ -362,6 +362,7 @@ type Querier interface {
 	ConsumeHostedInvitationRateLimit(ctx context.Context, arg ConsumeHostedInvitationRateLimitParams) (int64, error)
 	ConsumeOrganizationInvitation(ctx context.Context, arg ConsumeOrganizationInvitationParams) (int64, error)
 	ConsumeReservedInventoryPart(ctx context.Context, arg ConsumeReservedInventoryPartParams) (int64, error)
+	ContainerControlsChildrenMatch(ctx context.Context, arg ContainerControlsChildrenMatchParams) (sql.NullBool, error)
 	ContainerOwnsCommandBatch(ctx context.Context, arg ContainerOwnsCommandBatchParams) (bool, error)
 	ContainsContainerIdentifiers(ctx context.Context, arg ContainsContainerIdentifiersParams) (bool, error)
 	// Counts live (user_organization_role, user) pairs. Filtering on

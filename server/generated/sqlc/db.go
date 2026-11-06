@@ -339,6 +339,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.consumeReservedInventoryPartStmt, err = db.PrepareContext(ctx, consumeReservedInventoryPart); err != nil {
 		return nil, fmt.Errorf("error preparing query ConsumeReservedInventoryPart: %w", err)
 	}
+	if q.containerControlsChildrenMatchStmt, err = db.PrepareContext(ctx, containerControlsChildrenMatch); err != nil {
+		return nil, fmt.Errorf("error preparing query ContainerControlsChildrenMatch: %w", err)
+	}
 	if q.containerOwnsCommandBatchStmt, err = db.PrepareContext(ctx, containerOwnsCommandBatch); err != nil {
 		return nil, fmt.Errorf("error preparing query ContainerOwnsCommandBatch: %w", err)
 	}
@@ -3888,6 +3891,11 @@ func (q *Queries) Close() error {
 	if q.consumeReservedInventoryPartStmt != nil {
 		if cerr := q.consumeReservedInventoryPartStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing consumeReservedInventoryPartStmt: %w", cerr)
+		}
+	}
+	if q.containerControlsChildrenMatchStmt != nil {
+		if cerr := q.containerControlsChildrenMatchStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing containerControlsChildrenMatchStmt: %w", cerr)
 		}
 	}
 	if q.containerOwnsCommandBatchStmt != nil {
@@ -9069,6 +9077,7 @@ type Queries struct {
 	consumeHostedInvitationRateLimitStmt                        *sql.Stmt
 	consumeOrganizationInvitationStmt                           *sql.Stmt
 	consumeReservedInventoryPartStmt                            *sql.Stmt
+	containerControlsChildrenMatchStmt                          *sql.Stmt
 	containerOwnsCommandBatchStmt                               *sql.Stmt
 	containsContainerIdentifiersStmt                            *sql.Stmt
 	countActiveAssignmentsForRoleStmt                           *sql.Stmt
@@ -10187,6 +10196,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		consumeHostedInvitationRateLimitStmt:                        q.consumeHostedInvitationRateLimitStmt,
 		consumeOrganizationInvitationStmt:                           q.consumeOrganizationInvitationStmt,
 		consumeReservedInventoryPartStmt:                            q.consumeReservedInventoryPartStmt,
+		containerControlsChildrenMatchStmt:                          q.containerControlsChildrenMatchStmt,
 		containerOwnsCommandBatchStmt:                               q.containerOwnsCommandBatchStmt,
 		containsContainerIdentifiersStmt:                            q.containsContainerIdentifiersStmt,
 		countActiveAssignmentsForRoleStmt:                           q.countActiveAssignmentsForRoleStmt,
