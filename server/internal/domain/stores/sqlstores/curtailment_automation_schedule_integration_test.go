@@ -75,7 +75,6 @@ func TestSQLCurtailmentStore_ScheduleAutomationRuleLifecycle(t *testing.T) {
 		}
 	}
 	require.NotNil(t, found)
-	assert.Equal(t, user.OrganizationID, found.OrgID)
 	assert.Equal(t, schedule.Definition, found.Schedule.Definition)
 	assert.Equal(t, firstRevision, found.Schedule.Revision)
 
@@ -93,13 +92,13 @@ func TestSQLCurtailmentStore_ScheduleAutomationRuleLifecycle(t *testing.T) {
 
 	// A producer that read the schedule before the edit cannot queue its boundary.
 	start := time.Now().UTC().Add(-time.Hour).Truncate(time.Second)
-	require.NoError(t, store.QueueScheduleAutomationExecution(ctx, rule.ID, firstRevision, models.AutomationSignalOff, "schedule_start", start))
+	require.NoError(t, store.QueueScheduleAutomationExecution(ctx, models.AutomationExecution{RuleID: rule.ID, ScheduleRevision: firstRevision, Target: models.AutomationSignalOff, Direction: "schedule_start", ReceivedAt: start}))
 	stale, err := store.ClaimAutomationExecution(ctx)
 	require.NoError(t, err)
 	assert.Nil(t, stale, "a boundary from an earlier schedule revision must not be queued")
 
 	// A window boundary is applied once; only a newer boundary replaces it.
-	require.NoError(t, store.QueueScheduleAutomationExecution(ctx, rule.ID, revision, models.AutomationSignalOff, "schedule_start", start))
+	require.NoError(t, store.QueueScheduleAutomationExecution(ctx, models.AutomationExecution{RuleID: rule.ID, ScheduleRevision: revision, Target: models.AutomationSignalOff, Direction: "schedule_start", ReceivedAt: start}))
 	claimed, err := store.ClaimAutomationExecution(ctx)
 	require.NoError(t, err)
 	require.NotNil(t, claimed)
@@ -108,11 +107,11 @@ func TestSQLCurtailmentStore_ScheduleAutomationRuleLifecycle(t *testing.T) {
 	assert.True(t, claimed.ReceivedAt.Equal(start))
 	assert.Equal(t, revision, claimed.ScheduleRevision)
 	require.NoError(t, store.CompleteAutomationExecution(ctx, rule.ID, claimed.Generation, claimed.LeaseExpiresAt))
-	require.NoError(t, store.QueueScheduleAutomationExecution(ctx, rule.ID, revision, models.AutomationSignalOff, "schedule_start", start))
+	require.NoError(t, store.QueueScheduleAutomationExecution(ctx, models.AutomationExecution{RuleID: rule.ID, ScheduleRevision: revision, Target: models.AutomationSignalOff, Direction: "schedule_start", ReceivedAt: start}))
 	again, err := store.ClaimAutomationExecution(ctx)
 	require.NoError(t, err)
 	assert.Nil(t, again, "a completed window boundary must not run again")
-	require.NoError(t, store.QueueScheduleAutomationExecution(ctx, rule.ID, revision, models.AutomationSignalOn, "schedule_end", start.Add(time.Hour)))
+	require.NoError(t, store.QueueScheduleAutomationExecution(ctx, models.AutomationExecution{RuleID: rule.ID, ScheduleRevision: revision, Target: models.AutomationSignalOn, Direction: "schedule_end", ReceivedAt: start.Add(time.Hour)}))
 	end, err := store.ClaimAutomationExecution(ctx)
 	require.NoError(t, err)
 	require.NotNil(t, end)
@@ -123,7 +122,7 @@ func TestSQLCurtailmentStore_ScheduleAutomationRuleLifecycle(t *testing.T) {
 	// earlier boundary.
 	_, err = database.ExecContext(ctx, `UPDATE curtailment_automation_execution SET schedule_revision = $1 WHERE rule_id = $2`, firstRevision, rule.ID)
 	require.NoError(t, err)
-	require.NoError(t, store.QueueScheduleAutomationExecution(ctx, rule.ID, revision, models.AutomationSignalOff, "schedule_start", start))
+	require.NoError(t, store.QueueScheduleAutomationExecution(ctx, models.AutomationExecution{RuleID: rule.ID, ScheduleRevision: revision, Target: models.AutomationSignalOff, Direction: "schedule_start", ReceivedAt: start}))
 	replaced, err := store.ClaimAutomationExecution(ctx)
 	require.NoError(t, err)
 	require.NotNil(t, replaced, "the saved revision's boundary replaces an earlier revision's row")

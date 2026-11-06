@@ -12,13 +12,14 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/curtailment/models"
 	"github.com/block/proto-fleet/server/internal/domain/curtailment/schedulewindow"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 )
 
 const scheduleDateLayout = "2006-01-02"
 
 var (
 	_ curtailment.AutomationExecutionStore = (*SQLCurtailmentStore)(nil)
-	_ curtailment.ScheduleAutomationStore  = (*SQLCurtailmentStore)(nil)
+	_ interfaces.AutomationStore           = (*SQLCurtailmentStore)(nil)
 )
 
 func (s *SQLCurtailmentStore) ListEnabledScheduleAutomationRules(ctx context.Context) ([]models.ScheduledAutomationRule, error) {
@@ -28,22 +29,7 @@ func (s *SQLCurtailmentStore) ListEnabledScheduleAutomationRules(ctx context.Con
 	}
 	out := make([]models.ScheduledAutomationRule, 0, len(rows))
 	for _, row := range rows {
-		schedule := automationScheduleFromRow(sqlc.CurtailmentAutomationSchedule{
-			RuleID:        row.RuleID,
-			ScheduleType:  row.ScheduleType,
-			Timezone:      row.Timezone,
-			StartDate:     row.StartDate,
-			StartTime:     row.StartTime,
-			EndTime:       row.EndTime,
-			EndDate:       row.EndDate,
-			Frequency:     row.Frequency,
-			DaysOfWeek:    row.DaysOfWeek,
-			DayOfMonth:    row.DayOfMonth,
-			UntilDate:     row.UntilDate,
-			ServiceUserID: row.ServiceUserID,
-			Revision:      row.Revision,
-		})
-		out = append(out, models.ScheduledAutomationRule{RuleID: row.RuleID, OrgID: row.OrgID, Schedule: *schedule})
+		out = append(out, models.ScheduledAutomationRule{RuleID: row.RuleID, Schedule: *automationScheduleFromRow(row)})
 	}
 	return out, nil
 }

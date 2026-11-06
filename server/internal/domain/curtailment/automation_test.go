@@ -1887,6 +1887,18 @@ func (f *automationFakeStore) RecordAutomationRestoreStarted(_ context.Context, 
 	return fleeterror.NewNotFoundErrorf("curtailment automation rule not found: %d", ruleID)
 }
 
+func (*automationFakeStore) ListEnabledScheduleAutomationRules(context.Context) ([]models.ScheduledAutomationRule, error) {
+	return nil, nil
+}
+
+func (*automationFakeStore) QueueScheduleAutomationExecution(context.Context, models.AutomationExecution) error {
+	return nil
+}
+
+func (*automationFakeStore) ScheduleWindowEventState(context.Context, int64, int64, time.Time, uuid.UUID) (models.EventState, bool, error) {
+	return "", false, nil
+}
+
 func (f *automationFakeStore) RecordAutomationExecutionError(_ context.Context, ruleID int64, message string, at time.Time) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()

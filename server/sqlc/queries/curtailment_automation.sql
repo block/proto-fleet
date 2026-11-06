@@ -542,7 +542,7 @@ WHERE schedule.rule_id = sqlc.arg('rule_id')
 
 -- name: ListEnabledCurtailmentScheduleRules :many
 -- Every organization's enabled schedule rules, for the window producer.
-SELECT r.org_id, schedule.*
+SELECT schedule.*
 FROM curtailment_automation_schedule schedule
 JOIN curtailment_automation_rule r ON r.id = schedule.rule_id
 WHERE r.enabled AND r.trigger_type = 'SCHEDULE'

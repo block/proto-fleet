@@ -90,7 +90,6 @@ type AutomationSchedule struct {
 // reads it.
 type ScheduledAutomationRule struct {
 	RuleID   int64
-	OrgID    int64
 	Schedule AutomationSchedule
 }
 

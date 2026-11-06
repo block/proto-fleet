@@ -162,12 +162,11 @@ type BeginRestoreTransitionParams struct {
 // current rule, MQTT source principal, and response-profile revision. Manual
 // re-curtail calls leave the automation fields zero.
 type BeginRecurtailTransitionParams struct {
-	ResponseProfileID          int64
-	ResponseProfileRevision    uuid.UUID
-	AutomationRuleID           int64
-	AutomationMQTTSourceID     int64
-	AutomationScheduleRevision uuid.UUID
-	AutomationServiceUserID    int64
+	ResponseProfileID       int64
+	ResponseProfileRevision uuid.UUID
+	AutomationRuleID        int64
+	AutomationMQTTSourceID  int64
+	AutomationServiceUserID int64
 }
 
 type AutomationDemandGuard struct {
@@ -235,6 +234,15 @@ type AutomationStore interface {
 	ClearAutomationActiveEvent(ctx context.Context, ruleID int64, at time.Time) error
 	RecordAutomationRestoreStarted(ctx context.Context, ruleID int64, at time.Time) error
 	RecordAutomationExecutionError(ctx context.Context, ruleID int64, message string, at time.Time) error
+	// ListEnabledScheduleAutomationRules returns every organization's enabled
+	// schedule rules, for the window producer.
+	ListEnabledScheduleAutomationRules(ctx context.Context) ([]models.ScheduledAutomationRule, error)
+	// QueueScheduleAutomationExecution asserts a schedule window boundary into
+	// the rule's mailbox; work.ReceivedAt is the boundary time.
+	QueueScheduleAutomationExecution(ctx context.Context, work models.AutomationExecution) error
+	// ScheduleWindowEventState reports the state of the latest event a schedule
+	// rule started for a window under a schedule revision, in any state.
+	ScheduleWindowEventState(ctx context.Context, orgID, ruleID int64, windowStart time.Time, scheduleRevision uuid.UUID) (models.EventState, bool, error)
 }
 
 const CurtailmentResolvedMinerMax = 10000

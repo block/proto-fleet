@@ -65,18 +65,18 @@ func (f *scheduleDurableFake) ScheduleWindowEventState(_ context.Context, _, _ i
 	return "", false, nil
 }
 
-func (f *scheduleDurableFake) QueueScheduleAutomationExecution(_ context.Context, ruleID int64, scheduleRevision uuid.UUID, target models.AutomationSignal, direction string, boundaryAt time.Time) error {
-	if latest, ok := f.latest[ruleID]; ok && latest.revision == scheduleRevision && !latest.at.Before(boundaryAt) {
+func (f *scheduleDurableFake) QueueScheduleAutomationExecution(_ context.Context, work models.AutomationExecution) error {
+	if latest, ok := f.latest[work.RuleID]; ok && latest.revision == work.ScheduleRevision && !latest.at.Before(work.ReceivedAt) {
 		return nil
 	}
 	if f.latest == nil {
 		f.latest = make(map[int64]scheduleBoundary)
 	}
-	f.latest[ruleID] = scheduleBoundary{at: boundaryAt, revision: scheduleRevision}
-	f.pending = append(f.pending, models.AutomationExecution{
-		RuleID: ruleID, OrgID: 42, Generation: 1, Direction: direction, Target: target, TargetAt: boundaryAt, ReceivedAt: boundaryAt,
-		ScheduleRevision: scheduleRevision,
-	})
+	f.latest[work.RuleID] = scheduleBoundary{at: work.ReceivedAt, revision: work.ScheduleRevision}
+	work.OrgID = 42
+	work.Generation = 1
+	work.TargetAt = work.ReceivedAt
+	f.pending = append(f.pending, work)
 	return nil
 }
 
@@ -91,7 +91,7 @@ func newScheduleHarness(t *testing.T) (*automationHarness, *scheduleDurableFake)
 	h.rule.Schedule = dailyEveningSchedule()
 	durable := &scheduleDurableFake{
 		durableAutomationFake: &durableAutomationFake{automationFakeStore: h.rules},
-		schedules:             []models.ScheduledAutomationRule{{RuleID: h.rule.ID, OrgID: h.orgID, Schedule: *h.rule.Schedule}},
+		schedules:             []models.ScheduledAutomationRule{{RuleID: h.rule.ID, Schedule: *h.rule.Schedule}},
 		events:                h.curtailments.eventsByUUID,
 	}
 	h.automation.store = durable
@@ -234,26 +234,26 @@ func TestAutomationService_RunIsolatesSlowExecutions(t *testing.T) {
 	<-done
 }
 
-func TestScheduleAssertionAt(t *testing.T) {
+func TestScheduleBoundaryAt(t *testing.T) {
 	def := dailyEveningSchedule().Definition
 
-	target, direction, boundary, ok, err := scheduleAssertionAt(def, scheduleWindowStart.Add(time.Hour))
+	boundary, err := scheduleBoundaryAt(def, scheduleWindowStart.Add(time.Hour))
 	require.NoError(t, err)
-	require.True(t, ok)
-	assert.Equal(t, models.AutomationSignalOff, target)
-	assert.Equal(t, scheduleDirectionStart, direction)
-	assert.True(t, boundary.Equal(scheduleWindowStart))
+	require.NotNil(t, boundary)
+	assert.Equal(t, models.AutomationSignalOff, boundary.Target)
+	assert.Equal(t, scheduleDirectionStart, boundary.Direction)
+	assert.True(t, boundary.ReceivedAt.Equal(scheduleWindowStart))
 
-	target, direction, boundary, ok, err = scheduleAssertionAt(def, scheduleWindowEnd.Add(time.Hour))
+	boundary, err = scheduleBoundaryAt(def, scheduleWindowEnd.Add(time.Hour))
 	require.NoError(t, err)
-	require.True(t, ok)
-	assert.Equal(t, models.AutomationSignalOn, target)
-	assert.Equal(t, scheduleDirectionEnd, direction)
-	assert.True(t, boundary.Equal(scheduleWindowEnd))
+	require.NotNil(t, boundary)
+	assert.Equal(t, models.AutomationSignalOn, boundary.Target)
+	assert.Equal(t, scheduleDirectionEnd, boundary.Direction)
+	assert.True(t, boundary.ReceivedAt.Equal(scheduleWindowEnd))
 
-	_, _, _, ok, err = scheduleAssertionAt(def, time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC))
+	boundary, err = scheduleBoundaryAt(def, time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC))
 	require.NoError(t, err)
-	assert.False(t, ok, "nothing to assert before the first window")
+	assert.Nil(t, boundary, "nothing to assert before the first window")
 }
 
 func TestAutomationService_ScheduleWindowStartsScheduledEvent(t *testing.T) {
@@ -487,7 +487,7 @@ func TestAutomationService_ScheduleEditRequeuesEarlierBoundary(t *testing.T) {
 	edited := dailyEveningSchedule()
 	edited.Definition.StartTime = "19:00"
 	h.rule.Schedule = edited
-	durable.schedules = []models.ScheduledAutomationRule{{RuleID: h.rule.ID, OrgID: h.orgID, Schedule: *edited}}
+	durable.schedules = []models.ScheduledAutomationRule{{RuleID: h.rule.ID, Schedule: *edited}}
 	h.automation.produceScheduleAssertions(t.Context())
 	require.Len(t, durable.pending, 1)
 	assert.True(t, durable.pending[0].ReceivedAt.Equal(scheduleWindowStart.Add(-time.Hour)))

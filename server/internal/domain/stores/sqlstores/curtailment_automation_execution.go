@@ -26,8 +26,8 @@ func (s *SQLCurtailmentStore) QueueAutomationExecution(ctx context.Context, work
 // QueueScheduleAutomationExecution asserts a schedule window boundary. A
 // boundary only replaces an older one, so a stopped window stays stopped; a
 // boundary from a schedule revision that is no longer saved is not queued.
-func (s *SQLCurtailmentStore) QueueScheduleAutomationExecution(ctx context.Context, ruleID int64, scheduleRevision uuid.UUID, target models.AutomationSignal, direction string, boundaryAt time.Time) error {
-	return s.GetQueries(ctx).QueueCurtailmentScheduleExecution(ctx, sqlc.QueueCurtailmentScheduleExecutionParams{RuleID: ruleID, ScheduleRevision: scheduleRevision, Target: string(target), Direction: direction, BoundaryAt: boundaryAt})
+func (s *SQLCurtailmentStore) QueueScheduleAutomationExecution(ctx context.Context, work models.AutomationExecution) error {
+	return s.GetQueries(ctx).QueueCurtailmentScheduleExecution(ctx, sqlc.QueueCurtailmentScheduleExecutionParams{RuleID: work.RuleID, ScheduleRevision: work.ScheduleRevision, Target: string(work.Target), Direction: work.Direction, BoundaryAt: work.ReceivedAt})
 }
 
 // ScheduleWindowEventState reports the state of the latest event a schedule

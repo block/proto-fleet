@@ -93,7 +93,7 @@ func (s *AutomationService) processDueExecutions(ctx context.Context) {
 		}
 		attemptCtx, cancel := context.WithTimeout(ctx, time.Minute)
 		rule, err := s.store.GetAutomationRule(attemptCtx, work.OrgID, work.RuleID)
-		if err == nil && work.MQTTSourceID == 0 {
+		if err == nil && rule.TriggerType == models.AutomationTriggerTypeSchedule {
 			err = s.handleScheduleExecution(attemptCtx, rule, work)
 		} else if err == nil {
 			var source mqttingest.SourceConfig

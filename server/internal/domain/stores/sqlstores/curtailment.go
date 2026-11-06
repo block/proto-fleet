@@ -1261,38 +1261,33 @@ func lockAutomationRuleForExecution(
 	ctx context.Context,
 	q sqlc.Querier,
 	orgID int64,
-	ruleID int64,
-	mqttSourceID int64,
-	scheduleRevision uuid.UUID,
-	profileID int64,
-	profileRevision uuid.UUID,
-	serviceUserID int64,
+	fence domainCurtailment.ExecutionFence,
 ) error {
-	if ruleID == 0 {
+	if fence.AutomationRuleID == 0 {
 		return nil
 	}
-	if err := lockAutomationRuleMutation(ctx, q, orgID, ruleID); err != nil {
+	if err := lockAutomationRuleMutation(ctx, q, orgID, fence.AutomationRuleID); err != nil {
 		return err
 	}
 	var err error
-	if mqttSourceID == 0 {
+	if fence.ForScheduleRule() {
 		_, err = q.LockCurtailmentScheduleRuleForExecution(ctx, sqlc.LockCurtailmentScheduleRuleForExecutionParams{
-			ID:                      ruleID,
+			ID:                      fence.AutomationRuleID,
 			OrgID:                   orgID,
-			ResponseProfileID:       profileID,
-			ResponseProfileRevision: profileRevision,
-			ServiceUserID:           serviceUserID,
-			ScheduleRevision:        scheduleRevision,
+			ResponseProfileID:       fence.ResponseProfileID,
+			ResponseProfileRevision: fence.ResponseProfileRevision,
+			ServiceUserID:           fence.AutomationServiceUserID,
+			ScheduleRevision:        fence.AutomationScheduleRevision,
 		})
 	} else {
 		_, err = q.LockCurtailmentAutomationRuleForExecution(
 			ctx,
 			sqlc.LockCurtailmentAutomationRuleForExecutionParams{
-				ID:                      ruleID,
+				ID:                      fence.AutomationRuleID,
 				OrgID:                   orgID,
-				MqttSourceID:            mqttSourceID,
-				ResponseProfileID:       profileID,
-				ResponseProfileRevision: profileRevision,
+				MqttSourceID:            fence.AutomationMQTTSourceID,
+				ResponseProfileID:       fence.ResponseProfileID,
+				ResponseProfileRevision: fence.ResponseProfileRevision,
 			},
 		)
 	}
@@ -1350,12 +1345,13 @@ func (s *SQLCurtailmentStore) InsertEventWithTargets(
 	event models.InsertEventParams,
 	targets []models.InsertTargetParams,
 ) (*models.InsertEventResult, error) {
-	if err := domainCurtailment.ValidateExecutionFence(domainCurtailment.ExecutionFence{
+	fence := domainCurtailment.ExecutionFence{
 		ResponseProfileID: event.ResponseProfileID, ResponseProfileRevision: event.ResponseProfileRevision,
 		AutomationRuleID: event.AutomationRuleID, AutomationMQTTSourceID: event.AutomationMQTTSourceID,
 		AutomationScheduleRevision: event.AutomationScheduleRevision,
 		AutomationServiceUserID:    event.CreatedByUserID,
-	}, domainCurtailment.ExecutionFenceStore); err != nil {
+	}
+	if err := domainCurtailment.ValidateExecutionFence(fence, domainCurtailment.ExecutionFenceStore); err != nil {
 		return nil, err
 	}
 	// A closed-loop FULL_FLEET event may begin as a targetless active watcher.
@@ -1511,17 +1507,7 @@ func (s *SQLCurtailmentStore) InsertEventWithTargets(
 		); err != nil {
 			return nil, err
 		}
-		if err := lockAutomationRuleForExecution(
-			ctx,
-			q,
-			event.OrgID,
-			event.AutomationRuleID,
-			event.AutomationMQTTSourceID,
-			event.AutomationScheduleRevision,
-			event.ResponseProfileID,
-			event.ResponseProfileRevision,
-			event.CreatedByUserID,
-		); err != nil {
+		if err := lockAutomationRuleForExecution(ctx, q, event.OrgID, fence); err != nil {
 			return nil, err
 		}
 		if err := capScheduledEventAtWindowEnd(&event, txStart, time.Now()); err != nil {
@@ -3079,12 +3065,12 @@ func (s *SQLCurtailmentStore) BeginRecurtailTransition(
 	eventUUID uuid.UUID,
 	params interfaces.BeginRecurtailTransitionParams,
 ) (*models.Event, error) {
-	if err := domainCurtailment.ValidateExecutionFence(domainCurtailment.ExecutionFence{
+	fence := domainCurtailment.ExecutionFence{
 		ResponseProfileID: params.ResponseProfileID, ResponseProfileRevision: params.ResponseProfileRevision,
 		AutomationRuleID: params.AutomationRuleID, AutomationMQTTSourceID: params.AutomationMQTTSourceID,
-		AutomationScheduleRevision: params.AutomationScheduleRevision,
-		AutomationServiceUserID:    params.AutomationServiceUserID,
-	}, domainCurtailment.ExecutionFenceStore); err != nil {
+		AutomationServiceUserID: params.AutomationServiceUserID,
+	}
+	if err := domainCurtailment.ValidateExecutionFence(fence, domainCurtailment.ExecutionFenceStore); err != nil {
 		return nil, err
 	}
 	return db.WithTransaction(ctx, s.conn.DB, func(q sqlc.Querier) (*models.Event, error) {
@@ -3151,17 +3137,7 @@ func (s *SQLCurtailmentStore) BeginRecurtailTransition(
 		); err != nil {
 			return nil, err
 		}
-		if err := lockAutomationRuleForExecution(
-			ctx,
-			q,
-			orgID,
-			params.AutomationRuleID,
-			params.AutomationMQTTSourceID,
-			params.AutomationScheduleRevision,
-			params.ResponseProfileID,
-			params.ResponseProfileRevision,
-			params.AutomationServiceUserID,
-		); err != nil {
+		if err := lockAutomationRuleForExecution(ctx, q, orgID, fence); err != nil {
 			return nil, err
 		}
 		if err := authorizeAutomationExecution(

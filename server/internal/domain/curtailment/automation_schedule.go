@@ -23,14 +23,6 @@ const (
 	scheduleDirectionEnd   = "schedule_end"
 )
 
-// ScheduleAutomationStore reads enabled schedule rules and queues their window
-// boundaries into the per-rule execution mailbox.
-type ScheduleAutomationStore interface {
-	ListEnabledScheduleAutomationRules(ctx context.Context) ([]models.ScheduledAutomationRule, error)
-	QueueScheduleAutomationExecution(ctx context.Context, ruleID int64, scheduleRevision uuid.UUID, target models.AutomationSignal, direction string, boundaryAt time.Time) error
-	ScheduleWindowEventState(ctx context.Context, orgID, ruleID int64, windowStart time.Time, scheduleRevision uuid.UUID) (models.EventState, bool, error)
-}
-
 func (s *AutomationService) validateAutomationSchedule(rule models.AutomationRule) error {
 	if rule.MQTTSourceID != 0 {
 		return fleeterror.NewInvalidArgumentError("schedule automation rules cannot set mqtt_source_id")
@@ -51,46 +43,45 @@ func (s *AutomationService) validateAutomationSchedule(rule models.AutomationRul
 	return nil
 }
 
-// scheduleAssertionAt is the state a schedule asserts at now: curtail from the
-// start of the window in progress, or else restore from the end of the window
-// that most recently ended. Assertions carry their boundary time, so repeating
-// one is harmless and a window an operator stopped early is not restarted.
-func scheduleAssertionAt(def schedulewindow.Definition, now time.Time) (models.AutomationSignal, string, time.Time, bool, error) {
+// scheduleBoundaryAt is the window boundary a schedule asserts at now: curtail
+// from the start of the window in progress, or else restore from the end of the
+// window that most recently ended, or nil when there is neither. Its ReceivedAt
+// is the boundary time, so repeating it is harmless and a window an operator
+// stopped early is not restarted.
+func scheduleBoundaryAt(def schedulewindow.Definition, now time.Time) (*models.AutomationExecution, error) {
 	current, err := def.Current(now)
 	if err != nil {
-		return "", "", time.Time{}, false, err
+		return nil, err
 	}
 	if current != nil {
-		return models.AutomationSignalOff, scheduleDirectionStart, current.Start, true, nil
+		return &models.AutomationExecution{Target: models.AutomationSignalOff, Direction: scheduleDirectionStart, ReceivedAt: current.Start}, nil
 	}
 	ended, err := def.LastEnded(now)
 	if err != nil || ended == nil {
-		return "", "", time.Time{}, false, err
+		return nil, err
 	}
-	return models.AutomationSignalOn, scheduleDirectionEnd, ended.End, true, nil
+	return &models.AutomationExecution{Target: models.AutomationSignalOn, Direction: scheduleDirectionEnd, ReceivedAt: ended.End}, nil
 }
 
 func (s *AutomationService) produceScheduleAssertions(ctx context.Context) {
-	store, ok := s.store.(ScheduleAutomationStore)
-	if !ok {
-		return
-	}
-	rules, err := store.ListEnabledScheduleAutomationRules(ctx)
+	rules, err := s.store.ListEnabledScheduleAutomationRules(ctx)
 	if err != nil {
 		slog.Error("list curtailment schedule rules", "error", err)
 		return
 	}
 	now := s.clock()
 	for _, rule := range rules {
-		target, direction, boundary, ok, err := scheduleAssertionAt(rule.Schedule.Definition, now)
+		boundary, err := scheduleBoundaryAt(rule.Schedule.Definition, now)
 		if err != nil {
 			slog.Error("evaluate curtailment schedule", "rule_id", rule.RuleID, "error", err)
 			continue
 		}
-		if !ok {
+		if boundary == nil {
 			continue
 		}
-		if err := store.QueueScheduleAutomationExecution(ctx, rule.RuleID, rule.Schedule.Revision, target, direction, boundary); err != nil {
+		boundary.RuleID = rule.RuleID
+		boundary.ScheduleRevision = rule.Schedule.Revision
+		if err := s.store.QueueScheduleAutomationExecution(ctx, *boundary); err != nil {
 			slog.Error("queue curtailment schedule window", "rule_id", rule.RuleID, "error", err)
 		}
 	}
@@ -159,14 +150,12 @@ func (s *AutomationService) startScheduleWindow(ctx context.Context, rule *model
 	// A window runs once per schedule revision: a retried start does not run it
 	// again after its event was stopped, even when the rule's active-event
 	// pointer was never recorded.
-	if store, ok := s.store.(ScheduleAutomationStore); ok {
-		state, found, err := store.ScheduleWindowEventState(ctx, rule.OrgID, rule.ID, window.Start, rule.Schedule.Revision)
-		if err != nil {
-			return err
-		}
-		if found && state.IsTerminal() {
-			return nil
-		}
+	state, found, err := s.store.ScheduleWindowEventState(ctx, rule.OrgID, rule.ID, window.Start, rule.Schedule.Revision)
+	if err != nil {
+		return err
+	}
+	if found && state.IsTerminal() {
+		return nil
 	}
 
 	profile, err := s.profiles.Get(ctx, rule.OrgID, rule.ResponseProfileID)
@@ -199,7 +188,7 @@ func (s *AutomationService) startScheduleWindow(ctx context.Context, rule *model
 		}
 		return s.store.SetAutomationActiveEvent(ctx, rule.ID, 0, replayEvent.EventUUID, at)
 	}
-	return s.startBoundAutomationEvent(ctx, rule, startReq, 0, at)
+	return s.startBoundAutomationEvent(ctx, rule, startReq, at)
 }
 
 // scheduleStartRequest starts the window from the bound profile and caps it at

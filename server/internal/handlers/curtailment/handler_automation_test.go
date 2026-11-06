@@ -320,3 +320,15 @@ func (*handlerAutomationStore) RecordAutomationRestoreStarted(context.Context, i
 func (*handlerAutomationStore) RecordAutomationExecutionError(context.Context, int64, string, time.Time) error {
 	panic("not used")
 }
+
+func (*handlerAutomationStore) ListEnabledScheduleAutomationRules(context.Context) ([]models.ScheduledAutomationRule, error) {
+	panic("not used")
+}
+
+func (*handlerAutomationStore) QueueScheduleAutomationExecution(context.Context, models.AutomationExecution) error {
+	panic("not used")
+}
+
+func (*handlerAutomationStore) ScheduleWindowEventState(context.Context, int64, int64, time.Time, uuid.UUID) (models.EventState, bool, error) {
+	panic("not used")
+}

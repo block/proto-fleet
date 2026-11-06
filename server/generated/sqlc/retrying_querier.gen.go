@@ -6884,8 +6884,8 @@ func (q *retryingQuerier) ListEnabledCurtailmentAutomationRulesByMQTTSource(ctx 
 	return result, err
 }
 
-func (q *retryingQuerier) ListEnabledCurtailmentScheduleRules(ctx context.Context) ([]ListEnabledCurtailmentScheduleRulesRow, error) {
-	var result []ListEnabledCurtailmentScheduleRulesRow
+func (q *retryingQuerier) ListEnabledCurtailmentScheduleRules(ctx context.Context) ([]CurtailmentAutomationSchedule, error) {
+	var result []CurtailmentAutomationSchedule
 	err := q.retrier.RetryQuery(ctx, "ListEnabledCurtailmentScheduleRules", func() error {
 		callResult, callErr := q.next.ListEnabledCurtailmentScheduleRules(ctx)
 		if callErr == nil {

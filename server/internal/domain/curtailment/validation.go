@@ -167,6 +167,12 @@ type ExecutionFence struct {
 	SourceActorType            models.SourceActorType
 }
 
+// ForScheduleRule reports whether the fence is a schedule rule's. Schedule
+// rules have no MQTT source and are fenced by their schedule revision instead.
+func (f ExecutionFence) ForScheduleRule() bool {
+	return f.AutomationRuleID > 0 && f.AutomationMQTTSourceID == 0
+}
+
 type ExecutionFenceUse uint8
 
 const (
@@ -200,9 +206,7 @@ func ValidateExecutionFence(f ExecutionFence, use ExecutionFenceUse) error {
 	if f.AutomationRuleID == 0 && f.AutomationMQTTSourceID > 0 {
 		return fleeterror.NewInvalidArgumentError("automation execution fence requires a rule ID with the MQTT source ID")
 	}
-	// Schedule rules have no MQTT source and are fenced by their schedule
-	// revision instead.
-	scheduleRule := f.AutomationRuleID > 0 && f.AutomationMQTTSourceID == 0
+	scheduleRule := f.ForScheduleRule()
 	if scheduleRule != (f.AutomationScheduleRevision != uuid.Nil) {
 		return fleeterror.NewInvalidArgumentError("automation execution fence requires a schedule revision exactly for schedule rules")
 	}
@@ -213,9 +217,11 @@ func ValidateExecutionFence(f ExecutionFence, use ExecutionFenceUse) error {
 		// MQTT rules execute as the automation actor with their source; schedule
 		// rules execute as the scheduler actor and have no source.
 		if f.AutomationRuleID > 0 {
-			mqtt := f.SourceActorType == models.SourceActorAutomation && f.AutomationMQTTSourceID > 0
-			scheduled := f.SourceActorType == models.SourceActorScheduler && f.AutomationMQTTSourceID == 0
-			if (!mqtt && !scheduled) || f.ResponseProfileID == 0 {
+			actor := models.SourceActorAutomation
+			if scheduleRule {
+				actor = models.SourceActorScheduler
+			}
+			if f.SourceActorType != actor || f.ResponseProfileID == 0 {
 				return fleeterror.NewInvalidArgumentError("automation execution fence requires a matching automation or scheduler actor and a response profile")
 			}
 		}

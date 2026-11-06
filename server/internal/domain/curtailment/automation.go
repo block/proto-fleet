@@ -397,7 +397,7 @@ func (s *AutomationService) handleRuleOff(ctx context.Context, rule *models.Auto
 		}
 		return s.store.SetAutomationActiveEvent(ctx, rule.ID, signal.Source.ID, replayEvent.EventUUID, at)
 	}
-	return s.startBoundAutomationEvent(ctx, rule, startReq, signal.Source.ID, at)
+	return s.startBoundAutomationEvent(ctx, rule, startReq, at)
 }
 
 // startBoundAutomationEvent starts the rule's event from its still-bound
@@ -407,7 +407,6 @@ func (s *AutomationService) startBoundAutomationEvent(
 	ctx context.Context,
 	rule *models.AutomationRule,
 	startReq StartRequest,
-	mqttSourceID int64,
 	at time.Time,
 ) error {
 	if _, err := s.currentBoundAutomationProfile(ctx, rule); err != nil {
@@ -428,7 +427,7 @@ func (s *AutomationService) startBoundAutomationEvent(
 			return err
 		}
 	}
-	if err := s.store.SetAutomationActiveEvent(ctx, rule.ID, mqttSourceID, *plan.EventUUID, at); err != nil {
+	if err := s.store.SetAutomationActiveEvent(ctx, rule.ID, startReq.AutomationMQTTSourceID, *plan.EventUUID, at); err != nil {
 		if fleeterror.IsFailedPreconditionError(err) {
 			if _, releaseErr := s.curtailment.ForceRelease(ctx, ForceReleaseRequest{
 				OrgID:     rule.OrgID,

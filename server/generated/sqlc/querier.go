@@ -1498,7 +1498,7 @@ type Querier interface {
 	ListEligibleConfirmationTargets(ctx context.Context, arg ListEligibleConfirmationTargetsParams) ([]ListEligibleConfirmationTargetsRow, error)
 	ListEnabledCurtailmentAutomationRulesByMQTTSource(ctx context.Context, mqttSourceID int64) ([]ListEnabledCurtailmentAutomationRulesByMQTTSourceRow, error)
 	// Every organization's enabled schedule rules, for the window producer.
-	ListEnabledCurtailmentScheduleRules(ctx context.Context) ([]ListEnabledCurtailmentScheduleRulesRow, error)
+	ListEnabledCurtailmentScheduleRules(ctx context.Context) ([]CurtailmentAutomationSchedule, error)
 	// Enabled MQTT sources for subscriber reconciliation.
 	ListEnabledMQTTSources(ctx context.Context) ([]CurtailmentMqttSourceConfig, error)
 	// Filters the requested identifier list down to those that actually

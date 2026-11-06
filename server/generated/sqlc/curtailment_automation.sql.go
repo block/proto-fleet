@@ -852,44 +852,24 @@ func (q *Queries) ListEnabledCurtailmentAutomationRulesByMQTTSource(ctx context.
 }
 
 const listEnabledCurtailmentScheduleRules = `-- name: ListEnabledCurtailmentScheduleRules :many
-SELECT r.org_id, schedule.rule_id, schedule.schedule_type, schedule.timezone, schedule.start_date, schedule.start_time, schedule.end_time, schedule.end_date, schedule.frequency, schedule.days_of_week, schedule.day_of_month, schedule.until_date, schedule.service_user_id, schedule.revision, schedule.created_at, schedule.updated_at
+SELECT schedule.rule_id, schedule.schedule_type, schedule.timezone, schedule.start_date, schedule.start_time, schedule.end_time, schedule.end_date, schedule.frequency, schedule.days_of_week, schedule.day_of_month, schedule.until_date, schedule.service_user_id, schedule.revision, schedule.created_at, schedule.updated_at
 FROM curtailment_automation_schedule schedule
 JOIN curtailment_automation_rule r ON r.id = schedule.rule_id
 WHERE r.enabled AND r.trigger_type = 'SCHEDULE'
 ORDER BY schedule.rule_id
 `
 
-type ListEnabledCurtailmentScheduleRulesRow struct {
-	OrgID         int64
-	RuleID        int64
-	ScheduleType  string
-	Timezone      string
-	StartDate     time.Time
-	StartTime     string
-	EndTime       string
-	EndDate       sql.NullTime
-	Frequency     sql.NullString
-	DaysOfWeek    []int32
-	DayOfMonth    sql.NullInt16
-	UntilDate     sql.NullTime
-	ServiceUserID int64
-	Revision      uuid.UUID
-	CreatedAt     time.Time
-	UpdatedAt     time.Time
-}
-
 // Every organization's enabled schedule rules, for the window producer.
-func (q *Queries) ListEnabledCurtailmentScheduleRules(ctx context.Context) ([]ListEnabledCurtailmentScheduleRulesRow, error) {
+func (q *Queries) ListEnabledCurtailmentScheduleRules(ctx context.Context) ([]CurtailmentAutomationSchedule, error) {
 	rows, err := q.query(ctx, q.listEnabledCurtailmentScheduleRulesStmt, listEnabledCurtailmentScheduleRules)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []ListEnabledCurtailmentScheduleRulesRow
+	var items []CurtailmentAutomationSchedule
 	for rows.Next() {
-		var i ListEnabledCurtailmentScheduleRulesRow
+		var i CurtailmentAutomationSchedule
 		if err := rows.Scan(
-			&i.OrgID,
 			&i.RuleID,
 			&i.ScheduleType,
 			&i.Timezone,

@@ -2293,14 +2293,13 @@ func (s *Service) Stop(ctx context.Context, req StopRequest) (*models.Event, err
 
 // RecurtailRequest re-asserts curtailment on a restoring event.
 type RecurtailRequest struct {
-	OrgID                      int64
-	EventUUID                  uuid.UUID
-	ResponseProfileID          int64
-	ResponseProfileRevision    uuid.UUID
-	AutomationRuleID           int64
-	AutomationMQTTSourceID     int64
-	AutomationScheduleRevision uuid.UUID
-	AutomationServiceUserID    int64
+	OrgID                   int64
+	EventUUID               uuid.UUID
+	ResponseProfileID       int64
+	ResponseProfileRevision uuid.UUID
+	AutomationRuleID        int64
+	AutomationMQTTSourceID  int64
+	AutomationServiceUserID int64
 }
 
 // Recurtail flips a restoring event back to pending and reclaims restore
@@ -2316,8 +2315,7 @@ func (s *Service) Recurtail(ctx context.Context, req RecurtailRequest) (*models.
 	if err := ValidateExecutionFence(ExecutionFence{
 		ResponseProfileID: req.ResponseProfileID, ResponseProfileRevision: req.ResponseProfileRevision,
 		AutomationRuleID: req.AutomationRuleID, AutomationMQTTSourceID: req.AutomationMQTTSourceID,
-		AutomationScheduleRevision: req.AutomationScheduleRevision,
-		AutomationServiceUserID:    req.AutomationServiceUserID,
+		AutomationServiceUserID: req.AutomationServiceUserID,
 	}, ExecutionFenceRecurtail); err != nil {
 		return nil, err
 	}
@@ -2326,12 +2324,11 @@ func (s *Service) Recurtail(ctx context.Context, req RecurtailRequest) (*models.
 		req.OrgID,
 		req.EventUUID,
 		interfaces.BeginRecurtailTransitionParams{
-			ResponseProfileID:          req.ResponseProfileID,
-			ResponseProfileRevision:    req.ResponseProfileRevision,
-			AutomationRuleID:           req.AutomationRuleID,
-			AutomationMQTTSourceID:     req.AutomationMQTTSourceID,
-			AutomationScheduleRevision: req.AutomationScheduleRevision,
-			AutomationServiceUserID:    req.AutomationServiceUserID,
+			ResponseProfileID:       req.ResponseProfileID,
+			ResponseProfileRevision: req.ResponseProfileRevision,
+			AutomationRuleID:        req.AutomationRuleID,
+			AutomationMQTTSourceID:  req.AutomationMQTTSourceID,
+			AutomationServiceUserID: req.AutomationServiceUserID,
 		},
 	)
 }
