@@ -1215,6 +1215,7 @@ type Querier interface {
 	// regardless of soft-delete state. Duplicate historical identifiers are
 	// resolved deterministically, preferring the live device row.
 	InsertDeviceMetrics(ctx context.Context, arg InsertDeviceMetricsParams) error
+	InsertDeviceMetricsBatch(ctx context.Context, arg InsertDeviceMetricsBatchParams) error
 	// site_id is row-stamped from device.site_id at insert time so per-site
 	// error history doesn't shift when the device is later reassigned.
 	// Behavior note: a missing device $3 yields zero CTE rows and the :one

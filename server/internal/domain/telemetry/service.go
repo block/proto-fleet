@@ -123,7 +123,7 @@ const (
 
 	// Batch limits
 	maxStatusBatchSize  = 500
-	maxMetricsBatchSize = 500
+	maxMetricsBatchSize = 2000
 
 	// Default status flush interval if not configured.
 	defaultStatusFlushInterval = 1 * time.Second

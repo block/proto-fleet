@@ -50,6 +50,61 @@ INSERT INTO device_metrics (
     )
 ) ON CONFLICT (time, device_identifier) DO NOTHING;
 
+-- name: InsertDeviceMetricsBatch :exec
+INSERT INTO device_metrics (
+    time,
+    device_identifier,
+    hash_rate_hs,
+    hash_rate_hs_kind,
+    temp_c,
+    temp_c_kind,
+    fan_rpm,
+    fan_rpm_kind,
+    power_w,
+    power_w_kind,
+    efficiency_jh,
+    efficiency_jh_kind,
+    health,
+    site_id
+) SELECT
+    metrics.time,
+    metrics.device_identifier,
+    CASE WHEN metrics.hash_rate_hs_kind <> '' THEN metrics.hash_rate_hs END,
+    NULLIF(metrics.hash_rate_hs_kind, ''),
+    CASE WHEN metrics.temp_c_kind <> '' THEN metrics.temp_c END,
+    NULLIF(metrics.temp_c_kind, ''),
+    CASE WHEN metrics.fan_rpm_kind <> '' THEN metrics.fan_rpm END,
+    NULLIF(metrics.fan_rpm_kind, ''),
+    CASE WHEN metrics.power_w_kind <> '' THEN metrics.power_w END,
+    NULLIF(metrics.power_w_kind, ''),
+    CASE WHEN metrics.efficiency_jh_kind <> '' THEN metrics.efficiency_jh END,
+    NULLIF(metrics.efficiency_jh_kind, ''),
+    metrics.health,
+    (
+        SELECT site_id
+        FROM device
+        WHERE device_identifier = metrics.device_identifier
+        ORDER BY (deleted_at IS NULL) DESC, updated_at DESC, id DESC
+        LIMIT 1
+    )
+FROM (
+    SELECT
+        unnest(sqlc.arg('times')::timestamptz[]) AS time,
+        unnest(sqlc.arg('device_identifiers')::text[]) AS device_identifier,
+        unnest(sqlc.arg('hash_rate_hs')::double precision[]) AS hash_rate_hs,
+        unnest(sqlc.arg('hash_rate_hs_kinds')::text[]) AS hash_rate_hs_kind,
+        unnest(sqlc.arg('temp_c')::double precision[]) AS temp_c,
+        unnest(sqlc.arg('temp_c_kinds')::text[]) AS temp_c_kind,
+        unnest(sqlc.arg('fan_rpm')::double precision[]) AS fan_rpm,
+        unnest(sqlc.arg('fan_rpm_kinds')::text[]) AS fan_rpm_kind,
+        unnest(sqlc.arg('power_w')::double precision[]) AS power_w,
+        unnest(sqlc.arg('power_w_kinds')::text[]) AS power_w_kind,
+        unnest(sqlc.arg('efficiency_jh')::double precision[]) AS efficiency_jh,
+        unnest(sqlc.arg('efficiency_jh_kinds')::text[]) AS efficiency_jh_kind,
+        unnest(sqlc.arg('health')::text[]) AS health
+) AS metrics
+ON CONFLICT (time, device_identifier) DO NOTHING;
+
 -- name: GetLatestDeviceMetrics :many
 SELECT
     dm.time,

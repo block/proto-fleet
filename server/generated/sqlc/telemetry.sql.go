@@ -1752,3 +1752,94 @@ func (q *Queries) InsertDeviceMetrics(ctx context.Context, arg InsertDeviceMetri
 	)
 	return err
 }
+
+const insertDeviceMetricsBatch = `-- name: InsertDeviceMetricsBatch :exec
+INSERT INTO device_metrics (
+    time,
+    device_identifier,
+    hash_rate_hs,
+    hash_rate_hs_kind,
+    temp_c,
+    temp_c_kind,
+    fan_rpm,
+    fan_rpm_kind,
+    power_w,
+    power_w_kind,
+    efficiency_jh,
+    efficiency_jh_kind,
+    health,
+    site_id
+) SELECT
+    metrics.time,
+    metrics.device_identifier,
+    CASE WHEN metrics.hash_rate_hs_kind <> '' THEN metrics.hash_rate_hs END,
+    NULLIF(metrics.hash_rate_hs_kind, ''),
+    CASE WHEN metrics.temp_c_kind <> '' THEN metrics.temp_c END,
+    NULLIF(metrics.temp_c_kind, ''),
+    CASE WHEN metrics.fan_rpm_kind <> '' THEN metrics.fan_rpm END,
+    NULLIF(metrics.fan_rpm_kind, ''),
+    CASE WHEN metrics.power_w_kind <> '' THEN metrics.power_w END,
+    NULLIF(metrics.power_w_kind, ''),
+    CASE WHEN metrics.efficiency_jh_kind <> '' THEN metrics.efficiency_jh END,
+    NULLIF(metrics.efficiency_jh_kind, ''),
+    metrics.health,
+    (
+        SELECT site_id
+        FROM device
+        WHERE device_identifier = metrics.device_identifier
+        ORDER BY (deleted_at IS NULL) DESC, updated_at DESC, id DESC
+        LIMIT 1
+    )
+FROM (
+    SELECT
+        unnest($1::timestamptz[]) AS time,
+        unnest($2::text[]) AS device_identifier,
+        unnest($3::double precision[]) AS hash_rate_hs,
+        unnest($4::text[]) AS hash_rate_hs_kind,
+        unnest($5::double precision[]) AS temp_c,
+        unnest($6::text[]) AS temp_c_kind,
+        unnest($7::double precision[]) AS fan_rpm,
+        unnest($8::text[]) AS fan_rpm_kind,
+        unnest($9::double precision[]) AS power_w,
+        unnest($10::text[]) AS power_w_kind,
+        unnest($11::double precision[]) AS efficiency_jh,
+        unnest($12::text[]) AS efficiency_jh_kind,
+        unnest($13::text[]) AS health
+) AS metrics
+ON CONFLICT (time, device_identifier) DO NOTHING
+`
+
+type InsertDeviceMetricsBatchParams struct {
+	Times             []time.Time
+	DeviceIdentifiers []string
+	HashRateHs        []float64
+	HashRateHsKinds   []string
+	TempC             []float64
+	TempCKinds        []string
+	FanRpm            []float64
+	FanRpmKinds       []string
+	PowerW            []float64
+	PowerWKinds       []string
+	EfficiencyJh      []float64
+	EfficiencyJhKinds []string
+	Health            []string
+}
+
+func (q *Queries) InsertDeviceMetricsBatch(ctx context.Context, arg InsertDeviceMetricsBatchParams) error {
+	_, err := q.exec(ctx, q.insertDeviceMetricsBatchStmt, insertDeviceMetricsBatch,
+		pq.Array(arg.Times),
+		pq.Array(arg.DeviceIdentifiers),
+		pq.Array(arg.HashRateHs),
+		pq.Array(arg.HashRateHsKinds),
+		pq.Array(arg.TempC),
+		pq.Array(arg.TempCKinds),
+		pq.Array(arg.FanRpm),
+		pq.Array(arg.FanRpmKinds),
+		pq.Array(arg.PowerW),
+		pq.Array(arg.PowerWKinds),
+		pq.Array(arg.EfficiencyJh),
+		pq.Array(arg.EfficiencyJhKinds),
+		pq.Array(arg.Health),
+	)
+	return err
+}

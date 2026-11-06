@@ -392,59 +392,47 @@ func (s *TimescaleTelemetryStore) StoreDeviceMetrics(ctx context.Context, data .
 		}
 	}
 
+	var params sqlc.InsertDeviceMetricsBatchParams
+
 	for _, metrics := range data {
 		if metrics.Container != nil {
-			if err := storeContainerInventory(ctx, qtx, metrics.DeviceIdentifier, metrics.Container); err != nil {
-				return fmt.Errorf("store container inventory: %w", err)
-			}
-			if !metrics.Container.InventoryAccepted {
-				continue
-			}
-			if plant := metrics.Container.Plant; plant != nil {
-				encoded, err := json.Marshal(plant)
-				if err != nil {
-					return fmt.Errorf("encode container plant: %w", err)
-				}
-				if err := qtx.InsertContainerPlantMetrics(ctx, sqlc.InsertContainerPlantMetricsParams{DeviceIdentifier: metrics.DeviceIdentifier, Time: plant.ObservedAt, Metrics: encoded}); err != nil {
-					return fmt.Errorf("store container plant: %w", err)
-				}
-			}
-		}
-
-		params := sqlc.InsertDeviceMetricsParams{
-			Time:             metrics.Timestamp,
-			DeviceIdentifier: metrics.DeviceIdentifier,
-			Health:           toNullString(metrics.Health.String()),
-		}
-
-		if metrics.HashrateHS != nil {
-			params.HashRateHs = sql.NullFloat64{Float64: metrics.HashrateHS.Value, Valid: true}
-			params.HashRateHsKind = toNullString(metrics.HashrateHS.Kind.String())
-		}
-		if metrics.TempC != nil {
-			params.TempC = sql.NullFloat64{Float64: metrics.TempC.Value, Valid: true}
-			params.TempCKind = toNullString(metrics.TempC.Kind.String())
-		}
-		if metrics.FanRPM != nil {
-			params.FanRpm = sql.NullFloat64{Float64: metrics.FanRPM.Value, Valid: true}
-			params.FanRpmKind = toNullString(metrics.FanRPM.Kind.String())
-		}
-		if metrics.PowerW != nil {
-			params.PowerW = sql.NullFloat64{Float64: metrics.PowerW.Value, Valid: true}
-			params.PowerWKind = toNullString(metrics.PowerW.Kind.String())
-		}
-		if metrics.EfficiencyJH != nil {
-			params.EfficiencyJh = sql.NullFloat64{Float64: metrics.EfficiencyJH.Value, Valid: true}
-			params.EfficiencyJhKind = toNullString(metrics.EfficiencyJH.Kind.String())
-		}
-
-		if err := qtx.InsertDeviceMetrics(ctx, params); err != nil {
-			return fmt.Errorf("failed to insert metrics for device %s: %w", metrics.DeviceIdentifier, err)
-		}
-		if metrics.Container != nil {
-			if err := qtx.StampContainerSample(ctx, sqlc.StampContainerSampleParams{DeviceIdentifier: metrics.DeviceIdentifier, Time: metrics.Timestamp}); err != nil {
+			if err := storeContainerDeviceMetrics(ctx, qtx, metrics); err != nil {
 				return err
 			}
+			continue
+		}
+		if params.Times == nil {
+			params = newDeviceMetricsBatchParams(len(data))
+		}
+
+		params.Times = append(params.Times, metrics.Timestamp)
+		params.DeviceIdentifiers = append(params.DeviceIdentifiers, metrics.DeviceIdentifier)
+		params.Health = append(params.Health, metrics.Health.String())
+
+		value, kind := metricColumns(metrics.HashrateHS)
+		params.HashRateHs = append(params.HashRateHs, value)
+		params.HashRateHsKinds = append(params.HashRateHsKinds, kind)
+
+		value, kind = metricColumns(metrics.TempC)
+		params.TempC = append(params.TempC, value)
+		params.TempCKinds = append(params.TempCKinds, kind)
+
+		value, kind = metricColumns(metrics.FanRPM)
+		params.FanRpm = append(params.FanRpm, value)
+		params.FanRpmKinds = append(params.FanRpmKinds, kind)
+
+		value, kind = metricColumns(metrics.PowerW)
+		params.PowerW = append(params.PowerW, value)
+		params.PowerWKinds = append(params.PowerWKinds, kind)
+
+		value, kind = metricColumns(metrics.EfficiencyJH)
+		params.EfficiencyJh = append(params.EfficiencyJh, value)
+		params.EfficiencyJhKinds = append(params.EfficiencyJhKinds, kind)
+	}
+
+	if len(params.Times) > 0 {
+		if err := qtx.InsertDeviceMetricsBatch(ctx, params); err != nil {
+			return fmt.Errorf("failed to insert %d device metrics: %w", len(params.Times), err)
 		}
 	}
 
@@ -453,6 +441,55 @@ func (s *TimescaleTelemetryStore) StoreDeviceMetrics(ctx context.Context, data .
 	}
 
 	return nil
+}
+
+func storeContainerDeviceMetrics(ctx context.Context, q *sqlc.Queries, metrics modelsV2.DeviceMetrics) error {
+	if err := storeContainerInventory(ctx, q, metrics.DeviceIdentifier, metrics.Container); err != nil {
+		return fmt.Errorf("store container inventory: %w", err)
+	}
+	if !metrics.Container.InventoryAccepted {
+		return nil
+	}
+	if plant := metrics.Container.Plant; plant != nil {
+		encoded, err := json.Marshal(plant)
+		if err != nil {
+			return fmt.Errorf("encode container plant: %w", err)
+		}
+		if err := q.InsertContainerPlantMetrics(ctx, sqlc.InsertContainerPlantMetricsParams{DeviceIdentifier: metrics.DeviceIdentifier, Time: plant.ObservedAt, Metrics: encoded}); err != nil {
+			return fmt.Errorf("store container plant: %w", err)
+		}
+	}
+
+	params := sqlc.InsertDeviceMetricsParams{
+		Time:             metrics.Timestamp,
+		DeviceIdentifier: metrics.DeviceIdentifier,
+		Health:           toNullString(metrics.Health.String()),
+	}
+	if metrics.HashrateHS != nil {
+		params.HashRateHs = sql.NullFloat64{Float64: metrics.HashrateHS.Value, Valid: true}
+		params.HashRateHsKind = toNullString(metrics.HashrateHS.Kind.String())
+	}
+	if metrics.TempC != nil {
+		params.TempC = sql.NullFloat64{Float64: metrics.TempC.Value, Valid: true}
+		params.TempCKind = toNullString(metrics.TempC.Kind.String())
+	}
+	if metrics.FanRPM != nil {
+		params.FanRpm = sql.NullFloat64{Float64: metrics.FanRPM.Value, Valid: true}
+		params.FanRpmKind = toNullString(metrics.FanRPM.Kind.String())
+	}
+	if metrics.PowerW != nil {
+		params.PowerW = sql.NullFloat64{Float64: metrics.PowerW.Value, Valid: true}
+		params.PowerWKind = toNullString(metrics.PowerW.Kind.String())
+	}
+	if metrics.EfficiencyJH != nil {
+		params.EfficiencyJh = sql.NullFloat64{Float64: metrics.EfficiencyJH.Value, Valid: true}
+		params.EfficiencyJhKind = toNullString(metrics.EfficiencyJH.Kind.String())
+	}
+
+	if err := q.InsertDeviceMetrics(ctx, params); err != nil {
+		return fmt.Errorf("failed to insert metrics for device %s: %w", metrics.DeviceIdentifier, err)
+	}
+	return q.StampContainerSample(ctx, sqlc.StampContainerSampleParams{DeviceIdentifier: metrics.DeviceIdentifier, Time: metrics.Timestamp})
 }
 
 // GetLatestDeviceMetricsBatch retrieves the latest metrics for multiple devices.
@@ -2201,6 +2238,31 @@ func (s *TimescaleTelemetryStore) getUptimeStatusCountsFromSnapshots(
 		})
 	}
 	return result
+}
+
+func metricColumns(metric *modelsV2.MetricValue) (value float64, kind string) {
+	if metric == nil {
+		return 0, ""
+	}
+	return metric.Value, metric.Kind.String()
+}
+
+func newDeviceMetricsBatchParams(capacity int) sqlc.InsertDeviceMetricsBatchParams {
+	return sqlc.InsertDeviceMetricsBatchParams{
+		Times:             make([]time.Time, 0, capacity),
+		DeviceIdentifiers: make([]string, 0, capacity),
+		HashRateHs:        make([]float64, 0, capacity),
+		HashRateHsKinds:   make([]string, 0, capacity),
+		TempC:             make([]float64, 0, capacity),
+		TempCKinds:        make([]string, 0, capacity),
+		FanRpm:            make([]float64, 0, capacity),
+		FanRpmKinds:       make([]string, 0, capacity),
+		PowerW:            make([]float64, 0, capacity),
+		PowerWKinds:       make([]string, 0, capacity),
+		EfficiencyJh:      make([]float64, 0, capacity),
+		EfficiencyJhKinds: make([]string, 0, capacity),
+		Health:            make([]string, 0, capacity),
+	}
 }
 
 func toNullString(s string) sql.NullString {

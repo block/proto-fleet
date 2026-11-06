@@ -5942,6 +5942,12 @@ func (q *retryingQuerier) InsertDeviceMetrics(ctx context.Context, arg InsertDev
 	})
 }
 
+func (q *retryingQuerier) InsertDeviceMetricsBatch(ctx context.Context, arg InsertDeviceMetricsBatchParams) error {
+	return q.retrier.RetryQuery(ctx, "InsertDeviceMetricsBatch", func() error {
+		return q.next.InsertDeviceMetricsBatch(ctx, arg)
+	})
+}
+
 func (q *retryingQuerier) InsertError(ctx context.Context, arg InsertErrorParams) (int64, error) {
 	var result int64
 	err := q.retrier.RetryQuery(ctx, "InsertError", func() error {
