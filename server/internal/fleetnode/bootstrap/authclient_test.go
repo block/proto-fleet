@@ -278,3 +278,42 @@ func TestAuthenticatedClient_UsesGRPCOnlyForControlStream(t *testing.T) {
 	require.Equal(t, []string{connect.ProtocolGRPC}, controlProtocols)
 	require.Equal(t, []string{"Bearer session-token", "Bearer session-token"}, fake.headers())
 }
+
+func TestAuthenticatedClient_ControlStreamsDialFreshConnections(t *testing.T) {
+	t.Parallel()
+
+	var mu sync.Mutex
+	remoteAddrs := map[string][]string{}
+	path, h := fleetnodegatewayv1connect.NewFleetNodeGatewayServiceHandler(&captureGateway{})
+	mux := http.NewServeMux()
+	mux.Handle(path, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		remoteAddrs[r.URL.Path] = append(remoteAddrs[r.URL.Path], r.RemoteAddr)
+		mu.Unlock()
+		h.ServeHTTP(w, r)
+	}))
+	srv := testutil.NewH2CServer(t, mux)
+	client, err := NewAuthenticatedGatewayClient(srv.URL, func() string { return "session-token" })
+	require.NoError(t, err)
+
+	for range 2 {
+		_, err = client.UploadHeartbeat(t.Context(), connect.NewRequest(&pb.UploadHeartbeatRequest{SentAt: timestamppb.Now()}))
+		require.NoError(t, err)
+		stream := client.ControlStream(t.Context())
+		require.NoError(t, stream.Send(&pb.ControlStreamRequest{Kind: &pb.ControlStreamRequest_Hello{Hello: &pb.ControlHello{}}}))
+		_, err = stream.Receive()
+		require.NoError(t, err)
+		require.NoError(t, stream.CloseRequest())
+		require.NoError(t, stream.CloseResponse())
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	heartbeats := remoteAddrs[fleetnodegatewayv1connect.FleetNodeGatewayServiceUploadHeartbeatProcedure]
+	controls := remoteAddrs[fleetnodegatewayv1connect.FleetNodeGatewayServiceControlStreamProcedure]
+	require.Len(t, heartbeats, 2)
+	require.Len(t, controls, 2)
+	assert.Equal(t, heartbeats[0], heartbeats[1], "heartbeats keep their pooled connection")
+	assert.NotEqual(t, controls[0], controls[1], "each control stream dials a fresh connection")
+	assert.NotContains(t, controls, heartbeats[0], "control streams do not share the heartbeat connection")
+}
