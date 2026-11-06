@@ -46,6 +46,7 @@ type Coordinator struct {
 	activeCtx     context.Context //nolint:containedctx // The coordinator owns this explicit active-lifetime context.
 	cancelActive  context.CancelCauseFunc
 	leaseTimer    *time.Timer
+	leaseDeadline time.Time
 	leaseVersion  uint64
 	stateChanged  chan struct{}
 	acquireAfter  time.Time
@@ -373,6 +374,11 @@ func (c *Coordinator) activate(
 	requestStarted time.Time,
 	dcsProofDeadline time.Time,
 ) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if err := parent.Err(); err != nil {
+		return fmt.Errorf("activate HA coordinator: %w", err)
+	}
 	deadline, err := localOwnershipDeadline(
 		ownership,
 		requestStarted,
@@ -382,11 +388,6 @@ func (c *Coordinator) activate(
 		return err
 	}
 
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if err := parent.Err(); err != nil {
-		return fmt.Errorf("activate HA coordinator: %w", err)
-	}
 	if c.cancelActive != nil {
 		c.cancelActive(ErrOwnershipLost)
 	}
@@ -406,15 +407,6 @@ func (c *Coordinator) updateActive(
 	requestStarted time.Time,
 	dcsProofDeadline time.Time,
 ) error {
-	deadline, err := localOwnershipDeadline(
-		renewed,
-		requestStarted,
-		dcsProofDeadline,
-	)
-	if err != nil {
-		return err
-	}
-
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.activeCtx == nil ||
@@ -422,6 +414,16 @@ func (c *Coordinator) updateActive(
 		c.ownership.Token != expected.Token ||
 		c.ownership.HolderID != expected.HolderID {
 		return ErrOwnershipLost
+	}
+	if err := context.Cause(c.activeCtx); err != nil {
+		return fmt.Errorf("HA renewal lifetime ended: %w", err)
+	}
+	if !c.leaseDeadline.After(time.Now()) {
+		return fmt.Errorf("HA renewal completed after prior local deadline: %w", ErrOwnershipExpired)
+	}
+	deadline, err := localOwnershipDeadline(renewed, requestStarted, dcsProofDeadline)
+	if err != nil {
+		return err
 	}
 	c.ownership = renewed
 	c.updatedAt = time.Now()
@@ -455,6 +457,7 @@ func localOwnershipDeadline(
 
 func (c *Coordinator) resetLeaseTimerLocked(deadline time.Time) {
 	c.stopLeaseTimerLocked()
+	c.leaseDeadline = deadline
 	version := c.leaseVersion
 	c.leaseTimer = time.AfterFunc(
 		time.Until(deadline),
@@ -471,6 +474,7 @@ func (c *Coordinator) resetLeaseTimerLocked(deadline time.Time) {
 
 func (c *Coordinator) stopLeaseTimerLocked() {
 	c.leaseVersion++
+	c.leaseDeadline = time.Time{}
 	if c.leaseTimer != nil {
 		c.leaseTimer.Stop()
 		c.leaseTimer = nil
