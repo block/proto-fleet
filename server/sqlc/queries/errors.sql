@@ -48,6 +48,132 @@ UPDATE errors SET
     closed_at = $10
 WHERE id = $11 AND closed_at IS NULL;
 
+-- name: UpsertDeviceErrors :one
+WITH target_device AS (
+    SELECT id, site_id
+    FROM device
+    WHERE device.device_identifier = sqlc.arg('device_identifier')
+      AND device.org_id = sqlc.arg('org_id')
+      AND device.deleted_at IS NULL
+), reports AS (
+    SELECT
+        report ->> 'error_id' AS error_id,
+        (report ->> 'miner_error')::int AS miner_error,
+        (report ->> 'severity')::int AS severity,
+        report ->> 'summary' AS summary,
+        report ->> 'impact' AS impact,
+        report ->> 'cause_summary' AS cause_summary,
+        report ->> 'recommended_action' AS recommended_action,
+        (report ->> 'first_seen_at')::timestamptz AS first_seen_at,
+        (report ->> 'last_seen_at')::timestamptz AS last_seen_at,
+        report ->> 'component_id' AS component_id,
+        (report ->> 'component_type')::int AS component_type,
+        report ->> 'vendor_code' AS vendor_code,
+        report ->> 'firmware' AS firmware,
+        NULLIF(report -> 'extra', 'null'::jsonb) AS extra,
+        (report ->> 'closed_at')::timestamptz AS closed_at
+    FROM jsonb_array_elements(sqlc.arg('error_reports')::jsonb) AS item(report)
+), matched AS (
+    SELECT report.*, existing.id AS existing_id
+    FROM reports report
+    CROSS JOIN target_device target
+    JOIN LATERAL (
+        SELECT id
+        FROM errors
+        WHERE errors.org_id = sqlc.arg('org_id')
+          AND errors.device_id = target.id
+          AND errors.miner_error = report.miner_error
+          AND errors.component_id IS NOT DISTINCT FROM report.component_id
+          AND errors.component_type IS NOT DISTINCT FROM report.component_type
+          AND errors.closed_at IS NULL
+        ORDER BY id
+        LIMIT 1
+        FOR UPDATE
+    ) existing ON TRUE
+), updated AS (
+    UPDATE errors
+    SET last_seen_at = CASE
+            WHEN sqlc.arg('refresh_all_open')::boolean
+              OR errors.last_seen_at <= sqlc.arg('heartbeat_cutoff')::timestamptz
+            THEN GREATEST(errors.last_seen_at, matched.last_seen_at, sqlc.arg('observed_at')::timestamptz)
+            ELSE GREATEST(errors.last_seen_at, matched.last_seen_at)
+        END,
+        severity = matched.severity,
+        summary = matched.summary,
+        impact = matched.impact,
+        cause_summary = matched.cause_summary,
+        recommended_action = matched.recommended_action,
+        vendor_code = matched.vendor_code,
+        firmware = matched.firmware,
+        extra = matched.extra,
+        closed_at = matched.closed_at
+    FROM matched
+    WHERE errors.id = matched.existing_id
+      AND errors.closed_at IS NULL
+      AND (
+          sqlc.arg('refresh_all_open')::boolean
+          OR errors.last_seen_at <= sqlc.arg('heartbeat_cutoff')::timestamptz
+          OR errors.severity IS DISTINCT FROM matched.severity
+          OR errors.summary IS DISTINCT FROM matched.summary
+          OR errors.impact IS DISTINCT FROM matched.impact
+          OR errors.cause_summary IS DISTINCT FROM matched.cause_summary
+          OR errors.recommended_action IS DISTINCT FROM matched.recommended_action
+          OR errors.vendor_code IS DISTINCT FROM matched.vendor_code
+          OR errors.firmware IS DISTINCT FROM matched.firmware
+          OR errors.extra IS DISTINCT FROM matched.extra
+          OR errors.closed_at IS DISTINCT FROM matched.closed_at
+      )
+), inserted AS (
+    INSERT INTO errors (
+        error_id, org_id, device_id, miner_error, severity, summary, impact,
+        cause_summary, recommended_action, first_seen_at, last_seen_at,
+        component_id, component_type, vendor_code, firmware, extra, closed_at,
+        site_id
+    )
+    SELECT
+        report.error_id,
+        sqlc.arg('org_id'),
+        target.id,
+        report.miner_error,
+        report.severity,
+        report.summary,
+        report.impact,
+        report.cause_summary,
+        report.recommended_action,
+        report.first_seen_at,
+        report.last_seen_at,
+        report.component_id,
+        report.component_type,
+        report.vendor_code,
+        report.firmware,
+        report.extra,
+        report.closed_at,
+        target.site_id
+    FROM reports report
+    CROSS JOIN target_device target
+    WHERE NOT EXISTS (
+        SELECT 1
+        FROM matched
+        WHERE matched.miner_error = report.miner_error
+          AND matched.component_id IS NOT DISTINCT FROM report.component_id
+          AND matched.component_type IS NOT DISTINCT FROM report.component_type
+    )
+), refreshed_omitted AS (
+    UPDATE errors
+    SET last_seen_at = GREATEST(errors.last_seen_at, sqlc.arg('observed_at')::timestamptz)
+    FROM target_device target
+    WHERE sqlc.arg('refresh_all_open')::boolean
+      AND errors.org_id = sqlc.arg('org_id')
+      AND errors.device_id = target.id
+      AND errors.closed_at IS NULL
+      AND NOT EXISTS (
+          SELECT 1
+          FROM matched
+          WHERE matched.existing_id = errors.id
+      )
+)
+SELECT EXISTS(SELECT 1 FROM target_device) AS device_found;
+
 -- name: GetErrorByID :one
 -- Fetches an error by internal ID, scoped to organization.
 SELECT * FROM errors WHERE id = $1 AND org_id = $2;
@@ -261,22 +387,6 @@ SELECT COUNT(*) as total FROM (
 -- ============================================================================
 -- Error Lifecycle Management
 -- ============================================================================
-
--- name: RefreshOpenErrorsLastSeenByDevice :execresult
--- Refreshes open errors for a device after an incomplete diagnostics poll.
--- Uses GREATEST so a delayed partial poll cannot move newer observations backward.
-UPDATE errors
-SET last_seen_at = GREATEST(last_seen_at, sqlc.arg('observed_at')::timestamptz),
-    updated_at = CURRENT_TIMESTAMP
-WHERE errors.org_id = sqlc.arg('org_id')
-  AND errors.closed_at IS NULL
-  AND errors.device_id = (
-    SELECT id
-    FROM device
-    WHERE device_identifier = sqlc.arg('device_identifier')
-      AND device.org_id = sqlc.arg('org_id')
-      AND deleted_at IS NULL
-  );
 
 -- name: CloseStaleErrors :execresult
 -- Closes stale errors only when device was successfully polled after the staleness cutoff time.

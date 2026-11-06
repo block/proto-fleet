@@ -2,6 +2,8 @@ package diagnostics
 
 import "time"
 
+const maxErrorRefreshHeartbeat = 60 * time.Second
+
 // Config contains configuration for the diagnostics service.
 type Config struct {
 	WatchPollInterval  time.Duration `help:"Interval between Watch RPC database polls" default:"20s" env:"WATCH_POLL_INTERVAL"`
@@ -18,6 +20,10 @@ func getConfigDurationOrDefault(configValue, defaultValue time.Duration) time.Du
 		return defaultValue
 	}
 	return configValue
+}
+
+func errorRefreshHeartbeat(stalenessThreshold time.Duration) time.Duration {
+	return min(maxErrorRefreshHeartbeat, stalenessThreshold/2)
 }
 
 // getConfigIntOrDefault returns the configured int value, or the default if the value is zero or negative.

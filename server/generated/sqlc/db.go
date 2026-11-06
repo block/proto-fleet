@@ -2694,9 +2694,6 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.recoverTelemetrySeedBatchStmt, err = db.PrepareContext(ctx, recoverTelemetrySeedBatch); err != nil {
 		return nil, fmt.Errorf("error preparing query RecoverTelemetrySeedBatch: %w", err)
 	}
-	if q.refreshOpenErrorsLastSeenByDeviceStmt, err = db.PrepareContext(ctx, refreshOpenErrorsLastSeenByDevice); err != nil {
-		return nil, fmt.Errorf("error preparing query RefreshOpenErrorsLastSeenByDevice: %w", err)
-	}
 	if q.refreshPoolConfigurationReadinessStmt, err = db.PrepareContext(ctx, refreshPoolConfigurationReadiness); err != nil {
 		return nil, fmt.Errorf("error preparing query RefreshPoolConfigurationReadiness: %w", err)
 	}
@@ -3311,6 +3308,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.upsertCustomRoleForOrgStmt, err = db.PrepareContext(ctx, upsertCustomRoleForOrg); err != nil {
 		return nil, fmt.Errorf("error preparing query UpsertCustomRoleForOrg: %w", err)
+	}
+	if q.upsertDeviceErrorsStmt, err = db.PrepareContext(ctx, upsertDeviceErrors); err != nil {
+		return nil, fmt.Errorf("error preparing query UpsertDeviceErrors: %w", err)
 	}
 	if q.upsertDevicePairingStmt, err = db.PrepareContext(ctx, upsertDevicePairing); err != nil {
 		return nil, fmt.Errorf("error preparing query UpsertDevicePairing: %w", err)
@@ -7821,11 +7821,6 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing recoverTelemetrySeedBatchStmt: %w", cerr)
 		}
 	}
-	if q.refreshOpenErrorsLastSeenByDeviceStmt != nil {
-		if cerr := q.refreshOpenErrorsLastSeenByDeviceStmt.Close(); cerr != nil {
-			err = fmt.Errorf("error closing refreshOpenErrorsLastSeenByDeviceStmt: %w", cerr)
-		}
-	}
 	if q.refreshPoolConfigurationReadinessStmt != nil {
 		if cerr := q.refreshPoolConfigurationReadinessStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing refreshPoolConfigurationReadinessStmt: %w", cerr)
@@ -8851,6 +8846,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing upsertCustomRoleForOrgStmt: %w", cerr)
 		}
 	}
+	if q.upsertDeviceErrorsStmt != nil {
+		if cerr := q.upsertDeviceErrorsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing upsertDeviceErrorsStmt: %w", cerr)
+		}
+	}
 	if q.upsertDevicePairingStmt != nil {
 		if cerr := q.upsertDevicePairingStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing upsertDevicePairingStmt: %w", cerr)
@@ -9870,7 +9870,6 @@ type Queries struct {
 	recordPoolConfigurationImportStmt                           *sql.Stmt
 	recoverSettledPoolConfigurationWorkStmt                     *sql.Stmt
 	recoverTelemetrySeedBatchStmt                               *sql.Stmt
-	refreshOpenErrorsLastSeenByDeviceStmt                       *sql.Stmt
 	refreshPoolConfigurationReadinessStmt                       *sql.Stmt
 	reincludeFirmwareRolloutDevicesStmt                         *sql.Stmt
 	rejectCurtailmentDispatchStmt                               *sql.Stmt
@@ -10076,6 +10075,7 @@ type Queries struct {
 	upsertCurtailmentAutomationSignalStateStmt                  *sql.Stmt
 	upsertCurtailmentReconcilerHeartbeatStmt                    *sql.Stmt
 	upsertCustomRoleForOrgStmt                                  *sql.Stmt
+	upsertDeviceErrorsStmt                                      *sql.Stmt
 	upsertDevicePairingStmt                                     *sql.Stmt
 	upsertDeviceStatusStmt                                      *sql.Stmt
 	upsertDiscoveredDeviceStmt                                  *sql.Stmt
@@ -10990,7 +10990,6 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		recordPoolConfigurationImportStmt:                          q.recordPoolConfigurationImportStmt,
 		recoverSettledPoolConfigurationWorkStmt:                    q.recoverSettledPoolConfigurationWorkStmt,
 		recoverTelemetrySeedBatchStmt:                              q.recoverTelemetrySeedBatchStmt,
-		refreshOpenErrorsLastSeenByDeviceStmt:                      q.refreshOpenErrorsLastSeenByDeviceStmt,
 		refreshPoolConfigurationReadinessStmt:                      q.refreshPoolConfigurationReadinessStmt,
 		reincludeFirmwareRolloutDevicesStmt:                        q.reincludeFirmwareRolloutDevicesStmt,
 		rejectCurtailmentDispatchStmt:                              q.rejectCurtailmentDispatchStmt,
@@ -11196,6 +11195,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		upsertCurtailmentAutomationSignalStateStmt:                 q.upsertCurtailmentAutomationSignalStateStmt,
 		upsertCurtailmentReconcilerHeartbeatStmt:                   q.upsertCurtailmentReconcilerHeartbeatStmt,
 		upsertCustomRoleForOrgStmt:                                 q.upsertCustomRoleForOrgStmt,
+		upsertDeviceErrorsStmt:                                     q.upsertDeviceErrorsStmt,
 		upsertDevicePairingStmt:                                    q.upsertDevicePairingStmt,
 		upsertDeviceStatusStmt:                                     q.upsertDeviceStatusStmt,
 		upsertDiscoveredDeviceStmt:                                 q.upsertDiscoveredDeviceStmt,

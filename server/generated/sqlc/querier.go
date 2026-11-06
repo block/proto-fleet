@@ -342,6 +342,9 @@ type Querier interface {
 	// insert inside one tx so there is no zero-permission window).
 	ClearRolePermissions(ctx context.Context, roleID int64) error
 	CloseHashboardInstallations(ctx context.Context, arg CloseHashboardInstallationsParams) error
+	// ============================================================================
+	// Error Lifecycle Management
+	// ============================================================================
 	// Closes stale errors only when device was successfully polled after the staleness cutoff time.
 	// This ensures we have confirmed the error is absent from a recent poll.
 	CloseStaleErrors(ctx context.Context, arg CloseStaleErrorsParams) (sql.Result, error)
@@ -2266,12 +2269,6 @@ type Querier interface {
 	// after completion; this delay is not evidence of physical safety.
 	RecoverSettledPoolConfigurationWork(ctx context.Context) error
 	RecoverTelemetrySeedBatch(ctx context.Context) error
-	// ============================================================================
-	// Error Lifecycle Management
-	// ============================================================================
-	// Refreshes open errors for a device after an incomplete diagnostics poll.
-	// Uses GREATEST so a delayed partial poll cannot move newer observations backward.
-	RefreshOpenErrorsLastSeenByDevice(ctx context.Context, arg RefreshOpenErrorsLastSeenByDeviceParams) (sql.Result, error)
 	RefreshPoolConfigurationReadiness(ctx context.Context, arg RefreshPoolConfigurationReadinessParams) error
 	// Re-includes miners that left the channel scope and came back. They keep
 	// their batch, order and baseline but must verify again: their firmware may
@@ -2846,6 +2843,7 @@ type Querier interface {
 	// SUPER_ADMIN/ADMIN/FIELD_TECH would also be rejected by
 	// chk_role_custom_name_not_reserved.
 	UpsertCustomRoleForOrg(ctx context.Context, arg UpsertCustomRoleForOrgParams) (int64, error)
+	UpsertDeviceErrors(ctx context.Context, arg UpsertDeviceErrorsParams) (bool, error)
 	UpsertDevicePairing(ctx context.Context, arg UpsertDevicePairingParams) (sql.Result, error)
 	// Zone / building filters are not handled by this static query.
 	// When the caller's filter includes BuildingIDs, IncludeNoBuilding,

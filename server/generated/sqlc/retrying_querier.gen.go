@@ -9902,18 +9902,6 @@ func (q *retryingQuerier) RecoverTelemetrySeedBatch(ctx context.Context) error {
 	})
 }
 
-func (q *retryingQuerier) RefreshOpenErrorsLastSeenByDevice(ctx context.Context, arg RefreshOpenErrorsLastSeenByDeviceParams) (sql.Result, error) {
-	var result sql.Result
-	err := q.retrier.RetryQuery(ctx, "RefreshOpenErrorsLastSeenByDevice", func() error {
-		callResult, callErr := q.next.RefreshOpenErrorsLastSeenByDevice(ctx, arg)
-		if callErr == nil {
-			result = callResult
-		}
-		return callErr
-	})
-	return result, err
-}
-
 func (q *retryingQuerier) RefreshPoolConfigurationReadiness(ctx context.Context, arg RefreshPoolConfigurationReadinessParams) error {
 	return q.retrier.RetryQuery(ctx, "RefreshPoolConfigurationReadiness", func() error {
 		return q.next.RefreshPoolConfigurationReadiness(ctx, arg)
@@ -11766,6 +11754,18 @@ func (q *retryingQuerier) UpsertCustomRoleForOrg(ctx context.Context, arg Upsert
 	var result int64
 	err := q.retrier.RetryQuery(ctx, "UpsertCustomRoleForOrg", func() error {
 		callResult, callErr := q.next.UpsertCustomRoleForOrg(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) UpsertDeviceErrors(ctx context.Context, arg UpsertDeviceErrorsParams) (bool, error) {
+	var result bool
+	err := q.retrier.RetryQuery(ctx, "UpsertDeviceErrors", func() error {
+		callResult, callErr := q.next.UpsertDeviceErrors(ctx, arg)
 		if callErr == nil {
 			result = callResult
 		}

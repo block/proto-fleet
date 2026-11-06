@@ -100,6 +100,112 @@ func (s *SQLErrorStore) UpsertError(ctx context.Context, orgID int64, deviceIden
 	return result, nil
 }
 
+type errorBatchReport struct {
+	ErrorID           string            `json:"error_id"`
+	MinerError        int32             `json:"miner_error"`
+	Severity          int32             `json:"severity"`
+	Summary           string            `json:"summary"`
+	Impact            *string           `json:"impact"`
+	CauseSummary      *string           `json:"cause_summary"`
+	RecommendedAction *string           `json:"recommended_action"`
+	FirstSeenAt       time.Time         `json:"first_seen_at"`
+	LastSeenAt        time.Time         `json:"last_seen_at"`
+	ComponentID       *string           `json:"component_id"`
+	ComponentType     *int32            `json:"component_type"`
+	VendorCode        *string           `json:"vendor_code"`
+	Firmware          *string           `json:"firmware"`
+	Extra             map[string]string `json:"extra"`
+	ClosedAt          *time.Time        `json:"closed_at"`
+}
+
+type errorBatchDedupKey struct {
+	MinerError    models.MinerError
+	ComponentID   string
+	HasComponent  bool
+	ComponentType models.ComponentType
+}
+
+// UpsertErrors persists one device's error snapshot in one database round trip.
+// Error detail changes are immediate; stable rows refresh on the supplied heartbeat.
+func (s *SQLErrorStore) UpsertErrors(
+	ctx context.Context,
+	orgID int64,
+	deviceIdentifier string,
+	errorsToUpsert []models.ErrorMessage,
+	observedAt time.Time,
+	refreshHeartbeat time.Duration,
+	refreshAllOpen bool,
+) error {
+	reports := make([]errorBatchReport, 0, len(errorsToUpsert))
+	reportIndexes := make(map[errorBatchDedupKey]int, len(errorsToUpsert))
+	for i := range errorsToUpsert {
+		errMsg := &errorsToUpsert[i]
+		key := errorBatchDedupKey{
+			MinerError:    errMsg.MinerError,
+			ComponentType: errMsg.ComponentType,
+		}
+		if errMsg.ComponentID != nil {
+			key.ComponentID = *errMsg.ComponentID
+			key.HasComponent = true
+		}
+
+		report := errorBatchReport{
+			ErrorID:           id.GenerateID(),
+			MinerError:        int32(errMsg.MinerError), // #nosec G115 -- MinerError enum bounded by protobuf
+			Severity:          int32(errMsg.Severity),   // #nosec G115 -- Severity enum bounded (max 4)
+			Summary:           errMsg.Summary,
+			Impact:            nonEmptyStringPtr(errMsg.Impact),
+			CauseSummary:      nonEmptyStringPtr(errMsg.CauseSummary),
+			RecommendedAction: nonEmptyStringPtr(errMsg.RecommendedAction),
+			FirstSeenAt:       errMsg.FirstSeenAt,
+			LastSeenAt:        errMsg.LastSeenAt,
+			ComponentID:       errMsg.ComponentID,
+			ComponentType:     nullableComponentType(errMsg.ComponentType),
+			VendorCode:        nonEmptyStringPtr(errMsg.VendorCode),
+			Firmware:          nonEmptyStringPtr(errMsg.Firmware),
+			Extra:             errMsg.VendorAttributes,
+			ClosedAt:          errMsg.ClosedAt,
+		}
+		if index, ok := reportIndexes[key]; ok {
+			report.FirstSeenAt = reports[index].FirstSeenAt
+			reports[index] = report
+			continue
+		}
+		reportIndexes[key] = len(reports)
+		reports = append(reports, report)
+	}
+
+	reportsJSON, err := json.Marshal(reports)
+	if err != nil {
+		return fleeterror.NewInternalErrorf("failed to marshal error reports: %v", err)
+	}
+
+	deviceFound, err := s.getQueries(ctx).UpsertDeviceErrors(ctx, sqlc.UpsertDeviceErrorsParams{
+		OrgID:            orgID,
+		DeviceIdentifier: deviceIdentifier,
+		ErrorReports:     reportsJSON,
+		ObservedAt:       observedAt,
+		HeartbeatCutoff:  observedAt.Add(-refreshHeartbeat),
+		RefreshAllOpen:   refreshAllOpen,
+	})
+	if err != nil {
+		return fleeterror.NewInternalErrorf("failed to upsert device errors: %v", err)
+	}
+	if !deviceFound {
+		return fleeterror.NewNotFoundErrorf("device not found: %s", deviceIdentifier)
+	}
+
+	return nil
+}
+
+func nullableComponentType(componentType models.ComponentType) *int32 {
+	if componentType == models.ComponentTypeUnspecified {
+		return nil
+	}
+	value := int32(componentType) // #nosec G115 -- ComponentType enum values bounded (max 4)
+	return &value
+}
+
 func (s *SQLErrorStore) insertNewError(
 	ctx context.Context,
 	q sqlc.Querier,
@@ -948,27 +1054,6 @@ func buildComponentCountParams(opts *models.QueryOptions) sqlc.CountComponentsWi
 // ============================================================================
 // Error Lifecycle Management
 // ============================================================================
-
-// RefreshOpenErrorsLastSeen updates all open errors for a device after an incomplete poll.
-func (s *SQLErrorStore) RefreshOpenErrorsLastSeen(ctx context.Context, orgID int64, deviceIdentifier string, observedAt time.Time) (int64, error) {
-	q := s.getQueries(ctx)
-
-	result, err := q.RefreshOpenErrorsLastSeenByDevice(ctx, sqlc.RefreshOpenErrorsLastSeenByDeviceParams{
-		OrgID:            orgID,
-		DeviceIdentifier: deviceIdentifier,
-		ObservedAt:       observedAt,
-	})
-	if err != nil {
-		return 0, fleeterror.NewInternalErrorf("failed to refresh open errors: %v", err)
-	}
-
-	rowsAffected, err := result.RowsAffected()
-	if err != nil {
-		return 0, fleeterror.NewInternalErrorf("failed to get rows affected: %v", err)
-	}
-
-	return rowsAffected, nil
-}
 
 // CloseStaleErrors closes all open errors where last_seen_at is older than the threshold.
 // This is a bulk operation that operates globally across all organizations.
