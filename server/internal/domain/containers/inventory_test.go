@@ -365,9 +365,9 @@ func TestInventoryRetainsPartialTopologyAndModuleHistory(t *testing.T) {
 		filtered, err := reader.List(ctx, org, &inventorypb.ListInventoryRequest{View: inventorypb.InventoryView_INVENTORY_VIEW_FACILITIES, Kinds: []inventorypb.EntityKind{inventorypb.EntityKind_ENTITY_KIND_BUILDING}, TelemetryRanges: []*commonpb.FleetListTelemetryRangeFilter{{Field: commonpb.FleetListTelemetryField_FLEET_LIST_TELEMETRY_FIELD_HASHRATE_THS, Min: wrapperspb.Double(100)}}}, authority)
 		require.NoError(t, err)
 		require.Zero(t, filtered.TotalCount, "restricted telemetry must not leak through filter membership")
-		// Three error records on one component still display/sort as one.
+		// Three distinct faults on one component still display/sort as one.
 		_, err = db.ExecContext(ctx, `INSERT INTO errors (error_id,org_id,miner_error,severity,summary,first_seen_at,last_seen_at,device_id,component_type)
-     SELECT 'duplicate-'||n,$1,1,1,'failure',now(),now(),d.id,2 FROM device d CROSS JOIN generate_series(1,2) n WHERE device_identifier=$2`, org, miner.DeviceIdentifier)
+     SELECT 'same-component-'||n,$1,n+1,1,'failure',now(),now(),d.id,2 FROM device d CROSS JOIN generate_series(1,2) n WHERE device_identifier=$2`, org, miner.DeviceIdentifier)
 		require.NoError(t, err)
 		_, err = db.ExecContext(ctx, `INSERT INTO errors (error_id,org_id,miner_error,severity,summary,first_seen_at,last_seen_at,device_id,component_type)
      SELECT 'distinct-'||n,$1,1,1,'failure',now(),now(),d.id,n FROM device d CROSS JOIN generate_series(3,4) n WHERE device_identifier=$2`, org, other.DeviceIdentifier)
