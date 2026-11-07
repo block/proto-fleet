@@ -286,9 +286,10 @@ func recordMetricsFailure(r *metricsFlushResult, batch []modelsV2.DeviceMetrics,
 }
 
 // storeDeviceMetricsIsolatingFailures writes batch in one transaction. Failed
-// batches are bisected to isolate bad samples. If both halves fail, each row is
-// tried once instead of descending the entire failure tree. Timeouts,
-// cancellation, and connection failures stop retries for the affected batch.
+// ordinary batches are bisected to isolate bad samples. If both halves fail,
+// each row is tried once. Batches containing containers retry in input order so
+// newer inventory watermarks cannot suppress older samples during recovery.
+// Timeouts, cancellation, and connection failures stop retries.
 func (s *TelemetryService) storeDeviceMetricsIsolatingFailures(ctx context.Context, batch []modelsV2.DeviceMetrics, result *metricsFlushResult) {
 	err := s.telemetryDataStore.StoreDeviceMetrics(ctx, batch...)
 	s.isolateMetricsFailure(ctx, batch, err, result)
@@ -305,6 +306,12 @@ func (s *TelemetryService) isolateMetricsFailure(ctx context.Context, batch []mo
 	if len(batch) == 1 || stopMetricsRetries(ctx, err) {
 		slog.Error("metrics batch write failed, not retrying", "count", len(batch), "error", err)
 		recordMetricsFailure(result, batch, err)
+		return
+	}
+
+	if slices.ContainsFunc(batch, func(m modelsV2.DeviceMetrics) bool { return m.Container != nil }) {
+		slog.Warn("metrics batch write failed, retrying in order", "count", len(batch), "error", err)
+		s.storeFailedMetricsIndividually(ctx, batch, err, result)
 		return
 	}
 

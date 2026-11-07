@@ -5745,3 +5745,10 @@ func TestGetCombinedMetrics_Singleflight(t *testing.T) {
 		assert.Equal(t, want, res)
 	})
 }
+
+// StoreMetricsBatchForTest exposes the writer's failure isolation to store integration tests.
+func StoreMetricsBatchForTest(ctx context.Context, service *TelemetryService, batch []modelsV2.DeviceMetrics) (error, map[models.DeviceIdentifier]error) {
+	result := metricsFlushResult{deviceErrors: make(map[models.DeviceIdentifier]error)}
+	service.storeDeviceMetricsIsolatingFailures(ctx, batch, &result)
+	return result.err, result.deviceErrors
+}
