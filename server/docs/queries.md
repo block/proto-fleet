@@ -21,6 +21,7 @@ Dedup Key = (org_id, device_id, miner_error, component_id, component_type)
 ```
 
 - Open reports insert or update the open row. Unchanged rows are rewritten only once `last_seen_at` is older than the heartbeat cutoff; `last_seen_at` never moves backwards.
+- Detail changes, including `summary` and vendor attributes in `extra`, write immediately. Reports containing changing live readings may still write every poll; heartbeat coalescing saves writes only while all compared details stay unchanged.
 - If `CloseStaleErrors` closes the row first, the conflict disappears and the report inserts a new occurrence.
 - Reports carrying `closed_at` close the matching open row and write its latest details, or insert a closed row when none is open.
 - Partial polls call `RefreshOpenErrorsLastSeenByDevice` separately so omitted open rows stay fresh.

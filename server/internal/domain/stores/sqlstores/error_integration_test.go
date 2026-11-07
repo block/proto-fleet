@@ -934,6 +934,83 @@ func TestSQLErrorStore_UpsertErrors_ShouldSanitizeUnstorableReports(t *testing.T
 	assert.Equal(t, "Fan still failed", updated[models.FanFailed].summary)
 }
 
+func TestSQLErrorStore_UpsertErrors_ShouldNormalizeMalformedTimestamps(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+
+	db, orgID, deviceIdentifier := setupErrorTestData(t)
+	store := newErrorStore(db)
+	ctx := t.Context()
+	observedAt := time.Now().UTC().Truncate(time.Microsecond)
+	validLastSeenAt := observedAt.Add(-time.Minute)
+	yearBelowJSON := time.Date(-1, time.January, 1, 0, 0, 0, 0, time.UTC)
+	yearAboveJSON := time.Date(10000, time.January, 1, 0, 0, 0, 0, time.UTC)
+	yearZero := time.Date(0, time.January, 1, 0, 0, 0, 0, time.UTC)
+	cases := []struct {
+		name       string
+		invalid    time.Time
+		lastSeenAt time.Time
+		wantLast   time.Time
+	}{
+		{"first_before_json_range", yearBelowJSON, validLastSeenAt, validLastSeenAt},
+		{"first_after_json_range", yearAboveJSON, validLastSeenAt, validLastSeenAt},
+		{"year_zero_rejected_by_postgres", yearZero, validLastSeenAt, validLastSeenAt},
+		{"utc_before_year_one", time.Date(1, time.January, 1, 0, 0, 0, 0, time.FixedZone("east", 3600)), validLastSeenAt, validLastSeenAt},
+		{"utc_after_year_9999", time.Date(9999, time.December, 31, 23, 0, 0, 0, time.FixedZone("west", -3600)), validLastSeenAt, validLastSeenAt},
+		{"last_before_json_range", yearBelowJSON, yearBelowJSON, observedAt},
+		{"last_after_json_range", yearAboveJSON, yearAboveJSON, observedAt},
+		{"last_year_zero", yearZero, yearZero, observedAt},
+	}
+
+	good := createTestErrorMessage(deviceIdentifier)
+	good.FirstSeenAt = observedAt.Add(-time.Hour).In(time.FixedZone("east", 7200))
+	good.LastSeenAt = validLastSeenAt
+	batch := []models.ErrorMessage{*good}
+	for _, tc := range cases {
+		report := createTestErrorMessage(deviceIdentifier)
+		report.MinerError = models.FanFailed
+		report.ComponentID = &tc.name
+		report.ComponentType = models.ComponentTypeFans
+		report.FirstSeenAt = tc.invalid
+		report.LastSeenAt = tc.lastSeenAt
+		batch = append(batch, *report)
+	}
+
+	require.NoError(t, store.UpsertErrors(ctx, orgID, deviceIdentifier, batch, observedAt, time.Minute))
+	original := loadErrorRows(t, ctx, db, orgID)
+	require.Len(t, original, len(batch), "malformed reports must not prevent valid siblings from persisting")
+	assert.True(t, original[0].firstSeenAt.Equal(good.FirstSeenAt), "valid first_seen_at must be preserved")
+	assert.True(t, original[0].lastSeenAt.Equal(good.LastSeenAt), "valid last_seen_at must be preserved")
+	for i, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			row := original[i+1]
+			assert.Equal(t, tc.name, row.componentID.String)
+			assert.True(t, row.firstSeenAt.Equal(tc.wantLast), "invalid first_seen_at should use normalized last_seen_at")
+			assert.True(t, row.lastSeenAt.Equal(tc.wantLast), "invalid last_seen_at should use observed_at")
+			assert.False(t, row.closedAt.Valid)
+		})
+		batch[i+1].ClosedAt = &tc.invalid
+	}
+
+	// An invalid close time still closes the existing occurrence without rejecting
+	// a legitimate detail change in the same device batch.
+	batch[0].Summary = "Legitimate error updated"
+	validClosedAt := validLastSeenAt.In(time.FixedZone("west", -7200))
+	batch[0].ClosedAt = &validClosedAt
+	require.NoError(t, store.UpsertErrors(ctx, orgID, deviceIdentifier, batch, observedAt, time.Minute))
+	closed := loadErrorRows(t, ctx, db, orgID)
+	require.Len(t, closed, len(batch))
+	assert.Equal(t, batch[0].Summary, closed[0].summary)
+	require.True(t, closed[0].closedAt.Valid)
+	assert.True(t, closed[0].closedAt.Time.Equal(validClosedAt), "valid closed_at must be preserved")
+	for i, tc := range cases {
+		assert.Equal(t, original[i+1].errorID, closed[i+1].errorID, tc.name)
+		require.True(t, closed[i+1].closedAt.Valid, tc.name)
+		assert.True(t, closed[i+1].closedAt.Time.Equal(tc.wantLast), "invalid closed_at should use normalized last_seen_at: %s", tc.name)
+	}
+}
+
 func TestSQLErrorStore_GetErrorByErrorID_ShouldReturnError(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping database integration test in short mode")

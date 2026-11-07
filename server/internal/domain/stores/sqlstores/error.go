@@ -95,6 +95,13 @@ func (s *SQLErrorStore) UpsertErrors(
 			key.HasComponent = true
 		}
 
+		lastSeenAt := normalizeErrorTimestamp(errMsg.LastSeenAt, observedAt)
+		var closedAt *time.Time
+		if errMsg.ClosedAt != nil {
+			normalized := normalizeErrorTimestamp(*errMsg.ClosedAt, lastSeenAt)
+			closedAt = &normalized
+		}
+
 		report := errorBatchReport{
 			ErrorID:           id.GenerateID(),
 			MinerError:        int32(errMsg.MinerError), // #nosec G115 -- MinerError enum bounded by protobuf
@@ -103,14 +110,14 @@ func (s *SQLErrorStore) UpsertErrors(
 			Impact:            nonEmptyStringPtr(stripNUL(errMsg.Impact)),
 			CauseSummary:      nonEmptyStringPtr(stripNUL(errMsg.CauseSummary)),
 			RecommendedAction: nonEmptyStringPtr(stripNUL(errMsg.RecommendedAction)),
-			FirstSeenAt:       errMsg.FirstSeenAt,
-			LastSeenAt:        errMsg.LastSeenAt,
+			FirstSeenAt:       normalizeErrorTimestamp(errMsg.FirstSeenAt, lastSeenAt),
+			LastSeenAt:        lastSeenAt,
 			ComponentID:       componentID,
 			ComponentType:     nullableComponentType(errMsg.ComponentType),
 			VendorCode:        nonEmptyStringPtr(sanitizeBoundedText(errMsg.VendorCode)),
 			Firmware:          nonEmptyStringPtr(sanitizeBoundedText(errMsg.Firmware)),
 			Extra:             sanitizeVendorAttributes(errMsg.VendorAttributes),
-			ClosedAt:          errMsg.ClosedAt,
+			ClosedAt:          closedAt,
 		}
 		if index, ok := reportIndexes[key]; ok {
 			report.FirstSeenAt = reports[index].FirstSeenAt
@@ -142,6 +149,17 @@ func (s *SQLErrorStore) UpsertErrors(
 	}
 
 	return nil
+}
+
+// normalizeErrorTimestamp keeps device timestamps inside the range accepted by
+// both JSON and PostgreSQL (which rejects year zero). Serialize in UTC so an
+// offset cannot move an otherwise valid local year outside that range.
+func normalizeErrorTimestamp(value, fallback time.Time) time.Time {
+	value = value.UTC()
+	if value.Year() < 1 || value.Year() > 9999 {
+		return fallback.UTC()
+	}
+	return value
 }
 
 // maxBoundedTextRunes matches the varchar(255) columns, which count characters.

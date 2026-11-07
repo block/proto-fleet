@@ -1,5 +1,14 @@
 -- requires-shared: 1064
 
+-- Hold the write fence through cleanup and index creation in the checkpoint transaction.
+LOCK TABLE errors IN SHARE ROW EXCLUSIVE MODE;
+
+-- Legacy device clocks may have left open occurrences ahead of server time.
+UPDATE errors
+SET last_seen_at = CURRENT_TIMESTAMP
+WHERE closed_at IS NULL
+  AND last_seen_at > CURRENT_TIMESTAMP;
+
 -- Keep the oldest open occurrence per dedup key; the unique index cannot be built over duplicates.
 UPDATE errors
 SET closed_at = CURRENT_TIMESTAMP
