@@ -40,7 +40,7 @@ func (s *Service) runCloser(ctx context.Context) {
 
 // closeStaleErrors closes errors that haven't been seen within the threshold.
 func (s *Service) closeStaleErrors(ctx context.Context, threshold time.Duration) {
-	closed, err := s.errorStore.CloseStaleErrors(ctx, threshold)
+	closed, err := s.errorStore.CloseStaleErrors(ctx, threshold, errorRefreshHeartbeat(threshold))
 	if err != nil {
 		slog.Error("failed to close stale errors", "error", err)
 		return

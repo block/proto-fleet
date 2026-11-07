@@ -25,6 +25,7 @@ Dedup Key = (org_id, device_id, miner_error, component_id, component_type)
 - If `CloseStaleErrors` closes the row first, the conflict disappears and the report inserts a new occurrence.
 - Reports carrying `closed_at` close the matching open row and write its latest details, or insert a closed row when none is open.
 - Partial polls call `RefreshOpenErrorsLastSeenByDevice` separately so omitted open rows stay fresh.
+- The stale closer requires error age beyond the staleness threshold plus the refresh heartbeat, while device status must still fall within the original staleness threshold. A skipped heartbeat cannot turn a still-reported error into evidence of absence when polling stops.
 - Callers must deduplicate reports by key first: `ON CONFLICT` cannot update one row twice in a statement.
 - Returns whether the device exists in the organization. The statement is not retried; the next poll replays it.
 

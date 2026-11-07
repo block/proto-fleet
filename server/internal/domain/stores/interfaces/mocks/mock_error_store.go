@@ -43,18 +43,18 @@ func (m *MockErrorStore) EXPECT() *MockErrorStoreMockRecorder {
 }
 
 // CloseStaleErrors mocks base method.
-func (m *MockErrorStore) CloseStaleErrors(ctx context.Context, threshold time.Duration) (int64, error) {
+func (m *MockErrorStore) CloseStaleErrors(ctx context.Context, threshold, refreshHeartbeat time.Duration) (int64, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "CloseStaleErrors", ctx, threshold)
+	ret := m.ctrl.Call(m, "CloseStaleErrors", ctx, threshold, refreshHeartbeat)
 	ret0, _ := ret[0].(int64)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // CloseStaleErrors indicates an expected call of CloseStaleErrors.
-func (mr *MockErrorStoreMockRecorder) CloseStaleErrors(ctx, threshold any) *gomock.Call {
+func (mr *MockErrorStoreMockRecorder) CloseStaleErrors(ctx, threshold, refreshHeartbeat any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CloseStaleErrors", reflect.TypeOf((*MockErrorStore)(nil).CloseStaleErrors), ctx, threshold)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CloseStaleErrors", reflect.TypeOf((*MockErrorStore)(nil).CloseStaleErrors), ctx, threshold, refreshHeartbeat)
 }
 
 // CountComponents mocks base method.

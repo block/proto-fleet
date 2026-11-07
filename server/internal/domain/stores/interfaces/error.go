@@ -61,8 +61,9 @@ type ErrorStore interface {
 	// Error Lifecycle Management
 	// ============================================================================
 
-	// CloseStaleErrors closes all open errors where last_seen_at is older than the threshold.
+	// CloseStaleErrors allows for coalesced error observations using refreshHeartbeat.
+	// Error age must exceed threshold plus refreshHeartbeat; device status must be within threshold.
 	// This is a bulk operation that operates globally across all organizations.
 	// Returns the number of errors closed.
-	CloseStaleErrors(ctx context.Context, threshold time.Duration) (int64, error)
+	CloseStaleErrors(ctx context.Context, threshold, refreshHeartbeat time.Duration) (int64, error)
 }

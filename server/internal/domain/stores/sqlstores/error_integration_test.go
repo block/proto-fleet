@@ -1523,6 +1523,73 @@ func strPtr(s string) *string {
 // CloseStaleErrors Tests
 // ============================================================================
 
+func TestSQLErrorStore_CloseStaleErrors_ShouldRetainCoalescedErrorsWhenPollingStops(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+
+	for _, tc := range []struct {
+		name      string
+		threshold time.Duration
+		heartbeat time.Duration
+	}{
+		{"default threshold", 2 * time.Minute, 30 * time.Second},
+		{"short threshold", 20 * time.Second, 5 * time.Second},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			db, orgID, deviceIdentifier := setupErrorTestData(t)
+			store := newErrorStore(db)
+			ctx := t.Context()
+			queries := sqlc.New(db)
+			deviceID, err := queries.GetDeviceIDByIdentifier(ctx, sqlc.GetDeviceIDByIdentifierParams{
+				DeviceIdentifier: deviceIdentifier, OrgID: orgID,
+			})
+			require.NoError(t, err)
+			now := time.Now().UTC().Truncate(time.Microsecond)
+			storedAt := now.Add(-tc.threshold - tc.heartbeat/6).Truncate(time.Microsecond)
+			reportedAt := storedAt.Add(2 * tc.heartbeat / 3).Truncate(time.Microsecond)
+			report := createTestErrorMessage(deviceIdentifier)
+			report.FirstSeenAt = storedAt.Add(-time.Hour)
+			report.LastSeenAt = storedAt
+			require.NoError(t, store.UpsertErrors(ctx, orgID, deviceIdentifier, []models.ErrorMessage{*report}, storedAt, tc.heartbeat))
+			report.LastSeenAt = reportedAt
+			require.NoError(t, store.UpsertErrors(ctx, orgID, deviceIdentifier, []models.ErrorMessage{*report}, reportedAt, tc.heartbeat))
+			persisted := loadErrorRows(t, ctx, db, orgID)
+			require.Len(t, persisted, 1)
+			require.True(t, persisted[0].lastSeenAt.Equal(storedAt), "the last successful report must actually have been coalesced")
+			setStatus := func(at time.Time) {
+				t.Helper()
+				require.NoError(t, queries.UpsertDeviceStatus(ctx, sqlc.UpsertDeviceStatusParams{
+					DeviceID: deviceID, Status: sqlc.DeviceStatusEnumACTIVE,
+					StatusTimestamp: sql.NullTime{Time: at, Valid: true},
+					StatusDetails:   sql.NullString{String: "{}", Valid: true},
+				}))
+			}
+			setStatus(reportedAt)
+			closed, err := store.CloseStaleErrors(ctx, tc.threshold, tc.heartbeat)
+			require.NoError(t, err)
+			require.Zero(t, closed, "a coalesced report is not evidence of absence")
+
+			// Backdate both observations to simulate another heartbeat passing with
+			// polling stopped. The unchanged status must now fail the original
+			// freshness gate, even though the error exceeds the heartbeat allowance.
+			_, err = db.ExecContext(ctx, "UPDATE errors SET last_seen_at=$1 WHERE org_id=$2", storedAt.Add(-tc.heartbeat), orgID)
+			require.NoError(t, err)
+			setStatus(reportedAt.Add(-tc.heartbeat))
+			closed, err = store.CloseStaleErrors(ctx, tc.threshold, tc.heartbeat)
+			require.NoError(t, err)
+			require.Zero(t, closed, "heartbeat allowance must not widen status freshness")
+
+			// A subsequent successful poll that omits the error supplies fresh
+			// evidence of absence and must still close it.
+			setStatus(time.Now())
+			closed, err = store.CloseStaleErrors(ctx, tc.threshold, tc.heartbeat)
+			require.NoError(t, err)
+			require.EqualValues(t, 1, closed)
+		})
+	}
+}
+
 func TestSQLErrorStore_CloseStaleErrors_ShouldCloseOnlyStaleErrorsWithRecentPoll(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping database integration test in short mode")
@@ -1569,7 +1636,7 @@ func TestSQLErrorStore_CloseStaleErrors_ShouldCloseOnlyStaleErrorsWithRecentPoll
 			require.NoError(t, err)
 
 			threshold := tc.threshold
-			closed, err := store.CloseStaleErrors(ctx, threshold)
+			closed, err := store.CloseStaleErrors(ctx, threshold, 0)
 			require.NoError(t, err)
 			require.Zero(t, closed, "old status cannot confirm a recent poll")
 
@@ -1580,7 +1647,7 @@ func TestSQLErrorStore_CloseStaleErrors_ShouldCloseOnlyStaleErrorsWithRecentPoll
 			require.NoError(t, deviceStore.UpsertDeviceStatuses(ctx, updates))
 
 			// Act: Close stale errors using the refreshed unchanged status.
-			closed, err = store.CloseStaleErrors(ctx, threshold)
+			closed, err = store.CloseStaleErrors(ctx, threshold, 0)
 
 			// Assert
 			require.NoError(t, err)
@@ -1631,7 +1698,7 @@ func TestSQLErrorStore_CloseStaleErrors_ShouldNotCloseIfNoRecentPoll(t *testing.
 
 	// Act: Close errors stale for more than 3 minutes
 	threshold := 3 * time.Minute
-	closed, err := store.CloseStaleErrors(ctx, threshold)
+	closed, err := store.CloseStaleErrors(ctx, threshold, 0)
 
 	// Assert
 	require.NoError(t, err)
@@ -1680,7 +1747,7 @@ func TestSQLErrorStore_CloseStaleErrors_ShouldNotCloseRecentErrors(t *testing.T)
 
 	// Act: Close errors stale for more than 3 minutes
 	threshold := 3 * time.Minute
-	closed, err := store.CloseStaleErrors(ctx, threshold)
+	closed, err := store.CloseStaleErrors(ctx, threshold, 0)
 
 	// Assert
 	require.NoError(t, err)

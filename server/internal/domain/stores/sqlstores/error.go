@@ -937,16 +937,17 @@ func buildComponentCountParams(opts *models.QueryOptions) sqlc.CountComponentsWi
 // Error Lifecycle Management
 // ============================================================================
 
-// CloseStaleErrors closes all open errors where last_seen_at is older than the threshold.
+// CloseStaleErrors discounts the heartbeat lag in persisted error observations,
+// while requiring device status within the original staleness threshold.
 // This is a bulk operation that operates globally across all organizations.
-func (s *SQLErrorStore) CloseStaleErrors(ctx context.Context, threshold time.Duration) (int64, error) {
+func (s *SQLErrorStore) CloseStaleErrors(ctx context.Context, threshold, refreshHeartbeat time.Duration) (int64, error) {
 	q := s.getQueries(ctx)
 
-	cutoffTime := time.Now().Add(-threshold)
+	statusCutoffTime := time.Now().Add(-threshold)
 
 	result, err := q.CloseStaleErrors(ctx, sqlc.CloseStaleErrorsParams{
-		CutoffTime:       cutoffTime,
-		StatusCutoffTime: sql.NullTime{Time: cutoffTime, Valid: true},
+		CutoffTime:       statusCutoffTime.Add(-refreshHeartbeat),
+		StatusCutoffTime: sql.NullTime{Time: statusCutoffTime, Valid: true},
 	})
 	if err != nil {
 		return 0, fleeterror.NewInternalErrorf("failed to close stale errors: %v", err)
