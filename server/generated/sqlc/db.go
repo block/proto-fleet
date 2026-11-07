@@ -2928,6 +2928,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.setLocalFleetNodeHAFailoverLockTimeoutStmt, err = db.PrepareContext(ctx, setLocalFleetNodeHAFailoverLockTimeout); err != nil {
 		return nil, fmt.Errorf("error preparing query SetLocalFleetNodeHAFailoverLockTimeout: %w", err)
 	}
+	if q.setLocalTelemetryLockTimeoutStmt, err = db.PrepareContext(ctx, setLocalTelemetryLockTimeout); err != nil {
+		return nil, fmt.Errorf("error preparing query SetLocalTelemetryLockTimeout: %w", err)
+	}
 	if q.setLocalTransactionTimeoutStmt, err = db.PrepareContext(ctx, setLocalTransactionTimeout); err != nil {
 		return nil, fmt.Errorf("error preparing query SetLocalTransactionTimeout: %w", err)
 	}
@@ -8205,6 +8208,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing setLocalFleetNodeHAFailoverLockTimeoutStmt: %w", cerr)
 		}
 	}
+	if q.setLocalTelemetryLockTimeoutStmt != nil {
+		if cerr := q.setLocalTelemetryLockTimeoutStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing setLocalTelemetryLockTimeoutStmt: %w", cerr)
+		}
+	}
 	if q.setLocalTransactionTimeoutStmt != nil {
 		if cerr := q.setLocalTransactionTimeoutStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing setLocalTransactionTimeoutStmt: %w", cerr)
@@ -9932,6 +9940,7 @@ type Queries struct {
 	setInfrastructureControlSubnetsStmt                         *sql.Stmt
 	setLocalDeviceDeletionLockTimeoutStmt                       *sql.Stmt
 	setLocalFleetNodeHAFailoverLockTimeoutStmt                  *sql.Stmt
+	setLocalTelemetryLockTimeoutStmt                            *sql.Stmt
 	setLocalTransactionTimeoutStmt                              *sql.Stmt
 	setMQTTSourceConfigEnabledStmt                              *sql.Stmt
 	setPoolConfigurationAssignmentStmt                          *sql.Stmt
@@ -11050,6 +11059,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		setInfrastructureControlSubnetsStmt:                        q.setInfrastructureControlSubnetsStmt,
 		setLocalDeviceDeletionLockTimeoutStmt:                      q.setLocalDeviceDeletionLockTimeoutStmt,
 		setLocalFleetNodeHAFailoverLockTimeoutStmt:                 q.setLocalFleetNodeHAFailoverLockTimeoutStmt,
+		setLocalTelemetryLockTimeoutStmt:                           q.setLocalTelemetryLockTimeoutStmt,
 		setLocalTransactionTimeoutStmt:                             q.setLocalTransactionTimeoutStmt,
 		setMQTTSourceConfigEnabledStmt:                             q.setMQTTSourceConfigEnabledStmt,
 		setPoolConfigurationAssignmentStmt:                         q.setPoolConfigurationAssignmentStmt,

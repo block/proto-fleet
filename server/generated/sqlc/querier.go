@@ -1202,8 +1202,6 @@ type Querier interface {
 	InsertCurtailmentEvent(ctx context.Context, arg InsertCurtailmentEventParams) (InsertCurtailmentEventRow, error)
 	InsertCurtailmentResponseProfile(ctx context.Context, arg InsertCurtailmentResponseProfileParams) (CurtailmentResponseProfile, error)
 	InsertDevice(ctx context.Context, arg InsertDeviceParams) (int64, error)
-	// Telemetry queries for device_metrics table and continuous aggregates
-	// Note: All device identification uses device_identifier (TEXT), not device_id (BIGINT)
 	// Inserts one row per element of the parallel arrays. An empty kind marks
 	// an absent measurement, so its value is stored as NULL rather than 0.
 	// site_id is row-stamped from device.site_id (looked up by
@@ -2459,6 +2457,9 @@ type Querier interface {
 	// deletion batch promptly instead of holding shared identity stripes for I/O.
 	SetLocalDeviceDeletionLockTimeout(ctx context.Context) error
 	SetLocalFleetNodeHAFailoverLockTimeout(ctx context.Context, timeoutMilliseconds int64) error
+	// Telemetry queries for device_metrics table and continuous aggregates
+	// Note: All device identification uses device_identifier (TEXT), not device_id (BIGINT)
+	SetLocalTelemetryLockTimeout(ctx context.Context, timeoutMilliseconds int64) error
 	SetLocalTransactionTimeout(ctx context.Context, timeoutMilliseconds int64) error
 	SetMQTTSourceConfigEnabled(ctx context.Context, arg SetMQTTSourceConfigEnabledParams) (SetMQTTSourceConfigEnabledRow, error)
 	// Explicitly returning retired equipment must not resurrect its former intent

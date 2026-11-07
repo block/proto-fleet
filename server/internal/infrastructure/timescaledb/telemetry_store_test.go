@@ -13,6 +13,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/infrastructure/timescaledb"
 	"github.com/block/proto-fleet/server/internal/testutil"
 	sdk "github.com/block/proto-fleet/server/sdk/v1"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -218,6 +219,49 @@ func TestTelemetryStore_StoreDeviceMetricsUsesSingleStatement(t *testing.T) {
 	assert.Equal(t, 1, triggerInvocations["statement"], "the batch should execute as one INSERT statement")
 }
 
+func TestTelemetryStore_StoreDeviceMetricsBoundsContainerLockWait(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration test in short mode")
+	}
+
+	dbSvc := testutil.NewDatabaseService(t, nil)
+	db := dbSvc.DB
+	config := timescaledb.DefaultConfig()
+	config.WriteTimeout = 4 * time.Second
+	store, err := timescaledb.NewTelemetryStore(db, config)
+	require.NoError(t, err)
+	ctx := t.Context()
+	user := dbSvc.CreateSuperAdminUser()
+	device := dbSvc.CreateDevice(user.OrganizationID, "proto")
+	_, err = db.ExecContext(ctx, "UPDATE discovered_device SET device_class=2 WHERE id=(SELECT discovered_device_id FROM device WHERE id=$1)", device.DatabaseID)
+	require.NoError(t, err)
+
+	lock, err := db.BeginTx(ctx, nil)
+	require.NoError(t, err)
+	defer lock.Rollback()
+	_, err = lock.ExecContext(ctx, "SELECT id FROM organization WHERE id=$1 FOR UPDATE", user.OrganizationID)
+	require.NoError(t, err)
+
+	now := time.Now().UTC().Truncate(time.Microsecond)
+	ordinary := modelsV2.DeviceMetrics{DeviceIdentifier: "unblocked-device", Timestamp: now}
+	container := modelsV2.DeviceMetrics{
+		DeviceIdentifier: device.ID, Timestamp: now,
+		Container: &sdk.ContainerSnapshot{ObservedAt: now},
+	}
+	err = store.StoreDeviceMetrics(ctx, ordinary, container)
+	var pgErr *pgconn.PgError
+	require.ErrorAs(t, err, &pgErr)
+	require.Equal(t, "55P03", pgErr.Code, "lock waits should fail before the write deadline so the writer can isolate the blocked sample")
+
+	// The failed transaction must roll back and leave independent samples writable.
+	require.NoError(t, store.StoreDeviceMetrics(ctx, ordinary))
+	var rows int
+	require.NoError(t, db.QueryRowContext(ctx, "SELECT count(*) FROM device_metrics WHERE device_identifier=$1", ordinary.DeviceIdentifier).Scan(&rows))
+	require.Equal(t, 1, rows)
+	require.NoError(t, lock.Rollback())
+	require.NoError(t, store.StoreDeviceMetrics(ctx, container))
+}
+
 func TestTelemetryStore_StoreDeviceMetricsKeepsContainerWritesSeparate(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping integration test in short mode")
@@ -248,7 +292,7 @@ func TestTelemetryStore_StoreDeviceMetricsKeepsContainerWritesSeparate(t *testin
 	`)
 	require.NoError(t, err)
 
-	now := time.Now().UTC().Truncate(time.Millisecond)
+	now := time.Now().UTC().Truncate(time.Millisecond).Add(999 * time.Nanosecond)
 	container := &sdk.ContainerSnapshot{ObservedAt: now}
 	require.NoError(t, store.StoreDeviceMetrics(ctx,
 		modelsV2.DeviceMetrics{
@@ -272,6 +316,13 @@ func TestTelemetryStore_StoreDeviceMetricsKeepsContainerWritesSeparate(t *testin
 		WHERE time = $1 AND device_identifier IN ($2, $3)
 	`, now, "ordinary-device", containerDevice.ID).Scan(&storedRows))
 	assert.Equal(t, 2, storedRows)
+
+	var semantics int
+	require.NoError(t, db.QueryRowContext(ctx, `
+		SELECT metric_semantics FROM device_metrics
+		WHERE device_identifier = $1 AND time = $2
+	`, containerDevice.ID, now).Scan(&semantics))
+	assert.Equal(t, 2, semantics, "sub-microsecond samples must match the scalar container stamp and rollup")
 
 	var statementInvocations int
 	require.NoError(t, db.QueryRowContext(ctx, "SELECT invocations FROM telemetry_statement_audit").Scan(&statementInvocations))

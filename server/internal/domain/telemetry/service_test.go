@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"connectrpc.com/connect"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	gomock "go.uber.org/mock/gomock"
@@ -3150,21 +3151,136 @@ func TestStoreDeviceMetricsIsolatingFailures_BisectsToBadSample(t *testing.T) {
 	require.ErrorIs(t, result.deviceErrors["device-3"], malformedErr)
 }
 
-func TestStoreDeviceMetricsIsolatingFailures_DoesNotRetryTimeouts(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	mockDataStore := mock.NewMockTelemetryDataStore(ctrl)
-	service := NewTelemetryService(Config{}, mockDataStore, mock.NewMockCachedMinerGetter(ctrl), mock.NewMockUpdateScheduler(ctrl), storesMocks.NewMockDeviceStore(ctrl), mock.NewMockErrorPoller(ctrl))
+func TestStoreDeviceMetricsIsolatingFailures_BoundsAllFailingBatch(t *testing.T) {
+	for _, code := range []string{"53100", "42501", "XX000"} {
+		t.Run(code, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			mockDataStore := mock.NewMockTelemetryDataStore(ctrl)
+			service := NewTelemetryService(Config{}, mockDataStore, mock.NewMockCachedMinerGetter(ctrl), mock.NewMockUpdateScheduler(ctrl), storesMocks.NewMockDeviceStore(ctrl), mock.NewMockErrorPoller(ctrl))
+			batch := make([]modelsV2.DeviceMetrics, 2000)
+			for i := range batch {
+				batch[i].DeviceIdentifier = fmt.Sprintf("device-%d", i)
+			}
+			writeErr := fmt.Errorf("store metrics: %w", &pgconn.PgError{Code: code})
+			// One original batch, two halves, then one attempt per row.
+			mockDataStore.EXPECT().StoreDeviceMetrics(gomock.Any(), gomock.Any()).Return(writeErr).Times(len(batch) + 3)
 
-	batch := []modelsV2.DeviceMetrics{{DeviceIdentifier: "device-1"}, {DeviceIdentifier: "device-2"}}
-	timeoutErr := fmt.Errorf("failed to insert 2 device metrics: %w", context.DeadlineExceeded)
-	mockDataStore.EXPECT().StoreDeviceMetrics(gomock.Any(), batch[0], batch[1]).Return(timeoutErr).Times(1)
+			result := metricsFlushResult{deviceErrors: make(map[models.DeviceIdentifier]error)}
+			service.storeDeviceMetricsIsolatingFailures(t.Context(), batch, &result)
 
-	result := metricsFlushResult{deviceErrors: make(map[models.DeviceIdentifier]error)}
-	service.storeDeviceMetricsIsolatingFailures(t.Context(), batch, &result)
+			require.Len(t, result.deviceErrors, len(batch))
+			for _, metric := range batch {
+				require.ErrorIs(t, result.deviceErrors[models.DeviceIdentifier(metric.DeviceIdentifier)], writeErr)
+			}
+		})
+	}
+}
 
-	require.ErrorIs(t, result.err, context.DeadlineExceeded)
-	require.ErrorIs(t, result.deviceErrors["device-1"], context.DeadlineExceeded)
-	require.ErrorIs(t, result.deviceErrors["device-2"], context.DeadlineExceeded)
+func TestStoreDeviceMetricsIsolatingFailures_FailedHalvesPreserveGoodRows(t *testing.T) {
+	for _, writeErr := range []error{errors.New("invalid telemetry sample"), &pgconn.PgError{Code: "55P03"}} {
+		t.Run(writeErr.Error(), func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			mockDataStore := mock.NewMockTelemetryDataStore(ctrl)
+			service := NewTelemetryService(Config{}, mockDataStore, mock.NewMockCachedMinerGetter(ctrl), mock.NewMockUpdateScheduler(ctrl), storesMocks.NewMockDeviceStore(ctrl), mock.NewMockErrorPoller(ctrl))
+			batch := make([]modelsV2.DeviceMetrics, 8)
+			for i := range batch {
+				batch[i].DeviceIdentifier = fmt.Sprintf("device-%d", i)
+			}
+			stored := make(map[string]bool)
+			mockDataStore.EXPECT().StoreDeviceMetrics(gomock.Any(), gomock.Any()).DoAndReturn(
+				func(_ context.Context, metrics ...modelsV2.DeviceMetrics) error {
+					for _, metric := range metrics {
+						if metric.DeviceIdentifier == "device-2" || metric.DeviceIdentifier == "device-6" {
+							return writeErr
+						}
+					}
+					for _, metric := range metrics {
+						stored[metric.DeviceIdentifier] = true
+					}
+					return nil
+				},
+			).Times(len(batch) + 3)
+
+			result := metricsFlushResult{deviceErrors: make(map[models.DeviceIdentifier]error)}
+			service.storeDeviceMetricsIsolatingFailures(t.Context(), batch, &result)
+
+			require.Len(t, stored, 6)
+			require.Len(t, result.deviceErrors, 2)
+			require.ErrorIs(t, result.deviceErrors["device-2"], writeErr)
+			require.ErrorIs(t, result.deviceErrors["device-6"], writeErr)
+		})
+	}
+}
+
+func TestStoreDeviceMetricsIsolatingFailures_DoesNotRetryTerminalErrors(t *testing.T) {
+	for _, tc := range []struct {
+		name         string
+		err          error
+		cancelParent bool
+	}{
+		{name: "deadline", err: fmt.Errorf("store metrics: %w", context.DeadlineExceeded)},
+		{name: "canceled", err: fmt.Errorf("store metrics: %w", context.Canceled)},
+		{name: "parent canceled", err: errors.New("unrelated store error"), cancelParent: true},
+		{name: "failover", err: fmt.Errorf("store metrics: %w", &pgconn.PgError{Code: "08006"})},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			for _, stage := range []struct {
+				name         string
+				initialCalls int
+			}{
+				{name: "initial batch", initialCalls: 0},
+				{name: "failed halves", initialCalls: 1},
+				{name: "individual fallback", initialCalls: 3},
+			} {
+				t.Run(stage.name, func(t *testing.T) {
+					ctrl := gomock.NewController(t)
+					mockDataStore := mock.NewMockTelemetryDataStore(ctrl)
+					service := NewTelemetryService(Config{}, mockDataStore, mock.NewMockCachedMinerGetter(ctrl), mock.NewMockUpdateScheduler(ctrl), storesMocks.NewMockDeviceStore(ctrl), mock.NewMockErrorPoller(ctrl))
+					batch := make([]modelsV2.DeviceMetrics, 8)
+					for i := range batch {
+						batch[i].DeviceIdentifier = fmt.Sprintf("device-%d", i)
+					}
+					ctx, cancel := context.WithCancel(t.Context())
+					defer cancel()
+					if tc.cancelParent && stage.initialCalls == 0 {
+						cancel()
+					}
+					calls := 0
+					wantCalls := 1
+					if stage.initialCalls > 0 {
+						wantCalls = stage.initialCalls + 2
+						if tc.cancelParent {
+							wantCalls--
+						}
+					}
+					mockDataStore.EXPECT().StoreDeviceMetrics(gomock.Any(), gomock.Any()).DoAndReturn(
+						func(_ context.Context, _ ...modelsV2.DeviceMetrics) error {
+							calls++
+							if calls <= stage.initialCalls {
+								return errors.New("invalid telemetry batch")
+							}
+							if tc.cancelParent {
+								cancel()
+							}
+							return tc.err
+						},
+					).Times(wantCalls)
+
+					result := metricsFlushResult{deviceErrors: make(map[models.DeviceIdentifier]error)}
+					service.storeDeviceMetricsIsolatingFailures(ctx, batch, &result)
+
+					require.Len(t, result.deviceErrors, len(batch))
+					require.ErrorIs(t, result.err, tc.err)
+					require.ErrorIs(t, result.deviceErrors["device-0"], tc.err)
+					if !tc.cancelParent {
+						for _, metric := range batch {
+							require.ErrorIs(t, result.deviceErrors[models.DeviceIdentifier(metric.DeviceIdentifier)], tc.err)
+						}
+					}
+				})
+			}
+		})
+	}
 }
 
 func TestRefreshDevice_WaitsForExistingInFlightCollectionAndFlushesWriters(t *testing.T) {

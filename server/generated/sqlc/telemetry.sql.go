@@ -1645,7 +1645,6 @@ func (q *Queries) GetOrgDeviceStatusHourlyAggregates(ctx context.Context, arg Ge
 }
 
 const insertDeviceMetricsBatch = `-- name: InsertDeviceMetricsBatch :exec
-
 INSERT INTO device_metrics (
     time,
     device_identifier,
@@ -1717,8 +1716,6 @@ type InsertDeviceMetricsBatchParams struct {
 	Health            []string
 }
 
-// Telemetry queries for device_metrics table and continuous aggregates
-// Note: All device identification uses device_identifier (TEXT), not device_id (BIGINT)
 // Inserts one row per element of the parallel arrays. An empty kind marks
 // an absent measurement, so its value is stored as NULL rather than 0.
 // site_id is row-stamped from device.site_id (looked up by
@@ -1745,5 +1742,17 @@ func (q *Queries) InsertDeviceMetricsBatch(ctx context.Context, arg InsertDevice
 		pq.Array(arg.EfficiencyJhKinds),
 		pq.Array(arg.Health),
 	)
+	return err
+}
+
+const setLocalTelemetryLockTimeout = `-- name: SetLocalTelemetryLockTimeout :exec
+
+SELECT set_config('lock_timeout', $1::BIGINT::TEXT || 'ms', TRUE)
+`
+
+// Telemetry queries for device_metrics table and continuous aggregates
+// Note: All device identification uses device_identifier (TEXT), not device_id (BIGINT)
+func (q *Queries) SetLocalTelemetryLockTimeout(ctx context.Context, timeoutMilliseconds int64) error {
+	_, err := q.exec(ctx, q.setLocalTelemetryLockTimeoutStmt, setLocalTelemetryLockTimeout, timeoutMilliseconds)
 	return err
 }

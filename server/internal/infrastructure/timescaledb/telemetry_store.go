@@ -373,7 +373,7 @@ func (s *TimescaleTelemetryStore) StoreDeviceMetrics(ctx context.Context, data .
 	ctx, cancel := context.WithTimeout(ctx, s.config.WriteTimeout)
 	defer cancel()
 
-	//nolint:forbidigo // The caller falls back per row; helper retries would amplify transient failures across the batch.
+	//nolint:forbidigo // The caller isolates failed batches; helper retries would amplify transient failures.
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
@@ -385,6 +385,12 @@ func (s *TimescaleTelemetryStore) StoreDeviceMetrics(ctx context.Context, data .
 	}()
 
 	qtx := s.queries.WithTx(tx)
+
+	// Leave time for the writer to isolate lock contention before WriteTimeout.
+	lockTimeout := max(time.Millisecond, min(time.Second, s.config.WriteTimeout/4))
+	if err := qtx.SetLocalTelemetryLockTimeout(ctx, lockTimeout.Milliseconds()); err != nil {
+		return fmt.Errorf("failed to set telemetry lock timeout: %w", err)
+	}
 
 	if s.config.AsyncMetricCommit {
 		if err := qtx.DisableSyncCommit(ctx); err != nil {
@@ -2197,7 +2203,8 @@ func metricColumns(metric *modelsV2.MetricValue) (value float64, kind string) {
 }
 
 func appendDeviceMetricsRow(params *sqlc.InsertDeviceMetricsBatchParams, metrics modelsV2.DeviceMetrics) {
-	params.Times = append(params.Times, metrics.Timestamp)
+	// Match pgx's scalar timestamp encoding used by container stamps and rollups.
+	params.Times = append(params.Times, metrics.Timestamp.Truncate(time.Microsecond))
 	params.DeviceIdentifiers = append(params.DeviceIdentifiers, metrics.DeviceIdentifier)
 	params.Health = append(params.Health, metrics.Health.String())
 

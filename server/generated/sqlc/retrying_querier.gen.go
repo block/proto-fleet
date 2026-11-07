@@ -10634,6 +10634,12 @@ func (q *retryingQuerier) SetLocalFleetNodeHAFailoverLockTimeout(ctx context.Con
 	})
 }
 
+func (q *retryingQuerier) SetLocalTelemetryLockTimeout(ctx context.Context, timeoutMilliseconds int64) error {
+	return q.retrier.RetryQuery(ctx, "SetLocalTelemetryLockTimeout", func() error {
+		return q.next.SetLocalTelemetryLockTimeout(ctx, timeoutMilliseconds)
+	})
+}
+
 func (q *retryingQuerier) SetLocalTransactionTimeout(ctx context.Context, timeoutMilliseconds int64) error {
 	return q.retrier.RetryQuery(ctx, "SetLocalTransactionTimeout", func() error {
 		return q.next.SetLocalTransactionTimeout(ctx, timeoutMilliseconds)

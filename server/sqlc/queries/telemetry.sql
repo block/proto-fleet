@@ -1,6 +1,9 @@
 -- Telemetry queries for device_metrics table and continuous aggregates
 -- Note: All device identification uses device_identifier (TEXT), not device_id (BIGINT)
 
+-- name: SetLocalTelemetryLockTimeout :exec
+SELECT set_config('lock_timeout', sqlc.arg('timeout_milliseconds')::BIGINT::TEXT || 'ms', TRUE);
+
 -- name: InsertDeviceMetricsBatch :exec
 -- Inserts one row per element of the parallel arrays. An empty kind marks
 -- an absent measurement, so its value is stored as NULL rather than 0.

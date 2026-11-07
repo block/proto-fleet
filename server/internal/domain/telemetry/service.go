@@ -285,30 +285,63 @@ func recordMetricsFailure(r *metricsFlushResult, batch []modelsV2.DeviceMetrics,
 	}
 }
 
-// storeDeviceMetricsIsolatingFailures writes batch in one transaction. When that
-// fails because of a bad sample, it retries in halves so only the offending
-// samples are dropped at O(log n) extra writes per bad sample. Timeouts,
-// cancellation, and connection failures fail the whole batch without retries,
-// since retrying would only stall the writer.
+// storeDeviceMetricsIsolatingFailures writes batch in one transaction. Failed
+// batches are bisected to isolate bad samples. If both halves fail, each row is
+// tried once instead of descending the entire failure tree. Timeouts,
+// cancellation, and connection failures stop retries for the affected batch.
 func (s *TelemetryService) storeDeviceMetricsIsolatingFailures(ctx context.Context, batch []modelsV2.DeviceMetrics, result *metricsFlushResult) {
 	err := s.telemetryDataStore.StoreDeviceMetrics(ctx, batch...)
+	s.isolateMetricsFailure(ctx, batch, err, result)
+}
+
+func stopMetricsRetries(ctx context.Context, err error) bool {
+	return ctx.Err() != nil || errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) || db.IsFailoverPostgresError(err)
+}
+
+func (s *TelemetryService) isolateMetricsFailure(ctx context.Context, batch []modelsV2.DeviceMetrics, err error, result *metricsFlushResult) {
 	if err == nil {
 		return
 	}
-	if len(batch) == 1 {
-		slog.Error("failed to store device metrics", "device_id", batch[0].DeviceIdentifier, "error", err)
-		recordMetricsFailure(result, batch, err)
-		return
-	}
-	if ctx.Err() != nil || errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) || db.IsFailoverPostgresError(err) {
+	if len(batch) == 1 || stopMetricsRetries(ctx, err) {
 		slog.Error("metrics batch write failed, not retrying", "count", len(batch), "error", err)
 		recordMetricsFailure(result, batch, err)
 		return
 	}
+
 	slog.Warn("metrics batch write failed, retrying in halves", "count", len(batch), "error", err)
 	mid := len(batch) / 2
-	s.storeDeviceMetricsIsolatingFailures(ctx, batch[:mid], result)
-	s.storeDeviceMetricsIsolatingFailures(ctx, batch[mid:], result)
+	left, right := batch[:mid], batch[mid:]
+	leftErr := s.telemetryDataStore.StoreDeviceMetrics(ctx, left...)
+	rightErr := ctx.Err()
+	if rightErr == nil {
+		rightErr = s.telemetryDataStore.StoreDeviceMetrics(ctx, right...)
+	}
+	if leftErr != nil && rightErr != nil {
+		s.storeFailedMetricsIndividually(ctx, left, leftErr, result)
+		s.storeFailedMetricsIndividually(ctx, right, rightErr, result)
+		return
+	}
+	s.isolateMetricsFailure(ctx, left, leftErr, result)
+	s.isolateMetricsFailure(ctx, right, rightErr, result)
+}
+
+func (s *TelemetryService) storeFailedMetricsIndividually(ctx context.Context, batch []modelsV2.DeviceMetrics, err error, result *metricsFlushResult) {
+	if len(batch) == 1 || stopMetricsRetries(ctx, err) {
+		s.isolateMetricsFailure(ctx, batch, err, result)
+		return
+	}
+	for i := range batch {
+		if err := ctx.Err(); err != nil {
+			recordMetricsFailure(result, batch[i:], err)
+			return
+		}
+		err := s.telemetryDataStore.StoreDeviceMetrics(ctx, batch[i])
+		if err != nil && stopMetricsRetries(ctx, err) {
+			recordMetricsFailure(result, batch[i:], err)
+			return
+		}
+		s.isolateMetricsFailure(ctx, batch[i:i+1], err, result)
+	}
 }
 
 func mergeMetricsFlushResults(results ...metricsFlushResult) metricsFlushResult {
