@@ -5966,9 +5966,9 @@ func (q *retryingQuerier) InsertDevice(ctx context.Context, arg InsertDevicePara
 	return result, err
 }
 
-func (q *retryingQuerier) InsertDeviceMetrics(ctx context.Context, arg InsertDeviceMetricsParams) error {
-	return q.retrier.RetryQuery(ctx, "InsertDeviceMetrics", func() error {
-		return q.next.InsertDeviceMetrics(ctx, arg)
+func (q *retryingQuerier) InsertDeviceMetricsBatch(ctx context.Context, arg InsertDeviceMetricsBatchParams) error {
+	return q.retrier.RetryQuery(ctx, "InsertDeviceMetricsBatch", func() error {
+		return q.next.InsertDeviceMetricsBatch(ctx, arg)
 	})
 }
 
@@ -10661,6 +10661,12 @@ func (q *retryingQuerier) SetLocalDeviceDeletionLockTimeout(ctx context.Context)
 func (q *retryingQuerier) SetLocalFleetNodeHAFailoverLockTimeout(ctx context.Context, timeoutMilliseconds int64) error {
 	return q.retrier.RetryQuery(ctx, "SetLocalFleetNodeHAFailoverLockTimeout", func() error {
 		return q.next.SetLocalFleetNodeHAFailoverLockTimeout(ctx, timeoutMilliseconds)
+	})
+}
+
+func (q *retryingQuerier) SetLocalTelemetryLockTimeout(ctx context.Context, timeoutMilliseconds int64) error {
+	return q.retrier.RetryQuery(ctx, "SetLocalTelemetryLockTimeout", func() error {
+		return q.next.SetLocalTelemetryLockTimeout(ctx, timeoutMilliseconds)
 	})
 }
 
