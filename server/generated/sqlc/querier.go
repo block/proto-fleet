@@ -342,6 +342,9 @@ type Querier interface {
 	// insert inside one tx so there is no zero-permission window).
 	ClearRolePermissions(ctx context.Context, roleID int64) error
 	CloseHashboardInstallations(ctx context.Context, arg CloseHashboardInstallationsParams) error
+	// ============================================================================
+	// Error Lifecycle Management
+	// ============================================================================
 	// Closes stale errors only when device was successfully polled after the staleness cutoff time.
 	// This ensures we have confirmed the error is absent from a recent poll.
 	CloseStaleErrors(ctx context.Context, arg CloseStaleErrorsParams) (sql.Result, error)
@@ -1000,10 +1003,6 @@ type Querier interface {
 	// per-node batches in memory. Credentials remain the Fleet Node-encrypted
 	// blobs stored during pairing.
 	GetOfflineFleetNodeDevices(ctx context.Context) ([]GetOfflineFleetNodeDevicesRow, error)
-	// Finds an open error (closed_at IS NULL) matching the deduplication key.
-	// Used to determine if an upsert should update an existing error or insert a new one.
-	// PostgreSQL uses IS NOT DISTINCT FROM for NULL-safe comparison (MySQL uses <=>)
-	GetOpenErrorByDedupKey(ctx context.Context, arg GetOpenErrorByDedupKeyParams) (Error, error)
 	// Resolves caller-supplied identifiers within one organization. Identifiers
 	// owned by another organization are omitted exactly like unknown ones.
 	GetOrgDeviceIDsWithIdentifiers(ctx context.Context, arg GetOrgDeviceIDsWithIdentifiersParams) ([]GetOrgDeviceIDsWithIdentifiersRow, error)
@@ -1216,13 +1215,6 @@ type Querier interface {
 	// regardless of soft-delete state. Duplicate historical identifiers are
 	// resolved deterministically, preferring the live device row.
 	InsertDeviceMetricsBatch(ctx context.Context, arg InsertDeviceMetricsBatchParams) error
-	// site_id is row-stamped from device.site_id at insert time so per-site
-	// error history doesn't shift when the device is later reassigned.
-	// Behavior note: a missing device $3 yields zero CTE rows and the :one
-	// query returns sql.ErrNoRows rather than the FK-violation the prior
-	// VALUES form raised. Caller wraps generically (fleeterror.New
-	// InternalErrorf), so the surface is unchanged for present callers.
-	InsertError(ctx context.Context, arg InsertErrorParams) (int64, error)
 	InsertHashboardDiagnosticObservations(ctx context.Context, arg InsertHashboardDiagnosticObservationsParams) error
 	InsertHashboardMetrics(ctx context.Context, arg InsertHashboardMetricsParams) error
 	InsertMQTTSourceConfig(ctx context.Context, arg InsertMQTTSourceConfigParams) (InsertMQTTSourceConfigRow, error)
@@ -2264,9 +2256,6 @@ type Querier interface {
 	// after completion; this delay is not evidence of physical safety.
 	RecoverSettledPoolConfigurationWork(ctx context.Context) error
 	RecoverTelemetrySeedBatch(ctx context.Context) error
-	// ============================================================================
-	// Error Lifecycle Management
-	// ============================================================================
 	// Refreshes open errors for a device after an incomplete diagnostics poll.
 	// Uses GREATEST so a delayed partial poll cannot move newer observations backward.
 	RefreshOpenErrorsLastSeenByDevice(ctx context.Context, arg RefreshOpenErrorsLastSeenByDeviceParams) (sql.Result, error)
@@ -2724,10 +2713,6 @@ type Querier interface {
 	UpdateMessagePermanentlyFailed(ctx context.Context, arg UpdateMessagePermanentlyFailedParams) (sql.Result, error)
 	UpdateMessageStatus(ctx context.Context, arg UpdateMessageStatusParams) (sql.Result, error)
 	UpdateMinerPassword(ctx context.Context, arg UpdateMinerPasswordParams) (int64, error)
-	// Updates mutable fields on an existing open error.
-	// Only updates if closed_at IS NULL to prevent updating closed errors.
-	// Can also close the error by setting closed_at.
-	UpdateOpenError(ctx context.Context, arg UpdateOpenErrorParams) error
 	UpdateOrganization(ctx context.Context, arg UpdateOrganizationParams) error
 	UpdatePool(ctx context.Context, arg UpdatePoolParams) error
 	UpdateRackInfo(ctx context.Context, arg UpdateRackInfoParams) error
@@ -2847,6 +2832,10 @@ type Querier interface {
 	// SUPER_ADMIN/ADMIN/FIELD_TECH would also be rejected by
 	// chk_role_custom_name_not_reserved.
 	UpsertCustomRoleForOrg(ctx context.Context, arg UpsertCustomRoleForOrgParams) (int64, error)
+	// Persists one device's deduplicated error report. Reports carrying closed_at close the
+	// matching open row; the rest insert or update it through idx_errors_open_dedup.
+	// Unchanged open rows are rewritten only once last_seen_at passes the heartbeat cutoff.
+	UpsertDeviceErrors(ctx context.Context, arg UpsertDeviceErrorsParams) (bool, error)
 	UpsertDevicePairing(ctx context.Context, arg UpsertDevicePairingParams) (sql.Result, error)
 	// Zone / building filters are not handled by this static query.
 	// When the caller's filter includes BuildingIDs, IncludeNoBuilding,

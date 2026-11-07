@@ -183,26 +183,28 @@ func (s *Service) PollErrors(ctx context.Context, miners ...minerInterfaces.Mine
 // upsertErrors upserts a list of errors for a single device.
 // Returns the count of successful upserts and failed upserts.
 // Applies default ComponentType based on MinerError if not already specified.
-// Sets LastSeenAt to current time if plugin didn't provide it (zero value).
+// Sets LastSeenAt to the poll time if the plugin didn't provide it or reported a future time.
 func (s *Service) upsertErrors(ctx context.Context, orgID int64, deviceID minerModels.DeviceIdentifier, errors []models.ErrorMessage) (upserted, failed int) {
+	observedAt := time.Now()
 	for i := range errors {
 		if errors[i].ComponentType == models.ComponentTypeUnspecified {
 			errors[i].ComponentType = models.DefaultComponentTypeForMinerError(errors[i].MinerError)
 		}
-		// If plugin didn't provide LastSeenAt (zero value), set it to current polling time.
-		// This supports plugins that don't track observation time (e.g., Proto plugin).
-		if errors[i].LastSeenAt.IsZero() {
-			errors[i].LastSeenAt = time.Now()
+		// Plugins may omit LastSeenAt (e.g., Proto) or report a future one; the store's GREATEST would pin
+		// a future value and the error would never go stale.
+		if errors[i].LastSeenAt.IsZero() || errors[i].LastSeenAt.After(observedAt) {
+			errors[i].LastSeenAt = observedAt
 		}
-		_, err := s.errorStore.UpsertError(ctx, orgID, string(deviceID), &errors[i])
-		if err != nil {
-			slog.Warn("failed to upsert error", "deviceID", deviceID, "orgID", orgID, "minerError", errors[i].MinerError, "error", err)
-			failed++
-			continue
-		}
-		upserted++
 	}
-	return upserted, failed
+
+	stalenessThreshold := getConfigDurationOrDefault(s.config.CloserStalenessThreshold, defaultCloserStalenessThreshold)
+	refreshHeartbeat := errorRefreshHeartbeat(stalenessThreshold)
+	if err := s.errorStore.UpsertErrors(ctx, orgID, string(deviceID), errors, observedAt, refreshHeartbeat); err != nil {
+		slog.Warn("failed to upsert device errors", "deviceID", deviceID, "orgID", orgID, "errorCount", len(errors), "error", err)
+		return 0, max(1, len(errors))
+	}
+
+	return len(errors), 0
 }
 
 // ListMinerErrors returns metadata for all canonical miner error codes.

@@ -4724,18 +4724,6 @@ func (q *retryingQuerier) GetOfflineFleetNodeDevices(ctx context.Context) ([]Get
 	return result, err
 }
 
-func (q *retryingQuerier) GetOpenErrorByDedupKey(ctx context.Context, arg GetOpenErrorByDedupKeyParams) (Error, error) {
-	var result Error
-	err := q.retrier.RetryQuery(ctx, "GetOpenErrorByDedupKey", func() error {
-		callResult, callErr := q.next.GetOpenErrorByDedupKey(ctx, arg)
-		if callErr == nil {
-			result = callResult
-		}
-		return callErr
-	})
-	return result, err
-}
-
 func (q *retryingQuerier) GetOrgDeviceIDsWithIdentifiers(ctx context.Context, arg GetOrgDeviceIDsWithIdentifiersParams) ([]GetOrgDeviceIDsWithIdentifiersRow, error) {
 	var result []GetOrgDeviceIDsWithIdentifiersRow
 	err := q.retrier.RetryQuery(ctx, "GetOrgDeviceIDsWithIdentifiers", func() error {
@@ -5970,18 +5958,6 @@ func (q *retryingQuerier) InsertDeviceMetricsBatch(ctx context.Context, arg Inse
 	return q.retrier.RetryQuery(ctx, "InsertDeviceMetricsBatch", func() error {
 		return q.next.InsertDeviceMetricsBatch(ctx, arg)
 	})
-}
-
-func (q *retryingQuerier) InsertError(ctx context.Context, arg InsertErrorParams) (int64, error) {
-	var result int64
-	err := q.retrier.RetryQuery(ctx, "InsertError", func() error {
-		callResult, callErr := q.next.InsertError(ctx, arg)
-		if callErr == nil {
-			result = callResult
-		}
-		return callErr
-	})
-	return result, err
 }
 
 func (q *retryingQuerier) InsertHashboardDiagnosticObservations(ctx context.Context, arg InsertHashboardDiagnosticObservationsParams) error {
@@ -11546,12 +11522,6 @@ func (q *retryingQuerier) UpdateMinerPassword(ctx context.Context, arg UpdateMin
 	return result, err
 }
 
-func (q *retryingQuerier) UpdateOpenError(ctx context.Context, arg UpdateOpenErrorParams) error {
-	return q.retrier.RetryQuery(ctx, "UpdateOpenError", func() error {
-		return q.next.UpdateOpenError(ctx, arg)
-	})
-}
-
 func (q *retryingQuerier) UpdateOrganization(ctx context.Context, arg UpdateOrganizationParams) error {
 	return q.retrier.RetryQuery(ctx, "UpdateOrganization", func() error {
 		return q.next.UpdateOrganization(ctx, arg)
@@ -11772,6 +11742,18 @@ func (q *retryingQuerier) UpsertCustomRoleForOrg(ctx context.Context, arg Upsert
 	var result int64
 	err := q.retrier.RetryQuery(ctx, "UpsertCustomRoleForOrg", func() error {
 		callResult, callErr := q.next.UpsertCustomRoleForOrg(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) UpsertDeviceErrors(ctx context.Context, arg UpsertDeviceErrorsParams) (bool, error) {
+	var result bool
+	err := q.retrier.RetryQuery(ctx, "UpsertDeviceErrors", func() error {
+		callResult, callErr := q.next.UpsertDeviceErrors(ctx, arg)
 		if callErr == nil {
 			result = callResult
 		}
