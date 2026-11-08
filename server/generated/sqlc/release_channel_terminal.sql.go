@@ -37,7 +37,7 @@ WHERE r.status <> 'active'
           AND current_result.status = 'SUCCESS'
       WHERE rd.rollout_id = r.id
         AND rd.last_dispatched_at IS NOT NULL
-        AND dd.firmware_version = r.firmware_version
+        AND release_channel_firmware_version(d.id, dd.device_class, dd.firmware_version) = r.firmware_version
         AND COALESCE(dep.firmware_checksum, '') <> r.firmware_checksum
         AND (COALESCE(dep.firmware_checksum, '') = '' OR dep.deployed_at <= rd.last_dispatched_at)
   )

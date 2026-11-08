@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"connectrpc.com/connect"
+	"github.com/block/proto-fleet/sdk/mdk/firmware/firmwaretest"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
@@ -206,13 +207,24 @@ func TestFirmwareUpdateArtifact_UsesAssignmentSnapshot(t *testing.T) {
 		{name: "missing payload", wantCode: connect.CodeNotFound},
 		{name: "mismatched miner", wantCode: connect.CodeFailedPrecondition},
 		{name: "incomplete snapshot", wantCode: connect.CodeFailedPrecondition},
+		{name: "CT1 build is bound to artifact checksum"},
 	} {
 		t.Run(scenario.name, func(t *testing.T) {
 			t.Chdir(t.TempDir())
 			filesService, err := files.NewService(files.Config{})
 			require.NoError(t, err)
 			metadata := files.FirmwareMetadata{TargetManufacturer: "Proto", TargetModel: "Rig", FirmwareVersion: "2.0.0"}
-			fileID, err := filesService.SaveFirmwareFile("assigned.swu", strings.NewReader("assigned firmware"), metadata)
+			var fileID string
+			if scenario.name == "CT1 build is bound to artifact checksum" {
+				metadata.TargetModel, metadata.HashboardBuild = "CT1", "dev"
+				archive := firmwaretest.Archive(t, map[string][]byte{"dev.bin": firmwaretest.Image(t, "dev", "f1", 2)})
+				reader, openErr := os.Open(archive)
+				require.NoError(t, openErr)
+				fileID, err = filesService.SaveFirmwareFile("assigned.zip", reader, metadata)
+				require.NoError(t, reader.Close())
+			} else {
+				fileID, err = filesService.SaveFirmwareFile("assigned.swu", strings.NewReader("assigned firmware"), metadata)
+			}
 			require.NoError(t, err)
 			assignment, err := filesService.ResolveFirmwareArtifact(fileID)
 			require.NoError(t, err)
@@ -235,6 +247,10 @@ func TestFirmwareUpdateArtifact_UsesAssignmentSnapshot(t *testing.T) {
 				require.NoError(t, filesService.DeleteFirmwareFile(fileID))
 			case "incomplete snapshot":
 				assignment.Metadata.FirmwareVersion = ""
+			case "CT1 build is bound to artifact checksum":
+				// Rollout snapshots persist target/version/checksum; build is in
+				// the selected immutable payload and need not be copied to SQL.
+				assignment.Metadata.HashboardBuild = ""
 			}
 
 			ctrl := gomock.NewController(t)
@@ -245,7 +261,7 @@ func TestFirmwareUpdateArtifact_UsesAssignmentSnapshot(t *testing.T) {
 					manufacturer = "Bitmain"
 				}
 				deviceStore.EXPECT().GetDevicePropertiesForRename(gomock.Any(), int64(7), []string{"device-1"}, false).
-					Return([]stores.DeviceRenameProperties{{DeviceIdentifier: "device-1", Manufacturer: manufacturer, Model: "RIG"}}, nil)
+					Return([]stores.DeviceRenameProperties{{DeviceIdentifier: "device-1", Manufacturer: manufacturer, Model: strings.ToUpper(metadata.TargetModel)}}, nil)
 			}
 			messageQueue := queueMocks.NewMockMessageQueue(ctrl)
 			if scenario.wantCode == 0 {

@@ -227,6 +227,19 @@ func TestHasAnyCapability(t *testing.T) {
 	})
 }
 
+func TestFirmwareSelfManagedCompletionDoesNotRequireControllerReboot(t *testing.T) {
+	firmware := &capabilitiespb.FirmwareCapabilities{ManualUploadSupported: true, SelfManagedCompletion: true}
+	provider := &mockCapabilitiesProvider{capabilities: map[string]*capabilitiespb.MinerCapabilities{
+		"proto|Proto|CT1": {Commands: &capabilitiespb.CommandCapabilities{}, Firmware: firmware},
+	}}
+	checker := NewCapabilityChecker(nil, provider)
+	device := deviceInfo{DriverName: "proto", Manufacturer: "Proto", Model: "CT1"}
+	assert.True(t, checker.deviceSupportsCommand(t.Context(), device, GetRequiredCapabilities(pb.CommandType_COMMAND_TYPE_FIRMWARE_UPDATE)))
+	assert.False(t, checker.deviceSupportsCommand(t.Context(), device, GetRequiredCapabilities(pb.CommandType_COMMAND_TYPE_REBOOT)))
+	firmware.ManualUploadSupported = false
+	assert.False(t, checker.deviceSupportsCommand(t.Context(), device, GetRequiredCapabilities(pb.CommandType_COMMAND_TYPE_FIRMWARE_UPDATE)))
+}
+
 func TestCheckDeviceCapabilities(t *testing.T) {
 	ctx := context.Background()
 

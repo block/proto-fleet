@@ -1633,6 +1633,14 @@ func (es *ExecutionService) doPollFirmwareInstall(ctx context.Context, minerInfo
 		}
 
 		switch status.State {
+		case "completed":
+			// Component updates (CT1 hashboards) include their own reboot and
+			// verification. Rebooting the controller is neither needed nor safe.
+			cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), dbWriteTimeout)
+			defer cancel()
+			es.clearFirmwareUpdateStatus(cleanupCtx, deviceID)
+			return true, false, nil
+
 		case "success", "confirming":
 			cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), dbWriteTimeout)
 			defer cancel()

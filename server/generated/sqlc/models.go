@@ -548,6 +548,7 @@ type ContainerInventory struct {
 	OrgID                      int64
 	HashboardInventoryOrder    sql.NullInt64
 	HashboardInventoryComplete bool
+	HashboardFirmwareVersion   string
 }
 
 type ContainerLatestMetric struct {

@@ -15,12 +15,15 @@ import (
 	"time"
 	"unicode/utf8"
 
+	hbfirmware "github.com/block/proto-fleet/sdk/mdk/firmware"
+
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/infrastructure/id"
 )
 
 // FirmwareFileInfo holds metadata about a stored firmware file.
 type FirmwareFileInfo struct {
+	HashboardBuild     string    `json:"hashboard_build,omitempty"`
 	ID                 string    `json:"id"`
 	Filename           string    `json:"filename"`
 	Size               int64     `json:"size"`
@@ -34,6 +37,7 @@ type FirmwareFileInfo struct {
 
 // FirmwareMetadata describes the single miner type a firmware file targets.
 type FirmwareMetadata struct {
+	HashboardBuild     string `json:"hashboard_build,omitempty"`
 	TargetManufacturer string `json:"target_manufacturer"`
 	TargetModel        string `json:"target_model"`
 	FirmwareVersion    string `json:"firmware_version,omitempty"`
@@ -86,6 +90,7 @@ func getFirmwareDirPath(fileID string) string {
 
 func (m FirmwareMetadata) normalized() FirmwareMetadata {
 	return FirmwareMetadata{
+		HashboardBuild:     strings.ToLower(strings.TrimSpace(m.HashboardBuild)),
 		TargetManufacturer: strings.TrimSpace(m.TargetManufacturer),
 		TargetModel:        strings.TrimSpace(m.TargetModel),
 		FirmwareVersion:    strings.TrimSpace(m.FirmwareVersion),
@@ -96,6 +101,7 @@ func (m FirmwareMetadata) matches(other FirmwareMetadata) bool {
 	m = m.normalized()
 	other = other.normalized()
 	return m.TargetManufacturer == other.TargetManufacturer &&
+		m.HashboardBuild == other.HashboardBuild &&
 		m.TargetModel == other.TargetModel &&
 		m.FirmwareVersion == other.FirmwareVersion
 }
@@ -152,6 +158,23 @@ func ValidateFirmwareMetadata(metadata FirmwareMetadata) error {
 // ValidateFirmwareUploadMetadata checks metadata required for new uploads and
 // checksum reuse. Existing files may predate firmware_version metadata.
 func ValidateFirmwareUploadMetadata(metadata FirmwareMetadata) error {
+	metadata = metadata.normalized()
+	if err := ValidateFirmwareAssignmentMetadata(metadata); err != nil {
+		return err
+	}
+	if metadata.MatchesTarget("Proto", "CT1") {
+		if !hbfirmware.ValidBuild(metadata.HashboardBuild) {
+			return fleeterror.NewInvalidArgumentError("hashboard_build must be prod, dev, or mfgtest for CT1 firmware")
+		}
+	} else if metadata.HashboardBuild != "" {
+		return fleeterror.NewInvalidArgumentError("hashboard_build is only supported for CT1 firmware")
+	}
+	return nil
+}
+
+// ValidateFirmwareAssignmentMetadata checks the persisted rollout snapshot.
+// Build selection is already bound into the immutable artifact checksum.
+func ValidateFirmwareAssignmentMetadata(metadata FirmwareMetadata) error {
 	metadata = metadata.normalized()
 	if err := ValidateFirmwareMetadata(metadata); err != nil {
 		return err
@@ -407,6 +430,31 @@ func (s *Service) SaveFirmwareUploadFromPath(filename string, srcPath string, ma
 	if err := ValidateFirmwareUploadMetadata(metadata); err != nil {
 		return result, err
 	}
+	if metadata.MatchesTarget("Proto", "CT1") {
+		archive, err := hbfirmware.Read(srcPath, metadata.HashboardBuild)
+		if err != nil {
+			return result, fleeterror.NewInvalidArgumentErrorf("invalid hashboard firmware: %v", err)
+		}
+		if strings.TrimPrefix(metadata.FirmwareVersion, "v") != archive.Version {
+			return result, fleeterror.NewInvalidArgumentErrorf("firmware_version must match embedded version %s", archive.Version)
+		}
+		metadata.FirmwareVersion = archive.Version
+		selected, err := os.CreateTemp(firmwareStagingDir, "selected-*.zip")
+		if err != nil {
+			return result, fmt.Errorf("stage selected hashboard firmware: %w", err)
+		}
+		defer os.Remove(selected.Name())
+		err = archive.Write(selected)
+		closeErr := selected.Close()
+		if err != nil {
+			return result, err
+		}
+		if closeErr != nil {
+			return result, fmt.Errorf("close selected hashboard firmware: %w", closeErr)
+		}
+		srcPath, checksum = selected.Name(), ""
+		filename = "hashboard-firmware-" + archive.Version + "-" + archive.Build + ".zip"
+	}
 
 	if checksum == "" {
 		var err error
@@ -646,6 +694,12 @@ func (s *Service) UpdateFirmwareMetadata(fileID string, metadata FirmwareMetadat
 	if err != nil {
 		return FirmwareMetadataUpdateResult{}, err
 	}
+	if metadata.MatchesTarget("Proto", "CT1") {
+		archive, err := hbfirmware.Read(filePath, "")
+		if err != nil || archive.Build != metadata.HashboardBuild || archive.Version != metadata.FirmwareVersion {
+			return FirmwareMetadataUpdateResult{}, fleeterror.NewInvalidArgumentError("CT1 firmware metadata must match the stored build and version; upload a new artifact to change them")
+		}
+	}
 	// The payload is immutable after publish, so a cached checksum is trusted;
 	// only legacy files that were never indexed need a fresh hash.
 	checksum, ok := s.lookupFirmwareChecksum(canonical)
@@ -770,6 +824,7 @@ func (s *Service) openFirmwareFileWithInfo(fileID, expectedChecksum string) (rea
 		Filename:           filepath.Base(filePath),
 		Size:               info.Size(),
 		SHA256:             checksum,
+		HashboardBuild:     metadata.HashboardBuild,
 		FilePath:           filePath,
 		TargetManufacturer: metadata.TargetManufacturer,
 		TargetModel:        metadata.TargetModel,
@@ -1051,6 +1106,7 @@ func (s *Service) ListFirmwareFiles() ([]FirmwareFileInfo, error) {
 			Filename:           filepath.Base(filePath),
 			Size:               fileInfo.Size(),
 			SHA256:             checksum,
+			HashboardBuild:     metadata.HashboardBuild,
 			UploadedAt:         uploadedAt,
 			TargetManufacturer: metadata.TargetManufacturer,
 			TargetModel:        metadata.TargetModel,

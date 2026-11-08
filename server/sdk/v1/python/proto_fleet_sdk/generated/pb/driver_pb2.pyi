@@ -965,7 +965,8 @@ class ContainerHA(_message.Message):
     def __init__(self, observed_at: _Optional[_Union[_timestamp_pb2.Timestamp, _Mapping]] = ..., degraded: bool = ...) -> None: ...
 
 class ContainerSnapshot(_message.Message):
-    __slots__ = ("ha", "unlocated_hashboards", "metrics", "fans", "controls", "observed_at", "tanks", "plant", "topology_complete")
+    __slots__ = ("hashboard_firmware_version", "ha", "unlocated_hashboards", "metrics", "fans", "controls", "observed_at", "tanks", "plant", "topology_complete")
+    HASHBOARD_FIRMWARE_VERSION_FIELD_NUMBER: _ClassVar[int]
     HA_FIELD_NUMBER: _ClassVar[int]
     UNLOCATED_HASHBOARDS_FIELD_NUMBER: _ClassVar[int]
     METRICS_FIELD_NUMBER: _ClassVar[int]
@@ -975,6 +976,7 @@ class ContainerSnapshot(_message.Message):
     TANKS_FIELD_NUMBER: _ClassVar[int]
     PLANT_FIELD_NUMBER: _ClassVar[int]
     TOPOLOGY_COMPLETE_FIELD_NUMBER: _ClassVar[int]
+    hashboard_firmware_version: str
     ha: ContainerHA
     unlocated_hashboards: _containers.RepeatedCompositeFieldContainer[ContainerHashboard]
     metrics: ContainerRollup
@@ -984,7 +986,7 @@ class ContainerSnapshot(_message.Message):
     tanks: _containers.RepeatedCompositeFieldContainer[ContainerTank]
     plant: ContainerPlant
     topology_complete: bool
-    def __init__(self, ha: _Optional[_Union[ContainerHA, _Mapping]] = ..., unlocated_hashboards: _Optional[_Iterable[_Union[ContainerHashboard, _Mapping]]] = ..., metrics: _Optional[_Union[ContainerRollup, _Mapping]] = ..., fans: _Optional[_Iterable[_Union[ContainerFan, _Mapping]]] = ..., controls: _Optional[_Union[ContainerControls, _Mapping]] = ..., observed_at: _Optional[_Union[_timestamp_pb2.Timestamp, _Mapping]] = ..., tanks: _Optional[_Iterable[_Union[ContainerTank, _Mapping]]] = ..., plant: _Optional[_Union[ContainerPlant, _Mapping]] = ..., topology_complete: bool = ...) -> None: ...
+    def __init__(self, hashboard_firmware_version: _Optional[str] = ..., ha: _Optional[_Union[ContainerHA, _Mapping]] = ..., unlocated_hashboards: _Optional[_Iterable[_Union[ContainerHashboard, _Mapping]]] = ..., metrics: _Optional[_Union[ContainerRollup, _Mapping]] = ..., fans: _Optional[_Iterable[_Union[ContainerFan, _Mapping]]] = ..., controls: _Optional[_Union[ContainerControls, _Mapping]] = ..., observed_at: _Optional[_Union[_timestamp_pb2.Timestamp, _Mapping]] = ..., tanks: _Optional[_Iterable[_Union[ContainerTank, _Mapping]]] = ..., plant: _Optional[_Union[ContainerPlant, _Mapping]] = ..., topology_complete: bool = ...) -> None: ...
 
 class ContainerTank(_message.Message):
     __slots__ = ("metrics", "topology_complete", "position", "modules")

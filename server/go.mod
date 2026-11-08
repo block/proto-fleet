@@ -12,6 +12,7 @@ require (
 	github.com/alecthomas/assert/v2 v2.11.0
 	github.com/alecthomas/kong v1.16.1
 	github.com/alecthomas/kong-yaml v0.2.0
+	github.com/block/proto-fleet/sdk/mdk v0.0.0
 	github.com/btcsuite/btcd/btcec/v2 v2.5.1
 	github.com/btcsuite/btcd/chaincfg/chainhash v1.2.0
 	github.com/coreos/go-systemd/v22 v22.7.0
@@ -95,6 +96,8 @@ require (
 	github.com/stretchr/objx v0.5.3 // indirect
 	github.com/tklauser/go-sysconf v0.4.0 // indirect
 	github.com/tklauser/numcpus v0.12.0 // indirect
+	github.com/vmihailenco/msgpack/v5 v5.4.1 // indirect
+	github.com/vmihailenco/tagparser/v2 v2.0.0 // indirect
 	github.com/yusufpapurcu/wmi v1.2.4 // indirect
 	go.etcd.io/etcd/client/pkg/v3 v3.7.3 // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
@@ -109,3 +112,5 @@ require (
 	google.golang.org/genproto/googleapis/api v0.0.0-20260928230214-8a89bd6388cc // indirect
 	pgregory.net/rapid v1.3.0 // indirect
 )
+
+replace github.com/block/proto-fleet/sdk/mdk => ../sdk/mdk

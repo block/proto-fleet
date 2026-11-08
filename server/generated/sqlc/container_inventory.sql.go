@@ -13,23 +13,24 @@ import (
 )
 
 const advanceContainerInventory = `-- name: AdvanceContainerInventory :one
-INSERT INTO container_inventory (device_id, observed_at, org_id)
-SELECT d.id, $1::timestamptz, d.org_id
+INSERT INTO container_inventory (device_id, observed_at, org_id, hashboard_firmware_version)
+SELECT d.id, $1::timestamptz, d.org_id, $2::text
 FROM device d JOIN discovered_device dd ON dd.id = d.discovered_device_id AND dd.org_id=d.org_id
-WHERE d.device_identifier = $2 AND d.deleted_at IS NULL
+WHERE d.device_identifier = $3 AND d.deleted_at IS NULL
   AND dd.deleted_at IS NULL AND dd.device_class = 2
-ON CONFLICT (device_id) DO UPDATE SET observed_at = EXCLUDED.observed_at
+ON CONFLICT (device_id) DO UPDATE SET observed_at = EXCLUDED.observed_at, hashboard_firmware_version = EXCLUDED.hashboard_firmware_version
 WHERE container_inventory.observed_at < EXCLUDED.observed_at
 RETURNING device_id
 `
 
 type AdvanceContainerInventoryParams struct {
-	ObservedAt       time.Time
-	DeviceIdentifier string
+	ObservedAt               time.Time
+	HashboardFirmwareVersion string
+	DeviceIdentifier         string
 }
 
 func (q *Queries) AdvanceContainerInventory(ctx context.Context, arg AdvanceContainerInventoryParams) (int64, error) {
-	row := q.queryRow(ctx, q.advanceContainerInventoryStmt, advanceContainerInventory, arg.ObservedAt, arg.DeviceIdentifier)
+	row := q.queryRow(ctx, q.advanceContainerInventoryStmt, advanceContainerInventory, arg.ObservedAt, arg.HashboardFirmwareVersion, arg.DeviceIdentifier)
 	var device_id int64
 	err := row.Scan(&device_id)
 	return device_id, err

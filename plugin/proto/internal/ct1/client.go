@@ -37,6 +37,7 @@ type Client struct {
 	mining    mdk.MiningServiceClient
 	telemetry mdk.TelemetryServiceClient
 	power     mdk.PowerServiceClient
+	firmware  mdk.FirmwareServiceClient
 	pollMu    sync.Mutex
 }
 
@@ -66,7 +67,7 @@ func NewClient(info sdk.DeviceInfo, _ sdk.UsernamePassword) (*Client, error) {
 	if err != nil {
 		return nil, fmt.Errorf("create CT1 connection: %w", err)
 	}
-	return &Client{endpoint: info, conn: conn, system: mdk.NewSystemServiceClient(conn), boards: mdk.NewHashboardServiceClient(conn), mining: mdk.NewMiningServiceClient(conn), telemetry: mdk.NewTelemetryServiceClient(conn), power: mdk.NewPowerServiceClient(conn)}, nil
+	return &Client{firmware: mdk.NewFirmwareServiceClient(conn), endpoint: info, conn: conn, system: mdk.NewSystemServiceClient(conn), boards: mdk.NewHashboardServiceClient(conn), mining: mdk.NewMiningServiceClient(conn), telemetry: mdk.NewTelemetryServiceClient(conn), power: mdk.NewPowerServiceClient(conn)}, nil
 }
 func (c *Client) Close() error {
 	c.closeOnce.Do(func() { c.closeErr = c.conn.Close() })
@@ -151,6 +152,7 @@ func (c *Client) Collect(ctx context.Context, id string) (sdk.DeviceMetrics, err
 	if err != nil {
 		return sdk.DeviceMetrics{}, err
 	}
+	topology.HashboardFirmwareVersion = observedHashboardFirmware(wire, observed)
 	result := sdk.DeviceMetrics{DeviceID: id, Timestamp: observed, Container: topology, Health: sdk.HealthWarning}
 	if err := miningErr; err != nil {
 		slog.WarnContext(ctx, "CT1 mining totals unavailable", "device_id", id, "error", err)

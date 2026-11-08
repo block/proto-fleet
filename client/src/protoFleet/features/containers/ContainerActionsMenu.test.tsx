@@ -7,6 +7,12 @@ import ContainerActionsMenu from "./ContainerActionsMenu";
 import { ContainerSchema } from "@/protoFleet/api/generated/containers/v1/containers_pb";
 import { STATUSES } from "@/shared/features/toaster";
 
+vi.mock("@/protoFleet/features/fleetManagement/components/MinerActionsMenu/FirmwareUpdateModal", () => ({
+  default: ({ onConfirm }: { onConfirm: (id: string) => void }) => (
+    <button onClick={() => onConfirm("ct1-firmware")}>Confirm hashboard update</button>
+  ),
+}));
+
 const state = vi.hoisted(() => ({
   permissions: [] as string[],
   deleteMiners: vi.fn(),
@@ -15,12 +21,14 @@ const state = vi.hoisted(() => ({
   request: vi.fn(),
   statusRequest: vi.fn(),
   commandResult: vi.fn(),
+  firmwareUpdate: vi.fn(),
 }));
 vi.mock("@/protoFleet/store", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/protoFleet/store")>()),
   usePermissions: () => state.permissions,
 }));
 vi.mock("@/protoFleet/api/clients", () => ({
+  minerCommandClient: { firmwareUpdate: state.firmwareUpdate },
   fleetManagementClient: { deleteMiners: state.deleteMiners },
   miningGroupsClient: { getState: state.getState },
   containersClient: {
@@ -411,7 +419,7 @@ describe("container command dispatch", () => {
     renderMenu();
     fireEvent.click(screen.getByRole("button", { name: "Actions for Container 1" }));
     await screen.findByRole("button", { name: "Sleep container" });
-    for (const name of ["Edit pool", "Update worker name", "Update firmware"]) {
+    for (const name of ["Edit pool", "Update worker name"]) {
       const button = screen.getByRole("button", { name });
       expect(button).toBeDisabled();
       fireEvent.click(button);
@@ -694,4 +702,19 @@ describe("whole-container pool configuration", () => {
     fireEvent.click(screen.getByRole("button", { name: "Actions for Container 1" }));
     expect(screen.getByRole("button", { name: "Edit pool" })).toBeDisabled();
   });
+});
+
+it("queues firmware for exactly the selected container", async () => {
+  state.firmwareUpdate.mockResolvedValue({ batchIdentifier: "batch-fw" });
+  renderMenu();
+  await openAction("Update firmware");
+  fireEvent.click(screen.getByRole("button", { name: "Confirm hashboard update" }));
+  await waitFor(() =>
+    expect(state.firmwareUpdate).toHaveBeenCalledWith({
+      firmwareFileId: "ct1-firmware",
+      deviceSelector: {
+        selectionType: { case: "includeDevices", value: { deviceIdentifiers: [container.deviceIdentifier] } },
+      },
+    }),
+  );
 });

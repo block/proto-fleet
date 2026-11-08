@@ -93,5 +93,6 @@ func convertFirmwareCapabilities(caps sdk.Capabilities) *capabilitiespb.Firmware
 	return &capabilitiespb.FirmwareCapabilities{
 		OtaUpdateSupported:    caps[sdk.CapabilityOTAUpdate],
 		ManualUploadSupported: caps[sdk.CapabilityManualUpload],
+		SelfManagedCompletion: caps[sdk.CapabilityFirmwareSelfManaged],
 	}
 }

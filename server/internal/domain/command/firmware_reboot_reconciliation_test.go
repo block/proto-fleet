@@ -27,6 +27,20 @@ type firmwareStatusReportingMiner struct {
 	interfaces.FirmwareUpdateStatusProvider
 }
 
+func TestComponentFirmwareCompletionDoesNotRebootController(t *testing.T) {
+	service, conn, _, deviceID, identifier := setupPasswordCommandDevice(t, "proto", false)
+	service.deviceStore = sqlstores.NewSQLDeviceStore(conn)
+	ctrl := gomock.NewController(t)
+	miner := minerMocks.NewMockMiner(ctrl)
+	provider := minerMocks.NewMockFirmwareUpdateStatusProvider(ctrl)
+	reboot, err := service.doPollFirmwareInstall(t.Context(), miner, provider, tmodels.DeviceIdentifier(identifier), deviceID, time.Now(), &sdk.FirmwareUpdateStatus{State: "completed"}, nil)
+	require.NoError(t, err)
+	require.False(t, reboot)
+	state, _, boundary := readFirmwareRebootStatus(t, conn, deviceID)
+	require.NotEqual(t, models.MinerStatusRebootRequired, state)
+	require.False(t, boundary.Valid)
+}
+
 func firmwareBootMetrics(observedAt time.Time, uptime uint64) modelsV2.DeviceMetrics {
 	return modelsV2.DeviceMetrics{UptimeSeconds: &uptime, UptimeObservedAt: observedAt}
 }

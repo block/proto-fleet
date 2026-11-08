@@ -256,6 +256,9 @@ func (c *CapabilityChecker) deviceSupportsCommand(
 	}
 
 	if requiresAllCapabilities(requiredCaps) {
+		if capabilities.Firmware.GetSelfManagedCompletion() {
+			return capabilities.Firmware.GetManualUploadSupported()
+		}
 		return hasAllCapabilities(capabilities.Commands, capabilities.Firmware, requiredCaps)
 	}
 

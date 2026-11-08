@@ -172,6 +172,42 @@ ordinary polling reports the outage and the last HA observation becomes stale.
 - Authenticated MDK discovery remains unsupported. The optional `TestFrigateHALab`
   sends its lab credential only to loopback test addresses.
 
+## Hashboard firmware updates
+
+CT1 advertises the firmware capability. Fleet sends one native
+`FirmwareService` job for the explicit set of occupied board MACs, including
+unlocated boards, using the selected prod, dev, or mfgtest build. Fleet owns
+release-channel enforcement; it does not install a Frigate firmware policy.
+Normal channel enforcement can enqueue another update when newly adopted boards
+report a different version.
+
+The plugin extracts Fleet's selected ZIP, streams image metadata and 1 MiB
+chunks to `UploadFirmwareArtifact`, validates the returned image identities,
+and calls `StartFirmwareUpdate` once with a unique task ID. Frigate validates
+signatures and hardware compatibility, stops mining, flashes and verifies the
+boards, and restores mining intent. Force is enabled to support Fleet rollback.
+An uncertain start is not replayed on the peer.
+
+Completion requires every original target on every owning controller to report
+success or already-current, with all owner jobs terminal. Missing owners or
+targets cannot prove completion. Frigate has already handled board reboot, so
+the SDK's `completed` state does not trigger a CT1 controller reboot. Job IDs
+are retained in the live plugin handle; after a process restart, Fleet relies
+on fresh inventory and its existing rollout reconciliation.
+
+Each poll reads local job lists from the verified controller endpoints and adds
+the latest task, owner, progress, and failure evidence to board diagnostics.
+Fleet shows this in the existing hashboard details. Peer job visibility requires
+both controller addresses to have been discovered and paired. Job reads have a
+one-second budget and do not replace the required inventory read.
+
+The controller's software version remains independent. A separate inventory
+field reports hashboard firmware only when all occupied boards have the same
+version and fresh health timestamps. Mixed, missing, duplicate, or stale board
+evidence produces an unknown version. Release-channel convergence uses this
+field with a two-minute inventory freshness limit and existing artifact
+provenance checks.
+
 ## Collection and controls
 
 Each active CT1 owns a reusable gRPC connection per saved endpoint, closed by

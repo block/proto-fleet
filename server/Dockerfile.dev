@@ -9,6 +9,9 @@ RUN apk add --no-cache git \
 WORKDIR /app
 
 COPY server/go.mod server/go.sum ./
+# Match server/go.mod's ../sdk/mdk replacement while keeping /app as the
+# server root used by Compose sync and plugin mounts.
+COPY sdk/mdk/ /sdk/mdk/
 RUN go mod download
 
 COPY server/ ./

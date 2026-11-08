@@ -1445,7 +1445,7 @@ func (s *Service) FirmwareUpdate(ctx context.Context, deviceSelector *pb.DeviceS
 // persisted checksum and metadata snapshot. Callers must supply that saved
 // snapshot, never metadata from a current file sidecar or an RPC request.
 func (s *Service) FirmwareUpdateArtifact(ctx context.Context, deviceSelector *pb.DeviceSelector, checksum string, metadata files.FirmwareMetadata) (*CommandResult, error) {
-	if err := files.ValidateFirmwareUploadMetadata(metadata); err != nil {
+	if err := files.ValidateFirmwareAssignmentMetadata(metadata); err != nil {
 		return nil, fleeterror.NewFailedPreconditionErrorf("invalid firmware assignment metadata: %v", err)
 	}
 	fileID, release, err := s.filesService.LeaseFirmwareArtifact(checksum)

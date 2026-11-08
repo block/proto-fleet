@@ -201,6 +201,25 @@ real Stratum sessions, or per-group pool diagnostics/history. Existing pool
 diagnostics remain demonstration data. REST retains its existing API; Fleet uses
 the native gRPC group service.
 
+## Hashboard firmware in Fleet
+
+The native gRPC listener implements `FirmwareService` upload, start, get, list,
+and cancel. Fleet can upload a selected prod/dev/mfgtest archive and target the
+container through its existing firmware action or a release channel. Stream
+framing, size limits, SHA-256 digests, and embedded image metadata are checked.
+The fixture does not verify real signing certificates or hardware compatibility.
+
+Jobs show simulated progress over four seconds. Connected, non-isolated targets
+then report the new board version; disconnected or isolated targets report an
+individual failure, producing a partially failed job. Controller software stays
+unchanged. Reads advance jobs, and all artifacts/jobs reset on restart. This
+models one controller; it does not emulate cross-controller HA job routing.
+
+The plugin's `TestModuleMiningSimulatorLeavesNeighborsUnaffected/firmware`
+exercises the native upload-to-inventory round trip with `CT1_SIMULATOR_BIN`
+pointing to a locally built fake-ct1 binary. Simulator unit tests also cover
+partial failures. Synthetic test images are not signed production firmware.
+
 ## Environment variables
 
 | Variable                 | Description                                                                                                                                    | Default           |

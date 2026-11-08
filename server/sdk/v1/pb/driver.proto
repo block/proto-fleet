@@ -831,6 +831,8 @@ message ContainerHA {
  bool degraded = 2;
 }
 message ContainerSnapshot {
+ // Uniform, freshly observed hashboard version; empty means not converged.
+ string hashboard_firmware_version = 10;
  ContainerHA ha = 9;
  // Inventory observations without physical placement; position must be zero.
  repeated ContainerHashboard unlocated_hashboards = 8;

@@ -272,6 +272,7 @@ func extractMultipartFile(r *http.Request, filesService *files.Service) (extract
 		"target_manufacturer": &upload.metadata.TargetManufacturer,
 		"target_model":        &upload.metadata.TargetModel,
 		"firmware_version":    &upload.metadata.FirmwareVersion,
+		"hashboard_build":     &upload.metadata.HashboardBuild,
 	}
 	metadataFieldsRead := make(map[string]bool, len(metadataFields))
 	for {
@@ -299,7 +300,7 @@ func extractMultipartFile(r *http.Request, filesService *files.Service) (extract
 				_ = part.Close()
 				return extractedMultipartUpload{}, validationErr
 			}
-			if len(metadataFieldsRead) == len(metadataFields) {
+			if metadataFieldsRead["target_manufacturer"] && metadataFieldsRead["target_model"] && metadataFieldsRead["firmware_version"] && (!upload.metadata.MatchesTarget("Proto", "CT1") || metadataFieldsRead["hashboard_build"]) {
 				if validationErr := files.ValidateFirmwareUploadMetadata(upload.metadata); validationErr != nil {
 					_ = part.Close()
 					return extractedMultipartUpload{}, validationErr

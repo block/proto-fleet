@@ -242,7 +242,7 @@ func (q *Queries) ClearReleaseChannelFirmware(ctx context.Context, arg ClearRele
 
 const countReleaseChannelFirmwarePreviewMembers = `-- name: CountReleaseChannelFirmwarePreviewMembers :one
 WITH members AS (
-    SELECT COALESCE(dd.firmware_version, '') = $1::text
+    SELECT release_channel_firmware_version(d.id, dd.device_class, dd.firmware_version) = $1::text
            AND COALESCE(dep.firmware_checksum, '') = $2::text
            AND NOT EXISTS (
                SELECT 1 FROM queue_message qm
@@ -1253,7 +1253,7 @@ func (q *Queries) ListDeviceIDsByIdentifiers(ctx context.Context, arg ListDevice
 const listFirmwareRolloutDevices = `-- name: ListFirmwareRolloutDevices :many
 SELECT rd.device_id,
        d.device_identifier,
-       COALESCE(dd.firmware_version, '')::text AS firmware_version,
+       release_channel_firmware_version(d.id, dd.device_class, dd.firmware_version)::text AS firmware_version,
        COALESCE(dd.ip_address, '')::text AS ip_address,
        rd.batch_index,
        rd.position,
@@ -1709,7 +1709,7 @@ AND EXISTS (
       AND release_channel_pair_key(dd.manufacturer) = release_channel_pair_key(f.manufacturer)
       AND release_channel_pair_key(dd.model) = release_channel_pair_key(f.model)
       AND NOT (
-          COALESCE(dd.firmware_version, '') = f.firmware_version
+          release_channel_firmware_version(d.id, dd.device_class, dd.firmware_version) = f.firmware_version
           AND COALESCE(dep.firmware_checksum, '') = f.firmware_checksum
           AND NOT EXISTS (
               SELECT 1 FROM queue_message qm
@@ -1792,7 +1792,7 @@ SELECT m.channel_id,
        d.device_identifier,
        COALESCE(dd.manufacturer, '')::text AS manufacturer,
        COALESCE(dd.model, '')::text AS model,
-       COALESCE(dd.firmware_version, '')::text AS firmware_version,
+       release_channel_firmware_version(d.id, dd.device_class, dd.firmware_version)::text AS firmware_version,
        COALESCE(dep.firmware_checksum, '')::text AS last_deployed_firmware_checksum
 FROM release_channel_member m
 JOIN device d ON d.id = m.device_id
@@ -1938,7 +1938,7 @@ SELECT m.device_id,
        d.device_identifier,
        COALESCE(dd.manufacturer, '')::text AS manufacturer,
        COALESCE(dd.model, '')::text AS model,
-       COALESCE(dd.firmware_version, '')::text AS firmware_version,
+       release_channel_firmware_version(d.id, dd.device_class, dd.firmware_version)::text AS firmware_version,
        COALESCE(dep.firmware_checksum, '')::text AS last_deployed_firmware_checksum
 FROM release_channel_member m
 JOIN device d ON d.id = m.device_id
@@ -2041,7 +2041,7 @@ WHERE m.org_id = $1
   AND release_channel_pair_key(dd.manufacturer) = release_channel_pair_key($3::text)
   AND release_channel_pair_key(dd.model) = release_channel_pair_key($4::text)
   AND NOT (
-      COALESCE(dd.firmware_version, '') = $5::text
+      release_channel_firmware_version(d.id, dd.device_class, dd.firmware_version) = $5::text
       AND COALESCE(dep.firmware_checksum, '') = $6::text
       AND NOT EXISTS (
           SELECT 1 FROM queue_message qm
@@ -2134,7 +2134,7 @@ WITH members AS (
     SELECT m.device_id,
            COALESCE(dd.manufacturer, '')::text AS manufacturer,
            COALESCE(dd.model, '')::text AS model,
-           COALESCE(dd.firmware_version, '')::text AS firmware_version,
+           release_channel_firmware_version(d.id, dd.device_class, dd.firmware_version)::text AS firmware_version,
            COALESCE(dep.firmware_checksum, '')::text AS deployed_checksum
     FROM release_channel_member m
     JOIN device d ON d.id = m.device_id
@@ -2846,7 +2846,7 @@ SELECT s.device_id,
        d.device_identifier,
        COALESCE(dd.manufacturer, '')::text AS manufacturer,
        COALESCE(dd.model, '')::text AS model,
-       COALESCE(dd.firmware_version, '')::text AS firmware_version,
+       release_channel_firmware_version(d.id, dd.device_class, dd.firmware_version)::text AS firmware_version,
        COALESCE(owner.channel_id, 0)::bigint AS owner_channel_id,
        COALESCE(owner.name, '')::text AS owner_channel_name
 FROM scoped s

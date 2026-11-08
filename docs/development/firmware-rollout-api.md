@@ -45,6 +45,35 @@ For channel and rollout endpoints:
 Firmware file endpoints keep their existing snake_case JSON, multipart upload
 format, and `{ "error": "..." }` error shape.
 
+## CT1 hashboard archives
+
+For `target_manufacturer=Proto` and `target_model=CT1`, upload the release
+`hashboard-firmware-<version>.zip` with `hashboard_build` set to `prod`, `dev`,
+or `mfgtest`. This additional snake_case field is accepted by multipart uploads
+and upload metadata, and returned in firmware file information. Other targets
+must omit it. The existing Fleet upload dialogs expose the build selection.
+
+Fleet reads embedded image metadata to select that build, excludes unsigned
+and evaluation-board images, and requires `firmware_version` to match the
+embedded version (an optional leading `v` is accepted on upload). It stores a
+deterministic ZIP containing only the selected images. The stored checksum is
+therefore the checksum of the selected ZIP, not of the original release archive;
+each build has a distinct artifact identity. The existing checksum check may
+miss an original multi-build archive, but upload completion deduplicates the
+normalized artifact. Stored filenames include version and build.
+
+Metadata edits cannot change a CT1 artifact's embedded build or version; upload
+a new artifact instead. Frigate remains responsible for validating signatures
+and board compatibility. Fleet enforces native upload limits of 64 images,
+64 MiB per image, and 256 MiB total uncompressed image data.
+
+Assign the resulting file ID to a CT1 release-channel target using the existing
+API. CT1 convergence uses fresh, uniform hashboard firmware observations rather
+than the controller software version. Updates use one-off Frigate jobs; Fleet
+retains channel enforcement, retry, pause, and cancellation scheduling. Canceling
+a Fleet rollout does not cancel an already-dispatched Frigate job. Per-board
+progress and owner/failure evidence appear in container module details.
+
 ## Resource endpoints
 
 All paths below start with `/api/v1` on the Fleet server. The shipped web

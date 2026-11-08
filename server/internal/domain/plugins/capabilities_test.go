@@ -14,6 +14,13 @@ func TestConvertToMinerCapabilities_NilCapabilities(t *testing.T) {
 	assert.Nil(t, result)
 }
 
+func TestConvertToMinerCapabilities_ComponentFirmware(t *testing.T) {
+	result := ConvertToMinerCapabilities(sdk.Capabilities{sdk.CapabilityManualUpload: true, sdk.CapabilityFirmwareSelfManaged: true}, "Proto")
+	assert.True(t, result.Firmware.ManualUploadSupported)
+	assert.True(t, result.Firmware.SelfManagedCompletion)
+	assert.False(t, result.Commands.RebootSupported)
+}
+
 func TestConvertToMinerCapabilities_EmptyCapabilities(t *testing.T) {
 	caps := sdk.Capabilities{}
 	result := ConvertToMinerCapabilities(caps, "Proto")

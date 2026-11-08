@@ -105,6 +105,7 @@ func TestModuleMiningSimulatorLeavesNeighborsUnaffected(t *testing.T) {
 		}
 	}
 	t.Run("mining groups", func(t *testing.T) { testMiningGroupsSimulator(t, dev) })
+	t.Run("firmware", func(t *testing.T) { testFirmwareSimulator(t, dev) })
 }
 
 // Exercise the full native pool workflow on the same real simulator transport.

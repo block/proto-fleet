@@ -129,6 +129,7 @@ changed-checks:
         - "deployment-files/*.sh"
         - "deployment-files/scripts/**"
         - "server/**"
+        - "sdk/mdk/**"
         - "go.work"
         - "go.work.sum"
       run: just _lint-server

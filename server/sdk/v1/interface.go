@@ -532,7 +532,7 @@ type DeviceMaintenance interface {
 
 // FirmwareUpdateStatus represents the current firmware installation state on a device.
 type FirmwareUpdateStatus struct {
-	State    string // "current", "downloading", "downloaded", "installing", "installed", "confirming", "success", "error"
+	State    string // "current", "downloading", "downloaded", "installing", "installed", "confirming", "success", "error", "completed" (components rebooted and verified)
 	Progress *int
 	Error    *string
 }
@@ -677,9 +677,10 @@ const (
 	CapabilityPSUStats          = "psu_stats_reported"    // PSU stats reported
 
 	// Firmware capabilities
-	CapabilityFirmware     = "firmware"      // Firmware update support (generic)
-	CapabilityOTAUpdate    = "ota_update"    // OTA update support
-	CapabilityManualUpload = "manual_upload" // Manual firmware upload support
+	CapabilityFirmware            = "firmware"              // Firmware update support (generic)
+	CapabilityFirmwareSelfManaged = "firmware_self_managed" // Updater reboots/verifies components and reports completed.
+	CapabilityOTAUpdate           = "ota_update"            // OTA update support
+	CapabilityManualUpload        = "manual_upload"         // Manual firmware upload support
 
 	// Authentication capabilities
 	CapabilityBasicAuth = "basic_auth" // Basic (username/password) authentication

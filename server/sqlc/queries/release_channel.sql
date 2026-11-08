@@ -149,7 +149,7 @@ SELECT m.channel_id,
        d.device_identifier,
        COALESCE(dd.manufacturer, '')::text AS manufacturer,
        COALESCE(dd.model, '')::text AS model,
-       COALESCE(dd.firmware_version, '')::text AS firmware_version,
+       release_channel_firmware_version(d.id, dd.device_class, dd.firmware_version)::text AS firmware_version,
        COALESCE(dep.firmware_checksum, '')::text AS last_deployed_firmware_checksum
 FROM release_channel_member m
 JOIN device d ON d.id = m.device_id
@@ -167,7 +167,7 @@ SELECT m.device_id,
        d.device_identifier,
        COALESCE(dd.manufacturer, '')::text AS manufacturer,
        COALESCE(dd.model, '')::text AS model,
-       COALESCE(dd.firmware_version, '')::text AS firmware_version,
+       release_channel_firmware_version(d.id, dd.device_class, dd.firmware_version)::text AS firmware_version,
        COALESCE(dep.firmware_checksum, '')::text AS last_deployed_firmware_checksum
 FROM release_channel_member m
 JOIN device d ON d.id = m.device_id
@@ -195,7 +195,7 @@ WITH members AS (
     SELECT m.device_id,
            COALESCE(dd.manufacturer, '')::text AS manufacturer,
            COALESCE(dd.model, '')::text AS model,
-           COALESCE(dd.firmware_version, '')::text AS firmware_version,
+           release_channel_firmware_version(d.id, dd.device_class, dd.firmware_version)::text AS firmware_version,
            COALESCE(dep.firmware_checksum, '')::text AS deployed_checksum
     FROM release_channel_member m
     JOIN device d ON d.id = m.device_id
@@ -308,7 +308,7 @@ SELECT s.device_id,
        d.device_identifier,
        COALESCE(dd.manufacturer, '')::text AS manufacturer,
        COALESCE(dd.model, '')::text AS model,
-       COALESCE(dd.firmware_version, '')::text AS firmware_version,
+       release_channel_firmware_version(d.id, dd.device_class, dd.firmware_version)::text AS firmware_version,
        COALESCE(owner.channel_id, 0)::bigint AS owner_channel_id,
        COALESCE(owner.name, '')::text AS owner_channel_name
 FROM scoped s
@@ -416,7 +416,7 @@ WHERE m.org_id = sqlc.arg('org_id')
   AND release_channel_pair_key(dd.manufacturer) = release_channel_pair_key(sqlc.arg('manufacturer')::text)
   AND release_channel_pair_key(dd.model) = release_channel_pair_key(sqlc.arg('model')::text)
   AND NOT (
-      COALESCE(dd.firmware_version, '') = sqlc.arg('firmware_version')::text
+      release_channel_firmware_version(d.id, dd.device_class, dd.firmware_version) = sqlc.arg('firmware_version')::text
       AND COALESCE(dep.firmware_checksum, '') = sqlc.arg('firmware_checksum')::text
       AND NOT EXISTS (
           SELECT 1 FROM queue_message qm
@@ -449,7 +449,7 @@ ORDER BY d.device_identifier;
 -- version and provenance. Suppression excludes dispatch targets, but does not
 -- change whether a member matches the assignment.
 WITH members AS (
-    SELECT COALESCE(dd.firmware_version, '') = sqlc.arg('firmware_version')::text
+    SELECT release_channel_firmware_version(d.id, dd.device_class, dd.firmware_version) = sqlc.arg('firmware_version')::text
            AND COALESCE(dep.firmware_checksum, '') = sqlc.arg('firmware_checksum')::text
            AND NOT EXISTS (
                SELECT 1 FROM queue_message qm
@@ -532,7 +532,7 @@ AND EXISTS (
       AND release_channel_pair_key(dd.manufacturer) = release_channel_pair_key(f.manufacturer)
       AND release_channel_pair_key(dd.model) = release_channel_pair_key(f.model)
       AND NOT (
-          COALESCE(dd.firmware_version, '') = f.firmware_version
+          release_channel_firmware_version(d.id, dd.device_class, dd.firmware_version) = f.firmware_version
           AND COALESCE(dep.firmware_checksum, '') = f.firmware_checksum
           AND NOT EXISTS (
               SELECT 1 FROM queue_message qm
@@ -894,7 +894,7 @@ WHERE reservation.channel_id = sqlc.arg('channel_id')
 -- retained targets keep their saved baselines without reading a replacement.
 SELECT rd.device_id,
        d.device_identifier,
-       COALESCE(dd.firmware_version, '')::text AS firmware_version,
+       release_channel_firmware_version(d.id, dd.device_class, dd.firmware_version)::text AS firmware_version,
        COALESCE(dd.ip_address, '')::text AS ip_address,
        rd.batch_index,
        rd.position,

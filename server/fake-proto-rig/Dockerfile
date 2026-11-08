@@ -5,6 +5,7 @@ WORKDIR /app
 # Copy go.mod files for dependency caching
 COPY server/go.mod server/go.sum ./server/
 COPY server/fake-proto-rig/go.mod ./server/fake-proto-rig/
+COPY sdk/mdk/ ./sdk/mdk/
 
 # Download dependencies
 WORKDIR /app/server
