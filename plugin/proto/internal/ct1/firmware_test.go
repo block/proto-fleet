@@ -222,6 +222,7 @@ type fakeFirmwareController struct {
 	uploadGate    chan struct{}
 	corruptUpload bool
 	skipOwners    map[string]bool
+	unreachable   map[string]bool
 }
 
 func (f *fakeFirmwareController) GetContainerMap(context.Context, *mdk.GetContainerMapRequest) (*mdk.GetContainerMapResponse, error) {
@@ -316,6 +317,9 @@ func (f *fakeFirmwareController) GetFirmwareUpdate(_ context.Context, req *mdk.G
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.statusReads[req.ServerId] = true
+	if f.unreachable[req.ServerId] {
+		return nil, status.Error(codes.Unavailable, "peer controller unreachable") //nolint:wrapcheck // server must return a gRPC status
+	}
 	job := f.jobs[req.TaskId+"/"+req.ServerId]
 	if job == nil {
 		return nil, status.Error(codes.NotFound, "firmware task not found on controller") //nolint:wrapcheck // server must return a gRPC status
@@ -584,12 +588,7 @@ func TestFirmwareRetryAfterPluginRestartResumesItsJob(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			wire, _ := splitOwnerMap()
 			dev, controller := newFirmwareDevice(t, wire)
-			file := func(request string) sdk.FirmwareFile {
-				f := firmwareFile(t)
-				f.RequestID = request
-				return f
-			}
-			require.NoError(t, dev.FirmwareUpdate(t.Context(), file("batch/1")))
+			require.NoError(t, dev.FirmwareUpdate(t.Context(), requestFile(t, "batch/1")))
 			if tc.finished {
 				controller.finish()
 			}
@@ -601,7 +600,7 @@ func TestFirmwareRetryAfterPluginRestartResumesItsJob(t *testing.T) {
 			restartPlugin(dev)
 			_, err := newHandle(dev).GetFirmwareUpdateStatus(t.Context())
 			require.Error(t, err, "a restarted plugin knows no job until the command retries")
-			require.NoError(t, newHandle(dev).FirmwareUpdate(t.Context(), file("batch/1")))
+			require.NoError(t, newHandle(dev).FirmwareUpdate(t.Context(), requestFile(t, "batch/1")))
 			require.Equal(t, 1, controller.startCount(), "the retry finds its job instead of reflashing")
 			require.Equal(t, 1, controller.uploadCount())
 			controller.finish()
@@ -615,11 +614,56 @@ func TestFirmwareRetryAfterPluginRestartResumesItsJob(t *testing.T) {
 			}
 
 			restartPlugin(dev)
-			require.NoError(t, newHandle(dev).FirmwareUpdate(t.Context(), file("batch/2")))
+			require.NoError(t, newHandle(dev).FirmwareUpdate(t.Context(), requestFile(t, "batch/2")))
 			require.Equal(t, 2, controller.startCount(), "a new command updates again")
 			require.NotEqual(t, controller.starts[0].TaskId, controller.starts[1].TaskId)
 		})
 	}
+}
+
+func requestFile(t *testing.T, request string) sdk.FirmwareFile {
+	t.Helper()
+	f := firmwareFile(t)
+	f.RequestID = request
+	return f
+}
+
+func TestFirmwareRecoveryFindsJobOnPreviousOwner(t *testing.T) {
+	dev, controller := newFirmwareDevice(t, firmwareContainerMap(time.Now()))
+	require.NoError(t, dev.FirmwareUpdate(t.Context(), requestFile(t, "batch/1")))
+	// Every board fails over to a peer that never saw the task.
+	controller.mu.Lock()
+	for _, tank := range controller.wire.ContainerMap.Tanks {
+		for _, module := range tank.Modules {
+			for _, slot := range module.Slots {
+				slot.Hashboard.OwnerServerId = "peer"
+			}
+		}
+	}
+	controller.mu.Unlock()
+	restartPlugin(dev)
+	require.NoError(t, newHandle(dev).FirmwareUpdate(t.Context(), requestFile(t, "batch/1")))
+	require.Equal(t, 1, controller.startCount(), "the previous owner's job is resumed, not replayed")
+	controller.finish()
+	result, err := newHandle(dev).GetFirmwareUpdateStatus(t.Context())
+	require.NoError(t, err)
+	require.Equal(t, "completed", result.State)
+}
+
+func TestFirmwareRecoveryIgnoresUnreachablePeer(t *testing.T) {
+	dev, controller := newFirmwareDevice(t, firmwareContainerMap(time.Now()))
+	self := dev.clients[0]
+	dev.clients = append(dev.clients, &Client{memberID: "gone", conn: self.conn, boards: self.boards, firmware: self.firmware})
+	controller.unreachable = map[string]bool{"gone": true}
+	require.NoError(t, dev.FirmwareUpdate(t.Context(), requestFile(t, "batch/1")), "a down peer does not block a new command")
+	require.Equal(t, 1, controller.startCount())
+	restartPlugin(dev)
+	require.NoError(t, newHandle(dev).FirmwareUpdate(t.Context(), requestFile(t, "batch/1")))
+	require.Equal(t, 1, controller.startCount(), "a down peer does not prevent resuming the job")
+	controller.unreachable = map[string]bool{"self": true}
+	restartPlugin(dev)
+	requireWriteOutcome(t, newHandle(dev).FirmwareUpdate(t.Context(), requestFile(t, "batch/1")), sdk.WriteNotDispatched)
+	require.Equal(t, 1, controller.startCount(), "an unreachable planned owner refuses rather than replays")
 }
 
 func TestFirmwareArchiveWaitIsRetryable(t *testing.T) {

@@ -215,11 +215,14 @@ retried immediately and rollouts re-send at most three times. The plugin
 process retains the task and its owners per container, shared by every handle
 for it, including Fleet Node's per-command handles. The task ID is derived
 from the command's request ID, which includes the batch UUID, so after a
-process restart a retried command finds its task on the owning controllers
-and resumes it instead of flashing again. The resumed task is tracked by the
-targets its jobs report, not by inventory that changed while the plugin was
-down. Occupied boards those jobs never targeted, such as a replaced board or
-one whose owning controller changed, count as not updated, so the command
+process restart a retried command finds its task and resumes it instead of
+flashing again. The lookup asks the controllers that own boards now, which must
+answer, and every other paired controller on a best-effort basis, so a job is
+found even if board ownership moved during the restart, while an unreachable
+peer never blocks an update. The resumed task is tracked by the targets its
+jobs report, not by inventory that changed while the plugin was down. Occupied
+boards those jobs never targeted, such as a replaced board or one whose
+previous owner could not be reached, count as not updated, so the command
 reports `failed` rather than success. Commands without a request ID, such
 as those relayed by an older Fleet Node, use a random task ID and are not
 recoverable after a restart.

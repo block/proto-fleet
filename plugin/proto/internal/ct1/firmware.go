@@ -26,6 +26,9 @@ import (
 const (
 	maxFirmwareArchiveBytes = 500 << 20
 	firmwareUploadTimeout   = 5 * time.Minute
+	// firmwarePeerLookupTimeout bounds each best-effort job lookup on a paired
+	// controller that owns no boards in the current plan.
+	firmwarePeerLookupTimeout = 2 * time.Second
 	// FleetNode rejects FirmwareUpdateStatusResult.error beyond this length.
 	maxFirmwareStatusErrorBytes = 4096
 	maxFirmwareFailureBytes     = 256
@@ -119,7 +122,7 @@ func (d *Device) FirmwareUpdate(ctx context.Context, file sdk.FirmwareFile) erro
 		return err
 	}
 	if file.RequestID != "" {
-		recovered, err := recoverFirmwareAttempt(ctx, c, attempt)
+		recovered, err := d.recoverFirmwareAttempt(ctx, c, attempt)
 		if err != nil {
 			return sdk.WriteRefused(fmt.Errorf("check for this command's CT1 firmware job: %w", err), sdk.WriteStageConfigurationRead, sdk.WriteReasonReadFailed)
 		}
@@ -270,37 +273,55 @@ func firmwareTaskID(requestID string) string {
 }
 
 // recoverFirmwareAttempt rebuilds a retried command's attempt from the jobs its
-// task created, or returns nil when no planned owner has one. Inventory may
-// have changed since the task started, so each job's own targets define what
-// it must finish. An owner without a job keeps its current boards, and boards
-// a found job never targeted are untracked; both report as not updated.
-func recoverFirmwareAttempt(ctx context.Context, c *Client, planned *firmwareAttempt) (*firmwareAttempt, error) {
-	recovered := &firmwareAttempt{taskID: planned.taskID, requestID: planned.requestID, owners: map[string][]string{}}
-	found := false
-	tracked := map[string]bool{}
-	for owner, macs := range planned.owners {
+// task created, or returns nil when no controller has one. Board ownership may
+// have changed since the task started, so every paired controller is asked
+// through the selected one; planned owners must answer, while other peers are
+// best effort so an unreachable peer cannot block updates. Each job's own
+// targets define what it must finish, and current boards no found job
+// targeted report as not updated.
+func (d *Device) recoverFirmwareAttempt(ctx context.Context, c *Client, planned *firmwareAttempt) (*firmwareAttempt, error) {
+	jobs := map[string][]string{}
+	lookup := func(ctx context.Context, owner string) error {
 		response, err := c.firmware.GetFirmwareUpdate(ctx, &mdk.GetFirmwareUpdateRequest{TaskId: planned.taskID, ServerId: owner})
 		if status.Code(err) == codes.NotFound {
-			recovered.owners[owner] = macs
-			for _, mac := range macs {
-				tracked[mac] = true
-			}
-			continue
+			return nil
 		}
 		if err != nil {
+			return err
+		}
+		job := response.GetUpdate()
+		if job.GetTaskId() != planned.taskID || job.GetServerId() != owner {
+			return fmt.Errorf("firmware job identity mismatch")
+		}
+		targets := []string{}
+		for _, target := range job.GetTargets() {
+			targets = append(targets, normalizedBoardMAC(target.GetMacAddress()))
+		}
+		jobs[owner] = targets
+		return nil
+	}
+	for owner := range planned.owners {
+		if err := lookup(ctx, owner); err != nil {
 			return nil, err
 		}
-		found = true
-		targets := []string{}
-		for _, target := range response.GetUpdate().GetTargets() {
-			mac := normalizedBoardMAC(target.GetMacAddress())
-			targets = append(targets, mac)
+	}
+	for _, peer := range d.clients {
+		if _, owns := planned.owners[peer.memberID]; owns || peer.memberID == "" {
+			continue
+		}
+		peerCtx, cancel := context.WithTimeout(ctx, firmwarePeerLookupTimeout)
+		_ = lookup(peerCtx, peer.memberID)
+		cancel()
+	}
+	if len(jobs) == 0 {
+		return nil, nil
+	}
+	recovered := &firmwareAttempt{taskID: planned.taskID, requestID: planned.requestID, owners: jobs}
+	tracked := map[string]bool{}
+	for _, targets := range jobs {
+		for _, mac := range targets {
 			tracked[mac] = true
 		}
-		recovered.owners[owner] = targets
-	}
-	if !found {
-		return nil, nil
 	}
 	for _, macs := range planned.owners {
 		for _, mac := range macs {
