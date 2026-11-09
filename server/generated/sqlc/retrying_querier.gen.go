@@ -2888,6 +2888,18 @@ func (q *retryingQuerier) GetAllPairedDeviceIdentifiers(ctx context.Context) ([]
 	return result, err
 }
 
+func (q *retryingQuerier) GetAlreadyPairedDeviceIdentifiers(ctx context.Context, arg GetAlreadyPairedDeviceIdentifiersParams) ([]string, error) {
+	var result []string
+	err := q.retrier.RetryQuery(ctx, "GetAlreadyPairedDeviceIdentifiers", func() error {
+		callResult, callErr := q.next.GetAlreadyPairedDeviceIdentifiers(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) GetApiKeyByHash(ctx context.Context, keyHash string) (GetApiKeyByHashRow, error) {
 	var result GetApiKeyByHashRow
 	err := q.retrier.RetryQuery(ctx, "GetApiKeyByHash", func() error {

@@ -35,6 +35,21 @@ WHERE dp.pairing_status = 'PAIRED'
     AND d.deleted_at IS NULL
 ORDER BY dp.id, d.id;
 
+-- name: GetAlreadyPairedDeviceIdentifiers :many
+-- Resolve only the devices returned by the current discovery batch. This avoids
+-- loading fleet-wide pairing state for large installations.
+SELECT d.device_identifier
+FROM device d
+JOIN device_pairing dp ON dp.device_id = d.id
+JOIN discovered_device dd ON dd.id = d.discovered_device_id
+WHERE d.org_id = sqlc.arg('org_id')
+  AND dd.org_id = sqlc.arg('org_id')
+  AND d.device_identifier = ANY(sqlc.arg('device_identifiers')::text[])
+  AND d.deleted_at IS NULL
+  AND dd.is_active = TRUE
+  AND dd.deleted_at IS NULL
+  AND dp.pairing_status IN ('PAIRED', 'AUTHENTICATION_NEEDED', 'DEFAULT_PASSWORD');
+
 -- name: GetPairedProtoDeviceIdentifiersByIdentifiers :many
 -- Lock eligible rows until targeted fallback-config commands are enqueued.
 -- Pairing, manufacturer, and deletion changes must wait for that transaction.

@@ -494,6 +494,17 @@ func (s *SQLDeviceStore) GetTotalDevicesPendingAuth(ctx context.Context, orgID i
 	return s.GetQueries(ctx).GetTotalDevicesPendingAuth(ctx, orgID)
 }
 
+func (s *SQLDeviceStore) GetAlreadyPairedDeviceIdentifiers(ctx context.Context, orgID int64, deviceIdentifiers []string) ([]string, error) {
+	identifiers, err := s.GetQueries(ctx).GetAlreadyPairedDeviceIdentifiers(ctx, sqlc.GetAlreadyPairedDeviceIdentifiersParams{
+		OrgID:             orgID,
+		DeviceIdentifiers: deviceIdentifiers,
+	})
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("failed to get already-paired device identifiers: %w", err)
+	}
+	return identifiers, nil
+}
+
 func (s *SQLDeviceStore) GetAllPairedDeviceIdentifiers(ctx context.Context) ([]models.DeviceIdentifier, error) {
 	identifiers, err := s.GetQueries(ctx).GetAllPairedDeviceIdentifiers(ctx)
 	if err != nil {

@@ -585,6 +585,50 @@ func (q *Queries) GetAllPairedDeviceIdentifiers(ctx context.Context) ([]string, 
 	return items, nil
 }
 
+const getAlreadyPairedDeviceIdentifiers = `-- name: GetAlreadyPairedDeviceIdentifiers :many
+SELECT d.device_identifier
+FROM device d
+JOIN device_pairing dp ON dp.device_id = d.id
+JOIN discovered_device dd ON dd.id = d.discovered_device_id
+WHERE d.org_id = $1
+  AND dd.org_id = $1
+  AND d.device_identifier = ANY($2::text[])
+  AND d.deleted_at IS NULL
+  AND dd.is_active = TRUE
+  AND dd.deleted_at IS NULL
+  AND dp.pairing_status IN ('PAIRED', 'AUTHENTICATION_NEEDED', 'DEFAULT_PASSWORD')
+`
+
+type GetAlreadyPairedDeviceIdentifiersParams struct {
+	OrgID             int64
+	DeviceIdentifiers []string
+}
+
+// Resolve only the devices returned by the current discovery batch. This avoids
+// loading fleet-wide pairing state for large installations.
+func (q *Queries) GetAlreadyPairedDeviceIdentifiers(ctx context.Context, arg GetAlreadyPairedDeviceIdentifiersParams) ([]string, error) {
+	rows, err := q.query(ctx, q.getAlreadyPairedDeviceIdentifiersStmt, getAlreadyPairedDeviceIdentifiers, arg.OrgID, pq.Array(arg.DeviceIdentifiers))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []string
+	for rows.Next() {
+		var device_identifier string
+		if err := rows.Scan(&device_identifier); err != nil {
+			return nil, err
+		}
+		items = append(items, device_identifier)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getAvailableFirmwareVersions = `-- name: GetAvailableFirmwareVersions :many
 SELECT DISTINCT dd.firmware_version
 FROM device d

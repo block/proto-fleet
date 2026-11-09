@@ -42,10 +42,13 @@ func TestDiscover_RejectsNonPrivateDirectServerTarget(t *testing.T) {
 }
 
 func TestDiscover_AutomaticNodeRangesDoNotRequireServerSubnet(t *testing.T) {
-	// Arrange: a nil pairing service proves automatic discovery never initializes a
-	// server-local scan, even if the client retains an obsolete target.
+	// Arrange: no server discovery dependencies prove automatic discovery never
+	// initializes a server-local scan, even if the client retains an obsolete target.
 	runner := &stubFleetNodeDiscoveryRunner{nodeIDs: []int64{7}}
-	client := discoveryClientForHandler(t, &Handler{discovery: runner})
+	client := discoveryClientForHandler(t, &Handler{
+		pairingSvc: pairingdomain.NewService(nil, &alreadyPairedLookupStore{}, nil, nil, nil, nil, nil, nil, nil),
+		discovery:  runner,
+	})
 	req := &pb.DiscoverRequest{Mode: &pb.DiscoverRequest_NetworkScan{NetworkScan: &pb.NetworkScanModeRequest{
 		Target: "8.8.8.8", Ports: []string{"4028"}, UseFleetNodeLocalSubnet: true,
 	}}}

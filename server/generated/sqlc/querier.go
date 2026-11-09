@@ -730,6 +730,9 @@ type Querier interface {
 	// DEFAULT_PASSWORD devices are paired and report telemetry, so they must enter
 	// the polling loop too (it's how their state is reconciled after a password change).
 	GetAllPairedDeviceIdentifiers(ctx context.Context) ([]string, error)
+	// Resolve only the devices returned by the current discovery batch. This avoids
+	// loading fleet-wide pairing state for large installations.
+	GetAlreadyPairedDeviceIdentifiers(ctx context.Context, arg GetAlreadyPairedDeviceIdentifiersParams) ([]string, error)
 	GetApiKeyByHash(ctx context.Context, keyHash string) (GetApiKeyByHashRow, error)
 	GetAssignmentByID(ctx context.Context, id int64) (UserOrganizationRole, error)
 	GetAvailableFirmwareVersions(ctx context.Context, orgID int64) ([]sql.NullString, error)

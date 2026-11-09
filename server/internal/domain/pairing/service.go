@@ -192,6 +192,48 @@ func (s *Service) WithRigConfigReapplier(reapply func(context.Context, int64, in
 	s.rigConfigReapplier = reapply
 }
 
+// AnnotateAlreadyPaired marks discovered devices that already have a live Fleet
+// pairing record.
+func (s *Service) AnnotateAlreadyPaired(ctx context.Context, orgID int64, devices []*pb.Device) error {
+	if len(devices) == 0 {
+		return nil
+	}
+
+	identifiers := make([]string, 0, len(devices))
+	devicesByIdentifier := make(map[string][]*pb.Device, len(devices))
+	for _, device := range devices {
+		if device == nil {
+			continue
+		}
+		device.AlreadyPaired = false
+		identifier := device.GetDeviceIdentifier()
+		if identifier == "" {
+			continue
+		}
+		if _, exists := devicesByIdentifier[identifier]; !exists {
+			identifiers = append(identifiers, identifier)
+		}
+		devicesByIdentifier[identifier] = append(devicesByIdentifier[identifier], device)
+	}
+	if len(identifiers) == 0 {
+		return nil
+	}
+	if s == nil || s.deviceStore == nil {
+		return fleeterror.NewInternalError("pairing state store is not configured")
+	}
+
+	pairedIdentifiers, err := s.deviceStore.GetAlreadyPairedDeviceIdentifiers(ctx, orgID, identifiers)
+	if err != nil {
+		return err
+	}
+	for _, identifier := range pairedIdentifiers {
+		for _, device := range devicesByIdentifier[identifier] {
+			device.AlreadyPaired = true
+		}
+	}
+	return nil
+}
+
 type NetworkInfo struct {
 	networking.NetworkInfo
 }

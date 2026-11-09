@@ -828,6 +828,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.getAllPairedDeviceIdentifiersStmt, err = db.PrepareContext(ctx, getAllPairedDeviceIdentifiers); err != nil {
 		return nil, fmt.Errorf("error preparing query GetAllPairedDeviceIdentifiers: %w", err)
 	}
+	if q.getAlreadyPairedDeviceIdentifiersStmt, err = db.PrepareContext(ctx, getAlreadyPairedDeviceIdentifiers); err != nil {
+		return nil, fmt.Errorf("error preparing query GetAlreadyPairedDeviceIdentifiers: %w", err)
+	}
 	if q.getApiKeyByHashStmt, err = db.PrepareContext(ctx, getApiKeyByHash); err != nil {
 		return nil, fmt.Errorf("error preparing query GetApiKeyByHash: %w", err)
 	}
@@ -4706,6 +4709,11 @@ func (q *Queries) Close() error {
 	if q.getAllPairedDeviceIdentifiersStmt != nil {
 		if cerr := q.getAllPairedDeviceIdentifiersStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getAllPairedDeviceIdentifiersStmt: %w", cerr)
+		}
+	}
+	if q.getAlreadyPairedDeviceIdentifiersStmt != nil {
+		if cerr := q.getAlreadyPairedDeviceIdentifiersStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getAlreadyPairedDeviceIdentifiersStmt: %w", cerr)
 		}
 	}
 	if q.getApiKeyByHashStmt != nil {
@@ -9240,6 +9248,7 @@ type Queries struct {
 	getAllMinerStateSnapshotDeviceRollupsDailyStmt              *sql.Stmt
 	getAllMinerStateSnapshotDeviceRollupsHourlyStmt             *sql.Stmt
 	getAllPairedDeviceIdentifiersStmt                           *sql.Stmt
+	getAlreadyPairedDeviceIdentifiersStmt                       *sql.Stmt
 	getApiKeyByHashStmt                                         *sql.Stmt
 	getAssignmentByIDStmt                                       *sql.Stmt
 	getAvailableFirmwareVersionsStmt                            *sql.Stmt
@@ -10359,6 +10368,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getAllMinerStateSnapshotDeviceRollupsDailyStmt:              q.getAllMinerStateSnapshotDeviceRollupsDailyStmt,
 		getAllMinerStateSnapshotDeviceRollupsHourlyStmt:             q.getAllMinerStateSnapshotDeviceRollupsHourlyStmt,
 		getAllPairedDeviceIdentifiersStmt:                           q.getAllPairedDeviceIdentifiersStmt,
+		getAlreadyPairedDeviceIdentifiersStmt:                       q.getAlreadyPairedDeviceIdentifiersStmt,
 		getApiKeyByHashStmt:                                         q.getApiKeyByHashStmt,
 		getAssignmentByIDStmt:                                       q.getAssignmentByIDStmt,
 		getAvailableFirmwareVersionsStmt:                            q.getAvailableFirmwareVersionsStmt,
