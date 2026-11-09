@@ -199,8 +199,9 @@ task, it never started and the handle is released.
 
 Completion (`completed`) requires every target on every owning controller to
 report success or already-current, with all owner jobs terminal. Missing owners
-or targets cannot prove completion. Once all owner jobs are terminal with any
-failure, the plugin reports `failed` with a failure summary bounded to the
+or targets cannot prove completion; an owner that no longer knows the task has
+no running job and counts as a failure for its boards. Once every existing
+owner job is terminal with any failure, the plugin reports `failed` with a failure summary bounded to the
 Fleet Node status limit. Frigate has already handled board reboot, so neither
 state triggers a CT1 controller reboot, and Fleet does not retry a `failed`
 update immediately; rollout re-send pacing or the operator decides when to

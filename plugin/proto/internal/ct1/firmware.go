@@ -366,8 +366,9 @@ func (d *Device) GetFirmwareUpdateStatus(ctx context.Context) (*sdk.FirmwareUpda
 }
 
 // firmwareAttemptStatus reports "completed" only when every target on every
-// owning controller succeeded or was current, and "failed" once all owner jobs
-// are terminal with any failure. Frigate restores boards either way, so Fleet
+// owning controller succeeded or was current, and "failed" once every
+// existing owner job is terminal with any failure, including owners that no
+// longer know the task. Frigate restores boards either way, so Fleet
 // never reboots CT1.
 func (d *Device) firmwareAttemptStatus(ctx context.Context, attempt *firmwareAttempt) (firmwareAttemptResult, error) {
 	updated := maps.Clone(attempt.updated)
@@ -391,7 +392,10 @@ func (d *Device) firmwareAttemptStatus(ctx context.Context, attempt *firmwareAtt
 		expected += len(macs)
 		response, err := c.firmware.GetFirmwareUpdate(ctx, &mdk.GetFirmwareUpdateRequest{TaskId: attempt.taskID, ServerId: owner})
 		if status.Code(err) == codes.NotFound {
+			// That controller has no job for the task: it is not running there,
+			// and its boards were not proven updated.
 			missing++
+			failures = append(failures, fmt.Sprintf("controller %s: firmware task not found", owner))
 			continue
 		}
 		if err != nil {
@@ -436,9 +440,6 @@ func (d *Device) firmwareAttemptStatus(ctx context.Context, attempt *firmwareAtt
 	}
 	if missing == len(attempt.owners) {
 		return firmwareAttemptResult{}, errFirmwareTaskNotFound
-	}
-	if missing > 0 {
-		return firmwareAttemptResult{}, fmt.Errorf("firmware task missing on %d of %d owning controllers", missing, len(attempt.owners))
 	}
 	progress := finished * 100 / expected
 	result := &sdk.FirmwareUpdateStatus{State: firmwareStateInstalling, Progress: &progress}

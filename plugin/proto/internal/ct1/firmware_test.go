@@ -221,6 +221,7 @@ type fakeFirmwareController struct {
 	uploadStarted chan struct{}
 	uploadGate    chan struct{}
 	corruptUpload bool
+	skipOwners    map[string]bool
 }
 
 func (f *fakeFirmwareController) GetContainerMap(context.Context, *mdk.GetContainerMapRequest) (*mdk.GetContainerMapResponse, error) {
@@ -293,6 +294,9 @@ func (f *fakeFirmwareController) StartFirmwareUpdate(_ context.Context, req *mdk
 			}
 		}
 		for _, mac := range req.Scope.Identifiers {
+			if f.skipOwners[owners[mac]] {
+				continue
+			}
 			key := req.TaskId + "/" + owners[mac]
 			job := f.jobs[key]
 			if job == nil {
@@ -340,6 +344,13 @@ func (f *fakeFirmwareController) finish(failed ...string) {
 			}
 		}
 	}
+}
+
+// dropJob forgets the latest task's job on one owner, as after lost history.
+func (f *fakeFirmwareController) dropJob(owner string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	delete(f.jobs, f.starts[len(f.starts)-1].TaskId+"/"+owner)
 }
 
 func (f *fakeFirmwareController) startCount() int {
@@ -431,6 +442,54 @@ func TestFirmwareUpdateTargetsEveryOwner(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "completed", result.State)
 	require.Equal(t, map[string]bool{"peer": true, "self": true}, controller.statusReads)
+}
+
+// splitOwnerMap gives the first tank's even modules to a peer controller.
+func splitOwnerMap() (*mdk.GetContainerMapResponse, []string) {
+	wire := firmwareContainerMap(time.Now())
+	var peer []string
+	for i, module := range wire.ContainerMap.Tanks[0].Modules {
+		for _, slot := range module.Slots {
+			if i%2 == 0 {
+				slot.Hashboard.OwnerServerId = "peer"
+				peer = append(peer, normalizedBoardMAC(slot.Hashboard.MacAddress))
+			}
+		}
+	}
+	return wire, peer
+}
+
+func TestFirmwareMissingOwnerJobIsTerminal(t *testing.T) {
+	t.Run("record lost after completion", func(t *testing.T) {
+		wire, peer := splitOwnerMap()
+		dev, controller := newFirmwareDevice(t, wire)
+		require.NoError(t, dev.FirmwareUpdate(t.Context(), firmwareFile(t, "prod")))
+		controller.finish()
+		controller.dropJob("peer")
+		result, err := dev.GetFirmwareUpdateStatus(t.Context())
+		require.NoError(t, err)
+		require.Equal(t, "failed", result.State)
+		require.Contains(t, *result.Error, "controller peer: firmware task not found")
+		require.NoError(t, dev.FirmwareUpdate(t.Context(), firmwareFile(t, "prod")))
+		require.ElementsMatch(t, peer, controller.starts[1].Scope.Identifiers, "boards confirmed by the other owner are kept")
+	})
+	t.Run("job created on one owner", func(t *testing.T) {
+		wire, peer := splitOwnerMap()
+		dev, controller := newFirmwareDevice(t, wire)
+		controller.skipOwners = map[string]bool{"peer": true}
+		require.NoError(t, dev.FirmwareUpdate(t.Context(), firmwareFile(t, "prod")))
+		result, err := dev.GetFirmwareUpdateStatus(t.Context())
+		require.NoError(t, err)
+		require.Equal(t, "installing", result.State)
+		requireWriteOutcome(t, dev.FirmwareUpdate(t.Context(), firmwareFile(t, "prod")), sdk.WriteUnknown)
+		controller.finish()
+		result, err = dev.GetFirmwareUpdateStatus(t.Context())
+		require.NoError(t, err)
+		require.Equal(t, "failed", result.State)
+		controller.skipOwners = nil
+		require.NoError(t, dev.FirmwareUpdate(t.Context(), firmwareFile(t, "prod")))
+		require.ElementsMatch(t, peer, controller.starts[1].Scope.Identifiers)
+	})
 }
 
 func TestFirmwareStartRefusalReleasesReplayGuard(t *testing.T) {
