@@ -83,6 +83,8 @@ type firmwareAttempt struct {
 	owners map[string][]string
 	// requestID identifies the Fleet command that started the attempt.
 	requestID string
+	// untracked lists occupied boards a recovered task never targeted.
+	untracked []string
 }
 
 var _ sdk.FirmwareUpdateStatusProvider = (*Device)(nil)
@@ -268,17 +270,21 @@ func firmwareTaskID(requestID string) string {
 }
 
 // recoverFirmwareAttempt rebuilds a retried command's attempt from the jobs its
-// task created, or returns nil when no planned owner has one. Each job's own
-// targets define what it must finish, since inventory may have changed since
-// it started; an owner without a job keeps its current boards, which report
-// as not updated.
+// task created, or returns nil when no planned owner has one. Inventory may
+// have changed since the task started, so each job's own targets define what
+// it must finish. An owner without a job keeps its current boards, and boards
+// a found job never targeted are untracked; both report as not updated.
 func recoverFirmwareAttempt(ctx context.Context, c *Client, planned *firmwareAttempt) (*firmwareAttempt, error) {
 	recovered := &firmwareAttempt{taskID: planned.taskID, requestID: planned.requestID, owners: map[string][]string{}}
 	found := false
+	tracked := map[string]bool{}
 	for owner, macs := range planned.owners {
 		response, err := c.firmware.GetFirmwareUpdate(ctx, &mdk.GetFirmwareUpdateRequest{TaskId: planned.taskID, ServerId: owner})
 		if status.Code(err) == codes.NotFound {
 			recovered.owners[owner] = macs
+			for _, mac := range macs {
+				tracked[mac] = true
+			}
 			continue
 		}
 		if err != nil {
@@ -287,13 +293,23 @@ func recoverFirmwareAttempt(ctx context.Context, c *Client, planned *firmwareAtt
 		found = true
 		targets := []string{}
 		for _, target := range response.GetUpdate().GetTargets() {
-			targets = append(targets, normalizedBoardMAC(target.GetMacAddress()))
+			mac := normalizedBoardMAC(target.GetMacAddress())
+			targets = append(targets, mac)
+			tracked[mac] = true
 		}
 		recovered.owners[owner] = targets
 	}
 	if !found {
 		return nil, nil
 	}
+	for _, macs := range planned.owners {
+		for _, mac := range macs {
+			if !tracked[mac] {
+				recovered.untracked = append(recovered.untracked, mac)
+			}
+		}
+	}
+	sort.Strings(recovered.untracked)
 	return recovered, nil
 }
 
@@ -391,7 +407,7 @@ func (d *Device) GetFirmwareUpdateStatus(ctx context.Context) (*sdk.FirmwareUpda
 // firmwareAttemptStatus reports "completed" only when every target on every
 // owning controller succeeded or was current, and "failed" once every
 // existing owner job is terminal with any failure, including owners that no
-// longer know the task. Frigate restores boards either way, so Fleet
+// longer know the task and boards a resumed task never targeted. Frigate restores boards either way, so Fleet
 // never reboots CT1.
 func (d *Device) firmwareAttemptStatus(ctx context.Context, attempt *firmwareAttempt) (*sdk.FirmwareUpdateStatus, error) {
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
@@ -400,8 +416,11 @@ func (d *Device) firmwareAttemptStatus(ctx context.Context, attempt *firmwareAtt
 	if err != nil {
 		return nil, err
 	}
-	finished, expected, missing := 0, 0, 0
+	finished, expected, missing := 0, len(attempt.untracked), 0
 	var failures []string
+	for _, mac := range attempt.untracked {
+		failures = append(failures, mac+": not targeted by the resumed task")
+	}
 	allTerminal := true
 	for owner, macs := range attempt.owners {
 		expected += len(macs)

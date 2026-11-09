@@ -560,8 +560,28 @@ func restartPlugin(dev *Device) {
 }
 
 func TestFirmwareRetryAfterPluginRestartResumesItsJob(t *testing.T) {
-	for _, finished := range []bool{false, true} {
-		t.Run(fmt.Sprintf("finished=%t", finished), func(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		finished bool
+		// change alters inventory while the plugin is down.
+		change func(*mdk.GetContainerMapResponse)
+		// untracked is a board the resumed task never targeted.
+		untracked string
+	}{
+		{name: "running"},
+		{name: "finished", finished: true},
+		{name: "board replaced", change: func(w *mdk.GetContainerMapResponse) {
+			firstBoard(w).MacAddress = "02:ff:00:00:00:01"
+		}, untracked: "02:ff:00:00:00:01"},
+		{name: "ownership moved", change: func(w *mdk.GetContainerMapResponse) {
+			for _, module := range w.ContainerMap.Tanks[0].Modules {
+				for _, slot := range module.Slots {
+					slot.Hashboard.OwnerServerId = ""
+				}
+			}
+		}, untracked: boardMAC(1, 1, 1)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
 			wire, _ := splitOwnerMap()
 			dev, controller := newFirmwareDevice(t, wire)
 			file := func(request string) sdk.FirmwareFile {
@@ -570,13 +590,14 @@ func TestFirmwareRetryAfterPluginRestartResumesItsJob(t *testing.T) {
 				return f
 			}
 			require.NoError(t, dev.FirmwareUpdate(t.Context(), file("batch/1")))
-			if finished {
+			if tc.finished {
 				controller.finish()
 			}
-			// A board replaced while the plugin was down is not part of the job.
-			controller.mu.Lock()
-			firstBoard(controller.wire).MacAddress = "02:ff:00:00:00:01"
-			controller.mu.Unlock()
+			if tc.change != nil {
+				controller.mu.Lock()
+				tc.change(controller.wire)
+				controller.mu.Unlock()
+			}
 			restartPlugin(dev)
 			_, err := newHandle(dev).GetFirmwareUpdateStatus(t.Context())
 			require.Error(t, err, "a restarted plugin knows no job until the command retries")
@@ -586,7 +607,12 @@ func TestFirmwareRetryAfterPluginRestartResumesItsJob(t *testing.T) {
 			controller.finish()
 			result, err := newHandle(dev).GetFirmwareUpdateStatus(t.Context())
 			require.NoError(t, err)
-			require.Equal(t, "completed", result.State)
+			if tc.untracked == "" {
+				require.Equal(t, "completed", result.State)
+			} else {
+				require.Equal(t, "failed", result.State, "a board outside the resumed task was not updated")
+				require.Contains(t, *result.Error, tc.untracked)
+			}
 
 			restartPlugin(dev)
 			require.NoError(t, newHandle(dev).FirmwareUpdate(t.Context(), file("batch/2")))
