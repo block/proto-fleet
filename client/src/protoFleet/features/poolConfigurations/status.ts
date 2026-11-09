@@ -56,3 +56,54 @@ export const poolStatusExplanation = ({ state, resultCode }: Result): string => 
     }[state] ?? "Fleet could not load the update status. The update may still be running."
   );
 };
+
+// Removal results are historical action outcomes, not verification of the old
+// assigned configuration. They must never offer the normal reapply flow.
+export const poolRemovalOutcome = (state: string, keep: boolean, resultCode?: string) => {
+  if (["applying", "uncertain"].includes(state)) {
+    if (resultCode === "operator_recovery_required")
+      return {
+        status: "Administrator recovery required",
+        message:
+          "Fleet cannot confirm whether the earlier device command has finished. Contact an administrator to recover this operation before changing pools.",
+      };
+    if (resultCode === "runtime_pools_remain")
+      return {
+        status: "Runtime pools still present",
+        message:
+          "Saved pools are cleared, but the equipment still reports runtime pools. Fleet will keep checking. The Fleet assignment remains until verification succeeds.",
+      };
+    if (resultCode === "clear_verification_unavailable")
+      return {
+        status: "Waiting for verification",
+        message:
+          "Fleet cannot verify that the hashboard’s runtime pools are cleared. Fleet will keep checking. The Fleet assignment remains until verification succeeds.",
+      };
+  }
+  if (state === "completed")
+    return {
+      status: keep ? "Assignment removed" : "Pools cleared",
+      message: keep
+        ? "Fleet assignment removed. Device pool settings were preserved."
+        : "Device pools cleared and Fleet assignment removed.",
+    };
+  if (state === "failed")
+    return {
+      status: "Removal failed",
+      message: "Removal failed. The Fleet assignment was kept. Review the device’s settings before trying again.",
+    };
+  if (state === "superseded")
+    return {
+      status: "Replaced by a newer update",
+      message: "A newer pool configuration update replaced this removal.",
+    };
+  if (state === "uncertain")
+    return {
+      status: "Removal not confirmed",
+      message: "Fleet has not confirmed removal. Check its result before another pool change.",
+    };
+  return {
+    status: "Removing pools…",
+    message: "Clearing pools and verifying removal. The Fleet assignment stays until verification completes.",
+  };
+};

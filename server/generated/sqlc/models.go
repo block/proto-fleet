@@ -2618,6 +2618,7 @@ type PoolConfigurationOperation struct {
 	RevisionID      string
 	ActorID         int64
 	CreatedAt       time.Time
+	Kind            string
 }
 
 type PoolConfigurationOperationTarget struct {

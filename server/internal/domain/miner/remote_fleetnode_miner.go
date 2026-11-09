@@ -47,6 +47,7 @@ var remoteTelemetryDefaultCommandTimeout = 5 * time.Second
 var remoteTelemetryBusyRetryMinRemaining = 3*time.Second + remoteTelemetryAckSlack
 
 var _ interfaces.Miner = (*RemoteFleetNodeMiner)(nil)
+var _ interfaces.PoolClearVerifier = (*RemoteFleetNodeMiner)(nil)
 var _ interfaces.FirmwareUpdateStatusProvider = (*RemoteFleetNodeMiner)(nil)
 var _ interfaces.MinerCurtailmentConfigurator = (*RemoteFleetNodeMiner)(nil)
 
@@ -681,4 +682,11 @@ func (m *RemoteFleetNodeMiner) GetMiningPools(ctx context.Context) ([]interfaces
 		return m.delegate.GetMiningPools(ctx)
 	}
 	return nil, m.unsupported("get mining pools")
+}
+
+func (m *RemoteFleetNodeMiner) VerifyPoolsCleared(ctx context.Context) (bool, error) {
+	if verifier, ok := m.delegate.(interfaces.PoolClearVerifier); ok {
+		return verifier.VerifyPoolsCleared(ctx)
+	}
+	return false, m.unsupported("verify pool clearing")
 }

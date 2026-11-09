@@ -17,6 +17,7 @@ service PoolConfigurationService {
   rpc ArchiveConfiguration(ArchiveConfigurationRequest) returns (ArchiveConfigurationResponse);
   rpc ReviewEdit(ReviewEditRequest) returns (ReviewEditResponse);
   rpc AuthorizeWorkerNameReviews(AuthorizeWorkerNameReviewsRequest) returns (AuthorizeWorkerNameReviewsResponse);
+  rpc AuthorizeReviews(AuthorizeReviewsRequest) returns (AuthorizeReviewsResponse);
   rpc ConfirmReview(ConfirmReviewRequest) returns (ConfirmReviewResponse);
   rpc ReviewAssignment(ReviewAssignmentRequest) returns (ReviewAssignmentResponse);
   rpc GetOperation(GetOperationRequest) returns (GetOperationResponse);
@@ -205,10 +206,12 @@ message ConfirmReviewRequest {
   string review_id = 2 [(buf.validate.field).string.uuid = true];
   // Required when this confirmation starts equipment updates unless this exact
   // worker-name review was authorized for the current session and credential
-  // by AuthorizeWorkerNameReviews. Must be empty
+  // by AuthorizeReviews or AuthorizeWorkerNameReviews. Must be empty
   // for settings-only saves, including replays. Replaying an accepted equipment
   // confirmation returns its original result without rechecking the password.
   string password = 3 [(buf.validate.field).string.max_len = 1024];
+  // Only valid for removal reviews. This never issues a device write.
+  bool keep_device_settings = 4;
 }
 message ConfirmReviewResponse {
   Configuration configuration = 1;
@@ -235,11 +238,16 @@ message ReviewAssignmentRequest {
   option (buf.validate.message).cel = {
     id: "pool_assignment.selection"
     message: "provide exactly one equipment selection"
-    expression: "(this.device_identifiers.size() > 0 ? 1 : 0) + ((this.device_ids.size() > 0 || has(this.boards)) ? 1 : 0) + (has(this.filter) ? 1 : 0) == 1"
+    expression: "(this.device_identifiers.size() > 0 ? 1 : 0) + ((this.device_ids.size() > 0 || has(this.boards)) ? 1 : 0) + (has(this.filter) ? 1 : 0) + (has(this.removal_target) ? 1 : 0) == 1"
+  };
+  option (buf.validate.message).cel = {
+    id: "pool_assignment.intent"
+    message: "removal requires an exact target; assignment requires a configuration and version"
+    expression: "has(this.removal_target) ? (this.configuration_id == '' && this.expected_version == 0) : (this.configuration_id != '' && this.expected_version > 0)"
   };
   string account_id = 1;
-  string configuration_id = 2 [(buf.validate.field).string.uuid = true];
-  int64 expected_version = 3 [(buf.validate.field).int64.gt = 0];
+  string configuration_id = 2 [(buf.validate.field).ignore = IGNORE_IF_UNPOPULATED, (buf.validate.field).string.uuid = true];
+  int64 expected_version = 3 [(buf.validate.field).ignore = IGNORE_IF_UNPOPULATED, (buf.validate.field).int64.gt = 0];
   repeated string device_identifiers = 4 [(buf.validate.field).repeated = {max_items: 10000, unique: true, items: {string: {min_len: 1, max_len: 255}}}];
   // Operator fleet selection, expanded once at review. Account workspaces use
   // explicit equipment; all resulting equipment must pass owner checks.
@@ -247,6 +255,8 @@ message ReviewAssignmentRequest {
   // Account asset lists expose database IDs instead of device identifiers.
   repeated int64 device_ids = 6 [(buf.validate.field).repeated = {max_items: 10000, unique: true, items: {int64: {gt: 0}}}];
   BoardSelection boards = 7;
+  // Explicit removal; omission never implies an empty desired configuration.
+  RetryTarget removal_target = 8;
 }
 message GetOperationRequest {
   string account_id = 1;
@@ -263,6 +273,8 @@ message OperationTarget {
   string mac_address = 8;
 }
 message GetOperationResponse {
+  // apply, clear, or unassign
+  string kind = 6;
   string operation_id = 1;
   string configuration_id = 2;
   repeated OperationTarget targets = 3;
@@ -271,6 +283,7 @@ message GetOperationResponse {
 }
 
 message ReviewAssignmentResponse {
+  RemovalPreflight removal = 7;
   string review_id = 1;
   Configuration configuration = 2;
   int64 affected_miners = 3;
@@ -357,3 +370,18 @@ message ReadDevicePoolsResponse {
   // controllers' results. Invalid requests or account-level denial fail the RPC.
   repeated DevicePoolReading readings = 1;
 }
+
+// Preflight evidence for an explicit removal intent. Operation progress is read
+// through GetOperation; an empty operation_id means confirmation is still needed.
+message RemovalPreflight {
+ string verification_state = 1;
+ bool clear_supported = 2;
+ string operation_id = 3;
+ bool keep_device_settings = 4;
+}
+message AuthorizeReviewsRequest {
+ string account_id = 1;
+ repeated string review_ids = 2 [(buf.validate.field).repeated = {min_items: 1, max_items: 10000, unique: true, items: {string: {uuid: true}}}];
+ string password = 3 [(buf.validate.field).string = {min_len: 1, max_len: 1024}];
+}
+message AuthorizeReviewsResponse {}

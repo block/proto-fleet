@@ -109,8 +109,9 @@ func (d *Driver) DescribeDriver(ctx context.Context) (sdk.DriverIdentifier, sdk.
 		sdk.CapabilityCoolingModeAir:     true,  // We support air cooling mode
 		sdk.CapabilityCoolingModeImmerse: true,  // We support immersion cooling mode
 		sdk.CapabilityPoolConfig:         true,  // We can configure mining pools
-		sdk.CapabilityPoolPriority:       true,  // We can set pool priority
-		sdk.CapabilityLogsDownload:       true,  // We can download device logs
+		sdk.CapabilityPoolClear:          true,
+		sdk.CapabilityPoolPriority:       true, // We can set pool priority
+		sdk.CapabilityLogsDownload:       true, // We can download device logs
 
 		// Power mode capabilities
 		sdk.CapabilityPowerModeEfficiency: true, // We support efficiency/low power mode

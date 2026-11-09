@@ -1673,3 +1673,20 @@ func TestPluginMiner_GetDeviceStatus_DefaultPasswordActive_ReturnsForbidden(t *t
 		})
 	}
 }
+
+func TestPluginMinerClearPoolsRequiresCapabilityAndExplicitEmptyPayload(t *testing.T) {
+	pm, device := createTestPluginMiner()
+	calls := 0
+	device.updatePoolsFunc = func(_ context.Context, pools []sdk.MiningPoolConfig) error {
+		calls++
+		require.Empty(t, pools)
+		return nil
+	}
+	require.Error(t, pm.UpdateMiningPools(t.Context(), dto.UpdateMiningPoolsPayload{ClearAll: true}))
+	require.Zero(t, calls)
+	pm.caps[sdk.CapabilityPoolClear] = true
+	require.Error(t, pm.UpdateMiningPools(t.Context(), dto.UpdateMiningPoolsPayload{ClearAll: true, DefaultPool: dto.MiningPool{URL: "stratum+tcp://pool.example"}}))
+	require.Zero(t, calls)
+	require.NoError(t, pm.UpdateMiningPools(t.Context(), dto.UpdateMiningPoolsPayload{ClearAll: true}))
+	require.Equal(t, 1, calls)
+}

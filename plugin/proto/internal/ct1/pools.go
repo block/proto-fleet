@@ -33,8 +33,12 @@ func (d *Device) UpdateMiningPools(ctx context.Context, desired []sdk.MiningPool
 	writeStarted := false
 	desired = slices.Clone(desired)
 	slices.SortFunc(desired, func(a, b sdk.MiningPoolConfig) int { return cmp.Compare(a.Priority, b.Priority) })
-	if err := validateWholePoolStack(desired); err != nil {
-		return sdk.InvalidWriteRequest(err)
+	// An empty stack is the SDK's explicit clear operation. Ordinary Fleet
+	// updates are still required to contain a primary pool before dispatch.
+	if len(desired) > 0 {
+		if err := validateWholePoolStack(desired); err != nil {
+			return sdk.InvalidWriteRequest(err)
+		}
 	}
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
@@ -235,7 +239,7 @@ func verifyRuntimePools(ctx context.Context, client mdk.PoolServiceClient, store
 			expected[pool.Id] = pool
 		}
 	}
-	if response.GetWeightedMode() || len(response.GetPools()) != len(expected) {
+	if response.GetWeightedMode() || len(response.GetPools()) != len(expected) || response.GetActivePoolId() != 0 && expected[response.GetActivePoolId()] == nil {
 		return sdk.WriteReasonStaleBinding, fmt.Errorf("container runtime pools differ from stored configuration")
 	}
 	for _, pool := range response.GetPools() {

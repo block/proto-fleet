@@ -55,6 +55,9 @@ const (
 	// PoolConfigurationServiceAuthorizeWorkerNameReviewsProcedure is the fully-qualified name of the
 	// PoolConfigurationService's AuthorizeWorkerNameReviews RPC.
 	PoolConfigurationServiceAuthorizeWorkerNameReviewsProcedure = "/poolconfigurations.v1.PoolConfigurationService/AuthorizeWorkerNameReviews"
+	// PoolConfigurationServiceAuthorizeReviewsProcedure is the fully-qualified name of the
+	// PoolConfigurationService's AuthorizeReviews RPC.
+	PoolConfigurationServiceAuthorizeReviewsProcedure = "/poolconfigurations.v1.PoolConfigurationService/AuthorizeReviews"
 	// PoolConfigurationServiceConfirmReviewProcedure is the fully-qualified name of the
 	// PoolConfigurationService's ConfirmReview RPC.
 	PoolConfigurationServiceConfirmReviewProcedure = "/poolconfigurations.v1.PoolConfigurationService/ConfirmReview"
@@ -94,6 +97,7 @@ type PoolConfigurationServiceClient interface {
 	ArchiveConfiguration(context.Context, *connect.Request[v1.ArchiveConfigurationRequest]) (*connect.Response[v1.ArchiveConfigurationResponse], error)
 	ReviewEdit(context.Context, *connect.Request[v1.ReviewEditRequest]) (*connect.Response[v1.ReviewEditResponse], error)
 	AuthorizeWorkerNameReviews(context.Context, *connect.Request[v1.AuthorizeWorkerNameReviewsRequest]) (*connect.Response[v1.AuthorizeWorkerNameReviewsResponse], error)
+	AuthorizeReviews(context.Context, *connect.Request[v1.AuthorizeReviewsRequest]) (*connect.Response[v1.AuthorizeReviewsResponse], error)
 	ConfirmReview(context.Context, *connect.Request[v1.ConfirmReviewRequest]) (*connect.Response[v1.ConfirmReviewResponse], error)
 	ReviewAssignment(context.Context, *connect.Request[v1.ReviewAssignmentRequest]) (*connect.Response[v1.ReviewAssignmentResponse], error)
 	GetOperation(context.Context, *connect.Request[v1.GetOperationRequest]) (*connect.Response[v1.GetOperationResponse], error)
@@ -149,6 +153,11 @@ func NewPoolConfigurationServiceClient(httpClient connect.HTTPClient, baseURL st
 		authorizeWorkerNameReviews: connect.NewClient[v1.AuthorizeWorkerNameReviewsRequest, v1.AuthorizeWorkerNameReviewsResponse](
 			httpClient,
 			baseURL+PoolConfigurationServiceAuthorizeWorkerNameReviewsProcedure,
+			opts...,
+		),
+		authorizeReviews: connect.NewClient[v1.AuthorizeReviewsRequest, v1.AuthorizeReviewsResponse](
+			httpClient,
+			baseURL+PoolConfigurationServiceAuthorizeReviewsProcedure,
 			opts...,
 		),
 		confirmReview: connect.NewClient[v1.ConfirmReviewRequest, v1.ConfirmReviewResponse](
@@ -208,6 +217,7 @@ type poolConfigurationServiceClient struct {
 	archiveConfiguration       *connect.Client[v1.ArchiveConfigurationRequest, v1.ArchiveConfigurationResponse]
 	reviewEdit                 *connect.Client[v1.ReviewEditRequest, v1.ReviewEditResponse]
 	authorizeWorkerNameReviews *connect.Client[v1.AuthorizeWorkerNameReviewsRequest, v1.AuthorizeWorkerNameReviewsResponse]
+	authorizeReviews           *connect.Client[v1.AuthorizeReviewsRequest, v1.AuthorizeReviewsResponse]
 	confirmReview              *connect.Client[v1.ConfirmReviewRequest, v1.ConfirmReviewResponse]
 	reviewAssignment           *connect.Client[v1.ReviewAssignmentRequest, v1.ReviewAssignmentResponse]
 	getOperation               *connect.Client[v1.GetOperationRequest, v1.GetOperationResponse]
@@ -254,6 +264,11 @@ func (c *poolConfigurationServiceClient) ReviewEdit(ctx context.Context, req *co
 // poolconfigurations.v1.PoolConfigurationService.AuthorizeWorkerNameReviews.
 func (c *poolConfigurationServiceClient) AuthorizeWorkerNameReviews(ctx context.Context, req *connect.Request[v1.AuthorizeWorkerNameReviewsRequest]) (*connect.Response[v1.AuthorizeWorkerNameReviewsResponse], error) {
 	return c.authorizeWorkerNameReviews.CallUnary(ctx, req)
+}
+
+// AuthorizeReviews calls poolconfigurations.v1.PoolConfigurationService.AuthorizeReviews.
+func (c *poolConfigurationServiceClient) AuthorizeReviews(ctx context.Context, req *connect.Request[v1.AuthorizeReviewsRequest]) (*connect.Response[v1.AuthorizeReviewsResponse], error) {
+	return c.authorizeReviews.CallUnary(ctx, req)
 }
 
 // ConfirmReview calls poolconfigurations.v1.PoolConfigurationService.ConfirmReview.
@@ -311,6 +326,7 @@ type PoolConfigurationServiceHandler interface {
 	ArchiveConfiguration(context.Context, *connect.Request[v1.ArchiveConfigurationRequest]) (*connect.Response[v1.ArchiveConfigurationResponse], error)
 	ReviewEdit(context.Context, *connect.Request[v1.ReviewEditRequest]) (*connect.Response[v1.ReviewEditResponse], error)
 	AuthorizeWorkerNameReviews(context.Context, *connect.Request[v1.AuthorizeWorkerNameReviewsRequest]) (*connect.Response[v1.AuthorizeWorkerNameReviewsResponse], error)
+	AuthorizeReviews(context.Context, *connect.Request[v1.AuthorizeReviewsRequest]) (*connect.Response[v1.AuthorizeReviewsResponse], error)
 	ConfirmReview(context.Context, *connect.Request[v1.ConfirmReviewRequest]) (*connect.Response[v1.ConfirmReviewResponse], error)
 	ReviewAssignment(context.Context, *connect.Request[v1.ReviewAssignmentRequest]) (*connect.Response[v1.ReviewAssignmentResponse], error)
 	GetOperation(context.Context, *connect.Request[v1.GetOperationRequest]) (*connect.Response[v1.GetOperationResponse], error)
@@ -361,6 +377,11 @@ func NewPoolConfigurationServiceHandler(svc PoolConfigurationServiceHandler, opt
 	poolConfigurationServiceAuthorizeWorkerNameReviewsHandler := connect.NewUnaryHandler(
 		PoolConfigurationServiceAuthorizeWorkerNameReviewsProcedure,
 		svc.AuthorizeWorkerNameReviews,
+		opts...,
+	)
+	poolConfigurationServiceAuthorizeReviewsHandler := connect.NewUnaryHandler(
+		PoolConfigurationServiceAuthorizeReviewsProcedure,
+		svc.AuthorizeReviews,
 		opts...,
 	)
 	poolConfigurationServiceConfirmReviewHandler := connect.NewUnaryHandler(
@@ -424,6 +445,8 @@ func NewPoolConfigurationServiceHandler(svc PoolConfigurationServiceHandler, opt
 			poolConfigurationServiceReviewEditHandler.ServeHTTP(w, r)
 		case PoolConfigurationServiceAuthorizeWorkerNameReviewsProcedure:
 			poolConfigurationServiceAuthorizeWorkerNameReviewsHandler.ServeHTTP(w, r)
+		case PoolConfigurationServiceAuthorizeReviewsProcedure:
+			poolConfigurationServiceAuthorizeReviewsHandler.ServeHTTP(w, r)
 		case PoolConfigurationServiceConfirmReviewProcedure:
 			poolConfigurationServiceConfirmReviewHandler.ServeHTTP(w, r)
 		case PoolConfigurationServiceReviewAssignmentProcedure:
@@ -477,6 +500,10 @@ func (UnimplementedPoolConfigurationServiceHandler) ReviewEdit(context.Context, 
 
 func (UnimplementedPoolConfigurationServiceHandler) AuthorizeWorkerNameReviews(context.Context, *connect.Request[v1.AuthorizeWorkerNameReviewsRequest]) (*connect.Response[v1.AuthorizeWorkerNameReviewsResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("poolconfigurations.v1.PoolConfigurationService.AuthorizeWorkerNameReviews is not implemented"))
+}
+
+func (UnimplementedPoolConfigurationServiceHandler) AuthorizeReviews(context.Context, *connect.Request[v1.AuthorizeReviewsRequest]) (*connect.Response[v1.AuthorizeReviewsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("poolconfigurations.v1.PoolConfigurationService.AuthorizeReviews is not implemented"))
 }
 
 func (UnimplementedPoolConfigurationServiceHandler) ConfirmReview(context.Context, *connect.Request[v1.ConfirmReviewRequest]) (*connect.Response[v1.ConfirmReviewResponse], error) {

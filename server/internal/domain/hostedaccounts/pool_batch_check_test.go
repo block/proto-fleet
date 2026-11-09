@@ -190,7 +190,7 @@ func TestReadDevicePoolsPreservesHealthyControllersAndSkipsAssignedTargets(t *te
 	require.NoError(t, err)
 	review, err := service.ReviewAssignment(ctx, f.account.AccountID, config.ID, config.Version, targets[2:])
 	require.NoError(t, err)
-	_, err = service.ConfirmReview(ctx, f.account.AccountID, review.ID, "actor-password")
+	_, err = service.ConfirmReview(ctx, f.account.AccountID, review.ID, poolconfigurations.Confirmation{Password: "actor-password"})
 	require.NoError(t, err)
 	for _, device := range devices {
 		device.observations = 0
@@ -271,7 +271,7 @@ func TestReadDevicePoolsRechecksBindingAndAuthorityBeforeObservation(t *testing.
 			authority := &changingBatchAuthority{Authority: f.pools, change: func() {
 				switch change {
 				case "assignment":
-					_, err = assignmentService.ConfirmReview(ctx, f.account.AccountID, assignmentReviewID, "actor-password")
+					_, err = assignmentService.ConfirmReview(ctx, f.account.AccountID, assignmentReviewID, poolconfigurations.Confirmation{Password: "actor-password"})
 				case "stale inventory":
 					_, err = f.db.ExecContext(ctx, `UPDATE hashboard_slot SET observed_at=now()-interval '3 minutes' WHERE hashboard_id=$1`, board.HashboardID)
 				case "removed installation":

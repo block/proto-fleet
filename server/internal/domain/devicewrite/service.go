@@ -81,6 +81,11 @@ func (s *Service) BeginQueuedHost(ctx context.Context, message queue.Message) (*
 		if curtailmentCommand == "" && (fence.State != "host" || fence.Epoch != message.WriteEpoch) {
 			return nil, blocked()
 		}
+		if MayAffectPools(operationMutation, message.CommandType.String()) {
+			if err := requirePoolRemovalAdmission(ctx, q, message.OrgID, message.DeviceID, message.CommandType); err != nil {
+				return nil, err
+			}
+		}
 		persisted, err := q.LockQueuedDeviceWrite(ctx, message.ID)
 		if err != nil {
 			return nil, lookupError(err)
@@ -107,6 +112,13 @@ func (a *Attempt) Recheck(ctx context.Context) error {
 	if !valid {
 		return fleeterror.NewFailedPreconditionErrorf("device write admission changed; resolve fresh state before dispatch: %w", ErrStaleBinding)
 	}
+	if a.curtailmentCommand != "" {
+		kind, err := commandtype.FromString(a.curtailmentCommand)
+		if err != nil {
+			return err
+		}
+		return requirePoolRemovalAdmission(ctx, a.service.bindingQueries(ctx), a.organizationID, a.deviceID, kind)
+	}
 	return nil
 }
 
@@ -127,7 +139,7 @@ func (a *Attempt) Finish(ctx context.Context, outcome error) error {
 		if _, err := q.LockDeviceWriteFenceRecord(ctx, sqlc.LockDeviceWriteFenceRecordParams{DeviceID: a.deviceID, OrganizationID: a.organizationID}); err != nil {
 			return err
 		}
-		status := "complete"
+		status := statusComplete
 		if a.dispatched.Load() && (!a.ordered.Load() || classification.kind == sdk.WriteUnknown) {
 			status = "unknown"
 		}
@@ -182,6 +194,9 @@ func (s *Service) Reserve(ctx context.Context, organizationID, deviceID int64) (
 			return 0, err
 		}
 		if _, err := lockFence(ctx, q, organizationID, deviceID); err != nil {
+			return 0, err
+		}
+		if err := requireNoActivePoolRemoval(ctx, q, organizationID, deviceID); err != nil {
 			return 0, err
 		}
 		epoch, err := q.ReserveDeviceWriteFence(ctx, sqlc.ReserveDeviceWriteFenceParams{DeviceID: deviceID, OrganizationID: organizationID})
@@ -366,6 +381,11 @@ func (s *Service) beginHost(ctx context.Context, organizationID, deviceID, epoch
 		kind := operationMutation
 		if observation {
 			kind = operationObservation
+		}
+		if !observation && MayAffectPools(operationMutation, commandKind.String()) {
+			if err := requirePoolRemovalAdmission(ctx, q, organizationID, deviceID, commandKind); err != nil {
+				return nil, err
+			}
 		}
 		attempt := &Attempt{service: s, id: uuid.New(), deviceID: deviceID, organizationID: organizationID, epoch: epoch, observation: observation, curtailmentCommand: curtailmentCommand}
 		if err := q.CreateDeviceWriteAttempt(ctx, sqlc.CreateDeviceWriteAttemptParams{AttemptID: attempt.id, DeviceID: deviceID, OrganizationID: organizationID, Epoch: epoch, IdentityKeys: keys, OwnerInstanceID: processInstanceID, OperationKind: kind, CommandType: commandKind.String(), CurtailmentCommand: sql.NullString{String: curtailmentCommand, Valid: curtailmentCommand != ""}}); err != nil {

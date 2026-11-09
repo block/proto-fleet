@@ -47,6 +47,11 @@ type haServer struct {
 
 func startHAServer(t *testing.T, id, peer string) *haServer {
 	t.Helper()
+	return startHAGroupServer(t, id, peer, nil)
+}
+
+func startHAGroupServer(t *testing.T, id, peer string, groups mdk.MiningGroupServiceServer) *haServer {
+	t.Helper()
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)
 	host, portText, err := net.SplitHostPort(listener.Addr().String())
@@ -59,7 +64,10 @@ func startHAServer(t *testing.T, id, peer string) *haServer {
 	mdk.RegisterPowerServiceServer(s.server, s)
 	mdk.RegisterHashboardServiceServer(s.server, s)
 	mdk.RegisterMiningServiceServer(s.server, s)
-	mdk.RegisterMiningGroupServiceServer(s.server, s)
+	if groups == nil {
+		groups = s
+	}
+	mdk.RegisterMiningGroupServiceServer(s.server, groups)
 	go func() { _ = s.server.Serve(listener) }()
 	t.Cleanup(s.server.Stop)
 	return s

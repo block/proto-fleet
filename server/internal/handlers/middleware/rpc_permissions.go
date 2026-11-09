@@ -71,6 +71,7 @@ var ProcedurePermissions = map[string]string{
 	poolconfigurationsv1connect.PoolConfigurationServiceReviewEditProcedure:                 authz.PermPoolManage,
 	poolconfigurationsv1connect.PoolConfigurationServiceTestConnectionProcedure:             authz.PermPoolManage,
 	poolconfigurationsv1connect.PoolConfigurationServiceAuthorizeWorkerNameReviewsProcedure: authz.PermMinerUpdateWorkerName,
+	poolconfigurationsv1connect.PoolConfigurationServiceAuthorizeReviewsProcedure:           authz.PermPoolRead,
 	poolconfigurationsv1connect.PoolConfigurationServiceConfirmReviewProcedure:              authz.PermPoolRead,
 	poolconfigurationsv1connect.PoolConfigurationServiceReviewAssignmentProcedure:           authz.PermPoolRead,
 	poolconfigurationsv1connect.PoolConfigurationServiceGetOperationProcedure:               authz.PermPoolRead,
@@ -79,6 +80,8 @@ var ProcedurePermissions = map[string]string{
 	poolconfigurationsv1connect.PoolConfigurationServiceReadDevicePoolsProcedure:            authz.PermPoolRead,
 	poolconfigurationsv1connect.PoolConfigurationServiceReviewRetryProcedure:                authz.PermPoolRead,
 	poolconfigurationsv1connect.PoolConfigurationServiceListOperationsProcedure:             authz.PermPoolRead,
+	// Removal entry points require pool visibility; the domain service also
+	// checks live equipment authority and credentials for the reviewed targets.
 
 	maintenancev1connect.MaintenanceServiceListTicketAssetOptionsProcedure:     authz.PermMaintenanceRead,
 	maintenancev1connect.MaintenanceServiceShareRepairTicketProcedure:          authz.PermMaintenanceManage,

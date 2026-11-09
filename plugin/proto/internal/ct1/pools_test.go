@@ -35,6 +35,7 @@ type poolServer struct {
 	reads             int
 	modeReads         int
 	loseDelete        bool
+	ignoreDelete      bool
 	enableAfterWrite  bool
 	runtimeOverride   bool
 	runtimeAfterWrite bool
@@ -117,13 +118,63 @@ func (s *poolServer) UpdatePool(_ context.Context, r *mdk.UpdatePoolRequest) (*m
 }
 func (s *poolServer) DeletePool(_ context.Context, r *mdk.DeletePoolRequest) (*mdk.DeletePoolResponse, error) {
 	s.writes++
-	s.pools = slices.DeleteFunc(s.pools, func(p *mdk.Pool) bool { return p.Id == r.Id })
-	delete(s.passwords, r.Id)
+	if !s.ignoreDelete {
+		s.pools = slices.DeleteFunc(s.pools, func(p *mdk.Pool) bool { return p.Id == r.Id })
+		delete(s.passwords, r.Id)
+	}
+	s.enabledGroups = s.enabledGroups || s.enableAfterWrite
 	if s.loseDelete {
 		s.loseDelete = false
 		return nil, fmt.Errorf("pool test: %w", status.Error(codes.Unavailable, "lost delete reply"))
 	}
 	return &mdk.DeletePoolResponse{}, nil
+}
+
+func TestWholeContainerClearPools(t *testing.T) {
+	for _, scenario := range []string{"last pool", "disabled pool", "already empty", "groups enabled", "mode changes", "ignored delete", "lost delete reply", "runtime override"} {
+		t.Run(scenario, func(t *testing.T) {
+			stub := &poolServer{
+				pools:     []*mdk.Pool{{Id: 1, Name: "Primary", Url: "stratum+tcp://pool.example", Username: "worker", Enabled: true}},
+				passwords: map[int64]string{1: "private"},
+			}
+			switch scenario {
+			case "disabled pool":
+				stub.pools[0].Enabled = false
+			case "already empty":
+				stub.pools, stub.passwords = nil, map[int64]string{}
+			case "groups enabled":
+				stub.enabledGroups = true
+			case "mode changes":
+				stub.enableAfterWrite = true
+			case "ignored delete":
+				stub.ignoreDelete = true
+			case "lost delete reply":
+				stub.loseDelete = true
+			case "runtime override":
+				stub.runtimeAfterWrite = true
+			}
+			d := poolTestDevice(t, stub)
+			err := d.UpdateMiningPools(t.Context(), nil)
+			if scenario == "last pool" || scenario == "disabled pool" || scenario == "already empty" {
+				require.NoError(t, err)
+				stored, err := d.GetStoredMiningPools(t.Context())
+				require.NoError(t, err)
+				require.Empty(t, stored)
+				runtime, err := d.GetMiningPools(t.Context())
+				require.NoError(t, err)
+				require.Empty(t, runtime)
+				require.Empty(t, stub.passwords)
+			} else {
+				require.Error(t, err)
+				if scenario == "groups enabled" {
+					require.Zero(t, stub.writes)
+					require.Equal(t, sdk.WriteNotDispatched, sdk.WriteEvidence(err).GetReason())
+				} else {
+					require.Nil(t, sdk.WriteEvidence(err), "partial or uncertain clears must never be classified as not dispatched")
+				}
+			}
+		})
+	}
 }
 
 // Mirrors the pinned firmware's enabled-stack and unique-name constraints.

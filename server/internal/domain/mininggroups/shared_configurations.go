@@ -239,6 +239,9 @@ func poolActorContext(ctx context.Context, orgID, actorID int64, accountID strin
 // groupCredentials reads immutable execution material. The legacy reader exists
 // only for retained pre-cutover controller bindings, never for new assignments.
 func (s *Service) groupCredentials(ctx context.Context, q sqlc.Querier, orgID, deviceID int64, id string) ([]sdk.MiningGroupPoolInput, error) {
+	if poolconfigurations.IsClearedPoolIntent(id) {
+		return nil, nil
+	}
 	snapshot, err := q.GetPoolGroupSnapshot(ctx, sqlc.GetPoolGroupSnapshotParams{OrganizationID: orgID, DeviceID: deviceID, SnapshotID: id})
 	if errors.Is(err, sql.ErrNoRows) {
 		cutover, gateErr := q.HasPoolConfigurationCutover(ctx, orgID)
@@ -276,7 +279,7 @@ func (s *Service) authorizeSharedWorkflow(ctx context.Context, q sqlc.Querier, r
 		return false, err
 	}
 	if len(targets) == 0 {
-		return false, nil
+		return s.authorizeRemovalWorkflow(ctx, q, row, nil)
 	}
 	for _, target := range targets {
 		actorCtx, err := poolActorContext(ctx, row.OrganizationID, target.ActorID, target.ExternalAccountID)
@@ -368,7 +371,11 @@ func (s *Service) authorizeWorkflowBoards(ctx context.Context, q sqlc.Querier, r
 		return nil
 	}
 	authority, err := q.ListPoolGroupAttemptTargets(ctx, sqlc.ListPoolGroupAttemptTargetsParams{OrganizationID: row.OrganizationID, PhysicalAttemptID: row.AttemptID})
-	if err != nil || len(authority) == 0 {
+	if err != nil {
+		return err
+	}
+	if len(authority) == 0 {
+		_, err := s.authorizeRemovalWorkflow(ctx, q, row, boards)
 		return err
 	}
 	actor := authority[0]
@@ -389,8 +396,14 @@ func (s *Service) authorizeAffectedWorkflowBoards(ctx context.Context, q sqlc.Qu
 		return nil
 	}
 	authority, err := q.ListPoolGroupAttemptTargets(ctx, sqlc.ListPoolGroupAttemptTargetsParams{OrganizationID: row.OrganizationID, PhysicalAttemptID: row.AttemptID})
-	if err != nil || len(authority) == 0 {
+	if err != nil {
 		return err
+	}
+	if len(authority) == 0 {
+		removal, err := s.authorizeRemovalWorkflow(ctx, q, row, nil)
+		if err != nil || !removal {
+			return err
+		}
 	}
 	boards, err := q.ListPoolAffectedBoards(ctx, sqlc.ListPoolAffectedBoardsParams{OrgID: row.OrganizationID, ID: row.DeviceID, MacAddresses: affected})
 	if err != nil {

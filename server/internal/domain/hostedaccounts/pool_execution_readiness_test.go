@@ -32,7 +32,7 @@ func TestPoolContainerChecksModeWithinWriteAdmissionBeforeClaim(t *testing.T) {
 			target := poolconfigurations.AssignmentTarget{Kind: poolconfigurations.TargetDevice, ID: controller, DeviceID: controller}
 			review, err := service.ReviewAssignment(ctx, f.account.AccountID, config.ID, config.Version, []poolconfigurations.AssignmentTarget{target})
 			require.NoError(t, err)
-			saved, err := service.ConfirmReview(ctx, f.account.AccountID, review.ID, "actor-password")
+			saved, err := service.ConfirmReview(ctx, f.account.AccountID, review.ID, poolconfigurations.Confirmation{Password: "actor-password"})
 			require.NoError(t, err)
 			_, err = f.db.ExecContext(ctx, `UPDATE container_mining_group_state SET observed_at=now()-interval '3 minutes' WHERE device_id=$1`, controller)
 			require.NoError(t, err)

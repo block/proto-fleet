@@ -805,13 +805,14 @@ func start(config *Config) (result error) {
 	poolRepository := poolconfigurationsDomain.NewRepository(encryptSvc)
 	poolReviewer := poolapplications.NewReviewer(hostedPoolsSvc, pluginService)
 	poolReadiness := poolapplications.NewReadiness(conn, poolReviewer, minerService)
-	poolConfigurationsSvc := poolconfigurationsDomain.NewService(conn, poolRepository, hostedPoolsSvc, poolReviewer).WithDeviceSelector(fleetMgmtSvc).WithReadiness(poolReadiness).WithConnectionTester(poolsSvc).WithChecker(poolapplications.NewChecker(conn, poolReviewer, minerService, encryptSvc, hostedPoolsSvc))
+	poolChecker := poolapplications.NewChecker(conn, poolReviewer, minerService, encryptSvc, hostedPoolsSvc)
+	poolConfigurationsSvc := poolconfigurationsDomain.NewService(conn, poolRepository, hostedPoolsSvc, poolReviewer).WithDeviceSelector(fleetMgmtSvc).WithReadiness(poolReadiness).WithConnectionTester(poolsSvc).WithChecker(poolChecker)
 	foremanImportSvc := foremanImportDomain.NewService(poolConfigurationsSvc, collectionSvc, deviceStore)
 
 	poolWorker := poolapplications.NewWorker(conn, poolRepository, poolReviewer, minerService, encryptSvc)
 	fleetMgmtSvc.WithWorkerNameReviews(poolConfigurationsSvc)
-	groupsSvc := mininggroupsDomain.NewService(conn, minerService, hostedPoolsSvc, encryptSvc).WithPoolConfigurations(poolRepository, poolReviewer)
-	poolWorker.WithBoardApplications(groupsSvc)
+	groupsSvc := mininggroupsDomain.NewService(conn, minerService, hostedPoolsSvc, encryptSvc).WithPoolConfigurations(poolRepository, poolReviewer).WithPoolRemovals(poolChecker)
+	poolWorker.WithBoardApplications(groupsSvc).WithRemovals(poolChecker)
 	jobs, err := newRuntimeJobs(runtimeJobLifecycles{
 		plugins: stopOnlyLifecycle{
 			stop:     pluginService.Shutdown,

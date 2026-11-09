@@ -108,6 +108,18 @@ block a new ownership reservation. Running attempts continue to block drain.
 An unknown curtailment control on reserved or active custody quarantines its
 fence; successful synchronous controls leave that custody unchanged.
 
+The offline inspection also lists a completed whole-device pool clear when its
+removal journal is still applying or uncertain. This is verification recovery,
+not an unresolved physical call. The evidence template includes the exact
+`pool_removal_id`; the same stopped-dispatcher, quiescence, and configuration
+attestations are required. Applying recovery marks that removal interrupted,
+retains its Fleet assignment and the physical attempt's `complete` status, and
+records evidence and advances custody's epoch atomically. It never reports clear
+success from an unavailable readback. Completed calls without an unfinished
+whole-device removal remain ineligible. Migration 1067 permits the corresponding
+`complete` prior status in recovery audit records; downgrade refuses to discard
+that evidence.
+
 Pool assignment readiness is narrower than ownership recovery. Migration 1052
 records each admitted command type, backfilling queued attempts from their original
 queue entries. LED, log, cooling, and power-target attempts do not block pool

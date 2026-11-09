@@ -91,3 +91,21 @@ func TestVerifyPoolsAcceptsOnlyClearedTrailingSlots(t *testing.T) {
 		})
 	}
 }
+
+type remotePoolVerificationMiner struct {
+	interfaces.Miner
+	cleared bool
+	err     error
+}
+
+func (m remotePoolVerificationMiner) VerifyPoolsCleared(context.Context) (bool, error) {
+	return m.cleared, m.err
+}
+func TestRemovalUsesCompleteRemoteObservation(t *testing.T) {
+	for _, tc := range []remotePoolVerificationMiner{{cleared: true}, {}, {err: fmt.Errorf("readback unavailable")}} {
+		// This remote miner deliberately has no private stored-pool reader.
+		empty, err := removalPoolsEmpty(t.Context(), tc, false)
+		require.Equal(t, tc.cleared, empty)
+		require.Equal(t, tc.err, err)
+	}
+}

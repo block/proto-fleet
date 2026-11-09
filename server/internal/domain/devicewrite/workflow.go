@@ -12,7 +12,8 @@ import (
 
 // BeginWorkflow commits a durable physical admission together with the caller's
 // journal. Unlike a single RPC, this admission stays running across restarts
-// until the journal verifies the controller's terminal outcome.
+// until the journal verifies the controller's terminal outcome. The record
+// callback is database-only: device I/O must wait until admission commits.
 func (s *Service) BeginWorkflow(ctx context.Context, orgID, deviceID int64, record func(context.Context, sqlc.Querier, uuid.UUID, int64) error) error {
 	return db.WithTransactionTimeoutNoResult(ctx, s.conn, runtimepolicy.CommandTransactionBound, func(q sqlc.Querier) error {
 		keys, err := lockIdentity(ctx, q, deviceID)
@@ -25,6 +26,9 @@ func (s *Service) BeginWorkflow(ctx context.Context, orgID, deviceID int64, reco
 		}
 		if fence.State != "host" {
 			return blocked()
+		}
+		if err := requireNoActivePoolRemoval(ctx, q, orgID, deviceID); err != nil {
+			return err
 		}
 		id := uuid.New()
 		if err := q.CreateDeviceWriteAttempt(ctx, sqlc.CreateDeviceWriteAttemptParams{AttemptID: id, DeviceID: deviceID, OrganizationID: orgID, Epoch: fence.Epoch, IdentityKeys: keys, OwnerInstanceID: processInstanceID, OperationKind: operationMutation, CommandType: "MiningGroups"}); err != nil {
@@ -54,7 +58,7 @@ func (s *Service) ResumeWorkflow(ctx context.Context, orgID, deviceID int64, id 
 // transfers. A terminal failed workflow can release admission without claiming
 // its requested configuration succeeded; the journal retains that outcome.
 func CompleteWorkflow(ctx context.Context, q sqlc.Querier, id uuid.UUID) error {
-	n, err := q.FinishDeviceWriteAttempt(ctx, sqlc.FinishDeviceWriteAttemptParams{AttemptID: id, Status: "complete", WriteOutcome: []byte("{}")})
+	n, err := q.FinishDeviceWriteAttempt(ctx, sqlc.FinishDeviceWriteAttemptParams{AttemptID: id, Status: statusComplete, WriteOutcome: []byte("{}")})
 	if err != nil {
 		return err
 	}

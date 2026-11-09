@@ -4,6 +4,8 @@ import (
 	"context"
 	"database/sql"
 
+	"github.com/block/proto-fleet/server/internal/domain/poolconfigurations"
+
 	"github.com/block/proto-fleet/server/generated/sqlc"
 )
 
@@ -14,7 +16,7 @@ func retainObservedIntents(ctx context.Context, q sqlc.Querier, row sqlc.Contain
 		return nil
 	}
 	for _, group := range snapshot.Groups {
-		if !group.Managed || !group.Configured {
+		if !group.Managed || !group.Configured || poolconfigurations.IsClearedPoolIntent(group.ConfigRevision) {
 			continue
 		}
 		if err := q.RetainAppliedPoolGroupIntents(ctx, sqlc.RetainAppliedPoolGroupIntentsParams{OrganizationID: row.OrganizationID, PhysicalAttemptID: row.AttemptID, GroupSnapshotID: sql.NullString{String: group.ConfigRevision, Valid: true}, MacAddresses: group.Members}); err != nil {

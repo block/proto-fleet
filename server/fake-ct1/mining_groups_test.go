@@ -203,3 +203,59 @@ func TestMiningGroupsWorkflow(t *testing.T) {
 		t.Fatal("transfer ignored stopped destination intent")
 	}
 }
+
+func TestMiningGroupPoolClearDiagnostics(t *testing.T) {
+	s := NewContainerState(ContainerConfig{ServerID: "clear", Tanks: 1, ModulesPerTank: 1, SlotsPerModule: 3, Seed: 1})
+	api := &grpcAPI{state: s}
+	ctx := t.Context()
+	_, err := api.StopMining(ctx, &mdk.StopMiningRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = api.ActivateMiningGroups(ctx, &mdk.ActivateMiningGroupsRequest{ExpectedStateRevision: 1, IdempotencyKey: "activate"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	group, err := api.CreateMiningGroup(ctx, &mdk.CreateMiningGroupRequest{Metadata: &mdk.MiningGroupMetadata{Name: "Cleared"}, IdempotencyKey: "create"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	members, err := api.ListMiningGroupMemberships(ctx, &mdk.ListMiningGroupMembershipsRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	mac := members.Memberships[0].MacAddress
+	_, err = api.RequestMiningGroupTransfer(ctx, &mdk.RequestMiningGroupTransferRequest{SourceGroupId: "default", DestinationGroupId: group.Group.Id, SourceExpectedRevision: 1, DestinationExpectedRevision: 1, MacAddresses: []string{mac}, IdempotencyKey: "move"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = api.ReplaceMiningGroupPools(ctx, &mdk.ReplaceMiningGroupPoolsRequest{GroupId: group.Group.Id, ExpectedRevision: 2, IdempotencyKey: "clear"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := api.GetMiningGroupPoolDiagnostics(ctx, &mdk.GetMiningGroupPoolDiagnosticsRequest{GroupId: group.Group.Id})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Pools) != 0 {
+		t.Fatal("pools remain")
+	}
+	if len(result.ObservedMacAddresses) != 1 || result.ObservedMacAddresses[0] != mac {
+		t.Fatal(result)
+	}
+	if s.boardsByMAC[strings.ToUpper(mac)].isMining() {
+		t.Fatal("cleared board is mining")
+	}
+	s.boardsByMAC[strings.ToUpper(mac)].State = miningStateDisconnected
+	result, err = api.GetMiningGroupPoolDiagnostics(ctx, &mdk.GetMiningGroupPoolDiagnosticsRequest{GroupId: group.Group.Id})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.ObservedMacAddresses) != 0 {
+		t.Fatal("disconnected board reported observed")
+	}
+	_, err = api.GetMiningGroupPoolDiagnostics(ctx, &mdk.GetMiningGroupPoolDiagnosticsRequest{GroupId: "default"})
+	if status.Code(err) != codes.InvalidArgument {
+		t.Fatal(err)
+	}
+}

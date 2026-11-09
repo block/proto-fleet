@@ -61,7 +61,7 @@ func TestPoolConfigurationCheckReadsWithoutWritingAndPreservesUncertainty(t *tes
 	require.Empty(t, before.Assignments[0].ConfigurationID)
 	review, err := service.ReviewAssignment(ctx, f.account.AccountID, config.ID, config.Version, []poolconfigurations.AssignmentTarget{target})
 	require.NoError(t, err)
-	saved, err := service.ConfirmReview(ctx, f.account.AccountID, review.ID, "actor-password")
+	saved, err := service.ConfirmReview(ctx, f.account.AccountID, review.ID, poolconfigurations.Confirmation{Password: "actor-password"})
 	require.NoError(t, err)
 	device.readError = errors.New("temporary readback failure")
 	require.NoError(t, poolapplications.NewWorker(f.db, repo, reviewer, poolMinerGetter{device}, cipher).Execute(t.Context(), f.org, saved.Operation.ID, target))
@@ -94,7 +94,7 @@ func TestPoolConfigurationCheckReadsWithoutWritingAndPreservesUncertainty(t *tes
 	// A new assignment must not inherit the old check's verified status.
 	review, err = service.ReviewAssignment(ctx, f.account.AccountID, config.ID, config.Version, []poolconfigurations.AssignmentTarget{target})
 	require.NoError(t, err)
-	saved, err = service.ConfirmReview(ctx, f.account.AccountID, review.ID, "actor-password")
+	saved, err = service.ConfirmReview(ctx, f.account.AccountID, review.ID, poolconfigurations.Confirmation{Password: "actor-password"})
 	require.NoError(t, err)
 	assignments, err = service.GetAssignments(ctx, f.account.AccountID, nil, []int64{miner}, nil)
 	require.NoError(t, err)

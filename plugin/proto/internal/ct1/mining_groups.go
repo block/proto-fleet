@@ -31,6 +31,9 @@ func (d *Device) MiningGroups(ctx context.Context, r sdk.MiningGroupRequest) (ou
 		d.writeMu.Lock()
 		defer d.writeMu.Unlock()
 	}
+	if r.Action == "verify_cleared" {
+		return d.verifyClearedGroup(ctx, r)
+	}
 	c, err := d.selectClient(ctx, write)
 	if err != nil {
 		return out, err
@@ -87,7 +90,7 @@ func (d *Device) MiningGroups(ctx context.Context, r sdk.MiningGroupRequest) (ou
 			return out, e
 		}
 		group = v.Group
-	case "replace_pools":
+	case "replace_pools", "clear_pools":
 		pools := make([]*mdk.MiningGroupPoolInput, 0, len(r.Pools))
 		for i, p := range r.Pools {
 			password := p.Password
@@ -98,8 +101,8 @@ func (d *Device) MiningGroups(ctx context.Context, r sdk.MiningGroupRequest) (ou
 			return out, e
 		}
 		group = v.Group
-	case "start":
-		v, e := client.UpdateMiningGroupIntent(ctx, &mdk.UpdateMiningGroupIntentRequest{Id: r.GroupID, ExpectedRevision: r.Revision, IdempotencyKey: r.Key, DesiredMining: true, UpdateMask: &fieldmaskpb.FieldMask{Paths: []string{"desired_mining"}}})
+	case "start", "stop":
+		v, e := client.UpdateMiningGroupIntent(ctx, &mdk.UpdateMiningGroupIntentRequest{Id: r.GroupID, ExpectedRevision: r.Revision, IdempotencyKey: r.Key, DesiredMining: r.Action == "start", UpdateMask: &fieldmaskpb.FieldMask{Paths: []string{"desired_mining"}}})
 		if e != nil {
 			return out, e
 		}

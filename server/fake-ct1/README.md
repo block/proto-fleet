@@ -188,16 +188,18 @@ Native gRPC and REST global start/stop share the same lifecycle behavior. Module
 actions become available after Fleet observes completed activation.
 
 The fixture supports capability and membership reads, group creation, ordered
-pool replacement, exact-board transfers, mining intent, operation receipts, and
+pool replacement (including explicit empty replacements), exact-board transfers, mining intent, operation receipts, and
 empty-group deletion. New groups start stopped. Groups without enabled pools do
 not mine or fall back to default pools. Once activated, container start/stop
 changes only the default group. Revisions and successful idempotency receipts
-are checked; pool credentials never appear in readback.
+are checked; pool credentials never appear in readback. Group pool diagnostics
+report configured simulated pools and the connected member MACs, allowing Fleet
+to verify selected-board clearing without treating missing boards as cleared.
 
 All group state resets when the simulator restarts. Connected-board transfers
 complete synchronously; transfers involving isolated or disconnected boards are
 rejected. This fixture does not model HA ownership, physical shutdown proofs,
-real Stratum sessions, or per-group pool diagnostics/history. Existing pool
+real Stratum sessions, or per-group connection history. Existing pool
 diagnostics remain demonstration data. REST retains its existing API; Fleet uses
 the native gRPC group service.
 

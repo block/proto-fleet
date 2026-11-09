@@ -5,9 +5,13 @@ import { trackPoolOperation } from "./assignmentProgress";
 import { ConfigurationEditor } from "./ConfigurationEditor";
 import { ConfigurationOptions } from "./ConfigurationOptions";
 import type { ConfigurationReviewData } from "./ConfigurationReview";
+import { RemoveConfigurationDialog } from "./RemoveConfigurationDialog";
 import { ConfirmationError, useReviewedConfirmation } from "./useReviewedConfirmation";
 import type { MinerListFilter } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
-import type { Configuration } from "@/protoFleet/api/generated/poolconfigurations/v1/poolconfigurations_pb";
+import type {
+  Configuration,
+  EquipmentAssignment,
+} from "@/protoFleet/api/generated/poolconfigurations/v1/poolconfigurations_pb";
 import AuthenticateFleetModal from "@/protoFleet/features/auth/components/AuthenticateFleetModal";
 import { useAccountScope } from "@/protoFleet/features/hostedAccounts/AccountScope";
 import { ACCOUNT_READ_TIMEOUT_MS } from "@/protoFleet/features/hostedAccounts/api";
@@ -73,6 +77,7 @@ const ConfigurationPicker = ({
   const { manage, change } = usePoolConfigurationPermissions();
   const [choice, setSelected] = useState<Configuration>();
   const [creating, setCreating] = useState(false);
+  const [removing, setRemoving] = useState<EquipmentAssignment[]>();
   const [review, setReview] = useState<ConfigurationReviewData>();
   const confirmation = useReviewedConfirmation();
   const [uncertain, setUncertain] = useState(false);
@@ -190,6 +195,15 @@ const ConfigurationPicker = ({
     dismiss();
   };
   if (!change || readOnly) return null;
+  if (removing)
+    return (
+      <RemoveConfigurationDialog
+        assignments={removing}
+        password={password}
+        onDismiss={dismiss}
+        onRemoved={query.refresh}
+      />
+    );
   if (review) {
     const counts = [
       review.affectedMiners > 0n ? `${review.affectedMiners} miner${review.affectedMiners === 1n ? "" : "s"}` : "",
@@ -277,16 +291,23 @@ const ConfigurationPicker = ({
               : `${selectedCount ?? deviceIdentifiers.length + deviceIds.length} miners selected`)}
       </p>
       {mixed ? <p>Mixed configurations</p> : null}
-      {manage ? (
-        <div>
-          <Button
-            variant="secondary"
-            prefixIcon={<Plus />}
-            text="New pool configuration"
-            onClick={() => {
-              setCreating(true);
-            }}
-          />
+      {manage || current?.assignments.some((a) => a.configurationId) ? (
+        <div className="flex flex-wrap gap-3">
+          {manage ? (
+            <Button
+              variant="secondary"
+              prefixIcon={<Plus />}
+              text="New pool configuration"
+              onClick={() => setCreating(true)}
+            />
+          ) : null}
+          {current?.assignments.some((a) => a.configurationId) ? (
+            <Button
+              variant="danger"
+              text="Remove pool configuration"
+              onClick={() => setRemoving(current.assignments)}
+            />
+          ) : null}
         </div>
       ) : null}
       {query.loading ? (

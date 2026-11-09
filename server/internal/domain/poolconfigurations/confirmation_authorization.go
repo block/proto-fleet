@@ -21,22 +21,30 @@ import (
 // It only grants credential approval: confirmation still admits each review and
 // rechecks live permissions, physical bindings, maintenance, and credentials.
 func (s *Service) AuthorizeWorkerNameReviews(ctx context.Context, reviewIDs []string, password string) error {
+	return s.authorizeReviews(ctx, "", reviewIDs, password, true)
+}
+
+func (s *Service) AuthorizeReviews(ctx context.Context, accountID string, reviewIDs []string, password string) error {
+	return s.authorizeReviews(ctx, accountID, reviewIDs, password, false)
+}
+
+func (s *Service) authorizeReviews(ctx context.Context, accountID string, reviewIDs []string, password string, workerNamesOnly bool) error {
 	if len(reviewIDs) == 0 || len(reviewIDs) > 10000 || password == "" || utf8.RuneCountInString(password) > 1024 {
-		return fleeterror.NewInvalidArgumentError("select between 1 and 10000 worker-name reviews and provide your password")
+		return fleeterror.NewInvalidArgumentError("select between 1 and 10000 equipment reviews and provide your password")
 	}
 	ids := slices.Clone(reviewIDs)
 	slices.Sort(ids)
 	for i, id := range ids {
 		if _, err := uuid.Parse(id); err != nil || (i > 0 && ids[i-1] == id) {
-			return fleeterror.NewInvalidArgumentError("worker-name review IDs must be unique UUIDs")
+			return fleeterror.NewInvalidArgumentError("review IDs must be unique UUIDs")
 		}
 	}
-	// Reject unauthorized/expired/non-worker reviews before spending password budget.
-	_, err := withAuthority(ctx, s, "", Read, func(q sqlc.Querier, p Principal) (struct{}, error) {
+	// Reject unauthorized, expired or invalid reviews before spending password budget.
+	_, err := withAuthority(ctx, s, accountID, Read, func(q sqlc.Querier, p Principal) (struct{}, error) {
 		if _, err := reviewSessionHash(ctx, p); err != nil {
 			return struct{}{}, err
 		}
-		return struct{}{}, validateWorkerNameReviews(ctx, q, p, ids)
+		return struct{}{}, validateReviews(ctx, q, p, ids, workerNamesOnly)
 	})
 	if err != nil {
 		return err
@@ -44,14 +52,14 @@ func (s *Service) AuthorizeWorkerNameReviews(ctx context.Context, reviewIDs []st
 	if s.equipment == nil {
 		return fleeterror.NewInternalError("equipment confirmation is unavailable")
 	}
-	proof, err := s.equipment.VerifyPoolEquipmentCredentials(ctx, "", password)
+	proof, err := s.equipment.VerifyPoolEquipmentCredentials(ctx, accountID, password)
 	if err != nil {
 		return err
 	}
 	if proof == nil {
 		return fleeterror.NewInternalError("equipment credential proof is unavailable")
 	}
-	_, err = withAuthority(ctx, s, "", Read, func(q sqlc.Querier, p Principal) (struct{}, error) {
+	_, err = withAuthority(ctx, s, accountID, Read, func(q sqlc.Querier, p Principal) (struct{}, error) {
 		sessionHash, err := reviewSessionHash(ctx, p)
 		if err != nil {
 			return struct{}{}, err
@@ -59,7 +67,7 @@ func (s *Service) AuthorizeWorkerNameReviews(ctx context.Context, reviewIDs []st
 		if err := proof(ctx, q); err != nil {
 			return struct{}{}, err
 		}
-		if err := validateWorkerNameReviews(ctx, q, p, ids); err != nil {
+		if err := validateReviews(ctx, q, p, ids, workerNamesOnly); err != nil {
 			return struct{}{}, err
 		}
 		user, err := q.GetUserById(ctx, p.ActorID)
@@ -73,17 +81,14 @@ func (s *Service) AuthorizeWorkerNameReviews(ctx context.Context, reviewIDs []st
 			return struct{}{}, err
 		}
 		if count != int64(len(ids)) {
-			return struct{}{}, fleeterror.NewInternalError("worker-name authorization omitted reviews")
+			return struct{}{}, fleeterror.NewInternalError("authorization omitted reviews")
 		}
 		return struct{}{}, nil
 	})
 	return err
 }
 
-func validateWorkerNameReviews(ctx context.Context, q sqlc.Querier, p Principal, ids []string) error {
-	if err := authorizeWorkerNames(ctx, q, p.Scope, p.ActorID); err != nil {
-		return err
-	}
+func validateReviews(ctx context.Context, q sqlc.Querier, p Principal, ids []string, workerNamesOnly bool) error {
 	frozen, err := q.PoolConfigurationWritersFrozen(ctx, p.Scope.OrganizationID)
 	if err != nil {
 		return err
@@ -105,8 +110,16 @@ func validateWorkerNameReviews(ctx context.Context, q sqlc.Querier, p Principal,
 		if json.Unmarshal(review.Targets, &targets) != nil {
 			return fleeterror.NewInternalError("decode pool review failed")
 		}
-		if review.Kind != "assign" || len(workerNameChanges(targets)) == 0 {
+		if workerNamesOnly && (review.Kind != "assign" || len(workerNameChanges(targets)) == 0) {
 			return fleeterror.NewInvalidArgumentError("batch authorization requires worker-name reviews")
+		}
+		if len(targets) == 0 {
+			return fleeterror.NewInvalidArgumentError("select equipment reviews")
+		}
+		if len(workerNameChanges(targets)) > 0 {
+			if err := authorizeWorkerNames(ctx, q, p.Scope, p.ActorID); err != nil {
+				return err
+			}
 		}
 	}
 	return nil
@@ -139,7 +152,7 @@ func checkReviewAuthorization(ctx context.Context, q sqlc.Querier, p Principal, 
 func reviewSessionHash(ctx context.Context, p Principal) (string, error) {
 	info, err := session.GetInfo(ctx)
 	if err != nil || info.AuthMethod != session.AuthMethodSession || info.SessionID == "" || info.AccountKey || info.Actor != "" || info.UserID != p.ActorID || info.OrganizationID != p.Scope.OrganizationID {
-		return "", fleeterror.NewForbiddenError("worker-name approval requires the initiating user session")
+		return "", fleeterror.NewForbiddenError("credential approval requires the initiating user session")
 	}
 	return reviewHash([]byte(info.SessionID)), nil
 }

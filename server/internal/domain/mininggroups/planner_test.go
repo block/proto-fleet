@@ -74,3 +74,44 @@ func TestPlannerRemovesOnlyUnusedEmptyManagedGroups(t *testing.T) {
 	require.Equal(t, Remove, step.Kind)
 	require.Equal(t, "owned", step.GroupID)
 }
+
+func TestPlannerClearedGroupsStayStoppedAndAreReused(t *testing.T) {
+	cleared := "pool-free:1"
+	snapshot := Snapshot{Enabled: true, MaxGroups: 3, Groups: []Group{
+		{ID: "first", Revision: 2, Managed: true, Configured: true, Mining: true, ConfigRevision: "config-1", Members: []string{"a", "b"}},
+		{ID: "second", Revision: 2, Managed: true, Configured: true, Mining: true, ConfigRevision: "config-2", Members: []string{"c", "d"}},
+	}}
+	desired := map[string]string{"a": "config-1", "b": cleared, "c": "config-2", "d": "config-2"}
+	require.NoError(t, ValidateAssignment(desired, snapshot))
+	step, err := Plan(desired, snapshot)
+	require.NoError(t, err)
+	require.Equal(t, Create, step.Kind)
+	snapshot.MaxGroups = 2
+	require.ErrorContains(t, ValidateAssignment(desired, snapshot), "capacity")
+	snapshot.MaxGroups = 3
+	snapshot.Groups = append(snapshot.Groups, Group{ID: "empty", Revision: 1, Managed: true, Configured: true, Mining: true, ConfigRevision: cleared})
+	step, err = Plan(desired, snapshot)
+	require.NoError(t, err)
+	require.Equal(t, Stop, step.Kind)
+	snapshot.Groups[2].Mining = false
+	step, err = Plan(desired, snapshot)
+	require.NoError(t, err)
+	require.Equal(t, Transfer, step.Kind)
+	require.Equal(t, []string{"b"}, step.MACs)
+	require.Equal(t, "empty", step.GroupID)
+	snapshot.Groups[0].Members = []string{"a"}
+	snapshot.Groups[2].Members = []string{"b"}
+	step, err = Plan(desired, snapshot)
+	require.NoError(t, err)
+	require.Equal(t, Done, step.Kind)
+	desired["a"] = cleared
+	step, err = Plan(desired, snapshot)
+	require.NoError(t, err)
+	require.Equal(t, Transfer, step.Kind)
+	require.Equal(t, "empty", step.GroupID, "reuse pool-free group in same account")
+	desired["a"] = "pool-free:2"
+	step, err = Plan(desired, snapshot)
+	require.NoError(t, err)
+	require.Equal(t, Configure, step.Kind)
+	require.Equal(t, "first", step.GroupID, "keep independent accounts in separate pool-free groups")
+}

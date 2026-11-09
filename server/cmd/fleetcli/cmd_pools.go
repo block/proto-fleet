@@ -120,6 +120,7 @@ func generatedPoolsCommand() *cli.Command {
 					&cli.StringFlag{Name: "account-id", Usage: "account id"},
 					&cli.StringFlag{Name: "review-id", Usage: "(required) review id", Required: true},
 					&cli.BoolFlag{Name: "password-stdin", Usage: "Read confirmation password from stdin"},
+					&cli.BoolFlag{Name: "keep-device-settings", Usage: "keep device settings"},
 				},
 				func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
 					req := &poolconfigurationsv1.ConfirmReviewRequest{}
@@ -128,6 +129,9 @@ func generatedPoolsCommand() *cli.Command {
 					}
 					if cmd.IsSet("review-id") {
 						req.ReviewId = cmd.String("review-id")
+					}
+					if cmd.IsSet("keep-device-settings") {
+						req.KeepDeviceSettings = cmd.Bool("keep-device-settings")
 					}
 					if cmd.IsSet("password-stdin") {
 						secretPassword, err := generatedReadSecret(cmd, "password-stdin", "password")

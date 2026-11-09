@@ -76,6 +76,7 @@ func (d *Device) DescribeDevice(ctx context.Context) (sdk.DeviceInfo, sdk.Capabi
 		sdk.CapabilityMiningStop:        true,
 		sdk.CapabilityLEDBlink:          true,
 		sdk.CapabilityCoolingModeAir:    true,
+		sdk.CapabilityPoolClear:         true,
 		sdk.CapabilityPoolConfig:        true,
 		sdk.CapabilityHashrateReported:  true,
 		sdk.CapabilityPowerUsage:        true,

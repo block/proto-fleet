@@ -16,7 +16,10 @@ vi.mock("./api", () => ({
     accountId: "",
   }),
 }));
-vi.mock("./assignmentProgress", () => ({ trackPoolOperation: mocks.track }));
+vi.mock("./assignmentProgress", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./assignmentProgress")>()),
+  trackPoolOperation: mocks.track,
+}));
 const review = create(ReviewWorkerNamesResponseSchema, {
   unchangedCount: 3,
   failedCount: 1,

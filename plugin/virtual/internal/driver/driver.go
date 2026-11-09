@@ -104,6 +104,7 @@ func (d *Driver) DescribeDriver(_ context.Context) (sdk.DriverIdentifier, sdk.Ca
 			sdk.CapabilityLEDBlink:           true,
 			sdk.CapabilityCoolingModeAir:     true,
 			sdk.CapabilityCoolingModeImmerse: true,
+			sdk.CapabilityPoolClear:          true,
 			sdk.CapabilityPoolConfig:         true,
 			sdk.CapabilityPoolPriority:       true,
 

@@ -59,7 +59,7 @@ func TestConfirmationMissingApprovalHasDedicatedGenericError(t *testing.T) {
 				require.NoError(t, err)
 			}
 			before := poolMaintenanceState(t, f.conn, f.scope.OrganizationID)
-			_, err := f.service.ConfirmReview(ctx, "", review.ID, "")
+			_, err := f.service.ConfirmReview(ctx, "", review.ID, Confirmation{Password: ""})
 			requireConfirmationCode(t, err, pb.ConfirmReviewErrorCode_CONFIRM_REVIEW_ERROR_CODE_AUTHORIZATION_REQUIRED)
 			require.ErrorContains(t, err, "Verify your password to confirm these changes.")
 			require.NotContains(t, err.Error(), "worker-name")
@@ -85,7 +85,7 @@ func TestConfirmationExpiryAfterAdmissionPrecedesAuthorization(t *testing.T) {
 	}}
 	f.service.authority = boundary
 	before := poolMaintenanceState(t, f.conn, f.scope.OrganizationID)
-	_, err = f.service.ConfirmReview(ctx, "", expiring, "")
+	_, err = f.service.ConfirmReview(ctx, "", expiring, Confirmation{Password: ""})
 	require.Equal(t, 2, boundary.calls, "the initial admission must succeed before expiry")
 	requireConfirmationCode(t, err, pb.ConfirmReviewErrorCode_CONFIRM_REVIEW_ERROR_CODE_EXPIRED_UNACCEPTED)
 	require.Equal(t, before, poolMaintenanceState(t, f.conn, f.scope.OrganizationID))
@@ -101,11 +101,11 @@ func TestConfirmationAcceptedAfterAdmissionReplaysWithoutApproval(t *testing.T) 
 	var afterAccepted map[string]string
 	f.service.authority = &confirmationBoundaryAuthority{Authority: f.service.authority, beforeFinal: func() {
 		var err error
-		accepted, err = other.ConfirmReview(ctx, "", reviews[0].ID, "actor-password")
+		accepted, err = other.ConfirmReview(ctx, "", reviews[0].ID, Confirmation{Password: "actor-password"})
 		require.NoError(t, err)
 		afterAccepted = poolMaintenanceState(t, f.conn, f.scope.OrganizationID)
 	}}
-	replay, err := f.service.ConfirmReview(ctx, "", reviews[0].ID, "")
+	replay, err := f.service.ConfirmReview(ctx, "", reviews[0].ID, Confirmation{Password: ""})
 	require.NoError(t, err)
 	require.True(t, replay.Replay)
 	require.Equal(t, accepted.Operation.ID, replay.Operation.ID)

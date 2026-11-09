@@ -46,7 +46,7 @@ func TestHashboardOwnershipChangeRetiresControllerPoolIntent(t *testing.T) {
 	require.NoError(t, err)
 	review, err := service.ReviewAssignment(ctx, f.account.AccountID, config.ID, config.Version, []poolconfigurations.AssignmentTarget{{Kind: poolconfigurations.TargetDevice, ID: controller, DeviceID: controller}})
 	require.NoError(t, err)
-	saved, err := service.ConfirmReview(ctx, f.account.AccountID, review.ID, "actor-password")
+	saved, err := service.ConfirmReview(ctx, f.account.AccountID, review.ID, poolconfigurations.Confirmation{Password: "actor-password"})
 	require.NoError(t, err)
 	// Inventory replacement writes the ledger directly. It must retire intent
 	// without relying on the manual assignment service's cleanup call.

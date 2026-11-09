@@ -50,7 +50,7 @@ func TestPoolWorkerReleasesIdentityBucketsBeforeDeviceIO(t *testing.T) {
 			target := poolconfigurations.AssignmentTarget{Kind: poolconfigurations.TargetDevice, ID: miner, DeviceID: miner}
 			review, err := service.ReviewAssignment(ctx, f.account.AccountID, config.ID, config.Version, []poolconfigurations.AssignmentTarget{target})
 			require.NoError(t, err)
-			saved, err := service.ConfirmReview(ctx, f.account.AccountID, review.ID, "actor-password")
+			saved, err := service.ConfirmReview(ctx, f.account.AccountID, review.ID, poolconfigurations.Confirmation{Password: "actor-password"})
 			require.NoError(t, err)
 			started, resume := make(chan struct{}), make(chan struct{})
 			device := &poolDevice{onWrite: func() { close(started); <-resume }}

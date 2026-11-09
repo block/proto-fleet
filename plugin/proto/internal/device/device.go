@@ -32,6 +32,7 @@ import (
 )
 
 var _ sdk.Device = (*Device)(nil)
+var _ sdk.DeviceStoredPoolReader = (*Device)(nil)
 
 const (
 	defaultStatusTTL          = 5 * time.Second
@@ -230,6 +231,7 @@ func (d *Device) DescribeDevice(ctx context.Context) (sdk.DeviceInfo, sdk.Capabi
 		sdk.CapabilityReboot:              true, // This device supports reboot
 		sdk.CapabilityFirmware:            true, // This device supports firmware updates
 		sdk.CapabilityPoolConfig:          true, // This device supports pool configuration
+		sdk.CapabilityPoolClear:           true, // Clearing validates the live MDKv2 contract before writing.
 		sdk.CapabilityUpdateMinerPassword: true, // This device supports updating web UI password
 		// FULL curtailment uses mining start/stop. Efficiency uses the power target mode.
 		sdk.CapabilityCurtailFull:       true,
@@ -949,6 +951,10 @@ func (d *Device) UpdateMiningPools(ctx context.Context, pools []sdk.MiningPoolCo
 func (d *Device) GetMiningPools(ctx context.Context) ([]sdk.ConfiguredPool, error) {
 	slog.Debug("Getting mining pools", "deviceID", d.id)
 	return d.client.GetPools(ctx)
+}
+
+func (d *Device) GetStoredMiningPools(ctx context.Context) ([]sdk.StoredMiningPool, error) {
+	return d.client.GetStoredMiningPools(ctx)
 }
 
 // BlinkLED implements the SDK Device interface.

@@ -6,7 +6,7 @@ import { Code } from "@connectrpc/connect";
 import { usePoolConfigurationClient, usePoolConfigurationPermissions } from "./api";
 import { ConfigurationReview, type ConfigurationReviewData } from "./ConfigurationReview";
 import { PoolSettingsComparison } from "./PoolSettingsComparison";
-import { poolStatusExplanation, poolUpdateStatus } from "./status";
+import { poolRemovalOutcome, poolStatusExplanation, poolUpdateStatus } from "./status";
 import { poolTargetKey, useDevicePoolReadings } from "./useDevicePoolReadings";
 import {
   type CheckConfigurationResponse,
@@ -99,6 +99,7 @@ export const OperationResults = ({
       })
       .map((target) => ({
         target,
+        operationKind: operation.kind,
         configurationId: operation.configurationId,
         name: operation.configurationName,
         operationId: operation.operationId,
@@ -116,6 +117,7 @@ export const OperationResults = ({
         macAddress: a.macAddress,
         updatedAt: a.updatedAt,
       }),
+      operationKind: "apply",
       configurationId: a.configurationId,
       name: a.name,
       operationId: "",
@@ -159,6 +161,7 @@ export const OperationResults = ({
         ) : null}
         {mutation.error ? <p role="alert">{mutation.error}</p> : null}
         {rows.map((row) => {
+          const removal = row.operationKind === "clear" || row.operationKind === "unassign";
           const key = keyFor(row.target);
           const currentAssignment = currentAssignments.get(key);
           const assignmentChanged =
@@ -170,9 +173,9 @@ export const OperationResults = ({
           // Historical operation results remain historical. A cached read must
           // never override replacement or newer persisted observation evidence.
           const cached = checks[checkKey];
-          const serverResult = row.target.state === "superseded" ? row.target : (assignment ?? row.target);
+          const serverResult = removal || row.target.state === "superseded" ? row.target : (assignment ?? row.target);
           const check =
-            !assignmentChanged && serverResult.state !== "superseded"
+            !removal && !assignmentChanged && serverResult.state !== "superseded"
               ? ((cached &&
                 !isNewerThan(row.target.updatedAt, cached.checkedAt) &&
                 !isNewerThan(assignment?.updatedAt, cached.checkedAt)
@@ -183,10 +186,18 @@ export const OperationResults = ({
                   : undefined))
               : undefined;
           const result = check ?? serverResult;
-          const status = poolUpdateStatus(result);
+          const outcome = removal
+            ? poolRemovalOutcome(result.state, row.operationKind === "unassign", result.resultCode)
+            : undefined;
+          const status = outcome?.status ?? poolUpdateStatus(result);
           const canCheck =
-            change && !readOnly && !assignmentChanged && !["pending", "applying", "superseded"].includes(result.state);
+            !removal &&
+            change &&
+            !readOnly &&
+            !assignmentChanged &&
+            !["pending", "applying", "superseded"].includes(result.state);
           const canRetry =
+            !removal &&
             change &&
             !readOnly &&
             !assignmentChanged &&
@@ -212,16 +223,17 @@ export const OperationResults = ({
             check && poolUpdateStatus(check) === "Verified" ? check.checkedAt : undefined,
           ].reduce<Timestamp | undefined>((latest, time) => (isNewerThan(time, latest) ? time : latest), undefined);
           const blocked =
-            !assignmentChanged && result.state !== "superseded" && result.resultCode === "write_uncertain";
+            !removal && !assignmentChanged && result.state !== "superseded" && result.resultCode === "write_uncertain";
           const readable = check?.readbackAvailable || (check && check.reported.length > 0);
           const name =
             assignment?.deviceName ||
             row.target.label ||
             `${row.target.kind === "device" ? "Miner" : "Hashboard"} ${row.target.targetId}`;
           const explanation =
-            blocked && result.state !== "different" && readable
+            outcome?.message ??
+            (blocked && result.state !== "different" && readable
               ? "The reported settings match, but Fleet couldn’t confirm that an earlier update finished."
-              : poolStatusExplanation(result);
+              : poolStatusExplanation(result));
           return (
             <section
               key={`${row.operationId}:${key}`}

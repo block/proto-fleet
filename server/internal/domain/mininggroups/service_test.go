@@ -24,11 +24,14 @@ import (
 
 type simulatedGroups struct {
 	interfaces.Miner
-	snapshot   sdk.MiningGroupResult
-	receipts   map[string]sdk.MiningGroupResult
-	calls      []sdk.MiningGroupRequest
-	lostCreate bool
-	transfer   *sdk.MiningGroupRequest
+	snapshot                sdk.MiningGroupResult
+	receipts                map[string]sdk.MiningGroupResult
+	calls                   []sdk.MiningGroupRequest
+	lostCreate              bool
+	transfer                *sdk.MiningGroupRequest
+	created                 int
+	runtimePoolsRemain      bool
+	runtimeDiagnosticsError error
 }
 
 func (m *simulatedGroups) GetMinerForCommand(context.Context, int64) (interfaces.Miner, error) {
@@ -46,10 +49,15 @@ func (m *simulatedGroups) MiningGroups(_ context.Context, r sdk.MiningGroupReque
 	result := sdk.MiningGroupResult{}
 	switch r.Action {
 	case "create":
-		g := sdk.MiningGroup{ID: "fleet-group", Name: "Fleet group", Revision: 1}
+		id := "fleet-group"
+		if m.created > 0 {
+			id = fmt.Sprintf("fleet-group-%d", m.created+1)
+		}
+		m.created++
+		g := sdk.MiningGroup{ID: id, Name: "Fleet group", Revision: 1}
 		m.snapshot.Groups = append(m.snapshot.Groups, g)
 		result.Group = &g
-	case "replace_pools":
+	case "replace_pools", "clear_pools":
 		for i := range m.snapshot.Groups {
 			g := &m.snapshot.Groups[i]
 			if g.ID == r.GroupID {
@@ -62,16 +70,33 @@ func (m *simulatedGroups) MiningGroups(_ context.Context, r sdk.MiningGroupReque
 				result.Group = &receipt
 			}
 		}
-	case "start":
+	case "start", "stop":
 		for i := range m.snapshot.Groups {
 			g := &m.snapshot.Groups[i]
 			if g.ID == r.GroupID {
 				g.Revision++
-				g.Mining = true
+				g.Mining = r.Action == "start"
 				receipt := *g
 				result.Group = &receipt
 			}
 		}
+	case "remove":
+		m.snapshot.Groups = slices.DeleteFunc(m.snapshot.Groups, func(g sdk.MiningGroup) bool { return g.ID == r.GroupID })
+		result.Removed = true
+	case "verify_cleared":
+		if m.runtimeDiagnosticsError != nil {
+			return result, m.runtimeDiagnosticsError
+		}
+		cleared := false
+		for _, g := range m.snapshot.Groups {
+			if g.ID == r.GroupID && !g.Mining && len(g.Pools) == 0 && !m.runtimePoolsRemain {
+				cleared = true
+				for _, mac := range r.MACs {
+					cleared = cleared && slices.Contains(g.MACs, mac)
+				}
+			}
+		}
+		result.PoolsCleared = &cleared
 	case "transfer":
 		m.transfer = &r
 		m.snapshot.Pending = true

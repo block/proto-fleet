@@ -645,6 +645,7 @@ const (
 	CapabilityFactoryReset       = "factory_reset"        // Factory reset support
 	CapabilityCoolingModeAir     = "cooling_mode_air"     // Air cooling mode support
 	CapabilityCoolingModeImmerse = "cooling_mode_immerse" // Immersion cooling mode support
+	CapabilityPoolClear          = "pool_clear"           // Explicit whole-device empty-stack support with complete stored readback.
 	CapabilityPoolConfig         = "pool_config"          // Pool configuration support
 	CapabilityPoolPriority       = "pool_priority"        // Pool priority support
 	CapabilityNativeStratumV2    = "native_stratum_v2"    // Firmware speaks Stratum V2 natively

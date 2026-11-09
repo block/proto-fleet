@@ -96,6 +96,10 @@ export const PoolAssignments = ({
     pollReadings();
   }, [refreshAssignments, pollReadings]);
   const progress = usePoolAssignmentProgress((state) => state.jobs);
+  const assignmentsRevision = usePoolAssignmentProgress((state) => state.assignmentsRevision);
+  useEffect(() => {
+    if (assignmentsRevision) refresh();
+  }, [assignmentsRevision, refresh]);
   useEffect(() => {
     poll();
   }, [progress, poll]);

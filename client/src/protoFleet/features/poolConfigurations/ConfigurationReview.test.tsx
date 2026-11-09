@@ -9,7 +9,10 @@ import { useFleetStore } from "@/protoFleet/store";
 
 const mocks = vi.hoisted(() => ({ confirmReview: vi.fn(), track: vi.fn() }));
 vi.mock("./api", () => ({ usePoolConfigurationClient: () => ({ client: mocks, accountId: "" }) }));
-vi.mock("./assignmentProgress", () => ({ trackPoolOperation: mocks.track }));
+vi.mock("./assignmentProgress", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./assignmentProgress")>()),
+  trackPoolOperation: mocks.track,
+}));
 const configuration = create(ConfigurationSchema, { configurationId: "config", name: "Production" });
 beforeEach(() => {
   vi.clearAllMocks();

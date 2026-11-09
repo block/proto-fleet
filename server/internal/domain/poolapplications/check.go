@@ -22,12 +22,13 @@ const stateApplying = "applying"
 const codeUnavailable = "unavailable"
 
 type Checker struct {
-	conn     *sql.DB
-	reviewer *Reviewer
-	miners   MinerGetter
-	secrets  *encrypt.Service
-	library  poolconfigurations.Authority
-	writes   *devicewrite.Service
+	boardRemovals BoardRemovalCoordinator
+	conn          *sql.DB
+	reviewer      *Reviewer
+	miners        MinerGetter
+	secrets       *encrypt.Service
+	library       poolconfigurations.Authority
+	writes        *devicewrite.Service
 }
 
 func NewChecker(conn *sql.DB, reviewer *Reviewer, miners MinerGetter, secrets *encrypt.Service, library poolconfigurations.Authority) *Checker {

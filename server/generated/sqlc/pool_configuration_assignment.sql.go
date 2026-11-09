@@ -83,7 +83,7 @@ func (q *Queries) ClaimPoolConfigurationTarget(ctx context.Context, arg ClaimPoo
 
 const createPoolConfigurationOperation = `-- name: CreatePoolConfigurationOperation :one
 INSERT INTO pool_configuration_operation(operation_id, organization_id, configuration_id, revision_id, actor_id)
-VALUES($1, $2, $3, $4, $5) RETURNING operation_id, organization_id, configuration_id, revision_id, actor_id, created_at
+VALUES($1, $2, $3, $4, $5) RETURNING operation_id, organization_id, configuration_id, revision_id, actor_id, created_at, kind
 `
 
 type CreatePoolConfigurationOperationParams struct {
@@ -110,6 +110,7 @@ func (q *Queries) CreatePoolConfigurationOperation(ctx context.Context, arg Crea
 		&i.RevisionID,
 		&i.ActorID,
 		&i.CreatedAt,
+		&i.Kind,
 	)
 	return i, err
 }
@@ -285,7 +286,7 @@ func (q *Queries) GetPoolConfigurationAssignment(ctx context.Context, arg GetPoo
 }
 
 const getPoolConfigurationOperation = `-- name: GetPoolConfigurationOperation :one
-SELECT o.operation_id, o.organization_id, o.configuration_id, o.revision_id, o.actor_id, o.created_at FROM pool_configuration_operation o
+SELECT o.operation_id, o.organization_id, o.configuration_id, o.revision_id, o.actor_id, o.created_at, o.kind FROM pool_configuration_operation o
 JOIN pool_configuration c ON c.organization_id = o.organization_id AND c.configuration_id = o.configuration_id
 WHERE o.organization_id = $1 AND o.operation_id = $2
  AND c.account_id IS NOT DISTINCT FROM $3::bigint
@@ -307,6 +308,7 @@ func (q *Queries) GetPoolConfigurationOperation(ctx context.Context, arg GetPool
 		&i.RevisionID,
 		&i.ActorID,
 		&i.CreatedAt,
+		&i.Kind,
 	)
 	return i, err
 }
@@ -513,7 +515,9 @@ func (q *Queries) ListPoolConfigurationOperationSites(ctx context.Context, arg L
 }
 
 const listPoolConfigurationOperationTargets = `-- name: ListPoolConfigurationOperationTargets :many
-SELECT t.organization_id, t.operation_id, t.target_kind, t.target_id, t.assignment_version, t.state, t.attempts, t.result_code, t.updated_at, t.reviewed_binding, t.physical_attempt_id, t.group_snapshot_id FROM pool_configuration_operation_target t
+SELECT t.organization_id, t.operation_id, t.target_kind, t.target_id, t.assignment_version, t.state, t.attempts, t.result_code, t.updated_at, t.reviewed_binding, t.physical_attempt_id, t.group_snapshot_id, COALESCE(w.status,'')::text AS physical_attempt_status
+FROM pool_configuration_operation_target t
+LEFT JOIN device_write_attempt w ON w.attempt_id=t.physical_attempt_id AND w.organization_id=t.organization_id
 WHERE t.organization_id = $1 AND t.operation_id = $2 ORDER BY t.target_kind, t.target_id
 `
 
@@ -522,28 +526,34 @@ type ListPoolConfigurationOperationTargetsParams struct {
 	OperationID    string
 }
 
-func (q *Queries) ListPoolConfigurationOperationTargets(ctx context.Context, arg ListPoolConfigurationOperationTargetsParams) ([]PoolConfigurationOperationTarget, error) {
+type ListPoolConfigurationOperationTargetsRow struct {
+	PoolConfigurationOperationTarget PoolConfigurationOperationTarget
+	PhysicalAttemptStatus            string
+}
+
+func (q *Queries) ListPoolConfigurationOperationTargets(ctx context.Context, arg ListPoolConfigurationOperationTargetsParams) ([]ListPoolConfigurationOperationTargetsRow, error) {
 	rows, err := q.query(ctx, q.listPoolConfigurationOperationTargetsStmt, listPoolConfigurationOperationTargets, arg.OrganizationID, arg.OperationID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []PoolConfigurationOperationTarget
+	var items []ListPoolConfigurationOperationTargetsRow
 	for rows.Next() {
-		var i PoolConfigurationOperationTarget
+		var i ListPoolConfigurationOperationTargetsRow
 		if err := rows.Scan(
-			&i.OrganizationID,
-			&i.OperationID,
-			&i.TargetKind,
-			&i.TargetID,
-			&i.AssignmentVersion,
-			&i.State,
-			&i.Attempts,
-			&i.ResultCode,
-			&i.UpdatedAt,
-			&i.ReviewedBinding,
-			&i.PhysicalAttemptID,
-			&i.GroupSnapshotID,
+			&i.PoolConfigurationOperationTarget.OrganizationID,
+			&i.PoolConfigurationOperationTarget.OperationID,
+			&i.PoolConfigurationOperationTarget.TargetKind,
+			&i.PoolConfigurationOperationTarget.TargetID,
+			&i.PoolConfigurationOperationTarget.AssignmentVersion,
+			&i.PoolConfigurationOperationTarget.State,
+			&i.PoolConfigurationOperationTarget.Attempts,
+			&i.PoolConfigurationOperationTarget.ResultCode,
+			&i.PoolConfigurationOperationTarget.UpdatedAt,
+			&i.PoolConfigurationOperationTarget.ReviewedBinding,
+			&i.PoolConfigurationOperationTarget.PhysicalAttemptID,
+			&i.PoolConfigurationOperationTarget.GroupSnapshotID,
+			&i.PhysicalAttemptStatus,
 		); err != nil {
 			return nil, err
 		}

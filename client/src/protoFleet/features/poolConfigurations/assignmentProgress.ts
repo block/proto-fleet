@@ -4,6 +4,7 @@ import { create } from "zustand";
 
 import type {
   Configuration,
+  GetOperationResponse,
   OperationTarget,
   PoolConfigurationService,
   ReviewedEquipment,
@@ -39,15 +40,25 @@ export type PoolDetailsSelection = {
 };
 export const usePoolAssignmentProgress = create<{
   jobs: PoolAssignmentProgress[];
+  assignmentsRevision: number;
   detailsJobId?: string;
   detailsSelection?: PoolDetailsSelection;
 }>(() => ({
   jobs: [],
+  assignmentsRevision: 0,
 }));
 useFleetStore.subscribe((state, previous) => {
   if (state.auth.sessionGeneration !== previous.auth.sessionGeneration)
-    usePoolAssignmentProgress.setState({ jobs: [], detailsJobId: undefined, detailsSelection: undefined });
+    usePoolAssignmentProgress.setState({
+      jobs: [],
+      assignmentsRevision: 0,
+      detailsJobId: undefined,
+      detailsSelection: undefined,
+    });
 });
+export const refreshPoolAssignments = () =>
+  usePoolAssignmentProgress.setState((state) => ({ assignmentsRevision: state.assignmentsRevision + 1 }));
+
 const update = (id: string, patch: Partial<PoolAssignmentProgress>) =>
   usePoolAssignmentProgress.setState(({ jobs }) => ({
     jobs: jobs.map((job) => (job.id === id ? { ...job, ...patch } : job)),
@@ -69,7 +80,15 @@ export const findPoolAssignment = (
   }
   return undefined;
 };
-const terminal = new Set(["verified", "applied_unverified", "different", "failed", "superseded"]);
+const terminal = new Set([
+  "verified",
+  "applied_unverified",
+  "different",
+  "failed",
+  "superseded",
+  "completed",
+  "uncertain",
+]);
 const pause = () => new Promise<void>((resolve) => setTimeout(resolve, 3000));
 type PoolClient = Client<typeof PoolConfigurationService>;
 const notify = (id: string, message: string, status: (typeof STATUSES)[keyof typeof STATUSES]) =>
@@ -84,6 +103,35 @@ const notify = (id: string, message: string, status: (typeof STATUSES)[keyof typ
     ],
   });
 
+// Shared operation polling supports both background assignment feedback and a
+// bounded modal lifetime. Ending observation never cancels accepted server work.
+export async function* pollPoolOperation(
+  client: PoolClient,
+  accountId: string,
+  operationId: string,
+  current: () => boolean,
+  maxPolls = Infinity,
+): AsyncGenerator<GetOperationResponse> {
+  let failures = 0;
+  for (let poll = 0; poll < maxPolls && current(); poll++) {
+    try {
+      const result = await client.getOperation({ accountId, operationId }, { timeoutMs: ACCOUNT_READ_TIMEOUT_MS });
+      if (!current()) return;
+      failures = 0;
+      yield result;
+      if (result.targets.length && result.targets.every((target) => terminal.has(target.state))) return;
+    } catch (error) {
+      if (!current()) return;
+      if (
+        ++failures >= 3 ||
+        [Code.PermissionDenied, Code.Unauthenticated, Code.NotFound].includes(ConnectError.from(error).code)
+      )
+        throw error;
+    }
+    if (poll + 1 < maxPolls) await pause();
+  }
+}
+
 async function monitorOperation(
   client: PoolClient,
   accountId: string,
@@ -91,12 +139,8 @@ async function monitorOperation(
   operationId: string,
   current: () => boolean,
 ) {
-  let readFailures = 0;
-  while (current()) {
-    try {
-      const result = await client.getOperation({ accountId, operationId }, { timeoutMs: ACCOUNT_READ_TIMEOUT_MS });
-      if (!current()) return;
-      readFailures = 0;
+  try {
+    for await (const result of pollPoolOperation(client, accountId, operationId, current)) {
       const complete = result.targets.length > 0 && result.targets.every((target) => terminal.has(target.state));
       update(id, { targets: result.targets, phase: complete ? "done" : "pending" });
       if (complete) {
@@ -124,20 +168,11 @@ async function monitorOperation(
         notify(id, message, attention ? STATUSES.error : STATUSES.success);
         return;
       }
-    } catch (error) {
-      if (!current()) return;
-      if (
-        ++readFailures >= 3 ||
-        [Code.PermissionDenied, Code.Unauthenticated, Code.NotFound].includes(ConnectError.from(error).code)
-      ) {
-        update(id, {
-          phase: "unknown",
-        });
-        notify(id, "Pool configuration update submitted. Status is unavailable.", STATUSES.error);
-        return;
-      }
     }
-    await pause();
+  } catch {
+    if (!current()) return;
+    update(id, { phase: "unknown" });
+    notify(id, "Pool configuration update submitted. Status is unavailable.", STATUSES.error);
   }
 }
 

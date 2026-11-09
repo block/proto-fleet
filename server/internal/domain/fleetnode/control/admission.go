@@ -99,6 +99,8 @@ func AdmissionForMinerCommand(command *gatewaypb.MinerCommand) (CommandAdmission
 		return CommandAdmissionGeneral, "set_power_target"
 	case *gatewaypb.MinerCommand_UpdateMiningPools:
 		return CommandAdmissionGeneral, "update_mining_pools"
+	case *gatewaypb.MinerCommand_VerifyPoolsCleared:
+		return CommandAdmissionGeneral, "verify_pools_cleared"
 	case *gatewaypb.MinerCommand_GetMiningPools:
 		return CommandAdmissionGeneral, "get_mining_pools"
 	case *gatewaypb.MinerCommand_UpdateMinerPassword:

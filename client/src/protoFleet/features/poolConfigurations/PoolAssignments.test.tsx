@@ -4,7 +4,7 @@ import { create } from "@bufbuild/protobuf";
 import type { Client } from "@connectrpc/connect";
 
 import { useSavedPoolAssignments } from "./assignmentContext";
-import { trackPoolOperation, usePoolAssignmentProgress } from "./assignmentProgress";
+import { refreshPoolAssignments, trackPoolOperation, usePoolAssignmentProgress } from "./assignmentProgress";
 import { BoardPoolConfigurationCell } from "./BoardPoolConfigurationCell";
 import { PoolAssignments } from "./PoolAssignments";
 import { PoolConfigurationCell } from "./PoolConfigurationCell";
@@ -28,7 +28,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   mocks.accountId = "";
   mocks.read = true;
-  usePoolAssignmentProgress.setState({ jobs: [] });
+  usePoolAssignmentProgress.setState({ jobs: [], assignmentsRevision: 0 });
 });
 
 const page = () => (
@@ -224,4 +224,41 @@ it.each(["focus", "manual", "poll"])("refreshes device-only readings for unchang
     view.unmount();
     vi.useRealTimers();
   }
+});
+
+it("shows verified and pool-free boards as mixed and refreshes after removal", async () => {
+  const assignments = [
+    {
+      deviceId: 10n,
+      installationId: 101n,
+      hashboardId: 11n,
+      moduleId: 1n,
+      configurationId: "config",
+      name: "Default",
+      state: "verified",
+    },
+    { deviceId: 10n, installationId: 102n, hashboardId: 12n, moduleId: 1n },
+  ];
+  mocks.getAssignments.mockResolvedValue(create(GetAssignmentsResponseSchema, { assignments }));
+  mocks.readDevicePools.mockImplementation(async ({ targets }) => ({
+    readings: targets.map((target: { kind: string; targetId: bigint }) => ({
+      target,
+      reading: create(CheckConfigurationResponseSchema, { state: "", readbackAvailable: true }),
+    })),
+  }));
+  render(
+    <PoolAssignments moduleIds={[1n]}>
+      <BoardPoolConfigurationCell moduleId={1n} />
+    </PoolAssignments>,
+  );
+  expect(await screen.findByRole("button", { name: "Mixed configurations" })).toBeVisible();
+  expect(screen.queryByText("Needs attention")).not.toBeInTheDocument();
+  mocks.getAssignments.mockResolvedValue(
+    create(GetAssignmentsResponseSchema, {
+      assignments: assignments.map((a) => ({ ...a, configurationId: "", name: "", state: "" })),
+    }),
+  );
+  act(() => refreshPoolAssignments());
+  expect(await screen.findByText("—")).toBeVisible();
+  expect(screen.queryByText("Mixed configurations")).not.toBeInTheDocument();
 });

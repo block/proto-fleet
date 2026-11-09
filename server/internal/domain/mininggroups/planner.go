@@ -4,6 +4,8 @@ package mininggroups
 import (
 	"fmt"
 	"slices"
+
+	"github.com/block/proto-fleet/server/internal/domain/poolconfigurations"
 )
 
 type StepKind string
@@ -13,6 +15,7 @@ const (
 	Remove    StepKind = "remove"
 	Configure StepKind = "configure"
 	Start     StepKind = "start"
+	Stop      StepKind = "stop"
 	Transfer  StepKind = "transfer"
 	Wait      StepKind = "wait"
 	Done      StepKind = "done"
@@ -140,7 +143,10 @@ func Plan(desired map[string]string, observed Snapshot) (Step, error) {
 		if !destination.Configured {
 			return Step{Kind: Configure, GroupID: destination.ID, ExpectedRevision: destination.Revision, ConfigRevision: key}, nil
 		}
-		if !destination.Mining {
+		if poolconfigurations.IsClearedPoolIntent(key) && destination.Mining {
+			return Step{Kind: Stop, GroupID: destination.ID, ExpectedRevision: destination.Revision, ConfigRevision: key}, nil
+		}
+		if !poolconfigurations.IsClearedPoolIntent(key) && !destination.Mining {
 			return Step{Kind: Start, GroupID: destination.ID, ExpectedRevision: destination.Revision, ConfigRevision: key}, nil
 		}
 		macs := []string{}

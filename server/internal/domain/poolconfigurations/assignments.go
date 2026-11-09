@@ -43,6 +43,7 @@ type OperationTarget struct {
 }
 
 type Operation struct {
+	Kind                            string
 	Name                            string
 	CreatedAt                       time.Time
 	ID, ConfigurationID, RevisionID string
@@ -110,7 +111,7 @@ func (r *Repository) Assign(ctx context.Context, q sqlc.Querier, scope Scope, ac
 	if err != nil {
 		return Operation{}, storageError(err)
 	}
-	result := Operation{Name: config.Name, CreatedAt: operation.CreatedAt.UTC(), ID: operation.OperationID, ConfigurationID: configID, RevisionID: revisionID, Targets: make([]OperationTarget, 0, len(changes))}
+	result := Operation{Kind: operation.Kind, Name: config.Name, CreatedAt: operation.CreatedAt.UTC(), ID: operation.OperationID, ConfigurationID: configID, RevisionID: revisionID, Targets: make([]OperationTarget, 0, len(changes))}
 	for _, change := range changes {
 		target := change.Target
 		if err := q.SupersedePoolConfigurationTarget(ctx, sqlc.SupersedePoolConfigurationTargetParams{OrganizationID: scope.OrganizationID, TargetKind: target.Kind, TargetID: target.ID}); err != nil {

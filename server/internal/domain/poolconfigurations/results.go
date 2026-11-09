@@ -65,11 +65,15 @@ func (r *Repository) GetOperation(ctx context.Context, q sqlc.Querier, scope Sco
 	if err != nil {
 		return Operation{}, err
 	}
-	result := Operation{Name: configuration.Name, CreatedAt: row.CreatedAt.UTC(), ID: row.OperationID, ConfigurationID: row.ConfigurationID, RevisionID: row.RevisionID, Targets: make([]OperationTarget, 0, len(targets))}
+	result := Operation{Kind: row.Kind, Name: configuration.Name, CreatedAt: row.CreatedAt.UTC(), ID: row.OperationID, ConfigurationID: row.ConfigurationID, RevisionID: row.RevisionID, Targets: make([]OperationTarget, 0, len(targets))}
 	// Historical equipment identity comes from the authorized review snapshot.
 	// Live metadata can belong to a different owner after reassignment.
 	for _, target := range targets {
-		result.Targets = append(result.Targets, publicOperationTarget(target))
+		public := publicOperationTarget(target.PoolConfigurationOperationTarget)
+		if row.Kind == "clear" && (public.State == "applying" || public.State == "uncertain") && target.PhysicalAttemptStatus == "unknown" {
+			public.ResultCode = "operator_recovery_required"
+		}
+		result.Targets = append(result.Targets, public)
 	}
 	return result, nil
 }

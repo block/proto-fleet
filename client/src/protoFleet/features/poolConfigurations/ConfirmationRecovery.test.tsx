@@ -25,7 +25,10 @@ vi.mock("./api", () => ({
   usePoolConfigurationClient: () => ({ client: mocks, accountId: mocks.accountId }),
   usePoolConfigurationPermissions: () => ({ change: mocks.change }),
 }));
-vi.mock("./assignmentProgress", () => ({ trackPoolOperation: mocks.track }));
+vi.mock("./assignmentProgress", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./assignmentProgress")>()),
+  trackPoolOperation: mocks.track,
+}));
 vi.mock("@/shared/features/toaster", () => ({
   pushToast: mocks.toast,
   removeToast: mocks.removeToast,

@@ -203,6 +203,7 @@ type PoolStatistics struct {
 
 // Pool represents a mining pool configuration.
 type Pool struct {
+	StableID          int64           `json:"-"` // MDKv2 identity, never reused after replacement.
 	Idx               uint32          `json:"idx"`
 	Priority          int             `json:"priority"`
 	Url               string          `json:"url"`
@@ -243,8 +244,9 @@ type MinerState struct {
 	TuningAlgorithmVal TuningAlgorithm
 
 	// Configured pools
-	Pools     []*Pool
-	PoolNames map[uint32]string
+	Pools      []*Pool
+	PoolNames  map[uint32]string
+	nextPoolID int64
 
 	// Network configuration
 	IPAddress string
@@ -617,6 +619,8 @@ func (s *MinerState) IsOnboarded() bool {
 func (s *MinerState) AddPool(pool *Pool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.nextPoolID++
+	pool.StableID = s.nextPoolID
 	s.Pools = append(s.Pools, pool)
 }
 
