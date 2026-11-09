@@ -1,11 +1,13 @@
 package timescaledb
 
 import (
+	"context"
 	"database/sql"
 	"os"
 	"testing"
 	"time"
 
+	"github.com/block/proto-fleet/server/generated/sqlc"
 	"github.com/stretchr/testify/require"
 )
 
@@ -130,28 +132,190 @@ func TestTopologyCompactionDryRunAndRollback(t *testing.T) {
 }
 
 func TestTopologyCompactionSchedulerPersistsLeaseOnCancellation(t *testing.T) {
+	for _, scenario := range []struct {
+		name           string
+		microbatchSize int
+		cancelAt       int
+		wantExamined   int
+		wantCursor     bool
+		storedEvidence bool
+		wantPending    int
+	}{
+		{"first_microbatch", 3, 1, 0, false, false, 0},
+		{"later_microbatch", 3, 2, 3, true, false, 0},
+		{"configured_microbatch", 5, 2, 5, true, false, 0},
+		{"referenced_microbatch", 3, 2, 3, true, true, 2},
+	} {
+		t.Run(scenario.name, func(t *testing.T) {
+			r := newContainerRollupRig(t)
+			if scenario.storedEvidence {
+				r.base = time.Now().UTC().Truncate(time.Second).Add(-20 * 24 * time.Hour)
+				for n := range 10 {
+					r.store(t, r.snapshot(time.Duration(n)*time.Second, false, 100e12, 200e12))
+				}
+			} else {
+				insertTopologyCleanupCandidates(t, r, "cancel-"+scenario.name, 30)
+			}
+			// Query cancellation deliberately escapes the exception handler, as a
+			// worker runtime limit would. The sequence survives the rollback.
+			_, err := r.db.ExecContext(t.Context(), `CREATE SEQUENCE cancel_compaction_test_sequence;
+ CREATE TABLE cancel_compaction_test_state(cancel_at bigint NOT NULL);
+ CREATE FUNCTION cancel_compaction_test() RETURNS trigger LANGUAGE plpgsql AS $$
+ DECLARE attempt bigint;
+ BEGIN
+  attempt:=nextval('cancel_compaction_test_sequence');
+  IF attempt=(SELECT cancel_at FROM cancel_compaction_test_state) THEN
+   RAISE EXCEPTION 'test cancellation' USING ERRCODE='57014';
+  END IF;
+  RETURN NEW;
+ END $$;
+ CREATE TRIGGER cancel_compaction_test BEFORE UPDATE OF scanned_through ON container_topology_compaction_state
+ FOR EACH ROW EXECUTE FUNCTION cancel_compaction_test()`)
+			require.NoError(t, err)
+			_, err = r.db.ExecContext(t.Context(), `INSERT INTO cancel_compaction_test_state(cancel_at) VALUES($1)`, scenario.cancelAt)
+			require.NoError(t, err)
+			var job int
+			require.NoError(t, r.db.QueryRowContext(t.Context(), `SELECT job_id FROM timescaledb_information.jobs WHERE proc_name='compact_container_topology_job'`).Scan(&job))
+			_, err = r.db.ExecContext(t.Context(), `SELECT alter_job($1,config=>jsonb_build_object(
+ 'enabled',true,'batch_size',25,'microbatch_size',$2::int))`, job, scenario.microbatchSize)
+			require.NoError(t, err)
+			_, err = r.db.ExecContext(t.Context(), `CALL run_job($1)`, job)
+			require.ErrorContains(t, err, "test cancellation")
+			var examined int
+			var leased bool
+			var cursor sql.NullTime
+			require.NoError(t, r.db.QueryRowContext(t.Context(), `SELECT examined,next_run_at>now(),scanned_through
+ FROM container_topology_compaction_state WHERE device_id=$1`, r.databaseID).Scan(&examined, &leased, &cursor))
+			require.Equal(t, scenario.wantExamined, examined)
+			require.Equal(t, scenario.wantCursor, cursor.Valid)
+			require.True(t, leased, "cancelled batch must leave scheduling backoff committed")
+			var pending int
+			require.NoError(t, r.db.QueryRowContext(t.Context(), `SELECT count(*) FROM container_topology_compaction_pending WHERE device_id=$1`, r.databaseID).Scan(&pending))
+			require.Equal(t, scenario.wantPending, pending, "committed microbatches must preserve pinned evidence across cancellation")
+			// The durable lease must prevent an immediate retry of the same device.
+			_, err = r.db.ExecContext(t.Context(), `CALL run_job($1)`, job)
+			require.NoError(t, err)
+			var examinedAfterRetry int
+			require.NoError(t, r.db.QueryRowContext(t.Context(), `SELECT examined FROM container_topology_compaction_state WHERE device_id=$1`, r.databaseID).Scan(&examinedAfterRetry))
+			require.Equal(t, examined, examinedAfterRetry)
+		})
+	}
+}
+
+func insertTopologyCleanupCandidates(t *testing.T, r *containerRollupRig, fingerprint string, count int) {
+	t.Helper()
+	var version int64
+	require.NoError(t, r.db.QueryRowContext(t.Context(), `INSERT INTO container_topology_version(device_id,fingerprint,topology)
+ VALUES ($1,$2,'{}') RETURNING id`, r.databaseID, fingerprint).Scan(&version))
+	_, err := r.db.ExecContext(t.Context(), `INSERT INTO container_topology_observation(device_id,version_id,collected_at,complete)
+ SELECT $1,$2,$3::timestamptz+n*INTERVAL '1 minute',true FROM generate_series(0,$4::integer-1) n`,
+		r.databaseID, version, time.Now().UTC().Truncate(time.Second).Add(-20*24*time.Hour), count)
+	require.NoError(t, err)
+}
+
+func TestTopologyCompactionSchedulerPreservesBudgetAcrossMicrobatches(t *testing.T) {
 	r := newContainerRollupRig(t)
-	r.base = time.Now().UTC().Truncate(time.Second).Add(-20 * 24 * time.Hour)
-	r.store(t, r.snapshot(0, false, 100e12, 200e12))
-	// Force cancellation after the scheduling commit. Query cancellation deliberately
-	// escapes the exception handler, as a worker runtime limit would.
-	_, err := r.db.ExecContext(t.Context(), `CREATE FUNCTION cancel_compaction_test() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'test cancellation' USING ERRCODE='57014'; END $$;
- CREATE TRIGGER cancel_compaction_test BEFORE UPDATE OF scanned_through ON container_topology_compaction_state FOR EACH ROW EXECUTE FUNCTION cancel_compaction_test()`)
+	insertTopologyCleanupCandidates(t, r, "microbatch-budget", 30)
+	_, err := r.db.ExecContext(t.Context(), `CALL compact_container_topology_job(0,'{"enabled":true,"batch_size":25}'::jsonb)`)
 	require.NoError(t, err)
-	var job int
-	require.NoError(t, r.db.QueryRowContext(t.Context(), `SELECT job_id FROM timescaledb_information.jobs WHERE proc_name='compact_container_topology_job'`).Scan(&job))
-	_, err = r.db.ExecContext(t.Context(), `SELECT alter_job($1,config=>' {"enabled":true,"batch_size":100}'::jsonb)`, job)
+	var examined, deleted, failures int
+	var due bool
+	require.NoError(t, r.db.QueryRowContext(t.Context(), `SELECT examined,deleted,failures,next_run_at<=now()
+ FROM container_topology_compaction_state WHERE device_id=$1`, r.databaseID).Scan(&examined, &deleted, &failures, &due))
+	require.Equal(t, 25, examined)
+	require.Equal(t, 24, deleted)
+	require.Zero(t, failures)
+	require.True(t, due, "a full scheduled budget must leave the remaining backlog ready")
+}
+
+func TestTopologyCompactionSchedulerReleasesIngestionLockBetweenMicrobatches(t *testing.T) {
+	r := newContainerRollupRig(t)
+	insertTopologyCleanupCandidates(t, r, "lock-handoff", 26)
+	_, err := r.db.ExecContext(t.Context(), `CREATE FUNCTION slow_topology_cleanup_delete_test() RETURNS trigger LANGUAGE plpgsql AS $$
+ BEGIN
+  PERFORM pg_advisory_xact_lock(234,234);
+  PERFORM pg_sleep(0.04);
+  RETURN OLD;
+ END $$;
+ CREATE TRIGGER slow_topology_cleanup_delete_test BEFORE DELETE ON container_topology_observation
+ FOR EACH ROW EXECUTE FUNCTION slow_topology_cleanup_delete_test()`)
 	require.NoError(t, err)
-	_, err = r.db.ExecContext(t.Context(), `CALL run_job($1)`, job)
-	require.ErrorContains(t, err, "test cancellation")
-	var leased bool
-	var cursor sql.NullTime
-	require.NoError(t, r.db.QueryRowContext(t.Context(), `SELECT next_run_at>now(),scanned_through FROM container_topology_compaction_state WHERE device_id=$1`, r.databaseID).Scan(&leased, &cursor))
-	require.True(t, leased, "cancelled batch must leave scheduling backoff committed")
-	require.False(t, cursor.Valid, "destructive progress must roll back")
-	// It must not immediately pick the failing device again.
-	_, err = r.db.ExecContext(t.Context(), `CALL run_job($1)`, job)
+
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	defer cancel()
+	waitForCall := func(done <-chan error) {
+		t.Helper()
+		select {
+		case callErr := <-done:
+			require.NoError(t, callErr)
+		case <-ctx.Done():
+			t.Fatal(ctx.Err())
+		}
+	}
+	gate, err := r.db.Conn(ctx)
 	require.NoError(t, err)
+	defer gate.Close()
+	_, err = gate.ExecContext(ctx, `SELECT pg_advisory_lock(234,234)`)
+	require.NoError(t, err)
+
+	cleanup, err := r.db.Conn(ctx)
+	require.NoError(t, err)
+	defer cleanup.Close()
+	var cleanupPID int
+	require.NoError(t, cleanup.QueryRowContext(ctx, `SELECT pg_backend_pid()`).Scan(&cleanupPID))
+	cleanupDone := make(chan error, 1)
+	go func() {
+		_, callErr := cleanup.ExecContext(ctx, `CALL compact_container_topology_job(0,'{"enabled":true,"batch_size":25}'::jsonb)`)
+		cleanupDone <- callErr
+	}()
+	require.Eventually(t, func() bool {
+		var waiting bool
+		queryErr := r.db.QueryRowContext(ctx, `SELECT wait_event='advisory' FROM pg_stat_activity WHERE pid=$1`, cleanupPID).Scan(&waiting)
+		return queryErr == nil && waiting
+	}, 5*time.Second, 10*time.Millisecond, "cleanup did not reach the controlled delete")
+
+	ingestion, err := r.db.Conn(ctx)
+	require.NoError(t, err)
+	defer ingestion.Close()
+	ingestionTx, err := ingestion.BeginTx(ctx, nil)
+	require.NoError(t, err)
+	defer func() { _ = ingestionTx.Rollback() }()
+	_, err = ingestionTx.ExecContext(ctx, `SET LOCAL lock_timeout='250ms'`)
+	require.NoError(t, err)
+	var ingestionPID int
+	require.NoError(t, ingestionTx.QueryRowContext(ctx, `SELECT pg_backend_pid()`).Scan(&ingestionPID))
+	ingestionDone := make(chan error, 1)
+	go func() {
+		_, lockErr := sqlc.New(ingestionTx).LockHashboardOrganization(ctx, r.deviceID)
+		ingestionDone <- lockErr
+	}()
+	require.Eventually(t, func() bool {
+		var waiting bool
+		queryErr := r.db.QueryRowContext(ctx, `SELECT wait_event_type='Lock' FROM pg_stat_activity WHERE pid=$1`, ingestionPID).Scan(&waiting)
+		return queryErr == nil && waiting
+	}, 5*time.Second, 10*time.Millisecond, "ingestion did not wait for the cleanup organization lock")
+
+	_, err = gate.ExecContext(ctx, `SELECT pg_advisory_unlock(234,234)`)
+	require.NoError(t, err)
+	waitForCall(ingestionDone)
+	waitForCall(cleanupDone)
+	var examined, failures, deferrals int
+	var due bool
+	var lastDeferredAt sql.NullTime
+	require.NoError(t, r.db.QueryRowContext(ctx, `SELECT examined,failures,next_run_at<=now(),deferrals,last_deferred_at
+ FROM container_topology_compaction_state WHERE device_id=$1`, r.databaseID).Scan(&examined, &failures, &due, &deferrals, &lastDeferredAt))
+	require.Positive(t, examined)
+	require.Less(t, examined, 25, "ingestion must interrupt cleanup before the full scheduled batch")
+	require.Zero(t, failures)
+	require.True(t, due, "a device that made progress must remain due after lock contention")
+	require.Equal(t, 1, deferrals)
+	require.True(t, lastDeferredAt.Valid)
+	require.NoError(t, ingestionTx.Commit())
+	_, err = r.db.ExecContext(ctx, `CALL compact_container_topology_job(0,'{"enabled":true,"batch_size":3}'::jsonb)`)
+	require.NoError(t, err)
+	var examinedAfterRetry int
+	require.NoError(t, r.db.QueryRowContext(ctx, `SELECT examined FROM container_topology_compaction_state WHERE device_id=$1`, r.databaseID).Scan(&examinedAfterRetry))
+	require.Equal(t, examined+3, examinedAfterRetry, "progress-aware contention must allow an immediate retry")
 }
 
 func TestTopologyCompactionSkipsActiveIngestionAndRecentReceipts(t *testing.T) {
@@ -171,13 +335,17 @@ func TestTopologyCompactionSkipsActiveIngestionAndRecentReceipts(t *testing.T) {
 	// failure, while preserving the same no-progress guarantee.
 	_, err = r.db.ExecContext(t.Context(), `CALL compact_container_topology_job(0,'{"enabled":true,"batch_size":100}'::jsonb)`)
 	require.NoError(t, err)
-	var failures int
+	var failures, deferrals int
 	var deferred bool
 	var lastError sql.NullString
-	require.NoError(t, r.db.QueryRowContext(t.Context(), `SELECT failures,last_error,next_run_at>now() FROM container_topology_compaction_state WHERE device_id=$1`, r.databaseID).Scan(&failures, &lastError, &deferred))
+	var lastDeferredAt sql.NullTime
+	require.NoError(t, r.db.QueryRowContext(t.Context(), `SELECT failures,last_error,next_run_at>now(),deferrals,last_deferred_at
+ FROM container_topology_compaction_state WHERE device_id=$1`, r.databaseID).Scan(&failures, &lastError, &deferred, &deferrals, &lastDeferredAt))
 	require.Zero(t, failures)
 	require.False(t, lastError.Valid)
-	require.True(t, deferred)
+	require.True(t, deferred, "a device that made no progress must keep the one-minute backoff")
+	require.Equal(t, 1, deferrals)
+	require.True(t, lastDeferredAt.Valid)
 
 	require.NoError(t, tx.Rollback())
 	_, err = r.db.ExecContext(t.Context(), `SELECT compact_container_topology($1,now()-INTERVAL '10 days',100)`, r.databaseID)

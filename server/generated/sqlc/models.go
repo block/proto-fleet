@@ -947,6 +947,8 @@ type ContainerTopologyCompactionState struct {
 	Deleted        int64
 	Failures       int64
 	LastError      sql.NullString
+	Deferrals      int64
+	LastDeferredAt sql.NullTime
 }
 
 type ContainerTopologyObservation struct {
