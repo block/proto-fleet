@@ -234,7 +234,6 @@ const github = {
         "CODEX_TIMEOUT_MINUTES": scenario.get("timeout_minutes", "30"),
         "CODEX_CANCELLATION_CLEANUP_SECONDS": scenario.get("cleanup_seconds", "300"),
         "AGENT_JOB_NAME": scenario.get("agent_job_name", "Run bounded Codex reviewer"),
-        "SHARD_JOB_ID": str(scenario.get("shard_job_id", 456)),
         "RESULT_ARTIFACT_NAME": "benchmark-result-test",
     }
     completed = subprocess.run(
@@ -260,7 +259,6 @@ class ReviewPolicyTest(unittest.TestCase):
             jobs["review-policy-tests"]["steps"][1]["run"].splitlines(),
             [
                 "python3 .github/scripts/evaluate_review_policy_test.py",
-                "python3 .github/scripts/codex_sharding_test.py",
             ],
         )
 
@@ -449,7 +447,7 @@ class ReviewPolicyTest(unittest.TestCase):
             "name": "Run bounded Codex reviewer",
             "conclusion": "cancelled",
             "started_at": "2026-08-26T00:00:00Z",
-            "completed_at": "2026-08-26T00:35:00Z",
+            "completed_at": "2026-08-26T00:40:00Z",
             "steps": [
                 *successful_steps,
                 {
@@ -581,7 +579,6 @@ class ReviewPolicyTest(unittest.TestCase):
         job = workflow["jobs"]["benchmark-review"]
         corpus = load_benchmark_corpus()
         cases = corpus["cases"]
-        variants = corpus["variants"]
         codex = find_step(workflow, "benchmark-review", "run_codex")
         benchmark_writer = find_step(workflow, "benchmark-review", "write_artifacts")
 
@@ -591,40 +588,40 @@ class ReviewPolicyTest(unittest.TestCase):
                 "repository_dispatch": {
                     "types": [
                         "codex-security-review-benchmark",
-                        "codex-security-review-sharded-benchmark",
-                        "codex-security-review-terra-benchmark",
-                        "codex-security-review-extended-timeout-benchmark",
                     ]
                 }
             },
         )
+        self.assertEqual(
+            set(workflow["jobs"]),
+            {"select-cases", "benchmark-review", "benchmark-finalize"},
+        )
         selector = find_step(workflow, "select-cases", "select")
+        self.assertEqual(corpus["repository"], "block/proto-fleet")
+        checkout = next(
+            step
+            for step in job["steps"]
+            if step["name"] == "Checkout fixed historical head"
+        )
+        source_repository = "${{ needs.select-cases.outputs.source_repository }}"
+        self.assertEqual(checkout["with"]["repository"], source_repository)
+        self.assertEqual(checkout["with"]["ref"], "${{ matrix.case.head }}")
         self.assertEqual(
-            selector["env"]["BENCHMARK_PROFILE"],
-            "${{ github.event.action == 'codex-security-review-terra-benchmark' && 'terra-high-default-low' || github.event.action == 'codex-security-review-extended-timeout-benchmark' && 'sol-extended-timeout' || 'sol' }}",
+            job["env"]["REVIEW_BLOB_BASE_URL"],
+            "${{ format('https://github.com/{0}/blob/{1}', needs.select-cases.outputs.source_repository, matrix.case.head) }}",
+        )
+        for job_id in ("benchmark-review", "benchmark-finalize"):
+            self.assertEqual(
+                workflow["jobs"][job_id]["env"]["REVIEW_REPOSITORY"], source_repository
+            )
+        self.assertEqual(
+            selector["env"],
+            {"BENCHMARK_PAYLOAD": "${{ toJSON(github.event.client_payload) }}"},
         )
         self.assertIn(
-            "github.event.action == 'codex-security-review-terra-benchmark' && 'high' || 'xhigh'",
-            selector["env"]["REASONING_EFFORT"],
+            "needs.select-cases.result == 'success'",
+            workflow["jobs"]["benchmark-finalize"]["if"],
         )
-        self.assertIn(
-            "github.event.action == 'codex-security-review-extended-timeout-benchmark') && 'unified-40' || 'all'",
-            selector["env"]["CONTEXT_VARIANT"],
-        )
-        self.assertEqual(
-            workflow["jobs"]["sharded-benchmark-case"]["if"],
-            "${{ github.event.action == 'codex-security-review-sharded-benchmark' }}",
-        )
-        unsharded_events = (
-            "github.event.action == 'codex-security-review-benchmark' || "
-            "github.event.action == 'codex-security-review-terra-benchmark' || "
-            "github.event.action == 'codex-security-review-extended-timeout-benchmark'"
-        )
-        self.assertEqual(
-            job["if"],
-            f"${{{{ needs.select-cases.result == 'success' && ({unsharded_events}) }}}}",
-        )
-        self.assertIn(unsharded_events, workflow["jobs"]["benchmark-finalize"]["if"])
         self.assertNotIn("workflow_dispatch:", workflow_text)
         self.assertNotIn("${{ inputs", workflow_text)
         self.assertEqual(
@@ -639,10 +636,6 @@ class ReviewPolicyTest(unittest.TestCase):
         self.assertTrue(codex["continue-on-error"])
         self.assertIn("!cancelled()", benchmark_writer["if"])
         self.assertEqual(
-            {variant["id"] for variant in variants},
-            {"unified-40", "unified-10", "compact"},
-        )
-        self.assertEqual(
             {case["pr"] for case in cases if case["corpus"] == "adjudicated"},
             {944, 948, 953, 954, 956, 961},
         )
@@ -652,11 +645,10 @@ class ReviewPolicyTest(unittest.TestCase):
         production_codex = find_step(production, "review-agent", "run_codex")
         production_prompt = production_codex["with"]["prompt"]
         benchmark_prompt = codex["with"]["prompt"]
-        self.assertTrue(benchmark_prompt.startswith(production_prompt.rstrip()))
+        self.assertEqual(benchmark_prompt, production_prompt)
         self.assertNotIn(
             "Return no more than five material findings", production_prompt
         )
-        self.assertIn("return no more than five material findings", benchmark_prompt)
         uploads = [
             step
             for step in job["steps"]
@@ -695,38 +687,23 @@ class ReviewPolicyTest(unittest.TestCase):
             {
                 "matrix": "${{ steps.select.outputs.matrix }}",
                 "model": "${{ steps.select.outputs.model }}",
+                "source_repository": "${{ steps.select.outputs.source_repository }}",
                 "reasoning_effort": "${{ steps.select.outputs.reasoning_effort }}",
-                "service_tier": "${{ steps.select.outputs.service_tier }}",
-                "verbosity": "${{ steps.select.outputs.verbosity }}",
                 "codex_args": "${{ steps.select.outputs.codex_args }}",
                 "timeout_minutes": "${{ steps.select.outputs.timeout_minutes }}",
-                "prompt_profile": "${{ steps.select.outputs.prompt_profile }}",
                 "repeat": "${{ steps.select.outputs.repeat }}",
             },
         )
 
-    def test_codex_benchmark_selection_filters_the_requested_corpus_and_variant(self):
+    def test_codex_benchmark_selection_uses_matched_model_profiles(self):
         workflow = load_workflow("codex-security-review-benchmark.yml")
+        production = load_workflow("codex-security-review.yml")["jobs"]["review-agent"]
         body = extract_python_heredoc(
             find_step(workflow, "select-cases", "select")["run"]
         )
         corpus = load_benchmark_corpus()
-        adjudicated = [
-            case["id"] for case in corpus["cases"] if case["corpus"] == "adjudicated"
-        ]
-        large_pr = [
-            case["id"] for case in corpus["cases"] if case["corpus"] == "large-pr"
-        ]
 
-        def select(
-            corpus_name,
-            variant_name,
-            review_mode="unsharded",
-            benchmark_profile="sol",
-            reasoning_effort="xhigh",
-            prompt_profile="baseline",
-            repeat="initial",
-        ):
+        def select(payload):
             with tempfile.TemporaryDirectory() as tmp:
                 target = Path(tmp) / ".github" / BENCHMARK_CORPUS_PATH.name
                 target.parent.mkdir()
@@ -736,151 +713,88 @@ class ReviewPolicyTest(unittest.TestCase):
                 result = run_python_heredoc(
                     body,
                     {
-                        "REVIEW_MODE": review_mode,
-                        "BENCHMARK_PROFILE": benchmark_profile,
-                        "CORPUS": corpus_name,
-                        "CONTEXT_VARIANT": variant_name,
-                        "REASONING_EFFORT": reasoning_effort,
-                        "PROMPT_PROFILE": prompt_profile,
-                        "REPEAT": repeat,
+                        "BENCHMARK_PAYLOAD": json.dumps(payload),
                         "GITHUB_OUTPUT": str(output),
                     },
                     tmp,
                 )
-                return result, output.read_text(encoding="utf-8")
+                return result, dict(
+                    line.split("=", 1) for line in output.read_text().splitlines()
+                )
 
-        result, emitted = select("adjudicated", "all")
+        for profile, model in (("astra", "gpt-6-astra"), ("sol", "gpt-6.1-sol")):
+            for corpus_name, repeat in (
+                ("adjudicated", "initial"),
+                ("large-pr", "repeat-1"),
+            ):
+                with self.subTest(profile=profile, corpus=corpus_name):
+                    result, outputs = select(
+                        {"profile": profile, "corpus": corpus_name, "repeat": repeat}
+                    )
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertEqual(outputs["model"], model)
+                    self.assertEqual(outputs["source_repository"], "block/proto-fleet")
+                    self.assertEqual(
+                        outputs["reasoning_effort"],
+                        production["env"]["CODEX_REASONING_EFFORT"],
+                    )
+                    self.assertEqual(outputs["reasoning_effort"], "medium")
+                    self.assertEqual(
+                        outputs["timeout_minutes"],
+                        production["env"]["CODEX_TIMEOUT_MINUTES"],
+                    )
+                    self.assertEqual(outputs["timeout_minutes"], "30")
+                    self.assertEqual(
+                        json.loads(outputs["codex_args"]),
+                        ["-c", "model_reasoning_effort=medium"],
+                    )
+                    self.assertEqual(outputs["repeat"], repeat)
+                    include = json.loads(outputs["matrix"])["include"]
+                    expected = [
+                        case
+                        for case in corpus["cases"]
+                        if case["corpus"] == corpus_name
+                    ]
+                    self.assertEqual([entry["case"] for entry in include], expected)
+                    self.assertTrue(
+                        all(
+                            entry["variant"]
+                            == {"id": "unified-40", "unified": 40, "inter-hunk": 0}
+                            for entry in include
+                        )
+                    )
+
+        result, outputs = select({"profile": "sol"})
         self.assertEqual(result.returncode, 0, result.stderr)
-        outputs = dict(line.split("=", 1) for line in emitted.splitlines())
-        include = json.loads(outputs["matrix"])["include"]
-        self.assertEqual(outputs["model"], "gpt-5.6-sol")
-        self.assertEqual(outputs["reasoning_effort"], "xhigh")
-        self.assertEqual(outputs["service_tier"], "unspecified")
-        self.assertEqual(outputs["verbosity"], "unspecified")
-        self.assertEqual(
-            json.loads(outputs["codex_args"]),
-            ["-c", "model_reasoning_effort=xhigh"],
-        )
-        self.assertEqual(outputs["timeout_minutes"], "12")
-        self.assertEqual(outputs["prompt_profile"], "baseline")
         self.assertEqual(outputs["repeat"], "initial")
-        self.assertEqual(len(include), len(adjudicated) * len(corpus["variants"]))
-        self.assertEqual({entry["case"]["id"] for entry in include}, set(adjudicated))
-        self.assertEqual(
-            {entry["variant"]["id"] for entry in include},
-            {variant["id"] for variant in corpus["variants"]},
-        )
+        self.assertEqual(len(json.loads(outputs["matrix"])["include"]), 6)
 
-        result, emitted = select("large-pr", "compact")
-        self.assertEqual(result.returncode, 0, result.stderr)
-        outputs = dict(line.split("=", 1) for line in emitted.splitlines())
-        include = json.loads(outputs["matrix"])["include"]
-        self.assertEqual(
-            [(entry["case"]["id"], entry["variant"]["id"]) for entry in include],
-            [(case_id, "compact") for case_id in large_pr],
-        )
-
-        result, emitted = select("adjudicated", "does-not-exist")
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn("does-not-exist", result.stderr)
-        self.assertEqual(emitted, "")
-
-        result, emitted = select("adjudicated", "unified-40", "sharded")
-        self.assertEqual(result.returncode, 0, result.stderr)
-        outputs = dict(line.split("=", 1) for line in emitted.splitlines())
-        include = json.loads(outputs["matrix"])["include"]
-        self.assertEqual(len(include), len(adjudicated))
-        self.assertEqual({entry["variant"]["id"] for entry in include}, {"unified-40"})
-
-        result, emitted = select("adjudicated", "compact", "sharded")
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn("compact", result.stderr)
-        self.assertEqual(emitted, "")
-
-        result, emitted = select(
-            "adjudicated",
-            "unified-40",
-            benchmark_profile="terra-high-default-low",
-            reasoning_effort="high",
-        )
-        self.assertEqual(result.returncode, 0, result.stderr)
-        outputs = dict(line.split("=", 1) for line in emitted.splitlines())
-        include = json.loads(outputs["matrix"])["include"]
-        self.assertEqual(len(include), len(adjudicated))
-        self.assertEqual({entry["variant"]["id"] for entry in include}, {"unified-40"})
-        self.assertEqual(outputs["model"], "gpt-5.6-terra")
-        self.assertEqual(outputs["reasoning_effort"], "high")
-        self.assertEqual(outputs["service_tier"], "default")
-        self.assertEqual(outputs["verbosity"], "low")
-        self.assertEqual(outputs["timeout_minutes"], "12")
-        self.assertEqual(
-            json.loads(outputs["codex_args"]),
-            [
-                "-c",
-                "model_reasoning_effort=high",
-                "-c",
-                "service_tier=default",
-                "-c",
-                "model_verbosity=low",
-            ],
-        )
-
-        for variant, effort, prompt, rejected in (
-            ("unified-40", "xhigh", "baseline", "xhigh"),
-            ("compact", "high", "baseline", "compact"),
-            ("unified-40", "high", "bounded", "bounded"),
-        ):
-            with self.subTest(rejected=rejected):
-                result, emitted = select(
-                    "adjudicated",
-                    variant,
-                    benchmark_profile="terra-high-default-low",
-                    reasoning_effort=effort,
-                    prompt_profile=prompt,
+        for payload in (
+            {},
+            {"profile": "terra"},
+            {"profile": "sol-extended-timeout"},
+            {"profile": "gpt-6.1-sol"},
+            {"profile": ["sol"]},
+            {"profile": "sol", "corpus": "arbitrary"},
+            {"profile": "sol", "repeat": "repeat-3"},
+            {"profile": "sol", "repeat": []},
+            *(
+                {"profile": "sol", key: value}
+                for key, value in (
+                    ("context-variant", "compact"),
+                    ("reasoning-effort", "xhigh"),
+                    ("prompt-profile", "bounded"),
+                    ("model", "other-model"),
+                    ("timeout-minutes", 60),
+                    ("head", "a" * 40),
+                    ("repository", "other/repository"),
                 )
-                self.assertNotEqual(result.returncode, 0)
-                self.assertIn(rejected, result.stderr)
-                self.assertEqual(emitted, "")
-
-        result, emitted = select(
-            "adjudicated",
-            "unified-40",
-            benchmark_profile="sol-extended-timeout",
-        )
-        self.assertEqual(result.returncode, 0, result.stderr)
-        outputs = dict(line.split("=", 1) for line in emitted.splitlines())
-        include = json.loads(outputs["matrix"])["include"]
-        self.assertEqual(len(include), len(adjudicated))
-        self.assertEqual({entry["variant"]["id"] for entry in include}, {"unified-40"})
-        self.assertEqual(outputs["model"], "gpt-5.6-sol")
-        self.assertEqual(outputs["reasoning_effort"], "xhigh")
-        self.assertEqual(outputs["service_tier"], "unspecified")
-        self.assertEqual(outputs["verbosity"], "unspecified")
-        self.assertEqual(outputs["timeout_minutes"], "14")
-        self.assertEqual(
-            json.loads(outputs["codex_args"]),
-            ["-c", "model_reasoning_effort=xhigh"],
-        )
-
-        for corpus, variant, effort, prompt, repeat, rejected in (
-            ("large-pr", "unified-40", "xhigh", "baseline", "initial", "large-pr"),
-            ("adjudicated", "compact", "xhigh", "baseline", "initial", "compact"),
-            ("adjudicated", "unified-40", "high", "baseline", "initial", "high"),
-            ("adjudicated", "unified-40", "xhigh", "bounded", "initial", "bounded"),
-            ("adjudicated", "unified-40", "xhigh", "baseline", "repeat-1", "repeat-1"),
+            ),
         ):
-            with self.subTest(extended_timeout_rejected=rejected):
-                result, emitted = select(
-                    corpus,
-                    variant,
-                    benchmark_profile="sol-extended-timeout",
-                    reasoning_effort=effort,
-                    prompt_profile=prompt,
-                    repeat=repeat,
-                )
+            with self.subTest(rejected=payload):
+                result, outputs = select(payload)
                 self.assertNotEqual(result.returncode, 0)
-                self.assertIn(rejected, result.stderr)
-                self.assertEqual(emitted, "")
+                self.assertEqual(outputs, {})
 
     def test_codex_review_workflows_share_bounded_review_configuration(self):
         production = load_workflow("codex-security-review.yml")
@@ -911,6 +825,8 @@ class ReviewPolicyTest(unittest.TestCase):
             production_poster["env"]["CODEX_MODEL"],
             production_job["env"]["CODEX_MODEL"],
         )
+        self.assertEqual(benchmark_codex["with"]["model"], "${{ env.CODEX_MODEL }}")
+        self.assertEqual(benchmark_codex["uses"], production_codex["uses"])
         self.assertEqual(
             benchmark_codex["with"]["codex-args"],
             "${{ needs.select-cases.outputs.codex_args }}",
@@ -918,8 +834,6 @@ class ReviewPolicyTest(unittest.TestCase):
         for name, output in (
             ("CODEX_MODEL", "model"),
             ("CODEX_REASONING_EFFORT", "reasoning_effort"),
-            ("CODEX_SERVICE_TIER", "service_tier"),
-            ("CODEX_VERBOSITY", "verbosity"),
         ):
             expected = f"${{{{ needs.select-cases.outputs.{output} }}}}"
             self.assertEqual(benchmark_job["env"][name], expected)
@@ -1009,9 +923,9 @@ class ReviewPolicyTest(unittest.TestCase):
         )
         cases = [
             (None, "success", valid_output, 30),
-            ("codex-step-cancelled", "cancelled", "", 45),
-            ("codex-step-timeout", "failure", "", 12 * 60),
-            ("codex-step-failed", "failure", "", 45),
+            ("automation-failure", "cancelled", "", 45),
+            ("codex-step-timeout", "failure", "", 30 * 60),
+            ("automation-failure", "failure", "", 45),
             ("empty-model-output", "success", "", 45),
             ("invalid-model-output", "success", "{", 45),
             (
@@ -1034,7 +948,7 @@ class ReviewPolicyTest(unittest.TestCase):
                         {
                             "CODEX_OUTCOME": outcome,
                             "REVIEW_OUTPUT": output,
-                            "CODEX_TIMEOUT_MINUTES": "12",
+                            "CODEX_TIMEOUT_MINUTES": "30",
                             "STARTED_AT": str(int(time.time()) - age),
                             "PACKET_BYTES": "10",
                             "PACKET_LINES": "2",
@@ -1051,17 +965,23 @@ class ReviewPolicyTest(unittest.TestCase):
                             "UNIFIED": "40",
                             "INTER_HUNK": "0",
                             "REPEAT": "initial",
-                            "PROMPT_PROFILE": "baseline",
-                            "SERVICE_TIER": "default",
-                            "VERBOSITY": "low",
+                            "REVIEW_REPOSITORY": "block/proto-fleet",
                             "REVIEW_BASE_SHA": "a" * 40,
                             "REVIEW_HEAD_SHA": "b" * 40,
                             "REVIEW_COMMIT_RANGE": f"{'a' * 40}...{'b' * 40}",
-                            "CODEX_MODEL": "gpt-5.6-terra",
-                            "CODEX_REASONING_EFFORT": "high",
+                            "CODEX_MODEL": "gpt-6.1-sol",
+                            "CODEX_REASONING_EFFORT": "medium",
                         },
                         tmp,
                     )
+                    if expected_reason == "automation-failure":
+                        self.assertNotEqual(result.returncode, 0)
+                        self.assertIn(
+                            "Codex action failed before its budget", result.stderr
+                        )
+                        self.assertFalse((Path(tmp) / "benchmark-review.json").exists())
+                        self.assertFalse((Path(tmp) / "benchmark-scope.json").exists())
+                        continue
                     self.assertEqual(result.returncode, 0, result.stderr)
                     review = json.loads(
                         (Path(tmp) / "benchmark-review.json").read_text(
@@ -1074,23 +994,24 @@ class ReviewPolicyTest(unittest.TestCase):
 
                 self.assertEqual(review["incomplete_reason"], expected_reason)
                 self.assertEqual(scope["incomplete_reason"], expected_reason)
-                self.assertEqual(scope["timeout_budget_seconds"], 12 * 60)
+                self.assertEqual(scope["timeout_budget_seconds"], 30 * 60)
                 self.assertEqual(
                     review["benchmark_status"],
                     "completed" if expected_reason is None else "incomplete",
                 )
                 self.assertEqual(scope["completed"], expected_reason is None)
-                self.assertEqual(scope["model"], "gpt-5.6-terra")
-                self.assertEqual(scope["reasoning_effort"], "high")
-                self.assertEqual(scope["service_tier"], "default")
-                self.assertEqual(scope["verbosity"], "low")
+                self.assertEqual(scope["model"], "gpt-6.1-sol")
+                self.assertEqual(scope["reasoning_effort"], "medium")
+                self.assertEqual(scope["service_tier"], "unspecified")
+                self.assertEqual(scope["verbosity"], "unspecified")
+                self.assertEqual(scope["prompt_profile"], "baseline")
+                self.assertEqual(scope["repository"], "block/proto-fleet")
 
         self.assertEqual(
             {reason for reason, _, _, _ in cases if reason},
             {
-                "codex-step-cancelled",
+                "automation-failure",
                 "codex-step-timeout",
-                "codex-step-failed",
                 "empty-model-output",
                 "invalid-model-output",
             },
@@ -1128,7 +1049,7 @@ class ReviewPolicyTest(unittest.TestCase):
             "name": "pr-957 / unified-40 / initial",
             "conclusion": "cancelled",
             "started_at": "2026-08-26T00:00:00Z",
-            "completed_at": "2026-08-26T00:17:00Z",
+            "completed_at": "2026-08-26T00:40:00Z",
             "steps": [
                 *successful_steps,
                 {
@@ -1140,35 +1061,41 @@ class ReviewPolicyTest(unittest.TestCase):
             ],
         }
         inspect_cases = [
-            ("budget-timeout", timeout_job, "12", "budget-timeout"),
+            ("budget-timeout", timeout_job, "30", "budget-timeout"),
+            (
+                "non-default-budget-with-cleanup",
+                {**timeout_job, "completed_at": "2026-08-26T00:17:00Z"},
+                "12",
+                "budget-timeout",
+            ),
             (
                 "early-cancellation",
                 {**timeout_job, "completed_at": "2026-08-26T00:05:00Z"},
-                "12",
+                "30",
                 "unexpected-cancellation",
             ),
             (
                 "cancellation-plus-cleanup",
-                {**timeout_job, "completed_at": "2026-08-26T00:12:00Z"},
-                "12",
+                {**timeout_job, "completed_at": "2026-08-26T00:30:00Z"},
+                "30",
                 "unexpected-cancellation",
             ),
             (
                 "setup-cancellation",
                 {**timeout_job, "steps": successful_steps[:1]},
-                "12",
+                "30",
                 "unexpected-cancellation",
             ),
             (
-                "extended-timeout-budget-plus-cleanup",
-                {**timeout_job, "completed_at": "2026-08-26T00:19:00Z"},
-                "14",
+                "budget-with-cleanup-boundary",
+                {**timeout_job, "completed_at": "2026-08-26T00:35:00Z"},
+                "30",
                 "budget-timeout",
             ),
             (
-                "extended-timeout-insufficient-evidence",
-                {**timeout_job, "completed_at": "2026-08-26T00:18:59Z"},
-                "14",
+                "insufficient-cleanup-evidence",
+                {**timeout_job, "completed_at": "2026-08-26T00:34:59Z"},
+                "30",
                 "unexpected-cancellation",
             ),
         ]
@@ -1232,9 +1159,10 @@ class ReviewPolicyTest(unittest.TestCase):
             result = run_python_heredoc(
                 body,
                 {
-                    "CODEX_TIMEOUT_MINUTES": "12",
-                    "CODEX_MODEL": "gpt-5.6-terra",
-                    "CODEX_REASONING_EFFORT": "high",
+                    "CODEX_TIMEOUT_MINUTES": "30",
+                    "CODEX_MODEL": "gpt-6.1-sol",
+                    "CODEX_REASONING_EFFORT": "medium",
+                    "REVIEW_REPOSITORY": "block/proto-fleet",
                     "REVIEW_BASE_SHA": "a" * 40,
                     "REVIEW_HEAD_SHA": "b" * 40,
                     "REVIEW_COMMIT_RANGE": f"{'a' * 40}...{'b' * 40}",
@@ -1248,9 +1176,6 @@ class ReviewPolicyTest(unittest.TestCase):
                     "UNIFIED": "40",
                     "INTER_HUNK": "0",
                     "REPEAT": "initial",
-                    "PROMPT_PROFILE": "baseline",
-                    "SERVICE_TIER": "default",
-                    "VERBOSITY": "low",
                 },
                 tmp,
             )
@@ -1267,56 +1192,26 @@ class ReviewPolicyTest(unittest.TestCase):
         self.assertEqual(review["incomplete_reason"], "codex-job-timeout")
         self.assertEqual(scope["incomplete_reason"], "codex-job-timeout")
         self.assertIsNone(scope["elapsed_seconds"])
-        self.assertEqual(scope["timeout_budget_seconds"], 720)
-        self.assertEqual(scope["model"], "gpt-5.6-terra")
-        self.assertEqual(scope["reasoning_effort"], "high")
-        self.assertEqual(scope["service_tier"], "default")
-        self.assertEqual(scope["verbosity"], "low")
+        self.assertEqual(scope["timeout_budget_seconds"], 1800)
+        self.assertEqual(scope["model"], "gpt-6.1-sol")
+        self.assertEqual(scope["reasoning_effort"], "medium")
+        self.assertEqual(scope["service_tier"], "unspecified")
+        self.assertEqual(scope["verbosity"], "unspecified")
+        self.assertEqual(scope["prompt_profile"], "baseline")
+        self.assertEqual(scope["repository"], "block/proto-fleet")
         self.assertEqual(elapsed_text, "unknown\n")
 
     def test_codex_benchmark_serializes_repeat_dispatches(self):
         workflow = load_workflow("codex-security-review-benchmark.yml")
-
-        # Repeat dispatches are variance measurements, not replacements for each other,
-        # so the group has to include every knob that distinguishes one run from another
-        # while still queueing an accidental duplicate of the same configuration.
         group = workflow["concurrency"]["group"]
         self.assertFalse(workflow["concurrency"]["cancel-in-progress"])
         self.assertTrue(group.startswith("codex-security-review-benchmark-"))
-        for name in (
-            "corpus",
-            "context-variant",
-            "reasoning-effort",
-            "prompt-profile",
-            "repeat",
-        ):
-            self.assertIn(name, group)
-        # Concurrency is evaluated before the trusted selector. Canonicalize every
-        # caller-controlled value so malformed dispatches cannot create arbitrary
-        # groups and fan out runner or model work.
-        self.assertNotIn("client_payload.corpus ||", group)
-        self.assertNotIn("client_payload['context-variant'] ||", group)
-        self.assertNotIn("client_payload['reasoning-effort'] ||", group)
-        self.assertNotIn("client_payload['prompt-profile'] ||", group)
-        self.assertNotIn("client_payload.repeat ||", group)
+        for name in ("profile", "corpus", "repeat"):
+            self.assertIn(f"client_payload.{name} ==", group)
+            self.assertNotIn(f"client_payload.{name} ||", group)
+        self.assertIn("client_payload.profile == 'sol'", group)
         self.assertIn("client_payload.corpus == 'large-pr'", group)
         self.assertIn("client_payload.repeat == 'repeat-2'", group)
-        self.assertIn(
-            "github.event.action == 'codex-security-review-terra-benchmark' && 'high'",
-            group,
-        )
-        self.assertIn(
-            "github.event.action == 'codex-security-review-sharded-benchmark' ||",
-            group,
-        )
-        self.assertIn(
-            "github.event.action == 'codex-security-review-extended-timeout-benchmark') && 'xhigh'",
-            group,
-        )
-        self.assertIn(
-            "github.event.action == 'codex-security-review-extended-timeout-benchmark' && 'initial'",
-            group,
-        )
 
     def test_incomplete_codex_review_cannot_take_approval_free_path(self):
         workflow = load_workflow("codex-security-review.yml")
