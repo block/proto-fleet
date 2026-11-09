@@ -2,7 +2,10 @@ import { poolStatusIsProblem } from "./status";
 import ProgressCircular from "@/shared/components/ProgressCircular";
 
 export const PoolStatus = ({ status, name, onDetails }: { status: string; name?: string; onDetails: () => void }) => {
-  if (poolStatusIsProblem(status) || ["Verified", "Device configuration", "Container configuration"].includes(status))
+  if (
+    poolStatusIsProblem(status) ||
+    ["Verified", "Device configuration", "Container configuration", "Mixed configurations"].includes(status)
+  )
     return (
       <button
         type="button"

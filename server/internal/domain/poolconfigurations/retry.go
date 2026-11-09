@@ -18,6 +18,30 @@ func (s *Service) ReviewRetry(ctx context.Context, accountID, operationID string
 	if len(targets) == 0 || len(targets) > 500 {
 		return Review{}, fleeterror.NewInvalidArgumentError("select between 1 and 500 update results")
 	}
+	operation, err := s.GetOperation(ctx, accountID, operationID)
+	if err != nil {
+		return Review{}, err
+	}
+	if operation.Kind == "clear" || operation.Kind == "unassign" {
+		if len(targets) != 1 || len(operation.Targets) != 1 || operation.Targets[0].Kind != targets[0].Kind || operation.Targets[0].ID != targets[0].ID {
+			return Review{}, retryUnavailable()
+		}
+		p, manager, err := s.removalPrincipal(ctx, accountID)
+		if err != nil {
+			return Review{}, err
+		}
+		r, err := manager.RecoverRemoval(ctx, p, operationID)
+		if err != nil {
+			return Review{}, err
+		}
+		if r.State == "failed" {
+			r, err = manager.ReviewRemoval(ctx, p, targets[0])
+			if err != nil {
+				return Review{}, err
+			}
+		}
+		return Review{ID: r.ID, Targets: []AssignmentTarget{r.Target}}, nil
+	}
 	if err := s.refreshReadiness(ctx, accountID, Read, func(q sqlc.Querier, p Principal) ([]AssignmentTarget, error) {
 		if _, err := s.repository.GetOperation(ctx, q, p.Scope, operationID); err != nil {
 			return nil, err

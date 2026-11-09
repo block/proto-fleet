@@ -21,6 +21,7 @@ const scope = (readOnly: boolean): AccountScope => ({
 describe.each(["modal", "dialog"] as const)("ActionModal (%s)", (presentation) => {
   const mount = ({
     readOnly = false,
+    allowDismissWhileBusy = false,
     onSubmit = vi.fn().mockResolvedValue(undefined),
     onDismiss = vi.fn(),
     onTicketingChange = vi.fn(),
@@ -28,7 +29,13 @@ describe.each(["modal", "dialog"] as const)("ActionModal (%s)", (presentation) =
   } = {}) =>
     render(
       <AccountScopeContext.Provider value={scope(readOnly)}>
-        <ActionModal title="Create client" presentation={presentation} onSubmit={onSubmit} onDismiss={onDismiss}>
+        <ActionModal
+          title="Create client"
+          presentation={presentation}
+          allowDismissWhileBusy={allowDismissWhileBusy}
+          onSubmit={onSubmit}
+          onDismiss={onDismiss}
+        >
           <Input id="client-name" label="Client name" initValue="Client A" onChange={onNameChange} />
           <label>
             <Checkbox checked onChange={onTicketingChange} />
@@ -101,5 +108,25 @@ describe.each(["modal", "dialog"] as const)("ActionModal (%s)", (presentation) =
     expect(onTicketingChange).toHaveBeenCalledOnce();
     await user.click(screen.getByRole("button", { name: "Cancel" }));
     expect(onDismiss).toHaveBeenCalledOnce();
+  });
+  it.each(["Cancel", "Escape"])("allows opt-in dismissal via %s while keeping form controls locked", async (method) => {
+    const user = userEvent.setup();
+    let finish!: () => void;
+    const onSubmit = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          finish = resolve;
+        }),
+    );
+    const onDismiss = vi.fn();
+    mount({ allowDismissWhileBusy: true, onSubmit, onDismiss });
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    expect(screen.getByRole("textbox", { name: "Client name" })).toBeDisabled();
+    expect(screen.getByRole("checkbox", { name: "Ticketing" })).toBeDisabled();
+    if (method === "Cancel") await user.click(screen.getByRole("button", { name: "Cancel" }));
+    else await user.keyboard("{Escape}");
+    expect(onDismiss).toHaveBeenCalledOnce();
+    expect(onSubmit).toHaveBeenCalledOnce();
+    await act(async () => finish());
   });
 });

@@ -56,11 +56,12 @@ func (s *Readiness) RefreshTargets(ctx context.Context, scope poolconfigurations
 		}
 		seen[target.DeviceID] = true
 		type admission struct {
-			device sqlc.GetPoolConfigurationRuntimeRow
-			owner  string
+			device         sqlc.GetPoolConfigurationRuntimeRow
+			owner          string
+			recoverRemoval bool
 		}
 		initial, err := db.WithTransaction(ctx, s.conn, func(q sqlc.Querier) (admission, error) {
-			if err := lockReviewBindings(ctx, q, scope, []poolconfigurations.AssignmentTarget{target}); err != nil {
+			if err := lockPoolBindings(ctx, q, scope, []poolconfigurations.AssignmentTarget{target}, true); err != nil {
 				return admission{}, err
 			}
 			owner, err := s.reviewer.authority.AuthorizePoolEquipment(ctx, q, scope, actorID, target)
@@ -68,12 +69,28 @@ func (s *Readiness) RefreshTargets(ctx context.Context, scope poolconfigurations
 				return admission{}, err
 			}
 			device, err := q.GetPoolConfigurationRuntime(ctx, sqlc.GetPoolConfigurationRuntimeParams{OrgID: scope.OrganizationID, ID: target.DeviceID})
-			return admission{device: device, owner: owner}, err
+			if err != nil {
+				return admission{}, err
+			}
+			var recoverRemoval bool
+			if target.Kind == poolconfigurations.TargetDevice {
+				retired, err := q.ListRetiredCompletedPoolRemovals(ctx, sqlc.ListRetiredCompletedPoolRemovalsParams{OrganizationID: scope.OrganizationID, TargetID: target.DeviceID})
+				if err != nil {
+					return admission{}, err
+				}
+				recoverRemoval = len(retired) > 0
+			}
+			if !recoverRemoval {
+				if err := devicewrite.RequireNoConflictingPoolWrites(ctx, q, scope.OrganizationID, target.DeviceID); err != nil {
+					return admission{}, err
+				}
+			}
+			return admission{device: device, owner: owner, recoverRemoval: recoverRemoval}, nil
 		})
 		if err != nil {
 			return err
 		}
-		if commonpb.DeviceClass(initial.device.DeviceClass) != commonpb.DeviceClass_DEVICE_CLASS_CONTAINER {
+		if commonpb.DeviceClass(initial.device.DeviceClass) != commonpb.DeviceClass_DEVICE_CLASS_CONTAINER && !initial.recoverRemoval {
 			continue
 		}
 		if s.miners == nil {
@@ -81,7 +98,7 @@ func (s *Readiness) RefreshTargets(ctx context.Context, scope poolconfigurations
 		}
 		err = s.writes.WithHostObservation(ctx, scope.OrganizationID, target.DeviceID, initial.device.Epoch, func(ctx context.Context) error {
 			return s.writes.WithBindingTransaction(ctx, func(ctx context.Context, q sqlc.Querier) error {
-				if err := lockReviewBindings(ctx, q, scope, []poolconfigurations.AssignmentTarget{target}); err != nil {
+				if err := lockPoolBindings(ctx, q, scope, []poolconfigurations.AssignmentTarget{target}, true); err != nil {
 					return err
 				}
 				owner, err := s.reviewer.authority.AuthorizePoolEquipment(ctx, q, scope, actorID, target)
@@ -92,6 +109,17 @@ func (s *Readiness) RefreshTargets(ctx context.Context, scope poolconfigurations
 					return fleeterror.NewFailedPreconditionError("equipment ownership changed; review again")
 				}
 				return s.writes.WithBindingObservation(ctx, target.DeviceID, func(sqlc.Querier) error { return nil }, func(ctx context.Context) error {
+					if initial.recoverRemoval {
+						if err := s.recoverRetiredRemovals(ctx, q, scope, target, initial.device.DeviceClass); err != nil {
+							return err
+						}
+					}
+					if err := devicewrite.RequireNoConflictingPoolWrites(ctx, q, scope.OrganizationID, target.DeviceID); err != nil {
+						return err
+					}
+					if commonpb.DeviceClass(initial.device.DeviceClass) != commonpb.DeviceClass_DEVICE_CLASS_CONTAINER {
+						return nil
+					}
 					if err := q.EnsureMiningGroupState(ctx, sqlc.EnsureMiningGroupStateParams{DeviceID: target.DeviceID, OrganizationID: scope.OrganizationID}); err != nil {
 						return err
 					}
@@ -120,6 +148,45 @@ func (s *Readiness) RefreshTargets(ctx context.Context, scope poolconfigurations
 		})
 		if err != nil {
 			return err
+		}
+	}
+	return nil
+}
+
+// Called only under current equipment authority and binding locks. Readback
+// settles the obsolete intent, not the new owner's assignment. A nonempty
+// result is still a valid observation; supersession never claims clear success.
+func (s *Readiness) recoverRetiredRemovals(ctx context.Context, q sqlc.Querier, scope poolconfigurations.Scope, target poolconfigurations.AssignmentTarget, deviceClass int32) error {
+	retired, err := q.ListRetiredCompletedPoolRemovals(ctx, sqlc.ListRetiredCompletedPoolRemovalsParams{OrganizationID: scope.OrganizationID, TargetID: target.DeviceID})
+	if err != nil {
+		return err
+	}
+	if len(retired) > 0 {
+		frozen, err := q.PoolConfigurationWritersFrozen(ctx, scope.OrganizationID)
+		if err != nil {
+			return err
+		}
+		if frozen {
+			return fleeterror.NewFailedPreconditionError("pool configuration maintenance is in progress")
+		}
+	}
+	for _, removalID := range retired {
+		if err := devicewrite.RequireNoConflictingPoolWritesForRemoval(ctx, q, scope.OrganizationID, target.DeviceID, removalID); err != nil {
+			return err
+		}
+		miner, err := s.miners.GetMinerForCommand(ctx, target.DeviceID)
+		if err != nil {
+			return fleeterror.NewUnavailableErrorf("previous pool removal could not be checked; try again when the equipment is available")
+		}
+		if _, err := removalPoolsEmpty(ctx, miner, commonpb.DeviceClass(deviceClass) == commonpb.DeviceClass_DEVICE_CLASS_CONTAINER); err != nil {
+			return fleeterror.NewUnavailableErrorf("previous pool removal could not be checked; try again when the equipment is available")
+		}
+		changed, err := q.FinishPoolRemoval(ctx, sqlc.FinishPoolRemovalParams{RemovalID: removalID, State: "superseded", ResultCode: "assignment_changed"})
+		if err != nil {
+			return err
+		}
+		if changed != 1 {
+			return fleeterror.NewFailedPreconditionError("pool removal changed; review again")
 		}
 	}
 	return nil

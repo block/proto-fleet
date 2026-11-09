@@ -44,7 +44,11 @@ type fleetNodeDiscoveryRunner interface {
 
 var _ pairingv1connect.PairingServiceHandler = &Handler{}
 
-const pairLookupBatchSize = 1024
+const (
+	pairLookupBatchSize          = 1024
+	discoveryLookupBatchSize     = 1024
+	discoveryLookupBatchMaxDelay = 100 * time.Millisecond
+)
 
 // pairFleetNodeDeadline bounds the fleet node fan-out of one Pair call so the
 // response, with its failed device IDs, arrives before the reverse proxy's
@@ -84,7 +88,18 @@ func (h *Handler) Discover(ctx context.Context, r *connect.Request[pb.DiscoverRe
 
 	// Serialize the concurrent sources (cloud scan + each node) onto the one
 	// stream and dedupe devices across them; a Send failure cancels the rest.
-	fwd := newDedupForwarder(s.Send, cancel)
+	fwd := newDedupForwarder(
+		func(ctx context.Context, devices []*pb.Device) error {
+			// The shipped Fleet Node can upload at most 40 discovery batches for one
+			// request. They fit in the command's 64-event buffer while this lookup runs.
+			if err := h.pairingSvc.AnnotateAlreadyPaired(ctx, info.OrganizationID, devices); err != nil {
+				return fleeterror.NewInternalErrorf("determine discovered device pairing state: %v", err)
+			}
+			return nil
+		},
+		s.Send,
+		cancel,
+	)
 
 	var resultChan <-chan *pb.DiscoverResponse
 	switch r.Msg.Mode.(type) {
@@ -121,7 +136,7 @@ func (h *Handler) Discover(ctx context.Context, r *connect.Request[pb.DiscoverRe
 		return nil
 	}
 	if errors.Is(streamCtx.Err(), context.DeadlineExceeded) {
-		return fwd.forward(&pb.DiscoverResponse{Warning: discoverylimits.RequestTimeoutWarning})
+		return fwd.forwardTerminalWarning(streamCtx, discoverylimits.RequestTimeoutWarning)
 	}
 	return sourceErr
 }
@@ -150,18 +165,8 @@ func (h *Handler) forwardDiscoverySources(
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			for {
-				select {
-				case result, ok := <-serverResults:
-					if !ok {
-						return
-					}
-					if err := fwd.forward(result); err != nil {
-						return
-					}
-				case <-ctx.Done():
-					return
-				}
+			if err := forwardServerDiscoveryResults(ctx, serverResults, fwd, discoveryLookupBatchMaxDelay); err != nil && ctx.Err() == nil {
+				fail(err)
 			}
 		}()
 	}
@@ -177,7 +182,7 @@ func (h *Handler) forwardDiscoverySources(
 				} else {
 					slog.Warn("skipping fleet node discovery fan-out", "error", err)
 					// The server scan can continue even when the node directory is unavailable.
-					_ = fwd.forward(&pb.DiscoverResponse{Warning: "Fleet Nodes: unable to list connected nodes"})
+					_ = fwd.forward(ctx, &pb.DiscoverResponse{Warning: "Fleet Nodes: unable to list connected nodes"})
 				}
 			}
 		} else {
@@ -200,7 +205,9 @@ func (h *Handler) forwardDiscoverySources(
 					if ctx.Err() != nil {
 						return
 					}
-					runErr := h.discovery.RunOnNode(ctx, nodeID, "Fleet Node", nodeReq, fwd.forward)
+					runErr := h.discovery.RunOnNode(ctx, nodeID, "Fleet Node", nodeReq, func(response *pb.DiscoverResponse) error {
+						return fwd.forward(ctx, response)
+					})
 					// Node target policy is narrower than the server's: public
 					// addresses can still be scanned locally.
 					// Direct-node requests retain their strict validation errors.
@@ -211,7 +218,7 @@ func (h *Handler) forwardDiscoverySources(
 						fail(runErr)
 						return
 					}
-					if sendErr := fwd.forward(discovery.SourceWarning("Fleet Node", runErr)); sendErr != nil {
+					if sendErr := fwd.forward(ctx, discovery.SourceWarning("Fleet Node", runErr)); sendErr != nil {
 						fail(sendErr)
 					}
 				}(nodeID)
@@ -223,6 +230,92 @@ func (h *Handler) forwardDiscoverySources(
 	return sourceErr
 }
 
+func forwardServerDiscoveryResults(
+	ctx context.Context,
+	results <-chan *pb.DiscoverResponse,
+	fwd *dedupForwarder,
+	maxDelay time.Duration,
+) error {
+	pending := make([]*pb.Device, 0, discoveryLookupBatchSize)
+	var timer *time.Timer
+	var timerC <-chan time.Time
+	stopTimer := func() {
+		if timer != nil && !timer.Stop() {
+			select {
+			case <-timer.C:
+			default:
+			}
+		}
+		timerC = nil
+	}
+	defer stopTimer()
+	startTimer := func() bool {
+		delay := maxDelay
+		if deadline, ok := ctx.Deadline(); ok {
+			timeBeforeDeadlineFlush := time.Until(deadline) - maxDelay
+			if timeBeforeDeadlineFlush <= 0 {
+				return false
+			}
+			delay = min(delay, timeBeforeDeadlineFlush)
+		}
+		if timer == nil {
+			timer = time.NewTimer(delay)
+		} else {
+			timer.Reset(delay)
+		}
+		timerC = timer.C
+		return true
+	}
+	flush := func() error {
+		if len(pending) == 0 {
+			return nil
+		}
+		stopTimer()
+		devices := pending
+		pending = make([]*pb.Device, 0, discoveryLookupBatchSize)
+		return fwd.forward(ctx, &pb.DiscoverResponse{Devices: devices})
+	}
+
+	for {
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("server discovery batching stopped: %w", ctx.Err())
+		case <-timerC:
+			timerC = nil
+			if err := flush(); err != nil {
+				return err
+			}
+		case response, ok := <-results:
+			if !ok {
+				return flush()
+			}
+			if response.GetWarning() != "" || len(response.GetDevices()) == 0 {
+				if err := flush(); err != nil {
+					return err
+				}
+				if err := fwd.forward(ctx, response); err != nil {
+					return err
+				}
+				continue
+			}
+			for _, device := range response.GetDevices() {
+				pending = append(pending, device)
+				if len(pending) == 1 && !startTimer() {
+					if err := flush(); err != nil {
+						return err
+					}
+					continue
+				}
+				if len(pending) == discoveryLookupBatchSize {
+					if err := flush(); err != nil {
+						return err
+					}
+				}
+			}
+		}
+	}
+}
+
 // reportServerScanError returns caller errors and forwards other Fleet Server
 // scan failures as a warning unless the request has ended.
 func reportServerScanError(ctx context.Context, fwd *dedupForwarder, err error) error {
@@ -231,7 +324,7 @@ func reportServerScanError(ctx context.Context, fwd *dedupForwarder, err error) 
 	}
 	if ctx.Err() == nil {
 		slog.Warn("fleet server discovery failed", "error", err)
-		return fwd.forward(discovery.SourceWarning("Fleet Server", err))
+		return fwd.forward(ctx, discovery.SourceWarning("Fleet Server", err))
 	}
 	return nil
 }

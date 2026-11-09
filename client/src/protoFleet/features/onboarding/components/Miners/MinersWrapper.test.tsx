@@ -3,6 +3,7 @@ import { act, fireEvent, render, screen, waitFor, within } from "@testing-librar
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { create } from "@bufbuild/protobuf";
 import MinersPage from "./MinersWrapper";
+import { DeviceClass } from "@/protoFleet/api/generated/common/v1/common_pb";
 import {
   FleetNodeEnrollmentStatus,
   FleetNodeHARole,
@@ -279,6 +280,111 @@ describe("MinersWrapper", () => {
   });
 
   describe("network scan discovery", () => {
+    describe("already-paired devices", () => {
+      beforeEach(() => {
+        vi.mocked(useNetworkInfo).mockReturnValue({
+          data: create(NetworkInfoSchema, { subnet: "192.168.1.0/24" }),
+          pending: false,
+          error: undefined,
+          fetchData: vi.fn(),
+          updateNetworkInfo: vi.fn(),
+        });
+      });
+
+      it("excludes server-marked paired rigs and containers from Add Miners", async () => {
+        mockDiscover.mockImplementationOnce(async ({ onStreamData }) => {
+          onStreamData([
+            create(DeviceSchema, {
+              deviceIdentifier: "paired-rig-on-later-page",
+              ipAddress: "192.168.1.100",
+              model: "Proto Rig",
+              deviceClass: DeviceClass.RIG,
+              alreadyPaired: true,
+            }),
+            create(DeviceSchema, {
+              deviceIdentifier: "paired-container-controller",
+              ipAddress: "192.168.1.101",
+              model: "CT1",
+              deviceClass: DeviceClass.CONTAINER,
+              alreadyPaired: true,
+            }),
+            create(DeviceSchema, {
+              deviceIdentifier: "new-rig",
+              ipAddress: "192.168.1.102",
+              model: "Proto Rig",
+              deviceClass: DeviceClass.RIG,
+            }),
+            create(DeviceSchema, {
+              deviceIdentifier: "second-new-rig",
+              ipAddress: "192.168.1.103",
+              model: "Proto Rig",
+              deviceClass: DeviceClass.RIG,
+            }),
+          ]);
+        });
+
+        renderMinersPage("pairing");
+        fireEvent.click(screen.getByTestId("section-scan-network").querySelector("button")!);
+
+        expect(await screen.findByText("2 miners found on your network")).toBeInTheDocument();
+        fireEvent.click(screen.getByTestId("add-miners-choose-miners"));
+        expect(await screen.findByText("192.168.1.102")).toBeInTheDocument();
+        expect(screen.getByText("192.168.1.103")).toBeInTheDocument();
+        expect(screen.queryByText("192.168.1.100")).not.toBeInTheDocument();
+        expect(screen.queryByText("192.168.1.101")).not.toBeInTheDocument();
+      });
+
+      it("keeps server-marked devices in onboarding discovery", async () => {
+        mockDiscover.mockImplementationOnce(async ({ onStreamData }) => {
+          onStreamData([
+            create(DeviceSchema, {
+              deviceIdentifier: "existing-device",
+              ipAddress: "192.168.1.100",
+              model: "Proto Rig",
+              alreadyPaired: true,
+            }),
+          ]);
+        });
+
+        renderMinersPage("onboarding");
+        fireEvent.click(screen.getByText("Get started"));
+        fireEvent.click(screen.getByTestId("section-scan-network").querySelector("button")!);
+
+        expect(await screen.findByText("1 miner found on your network")).toBeInTheDocument();
+        expect(screen.getByTestId("add-miners-continue")).toHaveTextContent("Continue with 1 miners");
+      });
+
+      it("removes a retained result when a rescan reports that it is now paired", async () => {
+        mockDiscover
+          .mockImplementationOnce(async ({ onStreamData }) => {
+            onStreamData([
+              createDiscoveredMiner("became-paired", "192.168.1.100"),
+              createDiscoveredMiner("still-unpaired", "192.168.1.101"),
+            ]);
+          })
+          .mockImplementationOnce(async ({ onStreamData }) => {
+            onStreamData([
+              create(DeviceSchema, {
+                deviceIdentifier: "became-paired",
+                ipAddress: "192.168.1.100",
+                model: "Proto Rig",
+                alreadyPaired: true,
+              }),
+            ]);
+          });
+
+        renderMinersPage("pairing");
+        fireEvent.click(screen.getByTestId("section-scan-network").querySelector("button")!);
+        expect(await screen.findByText("2 miners found on your network")).toBeInTheDocument();
+        await waitFor(() => expect(screen.getByTestId("add-miners-rescan-network")).toBeEnabled());
+
+        fireEvent.click(screen.getByTestId("add-miners-rescan-network"));
+
+        expect(await screen.findByText("1 miner found on your network")).toBeInTheDocument();
+        expect(screen.getByTestId("add-miners-continue")).toHaveTextContent("Continue with 1 miners");
+      });
+    });
+
     it.each(["network", "manual"])("retains and refreshes found miners on a %s rescan", async (mode) => {
       vi.mocked(useNetworkInfo).mockReturnValue({
         data: create(NetworkInfoSchema, { subnet: "192.168.1.0/24" }),

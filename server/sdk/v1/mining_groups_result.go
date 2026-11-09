@@ -33,14 +33,15 @@ func DecodeMiningGroupResult(data []byte, request MiningGroupRequest) (MiningGro
 func (r MiningGroupResult) Validate(request MiningGroupRequest) error {
 	observation := r.Supported || r.Suspended || r.Revision != 0 || r.MaxGroups != 0 || !r.ObservedAt.IsZero() || len(r.Groups) != 0 || r.Pending
 	if r.RevisionConflict {
-		if request.ReadOnly() || observation || r.Enabled || r.Removed || r.Group != nil || r.Operation != nil || r.MiningStatus != nil || r.StopRequested {
+		if request.ReadOnly() || observation || r.Enabled || r.Removed || r.Group != nil || r.Operation != nil || r.MiningStatus != nil || r.StopRequested || r.PoolsCleared != nil {
 			return fmt.Errorf("invalid mining group revision conflict receipt")
 		}
 		return nil
 	}
-	groupAction := request.Action == "create" || request.Action == miningGroupActionReplacePools || request.Action == "start"
+	groupAction := request.Action == "create" || request.Action == miningGroupActionReplacePools || request.Action == "start" || request.Action == "stop" || request.Action == miningGroupActionClearPools
 	operationAction := request.Action == miningGroupActionTransfer || request.Action == miningGroupActionOperation
-	if (request.Action != "observe" && observation) ||
+	if (request.Action != miningGroupActionVerifyCleared && r.PoolsCleared != nil) ||
+		(request.Action != "observe" && observation) ||
 		(request.Action != "observe" && request.Action != miningGroupActionActivate && r.Enabled) ||
 		(request.Action != "remove" && r.Removed) ||
 		(!groupAction && r.Group != nil) || (!operationAction && r.Operation != nil) ||
@@ -48,6 +49,10 @@ func (r MiningGroupResult) Validate(request MiningGroupRequest) error {
 		return fmt.Errorf("unexpected mining group result fields")
 	}
 	switch request.Action {
+	case miningGroupActionVerifyCleared:
+		if r.PoolsCleared == nil {
+			return fmt.Errorf("missing pool clear observation")
+		}
 	case miningGroupActionMiningStatus:
 		if r.MiningStatus == nil || r.MiningStatus.ActiveBoards < 0 {
 			return fmt.Errorf("missing or invalid mining status")
@@ -87,14 +92,14 @@ func (r MiningGroupResult) Validate(request MiningGroupRequest) error {
 		if !r.Removed {
 			return fmt.Errorf("missing mining group removal receipt")
 		}
-	case "create", miningGroupActionReplacePools, "start":
+	case "create", miningGroupActionReplacePools, "start", "stop", miningGroupActionClearPools:
 		if r.Group == nil {
 			return fmt.Errorf("missing mining group receipt")
 		}
 		if err := validateMiningGroup(*r.Group); err != nil {
 			return err
 		}
-		if (request.Action != "create" && r.Group.ID != request.GroupID) || (request.Action == "start" && !r.Group.Mining) {
+		if (request.Action != "create" && r.Group.ID != request.GroupID) || (request.Action == "start" && !r.Group.Mining) || (request.Action == "stop" && r.Group.Mining) {
 			return fmt.Errorf("mining group receipt does not match request")
 		}
 	case miningGroupActionTransfer, miningGroupActionOperation:

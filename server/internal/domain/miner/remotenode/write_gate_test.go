@@ -194,7 +194,7 @@ func TestRemoteAdmissionSpansArtifactSendAndForwardsItsContext(t *testing.T) {
 
 func TestPhysicalWriteKindCoversEveryProtocolAction(t *testing.T) {
 	readAndIndicator := map[protoreflect.Name]bool{
-		"get_errors": true, "get_cooling_mode": true, "get_mining_pools": true,
+		"get_errors": true, "get_cooling_mode": true, "get_mining_pools": true, "verify_pools_cleared": true,
 		"get_firmware_update_status": true, "download_logs": true, "blink_led": true,
 	}
 	mutationKinds := map[protoreflect.Name]commandtype.Type{
@@ -249,6 +249,7 @@ func TestRemoteReadAndIndicatorEntrypointsBypassWriteAdmission(t *testing.T) {
 	}{
 		{"GetErrors", &gatewaypb.GetErrorsResult{DeviceId: "dev-1"}, func(m *Miner) error { _, err := m.GetErrors(t.Context()); return err }, false},
 		{"GetCoolingMode", &gatewaypb.GetCoolingModeResult{Mode: commonpb.CoolingMode_COOLING_MODE_AIR_COOLED}, func(m *Miner) error { _, err := m.GetCoolingMode(t.Context()); return err }, false},
+		{"VerifyPoolsCleared", &gatewaypb.VerifyPoolsClearedResult{Cleared: proto.Bool(true)}, func(m *Miner) error { _, err := m.VerifyPoolsCleared(t.Context()); return err }, false},
 		{"GetMiningPools", &gatewaypb.GetMiningPoolsResult{}, func(m *Miner) error { _, err := m.GetMiningPools(t.Context()); return err }, false},
 		{"GetFirmwareUpdateStatus", nil, func(m *Miner) error { _, err := m.GetFirmwareUpdateStatus(t.Context()); return err }, false},
 		{"DownloadLogs", nil, func(m *Miner) error { return m.DownloadLogs(t.Context(), "batch-1") }, false},

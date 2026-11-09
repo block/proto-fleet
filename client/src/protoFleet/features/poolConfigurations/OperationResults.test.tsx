@@ -527,3 +527,42 @@ it("keeps Last verified at the earlier success when a newer check reports differ
     timestampDate(verifiedAt).toLocaleString(),
   );
 });
+
+it.each([
+  ["clear", "completed", "Pools cleared", "Device pools cleared and Fleet assignment removed."],
+  ["unassign", "completed", "Assignment removed", "Fleet assignment removed. Device pool settings were preserved."],
+  [
+    "clear",
+    "failed",
+    "Removal failed",
+    "Removal failed. The Fleet assignment was kept. Review the device’s settings before trying again.",
+  ],
+  [
+    "clear",
+    "uncertain",
+    "Removal not confirmed",
+    "Fleet has not confirmed removal. Check its result before another pool change.",
+  ],
+])("shows %s/%s history without reapplying the old configuration", async (kind, state, status, explanation) => {
+  mocks.getOperation.mockResolvedValue(create(GetOperationResponseSchema, { ...operation(state, ""), kind }));
+  show();
+  expect(await screen.findByText(status)).toBeInTheDocument();
+  expect(screen.getByText(explanation)).toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Retry" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Reapply" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Check configuration" })).not.toBeInTheDocument();
+});
+
+it.each([
+  ["operator_recovery_required", "Administrator recovery required"],
+  ["runtime_pools_remain", "Runtime pools still present"],
+  ["clear_verification_unavailable", "Waiting for verification"],
+])("explains removal recovery result %s in operation history", async (code, label) => {
+  mocks.getOperation.mockResolvedValue(
+    create(GetOperationResponseSchema, { ...operation("uncertain", code), kind: "clear" }),
+  );
+  show();
+  expect(await screen.findByRole("heading", { name: label })).toBeVisible();
+  expect(screen.queryByRole("button", { name: "Retry" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Reapply" })).not.toBeInTheDocument();
+});

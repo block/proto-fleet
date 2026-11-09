@@ -26,6 +26,7 @@ type poolDevice struct {
 	different       bool
 	writeError      error
 	readError       error
+	onRead          func(context.Context) error
 	onWrite         func()
 }
 
@@ -35,6 +36,9 @@ func (m *poolDevice) UpdateMiningPools(_ context.Context, p dto.UpdateMiningPool
 		m.onWrite()
 	}
 	m.pools = []dto.MiningPool{p.DefaultPool}
+	if p.ClearAll {
+		m.pools = nil
+	}
 	if p.Backup1Pool != nil {
 		m.pools = append(m.pools, *p.Backup1Pool)
 	}
@@ -43,7 +47,12 @@ func (m *poolDevice) UpdateMiningPools(_ context.Context, p dto.UpdateMiningPool
 	}
 	return m.writeError
 }
-func (m *poolDevice) GetMiningPools(context.Context) ([]interfaces.MinerConfiguredPool, error) {
+func (m *poolDevice) GetMiningPools(ctx context.Context) ([]interfaces.MinerConfiguredPool, error) {
+	if m.onRead != nil {
+		if err := m.onRead(ctx); err != nil {
+			return nil, err
+		}
+	}
 	if m.readError != nil {
 		return nil, m.readError
 	}
@@ -56,7 +65,15 @@ func (m *poolDevice) GetMiningPools(context.Context) ([]interfaces.MinerConfigur
 	}
 	return result, nil
 }
-func (m *poolDevice) GetStoredMiningPools(context.Context) ([]interfaces.MinerStoredPool, error) {
+func (m *poolDevice) GetStoredMiningPools(ctx context.Context) ([]interfaces.MinerStoredPool, error) {
+	if m.onRead != nil {
+		if err := m.onRead(ctx); err != nil {
+			return nil, err
+		}
+	}
+	if m.readError != nil {
+		return nil, m.readError
+	}
 	result := make([]interfaces.MinerStoredPool, len(m.pools))
 	for i, p := range m.pools {
 		result[i] = interfaces.MinerStoredPool{Priority: int32(p.Priority), URL: p.URL, Username: p.Username} // #nosec G115 -- fixture payload contains at most three slots.
@@ -125,7 +142,7 @@ func TestPoolWorkerUsesReviewedRevisionAndVerifiesReadback(t *testing.T) {
 			target := poolconfigurations.AssignmentTarget{Kind: poolconfigurations.TargetDevice, ID: miner, DeviceID: miner}
 			review, err := service.ReviewAssignment(ctx, f.account.AccountID, config.ID, config.Version, []poolconfigurations.AssignmentTarget{target})
 			require.NoError(t, err)
-			saved, err := service.ConfirmReview(ctx, f.account.AccountID, review.ID, "actor-password")
+			saved, err := service.ConfirmReview(ctx, f.account.AccountID, review.ID, poolconfigurations.Confirmation{Password: "actor-password"})
 			require.NoError(t, err)
 			device := &poolDevice{}
 			switch scenario.name {
@@ -174,7 +191,7 @@ func TestPoolWorkerUsesReviewedRevisionAndVerifiesReadback(t *testing.T) {
 			retry, retryErr := service.ReviewRetry(ctx, f.account.AccountID, saved.Operation.ID, []poolconfigurations.AssignmentTarget{target})
 			if scenario.name == "runtime differs" || scenario.name == "worker changed" || scenario.name == "terminal write failure" || scenario.name == "refused readback" {
 				require.NoError(t, retryErr)
-				retried, err := service.ConfirmReview(ctx, f.account.AccountID, retry.ID, "actor-password")
+				retried, err := service.ConfirmReview(ctx, f.account.AccountID, retry.ID, poolconfigurations.Confirmation{Password: "actor-password"})
 				require.NoError(t, err)
 				require.NotEqual(t, saved.Operation.ID, retried.Operation.ID)
 				require.Equal(t, saved.Operation.RevisionID, retried.Operation.RevisionID, "retry retains the exact approved settings")

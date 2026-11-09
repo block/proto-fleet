@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { create } from "@bufbuild/protobuf";
 import Miners from "./Miners";
 import { type MinerDiscoveryMode, type RemoteDiscoveryReadiness } from "./types";
@@ -49,21 +49,13 @@ type MinersPageProps = {
    * Only used when mode is 'pairing'
    */
   onExit?: () => void;
-  /** Already-paired miner IDs to filter out from discovery results */
-  pairedMinerIds?: string[];
   /** Callback to notify that pairing completed (triggers CompleteSetup refresh) */
   onPairingCompleted?: () => void;
   /** Callback to refetch the fleet miner list */
   onRefetchMiners?: () => void;
 };
 
-const MinersPage = ({
-  mode = "onboarding",
-  onExit,
-  pairedMinerIds = [],
-  onPairingCompleted,
-  onRefetchMiners,
-}: MinersPageProps) => {
+const MinersPage = ({ mode = "onboarding", onExit, onPairingCompleted, onRefetchMiners }: MinersPageProps) => {
   const navigate = useNavigate();
 
   const { data: networkInfo, pending: networkInfoPending } = useNetworkInfo();
@@ -162,17 +154,25 @@ const MinersPage = ({
 
   const { refetch } = useOnboardedStatus();
   // Retain earlier discoveries while refreshing miners returned by later scans.
-  const pairedMinerIdSet = useMemo(() => new Set(pairedMinerIds), [pairedMinerIds]);
   const processDiscoveredMiners = useCallback(
     (devices: Device[]) => {
       setFoundMiners((prevMiners) => {
-        const unpairedDevices = devices.filter(
-          (device) => !device.deviceIdentifier || !pairedMinerIdSet.has(device.deviceIdentifier),
-        );
-        if (unpairedDevices.length === 0) return prevMiners;
-        const miners = [...prevMiners];
-        const indices = new Map(prevMiners.map((miner, index) => [miner.deviceIdentifier, index]));
-        for (const device of unpairedDevices) {
+        if (devices.length === 0) return prevMiners;
+
+        // Add Miners excludes existing pairings. Onboarding keeps them so its
+        // existing authentication-recovery flow remains unchanged.
+        const eligibleDevices: Device[] = [];
+        const pairedIdentifiers = new Set<string>();
+        for (const device of devices) {
+          if (mode === "pairing" && device.alreadyPaired) {
+            pairedIdentifiers.add(device.deviceIdentifier);
+          } else {
+            eligibleDevices.push(device);
+          }
+        }
+        const miners = prevMiners.filter((miner) => !pairedIdentifiers.has(miner.deviceIdentifier));
+        const indices = new Map(miners.map((miner, index) => [miner.deviceIdentifier, index]));
+        for (const device of eligibleDevices) {
           const id = device.deviceIdentifier;
           const index = id ? indices.get(id) : undefined;
           if (index === undefined) {
@@ -185,7 +185,7 @@ const MinersPage = ({
         return miners;
       });
     },
-    [pairedMinerIdSet],
+    [mode],
   );
 
   const handleDiscover = useCallback(

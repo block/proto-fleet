@@ -57,7 +57,7 @@ func physicalWriteKind(command *gatewaypb.MinerCommand) (commandtype.Type, bool)
 	case *gatewaypb.MinerCommand_MiningGroups:
 		r, err := sdk.DecodeMiningGroupRequest(command.GetMiningGroups().Request)
 		return commandtype.Type(-1), err != nil || !r.ReadOnly()
-	case *gatewaypb.MinerCommand_GetCoolingMode, *gatewaypb.MinerCommand_GetErrors, *gatewaypb.MinerCommand_GetMiningPools, *gatewaypb.MinerCommand_GetFirmwareUpdateStatus, *gatewaypb.MinerCommand_DownloadLogs, *gatewaypb.MinerCommand_BlinkLed:
+	case *gatewaypb.MinerCommand_VerifyPoolsCleared, *gatewaypb.MinerCommand_GetCoolingMode, *gatewaypb.MinerCommand_GetErrors, *gatewaypb.MinerCommand_GetMiningPools, *gatewaypb.MinerCommand_GetFirmwareUpdateStatus, *gatewaypb.MinerCommand_DownloadLogs, *gatewaypb.MinerCommand_BlinkLed:
 		return commandtype.Type(-1), false
 	case *gatewaypb.MinerCommand_Reboot:
 		return commandtype.Reboot, true

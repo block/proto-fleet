@@ -16,6 +16,7 @@ import (
 
 	pb "github.com/block/proto-fleet/server/generated/grpc/fleetnodeadmin/v1"
 	gatewaypb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
+	pairingpb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
 	"github.com/block/proto-fleet/server/internal/domain/apikey"
 	"github.com/block/proto-fleet/server/internal/domain/authz"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
@@ -24,6 +25,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/enrollment"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/ha"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/pairing"
+	domainpairing "github.com/block/proto-fleet/server/internal/domain/pairing"
 	"github.com/block/proto-fleet/server/internal/domain/session"
 	"github.com/block/proto-fleet/server/internal/domain/stores/sqlstores"
 	"github.com/block/proto-fleet/server/internal/handlers/fleetnode/admin"
@@ -40,7 +42,15 @@ type pairingHarness struct {
 	pairing    *pairing.Service
 }
 
+type pairingStateAnnotator interface {
+	AnnotateAlreadyPaired(ctx context.Context, orgID int64, devices []*pairingpb.Device) error
+}
+
 func newPairingHarness(t *testing.T) *pairingHarness {
+	return newPairingHarnessWithPairingState(t, nil)
+}
+
+func newPairingHarnessWithPairingState(t *testing.T, pairingState pairingStateAnnotator) *pairingHarness {
 	t.Helper()
 	if testing.Short() {
 		t.Skip("Skipping integration test in short mode")
@@ -64,8 +74,11 @@ func newPairingHarness(t *testing.T) *pairingHarness {
 
 	discoverySvc := discovery.NewService(registry, enrollmentSvc)
 	haSvc := ha.NewService(db, transactor, registry, nil, nil)
+	if pairingState == nil {
+		pairingState = domainpairing.NewService(nil, sqlstores.NewSQLDeviceStore(db), nil, nil, nil, nil, nil, nil, nil)
+	}
 	return &pairingHarness{
-		handler:    admin.NewHandler(enrollmentSvc, pairingSvc, discoverySvc, registry, haSvc),
+		handler:    admin.NewHandler(enrollmentSvc, pairingSvc, discoverySvc, registry, haSvc, pairingState),
 		db:         db,
 		orgID:      1,
 		enrollment: enrollmentSvc,
@@ -125,6 +138,25 @@ func (h *pairingHarness) insertDevice(t *testing.T) int64 {
 	).Scan(&devID)
 	require.NoError(t, err)
 	return devID
+}
+
+func (h *pairingHarness) insertDeviceWithIdentifier(t *testing.T, identifier string) int64 {
+	t.Helper()
+	var discoveredDeviceID int64
+	err := h.db.QueryRow(`INSERT INTO discovered_device (org_id, device_identifier, ip_address, port, url_scheme, driver_name, is_active)
+		VALUES ($1, $2, '10.0.0.1', '80', 'http', 'virtual', TRUE) RETURNING id`, h.orgID, identifier).Scan(&discoveredDeviceID)
+	require.NoError(t, err)
+	var deviceID int64
+	err = h.db.QueryRow(`INSERT INTO device (device_identifier, mac_address, serial_number, org_id, discovered_device_id)
+		VALUES ($1, $2, $3, $4, $5) RETURNING id`,
+		identifier,
+		fmt.Sprintf("aa:bb:cc:00:02:%02x", discoveredDeviceID%256),
+		fmt.Sprintf("sn-matched-%d", discoveredDeviceID),
+		h.orgID,
+		discoveredDeviceID,
+	).Scan(&deviceID)
+	require.NoError(t, err)
+	return deviceID
 }
 
 func TestListFleetNodes_ReportsProtocolStateAndRedactsPairingOnlyCallers(t *testing.T) {

@@ -48,3 +48,18 @@ func TestMiningPoolsKeepIndependentStoredCredentials(t *testing.T) {
 	require.NotNil(t, replaced[0].Password)
 	assert.Empty(t, *replaced[0].Password)
 }
+
+func TestClearAllPoolsRemovesPrimaryBackupsAndCredentials(t *testing.T) {
+	device := newTestDevice(t)
+	_, capabilities, err := device.DescribeDevice(t.Context())
+	require.NoError(t, err)
+	require.True(t, capabilities[sdk.CapabilityPoolClear])
+	require.NoError(t, device.UpdateMiningPools(t.Context(), []sdk.MiningPoolConfig{{URL: "stratum+tcp://primary.example", WorkerName: "worker", Password: "primary"}, {Priority: 1, URL: "stratum+tcp://backup.example", WorkerName: "worker", Password: "backup"}}))
+	require.NoError(t, device.UpdateMiningPools(t.Context(), nil))
+	stored, err := device.GetStoredMiningPools(t.Context())
+	require.NoError(t, err)
+	require.Empty(t, stored)
+	reported, err := device.GetMiningPools(t.Context())
+	require.NoError(t, err)
+	require.Empty(t, reported)
+}

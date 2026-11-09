@@ -88,7 +88,9 @@ WHERE o.organization_id = sqlc.arg(organization_id) AND o.operation_id = sqlc.ar
  AND c.account_id IS NOT DISTINCT FROM sqlc.narg(account_id)::bigint;
 
 -- name: ListPoolConfigurationOperationTargets :many
-SELECT t.* FROM pool_configuration_operation_target t
+SELECT sqlc.embed(t), COALESCE(w.status,'')::text AS physical_attempt_status
+FROM pool_configuration_operation_target t
+LEFT JOIN device_write_attempt w ON w.attempt_id=t.physical_attempt_id AND w.organization_id=t.organization_id
 WHERE t.organization_id = $1 AND t.operation_id = $2 ORDER BY t.target_kind, t.target_id;
 
 -- name: ListPoolConfigurationOperationSites :many

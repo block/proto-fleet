@@ -13,14 +13,17 @@ import (
 )
 
 const CapabilityMiningGroups = "mining_groups"
+const CapabilityMiningGroupPoolClear = "mining_group_pool_clear"
 
 const (
-	miningGroupActionMiningStatus = "mining_status"
-	miningGroupActionStopLegacy   = "stop_legacy"
-	miningGroupActionOperation    = "operation"
-	miningGroupActionActivate     = "activate"
-	miningGroupActionReplacePools = "replace_pools"
-	miningGroupActionTransfer     = "transfer"
+	miningGroupActionVerifyCleared = "verify_cleared"
+	miningGroupActionClearPools    = "clear_pools"
+	miningGroupActionMiningStatus  = "mining_status"
+	miningGroupActionStopLegacy    = "stop_legacy"
+	miningGroupActionOperation     = "operation"
+	miningGroupActionActivate      = "activate"
+	miningGroupActionReplacePools  = "replace_pools"
+	miningGroupActionTransfer      = "transfer"
 )
 
 // MiningGroupRequest is a closed, versioned controller operation. Passwords are
@@ -46,7 +49,7 @@ type MiningGroupPoolInput struct {
 func (MiningGroupRequest) String() string   { return "MiningGroupRequest{[redacted]}" }
 func (MiningGroupRequest) GoString() string { return "MiningGroupRequest{[redacted]}" }
 func (r MiningGroupRequest) ReadOnly() bool {
-	return r.Action == "observe" || r.Action == miningGroupActionMiningStatus || r.Action == miningGroupActionOperation
+	return r.Action == "observe" || r.Action == miningGroupActionVerifyCleared || r.Action == miningGroupActionMiningStatus || r.Action == miningGroupActionOperation
 }
 func (r MiningGroupRequest) Validate() error {
 	if len(r.Key) > 128 || len(r.GroupID) > 128 || len(r.SourceID) > 128 || len(r.ConfigID) > 128 {
@@ -67,7 +70,7 @@ func (r MiningGroupRequest) Validate() error {
 		if r.ConfigID == "" {
 			return fmt.Errorf("configuration identity required")
 		}
-	case "start", "remove":
+	case "start", "stop", "remove", miningGroupActionClearPools:
 		allowed["group"] = true
 		allowed["revision"] = true
 	case miningGroupActionReplacePools:
@@ -82,6 +85,15 @@ func (r MiningGroupRequest) Validate() error {
 			if e != nil || u.Scheme != "stratum+tcp" || u.Hostname() == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || (u.Path != "" && u.Path != "/") || strings.TrimSpace(p.Username) == "" || len(p.URL) > 2048 || len(p.Username) > 512 || len(p.Password) > 1024 {
 				return fmt.Errorf("valid TCP Stratum V1 pool and worker required")
 			}
+		}
+	case miningGroupActionVerifyCleared:
+		allowed["group"] = true
+		allowed["macs"] = true
+		if len(r.MACs) == 0 || len(r.MACs) > 288 {
+			return fmt.Errorf("selected boards required")
+		}
+		if err := validateMiningGroupMACs(r.MACs, map[string]bool{}); err != nil {
+			return err
 		}
 	case miningGroupActionTransfer:
 		allowed["group"] = true
@@ -168,6 +180,7 @@ type MiningGroupMiningStatus struct {
 	ActiveBoards int32 `json:"active_boards"`
 }
 type MiningGroupResult struct {
+	PoolsCleared  *bool                    `json:"pools_cleared,omitempty"`
 	MiningStatus  *MiningGroupMiningStatus `json:"mining_status,omitempty"`
 	StopRequested bool                     `json:"stop_requested,omitempty"`
 	Removed       bool                     `json:"removed,omitempty"`

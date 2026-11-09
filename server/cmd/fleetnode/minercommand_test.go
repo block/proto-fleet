@@ -1664,3 +1664,21 @@ func TestMinerCommandAckPreservesExecutionEvidence(t *testing.T) {
 		})
 	}
 }
+
+func TestClearPoolCommandChecksLiveDeviceCapability(t *testing.T) {
+	for _, supported := range []bool{false, true} {
+		t.Run(fmt.Sprint(supported), func(t *testing.T) {
+			dev := mocks.NewMockDevice(gomock.NewController(t))
+			dev.EXPECT().DescribeDevice(gomock.Any()).Return(sdk.DeviceInfo{}, sdk.Capabilities{sdk.CapabilityPoolClear: supported}, nil)
+			if supported {
+				dev.EXPECT().UpdateMiningPools(gomock.Any(), gomock.Len(0)).Return(nil)
+			}
+			_, err := (&poolConfigCommand{clearAll: true}).run(t.Context(), dev)
+			if supported {
+				require.NoError(t, err)
+			} else {
+				require.Error(t, err)
+			}
+		})
+	}
+}

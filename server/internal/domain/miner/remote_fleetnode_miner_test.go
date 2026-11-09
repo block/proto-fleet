@@ -833,3 +833,21 @@ func TestFleetNodeEquipmentTelemetryRoundTrip(t *testing.T) {
 	require.Equal(t, snapshot, metrics.Container)
 	require.Equal(t, "ct1", metrics.DeviceIdentifier)
 }
+
+type poolClearDelegate struct {
+	interfaces.Miner
+	cleared bool
+	err     error
+}
+
+func (d poolClearDelegate) VerifyPoolsCleared(context.Context) (bool, error) { return d.cleared, d.err }
+func TestRemoteFleetNodeMinerForwardsPoolClearingObservation(t *testing.T) {
+	for _, tc := range []poolClearDelegate{{cleared: true}, {}, {err: fleeterror.NewUnimplementedError("unsupported")}} {
+		m := &RemoteFleetNodeMiner{delegate: tc}
+		cleared, err := m.VerifyPoolsCleared(t.Context())
+		require.Equal(t, tc.cleared, cleared)
+		require.Equal(t, tc.err, err)
+	}
+	_, err := (&RemoteFleetNodeMiner{}).VerifyPoolsCleared(t.Context())
+	require.True(t, fleeterror.IsUnimplementedError(err))
+}

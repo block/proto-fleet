@@ -1396,8 +1396,11 @@ func safeIntToUint32(v int) uint32 {
 	return uint32(v) // #nosec G115 -- Range checked above
 }
 
-// UpdatePools configures mining pools atomically via POST /api/v1/pools.
+// UpdatePools replaces nonempty stacks via MDKv1 and clears via durable MDKv2 deletion.
 func (c *Client) UpdatePools(ctx context.Context, pools []Pool) error {
+	if len(pools) == 0 {
+		return c.ClearPools(ctx)
+	}
 	apiPools := make([]poolConfigRequest, len(pools))
 	for i, pool := range pools {
 		priority := pool.Priority

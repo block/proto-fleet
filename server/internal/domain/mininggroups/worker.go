@@ -30,6 +30,7 @@ const reconciliationTimeout = 40 * time.Second
 const maxTransferFailures = 3
 
 const (
+	actionClearPools      = "clear_pools"
 	actionReplacePools    = "replace_pools"
 	transferPhaseComplete = "COMPLETE"
 	transferPhaseFailed   = "FAILED"
@@ -220,6 +221,11 @@ func (s *Service) Reconcile(ctx context.Context, orgID, deviceID int64, identifi
 					return s.block(ctx, q, row, "Pool configuration unavailable")
 				}
 				request = sdk.MiningGroupRequest{Action: actionReplacePools, GroupID: step.GroupID, Revision: step.ExpectedRevision, Pools: pools}
+				if poolconfigurations.IsClearedPoolIntent(step.ConfigRevision) {
+					request.Action = actionClearPools
+				}
+			case Stop:
+				request = sdk.MiningGroupRequest{Action: "stop", GroupID: step.GroupID, Revision: step.ExpectedRevision}
 			case Start:
 				request = sdk.MiningGroupRequest{Action: "start", GroupID: step.GroupID, Revision: step.ExpectedRevision}
 			case Transfer:
@@ -247,6 +253,9 @@ func (s *Service) liveIntent(ctx context.Context, q sqlc.Querier, row sqlc.Conta
 	if cutover {
 		desired, err := s.sharedIntents(ctx, q, row, affected)
 		if err != nil {
+			return nil, err
+		}
+		if err := s.overlayClearedIntents(ctx, q, row, desired, affected); err != nil {
 			return nil, err
 		}
 		return desired, s.authorizeAffectedWorkflowBoards(ctx, q, row, affected)
@@ -293,6 +302,9 @@ func (s *Service) liveIntent(ctx context.Context, q sqlc.Querier, row sqlc.Conta
 	}
 	for mac, id := range shared {
 		desired[mac] = id
+	}
+	if err := s.overlayClearedIntents(ctx, q, row, desired, affected); err != nil {
+		return nil, err
 	}
 	return desired, s.authorizeAffectedWorkflowBoards(ctx, q, row, affected)
 }
@@ -397,15 +409,19 @@ func (s *Service) apply(ctx context.Context, q sqlc.Querier, row sqlc.ContainerM
 			return s.block(ctx, q, row, "Waiting for a valid group creation receipt")
 		}
 		bindings[response.Group.ID] = binding{ConfigID: step.ConfigID}
-	case actionReplacePools:
+	case actionReplacePools, actionClearPools:
 		if response.Group == nil || response.Group.ID != request.GroupID {
 			return s.block(ctx, q, row, "Waiting for a valid pool configuration receipt")
 		}
 		bindings[request.GroupID] = binding{ConfigID: step.ConfigID, Configured: true}
-		if poolsMatch(response.Group.Pools, request.Pools) {
+		if !poolconfigurations.IsClearedPoolIntent(step.ConfigID) && poolsMatch(response.Group.Pools, request.Pools) {
 			if err := q.RetainAppliedPoolGroupIntents(ctx, sqlc.RetainAppliedPoolGroupIntentsParams{OrganizationID: row.OrganizationID, PhysicalAttemptID: row.AttemptID, GroupSnapshotID: sql.NullString{String: step.ConfigID, Valid: true}, MacAddresses: response.Group.MACs}); err != nil {
 				return err
 			}
+		}
+	case "stop":
+		if response.Group == nil || response.Group.ID != request.GroupID || response.Group.Mining {
+			return s.block(ctx, q, row, "Waiting for stopped group intent")
 		}
 	case "start":
 		if response.Group == nil || response.Group.ID != request.GroupID || !response.Group.Mining {
@@ -430,6 +446,21 @@ func (s *Service) block(ctx context.Context, q sqlc.Querier, row sqlc.ContainerM
 	return save(ctx, q, row)
 }
 func (s *Service) complete(ctx context.Context, q sqlc.Querier, row sqlc.ContainerMiningGroupState) error {
+	// Verify the selected board's runtime before retiring its assignment.
+	if err := s.finishBoardRemoval(ctx, q, row); err != nil {
+		var pending *boardRemovalVerificationPending
+		if !errors.As(err, &pending) {
+			return err
+		}
+		changed, err := q.FinishPoolRemoval(ctx, sqlc.FinishPoolRemovalParams{RemovalID: pending.removalID, State: "uncertain", ResultCode: pending.code})
+		if err != nil {
+			return err
+		}
+		if changed != 1 {
+			return fmt.Errorf("pool removal changed during verification")
+		}
+		return s.block(ctx, q, row, pending.Error())
+	}
 	// The planner reaches Done only after observed pool fields and board
 	// membership match the intent. MDK passwords are write-only.
 	if err := q.FinishPoolGroupAttempt(ctx, sqlc.FinishPoolGroupAttemptParams{OrganizationID: row.OrganizationID, PhysicalAttemptID: row.AttemptID, State: "verified"}); err != nil {
@@ -450,6 +481,11 @@ func (s *Service) complete(ctx context.Context, q sqlc.Querier, row sqlc.Contain
 // definitively terminal and whose fresh snapshot has no pending controller work.
 // It preserves completed effects and drops desires that were never applied.
 func (s *Service) failOperation(ctx context.Context, q sqlc.Querier, row sqlc.ContainerMiningGroupState, desired map[string]string, snapshot Snapshot, message string) error {
+	if _, err := q.GetBoardPoolRemovalAttempt(ctx, sqlc.GetBoardPoolRemovalAttemptParams{OrganizationID: row.OrganizationID, PhysicalAttemptID: row.AttemptID}); err == nil {
+		return s.block(ctx, q, row, "Pool clearing needs recovery. The Fleet assignment was kept; "+message)
+	} else if !errors.Is(err, sql.ErrNoRows) {
+		return err
+	}
 	applied := []string{}
 	for _, group := range snapshot.Groups {
 		if !group.Managed || !group.Configured {
@@ -532,7 +568,7 @@ func affectedBoardMACs(row sqlc.ContainerMiningGroupState, request sdk.MiningGro
 	switch request.Action {
 	case string(Transfer):
 		return request.MACs, nil
-	case actionReplacePools, "start":
+	case actionReplacePools, actionClearPools, "start", "stop":
 		var observed sdk.MiningGroupResult
 		if err := decode(row.Observed, &observed); err != nil {
 			return nil, err

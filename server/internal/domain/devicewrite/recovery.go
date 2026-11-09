@@ -16,12 +16,15 @@ import (
 	"github.com/block/proto-fleet/server/internal/runtimepolicy"
 )
 
+const statusComplete = "complete"
+
 // RecoveryEvidence is an operator attestation, not a machine-verified lease.
 // Only the offline host operations command calls this boundary, using privileged
 // database access while every dispatcher is authoritatively stopped. Evidence
 // references must contain no passwords or raw device responses.
 type RecoveryEvidence struct {
 	AttemptID                 uuid.UUID `json:"attempt_id"`
+	PoolRemovalID             uuid.UUID `json:"pool_removal_id,omitempty"`
 	OrganizationID            int64     `json:"organization_id"`
 	DeviceID                  int64     `json:"device_id"`
 	AttemptEpoch              int64     `json:"attempt_epoch"`
@@ -63,9 +66,10 @@ func identityDigest(snapshot json.RawMessage) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// InspectRecovery reads safety evidence, including retired device records.
+// InspectRecovery includes unfinished removals whose physical call completed
+// but whose verification reservation still needs operator resolution.
 func (s *Service) InspectRecovery(ctx context.Context, organizationID, deviceID int64) ([]RecoveryInspection, error) {
-	attempts, err := s.queries.ListUnresolvedDeviceWriteAttempts(ctx, sqlc.ListUnresolvedDeviceWriteAttemptsParams{OrganizationID: organizationID, DeviceID: deviceID})
+	attempts, err := s.queries.ListDeviceWriteRecoveryCandidates(ctx, sqlc.ListDeviceWriteRecoveryCandidatesParams{OrganizationID: organizationID, DeviceID: deviceID})
 	if err != nil {
 		return nil, fmt.Errorf("list recovery attempts: %w", err)
 	}
@@ -76,6 +80,13 @@ func (s *Service) InspectRecovery(ctx context.Context, organizationID, deviceID 
 	out := make([]RecoveryInspection, 0, len(attempts))
 	for _, a := range attempts {
 		out = append(out, RecoveryInspection{Attempt: a, FenceEpoch: fence.Epoch, FenceState: fence.State, QuarantineOrigin: fence.QuarantineOrigin.String, IdentitySHA256: identityDigest(a.IdentitySnapshot), EvidenceTemplate: RecoveryEvidence{AttemptID: a.AttemptID, OrganizationID: a.OrganizationID, DeviceID: a.DeviceID, AttemptEpoch: a.Epoch, FenceEpoch: fence.Epoch, FenceState: fence.State, QuarantineOrigin: fence.QuarantineOrigin.String, OwnerInstanceID: a.OwnerInstanceID, OperationKind: a.OperationKind, PriorStatus: a.Status, IdentitySHA256: identityDigest(a.IdentitySnapshot)}})
+		if a.Status == statusComplete {
+			removalID, err := s.queries.GetUnfinishedCompletedPoolRemoval(ctx, sqlc.GetUnfinishedCompletedPoolRemovalParams{OrganizationID: organizationID, DeviceID: deviceID, PhysicalAttemptID: uuid.NullUUID{UUID: a.AttemptID, Valid: true}})
+			if err != nil {
+				return nil, lookupError(err)
+			}
+			out[len(out)-1].EvidenceTemplate.PoolRemovalID = removalID
+		}
 	}
 	return out, nil
 }
@@ -84,6 +95,8 @@ func (s *Service) InspectRecovery(ctx context.Context, organizationID, deviceID 
 // lock. It never infers termination from age, a lost connection, or a restart.
 // Preview runs the same checks without writing. Applying retains the attempt as
 // resolved, records evidence, and invalidates old handles/queued epochs together.
+// For an already completed pool clear, it instead fails only the exact unfinished
+// removal and keeps both the physical completion record and Fleet assignment.
 func (s *Service) ResolveOffline(ctx context.Context, evidence RecoveryEvidence, apply bool) (RecoveryResult, error) {
 	var empty RecoveryResult
 	required := map[string]string{"operator": evidence.Operator, "maintenance termination": evidence.MaintenanceTermination, "owner termination": evidence.OwnerTermination}
@@ -112,8 +125,24 @@ func (s *Service) ResolveOffline(ctx context.Context, evidence RecoveryEvidence,
 		if err != nil {
 			return empty, lookupError(err)
 		}
-		if attempt.DeviceID != evidence.DeviceID || attempt.OrganizationID != evidence.OrganizationID || attempt.Epoch != evidence.AttemptEpoch || attempt.OwnerInstanceID != evidence.OwnerInstanceID || attempt.OperationKind != evidence.OperationKind || attempt.Status != evidence.PriorStatus || (attempt.Status != "running" && attempt.Status != "unknown") || fence.Epoch != evidence.FenceEpoch || fence.State != evidence.FenceState || fence.QuarantineOrigin.String != evidence.QuarantineOrigin || identityDigest(attempt.IdentitySnapshot) != evidence.IdentitySHA256 {
+		if attempt.DeviceID != evidence.DeviceID || attempt.OrganizationID != evidence.OrganizationID || attempt.Epoch != evidence.AttemptEpoch || attempt.OwnerInstanceID != evidence.OwnerInstanceID || attempt.OperationKind != evidence.OperationKind || attempt.Status != evidence.PriorStatus || fence.Epoch != evidence.FenceEpoch || fence.State != evidence.FenceState || fence.QuarantineOrigin.String != evidence.QuarantineOrigin || identityDigest(attempt.IdentitySnapshot) != evidence.IdentitySHA256 {
 			return empty, fleeterror.NewFailedPreconditionError("recovery evidence does not match the unresolved attempt and current custody; inspect again")
+		}
+		switch attempt.Status {
+		case statusComplete:
+			removalID, err := q.GetUnfinishedCompletedPoolRemoval(ctx, sqlc.GetUnfinishedCompletedPoolRemovalParams{OrganizationID: evidence.OrganizationID, DeviceID: evidence.DeviceID, PhysicalAttemptID: uuid.NullUUID{UUID: attempt.AttemptID, Valid: true}})
+			if err != nil {
+				return empty, lookupError(err)
+			}
+			if evidence.PoolRemovalID != removalID {
+				return empty, fleeterror.NewFailedPreconditionError("recovery requires the exact unfinished pool removal; inspect again")
+			}
+		case "running", "unknown":
+			if evidence.PoolRemovalID != uuid.Nil {
+				return empty, fleeterror.NewFailedPreconditionError("pool-removal recovery evidence requires a completed physical attempt")
+			}
+		default:
+			return empty, blocked()
 		}
 		if evidence.OperationKind != operationMutation && evidence.OperationKind != operationObservation {
 			return empty, blocked()
@@ -134,7 +163,12 @@ func (s *Service) ResolveOffline(ctx context.Context, evidence RecoveryEvidence,
 		if err := q.RecordDeviceWriteRecovery(ctx, sqlc.RecordDeviceWriteRecoveryParams{RecoveryID: result.RecoveryID, AttemptID: attempt.AttemptID, FenceEpoch: fence.Epoch, PriorStatus: attempt.Status, OperatorName: evidence.Operator, Evidence: body, EvidenceSha256: hex.EncodeToString(sum[:])}); err != nil {
 			return empty, fmt.Errorf("record operator recovery: %w", err)
 		}
-		changed, err := q.ResolveDeviceWriteAttempt(ctx, attempt.AttemptID)
+		var changed int64
+		if attempt.Status == statusComplete {
+			changed, err = q.ResolveCompletedPoolRemoval(ctx, sqlc.ResolveCompletedPoolRemovalParams{RemovalID: evidence.PoolRemovalID, OrganizationID: evidence.OrganizationID, DeviceID: evidence.DeviceID, PhysicalAttemptID: uuid.NullUUID{UUID: attempt.AttemptID, Valid: true}})
+		} else {
+			changed, err = q.ResolveDeviceWriteAttempt(ctx, attempt.AttemptID)
+		}
 		if err != nil {
 			return empty, fmt.Errorf("resolve device attempt: %w", err)
 		}
@@ -148,6 +182,9 @@ func (s *Service) ResolveOffline(ctx context.Context, evidence RecoveryEvidence,
 			AttemptEpoch:   attempt.Epoch,
 		}); err != nil {
 			return empty, fmt.Errorf("resolve recovered mining group workflow: %w", err)
+		}
+		if err := q.ResolveRecoveredPoolRemoval(ctx, sqlc.ResolveRecoveredPoolRemovalParams{OrganizationID: evidence.OrganizationID, DeviceID: evidence.DeviceID, PhysicalAttemptID: uuid.NullUUID{UUID: attempt.AttemptID, Valid: true}}); err != nil {
+			return empty, fmt.Errorf("resolve recovered pool removal: %w", err)
 		}
 		cutover, err := q.HasPoolConfigurationCutover(ctx, evidence.OrganizationID)
 		if err != nil {

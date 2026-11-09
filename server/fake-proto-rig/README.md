@@ -334,3 +334,14 @@ The OpenAPI spec is vendored from the private `miner-firmware` repository. See `
 In multi-address load mode, authenticated `GET /fake-api/v1/load/led`
 returns `{"active": true|false}` for command readback. This fixture audit is
 separate from the hardware API and is absent from single-miner mode.
+
+### MDKv2 pool clearing
+
+The simulator exposes authenticated `GET /api/v2/pools`,
+`GET /api/v2/pools/diagnostics`, and `DELETE /api/v2/pools/{id}` for the Proto
+plugin's clear-all flow. These share pool state with MDKv1. MDKv2 IDs remain
+stable until deletion and are never reused by a replacement; passwords are not
+returned. This is a limited MDKv2 surface, not a complete MDKv2 simulator.
+State is in memory, so these tests do not establish persistence across process
+restarts; firmware durability is documented in
+[pool removal](../../docs/development/pool-removal.md).

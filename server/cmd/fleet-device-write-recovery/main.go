@@ -19,7 +19,7 @@ type cli struct {
 	Inspect struct {
 		OrganizationID int64 `required:""`
 		DeviceID       int64 `required:""`
-	} `cmd:"" help:"Read unresolved attempts and exact custody/identity bindings. Does not run migrations."`
+	} `cmd:"" help:"Read unresolved attempts and unfinished pool removals with exact custody/identity bindings. Does not run migrations."`
 	Resolve struct {
 		Evidence                         string `required:"" type:"existingfile" help:"JSON operator attestation matching inspection. Use evidence references, never credentials."`
 		Apply                            bool   `help:"Commit resolution; default is a read-only preview."`

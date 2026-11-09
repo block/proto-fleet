@@ -59,3 +59,33 @@ func TestMiningGroupActivationLifecycleContract(t *testing.T) {
 	require.Error(t, (MiningGroupResult{StopRequested: true, RevisionConflict: true}).Validate(stop))
 	require.Error(t, (MiningGroupResult{StopRequested: true}).Validate(MiningGroupRequest{Action: "observe"}))
 }
+
+func TestExplicitGroupClearContract(t *testing.T) {
+	for _, action := range []string{"clear_pools", "stop"} {
+		request := MiningGroupRequest{Action: action, Key: "key", GroupID: "group", Revision: 3}
+		data, err := json.Marshal(request)
+		require.NoError(t, err)
+		decoded, err := DecodeMiningGroupRequest(data)
+		require.NoError(t, err)
+		require.Equal(t, request, decoded)
+		require.False(t, request.ReadOnly())
+		request.Pools = []MiningGroupPoolInput{{}}
+		require.Error(t, request.Validate())
+	}
+	require.Error(t, (MiningGroupRequest{Action: "replace_pools", Key: "key", GroupID: "group", Revision: 3}).Validate(), "empty replace must never imply clear")
+	request := MiningGroupRequest{Action: "verify_cleared", GroupID: "group", MACs: []string{"02:00:00:00:00:01"}}
+	require.NoError(t, request.Validate())
+	require.True(t, request.ReadOnly())
+	require.Error(t, (MiningGroupResult{}).Validate(request), "missing clear result is not success")
+	for _, cleared := range []bool{false, true} {
+		data, err := json.Marshal(MiningGroupResult{PoolsCleared: &cleared})
+		require.NoError(t, err)
+		result, err := DecodeMiningGroupResult(data, request)
+		require.NoError(t, err)
+		require.Equal(t, cleared, *result.PoolsCleared)
+	}
+	request.MACs = append(request.MACs, request.MACs[0])
+	require.Error(t, request.Validate())
+	request.MACs = nil
+	require.Error(t, request.Validate())
+}

@@ -112,6 +112,7 @@ type Miner struct {
 }
 
 var _ interfaces.Miner = (*Miner)(nil)
+var _ interfaces.PoolClearVerifier = (*Miner)(nil)
 var _ interfaces.FirmwareUpdateStatusProvider = (*Miner)(nil)
 var _ interfaces.MinerCurtailmentConfigurator = (*Miner)(nil)
 
@@ -326,7 +327,9 @@ func (m *Miner) sendInSlot(ctx context.Context, mc *gatewaypb.MinerCommand) (*ga
 		return nil, devicewrite.NotDispatched(err)
 	}
 	version := gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1
-	if mc.GetContainerMining() != nil {
+	if mc.GetVerifyPoolsCleared() != nil {
+		version = gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V9
+	} else if mc.GetContainerMining() != nil {
 		version = gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V8
 	} else if mc.GetMiningGroups() != nil {
 		version = gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V6
@@ -472,7 +475,7 @@ func (m *Miner) UpdateMiningPools(ctx context.Context, payload dto.UpdateMiningP
 	if err != nil {
 		return devicewrite.NotDispatched(err)
 	}
-	encrypted, err := poolconfig.Encrypt(key, m.desc.GetDeviceIdentifier(), &gatewaypb.MiningPoolWriteConfiguration{Pools: pools})
+	encrypted, err := poolconfig.Encrypt(key, m.desc.GetDeviceIdentifier(), &gatewaypb.MiningPoolWriteConfiguration{Pools: pools, ClearAll: payload.ClearAll})
 	if err != nil {
 		return devicewrite.NotDispatched(fleeterror.NewInvalidArgumentErrorf("seal fleet node pool config: %v", err))
 	}
@@ -895,6 +898,12 @@ func cloneEncryptedCredentials(creds *gatewaypb.EncryptedCredentials) *gatewaypb
 }
 
 func miningPoolConfigsFromPayload(payload dto.UpdateMiningPoolsPayload) ([]*gatewaypb.MiningPoolWriteConfig, error) {
+	if payload.ClearAll {
+		if payload.DefaultPool != (dto.MiningPool{}) || payload.Backup1Pool != nil || payload.Backup2Pool != nil || payload.ReapplyCurrentPoolsWithStoredWorkerName || payload.DesiredWorkerName != "" {
+			return nil, fleeterror.NewInvalidArgumentError("clearing pools cannot include pool settings")
+		}
+		return nil, nil
+	}
 	pools := make([]*gatewaypb.MiningPoolWriteConfig, 0, 3)
 
 	pool, err := miningPoolConfigFromDTO(payload.DefaultPool, "default")
@@ -931,4 +940,26 @@ func miningPoolConfigFromDTO(pool dto.MiningPool, poolName string) (*gatewaypb.M
 		Username: pool.Username,
 		Password: proto.String(pool.Password),
 	}, nil
+}
+
+// VerifyPoolsCleared keeps private firmware credentials on the node and accepts
+// only an explicit, complete observation from a compatible command protocol.
+func (m *Miner) VerifyPoolsCleared(ctx context.Context) (bool, error) {
+	ack, err := m.send(ctx, &gatewaypb.MinerCommand{Action: &gatewaypb.MinerCommand_VerifyPoolsCleared{
+		VerifyPoolsCleared: &gatewaypb.VerifyPoolsClearedAction{},
+	}})
+	if err != nil {
+		return false, err
+	}
+	if err := ackToError(ack); err != nil {
+		return false, err
+	}
+	var result gatewaypb.VerifyPoolsClearedResult
+	if err := proto.Unmarshal(ack.GetPayload(), &result); err != nil {
+		return false, fleeterror.NewInternalError("invalid pool clearing observation")
+	}
+	if err := protovalidate.Validate(&result); err != nil {
+		return false, fleeterror.NewInternalError("incomplete pool clearing observation")
+	}
+	return result.GetCleared(), nil
 }

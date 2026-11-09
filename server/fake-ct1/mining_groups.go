@@ -326,3 +326,28 @@ func (a *grpcAPI) DeleteMiningGroup(ctx context.Context, r *mdk.DeleteMiningGrou
 		return &mdk.DeleteMiningGroupResponse{}, nil
 	})
 }
+
+// Runtime group diagnostics cover only locally connected boards. Empty pool
+// records alone must not certify a missing board as cleared.
+func (a *grpcAPI) GetMiningGroupPoolDiagnostics(ctx context.Context, r *mdk.GetMiningGroupPoolDiagnosticsRequest) (*mdk.GetMiningGroupPoolDiagnosticsResponse, error) {
+	return miningGroupRPC(ctx, a, "", nil, func(s *ContainerState, g *simulatedMiningGroups) (*mdk.GetMiningGroupPoolDiagnosticsResponse, error) {
+		if r.GroupId == "default" {
+			return nil, status.Error(codes.InvalidArgument, "hosted group ID is required")
+		}
+		if _, err := g.group(r.GroupId, 0); err != nil {
+			return nil, err
+		}
+		out := &mdk.GetMiningGroupPoolDiagnosticsResponse{ObservedAt: timestamppb.New(s.now())}
+		for mac, member := range g.members {
+			board := s.boardsByMAC[strings.ToUpper(mac)]
+			if member.GroupId == r.GroupId && board != nil && board.State != miningStateDisconnected {
+				out.ObservedMacAddresses = append(out.ObservedMacAddresses, mac)
+			}
+		}
+		slices.Sort(out.ObservedMacAddresses)
+		for _, p := range g.pools[r.GroupId] {
+			out.Pools = append(out.Pools, &mdk.PoolConnectionDiagnostics{PoolId: int64(p.Pool.Id), PoolName: p.Pool.Name})
+		}
+		return out, nil
+	})
+}

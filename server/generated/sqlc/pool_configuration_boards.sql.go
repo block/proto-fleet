@@ -261,7 +261,7 @@ JOIN pool_configuration_operation o ON o.organization_id=t.organization_id AND o
 JOIN pool_configuration c ON c.organization_id=o.organization_id AND c.configuration_id=o.configuration_id
 JOIN pool_configuration_assignment a ON a.organization_id=t.organization_id AND a.target_kind=t.target_kind AND a.target_id=t.target_id
 LEFT JOIN hosted_account account ON account.id=c.account_id AND account.organization_id=c.organization_id
-WHERE t.organization_id=$1 AND t.physical_attempt_id=$2 AND t.target_kind='hashboard_installation' ORDER BY t.target_id
+WHERE t.organization_id=$1 AND t.physical_attempt_id=$2 AND t.target_kind='hashboard_installation' AND o.kind='apply' ORDER BY t.target_id
 `
 
 type ListPoolGroupAttemptTargetsParams struct {

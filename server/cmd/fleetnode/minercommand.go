@@ -237,7 +237,10 @@ func (r *RunCmd) handleMinerCommand(ctx context.Context, client gatewayClient, s
 	r.sendAckWithPayload(stream, commandID, pb.AckCode_ACK_CODE_OK, "", payload, logger)
 }
 
-type poolConfigCommand struct{ pools []sdk.MiningPoolConfig }
+type poolConfigCommand struct {
+	pools    []sdk.MiningPoolConfig
+	clearAll bool
+}
 
 func newPoolConfigCommand(privateKey []byte, target *pb.MinerConnectionDescriptor, mc *pb.MinerCommand) (*poolConfigCommand, error) {
 	action := mc.GetUpdateMiningPools()
@@ -251,10 +254,19 @@ func newPoolConfigCommand(privateKey []byte, target *pb.MinerConnectionDescripto
 	if err != nil {
 		return nil, cmdErr(pb.AckCode_ACK_CODE_BAD_REQUEST, "%s", err.Error())
 	}
-	return &poolConfigCommand{pools: toSDKMiningPoolConfigs(config.GetPools())}, nil
+	return &poolConfigCommand{pools: toSDKMiningPoolConfigs(config.GetPools()), clearAll: config.GetClearAll()}, nil
 }
 
 func (c *poolConfigCommand) run(ctx context.Context, dev sdk.Device) ([]byte, error) {
+	if c.clearAll {
+		_, caps, err := dev.DescribeDevice(ctx)
+		if err != nil {
+			return nil, sdk.WriteRefused(err, sdk.WriteStageConfigurationRead, sdk.WriteReasonReadFailed)
+		}
+		if !caps[sdk.CapabilityPoolClear] {
+			return nil, sdk.InvalidWriteRequest(fmt.Errorf("this firmware does not support clearing all pools"))
+		}
+	}
 	return nil, dev.UpdateMiningPools(ctx, c.pools)
 }
 
@@ -504,6 +516,8 @@ func runMinerAction(ctx context.Context, client gatewayClient, commandID, firmwa
 		return nil, dev.SetPowerTarget(ctx, mode)
 	case *pb.MinerCommand_UpdateMiningPools:
 		return nil, sdk.InvalidWriteRequest(cmdErr(pb.AckCode_ACK_CODE_BAD_REQUEST, "pool config must be decrypted before device execution"))
+	case *pb.MinerCommand_VerifyPoolsCleared:
+		return verifyPoolsClearedPayload(ctx, dev)
 	case *pb.MinerCommand_GetMiningPools:
 		pools, err := dev.GetMiningPools(ctx)
 		if err != nil {
@@ -1209,4 +1223,47 @@ func classifyMinerActionError(stage string, mc *pb.MinerCommand, err error) (pb.
 		return pb.AckCode_ACK_CODE_UNAUTHENTICATED, msg
 	}
 	return code, msg
+}
+
+// This observation must never use the ordinary gateway pool projection: that
+// projection truncates slots and intentionally omits private stored credentials.
+func verifyPoolsClearedPayload(ctx context.Context, dev sdk.Device) ([]byte, error) {
+	reader, ok := dev.(sdk.DeviceStoredPoolReader)
+	if !ok {
+		return nil, sdk.NewErrUnsupportedCapability("complete stored pool readback")
+	}
+	stored, err := reader.GetStoredMiningPools(ctx)
+	if err != nil {
+		return nil, poolClearingObservationError(err)
+	}
+	runtime, err := dev.GetMiningPools(ctx)
+	if err != nil {
+		return nil, poolClearingObservationError(err)
+	}
+	cleared := true
+	for _, pool := range stored {
+		if pool.URL != "" || pool.Username != "" || pool.Password != nil && *pool.Password != "" {
+			cleared = false
+			continue
+		}
+		if pool.Password == nil {
+			return nil, cmdErr(pb.AckCode_ACK_CODE_INTERNAL, "stored pool credentials could not be verified")
+		}
+	}
+	for _, pool := range runtime {
+		if pool.URL != "" || pool.Username != "" {
+			cleared = false
+		}
+	}
+	payload, err := proto.Marshal(&pb.VerifyPoolsClearedResult{Cleared: &cleared})
+	if err != nil {
+		return nil, fmt.Errorf("marshal pool clearing observation: %w", err)
+	}
+	return payload, nil
+}
+
+func poolClearingObservationError(err error) error {
+	// Driver errors can echo credentials. Preserve classification, never text.
+	code, _ := classifyMinerCommandError("pool clearing observation", err)
+	return cmdErr(code, "complete pool clearing observation is unavailable")
 }

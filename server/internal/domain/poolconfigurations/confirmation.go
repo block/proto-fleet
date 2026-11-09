@@ -4,17 +4,28 @@ import (
 	"context"
 	"encoding/json"
 
+	"github.com/google/uuid"
+
 	"github.com/block/proto-fleet/server/generated/sqlc"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 )
 
-func (s *Service) ConfirmReview(ctx context.Context, accountID, reviewID, password string) (ReviewedSave, error) {
+type Confirmation struct {
+	Password           string
+	KeepDeviceSettings bool
+}
+
+func (s *Service) ConfirmReview(ctx context.Context, accountID, reviewID string, options Confirmation) (ReviewedSave, error) {
+	password := options.Password
 	admission, err := s.admitConfirmation(ctx, accountID, reviewID)
 	if err != nil {
 		return ReviewedSave{}, err
 	}
 	if password != "" && !admission.changesEquipment && !admission.equipmentReplay {
 		return ReviewedSave{}, fleeterror.NewInvalidArgumentError("omit the confirmation password when saving settings without equipment updates")
+	}
+	if options.KeepDeviceSettings && admission.kind != "remove" {
+		return ReviewedSave{}, fleeterror.NewInvalidArgumentError("keeping device settings is only valid for removal")
 	}
 	var proof CredentialProof
 	if admission.changesEquipment && password != "" {
@@ -49,7 +60,33 @@ func (s *Service) ConfirmReview(ctx context.Context, accountID, reviewID, passwo
 			}
 			return nil
 		}
-		result, err := s.repository.ConfirmReview(ctx, q, p.Scope, p.ActorID, reviewID, s.equipment, authorize)
+		var result ReviewedSave
+		if admission.kind == "remove" {
+			review, reviewErr := q.LockPoolConfigurationReview(ctx, sqlc.LockPoolConfigurationReviewParams{OrganizationID: p.Scope.OrganizationID, AccountID: p.Scope.account(), ActorID: p.ActorID, ReviewID: reviewID})
+			if reviewErr != nil {
+				return ReviewedSave{}, storageError(reviewErr)
+			}
+			replay := review.SavedVersion.Valid
+			if !replay {
+				if !review.Valid {
+					return ReviewedSave{}, expiredUnacceptedReview()
+				}
+				if err := authorize(ctx, q); err != nil {
+					return ReviewedSave{}, err
+				}
+			}
+			manager, ok := s.checker.(RemovalManager)
+			if !ok {
+				return ReviewedSave{}, fleeterror.NewUnavailableErrorf("pool removal is unavailable")
+			}
+			if err := manager.EnqueueRemoval(ctx, q, p, reviewID, options.KeepDeviceSettings); err != nil {
+				return ReviewedSave{}, err
+			}
+			result, err = s.repository.ConfirmReview(ctx, q, p.Scope, p.ActorID, reviewID, s.equipment, nil)
+			result.Replay = replay
+		} else {
+			result, err = s.repository.ConfirmReview(ctx, q, p.Scope, p.ActorID, reviewID, s.equipment, authorize)
+		}
 		if err != nil {
 			return ReviewedSave{}, err
 		}
@@ -58,7 +95,7 @@ func (s *Service) ConfirmReview(ctx context.Context, accountID, reviewID, passwo
 			return ReviewedSave{}, err
 		}
 		result.AssignedCount = summary.AssignedCount
-		if !result.Replay {
+		if !result.Replay && admission.kind != "remove" {
 			event := "update_pool_configuration"
 			if admission.access == Read {
 				event = "apply_pool_configuration"
@@ -72,6 +109,7 @@ func (s *Service) ConfirmReview(ctx context.Context, accountID, reviewID, passwo
 }
 
 type confirmationAdmission struct {
+	kind             string
 	access           Access
 	changesEquipment bool
 	equipmentReplay  bool
@@ -85,7 +123,7 @@ func (s *Service) admitConfirmation(ctx context.Context, accountID, reviewID str
 		if err != nil {
 			return confirmationAdmission{}, storageError(err)
 		}
-		admission := confirmationAdmission{access: Read}
+		admission := confirmationAdmission{access: Read, kind: review.Kind}
 		if review.Kind == "edit" {
 			admission.access = Manage
 			if _, err := s.authority.AuthorizePoolConfiguration(ctx, q, accountID, Manage); err != nil {
@@ -100,6 +138,21 @@ func (s *Service) admitConfirmation(ctx context.Context, accountID, reviewID str
 		}
 		if !review.Valid {
 			return confirmationAdmission{}, expiredUnacceptedReview()
+		}
+		if review.Kind == "remove" {
+			manager, ok := s.checker.(RemovalManager)
+			if !ok {
+				return confirmationAdmission{}, fleeterror.NewUnavailableErrorf("pool removal is unavailable")
+			}
+			row, err := q.GetPoolRemoval(ctx, sqlc.GetPoolRemovalParams{RemovalID: uuid.MustParse(reviewID), OrganizationID: p.Scope.OrganizationID, AccountID: p.Scope.account(), ActorID: p.ActorID})
+			if err != nil {
+				return confirmationAdmission{}, err
+			}
+			if err := manager.ValidateRemoval(ctx, q, p, row, false); err != nil {
+				return confirmationAdmission{}, err
+			}
+			admission.changesEquipment = true
+			return admission, nil
 		}
 		var reviewed []reviewedTarget
 		if json.Unmarshal(review.Targets, &reviewed) != nil {

@@ -74,6 +74,13 @@ type Miner interface {
 	GetMiningPools(ctx context.Context) ([]MinerConfiguredPool, error)
 }
 
+// PoolClearVerifier proves stored and runtime emptiness at the device boundary.
+// Remote adapters use it to verify every slot without transporting credentials.
+// Missing/partial readback must return an error, never a successful empty result.
+type PoolClearVerifier interface {
+	VerifyPoolsCleared(ctx context.Context) (bool, error)
+}
+
 // StoredMiningPoolReader reads complete private firmware configuration. It is
 // deliberately separate from the runtime GetMiningPools view.
 type StoredMiningPoolReader interface {

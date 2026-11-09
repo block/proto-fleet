@@ -368,6 +368,17 @@ func (p *PluginMiner) SetPowerTarget(ctx context.Context, payload dto.PowerTarge
 
 // UpdateMiningPools implements interfaces.Miner
 func (p *PluginMiner) UpdateMiningPools(ctx context.Context, payload dto.UpdateMiningPoolsPayload) error {
+	if payload.ClearAll {
+		if payload.DefaultPool != (dto.MiningPool{}) || payload.Backup1Pool != nil || payload.Backup2Pool != nil || payload.ReapplyCurrentPoolsWithStoredWorkerName || payload.DesiredWorkerName != "" {
+			return fleeterror.NewInvalidArgumentError("clearing pools cannot include pool settings")
+		}
+		if !p.caps[sdk.CapabilityPoolClear] {
+			return fleeterror.NewFailedPreconditionError("this firmware does not support clearing all pools")
+		}
+		return p.dispatchWrite(ctx, commandtype.UpdateMiningPools, func(ctx context.Context) error {
+			return wrapPluginError(p.sdkDevice.UpdateMiningPools(ctx, nil), "failed to clear pools")
+		})
+	}
 	sdkPools := []sdk.MiningPoolConfig{}
 
 	poolConfig, err := validateAndConvertPoolConfig(payload.DefaultPool, "default")

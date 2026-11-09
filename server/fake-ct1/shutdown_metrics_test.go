@@ -21,6 +21,7 @@ import (
 	mdk "github.com/block/proto-fleet/sdk/mdk/generated/mdk/v2"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/connectivity"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/stats"
 	"google.golang.org/grpc/status"
@@ -345,6 +346,12 @@ func TestSIGTERMStopsBothTransportsAndProtectsFinalFlush(t *testing.T) {
 			return err != nil
 		})
 	}
+	// GracefulStop closes listeners before sending GOAWAY on existing
+	// transports. Wait until the client observes that drain; a closed listener
+	// alone does not prevent another RPC from being accepted on this connection.
+	waitForDrainCondition(t, process, "gRPC client observing shutdown", func() bool {
+		return connection.GetState() != connectivity.Ready
+	})
 	// The existing connection must reject a late RPC, even while its accepted
 	// predecessor and the HTTP body are both still held by the test.
 	ctx, cancel := context.WithTimeout(process.ctx, time.Second)

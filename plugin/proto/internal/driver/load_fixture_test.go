@@ -244,6 +244,22 @@ func TestLoadFixtureProtoRESTContract(t *testing.T) {
 		require.EqualValues(t, 1, appliedWrites.Load())
 	})
 
+	t.Run("clear through MDKv2 leaves both configured and runtime pools empty", func(t *testing.T) {
+		require.NoError(t, devices[1].UpdateMiningPools(t.Context(), []sdk.MiningPoolConfig{{URL: "stratum+tcp://sibling.example:3333", WorkerName: "sibling"}}))
+		require.NoError(t, devices[0].UpdateMiningPools(t.Context(), nil))
+		reader, ok := devices[0].(sdk.DeviceStoredPoolReader)
+		require.True(t, ok)
+		stored, err := reader.GetStoredMiningPools(t.Context())
+		require.NoError(t, err)
+		require.Empty(t, stored)
+		runtime, err := devices[0].GetMiningPools(t.Context())
+		require.NoError(t, err)
+		require.Empty(t, runtime)
+		sibling, err := devices[1].GetMiningPools(t.Context())
+		require.NoError(t, err)
+		require.Len(t, sibling, 1)
+	})
+
 	// Act
 	require.NoError(t, devices[0].UpdateMinerPassword(t.Context(), "load-password", "changed-password"))
 

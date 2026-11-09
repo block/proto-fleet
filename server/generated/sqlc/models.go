@@ -949,6 +949,8 @@ type ContainerTopologyCompactionState struct {
 	Deleted        int64
 	Failures       int64
 	LastError      sql.NullString
+	Deferrals      int64
+	LastDeferredAt sql.NullTime
 }
 
 type ContainerTopologyObservation struct {
@@ -2620,6 +2622,7 @@ type PoolConfigurationOperation struct {
 	RevisionID      string
 	ActorID         int64
 	CreatedAt       time.Time
+	Kind            string
 }
 
 type PoolConfigurationOperationTarget struct {

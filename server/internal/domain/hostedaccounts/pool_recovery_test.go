@@ -30,7 +30,7 @@ func TestPoolCrashRetainsAdmissionUntilExplicitRecovery(t *testing.T) {
 	target := poolconfigurations.AssignmentTarget{Kind: poolconfigurations.TargetDevice, ID: miner, DeviceID: miner}
 	review, err := service.ReviewAssignment(ctx, f.account.AccountID, config.ID, config.Version, []poolconfigurations.AssignmentTarget{target})
 	require.NoError(t, err)
-	saved, err := service.ConfirmReview(ctx, f.account.AccountID, review.ID, "actor-password")
+	saved, err := service.ConfirmReview(ctx, f.account.AccountID, review.ID, poolconfigurations.Confirmation{Password: "actor-password"})
 	require.NoError(t, err)
 	var attemptID uuid.UUID
 	device := &poolDevice{onWrite: func() {
@@ -74,7 +74,7 @@ func TestPoolCrashRetainsAdmissionUntilExplicitRecovery(t *testing.T) {
 	require.Equal(t, 1, device.writes)
 	retry, err := service.ReviewRetry(ctx, f.account.AccountID, saved.Operation.ID, []poolconfigurations.AssignmentTarget{target})
 	require.NoError(t, err)
-	retried, err := service.ConfirmReview(ctx, f.account.AccountID, retry.ID, "actor-password")
+	retried, err := service.ConfirmReview(ctx, f.account.AccountID, retry.ID, poolconfigurations.Confirmation{Password: "actor-password"})
 	require.NoError(t, err)
 	require.NotEqual(t, saved.Operation.ID, retried.Operation.ID)
 	device.onWrite = nil

@@ -30,6 +30,9 @@ type TargetApproval struct {
 }
 
 type reviewedTarget struct {
+	RevisionID        string `json:",omitempty"`
+	VerificationState string `json:",omitempty"`
+	ClearSupported    bool
 	DesiredWorkerName *string `json:",omitempty"`
 	Change            AssignmentChange
 	Binding           string

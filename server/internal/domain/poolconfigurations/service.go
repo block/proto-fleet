@@ -151,7 +151,10 @@ func (s *Service) Archive(ctx context.Context, accountID, id string, version int
 }
 
 func configurationAudit(ctx context.Context, q sqlc.Querier, p Principal, event, configID, revisionID string) error {
-	metadata := map[string]string{"configuration_id": configID, "revision_id": revisionID}
+	return recordConfigurationAudit(ctx, q, p, event, map[string]string{"configuration_id": configID, "revision_id": revisionID})
+}
+
+func recordConfigurationAudit(ctx context.Context, q sqlc.Querier, p Principal, event string, metadata map[string]string) error {
 	scopeType, scopeLabel := "organization", ""
 	if p.Scope.AccountID != 0 {
 		metadata["account_id"] = p.AccountID

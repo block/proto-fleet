@@ -23,6 +23,7 @@ type MiningPool struct {
 }
 
 type UpdateMiningPoolsPayload struct {
+	ClearAll                                bool        `json:"clear_all,omitempty"`
 	DefaultPool                             MiningPool  `json:"default_pool"`
 	Backup1Pool                             *MiningPool `json:"backup1_pool,omitempty"`
 	Backup2Pool                             *MiningPool `json:"backup2_pool,omitempty"`

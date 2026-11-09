@@ -52,6 +52,14 @@ func TestCommandAdmissionPolicy(t *testing.T) {
 			wantKind:  "get_mining_pools",
 		},
 		{
+			name: "pool clearing observation",
+			command: minerAgentCommand(&gatewaypb.MinerCommand{Action: &gatewaypb.MinerCommand_VerifyPoolsCleared{
+				VerifyPoolsCleared: &gatewaypb.VerifyPoolsClearedAction{},
+			}}),
+			wantClass: CommandAdmissionGeneral,
+			wantKind:  "verify_pools_cleared",
+		},
+		{
 			name: "firmware status read",
 			command: minerAgentCommand(&gatewaypb.MinerCommand{Action: &gatewaypb.MinerCommand_GetFirmwareUpdateStatus{
 				GetFirmwareUpdateStatus: &gatewaypb.GetFirmwareUpdateStatusAction{},

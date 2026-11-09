@@ -9,7 +9,12 @@ import { ConfigurationSelector } from "./ConfigurationSelector";
 import { useConfirmationRecovery } from "./confirmationAttempts";
 import { configurationChanges, configurationDraft, poolInput } from "./draft";
 import { MinerListFilterSchema } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
-import { ConfigurationSchema } from "@/protoFleet/api/generated/poolconfigurations/v1/poolconfigurations_pb";
+import {
+  ConfigurationSchema,
+  EquipmentAssignmentSchema,
+  GetOperationResponseSchema,
+  ReviewAssignmentResponseSchema,
+} from "@/protoFleet/api/generated/poolconfigurations/v1/poolconfigurations_pb";
 import { useFleetStore } from "@/protoFleet/store";
 
 const mocks = vi.hoisted(() => ({
@@ -22,6 +27,7 @@ const mocks = vi.hoisted(() => ({
     confirmReview: vi.fn(),
     getOperation: vi.fn(),
     testConnection: vi.fn(),
+    authorizeReviews: vi.fn(),
   },
   accountId: "customer",
   permissions: { manage: true, change: true },
@@ -29,7 +35,10 @@ const mocks = vi.hoisted(() => ({
   verifyCredentials: vi.fn(),
 }));
 vi.mock("@/protoFleet/api/clients", () => ({ authClient: { verifyCredentials: mocks.verifyCredentials } }));
-vi.mock("./assignmentProgress", () => ({ trackPoolOperation: mocks.track }));
+vi.mock("./assignmentProgress", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./assignmentProgress")>()),
+  trackPoolOperation: mocks.track,
+}));
 vi.mock("./api", () => ({
   usePoolConfigurationClient: () => ({ client: mocks.client, accountId: mocks.accountId, readOnly: false }),
   usePoolConfigurationPermissions: () => mocks.permissions,
@@ -78,6 +87,42 @@ const authenticateForPools = async (user: ReturnType<typeof userEvent.setup>) =>
   await screen.findByRole("dialog", { name: "Edit pool" });
   expect(screen.queryByLabelText("Your password")).not.toBeInTheDocument();
 };
+
+it("keeps removal results visible while refreshing the equipment assignments", async () => {
+  const user = userEvent.setup();
+  const onDismiss = vi.fn();
+  mocks.client.getAssignments.mockResolvedValueOnce({
+    selectedCount: 1n,
+    assignments: [create(EquipmentAssignmentSchema, { deviceId: 7n, configurationId: configuration.configurationId })],
+  });
+  mocks.client.reviewAssignment.mockResolvedValue(
+    create(ReviewAssignmentResponseSchema, {
+      reviewId: "removal-1",
+      removal: { verificationState: "verified", clearSupported: true },
+    }),
+  );
+  mocks.client.authorizeReviews.mockResolvedValue({});
+  mocks.client.confirmReview.mockResolvedValue({ operationId: "removal-1" });
+  mocks.client.getOperation.mockResolvedValue(
+    create(GetOperationResponseSchema, {
+      operationId: "removal-1",
+      kind: "clear",
+      targets: [{ kind: "device", targetId: 7n, state: "completed" }],
+    }),
+  );
+  render(<ConfigurationSelector deviceIds={[7n]} onDismiss={onDismiss} />);
+  await authenticateForPools(user);
+  await user.click(await screen.findByRole("button", { name: "Remove pool configuration" }));
+  const confirm = screen.getByRole("button", { name: "Clear pools and remove assignment" });
+  await waitFor(() => expect(confirm).toBeEnabled());
+  await user.click(confirm);
+  await waitFor(() => expect(mocks.client.getAssignments).toHaveBeenCalledTimes(2));
+  expect(await screen.findByText("Device pools cleared and Fleet assignment removed.")).toBeVisible();
+  expect(mocks.client.reviewAssignment).toHaveBeenCalledOnce();
+  await user.click(screen.getByRole("button", { name: "Close" }));
+  expect(onDismiss).toHaveBeenCalledOnce();
+  expect(screen.queryByRole("dialog", { name: "Edit pool" })).not.toBeInTheDocument();
+});
 
 describe("shared pool configuration flows", () => {
   it("trims pasted pool URLs before connection testing and saving", async () => {

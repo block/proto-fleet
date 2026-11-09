@@ -167,8 +167,15 @@ func (h *Handler) AuthorizeWorkerNameReviews(ctx context.Context, req *connect.R
 	return connect.NewResponse(&pb.AuthorizeWorkerNameReviewsResponse{}), nil
 }
 
+func (h *Handler) AuthorizeReviews(ctx context.Context, req *connect.Request[pb.AuthorizeReviewsRequest]) (*connect.Response[pb.AuthorizeReviewsResponse], error) {
+	if err := h.service.AuthorizeReviews(ctx, req.Msg.AccountId, req.Msg.ReviewIds, req.Msg.Password); err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&pb.AuthorizeReviewsResponse{}), nil
+}
+
 func (h *Handler) ConfirmReview(ctx context.Context, req *connect.Request[pb.ConfirmReviewRequest]) (*connect.Response[pb.ConfirmReviewResponse], error) {
-	saved, err := h.service.ConfirmReview(ctx, req.Msg.AccountId, req.Msg.ReviewId, req.Msg.Password)
+	saved, err := h.service.ConfirmReview(ctx, req.Msg.AccountId, req.Msg.ReviewId, domain.Confirmation{Password: req.Msg.Password, KeepDeviceSettings: req.Msg.KeepDeviceSettings})
 	if err != nil {
 		return nil, err
 	}
@@ -180,6 +187,17 @@ func (h *Handler) ConfirmReview(ctx context.Context, req *connect.Request[pb.Con
 }
 
 func (h *Handler) ReviewAssignment(ctx context.Context, req *connect.Request[pb.ReviewAssignmentRequest]) (*connect.Response[pb.ReviewAssignmentResponse], error) {
+	if target := req.Msg.RemovalTarget; target != nil {
+		r, err := h.service.ReviewRemoval(ctx, req.Msg.AccountId, domain.AssignmentTarget{Kind: target.Kind, ID: target.TargetId})
+		if err != nil {
+			return nil, err
+		}
+		operationID := ""
+		if r.State != "reviewed" {
+			operationID = r.ID
+		}
+		return connect.NewResponse(&pb.ReviewAssignmentResponse{ReviewId: r.ID, Removal: &pb.RemovalPreflight{VerificationState: r.VerificationState, ClearSupported: r.ClearSupported, OperationId: operationID, KeepDeviceSettings: r.KeepDeviceSettings}}), nil
+	}
 	var review domain.Review
 	var err error
 	if boards := req.Msg.Boards; boards != nil {
@@ -198,7 +216,7 @@ func (h *Handler) GetOperation(ctx context.Context, req *connect.Request[pb.GetO
 	if err != nil {
 		return nil, err
 	}
-	result := &pb.GetOperationResponse{OperationId: operation.ID, ConfigurationId: operation.ConfigurationID, ConfigurationName: operation.Name, CreatedAt: timestamppb.New(operation.CreatedAt)}
+	result := &pb.GetOperationResponse{Kind: operation.Kind, OperationId: operation.ID, ConfigurationId: operation.ConfigurationID, ConfigurationName: operation.Name, CreatedAt: timestamppb.New(operation.CreatedAt)}
 	for _, target := range operation.Targets {
 		result.Targets = append(result.Targets, &pb.OperationTarget{Kind: target.Kind, TargetId: target.ID, State: target.State, ResultCode: target.ResultCode, Label: target.Label, MacAddress: target.MACAddress, DeviceIdentifier: target.DeviceIdentifier, UpdatedAt: timestamppb.New(target.UpdatedAt)})
 	}

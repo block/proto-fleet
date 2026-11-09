@@ -57,7 +57,7 @@ func TestMaintenanceFreezeRejectsServiceCreateAndEquipmentConfirmationAtomically
 	require.Contains(t, err.Error(), "maintenance")
 	require.Equal(t, before, poolMaintenanceState(t, conn, scope.OrganizationID))
 	authority.accesses = nil
-	_, err = service.ConfirmReview(ctx, "", review.ID, "actor-password")
+	_, err = service.ConfirmReview(ctx, "", review.ID, Confirmation{Password: "actor-password"})
 	require.True(t, fleeterror.IsFailedPreconditionError(err), "maintenance must reject equipment confirmation even with Read authority: %v", err)
 	require.Contains(t, err.Error(), "maintenance")
 	require.NotEmpty(t, authority.accesses)
@@ -83,7 +83,7 @@ func TestMaintenanceFreezeRejectsServiceCreateAndEquipmentConfirmationAtomically
 	created, err := service.Create(ctx, "", RevisionOptions{Name: "Creation resumed", Slots: options.Slots})
 	require.NoError(t, err)
 	require.NotEqual(t, config.ID, created.ID)
-	confirmed, err := service.ConfirmReview(ctx, "", review.ID, "actor-password")
+	confirmed, err := service.ConfirmReview(ctx, "", review.ID, Confirmation{Password: "actor-password"})
 	require.NoError(t, err, "the same unconsumed review remains confirmable after maintenance completes")
 	require.Len(t, confirmed.Operation.Targets, 1)
 	require.Equal(t, target.ID, confirmed.Operation.Targets[0].ID)

@@ -47,7 +47,10 @@ type BoardApplications interface {
 
 func (w *Worker) WithBoardApplications(boards BoardApplications) *Worker { w.boards = boards; return w }
 
+func (w *Worker) WithRemovals(c *Checker) *Worker { w.removals = c; return w }
+
 type Worker struct {
+	removals   *Checker
 	boards     BoardApplications
 	conn       *sql.DB
 	queries    sqlc.Querier
@@ -117,9 +120,6 @@ func (w *Worker) Run(ctx context.Context) {
 // Execute performs one pending target. The immutable operation revision supplies
 // the credentials; the reviewed binding supplies the rendered worker names.
 func (w *Worker) Execute(ctx context.Context, orgID int64, operationID string, target poolconfigurations.AssignmentTarget) error {
-	if target.Kind == poolconfigurations.TargetInstallation && w.boards != nil {
-		return w.boards.ExecutePoolConfiguration(ctx, orgID, operationID, target.DeviceID)
-	}
 	work, err := w.queries.GetPoolConfigurationWork(ctx, sqlc.GetPoolConfigurationWorkParams{OrganizationID: orgID, OperationID: operationID, TargetKind: target.Kind, TargetID: target.ID})
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil
@@ -129,6 +129,23 @@ func (w *Worker) Execute(ctx context.Context, orgID int64, operationID string, t
 	}
 	if work.State != "pending" || work.DeviceID != target.DeviceID {
 		return nil
+	}
+	if work.OperationKind == "clear" {
+		if w.removals == nil {
+			return fleeterror.NewInternalError("pool-free executor is unavailable")
+		}
+		ctx = authn.SetInfo(ctx, &session.Info{UserID: work.ActorID, OrganizationID: orgID, ExternalUserID: work.UserID, Username: work.Username, AuthMethod: session.AuthMethodSession})
+		if work.AccountID.Valid {
+			ctx, err = hostedaccounts.WithRequestAccountID(ctx, work.ExternalAccountID)
+			if err != nil {
+				return err
+			}
+		}
+		p := poolconfigurations.Principal{Scope: poolconfigurations.Scope{OrganizationID: orgID, AccountID: work.AccountID.Int64}, ActorID: work.ActorID, AccountID: work.ExternalAccountID}
+		return w.removals.ExecuteRemoval(ctx, p, operationID)
+	}
+	if target.Kind == poolconfigurations.TargetInstallation && w.boards != nil {
+		return w.boards.ExecutePoolConfiguration(ctx, orgID, operationID, target.DeviceID)
 	}
 	scope := poolconfigurations.Scope{OrganizationID: orgID, AccountID: work.AccountID.Int64}
 	var attempt int32

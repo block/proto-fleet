@@ -15,7 +15,7 @@ import (
 )
 
 const getPoolConfigurationWork = `-- name: GetPoolConfigurationWork :one
-SELECT t.organization_id, t.operation_id, t.target_kind, t.target_id, t.assignment_version, t.state, t.attempts, t.result_code, t.updated_at, t.reviewed_binding, t.physical_attempt_id, t.group_snapshot_id,a.device_id,o.configuration_id,o.revision_id,o.actor_id,c.account_id,
+SELECT t.organization_id, t.operation_id, t.target_kind, t.target_id, t.assignment_version, t.state, t.attempts, t.result_code, t.updated_at, t.reviewed_binding, t.physical_attempt_id, t.group_snapshot_id,a.device_id,o.configuration_id,o.revision_id,o.actor_id,o.kind AS operation_kind,c.account_id,
  COALESCE(account.account_id,'')::text AS external_account_id,u.username,u.user_id,
  r.slots
 FROM pool_configuration_operation_target t
@@ -26,7 +26,7 @@ JOIN pool_configuration_assignment a ON a.organization_id=t.organization_id AND 
 LEFT JOIN hosted_account account ON account.id=c.account_id AND account.organization_id=c.organization_id
 JOIN "user" u ON u.id=o.actor_id
 WHERE t.organization_id=$1 AND t.operation_id=$2 AND t.target_kind=$3 AND t.target_id=$4
- AND a.operation_id=t.operation_id AND a.version=t.assignment_version AND a.retired_at IS NULL
+ AND (a.operation_id=t.operation_id OR o.kind IN ('clear','unassign')) AND a.version=t.assignment_version AND a.retired_at IS NULL
 `
 
 type GetPoolConfigurationWorkParams struct {
@@ -53,6 +53,7 @@ type GetPoolConfigurationWorkRow struct {
 	ConfigurationID   string
 	RevisionID        string
 	ActorID           int64
+	OperationKind     string
 	AccountID         sql.NullInt64
 	ExternalAccountID string
 	Username          string
@@ -85,6 +86,7 @@ func (q *Queries) GetPoolConfigurationWork(ctx context.Context, arg GetPoolConfi
 		&i.ConfigurationID,
 		&i.RevisionID,
 		&i.ActorID,
+		&i.OperationKind,
 		&i.AccountID,
 		&i.ExternalAccountID,
 		&i.Username,
@@ -129,7 +131,8 @@ const listPendingPoolConfigurationWork = `-- name: ListPendingPoolConfigurationW
 SELECT t.organization_id,t.operation_id,t.target_kind,t.target_id,a.device_id
 FROM pool_configuration_operation_target t
 JOIN pool_configuration_assignment a ON a.organization_id=t.organization_id AND a.target_kind=t.target_kind AND a.target_id=t.target_id
-WHERE t.state='pending' AND a.retired_at IS NULL AND a.operation_id=t.operation_id AND a.version=t.assignment_version
+JOIN pool_configuration_operation o ON o.operation_id=t.operation_id AND o.organization_id=t.organization_id
+WHERE t.state='pending' AND a.retired_at IS NULL AND (a.operation_id=t.operation_id OR o.kind IN ('clear','unassign')) AND a.version=t.assignment_version
  AND (t.target_kind<>'hashboard_installation' OR NOT EXISTS (
   SELECT 1 FROM container_mining_group_state s
   WHERE s.organization_id=t.organization_id AND s.device_id=a.device_id
@@ -181,7 +184,7 @@ func (q *Queries) ListPendingPoolConfigurationWork(ctx context.Context) ([]ListP
 const listPoolConfigurationOperations = `-- name: ListPoolConfigurationOperations :many
 SELECT o.operation_id,o.created_at,count(t.target_id)::bigint AS target_count,
  count(t.target_id) FILTER (WHERE t.state IN ('pending','applying'))::bigint AS pending_count,
- count(t.target_id) FILTER (WHERE t.state IN ('failed','different'))::bigint AS failed_count
+ count(t.target_id) FILTER (WHERE t.state IN ('failed','different','uncertain'))::bigint AS failed_count
 FROM pool_configuration_operation o
 JOIN pool_configuration c ON c.organization_id=o.organization_id AND c.configuration_id=o.configuration_id
 JOIN pool_configuration_operation_target t ON t.organization_id=o.organization_id AND t.operation_id=o.operation_id
@@ -248,7 +251,7 @@ UPDATE pool_configuration_operation_target t
 SET state='failed',result_code=CASE WHEN w.status='unknown' THEN 'write_uncertain' ELSE 'interrupted' END,
  updated_at=clock_timestamp()
 FROM device_write_attempt w
-WHERE t.physical_attempt_id=w.attempt_id AND (
+WHERE t.physical_attempt_id=w.attempt_id AND EXISTS(SELECT 1 FROM pool_configuration_operation o WHERE o.operation_id=t.operation_id AND o.kind='apply') AND (
  (t.state='applying' AND (w.status IN ('resolved','unknown') OR (w.status='complete' AND w.finished_at<clock_timestamp()-interval '1 minute')))
  OR (t.state='failed' AND t.result_code='write_uncertain' AND
      (w.status='resolved' OR (w.status='complete' AND w.finished_at<clock_timestamp()-interval '1 minute')))

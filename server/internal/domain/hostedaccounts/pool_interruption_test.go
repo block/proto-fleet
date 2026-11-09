@@ -35,7 +35,7 @@ func TestPoolWorkerInterruptionPreservesAdmissionBoundary(t *testing.T) {
 			target := poolconfigurations.AssignmentTarget{Kind: poolconfigurations.TargetDevice, ID: miner, DeviceID: miner}
 			review, err := service.ReviewAssignment(ctx, f.account.AccountID, config.ID, config.Version, []poolconfigurations.AssignmentTarget{target})
 			require.NoError(t, err)
-			saved, err := service.ConfirmReview(ctx, f.account.AccountID, review.ID, "actor-password")
+			saved, err := service.ConfirmReview(ctx, f.account.AccountID, review.ID, poolconfigurations.Confirmation{Password: "actor-password"})
 			require.NoError(t, err)
 			device := &poolDevice{}
 			worker := poolapplications.NewWorker(f.db, repo, reviewer, poolMinerGetter{device}, cipher)
@@ -115,7 +115,7 @@ func TestPoolWorkerInterruptionPreservesAdmissionBoundary(t *testing.T) {
 				if scenario == "canceled after admission" {
 					retry, err := service.ReviewRetry(ctx, f.account.AccountID, saved.Operation.ID, []poolconfigurations.AssignmentTarget{target})
 					require.NoError(t, err)
-					confirmed, err := service.ConfirmReview(ctx, f.account.AccountID, retry.ID, "actor-password")
+					confirmed, err := service.ConfirmReview(ctx, f.account.AccountID, retry.ID, poolconfigurations.Confirmation{Password: "actor-password"})
 					require.NoError(t, err)
 					require.NotEqual(t, saved.Operation.ID, confirmed.Operation.ID)
 					require.NoError(t, worker.Execute(t.Context(), f.org, confirmed.Operation.ID, target))

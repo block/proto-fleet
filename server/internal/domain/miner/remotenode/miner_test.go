@@ -1461,3 +1461,44 @@ func TestMiner_UpdateMiningPools_RequiresFreshEncryptionKey(t *testing.T) {
 	require.Error(t, err)
 	assert.Equal(t, 2, calls)
 }
+
+func TestMinerClearPoolsEncryptsExplicitEmptyIntent(t *testing.T) {
+	sender := okSender()
+	miner := newTestMiner(t, sender)
+	public, private, err := passwordupdate.GenerateKeypair()
+	require.NoError(t, err)
+	miner.encryptionPublicKey = func(context.Context) ([]byte, error) { return public, nil }
+	require.NoError(t, miner.UpdateMiningPools(t.Context(), dto.UpdateMiningPoolsPayload{ClearAll: true}))
+	config, err := poolconfig.Decrypt(private, decodeSent(t, sender).GetUpdateMiningPools().GetEncryptedConfig(), "dev-1")
+	require.NoError(t, err)
+	require.True(t, config.ClearAll)
+	require.Empty(t, config.Pools)
+	require.Error(t, miner.UpdateMiningPools(t.Context(), dto.UpdateMiningPoolsPayload{ClearAll: true, DesiredWorkerName: "changed"}))
+}
+
+func TestVerifyPoolsClearedRequiresExplicitCompleteObservation(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		payload   []byte
+		cleared   bool
+		wantError bool
+	}{
+		{"empty response", nil, false, true},
+		{"malformed response", []byte{0xff}, false, true},
+		{"pools remain", []byte{0x08, 0x00}, false, false},
+		{"cleared", []byte{0x08, 0x01}, true, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			sender := okSender()
+			sender.ack.Payload = tc.payload
+			cleared, err := newTestMiner(t, sender).VerifyPoolsCleared(t.Context())
+			if tc.wantError {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+			}
+			require.Equal(t, tc.cleared, cleared)
+			require.Equal(t, gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V9, sender.minimumCommandProtocolVersion)
+		})
+	}
+}

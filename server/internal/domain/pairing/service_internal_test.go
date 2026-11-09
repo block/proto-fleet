@@ -7,9 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/block/proto-fleet/server/internal/infrastructure/encrypt"
-
 	"connectrpc.com/authn"
+	"connectrpc.com/connect"
 	commonv1 "github.com/block/proto-fleet/server/generated/grpc/common/v1"
 	fleetmanagementv1 "github.com/block/proto-fleet/server/generated/grpc/fleetmanagement/v1"
 	minercommandv1 "github.com/block/proto-fleet/server/generated/grpc/minercommand/v1"
@@ -21,7 +20,9 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/session"
 	stores "github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces/mocks"
+	"github.com/block/proto-fleet/server/internal/infrastructure/encrypt"
 	"github.com/block/proto-fleet/server/internal/infrastructure/networking"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 )
@@ -85,6 +86,56 @@ func TestIsSameDevice_ConfirmedIdentityAuthenticationFailureReconcilesStatus(t *
 	}, "miner-1", 7)
 
 	require.False(t, matched)
+}
+
+func TestAnnotateAlreadyPairedClearsUntrustedFlagWithoutIdentifier(t *testing.T) {
+	service := &Service{deviceStore: mocks.NewMockDeviceStore(gomock.NewController(t))}
+	device := &pb.Device{AlreadyPaired: true}
+
+	require.NoError(t, service.AnnotateAlreadyPaired(t.Context(), 7, []*pb.Device{device}))
+	require.False(t, device.GetAlreadyPaired())
+}
+
+func TestAnnotateAlreadyPairedRequiresPairingStateStoreForIdentifiedDevices(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		service *Service
+	}{
+		{name: "nil service"},
+		{name: "nil store", service: &Service{}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			device := &pb.Device{DeviceIdentifier: "miner-1", AlreadyPaired: true}
+
+			err := tc.service.AnnotateAlreadyPaired(t.Context(), 7, []*pb.Device{device})
+
+			var fleetErr fleeterror.FleetError
+			require.ErrorAs(t, err, &fleetErr)
+			assert.Equal(t, connect.CodeInternal, fleetErr.GRPCCode)
+			assert.Contains(t, err.Error(), "pairing state store is not configured")
+			assert.False(t, device.GetAlreadyPaired())
+		})
+	}
+}
+
+func TestAnnotateAlreadyPairedHandlesDuplicateIdentifiersInOnePass(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	deviceStore := mocks.NewMockDeviceStore(ctrl)
+	service := &Service{deviceStore: deviceStore}
+	devices := []*pb.Device{
+		{DeviceIdentifier: "paired", AlreadyPaired: false},
+		{DeviceIdentifier: "paired", AlreadyPaired: false},
+		{DeviceIdentifier: "new", AlreadyPaired: true},
+		{AlreadyPaired: true},
+	}
+	deviceStore.EXPECT().GetAlreadyPairedDeviceIdentifiers(gomock.Any(), int64(7), []string{"paired", "new"}).
+		Return([]string{"paired"}, nil)
+
+	require.NoError(t, service.AnnotateAlreadyPaired(t.Context(), 7, devices))
+	assert.True(t, devices[0].GetAlreadyPaired())
+	assert.True(t, devices[1].GetAlreadyPaired())
+	assert.False(t, devices[2].GetAlreadyPaired())
+	assert.False(t, devices[3].GetAlreadyPaired())
 }
 
 func mockSessionContext(ctx context.Context, userID, orgID int64) context.Context {

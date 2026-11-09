@@ -34,6 +34,7 @@ type MinerGetter interface {
 	GetMinerForCommand(ctx context.Context, deviceID int64) (interfaces.Miner, error)
 }
 type Service struct {
+	removals         *poolapplications.Checker
 	sharedReviewer   *poolapplications.Reviewer
 	sharedRepository *poolconfigurations.Repository
 	conn             *sql.DB

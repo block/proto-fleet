@@ -76,7 +76,7 @@ func TestPoolContainerRefreshAndUpdateUseSelectedAccountAuthority(t *testing.T) 
 				return
 			}
 			require.NoError(t, err, "a hosted user need not ask an operator to refresh container mode")
-			saved, err := service.ConfirmReview(ctx, f.account.AccountID, review.ID, "actor-password")
+			saved, err := service.ConfirmReview(ctx, f.account.AccountID, review.ID, poolconfigurations.Confirmation{Password: "actor-password"})
 			require.NoError(t, err)
 			worker := poolapplications.NewWorker(f.db, repo, reviewer, getter, cipher)
 			require.NoError(t, worker.Execute(t.Context(), f.org, saved.Operation.ID, target))

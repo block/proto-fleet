@@ -31,17 +31,17 @@ func TestPoolAssignmentConfirmationRequiresPasswordAndNotLibraryManage(t *testin
 	require.NoError(t, f.svc.ConfigureChild(t.Context(), f.host, f.org, f.account.AccountID, hostedaccounts.AllCapabilities&^hostedaccounts.ManagePools, false))
 	review, err := service.ReviewAssignment(ctx, f.account.AccountID, config.ID, config.Version, []poolconfigurations.AssignmentTarget{{Kind: poolconfigurations.TargetDevice, ID: miner, DeviceID: miner}})
 	require.NoError(t, err, "applying requires read plus Change pools, not library management")
-	_, err = service.ConfirmReview(ctx, f.account.AccountID, review.ID, "incorrect")
+	_, err = service.ConfirmReview(ctx, f.account.AccountID, review.ID, poolconfigurations.Confirmation{Password: "incorrect"})
 	require.Error(t, err)
 	var count int
 	require.NoError(t, f.db.QueryRowContext(ctx, `SELECT count(*) FROM pool_configuration_operation`).Scan(&count))
 	require.Zero(t, count)
-	saved, err := service.ConfirmReview(ctx, f.account.AccountID, review.ID, "actor-password")
+	saved, err := service.ConfirmReview(ctx, f.account.AccountID, review.ID, poolconfigurations.Confirmation{Password: "actor-password"})
 	require.NoError(t, err)
 	require.NotNil(t, saved.Operation)
 	calls := f.verifier.calls
 	for _, password := range []string{"", "actor-password"} {
-		replay, err := service.ConfirmReview(ctx, f.account.AccountID, review.ID, password)
+		replay, err := service.ConfirmReview(ctx, f.account.AccountID, review.ID, poolconfigurations.Confirmation{Password: password})
 		require.NoError(t, err)
 		require.True(t, replay.Replay)
 		require.Equal(t, saved.Operation.ID, replay.Operation.ID)
@@ -84,7 +84,7 @@ func TestPoolConfirmationRechecksCredentialsAndAuthorityAfterVerification(t *tes
 					return f.allocate(t, f.host, f.root, f.account.AccountID, hostedpb.AssetAssignmentIntent_ASSET_ASSIGNMENT_INTENT_RECALL, selected(5, miner, 1))
 				}
 			}
-			_, err = service.ConfirmReview(ctx, f.account.AccountID, review.ID, "actor-password")
+			_, err = service.ConfirmReview(ctx, f.account.AccountID, review.ID, poolconfigurations.Confirmation{Password: "actor-password"})
 			require.Error(t, err)
 			require.Equal(t, 1, f.verifier.calls)
 			var count int
@@ -118,7 +118,7 @@ func TestExpiredPoolConfirmationDistinguishesNeverAcceptedFromReplay(t *testing.
 		return id
 	}
 	expired := expiredCopy()
-	_, err = service.ConfirmReview(ctx, f.account.AccountID, expired, "actor-password")
+	_, err = service.ConfirmReview(ctx, f.account.AccountID, expired, poolconfigurations.Confirmation{Password: "actor-password"})
 	var terminal fleeterror.FleetError
 	require.ErrorAs(t, err, &terminal)
 	require.Equal(t, fleeterror.ErrorCodeTypeEndpoint, terminal.FleetErrorCodeType)
@@ -132,11 +132,11 @@ func TestExpiredPoolConfirmationDistinguishesNeverAcceptedFromReplay(t *testing.
 	require.ErrorAs(t, err, &terminal)
 	require.Equal(t, fleeterror.ErrorCodeTypeEndpoint, terminal.FleetErrorCodeType)
 	require.EqualValues(t, pb.ConfirmReviewErrorCode_CONFIRM_REVIEW_ERROR_CODE_EXPIRED_UNACCEPTED, terminal.FleetErrorCode)
-	saved, err := service.ConfirmReview(ctx, f.account.AccountID, review.ID, "actor-password")
+	saved, err := service.ConfirmReview(ctx, f.account.AccountID, review.ID, poolconfigurations.Confirmation{Password: "actor-password"})
 	require.NoError(t, err)
 	require.NotNil(t, saved.Operation)
 	calls := f.verifier.calls
-	replay, err := service.ConfirmReview(ctx, f.account.AccountID, expiredCopy(), "actor-password")
+	replay, err := service.ConfirmReview(ctx, f.account.AccountID, expiredCopy(), poolconfigurations.Confirmation{Password: "actor-password"})
 	require.NoError(t, err)
 	require.True(t, replay.Replay)
 	require.Equal(t, saved.Operation.ID, replay.Operation.ID)

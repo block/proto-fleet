@@ -30,7 +30,10 @@ export const BoardPoolConfigurationCell = ({ moduleId, hashboardId }: { moduleId
   const statuses = rows.map(poolUpdateStatus);
   const same = statuses.every((status) => status === statuses[0]);
   const verified = rows.length > 0 && statuses.every((status) => status === "Verified");
-  const mixed = assigned.some((row) => row.configurationId !== assigned[0].configurationId);
+  const mixed = rows.some((row) => row.configurationId !== rows[0]?.configurationId);
+  const settled = statuses.every((status) =>
+    ["Verified", "—", "Device configuration", "Container configuration"].includes(status),
+  );
   const status = local
     ? job.phase === "unknown"
       ? "Unavailable"
@@ -41,15 +44,15 @@ export const BoardPoolConfigurationCell = ({ moduleId, hashboardId }: { moduleId
         ? saved.loading
           ? "Loading…"
           : "Unavailable"
-        : verified
-          ? mixed
-            ? "Mixed configurations"
-            : "Verified"
-          : same
-            ? statuses[0]
-            : statuses.every((status) => status === "Verified" || status === "Updating…")
-              ? "Updating…"
-              : "Needs attention";
+        : mixed && settled
+          ? "Mixed configurations"
+          : verified
+            ? "Verified"
+            : same
+              ? statuses[0]
+              : statuses.every((status) => status === "Verified" || status === "Updating…")
+                ? "Updating…"
+                : "Needs attention";
   return (
     <PoolStatus
       status={status}

@@ -47,7 +47,7 @@ func TestPoolUpdateWaitsForOlderQueuedCommand(t *testing.T) {
 					return service.ReviewAssignment(ctx, f.account.AccountID, config.ID, config.Version, []poolconfigurations.AssignmentTarget{target})
 				}
 				confirm := func(id string) (poolconfigurations.ReviewedSave, error) {
-					return service.ConfirmReview(ctx, f.account.AccountID, id, "actor-password")
+					return service.ConfirmReview(ctx, f.account.AccountID, id, poolconfigurations.Confirmation{Password: "actor-password"})
 				}
 				var reviewed poolconfigurations.Review
 				var saved poolconfigurations.ReviewedSave

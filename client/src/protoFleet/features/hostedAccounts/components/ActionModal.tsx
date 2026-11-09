@@ -11,6 +11,8 @@ import Modal from "@/shared/components/Modal";
 export const ActionModal = ({
   title,
   confirm = "Save",
+  allowDismissWhileBusy = false,
+  confirmVariant = "primary",
   cancel = "Cancel",
   valid = true,
   presentation = "modal",
@@ -21,6 +23,8 @@ export const ActionModal = ({
 }: {
   title: string;
   confirm?: string;
+  allowDismissWhileBusy?: boolean;
+  confirmVariant?: ButtonProps["variant"];
   cancel?: string;
   valid?: boolean;
   presentation?: "modal" | "dialog";
@@ -31,8 +35,16 @@ export const ActionModal = ({
 }) => {
   const scope = useAccountScope();
   const { run, busy, error, clearError } = useAccountMutation();
+  const dismissalLocked = busy && !allowDismissWhileBusy;
   const submit = () => {
     if (valid) void run(onSubmit);
+  };
+  const confirmButton: ButtonProps = {
+    text: confirm,
+    variant: confirmVariant,
+    onClick: submit,
+    loading: busy,
+    disabled: !valid || scope?.readOnly,
   };
   const buttons: ButtonProps[] = [
     {
@@ -42,17 +54,9 @@ export const ActionModal = ({
         clearError();
         onDismiss();
       },
-      disabled: busy,
+      disabled: dismissalLocked,
     },
-    {
-      text: confirm,
-      variant: "primary",
-      onClick: () => {
-        void submit();
-      },
-      loading: busy,
-      disabled: !valid || scope?.readOnly,
-    },
+    confirmButton,
   ];
   const content = (
     <div className="flex flex-col gap-4">
@@ -64,7 +68,7 @@ export const ActionModal = ({
   );
   if (presentation === "dialog") {
     return (
-      <Dialog open title={title} onDismiss={busy ? undefined : onDismiss} manageFocus buttons={buttons}>
+      <Dialog open title={title} onDismiss={dismissalLocked ? undefined : onDismiss} manageFocus buttons={buttons}>
         {content}
       </Dialog>
     );
@@ -74,7 +78,7 @@ export const ActionModal = ({
       open
       title={title}
       dialogLabel={title}
-      onDismiss={busy ? undefined : onDismiss}
+      onDismiss={dismissalLocked ? undefined : onDismiss}
       manageFocus
       initialFocus={initialFocus}
       buttons={buttons.map((button) => ({ ...button, dismissModalOnClick: false }))}

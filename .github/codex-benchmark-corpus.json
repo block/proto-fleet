@@ -1,4 +1,5 @@
 {
+  "repository": "block/proto-fleet",
   "cases": [
     {
       "id": "pr-944",
@@ -87,23 +88,6 @@
       "purpose": "Historical production timeout",
       "source-run": "https://github.com/block/proto-fleet/actions/runs/32757955649",
       "source-comment": ""
-    }
-  ],
-  "variants": [
-    {
-      "id": "unified-40",
-      "unified": 40,
-      "inter-hunk": 0
-    },
-    {
-      "id": "unified-10",
-      "unified": 10,
-      "inter-hunk": 0
-    },
-    {
-      "id": "compact",
-      "unified": 3,
-      "inter-hunk": 10
     }
   ]
 }

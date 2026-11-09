@@ -707,6 +707,8 @@ func (h *RESTApiHandler) RegisterRoutes(mux *http.ServeMux) {
 
 	// Pools: auth required, not blocked by default_password_active per firmware.
 	// Fleet onboarding configures pools before the operator changes the password.
+	mux.HandleFunc("/api/v2/pools", h.requireBearerAuth(h.handleV2Pools))
+	mux.HandleFunc("/api/v2/pools/", h.requireBearerAuth(h.handleV2Pools))
 	mux.HandleFunc("/api/v1/pools", h.requireBearerAuth(h.handlePools))
 	mux.HandleFunc("/api/v1/pools/", h.requireBearerAuth(h.handlePoolByID))
 	mux.HandleFunc("/api/v1/pools/test-connection", h.requireBearerAuth(h.handleTestPoolConnection))

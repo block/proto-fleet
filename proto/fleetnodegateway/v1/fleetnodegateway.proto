@@ -309,6 +309,8 @@ enum CommandProtocolVersion {
     // V8 adds the restricted Proto miner API transport, chunked responses,
     // and typed container mining/status/power commands.
     COMMAND_PROTOCOL_VERSION_V8 = 8;
+    // V9 verifies complete stored and runtime pool clearing on the node.
+    COMMAND_PROTOCOL_VERSION_V9 = 9;
 }
 
 message ControlHello {
@@ -505,6 +507,7 @@ message MinerCommand {
         SetModuleMiningAction set_module_mining = 21;
         MiningGroupsAction mining_groups = 22;
         ContainerMiningAction container_mining = 23;
+        VerifyPoolsClearedAction verify_pools_cleared = 24;
     }
 }
 
@@ -514,6 +517,13 @@ message StopMiningAction {}
 message BlinkLedAction {}
 message UncurtailAction {}
 message GetMiningPoolsAction {}
+message VerifyPoolsClearedAction {}
+
+// The node reads every stored slot (including credentials and disabled slots)
+// and runtime pool before reporting success. No private credentials cross the gateway.
+message VerifyPoolsClearedResult {
+    optional bool cleared = 1 [(buf.validate.field).required = true];
+}
 message GetErrorsAction {}
 message GetFirmwareUpdateStatusAction {}
 message GetCoolingModeAction {}
@@ -600,7 +610,9 @@ message MiningPoolWriteConfig {
 }
 
 message MiningPoolWriteConfiguration {
-    repeated MiningPoolWriteConfig pools = 1 [(buf.validate.field).repeated = {min_items: 1, max_items: 3}];
+    option (buf.validate.message).cel = {id: "pool_write.clear", message: "clear_all requires no pools; updates require pools", expression: "this.clear_all ? this.pools.size() == 0 : this.pools.size() > 0"};
+    repeated MiningPoolWriteConfig pools = 1 [(buf.validate.field).repeated = {max_items: 3}];
+    bool clear_all = 2;
 }
 
 message UpdateMiningPoolsAction {

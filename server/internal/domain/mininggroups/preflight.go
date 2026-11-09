@@ -40,7 +40,7 @@ func ValidateAssignment(desired map[string]string, observed Snapshot) error {
 			projected.Groups = append(projected.Groups, Group{ID: id, Revision: 1, Managed: true, ConfigRevision: step.ConfigRevision})
 		case Remove:
 			projected.Groups = slices.DeleteFunc(projected.Groups, func(g Group) bool { return g.ID == step.GroupID })
-		case Configure, Start, Transfer:
+		case Configure, Start, Stop, Transfer:
 			for i := range projected.Groups {
 				group := &projected.Groups[i]
 				if step.Kind == Transfer && group.ID == step.SourceID {
@@ -53,6 +53,8 @@ func ValidateAssignment(desired map[string]string, observed Snapshot) error {
 				case step.Kind == Configure:
 					group.ConfigRevision = step.ConfigRevision
 					group.Configured = true
+				case step.Kind == Stop:
+					group.Mining = false
 				case step.Kind == Start:
 					group.Mining = true
 				case step.Kind == Transfer:
