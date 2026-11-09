@@ -722,7 +722,11 @@ class ReviewPolicyTest(unittest.TestCase):
                     line.split("=", 1) for line in output.read_text().splitlines()
                 )
 
-        for profile, model in (("astra", "gpt-6-astra"), ("sol", "gpt-6.1-sol")):
+        for profile, model, effort in (
+            ("astra", "gpt-6-astra", "medium"),
+            ("sol", "gpt-6.1-sol", "medium"),
+            ("sol-high", "gpt-6.1-sol", "high"),
+        ):
             for corpus_name, repeat in (
                 ("adjudicated", "initial"),
                 ("large-pr", "repeat-1"),
@@ -734,11 +738,12 @@ class ReviewPolicyTest(unittest.TestCase):
                     self.assertEqual(result.returncode, 0, result.stderr)
                     self.assertEqual(outputs["model"], model)
                     self.assertEqual(outputs["source_repository"], "block/proto-fleet")
-                    self.assertEqual(
-                        outputs["reasoning_effort"],
-                        production["env"]["CODEX_REASONING_EFFORT"],
-                    )
-                    self.assertEqual(outputs["reasoning_effort"], "medium")
+                    if profile in {"astra", "sol"}:
+                        self.assertEqual(
+                            outputs["reasoning_effort"],
+                            production["env"]["CODEX_REASONING_EFFORT"],
+                        )
+                    self.assertEqual(outputs["reasoning_effort"], effort)
                     self.assertEqual(
                         outputs["timeout_minutes"],
                         production["env"]["CODEX_TIMEOUT_MINUTES"],
@@ -746,7 +751,7 @@ class ReviewPolicyTest(unittest.TestCase):
                     self.assertEqual(outputs["timeout_minutes"], "30")
                     self.assertEqual(
                         json.loads(outputs["codex_args"]),
-                        ["-c", "model_reasoning_effort=medium"],
+                        ["-c", f"model_reasoning_effort={effort}"],
                     )
                     self.assertEqual(outputs["repeat"], repeat)
                     include = json.loads(outputs["matrix"])["include"]
@@ -778,6 +783,7 @@ class ReviewPolicyTest(unittest.TestCase):
             {"profile": "sol", "corpus": "arbitrary"},
             {"profile": "sol", "repeat": "repeat-3"},
             {"profile": "sol", "repeat": []},
+            {"profile": "sol-high", "reasoning-effort": "medium"},
             *(
                 {"profile": "sol", key: value}
                 for key, value in (
@@ -1209,7 +1215,8 @@ class ReviewPolicyTest(unittest.TestCase):
         for name in ("profile", "corpus", "repeat"):
             self.assertIn(f"client_payload.{name} ==", group)
             self.assertNotIn(f"client_payload.{name} ||", group)
-        self.assertIn("client_payload.profile == 'sol'", group)
+        self.assertIn("client_payload.profile == 'sol' && 'sol'", group)
+        self.assertIn("client_payload.profile == 'sol-high' && 'sol-high'", group)
         self.assertIn("client_payload.corpus == 'large-pr'", group)
         self.assertIn("client_payload.repeat == 'repeat-2'", group)
 

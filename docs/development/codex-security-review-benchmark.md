@@ -10,8 +10,9 @@ it does not post PR comments, approve PRs, or change production review policy.
 | --- | --- | --- | --- |
 | `astra` | `gpt-6-astra` | `medium` | 30 minutes |
 | `sol` | `gpt-6.1-sol` | `medium` | 30 minutes |
+| `sol-high` | `gpt-6.1-sol` | `high` | 30 minutes |
 
-Both profiles use the production prompt, `unified=40`, no inter-hunk context,
+All profiles use the production prompt, `unified=40`, no inter-hunk context,
 the default service tier and verbosity, read-only sandbox, `drop-sudo`, and the
 same structured output contract. Tests enforce parity with production. The job
 budget includes checkout and setup; cancellation can add approximately five
@@ -27,8 +28,9 @@ the selector, inline workflow code, finalizer, and artifacts remain in the
 internal workflow run. `adjudicated` selects six cases; `large-pr` selects two
 historical timeouts. Neither the model, source repository, nor commit ranges
 can be supplied by the caller.
-The retired context, effort, bounded-prompt, Terra, sharding, and extended-timeout
-experiments are available in Git history, not as dispatch options.
+The retired context, effort-sweep, bounded-prompt, Terra, sharding, and
+extended-timeout experiments are available in Git history, not as dispatch
+options. `sol-high` is the only dispatchable effort variant.
 
 ## Running a comparison
 
@@ -41,10 +43,14 @@ Each dispatch is billable. One adjudicated profile runs six reviewers, at most
 two concurrently, with an upper bound of 180 reviewer-job minutes, excluding
 cancellation cleanup and finalizers. An initial paired comparison needs two
 dispatches and up to 360 reviewer-job minutes. Different profiles can run
-concurrently. These time limits are not a dollar or token cap.
+concurrently. Run matched `sol` and `sol-high` comparisons sequentially. They
+share a model and API key, so overlapping runs could trigger rate-limit backoff
+that skews latency or timeout results. These time limits are not a dollar or
+token cap.
 
-After approval for the specific run, submit this request with `profile` set to
-`astra`, then submit the same request with `profile` set to `sol`:
+For the initial model comparison, submit this request with `profile` set to
+`astra`, then submit the same request with `profile` set to `sol`, after approval
+for those specific runs:
 
 ```json
 {
@@ -56,6 +62,14 @@ After approval for the specific run, submit this request with `profile` set to
   }
 }
 ```
+
+To evaluate higher reasoning effort, dispatch one initial `sol-high` run on the
+same adjudicated corpus. It changes only reasoning effort relative to `sol`;
+retain the same prompt, packet construction, and 30-minute budget. Compare its
+completion and verified-timeout rate, finding recall, validity, latency, and
+usage with the `sol` control. `sol-high` must independently meet the initial
+promotion gates below before production promotion is considered. Do not rerun
+the model comparison merely to start the effort experiment.
 
 Save it as a JSON file and send it to the internal repository containing the
 trusted workflow. The dispatch target and historical checkout source are
@@ -77,6 +91,12 @@ large-PR runs only after the initial comparison is adjudicated and those runs
 are approved. Automation failures invalidate the trial: fix the configuration
 or infrastructure and rerun the same initial comparison. A valid trial that
 fails the initial model-completion gate cannot be erased by repeats.
+
+For a comparison across workflow revisions, verify that the model's inputs and
+all settings except the intended experimental dimension match. Settle disputed
+expected findings and record the scoring rubric before evaluating a new
+candidate; apply any rubric correction consistently to every compared profile.
+Keep unadjudicated new findings separate from known-finding recall.
 
 ## Evidence and adjudication
 

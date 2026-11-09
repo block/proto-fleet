@@ -15,6 +15,7 @@ permissions:
 concurrency:
   group: >-
     codex-security-review-benchmark-${{
+      github.event.client_payload.profile == 'sol-high' && 'sol-high' ||
       github.event.client_payload.profile == 'sol' && 'sol' || 'astra'
     }}-${{
       github.event.client_payload.corpus == 'large-pr' && 'large-pr' || 'adjudicated'
@@ -60,10 +61,14 @@ jobs:
           if not isinstance(payload, dict) or set(payload) - {"profile", "corpus", "repeat"}:
               raise SystemExit("Benchmark payload accepts only profile, corpus, and repeat")
           profile = payload.get("profile")
-          models = {"astra": "gpt-6-astra", "sol": "gpt-6.1-sol"}
-          if not isinstance(profile, str) or profile not in models:
-              raise SystemExit("Benchmark profile must be astra or sol")
-          model = models[profile]
+          profiles = {
+              "astra": ("gpt-6-astra", "medium"),
+              "sol": ("gpt-6.1-sol", "medium"),
+              "sol-high": ("gpt-6.1-sol", "high"),
+          }
+          if not isinstance(profile, str) or profile not in profiles:
+              raise SystemExit("Benchmark profile must be astra, sol, or sol-high")
+          model, reasoning_effort = profiles[profile]
           corpus_name = payload.get("corpus", "adjudicated")
           repeat = payload.get("repeat", "initial")
           for name, choices, value in (
@@ -72,7 +77,6 @@ jobs:
           ):
               if not isinstance(value, str) or value not in choices:
                   raise SystemExit(f"Invalid benchmark {name} {value!r}; expected one of {sorted(choices)}")
-          reasoning_effort = "medium"
           timeout_minutes = 30
 
           corpus = json.loads(
