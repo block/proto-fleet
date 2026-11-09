@@ -30,6 +30,13 @@ const (
 	maxFirmwareFailureBytes     = 256
 )
 
+// Firmware states reported to the server for this self-managed updater.
+const (
+	firmwareStateInstalling = "installing"
+	firmwareStateCompleted  = "completed"
+	firmwareStateFailed     = "failed"
+)
+
 var errFirmwareTaskNotFound = errors.New("no owning CT1 controller knows the firmware task")
 
 type firmwareAttempt struct {
@@ -162,7 +169,7 @@ func (d *Device) settledFirmwareAttempt(ctx context.Context) (*firmwareAttempt, 
 		d.setFirmwareAttempt(nil)
 		return nil, nil
 	}
-	if err != nil || (result.status.State != "completed" && result.status.State != "failed") {
+	if err != nil || (result.status.State != firmwareStateCompleted && result.status.State != firmwareStateFailed) {
 		return nil, sdk.WithWriteOutcome(fmt.Errorf("previous CT1 firmware job is unfinished or unavailable"), sdk.WriteUnknown, sdk.WriteStageDispatch, sdk.WriteReasonTransportFailed)
 	}
 	settled := *previous
@@ -315,7 +322,7 @@ func (d *Device) firmwareAttemptStatus(ctx context.Context, attempt *firmwareAtt
 	}
 	if len(attempt.owners) == 0 {
 		progress := 100
-		return firmwareAttemptResult{status: &sdk.FirmwareUpdateStatus{State: "completed", Progress: &progress}, updated: updated}, nil
+		return firmwareAttemptResult{status: &sdk.FirmwareUpdateStatus{State: firmwareStateCompleted, Progress: &progress}, updated: updated}, nil
 	}
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
@@ -380,12 +387,12 @@ func (d *Device) firmwareAttemptStatus(ctx context.Context, attempt *firmwareAtt
 		return firmwareAttemptResult{}, fmt.Errorf("firmware task missing on %d of %d owning controllers", missing, len(attempt.owners))
 	}
 	progress := finished * 100 / expected
-	result := &sdk.FirmwareUpdateStatus{State: "installing", Progress: &progress}
+	result := &sdk.FirmwareUpdateStatus{State: firmwareStateInstalling, Progress: &progress}
 	if len(failures) > 0 && allTerminal {
 		message := firmwareFailureMessage(failures)
-		result.State, result.Error = "failed", &message
+		result.State, result.Error = firmwareStateFailed, &message
 	} else if finished == expected && allTerminal {
-		result.State = "completed"
+		result.State = firmwareStateCompleted
 	}
 	return firmwareAttemptResult{status: result, updated: updated}, nil
 }
