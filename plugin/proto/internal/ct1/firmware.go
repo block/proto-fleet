@@ -80,6 +80,8 @@ func firmwareContainerIdentity(info sdk.DeviceInfo) string {
 type firmwareAttempt struct {
 	taskID string
 	owners map[string][]string
+	// requestID identifies the Fleet command that started the attempt.
+	requestID string
 }
 
 var _ sdk.FirmwareUpdateStatusProvider = (*Device)(nil)
@@ -92,6 +94,11 @@ func (d *Device) FirmwareUpdate(ctx context.Context, file sdk.FirmwareFile) erro
 		return sdk.WriteRefused(fmt.Errorf("another CT1 firmware update is being prepared"), sdk.WriteStageValidation, sdk.WriteReasonRejected)
 	}
 	defer d.releaseFirmware()
+	// An automatic retry of the command that started the current attempt
+	// resumes it: status polling reports that job instead of a new flash.
+	if current := d.currentFirmwareAttempt(); current != nil && file.RequestID != "" && current.requestID == file.RequestID {
+		return nil
+	}
 	previous, err := d.settledFirmwareAttempt(ctx)
 	if err != nil {
 		return err
@@ -112,6 +119,7 @@ func (d *Device) FirmwareUpdate(ctx context.Context, file sdk.FirmwareFile) erro
 	if err != nil {
 		return err
 	}
+	attempt.requestID = file.RequestID
 	uploadCtx, cancel := context.WithTimeout(ctx, firmwareUploadTimeout)
 	artifact, err := uploadFirmware(uploadCtx, c, archive, file.Filename)
 	cancel()

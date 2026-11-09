@@ -10,6 +10,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
+	"os"
 	"path"
 	"sort"
 	"strings"
@@ -22,7 +23,16 @@ const (
 	MaxImageBytes = 64 << 20
 	MaxTotalBytes = 256 << 20
 	ChunkBytes    = 1 << 20
+	// MaxEntries bounds every archive entry, including ignored ones.
+	MaxEntries = 1024
+	// MaxDirectoryBytes bounds the central directory archive/zip parses before
+	// any entry is inspected.
+	MaxDirectoryBytes = 1 << 20
+	// maxConcurrentReads bounds archives held in memory by one process.
+	maxConcurrentReads = 2
 )
+
+var readSlots = make(chan struct{}, maxConcurrentReads)
 
 type Metadata struct {
 	Build            string `msgpack:"build_type"`
@@ -76,11 +86,19 @@ func Read(filename, build string) (*Archive, error) {
 	if build != "" && !ValidBuild(build) {
 		return nil, fmt.Errorf("build must be prod, dev, or mfgtest")
 	}
+	readSlots <- struct{}{}
+	defer func() { <-readSlots }()
+	if err := checkDirectory(filename); err != nil {
+		return nil, err
+	}
 	z, err := zip.OpenReader(filename)
 	if err != nil {
 		return nil, fmt.Errorf("open hashboard release zip: %w", err)
 	}
 	defer z.Close()
+	if len(z.File) > MaxEntries {
+		return nil, fmt.Errorf("firmware archive exceeds %d entries", MaxEntries)
+	}
 	// Validate every declared size before decompressing any image.
 	var candidates []*zip.File
 	var total uint64
@@ -141,6 +159,76 @@ func Read(filename, build string) (*Archive, error) {
 	}
 	sort.Slice(result.Images, func(i, j int) bool { return result.Images[i].Name < result.Images[j].Name })
 	return result, nil
+}
+
+const (
+	directoryEndLen     = 22
+	zip64LocatorLen     = 20
+	zip64DirectoryEnd   = 56
+	maxDirectoryComment = 1 << 16
+)
+
+// checkDirectory bounds the central directory before archive/zip allocates a
+// record for each entry. archive/zip reads records from the directory offset
+// up to the end record regardless of the declared count, so the physical span
+// is what bounds allocation; the declared count only fails fast.
+func checkDirectory(filename string) error {
+	f, err := os.Open(filename)
+	if err != nil {
+		return fmt.Errorf("open hashboard release zip: %w", err)
+	}
+	defer f.Close()
+	info, err := f.Stat()
+	if err != nil {
+		return fmt.Errorf("stat hashboard release zip: %w", err)
+	}
+	size := info.Size()
+	tail := make([]byte, min(size, directoryEndLen+maxDirectoryComment))
+	tailOffset := size - int64(len(tail))
+	if _, err := f.ReadAt(tail, tailOffset); err != nil {
+		return fmt.Errorf("read hashboard release zip: %w", err)
+	}
+	end := -1
+	for i := len(tail) - directoryEndLen; i >= 0; i-- {
+		if bytes.Equal(tail[i:i+4], []byte("PK\x05\x06")) {
+			end = i
+			break
+		}
+	}
+	if end < 0 {
+		return fmt.Errorf("open hashboard release zip: missing end of central directory")
+	}
+	record := tail[end:]
+	entries := uint64(binary.LittleEndian.Uint16(record[10:12]))
+	directoryOffset := uint64(binary.LittleEndian.Uint32(record[16:20]))
+	directoryEnd := uint64(tailOffset) + uint64(end)
+	if entries == 0xffff || directoryOffset == 0xffffffff || binary.LittleEndian.Uint32(record[12:16]) == 0xffffffff {
+		if directoryEnd < zip64LocatorLen {
+			return fmt.Errorf("open hashboard release zip: invalid zip64 locator")
+		}
+		locator := make([]byte, zip64LocatorLen)
+		if _, err := f.ReadAt(locator, int64(directoryEnd-zip64LocatorLen)); err != nil || !bytes.Equal(locator[:4], []byte("PK\x06\x07")) {
+			return fmt.Errorf("open hashboard release zip: invalid zip64 locator")
+		}
+		recordOffset := binary.LittleEndian.Uint64(locator[8:16])
+		record64 := make([]byte, zip64DirectoryEnd)
+		if recordOffset >= uint64(size) {
+			return fmt.Errorf("open hashboard release zip: invalid zip64 directory")
+		}
+		if _, err := f.ReadAt(record64, int64(recordOffset)); err != nil || !bytes.Equal(record64[:4], []byte("PK\x06\x06")) {
+			return fmt.Errorf("open hashboard release zip: invalid zip64 directory")
+		}
+		entries = binary.LittleEndian.Uint64(record64[32:40])
+		directoryOffset = binary.LittleEndian.Uint64(record64[48:56])
+		directoryEnd = recordOffset
+	}
+	if directoryOffset > directoryEnd {
+		return fmt.Errorf("open hashboard release zip: invalid central directory offset")
+	}
+	if entries > MaxEntries || directoryEnd-directoryOffset > MaxDirectoryBytes {
+		return fmt.Errorf("firmware archive exceeds %d entries or %d directory bytes", MaxEntries, MaxDirectoryBytes)
+	}
+	return nil
 }
 
 // Write emits deterministic selected bytes. Different builds have different

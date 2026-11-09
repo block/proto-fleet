@@ -585,6 +585,9 @@ message FirmwareFileInfo {
   int64 file_size = 3;
   string id = 4;
   string sha256 = 5;
+  // Stable across automatic retries of one Fleet command and different for
+  // every new command; empty when the server does not provide one.
+  string request_id = 6;
 }
 
 // Uploads firmware to a device. The server resolves the firmware file on disk

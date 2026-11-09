@@ -64,6 +64,34 @@ func TestArchiveRejectsInvalidImages(t *testing.T) {
 	}
 }
 
+func TestArchiveBoundsCentralDirectory(t *testing.T) {
+	image := firmwaretest.Image(t, "prod", "f1", 2)
+	for name, extra := range map[string]func(map[string][]byte){
+		"ignored entries over limit": func(images map[string][]byte) {
+			for i := range firmware.MaxEntries + 1 {
+				images[fmt.Sprintf("notes/%04d.txt", i)] = nil
+			}
+		},
+		"directory bytes over limit": func(images map[string][]byte) {
+			for i := range 300 {
+				images[fmt.Sprintf("%03d-%s.txt", i, strings.Repeat("n", 4000))] = nil
+			}
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			images := map[string][]byte{"app.bin": image}
+			extra(images)
+			_, err := firmware.Read(firmwaretest.Archive(t, images), "prod")
+			if err == nil || !strings.Contains(err.Error(), "directory bytes") {
+				t.Fatalf("expected central directory rejection, got %v", err)
+			}
+		})
+	}
+	if _, err := firmware.Read(firmwaretest.Archive(t, map[string][]byte{"app.bin": image, "notes.txt": []byte("release")}), "prod"); err != nil {
+		t.Fatalf("rejected a small archive: %v", err)
+	}
+}
+
 func TestArchiveRejectsTooManyImages(t *testing.T) {
 	images := map[string][]byte{}
 	for i := range firmware.MaxImages + 1 {

@@ -923,6 +923,9 @@ func (es *ExecutionService) executeCommandOnDevice(ctx context.Context, commandT
 				Size:     info.Size,
 				SHA256:   info.SHA256,
 				FilePath: info.FilePath,
+				// Queue retries keep the message ID, so a driver can resume the
+				// update this command already started.
+				RequestID: fmt.Sprintf("queue-message-%d", message.ID),
 			})
 		}()
 		if err != nil {

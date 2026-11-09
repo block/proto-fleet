@@ -537,7 +537,7 @@ func runMinerAction(ctx context.Context, client gatewayClient, commandID, firmwa
 		}
 		return nil, nil
 	case *pb.MinerCommand_FirmwareUpdate:
-		return nil, runFirmwareUpdateAction(ctx, client, commandID, mc.GetTarget().GetDeviceIdentifier(), firmwareTempRoot, dev, a.FirmwareUpdate.GetArtifact())
+		return nil, runFirmwareUpdateAction(ctx, client, commandID, mc.GetTarget().GetDeviceIdentifier(), firmwareTempRoot, dev, a.FirmwareUpdate)
 	case *pb.MinerCommand_GetFirmwareUpdateStatus:
 		return getFirmwareUpdateStatusResultPayload(ctx, dev)
 	default:
@@ -674,7 +674,8 @@ func updateMinerPasswordResultPayload(bundle sdk.SecretBundle, newPassword strin
 	return payload, nil
 }
 
-func runFirmwareUpdateAction(ctx context.Context, client gatewayClient, commandID, deviceIdentifier, firmwareTempRoot string, dev sdk.Device, ref *pb.CommandArtifactRef) error {
+func runFirmwareUpdateAction(ctx context.Context, client gatewayClient, commandID, deviceIdentifier, firmwareTempRoot string, dev sdk.Device, action *pb.FirmwareUpdateAction) error {
+	ref := action.GetArtifact()
 	if ref == nil {
 		return cmdErr(pb.AckCode_ACK_CODE_BAD_REQUEST, "firmware artifact is required")
 	}
@@ -709,12 +710,13 @@ func runFirmwareUpdateAction(ctx context.Context, client gatewayClient, commandI
 	defer file.Close()
 
 	return dev.FirmwareUpdate(ctx, sdk.FirmwareFile{
-		Reader:   file,
-		ID:       ref.GetArtifactId(),
-		Filename: ref.GetFilename(),
-		Size:     ref.GetSizeBytes(),
-		SHA256:   ref.GetSha256(),
-		FilePath: tmpPath,
+		Reader:    file,
+		ID:        ref.GetArtifactId(),
+		Filename:  ref.GetFilename(),
+		Size:      ref.GetSizeBytes(),
+		SHA256:    ref.GetSha256(),
+		FilePath:  tmpPath,
+		RequestID: action.GetRequestId(),
 	})
 }
 

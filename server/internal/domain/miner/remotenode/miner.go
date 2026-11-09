@@ -630,7 +630,7 @@ func (m *Miner) FirmwareUpdate(ctx context.Context, firmware sdk.FirmwareFile) e
 		DeviceIdentifier: m.desc.GetDeviceIdentifier(),
 	}
 	return m.dispatchWithArtifacts(ctx, &gatewaypb.MinerCommand{Action: &gatewaypb.MinerCommand_FirmwareUpdate{
-		FirmwareUpdate: &gatewaypb.FirmwareUpdateAction{Artifact: ref},
+		FirmwareUpdate: &gatewaypb.FirmwareUpdateAction{Artifact: ref, RequestId: firmware.RequestID},
 	}}, []control.ArtifactExpectation{expectation})
 }
 

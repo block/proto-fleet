@@ -192,7 +192,9 @@ signatures and hardware compatibility, stops mining, flashes and verifies the
 boards, and restores mining intent. Force is enabled to support Fleet rollback.
 
 An uncertain start is not replayed: while its task is unfinished or its owners
-are unreachable, a new update is refused. A start that Frigate definitively
+are unreachable, a new update is refused. An automatic retry of the same Fleet
+command, such as after status polling timed out, resumes that command's task
+instead of starting another; a new command updates again. A start that Frigate definitively
 rejects (for example, invalid scope or a board already updating) creates no job
 and releases the handle immediately. When no owning controller knows a recorded
 task, it never started and the handle is released.

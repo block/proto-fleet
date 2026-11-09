@@ -1347,6 +1347,7 @@ func TestDriverGRPCServer_UpdateFirmwarePreservesMetadata(t *testing.T) {
 			assert.Equal(t, int64(8), firmware.Size)
 			assert.Equal(t, "64ec88ca00b268e5ba1a35678a1b5316d212f4f366b2477232534a8aeca37f3c", firmware.SHA256)
 			assert.Equal(t, firmwarePath, firmware.FilePath)
+			assert.Equal(t, "queue-message-7", firmware.RequestID)
 			return nil
 		},
 	}
@@ -1362,6 +1363,7 @@ func TestDriverGRPCServer_UpdateFirmwarePreservesMetadata(t *testing.T) {
 			FileSize:         8,
 			Id:               "firmware-1",
 			Sha256:           "64ec88ca00b268e5ba1a35678a1b5316d212f4f366b2477232534a8aeca37f3c",
+			RequestId:        "queue-message-7",
 		},
 	})
 

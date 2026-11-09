@@ -67,7 +67,8 @@ normalized artifact. Stored filenames include version and build.
 Metadata edits cannot change a CT1 artifact's embedded build or version; upload
 a new artifact instead. Frigate remains responsible for validating signatures
 and board compatibility. Fleet enforces native upload limits of 64 images,
-64 MiB per image, and 256 MiB total uncompressed image data.
+64 MiB per image, and 256 MiB total uncompressed image data, and rejects archives
+with more than 1,024 entries or 1 MiB of central directory before reading them.
 
 Assign the resulting file ID to a CT1 release-channel target using the existing
 API. CT1 convergence uses fresh, uniform hashboard firmware observations rather

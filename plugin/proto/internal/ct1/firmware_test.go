@@ -532,6 +532,26 @@ func TestFirmwareRequestsFlashEveryBoard(t *testing.T) {
 	require.Equal(t, 3, controller.uploadCount())
 }
 
+func TestFirmwareRetryOfCommandResumesItsJob(t *testing.T) {
+	dev, controller := newFirmwareDevice(t, firmwareContainerMap(time.Now()))
+	file := func(request string) sdk.FirmwareFile {
+		f := firmwareFile(t)
+		f.RequestID = request
+		return f
+	}
+	require.NoError(t, dev.FirmwareUpdate(t.Context(), file("queue-message-1")))
+	controller.finish()
+	// Status polling timed out; the queue retries the same command on a new handle.
+	require.NoError(t, newHandle(dev).FirmwareUpdate(t.Context(), file("queue-message-1")))
+	require.Equal(t, 1, controller.startCount(), "a retried command resumes its job instead of reflashing")
+	require.Equal(t, 1, controller.uploadCount())
+	result, err := newHandle(dev).GetFirmwareUpdateStatus(t.Context())
+	require.NoError(t, err)
+	require.Equal(t, "completed", result.State)
+	require.NoError(t, dev.FirmwareUpdate(t.Context(), file("queue-message-2")))
+	require.Equal(t, 2, controller.startCount(), "a new command updates again")
+}
+
 func TestFirmwareAttemptOutlivesCommandHandle(t *testing.T) {
 	dev, controller := newFirmwareDevice(t, firmwareContainerMap(time.Now()))
 	require.NoError(t, dev.FirmwareUpdate(t.Context(), firmwareFile(t)))
