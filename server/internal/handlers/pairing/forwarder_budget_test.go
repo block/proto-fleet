@@ -172,3 +172,26 @@ func TestDedupForwarderAllowsTimeoutWarningWhenLimitBatchWasNotSent(t *testing.T
 	require.Len(t, sent, 1)
 	assert.Equal(t, discoverylimits.RequestTimeoutWarning, sent[0].GetWarning())
 }
+
+func TestDedupForwarderSuppressesTimeoutWarningWhenLimitWarningWasSent(t *testing.T) {
+	var sent []*pb.DiscoverResponse
+	fwd := newDedupForwarder(nil, func(response *pb.DiscoverResponse) error {
+		sent = append(sent, response)
+		return nil
+	}, nil)
+	for i := range discoverylimits.MaxUniqueDevicesPerRequest - 1 {
+		fwd.seen[fmt.Sprintf("prefill-%d", i)] = struct{}{}
+	}
+
+	require.NoError(t, fwd.forward(t.Context(), &pb.DiscoverResponse{Devices: []*pb.Device{
+		dev("at-limit", "10.0.0.1", "80"),
+		dev("over-limit", "10.0.0.2", "80"),
+	}}))
+	require.NoError(t, fwd.forwardTerminalWarning(t.Context(), discoverylimits.RequestTimeoutWarning))
+
+	require.Len(t, sent, 1)
+	require.Len(t, sent[0].GetDevices(), 1)
+	assert.Equal(t, "at-limit", sent[0].GetDevices()[0].GetDeviceIdentifier())
+	assert.Contains(t, sent[0].GetWarning(), discoverylimits.ResultLimitWarning)
+	assert.NotContains(t, sent[0].GetWarning(), discoverylimits.RequestTimeoutWarning)
+}

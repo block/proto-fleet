@@ -271,7 +271,10 @@ func (h *Handler) DiscoverOnFleetNode(ctx context.Context, req *connect.Request[
 
 	discoveryCtx, cancel := discovery.NewRequestContext(ctx)
 	defer cancel()
-	runErr := h.discovery.RunOnNode(discoveryCtx, fleetNodeID, fmt.Sprintf("Fleet Node %d", fleetNodeID), discoverReq, func(batch *pairingpb.DiscoverResponse) error {
+	source := fmt.Sprintf("Fleet Node %d", fleetNodeID)
+	runErr := h.discovery.RunOnNode(discoveryCtx, fleetNodeID, source, discoverReq, func(batch *pairingpb.DiscoverResponse) error {
+		// The shipped Fleet Node can upload at most 40 discovery batches for one
+		// request. They fit in the command's 64-event buffer while this lookup runs.
 		if err := h.pairingState.AnnotateAlreadyPaired(discoveryCtx, info.OrganizationID, batch.GetDevices()); err != nil {
 			if discoveryCtx.Err() != nil {
 				return discoveryCtx.Err()
@@ -294,7 +297,7 @@ func (h *Handler) DiscoverOnFleetNode(ctx context.Context, req *connect.Request[
 	}
 	if errors.Is(discoveryCtx.Err(), context.DeadlineExceeded) {
 		if err := stream.Send(&pb.DiscoverOnFleetNodeResponse{Response: &pairingpb.DiscoverResponse{
-			Warning: fmt.Sprintf("Fleet Node %d: %s", fleetNodeID, discoverylimits.RequestTimeoutWarning),
+			Warning: fmt.Sprintf("%s: %s", source, discoverylimits.RequestTimeoutWarning),
 		}}); err != nil {
 			return fleeterror.NewInternalErrorf("send discovery timeout warning: %v", err)
 		}

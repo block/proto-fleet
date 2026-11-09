@@ -9,6 +9,7 @@ import (
 	"slices"
 	"sync"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"buf.build/go/protovalidate"
@@ -488,30 +489,136 @@ func TestForwardDiscoverySources_FansOutManualRequestsAndDeduplicates(t *testing
 }
 
 func TestForwardServerDiscoveryResults_BatchesSingletonsBeforeLookup(t *testing.T) {
-	results := make(chan *pb.DiscoverResponse, 3)
-	for _, identifier := range []string{"server-1", "server-2", "server-3"} {
+	results := make(chan *pb.DiscoverResponse, discoveryLookupBatchSize+1)
+	for i := range discoveryLookupBatchSize + 1 {
+		identifier := fmt.Sprintf("server-%d", i)
 		results <- &pb.DiscoverResponse{Devices: []*pb.Device{{DeviceIdentifier: identifier}}}
 	}
 	close(results)
-	lookupCalls := 0
-	var lookedUp, sent []*pb.Device
+	var lookupBatchSizes, sentBatchSizes []int
+	var lookedUpIdentifiers, sentIdentifiers []string
 	fwd := newDedupForwarder(
 		func(_ context.Context, devices []*pb.Device) error {
-			lookupCalls++
-			lookedUp = append(lookedUp, devices...)
+			lookupBatchSizes = append(lookupBatchSizes, len(devices))
+			for _, device := range devices {
+				lookedUpIdentifiers = append(lookedUpIdentifiers, device.GetDeviceIdentifier())
+			}
 			return nil
 		},
 		func(response *pb.DiscoverResponse) error {
-			sent = append(sent, response.GetDevices()...)
+			sentBatchSizes = append(sentBatchSizes, len(response.GetDevices()))
+			for _, device := range response.GetDevices() {
+				sentIdentifiers = append(sentIdentifiers, device.GetDeviceIdentifier())
+			}
 			return nil
 		},
 		nil,
 	)
 
 	require.NoError(t, forwardServerDiscoveryResults(t.Context(), results, fwd, time.Hour))
-	assert.Equal(t, 1, lookupCalls)
-	assert.Len(t, lookedUp, 3)
-	assert.Len(t, sent, 3)
+	assert.Equal(t, []int{discoveryLookupBatchSize, 1}, lookupBatchSizes)
+	assert.Equal(t, []int{discoveryLookupBatchSize, 1}, sentBatchSizes)
+	assert.Equal(t, lookedUpIdentifiers, sentIdentifiers)
+	require.Len(t, sentIdentifiers, discoveryLookupBatchSize+1)
+	assert.Equal(t, "server-0", sentIdentifiers[0])
+	assert.Equal(t, fmt.Sprintf("server-%d", discoveryLookupBatchSize), sentIdentifiers[len(sentIdentifiers)-1])
+}
+
+func TestForwardServerDiscoveryResults_FlushesAfterMaximumDelay(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		ctx, cancel := context.WithCancel(t.Context())
+		defer cancel()
+		results := make(chan *pb.DiscoverResponse, 1)
+		results <- &pb.DiscoverResponse{Devices: []*pb.Device{{DeviceIdentifier: "server-1"}}}
+		sent := make(chan *pb.DiscoverResponse)
+		prepared := make(chan error, 1)
+		fwd := newDedupForwarder(
+			func(ctx context.Context, _ []*pb.Device) error {
+				prepared <- ctx.Err()
+				return nil
+			},
+			func(response *pb.DiscoverResponse) error {
+				sent <- response
+				return nil
+			},
+			nil,
+		)
+		started := time.Now()
+		done := make(chan error, 1)
+		go func() {
+			done <- forwardServerDiscoveryResults(ctx, results, fwd, 100*time.Millisecond)
+		}()
+
+		response := <-sent
+		require.NoError(t, <-prepared)
+		assert.Equal(t, 100*time.Millisecond, time.Since(started))
+		require.Len(t, response.GetDevices(), 1)
+		assert.Equal(t, "server-1", response.GetDevices()[0].GetDeviceIdentifier())
+
+		cancel()
+		require.ErrorIs(t, <-done, context.Canceled)
+	})
+}
+
+func TestForwardServerDiscoveryResults_FlushesImmediatelyNearDeadline(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		ctx, cancel := context.WithTimeout(t.Context(), 50*time.Millisecond)
+		defer cancel()
+		results := make(chan *pb.DiscoverResponse, 1)
+		results <- &pb.DiscoverResponse{Devices: []*pb.Device{{DeviceIdentifier: "server-1"}}}
+		sent := make(chan *pb.DiscoverResponse)
+		prepared := make(chan error, 1)
+		fwd := newDedupForwarder(
+			func(ctx context.Context, _ []*pb.Device) error {
+				prepared <- ctx.Err()
+				return nil
+			},
+			func(response *pb.DiscoverResponse) error {
+				sent <- response
+				return nil
+			},
+			nil,
+		)
+		started := time.Now()
+		done := make(chan error, 1)
+		go func() {
+			done <- forwardServerDiscoveryResults(ctx, results, fwd, 100*time.Millisecond)
+		}()
+
+		response := <-sent
+		require.NoError(t, <-prepared)
+		assert.Zero(t, time.Since(started))
+		require.Len(t, response.GetDevices(), 1)
+
+		cancel()
+		require.ErrorIs(t, <-done, context.Canceled)
+	})
+}
+
+func TestForwardServerDiscoveryResults_PreservesWarningOrder(t *testing.T) {
+	results := make(chan *pb.DiscoverResponse, 3)
+	results <- &pb.DiscoverResponse{Devices: []*pb.Device{{DeviceIdentifier: "before"}}}
+	results <- &pb.DiscoverResponse{
+		Devices: []*pb.Device{{DeviceIdentifier: "warning-device"}},
+		Warning: "server warning",
+	}
+	results <- &pb.DiscoverResponse{Devices: []*pb.Device{{DeviceIdentifier: "after"}}}
+	close(results)
+	var sent []*pb.DiscoverResponse
+	fwd := newDedupForwarder(nil, func(response *pb.DiscoverResponse) error {
+		sent = append(sent, response)
+		return nil
+	}, nil)
+
+	require.NoError(t, forwardServerDiscoveryResults(t.Context(), results, fwd, time.Hour))
+	require.Len(t, sent, 3)
+	require.Len(t, sent[0].GetDevices(), 1)
+	require.Len(t, sent[1].GetDevices(), 1)
+	require.Len(t, sent[2].GetDevices(), 1)
+	assert.Equal(t, "before", sent[0].GetDevices()[0].GetDeviceIdentifier())
+	assert.Equal(t, "server warning", sent[1].GetWarning())
+	assert.Equal(t, "warning-device", sent[1].GetDevices()[0].GetDeviceIdentifier())
+	assert.Equal(t, "after", sent[2].GetDevices()[0].GetDeviceIdentifier())
 }
 
 func TestForwardDiscoverySources_CanceledContextDoesNotDispatch(t *testing.T) {
@@ -628,7 +735,7 @@ func TestDiscover_NodeFailureKeepsLaterServerResults(t *testing.T) {
 				runner = credentialAckDiscoveryRunner{fleetnodediscovery.NewService(reg, nil)}
 			}
 			client := discoveryClientForHandler(t, &Handler{
-				pairingSvc: domainpairing.NewService(store, nil, nil, nil, nil, discoverer, caps, nil, nil),
+				pairingSvc: domainpairing.NewService(store, &alreadyPairedLookupStore{}, nil, nil, nil, discoverer, caps, nil, nil),
 				discovery:  runner,
 			})
 			stream, err := client.Discover(ctx, connect.NewRequest(tc.req))
@@ -718,7 +825,7 @@ func discoveryClientWithDefaultPorts(t *testing.T, runner *stubFleetNodeDiscover
 	t.Helper()
 	caps := pairingmocks.NewMockCapabilitiesProvider(gomock.NewController(t))
 	caps.EXPECT().GetDefaultDiscoveryPorts(gomock.Any()).Return(defaults).AnyTimes()
-	return discoveryClientForHandler(t, &Handler{pairingSvc: domainpairing.NewService(nil, nil, nil, nil, nil, nil, caps, nil, nil), discovery: runner})
+	return discoveryClientForHandler(t, &Handler{pairingSvc: domainpairing.NewService(nil, &alreadyPairedLookupStore{}, nil, nil, nil, nil, caps, nil, nil), discovery: runner})
 }
 
 func discoveryClientForHandler(t *testing.T, h *Handler) pairingv1connect.PairingServiceClient {

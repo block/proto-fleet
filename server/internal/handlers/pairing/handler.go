@@ -90,6 +90,8 @@ func (h *Handler) Discover(ctx context.Context, r *connect.Request[pb.DiscoverRe
 	// stream and dedupe devices across them; a Send failure cancels the rest.
 	fwd := newDedupForwarder(
 		func(ctx context.Context, devices []*pb.Device) error {
+			// The shipped Fleet Node can upload at most 40 discovery batches for one
+			// request. They fit in the command's 64-event buffer while this lookup runs.
 			if err := h.pairingSvc.AnnotateAlreadyPaired(ctx, info.OrganizationID, devices); err != nil {
 				return fleeterror.NewInternalErrorf("determine discovered device pairing state: %v", err)
 			}

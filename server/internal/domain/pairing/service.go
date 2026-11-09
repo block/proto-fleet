@@ -215,8 +215,11 @@ func (s *Service) AnnotateAlreadyPaired(ctx context.Context, orgID int64, device
 		}
 		devicesByIdentifier[identifier] = append(devicesByIdentifier[identifier], device)
 	}
-	if s == nil || s.deviceStore == nil || len(identifiers) == 0 {
+	if len(identifiers) == 0 {
 		return nil
+	}
+	if s == nil || s.deviceStore == nil {
+		return fleeterror.NewInternalError("pairing state store is not configured")
 	}
 
 	pairedIdentifiers, err := s.deviceStore.GetAlreadyPairedDeviceIdentifiers(ctx, orgID, identifiers)

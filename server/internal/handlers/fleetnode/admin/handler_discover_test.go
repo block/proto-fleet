@@ -21,6 +21,7 @@ import (
 	pairingpb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
 	"github.com/block/proto-fleet/server/internal/domain/authz"
 	"github.com/block/proto-fleet/server/internal/domain/discoverylimits"
+	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/discovery"
 	domainpairing "github.com/block/proto-fleet/server/internal/domain/pairing"
 	"github.com/block/proto-fleet/server/internal/domain/session"
@@ -40,6 +41,14 @@ func (a *blockingPairingStateAnnotator) AnnotateAlreadyPaired(ctx context.Contex
 	close(a.started)
 	<-ctx.Done()
 	return fmt.Errorf("pairing lookup stopped: %w", ctx.Err())
+}
+
+type failingPairingStateAnnotator struct {
+	err error
+}
+
+func (a failingPairingStateAnnotator) AnnotateAlreadyPaired(context.Context, int64, []*pairingpb.Device) error {
+	return a.err
 }
 
 func TestDiscoverOnFleetNode_StreamsBatchesAndStopsOnAck(t *testing.T) {
@@ -671,6 +680,64 @@ func TestDiscoverOnFleetNode_PairingLookupUsesDiscoveryDeadline(t *testing.T) {
 	assert.Empty(t, devices)
 	require.Len(t, warnings, 1)
 	assert.Contains(t, warnings[0], discoverylimits.RequestTimeoutWarning)
+}
+
+func TestDiscoverOnFleetNode_PairingLookupFailureFailsClosed(t *testing.T) {
+	h := newPairingHarnessWithPairingState(t, failingPairingStateAnnotator{err: errors.New("lookup failed")})
+	fleetNodeID := h.createFleetNode(t, "admin-discover-lookup-failure")
+	stream := h.registry.Register(fleetNodeID)
+	stream.SetDiscoveryConfig(&gatewaypb.DiscoveryConfig{Ranges: []string{"10.0.0.0/8", "192.168.0.0/16", "172.16.0.0/12"}})
+	defer stream.Unregister()
+	go func() {
+		cmd := <-stream.Outgoing
+		h.registry.PublishBatch(fleetNodeID, cmd.GetCommandId(), &pairingpb.DiscoverResponse{
+			Devices: []*pairingpb.Device{{DeviceIdentifier: "unverified-pairing-state", IpAddress: "10.0.0.5"}},
+		})
+	}()
+
+	err := h.handler.DiscoverOnFleetNode(h.adminCtx(), connect.NewRequest(&pb.DiscoverOnFleetNodeRequest{
+		FleetNodeId: fleetNodeID,
+		Request: &pairingpb.DiscoverRequest{Mode: &pairingpb.DiscoverRequest_IpList{
+			IpList: &pairingpb.IPListModeRequest{IpAddresses: []string{"10.0.0.5"}},
+		}},
+	}), nil)
+
+	var fleetErr fleeterror.FleetError
+	require.ErrorAs(t, err, &fleetErr)
+	assert.Equal(t, connect.CodeInternal, fleetErr.GRPCCode)
+	assert.Contains(t, err.Error(), "lookup failed")
+}
+
+func TestDiscoverOnFleetNode_CallerDeadlineDuringPairingLookupReturnsDeadlineExceeded(t *testing.T) {
+	annotator := &blockingPairingStateAnnotator{started: make(chan struct{})}
+	h := newPairingHarnessWithPairingState(t, annotator)
+	fleetNodeID := h.createFleetNode(t, "admin-discover-lookup-caller-deadline")
+	stream := h.registry.Register(fleetNodeID)
+	stream.SetDiscoveryConfig(&gatewaypb.DiscoveryConfig{Ranges: []string{"10.0.0.0/8", "192.168.0.0/16", "172.16.0.0/12"}})
+	defer stream.Unregister()
+	go func() {
+		cmd := <-stream.Outgoing
+		h.registry.PublishBatch(fleetNodeID, cmd.GetCommandId(), &pairingpb.DiscoverResponse{
+			Devices: []*pairingpb.Device{{DeviceIdentifier: "blocked-lookup", IpAddress: "10.0.0.5"}},
+		})
+	}()
+
+	ctx, cancel := context.WithTimeout(h.adminCtx(), 200*time.Millisecond)
+	defer cancel()
+	done := make(chan error, 1)
+	go func() {
+		done <- h.handler.DiscoverOnFleetNode(ctx, connect.NewRequest(&pb.DiscoverOnFleetNodeRequest{
+			FleetNodeId: fleetNodeID,
+			Request: &pairingpb.DiscoverRequest{Mode: &pairingpb.DiscoverRequest_IpList{
+				IpList: &pairingpb.IPListModeRequest{IpAddresses: []string{"10.0.0.5"}},
+			}},
+		}), nil)
+	}()
+	<-annotator.started
+
+	err := <-done
+	require.Error(t, err)
+	assert.Equal(t, connect.CodeDeadlineExceeded, connect.CodeOf(err))
 }
 
 func TestDiscoverOnFleetNode_CallerCancellationDuringPairingLookupIsQuiet(t *testing.T) {
