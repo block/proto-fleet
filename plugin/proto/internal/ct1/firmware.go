@@ -117,12 +117,12 @@ func (d *Device) FirmwareUpdate(ctx context.Context, file sdk.FirmwareFile) erro
 		return err
 	}
 	if file.RequestID != "" {
-		started, err := firmwareTaskStarted(ctx, c, attempt)
+		recovered, err := recoverFirmwareAttempt(ctx, c, attempt)
 		if err != nil {
 			return sdk.WriteRefused(fmt.Errorf("check for this command's CT1 firmware job: %w", err), sdk.WriteStageConfigurationRead, sdk.WriteReasonReadFailed)
 		}
-		if started {
-			d.setFirmwareAttempt(attempt)
+		if recovered != nil {
+			d.setFirmwareAttempt(recovered)
 			return nil
 		}
 	}
@@ -267,19 +267,34 @@ func firmwareTaskID(requestID string) string {
 	return uuid.NewSHA1(uuid.NameSpaceURL, []byte("urn:proto-fleet:ct1-firmware-request:"+requestID)).String()
 }
 
-// firmwareTaskStarted reports whether any owning controller has the attempt's
-// job.
-func firmwareTaskStarted(ctx context.Context, c *Client, attempt *firmwareAttempt) (bool, error) {
-	for owner := range attempt.owners {
-		_, err := c.firmware.GetFirmwareUpdate(ctx, &mdk.GetFirmwareUpdateRequest{TaskId: attempt.taskID, ServerId: owner})
-		if err == nil {
-			return true, nil
+// recoverFirmwareAttempt rebuilds a retried command's attempt from the jobs its
+// task created, or returns nil when no planned owner has one. Each job's own
+// targets define what it must finish, since inventory may have changed since
+// it started; an owner without a job keeps its current boards, which report
+// as not updated.
+func recoverFirmwareAttempt(ctx context.Context, c *Client, planned *firmwareAttempt) (*firmwareAttempt, error) {
+	recovered := &firmwareAttempt{taskID: planned.taskID, requestID: planned.requestID, owners: map[string][]string{}}
+	found := false
+	for owner, macs := range planned.owners {
+		response, err := c.firmware.GetFirmwareUpdate(ctx, &mdk.GetFirmwareUpdateRequest{TaskId: planned.taskID, ServerId: owner})
+		if status.Code(err) == codes.NotFound {
+			recovered.owners[owner] = macs
+			continue
 		}
-		if status.Code(err) != codes.NotFound {
-			return false, err
+		if err != nil {
+			return nil, err
 		}
+		found = true
+		targets := []string{}
+		for _, target := range response.GetUpdate().GetTargets() {
+			targets = append(targets, normalizedBoardMAC(target.GetMacAddress()))
+		}
+		recovered.owners[owner] = targets
 	}
-	return false, nil
+	if !found {
+		return nil, nil
+	}
+	return recovered, nil
 }
 
 // planFirmwareAttempt targets every occupied board. Boards report a version
@@ -440,7 +455,10 @@ func (d *Device) firmwareAttemptStatus(ctx context.Context, attempt *firmwareAtt
 	if missing == len(attempt.owners) {
 		return nil, errFirmwareTaskNotFound
 	}
-	progress := finished * 100 / expected
+	progress := 0
+	if expected > 0 {
+		progress = finished * 100 / expected
+	}
 	result := &sdk.FirmwareUpdateStatus{State: firmwareStateInstalling, Progress: &progress}
 	if len(failures) > 0 && allTerminal {
 		message := firmwareFailureMessage(failures)

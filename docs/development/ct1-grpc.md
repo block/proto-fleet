@@ -216,7 +216,9 @@ process retains the task and its owners per container, shared by every handle
 for it, including Fleet Node's per-command handles. The task ID is derived
 from the command's request ID, which includes the batch UUID, so after a
 process restart a retried command finds its task on the owning controllers
-and resumes it instead of flashing again. Commands without a request ID, such
+and resumes it instead of flashing again. The resumed task is tracked by the
+targets its jobs report, not by inventory that changed while the plugin was
+down. Commands without a request ID, such
 as those relayed by an older Fleet Node, use a random task ID and are not
 recoverable after a restart.
 

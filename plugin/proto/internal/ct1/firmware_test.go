@@ -573,6 +573,10 @@ func TestFirmwareRetryAfterPluginRestartResumesItsJob(t *testing.T) {
 			if finished {
 				controller.finish()
 			}
+			// A board replaced while the plugin was down is not part of the job.
+			controller.mu.Lock()
+			firstBoard(controller.wire).MacAddress = "02:ff:00:00:00:01"
+			controller.mu.Unlock()
 			restartPlugin(dev)
 			_, err := newHandle(dev).GetFirmwareUpdateStatus(t.Context())
 			require.Error(t, err, "a restarted plugin knows no job until the command retries")
