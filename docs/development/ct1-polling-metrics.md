@@ -348,12 +348,17 @@ Each run processes one controller, at most `batch_size` new observations plus
 an older job config still requests 500; smaller configured batches are honored.
 This leaves room for chunk-level FK trigger overhead within the two-second
 deadline. Direct manual calls still accept limits up to 10,000.
-A nonblocking organization
-lock serializes reference checks and deletion with ingestion. Expected lock
-contention defers cleanup without incrementing the failure counter. Progress, span
-updates, and deletes commit atomically. A separate committed one-minute scheduling
-lease survives cancellation so a slow controller cannot monopolize subsequent
-runs. Migration 1035 changes the job from a fixed ten-second schedule to a
+A nonblocking organization lock serializes reference checks and deletion with
+ingestion. Expected lock contention defers cleanup without incrementing the
+failure counter. Migration 1069 splits the configured budget into microbatches.
+`microbatch_size` defaults to 3 and is bounded from 1 through `batch_size`. Each
+microbatch commits atomically and releases the organization lock. This gives
+waiting ingestion a lock handoff point. If ingestion owns the lock at the next
+microbatch, cleanup uses its nonblocking lock guard. A controller that made
+progress stays due for a prompt retry. A controller that made no progress gets a
+one-minute backoff. Completed microbatches and the scheduling lease survive
+cancellation, so a slow controller cannot monopolize later runs.
+Migration 1035 changes the job from a fixed ten-second schedule to a
 one-second delay after each successful finish (`fixed_schedule=false`), with the
 same two-second maximum runtime and one cleanup worker. The configured one-minute
 `retry_period` is not a guaranteed job-level delay: TimescaleDB 2.30.2 caps ordinary
@@ -377,10 +382,11 @@ FROM timescaledb_information.jobs
 WHERE proc_name='compact_container_topology_job';
 ```
 
-Before upgrading an existing deployment through migration 1035, record the job's
-configuration and scheduling state using the query above. **An already enabled
-job adopts the faster cadence as soon as the migration runs.** Disable cleanup
-and pause scheduling before migrating, then verify any active run has finished:
+Before upgrading an existing deployment through migration 1035 or 1069, record
+the job's configuration and scheduling state using the query above. Migration
+1035 changes the cadence of an enabled job. Migration 1069 changes its transaction
+boundaries. Disable cleanup and pause scheduling before either migration. Then
+verify that any active run has finished:
 
 ```sql
 SELECT alter_job(job_id, config=>config || '{"enabled":false}'::jsonb,
@@ -405,16 +411,17 @@ It identifies redundant candidates, not a promise they are unreferenced; inspect
 reviewing a representative dry run and runtime:
 
 ```sql
-SELECT alter_job(job_id, config=>config || '{"enabled":true,"batch_size":25}'::jsonb,
+SELECT alter_job(job_id, config=>config ||
+                 '{"enabled":true,"batch_size":25,"microbatch_size":3}'::jsonb,
                  scheduled=>true, next_start=>now())
 FROM timescaledb_information.jobs WHERE proc_name='compact_container_topology_job';
 ```
 
-Enablement is a separate rollout step after applying migration 1035 and validating
-the deployment's database capacity. The migration preserves both `config.enabled`
-and `scheduled`, including existing opt-outs; it does not enable cleanup. Record
-the deployment, migration version, job ID, enablement time, observation rate, and
-before/after progress in the deployment record. Verify several successful
+Enablement is a separate rollout step after applying migrations 1035 and 1069 and
+validating the deployment's database capacity. Both migrations preserve
+`config.enabled` and `scheduled`, including existing opt-outs; they do not enable
+cleanup. Record the deployment, migration version, job ID, enablement time,
+observation rate, and before/after progress. Verify several successful
 scheduled runs, falling backlog, and acceptable ingestion latency before recording
 the deployment as enabled. No deployment is qualified by the local test alone.
 
@@ -427,16 +434,21 @@ well as cleanup before enabling; the isolated capacity test does not measure thi
 shared-worker cost.
 
 The enablement example uses an operator batch size of 25, below the unchanged hard
-cap of 50 for each queue. The one-second ingestion fixture exposed a cold-batch
-organization-lock stalls above its 250 ms limit at batch sizes 50 and 40. Qualify the smaller
-setting against both ingestion latency and throughput on the target deployment;
-the migration deliberately preserves existing batch settings, so applying it alone
-does not establish this latency bound.
+cap of 50 for each queue. The one-second ingestion fixture exposed cold-batch
+organization-lock stalls above its 250 ms limit at batch sizes 50 and 40. The
+default `microbatch_size` limits each lock hold to three observations per queue:
+up to three due retries and three new observations. It preserves the configured
+total. Qualify the setting
+against both ingestion latency and throughput on the target deployment. The
+migration preserves existing batch settings, so applying it alone does not
+establish the latency bound.
 
 Set `enabled` false and `scheduled` false to stop future work and worker launches.
-Track state-table examined/deleted totals, last duration/error, pending depth,
-and Timescale job statistics. Worker termination
-may only appear in Timescale job statistics; the committed scheduling lease remains.
+Track state-table examined/deleted totals, `deferrals`, `last_deferred_at`, last
+duration/error, pending depth, and Timescale job statistics. Worker termination
+may appear only in Timescale job statistics; the committed scheduling lease
+remains. After migration 1069, `last_duration_ms` describes the latest
+microbatch. Use Timescale job statistics for whole-run status and timing.
 Migration 1058 also bounds reference lookup planning to the candidate collection-time
 range. It forces a custom plan inside the lookup so prepared callers do not plan
 every retained metric chunk before excluding unrelated chunks at runtime. This
@@ -463,9 +475,10 @@ Qualify at least twice the incoming eligible-observation rate to leave backlog
 drain margin. Smaller configured batches, database load, failure backoff, and
 worker availability reduce that margin. The shared Timescale worker pool also
 serves retention, compression and aggregates; ensure it has headroom and check
-those jobs for regressions. Reaching the two-second deadline rolls back progress;
-increasing batch size beyond 50 cannot increase scheduled capacity. When a
-controller has caught up, its existing one-hour idle delay still applies, so a
+those jobs for regressions. Reaching the two-second deadline rolls back the active
+microbatch; earlier committed microbatches remain. Increasing batch size beyond 50
+cannot increase scheduled capacity. When a controller has caught up, its existing
+one-hour idle delay still applies, so a
 small sawtooth backlog is expected. Sustained growth across those cycles is not.
 
 Run the opt-in capacity regression on an isolated TimescaleDB using the repository
@@ -492,11 +505,11 @@ documented operator batch size of 25. The test
 requires forward throughput above 13.33/s and bounded, shrinking backlog during
 arrivals. Every controller must receive service and the backlog must drain within
 eight minutes after arrivals stop. This is a fixture completion bound, not a
-worst-case scheduling guarantee: a lock deferral adds a one-minute lease plus
-older due work ahead of that controller.
+worst-case scheduling guarantee. A deferral before any progress adds a one-minute
+lease. A deferral after progress leaves the controller due behind older work.
 It also requires every ingestion transaction to finish within 250 ms, checks
 preserved compressed samples/current observations and zero cleanup or background-job
-failures, and reports sampled no-progress deferrals alongside throughput. A separate
+failures, and reports exact lock deferrals alongside throughput. A separate
 pre-measurement probe holds the ingestion lock across a real scheduled run to
 verify deferral; that probe is excluded from the throughput measurement. Natural
 overlap during the measured phase varies between runs. The separate
@@ -517,6 +530,7 @@ eligible input rate; the latter includes retries and cannot replace it:
 
 ```sql
 SELECT sum(examined) AS examined, sum(deleted) AS deleted,
+       sum(deferrals) AS deferrals, max(last_deferred_at) AS last_deferred_at,
        sum(failures) AS failures, max(last_duration_ms) AS last_run_max_ms
 FROM container_topology_compaction_state;
 SELECT count(*) AS pending, count(*) FILTER (WHERE next_check_at <= now()) AS due
@@ -544,41 +558,31 @@ CROSS JOIN LATERAL (
 ORDER BY eligible_lag DESC;
 ```
 
-Lock deferrals do not increment `failures` or update `last_error`. To find suspected
-repeated deferrals, take two state samples at least 65 seconds apart in the same
-SQL session (outside a transaction), so the one-minute lease can expire:
+Lock deferrals do not increment `failures` or update `last_error`. Migration 1069
+records them directly:
 
 ```sql
-CREATE TEMP TABLE topology_progress_before AS
-SELECT device_id, next_run_at, last_run_at, examined, deleted, failures
-FROM container_topology_compaction_state;
-
--- Wait at least 65 seconds, then run this query in the same session.
-SELECT s.device_id, b.next_run_at AS previous_next_run_at, s.next_run_at,
-       s.last_run_at, s.examined, s.failures
-FROM container_topology_compaction_state s
-JOIN topology_progress_before b USING (device_id)
-WHERE s.next_run_at > b.next_run_at
-  AND s.last_run_at IS NOT DISTINCT FROM b.last_run_at
-  AND s.examined = b.examined AND s.deleted = b.deleted AND s.failures = b.failures
-  -- Exclude freshly claimed leases that may still be doing their two-second batch.
-  AND s.next_run_at < clock_timestamp() + INTERVAL '55 seconds'
-ORDER BY s.next_run_at;
-DROP TABLE topology_progress_before;
+SELECT device_id, deferrals, last_deferred_at, next_run_at,
+       examined, deleted, failures
+FROM container_topology_compaction_state
+WHERE deferrals > 0
+ORDER BY last_deferred_at DESC;
 ```
 
-This is a sampled no-progress signal, not an exact lock-deferral counter: transient
-leases may be missed, and canceled workers can leave the same pattern. Repeat the
-samples and correlate them with Timescale failures/crashes and live ingestion
-before attributing them to lock contention. Successful work changes `last_run_at`,
-including idle checks, so the ordinary one-hour idle delay is not counted here.
+The counter includes first-attempt and later-microbatch contention. Use
+`next_run_at` with `examined` to tell them apart. First-attempt contention gets a
+one-minute backoff. Contention after progress leaves the controller due. Correlate
+increases with live ingestion and Timescale job status before judging impact.
 
 Observe beyond the one-hour idle cycle before judging steady-state lag. Investigate
 increasing lag, controllers repeatedly deferred, failed jobs, or ingestion latency
 regressions. Disable cleanup if it harms ingestion; preserve progress and diagnose
 worker availability, locks and query runtime before re-enabling. Rolling back
 migration 1035 restores the fixed ten-second schedule without deleting progress or
-changing enablement, but also restores the known capacity limit.
+changing enablement, but also restores the known capacity limit. Rolling back
+migration 1069 preserves the original progress fields and job settings, but drops
+its deferral counters and restores the full-batch organization-lock hold that can
+delay ingestion. Record those counters before a coordinated rollback if needed.
 
 Prefer disabling jobs and fixing forward while preserving the schema and evidence.
 An application release must recognize the installed database checkpoint; see the

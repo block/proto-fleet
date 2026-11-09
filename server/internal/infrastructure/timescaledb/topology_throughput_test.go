@@ -14,6 +14,11 @@ import (
 )
 
 func TestTopologyThroughputMigrationPreservesJobAndProgress(t *testing.T) {
+	const compactionState = `SELECT row_to_json(s)::text FROM (
+ SELECT device_id,scanned_through,anchor_id,next_run_at,last_run_at,last_duration_ms,
+        examined,deleted,failures,last_error
+ FROM container_topology_compaction_state WHERE device_id=$1
+) s`
 	r := newContainerRollupRig(t)
 	r.base = time.Now().UTC().Add(-20 * 24 * time.Hour)
 	r.store(t, r.snapshot(0, false, 100e12, 200e12))
@@ -26,13 +31,17 @@ func TestTopologyThroughputMigrationPreservesJobAndProgress(t *testing.T) {
  scanned_through=$2,anchor_id=(SELECT id FROM container_topology_observation WHERE device_id=$1),examined=7,deleted=3,failures=2,last_error='previous failure' WHERE device_id=$1`, r.databaseID, r.base)
 	require.NoError(t, err)
 	var before string
-	require.NoError(t, r.db.QueryRowContext(t.Context(), `SELECT row_to_json(s)::text FROM container_topology_compaction_state s WHERE device_id=$1`, r.databaseID).Scan(&before))
+	require.NoError(t, r.db.QueryRowContext(t.Context(), compactionState, r.databaseID).Scan(&before))
+	var handoffProcedureSource string
+	require.NoError(t, r.db.QueryRowContext(t.Context(), `SELECT prosrc FROM pg_proc
+ WHERE oid='public.compact_container_topology_job(integer,jsonb)'::regprocedure`).Scan(&handoffProcedureSource))
+	var fullBatchProcedureSource string
 	for _, scenario := range []struct {
 		name      string
 		scheduled bool
 		config    string
 	}{
-		{"paused_enabled", false, `{"enabled":true,"batch_size":17,"operator_note":"preserve"}`},
+		{"paused_enabled", false, `{"enabled":true,"batch_size":17,"microbatch_size":5,"operator_note":"preserve"}`},
 		{"scheduled_disabled", true, `{"enabled":false,"batch_size":17,"operator_note":"preserve"}`},
 	} {
 		t.Run(scenario.name, func(t *testing.T) {
@@ -41,11 +50,17 @@ func TestTopologyThroughputMigrationPreservesJobAndProgress(t *testing.T) {
 			_, err := r.db.ExecContext(t.Context(), `SELECT alter_job($1,config=>$2::jsonb,scheduled=>$3,next_start=>now()+INTERVAL '1 year')`, job, scenario.config, scenario.scheduled)
 			require.NoError(t, err)
 			for _, step := range []struct {
+				migration string
 				direction string
 				seconds   int
 				fixed     bool
-			}{{"down", 10, true}, {"up", 1, false}} {
-				migration, err := os.ReadFile("../../../migrations/current/001035_internal_topology_cleanup_throughput." + step.direction + ".sql")
+			}{
+				{"001035_internal_topology_cleanup_throughput", "down", 10, true},
+				{"001035_internal_topology_cleanup_throughput", "up", 1, false},
+				{"001069_internal_topology_cleanup_lock_handoff", "down", 1, false},
+				{"001069_internal_topology_cleanup_lock_handoff", "up", 1, false},
+			} {
+				migration, err := os.ReadFile("../../../migrations/current/" + step.migration + "." + step.direction + ".sql")
 				require.NoError(t, err)
 				_, err = r.db.ExecContext(t.Context(), string(migration))
 				require.NoError(t, err)
@@ -63,8 +78,31 @@ func TestTopologyThroughputMigrationPreservesJobAndProgress(t *testing.T) {
 				require.Equal(t, step.fixed, fixed)
 				require.Equal(t, scenario.scheduled, scheduled, "migration must preserve the operator's scheduling choice")
 				require.True(t, configPreserved)
-				require.NoError(t, r.db.QueryRowContext(t.Context(), `SELECT row_to_json(s)::text FROM container_topology_compaction_state s WHERE device_id=$1`, r.databaseID).Scan(&after))
+				require.NoError(t, r.db.QueryRowContext(t.Context(), compactionState, r.databaseID).Scan(&after))
 				require.Equal(t, before, after, "migration must preserve cursors, counters and leases")
+				if step.migration == "001069_internal_topology_cleanup_lock_handoff" {
+					var telemetryColumns int
+					require.NoError(t, r.db.QueryRowContext(t.Context(), `SELECT count(*) FROM information_schema.columns
+ WHERE table_schema='public' AND table_name='container_topology_compaction_state'
+ AND column_name IN ('deferrals','last_deferred_at')`).Scan(&telemetryColumns))
+					var procedureSource string
+					require.NoError(t, r.db.QueryRowContext(t.Context(), `SELECT prosrc FROM pg_proc
+ WHERE oid='public.compact_container_topology_job(integer,jsonb)'::regprocedure`).Scan(&procedureSource))
+					if step.direction == "down" {
+						require.Zero(t, telemetryColumns)
+						require.NotEqual(t, handoffProcedureSource, procedureSource, "down migration must restore the full-batch procedure")
+						require.NotContains(t, procedureSource, "microbatch_size")
+						require.Contains(t, procedureSource, "compact_container_topology(target,cutoff,batch_size)")
+						if fullBatchProcedureSource == "" {
+							fullBatchProcedureSource = procedureSource
+						} else {
+							require.Equal(t, fullBatchProcedureSource, procedureSource)
+						}
+					} else {
+						require.Equal(t, 2, telemetryColumns)
+						require.Equal(t, handoffProcedureSource, procedureSource, "up migration must restore the lock-handoff procedure")
+					}
+				}
 			}
 		})
 	}
@@ -91,6 +129,7 @@ func TestTopologyCompactionScheduledCapacity(t *testing.T) {
 	const flushInterval = time.Second
 	const flushes = int(arrivalDuration / flushInterval)
 	const flushesPerPoll = int(arrivalInterval / flushInterval)
+	const schedulerStartDeadline = 30 * time.Second
 	const drainDeadline = 8 * time.Minute
 	svc := testutil.NewDatabaseService(t, nil)
 	database := svc.DB
@@ -156,18 +195,21 @@ func TestTopologyCompactionScheduledCapacity(t *testing.T) {
 	require.NoError(t, database.QueryRowContext(t.Context(), `SELECT COALESCE((SELECT total_successes FROM timescaledb_information.job_stats WHERE job_id=$1),0)`, job).Scan(&successesBefore))
 	// No manual run_job calls or shortened test schedule: use the migration's
 	// actual cadence and background-worker max_runtime, including worker startup.
-	exec(`SELECT alter_job(job_id,config=>config || jsonb_build_object('enabled',true,'batch_size',$2::int),scheduled=>true,next_start=>now()) FROM timescaledb_information.jobs WHERE job_id=$1`, job, batchSize)
+	exec(`SELECT alter_job(job_id,config=>config || jsonb_build_object('enabled',true,'batch_size',$2::int,'microbatch_size',3),scheduled=>true,next_start=>now()) FROM timescaledb_information.jobs WHERE job_id=$1`, job, batchSize)
+	// Template cloning detaches the Timescale scheduler. Start it after enabling
+	// the only scheduled job so this opt-in test measures the real worker.
+	exec(`SELECT _timescaledb_functions.start_background_workers()`)
 	probeTicker := time.NewTicker(100 * time.Millisecond)
 	defer probeTicker.Stop()
-	probeDeadline := time.Now().Add(30 * time.Second)
+	probeDeadline := time.Now().Add(schedulerStartDeadline)
 	probeDeferrals := 0
 	for {
 		var successes, examined, completed, failures int
 		require.NoError(t, database.QueryRowContext(t.Context(), `SELECT COALESCE((SELECT total_successes FROM timescaledb_information.job_stats WHERE job_id=$1),0)`, job).Scan(&successes))
 		if successes > successesBefore {
-			// A completed successful job with a committed scheduling advance and
-			// no last_run_at/progress proves lock deferral, rather than an in-flight lease.
-			require.NoError(t, database.QueryRowContext(t.Context(), `SELECT count(*) FILTER(WHERE next_run_at>now()),sum(examined),count(last_run_at),sum(failures)
+			// A completed successful job with an exact deferral count and no
+			// progress proves the scheduler met ingestion lock contention.
+			require.NoError(t, database.QueryRowContext(t.Context(), `SELECT sum(deferrals),sum(examined),count(last_run_at),sum(failures)
    FROM container_topology_compaction_state`).Scan(&probeDeferrals, &examined, &completed, &failures))
 			require.Positive(t, probeDeferrals, "real scheduler must defer while ingestion owns the organization lock")
 			require.Zero(t, examined)
@@ -184,7 +226,7 @@ func TestTopologyCompactionScheduledCapacity(t *testing.T) {
 	}
 	exec(`SELECT alter_job($1,scheduled=>false)`, job)
 	require.NoError(t, probe.Rollback())
-	// Preserve the workload, progress and counters; only remove the probe's
+	// Preserve the workload, progress and counters. Remove only the probe's
 	// one-minute backoff so measured service starts with every controller due.
 	exec(`UPDATE container_topology_compaction_state SET next_run_at=now()`)
 	t.Logf("real-scheduler contention probe: %d committed lock deferrals before capacity measurement; configured batch size=%d", probeDeferrals, batchSize)
@@ -194,57 +236,19 @@ func TestTopologyCompactionScheduledCapacity(t *testing.T) {
 	peakBacklog := expectedForward
 	maxIngest := time.Duration(0)
 	type cleanupProgress struct {
-		examined int
-		pending  int
-		serviced int
-		failures int
+		examined  int
+		pending   int
+		serviced  int
+		failures  int
+		deferrals int
 	}
-	type sampledState struct {
-		nextRun     time.Time
-		progress    string
-		unchangedAt time.Time
-		counted     bool
-	}
-	previous := make(map[int64]sampledState, controllers)
-	inferredDeferrals := 0
+	deferralsBefore := probeDeferrals
 	readProgress := func() cleanupProgress {
 		t.Helper()
 		var progress cleanupProgress
-		rows, err := database.QueryContext(t.Context(), `SELECT device_id,next_run_at,(to_jsonb(s)-'next_run_at')::text,examined,failures
-   FROM container_topology_compaction_state s`)
-		require.NoError(t, err)
-		defer rows.Close()
-		observed := time.Now()
-		for rows.Next() {
-			var id int64
-			var current sampledState
-			var examined, failures int
-			require.NoError(t, rows.Scan(&id, &current.nextRun, &current.progress, &examined, &failures))
-			progress.examined += examined
-			progress.failures += failures
-			if examined > 0 {
-				progress.serviced++
-			}
-			prior, ok := previous[id]
-			if ok && current.progress == prior.progress {
-				if current.nextRun.After(prior.nextRun) {
-					current.unchangedAt = observed
-				} else if current.nextRun.Equal(prior.nextRun) {
-					current.unchangedAt, current.counted = prior.unchangedAt, prior.counted
-				}
-			}
-			// Scheduling leases commit before compaction. Require unchanged progress
-			// beyond the two-second worker limit to exclude ordinary in-flight work.
-			// This is a sampled inference, not a durable lock-specific counter: brief
-			// transitions can be missed; timeouts/crashes are rejected via job_stats.
-			if !current.unchangedAt.IsZero() && !current.counted && observed.Sub(current.unchangedAt) >= 3*time.Second {
-				inferredDeferrals++
-				current.counted = true
-			}
-			previous[id] = current
-		}
-		require.NoError(t, rows.Err())
-		require.NoError(t, rows.Close())
+		require.NoError(t, database.QueryRowContext(t.Context(), `SELECT COALESCE(sum(examined),0),COALESCE(sum(failures),0),
+ COALESCE(sum(deferrals),0),count(*) FILTER(WHERE examined>0)
+ FROM container_topology_compaction_state`).Scan(&progress.examined, &progress.failures, &progress.deferrals, &progress.serviced))
 		require.NoError(t, database.QueryRowContext(t.Context(), `SELECT count(*) FROM container_topology_compaction_pending`).Scan(&progress.pending))
 		return progress
 	}
@@ -317,7 +321,7 @@ func TestTopologyCompactionScheduledCapacity(t *testing.T) {
 		peakBacklog = max(peakBacklog, backlog)
 		require.Zero(t, progress.failures, "cleanup must not hide failures while claiming capacity")
 		if elapsed >= nextReport {
-			t.Logf("after %s: examined=%d forward backlog=%d retry backlog=%d serviced=%d/%d inferred lock deferrals=%d", elapsed.Round(time.Second), progress.examined, backlog, progress.pending, progress.serviced, controllers, inferredDeferrals)
+			t.Logf("after %s: examined=%d forward backlog=%d retry backlog=%d serviced=%d/%d lock deferrals=%d", elapsed.Round(time.Second), progress.examined, backlog, progress.pending, progress.serviced, controllers, progress.deferrals-deferralsBefore)
 			nextReport += 30 * time.Second
 		}
 	}
@@ -328,7 +332,7 @@ func TestTopologyCompactionScheduledCapacity(t *testing.T) {
 	require.Less(t, expectedForward-progress.examined, controllers*forwardPerController, "backlog must shrink during arrivals")
 	require.LessOrEqual(t, peakBacklog, controllers*(forwardPerController+1), "backlog must stay bounded under arrivals")
 	require.Equal(t, controllers*flushes/flushesPerPoll, arrivals, "each controller must contribute one arrival per poll cycle")
-	t.Logf("sustained forward rate %.2f/s versus %.2f/s arrivals; maximum ingestion transaction %s; inferred lock deferrals during arrivals=%d (sampled lower bound, probe excluded)", rate, float64(controllers)/arrivalInterval.Seconds(), maxIngest, inferredDeferrals)
+	t.Logf("sustained forward rate %.2f/s versus %.2f/s arrivals; maximum ingestion transaction %s; lock deferrals during arrivals=%d (probe excluded)", rate, float64(controllers)/arrivalInterval.Seconds(), maxIngest, progress.deferrals-deferralsBefore)
 	deadline := time.Now().Add(drainDeadline)
 	for progress.examined < expectedForward || progress.pending > 0 {
 		require.True(t, time.Now().Before(deadline), "backlog failed to drain: examined=%d pending=%d", progress.examined, progress.pending)
@@ -336,7 +340,7 @@ func TestTopologyCompactionScheduledCapacity(t *testing.T) {
 		progress = readProgress()
 		require.Zero(t, progress.failures)
 	}
-	// A lock deferral adds a one-minute lease plus older due work ahead of it.
+	// A lock deferral after progress leaves the controller due behind older work.
 	// Require eventual service within the drain bound, not before arrivals stop.
 	require.Equal(t, controllers, progress.serviced, "every controller must receive service within the drain deadline")
 	dbtest.PauseBackgroundJobs(t, database)
