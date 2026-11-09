@@ -39,6 +39,7 @@ __all__ = [
     "CAP_FIRMWARE",
     "CAP_OTA_UPDATE",
     "CAP_MANUAL_UPLOAD",
+    "CAP_FIRMWARE_SELF_MANAGED",
     "CAP_UNPAIR",
     # Telemetry
     "CAP_DEVICE_STATUS",
@@ -115,6 +116,9 @@ CAP_UPDATE_FIRMWARE = "update_firmware"
 CAP_FIRMWARE = "firmware"  # Generic firmware capability
 CAP_OTA_UPDATE = "ota_update"
 CAP_MANUAL_UPLOAD = "manual_upload"
+# The updater reboots and verifies components itself and reports "completed"
+# or "failed"; Fleet does not reboot the device afterwards.
+CAP_FIRMWARE_SELF_MANAGED = "firmware_self_managed"
 CAP_UNPAIR = "unpair"
 
 # Telemetry Capabilities

@@ -532,7 +532,12 @@ type DeviceMaintenance interface {
 
 // FirmwareUpdateStatus represents the current firmware installation state on a device.
 type FirmwareUpdateStatus struct {
-	State    string // "current", "downloading", "downloaded", "installing", "installed", "confirming", "success", "error", "completed" (components rebooted and verified)
+	// "current", "downloading", "downloaded", "installing", "installed",
+	// "confirming", "success", or "error". Devices declaring
+	// CapabilityFirmwareSelfManaged report "completed" once the updater
+	// rebooted and verified every component, or "failed" once it finished with
+	// component failures; Fleet neither reboots nor automatically retries them.
+	State    string
 	Progress *int
 	Error    *string
 }

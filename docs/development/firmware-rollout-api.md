@@ -51,7 +51,9 @@ For `target_manufacturer=Proto` and `target_model=CT1`, upload the release
 `hashboard-firmware-<version>.zip` with `hashboard_build` set to `prod`, `dev`,
 or `mfgtest`. This additional snake_case field is accepted by multipart uploads
 and upload metadata, and returned in firmware file information. Other targets
-must omit it. The existing Fleet upload dialogs expose the build selection.
+must omit it. The existing Fleet upload dialogs expose the build selection, and
+`fleetcli firmware` upload, check, and metadata commands accept
+`--hashboard-build`.
 
 Fleet reads embedded image metadata to select that build, excludes unsigned
 and evaluation-board images, and requires `firmware_version` to match the
@@ -69,7 +71,10 @@ and board compatibility. Fleet enforces native upload limits of 64 images,
 
 Assign the resulting file ID to a CT1 release-channel target using the existing
 API. CT1 convergence uses fresh, uniform hashboard firmware observations rather
-than the controller software version. Updates use one-off Frigate jobs; Fleet
+than the controller software version; release-channel and rollout
+`firmware_version` fields report that version, or empty when boards are mixed
+or not observed. An unknown version is neither on target nor mismatched, so it
+cannot start, verify, or reopen a rollout. Updates use one-off Frigate jobs; Fleet
 retains channel enforcement, retry, pause, and cancellation scheduling. Canceling
 a Fleet rollout does not cancel an already-dispatched Frigate job. Per-board
 progress and owner/failure evidence appear in container module details.

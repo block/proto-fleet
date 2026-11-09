@@ -3,6 +3,7 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { create } from "@bufbuild/protobuf";
 import { timestampFromDate } from "@bufbuild/protobuf/wkt";
+import { Code, ConnectError } from "@connectrpc/connect";
 import ContainerActionsMenu from "./ContainerActionsMenu";
 import { ContainerSchema } from "@/protoFleet/api/generated/containers/v1/containers_pb";
 import { STATUSES } from "@/shared/features/toaster";
@@ -704,17 +705,62 @@ describe("whole-container pool configuration", () => {
   });
 });
 
-it("queues firmware for exactly the selected container", async () => {
-  state.firmwareUpdate.mockResolvedValue({ batchIdentifier: "batch-fw" });
-  renderMenu();
-  await openAction("Update firmware");
-  fireEvent.click(screen.getByRole("button", { name: "Confirm hashboard update" }));
-  await waitFor(() =>
-    expect(state.firmwareUpdate).toHaveBeenCalledWith({
-      firmwareFileId: "ct1-firmware",
-      deviceSelector: {
-        selectionType: { case: "includeDevices", value: { deviceIdentifiers: [container.deviceIdentifier] } },
-      },
-    }),
-  );
+describe("container firmware update", () => {
+  beforeEach(() => {
+    state.firmwareUpdate.mockReset();
+  });
+
+  it("queues firmware for exactly the selected container", async () => {
+    state.firmwareUpdate.mockResolvedValue({ batchIdentifier: "batch-fw" });
+    renderMenu();
+    await openAction("Update firmware");
+    fireEvent.click(screen.getByRole("button", { name: "Confirm hashboard update" }));
+    await waitFor(() =>
+      expect(state.firmwareUpdate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          firmwareFileId: "ct1-firmware",
+          deviceSelector: expect.objectContaining({
+            selectionType: {
+              case: "includeDevices",
+              value: expect.objectContaining({ deviceIdentifiers: [container.deviceIdentifier] }),
+            },
+          }),
+        }),
+      ),
+    );
+    await waitFor(() =>
+      expect(state.pushToast).toHaveBeenCalledWith(expect.objectContaining({ status: STATUSES.success })),
+    );
+  });
+
+  it("shows the server's message without the protocol code", async () => {
+    state.firmwareUpdate.mockImplementation(async () => {
+      throw new ConnectError("firmware targets another model", Code.FailedPrecondition);
+    });
+    renderMenu();
+    await openAction("Update firmware");
+    fireEvent.click(screen.getByRole("button", { name: "Confirm hashboard update" }));
+    await waitFor(() =>
+      expect(state.pushToast).toHaveBeenCalledWith({
+        message: "firmware targets another model",
+        status: STATUSES.error,
+      }),
+    );
+  });
+
+  it.each(["miner:firmware_update", "miner:reboot"])("is hidden without %s", async (permission) => {
+    state.permissions = state.permissions.filter((key) => key !== permission);
+    renderMenu();
+    fireEvent.click(screen.getByRole("button", { name: "Actions for Container 1" }));
+    await screen.findByRole("button", { name: "Unpair" });
+    expect(screen.queryByRole("button", { name: "Update firmware" })).not.toBeInTheDocument();
+  });
+
+  it("is hidden without miner:read", async () => {
+    state.permissions = state.permissions.filter((key) => key !== "miner:read");
+    renderMenu();
+    const menu = screen.queryByRole("button", { name: "Actions for Container 1" });
+    if (menu) fireEvent.click(menu);
+    expect(screen.queryByRole("button", { name: "Update firmware" })).not.toBeInTheDocument();
+  });
 });

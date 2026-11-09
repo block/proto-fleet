@@ -17,10 +17,13 @@ type ContainerHA struct {
 // are selectors; ReportedID is firmware identity evidence, not a Fleet miner ID.
 // Nil snapshots mean collection failed and must never erase a previous snapshot.
 type ContainerSnapshot struct {
-	// HashboardFirmwareVersion is populated only when every inventoried board
-	// reports the same version with fresh health. Empty withdraws convergence.
-	HashboardFirmwareVersion string       `json:"hashboard_firmware_version,omitempty"`
-	HA                       *ContainerHA `json:"ha,omitempty"`
+	// HashboardFirmwareVersion is populated only when complete inventory shows
+	// every board reporting the same version with fresh health.
+	HashboardFirmwareVersion string `json:"hashboard_firmware_version,omitempty"`
+	// HashboardFirmwareMixed reports that same complete, fresh evidence with
+	// differing versions. Neither field set means the version is unknown.
+	HashboardFirmwareMixed bool         `json:"hashboard_firmware_mixed,omitempty"`
+	HA                     *ContainerHA `json:"ha,omitempty"`
 	// UnlocatedHashboards retains inventory observations without physical placement.
 	// Position must be zero; readings contribute only to container totals after
 	// identity reconciliation. These observations never create installations.

@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { create } from "@bufbuild/protobuf";
 import ContainerActionDialog from "./ContainerActionDialog";
 import {
   CONTAINER_ACTIONS,
@@ -13,10 +14,14 @@ import MiningGroupsDialog from "./MiningGroupsDialog";
 import { isCurrentObservation } from "./moduleDetail";
 import { useMiningGroupState } from "./useMiningGroupState";
 import { useOpenContainerView } from "./useOpenContainerView";
-import { minerCommandClient } from "@/protoFleet/api/clients";
 import type { Container } from "@/protoFleet/api/generated/containers/v1/containers_pb";
+import { FirmwareUpdateRequestSchema } from "@/protoFleet/api/generated/minercommand/v1/command_pb";
+import { useMinerCommand } from "@/protoFleet/api/useMinerCommand";
 import { ACTION_PERMISSIONS } from "@/protoFleet/features/fleetManagement/components/MinerActionsMenu/actionPermissions";
-import { settingsActions } from "@/protoFleet/features/fleetManagement/components/MinerActionsMenu/constants";
+import {
+  deviceActions,
+  settingsActions,
+} from "@/protoFleet/features/fleetManagement/components/MinerActionsMenu/constants";
 import FirmwareUpdateModal from "@/protoFleet/features/fleetManagement/components/MinerActionsMenu/FirmwareUpdateModal";
 import { ConfigurationSelector } from "@/protoFleet/features/poolConfigurations/ConfigurationSelector";
 import { usePermissions } from "@/protoFleet/store";
@@ -39,8 +44,13 @@ export default function ContainerActionsMenu({
   onUnpaired?: (deviceIdentifier: string) => void;
 }) {
   const permissions = usePermissions();
+  const { firmwareUpdate } = useMinerCommand();
+  const hasActionPermissions = (action: keyof typeof ACTION_PERMISSIONS) => {
+    const required = ACTION_PERMISSIONS[action];
+    return (typeof required === "string" ? [required] : required).every((key) => permissions.includes(key));
+  };
   const [firmwareOpen, setFirmwareOpen] = useState(false);
-  const canUpdateFirmware = permissions.includes("miner:firmware_update") && permissions.includes("miner:reboot");
+  const canUpdateFirmware = permissions.includes("miner:read") && hasActionPermissions(deviceActions.firmwareUpdate);
   const [groupsOpen, setGroupsOpen] = useState(false);
   const [poolTarget, setPoolTarget] = useState<string>();
   const openContainerView = useOpenContainerView();
@@ -152,10 +162,7 @@ export default function ContainerActionsMenu({
           onClick: () => setFirmwareOpen(true),
         },
         ...unavailableSettings
-          .filter((entry) => {
-            const required = ACTION_PERMISSIONS[entry.action];
-            return (typeof required === "string" ? [required] : required).every((key) => permissions.includes(key));
-          })
+          .filter((entry) => hasActionPermissions(entry.action))
           .map((entry) => ({
             label: entry.label,
             icon: entry.icon,
@@ -207,32 +214,27 @@ export default function ContainerActionsMenu({
           onDismiss={() => setPoolTarget(undefined)}
         />
       ) : null}
-      {firmwareOpen && canUpdateFirmware && permissions.includes("miner:read") ? (
+      {firmwareOpen && canUpdateFirmware ? (
         <FirmwareUpdateModal
           open
           target={{ targetManufacturer: "Proto", targetModel: "CT1" }}
           onDismiss={() => setFirmwareOpen(false)}
           onConfirm={(firmwareFileId) => {
             setFirmwareOpen(false);
-            void minerCommandClient
-              .firmwareUpdate({
+            void firmwareUpdate({
+              firmwareUpdateRequest: create(FirmwareUpdateRequestSchema, {
                 firmwareFileId,
                 deviceSelector: {
                   selectionType: { case: "includeDevices", value: { deviceIdentifiers: [deviceIdentifier] } },
                 },
-              })
-              .then(() =>
+              }),
+              onSuccess: () =>
                 pushToast({
                   message: "Hashboard firmware update queued. Board progress is available in module details.",
                   status: STATUSES.success,
                 }),
-              )
-              .catch((error: unknown) =>
-                pushToast({
-                  message: error instanceof Error ? error.message : "Unable to queue firmware update.",
-                  status: STATUSES.error,
-                }),
-              );
+              onError: (message) => pushToast({ message, status: STATUSES.error }),
+            });
           }}
         />
       ) : null}

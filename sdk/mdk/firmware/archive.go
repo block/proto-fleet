@@ -81,8 +81,8 @@ func Read(filename, build string) (*Archive, error) {
 		return nil, fmt.Errorf("open hashboard release zip: %w", err)
 	}
 	defer z.Close()
-	result := &Archive{}
-	seen := map[string]bool{}
+	// Validate every declared size before decompressing any image.
+	var candidates []*zip.File
 	var total uint64
 	for _, f := range z.File {
 		if f.FileInfo().IsDir() || !strings.HasSuffix(f.Name, ".bin") || strings.Contains(f.Name, ".unsigned.") {
@@ -95,6 +95,11 @@ func Read(filename, build string) (*Archive, error) {
 			return nil, fmt.Errorf("firmware archive exceeds image or total size limits")
 		}
 		total += f.UncompressedSize64
+		candidates = append(candidates, f)
+	}
+	result := &Archive{}
+	seen := map[string]bool{}
+	for _, f := range candidates {
 		r, err := f.Open()
 		if err != nil {
 			return nil, err

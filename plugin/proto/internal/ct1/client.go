@@ -152,7 +152,7 @@ func (c *Client) Collect(ctx context.Context, id string) (sdk.DeviceMetrics, err
 	if err != nil {
 		return sdk.DeviceMetrics{}, err
 	}
-	topology.HashboardFirmwareVersion = observedHashboardFirmware(wire, observed)
+	topology.HashboardFirmwareVersion, topology.HashboardFirmwareMixed = observedHashboardFirmware(wire, topology, observed)
 	result := sdk.DeviceMetrics{DeviceID: id, Timestamp: observed, Container: topology, Health: sdk.HealthWarning}
 	if err := miningErr; err != nil {
 		slog.WarnContext(ctx, "CT1 mining totals unavailable", "device_id", id, "error", err)

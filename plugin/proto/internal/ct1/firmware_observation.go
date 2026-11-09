@@ -3,6 +3,7 @@ package ct1
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"sort"
 	"strings"
 	"time"
@@ -42,8 +43,15 @@ func observeFirmwareJobs(ctx context.Context, selected *controllerProbe) <-chan 
 	return result
 }
 
-func observedHashboardFirmware(wire *mdk.GetContainerMapResponse, now time.Time) string {
-	version := ""
+type firmwareBoard struct {
+	mac   string
+	board *mdk.Hashboard
+}
+
+// occupiedFirmwareBoards is the board set both firmware targeting and
+// convergence use, located or not. Missing or duplicate identities fail.
+func occupiedFirmwareBoards(wire *mdk.GetContainerMapResponse) ([]firmwareBoard, error) {
+	var boards []firmwareBoard
 	seen := map[string]bool{}
 	for _, tank := range wire.GetContainerMap().GetTanks() {
 		for _, module := range tank.GetModules() {
@@ -51,19 +59,60 @@ func observedHashboardFirmware(wire *mdk.GetContainerMapResponse, now time.Time)
 				if !slot.GetOccupied() {
 					continue
 				}
-				board := slot.GetHashboard()
-				mac := normalizedBoardMAC(board.GetMacAddress())
-				observed := sourceTime(board.GetHealth().GetTimestamp())
-				v := strings.TrimPrefix(strings.TrimSpace(board.GetFirmwareVersion()), "v")
-				if mac == "" || seen[mac] || v == "" || observed.IsZero() || now.Sub(observed) > healthMaxAge || observed.After(now.Add(clockSkewAllowance)) || version != "" && version != v {
-					return ""
+				mac := normalizedBoardMAC(slot.GetHashboard().GetMacAddress())
+				if mac == "" || seen[mac] {
+					return nil, fmt.Errorf("missing or duplicate firmware board identity")
 				}
 				seen[mac] = true
-				version = v
+				boards = append(boards, firmwareBoard{mac: mac, board: slot.GetHashboard()})
 			}
 		}
 	}
-	return version
+	return boards, nil
+}
+
+// locatedInventoryComplete reports whether every CT1 tank and module position
+// is reported. Unlocated switch_ports inventory never proves coverage.
+func locatedInventoryComplete(topology *sdk.ContainerSnapshot) bool {
+	if topology == nil || len(topology.Tanks) != sdk.CT1TankCount {
+		return false
+	}
+	for _, tank := range topology.Tanks {
+		if !tank.TopologyComplete {
+			return false
+		}
+	}
+	return true
+}
+
+func boardFirmwareVersion(board *mdk.Hashboard) string {
+	return strings.TrimPrefix(strings.TrimSpace(board.GetFirmwareVersion()), "v")
+}
+
+// observedHashboardFirmware returns the uniform board version, or reports
+// mixed versions, only from complete located inventory with fresh health.
+// Anything less leaves the version unknown.
+func observedHashboardFirmware(wire *mdk.GetContainerMapResponse, topology *sdk.ContainerSnapshot, now time.Time) (version string, mixed bool) {
+	boards, err := occupiedFirmwareBoards(wire)
+	if err != nil || len(boards) == 0 || !locatedInventoryComplete(topology) {
+		return "", false
+	}
+	for _, b := range boards {
+		observed := sourceTime(b.board.GetHealth().GetTimestamp())
+		v := boardFirmwareVersion(b.board)
+		if v == "" || observed.IsZero() || now.Sub(observed) > healthMaxAge || observed.After(now.Add(clockSkewAllowance)) {
+			return "", false
+		}
+		if version == "" {
+			version = v
+		} else if version != v {
+			mixed = true
+		}
+	}
+	if mixed {
+		return "", true
+	}
+	return version, false
 }
 
 // Attach the latest per-board job evidence to the existing diagnostic metadata

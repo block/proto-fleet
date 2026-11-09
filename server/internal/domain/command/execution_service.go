@@ -1681,6 +1681,16 @@ func (es *ExecutionService) doPollFirmwareInstall(ctx context.Context, minerInfo
 			}
 			return true, false, fleeterror.NewInternalErrorf("firmware install failed on device %d: %s", deviceID, errMsg)
 
+		case "failed":
+			// A self-managed updater already finished and restored its
+			// components. An immediate queue retry would flash them again;
+			// rollout pacing or the operator decides when to retry.
+			errMsg := "unknown error"
+			if status.Error != nil && *status.Error != "" {
+				errMsg = *status.Error
+			}
+			return true, false, fleeterror.NewFailedPreconditionErrorf("firmware update failed on device %d: %s", deviceID, errMsg)
+
 		default:
 			slog.Debug("unexpected firmware install state", "device_id", deviceID, "state", status.State)
 		}

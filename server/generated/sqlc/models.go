@@ -549,6 +549,7 @@ type ContainerInventory struct {
 	HashboardInventoryOrder    sql.NullInt64
 	HashboardInventoryComplete bool
 	HashboardFirmwareVersion   string
+	HashboardFirmwareMixed     bool
 }
 
 type ContainerLatestMetric struct {

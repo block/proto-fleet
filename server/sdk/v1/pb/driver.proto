@@ -596,7 +596,12 @@ message UpdateFirmwareRequest {
 
 // Response containing the current firmware installation status on a device.
 message GetFirmwareUpdateStatusResponse {
-  string state = 1;            // "current", "downloaded", "installing", "installed"
+  // "current", "downloading", "downloaded", "installing", "installed",
+  // "confirming", "success", or "error". Devices declaring
+  // firmware_self_managed report "completed" once the updater rebooted and
+  // verified every component, or "failed" once it finished with component
+  // failures; the server neither reboots nor automatically retries them.
+  string state = 1;
   optional int32 progress = 2; // Install progress percentage (0-100)
   optional string error = 3;   // Error message if installation failed
 }
@@ -831,8 +836,11 @@ message ContainerHA {
  bool degraded = 2;
 }
 message ContainerSnapshot {
- // Uniform, freshly observed hashboard version; empty means not converged.
+ // Uniform hashboard version from complete, fresh inventory.
  string hashboard_firmware_version = 10;
+ // Complete, fresh inventory with differing versions. Neither field set
+ // means the hashboard version is unknown.
+ bool hashboard_firmware_mixed = 11;
  ContainerHA ha = 9;
  // Inventory observations without physical placement; position must be zero.
  repeated ContainerHashboard unlocated_hashboards = 8;

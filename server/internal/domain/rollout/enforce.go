@@ -548,7 +548,7 @@ func (s *Service) recordConvergence(ctx context.Context, r sqlc.FirmwareRollout,
 			continue
 		}
 		if t.VerifiedAt.Valid {
-			if !t.reportsTarget(r) || t.LastDeployedFirmwareChecksum != r.FirmwareChecksum || t.foreignCommand {
+			if t.reportsOtherVersion(r) || t.LastDeployedFirmwareChecksum != r.FirmwareChecksum || t.foreignCommand {
 				drifted = append(drifted, t.DeviceID)
 			}
 		} else if t.meetsConvergence(r) {

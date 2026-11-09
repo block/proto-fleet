@@ -19,6 +19,7 @@ type Device struct {
 	clients         []*Client
 	writeMu         sync.Mutex
 	firmwareMu      sync.Mutex
+	firmwareBusy    bool
 	firmwareAttempt *firmwareAttempt
 }
 

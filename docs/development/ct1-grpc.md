@@ -176,24 +176,39 @@ ordinary polling reports the outage and the last HA observation becomes stale.
 
 CT1 advertises the firmware capability. Fleet sends one native
 `FirmwareService` job for the explicit set of occupied board MACs, including
-unlocated boards, using the selected prod, dev, or mfgtest build. Fleet owns
+unlocated boards, using the selected prod, dev, or mfgtest build. When some
+located tanks are reported, every tank and module position must be reported;
+a partial container map refuses the update, and the command retries. Fleet owns
 release-channel enforcement; it does not install a Frigate firmware policy.
 Normal channel enforcement can enqueue another update when newly adopted boards
 report a different version.
 
 The plugin extracts Fleet's selected ZIP, streams image metadata and 1 MiB
-chunks to `UploadFirmwareArtifact`, validates the returned image identities,
-and calls `StartFirmwareUpdate` once with a unique task ID. Frigate validates
+chunks to `UploadFirmwareArtifact` within a five-minute deadline, validates the
+returned image identities, and calls `StartFirmwareUpdate` once with a unique
+task ID. Only the start serializes with other container writes, so breaker,
+pool, and mining commands proceed during an upload. Frigate validates
 signatures and hardware compatibility, stops mining, flashes and verifies the
 boards, and restores mining intent. Force is enabled to support Fleet rollback.
-An uncertain start is not replayed on the peer.
 
-Completion requires every original target on every owning controller to report
-success or already-current, with all owner jobs terminal. Missing owners or
-targets cannot prove completion. Frigate has already handled board reboot, so
-the SDK's `completed` state does not trigger a CT1 controller reboot. Job IDs
-are retained in the live plugin handle; after a process restart, Fleet relies
-on fresh inventory and its existing rollout reconciliation.
+An uncertain start is not replayed: while its task is unfinished or its owners
+are unreachable, a new update is refused. A start that Frigate definitively
+rejects (for example, invalid scope or a board already updating) creates no job
+and releases the handle immediately. When no owning controller knows a recorded
+task, it never started and the handle is released.
+
+Completion (`completed`) requires every target on every owning controller to
+report success or already-current, with all owner jobs terminal. Missing owners
+or targets cannot prove completion. Once all owner jobs are terminal with any
+failure, the plugin reports `failed` with a failure summary bounded to the
+Fleet Node status limit. Frigate has already handled board reboot, so neither
+state triggers a CT1 controller reboot, and Fleet does not retry a `failed`
+update immediately; rollout re-send pacing or the operator decides when to
+retry. A later update of the same artifact on the same handle flashes only the
+boards that did not already finish it, so one failing board does not reflash
+the container. Job IDs and finished boards are retained in the live plugin
+handle; after a process restart, Fleet relies on fresh inventory and its
+existing rollout reconciliation, and the next update targets every board.
 
 Each poll reads local job lists from the verified controller endpoints and adds
 the latest task, owner, progress, and failure evidence to board diagnostics.
@@ -201,12 +216,17 @@ Fleet shows this in the existing hashboard details. Peer job visibility requires
 both controller addresses to have been discovered and paired. Job reads have a
 one-second budget and do not replace the required inventory read.
 
-The controller's software version remains independent. A separate inventory
-field reports hashboard firmware only when all occupied boards have the same
-version and fresh health timestamps. Mixed, missing, duplicate, or stale board
-evidence produces an unknown version. Release-channel convergence uses this
-field with a two-minute inventory freshness limit and existing artifact
-provenance checks.
+The controller's software version remains independent. Inventory reports a
+hashboard firmware version only when every CT1 tank and module position is
+reported and every occupied board, located or not, has the same version and
+fresh health. The same complete, fresh evidence with differing versions is
+reported as mixed. Anything less (missing, duplicate, or stale board evidence,
+a partial map, or only unlocated switch_ports inventory) leaves the version
+unknown. Release-channel convergence reads this observation within a
+two-minute freshness limit together with artifact provenance: a uniform version
+can verify a container, a mixed one is drift that enforcement corrects, and an
+unknown one neither verifies nor reopens a converged container, so it never
+triggers a reflash on its own.
 
 ## Collection and controls
 

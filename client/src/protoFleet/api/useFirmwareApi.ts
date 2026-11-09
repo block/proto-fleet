@@ -117,13 +117,13 @@ interface CheckFirmwareResponse {
   firmware_file_id?: string;
 }
 
-/** The client mirror of the server's upload metadata completeness rule. */
 export function isCT1FirmwareTarget(target: Partial<FirmwareMetadataInput>): boolean {
   return (
     target.targetManufacturer?.trim().toLowerCase() === "proto" && target.targetModel?.trim().toLowerCase() === "ct1"
   );
 }
 
+/** The client mirror of the server's upload metadata completeness rule. */
 export function hasCompleteFirmwareTarget(target: Partial<FirmwareMetadataInput>): boolean {
   if (isCT1FirmwareTarget(target) && !["prod", "dev", "mfgtest"].includes(target.hashboardBuild ?? "")) return false;
   return Boolean(target.targetManufacturer?.trim() && target.targetModel?.trim() && target.firmwareVersion?.trim());

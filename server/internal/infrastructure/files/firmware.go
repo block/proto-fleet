@@ -54,6 +54,9 @@ type FirmwareUploadSaveResult struct {
 	FirmwareFileID string
 	Reused         bool
 	Metadata       FirmwareMetadata
+	// Filename is the stored name of a new file, which can differ from the
+	// uploaded name for normalized CT1 archives.
+	Filename string
 }
 
 // FirmwareMetadataUpdateResult captures the metadata transition committed by
@@ -496,6 +499,7 @@ func (s *Service) SaveFirmwareUploadFromPath(filename string, srcPath string, ma
 	return FirmwareUploadSaveResult{
 		FirmwareFileID: fileID,
 		Metadata:       metadata,
+		Filename:       sanitizeFirmwareFilename(filename),
 	}, nil
 }
 

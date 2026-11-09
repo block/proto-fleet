@@ -16,6 +16,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/block/proto-fleet/sdk/mdk/firmware/firmwaretest"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
@@ -515,6 +516,34 @@ func TestUploadHandler_LogsNewFirmwareActivity(t *testing.T) {
 	h.ServeHTTP(rr, req)
 
 	assert.Equal(t, http.StatusOK, rr.Code)
+}
+
+func TestUploadHandler_LogsCT1HashboardBuildActivity(t *testing.T) {
+	env := newTestEnv(t)
+	env.expectAuth()
+	archivePath := firmwaretest.Archive(t, map[string][]byte{"dev.bin": firmwaretest.Image(t, "dev", "f1", 2)})
+	archive, err := os.ReadFile(archivePath)
+	require.NoError(t, err)
+	activityStore := storeMocks.NewMockActivityStore(env.ctrl)
+	activityStore.EXPECT().Insert(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, event *activityModels.Event) error {
+			assert.Equal(t, "hashboard-firmware-2.0.0.zip", event.Metadata["filename"])
+			assert.Equal(t, "hashboard-firmware-2.0.0-dev.zip", event.Metadata["stored_filename"])
+			assert.Equal(t, "dev", event.Metadata["hashboard_build"])
+			assert.Equal(t, "2.0.0", event.Metadata["firmware_version"])
+			return nil
+		},
+	)
+	h := env.uploadHandler()
+	h.activitySvc = activityDomain.NewService(activityStore)
+	req := createMultipartRequestWithFields(t, "hashboard-firmware-2.0.0.zip", archive, validSessionCookie(env.sessionID), map[string]string{
+		"target_manufacturer": "Proto", "target_model": "CT1", "firmware_version": "v2.0.0", "hashboard_build": "dev",
+	})
+	rr := httptest.NewRecorder()
+
+	h.ServeHTTP(rr, req)
+
+	assert.Equal(t, http.StatusOK, rr.Code, rr.Body.String())
 }
 
 func TestUploadHandler_SuccessfulUploadTarGz(t *testing.T) {

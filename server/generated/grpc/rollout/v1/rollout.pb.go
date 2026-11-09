@@ -1636,7 +1636,8 @@ type ReleaseChannelMiner struct {
 	DeviceIdentifier string                 `protobuf:"bytes,2,opt,name=device_identifier,json=deviceIdentifier,proto3" json:"device_identifier,omitempty"`
 	Manufacturer     string                 `protobuf:"bytes,3,opt,name=manufacturer,proto3" json:"manufacturer,omitempty"`
 	Model            string                 `protobuf:"bytes,4,opt,name=model,proto3" json:"model,omitempty"`
-	// Firmware version the miner currently reports.
+	// Version under the RolloutService reported-version rule; empty when
+	// unknown or, for a container, mixed.
 	FirmwareVersion string `protobuf:"bytes,5,opt,name=firmware_version,json=firmwareVersion,proto3" json:"firmware_version,omitempty"`
 	// Set when the miner belongs to this channel but also matches another under
 	// the RolloutService membership rule. Query all matching relations with
@@ -2922,7 +2923,8 @@ type RolloutDevice struct {
 	DeviceId         int64                  `protobuf:"varint,1,opt,name=device_id,json=deviceId,proto3" json:"device_id,omitempty"`
 	DeviceIdentifier string                 `protobuf:"bytes,2,opt,name=device_identifier,json=deviceIdentifier,proto3" json:"device_identifier,omitempty"`
 	IpAddress        string                 `protobuf:"bytes,3,opt,name=ip_address,json=ipAddress,proto3" json:"ip_address,omitempty"`
-	// Firmware version the miner currently reports.
+	// Version under the RolloutService reported-version rule; empty when
+	// unknown or, for a container, mixed.
 	FirmwareVersion string             `protobuf:"bytes,4,opt,name=firmware_version,json=firmwareVersion,proto3" json:"firmware_version,omitempty"`
 	Phase           RolloutDevicePhase `protobuf:"varint,5,opt,name=phase,proto3,enum=rollout.v1.RolloutDevicePhase" json:"phase,omitempty"`
 	// 1-based batch the miner was snapshotted into; 0 when it is not part of
@@ -4742,7 +4744,9 @@ type ReleaseChannelFirmwarePlan struct {
 	// Members that would be targeted (mismatched under the RolloutService
 	// mismatch rule).
 	TargetCount int32 `protobuf:"varint,5,opt,name=target_count,json=targetCount,proto3" json:"target_count,omitempty"`
-	// Members already matching the assignment.
+	// Members already matching the assignment. A member whose version is
+	// unknown under the reported-version rule, with matching provenance, is in
+	// neither count.
 	OnTargetCount int32 `protobuf:"varint,6,opt,name=on_target_count,json=onTargetCount,proto3" json:"on_target_count,omitempty"`
 	// Batches the rollout would snapshot; 0 for all-at-once and DELEGATED.
 	BatchCount int32 `protobuf:"varint,7,opt,name=batch_count,json=batchCount,proto3" json:"batch_count,omitempty"`
