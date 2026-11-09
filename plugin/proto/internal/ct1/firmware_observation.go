@@ -94,11 +94,6 @@ func boardHealthFresh(board *mdk.Hashboard, now time.Time) bool {
 	return !observed.IsZero() && now.Sub(observed) <= healthMaxAge && !observed.After(now.Add(clockSkewAllowance))
 }
 
-// boardReportsFirmware reports fresh evidence that a board runs version.
-func boardReportsFirmware(board *mdk.Hashboard, version string, now time.Time) bool {
-	return boardFirmwareVersion(board) == version && boardHealthFresh(board, now)
-}
-
 // observedHashboardFirmware returns the uniform board version, or reports
 // mixed versions, only from complete located inventory with fresh health.
 // Anything less leaves the version unknown.

@@ -2,11 +2,9 @@ package ct1
 
 import (
 	"context"
-	"crypto/sha256"
 	"errors"
 	"fmt"
 	"io"
-	"maps"
 	"net"
 	"os"
 	"sort"
@@ -80,17 +78,8 @@ func firmwareContainerIdentity(info sdk.DeviceInfo) string {
 }
 
 type firmwareAttempt struct {
-	taskID   string
-	artifact string
-	owners   map[string][]string
-	// updated holds boards an earlier attempt for the same artifact finished
-	// that still report its version. A retry flashes only the rest.
-	updated map[string]bool
-}
-
-type firmwareAttemptResult struct {
-	status  *sdk.FirmwareUpdateStatus
-	updated map[string]bool
+	taskID string
+	owners map[string][]string
 }
 
 var _ sdk.FirmwareUpdateStatusProvider = (*Device)(nil)
@@ -119,13 +108,9 @@ func (d *Device) FirmwareUpdate(ctx context.Context, file sdk.FirmwareFile) erro
 	if err != nil {
 		return sdk.WriteRefused(err, sdk.WriteStageConfigurationRead, sdk.WriteReasonReadFailed)
 	}
-	attempt, macs, err := planFirmwareAttempt(wire, c.memberID, archive, previous, time.Now().UTC())
+	attempt, macs, err := planFirmwareAttempt(wire, c.memberID)
 	if err != nil {
 		return err
-	}
-	if len(macs) == 0 {
-		d.setFirmwareAttempt(attempt)
-		return nil
 	}
 	uploadCtx, cancel := context.WithTimeout(ctx, firmwareUploadTimeout)
 	artifact, err := uploadFirmware(uploadCtx, c, archive, file.Filename)
@@ -209,25 +194,23 @@ func (d *Device) setFirmwareAttempt(attempt *firmwareAttempt) {
 }
 
 // settledFirmwareAttempt returns the container's previous attempt once it is
-// terminal, with every board it finished. An unfinished or unreadable attempt
-// refuses a new start because it may still change the boards.
+// terminal. An unfinished or unreadable attempt refuses a new start because it
+// may still change the boards.
 func (d *Device) settledFirmwareAttempt(ctx context.Context) (*firmwareAttempt, error) {
 	previous := d.currentFirmwareAttempt()
 	if previous == nil {
 		return nil, nil
 	}
-	result, err := d.firmwareAttemptStatus(ctx, previous)
+	current, err := d.firmwareAttemptStatus(ctx, previous)
 	if errors.Is(err, errFirmwareTaskNotFound) {
 		// The start never took effect, or its finished job is no longer retained.
 		d.setFirmwareAttempt(nil)
 		return nil, nil
 	}
-	if err != nil || (result.status.State != firmwareStateCompleted && result.status.State != firmwareStateFailed) {
+	if err != nil || (current.State != firmwareStateCompleted && current.State != firmwareStateFailed) {
 		return nil, sdk.WithWriteOutcome(fmt.Errorf("previous CT1 firmware job is unfinished or unavailable"), sdk.WriteUnknown, sdk.WriteStageDispatch, sdk.WriteReasonTransportFailed)
 	}
-	settled := *previous
-	settled.updated = result.updated
-	return &settled, nil
+	return previous, nil
 }
 
 // stageFirmwareArchive works from the pinned reader, never an unverified path
@@ -253,22 +236,11 @@ func stageFirmwareArchive(reader io.Reader) (*hbfirmware.Archive, error) {
 	return archive, nil
 }
 
-// archiveIdentity names the selected images, independent of the archive's
-// container bytes.
-func archiveIdentity(archive *hbfirmware.Archive) string {
-	digest := sha256.New()
-	_, _ = fmt.Fprintf(digest, "%s\n%s\n", archive.Build, archive.Version)
-	for _, image := range archive.Images {
-		_, _ = fmt.Fprintf(digest, "%s:%s\n", image.Name, image.SHA256())
-	}
-	return fmt.Sprintf("%x", digest.Sum(nil))
-}
-
-// planFirmwareAttempt targets every occupied board, except boards an earlier
-// attempt for the same artifact finished that freshly report its version; a
-// board that drifted since is targeted again. Partial located inventory
-// refuses the update so omitted boards cannot be reported as updated.
-func planFirmwareAttempt(wire *mdk.GetContainerMapResponse, memberID string, archive *hbfirmware.Archive, previous *firmwareAttempt, now time.Time) (*firmwareAttempt, []string, error) {
+// planFirmwareAttempt targets every occupied board. Boards report a version
+// but not their installed build, so earlier success cannot prove a board
+// still runs the artifact. Partial located inventory refuses the update so
+// omitted boards cannot be reported as updated.
+func planFirmwareAttempt(wire *mdk.GetContainerMapResponse, memberID string) (*firmwareAttempt, []string, error) {
 	boards, err := occupiedFirmwareBoards(wire)
 	if err != nil {
 		return nil, nil, sdk.InvalidWriteRequest(err)
@@ -283,15 +255,9 @@ func planFirmwareAttempt(wire *mdk.GetContainerMapResponse, memberID string, arc
 	if len(topology.Tanks) > 0 && !locatedInventoryComplete(topology) {
 		return nil, nil, sdk.WriteRefused(fmt.Errorf("CT1 container map is incomplete; retry when every tank and module is reported"), sdk.WriteStageConfigurationRead, sdk.WriteReasonReadFailed)
 	}
-	artifact := archiveIdentity(archive)
-	attempt := &firmwareAttempt{taskID: uuid.NewString(), artifact: artifact, owners: map[string][]string{}, updated: map[string]bool{}}
-	sameArtifact := previous != nil && previous.artifact == artifact
+	attempt := &firmwareAttempt{taskID: uuid.NewString(), owners: map[string][]string{}}
 	var macs []string
 	for _, b := range boards {
-		if sameArtifact && previous.updated[b.mac] && boardReportsFirmware(b.board, archive.Version, now) {
-			attempt.updated[b.mac] = true
-			continue
-		}
 		owner := b.board.GetOwnerServerId()
 		if owner == "" {
 			owner = memberID
@@ -358,11 +324,7 @@ func (d *Device) GetFirmwareUpdateStatus(ctx context.Context) (*sdk.FirmwareUpda
 	if attempt == nil {
 		return nil, fmt.Errorf("no CT1 firmware job is associated with this device handle")
 	}
-	result, err := d.firmwareAttemptStatus(ctx, attempt)
-	if err != nil {
-		return nil, err
-	}
-	return result.status, nil
+	return d.firmwareAttemptStatus(ctx, attempt)
 }
 
 // firmwareAttemptStatus reports "completed" only when every target on every
@@ -370,20 +332,12 @@ func (d *Device) GetFirmwareUpdateStatus(ctx context.Context) (*sdk.FirmwareUpda
 // existing owner job is terminal with any failure, including owners that no
 // longer know the task. Frigate restores boards either way, so Fleet
 // never reboots CT1.
-func (d *Device) firmwareAttemptStatus(ctx context.Context, attempt *firmwareAttempt) (firmwareAttemptResult, error) {
-	updated := maps.Clone(attempt.updated)
-	if updated == nil {
-		updated = map[string]bool{}
-	}
-	if len(attempt.owners) == 0 {
-		progress := 100
-		return firmwareAttemptResult{status: &sdk.FirmwareUpdateStatus{State: firmwareStateCompleted, Progress: &progress}, updated: updated}, nil
-	}
+func (d *Device) firmwareAttemptStatus(ctx context.Context, attempt *firmwareAttempt) (*sdk.FirmwareUpdateStatus, error) {
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	c, err := d.selectClient(ctx, false)
 	if err != nil {
-		return firmwareAttemptResult{}, err
+		return nil, err
 	}
 	finished, expected, missing := 0, 0, 0
 	var failures []string
@@ -399,14 +353,14 @@ func (d *Device) firmwareAttemptStatus(ctx context.Context, attempt *firmwareAtt
 			continue
 		}
 		if err != nil {
-			return firmwareAttemptResult{}, err
+			return nil, err
 		}
 		job := response.GetUpdate()
 		if job.GetStatus() != mdk.FirmwareUpdateStatus_FIRMWARE_UPDATE_STATUS_COMPLETED && !firmwareJobFailed(job.GetStatus()) {
 			allTerminal = false
 		}
 		if job.GetTaskId() != attempt.taskID || owner != "" && job.GetServerId() != owner {
-			return firmwareAttemptResult{}, fmt.Errorf("firmware job identity mismatch")
+			return nil, fmt.Errorf("firmware job identity mismatch")
 		}
 		if firmwareJobFailed(job.Status) {
 			failures = append(failures, fmt.Sprintf("controller %s: %s %s", owner, job.Status, job.Error))
@@ -418,12 +372,11 @@ func (d *Device) firmwareAttemptStatus(ctx context.Context, attempt *firmwareAtt
 		for _, mac := range macs {
 			board := boards[mac]
 			if board == nil {
-				return firmwareAttemptResult{}, fmt.Errorf("firmware job missing hashboard %s on %s", mac, owner)
+				return nil, fmt.Errorf("firmware job missing hashboard %s on %s", mac, owner)
 			}
 			switch board.Status {
 			case mdk.FirmwareTargetStatus_FIRMWARE_TARGET_STATUS_SUCCEEDED, mdk.FirmwareTargetStatus_FIRMWARE_TARGET_STATUS_SKIPPED_UP_TO_DATE:
 				finished++
-				updated[mac] = true
 			case mdk.FirmwareTargetStatus_FIRMWARE_TARGET_STATUS_FAILED:
 				failures = append(failures, fmt.Sprintf("%s (%s): %s %s", mac, owner, board.Reason, board.Message))
 			case mdk.FirmwareTargetStatus_FIRMWARE_TARGET_STATUS_UNSPECIFIED,
@@ -439,7 +392,7 @@ func (d *Device) firmwareAttemptStatus(ctx context.Context, attempt *firmwareAtt
 		}
 	}
 	if missing == len(attempt.owners) {
-		return firmwareAttemptResult{}, errFirmwareTaskNotFound
+		return nil, errFirmwareTaskNotFound
 	}
 	progress := finished * 100 / expected
 	result := &sdk.FirmwareUpdateStatus{State: firmwareStateInstalling, Progress: &progress}
@@ -449,7 +402,7 @@ func (d *Device) firmwareAttemptStatus(ctx context.Context, attempt *firmwareAtt
 	} else if finished == expected && allTerminal {
 		result.State = firmwareStateCompleted
 	}
-	return firmwareAttemptResult{status: result, updated: updated}, nil
+	return result, nil
 }
 
 // firmwareFailureMessage keeps every failure it can within the status error

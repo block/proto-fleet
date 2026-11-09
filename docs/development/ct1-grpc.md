@@ -205,13 +205,13 @@ owner job is terminal with any failure, the plugin reports `failed` with a failu
 Fleet Node status limit. Frigate has already handled board reboot, so neither
 state triggers a CT1 controller reboot, and Fleet does not retry a `failed`
 update immediately; rollout re-send pacing or the operator decides when to
-retry. A later update of the same artifact skips boards that already finished
-it and still freshly report its version, so one failing board does not reflash
-the container, while a board that drifted since is updated again. The plugin
-process retains job IDs, owners, and finished boards per container, shared by
-every handle for it, including Fleet Node's per-command handles. After a
-process restart, Fleet relies on fresh inventory and its existing rollout
-reconciliation, and the next update targets every board.
+retry. Every update targets every occupied board: boards report a version but
+not their installed build, so an earlier success cannot prove a board still
+runs the artifact. Repeated work stays bounded because a `failed` update is not
+retried immediately and rollouts re-send at most three times. The plugin
+process retains the task and its owners per container, shared by every handle
+for it, including Fleet Node's per-command handles. After a process restart,
+Fleet relies on fresh inventory and its existing rollout reconciliation.
 
 Each poll reads local job lists from the verified controller endpoints and adds
 the latest task, owner, progress, and failure evidence to board diagnostics.

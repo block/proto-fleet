@@ -388,23 +388,9 @@ func newHandle(dev *Device) *Device {
 	return &Device{id: "command-handle", info: dev.info, clients: dev.clients}
 }
 
-func (f *fakeFirmwareController) setBoard(mac string, change func(*mdk.Hashboard)) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	for _, tank := range f.wire.GetContainerMap().GetTanks() {
-		for _, module := range tank.GetModules() {
-			for _, slot := range module.GetSlots() {
-				if normalizedBoardMAC(slot.GetHashboard().GetMacAddress()) == mac {
-					change(slot.Hashboard)
-				}
-			}
-		}
-	}
-}
-
-func firmwareFile(t *testing.T, build string) sdk.FirmwareFile {
+func firmwareFile(t *testing.T) sdk.FirmwareFile {
 	t.Helper()
-	archive := firmwaretest.Archive(t, map[string][]byte{"board.bin": firmwaretest.Image(t, build, "f1", 2)})
+	archive := firmwaretest.Archive(t, map[string][]byte{"board.bin": firmwaretest.Image(t, "prod", "f1", 2)})
 	f, err := os.Open(archive)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = f.Close() })
@@ -427,7 +413,7 @@ func TestFirmwareUpdateTargetsEveryOwner(t *testing.T) {
 		}
 	}
 	dev, controller := newFirmwareDevice(t, wire)
-	require.NoError(t, dev.FirmwareUpdate(t.Context(), firmwareFile(t, "prod")))
+	require.NoError(t, dev.FirmwareUpdate(t.Context(), firmwareFile(t)))
 	require.Len(t, controller.starts[0].Scope.Identifiers, sdk.CT1TankCount*sdk.CT1ModulesPerTank*sdk.CT1HashboardsPerModule)
 	require.Equal(t, "prod", controller.starts[0].Options.Build)
 	require.ElementsMatch(t, []string{"peer", "self"}, func() []string {
@@ -463,41 +449,42 @@ func TestFirmwareMissingOwnerJobIsTerminal(t *testing.T) {
 	t.Run("record lost after completion", func(t *testing.T) {
 		wire, peer := splitOwnerMap()
 		dev, controller := newFirmwareDevice(t, wire)
-		require.NoError(t, dev.FirmwareUpdate(t.Context(), firmwareFile(t, "prod")))
+		require.NoError(t, dev.FirmwareUpdate(t.Context(), firmwareFile(t)))
 		controller.finish()
 		controller.dropJob("peer")
 		result, err := dev.GetFirmwareUpdateStatus(t.Context())
 		require.NoError(t, err)
 		require.Equal(t, "failed", result.State)
 		require.Contains(t, *result.Error, "controller peer: firmware task not found")
-		require.NoError(t, dev.FirmwareUpdate(t.Context(), firmwareFile(t, "prod")))
-		require.ElementsMatch(t, peer, controller.starts[1].Scope.Identifiers, "boards confirmed by the other owner are kept")
+		require.NoError(t, dev.FirmwareUpdate(t.Context(), firmwareFile(t)))
+		require.Len(t, controller.starts[1].Scope.Identifiers, sdk.CT1TankCount*sdk.CT1ModulesPerTank*sdk.CT1HashboardsPerModule)
+		require.Subset(t, controller.starts[1].Scope.Identifiers, peer)
 	})
 	t.Run("job created on one owner", func(t *testing.T) {
 		wire, peer := splitOwnerMap()
 		dev, controller := newFirmwareDevice(t, wire)
 		controller.skipOwners = map[string]bool{"peer": true}
-		require.NoError(t, dev.FirmwareUpdate(t.Context(), firmwareFile(t, "prod")))
+		require.NoError(t, dev.FirmwareUpdate(t.Context(), firmwareFile(t)))
 		result, err := dev.GetFirmwareUpdateStatus(t.Context())
 		require.NoError(t, err)
 		require.Equal(t, "installing", result.State)
-		requireWriteOutcome(t, dev.FirmwareUpdate(t.Context(), firmwareFile(t, "prod")), sdk.WriteUnknown)
+		requireWriteOutcome(t, dev.FirmwareUpdate(t.Context(), firmwareFile(t)), sdk.WriteUnknown)
 		controller.finish()
 		result, err = dev.GetFirmwareUpdateStatus(t.Context())
 		require.NoError(t, err)
 		require.Equal(t, "failed", result.State)
 		controller.skipOwners = nil
-		require.NoError(t, dev.FirmwareUpdate(t.Context(), firmwareFile(t, "prod")))
-		require.ElementsMatch(t, peer, controller.starts[1].Scope.Identifiers)
+		require.NoError(t, dev.FirmwareUpdate(t.Context(), firmwareFile(t)))
+		require.Subset(t, controller.starts[1].Scope.Identifiers, peer)
 	})
 }
 
 func TestFirmwareStartRefusalReleasesReplayGuard(t *testing.T) {
 	dev, controller := newFirmwareDevice(t, firmwareContainerMap(time.Now()))
 	controller.startResults = []fakeStart{{err: status.Error(codes.FailedPrecondition, "hashboard update already running")}}
-	requireWriteOutcome(t, dev.FirmwareUpdate(t.Context(), firmwareFile(t, "prod")), sdk.WriteNotDispatched)
+	requireWriteOutcome(t, dev.FirmwareUpdate(t.Context(), firmwareFile(t)), sdk.WriteNotDispatched)
 	require.Nil(t, dev.currentFirmwareAttempt())
-	require.NoError(t, dev.FirmwareUpdate(t.Context(), firmwareFile(t, "prod")))
+	require.NoError(t, dev.FirmwareUpdate(t.Context(), firmwareFile(t)))
 	require.Len(t, controller.starts, 2)
 	require.NotEqual(t, controller.starts[0].TaskId, controller.starts[1].TaskId)
 }
@@ -506,63 +493,53 @@ func TestFirmwareUncertainStartIsNeverReplayed(t *testing.T) {
 	t.Run("job created", func(t *testing.T) {
 		dev, controller := newFirmwareDevice(t, firmwareContainerMap(time.Now()))
 		controller.startResults = []fakeStart{{create: true, err: status.Error(codes.Unavailable, "response lost")}}
-		requireWriteOutcome(t, dev.FirmwareUpdate(t.Context(), firmwareFile(t, "prod")), sdk.WriteUnknown)
-		requireWriteOutcome(t, dev.FirmwareUpdate(t.Context(), firmwareFile(t, "prod")), sdk.WriteUnknown)
+		requireWriteOutcome(t, dev.FirmwareUpdate(t.Context(), firmwareFile(t)), sdk.WriteUnknown)
+		requireWriteOutcome(t, dev.FirmwareUpdate(t.Context(), firmwareFile(t)), sdk.WriteUnknown)
 		require.Equal(t, 1, controller.uploadCount(), "a running job blocks a second upload")
 		require.Equal(t, 1, controller.startCount())
 	})
 	t.Run("job never created", func(t *testing.T) {
 		dev, controller := newFirmwareDevice(t, firmwareContainerMap(time.Now()))
 		controller.startResults = []fakeStart{{err: status.Error(codes.Unavailable, "connection reset")}}
-		requireWriteOutcome(t, dev.FirmwareUpdate(t.Context(), firmwareFile(t, "prod")), sdk.WriteUnknown)
-		require.NoError(t, dev.FirmwareUpdate(t.Context(), firmwareFile(t, "prod")), "no owner knows the task, so it never started")
+		requireWriteOutcome(t, dev.FirmwareUpdate(t.Context(), firmwareFile(t)), sdk.WriteUnknown)
+		require.NoError(t, dev.FirmwareUpdate(t.Context(), firmwareFile(t)), "no owner knows the task, so it never started")
 		require.Equal(t, 2, controller.startCount())
 	})
 }
 
-func TestFirmwareRetryFlashesOnlyUnfinishedBoards(t *testing.T) {
+func TestFirmwareRequestsFlashEveryBoard(t *testing.T) {
+	all := sdk.CT1TankCount * sdk.CT1ModulesPerTank * sdk.CT1HashboardsPerModule
 	dev, controller := newFirmwareDevice(t, firmwareContainerMap(time.Now()))
 	failed := boardMAC(2, 3, 1)
-	require.NoError(t, dev.FirmwareUpdate(t.Context(), firmwareFile(t, "prod")))
+	require.NoError(t, dev.FirmwareUpdate(t.Context(), firmwareFile(t)))
 	controller.finish(failed)
 	result, err := dev.GetFirmwareUpdateStatus(t.Context())
 	require.NoError(t, err)
 	require.Equal(t, "failed", result.State)
 	require.Contains(t, *result.Error, failed)
 
-	require.NoError(t, dev.FirmwareUpdate(t.Context(), firmwareFile(t, "prod")))
-	require.Equal(t, []string{failed}, controller.starts[1].Scope.Identifiers)
+	require.NoError(t, dev.FirmwareUpdate(t.Context(), firmwareFile(t)))
+	require.Len(t, controller.starts[1].Scope.Identifiers, all, "earlier success cannot prove a board still runs the artifact")
 	controller.finish()
 	result, err = dev.GetFirmwareUpdateStatus(t.Context())
 	require.NoError(t, err)
 	require.Equal(t, "completed", result.State)
 
-	require.NoError(t, dev.FirmwareUpdate(t.Context(), firmwareFile(t, "prod")))
-	require.Equal(t, 2, controller.startCount(), "every board already has this artifact")
-	require.Equal(t, 2, controller.uploadCount())
-	result, err = dev.GetFirmwareUpdateStatus(t.Context())
-	require.NoError(t, err)
-	require.Equal(t, "completed", result.State)
-
-	drifted, stale := boardMAC(4, 5, 2), boardMAC(6, 1, 3)
-	controller.setBoard(drifted, func(b *mdk.Hashboard) { b.FirmwareVersion = "v1.0.0" })
-	controller.setBoard(stale, func(b *mdk.Hashboard) { b.Health.Timestamp = timestamppb.New(time.Now().Add(-time.Hour)) })
-	require.NoError(t, dev.FirmwareUpdate(t.Context(), firmwareFile(t, "prod")))
-	require.ElementsMatch(t, []string{drifted, stale}, controller.starts[2].Scope.Identifiers, "boards no longer proven on the artifact are corrected")
-	controller.finish()
-
-	require.NoError(t, dev.FirmwareUpdate(t.Context(), firmwareFile(t, "dev")))
-	require.Len(t, controller.starts[3].Scope.Identifiers, sdk.CT1TankCount*sdk.CT1ModulesPerTank*sdk.CT1HashboardsPerModule, "a different build flashes every board")
+	// Boards that report the artifact's version may run another build of it,
+	// installed outside Fleet, so reapplying the artifact reinstalls it.
+	require.NoError(t, dev.FirmwareUpdate(t.Context(), firmwareFile(t)))
+	require.Len(t, controller.starts[2].Scope.Identifiers, all)
+	require.Equal(t, 3, controller.uploadCount())
 }
 
 func TestFirmwareAttemptOutlivesCommandHandle(t *testing.T) {
 	dev, controller := newFirmwareDevice(t, firmwareContainerMap(time.Now()))
-	require.NoError(t, dev.FirmwareUpdate(t.Context(), firmwareFile(t, "prod")))
+	require.NoError(t, dev.FirmwareUpdate(t.Context(), firmwareFile(t)))
 	poller := newHandle(dev)
 	result, err := poller.GetFirmwareUpdateStatus(t.Context())
 	require.NoError(t, err)
 	require.Equal(t, "installing", result.State)
-	requireWriteOutcome(t, newHandle(dev).FirmwareUpdate(t.Context(), firmwareFile(t, "prod")), sdk.WriteUnknown)
+	requireWriteOutcome(t, newHandle(dev).FirmwareUpdate(t.Context(), firmwareFile(t)), sdk.WriteUnknown)
 	require.Equal(t, 1, controller.startCount(), "another handle cannot replay the running job")
 	controller.finish()
 	result, err = poller.GetFirmwareUpdateStatus(t.Context())
@@ -584,7 +561,7 @@ func TestFirmwareUpdateRefusesIncompleteMap(t *testing.T) {
 	wire := firmwareContainerMap(time.Now())
 	wire.ContainerMap.Tanks[4].Modules = wire.ContainerMap.Tanks[4].Modules[:10]
 	dev, controller := newFirmwareDevice(t, wire)
-	requireWriteOutcome(t, dev.FirmwareUpdate(t.Context(), firmwareFile(t, "prod")), sdk.WriteNotDispatched)
+	requireWriteOutcome(t, dev.FirmwareUpdate(t.Context(), firmwareFile(t)), sdk.WriteNotDispatched)
 	require.Zero(t, controller.uploadCount())
 	require.Nil(t, dev.currentFirmwareAttempt())
 }
@@ -592,7 +569,7 @@ func TestFirmwareUpdateRefusesIncompleteMap(t *testing.T) {
 func TestFirmwareUploadRejectsUnconfirmedImages(t *testing.T) {
 	dev, controller := newFirmwareDevice(t, firmwareContainerMap(time.Now()))
 	controller.corruptUpload = true
-	err := dev.FirmwareUpdate(t.Context(), firmwareFile(t, "prod"))
+	err := dev.FirmwareUpdate(t.Context(), firmwareFile(t))
 	requireWriteOutcome(t, err, sdk.WriteNotDispatched)
 	require.ErrorContains(t, err, "different firmware image metadata")
 	require.Zero(t, controller.startCount())
@@ -602,12 +579,12 @@ func TestFirmwareUploadDoesNotHoldWriteLock(t *testing.T) {
 	dev, controller := newFirmwareDevice(t, firmwareContainerMap(time.Now()))
 	controller.uploadStarted, controller.uploadGate = make(chan struct{}), make(chan struct{})
 	done := make(chan error, 1)
-	file := firmwareFile(t, "prod")
+	file := firmwareFile(t)
 	go func() { done <- dev.FirmwareUpdate(t.Context(), file) }()
 	<-controller.uploadStarted
 	require.True(t, dev.writeMu.TryLock(), "other container writes proceed during the upload")
 	dev.writeMu.Unlock()
-	requireWriteOutcome(t, dev.FirmwareUpdate(t.Context(), firmwareFile(t, "prod")), sdk.WriteNotDispatched)
+	requireWriteOutcome(t, dev.FirmwareUpdate(t.Context(), firmwareFile(t)), sdk.WriteNotDispatched)
 	close(controller.uploadGate)
 	require.NoError(t, <-done)
 	require.Equal(t, 1, controller.startCount())
