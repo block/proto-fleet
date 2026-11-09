@@ -42,7 +42,8 @@ var errFirmwareTaskNotFound = errors.New("no owning CT1 controller knows the fir
 
 // firmwareState is shared by every handle for one container: Fleet Node opens
 // a new handle for each command, so an attempt must outlive the handle that
-// started it. State is lost when the plugin process restarts.
+// started it. State is lost when the plugin process restarts; a retried
+// command then finds its job by the task ID derived from its request ID.
 type firmwareState struct {
 	mu      sync.Mutex
 	busy    bool
@@ -103,10 +104,6 @@ func (d *Device) FirmwareUpdate(ctx context.Context, file sdk.FirmwareFile) erro
 	if err != nil {
 		return err
 	}
-	archive, err := stageFirmwareArchive(file.Reader)
-	if err != nil {
-		return err
-	}
 	c, err := d.selectClient(ctx, true)
 	if err != nil {
 		return sdk.WriteRefused(err, sdk.WriteStageBackendSelection, sdk.WriteReasonTransportFailed)
@@ -115,14 +112,28 @@ func (d *Device) FirmwareUpdate(ctx context.Context, file sdk.FirmwareFile) erro
 	if err != nil {
 		return sdk.WriteRefused(err, sdk.WriteStageConfigurationRead, sdk.WriteReasonReadFailed)
 	}
-	attempt, macs, err := planFirmwareAttempt(wire, c.memberID)
+	attempt, macs, err := planFirmwareAttempt(wire, c.memberID, file.RequestID)
 	if err != nil {
 		return err
 	}
-	attempt.requestID = file.RequestID
+	if file.RequestID != "" {
+		started, err := firmwareTaskStarted(ctx, c, attempt)
+		if err != nil {
+			return sdk.WriteRefused(fmt.Errorf("check for this command's CT1 firmware job: %w", err), sdk.WriteStageConfigurationRead, sdk.WriteReasonReadFailed)
+		}
+		if started {
+			d.setFirmwareAttempt(attempt)
+			return nil
+		}
+	}
+	archive, err := stageFirmwareArchive(ctx, file.Reader)
+	if err != nil {
+		return err
+	}
 	uploadCtx, cancel := context.WithTimeout(ctx, firmwareUploadTimeout)
 	artifact, err := uploadFirmware(uploadCtx, c, archive, file.Filename)
 	cancel()
+	archive.Release()
 	if err != nil {
 		return sdk.WriteRefused(err, sdk.WriteStageConfigurationWrite, sdk.WriteReasonTransportFailed)
 	}
@@ -146,8 +157,8 @@ func (d *Device) FirmwareUpdate(ctx context.Context, file sdk.FirmwareFile) erro
 	return sdk.WithWriteOutcome(fmt.Errorf("CT1 firmware start outcome unconfirmed: %w", err), sdk.WriteUnknown, sdk.WriteStageDispatch, sdk.WriteReasonTransportFailed)
 }
 
-// firmwareStartRefused reports a status that proves no job was created. A
-// fresh task ID cannot collide, so AlreadyExists stays ambiguous.
+// firmwareStartRefused reports a status that proves no job was created. A task
+// ID belongs to one command, so AlreadyExists means its job may be running.
 func firmwareStartRefused(err error) bool {
 	switch status.Code(err) {
 	case codes.InvalidArgument, codes.FailedPrecondition, codes.NotFound, codes.OutOfRange,
@@ -222,8 +233,8 @@ func (d *Device) settledFirmwareAttempt(ctx context.Context) (*firmwareAttempt, 
 }
 
 // stageFirmwareArchive works from the pinned reader, never an unverified path
-// supplied by a caller.
-func stageFirmwareArchive(reader io.Reader) (*hbfirmware.Archive, error) {
+// supplied by a caller. The caller must release the returned archive.
+func stageFirmwareArchive(ctx context.Context, reader io.Reader) (*hbfirmware.Archive, error) {
 	f, err := os.CreateTemp("", "ct1-firmware-*.zip")
 	if err != nil {
 		return nil, fmt.Errorf("stage CT1 firmware: %w", err)
@@ -237,18 +248,45 @@ func stageFirmwareArchive(reader io.Reader) (*hbfirmware.Archive, error) {
 	if n > maxFirmwareArchiveBytes {
 		return nil, sdk.InvalidWriteRequest(fmt.Errorf("firmware archive exceeds 500 MiB"))
 	}
-	archive, err := hbfirmware.Read(f.Name(), "")
+	archive, err := hbfirmware.Read(ctx, f.Name(), "")
 	if err != nil {
+		if ctx.Err() != nil {
+			return nil, sdk.WriteRefused(err, sdk.WriteStageValidation, sdk.WriteReasonRejected)
+		}
 		return nil, sdk.InvalidWriteRequest(err)
 	}
 	return archive, nil
+}
+
+// firmwareTaskID names the controller job for a Fleet request, so a retry can
+// find the job its command started even after the plugin restarts.
+func firmwareTaskID(requestID string) string {
+	if requestID == "" {
+		return uuid.NewString()
+	}
+	return uuid.NewSHA1(uuid.NameSpaceURL, []byte("urn:proto-fleet:ct1-firmware-request:"+requestID)).String()
+}
+
+// firmwareTaskStarted reports whether any owning controller has the attempt's
+// job.
+func firmwareTaskStarted(ctx context.Context, c *Client, attempt *firmwareAttempt) (bool, error) {
+	for owner := range attempt.owners {
+		_, err := c.firmware.GetFirmwareUpdate(ctx, &mdk.GetFirmwareUpdateRequest{TaskId: attempt.taskID, ServerId: owner})
+		if err == nil {
+			return true, nil
+		}
+		if status.Code(err) != codes.NotFound {
+			return false, err
+		}
+	}
+	return false, nil
 }
 
 // planFirmwareAttempt targets every occupied board. Boards report a version
 // but not their installed build, so earlier success cannot prove a board
 // still runs the artifact. Partial located inventory refuses the update so
 // omitted boards cannot be reported as updated.
-func planFirmwareAttempt(wire *mdk.GetContainerMapResponse, memberID string) (*firmwareAttempt, []string, error) {
+func planFirmwareAttempt(wire *mdk.GetContainerMapResponse, memberID, requestID string) (*firmwareAttempt, []string, error) {
 	boards, err := occupiedFirmwareBoards(wire)
 	if err != nil {
 		return nil, nil, sdk.InvalidWriteRequest(err)
@@ -263,7 +301,7 @@ func planFirmwareAttempt(wire *mdk.GetContainerMapResponse, memberID string) (*f
 	if len(topology.Tanks) > 0 && !locatedInventoryComplete(topology) {
 		return nil, nil, sdk.WriteRefused(fmt.Errorf("CT1 container map is incomplete; retry when every tank and module is reported"), sdk.WriteStageConfigurationRead, sdk.WriteReasonReadFailed)
 	}
-	attempt := &firmwareAttempt{taskID: uuid.NewString(), owners: map[string][]string{}}
+	attempt := &firmwareAttempt{taskID: firmwareTaskID(requestID), owners: map[string][]string{}, requestID: requestID}
 	var macs []string
 	for _, b := range boards {
 		owner := b.board.GetOwnerServerId()

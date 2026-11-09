@@ -552,6 +552,61 @@ func TestFirmwareRetryOfCommandResumesItsJob(t *testing.T) {
 	require.Equal(t, 2, controller.startCount(), "a new command updates again")
 }
 
+// restartPlugin forgets the container's process-local firmware state.
+func restartPlugin(dev *Device) {
+	firmwareStates.Lock()
+	defer firmwareStates.Unlock()
+	delete(firmwareStates.byContainer, firmwareContainerIdentity(dev.info))
+}
+
+func TestFirmwareRetryAfterPluginRestartResumesItsJob(t *testing.T) {
+	for _, finished := range []bool{false, true} {
+		t.Run(fmt.Sprintf("finished=%t", finished), func(t *testing.T) {
+			wire, _ := splitOwnerMap()
+			dev, controller := newFirmwareDevice(t, wire)
+			file := func(request string) sdk.FirmwareFile {
+				f := firmwareFile(t)
+				f.RequestID = request
+				return f
+			}
+			require.NoError(t, dev.FirmwareUpdate(t.Context(), file("batch/1")))
+			if finished {
+				controller.finish()
+			}
+			restartPlugin(dev)
+			_, err := newHandle(dev).GetFirmwareUpdateStatus(t.Context())
+			require.Error(t, err, "a restarted plugin knows no job until the command retries")
+			require.NoError(t, newHandle(dev).FirmwareUpdate(t.Context(), file("batch/1")))
+			require.Equal(t, 1, controller.startCount(), "the retry finds its job instead of reflashing")
+			require.Equal(t, 1, controller.uploadCount())
+			controller.finish()
+			result, err := newHandle(dev).GetFirmwareUpdateStatus(t.Context())
+			require.NoError(t, err)
+			require.Equal(t, "completed", result.State)
+
+			restartPlugin(dev)
+			require.NoError(t, newHandle(dev).FirmwareUpdate(t.Context(), file("batch/2")))
+			require.Equal(t, 2, controller.startCount(), "a new command updates again")
+			require.NotEqual(t, controller.starts[0].TaskId, controller.starts[1].TaskId)
+		})
+	}
+}
+
+func TestFirmwareArchiveWaitIsRetryable(t *testing.T) {
+	archive := firmwaretest.Archive(t, map[string][]byte{"board.bin": firmwaretest.Image(t, "prod", "f1", 2)})
+	for range hbfirmware.MaxConcurrentReads {
+		held, err := hbfirmware.Read(t.Context(), archive, "")
+		require.NoError(t, err)
+		t.Cleanup(held.Release)
+	}
+	dev, controller := newFirmwareDevice(t, firmwareContainerMap(time.Now()))
+	ctx, cancel := context.WithTimeout(t.Context(), 100*time.Millisecond)
+	defer cancel()
+	requireWriteOutcome(t, dev.FirmwareUpdate(ctx, firmwareFile(t)), sdk.WriteNotDispatched)
+	require.Zero(t, controller.uploadCount())
+	require.Nil(t, dev.currentFirmwareAttempt())
+}
+
 func TestFirmwareAttemptOutlivesCommandHandle(t *testing.T) {
 	dev, controller := newFirmwareDevice(t, firmwareContainerMap(time.Now()))
 	require.NoError(t, dev.FirmwareUpdate(t.Context(), firmwareFile(t)))

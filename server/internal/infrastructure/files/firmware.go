@@ -1,6 +1,7 @@
 package files
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -434,29 +435,14 @@ func (s *Service) SaveFirmwareUploadFromPath(filename string, srcPath string, ma
 		return result, err
 	}
 	if metadata.MatchesTarget("Proto", "CT1") {
-		archive, err := hbfirmware.Read(srcPath, metadata.HashboardBuild)
-		if err != nil {
-			return result, fleeterror.NewInvalidArgumentErrorf("invalid hashboard firmware: %v", err)
-		}
-		if strings.TrimPrefix(metadata.FirmwareVersion, "v") != archive.Version {
-			return result, fleeterror.NewInvalidArgumentErrorf("firmware_version must match embedded version %s", archive.Version)
-		}
-		metadata.FirmwareVersion = archive.Version
-		selected, err := os.CreateTemp(firmwareStagingDir, "selected-*.zip")
-		if err != nil {
-			return result, fmt.Errorf("stage selected hashboard firmware: %w", err)
-		}
-		defer os.Remove(selected.Name())
-		err = archive.Write(selected)
-		closeErr := selected.Close()
+		selected, version, build, err := stageSelectedHashboardFirmware(srcPath, metadata)
 		if err != nil {
 			return result, err
 		}
-		if closeErr != nil {
-			return result, fmt.Errorf("close selected hashboard firmware: %w", closeErr)
-		}
-		srcPath, checksum = selected.Name(), ""
-		filename = "hashboard-firmware-" + archive.Version + "-" + archive.Build + ".zip"
+		defer os.Remove(selected)
+		metadata.FirmwareVersion = version
+		srcPath, checksum = selected, ""
+		filename = "hashboard-firmware-" + version + "-" + build + ".zip"
 	}
 
 	if checksum == "" {
@@ -501,6 +487,35 @@ func (s *Service) SaveFirmwareUploadFromPath(filename string, srcPath string, ma
 		Metadata:       metadata,
 		Filename:       sanitizeFirmwareFilename(filename),
 	}, nil
+}
+
+// stageSelectedHashboardFirmware writes the requested build of a hashboard
+// release to a staging file and returns its path and embedded identity. The
+// decoded images are released before it returns.
+func stageSelectedHashboardFirmware(srcPath string, metadata FirmwareMetadata) (string, string, string, error) {
+	// Server holders release their archive slot after local file writes, so
+	// this wait is bounded without a request context.
+	archive, err := hbfirmware.Read(context.Background(), srcPath, metadata.HashboardBuild)
+	if err != nil {
+		return "", "", "", fleeterror.NewInvalidArgumentErrorf("invalid hashboard firmware: %v", err)
+	}
+	defer archive.Release()
+	if strings.TrimPrefix(metadata.FirmwareVersion, "v") != archive.Version {
+		return "", "", "", fleeterror.NewInvalidArgumentErrorf("firmware_version must match embedded version %s", archive.Version)
+	}
+	selected, err := os.CreateTemp(firmwareStagingDir, "selected-*.zip")
+	if err != nil {
+		return "", "", "", fmt.Errorf("stage selected hashboard firmware: %w", err)
+	}
+	err = archive.Write(selected)
+	if closeErr := selected.Close(); err == nil && closeErr != nil {
+		err = fmt.Errorf("close selected hashboard firmware: %w", closeErr)
+	}
+	if err != nil {
+		_ = os.Remove(selected.Name())
+		return "", "", "", err
+	}
+	return selected.Name(), archive.Version, archive.Build, nil
 }
 
 func (s *Service) acquireFirmwareUploadLock(key firmwareUploadKey) func() {
@@ -699,7 +714,10 @@ func (s *Service) UpdateFirmwareMetadata(fileID string, metadata FirmwareMetadat
 		return FirmwareMetadataUpdateResult{}, err
 	}
 	if metadata.MatchesTarget("Proto", "CT1") {
-		archive, err := hbfirmware.Read(filePath, "")
+		archive, err := hbfirmware.Read(context.Background(), filePath, "")
+		if err == nil {
+			archive.Release()
+		}
 		if err != nil || archive.Build != metadata.HashboardBuild || archive.Version != metadata.FirmwareVersion {
 			return FirmwareMetadataUpdateResult{}, fleeterror.NewInvalidArgumentError("CT1 firmware metadata must match the stored build and version; upload a new artifact to change them")
 		}

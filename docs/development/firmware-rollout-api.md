@@ -69,6 +69,9 @@ a new artifact instead. Frigate remains responsible for validating signatures
 and board compatibility. Fleet enforces native upload limits of 64 images,
 64 MiB per image, and 256 MiB total uncompressed image data, and rejects archives
 with more than 1,024 entries or 1 MiB of central directory before reading them.
+The directory check walks the records Go's ZIP reader will parse, so forged
+end-record offsets or wrapped entry counts cannot hide entries. Each process
+holds at most two decoded archives in memory at once.
 
 Assign the resulting file ID to a CT1 release-channel target using the existing
 API. CT1 convergence uses fresh, uniform hashboard firmware observations rather

@@ -194,7 +194,8 @@ boards, and restores mining intent. Force is enabled to support Fleet rollback.
 An uncertain start is not replayed: while its task is unfinished or its owners
 are unreachable, a new update is refused. An automatic retry of the same Fleet
 command, such as after status polling timed out, resumes that command's task
-instead of starting another; a new command updates again. A start that Frigate definitively
+instead of starting another; a new command updates again. A refused start can
+be retried and reuses the same task ID, because no job was created. A start that Frigate definitively
 rejects (for example, invalid scope or a board already updating) creates no job
 and releases the handle immediately. When no owning controller knows a recorded
 task, it never started and the handle is released.
@@ -212,8 +213,16 @@ not their installed build, so an earlier success cannot prove a board still
 runs the artifact. Repeated work stays bounded because a `failed` update is not
 retried immediately and rollouts re-send at most three times. The plugin
 process retains the task and its owners per container, shared by every handle
-for it, including Fleet Node's per-command handles. After a process restart,
-Fleet relies on fresh inventory and its existing rollout reconciliation.
+for it, including Fleet Node's per-command handles. The task ID is derived
+from the command's request ID, which includes the batch UUID, so after a
+process restart a retried command finds its task on the owning controllers
+and resumes it instead of flashing again. Commands without a request ID, such
+as those relayed by an older Fleet Node, use a random task ID and are not
+recoverable after a restart.
+
+At most two decoded firmware archives are held in memory per process. The
+plugin holds its slot through the controller upload; a command that cannot get
+a slot before its deadline is refused before any upload and can be retried.
 
 Each poll reads local job lists from the verified controller endpoints and adds
 the latest task, owner, progress, and failure evidence to board diagnostics.

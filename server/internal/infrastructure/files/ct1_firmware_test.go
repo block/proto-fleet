@@ -37,10 +37,11 @@ func TestCT1FirmwareBuildsHaveDistinctImmutableArtifacts(t *testing.T) {
 			require.Equal(t, info.Filename, result.Filename)
 			require.False(t, checksums[info.SHA256])
 			checksums[info.SHA256] = true
-			selected, err := firmware.Read(info.FilePath, "")
+			selected, err := firmware.Read(t.Context(), info.FilePath, "")
 			require.NoError(t, err)
 			require.Equal(t, build, selected.Build)
 			require.Len(t, selected.Images, 1)
+			selected.Release()
 			wrongVersion := meta
 			wrongVersion.FirmwareVersion = "3.0.0"
 			_, err = svc.UpdateFirmwareMetadata(first, wrongVersion)

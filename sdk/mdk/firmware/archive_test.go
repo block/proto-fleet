@@ -3,11 +3,15 @@ package firmware_test
 import (
 	"archive/zip"
 	"bytes"
+	"context"
+	"encoding/binary"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/block/proto-fleet/sdk/mdk/firmware"
 	"github.com/block/proto-fleet/sdk/mdk/firmware/firmwaretest"
@@ -22,7 +26,7 @@ func TestSelectBuildByMetadata(t *testing.T) {
 		"notes.txt":          []byte("release"),
 	})
 	for _, build := range []string{"prod", "dev"} {
-		a, err := firmware.Read(file, build)
+		a, err := firmware.Read(t.Context(), file, build)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -39,11 +43,12 @@ func TestSelectBuildByMetadata(t *testing.T) {
 		if !bytes.Equal(first.Bytes(), second.Bytes()) {
 			t.Fatal("non-deterministic normalized archive")
 		}
+		a.Release()
 	}
-	if _, err := firmware.Read(file, ""); err == nil {
+	if _, err := firmware.Read(t.Context(), file, ""); err == nil {
 		t.Fatal("accepted ambiguous build")
 	}
-	if _, err := firmware.Read(file, "mfgtest"); err == nil {
+	if _, err := firmware.Read(t.Context(), file, "mfgtest"); err == nil {
 		t.Fatal("accepted missing build")
 	}
 }
@@ -57,7 +62,7 @@ func TestArchiveRejectsInvalidImages(t *testing.T) {
 		"empty image":         {"app.bin": nil},
 	} {
 		t.Run(name, func(t *testing.T) {
-			if _, err := firmware.Read(firmwaretest.Archive(t, images), "prod"); err == nil {
+			if _, err := firmware.Read(t.Context(), firmwaretest.Archive(t, images), "prod"); err == nil {
 				t.Fatal("accepted invalid archive")
 			}
 		})
@@ -81,15 +86,73 @@ func TestArchiveBoundsCentralDirectory(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			images := map[string][]byte{"app.bin": image}
 			extra(images)
-			_, err := firmware.Read(firmwaretest.Archive(t, images), "prod")
+			_, err := firmware.Read(t.Context(), firmwaretest.Archive(t, images), "prod")
 			if err == nil || !strings.Contains(err.Error(), "directory bytes") {
 				t.Fatalf("expected central directory rejection, got %v", err)
 			}
 		})
 	}
-	if _, err := firmware.Read(firmwaretest.Archive(t, map[string][]byte{"app.bin": image, "notes.txt": []byte("release")}), "prod"); err != nil {
+	small, err := firmware.Read(t.Context(), firmwaretest.Archive(t, map[string][]byte{"app.bin": image, "notes.txt": []byte("release")}), "prod")
+	if err != nil {
 		t.Fatalf("rejected a small archive: %v", err)
 	}
+	small.Release()
+}
+
+func TestArchiveIgnoresForgedDirectoryOffset(t *testing.T) {
+	images := map[string][]byte{"app.bin": firmwaretest.Image(t, "prod", "f1", 2)}
+	for i := range firmware.MaxEntries + 1 {
+		images[fmt.Sprintf("notes/%04d.txt", i)] = nil
+	}
+	file := firmwaretest.Archive(t, images)
+	data, err := os.ReadFile(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Declare one entry at the end record itself. archive/zip still locates
+	// the directory from its declared size and reads every record.
+	end := bytes.LastIndex(data, []byte("PK\x05\x06"))
+	binary.LittleEndian.PutUint16(data[end+8:], 1)
+	binary.LittleEndian.PutUint16(data[end+10:], 1)
+	binary.LittleEndian.PutUint32(data[end+16:], uint32(end))
+	if err := os.WriteFile(file, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := firmware.Read(t.Context(), file, "prod"); err == nil || !strings.Contains(err.Error(), "directory bytes") {
+		t.Fatalf("expected central directory rejection, got %v", err)
+	}
+}
+
+func TestArchiveHoldsReadSlotUntilRelease(t *testing.T) {
+	file := firmwaretest.Archive(t, map[string][]byte{"app.bin": firmwaretest.Image(t, "prod", "f1", 2)})
+	var held []*firmware.Archive
+	t.Cleanup(func() {
+		for _, a := range held {
+			a.Release()
+		}
+	})
+	for range firmware.MaxConcurrentReads {
+		a, err := firmware.Read(t.Context(), file, "prod")
+		if err != nil {
+			t.Fatal(err)
+		}
+		held = append(held, a)
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), 50*time.Millisecond)
+	defer cancel()
+	if _, err := firmware.Read(ctx, file, "prod"); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("read beyond the unreleased archive limit: %v", err)
+	}
+	held[0].Release()
+	held[0].Release()
+	if held[0].Images != nil {
+		t.Fatal("released archive kept its images")
+	}
+	a, err := firmware.Read(t.Context(), file, "prod")
+	if err != nil {
+		t.Fatalf("read after release: %v", err)
+	}
+	a.Release()
 }
 
 func TestArchiveRejectsTooManyImages(t *testing.T) {
@@ -97,7 +160,7 @@ func TestArchiveRejectsTooManyImages(t *testing.T) {
 	for i := range firmware.MaxImages + 1 {
 		images[fmt.Sprintf("board-%02d.bin", i)] = firmwaretest.Image(t, "prod", "f1", 2)
 	}
-	_, err := firmware.Read(firmwaretest.Archive(t, images), "prod")
+	_, err := firmware.Read(t.Context(), firmwaretest.Archive(t, images), "prod")
 	if err == nil || !strings.Contains(err.Error(), "exceeds 64 images") {
 		t.Fatalf("accepted %d images: %v", len(images), err)
 	}
@@ -136,7 +199,7 @@ func TestArchiveRejectsDeclaredSizesBeforeReading(t *testing.T) {
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
-			_, err := firmware.Read(declaredArchive(t, entries), "prod")
+			_, err := firmware.Read(t.Context(), declaredArchive(t, entries), "prod")
 			if err == nil || !strings.Contains(err.Error(), "size limits") {
 				t.Fatalf("expected size limit rejection, got %v", err)
 			}
@@ -144,7 +207,7 @@ func TestArchiveRejectsDeclaredSizesBeforeReading(t *testing.T) {
 	}
 	symlink := zip.FileHeader{Name: "app.bin", UncompressedSize64: 4}
 	symlink.SetMode(os.ModeSymlink | 0o777)
-	_, err := firmware.Read(declaredArchive(t, []zip.FileHeader{symlink}), "prod")
+	_, err := firmware.Read(t.Context(), declaredArchive(t, []zip.FileHeader{symlink}), "prod")
 	if err == nil || !strings.Contains(err.Error(), "unsafe firmware image path") {
 		t.Fatalf("accepted symlink entry: %v", err)
 	}

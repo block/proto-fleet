@@ -521,7 +521,7 @@ type FirmwareFile struct {
 	SHA256   string
 	FilePath string // On-disk path for gRPC bridge passthrough (plugins share the server's filesystem)
 	// RequestID is stable across automatic retries of one Fleet command and
-	// different for every new command; empty when unknown.
+	// unique to that command, even across Fleet databases; empty when unknown.
 	RequestID string
 }
 
