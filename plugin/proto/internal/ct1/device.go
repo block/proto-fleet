@@ -14,13 +14,12 @@ import (
 )
 
 type Device struct {
-	id              string
-	info            sdk.DeviceInfo
-	clients         []*Client
-	writeMu         sync.Mutex
-	firmwareMu      sync.Mutex
-	firmwareBusy    bool
-	firmwareAttempt *firmwareAttempt
+	id           string
+	info         sdk.DeviceInfo
+	clients      []*Client
+	writeMu      sync.Mutex
+	firmwareOnce sync.Once
+	firmware     *firmwareState
 }
 
 var _ sdk.Device = (*Device)(nil)

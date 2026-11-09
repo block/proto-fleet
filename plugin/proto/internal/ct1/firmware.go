@@ -7,9 +7,12 @@ import (
 	"fmt"
 	"io"
 	"maps"
+	"net"
 	"os"
 	"sort"
+	"strconv"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 
@@ -39,12 +42,49 @@ const (
 
 var errFirmwareTaskNotFound = errors.New("no owning CT1 controller knows the firmware task")
 
+// firmwareState is shared by every handle for one container: Fleet Node opens
+// a new handle for each command, so an attempt must outlive the handle that
+// started it. State is lost when the plugin process restarts.
+type firmwareState struct {
+	mu      sync.Mutex
+	busy    bool
+	attempt *firmwareAttempt
+}
+
+var firmwareStates = struct {
+	sync.Mutex
+	byContainer map[string]*firmwareState
+}{byContainer: map[string]*firmwareState{}}
+
+func firmwareStateFor(container string) *firmwareState {
+	firmwareStates.Lock()
+	defer firmwareStates.Unlock()
+	state := firmwareStates.byContainer[container]
+	if state == nil {
+		state = &firmwareState{}
+		firmwareStates.byContainer[container] = state
+	}
+	return state
+}
+
+// firmwareContainerIdentity names the physical container across handles: the
+// paired endpoint key, else the controller-verified serial, else its address.
+func firmwareContainerIdentity(info sdk.DeviceInfo) string {
+	if key, err := sdk.DeviceEndpointKey(info.Endpoints); err == nil && key != "" {
+		return "endpoints:" + key
+	}
+	if serial := strings.TrimSpace(info.SerialNumber); serial != "" {
+		return "serial:" + serial
+	}
+	return "address:" + net.JoinHostPort(info.Host, strconv.Itoa(int(info.Port)))
+}
+
 type firmwareAttempt struct {
 	taskID   string
 	artifact string
 	owners   map[string][]string
 	// updated holds boards an earlier attempt for the same artifact finished
-	// on this handle. A retry flashes only the rest.
+	// that still report its version. A retry flashes only the rest.
 	updated map[string]bool
 }
 
@@ -79,7 +119,7 @@ func (d *Device) FirmwareUpdate(ctx context.Context, file sdk.FirmwareFile) erro
 	if err != nil {
 		return sdk.WriteRefused(err, sdk.WriteStageConfigurationRead, sdk.WriteReasonReadFailed)
 	}
-	attempt, macs, err := planFirmwareAttempt(wire, c.memberID, archiveIdentity(archive), previous)
+	attempt, macs, err := planFirmwareAttempt(wire, c.memberID, archive, previous, time.Now().UTC())
 	if err != nil {
 		return err
 	}
@@ -127,35 +167,48 @@ func firmwareStartRefused(err error) bool {
 	return false
 }
 
+func (d *Device) firmwareShared() *firmwareState {
+	d.firmwareOnce.Do(func() {
+		if d.firmware == nil {
+			d.firmware = firmwareStateFor(firmwareContainerIdentity(d.info))
+		}
+	})
+	return d.firmware
+}
+
 func (d *Device) claimFirmware() bool {
-	d.firmwareMu.Lock()
-	defer d.firmwareMu.Unlock()
-	if d.firmwareBusy {
+	state := d.firmwareShared()
+	state.mu.Lock()
+	defer state.mu.Unlock()
+	if state.busy {
 		return false
 	}
-	d.firmwareBusy = true
+	state.busy = true
 	return true
 }
 
 func (d *Device) releaseFirmware() {
-	d.firmwareMu.Lock()
-	defer d.firmwareMu.Unlock()
-	d.firmwareBusy = false
+	state := d.firmwareShared()
+	state.mu.Lock()
+	defer state.mu.Unlock()
+	state.busy = false
 }
 
 func (d *Device) currentFirmwareAttempt() *firmwareAttempt {
-	d.firmwareMu.Lock()
-	defer d.firmwareMu.Unlock()
-	return d.firmwareAttempt
+	state := d.firmwareShared()
+	state.mu.Lock()
+	defer state.mu.Unlock()
+	return state.attempt
 }
 
 func (d *Device) setFirmwareAttempt(attempt *firmwareAttempt) {
-	d.firmwareMu.Lock()
-	defer d.firmwareMu.Unlock()
-	d.firmwareAttempt = attempt
+	state := d.firmwareShared()
+	state.mu.Lock()
+	defer state.mu.Unlock()
+	state.attempt = attempt
 }
 
-// settledFirmwareAttempt returns the handle's previous attempt once it is
+// settledFirmwareAttempt returns the container's previous attempt once it is
 // terminal, with every board it finished. An unfinished or unreadable attempt
 // refuses a new start because it may still change the boards.
 func (d *Device) settledFirmwareAttempt(ctx context.Context) (*firmwareAttempt, error) {
@@ -212,9 +265,10 @@ func archiveIdentity(archive *hbfirmware.Archive) string {
 }
 
 // planFirmwareAttempt targets every occupied board, except boards an earlier
-// attempt for the same artifact already finished. Partial located inventory
+// attempt for the same artifact finished that freshly report its version; a
+// board that drifted since is targeted again. Partial located inventory
 // refuses the update so omitted boards cannot be reported as updated.
-func planFirmwareAttempt(wire *mdk.GetContainerMapResponse, memberID, artifact string, previous *firmwareAttempt) (*firmwareAttempt, []string, error) {
+func planFirmwareAttempt(wire *mdk.GetContainerMapResponse, memberID string, archive *hbfirmware.Archive, previous *firmwareAttempt, now time.Time) (*firmwareAttempt, []string, error) {
 	boards, err := occupiedFirmwareBoards(wire)
 	if err != nil {
 		return nil, nil, sdk.InvalidWriteRequest(err)
@@ -229,13 +283,13 @@ func planFirmwareAttempt(wire *mdk.GetContainerMapResponse, memberID, artifact s
 	if len(topology.Tanks) > 0 && !locatedInventoryComplete(topology) {
 		return nil, nil, sdk.WriteRefused(fmt.Errorf("CT1 container map is incomplete; retry when every tank and module is reported"), sdk.WriteStageConfigurationRead, sdk.WriteReasonReadFailed)
 	}
+	artifact := archiveIdentity(archive)
 	attempt := &firmwareAttempt{taskID: uuid.NewString(), artifact: artifact, owners: map[string][]string{}, updated: map[string]bool{}}
-	if previous != nil && previous.artifact == artifact {
-		maps.Copy(attempt.updated, previous.updated)
-	}
+	sameArtifact := previous != nil && previous.artifact == artifact
 	var macs []string
 	for _, b := range boards {
-		if attempt.updated[b.mac] {
+		if sameArtifact && previous.updated[b.mac] && boardReportsFirmware(b.board, archive.Version, now) {
+			attempt.updated[b.mac] = true
 			continue
 		}
 		owner := b.board.GetOwnerServerId()

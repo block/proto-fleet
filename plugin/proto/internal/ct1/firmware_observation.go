@@ -89,6 +89,16 @@ func boardFirmwareVersion(board *mdk.Hashboard) string {
 	return strings.TrimPrefix(strings.TrimSpace(board.GetFirmwareVersion()), "v")
 }
 
+func boardHealthFresh(board *mdk.Hashboard, now time.Time) bool {
+	observed := sourceTime(board.GetHealth().GetTimestamp())
+	return !observed.IsZero() && now.Sub(observed) <= healthMaxAge && !observed.After(now.Add(clockSkewAllowance))
+}
+
+// boardReportsFirmware reports fresh evidence that a board runs version.
+func boardReportsFirmware(board *mdk.Hashboard, version string, now time.Time) bool {
+	return boardFirmwareVersion(board) == version && boardHealthFresh(board, now)
+}
+
 // observedHashboardFirmware returns the uniform board version, or reports
 // mixed versions, only from complete located inventory with fresh health.
 // Anything less leaves the version unknown.
@@ -98,9 +108,8 @@ func observedHashboardFirmware(wire *mdk.GetContainerMapResponse, topology *sdk.
 		return "", false
 	}
 	for _, b := range boards {
-		observed := sourceTime(b.board.GetHealth().GetTimestamp())
 		v := boardFirmwareVersion(b.board)
-		if v == "" || observed.IsZero() || now.Sub(observed) > healthMaxAge || observed.After(now.Add(clockSkewAllowance)) {
+		if v == "" || !boardHealthFresh(b.board, now) {
 			return "", false
 		}
 		if version == "" {
