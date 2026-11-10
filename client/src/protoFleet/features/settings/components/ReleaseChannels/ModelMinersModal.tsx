@@ -4,6 +4,7 @@ import { minerLabel, pairLabel, phaseLabels, phaseTone } from "./rolloutStatus";
 import StatusChip from "./StatusChip";
 import { useRefreshingRead } from "./useRefreshingRead";
 import {
+  FirmwareVersionState,
   type ReleaseChannelMiner,
   type ReleaseChannelModelGroup,
   type Rollout,
@@ -36,6 +37,17 @@ interface ModelMinersModalProps {
 // rollout devices separately from the channel summary, so this fetches both
 // when opened and again whenever the polled summary changes, keeping firmware
 // versions and phases live while open.
+function versionLabel(miner: ReleaseChannelMiner) {
+  switch (miner.firmwareVersionState) {
+    case FirmwareVersionState.MIXED:
+      return "Mixed versions";
+    case FirmwareVersionState.UNKNOWN:
+      return "Not observed";
+    default:
+      return miner.firmwareVersion || "Unknown";
+  }
+}
+
 const ModelMinersModal = ({
   channelId,
   channelName,
@@ -158,12 +170,14 @@ const ModelMinersModal = ({
                       </span>
                     ) : null}
                   </td>
-                  <td className="py-2 pr-4">{miner.firmwareVersion || "Unknown"}</td>
+                  <td className="py-2 pr-4">{versionLabel(miner)}</td>
                   <td className="py-2">
                     {phase !== undefined && phase !== RolloutDevicePhase.UNSPECIFIED ? (
                       <StatusChip label={phaseLabels[phase]} tone={phaseTone(phase)} />
                     ) : onTarget ? (
                       <StatusChip label="On assigned version" tone="success" />
+                    ) : group.firmwareVersion !== "" && miner.firmwareVersionState === FirmwareVersionState.UNKNOWN ? (
+                      <StatusChip label="Version not observed" tone="neutral" />
                     ) : group.firmwareVersion !== "" ? (
                       <StatusChip label="Not on assigned version" tone="neutral" />
                     ) : (

@@ -1256,6 +1256,9 @@ SELECT rd.device_id,
        d.device_identifier,
        COALESCE(reported.version, '')::text AS firmware_version,
        (reported.version IS NOT NULL)::boolean AS firmware_version_known,
+       CASE WHEN reported.version IS NULL THEN 'unknown'
+            WHEN reported.version = '' AND dd.device_class = 2 THEN 'mixed'
+            ELSE 'known' END::text AS firmware_version_state,
        COALESCE(dd.ip_address, '')::text AS ip_address,
        rd.batch_index,
        rd.position,
@@ -1362,6 +1365,7 @@ type ListFirmwareRolloutDevicesRow struct {
 	DeviceIdentifier             string
 	FirmwareVersion              string
 	FirmwareVersionKnown         bool
+	FirmwareVersionState         string
 	IpAddress                    string
 	BatchIndex                   sql.NullInt32
 	Position                     sql.NullInt32
@@ -1437,6 +1441,7 @@ func (q *Queries) ListFirmwareRolloutDevices(ctx context.Context, rolloutID int6
 			&i.DeviceIdentifier,
 			&i.FirmwareVersion,
 			&i.FirmwareVersionKnown,
+			&i.FirmwareVersionState,
 			&i.IpAddress,
 			&i.BatchIndex,
 			&i.Position,
@@ -1946,6 +1951,9 @@ SELECT m.device_id,
        COALESCE(dd.manufacturer, '')::text AS manufacturer,
        COALESCE(dd.model, '')::text AS model,
        COALESCE(reported.version, '')::text AS firmware_version,
+       CASE WHEN reported.version IS NULL THEN 'unknown'
+            WHEN reported.version = '' AND dd.device_class = 2 THEN 'mixed'
+            ELSE 'known' END::text AS firmware_version_state,
        COALESCE(dep.firmware_checksum, '')::text AS last_deployed_firmware_checksum
 FROM release_channel_member m
 JOIN device d ON d.id = m.device_id
@@ -1981,6 +1989,7 @@ type ListReleaseChannelMinersPageRow struct {
 	Manufacturer                 string
 	Model                        string
 	FirmwareVersion              string
+	FirmwareVersionState         string
 	LastDeployedFirmwareChecksum string
 }
 
@@ -2011,6 +2020,7 @@ func (q *Queries) ListReleaseChannelMinersPage(ctx context.Context, arg ListRele
 			&i.Manufacturer,
 			&i.Model,
 			&i.FirmwareVersion,
+			&i.FirmwareVersionState,
 			&i.LastDeployedFirmwareChecksum,
 		); err != nil {
 			return nil, err

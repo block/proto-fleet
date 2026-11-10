@@ -6,6 +6,7 @@ import { deferred } from "./__tests__/helpers";
 import ModelMinersModal from "./ModelMinersModal";
 import { activeRigRollout, canaryChannel } from "./ReleaseChannels.fixtures";
 import {
+  FirmwareVersionState,
   type ReleaseChannelMiner,
   ReleaseChannelMinerSchema,
   type RolloutDevice,
@@ -302,6 +303,26 @@ describe("ModelMinersModal detail loading", () => {
 
 describe("ModelMinersModal assigned firmware status", () => {
   const assignedChecksum = "a".repeat(64);
+
+  it.each([
+    { state: FirmwareVersionState.MIXED, version: "Mixed versions", status: "Not on assigned version" },
+    { state: FirmwareVersionState.UNKNOWN, version: "Not observed", status: "Version not observed" },
+  ])("labels container version state $state", async ({ state, version, status }) => {
+    const props = propsFor();
+    props.listChannelMiners.mockResolvedValue([
+      create(ReleaseChannelMinerSchema, { ...miner, firmwareVersion: "", firmwareVersionState: state }),
+    ]);
+    render(
+      <ModelMinersModal
+        {...props}
+        activeRollout={undefined}
+        group={{ ...props.group, firmwareVersion: "2.0.0", firmwareChecksum: assignedChecksum }}
+      />,
+    );
+    const row = await screen.findByTestId("channel-miner-rig-1");
+    expect(within(row).getAllByRole("cell")[1]).toHaveTextContent(version);
+    expect(within(row).getAllByRole("cell")[2]).toHaveTextContent(status);
+  });
 
   it.each(["constructor", "toString", "__proto__"])(
     "uses only stored phases and names for identifier %s",
