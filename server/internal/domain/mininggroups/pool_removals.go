@@ -319,3 +319,29 @@ func (s *Service) finishBoardRemoval(ctx context.Context, q sqlc.Querier, row sq
 	}
 	return fmt.Errorf("selected board group is unavailable")
 }
+
+// Called only after a fresh settled observation, in the same transaction that
+// retires the workflow and releases its admission. Superseding old policy does
+// not claim its pools were cleared and must not modify the new owner's intent.
+func retireObsoleteAutomaticRemoval(ctx context.Context, q sqlc.Querier, row sqlc.ContainerMiningGroupState, removal sqlc.GetBoardPoolRemovalAttemptRow, pending bool) (bool, error) {
+	if removal.ActorID != 0 || pending || row.Step.Valid || row.ControllerOperationID != "" {
+		return false, nil
+	}
+	transition, err := q.GetPoolLifecycleTransition(ctx, removal.RemovalID)
+	if err != nil {
+		return false, err
+	}
+	owner, err := q.GetPoolLifecycleAllocation(ctx, sqlc.GetPoolLifecycleAllocationParams{OrganizationID: transition.OrganizationID, Kind: transition.AssetKind, AssetID: transition.AssetID, DeviceID: transition.DeviceID})
+	if err != nil {
+		return false, err
+	}
+	newer, err := q.PoolLifecycleHasNewerAssignment(ctx, transition.TransitionID)
+	if err != nil {
+		return false, err
+	}
+	if owner.OwnerAccountID == transition.OwnerAccountID && owner.Revision == transition.AllocationRevision && !newer {
+		return false, nil
+	}
+	changed, err := q.FinishPoolLifecycleTransition(ctx, sqlc.FinishPoolLifecycleTransitionParams{TransitionID: transition.TransitionID, State: "superseded", ResultCode: "policy_replaced"})
+	return changed == 1, err
+}

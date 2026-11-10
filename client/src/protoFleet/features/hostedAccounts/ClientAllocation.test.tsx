@@ -8,6 +8,7 @@ import AccountRoutes from "./AccountRoutes";
 import { HostedAccountsContext } from "./HostedAccountsContext";
 import { AccountSchema } from "@/protoFleet/api/generated/hosted/v1/hosted_pb";
 import { POLL_INTERVAL_MS } from "@/protoFleet/constants/polling";
+import { usePoolAssignmentProgress } from "@/protoFleet/features/poolConfigurations/assignmentProgress";
 
 import { pushToast, STATUSES } from "@/shared/features/toaster";
 
@@ -35,6 +36,7 @@ const Location = () => {
 };
 
 beforeEach(() => {
+  usePoolAssignmentProgress.setState({ jobs: [], detailsJobId: undefined, detailsSelection: undefined });
   vi.mocked(pushToast).mockClear();
   vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue(new DOMRect(20, 20, 240, 40));
 });
@@ -140,6 +142,20 @@ async function openPicker(user: ReturnType<typeof userEvent.setup>) {
 }
 
 describe("customer allocation picker", () => {
+  it("explains private pool configurations in host administration", async () => {
+    const { calls } = mount();
+    const user = userEvent.setup();
+    await screen.findByText("Existing allocation");
+    expect(screen.getByRole("columnheader", { name: "Pool configuration" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Unavailable" }));
+    const details = within(screen.getByRole("dialog", { name: "Pool configuration" }));
+    await waitFor(() =>
+      expect(details.getByText(/You don’t have access to view this hardware’s pool configuration/)).toBeVisible(),
+    );
+    expect(details.queryByText(/No saved pool configuration is assigned/)).not.toBeInTheDocument();
+    expect(calls.some((call) => call.method === "GetAssignments")).toBe(false);
+  });
+
   it("selects eligible assets and clears selection with the shared footer controls", async () => {
     const { calls } = mount();
     const user = userEvent.setup();

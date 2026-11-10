@@ -188,6 +188,51 @@ it("distinguishes device pools, confirmed empty settings, and unreadable setting
 
 const RefreshAssignments = () => <button onClick={useSavedPoolAssignments()?.refresh}>Refresh pools</button>;
 
+it.each([
+  ["pending", "", "Updating…"],
+  ["applying", "", "Updating…"],
+  ["uncertain", "write_uncertain", "Not verified"],
+  ["failed", "rejected", "Update failed"],
+  ["cleared", "", "—"],
+])("preserves %s clear status for miners and boards during device readback", async (state, resultCode, label) => {
+  mocks.getAssignments.mockResolvedValue(
+    create(GetAssignmentsResponseSchema, {
+      assignments: [
+        { deviceId: 1n, deviceIdentifier: "miner-a", operationId: "miner-clear", state, resultCode },
+        {
+          deviceId: 10n,
+          installationId: 101n,
+          hashboardId: 11n,
+          moduleId: 1n,
+          operationId: "board-clear",
+          state,
+          resultCode,
+        },
+        { deviceId: 2n, deviceIdentifier: "miner-b", state: "unavailable" },
+      ],
+    }),
+  );
+  mocks.readDevicePools.mockImplementation(async ({ targets }) => ({
+    readings: targets.map((target: { kind: string; targetId: bigint }) => ({
+      target,
+      reading: create(CheckConfigurationResponseSchema, { state: "device_configuration", readbackAvailable: true }),
+    })),
+  }));
+  render(
+    <PoolAssignments deviceIdentifiers={["miner-a", "miner-b"]} moduleIds={[1n]}>
+      <PoolConfigurationCell deviceIdentifier="miner-a" />
+      <BoardPoolConfigurationCell hashboardId={11n} />
+      <PoolConfigurationCell deviceIdentifier="miner-b" />
+    </PoolAssignments>,
+  );
+  expect(await screen.findByRole("button", { name: "Device configuration" })).toBeVisible();
+  expect(screen.getAllByText(label)).toHaveLength(2);
+  expect(mocks.readDevicePools).toHaveBeenCalledWith(
+    { accountId: "", targets: [{ kind: "device", targetId: 2n }] },
+    expect.anything(),
+  );
+});
+
 it.each(["focus", "manual", "poll"])("refreshes device-only readings for unchanged targets on %s", async (trigger) => {
   mocks.getAssignments.mockResolvedValue(
     create(GetAssignmentsResponseSchema, {

@@ -28,7 +28,14 @@ ORDER BY a.target_id;
 -- Explicit lifecycle action. The caller retains inventory/deletion locks and
 -- commits retirement and supersession with the physical change. Never erase
 -- the device-write journal: superseding intent is not proof of physical drain.
-WITH retired AS (
+WITH lifecycle AS (
+ UPDATE pool_lifecycle_transition l
+ SET state='superseded',result_code='device_deleted',updated_at=clock_timestamp()
+ FROM device d
+ WHERE d.org_id=sqlc.arg(organization_id) AND d.org_id=l.organization_id AND d.id=l.device_id
+  AND d.deleted_at IS NOT NULL AND d.device_identifier=ANY(sqlc.arg(device_identifiers)::text[])
+  AND l.state IN ('pending','ready','applying','uncertain','failed')
+), retired AS (
  UPDATE pool_configuration_assignment a
  SET retired_at=clock_timestamp(),version=a.version+1,updated_at=clock_timestamp()
  WHERE a.organization_id=sqlc.arg(organization_id) AND a.retired_at IS NULL

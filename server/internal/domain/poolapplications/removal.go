@@ -426,21 +426,27 @@ func (c *Checker) clearRemoval(ctx context.Context, p poolconfigurations.Princip
 		if dispatched && !devicewrite.IsNotDispatched(err) {
 			state = removalUncertain
 		}
+		if p.ActorID == 0 && !dispatched {
+			// Persist positive no-dispatch evidence. Failed verification after
+			// an ordered write can also have an empty physical receipt.
+			resultCode = "clear_not_dispatched"
+		}
 		finishCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 		defer cancel()
-		_, saveErr := sqlc.New(c.conn).FinishPoolRemoval(finishCtx, sqlc.FinishPoolRemovalParams{RemovalID: row.RemovalID, State: state, ResultCode: resultCode})
+		saveErr := db.WithTransactionNoResult(finishCtx, c.conn, func(q sqlc.Querier) error {
+			if _, err := q.FinishPoolRemoval(finishCtx, sqlc.FinishPoolRemovalParams{RemovalID: row.RemovalID, State: state, ResultCode: resultCode}); err != nil {
+				return err
+			}
+			if p.ActorID == 0 && !dispatched {
+				return q.RetryUndispatchedPoolLifecycleRemoval(finishCtx, row.RemovalID)
+			}
+			return nil
+		})
 		if saveErr != nil {
 			return poolconfigurations.Removal{}, saveErr
 		}
 	} else if err != nil {
 		return poolconfigurations.Removal{}, err
-	}
-	if err != nil && p.ActorID == 0 && !dispatched {
-		retryCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
-		defer cancel()
-		if retryErr := sqlc.New(c.conn).RetryUndispatchedPoolLifecycleRemoval(retryCtx, row.RemovalID); retryErr != nil {
-			return poolconfigurations.Removal{}, retryErr
-		}
 	}
 	return c.GetRemoval(ctx, p, row.RemovalID.String())
 }

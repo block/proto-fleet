@@ -162,6 +162,15 @@ const selectTarget = async (user: ReturnType<typeof userEvent.setup>) => {
 };
 
 describe("account mining asset allocation", () => {
+  it("keeps pool status visible to account readers without Change pools permission", async () => {
+    mount(1n);
+    await screen.findByText("Miner One");
+    expect(screen.getByRole("columnheader", { name: "Pool configuration" })).toBeInTheDocument();
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "Manage columns" }));
+    expect(screen.getByRole("checkbox", { name: "Toggle Pool configuration column" })).toBeChecked();
+  });
+
   it("clears an individual board choice when its allocation changes during refresh", async () => {
     const { client } = mount(31n, [module], undefined, "", "assign");
     await screen.findByText("Module One");

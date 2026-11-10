@@ -497,8 +497,15 @@ func (s *Service) complete(ctx context.Context, q sqlc.Querier, row sqlc.Contain
 // definitively terminal and whose fresh snapshot has no pending controller work.
 // It preserves completed effects and drops desires that were never applied.
 func (s *Service) failOperation(ctx context.Context, q sqlc.Querier, row sqlc.ContainerMiningGroupState, desired map[string]string, snapshot Snapshot, message string) error {
-	if _, err := q.GetBoardPoolRemovalAttempt(ctx, sqlc.GetBoardPoolRemovalAttemptParams{OrganizationID: row.OrganizationID, PhysicalAttemptID: row.AttemptID}); err == nil {
-		return s.block(ctx, q, row, "Pool clearing needs recovery. The Fleet assignment was kept; "+message)
+	if removal, err := q.GetBoardPoolRemovalAttempt(ctx, sqlc.GetBoardPoolRemovalAttemptParams{OrganizationID: row.OrganizationID, PhysicalAttemptID: row.AttemptID}); err == nil {
+		retired, err := retireObsoleteAutomaticRemoval(ctx, q, row, removal, snapshot.Pending)
+		if err != nil {
+			return err
+		}
+		if !retired {
+			return s.block(ctx, q, row, "Pool clearing needs recovery. The Fleet assignment was kept; "+message)
+		}
+		message = "Automatic pool clearing ended because ownership or the pool assignment changed."
 	} else if !errors.Is(err, sql.ErrNoRows) {
 		return err
 	}

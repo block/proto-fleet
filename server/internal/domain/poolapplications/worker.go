@@ -71,17 +71,59 @@ func NewWorker(conn *sql.DB, repository *poolconfigurations.Repository, reviewer
 func (w *Worker) Run(ctx context.Context) {
 	ticker := time.NewTicker(3 * time.Second)
 	defer ticker.Stop()
+	w.run(ctx, ticker.C, w.Execute, w.ProcessLifecycle)
+}
+
+func (w *Worker) run(ctx context.Context, ticks <-chan time.Time, execute func(context.Context, int64, string, poolconfigurations.AssignmentTarget) error, prepare func(context.Context, uuid.UUID) error) {
 	var pending sync.WaitGroup
 	defer pending.Wait()
 	var mu sync.Mutex
 	running := map[int64]bool{}
+poll:
 	for {
 		select {
 		case <-ctx.Done():
 			return
-		case <-ticker.C:
+		case <-ticks:
+			if err := w.queries.RecoverSettledPoolConfigurationWork(ctx); err != nil {
+				slog.WarnContext(ctx, "unable to reconcile settled pool updates")
+				continue
+			}
 			if err := w.queries.ReconcilePoolLifecycleOperations(ctx); err != nil {
 				slog.WarnContext(ctx, "unable to reconcile automatic pool updates")
+			}
+			// Give accepted updates first access to free slots. Preparation uses
+			// the remaining capacity so slow readiness checks cannot starve them.
+			rows, err := w.queries.ListPendingPoolConfigurationWork(ctx)
+			if err != nil {
+				slog.WarnContext(ctx, "unable to list pending pool updates")
+				continue
+			}
+			for _, row := range rows {
+				mu.Lock()
+				if len(running) >= 8 {
+					mu.Unlock()
+					// Do not let preparation take a slot released later in this
+					// cycle while accepted updates are still waiting.
+					continue poll
+				}
+				if running[row.DeviceID] {
+					mu.Unlock()
+					continue
+				}
+				running[row.DeviceID] = true
+				mu.Unlock()
+				pending.Add(1)
+				go func() {
+					defer pending.Done()
+					defer func() { mu.Lock(); delete(running, row.DeviceID); mu.Unlock() }()
+					attemptCtx, cancel := context.WithTimeout(ctx, 40*time.Second)
+					defer cancel()
+					if err := execute(attemptCtx, row.OrganizationID, row.OperationID, poolconfigurations.AssignmentTarget{Kind: row.TargetKind, ID: row.TargetID, DeviceID: row.DeviceID}); err != nil {
+						// Never log a driver error or a payload: either may contain credentials.
+						slog.WarnContext(ctx, "pool update bookkeeping did not complete", "operation_id", row.OperationID, "device_id", row.DeviceID)
+					}
+				}()
 			}
 			lifecycle, err := w.queries.ListPendingPoolLifecycleTransitions(ctx)
 			if err != nil {
@@ -105,45 +147,12 @@ func (w *Worker) Run(ctx context.Context) {
 					defer func() { mu.Lock(); delete(running, event.DeviceID); mu.Unlock() }()
 					attemptCtx, cancel := context.WithTimeout(ctx, 40*time.Second)
 					defer cancel()
-					if err := w.ProcessLifecycle(attemptCtx, event.TransitionID); err != nil {
+					if err := prepare(attemptCtx, event.TransitionID); err != nil {
 						cleanupCtx, cleanupCancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 						defer cleanupCancel()
 						if err := w.queries.DeferPoolLifecycleTransition(cleanupCtx, sqlc.DeferPoolLifecycleTransitionParams{TransitionID: event.TransitionID, ResultCode: "preparation_unavailable"}); err != nil {
 							slog.WarnContext(ctx, "unable to record automatic pool update delay", "transition_id", event.TransitionID)
 						}
-					}
-				}()
-			}
-			if err := w.queries.RecoverSettledPoolConfigurationWork(ctx); err != nil {
-				slog.WarnContext(ctx, "unable to reconcile settled pool updates")
-				continue
-			}
-			rows, err := w.queries.ListPendingPoolConfigurationWork(ctx)
-			if err != nil {
-				slog.WarnContext(ctx, "unable to list pending pool updates")
-				continue
-			}
-			for _, row := range rows {
-				mu.Lock()
-				if len(running) >= 8 {
-					mu.Unlock()
-					break
-				}
-				if running[row.DeviceID] {
-					mu.Unlock()
-					continue
-				}
-				running[row.DeviceID] = true
-				mu.Unlock()
-				pending.Add(1)
-				go func() {
-					defer pending.Done()
-					defer func() { mu.Lock(); delete(running, row.DeviceID); mu.Unlock() }()
-					attemptCtx, cancel := context.WithTimeout(ctx, 40*time.Second)
-					defer cancel()
-					if err := w.Execute(attemptCtx, row.OrganizationID, row.OperationID, poolconfigurations.AssignmentTarget{Kind: row.TargetKind, ID: row.TargetID, DeviceID: row.DeviceID}); err != nil {
-						// Never log a driver error or a payload: either may contain credentials.
-						slog.WarnContext(ctx, "pool update bookkeeping did not complete", "operation_id", row.OperationID, "device_id", row.DeviceID)
 					}
 				}()
 			}

@@ -22,6 +22,14 @@ import (
 func (w *Worker) ProcessLifecycle(ctx context.Context, id uuid.UUID) error {
 	ctx = poolconfigurations.WithLifecycleTransition(ctx, id)
 	ctx = devicewrite.WithPoolOperation(ctx, id)
+	// Reconcile a persisted pre-dispatch failure before loading work. This also
+	// recovers a process that stopped between failure recording and retry.
+	if err := w.queries.RetryUndispatchedPoolLifecycleRemoval(ctx, id); err != nil {
+		return err
+	}
+	if err := w.queries.ReprepareUndispatchedPoolLifecycleRemoval(ctx, id); err != nil {
+		return err
+	}
 	row, err := w.resolveLifecycle(ctx, id)
 	if err != nil {
 		return err
@@ -181,7 +189,7 @@ func (w *Worker) ProcessLifecycle(ctx context.Context, id uuid.UUID) error {
 }
 
 func lifecycleTarget(ctx context.Context, q sqlc.Querier, row sqlc.GetPoolLifecycleTransitionRow) (poolconfigurations.AssignmentTarget, error) {
-	if row.TargetID > 0 {
+	if row.State != "pending" && row.TargetID > 0 {
 		return poolconfigurations.AssignmentTarget{Kind: row.TargetKind, ID: row.TargetID, DeviceID: row.DeviceID}, nil
 	}
 	if row.AssetKind == 5 {

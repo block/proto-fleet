@@ -45,6 +45,35 @@ func TestRepeatedProxyPollingRetiresCompletedAdmission(t *testing.T) {
 	assertNoProxyAttempt(t, database, deviceID)
 }
 
+func TestProxyFirmwareCheckDoesNotFenceLaterWrites(t *testing.T) {
+	for _, status := range []int{http.StatusOK, http.StatusAccepted, http.StatusServiceUnavailable} {
+		t.Run(fmt.Sprint(status), func(t *testing.T) {
+			database, orgID, deviceID, h, target := proxyFenceFixture(t)
+			h.storeToken(target.cacheKey(), "fixture-token")
+			h.httpClient = &http.Client{Transport: proxyRoundTripFunc(func(r *http.Request) (*http.Response, error) {
+				require.Equal(t, "/api/v1/system/update/check", r.URL.Path)
+				var kind string
+				require.NoError(t, database.DB.QueryRowContext(t.Context(), "SELECT operation_kind FROM device_write_attempt WHERE device_id=$1", deviceID).Scan(&kind))
+				require.Equal(t, "observation", kind, "availability checks must declare read-only admission before I/O")
+				return &http.Response{StatusCode: status, Header: make(http.Header), Body: io.NopCloser(strings.NewReader("{}"))}, nil
+			})}
+			request := authenticatedProxyRequest(t, database, h, target)
+			request.Method = http.MethodPost
+			request.SetPathValue("apiVersion", "v1")
+			request.SetPathValue("rest", "system/update/check")
+			response := newDeadlineProxyRecorder()
+			h.ServeHTTP(response, request)
+			require.Equal(t, status, response.Code)
+			assertNoProxyAttempt(t, database, deviceID)
+			epoch, err := h.writeService.Reserve(t.Context(), orgID, deviceID)
+			require.NoError(t, err)
+			drained, err := h.writeService.Drained(t.Context(), orgID, deviceID, epoch)
+			require.NoError(t, err)
+			require.True(t, drained, "opening the miner page must not leave a configuration write fence")
+		})
+	}
+}
+
 func TestCanceledProxyReadAllowsRetiredIdentityReuse(t *testing.T) {
 	database, orgID, deviceID, h, target := proxyFenceFixture(t)
 	ctx, cancel := context.WithCancel(t.Context())
@@ -90,6 +119,7 @@ func TestProxyObservationFailuresDoNotPoisonDrain(t *testing.T) {
 		{"timeseries-POST", http.MethodPost, "/api/v1/timeseries"},
 		{"logs-GET", http.MethodGet, "/api/v1/system/logs/download"},
 		{"auth-login-POST", http.MethodPost, "/api/v1/auth/login"},
+		{"firmware-check-POST", http.MethodPost, "/api/v1/system/update/check"},
 	} {
 		for _, failure := range []string{"read", "close", "copy", "network"} {
 			if operation.method == http.MethodHead && (failure == "read" || failure == "copy") {

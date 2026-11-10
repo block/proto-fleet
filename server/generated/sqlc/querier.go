@@ -2338,6 +2338,8 @@ type Querier interface {
 	// AUTHENTICATION_NEEDED, PENDING, or FAILED by another flow.
 	ReconcileDefaultPasswordPairingStatusByIdentifier(ctx context.Context, arg ReconcileDefaultPasswordPairingStatusByIdentifierParams) (ReconcileDefaultPasswordPairingStatusByIdentifierRow, error)
 	ReconcileHostedHashboardReplacements(ctx context.Context, arg ReconcileHostedHashboardReplacementsParams) error
+	// Also retire intent left by earlier deletions. Retain physical attempts and
+	// completed history: supersession never establishes that a write has settled.
 	ReconcilePoolLifecycleOperations(ctx context.Context) error
 	// The status and reboot-boundary predicates apply to the current status row even
 	// after waiting for a concurrent firmware install's write to finish. Boot
@@ -2435,6 +2437,10 @@ type Querier interface {
 	RenewCurtailmentAutomationScheduleRevision(ctx context.Context, ruleID int64) error
 	RenewFleetRuntimeLease(ctx context.Context, arg RenewFleetRuntimeLeaseParams) (RenewFleetRuntimeLeaseRow, error)
 	RepairTicketContainsModule(ctx context.Context, arg RepairTicketContainsModuleParams) (bool, error)
+	// Admission claims ready -> applying in the same transaction as its attempt.
+	// Reset only unclaimed clears. Preparation then recomputes target and binding
+	// from the original asset, including the current CT1 mining-group mode.
+	ReprepareUndispatchedPoolLifecycleRemoval(ctx context.Context, transitionID uuid.UUID) error
 	// Lock/update the organization before writing targets. Completion and terminal
 	// retry follow the same lock order so concurrent requests cannot lose targets.
 	RequestRigConfigReconciliationForDevices(ctx context.Context, arg RequestRigConfigReconciliationForDevicesParams) error
@@ -2527,7 +2533,9 @@ type Querier interface {
 	// they are spent the organization keeps retrying on a slow period, so a short
 	// outage cannot strand stale fallback providers on its rigs.
 	RetryRigConfigReconciliation(ctx context.Context, arg RetryRigConfigReconciliationParams) error
-	// Retry only proven no-write attempts. A dispatched or unknown clear is never replayed.
+	// Require explicit no-dispatch evidence from the direct executor plus a
+	// completed attempt. Failed verification of an ordered write can also have an
+	// empty physical receipt; that receipt alone must never authorize a retry.
 	RetryUndispatchedPoolLifecycleRemoval(ctx context.Context, transitionID uuid.UUID) error
 	RevertScheduleToActive(ctx context.Context, id int64) error
 	RevokeAllSessionsByUserID(ctx context.Context, arg RevokeAllSessionsByUserIDParams) error

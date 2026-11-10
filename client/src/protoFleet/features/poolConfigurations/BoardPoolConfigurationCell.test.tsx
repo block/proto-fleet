@@ -13,7 +13,7 @@ beforeEach(() => usePoolAssignmentProgress.setState({ jobs: [] }));
 
 it.each([
   ["verified", "Mixed configurations"],
-  ["cleared", "Pools cleared"],
+  ["cleared", "—"],
   ["failed", "Needs attention"],
   ["uncertain", "Needs attention"],
 ])("aggregates a cleared board with a %s board as %s", (state, expected) => {

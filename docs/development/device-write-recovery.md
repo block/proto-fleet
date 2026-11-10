@@ -338,7 +338,13 @@ update statuses to get out of a block.
 ### Interrupted proxy reads
 
 The miner proxy commits `observation` admission before forwarding endpoints
-classified as reads by its authorization contract. The admitted context cannot
+classified as reads by its authorization contract. The MDKv1
+`POST /api/v1/system/update/check` availability check also uses observation
+admission: it retains firmware-update permission but does not download or install
+firmware. Opening embedded ProtoOS therefore cannot leave a mutation fence from
+its automatic availability check. Installation and reboot remain mutations;
+existing unresolved records still require recovery rather than reclassification.
+The admitted context cannot
 dispatch a mutation. The captured binding stays locked through login, forwarding, response reads,
 downstream flush and upstream body close. All of these remain inside admission. A completed read removes its transient
 admission. A completed direct mutation admission that never dispatched is also

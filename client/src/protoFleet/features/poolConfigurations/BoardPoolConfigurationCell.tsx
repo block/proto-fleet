@@ -20,25 +20,24 @@ export const BoardPoolConfigurationCell = ({ moduleId, hashboardId }: { moduleId
           ),
       ),
   );
-  if (!saved?.readable) return <span className="text-text-primary-50">Unavailable</span>;
   const rows =
-    saved.boards?.filter((board) =>
+    saved?.boards?.filter((board) =>
       moduleId !== undefined ? board.moduleId === moduleId : board.hashboardId === hashboardId,
     ) ?? [];
-  const local = job && (saved.loadedAt ?? 0) <= job.acceptedAt;
+  const local = saved?.readable && job && (saved.loadedAt ?? 0) <= job.acceptedAt;
   const assigned = rows.filter((row) => row.configurationId);
   const statuses = rows.map(poolUpdateStatus);
   const same = statuses.every((status) => status === statuses[0]);
   const verified = rows.length > 0 && statuses.every((status) => status === "Verified");
   const mixed = rows.some((row) => row.configurationId !== rows[0]?.configurationId);
   const settled = statuses.every((status) =>
-    ["Verified", "Pools cleared", "—", "Device configuration", "Container configuration"].includes(status),
+    ["Verified", "—", "Device configuration", "Container configuration"].includes(status),
   );
   const status = local
     ? job.phase === "unknown"
       ? "Unavailable"
       : "Updating…"
-    : saved.error
+    : !saved?.readable || saved.error
       ? "Unavailable"
       : !rows.length
         ? saved.loading

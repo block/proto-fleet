@@ -219,7 +219,9 @@ const listPendingPoolLifecycleTransitions = `-- name: ListPendingPoolLifecycleTr
 SELECT transition_id, organization_id, device_id, asset_kind, asset_id, owner_account_id, allocation_revision, pairing_defaults, reason, configuration_id, revision_id, target_kind, target_id, reviewed_binding, state, result_code, operation_id, physical_attempt_id, created_at, updated_at, next_attempt_at FROM (
  SELECT DISTINCT ON (l.device_id) l.transition_id, l.organization_id, l.device_id, l.asset_kind, l.asset_id, l.owner_account_id, l.allocation_revision, l.pairing_defaults, l.reason, l.configuration_id, l.revision_id, l.target_kind, l.target_id, l.reviewed_binding, l.state, l.result_code, l.operation_id, l.physical_attempt_id, l.created_at, l.updated_at, l.next_attempt_at FROM pool_lifecycle_transition l
  LEFT JOIN device_write_attempt w ON w.attempt_id=l.physical_attempt_id
- WHERE (l.state IN ('pending','ready') OR (l.state IN ('applying','uncertain') AND l.configuration_id IS NULL AND l.target_kind='device' AND w.status='complete'))
+ WHERE (l.state IN ('pending','ready') OR (l.state IN ('applying','uncertain') AND l.configuration_id IS NULL AND l.target_kind='device' AND w.status='complete')
+  OR (l.state='failed' AND l.result_code='clear_not_dispatched' AND l.reason='ownership' AND l.configuration_id IS NULL AND l.target_kind='device'
+   AND w.status='complete' AND w.operation_kind='mutation' AND w.command_type='UpdateMiningPools' AND w.write_outcome='{}'::jsonb))
   AND l.next_attempt_at<=clock_timestamp()
   AND NOT EXISTS(SELECT 1 FROM pool_configuration_assignment a JOIN pool_configuration_operation_target t
    ON t.organization_id=a.organization_id AND t.operation_id=a.operation_id AND t.target_kind=a.target_kind AND t.target_id=a.target_id AND t.assignment_version=a.version
@@ -438,24 +440,50 @@ func (q *Queries) PreparePoolLifecycleTransition(ctx context.Context, arg Prepar
 }
 
 const reconcilePoolLifecycleOperations = `-- name: ReconcilePoolLifecycleOperations :exec
+WITH deleted AS (
+ UPDATE pool_lifecycle_transition l
+ SET state='superseded',result_code='device_deleted',updated_at=clock_timestamp()
+ FROM device d WHERE d.id=l.device_id AND d.org_id=l.organization_id AND d.deleted_at IS NOT NULL
+  AND l.state IN ('pending','ready','applying','uncertain','failed')
+ RETURNING l.transition_id
+)
 UPDATE pool_lifecycle_transition l SET state=CASE WHEN t.state='verified' THEN 'verified' ELSE 'failed' END,
  result_code=t.result_code,updated_at=clock_timestamp()
 FROM pool_configuration_operation_target t WHERE l.operation_id=t.operation_id AND l.state='applying'
  AND t.state NOT IN ('pending','applying')
+ AND NOT EXISTS(SELECT 1 FROM deleted d WHERE d.transition_id=l.transition_id)
 `
 
+// Also retire intent left by earlier deletions. Retain physical attempts and
+// completed history: supersession never establishes that a write has settled.
 func (q *Queries) ReconcilePoolLifecycleOperations(ctx context.Context) error {
 	_, err := q.exec(ctx, q.reconcilePoolLifecycleOperationsStmt, reconcilePoolLifecycleOperations)
+	return err
+}
+
+const reprepareUndispatchedPoolLifecycleRemoval = `-- name: ReprepareUndispatchedPoolLifecycleRemoval :exec
+UPDATE pool_lifecycle_transition SET state='pending',updated_at=clock_timestamp()
+WHERE transition_id=$1 AND state='ready' AND reason='ownership' AND configuration_id IS NULL AND physical_attempt_id IS NULL
+`
+
+// Admission claims ready -> applying in the same transaction as its attempt.
+// Reset only unclaimed clears. Preparation then recomputes target and binding
+// from the original asset, including the current CT1 mining-group mode.
+func (q *Queries) ReprepareUndispatchedPoolLifecycleRemoval(ctx context.Context, transitionID uuid.UUID) error {
+	_, err := q.exec(ctx, q.reprepareUndispatchedPoolLifecycleRemovalStmt, reprepareUndispatchedPoolLifecycleRemoval, transitionID)
 	return err
 }
 
 const retryUndispatchedPoolLifecycleRemoval = `-- name: RetryUndispatchedPoolLifecycleRemoval :exec
 UPDATE pool_lifecycle_transition l SET state='ready',physical_attempt_id=NULL,next_attempt_at=clock_timestamp()+interval '30 seconds',updated_at=clock_timestamp()
 FROM device_write_attempt w WHERE l.transition_id=$1 AND l.physical_attempt_id=w.attempt_id
- AND l.state='failed' AND l.configuration_id IS NULL AND w.status='complete' AND w.write_outcome='{}'::jsonb
+ AND l.state='failed' AND l.result_code='clear_not_dispatched' AND l.reason='ownership' AND l.configuration_id IS NULL AND l.target_kind='device'
+ AND w.status='complete' AND w.operation_kind='mutation' AND w.command_type='UpdateMiningPools' AND w.write_outcome='{}'::jsonb
 `
 
-// Retry only proven no-write attempts. A dispatched or unknown clear is never replayed.
+// Require explicit no-dispatch evidence from the direct executor plus a
+// completed attempt. Failed verification of an ordered write can also have an
+// empty physical receipt; that receipt alone must never authorize a retry.
 func (q *Queries) RetryUndispatchedPoolLifecycleRemoval(ctx context.Context, transitionID uuid.UUID) error {
 	_, err := q.exec(ctx, q.retryUndispatchedPoolLifecycleRemovalStmt, retryUndispatchedPoolLifecycleRemoval, transitionID)
 	return err

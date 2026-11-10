@@ -3015,6 +3015,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.repairTicketContainsModuleStmt, err = db.PrepareContext(ctx, repairTicketContainsModule); err != nil {
 		return nil, fmt.Errorf("error preparing query RepairTicketContainsModule: %w", err)
 	}
+	if q.reprepareUndispatchedPoolLifecycleRemovalStmt, err = db.PrepareContext(ctx, reprepareUndispatchedPoolLifecycleRemoval); err != nil {
+		return nil, fmt.Errorf("error preparing query ReprepareUndispatchedPoolLifecycleRemoval: %w", err)
+	}
 	if q.requestRigConfigReconciliationForDevicesStmt, err = db.PrepareContext(ctx, requestRigConfigReconciliationForDevices); err != nil {
 		return nil, fmt.Errorf("error preparing query RequestRigConfigReconciliationForDevices: %w", err)
 	}
@@ -8671,6 +8674,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing repairTicketContainsModuleStmt: %w", cerr)
 		}
 	}
+	if q.reprepareUndispatchedPoolLifecycleRemovalStmt != nil {
+		if cerr := q.reprepareUndispatchedPoolLifecycleRemovalStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing reprepareUndispatchedPoolLifecycleRemovalStmt: %w", cerr)
+		}
+	}
 	if q.requestRigConfigReconciliationForDevicesStmt != nil {
 		if cerr := q.requestRigConfigReconciliationForDevicesStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing requestRigConfigReconciliationForDevicesStmt: %w", cerr)
@@ -10817,6 +10825,7 @@ type Queries struct {
 	renewCurtailmentAutomationScheduleRevisionStmt              *sql.Stmt
 	renewFleetRuntimeLeaseStmt                                  *sql.Stmt
 	repairTicketContainsModuleStmt                              *sql.Stmt
+	reprepareUndispatchedPoolLifecycleRemovalStmt               *sql.Stmt
 	requestRigConfigReconciliationForDevicesStmt                *sql.Stmt
 	requeueFirmwareRolloutDevicesStmt                           *sql.Stmt
 	requeueRigConfigReconciliationAfterTerminalFailureStmt      *sql.Stmt
@@ -12042,6 +12051,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		renewCurtailmentAutomationScheduleRevisionStmt:              q.renewCurtailmentAutomationScheduleRevisionStmt,
 		renewFleetRuntimeLeaseStmt:                                  q.renewFleetRuntimeLeaseStmt,
 		repairTicketContainsModuleStmt:                              q.repairTicketContainsModuleStmt,
+		reprepareUndispatchedPoolLifecycleRemovalStmt:               q.reprepareUndispatchedPoolLifecycleRemovalStmt,
 		requestRigConfigReconciliationForDevicesStmt:                q.requestRigConfigReconciliationForDevicesStmt,
 		requeueFirmwareRolloutDevicesStmt:                           q.requeueFirmwareRolloutDevicesStmt,
 		requeueRigConfigReconciliationAfterTerminalFailureStmt:      q.requeueRigConfigReconciliationAfterTerminalFailureStmt,

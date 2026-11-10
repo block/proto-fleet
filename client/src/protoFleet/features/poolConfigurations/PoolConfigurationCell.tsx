@@ -16,10 +16,12 @@ export const PoolConfigurationCell = ({
     findPoolAssignment(state.jobs, accountId, deviceIdentifier, deviceId),
   );
   const saved = useSavedPoolAssignments();
-  if (saved?.readable === false) return <span className="text-text-primary-50">Unavailable</span>;
   const assignment =
     deviceId !== undefined ? saved?.byId.get(String(deviceId)) : saved?.byIdentifier.get(deviceIdentifier ?? "");
-  const local = job && (!saved || (!saved.loadedAt && !saved.error) || (saved.loadedAt ?? 0) <= job.acceptedAt);
+  const local =
+    saved?.readable !== false &&
+    job &&
+    (!saved || (!saved.loadedAt && !saved.error) || (saved.loadedAt ?? 0) <= job.acceptedAt);
   const target = job?.targets.find(
     (item) =>
       item.kind === "device" &&
@@ -31,7 +33,7 @@ export const PoolConfigurationCell = ({
       : target
         ? poolUpdateStatus(target)
         : "Updating…"
-    : saved?.error
+    : saved?.readable === false || saved?.error
       ? "Unavailable"
       : assignment
         ? poolUpdateStatus(assignment)

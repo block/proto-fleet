@@ -7,7 +7,7 @@ import { usePoolConfigurationClient, usePoolConfigurationPermissions } from "./a
 import { ConfigurationReview, type ConfigurationReviewData } from "./ConfigurationReview";
 import { PoolSettingsComparison } from "./PoolSettingsComparison";
 import { poolRemovalOutcome, poolStatusExplanation, poolUpdateStatus } from "./status";
-import { poolTargetKey, useDevicePoolReadings } from "./useDevicePoolReadings";
+import { poolTargetKey, useDevicePoolReadings, usesDevicePoolReadback } from "./useDevicePoolReadings";
 import {
   type CheckConfigurationResponse,
   type EquipmentAssignment,
@@ -23,6 +23,8 @@ import Modal from "@/shared/components/Modal";
 import ProgressCircular from "@/shared/components/ProgressCircular";
 
 const keyFor = (target: { kind: string; targetId: bigint }) => `${target.kind}:${target.targetId}`;
+const allocationAccessMessage =
+  "You don’t have access to view this hardware’s pool configuration. Pool configurations are only visible in the account the hardware is allocated to.";
 const assignmentTarget = (a: EquipmentAssignment) => ({
   kind: a.installationId ? "hashboard_installation" : "device",
   targetId: a.installationId || a.deviceId,
@@ -39,6 +41,7 @@ export const OperationResults = ({
   assignments = [],
   selectedTargets,
   unavailable = false,
+  accessDenied = false,
   loading = false,
   onRefresh,
   onOperationChange,
@@ -48,6 +51,7 @@ export const OperationResults = ({
   assignments?: EquipmentAssignment[];
   selectedTargets?: { kind: string; targetId: bigint }[];
   unavailable?: boolean;
+  accessDenied?: boolean;
   loading?: boolean;
   onRefresh?: () => void;
   onOperationChange: (id: string) => void;
@@ -75,11 +79,11 @@ export const OperationResults = ({
       ),
     [client, accountId, ids],
   );
-  const query = useAccountQuery(load, !!ids, true, 3000);
+  const query = useAccountQuery(load, !!ids && !accessDenied, true, 3000);
   const mutation = useAccountMutation();
   const [review, setReview] = useState<ConfigurationReviewData>();
   const [checks, setChecks] = useState<Record<string, CheckConfigurationResponse>>({});
-  const deviceReadings = useDevicePoolReadings(client, accountId, assignments, change && !readOnly);
+  const deviceReadings = useDevicePoolReadings(client, accountId, assignments, change && !readOnly && !accessDenied);
   const refresh = () => {
     query.refresh();
     deviceReadings.refresh();
@@ -124,6 +128,19 @@ export const OperationResults = ({
       createdAt: undefined,
     });
   }
+  if (accessDenied)
+    return (
+      <Modal
+        open
+        title="Pool configuration"
+        dialogLabel="Pool configuration"
+        manageFocus
+        initialFocus="dialog"
+        onDismiss={mutation.busy ? undefined : onDismiss}
+      >
+        <p>{allocationAccessMessage}</p>
+      </Modal>
+    );
   if (review)
     return (
       <ConfigurationReview
@@ -181,7 +198,7 @@ export const OperationResults = ({
                 !isNewerThan(assignment?.updatedAt, cached.checkedAt)
                   ? cached
                   : undefined) ??
-                (assignment && !assignment.configurationId
+                (assignment && usesDevicePoolReadback(assignment)
                   ? deviceReadings.readings[poolTargetKey(assignment)]
                   : undefined))
               : undefined;
@@ -328,9 +345,7 @@ export const OperationResults = ({
             </section>
           );
         })}
-        {!loading && !ids && !rows.length && !unavailable ? (
-          <p>No saved pool configuration is assigned. The equipment may still have pools configured.</p>
-        ) : null}
+        {!loading && !ids && !rows.length && !unavailable ? <p>{allocationAccessMessage}</p> : null}
       </div>
     </Modal>
   );

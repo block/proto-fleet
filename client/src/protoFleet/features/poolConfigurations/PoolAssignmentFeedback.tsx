@@ -1,5 +1,6 @@
 import { useCallback } from "react";
-import { usePoolConfigurationClient } from "./api";
+import { Code } from "@connectrpc/connect";
+import { usePoolConfigurationClient, usePoolConfigurationPermissions } from "./api";
 import { usePoolAssignmentProgress } from "./assignmentProgress";
 import { ConfirmationRecovery } from "./ConfirmationRecovery";
 import { OperationResults } from "./OperationResults";
@@ -10,6 +11,7 @@ import { useAccountQuery } from "@/protoFleet/features/hostedAccounts/useAccount
 // them. Reload assignments here so an open dialog also sees newer observations.
 export const PoolAssignmentFeedback = () => {
   const { client, accountId } = usePoolConfigurationClient();
+  const { read } = usePoolConfigurationPermissions();
   const selection = usePoolAssignmentProgress((state) =>
     state.detailsSelection?.accountId === accountId ? state.detailsSelection : undefined,
   );
@@ -35,7 +37,8 @@ export const PoolAssignmentFeedback = () => {
       ),
     [client, accountId, selection],
   );
-  const query = useAccountQuery(load, !!selection, true, 3000);
+  const query = useAccountQuery(load, !!selection && read, true, 3000);
+  const accessDenied = !read || query.errorCode === Code.PermissionDenied;
 
   const assignments = query.data?.assignments ?? [];
   const activeJob = !selection || !assignments.length ? job : undefined;
@@ -61,6 +64,7 @@ export const PoolAssignmentFeedback = () => {
           }
           loading={query.loading}
           unavailable={!!query.error}
+          accessDenied={accessDenied}
           onRefresh={query.refresh}
           onOperationChange={query.refresh}
           onDismiss={() => usePoolAssignmentProgress.setState({ detailsJobId: undefined, detailsSelection: undefined })}

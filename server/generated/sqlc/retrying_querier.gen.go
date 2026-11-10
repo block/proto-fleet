@@ -11054,6 +11054,12 @@ func (q *retryingQuerier) RepairTicketContainsModule(ctx context.Context, arg Re
 	return result, err
 }
 
+func (q *retryingQuerier) ReprepareUndispatchedPoolLifecycleRemoval(ctx context.Context, transitionID uuid.UUID) error {
+	return q.retrier.RetryQuery(ctx, "ReprepareUndispatchedPoolLifecycleRemoval", func() error {
+		return q.next.ReprepareUndispatchedPoolLifecycleRemoval(ctx, transitionID)
+	})
+}
+
 func (q *retryingQuerier) RequestRigConfigReconciliationForDevices(ctx context.Context, arg RequestRigConfigReconciliationForDevicesParams) error {
 	return q.retrier.RetryQuery(ctx, "RequestRigConfigReconciliationForDevices", func() error {
 		return q.next.RequestRigConfigReconciliationForDevices(ctx, arg)

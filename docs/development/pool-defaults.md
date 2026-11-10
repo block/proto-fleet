@@ -36,11 +36,32 @@ stopped, pool-free group; the default group's configuration remains unchanged.
 Other owners' boards must remain outside the affected set. Unsupported clearing
 remains pending with an unavailable-readiness result, rather than reporting success.
 
+The pool worker gives accepted updates priority over lifecycle preparation when
+assigning its eight device-processing slots. Preparation uses spare capacity;
+already-running work finishes normally before its slot can be reused.
+
 Pending transitions appear in equipment pool status. Applied configurations retain
 the existing operation results. Automatic clears report completion only after
 empty stored and runtime settings are verified. Pre-dispatch read failures retry
-only after the journal proves no mutation was sent. A dispatched clear is never
-sent again automatically: completed attempts can be observed again, while unknown
+only after the journal proves no mutation was sent. Failure recording and retry
+scheduling commit together; polling also recovers recorded pre-dispatch failures
+left by an interrupted process. Unclaimed clears repeat preparation using current
+placement and mining-group mode before dispatch. A dispatched clear is never sent
+again automatically: completed attempts can be observed again, while unknown
 attempts require the existing administrator device-write recovery procedure.
+
+Ownership changes remain available during pool work. An obsolete automatic board
+clear ends only after saved requests have settled and fresh controller readback
+confirms no pending work. Its transition is superseded and its controller
+reservation released in one transaction, preserving the new owner's policy and
+any device changes already made. Unknown requests retain their reservation.
+
+Deleting a device supersedes its outstanding automatic transitions in the same
+transaction as assignment retirement. This releases captured defaults for archival
+when no live equipment still needs them, including defaults captured during CT1
+pairing. Worker reconciliation also retires transitions left by earlier deletions.
+Completed history and physical-write evidence remain intact; unknown writes still
+protect the hardware if it is rediscovered.
+
 Transitions and operation history survive process restarts. Rollback of checkpoint
 1075 refuses to discard retained transition history; use a coordinated backup.

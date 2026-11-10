@@ -9,7 +9,7 @@ export const poolUpdateStatus = ({ state, resultCode }: Result): string => {
   if (resultCode === "interrupted") return "Update failed";
   return (
     {
-      cleared: "Pools cleared",
+      cleared: "—",
       uncertain: "Not verified",
       adopted: "Not verified",
       device_configuration: "Device configuration",
@@ -87,7 +87,7 @@ export const poolRemovalOutcome = (state: string, keep: boolean, resultCode?: st
   }
   if (state === "completed")
     return {
-      status: keep ? "Assignment removed" : "Pools cleared",
+      status: keep ? "Assignment removed" : "—",
       message: keep
         ? "Fleet assignment removed. Device pool settings were preserved."
         : "Device pools cleared and Fleet assignment removed.",

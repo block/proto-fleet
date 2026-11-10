@@ -28,14 +28,16 @@ const mocks = vi.hoisted(() => ({
   readDevicePools: vi.fn(),
   reviewRetry: vi.fn(),
   accountId: "",
+  read: true,
 }));
 vi.mock("./api", () => ({
   usePoolConfigurationClient: () => ({ client: mocks, accountId: mocks.accountId, readOnly: false }),
-  usePoolConfigurationPermissions: () => ({ change: true }),
+  usePoolConfigurationPermissions: () => ({ read: mocks.read, change: true }),
 }));
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.accountId = "";
+  mocks.read = true;
   usePoolAssignmentProgress.setState({ jobs: [], detailsJobId: undefined, detailsSelection: undefined });
 });
 const operation = (state: string, resultCode: string) =>
@@ -46,6 +48,72 @@ const operation = (state: string, resultCode: string) =>
     targets: [{ kind: "device", targetId: 38n, state, resultCode, label: "02:42:11:0F:91:B3" }],
   });
 const show = () => render(<OperationResults operationId="operation" onOperationChange={vi.fn()} onDismiss={vi.fn()} />);
+it.each([
+  ["miner", true],
+  ["module", true],
+  ["hashboard", true],
+  ["miner", false],
+  ["module", false],
+  ["hashboard", false],
+] as const)(
+  "explains an out-of-scope %s with read permission %s without claiming it has no pools",
+  async (kind, readable) => {
+    mocks.read = readable;
+    mocks.getAssignments.mockResolvedValue(create(GetAssignmentsResponseSchema));
+    render(
+      <>
+        <PoolAssignmentsContext.Provider
+          value={{
+            byIdentifier: new Map(),
+            byId: new Map(),
+            boards: [],
+            readable,
+            loading: false,
+            error: null,
+            refresh: vi.fn(),
+          }}
+        >
+          {kind === "miner" ? (
+            <PoolConfigurationCell deviceId={38n} />
+          ) : kind === "module" ? (
+            <BoardPoolConfigurationCell moduleId={10n} />
+          ) : (
+            <BoardPoolConfigurationCell hashboardId={11n} />
+          )}
+        </PoolAssignmentsContext.Provider>
+        <PoolAssignmentFeedback />
+      </>,
+    );
+    await userEvent.setup().click(screen.getByRole("button", { name: "Unavailable" }));
+    await waitFor(() =>
+      expect(screen.getByText(/You don’t have access to view this hardware’s pool configuration/)).toBeVisible(),
+    );
+    expect(screen.queryByText(/No saved pool configuration is assigned/)).not.toBeInTheDocument();
+    expect(mocks.readDevicePools).not.toHaveBeenCalled();
+    if (!readable) expect(mocks.getAssignments).not.toHaveBeenCalled();
+  },
+);
+
+it("keeps assignment lookup failures separate from allocation access", async () => {
+  mocks.getAssignments.mockRejectedValue(new ConnectError("offline", Code.Unavailable));
+  usePoolAssignmentProgress.setState({ detailsSelection: { accountId: "", deviceIds: [38n] } });
+  render(<PoolAssignmentFeedback />);
+  expect(
+    await screen.findByText("Fleet could not load the update status. The update may still be running."),
+  ).toBeVisible();
+  expect(
+    screen.queryByText(/You don’t have access to view this hardware’s pool configuration/),
+  ).not.toBeInTheDocument();
+});
+
+it("explains denied assignment access without implying an update failed", async () => {
+  mocks.getAssignments.mockRejectedValue(new ConnectError("denied", Code.PermissionDenied));
+  usePoolAssignmentProgress.setState({ detailsSelection: { accountId: "", deviceIds: [38n] } });
+  render(<PoolAssignmentFeedback />);
+  expect(await screen.findByText(/You don’t have access to view this hardware’s pool configuration/)).toBeVisible();
+  expect(screen.queryByText(/The update may still be running/)).not.toBeInTheDocument();
+});
+
 it("explains uncertainty without offering a blind retry", async () => {
   mocks.getOperation.mockResolvedValue(operation("failed", "write_uncertain"));
   show();
@@ -529,7 +597,7 @@ it("keeps Last verified at the earlier success when a newer check reports differ
 });
 
 it.each([
-  ["clear", "completed", "Pools cleared", "Device pools cleared and Fleet assignment removed."],
+  ["clear", "completed", "—", "Device pools cleared and Fleet assignment removed."],
   ["unassign", "completed", "Assignment removed", "Fleet assignment removed. Device pool settings were preserved."],
   [
     "clear",
