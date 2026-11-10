@@ -318,6 +318,135 @@ func TestTopologyCompactionSchedulerReleasesIngestionLockBetweenMicrobatches(t *
 	require.Equal(t, examined+3, examinedAfterRetry, "progress-aware contention must allow an immediate retry")
 }
 
+func TestTopologyCompactionSchedulerBoundsForeignKeyLockWait(t *testing.T) {
+	r := newContainerRollupRig(t)
+	r.base = time.Now().UTC().Truncate(time.Second).Add(-20 * 24 * time.Hour)
+	for _, offset := range []time.Duration{0, time.Minute, 2 * time.Minute} {
+		r.store(t, r.snapshot(offset, false, 100e12, 200e12))
+	}
+	_, err := r.db.ExecContext(t.Context(), `SELECT drop_chunks('device_metrics',older_than=>now()-INTERVAL '10 days');
+ SELECT drop_chunks('container_tank_metrics',older_than=>now()-INTERVAL '10 days')`)
+	require.NoError(t, err)
+	var blockedObservation int64
+	require.NoError(t, r.db.QueryRowContext(t.Context(), `SELECT id FROM container_topology_observation
+ WHERE device_id=$1 AND collected_at=$2`, r.databaseID, r.base.Add(time.Minute)).Scan(&blockedObservation))
+
+	// Reproduce the FK row-lock condition possible during an in-flight latest-value
+	// update. The update is invisible to the precheck, but it blocks parent delete.
+	blocker, err := r.db.BeginTx(t.Context(), nil)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = blocker.Rollback() })
+	_, err = blocker.ExecContext(t.Context(), `UPDATE container_tank_latest_metrics
+ SET topology_observation_id=$1`, blockedObservation)
+	require.NoError(t, err)
+
+	started := time.Now()
+	_, err = r.db.ExecContext(t.Context(), `CALL compact_container_topology_job(0,
+  '{"enabled":true,"batch_size":25,"microbatch_size":3,"lock_timeout_ms":10000}'::jsonb)`)
+	require.NoError(t, err)
+	require.Less(t, time.Since(started), time.Second, "an FK lock wait must not consume the two-second job deadline")
+	var examined, failures, deferrals int
+	var deferred bool
+	require.NoError(t, r.db.QueryRowContext(t.Context(), `SELECT examined,failures,deferrals,next_run_at>now()
+ FROM container_topology_compaction_state WHERE device_id=$1`, r.databaseID).Scan(&examined, &failures, &deferrals, &deferred))
+	require.Zero(t, examined, "the timed-out microbatch must roll back atomically")
+	require.Zero(t, failures)
+	require.Equal(t, 1, deferrals)
+	require.True(t, deferred, "a first-microbatch lock wait must keep the one-minute backoff")
+
+	require.NoError(t, blocker.Rollback())
+	_, err = r.db.ExecContext(t.Context(), `UPDATE container_topology_compaction_state SET next_run_at=now() WHERE device_id=$1`, r.databaseID)
+	require.NoError(t, err)
+	_, err = r.db.ExecContext(t.Context(), `CALL compact_container_topology_job(0,
+  '{"enabled":true,"batch_size":3,"microbatch_size":3}'::jsonb)`)
+	require.NoError(t, err)
+	var retained bool
+	require.NoError(t, r.db.QueryRowContext(t.Context(), `SELECT EXISTS(
+  SELECT 1 FROM container_topology_observation WHERE id=$1)`, blockedObservation).Scan(&retained))
+	require.False(t, retained, "cleanup must retry the deferred observation after the writer releases its lock")
+}
+
+func TestTopologyCompactionSchedulerYieldsBeforeJobDeadline(t *testing.T) {
+	r := newContainerRollupRig(t)
+	insertTopologyCleanupCandidates(t, r, "runtime-budget", 30)
+	_, err := r.db.ExecContext(t.Context(), `CREATE FUNCTION slow_topology_cleanup_runtime_test() RETURNS trigger LANGUAGE plpgsql AS $$
+ BEGIN
+  PERFORM pg_sleep(0.15);
+  RETURN OLD;
+ END $$;
+ CREATE TRIGGER slow_topology_cleanup_runtime_test BEFORE DELETE ON container_topology_observation
+ FOR EACH ROW EXECUTE FUNCTION slow_topology_cleanup_runtime_test()`)
+	require.NoError(t, err)
+
+	conn, err := r.db.Conn(t.Context())
+	require.NoError(t, err)
+	defer conn.Close()
+	_, err = conn.ExecContext(t.Context(), `SET statement_timeout='2s'`)
+	require.NoError(t, err)
+	started := time.Now()
+	_, err = conn.ExecContext(t.Context(), `CALL compact_container_topology_job(0,
+  '{"enabled":true,"batch_size":25,"microbatch_size":1,"run_budget_ms":10000}'::jsonb)`)
+	require.NoError(t, err, "the cleanup must yield before the scheduler deadline")
+	require.Less(t, time.Since(started), 1800*time.Millisecond)
+
+	var examined, failures, deferrals, runtimeYields int
+	var due bool
+	var lastRuntimeYield sql.NullTime
+	require.NoError(t, r.db.QueryRowContext(t.Context(), `SELECT examined,failures,deferrals,runtime_yields,
+ next_run_at<=now(),last_runtime_yield_at FROM container_topology_compaction_state WHERE device_id=$1`, r.databaseID).
+		Scan(&examined, &failures, &deferrals, &runtimeYields, &due, &lastRuntimeYield))
+	require.Positive(t, examined)
+	require.Less(t, examined, 25, "the runtime guard must stop before the configured row budget")
+	require.Zero(t, failures)
+	require.Zero(t, deferrals)
+	require.Equal(t, 1, runtimeYields)
+	require.True(t, due, "runtime-yielded work must remain due behind older controllers")
+	require.True(t, lastRuntimeYield.Valid)
+
+	_, err = r.db.ExecContext(t.Context(), `DROP TRIGGER slow_topology_cleanup_runtime_test ON container_topology_observation;
+ DROP FUNCTION slow_topology_cleanup_runtime_test()`)
+	require.NoError(t, err)
+	_, err = conn.ExecContext(t.Context(), `CALL compact_container_topology_job(0,
+  '{"enabled":true,"batch_size":25,"microbatch_size":3}'::jsonb)`)
+	require.NoError(t, err)
+	var examinedAfterRetry int
+	require.NoError(t, r.db.QueryRowContext(t.Context(), `SELECT examined FROM container_topology_compaction_state
+ WHERE device_id=$1`, r.databaseID).Scan(&examinedAfterRetry))
+	require.Greater(t, examinedAfterRetry, examined, "a yielded device must make progress on its next turn")
+}
+
+func TestTopologyCompactionSchedulerRechecksRuntimeAfterHandoff(t *testing.T) {
+	r := newContainerRollupRig(t)
+	insertTopologyCleanupCandidates(t, r, "handoff-runtime-budget", 9)
+	_, err := r.db.ExecContext(t.Context(), `CREATE FUNCTION slow_topology_cleanup_handoff_test() RETURNS trigger LANGUAGE plpgsql AS $$
+ BEGIN
+  IF OLD.last_run_at IS NOT NULL
+   AND NEW.last_run_at IS NOT DISTINCT FROM OLD.last_run_at
+   AND NEW.runtime_yields=OLD.runtime_yields
+   AND NEW.next_run_at>OLD.next_run_at THEN
+   PERFORM pg_sleep(1.1);
+  END IF;
+  RETURN NEW;
+ END $$;
+ CREATE TRIGGER slow_topology_cleanup_handoff_test BEFORE UPDATE ON container_topology_compaction_state
+ FOR EACH ROW EXECUTE FUNCTION slow_topology_cleanup_handoff_test()`)
+	require.NoError(t, err)
+
+	_, err = r.db.ExecContext(t.Context(), `CALL compact_container_topology_job(0,
+  '{"enabled":true,"batch_size":6,"microbatch_size":3,"run_budget_ms":1000}'::jsonb)`)
+	require.NoError(t, err)
+
+	var examined, failures, runtimeYields int
+	var due bool
+	require.NoError(t, r.db.QueryRowContext(t.Context(), `SELECT examined,failures,runtime_yields,next_run_at<=now()
+ FROM container_topology_compaction_state WHERE device_id=$1`, r.databaseID).
+		Scan(&examined, &failures, &runtimeYields, &due))
+	require.Equal(t, 3, examined, "cleanup must not start another microbatch after a slow handoff crosses the budget")
+	require.Zero(t, failures)
+	require.Equal(t, 1, runtimeYields)
+	require.True(t, due, "handoff-yielded work must remain due")
+}
+
 func TestTopologyCompactionSkipsActiveIngestionAndRecentReceipts(t *testing.T) {
 	r := newContainerRollupRig(t)
 	r.base = time.Now().UTC().Truncate(time.Second).Add(-20 * 24 * time.Hour)

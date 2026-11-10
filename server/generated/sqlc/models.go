@@ -937,18 +937,20 @@ type ContainerTopologyCompactionPending struct {
 }
 
 type ContainerTopologyCompactionState struct {
-	DeviceID       int64
-	ScannedThrough sql.NullTime
-	AnchorID       sql.NullInt64
-	NextRunAt      time.Time
-	LastRunAt      sql.NullTime
-	LastDurationMs sql.NullFloat64
-	Examined       int64
-	Deleted        int64
-	Failures       int64
-	LastError      sql.NullString
-	Deferrals      int64
-	LastDeferredAt sql.NullTime
+	DeviceID           int64
+	ScannedThrough     sql.NullTime
+	AnchorID           sql.NullInt64
+	NextRunAt          time.Time
+	LastRunAt          sql.NullTime
+	LastDurationMs     sql.NullFloat64
+	Examined           int64
+	Deleted            int64
+	Failures           int64
+	LastError          sql.NullString
+	Deferrals          int64
+	LastDeferredAt     sql.NullTime
+	RuntimeYields      int64
+	LastRuntimeYieldAt sql.NullTime
 }
 
 type ContainerTopologyObservation struct {
