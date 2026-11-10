@@ -79,5 +79,20 @@ pairing. Worker reconciliation also retires transitions left by earlier deletion
 Completed history and physical-write evidence remain intact; unknown writes still
 protect the hardware if it is rediscovered.
 
+Confirmed board removal retires automatic transitions that have not been claimed
+by an operation or physical attempt. A replacement can return the outgoing board
+to the operator after its installation has closed; that absent-board policy is
+retained as retired history and does not pin the captured configuration. Stale or
+incomplete inventory alone does not retire work. Current-equipment status reads
+omit transitions without a resolvable display target, including before cleanup.
+
+When a board with that retired work is installed again, Fleet consumes the retired
+intent once and captures its current owner's current default, or a clear when no
+default exists. It does not replay the old configuration or physical binding.
+Controller moves reuse an already-queued ownership policy, and a subsequent
+replacement allocation in the same inventory transaction supersedes any temporary
+operator policy. Repeated inventory reports do not enqueue more work. Claimed or
+uncertain writes keep their existing recovery workflow and write-fence protection.
+
 Transitions and operation history survive process restarts. Rollback of checkpoint
 1075 refuses to discard retained transition history; use a coordinated backup.

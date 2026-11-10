@@ -2338,7 +2338,8 @@ type Querier interface {
 	// AUTHENTICATION_NEEDED, PENDING, or FAILED by another flow.
 	ReconcileDefaultPasswordPairingStatusByIdentifier(ctx context.Context, arg ReconcileDefaultPasswordPairingStatusByIdentifierParams) (ReconcileDefaultPasswordPairingStatusByIdentifierRow, error)
 	ReconcileHostedHashboardReplacements(ctx context.Context, arg ReconcileHostedHashboardReplacementsParams) error
-	// Also retire intent left by earlier deletions. Retain physical attempts and
+	// Also retire intent left by earlier deletions or confirmed board removals.
+	// Board retirement is limited to unclaimed work. Retain physical attempts and
 	// completed history: supersession never establishes that a write has settled.
 	ReconcilePoolLifecycleOperations(ctx context.Context) error
 	// The status and reboot-boundary predicates apply to the current status row even
