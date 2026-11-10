@@ -315,6 +315,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.completeDelegatedFirmwareRolloutStmt, err = db.PrepareContext(ctx, completeDelegatedFirmwareRollout); err != nil {
 		return nil, fmt.Errorf("error preparing query CompleteDelegatedFirmwareRollout: %w", err)
 	}
+	if q.completeMiningGroupPoolHandoffStmt, err = db.PrepareContext(ctx, completeMiningGroupPoolHandoff); err != nil {
+		return nil, fmt.Errorf("error preparing query CompleteMiningGroupPoolHandoff: %w", err)
+	}
 	if q.completeRigConfigReconciliationStmt, err = db.PrepareContext(ctx, completeRigConfigReconciliation); err != nil {
 		return nil, fmt.Errorf("error preparing query CompleteRigConfigReconciliation: %w", err)
 	}
@@ -506,6 +509,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.createInventoryPartStmt, err = db.PrepareContext(ctx, createInventoryPart); err != nil {
 		return nil, fmt.Errorf("error preparing query CreateInventoryPart: %w", err)
+	}
+	if q.createMiningGroupPoolHandoffStmt, err = db.PrepareContext(ctx, createMiningGroupPoolHandoff); err != nil {
+		return nil, fmt.Errorf("error preparing query CreateMiningGroupPoolHandoff: %w", err)
 	}
 	if q.createOrganizationStmt, err = db.PrepareContext(ctx, createOrganization); err != nil {
 		return nil, fmt.Errorf("error preparing query CreateOrganization: %w", err)
@@ -794,6 +800,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.getAddedDeviceSiteConflictsStmt, err = db.PrepareContext(ctx, getAddedDeviceSiteConflicts); err != nil {
 		return nil, fmt.Errorf("error preparing query GetAddedDeviceSiteConflicts: %w", err)
+	}
+	if q.getAdoptedPoolBoardSnapshotStmt, err = db.PrepareContext(ctx, getAdoptedPoolBoardSnapshot); err != nil {
+		return nil, fmt.Errorf("error preparing query GetAdoptedPoolBoardSnapshot: %w", err)
 	}
 	if q.getAlertChannelStmt, err = db.PrepareContext(ctx, getAlertChannel); err != nil {
 		return nil, fmt.Errorf("error preparing query GetAlertChannel: %w", err)
@@ -1274,6 +1283,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.getMiningGroupBoardsStmt, err = db.PrepareContext(ctx, getMiningGroupBoards); err != nil {
 		return nil, fmt.Errorf("error preparing query GetMiningGroupBoards: %w", err)
+	}
+	if q.getMiningGroupPoolHandoffStmt, err = db.PrepareContext(ctx, getMiningGroupPoolHandoff); err != nil {
+		return nil, fmt.Errorf("error preparing query GetMiningGroupPoolHandoff: %w", err)
 	}
 	if q.getMiningGroupRequestStmt, err = db.PrepareContext(ctx, getMiningGroupRequest); err != nil {
 		return nil, fmt.Errorf("error preparing query GetMiningGroupRequest: %w", err)
@@ -3895,6 +3907,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing completeDelegatedFirmwareRolloutStmt: %w", cerr)
 		}
 	}
+	if q.completeMiningGroupPoolHandoffStmt != nil {
+		if cerr := q.completeMiningGroupPoolHandoffStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing completeMiningGroupPoolHandoffStmt: %w", cerr)
+		}
+	}
 	if q.completeRigConfigReconciliationStmt != nil {
 		if cerr := q.completeRigConfigReconciliationStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing completeRigConfigReconciliationStmt: %w", cerr)
@@ -4213,6 +4230,11 @@ func (q *Queries) Close() error {
 	if q.createInventoryPartStmt != nil {
 		if cerr := q.createInventoryPartStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing createInventoryPartStmt: %w", cerr)
+		}
+	}
+	if q.createMiningGroupPoolHandoffStmt != nil {
+		if cerr := q.createMiningGroupPoolHandoffStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing createMiningGroupPoolHandoffStmt: %w", cerr)
 		}
 	}
 	if q.createOrganizationStmt != nil {
@@ -4693,6 +4715,11 @@ func (q *Queries) Close() error {
 	if q.getAddedDeviceSiteConflictsStmt != nil {
 		if cerr := q.getAddedDeviceSiteConflictsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getAddedDeviceSiteConflictsStmt: %w", cerr)
+		}
+	}
+	if q.getAdoptedPoolBoardSnapshotStmt != nil {
+		if cerr := q.getAdoptedPoolBoardSnapshotStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getAdoptedPoolBoardSnapshotStmt: %w", cerr)
 		}
 	}
 	if q.getAlertChannelStmt != nil {
@@ -5493,6 +5520,11 @@ func (q *Queries) Close() error {
 	if q.getMiningGroupBoardsStmt != nil {
 		if cerr := q.getMiningGroupBoardsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getMiningGroupBoardsStmt: %w", cerr)
+		}
+	}
+	if q.getMiningGroupPoolHandoffStmt != nil {
+		if cerr := q.getMiningGroupPoolHandoffStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getMiningGroupPoolHandoffStmt: %w", cerr)
 		}
 	}
 	if q.getMiningGroupRequestStmt != nil {
@@ -9181,6 +9213,7 @@ type Queries struct {
 	closeStaleErrorsStmt                                        *sql.Stmt
 	completeCurtailmentAutomationExecutionStmt                  *sql.Stmt
 	completeDelegatedFirmwareRolloutStmt                        *sql.Stmt
+	completeMiningGroupPoolHandoffStmt                          *sql.Stmt
 	completeRigConfigReconciliationStmt                         *sql.Stmt
 	configureHostedAccountStmt                                  *sql.Stmt
 	confirmEnrollmentStmt                                       *sql.Stmt
@@ -9245,6 +9278,7 @@ type Queries struct {
 	createHostedAccountPoolRevisionStmt                         *sql.Stmt
 	createInfrastructureDeviceStmt                              *sql.Stmt
 	createInventoryPartStmt                                     *sql.Stmt
+	createMiningGroupPoolHandoffStmt                            *sql.Stmt
 	createOrganizationStmt                                      *sql.Stmt
 	createOrganizationInvitationStmt                            *sql.Stmt
 	createPendingEnrollmentStmt                                 *sql.Stmt
@@ -9341,6 +9375,7 @@ type Queries struct {
 	getActiveUnpairedDiscoveredDevicesStmt                      *sql.Stmt
 	getActiveUserRoleNameForUpdateStmt                          *sql.Stmt
 	getAddedDeviceSiteConflictsStmt                             *sql.Stmt
+	getAdoptedPoolBoardSnapshotStmt                             *sql.Stmt
 	getAlertChannelStmt                                         *sql.Stmt
 	getAlertChannelByNameStmt                                   *sql.Stmt
 	getAlertRuleConfigStmt                                      *sql.Stmt
@@ -9501,6 +9536,7 @@ type Queries struct {
 	getMinerStateSnapshotDeviceRollupsHourlyStmt                *sql.Stmt
 	getMinerStateSnapshotsStmt                                  *sql.Stmt
 	getMiningGroupBoardsStmt                                    *sql.Stmt
+	getMiningGroupPoolHandoffStmt                               *sql.Stmt
 	getMiningGroupRequestStmt                                   *sql.Stmt
 	getMiningGroupRequestActivityStmt                           *sql.Stmt
 	getMiningGroupStateStmt                                     *sql.Stmt
@@ -10314,6 +10350,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		closeStaleErrorsStmt:                                        q.closeStaleErrorsStmt,
 		completeCurtailmentAutomationExecutionStmt:                  q.completeCurtailmentAutomationExecutionStmt,
 		completeDelegatedFirmwareRolloutStmt:                        q.completeDelegatedFirmwareRolloutStmt,
+		completeMiningGroupPoolHandoffStmt:                          q.completeMiningGroupPoolHandoffStmt,
 		completeRigConfigReconciliationStmt:                         q.completeRigConfigReconciliationStmt,
 		configureHostedAccountStmt:                                  q.configureHostedAccountStmt,
 		confirmEnrollmentStmt:                                       q.confirmEnrollmentStmt,
@@ -10378,6 +10415,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		createHostedAccountPoolRevisionStmt:                         q.createHostedAccountPoolRevisionStmt,
 		createInfrastructureDeviceStmt:                              q.createInfrastructureDeviceStmt,
 		createInventoryPartStmt:                                     q.createInventoryPartStmt,
+		createMiningGroupPoolHandoffStmt:                            q.createMiningGroupPoolHandoffStmt,
 		createOrganizationStmt:                                      q.createOrganizationStmt,
 		createOrganizationInvitationStmt:                            q.createOrganizationInvitationStmt,
 		createPendingEnrollmentStmt:                                 q.createPendingEnrollmentStmt,
@@ -10474,6 +10512,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getActiveUnpairedDiscoveredDevicesStmt:                      q.getActiveUnpairedDiscoveredDevicesStmt,
 		getActiveUserRoleNameForUpdateStmt:                          q.getActiveUserRoleNameForUpdateStmt,
 		getAddedDeviceSiteConflictsStmt:                             q.getAddedDeviceSiteConflictsStmt,
+		getAdoptedPoolBoardSnapshotStmt:                             q.getAdoptedPoolBoardSnapshotStmt,
 		getAlertChannelStmt:                                         q.getAlertChannelStmt,
 		getAlertChannelByNameStmt:                                   q.getAlertChannelByNameStmt,
 		getAlertRuleConfigStmt:                                      q.getAlertRuleConfigStmt,
@@ -10634,6 +10673,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getMinerStateSnapshotDeviceRollupsHourlyStmt:                q.getMinerStateSnapshotDeviceRollupsHourlyStmt,
 		getMinerStateSnapshotsStmt:                                  q.getMinerStateSnapshotsStmt,
 		getMiningGroupBoardsStmt:                                    q.getMiningGroupBoardsStmt,
+		getMiningGroupPoolHandoffStmt:                               q.getMiningGroupPoolHandoffStmt,
 		getMiningGroupRequestStmt:                                   q.getMiningGroupRequestStmt,
 		getMiningGroupRequestActivityStmt:                           q.getMiningGroupRequestActivityStmt,
 		getMiningGroupStateStmt:                                     q.getMiningGroupStateStmt,

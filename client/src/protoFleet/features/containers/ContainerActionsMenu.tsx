@@ -64,7 +64,6 @@ export default function ContainerActionsMenu({
   const canEditPools = permissions.includes("pool:read") && permissions.includes("miner:update_pools");
   const poolsReady =
     !!groups?.supported &&
-    !groups.enabled &&
     !groups.suspended &&
     isCurrentObservation(groups.observedAt) &&
     !["pending", "applying", "blocked"].includes(groups.status);
@@ -138,7 +137,7 @@ export default function ContainerActionsMenu({
             onClick: () => setAction(entry),
           })),
         {
-          label: "Edit pool",
+          label: groupsEnabled ? "Container pool assignment" : "Edit pool",
           icon: <MiningPools />,
           hidden: !canEditPools,
           disabled: !poolsReady,
@@ -196,6 +195,7 @@ export default function ContainerActionsMenu({
         <ConfigurationSelector
           key={poolTarget}
           deviceIdentifiers={[poolTarget]}
+          removalOnly={groupsEnabled}
           selectionDescription="Applies to the whole container."
           onDismiss={() => setPoolTarget(undefined)}
         />

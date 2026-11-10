@@ -27,6 +27,7 @@ type Group struct {
 	ID             string   `json:"id"`
 	Revision       int64    `json:"revision"`
 	ConfigRevision string   `json:"config_revision"`
+	Inherited      bool     `json:"inherited,omitempty"`
 	Managed        bool     `json:"managed"`
 	Configured     bool     `json:"configured"`
 	Mining         bool     `json:"mining"`
@@ -86,6 +87,18 @@ func Plan(desired map[string]string, observed Snapshot) (Step, error) {
 			membership[mac] = g
 		}
 	}
+	// Proven inherited settings are already satisfied in default. Never make
+	// default a destination or change its running state as a side effect of a
+	// different board's request. Changed revisions use ordinary managed groups.
+	remaining := make(map[string]string, len(desired))
+	for mac, key := range desired {
+		group := membership[mac]
+		if group.ID == "default" && group.Inherited && group.Configured && group.ConfigRevision == key {
+			continue
+		}
+		remaining[mac] = key
+	}
+	desired = remaining
 	keys := make([]string, 0, len(desired))
 	for mac, key := range desired {
 		if mac == "" || key == "" {

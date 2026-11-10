@@ -351,6 +351,7 @@ type Querier interface {
 	CloseStaleErrors(ctx context.Context, arg CloseStaleErrorsParams) (sql.Result, error)
 	CompleteCurtailmentAutomationExecution(ctx context.Context, arg CompleteCurtailmentAutomationExecutionParams) error
 	CompleteDelegatedFirmwareRollout(ctx context.Context, arg CompleteDelegatedFirmwareRolloutParams) error
+	CompleteMiningGroupPoolHandoff(ctx context.Context, arg CompleteMiningGroupPoolHandoffParams) error
 	CompleteRigConfigReconciliation(ctx context.Context, arg CompleteRigConfigReconciliationParams) error
 	ConfigureHostedAccount(ctx context.Context, arg ConfigureHostedAccountParams) error
 	ConfirmEnrollment(ctx context.Context, arg ConfirmEnrollmentParams) (int64, error)
@@ -484,6 +485,7 @@ type Querier interface {
 	// AlreadyExists.
 	CreateInfrastructureDevice(ctx context.Context, arg CreateInfrastructureDeviceParams) (InfrastructureDevice, error)
 	CreateInventoryPart(ctx context.Context, arg CreateInventoryPartParams) (int64, error)
+	CreateMiningGroupPoolHandoff(ctx context.Context, arg CreateMiningGroupPoolHandoffParams) error
 	CreateOrganization(ctx context.Context, arg CreateOrganizationParams) (int64, error)
 	CreateOrganizationInvitation(ctx context.Context, arg CreateOrganizationInvitationParams) (OrganizationInvitation, error)
 	CreatePendingEnrollment(ctx context.Context, arg CreatePendingEnrollmentParams) (PendingEnrollment, error)
@@ -701,6 +703,9 @@ type Querier interface {
 	// Returns prior + target site_id for devices being added to a rack
 	// where they differ. Empty for racks without a stamped site.
 	GetAddedDeviceSiteConflicts(ctx context.Context, arg GetAddedDeviceSiteConflictsParams) ([]GetAddedDeviceSiteConflictsRow, error)
+	// Frozen effective usernames belong to the adopted assignment, not today's
+	// worker metadata. A subsequent reviewed assignment uses its own rendering.
+	GetAdoptedPoolBoardSnapshot(ctx context.Context, arg GetAdoptedPoolBoardSnapshotParams) (json.RawMessage, error)
 	GetAlertChannel(ctx context.Context, arg GetAlertChannelParams) (AlertChannel, error)
 	GetAlertChannelByName(ctx context.Context, arg GetAlertChannelByNameParams) (AlertChannel, error)
 	GetAlertRuleConfig(ctx context.Context, arg GetAlertRuleConfigParams) (json.RawMessage, error)
@@ -996,6 +1001,7 @@ type Querier interface {
 	// equal a real fleet size regardless of snapshot alignment within the bucket.
 	GetMinerStateSnapshots(ctx context.Context, arg GetMinerStateSnapshotsParams) ([]GetMinerStateSnapshotsRow, error)
 	GetMiningGroupBoards(ctx context.Context, arg GetMiningGroupBoardsParams) ([]GetMiningGroupBoardsRow, error)
+	GetMiningGroupPoolHandoff(ctx context.Context, arg GetMiningGroupPoolHandoffParams) (MiningGroupPoolHandoff, error)
 	GetMiningGroupRequest(ctx context.Context, arg GetMiningGroupRequestParams) (MiningGroupRequest, error)
 	// Outcomes retain the actor and site captured at admission, even after the
 	// operator is renamed/deleted or access and device placement change.

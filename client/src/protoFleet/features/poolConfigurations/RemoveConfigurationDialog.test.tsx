@@ -85,6 +85,33 @@ it("checks on opening and defaults to clearing through shared confirmation and o
   expect(api.getOperation).toHaveBeenCalledOnce();
   expect(await screen.findByText("Device pools cleared and Fleet assignment removed.")).toBeInTheDocument();
 });
+it.each([true, false])(
+  "forces assignment-only recovery even when clearing is supported: %s",
+  async (clearSupported) => {
+    api.reviewAssignment.mockResolvedValue(review("review", "verified", clearSupported));
+    api.getOperation.mockResolvedValue(operation("review", "completed", true));
+    render(
+      <RemoveConfigurationDialog
+        assignments={[assignment]}
+        password="password"
+        assignmentOnly
+        onDismiss={vi.fn()}
+        onRemoved={vi.fn()}
+      />,
+    );
+    const button = screen.getByRole("button", { name: "Remove assignment only" });
+    await waitFor(() => expect(button).toBeEnabled());
+    expect(screen.queryByRole("button", { name: "Clear pools and remove assignment" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
+    expect(screen.getByText(/current pool settings and mining state will remain unchanged/)).toBeVisible();
+    await userEvent.setup().click(button);
+    expect(api.confirmReview).toHaveBeenCalledWith(
+      expect.objectContaining({ keepDeviceSettings: true, reviewId: "review" }),
+      expect.anything(),
+    );
+    expect(await screen.findByText("Fleet assignment removed. Device pool settings were preserved.")).toBeVisible();
+  },
+);
 it("requires an explicit keep-settings choice when unverified and checks again on reopening", async () => {
   api.reviewAssignment.mockResolvedValue(review("review", "applied_unverified"));
   const view = show();

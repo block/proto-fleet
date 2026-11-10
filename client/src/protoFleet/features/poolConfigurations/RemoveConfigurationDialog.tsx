@@ -84,11 +84,13 @@ const removalProgress = (row: Row, active: boolean, monitoring: boolean, accepte
 
 export const RemoveConfigurationDialog = ({
   assignments,
+  assignmentOnly = false,
   password,
   onDismiss,
   onRemoved,
 }: {
   assignments: EquipmentAssignment[];
+  assignmentOnly?: boolean;
   password: string;
   onDismiss: () => void;
   onRemoved: () => void;
@@ -151,7 +153,8 @@ export const RemoveConfigurationDialog = ({
   );
   const query = useAccountQuery(load);
   const rows = results ?? query.data ?? [];
-  const keep = rows.find((row) => isAccepted(row.removal))?.removal?.keepDeviceSettings ?? keepChoice;
+  const keep =
+    rows.find((row) => isAccepted(row.removal))?.removal?.keepDeviceSettings ?? (assignmentOnly || keepChoice);
   const accepted = rows.some((row) => isAccepted(row.removal) || row.unknown);
   const unresolved = rows.some(
     (row) => row.unknown || ["pending", "applying", "uncertain"].includes(row.removal?.state ?? ""),
@@ -262,15 +265,17 @@ export const RemoveConfigurationDialog = ({
           : "Clear all pools currently configured on this equipment and remove its Fleet assignment. The equipment will have no pools configured for mining."}
       </p>
       <p>The saved configuration will remain in your pool library.</p>
-      <label className="flex items-center gap-2">
-        <Checkbox
-          checked={keep}
-          disabled={accepted}
-          onChange={(event) => setKeep(event.target.checked)}
-          ariaLabel="Keep the device’s current pool settings"
-        />
-        Keep the device’s current pool settings
-      </label>
+      {!assignmentOnly ? (
+        <label className="flex items-center gap-2">
+          <Checkbox
+            checked={keep}
+            disabled={accepted}
+            onChange={(event) => setKeep(event.target.checked)}
+            ariaLabel="Keep the device’s current pool settings"
+          />
+          Keep the device’s current pool settings
+        </label>
+      ) : null}
       {query.loading ? (
         <div role="status" className="flex items-center gap-2">
           <ProgressCircular indeterminate size={20} />

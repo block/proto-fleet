@@ -57,6 +57,7 @@ type State struct {
 type binding struct {
 	ConfigID   string `json:"config_id"`
 	Configured bool   `json:"configured"`
+	Inherited  bool   `json:"inherited,omitempty"`
 }
 type savedStep struct {
 	Ciphertext   string   `json:"ciphertext"`
@@ -219,7 +220,7 @@ func (s *Service) Activate(ctx context.Context, identifier, requestID string) (u
 	if done, e := replay(s.queries); e != nil || done {
 		return id, e
 	}
-	err = s.writes.BeginWorkflow(ctx, info.OrganizationID, target.ID, func(ctx context.Context, q sqlc.Querier, attempt uuid.UUID, epoch int64) error {
+	err = s.writes.BeginPoolWorkflow(ctx, info.OrganizationID, target.ID, func(ctx context.Context, q sqlc.Querier, attempt uuid.UUID, epoch int64) error {
 		current, err := q.LockContainerCommandTarget(ctx, sqlc.LockContainerCommandTargetParams{OrgID: info.OrganizationID, DeviceIdentifier: identifier})
 		if err != nil {
 			return err
@@ -268,7 +269,15 @@ func (s *Service) Activate(ctx context.Context, identifier, requestID string) (u
 		if err := q.RecordMiningGroupRequest(ctx, sqlc.RecordMiningGroupRequestParams{OrganizationID: info.OrganizationID, RequestID: id, DeviceID: target.ID, Fingerprint: fingerprint}); err != nil {
 			return err
 		}
-		if err := recordAcceptedActivity(ctx, q, row, identifier, current.SiteID, "", nil); err != nil {
+		capture, err := s.captureActivationPools(ctx, q, row, observation)
+		if err != nil {
+			return err
+		}
+		boardIDs := make([]int64, len(capture.Boards))
+		for i, board := range capture.Boards {
+			boardIDs[i] = board.Binding.HashboardID
+		}
+		if err := recordAcceptedActivity(ctx, q, row, identifier, current.SiteID, capture.Source.RevisionID, boardIDs); err != nil {
 			return err
 		}
 		return save(ctx, q, row)

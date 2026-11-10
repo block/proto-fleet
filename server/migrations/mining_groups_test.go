@@ -44,6 +44,7 @@ func TestMiningGroupRollbackPreservesControllerState(t *testing.T) {
 	for _, kind := range []string{"pending", "applying", "blocked", "bindings", "intent"} {
 		t.Run(kind, func(t *testing.T) {
 			conn, org, device := miningGroupRollbackFixture(t)
+			rollbackEmptyActivationPoolHandoff(t, conn)
 			ctx := t.Context()
 			switch kind {
 			case "pending", "applying", "blocked":
@@ -107,6 +108,7 @@ func TestMiningGroupRollbackPreservesControllerState(t *testing.T) {
 
 func TestMiningGroupRollbackRefusesJournalCommittedWhileWaitingForLock(t *testing.T) {
 	conn, _, device := miningGroupRollbackFixture(t)
+	rollbackEmptyActivationPoolHandoff(t, conn)
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 	defer cancel()
 	downConn, err := conn.Conn(ctx)
@@ -153,6 +155,7 @@ func TestMiningGroupTransferRecoveryRollback(t *testing.T) {
 	} {
 		t.Run(test.status, func(t *testing.T) {
 			conn, _, device := miningGroupRollbackFixture(t)
+			rollbackEmptyActivationPoolHandoff(t, conn)
 			_, err := conn.ExecContext(t.Context(), `UPDATE container_mining_group_state SET status=$1,transfer_failure_count=$2 WHERE device_id=$3`, test.status, test.failures, device)
 			require.NoError(t, err)
 			down, err := migrations.Current.ReadFile("current/001039_internal_mining_groups.down.sql")

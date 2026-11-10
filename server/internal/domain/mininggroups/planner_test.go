@@ -115,3 +115,21 @@ func TestPlannerClearedGroupsStayStoppedAndAreReused(t *testing.T) {
 	require.Equal(t, Configure, step.Kind)
 	require.Equal(t, "first", step.GroupID, "keep independent accounts in separate pool-free groups")
 }
+
+func TestPlannerPreservesInheritedDefaultWhileChangingAnotherBoard(t *testing.T) {
+	snapshot := Snapshot{Enabled: true, MaxGroups: 4, Groups: []Group{
+		{ID: "default", ConfigRevision: "inherited", Managed: true, Inherited: true, Configured: true, Members: []string{"a", "b"}},
+		{ID: "updated", ConfigRevision: "new", Managed: true, Configured: true, Mining: true},
+	}}
+	step, err := Plan(map[string]string{"a": "inherited", "b": "new"}, snapshot)
+	require.NoError(t, err)
+	require.Equal(t, Transfer, step.Kind)
+	require.Equal(t, []string{"b"}, step.MACs)
+	require.Equal(t, "default", step.SourceID)
+	require.Equal(t, "updated", step.GroupID)
+	snapshot.Groups[0].Members = []string{"a"}
+	snapshot.Groups[1].Members = []string{"b"}
+	step, err = Plan(map[string]string{"a": "inherited", "b": "new"}, snapshot)
+	require.NoError(t, err)
+	require.Equal(t, Done, step.Kind, "do not start or move the stopped default group")
+}

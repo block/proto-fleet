@@ -6,6 +6,17 @@ Shared and private SQL use one sequence: shared baseline 1000, private baseline
 
 ## Existing databases
 
+### Mining-group activation assignment handoff (1070)
+
+Private migration 1070 retains the original pool assignment and physical board
+selection for each new activation request. It does not backfill assignments for
+already-enabled controllers or infer ownership from reported pools. Those
+containers use the reviewed recovery flow documented in
+[mining-group reconciliation](../../server/README.md#mining-group-reconciliation).
+The down migration locks the handoff table and refuses rollback if any rows
+remain, including completed handoffs. This preserves recovery evidence during
+an explicit database downgrade; an application rollback does not remove it.
+
 ### Hashboard allocation feature databases
 
 Hashboard allocation uses private migrations 1049–1052, after the hosted-history,

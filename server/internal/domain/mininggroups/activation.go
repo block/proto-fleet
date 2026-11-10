@@ -8,6 +8,7 @@ import (
 
 	"github.com/block/proto-fleet/server/generated/sqlc"
 	"github.com/block/proto-fleet/server/internal/domain/devicewrite"
+	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	sdk "github.com/block/proto-fleet/server/sdk/v1"
 )
 
@@ -40,7 +41,27 @@ func activationWaitingMessage(err error) string {
 // is an idempotent desired-state command; retries never recapture its outcome
 // as the original state. Activation and resume use the usual durable journal.
 func (s *Service) reconcileActivation(ctx context.Context, q sqlc.Querier, row sqlc.ContainerMiningGroupState) error {
+	beforeObservation := row
+	capture, done, err := s.activationPoolCapture(ctx, q, row)
+	if err == nil && capture.SnapshotID != "" {
+		err = s.validateActivationPools(ctx, q, row, capture, done)
+	}
+	if err != nil {
+		if fleeterror.IsFailedPreconditionError(err) || fleeterror.IsForbiddenError(err) {
+			return s.interrupt(ctx, q, row, activationPoolRecovery)
+		}
+		return err
+	}
 	observed, err := s.call(ctx, row.DeviceID, sdk.MiningGroupRequest{Action: "observe"})
+	if done && capture.SnapshotID != "" {
+		readback := observed
+		if err != nil {
+			readback = sdk.MiningGroupResult{}
+		}
+		if saveErr := s.observeActivationPools(ctx, q, row, readback, capture); saveErr != nil {
+			return saveErr
+		}
+	}
 	if err != nil {
 		return s.block(ctx, q, row, "Controller unavailable; waiting to refresh mining groups")
 	}
@@ -53,8 +74,20 @@ func (s *Service) reconcileActivation(ctx context.Context, q sqlc.Querier, row s
 		return s.block(ctx, q, row, "Controller firmware does not support mining groups")
 	}
 	if observed.Enabled {
+		// A cached disabled observation at admission is not proof these boards
+		// were present before an external activation. The original mining state
+		// is captured only after this workflow freshly observes disabled mode.
+		if !done && !row.ActivationResumeMining.Valid {
+			return s.interrupt(ctx, q, row, activationPoolRecovery)
+		}
 		if row.Step.Valid {
 			return s.apply(ctx, q, row, nil)
+		}
+		if observed.Pending || observed.Suspended {
+			return s.block(ctx, q, row, "Waiting for mining-group activation to settle")
+		}
+		if !done {
+			return &activationPoolHandoffReady{row: beforeObservation, observed: observed, observedAt: row.ObservedAt.Time}
 		}
 		if !row.ActivationResumeMining.Valid || !row.ActivationResumeMining.Bool {
 			return s.complete(ctx, q, row)

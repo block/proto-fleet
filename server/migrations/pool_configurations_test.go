@@ -13,6 +13,7 @@ import (
 func rollbackEmptyPoolConfigurations(t *testing.T, conn *sql.DB) {
 	t.Helper()
 	for _, path := range []string{
+		"current/001070_internal_activation_pool_handoff.down.sql",
 		"current/001068_internal_pool_removal_bindings.down.sql",
 		"current/001067_shared_pool_removal.down.sql",
 		"current/001063_internal_pool_review_authorization_checkpoint.down.sql",
@@ -46,6 +47,7 @@ func restoreEmptyPoolConfigurations(t *testing.T, conn *sql.DB) {
 		"current/001063_internal_pool_review_authorization_checkpoint.up.sql",
 		"current/001067_shared_pool_removal.up.sql",
 		"current/001068_internal_pool_removal_bindings.up.sql",
+		"current/001070_internal_activation_pool_handoff.up.sql",
 	} {
 		up, err := migrations.Current.ReadFile(path)
 		require.NoError(t, err)

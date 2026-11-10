@@ -105,7 +105,12 @@ func (s *Service) Reconcile(ctx context.Context, orgID, deviceID int64, identifi
 	ctx = attempt.Context(ctx)
 	// The binding transaction takes device/route locks before the journal lock.
 	// It never retries external calls. The committed step survives any lost reply.
-	return s.writes.WithBindingTransaction(ctx, func(ctx context.Context, q sqlc.Querier) error {
+	err = s.writes.WithBindingTransaction(ctx, func(ctx context.Context, q sqlc.Querier) error {
+		if initial.OperationKind == operationActivate {
+			if _, err := q.LockPoolEquipmentOrganization(ctx, orgID); err != nil {
+				return err
+			}
+		}
 		return s.writes.WithBindingObservation(ctx, deviceID, func(q sqlc.Querier) error { return nil }, func(ctx context.Context) error {
 			row, err := q.LockMiningGroupState(ctx, sqlc.LockMiningGroupStateParams{OrganizationID: orgID, DeviceID: deviceID})
 			if err != nil {
@@ -236,6 +241,17 @@ func (s *Service) Reconcile(ctx context.Context, orgID, deviceID int64, identifi
 			return s.prepareStep(ctx, q, row, request, step.ConfigRevision, "Applying pool configuration")
 		})
 	})
+	var handoff *activationPoolHandoffReady
+	if !errors.As(err, &handoff) {
+		return err
+	}
+	applied, err := s.commitActivationPoolHandoff(ctx, handoff)
+	if err != nil || !applied {
+		return err
+	}
+	// Resume under a new shared organization lock and fresh controller observation.
+	// The handoff is now complete, so this pass cannot request another handoff.
+	return s.Reconcile(ctx, orgID, deviceID, identifier)
 }
 
 // Installation identity for all historical intents is checked by Reconcile
@@ -324,7 +340,7 @@ func (s *Service) plannerSnapshot(ctx context.Context, q sqlc.Querier, row sqlc.
 			}
 			configured = poolsMatch(g.Pools, pools)
 		}
-		snapshot.Groups = append(snapshot.Groups, Group{ID: g.ID, Revision: g.Revision, ConfigRevision: b.ConfigID, Managed: managed, Configured: configured, Mining: g.Mining, CustomPolicy: g.CustomPolicy, Members: g.MACs})
+		snapshot.Groups = append(snapshot.Groups, Group{ID: g.ID, Revision: g.Revision, ConfigRevision: b.ConfigID, Managed: managed, Configured: configured, Inherited: b.Inherited, Mining: g.Mining, CustomPolicy: g.CustomPolicy, Members: g.MACs})
 	}
 	return snapshot, nil
 }

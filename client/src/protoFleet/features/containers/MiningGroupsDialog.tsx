@@ -5,6 +5,7 @@ import { hasMiningGroupPermissions } from "./miningGroupPermissions";
 import { miningGroupsClient } from "@/protoFleet/api/clients";
 import type { GetStateResponse } from "@/protoFleet/api/generated/mininggroups/v1/mininggroups_pb";
 import { getErrorMessage } from "@/protoFleet/api/getErrorMessage";
+import { refreshPoolAssignments } from "@/protoFleet/features/poolConfigurations/assignmentProgress";
 import { ConfigurationSelector } from "@/protoFleet/features/poolConfigurations/ConfigurationSelector";
 import { usePermissions } from "@/protoFleet/store";
 import { createOperationID } from "@/protoFleet/utils/crypto";
@@ -130,6 +131,9 @@ function MiningGroupsForm({ deviceIdentifier, onClose }: MiningGroupsDialogProps
           : undefined;
   const activationFailed = state?.status === "failed";
   const activationComplete = !!state?.enabled && !pending && !activationFailed;
+  useEffect(() => {
+    if (activationComplete) refreshPoolAssignments();
+  }, [activationComplete]);
   const activationStarted = submitted || !!pending || (activationFailed && !!state?.enabled);
   return (
     <Modal
@@ -159,7 +163,8 @@ function MiningGroupsForm({ deviceIdentifier, onClose }: MiningGroupsDialogProps
         {!activationStarted && !activationComplete ? (
           <p>
             Fleet will pause mining to enable mining groups, then resume with the existing pools if this container was
-            running. A stopped container will stay stopped.
+            running. A stopped container will stay stopped. Any Fleet pool assignment will follow the installed
+            hashboards and be checked against their reported settings.
           </p>
         ) : null}
         {prerequisite ? <p role="status">{prerequisite}</p> : null}

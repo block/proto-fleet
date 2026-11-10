@@ -25,6 +25,7 @@ import ProgressCircular from "@/shared/components/ProgressCircular";
 export type BoardSelectionInput = { moduleIds?: bigint[]; hashboardIds?: bigint[] };
 
 type ConfigurationSelectorProps = {
+  removalOnly?: boolean;
   boards?: BoardSelectionInput;
   deviceIdentifiers?: string[];
   deviceIds?: bigint[];
@@ -62,6 +63,7 @@ const AuthenticatedConfigurationSelector = (props: ConfigurationSelectorProps) =
 };
 
 const ConfigurationPicker = ({
+  removalOnly = false,
   deviceIdentifiers = [],
   deviceIds = [],
   boards,
@@ -107,14 +109,15 @@ const ConfigurationPicker = ({
     async (signal: AbortSignal) => {
       const configurations: Configuration[] = [];
       let pageToken = "";
-      do {
+      while (!removalOnly) {
         const page = await client.listConfigurations(
           { accountId, pageToken, pageSize: 100 },
           { signal, timeoutMs: ACCOUNT_READ_TIMEOUT_MS },
         );
         configurations.push(...page.configurations);
         pageToken = page.nextPageToken;
-      } while (pageToken);
+        if (!pageToken) break;
+      }
       const selection = JSON.parse(selectionKey) as {
         deviceIdentifiers: string[];
         deviceIds: string[];
@@ -136,7 +139,7 @@ const ConfigurationPicker = ({
       );
       return { configurations, current };
     },
-    [client, accountId, selectionKey, filter],
+    [client, accountId, selectionKey, filter, removalOnly],
   );
   const query = useAccountQuery(load);
   const current = query.data?.current;
@@ -195,14 +198,36 @@ const ConfigurationPicker = ({
     dismiss();
   };
   if (!change || readOnly) return null;
-  if (removing)
+  const removalTargets = removing ?? (removalOnly ? current?.assignments.filter((a) => a.configurationId) : undefined);
+  if (removalTargets?.length)
     return (
       <RemoveConfigurationDialog
-        assignments={removing}
+        assignments={removalTargets}
+        assignmentOnly={removalOnly}
         password={password}
         onDismiss={dismiss}
         onRemoved={query.refresh}
       />
+    );
+  if (removalOnly)
+    return (
+      <ActionModal
+        title="Container pool assignment"
+        confirm="Done"
+        onDismiss={dismiss}
+        onSubmit={async () => dismiss()}
+      >
+        {query.loading ? (
+          <ProgressCircular indeterminate />
+        ) : query.error ? (
+          <div role="alert">
+            <p>{query.error}</p>
+            <Button variant="secondary" text="Retry" onClick={query.refresh} />
+          </div>
+        ) : (
+          <p>No whole-container pool assignment remains. Manage pool configurations from the hashboards.</p>
+        )}
+      </ActionModal>
     );
   if (review) {
     const counts = [

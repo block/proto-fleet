@@ -1070,6 +1070,12 @@ func (q *retryingQuerier) CompleteDelegatedFirmwareRollout(ctx context.Context, 
 	})
 }
 
+func (q *retryingQuerier) CompleteMiningGroupPoolHandoff(ctx context.Context, arg CompleteMiningGroupPoolHandoffParams) error {
+	return q.retrier.RetryQuery(ctx, "CompleteMiningGroupPoolHandoff", func() error {
+		return q.next.CompleteMiningGroupPoolHandoff(ctx, arg)
+	})
+}
+
 func (q *retryingQuerier) CompleteRigConfigReconciliation(ctx context.Context, arg CompleteRigConfigReconciliationParams) error {
 	return q.retrier.RetryQuery(ctx, "CompleteRigConfigReconciliation", func() error {
 		return q.next.CompleteRigConfigReconciliation(ctx, arg)
@@ -1782,6 +1788,12 @@ func (q *retryingQuerier) CreateInventoryPart(ctx context.Context, arg CreateInv
 		return callErr
 	})
 	return result, err
+}
+
+func (q *retryingQuerier) CreateMiningGroupPoolHandoff(ctx context.Context, arg CreateMiningGroupPoolHandoffParams) error {
+	return q.retrier.RetryQuery(ctx, "CreateMiningGroupPoolHandoff", func() error {
+		return q.next.CreateMiningGroupPoolHandoff(ctx, arg)
+	})
 }
 
 func (q *retryingQuerier) CreateOrganization(ctx context.Context, arg CreateOrganizationParams) (int64, error) {
@@ -2748,6 +2760,18 @@ func (q *retryingQuerier) GetAddedDeviceSiteConflicts(ctx context.Context, arg G
 	var result []GetAddedDeviceSiteConflictsRow
 	err := q.retrier.RetryQuery(ctx, "GetAddedDeviceSiteConflicts", func() error {
 		callResult, callErr := q.next.GetAddedDeviceSiteConflicts(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) GetAdoptedPoolBoardSnapshot(ctx context.Context, arg GetAdoptedPoolBoardSnapshotParams) (json.RawMessage, error) {
+	var result json.RawMessage
+	err := q.retrier.RetryQuery(ctx, "GetAdoptedPoolBoardSnapshot", func() error {
+		callResult, callErr := q.next.GetAdoptedPoolBoardSnapshot(ctx, arg)
 		if callErr == nil {
 			result = callResult
 		}
@@ -4668,6 +4692,18 @@ func (q *retryingQuerier) GetMiningGroupBoards(ctx context.Context, arg GetMinin
 	var result []GetMiningGroupBoardsRow
 	err := q.retrier.RetryQuery(ctx, "GetMiningGroupBoards", func() error {
 		callResult, callErr := q.next.GetMiningGroupBoards(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) GetMiningGroupPoolHandoff(ctx context.Context, arg GetMiningGroupPoolHandoffParams) (MiningGroupPoolHandoff, error) {
+	var result MiningGroupPoolHandoff
+	err := q.retrier.RetryQuery(ctx, "GetMiningGroupPoolHandoff", func() error {
+		callResult, callErr := q.next.GetMiningGroupPoolHandoff(ctx, arg)
 		if callErr == nil {
 			result = callResult
 		}

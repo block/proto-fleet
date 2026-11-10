@@ -11,8 +11,12 @@ const mocks = vi.hoisted(() => ({
   getState: vi.fn(),
   activate: vi.fn(),
   selector: vi.fn(),
+  refresh: vi.fn(),
 }));
 vi.mock("@/protoFleet/api/clients", () => ({ miningGroupsClient: mocks }));
+vi.mock("@/protoFleet/features/poolConfigurations/assignmentProgress", () => ({
+  refreshPoolAssignments: mocks.refresh,
+}));
 vi.mock("@/protoFleet/store", () => ({ usePermissions: () => mocks.permissions }));
 vi.mock("@/protoFleet/features/poolConfigurations/ConfigurationSelector", () => ({
   ConfigurationSelector: (props: unknown) => {
@@ -68,7 +72,7 @@ it("shows activation progress and only says Done after completion", async () => 
   render(<MiningGroupsDialog deviceIdentifier="ct1" onClose={onClose} />);
   expect(
     screen.getByText(
-      "Fleet will pause mining to enable mining groups, then resume with the existing pools if this container was running. A stopped container will stay stopped.",
+      "Fleet will pause mining to enable mining groups, then resume with the existing pools if this container was running. A stopped container will stay stopped. Any Fleet pool assignment will follow the installed hashboards and be checked against their reported settings.",
     ),
   ).toBeInTheDocument();
   const enable = screen.getByRole("button", { name: "Enable mining groups" });
