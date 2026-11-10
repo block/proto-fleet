@@ -1,9 +1,8 @@
 import { useState } from "react";
-import { create, fromJson } from "@bufbuild/protobuf";
-import { TimestampSchema } from "@bufbuild/protobuf/wkt";
+import { create } from "@bufbuild/protobuf";
 import { HashboardCell, HashboardIssues } from "../HashboardCell";
 import HashboardPoolAction from "../HashboardPoolAction";
-import { isCurrentObservation } from "../moduleDetail";
+import { isCurrentJsonObservation, isCurrentObservation } from "../moduleDetail";
 import {
   HashboardReadingSchema,
   type HashboardSlot,
@@ -18,15 +17,6 @@ import {
   formatHashrateOrDash,
   formatPowerKwOrDash,
 } from "@/shared/utils/telemetryFormat";
-
-function isCurrentAsicTemperature(observedAt: unknown, now: number) {
-  if (typeof observedAt !== "string") return false;
-  try {
-    return isCurrentObservation(fromJson(TimestampSchema, observedAt), now);
-  } catch {
-    return false;
-  }
-}
 
 export default function ModuleHashboardCard({
   slot,
@@ -60,7 +50,7 @@ export default function ModuleHashboardCard({
   // The plugin preserves this optional MDK field in the collected health payload.
   // Its ASIC sample can expire independently of the overall board reading.
   const high =
-    current && isCurrentAsicTemperature(board.health?.asicTemperatureObservedAt, now)
+    current && isCurrentJsonObservation(board.health?.asicTemperatureObservedAt, now)
       ? board.health?.maximumAsicTemperatureC
       : undefined;
   const temperature = (value: unknown) =>

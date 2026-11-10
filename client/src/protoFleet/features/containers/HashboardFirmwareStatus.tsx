@@ -1,6 +1,4 @@
-import { fromJson } from "@bufbuild/protobuf";
-import { TimestampSchema } from "@bufbuild/protobuf/wkt";
-import { isCurrentObservation } from "./moduleDetail";
+import { isCurrentJsonObservation } from "./moduleDetail";
 import type { HashboardReading } from "@/protoFleet/api/generated/fleetinventory/v1/fleetinventory_pb";
 import { useNow } from "@/protoFleet/features/alerts/lib/useNow";
 import ComponentMetadata from "@/shared/components/StatusModal/ComponentMetadata";
@@ -19,15 +17,6 @@ const labels: Record<string, string> = {
   FAILED: "Failed",
 };
 
-function isCurrentTimestamp(value: unknown, now: number) {
-  if (typeof value !== "string") return false;
-  try {
-    return isCurrentObservation(fromJson(TimestampSchema, value), now);
-  } catch {
-    return false;
-  }
-}
-
 export default function HashboardFirmwareStatus({ board }: { board: HashboardReading }) {
   const now = useNow(5000);
   const update = board.metadata?.firmwareUpdate;
@@ -35,7 +24,7 @@ export default function HashboardFirmwareStatus({ board }: { board: HashboardRea
   const key = typeof update.status === "string" ? update.status.replace("FIRMWARE_TARGET_STATUS_", "") : undefined;
   const status = key === undefined ? undefined : labels[key];
   if (!status) return null;
-  const stale = !isCurrentTimestamp(update.observedAt, now);
+  const stale = !isCurrentJsonObservation(update.observedAt, now);
   const progress =
     typeof update.progressPercent === "number" && Number.isFinite(update.progressPercent)
       ? Math.round(clamp(update.progressPercent, 0, 100))

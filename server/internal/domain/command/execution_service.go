@@ -1541,10 +1541,10 @@ func (es *ExecutionService) clearFirmwareUpdateStatusForDevice(ctx context.Conte
 	for attempt := range 3 {
 		upsertErr = es.deviceStore.UpsertDeviceStatus(ctx, devID, models.MinerStatusActive, "")
 		if upsertErr == nil {
-			slog.Info("cleared firmware update status after reboot", "device_id", deviceID, "previous_status", currentStatus)
+			slog.Info("cleared firmware update status", "device_id", deviceID, "previous_status", currentStatus)
 			return
 		}
-		slog.Warn("failed to clear firmware update status after reboot, retrying",
+		slog.Warn("failed to clear firmware update status, retrying",
 			"device_id", deviceID, "attempt", attempt+1, "error", upsertErr)
 		select {
 		case <-ctx.Done():
@@ -1552,7 +1552,7 @@ func (es *ExecutionService) clearFirmwareUpdateStatusForDevice(ctx context.Conte
 		case <-time.After(1 * time.Second):
 		}
 	}
-	slog.Error("permanently failed to clear firmware update status after reboot",
+	slog.Error("permanently failed to clear firmware update status",
 		"device_id", deviceID, "error", upsertErr)
 }
 

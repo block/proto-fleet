@@ -16,7 +16,12 @@ vi.mock("@/protoFleet/api/useFirmwareApi", async (importOriginal) => ({
   }),
 }));
 
-vi.mock("@/protoFleet/components/FirmwareUpload", () => ({
+vi.mock("@/protoFleet/components/FirmwareUpload", async () => ({
+  HashboardBuildField: (
+    await vi.importActual<typeof import("@/protoFleet/components/FirmwareUpload/HashboardBuildField")>(
+      "@/protoFleet/components/FirmwareUpload/HashboardBuildField",
+    )
+  ).default,
   useFirmwareUpload: () => mockUseFirmwareUpload(),
   FileDropZone: vi.fn(() => <div data-testid="file-drop-zone" />),
   FileErrorStatus: vi.fn(({ message }: { message: string }) => <div data-testid="file-error-status">{message}</div>),
