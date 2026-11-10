@@ -15,6 +15,7 @@ import (
 	"google.golang.org/protobuf/types/dynamicpb"
 
 	pb "github.com/block/proto-fleet/server/generated/grpc/rollout/v1"
+	"github.com/block/proto-fleet/server/internal/handlers/middleware"
 )
 
 const (
@@ -64,6 +65,7 @@ func RegisterRESTRoutes(mux *http.ServeMux, rpc http.Handler) {
 	for _, route := range restRoutes {
 		descriptor := methods.ByName(protoreflect.Name(route.method)).Input()
 		mux.HandleFunc(route.pattern, func(w http.ResponseWriter, r *http.Request) {
+			middleware.ClassifyUnaryRequest(r.Context(), rolloutRPCPrefix+route.method)
 			message := dynamicpb.NewMessage(descriptor)
 			if err := decodeRESTRequest(w, r, message, route.idField); err != nil {
 				w.Header().Set("Content-Type", "application/json")
