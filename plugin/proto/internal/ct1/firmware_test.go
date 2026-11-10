@@ -172,8 +172,15 @@ func TestFirmwareStatusRequiresEveryOwnerAndBoard(t *testing.T) {
 	require.Error(t, err)
 	jobs["b"] = peer
 	peer.Targets = nil
-	_, err = d.GetFirmwareUpdateStatus(t.Context())
-	require.ErrorContains(t, err, "missing hashboard")
+	peer.Status = mdk.FirmwareUpdateStatus_FIRMWARE_UPDATE_STATUS_RUNNING
+	result, err = d.GetFirmwareUpdateStatus(t.Context())
+	require.NoError(t, err)
+	require.Equal(t, "installing", result.State, "a running job may still list the board")
+	peer.Status = mdk.FirmwareUpdateStatus_FIRMWARE_UPDATE_STATUS_COMPLETED
+	result, err = d.GetFirmwareUpdateStatus(t.Context())
+	require.NoError(t, err)
+	require.Equal(t, "failed", result.State)
+	require.Contains(t, *result.Error, "b (b): missing from the controller job")
 	peer.Targets = []*mdk.FirmwareUpdateTarget{{MacAddress: "b", Status: mdk.FirmwareTargetStatus_FIRMWARE_TARGET_STATUS_FAILED, Reason: "verify_failed"}}
 	peer.Status = mdk.FirmwareUpdateStatus_FIRMWARE_UPDATE_STATUS_COMPLETED_WITH_ERRORS
 	jobs["a"].Status = mdk.FirmwareUpdateStatus_FIRMWARE_UPDATE_STATUS_RUNNING
@@ -476,6 +483,22 @@ func TestFirmwareMissingOwnerJobIsTerminal(t *testing.T) {
 		require.NoError(t, err, "a lost task is terminal, not a transient poll error")
 		require.Equal(t, "failed", result.State)
 		require.Contains(t, *result.Error, "controller self: firmware task not found")
+		require.NoError(t, dev.FirmwareUpdate(t.Context(), requestFile(t, "batch/2")))
+		require.Equal(t, 2, controller.startCount(), "a new command updates again")
+	})
+	t.Run("terminal job omits a board", func(t *testing.T) {
+		dev, controller := newFirmwareDevice(t, firmwareContainerMap(time.Now()))
+		require.NoError(t, dev.FirmwareUpdate(t.Context(), requestFile(t, "batch/1")))
+		controller.finish()
+		controller.mu.Lock()
+		job := controller.jobs[controller.starts[0].TaskId+"/self"]
+		omitted := job.Targets[0].MacAddress
+		job.Targets = job.Targets[1:]
+		controller.mu.Unlock()
+		result, err := dev.GetFirmwareUpdateStatus(t.Context())
+		require.NoError(t, err)
+		require.Equal(t, "failed", result.State)
+		require.Contains(t, *result.Error, normalizedBoardMAC(omitted))
 		require.NoError(t, dev.FirmwareUpdate(t.Context(), requestFile(t, "batch/2")))
 		require.Equal(t, 2, controller.startCount(), "a new command updates again")
 	})

@@ -204,7 +204,8 @@ than an error, so a command is never retried against a task that is gone.
 Completion (`completed`) requires every target on every owning controller to
 report success or already-current, with all owner jobs terminal. Missing owners
 or targets cannot prove completion; an owner that no longer knows the task has
-no running job and counts as a failure for its boards. Once every existing
+no running job and counts as a failure for its boards, and a board missing from
+its owner's job counts as a failure. Once every existing
 owner job is terminal with any failure, the plugin reports `failed` with a failure summary bounded to the
 Fleet Node status limit. Frigate has already handled board reboot, so neither
 state triggers a CT1 controller reboot, and Fleet does not retry a `failed`

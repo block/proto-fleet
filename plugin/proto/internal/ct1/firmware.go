@@ -420,7 +420,8 @@ func (d *Device) firmwareAttemptStatus(ctx context.Context, attempt *firmwareAtt
 		for _, mac := range macs {
 			board := boards[mac]
 			if board == nil {
-				return nil, false, fmt.Errorf("firmware job missing hashboard %s on %s", mac, owner)
+				failures = append(failures, fmt.Sprintf("%s (%s): missing from the controller job", mac, owner))
+				continue
 			}
 			switch board.Status {
 			case mdk.FirmwareTargetStatus_FIRMWARE_TARGET_STATUS_SUCCEEDED, mdk.FirmwareTargetStatus_FIRMWARE_TARGET_STATUS_SKIPPED_UP_TO_DATE:
