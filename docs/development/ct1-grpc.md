@@ -198,7 +198,8 @@ instead of starting another; a new command updates again. A refused start can
 be retried and reuses the same task ID, because no job was created. A start that Frigate definitively
 rejects (for example, invalid scope or a board already updating) creates no job
 and releases the handle immediately. When no owning controller knows a recorded
-task, it never started and the handle is released.
+task, the next command releases it, and status polling reports `failed` rather
+than an error, so a command is never retried against a task that is gone.
 
 Completion (`completed`) requires every target on every owning controller to
 report success or already-current, with all owner jobs terminal. Missing owners

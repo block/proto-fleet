@@ -468,6 +468,17 @@ func TestFirmwareMissingOwnerJobIsTerminal(t *testing.T) {
 		require.Len(t, controller.starts[1].Scope.Identifiers, sdk.CT1TankCount*sdk.CT1ModulesPerTank*sdk.CT1HashboardsPerModule)
 		require.Subset(t, controller.starts[1].Scope.Identifiers, peer)
 	})
+	t.Run("every owner lost the job", func(t *testing.T) {
+		dev, controller := newFirmwareDevice(t, firmwareContainerMap(time.Now()))
+		require.NoError(t, dev.FirmwareUpdate(t.Context(), requestFile(t, "batch/1")))
+		controller.dropJob("self")
+		result, err := dev.GetFirmwareUpdateStatus(t.Context())
+		require.NoError(t, err, "a lost task is terminal, not a transient poll error")
+		require.Equal(t, "failed", result.State)
+		require.Contains(t, *result.Error, "controller self: firmware task not found")
+		require.NoError(t, dev.FirmwareUpdate(t.Context(), requestFile(t, "batch/2")))
+		require.Equal(t, 2, controller.startCount(), "a new command updates again")
+	})
 	t.Run("job created on one owner", func(t *testing.T) {
 		wire, peer := splitOwnerMap()
 		dev, controller := newFirmwareDevice(t, wire)

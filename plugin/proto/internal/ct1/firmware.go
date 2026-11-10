@@ -2,7 +2,6 @@ package ct1
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -35,8 +34,6 @@ const (
 	firmwareStateCompleted  = "completed"
 	firmwareStateFailed     = "failed"
 )
-
-var errFirmwareTaskNotFound = errors.New("no owning CT1 controller knows the firmware task")
 
 type firmwareState struct {
 	mu      sync.Mutex
@@ -202,8 +199,8 @@ func (d *Device) settledFirmwareAttempt(ctx context.Context) (*firmwareAttempt, 
 	if previous == nil {
 		return nil, nil
 	}
-	current, err := d.firmwareAttemptStatus(ctx, previous)
-	if errors.Is(err, errFirmwareTaskNotFound) {
+	current, lost, err := d.firmwareAttemptStatus(ctx, previous)
+	if err == nil && lost {
 		d.setFirmwareAttempt(nil)
 		return nil, nil
 	}
@@ -378,15 +375,16 @@ func (d *Device) GetFirmwareUpdateStatus(ctx context.Context) (*sdk.FirmwareUpda
 	if attempt == nil {
 		return nil, fmt.Errorf("no CT1 firmware job is associated with this device handle")
 	}
-	return d.firmwareAttemptStatus(ctx, attempt)
+	result, _, err := d.firmwareAttemptStatus(ctx, attempt)
+	return result, err
 }
 
-func (d *Device) firmwareAttemptStatus(ctx context.Context, attempt *firmwareAttempt) (*sdk.FirmwareUpdateStatus, error) {
+func (d *Device) firmwareAttemptStatus(ctx context.Context, attempt *firmwareAttempt) (current *sdk.FirmwareUpdateStatus, noOwnerKnowsTask bool, err error) {
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	c, err := d.selectClient(ctx, false)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	finished, expected, missing := 0, len(attempt.untargeted), 0
 	var failures []string
@@ -403,14 +401,14 @@ func (d *Device) firmwareAttemptStatus(ctx context.Context, attempt *firmwareAtt
 			continue
 		}
 		if err != nil {
-			return nil, err
+			return nil, false, err
 		}
 		job := response.GetUpdate()
 		if job.GetStatus() != mdk.FirmwareUpdateStatus_FIRMWARE_UPDATE_STATUS_COMPLETED && !firmwareJobFailed(job.GetStatus()) {
 			allTerminal = false
 		}
 		if job.GetTaskId() != attempt.taskID || owner != "" && job.GetServerId() != owner {
-			return nil, fmt.Errorf("firmware job identity mismatch")
+			return nil, false, fmt.Errorf("firmware job identity mismatch")
 		}
 		if firmwareJobFailed(job.Status) {
 			failures = append(failures, fmt.Sprintf("controller %s: %s %s", owner, job.Status, job.Error))
@@ -422,7 +420,7 @@ func (d *Device) firmwareAttemptStatus(ctx context.Context, attempt *firmwareAtt
 		for _, mac := range macs {
 			board := boards[mac]
 			if board == nil {
-				return nil, fmt.Errorf("firmware job missing hashboard %s on %s", mac, owner)
+				return nil, false, fmt.Errorf("firmware job missing hashboard %s on %s", mac, owner)
 			}
 			switch board.Status {
 			case mdk.FirmwareTargetStatus_FIRMWARE_TARGET_STATUS_SUCCEEDED, mdk.FirmwareTargetStatus_FIRMWARE_TARGET_STATUS_SKIPPED_UP_TO_DATE:
@@ -440,9 +438,6 @@ func (d *Device) firmwareAttemptStatus(ctx context.Context, attempt *firmwareAtt
 			}
 		}
 	}
-	if missing == len(attempt.owners) {
-		return nil, errFirmwareTaskNotFound
-	}
 	progress := 0
 	if expected > 0 {
 		progress = finished * 100 / expected
@@ -454,7 +449,7 @@ func (d *Device) firmwareAttemptStatus(ctx context.Context, attempt *firmwareAtt
 	} else if finished == expected && allTerminal {
 		result.State = firmwareStateCompleted
 	}
-	return result, nil
+	return result, missing == len(attempt.owners), nil
 }
 
 func firmwareFailureMessage(failures []string) string {

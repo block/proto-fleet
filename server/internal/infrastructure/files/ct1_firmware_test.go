@@ -3,9 +3,11 @@ package files
 import (
 	"os"
 	"testing"
+	"time"
 
 	"github.com/block/proto-fleet/sdk/mdk/firmware"
 	"github.com/block/proto-fleet/sdk/mdk/firmware/firmwaretest"
+	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/stretchr/testify/require"
 )
 
@@ -83,4 +85,33 @@ func TestCT1FirmwareUploadRejectsInconsistentMetadata(t *testing.T) {
 	count, err := StagedFirmwareUploadCount()
 	require.NoError(t, err)
 	require.Zero(t, count)
+}
+
+func TestCT1MetadataMismatchIsRejectedWithoutTheMetadataLock(t *testing.T) {
+	archive := firmwaretest.Archive(t, map[string][]byte{"prod.bin": firmwaretest.Image(t, "prod", "f1", 2)})
+	t.Chdir(t.TempDir())
+	svc, err := NewService(Config{})
+	require.NoError(t, err)
+	meta := FirmwareMetadata{TargetManufacturer: "Proto", TargetModel: "CT1", FirmwareVersion: "2.0.0", HashboardBuild: "prod"}
+	f, err := os.Open(archive)
+	require.NoError(t, err)
+	saved, err := svc.SaveFirmwareUpload(t.Context(), "release.zip", f, meta, false)
+	require.NoError(t, f.Close())
+	require.NoError(t, err)
+
+	svc.firmwareMetadataReuseMu.Lock()
+	defer svc.firmwareMetadataReuseMu.Unlock()
+	wrong := meta
+	wrong.FirmwareVersion = "3.0.0"
+	done := make(chan error, 1)
+	go func() {
+		_, err := svc.UpdateFirmwareMetadata(t.Context(), saved.FirmwareFileID, wrong)
+		done <- err
+	}()
+	select {
+	case err := <-done:
+		require.True(t, fleeterror.IsInvalidArgumentError(err), "got %v", err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("a mismatched edit waited for the exclusive metadata lock")
+	}
 }

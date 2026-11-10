@@ -681,11 +681,11 @@ func (s *Service) UpdateFirmwareMetadata(ctx context.Context, fileID string, met
 	if err := ValidateFirmwareUploadMetadata(metadata); err != nil {
 		return FirmwareMetadataUpdateResult{}, err
 	}
-	hashboardMatched := false
+	hashboardChecked := false
 	if metadata.IsCT1() {
 		metadata.FirmwareVersion = strings.TrimPrefix(metadata.FirmwareVersion, "v")
 		if path, pathErr := getFirmwareFilePathForCanonicalID(canonical); pathErr == nil {
-			if hashboardMatched, err = storedHashboardFirmwareMatches(ctx, path, metadata); err != nil {
+			if hashboardChecked, err = checkStoredHashboardFirmware(ctx, path, metadata); err != nil {
 				return FirmwareMetadataUpdateResult{}, err
 			}
 		}
@@ -718,12 +718,13 @@ func (s *Service) UpdateFirmwareMetadata(ctx context.Context, fileID string, met
 	if err != nil {
 		return FirmwareMetadataUpdateResult{}, err
 	}
-	if metadata.IsCT1() && !hashboardMatched {
-		if hashboardMatched, err = storedHashboardFirmwareMatches(ctx, filePath, metadata); err != nil {
+	if metadata.IsCT1() && !hashboardChecked {
+		readable, err := checkStoredHashboardFirmware(ctx, filePath, metadata)
+		if err != nil {
 			return FirmwareMetadataUpdateResult{}, err
 		}
-		if !hashboardMatched {
-			return FirmwareMetadataUpdateResult{}, fleeterror.NewInvalidArgumentError("CT1 firmware metadata must match the stored build and version; upload a new artifact to change them")
+		if !readable {
+			return FirmwareMetadataUpdateResult{}, storedHashboardFirmwareMismatch()
 		}
 	}
 	// The payload is immutable after publish, so a cached checksum is trusted;
@@ -757,7 +758,7 @@ func (s *Service) UpdateFirmwareMetadata(ctx context.Context, fileID string, met
 	}, nil
 }
 
-func storedHashboardFirmwareMatches(ctx context.Context, path string, metadata FirmwareMetadata) (bool, error) {
+func checkStoredHashboardFirmware(ctx context.Context, path string, metadata FirmwareMetadata) (readable bool, err error) {
 	archive, err := hbfirmware.Read(ctx, path, "")
 	if err != nil {
 		if ctx.Err() != nil {
@@ -766,7 +767,14 @@ func storedHashboardFirmwareMatches(ctx context.Context, path string, metadata F
 		return false, nil
 	}
 	archive.Release()
-	return archive.Build == metadata.HashboardBuild && archive.Version == metadata.FirmwareVersion, nil
+	if archive.Build != metadata.HashboardBuild || archive.Version != metadata.FirmwareVersion {
+		return true, storedHashboardFirmwareMismatch()
+	}
+	return true, nil
+}
+
+func storedHashboardFirmwareMismatch() error {
+	return fleeterror.NewInvalidArgumentError("CT1 firmware metadata must match the stored build and version; upload a new artifact to change them")
 }
 
 func getFirmwareFilePathForCanonicalID(canonical string) (string, error) {
