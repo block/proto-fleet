@@ -2424,6 +2424,14 @@ type MinerStateSnapshotDeviceHourly struct {
 	State            int16
 }
 
+type MiningGroupPoolHandoff struct {
+	OrganizationID int64
+	OperationID    uuid.UUID
+	DeviceID       int64
+	Captured       json.RawMessage
+	CompletedAt    sql.NullTime
+}
+
 type MiningGroupRequest struct {
 	OrganizationID int64
 	RequestID      uuid.UUID

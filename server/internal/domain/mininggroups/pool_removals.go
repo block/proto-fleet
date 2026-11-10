@@ -130,7 +130,7 @@ func (s *Service) BeginBoardRemoval(ctx context.Context, p poolconfigurations.Pr
 	if err != nil {
 		return err
 	}
-	return s.writes.BeginWorkflow(ctx, p.Scope.OrganizationID, r.DeviceID, func(ctx context.Context, q sqlc.Querier, attempt uuid.UUID, epoch int64) error {
+	return s.writes.BeginPoolWorkflow(ctx, p.Scope.OrganizationID, r.DeviceID, func(ctx context.Context, q sqlc.Querier, attempt uuid.UUID, epoch int64) error {
 		if err := s.removals.ValidateRemoval(ctx, q, p, r, true); err != nil {
 			return err
 		}

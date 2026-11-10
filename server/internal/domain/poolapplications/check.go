@@ -112,6 +112,18 @@ func (c *Checker) CheckConfiguration(ctx context.Context, p poolconfigurations.P
 				if err != nil {
 					return err
 				}
+				if target.Kind == poolconfigurations.TargetInstallation && !a.OperationID.Valid {
+					frozen, err := q.GetAdoptedPoolBoardSnapshot(ctx, sqlc.GetAdoptedPoolBoardSnapshotParams{OrganizationID: p.Scope.OrganizationID, TargetID: target.ID})
+					if err != nil && !errors.Is(err, sql.ErrNoRows) {
+						return err
+					}
+					if err == nil {
+						slots, err = poolconfigurations.DecodeSlots(frozen)
+						if err != nil {
+							return err
+						}
+					}
+				}
 				desired = make([]dto.MiningPool, len(slots))
 				for i, slot := range slots {
 					username, err := poolconfigurations.RenderWorker(slot.Username, slot.WorkerTemplate, runtime.DeviceIdentifier, runtime.WorkerName)
@@ -181,7 +193,7 @@ func (c *Checker) CheckConfiguration(ctx context.Context, p poolconfigurations.P
 					}
 					result.Reported, result.ReadbackAvailable = readback.Pools, readback.Available
 				} else {
-					result.State, result.ResultCode, result.Reported = checkBoardPools(observed, boards[0].MacAddress, result.Expected)
+					result.State, result.ResultCode, result.Reported = CheckBoardPools(observed, boards[0].MacAddress, result.Expected)
 					result.ReadbackAvailable = result.State != resultUnverified
 				}
 				return nil
@@ -231,7 +243,8 @@ func (c *Checker) CheckConfiguration(ctx context.Context, p poolconfigurations.P
 	return result, err
 }
 
-func checkBoardPools(observed sdk.MiningGroupResult, mac string, expected []poolconfigurations.PoolReading) (string, string, []poolconfigurations.PoolReading) {
+// CheckBoardPools compares one physical board against a shared, fresh controller observation.
+func CheckBoardPools(observed sdk.MiningGroupResult, mac string, expected []poolconfigurations.PoolReading) (string, string, []poolconfigurations.PoolReading) {
 	readback := reportedBoardPools(observed, mac)
 	if !readback.Available {
 		return resultUnverified, codeReadbackUnavailable, nil

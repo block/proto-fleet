@@ -60,7 +60,7 @@ func (s *Service) ExecutePoolConfiguration(ctx context.Context, orgID int64, ope
 	}
 	// Admission checks durable authority and binding only. Reconciliation owns
 	// the fresh controller observation before planning any hardware mutation.
-	err = s.writes.BeginWorkflow(ctx, orgID, deviceID, func(ctx context.Context, q sqlc.Querier, attempt uuid.UUID, epoch int64) error {
+	err = s.writes.BeginPoolWorkflow(ctx, orgID, deviceID, func(ctx context.Context, q sqlc.Querier, attempt uuid.UUID, epoch int64) error {
 		current, err := q.ListPoolGroupWork(ctx, sqlc.ListPoolGroupWorkParams{OrganizationID: orgID, OperationID: operationID, DeviceID: deviceID})
 		if err != nil {
 			return err

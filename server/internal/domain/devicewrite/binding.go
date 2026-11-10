@@ -6,6 +6,7 @@ import (
 
 	"github.com/block/proto-fleet/server/generated/sqlc"
 	"github.com/block/proto-fleet/server/internal/infrastructure/db"
+	"github.com/block/proto-fleet/server/internal/runtimepolicy"
 )
 
 // WithBindingTransaction shares one non-retrying transaction between placement
@@ -117,4 +118,13 @@ func (s *Service) bindingQueries(ctx context.Context) sqlc.Querier {
 // ValidateBinding reuses an enclosing dispatch connection, when one exists.
 func (s *Service) ValidateBinding(ctx context.Context, validate func(sqlc.Querier) error) error {
 	return validate(s.bindingQueries(ctx))
+}
+
+// WithBindingUpdateTransaction shares binding locks with a database-only update.
+// Unlike dispatch transactions, commit failures must reach the caller. The
+// callback must never perform controller I/O, since database work may retry.
+func (s *Service) WithBindingUpdateTransaction(ctx context.Context, call func(context.Context, sqlc.Querier) error) error {
+	return db.WithTransactionTimeoutNoResult(ctx, s.conn, runtimepolicy.CommandTransactionBound, func(q sqlc.Querier) error {
+		return call(context.WithValue(ctx, bindingQueriesContextKey{}, bindingQueries{service: s, queries: q}), q)
+	})
 }

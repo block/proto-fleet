@@ -15,7 +15,22 @@ import (
 // until the journal verifies the controller's terminal outcome. The record
 // callback is database-only: device I/O must wait until admission commits.
 func (s *Service) BeginWorkflow(ctx context.Context, orgID, deviceID int64, record func(context.Context, sqlc.Querier, uuid.UUID, int64) error) error {
+	return s.beginWorkflow(ctx, orgID, deviceID, false, record)
+}
+
+// BeginPoolWorkflow serializes assignment lifecycle changes before acquiring
+// physical locks, in the same order as pool review and confirmation.
+func (s *Service) BeginPoolWorkflow(ctx context.Context, orgID, deviceID int64, record func(context.Context, sqlc.Querier, uuid.UUID, int64) error) error {
+	return s.beginWorkflow(ctx, orgID, deviceID, true, record)
+}
+
+func (s *Service) beginWorkflow(ctx context.Context, orgID, deviceID int64, pools bool, record func(context.Context, sqlc.Querier, uuid.UUID, int64) error) error {
 	return db.WithTransactionTimeoutNoResult(ctx, s.conn, runtimepolicy.CommandTransactionBound, func(q sqlc.Querier) error {
+		if pools {
+			if _, err := q.LockPoolConfigurationImportOrganization(ctx, orgID); err != nil {
+				return err
+			}
+		}
 		keys, err := lockIdentity(ctx, q, deviceID)
 		if err != nil {
 			return err

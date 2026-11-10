@@ -30,7 +30,7 @@ func TestCheckBoardPoolsRequiresUnambiguousSettledMatchingSettings(t *testing.T)
 		t.Run(tc.name, func(t *testing.T) {
 			r := sdk.MiningGroupResult{Supported: true, Enabled: true, Groups: []sdk.MiningGroup{{MACs: []string{"mac"}, Pools: []sdk.MiningGroupPool{{URL: expected[0].URL, Username: expected[0].Username, Enabled: true}}}}}
 			tc.modify(&r)
-			state, _, _ := checkBoardPools(r, "mac", expected)
+			state, _, _ := CheckBoardPools(r, "mac", expected)
 			require.Equal(t, tc.state, state)
 		})
 	}
@@ -47,7 +47,7 @@ func TestReportedBoardPoolsPreservesSettingsForDisplay(t *testing.T) {
 	observed.Groups = append(observed.Groups, observed.Groups[0])
 	readback = reportedBoardPools(observed, "board")
 	require.False(t, readback.Available, "ambiguous membership is not a reliable readback")
-	state, _, _ := checkBoardPools(observed, "board", readback.Pools)
+	state, _, _ := CheckBoardPools(observed, "board", readback.Pools)
 	require.Equal(t, resultUnverified, state, "ambiguous membership cannot establish a reliable policy comparison")
 }
 
@@ -64,13 +64,13 @@ func TestCheckBoardPoolsPreservesReadablePolicyMismatches(t *testing.T) {
 			case "disabled":
 				observed.Groups[0].Pools[0].Enabled = false
 			}
-			state, code, reported := checkBoardPools(observed, "mac", expected)
+			state, code, reported := CheckBoardPools(observed, "mac", expected)
 			require.Equal(t, resultDifferent, state)
 			require.Equal(t, codeSettingsDiffer, code)
 			require.Equal(t, expected, reported, "a policy mismatch must retain readable URLs and usernames")
 
 			observed.Groups = append(observed.Groups, observed.Groups[0])
-			state, code, reported = checkBoardPools(observed, "mac", expected)
+			state, code, reported = CheckBoardPools(observed, "mac", expected)
 			require.Equal(t, resultUnverified, state, "ambiguous membership cannot supply reliable readback")
 			require.Equal(t, codeReadbackUnavailable, code)
 			require.Empty(t, reported)

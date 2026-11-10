@@ -118,6 +118,41 @@ Backoff never releases a device-write admission or marks unresolved work
 complete. A database outage or a crash before retry bookkeeping commits can
 cause an earlier retry; the saved physical operation remains unchanged.
 
+Activation carries an existing host-owned Fleet pool assignment from the whole
+container to its current hashboard installations. Before stopping mining, Fleet
+records the configuration revision, resolved worker names, ownership and exact
+installation identities. Once activation is confirmed, retiring the container
+assignment and adopting the board assignments commit together. Activation does
+not clear or rewrite device pools or transfer boards; the controller's `default`
+group retains them. Adopted boards remain unverified until fresh readback after
+the handoff verifies ordered pool settings and membership; the observation from
+before the lock gap cannot verify them. Unavailable or different observations
+do not become verified. Group passwords
+remain write-only, with encrypted credentials preserved from the source revision.
+
+The original selection survives retries and restarts. Changed ownership,
+permissions, installations or assignment generations prevent further mutations,
+including the final resume. Subsequent reviewed configuration edits use ordinary
+mining-group updates; unchanged inherited boards stay in `default` even when a
+different board receives another configuration. Activation with an existing
+assignment also requires pool-update authority.
+
+Activation holds a shared organization lock during controller I/O, allowing
+hosted-account reads to proceed. Admission and the database-only assignment
+handoff acquire the exclusive organization lock before identity/device locks.
+The handoff releases observation locks first, then rechecks the journal,
+ownership, permissions and captured installations after reacquiring locks; a
+changed journal or expired observation is retried with fresh controller state.
+Database downgrade 1070 refuses to discard any retained handoff evidence,
+including completed handoffs; ordinary application rollback retains the schema.
+
+Containers already enabled without a captured pre-activation selection require
+reviewed recovery. **Container pool assignment** only removes the old assignment
+and always keeps device settings. Then assign the desired configuration through the
+hashboard/module pool action. Matching URLs or the `default` group name alone
+never establish Fleet ownership. An unresolved saved controller request must
+first be settled through the existing device-write recovery workflow.
+
 ## Firmware reboot reconciliation
 
 Proto miner telemetry clears `REBOOT_REQUIRED` when sampled uptime proves the

@@ -45,15 +45,18 @@ vi.mock("@/protoFleet/features/poolConfigurations/ConfigurationSelector", () => 
   ConfigurationSelector: ({
     deviceIdentifiers,
     selectionDescription,
+    removalOnly,
     onDismiss,
   }: {
     deviceIdentifiers: string[];
     selectionDescription?: string;
+    removalOnly?: boolean;
     onDismiss: () => void;
   }) => (
     <div role="dialog" aria-label="Pool configuration">
       <p>{deviceIdentifiers.join(",")}</p>
       <p>{selectionDescription}</p>
+      {removalOnly ? <p>Remove assignment only</p> : null}
       <button onClick={onDismiss}>Cancel pool edit</button>
     </div>
   ),
@@ -673,7 +676,6 @@ describe("whole-container pool configuration", () => {
   });
 
   it.each([
-    { enabled: true },
     { supported: false },
     { suspended: true },
     { observedAt: undefined },
@@ -687,6 +689,14 @@ describe("whole-container pool configuration", () => {
     fireEvent.click(screen.getByRole("button", { name: "Actions for Container 1" }));
     await screen.findByRole("button", { name: /Sleep/ });
     expect(screen.getByRole("button", { name: "Edit pool" })).toBeDisabled();
+  });
+
+  it("offers assignment removal for an already-enabled container", async () => {
+    state.getState.mockResolvedValue({ ...ready(), enabled: true });
+    renderMenu();
+    await openAction("Container pool assignment");
+    expect(screen.getByRole("dialog", { name: "Pool configuration" })).toHaveTextContent("Remove assignment only");
+    expect(screen.queryByRole("button", { name: "Edit pool" })).not.toBeInTheDocument();
   });
 
   it("keeps editing disabled if group observation fails", async () => {
