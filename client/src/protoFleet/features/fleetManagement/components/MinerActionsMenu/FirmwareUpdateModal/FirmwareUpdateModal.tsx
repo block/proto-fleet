@@ -1,15 +1,20 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import clsx from "clsx";
 import type { FirmwareFileInfo } from "@/protoFleet/api/useFirmwareApi";
-import { hasCompleteFirmwareTarget, isCT1FirmwareTarget, useFirmwareApi } from "@/protoFleet/api/useFirmwareApi";
+import {
+  DEFAULT_HASHBOARD_BUILD,
+  hasCompleteFirmwareTarget,
+  isCT1FirmwareTarget,
+  useFirmwareApi,
+} from "@/protoFleet/api/useFirmwareApi";
 import {
   FileDropZone,
   FileErrorStatus,
   FileProcessingStatus,
   FileReadyStatus,
+  HashboardBuildField,
   useFirmwareUpload,
 } from "@/protoFleet/components/FirmwareUpload";
-import HashboardBuildField from "@/protoFleet/components/FirmwareUpload/HashboardBuildField";
 import {
   type FirmwareUpdateTarget,
   minerTargetKey,
@@ -46,7 +51,7 @@ const FirmwareUpdateModal = ({ open, target, onConfirm, onDismiss }: FirmwareUpd
   const [existingFiles, setExistingFiles] = useState<FirmwareFileInfo[] | null>(null);
   const [selectedExistingFileId, setSelectedExistingFileId] = useState<string | null>(null);
   const [showUploadZone, setShowUploadZone] = useState(false);
-  const [hashboardBuild, setHashboardBuild] = useState("prod");
+  const [hashboardBuild, setHashboardBuild] = useState<string>(DEFAULT_HASHBOARD_BUILD);
   const [firmwareVersion, setFirmwareVersion] = useState("");
 
   const effectiveTargetManufacturer = target?.targetManufacturer ?? "";

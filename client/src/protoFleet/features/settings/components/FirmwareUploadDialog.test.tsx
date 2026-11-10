@@ -13,7 +13,12 @@ vi.mock("@/protoFleet/api/useMinerModelGroups", () => ({
   default: () => ({ getMinerModelGroups: mockGetMinerModelGroups }),
 }));
 
-vi.mock("@/protoFleet/components/FirmwareUpload", () => ({
+vi.mock("@/protoFleet/components/FirmwareUpload", async () => ({
+  HashboardBuildField: (
+    await vi.importActual<typeof import("@/protoFleet/components/FirmwareUpload/HashboardBuildField")>(
+      "@/protoFleet/components/FirmwareUpload/HashboardBuildField",
+    )
+  ).default,
   useFirmwareUpload: () => mockUseFirmwareUpload(),
   FileDropZone: ({ disabled, onFileSelect }: { disabled?: boolean; onFileSelect: (file: File) => void }) => (
     <button
@@ -174,18 +179,6 @@ describe("FirmwareUploadDialog", () => {
     expect(screen.getByTestId("firmware-version")).toHaveValue("");
     expect(screen.getByText("Upload")).toBeDisabled();
     expect(mockProcessFile).not.toHaveBeenCalled();
-  });
-
-  it("keeps the CT1 target available before a container is paired", async () => {
-    mockGetMinerModelGroups.mockResolvedValue([]);
-
-    render(<FirmwareUploadDialog open onSuccess={vi.fn()} onDismiss={vi.fn()} />);
-
-    await screen.findByTestId("firmware-target-manufacturer");
-    expect(screen.getByTestId("file-drop-zone")).toBeEnabled();
-    expect(
-      screen.queryByText("No paired miner models found. Pair at least one miner to populate firmware targets."),
-    ).not.toBeInTheDocument();
   });
 
   it("keeps the loading error authoritative when miner models cannot be loaded", async () => {

@@ -1,4 +1,11 @@
+import { HASHBOARD_BUILDS, type HashboardBuild } from "@/protoFleet/api/useFirmwareApi";
 import Select from "@/shared/components/Select";
+
+const buildLabels: Record<HashboardBuild, string> = {
+  prod: "Production (prod)",
+  dev: "Development (dev)",
+  mfgtest: "Manufacturing test (mfgtest)",
+};
 
 export default function HashboardBuildField({
   value,
@@ -17,11 +24,7 @@ export default function HashboardBuildField({
       onChange={onChange}
       disabled={disabled}
       forceBelow
-      options={[
-        { value: "prod", label: "Production (prod)" },
-        { value: "dev", label: "Development (dev)" },
-        { value: "mfgtest", label: "Manufacturing test (mfgtest)" },
-      ]}
+      options={HASHBOARD_BUILDS.map((build) => ({ value: build, label: buildLabels[build] }))}
     />
   );
 }

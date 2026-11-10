@@ -55,9 +55,7 @@ type FirmwareUploadSaveResult struct {
 	FirmwareFileID string
 	Reused         bool
 	Metadata       FirmwareMetadata
-	// Filename is the stored name of a new file, which can differ from the
-	// uploaded name for normalized CT1 archives.
-	Filename string
+	StoredFilename string
 }
 
 // FirmwareMetadataUpdateResult captures the metadata transition committed by
@@ -115,6 +113,8 @@ func (m FirmwareMetadata) matches(other FirmwareMetadata) bool {
 // upload dedup), deployment compatibility folds ASCII letters
 // case-insensitively, and a device with unknown manufacturer or model never
 // matches.
+func (m FirmwareMetadata) IsCT1() bool { return m.MatchesTarget("Proto", "CT1") }
+
 func (m FirmwareMetadata) MatchesTarget(manufacturer, model string) bool {
 	m = m.normalized()
 	manufacturer = strings.TrimSpace(manufacturer)
@@ -166,7 +166,7 @@ func ValidateFirmwareUploadMetadata(metadata FirmwareMetadata) error {
 	if err := ValidateFirmwareAssignmentMetadata(metadata); err != nil {
 		return err
 	}
-	if metadata.MatchesTarget("Proto", "CT1") {
+	if metadata.IsCT1() {
 		if !hbfirmware.ValidBuild(metadata.HashboardBuild) {
 			return fleeterror.NewInvalidArgumentError("hashboard_build must be prod, dev, or mfgtest for CT1 firmware")
 		}
@@ -176,8 +176,6 @@ func ValidateFirmwareUploadMetadata(metadata FirmwareMetadata) error {
 	return nil
 }
 
-// ValidateFirmwareAssignmentMetadata checks the persisted rollout snapshot.
-// Build selection is already bound into the immutable artifact checksum.
 func ValidateFirmwareAssignmentMetadata(metadata FirmwareMetadata) error {
 	metadata = metadata.normalized()
 	if err := ValidateFirmwareMetadata(metadata); err != nil {
@@ -335,7 +333,7 @@ func (s *Service) ValidateFirmwareFile(filename string, size int64) error {
 // Callers should call ValidateFirmwareFile or ValidateFirmwareFilename before
 // saving to ensure the filename extension is acceptable.
 func (s *Service) SaveFirmwareFile(filename string, reader io.Reader, metadata FirmwareMetadata) (string, error) {
-	result, err := s.SaveFirmwareUpload(filename, reader, metadata, true)
+	result, err := s.SaveFirmwareUpload(context.Background(), filename, reader, metadata, true)
 	if err != nil {
 		return "", err
 	}
@@ -410,14 +408,14 @@ func (s *Service) StageFirmwareUpload(reader io.Reader) (*StagedFirmwareUpload, 
 
 // SaveFirmwareUpload stages a streamed upload and reuses an existing file with
 // the same checksum plus metadata unless force is true.
-func (s *Service) SaveFirmwareUpload(filename string, reader io.Reader, manualMetadata FirmwareMetadata, force bool) (FirmwareUploadSaveResult, error) {
+func (s *Service) SaveFirmwareUpload(ctx context.Context, filename string, reader io.Reader, manualMetadata FirmwareMetadata, force bool) (FirmwareUploadSaveResult, error) {
 	staged, err := s.StageFirmwareUpload(reader)
 	if err != nil {
 		return FirmwareUploadSaveResult{}, err
 	}
 	defer staged.Discard()
 
-	return s.SaveFirmwareUploadFromPath(filename, staged.Path, manualMetadata, force, staged.Checksum)
+	return s.SaveFirmwareUploadFromPath(ctx, filename, staged.Path, manualMetadata, force, staged.Checksum)
 }
 
 // SaveFirmwareUploadFromPath publishes a staged upload: it either moves the
@@ -427,15 +425,15 @@ func (s *Service) SaveFirmwareUpload(filename string, reader io.Reader, manualMe
 // srcPath stays owned by the caller, which must discard it on every outcome —
 // see StagedFirmwareUpload.Discard, which is a no-op once the file has been
 // moved into storage.
-func (s *Service) SaveFirmwareUploadFromPath(filename string, srcPath string, manualMetadata FirmwareMetadata, force bool, checksum string) (FirmwareUploadSaveResult, error) {
+func (s *Service) SaveFirmwareUploadFromPath(ctx context.Context, filename string, srcPath string, manualMetadata FirmwareMetadata, force bool, checksum string) (FirmwareUploadSaveResult, error) {
 	var result FirmwareUploadSaveResult
 
 	metadata := manualMetadata.normalized()
 	if err := ValidateFirmwareUploadMetadata(metadata); err != nil {
 		return result, err
 	}
-	if metadata.MatchesTarget("Proto", "CT1") {
-		selected, version, build, err := stageSelectedHashboardFirmware(srcPath, metadata)
+	if metadata.IsCT1() {
+		selected, version, build, err := stageSelectedHashboardFirmware(ctx, srcPath, metadata)
 		if err != nil {
 			return result, err
 		}
@@ -485,18 +483,16 @@ func (s *Service) SaveFirmwareUploadFromPath(filename string, srcPath string, ma
 	return FirmwareUploadSaveResult{
 		FirmwareFileID: fileID,
 		Metadata:       metadata,
-		Filename:       sanitizeFirmwareFilename(filename),
+		StoredFilename: sanitizeFirmwareFilename(filename),
 	}, nil
 }
 
-// stageSelectedHashboardFirmware writes the requested build of a hashboard
-// release to a staging file and returns its path and embedded identity. The
-// decoded images are released before it returns.
-func stageSelectedHashboardFirmware(srcPath string, metadata FirmwareMetadata) (string, string, string, error) {
-	// Server holders release their archive slot after local file writes, so
-	// this wait is bounded without a request context.
-	archive, err := hbfirmware.Read(context.Background(), srcPath, metadata.HashboardBuild)
+func stageSelectedHashboardFirmware(ctx context.Context, srcPath string, metadata FirmwareMetadata) (string, string, string, error) {
+	archive, err := hbfirmware.Read(ctx, srcPath, metadata.HashboardBuild)
 	if err != nil {
+		if ctx.Err() != nil {
+			return "", "", "", fmt.Errorf("read hashboard firmware: %w", err)
+		}
 		return "", "", "", fleeterror.NewInvalidArgumentErrorf("invalid hashboard firmware: %v", err)
 	}
 	defer archive.Release()
@@ -676,7 +672,7 @@ func (s *Service) getFirmwareMetadataUnlocked(fileID string) (FirmwareMetadata, 
 // firmware file, refreshes its checksum reuse entry, and returns the committed
 // metadata transition. This also allows a legacy payload without a sidecar to
 // become eligible for new deployments once complete metadata has been supplied.
-func (s *Service) UpdateFirmwareMetadata(fileID string, metadata FirmwareMetadata) (FirmwareMetadataUpdateResult, error) {
+func (s *Service) UpdateFirmwareMetadata(ctx context.Context, fileID string, metadata FirmwareMetadata) (FirmwareMetadataUpdateResult, error) {
 	canonical, err := canonicalizeFirmwareFileID(fileID)
 	if err != nil {
 		return FirmwareMetadataUpdateResult{}, err
@@ -684,6 +680,14 @@ func (s *Service) UpdateFirmwareMetadata(fileID string, metadata FirmwareMetadat
 	metadata = metadata.normalized()
 	if err := ValidateFirmwareUploadMetadata(metadata); err != nil {
 		return FirmwareMetadataUpdateResult{}, err
+	}
+	hashboardMatched := false
+	if metadata.IsCT1() {
+		if path, pathErr := getFirmwareFilePathForCanonicalID(canonical); pathErr == nil {
+			if hashboardMatched, err = storedHashboardFirmwareMatches(ctx, path, metadata); err != nil {
+				return FirmwareMetadataUpdateResult{}, err
+			}
+		}
 	}
 
 	// Serialize metadata replacement with checksum reuse lookups so a lookup
@@ -713,12 +717,11 @@ func (s *Service) UpdateFirmwareMetadata(fileID string, metadata FirmwareMetadat
 	if err != nil {
 		return FirmwareMetadataUpdateResult{}, err
 	}
-	if metadata.MatchesTarget("Proto", "CT1") {
-		archive, err := hbfirmware.Read(context.Background(), filePath, "")
-		if err == nil {
-			archive.Release()
+	if metadata.IsCT1() && !hashboardMatched {
+		if hashboardMatched, err = storedHashboardFirmwareMatches(ctx, filePath, metadata); err != nil {
+			return FirmwareMetadataUpdateResult{}, err
 		}
-		if err != nil || archive.Build != metadata.HashboardBuild || archive.Version != metadata.FirmwareVersion {
+		if !hashboardMatched {
 			return FirmwareMetadataUpdateResult{}, fleeterror.NewInvalidArgumentError("CT1 firmware metadata must match the stored build and version; upload a new artifact to change them")
 		}
 	}
@@ -751,6 +754,18 @@ func (s *Service) UpdateFirmwareMetadata(fileID string, metadata FirmwareMetadat
 		Previous: previous,
 		Current:  metadata,
 	}, nil
+}
+
+func storedHashboardFirmwareMatches(ctx context.Context, path string, metadata FirmwareMetadata) (bool, error) {
+	archive, err := hbfirmware.Read(ctx, path, "")
+	if err != nil {
+		if ctx.Err() != nil {
+			return false, fmt.Errorf("read stored hashboard firmware: %w", err)
+		}
+		return false, nil
+	}
+	archive.Release()
+	return archive.Build == metadata.HashboardBuild && archive.Version == metadata.FirmwareVersion, nil
 }
 
 func getFirmwareFilePathForCanonicalID(canonical string) (string, error) {

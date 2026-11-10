@@ -381,7 +381,7 @@ func (h *completeHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	saveResult, err := h.filesService.SaveFirmwareUploadFromPath(sess.filename, staged.Path, sess.metadata, sess.force, staged.Checksum)
+	saveResult, err := h.filesService.SaveFirmwareUploadFromPath(r.Context(), sess.filename, staged.Path, sess.metadata, sess.force, staged.Checksum)
 	if err != nil {
 		if isClientError(err) {
 			writeError(w, http.StatusBadRequest, err.Error())

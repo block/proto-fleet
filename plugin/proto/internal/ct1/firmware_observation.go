@@ -12,8 +12,6 @@ import (
 	sdk "github.com/block/proto-fleet/server/sdk/v1"
 )
 
-// Read each verified node locally: Frigate's merged cluster list deliberately
-// clears server_id, which would lose historical ownership after a board moves.
 func observeFirmwareJobs(ctx context.Context, selected *controllerProbe) <-chan *mdk.ListFirmwareUpdatesResponse {
 	result := make(chan *mdk.ListFirmwareUpdatesResponse, 1)
 	go func() {
@@ -48,8 +46,6 @@ type firmwareBoard struct {
 	board *mdk.Hashboard
 }
 
-// occupiedFirmwareBoards is the board set both firmware targeting and
-// convergence use, located or not. Missing or duplicate identities fail.
 func occupiedFirmwareBoards(wire *mdk.GetContainerMapResponse) ([]firmwareBoard, error) {
 	var boards []firmwareBoard
 	seen := map[string]bool{}
@@ -71,8 +67,6 @@ func occupiedFirmwareBoards(wire *mdk.GetContainerMapResponse) ([]firmwareBoard,
 	return boards, nil
 }
 
-// locatedInventoryComplete reports whether every CT1 tank and module position
-// is reported. Unlocated switch_ports inventory never proves coverage.
 func locatedInventoryComplete(topology *sdk.ContainerSnapshot) bool {
 	if topology == nil || len(topology.Tanks) != sdk.CT1TankCount {
 		return false
@@ -89,22 +83,17 @@ func boardFirmwareVersion(board *mdk.Hashboard) string {
 	return strings.TrimPrefix(strings.TrimSpace(board.GetFirmwareVersion()), "v")
 }
 
-func boardHealthFresh(board *mdk.Hashboard, now time.Time) bool {
-	observed := sourceTime(board.GetHealth().GetTimestamp())
-	return !observed.IsZero() && now.Sub(observed) <= healthMaxAge && !observed.After(now.Add(clockSkewAllowance))
-}
-
-// observedHashboardFirmware returns the uniform board version, or reports
-// mixed versions, only from complete located inventory with fresh health.
-// Anything less leaves the version unknown.
 func observedHashboardFirmware(wire *mdk.GetContainerMapResponse, topology *sdk.ContainerSnapshot, now time.Time) (version string, mixed bool) {
+	if !locatedInventoryComplete(topology) {
+		return "", false
+	}
 	boards, err := occupiedFirmwareBoards(wire)
-	if err != nil || len(boards) == 0 || !locatedInventoryComplete(topology) {
+	if err != nil || len(boards) == 0 {
 		return "", false
 	}
 	for _, b := range boards {
 		v := boardFirmwareVersion(b.board)
-		if v == "" || !boardHealthFresh(b.board, now) {
+		if v == "" || !sdk.FreshContainerReading(sourceTime(b.board.GetHealth().GetTimestamp()), now) {
 			return "", false
 		}
 		if version == "" {
@@ -119,8 +108,6 @@ func observedHashboardFirmware(wire *mdk.GetContainerMapResponse, topology *sdk.
 	return version, false
 }
 
-// Attach the latest per-board job evidence to the existing diagnostic metadata
-// so it follows the same inventory identity and authorization as the board.
 func enrichFirmwareBoards(snapshot *sdk.ContainerSnapshot, response *mdk.ListFirmwareUpdatesResponse, observed time.Time) {
 	type evidence struct {
 		TaskID     string    `json:"taskId"`
@@ -132,7 +119,6 @@ func enrichFirmwareBoards(snapshot *sdk.ContainerSnapshot, response *mdk.ListFir
 		ObservedAt time.Time `json:"observedAt"`
 	}
 	latest := map[string]evidence{}
-	// MDK lists newest jobs first. Retain the first observation per identity.
 	for _, job := range response.GetUpdates() {
 		for _, target := range job.GetTargets() {
 			mac := normalizedBoardMAC(target.GetMacAddress())

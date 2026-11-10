@@ -218,6 +218,7 @@ func (h *uploadHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	defer upload.staged.Discard()
 
 	saveResult, err := h.filesService.SaveFirmwareUploadFromPath(
+		r.Context(),
 		upload.filename,
 		upload.staged.Path,
 		upload.metadata,
@@ -300,7 +301,8 @@ func extractMultipartFile(r *http.Request, filesService *files.Service) (extract
 				_ = part.Close()
 				return extractedMultipartUpload{}, validationErr
 			}
-			if metadataFieldsRead["target_manufacturer"] && metadataFieldsRead["target_model"] && metadataFieldsRead["firmware_version"] && (!upload.metadata.MatchesTarget("Proto", "CT1") || metadataFieldsRead["hashboard_build"]) {
+			required := metadataFieldsRead["target_manufacturer"] && metadataFieldsRead["target_model"] && metadataFieldsRead["firmware_version"]
+			if required && (!upload.metadata.IsCT1() || metadataFieldsRead["hashboard_build"]) {
 				if validationErr := files.ValidateFirmwareUploadMetadata(upload.metadata); validationErr != nil {
 					_ = part.Close()
 					return extractedMultipartUpload{}, validationErr
@@ -459,7 +461,7 @@ func (h *updateMetadataHandler) ServeHTTP(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	result, err := h.filesService.UpdateFirmwareMetadata(fileID, metadata)
+	result, err := h.filesService.UpdateFirmwareMetadata(r.Context(), fileID, metadata)
 	if err != nil {
 		switch {
 		case fleeterror.IsNotFoundError(err):

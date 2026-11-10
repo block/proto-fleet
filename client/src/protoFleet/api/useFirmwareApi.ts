@@ -2,6 +2,7 @@ import { useCallback, useMemo } from "react";
 import { API_PROXY_BASE } from "@/protoFleet/api/constants";
 import { fetchSessionJson } from "@/protoFleet/api/fetchSessionJson";
 import { extractFetchError, useFileUpload } from "@/protoFleet/api/useFileUpload";
+import { minerTargetKey } from "@/protoFleet/features/fleetManagement/components/MinerActionsMenu/minerTarget";
 import { useLogout } from "@/protoFleet/store";
 
 export { computeSha256 } from "@/protoFleet/utils/crypto";
@@ -117,15 +118,22 @@ interface CheckFirmwareResponse {
   firmware_file_id?: string;
 }
 
+export const HASHBOARD_BUILDS = ["prod", "dev", "mfgtest"] as const;
+export type HashboardBuild = (typeof HASHBOARD_BUILDS)[number];
+export const DEFAULT_HASHBOARD_BUILD: HashboardBuild = "prod";
+export const CT1_FIRMWARE_TARGET = { targetManufacturer: "Proto", targetModel: "CT1" } as const;
+
 export function isCT1FirmwareTarget(target: Partial<FirmwareMetadataInput>): boolean {
   return (
-    target.targetManufacturer?.trim().toLowerCase() === "proto" && target.targetModel?.trim().toLowerCase() === "ct1"
+    minerTargetKey(target.targetManufacturer, target.targetModel) ===
+    minerTargetKey(CT1_FIRMWARE_TARGET.targetManufacturer, CT1_FIRMWARE_TARGET.targetModel)
   );
 }
 
 /** The client mirror of the server's upload metadata completeness rule. */
 export function hasCompleteFirmwareTarget(target: Partial<FirmwareMetadataInput>): boolean {
-  if (isCT1FirmwareTarget(target) && !["prod", "dev", "mfgtest"].includes(target.hashboardBuild ?? "")) return false;
+  if (isCT1FirmwareTarget(target) && !(HASHBOARD_BUILDS as readonly string[]).includes(target.hashboardBuild ?? ""))
+    return false;
   return Boolean(target.targetManufacturer?.trim() && target.targetModel?.trim() && target.firmwareVersion?.trim());
 }
 

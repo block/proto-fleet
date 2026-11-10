@@ -231,6 +231,7 @@ func newContainerState(cfg ContainerConfig, now time.Time) *ContainerState {
 		boardsByMAC:        make(map[string]*Hashboard),
 		boardsBySerial:     make(map[string]*Hashboard),
 		modulesByID:        make(map[string]*Module),
+		firmware:           newSimulatedFirmware(),
 	}
 	for _, point := range containerSetpointDefaults {
 		s.ContainerSetpoints[point.Name] = point.Value

@@ -441,8 +441,7 @@ type Querier interface {
 	// Both preview counts use one snapshot of the mismatch rule above. A pending
 	// foreign command makes a member mismatched even when it reports the assigned
 	// version and provenance. Suppression excludes dispatch targets, but does not
-	// change whether a member matches the assignment. A member with an unknown
-	// container version and matching provenance is counted in neither.
+	// change whether a member matches the assignment.
 	CountReleaseChannelFirmwarePreviewMembers(ctx context.Context, arg CountReleaseChannelFirmwarePreviewMembersParams) (CountReleaseChannelFirmwarePreviewMembersRow, error)
 	CountRepairTickets(ctx context.Context, arg CountRepairTicketsParams) (int32, error)
 	// Only unfinished work blocks deletion; completed tickets retain historical links.
@@ -1523,8 +1522,7 @@ type Querier interface {
 	// and errors opened since its baseline), provenance, the checksums of pending or processing
 	// FirmwareUpdate commands (or file IDs for legacy commands without a checksum),
 	// and channel membership separately from eligibility for the rollout's pair.
-	// firmware_version_known is false while a container lacks fresh, complete
-	// board evidence. Existing targets remain tied to their paired device when firmware changes its
+	// Existing targets remain tied to their paired device when firmware changes its
 	// reported manufacturer/model: the engine still verifies the update's outcome,
 	// but in_scope must be true before dispatching another compatible update.
 	// The prior deployed version distinguishes a version change from replacing an
@@ -1753,7 +1751,7 @@ type Querier interface {
 	// unsuppressed member: late joiners, re-entries and miners that drifted. Any
 	// outstanding FirmwareUpdate counts as a mismatch here because the assigned
 	// file set is only known per pair; ListReleaseChannelMismatchedMembers makes
-	// the final call. An unknown container version (NULL) shows no drift by itself.
+	// the final call.
 	ListReleaseChannelFirmwareNeedingRollout(ctx context.Context) ([]ListReleaseChannelFirmwareNeedingRolloutRow, error)
 	// --- Membership ---
 	// Every miner resolved into one of the org's channels, with its observed
@@ -1768,8 +1766,7 @@ type Querier interface {
 	ListReleaseChannelMinersPage(ctx context.Context, arg ListReleaseChannelMinersPageParams) ([]ListReleaseChannelMinersPageRow, error)
 	// Members of one pair the enforcement loop should update: the reported
 	// version or provenance differs from the assignment, or a FirmwareUpdate for
-	// another checksum is still pending or processing. An unknown container
-	// version (NULL) shows no drift by itself. Commands without a checksum
+	// another checksum is still pending or processing. Commands without a checksum
 	// fall back to assigned_file_ids (the files carrying the assigned checksum).
 	// Excludes miners already in rollout_id (0 for a
 	// new rollout) and suppressed miners (firmware_rollout_suppressed_device).

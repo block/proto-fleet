@@ -232,7 +232,7 @@ func TestFirmwareUpdateArtifact_UsesAssignmentSnapshot(t *testing.T) {
 			sidecar := filepath.Join("firmware", fileID, "metadata.json")
 			switch scenario.name {
 			case "edited target and version":
-				_, err = filesService.UpdateFirmwareMetadata(fileID, other)
+				_, err = filesService.UpdateFirmwareMetadata(t.Context(), fileID, other)
 				require.NoError(t, err)
 			case "reuploaded checksum with other metadata":
 				require.NoError(t, filesService.DeleteFirmwareFile(fileID))
@@ -248,8 +248,6 @@ func TestFirmwareUpdateArtifact_UsesAssignmentSnapshot(t *testing.T) {
 			case "incomplete snapshot":
 				assignment.Metadata.FirmwareVersion = ""
 			case "CT1 build is bound to artifact checksum":
-				// Rollout snapshots persist target/version/checksum; build is in
-				// the selected immutable payload and need not be copied to SQL.
 				assignment.Metadata.HashboardBuild = ""
 			}
 
@@ -543,7 +541,7 @@ func TestProcessCommand_FirmwareUpdateHoldsMetadataLeaseThroughDispatch(t *testi
 	updateDone := make(chan error, 1)
 	go func() {
 		close(updateStarted)
-		_, err := filesService.UpdateFirmwareMetadata(fileID, files.FirmwareMetadata{
+		_, err := filesService.UpdateFirmwareMetadata(t.Context(), fileID, files.FirmwareMetadata{
 			TargetManufacturer: "Bitmain",
 			TargetModel:        "S19",
 			FirmwareVersion:    "3.0.0",

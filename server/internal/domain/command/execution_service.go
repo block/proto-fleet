@@ -917,15 +917,12 @@ func (es *ExecutionService) executeCommandOnDevice(ctx context.Context, commandT
 		err = func() error {
 			defer reader.Close()
 			return minerInfo.FirmwareUpdate(ctx, sdk.FirmwareFile{
-				Reader:   reader,
-				ID:       info.ID,
-				Filename: info.Filename,
-				Size:     info.Size,
-				SHA256:   info.SHA256,
-				FilePath: info.FilePath,
-				// Queue retries keep the message, so a driver can resume the
-				// update this command already started. The batch UUID keeps the
-				// ID unique across Fleet databases.
+				Reader:    reader,
+				ID:        info.ID,
+				Filename:  info.Filename,
+				Size:      info.Size,
+				SHA256:    info.SHA256,
+				FilePath:  info.FilePath,
 				RequestID: fmt.Sprintf("%s/%d", message.BatchLogUUID, message.ID),
 			})
 		}()
@@ -1503,6 +1500,13 @@ const (
 // clearFirmwareUpdateStatus resets stale firmware statuses back to ACTIVE after
 // a reboot command or firmware cleanup path, allowing telemetry to take over
 // status management.
+func firmwareStatusErrorMessage(status *sdk.FirmwareUpdateStatus) string {
+	if status.Error != nil && *status.Error != "" {
+		return *status.Error
+	}
+	return "unknown error"
+}
+
 func (es *ExecutionService) clearFirmwareUpdateStatus(ctx context.Context, deviceID int64) {
 	if es.conn == nil {
 		return
@@ -1638,11 +1642,7 @@ func (es *ExecutionService) doPollFirmwareInstall(ctx context.Context, minerInfo
 
 		switch status.State {
 		case "completed":
-			// Component updates (CT1 hashboards) include their own reboot and
-			// verification. Rebooting the controller is neither needed nor safe.
-			cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), dbWriteTimeout)
-			defer cancel()
-			es.clearFirmwareUpdateStatus(cleanupCtx, deviceID)
+			es.clearFirmwareUpdateStatus(ctx, deviceID)
 			return true, false, nil
 
 		case "success", "confirming":
@@ -1679,21 +1679,10 @@ func (es *ExecutionService) doPollFirmwareInstall(ctx context.Context, minerInfo
 			slog.Debug("firmware install not started yet (grace window)", "device_id", deviceID, "state", status.State)
 
 		case "error":
-			errMsg := "unknown error"
-			if status.Error != nil && *status.Error != "" {
-				errMsg = *status.Error
-			}
-			return true, false, fleeterror.NewInternalErrorf("firmware install failed on device %d: %s", deviceID, errMsg)
+			return true, false, fleeterror.NewInternalErrorf("firmware install failed on device %d: %s", deviceID, firmwareStatusErrorMessage(status))
 
 		case "failed":
-			// A self-managed updater already finished and restored its
-			// components. An immediate queue retry would flash them again;
-			// rollout pacing or the operator decides when to retry.
-			errMsg := "unknown error"
-			if status.Error != nil && *status.Error != "" {
-				errMsg = *status.Error
-			}
-			return true, false, fleeterror.NewFailedPreconditionErrorf("firmware update failed on device %d: %s", deviceID, errMsg)
+			return true, false, fleeterror.NewFailedPreconditionErrorf("firmware update failed on device %d: %s", deviceID, firmwareStatusErrorMessage(status))
 
 		default:
 			slog.Debug("unexpected firmware install state", "device_id", deviceID, "state", status.State)

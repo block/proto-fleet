@@ -37,7 +37,6 @@ func TestModuleMiningSimulatorLeavesNeighborsUnaffected(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, rpcListener.Close())
 	process := exec.CommandContext(t.Context(), binary)
-	// Firmware convergence requires the full CT1 topology.
 	process.Env = append(os.Environ(), "HTTP_PORT="+portText, "GRPC_PORT="+rpcPortText, "SERVER_ID=module-mining-test", "CT1_DEMO_MODULE_STATES=false")
 	require.NoError(t, process.Start())
 	t.Cleanup(func() { _ = process.Process.Kill(); _ = process.Wait() })

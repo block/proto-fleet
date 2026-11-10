@@ -21,7 +21,7 @@ func TestCT1FirmwareBuildsHaveDistinctImmutableArtifacts(t *testing.T) {
 		for range 2 {
 			f, err := os.Open(archive)
 			require.NoError(t, err)
-			result, err := svc.SaveFirmwareUpload("release.zip", f, meta, false)
+			result, err := svc.SaveFirmwareUpload(t.Context(), "release.zip", f, meta, false)
 			require.NoError(t, f.Close())
 			require.NoError(t, err)
 			if first != "" {
@@ -34,7 +34,7 @@ func TestCT1FirmwareBuildsHaveDistinctImmutableArtifacts(t *testing.T) {
 			require.NoError(t, err)
 			require.NoError(t, reader.Close())
 			require.Equal(t, "hashboard-firmware-2.0.0-"+build+".zip", info.Filename)
-			require.Equal(t, info.Filename, result.Filename)
+			require.Equal(t, info.Filename, result.StoredFilename)
 			require.False(t, checksums[info.SHA256])
 			checksums[info.SHA256] = true
 			selected, err := firmware.Read(t.Context(), info.FilePath, "")
@@ -44,11 +44,11 @@ func TestCT1FirmwareBuildsHaveDistinctImmutableArtifacts(t *testing.T) {
 			selected.Release()
 			wrongVersion := meta
 			wrongVersion.FirmwareVersion = "3.0.0"
-			_, err = svc.UpdateFirmwareMetadata(first, wrongVersion)
+			_, err = svc.UpdateFirmwareMetadata(t.Context(), first, wrongVersion)
 			require.Error(t, err)
 			wrongBuild := meta
 			wrongBuild.HashboardBuild = map[string]string{"prod": "dev", "dev": "mfgtest", "mfgtest": "prod"}[build]
-			_, err = svc.UpdateFirmwareMetadata(first, wrongBuild)
+			_, err = svc.UpdateFirmwareMetadata(t.Context(), first, wrongBuild)
 			require.Error(t, err, "the build is bound into the stored artifact")
 		}
 	}
@@ -71,7 +71,7 @@ func TestCT1FirmwareUploadRejectsInconsistentMetadata(t *testing.T) {
 			f, err := os.Open(archive)
 			require.NoError(t, err)
 			defer f.Close()
-			_, err = svc.SaveFirmwareUpload("release.zip", f, meta, false)
+			_, err = svc.SaveFirmwareUpload(t.Context(), "release.zip", f, meta, false)
 			require.Error(t, err)
 		})
 	}

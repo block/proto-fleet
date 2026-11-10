@@ -36,8 +36,8 @@ func logFirmwareUploadActivity(
 			"firmware_version":    result.Metadata.FirmwareVersion,
 		},
 	}
-	if result.Filename != "" && result.Filename != filename {
-		event.Metadata["stored_filename"] = result.Filename
+	if result.StoredFilename != "" && result.StoredFilename != filename {
+		event.Metadata["stored_filename"] = result.StoredFilename
 	}
 	if build := result.Metadata.HashboardBuild; build != "" {
 		event.Metadata["hashboard_build"] = build

@@ -16,8 +16,12 @@ import { useMiningGroupState } from "./useMiningGroupState";
 import { useOpenContainerView } from "./useOpenContainerView";
 import type { Container } from "@/protoFleet/api/generated/containers/v1/containers_pb";
 import { FirmwareUpdateRequestSchema } from "@/protoFleet/api/generated/minercommand/v1/command_pb";
+import { CT1_FIRMWARE_TARGET } from "@/protoFleet/api/useFirmwareApi";
 import { useMinerCommand } from "@/protoFleet/api/useMinerCommand";
-import { ACTION_PERMISSIONS } from "@/protoFleet/features/fleetManagement/components/MinerActionsMenu/actionPermissions";
+import {
+  ACTION_PERMISSIONS,
+  hasAllRequired,
+} from "@/protoFleet/features/fleetManagement/components/MinerActionsMenu/actionPermissions";
 import {
   deviceActions,
   settingsActions,
@@ -29,7 +33,6 @@ import { ArrowRight, MiningPools, Play, Power, Settings, Speedometer, Unpair } f
 import RowActionsMenu, { type RowAction } from "@/shared/components/RowActionsMenu";
 import { pushToast, STATUSES } from "@/shared/features/toaster";
 
-// Standalone worker-name updates are not available for CT1.
 const unavailableSettings = [
   { label: "Update worker name", action: settingsActions.updateWorkerNames, icon: <MiningPools /> },
 ];
@@ -45,10 +48,8 @@ export default function ContainerActionsMenu({
 }) {
   const permissions = usePermissions();
   const { firmwareUpdate } = useMinerCommand();
-  const hasActionPermissions = (action: keyof typeof ACTION_PERMISSIONS) => {
-    const required = ACTION_PERMISSIONS[action];
-    return (typeof required === "string" ? [required] : required).every((key) => permissions.includes(key));
-  };
+  const hasActionPermissions = (action: keyof typeof ACTION_PERMISSIONS) =>
+    hasAllRequired(ACTION_PERMISSIONS[action], permissions);
   const [firmwareOpen, setFirmwareOpen] = useState(false);
   const canUpdateFirmware = permissions.includes("miner:read") && hasActionPermissions(deviceActions.firmwareUpdate);
   const [groupsOpen, setGroupsOpen] = useState(false);
@@ -217,7 +218,7 @@ export default function ContainerActionsMenu({
       {firmwareOpen && canUpdateFirmware ? (
         <FirmwareUpdateModal
           open
-          target={{ targetManufacturer: "Proto", targetModel: "CT1" }}
+          target={CT1_FIRMWARE_TARGET}
           onDismiss={() => setFirmwareOpen(false)}
           onConfirm={(firmwareFileId) => {
             setFirmwareOpen(false);

@@ -149,11 +149,12 @@ SELECT m.channel_id,
        d.device_identifier,
        COALESCE(dd.manufacturer, '')::text AS manufacturer,
        COALESCE(dd.model, '')::text AS model,
-       COALESCE(release_channel_firmware_version(d.id, dd.device_class, dd.firmware_version), '')::text AS firmware_version,
+       COALESCE(reported.version, '')::text AS firmware_version,
        COALESCE(dep.firmware_checksum, '')::text AS last_deployed_firmware_checksum
 FROM release_channel_member m
 JOIN device d ON d.id = m.device_id
 JOIN discovered_device dd ON dd.id = d.discovered_device_id
+CROSS JOIN LATERAL release_channel_firmware_version(d.id, dd.device_class, dd.firmware_version) AS reported(version)
 LEFT JOIN device_firmware_deployment dep ON dep.device_id = d.id
 WHERE m.org_id = sqlc.arg('org_id')
 ORDER BY d.device_identifier;
@@ -167,11 +168,12 @@ SELECT m.device_id,
        d.device_identifier,
        COALESCE(dd.manufacturer, '')::text AS manufacturer,
        COALESCE(dd.model, '')::text AS model,
-       COALESCE(release_channel_firmware_version(d.id, dd.device_class, dd.firmware_version), '')::text AS firmware_version,
+       COALESCE(reported.version, '')::text AS firmware_version,
        COALESCE(dep.firmware_checksum, '')::text AS last_deployed_firmware_checksum
 FROM release_channel_member m
 JOIN device d ON d.id = m.device_id
 JOIN discovered_device dd ON dd.id = d.discovered_device_id
+CROSS JOIN LATERAL release_channel_firmware_version(d.id, dd.device_class, dd.firmware_version) AS reported(version)
 LEFT JOIN device_firmware_deployment dep ON dep.device_id = d.id
 WHERE m.org_id = sqlc.arg('org_id')
   AND m.channel_id = sqlc.arg('channel_id')
@@ -195,11 +197,12 @@ WITH members AS (
     SELECT m.device_id,
            COALESCE(dd.manufacturer, '')::text AS manufacturer,
            COALESCE(dd.model, '')::text AS model,
-           COALESCE(release_channel_firmware_version(d.id, dd.device_class, dd.firmware_version), '')::text AS firmware_version,
+           COALESCE(reported.version, '')::text AS firmware_version,
            COALESCE(dep.firmware_checksum, '')::text AS deployed_checksum
     FROM release_channel_member m
     JOIN device d ON d.id = m.device_id
     JOIN discovered_device dd ON dd.id = d.discovered_device_id
+    CROSS JOIN LATERAL release_channel_firmware_version(d.id, dd.device_class, dd.firmware_version) AS reported(version)
     LEFT JOIN device_firmware_deployment dep ON dep.device_id = d.id
     WHERE m.org_id = sqlc.arg('org_id') AND m.channel_id = sqlc.arg('channel_id')
 ), groups AS (
@@ -308,12 +311,13 @@ SELECT s.device_id,
        d.device_identifier,
        COALESCE(dd.manufacturer, '')::text AS manufacturer,
        COALESCE(dd.model, '')::text AS model,
-       COALESCE(release_channel_firmware_version(d.id, dd.device_class, dd.firmware_version), '')::text AS firmware_version,
+       COALESCE(reported.version, '')::text AS firmware_version,
        COALESCE(owner.channel_id, 0)::bigint AS owner_channel_id,
        COALESCE(owner.name, '')::text AS owner_channel_name
 FROM scoped s
 JOIN device d ON d.id = s.device_id
 JOIN discovered_device dd ON dd.id = d.discovered_device_id
+CROSS JOIN LATERAL release_channel_firmware_version(d.id, dd.device_class, dd.firmware_version) AS reported(version)
 LEFT JOIN LATERAL (
     SELECT DISTINCT c.id AS channel_id, c.name
     FROM release_channel_match rm
@@ -387,8 +391,7 @@ ORDER BY f.channel_id, f.manufacturer, f.model;
 -- name: ListReleaseChannelMismatchedMembers :many
 -- Members of one pair the enforcement loop should update: the reported
 -- version or provenance differs from the assignment, or a FirmwareUpdate for
--- another checksum is still pending or processing. An unknown container
--- version (NULL) shows no drift by itself. Commands without a checksum
+-- another checksum is still pending or processing. Commands without a checksum
 -- fall back to assigned_file_ids (the files carrying the assigned checksum).
 -- Excludes miners already in rollout_id (0 for a
 -- new rollout) and suppressed miners (firmware_rollout_suppressed_device).
@@ -401,6 +404,7 @@ SELECT d.id AS device_id,
 FROM release_channel_member m
 JOIN device d ON d.id = m.device_id
 JOIN discovered_device dd ON dd.id = d.discovered_device_id
+CROSS JOIN LATERAL release_channel_firmware_version(d.id, dd.device_class, dd.firmware_version) AS reported(version)
 LEFT JOIN device_firmware_deployment dep ON dep.device_id = d.id
 LEFT JOIN LATERAL (
     SELECT dm.efficiency_jh
@@ -417,7 +421,7 @@ WHERE m.org_id = sqlc.arg('org_id')
   AND release_channel_pair_key(dd.manufacturer) = release_channel_pair_key(sqlc.arg('manufacturer')::text)
   AND release_channel_pair_key(dd.model) = release_channel_pair_key(sqlc.arg('model')::text)
   AND (
-      (release_channel_firmware_version(d.id, dd.device_class, dd.firmware_version) = sqlc.arg('firmware_version')::text) IS FALSE
+      (reported.version = sqlc.arg('firmware_version')::text) IS FALSE
       OR COALESCE(dep.firmware_checksum, '') <> sqlc.arg('firmware_checksum')::text
       OR EXISTS (
           SELECT 1 FROM queue_message qm
@@ -448,10 +452,9 @@ ORDER BY d.device_identifier;
 -- Both preview counts use one snapshot of the mismatch rule above. A pending
 -- foreign command makes a member mismatched even when it reports the assigned
 -- version and provenance. Suppression excludes dispatch targets, but does not
--- change whether a member matches the assignment. A member with an unknown
--- container version and matching provenance is counted in neither.
+-- change whether a member matches the assignment.
 WITH members AS (
-    SELECT (release_channel_firmware_version(d.id, dd.device_class, dd.firmware_version) = sqlc.arg('firmware_version')::text) AS version_matches,
+    SELECT (reported.version = sqlc.arg('firmware_version')::text) AS version_matches,
            COALESCE(dep.firmware_checksum, '') = sqlc.arg('firmware_checksum')::text
            AND NOT EXISTS (
                SELECT 1 FROM queue_message qm
@@ -474,6 +477,7 @@ WITH members AS (
     FROM release_channel_member m
     JOIN device d ON d.id = m.device_id
     JOIN discovered_device dd ON dd.id = d.discovered_device_id
+    CROSS JOIN LATERAL release_channel_firmware_version(d.id, dd.device_class, dd.firmware_version) AS reported(version)
     LEFT JOIN device_firmware_deployment dep ON dep.device_id = d.id
     WHERE m.org_id = sqlc.arg('org_id')
       AND m.channel_id = sqlc.arg('channel_id')
@@ -509,7 +513,7 @@ ORDER BY d.device_identifier;
 -- unsuppressed member: late joiners, re-entries and miners that drifted. Any
 -- outstanding FirmwareUpdate counts as a mismatch here because the assigned
 -- file set is only known per pair; ListReleaseChannelMismatchedMembers makes
--- the final call. An unknown container version (NULL) shows no drift by itself.
+-- the final call.
 SELECT f.channel_id, f.manufacturer, f.model, f.firmware_checksum, f.firmware_version,
        f.firmware_target_manufacturer, f.firmware_target_model, f.assignment_generation,
        f.assigned_by, f.updated_at, c.org_id
@@ -528,13 +532,14 @@ AND EXISTS (
     FROM release_channel_member m
     JOIN device d ON d.id = m.device_id
     JOIN discovered_device dd ON dd.id = d.discovered_device_id
+    CROSS JOIN LATERAL release_channel_firmware_version(d.id, dd.device_class, dd.firmware_version) AS reported(version)
     LEFT JOIN device_firmware_deployment dep ON dep.device_id = d.id
     WHERE m.org_id = c.org_id
       AND m.channel_id = f.channel_id
       AND release_channel_pair_key(dd.manufacturer) = release_channel_pair_key(f.manufacturer)
       AND release_channel_pair_key(dd.model) = release_channel_pair_key(f.model)
       AND (
-          (release_channel_firmware_version(d.id, dd.device_class, dd.firmware_version) = f.firmware_version) IS FALSE
+          (reported.version = f.firmware_version) IS FALSE
           OR COALESCE(dep.firmware_checksum, '') <> f.firmware_checksum
           OR EXISTS (
               SELECT 1 FROM queue_message qm
@@ -877,8 +882,7 @@ WHERE reservation.channel_id = sqlc.arg('channel_id')
 -- and errors opened since its baseline), provenance, the checksums of pending or processing
 -- FirmwareUpdate commands (or file IDs for legacy commands without a checksum),
 -- and channel membership separately from eligibility for the rollout's pair.
--- firmware_version_known is false while a container lacks fresh, complete
--- board evidence. Existing targets remain tied to their paired device when firmware changes its
+-- Existing targets remain tied to their paired device when firmware changes its
 -- reported manufacturer/model: the engine still verifies the update's outcome,
 -- but in_scope must be true before dispatching another compatible update.
 -- The prior deployed version distinguishes a version change from replacing an
@@ -982,9 +986,7 @@ JOIN device d ON d.id = rd.device_id
 LEFT JOIN release_channel_member member ON member.org_id = r.org_id
     AND member.device_id = d.id AND member.channel_id = r.channel_id
 LEFT JOIN discovered_device dd ON dd.id = d.discovered_device_id AND dd.deleted_at IS NULL
-CROSS JOIN LATERAL (
-    SELECT release_channel_firmware_version(d.id, dd.device_class, dd.firmware_version) AS version
-) reported
+CROSS JOIN LATERAL release_channel_firmware_version(d.id, dd.device_class, dd.firmware_version) AS reported(version)
 LEFT JOIN device_status ds ON ds.device_id = d.id
 LEFT JOIN device_firmware_deployment dep ON dep.device_id = d.id
 LEFT JOIN LATERAL (

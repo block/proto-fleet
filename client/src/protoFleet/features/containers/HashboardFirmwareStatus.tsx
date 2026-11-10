@@ -1,6 +1,10 @@
-import { useEffect, useState } from "react";
+import { fromJson } from "@bufbuild/protobuf";
+import { TimestampSchema } from "@bufbuild/protobuf/wkt";
+import { isCurrentObservation } from "./moduleDetail";
 import type { HashboardReading } from "@/protoFleet/api/generated/fleetinventory/v1/fleetinventory_pb";
+import { useNow } from "@/protoFleet/features/alerts/lib/useNow";
 import ComponentMetadata from "@/shared/components/StatusModal/ComponentMetadata";
+import { clamp } from "@/shared/utils/math";
 
 const labels: Record<string, string> = {
   QUEUED: "Queued",
@@ -15,29 +19,33 @@ const labels: Record<string, string> = {
   FAILED: "Failed",
 };
 
+function isCurrentTimestamp(value: unknown, now: number) {
+  if (typeof value !== "string") return false;
+  try {
+    return isCurrentObservation(fromJson(TimestampSchema, value), now);
+  } catch {
+    return false;
+  }
+}
+
 export default function HashboardFirmwareStatus({ board }: { board: HashboardReading }) {
-  const [now, setNow] = useState(Date.now);
-  useEffect(() => {
-    const timer = setInterval(() => setNow(Date.now()), 5000);
-    return () => clearInterval(timer);
-  }, []);
+  const now = useNow(5000);
   const update = board.metadata?.firmwareUpdate;
   if (!update || typeof update !== "object" || Array.isArray(update)) return null;
-  const status =
-    typeof update.status === "string" ? labels[update.status.replace("FIRMWARE_TARGET_STATUS_", "")] : undefined;
+  const key = typeof update.status === "string" ? update.status.replace("FIRMWARE_TARGET_STATUS_", "") : undefined;
+  const status = key === undefined ? undefined : labels[key];
   if (!status) return null;
-  const observed = typeof update.observedAt === "string" ? Date.parse(update.observedAt) : NaN;
-  const stale = !Number.isFinite(observed) || now - observed > 120_000 || observed > now + 5_000;
+  const stale = !isCurrentTimestamp(update.observedAt, now);
   const progress =
     typeof update.progressPercent === "number" && Number.isFinite(update.progressPercent)
-      ? Math.round(Math.min(100, Math.max(0, update.progressPercent)))
+      ? Math.round(clamp(update.progressPercent, 0, 100))
       : undefined;
   return (
     <ComponentMetadata
       metadata={{
         update: {
           label: "Firmware update",
-          value: `${status}${status === "Flashing" && progress !== undefined ? ` (${progress}%)` : ""}${stale ? " · Last observed" : ""}`,
+          value: `${status}${key === "FLASHING" && progress !== undefined ? ` (${progress}%)` : ""}${stale ? " · Last observed" : ""}`,
         },
         controller: { label: "Controller", value: typeof update.serverId === "string" ? update.serverId : undefined },
         failure: {

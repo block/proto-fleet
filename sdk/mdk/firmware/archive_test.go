@@ -109,18 +109,20 @@ func TestArchiveIgnoresForgedDirectoryOffset(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Declare one entry at the end record itself. archive/zip still locates
-	// the directory from its declared size and reads every record.
 	end := bytes.LastIndex(data, []byte("PK\x05\x06"))
-	binary.LittleEndian.PutUint16(data[end+8:], 1)
-	binary.LittleEndian.PutUint16(data[end+10:], 1)
-	binary.LittleEndian.PutUint32(data[end+16:], uint32(end))
+	forgeEndRecord(data[end:], 1, uint32(end))
 	if err := os.WriteFile(file, data, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := firmware.Read(t.Context(), file, "prod"); err == nil || !strings.Contains(err.Error(), "directory bytes") {
 		t.Fatalf("expected central directory rejection, got %v", err)
 	}
+}
+
+func forgeEndRecord(record []byte, entries uint16, directoryOffset uint32) {
+	binary.LittleEndian.PutUint16(record[8:], entries)
+	binary.LittleEndian.PutUint16(record[10:], entries)
+	binary.LittleEndian.PutUint32(record[16:], directoryOffset)
 }
 
 func TestArchiveHoldsReadSlotUntilRelease(t *testing.T) {
@@ -166,8 +168,6 @@ func TestArchiveRejectsTooManyImages(t *testing.T) {
 	}
 }
 
-// declaredArchive writes entries whose central directory declares a size, so
-// limits are checked without allocating the declared bytes.
 func declaredArchive(t *testing.T, entries []zip.FileHeader) string {
 	t.Helper()
 	var out bytes.Buffer

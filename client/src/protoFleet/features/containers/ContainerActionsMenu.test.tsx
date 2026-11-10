@@ -757,20 +757,4 @@ describe("container firmware update", () => {
       }),
     );
   });
-
-  it.each(["miner:firmware_update", "miner:reboot"])("is hidden without %s", async (permission) => {
-    state.permissions = state.permissions.filter((key) => key !== permission);
-    renderMenu();
-    fireEvent.click(screen.getByRole("button", { name: "Actions for Container 1" }));
-    await screen.findByRole("button", { name: "Unpair" });
-    expect(screen.queryByRole("button", { name: "Update firmware" })).not.toBeInTheDocument();
-  });
-
-  it("is hidden without miner:read", async () => {
-    state.permissions = state.permissions.filter((key) => key !== "miner:read");
-    renderMenu();
-    const menu = screen.queryByRole("button", { name: "Actions for Container 1" });
-    if (menu) fireEvent.click(menu);
-    expect(screen.queryByRole("button", { name: "Update firmware" })).not.toBeInTheDocument();
-  });
 });

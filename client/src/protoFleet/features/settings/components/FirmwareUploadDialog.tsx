@@ -1,14 +1,19 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { hasCompleteFirmwareTarget, isCT1FirmwareTarget } from "@/protoFleet/api/useFirmwareApi";
+import {
+  CT1_FIRMWARE_TARGET,
+  DEFAULT_HASHBOARD_BUILD,
+  hasCompleteFirmwareTarget,
+  isCT1FirmwareTarget,
+} from "@/protoFleet/api/useFirmwareApi";
 import {
   FileDropZone,
   FileErrorStatus,
   FileProcessingStatus,
   FileSelectedStatus,
   firmwareVersionFromFilename,
+  HashboardBuildField,
   useFirmwareUpload,
 } from "@/protoFleet/components/FirmwareUpload";
-import HashboardBuildField from "@/protoFleet/components/FirmwareUpload/HashboardBuildField";
 import FirmwareTargetFields from "@/protoFleet/features/settings/components/FirmwareTargetFields";
 import { useMinerTargetOptions } from "@/protoFleet/features/settings/components/useMinerTargetOptions";
 import { Alert } from "@/shared/assets/icons";
@@ -28,7 +33,7 @@ const FirmwareUploadDialog = ({ open, onSuccess, onDismiss }: FirmwareUploadDial
     useFirmwareUpload(!!open);
   const [targetManufacturer, setTargetManufacturer] = useState("");
   const [targetModel, setTargetModel] = useState("");
-  const [hashboardBuild, setHashboardBuild] = useState("prod");
+  const [hashboardBuild, setHashboardBuild] = useState<string>(DEFAULT_HASHBOARD_BUILD);
   const [firmwareVersion, setFirmwareVersion] = useState("");
   const [pendingFile, setPendingFile] = useState<File | null>(null);
   const {
@@ -42,8 +47,8 @@ const FirmwareUploadDialog = ({ open, onSuccess, onDismiss }: FirmwareUploadDial
     active: !!open,
     selectedManufacturer: targetManufacturer,
     selectedModel: targetModel,
-    seedManufacturer: "Proto",
-    seedModel: "CT1",
+    seedManufacturer: CT1_FIRMWARE_TARGET.targetManufacturer,
+    seedModel: CT1_FIRMWARE_TARGET.targetModel,
   });
 
   const configLoaded = serverConfig !== null;
@@ -71,7 +76,7 @@ const FirmwareUploadDialog = ({ open, onSuccess, onDismiss }: FirmwareUploadDial
     setTargetManufacturer("");
     setTargetModel("");
     setFirmwareVersion("");
-    setHashboardBuild("prod");
+    setHashboardBuild(DEFAULT_HASHBOARD_BUILD);
     resetModelOptions();
     setPendingFile(null);
   }, [reset, resetModelOptions]);

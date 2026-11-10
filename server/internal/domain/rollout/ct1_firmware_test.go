@@ -38,31 +38,36 @@ func TestCT1RolloutConvergesOnHashboardsNotController(t *testing.T) {
 		require.NoError(t, f.conn.QueryRowContext(t.Context(), `SELECT release_channel_firmware_version($1,2,'2.0.0')`, id).Scan(&reported))
 		return reported
 	}
-	// Unknown evidence neither proves convergence nor shows drift, so a
-	// converged container is not reflashed while its boards are unobserved.
-	for _, tc := range []struct {
-		name, version, age string
-	}{
-		{"no uniform version", "", "0 seconds"},
-		{"stale", "2.0.0", "3 minutes"},
-		{"future", "2.0.0", "-10 seconds"},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			require.False(t, observe(t, tc.version, false, tc.age).Valid)
-			f.advanceClock(time.Hour)
-			f.svc.EnforceTick(t.Context())
-			f.svc.EnforceTick(t.Context())
-			require.Equal(t, []string{"ct1"}, f.dispatcher.sentIdentifiers())
-			require.Equal(t, PhaseDone, phaseOf(f.rollout(t, started[0].ID), "ct1"))
-			needing, err := q.ListReleaseChannelFirmwareNeedingRollout(t.Context())
-			require.NoError(t, err)
-			require.Empty(t, needing)
-		})
-	}
-	// Fresh evidence of a board on another version is drift that enforcement
-	// corrects, e.g. a newly adopted board.
-	require.Equal(t, sql.NullString{String: "", Valid: true}, observe(t, "", true, "0 seconds"))
-	f.svc.EnforceTick(t.Context())
-	require.Equal(t, []string{"ct1", "ct1"}, f.dispatcher.sentIdentifiers())
-	require.NotEqual(t, PhaseDone, phaseOf(f.rollout(t, started[0].ID), "ct1"))
+	t.Run("unknown evidence does not reflash a converged container", func(t *testing.T) {
+		for _, tc := range []struct {
+			name, version, age string
+		}{
+			{"no uniform version", "", "0 seconds"},
+			{"stale", "2.0.0", "3 minutes"},
+			{"future", "2.0.0", "-10 seconds"},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				require.False(t, observe(t, tc.version, false, tc.age).Valid)
+				f.advanceClock(time.Hour)
+				f.svc.EnforceTick(t.Context())
+				f.svc.EnforceTick(t.Context())
+				require.Equal(t, []string{"ct1"}, f.dispatcher.sentIdentifiers())
+				require.Equal(t, PhaseDone, phaseOf(f.rollout(t, started[0].ID), "ct1"))
+				needing, err := q.ListReleaseChannelFirmwareNeedingRollout(t.Context())
+				require.NoError(t, err)
+				require.Empty(t, needing)
+				plans, err := f.svc.PreviewFirmware(t.Context(), f.orgID, f.channelID, []Assignment{{Manufacturer: "Proto", Model: "CT1", FirmwareFileID: "fw-2"}}, nil)
+				require.NoError(t, err)
+				require.Len(t, plans, 1)
+				require.Zero(t, plans[0].TargetCount, "unknown evidence is not a mismatch")
+				require.Zero(t, plans[0].OnTargetCount, "unknown evidence is not on target")
+			})
+		}
+	})
+	t.Run("mixed evidence is drift", func(t *testing.T) {
+		require.Equal(t, sql.NullString{String: "", Valid: true}, observe(t, "", true, "0 seconds"))
+		f.svc.EnforceTick(t.Context())
+		require.Equal(t, []string{"ct1", "ct1"}, f.dispatcher.sentIdentifiers())
+		require.NotEqual(t, PhaseDone, phaseOf(f.rollout(t, started[0].ID), "ct1"))
+	})
 }

@@ -23,14 +23,12 @@ type simulatedFirmware struct {
 	jobs      map[string]*mdk.FirmwareUpdate
 }
 
-func (s *ContainerState) initFirmware() {
-	if s.firmware == nil {
-		s.firmware = &simulatedFirmware{artifacts: map[string][]*mdk.FirmwareImage{}, jobs: map[string]*mdk.FirmwareUpdate{}}
-	}
+const simulatedFlashDuration = 4 * time.Second
+
+func newSimulatedFirmware() *simulatedFirmware {
+	return &simulatedFirmware{artifacts: map[string][]*mdk.FirmwareImage{}, jobs: map[string]*mdk.FirmwareUpdate{}}
 }
 
-// The simulator validates framing, sizes, digests, and metadata. It deliberately
-// does not claim to validate real signing certificates or hardware compatibility.
 func (a *grpcAPI) UploadFirmwareArtifact(stream mdk.FirmwareService_UploadFirmwareArtifactServer) error {
 	first, err := stream.Recv()
 	if err != nil {
@@ -87,7 +85,6 @@ func (a *grpcAPI) UploadFirmwareArtifact(stream mdk.FirmwareService_UploadFirmwa
 	}
 	id := fmt.Sprintf("%x", digest.Sum(nil))
 	a.state.mu.Lock()
-	a.state.initFirmware()
 	a.state.firmware.artifacts[id] = images
 	a.state.mu.Unlock()
 	return stream.SendAndClose(&mdk.UploadFirmwareArtifactResponse{Artifact: &mdk.FirmwareArtifactRef{Source: mdk.FirmwareArtifactSource_FIRMWARE_ARTIFACT_SOURCE_UPLOAD, UploadId: id}, Images: images})
@@ -97,7 +94,6 @@ func (a *grpcAPI) StartFirmwareUpdate(_ context.Context, req *mdk.StartFirmwareU
 	a.state.mu.Lock()
 	defer a.state.mu.Unlock()
 	s := a.state
-	s.initFirmware()
 	images := s.firmware.artifacts[req.GetArtifact().GetUploadId()]
 	if len(images) == 0 {
 		return nil, status.Error(codes.NotFound, "artifact not uploaded")
@@ -158,7 +154,7 @@ func (s *ContainerState) advanceFirmware(job *mdk.FirmwareUpdate) {
 	for _, target := range job.Targets {
 		board := s.boardsByMAC[target.MacAddress]
 		target.UpdatedAt = timestamppb.New(s.now())
-		if elapsed < 4*time.Second {
+		if elapsed < simulatedFlashDuration {
 			target.Status = mdk.FirmwareTargetStatus_FIRMWARE_TARGET_STATUS_FLASHING
 			target.ProgressPercent = min(99, max(0, elapsed.Seconds()*25))
 			continue
@@ -174,7 +170,7 @@ func (s *ContainerState) advanceFirmware(job *mdk.FirmwareUpdate) {
 			board.FirmwareVersion = target.ToVersion
 		}
 	}
-	if elapsed >= 4*time.Second {
+	if elapsed >= simulatedFlashDuration {
 		job.Status = mdk.FirmwareUpdateStatus_FIRMWARE_UPDATE_STATUS_COMPLETED
 		if failed {
 			job.Status = mdk.FirmwareUpdateStatus_FIRMWARE_UPDATE_STATUS_COMPLETED_WITH_ERRORS
@@ -186,7 +182,6 @@ func (s *ContainerState) advanceFirmware(job *mdk.FirmwareUpdate) {
 func (a *grpcAPI) GetFirmwareUpdate(_ context.Context, req *mdk.GetFirmwareUpdateRequest) (*mdk.GetFirmwareUpdateResponse, error) {
 	a.state.mu.Lock()
 	defer a.state.mu.Unlock()
-	a.state.initFirmware()
 	job := a.state.firmware.jobs[req.TaskId]
 	if job == nil || req.ServerId != "" && req.ServerId != a.state.ServerID {
 		return nil, status.Error(codes.NotFound, "firmware task not found on controller")
@@ -198,7 +193,6 @@ func (a *grpcAPI) GetFirmwareUpdate(_ context.Context, req *mdk.GetFirmwareUpdat
 func (a *grpcAPI) ListFirmwareUpdates(context.Context, *mdk.ListFirmwareUpdatesRequest) (*mdk.ListFirmwareUpdatesResponse, error) {
 	a.state.mu.Lock()
 	defer a.state.mu.Unlock()
-	a.state.initFirmware()
 	out := &mdk.ListFirmwareUpdatesResponse{}
 	for _, job := range a.state.firmware.jobs {
 		a.state.advanceFirmware(job)
@@ -211,7 +205,6 @@ func (a *grpcAPI) ListFirmwareUpdates(context.Context, *mdk.ListFirmwareUpdatesR
 func (a *grpcAPI) CancelFirmwareUpdate(_ context.Context, req *mdk.CancelFirmwareUpdateRequest) (*mdk.CancelFirmwareUpdateResponse, error) {
 	a.state.mu.Lock()
 	defer a.state.mu.Unlock()
-	a.state.initFirmware()
 	job := a.state.firmware.jobs[req.TaskId]
 	if job == nil || req.ServerId != "" && req.ServerId != a.state.ServerID {
 		return nil, status.Error(codes.NotFound, "firmware task not found")

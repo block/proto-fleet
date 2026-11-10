@@ -1267,7 +1267,7 @@ func TestExecuteCommandOnDevice_FirmwareUpdatePassesFileMetadata(t *testing.T) {
 			// mutable upload metadata changes while it waits for execution.
 			switch tc.metadataState {
 			case "edited":
-				_, err := filesService.UpdateFirmwareMetadata(fileID, files.FirmwareMetadata{
+				_, err := filesService.UpdateFirmwareMetadata(t.Context(), fileID, files.FirmwareMetadata{
 					TargetManufacturer: "Other",
 					TargetModel:        "Different",
 					FirmwareVersion:    "9.9.9",

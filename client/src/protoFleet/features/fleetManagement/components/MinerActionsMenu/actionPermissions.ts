@@ -74,7 +74,7 @@ export const ACTION_PERMISSIONS: Record<SupportedAction, string | readonly strin
 // hasAllRequired returns true when every required key is present in
 // the caller's effective permission set. A single-string requirement
 // is treated as a one-element AND set.
-const hasAllRequired = (required: string | readonly string[], permissions: readonly string[]): boolean => {
+export const hasAllRequired = (required: string | readonly string[], permissions: readonly string[]): boolean => {
   if (typeof required === "string") {
     return permissions.includes(required);
   }

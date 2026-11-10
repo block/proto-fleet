@@ -100,7 +100,7 @@ func TestFirmwareExecutionPin_ProtectsOnlyItsFileUntilEveryCommandFinishes(t *te
 	// safe: release channel commands already carry their assignment snapshot.
 	metadata := testFirmwareMetadata()
 	metadata.FirmwareVersion = "9.9.9"
-	_, err = svc.UpdateFirmwareMetadata(fileID, metadata)
+	_, err = svc.UpdateFirmwareMetadata(t.Context(), fileID, metadata)
 	require.NoError(t, err)
 	pluginBytes, err := os.ReadFile(info.FilePath)
 	require.NoError(t, err, "the plugin process reopens this path")

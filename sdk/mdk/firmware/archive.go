@@ -131,7 +131,6 @@ func read(filename, build string) (*Archive, error) {
 	if len(z.File) > MaxEntries {
 		return nil, fmt.Errorf("firmware archive exceeds %d entries", MaxEntries)
 	}
-	// Validate every declared size before decompressing any image.
 	var candidates []*zip.File
 	var total uint64
 	for _, f := range z.File {
@@ -233,8 +232,6 @@ func checkDirectory(filename string) error {
 	return nil
 }
 
-// directoryStarts returns every offset archive/zip may start reading directory
-// records from, and the declared record count.
 func directoryStarts(r io.ReaderAt, size int64) ([]int64, uint64, error) {
 	tail := make([]byte, min(size, directoryEndSearch))
 	tailOffset := size - int64(len(tail))
@@ -293,8 +290,6 @@ func directoryStarts(r io.ReaderAt, size int64) ([]int64, uint64, error) {
 	return starts, records, nil
 }
 
-// walkDirectory follows records from start as archive/zip's reader loop does,
-// rejecting the archive once it passes either directory limit.
 func walkDirectory(r io.ReaderAt, start int64) error {
 	header := make([]byte, directoryHeaderLen)
 	offset := start

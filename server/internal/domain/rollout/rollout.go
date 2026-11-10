@@ -1078,8 +1078,6 @@ func (t target) reportsTarget(r sqlc.FirmwareRollout) bool {
 	return t.FirmwareVersionKnown && t.FirmwareVersion == r.FirmwareVersion
 }
 
-// reportsOtherVersion: the miner reports a version other than the rollout's.
-// Unknown container evidence is neither on target nor drift.
 func (t target) reportsOtherVersion(r sqlc.FirmwareRollout) bool {
 	return t.FirmwareVersionKnown && t.FirmwareVersion != r.FirmwareVersion
 }

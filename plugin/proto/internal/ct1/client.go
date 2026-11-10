@@ -62,6 +62,8 @@ func NewClient(info sdk.DeviceInfo, _ sdk.UsernamePassword) (*Client, error) {
 	// Preserve Frigate audit attribution across the transport change. This is not authentication.
 	opts = append(opts, grpc.WithUnaryInterceptor(func(ctx context.Context, method string, req, reply any, cc *grpc.ClientConn, invoke grpc.UnaryInvoker, options ...grpc.CallOption) error {
 		return invoke(metadata.AppendToOutgoingContext(ctx, "x-frigate-actor", "proto-fleet"), method, req, reply, cc, options...)
+	}), grpc.WithStreamInterceptor(func(ctx context.Context, desc *grpc.StreamDesc, cc *grpc.ClientConn, method string, streamer grpc.Streamer, options ...grpc.CallOption) (grpc.ClientStream, error) {
+		return streamer(metadata.AppendToOutgoingContext(ctx, "x-frigate-actor", "proto-fleet"), desc, cc, method, options...)
 	}))
 	conn, err := grpc.NewClient("dns:///"+net.JoinHostPort(info.Host, strconv.Itoa(int(port))), opts...)
 	if err != nil {
