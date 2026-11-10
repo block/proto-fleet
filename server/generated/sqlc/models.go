@@ -2915,6 +2915,10 @@ type PoolLifecycleTransition struct {
 	NextAttemptAt      time.Time
 }
 
+type PoolPairingCycle struct {
+	DeviceID int64
+}
+
 type QueueMessage struct {
 	ID                  int64
 	CommandBatchLogUuid string

@@ -10,9 +10,25 @@ they reference. Changing the default does not reconfigure existing assignments.
 
 | Event | Destination has a default | Destination has no configuration |
 | --- | --- | --- |
-| Pairing | Apply the current owner's captured default | Preserve device settings |
+| Initial pairing or deliberate re-pairing | Apply the current owner's captured default | Preserve device settings |
+| Authentication or endpoint recovery | Preserve existing assignment and device settings | Preserve device settings |
 | Allocation/delegation | Apply the receiving account's captured default | Remove previous assignment and clear device pools |
 | Recall/unallocation | Apply the parent account's default, or operator default at the root | Remove previous assignment and clear device pools |
+
+Pairing and authentication are operator responsibilities, including for allocated
+hardware. Repairing authentication does not change client/subclient allocation or
+reapply either the operator's or the client's default. This applies to miners and
+containers. A private pairing-cycle marker records the first successful pairing,
+survives authentication failures, and resets on explicit unpairing. The marker and
+the pairing pool transition commit in the same transaction.
+
+Migration 1076 initializes that marker for existing devices unless they are
+explicitly unpaired. Historical pairing timestamps cannot reliably distinguish
+first-time authentication from recovery, so those devices conservatively preserve
+their settings on their next authentication. An operator can apply a configuration
+manually, or explicitly unpair and re-pair to apply the current owner's default.
+New pairing records after the upgrade apply the default on their first success,
+including when credentials are required first. The migration itself queues no work.
 
 Ownership updates and their pool-transition records commit together. Ownership
 can change before device writes finish; old credentials may remain on offline or
