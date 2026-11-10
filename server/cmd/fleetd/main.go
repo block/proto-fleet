@@ -878,6 +878,7 @@ func start(config *Config) (result error) {
 	requestAuth := interceptors.NewAuthInterceptor(sessionSvc, userStore, userStore, apiKeySvc, permissionResolver, hostedKeysSvc, interceptors.UnauthenticatedProcedures, interceptors.SessionOnlyProcedures, interceptors.FleetNodeAuthenticatedProcedures)
 
 	li := connect.WithInterceptors(
+		interceptors.NewRequestTelemetryInterceptor(),
 		interceptors.NewErrorMappingInterceptor(),
 		interceptors.NewActiveInterceptor(fleetRuntime),
 		interceptors.NewErrorStackTraceLoggingInterceptor(config.Log.Level),
