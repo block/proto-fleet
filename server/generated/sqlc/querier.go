@@ -34,6 +34,7 @@ type Querier interface {
 	AddHostedAccountSite(ctx context.Context, arg AddHostedAccountSiteParams) (int64, error)
 	AddHostedAccountUserAffiliation(ctx context.Context, arg AddHostedAccountUserAffiliationParams) error
 	AddRepairTicketBoard(ctx context.Context, arg AddRepairTicketBoardParams) (int64, error)
+	AdjustReportingFactSite(ctx context.Context, arg AdjustReportingFactSiteParams) (int64, error)
 	AdminResetUserPassword(ctx context.Context, arg AdminResetUserPasswordParams) (int64, error)
 	// Flips pending/restoring → target_state (CANCELLED or FAILED).
 	// Locks the event row before evaluating the in-flight target predicate so
@@ -448,6 +449,8 @@ type Querier interface {
 	CountRepairTicketsByBuilding(ctx context.Context, arg CountRepairTicketsByBuildingParams) (int64, error)
 	// Only unfinished work blocks deletion; completed tickets retain historical links.
 	CountRepairTicketsBySite(ctx context.Context, arg CountRepairTicketsBySiteParams) (int64, error)
+	CountReportingContainers(ctx context.Context, arg CountReportingContainersParams) (int64, error)
+	CountReportingRegisters(ctx context.Context, arg CountReportingRegistersParams) ([]CountReportingRegistersRow, error)
 	// Counts each profile that references any of the supplied facility fans once.
 	CountResponseProfilesByInfrastructureDevices(ctx context.Context, arg CountResponseProfilesByInfrastructureDevicesParams) (int64, error)
 	// Backs the transaction-scoped per-org write quota: only active or scheduled windows count, so
@@ -538,6 +541,7 @@ type Querier interface {
 	// site delete cascade so they cannot outlive a soft-deleted site.
 	DeleteCurtailmentResponseProfilesBySite(ctx context.Context, arg DeleteCurtailmentResponseProfilesBySiteParams) (DeleteCurtailmentResponseProfilesBySiteRow, error)
 	DeleteDisabledMQTTSourceConfigByOrg(ctx context.Context, arg DeleteDisabledMQTTSourceConfigByOrgParams) (int64, error)
+	DeleteEmptyReportingFactSites(ctx context.Context, arg DeleteEmptyReportingFactSitesParams) error
 	DeleteExpiredSessions(ctx context.Context, expiresAt time.Time) (sql.Result, error)
 	// Fleet dashboard metric rollups. The 90 second bucket width must match
 	// models.FleetMetricRollupBucketDuration and the client dashboard's shortest
@@ -570,6 +574,7 @@ type Querier interface {
 	// outages of departed historical targets do not reserve capacity again.
 	DeleteReleasedFirmwareRolloutReservations(ctx context.Context) error
 	DeleteReplacedLegacyPoolIntents(ctx context.Context, arg DeleteReplacedLegacyPoolIntentsParams) error
+	DeleteReportingFact(ctx context.Context, arg DeleteReportingFactParams) (int64, error)
 	DeleteScheduleTargets(ctx context.Context, arg DeleteScheduleTargetsParams) error
 	// Only after confirmed terminal transfer failures and a fresh observation with
 	// no pending controller work. Retain the assignments verified on the controller;
@@ -1122,6 +1127,11 @@ type Querier interface {
 	GetRepairTicketForUpdate(ctx context.Context, arg GetRepairTicketForUpdateParams) (GetRepairTicketForUpdateRow, error)
 	GetRepairTicketIDByIdempotencyKey(ctx context.Context, arg GetRepairTicketIDByIdempotencyKeyParams) (GetRepairTicketIDByIdempotencyKeyRow, error)
 	GetRepairTicketMetadata(ctx context.Context, arg GetRepairTicketMetadataParams) ([]GetRepairTicketMetadataRow, error)
+	GetReportingAuthority(ctx context.Context, arg GetReportingAuthorityParams) (HostedReportingAuthority, error)
+	GetReportingFact(ctx context.Context, arg GetReportingFactParams) (HostedReportingFact, error)
+	GetReportingFactPayloads(ctx context.Context, arg GetReportingFactPayloadsParams) ([]GetReportingFactPayloadsRow, error)
+	GetReportingInputs(ctx context.Context, arg GetReportingInputsParams) (HostedReportingInput, error)
+	GetReportingUser(ctx context.Context, arg GetReportingUserParams) (int64, error)
 	GetRoleByID(ctx context.Context, id int64) (Role, error)
 	// Locking counterpart of GetRoleByID. Used by mutations that must serialize
 	// against a concurrent SoftDeleteCustomRole on the same role row:
@@ -1189,8 +1199,10 @@ type Querier interface {
 	// Confirmation holds the review lock and checks replay/expiry first. Use that
 	// single deadline decision so expiry cannot become a missing-approval error.
 	HasPoolConfigurationReviewAuthorization(ctx context.Context, arg HasPoolConfigurationReviewAuthorizationParams) (bool, error)
+	HasReportingAllocatedMeters(ctx context.Context, arg HasReportingAllocatedMetersParams) (bool, error)
 	HasUser(ctx context.Context) (bool, error)
 	InitializeDeviceWorkerName(ctx context.Context, arg InitializeDeviceWorkerNameParams) (int64, error)
+	InitializeReportingInputs(ctx context.Context, arg InitializeReportingInputsParams) (int64, error)
 	// The unique partial index on (batch_id, event_type) for '*.completed' event
 	// types lets the Go layer detect idempotent re-inserts via pq unique_violation.
 	//
@@ -1596,6 +1608,7 @@ type Querier interface {
 	ListHashboardModules(ctx context.Context, deviceID int64) ([]ListHashboardModulesRow, error)
 	ListHashboardPoolIntents(ctx context.Context, arg ListHashboardPoolIntentsParams) ([]HashboardPoolIntent, error)
 	ListHostMiningGroupPoolRevisions(ctx context.Context, organizationID int64) ([]HostedAccountPoolRevision, error)
+	ListHostReportingAccounts(ctx context.Context, arg ListHostReportingAccountsParams) ([]ListHostReportingAccountsRow, error)
 	ListHostedAccountAncestorGrants(ctx context.Context, arg ListHostedAccountAncestorGrantsParams) ([]HostedAccountAncestorGrant, error)
 	ListHostedAccountAssetChildren(ctx context.Context, arg ListHostedAccountAssetChildrenParams) ([]ListHostedAccountAssetChildrenRow, error)
 	// Only physical metadata is projected, so telemetry values are not fetched.
@@ -1802,6 +1815,20 @@ type Querier interface {
 	ListRepairTicketComments(ctx context.Context, arg ListRepairTicketCommentsParams) ([]ListRepairTicketCommentsRow, error)
 	ListRepairTicketParts(ctx context.Context, arg ListRepairTicketPartsParams) ([]ListRepairTicketPartsRow, error)
 	ListRepairTickets(ctx context.Context, arg ListRepairTicketsParams) ([]ListRepairTicketsRow, error)
+	ListReportingAllocationIntervals(ctx context.Context, arg ListReportingAllocationIntervalsParams) ([]HostedAccountAssetInterval, error)
+	ListReportingAssetSupportMetadata(ctx context.Context, arg ListReportingAssetSupportMetadataParams) ([]ListReportingAssetSupportMetadataRow, error)
+	ListReportingAuthorities(ctx context.Context, arg ListReportingAuthoritiesParams) ([]ListReportingAuthoritiesRow, error)
+	ListReportingCaptureStreams(ctx context.Context, arg ListReportingCaptureStreamsParams) ([]ListReportingCaptureStreamsRow, error)
+	ListReportingFactDevices(ctx context.Context, arg ListReportingFactDevicesParams) ([]int64, error)
+	ListReportingFactPageMetadata(ctx context.Context, arg ListReportingFactPageMetadataParams) ([]ListReportingFactPageMetadataRow, error)
+	ListReportingFactSites(ctx context.Context, arg ListReportingFactSitesParams) ([]int64, error)
+	ListReportingMeterSupportMetadata(ctx context.Context, arg ListReportingMeterSupportMetadataParams) ([]ListReportingMeterSupportMetadataRow, error)
+	// Conservative microsecond candidates; exact typed windows decide validity.
+	ListReportingModuleInstallationCandidates(ctx context.Context, arg ListReportingModuleInstallationCandidatesParams) ([]HashboardInstallation, error)
+	ListReportingReferenceMetadata(ctx context.Context, arg ListReportingReferenceMetadataParams) ([]ListReportingReferenceMetadataRow, error)
+	ListReportingSites(ctx context.Context, arg ListReportingSitesParams) ([]ListReportingSitesRow, error)
+	ListReportingValidationMetadata(ctx context.Context, arg ListReportingValidationMetadataParams) ([]ListReportingValidationMetadataRow, error)
+	ListReportingWitnessMetadata(ctx context.Context, arg ListReportingWitnessMetadataParams) ([]ListReportingWitnessMetadataRow, error)
 	ListResponseProfileInfrastructureDevicesByOrg(ctx context.Context, arg ListResponseProfileInfrastructureDevicesByOrgParams) ([]ListResponseProfileInfrastructureDevicesByOrgRow, error)
 	// Current equipment authority and binding locks are required. A completed
 	// physical attempt may be observed and superseded, never replayed. Unknown
@@ -2117,6 +2144,10 @@ type Querier interface {
 	LockRepairTicketCreateKey(ctx context.Context, arg LockRepairTicketCreateKeyParams) error
 	// Keep the opening owner/subowner stable until the ticket and audience commit.
 	LockRepairTicketTargetAllocation(ctx context.Context, arg LockRepairTicketTargetAllocationParams) (LockRepairTicketTargetAllocationRow, error)
+	// Historical evidence may reference moved or soft-deleted devices.
+	LockReportingDevices(ctx context.Context, arg LockReportingDevicesParams) ([]int64, error)
+	LockReportingInputsForShare(ctx context.Context, arg LockReportingInputsForShareParams) (HostedReportingInput, error)
+	LockReportingInputsForUpdate(ctx context.Context, arg LockReportingInputsForUpdateParams) (HostedReportingInput, error)
 	LockSchedulePriority(ctx context.Context, dollar_1 string) error
 	// Row-locks the site so concurrent DeleteSite can't soft-delete it
 	// between the existence check and the cascade write. Returns the
@@ -2178,6 +2209,7 @@ type Querier interface {
 	// whose key is in the supplied set. ADMIN/FIELD_TECH reconciliation
 	// never calls this — they are additive-only.
 	PrunePermissionsOutsideKeys(ctx context.Context, arg PrunePermissionsOutsideKeysParams) error
+	PutReportingFact(ctx context.Context, arg PutReportingFactParams) error
 	QuarantineDeviceWriteFence(ctx context.Context, arg QuarantineDeviceWriteFenceParams) error
 	// ============================================================================
 	// Component-Based Pagination Queries
@@ -2508,6 +2540,7 @@ type Querier interface {
 	SetRackBuildingPositionBulkPlace(ctx context.Context, arg SetRackBuildingPositionBulkPlaceParams) error
 	SetRackSlotPosition(ctx context.Context, arg SetRackSlotPositionParams) error
 	SetRepairTicketCommentVisibility(ctx context.Context, arg SetRepairTicketCommentVisibilityParams) (int64, error)
+	SetReportingAuthority(ctx context.Context, arg SetReportingAuthorityParams) (HostedReportingAuthority, error)
 	SetSchedulePriorities(ctx context.Context, arg SetSchedulePrioritiesParams) error
 	SetScheduleRunning(ctx context.Context, id int64) (int64, error)
 	ShareRepairTicket(ctx context.Context, arg ShareRepairTicketParams) error
@@ -2794,6 +2827,7 @@ type Querier interface {
 	UpdateReleaseChannel(ctx context.Context, arg UpdateReleaseChannelParams) (ReleaseChannel, error)
 	UpdateRepairTicket(ctx context.Context, arg UpdateRepairTicketParams) (int64, error)
 	UpdateRepairTicketTargetEvidence(ctx context.Context, arg UpdateRepairTicketTargetEvidenceParams) (int64, error)
+	UpdateReportingInputs(ctx context.Context, arg UpdateReportingInputsParams) (HostedReportingInput, error)
 	UpdateRole(ctx context.Context, arg UpdateRoleParams) error
 	UpdateSchedule(ctx context.Context, arg UpdateScheduleParams) (int64, error)
 	UpdateScheduleAfterRun(ctx context.Context, arg UpdateScheduleAfterRunParams) error

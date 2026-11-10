@@ -2351,6 +2351,59 @@ type HostedModuleMembership struct {
 	BoardIds        interface{}
 }
 
+type HostedReportingAuthority struct {
+	OrganizationID int64
+	AccountID      int64
+	UserID         int64
+	CanCreate      bool
+	AllSites       bool
+	SiteIds        []int64
+	Revision       int64
+	UpdatedAt      time.Time
+}
+
+type HostedReportingFact struct {
+	OrganizationID       int64
+	AccountID            int64
+	Kind                 string
+	FactID               string
+	RowID                sql.NullInt64
+	StartAt              time.Time
+	EndAt                sql.NullTime
+	StartSeconds         int64
+	StartNanos           int32
+	ReceivedAt           sql.NullTime
+	SiteID               sql.NullInt64
+	ContainerID          sql.NullInt64
+	AssetKind            sql.NullInt32
+	AssetID              sql.NullInt64
+	OrderID              sql.NullString
+	MeterID              sql.NullString
+	AllocationIntervalID sql.NullInt64
+	EpisodeID            sql.NullString
+	BoardCoverageIds     []string
+	Payload              json.RawMessage
+	PayloadBytes         sql.NullInt64
+}
+
+type HostedReportingFactSite struct {
+	OrganizationID int64
+	AccountID      int64
+	SiteID         int64
+	FactCount      int64
+}
+
+type HostedReportingInput struct {
+	OrganizationID int64
+	AccountID      int64
+	Revision       int64
+	UpdatedBy      int64
+	SourceRef      string
+	Configuration  json.RawMessage
+	SiteIds        []int64
+	UpdatedAt      time.Time
+}
+
 type InfrastructureDevice struct {
 	ID           int64
 	OrgID        int64

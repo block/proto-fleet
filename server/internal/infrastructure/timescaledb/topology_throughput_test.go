@@ -60,8 +60,8 @@ func TestTopologyThroughputMigrationPreservesJobAndProgress(t *testing.T) {
 				{"001035_internal_topology_cleanup_throughput", "up", 1, false},
 				{"001069_internal_topology_cleanup_lock_handoff", "down", 1, false},
 				{"001069_internal_topology_cleanup_lock_handoff", "up", 1, false},
-				{"001071_internal_topology_cleanup_runtime_guard", "down", 1, false},
-				{"001071_internal_topology_cleanup_runtime_guard", "up", 1, false},
+				{"001072_internal_topology_cleanup_runtime_guard", "down", 1, false},
+				{"001072_internal_topology_cleanup_runtime_guard", "up", 1, false},
 			} {
 				migration, err := os.ReadFile("../../../migrations/current/" + step.migration + "." + step.direction + ".sql")
 				require.NoError(t, err)
@@ -110,7 +110,7 @@ func TestTopologyThroughputMigrationPreservesJobAndProgress(t *testing.T) {
 						}
 					}
 				}
-				if step.migration == "001071_internal_topology_cleanup_runtime_guard" {
+				if step.migration == "001072_internal_topology_cleanup_runtime_guard" {
 					var telemetryColumns int
 					require.NoError(t, r.db.QueryRowContext(t.Context(), `SELECT count(*) FROM information_schema.columns
  WHERE table_schema='public' AND table_name='container_topology_compaction_state'

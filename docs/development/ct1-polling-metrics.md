@@ -358,7 +358,7 @@ microbatch, cleanup uses its nonblocking lock guard. A controller that made
 progress stays due for a prompt retry. A controller that made no progress gets a
 one-minute backoff. Completed microbatches and the scheduling lease survive
 cancellation, so a slow controller cannot monopolize later runs.
-Migration 1071 also reserves half of the two-second worker deadline. A run stops
+Migration 1072 also reserves half of the two-second worker deadline. A run stops
 starting microbatches after one second and leaves unfinished work due behind older
 controllers. Each microbatch limits lock waits to 250 ms, including independent
 foreign-key checks. These limits can be reduced with `run_budget_ms` and
@@ -389,10 +389,10 @@ FROM timescaledb_information.jobs
 WHERE proc_name='compact_container_topology_job';
 ```
 
-Before upgrading an existing deployment through migration 1035, 1069, or 1071,
+Before upgrading an existing deployment through migration 1035, 1069, or 1072,
 record the job's configuration and scheduling state using the query above.
 Migration 1035 changes the cadence of an enabled job. Migration 1069 changes its
-transaction boundaries. Migration 1071 adds runtime and lock limits. Disable
+transaction boundaries. Migration 1072 adds runtime and lock limits. Disable
 cleanup and pause scheduling before any of these migrations. Verify that any
 active run has finished:
 
@@ -427,7 +427,7 @@ FROM timescaledb_information.jobs WHERE proc_name='compact_container_topology_jo
 ```
 
 Enablement is a separate rollout step after applying migrations 1035, 1069, and
-1071 and validating the deployment's database capacity. All three migrations
+1072 and validating the deployment's database capacity. All three migrations
 preserve `config.enabled` and `scheduled`, including existing opt-outs; they do
 not enable cleanup. Record the deployment, migration version, job ID, enablement
 time, observation rate, and before/after progress. Verify several successful
@@ -595,7 +595,7 @@ changing enablement, but also restores the known capacity limit. Rolling back
 migration 1069 preserves the original progress fields and job settings, but drops
 its deferral counters and restores the full-batch organization-lock hold that can
 delay ingestion. Record those counters before a coordinated rollback if needed.
-Rolling back migration 1071 removes the runtime and lock guards and drops its
+Rolling back migration 1072 removes the runtime and lock guards and drops its
 runtime-yield counters. Keep cleanup disabled after that rollback. Do not enable
 the older procedure on a deployment that has already hit its worker deadline.
 
