@@ -1034,6 +1034,12 @@ func (q *retryingQuerier) ClearFleetNodeRevokedStatus(ctx context.Context, arg C
 	return result, err
 }
 
+func (q *retryingQuerier) ClearPoolConfigurationDefault(ctx context.Context, arg ClearPoolConfigurationDefaultParams) error {
+	return q.retrier.RetryQuery(ctx, "ClearPoolConfigurationDefault", func() error {
+		return q.next.ClearPoolConfigurationDefault(ctx, arg)
+	})
+}
+
 func (q *retryingQuerier) ClearRackPlacementForSoftDelete(ctx context.Context, arg ClearRackPlacementForSoftDeleteParams) error {
 	return q.retrier.RetryQuery(ctx, "ClearRackPlacementForSoftDelete", func() error {
 		return q.next.ClearRackPlacementForSoftDelete(ctx, arg)
@@ -1670,6 +1676,18 @@ func (q *retryingQuerier) CreateApiKey(ctx context.Context, arg CreateApiKeyPara
 	})
 }
 
+func (q *retryingQuerier) CreateAutomaticPoolConfigurationOperation(ctx context.Context, arg CreateAutomaticPoolConfigurationOperationParams) (PoolConfigurationOperation, error) {
+	var result PoolConfigurationOperation
+	err := q.retrier.RetryQuery(ctx, "CreateAutomaticPoolConfigurationOperation", func() error {
+		callResult, callErr := q.next.CreateAutomaticPoolConfigurationOperation(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) CreateBuilding(ctx context.Context, arg CreateBuildingParams) (Building, error) {
 	var result Building
 	err := q.retrier.RetryQuery(ctx, "CreateBuilding", func() error {
@@ -1970,6 +1988,12 @@ func (q *retryingQuerier) CreatePoolGroupSnapshot(ctx context.Context, arg Creat
 	})
 }
 
+func (q *retryingQuerier) CreatePoolLifecycleBoardTransition(ctx context.Context, arg CreatePoolLifecycleBoardTransitionParams) error {
+	return q.retrier.RetryQuery(ctx, "CreatePoolLifecycleBoardTransition", func() error {
+		return q.next.CreatePoolLifecycleBoardTransition(ctx, arg)
+	})
+}
+
 func (q *retryingQuerier) CreateQueueMessage(ctx context.Context, arg CreateQueueMessageParams) error {
 	return q.retrier.RetryQuery(ctx, "CreateQueueMessage", func() error {
 		return q.next.CreateQueueMessage(ctx, arg)
@@ -2094,6 +2118,12 @@ func (q *retryingQuerier) CurtailmentEventHasInFlightTargets(ctx context.Context
 		return callErr
 	})
 	return result, err
+}
+
+func (q *retryingQuerier) DeferPoolLifecycleTransition(ctx context.Context, arg DeferPoolLifecycleTransitionParams) error {
+	return q.retrier.RetryQuery(ctx, "DeferPoolLifecycleTransition", func() error {
+		return q.next.DeferPoolLifecycleTransition(ctx, arg)
+	})
 }
 
 func (q *retryingQuerier) DeleteActiveRepairTicketParts(ctx context.Context, arg DeleteActiveRepairTicketPartsParams) error {
@@ -2546,6 +2576,12 @@ func (q *retryingQuerier) EnsureMiningGroupState(ctx context.Context, arg Ensure
 	})
 }
 
+func (q *retryingQuerier) EnsurePoolConfigurationDefault(ctx context.Context, arg EnsurePoolConfigurationDefaultParams) error {
+	return q.retrier.RetryQuery(ctx, "EnsurePoolConfigurationDefault", func() error {
+		return q.next.EnsurePoolConfigurationDefault(ctx, arg)
+	})
+}
+
 func (q *retryingQuerier) ExcludeFirmwareRolloutDevices(ctx context.Context, arg ExcludeFirmwareRolloutDevicesParams) error {
 	return q.retrier.RetryQuery(ctx, "ExcludeFirmwareRolloutDevices", func() error {
 		return q.next.ExcludeFirmwareRolloutDevices(ctx, arg)
@@ -2712,6 +2748,18 @@ func (q *retryingQuerier) FinishPoolGroupAttempt(ctx context.Context, arg Finish
 	return q.retrier.RetryQuery(ctx, "FinishPoolGroupAttempt", func() error {
 		return q.next.FinishPoolGroupAttempt(ctx, arg)
 	})
+}
+
+func (q *retryingQuerier) FinishPoolLifecycleTransition(ctx context.Context, arg FinishPoolLifecycleTransitionParams) (int64, error) {
+	var result int64
+	err := q.retrier.RetryQuery(ctx, "FinishPoolLifecycleTransition", func() error {
+		callResult, callErr := q.next.FinishPoolLifecycleTransition(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
 }
 
 func (q *retryingQuerier) FinishPoolRemoval(ctx context.Context, arg FinishPoolRemovalParams) (int64, error) {
@@ -3540,6 +3588,18 @@ func (q *retryingQuerier) GetCurtailmentTargetRollupByEvent(ctx context.Context,
 	var result GetCurtailmentTargetRollupByEventRow
 	err := q.retrier.RetryQuery(ctx, "GetCurtailmentTargetRollupByEvent", func() error {
 		callResult, callErr := q.next.GetCurtailmentTargetRollupByEvent(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) GetDefaultPoolConfiguration(ctx context.Context, arg GetDefaultPoolConfigurationParams) (PoolConfiguration, error) {
+	var result PoolConfiguration
+	err := q.retrier.RetryQuery(ctx, "GetDefaultPoolConfiguration", func() error {
+		callResult, callErr := q.next.GetDefaultPoolConfiguration(ctx, arg)
 		if callErr == nil {
 			result = callResult
 		}
@@ -5444,6 +5504,30 @@ func (q *retryingQuerier) GetPoolGroupSnapshot(ctx context.Context, arg GetPoolG
 	return result, err
 }
 
+func (q *retryingQuerier) GetPoolLifecycleAllocation(ctx context.Context, arg GetPoolLifecycleAllocationParams) (GetPoolLifecycleAllocationRow, error) {
+	var result GetPoolLifecycleAllocationRow
+	err := q.retrier.RetryQuery(ctx, "GetPoolLifecycleAllocation", func() error {
+		callResult, callErr := q.next.GetPoolLifecycleAllocation(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) GetPoolLifecycleTransition(ctx context.Context, transitionID uuid.UUID) (GetPoolLifecycleTransitionRow, error) {
+	var result GetPoolLifecycleTransitionRow
+	err := q.retrier.RetryQuery(ctx, "GetPoolLifecycleTransition", func() error {
+		callResult, callErr := q.next.GetPoolLifecycleTransition(ctx, transitionID)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) GetPoolRemoval(ctx context.Context, arg GetPoolRemovalParams) (GetPoolRemovalRow, error) {
 	var result GetPoolRemovalRow
 	err := q.retrier.RetryQuery(ctx, "GetPoolRemoval", func() error {
@@ -6624,6 +6708,12 @@ func (q *retryingQuerier) LinkPoolGroupSnapshot(ctx context.Context, arg LinkPoo
 		return callErr
 	})
 	return result, err
+}
+
+func (q *retryingQuerier) LinkPoolLifecycleOperation(ctx context.Context, arg LinkPoolLifecycleOperationParams) error {
+	return q.retrier.RetryQuery(ctx, "LinkPoolLifecycleOperation", func() error {
+		return q.next.LinkPoolLifecycleOperation(ctx, arg)
+	})
 }
 
 func (q *retryingQuerier) ListAccountRepairTicketComments(ctx context.Context, arg ListAccountRepairTicketCommentsParams) ([]ListAccountRepairTicketCommentsRow, error) {
@@ -8150,6 +8240,18 @@ func (q *retryingQuerier) ListPendingPoolConfigurationWork(ctx context.Context) 
 	return result, err
 }
 
+func (q *retryingQuerier) ListPendingPoolLifecycleTransitions(ctx context.Context) ([]PoolLifecycleTransition, error) {
+	var result []PoolLifecycleTransition
+	err := q.retrier.RetryQuery(ctx, "ListPendingPoolLifecycleTransitions", func() error {
+		callResult, callErr := q.next.ListPendingPoolLifecycleTransitions(ctx)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) ListPermissions(ctx context.Context) ([]Permission, error) {
 	var result []Permission
 	err := q.retrier.RetryQuery(ctx, "ListPermissions", func() error {
@@ -9138,6 +9240,18 @@ func (q *retryingQuerier) ListUsersForOrganization(ctx context.Context, organiza
 	var result []ListUsersForOrganizationRow
 	err := q.retrier.RetryQuery(ctx, "ListUsersForOrganization", func() error {
 		callResult, callErr := q.next.ListUsersForOrganization(ctx, organizationID)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) ListVisiblePoolLifecycleTransitions(ctx context.Context, arg ListVisiblePoolLifecycleTransitionsParams) ([]ListVisiblePoolLifecycleTransitionsRow, error) {
+	var result []ListVisiblePoolLifecycleTransitionsRow
+	err := q.retrier.RetryQuery(ctx, "ListVisiblePoolLifecycleTransitions", func() error {
+		callResult, callErr := q.next.ListVisiblePoolLifecycleTransitions(ctx, arg)
 		if callErr == nil {
 			result = callResult
 		}
@@ -10364,6 +10478,18 @@ func (q *retryingQuerier) PauseFirmwareRollout(ctx context.Context, arg PauseFir
 	return result, err
 }
 
+func (q *retryingQuerier) PoolConfigurationHasPendingLifecycle(ctx context.Context, arg PoolConfigurationHasPendingLifecycleParams) (bool, error) {
+	var result bool
+	err := q.retrier.RetryQuery(ctx, "PoolConfigurationHasPendingLifecycle", func() error {
+		callResult, callErr := q.next.PoolConfigurationHasPendingLifecycle(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) PoolConfigurationWritersFrozen(ctx context.Context, organizationID int64) (bool, error) {
 	var result bool
 	err := q.retrier.RetryQuery(ctx, "PoolConfigurationWritersFrozen", func() error {
@@ -10376,10 +10502,34 @@ func (q *retryingQuerier) PoolConfigurationWritersFrozen(ctx context.Context, or
 	return result, err
 }
 
+func (q *retryingQuerier) PoolLifecycleHasNewerAssignment(ctx context.Context, transitionID uuid.UUID) (bool, error) {
+	var result bool
+	err := q.retrier.RetryQuery(ctx, "PoolLifecycleHasNewerAssignment", func() error {
+		callResult, callErr := q.next.PoolLifecycleHasNewerAssignment(ctx, transitionID)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) PrepareFleetNodeHAKeyInstall(ctx context.Context, arg PrepareFleetNodeHAKeyInstallParams) ([]byte, error) {
 	var result []byte
 	err := q.retrier.RetryQuery(ctx, "PrepareFleetNodeHAKeyInstall", func() error {
 		callResult, callErr := q.next.PrepareFleetNodeHAKeyInstall(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) PreparePoolLifecycleTransition(ctx context.Context, arg PreparePoolLifecycleTransitionParams) (int64, error) {
+	var result int64
+	err := q.retrier.RetryQuery(ctx, "PreparePoolLifecycleTransition", func() error {
+		callResult, callErr := q.next.PreparePoolLifecycleTransition(ctx, arg)
 		if callErr == nil {
 			result = callResult
 		}
@@ -10619,6 +10769,12 @@ func (q *retryingQuerier) ReconcileDefaultPasswordPairingStatusByIdentifier(ctx 
 func (q *retryingQuerier) ReconcileHostedHashboardReplacements(ctx context.Context, arg ReconcileHostedHashboardReplacementsParams) error {
 	return q.retrier.RetryQuery(ctx, "ReconcileHostedHashboardReplacements", func() error {
 		return q.next.ReconcileHostedHashboardReplacements(ctx, arg)
+	})
+}
+
+func (q *retryingQuerier) ReconcilePoolLifecycleOperations(ctx context.Context) error {
+	return q.retrier.RetryQuery(ctx, "ReconcilePoolLifecycleOperations", func() error {
+		return q.next.ReconcilePoolLifecycleOperations(ctx)
 	})
 }
 
@@ -11228,6 +11384,12 @@ func (q *retryingQuerier) RetryRigConfigReconciliation(ctx context.Context, arg 
 	})
 }
 
+func (q *retryingQuerier) RetryUndispatchedPoolLifecycleRemoval(ctx context.Context, transitionID uuid.UUID) error {
+	return q.retrier.RetryQuery(ctx, "RetryUndispatchedPoolLifecycleRemoval", func() error {
+		return q.next.RetryUndispatchedPoolLifecycleRemoval(ctx, transitionID)
+	})
+}
+
 func (q *retryingQuerier) RevertScheduleToActive(ctx context.Context, id int64) error {
 	return q.retrier.RetryQuery(ctx, "RevertScheduleToActive", func() error {
 		return q.next.RevertScheduleToActive(ctx, id)
@@ -11570,6 +11732,12 @@ func (q *retryingQuerier) SetPoolConfigurationCurrentRevision(ctx context.Contex
 	return result, err
 }
 
+func (q *retryingQuerier) SetPoolConfigurationDefault(ctx context.Context, arg SetPoolConfigurationDefaultParams) error {
+	return q.retrier.RetryQuery(ctx, "SetPoolConfigurationDefault", func() error {
+		return q.next.SetPoolConfigurationDefault(ctx, arg)
+	})
+}
+
 func (q *retryingQuerier) SetRackBuildingPosition(ctx context.Context, arg SetRackBuildingPositionParams) error {
 	return q.retrier.RetryQuery(ctx, "SetRackBuildingPosition", func() error {
 		return q.next.SetRackBuildingPosition(ctx, arg)
@@ -11897,6 +12065,12 @@ func (q *retryingQuerier) StampContainerSample(ctx context.Context, arg StampCon
 func (q *retryingQuerier) StampHashboardTopology(ctx context.Context, arg StampHashboardTopologyParams) error {
 	return q.retrier.RetryQuery(ctx, "StampHashboardTopology", func() error {
 		return q.next.StampHashboardTopology(ctx, arg)
+	})
+}
+
+func (q *retryingQuerier) SupersedeContainerPoolLifecycleTransitions(ctx context.Context, arg SupersedeContainerPoolLifecycleTransitionsParams) error {
+	return q.retrier.RetryQuery(ctx, "SupersedeContainerPoolLifecycleTransitions", func() error {
+		return q.next.SupersedeContainerPoolLifecycleTransitions(ctx, arg)
 	})
 }
 

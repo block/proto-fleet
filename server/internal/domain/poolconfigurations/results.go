@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"errors"
 
+	"github.com/google/uuid"
+
 	"github.com/block/proto-fleet/server/generated/sqlc"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 )
@@ -54,6 +56,48 @@ func (r *Repository) RetryTarget(ctx context.Context, q sqlc.Querier, scope Scop
 
 func (r *Repository) GetOperation(ctx context.Context, q sqlc.Querier, scope Scope, operationID string) (Operation, error) {
 	row, err := q.GetPoolConfigurationOperation(ctx, sqlc.GetPoolConfigurationOperationParams{OrganizationID: scope.OrganizationID, AccountID: scope.account(), OperationID: operationID})
+	if errors.Is(err, sql.ErrNoRows) {
+		id, parseErr := uuid.Parse(operationID)
+		if parseErr != nil {
+			return Operation{}, storageError(err)
+		}
+		event, eventErr := q.GetPoolLifecycleTransition(ctx, id)
+		if eventErr != nil || event.OrganizationID != scope.OrganizationID || event.OwnerAccountID != scope.AccountID {
+			return Operation{}, fleeterror.NewNotFoundError("pool operation not found")
+		}
+		kind, name := "clear", ""
+		if event.Reason == "pairing" {
+			kind = "apply"
+		}
+		if event.ConfigurationID.Valid {
+			kind = "apply"
+			config, err := r.Get(ctx, q, scope, event.ConfigurationID.String)
+			if err != nil {
+				return Operation{}, err
+			}
+			name = config.Name
+		}
+		state := event.State
+		if state == "ready" {
+			state = "pending"
+		}
+		target := publicOperationTarget(sqlc.PoolConfigurationOperationTarget{TargetKind: event.TargetKind, TargetID: event.TargetID, State: state, ResultCode: event.ResultCode, UpdatedAt: event.UpdatedAt, ReviewedBinding: event.ReviewedBinding})
+		if target.ID == 0 {
+			target.Kind = TargetDevice
+			target.ID = event.DeviceID
+			if event.AssetKind == 7 {
+				target.Kind = TargetInstallation
+				boards, err := q.ListPoolSelectionBoards(ctx, sqlc.ListPoolSelectionBoardsParams{OrgID: scope.OrganizationID, HashboardIds: []int64{event.AssetID}})
+				if err != nil {
+					return Operation{}, err
+				}
+				if len(boards) == 1 {
+					target.ID = boards[0].InstallationID
+				}
+			}
+		}
+		return Operation{Kind: kind, Name: name, ID: operationID, ConfigurationID: event.ConfigurationID.String, RevisionID: event.RevisionID.String, CreatedAt: event.CreatedAt, Targets: []OperationTarget{target}}, nil
+	}
 	if err != nil {
 		return Operation{}, storageError(err)
 	}

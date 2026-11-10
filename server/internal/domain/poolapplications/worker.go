@@ -80,6 +80,40 @@ func (w *Worker) Run(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
+			if err := w.queries.ReconcilePoolLifecycleOperations(ctx); err != nil {
+				slog.WarnContext(ctx, "unable to reconcile automatic pool updates")
+			}
+			lifecycle, err := w.queries.ListPendingPoolLifecycleTransitions(ctx)
+			if err != nil {
+				slog.WarnContext(ctx, "unable to list automatic pool updates")
+			}
+			for _, event := range lifecycle {
+				mu.Lock()
+				if len(running) >= 8 {
+					mu.Unlock()
+					break
+				}
+				if running[event.DeviceID] {
+					mu.Unlock()
+					continue
+				}
+				running[event.DeviceID] = true
+				mu.Unlock()
+				pending.Add(1)
+				go func() {
+					defer pending.Done()
+					defer func() { mu.Lock(); delete(running, event.DeviceID); mu.Unlock() }()
+					attemptCtx, cancel := context.WithTimeout(ctx, 40*time.Second)
+					defer cancel()
+					if err := w.ProcessLifecycle(attemptCtx, event.TransitionID); err != nil {
+						cleanupCtx, cleanupCancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+						defer cleanupCancel()
+						if err := w.queries.DeferPoolLifecycleTransition(cleanupCtx, sqlc.DeferPoolLifecycleTransitionParams{TransitionID: event.TransitionID, ResultCode: "preparation_unavailable"}); err != nil {
+							slog.WarnContext(ctx, "unable to record automatic pool update delay", "transition_id", event.TransitionID)
+						}
+					}
+				}()
+			}
 			if err := w.queries.RecoverSettledPoolConfigurationWork(ctx); err != nil {
 				slog.WarnContext(ctx, "unable to reconcile settled pool updates")
 				continue
@@ -129,6 +163,9 @@ func (w *Worker) Execute(ctx context.Context, orgID int64, operationID string, t
 	}
 	if work.State != "pending" || work.DeviceID != target.DeviceID {
 		return nil
+	}
+	if work.LifecycleID.Valid {
+		ctx = poolconfigurations.WithLifecycleTransition(ctx, work.LifecycleID.UUID)
 	}
 	if work.OperationKind == "clear" {
 		if w.removals == nil {

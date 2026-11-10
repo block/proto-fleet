@@ -123,6 +123,21 @@ func (s *Service) GetBoardAssignments(ctx context.Context, accountID string, sel
 				assignments = append(assignments, sqlc.ListPoolBoardAssignmentsRow{State: "unavailable", InstallationID: row.InstallationID, HashboardID: row.HashboardID, ModuleID: row.ModuleID, DeviceID: row.DeviceID, DeviceIdentifier: row.DeviceIdentifier, SiteID: row.SiteID})
 			}
 		}
+		events, err := lifecycleStates(ctx, q, p.Scope, nil, ids)
+		if err != nil {
+			return BoardAssignments{}, err
+		}
+		for i := range assignments {
+			a := &assignments[i]
+			if event, ok := events[AssignmentTarget{Kind: TargetInstallation, ID: a.InstallationID, DeviceID: a.DeviceID}]; ok && a.ConfigurationID == "" {
+				a.State = lifecycleDisplayState(event)
+				a.ResultCode = event.ResultCode
+				a.OperationID = event.TransitionID.String()
+				a.UpdatedAt = event.UpdatedAt
+				a.ConfigurationID = event.ConfigurationID.String
+				a.Name = event.ConfigurationName
+			}
+		}
 		return BoardAssignments{Assignments: assignments, SelectedCount: int64(len(ids))}, nil
 	})
 }

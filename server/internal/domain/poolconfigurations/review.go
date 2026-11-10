@@ -278,7 +278,11 @@ func (r *Repository) ConfirmReview(ctx context.Context, q sqlc.Querier, scope Sc
 		return ReviewedSave{}, storageError(err)
 	}
 	if review.SavedVersion.Valid {
-		config := sqlc.PoolConfiguration{ConfigurationID: review.ConfigurationID, Name: review.Name, CurrentRevisionID: review.SavedRevisionID, Version: review.SavedVersion.Int64}
+		current, err := q.LockPoolConfiguration(ctx, sqlc.LockPoolConfigurationParams{OrganizationID: scope.OrganizationID, AccountID: scope.account(), ConfigurationID: review.ConfigurationID})
+		if err != nil {
+			return ReviewedSave{}, storageError(err)
+		}
+		config := sqlc.PoolConfiguration{ConfigurationID: review.ConfigurationID, Name: review.Name, CurrentRevisionID: review.SavedRevisionID, Version: review.SavedVersion.Int64, IsDefault: current.IsDefault}
 		public, err := publicConfiguration(config, review.Slots)
 		if err != nil {
 			return ReviewedSave{}, err

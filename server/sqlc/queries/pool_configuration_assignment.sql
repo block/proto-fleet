@@ -101,7 +101,10 @@ WHERE t.organization_id = $1 AND t.operation_id = $2 ORDER BY t.target_kind, t.t
 SELECT d.site_id FROM pool_configuration_operation_target t
 JOIN pool_configuration_assignment a ON a.organization_id=t.organization_id AND a.target_kind=t.target_kind AND a.target_id=t.target_id
 JOIN device d ON d.org_id=a.organization_id AND d.id=a.device_id
-WHERE t.organization_id=$1 AND t.operation_id=$2;
+WHERE t.organization_id=sqlc.arg(organization_id)::bigint AND t.operation_id=sqlc.arg(operation_id)::text
+UNION ALL
+SELECT d.site_id FROM pool_lifecycle_transition l JOIN device d ON d.org_id=l.organization_id AND d.id=l.device_id
+WHERE l.organization_id=sqlc.arg(organization_id)::bigint AND l.transition_id::text=sqlc.arg(operation_id)::text;
 
 -- name: ClaimPoolConfigurationTarget :one
 UPDATE pool_configuration_operation_target t SET state = 'applying', attempts = attempts + 1, result_code = '', updated_at = CURRENT_TIMESTAMP

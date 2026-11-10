@@ -565,8 +565,10 @@ revisions. The transaction serializes with account administration, physical
 identity bindings and container reconciliation, then rechecks eligibility and
 site scope before writing the ledger and audit. New allocations require active
 eligible hardware and destination policy. Recall can release retained unavailable
-allocations. Assignment does not reserve/activate device-write fences, dispatch
-firmware changes or apply incoming pool profiles.
+allocations. Assignment records a durable pool transition in the same transaction.
+The pool worker applies the destination owner’s default, or clears device pools
+when that owner has no configuration. Device writes happen after commit using
+normal physical fencing and readback. See [pool defaults](../docs/development/pool-defaults.md).
 
 `GetAccountDashboard` supplies the shared client/preview dashboard, with current
 scoped totals, allocated-site summaries and historical readings. Requests require

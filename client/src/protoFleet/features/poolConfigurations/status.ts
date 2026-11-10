@@ -9,6 +9,8 @@ export const poolUpdateStatus = ({ state, resultCode }: Result): string => {
   if (resultCode === "interrupted") return "Update failed";
   return (
     {
+      cleared: "Pools cleared",
+      uncertain: "Not verified",
       adopted: "Not verified",
       device_configuration: "Device configuration",
       container_configuration: "Container configuration",
@@ -27,6 +29,9 @@ export const poolStatusIsProblem = (status: string) =>
   ["Update failed", "Not verified", "Settings differ", "Unavailable", "Needs attention"].includes(status);
 
 export const poolStatusExplanation = ({ state, resultCode }: Result): string => {
+  if (state === "cleared") return "Stored and runtime pool settings were verified as cleared.";
+  if (resultCode === "preparation_unavailable")
+    return "Waiting for equipment readiness before applying its owner’s pool configuration.";
   if (state === "superseded") return "A newer pool configuration update replaced this update.";
   if (state === "different") return "The device’s reported pool settings don’t match this configuration.";
   if (state === "container_configuration")

@@ -83,7 +83,7 @@ func (q *Queries) ClaimPoolConfigurationTarget(ctx context.Context, arg ClaimPoo
 
 const createPoolConfigurationOperation = `-- name: CreatePoolConfigurationOperation :one
 INSERT INTO pool_configuration_operation(operation_id, organization_id, configuration_id, revision_id, actor_id)
-VALUES($1, $2, $3, $4, $5) RETURNING operation_id, organization_id, configuration_id, revision_id, actor_id, created_at, kind
+VALUES($1, $2, $3, $4, $5) RETURNING operation_id, organization_id, configuration_id, revision_id, actor_id, created_at, kind, lifecycle_id
 `
 
 type CreatePoolConfigurationOperationParams struct {
@@ -111,6 +111,7 @@ func (q *Queries) CreatePoolConfigurationOperation(ctx context.Context, arg Crea
 		&i.ActorID,
 		&i.CreatedAt,
 		&i.Kind,
+		&i.LifecycleID,
 	)
 	return i, err
 }
@@ -286,7 +287,7 @@ func (q *Queries) GetPoolConfigurationAssignment(ctx context.Context, arg GetPoo
 }
 
 const getPoolConfigurationOperation = `-- name: GetPoolConfigurationOperation :one
-SELECT o.operation_id, o.organization_id, o.configuration_id, o.revision_id, o.actor_id, o.created_at, o.kind FROM pool_configuration_operation o
+SELECT o.operation_id, o.organization_id, o.configuration_id, o.revision_id, o.actor_id, o.created_at, o.kind, o.lifecycle_id FROM pool_configuration_operation o
 JOIN pool_configuration c ON c.organization_id = o.organization_id AND c.configuration_id = o.configuration_id
 WHERE o.organization_id = $1 AND o.operation_id = $2
  AND c.account_id IS NOT DISTINCT FROM $3::bigint
@@ -309,6 +310,7 @@ func (q *Queries) GetPoolConfigurationOperation(ctx context.Context, arg GetPool
 		&i.ActorID,
 		&i.CreatedAt,
 		&i.Kind,
+		&i.LifecycleID,
 	)
 	return i, err
 }
@@ -479,7 +481,10 @@ const listPoolConfigurationOperationSites = `-- name: ListPoolConfigurationOpera
 SELECT d.site_id FROM pool_configuration_operation_target t
 JOIN pool_configuration_assignment a ON a.organization_id=t.organization_id AND a.target_kind=t.target_kind AND a.target_id=t.target_id
 JOIN device d ON d.org_id=a.organization_id AND d.id=a.device_id
-WHERE t.organization_id=$1 AND t.operation_id=$2
+WHERE t.organization_id=$1::bigint AND t.operation_id=$2::text
+UNION ALL
+SELECT d.site_id FROM pool_lifecycle_transition l JOIN device d ON d.org_id=l.organization_id AND d.id=l.device_id
+WHERE l.organization_id=$1::bigint AND l.transition_id::text=$2::text
 `
 
 type ListPoolConfigurationOperationSitesParams struct {

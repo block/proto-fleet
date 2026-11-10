@@ -32,7 +32,7 @@ export const BoardPoolConfigurationCell = ({ moduleId, hashboardId }: { moduleId
   const verified = rows.length > 0 && statuses.every((status) => status === "Verified");
   const mixed = rows.some((row) => row.configurationId !== rows[0]?.configurationId);
   const settled = statuses.every((status) =>
-    ["Verified", "—", "Device configuration", "Container configuration"].includes(status),
+    ["Verified", "Pools cleared", "—", "Device configuration", "Container configuration"].includes(status),
   );
   const status = local
     ? job.phase === "unknown"

@@ -38,9 +38,27 @@ func (s *Service) GetAssignments(ctx context.Context, accountID string, identifi
 		if err != nil {
 			return EquipmentAssignments{}, storageError(err)
 		}
+		lifecycleIDs := make([]int64, 0, len(rows))
+		for _, row := range rows {
+			if visible(row.SiteID) {
+				lifecycleIDs = append(lifecycleIDs, row.DeviceID)
+			}
+		}
+		events, err := lifecycleStates(ctx, q, p.Scope, lifecycleIDs, nil)
+		if err != nil {
+			return EquipmentAssignments{}, err
+		}
 		result := EquipmentAssignments{SelectedCount: int64(len(identifiers) + len(deviceIDs))}
 		for _, row := range rows {
 			if visible(row.SiteID) {
+				if event, ok := events[AssignmentTarget{Kind: TargetDevice, ID: row.DeviceID, DeviceID: row.DeviceID}]; ok && row.ConfigurationID == "" {
+					row.State = lifecycleDisplayState(event)
+					row.ResultCode = event.ResultCode
+					row.OperationID = event.TransitionID.String()
+					row.UpdatedAt = event.UpdatedAt
+					row.ConfigurationID = event.ConfigurationID.String
+					row.Name = event.ConfigurationName
+				}
 				result.Assignments = append(result.Assignments, row)
 			}
 		}

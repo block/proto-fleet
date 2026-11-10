@@ -13,7 +13,7 @@ import (
 )
 
 const archivePoolConfiguration = `-- name: ArchivePoolConfiguration :execrows
-UPDATE pool_configuration c SET archived=TRUE, version=version+1, updated_at=CURRENT_TIMESTAMP
+UPDATE pool_configuration c SET archived=TRUE, is_default=FALSE, version=version+1, updated_at=CURRENT_TIMESTAMP
 WHERE c.organization_id=$1 AND c.configuration_id=$2
  AND c.account_id IS NOT DISTINCT FROM $3::bigint
  AND c.version=$4 AND NOT c.archived
@@ -40,6 +40,22 @@ func (q *Queries) ArchivePoolConfiguration(ctx context.Context, arg ArchivePoolC
 	return result.RowsAffected()
 }
 
+const clearPoolConfigurationDefault = `-- name: ClearPoolConfigurationDefault :exec
+UPDATE pool_configuration SET is_default=FALSE, version=version+1, updated_at=CURRENT_TIMESTAMP
+WHERE organization_id=$1
+ AND account_id IS NOT DISTINCT FROM $2::bigint AND is_default
+`
+
+type ClearPoolConfigurationDefaultParams struct {
+	OrganizationID int64
+	AccountID      sql.NullInt64
+}
+
+func (q *Queries) ClearPoolConfigurationDefault(ctx context.Context, arg ClearPoolConfigurationDefaultParams) error {
+	_, err := q.exec(ctx, q.clearPoolConfigurationDefaultStmt, clearPoolConfigurationDefault, arg.OrganizationID, arg.AccountID)
+	return err
+}
+
 const countOperatorPoolConfigurations = `-- name: CountOperatorPoolConfigurations :one
 SELECT count(*) FROM pool_configuration WHERE organization_id=$1 AND account_id IS NULL AND NOT archived
 `
@@ -52,8 +68,10 @@ func (q *Queries) CountOperatorPoolConfigurations(ctx context.Context, organizat
 }
 
 const createPoolConfiguration = `-- name: CreatePoolConfiguration :one
-INSERT INTO pool_configuration(configuration_id, organization_id, account_id, name)
-VALUES ($1, $2, $3, $4) RETURNING configuration_id, organization_id, account_id, name, archived, version, assignment_version, current_revision_id, created_at, updated_at
+INSERT INTO pool_configuration(configuration_id, organization_id, account_id, name, is_default)
+VALUES ($1, $2, $3, $4,
+ NOT EXISTS (SELECT 1 FROM pool_configuration c WHERE c.organization_id=$2
+  AND c.account_id IS NOT DISTINCT FROM $3::bigint AND NOT c.archived)) RETURNING configuration_id, organization_id, account_id, name, archived, version, assignment_version, current_revision_id, created_at, updated_at, is_default
 `
 
 type CreatePoolConfigurationParams struct {
@@ -82,6 +100,7 @@ func (q *Queries) CreatePoolConfiguration(ctx context.Context, arg CreatePoolCon
 		&i.CurrentRevisionID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.IsDefault,
 	)
 	return i, err
 }
@@ -119,8 +138,57 @@ func (q *Queries) CreatePoolConfigurationRevision(ctx context.Context, arg Creat
 	return i, err
 }
 
+const ensurePoolConfigurationDefault = `-- name: EnsurePoolConfigurationDefault :exec
+UPDATE pool_configuration SET is_default=TRUE, version=version+1, updated_at=CURRENT_TIMESTAMP
+WHERE configuration_id=(SELECT c.configuration_id FROM pool_configuration c
+ WHERE c.organization_id=$1
+ AND c.account_id IS NOT DISTINCT FROM $2::bigint AND NOT c.archived
+ AND NOT EXISTS (SELECT 1 FROM pool_configuration d WHERE d.organization_id=c.organization_id
+  AND d.account_id IS NOT DISTINCT FROM c.account_id AND d.is_default)
+ ORDER BY c.created_at,c.configuration_id LIMIT 1)
+`
+
+type EnsurePoolConfigurationDefaultParams struct {
+	OrganizationID int64
+	AccountID      sql.NullInt64
+}
+
+func (q *Queries) EnsurePoolConfigurationDefault(ctx context.Context, arg EnsurePoolConfigurationDefaultParams) error {
+	_, err := q.exec(ctx, q.ensurePoolConfigurationDefaultStmt, ensurePoolConfigurationDefault, arg.OrganizationID, arg.AccountID)
+	return err
+}
+
+const getDefaultPoolConfiguration = `-- name: GetDefaultPoolConfiguration :one
+SELECT configuration_id, organization_id, account_id, name, archived, version, assignment_version, current_revision_id, created_at, updated_at, is_default FROM pool_configuration WHERE organization_id=$1
+ AND account_id IS NOT DISTINCT FROM $2::bigint AND is_default AND NOT archived
+`
+
+type GetDefaultPoolConfigurationParams struct {
+	OrganizationID int64
+	AccountID      sql.NullInt64
+}
+
+func (q *Queries) GetDefaultPoolConfiguration(ctx context.Context, arg GetDefaultPoolConfigurationParams) (PoolConfiguration, error) {
+	row := q.queryRow(ctx, q.getDefaultPoolConfigurationStmt, getDefaultPoolConfiguration, arg.OrganizationID, arg.AccountID)
+	var i PoolConfiguration
+	err := row.Scan(
+		&i.ConfigurationID,
+		&i.OrganizationID,
+		&i.AccountID,
+		&i.Name,
+		&i.Archived,
+		&i.Version,
+		&i.AssignmentVersion,
+		&i.CurrentRevisionID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.IsDefault,
+	)
+	return i, err
+}
+
 const getPoolConfiguration = `-- name: GetPoolConfiguration :one
-SELECT c.configuration_id, c.organization_id, c.account_id, c.name, c.archived, c.version, c.assignment_version, c.current_revision_id, c.created_at, c.updated_at, r.slots,
+SELECT c.configuration_id, c.organization_id, c.account_id, c.name, c.archived, c.version, c.assignment_version, c.current_revision_id, c.created_at, c.updated_at, c.is_default, r.slots,
  (SELECT count(*) FROM pool_configuration_assignment a WHERE a.organization_id=c.organization_id AND a.configuration_id=c.configuration_id AND a.retired_at IS NULL)::bigint AS assigned_count
 FROM pool_configuration c
 JOIN pool_configuration_revision r ON r.organization_id=c.organization_id AND r.configuration_id=c.configuration_id AND r.revision_id=c.current_revision_id
@@ -145,6 +213,7 @@ type GetPoolConfigurationRow struct {
 	CurrentRevisionID sql.NullString
 	CreatedAt         time.Time
 	UpdatedAt         time.Time
+	IsDefault         bool
 	Slots             json.RawMessage
 	AssignedCount     int64
 }
@@ -163,6 +232,7 @@ func (q *Queries) GetPoolConfiguration(ctx context.Context, arg GetPoolConfigura
 		&i.CurrentRevisionID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.IsDefault,
 		&i.Slots,
 		&i.AssignedCount,
 	)
@@ -296,7 +366,7 @@ func (q *Queries) ListImportedPoolConfigurations(ctx context.Context, arg ListIm
 }
 
 const listPoolConfigurations = `-- name: ListPoolConfigurations :many
-SELECT c.configuration_id, c.organization_id, c.account_id, c.name, c.archived, c.version, c.assignment_version, c.current_revision_id, c.created_at, c.updated_at, r.slots, r.number AS revision_number,
+SELECT c.configuration_id, c.organization_id, c.account_id, c.name, c.archived, c.version, c.assignment_version, c.current_revision_id, c.created_at, c.updated_at, c.is_default, r.slots, r.number AS revision_number,
  (SELECT count(*) FROM pool_configuration_assignment a WHERE a.organization_id=c.organization_id AND a.configuration_id=c.configuration_id AND a.retired_at IS NULL)::bigint AS assigned_count
 FROM pool_configuration c
 JOIN pool_configuration_revision r ON r.organization_id = c.organization_id
@@ -327,6 +397,7 @@ type ListPoolConfigurationsRow struct {
 	CurrentRevisionID sql.NullString
 	CreatedAt         time.Time
 	UpdatedAt         time.Time
+	IsDefault         bool
 	Slots             json.RawMessage
 	RevisionNumber    int64
 	AssignedCount     int64
@@ -358,6 +429,7 @@ func (q *Queries) ListPoolConfigurations(ctx context.Context, arg ListPoolConfig
 			&i.CurrentRevisionID,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.IsDefault,
 			&i.Slots,
 			&i.RevisionNumber,
 			&i.AssignedCount,
@@ -376,7 +448,7 @@ func (q *Queries) ListPoolConfigurations(ctx context.Context, arg ListPoolConfig
 }
 
 const lockPoolConfiguration = `-- name: LockPoolConfiguration :one
-SELECT configuration_id, organization_id, account_id, name, archived, version, assignment_version, current_revision_id, created_at, updated_at FROM pool_configuration
+SELECT configuration_id, organization_id, account_id, name, archived, version, assignment_version, current_revision_id, created_at, updated_at, is_default FROM pool_configuration
 WHERE organization_id = $1 AND configuration_id = $2
  AND account_id IS NOT DISTINCT FROM $3::bigint
 FOR UPDATE
@@ -402,6 +474,7 @@ func (q *Queries) LockPoolConfiguration(ctx context.Context, arg LockPoolConfigu
 		&i.CurrentRevisionID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.IsDefault,
 	)
 	return i, err
 }
@@ -449,7 +522,7 @@ UPDATE pool_configuration SET current_revision_id = $1, name = $2,
 WHERE organization_id = $3 AND configuration_id = $4
  AND account_id IS NOT DISTINCT FROM $5::bigint
  AND version = $6 AND NOT archived
-RETURNING configuration_id, organization_id, account_id, name, archived, version, assignment_version, current_revision_id, created_at, updated_at
+RETURNING configuration_id, organization_id, account_id, name, archived, version, assignment_version, current_revision_id, created_at, updated_at, is_default
 `
 
 type SetPoolConfigurationCurrentRevisionParams struct {
@@ -482,6 +555,24 @@ func (q *Queries) SetPoolConfigurationCurrentRevision(ctx context.Context, arg S
 		&i.CurrentRevisionID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.IsDefault,
 	)
 	return i, err
+}
+
+const setPoolConfigurationDefault = `-- name: SetPoolConfigurationDefault :exec
+UPDATE pool_configuration SET is_default=TRUE, version=version+1, updated_at=CURRENT_TIMESTAMP
+WHERE organization_id=$1 AND configuration_id=$2
+ AND account_id IS NOT DISTINCT FROM $3::bigint AND NOT archived
+`
+
+type SetPoolConfigurationDefaultParams struct {
+	OrganizationID  int64
+	ConfigurationID string
+	AccountID       sql.NullInt64
+}
+
+func (q *Queries) SetPoolConfigurationDefault(ctx context.Context, arg SetPoolConfigurationDefaultParams) error {
+	_, err := q.exec(ctx, q.setPoolConfigurationDefaultStmt, setPoolConfigurationDefault, arg.OrganizationID, arg.ConfigurationID, arg.AccountID)
+	return err
 }

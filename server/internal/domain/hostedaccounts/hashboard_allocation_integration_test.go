@@ -348,7 +348,9 @@ func TestHashboardAllocationMigrationPreservesLegacyBoundaries(t *testing.T) {
 			child, err := f.svc.CreateChild(t.Context(), f.user, f.org, client.AccountID, "Subclient", f.host, hostedaccounts.AllCapabilities)
 			require.NoError(t, err)
 			module, controller := f.miningModule(t)
-			// Start from main's schema, without any later replacement/order triggers.
+			// Reconstruct the pre-hashboard schema without later lifecycle triggers.
+			_, err = f.db.ExecContext(t.Context(), `DROP TRIGGER hosted_allocation_pool_transition ON hosted_account_asset; DROP TRIGGER device_pairing_pool_transition ON device_pairing`)
+			require.NoError(t, err)
 			for _, name := range []string{
 				"001052_internal_hashboard_allocation_consumers",
 				"001051_internal_hashboard_allocation_order",

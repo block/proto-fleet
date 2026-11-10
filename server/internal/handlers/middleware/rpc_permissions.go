@@ -68,6 +68,7 @@ var ProcedurePermissions = map[string]string{
 	poolconfigurationsv1connect.PoolConfigurationServiceGetConfigurationProcedure:           authz.PermPoolRead,
 	poolconfigurationsv1connect.PoolConfigurationServiceListConfigurationsProcedure:         authz.PermPoolRead,
 	poolconfigurationsv1connect.PoolConfigurationServiceDuplicateConfigurationProcedure:     authz.PermPoolManage,
+	poolconfigurationsv1connect.PoolConfigurationServiceSetDefaultConfigurationProcedure:    authz.PermPoolManage,
 	poolconfigurationsv1connect.PoolConfigurationServiceArchiveConfigurationProcedure:       authz.PermPoolManage,
 	poolconfigurationsv1connect.PoolConfigurationServiceReviewEditProcedure:                 authz.PermPoolManage,
 	poolconfigurationsv1connect.PoolConfigurationServiceTestConnectionProcedure:             authz.PermPoolManage,

@@ -60,7 +60,8 @@ WHERE a.attempt_id=sqlc.arg(attempt_id) AND a.device_id=sqlc.arg(device_id)
  AND a.organization_id=sqlc.arg(organization_id)
  AND a.status='complete' AND a.queue_message_id IS NULL AND a.write_outcome='{}'::jsonb
  AND NOT EXISTS (SELECT 1 FROM device_deletion_unpair_permit p WHERE p.attempt_id=a.attempt_id)
- AND NOT EXISTS (SELECT 1 FROM pool_configuration_operation_target t WHERE t.physical_attempt_id=a.attempt_id);
+ AND NOT EXISTS (SELECT 1 FROM pool_configuration_operation_target t WHERE t.physical_attempt_id=a.attempt_id)
+ AND NOT EXISTS (SELECT 1 FROM pool_lifecycle_transition l WHERE l.physical_attempt_id=a.attempt_id);
 
 -- name: QuarantineDeviceWriteFence :exec
 UPDATE device_write_fence SET quarantine_origin=CASE WHEN state='quarantined' THEN quarantine_origin ELSE state END,state='quarantined',updated_at=statement_timestamp()

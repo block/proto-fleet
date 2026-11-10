@@ -1,0 +1,3 @@
+DROP INDEX idx_pool_configuration_owner_default;
+ALTER TABLE pool_configuration DROP CONSTRAINT ck_pool_configuration_active_default;
+ALTER TABLE pool_configuration DROP COLUMN is_default;

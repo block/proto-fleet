@@ -41,6 +41,7 @@ type Configuration struct {
 	ID, Name, RevisionID string
 	Version              int64
 	Archived             bool
+	IsDefault            bool
 	Slots                []Endpoint
 }
 
@@ -63,6 +64,9 @@ func NewRepository(secrets *encrypt.Service) *Repository {
 func (r *Repository) Create(ctx context.Context, q sqlc.Querier, scope Scope, options RevisionOptions) (Configuration, error) {
 	if err := scope.validate(); err != nil {
 		return Configuration{}, err
+	}
+	if _, err := q.LockPoolConfigurationImportOrganization(ctx, scope.OrganizationID); err != nil {
+		return Configuration{}, storageError(err)
 	}
 	options, err := Validate(options)
 	if err != nil {
@@ -201,7 +205,7 @@ func publicConfiguration(config sqlc.PoolConfiguration, encoded []byte) (Configu
 	if err != nil {
 		return Configuration{}, err
 	}
-	result := Configuration{ID: config.ConfigurationID, Name: config.Name, RevisionID: config.CurrentRevisionID.String, Version: config.Version, Archived: config.Archived, Slots: make([]Endpoint, len(slots))}
+	result := Configuration{ID: config.ConfigurationID, Name: config.Name, RevisionID: config.CurrentRevisionID.String, Version: config.Version, Archived: config.Archived, IsDefault: config.IsDefault, Slots: make([]Endpoint, len(slots))}
 	for i, slot := range slots {
 		result.Slots[i] = Endpoint{ID: slot.ID, URL: slot.URL, Username: slot.Username, WorkerTemplate: slot.WorkerTemplate, HasPassword: slot.HasPassword}
 	}

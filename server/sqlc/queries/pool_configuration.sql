@@ -1,6 +1,8 @@
 -- name: CreatePoolConfiguration :one
-INSERT INTO pool_configuration(configuration_id, organization_id, account_id, name)
-VALUES ($1, $2, $3, $4) RETURNING *;
+INSERT INTO pool_configuration(configuration_id, organization_id, account_id, name, is_default)
+VALUES (sqlc.arg(configuration_id), sqlc.arg(organization_id), sqlc.narg(account_id), sqlc.arg(name),
+ NOT EXISTS (SELECT 1 FROM pool_configuration c WHERE c.organization_id=sqlc.arg(organization_id)
+  AND c.account_id IS NOT DISTINCT FROM sqlc.narg(account_id)::bigint AND NOT c.archived)) RETURNING *;
 
 -- name: CreatePoolConfigurationRevision :one
 INSERT INTO pool_configuration_revision(revision_id, organization_id, configuration_id, number, slots)
@@ -48,7 +50,7 @@ WHERE c.organization_id=sqlc.arg(organization_id) AND c.configuration_id=sqlc.ar
  AND c.account_id IS NOT DISTINCT FROM sqlc.narg(account_id)::bigint;
 
 -- name: ArchivePoolConfiguration :execrows
-UPDATE pool_configuration c SET archived=TRUE, version=version+1, updated_at=CURRENT_TIMESTAMP
+UPDATE pool_configuration c SET archived=TRUE, is_default=FALSE, version=version+1, updated_at=CURRENT_TIMESTAMP
 WHERE c.organization_id=sqlc.arg(organization_id) AND c.configuration_id=sqlc.arg(configuration_id)
  AND c.account_id IS NOT DISTINCT FROM sqlc.narg(account_id)::bigint
  AND c.version=sqlc.arg(expected_version) AND NOT c.archived
@@ -85,3 +87,26 @@ WHERE i.organization_id = sqlc.arg(organization_id)
 -- name: RecordPoolConfigurationImport :exec
 INSERT INTO pool_configuration_import(organization_id, source_kind, source_id, source_version, configuration_id, revision_id)
 VALUES ($1, $2, $3, $4, $5, $6);
+
+-- name: ClearPoolConfigurationDefault :exec
+UPDATE pool_configuration SET is_default=FALSE, version=version+1, updated_at=CURRENT_TIMESTAMP
+WHERE organization_id=sqlc.arg(organization_id)
+ AND account_id IS NOT DISTINCT FROM sqlc.narg(account_id)::bigint AND is_default;
+
+-- name: SetPoolConfigurationDefault :exec
+UPDATE pool_configuration SET is_default=TRUE, version=version+1, updated_at=CURRENT_TIMESTAMP
+WHERE organization_id=sqlc.arg(organization_id) AND configuration_id=sqlc.arg(configuration_id)
+ AND account_id IS NOT DISTINCT FROM sqlc.narg(account_id)::bigint AND NOT archived;
+
+-- name: EnsurePoolConfigurationDefault :exec
+UPDATE pool_configuration SET is_default=TRUE, version=version+1, updated_at=CURRENT_TIMESTAMP
+WHERE configuration_id=(SELECT c.configuration_id FROM pool_configuration c
+ WHERE c.organization_id=sqlc.arg(organization_id)
+ AND c.account_id IS NOT DISTINCT FROM sqlc.narg(account_id)::bigint AND NOT c.archived
+ AND NOT EXISTS (SELECT 1 FROM pool_configuration d WHERE d.organization_id=c.organization_id
+  AND d.account_id IS NOT DISTINCT FROM c.account_id AND d.is_default)
+ ORDER BY c.created_at,c.configuration_id LIMIT 1);
+
+-- name: GetDefaultPoolConfiguration :one
+SELECT * FROM pool_configuration WHERE organization_id=sqlc.arg(organization_id)
+ AND account_id IS NOT DISTINCT FROM sqlc.narg(account_id)::bigint AND is_default AND NOT archived;

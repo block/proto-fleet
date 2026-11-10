@@ -82,6 +82,13 @@ func (s *Service) ReviewBoardRemoval(ctx context.Context, q sqlc.Querier, p pool
 			// Firmware does not expose hosted-group diagnostics for the default
 			// group. Moving a board just to discover support would mutate before
 			// preflight. Keep assignment-only removal available for this scope.
+			if group.ID == "default" && p.ActorID == 0 {
+				// Automatic ownership policy authorizes moving only the selected
+				// board into a stopped, pool-free group. That group's runtime
+				// readback is verified after transfer; the default is unchanged.
+				found = true
+				continue
+			}
 			if group.ID == "default" {
 				return fleeterror.NewUnimplementedError("verified pool clearing is unavailable for boards in the default mining group")
 			}
@@ -150,7 +157,7 @@ func (s *Service) BeginBoardRemoval(ctx context.Context, p poolconfigurations.Pr
 		}
 		row.OperationID = uuid.NullUUID{UUID: r.RemovalID, Valid: true}
 		row.AttemptID = uuid.NullUUID{UUID: attempt, Valid: true}
-		row.ActorID = sql.NullInt64{Int64: p.ActorID, Valid: true}
+		row.ActorID = sql.NullInt64{Int64: p.ActorID, Valid: p.ActorID > 0}
 		row.OperationKind = "pools"
 		row.WriteEpoch = epoch
 		row.Status = "pending"
@@ -177,6 +184,9 @@ func (s *Service) workflowRemoval(ctx context.Context, q sqlc.Querier, row sqlc.
 	meta, err := q.GetBoardPoolRemovalAttempt(ctx, sqlc.GetBoardPoolRemovalAttemptParams{OrganizationID: row.OrganizationID, PhysicalAttemptID: row.AttemptID})
 	if err != nil {
 		return ctx, poolconfigurations.Principal{}, sqlc.GetPoolRemovalRow{}, err
+	}
+	if meta.ActorID == 0 {
+		ctx = poolconfigurations.WithLifecycleTransition(ctx, meta.RemovalID)
 	}
 	actorCtx, err := poolActorContext(ctx, row.OrganizationID, meta.ActorID, meta.ExternalAccountID)
 	if err != nil {

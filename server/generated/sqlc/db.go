@@ -297,6 +297,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.clearFleetNodeRevokedStatusStmt, err = db.PrepareContext(ctx, clearFleetNodeRevokedStatus); err != nil {
 		return nil, fmt.Errorf("error preparing query ClearFleetNodeRevokedStatus: %w", err)
 	}
+	if q.clearPoolConfigurationDefaultStmt, err = db.PrepareContext(ctx, clearPoolConfigurationDefault); err != nil {
+		return nil, fmt.Errorf("error preparing query ClearPoolConfigurationDefault: %w", err)
+	}
 	if q.clearRackPlacementForSoftDeleteStmt, err = db.PrepareContext(ctx, clearRackPlacementForSoftDelete); err != nil {
 		return nil, fmt.Errorf("error preparing query ClearRackPlacementForSoftDelete: %w", err)
 	}
@@ -471,6 +474,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.createApiKeyStmt, err = db.PrepareContext(ctx, createApiKey); err != nil {
 		return nil, fmt.Errorf("error preparing query CreateApiKey: %w", err)
 	}
+	if q.createAutomaticPoolConfigurationOperationStmt, err = db.PrepareContext(ctx, createAutomaticPoolConfigurationOperation); err != nil {
+		return nil, fmt.Errorf("error preparing query CreateAutomaticPoolConfigurationOperation: %w", err)
+	}
 	if q.createBuildingStmt, err = db.PrepareContext(ctx, createBuilding); err != nil {
 		return nil, fmt.Errorf("error preparing query CreateBuilding: %w", err)
 	}
@@ -558,6 +564,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.createPoolGroupSnapshotStmt, err = db.PrepareContext(ctx, createPoolGroupSnapshot); err != nil {
 		return nil, fmt.Errorf("error preparing query CreatePoolGroupSnapshot: %w", err)
 	}
+	if q.createPoolLifecycleBoardTransitionStmt, err = db.PrepareContext(ctx, createPoolLifecycleBoardTransition); err != nil {
+		return nil, fmt.Errorf("error preparing query CreatePoolLifecycleBoardTransition: %w", err)
+	}
 	if q.createQueueMessageStmt, err = db.PrepareContext(ctx, createQueueMessage); err != nil {
 		return nil, fmt.Errorf("error preparing query CreateQueueMessage: %w", err)
 	}
@@ -599,6 +608,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.curtailmentEventHasInFlightTargetsStmt, err = db.PrepareContext(ctx, curtailmentEventHasInFlightTargets); err != nil {
 		return nil, fmt.Errorf("error preparing query CurtailmentEventHasInFlightTargets: %w", err)
+	}
+	if q.deferPoolLifecycleTransitionStmt, err = db.PrepareContext(ctx, deferPoolLifecycleTransition); err != nil {
+		return nil, fmt.Errorf("error preparing query DeferPoolLifecycleTransition: %w", err)
 	}
 	if q.deleteActiveRepairTicketPartsStmt, err = db.PrepareContext(ctx, deleteActiveRepairTicketParts); err != nil {
 		return nil, fmt.Errorf("error preparing query DeleteActiveRepairTicketParts: %w", err)
@@ -744,6 +756,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.ensureMiningGroupStateStmt, err = db.PrepareContext(ctx, ensureMiningGroupState); err != nil {
 		return nil, fmt.Errorf("error preparing query EnsureMiningGroupState: %w", err)
 	}
+	if q.ensurePoolConfigurationDefaultStmt, err = db.PrepareContext(ctx, ensurePoolConfigurationDefault); err != nil {
+		return nil, fmt.Errorf("error preparing query EnsurePoolConfigurationDefault: %w", err)
+	}
 	if q.excludeFirmwareRolloutDevicesStmt, err = db.PrepareContext(ctx, excludeFirmwareRolloutDevices); err != nil {
 		return nil, fmt.Errorf("error preparing query ExcludeFirmwareRolloutDevices: %w", err)
 	}
@@ -788,6 +803,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.finishPoolGroupAttemptStmt, err = db.PrepareContext(ctx, finishPoolGroupAttempt); err != nil {
 		return nil, fmt.Errorf("error preparing query FinishPoolGroupAttempt: %w", err)
+	}
+	if q.finishPoolLifecycleTransitionStmt, err = db.PrepareContext(ctx, finishPoolLifecycleTransition); err != nil {
+		return nil, fmt.Errorf("error preparing query FinishPoolLifecycleTransition: %w", err)
 	}
 	if q.finishPoolRemovalStmt, err = db.PrepareContext(ctx, finishPoolRemoval); err != nil {
 		return nil, fmt.Errorf("error preparing query FinishPoolRemoval: %w", err)
@@ -998,6 +1016,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.getCurtailmentTargetRollupByEventStmt, err = db.PrepareContext(ctx, getCurtailmentTargetRollupByEvent); err != nil {
 		return nil, fmt.Errorf("error preparing query GetCurtailmentTargetRollupByEvent: %w", err)
+	}
+	if q.getDefaultPoolConfigurationStmt, err = db.PrepareContext(ctx, getDefaultPoolConfiguration); err != nil {
+		return nil, fmt.Errorf("error preparing query GetDefaultPoolConfiguration: %w", err)
 	}
 	if q.getDeletionUnpairPermitStmt, err = db.PrepareContext(ctx, getDeletionUnpairPermit); err != nil {
 		return nil, fmt.Errorf("error preparing query GetDeletionUnpairPermit: %w", err)
@@ -1473,6 +1494,12 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.getPoolGroupSnapshotStmt, err = db.PrepareContext(ctx, getPoolGroupSnapshot); err != nil {
 		return nil, fmt.Errorf("error preparing query GetPoolGroupSnapshot: %w", err)
 	}
+	if q.getPoolLifecycleAllocationStmt, err = db.PrepareContext(ctx, getPoolLifecycleAllocation); err != nil {
+		return nil, fmt.Errorf("error preparing query GetPoolLifecycleAllocation: %w", err)
+	}
+	if q.getPoolLifecycleTransitionStmt, err = db.PrepareContext(ctx, getPoolLifecycleTransition); err != nil {
+		return nil, fmt.Errorf("error preparing query GetPoolLifecycleTransition: %w", err)
+	}
 	if q.getPoolRemovalStmt, err = db.PrepareContext(ctx, getPoolRemoval); err != nil {
 		return nil, fmt.Errorf("error preparing query GetPoolRemoval: %w", err)
 	}
@@ -1802,6 +1829,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.linkPoolGroupSnapshotStmt, err = db.PrepareContext(ctx, linkPoolGroupSnapshot); err != nil {
 		return nil, fmt.Errorf("error preparing query LinkPoolGroupSnapshot: %w", err)
+	}
+	if q.linkPoolLifecycleOperationStmt, err = db.PrepareContext(ctx, linkPoolLifecycleOperation); err != nil {
+		return nil, fmt.Errorf("error preparing query LinkPoolLifecycleOperation: %w", err)
 	}
 	if q.listAccountRepairTicketCommentsStmt, err = db.PrepareContext(ctx, listAccountRepairTicketComments); err != nil {
 		return nil, fmt.Errorf("error preparing query ListAccountRepairTicketComments: %w", err)
@@ -2184,6 +2214,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.listPendingPoolConfigurationWorkStmt, err = db.PrepareContext(ctx, listPendingPoolConfigurationWork); err != nil {
 		return nil, fmt.Errorf("error preparing query ListPendingPoolConfigurationWork: %w", err)
 	}
+	if q.listPendingPoolLifecycleTransitionsStmt, err = db.PrepareContext(ctx, listPendingPoolLifecycleTransitions); err != nil {
+		return nil, fmt.Errorf("error preparing query ListPendingPoolLifecycleTransitions: %w", err)
+	}
 	if q.listPermissionsStmt, err = db.PrepareContext(ctx, listPermissions); err != nil {
 		return nil, fmt.Errorf("error preparing query ListPermissions: %w", err)
 	}
@@ -2432,6 +2465,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.listUsersForOrganizationStmt, err = db.PrepareContext(ctx, listUsersForOrganization); err != nil {
 		return nil, fmt.Errorf("error preparing query ListUsersForOrganization: %w", err)
+	}
+	if q.listVisiblePoolLifecycleTransitionsStmt, err = db.PrepareContext(ctx, listVisiblePoolLifecycleTransitions); err != nil {
+		return nil, fmt.Errorf("error preparing query ListVisiblePoolLifecycleTransitions: %w", err)
 	}
 	if q.lockActiveHostedAccountUserStmt, err = db.PrepareContext(ctx, lockActiveHostedAccountUser); err != nil {
 		return nil, fmt.Errorf("error preparing query LockActiveHostedAccountUser: %w", err)
@@ -2790,11 +2826,20 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.pauseFirmwareRolloutStmt, err = db.PrepareContext(ctx, pauseFirmwareRollout); err != nil {
 		return nil, fmt.Errorf("error preparing query PauseFirmwareRollout: %w", err)
 	}
+	if q.poolConfigurationHasPendingLifecycleStmt, err = db.PrepareContext(ctx, poolConfigurationHasPendingLifecycle); err != nil {
+		return nil, fmt.Errorf("error preparing query PoolConfigurationHasPendingLifecycle: %w", err)
+	}
 	if q.poolConfigurationWritersFrozenStmt, err = db.PrepareContext(ctx, poolConfigurationWritersFrozen); err != nil {
 		return nil, fmt.Errorf("error preparing query PoolConfigurationWritersFrozen: %w", err)
 	}
+	if q.poolLifecycleHasNewerAssignmentStmt, err = db.PrepareContext(ctx, poolLifecycleHasNewerAssignment); err != nil {
+		return nil, fmt.Errorf("error preparing query PoolLifecycleHasNewerAssignment: %w", err)
+	}
 	if q.prepareFleetNodeHAKeyInstallStmt, err = db.PrepareContext(ctx, prepareFleetNodeHAKeyInstall); err != nil {
 		return nil, fmt.Errorf("error preparing query PrepareFleetNodeHAKeyInstall: %w", err)
+	}
+	if q.preparePoolLifecycleTransitionStmt, err = db.PrepareContext(ctx, preparePoolLifecycleTransition); err != nil {
+		return nil, fmt.Errorf("error preparing query PreparePoolLifecycleTransition: %w", err)
 	}
 	if q.prepareTelemetrySeedStmt, err = db.PrepareContext(ctx, prepareTelemetrySeed); err != nil {
 		return nil, fmt.Errorf("error preparing query PrepareTelemetrySeed: %w", err)
@@ -2873,6 +2918,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.reconcileHostedHashboardReplacementsStmt, err = db.PrepareContext(ctx, reconcileHostedHashboardReplacements); err != nil {
 		return nil, fmt.Errorf("error preparing query ReconcileHostedHashboardReplacements: %w", err)
+	}
+	if q.reconcilePoolLifecycleOperationsStmt, err = db.PrepareContext(ctx, reconcilePoolLifecycleOperations); err != nil {
+		return nil, fmt.Errorf("error preparing query ReconcilePoolLifecycleOperations: %w", err)
 	}
 	if q.reconcileRebootRequiredStatusStmt, err = db.PrepareContext(ctx, reconcileRebootRequiredStatus); err != nil {
 		return nil, fmt.Errorf("error preparing query ReconcileRebootRequiredStatus: %w", err)
@@ -3066,6 +3114,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.retryRigConfigReconciliationStmt, err = db.PrepareContext(ctx, retryRigConfigReconciliation); err != nil {
 		return nil, fmt.Errorf("error preparing query RetryRigConfigReconciliation: %w", err)
 	}
+	if q.retryUndispatchedPoolLifecycleRemovalStmt, err = db.PrepareContext(ctx, retryUndispatchedPoolLifecycleRemoval); err != nil {
+		return nil, fmt.Errorf("error preparing query RetryUndispatchedPoolLifecycleRemoval: %w", err)
+	}
 	if q.revertScheduleToActiveStmt, err = db.PrepareContext(ctx, revertScheduleToActive); err != nil {
 		return nil, fmt.Errorf("error preparing query RevertScheduleToActive: %w", err)
 	}
@@ -3186,6 +3237,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.setPoolConfigurationCurrentRevisionStmt, err = db.PrepareContext(ctx, setPoolConfigurationCurrentRevision); err != nil {
 		return nil, fmt.Errorf("error preparing query SetPoolConfigurationCurrentRevision: %w", err)
 	}
+	if q.setPoolConfigurationDefaultStmt, err = db.PrepareContext(ctx, setPoolConfigurationDefault); err != nil {
+		return nil, fmt.Errorf("error preparing query SetPoolConfigurationDefault: %w", err)
+	}
 	if q.setRackBuildingPositionStmt, err = db.PrepareContext(ctx, setRackBuildingPosition); err != nil {
 		return nil, fmt.Errorf("error preparing query SetRackBuildingPosition: %w", err)
 	}
@@ -3296,6 +3350,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.stampHashboardTopologyStmt, err = db.PrepareContext(ctx, stampHashboardTopology); err != nil {
 		return nil, fmt.Errorf("error preparing query StampHashboardTopology: %w", err)
+	}
+	if q.supersedeContainerPoolLifecycleTransitionsStmt, err = db.PrepareContext(ctx, supersedeContainerPoolLifecycleTransitions); err != nil {
+		return nil, fmt.Errorf("error preparing query SupersedeContainerPoolLifecycleTransitions: %w", err)
 	}
 	if q.supersedePoolConfigurationTargetStmt, err = db.PrepareContext(ctx, supersedePoolConfigurationTarget); err != nil {
 		return nil, fmt.Errorf("error preparing query SupersedePoolConfigurationTarget: %w", err)
@@ -4084,6 +4141,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing clearFleetNodeRevokedStatusStmt: %w", cerr)
 		}
 	}
+	if q.clearPoolConfigurationDefaultStmt != nil {
+		if cerr := q.clearPoolConfigurationDefaultStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing clearPoolConfigurationDefaultStmt: %w", cerr)
+		}
+	}
 	if q.clearRackPlacementForSoftDeleteStmt != nil {
 		if cerr := q.clearRackPlacementForSoftDeleteStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing clearRackPlacementForSoftDeleteStmt: %w", cerr)
@@ -4374,6 +4436,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing createApiKeyStmt: %w", cerr)
 		}
 	}
+	if q.createAutomaticPoolConfigurationOperationStmt != nil {
+		if cerr := q.createAutomaticPoolConfigurationOperationStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing createAutomaticPoolConfigurationOperationStmt: %w", cerr)
+		}
+	}
 	if q.createBuildingStmt != nil {
 		if cerr := q.createBuildingStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing createBuildingStmt: %w", cerr)
@@ -4519,6 +4586,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing createPoolGroupSnapshotStmt: %w", cerr)
 		}
 	}
+	if q.createPoolLifecycleBoardTransitionStmt != nil {
+		if cerr := q.createPoolLifecycleBoardTransitionStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing createPoolLifecycleBoardTransitionStmt: %w", cerr)
+		}
+	}
 	if q.createQueueMessageStmt != nil {
 		if cerr := q.createQueueMessageStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing createQueueMessageStmt: %w", cerr)
@@ -4587,6 +4659,11 @@ func (q *Queries) Close() error {
 	if q.curtailmentEventHasInFlightTargetsStmt != nil {
 		if cerr := q.curtailmentEventHasInFlightTargetsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing curtailmentEventHasInFlightTargetsStmt: %w", cerr)
+		}
+	}
+	if q.deferPoolLifecycleTransitionStmt != nil {
+		if cerr := q.deferPoolLifecycleTransitionStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing deferPoolLifecycleTransitionStmt: %w", cerr)
 		}
 	}
 	if q.deleteActiveRepairTicketPartsStmt != nil {
@@ -4829,6 +4906,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing ensureMiningGroupStateStmt: %w", cerr)
 		}
 	}
+	if q.ensurePoolConfigurationDefaultStmt != nil {
+		if cerr := q.ensurePoolConfigurationDefaultStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing ensurePoolConfigurationDefaultStmt: %w", cerr)
+		}
+	}
 	if q.excludeFirmwareRolloutDevicesStmt != nil {
 		if cerr := q.excludeFirmwareRolloutDevicesStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing excludeFirmwareRolloutDevicesStmt: %w", cerr)
@@ -4902,6 +4984,11 @@ func (q *Queries) Close() error {
 	if q.finishPoolGroupAttemptStmt != nil {
 		if cerr := q.finishPoolGroupAttemptStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing finishPoolGroupAttemptStmt: %w", cerr)
+		}
+	}
+	if q.finishPoolLifecycleTransitionStmt != nil {
+		if cerr := q.finishPoolLifecycleTransitionStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing finishPoolLifecycleTransitionStmt: %w", cerr)
 		}
 	}
 	if q.finishPoolRemovalStmt != nil {
@@ -5252,6 +5339,11 @@ func (q *Queries) Close() error {
 	if q.getCurtailmentTargetRollupByEventStmt != nil {
 		if cerr := q.getCurtailmentTargetRollupByEventStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getCurtailmentTargetRollupByEventStmt: %w", cerr)
+		}
+	}
+	if q.getDefaultPoolConfigurationStmt != nil {
+		if cerr := q.getDefaultPoolConfigurationStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getDefaultPoolConfigurationStmt: %w", cerr)
 		}
 	}
 	if q.getDeletionUnpairPermitStmt != nil {
@@ -6044,6 +6136,16 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing getPoolGroupSnapshotStmt: %w", cerr)
 		}
 	}
+	if q.getPoolLifecycleAllocationStmt != nil {
+		if cerr := q.getPoolLifecycleAllocationStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getPoolLifecycleAllocationStmt: %w", cerr)
+		}
+	}
+	if q.getPoolLifecycleTransitionStmt != nil {
+		if cerr := q.getPoolLifecycleTransitionStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getPoolLifecycleTransitionStmt: %w", cerr)
+		}
+	}
 	if q.getPoolRemovalStmt != nil {
 		if cerr := q.getPoolRemovalStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getPoolRemovalStmt: %w", cerr)
@@ -6592,6 +6694,11 @@ func (q *Queries) Close() error {
 	if q.linkPoolGroupSnapshotStmt != nil {
 		if cerr := q.linkPoolGroupSnapshotStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing linkPoolGroupSnapshotStmt: %w", cerr)
+		}
+	}
+	if q.linkPoolLifecycleOperationStmt != nil {
+		if cerr := q.linkPoolLifecycleOperationStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing linkPoolLifecycleOperationStmt: %w", cerr)
 		}
 	}
 	if q.listAccountRepairTicketCommentsStmt != nil {
@@ -7229,6 +7336,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing listPendingPoolConfigurationWorkStmt: %w", cerr)
 		}
 	}
+	if q.listPendingPoolLifecycleTransitionsStmt != nil {
+		if cerr := q.listPendingPoolLifecycleTransitionsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listPendingPoolLifecycleTransitionsStmt: %w", cerr)
+		}
+	}
 	if q.listPermissionsStmt != nil {
 		if cerr := q.listPermissionsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing listPermissionsStmt: %w", cerr)
@@ -7642,6 +7754,11 @@ func (q *Queries) Close() error {
 	if q.listUsersForOrganizationStmt != nil {
 		if cerr := q.listUsersForOrganizationStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing listUsersForOrganizationStmt: %w", cerr)
+		}
+	}
+	if q.listVisiblePoolLifecycleTransitionsStmt != nil {
+		if cerr := q.listVisiblePoolLifecycleTransitionsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listVisiblePoolLifecycleTransitionsStmt: %w", cerr)
 		}
 	}
 	if q.lockActiveHostedAccountUserStmt != nil {
@@ -8239,14 +8356,29 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing pauseFirmwareRolloutStmt: %w", cerr)
 		}
 	}
+	if q.poolConfigurationHasPendingLifecycleStmt != nil {
+		if cerr := q.poolConfigurationHasPendingLifecycleStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing poolConfigurationHasPendingLifecycleStmt: %w", cerr)
+		}
+	}
 	if q.poolConfigurationWritersFrozenStmt != nil {
 		if cerr := q.poolConfigurationWritersFrozenStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing poolConfigurationWritersFrozenStmt: %w", cerr)
 		}
 	}
+	if q.poolLifecycleHasNewerAssignmentStmt != nil {
+		if cerr := q.poolLifecycleHasNewerAssignmentStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing poolLifecycleHasNewerAssignmentStmt: %w", cerr)
+		}
+	}
 	if q.prepareFleetNodeHAKeyInstallStmt != nil {
 		if cerr := q.prepareFleetNodeHAKeyInstallStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing prepareFleetNodeHAKeyInstallStmt: %w", cerr)
+		}
+	}
+	if q.preparePoolLifecycleTransitionStmt != nil {
+		if cerr := q.preparePoolLifecycleTransitionStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing preparePoolLifecycleTransitionStmt: %w", cerr)
 		}
 	}
 	if q.prepareTelemetrySeedStmt != nil {
@@ -8377,6 +8509,11 @@ func (q *Queries) Close() error {
 	if q.reconcileHostedHashboardReplacementsStmt != nil {
 		if cerr := q.reconcileHostedHashboardReplacementsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing reconcileHostedHashboardReplacementsStmt: %w", cerr)
+		}
+	}
+	if q.reconcilePoolLifecycleOperationsStmt != nil {
+		if cerr := q.reconcilePoolLifecycleOperationsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing reconcilePoolLifecycleOperationsStmt: %w", cerr)
 		}
 	}
 	if q.reconcileRebootRequiredStatusStmt != nil {
@@ -8699,6 +8836,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing retryRigConfigReconciliationStmt: %w", cerr)
 		}
 	}
+	if q.retryUndispatchedPoolLifecycleRemovalStmt != nil {
+		if cerr := q.retryUndispatchedPoolLifecycleRemovalStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing retryUndispatchedPoolLifecycleRemovalStmt: %w", cerr)
+		}
+	}
 	if q.revertScheduleToActiveStmt != nil {
 		if cerr := q.revertScheduleToActiveStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing revertScheduleToActiveStmt: %w", cerr)
@@ -8899,6 +9041,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing setPoolConfigurationCurrentRevisionStmt: %w", cerr)
 		}
 	}
+	if q.setPoolConfigurationDefaultStmt != nil {
+		if cerr := q.setPoolConfigurationDefaultStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing setPoolConfigurationDefaultStmt: %w", cerr)
+		}
+	}
 	if q.setRackBuildingPositionStmt != nil {
 		if cerr := q.setRackBuildingPositionStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing setRackBuildingPositionStmt: %w", cerr)
@@ -9082,6 +9229,11 @@ func (q *Queries) Close() error {
 	if q.stampHashboardTopologyStmt != nil {
 		if cerr := q.stampHashboardTopologyStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing stampHashboardTopologyStmt: %w", cerr)
+		}
+	}
+	if q.supersedeContainerPoolLifecycleTransitionsStmt != nil {
+		if cerr := q.supersedeContainerPoolLifecycleTransitionsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing supersedeContainerPoolLifecycleTransitionsStmt: %w", cerr)
 		}
 	}
 	if q.supersedePoolConfigurationTargetStmt != nil {
@@ -9759,6 +9911,7 @@ type Queries struct {
 	clearDeviceBuildingsOnSiteMismatchStmt                      *sql.Stmt
 	clearDeviceSitesAndBuildingsStmt                            *sql.Stmt
 	clearFleetNodeRevokedStatusStmt                             *sql.Stmt
+	clearPoolConfigurationDefaultStmt                           *sql.Stmt
 	clearRackPlacementForSoftDeleteStmt                         *sql.Stmt
 	clearRackSlotPositionStmt                                   *sql.Stmt
 	clearReleaseChannelFirmwareStmt                             *sql.Stmt
@@ -9817,6 +9970,7 @@ type Queries struct {
 	countResponseProfilesByInfrastructureDevicesStmt            *sql.Stmt
 	countUnexpiredAlertMaintenanceWindowsStmt                   *sql.Stmt
 	createApiKeyStmt                                            *sql.Stmt
+	createAutomaticPoolConfigurationOperationStmt               *sql.Stmt
 	createBuildingStmt                                          *sql.Stmt
 	createCommandBatchLogStmt                                   *sql.Stmt
 	createCustomRoleStmt                                        *sql.Stmt
@@ -9846,6 +10000,7 @@ type Queries struct {
 	createPoolConfigurationReviewStmt                           *sql.Stmt
 	createPoolConfigurationRevisionStmt                         *sql.Stmt
 	createPoolGroupSnapshotStmt                                 *sql.Stmt
+	createPoolLifecycleBoardTransitionStmt                      *sql.Stmt
 	createQueueMessageStmt                                      *sql.Stmt
 	createQueueMessagesStmt                                     *sql.Stmt
 	createRackExtensionStmt                                     *sql.Stmt
@@ -9860,6 +10015,7 @@ type Queries struct {
 	createUserStmt                                              *sql.Stmt
 	createUserOrganizationStmt                                  *sql.Stmt
 	curtailmentEventHasInFlightTargetsStmt                      *sql.Stmt
+	deferPoolLifecycleTransitionStmt                            *sql.Stmt
 	deleteActiveRepairTicketPartsStmt                           *sql.Stmt
 	deleteAlertMaintenanceWindowStmt                            *sql.Stmt
 	deleteAlertRouteChannelsStmt                                *sql.Stmt
@@ -9908,6 +10064,7 @@ type Queries struct {
 	ensureDeviceWriteFencesStmt                                 *sql.Stmt
 	ensureHashboardsStmt                                        *sql.Stmt
 	ensureMiningGroupStateStmt                                  *sql.Stmt
+	ensurePoolConfigurationDefaultStmt                          *sql.Stmt
 	excludeFirmwareRolloutDevicesStmt                           *sql.Stmt
 	failCurtailmentPendingDeadlineTargetsStmt                   *sql.Stmt
 	findDeviceBuildingConflictsStmt                             *sql.Stmt
@@ -9923,6 +10080,7 @@ type Queries struct {
 	finishFirmwareRolloutStmt                                   *sql.Stmt
 	finishPoolConfigurationTargetStmt                           *sql.Stmt
 	finishPoolGroupAttemptStmt                                  *sql.Stmt
+	finishPoolLifecycleTransitionStmt                           *sql.Stmt
 	finishPoolRemovalStmt                                       *sql.Stmt
 	finishTerminalCommandBatchesStmt                            *sql.Stmt
 	fleetNodeInHAPairStmt                                       *sql.Stmt
@@ -9993,6 +10151,7 @@ type Queries struct {
 	getCurtailmentScheduleExecutionGrantStmt                    *sql.Stmt
 	getCurtailmentScheduleWindowEventStateStmt                  *sql.Stmt
 	getCurtailmentTargetRollupByEventStmt                       *sql.Stmt
+	getDefaultPoolConfigurationStmt                             *sql.Stmt
 	getDeletionUnpairPermitStmt                                 *sql.Stmt
 	getDeviceByDeviceIdentifierStmt                             *sql.Stmt
 	getDeviceByIDStmt                                           *sql.Stmt
@@ -10151,6 +10310,8 @@ type Queries struct {
 	getPoolEquipmentDeviceStmt                                  *sql.Stmt
 	getPoolEquipmentMinerOwnerStmt                              *sql.Stmt
 	getPoolGroupSnapshotStmt                                    *sql.Stmt
+	getPoolLifecycleAllocationStmt                              *sql.Stmt
+	getPoolLifecycleTransitionStmt                              *sql.Stmt
 	getPoolRemovalStmt                                          *sql.Stmt
 	getProtoMinerProxyTargetStmt                                *sql.Stmt
 	getQueueMessagesByBatchStmt                                 *sql.Stmt
@@ -10261,6 +10422,7 @@ type Queries struct {
 	legacyPoolWritersDisabledStmt                               *sql.Stmt
 	linkPoolConfigurationAttemptStmt                            *sql.Stmt
 	linkPoolGroupSnapshotStmt                                   *sql.Stmt
+	linkPoolLifecycleOperationStmt                              *sql.Stmt
 	listAccountRepairTicketCommentsStmt                         *sql.Stmt
 	listAccountRepairTicketTargetsStmt                          *sql.Stmt
 	listAccountRepairTicketsStmt                                *sql.Stmt
@@ -10388,6 +10550,7 @@ type Queries struct {
 	listOrganizationsStmt                                       *sql.Stmt
 	listPartsBySiteStmt                                         *sql.Stmt
 	listPendingPoolConfigurationWorkStmt                        *sql.Stmt
+	listPendingPoolLifecycleTransitionsStmt                     *sql.Stmt
 	listPermissionsStmt                                         *sql.Stmt
 	listPoolAffectedBoardsStmt                                  *sql.Stmt
 	listPoolAssignmentPhysicalBindingsStmt                      *sql.Stmt
@@ -10471,6 +10634,7 @@ type Queries struct {
 	listUnresolvedDeviceWriteAttemptsStmt                       *sql.Stmt
 	listUnsettledPoolAdoptionWorkStmt                           *sql.Stmt
 	listUsersForOrganizationStmt                                *sql.Stmt
+	listVisiblePoolLifecycleTransitionsStmt                     *sql.Stmt
 	lockActiveHostedAccountUserStmt                             *sql.Stmt
 	lockActiveHostedAccountUserForShareStmt                     *sql.Stmt
 	lockActiveSuperAdminUsersStmt                               *sql.Stmt
@@ -10590,8 +10754,11 @@ type Queries struct {
 	passwordUpdatedAtStmt                                       *sql.Stmt
 	pauseActiveScheduleStmt                                     *sql.Stmt
 	pauseFirmwareRolloutStmt                                    *sql.Stmt
+	poolConfigurationHasPendingLifecycleStmt                    *sql.Stmt
 	poolConfigurationWritersFrozenStmt                          *sql.Stmt
+	poolLifecycleHasNewerAssignmentStmt                         *sql.Stmt
 	prepareFleetNodeHAKeyInstallStmt                            *sql.Stmt
+	preparePoolLifecycleTransitionStmt                          *sql.Stmt
 	prepareTelemetrySeedStmt                                    *sql.Stmt
 	preserveFirmwareRolloutRetryBaselinesStmt                   *sql.Stmt
 	pruneDetachedHashboardPoolIntentsStmt                       *sql.Stmt
@@ -10618,6 +10785,7 @@ type Queries struct {
 	reconcileContainerTanksStmt                                 *sql.Stmt
 	reconcileDefaultPasswordPairingStatusByIdentifierStmt       *sql.Stmt
 	reconcileHostedHashboardReplacementsStmt                    *sql.Stmt
+	reconcilePoolLifecycleOperationsStmt                        *sql.Stmt
 	reconcileRebootRequiredStatusStmt                           *sql.Stmt
 	recordCurtailPendingDispatchStmt                            *sql.Stmt
 	recordDeviceWriteRecoveryStmt                               *sql.Stmt
@@ -10682,6 +10850,7 @@ type Queries struct {
 	retryCurtailmentAutomationExecutionStmt                     *sql.Stmt
 	retryPoolConfigurationTargetStmt                            *sql.Stmt
 	retryRigConfigReconciliationStmt                            *sql.Stmt
+	retryUndispatchedPoolLifecycleRemovalStmt                   *sql.Stmt
 	revertScheduleToActiveStmt                                  *sql.Stmt
 	revokeAllSessionsByUserIDStmt                               *sql.Stmt
 	revokeApiKeyStmt                                            *sql.Stmt
@@ -10722,6 +10891,7 @@ type Queries struct {
 	setMQTTSourceConfigEnabledStmt                              *sql.Stmt
 	setPoolConfigurationAssignmentStmt                          *sql.Stmt
 	setPoolConfigurationCurrentRevisionStmt                     *sql.Stmt
+	setPoolConfigurationDefaultStmt                             *sql.Stmt
 	setRackBuildingPositionStmt                                 *sql.Stmt
 	setRackBuildingPositionBulkClearStmt                        *sql.Stmt
 	setRackBuildingPositionBulkPlaceStmt                        *sql.Stmt
@@ -10759,6 +10929,7 @@ type Queries struct {
 	softDeleteUserFromOrganizationStmt                          *sql.Stmt
 	stampContainerSampleStmt                                    *sql.Stmt
 	stampHashboardTopologyStmt                                  *sql.Stmt
+	supersedeContainerPoolLifecycleTransitionsStmt              *sql.Stmt
 	supersedePoolConfigurationTargetStmt                        *sql.Stmt
 	swapFleetNodeHAPairStmt                                     *sql.Stmt
 	sweepAlertRuleConfigsStmt                                   *sql.Stmt
@@ -10965,6 +11136,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		clearDeviceBuildingsOnSiteMismatchStmt:                      q.clearDeviceBuildingsOnSiteMismatchStmt,
 		clearDeviceSitesAndBuildingsStmt:                            q.clearDeviceSitesAndBuildingsStmt,
 		clearFleetNodeRevokedStatusStmt:                             q.clearFleetNodeRevokedStatusStmt,
+		clearPoolConfigurationDefaultStmt:                           q.clearPoolConfigurationDefaultStmt,
 		clearRackPlacementForSoftDeleteStmt:                         q.clearRackPlacementForSoftDeleteStmt,
 		clearRackSlotPositionStmt:                                   q.clearRackSlotPositionStmt,
 		clearReleaseChannelFirmwareStmt:                             q.clearReleaseChannelFirmwareStmt,
@@ -11023,6 +11195,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		countResponseProfilesByInfrastructureDevicesStmt:            q.countResponseProfilesByInfrastructureDevicesStmt,
 		countUnexpiredAlertMaintenanceWindowsStmt:                   q.countUnexpiredAlertMaintenanceWindowsStmt,
 		createApiKeyStmt:                                            q.createApiKeyStmt,
+		createAutomaticPoolConfigurationOperationStmt:               q.createAutomaticPoolConfigurationOperationStmt,
 		createBuildingStmt:                                          q.createBuildingStmt,
 		createCommandBatchLogStmt:                                   q.createCommandBatchLogStmt,
 		createCustomRoleStmt:                                        q.createCustomRoleStmt,
@@ -11052,6 +11225,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		createPoolConfigurationReviewStmt:                           q.createPoolConfigurationReviewStmt,
 		createPoolConfigurationRevisionStmt:                         q.createPoolConfigurationRevisionStmt,
 		createPoolGroupSnapshotStmt:                                 q.createPoolGroupSnapshotStmt,
+		createPoolLifecycleBoardTransitionStmt:                      q.createPoolLifecycleBoardTransitionStmt,
 		createQueueMessageStmt:                                      q.createQueueMessageStmt,
 		createQueueMessagesStmt:                                     q.createQueueMessagesStmt,
 		createRackExtensionStmt:                                     q.createRackExtensionStmt,
@@ -11066,6 +11240,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		createUserStmt:                                              q.createUserStmt,
 		createUserOrganizationStmt:                                  q.createUserOrganizationStmt,
 		curtailmentEventHasInFlightTargetsStmt:                      q.curtailmentEventHasInFlightTargetsStmt,
+		deferPoolLifecycleTransitionStmt:                            q.deferPoolLifecycleTransitionStmt,
 		deleteActiveRepairTicketPartsStmt:                           q.deleteActiveRepairTicketPartsStmt,
 		deleteAlertMaintenanceWindowStmt:                            q.deleteAlertMaintenanceWindowStmt,
 		deleteAlertRouteChannelsStmt:                                q.deleteAlertRouteChannelsStmt,
@@ -11114,6 +11289,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		ensureDeviceWriteFencesStmt:                                 q.ensureDeviceWriteFencesStmt,
 		ensureHashboardsStmt:                                        q.ensureHashboardsStmt,
 		ensureMiningGroupStateStmt:                                  q.ensureMiningGroupStateStmt,
+		ensurePoolConfigurationDefaultStmt:                          q.ensurePoolConfigurationDefaultStmt,
 		excludeFirmwareRolloutDevicesStmt:                           q.excludeFirmwareRolloutDevicesStmt,
 		failCurtailmentPendingDeadlineTargetsStmt:                   q.failCurtailmentPendingDeadlineTargetsStmt,
 		findDeviceBuildingConflictsStmt:                             q.findDeviceBuildingConflictsStmt,
@@ -11129,6 +11305,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		finishFirmwareRolloutStmt:                                   q.finishFirmwareRolloutStmt,
 		finishPoolConfigurationTargetStmt:                           q.finishPoolConfigurationTargetStmt,
 		finishPoolGroupAttemptStmt:                                  q.finishPoolGroupAttemptStmt,
+		finishPoolLifecycleTransitionStmt:                           q.finishPoolLifecycleTransitionStmt,
 		finishPoolRemovalStmt:                                       q.finishPoolRemovalStmt,
 		finishTerminalCommandBatchesStmt:                            q.finishTerminalCommandBatchesStmt,
 		fleetNodeInHAPairStmt:                                       q.fleetNodeInHAPairStmt,
@@ -11199,6 +11376,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getCurtailmentScheduleExecutionGrantStmt:                    q.getCurtailmentScheduleExecutionGrantStmt,
 		getCurtailmentScheduleWindowEventStateStmt:                  q.getCurtailmentScheduleWindowEventStateStmt,
 		getCurtailmentTargetRollupByEventStmt:                       q.getCurtailmentTargetRollupByEventStmt,
+		getDefaultPoolConfigurationStmt:                             q.getDefaultPoolConfigurationStmt,
 		getDeletionUnpairPermitStmt:                                 q.getDeletionUnpairPermitStmt,
 		getDeviceByDeviceIdentifierStmt:                             q.getDeviceByDeviceIdentifierStmt,
 		getDeviceByIDStmt:                                           q.getDeviceByIDStmt,
@@ -11357,6 +11535,8 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getPoolEquipmentDeviceStmt:                                  q.getPoolEquipmentDeviceStmt,
 		getPoolEquipmentMinerOwnerStmt:                              q.getPoolEquipmentMinerOwnerStmt,
 		getPoolGroupSnapshotStmt:                                    q.getPoolGroupSnapshotStmt,
+		getPoolLifecycleAllocationStmt:                              q.getPoolLifecycleAllocationStmt,
+		getPoolLifecycleTransitionStmt:                              q.getPoolLifecycleTransitionStmt,
 		getPoolRemovalStmt:                                          q.getPoolRemovalStmt,
 		getProtoMinerProxyTargetStmt:                                q.getProtoMinerProxyTargetStmt,
 		getQueueMessagesByBatchStmt:                                 q.getQueueMessagesByBatchStmt,
@@ -11467,6 +11647,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		legacyPoolWritersDisabledStmt:                               q.legacyPoolWritersDisabledStmt,
 		linkPoolConfigurationAttemptStmt:                            q.linkPoolConfigurationAttemptStmt,
 		linkPoolGroupSnapshotStmt:                                   q.linkPoolGroupSnapshotStmt,
+		linkPoolLifecycleOperationStmt:                              q.linkPoolLifecycleOperationStmt,
 		listAccountRepairTicketCommentsStmt:                         q.listAccountRepairTicketCommentsStmt,
 		listAccountRepairTicketTargetsStmt:                          q.listAccountRepairTicketTargetsStmt,
 		listAccountRepairTicketsStmt:                                q.listAccountRepairTicketsStmt,
@@ -11594,6 +11775,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		listOrganizationsStmt:                                       q.listOrganizationsStmt,
 		listPartsBySiteStmt:                                         q.listPartsBySiteStmt,
 		listPendingPoolConfigurationWorkStmt:                        q.listPendingPoolConfigurationWorkStmt,
+		listPendingPoolLifecycleTransitionsStmt:                     q.listPendingPoolLifecycleTransitionsStmt,
 		listPermissionsStmt:                                         q.listPermissionsStmt,
 		listPoolAffectedBoardsStmt:                                  q.listPoolAffectedBoardsStmt,
 		listPoolAssignmentPhysicalBindingsStmt:                      q.listPoolAssignmentPhysicalBindingsStmt,
@@ -11677,6 +11859,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		listUnresolvedDeviceWriteAttemptsStmt:                       q.listUnresolvedDeviceWriteAttemptsStmt,
 		listUnsettledPoolAdoptionWorkStmt:                           q.listUnsettledPoolAdoptionWorkStmt,
 		listUsersForOrganizationStmt:                                q.listUsersForOrganizationStmt,
+		listVisiblePoolLifecycleTransitionsStmt:                     q.listVisiblePoolLifecycleTransitionsStmt,
 		lockActiveHostedAccountUserStmt:                             q.lockActiveHostedAccountUserStmt,
 		lockActiveHostedAccountUserForShareStmt:                     q.lockActiveHostedAccountUserForShareStmt,
 		lockActiveSuperAdminUsersStmt:                               q.lockActiveSuperAdminUsersStmt,
@@ -11796,8 +11979,11 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		passwordUpdatedAtStmt:                                       q.passwordUpdatedAtStmt,
 		pauseActiveScheduleStmt:                                     q.pauseActiveScheduleStmt,
 		pauseFirmwareRolloutStmt:                                    q.pauseFirmwareRolloutStmt,
+		poolConfigurationHasPendingLifecycleStmt:                    q.poolConfigurationHasPendingLifecycleStmt,
 		poolConfigurationWritersFrozenStmt:                          q.poolConfigurationWritersFrozenStmt,
+		poolLifecycleHasNewerAssignmentStmt:                         q.poolLifecycleHasNewerAssignmentStmt,
 		prepareFleetNodeHAKeyInstallStmt:                            q.prepareFleetNodeHAKeyInstallStmt,
+		preparePoolLifecycleTransitionStmt:                          q.preparePoolLifecycleTransitionStmt,
 		prepareTelemetrySeedStmt:                                    q.prepareTelemetrySeedStmt,
 		preserveFirmwareRolloutRetryBaselinesStmt:                   q.preserveFirmwareRolloutRetryBaselinesStmt,
 		pruneDetachedHashboardPoolIntentsStmt:                       q.pruneDetachedHashboardPoolIntentsStmt,
@@ -11824,6 +12010,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		reconcileContainerTanksStmt:                                 q.reconcileContainerTanksStmt,
 		reconcileDefaultPasswordPairingStatusByIdentifierStmt:       q.reconcileDefaultPasswordPairingStatusByIdentifierStmt,
 		reconcileHostedHashboardReplacementsStmt:                    q.reconcileHostedHashboardReplacementsStmt,
+		reconcilePoolLifecycleOperationsStmt:                        q.reconcilePoolLifecycleOperationsStmt,
 		reconcileRebootRequiredStatusStmt:                           q.reconcileRebootRequiredStatusStmt,
 		recordCurtailPendingDispatchStmt:                            q.recordCurtailPendingDispatchStmt,
 		recordDeviceWriteRecoveryStmt:                               q.recordDeviceWriteRecoveryStmt,
@@ -11888,6 +12075,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		retryCurtailmentAutomationExecutionStmt:                     q.retryCurtailmentAutomationExecutionStmt,
 		retryPoolConfigurationTargetStmt:                            q.retryPoolConfigurationTargetStmt,
 		retryRigConfigReconciliationStmt:                            q.retryRigConfigReconciliationStmt,
+		retryUndispatchedPoolLifecycleRemovalStmt:                   q.retryUndispatchedPoolLifecycleRemovalStmt,
 		revertScheduleToActiveStmt:                                  q.revertScheduleToActiveStmt,
 		revokeAllSessionsByUserIDStmt:                               q.revokeAllSessionsByUserIDStmt,
 		revokeApiKeyStmt:                                            q.revokeApiKeyStmt,
@@ -11928,6 +12116,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		setMQTTSourceConfigEnabledStmt:                              q.setMQTTSourceConfigEnabledStmt,
 		setPoolConfigurationAssignmentStmt:                          q.setPoolConfigurationAssignmentStmt,
 		setPoolConfigurationCurrentRevisionStmt:                     q.setPoolConfigurationCurrentRevisionStmt,
+		setPoolConfigurationDefaultStmt:                             q.setPoolConfigurationDefaultStmt,
 		setRackBuildingPositionStmt:                                 q.setRackBuildingPositionStmt,
 		setRackBuildingPositionBulkClearStmt:                        q.setRackBuildingPositionBulkClearStmt,
 		setRackBuildingPositionBulkPlaceStmt:                        q.setRackBuildingPositionBulkPlaceStmt,
@@ -11965,6 +12154,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		softDeleteUserFromOrganizationStmt:                          q.softDeleteUserFromOrganizationStmt,
 		stampContainerSampleStmt:                                    q.stampContainerSampleStmt,
 		stampHashboardTopologyStmt:                                  q.stampHashboardTopologyStmt,
+		supersedeContainerPoolLifecycleTransitionsStmt:              q.supersedeContainerPoolLifecycleTransitionsStmt,
 		supersedePoolConfigurationTargetStmt:                        q.supersedePoolConfigurationTargetStmt,
 		swapFleetNodeHAPairStmt:                                     q.swapFleetNodeHAPairStmt,
 		sweepAlertRuleConfigsStmt:                                   q.sweepAlertRuleConfigsStmt,

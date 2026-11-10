@@ -253,6 +253,9 @@ func (c *Checker) GetRemoval(ctx context.Context, p poolconfigurations.Principal
 }
 
 func (c *Checker) ValidateRemoval(ctx context.Context, q sqlc.Querier, p poolconfigurations.Principal, row sqlc.GetPoolRemovalRow, allowOwn bool) error {
+	if p.ActorID == 0 {
+		return c.validateLifecycleRemoval(ctx, q, p, row)
+	}
 	allowed := uuid.Nil
 	if allowOwn {
 		allowed = row.RemovalID
@@ -353,6 +356,9 @@ func (c *Checker) FinishRemoval(ctx context.Context, q sqlc.Querier, p poolconfi
 	if n != 1 {
 		return fleeterror.NewFailedPreconditionError("removal changed")
 	}
+	if p.ActorID == 0 {
+		return poolconfigurations.RecordRemovalAudit(ctx, q, p, row.RemovalID.String(), "", false)
+	}
 	if err := poolconfigurations.NewRepository(c.secrets).RetireAssignment(ctx, q, p.Scope, target, row.AssignmentVersion); err != nil {
 		return err
 	}
@@ -428,6 +434,13 @@ func (c *Checker) clearRemoval(ctx context.Context, p poolconfigurations.Princip
 		}
 	} else if err != nil {
 		return poolconfigurations.Removal{}, err
+	}
+	if err != nil && p.ActorID == 0 && !dispatched {
+		retryCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		defer cancel()
+		if retryErr := sqlc.New(c.conn).RetryUndispatchedPoolLifecycleRemoval(retryCtx, row.RemovalID); retryErr != nil {
+			return poolconfigurations.Removal{}, retryErr
+		}
 	}
 	return c.GetRemoval(ctx, p, row.RemovalID.String())
 }

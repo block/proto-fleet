@@ -14,6 +14,7 @@ service PoolConfigurationService {
   rpc GetConfiguration(GetConfigurationRequest) returns (GetConfigurationResponse);
   rpc ListConfigurations(ListConfigurationsRequest) returns (ListConfigurationsResponse);
   rpc DuplicateConfiguration(DuplicateConfigurationRequest) returns (DuplicateConfigurationResponse);
+  rpc SetDefaultConfiguration(SetDefaultConfigurationRequest) returns (SetDefaultConfigurationResponse);
   rpc ArchiveConfiguration(ArchiveConfigurationRequest) returns (ArchiveConfigurationResponse);
   rpc ReviewEdit(ReviewEditRequest) returns (ReviewEditResponse);
   rpc AuthorizeWorkerNameReviews(AuthorizeWorkerNameReviewsRequest) returns (AuthorizeWorkerNameReviewsResponse);
@@ -130,6 +131,8 @@ message Configuration {
   bool archived = 5;
   repeated Pool pools = 6;
   int64 assigned_count = 7;
+  // Applies to future pairing and ownership transitions.
+  bool is_default = 8;
 }
 
 message CreateConfigurationRequest {
@@ -385,3 +388,10 @@ message AuthorizeReviewsRequest {
  string password = 3 [(buf.validate.field).string = {min_len: 1, max_len: 1024}];
 }
 message AuthorizeReviewsResponse {}
+
+message SetDefaultConfigurationRequest {
+  string account_id = 1;
+  string configuration_id = 2 [(buf.validate.field).string.uuid = true];
+  int64 expected_version = 3 [(buf.validate.field).int64.gt = 0];
+}
+message SetDefaultConfigurationResponse {}
