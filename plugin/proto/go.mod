@@ -3,6 +3,7 @@ module github.com/block/proto-fleet/plugin/proto
 go 1.26.10
 
 require (
+	buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go v1.36.12-20260825204119-511051f7f437.2
 	github.com/block/proto-fleet/sdk/mdk v0.0.0
 	github.com/block/proto-fleet/server v0.0.0-20261007052907-473e33e96af5
 	github.com/google/uuid v1.6.0

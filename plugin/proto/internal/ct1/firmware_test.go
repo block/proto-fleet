@@ -325,10 +325,14 @@ func (f *fakeFirmwareController) GetFirmwareUpdate(_ context.Context, req *mdk.G
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.statusReads[req.ServerId] = true
-	if f.unreachable[req.ServerId] {
+	server := req.ServerId
+	if server == "" {
+		server = "self"
+	}
+	if f.unreachable[server] {
 		return nil, status.Error(codes.Unavailable, "peer controller unreachable") //nolint:wrapcheck // server must return a gRPC status
 	}
-	job := f.jobs[req.TaskId+"/"+req.ServerId]
+	job := f.jobs[req.TaskId+"/"+server]
 	if job == nil {
 		return nil, status.Error(codes.NotFound, "firmware task not found on controller") //nolint:wrapcheck // server must return a gRPC status
 	}
@@ -645,6 +649,19 @@ func TestFirmwareRecoveryFindsJobOnPreviousOwner(t *testing.T) {
 	restartPlugin(dev)
 	require.NoError(t, newHandle(dev).FirmwareUpdate(t.Context(), requestFile(t, "batch/1")))
 	require.Equal(t, 1, controller.startCount(), "the previous owner's job is resumed, not replayed")
+	controller.finish()
+	result, err := newHandle(dev).GetFirmwareUpdateStatus(t.Context())
+	require.NoError(t, err)
+	require.Equal(t, "completed", result.State)
+}
+
+func TestFirmwareRecoveryToleratesUnnamedOwner(t *testing.T) {
+	dev, controller := newFirmwareDevice(t, firmwareContainerMap(time.Now()))
+	dev.clients[0].memberID = ""
+	require.NoError(t, dev.FirmwareUpdate(t.Context(), requestFile(t, "batch/1")))
+	restartPlugin(dev)
+	require.NoError(t, newHandle(dev).FirmwareUpdate(t.Context(), requestFile(t, "batch/1")))
+	require.Equal(t, 1, controller.startCount(), "the connected controller's job is resumed")
 	controller.finish()
 	result, err := newHandle(dev).GetFirmwareUpdateStatus(t.Context())
 	require.NoError(t, err)

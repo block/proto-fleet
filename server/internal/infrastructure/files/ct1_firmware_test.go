@@ -50,6 +50,11 @@ func TestCT1FirmwareBuildsHaveDistinctImmutableArtifacts(t *testing.T) {
 			wrongBuild.HashboardBuild = map[string]string{"prod": "dev", "dev": "mfgtest", "mfgtest": "prod"}[build]
 			_, err = svc.UpdateFirmwareMetadata(t.Context(), first, wrongBuild)
 			require.Error(t, err, "the build is bound into the stored artifact")
+			prefixed := meta
+			prefixed.FirmwareVersion = "v2.0.0"
+			edited, err := svc.UpdateFirmwareMetadata(t.Context(), first, prefixed)
+			require.NoError(t, err, "edits accept the leading v that uploads accept")
+			require.Equal(t, "2.0.0", edited.Current.FirmwareVersion)
 		}
 	}
 	count, err := StagedFirmwareUploadCount()

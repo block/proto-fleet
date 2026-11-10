@@ -255,7 +255,7 @@ func (d *Device) recoverFirmwareAttempt(ctx context.Context, c *Client, planned 
 			return err
 		}
 		job := response.GetUpdate()
-		if job.GetTaskId() != planned.taskID || job.GetServerId() != owner {
+		if job.GetTaskId() != planned.taskID || owner != "" && job.GetServerId() != owner {
 			return fmt.Errorf("firmware job identity mismatch")
 		}
 		targets := []string{}

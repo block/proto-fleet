@@ -683,6 +683,7 @@ func (s *Service) UpdateFirmwareMetadata(ctx context.Context, fileID string, met
 	}
 	hashboardMatched := false
 	if metadata.IsCT1() {
+		metadata.FirmwareVersion = strings.TrimPrefix(metadata.FirmwareVersion, "v")
 		if path, pathErr := getFirmwareFilePathForCanonicalID(canonical); pathErr == nil {
 			if hashboardMatched, err = storedHashboardFirmwareMatches(ctx, path, metadata); err != nil {
 				return FirmwareMetadataUpdateResult{}, err
