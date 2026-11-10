@@ -204,10 +204,7 @@ type RolloutDevice struct {
 	DeviceIdentifier string
 	IPAddress        string
 	FirmwareVersion  string
-	// FirmwareVersionState is VersionStateKnown, VersionStateMixed or
-	// VersionStateUnknown.
-	FirmwareVersionState string
-	Phase                string
+	Phase            string
 	// 1-based batch number; 0 when not part of a snapshotted batch.
 	Batch              int32
 	Status             string
@@ -226,6 +223,9 @@ type RolloutDevice struct {
 	LastError          string
 	// SkipNote is the caller's note when the miner was SKIPPED.
 	SkipNote string
+	// FirmwareVersionState is VersionStateKnown, VersionStateMixed or
+	// VersionStateUnknown.
+	FirmwareVersionState string
 	// LastDeployedFirmwareChecksum is the miner's managed-deployment
 	// provenance; empty when none is recorded.
 	LastDeployedFirmwareChecksum string
@@ -1152,27 +1152,27 @@ func persistedDevicePhase(status string, p persistedPhase) string {
 
 func (t target) view(r sqlc.FirmwareRollout) RolloutDevice {
 	d := RolloutDevice{
-		DeviceID:             t.DeviceID,
-		DeviceIdentifier:     t.DeviceIdentifier,
-		IPAddress:            t.IpAddress,
-		FirmwareVersion:      t.FirmwareVersion,
-		FirmwareVersionState: t.FirmwareVersionState,
-		Phase:                t.phase(r),
-		Status:               t.Status,
-		Online:               t.online(),
-		Hashing:              t.hashing(),
-		HasBaseline:          t.BaselineAt.Valid,
-		BaselineHashing:      t.baselineHashing(),
-		HashRateHs:           metricFrom(t.BaselineHashRateHs, t.HashRateHs),
-		PowerW:               metricFrom(t.BaselinePowerW, t.PowerW),
-		EfficiencyJh:         metricFrom(t.BaselineEfficiencyJh, t.EfficiencyJh),
-		TempC:                metricFrom(t.BaselineTempC, t.TempC),
-		OpenErrors:           t.OpenErrors,
-		BaselineOpenErrors:   t.BaselineOpenErrors.Int32,
-		Attempts:             t.Attempts,
-		LastError:            t.LastError,
-		SkipNote:             t.SkipNote,
+		DeviceID:           t.DeviceID,
+		DeviceIdentifier:   t.DeviceIdentifier,
+		IPAddress:          t.IpAddress,
+		FirmwareVersion:    t.FirmwareVersion,
+		Phase:              t.phase(r),
+		Status:             t.Status,
+		Online:             t.online(),
+		Hashing:            t.hashing(),
+		HasBaseline:        t.BaselineAt.Valid,
+		BaselineHashing:    t.baselineHashing(),
+		HashRateHs:         metricFrom(t.BaselineHashRateHs, t.HashRateHs),
+		PowerW:             metricFrom(t.BaselinePowerW, t.PowerW),
+		EfficiencyJh:       metricFrom(t.BaselineEfficiencyJh, t.EfficiencyJh),
+		TempC:              metricFrom(t.BaselineTempC, t.TempC),
+		OpenErrors:         t.OpenErrors,
+		BaselineOpenErrors: t.BaselineOpenErrors.Int32,
+		Attempts:           t.Attempts,
+		LastError:          t.LastError,
+		SkipNote:           t.SkipNote,
 
+		FirmwareVersionState:         t.FirmwareVersionState,
 		LastDeployedFirmwareChecksum: t.LastDeployedFirmwareChecksum,
 	}
 	if t.BatchIndex.Valid {
