@@ -165,6 +165,17 @@ func (w *Worker) ProcessLifecycle(ctx context.Context, id uuid.UUID) error {
 		if _, err := q.LockPoolConfigurationImportOrganization(ctx, scope.OrganizationID); err != nil {
 			return err
 		}
+		// Pairing changes do not take the organization lock. Retain the device
+		// and pairing locks through assignment creation, so an old cycle cannot
+		// create a "newer" assignment after the next cycle captures its default.
+		if row.Reason == "pairing" {
+			if _, err := q.GetPoolEquipmentDevice(ctx, sqlc.GetPoolEquipmentDeviceParams{OrgID: scope.OrganizationID, ID: row.DeviceID}); err != nil {
+				return err
+			}
+			if _, err := q.LockMinerBindingPairing(ctx, row.DeviceID); err != nil {
+				return err
+			}
+		}
 		current, err := poolconfigurations.AuthorizeLifecycleTransition(ctx, q, scope, row.DeviceID)
 		if err != nil {
 			return err
@@ -211,6 +222,11 @@ func (w *Worker) resolveLifecycle(ctx context.Context, id uuid.UUID) (sqlc.GetPo
 		if err != nil {
 			return row, err
 		}
+		if (row.State == "pending" || row.State == "ready") && !row.CurrentPairingCycle {
+			_, err := q.FinishPoolLifecycleTransition(ctx, sqlc.FinishPoolLifecycleTransitionParams{TransitionID: id, State: "superseded", ResultCode: "pairing_cycle_ended"})
+			row.State = "superseded"
+			return row, err
+		}
 		if row.State != "pending" || row.AssetKind != 0 {
 			return row, nil
 		}
@@ -227,6 +243,18 @@ func (w *Worker) resolveLifecycle(ctx context.Context, id uuid.UUID) (sqlc.GetPo
 		device, err := q.GetPoolEquipmentDevice(ctx, sqlc.GetPoolEquipmentDeviceParams{OrgID: row.OrganizationID, ID: row.DeviceID})
 		if err != nil {
 			return row, err
+		}
+		// Expansion shares the parent's cycle. Serialize with unpair before
+		// creating children, including when the parent was loaded earlier.
+		if _, err := q.LockMinerBindingPairing(ctx, row.DeviceID); err != nil {
+			return row, err
+		}
+		row, err = q.GetPoolLifecycleTransition(ctx, id)
+		if err != nil {
+			return row, err
+		}
+		if row.State != "pending" || !row.CurrentPairingCycle {
+			return row, nil
 		}
 		if commonpb.DeviceClass(device.DeviceClass) == commonpb.DeviceClass_DEVICE_CLASS_CONTAINER {
 			owners, err := q.ListPoolEquipmentModuleOwners(ctx, sqlc.ListPoolEquipmentModuleOwnersParams{OrgID: row.OrganizationID, ID: row.DeviceID})

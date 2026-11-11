@@ -20,7 +20,11 @@ hardware. Repairing authentication does not change client/subclient allocation o
 reapply either the operator's or the client's default. This applies to miners and
 containers. A private pairing-cycle marker records the first successful pairing,
 survives authentication failures, and resets on explicit unpairing. The marker and
-the pairing pool transition commit in the same transaction.
+the pairing pool transition commit in the same transaction. Each cycle has a
+unique ID carried by its pool transitions, including expanded CT1 board work.
+Explicit unpairing retires unclaimed pairing work. Accepted work rechecks that ID
+before each new device mutation; old cycles cannot replace the next cycle's
+default. Already-dispatched writes keep their evidence and recovery protections.
 
 Migration 1074 initializes that marker for existing devices unless they are
 explicitly unpaired. Historical pairing timestamps cannot reliably distinguish

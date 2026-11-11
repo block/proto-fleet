@@ -1949,6 +1949,8 @@ type Querier interface {
 	// Queued commands have no physical attempt yet and survive the offline import.
 	ListUnsettledPoolAdoptionWork(ctx context.Context, organizationID int64) ([]ListUnsettledPoolAdoptionWorkRow, error)
 	ListUsersForOrganization(ctx context.Context, organizationID int64) ([]ListUsersForOrganizationRow, error)
+	// Retirement ends current intent even when it retains the automatic operation
+	// ID for history. Only retirements newer than the policy suppress its display.
 	ListVisiblePoolLifecycleTransitions(ctx context.Context, arg ListVisiblePoolLifecycleTransitionsParams) ([]ListVisiblePoolLifecycleTransitionsRow, error)
 	LockActiveHostedAccountUser(ctx context.Context, arg LockActiveHostedAccountUserParams) (User, error)
 	LockActiveHostedAccountUserForShare(ctx context.Context, arg LockActiveHostedAccountUserForShareParams) (User, error)

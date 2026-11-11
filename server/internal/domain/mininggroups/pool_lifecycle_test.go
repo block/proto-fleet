@@ -29,7 +29,7 @@ func TestAutomaticBoardDefaultUsesMiningGroupExecutor(t *testing.T) {
 	config, err := service.Create(ctx, "", poolconfigurations.RevisionOptions{Name: "Automatic", Slots: []poolconfigurations.SlotOptions{{URL: "stratum+tcp://automatic.example:3333", Username: "operator"}}})
 	require.NoError(t, err)
 	var id uuid.UUID
-	require.NoError(t, f.conn.QueryRowContext(ctx, `INSERT INTO pool_lifecycle_transition(organization_id,device_id,asset_kind,asset_id,reason,configuration_id,revision_id) VALUES($1,$2,7,$3,'pairing',$4,$5) RETURNING transition_id`, f.target.OrganizationID, f.target.DeviceID, boards[0], config.ID, config.RevisionID).Scan(&id))
+	require.NoError(t, f.conn.QueryRowContext(ctx, `INSERT INTO pool_lifecycle_transition(organization_id,device_id,asset_kind,asset_id,reason,pairing_cycle_id,configuration_id,revision_id) VALUES($1,$2,7,$3,'pairing',(SELECT cycle_id FROM pool_pairing_cycle WHERE device_id=$2),$4,$5) RETURNING transition_id`, f.target.OrganizationID, f.target.DeviceID, boards[0], config.ID, config.RevisionID).Scan(&id))
 	worker := poolapplications.NewWorker(f.conn, repo, reviewer, guarded, f.service.secrets).WithRemovals(checker).WithBoardApplications(f.service)
 	require.NoError(t, worker.ProcessLifecycle(ctx, id))
 	row, err := sqlc.New(f.conn).GetPoolLifecycleTransition(ctx, id)

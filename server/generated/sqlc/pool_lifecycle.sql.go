@@ -51,10 +51,11 @@ func (q *Queries) CreateAutomaticPoolConfigurationOperation(ctx context.Context,
 }
 
 const createPoolLifecycleBoardTransition = `-- name: CreatePoolLifecycleBoardTransition :exec
-INSERT INTO pool_lifecycle_transition(organization_id,device_id,asset_kind,asset_id,owner_account_id,allocation_revision,reason,configuration_id,revision_id,created_at)
+INSERT INTO pool_lifecycle_transition(organization_id,device_id,asset_kind,asset_id,owner_account_id,allocation_revision,reason,pairing_cycle_id,configuration_id,revision_id,created_at)
 SELECT p.organization_id,p.device_id,7,$1::bigint,$2::bigint,$3::bigint,'pairing',
- p.pairing_defaults->($2::bigint::text)->>'configuration_id',p.pairing_defaults->($2::bigint::text)->>'revision_id',p.created_at
-FROM pool_lifecycle_transition p WHERE p.transition_id=$4::uuid
+ p.pairing_cycle_id,p.pairing_defaults->($2::bigint::text)->>'configuration_id',p.pairing_defaults->($2::bigint::text)->>'revision_id',p.created_at
+FROM pool_lifecycle_transition p WHERE p.transition_id=$4::uuid AND p.state='pending'
+ AND EXISTS(SELECT 1 FROM pool_pairing_cycle c WHERE c.device_id=p.device_id AND c.cycle_id=p.pairing_cycle_id)
  AND NOT EXISTS(SELECT 1 FROM pool_lifecycle_transition newer WHERE newer.organization_id=p.organization_id AND newer.device_id=p.device_id
   AND newer.asset_kind=7 AND newer.asset_id=$1::bigint AND newer.reason='ownership' AND newer.created_at>=p.created_at)
 `
@@ -139,8 +140,9 @@ func (q *Queries) GetPoolLifecycleAllocation(ctx context.Context, arg GetPoolLif
 }
 
 const getPoolLifecycleTransition = `-- name: GetPoolLifecycleTransition :one
-SELECT t.transition_id, t.organization_id, t.device_id, t.asset_kind, t.asset_id, t.owner_account_id, t.allocation_revision, t.pairing_defaults, t.reason, t.configuration_id, t.revision_id, t.target_kind, t.target_id, t.reviewed_binding, t.state, t.result_code, t.operation_id, t.physical_attempt_id, t.created_at, t.updated_at, t.next_attempt_at,COALESCE(a.account_id,'')::text AS external_account_id,COALESCE(a.name,'')::text AS account_name,
- COALESCE(w.status,'')::text AS physical_attempt_status
+SELECT t.transition_id, t.organization_id, t.device_id, t.asset_kind, t.asset_id, t.owner_account_id, t.allocation_revision, t.pairing_defaults, t.reason, t.pairing_cycle_id, t.configuration_id, t.revision_id, t.target_kind, t.target_id, t.reviewed_binding, t.state, t.result_code, t.operation_id, t.physical_attempt_id, t.created_at, t.updated_at, t.next_attempt_at,COALESCE(a.account_id,'')::text AS external_account_id,COALESCE(a.name,'')::text AS account_name,
+ COALESCE(w.status,'')::text AS physical_attempt_status,
+ (t.reason<>'pairing' OR EXISTS(SELECT 1 FROM pool_pairing_cycle c WHERE c.device_id=t.device_id AND c.cycle_id=t.pairing_cycle_id))::boolean AS current_pairing_cycle
 FROM pool_lifecycle_transition t LEFT JOIN hosted_account a ON a.organization_id=t.organization_id AND a.id=t.owner_account_id
 LEFT JOIN device_write_attempt w ON w.attempt_id=t.physical_attempt_id
 WHERE t.transition_id=$1
@@ -156,6 +158,7 @@ type GetPoolLifecycleTransitionRow struct {
 	AllocationRevision    int64
 	PairingDefaults       json.RawMessage
 	Reason                string
+	PairingCycleID        uuid.NullUUID
 	ConfigurationID       sql.NullString
 	RevisionID            sql.NullString
 	TargetKind            string
@@ -171,6 +174,7 @@ type GetPoolLifecycleTransitionRow struct {
 	ExternalAccountID     string
 	AccountName           string
 	PhysicalAttemptStatus string
+	CurrentPairingCycle   bool
 }
 
 func (q *Queries) GetPoolLifecycleTransition(ctx context.Context, transitionID uuid.UUID) (GetPoolLifecycleTransitionRow, error) {
@@ -186,6 +190,7 @@ func (q *Queries) GetPoolLifecycleTransition(ctx context.Context, transitionID u
 		&i.AllocationRevision,
 		&i.PairingDefaults,
 		&i.Reason,
+		&i.PairingCycleID,
 		&i.ConfigurationID,
 		&i.RevisionID,
 		&i.TargetKind,
@@ -201,6 +206,7 @@ func (q *Queries) GetPoolLifecycleTransition(ctx context.Context, transitionID u
 		&i.ExternalAccountID,
 		&i.AccountName,
 		&i.PhysicalAttemptStatus,
+		&i.CurrentPairingCycle,
 	)
 	return i, err
 }
@@ -220,8 +226,8 @@ func (q *Queries) LinkPoolLifecycleOperation(ctx context.Context, arg LinkPoolLi
 }
 
 const listPendingPoolLifecycleTransitions = `-- name: ListPendingPoolLifecycleTransitions :many
-SELECT transition_id, organization_id, device_id, asset_kind, asset_id, owner_account_id, allocation_revision, pairing_defaults, reason, configuration_id, revision_id, target_kind, target_id, reviewed_binding, state, result_code, operation_id, physical_attempt_id, created_at, updated_at, next_attempt_at FROM (
- SELECT DISTINCT ON (l.device_id) l.transition_id, l.organization_id, l.device_id, l.asset_kind, l.asset_id, l.owner_account_id, l.allocation_revision, l.pairing_defaults, l.reason, l.configuration_id, l.revision_id, l.target_kind, l.target_id, l.reviewed_binding, l.state, l.result_code, l.operation_id, l.physical_attempt_id, l.created_at, l.updated_at, l.next_attempt_at FROM pool_lifecycle_transition l
+SELECT transition_id, organization_id, device_id, asset_kind, asset_id, owner_account_id, allocation_revision, pairing_defaults, reason, pairing_cycle_id, configuration_id, revision_id, target_kind, target_id, reviewed_binding, state, result_code, operation_id, physical_attempt_id, created_at, updated_at, next_attempt_at FROM (
+ SELECT DISTINCT ON (l.device_id) l.transition_id, l.organization_id, l.device_id, l.asset_kind, l.asset_id, l.owner_account_id, l.allocation_revision, l.pairing_defaults, l.reason, l.pairing_cycle_id, l.configuration_id, l.revision_id, l.target_kind, l.target_id, l.reviewed_binding, l.state, l.result_code, l.operation_id, l.physical_attempt_id, l.created_at, l.updated_at, l.next_attempt_at FROM pool_lifecycle_transition l
  LEFT JOIN device_write_attempt w ON w.attempt_id=l.physical_attempt_id
  WHERE (l.state IN ('pending','ready') OR (l.state IN ('applying','uncertain') AND l.configuration_id IS NULL AND l.target_kind='device' AND w.status='complete')
   OR (l.state='failed' AND l.result_code='clear_not_dispatched' AND l.reason='ownership' AND l.configuration_id IS NULL AND l.target_kind='device'
@@ -254,6 +260,7 @@ func (q *Queries) ListPendingPoolLifecycleTransitions(ctx context.Context) ([]Po
 			&i.AllocationRevision,
 			&i.PairingDefaults,
 			&i.Reason,
+			&i.PairingCycleID,
 			&i.ConfigurationID,
 			&i.RevisionID,
 			&i.TargetKind,
@@ -281,7 +288,7 @@ func (q *Queries) ListPendingPoolLifecycleTransitions(ctx context.Context) ([]Po
 }
 
 const listVisiblePoolLifecycleTransitions = `-- name: ListVisiblePoolLifecycleTransitions :many
-SELECT l.transition_id, l.organization_id, l.device_id, l.asset_kind, l.asset_id, l.owner_account_id, l.allocation_revision, l.pairing_defaults, l.reason, l.configuration_id, l.revision_id, l.target_kind, l.target_id, l.reviewed_binding, l.state, l.result_code, l.operation_id, l.physical_attempt_id, l.created_at, l.updated_at, l.next_attempt_at,COALESCE(c.name,'')::text AS configuration_name,
+SELECT l.transition_id, l.organization_id, l.device_id, l.asset_kind, l.asset_id, l.owner_account_id, l.allocation_revision, l.pairing_defaults, l.reason, l.pairing_cycle_id, l.configuration_id, l.revision_id, l.target_kind, l.target_id, l.reviewed_binding, l.state, l.result_code, l.operation_id, l.physical_attempt_id, l.created_at, l.updated_at, l.next_attempt_at,COALESCE(c.name,'')::text AS configuration_name,
  COALESCE(NULLIF(l.target_kind,''),CASE WHEN l.asset_kind=7 THEN 'hashboard_installation' ELSE 'device' END)::text AS display_kind,
  COALESCE(NULLIF(l.target_id,0),CASE WHEN l.asset_kind=7 THEN i.id ELSE l.device_id END)::bigint AS display_id
 FROM pool_lifecycle_transition l
@@ -296,7 +303,8 @@ WHERE l.organization_id=$1 AND l.owner_account_id=$2::bigint
  AND NOT EXISTS(SELECT 1 FROM pool_configuration_assignment a WHERE a.organization_id=l.organization_id
   AND a.device_id=l.device_id AND a.target_kind=COALESCE(NULLIF(l.target_kind,''),CASE WHEN l.asset_kind=7 THEN 'hashboard_installation' ELSE 'device' END)
   AND a.target_id=COALESCE(NULLIF(l.target_id,0),CASE WHEN l.asset_kind=7 THEN i.id ELSE l.device_id END)
-  AND a.operation_id IS DISTINCT FROM l.operation_id AND a.updated_at>l.created_at)
+  AND ((a.operation_id IS DISTINCT FROM l.operation_id AND a.updated_at>l.created_at)
+   OR a.retired_at>l.created_at))
 ORDER BY l.created_at DESC,l.transition_id DESC
 `
 
@@ -317,6 +325,7 @@ type ListVisiblePoolLifecycleTransitionsRow struct {
 	AllocationRevision int64
 	PairingDefaults    json.RawMessage
 	Reason             string
+	PairingCycleID     uuid.NullUUID
 	ConfigurationID    sql.NullString
 	RevisionID         sql.NullString
 	TargetKind         string
@@ -334,6 +343,8 @@ type ListVisiblePoolLifecycleTransitionsRow struct {
 	DisplayID          int64
 }
 
+// Retirement ends current intent even when it retains the automatic operation
+// ID for history. Only retirements newer than the policy suppress its display.
 func (q *Queries) ListVisiblePoolLifecycleTransitions(ctx context.Context, arg ListVisiblePoolLifecycleTransitionsParams) ([]ListVisiblePoolLifecycleTransitionsRow, error) {
 	rows, err := q.query(ctx, q.listVisiblePoolLifecycleTransitionsStmt, listVisiblePoolLifecycleTransitions,
 		arg.OrganizationID,
@@ -358,6 +369,7 @@ func (q *Queries) ListVisiblePoolLifecycleTransitions(ctx context.Context, arg L
 			&i.AllocationRevision,
 			&i.PairingDefaults,
 			&i.Reason,
+			&i.PairingCycleID,
 			&i.ConfigurationID,
 			&i.RevisionID,
 			&i.TargetKind,

@@ -15,7 +15,8 @@ SELECT * FROM (
 
 -- name: GetPoolLifecycleTransition :one
 SELECT t.*,COALESCE(a.account_id,'')::text AS external_account_id,COALESCE(a.name,'')::text AS account_name,
- COALESCE(w.status,'')::text AS physical_attempt_status
+ COALESCE(w.status,'')::text AS physical_attempt_status,
+ (t.reason<>'pairing' OR EXISTS(SELECT 1 FROM pool_pairing_cycle c WHERE c.device_id=t.device_id AND c.cycle_id=t.pairing_cycle_id))::boolean AS current_pairing_cycle
 FROM pool_lifecycle_transition t LEFT JOIN hosted_account a ON a.organization_id=t.organization_id AND a.id=t.owner_account_id
 LEFT JOIN device_write_attempt w ON w.attempt_id=t.physical_attempt_id
 WHERE t.transition_id=$1;
@@ -35,10 +36,11 @@ WHERE transition_id=$1 AND state='pending';
 UPDATE pool_lifecycle_transition SET operation_id=$2,state='applying',updated_at=clock_timestamp() WHERE transition_id=$1 AND state='ready';
 
 -- name: CreatePoolLifecycleBoardTransition :exec
-INSERT INTO pool_lifecycle_transition(organization_id,device_id,asset_kind,asset_id,owner_account_id,allocation_revision,reason,configuration_id,revision_id,created_at)
+INSERT INTO pool_lifecycle_transition(organization_id,device_id,asset_kind,asset_id,owner_account_id,allocation_revision,reason,pairing_cycle_id,configuration_id,revision_id,created_at)
 SELECT p.organization_id,p.device_id,7,sqlc.arg(asset_id)::bigint,sqlc.arg(owner_account_id)::bigint,sqlc.arg(allocation_revision)::bigint,'pairing',
- p.pairing_defaults->(sqlc.arg(owner_account_id)::bigint::text)->>'configuration_id',p.pairing_defaults->(sqlc.arg(owner_account_id)::bigint::text)->>'revision_id',p.created_at
-FROM pool_lifecycle_transition p WHERE p.transition_id=sqlc.arg(parent_id)::uuid
+ p.pairing_cycle_id,p.pairing_defaults->(sqlc.arg(owner_account_id)::bigint::text)->>'configuration_id',p.pairing_defaults->(sqlc.arg(owner_account_id)::bigint::text)->>'revision_id',p.created_at
+FROM pool_lifecycle_transition p WHERE p.transition_id=sqlc.arg(parent_id)::uuid AND p.state='pending'
+ AND EXISTS(SELECT 1 FROM pool_pairing_cycle c WHERE c.device_id=p.device_id AND c.cycle_id=p.pairing_cycle_id)
  AND NOT EXISTS(SELECT 1 FROM pool_lifecycle_transition newer WHERE newer.organization_id=p.organization_id AND newer.device_id=p.device_id
   AND newer.asset_kind=7 AND newer.asset_id=sqlc.arg(asset_id)::bigint AND newer.reason='ownership' AND newer.created_at>=p.created_at);
 
@@ -76,6 +78,8 @@ FROM pool_configuration_operation_target t WHERE l.operation_id=t.operation_id A
  AND NOT EXISTS(SELECT 1 FROM retired r WHERE r.transition_id=l.transition_id);
 
 -- name: ListVisiblePoolLifecycleTransitions :many
+-- Retirement ends current intent even when it retains the automatic operation
+-- ID for history. Only retirements newer than the policy suppress its display.
 SELECT l.*,COALESCE(c.name,'')::text AS configuration_name,
  COALESCE(NULLIF(l.target_kind,''),CASE WHEN l.asset_kind=7 THEN 'hashboard_installation' ELSE 'device' END)::text AS display_kind,
  COALESCE(NULLIF(l.target_id,0),CASE WHEN l.asset_kind=7 THEN i.id ELSE l.device_id END)::bigint AS display_id
@@ -91,7 +95,8 @@ WHERE l.organization_id=sqlc.arg(organization_id) AND l.owner_account_id=sqlc.ar
  AND NOT EXISTS(SELECT 1 FROM pool_configuration_assignment a WHERE a.organization_id=l.organization_id
   AND a.device_id=l.device_id AND a.target_kind=COALESCE(NULLIF(l.target_kind,''),CASE WHEN l.asset_kind=7 THEN 'hashboard_installation' ELSE 'device' END)
   AND a.target_id=COALESCE(NULLIF(l.target_id,0),CASE WHEN l.asset_kind=7 THEN i.id ELSE l.device_id END)
-  AND a.operation_id IS DISTINCT FROM l.operation_id AND a.updated_at>l.created_at)
+  AND ((a.operation_id IS DISTINCT FROM l.operation_id AND a.updated_at>l.created_at)
+   OR a.retired_at>l.created_at))
 ORDER BY l.created_at DESC,l.transition_id DESC;
 
 -- name: PoolConfigurationHasPendingLifecycle :one

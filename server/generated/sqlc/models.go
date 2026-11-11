@@ -2901,6 +2901,7 @@ type PoolLifecycleTransition struct {
 	AllocationRevision int64
 	PairingDefaults    json.RawMessage
 	Reason             string
+	PairingCycleID     uuid.NullUUID
 	ConfigurationID    sql.NullString
 	RevisionID         sql.NullString
 	TargetKind         string
@@ -2917,6 +2918,7 @@ type PoolLifecycleTransition struct {
 
 type PoolPairingCycle struct {
 	DeviceID int64
+	CycleID  uuid.UUID
 }
 
 type QueueMessage struct {

@@ -33,6 +33,9 @@ func AuthorizeLifecycleTransition(ctx context.Context, q sqlc.Querier, scope Sco
 	if row.OrganizationID != scope.OrganizationID || row.OwnerAccountID != scope.AccountID || row.DeviceID != deviceID || row.State == "superseded" || row.AssetKind == 0 {
 		return row, fleeterror.NewForbiddenError("pool lifecycle ownership changed")
 	}
+	if !row.CurrentPairingCycle {
+		return row, fleeterror.NewForbiddenError("pool lifecycle pairing cycle ended")
+	}
 	newer, err := q.PoolLifecycleHasNewerAssignment(ctx, id)
 	if err != nil {
 		return row, err
