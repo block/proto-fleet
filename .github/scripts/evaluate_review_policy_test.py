@@ -1,15 +1,19 @@
 #!/usr/bin/env python3
 
 import functools
+import http.server
 import io
 import json
 import os
 import re
+import socketserver
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import unittest
+import urllib.parse
 import zipfile
 from pathlib import Path
 
@@ -716,7 +720,7 @@ class ReviewPolicyTest(unittest.TestCase):
             ],
         )
 
-    def test_codex_benchmark_fetch_excludes_later_fixes(self):
+    def test_codex_benchmark_public_fetch_excludes_credentials_and_later_fixes(self):
         workflow = load_workflow("codex-security-review-benchmark.yml")
         steps = workflow["jobs"]["benchmark-review"]["steps"]
         checkout = next(
@@ -728,6 +732,7 @@ class ReviewPolicyTest(unittest.TestCase):
             if step["name"] == "Fetch and validate fixed historical range"
         )
         self.assertEqual(checkout["with"]["fetch-depth"], 1)
+        self.assertIs(checkout["with"]["persist-credentials"], False)
 
         with tempfile.TemporaryDirectory() as tmp:
             source = Path(tmp) / "source"
@@ -768,24 +773,103 @@ class ReviewPolicyTest(unittest.TestCase):
             base = commit("base branch change\n")
             git(source, "checkout", "main")
 
-            git(replay, "init")
-            git(replay, "remote", "add", "origin", source.as_uri())
-            git(replay, "fetch", "--no-tags", "--depth=1", "origin", head)
-            git(replay, "checkout", "--detach", head)
-            completed = subprocess.run(
-                ["bash", "-c", fetch["run"]],
-                cwd=replay,
-                env={
-                    **os.environ,
-                    "GITHUB_TOKEN": "",
-                    "REVIEW_BASE_SHA": base,
-                    "REVIEW_HEAD_SHA": head,
-                    "REVIEW_COMMIT_RANGE": f"{base}...{head}",
-                },
-                capture_output=True,
-                text=True,
-                check=False,
-            )
+            class PublicGitHandler(http.server.BaseHTTPRequestHandler):
+                def log_message(self, *args):
+                    pass
+
+                def do_GET(self):
+                    self.serve_git()
+
+                def do_POST(self):
+                    self.serve_git()
+
+                def serve_git(self):
+                    # A public checkout must not rely on the workflow token's scope
+                    # or authentication scheme when fetching another repository.
+                    if self.headers.get("Authorization"):
+                        self.send_response(401)
+                        self.send_header("WWW-Authenticate", 'Basic realm="public-git"')
+                        self.end_headers()
+                        return
+                    url = urllib.parse.urlsplit(self.path)
+                    result = subprocess.run(
+                        ["git", "http-backend"],
+                        input=self.rfile.read(
+                            int(self.headers.get("Content-Length", 0))
+                        ),
+                        env={
+                            **os.environ,
+                            "GIT_PROJECT_ROOT": tmp,
+                            "GIT_HTTP_EXPORT_ALL": "1",
+                            "PATH_INFO": url.path,
+                            "QUERY_STRING": url.query,
+                            "REQUEST_METHOD": self.command,
+                            "CONTENT_TYPE": self.headers.get("Content-Type", ""),
+                            "HTTP_GIT_PROTOCOL": self.headers.get("Git-Protocol", ""),
+                        },
+                        capture_output=True,
+                        check=True,
+                    )
+                    headers, body = result.stdout.split(b"\r\n\r\n", 1)
+                    parsed = [
+                        line.decode().split(": ", 1) for line in headers.split(b"\r\n")
+                    ]
+                    status = next(
+                        (
+                            int(value.split()[0])
+                            for key, value in parsed
+                            if key == "Status"
+                        ),
+                        200,
+                    )
+                    self.send_response(status)
+                    for key, value in parsed:
+                        if key != "Status":
+                            self.send_header(key, value)
+                    self.end_headers()
+                    self.wfile.write(body)
+
+            class LoopbackGitServer(http.server.ThreadingHTTPServer):
+                def server_bind(self):
+                    # Skip HTTPServer's reverse lookup of the bind address; it can block.
+                    socketserver.TCPServer.server_bind(self)
+                    self.server_name, self.server_port = self.server_address[:2]
+
+            with LoopbackGitServer(("127.0.0.1", 0), PublicGitHandler) as server:
+                thread = threading.Thread(target=server.serve_forever, daemon=True)
+                thread.start()
+                try:
+                    git(replay, "init")
+                    git(
+                        replay,
+                        "remote",
+                        "add",
+                        "origin",
+                        f"http://127.0.0.1:{server.server_port}/source/.git",
+                    )
+                    git(replay, "fetch", "--no-tags", "--depth=1", "origin", head)
+                    git(replay, "checkout", "--detach", head)
+                    fetch_body = fetch["run"].replace(
+                        "https://github.com/", f"http://127.0.0.1:{server.server_port}/"
+                    )
+                    completed = subprocess.run(
+                        ["bash", "-c", fetch_body],
+                        cwd=replay,
+                        env={
+                            **os.environ,
+                            "GITHUB_TOKEN": "benchmark-test-token",
+                            "GIT_TERMINAL_PROMPT": "0",
+                            "REVIEW_BASE_SHA": base,
+                            "REVIEW_HEAD_SHA": head,
+                            "REVIEW_COMMIT_RANGE": f"{base}...{head}",
+                        },
+                        capture_output=True,
+                        text=True,
+                        check=False,
+                    )
+                finally:
+                    server.shutdown()
+                    thread.join()
             self.assertEqual(completed.returncode, 0, completed.stderr)
             self.assertEqual(git(replay, "rev-parse", "HEAD").stdout.strip(), head)
             self.assertEqual(
