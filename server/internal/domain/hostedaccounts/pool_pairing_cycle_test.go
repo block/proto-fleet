@@ -10,6 +10,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/devicewrite"
 
 	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
+	hostedpb "github.com/block/proto-fleet/server/generated/grpc/hosted/v1"
 	"github.com/block/proto-fleet/server/generated/sqlc"
 	"github.com/block/proto-fleet/server/internal/domain/poolapplications"
 	"github.com/block/proto-fleet/server/internal/domain/poolconfigurations"
@@ -226,4 +227,86 @@ func TestPairingAssignmentAcceptanceSerializesWithUnpair(t *testing.T) {
 	require.NoError(t, err)
 	require.False(t, row.CurrentPairingCycle)
 	require.True(t, row.OperationID.Valid, "accepted history remains available for recovery")
+}
+
+func TestPairingPolicyOrderingUsesAutomaticEventTime(t *testing.T) {
+	for _, scenario := range []string{"ownership first", "pairing first", "later manual assignment", "later manual retirement"} {
+		t.Run(scenario, func(t *testing.T) {
+			f := newPoolStepUpFixture(t)
+			_, _, _, cipher, _ := poolFixture(t, f.fixture)
+			ctx := t.Context()
+			q := sqlc.New(f.db)
+			repo := poolconfigurations.NewRepository(cipher)
+			scope := poolconfigurations.Scope{OrganizationID: f.org, AccountID: f.account.ID}
+			create := func(name string) poolconfigurations.Configuration {
+				c, err := db.WithTransaction(ctx, f.db, func(q sqlc.Querier) (poolconfigurations.Configuration, error) {
+					return repo.Create(ctx, q, scope, poolconfigurations.RevisionOptions{Name: name, Slots: []poolconfigurations.SlotOptions{{URL: "stratum+tcp://pool.example", Username: name}}})
+				})
+				require.NoError(t, err)
+				return c
+			}
+			first := create("first")
+			miner := f.miningDevice(t, commonpb.DeviceClass_DEVICE_CLASS_RIG)
+			require.NoError(t, f.allocate(t, f.host, f.root, f.account.AccountID, hostedpb.AssetAssignmentIntent_ASSET_ASSIGNMENT_INTENT_ASSIGN, selected(5, miner, 0)))
+			second := create("second")
+			require.NoError(t, db.WithTransactionNoResult(ctx, f.db, func(q sqlc.Querier) error { return repo.SetDefault(ctx, q, scope, second.ID, second.Version) }))
+			for _, status := range []sqlc.PairingStatusEnum{sqlc.PairingStatusEnumUNPAIRED, sqlc.PairingStatusEnumPAIRED} {
+				_, err := q.UpsertDevicePairing(ctx, sqlc.UpsertDevicePairingParams{DeviceID: miner, PairingStatus: status})
+				require.NoError(t, err)
+			}
+			var ownership, pairing uuid.UUID
+			require.NoError(t, f.db.QueryRowContext(ctx, `SELECT transition_id FROM pool_lifecycle_transition WHERE device_id=$1 AND reason='ownership' AND state='pending'`, miner).Scan(&ownership))
+			require.NoError(t, f.db.QueryRowContext(ctx, `SELECT transition_id FROM pool_lifecycle_transition WHERE device_id=$1 AND reason='pairing' AND state='pending'`, miner).Scan(&pairing))
+			device := &poolDevice{}
+			reviewer := poolapplications.NewReviewer(f.pools, poolCapabilities{sdk.CapabilityPoolConfig: true})
+			worker := poolapplications.NewWorker(f.db, repo, reviewer, poolMinerGetter{device}, cipher)
+			target := poolconfigurations.AssignmentTarget{Kind: poolconfigurations.TargetDevice, ID: miner, DeviceID: miner}
+			apply := func(id uuid.UUID) {
+				require.NoError(t, worker.ProcessLifecycle(ctx, id))
+				row, err := q.GetPoolLifecycleTransition(ctx, id)
+				require.NoError(t, err)
+				if row.OperationID.Valid {
+					require.NoError(t, worker.Execute(ctx, f.org, row.OperationID.String, target))
+				}
+			}
+			assignment := func() sqlc.GetPoolConfigurationAssignmentRow {
+				row, err := q.GetPoolConfigurationAssignment(ctx, sqlc.GetPoolConfigurationAssignmentParams{OrganizationID: f.org, TargetKind: target.Kind, TargetID: miner})
+				require.NoError(t, err)
+				return row
+			}
+			if scenario == "pairing first" {
+				apply(pairing)
+				apply(ownership)
+			} else {
+				// Both events are queued before the older automatic assignment is created.
+				apply(ownership)
+				current := assignment()
+				switch scenario {
+				case "later manual assignment":
+					_, err := db.WithTransaction(ctx, f.db, func(q sqlc.Querier) (poolconfigurations.Operation, error) {
+						return repo.Assign(ctx, q, scope, f.host, first.ID, first.RevisionID, []poolconfigurations.AssignmentChange{{Target: target, ExpectedVersion: current.Version}})
+					})
+					require.NoError(t, err)
+				case "later manual retirement":
+					require.NoError(t, db.WithTransactionNoResult(ctx, f.db, func(q sqlc.Querier) error { return repo.RetireAssignment(ctx, q, scope, target, current.Version) }))
+				}
+				apply(pairing)
+			}
+			current := assignment()
+			if scenario == "later manual assignment" || scenario == "later manual retirement" {
+				row, err := q.GetPoolLifecycleTransition(ctx, pairing)
+				require.NoError(t, err)
+				require.Equal(t, "superseded", row.State, "a later explicit choice must still win")
+				require.Equal(t, first.ID, current.ConfigurationID)
+				require.Equal(t, scenario == "later manual retirement", current.RetiredAt.Valid)
+				require.Equal(t, 1, device.writes)
+				return
+			}
+			require.Equal(t, second.ID, current.ConfigurationID, "worker timing must not change the winning policy")
+			require.Equal(t, "second", device.pools[0].Username)
+			work, err := q.GetPoolConfigurationWork(ctx, sqlc.GetPoolConfigurationWorkParams{OrganizationID: f.org, OperationID: current.OperationID.String, TargetKind: target.Kind, TargetID: miner})
+			require.NoError(t, err)
+			require.Equal(t, "verified", work.State)
+		})
+	}
 }

@@ -2246,6 +2246,8 @@ type Querier interface {
 	PauseFirmwareRollout(ctx context.Context, arg PauseFirmwareRolloutParams) (int64, error)
 	PoolConfigurationHasPendingLifecycle(ctx context.Context, arg PoolConfigurationHasPendingLifecycleParams) (bool, error)
 	PoolConfigurationWritersFrozen(ctx context.Context, organizationID int64) (bool, error)
+	// Automatic assignments retain their policy's ordering even when processed late.
+	// Later manual assignments and retirements still supersede queued policy.
 	PoolLifecycleHasNewerAssignment(ctx context.Context, transitionID uuid.UUID) (bool, error)
 	PrepareFleetNodeHAKeyInstall(ctx context.Context, arg PrepareFleetNodeHAKeyInstallParams) ([]byte, error)
 	PreparePoolLifecycleTransition(ctx context.Context, arg PreparePoolLifecycleTransitionParams) (int64, error)

@@ -105,9 +105,14 @@ SELECT (EXISTS(SELECT 1 FROM pool_lifecycle_transition l WHERE l.organization_id
  WHERE p.organization_id=$1 AND p.asset_kind=0 AND p.state='pending' AND entry.value->>'configuration_id'=$2))::boolean AS pending;
 
 -- name: PoolLifecycleHasNewerAssignment :one
+-- Automatic assignments retain their policy's ordering even when processed late.
+-- Later manual assignments and retirements still supersede queued policy.
 SELECT EXISTS(SELECT 1 FROM pool_configuration_assignment a JOIN pool_lifecycle_transition l ON l.transition_id=$1
+ LEFT JOIN pool_configuration_operation o ON o.organization_id=a.organization_id AND o.operation_id=a.operation_id
+ LEFT JOIN pool_lifecycle_transition origin ON origin.organization_id=o.organization_id AND origin.transition_id=o.lifecycle_id
  WHERE a.organization_id=l.organization_id AND a.device_id=l.device_id
- AND a.operation_id IS DISTINCT FROM l.operation_id AND a.updated_at>l.created_at
+ AND a.operation_id IS DISTINCT FROM l.operation_id
+ AND (COALESCE(origin.created_at,a.updated_at)>l.created_at OR a.retired_at>l.created_at)
  AND ((a.target_kind='device') OR (a.target_kind='hashboard_installation' AND EXISTS(SELECT 1 FROM hashboard_installation i WHERE i.id=a.target_id AND i.hashboard_id=l.asset_id AND l.asset_kind=7))));
 
 -- name: RetryUndispatchedPoolLifecycleRemoval :exec
