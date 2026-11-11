@@ -8,6 +8,7 @@ import FileSizeValue from "@/shared/components/FileSizeValue";
 export default function CT1FirmwareUpload({ firmware, deviceId }: { firmware: CT1Firmware; deviceId: string }) {
   const state = useCT1Firmware(firmware, deviceId);
   const [open, setOpen] = useState(false);
+  const [confirmingRelease, setConfirmingRelease] = useState(false);
   const input = useRef<HTMLInputElement>(null);
   const close = () => {
     if (!state.busy) setOpen(false);
@@ -17,7 +18,26 @@ export default function CT1FirmwareUpload({ firmware, deviceId }: { firmware: CT
       <Button variant="secondary" size="compact" onClick={() => setOpen(true)}>
         {state.attempt ? "Hashboard update status" : "Upload hashboard firmware"}
       </Button>
-      {open ? (
+      {open && confirmingRelease && state.attempt ? (
+        <Dialog
+          title="Stop tracking this update?"
+          subtitle="This browser will no longer show or cancel it. An update still running on a controller that did not confirm the cancel continues."
+          subtitleSize="text-300"
+          manageFocus
+          onDismiss={() => setConfirmingRelease(false)}
+          buttons={[
+            { text: "Keep tracking", variant: "secondary", onClick: () => setConfirmingRelease(false) },
+            {
+              text: "Stop tracking",
+              variant: "primary",
+              onClick: () => {
+                state.clear();
+                setConfirmingRelease(false);
+              },
+            },
+          ]}
+        />
+      ) : open ? (
         <Dialog
           title={state.attempt ? "Hashboard update status" : "Upload hashboard firmware"}
           manageFocus
@@ -25,23 +45,35 @@ export default function CT1FirmwareUpload({ firmware, deviceId }: { firmware: CT
           buttons={[
             { text: "Close", variant: "secondary", disabled: state.busy, onClick: close },
             ...(state.attempt
-              ? [
-                  state.progress?.complete
-                    ? {
-                        text: "Done",
-                        variant: "primary" as const,
-                        onClick: () => {
-                          state.clear();
-                          setOpen(false);
-                        },
-                      }
-                    : {
-                        text: state.attempt.cancelRequested ? "Retry cancel" : "Cancel update",
-                        variant: "primary" as const,
-                        disabled: state.busy,
-                        onClick: state.cancel,
+              ? state.progress?.complete
+                ? [
+                    {
+                      text: "Done",
+                      variant: "primary" as const,
+                      onClick: () => {
+                        state.clear();
+                        setOpen(false);
                       },
-                ]
+                    },
+                  ]
+                : [
+                    ...(state.cancelUnconfirmed
+                      ? [
+                          {
+                            text: "Stop tracking",
+                            variant: "secondary" as const,
+                            disabled: state.busy,
+                            onClick: () => setConfirmingRelease(true),
+                          },
+                        ]
+                      : []),
+                    {
+                      text: state.attempt.cancelRequested ? "Retry cancel" : "Cancel update",
+                      variant: "primary" as const,
+                      disabled: state.busy,
+                      onClick: state.cancel,
+                    },
+                  ]
               : [
                   {
                     text: state.busy ? "Cancel upload" : "Upload and install",
@@ -103,9 +135,11 @@ export default function CT1FirmwareUpload({ firmware, deviceId }: { firmware: CT
                     ? "Confirming update…"
                     : state.progress?.complete
                       ? "Update finished"
-                      : state.attempt.cancelRequested
-                        ? "Cancel requested. Waiting for hashboards to stop…"
-                        : "Checking update status…"}
+                      : state.cancelUnconfirmed
+                        ? "The cancel was not confirmed by every controller."
+                        : state.attempt.cancelRequested
+                          ? "Cancel requested. Waiting for hashboards to stop…"
+                          : "Checking update status…"}
                 </p>
                 {state.progress?.errors.map((error) => (
                   <p key={error} role="alert" className="text-text-critical">

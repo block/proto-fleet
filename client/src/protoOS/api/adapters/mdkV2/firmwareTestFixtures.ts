@@ -1,6 +1,9 @@
 import type { V2GetContainerMapResponse } from "./generated/generatedApi";
 
-/** Synthetic selection metadata, not a signed deployable firmware image. */
+/**
+ * Synthetic selection metadata, not a signed deployable firmware image. Bytes outside the metadata repeat with a
+ * period (251) that divides no chunk size, so a misplaced or reordered upload chunk changes the reassembled image.
+ */
 export function firmwareTestImage(build = "prod", hardware = "f1", size = 2048): Uint8Array<ArrayBuffer> {
   const string = (value: string) => [0xa0 | value.length, ...new TextEncoder().encode(value)];
   const metadata = new Uint8Array([
@@ -16,7 +19,7 @@ export function firmwareTestImage(build = "prod", hardware = "f1", size = 2048):
     ...string("ver_patch"),
     0,
   ]);
-  const data = new Uint8Array(size);
+  const data = Uint8Array.from({ length: size }, (_, i) => i % 251);
   data[1028] = metadata.length & 255;
   data[1029] = metadata.length >>> 8;
   data.set(metadata, 1030);

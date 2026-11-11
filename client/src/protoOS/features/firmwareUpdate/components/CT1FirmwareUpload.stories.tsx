@@ -18,7 +18,7 @@ const meta: Meta<typeof CT1FirmwareUpload> = {
         errors: [],
         boards: attempt.boards.map((board) => ({ ...board, status: "succeeded", percent: 100 })),
       }),
-      cancel: async (attempt) => ({ pending: false, boards: attempt.boards }),
+      cancel: async () => ({ pending: false, finished: false, absent: [] }),
     },
   },
 };

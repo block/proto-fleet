@@ -1,11 +1,18 @@
 import { expect, type Page } from "@playwright/test";
 import { firmwareTestImage } from "../../../src/protoOS/api/adapters/mdkV2/firmwareTestFixtures";
 
+// Just over the controller's 1 MiB chunk limit, so the simulator's size and digest check covers a second chunk.
+const imageBytes = 1024 * 1024 + 4096;
+
 export class CT1FirmwarePage {
   constructor(readonly page: Page) {}
+  /** Present only while no update is tracked; a tracked update renames the entry point to its status. */
+  uploadButton() {
+    return this.page.getByRole("button", { name: "Upload hashboard firmware", exact: true });
+  }
   async open() {
     await this.page.goto("/settings/general");
-    await this.page.getByRole("button", { name: "Upload hashboard firmware", exact: true }).click();
+    await this.uploadButton().click();
   }
   dialog() {
     return this.page.getByRole("dialog");
@@ -16,7 +23,7 @@ export class CT1FirmwarePage {
       .setInputFiles({
         name: "f1-app-prod.bin",
         mimeType: "application/octet-stream",
-        buffer: Buffer.from(firmwareTestImage("prod", hardware)),
+        buffer: Buffer.from(firmwareTestImage("prod", hardware, imageBytes)),
       });
   }
   async install() {

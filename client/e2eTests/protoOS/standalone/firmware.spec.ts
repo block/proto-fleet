@@ -25,6 +25,10 @@ test("local F1 upload recovers a lost Start response and reload, reports every b
   const before = await (await request.get("/api/v2/system/info")).json();
   const dashboard = new CT1FirmwarePage(page);
   let startCount = 0;
+  let chunkWrites = 0;
+  page.on("request", (req) => {
+    if (new URL(req.url()).pathname === procedure("WriteFirmwareArtifactUploadChunk")) chunkWrites++;
+  });
   const taskIds = new Set<string>();
   await page.route(`**${procedure("StartFirmwareUpdate")}`, async (route) => {
     startCount++;
@@ -56,6 +60,8 @@ test("local F1 upload recovers a lost Start response and reload, reports every b
     await expect(dashboard.dialog().getByText("succeeded · 100%", { exact: true })).toHaveCount(18);
     await test.info().attach("firmware-completed", { body: await page.screenshot(), contentType: "image/png" });
     expect(startCount).toBe(1);
+    // Start is only reachable after the simulator accepted both chunks against the declared size and digest.
+    expect(chunkWrites).toBe(2);
     const afterInfo = await (await request.get("/api/v2/system/info")).json();
     expect(afterInfo.info.version).toBe(before.info.version);
     expect(afterInfo.info.osInfo).toEqual(before.info.osInfo);
@@ -114,4 +120,68 @@ test("local hashboard firmware can cancel an update and displays a board failure
       expect((await request.post(procedure("CancelFirmwareUpdate"), { headers, data: { taskId } })).ok()).toBe(true);
     await isolation(false);
   }
+});
+
+test("a refused Start is not tracked, and an update no controller knows stays tracked until the operator stops tracking", async ({
+  page,
+  request,
+}) => {
+  const dashboard = new CT1FirmwarePage(page);
+  const taskIds = new Set<string>();
+  let refuse = true;
+  // Neither Start reaches the simulator: the first is definitively refused, the second is lost on the way.
+  await page.route(`**${procedure("StartFirmwareUpdate")}`, async (route) => {
+    taskIds.add(fromBinary(StartFirmwareUpdateRequestSchema, route.request().postDataBuffer()!).taskId);
+    if (refuse)
+      await route.fulfill({
+        status: 400,
+        contentType: "application/json",
+        body: JSON.stringify({ code: "failed_precondition", message: "hashboard update already running" }),
+      });
+    else await route.abort("connectionfailed");
+  });
+
+  await test.step("a refused Start keeps the selection and saves nothing", async () => {
+    await dashboard.open();
+    await dashboard.install();
+    await expect(dashboard.dialog().getByRole("alert")).toHaveText("hashboard update already running");
+    await expect(dashboard.dialog().getByRole("button", { name: "Upload and install" })).toBeEnabled();
+    await page.reload();
+    await expect(dashboard.uploadButton()).toBeVisible();
+  });
+
+  await test.step("a lost Start stays tracked after every controller answers not found", async () => {
+    refuse = false;
+    await dashboard.uploadButton().click();
+    await dashboard.install();
+    await expect(dashboard.dialog().getByText(/Update not found/)).toBeVisible();
+    await dashboard.dialog().getByRole("button", { name: "Cancel update", exact: true }).click();
+    await expect(dashboard.dialog().getByRole("status")).toHaveText(
+      "The cancel was not confirmed by every controller.",
+    );
+    await expect(dashboard.dialog().getByRole("button", { name: "Stop tracking", exact: true })).toBeEnabled();
+    await test.info().attach("firmware-cancel-unconfirmed", {
+      body: await page.screenshot(),
+      contentType: "image/png",
+    });
+    await dashboard.reopenStatus();
+    await expect(dashboard.dialog().getByRole("button", { name: "Retry cancel", exact: true })).toBeVisible();
+  });
+
+  await test.step("the operator releases it explicitly", async () => {
+    await dashboard.dialog().getByRole("button", { name: "Retry cancel", exact: true }).click();
+    await dashboard.dialog().getByRole("button", { name: "Stop tracking", exact: true }).click();
+    await expect(page.getByRole("dialog", { name: "Stop tracking this update?" })).toBeVisible();
+    await test.info().attach("firmware-stop-tracking", { body: await page.screenshot(), contentType: "image/png" });
+    await dashboard.dialog().getByRole("button", { name: "Stop tracking", exact: true }).click();
+    await expect(dashboard.dialog().getByRole("button", { name: "Choose file" })).toBeVisible();
+    await page.reload();
+    await expect(dashboard.uploadButton()).toBeVisible();
+  });
+
+  expect(taskIds.size).toBe(2);
+  const listed = (await (
+    await request.post(procedure("ListFirmwareUpdates"), { headers, data: {} })
+  ).json()) as V2ListFirmwareUpdatesResponse;
+  expect((listed.updates ?? []).filter((job) => taskIds.has(job.taskId!))).toEqual([]);
 });

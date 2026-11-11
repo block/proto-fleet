@@ -1,9 +1,19 @@
-import type { CT1Firmware, CT1FirmwareAttempt, CT1FirmwareBoard, CT1FirmwareProgress } from "../ct1Firmware";
+import {
+  type CT1Firmware,
+  type CT1FirmwareAttempt,
+  type CT1FirmwareBoard,
+  type CT1FirmwareProgress,
+  CT1FirmwareStartRefusedError,
+} from "../ct1Firmware";
 import type { AdapterRequestOptions } from "../types";
 import type { MdkV2Client } from "./connectClient";
 import { firmwareDigest } from "./firmwareDigest";
 import { readFirmwareImage } from "./firmwareImage";
-import { V2FirmwareArtifactSource, type V2GetContainerMapResponse } from "./generated/generatedApi";
+import {
+  V2FirmwareArtifactSource,
+  V2FirmwareUpdateStatus,
+  type V2GetContainerMapResponse,
+} from "./generated/generatedApi";
 
 export function firmwareBoards(map: V2GetContainerMapResponse, serverId: string): CT1FirmwareBoard[] {
   const incomplete = () =>
@@ -64,7 +74,17 @@ export function firmwareBoards(map: V2GetContainerMapResponse, serverId: string)
 const errorMessage = (error: unknown) => (error instanceof Error ? error.message : "Controller unavailable");
 const statusCode = (error: unknown) => (error as { status?: number } | undefined)?.status;
 const owners = (attempt: CT1FirmwareAttempt) => [...new Set(attempt.boards.map((board) => board.owner))];
-const terminal = new Set(["COMPLETED", "COMPLETED_WITH_ERRORS", "FAILED", "CANCELED", "INTERRUPTED"]);
+const terminalStatuses = new Set<V2FirmwareUpdateStatus>([
+  V2FirmwareUpdateStatus.FIRMWARE_UPDATE_STATUS_COMPLETED,
+  V2FirmwareUpdateStatus.FIRMWARE_UPDATE_STATUS_COMPLETED_WITH_ERRORS,
+  V2FirmwareUpdateStatus.FIRMWARE_UPDATE_STATUS_FAILED,
+  V2FirmwareUpdateStatus.FIRMWARE_UPDATE_STATUS_CANCELED,
+  V2FirmwareUpdateStatus.FIRMWARE_UPDATE_STATUS_INTERRUPTED,
+]);
+const isTerminal = (status?: V2FirmwareUpdateStatus) => status !== undefined && terminalStatuses.has(status);
+// The same split as Fleet's firmwareStartRefused (plugin/proto/internal/ct1/firmware.go): with these answers the
+// controller created no job. Every other outcome, including no status at all, is uncertain and stays tracked.
+const startRefusedStatuses = new Set([400, 401, 403, 404, 429, 501]);
 
 export function createCT1Firmware(
   client: MdkV2Client,
@@ -139,15 +159,23 @@ export function createCT1Firmware(
         params?.signal?.throwIfAborted();
         onStarting();
         // Never retry Start. Recover this client-selected task on every owner instead.
-        await client.firmwareServiceStartFirmwareUpdate(
-          {
-            artifact: result.data.artifact,
-            taskId: attempt.taskId,
-            scope: { identifiers: attempt.boards.map((board) => board.mac) },
-            options: { build: image.build, force: true },
-          },
-          options,
-        );
+        try {
+          await client.firmwareServiceStartFirmwareUpdate(
+            {
+              artifact: result.data.artifact,
+              taskId: attempt.taskId,
+              scope: { identifiers: attempt.boards.map((board) => board.mac) },
+              options: { build: image.build, force: true },
+            },
+            options,
+          );
+        } catch (error) {
+          if (startRefusedStatuses.has(statusCode(error) ?? 0))
+            throw new CT1FirmwareStartRefusedError(
+              error instanceof Error && error.message ? error.message : "The controller refused the update.",
+            );
+          throw error;
+        }
       } finally {
         if (!committed)
           await client
@@ -168,8 +196,7 @@ export function createCT1Firmware(
             const job = data.update;
             if (!job || job.taskId !== attempt.taskId || job.serverId !== owner)
               throw new Error("Controller returned a different firmware task.");
-            const done = terminal.has(job.status?.replace("FIRMWARE_UPDATE_STATUS_", "") ?? "");
-            if (!done) result.complete = false;
+            if (!isTerminal(job.status)) result.complete = false;
             if (job.error) result.errors.push(`${owner}: ${job.error}`);
             for (const board of expected) {
               const target = job.targets?.find((target) => target.macAddress?.toUpperCase() === board.mac);
@@ -189,7 +216,7 @@ export function createCT1Firmware(
           } catch (error) {
             result.complete = false;
             result.errors.push(
-              `${owner}: ${statusCode(error) === 404 ? "Update not found. Check again or cancel before starting another update." : errorMessage(error)}`,
+              `${owner}: ${statusCode(error) === 404 ? "Update not found. Check again, or cancel and stop tracking before starting another update." : errorMessage(error)}`,
             );
             result.boards.push(...expected.map((board) => ({ ...board, status: "Status unavailable" })));
           }
@@ -200,8 +227,9 @@ export function createCT1Firmware(
     },
     async cancel(attempt, params) {
       const failures: string[] = [];
-      const absent = new Set<string>();
+      const absent: string[] = [];
       let pending = false;
+      let finished = false;
       await Promise.all(
         owners(attempt).map(async (owner) => {
           try {
@@ -211,15 +239,18 @@ export function createCT1Firmware(
             );
             if (!data.update || data.update.taskId !== attempt.taskId || data.update.serverId !== owner)
               throw new Error("Controller did not confirm cancellation for this task.");
-            if (!terminal.has(data.update.status?.replace("FIRMWARE_UPDATE_STATUS_", "") ?? "")) pending = true;
+            const { status } = data.update;
+            if (!isTerminal(status)) pending = true;
+            // The job ended before the cancel arrived: it was not canceled, and its result must stay visible.
+            else if (status !== V2FirmwareUpdateStatus.FIRMWARE_UPDATE_STATUS_CANCELED) finished = true;
           } catch (error) {
-            if (statusCode(error) === 404) absent.add(owner);
+            if (statusCode(error) === 404) absent.push(owner);
             else failures.push(`${owner}: ${errorMessage(error)}`);
           }
         }),
       );
       if (failures.length) throw new Error(failures.join("; "));
-      return { pending, boards: attempt.boards.filter((board) => !absent.has(board.owner)) };
+      return { pending, finished, absent: absent.sort() };
     },
   };
 }

@@ -136,13 +136,23 @@ build changes must still flash. Mining stop/restore uses Frigate's defaults.
 Keep the page open during upload. Canceling an upload aborts its session when
 possible; sessions lost on disconnect expire after ten idle minutes or a
 controller restart. Before starting, ProtoOS saves its task ID and board-owner
-map in local browser storage. After a lost response or reload on the same origin,
+map in local browser storage. One update is tracked per device: a second tab on
+the same origin adopts the saved record instead of starting or clearing another
+update. A Start that the controller definitively refuses creates no job and is
+not tracked. After a lost response or reload on the same origin,
 **Hashboard update status** queries each owner without resubmitting Start.
-Missing or unreachable owners remain visibly unresolved; cancel must reach every
-owner and confirm a terminal job before tracking is cleared. A cancellation
-request that is still stopping boards remains recoverable across reloads. Progress includes each board's phase and
-failure details. Browser storage does not transfer across origins, browsers, or
-controllers, and an unfinished upload must be selected again after a reload.
+
+Tracking is cleared only when every owner confirms the outcome: **Done** after
+the update finishes, or a cancel that every owner answers with a canceled job.
+Missing or unreachable owners remain visibly unresolved, and a job that finished
+before the cancel arrived keeps its per-board result until **Done**. When a
+cancel attempt leaves an owner unreachable or reporting the task as not found,
+**Stop tracking** releases the record after confirmation; an update still
+running on that controller continues. A cancellation request that is still
+stopping boards remains recoverable across reloads. Progress includes each
+board's phase and failure details. Browser storage does not transfer across
+origins, browsers, or controllers, and an unfinished upload must be selected
+again after a reload.
 
 The simulator covers upload integrity and job lifecycle, not real signing or
 flashing. Frigate must update its pinned ProtoOS release before this feature
