@@ -16,7 +16,7 @@ func TestPoolPairingCycleUpgradePreservesExistingDevices(t *testing.T) {
 	user := database.CreateSuperAdminUser()
 	runMigration := func(direction string) {
 		t.Helper()
-		script, err := migrations.Current.ReadFile("current/001076_internal_pool_pairing_cycle." + direction + ".sql")
+		script, err := migrations.Current.ReadFile("current/001073_internal_default_pool_lifecycle." + direction + ".sql")
 		require.NoError(t, err)
 		_, err = database.DB.ExecContext(t.Context(), string(script))
 		require.NoError(t, err)
@@ -35,20 +35,16 @@ func TestPoolPairingCycleUpgradePreservesExistingDevices(t *testing.T) {
 		require.NoError(t, database.DB.QueryRowContext(t.Context(), `SELECT count(*) FROM pool_lifecycle_transition WHERE device_id=$1`, device).Scan(&count))
 		return count
 	}
-	before := map[int64]int{}
-	for _, device := range devices {
-		before[device] = countEvents(device)
-	}
 	runMigration("up")
 	for status, device := range devices {
 		t.Run(string(status), func(t *testing.T) {
-			require.Equal(t, before[device], countEvents(device), "upgrade must not queue writes")
+			require.Zero(t, countEvents(device), "upgrade must not queue writes")
 			// Include existing devices whose credentials fail after upgrade.
 			_, err := q.UpsertDevicePairing(t.Context(), sqlc.UpsertDevicePairingParams{DeviceID: device, PairingStatus: sqlc.PairingStatusEnumAUTHENTICATIONNEEDED})
 			require.NoError(t, err)
 			_, err = q.UpsertDevicePairing(t.Context(), sqlc.UpsertDevicePairingParams{DeviceID: device, PairingStatus: sqlc.PairingStatusEnumPAIRED})
 			require.NoError(t, err)
-			want := before[device]
+			want := 0
 			if status == sqlc.PairingStatusEnumUNPAIRED {
 				want++
 			}

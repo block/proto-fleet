@@ -12,25 +12,14 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/poolconfigurations"
 	"github.com/block/proto-fleet/server/internal/infrastructure/db"
 	"github.com/block/proto-fleet/server/internal/infrastructure/encrypt"
-	"github.com/block/proto-fleet/server/migrations"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 )
 
 func TestRemovedBoardPoolPolicyRetiresAndReinstallationCapturesCurrentDefault(t *testing.T) {
-	for _, reinstall := range []string{"operator default", "operator empty", "client replacement", "legacy upgrade"} {
+	for _, reinstall := range []string{"operator default", "operator empty", "client replacement"} {
 		t.Run(reinstall, func(t *testing.T) {
 			r := newModulePSUIdentityRig(t)
-			migrate := func(direction string) {
-				t.Helper()
-				script, err := migrations.Current.ReadFile("current/001077_internal_removed_board_pool_lifecycle." + direction + ".sql")
-				require.NoError(t, err)
-				_, err = r.db.ExecContext(t.Context(), string(script))
-				require.NoError(t, err)
-			}
-			if reinstall == "legacy upgrade" {
-				migrate("down")
-			}
 			cipher, err := encrypt.NewService(&encrypt.Config{ServiceMasterKey: base64.StdEncoding.EncodeToString(make([]byte, 32))})
 			require.NoError(t, err)
 			repo := poolconfigurations.NewRepository(cipher)
@@ -56,12 +45,6 @@ func TestRemovedBoardPoolPolicyRetiresAndReinstallationCapturesCurrentDefault(t 
 			require.NoError(t, r.db.QueryRowContext(t.Context(), `SELECT transition_id FROM pool_lifecycle_transition WHERE asset_kind=7 AND asset_id=$1 AND owner_account_id=0 ORDER BY created_at DESC LIMIT 1`, old).Scan(&retired))
 			row, err := q.GetPoolLifecycleTransition(t.Context(), retired)
 			require.NoError(t, err)
-			if reinstall == "legacy upgrade" {
-				require.Equal(t, "pending", row.State, "reproduce the older backend's stranded policy")
-				migrate("up")
-				row, err = q.GetPoolLifecycleTransition(t.Context(), retired)
-				require.NoError(t, err)
-			}
 			require.Equal(t, "superseded", row.State)
 			require.Equal(t, "board_removed", row.ResultCode)
 			require.Equal(t, original.ID, row.ConfigurationID.String)
@@ -69,7 +52,7 @@ func TestRemovedBoardPoolPolicyRetiresAndReinstallationCapturesCurrentDefault(t 
 				return repo.Archive(t.Context(), q, scope, original.ID, original.Version)
 			}), "removed hardware must not pin the captured default")
 			wantConfig, wantOwner := "", int64(0)
-			if reinstall == "operator default" || reinstall == "legacy upgrade" {
+			if reinstall == "operator default" {
 				wantConfig = create(0, "current").ID
 			}
 			returned := replacementSnapshot(r.base.Add(2*time.Second), "new", "old")

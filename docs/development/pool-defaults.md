@@ -22,7 +22,7 @@ containers. A private pairing-cycle marker records the first successful pairing,
 survives authentication failures, and resets on explicit unpairing. The marker and
 the pairing pool transition commit in the same transaction.
 
-Migration 1076 initializes that marker for existing devices unless they are
+Migration 1073 initializes that marker for existing devices unless they are
 explicitly unpaired. Historical pairing timestamps cannot reliably distinguish
 first-time authentication from recovery, so those devices conservatively preserve
 their settings on their next authentication. An operator can apply a configuration
@@ -100,4 +100,14 @@ operator policy. Repeated inventory reports do not enqueue more work. Claimed or
 uncertain writes keep their existing recovery workflow and write-fence protection.
 
 Transitions and operation history survive process restarts. Rollback of checkpoint
-1075 refuses to discard retained transition history; use a coordinated backup.
+1073 refuses to discard retained transition history; use a coordinated backup.
+
+Migration 1073 consolidates the default-pool feature into one internal up/down
+pair. It creates the physical-attempt reference index with the empty lifecycle
+table. Downgrade locks lifecycle producers and the history table before checking
+for retained work; the check and complete schema removal are one atomic statement.
+
+Development databases that applied earlier unmerged default-pool migrations
+(1070–1072 or 1073–1077) have a different history. Preserve those databases and
+use a fresh isolated database, or reconcile their schema explicitly before running
+this build. Do not force their version or replay the consolidated migration.
