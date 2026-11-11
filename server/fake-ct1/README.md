@@ -247,7 +247,8 @@ site, building, rack, or group.
 
 The plugin's `TestModuleMiningSimulatorLeavesNeighborsUnaffected/firmware`
 exercises the native upload-to-inventory round trip with `CT1_SIMULATOR_BIN`
-pointing to a locally built fake-ct1 binary. Simulator unit tests also cover
+pointing to a built fake-ct1 binary; the Proto Plugin CI job builds one and
+sets the variable. Simulator unit tests also cover
 partial failures. Synthetic test images are not signed production firmware.
 
 ## Environment variables

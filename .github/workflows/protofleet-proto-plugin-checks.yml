@@ -15,6 +15,8 @@ on:
       - "just/go-plugin.just"
       - "proto/**"
       - "plugin/proto/**"
+      - "sdk/mdk/**"
+      - "server/fake-ct1/**"
       - "server/fake-proto-rig/**"
       - "server/go.mod"
       - "server/go.sum"
@@ -74,6 +76,12 @@ jobs:
           # pull base images itself; they must already be local.
           awk 'toupper($1) == "FROM" { print $2 }' ../../server/fake-proto-rig/Dockerfile |
             sort -u | xargs -n1 docker pull
+
+      - name: Build CT1 simulator for integration tests
+        working-directory: server/fake-ct1
+        run: |
+          GOWORK=off go build -o "$RUNNER_TEMP/fake-ct1" .
+          echo "CT1_SIMULATOR_BIN=$RUNNER_TEMP/fake-ct1" >> "$GITHUB_ENV"
 
       - name: Check
         run: just check
