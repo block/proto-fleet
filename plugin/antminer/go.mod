@@ -1,6 +1,6 @@
 module github.com/block/proto-fleet/plugin/antminer
 
-go 1.26.10
+go 1.26.11
 
 require (
 	github.com/block/proto-fleet/server v0.0.0-20261007052907-473e33e96af5
