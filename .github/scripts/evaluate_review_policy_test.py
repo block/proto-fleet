@@ -639,6 +639,11 @@ class ReviewPolicyTest(unittest.TestCase):
             {case["pr"] for case in cases if case["corpus"] == "adjudicated"},
             {944, 948, 953, 954, 956, 961},
         )
+        self.assertEqual(
+            {case["pr"] for case in cases if case["corpus"] == "validation"},
+            {1076, 1077, 1080, 1090, 1095, 1102},
+        )
+        self.assertEqual(len({case["id"] for case in cases}), len(cases))
         for case in cases:
             self.assertRegex(case["base"], FULL_SHA_PATTERN)
             self.assertRegex(case["head"], FULL_SHA_PATTERN)
@@ -667,6 +672,138 @@ class ReviewPolicyTest(unittest.TestCase):
         self.assertNotIn("codex-security-review-result", result_artifact_name)
         self.assertNotIn("issues: write", workflow_text)
         self.assertNotIn("pull-requests: write", workflow_text)
+
+    def test_codex_benchmark_validation_ranges_are_frozen(self):
+        # The first four heads deliberately precede the final PR heads and fixes.
+        cases = load_benchmark_corpus()["cases"]
+        self.assertEqual(
+            [
+                (case["id"], case["base"], case["head"])
+                for case in cases
+                if case["corpus"] == "validation"
+            ],
+            [
+                (
+                    "pr-1076",
+                    "1b6a93b830d29fe2adcd44d1aef7b8a839fb6d7e",
+                    "985b1bc06ae6a0970e6cb86bf169e6c51075963f",
+                ),
+                (
+                    "pr-1077",
+                    "a1c7fd71a45ec9d8f017f1614f20fe5d377d055a",
+                    "f150a6fef3d0833fe113db6989071a5045e03f3c",
+                ),
+                (
+                    "pr-1080",
+                    "d6d3e97b24c27e4fe9cee942992dabb851973a13",
+                    "9721566c08519ebe48b88d11905826139839d019",
+                ),
+                (
+                    "pr-1090",
+                    "2df8683700866d53c635374a330951d7a7c343dd",
+                    "b70f21e89887252ac566e4463395ed4058c99196",
+                ),
+                (
+                    "pr-1095",
+                    "473e33e96af5abbf0980719a40b81be4b752c1ed",
+                    "6ac6f3129e66507d8b7b1e857fdcf9bc7778ff10",
+                ),
+                (
+                    "pr-1102",
+                    "15c16f4ef79def2767082e5dda09c5ce0fc6e44b",
+                    "dfb5f1dfbfcc1a0fd8a1ba60705fe97ca9c542fe",
+                ),
+            ],
+        )
+
+    def test_codex_benchmark_fetch_excludes_later_fixes(self):
+        workflow = load_workflow("codex-security-review-benchmark.yml")
+        steps = workflow["jobs"]["benchmark-review"]["steps"]
+        checkout = next(
+            step for step in steps if step["name"] == "Checkout fixed historical head"
+        )
+        fetch = next(
+            step
+            for step in steps
+            if step["name"] == "Fetch and validate fixed historical range"
+        )
+        self.assertEqual(checkout["with"]["fetch-depth"], 1)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "source"
+            replay = Path(tmp) / "replay"
+            source.mkdir()
+            replay.mkdir()
+
+            def git(cwd, *args, check=True):
+                return subprocess.run(
+                    ["git", *args],
+                    cwd=cwd,
+                    check=check,
+                    capture_output=True,
+                    text=True,
+                )
+
+            def commit(contents):
+                (source / "code.txt").write_text(contents, encoding="utf-8")
+                git(source, "add", "code.txt")
+                git(
+                    source,
+                    "-c",
+                    "user.name=Benchmark Test",
+                    "-c",
+                    "user.email=benchmark@example.invalid",
+                    "commit",
+                    "-m",
+                    contents.strip(),
+                )
+                return git(source, "rev-parse", "HEAD").stdout.strip()
+
+            git(source, "init", "--initial-branch=main")
+            common = commit("original\n")
+            head = commit("reviewed defect\n")
+            later_fix = commit("later fix\n")
+            git(source, "tag", "fixed", later_fix)
+            git(source, "checkout", "-b", "base", common)
+            base = commit("base branch change\n")
+            git(source, "checkout", "main")
+
+            git(replay, "init")
+            git(replay, "remote", "add", "origin", source.as_uri())
+            git(replay, "fetch", "--no-tags", "--depth=1", "origin", head)
+            git(replay, "checkout", "--detach", head)
+            completed = subprocess.run(
+                ["bash", "-c", fetch["run"]],
+                cwd=replay,
+                env={
+                    **os.environ,
+                    "GITHUB_TOKEN": "",
+                    "REVIEW_BASE_SHA": base,
+                    "REVIEW_HEAD_SHA": head,
+                    "REVIEW_COMMIT_RANGE": f"{base}...{head}",
+                },
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(completed.returncode, 0, completed.stderr)
+            self.assertEqual(git(replay, "rev-parse", "HEAD").stdout.strip(), head)
+            self.assertEqual(
+                git(replay, "merge-base", base, head).stdout.strip(), common
+            )
+            self.assertIn(
+                "+reviewed defect", git(replay, "diff", f"{base}...{head}").stdout
+            )
+            self.assertEqual(
+                git(replay, "for-each-ref", "--format=%(refname)").stdout, ""
+            )
+            self.assertNotEqual(
+                git(replay, "cat-file", "-e", later_fix, check=False).returncode, 0
+            )
+            self.assertEqual(
+                git(replay, "rev-parse", "--is-shallow-repository").stdout.strip(),
+                "false",
+            )
 
     def test_codex_benchmark_matrix_comes_from_needs_not_the_matrix_context(self):
         workflow = load_workflow("codex-security-review-benchmark.yml")
@@ -725,11 +862,11 @@ class ReviewPolicyTest(unittest.TestCase):
         for profile, model, effort in (
             ("astra", "gpt-6-astra", "medium"),
             ("sol", "gpt-6.1-sol", "medium"),
-            ("sol-high", "gpt-6.1-sol", "high"),
         ):
             for corpus_name, repeat in (
                 ("adjudicated", "initial"),
                 ("large-pr", "repeat-1"),
+                ("validation", "initial"),
             ):
                 with self.subTest(profile=profile, corpus=corpus_name):
                     result, outputs = select(
@@ -738,11 +875,10 @@ class ReviewPolicyTest(unittest.TestCase):
                     self.assertEqual(result.returncode, 0, result.stderr)
                     self.assertEqual(outputs["model"], model)
                     self.assertEqual(outputs["source_repository"], "block/proto-fleet")
-                    if profile in {"astra", "sol"}:
-                        self.assertEqual(
-                            outputs["reasoning_effort"],
-                            production["env"]["CODEX_REASONING_EFFORT"],
-                        )
+                    self.assertEqual(
+                        outputs["reasoning_effort"],
+                        production["env"]["CODEX_REASONING_EFFORT"],
+                    )
                     self.assertEqual(outputs["reasoning_effort"], effort)
                     self.assertEqual(
                         outputs["timeout_minutes"],
@@ -777,13 +913,14 @@ class ReviewPolicyTest(unittest.TestCase):
         for payload in (
             {},
             {"profile": "terra"},
+            {"profile": "sol-high"},
             {"profile": "sol-extended-timeout"},
             {"profile": "gpt-6.1-sol"},
             {"profile": ["sol"]},
             {"profile": "sol", "corpus": "arbitrary"},
             {"profile": "sol", "repeat": "repeat-3"},
             {"profile": "sol", "repeat": []},
-            {"profile": "sol-high", "reasoning-effort": "medium"},
+            {"profile": "sol", "reasoning-effort": "high"},
             *(
                 {"profile": "sol", key: value}
                 for key, value in (
@@ -1216,8 +1353,9 @@ class ReviewPolicyTest(unittest.TestCase):
             self.assertIn(f"client_payload.{name} ==", group)
             self.assertNotIn(f"client_payload.{name} ||", group)
         self.assertIn("client_payload.profile == 'sol' && 'sol'", group)
-        self.assertIn("client_payload.profile == 'sol-high' && 'sol-high'", group)
+        self.assertNotIn("sol-high", group)
         self.assertIn("client_payload.corpus == 'large-pr'", group)
+        self.assertIn("client_payload.corpus == 'validation' && 'validation'", group)
         self.assertIn("client_payload.repeat == 'repeat-2'", group)
 
     def test_incomplete_codex_review_cannot_take_approval_free_path(self):

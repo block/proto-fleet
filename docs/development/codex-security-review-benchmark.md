@@ -10,7 +10,6 @@ it does not post PR comments, approve PRs, or change production review policy.
 | --- | --- | --- | --- |
 | `astra` | `gpt-6-astra` | `medium` | 30 minutes |
 | `sol` | `gpt-6.1-sol` | `medium` | 30 minutes |
-| `sol-high` | `gpt-6.1-sol` | `high` | 30 minutes |
 
 All profiles use the production prompt, `unified=40`, no inter-hunk context,
 the default service tier and verbosity, read-only sandbox, `drop-sudo`, and the
@@ -26,11 +25,15 @@ commits belong to upstream and are not available through the internal
 repository's commits API. The reviewer explicitly checks out upstream, while
 the selector, inline workflow code, finalizer, and artifacts remain in the
 internal workflow run. `adjudicated` selects six cases; `large-pr` selects two
-historical timeouts. Neither the model, source repository, nor commit ranges
-can be supplied by the caller.
-The retired context, effort-sweep, bounded-prompt, Terra, sharding, and
+historical timeouts. `validation` selects six fixed cases whose expectations
+were frozen in [PR #461](https://github.com/btc-mining/proto-fleet-internal/pull/461)
+before the Astra/Sol medium comparison. Neither the model, source repository,
+nor commit ranges can be supplied by the caller. Historical checkouts fetch
+only the pinned commits and their ancestors, excluding later fixes from the
+workspace Git history.
+The retired context, effort-sweep, bounded-prompt, Terra, sharding, Sol high, and
 extended-timeout experiments are available in Git history, not as dispatch
-options. `sol-high` is the only dispatchable effort variant.
+options.
 
 ## Running a comparison
 
@@ -43,10 +46,7 @@ Each dispatch is billable. One adjudicated profile runs six reviewers, at most
 two concurrently, with an upper bound of 180 reviewer-job minutes, excluding
 cancellation cleanup and finalizers. An initial paired comparison needs two
 dispatches and up to 360 reviewer-job minutes. Different profiles can run
-concurrently. Run matched `sol` and `sol-high` comparisons sequentially. They
-share a model and API key, so overlapping runs could trigger rate-limit backoff
-that skews latency or timeout results. These time limits are not a dollar or
-token cap.
+concurrently. These time limits are not a dollar or token cap.
 
 For the initial model comparison, submit this request with `profile` set to
 `astra`, then submit the same request with `profile` set to `sol`, after approval
@@ -62,14 +62,6 @@ for those specific runs:
   }
 }
 ```
-
-To evaluate higher reasoning effort, dispatch one initial `sol-high` run on the
-same adjudicated corpus. It changes only reasoning effort relative to `sol`;
-retain the same prompt, packet construction, and 30-minute budget. Compare its
-completion and verified-timeout rate, finding recall, validity, latency, and
-usage with the `sol` control. `sol-high` must independently meet the initial
-promotion gates below before production promotion is considered. Do not rerun
-the model comparison merely to start the effort experiment.
 
 Save it as a JSON file and send it to the internal repository containing the
 trusted workflow. The dispatch target and historical checkout source are
@@ -114,17 +106,31 @@ not expose that breakdown, mark cost unavailable rather than estimating it from
 an undifferentiated token total. Compare elapsed time and usage on matched
 completed cases, and report completion and timeout rates separately.
 
-Use this finding rubric for the six fixed historical heads. The source runs
-and comments are linked from each corpus entry.
+Use this re-adjudicated finding rubric for the six fixed historical heads.
+Historical review comments are evidence to verify, not ground truth. The source
+runs and comments are linked from each corpus entry. The original comparison
+outputs were rescored against the same deduplicated set before selecting the
+separate validation corpus; this expanded set is retrospective evidence.
 
 | Case | Expected material findings |
 | --- | --- |
 | #944 | Clean authentication-change control; `NONE` |
-| #948 | `MEDIUM`: topology preview can diverge across the client/domain boundary |
-| #953 | `HIGH`: migration rejects databases containing curtailment history; `MEDIUM`: conflicting device-row lock orders can deadlock profile saves |
+| #948 | Two `HIGH`: management profile adapter loses topology scope; clearing the last topology target selects the whole organization. Two `MEDIUM`: unchanged ancestor picker broadens the target; topology/all-paired profile saves are rejected by the backend |
+| #953 | `HIGH`: migration rejects databases containing curtailment history without a preserving upgrade path. Two `MEDIUM`: conflicting device-row lock orders; profile fan/topology locks invert existing rack-update lock order |
 | #954 | Two `MEDIUM`: abandoned staging-database cleanup and connection retry/deadline handling |
 | #956 | Clean dependency-change control; `NONE` |
-| #961 | `HIGH`: shared 824-day certificate lifetime; `MEDIUM`: existing deployments do not receive the compatibility fix |
+| #961 | `HIGH`: shared 824-day CA/internal/service certificate expiry without a supported renewal path at the reviewed head |
+
+The old #948 saved-policy preview claim cannot assume persistence: the reviewed
+backend rejects that topology/all-paired combination. Score the reachable save
+failure instead. The old #961 existing-installation expectation describes
+pre-existing rollout behavior rather than an introduced defect. Neither remains
+a required finding. Scope-broadening findings require subsequent operator
+actions; Run confirmation names the whole fleet. Migration rejection is
+conditional on existing rows, and certificate failure on reaching expiry
+without replacement. In #954, later context-aware operations prevent late
+publication; the deadline/resource and unswept-staging defects remain, with
+conditional rather than guaranteed package-timeout impact.
 
 Judge each finding against the fixed historical head, including relevant
 unchanged context. Do not use the current main branch to validate an old finding.
@@ -132,10 +138,23 @@ Every new material finding needs independent human adjudication; matching only
 the overall risk is insufficient. Report per-finding recall and severity,
 invalid findings, clean-control results, completion, and automation failures.
 
+For `validation`, use the frozen expectations in PR #461: both `HIGH`
+findings in #1090, one `MEDIUM` each in #1076, #1077, and #1080, and clean
+controls #1095 and #1102. Require 6/6 completed cases, no required finding
+missed or downgraded, both controls clean, and no invalid new
+`MEDIUM`-or-higher finding. Keep unexpected findings separate from frozen
+recall. Passing validation does not itself promote a model.
+
+The two validation clean controls already returned `NONE` in Astra reviews
+of these exact ranges, linked from the corpus. Report that prior exposure
+with the results: they provide new clean-control evidence for Sol, while
+Astra's results measure repeatability on previously reviewed inputs. Do not
+count them as unseen clean-control validation for Astra.
+
 ## Promotion gates
 
-The initial Sol candidate must complete 6/6 cases, retain both adjudicated
-`HIGH` findings without downgrade, retain all five adjudicated `MEDIUM`
+The initial Sol candidate must complete 6/6 cases, retain all four adjudicated
+`HIGH` findings without downgrade, retain all six adjudicated `MEDIUM`
 findings, complete both clean controls without invalid material findings, and
 introduce no invalid new `MEDIUM`-or-higher finding. Verified model timeouts
 count against initial completion. Automation failures invalidate the trial and

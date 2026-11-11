@@ -15,9 +15,9 @@ permissions:
 concurrency:
   group: >-
     codex-security-review-benchmark-${{
-      github.event.client_payload.profile == 'sol-high' && 'sol-high' ||
       github.event.client_payload.profile == 'sol' && 'sol' || 'astra'
     }}-${{
+      github.event.client_payload.corpus == 'validation' && 'validation' ||
       github.event.client_payload.corpus == 'large-pr' && 'large-pr' || 'adjudicated'
     }}-${{
       github.event.client_payload.repeat == 'repeat-1' && 'repeat-1' ||
@@ -64,15 +64,14 @@ jobs:
           profiles = {
               "astra": ("gpt-6-astra", "medium"),
               "sol": ("gpt-6.1-sol", "medium"),
-              "sol-high": ("gpt-6.1-sol", "high"),
           }
           if not isinstance(profile, str) or profile not in profiles:
-              raise SystemExit("Benchmark profile must be astra, sol, or sol-high")
+              raise SystemExit("Benchmark profile must be astra or sol")
           model, reasoning_effort = profiles[profile]
           corpus_name = payload.get("corpus", "adjudicated")
           repeat = payload.get("repeat", "initial")
           for name, choices, value in (
-              ("corpus", {"adjudicated", "large-pr"}, corpus_name),
+              ("corpus", {"adjudicated", "large-pr", "validation"}, corpus_name),
               ("repeat", {"initial", "repeat-1", "repeat-2"}, repeat),
           ):
               if not isinstance(value, str) or value not in choices:
@@ -130,9 +129,11 @@ jobs:
         with:
           repository: ${{ needs.select-cases.outputs.source_repository }}
           ref: ${{ matrix.case.head }}
-          fetch-depth: 0
+          fetch-depth: 1
           persist-credentials: false
 
+      # Fetch only ancestors of the pinned commits. A full checkout also downloads
+      # later fixes; deleting their refs would leave those Git objects readable.
       - name: Fetch and validate fixed historical range
         env:
           GITHUB_TOKEN: ${{ github.token }}
@@ -141,7 +142,7 @@ jobs:
           set -euo pipefail
           git -c protocol.version=2 \
               -c "http.https://github.com/.extraheader=AUTHORIZATION: bearer ${GITHUB_TOKEN}" \
-              fetch --no-tags origin "$REVIEW_BASE_SHA" "$REVIEW_HEAD_SHA"
+              fetch --unshallow --no-tags origin "$REVIEW_BASE_SHA" "$REVIEW_HEAD_SHA"
           test "$(git rev-parse HEAD)" = "$REVIEW_HEAD_SHA"
           git cat-file -e "$REVIEW_BASE_SHA^{commit}"
           git cat-file -e "$REVIEW_HEAD_SHA^{commit}"
