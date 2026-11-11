@@ -20,17 +20,21 @@ import (
 const _ = grpc.SupportPackageIsVersion7
 
 const (
-	FirmwareService_UploadFirmwareArtifact_FullMethodName       = "/mdk.v2.FirmwareService/UploadFirmwareArtifact"
-	FirmwareService_GetFirmwarePolicy_FullMethodName            = "/mdk.v2.FirmwareService/GetFirmwarePolicy"
-	FirmwareService_SetFirmwarePolicy_FullMethodName            = "/mdk.v2.FirmwareService/SetFirmwarePolicy"
-	FirmwareService_FenceFirmwarePolicyAdmission_FullMethodName = "/mdk.v2.FirmwareService/FenceFirmwarePolicyAdmission"
-	FirmwareService_RefreshFirmwarePolicy_FullMethodName        = "/mdk.v2.FirmwareService/RefreshFirmwarePolicy"
-	FirmwareService_ListFirmwarePolicyBoards_FullMethodName     = "/mdk.v2.FirmwareService/ListFirmwarePolicyBoards"
-	FirmwareService_RetryFirmwarePolicyBoards_FullMethodName    = "/mdk.v2.FirmwareService/RetryFirmwarePolicyBoards"
-	FirmwareService_StartFirmwareUpdate_FullMethodName          = "/mdk.v2.FirmwareService/StartFirmwareUpdate"
-	FirmwareService_GetFirmwareUpdate_FullMethodName            = "/mdk.v2.FirmwareService/GetFirmwareUpdate"
-	FirmwareService_ListFirmwareUpdates_FullMethodName          = "/mdk.v2.FirmwareService/ListFirmwareUpdates"
-	FirmwareService_CancelFirmwareUpdate_FullMethodName         = "/mdk.v2.FirmwareService/CancelFirmwareUpdate"
+	FirmwareService_UploadFirmwareArtifact_FullMethodName           = "/mdk.v2.FirmwareService/UploadFirmwareArtifact"
+	FirmwareService_BeginFirmwareArtifactUpload_FullMethodName      = "/mdk.v2.FirmwareService/BeginFirmwareArtifactUpload"
+	FirmwareService_WriteFirmwareArtifactUploadChunk_FullMethodName = "/mdk.v2.FirmwareService/WriteFirmwareArtifactUploadChunk"
+	FirmwareService_CommitFirmwareArtifactUpload_FullMethodName     = "/mdk.v2.FirmwareService/CommitFirmwareArtifactUpload"
+	FirmwareService_AbortFirmwareArtifactUpload_FullMethodName      = "/mdk.v2.FirmwareService/AbortFirmwareArtifactUpload"
+	FirmwareService_GetFirmwarePolicy_FullMethodName                = "/mdk.v2.FirmwareService/GetFirmwarePolicy"
+	FirmwareService_SetFirmwarePolicy_FullMethodName                = "/mdk.v2.FirmwareService/SetFirmwarePolicy"
+	FirmwareService_FenceFirmwarePolicyAdmission_FullMethodName     = "/mdk.v2.FirmwareService/FenceFirmwarePolicyAdmission"
+	FirmwareService_RefreshFirmwarePolicy_FullMethodName            = "/mdk.v2.FirmwareService/RefreshFirmwarePolicy"
+	FirmwareService_ListFirmwarePolicyBoards_FullMethodName         = "/mdk.v2.FirmwareService/ListFirmwarePolicyBoards"
+	FirmwareService_RetryFirmwarePolicyBoards_FullMethodName        = "/mdk.v2.FirmwareService/RetryFirmwarePolicyBoards"
+	FirmwareService_StartFirmwareUpdate_FullMethodName              = "/mdk.v2.FirmwareService/StartFirmwareUpdate"
+	FirmwareService_GetFirmwareUpdate_FullMethodName                = "/mdk.v2.FirmwareService/GetFirmwareUpdate"
+	FirmwareService_ListFirmwareUpdates_FullMethodName              = "/mdk.v2.FirmwareService/ListFirmwareUpdates"
+	FirmwareService_CancelFirmwareUpdate_FullMethodName             = "/mdk.v2.FirmwareService/CancelFirmwareUpdate"
 )
 
 // FirmwareServiceClient is the client API for FirmwareService service.
@@ -41,6 +45,24 @@ type FirmwareServiceClient interface {
 	// server for validation and content-addressed caching. The first message must
 	// contain metadata; subsequent messages carry bounded image chunks.
 	UploadFirmwareArtifact(ctx context.Context, opts ...grpc.CallOption) (FirmwareService_UploadFirmwareArtifactClient, error)
+	// BeginFirmwareArtifactUpload starts a chunked unary upload for clients that
+	// cannot send client-streaming calls, such as browsers using the Connect or
+	// REST gateways. It validates the same metadata as UploadFirmwareArtifact
+	// and returns an upload ID that exists only on the connected node. Idle
+	// uploads expire and release their staged bytes.
+	BeginFirmwareArtifactUpload(ctx context.Context, in *BeginFirmwareArtifactUploadRequest, opts ...grpc.CallOption) (*BeginFirmwareArtifactUploadResponse, error)
+	// WriteFirmwareArtifactUploadChunk writes bytes for one image at an exact
+	// offset. Images may be written in any order, but each image's bytes must
+	// be contiguous. Repeating an already received chunk is accepted, so a
+	// client can safely retry after a lost response.
+	WriteFirmwareArtifactUploadChunk(ctx context.Context, in *WriteFirmwareArtifactUploadChunkRequest, opts ...grpc.CallOption) (*WriteFirmwareArtifactUploadChunkResponse, error)
+	// CommitFirmwareArtifactUpload validates and caches a complete upload,
+	// exactly like the final step of UploadFirmwareArtifact. An incomplete
+	// upload is refused without discarding received bytes.
+	CommitFirmwareArtifactUpload(ctx context.Context, in *CommitFirmwareArtifactUploadRequest, opts ...grpc.CallOption) (*CommitFirmwareArtifactUploadResponse, error)
+	// AbortFirmwareArtifactUpload discards an unfinished upload. Aborting an
+	// unknown or expired upload succeeds.
+	AbortFirmwareArtifactUpload(ctx context.Context, in *AbortFirmwareArtifactUploadRequest, opts ...grpc.CallOption) (*AbortFirmwareArtifactUploadResponse, error)
 	// GetFirmwarePolicy returns the container's desired exact firmware target.
 	GetFirmwarePolicy(ctx context.Context, in *GetFirmwarePolicyRequest, opts ...grpc.CallOption) (*GetFirmwarePolicyResponse, error)
 	// SetFirmwarePolicy revision-fences a hot policy replacement or disable.
@@ -103,6 +125,42 @@ func (x *firmwareServiceUploadFirmwareArtifactClient) CloseAndRecv() (*UploadFir
 		return nil, err
 	}
 	return m, nil
+}
+
+func (c *firmwareServiceClient) BeginFirmwareArtifactUpload(ctx context.Context, in *BeginFirmwareArtifactUploadRequest, opts ...grpc.CallOption) (*BeginFirmwareArtifactUploadResponse, error) {
+	out := new(BeginFirmwareArtifactUploadResponse)
+	err := c.cc.Invoke(ctx, FirmwareService_BeginFirmwareArtifactUpload_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *firmwareServiceClient) WriteFirmwareArtifactUploadChunk(ctx context.Context, in *WriteFirmwareArtifactUploadChunkRequest, opts ...grpc.CallOption) (*WriteFirmwareArtifactUploadChunkResponse, error) {
+	out := new(WriteFirmwareArtifactUploadChunkResponse)
+	err := c.cc.Invoke(ctx, FirmwareService_WriteFirmwareArtifactUploadChunk_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *firmwareServiceClient) CommitFirmwareArtifactUpload(ctx context.Context, in *CommitFirmwareArtifactUploadRequest, opts ...grpc.CallOption) (*CommitFirmwareArtifactUploadResponse, error) {
+	out := new(CommitFirmwareArtifactUploadResponse)
+	err := c.cc.Invoke(ctx, FirmwareService_CommitFirmwareArtifactUpload_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *firmwareServiceClient) AbortFirmwareArtifactUpload(ctx context.Context, in *AbortFirmwareArtifactUploadRequest, opts ...grpc.CallOption) (*AbortFirmwareArtifactUploadResponse, error) {
+	out := new(AbortFirmwareArtifactUploadResponse)
+	err := c.cc.Invoke(ctx, FirmwareService_AbortFirmwareArtifactUpload_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 func (c *firmwareServiceClient) GetFirmwarePolicy(ctx context.Context, in *GetFirmwarePolicyRequest, opts ...grpc.CallOption) (*GetFirmwarePolicyResponse, error) {
@@ -203,6 +261,24 @@ type FirmwareServiceServer interface {
 	// server for validation and content-addressed caching. The first message must
 	// contain metadata; subsequent messages carry bounded image chunks.
 	UploadFirmwareArtifact(FirmwareService_UploadFirmwareArtifactServer) error
+	// BeginFirmwareArtifactUpload starts a chunked unary upload for clients that
+	// cannot send client-streaming calls, such as browsers using the Connect or
+	// REST gateways. It validates the same metadata as UploadFirmwareArtifact
+	// and returns an upload ID that exists only on the connected node. Idle
+	// uploads expire and release their staged bytes.
+	BeginFirmwareArtifactUpload(context.Context, *BeginFirmwareArtifactUploadRequest) (*BeginFirmwareArtifactUploadResponse, error)
+	// WriteFirmwareArtifactUploadChunk writes bytes for one image at an exact
+	// offset. Images may be written in any order, but each image's bytes must
+	// be contiguous. Repeating an already received chunk is accepted, so a
+	// client can safely retry after a lost response.
+	WriteFirmwareArtifactUploadChunk(context.Context, *WriteFirmwareArtifactUploadChunkRequest) (*WriteFirmwareArtifactUploadChunkResponse, error)
+	// CommitFirmwareArtifactUpload validates and caches a complete upload,
+	// exactly like the final step of UploadFirmwareArtifact. An incomplete
+	// upload is refused without discarding received bytes.
+	CommitFirmwareArtifactUpload(context.Context, *CommitFirmwareArtifactUploadRequest) (*CommitFirmwareArtifactUploadResponse, error)
+	// AbortFirmwareArtifactUpload discards an unfinished upload. Aborting an
+	// unknown or expired upload succeeds.
+	AbortFirmwareArtifactUpload(context.Context, *AbortFirmwareArtifactUploadRequest) (*AbortFirmwareArtifactUploadResponse, error)
 	// GetFirmwarePolicy returns the container's desired exact firmware target.
 	GetFirmwarePolicy(context.Context, *GetFirmwarePolicyRequest) (*GetFirmwarePolicyResponse, error)
 	// SetFirmwarePolicy revision-fences a hot policy replacement or disable.
@@ -232,6 +308,18 @@ type UnimplementedFirmwareServiceServer struct {
 
 func (UnimplementedFirmwareServiceServer) UploadFirmwareArtifact(FirmwareService_UploadFirmwareArtifactServer) error {
 	return status.Errorf(codes.Unimplemented, "method UploadFirmwareArtifact not implemented")
+}
+func (UnimplementedFirmwareServiceServer) BeginFirmwareArtifactUpload(context.Context, *BeginFirmwareArtifactUploadRequest) (*BeginFirmwareArtifactUploadResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method BeginFirmwareArtifactUpload not implemented")
+}
+func (UnimplementedFirmwareServiceServer) WriteFirmwareArtifactUploadChunk(context.Context, *WriteFirmwareArtifactUploadChunkRequest) (*WriteFirmwareArtifactUploadChunkResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method WriteFirmwareArtifactUploadChunk not implemented")
+}
+func (UnimplementedFirmwareServiceServer) CommitFirmwareArtifactUpload(context.Context, *CommitFirmwareArtifactUploadRequest) (*CommitFirmwareArtifactUploadResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method CommitFirmwareArtifactUpload not implemented")
+}
+func (UnimplementedFirmwareServiceServer) AbortFirmwareArtifactUpload(context.Context, *AbortFirmwareArtifactUploadRequest) (*AbortFirmwareArtifactUploadResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method AbortFirmwareArtifactUpload not implemented")
 }
 func (UnimplementedFirmwareServiceServer) GetFirmwarePolicy(context.Context, *GetFirmwarePolicyRequest) (*GetFirmwarePolicyResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetFirmwarePolicy not implemented")
@@ -300,6 +388,78 @@ func (x *firmwareServiceUploadFirmwareArtifactServer) Recv() (*UploadFirmwareArt
 		return nil, err
 	}
 	return m, nil
+}
+
+func _FirmwareService_BeginFirmwareArtifactUpload_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(BeginFirmwareArtifactUploadRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(FirmwareServiceServer).BeginFirmwareArtifactUpload(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: FirmwareService_BeginFirmwareArtifactUpload_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(FirmwareServiceServer).BeginFirmwareArtifactUpload(ctx, req.(*BeginFirmwareArtifactUploadRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _FirmwareService_WriteFirmwareArtifactUploadChunk_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(WriteFirmwareArtifactUploadChunkRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(FirmwareServiceServer).WriteFirmwareArtifactUploadChunk(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: FirmwareService_WriteFirmwareArtifactUploadChunk_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(FirmwareServiceServer).WriteFirmwareArtifactUploadChunk(ctx, req.(*WriteFirmwareArtifactUploadChunkRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _FirmwareService_CommitFirmwareArtifactUpload_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CommitFirmwareArtifactUploadRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(FirmwareServiceServer).CommitFirmwareArtifactUpload(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: FirmwareService_CommitFirmwareArtifactUpload_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(FirmwareServiceServer).CommitFirmwareArtifactUpload(ctx, req.(*CommitFirmwareArtifactUploadRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _FirmwareService_AbortFirmwareArtifactUpload_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(AbortFirmwareArtifactUploadRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(FirmwareServiceServer).AbortFirmwareArtifactUpload(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: FirmwareService_AbortFirmwareArtifactUpload_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(FirmwareServiceServer).AbortFirmwareArtifactUpload(ctx, req.(*AbortFirmwareArtifactUploadRequest))
+	}
+	return interceptor(ctx, in, info, handler)
 }
 
 func _FirmwareService_GetFirmwarePolicy_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
@@ -489,6 +649,22 @@ var FirmwareService_ServiceDesc = grpc.ServiceDesc{
 	ServiceName: "mdk.v2.FirmwareService",
 	HandlerType: (*FirmwareServiceServer)(nil),
 	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "BeginFirmwareArtifactUpload",
+			Handler:    _FirmwareService_BeginFirmwareArtifactUpload_Handler,
+		},
+		{
+			MethodName: "WriteFirmwareArtifactUploadChunk",
+			Handler:    _FirmwareService_WriteFirmwareArtifactUploadChunk_Handler,
+		},
+		{
+			MethodName: "CommitFirmwareArtifactUpload",
+			Handler:    _FirmwareService_CommitFirmwareArtifactUpload_Handler,
+		},
+		{
+			MethodName: "AbortFirmwareArtifactUpload",
+			Handler:    _FirmwareService_AbortFirmwareArtifactUpload_Handler,
+		},
 		{
 			MethodName: "GetFirmwarePolicy",
 			Handler:    _FirmwareService_GetFirmwarePolicy_Handler,

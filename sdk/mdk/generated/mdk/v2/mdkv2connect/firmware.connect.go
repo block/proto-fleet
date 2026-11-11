@@ -37,6 +37,18 @@ const (
 	// FirmwareServiceUploadFirmwareArtifactProcedure is the fully-qualified name of the
 	// FirmwareService's UploadFirmwareArtifact RPC.
 	FirmwareServiceUploadFirmwareArtifactProcedure = "/mdk.v2.FirmwareService/UploadFirmwareArtifact"
+	// FirmwareServiceBeginFirmwareArtifactUploadProcedure is the fully-qualified name of the
+	// FirmwareService's BeginFirmwareArtifactUpload RPC.
+	FirmwareServiceBeginFirmwareArtifactUploadProcedure = "/mdk.v2.FirmwareService/BeginFirmwareArtifactUpload"
+	// FirmwareServiceWriteFirmwareArtifactUploadChunkProcedure is the fully-qualified name of the
+	// FirmwareService's WriteFirmwareArtifactUploadChunk RPC.
+	FirmwareServiceWriteFirmwareArtifactUploadChunkProcedure = "/mdk.v2.FirmwareService/WriteFirmwareArtifactUploadChunk"
+	// FirmwareServiceCommitFirmwareArtifactUploadProcedure is the fully-qualified name of the
+	// FirmwareService's CommitFirmwareArtifactUpload RPC.
+	FirmwareServiceCommitFirmwareArtifactUploadProcedure = "/mdk.v2.FirmwareService/CommitFirmwareArtifactUpload"
+	// FirmwareServiceAbortFirmwareArtifactUploadProcedure is the fully-qualified name of the
+	// FirmwareService's AbortFirmwareArtifactUpload RPC.
+	FirmwareServiceAbortFirmwareArtifactUploadProcedure = "/mdk.v2.FirmwareService/AbortFirmwareArtifactUpload"
 	// FirmwareServiceGetFirmwarePolicyProcedure is the fully-qualified name of the FirmwareService's
 	// GetFirmwarePolicy RPC.
 	FirmwareServiceGetFirmwarePolicyProcedure = "/mdk.v2.FirmwareService/GetFirmwarePolicy"
@@ -75,6 +87,24 @@ type FirmwareServiceClient interface {
 	// server for validation and content-addressed caching. The first message must
 	// contain metadata; subsequent messages carry bounded image chunks.
 	UploadFirmwareArtifact(context.Context) *connect.ClientStreamForClient[v2.UploadFirmwareArtifactRequest, v2.UploadFirmwareArtifactResponse]
+	// BeginFirmwareArtifactUpload starts a chunked unary upload for clients that
+	// cannot send client-streaming calls, such as browsers using the Connect or
+	// REST gateways. It validates the same metadata as UploadFirmwareArtifact
+	// and returns an upload ID that exists only on the connected node. Idle
+	// uploads expire and release their staged bytes.
+	BeginFirmwareArtifactUpload(context.Context, *connect.Request[v2.BeginFirmwareArtifactUploadRequest]) (*connect.Response[v2.BeginFirmwareArtifactUploadResponse], error)
+	// WriteFirmwareArtifactUploadChunk writes bytes for one image at an exact
+	// offset. Images may be written in any order, but each image's bytes must
+	// be contiguous. Repeating an already received chunk is accepted, so a
+	// client can safely retry after a lost response.
+	WriteFirmwareArtifactUploadChunk(context.Context, *connect.Request[v2.WriteFirmwareArtifactUploadChunkRequest]) (*connect.Response[v2.WriteFirmwareArtifactUploadChunkResponse], error)
+	// CommitFirmwareArtifactUpload validates and caches a complete upload,
+	// exactly like the final step of UploadFirmwareArtifact. An incomplete
+	// upload is refused without discarding received bytes.
+	CommitFirmwareArtifactUpload(context.Context, *connect.Request[v2.CommitFirmwareArtifactUploadRequest]) (*connect.Response[v2.CommitFirmwareArtifactUploadResponse], error)
+	// AbortFirmwareArtifactUpload discards an unfinished upload. Aborting an
+	// unknown or expired upload succeeds.
+	AbortFirmwareArtifactUpload(context.Context, *connect.Request[v2.AbortFirmwareArtifactUploadRequest]) (*connect.Response[v2.AbortFirmwareArtifactUploadResponse], error)
 	// GetFirmwarePolicy returns the container's desired exact firmware target.
 	GetFirmwarePolicy(context.Context, *connect.Request[v2.GetFirmwarePolicyRequest]) (*connect.Response[v2.GetFirmwarePolicyResponse], error)
 	// SetFirmwarePolicy revision-fences a hot policy replacement or disable.
@@ -110,6 +140,26 @@ func NewFirmwareServiceClient(httpClient connect.HTTPClient, baseURL string, opt
 		uploadFirmwareArtifact: connect.NewClient[v2.UploadFirmwareArtifactRequest, v2.UploadFirmwareArtifactResponse](
 			httpClient,
 			baseURL+FirmwareServiceUploadFirmwareArtifactProcedure,
+			opts...,
+		),
+		beginFirmwareArtifactUpload: connect.NewClient[v2.BeginFirmwareArtifactUploadRequest, v2.BeginFirmwareArtifactUploadResponse](
+			httpClient,
+			baseURL+FirmwareServiceBeginFirmwareArtifactUploadProcedure,
+			opts...,
+		),
+		writeFirmwareArtifactUploadChunk: connect.NewClient[v2.WriteFirmwareArtifactUploadChunkRequest, v2.WriteFirmwareArtifactUploadChunkResponse](
+			httpClient,
+			baseURL+FirmwareServiceWriteFirmwareArtifactUploadChunkProcedure,
+			opts...,
+		),
+		commitFirmwareArtifactUpload: connect.NewClient[v2.CommitFirmwareArtifactUploadRequest, v2.CommitFirmwareArtifactUploadResponse](
+			httpClient,
+			baseURL+FirmwareServiceCommitFirmwareArtifactUploadProcedure,
+			opts...,
+		),
+		abortFirmwareArtifactUpload: connect.NewClient[v2.AbortFirmwareArtifactUploadRequest, v2.AbortFirmwareArtifactUploadResponse](
+			httpClient,
+			baseURL+FirmwareServiceAbortFirmwareArtifactUploadProcedure,
 			opts...,
 		),
 		getFirmwarePolicy: connect.NewClient[v2.GetFirmwarePolicyRequest, v2.GetFirmwarePolicyResponse](
@@ -167,22 +217,46 @@ func NewFirmwareServiceClient(httpClient connect.HTTPClient, baseURL string, opt
 
 // firmwareServiceClient implements FirmwareServiceClient.
 type firmwareServiceClient struct {
-	uploadFirmwareArtifact       *connect.Client[v2.UploadFirmwareArtifactRequest, v2.UploadFirmwareArtifactResponse]
-	getFirmwarePolicy            *connect.Client[v2.GetFirmwarePolicyRequest, v2.GetFirmwarePolicyResponse]
-	setFirmwarePolicy            *connect.Client[v2.SetFirmwarePolicyRequest, v2.SetFirmwarePolicyResponse]
-	fenceFirmwarePolicyAdmission *connect.Client[v2.FenceFirmwarePolicyAdmissionRequest, v2.FenceFirmwarePolicyAdmissionResponse]
-	refreshFirmwarePolicy        *connect.Client[v2.RefreshFirmwarePolicyRequest, v2.RefreshFirmwarePolicyResponse]
-	listFirmwarePolicyBoards     *connect.Client[v2.ListFirmwarePolicyBoardsRequest, v2.ListFirmwarePolicyBoardsResponse]
-	retryFirmwarePolicyBoards    *connect.Client[v2.RetryFirmwarePolicyBoardsRequest, v2.RetryFirmwarePolicyBoardsResponse]
-	startFirmwareUpdate          *connect.Client[v2.StartFirmwareUpdateRequest, v2.StartFirmwareUpdateResponse]
-	getFirmwareUpdate            *connect.Client[v2.GetFirmwareUpdateRequest, v2.GetFirmwareUpdateResponse]
-	listFirmwareUpdates          *connect.Client[v2.ListFirmwareUpdatesRequest, v2.ListFirmwareUpdatesResponse]
-	cancelFirmwareUpdate         *connect.Client[v2.CancelFirmwareUpdateRequest, v2.CancelFirmwareUpdateResponse]
+	uploadFirmwareArtifact           *connect.Client[v2.UploadFirmwareArtifactRequest, v2.UploadFirmwareArtifactResponse]
+	beginFirmwareArtifactUpload      *connect.Client[v2.BeginFirmwareArtifactUploadRequest, v2.BeginFirmwareArtifactUploadResponse]
+	writeFirmwareArtifactUploadChunk *connect.Client[v2.WriteFirmwareArtifactUploadChunkRequest, v2.WriteFirmwareArtifactUploadChunkResponse]
+	commitFirmwareArtifactUpload     *connect.Client[v2.CommitFirmwareArtifactUploadRequest, v2.CommitFirmwareArtifactUploadResponse]
+	abortFirmwareArtifactUpload      *connect.Client[v2.AbortFirmwareArtifactUploadRequest, v2.AbortFirmwareArtifactUploadResponse]
+	getFirmwarePolicy                *connect.Client[v2.GetFirmwarePolicyRequest, v2.GetFirmwarePolicyResponse]
+	setFirmwarePolicy                *connect.Client[v2.SetFirmwarePolicyRequest, v2.SetFirmwarePolicyResponse]
+	fenceFirmwarePolicyAdmission     *connect.Client[v2.FenceFirmwarePolicyAdmissionRequest, v2.FenceFirmwarePolicyAdmissionResponse]
+	refreshFirmwarePolicy            *connect.Client[v2.RefreshFirmwarePolicyRequest, v2.RefreshFirmwarePolicyResponse]
+	listFirmwarePolicyBoards         *connect.Client[v2.ListFirmwarePolicyBoardsRequest, v2.ListFirmwarePolicyBoardsResponse]
+	retryFirmwarePolicyBoards        *connect.Client[v2.RetryFirmwarePolicyBoardsRequest, v2.RetryFirmwarePolicyBoardsResponse]
+	startFirmwareUpdate              *connect.Client[v2.StartFirmwareUpdateRequest, v2.StartFirmwareUpdateResponse]
+	getFirmwareUpdate                *connect.Client[v2.GetFirmwareUpdateRequest, v2.GetFirmwareUpdateResponse]
+	listFirmwareUpdates              *connect.Client[v2.ListFirmwareUpdatesRequest, v2.ListFirmwareUpdatesResponse]
+	cancelFirmwareUpdate             *connect.Client[v2.CancelFirmwareUpdateRequest, v2.CancelFirmwareUpdateResponse]
 }
 
 // UploadFirmwareArtifact calls mdk.v2.FirmwareService.UploadFirmwareArtifact.
 func (c *firmwareServiceClient) UploadFirmwareArtifact(ctx context.Context) *connect.ClientStreamForClient[v2.UploadFirmwareArtifactRequest, v2.UploadFirmwareArtifactResponse] {
 	return c.uploadFirmwareArtifact.CallClientStream(ctx)
+}
+
+// BeginFirmwareArtifactUpload calls mdk.v2.FirmwareService.BeginFirmwareArtifactUpload.
+func (c *firmwareServiceClient) BeginFirmwareArtifactUpload(ctx context.Context, req *connect.Request[v2.BeginFirmwareArtifactUploadRequest]) (*connect.Response[v2.BeginFirmwareArtifactUploadResponse], error) {
+	return c.beginFirmwareArtifactUpload.CallUnary(ctx, req)
+}
+
+// WriteFirmwareArtifactUploadChunk calls mdk.v2.FirmwareService.WriteFirmwareArtifactUploadChunk.
+func (c *firmwareServiceClient) WriteFirmwareArtifactUploadChunk(ctx context.Context, req *connect.Request[v2.WriteFirmwareArtifactUploadChunkRequest]) (*connect.Response[v2.WriteFirmwareArtifactUploadChunkResponse], error) {
+	return c.writeFirmwareArtifactUploadChunk.CallUnary(ctx, req)
+}
+
+// CommitFirmwareArtifactUpload calls mdk.v2.FirmwareService.CommitFirmwareArtifactUpload.
+func (c *firmwareServiceClient) CommitFirmwareArtifactUpload(ctx context.Context, req *connect.Request[v2.CommitFirmwareArtifactUploadRequest]) (*connect.Response[v2.CommitFirmwareArtifactUploadResponse], error) {
+	return c.commitFirmwareArtifactUpload.CallUnary(ctx, req)
+}
+
+// AbortFirmwareArtifactUpload calls mdk.v2.FirmwareService.AbortFirmwareArtifactUpload.
+func (c *firmwareServiceClient) AbortFirmwareArtifactUpload(ctx context.Context, req *connect.Request[v2.AbortFirmwareArtifactUploadRequest]) (*connect.Response[v2.AbortFirmwareArtifactUploadResponse], error) {
+	return c.abortFirmwareArtifactUpload.CallUnary(ctx, req)
 }
 
 // GetFirmwarePolicy calls mdk.v2.FirmwareService.GetFirmwarePolicy.
@@ -241,6 +315,24 @@ type FirmwareServiceHandler interface {
 	// server for validation and content-addressed caching. The first message must
 	// contain metadata; subsequent messages carry bounded image chunks.
 	UploadFirmwareArtifact(context.Context, *connect.ClientStream[v2.UploadFirmwareArtifactRequest]) (*connect.Response[v2.UploadFirmwareArtifactResponse], error)
+	// BeginFirmwareArtifactUpload starts a chunked unary upload for clients that
+	// cannot send client-streaming calls, such as browsers using the Connect or
+	// REST gateways. It validates the same metadata as UploadFirmwareArtifact
+	// and returns an upload ID that exists only on the connected node. Idle
+	// uploads expire and release their staged bytes.
+	BeginFirmwareArtifactUpload(context.Context, *connect.Request[v2.BeginFirmwareArtifactUploadRequest]) (*connect.Response[v2.BeginFirmwareArtifactUploadResponse], error)
+	// WriteFirmwareArtifactUploadChunk writes bytes for one image at an exact
+	// offset. Images may be written in any order, but each image's bytes must
+	// be contiguous. Repeating an already received chunk is accepted, so a
+	// client can safely retry after a lost response.
+	WriteFirmwareArtifactUploadChunk(context.Context, *connect.Request[v2.WriteFirmwareArtifactUploadChunkRequest]) (*connect.Response[v2.WriteFirmwareArtifactUploadChunkResponse], error)
+	// CommitFirmwareArtifactUpload validates and caches a complete upload,
+	// exactly like the final step of UploadFirmwareArtifact. An incomplete
+	// upload is refused without discarding received bytes.
+	CommitFirmwareArtifactUpload(context.Context, *connect.Request[v2.CommitFirmwareArtifactUploadRequest]) (*connect.Response[v2.CommitFirmwareArtifactUploadResponse], error)
+	// AbortFirmwareArtifactUpload discards an unfinished upload. Aborting an
+	// unknown or expired upload succeeds.
+	AbortFirmwareArtifactUpload(context.Context, *connect.Request[v2.AbortFirmwareArtifactUploadRequest]) (*connect.Response[v2.AbortFirmwareArtifactUploadResponse], error)
 	// GetFirmwarePolicy returns the container's desired exact firmware target.
 	GetFirmwarePolicy(context.Context, *connect.Request[v2.GetFirmwarePolicyRequest]) (*connect.Response[v2.GetFirmwarePolicyResponse], error)
 	// SetFirmwarePolicy revision-fences a hot policy replacement or disable.
@@ -272,6 +364,26 @@ func NewFirmwareServiceHandler(svc FirmwareServiceHandler, opts ...connect.Handl
 	firmwareServiceUploadFirmwareArtifactHandler := connect.NewClientStreamHandler(
 		FirmwareServiceUploadFirmwareArtifactProcedure,
 		svc.UploadFirmwareArtifact,
+		opts...,
+	)
+	firmwareServiceBeginFirmwareArtifactUploadHandler := connect.NewUnaryHandler(
+		FirmwareServiceBeginFirmwareArtifactUploadProcedure,
+		svc.BeginFirmwareArtifactUpload,
+		opts...,
+	)
+	firmwareServiceWriteFirmwareArtifactUploadChunkHandler := connect.NewUnaryHandler(
+		FirmwareServiceWriteFirmwareArtifactUploadChunkProcedure,
+		svc.WriteFirmwareArtifactUploadChunk,
+		opts...,
+	)
+	firmwareServiceCommitFirmwareArtifactUploadHandler := connect.NewUnaryHandler(
+		FirmwareServiceCommitFirmwareArtifactUploadProcedure,
+		svc.CommitFirmwareArtifactUpload,
+		opts...,
+	)
+	firmwareServiceAbortFirmwareArtifactUploadHandler := connect.NewUnaryHandler(
+		FirmwareServiceAbortFirmwareArtifactUploadProcedure,
+		svc.AbortFirmwareArtifactUpload,
 		opts...,
 	)
 	firmwareServiceGetFirmwarePolicyHandler := connect.NewUnaryHandler(
@@ -328,6 +440,14 @@ func NewFirmwareServiceHandler(svc FirmwareServiceHandler, opts ...connect.Handl
 		switch r.URL.Path {
 		case FirmwareServiceUploadFirmwareArtifactProcedure:
 			firmwareServiceUploadFirmwareArtifactHandler.ServeHTTP(w, r)
+		case FirmwareServiceBeginFirmwareArtifactUploadProcedure:
+			firmwareServiceBeginFirmwareArtifactUploadHandler.ServeHTTP(w, r)
+		case FirmwareServiceWriteFirmwareArtifactUploadChunkProcedure:
+			firmwareServiceWriteFirmwareArtifactUploadChunkHandler.ServeHTTP(w, r)
+		case FirmwareServiceCommitFirmwareArtifactUploadProcedure:
+			firmwareServiceCommitFirmwareArtifactUploadHandler.ServeHTTP(w, r)
+		case FirmwareServiceAbortFirmwareArtifactUploadProcedure:
+			firmwareServiceAbortFirmwareArtifactUploadHandler.ServeHTTP(w, r)
 		case FirmwareServiceGetFirmwarePolicyProcedure:
 			firmwareServiceGetFirmwarePolicyHandler.ServeHTTP(w, r)
 		case FirmwareServiceSetFirmwarePolicyProcedure:
@@ -359,6 +479,22 @@ type UnimplementedFirmwareServiceHandler struct{}
 
 func (UnimplementedFirmwareServiceHandler) UploadFirmwareArtifact(context.Context, *connect.ClientStream[v2.UploadFirmwareArtifactRequest]) (*connect.Response[v2.UploadFirmwareArtifactResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("mdk.v2.FirmwareService.UploadFirmwareArtifact is not implemented"))
+}
+
+func (UnimplementedFirmwareServiceHandler) BeginFirmwareArtifactUpload(context.Context, *connect.Request[v2.BeginFirmwareArtifactUploadRequest]) (*connect.Response[v2.BeginFirmwareArtifactUploadResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("mdk.v2.FirmwareService.BeginFirmwareArtifactUpload is not implemented"))
+}
+
+func (UnimplementedFirmwareServiceHandler) WriteFirmwareArtifactUploadChunk(context.Context, *connect.Request[v2.WriteFirmwareArtifactUploadChunkRequest]) (*connect.Response[v2.WriteFirmwareArtifactUploadChunkResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("mdk.v2.FirmwareService.WriteFirmwareArtifactUploadChunk is not implemented"))
+}
+
+func (UnimplementedFirmwareServiceHandler) CommitFirmwareArtifactUpload(context.Context, *connect.Request[v2.CommitFirmwareArtifactUploadRequest]) (*connect.Response[v2.CommitFirmwareArtifactUploadResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("mdk.v2.FirmwareService.CommitFirmwareArtifactUpload is not implemented"))
+}
+
+func (UnimplementedFirmwareServiceHandler) AbortFirmwareArtifactUpload(context.Context, *connect.Request[v2.AbortFirmwareArtifactUploadRequest]) (*connect.Response[v2.AbortFirmwareArtifactUploadResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("mdk.v2.FirmwareService.AbortFirmwareArtifactUpload is not implemented"))
 }
 
 func (UnimplementedFirmwareServiceHandler) GetFirmwarePolicy(context.Context, *connect.Request[v2.GetFirmwarePolicyRequest]) (*connect.Response[v2.GetFirmwarePolicyResponse], error) {
