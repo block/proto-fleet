@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import CT1FirmwareUpload from "./CT1FirmwareUpload";
 import type { CT1Firmware, CT1FirmwareAttempt } from "@/protoOS/api/adapters/ct1Firmware";
 
-const key = "proto-os:ct1-firmware:device";
+const key = "proto-os:ct1-firmware:device:task";
 const attempt: CT1FirmwareAttempt = {
   taskId: "task",
   boards: [{ mac: "02:00:00:00:00:01", owner: "controller", label: "Tank 1 · Module 1 · Board 1" }],

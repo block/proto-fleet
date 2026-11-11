@@ -185,3 +185,38 @@ test("a refused Start is not tracked, and an update no controller knows stays tr
   ).json()) as V2ListFirmwareUpdatesResponse;
   expect((listed.updates ?? []).filter((job) => taskIds.has(job.taskId!))).toEqual([]);
 });
+
+test("a second tab adopts the tracked update instead of starting another one", async ({ page, context, request }) => {
+  const first = new CT1FirmwarePage(page);
+  const second = new CT1FirmwarePage(await context.newPage());
+  const taskIds = new Set<string>();
+  for (const tab of [first.page, second.page])
+    tab.on("request", (req) => {
+      if (new URL(req.url()).pathname === procedure("StartFirmwareUpdate"))
+        taskIds.add(fromBinary(StartFirmwareUpdateRequestSchema, req.postDataBuffer()!).taskId);
+    });
+  try {
+    // Both tabs select the image before either starts, so the second still shows the upload form.
+    await first.open();
+    await first.select();
+    await second.open();
+    await second.select();
+
+    await first.confirm();
+    // The dialog switches to the status view once the record is saved, just before Start is sent.
+    await expect(first.page.getByRole("dialog", { name: "Hashboard update status" })).toBeVisible();
+    await second.confirm();
+    await expect(second.dialog().getByRole("alert")).toContainText("already tracked");
+    await expect(second.dialog().getByRole("status")).toHaveText("Update finished");
+    await expect(second.dialog().getByText("succeeded · 100%", { exact: true })).toHaveCount(18);
+    expect(taskIds.size).toBe(1);
+
+    // The second tab tracks the same task, so finishing there releases the record for the first tab too.
+    await second.dialog().getByRole("button", { name: "Done", exact: true }).click();
+    await first.page.reload();
+    await expect(first.uploadButton()).toBeVisible();
+  } finally {
+    for (const taskId of taskIds)
+      expect((await request.post(procedure("CancelFirmwareUpdate"), { headers, data: { taskId } })).ok()).toBe(true);
+  }
+});

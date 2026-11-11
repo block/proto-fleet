@@ -16,8 +16,13 @@ import {
 } from "./generated/generatedApi";
 
 export function firmwareBoards(map: V2GetContainerMapResponse, serverId: string): CT1FirmwareBoard[] {
+  // Fleet's rule (docs/development/ct1-grpc.md): every tank and every module position of its grid must be reported.
+  // The map carries no completeness signal, so a tank that maps fewer modules than its grid cannot be told apart
+  // from one whose modules are not all reported yet, and updating it could silently skip boards.
   const incomplete = () =>
-    new Error("The container map is incomplete. Wait for all tanks, modules, and board slots before updating.");
+    new Error(
+      "The container map is incomplete. A local update needs every tank, module position, and board slot to be reported.",
+    );
   const tanks = map.containerMap?.tanks;
   const located = tanks?.filter((tank) => tank.id !== 0) ?? [];
   if (located.length !== 6 || new Set(located.map((tank) => tank.id)).size !== 6) throw incomplete();

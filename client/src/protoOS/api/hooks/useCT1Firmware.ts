@@ -8,6 +8,7 @@ import {
   CT1FirmwareStartRefusedError,
 } from "../adapters/ct1Firmware";
 import { readFirmwareImage } from "../adapters/mdkV2/firmwareImage";
+import { readAttempt, readAttempts, removeAttempt, saveAttempt } from "./ct1FirmwareStorage";
 import { usePoll } from "@/shared/hooks/usePoll";
 
 const message = (error: unknown) =>
@@ -18,28 +19,9 @@ const message = (error: unknown) =>
 const alreadyTracked =
   "Another hashboard update is already tracked in this browser. Check its status before starting a new one.";
 
-/** The saved record, or undefined when storage is empty, inaccessible, or holds something else. */
-const readAttempt = (key: string): CT1FirmwareAttempt | undefined => {
-  try {
-    const value = JSON.parse(localStorage.getItem(key) || "null") as CT1FirmwareAttempt | null;
-    if (
-      value?.taskId &&
-      Array.isArray(value.boards) &&
-      value.boards.length &&
-      value.boards.every(
-        (board) => typeof board.mac === "string" && typeof board.owner === "string" && typeof board.label === "string",
-      )
-    )
-      return value;
-  } catch {
-    /* Invalid or inaccessible storage is handled before starting. */
-  }
-  return undefined;
-};
-
 export function useCT1Firmware(firmware: CT1Firmware, deviceId: string) {
-  const key = `proto-os:ct1-firmware:${deviceId}`;
-  const [attempt, setAttempt] = useState(() => readAttempt(key));
+  // One update is shown at a time. Any other saved record is adopted once this one is released.
+  const [attempt, setAttempt] = useState(() => readAttempt(deviceId));
   const [image, setImage] = useState<CT1FirmwareImage>();
   const [boards, setBoards] = useState<CT1FirmwareBoard[]>([]);
   const [progress, setProgress] = useState<CT1FirmwareProgress>();
@@ -78,30 +60,30 @@ export function useCT1Firmware(firmware: CT1Firmware, deviceId: string) {
     },
   });
 
-  // One update is tracked per device, and another tab on this origin may have saved or released the record since
-  // this one last read it. Every write and removal re-reads first and leaves a different task's record alone.
+  // Records are saved per task (see ct1FirmwareStorage), so this tab only ever writes or removes its own task's
+  // record. The checks below keep a second tab from starting another update in the ordinary, sequential case; two
+  // tabs that pass them at the same moment each keep their own record, and the controller refuses one Start.
   const track = (planned: CT1FirmwareAttempt) => {
-    const stored = readAttempt(key);
-    if (stored) {
-      if (mounted.current) setAttempt(stored);
+    const other = readAttempt(deviceId);
+    if (other) {
+      if (mounted.current) setAttempt(other);
       throw new Error(alreadyTracked);
     }
     // A storage failure refuses Start rather than losing recovery information.
-    localStorage.setItem(key, JSON.stringify(planned));
+    saveAttempt(deviceId, planned);
     if (mounted.current) setAttempt(planned);
   };
+  /** Rewrites this task's record unless another tab already released it. */
   const retrack = (record: CT1FirmwareAttempt) => {
-    const stored = readAttempt(key);
-    const own = stored?.taskId === record.taskId;
-    if (own) localStorage.setItem(key, JSON.stringify(record));
-    setAttempt(own ? record : stored);
+    const saved = readAttempts(deviceId);
+    const own = saved.some((candidate) => candidate.taskId === record.taskId);
+    if (own) saveAttempt(deviceId, record);
+    setAttempt(own ? record : saved[0]);
   };
-  /** Releases this task's record and returns the one another tab holds instead, if any. */
+  /** Releases this task's record and returns another saved record to show next, if any. */
   const untrack = (record: CT1FirmwareAttempt) => {
-    const stored = readAttempt(key);
-    if (stored && stored.taskId !== record.taskId) return stored;
-    localStorage.removeItem(key);
-    return undefined;
+    removeAttempt(deviceId, record.taskId);
+    return readAttempt(deviceId);
   };
 
   const run = async (operation: (signal: AbortSignal) => Promise<void>) => {
@@ -136,7 +118,7 @@ export function useCT1Firmware(firmware: CT1Firmware, deviceId: string) {
   const install = () =>
     run(async (signal) => {
       if (!image || !boards.length || attempt) return;
-      const tracked = readAttempt(key);
+      const tracked = readAttempt(deviceId);
       if (tracked) {
         setAttempt(tracked);
         throw new Error(alreadyTracked);
@@ -172,7 +154,7 @@ export function useCT1Firmware(firmware: CT1Firmware, deviceId: string) {
     });
 
   const clear = () => {
-    setAttempt(attempt ? untrack(attempt) : readAttempt(key));
+    setAttempt(attempt ? untrack(attempt) : readAttempt(deviceId));
     setImage(undefined);
     setBoards([]);
     setProgress(undefined);

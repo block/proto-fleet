@@ -26,10 +26,17 @@ export class CT1FirmwarePage {
         buffer: Buffer.from(firmwareTestImage("prod", hardware, imageBytes)),
       });
   }
-  async install() {
+  /** Chooses a valid image and waits for the confirmation summary, without starting the update. */
+  async select() {
     await this.choose();
     await expect(this.dialog().getByText("Version 9.0.0 · prod · 18 hashboards")).toBeVisible();
+  }
+  async confirm() {
     await this.dialog().getByRole("button", { name: "Upload and install" }).click();
+  }
+  async install() {
+    await this.select();
+    await this.confirm();
   }
   async reopenStatus() {
     await this.page.reload();

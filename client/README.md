@@ -123,9 +123,12 @@ and displays the version, build, and occupied-board count before confirmation.
 ZIP archives, other hardware, and mismatched filenames are refused. This control
 is absent in Fleet-hosted views, which keep Fleet's firmware flow.
 
-The browser checks the complete six-tank map (including every configured module
-and slot), then uploads the image once to the connected controller using the
-chunked Connect API. It supplies the image version and filename as release
+The browser checks the complete six-tank map: every module position of each
+tank's grid and every board slot must be reported. A tank that maps fewer
+modules than its grid is refused, as in Fleet, because the map carries no signal
+that separates an unmapped position from one not reported yet, and updating it
+could silently skip boards. It then uploads the image once to the connected
+controller using the chunked Connect API. It supplies the image version and filename as release
 attribution, computes SHA-256 even on plain LAN HTTP, and retries only uncertain
 chunk writes at the same offset. Frigate validates the artifact and coordinates
 its distribution to the owning controllers. The update explicitly targets every
@@ -136,10 +139,13 @@ build changes must still flash. Mining stop/restore uses Frigate's defaults.
 Keep the page open during upload. Canceling an upload aborts its session when
 possible; sessions lost on disconnect expire after ten idle minutes or a
 controller restart. Before starting, ProtoOS saves its task ID and board-owner
-map in local browser storage. One update is tracked per device: a second tab on
-the same origin adopts the saved record instead of starting or clearing another
-update. A Start that the controller definitively refuses creates no job and is
-not tracked. After a lost response or reload on the same origin,
+map in local browser storage, under a key of its own. A tab only writes or
+removes the record of its own task, so tabs cannot overwrite or delete each
+other's record even when they start at the same moment; the controller decides
+which Start wins. One update is shown at a time: a second tab on the same origin
+adopts the saved record instead of starting another update, and any further
+saved record is shown once the current one is released. A Start that the
+controller definitively refuses creates no job and is not tracked. After a lost response or reload on the same origin,
 **Hashboard update status** queries each owner without resubmitting Start.
 
 Tracking is cleared only when every owner confirms the outcome: **Done** after
