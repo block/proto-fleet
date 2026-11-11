@@ -358,6 +358,13 @@ microbatch, cleanup uses its nonblocking lock guard. A controller that made
 progress stays due for a prompt retry. A controller that made no progress gets a
 one-minute backoff. Completed microbatches and the scheduling lease survive
 cancellation, so a slow controller cannot monopolize later runs.
+Migration 1072 also reserves half of the two-second worker deadline. A run stops
+starting microbatches after one second and leaves unfinished work due behind older
+controllers. Each microbatch limits lock waits to 250 ms, including independent
+foreign-key checks. These limits can be reduced with `run_budget_ms` and
+`lock_timeout_ms`, but their hard caps remain one second and 250 ms. Runtime
+yields and lock deferrals are recorded separately. The guard protects the
+scheduler from cumulative microbatch cost; it does not make a slow query faster.
 Migration 1035 changes the job from a fixed ten-second schedule to a
 one-second delay after each successful finish (`fixed_schedule=false`), with the
 same two-second maximum runtime and one cleanup worker. The configured one-minute
@@ -382,11 +389,12 @@ FROM timescaledb_information.jobs
 WHERE proc_name='compact_container_topology_job';
 ```
 
-Before upgrading an existing deployment through migration 1035 or 1069, record
-the job's configuration and scheduling state using the query above. Migration
-1035 changes the cadence of an enabled job. Migration 1069 changes its transaction
-boundaries. Disable cleanup and pause scheduling before either migration. Then
-verify that any active run has finished:
+Before upgrading an existing deployment through migration 1035, 1069, or 1072,
+record the job's configuration and scheduling state using the query above.
+Migration 1035 changes the cadence of an enabled job. Migration 1069 changes its
+transaction boundaries. Migration 1072 adds runtime and lock limits. Disable
+cleanup and pause scheduling before any of these migrations. Verify that any
+active run has finished:
 
 ```sql
 SELECT alter_job(job_id, config=>config || '{"enabled":false}'::jsonb,
@@ -412,16 +420,17 @@ reviewing a representative dry run and runtime:
 
 ```sql
 SELECT alter_job(job_id, config=>config ||
-                 '{"enabled":true,"batch_size":25,"microbatch_size":3}'::jsonb,
+                 '{"enabled":true,"batch_size":25,"microbatch_size":3,
+                   "run_budget_ms":1000,"lock_timeout_ms":250}'::jsonb,
                  scheduled=>true, next_start=>now())
 FROM timescaledb_information.jobs WHERE proc_name='compact_container_topology_job';
 ```
 
-Enablement is a separate rollout step after applying migrations 1035 and 1069 and
-validating the deployment's database capacity. Both migrations preserve
-`config.enabled` and `scheduled`, including existing opt-outs; they do not enable
-cleanup. Record the deployment, migration version, job ID, enablement time,
-observation rate, and before/after progress. Verify several successful
+Enablement is a separate rollout step after applying migrations 1035, 1069, and
+1072 and validating the deployment's database capacity. All three migrations
+preserve `config.enabled` and `scheduled`, including existing opt-outs; they do
+not enable cleanup. Record the deployment, migration version, job ID, enablement
+time, observation rate, and before/after progress. Verify several successful
 scheduled runs, falling backlog, and acceptable ingestion latency before recording
 the deployment as enabled. No deployment is qualified by the local test alone.
 
@@ -438,16 +447,17 @@ cap of 50 for each queue. The one-second ingestion fixture exposed cold-batch
 organization-lock stalls above its 250 ms limit at batch sizes 50 and 40. The
 default `microbatch_size` limits each lock hold to three observations per queue:
 up to three due retries and three new observations. It preserves the configured
-total. Qualify the setting
-against both ingestion latency and throughput on the target deployment. The
+total. Qualify the setting against both ingestion latency and throughput on the
+target deployment. The
 migration preserves existing batch settings, so applying it alone does not
 establish the latency bound.
 
 Set `enabled` false and `scheduled` false to stop future work and worker launches.
-Track state-table examined/deleted totals, `deferrals`, `last_deferred_at`, last
-duration/error, pending depth, and Timescale job statistics. Worker termination
-may appear only in Timescale job statistics; the committed scheduling lease
-remains. After migration 1069, `last_duration_ms` describes the latest
+Track state-table examined/deleted totals, `deferrals`, `last_deferred_at`,
+`runtime_yields`, `last_runtime_yield_at`, last duration/error, pending depth,
+and Timescale job statistics. Worker termination may appear only in Timescale
+job statistics; the committed scheduling lease remains. After migration 1069,
+`last_duration_ms` describes the latest
 microbatch. Use Timescale job statistics for whole-run status and timing.
 Migration 1058 also bounds reference lookup planning to the candidate collection-time
 range. It forces a custom plan inside the lookup so prepared callers do not plan
@@ -531,6 +541,8 @@ eligible input rate; the latter includes retries and cannot replace it:
 ```sql
 SELECT sum(examined) AS examined, sum(deleted) AS deleted,
        sum(deferrals) AS deferrals, max(last_deferred_at) AS last_deferred_at,
+       sum(runtime_yields) AS runtime_yields,
+       max(last_runtime_yield_at) AS last_runtime_yield_at,
        sum(failures) AS failures, max(last_duration_ms) AS last_run_max_ms
 FROM container_topology_compaction_state;
 SELECT count(*) AS pending, count(*) FILTER (WHERE next_check_at <= now()) AS due
@@ -583,6 +595,9 @@ changing enablement, but also restores the known capacity limit. Rolling back
 migration 1069 preserves the original progress fields and job settings, but drops
 its deferral counters and restores the full-batch organization-lock hold that can
 delay ingestion. Record those counters before a coordinated rollback if needed.
+Rolling back migration 1072 removes the runtime and lock guards and drops its
+runtime-yield counters. Keep cleanup disabled after that rollback. Do not enable
+the older procedure on a deployment that has already hit its worker deadline.
 
 Prefer disabling jobs and fixing forward while preserving the schema and evidence.
 An application release must recognize the installed database checkpoint; see the

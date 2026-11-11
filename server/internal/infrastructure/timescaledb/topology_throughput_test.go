@@ -32,9 +32,10 @@ func TestTopologyThroughputMigrationPreservesJobAndProgress(t *testing.T) {
 	require.NoError(t, err)
 	var before string
 	require.NoError(t, r.db.QueryRowContext(t.Context(), compactionState, r.databaseID).Scan(&before))
-	var handoffProcedureSource string
+	var guardedProcedureSource string
 	require.NoError(t, r.db.QueryRowContext(t.Context(), `SELECT prosrc FROM pg_proc
- WHERE oid='public.compact_container_topology_job(integer,jsonb)'::regprocedure`).Scan(&handoffProcedureSource))
+ WHERE oid='public.compact_container_topology_job(integer,jsonb)'::regprocedure`).Scan(&guardedProcedureSource))
+	var handoffProcedureSource string
 	var fullBatchProcedureSource string
 	for _, scenario := range []struct {
 		name      string
@@ -59,6 +60,8 @@ func TestTopologyThroughputMigrationPreservesJobAndProgress(t *testing.T) {
 				{"001035_internal_topology_cleanup_throughput", "up", 1, false},
 				{"001069_internal_topology_cleanup_lock_handoff", "down", 1, false},
 				{"001069_internal_topology_cleanup_lock_handoff", "up", 1, false},
+				{"001072_internal_topology_cleanup_runtime_guard", "down", 1, false},
+				{"001072_internal_topology_cleanup_runtime_guard", "up", 1, false},
 			} {
 				migration, err := os.ReadFile("../../../migrations/current/" + step.migration + "." + step.direction + ".sql")
 				require.NoError(t, err)
@@ -100,7 +103,30 @@ func TestTopologyThroughputMigrationPreservesJobAndProgress(t *testing.T) {
 						}
 					} else {
 						require.Equal(t, 2, telemetryColumns)
-						require.Equal(t, handoffProcedureSource, procedureSource, "up migration must restore the lock-handoff procedure")
+						if handoffProcedureSource == "" {
+							handoffProcedureSource = procedureSource
+						} else {
+							require.Equal(t, handoffProcedureSource, procedureSource, "up migration must restore the lock-handoff procedure")
+						}
+					}
+				}
+				if step.migration == "001072_internal_topology_cleanup_runtime_guard" {
+					var telemetryColumns int
+					require.NoError(t, r.db.QueryRowContext(t.Context(), `SELECT count(*) FROM information_schema.columns
+ WHERE table_schema='public' AND table_name='container_topology_compaction_state'
+ AND column_name IN ('runtime_yields','last_runtime_yield_at')`).Scan(&telemetryColumns))
+					var procedureSource string
+					require.NoError(t, r.db.QueryRowContext(t.Context(), `SELECT prosrc FROM pg_proc
+ WHERE oid='public.compact_container_topology_job(integer,jsonb)'::regprocedure`).Scan(&procedureSource))
+					if step.direction == "down" {
+						require.Zero(t, telemetryColumns)
+						require.Equal(t, handoffProcedureSource, procedureSource, "down migration must restore the lock-handoff procedure")
+						require.NotContains(t, procedureSource, "run_budget_ms")
+					} else {
+						require.Equal(t, 2, telemetryColumns)
+						require.Equal(t, guardedProcedureSource, procedureSource, "up migration must restore the runtime guard")
+						require.Contains(t, procedureSource, "run_budget_ms")
+						require.Contains(t, procedureSource, "lock_timeout_ms")
 					}
 				}
 			}

@@ -939,18 +939,20 @@ type ContainerTopologyCompactionPending struct {
 }
 
 type ContainerTopologyCompactionState struct {
-	DeviceID       int64
-	ScannedThrough sql.NullTime
-	AnchorID       sql.NullInt64
-	NextRunAt      time.Time
-	LastRunAt      sql.NullTime
-	LastDurationMs sql.NullFloat64
-	Examined       int64
-	Deleted        int64
-	Failures       int64
-	LastError      sql.NullString
-	Deferrals      int64
-	LastDeferredAt sql.NullTime
+	DeviceID           int64
+	ScannedThrough     sql.NullTime
+	AnchorID           sql.NullInt64
+	NextRunAt          time.Time
+	LastRunAt          sql.NullTime
+	LastDurationMs     sql.NullFloat64
+	Examined           int64
+	Deleted            int64
+	Failures           int64
+	LastError          sql.NullString
+	Deferrals          int64
+	LastDeferredAt     sql.NullTime
+	RuntimeYields      int64
+	LastRuntimeYieldAt sql.NullTime
 }
 
 type ContainerTopologyObservation struct {
@@ -2349,6 +2351,59 @@ type HostedModuleMembership struct {
 	OrgID           int64
 	MembershipSince interface{}
 	BoardIds        interface{}
+}
+
+type HostedReportingAuthority struct {
+	OrganizationID int64
+	AccountID      int64
+	UserID         int64
+	CanCreate      bool
+	AllSites       bool
+	SiteIds        []int64
+	Revision       int64
+	UpdatedAt      time.Time
+}
+
+type HostedReportingFact struct {
+	OrganizationID       int64
+	AccountID            int64
+	Kind                 string
+	FactID               string
+	RowID                sql.NullInt64
+	StartAt              time.Time
+	EndAt                sql.NullTime
+	StartSeconds         int64
+	StartNanos           int32
+	ReceivedAt           sql.NullTime
+	SiteID               sql.NullInt64
+	ContainerID          sql.NullInt64
+	AssetKind            sql.NullInt32
+	AssetID              sql.NullInt64
+	OrderID              sql.NullString
+	MeterID              sql.NullString
+	AllocationIntervalID sql.NullInt64
+	EpisodeID            sql.NullString
+	BoardCoverageIds     []string
+	Payload              json.RawMessage
+	PayloadBytes         sql.NullInt64
+}
+
+type HostedReportingFactSite struct {
+	OrganizationID int64
+	AccountID      int64
+	SiteID         int64
+	FactCount      int64
+}
+
+type HostedReportingInput struct {
+	OrganizationID int64
+	AccountID      int64
+	Revision       int64
+	UpdatedBy      int64
+	SourceRef      string
+	Configuration  json.RawMessage
+	SiteIds        []int64
+	UpdatedAt      time.Time
 }
 
 type InfrastructureDevice struct {

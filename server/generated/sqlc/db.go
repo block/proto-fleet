@@ -51,6 +51,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.addRepairTicketBoardStmt, err = db.PrepareContext(ctx, addRepairTicketBoard); err != nil {
 		return nil, fmt.Errorf("error preparing query AddRepairTicketBoard: %w", err)
 	}
+	if q.adjustReportingFactSiteStmt, err = db.PrepareContext(ctx, adjustReportingFactSite); err != nil {
+		return nil, fmt.Errorf("error preparing query AdjustReportingFactSite: %w", err)
+	}
 	if q.adminResetUserPasswordStmt, err = db.PrepareContext(ctx, adminResetUserPassword); err != nil {
 		return nil, fmt.Errorf("error preparing query AdminResetUserPassword: %w", err)
 	}
@@ -447,6 +450,12 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.countRepairTicketsBySiteStmt, err = db.PrepareContext(ctx, countRepairTicketsBySite); err != nil {
 		return nil, fmt.Errorf("error preparing query CountRepairTicketsBySite: %w", err)
 	}
+	if q.countReportingContainersStmt, err = db.PrepareContext(ctx, countReportingContainers); err != nil {
+		return nil, fmt.Errorf("error preparing query CountReportingContainers: %w", err)
+	}
+	if q.countReportingRegistersStmt, err = db.PrepareContext(ctx, countReportingRegisters); err != nil {
+		return nil, fmt.Errorf("error preparing query CountReportingRegisters: %w", err)
+	}
 	if q.countResponseProfilesByInfrastructureDevicesStmt, err = db.PrepareContext(ctx, countResponseProfilesByInfrastructureDevices); err != nil {
 		return nil, fmt.Errorf("error preparing query CountResponseProfilesByInfrastructureDevices: %w", err)
 	}
@@ -618,6 +627,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.deleteDisabledMQTTSourceConfigByOrgStmt, err = db.PrepareContext(ctx, deleteDisabledMQTTSourceConfigByOrg); err != nil {
 		return nil, fmt.Errorf("error preparing query DeleteDisabledMQTTSourceConfigByOrg: %w", err)
 	}
+	if q.deleteEmptyReportingFactSitesStmt, err = db.PrepareContext(ctx, deleteEmptyReportingFactSites); err != nil {
+		return nil, fmt.Errorf("error preparing query DeleteEmptyReportingFactSites: %w", err)
+	}
 	if q.deleteExpiredSessionsStmt, err = db.PrepareContext(ctx, deleteExpiredSessions); err != nil {
 		return nil, fmt.Errorf("error preparing query DeleteExpiredSessions: %w", err)
 	}
@@ -665,6 +677,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.deleteReplacedLegacyPoolIntentsStmt, err = db.PrepareContext(ctx, deleteReplacedLegacyPoolIntents); err != nil {
 		return nil, fmt.Errorf("error preparing query DeleteReplacedLegacyPoolIntents: %w", err)
+	}
+	if q.deleteReportingFactStmt, err = db.PrepareContext(ctx, deleteReportingFact); err != nil {
+		return nil, fmt.Errorf("error preparing query DeleteReportingFact: %w", err)
 	}
 	if q.deleteScheduleTargetsStmt, err = db.PrepareContext(ctx, deleteScheduleTargets); err != nil {
 		return nil, fmt.Errorf("error preparing query DeleteScheduleTargets: %w", err)
@@ -1476,6 +1491,21 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.getRepairTicketMetadataStmt, err = db.PrepareContext(ctx, getRepairTicketMetadata); err != nil {
 		return nil, fmt.Errorf("error preparing query GetRepairTicketMetadata: %w", err)
 	}
+	if q.getReportingAuthorityStmt, err = db.PrepareContext(ctx, getReportingAuthority); err != nil {
+		return nil, fmt.Errorf("error preparing query GetReportingAuthority: %w", err)
+	}
+	if q.getReportingFactStmt, err = db.PrepareContext(ctx, getReportingFact); err != nil {
+		return nil, fmt.Errorf("error preparing query GetReportingFact: %w", err)
+	}
+	if q.getReportingFactPayloadsStmt, err = db.PrepareContext(ctx, getReportingFactPayloads); err != nil {
+		return nil, fmt.Errorf("error preparing query GetReportingFactPayloads: %w", err)
+	}
+	if q.getReportingInputsStmt, err = db.PrepareContext(ctx, getReportingInputs); err != nil {
+		return nil, fmt.Errorf("error preparing query GetReportingInputs: %w", err)
+	}
+	if q.getReportingUserStmt, err = db.PrepareContext(ctx, getReportingUser); err != nil {
+		return nil, fmt.Errorf("error preparing query GetReportingUser: %w", err)
+	}
 	if q.getRoleByIDStmt, err = db.PrepareContext(ctx, getRoleByID); err != nil {
 		return nil, fmt.Errorf("error preparing query GetRoleByID: %w", err)
 	}
@@ -1590,11 +1620,17 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.hasPoolConfigurationReviewAuthorizationStmt, err = db.PrepareContext(ctx, hasPoolConfigurationReviewAuthorization); err != nil {
 		return nil, fmt.Errorf("error preparing query HasPoolConfigurationReviewAuthorization: %w", err)
 	}
+	if q.hasReportingAllocatedMetersStmt, err = db.PrepareContext(ctx, hasReportingAllocatedMeters); err != nil {
+		return nil, fmt.Errorf("error preparing query HasReportingAllocatedMeters: %w", err)
+	}
 	if q.hasUserStmt, err = db.PrepareContext(ctx, hasUser); err != nil {
 		return nil, fmt.Errorf("error preparing query HasUser: %w", err)
 	}
 	if q.initializeDeviceWorkerNameStmt, err = db.PrepareContext(ctx, initializeDeviceWorkerName); err != nil {
 		return nil, fmt.Errorf("error preparing query InitializeDeviceWorkerName: %w", err)
+	}
+	if q.initializeReportingInputsStmt, err = db.PrepareContext(ctx, initializeReportingInputs); err != nil {
+		return nil, fmt.Errorf("error preparing query InitializeReportingInputs: %w", err)
 	}
 	if q.insertActivityLogStmt, err = db.PrepareContext(ctx, insertActivityLog); err != nil {
 		return nil, fmt.Errorf("error preparing query InsertActivityLog: %w", err)
@@ -1965,6 +2001,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.listHostMiningGroupPoolRevisionsStmt, err = db.PrepareContext(ctx, listHostMiningGroupPoolRevisions); err != nil {
 		return nil, fmt.Errorf("error preparing query ListHostMiningGroupPoolRevisions: %w", err)
 	}
+	if q.listHostReportingAccountsStmt, err = db.PrepareContext(ctx, listHostReportingAccounts); err != nil {
+		return nil, fmt.Errorf("error preparing query ListHostReportingAccounts: %w", err)
+	}
 	if q.listHostedAccountAncestorGrantsStmt, err = db.PrepareContext(ctx, listHostedAccountAncestorGrants); err != nil {
 		return nil, fmt.Errorf("error preparing query ListHostedAccountAncestorGrants: %w", err)
 	}
@@ -2219,6 +2258,45 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.listRepairTicketsStmt, err = db.PrepareContext(ctx, listRepairTickets); err != nil {
 		return nil, fmt.Errorf("error preparing query ListRepairTickets: %w", err)
+	}
+	if q.listReportingAllocationIntervalsStmt, err = db.PrepareContext(ctx, listReportingAllocationIntervals); err != nil {
+		return nil, fmt.Errorf("error preparing query ListReportingAllocationIntervals: %w", err)
+	}
+	if q.listReportingAssetSupportMetadataStmt, err = db.PrepareContext(ctx, listReportingAssetSupportMetadata); err != nil {
+		return nil, fmt.Errorf("error preparing query ListReportingAssetSupportMetadata: %w", err)
+	}
+	if q.listReportingAuthoritiesStmt, err = db.PrepareContext(ctx, listReportingAuthorities); err != nil {
+		return nil, fmt.Errorf("error preparing query ListReportingAuthorities: %w", err)
+	}
+	if q.listReportingCaptureStreamsStmt, err = db.PrepareContext(ctx, listReportingCaptureStreams); err != nil {
+		return nil, fmt.Errorf("error preparing query ListReportingCaptureStreams: %w", err)
+	}
+	if q.listReportingFactDevicesStmt, err = db.PrepareContext(ctx, listReportingFactDevices); err != nil {
+		return nil, fmt.Errorf("error preparing query ListReportingFactDevices: %w", err)
+	}
+	if q.listReportingFactPageMetadataStmt, err = db.PrepareContext(ctx, listReportingFactPageMetadata); err != nil {
+		return nil, fmt.Errorf("error preparing query ListReportingFactPageMetadata: %w", err)
+	}
+	if q.listReportingFactSitesStmt, err = db.PrepareContext(ctx, listReportingFactSites); err != nil {
+		return nil, fmt.Errorf("error preparing query ListReportingFactSites: %w", err)
+	}
+	if q.listReportingMeterSupportMetadataStmt, err = db.PrepareContext(ctx, listReportingMeterSupportMetadata); err != nil {
+		return nil, fmt.Errorf("error preparing query ListReportingMeterSupportMetadata: %w", err)
+	}
+	if q.listReportingModuleInstallationCandidatesStmt, err = db.PrepareContext(ctx, listReportingModuleInstallationCandidates); err != nil {
+		return nil, fmt.Errorf("error preparing query ListReportingModuleInstallationCandidates: %w", err)
+	}
+	if q.listReportingReferenceMetadataStmt, err = db.PrepareContext(ctx, listReportingReferenceMetadata); err != nil {
+		return nil, fmt.Errorf("error preparing query ListReportingReferenceMetadata: %w", err)
+	}
+	if q.listReportingSitesStmt, err = db.PrepareContext(ctx, listReportingSites); err != nil {
+		return nil, fmt.Errorf("error preparing query ListReportingSites: %w", err)
+	}
+	if q.listReportingValidationMetadataStmt, err = db.PrepareContext(ctx, listReportingValidationMetadata); err != nil {
+		return nil, fmt.Errorf("error preparing query ListReportingValidationMetadata: %w", err)
+	}
+	if q.listReportingWitnessMetadataStmt, err = db.PrepareContext(ctx, listReportingWitnessMetadata); err != nil {
+		return nil, fmt.Errorf("error preparing query ListReportingWitnessMetadata: %w", err)
 	}
 	if q.listResponseProfileInfrastructureDevicesByOrgStmt, err = db.PrepareContext(ctx, listResponseProfileInfrastructureDevicesByOrg); err != nil {
 		return nil, fmt.Errorf("error preparing query ListResponseProfileInfrastructureDevicesByOrg: %w", err)
@@ -2550,6 +2628,15 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.lockRepairTicketTargetAllocationStmt, err = db.PrepareContext(ctx, lockRepairTicketTargetAllocation); err != nil {
 		return nil, fmt.Errorf("error preparing query LockRepairTicketTargetAllocation: %w", err)
 	}
+	if q.lockReportingDevicesStmt, err = db.PrepareContext(ctx, lockReportingDevices); err != nil {
+		return nil, fmt.Errorf("error preparing query LockReportingDevices: %w", err)
+	}
+	if q.lockReportingInputsForShareStmt, err = db.PrepareContext(ctx, lockReportingInputsForShare); err != nil {
+		return nil, fmt.Errorf("error preparing query LockReportingInputsForShare: %w", err)
+	}
+	if q.lockReportingInputsForUpdateStmt, err = db.PrepareContext(ctx, lockReportingInputsForUpdate); err != nil {
+		return nil, fmt.Errorf("error preparing query LockReportingInputsForUpdate: %w", err)
+	}
 	if q.lockSchedulePriorityStmt, err = db.PrepareContext(ctx, lockSchedulePriority); err != nil {
 		return nil, fmt.Errorf("error preparing query LockSchedulePriority: %w", err)
 	}
@@ -2642,6 +2729,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.prunePermissionsOutsideKeysStmt, err = db.PrepareContext(ctx, prunePermissionsOutsideKeys); err != nil {
 		return nil, fmt.Errorf("error preparing query PrunePermissionsOutsideKeys: %w", err)
+	}
+	if q.putReportingFactStmt, err = db.PrepareContext(ctx, putReportingFact); err != nil {
+		return nil, fmt.Errorf("error preparing query PutReportingFact: %w", err)
 	}
 	if q.quarantineDeviceWriteFenceStmt, err = db.PrepareContext(ctx, quarantineDeviceWriteFence); err != nil {
 		return nil, fmt.Errorf("error preparing query QuarantineDeviceWriteFence: %w", err)
@@ -3015,6 +3105,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.setRepairTicketCommentVisibilityStmt, err = db.PrepareContext(ctx, setRepairTicketCommentVisibility); err != nil {
 		return nil, fmt.Errorf("error preparing query SetRepairTicketCommentVisibility: %w", err)
 	}
+	if q.setReportingAuthorityStmt, err = db.PrepareContext(ctx, setReportingAuthority); err != nil {
+		return nil, fmt.Errorf("error preparing query SetReportingAuthority: %w", err)
+	}
 	if q.setSchedulePrioritiesStmt, err = db.PrepareContext(ctx, setSchedulePriorities); err != nil {
 		return nil, fmt.Errorf("error preparing query SetSchedulePriorities: %w", err)
 	}
@@ -3297,6 +3390,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.updateRepairTicketTargetEvidenceStmt, err = db.PrepareContext(ctx, updateRepairTicketTargetEvidence); err != nil {
 		return nil, fmt.Errorf("error preparing query UpdateRepairTicketTargetEvidence: %w", err)
 	}
+	if q.updateReportingInputsStmt, err = db.PrepareContext(ctx, updateReportingInputs); err != nil {
+		return nil, fmt.Errorf("error preparing query UpdateReportingInputs: %w", err)
+	}
 	if q.updateRoleStmt, err = db.PrepareContext(ctx, updateRole); err != nil {
 		return nil, fmt.Errorf("error preparing query UpdateRole: %w", err)
 	}
@@ -3465,6 +3561,11 @@ func (q *Queries) Close() error {
 	if q.addRepairTicketBoardStmt != nil {
 		if cerr := q.addRepairTicketBoardStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing addRepairTicketBoardStmt: %w", cerr)
+		}
+	}
+	if q.adjustReportingFactSiteStmt != nil {
+		if cerr := q.adjustReportingFactSiteStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing adjustReportingFactSiteStmt: %w", cerr)
 		}
 	}
 	if q.adminResetUserPasswordStmt != nil {
@@ -4127,6 +4228,16 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing countRepairTicketsBySiteStmt: %w", cerr)
 		}
 	}
+	if q.countReportingContainersStmt != nil {
+		if cerr := q.countReportingContainersStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing countReportingContainersStmt: %w", cerr)
+		}
+	}
+	if q.countReportingRegistersStmt != nil {
+		if cerr := q.countReportingRegistersStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing countReportingRegistersStmt: %w", cerr)
+		}
+	}
 	if q.countResponseProfilesByInfrastructureDevicesStmt != nil {
 		if cerr := q.countResponseProfilesByInfrastructureDevicesStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing countResponseProfilesByInfrastructureDevicesStmt: %w", cerr)
@@ -4412,6 +4523,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing deleteDisabledMQTTSourceConfigByOrgStmt: %w", cerr)
 		}
 	}
+	if q.deleteEmptyReportingFactSitesStmt != nil {
+		if cerr := q.deleteEmptyReportingFactSitesStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing deleteEmptyReportingFactSitesStmt: %w", cerr)
+		}
+	}
 	if q.deleteExpiredSessionsStmt != nil {
 		if cerr := q.deleteExpiredSessionsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing deleteExpiredSessionsStmt: %w", cerr)
@@ -4490,6 +4606,11 @@ func (q *Queries) Close() error {
 	if q.deleteReplacedLegacyPoolIntentsStmt != nil {
 		if cerr := q.deleteReplacedLegacyPoolIntentsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing deleteReplacedLegacyPoolIntentsStmt: %w", cerr)
+		}
+	}
+	if q.deleteReportingFactStmt != nil {
+		if cerr := q.deleteReportingFactStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing deleteReportingFactStmt: %w", cerr)
 		}
 	}
 	if q.deleteScheduleTargetsStmt != nil {
@@ -5842,6 +5963,31 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing getRepairTicketMetadataStmt: %w", cerr)
 		}
 	}
+	if q.getReportingAuthorityStmt != nil {
+		if cerr := q.getReportingAuthorityStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getReportingAuthorityStmt: %w", cerr)
+		}
+	}
+	if q.getReportingFactStmt != nil {
+		if cerr := q.getReportingFactStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getReportingFactStmt: %w", cerr)
+		}
+	}
+	if q.getReportingFactPayloadsStmt != nil {
+		if cerr := q.getReportingFactPayloadsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getReportingFactPayloadsStmt: %w", cerr)
+		}
+	}
+	if q.getReportingInputsStmt != nil {
+		if cerr := q.getReportingInputsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getReportingInputsStmt: %w", cerr)
+		}
+	}
+	if q.getReportingUserStmt != nil {
+		if cerr := q.getReportingUserStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getReportingUserStmt: %w", cerr)
+		}
+	}
 	if q.getRoleByIDStmt != nil {
 		if cerr := q.getRoleByIDStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getRoleByIDStmt: %w", cerr)
@@ -6032,6 +6178,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing hasPoolConfigurationReviewAuthorizationStmt: %w", cerr)
 		}
 	}
+	if q.hasReportingAllocatedMetersStmt != nil {
+		if cerr := q.hasReportingAllocatedMetersStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing hasReportingAllocatedMetersStmt: %w", cerr)
+		}
+	}
 	if q.hasUserStmt != nil {
 		if cerr := q.hasUserStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing hasUserStmt: %w", cerr)
@@ -6040,6 +6191,11 @@ func (q *Queries) Close() error {
 	if q.initializeDeviceWorkerNameStmt != nil {
 		if cerr := q.initializeDeviceWorkerNameStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing initializeDeviceWorkerNameStmt: %w", cerr)
+		}
+	}
+	if q.initializeReportingInputsStmt != nil {
+		if cerr := q.initializeReportingInputsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing initializeReportingInputsStmt: %w", cerr)
 		}
 	}
 	if q.insertActivityLogStmt != nil {
@@ -6657,6 +6813,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing listHostMiningGroupPoolRevisionsStmt: %w", cerr)
 		}
 	}
+	if q.listHostReportingAccountsStmt != nil {
+		if cerr := q.listHostReportingAccountsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listHostReportingAccountsStmt: %w", cerr)
+		}
+	}
 	if q.listHostedAccountAncestorGrantsStmt != nil {
 		if cerr := q.listHostedAccountAncestorGrantsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing listHostedAccountAncestorGrantsStmt: %w", cerr)
@@ -7080,6 +7241,71 @@ func (q *Queries) Close() error {
 	if q.listRepairTicketsStmt != nil {
 		if cerr := q.listRepairTicketsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing listRepairTicketsStmt: %w", cerr)
+		}
+	}
+	if q.listReportingAllocationIntervalsStmt != nil {
+		if cerr := q.listReportingAllocationIntervalsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listReportingAllocationIntervalsStmt: %w", cerr)
+		}
+	}
+	if q.listReportingAssetSupportMetadataStmt != nil {
+		if cerr := q.listReportingAssetSupportMetadataStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listReportingAssetSupportMetadataStmt: %w", cerr)
+		}
+	}
+	if q.listReportingAuthoritiesStmt != nil {
+		if cerr := q.listReportingAuthoritiesStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listReportingAuthoritiesStmt: %w", cerr)
+		}
+	}
+	if q.listReportingCaptureStreamsStmt != nil {
+		if cerr := q.listReportingCaptureStreamsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listReportingCaptureStreamsStmt: %w", cerr)
+		}
+	}
+	if q.listReportingFactDevicesStmt != nil {
+		if cerr := q.listReportingFactDevicesStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listReportingFactDevicesStmt: %w", cerr)
+		}
+	}
+	if q.listReportingFactPageMetadataStmt != nil {
+		if cerr := q.listReportingFactPageMetadataStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listReportingFactPageMetadataStmt: %w", cerr)
+		}
+	}
+	if q.listReportingFactSitesStmt != nil {
+		if cerr := q.listReportingFactSitesStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listReportingFactSitesStmt: %w", cerr)
+		}
+	}
+	if q.listReportingMeterSupportMetadataStmt != nil {
+		if cerr := q.listReportingMeterSupportMetadataStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listReportingMeterSupportMetadataStmt: %w", cerr)
+		}
+	}
+	if q.listReportingModuleInstallationCandidatesStmt != nil {
+		if cerr := q.listReportingModuleInstallationCandidatesStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listReportingModuleInstallationCandidatesStmt: %w", cerr)
+		}
+	}
+	if q.listReportingReferenceMetadataStmt != nil {
+		if cerr := q.listReportingReferenceMetadataStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listReportingReferenceMetadataStmt: %w", cerr)
+		}
+	}
+	if q.listReportingSitesStmt != nil {
+		if cerr := q.listReportingSitesStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listReportingSitesStmt: %w", cerr)
+		}
+	}
+	if q.listReportingValidationMetadataStmt != nil {
+		if cerr := q.listReportingValidationMetadataStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listReportingValidationMetadataStmt: %w", cerr)
+		}
+	}
+	if q.listReportingWitnessMetadataStmt != nil {
+		if cerr := q.listReportingWitnessMetadataStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listReportingWitnessMetadataStmt: %w", cerr)
 		}
 	}
 	if q.listResponseProfileInfrastructureDevicesByOrgStmt != nil {
@@ -7632,6 +7858,21 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing lockRepairTicketTargetAllocationStmt: %w", cerr)
 		}
 	}
+	if q.lockReportingDevicesStmt != nil {
+		if cerr := q.lockReportingDevicesStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing lockReportingDevicesStmt: %w", cerr)
+		}
+	}
+	if q.lockReportingInputsForShareStmt != nil {
+		if cerr := q.lockReportingInputsForShareStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing lockReportingInputsForShareStmt: %w", cerr)
+		}
+	}
+	if q.lockReportingInputsForUpdateStmt != nil {
+		if cerr := q.lockReportingInputsForUpdateStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing lockReportingInputsForUpdateStmt: %w", cerr)
+		}
+	}
 	if q.lockSchedulePriorityStmt != nil {
 		if cerr := q.lockSchedulePriorityStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing lockSchedulePriorityStmt: %w", cerr)
@@ -7785,6 +8026,11 @@ func (q *Queries) Close() error {
 	if q.prunePermissionsOutsideKeysStmt != nil {
 		if cerr := q.prunePermissionsOutsideKeysStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing prunePermissionsOutsideKeysStmt: %w", cerr)
+		}
+	}
+	if q.putReportingFactStmt != nil {
+		if cerr := q.putReportingFactStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing putReportingFactStmt: %w", cerr)
 		}
 	}
 	if q.quarantineDeviceWriteFenceStmt != nil {
@@ -8407,6 +8653,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing setRepairTicketCommentVisibilityStmt: %w", cerr)
 		}
 	}
+	if q.setReportingAuthorityStmt != nil {
+		if cerr := q.setReportingAuthorityStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing setReportingAuthorityStmt: %w", cerr)
+		}
+	}
 	if q.setSchedulePrioritiesStmt != nil {
 		if cerr := q.setSchedulePrioritiesStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing setSchedulePrioritiesStmt: %w", cerr)
@@ -8877,6 +9128,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing updateRepairTicketTargetEvidenceStmt: %w", cerr)
 		}
 	}
+	if q.updateReportingInputsStmt != nil {
+		if cerr := q.updateReportingInputsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing updateReportingInputsStmt: %w", cerr)
+		}
+	}
 	if q.updateRoleStmt != nil {
 		if cerr := q.updateRoleStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing updateRoleStmt: %w", cerr)
@@ -9125,6 +9381,7 @@ type Queries struct {
 	addHostedAccountSiteStmt                                    *sql.Stmt
 	addHostedAccountUserAffiliationStmt                         *sql.Stmt
 	addRepairTicketBoardStmt                                    *sql.Stmt
+	adjustReportingFactSiteStmt                                 *sql.Stmt
 	adminResetUserPasswordStmt                                  *sql.Stmt
 	adminTerminateCurtailmentEventStmt                          *sql.Stmt
 	adoptLegacyPoolBoardAssignmentsStmt                         *sql.Stmt
@@ -9257,6 +9514,8 @@ type Queries struct {
 	countRepairTicketsStmt                                      *sql.Stmt
 	countRepairTicketsByBuildingStmt                            *sql.Stmt
 	countRepairTicketsBySiteStmt                                *sql.Stmt
+	countReportingContainersStmt                                *sql.Stmt
+	countReportingRegistersStmt                                 *sql.Stmt
 	countResponseProfilesByInfrastructureDevicesStmt            *sql.Stmt
 	countUnexpiredAlertMaintenanceWindowsStmt                   *sql.Stmt
 	createApiKeyStmt                                            *sql.Stmt
@@ -9314,6 +9573,7 @@ type Queries struct {
 	deleteCurtailmentResponseProfileByOrgStmt                   *sql.Stmt
 	deleteCurtailmentResponseProfilesBySiteStmt                 *sql.Stmt
 	deleteDisabledMQTTSourceConfigByOrgStmt                     *sql.Stmt
+	deleteEmptyReportingFactSitesStmt                           *sql.Stmt
 	deleteExpiredSessionsStmt                                   *sql.Stmt
 	deleteFleetMetricRollupsForWindowStmt                       *sql.Stmt
 	deleteFleetNodeDevicePairingsStmt                           *sql.Stmt
@@ -9330,6 +9590,7 @@ type Queries struct {
 	deleteReleaseChannelTargetsStmt                             *sql.Stmt
 	deleteReleasedFirmwareRolloutReservationsStmt               *sql.Stmt
 	deleteReplacedLegacyPoolIntentsStmt                         *sql.Stmt
+	deleteReportingFactStmt                                     *sql.Stmt
 	deleteScheduleTargetsStmt                                   *sql.Stmt
 	deleteUnappliedHashboardPoolIntentsStmt                     *sql.Stmt
 	deleteUndispatchedDirectAttemptStmt                         *sql.Stmt
@@ -9600,6 +9861,11 @@ type Queries struct {
 	getRepairTicketForUpdateStmt                                *sql.Stmt
 	getRepairTicketIDByIdempotencyKeyStmt                       *sql.Stmt
 	getRepairTicketMetadataStmt                                 *sql.Stmt
+	getReportingAuthorityStmt                                   *sql.Stmt
+	getReportingFactStmt                                        *sql.Stmt
+	getReportingFactPayloadsStmt                                *sql.Stmt
+	getReportingInputsStmt                                      *sql.Stmt
+	getReportingUserStmt                                        *sql.Stmt
 	getRoleByIDStmt                                             *sql.Stmt
 	getRoleByIDForUpdateStmt                                    *sql.Stmt
 	getRunningPowerTargetScheduleOverlapsStmt                   *sql.Stmt
@@ -9638,8 +9904,10 @@ type Queries struct {
 	hasPoolAssignmentKindConflictStmt                           *sql.Stmt
 	hasPoolConfigurationCutoverStmt                             *sql.Stmt
 	hasPoolConfigurationReviewAuthorizationStmt                 *sql.Stmt
+	hasReportingAllocatedMetersStmt                             *sql.Stmt
 	hasUserStmt                                                 *sql.Stmt
 	initializeDeviceWorkerNameStmt                              *sql.Stmt
+	initializeReportingInputsStmt                               *sql.Stmt
 	insertActivityLogStmt                                       *sql.Stmt
 	insertAlertChannelStmt                                      *sql.Stmt
 	insertAlertMaintenanceWindowStmt                            *sql.Stmt
@@ -9763,6 +10031,7 @@ type Queries struct {
 	listHashboardModulesStmt                                    *sql.Stmt
 	listHashboardPoolIntentsStmt                                *sql.Stmt
 	listHostMiningGroupPoolRevisionsStmt                        *sql.Stmt
+	listHostReportingAccountsStmt                               *sql.Stmt
 	listHostedAccountAncestorGrantsStmt                         *sql.Stmt
 	listHostedAccountAssetChildrenStmt                          *sql.Stmt
 	listHostedAccountAssetFilterOptionsStmt                     *sql.Stmt
@@ -9848,6 +10117,19 @@ type Queries struct {
 	listRepairTicketCommentsStmt                                *sql.Stmt
 	listRepairTicketPartsStmt                                   *sql.Stmt
 	listRepairTicketsStmt                                       *sql.Stmt
+	listReportingAllocationIntervalsStmt                        *sql.Stmt
+	listReportingAssetSupportMetadataStmt                       *sql.Stmt
+	listReportingAuthoritiesStmt                                *sql.Stmt
+	listReportingCaptureStreamsStmt                             *sql.Stmt
+	listReportingFactDevicesStmt                                *sql.Stmt
+	listReportingFactPageMetadataStmt                           *sql.Stmt
+	listReportingFactSitesStmt                                  *sql.Stmt
+	listReportingMeterSupportMetadataStmt                       *sql.Stmt
+	listReportingModuleInstallationCandidatesStmt               *sql.Stmt
+	listReportingReferenceMetadataStmt                          *sql.Stmt
+	listReportingSitesStmt                                      *sql.Stmt
+	listReportingValidationMetadataStmt                         *sql.Stmt
+	listReportingWitnessMetadataStmt                            *sql.Stmt
 	listResponseProfileInfrastructureDevicesByOrgStmt           *sql.Stmt
 	listRetiredCompletedPoolRemovalsStmt                        *sql.Stmt
 	listRetryableReapedRigConfigMessagesStmt                    *sql.Stmt
@@ -9958,6 +10240,9 @@ type Queries struct {
 	lockRepairTicketCommentCreateKeyStmt                        *sql.Stmt
 	lockRepairTicketCreateKeyStmt                               *sql.Stmt
 	lockRepairTicketTargetAllocationStmt                        *sql.Stmt
+	lockReportingDevicesStmt                                    *sql.Stmt
+	lockReportingInputsForShareStmt                             *sql.Stmt
+	lockReportingInputsForUpdateStmt                            *sql.Stmt
 	lockSchedulePriorityStmt                                    *sql.Stmt
 	lockSiteForWriteStmt                                        *sql.Stmt
 	lockTelemetrySeedMaintenanceStmt                            *sql.Stmt
@@ -9989,6 +10274,7 @@ type Queries struct {
 	pruneExpiredAlertMaintenanceWindowsStmt                     *sql.Stmt
 	pruneHostedInvitationRateLimitStmt                          *sql.Stmt
 	prunePermissionsOutsideKeysStmt                             *sql.Stmt
+	putReportingFactStmt                                        *sql.Stmt
 	quarantineDeviceWriteFenceStmt                              *sql.Stmt
 	queryComponentKeysWithErrorsStmt                            *sql.Stmt
 	queryDeviceIDsWithErrorsStmt                                *sql.Stmt
@@ -10113,6 +10399,7 @@ type Queries struct {
 	setRackBuildingPositionBulkPlaceStmt                        *sql.Stmt
 	setRackSlotPositionStmt                                     *sql.Stmt
 	setRepairTicketCommentVisibilityStmt                        *sql.Stmt
+	setReportingAuthorityStmt                                   *sql.Stmt
 	setSchedulePrioritiesStmt                                   *sql.Stmt
 	setScheduleRunningStmt                                      *sql.Stmt
 	shareRepairTicketStmt                                       *sql.Stmt
@@ -10207,6 +10494,7 @@ type Queries struct {
 	updateReleaseChannelStmt                                    *sql.Stmt
 	updateRepairTicketStmt                                      *sql.Stmt
 	updateRepairTicketTargetEvidenceStmt                        *sql.Stmt
+	updateReportingInputsStmt                                   *sql.Stmt
 	updateRoleStmt                                              *sql.Stmt
 	updateScheduleStmt                                          *sql.Stmt
 	updateScheduleAfterRunStmt                                  *sql.Stmt
@@ -10262,6 +10550,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		addHostedAccountSiteStmt:                                    q.addHostedAccountSiteStmt,
 		addHostedAccountUserAffiliationStmt:                         q.addHostedAccountUserAffiliationStmt,
 		addRepairTicketBoardStmt:                                    q.addRepairTicketBoardStmt,
+		adjustReportingFactSiteStmt:                                 q.adjustReportingFactSiteStmt,
 		adminResetUserPasswordStmt:                                  q.adminResetUserPasswordStmt,
 		adminTerminateCurtailmentEventStmt:                          q.adminTerminateCurtailmentEventStmt,
 		adoptLegacyPoolBoardAssignmentsStmt:                         q.adoptLegacyPoolBoardAssignmentsStmt,
@@ -10394,6 +10683,8 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		countRepairTicketsStmt:                                      q.countRepairTicketsStmt,
 		countRepairTicketsByBuildingStmt:                            q.countRepairTicketsByBuildingStmt,
 		countRepairTicketsBySiteStmt:                                q.countRepairTicketsBySiteStmt,
+		countReportingContainersStmt:                                q.countReportingContainersStmt,
+		countReportingRegistersStmt:                                 q.countReportingRegistersStmt,
 		countResponseProfilesByInfrastructureDevicesStmt:            q.countResponseProfilesByInfrastructureDevicesStmt,
 		countUnexpiredAlertMaintenanceWindowsStmt:                   q.countUnexpiredAlertMaintenanceWindowsStmt,
 		createApiKeyStmt:                                            q.createApiKeyStmt,
@@ -10451,6 +10742,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		deleteCurtailmentResponseProfileByOrgStmt:                   q.deleteCurtailmentResponseProfileByOrgStmt,
 		deleteCurtailmentResponseProfilesBySiteStmt:                 q.deleteCurtailmentResponseProfilesBySiteStmt,
 		deleteDisabledMQTTSourceConfigByOrgStmt:                     q.deleteDisabledMQTTSourceConfigByOrgStmt,
+		deleteEmptyReportingFactSitesStmt:                           q.deleteEmptyReportingFactSitesStmt,
 		deleteExpiredSessionsStmt:                                   q.deleteExpiredSessionsStmt,
 		deleteFleetMetricRollupsForWindowStmt:                       q.deleteFleetMetricRollupsForWindowStmt,
 		deleteFleetNodeDevicePairingsStmt:                           q.deleteFleetNodeDevicePairingsStmt,
@@ -10467,6 +10759,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		deleteReleaseChannelTargetsStmt:                             q.deleteReleaseChannelTargetsStmt,
 		deleteReleasedFirmwareRolloutReservationsStmt:               q.deleteReleasedFirmwareRolloutReservationsStmt,
 		deleteReplacedLegacyPoolIntentsStmt:                         q.deleteReplacedLegacyPoolIntentsStmt,
+		deleteReportingFactStmt:                                     q.deleteReportingFactStmt,
 		deleteScheduleTargetsStmt:                                   q.deleteScheduleTargetsStmt,
 		deleteUnappliedHashboardPoolIntentsStmt:                     q.deleteUnappliedHashboardPoolIntentsStmt,
 		deleteUndispatchedDirectAttemptStmt:                         q.deleteUndispatchedDirectAttemptStmt,
@@ -10737,6 +11030,11 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getRepairTicketForUpdateStmt:                                q.getRepairTicketForUpdateStmt,
 		getRepairTicketIDByIdempotencyKeyStmt:                       q.getRepairTicketIDByIdempotencyKeyStmt,
 		getRepairTicketMetadataStmt:                                 q.getRepairTicketMetadataStmt,
+		getReportingAuthorityStmt:                                   q.getReportingAuthorityStmt,
+		getReportingFactStmt:                                        q.getReportingFactStmt,
+		getReportingFactPayloadsStmt:                                q.getReportingFactPayloadsStmt,
+		getReportingInputsStmt:                                      q.getReportingInputsStmt,
+		getReportingUserStmt:                                        q.getReportingUserStmt,
 		getRoleByIDStmt:                                             q.getRoleByIDStmt,
 		getRoleByIDForUpdateStmt:                                    q.getRoleByIDForUpdateStmt,
 		getRunningPowerTargetScheduleOverlapsStmt:                   q.getRunningPowerTargetScheduleOverlapsStmt,
@@ -10775,614 +11073,636 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		hasPoolAssignmentKindConflictStmt:                           q.hasPoolAssignmentKindConflictStmt,
 		hasPoolConfigurationCutoverStmt:                             q.hasPoolConfigurationCutoverStmt,
 		hasPoolConfigurationReviewAuthorizationStmt:                 q.hasPoolConfigurationReviewAuthorizationStmt,
-		hasUserStmt:                                                q.hasUserStmt,
-		initializeDeviceWorkerNameStmt:                             q.initializeDeviceWorkerNameStmt,
-		insertActivityLogStmt:                                      q.insertActivityLogStmt,
-		insertAlertChannelStmt:                                     q.insertAlertChannelStmt,
-		insertAlertMaintenanceWindowStmt:                           q.insertAlertMaintenanceWindowStmt,
-		insertAlertRouteChannelsStmt:                               q.insertAlertRouteChannelsStmt,
-		insertContainerControlsStmt:                                q.insertContainerControlsStmt,
-		insertContainerModuleMetricsStmt:                           q.insertContainerModuleMetricsStmt,
-		insertContainerPlantMetricsStmt:                            q.insertContainerPlantMetricsStmt,
-		insertContainerSetpointsStmt:                               q.insertContainerSetpointsStmt,
-		insertContainerTankRollupsStmt:                             q.insertContainerTankRollupsStmt,
-		insertContainerTopologyObservationStmt:                     q.insertContainerTopologyObservationStmt,
-		insertContainerTopologyVersionStmt:                         q.insertContainerTopologyVersionStmt,
-		insertCurtailmentAutomationRuleStmt:                        q.insertCurtailmentAutomationRuleStmt,
-		insertCurtailmentEventStmt:                                 q.insertCurtailmentEventStmt,
-		insertCurtailmentResponseProfileStmt:                       q.insertCurtailmentResponseProfileStmt,
-		insertDeviceStmt:                                           q.insertDeviceStmt,
-		insertDeviceMetricsBatchStmt:                               q.insertDeviceMetricsBatchStmt,
-		insertHashboardDiagnosticObservationsStmt:                  q.insertHashboardDiagnosticObservationsStmt,
-		insertHashboardMetricsStmt:                                 q.insertHashboardMetricsStmt,
-		insertMQTTSourceConfigStmt:                                 q.insertMQTTSourceConfigStmt,
-		insertMinerStateSnapshotStmt:                               q.insertMinerStateSnapshotStmt,
-		insertModuleDiagnosticObservationsStmt:                     q.insertModuleDiagnosticObservationsStmt,
-		insertNotificationHistoryStmt:                              q.insertNotificationHistoryStmt,
-		insertNotificationMetricSamplesStmt:                        q.insertNotificationMetricSamplesStmt,
-		insertReleaseChannelMinerTargetsStmt:                       q.insertReleaseChannelMinerTargetsStmt,
-		insertReleaseChannelTargetsStmt:                            q.insertReleaseChannelTargetsStmt,
-		insertRepairTicketOpeningAudienceStmt:                      q.insertRepairTicketOpeningAudienceStmt,
-		insertRepairTicketOpeningTargetStmt:                        q.insertRepairTicketOpeningTargetStmt,
-		insertRepairTicketPartStmt:                                 q.insertRepairTicketPartStmt,
-		inventoryPartExistsBySiteAndNameStmt:                       q.inventoryPartExistsBySiteAndNameStmt,
-		invitationTokenHashInUseStmt:                               q.invitationTokenHashInUseStmt,
-		isBatchFinishedStmt:                                        q.isBatchFinishedStmt,
-		isContainerMetricSelectorStmt:                              q.isContainerMetricSelectorStmt,
-		isDeletionUnpairIdentityCurrentStmt:                        q.isDeletionUnpairIdentityCurrentStmt,
-		isDeviceWriteFenceDrainedStmt:                              q.isDeviceWriteFenceDrainedStmt,
-		isFleetNodeHAStandbyStmt:                                   q.isFleetNodeHAStandbyStmt,
-		isRetiredDeviceWriteDrainedStmt:                            q.isRetiredDeviceWriteDrainedStmt,
-		legacyPoolWritersDisabledStmt:                              q.legacyPoolWritersDisabledStmt,
-		linkPoolConfigurationAttemptStmt:                           q.linkPoolConfigurationAttemptStmt,
-		linkPoolGroupSnapshotStmt:                                  q.linkPoolGroupSnapshotStmt,
-		listAccountRepairTicketCommentsStmt:                        q.listAccountRepairTicketCommentsStmt,
-		listAccountRepairTicketTargetsStmt:                         q.listAccountRepairTicketTargetsStmt,
-		listAccountRepairTicketsStmt:                               q.listAccountRepairTicketsStmt,
-		listActiveAlertMaintenanceWindowsStmt:                      q.listActiveAlertMaintenanceWindowsStmt,
-		listActiveCurtailedDevicesByOrgStmt:                        q.listActiveCurtailedDevicesByOrgStmt,
-		listActiveCurtailmentEventsStmt:                            q.listActiveCurtailmentEventsStmt,
-		listActiveCurtailmentTargetDevicesByOrgStmt:                q.listActiveCurtailmentTargetDevicesByOrgStmt,
-		listActiveFirmwareRolloutsStmt:                             q.listActiveFirmwareRolloutsStmt,
-		listActiveNotificationGroupsStmt:                           q.listActiveNotificationGroupsStmt,
-		listActiveNotificationsStmt:                                q.listActiveNotificationsStmt,
-		listActiveNotificationsByAlertStmt:                         q.listActiveNotificationsByAlertStmt,
-		listActiveOrganizationIDsStmt:                              q.listActiveOrganizationIDsStmt,
-		listActivePoolAssignmentsForTargetsStmt:                    q.listActivePoolAssignmentsForTargetsStmt,
-		listActivePoolRemovalsStmt:                                 q.listActivePoolRemovalsStmt,
-		listActivityLogsStmt:                                       q.listActivityLogsStmt,
-		listAlertChannelsStmt:                                      q.listAlertChannelsStmt,
-		listAlertMaintenanceWindowsStmt:                            q.listAlertMaintenanceWindowsStmt,
-		listAlertRoutePoliciesStmt:                                 q.listAlertRoutePoliciesStmt,
-		listAlertRuleConfigsStmt:                                   q.listAlertRuleConfigsStmt,
-		listApiKeysByOrganizationStmt:                              q.listApiKeysByOrganizationStmt,
-		listAssignmentsForRoleStmt:                                 q.listAssignmentsForRoleStmt,
-		listAssignmentsForUserStmt:                                 q.listAssignmentsForUserStmt,
-		listBatchDeviceResultsStmt:                                 q.listBatchDeviceResultsStmt,
-		listBuildingNamesBySiteStmt:                                q.listBuildingNamesBySiteStmt,
-		listBuildingRacksStmt:                                      q.listBuildingRacksStmt,
-		listBuildingsByOrgStmt:                                     q.listBuildingsByOrgStmt,
-		listBuiltinRolesForOrgStmt:                                 q.listBuiltinRolesForOrgStmt,
-		listClearedBoardPoolIntentsStmt:                            q.listClearedBoardPoolIntentsStmt,
-		listCompletedTicketAssigneesStmt:                           q.listCompletedTicketAssigneesStmt,
-		listCompletedTicketsStmt:                                   q.listCompletedTicketsStmt,
-		listContainerModuleHistoryStmt:                             q.listContainerModuleHistoryStmt,
-		listContainerPlacementsStmt:                                q.listContainerPlacementsStmt,
-		listContainerSiteStatsStmt:                                 q.listContainerSiteStatsStmt,
-		listContainersStmt:                                         q.listContainersStmt,
-		listCurtailmentAutomationRulesByOrgStmt:                    q.listCurtailmentAutomationRulesByOrgStmt,
-		listCurtailmentAutomationSchedulesByOrgStmt:                q.listCurtailmentAutomationSchedulesByOrgStmt,
-		listCurtailmentBuildingScopeCoverageStmt:                   q.listCurtailmentBuildingScopeCoverageStmt,
-		listCurtailmentCandidatesByOrgStmt:                         q.listCurtailmentCandidatesByOrgStmt,
-		listCurtailmentEventsForOrgStmt:                            q.listCurtailmentEventsForOrgStmt,
-		listCurtailmentGroupScopeCoverageStmt:                      q.listCurtailmentGroupScopeCoverageStmt,
-		listCurtailmentRackScopeCoverageStmt:                       q.listCurtailmentRackScopeCoverageStmt,
-		listCurtailmentResponseProfileDeviceSitesByOrgStmt:         q.listCurtailmentResponseProfileDeviceSitesByOrgStmt,
-		listCurtailmentResponseProfilesByOrgStmt:                   q.listCurtailmentResponseProfilesByOrgStmt,
-		listCurtailmentTargetSiteCoverageByEventStmt:               q.listCurtailmentTargetSiteCoverageByEventStmt,
-		listCurtailmentTargetSiteCoverageByEventsStmt:              q.listCurtailmentTargetSiteCoverageByEventsStmt,
-		listCurtailmentTargetsByEventStmt:                          q.listCurtailmentTargetsByEventStmt,
-		listCurtailmentTargetsByEventPageStmt:                      q.listCurtailmentTargetsByEventPageStmt,
-		listCurtailmentTopologyMemberDeviceIdentifiersByOrgStmt:    q.listCurtailmentTopologyMemberDeviceIdentifiersByOrgStmt,
-		listCustomRolesForOrgStmt:                                  q.listCustomRolesForOrgStmt,
-		listDeviceIDsByIdentifiersStmt:                             q.listDeviceIDsByIdentifiersStmt,
-		listDeviceSetMembersPaginatedStmt:                          q.listDeviceSetMembersPaginatedStmt,
-		listDeviceSetMembersPaginatedAfterStmt:                     q.listDeviceSetMembersPaginatedAfterStmt,
-		listDeviceSetMembersPaginatedFilteredStmt:                  q.listDeviceSetMembersPaginatedFilteredStmt,
-		listDeviceSetMembersPaginatedFilteredAfterStmt:             q.listDeviceSetMembersPaginatedFilteredAfterStmt,
-		listDeviceWriteRecoveryCandidatesStmt:                      q.listDeviceWriteRecoveryCandidatesStmt,
-		listEarlierCurtailmentReservationDevicesStmt:               q.listEarlierCurtailmentReservationDevicesStmt,
-		listEarlierCurtailmentTopologyReservationScopesStmt:        q.listEarlierCurtailmentTopologyReservationScopesStmt,
-		listEffectivePermissionsForUserStmt:                        q.listEffectivePermissionsForUserStmt,
-		listEffectivePermissionsForUserForShareStmt:                q.listEffectivePermissionsForUserForShareStmt,
-		listEffectivePermissionsForUserForUpdateStmt:               q.listEffectivePermissionsForUserForUpdateStmt,
-		listEligibleConfirmationTargetsStmt:                        q.listEligibleConfirmationTargetsStmt,
-		listEnabledCurtailmentAutomationRulesByMQTTSourceStmt:      q.listEnabledCurtailmentAutomationRulesByMQTTSourceStmt,
-		listEnabledCurtailmentScheduleRulesStmt:                    q.listEnabledCurtailmentScheduleRulesStmt,
-		listEnabledMQTTSourcesStmt:                                 q.listEnabledMQTTSourcesStmt,
-		listExistingDeviceIdentifiersStmt:                          q.listExistingDeviceIdentifiersStmt,
-		listFirmwareRolloutDevicesStmt:                             q.listFirmwareRolloutDevicesStmt,
-		listFirmwareRolloutDispatchCompletionsStmt:                 q.listFirmwareRolloutDispatchCompletionsStmt,
-		listFirmwareRolloutEventsStmt:                              q.listFirmwareRolloutEventsStmt,
-		listFirmwareRolloutOfflineSlotsStmt:                        q.listFirmwareRolloutOfflineSlotsStmt,
-		listFirmwareRolloutsStmt:                                   q.listFirmwareRolloutsStmt,
-		listFleetEquipmentGroupsStmt:                               q.listFleetEquipmentGroupsStmt,
-		listFleetFacilitiesStmt:                                    q.listFleetFacilitiesStmt,
-		listFleetInventoryOptionsStmt:                              q.listFleetInventoryOptionsStmt,
-		listFleetMiningAssetsStmt:                                  q.listFleetMiningAssetsStmt,
-		listFleetNodeDevicesStmt:                                   q.listFleetNodeDevicesStmt,
-		listFleetNodeDevicesForRevocationStmt:                      q.listFleetNodeDevicesForRevocationStmt,
-		listFleetNodeDiscoveredDevicesStmt:                         q.listFleetNodeDiscoveredDevicesStmt,
-		listFleetNodeHAPairsStmt:                                   q.listFleetNodeHAPairsStmt,
-		listFleetNodesForOrganizationStmt:                          q.listFleetNodesForOrganizationStmt,
-		listFleetTankOptionsStmt:                                   q.listFleetTankOptionsStmt,
-		listHashboardHistoryStmt:                                   q.listHashboardHistoryStmt,
-		listHashboardModulesStmt:                                   q.listHashboardModulesStmt,
-		listHashboardPoolIntentsStmt:                               q.listHashboardPoolIntentsStmt,
-		listHostMiningGroupPoolRevisionsStmt:                       q.listHostMiningGroupPoolRevisionsStmt,
-		listHostedAccountAncestorGrantsStmt:                        q.listHostedAccountAncestorGrantsStmt,
-		listHostedAccountAssetChildrenStmt:                         q.listHostedAccountAssetChildrenStmt,
-		listHostedAccountAssetFilterOptionsStmt:                    q.listHostedAccountAssetFilterOptionsStmt,
-		listHostedAccountChildrenStmt:                              q.listHostedAccountChildrenStmt,
-		listHostedAccountHistoricalReadingsStmt:                    q.listHostedAccountHistoricalReadingsStmt,
-		listHostedAccountHistoricalSitesStmt:                       q.listHostedAccountHistoricalSitesStmt,
-		listHostedAccountHistoryIntervalsStmt:                      q.listHostedAccountHistoryIntervalsStmt,
-		listHostedAccountInvitationsStmt:                           q.listHostedAccountInvitationsStmt,
-		listHostedAccountKeysStmt:                                  q.listHostedAccountKeysStmt,
-		listHostedAccountMembersStmt:                               q.listHostedAccountMembersStmt,
-		listHostedAccountMiningAssetPageStmt:                       q.listHostedAccountMiningAssetPageStmt,
-		listHostedAccountMiningAssetsStmt:                          q.listHostedAccountMiningAssetsStmt,
-		listHostedAccountPoolsStmt:                                 q.listHostedAccountPoolsStmt,
-		listHostedAccountRetainedReadingsStmt:                      q.listHostedAccountRetainedReadingsStmt,
-		listHostedAccountSitesStmt:                                 q.listHostedAccountSitesStmt,
-		listHostedAccountSummariesStmt:                             q.listHostedAccountSummariesStmt,
-		listHostedAccountsStmt:                                     q.listHostedAccountsStmt,
-		listHostedPoolImportSourcesStmt:                            q.listHostedPoolImportSourcesStmt,
-		listImportedPoolConfigurationsStmt:                         q.listImportedPoolConfigurationsStmt,
-		listInfrastructureDevicesByOrgStmt:                         q.listInfrastructureDevicesByOrgStmt,
-		listInventoryPartsStmt:                                     q.listInventoryPartsStmt,
-		listLegacyHashboardPoolAdoptionsStmt:                       q.listLegacyHashboardPoolAdoptionsStmt,
-		listMQTTSourceConfigsByOrgStmt:                             q.listMQTTSourceConfigsByOrgStmt,
-		listMQTTSourceStatesByOrgStmt:                              q.listMQTTSourceStatesByOrgStmt,
-		listMQTTSourcesWithActiveCurtailmentStmt:                   q.listMQTTSourcesWithActiveCurtailmentStmt,
-		listMaintenanceAssigneesStmt:                               q.listMaintenanceAssigneesStmt,
-		listManagedFirmwareUpdateDevicesStmt:                       q.listManagedFirmwareUpdateDevicesStmt,
-		listMinerFirmwareHistoryStmt:                               q.listMinerFirmwareHistoryStmt,
-		listMinerStateSnapshotsStmt:                                q.listMinerStateSnapshotsStmt,
-		listMiningGroupControllersStmt:                             q.listMiningGroupControllersStmt,
-		listModuleCommandTargetsStmt:                               q.listModuleCommandTargetsStmt,
-		listNonTerminalCurtailmentEventsStmt:                       q.listNonTerminalCurtailmentEventsStmt,
-		listNotificationHistoryStmt:                                q.listNotificationHistoryStmt,
-		listOrganizationInvitationsStmt:                            q.listOrganizationInvitationsStmt,
-		listOrganizationsStmt:                                      q.listOrganizationsStmt,
-		listPartsBySiteStmt:                                        q.listPartsBySiteStmt,
-		listPendingPoolConfigurationWorkStmt:                       q.listPendingPoolConfigurationWorkStmt,
-		listPermissionsStmt:                                        q.listPermissionsStmt,
-		listPoolAffectedBoardsStmt:                                 q.listPoolAffectedBoardsStmt,
-		listPoolAssignmentPhysicalBindingsStmt:                     q.listPoolAssignmentPhysicalBindingsStmt,
-		listPoolBoardAssignmentsStmt:                               q.listPoolBoardAssignmentsStmt,
-		listPoolConfigurationAssignmentsStmt:                       q.listPoolConfigurationAssignmentsStmt,
-		listPoolConfigurationAssignmentsForDevicesStmt:             q.listPoolConfigurationAssignmentsForDevicesStmt,
-		listPoolConfigurationOperationSitesStmt:                    q.listPoolConfigurationOperationSitesStmt,
-		listPoolConfigurationOperationTargetsStmt:                  q.listPoolConfigurationOperationTargetsStmt,
-		listPoolConfigurationOperationsStmt:                        q.listPoolConfigurationOperationsStmt,
-		listPoolConfigurationsStmt:                                 q.listPoolConfigurationsStmt,
-		listPoolCutoverGapsStmt:                                    q.listPoolCutoverGapsStmt,
-		listPoolDeviceImportSourcesStmt:                            q.listPoolDeviceImportSourcesStmt,
-		listPoolEquipmentAssignmentsStmt:                           q.listPoolEquipmentAssignmentsStmt,
-		listPoolEquipmentIdentitiesStmt:                            q.listPoolEquipmentIdentitiesStmt,
-		listPoolEquipmentInstallationsStmt:                         q.listPoolEquipmentInstallationsStmt,
-		listPoolEquipmentModuleOwnersStmt:                          q.listPoolEquipmentModuleOwnersStmt,
-		listPoolGroupAttemptTargetsStmt:                            q.listPoolGroupAttemptTargetsStmt,
-		listPoolGroupIntentsStmt:                                   q.listPoolGroupIntentsStmt,
-		listPoolGroupWorkStmt:                                      q.listPoolGroupWorkStmt,
-		listPoolImportControllerBindingsStmt:                       q.listPoolImportControllerBindingsStmt,
-		listPoolSelectionBoardsStmt:                                q.listPoolSelectionBoardsStmt,
-		listPoolSelectionModulesStmt:                               q.listPoolSelectionModulesStmt,
-		listPoolsStmt:                                              q.listPoolsStmt,
-		listRackTypesStmt:                                          q.listRackTypesStmt,
-		listRackZoneRefsStmt:                                       q.listRackZoneRefsStmt,
-		listRackZonesStmt:                                          q.listRackZonesStmt,
-		listRacksOutsideBuildingBoundsStmt:                         q.listRacksOutsideBuildingBoundsStmt,
-		listRecentlyResolvedCurtailedDevicesByOrgStmt:              q.listRecentlyResolvedCurtailedDevicesByOrgStmt,
-		listRecentlyResolvedCurtailedDevicesByScopeStmt:            q.listRecentlyResolvedCurtailedDevicesByScopeStmt,
-		listReleaseChannelFirmwareStmt:                             q.listReleaseChannelFirmwareStmt,
-		listReleaseChannelFirmwareNeedingRolloutStmt:               q.listReleaseChannelFirmwareNeedingRolloutStmt,
-		listReleaseChannelMembersStmt:                              q.listReleaseChannelMembersStmt,
-		listReleaseChannelMembershipConflictsPageStmt:              q.listReleaseChannelMembershipConflictsPageStmt,
-		listReleaseChannelMinersPageStmt:                           q.listReleaseChannelMinersPageStmt,
-		listReleaseChannelMismatchedMembersStmt:                    q.listReleaseChannelMismatchedMembersStmt,
-		listReleaseChannelModelGroupsPageStmt:                      q.listReleaseChannelModelGroupsPageStmt,
-		listReleaseChannelPageFirmwareStmt:                         q.listReleaseChannelPageFirmwareStmt,
-		listReleaseChannelPageMemberModelsStmt:                     q.listReleaseChannelPageMemberModelsStmt,
-		listReleaseChannelPageTargetsStmt:                          q.listReleaseChannelPageTargetsStmt,
-		listReleaseChannelSuppressedMembersStmt:                    q.listReleaseChannelSuppressedMembersStmt,
-		listReleaseChannelTargetsStmt:                              q.listReleaseChannelTargetsStmt,
-		listReleaseChannelsStmt:                                    q.listReleaseChannelsStmt,
-		listReleaseChannelsPageStmt:                                q.listReleaseChannelsPageStmt,
-		listRepairTicketAssetOptionsStmt:                           q.listRepairTicketAssetOptionsStmt,
-		listRepairTicketBoardOptionsStmt:                           q.listRepairTicketBoardOptionsStmt,
-		listRepairTicketCommentsStmt:                               q.listRepairTicketCommentsStmt,
-		listRepairTicketPartsStmt:                                  q.listRepairTicketPartsStmt,
-		listRepairTicketsStmt:                                      q.listRepairTicketsStmt,
-		listResponseProfileInfrastructureDevicesByOrgStmt:          q.listResponseProfileInfrastructureDevicesByOrgStmt,
-		listRetiredCompletedPoolRemovalsStmt:                       q.listRetiredCompletedPoolRemovalsStmt,
-		listRetryableReapedRigConfigMessagesStmt:                   q.listRetryableReapedRigConfigMessagesStmt,
-		listRigConfigReconciliationTargetsStmt:                     q.listRigConfigReconciliationTargetsStmt,
-		listRigConfigSourceScopesStmt:                              q.listRigConfigSourceScopesStmt,
-		listRolePermissionKeysStmt:                                 q.listRolePermissionKeysStmt,
-		listRolesStmt:                                              q.listRolesStmt,
-		listRolesWithDetailsForOrgStmt:                             q.listRolesWithDetailsForOrgStmt,
-		listScheduleIDStatusesStmt:                                 q.listScheduleIDStatusesStmt,
-		listSchedulesStmt:                                          q.listSchedulesStmt,
-		listSiteNetworkConfigsForOverlapStmt:                       q.listSiteNetworkConfigsForOverlapStmt,
-		listSiteSlugsStmt:                                          q.listSiteSlugsStmt,
-		listSitesStmt:                                              q.listSitesStmt,
-		listTakenDeviceSetLabelsStmt:                               q.listTakenDeviceSetLabelsStmt,
-		listTankCommandTargetsStmt:                                 q.listTankCommandTargetsStmt,
-		listTerminalFirmwareRolloutsNeedingProvenanceStmt:          q.listTerminalFirmwareRolloutsNeedingProvenanceStmt,
-		listUnfinishedDeviceWriteCommandsStmt:                      q.listUnfinishedDeviceWriteCommandsStmt,
-		listUnreplacedHashboardPoolIntentsStmt:                     q.listUnreplacedHashboardPoolIntentsStmt,
-		listUnresolvedDeviceWriteAttemptsStmt:                      q.listUnresolvedDeviceWriteAttemptsStmt,
-		listUnsettledPoolAdoptionWorkStmt:                          q.listUnsettledPoolAdoptionWorkStmt,
-		listUsersForOrganizationStmt:                               q.listUsersForOrganizationStmt,
-		lockActiveHostedAccountUserStmt:                            q.lockActiveHostedAccountUserStmt,
-		lockActiveHostedAccountUserForShareStmt:                    q.lockActiveHostedAccountUserForShareStmt,
-		lockActiveSuperAdminUsersStmt:                              q.lockActiveSuperAdminUsersStmt,
-		lockAlertMaintenanceWindowOrgForWriteStmt:                  q.lockAlertMaintenanceWindowOrgForWriteStmt,
-		lockAndCountOrgScopeSuperAdminsStmt:                        q.lockAndCountOrgScopeSuperAdminsStmt,
-		lockBuildingForWriteStmt:                                   q.lockBuildingForWriteStmt,
-		lockBuildingsBySiteForWriteStmt:                            q.lockBuildingsBySiteForWriteStmt,
-		lockCommandBatchStmt:                                       q.lockCommandBatchStmt,
-		lockContainerCommandTargetStmt:                             q.lockContainerCommandTargetStmt,
-		lockContainersForSiteAssignmentStmt:                        q.lockContainersForSiteAssignmentStmt,
-		lockCurrentPoolConfigurationOperationTargetStmt:            q.lockCurrentPoolConfigurationOperationTargetStmt,
-		lockCurtailmentAdmissionEventForWriteStmt:                  q.lockCurtailmentAdmissionEventForWriteStmt,
-		lockCurtailmentAutomationRuleForExecutionStmt:              q.lockCurtailmentAutomationRuleForExecutionStmt,
-		lockCurtailmentAutomationRuleMutationStmt:                  q.lockCurtailmentAutomationRuleMutationStmt,
-		lockCurtailmentEventByUUIDForWriteStmt:                     q.lockCurtailmentEventByUUIDForWriteStmt,
-		lockCurtailmentEventLifecycleStmt:                          q.lockCurtailmentEventLifecycleStmt,
-		lockCurtailmentEventLifecycleByUUIDStmt:                    q.lockCurtailmentEventLifecycleByUUIDStmt,
-		lockCurtailmentEventScopeForWriteStmt:                      q.lockCurtailmentEventScopeForWriteStmt,
-		lockCurtailmentFanDeviceForWriteStmt:                       q.lockCurtailmentFanDeviceForWriteStmt,
-		lockCurtailmentFanDevicesForWriteStmt:                      q.lockCurtailmentFanDevicesForWriteStmt,
-		lockCurtailmentFanSessionStmt:                              q.lockCurtailmentFanSessionStmt,
-		lockCurtailmentGroupsForWriteStmt:                          q.lockCurtailmentGroupsForWriteStmt,
-		lockCurtailmentLifecycleSessionStmt:                        q.lockCurtailmentLifecycleSessionStmt,
-		lockCurtailmentResponseProfileAutomationMutationStmt:       q.lockCurtailmentResponseProfileAutomationMutationStmt,
-		lockCurtailmentResponseProfileDeviceSitesByOrgStmt:         q.lockCurtailmentResponseProfileDeviceSitesByOrgStmt,
-		lockCurtailmentResponseProfileRevisionForExecutionStmt:     q.lockCurtailmentResponseProfileRevisionForExecutionStmt,
-		lockCurtailmentScheduleRuleForExecutionStmt:                q.lockCurtailmentScheduleRuleForExecutionStmt,
-		lockCurtailmentScopeForWriteStmt:                           q.lockCurtailmentScopeForWriteStmt,
-		lockCurtailmentTargetPairingStatusesForWriteStmt:           q.lockCurtailmentTargetPairingStatusesForWriteStmt,
-		lockCurtailmentTopologyMemberDeviceSitesByOrgStmt:          q.lockCurtailmentTopologyMemberDeviceSitesByOrgStmt,
-		lockDeletionUnpairPermitStmt:                               q.lockDeletionUnpairPermitStmt,
-		lockDeviceByIdentifierStmt:                                 q.lockDeviceByIdentifierStmt,
-		lockDeviceWriteAttemptForRecoveryStmt:                      q.lockDeviceWriteAttemptForRecoveryStmt,
-		lockDeviceWriteDeletionCredentialsStmt:                     q.lockDeviceWriteDeletionCredentialsStmt,
-		lockDeviceWriteDeletionDevicesStmt:                         q.lockDeviceWriteDeletionDevicesStmt,
-		lockDeviceWriteDeletionDiscoveriesStmt:                     q.lockDeviceWriteDeletionDiscoveriesStmt,
-		lockDeviceWriteDeletionFencesStmt:                          q.lockDeviceWriteDeletionFencesStmt,
-		lockDeviceWriteDeletionPairingsStmt:                        q.lockDeviceWriteDeletionPairingsStmt,
-		lockDeviceWriteDeletionRoutesStmt:                          q.lockDeviceWriteDeletionRoutesStmt,
-		lockDeviceWriteFenceRecordStmt:                             q.lockDeviceWriteFenceRecordStmt,
-		lockDeviceWriteFencesStmt:                                  q.lockDeviceWriteFencesStmt,
-		lockDeviceWriteIdentitiesStmt:                              q.lockDeviceWriteIdentitiesStmt,
-		lockDevicesForReassignStmt:                                 q.lockDevicesForReassignStmt,
-		lockDiscoveredDeviceForEndpointDiscoveryStmt:               q.lockDiscoveredDeviceForEndpointDiscoveryStmt,
-		lockEndpointDiscoveryStmt:                                  q.lockEndpointDiscoveryStmt,
-		lockEndpointDiscoveryDevicesStmt:                           q.lockEndpointDiscoveryDevicesStmt,
-		lockFleetNodeByIDStmt:                                      q.lockFleetNodeByIDStmt,
-		lockFleetNodeDevicesForRevocationStmt:                      q.lockFleetNodeDevicesForRevocationStmt,
-		lockFleetNodeHAPairStmt:                                    q.lockFleetNodeHAPairStmt,
-		lockFleetNodeIdentityByIDStmt:                              q.lockFleetNodeIdentityByIDStmt,
-		lockFleetNodePairingDeviceStmt:                             q.lockFleetNodePairingDeviceStmt,
-		lockHashboardOrganizationStmt:                              q.lockHashboardOrganizationStmt,
-		lockHostedAccountAdministratorsStmt:                        q.lockHostedAccountAdministratorsStmt,
-		lockHostedAccountAssetInventoryStmt:                        q.lockHostedAccountAssetInventoryStmt,
-		lockHostedAccountOrganizationStmt:                          q.lockHostedAccountOrganizationStmt,
-		lockHostedAccountOrganizationForShareStmt:                  q.lockHostedAccountOrganizationForShareStmt,
-		lockInfrastructureDeviceForWriteStmt:                       q.lockInfrastructureDeviceForWriteStmt,
-		lockInfrastructureDevicesBySiteForWriteStmt:                q.lockInfrastructureDevicesBySiteForWriteStmt,
-		lockInfrastructureDevicesForResponseProfileStmt:            q.lockInfrastructureDevicesForResponseProfileStmt,
-		lockInfrastructureRackForPlacementStmt:                     q.lockInfrastructureRackForPlacementStmt,
-		lockInventorySitesStmt:                                     q.lockInventorySitesStmt,
-		lockInvitationTokenHashStmt:                                q.lockInvitationTokenHashStmt,
-		lockLegacyPoolLibraryForImportStmt:                         q.lockLegacyPoolLibraryForImportStmt,
-		lockMaintenanceBuildingForTicketStmt:                       q.lockMaintenanceBuildingForTicketStmt,
-		lockMaintenanceMinerForTicketStmt:                          q.lockMaintenanceMinerForTicketStmt,
-		lockMaintenanceModelDeviceStmt:                             q.lockMaintenanceModelDeviceStmt,
-		lockMaintenanceModuleModelSiteStmt:                         q.lockMaintenanceModuleModelSiteStmt,
-		lockMaintenanceRackForTicketStmt:                           q.lockMaintenanceRackForTicketStmt,
-		lockMaintenanceSiteForTicketStmt:                           q.lockMaintenanceSiteForTicketStmt,
-		lockMaintenanceTicketInstallationStmt:                      q.lockMaintenanceTicketInstallationStmt,
-		lockMinerBindingCredentialsStmt:                            q.lockMinerBindingCredentialsStmt,
-		lockMinerBindingDeviceStmt:                                 q.lockMinerBindingDeviceStmt,
-		lockMinerBindingDiscoveryStmt:                              q.lockMinerBindingDiscoveryStmt,
-		lockMinerBindingObservationDeviceStmt:                      q.lockMinerBindingObservationDeviceStmt,
-		lockMinerBindingPairingStmt:                                q.lockMinerBindingPairingStmt,
-		lockMinerBindingRoutesStmt:                                 q.lockMinerBindingRoutesStmt,
-		lockMiningGroupStateStmt:                                   q.lockMiningGroupStateStmt,
-		lockPoolAssignmentAdoptionSourcesStmt:                      q.lockPoolAssignmentAdoptionSourcesStmt,
-		lockPoolConfigurationStmt:                                  q.lockPoolConfigurationStmt,
-		lockPoolConfigurationImportOrganizationStmt:                q.lockPoolConfigurationImportOrganizationStmt,
-		lockPoolConfigurationReviewStmt:                            q.lockPoolConfigurationReviewStmt,
-		lockPoolEquipmentOrganizationStmt:                          q.lockPoolEquipmentOrganizationStmt,
-		lockQueuedDeviceWriteStmt:                                  q.lockQueuedDeviceWriteStmt,
-		lockRackPlacementForWriteStmt:                              q.lockRackPlacementForWriteStmt,
-		lockRacksForReparentStmt:                                   q.lockRacksForReparentStmt,
-		lockReleaseChannelScopesStmt:                               q.lockReleaseChannelScopesStmt,
-		lockRepairTicketCommentCreateKeyStmt:                       q.lockRepairTicketCommentCreateKeyStmt,
-		lockRepairTicketCreateKeyStmt:                              q.lockRepairTicketCreateKeyStmt,
-		lockRepairTicketTargetAllocationStmt:                       q.lockRepairTicketTargetAllocationStmt,
-		lockSchedulePriorityStmt:                                   q.lockSchedulePriorityStmt,
-		lockSiteForWriteStmt:                                       q.lockSiteForWriteStmt,
-		lockTelemetrySeedMaintenanceStmt:                           q.lockTelemetrySeedMaintenanceStmt,
-		markAbsentContainerTanksStmt:                               q.markAbsentContainerTanksStmt,
-		markCommandBatchFinishedStmt:                               q.markCommandBatchFinishedStmt,
-		markCommandBatchFinishedWithStartedAtStmt:                  q.markCommandBatchFinishedWithStartedAtStmt,
-		markCommandBatchProcessingStmt:                             q.markCommandBatchProcessingStmt,
-		markFirmwareRolloutDevicesSentStmt:                         q.markFirmwareRolloutDevicesSentStmt,
-		markFirmwareRolloutDevicesVerifiedStmt:                     q.markFirmwareRolloutDevicesVerifiedStmt,
-		markFleetNodeHAStandbyReadyStmt:                            q.markFleetNodeHAStandbyReadyStmt,
-		markRepairTicketPartsConsumedStmt:                          q.markRepairTicketPartsConsumedStmt,
-		moveDiscoveredDeviceAttributionStmt:                        q.moveDiscoveredDeviceAttributionStmt,
-		moveFleetNodeDevicesStmt:                                   q.moveFleetNodeDevicesStmt,
-		negateSchedulePrioritiesStmt:                               q.negateSchedulePrioritiesStmt,
-		nextRepairTicketNumberStmt:                                 q.nextRepairTicketNumberStmt,
-		observeFirmwareRolloutReservationsOfflineStmt:              q.observeFirmwareRolloutReservationsOfflineStmt,
-		offlineDevicesForFleetNodeRevocationStmt:                   q.offlineDevicesForFleetNodeRevocationStmt,
-		organizationInvitationExistsStmt:                           q.organizationInvitationExistsStmt,
-		pairDeviceToFleetNodeStmt:                                  q.pairDeviceToFleetNodeStmt,
-		passwordUpdatedAtStmt:                                      q.passwordUpdatedAtStmt,
-		pauseActiveScheduleStmt:                                    q.pauseActiveScheduleStmt,
-		pauseFirmwareRolloutStmt:                                   q.pauseFirmwareRolloutStmt,
-		poolConfigurationWritersFrozenStmt:                         q.poolConfigurationWritersFrozenStmt,
-		prepareFleetNodeHAKeyInstallStmt:                           q.prepareFleetNodeHAKeyInstallStmt,
-		prepareTelemetrySeedStmt:                                   q.prepareTelemetrySeedStmt,
-		preserveFirmwareRolloutRetryBaselinesStmt:                  q.preserveFirmwareRolloutRetryBaselinesStmt,
-		pruneDetachedHashboardPoolIntentsStmt:                      q.pruneDetachedHashboardPoolIntentsStmt,
-		pruneDetachedPoolGroupIntentsStmt:                          q.pruneDetachedPoolGroupIntentsStmt,
-		pruneExpiredAlertMaintenanceWindowsStmt:                    q.pruneExpiredAlertMaintenanceWindowsStmt,
-		pruneHostedInvitationRateLimitStmt:                         q.pruneHostedInvitationRateLimitStmt,
-		prunePermissionsOutsideKeysStmt:                            q.prunePermissionsOutsideKeysStmt,
-		quarantineDeviceWriteFenceStmt:                             q.quarantineDeviceWriteFenceStmt,
-		queryComponentKeysWithErrorsStmt:                           q.queryComponentKeysWithErrorsStmt,
-		queryDeviceIDsWithErrorsStmt:                               q.queryDeviceIDsWithErrorsStmt,
-		queryErrorsStmt:                                            q.queryErrorsStmt,
-		queueCurrentCurtailmentAutomationExecutionStmt:             q.queueCurrentCurtailmentAutomationExecutionStmt,
-		queueCurtailmentAutomationExecutionStmt:                    q.queueCurtailmentAutomationExecutionStmt,
-		queueCurtailmentScheduleExecutionStmt:                      q.queueCurtailmentScheduleExecutionStmt,
-		reapMessagesStmt:                                           q.reapMessagesStmt,
-		reassignDevicesUnderBuildingStmt:                           q.reassignDevicesUnderBuildingStmt,
-		reassignDevicesUnderBuildingsBulkStmt:                      q.reassignDevicesUnderBuildingsBulkStmt,
-		reassignRacksUnderBuildingStmt:                             q.reassignRacksUnderBuildingStmt,
-		reassignRacksUnderBuildingsBulkStmt:                        q.reassignRacksUnderBuildingsBulkStmt,
-		reconcileAuthenticationNeededPairingStatusByIdentifierStmt: q.reconcileAuthenticationNeededPairingStatusByIdentifierStmt,
-		reconcileCloudAuthNeededByIdentifierStmt:                   q.reconcileCloudAuthNeededByIdentifierStmt,
-		reconcileContainerModulesStmt:                              q.reconcileContainerModulesStmt,
-		reconcileContainerTanksStmt:                                q.reconcileContainerTanksStmt,
-		reconcileDefaultPasswordPairingStatusByIdentifierStmt:      q.reconcileDefaultPasswordPairingStatusByIdentifierStmt,
-		reconcileHostedHashboardReplacementsStmt:                   q.reconcileHostedHashboardReplacementsStmt,
-		reconcileRebootRequiredStatusStmt:                          q.reconcileRebootRequiredStatusStmt,
-		recordCurtailPendingDispatchStmt:                           q.recordCurtailPendingDispatchStmt,
-		recordDeviceWriteRecoveryStmt:                              q.recordDeviceWriteRecoveryStmt,
-		recordFirmwareDeploymentStmt:                               q.recordFirmwareDeploymentStmt,
-		recordFirmwareRolloutActionStmt:                            q.recordFirmwareRolloutActionStmt,
-		recordHostedHashboardInventoryStmt:                         q.recordHostedHashboardInventoryStmt,
-		recordMaintenanceModuleModelStmt:                           q.recordMaintenanceModuleModelStmt,
-		recordMiningGroupRequestStmt:                               q.recordMiningGroupRequestStmt,
-		recordPoolConfigurationCutoverStmt:                         q.recordPoolConfigurationCutoverStmt,
-		recordPoolConfigurationImportStmt:                          q.recordPoolConfigurationImportStmt,
-		recoverSettledPoolConfigurationWorkStmt:                    q.recoverSettledPoolConfigurationWorkStmt,
-		recoverTelemetrySeedBatchStmt:                              q.recoverTelemetrySeedBatchStmt,
-		refreshOpenErrorsLastSeenByDeviceStmt:                      q.refreshOpenErrorsLastSeenByDeviceStmt,
-		refreshPoolConfigurationReadinessStmt:                      q.refreshPoolConfigurationReadinessStmt,
-		reincludeFirmwareRolloutDevicesStmt:                        q.reincludeFirmwareRolloutDevicesStmt,
-		rejectCurtailmentDispatchStmt:                              q.rejectCurtailmentDispatchStmt,
-		rejectPendingPoolRemovalStmt:                               q.rejectPendingPoolRemovalStmt,
-		releaseDeviceWriteFenceToHostStmt:                          q.releaseDeviceWriteFenceToHostStmt,
-		releaseFleetRuntimeLeaseStmt:                               q.releaseFleetRuntimeLeaseStmt,
-		releaseHashboardObservationsStmt:                           q.releaseHashboardObservationsStmt,
-		releaseInventoryPartStmt:                                   q.releaseInventoryPartStmt,
-		releaseUndispatchedTargetsForRestoreStmt:                   q.releaseUndispatchedTargetsForRestoreStmt,
-		removeAllDevicesFromDeviceSetStmt:                          q.removeAllDevicesFromDeviceSetStmt,
-		removeDevicesFromAnyRackStmt:                               q.removeDevicesFromAnyRackStmt,
-		removeDevicesFromDeviceSetStmt:                             q.removeDevicesFromDeviceSetStmt,
-		renameHostedAccountStmt:                                    q.renameHostedAccountStmt,
-		renewCurtailmentAutomationScheduleRevisionStmt:             q.renewCurtailmentAutomationScheduleRevisionStmt,
-		renewFleetRuntimeLeaseStmt:                                 q.renewFleetRuntimeLeaseStmt,
-		repairTicketContainsModuleStmt:                             q.repairTicketContainsModuleStmt,
-		requestRigConfigReconciliationForDevicesStmt:               q.requestRigConfigReconciliationForDevicesStmt,
-		requeueFirmwareRolloutDevicesStmt:                          q.requeueFirmwareRolloutDevicesStmt,
-		requeueRigConfigReconciliationAfterTerminalFailureStmt:     q.requeueRigConfigReconciliationAfterTerminalFailureStmt,
-		reserveDeviceWriteFenceStmt:                                q.reserveDeviceWriteFenceStmt,
-		reserveInventoryPartStmt:                                   q.reserveInventoryPartStmt,
-		resetCurtailmentTargetsForRecurtailStmt:                    q.resetCurtailmentTargetsForRecurtailStmt,
-		resetCurtailmentTargetsForRestoreStmt:                      q.resetCurtailmentTargetsForRestoreStmt,
-		resetReapedFirmwareStatusesStmt:                            q.resetReapedFirmwareStatusesStmt,
-		resolveCompletedPoolRemovalStmt:                            q.resolveCompletedPoolRemovalStmt,
-		resolveCurtailmentTopologyDispatchStmt:                     q.resolveCurtailmentTopologyDispatchStmt,
-		resolveDeviceWriteAttemptStmt:                              q.resolveDeviceWriteAttemptStmt,
-		resolveHostedAccountAuthorityStmt:                          q.resolveHostedAccountAuthorityStmt,
-		resolveHostedAccountMembershipStmt:                         q.resolveHostedAccountMembershipStmt,
-		resolveInventorySiteByNameStmt:                             q.resolveInventorySiteByNameStmt,
-		resolveMaintenanceAssigneeStmt:                             q.resolveMaintenanceAssigneeStmt,
-		resolveMaintenanceLocationContextStmt:                      q.resolveMaintenanceLocationContextStmt,
-		resolveMaintenanceMinerContextStmt:                         q.resolveMaintenanceMinerContextStmt,
-		resolveMaintenanceMinerIdentifierByIDStmt:                  q.resolveMaintenanceMinerIdentifierByIDStmt,
-		resolveRecoveredMiningGroupWorkflowStmt:                    q.resolveRecoveredMiningGroupWorkflowStmt,
-		resolveRecoveredPoolRemovalStmt:                            q.resolveRecoveredPoolRemovalStmt,
-		resolveReleaseChannelScopeStmt:                             q.resolveReleaseChannelScopeStmt,
-		resolveRepairTicketAssetStmt:                               q.resolveRepairTicketAssetStmt,
-		resolveRepairTicketMinerTargetStmt:                         q.resolveRepairTicketMinerTargetStmt,
-		resumeCurtailmentFromRestoringStmt:                         q.resumeCurtailmentFromRestoringStmt,
-		resumeFirmwareRolloutStmt:                                  q.resumeFirmwareRolloutStmt,
-		resumePausedScheduleStmt:                                   q.resumePausedScheduleStmt,
-		retainAppliedPoolGroupIntentsStmt:                          q.retainAppliedPoolGroupIntentsStmt,
-		retireContainerModulesStmt:                                 q.retireContainerModulesStmt,
-		retirePoolConfigurationAssignmentStmt:                      q.retirePoolConfigurationAssignmentStmt,
-		retirePoolConfigurationEquipmentAssignmentsStmt:            q.retirePoolConfigurationEquipmentAssignmentsStmt,
-		retryCurtailmentAutomationExecutionStmt:                    q.retryCurtailmentAutomationExecutionStmt,
-		retryPoolConfigurationTargetStmt:                           q.retryPoolConfigurationTargetStmt,
-		retryRigConfigReconciliationStmt:                           q.retryRigConfigReconciliationStmt,
-		revertScheduleToActiveStmt:                                 q.revertScheduleToActiveStmt,
-		revokeAllSessionsByUserIDStmt:                              q.revokeAllSessionsByUserIDStmt,
-		revokeApiKeyStmt:                                           q.revokeApiKeyStmt,
-		revokeApiKeysByFleetNodeIDStmt:                             q.revokeApiKeysByFleetNodeIDStmt,
-		revokeHostedAccountAncestorGrantStmt:                       q.revokeHostedAccountAncestorGrantStmt,
-		revokeHostedAccountInvitationStmt:                          q.revokeHostedAccountInvitationStmt,
-		revokeHostedAccountKeyStmt:                                 q.revokeHostedAccountKeyStmt,
-		revokeHostedAccountMembershipStmt:                          q.revokeHostedAccountMembershipStmt,
-		revokeOrganizationInvitationStmt:                           q.revokeOrganizationInvitationStmt,
-		revokePermissionFromRoleStmt:                               q.revokePermissionFromRoleStmt,
-		revokeSessionStmt:                                          q.revokeSessionStmt,
-		rewritePoolImportControllerBindingsStmt:                    q.rewritePoolImportControllerBindingsStmt,
-		saveMiningGroupStateStmt:                                   q.saveMiningGroupStateStmt,
-		savePoolConfigurationObservationStmt:                       q.savePoolConfigurationObservationStmt,
-		savePoolConfigurationReviewResultStmt:                      q.savePoolConfigurationReviewResultStmt,
-		scheduleMiningGroupReconciliationStmt:                      q.scheduleMiningGroupReconciliationStmt,
-		setCurtailmentAutomationActiveEventStmt:                    q.setCurtailmentAutomationActiveEventStmt,
-		setCurtailmentAutomationExecutionErrorStmt:                 q.setCurtailmentAutomationExecutionErrorStmt,
-		setCurtailmentAutomationRestoreStartedStmt:                 q.setCurtailmentAutomationRestoreStartedStmt,
-		setCurtailmentAutomationRuleEnabledStmt:                    q.setCurtailmentAutomationRuleEnabledStmt,
-		setDevicePairingAuthNeededIfNotPairedStmt:                  q.setDevicePairingAuthNeededIfNotPairedStmt,
-		setFirmwareRolloutControllerWaitStmt:                       q.setFirmwareRolloutControllerWaitStmt,
-		setFleetNodeEnrollmentStatusStmt:                           q.setFleetNodeEnrollmentStatusStmt,
-		setFleetNodeHAPairStatusStmt:                               q.setFleetNodeHAPairStatusStmt,
-		setHashboardPoolIntentStmt:                                 q.setHashboardPoolIntentStmt,
-		setHostedAccountAncestorGrantStmt:                          q.setHostedAccountAncestorGrantStmt,
-		setHostedAccountAssetStmt:                                  q.setHostedAccountAssetStmt,
-		setHostedAccountMembershipStmt:                             q.setHostedAccountMembershipStmt,
-		setHostedAccountPoolProfileStmt:                            q.setHostedAccountPoolProfileStmt,
-		setHostedAccountSitesRestrictedStmt:                        q.setHostedAccountSitesRestrictedStmt,
-		setHostedAccountTicketingStmt:                              q.setHostedAccountTicketingStmt,
-		setInfrastructureControlSubnetsStmt:                        q.setInfrastructureControlSubnetsStmt,
-		setLocalDeviceDeletionLockTimeoutStmt:                      q.setLocalDeviceDeletionLockTimeoutStmt,
-		setLocalFleetNodeHAFailoverLockTimeoutStmt:                 q.setLocalFleetNodeHAFailoverLockTimeoutStmt,
-		setLocalTelemetryLockTimeoutStmt:                           q.setLocalTelemetryLockTimeoutStmt,
-		setLocalTransactionTimeoutStmt:                             q.setLocalTransactionTimeoutStmt,
-		setMQTTSourceConfigEnabledStmt:                             q.setMQTTSourceConfigEnabledStmt,
-		setPoolConfigurationAssignmentStmt:                         q.setPoolConfigurationAssignmentStmt,
-		setPoolConfigurationCurrentRevisionStmt:                    q.setPoolConfigurationCurrentRevisionStmt,
-		setRackBuildingPositionStmt:                                q.setRackBuildingPositionStmt,
-		setRackBuildingPositionBulkClearStmt:                       q.setRackBuildingPositionBulkClearStmt,
-		setRackBuildingPositionBulkPlaceStmt:                       q.setRackBuildingPositionBulkPlaceStmt,
-		setRackSlotPositionStmt:                                    q.setRackSlotPositionStmt,
-		setRepairTicketCommentVisibilityStmt:                       q.setRepairTicketCommentVisibilityStmt,
-		setSchedulePrioritiesStmt:                                  q.setSchedulePrioritiesStmt,
-		setScheduleRunningStmt:                                     q.setScheduleRunningStmt,
-		shareRepairTicketStmt:                                      q.shareRepairTicketStmt,
-		siteBelongsToOrgStmt:                                       q.siteBelongsToOrgStmt,
-		sitesByIDsStmt:                                             q.sitesByIDsStmt,
-		skipFirmwareRolloutDevicesStmt:                             q.skipFirmwareRolloutDevicesStmt,
-		snapshotFirmwareRolloutDevicesStmt:                         q.snapshotFirmwareRolloutDevicesStmt,
-		softDeleteAlertChannelStmt:                                 q.softDeleteAlertChannelStmt,
-		softDeleteBuildingStmt:                                     q.softDeleteBuildingStmt,
-		softDeleteBuildingsBySiteStmt:                              q.softDeleteBuildingsBySiteStmt,
-		softDeleteCustomRoleStmt:                                   q.softDeleteCustomRoleStmt,
-		softDeleteDeviceSetStmt:                                    q.softDeleteDeviceSetStmt,
-		softDeleteDevicesStmt:                                      q.softDeleteDevicesStmt,
-		softDeleteDiscoveredDeviceByIdentifierStmt:                 q.softDeleteDiscoveredDeviceByIdentifierStmt,
-		softDeleteDiscoveredDevicesForDeletedDevicesStmt:           q.softDeleteDiscoveredDevicesForDeletedDevicesStmt,
-		softDeleteFleetNodeStmt:                                    q.softDeleteFleetNodeStmt,
-		softDeleteFleetNodesForExpiredEnrollmentsStmt:              q.softDeleteFleetNodesForExpiredEnrollmentsStmt,
-		softDeleteInfrastructureDeviceStmt:                         q.softDeleteInfrastructureDeviceStmt,
-		softDeleteInfrastructureDevicesBySiteStmt:                  q.softDeleteInfrastructureDevicesBySiteStmt,
-		softDeleteInventoryPartStmt:                                q.softDeleteInventoryPartStmt,
-		softDeleteOrganizationStmt:                                 q.softDeleteOrganizationStmt,
-		softDeletePoolStmt:                                         q.softDeletePoolStmt,
-		softDeleteRepairTicketCommentByAuthorStmt:                  q.softDeleteRepairTicketCommentByAuthorStmt,
-		softDeleteRoleStmt:                                         q.softDeleteRoleStmt,
-		softDeleteScheduleStmt:                                     q.softDeleteScheduleStmt,
-		softDeleteSiteStmt:                                         q.softDeleteSiteStmt,
-		softDeleteUserStmt:                                         q.softDeleteUserStmt,
-		softDeleteUserFromOrganizationStmt:                         q.softDeleteUserFromOrganizationStmt,
-		stampContainerSampleStmt:                                   q.stampContainerSampleStmt,
-		stampHashboardTopologyStmt:                                 q.stampHashboardTopologyStmt,
-		supersedePoolConfigurationTargetStmt:                       q.supersedePoolConfigurationTargetStmt,
-		swapFleetNodeHAPairStmt:                                    q.swapFleetNodeHAPairStmt,
-		sweepAlertRuleConfigsStmt:                                  q.sweepAlertRuleConfigsStmt,
-		sweepCurtailmentTargetsToReleasedStmt:                      q.sweepCurtailmentTargetsToReleasedStmt,
-		sweepCurtailmentTargetsToRestoreFailedStmt:                 q.sweepCurtailmentTargetsToRestoreFailedStmt,
-		sweepExpiredEnrollmentsStmt:                                q.sweepExpiredEnrollmentsStmt,
-		sweepExpiredFleetNodeAuthChallengesStmt:                    q.sweepExpiredFleetNodeAuthChallengesStmt,
-		sweepExpiredFleetNodeSessionsStmt:                          q.sweepExpiredFleetNodeSessionsStmt,
-		touchRepairTicketStmt:                                      q.touchRepairTicketStmt,
-		transferDiscoveredDeviceAttributionStmt:                    q.transferDiscoveredDeviceAttributionStmt,
-		unassignDeviceBuildingsByRackStmt:                          q.unassignDeviceBuildingsByRackStmt,
-		unassignDeviceSitesByRackStmt:                              q.unassignDeviceSitesByRackStmt,
-		unassignDevicesFromSiteStmt:                                q.unassignDevicesFromSiteStmt,
-		unassignRacksFromBuildingStmt:                              q.unassignRacksFromBuildingStmt,
-		unassignRacksFromBuildingsBySiteStmt:                       q.unassignRacksFromBuildingsBySiteStmt,
-		unassignRacksFromSiteStmt:                                  q.unassignRacksFromSiteStmt,
-		unassignRoleStmt:                                           q.unassignRoleStmt,
-		undeleteOrganizationStmt:                                   q.undeleteOrganizationStmt,
-		undeleteRoleStmt:                                           q.undeleteRoleStmt,
-		unlockCurtailmentFanSessionStmt:                            q.unlockCurtailmentFanSessionStmt,
-		unlockCurtailmentLifecycleSessionStmt:                      q.unlockCurtailmentLifecycleSessionStmt,
-		unlockTelemetrySeedMaintenanceStmt:                         q.unlockTelemetrySeedMaintenanceStmt,
-		unpairDeviceStmt:                                           q.unpairDeviceStmt,
-		unpairDevicesForFleetNodeRevocationStmt:                    q.unpairDevicesForFleetNodeRevocationStmt,
-		unverifyFirmwareRolloutDevicesStmt:                         q.unverifyFirmwareRolloutDevicesStmt,
-		updateAlertChannelStmt:                                     q.updateAlertChannelStmt,
-		updateAlertMaintenanceWindowStmt:                           q.updateAlertMaintenanceWindowStmt,
-		updateApiKeyLastUsedStmt:                                   q.updateApiKeyLastUsedStmt,
-		updateBuildingStmt:                                         q.updateBuildingStmt,
-		updateCurtailmentAutomationRuleStmt:                        q.updateCurtailmentAutomationRuleStmt,
-		updateCurtailmentEventFanStateStmt:                         q.updateCurtailmentEventFanStateStmt,
-		updateCurtailmentEventOperatorFieldsStmt:                   q.updateCurtailmentEventOperatorFieldsStmt,
-		updateCurtailmentEventStateStmt:                            q.updateCurtailmentEventStateStmt,
-		updateCurtailmentResponseProfileStmt:                       q.updateCurtailmentResponseProfileStmt,
-		updateCurtailmentTargetStateStmt:                           q.updateCurtailmentTargetStateStmt,
-		updateCustomRoleNameStmt:                                   q.updateCustomRoleNameStmt,
-		updateDeviceCustomNamesStmt:                                q.updateDeviceCustomNamesStmt,
-		updateDeviceIPAssignmentStmt:                               q.updateDeviceIPAssignmentStmt,
-		updateDeviceInfoStmt:                                       q.updateDeviceInfoStmt,
-		updateDevicePairingStatusByIdentifierStmt:                  q.updateDevicePairingStatusByIdentifierStmt,
-		updateDeviceSetDescriptionStmt:                             q.updateDeviceSetDescriptionStmt,
-		updateDeviceSetLabelStmt:                                   q.updateDeviceSetLabelStmt,
-		updateDeviceSetLabelAndDescriptionStmt:                     q.updateDeviceSetLabelAndDescriptionStmt,
-		updateDeviceWorkerNameStmt:                                 q.updateDeviceWorkerNameStmt,
-		updateDeviceWorkerNamePoolSyncStatusByIDStmt:               q.updateDeviceWorkerNamePoolSyncStatusByIDStmt,
-		updateDiscoveredDeviceFirmwareVersionStmt:                  q.updateDiscoveredDeviceFirmwareVersionStmt,
-		updateFleetNodeLastSeenAtStmt:                              q.updateFleetNodeLastSeenAtStmt,
-		updateInfrastructureDeviceStmt:                             q.updateInfrastructureDeviceStmt,
-		updateInventoryPartStmt:                                    q.updateInventoryPartStmt,
-		updateLastLoginStmt:                                        q.updateLastLoginStmt,
-		updateMQTTSourceConfigStmt:                                 q.updateMQTTSourceConfigStmt,
-		updateMessageAfterFailureStmt:                              q.updateMessageAfterFailureStmt,
-		updateMessagePermanentlyFailedStmt:                         q.updateMessagePermanentlyFailedStmt,
-		updateMessageStatusStmt:                                    q.updateMessageStatusStmt,
-		updateMinerPasswordStmt:                                    q.updateMinerPasswordStmt,
-		updateOrganizationStmt:                                     q.updateOrganizationStmt,
-		updatePoolStmt:                                             q.updatePoolStmt,
-		updateRackInfoStmt:                                         q.updateRackInfoStmt,
-		updateRackPlacementStmt:                                    q.updateRackPlacementStmt,
-		updateRackPlacementBulkForBuildingStmt:                     q.updateRackPlacementBulkForBuildingStmt,
-		updateRackPlacementBulkForSiteStmt:                         q.updateRackPlacementBulkForSiteStmt,
-		updateReleaseChannelStmt:                                   q.updateReleaseChannelStmt,
-		updateRepairTicketStmt:                                     q.updateRepairTicketStmt,
-		updateRepairTicketTargetEvidenceStmt:                       q.updateRepairTicketTargetEvidenceStmt,
-		updateRoleStmt:                                             q.updateRoleStmt,
-		updateScheduleStmt:                                         q.updateScheduleStmt,
-		updateScheduleAfterRunStmt:                                 q.updateScheduleAfterRunStmt,
-		updateSessionActivityStmt:                                  q.updateSessionActivityStmt,
-		updateSiteStmt:                                             q.updateSiteStmt,
-		updateUserPasswordStmt:                                     q.updateUserPasswordStmt,
-		updateUserPasswordAndFlagStmt:                              q.updateUserPasswordAndFlagStmt,
-		updateUserRoleStmt:                                         q.updateUserRoleStmt,
-		updateUserUsernameStmt:                                     q.updateUserUsernameStmt,
-		upsertAlertRoutePolicyStmt:                                 q.upsertAlertRoutePolicyStmt,
-		upsertAlertRuleConfigStmt:                                  q.upsertAlertRuleConfigStmt,
-		upsertBuiltinRoleForOrgStmt:                                q.upsertBuiltinRoleForOrgStmt,
-		upsertCommandOnDeviceLogStmt:                               q.upsertCommandOnDeviceLogStmt,
-		upsertContainerFansStmt:                                    q.upsertContainerFansStmt,
-		upsertContainerHAStmt:                                      q.upsertContainerHAStmt,
-		upsertContainerRollupStmt:                                  q.upsertContainerRollupStmt,
-		upsertCurtailmentAutomationExecutionGrantStmt:              q.upsertCurtailmentAutomationExecutionGrantStmt,
-		upsertCurtailmentAutomationScheduleStmt:                    q.upsertCurtailmentAutomationScheduleStmt,
-		upsertCurtailmentAutomationSignalStateStmt:                 q.upsertCurtailmentAutomationSignalStateStmt,
-		upsertCurtailmentReconcilerHeartbeatStmt:                   q.upsertCurtailmentReconcilerHeartbeatStmt,
-		upsertCustomRoleForOrgStmt:                                 q.upsertCustomRoleForOrgStmt,
-		upsertDeviceErrorsStmt:                                     q.upsertDeviceErrorsStmt,
-		upsertDevicePairingStmt:                                    q.upsertDevicePairingStmt,
-		upsertDeviceStatusStmt:                                     q.upsertDeviceStatusStmt,
-		upsertDiscoveredDeviceStmt:                                 q.upsertDiscoveredDeviceStmt,
-		upsertDiscoveredDeviceFromFleetNodeStmt:                    q.upsertDiscoveredDeviceFromFleetNodeStmt,
-		upsertFleetMetricRollupsStmt:                               q.upsertFleetMetricRollupsStmt,
-		upsertFleetNodeAuthChallengeStmt:                           q.upsertFleetNodeAuthChallengeStmt,
-		upsertFleetNodeSessionStmt:                                 q.upsertFleetNodeSessionStmt,
-		upsertHashboardInstallationsStmt:                           q.upsertHashboardInstallationsStmt,
-		upsertHashboardObservationsStmt:                            q.upsertHashboardObservationsStmt,
-		upsertHashboardSlotsStmt:                                   q.upsertHashboardSlotsStmt,
-		upsertMQTTSourceStateStmt:                                  q.upsertMQTTSourceStateStmt,
-		upsertMinerCredentialsStmt:                                 q.upsertMinerCredentialsStmt,
-		upsertPermissionStmt:                                       q.upsertPermissionStmt,
-		upsertReleaseChannelFirmwareStmt:                           q.upsertReleaseChannelFirmwareStmt,
-		upsertReleaseChannelSettingStmt:                            q.upsertReleaseChannelSettingStmt,
-		useHostedAccountHistoryCustomPlanStmt:                      q.useHostedAccountHistoryCustomPlanStmt,
-		withdrawContainerModuleIdentitiesStmt:                      q.withdrawContainerModuleIdentitiesStmt,
-		withdrawHashboardReadingsStmt:                              q.withdrawHashboardReadingsStmt,
+		hasReportingAllocatedMetersStmt:                             q.hasReportingAllocatedMetersStmt,
+		hasUserStmt:                                                 q.hasUserStmt,
+		initializeDeviceWorkerNameStmt:                              q.initializeDeviceWorkerNameStmt,
+		initializeReportingInputsStmt:                               q.initializeReportingInputsStmt,
+		insertActivityLogStmt:                                       q.insertActivityLogStmt,
+		insertAlertChannelStmt:                                      q.insertAlertChannelStmt,
+		insertAlertMaintenanceWindowStmt:                            q.insertAlertMaintenanceWindowStmt,
+		insertAlertRouteChannelsStmt:                                q.insertAlertRouteChannelsStmt,
+		insertContainerControlsStmt:                                 q.insertContainerControlsStmt,
+		insertContainerModuleMetricsStmt:                            q.insertContainerModuleMetricsStmt,
+		insertContainerPlantMetricsStmt:                             q.insertContainerPlantMetricsStmt,
+		insertContainerSetpointsStmt:                                q.insertContainerSetpointsStmt,
+		insertContainerTankRollupsStmt:                              q.insertContainerTankRollupsStmt,
+		insertContainerTopologyObservationStmt:                      q.insertContainerTopologyObservationStmt,
+		insertContainerTopologyVersionStmt:                          q.insertContainerTopologyVersionStmt,
+		insertCurtailmentAutomationRuleStmt:                         q.insertCurtailmentAutomationRuleStmt,
+		insertCurtailmentEventStmt:                                  q.insertCurtailmentEventStmt,
+		insertCurtailmentResponseProfileStmt:                        q.insertCurtailmentResponseProfileStmt,
+		insertDeviceStmt:                                            q.insertDeviceStmt,
+		insertDeviceMetricsBatchStmt:                                q.insertDeviceMetricsBatchStmt,
+		insertHashboardDiagnosticObservationsStmt:                   q.insertHashboardDiagnosticObservationsStmt,
+		insertHashboardMetricsStmt:                                  q.insertHashboardMetricsStmt,
+		insertMQTTSourceConfigStmt:                                  q.insertMQTTSourceConfigStmt,
+		insertMinerStateSnapshotStmt:                                q.insertMinerStateSnapshotStmt,
+		insertModuleDiagnosticObservationsStmt:                      q.insertModuleDiagnosticObservationsStmt,
+		insertNotificationHistoryStmt:                               q.insertNotificationHistoryStmt,
+		insertNotificationMetricSamplesStmt:                         q.insertNotificationMetricSamplesStmt,
+		insertReleaseChannelMinerTargetsStmt:                        q.insertReleaseChannelMinerTargetsStmt,
+		insertReleaseChannelTargetsStmt:                             q.insertReleaseChannelTargetsStmt,
+		insertRepairTicketOpeningAudienceStmt:                       q.insertRepairTicketOpeningAudienceStmt,
+		insertRepairTicketOpeningTargetStmt:                         q.insertRepairTicketOpeningTargetStmt,
+		insertRepairTicketPartStmt:                                  q.insertRepairTicketPartStmt,
+		inventoryPartExistsBySiteAndNameStmt:                        q.inventoryPartExistsBySiteAndNameStmt,
+		invitationTokenHashInUseStmt:                                q.invitationTokenHashInUseStmt,
+		isBatchFinishedStmt:                                         q.isBatchFinishedStmt,
+		isContainerMetricSelectorStmt:                               q.isContainerMetricSelectorStmt,
+		isDeletionUnpairIdentityCurrentStmt:                         q.isDeletionUnpairIdentityCurrentStmt,
+		isDeviceWriteFenceDrainedStmt:                               q.isDeviceWriteFenceDrainedStmt,
+		isFleetNodeHAStandbyStmt:                                    q.isFleetNodeHAStandbyStmt,
+		isRetiredDeviceWriteDrainedStmt:                             q.isRetiredDeviceWriteDrainedStmt,
+		legacyPoolWritersDisabledStmt:                               q.legacyPoolWritersDisabledStmt,
+		linkPoolConfigurationAttemptStmt:                            q.linkPoolConfigurationAttemptStmt,
+		linkPoolGroupSnapshotStmt:                                   q.linkPoolGroupSnapshotStmt,
+		listAccountRepairTicketCommentsStmt:                         q.listAccountRepairTicketCommentsStmt,
+		listAccountRepairTicketTargetsStmt:                          q.listAccountRepairTicketTargetsStmt,
+		listAccountRepairTicketsStmt:                                q.listAccountRepairTicketsStmt,
+		listActiveAlertMaintenanceWindowsStmt:                       q.listActiveAlertMaintenanceWindowsStmt,
+		listActiveCurtailedDevicesByOrgStmt:                         q.listActiveCurtailedDevicesByOrgStmt,
+		listActiveCurtailmentEventsStmt:                             q.listActiveCurtailmentEventsStmt,
+		listActiveCurtailmentTargetDevicesByOrgStmt:                 q.listActiveCurtailmentTargetDevicesByOrgStmt,
+		listActiveFirmwareRolloutsStmt:                              q.listActiveFirmwareRolloutsStmt,
+		listActiveNotificationGroupsStmt:                            q.listActiveNotificationGroupsStmt,
+		listActiveNotificationsStmt:                                 q.listActiveNotificationsStmt,
+		listActiveNotificationsByAlertStmt:                          q.listActiveNotificationsByAlertStmt,
+		listActiveOrganizationIDsStmt:                               q.listActiveOrganizationIDsStmt,
+		listActivePoolAssignmentsForTargetsStmt:                     q.listActivePoolAssignmentsForTargetsStmt,
+		listActivePoolRemovalsStmt:                                  q.listActivePoolRemovalsStmt,
+		listActivityLogsStmt:                                        q.listActivityLogsStmt,
+		listAlertChannelsStmt:                                       q.listAlertChannelsStmt,
+		listAlertMaintenanceWindowsStmt:                             q.listAlertMaintenanceWindowsStmt,
+		listAlertRoutePoliciesStmt:                                  q.listAlertRoutePoliciesStmt,
+		listAlertRuleConfigsStmt:                                    q.listAlertRuleConfigsStmt,
+		listApiKeysByOrganizationStmt:                               q.listApiKeysByOrganizationStmt,
+		listAssignmentsForRoleStmt:                                  q.listAssignmentsForRoleStmt,
+		listAssignmentsForUserStmt:                                  q.listAssignmentsForUserStmt,
+		listBatchDeviceResultsStmt:                                  q.listBatchDeviceResultsStmt,
+		listBuildingNamesBySiteStmt:                                 q.listBuildingNamesBySiteStmt,
+		listBuildingRacksStmt:                                       q.listBuildingRacksStmt,
+		listBuildingsByOrgStmt:                                      q.listBuildingsByOrgStmt,
+		listBuiltinRolesForOrgStmt:                                  q.listBuiltinRolesForOrgStmt,
+		listClearedBoardPoolIntentsStmt:                             q.listClearedBoardPoolIntentsStmt,
+		listCompletedTicketAssigneesStmt:                            q.listCompletedTicketAssigneesStmt,
+		listCompletedTicketsStmt:                                    q.listCompletedTicketsStmt,
+		listContainerModuleHistoryStmt:                              q.listContainerModuleHistoryStmt,
+		listContainerPlacementsStmt:                                 q.listContainerPlacementsStmt,
+		listContainerSiteStatsStmt:                                  q.listContainerSiteStatsStmt,
+		listContainersStmt:                                          q.listContainersStmt,
+		listCurtailmentAutomationRulesByOrgStmt:                     q.listCurtailmentAutomationRulesByOrgStmt,
+		listCurtailmentAutomationSchedulesByOrgStmt:                 q.listCurtailmentAutomationSchedulesByOrgStmt,
+		listCurtailmentBuildingScopeCoverageStmt:                    q.listCurtailmentBuildingScopeCoverageStmt,
+		listCurtailmentCandidatesByOrgStmt:                          q.listCurtailmentCandidatesByOrgStmt,
+		listCurtailmentEventsForOrgStmt:                             q.listCurtailmentEventsForOrgStmt,
+		listCurtailmentGroupScopeCoverageStmt:                       q.listCurtailmentGroupScopeCoverageStmt,
+		listCurtailmentRackScopeCoverageStmt:                        q.listCurtailmentRackScopeCoverageStmt,
+		listCurtailmentResponseProfileDeviceSitesByOrgStmt:          q.listCurtailmentResponseProfileDeviceSitesByOrgStmt,
+		listCurtailmentResponseProfilesByOrgStmt:                    q.listCurtailmentResponseProfilesByOrgStmt,
+		listCurtailmentTargetSiteCoverageByEventStmt:                q.listCurtailmentTargetSiteCoverageByEventStmt,
+		listCurtailmentTargetSiteCoverageByEventsStmt:               q.listCurtailmentTargetSiteCoverageByEventsStmt,
+		listCurtailmentTargetsByEventStmt:                           q.listCurtailmentTargetsByEventStmt,
+		listCurtailmentTargetsByEventPageStmt:                       q.listCurtailmentTargetsByEventPageStmt,
+		listCurtailmentTopologyMemberDeviceIdentifiersByOrgStmt:     q.listCurtailmentTopologyMemberDeviceIdentifiersByOrgStmt,
+		listCustomRolesForOrgStmt:                                   q.listCustomRolesForOrgStmt,
+		listDeviceIDsByIdentifiersStmt:                              q.listDeviceIDsByIdentifiersStmt,
+		listDeviceSetMembersPaginatedStmt:                           q.listDeviceSetMembersPaginatedStmt,
+		listDeviceSetMembersPaginatedAfterStmt:                      q.listDeviceSetMembersPaginatedAfterStmt,
+		listDeviceSetMembersPaginatedFilteredStmt:                   q.listDeviceSetMembersPaginatedFilteredStmt,
+		listDeviceSetMembersPaginatedFilteredAfterStmt:              q.listDeviceSetMembersPaginatedFilteredAfterStmt,
+		listDeviceWriteRecoveryCandidatesStmt:                       q.listDeviceWriteRecoveryCandidatesStmt,
+		listEarlierCurtailmentReservationDevicesStmt:                q.listEarlierCurtailmentReservationDevicesStmt,
+		listEarlierCurtailmentTopologyReservationScopesStmt:         q.listEarlierCurtailmentTopologyReservationScopesStmt,
+		listEffectivePermissionsForUserStmt:                         q.listEffectivePermissionsForUserStmt,
+		listEffectivePermissionsForUserForShareStmt:                 q.listEffectivePermissionsForUserForShareStmt,
+		listEffectivePermissionsForUserForUpdateStmt:                q.listEffectivePermissionsForUserForUpdateStmt,
+		listEligibleConfirmationTargetsStmt:                         q.listEligibleConfirmationTargetsStmt,
+		listEnabledCurtailmentAutomationRulesByMQTTSourceStmt:       q.listEnabledCurtailmentAutomationRulesByMQTTSourceStmt,
+		listEnabledCurtailmentScheduleRulesStmt:                     q.listEnabledCurtailmentScheduleRulesStmt,
+		listEnabledMQTTSourcesStmt:                                  q.listEnabledMQTTSourcesStmt,
+		listExistingDeviceIdentifiersStmt:                           q.listExistingDeviceIdentifiersStmt,
+		listFirmwareRolloutDevicesStmt:                              q.listFirmwareRolloutDevicesStmt,
+		listFirmwareRolloutDispatchCompletionsStmt:                  q.listFirmwareRolloutDispatchCompletionsStmt,
+		listFirmwareRolloutEventsStmt:                               q.listFirmwareRolloutEventsStmt,
+		listFirmwareRolloutOfflineSlotsStmt:                         q.listFirmwareRolloutOfflineSlotsStmt,
+		listFirmwareRolloutsStmt:                                    q.listFirmwareRolloutsStmt,
+		listFleetEquipmentGroupsStmt:                                q.listFleetEquipmentGroupsStmt,
+		listFleetFacilitiesStmt:                                     q.listFleetFacilitiesStmt,
+		listFleetInventoryOptionsStmt:                               q.listFleetInventoryOptionsStmt,
+		listFleetMiningAssetsStmt:                                   q.listFleetMiningAssetsStmt,
+		listFleetNodeDevicesStmt:                                    q.listFleetNodeDevicesStmt,
+		listFleetNodeDevicesForRevocationStmt:                       q.listFleetNodeDevicesForRevocationStmt,
+		listFleetNodeDiscoveredDevicesStmt:                          q.listFleetNodeDiscoveredDevicesStmt,
+		listFleetNodeHAPairsStmt:                                    q.listFleetNodeHAPairsStmt,
+		listFleetNodesForOrganizationStmt:                           q.listFleetNodesForOrganizationStmt,
+		listFleetTankOptionsStmt:                                    q.listFleetTankOptionsStmt,
+		listHashboardHistoryStmt:                                    q.listHashboardHistoryStmt,
+		listHashboardModulesStmt:                                    q.listHashboardModulesStmt,
+		listHashboardPoolIntentsStmt:                                q.listHashboardPoolIntentsStmt,
+		listHostMiningGroupPoolRevisionsStmt:                        q.listHostMiningGroupPoolRevisionsStmt,
+		listHostReportingAccountsStmt:                               q.listHostReportingAccountsStmt,
+		listHostedAccountAncestorGrantsStmt:                         q.listHostedAccountAncestorGrantsStmt,
+		listHostedAccountAssetChildrenStmt:                          q.listHostedAccountAssetChildrenStmt,
+		listHostedAccountAssetFilterOptionsStmt:                     q.listHostedAccountAssetFilterOptionsStmt,
+		listHostedAccountChildrenStmt:                               q.listHostedAccountChildrenStmt,
+		listHostedAccountHistoricalReadingsStmt:                     q.listHostedAccountHistoricalReadingsStmt,
+		listHostedAccountHistoricalSitesStmt:                        q.listHostedAccountHistoricalSitesStmt,
+		listHostedAccountHistoryIntervalsStmt:                       q.listHostedAccountHistoryIntervalsStmt,
+		listHostedAccountInvitationsStmt:                            q.listHostedAccountInvitationsStmt,
+		listHostedAccountKeysStmt:                                   q.listHostedAccountKeysStmt,
+		listHostedAccountMembersStmt:                                q.listHostedAccountMembersStmt,
+		listHostedAccountMiningAssetPageStmt:                        q.listHostedAccountMiningAssetPageStmt,
+		listHostedAccountMiningAssetsStmt:                           q.listHostedAccountMiningAssetsStmt,
+		listHostedAccountPoolsStmt:                                  q.listHostedAccountPoolsStmt,
+		listHostedAccountRetainedReadingsStmt:                       q.listHostedAccountRetainedReadingsStmt,
+		listHostedAccountSitesStmt:                                  q.listHostedAccountSitesStmt,
+		listHostedAccountSummariesStmt:                              q.listHostedAccountSummariesStmt,
+		listHostedAccountsStmt:                                      q.listHostedAccountsStmt,
+		listHostedPoolImportSourcesStmt:                             q.listHostedPoolImportSourcesStmt,
+		listImportedPoolConfigurationsStmt:                          q.listImportedPoolConfigurationsStmt,
+		listInfrastructureDevicesByOrgStmt:                          q.listInfrastructureDevicesByOrgStmt,
+		listInventoryPartsStmt:                                      q.listInventoryPartsStmt,
+		listLegacyHashboardPoolAdoptionsStmt:                        q.listLegacyHashboardPoolAdoptionsStmt,
+		listMQTTSourceConfigsByOrgStmt:                              q.listMQTTSourceConfigsByOrgStmt,
+		listMQTTSourceStatesByOrgStmt:                               q.listMQTTSourceStatesByOrgStmt,
+		listMQTTSourcesWithActiveCurtailmentStmt:                    q.listMQTTSourcesWithActiveCurtailmentStmt,
+		listMaintenanceAssigneesStmt:                                q.listMaintenanceAssigneesStmt,
+		listManagedFirmwareUpdateDevicesStmt:                        q.listManagedFirmwareUpdateDevicesStmt,
+		listMinerFirmwareHistoryStmt:                                q.listMinerFirmwareHistoryStmt,
+		listMinerStateSnapshotsStmt:                                 q.listMinerStateSnapshotsStmt,
+		listMiningGroupControllersStmt:                              q.listMiningGroupControllersStmt,
+		listModuleCommandTargetsStmt:                                q.listModuleCommandTargetsStmt,
+		listNonTerminalCurtailmentEventsStmt:                        q.listNonTerminalCurtailmentEventsStmt,
+		listNotificationHistoryStmt:                                 q.listNotificationHistoryStmt,
+		listOrganizationInvitationsStmt:                             q.listOrganizationInvitationsStmt,
+		listOrganizationsStmt:                                       q.listOrganizationsStmt,
+		listPartsBySiteStmt:                                         q.listPartsBySiteStmt,
+		listPendingPoolConfigurationWorkStmt:                        q.listPendingPoolConfigurationWorkStmt,
+		listPermissionsStmt:                                         q.listPermissionsStmt,
+		listPoolAffectedBoardsStmt:                                  q.listPoolAffectedBoardsStmt,
+		listPoolAssignmentPhysicalBindingsStmt:                      q.listPoolAssignmentPhysicalBindingsStmt,
+		listPoolBoardAssignmentsStmt:                                q.listPoolBoardAssignmentsStmt,
+		listPoolConfigurationAssignmentsStmt:                        q.listPoolConfigurationAssignmentsStmt,
+		listPoolConfigurationAssignmentsForDevicesStmt:              q.listPoolConfigurationAssignmentsForDevicesStmt,
+		listPoolConfigurationOperationSitesStmt:                     q.listPoolConfigurationOperationSitesStmt,
+		listPoolConfigurationOperationTargetsStmt:                   q.listPoolConfigurationOperationTargetsStmt,
+		listPoolConfigurationOperationsStmt:                         q.listPoolConfigurationOperationsStmt,
+		listPoolConfigurationsStmt:                                  q.listPoolConfigurationsStmt,
+		listPoolCutoverGapsStmt:                                     q.listPoolCutoverGapsStmt,
+		listPoolDeviceImportSourcesStmt:                             q.listPoolDeviceImportSourcesStmt,
+		listPoolEquipmentAssignmentsStmt:                            q.listPoolEquipmentAssignmentsStmt,
+		listPoolEquipmentIdentitiesStmt:                             q.listPoolEquipmentIdentitiesStmt,
+		listPoolEquipmentInstallationsStmt:                          q.listPoolEquipmentInstallationsStmt,
+		listPoolEquipmentModuleOwnersStmt:                           q.listPoolEquipmentModuleOwnersStmt,
+		listPoolGroupAttemptTargetsStmt:                             q.listPoolGroupAttemptTargetsStmt,
+		listPoolGroupIntentsStmt:                                    q.listPoolGroupIntentsStmt,
+		listPoolGroupWorkStmt:                                       q.listPoolGroupWorkStmt,
+		listPoolImportControllerBindingsStmt:                        q.listPoolImportControllerBindingsStmt,
+		listPoolSelectionBoardsStmt:                                 q.listPoolSelectionBoardsStmt,
+		listPoolSelectionModulesStmt:                                q.listPoolSelectionModulesStmt,
+		listPoolsStmt:                                               q.listPoolsStmt,
+		listRackTypesStmt:                                           q.listRackTypesStmt,
+		listRackZoneRefsStmt:                                        q.listRackZoneRefsStmt,
+		listRackZonesStmt:                                           q.listRackZonesStmt,
+		listRacksOutsideBuildingBoundsStmt:                          q.listRacksOutsideBuildingBoundsStmt,
+		listRecentlyResolvedCurtailedDevicesByOrgStmt:               q.listRecentlyResolvedCurtailedDevicesByOrgStmt,
+		listRecentlyResolvedCurtailedDevicesByScopeStmt:             q.listRecentlyResolvedCurtailedDevicesByScopeStmt,
+		listReleaseChannelFirmwareStmt:                              q.listReleaseChannelFirmwareStmt,
+		listReleaseChannelFirmwareNeedingRolloutStmt:                q.listReleaseChannelFirmwareNeedingRolloutStmt,
+		listReleaseChannelMembersStmt:                               q.listReleaseChannelMembersStmt,
+		listReleaseChannelMembershipConflictsPageStmt:               q.listReleaseChannelMembershipConflictsPageStmt,
+		listReleaseChannelMinersPageStmt:                            q.listReleaseChannelMinersPageStmt,
+		listReleaseChannelMismatchedMembersStmt:                     q.listReleaseChannelMismatchedMembersStmt,
+		listReleaseChannelModelGroupsPageStmt:                       q.listReleaseChannelModelGroupsPageStmt,
+		listReleaseChannelPageFirmwareStmt:                          q.listReleaseChannelPageFirmwareStmt,
+		listReleaseChannelPageMemberModelsStmt:                      q.listReleaseChannelPageMemberModelsStmt,
+		listReleaseChannelPageTargetsStmt:                           q.listReleaseChannelPageTargetsStmt,
+		listReleaseChannelSuppressedMembersStmt:                     q.listReleaseChannelSuppressedMembersStmt,
+		listReleaseChannelTargetsStmt:                               q.listReleaseChannelTargetsStmt,
+		listReleaseChannelsStmt:                                     q.listReleaseChannelsStmt,
+		listReleaseChannelsPageStmt:                                 q.listReleaseChannelsPageStmt,
+		listRepairTicketAssetOptionsStmt:                            q.listRepairTicketAssetOptionsStmt,
+		listRepairTicketBoardOptionsStmt:                            q.listRepairTicketBoardOptionsStmt,
+		listRepairTicketCommentsStmt:                                q.listRepairTicketCommentsStmt,
+		listRepairTicketPartsStmt:                                   q.listRepairTicketPartsStmt,
+		listRepairTicketsStmt:                                       q.listRepairTicketsStmt,
+		listReportingAllocationIntervalsStmt:                        q.listReportingAllocationIntervalsStmt,
+		listReportingAssetSupportMetadataStmt:                       q.listReportingAssetSupportMetadataStmt,
+		listReportingAuthoritiesStmt:                                q.listReportingAuthoritiesStmt,
+		listReportingCaptureStreamsStmt:                             q.listReportingCaptureStreamsStmt,
+		listReportingFactDevicesStmt:                                q.listReportingFactDevicesStmt,
+		listReportingFactPageMetadataStmt:                           q.listReportingFactPageMetadataStmt,
+		listReportingFactSitesStmt:                                  q.listReportingFactSitesStmt,
+		listReportingMeterSupportMetadataStmt:                       q.listReportingMeterSupportMetadataStmt,
+		listReportingModuleInstallationCandidatesStmt:               q.listReportingModuleInstallationCandidatesStmt,
+		listReportingReferenceMetadataStmt:                          q.listReportingReferenceMetadataStmt,
+		listReportingSitesStmt:                                      q.listReportingSitesStmt,
+		listReportingValidationMetadataStmt:                         q.listReportingValidationMetadataStmt,
+		listReportingWitnessMetadataStmt:                            q.listReportingWitnessMetadataStmt,
+		listResponseProfileInfrastructureDevicesByOrgStmt:           q.listResponseProfileInfrastructureDevicesByOrgStmt,
+		listRetiredCompletedPoolRemovalsStmt:                        q.listRetiredCompletedPoolRemovalsStmt,
+		listRetryableReapedRigConfigMessagesStmt:                    q.listRetryableReapedRigConfigMessagesStmt,
+		listRigConfigReconciliationTargetsStmt:                      q.listRigConfigReconciliationTargetsStmt,
+		listRigConfigSourceScopesStmt:                               q.listRigConfigSourceScopesStmt,
+		listRolePermissionKeysStmt:                                  q.listRolePermissionKeysStmt,
+		listRolesStmt:                                               q.listRolesStmt,
+		listRolesWithDetailsForOrgStmt:                              q.listRolesWithDetailsForOrgStmt,
+		listScheduleIDStatusesStmt:                                  q.listScheduleIDStatusesStmt,
+		listSchedulesStmt:                                           q.listSchedulesStmt,
+		listSiteNetworkConfigsForOverlapStmt:                        q.listSiteNetworkConfigsForOverlapStmt,
+		listSiteSlugsStmt:                                           q.listSiteSlugsStmt,
+		listSitesStmt:                                               q.listSitesStmt,
+		listTakenDeviceSetLabelsStmt:                                q.listTakenDeviceSetLabelsStmt,
+		listTankCommandTargetsStmt:                                  q.listTankCommandTargetsStmt,
+		listTerminalFirmwareRolloutsNeedingProvenanceStmt:           q.listTerminalFirmwareRolloutsNeedingProvenanceStmt,
+		listUnfinishedDeviceWriteCommandsStmt:                       q.listUnfinishedDeviceWriteCommandsStmt,
+		listUnreplacedHashboardPoolIntentsStmt:                      q.listUnreplacedHashboardPoolIntentsStmt,
+		listUnresolvedDeviceWriteAttemptsStmt:                       q.listUnresolvedDeviceWriteAttemptsStmt,
+		listUnsettledPoolAdoptionWorkStmt:                           q.listUnsettledPoolAdoptionWorkStmt,
+		listUsersForOrganizationStmt:                                q.listUsersForOrganizationStmt,
+		lockActiveHostedAccountUserStmt:                             q.lockActiveHostedAccountUserStmt,
+		lockActiveHostedAccountUserForShareStmt:                     q.lockActiveHostedAccountUserForShareStmt,
+		lockActiveSuperAdminUsersStmt:                               q.lockActiveSuperAdminUsersStmt,
+		lockAlertMaintenanceWindowOrgForWriteStmt:                   q.lockAlertMaintenanceWindowOrgForWriteStmt,
+		lockAndCountOrgScopeSuperAdminsStmt:                         q.lockAndCountOrgScopeSuperAdminsStmt,
+		lockBuildingForWriteStmt:                                    q.lockBuildingForWriteStmt,
+		lockBuildingsBySiteForWriteStmt:                             q.lockBuildingsBySiteForWriteStmt,
+		lockCommandBatchStmt:                                        q.lockCommandBatchStmt,
+		lockContainerCommandTargetStmt:                              q.lockContainerCommandTargetStmt,
+		lockContainersForSiteAssignmentStmt:                         q.lockContainersForSiteAssignmentStmt,
+		lockCurrentPoolConfigurationOperationTargetStmt:             q.lockCurrentPoolConfigurationOperationTargetStmt,
+		lockCurtailmentAdmissionEventForWriteStmt:                   q.lockCurtailmentAdmissionEventForWriteStmt,
+		lockCurtailmentAutomationRuleForExecutionStmt:               q.lockCurtailmentAutomationRuleForExecutionStmt,
+		lockCurtailmentAutomationRuleMutationStmt:                   q.lockCurtailmentAutomationRuleMutationStmt,
+		lockCurtailmentEventByUUIDForWriteStmt:                      q.lockCurtailmentEventByUUIDForWriteStmt,
+		lockCurtailmentEventLifecycleStmt:                           q.lockCurtailmentEventLifecycleStmt,
+		lockCurtailmentEventLifecycleByUUIDStmt:                     q.lockCurtailmentEventLifecycleByUUIDStmt,
+		lockCurtailmentEventScopeForWriteStmt:                       q.lockCurtailmentEventScopeForWriteStmt,
+		lockCurtailmentFanDeviceForWriteStmt:                        q.lockCurtailmentFanDeviceForWriteStmt,
+		lockCurtailmentFanDevicesForWriteStmt:                       q.lockCurtailmentFanDevicesForWriteStmt,
+		lockCurtailmentFanSessionStmt:                               q.lockCurtailmentFanSessionStmt,
+		lockCurtailmentGroupsForWriteStmt:                           q.lockCurtailmentGroupsForWriteStmt,
+		lockCurtailmentLifecycleSessionStmt:                         q.lockCurtailmentLifecycleSessionStmt,
+		lockCurtailmentResponseProfileAutomationMutationStmt:        q.lockCurtailmentResponseProfileAutomationMutationStmt,
+		lockCurtailmentResponseProfileDeviceSitesByOrgStmt:          q.lockCurtailmentResponseProfileDeviceSitesByOrgStmt,
+		lockCurtailmentResponseProfileRevisionForExecutionStmt:      q.lockCurtailmentResponseProfileRevisionForExecutionStmt,
+		lockCurtailmentScheduleRuleForExecutionStmt:                 q.lockCurtailmentScheduleRuleForExecutionStmt,
+		lockCurtailmentScopeForWriteStmt:                            q.lockCurtailmentScopeForWriteStmt,
+		lockCurtailmentTargetPairingStatusesForWriteStmt:            q.lockCurtailmentTargetPairingStatusesForWriteStmt,
+		lockCurtailmentTopologyMemberDeviceSitesByOrgStmt:           q.lockCurtailmentTopologyMemberDeviceSitesByOrgStmt,
+		lockDeletionUnpairPermitStmt:                                q.lockDeletionUnpairPermitStmt,
+		lockDeviceByIdentifierStmt:                                  q.lockDeviceByIdentifierStmt,
+		lockDeviceWriteAttemptForRecoveryStmt:                       q.lockDeviceWriteAttemptForRecoveryStmt,
+		lockDeviceWriteDeletionCredentialsStmt:                      q.lockDeviceWriteDeletionCredentialsStmt,
+		lockDeviceWriteDeletionDevicesStmt:                          q.lockDeviceWriteDeletionDevicesStmt,
+		lockDeviceWriteDeletionDiscoveriesStmt:                      q.lockDeviceWriteDeletionDiscoveriesStmt,
+		lockDeviceWriteDeletionFencesStmt:                           q.lockDeviceWriteDeletionFencesStmt,
+		lockDeviceWriteDeletionPairingsStmt:                         q.lockDeviceWriteDeletionPairingsStmt,
+		lockDeviceWriteDeletionRoutesStmt:                           q.lockDeviceWriteDeletionRoutesStmt,
+		lockDeviceWriteFenceRecordStmt:                              q.lockDeviceWriteFenceRecordStmt,
+		lockDeviceWriteFencesStmt:                                   q.lockDeviceWriteFencesStmt,
+		lockDeviceWriteIdentitiesStmt:                               q.lockDeviceWriteIdentitiesStmt,
+		lockDevicesForReassignStmt:                                  q.lockDevicesForReassignStmt,
+		lockDiscoveredDeviceForEndpointDiscoveryStmt:                q.lockDiscoveredDeviceForEndpointDiscoveryStmt,
+		lockEndpointDiscoveryStmt:                                   q.lockEndpointDiscoveryStmt,
+		lockEndpointDiscoveryDevicesStmt:                            q.lockEndpointDiscoveryDevicesStmt,
+		lockFleetNodeByIDStmt:                                       q.lockFleetNodeByIDStmt,
+		lockFleetNodeDevicesForRevocationStmt:                       q.lockFleetNodeDevicesForRevocationStmt,
+		lockFleetNodeHAPairStmt:                                     q.lockFleetNodeHAPairStmt,
+		lockFleetNodeIdentityByIDStmt:                               q.lockFleetNodeIdentityByIDStmt,
+		lockFleetNodePairingDeviceStmt:                              q.lockFleetNodePairingDeviceStmt,
+		lockHashboardOrganizationStmt:                               q.lockHashboardOrganizationStmt,
+		lockHostedAccountAdministratorsStmt:                         q.lockHostedAccountAdministratorsStmt,
+		lockHostedAccountAssetInventoryStmt:                         q.lockHostedAccountAssetInventoryStmt,
+		lockHostedAccountOrganizationStmt:                           q.lockHostedAccountOrganizationStmt,
+		lockHostedAccountOrganizationForShareStmt:                   q.lockHostedAccountOrganizationForShareStmt,
+		lockInfrastructureDeviceForWriteStmt:                        q.lockInfrastructureDeviceForWriteStmt,
+		lockInfrastructureDevicesBySiteForWriteStmt:                 q.lockInfrastructureDevicesBySiteForWriteStmt,
+		lockInfrastructureDevicesForResponseProfileStmt:             q.lockInfrastructureDevicesForResponseProfileStmt,
+		lockInfrastructureRackForPlacementStmt:                      q.lockInfrastructureRackForPlacementStmt,
+		lockInventorySitesStmt:                                      q.lockInventorySitesStmt,
+		lockInvitationTokenHashStmt:                                 q.lockInvitationTokenHashStmt,
+		lockLegacyPoolLibraryForImportStmt:                          q.lockLegacyPoolLibraryForImportStmt,
+		lockMaintenanceBuildingForTicketStmt:                        q.lockMaintenanceBuildingForTicketStmt,
+		lockMaintenanceMinerForTicketStmt:                           q.lockMaintenanceMinerForTicketStmt,
+		lockMaintenanceModelDeviceStmt:                              q.lockMaintenanceModelDeviceStmt,
+		lockMaintenanceModuleModelSiteStmt:                          q.lockMaintenanceModuleModelSiteStmt,
+		lockMaintenanceRackForTicketStmt:                            q.lockMaintenanceRackForTicketStmt,
+		lockMaintenanceSiteForTicketStmt:                            q.lockMaintenanceSiteForTicketStmt,
+		lockMaintenanceTicketInstallationStmt:                       q.lockMaintenanceTicketInstallationStmt,
+		lockMinerBindingCredentialsStmt:                             q.lockMinerBindingCredentialsStmt,
+		lockMinerBindingDeviceStmt:                                  q.lockMinerBindingDeviceStmt,
+		lockMinerBindingDiscoveryStmt:                               q.lockMinerBindingDiscoveryStmt,
+		lockMinerBindingObservationDeviceStmt:                       q.lockMinerBindingObservationDeviceStmt,
+		lockMinerBindingPairingStmt:                                 q.lockMinerBindingPairingStmt,
+		lockMinerBindingRoutesStmt:                                  q.lockMinerBindingRoutesStmt,
+		lockMiningGroupStateStmt:                                    q.lockMiningGroupStateStmt,
+		lockPoolAssignmentAdoptionSourcesStmt:                       q.lockPoolAssignmentAdoptionSourcesStmt,
+		lockPoolConfigurationStmt:                                   q.lockPoolConfigurationStmt,
+		lockPoolConfigurationImportOrganizationStmt:                 q.lockPoolConfigurationImportOrganizationStmt,
+		lockPoolConfigurationReviewStmt:                             q.lockPoolConfigurationReviewStmt,
+		lockPoolEquipmentOrganizationStmt:                           q.lockPoolEquipmentOrganizationStmt,
+		lockQueuedDeviceWriteStmt:                                   q.lockQueuedDeviceWriteStmt,
+		lockRackPlacementForWriteStmt:                               q.lockRackPlacementForWriteStmt,
+		lockRacksForReparentStmt:                                    q.lockRacksForReparentStmt,
+		lockReleaseChannelScopesStmt:                                q.lockReleaseChannelScopesStmt,
+		lockRepairTicketCommentCreateKeyStmt:                        q.lockRepairTicketCommentCreateKeyStmt,
+		lockRepairTicketCreateKeyStmt:                               q.lockRepairTicketCreateKeyStmt,
+		lockRepairTicketTargetAllocationStmt:                        q.lockRepairTicketTargetAllocationStmt,
+		lockReportingDevicesStmt:                                    q.lockReportingDevicesStmt,
+		lockReportingInputsForShareStmt:                             q.lockReportingInputsForShareStmt,
+		lockReportingInputsForUpdateStmt:                            q.lockReportingInputsForUpdateStmt,
+		lockSchedulePriorityStmt:                                    q.lockSchedulePriorityStmt,
+		lockSiteForWriteStmt:                                        q.lockSiteForWriteStmt,
+		lockTelemetrySeedMaintenanceStmt:                            q.lockTelemetrySeedMaintenanceStmt,
+		markAbsentContainerTanksStmt:                                q.markAbsentContainerTanksStmt,
+		markCommandBatchFinishedStmt:                                q.markCommandBatchFinishedStmt,
+		markCommandBatchFinishedWithStartedAtStmt:                   q.markCommandBatchFinishedWithStartedAtStmt,
+		markCommandBatchProcessingStmt:                              q.markCommandBatchProcessingStmt,
+		markFirmwareRolloutDevicesSentStmt:                          q.markFirmwareRolloutDevicesSentStmt,
+		markFirmwareRolloutDevicesVerifiedStmt:                      q.markFirmwareRolloutDevicesVerifiedStmt,
+		markFleetNodeHAStandbyReadyStmt:                             q.markFleetNodeHAStandbyReadyStmt,
+		markRepairTicketPartsConsumedStmt:                           q.markRepairTicketPartsConsumedStmt,
+		moveDiscoveredDeviceAttributionStmt:                         q.moveDiscoveredDeviceAttributionStmt,
+		moveFleetNodeDevicesStmt:                                    q.moveFleetNodeDevicesStmt,
+		negateSchedulePrioritiesStmt:                                q.negateSchedulePrioritiesStmt,
+		nextRepairTicketNumberStmt:                                  q.nextRepairTicketNumberStmt,
+		observeFirmwareRolloutReservationsOfflineStmt:               q.observeFirmwareRolloutReservationsOfflineStmt,
+		offlineDevicesForFleetNodeRevocationStmt:                    q.offlineDevicesForFleetNodeRevocationStmt,
+		organizationInvitationExistsStmt:                            q.organizationInvitationExistsStmt,
+		pairDeviceToFleetNodeStmt:                                   q.pairDeviceToFleetNodeStmt,
+		passwordUpdatedAtStmt:                                       q.passwordUpdatedAtStmt,
+		pauseActiveScheduleStmt:                                     q.pauseActiveScheduleStmt,
+		pauseFirmwareRolloutStmt:                                    q.pauseFirmwareRolloutStmt,
+		poolConfigurationWritersFrozenStmt:                          q.poolConfigurationWritersFrozenStmt,
+		prepareFleetNodeHAKeyInstallStmt:                            q.prepareFleetNodeHAKeyInstallStmt,
+		prepareTelemetrySeedStmt:                                    q.prepareTelemetrySeedStmt,
+		preserveFirmwareRolloutRetryBaselinesStmt:                   q.preserveFirmwareRolloutRetryBaselinesStmt,
+		pruneDetachedHashboardPoolIntentsStmt:                       q.pruneDetachedHashboardPoolIntentsStmt,
+		pruneDetachedPoolGroupIntentsStmt:                           q.pruneDetachedPoolGroupIntentsStmt,
+		pruneExpiredAlertMaintenanceWindowsStmt:                     q.pruneExpiredAlertMaintenanceWindowsStmt,
+		pruneHostedInvitationRateLimitStmt:                          q.pruneHostedInvitationRateLimitStmt,
+		prunePermissionsOutsideKeysStmt:                             q.prunePermissionsOutsideKeysStmt,
+		putReportingFactStmt:                                        q.putReportingFactStmt,
+		quarantineDeviceWriteFenceStmt:                              q.quarantineDeviceWriteFenceStmt,
+		queryComponentKeysWithErrorsStmt:                            q.queryComponentKeysWithErrorsStmt,
+		queryDeviceIDsWithErrorsStmt:                                q.queryDeviceIDsWithErrorsStmt,
+		queryErrorsStmt:                                             q.queryErrorsStmt,
+		queueCurrentCurtailmentAutomationExecutionStmt:              q.queueCurrentCurtailmentAutomationExecutionStmt,
+		queueCurtailmentAutomationExecutionStmt:                     q.queueCurtailmentAutomationExecutionStmt,
+		queueCurtailmentScheduleExecutionStmt:                       q.queueCurtailmentScheduleExecutionStmt,
+		reapMessagesStmt:                                            q.reapMessagesStmt,
+		reassignDevicesUnderBuildingStmt:                            q.reassignDevicesUnderBuildingStmt,
+		reassignDevicesUnderBuildingsBulkStmt:                       q.reassignDevicesUnderBuildingsBulkStmt,
+		reassignRacksUnderBuildingStmt:                              q.reassignRacksUnderBuildingStmt,
+		reassignRacksUnderBuildingsBulkStmt:                         q.reassignRacksUnderBuildingsBulkStmt,
+		reconcileAuthenticationNeededPairingStatusByIdentifierStmt:  q.reconcileAuthenticationNeededPairingStatusByIdentifierStmt,
+		reconcileCloudAuthNeededByIdentifierStmt:                    q.reconcileCloudAuthNeededByIdentifierStmt,
+		reconcileContainerModulesStmt:                               q.reconcileContainerModulesStmt,
+		reconcileContainerTanksStmt:                                 q.reconcileContainerTanksStmt,
+		reconcileDefaultPasswordPairingStatusByIdentifierStmt:       q.reconcileDefaultPasswordPairingStatusByIdentifierStmt,
+		reconcileHostedHashboardReplacementsStmt:                    q.reconcileHostedHashboardReplacementsStmt,
+		reconcileRebootRequiredStatusStmt:                           q.reconcileRebootRequiredStatusStmt,
+		recordCurtailPendingDispatchStmt:                            q.recordCurtailPendingDispatchStmt,
+		recordDeviceWriteRecoveryStmt:                               q.recordDeviceWriteRecoveryStmt,
+		recordFirmwareDeploymentStmt:                                q.recordFirmwareDeploymentStmt,
+		recordFirmwareRolloutActionStmt:                             q.recordFirmwareRolloutActionStmt,
+		recordHostedHashboardInventoryStmt:                          q.recordHostedHashboardInventoryStmt,
+		recordMaintenanceModuleModelStmt:                            q.recordMaintenanceModuleModelStmt,
+		recordMiningGroupRequestStmt:                                q.recordMiningGroupRequestStmt,
+		recordPoolConfigurationCutoverStmt:                          q.recordPoolConfigurationCutoverStmt,
+		recordPoolConfigurationImportStmt:                           q.recordPoolConfigurationImportStmt,
+		recoverSettledPoolConfigurationWorkStmt:                     q.recoverSettledPoolConfigurationWorkStmt,
+		recoverTelemetrySeedBatchStmt:                               q.recoverTelemetrySeedBatchStmt,
+		refreshOpenErrorsLastSeenByDeviceStmt:                       q.refreshOpenErrorsLastSeenByDeviceStmt,
+		refreshPoolConfigurationReadinessStmt:                       q.refreshPoolConfigurationReadinessStmt,
+		reincludeFirmwareRolloutDevicesStmt:                         q.reincludeFirmwareRolloutDevicesStmt,
+		rejectCurtailmentDispatchStmt:                               q.rejectCurtailmentDispatchStmt,
+		rejectPendingPoolRemovalStmt:                                q.rejectPendingPoolRemovalStmt,
+		releaseDeviceWriteFenceToHostStmt:                           q.releaseDeviceWriteFenceToHostStmt,
+		releaseFleetRuntimeLeaseStmt:                                q.releaseFleetRuntimeLeaseStmt,
+		releaseHashboardObservationsStmt:                            q.releaseHashboardObservationsStmt,
+		releaseInventoryPartStmt:                                    q.releaseInventoryPartStmt,
+		releaseUndispatchedTargetsForRestoreStmt:                    q.releaseUndispatchedTargetsForRestoreStmt,
+		removeAllDevicesFromDeviceSetStmt:                           q.removeAllDevicesFromDeviceSetStmt,
+		removeDevicesFromAnyRackStmt:                                q.removeDevicesFromAnyRackStmt,
+		removeDevicesFromDeviceSetStmt:                              q.removeDevicesFromDeviceSetStmt,
+		renameHostedAccountStmt:                                     q.renameHostedAccountStmt,
+		renewCurtailmentAutomationScheduleRevisionStmt:              q.renewCurtailmentAutomationScheduleRevisionStmt,
+		renewFleetRuntimeLeaseStmt:                                  q.renewFleetRuntimeLeaseStmt,
+		repairTicketContainsModuleStmt:                              q.repairTicketContainsModuleStmt,
+		requestRigConfigReconciliationForDevicesStmt:                q.requestRigConfigReconciliationForDevicesStmt,
+		requeueFirmwareRolloutDevicesStmt:                           q.requeueFirmwareRolloutDevicesStmt,
+		requeueRigConfigReconciliationAfterTerminalFailureStmt:      q.requeueRigConfigReconciliationAfterTerminalFailureStmt,
+		reserveDeviceWriteFenceStmt:                                 q.reserveDeviceWriteFenceStmt,
+		reserveInventoryPartStmt:                                    q.reserveInventoryPartStmt,
+		resetCurtailmentTargetsForRecurtailStmt:                     q.resetCurtailmentTargetsForRecurtailStmt,
+		resetCurtailmentTargetsForRestoreStmt:                       q.resetCurtailmentTargetsForRestoreStmt,
+		resetReapedFirmwareStatusesStmt:                             q.resetReapedFirmwareStatusesStmt,
+		resolveCompletedPoolRemovalStmt:                             q.resolveCompletedPoolRemovalStmt,
+		resolveCurtailmentTopologyDispatchStmt:                      q.resolveCurtailmentTopologyDispatchStmt,
+		resolveDeviceWriteAttemptStmt:                               q.resolveDeviceWriteAttemptStmt,
+		resolveHostedAccountAuthorityStmt:                           q.resolveHostedAccountAuthorityStmt,
+		resolveHostedAccountMembershipStmt:                          q.resolveHostedAccountMembershipStmt,
+		resolveInventorySiteByNameStmt:                              q.resolveInventorySiteByNameStmt,
+		resolveMaintenanceAssigneeStmt:                              q.resolveMaintenanceAssigneeStmt,
+		resolveMaintenanceLocationContextStmt:                       q.resolveMaintenanceLocationContextStmt,
+		resolveMaintenanceMinerContextStmt:                          q.resolveMaintenanceMinerContextStmt,
+		resolveMaintenanceMinerIdentifierByIDStmt:                   q.resolveMaintenanceMinerIdentifierByIDStmt,
+		resolveRecoveredMiningGroupWorkflowStmt:                     q.resolveRecoveredMiningGroupWorkflowStmt,
+		resolveRecoveredPoolRemovalStmt:                             q.resolveRecoveredPoolRemovalStmt,
+		resolveReleaseChannelScopeStmt:                              q.resolveReleaseChannelScopeStmt,
+		resolveRepairTicketAssetStmt:                                q.resolveRepairTicketAssetStmt,
+		resolveRepairTicketMinerTargetStmt:                          q.resolveRepairTicketMinerTargetStmt,
+		resumeCurtailmentFromRestoringStmt:                          q.resumeCurtailmentFromRestoringStmt,
+		resumeFirmwareRolloutStmt:                                   q.resumeFirmwareRolloutStmt,
+		resumePausedScheduleStmt:                                    q.resumePausedScheduleStmt,
+		retainAppliedPoolGroupIntentsStmt:                           q.retainAppliedPoolGroupIntentsStmt,
+		retireContainerModulesStmt:                                  q.retireContainerModulesStmt,
+		retirePoolConfigurationAssignmentStmt:                       q.retirePoolConfigurationAssignmentStmt,
+		retirePoolConfigurationEquipmentAssignmentsStmt:             q.retirePoolConfigurationEquipmentAssignmentsStmt,
+		retryCurtailmentAutomationExecutionStmt:                     q.retryCurtailmentAutomationExecutionStmt,
+		retryPoolConfigurationTargetStmt:                            q.retryPoolConfigurationTargetStmt,
+		retryRigConfigReconciliationStmt:                            q.retryRigConfigReconciliationStmt,
+		revertScheduleToActiveStmt:                                  q.revertScheduleToActiveStmt,
+		revokeAllSessionsByUserIDStmt:                               q.revokeAllSessionsByUserIDStmt,
+		revokeApiKeyStmt:                                            q.revokeApiKeyStmt,
+		revokeApiKeysByFleetNodeIDStmt:                              q.revokeApiKeysByFleetNodeIDStmt,
+		revokeHostedAccountAncestorGrantStmt:                        q.revokeHostedAccountAncestorGrantStmt,
+		revokeHostedAccountInvitationStmt:                           q.revokeHostedAccountInvitationStmt,
+		revokeHostedAccountKeyStmt:                                  q.revokeHostedAccountKeyStmt,
+		revokeHostedAccountMembershipStmt:                           q.revokeHostedAccountMembershipStmt,
+		revokeOrganizationInvitationStmt:                            q.revokeOrganizationInvitationStmt,
+		revokePermissionFromRoleStmt:                                q.revokePermissionFromRoleStmt,
+		revokeSessionStmt:                                           q.revokeSessionStmt,
+		rewritePoolImportControllerBindingsStmt:                     q.rewritePoolImportControllerBindingsStmt,
+		saveMiningGroupStateStmt:                                    q.saveMiningGroupStateStmt,
+		savePoolConfigurationObservationStmt:                        q.savePoolConfigurationObservationStmt,
+		savePoolConfigurationReviewResultStmt:                       q.savePoolConfigurationReviewResultStmt,
+		scheduleMiningGroupReconciliationStmt:                       q.scheduleMiningGroupReconciliationStmt,
+		setCurtailmentAutomationActiveEventStmt:                     q.setCurtailmentAutomationActiveEventStmt,
+		setCurtailmentAutomationExecutionErrorStmt:                  q.setCurtailmentAutomationExecutionErrorStmt,
+		setCurtailmentAutomationRestoreStartedStmt:                  q.setCurtailmentAutomationRestoreStartedStmt,
+		setCurtailmentAutomationRuleEnabledStmt:                     q.setCurtailmentAutomationRuleEnabledStmt,
+		setDevicePairingAuthNeededIfNotPairedStmt:                   q.setDevicePairingAuthNeededIfNotPairedStmt,
+		setFirmwareRolloutControllerWaitStmt:                        q.setFirmwareRolloutControllerWaitStmt,
+		setFleetNodeEnrollmentStatusStmt:                            q.setFleetNodeEnrollmentStatusStmt,
+		setFleetNodeHAPairStatusStmt:                                q.setFleetNodeHAPairStatusStmt,
+		setHashboardPoolIntentStmt:                                  q.setHashboardPoolIntentStmt,
+		setHostedAccountAncestorGrantStmt:                           q.setHostedAccountAncestorGrantStmt,
+		setHostedAccountAssetStmt:                                   q.setHostedAccountAssetStmt,
+		setHostedAccountMembershipStmt:                              q.setHostedAccountMembershipStmt,
+		setHostedAccountPoolProfileStmt:                             q.setHostedAccountPoolProfileStmt,
+		setHostedAccountSitesRestrictedStmt:                         q.setHostedAccountSitesRestrictedStmt,
+		setHostedAccountTicketingStmt:                               q.setHostedAccountTicketingStmt,
+		setInfrastructureControlSubnetsStmt:                         q.setInfrastructureControlSubnetsStmt,
+		setLocalDeviceDeletionLockTimeoutStmt:                       q.setLocalDeviceDeletionLockTimeoutStmt,
+		setLocalFleetNodeHAFailoverLockTimeoutStmt:                  q.setLocalFleetNodeHAFailoverLockTimeoutStmt,
+		setLocalTelemetryLockTimeoutStmt:                            q.setLocalTelemetryLockTimeoutStmt,
+		setLocalTransactionTimeoutStmt:                              q.setLocalTransactionTimeoutStmt,
+		setMQTTSourceConfigEnabledStmt:                              q.setMQTTSourceConfigEnabledStmt,
+		setPoolConfigurationAssignmentStmt:                          q.setPoolConfigurationAssignmentStmt,
+		setPoolConfigurationCurrentRevisionStmt:                     q.setPoolConfigurationCurrentRevisionStmt,
+		setRackBuildingPositionStmt:                                 q.setRackBuildingPositionStmt,
+		setRackBuildingPositionBulkClearStmt:                        q.setRackBuildingPositionBulkClearStmt,
+		setRackBuildingPositionBulkPlaceStmt:                        q.setRackBuildingPositionBulkPlaceStmt,
+		setRackSlotPositionStmt:                                     q.setRackSlotPositionStmt,
+		setRepairTicketCommentVisibilityStmt:                        q.setRepairTicketCommentVisibilityStmt,
+		setReportingAuthorityStmt:                                   q.setReportingAuthorityStmt,
+		setSchedulePrioritiesStmt:                                   q.setSchedulePrioritiesStmt,
+		setScheduleRunningStmt:                                      q.setScheduleRunningStmt,
+		shareRepairTicketStmt:                                       q.shareRepairTicketStmt,
+		siteBelongsToOrgStmt:                                        q.siteBelongsToOrgStmt,
+		sitesByIDsStmt:                                              q.sitesByIDsStmt,
+		skipFirmwareRolloutDevicesStmt:                              q.skipFirmwareRolloutDevicesStmt,
+		snapshotFirmwareRolloutDevicesStmt:                          q.snapshotFirmwareRolloutDevicesStmt,
+		softDeleteAlertChannelStmt:                                  q.softDeleteAlertChannelStmt,
+		softDeleteBuildingStmt:                                      q.softDeleteBuildingStmt,
+		softDeleteBuildingsBySiteStmt:                               q.softDeleteBuildingsBySiteStmt,
+		softDeleteCustomRoleStmt:                                    q.softDeleteCustomRoleStmt,
+		softDeleteDeviceSetStmt:                                     q.softDeleteDeviceSetStmt,
+		softDeleteDevicesStmt:                                       q.softDeleteDevicesStmt,
+		softDeleteDiscoveredDeviceByIdentifierStmt:                  q.softDeleteDiscoveredDeviceByIdentifierStmt,
+		softDeleteDiscoveredDevicesForDeletedDevicesStmt:            q.softDeleteDiscoveredDevicesForDeletedDevicesStmt,
+		softDeleteFleetNodeStmt:                                     q.softDeleteFleetNodeStmt,
+		softDeleteFleetNodesForExpiredEnrollmentsStmt:               q.softDeleteFleetNodesForExpiredEnrollmentsStmt,
+		softDeleteInfrastructureDeviceStmt:                          q.softDeleteInfrastructureDeviceStmt,
+		softDeleteInfrastructureDevicesBySiteStmt:                   q.softDeleteInfrastructureDevicesBySiteStmt,
+		softDeleteInventoryPartStmt:                                 q.softDeleteInventoryPartStmt,
+		softDeleteOrganizationStmt:                                  q.softDeleteOrganizationStmt,
+		softDeletePoolStmt:                                          q.softDeletePoolStmt,
+		softDeleteRepairTicketCommentByAuthorStmt:                   q.softDeleteRepairTicketCommentByAuthorStmt,
+		softDeleteRoleStmt:                                          q.softDeleteRoleStmt,
+		softDeleteScheduleStmt:                                      q.softDeleteScheduleStmt,
+		softDeleteSiteStmt:                                          q.softDeleteSiteStmt,
+		softDeleteUserStmt:                                          q.softDeleteUserStmt,
+		softDeleteUserFromOrganizationStmt:                          q.softDeleteUserFromOrganizationStmt,
+		stampContainerSampleStmt:                                    q.stampContainerSampleStmt,
+		stampHashboardTopologyStmt:                                  q.stampHashboardTopologyStmt,
+		supersedePoolConfigurationTargetStmt:                        q.supersedePoolConfigurationTargetStmt,
+		swapFleetNodeHAPairStmt:                                     q.swapFleetNodeHAPairStmt,
+		sweepAlertRuleConfigsStmt:                                   q.sweepAlertRuleConfigsStmt,
+		sweepCurtailmentTargetsToReleasedStmt:                       q.sweepCurtailmentTargetsToReleasedStmt,
+		sweepCurtailmentTargetsToRestoreFailedStmt:                  q.sweepCurtailmentTargetsToRestoreFailedStmt,
+		sweepExpiredEnrollmentsStmt:                                 q.sweepExpiredEnrollmentsStmt,
+		sweepExpiredFleetNodeAuthChallengesStmt:                     q.sweepExpiredFleetNodeAuthChallengesStmt,
+		sweepExpiredFleetNodeSessionsStmt:                           q.sweepExpiredFleetNodeSessionsStmt,
+		touchRepairTicketStmt:                                       q.touchRepairTicketStmt,
+		transferDiscoveredDeviceAttributionStmt:                     q.transferDiscoveredDeviceAttributionStmt,
+		unassignDeviceBuildingsByRackStmt:                           q.unassignDeviceBuildingsByRackStmt,
+		unassignDeviceSitesByRackStmt:                               q.unassignDeviceSitesByRackStmt,
+		unassignDevicesFromSiteStmt:                                 q.unassignDevicesFromSiteStmt,
+		unassignRacksFromBuildingStmt:                               q.unassignRacksFromBuildingStmt,
+		unassignRacksFromBuildingsBySiteStmt:                        q.unassignRacksFromBuildingsBySiteStmt,
+		unassignRacksFromSiteStmt:                                   q.unassignRacksFromSiteStmt,
+		unassignRoleStmt:                                            q.unassignRoleStmt,
+		undeleteOrganizationStmt:                                    q.undeleteOrganizationStmt,
+		undeleteRoleStmt:                                            q.undeleteRoleStmt,
+		unlockCurtailmentFanSessionStmt:                             q.unlockCurtailmentFanSessionStmt,
+		unlockCurtailmentLifecycleSessionStmt:                       q.unlockCurtailmentLifecycleSessionStmt,
+		unlockTelemetrySeedMaintenanceStmt:                          q.unlockTelemetrySeedMaintenanceStmt,
+		unpairDeviceStmt:                                            q.unpairDeviceStmt,
+		unpairDevicesForFleetNodeRevocationStmt:                     q.unpairDevicesForFleetNodeRevocationStmt,
+		unverifyFirmwareRolloutDevicesStmt:                          q.unverifyFirmwareRolloutDevicesStmt,
+		updateAlertChannelStmt:                                      q.updateAlertChannelStmt,
+		updateAlertMaintenanceWindowStmt:                            q.updateAlertMaintenanceWindowStmt,
+		updateApiKeyLastUsedStmt:                                    q.updateApiKeyLastUsedStmt,
+		updateBuildingStmt:                                          q.updateBuildingStmt,
+		updateCurtailmentAutomationRuleStmt:                         q.updateCurtailmentAutomationRuleStmt,
+		updateCurtailmentEventFanStateStmt:                          q.updateCurtailmentEventFanStateStmt,
+		updateCurtailmentEventOperatorFieldsStmt:                    q.updateCurtailmentEventOperatorFieldsStmt,
+		updateCurtailmentEventStateStmt:                             q.updateCurtailmentEventStateStmt,
+		updateCurtailmentResponseProfileStmt:                        q.updateCurtailmentResponseProfileStmt,
+		updateCurtailmentTargetStateStmt:                            q.updateCurtailmentTargetStateStmt,
+		updateCustomRoleNameStmt:                                    q.updateCustomRoleNameStmt,
+		updateDeviceCustomNamesStmt:                                 q.updateDeviceCustomNamesStmt,
+		updateDeviceIPAssignmentStmt:                                q.updateDeviceIPAssignmentStmt,
+		updateDeviceInfoStmt:                                        q.updateDeviceInfoStmt,
+		updateDevicePairingStatusByIdentifierStmt:                   q.updateDevicePairingStatusByIdentifierStmt,
+		updateDeviceSetDescriptionStmt:                              q.updateDeviceSetDescriptionStmt,
+		updateDeviceSetLabelStmt:                                    q.updateDeviceSetLabelStmt,
+		updateDeviceSetLabelAndDescriptionStmt:                      q.updateDeviceSetLabelAndDescriptionStmt,
+		updateDeviceWorkerNameStmt:                                  q.updateDeviceWorkerNameStmt,
+		updateDeviceWorkerNamePoolSyncStatusByIDStmt:                q.updateDeviceWorkerNamePoolSyncStatusByIDStmt,
+		updateDiscoveredDeviceFirmwareVersionStmt:                   q.updateDiscoveredDeviceFirmwareVersionStmt,
+		updateFleetNodeLastSeenAtStmt:                               q.updateFleetNodeLastSeenAtStmt,
+		updateInfrastructureDeviceStmt:                              q.updateInfrastructureDeviceStmt,
+		updateInventoryPartStmt:                                     q.updateInventoryPartStmt,
+		updateLastLoginStmt:                                         q.updateLastLoginStmt,
+		updateMQTTSourceConfigStmt:                                  q.updateMQTTSourceConfigStmt,
+		updateMessageAfterFailureStmt:                               q.updateMessageAfterFailureStmt,
+		updateMessagePermanentlyFailedStmt:                          q.updateMessagePermanentlyFailedStmt,
+		updateMessageStatusStmt:                                     q.updateMessageStatusStmt,
+		updateMinerPasswordStmt:                                     q.updateMinerPasswordStmt,
+		updateOrganizationStmt:                                      q.updateOrganizationStmt,
+		updatePoolStmt:                                              q.updatePoolStmt,
+		updateRackInfoStmt:                                          q.updateRackInfoStmt,
+		updateRackPlacementStmt:                                     q.updateRackPlacementStmt,
+		updateRackPlacementBulkForBuildingStmt:                      q.updateRackPlacementBulkForBuildingStmt,
+		updateRackPlacementBulkForSiteStmt:                          q.updateRackPlacementBulkForSiteStmt,
+		updateReleaseChannelStmt:                                    q.updateReleaseChannelStmt,
+		updateRepairTicketStmt:                                      q.updateRepairTicketStmt,
+		updateRepairTicketTargetEvidenceStmt:                        q.updateRepairTicketTargetEvidenceStmt,
+		updateReportingInputsStmt:                                   q.updateReportingInputsStmt,
+		updateRoleStmt:                                              q.updateRoleStmt,
+		updateScheduleStmt:                                          q.updateScheduleStmt,
+		updateScheduleAfterRunStmt:                                  q.updateScheduleAfterRunStmt,
+		updateSessionActivityStmt:                                   q.updateSessionActivityStmt,
+		updateSiteStmt:                                              q.updateSiteStmt,
+		updateUserPasswordStmt:                                      q.updateUserPasswordStmt,
+		updateUserPasswordAndFlagStmt:                               q.updateUserPasswordAndFlagStmt,
+		updateUserRoleStmt:                                          q.updateUserRoleStmt,
+		updateUserUsernameStmt:                                      q.updateUserUsernameStmt,
+		upsertAlertRoutePolicyStmt:                                  q.upsertAlertRoutePolicyStmt,
+		upsertAlertRuleConfigStmt:                                   q.upsertAlertRuleConfigStmt,
+		upsertBuiltinRoleForOrgStmt:                                 q.upsertBuiltinRoleForOrgStmt,
+		upsertCommandOnDeviceLogStmt:                                q.upsertCommandOnDeviceLogStmt,
+		upsertContainerFansStmt:                                     q.upsertContainerFansStmt,
+		upsertContainerHAStmt:                                       q.upsertContainerHAStmt,
+		upsertContainerRollupStmt:                                   q.upsertContainerRollupStmt,
+		upsertCurtailmentAutomationExecutionGrantStmt:               q.upsertCurtailmentAutomationExecutionGrantStmt,
+		upsertCurtailmentAutomationScheduleStmt:                     q.upsertCurtailmentAutomationScheduleStmt,
+		upsertCurtailmentAutomationSignalStateStmt:                  q.upsertCurtailmentAutomationSignalStateStmt,
+		upsertCurtailmentReconcilerHeartbeatStmt:                    q.upsertCurtailmentReconcilerHeartbeatStmt,
+		upsertCustomRoleForOrgStmt:                                  q.upsertCustomRoleForOrgStmt,
+		upsertDeviceErrorsStmt:                                      q.upsertDeviceErrorsStmt,
+		upsertDevicePairingStmt:                                     q.upsertDevicePairingStmt,
+		upsertDeviceStatusStmt:                                      q.upsertDeviceStatusStmt,
+		upsertDiscoveredDeviceStmt:                                  q.upsertDiscoveredDeviceStmt,
+		upsertDiscoveredDeviceFromFleetNodeStmt:                     q.upsertDiscoveredDeviceFromFleetNodeStmt,
+		upsertFleetMetricRollupsStmt:                                q.upsertFleetMetricRollupsStmt,
+		upsertFleetNodeAuthChallengeStmt:                            q.upsertFleetNodeAuthChallengeStmt,
+		upsertFleetNodeSessionStmt:                                  q.upsertFleetNodeSessionStmt,
+		upsertHashboardInstallationsStmt:                            q.upsertHashboardInstallationsStmt,
+		upsertHashboardObservationsStmt:                             q.upsertHashboardObservationsStmt,
+		upsertHashboardSlotsStmt:                                    q.upsertHashboardSlotsStmt,
+		upsertMQTTSourceStateStmt:                                   q.upsertMQTTSourceStateStmt,
+		upsertMinerCredentialsStmt:                                  q.upsertMinerCredentialsStmt,
+		upsertPermissionStmt:                                        q.upsertPermissionStmt,
+		upsertReleaseChannelFirmwareStmt:                            q.upsertReleaseChannelFirmwareStmt,
+		upsertReleaseChannelSettingStmt:                             q.upsertReleaseChannelSettingStmt,
+		useHostedAccountHistoryCustomPlanStmt:                       q.useHostedAccountHistoryCustomPlanStmt,
+		withdrawContainerModuleIdentitiesStmt:                       q.withdrawContainerModuleIdentitiesStmt,
+		withdrawHashboardReadingsStmt:                               q.withdrawHashboardReadingsStmt,
 	}
 }
