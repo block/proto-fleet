@@ -2,7 +2,7 @@
 
 Each operator organization and client/subclient library has one default while it
 contains active configurations. The first configuration becomes the default.
-Migration 1073 chooses the oldest active configuration for existing libraries,
+Migration 1074 chooses the oldest active configuration for existing libraries,
 with configuration ID as the tie breaker. Library managers can select another
 default. Deleting a default promotes the oldest remaining configuration; deleting
 the last leaves no default. Pending transitions prevent deletion of a configuration
@@ -22,7 +22,7 @@ containers. A private pairing-cycle marker records the first successful pairing,
 survives authentication failures, and resets on explicit unpairing. The marker and
 the pairing pool transition commit in the same transaction.
 
-Migration 1073 initializes that marker for existing devices unless they are
+Migration 1074 initializes that marker for existing devices unless they are
 explicitly unpaired. Historical pairing timestamps cannot reliably distinguish
 first-time authentication from recovery, so those devices conservatively preserve
 their settings on their next authentication. An operator can apply a configuration
@@ -100,9 +100,9 @@ operator policy. Repeated inventory reports do not enqueue more work. Claimed or
 uncertain writes keep their existing recovery workflow and write-fence protection.
 
 Transitions and operation history survive process restarts. Rollback of checkpoint
-1073 refuses to discard retained transition history; use a coordinated backup.
+1074 refuses to discard retained transition history; use a coordinated backup.
 
-Migration 1073 consolidates the default-pool feature into one internal up/down
+Migration 1074 consolidates the default-pool feature into one internal up/down
 pair. It creates the physical-attempt reference index with the empty lifecycle
 table. Downgrade locks lifecycle producers and the history table before checking
 for retained work; the check and complete schema removal are one atomic statement.

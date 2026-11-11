@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestDefaultPoolLifecycleUpgradeFromPopulated1072(t *testing.T) {
+func TestDefaultPoolLifecycleUpgradeFromPopulated1073(t *testing.T) {
 	requireBaselineDB(t)
 	conn, _ := newMigrationBridgeTestDB(t)
 	ctx := t.Context()
@@ -18,7 +18,7 @@ func TestDefaultPoolLifecycleUpgradeFromPopulated1072(t *testing.T) {
 	paths, err := fs.Glob(migrations.Current, "current/*.sql")
 	require.NoError(t, err)
 	for _, path := range paths {
-		if path < "current/001073" {
+		if path < "current/001074" {
 			body, err := fs.ReadFile(migrations.Current, path)
 			require.NoError(t, err)
 			previous[path] = &fstest.MapFile{Data: body}
@@ -28,7 +28,7 @@ func TestDefaultPoolLifecycleUpgradeFromPopulated1072(t *testing.T) {
 	var version int
 	var dirty bool
 	require.NoError(t, conn.QueryRowContext(ctx, `SELECT version,dirty FROM schema_migrations`).Scan(&version, &dirty))
-	require.Equal(t, 1072, version)
+	require.Equal(t, 1073, version)
 	require.False(t, dirty)
 	var org, client, subclient int64
 	require.NoError(t, conn.QueryRowContext(ctx, `INSERT INTO organization(org_id,name) VALUES($1,'Pool upgrade') RETURNING id`, uuid.NewString()).Scan(&org))
@@ -75,7 +75,7 @@ func TestDefaultPoolLifecycleUpgradeFromPopulated1072(t *testing.T) {
 	require.NoError(t, runCurrentMigrations(ctx, conn, migrations.Current))
 	require.NoError(t, runCurrentMigrations(ctx, conn, migrations.Current), "repeated startup must not recreate or reapply defaults")
 	require.NoError(t, conn.QueryRowContext(ctx, `SELECT version,dirty FROM schema_migrations`).Scan(&version, &dirty))
-	require.Equal(t, 1073, version)
+	require.Equal(t, 1074, version)
 	require.False(t, dirty)
 	for _, library := range libraries {
 		var chosen string
