@@ -17,6 +17,25 @@
     "FeedMappingServiceCancelSoftFeedMappingRunBody": {
       "type": "object"
     },
+    "FirmwareServiceWriteFirmwareArtifactUploadChunkBody": {
+      "properties": {
+        "data": {
+          "format": "byte",
+          "type": "string"
+        },
+        "imageIndex": {
+          "description": "image_index selects an entry in the begin request's metadata.images.",
+          "format": "int64",
+          "type": "integer"
+        },
+        "offset": {
+          "description": "offset is the byte offset of data within the selected image.",
+          "format": "int64",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
     "MQTTSourceConnectionConfigBroker": {
       "properties": {
         "host": {
@@ -104,6 +123,20 @@
         "millivolts": {
           "format": "int64",
           "type": "integer"
+        }
+      },
+      "type": "object"
+    },
+    "PSUFirmwareServiceWritePSUFirmwareCapsuleUploadChunkBody": {
+      "properties": {
+        "data": {
+          "format": "byte",
+          "type": "string"
+        },
+        "offset": {
+          "description": "offset is the byte offset of data within the capsule.",
+          "format": "int64",
+          "type": "string"
         }
       },
       "type": "object"
@@ -463,6 +496,12 @@
       },
       "type": "object"
     },
+    "v2AbortFirmwareArtifactUploadResponse": {
+      "type": "object"
+    },
+    "v2AbortPSUFirmwareCapsuleUploadResponse": {
+      "type": "object"
+    },
     "v2AcknowledgeAlertResponse": {
       "properties": {
         "alert": {
@@ -689,6 +728,60 @@
       },
       "type": "object"
     },
+    "v2BeginFirmwareArtifactUploadRequest": {
+      "properties": {
+        "metadata": {
+          "$ref": "#/definitions/v2FirmwareUploadMetadata"
+        }
+      },
+      "type": "object"
+    },
+    "v2BeginFirmwareArtifactUploadResponse": {
+      "properties": {
+        "expiresAt": {
+          "description": "expires_at is when the upload is discarded unless another call uses it.",
+          "format": "date-time",
+          "type": "string"
+        },
+        "maxChunkBytes": {
+          "description": "max_chunk_bytes is the largest accepted chunk data size.",
+          "format": "int64",
+          "type": "integer"
+        },
+        "uploadId": {
+          "description": "upload_id identifies the upload on the connected node only.",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "v2BeginPSUFirmwareCapsuleUploadRequest": {
+      "properties": {
+        "metadata": {
+          "$ref": "#/definitions/v2PSUFirmwareCapsuleUploadMetadata"
+        }
+      },
+      "type": "object"
+    },
+    "v2BeginPSUFirmwareCapsuleUploadResponse": {
+      "properties": {
+        "expiresAt": {
+          "description": "expires_at is when the upload is discarded unless another call uses it.",
+          "format": "date-time",
+          "type": "string"
+        },
+        "maxChunkBytes": {
+          "description": "max_chunk_bytes is the largest accepted chunk data size.",
+          "format": "int64",
+          "type": "integer"
+        },
+        "uploadId": {
+          "description": "upload_id identifies the upload on the connected node only.",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
     "v2BoardResult": {
       "description": "BoardResult reports the per-board outcome of a scoped operation.",
       "properties": {
@@ -785,6 +878,14 @@
       },
       "type": "object"
     },
+    "v2CancelPSUFirmwareUpdateResponse": {
+      "properties": {
+        "update": {
+          "$ref": "#/definitions/v2PSUFirmwareUpdate"
+        }
+      },
+      "type": "object"
+    },
     "v2CancelSoftFeedMappingRunResponse": {
       "properties": {
         "run": {
@@ -874,6 +975,29 @@
             "type": "object"
           },
           "type": "array"
+        }
+      },
+      "type": "object"
+    },
+    "v2CommitFirmwareArtifactUploadResponse": {
+      "properties": {
+        "artifact": {
+          "$ref": "#/definitions/v2FirmwareArtifactRef"
+        },
+        "images": {
+          "items": {
+            "$ref": "#/definitions/v2FirmwareImage",
+            "type": "object"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
+    },
+    "v2CommitPSUFirmwareCapsuleUploadResponse": {
+      "properties": {
+        "capsule": {
+          "$ref": "#/definitions/v2PSUFirmwareCapsule"
         }
       },
       "type": "object"
@@ -2090,6 +2214,40 @@
       },
       "type": "object"
     },
+    "v2FirmwareUploadImage": {
+      "properties": {
+        "name": {
+          "description": "name is a safe single-component .bin filename.",
+          "type": "string"
+        },
+        "sha256": {
+          "description": "sha256 is the lowercase hexadecimal digest of this image.",
+          "type": "string"
+        },
+        "sizeBytes": {
+          "format": "int64",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "v2FirmwareUploadMetadata": {
+      "properties": {
+        "images": {
+          "description": "images contains at most 64 signed firmware images.",
+          "items": {
+            "$ref": "#/definitions/v2FirmwareUploadImage",
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "source": {
+          "$ref": "#/definitions/v2FirmwareArtifactRef",
+          "description": "source records where the operator obtained the images. It must be\nRELEASE, PR, or BRANCH; the server returns an UPLOAD reference after\ncaching."
+        }
+      },
+      "type": "object"
+    },
     "v2FrequencyRange": {
       "description": "FrequencyRange defines requested ASIC PLL frequency sweep points in MHz.",
       "properties": {
@@ -2730,6 +2888,22 @@
       "properties": {
         "config": {
           "$ref": "#/definitions/v2NetworkConfig"
+        }
+      },
+      "type": "object"
+    },
+    "v2GetPSUFirmwareBoardStatusResponse": {
+      "properties": {
+        "status": {
+          "$ref": "#/definitions/v2PSUFirmwareBoardStatus"
+        }
+      },
+      "type": "object"
+    },
+    "v2GetPSUFirmwareUpdateResponse": {
+      "properties": {
+        "update": {
+          "$ref": "#/definitions/v2PSUFirmwareUpdate"
         }
       },
       "type": "object"
@@ -4653,6 +4827,30 @@
       },
       "type": "object"
     },
+    "v2ListPSUFirmwareCapsulesResponse": {
+      "properties": {
+        "capsules": {
+          "items": {
+            "$ref": "#/definitions/v2PSUFirmwareCapsule",
+            "type": "object"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
+    },
+    "v2ListPSUFirmwareUpdatesResponse": {
+      "properties": {
+        "updates": {
+          "items": {
+            "$ref": "#/definitions/v2PSUFirmwareUpdate",
+            "type": "object"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
+    },
     "v2ListPoolsResponse": {
       "properties": {
         "pools": {
@@ -6142,6 +6340,298 @@
         "PLL_ALGORITHM_DEBUG_FUZZING",
         "PLL_ALGORITHM_FMARGIN_THERMAL_THROTTLE",
         "PLL_ALGORITHM_FMARGIN_DELTA_THERMAL_THROTTLE"
+      ],
+      "type": "string"
+    },
+    "v2PSUFirmwareBoardStatus": {
+      "description": "PSUFirmwareBoardStatus is one board's firmware-reported PSU update state.",
+      "properties": {
+        "capsuleId": {
+          "description": "capsule_id is the lowercase hex SHA-256 of the capsule the phase refers to.",
+          "type": "string"
+        },
+        "component": {
+          "$ref": "#/definitions/v2PSUFirmwareComponentRole"
+        },
+        "componentOffset": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "currentAppRevision": {
+          "type": "string"
+        },
+        "currentBootRevision": {
+          "type": "string"
+        },
+        "error": {
+          "$ref": "#/definitions/v2PSUFirmwareError"
+        },
+        "macAddress": {
+          "type": "string"
+        },
+        "phase": {
+          "$ref": "#/definitions/v2PSUFirmwarePhase"
+        },
+        "programmedBytes": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "psuLeader": {
+          "description": "psu_leader reports whether the board is its module's valid PSU leader.",
+          "type": "boolean"
+        },
+        "recoveryRequired": {
+          "type": "boolean"
+        },
+        "stagedBytes": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "totalSizeBytes": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "vendorStatus": {
+          "format": "int64",
+          "type": "integer"
+        }
+      },
+      "type": "object"
+    },
+    "v2PSUFirmwareCapsule": {
+      "description": "PSUFirmwareCapsule describes one locally verified, cached capsule.",
+      "properties": {
+        "capsuleId": {
+          "description": "capsule_id is the lowercase hex SHA-256 of the complete sealed capsule.",
+          "type": "string"
+        },
+        "components": {
+          "items": {
+            "$ref": "#/definitions/v2PSUFirmwareComponent",
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "fileName": {
+          "description": "file_name is the client-supplied display name.",
+          "type": "string"
+        },
+        "manufacturerId": {
+          "type": "string"
+        },
+        "manufacturerModel": {
+          "type": "string"
+        },
+        "manufacturerRevision": {
+          "type": "string"
+        },
+        "signerSubject": {
+          "description": "signer_subject is the embedded leaf certificate subject. Board firmware\ndecides whether that signer is trusted.",
+          "type": "string"
+        },
+        "sizeBytes": {
+          "format": "int64",
+          "type": "string"
+        },
+        "uploadedAt": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "vendor": {
+          "description": "vendor is the PSU payload vendor, for example \"BOCO\".",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "v2PSUFirmwareCapsuleUploadMetadata": {
+      "properties": {
+        "fileName": {
+          "description": "file_name is a safe single-component display name.",
+          "type": "string"
+        },
+        "sha256": {
+          "description": "sha256 is the optional expected lowercase hex SHA-256 of the capsule.",
+          "type": "string"
+        },
+        "sizeBytes": {
+          "description": "size_bytes is the exact capsule size, at most 512 KiB.",
+          "format": "int64",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "v2PSUFirmwareComponent": {
+      "description": "PSUFirmwareComponent describes one vendor image in a capsule.",
+      "properties": {
+        "imageSizeBytes": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "role": {
+          "$ref": "#/definitions/v2PSUFirmwareComponentRole"
+        },
+        "sha256": {
+          "description": "sha256 is the lowercase hex digest of the complete vendor image.",
+          "type": "string"
+        },
+        "targetId": {
+          "format": "int64",
+          "type": "integer"
+        }
+      },
+      "type": "object"
+    },
+    "v2PSUFirmwareComponentRole": {
+      "default": "PSU_FIRMWARE_COMPONENT_ROLE_UNSPECIFIED",
+      "description": "PSUFirmwareComponentRole identifies one PSU controller.",
+      "enum": [
+        "PSU_FIRMWARE_COMPONENT_ROLE_UNSPECIFIED",
+        "PSU_FIRMWARE_COMPONENT_ROLE_PRIMARY1",
+        "PSU_FIRMWARE_COMPONENT_ROLE_PRIMARY2",
+        "PSU_FIRMWARE_COMPONENT_ROLE_SECONDARY"
+      ],
+      "type": "string"
+    },
+    "v2PSUFirmwareError": {
+      "default": "PSU_FIRMWARE_ERROR_UNSPECIFIED",
+      "description": "PSUFirmwareError mirrors the board firmware's PSU update error.",
+      "enum": [
+        "PSU_FIRMWARE_ERROR_UNSPECIFIED",
+        "PSU_FIRMWARE_ERROR_NONE",
+        "PSU_FIRMWARE_ERROR_NOT_LEADER",
+        "PSU_FIRMWARE_ERROR_STORAGE",
+        "PSU_FIRMWARE_ERROR_CAPSULE_FORMAT",
+        "PSU_FIRMWARE_ERROR_CAPSULE_HASH",
+        "PSU_FIRMWARE_ERROR_CAPSULE_SIGNATURE",
+        "PSU_FIRMWARE_ERROR_CAPSULE_TRUST",
+        "PSU_FIRMWARE_ERROR_TARGET_MISMATCH",
+        "PSU_FIRMWARE_ERROR_CLUSTER_INCOMPATIBLE",
+        "PSU_FIRMWARE_ERROR_BARRIER_TIMEOUT",
+        "PSU_FIRMWARE_ERROR_I2C",
+        "PSU_FIRMWARE_ERROR_BOOTLOADER_STATE",
+        "PSU_FIRMWARE_ERROR_VENDOR_STATUS"
+      ],
+      "type": "string"
+    },
+    "v2PSUFirmwarePhase": {
+      "default": "PSU_FIRMWARE_PHASE_UNSPECIFIED",
+      "description": "PSUFirmwarePhase mirrors the board firmware's PSU update phase.",
+      "enum": [
+        "PSU_FIRMWARE_PHASE_UNSPECIFIED",
+        "PSU_FIRMWARE_PHASE_EMPTY",
+        "PSU_FIRMWARE_PHASE_STAGING",
+        "PSU_FIRMWARE_PHASE_VALIDATING",
+        "PSU_FIRMWARE_PHASE_READY",
+        "PSU_FIRMWARE_PHASE_FENCING",
+        "PSU_FIRMWARE_PHASE_ENTERING_BOOTLOADER",
+        "PSU_FIRMWARE_PHASE_PROGRAMMING",
+        "PSU_FIRMWARE_PHASE_EXITING_BOOTLOADER",
+        "PSU_FIRMWARE_PHASE_REPROBING",
+        "PSU_FIRMWARE_PHASE_VERIFYING",
+        "PSU_FIRMWARE_PHASE_SUCCEEDED",
+        "PSU_FIRMWARE_PHASE_FAILED",
+        "PSU_FIRMWARE_PHASE_RECOVERY_REQUIRED"
+      ],
+      "type": "string"
+    },
+    "v2PSUFirmwareUpdate": {
+      "description": "PSUFirmwareUpdate is one module update job.",
+      "properties": {
+        "applyRequested": {
+          "description": "apply_requested reports whether the apply command may have reached the\nleader. After that point the job cannot be cancelled.",
+          "type": "boolean"
+        },
+        "capsuleId": {
+          "type": "string"
+        },
+        "completedAt": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "createdAt": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "error": {
+          "type": "string"
+        },
+        "force": {
+          "type": "boolean"
+        },
+        "leaderMacAddress": {
+          "type": "string"
+        },
+        "leaderStatus": {
+          "$ref": "#/definitions/v2PSUFirmwareBoardStatus",
+          "description": "leader_status is the most recent firmware status read from the leader."
+        },
+        "members": {
+          "items": {
+            "$ref": "#/definitions/v2PSUFirmwareUpdateMember",
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "moduleId": {
+          "type": "string"
+        },
+        "recover": {
+          "type": "boolean"
+        },
+        "serverId": {
+          "description": "server_id is the Frigate node that owns this job.",
+          "type": "string"
+        },
+        "startedAt": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "state": {
+          "$ref": "#/definitions/v2PSUFirmwareUpdateState"
+        },
+        "taskId": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "v2PSUFirmwareUpdateMember": {
+      "description": "PSUFirmwareUpdateMember is one reserved module member.",
+      "properties": {
+        "macAddress": {
+          "type": "string"
+        },
+        "miningBefore": {
+          "description": "mining_before reports whether mining intent was set when the job started.",
+          "type": "boolean"
+        },
+        "reserved": {
+          "description": "reserved reports whether Frigate reserved the member. Disconnected or\nunmanaged members are not reserved; board firmware still fences them.",
+          "type": "boolean"
+        },
+        "restoreError": {
+          "description": "restore_error is set when mining could not be restored.",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "v2PSUFirmwareUpdateState": {
+      "default": "PSU_FIRMWARE_UPDATE_STATE_UNSPECIFIED",
+      "description": "PSUFirmwareUpdateState is the Frigate job lifecycle.\n\n - PSU_FIRMWARE_UPDATE_STATE_QUEUED: QUEUED waits for a module update slot.\n - PSU_FIRMWARE_UPDATE_STATE_PREPARING: PREPARING stops member mining and resolves the PSU leader.\n - PSU_FIRMWARE_UPDATE_STATE_STAGING: STAGING transfers the capsule to the leader.\n - PSU_FIRMWARE_UPDATE_STATE_VALIDATING: VALIDATING waits for the leader to verify the staged capsule.\n - PSU_FIRMWARE_UPDATE_STATE_APPLYING: APPLYING waits for board firmware to program and verify the PSU.\n - PSU_FIRMWARE_UPDATE_STATE_RESTORING: RESTORING restores mining on members that were mining before the job.",
+      "enum": [
+        "PSU_FIRMWARE_UPDATE_STATE_UNSPECIFIED",
+        "PSU_FIRMWARE_UPDATE_STATE_QUEUED",
+        "PSU_FIRMWARE_UPDATE_STATE_PREPARING",
+        "PSU_FIRMWARE_UPDATE_STATE_STAGING",
+        "PSU_FIRMWARE_UPDATE_STATE_VALIDATING",
+        "PSU_FIRMWARE_UPDATE_STATE_APPLYING",
+        "PSU_FIRMWARE_UPDATE_STATE_RESTORING",
+        "PSU_FIRMWARE_UPDATE_STATE_SUCCEEDED",
+        "PSU_FIRMWARE_UPDATE_STATE_FAILED",
+        "PSU_FIRMWARE_UPDATE_STATE_CANCELLED"
       ],
       "type": "string"
     },
@@ -8989,6 +9479,33 @@
       },
       "type": "object"
     },
+    "v2StartPSUFirmwareUpdateRequest": {
+      "properties": {
+        "capsuleId": {
+          "type": "string"
+        },
+        "force": {
+          "description": "force reapplies an exact capsule that already succeeded.",
+          "type": "boolean"
+        },
+        "moduleId": {
+          "type": "string"
+        },
+        "recover": {
+          "description": "recover restages the exact capsule and resumes the leader's recovery\njournal instead of starting a new update.",
+          "type": "boolean"
+        }
+      },
+      "type": "object"
+    },
+    "v2StartPSUFirmwareUpdateResponse": {
+      "properties": {
+        "update": {
+          "$ref": "#/definitions/v2PSUFirmwareUpdate"
+        }
+      },
+      "type": "object"
+    },
     "v2StartSoftFeedMappingRunResponse": {
       "properties": {
         "run": {
@@ -9960,12 +10477,57 @@
         }
       },
       "type": "object"
+    },
+    "v2WriteFirmwareArtifactUploadChunkResponse": {
+      "properties": {
+        "expiresAt": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "imageIndex": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "nextOffset": {
+          "description": "next_offset is the number of contiguous bytes received for this image.",
+          "format": "int64",
+          "type": "string"
+        },
+        "receivedBytes": {
+          "description": "received_bytes and total_bytes cover every image in the upload.",
+          "format": "int64",
+          "type": "string"
+        },
+        "totalBytes": {
+          "format": "int64",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "v2WritePSUFirmwareCapsuleUploadChunkResponse": {
+      "properties": {
+        "expiresAt": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "nextOffset": {
+          "description": "next_offset is the number of contiguous capsule bytes received.",
+          "format": "int64",
+          "type": "string"
+        },
+        "totalBytes": {
+          "format": "int64",
+          "type": "string"
+        }
+      },
+      "type": "object"
     }
   },
   "info": {
     "description": "Latest MDK v2 REST contract. Device support depends on product and firmware version.",
     "title": "Proto MDK v2",
-    "version": "2-af84dedafde56a43"
+    "version": "2-38eb3f68b66035c6"
   },
   "paths": {
     "/api/v2/alerts": {
@@ -11087,6 +11649,144 @@
         "summary": "CancelFirmwareUpdate requests cancellation of an active update job.",
         "tags": [
           "Firmware"
+        ]
+      }
+    },
+    "/api/v2/firmware/uploads": {
+      "post": {
+        "operationId": "FirmwareService_BeginFirmwareArtifactUpload",
+        "parameters": [
+          {
+            "in": "body",
+            "name": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/v2BeginFirmwareArtifactUploadRequest"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v2BeginFirmwareArtifactUploadResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "summary": "BeginFirmwareArtifactUpload starts a chunked unary upload for clients that\ncannot send client-streaming calls, such as browsers using the Connect or\nREST gateways. It validates the same metadata as UploadFirmwareArtifact\nand returns an upload ID that exists only on the connected node. Idle\nuploads expire and release their staged bytes.",
+        "tags": [
+          "Firmware",
+          "CT1"
+        ]
+      }
+    },
+    "/api/v2/firmware/uploads/{uploadId}": {
+      "delete": {
+        "operationId": "FirmwareService_AbortFirmwareArtifactUpload",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "uploadId",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v2AbortFirmwareArtifactUploadResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "summary": "AbortFirmwareArtifactUpload discards an unfinished upload. Aborting an\nunknown or expired upload succeeds.",
+        "tags": [
+          "Firmware",
+          "CT1"
+        ]
+      }
+    },
+    "/api/v2/firmware/uploads/{uploadId}/chunks": {
+      "post": {
+        "operationId": "FirmwareService_WriteFirmwareArtifactUploadChunk",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "uploadId",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "in": "body",
+            "name": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/FirmwareServiceWriteFirmwareArtifactUploadChunkBody"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v2WriteFirmwareArtifactUploadChunkResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "summary": "WriteFirmwareArtifactUploadChunk writes bytes for one image at an exact\noffset. Images may be written in any order, but each image's bytes must\nbe contiguous. Repeating an already received chunk is accepted, so a\nclient can safely retry after a lost response.",
+        "tags": [
+          "Firmware",
+          "CT1"
+        ]
+      }
+    },
+    "/api/v2/firmware/uploads/{uploadId}/commit": {
+      "post": {
+        "operationId": "FirmwareService_CommitFirmwareArtifactUpload",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "uploadId",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v2CommitFirmwareArtifactUploadResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "summary": "CommitFirmwareArtifactUpload validates and caches a complete upload,\nexactly like the final step of UploadFirmwareArtifact. An incomplete\nupload is refused without discarding received bytes.",
+        "tags": [
+          "Firmware",
+          "CT1"
         ]
       }
     },
@@ -13586,6 +14286,320 @@
         ]
       }
     },
+    "/api/v2/psu-firmware/boards/{macAddress}/status": {
+      "get": {
+        "operationId": "PSUFirmwareService_GetPSUFirmwareBoardStatus",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "macAddress",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v2GetPSUFirmwareBoardStatusResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "summary": "GetPSUFirmwareBoardStatus reads one locally owned board's PSU firmware\nstaging, apply, and leadership state.",
+        "tags": [
+          "PSU Firmware",
+          "CT1"
+        ]
+      }
+    },
+    "/api/v2/psu-firmware/capsules": {
+      "get": {
+        "operationId": "PSUFirmwareService_ListPSUFirmwareCapsules",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v2ListPSUFirmwareCapsulesResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "summary": "ListPSUFirmwareCapsules lists capsules cached on the connected node.",
+        "tags": [
+          "PSU Firmware",
+          "CT1"
+        ]
+      }
+    },
+    "/api/v2/psu-firmware/updates": {
+      "get": {
+        "operationId": "PSUFirmwareService_ListPSUFirmwareUpdates",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v2ListPSUFirmwareUpdatesResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "summary": "ListPSUFirmwareUpdates lists active and retained update jobs, newest first.",
+        "tags": [
+          "PSU Firmware",
+          "CT1"
+        ]
+      },
+      "post": {
+        "operationId": "PSUFirmwareService_StartPSUFirmwareUpdate",
+        "parameters": [
+          {
+            "in": "body",
+            "name": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/v2StartPSUFirmwareUpdateRequest"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v2StartPSUFirmwareUpdateResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "summary": "StartPSUFirmwareUpdate starts one module update with a cached capsule.\nEvery connected module member must be owned by the connected node.",
+        "tags": [
+          "PSU Firmware",
+          "CT1"
+        ]
+      }
+    },
+    "/api/v2/psu-firmware/updates/{taskId}": {
+      "get": {
+        "operationId": "PSUFirmwareService_GetPSUFirmwareUpdate",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "taskId",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v2GetPSUFirmwareUpdateResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "summary": "GetPSUFirmwareUpdate returns the current state of one update job.",
+        "tags": [
+          "PSU Firmware",
+          "CT1"
+        ]
+      }
+    },
+    "/api/v2/psu-firmware/updates/{taskId}/cancel": {
+      "post": {
+        "operationId": "PSUFirmwareService_CancelPSUFirmwareUpdate",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "taskId",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v2CancelPSUFirmwareUpdateResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "summary": "CancelPSUFirmwareUpdate cancels a job before its apply command is sent.\nOnce the leader has been asked to program the PSU, board firmware owns\ncompletion and the job can no longer be cancelled.",
+        "tags": [
+          "PSU Firmware",
+          "CT1"
+        ]
+      }
+    },
+    "/api/v2/psu-firmware/uploads": {
+      "post": {
+        "operationId": "PSUFirmwareService_BeginPSUFirmwareCapsuleUpload",
+        "parameters": [
+          {
+            "in": "body",
+            "name": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/v2BeginPSUFirmwareCapsuleUploadRequest"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v2BeginPSUFirmwareCapsuleUploadResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "summary": "BeginPSUFirmwareCapsuleUpload starts a chunked unary capsule upload for\nclients that cannot send client-streaming calls, such as browsers using\nthe Connect or REST gateways. It validates the same metadata as\nUploadPSUFirmwareCapsule and returns an upload ID that exists only on the\nconnected node. Idle uploads expire.",
+        "tags": [
+          "PSU Firmware",
+          "CT1"
+        ]
+      }
+    },
+    "/api/v2/psu-firmware/uploads/{uploadId}": {
+      "delete": {
+        "operationId": "PSUFirmwareService_AbortPSUFirmwareCapsuleUpload",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "uploadId",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v2AbortPSUFirmwareCapsuleUploadResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "summary": "AbortPSUFirmwareCapsuleUpload discards an unfinished upload. Aborting an\nunknown or expired upload succeeds.",
+        "tags": [
+          "PSU Firmware",
+          "CT1"
+        ]
+      }
+    },
+    "/api/v2/psu-firmware/uploads/{uploadId}/chunks": {
+      "post": {
+        "operationId": "PSUFirmwareService_WritePSUFirmwareCapsuleUploadChunk",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "uploadId",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "in": "body",
+            "name": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/PSUFirmwareServiceWritePSUFirmwareCapsuleUploadChunkBody"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v2WritePSUFirmwareCapsuleUploadChunkResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "summary": "WritePSUFirmwareCapsuleUploadChunk writes capsule bytes at an exact\noffset. Repeating an already received chunk is accepted, so a client can\nsafely retry after a lost response.",
+        "tags": [
+          "PSU Firmware",
+          "CT1"
+        ]
+      }
+    },
+    "/api/v2/psu-firmware/uploads/{uploadId}/commit": {
+      "post": {
+        "operationId": "PSUFirmwareService_CommitPSUFirmwareCapsuleUpload",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "uploadId",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v2CommitPSUFirmwareCapsuleUploadResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "summary": "CommitPSUFirmwareCapsuleUpload verifies and caches a complete capsule,\nexactly like the final step of UploadPSUFirmwareCapsule. An incomplete\nupload is refused without discarding received bytes.",
+        "tags": [
+          "PSU Firmware",
+          "CT1"
+        ]
+      }
+    },
     "/api/v2/recovery-evidence": {
       "get": {
         "operationId": "HashboardService_ListRecoveryEvidence",
@@ -15433,6 +16447,10 @@
     {
       "description": "Allowlisted live Frigate guardrail and recovery policy.",
       "name": "Operational policy"
+    },
+    {
+      "description": "CT1 PSU module firmware capsule upload and update deployment.",
+      "name": "PSU Firmware"
     },
     {
       "description": "CT1 product-specific endpoints.",

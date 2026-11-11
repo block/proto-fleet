@@ -26,6 +26,10 @@ const (
 	ServerUpdateService_AppendServerUpdateStage_FullMethodName = "/mdk.v2.ServerUpdateService/AppendServerUpdateStage"
 	ServerUpdateService_CommitServerUpdateStage_FullMethodName = "/mdk.v2.ServerUpdateService/CommitServerUpdateStage"
 	ServerUpdateService_AbortServerUpdateStage_FullMethodName  = "/mdk.v2.ServerUpdateService/AbortServerUpdateStage"
+	ServerUpdateService_StartServerUpdate_FullMethodName       = "/mdk.v2.ServerUpdateService/StartServerUpdate"
+	ServerUpdateService_GetServerUpdateStatus_FullMethodName   = "/mdk.v2.ServerUpdateService/GetServerUpdateStatus"
+	ServerUpdateService_RetryServerUpdate_FullMethodName       = "/mdk.v2.ServerUpdateService/RetryServerUpdate"
+	ServerUpdateService_CancelServerUpdate_FullMethodName      = "/mdk.v2.ServerUpdateService/CancelServerUpdate"
 )
 
 // ServerUpdateServiceClient is the client API for ServerUpdateService service.
@@ -40,6 +44,26 @@ type ServerUpdateServiceClient interface {
 	AppendServerUpdateStage(ctx context.Context, in *AppendServerUpdateStageRequest, opts ...grpc.CallOption) (*AppendServerUpdateStageResponse, error)
 	CommitServerUpdateStage(ctx context.Context, in *CommitServerUpdateStageRequest, opts ...grpc.CallOption) (*CommitServerUpdateStageResponse, error)
 	AbortServerUpdateStage(ctx context.Context, in *AbortServerUpdateStageRequest, opts ...grpc.CallOption) (*AbortServerUpdateStageResponse, error)
+	// StartServerUpdate begins a self-coordinated rollout of a package that is
+	// already staged on every expected instance. The caller must have staged each
+	// instance with a manifest whose coordination is SERVER_UPDATE_COORDINATION_SELF
+	// and that carries the signed release statement. The rollout id is job_id.
+	// Routed to the HA primary (ControlLeader). Refusals carry a
+	// google.rpc.ErrorInfo in domain mdk.v2.frigate with one of the UPDATE_*
+	// reasons documented on ServerUpdateRollout.error_code.
+	StartServerUpdate(ctx context.Context, in *StartServerUpdateRequest, opts ...grpc.CallOption) (*StartServerUpdateResponse, error)
+	// GetServerUpdateStatus returns the shared rollout state. While Frigate is
+	// stopped for an update the response may be served by the maintenance
+	// service, which sets served_by_maintenance.
+	GetServerUpdateStatus(ctx context.Context, in *GetServerUpdateStatusRequest, opts ...grpc.CallOption) (*GetServerUpdateStatusResponse, error)
+	// RetryServerUpdate asks the rollout driver to resume a rollout that failed
+	// after the instances were stopped. It is refused unless the rollout is
+	// retryable.
+	RetryServerUpdate(ctx context.Context, in *RetryServerUpdateRequest, opts ...grpc.CallOption) (*RetryServerUpdateResponse, error)
+	// CancelServerUpdate abandons a rollout that has not yet stopped any
+	// instance. It is refused once the rollout is past the point of no return;
+	// use RetryServerUpdate or the on-host abandon command instead.
+	CancelServerUpdate(ctx context.Context, in *CancelServerUpdateRequest, opts ...grpc.CallOption) (*CancelServerUpdateResponse, error)
 }
 
 type serverUpdateServiceClient struct {
@@ -129,6 +153,42 @@ func (c *serverUpdateServiceClient) AbortServerUpdateStage(ctx context.Context, 
 	return out, nil
 }
 
+func (c *serverUpdateServiceClient) StartServerUpdate(ctx context.Context, in *StartServerUpdateRequest, opts ...grpc.CallOption) (*StartServerUpdateResponse, error) {
+	out := new(StartServerUpdateResponse)
+	err := c.cc.Invoke(ctx, ServerUpdateService_StartServerUpdate_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *serverUpdateServiceClient) GetServerUpdateStatus(ctx context.Context, in *GetServerUpdateStatusRequest, opts ...grpc.CallOption) (*GetServerUpdateStatusResponse, error) {
+	out := new(GetServerUpdateStatusResponse)
+	err := c.cc.Invoke(ctx, ServerUpdateService_GetServerUpdateStatus_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *serverUpdateServiceClient) RetryServerUpdate(ctx context.Context, in *RetryServerUpdateRequest, opts ...grpc.CallOption) (*RetryServerUpdateResponse, error) {
+	out := new(RetryServerUpdateResponse)
+	err := c.cc.Invoke(ctx, ServerUpdateService_RetryServerUpdate_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *serverUpdateServiceClient) CancelServerUpdate(ctx context.Context, in *CancelServerUpdateRequest, opts ...grpc.CallOption) (*CancelServerUpdateResponse, error) {
+	out := new(CancelServerUpdateResponse)
+	err := c.cc.Invoke(ctx, ServerUpdateService_CancelServerUpdate_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // ServerUpdateServiceServer is the server API for ServerUpdateService service.
 // All implementations must embed UnimplementedServerUpdateServiceServer
 // for forward compatibility
@@ -141,6 +201,26 @@ type ServerUpdateServiceServer interface {
 	AppendServerUpdateStage(context.Context, *AppendServerUpdateStageRequest) (*AppendServerUpdateStageResponse, error)
 	CommitServerUpdateStage(context.Context, *CommitServerUpdateStageRequest) (*CommitServerUpdateStageResponse, error)
 	AbortServerUpdateStage(context.Context, *AbortServerUpdateStageRequest) (*AbortServerUpdateStageResponse, error)
+	// StartServerUpdate begins a self-coordinated rollout of a package that is
+	// already staged on every expected instance. The caller must have staged each
+	// instance with a manifest whose coordination is SERVER_UPDATE_COORDINATION_SELF
+	// and that carries the signed release statement. The rollout id is job_id.
+	// Routed to the HA primary (ControlLeader). Refusals carry a
+	// google.rpc.ErrorInfo in domain mdk.v2.frigate with one of the UPDATE_*
+	// reasons documented on ServerUpdateRollout.error_code.
+	StartServerUpdate(context.Context, *StartServerUpdateRequest) (*StartServerUpdateResponse, error)
+	// GetServerUpdateStatus returns the shared rollout state. While Frigate is
+	// stopped for an update the response may be served by the maintenance
+	// service, which sets served_by_maintenance.
+	GetServerUpdateStatus(context.Context, *GetServerUpdateStatusRequest) (*GetServerUpdateStatusResponse, error)
+	// RetryServerUpdate asks the rollout driver to resume a rollout that failed
+	// after the instances were stopped. It is refused unless the rollout is
+	// retryable.
+	RetryServerUpdate(context.Context, *RetryServerUpdateRequest) (*RetryServerUpdateResponse, error)
+	// CancelServerUpdate abandons a rollout that has not yet stopped any
+	// instance. It is refused once the rollout is past the point of no return;
+	// use RetryServerUpdate or the on-host abandon command instead.
+	CancelServerUpdate(context.Context, *CancelServerUpdateRequest) (*CancelServerUpdateResponse, error)
 	mustEmbedUnimplementedServerUpdateServiceServer()
 }
 
@@ -165,6 +245,18 @@ func (UnimplementedServerUpdateServiceServer) CommitServerUpdateStage(context.Co
 }
 func (UnimplementedServerUpdateServiceServer) AbortServerUpdateStage(context.Context, *AbortServerUpdateStageRequest) (*AbortServerUpdateStageResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method AbortServerUpdateStage not implemented")
+}
+func (UnimplementedServerUpdateServiceServer) StartServerUpdate(context.Context, *StartServerUpdateRequest) (*StartServerUpdateResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method StartServerUpdate not implemented")
+}
+func (UnimplementedServerUpdateServiceServer) GetServerUpdateStatus(context.Context, *GetServerUpdateStatusRequest) (*GetServerUpdateStatusResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetServerUpdateStatus not implemented")
+}
+func (UnimplementedServerUpdateServiceServer) RetryServerUpdate(context.Context, *RetryServerUpdateRequest) (*RetryServerUpdateResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method RetryServerUpdate not implemented")
+}
+func (UnimplementedServerUpdateServiceServer) CancelServerUpdate(context.Context, *CancelServerUpdateRequest) (*CancelServerUpdateResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method CancelServerUpdate not implemented")
 }
 func (UnimplementedServerUpdateServiceServer) mustEmbedUnimplementedServerUpdateServiceServer() {}
 
@@ -295,6 +387,78 @@ func _ServerUpdateService_AbortServerUpdateStage_Handler(srv interface{}, ctx co
 	return interceptor(ctx, in, info, handler)
 }
 
+func _ServerUpdateService_StartServerUpdate_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(StartServerUpdateRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ServerUpdateServiceServer).StartServerUpdate(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ServerUpdateService_StartServerUpdate_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ServerUpdateServiceServer).StartServerUpdate(ctx, req.(*StartServerUpdateRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _ServerUpdateService_GetServerUpdateStatus_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetServerUpdateStatusRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ServerUpdateServiceServer).GetServerUpdateStatus(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ServerUpdateService_GetServerUpdateStatus_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ServerUpdateServiceServer).GetServerUpdateStatus(ctx, req.(*GetServerUpdateStatusRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _ServerUpdateService_RetryServerUpdate_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RetryServerUpdateRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ServerUpdateServiceServer).RetryServerUpdate(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ServerUpdateService_RetryServerUpdate_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ServerUpdateServiceServer).RetryServerUpdate(ctx, req.(*RetryServerUpdateRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _ServerUpdateService_CancelServerUpdate_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CancelServerUpdateRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ServerUpdateServiceServer).CancelServerUpdate(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ServerUpdateService_CancelServerUpdate_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ServerUpdateServiceServer).CancelServerUpdate(ctx, req.(*CancelServerUpdateRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // ServerUpdateService_ServiceDesc is the grpc.ServiceDesc for ServerUpdateService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -321,6 +485,22 @@ var ServerUpdateService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "AbortServerUpdateStage",
 			Handler:    _ServerUpdateService_AbortServerUpdateStage_Handler,
+		},
+		{
+			MethodName: "StartServerUpdate",
+			Handler:    _ServerUpdateService_StartServerUpdate_Handler,
+		},
+		{
+			MethodName: "GetServerUpdateStatus",
+			Handler:    _ServerUpdateService_GetServerUpdateStatus_Handler,
+		},
+		{
+			MethodName: "RetryServerUpdate",
+			Handler:    _ServerUpdateService_RetryServerUpdate_Handler,
+		},
+		{
+			MethodName: "CancelServerUpdate",
+			Handler:    _ServerUpdateService_CancelServerUpdate_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{

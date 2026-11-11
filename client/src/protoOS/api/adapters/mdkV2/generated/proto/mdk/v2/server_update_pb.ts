@@ -13,7 +13,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file mdk/v2/server_update.proto.
  */
 export const file_mdk_v2_server_update: GenFile = /*@__PURE__*/
-  fileDesc("ChptZGsvdjIvc2VydmVyX3VwZGF0ZS5wcm90bxIGbWRrLnYyIh8KHUdldFNlcnZlclVwZGF0ZVN1cHBvcnRSZXF1ZXN0IuwBCh5HZXRTZXJ2ZXJVcGRhdGVTdXBwb3J0UmVzcG9uc2USEwoLaW5zdGFuY2VfaWQYASABKAkSGAoQcGVlcl9pbnN0YW5jZV9pZBgCIAEoCRIXCg9ydW5uaW5nX3ZlcnNpb24YAyABKAkSFAoMYXJjaGl0ZWN0dXJlGAQgASgJEjkKEWluc3RhbGxhdGlvbl90eXBlGAUgASgOMh4ubWRrLnYyLlNlcnZlckluc3RhbGxhdGlvblR5cGUSGAoQaGVscGVyX2F2YWlsYWJsZRgGIAEoCBIXCg9zdXBwb3J0X21lc3NhZ2UYByABKAkiuQMKFFNlcnZlclVwZGF0ZU1hbmlmZXN0Eg4KBmpvYl9pZBgBIAEoCRIPCgdzaXRlX2lkGAIgASgJEhQKDGNvbnRhaW5lcl9pZBgDIAEoCRITCgtpbnN0YW5jZV9pZBgEIAEoCRIdChVleHBlY3RlZF9pbnN0YW5jZV9pZHMYBSADKAkSEwoLcmVsZWFzZV90YWcYBiABKAkSFgoOdGFyZ2V0X3ZlcnNpb24YByABKAkSEAoIYXNzZXRfaWQYCCABKAMSEgoKYXNzZXRfbmFtZRgJIAEoCRIOCgZzaGEyNTYYCiABKAkSEgoKc2l6ZV9ieXRlcxgLIAEoAxINCgVhY3RvchgMIAEoCRIZChFtYWludGVuYW5jZV90b2tlbhgNIAEoCRIYChBmbG90aWxsYV9hZGRyZXNzGA4gASgJEhcKD3Rsc19zZXJ2ZXJfbmFtZRgPIAEoCRIUCgxyb290X2NhX2ZpbGUYECABKAkSHwoXY2xpZW50X2NlcnRpZmljYXRlX2ZpbGUYESABKAkSFwoPY2xpZW50X2tleV9maWxlGBIgASgJEhIKCnNpdGVfdG9rZW4YEyABKAkiaAoYU3RhZ2VTZXJ2ZXJVcGRhdGVSZXF1ZXN0EjAKCG1hbmlmZXN0GAEgASgLMhwubWRrLnYyLlNlcnZlclVwZGF0ZU1hbmlmZXN0SAASDwoFY2h1bmsYAiABKAxIAEIJCgdwYXlsb2FkIlEKGVN0YWdlU2VydmVyVXBkYXRlUmVzcG9uc2USDgoGam9iX2lkGAEgASgJEhQKDGJ5dGVzX3N0YWdlZBgCIAEoAxIOCgZzaGEyNTYYAyABKAkiTwodQmVnaW5TZXJ2ZXJVcGRhdGVTdGFnZVJlcXVlc3QSLgoIbWFuaWZlc3QYASABKAsyHC5tZGsudjIuU2VydmVyVXBkYXRlTWFuaWZlc3QiaAoeQXBwZW5kU2VydmVyVXBkYXRlU3RhZ2VSZXF1ZXN0Eg4KBmpvYl9pZBgBIAEoCRIXCg9tYW5pZmVzdF9zaGEyNTYYAiABKAkSDgoGb2Zmc2V0GAMgASgDEg0KBWNodW5rGAQgASgMIkkKHkNvbW1pdFNlcnZlclVwZGF0ZVN0YWdlUmVxdWVzdBIOCgZqb2JfaWQYASABKAkSFwoPbWFuaWZlc3Rfc2hhMjU2GAIgASgJIkgKHUFib3J0U2VydmVyVXBkYXRlU3RhZ2VSZXF1ZXN0Eg4KBmpvYl9pZBgBIAEoCRIXCg9tYW5pZmVzdF9zaGEyNTYYAiABKAkiIAoeQWJvcnRTZXJ2ZXJVcGRhdGVTdGFnZVJlc3BvbnNlInIKHkJlZ2luU2VydmVyVXBkYXRlU3RhZ2VSZXNwb25zZRIOCgZqb2JfaWQYASABKAkSFwoPbWFuaWZlc3Rfc2hhMjU2GAIgASgJEhMKC25leHRfb2Zmc2V0GAMgASgDEhIKCnNpemVfYnl0ZXMYBCABKAMicwofQXBwZW5kU2VydmVyVXBkYXRlU3RhZ2VSZXNwb25zZRIOCgZqb2JfaWQYASABKAkSFwoPbWFuaWZlc3Rfc2hhMjU2GAIgASgJEhMKC25leHRfb2Zmc2V0GAMgASgDEhIKCnNpemVfYnl0ZXMYBCABKAMiVwofQ29tbWl0U2VydmVyVXBkYXRlU3RhZ2VSZXNwb25zZRIOCgZqb2JfaWQYASABKAkSFAoMYnl0ZXNfc3RhZ2VkGAIgASgDEg4KBnNoYTI1NhgDIAEoCSK+AgoYRnJpZ2F0ZVVwZGF0ZUFnZW50U3RhdHVzEg4KBmpvYl9pZBgBIAEoCRIPCgdzaXRlX2lkGAIgASgJEhQKDGNvbnRhaW5lcl9pZBgDIAEoCRITCgtpbnN0YW5jZV9pZBgEIAEoCRIZChFtYWludGVuYW5jZV90b2tlbhgFIAEoCRIuCgVwaGFzZRgGIAEoDjIfLm1kay52Mi5GcmlnYXRlVXBkYXRlQWdlbnRQaGFzZRIXCg9ydW5uaW5nX3ZlcnNpb24YByABKAkSGgoSbWlncmF0aW9uX2V4ZWN1dGVkGAggASgIEg0KBWVycm9yGAkgASgJEi4KCnVwZGF0ZWRfYXQYCiABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEhcKD21hbmlmZXN0X3NoYTI1NhgLIAEoCSJ6ChlGcmlnYXRlVXBkYXRlQWdlbnRDb21tYW5kEjAKBmFjdGlvbhgBIAEoDjIgLm1kay52Mi5GcmlnYXRlVXBkYXRlQWdlbnRBY3Rpb24SDwoHbWVzc2FnZRgCIAEoCRIaChJwb2xsX2FmdGVyX3NlY29uZHMYAyABKA0qmwEKFlNlcnZlckluc3RhbGxhdGlvblR5cGUSKAokU0VSVkVSX0lOU1RBTExBVElPTl9UWVBFX1VOU1BFQ0lGSUVEEAASKwonU0VSVkVSX0lOU1RBTExBVElPTl9UWVBFX0RFQklBTl9QQUNLQUdFEAESKgomU0VSVkVSX0lOU1RBTExBVElPTl9UWVBFX0RJUkVDVF9CSU5BUlkQAirhAgoXRnJpZ2F0ZVVwZGF0ZUFnZW50UGhhc2USKgomRlJJR0FURV9VUERBVEVfQUdFTlRfUEhBU0VfVU5TUEVDSUZJRUQQABIpCiVGUklHQVRFX1VQREFURV9BR0VOVF9QSEFTRV9DT05ORUNUSU5HEAESJQohRlJJR0FURV9VUERBVEVfQUdFTlRfUEhBU0VfU1RBR0VEEAISJgoiRlJJR0FURV9VUERBVEVfQUdFTlRfUEhBU0VfU1RPUFBFRBADEigKJEZSSUdBVEVfVVBEQVRFX0FHRU5UX1BIQVNFX0lOU1RBTExFRBAEEicKI0ZSSUdBVEVfVVBEQVRFX0FHRU5UX1BIQVNFX01JR1JBVEVEEAUSJgoiRlJJR0FURV9VUERBVEVfQUdFTlRfUEhBU0VfU1RBUlRFRBAGEiUKIUZSSUdBVEVfVVBEQVRFX0FHRU5UX1BIQVNFX0ZBSUxFRBAHKrICChhGcmlnYXRlVXBkYXRlQWdlbnRBY3Rpb24SKwonRlJJR0FURV9VUERBVEVfQUdFTlRfQUNUSU9OX1VOU1BFQ0lGSUVEEAASJAogRlJJR0FURV9VUERBVEVfQUdFTlRfQUNUSU9OX1dBSVQQARIkCiBGUklHQVRFX1VQREFURV9BR0VOVF9BQ1RJT05fU1RPUBACEicKI0ZSSUdBVEVfVVBEQVRFX0FHRU5UX0FDVElPTl9JTlNUQUxMEAMSJwojRlJJR0FURV9VUERBVEVfQUdFTlRfQUNUSU9OX01JR1JBVEUQBBIlCiFGUklHQVRFX1VQREFURV9BR0VOVF9BQ1RJT05fU1RBUlQQBRIkCiBGUklHQVRFX1VQREFURV9BR0VOVF9BQ1RJT05fRVhJVBAGMsAFChNTZXJ2ZXJVcGRhdGVTZXJ2aWNlEnEKFkdldFNlcnZlclVwZGF0ZVN1cHBvcnQSJS5tZGsudjIuR2V0U2VydmVyVXBkYXRlU3VwcG9ydFJlcXVlc3QaJi5tZGsudjIuR2V0U2VydmVyVXBkYXRlU3VwcG9ydFJlc3BvbnNlIgiAtRgCiLUYARJkChFTdGFnZVNlcnZlclVwZGF0ZRIgLm1kay52Mi5TdGFnZVNlcnZlclVwZGF0ZVJlcXVlc3QaIS5tZGsudjIuU3RhZ2VTZXJ2ZXJVcGRhdGVSZXNwb25zZSIIgLUYAoi1GAIoARJxChZCZWdpblNlcnZlclVwZGF0ZVN0YWdlEiUubWRrLnYyLkJlZ2luU2VydmVyVXBkYXRlU3RhZ2VSZXF1ZXN0GiYubWRrLnYyLkJlZ2luU2VydmVyVXBkYXRlU3RhZ2VSZXNwb25zZSIIgLUYAoi1GAISdAoXQXBwZW5kU2VydmVyVXBkYXRlU3RhZ2USJi5tZGsudjIuQXBwZW5kU2VydmVyVXBkYXRlU3RhZ2VSZXF1ZXN0GicubWRrLnYyLkFwcGVuZFNlcnZlclVwZGF0ZVN0YWdlUmVzcG9uc2UiCIC1GAKItRgCEnQKF0NvbW1pdFNlcnZlclVwZGF0ZVN0YWdlEiYubWRrLnYyLkNvbW1pdFNlcnZlclVwZGF0ZVN0YWdlUmVxdWVzdBonLm1kay52Mi5Db21taXRTZXJ2ZXJVcGRhdGVTdGFnZVJlc3BvbnNlIgiAtRgCiLUYAhJxChZBYm9ydFNlcnZlclVwZGF0ZVN0YWdlEiUubWRrLnYyLkFib3J0U2VydmVyVXBkYXRlU3RhZ2VSZXF1ZXN0GiYubWRrLnYyLkFib3J0U2VydmVyVXBkYXRlU3RhZ2VSZXNwb25zZSIIgLUYAoi1GAIycgofRnJpZ2F0ZVVwZGF0ZU1haW50ZW5hbmNlU2VydmljZRJPCghFeGNoYW5nZRIgLm1kay52Mi5GcmlnYXRlVXBkYXRlQWdlbnRTdGF0dXMaIS5tZGsudjIuRnJpZ2F0ZVVwZGF0ZUFnZW50Q29tbWFuZEKVAQoKY29tLm1kay52MkIRU2VydmVyVXBkYXRlUHJvdG9QAVo7Z2l0aHViLmNvbS9ibG9jay9wcm90by1mbGVldC9zZGsvbWRrL2dlbmVyYXRlZC9tZGsvdjI7bWRrdjKiAgNNWFiqAgZNZGsuVjLKAgZNZGtcVjLiAhJNZGtcVjJcR1BCTWV0YWRhdGHqAgdNZGs6OlYyYgZwcm90bzM", [file_google_protobuf_timestamp, file_mdk_v2_options]);
+  fileDesc("ChptZGsvdjIvc2VydmVyX3VwZGF0ZS5wcm90bxIGbWRrLnYyIh8KHUdldFNlcnZlclVwZGF0ZVN1cHBvcnRSZXF1ZXN0ItEDCh5HZXRTZXJ2ZXJVcGRhdGVTdXBwb3J0UmVzcG9uc2USEwoLaW5zdGFuY2VfaWQYASABKAkSGAoQcGVlcl9pbnN0YW5jZV9pZBgCIAEoCRIXCg9ydW5uaW5nX3ZlcnNpb24YAyABKAkSFAoMYXJjaGl0ZWN0dXJlGAQgASgJEjkKEWluc3RhbGxhdGlvbl90eXBlGAUgASgOMh4ubWRrLnYyLlNlcnZlckluc3RhbGxhdGlvblR5cGUSGAoQaGVscGVyX2F2YWlsYWJsZRgGIAEoCBIXCg9zdXBwb3J0X21lc3NhZ2UYByABKAkSEgoKY2x1c3Rlcl9pZBgIIAEoCRIVCg1hY3RpdmVfam9iX2lkGAkgASgJEhgKEHNwb29sX2ZyZWVfYnl0ZXMYCiABKAMSGgoSZXRjZF9tZW1iZXJzX3RvdGFsGAsgASgNEhwKFGV0Y2RfbWVtYmVyc19oZWFsdGh5GAwgASgNEh8KF3RydXN0ZWRfcmVsZWFzZV9rZXlfaWRzGA0gAygJEiMKG3NlbGZfY29vcmRpbmF0aW9uX3N1cHBvcnRlZBgOIAEoCBIeChZyZW1vdGVfdHJpZ2dlcl9hbGxvd2VkGA8gASgIIqcEChRTZXJ2ZXJVcGRhdGVNYW5pZmVzdBIOCgZqb2JfaWQYASABKAkSDwoHc2l0ZV9pZBgCIAEoCRIUCgxjb250YWluZXJfaWQYAyABKAkSEwoLaW5zdGFuY2VfaWQYBCABKAkSHQoVZXhwZWN0ZWRfaW5zdGFuY2VfaWRzGAUgAygJEhMKC3JlbGVhc2VfdGFnGAYgASgJEhYKDnRhcmdldF92ZXJzaW9uGAcgASgJEhAKCGFzc2V0X2lkGAggASgDEhIKCmFzc2V0X25hbWUYCSABKAkSDgoGc2hhMjU2GAogASgJEhIKCnNpemVfYnl0ZXMYCyABKAMSDQoFYWN0b3IYDCABKAkSGQoRbWFpbnRlbmFuY2VfdG9rZW4YDSABKAkSGAoQZmxvdGlsbGFfYWRkcmVzcxgOIAEoCRIXCg90bHNfc2VydmVyX25hbWUYDyABKAkSFAoMcm9vdF9jYV9maWxlGBAgASgJEh8KF2NsaWVudF9jZXJ0aWZpY2F0ZV9maWxlGBEgASgJEhcKD2NsaWVudF9rZXlfZmlsZRgSIAEoCRISCgpzaXRlX3Rva2VuGBMgASgJEjYKDGNvb3JkaW5hdGlvbhgUIAEoDjIgLm1kay52Mi5TZXJ2ZXJVcGRhdGVDb29yZGluYXRpb24SGQoRcmVsZWFzZV9zdGF0ZW1lbnQYFSABKAwSGQoRcmVsZWFzZV9zaWduYXR1cmUYFiABKAwirQIKGFN0YXJ0U2VydmVyVXBkYXRlUmVxdWVzdBIOCgZqb2JfaWQYASABKAkSFgoOdGFyZ2V0X3ZlcnNpb24YAiABKAkSHQoVZXhwZWN0ZWRfaW5zdGFuY2VfaWRzGAMgAygJEhIKCnN0YWdlX29ubHkYBCABKAgSFwoPaWRlbXBvdGVuY3lfa2V5GAUgASgJEl4KGGV4cGVjdGVkX21hbmlmZXN0X3NoYTI1NhgGIAMoCzI8Lm1kay52Mi5TdGFydFNlcnZlclVwZGF0ZVJlcXVlc3QuRXhwZWN0ZWRNYW5pZmVzdFNoYTI1NkVudHJ5Gj0KG0V4cGVjdGVkTWFuaWZlc3RTaGEyNTZFbnRyeRILCgNrZXkYASABKAkSDQoFdmFsdWUYAiABKAk6AjgBIkkKGVN0YXJ0U2VydmVyVXBkYXRlUmVzcG9uc2USLAoHcm9sbG91dBgBIAEoCzIbLm1kay52Mi5TZXJ2ZXJVcGRhdGVSb2xsb3V0Ii4KHEdldFNlcnZlclVwZGF0ZVN0YXR1c1JlcXVlc3QSDgoGam9iX2lkGAEgASgJImwKHUdldFNlcnZlclVwZGF0ZVN0YXR1c1Jlc3BvbnNlEiwKB3JvbGxvdXQYASABKAsyGy5tZGsudjIuU2VydmVyVXBkYXRlUm9sbG91dBIdChVzZXJ2ZWRfYnlfbWFpbnRlbmFuY2UYAiABKAgiQwoYUmV0cnlTZXJ2ZXJVcGRhdGVSZXF1ZXN0Eg4KBmpvYl9pZBgBIAEoCRIXCg9pZGVtcG90ZW5jeV9rZXkYAiABKAkiSQoZUmV0cnlTZXJ2ZXJVcGRhdGVSZXNwb25zZRIsCgdyb2xsb3V0GAEgASgLMhsubWRrLnYyLlNlcnZlclVwZGF0ZVJvbGxvdXQiRAoZQ2FuY2VsU2VydmVyVXBkYXRlUmVxdWVzdBIOCgZqb2JfaWQYASABKAkSFwoPaWRlbXBvdGVuY3lfa2V5GAIgASgJIkoKGkNhbmNlbFNlcnZlclVwZGF0ZVJlc3BvbnNlEiwKB3JvbGxvdXQYASABKAsyGy5tZGsudjIuU2VydmVyVXBkYXRlUm9sbG91dCKxBQoTU2VydmVyVXBkYXRlUm9sbG91dBIOCgZqb2JfaWQYASABKAkSFgoOdGFyZ2V0X3ZlcnNpb24YAiABKAkSLwoFcGhhc2UYAyABKA4yIC5tZGsudjIuU2VydmVyVXBkYXRlUm9sbG91dFBoYXNlEjcKCWluc3RhbmNlcxgEIAMoCzIkLm1kay52Mi5TZXJ2ZXJVcGRhdGVJbnN0YW5jZVByb2dyZXNzEhoKEmRyaXZlcl9pbnN0YW5jZV9pZBgFIAEoCRImCh5taWdyYXRpb25fZXhlY3V0b3JfaW5zdGFuY2VfaWQYBiABKAkSEgoKZXJyb3JfY29kZRgHIAEoCRIVCg1lcnJvcl9tZXNzYWdlGAggASgJEhEKCW5leHRfc3RlcBgJIAEoCRISCgpzdGFnZV9vbmx5GAogASgIEhoKEmRpc3J1cHRpb25fc3RhcnRlZBgLIAEoCBIRCglyZXRyeWFibGUYDCABKAgSEwoLY2FuY2VsbGFibGUYDSABKAgSGQoRYXV0b21hdGljX3JldHJpZXMYDiABKA0SDQoFYWN0b3IYDyABKAkSLgoKY3JlYXRlZF9hdBgQIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASLgoKdXBkYXRlZF9hdBgRIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASLgoKc3RvcHBlZF9hdBgSIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASLgoKZXhwaXJlc19hdBgTIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASFAoMZnJvbV92ZXJzaW9uGBQgASgJEhYKDnBhY2thZ2Vfc2hhMjU2GBUgASgJEhYKDnJlbGVhc2Vfa2V5X2lkGBYgASgJIqUCChxTZXJ2ZXJVcGRhdGVJbnN0YW5jZVByb2dyZXNzEhMKC2luc3RhbmNlX2lkGAEgASgJEi4KBXBoYXNlGAIgASgOMh8ubWRrLnYyLkZyaWdhdGVVcGRhdGVBZ2VudFBoYXNlEjAKDGxhc3RfY29udGFjdBgDIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASFwoPcnVubmluZ192ZXJzaW9uGAQgASgJEhoKEm1pZ3JhdGlvbl9leGVjdXRlZBgFIAEoCBISCgplcnJvcl9jb2RlGAYgASgJEhUKDWVycm9yX21lc3NhZ2UYByABKAkSFwoPbWFuaWZlc3Rfc2hhMjU2GAggASgJEhUKDWNvbnRhY3Rfc3RhbGUYCSABKAgiaAoYU3RhZ2VTZXJ2ZXJVcGRhdGVSZXF1ZXN0EjAKCG1hbmlmZXN0GAEgASgLMhwubWRrLnYyLlNlcnZlclVwZGF0ZU1hbmlmZXN0SAASDwoFY2h1bmsYAiABKAxIAEIJCgdwYXlsb2FkIlEKGVN0YWdlU2VydmVyVXBkYXRlUmVzcG9uc2USDgoGam9iX2lkGAEgASgJEhQKDGJ5dGVzX3N0YWdlZBgCIAEoAxIOCgZzaGEyNTYYAyABKAkiTwodQmVnaW5TZXJ2ZXJVcGRhdGVTdGFnZVJlcXVlc3QSLgoIbWFuaWZlc3QYASABKAsyHC5tZGsudjIuU2VydmVyVXBkYXRlTWFuaWZlc3QiaAoeQXBwZW5kU2VydmVyVXBkYXRlU3RhZ2VSZXF1ZXN0Eg4KBmpvYl9pZBgBIAEoCRIXCg9tYW5pZmVzdF9zaGEyNTYYAiABKAkSDgoGb2Zmc2V0GAMgASgDEg0KBWNodW5rGAQgASgMIkkKHkNvbW1pdFNlcnZlclVwZGF0ZVN0YWdlUmVxdWVzdBIOCgZqb2JfaWQYASABKAkSFwoPbWFuaWZlc3Rfc2hhMjU2GAIgASgJIkgKHUFib3J0U2VydmVyVXBkYXRlU3RhZ2VSZXF1ZXN0Eg4KBmpvYl9pZBgBIAEoCRIXCg9tYW5pZmVzdF9zaGEyNTYYAiABKAkiIAoeQWJvcnRTZXJ2ZXJVcGRhdGVTdGFnZVJlc3BvbnNlInIKHkJlZ2luU2VydmVyVXBkYXRlU3RhZ2VSZXNwb25zZRIOCgZqb2JfaWQYASABKAkSFwoPbWFuaWZlc3Rfc2hhMjU2GAIgASgJEhMKC25leHRfb2Zmc2V0GAMgASgDEhIKCnNpemVfYnl0ZXMYBCABKAMicwofQXBwZW5kU2VydmVyVXBkYXRlU3RhZ2VSZXNwb25zZRIOCgZqb2JfaWQYASABKAkSFwoPbWFuaWZlc3Rfc2hhMjU2GAIgASgJEhMKC25leHRfb2Zmc2V0GAMgASgDEhIKCnNpemVfYnl0ZXMYBCABKAMiVwofQ29tbWl0U2VydmVyVXBkYXRlU3RhZ2VSZXNwb25zZRIOCgZqb2JfaWQYASABKAkSFAoMYnl0ZXNfc3RhZ2VkGAIgASgDEg4KBnNoYTI1NhgDIAEoCSK+AgoYRnJpZ2F0ZVVwZGF0ZUFnZW50U3RhdHVzEg4KBmpvYl9pZBgBIAEoCRIPCgdzaXRlX2lkGAIgASgJEhQKDGNvbnRhaW5lcl9pZBgDIAEoCRITCgtpbnN0YW5jZV9pZBgEIAEoCRIZChFtYWludGVuYW5jZV90b2tlbhgFIAEoCRIuCgVwaGFzZRgGIAEoDjIfLm1kay52Mi5GcmlnYXRlVXBkYXRlQWdlbnRQaGFzZRIXCg9ydW5uaW5nX3ZlcnNpb24YByABKAkSGgoSbWlncmF0aW9uX2V4ZWN1dGVkGAggASgIEg0KBWVycm9yGAkgASgJEi4KCnVwZGF0ZWRfYXQYCiABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEhcKD21hbmlmZXN0X3NoYTI1NhgLIAEoCSJ6ChlGcmlnYXRlVXBkYXRlQWdlbnRDb21tYW5kEjAKBmFjdGlvbhgBIAEoDjIgLm1kay52Mi5GcmlnYXRlVXBkYXRlQWdlbnRBY3Rpb24SDwoHbWVzc2FnZRgCIAEoCRIaChJwb2xsX2FmdGVyX3NlY29uZHMYAyABKA0qmwEKFlNlcnZlckluc3RhbGxhdGlvblR5cGUSKAokU0VSVkVSX0lOU1RBTExBVElPTl9UWVBFX1VOU1BFQ0lGSUVEEAASKwonU0VSVkVSX0lOU1RBTExBVElPTl9UWVBFX0RFQklBTl9QQUNLQUdFEAESKgomU0VSVkVSX0lOU1RBTExBVElPTl9UWVBFX0RJUkVDVF9CSU5BUlkQAirhAgoXRnJpZ2F0ZVVwZGF0ZUFnZW50UGhhc2USKgomRlJJR0FURV9VUERBVEVfQUdFTlRfUEhBU0VfVU5TUEVDSUZJRUQQABIpCiVGUklHQVRFX1VQREFURV9BR0VOVF9QSEFTRV9DT05ORUNUSU5HEAESJQohRlJJR0FURV9VUERBVEVfQUdFTlRfUEhBU0VfU1RBR0VEEAISJgoiRlJJR0FURV9VUERBVEVfQUdFTlRfUEhBU0VfU1RPUFBFRBADEigKJEZSSUdBVEVfVVBEQVRFX0FHRU5UX1BIQVNFX0lOU1RBTExFRBAEEicKI0ZSSUdBVEVfVVBEQVRFX0FHRU5UX1BIQVNFX01JR1JBVEVEEAUSJgoiRlJJR0FURV9VUERBVEVfQUdFTlRfUEhBU0VfU1RBUlRFRBAGEiUKIUZSSUdBVEVfVVBEQVRFX0FHRU5UX1BIQVNFX0ZBSUxFRBAHKrICChhGcmlnYXRlVXBkYXRlQWdlbnRBY3Rpb24SKwonRlJJR0FURV9VUERBVEVfQUdFTlRfQUNUSU9OX1VOU1BFQ0lGSUVEEAASJAogRlJJR0FURV9VUERBVEVfQUdFTlRfQUNUSU9OX1dBSVQQARIkCiBGUklHQVRFX1VQREFURV9BR0VOVF9BQ1RJT05fU1RPUBACEicKI0ZSSUdBVEVfVVBEQVRFX0FHRU5UX0FDVElPTl9JTlNUQUxMEAMSJwojRlJJR0FURV9VUERBVEVfQUdFTlRfQUNUSU9OX01JR1JBVEUQBBIlCiFGUklHQVRFX1VQREFURV9BR0VOVF9BQ1RJT05fU1RBUlQQBRIkCiBGUklHQVRFX1VQREFURV9BR0VOVF9BQ1RJT05fRVhJVBAGKmsKGFNlcnZlclVwZGF0ZUNvb3JkaW5hdGlvbhIqCiZTRVJWRVJfVVBEQVRFX0NPT1JESU5BVElPTl9VTlNQRUNJRklFRBAAEiMKH1NFUlZFUl9VUERBVEVfQ09PUkRJTkFUSU9OX1NFTEYQASrwAwoYU2VydmVyVXBkYXRlUm9sbG91dFBoYXNlEisKJ1NFUlZFUl9VUERBVEVfUk9MTE9VVF9QSEFTRV9VTlNQRUNJRklFRBAAEikKJVNFUlZFUl9VUERBVEVfUk9MTE9VVF9QSEFTRV9WRVJJRllJTkcQARIoCiRTRVJWRVJfVVBEQVRFX1JPTExPVVRfUEhBU0VfU1RPUFBJTkcQAhIqCiZTRVJWRVJfVVBEQVRFX1JPTExPVVRfUEhBU0VfSU5TVEFMTElORxADEikKJVNFUlZFUl9VUERBVEVfUk9MTE9VVF9QSEFTRV9NSUdSQVRJTkcQBBIoCiRTRVJWRVJfVVBEQVRFX1JPTExPVVRfUEhBU0VfU1RBUlRJTkcQBRIpCiVTRVJWRVJfVVBEQVRFX1JPTExPVVRfUEhBU0VfU1VDQ0VFREVEEAYSJgoiU0VSVkVSX1VQREFURV9ST0xMT1VUX1BIQVNFX0ZBSUxFRBAHEikKJVNFUlZFUl9VUERBVEVfUk9MTE9VVF9QSEFTRV9DQU5DRUxMRUQQCBIoCiRTRVJWRVJfVVBEQVRFX1JPTExPVVRfUEhBU0VfVkVSSUZJRUQQCRIpCiVTRVJWRVJfVVBEQVRFX1JPTExPVVRfUEhBU0VfQUJBTkRPTkVEEAoy3wgKE1NlcnZlclVwZGF0ZVNlcnZpY2UScQoWR2V0U2VydmVyVXBkYXRlU3VwcG9ydBIlLm1kay52Mi5HZXRTZXJ2ZXJVcGRhdGVTdXBwb3J0UmVxdWVzdBomLm1kay52Mi5HZXRTZXJ2ZXJVcGRhdGVTdXBwb3J0UmVzcG9uc2UiCIC1GAKItRgBEmQKEVN0YWdlU2VydmVyVXBkYXRlEiAubWRrLnYyLlN0YWdlU2VydmVyVXBkYXRlUmVxdWVzdBohLm1kay52Mi5TdGFnZVNlcnZlclVwZGF0ZVJlc3BvbnNlIgiAtRgCiLUYAigBEnEKFkJlZ2luU2VydmVyVXBkYXRlU3RhZ2USJS5tZGsudjIuQmVnaW5TZXJ2ZXJVcGRhdGVTdGFnZVJlcXVlc3QaJi5tZGsudjIuQmVnaW5TZXJ2ZXJVcGRhdGVTdGFnZVJlc3BvbnNlIgiAtRgCiLUYAhJ0ChdBcHBlbmRTZXJ2ZXJVcGRhdGVTdGFnZRImLm1kay52Mi5BcHBlbmRTZXJ2ZXJVcGRhdGVTdGFnZVJlcXVlc3QaJy5tZGsudjIuQXBwZW5kU2VydmVyVXBkYXRlU3RhZ2VSZXNwb25zZSIIgLUYAoi1GAISdAoXQ29tbWl0U2VydmVyVXBkYXRlU3RhZ2USJi5tZGsudjIuQ29tbWl0U2VydmVyVXBkYXRlU3RhZ2VSZXF1ZXN0GicubWRrLnYyLkNvbW1pdFNlcnZlclVwZGF0ZVN0YWdlUmVzcG9uc2UiCIC1GAKItRgCEnEKFkFib3J0U2VydmVyVXBkYXRlU3RhZ2USJS5tZGsudjIuQWJvcnRTZXJ2ZXJVcGRhdGVTdGFnZVJlcXVlc3QaJi5tZGsudjIuQWJvcnRTZXJ2ZXJVcGRhdGVTdGFnZVJlc3BvbnNlIgiAtRgCiLUYAhJiChFTdGFydFNlcnZlclVwZGF0ZRIgLm1kay52Mi5TdGFydFNlcnZlclVwZGF0ZVJlcXVlc3QaIS5tZGsudjIuU3RhcnRTZXJ2ZXJVcGRhdGVSZXNwb25zZSIIgLUYAoi1GAISbgoVR2V0U2VydmVyVXBkYXRlU3RhdHVzEiQubWRrLnYyLkdldFNlcnZlclVwZGF0ZVN0YXR1c1JlcXVlc3QaJS5tZGsudjIuR2V0U2VydmVyVXBkYXRlU3RhdHVzUmVzcG9uc2UiCIC1GAKItRgBEmIKEVJldHJ5U2VydmVyVXBkYXRlEiAubWRrLnYyLlJldHJ5U2VydmVyVXBkYXRlUmVxdWVzdBohLm1kay52Mi5SZXRyeVNlcnZlclVwZGF0ZVJlc3BvbnNlIgiAtRgCiLUYAhJlChJDYW5jZWxTZXJ2ZXJVcGRhdGUSIS5tZGsudjIuQ2FuY2VsU2VydmVyVXBkYXRlUmVxdWVzdBoiLm1kay52Mi5DYW5jZWxTZXJ2ZXJVcGRhdGVSZXNwb25zZSIIgLUYAoi1GAIycgofRnJpZ2F0ZVVwZGF0ZU1haW50ZW5hbmNlU2VydmljZRJPCghFeGNoYW5nZRIgLm1kay52Mi5GcmlnYXRlVXBkYXRlQWdlbnRTdGF0dXMaIS5tZGsudjIuRnJpZ2F0ZVVwZGF0ZUFnZW50Q29tbWFuZEKVAQoKY29tLm1kay52MkIRU2VydmVyVXBkYXRlUHJvdG9QAVo7Z2l0aHViLmNvbS9ibG9jay9wcm90by1mbGVldC9zZGsvbWRrL2dlbmVyYXRlZC9tZGsvdjI7bWRrdjKiAgNNWFiqAgZNZGsuVjLKAgZNZGtcVjLiAhJNZGtcVjJcR1BCTWV0YWRhdGHqAgdNZGs6OlYyYgZwcm90bzM", [file_google_protobuf_timestamp, file_mdk_v2_options]);
 
 /**
  * @generated from message mdk.v2.GetServerUpdateSupportRequest
@@ -66,6 +66,63 @@ export type GetServerUpdateSupportResponse = Message<"mdk.v2.GetServerUpdateSupp
    * @generated from field: string support_message = 7;
    */
   supportMessage: string;
+
+  /**
+   * cluster_id identifies the HA cluster whose etcd holds rollout state.
+   *
+   * @generated from field: string cluster_id = 8;
+   */
+  clusterId: string;
+
+  /**
+   * active_job_id is the job id of the rollout currently in progress, if any.
+   *
+   * @generated from field: string active_job_id = 9;
+   */
+  activeJobId: string;
+
+  /**
+   * spool_free_bytes is the free space available for staging a package.
+   *
+   * @generated from field: int64 spool_free_bytes = 10;
+   */
+  spoolFreeBytes: bigint;
+
+  /**
+   * @generated from field: uint32 etcd_members_total = 11;
+   */
+  etcdMembersTotal: number;
+
+  /**
+   * @generated from field: uint32 etcd_members_healthy = 12;
+   */
+  etcdMembersHealthy: number;
+
+  /**
+   * trusted_release_key_ids lists the release-signing keys this instance
+   * trusts, each as "sha256:" followed by the lowercase hex SHA-256 of the
+   * DER SubjectPublicKeyInfo.
+   *
+   * @generated from field: repeated string trusted_release_key_ids = 13;
+   */
+  trustedReleaseKeyIds: string[];
+
+  /**
+   * self_coordination_supported is true only when this server implements
+   * SERVER_UPDATE_COORDINATION_SELF end to end. Callers must not stage a SELF
+   * manifest or call StartServerUpdate unless it is true.
+   *
+   * @generated from field: bool self_coordination_supported = 14;
+   */
+  selfCoordinationSupported: boolean;
+
+  /**
+   * remote_trigger_allowed reports whether the site allows StartServerUpdate
+   * (the update.allow_remote_trigger setting).
+   *
+   * @generated from field: bool remote_trigger_allowed = 15;
+   */
+  remoteTriggerAllowed: boolean;
 };
 
 /**
@@ -173,6 +230,30 @@ export type ServerUpdateManifest = Message<"mdk.v2.ServerUpdateManifest"> & {
    * @generated from field: string site_token = 19;
    */
   siteToken: string;
+
+  /**
+   * coordination selects the barrier coordinator. UNSPECIFIED is the legacy
+   * Flotilla-coordinated path and must be used by existing callers.
+   *
+   * @generated from field: mdk.v2.ServerUpdateCoordination coordination = 20;
+   */
+  coordination: ServerUpdateCoordination;
+
+  /**
+   * release_statement holds the exact signed bytes of the release statement
+   * (frigate-release-statement/v1 JSON). Required when coordination is SELF.
+   *
+   * @generated from field: bytes release_statement = 21;
+   */
+  releaseStatement: Uint8Array;
+
+  /**
+   * release_signature holds the DER ECDSA P-256 signature over
+   * release_statement. Required when coordination is SELF.
+   *
+   * @generated from field: bytes release_signature = 22;
+   */
+  releaseSignature: Uint8Array;
 };
 
 /**
@@ -181,6 +262,452 @@ export type ServerUpdateManifest = Message<"mdk.v2.ServerUpdateManifest"> & {
  */
 export const ServerUpdateManifestSchema: GenMessage<ServerUpdateManifest> = /*@__PURE__*/
   messageDesc(file_mdk_v2_server_update, 2);
+
+/**
+ * @generated from message mdk.v2.StartServerUpdateRequest
+ */
+export type StartServerUpdateRequest = Message<"mdk.v2.StartServerUpdateRequest"> & {
+  /**
+   * job_id is the staged job id shared by every instance's manifest. It
+   * becomes the rollout id.
+   *
+   * @generated from field: string job_id = 1;
+   */
+  jobId: string;
+
+  /**
+   * target_version must equal the staged manifests and the release statement.
+   *
+   * @generated from field: string target_version = 2;
+   */
+  targetVersion: string;
+
+  /**
+   * expected_instance_ids must equal the staged manifests' expected_instance_ids.
+   *
+   * @generated from field: repeated string expected_instance_ids = 3;
+   */
+  expectedInstanceIds: string[];
+
+  /**
+   * stage_only verifies the package as root on every instance and then exits
+   * before any instance is stopped. The rollout ends VERIFIED.
+   *
+   * @generated from field: bool stage_only = 4;
+   */
+  stageOnly: boolean;
+
+  /**
+   * idempotency_key makes a repeated identical request return the existing
+   * rollout instead of failing with UPDATE_ACTIVE_JOB. The same key with a
+   * different request fails with UPDATE_IDEMPOTENCY_CONFLICT.
+   *
+   * @generated from field: string idempotency_key = 5;
+   */
+  idempotencyKey: string;
+
+  /**
+   * expected_manifest_sha256 optionally maps each instance id to the
+   * lowercase-hex manifest fingerprint the caller staged on it (the
+   * manifest_sha256 returned when staging). When present, every entry must
+   * match that instance's staged manifest, or Start fails with
+   * UPDATE_STAGE_MISMATCH.
+   *
+   * @generated from field: map<string, string> expected_manifest_sha256 = 6;
+   */
+  expectedManifestSha256: { [key: string]: string };
+};
+
+/**
+ * Describes the message mdk.v2.StartServerUpdateRequest.
+ * Use `create(StartServerUpdateRequestSchema)` to create a new message.
+ */
+export const StartServerUpdateRequestSchema: GenMessage<StartServerUpdateRequest> = /*@__PURE__*/
+  messageDesc(file_mdk_v2_server_update, 3);
+
+/**
+ * @generated from message mdk.v2.StartServerUpdateResponse
+ */
+export type StartServerUpdateResponse = Message<"mdk.v2.StartServerUpdateResponse"> & {
+  /**
+   * @generated from field: mdk.v2.ServerUpdateRollout rollout = 1;
+   */
+  rollout?: ServerUpdateRollout | undefined;
+};
+
+/**
+ * Describes the message mdk.v2.StartServerUpdateResponse.
+ * Use `create(StartServerUpdateResponseSchema)` to create a new message.
+ */
+export const StartServerUpdateResponseSchema: GenMessage<StartServerUpdateResponse> = /*@__PURE__*/
+  messageDesc(file_mdk_v2_server_update, 4);
+
+/**
+ * @generated from message mdk.v2.GetServerUpdateStatusRequest
+ */
+export type GetServerUpdateStatusRequest = Message<"mdk.v2.GetServerUpdateStatusRequest"> & {
+  /**
+   * job_id selects a rollout. Empty selects the active rollout, otherwise the
+   * most recent terminal rollout, otherwise NOT_FOUND (UPDATE_NOT_FOUND).
+   * Terminal rollouts stay readable for at least 30 days, and the 20 most
+   * recent are always kept.
+   *
+   * @generated from field: string job_id = 1;
+   */
+  jobId: string;
+};
+
+/**
+ * Describes the message mdk.v2.GetServerUpdateStatusRequest.
+ * Use `create(GetServerUpdateStatusRequestSchema)` to create a new message.
+ */
+export const GetServerUpdateStatusRequestSchema: GenMessage<GetServerUpdateStatusRequest> = /*@__PURE__*/
+  messageDesc(file_mdk_v2_server_update, 5);
+
+/**
+ * @generated from message mdk.v2.GetServerUpdateStatusResponse
+ */
+export type GetServerUpdateStatusResponse = Message<"mdk.v2.GetServerUpdateStatusResponse"> & {
+  /**
+   * @generated from field: mdk.v2.ServerUpdateRollout rollout = 1;
+   */
+  rollout?: ServerUpdateRollout | undefined;
+
+  /**
+   * served_by_maintenance is true when the answering process is the
+   * maintenance service rather than the regular Frigate daemon.
+   *
+   * @generated from field: bool served_by_maintenance = 2;
+   */
+  servedByMaintenance: boolean;
+};
+
+/**
+ * Describes the message mdk.v2.GetServerUpdateStatusResponse.
+ * Use `create(GetServerUpdateStatusResponseSchema)` to create a new message.
+ */
+export const GetServerUpdateStatusResponseSchema: GenMessage<GetServerUpdateStatusResponse> = /*@__PURE__*/
+  messageDesc(file_mdk_v2_server_update, 6);
+
+/**
+ * @generated from message mdk.v2.RetryServerUpdateRequest
+ */
+export type RetryServerUpdateRequest = Message<"mdk.v2.RetryServerUpdateRequest"> & {
+  /**
+   * @generated from field: string job_id = 1;
+   */
+  jobId: string;
+
+  /**
+   * @generated from field: string idempotency_key = 2;
+   */
+  idempotencyKey: string;
+};
+
+/**
+ * Describes the message mdk.v2.RetryServerUpdateRequest.
+ * Use `create(RetryServerUpdateRequestSchema)` to create a new message.
+ */
+export const RetryServerUpdateRequestSchema: GenMessage<RetryServerUpdateRequest> = /*@__PURE__*/
+  messageDesc(file_mdk_v2_server_update, 7);
+
+/**
+ * @generated from message mdk.v2.RetryServerUpdateResponse
+ */
+export type RetryServerUpdateResponse = Message<"mdk.v2.RetryServerUpdateResponse"> & {
+  /**
+   * @generated from field: mdk.v2.ServerUpdateRollout rollout = 1;
+   */
+  rollout?: ServerUpdateRollout | undefined;
+};
+
+/**
+ * Describes the message mdk.v2.RetryServerUpdateResponse.
+ * Use `create(RetryServerUpdateResponseSchema)` to create a new message.
+ */
+export const RetryServerUpdateResponseSchema: GenMessage<RetryServerUpdateResponse> = /*@__PURE__*/
+  messageDesc(file_mdk_v2_server_update, 8);
+
+/**
+ * @generated from message mdk.v2.CancelServerUpdateRequest
+ */
+export type CancelServerUpdateRequest = Message<"mdk.v2.CancelServerUpdateRequest"> & {
+  /**
+   * @generated from field: string job_id = 1;
+   */
+  jobId: string;
+
+  /**
+   * @generated from field: string idempotency_key = 2;
+   */
+  idempotencyKey: string;
+};
+
+/**
+ * Describes the message mdk.v2.CancelServerUpdateRequest.
+ * Use `create(CancelServerUpdateRequestSchema)` to create a new message.
+ */
+export const CancelServerUpdateRequestSchema: GenMessage<CancelServerUpdateRequest> = /*@__PURE__*/
+  messageDesc(file_mdk_v2_server_update, 9);
+
+/**
+ * @generated from message mdk.v2.CancelServerUpdateResponse
+ */
+export type CancelServerUpdateResponse = Message<"mdk.v2.CancelServerUpdateResponse"> & {
+  /**
+   * @generated from field: mdk.v2.ServerUpdateRollout rollout = 1;
+   */
+  rollout?: ServerUpdateRollout | undefined;
+};
+
+/**
+ * Describes the message mdk.v2.CancelServerUpdateResponse.
+ * Use `create(CancelServerUpdateResponseSchema)` to create a new message.
+ */
+export const CancelServerUpdateResponseSchema: GenMessage<CancelServerUpdateResponse> = /*@__PURE__*/
+  messageDesc(file_mdk_v2_server_update, 10);
+
+/**
+ * ServerUpdateRollout is the site-wide state of one self-coordinated update.
+ *
+ * @generated from message mdk.v2.ServerUpdateRollout
+ */
+export type ServerUpdateRollout = Message<"mdk.v2.ServerUpdateRollout"> & {
+  /**
+   * @generated from field: string job_id = 1;
+   */
+  jobId: string;
+
+  /**
+   * @generated from field: string target_version = 2;
+   */
+  targetVersion: string;
+
+  /**
+   * @generated from field: mdk.v2.ServerUpdateRolloutPhase phase = 3;
+   */
+  phase: ServerUpdateRolloutPhase;
+
+  /**
+   * @generated from field: repeated mdk.v2.ServerUpdateInstanceProgress instances = 4;
+   */
+  instances: ServerUpdateInstanceProgress[];
+
+  /**
+   * driver_instance_id is the instance whose helper currently drives the
+   * barrier.
+   *
+   * @generated from field: string driver_instance_id = 5;
+   */
+  driverInstanceId: string;
+
+  /**
+   * migration_executor_instance_id is the instance that runs the database
+   * migration (the Patroni leader).
+   *
+   * @generated from field: string migration_executor_instance_id = 6;
+   */
+  migrationExecutorInstanceId: string;
+
+  /**
+   * error_code is empty when there is no error. It is an open set: new codes
+   * may be added, and clients must treat any code they do not recognize as a
+   * generic failure (and show error_message). The same set is used by
+   * ServerUpdateInstanceProgress.error_code. Known codes:
+   *
+   * Refusals, also returned as google.rpc.ErrorInfo reasons in domain
+   * mdk.v2.frigate when an RPC is refused: UPDATE_REMOTE_TRIGGER_DISABLED,
+   * UPDATE_ACTIVE_JOB, UPDATE_NOT_STAGED, UPDATE_STAGE_MISMATCH,
+   * UPDATE_SIGNATURE_INVALID, UPDATE_NO_TRUSTED_KEYS, UPDATE_ETCD_UNHEALTHY,
+   * UPDATE_INSUFFICIENT_SPACE, UPDATE_COOLDOWN, UPDATE_OUTSIDE_WINDOW,
+   * UPDATE_HELPER_UNAVAILABLE, UPDATE_NOT_FOUND, UPDATE_NOT_RETRYABLE,
+   * UPDATE_NOT_CANCELLABLE, UPDATE_SELF_COORDINATION_UNSUPPORTED,
+   * UPDATE_IDEMPOTENCY_CONFLICT (same idempotency key, different request) and
+   * UPDATE_MANIFEST_INVALID (malformed manifest).
+   *
+   * Runtime failures recorded while a rollout runs: UPDATE_PACKAGE_REJECTED
+   * (digest, architecture, version or package control data check failed),
+   * UPDATE_INSTALL_FAILED, UPDATE_MIGRATE_FAILED (including zero or multiple
+   * migration executors), UPDATE_START_FAILED, UPDATE_EXPIRED (pre-stop
+   * deadline passed), UPDATE_ABANDONED (operator ran on-host abandon),
+   * UPDATE_HELPER_CONTACT_LOST and UPDATE_ETCD_UNAVAILABLE.
+   *
+   * @generated from field: string error_code = 7;
+   */
+  errorCode: string;
+
+  /**
+   * @generated from field: string error_message = 8;
+   */
+  errorMessage: string;
+
+  /**
+   * next_step is an operator-facing hint.
+   *
+   * @generated from field: string next_step = 9;
+   */
+  nextStep: string;
+
+  /**
+   * @generated from field: bool stage_only = 10;
+   */
+  stageOnly: boolean;
+
+  /**
+   * disruption_started is true once any instance has been stopped.
+   *
+   * @generated from field: bool disruption_started = 11;
+   */
+  disruptionStarted: boolean;
+
+  /**
+   * @generated from field: bool retryable = 12;
+   */
+  retryable: boolean;
+
+  /**
+   * @generated from field: bool cancellable = 13;
+   */
+  cancellable: boolean;
+
+  /**
+   * @generated from field: uint32 automatic_retries = 14;
+   */
+  automaticRetries: number;
+
+  /**
+   * actor is the audit actor that started the rollout.
+   *
+   * @generated from field: string actor = 15;
+   */
+  actor: string;
+
+  /**
+   * @generated from field: google.protobuf.Timestamp created_at = 16;
+   */
+  createdAt?: Timestamp | undefined;
+
+  /**
+   * @generated from field: google.protobuf.Timestamp updated_at = 17;
+   */
+  updatedAt?: Timestamp | undefined;
+
+  /**
+   * @generated from field: google.protobuf.Timestamp stopped_at = 18;
+   */
+  stoppedAt?: Timestamp | undefined;
+
+  /**
+   * expires_at is the deadline after which a rollout that has not stopped any
+   * instance is cancelled.
+   *
+   * @generated from field: google.protobuf.Timestamp expires_at = 19;
+   */
+  expiresAt?: Timestamp | undefined;
+
+  /**
+   * from_version is the version that was running when the rollout started.
+   *
+   * @generated from field: string from_version = 20;
+   */
+  fromVersion: string;
+
+  /**
+   * package_sha256 is the lowercase-hex SHA-256 of the package being installed,
+   * as bound by the signed release statement.
+   *
+   * @generated from field: string package_sha256 = 21;
+   */
+  packageSha256: string;
+
+  /**
+   * release_key_id identifies the key that verified the release statement, as
+   * "sha256:" followed by the lowercase hex SHA-256 of its DER
+   * SubjectPublicKeyInfo.
+   *
+   * @generated from field: string release_key_id = 22;
+   */
+  releaseKeyId: string;
+};
+
+/**
+ * Describes the message mdk.v2.ServerUpdateRollout.
+ * Use `create(ServerUpdateRolloutSchema)` to create a new message.
+ */
+export const ServerUpdateRolloutSchema: GenMessage<ServerUpdateRollout> = /*@__PURE__*/
+  messageDesc(file_mdk_v2_server_update, 11);
+
+/**
+ * @generated from message mdk.v2.ServerUpdateInstanceProgress
+ */
+export type ServerUpdateInstanceProgress = Message<"mdk.v2.ServerUpdateInstanceProgress"> & {
+  /**
+   * @generated from field: string instance_id = 1;
+   */
+  instanceId: string;
+
+  /**
+   * @generated from field: mdk.v2.FrigateUpdateAgentPhase phase = 2;
+   */
+  phase: FrigateUpdateAgentPhase;
+
+  /**
+   * last_contact is the UTC wall-clock time at which this instance's helper
+   * last wrote its report. Helpers write a report at least every 5 seconds
+   * while a rollout is active, and hosts are time-synced (the time-sync gate),
+   * so clients may compare it with their own clock.
+   *
+   * @generated from field: google.protobuf.Timestamp last_contact = 3;
+   */
+  lastContact?: Timestamp | undefined;
+
+  /**
+   * @generated from field: string running_version = 4;
+   */
+  runningVersion: string;
+
+  /**
+   * @generated from field: bool migration_executed = 5;
+   */
+  migrationExecuted: boolean;
+
+  /**
+   * error_code is from the same open set as ServerUpdateRollout.error_code.
+   *
+   * @generated from field: string error_code = 6;
+   */
+  errorCode: string;
+
+  /**
+   * @generated from field: string error_message = 7;
+   */
+  errorMessage: string;
+
+  /**
+   * manifest_sha256 is the lowercase-hex fingerprint of the manifest this
+   * instance's helper verified, for audit and comparison with the value the
+   * caller staged.
+   *
+   * @generated from field: string manifest_sha256 = 8;
+   */
+  manifestSha256: string;
+
+  /**
+   * contact_stale is true when the serving node has seen no report from this
+   * instance's helper for more than 30 seconds while the rollout is not
+   * terminal.
+   *
+   * @generated from field: bool contact_stale = 9;
+   */
+  contactStale: boolean;
+};
+
+/**
+ * Describes the message mdk.v2.ServerUpdateInstanceProgress.
+ * Use `create(ServerUpdateInstanceProgressSchema)` to create a new message.
+ */
+export const ServerUpdateInstanceProgressSchema: GenMessage<ServerUpdateInstanceProgress> = /*@__PURE__*/
+  messageDesc(file_mdk_v2_server_update, 12);
 
 /**
  * @generated from message mdk.v2.StageServerUpdateRequest
@@ -209,7 +736,7 @@ export type StageServerUpdateRequest = Message<"mdk.v2.StageServerUpdateRequest"
  * Use `create(StageServerUpdateRequestSchema)` to create a new message.
  */
 export const StageServerUpdateRequestSchema: GenMessage<StageServerUpdateRequest> = /*@__PURE__*/
-  messageDesc(file_mdk_v2_server_update, 3);
+  messageDesc(file_mdk_v2_server_update, 13);
 
 /**
  * @generated from message mdk.v2.StageServerUpdateResponse
@@ -236,7 +763,7 @@ export type StageServerUpdateResponse = Message<"mdk.v2.StageServerUpdateRespons
  * Use `create(StageServerUpdateResponseSchema)` to create a new message.
  */
 export const StageServerUpdateResponseSchema: GenMessage<StageServerUpdateResponse> = /*@__PURE__*/
-  messageDesc(file_mdk_v2_server_update, 4);
+  messageDesc(file_mdk_v2_server_update, 14);
 
 /**
  * @generated from message mdk.v2.BeginServerUpdateStageRequest
@@ -253,7 +780,7 @@ export type BeginServerUpdateStageRequest = Message<"mdk.v2.BeginServerUpdateSta
  * Use `create(BeginServerUpdateStageRequestSchema)` to create a new message.
  */
 export const BeginServerUpdateStageRequestSchema: GenMessage<BeginServerUpdateStageRequest> = /*@__PURE__*/
-  messageDesc(file_mdk_v2_server_update, 5);
+  messageDesc(file_mdk_v2_server_update, 15);
 
 /**
  * @generated from message mdk.v2.AppendServerUpdateStageRequest
@@ -285,7 +812,7 @@ export type AppendServerUpdateStageRequest = Message<"mdk.v2.AppendServerUpdateS
  * Use `create(AppendServerUpdateStageRequestSchema)` to create a new message.
  */
 export const AppendServerUpdateStageRequestSchema: GenMessage<AppendServerUpdateStageRequest> = /*@__PURE__*/
-  messageDesc(file_mdk_v2_server_update, 6);
+  messageDesc(file_mdk_v2_server_update, 16);
 
 /**
  * @generated from message mdk.v2.CommitServerUpdateStageRequest
@@ -307,7 +834,7 @@ export type CommitServerUpdateStageRequest = Message<"mdk.v2.CommitServerUpdateS
  * Use `create(CommitServerUpdateStageRequestSchema)` to create a new message.
  */
 export const CommitServerUpdateStageRequestSchema: GenMessage<CommitServerUpdateStageRequest> = /*@__PURE__*/
-  messageDesc(file_mdk_v2_server_update, 7);
+  messageDesc(file_mdk_v2_server_update, 17);
 
 /**
  * @generated from message mdk.v2.AbortServerUpdateStageRequest
@@ -329,7 +856,7 @@ export type AbortServerUpdateStageRequest = Message<"mdk.v2.AbortServerUpdateSta
  * Use `create(AbortServerUpdateStageRequestSchema)` to create a new message.
  */
 export const AbortServerUpdateStageRequestSchema: GenMessage<AbortServerUpdateStageRequest> = /*@__PURE__*/
-  messageDesc(file_mdk_v2_server_update, 8);
+  messageDesc(file_mdk_v2_server_update, 18);
 
 /**
  * @generated from message mdk.v2.AbortServerUpdateStageResponse
@@ -342,7 +869,7 @@ export type AbortServerUpdateStageResponse = Message<"mdk.v2.AbortServerUpdateSt
  * Use `create(AbortServerUpdateStageResponseSchema)` to create a new message.
  */
 export const AbortServerUpdateStageResponseSchema: GenMessage<AbortServerUpdateStageResponse> = /*@__PURE__*/
-  messageDesc(file_mdk_v2_server_update, 9);
+  messageDesc(file_mdk_v2_server_update, 19);
 
 /**
  * @generated from message mdk.v2.BeginServerUpdateStageResponse
@@ -374,7 +901,7 @@ export type BeginServerUpdateStageResponse = Message<"mdk.v2.BeginServerUpdateSt
  * Use `create(BeginServerUpdateStageResponseSchema)` to create a new message.
  */
 export const BeginServerUpdateStageResponseSchema: GenMessage<BeginServerUpdateStageResponse> = /*@__PURE__*/
-  messageDesc(file_mdk_v2_server_update, 10);
+  messageDesc(file_mdk_v2_server_update, 20);
 
 /**
  * @generated from message mdk.v2.AppendServerUpdateStageResponse
@@ -406,7 +933,7 @@ export type AppendServerUpdateStageResponse = Message<"mdk.v2.AppendServerUpdate
  * Use `create(AppendServerUpdateStageResponseSchema)` to create a new message.
  */
 export const AppendServerUpdateStageResponseSchema: GenMessage<AppendServerUpdateStageResponse> = /*@__PURE__*/
-  messageDesc(file_mdk_v2_server_update, 11);
+  messageDesc(file_mdk_v2_server_update, 21);
 
 /**
  * @generated from message mdk.v2.CommitServerUpdateStageResponse
@@ -433,7 +960,7 @@ export type CommitServerUpdateStageResponse = Message<"mdk.v2.CommitServerUpdate
  * Use `create(CommitServerUpdateStageResponseSchema)` to create a new message.
  */
 export const CommitServerUpdateStageResponseSchema: GenMessage<CommitServerUpdateStageResponse> = /*@__PURE__*/
-  messageDesc(file_mdk_v2_server_update, 12);
+  messageDesc(file_mdk_v2_server_update, 22);
 
 /**
  * @generated from message mdk.v2.FrigateUpdateAgentStatus
@@ -503,7 +1030,7 @@ export type FrigateUpdateAgentStatus = Message<"mdk.v2.FrigateUpdateAgentStatus"
  * Use `create(FrigateUpdateAgentStatusSchema)` to create a new message.
  */
 export const FrigateUpdateAgentStatusSchema: GenMessage<FrigateUpdateAgentStatus> = /*@__PURE__*/
-  messageDesc(file_mdk_v2_server_update, 13);
+  messageDesc(file_mdk_v2_server_update, 23);
 
 /**
  * @generated from message mdk.v2.FrigateUpdateAgentCommand
@@ -530,7 +1057,7 @@ export type FrigateUpdateAgentCommand = Message<"mdk.v2.FrigateUpdateAgentComman
  * Use `create(FrigateUpdateAgentCommandSchema)` to create a new message.
  */
 export const FrigateUpdateAgentCommandSchema: GenMessage<FrigateUpdateAgentCommand> = /*@__PURE__*/
-  messageDesc(file_mdk_v2_server_update, 14);
+  messageDesc(file_mdk_v2_server_update, 24);
 
 /**
  * @generated from enum mdk.v2.ServerInstallationType
@@ -656,8 +1183,139 @@ export const FrigateUpdateAgentActionSchema: GenEnum<FrigateUpdateAgentAction> =
   enumDesc(file_mdk_v2_server_update, 2);
 
 /**
- * ServerUpdateService stages one verified Frigate package on an exact host.
- * These methods are the only tunnel mutations permitted on a warm standby.
+ * ServerUpdateCoordination selects who coordinates the stop, install, migrate
+ * and start barriers between the HA instances.
+ *
+ * @generated from enum mdk.v2.ServerUpdateCoordination
+ */
+export enum ServerUpdateCoordination {
+  /**
+   * The legacy path: each instance's root helper dials the Flotilla
+   * FrigateUpdateMaintenanceService.Exchange endpoint named in the manifest.
+   *
+   * @generated from enum value: SERVER_UPDATE_COORDINATION_UNSPECIFIED = 0;
+   */
+  UNSPECIFIED = 0,
+
+  /**
+   * The root helpers coordinate through the shared etcd cluster. The manifest
+   * must carry a signed release statement and no Flotilla connection fields.
+   *
+   * @generated from enum value: SERVER_UPDATE_COORDINATION_SELF = 1;
+   */
+  SELF = 1,
+}
+
+/**
+ * Describes the enum mdk.v2.ServerUpdateCoordination.
+ */
+export const ServerUpdateCoordinationSchema: GenEnum<ServerUpdateCoordination> = /*@__PURE__*/
+  enumDesc(file_mdk_v2_server_update, 3);
+
+/**
+ * ServerUpdateRolloutPhase is the site-wide phase of a self-coordinated rollout.
+ *
+ * @generated from enum mdk.v2.ServerUpdateRolloutPhase
+ */
+export enum ServerUpdateRolloutPhase {
+  /**
+   * @generated from enum value: SERVER_UPDATE_ROLLOUT_PHASE_UNSPECIFIED = 0;
+   */
+  UNSPECIFIED = 0,
+
+  /**
+   * The rollout record is written and the helpers are verifying the signed
+   * release statement and package, then reporting STAGED.
+   *
+   * @generated from enum value: SERVER_UPDATE_ROLLOUT_PHASE_VERIFYING = 1;
+   */
+  VERIFYING = 1,
+
+  /**
+   * @generated from enum value: SERVER_UPDATE_ROLLOUT_PHASE_STOPPING = 2;
+   */
+  STOPPING = 2,
+
+  /**
+   * @generated from enum value: SERVER_UPDATE_ROLLOUT_PHASE_INSTALLING = 3;
+   */
+  INSTALLING = 3,
+
+  /**
+   * @generated from enum value: SERVER_UPDATE_ROLLOUT_PHASE_MIGRATING = 4;
+   */
+  MIGRATING = 4,
+
+  /**
+   * @generated from enum value: SERVER_UPDATE_ROLLOUT_PHASE_STARTING = 5;
+   */
+  STARTING = 5,
+
+  /**
+   * @generated from enum value: SERVER_UPDATE_ROLLOUT_PHASE_SUCCEEDED = 6;
+   */
+  SUCCEEDED = 6,
+
+  /**
+   * A failure after the instances were stopped. Both stay stopped; see
+   * ServerUpdateRollout.retryable.
+   *
+   * @generated from enum value: SERVER_UPDATE_ROLLOUT_PHASE_FAILED = 7;
+   */
+  FAILED = 7,
+
+  /**
+   * The rollout exited before any instance was stopped: cancelled by a caller,
+   * rejected during pre-stop verification, or expired.
+   *
+   * @generated from enum value: SERVER_UPDATE_ROLLOUT_PHASE_CANCELLED = 8;
+   */
+  CANCELLED = 8,
+
+  /**
+   * A stage_only rollout completed verification on every instance. Nothing was
+   * stopped.
+   *
+   * @generated from enum value: SERVER_UPDATE_ROLLOUT_PHASE_VERIFIED = 9;
+   */
+  VERIFIED = 9,
+
+  /**
+   * An operator ran the on-host abandon command. The rollout is terminal, but
+   * if ServerUpdateRollout.disruption_started is true Frigate may still be held
+   * stopped on one or both instances until the operator restores service.
+   *
+   * @generated from enum value: SERVER_UPDATE_ROLLOUT_PHASE_ABANDONED = 10;
+   */
+  ABANDONED = 10,
+}
+
+/**
+ * Describes the enum mdk.v2.ServerUpdateRolloutPhase.
+ */
+export const ServerUpdateRolloutPhaseSchema: GenEnum<ServerUpdateRolloutPhase> = /*@__PURE__*/
+  enumDesc(file_mdk_v2_server_update, 4);
+
+/**
+ * ServerUpdateService stages one verified Frigate package on an exact host and,
+ * for self-coordinated updates, starts and tracks one site-wide rollout.
+ *
+ * The staging methods and GetServerUpdateSupport are instance-scoped: they are
+ * the only ServerUpdateService methods that may be dispatched to a specific
+ * instance over a warm-standby tunnel.
+ *
+ * StartServerUpdate is routed ControlLeader: it executes on the HA primary, and
+ * a standby's MDK peer router forwards it there. It is never executed on, or
+ * dispatched over a tunnel to, a warm standby. GetServerUpdateStatus,
+ * RetryServerUpdate and CancelServerUpdate operate on shared rollout state
+ * (routed SharedState) and are not instance-scoped. None of the four new
+ * methods is on the Flotilla tunnel registry yet, so no Flotilla destination can
+ * call them; MDK clients call the Frigate API directly.
+ *
+ * StartServerUpdate, GetServerUpdateStatus, RetryServerUpdate and
+ * CancelServerUpdate are a published contract only: current servers return
+ * UNIMPLEMENTED for them, and GetServerUpdateSupportResponse
+ * .self_coordination_supported reports false until a server implements them.
  *
  * @generated from service mdk.v2.ServerUpdateService
  */
@@ -712,6 +1370,58 @@ export const ServerUpdateService: GenService<{
     methodKind: "unary";
     input: typeof AbortServerUpdateStageRequestSchema;
     output: typeof AbortServerUpdateStageResponseSchema;
+  },
+  /**
+   * StartServerUpdate begins a self-coordinated rollout of a package that is
+   * already staged on every expected instance. The caller must have staged each
+   * instance with a manifest whose coordination is SERVER_UPDATE_COORDINATION_SELF
+   * and that carries the signed release statement. The rollout id is job_id.
+   * Routed to the HA primary (ControlLeader). Refusals carry a
+   * google.rpc.ErrorInfo in domain mdk.v2.frigate with one of the UPDATE_*
+   * reasons documented on ServerUpdateRollout.error_code.
+   *
+   * @generated from rpc mdk.v2.ServerUpdateService.StartServerUpdate
+   */
+  startServerUpdate: {
+    methodKind: "unary";
+    input: typeof StartServerUpdateRequestSchema;
+    output: typeof StartServerUpdateResponseSchema;
+  },
+  /**
+   * GetServerUpdateStatus returns the shared rollout state. While Frigate is
+   * stopped for an update the response may be served by the maintenance
+   * service, which sets served_by_maintenance.
+   *
+   * @generated from rpc mdk.v2.ServerUpdateService.GetServerUpdateStatus
+   */
+  getServerUpdateStatus: {
+    methodKind: "unary";
+    input: typeof GetServerUpdateStatusRequestSchema;
+    output: typeof GetServerUpdateStatusResponseSchema;
+  },
+  /**
+   * RetryServerUpdate asks the rollout driver to resume a rollout that failed
+   * after the instances were stopped. It is refused unless the rollout is
+   * retryable.
+   *
+   * @generated from rpc mdk.v2.ServerUpdateService.RetryServerUpdate
+   */
+  retryServerUpdate: {
+    methodKind: "unary";
+    input: typeof RetryServerUpdateRequestSchema;
+    output: typeof RetryServerUpdateResponseSchema;
+  },
+  /**
+   * CancelServerUpdate abandons a rollout that has not yet stopped any
+   * instance. It is refused once the rollout is past the point of no return;
+   * use RetryServerUpdate or the on-host abandon command instead.
+   *
+   * @generated from rpc mdk.v2.ServerUpdateService.CancelServerUpdate
+   */
+  cancelServerUpdate: {
+    methodKind: "unary";
+    input: typeof CancelServerUpdateRequestSchema;
+    output: typeof CancelServerUpdateResponseSchema;
   },
 }> = /*@__PURE__*/
   serviceDesc(file_mdk_v2_server_update, 0);

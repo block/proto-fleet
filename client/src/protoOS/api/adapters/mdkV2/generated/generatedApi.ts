@@ -100,6 +100,10 @@ export interface FeedMappingServiceRequestWiringVerificationParams {
   verify: string;
 }
 
+export interface FirmwareServiceAbortFirmwareArtifactUploadParams {
+  uploadId: string;
+}
+
 export interface FirmwareServiceCancelFirmwareUpdateParams {
   /**
    * server_id optionally selects which Frigate node owns task_id. Empty means
@@ -107,6 +111,10 @@ export interface FirmwareServiceCancelFirmwareUpdateParams {
    */
   serverId?: string;
   taskId: string;
+}
+
+export interface FirmwareServiceCommitFirmwareArtifactUploadParams {
+  uploadId: string;
 }
 
 export interface FirmwareServiceGetFirmwareUpdateParams {
@@ -124,6 +132,25 @@ export interface FirmwareServiceListFirmwareUpdatesParams {
    * cluster update lists. Ordinary clients leave it false.
    */
   localOnly?: boolean;
+}
+
+export interface FirmwareServiceWriteFirmwareArtifactUploadChunkBody {
+  /** @format byte */
+  data?: string;
+  /**
+   * image_index selects an entry in the begin request's metadata.images.
+   * @format int64
+   */
+  imageIndex?: number;
+  /**
+   * offset is the byte offset of data within the selected image.
+   * @format int64
+   */
+  offset?: string;
+}
+
+export interface FirmwareServiceWriteFirmwareArtifactUploadChunkParams {
+  uploadId: string;
 }
 
 export interface HashboardServiceGetHashboardAsiCsParams {
@@ -308,6 +335,16 @@ export interface MiningServiceSetModuleFixedVoltageBody {
 
 export interface MiningServiceSetModuleFixedVoltageParams {
   moduleId: string;
+}
+
+export interface PSUFirmwareServiceWritePSUFirmwareCapsuleUploadChunkBody {
+  /** @format byte */
+  data?: string;
+  /**
+   * offset is the byte offset of data within the capsule.
+   * @format int64
+   */
+  offset?: string;
 }
 
 export interface PoolServiceDeletePoolParams {
@@ -574,6 +611,30 @@ export interface ProtobufAny {
    */
   "@type"?: string;
   [key: string]: any;
+}
+
+export interface PsuFirmwareServiceAbortPsuFirmwareCapsuleUploadParams {
+  uploadId: string;
+}
+
+export interface PsuFirmwareServiceCancelPsuFirmwareUpdateParams {
+  taskId: string;
+}
+
+export interface PsuFirmwareServiceCommitPsuFirmwareCapsuleUploadParams {
+  uploadId: string;
+}
+
+export interface PsuFirmwareServiceGetPsuFirmwareBoardStatusParams {
+  macAddress: string;
+}
+
+export interface PsuFirmwareServiceGetPsuFirmwareUpdateParams {
+  taskId: string;
+}
+
+export interface PsuFirmwareServiceWritePsuFirmwareCapsuleUploadChunkParams {
+  uploadId: string;
 }
 
 /**
@@ -1082,6 +1143,10 @@ export interface V2ASICStopCriteria {
   minPassRate?: number;
 }
 
+export type V2AbortFirmwareArtifactUploadResponse = object;
+
+export type V2AbortPSUFirmwareCapsuleUploadResponse = object;
+
 export interface V2AcknowledgeAlertResponse {
   /** Alert represents a system alert. */
   alert?: V2Alert;
@@ -1214,6 +1279,44 @@ export interface V2AuthStatus {
   passwordSet?: boolean;
 }
 
+export interface V2BeginFirmwareArtifactUploadRequest {
+  metadata?: V2FirmwareUploadMetadata;
+}
+
+export interface V2BeginFirmwareArtifactUploadResponse {
+  /**
+   * expires_at is when the upload is discarded unless another call uses it.
+   * @format date-time
+   */
+  expiresAt?: string;
+  /**
+   * max_chunk_bytes is the largest accepted chunk data size.
+   * @format int64
+   */
+  maxChunkBytes?: number;
+  /** upload_id identifies the upload on the connected node only. */
+  uploadId?: string;
+}
+
+export interface V2BeginPSUFirmwareCapsuleUploadRequest {
+  metadata?: V2PSUFirmwareCapsuleUploadMetadata;
+}
+
+export interface V2BeginPSUFirmwareCapsuleUploadResponse {
+  /**
+   * expires_at is when the upload is discarded unless another call uses it.
+   * @format date-time
+   */
+  expiresAt?: string;
+  /**
+   * max_chunk_bytes is the largest accepted chunk data size.
+   * @format int64
+   */
+  maxChunkBytes?: number;
+  /** upload_id identifies the upload on the connected node only. */
+  uploadId?: string;
+}
+
 /** BoardResult reports the per-board outcome of a scoped operation. */
 export interface V2BoardResult {
   /** True if the operation reached this board. */
@@ -1281,6 +1384,11 @@ export interface V2CancelHashboardRunInResponse {
   task?: V2HashboardRunInTask;
 }
 
+export interface V2CancelPSUFirmwareUpdateResponse {
+  /** PSUFirmwareUpdate is one module update job. */
+  update?: V2PSUFirmwareUpdate;
+}
+
 export interface V2CancelSoftFeedMappingRunResponse {
   /** SoftFeedMappingRun is a snapshot of a soft feed mapping run. */
   run?: V2SoftFeedMappingRun;
@@ -1335,6 +1443,17 @@ export interface V2ClearPowerTargetScopedResponse {
   /** @format int32 */
   boardsUpdated?: number;
   results?: V2BoardResult[];
+}
+
+export interface V2CommitFirmwareArtifactUploadResponse {
+  /** FirmwareArtifactRef identifies one deployable firmware artifact. */
+  artifact?: V2FirmwareArtifactRef;
+  images?: V2FirmwareImage[];
+}
+
+export interface V2CommitPSUFirmwareCapsuleUploadResponse {
+  /** PSUFirmwareCapsule describes one locally verified, cached capsule. */
+  capsule?: V2PSUFirmwareCapsule;
 }
 
 /** ContainerControl is one boolean tank/container plant control. */
@@ -2096,6 +2215,26 @@ export interface V2FirmwareUpdateTarget {
   updatedAt?: string;
 }
 
+export interface V2FirmwareUploadImage {
+  /** sha256 is the lowercase hexadecimal digest of this image. */
+  sha256?: string;
+  /** name is a safe single-component .bin filename. */
+  name?: string;
+  /** @format int64 */
+  sizeBytes?: string;
+}
+
+export interface V2FirmwareUploadMetadata {
+  /** images contains at most 64 signed firmware images. */
+  images?: V2FirmwareUploadImage[];
+  /**
+   * source records where the operator obtained the images. It must be
+   * RELEASE, PR, or BRANCH; the server returns an UPLOAD reference after
+   * caching.
+   */
+  source?: V2FirmwareArtifactRef;
+}
+
 /** FrequencyRange defines requested ASIC PLL frequency sweep points in MHz. */
 export interface V2FrequencyRange {
   /** @format int64 */
@@ -2455,6 +2594,16 @@ export interface V2GetMiningStatusResponse {
 export interface V2GetNetworkConfigResponse {
   /** NetworkConfig contains network interface configuration. */
   config?: V2NetworkConfig;
+}
+
+export interface V2GetPSUFirmwareBoardStatusResponse {
+  /** PSUFirmwareBoardStatus is one board's firmware-reported PSU update state. */
+  status?: V2PSUFirmwareBoardStatus;
+}
+
+export interface V2GetPSUFirmwareUpdateResponse {
+  /** PSUFirmwareUpdate is one module update job. */
+  update?: V2PSUFirmwareUpdate;
 }
 
 export interface V2GetPoolConnectionSharingStateResponse {
@@ -3872,6 +4021,14 @@ export interface V2ListModuleVoltageSettingsResponse {
   settings?: V2ModuleVoltageSetting[];
 }
 
+export interface V2ListPSUFirmwareCapsulesResponse {
+  capsules?: V2PSUFirmwareCapsule[];
+}
+
+export interface V2ListPSUFirmwareUpdatesResponse {
+  updates?: V2PSUFirmwareUpdate[];
+}
+
 export interface V2ListPoolsResponse {
   pools?: V2Pool[];
 }
@@ -4688,6 +4845,210 @@ export enum V2PLLAlgorithm {
   PLL_ALGORITHM_DEBUG_FUZZING = "PLL_ALGORITHM_DEBUG_FUZZING",
   PLL_ALGORITHM_FMARGIN_THERMAL_THROTTLE = "PLL_ALGORITHM_FMARGIN_THERMAL_THROTTLE",
   PLL_ALGORITHM_FMARGIN_DELTA_THERMAL_THROTTLE = "PLL_ALGORITHM_FMARGIN_DELTA_THERMAL_THROTTLE",
+}
+
+/** PSUFirmwareBoardStatus is one board's firmware-reported PSU update state. */
+export interface V2PSUFirmwareBoardStatus {
+  /** capsule_id is the lowercase hex SHA-256 of the capsule the phase refers to. */
+  capsuleId?: string;
+  /** PSUFirmwareComponentRole identifies one PSU controller. */
+  component?: V2PSUFirmwareComponentRole;
+  /** @format int64 */
+  componentOffset?: number;
+  currentAppRevision?: string;
+  currentBootRevision?: string;
+  /** PSUFirmwareError mirrors the board firmware's PSU update error. */
+  error?: V2PSUFirmwareError;
+  macAddress?: string;
+  /** PSUFirmwarePhase mirrors the board firmware's PSU update phase. */
+  phase?: V2PSUFirmwarePhase;
+  /** @format int64 */
+  programmedBytes?: number;
+  /** psu_leader reports whether the board is its module's valid PSU leader. */
+  psuLeader?: boolean;
+  recoveryRequired?: boolean;
+  /** @format int64 */
+  stagedBytes?: number;
+  /** @format int64 */
+  totalSizeBytes?: number;
+  /** @format int64 */
+  vendorStatus?: number;
+}
+
+/** PSUFirmwareCapsule describes one locally verified, cached capsule. */
+export interface V2PSUFirmwareCapsule {
+  /** capsule_id is the lowercase hex SHA-256 of the complete sealed capsule. */
+  capsuleId?: string;
+  components?: V2PSUFirmwareComponent[];
+  /** file_name is the client-supplied display name. */
+  fileName?: string;
+  manufacturerId?: string;
+  manufacturerModel?: string;
+  manufacturerRevision?: string;
+  /**
+   * signer_subject is the embedded leaf certificate subject. Board firmware
+   * decides whether that signer is trusted.
+   */
+  signerSubject?: string;
+  /** @format int64 */
+  sizeBytes?: string;
+  /** @format date-time */
+  uploadedAt?: string;
+  /** vendor is the PSU payload vendor, for example "BOCO". */
+  vendor?: string;
+}
+
+export interface V2PSUFirmwareCapsuleUploadMetadata {
+  /** sha256 is the optional expected lowercase hex SHA-256 of the capsule. */
+  sha256?: string;
+  /** file_name is a safe single-component display name. */
+  fileName?: string;
+  /**
+   * size_bytes is the exact capsule size, at most 512 KiB.
+   * @format int64
+   */
+  sizeBytes?: string;
+}
+
+/** PSUFirmwareComponent describes one vendor image in a capsule. */
+export interface V2PSUFirmwareComponent {
+  /** sha256 is the lowercase hex digest of the complete vendor image. */
+  sha256?: string;
+  /** @format int64 */
+  imageSizeBytes?: number;
+  /** PSUFirmwareComponentRole identifies one PSU controller. */
+  role?: V2PSUFirmwareComponentRole;
+  /** @format int64 */
+  targetId?: number;
+}
+
+/**
+ * PSUFirmwareComponentRole identifies one PSU controller.
+ * @default "PSU_FIRMWARE_COMPONENT_ROLE_UNSPECIFIED"
+ */
+export enum V2PSUFirmwareComponentRole {
+  PSU_FIRMWARE_COMPONENT_ROLE_UNSPECIFIED = "PSU_FIRMWARE_COMPONENT_ROLE_UNSPECIFIED",
+  PSU_FIRMWARE_COMPONENT_ROLE_PRIMARY1 = "PSU_FIRMWARE_COMPONENT_ROLE_PRIMARY1",
+  PSU_FIRMWARE_COMPONENT_ROLE_PRIMARY2 = "PSU_FIRMWARE_COMPONENT_ROLE_PRIMARY2",
+  PSU_FIRMWARE_COMPONENT_ROLE_SECONDARY = "PSU_FIRMWARE_COMPONENT_ROLE_SECONDARY",
+}
+
+/**
+ * PSUFirmwareError mirrors the board firmware's PSU update error.
+ * @default "PSU_FIRMWARE_ERROR_UNSPECIFIED"
+ */
+export enum V2PSUFirmwareError {
+  PSU_FIRMWARE_ERROR_UNSPECIFIED = "PSU_FIRMWARE_ERROR_UNSPECIFIED",
+  PSU_FIRMWARE_ERROR_NONE = "PSU_FIRMWARE_ERROR_NONE",
+  PSU_FIRMWARE_ERROR_NOT_LEADER = "PSU_FIRMWARE_ERROR_NOT_LEADER",
+  PSU_FIRMWARE_ERROR_STORAGE = "PSU_FIRMWARE_ERROR_STORAGE",
+  PSU_FIRMWARE_ERROR_CAPSULE_FORMAT = "PSU_FIRMWARE_ERROR_CAPSULE_FORMAT",
+  PSU_FIRMWARE_ERROR_CAPSULE_HASH = "PSU_FIRMWARE_ERROR_CAPSULE_HASH",
+  PSU_FIRMWARE_ERROR_CAPSULE_SIGNATURE = "PSU_FIRMWARE_ERROR_CAPSULE_SIGNATURE",
+  PSU_FIRMWARE_ERROR_CAPSULE_TRUST = "PSU_FIRMWARE_ERROR_CAPSULE_TRUST",
+  PSU_FIRMWARE_ERROR_TARGET_MISMATCH = "PSU_FIRMWARE_ERROR_TARGET_MISMATCH",
+  PSU_FIRMWARE_ERROR_CLUSTER_INCOMPATIBLE = "PSU_FIRMWARE_ERROR_CLUSTER_INCOMPATIBLE",
+  PSU_FIRMWARE_ERROR_BARRIER_TIMEOUT = "PSU_FIRMWARE_ERROR_BARRIER_TIMEOUT",
+  PSU_FIRMWARE_ERROR_I2C = "PSU_FIRMWARE_ERROR_I2C",
+  PSU_FIRMWARE_ERROR_BOOTLOADER_STATE = "PSU_FIRMWARE_ERROR_BOOTLOADER_STATE",
+  PSU_FIRMWARE_ERROR_VENDOR_STATUS = "PSU_FIRMWARE_ERROR_VENDOR_STATUS",
+}
+
+/**
+ * PSUFirmwarePhase mirrors the board firmware's PSU update phase.
+ * @default "PSU_FIRMWARE_PHASE_UNSPECIFIED"
+ */
+export enum V2PSUFirmwarePhase {
+  PSU_FIRMWARE_PHASE_UNSPECIFIED = "PSU_FIRMWARE_PHASE_UNSPECIFIED",
+  PSU_FIRMWARE_PHASE_EMPTY = "PSU_FIRMWARE_PHASE_EMPTY",
+  PSU_FIRMWARE_PHASE_STAGING = "PSU_FIRMWARE_PHASE_STAGING",
+  PSU_FIRMWARE_PHASE_VALIDATING = "PSU_FIRMWARE_PHASE_VALIDATING",
+  PSU_FIRMWARE_PHASE_READY = "PSU_FIRMWARE_PHASE_READY",
+  PSU_FIRMWARE_PHASE_FENCING = "PSU_FIRMWARE_PHASE_FENCING",
+  PSU_FIRMWARE_PHASE_ENTERING_BOOTLOADER = "PSU_FIRMWARE_PHASE_ENTERING_BOOTLOADER",
+  PSU_FIRMWARE_PHASE_PROGRAMMING = "PSU_FIRMWARE_PHASE_PROGRAMMING",
+  PSU_FIRMWARE_PHASE_EXITING_BOOTLOADER = "PSU_FIRMWARE_PHASE_EXITING_BOOTLOADER",
+  PSU_FIRMWARE_PHASE_REPROBING = "PSU_FIRMWARE_PHASE_REPROBING",
+  PSU_FIRMWARE_PHASE_VERIFYING = "PSU_FIRMWARE_PHASE_VERIFYING",
+  PSU_FIRMWARE_PHASE_SUCCEEDED = "PSU_FIRMWARE_PHASE_SUCCEEDED",
+  PSU_FIRMWARE_PHASE_FAILED = "PSU_FIRMWARE_PHASE_FAILED",
+  PSU_FIRMWARE_PHASE_RECOVERY_REQUIRED = "PSU_FIRMWARE_PHASE_RECOVERY_REQUIRED",
+}
+
+/** PSUFirmwareUpdate is one module update job. */
+export interface V2PSUFirmwareUpdate {
+  /**
+   * apply_requested reports whether the apply command may have reached the
+   * leader. After that point the job cannot be cancelled.
+   */
+  applyRequested?: boolean;
+  capsuleId?: string;
+  /** @format date-time */
+  completedAt?: string;
+  /** @format date-time */
+  createdAt?: string;
+  error?: string;
+  force?: boolean;
+  leaderMacAddress?: string;
+  /** leader_status is the most recent firmware status read from the leader. */
+  leaderStatus?: V2PSUFirmwareBoardStatus;
+  members?: V2PSUFirmwareUpdateMember[];
+  moduleId?: string;
+  recover?: boolean;
+  /** server_id is the Frigate node that owns this job. */
+  serverId?: string;
+  /** @format date-time */
+  startedAt?: string;
+  /**
+   * PSUFirmwareUpdateState is the Frigate job lifecycle.
+   *
+   *  - PSU_FIRMWARE_UPDATE_STATE_QUEUED: QUEUED waits for a module update slot.
+   *  - PSU_FIRMWARE_UPDATE_STATE_PREPARING: PREPARING stops member mining and resolves the PSU leader.
+   *  - PSU_FIRMWARE_UPDATE_STATE_STAGING: STAGING transfers the capsule to the leader.
+   *  - PSU_FIRMWARE_UPDATE_STATE_VALIDATING: VALIDATING waits for the leader to verify the staged capsule.
+   *  - PSU_FIRMWARE_UPDATE_STATE_APPLYING: APPLYING waits for board firmware to program and verify the PSU.
+   *  - PSU_FIRMWARE_UPDATE_STATE_RESTORING: RESTORING restores mining on members that were mining before the job.
+   */
+  state?: V2PSUFirmwareUpdateState;
+  taskId?: string;
+}
+
+/** PSUFirmwareUpdateMember is one reserved module member. */
+export interface V2PSUFirmwareUpdateMember {
+  macAddress?: string;
+  /** mining_before reports whether mining intent was set when the job started. */
+  miningBefore?: boolean;
+  /**
+   * reserved reports whether Frigate reserved the member. Disconnected or
+   * unmanaged members are not reserved; board firmware still fences them.
+   */
+  reserved?: boolean;
+  /** restore_error is set when mining could not be restored. */
+  restoreError?: string;
+}
+
+/**
+ * PSUFirmwareUpdateState is the Frigate job lifecycle.
+ *
+ *  - PSU_FIRMWARE_UPDATE_STATE_QUEUED: QUEUED waits for a module update slot.
+ *  - PSU_FIRMWARE_UPDATE_STATE_PREPARING: PREPARING stops member mining and resolves the PSU leader.
+ *  - PSU_FIRMWARE_UPDATE_STATE_STAGING: STAGING transfers the capsule to the leader.
+ *  - PSU_FIRMWARE_UPDATE_STATE_VALIDATING: VALIDATING waits for the leader to verify the staged capsule.
+ *  - PSU_FIRMWARE_UPDATE_STATE_APPLYING: APPLYING waits for board firmware to program and verify the PSU.
+ *  - PSU_FIRMWARE_UPDATE_STATE_RESTORING: RESTORING restores mining on members that were mining before the job.
+ * @default "PSU_FIRMWARE_UPDATE_STATE_UNSPECIFIED"
+ */
+export enum V2PSUFirmwareUpdateState {
+  PSU_FIRMWARE_UPDATE_STATE_UNSPECIFIED = "PSU_FIRMWARE_UPDATE_STATE_UNSPECIFIED",
+  PSU_FIRMWARE_UPDATE_STATE_QUEUED = "PSU_FIRMWARE_UPDATE_STATE_QUEUED",
+  PSU_FIRMWARE_UPDATE_STATE_PREPARING = "PSU_FIRMWARE_UPDATE_STATE_PREPARING",
+  PSU_FIRMWARE_UPDATE_STATE_STAGING = "PSU_FIRMWARE_UPDATE_STATE_STAGING",
+  PSU_FIRMWARE_UPDATE_STATE_VALIDATING = "PSU_FIRMWARE_UPDATE_STATE_VALIDATING",
+  PSU_FIRMWARE_UPDATE_STATE_APPLYING = "PSU_FIRMWARE_UPDATE_STATE_APPLYING",
+  PSU_FIRMWARE_UPDATE_STATE_RESTORING = "PSU_FIRMWARE_UPDATE_STATE_RESTORING",
+  PSU_FIRMWARE_UPDATE_STATE_SUCCEEDED = "PSU_FIRMWARE_UPDATE_STATE_SUCCEEDED",
+  PSU_FIRMWARE_UPDATE_STATE_FAILED = "PSU_FIRMWARE_UPDATE_STATE_FAILED",
+  PSU_FIRMWARE_UPDATE_STATE_CANCELLED = "PSU_FIRMWARE_UPDATE_STATE_CANCELLED",
 }
 
 /** PageResponse contains pagination metadata. */
@@ -6403,6 +6764,23 @@ export interface V2StartModuleRunInResponse {
   voltageLeaderMac?: string;
 }
 
+export interface V2StartPSUFirmwareUpdateRequest {
+  capsuleId?: string;
+  /** force reapplies an exact capsule that already succeeded. */
+  force?: boolean;
+  moduleId?: string;
+  /**
+   * recover restages the exact capsule and resumes the leader's recovery
+   * journal instead of starting a new update.
+   */
+  recover?: boolean;
+}
+
+export interface V2StartPSUFirmwareUpdateResponse {
+  /** PSUFirmwareUpdate is one module update job. */
+  update?: V2PSUFirmwareUpdate;
+}
+
 export interface V2StartSoftFeedMappingRunResponse {
   /** SoftFeedMappingRun is a snapshot of a soft feed mapping run. */
   run?: V2SoftFeedMappingRun;
@@ -7003,6 +7381,37 @@ export interface V2WiringSwitch {
   observedAt?: string;
 }
 
+export interface V2WriteFirmwareArtifactUploadChunkResponse {
+  /** @format date-time */
+  expiresAt?: string;
+  /** @format int64 */
+  imageIndex?: number;
+  /**
+   * next_offset is the number of contiguous bytes received for this image.
+   * @format int64
+   */
+  nextOffset?: string;
+  /**
+   * received_bytes and total_bytes cover every image in the upload.
+   * @format int64
+   */
+  receivedBytes?: string;
+  /** @format int64 */
+  totalBytes?: string;
+}
+
+export interface V2WritePSUFirmwareCapsuleUploadChunkResponse {
+  /** @format date-time */
+  expiresAt?: string;
+  /**
+   * next_offset is the number of contiguous capsule bytes received.
+   * @format int64
+   */
+  nextOffset?: string;
+  /** @format int64 */
+  totalBytes?: string;
+}
+
 export type QueryParamsType = Record<string | number, any>;
 export type ResponseFormat = keyof Omit<Body, "body" | "bodyUsed">;
 
@@ -7260,7 +7669,7 @@ export class HttpClient<SecurityDataType = unknown> {
 
 /**
  * @title Proto MDK v2
- * @version 2-af84dedafde56a43
+ * @version 2-38eb3f68b66035c6
  *
  * Latest MDK v2 REST contract. Device support depends on product and firmware version.
  */
@@ -7942,6 +8351,87 @@ export class Api<
         path: `/api/v2/firmware/updates/${taskId}/cancel`,
         method: "POST",
         query: query,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Firmware, CT1
+     * @name FirmwareServiceBeginFirmwareArtifactUpload
+     * @summary BeginFirmwareArtifactUpload starts a chunked unary upload for clients that cannot send client-streaming calls, such as browsers using the Connect or REST gateways. It validates the same metadata as UploadFirmwareArtifact and returns an upload ID that exists only on the connected node. Idle uploads expire and release their staged bytes.
+     * @request POST:/api/v2/firmware/uploads
+     */
+    firmwareServiceBeginFirmwareArtifactUpload: (
+      body: V2BeginFirmwareArtifactUploadRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<V2BeginFirmwareArtifactUploadResponse, RpcStatus>({
+        path: `/api/v2/firmware/uploads`,
+        method: "POST",
+        body: body,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Firmware, CT1
+     * @name FirmwareServiceAbortFirmwareArtifactUpload
+     * @summary AbortFirmwareArtifactUpload discards an unfinished upload. Aborting an unknown or expired upload succeeds.
+     * @request DELETE:/api/v2/firmware/uploads/{uploadId}
+     */
+    firmwareServiceAbortFirmwareArtifactUpload: (
+      { uploadId }: FirmwareServiceAbortFirmwareArtifactUploadParams,
+      params: RequestParams = {},
+    ) =>
+      this.request<V2AbortFirmwareArtifactUploadResponse, RpcStatus>({
+        path: `/api/v2/firmware/uploads/${uploadId}`,
+        method: "DELETE",
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Firmware, CT1
+     * @name FirmwareServiceWriteFirmwareArtifactUploadChunk
+     * @summary WriteFirmwareArtifactUploadChunk writes bytes for one image at an exact offset. Images may be written in any order, but each image's bytes must be contiguous. Repeating an already received chunk is accepted, so a client can safely retry after a lost response.
+     * @request POST:/api/v2/firmware/uploads/{uploadId}/chunks
+     */
+    firmwareServiceWriteFirmwareArtifactUploadChunk: (
+      { uploadId }: FirmwareServiceWriteFirmwareArtifactUploadChunkParams,
+      body: FirmwareServiceWriteFirmwareArtifactUploadChunkBody,
+      params: RequestParams = {},
+    ) =>
+      this.request<V2WriteFirmwareArtifactUploadChunkResponse, RpcStatus>({
+        path: `/api/v2/firmware/uploads/${uploadId}/chunks`,
+        method: "POST",
+        body: body,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Firmware, CT1
+     * @name FirmwareServiceCommitFirmwareArtifactUpload
+     * @summary CommitFirmwareArtifactUpload validates and caches a complete upload, exactly like the final step of UploadFirmwareArtifact. An incomplete upload is refused without discarding received bytes.
+     * @request POST:/api/v2/firmware/uploads/{uploadId}/commit
+     */
+    firmwareServiceCommitFirmwareArtifactUpload: (
+      { uploadId }: FirmwareServiceCommitFirmwareArtifactUploadParams,
+      params: RequestParams = {},
+    ) =>
+      this.request<V2CommitFirmwareArtifactUploadResponse, RpcStatus>({
+        path: `/api/v2/firmware/uploads/${uploadId}/commit`,
+        method: "POST",
         format: "json",
         ...params,
       }),
@@ -9422,6 +9912,197 @@ export class Api<
       this.request<V2GetActivePowerRecoveryCycleResponse, RpcStatus>({
         path: `/api/v2/power/recovery/active`,
         method: "GET",
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags PSU Firmware, CT1
+     * @name PsuFirmwareServiceGetPsuFirmwareBoardStatus
+     * @summary GetPSUFirmwareBoardStatus reads one locally owned board's PSU firmware staging, apply, and leadership state.
+     * @request GET:/api/v2/psu-firmware/boards/{macAddress}/status
+     */
+    psuFirmwareServiceGetPsuFirmwareBoardStatus: (
+      { macAddress }: PsuFirmwareServiceGetPsuFirmwareBoardStatusParams,
+      params: RequestParams = {},
+    ) =>
+      this.request<V2GetPSUFirmwareBoardStatusResponse, RpcStatus>({
+        path: `/api/v2/psu-firmware/boards/${macAddress}/status`,
+        method: "GET",
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags PSU Firmware, CT1
+     * @name PsuFirmwareServiceListPsuFirmwareCapsules
+     * @summary ListPSUFirmwareCapsules lists capsules cached on the connected node.
+     * @request GET:/api/v2/psu-firmware/capsules
+     */
+    psuFirmwareServiceListPsuFirmwareCapsules: (params: RequestParams = {}) =>
+      this.request<V2ListPSUFirmwareCapsulesResponse, RpcStatus>({
+        path: `/api/v2/psu-firmware/capsules`,
+        method: "GET",
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags PSU Firmware, CT1
+     * @name PsuFirmwareServiceListPsuFirmwareUpdates
+     * @summary ListPSUFirmwareUpdates lists active and retained update jobs, newest first.
+     * @request GET:/api/v2/psu-firmware/updates
+     */
+    psuFirmwareServiceListPsuFirmwareUpdates: (params: RequestParams = {}) =>
+      this.request<V2ListPSUFirmwareUpdatesResponse, RpcStatus>({
+        path: `/api/v2/psu-firmware/updates`,
+        method: "GET",
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags PSU Firmware, CT1
+     * @name PsuFirmwareServiceStartPsuFirmwareUpdate
+     * @summary StartPSUFirmwareUpdate starts one module update with a cached capsule. Every connected module member must be owned by the connected node.
+     * @request POST:/api/v2/psu-firmware/updates
+     */
+    psuFirmwareServiceStartPsuFirmwareUpdate: (
+      body: V2StartPSUFirmwareUpdateRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<V2StartPSUFirmwareUpdateResponse, RpcStatus>({
+        path: `/api/v2/psu-firmware/updates`,
+        method: "POST",
+        body: body,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags PSU Firmware, CT1
+     * @name PsuFirmwareServiceGetPsuFirmwareUpdate
+     * @summary GetPSUFirmwareUpdate returns the current state of one update job.
+     * @request GET:/api/v2/psu-firmware/updates/{taskId}
+     */
+    psuFirmwareServiceGetPsuFirmwareUpdate: (
+      { taskId }: PsuFirmwareServiceGetPsuFirmwareUpdateParams,
+      params: RequestParams = {},
+    ) =>
+      this.request<V2GetPSUFirmwareUpdateResponse, RpcStatus>({
+        path: `/api/v2/psu-firmware/updates/${taskId}`,
+        method: "GET",
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags PSU Firmware, CT1
+     * @name PsuFirmwareServiceCancelPsuFirmwareUpdate
+     * @summary CancelPSUFirmwareUpdate cancels a job before its apply command is sent. Once the leader has been asked to program the PSU, board firmware owns completion and the job can no longer be cancelled.
+     * @request POST:/api/v2/psu-firmware/updates/{taskId}/cancel
+     */
+    psuFirmwareServiceCancelPsuFirmwareUpdate: (
+      { taskId }: PsuFirmwareServiceCancelPsuFirmwareUpdateParams,
+      params: RequestParams = {},
+    ) =>
+      this.request<V2CancelPSUFirmwareUpdateResponse, RpcStatus>({
+        path: `/api/v2/psu-firmware/updates/${taskId}/cancel`,
+        method: "POST",
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags PSU Firmware, CT1
+     * @name PsuFirmwareServiceBeginPsuFirmwareCapsuleUpload
+     * @summary BeginPSUFirmwareCapsuleUpload starts a chunked unary capsule upload for clients that cannot send client-streaming calls, such as browsers using the Connect or REST gateways. It validates the same metadata as UploadPSUFirmwareCapsule and returns an upload ID that exists only on the connected node. Idle uploads expire.
+     * @request POST:/api/v2/psu-firmware/uploads
+     */
+    psuFirmwareServiceBeginPsuFirmwareCapsuleUpload: (
+      body: V2BeginPSUFirmwareCapsuleUploadRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<V2BeginPSUFirmwareCapsuleUploadResponse, RpcStatus>({
+        path: `/api/v2/psu-firmware/uploads`,
+        method: "POST",
+        body: body,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags PSU Firmware, CT1
+     * @name PsuFirmwareServiceAbortPsuFirmwareCapsuleUpload
+     * @summary AbortPSUFirmwareCapsuleUpload discards an unfinished upload. Aborting an unknown or expired upload succeeds.
+     * @request DELETE:/api/v2/psu-firmware/uploads/{uploadId}
+     */
+    psuFirmwareServiceAbortPsuFirmwareCapsuleUpload: (
+      { uploadId }: PsuFirmwareServiceAbortPsuFirmwareCapsuleUploadParams,
+      params: RequestParams = {},
+    ) =>
+      this.request<V2AbortPSUFirmwareCapsuleUploadResponse, RpcStatus>({
+        path: `/api/v2/psu-firmware/uploads/${uploadId}`,
+        method: "DELETE",
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags PSU Firmware, CT1
+     * @name PsuFirmwareServiceWritePsuFirmwareCapsuleUploadChunk
+     * @summary WritePSUFirmwareCapsuleUploadChunk writes capsule bytes at an exact offset. Repeating an already received chunk is accepted, so a client can safely retry after a lost response.
+     * @request POST:/api/v2/psu-firmware/uploads/{uploadId}/chunks
+     */
+    psuFirmwareServiceWritePsuFirmwareCapsuleUploadChunk: (
+      { uploadId }: PsuFirmwareServiceWritePsuFirmwareCapsuleUploadChunkParams,
+      body: PSUFirmwareServiceWritePSUFirmwareCapsuleUploadChunkBody,
+      params: RequestParams = {},
+    ) =>
+      this.request<V2WritePSUFirmwareCapsuleUploadChunkResponse, RpcStatus>({
+        path: `/api/v2/psu-firmware/uploads/${uploadId}/chunks`,
+        method: "POST",
+        body: body,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags PSU Firmware, CT1
+     * @name PsuFirmwareServiceCommitPsuFirmwareCapsuleUpload
+     * @summary CommitPSUFirmwareCapsuleUpload verifies and caches a complete capsule, exactly like the final step of UploadPSUFirmwareCapsule. An incomplete upload is refused without discarding received bytes.
+     * @request POST:/api/v2/psu-firmware/uploads/{uploadId}/commit
+     */
+    psuFirmwareServiceCommitPsuFirmwareCapsuleUpload: (
+      { uploadId }: PsuFirmwareServiceCommitPsuFirmwareCapsuleUploadParams,
+      params: RequestParams = {},
+    ) =>
+      this.request<V2CommitPSUFirmwareCapsuleUploadResponse, RpcStatus>({
+        path: `/api/v2/psu-firmware/uploads/${uploadId}/commit`,
+        method: "POST",
         format: "json",
         ...params,
       }),

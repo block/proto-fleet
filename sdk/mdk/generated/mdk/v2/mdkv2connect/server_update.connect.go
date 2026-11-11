@@ -55,6 +55,18 @@ const (
 	// ServerUpdateServiceAbortServerUpdateStageProcedure is the fully-qualified name of the
 	// ServerUpdateService's AbortServerUpdateStage RPC.
 	ServerUpdateServiceAbortServerUpdateStageProcedure = "/mdk.v2.ServerUpdateService/AbortServerUpdateStage"
+	// ServerUpdateServiceStartServerUpdateProcedure is the fully-qualified name of the
+	// ServerUpdateService's StartServerUpdate RPC.
+	ServerUpdateServiceStartServerUpdateProcedure = "/mdk.v2.ServerUpdateService/StartServerUpdate"
+	// ServerUpdateServiceGetServerUpdateStatusProcedure is the fully-qualified name of the
+	// ServerUpdateService's GetServerUpdateStatus RPC.
+	ServerUpdateServiceGetServerUpdateStatusProcedure = "/mdk.v2.ServerUpdateService/GetServerUpdateStatus"
+	// ServerUpdateServiceRetryServerUpdateProcedure is the fully-qualified name of the
+	// ServerUpdateService's RetryServerUpdate RPC.
+	ServerUpdateServiceRetryServerUpdateProcedure = "/mdk.v2.ServerUpdateService/RetryServerUpdate"
+	// ServerUpdateServiceCancelServerUpdateProcedure is the fully-qualified name of the
+	// ServerUpdateService's CancelServerUpdate RPC.
+	ServerUpdateServiceCancelServerUpdateProcedure = "/mdk.v2.ServerUpdateService/CancelServerUpdate"
 	// FrigateUpdateMaintenanceServiceExchangeProcedure is the fully-qualified name of the
 	// FrigateUpdateMaintenanceService's Exchange RPC.
 	FrigateUpdateMaintenanceServiceExchangeProcedure = "/mdk.v2.FrigateUpdateMaintenanceService/Exchange"
@@ -70,6 +82,26 @@ type ServerUpdateServiceClient interface {
 	AppendServerUpdateStage(context.Context, *connect.Request[v2.AppendServerUpdateStageRequest]) (*connect.Response[v2.AppendServerUpdateStageResponse], error)
 	CommitServerUpdateStage(context.Context, *connect.Request[v2.CommitServerUpdateStageRequest]) (*connect.Response[v2.CommitServerUpdateStageResponse], error)
 	AbortServerUpdateStage(context.Context, *connect.Request[v2.AbortServerUpdateStageRequest]) (*connect.Response[v2.AbortServerUpdateStageResponse], error)
+	// StartServerUpdate begins a self-coordinated rollout of a package that is
+	// already staged on every expected instance. The caller must have staged each
+	// instance with a manifest whose coordination is SERVER_UPDATE_COORDINATION_SELF
+	// and that carries the signed release statement. The rollout id is job_id.
+	// Routed to the HA primary (ControlLeader). Refusals carry a
+	// google.rpc.ErrorInfo in domain mdk.v2.frigate with one of the UPDATE_*
+	// reasons documented on ServerUpdateRollout.error_code.
+	StartServerUpdate(context.Context, *connect.Request[v2.StartServerUpdateRequest]) (*connect.Response[v2.StartServerUpdateResponse], error)
+	// GetServerUpdateStatus returns the shared rollout state. While Frigate is
+	// stopped for an update the response may be served by the maintenance
+	// service, which sets served_by_maintenance.
+	GetServerUpdateStatus(context.Context, *connect.Request[v2.GetServerUpdateStatusRequest]) (*connect.Response[v2.GetServerUpdateStatusResponse], error)
+	// RetryServerUpdate asks the rollout driver to resume a rollout that failed
+	// after the instances were stopped. It is refused unless the rollout is
+	// retryable.
+	RetryServerUpdate(context.Context, *connect.Request[v2.RetryServerUpdateRequest]) (*connect.Response[v2.RetryServerUpdateResponse], error)
+	// CancelServerUpdate abandons a rollout that has not yet stopped any
+	// instance. It is refused once the rollout is past the point of no return;
+	// use RetryServerUpdate or the on-host abandon command instead.
+	CancelServerUpdate(context.Context, *connect.Request[v2.CancelServerUpdateRequest]) (*connect.Response[v2.CancelServerUpdateResponse], error)
 }
 
 // NewServerUpdateServiceClient constructs a client for the mdk.v2.ServerUpdateService service. By
@@ -112,6 +144,26 @@ func NewServerUpdateServiceClient(httpClient connect.HTTPClient, baseURL string,
 			baseURL+ServerUpdateServiceAbortServerUpdateStageProcedure,
 			opts...,
 		),
+		startServerUpdate: connect.NewClient[v2.StartServerUpdateRequest, v2.StartServerUpdateResponse](
+			httpClient,
+			baseURL+ServerUpdateServiceStartServerUpdateProcedure,
+			opts...,
+		),
+		getServerUpdateStatus: connect.NewClient[v2.GetServerUpdateStatusRequest, v2.GetServerUpdateStatusResponse](
+			httpClient,
+			baseURL+ServerUpdateServiceGetServerUpdateStatusProcedure,
+			opts...,
+		),
+		retryServerUpdate: connect.NewClient[v2.RetryServerUpdateRequest, v2.RetryServerUpdateResponse](
+			httpClient,
+			baseURL+ServerUpdateServiceRetryServerUpdateProcedure,
+			opts...,
+		),
+		cancelServerUpdate: connect.NewClient[v2.CancelServerUpdateRequest, v2.CancelServerUpdateResponse](
+			httpClient,
+			baseURL+ServerUpdateServiceCancelServerUpdateProcedure,
+			opts...,
+		),
 	}
 }
 
@@ -123,6 +175,10 @@ type serverUpdateServiceClient struct {
 	appendServerUpdateStage *connect.Client[v2.AppendServerUpdateStageRequest, v2.AppendServerUpdateStageResponse]
 	commitServerUpdateStage *connect.Client[v2.CommitServerUpdateStageRequest, v2.CommitServerUpdateStageResponse]
 	abortServerUpdateStage  *connect.Client[v2.AbortServerUpdateStageRequest, v2.AbortServerUpdateStageResponse]
+	startServerUpdate       *connect.Client[v2.StartServerUpdateRequest, v2.StartServerUpdateResponse]
+	getServerUpdateStatus   *connect.Client[v2.GetServerUpdateStatusRequest, v2.GetServerUpdateStatusResponse]
+	retryServerUpdate       *connect.Client[v2.RetryServerUpdateRequest, v2.RetryServerUpdateResponse]
+	cancelServerUpdate      *connect.Client[v2.CancelServerUpdateRequest, v2.CancelServerUpdateResponse]
 }
 
 // GetServerUpdateSupport calls mdk.v2.ServerUpdateService.GetServerUpdateSupport.
@@ -155,6 +211,26 @@ func (c *serverUpdateServiceClient) AbortServerUpdateStage(ctx context.Context, 
 	return c.abortServerUpdateStage.CallUnary(ctx, req)
 }
 
+// StartServerUpdate calls mdk.v2.ServerUpdateService.StartServerUpdate.
+func (c *serverUpdateServiceClient) StartServerUpdate(ctx context.Context, req *connect.Request[v2.StartServerUpdateRequest]) (*connect.Response[v2.StartServerUpdateResponse], error) {
+	return c.startServerUpdate.CallUnary(ctx, req)
+}
+
+// GetServerUpdateStatus calls mdk.v2.ServerUpdateService.GetServerUpdateStatus.
+func (c *serverUpdateServiceClient) GetServerUpdateStatus(ctx context.Context, req *connect.Request[v2.GetServerUpdateStatusRequest]) (*connect.Response[v2.GetServerUpdateStatusResponse], error) {
+	return c.getServerUpdateStatus.CallUnary(ctx, req)
+}
+
+// RetryServerUpdate calls mdk.v2.ServerUpdateService.RetryServerUpdate.
+func (c *serverUpdateServiceClient) RetryServerUpdate(ctx context.Context, req *connect.Request[v2.RetryServerUpdateRequest]) (*connect.Response[v2.RetryServerUpdateResponse], error) {
+	return c.retryServerUpdate.CallUnary(ctx, req)
+}
+
+// CancelServerUpdate calls mdk.v2.ServerUpdateService.CancelServerUpdate.
+func (c *serverUpdateServiceClient) CancelServerUpdate(ctx context.Context, req *connect.Request[v2.CancelServerUpdateRequest]) (*connect.Response[v2.CancelServerUpdateResponse], error) {
+	return c.cancelServerUpdate.CallUnary(ctx, req)
+}
+
 // ServerUpdateServiceHandler is an implementation of the mdk.v2.ServerUpdateService service.
 type ServerUpdateServiceHandler interface {
 	GetServerUpdateSupport(context.Context, *connect.Request[v2.GetServerUpdateSupportRequest]) (*connect.Response[v2.GetServerUpdateSupportResponse], error)
@@ -165,6 +241,26 @@ type ServerUpdateServiceHandler interface {
 	AppendServerUpdateStage(context.Context, *connect.Request[v2.AppendServerUpdateStageRequest]) (*connect.Response[v2.AppendServerUpdateStageResponse], error)
 	CommitServerUpdateStage(context.Context, *connect.Request[v2.CommitServerUpdateStageRequest]) (*connect.Response[v2.CommitServerUpdateStageResponse], error)
 	AbortServerUpdateStage(context.Context, *connect.Request[v2.AbortServerUpdateStageRequest]) (*connect.Response[v2.AbortServerUpdateStageResponse], error)
+	// StartServerUpdate begins a self-coordinated rollout of a package that is
+	// already staged on every expected instance. The caller must have staged each
+	// instance with a manifest whose coordination is SERVER_UPDATE_COORDINATION_SELF
+	// and that carries the signed release statement. The rollout id is job_id.
+	// Routed to the HA primary (ControlLeader). Refusals carry a
+	// google.rpc.ErrorInfo in domain mdk.v2.frigate with one of the UPDATE_*
+	// reasons documented on ServerUpdateRollout.error_code.
+	StartServerUpdate(context.Context, *connect.Request[v2.StartServerUpdateRequest]) (*connect.Response[v2.StartServerUpdateResponse], error)
+	// GetServerUpdateStatus returns the shared rollout state. While Frigate is
+	// stopped for an update the response may be served by the maintenance
+	// service, which sets served_by_maintenance.
+	GetServerUpdateStatus(context.Context, *connect.Request[v2.GetServerUpdateStatusRequest]) (*connect.Response[v2.GetServerUpdateStatusResponse], error)
+	// RetryServerUpdate asks the rollout driver to resume a rollout that failed
+	// after the instances were stopped. It is refused unless the rollout is
+	// retryable.
+	RetryServerUpdate(context.Context, *connect.Request[v2.RetryServerUpdateRequest]) (*connect.Response[v2.RetryServerUpdateResponse], error)
+	// CancelServerUpdate abandons a rollout that has not yet stopped any
+	// instance. It is refused once the rollout is past the point of no return;
+	// use RetryServerUpdate or the on-host abandon command instead.
+	CancelServerUpdate(context.Context, *connect.Request[v2.CancelServerUpdateRequest]) (*connect.Response[v2.CancelServerUpdateResponse], error)
 }
 
 // NewServerUpdateServiceHandler builds an HTTP handler from the service implementation. It returns
@@ -203,6 +299,26 @@ func NewServerUpdateServiceHandler(svc ServerUpdateServiceHandler, opts ...conne
 		svc.AbortServerUpdateStage,
 		opts...,
 	)
+	serverUpdateServiceStartServerUpdateHandler := connect.NewUnaryHandler(
+		ServerUpdateServiceStartServerUpdateProcedure,
+		svc.StartServerUpdate,
+		opts...,
+	)
+	serverUpdateServiceGetServerUpdateStatusHandler := connect.NewUnaryHandler(
+		ServerUpdateServiceGetServerUpdateStatusProcedure,
+		svc.GetServerUpdateStatus,
+		opts...,
+	)
+	serverUpdateServiceRetryServerUpdateHandler := connect.NewUnaryHandler(
+		ServerUpdateServiceRetryServerUpdateProcedure,
+		svc.RetryServerUpdate,
+		opts...,
+	)
+	serverUpdateServiceCancelServerUpdateHandler := connect.NewUnaryHandler(
+		ServerUpdateServiceCancelServerUpdateProcedure,
+		svc.CancelServerUpdate,
+		opts...,
+	)
 	return "/mdk.v2.ServerUpdateService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case ServerUpdateServiceGetServerUpdateSupportProcedure:
@@ -217,6 +333,14 @@ func NewServerUpdateServiceHandler(svc ServerUpdateServiceHandler, opts ...conne
 			serverUpdateServiceCommitServerUpdateStageHandler.ServeHTTP(w, r)
 		case ServerUpdateServiceAbortServerUpdateStageProcedure:
 			serverUpdateServiceAbortServerUpdateStageHandler.ServeHTTP(w, r)
+		case ServerUpdateServiceStartServerUpdateProcedure:
+			serverUpdateServiceStartServerUpdateHandler.ServeHTTP(w, r)
+		case ServerUpdateServiceGetServerUpdateStatusProcedure:
+			serverUpdateServiceGetServerUpdateStatusHandler.ServeHTTP(w, r)
+		case ServerUpdateServiceRetryServerUpdateProcedure:
+			serverUpdateServiceRetryServerUpdateHandler.ServeHTTP(w, r)
+		case ServerUpdateServiceCancelServerUpdateProcedure:
+			serverUpdateServiceCancelServerUpdateHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -248,6 +372,22 @@ func (UnimplementedServerUpdateServiceHandler) CommitServerUpdateStage(context.C
 
 func (UnimplementedServerUpdateServiceHandler) AbortServerUpdateStage(context.Context, *connect.Request[v2.AbortServerUpdateStageRequest]) (*connect.Response[v2.AbortServerUpdateStageResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("mdk.v2.ServerUpdateService.AbortServerUpdateStage is not implemented"))
+}
+
+func (UnimplementedServerUpdateServiceHandler) StartServerUpdate(context.Context, *connect.Request[v2.StartServerUpdateRequest]) (*connect.Response[v2.StartServerUpdateResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("mdk.v2.ServerUpdateService.StartServerUpdate is not implemented"))
+}
+
+func (UnimplementedServerUpdateServiceHandler) GetServerUpdateStatus(context.Context, *connect.Request[v2.GetServerUpdateStatusRequest]) (*connect.Response[v2.GetServerUpdateStatusResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("mdk.v2.ServerUpdateService.GetServerUpdateStatus is not implemented"))
+}
+
+func (UnimplementedServerUpdateServiceHandler) RetryServerUpdate(context.Context, *connect.Request[v2.RetryServerUpdateRequest]) (*connect.Response[v2.RetryServerUpdateResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("mdk.v2.ServerUpdateService.RetryServerUpdate is not implemented"))
+}
+
+func (UnimplementedServerUpdateServiceHandler) CancelServerUpdate(context.Context, *connect.Request[v2.CancelServerUpdateRequest]) (*connect.Response[v2.CancelServerUpdateResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("mdk.v2.ServerUpdateService.CancelServerUpdate is not implemented"))
 }
 
 // FrigateUpdateMaintenanceServiceClient is a client for the mdk.v2.FrigateUpdateMaintenanceService

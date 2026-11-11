@@ -7,8 +7,25 @@ import "mdk/v2/options.proto";
 
 option go_package = "github.com/btc-mining/frigate/gen/mdk/v2;mdkv2";
 
-// ServerUpdateService stages one verified Frigate package on an exact host.
-// These methods are the only tunnel mutations permitted on a warm standby.
+// ServerUpdateService stages one verified Frigate package on an exact host and,
+// for self-coordinated updates, starts and tracks one site-wide rollout.
+//
+// The staging methods and GetServerUpdateSupport are instance-scoped: they are
+// the only ServerUpdateService methods that may be dispatched to a specific
+// instance over a warm-standby tunnel.
+//
+// StartServerUpdate is routed ControlLeader: it executes on the HA primary, and
+// a standby's MDK peer router forwards it there. It is never executed on, or
+// dispatched over a tunnel to, a warm standby. GetServerUpdateStatus,
+// RetryServerUpdate and CancelServerUpdate operate on shared rollout state
+// (routed SharedState) and are not instance-scoped. None of the four new
+// methods is on the Flotilla tunnel registry yet, so no Flotilla destination can
+// call them; MDK clients call the Frigate API directly.
+//
+// StartServerUpdate, GetServerUpdateStatus, RetryServerUpdate and
+// CancelServerUpdate are a published contract only: current servers return
+// UNIMPLEMENTED for them, and GetServerUpdateSupportResponse
+// .self_coordination_supported reports false until a server implements them.
 service ServerUpdateService {
   rpc GetServerUpdateSupport(GetServerUpdateSupportRequest) returns (GetServerUpdateSupportResponse) {
     option (mdk.v2.product) = PRODUCT_CT1;
@@ -35,6 +52,42 @@ service ServerUpdateService {
     option (mdk.v2.tunnel_access) = TUNNEL_ACCESS_MUTATE;
   }
   rpc AbortServerUpdateStage(AbortServerUpdateStageRequest) returns (AbortServerUpdateStageResponse) {
+    option (mdk.v2.product) = PRODUCT_CT1;
+    option (mdk.v2.tunnel_access) = TUNNEL_ACCESS_MUTATE;
+  }
+
+  // StartServerUpdate begins a self-coordinated rollout of a package that is
+  // already staged on every expected instance. The caller must have staged each
+  // instance with a manifest whose coordination is SERVER_UPDATE_COORDINATION_SELF
+  // and that carries the signed release statement. The rollout id is job_id.
+  // Routed to the HA primary (ControlLeader). Refusals carry a
+  // google.rpc.ErrorInfo in domain mdk.v2.frigate with one of the UPDATE_*
+  // reasons documented on ServerUpdateRollout.error_code.
+  rpc StartServerUpdate(StartServerUpdateRequest) returns (StartServerUpdateResponse) {
+    option (mdk.v2.product) = PRODUCT_CT1;
+    option (mdk.v2.tunnel_access) = TUNNEL_ACCESS_MUTATE;
+  }
+
+  // GetServerUpdateStatus returns the shared rollout state. While Frigate is
+  // stopped for an update the response may be served by the maintenance
+  // service, which sets served_by_maintenance.
+  rpc GetServerUpdateStatus(GetServerUpdateStatusRequest) returns (GetServerUpdateStatusResponse) {
+    option (mdk.v2.product) = PRODUCT_CT1;
+    option (mdk.v2.tunnel_access) = TUNNEL_ACCESS_READ;
+  }
+
+  // RetryServerUpdate asks the rollout driver to resume a rollout that failed
+  // after the instances were stopped. It is refused unless the rollout is
+  // retryable.
+  rpc RetryServerUpdate(RetryServerUpdateRequest) returns (RetryServerUpdateResponse) {
+    option (mdk.v2.product) = PRODUCT_CT1;
+    option (mdk.v2.tunnel_access) = TUNNEL_ACCESS_MUTATE;
+  }
+
+  // CancelServerUpdate abandons a rollout that has not yet stopped any
+  // instance. It is refused once the rollout is past the point of no return;
+  // use RetryServerUpdate or the on-host abandon command instead.
+  rpc CancelServerUpdate(CancelServerUpdateRequest) returns (CancelServerUpdateResponse) {
     option (mdk.v2.product) = PRODUCT_CT1;
     option (mdk.v2.tunnel_access) = TUNNEL_ACCESS_MUTATE;
   }
@@ -76,6 +129,43 @@ enum FrigateUpdateAgentAction {
   FRIGATE_UPDATE_AGENT_ACTION_EXIT = 6;
 }
 
+// ServerUpdateCoordination selects who coordinates the stop, install, migrate
+// and start barriers between the HA instances.
+enum ServerUpdateCoordination {
+  // The legacy path: each instance's root helper dials the Flotilla
+  // FrigateUpdateMaintenanceService.Exchange endpoint named in the manifest.
+  SERVER_UPDATE_COORDINATION_UNSPECIFIED = 0;
+  // The root helpers coordinate through the shared etcd cluster. The manifest
+  // must carry a signed release statement and no Flotilla connection fields.
+  SERVER_UPDATE_COORDINATION_SELF = 1;
+}
+
+// ServerUpdateRolloutPhase is the site-wide phase of a self-coordinated rollout.
+enum ServerUpdateRolloutPhase {
+  SERVER_UPDATE_ROLLOUT_PHASE_UNSPECIFIED = 0;
+  // The rollout record is written and the helpers are verifying the signed
+  // release statement and package, then reporting STAGED.
+  SERVER_UPDATE_ROLLOUT_PHASE_VERIFYING = 1;
+  SERVER_UPDATE_ROLLOUT_PHASE_STOPPING = 2;
+  SERVER_UPDATE_ROLLOUT_PHASE_INSTALLING = 3;
+  SERVER_UPDATE_ROLLOUT_PHASE_MIGRATING = 4;
+  SERVER_UPDATE_ROLLOUT_PHASE_STARTING = 5;
+  SERVER_UPDATE_ROLLOUT_PHASE_SUCCEEDED = 6;
+  // A failure after the instances were stopped. Both stay stopped; see
+  // ServerUpdateRollout.retryable.
+  SERVER_UPDATE_ROLLOUT_PHASE_FAILED = 7;
+  // The rollout exited before any instance was stopped: cancelled by a caller,
+  // rejected during pre-stop verification, or expired.
+  SERVER_UPDATE_ROLLOUT_PHASE_CANCELLED = 8;
+  // A stage_only rollout completed verification on every instance. Nothing was
+  // stopped.
+  SERVER_UPDATE_ROLLOUT_PHASE_VERIFIED = 9;
+  // An operator ran the on-host abandon command. The rollout is terminal, but
+  // if ServerUpdateRollout.disruption_started is true Frigate may still be held
+  // stopped on one or both instances until the operator restores service.
+  SERVER_UPDATE_ROLLOUT_PHASE_ABANDONED = 10;
+}
+
 message GetServerUpdateSupportRequest {}
 
 message GetServerUpdateSupportResponse {
@@ -86,6 +176,25 @@ message GetServerUpdateSupportResponse {
   ServerInstallationType installation_type = 5;
   bool helper_available = 6;
   string support_message = 7;
+  // cluster_id identifies the HA cluster whose etcd holds rollout state.
+  string cluster_id = 8;
+  // active_job_id is the job id of the rollout currently in progress, if any.
+  string active_job_id = 9;
+  // spool_free_bytes is the free space available for staging a package.
+  int64 spool_free_bytes = 10;
+  uint32 etcd_members_total = 11;
+  uint32 etcd_members_healthy = 12;
+  // trusted_release_key_ids lists the release-signing keys this instance
+  // trusts, each as "sha256:" followed by the lowercase hex SHA-256 of the
+  // DER SubjectPublicKeyInfo.
+  repeated string trusted_release_key_ids = 13;
+  // self_coordination_supported is true only when this server implements
+  // SERVER_UPDATE_COORDINATION_SELF end to end. Callers must not stage a SELF
+  // manifest or call StartServerUpdate unless it is true.
+  bool self_coordination_supported = 14;
+  // remote_trigger_allowed reports whether the site allows StartServerUpdate
+  // (the update.allow_remote_trigger setting).
+  bool remote_trigger_allowed = 15;
 }
 
 message ServerUpdateManifest {
@@ -108,6 +217,160 @@ message ServerUpdateManifest {
   string client_certificate_file = 17;
   string client_key_file = 18;
   string site_token = 19;
+  // coordination selects the barrier coordinator. UNSPECIFIED is the legacy
+  // Flotilla-coordinated path and must be used by existing callers.
+  ServerUpdateCoordination coordination = 20;
+  // release_statement holds the exact signed bytes of the release statement
+  // (frigate-release-statement/v1 JSON). Required when coordination is SELF.
+  bytes release_statement = 21;
+  // release_signature holds the DER ECDSA P-256 signature over
+  // release_statement. Required when coordination is SELF.
+  bytes release_signature = 22;
+}
+
+message StartServerUpdateRequest {
+  // job_id is the staged job id shared by every instance's manifest. It
+  // becomes the rollout id.
+  string job_id = 1;
+  // target_version must equal the staged manifests and the release statement.
+  string target_version = 2;
+  // expected_instance_ids must equal the staged manifests' expected_instance_ids.
+  repeated string expected_instance_ids = 3;
+  // stage_only verifies the package as root on every instance and then exits
+  // before any instance is stopped. The rollout ends VERIFIED.
+  bool stage_only = 4;
+  // idempotency_key makes a repeated identical request return the existing
+  // rollout instead of failing with UPDATE_ACTIVE_JOB. The same key with a
+  // different request fails with UPDATE_IDEMPOTENCY_CONFLICT.
+  string idempotency_key = 5;
+  // expected_manifest_sha256 optionally maps each instance id to the
+  // lowercase-hex manifest fingerprint the caller staged on it (the
+  // manifest_sha256 returned when staging). When present, every entry must
+  // match that instance's staged manifest, or Start fails with
+  // UPDATE_STAGE_MISMATCH.
+  map<string, string> expected_manifest_sha256 = 6;
+}
+
+message StartServerUpdateResponse {
+  ServerUpdateRollout rollout = 1;
+}
+
+message GetServerUpdateStatusRequest {
+  // job_id selects a rollout. Empty selects the active rollout, otherwise the
+  // most recent terminal rollout, otherwise NOT_FOUND (UPDATE_NOT_FOUND).
+  // Terminal rollouts stay readable for at least 30 days, and the 20 most
+  // recent are always kept.
+  string job_id = 1;
+}
+
+message GetServerUpdateStatusResponse {
+  ServerUpdateRollout rollout = 1;
+  // served_by_maintenance is true when the answering process is the
+  // maintenance service rather than the regular Frigate daemon.
+  bool served_by_maintenance = 2;
+}
+
+message RetryServerUpdateRequest {
+  string job_id = 1;
+  string idempotency_key = 2;
+}
+
+message RetryServerUpdateResponse {
+  ServerUpdateRollout rollout = 1;
+}
+
+message CancelServerUpdateRequest {
+  string job_id = 1;
+  string idempotency_key = 2;
+}
+
+message CancelServerUpdateResponse {
+  ServerUpdateRollout rollout = 1;
+}
+
+// ServerUpdateRollout is the site-wide state of one self-coordinated update.
+message ServerUpdateRollout {
+  string job_id = 1;
+  string target_version = 2;
+  ServerUpdateRolloutPhase phase = 3;
+  repeated ServerUpdateInstanceProgress instances = 4;
+  // driver_instance_id is the instance whose helper currently drives the
+  // barrier.
+  string driver_instance_id = 5;
+  // migration_executor_instance_id is the instance that runs the database
+  // migration (the Patroni leader).
+  string migration_executor_instance_id = 6;
+  // error_code is empty when there is no error. It is an open set: new codes
+  // may be added, and clients must treat any code they do not recognize as a
+  // generic failure (and show error_message). The same set is used by
+  // ServerUpdateInstanceProgress.error_code. Known codes:
+  //
+  // Refusals, also returned as google.rpc.ErrorInfo reasons in domain
+  // mdk.v2.frigate when an RPC is refused: UPDATE_REMOTE_TRIGGER_DISABLED,
+  // UPDATE_ACTIVE_JOB, UPDATE_NOT_STAGED, UPDATE_STAGE_MISMATCH,
+  // UPDATE_SIGNATURE_INVALID, UPDATE_NO_TRUSTED_KEYS, UPDATE_ETCD_UNHEALTHY,
+  // UPDATE_INSUFFICIENT_SPACE, UPDATE_COOLDOWN, UPDATE_OUTSIDE_WINDOW,
+  // UPDATE_HELPER_UNAVAILABLE, UPDATE_NOT_FOUND, UPDATE_NOT_RETRYABLE,
+  // UPDATE_NOT_CANCELLABLE, UPDATE_SELF_COORDINATION_UNSUPPORTED,
+  // UPDATE_IDEMPOTENCY_CONFLICT (same idempotency key, different request) and
+  // UPDATE_MANIFEST_INVALID (malformed manifest).
+  //
+  // Runtime failures recorded while a rollout runs: UPDATE_PACKAGE_REJECTED
+  // (digest, architecture, version or package control data check failed),
+  // UPDATE_INSTALL_FAILED, UPDATE_MIGRATE_FAILED (including zero or multiple
+  // migration executors), UPDATE_START_FAILED, UPDATE_EXPIRED (pre-stop
+  // deadline passed), UPDATE_ABANDONED (operator ran on-host abandon),
+  // UPDATE_HELPER_CONTACT_LOST and UPDATE_ETCD_UNAVAILABLE.
+  string error_code = 7;
+  string error_message = 8;
+  // next_step is an operator-facing hint.
+  string next_step = 9;
+  bool stage_only = 10;
+  // disruption_started is true once any instance has been stopped.
+  bool disruption_started = 11;
+  bool retryable = 12;
+  bool cancellable = 13;
+  uint32 automatic_retries = 14;
+  // actor is the audit actor that started the rollout.
+  string actor = 15;
+  google.protobuf.Timestamp created_at = 16;
+  google.protobuf.Timestamp updated_at = 17;
+  google.protobuf.Timestamp stopped_at = 18;
+  // expires_at is the deadline after which a rollout that has not stopped any
+  // instance is cancelled.
+  google.protobuf.Timestamp expires_at = 19;
+  // from_version is the version that was running when the rollout started.
+  string from_version = 20;
+  // package_sha256 is the lowercase-hex SHA-256 of the package being installed,
+  // as bound by the signed release statement.
+  string package_sha256 = 21;
+  // release_key_id identifies the key that verified the release statement, as
+  // "sha256:" followed by the lowercase hex SHA-256 of its DER
+  // SubjectPublicKeyInfo.
+  string release_key_id = 22;
+}
+
+message ServerUpdateInstanceProgress {
+  string instance_id = 1;
+  FrigateUpdateAgentPhase phase = 2;
+  // last_contact is the UTC wall-clock time at which this instance's helper
+  // last wrote its report. Helpers write a report at least every 5 seconds
+  // while a rollout is active, and hosts are time-synced (the time-sync gate),
+  // so clients may compare it with their own clock.
+  google.protobuf.Timestamp last_contact = 3;
+  string running_version = 4;
+  bool migration_executed = 5;
+  // error_code is from the same open set as ServerUpdateRollout.error_code.
+  string error_code = 6;
+  string error_message = 7;
+  // manifest_sha256 is the lowercase-hex fingerprint of the manifest this
+  // instance's helper verified, for audit and comparison with the value the
+  // caller staged.
+  string manifest_sha256 = 8;
+  // contact_stale is true when the serving node has seen no report from this
+  // instance's helper for more than 30 seconds while the rollout is not
+  // terminal.
+  bool contact_stale = 9;
 }
 
 message StageServerUpdateRequest {

@@ -27,6 +27,46 @@ service FirmwareService {
     option (mdk.v2.tunnel_access) = TUNNEL_ACCESS_MUTATE;
   }
 
+  // BeginFirmwareArtifactUpload starts a chunked unary upload for clients that
+  // cannot send client-streaming calls, such as browsers using the Connect or
+  // REST gateways. It validates the same metadata as UploadFirmwareArtifact
+  // and returns an upload ID that exists only on the connected node. Idle
+  // uploads expire and release their staged bytes.
+  rpc BeginFirmwareArtifactUpload(BeginFirmwareArtifactUploadRequest) returns (BeginFirmwareArtifactUploadResponse) {
+    option (mdk.v2.product) = PRODUCT_CT1;
+    option (google.api.http) = {
+      post: "/api/v2/firmware/uploads"
+      body: "*"
+    };
+  }
+
+  // WriteFirmwareArtifactUploadChunk writes bytes for one image at an exact
+  // offset. Images may be written in any order, but each image's bytes must
+  // be contiguous. Repeating an already received chunk is accepted, so a
+  // client can safely retry after a lost response.
+  rpc WriteFirmwareArtifactUploadChunk(WriteFirmwareArtifactUploadChunkRequest) returns (WriteFirmwareArtifactUploadChunkResponse) {
+    option (mdk.v2.product) = PRODUCT_CT1;
+    option (google.api.http) = {
+      post: "/api/v2/firmware/uploads/{upload_id}/chunks"
+      body: "*"
+    };
+  }
+
+  // CommitFirmwareArtifactUpload validates and caches a complete upload,
+  // exactly like the final step of UploadFirmwareArtifact. An incomplete
+  // upload is refused without discarding received bytes.
+  rpc CommitFirmwareArtifactUpload(CommitFirmwareArtifactUploadRequest) returns (CommitFirmwareArtifactUploadResponse) {
+    option (mdk.v2.product) = PRODUCT_CT1;
+    option (google.api.http) = {post: "/api/v2/firmware/uploads/{upload_id}/commit"};
+  }
+
+  // AbortFirmwareArtifactUpload discards an unfinished upload. Aborting an
+  // unknown or expired upload succeeds.
+  rpc AbortFirmwareArtifactUpload(AbortFirmwareArtifactUploadRequest) returns (AbortFirmwareArtifactUploadResponse) {
+    option (mdk.v2.product) = PRODUCT_CT1;
+    option (google.api.http) = {delete: "/api/v2/firmware/uploads/{upload_id}"};
+  }
+
   // GetFirmwarePolicy returns the container's desired exact firmware target.
   rpc GetFirmwarePolicy(GetFirmwarePolicyRequest) returns (GetFirmwarePolicyResponse) {
     option (mdk.v2.product) = PRODUCT_CT1;
@@ -340,6 +380,53 @@ message UploadFirmwareArtifactResponse {
   FirmwareArtifactRef artifact = 1;
   repeated FirmwareImage images = 2;
 }
+
+message BeginFirmwareArtifactUploadRequest {
+  FirmwareUploadMetadata metadata = 1;
+}
+
+message BeginFirmwareArtifactUploadResponse {
+  // upload_id identifies the upload on the connected node only.
+  string upload_id = 1;
+  // max_chunk_bytes is the largest accepted chunk data size.
+  uint32 max_chunk_bytes = 2;
+  // expires_at is when the upload is discarded unless another call uses it.
+  google.protobuf.Timestamp expires_at = 3;
+}
+
+message WriteFirmwareArtifactUploadChunkRequest {
+  string upload_id = 1;
+  // image_index selects an entry in the begin request's metadata.images.
+  uint32 image_index = 2;
+  // offset is the byte offset of data within the selected image.
+  int64 offset = 3;
+  bytes data = 4;
+}
+
+message WriteFirmwareArtifactUploadChunkResponse {
+  uint32 image_index = 1;
+  // next_offset is the number of contiguous bytes received for this image.
+  int64 next_offset = 2;
+  // received_bytes and total_bytes cover every image in the upload.
+  int64 received_bytes = 3;
+  int64 total_bytes = 4;
+  google.protobuf.Timestamp expires_at = 5;
+}
+
+message CommitFirmwareArtifactUploadRequest {
+  string upload_id = 1;
+}
+
+message CommitFirmwareArtifactUploadResponse {
+  FirmwareArtifactRef artifact = 1;
+  repeated FirmwareImage images = 2;
+}
+
+message AbortFirmwareArtifactUploadRequest {
+  string upload_id = 1;
+}
+
+message AbortFirmwareArtifactUploadResponse {}
 
 enum FirmwarePolicyFailureMode {
   FIRMWARE_POLICY_FAILURE_MODE_UNSPECIFIED = 0;
