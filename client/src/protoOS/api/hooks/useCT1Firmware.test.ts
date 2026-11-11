@@ -16,7 +16,7 @@ const setup = () => ({
     .mockImplementation(async (_image, _attempt, _progress, _params, starting) => {
       starting();
     }),
-  progress: vi.fn<CT1Firmware["progress"]>().mockResolvedValue({ complete: true, boards: [], errors: [] }),
+  progress: vi.fn<CT1Firmware["progress"]>().mockResolvedValue({ outcome: "completed", boards: [], errors: [] }),
   cancel: vi.fn<CT1Firmware["cancel"]>().mockResolvedValue({ pending: false, finished: false, absent: [] }),
 });
 const tracked = (taskId = "task"): CT1FirmwareAttempt => ({ taskId, boards, version: "9.0.0", build: "prod" });
@@ -44,7 +44,7 @@ describe("CT1 firmware recovery", () => {
     expect(firmware.install).toHaveBeenCalledOnce();
     first.unmount();
     const second = renderHook(() => useCT1Firmware(firmware, "device"));
-    await waitFor(() => expect(second.result.current.progress?.complete).toBe(true));
+    await waitFor(() => expect(second.result.current.progress?.outcome).toBe("completed"));
     expect(firmware.progress).toHaveBeenCalledWith(
       record,
       expect.objectContaining({ signal: expect.any(AbortSignal) }),
@@ -52,6 +52,25 @@ describe("CT1 firmware recovery", () => {
     expect(firmware.install).toHaveBeenCalledOnce();
     act(() => second.result.current.clear());
     expect(saved()).toEqual([]);
+  });
+  it("polls while the update is unresolved and stops once it has ended", async () => {
+    vi.useFakeTimers();
+    try {
+      const firmware = setup();
+      save(tracked());
+      firmware.progress.mockResolvedValue({ boards: [], errors: [] });
+      const { result } = renderHook(() => useCT1Firmware(firmware, "device"));
+      await act(() => vi.advanceTimersByTimeAsync(4500));
+      expect(firmware.progress).toHaveBeenCalledTimes(3);
+      firmware.progress.mockResolvedValue({ outcome: "canceled", boards: [], errors: [] });
+      await act(() => vi.advanceTimersByTimeAsync(2000));
+      expect(result.current.progress?.outcome).toBe("canceled");
+      expect(firmware.progress).toHaveBeenCalledTimes(4);
+      await act(() => vi.advanceTimersByTimeAsync(10_000));
+      expect(firmware.progress).toHaveBeenCalledTimes(4);
+    } finally {
+      vi.useRealTimers();
+    }
   });
   it("retains recovery state when cancellation fails", async () => {
     const firmware = setup();
@@ -62,32 +81,30 @@ describe("CT1 firmware recovery", () => {
     await act(async () => {
       await result.current.cancel();
     });
-    expect(result.current.attempt).toEqual(attempt);
+    expect(result.current.attempt).toEqual({ ...attempt, cancel: "unconfirmed" });
     expect(result.current.error).toBe("Peer unavailable");
-    expect(result.current.cancelUnconfirmed).toBe(true);
-    expect(saved()).toEqual([attempt]);
+    expect(saved()).toEqual([{ ...attempt, cancel: "unconfirmed" }]);
     await act(async () => {
       await result.current.cancel();
     });
     expect(result.current.attempt).toBeUndefined();
-    expect(result.current.cancelUnconfirmed).toBe(false);
     expect(saved()).toEqual([]);
   });
   it("retains and reloads a cancellation that is still stopping boards", async () => {
     const firmware = setup();
     const attempt = tracked();
     save(attempt);
-    firmware.progress.mockResolvedValue({ complete: false, boards: [], errors: [] });
+    firmware.progress.mockResolvedValue({ boards: [], errors: [] });
     firmware.cancel.mockResolvedValue({ pending: true, finished: false, absent: [] });
     const first = renderHook(() => useCT1Firmware(firmware, "device"));
     await act(async () => {
       await first.result.current.cancel();
     });
-    expect(first.result.current.attempt?.cancelRequested).toBe(true);
+    expect(first.result.current.attempt?.cancel).toBe("requested");
     first.unmount();
     const second = renderHook(() => useCT1Firmware(firmware, "device"));
-    expect(second.result.current.attempt?.cancelRequested).toBe(true);
-    expect(saved()).toEqual([{ ...attempt, cancelRequested: true }]);
+    expect(second.result.current.attempt?.cancel).toBe("requested");
+    expect(saved()).toEqual([{ ...attempt, cancel: "requested" }]);
   });
   it("aborts the active upload when leaving the page", async () => {
     const firmware = setup();
@@ -200,38 +217,72 @@ describe("CT1 firmware recovery", () => {
     const firmware = setup();
     const attempt = tracked();
     save(attempt);
-    firmware.progress.mockResolvedValue({ complete: false, boards: [], errors: [] });
+    firmware.progress.mockResolvedValue({ boards: [], errors: [] });
     firmware.cancel.mockResolvedValue({ pending: false, finished: false, absent: ["controller"] });
     const { result } = renderHook(() => useCT1Firmware(firmware, "device"));
     await act(async () => {
       await result.current.cancel();
     });
-    expect(result.current.attempt).toEqual({ ...attempt, cancelRequested: true });
-    expect(result.current.cancelUnconfirmed).toBe(true);
-    expect(saved()).toEqual([{ ...attempt, cancelRequested: true }]);
+    expect(result.current.attempt).toEqual({ ...attempt, cancel: "unconfirmed" });
+    expect(saved()).toEqual([{ ...attempt, cancel: "unconfirmed" }]);
     act(() => result.current.clear());
     expect(result.current.attempt).toBeUndefined();
-    expect(result.current.cancelUnconfirmed).toBe(false);
     expect(saved()).toEqual([]);
+  });
+  it("still offers the release after a reload when a cancel was not confirmed", async () => {
+    const firmware = setup();
+    const attempt = tracked();
+    save(attempt);
+    firmware.progress.mockResolvedValue({ boards: [], errors: [] });
+    firmware.cancel.mockRejectedValue(new Error("Peer unavailable"));
+    const first = renderHook(() => useCT1Firmware(firmware, "device"));
+    await act(async () => {
+      await first.result.current.cancel();
+    });
+    first.unmount();
+    const second = renderHook(() => useCT1Firmware(firmware, "device"));
+    expect(second.result.current.attempt).toEqual({ ...attempt, cancel: "unconfirmed" });
+    expect(firmware.cancel).toHaveBeenCalledOnce();
+  });
+  it("does not record a cancel that was aborted by leaving the page", async () => {
+    const firmware = setup();
+    const attempt = tracked();
+    save(attempt);
+    firmware.progress.mockResolvedValue({ boards: [], errors: [] });
+    firmware.cancel.mockImplementation(
+      (_attempt, params) =>
+        new Promise((_resolve, reject) =>
+          params?.signal?.addEventListener("abort", () => reject(new Error("Aborted")), { once: true }),
+        ),
+    );
+    const { result, unmount } = renderHook(() => useCT1Firmware(firmware, "device"));
+    let pending: Promise<void> | undefined;
+    act(() => {
+      pending = result.current.cancel();
+    });
+    unmount();
+    await pending;
+    expect(saved()).toEqual([attempt]);
   });
   it("keeps the result of an update that finished before the cancel arrived", async () => {
     const firmware = setup();
     const attempt = tracked();
-    save(attempt);
+    // An earlier cancel could not be confirmed; the job then finished on its own.
+    save({ ...attempt, cancel: "unconfirmed" });
     firmware.cancel.mockResolvedValue({ pending: false, finished: true, absent: [] });
     const { result } = renderHook(() => useCT1Firmware(firmware, "device"));
     await act(async () => {
       await result.current.cancel();
     });
     expect(result.current.attempt).toEqual(attempt);
-    expect(result.current.cancelUnconfirmed).toBe(false);
+    expect(result.current.attempt?.cancel).toBeUndefined();
     expect(saved()).toEqual([attempt]);
-    await waitFor(() => expect(result.current.progress?.complete).toBe(true));
+    await waitFor(() => expect(result.current.progress?.outcome).toBe("completed"));
   });
   it("adopts an update another tab started instead of uploading a second one", async () => {
     const firmware = setup();
     const other = tracked("other-tab");
-    firmware.progress.mockResolvedValue({ complete: false, boards: [], errors: [] });
+    firmware.progress.mockResolvedValue({ boards: [], errors: [] });
     const { result } = renderHook(() => useCT1Firmware(firmware, "device"));
     await act(() => result.current.choose(file));
     save(other);
@@ -244,7 +295,7 @@ describe("CT1 firmware recovery", () => {
   it("refuses Start when another tab saved its update during this tab's upload", async () => {
     const firmware = setup();
     const other = tracked("other-tab");
-    firmware.progress.mockResolvedValue({ complete: false, boards: [], errors: [] });
+    firmware.progress.mockResolvedValue({ boards: [], errors: [] });
     firmware.install.mockImplementation(async (_image, _attempt, _progress, _params, starting) => {
       save(other);
       starting();
@@ -260,7 +311,7 @@ describe("CT1 firmware recovery", () => {
   it("keeps an accepted update's record when a tab that claimed at the same moment is refused", async () => {
     const firmware = setup();
     const accepted = tracked("accepted");
-    firmware.progress.mockResolvedValue({ complete: false, boards: [], errors: [] });
+    firmware.progress.mockResolvedValue({ boards: [], errors: [] });
     firmware.install.mockImplementation(async (_image, _attempt, _progress, _params, starting) => {
       starting();
       // The controller accepted the other tab's Start and refuses this one.
@@ -287,7 +338,7 @@ describe("CT1 firmware recovery", () => {
   it("keeps both records when two simultaneous Starts are uncertain, and shows them one at a time", async () => {
     const firmware = setup();
     const other = tracked("other-tab");
-    firmware.progress.mockResolvedValue({ complete: false, boards: [], errors: [] });
+    firmware.progress.mockResolvedValue({ boards: [], errors: [] });
     firmware.install.mockImplementation(async (_image, _attempt, _progress, _params, starting) => {
       starting();
       save(other);
@@ -310,7 +361,7 @@ describe("CT1 firmware recovery", () => {
     const newer = tracked("newer");
     save(older);
     const { result } = renderHook(() => useCT1Firmware(firmware, "device"));
-    await waitFor(() => expect(result.current.progress?.complete).toBe(true));
+    await waitFor(() => expect(result.current.progress?.outcome).toBe("completed"));
     // Another tab finished the older update and started a new one.
     removeAttempt("device", older.taskId);
     save(newer);
@@ -322,7 +373,7 @@ describe("CT1 firmware recovery", () => {
     const firmware = setup();
     const attempt = tracked();
     save(attempt);
-    firmware.progress.mockResolvedValue({ complete: false, boards: [], errors: [] });
+    firmware.progress.mockResolvedValue({ boards: [], errors: [] });
     firmware.cancel.mockImplementation(async () => {
       removeAttempt("device", attempt.taskId);
       return { pending: true, finished: false, absent: [] };

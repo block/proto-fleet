@@ -2,6 +2,7 @@ import {
   type CT1Firmware,
   type CT1FirmwareAttempt,
   type CT1FirmwareBoard,
+  type CT1FirmwareOutcome,
   type CT1FirmwareProgress,
   CT1FirmwareStartRefusedError,
 } from "../ct1Firmware";
@@ -79,14 +80,17 @@ export function firmwareBoards(map: V2GetContainerMapResponse, serverId: string)
 const errorMessage = (error: unknown) => (error instanceof Error ? error.message : "Controller unavailable");
 const statusCode = (error: unknown) => (error as { status?: number } | undefined)?.status;
 const owners = (attempt: CT1FirmwareAttempt) => [...new Set(attempt.boards.map((board) => board.owner))];
-const terminalStatuses = new Set<V2FirmwareUpdateStatus>([
-  V2FirmwareUpdateStatus.FIRMWARE_UPDATE_STATUS_COMPLETED,
-  V2FirmwareUpdateStatus.FIRMWARE_UPDATE_STATUS_COMPLETED_WITH_ERRORS,
-  V2FirmwareUpdateStatus.FIRMWARE_UPDATE_STATUS_FAILED,
-  V2FirmwareUpdateStatus.FIRMWARE_UPDATE_STATUS_CANCELED,
-  V2FirmwareUpdateStatus.FIRMWARE_UPDATE_STATUS_INTERRUPTED,
+// A job has ended once it reports one of these statuses. They are listed from best to worst: when owners end
+// differently, the update as a whole is reported by the worst of them.
+const endedOutcomes = new Map<V2FirmwareUpdateStatus, CT1FirmwareOutcome>([
+  [V2FirmwareUpdateStatus.FIRMWARE_UPDATE_STATUS_COMPLETED, "completed"],
+  [V2FirmwareUpdateStatus.FIRMWARE_UPDATE_STATUS_COMPLETED_WITH_ERRORS, "completedWithErrors"],
+  [V2FirmwareUpdateStatus.FIRMWARE_UPDATE_STATUS_CANCELED, "canceled"],
+  [V2FirmwareUpdateStatus.FIRMWARE_UPDATE_STATUS_INTERRUPTED, "interrupted"],
+  [V2FirmwareUpdateStatus.FIRMWARE_UPDATE_STATUS_FAILED, "failed"],
 ]);
-const isTerminal = (status?: V2FirmwareUpdateStatus) => status !== undefined && terminalStatuses.has(status);
+const outcomeRank = [...endedOutcomes.values()];
+const isTerminal = (status?: V2FirmwareUpdateStatus) => status !== undefined && endedOutcomes.has(status);
 // The same split as Fleet's firmwareStartRefused (plugin/proto/internal/ct1/firmware.go): with these answers the
 // controller created no job. Every other outcome, including no status at all, is uncertain and stays tracked.
 const startRefusedStatuses = new Set([400, 401, 403, 404, 429, 501]);
@@ -189,7 +193,9 @@ export function createCT1Firmware(
       }
     },
     async progress(attempt, params) {
-      const result: CT1FirmwareProgress = { boards: [], complete: true, errors: [] };
+      const result: CT1FirmwareProgress = { boards: [], errors: [] };
+      const ended: CT1FirmwareOutcome[] = [];
+      let unresolved = false;
       await Promise.all(
         owners(attempt).map(async (owner) => {
           const expected = attempt.boards.filter((board) => board.owner === owner);
@@ -201,12 +207,14 @@ export function createCT1Firmware(
             const job = data.update;
             if (!job || job.taskId !== attempt.taskId || job.serverId !== owner)
               throw new Error("Controller returned a different firmware task.");
-            if (!isTerminal(job.status)) result.complete = false;
+            const outcome = job.status && endedOutcomes.get(job.status);
+            if (outcome) ended.push(outcome);
+            else unresolved = true;
             if (job.error) result.errors.push(`${owner}: ${job.error}`);
             for (const board of expected) {
               const target = job.targets?.find((target) => target.macAddress?.toUpperCase() === board.mac);
               if (!target) {
-                result.complete = false;
+                unresolved = true;
                 result.errors.push(`${board.label}: missing from update status`);
               }
               result.boards.push({
@@ -219,7 +227,7 @@ export function createCT1Firmware(
               });
             }
           } catch (error) {
-            result.complete = false;
+            unresolved = true;
             result.errors.push(
               `${owner}: ${statusCode(error) === 404 ? "Update not found. Check again, or cancel and stop tracking before starting another update." : errorMessage(error)}`,
             );
@@ -228,6 +236,7 @@ export function createCT1Firmware(
         }),
       );
       result.boards.sort((a, b) => a.label.localeCompare(b.label, undefined, { numeric: true }));
+      if (!unresolved) result.outcome = outcomeRank[Math.max(...ended.map((outcome) => outcomeRank.indexOf(outcome)))];
       return result;
     },
     async cancel(attempt, params) {

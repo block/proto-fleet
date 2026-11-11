@@ -1,9 +1,26 @@
 import { useRef, useState } from "react";
-import type { CT1Firmware } from "@/protoOS/api/adapters/ct1Firmware";
+import clsx from "clsx";
+import type { CT1Firmware, CT1FirmwareOutcome } from "@/protoOS/api/adapters/ct1Firmware";
 import { useCT1Firmware } from "@/protoOS/api/hooks/useCT1Firmware";
 import Button from "@/shared/components/Button";
 import Dialog from "@/shared/components/Dialog";
 import FileSizeValue from "@/shared/components/FileSizeValue";
+
+const outcomeText: Record<CT1FirmwareOutcome, string> = {
+  completed: "Update finished",
+  completedWithErrors: "Update finished with errors",
+  canceled: "Update canceled",
+  interrupted: "Update interrupted",
+  failed: "Update failed",
+};
+
+// The board list gives up height before the dialog itself has to scroll, so the footer stays on screen in a short
+// window. Each offset is the height of everything else in the dialog plus room for a message; the footer is taller
+// once a third button makes it stack.
+const boardListHeight = {
+  row: "max-h-[clamp(6rem,calc(100dvh_-_29rem),20rem)]",
+  stacked: "max-h-[clamp(4.5rem,calc(100dvh_-_37rem),20rem)]",
+};
 
 export default function CT1FirmwareUpload({ firmware, deviceId }: { firmware: CT1Firmware; deviceId: string }) {
   const state = useCT1Firmware(firmware, deviceId);
@@ -13,6 +30,16 @@ export default function CT1FirmwareUpload({ firmware, deviceId }: { firmware: CT
   const close = () => {
     if (!state.busy) setOpen(false);
   };
+  const outcome = state.progress?.outcome;
+  const unconfirmed = state.attempt?.cancel === "unconfirmed";
+  // One line per distinct message: a failed cancel and the status poll often report the same unreachable controller.
+  const alerts = [
+    ...new Set([...(state.attempt ? (state.progress?.errors ?? []) : []), ...(state.error ? [state.error] : [])]),
+  ].map((message) => (
+    <p key={message} role="alert" className="text-text-critical">
+      {message}
+    </p>
+  ));
   return (
     <div className="mt-6 flex justify-center">
       <Button variant="secondary" size="compact" onClick={() => setOpen(true)}>
@@ -45,7 +72,7 @@ export default function CT1FirmwareUpload({ firmware, deviceId }: { firmware: CT
           buttons={[
             { text: "Close", variant: "secondary", disabled: state.busy, onClick: close },
             ...(state.attempt
-              ? state.progress?.complete
+              ? outcome
                 ? [
                     {
                       text: "Done",
@@ -57,7 +84,7 @@ export default function CT1FirmwareUpload({ firmware, deviceId }: { firmware: CT
                     },
                   ]
                 : [
-                    ...(state.cancelUnconfirmed
+                    ...(unconfirmed
                       ? [
                           {
                             text: "Stop tracking",
@@ -68,7 +95,7 @@ export default function CT1FirmwareUpload({ firmware, deviceId }: { firmware: CT
                         ]
                       : []),
                     {
-                      text: state.attempt.cancelRequested ? "Retry cancel" : "Cancel update",
+                      text: state.attempt.cancel ? "Retry cancel" : "Cancel update",
                       variant: "primary" as const,
                       disabled: state.busy,
                       onClick: state.cancel,
@@ -124,6 +151,7 @@ export default function CT1FirmwareUpload({ firmware, deviceId }: { firmware: CT
                     Keep this page open.
                   </p>
                 ) : null}
+                {alerts}
               </>
             ) : (
               <>
@@ -133,20 +161,22 @@ export default function CT1FirmwareUpload({ firmware, deviceId }: { firmware: CT
                 <p role="status">
                   {state.busy
                     ? "Confirming update…"
-                    : state.progress?.complete
-                      ? "Update finished"
-                      : state.cancelUnconfirmed
+                    : outcome
+                      ? outcomeText[outcome]
+                      : unconfirmed
                         ? "The cancel was not confirmed by every controller."
-                        : state.attempt.cancelRequested
+                        : state.attempt.cancel
                           ? "Cancel requested. Waiting for hashboards to stop…"
                           : "Checking update status…"}
                 </p>
-                {state.progress?.errors.map((error) => (
-                  <p key={error} role="alert" className="text-text-critical">
-                    {error}
-                  </p>
-                ))}
-                <ul className="max-h-80 space-y-3 overflow-y-auto" aria-label="Hashboard update progress">
+                {alerts}
+                <ul
+                  className={clsx(
+                    "space-y-3 overflow-y-auto",
+                    unconfirmed && !outcome ? boardListHeight.stacked : boardListHeight.row,
+                  )}
+                  aria-label="Hashboard update progress"
+                >
                   {state.progress?.boards.map((board) => (
                     <li key={board.mac}>
                       <p>{board.label}</p>
@@ -160,11 +190,6 @@ export default function CT1FirmwareUpload({ firmware, deviceId }: { firmware: CT
                 </ul>
               </>
             )}
-            {state.error ? (
-              <p role="alert" className="text-text-critical">
-                {state.error}
-              </p>
-            ) : null}
           </div>
         </Dialog>
       ) : null}

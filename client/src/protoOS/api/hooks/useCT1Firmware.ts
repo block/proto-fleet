@@ -28,8 +28,6 @@ export function useCT1Firmware(firmware: CT1Firmware, deviceId: string) {
   const [error, setError] = useState<string>();
   const [busy, setBusy] = useState(false);
   const [uploadPercent, setUploadPercent] = useState(0);
-  // The last cancel left an owner unreachable or unaware of the task, so only the operator can release the record.
-  const [cancelUnconfirmed, setCancelUnconfirmed] = useState(false);
   const request = useRef<AbortController | null>(null);
   const starting = useRef(false);
   const mounted = useRef(true);
@@ -44,7 +42,7 @@ export function useCT1Firmware(firmware: CT1Firmware, deviceId: string) {
 
   usePoll({
     params: attempt,
-    enabled: !!attempt && !busy && !progress?.complete,
+    enabled: !!attempt && !busy && !progress?.outcome,
     poll: true,
     pollIntervalMs: 2000,
     fetchData: async (signal) => {
@@ -159,7 +157,6 @@ export function useCT1Firmware(firmware: CT1Firmware, deviceId: string) {
     setBoards([]);
     setProgress(undefined);
     setError(undefined);
-    setCancelUnconfirmed(false);
   };
 
   const cancel = () => {
@@ -175,18 +172,18 @@ export function useCT1Firmware(firmware: CT1Firmware, deviceId: string) {
             signal: AbortSignal.any([signal, AbortSignal.timeout(15_000)]),
           });
         } catch (failure) {
-          if (mounted.current && !signal.aborted) setCancelUnconfirmed(true);
+          // An owner could not be reached. Save that with the record, so the release stays on offer after a reload.
+          if (!signal.aborted) retrack({ ...attempt, cancel: "unconfirmed" });
           throw failure;
         }
         signal.throwIfAborted();
-        const unconfirmed = canceled.absent.length > 0;
-        setCancelUnconfirmed(unconfirmed);
-        // Clear only once every owner confirmed a canceled job. Boards still stopping and owners that do not know
-        // the task stay tracked; a job that ended before the cancel arrived keeps its result until Done.
-        if (canceled.pending || unconfirmed) {
-          retrack({ ...attempt, cancelRequested: true });
+        // Clear only once every owner confirmed a canceled job. Owners that do not know the task and boards still
+        // stopping stay tracked; a job that ended before the cancel arrived keeps its result until Done.
+        if (canceled.absent.length || canceled.pending) {
+          retrack({ ...attempt, cancel: canceled.absent.length ? "unconfirmed" : "requested" });
           setProgress(undefined);
-        } else if (!canceled.finished) clear();
+        } else if (canceled.finished) retrack({ ...attempt, cancel: undefined });
+        else clear();
       });
   };
 
@@ -198,7 +195,6 @@ export function useCT1Firmware(firmware: CT1Firmware, deviceId: string) {
     error,
     busy,
     uploadPercent,
-    cancelUnconfirmed,
     choose,
     install,
     cancel,

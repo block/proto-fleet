@@ -111,7 +111,7 @@ test("local hashboard firmware can cancel an update and displays a board failure
     expect(listed.updates!.find((job) => taskIds.has(job.taskId!))?.status).toBe("FIRMWARE_UPDATE_STATUS_CANCELED");
     await isolation(true);
     await dashboard.install();
-    await expect(dashboard.dialog().getByRole("status")).toHaveText("Update finished");
+    await expect(dashboard.dialog().getByRole("status")).toHaveText("Update finished with errors");
     await expect(dashboard.dialog().getByText(/failed.*Simulated hashboard/)).toBeVisible();
     await expect(dashboard.dialog().getByText("succeeded · 100%", { exact: true })).toHaveCount(17);
     await test.info().attach("firmware-failed-dark", { body: await page.screenshot(), contentType: "image/png" });
@@ -164,12 +164,22 @@ test("a refused Start is not tracked, and an update no controller knows stays tr
       body: await page.screenshot(),
       contentType: "image/png",
     });
+    // With three buttons the footer stacks; the board list shrinks so the buttons stay on screen in a short window.
+    const size = page.viewportSize()!;
+    await page.setViewportSize({ width: size.width, height: 700 });
+    await expect(dashboard.dialog().getByRole("button", { name: "Close", exact: true })).toBeInViewport({
+      ratio: 0.99,
+    });
+    await page.setViewportSize(size);
     await dashboard.reopenStatus();
+    // The unconfirmed cancel is saved with the record, so a reload shows the same state and the same way out.
+    await expect(dashboard.dialog().getByRole("status")).toHaveText(
+      "The cancel was not confirmed by every controller.",
+    );
     await expect(dashboard.dialog().getByRole("button", { name: "Retry cancel", exact: true })).toBeVisible();
   });
 
   await test.step("the operator releases it explicitly", async () => {
-    await dashboard.dialog().getByRole("button", { name: "Retry cancel", exact: true }).click();
     await dashboard.dialog().getByRole("button", { name: "Stop tracking", exact: true }).click();
     await expect(page.getByRole("dialog", { name: "Stop tracking this update?" })).toBeVisible();
     await test.info().attach("firmware-stop-tracking", { body: await page.screenshot(), contentType: "image/png" });
@@ -218,5 +228,46 @@ test("a second tab adopts the tracked update instead of starting another one", a
   } finally {
     for (const taskId of taskIds)
       expect((await request.post(procedure("CancelFirmwareUpdate"), { headers, data: { taskId } })).ok()).toBe(true);
+  }
+});
+
+test("an update another client cancels reads as canceled, and the dialog fits a short window", async ({
+  page,
+  request,
+}) => {
+  const dashboard = new CT1FirmwarePage(page);
+  const taskIds = new Set<string>();
+  page.on("request", (req) => {
+    if (new URL(req.url()).pathname === procedure("StartFirmwareUpdate"))
+      taskIds.add(fromBinary(StartFirmwareUpdateRequestSchema, req.postDataBuffer()!).taskId);
+  });
+  const cancelAll = async () => {
+    for (const taskId of taskIds)
+      expect((await request.post(procedure("CancelFirmwareUpdate"), { headers, data: { taskId } })).ok()).toBe(true);
+  };
+  try {
+    await dashboard.open();
+    const started = page.waitForResponse(
+      (response) => new URL(response.url()).pathname === procedure("StartFirmwareUpdate"),
+    );
+    await dashboard.install();
+    expect((await started).ok()).toBe(true);
+    // Another client, such as a second browser or Fleet, cancels the task this page is tracking.
+    await cancelAll();
+    await expect(dashboard.dialog().getByRole("status")).toHaveText("Update canceled");
+    await expect(dashboard.dialog().getByRole("listitem")).toHaveCount(18);
+
+    // The board list shrinks before the dialog has to scroll, so the footer stays on screen in a short window.
+    await page.setViewportSize({ width: page.viewportSize()!.width, height: 640 });
+    const done = dashboard.dialog().getByRole("button", { name: "Done", exact: true });
+    await expect(done).toBeInViewport({ ratio: 0.99 });
+    await test.info().attach("firmware-canceled-short-window", {
+      body: await page.screenshot(),
+      contentType: "image/png",
+    });
+    await done.click();
+    await expect(dashboard.uploadButton()).toBeVisible();
+  } finally {
+    await cancelAll();
   }
 });

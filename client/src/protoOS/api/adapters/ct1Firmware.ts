@@ -15,15 +15,24 @@ export interface CT1FirmwareBoard {
 /** Persist before Start: an uncertain result must never create another task. */
 export interface CT1FirmwareAttempt {
   taskId: string;
-  cancelRequested?: boolean;
+  /**
+   * Set once the operator has tried to cancel, and saved with the record so a reload shows the same state.
+   * "requested": every owner accepted the cancel and its boards are still stopping. "unconfirmed": an owner was
+   * unreachable or does not know the task, so only the operator can release the record.
+   */
+  cancel?: "requested" | "unconfirmed";
   boards: CT1FirmwareBoard[];
   version: string;
   build: string;
 }
 
+/** How an update ended, from the owners' job statuses. When owners end differently, the worst is reported. */
+export type CT1FirmwareOutcome = "completed" | "completedWithErrors" | "canceled" | "interrupted" | "failed";
+
 export interface CT1FirmwareProgress {
   boards: Array<CT1FirmwareBoard & { status: string; percent?: number; message?: string }>;
-  complete: boolean;
+  /** Set once every owner reports an ended job that lists all of its boards; absent while any owner is unresolved. */
+  outcome?: CT1FirmwareOutcome;
   errors: string[];
 }
 

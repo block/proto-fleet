@@ -149,14 +149,20 @@ controller definitively refuses creates no job and is not tracked. After a lost 
 **Hashboard update status** queries each owner without resubmitting Start.
 
 Tracking is cleared only when every owner confirms the outcome: **Done** after
-the update finishes, or a cancel that every owner answers with a canceled job.
+the update ends, or a cancel that every owner answers with a canceled job.
 Missing or unreachable owners remain visibly unresolved, and a job that finished
 before the cancel arrived keeps its per-board result until **Done**. When a
 cancel attempt leaves an owner unreachable or reporting the task as not found,
 **Stop tracking** releases the record after confirmation; an update still
-running on that controller continues. A cancellation request that is still
-stopping boards remains recoverable across reloads. Progress includes each
-board's phase and failure details. Browser storage does not transfer across
+running on that controller continues. The state of a cancel is saved with the
+record, so both a request that is still stopping boards and one that was not
+confirmed read the same after a reload.
+
+Once every owner's job has ended, the status states how: finished, finished with
+errors, canceled, interrupted, or failed. It comes from the owners' job
+statuses, so an update that another client cancels or a controller interrupts
+is not reported as finished; when owners end differently, the worst outcome is
+shown. Progress includes each board's phase and failure details. Browser storage does not transfer across
 origins, browsers, or controllers, and an unfinished upload must be selected
 again after a reload.
 

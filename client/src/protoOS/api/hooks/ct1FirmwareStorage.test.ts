@@ -32,8 +32,8 @@ describe("CT1 firmware recovery records", () => {
   it("rewrites and releases a record without touching another task's", () => {
     saveAttempt("device", attempt("a"));
     saveAttempt("device", attempt("b"));
-    saveAttempt("device", { ...attempt("a"), cancelRequested: true });
-    expect(readAttempts("device")).toEqual([{ ...attempt("a"), cancelRequested: true }, attempt("b")]);
+    saveAttempt("device", { ...attempt("a"), cancel: "requested" });
+    expect(readAttempts("device")).toEqual([{ ...attempt("a"), cancel: "requested" }, attempt("b")]);
     removeAttempt("device", "a");
     removeAttempt("device", "a");
     expect(readAttempts("device")).toEqual([attempt("b")]);

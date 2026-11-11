@@ -106,12 +106,12 @@ describe("CT1 firmware", () => {
       },
     }));
     const result = await firmware.progress(attempt);
-    expect(result.complete).toBe(true);
+    expect(result.outcome).toBe("completedWithErrors");
     expect(result.boards).toHaveLength(18);
     expect(result.boards.filter((board) => board.message === "flash failed")).toHaveLength(2);
     mock.firmwareServiceGetFirmwareUpdate.mockRejectedValueOnce({ status: 404 });
     const missing = await firmware.progress(attempt);
-    expect(missing.complete).toBe(false);
+    expect(missing.outcome).toBeUndefined();
     expect(missing.errors[0]).toContain("Update not found");
     expect((await firmware.cancel(attempt)).pending).toBe(false);
     expect(mock.firmwareServiceCancelFirmwareUpdate).toHaveBeenCalledTimes(2);
@@ -119,6 +119,55 @@ describe("CT1 firmware", () => {
       { taskId: "client-task", serverId: "owner-b" },
       expect.anything(),
     );
+  });
+  it.each([
+    [["COMPLETED", "COMPLETED"], "completed"],
+    [["COMPLETED", "COMPLETED_WITH_ERRORS"], "completedWithErrors"],
+    [["CANCELED", "COMPLETED"], "canceled"],
+    [["CANCELED", "INTERRUPTED"], "interrupted"],
+    [["FAILED", "COMPLETED_WITH_ERRORS"], "failed"],
+    [["COMPLETED", "RUNNING"], undefined],
+    [["CANCELED", "PENDING"], undefined],
+  ] as const)("reports owners that ended as %j with outcome %s", async ([ownerA, ownerB], outcome) => {
+    const { mock, firmware, attempt } = setup();
+    mock.firmwareServiceGetFirmwareUpdate.mockImplementation(({ serverId, taskId }) => ({
+      data: {
+        update: {
+          taskId,
+          serverId,
+          status: V2FirmwareUpdateStatus[`FIRMWARE_UPDATE_STATUS_${serverId === "owner-a" ? ownerA : ownerB}`],
+          targets: attempt.boards
+            .filter((board) => board.owner === serverId)
+            .map((board) => ({
+              macAddress: board.mac,
+              status: V2FirmwareTargetStatus.FIRMWARE_TARGET_STATUS_FLASHING,
+            })),
+        },
+      },
+    }));
+    expect((await firmware.progress(attempt)).outcome).toBe(outcome);
+  });
+  it("does not report an outcome while an ended job is missing one of its boards", async () => {
+    const { mock, firmware, attempt } = setup();
+    mock.firmwareServiceGetFirmwareUpdate.mockImplementation(({ serverId, taskId }) => ({
+      data: {
+        update: {
+          taskId,
+          serverId,
+          status: V2FirmwareUpdateStatus.FIRMWARE_UPDATE_STATUS_COMPLETED,
+          targets: attempt.boards
+            .filter((board) => board.owner === serverId)
+            .slice(serverId === "owner-a" ? 1 : 0)
+            .map((board) => ({
+              macAddress: board.mac,
+              status: V2FirmwareTargetStatus.FIRMWARE_TARGET_STATUS_SUCCEEDED,
+            })),
+        },
+      },
+    }));
+    const result = await firmware.progress(attempt);
+    expect(result.outcome).toBeUndefined();
+    expect(result.errors).toEqual([`${attempt.boards[0].label}: missing from update status`]);
   });
   it("refuses incomplete, duplicate or changed board maps before uploading", async () => {
     const { mock, firmware, attempt, image, map } = setup();
