@@ -176,9 +176,9 @@ jobs:
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: /tmp/docker-images/e2e-images.tar.gz
-          # `server/**` because the Dockerfile does `COPY server/ ./`
-          # (e.g. go:embed migrations), plus root build-context exclusions.
-          key: ${{ runner.os }}-protofleet-e2e-app-${{ hashFiles('server/**', '.dockerignore') }}
+          # Include both local modules copied into the image (including embedded
+          # migrations), plus root build-context exclusions.
+          key: ${{ runner.os }}-protofleet-e2e-app-${{ hashFiles('server/**', 'sdk/mdk/**', '.dockerignore') }}
 
       # Reclaim ~20-25 GB of preinstalled toolchains this Hermit-based build
       # never uses (Go/Node/etc. come from Hermit, not the hosted tool cache).
@@ -241,7 +241,7 @@ jobs:
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: /tmp/docker-images/e2e-images.tar.gz
-          key: ${{ runner.os }}-protofleet-e2e-app-${{ hashFiles('server/**', '.dockerignore') }}
+          key: ${{ runner.os }}-protofleet-e2e-app-${{ hashFiles('server/**', 'sdk/mdk/**', '.dockerignore') }}
 
       - name: Upload Docker images
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

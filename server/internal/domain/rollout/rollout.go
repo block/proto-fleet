@@ -1075,7 +1075,11 @@ func (t target) skipped() bool { return t.halted() && t.HaltReason == HaltReason
 
 // reportsTarget: the miner reports the rollout's version.
 func (t target) reportsTarget(r sqlc.FirmwareRollout) bool {
-	return t.FirmwareVersion == r.FirmwareVersion
+	return t.FirmwareVersionKnown && t.FirmwareVersion == r.FirmwareVersion
+}
+
+func (t target) reportsOtherVersion(r sqlc.FirmwareRollout) bool {
+	return t.FirmwareVersionKnown && t.FirmwareVersion != r.FirmwareVersion
 }
 
 // meetsConvergence checks the live evidence needed to enter DONE: target version with

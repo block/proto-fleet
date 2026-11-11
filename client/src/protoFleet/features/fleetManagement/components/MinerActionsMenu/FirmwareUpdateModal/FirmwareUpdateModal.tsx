@@ -1,12 +1,18 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import clsx from "clsx";
 import type { FirmwareFileInfo } from "@/protoFleet/api/useFirmwareApi";
-import { hasCompleteFirmwareTarget, useFirmwareApi } from "@/protoFleet/api/useFirmwareApi";
+import {
+  DEFAULT_HASHBOARD_BUILD,
+  hasCompleteFirmwareTarget,
+  isCT1FirmwareTarget,
+  useFirmwareApi,
+} from "@/protoFleet/api/useFirmwareApi";
 import {
   FileDropZone,
   FileErrorStatus,
   FileProcessingStatus,
   FileReadyStatus,
+  HashboardBuildField,
   useFirmwareUpload,
 } from "@/protoFleet/components/FirmwareUpload";
 import {
@@ -45,6 +51,7 @@ const FirmwareUpdateModal = ({ open, target, onConfirm, onDismiss }: FirmwareUpd
   const [existingFiles, setExistingFiles] = useState<FirmwareFileInfo[] | null>(null);
   const [selectedExistingFileId, setSelectedExistingFileId] = useState<string | null>(null);
   const [showUploadZone, setShowUploadZone] = useState(false);
+  const [hashboardBuild, setHashboardBuild] = useState<string>(DEFAULT_HASHBOARD_BUILD);
   const [firmwareVersion, setFirmwareVersion] = useState("");
 
   const effectiveTargetManufacturer = target?.targetManufacturer ?? "";
@@ -54,8 +61,9 @@ const FirmwareUpdateModal = ({ open, target, onConfirm, onDismiss }: FirmwareUpd
       targetManufacturer: effectiveTargetManufacturer,
       targetModel: effectiveTargetModel,
       firmwareVersion,
+      hashboardBuild,
     }),
-    [effectiveTargetManufacturer, effectiveTargetModel, firmwareVersion],
+    [effectiveTargetManufacturer, effectiveTargetModel, firmwareVersion, hashboardBuild],
   );
   const hasUploadTarget = hasCompleteFirmwareTarget(uploadTarget);
 
@@ -139,7 +147,9 @@ const FirmwareUpdateModal = ({ open, target, onConfirm, onDismiss }: FirmwareUpd
   return (
     <Modal open={open} title="Add firmware payload" onDismiss={handleDismiss} buttons={buttons} divider={false}>
       <div className="mt-2 text-300 text-text-primary-70">
-        Select a firmware payload to update your miners. They will reboot automatically after installation completes.
+        {isCT1FirmwareTarget(uploadTarget)
+          ? "Update all hashboards in this container. Mining pauses while each hashboard updates."
+          : "Select a firmware payload to update your miners. They will reboot automatically after installation completes."}
       </div>
       <div className="mt-6 flex flex-col gap-4">
         {showLoadingSpinner ? (
@@ -238,6 +248,13 @@ const FirmwareUpdateModal = ({ open, target, onConfirm, onDismiss }: FirmwareUpd
               disabled={uploadMetadataLocked}
               required
             />
+            {isCT1FirmwareTarget(uploadTarget) ? (
+              <HashboardBuildField
+                value={hashboardBuild}
+                onChange={setHashboardBuild}
+                disabled={uploadMetadataLocked}
+              />
+            ) : null}
             {uploadState === "idle" ? (
               <FileDropZone
                 extensions={serverConfig.allowedExtensions}

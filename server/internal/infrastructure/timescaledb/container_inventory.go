@@ -63,7 +63,7 @@ func storeContainerInventory(ctx context.Context, q *sqlc.Queries, identifier st
 	if err != nil {
 		return err
 	}
-	id, err := q.AdvanceContainerInventory(ctx, sqlc.AdvanceContainerInventoryParams{DeviceIdentifier: identifier, ObservedAt: snapshot.ObservedAt})
+	id, err := q.AdvanceContainerInventory(ctx, sqlc.AdvanceContainerInventoryParams{DeviceIdentifier: identifier, ObservedAt: snapshot.ObservedAt, HashboardFirmwareVersion: snapshot.HashboardFirmwareVersion, HashboardFirmwareMixed: snapshot.HashboardFirmwareMixed})
 	if errors.Is(err, sql.ErrNoRows) {
 		// Delayed topology cannot establish hardware or membership at a new site.
 		// Independently timestamped equipment observations have their own ordering.

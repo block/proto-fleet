@@ -1,16 +1,22 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { hasCompleteFirmwareTarget } from "@/protoFleet/api/useFirmwareApi";
+import {
+  CT1_FIRMWARE_TARGET,
+  DEFAULT_HASHBOARD_BUILD,
+  hasCompleteFirmwareTarget,
+  isCT1FirmwareTarget,
+} from "@/protoFleet/api/useFirmwareApi";
 import {
   FileDropZone,
   FileErrorStatus,
   FileProcessingStatus,
   FileSelectedStatus,
   firmwareVersionFromFilename,
+  HashboardBuildField,
   useFirmwareUpload,
 } from "@/protoFleet/components/FirmwareUpload";
 import FirmwareTargetFields from "@/protoFleet/features/settings/components/FirmwareTargetFields";
 import { useMinerTargetOptions } from "@/protoFleet/features/settings/components/useMinerTargetOptions";
-import { Alert, Info } from "@/shared/assets/icons";
+import { Alert } from "@/shared/assets/icons";
 import { variants } from "@/shared/components/Button";
 import Callout from "@/shared/components/Callout";
 import Modal from "@/shared/components/Modal/Modal";
@@ -27,6 +33,7 @@ const FirmwareUploadDialog = ({ open, onSuccess, onDismiss }: FirmwareUploadDial
     useFirmwareUpload(!!open);
   const [targetManufacturer, setTargetManufacturer] = useState("");
   const [targetModel, setTargetModel] = useState("");
+  const [hashboardBuild, setHashboardBuild] = useState<string>(DEFAULT_HASHBOARD_BUILD);
   const [firmwareVersion, setFirmwareVersion] = useState("");
   const [pendingFile, setPendingFile] = useState<File | null>(null);
   const {
@@ -40,14 +47,12 @@ const FirmwareUploadDialog = ({ open, onSuccess, onDismiss }: FirmwareUploadDial
     active: !!open,
     selectedManufacturer: targetManufacturer,
     selectedModel: targetModel,
+    seedManufacturer: CT1_FIRMWARE_TARGET.targetManufacturer,
+    seedModel: CT1_FIRMWARE_TARGET.targetModel,
   });
 
   const configLoaded = serverConfig !== null;
   const modelsLoading = open && modelGroups === null && modelsError === null;
-  const showNoMinerModels =
-    modelGroups !== null &&
-    modelsError === null &&
-    !modelGroups.some((group) => group.manufacturer.trim() && group.model.trim());
   const isProcessing = state === "hashing" || state === "checking" || state === "uploading";
   const showLoadingSpinner = state === "idle" && (!configLoaded || modelsLoading);
   const showMetadataFields = configLoaded && !modelsLoading && modelsError === null;
@@ -56,8 +61,13 @@ const FirmwareUploadDialog = ({ open, onSuccess, onDismiss }: FirmwareUploadDial
   const showError = state === "error" && errorMessage != null;
 
   const target = useMemo(
-    () => ({ targetManufacturer, targetModel: resolvedModel, firmwareVersion }),
-    [firmwareVersion, targetManufacturer, resolvedModel],
+    () => ({
+      targetManufacturer,
+      targetModel: resolvedModel,
+      firmwareVersion,
+      ...(isCT1FirmwareTarget({ targetManufacturer, targetModel: resolvedModel }) ? { hashboardBuild } : {}),
+    }),
+    [firmwareVersion, targetManufacturer, resolvedModel, hashboardBuild],
   );
   const hasCompleteTarget = hasCompleteFirmwareTarget(target);
 
@@ -66,6 +76,7 @@ const FirmwareUploadDialog = ({ open, onSuccess, onDismiss }: FirmwareUploadDial
     setTargetManufacturer("");
     setTargetModel("");
     setFirmwareVersion("");
+    setHashboardBuild(DEFAULT_HASHBOARD_BUILD);
     resetModelOptions();
     setPendingFile(null);
   }, [reset, resetModelOptions]);
@@ -115,14 +126,6 @@ const FirmwareUploadDialog = ({ open, onSuccess, onDismiss }: FirmwareUploadDial
           </div>
         ) : null}
 
-        {showNoMinerModels ? (
-          <Callout
-            intent="information"
-            prefixIcon={<Info />}
-            title="No paired miner models found. Pair at least one miner to populate firmware targets."
-          />
-        ) : null}
-
         {modelsError ? <Callout intent="danger" prefixIcon={<Alert />} title={modelsError} /> : null}
 
         {showMetadataFields ? (
@@ -139,6 +142,9 @@ const FirmwareUploadDialog = ({ open, onSuccess, onDismiss }: FirmwareUploadDial
               onModelChange={setTargetModel}
               onVersionChange={setFirmwareVersion}
             />
+            {isCT1FirmwareTarget(target) ? (
+              <HashboardBuildField value={hashboardBuild} onChange={setHashboardBuild} disabled={metadataLocked} />
+            ) : null}
             {state === "idle" ? (
               pendingFile ? (
                 <FileSelectedStatus

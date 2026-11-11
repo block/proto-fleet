@@ -203,6 +203,53 @@ real Stratum sessions, or per-group connection history. Existing pool
 diagnostics remain demonstration data. REST retains its existing API; Fleet uses
 the native gRPC group service.
 
+## Hashboard firmware in Fleet
+
+The native gRPC listener implements `FirmwareService` upload, start, get, list,
+and cancel. Fleet can upload a selected prod/dev/mfgtest archive and target the
+container through its existing firmware action or a release channel. Stream
+framing, size limits, SHA-256 digests, and embedded image metadata are checked.
+The fixture does not verify real signing certificates or hardware compatibility.
+
+Jobs show simulated progress over four seconds. Connected, non-isolated targets
+then report the new board version; disconnected or isolated targets report an
+individual failure, producing a partially failed job. Controller software stays
+unchanged. Reads advance jobs, and all artifacts/jobs reset on restart. This
+models one controller; it does not emulate cross-controller HA job routing.
+
+The default demo module states leave two modules disconnected. Their boards
+keep stale health, so Fleet reports no container hashboard version, and an
+update fails those six boards while flashing the rest. For a clean local run,
+recreate the Compose service with demo states off, keeping its address so the
+pairing remains valid:
+
+```yaml
+# /tmp/ct1-firmware.yaml
+services:
+  fake-ct1:
+    environment:
+      CT1_DEMO_MODULE_STATES: "false"
+    networks:
+      fleet-network:
+        ipv4_address: 192.168.2.4 # the paired simulator's current address
+```
+
+```bash
+docker compose -f server/docker-compose.yaml -f /tmp/ct1-firmware.yaml up -d --no-deps fake-ct1
+```
+
+Release archives are the `hashboard-firmware-<version>.zip` assets of the
+`btc-mining/hashboard` GitHub releases, for example
+`gh release download v1.37.0 -R btc-mining/hashboard -p 'hashboard-firmware-1.37.0.zip'`.
+Upload one for Proto CT1 with a hashboard build, then use the container's
+**Update firmware** action, or a release channel that covers the container's
+site, building, rack, or group.
+
+The plugin's `TestModuleMiningSimulatorLeavesNeighborsUnaffected/firmware`
+exercises the native upload-to-inventory round trip with `CT1_SIMULATOR_BIN`
+pointing to a locally built fake-ct1 binary. Simulator unit tests also cover
+partial failures. Synthetic test images are not signed production firmware.
+
 ## Environment variables
 
 | Variable                 | Description                                                                                                                                    | Default           |

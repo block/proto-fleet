@@ -39,6 +39,9 @@ pub const CAP_UPDATE_FIRMWARE: &str = "update_firmware";
 pub const CAP_FIRMWARE: &str = "firmware";
 pub const CAP_OTA_UPDATE: &str = "ota_update";
 pub const CAP_MANUAL_UPLOAD: &str = "manual_upload";
+/// The updater reboots and verifies components itself and reports "completed"
+/// or "failed"; Fleet does not reboot the device afterwards.
+pub const CAP_FIRMWARE_SELF_MANAGED: &str = "firmware_self_managed";
 pub const CAP_UNPAIR: &str = "unpair";
 
 // Telemetry

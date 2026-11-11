@@ -115,4 +115,7 @@ message FirmwareCapabilities {
   // Update methods
   bool ota_update_supported = 1;
   bool manual_upload_supported = 2;
+  // The updater performs component reboot and verification itself and reports
+  // completed; Fleet must not require a separate controller reboot capability.
+  bool self_managed_completion = 3;
 }

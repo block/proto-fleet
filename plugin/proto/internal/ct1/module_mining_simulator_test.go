@@ -37,7 +37,7 @@ func TestModuleMiningSimulatorLeavesNeighborsUnaffected(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, rpcListener.Close())
 	process := exec.CommandContext(t.Context(), binary)
-	process.Env = append(os.Environ(), "HTTP_PORT="+portText, "GRPC_PORT="+rpcPortText, "SERVER_ID=module-mining-test", "CT1_TANKS=2", "CT1_MODULES_PER_TANK=2", "CT1_DEMO_MODULE_STATES=false")
+	process.Env = append(os.Environ(), "HTTP_PORT="+portText, "GRPC_PORT="+rpcPortText, "SERVER_ID=module-mining-test", "CT1_DEMO_MODULE_STATES=false")
 	require.NoError(t, process.Start())
 	t.Cleanup(func() { _ = process.Process.Kill(); _ = process.Wait() })
 	info := sdk.DeviceInfo{Host: "127.0.0.1", Port: int32(port), RPCPort: int32(rpcPort), URLScheme: "http", SerialNumber: "module-mining-test"}
@@ -105,6 +105,7 @@ func TestModuleMiningSimulatorLeavesNeighborsUnaffected(t *testing.T) {
 		}
 	}
 	t.Run("mining groups", func(t *testing.T) { testMiningGroupsSimulator(t, dev) })
+	t.Run("firmware", func(t *testing.T) { testFirmwareSimulator(t, dev, info) })
 }
 
 // Exercise the full native pool workflow on the same real simulator transport.

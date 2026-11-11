@@ -1,4 +1,5 @@
-import type { Timestamp } from "@bufbuild/protobuf/wkt";
+import { fromJson } from "@bufbuild/protobuf";
+import { type Timestamp, TimestampSchema } from "@bufbuild/protobuf/wkt";
 import { tankPath } from "./buildTankOverview";
 import type { ContainerOverviewData } from "./hooks/useContainerOverview";
 import { EntityKind, type InventoryItem } from "@/protoFleet/api/generated/fleetinventory/v1/fleetinventory_pb";
@@ -32,4 +33,13 @@ export function isCurrentObservation(at: Timestamp | undefined, now = Date.now()
   if (!at) return false;
   const age = now - (Number(at.seconds) * 1000 + at.nanos / 1e6);
   return age >= -5000 && age < 120_000;
+}
+
+export function isCurrentJsonObservation(at: unknown, now = Date.now()) {
+  if (typeof at !== "string") return false;
+  try {
+    return isCurrentObservation(fromJson(TimestampSchema, at), now);
+  } catch {
+    return false;
+  }
 }

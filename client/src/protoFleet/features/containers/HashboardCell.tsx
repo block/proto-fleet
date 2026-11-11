@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { create } from "@bufbuild/protobuf";
+import HashboardFirmwareStatus from "./HashboardFirmwareStatus";
 import HashboardPoolAction from "./HashboardPoolAction";
 import { ModuleIssues } from "./ModuleIssues";
 import { ModuleStatus } from "./ModuleStatus";
@@ -74,6 +75,7 @@ export function HashboardIssues({
           },
         }}
       />
+      <HashboardFirmwareStatus board={board} />
     </ModuleIssues>
   );
 }

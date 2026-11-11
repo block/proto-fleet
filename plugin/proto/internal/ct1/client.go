@@ -37,6 +37,7 @@ type Client struct {
 	mining    mdk.MiningServiceClient
 	telemetry mdk.TelemetryServiceClient
 	power     mdk.PowerServiceClient
+	firmware  mdk.FirmwareServiceClient
 	pollMu    sync.Mutex
 }
 
@@ -61,12 +62,14 @@ func NewClient(info sdk.DeviceInfo, _ sdk.UsernamePassword) (*Client, error) {
 	// Preserve Frigate audit attribution across the transport change. This is not authentication.
 	opts = append(opts, grpc.WithUnaryInterceptor(func(ctx context.Context, method string, req, reply any, cc *grpc.ClientConn, invoke grpc.UnaryInvoker, options ...grpc.CallOption) error {
 		return invoke(metadata.AppendToOutgoingContext(ctx, "x-frigate-actor", "proto-fleet"), method, req, reply, cc, options...)
+	}), grpc.WithStreamInterceptor(func(ctx context.Context, desc *grpc.StreamDesc, cc *grpc.ClientConn, method string, streamer grpc.Streamer, options ...grpc.CallOption) (grpc.ClientStream, error) {
+		return streamer(metadata.AppendToOutgoingContext(ctx, "x-frigate-actor", "proto-fleet"), desc, cc, method, options...)
 	}))
 	conn, err := grpc.NewClient("dns:///"+net.JoinHostPort(info.Host, strconv.Itoa(int(port))), opts...)
 	if err != nil {
 		return nil, fmt.Errorf("create CT1 connection: %w", err)
 	}
-	return &Client{endpoint: info, conn: conn, system: mdk.NewSystemServiceClient(conn), boards: mdk.NewHashboardServiceClient(conn), mining: mdk.NewMiningServiceClient(conn), telemetry: mdk.NewTelemetryServiceClient(conn), power: mdk.NewPowerServiceClient(conn)}, nil
+	return &Client{firmware: mdk.NewFirmwareServiceClient(conn), endpoint: info, conn: conn, system: mdk.NewSystemServiceClient(conn), boards: mdk.NewHashboardServiceClient(conn), mining: mdk.NewMiningServiceClient(conn), telemetry: mdk.NewTelemetryServiceClient(conn), power: mdk.NewPowerServiceClient(conn)}, nil
 }
 func (c *Client) Close() error {
 	c.closeOnce.Do(func() { c.closeErr = c.conn.Close() })
@@ -151,6 +154,7 @@ func (c *Client) Collect(ctx context.Context, id string) (sdk.DeviceMetrics, err
 	if err != nil {
 		return sdk.DeviceMetrics{}, err
 	}
+	topology.HashboardFirmwareVersion, topology.HashboardFirmwareMixed = observedHashboardFirmware(wire, topology, observed)
 	result := sdk.DeviceMetrics{DeviceID: id, Timestamp: observed, Container: topology, Health: sdk.HealthWarning}
 	if err := miningErr; err != nil {
 		slog.WarnContext(ctx, "CT1 mining totals unavailable", "device_id", id, "error", err)

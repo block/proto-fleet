@@ -18,6 +18,7 @@ WHERE r.status <> 'active'
       FROM firmware_rollout_device rd
       JOIN device d ON d.id = rd.device_id AND d.deleted_at IS NULL
       JOIN discovered_device dd ON dd.id = d.discovered_device_id AND dd.deleted_at IS NULL
+      CROSS JOIN LATERAL release_channel_firmware_version(d.id, dd.device_class, dd.firmware_version) AS reported(version)
       JOIN command_batch_log batch ON batch.uuid = rd.last_dispatched_batch_uuid
           AND batch.organization_id = r.org_id
           AND batch.type = 'FirmwareUpdate'
@@ -37,7 +38,7 @@ WHERE r.status <> 'active'
           AND current_result.status = 'SUCCESS'
       WHERE rd.rollout_id = r.id
         AND rd.last_dispatched_at IS NOT NULL
-        AND dd.firmware_version = r.firmware_version
+        AND reported.version = r.firmware_version
         AND COALESCE(dep.firmware_checksum, '') <> r.firmware_checksum
         AND (COALESCE(dep.firmware_checksum, '') = '' OR dep.deployed_at <= rd.last_dispatched_at)
   )

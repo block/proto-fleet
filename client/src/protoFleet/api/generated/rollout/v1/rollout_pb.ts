@@ -535,7 +535,8 @@ export type ReleaseChannelMiner = Message<"rollout.v1.ReleaseChannelMiner"> & {
   model: string;
 
   /**
-   * Firmware version the miner currently reports.
+   * Version under the RolloutService reported-version rule; empty when
+   * unknown or, for a container, mixed.
    *
    * @generated from field: string firmware_version = 5;
    */
@@ -1335,7 +1336,8 @@ export type RolloutDevice = Message<"rollout.v1.RolloutDevice"> & {
   ipAddress: string;
 
   /**
-   * Firmware version the miner currently reports.
+   * Version under the RolloutService reported-version rule; empty when
+   * unknown or, for a container, mixed.
    *
    * @generated from field: string firmware_version = 4;
    */
@@ -2318,7 +2320,9 @@ export type ReleaseChannelFirmwarePlan = Message<"rollout.v1.ReleaseChannelFirmw
   targetCount: number;
 
   /**
-   * Members already matching the assignment.
+   * Members already matching the assignment. A member whose version is
+   * unknown under the reported-version rule, with matching provenance, is in
+   * neither count.
    *
    * @generated from field: int32 on_target_count = 6;
    */
@@ -4003,7 +4007,19 @@ export const RolloutErrorReasonSchema: GenEnum<RolloutErrorReason> =
  * different provenance and such an outstanding command: the member's update
  * for the current target is queued behind the outstanding command, so a
  * superseded update that finishes later cannot leave the miner off the
- * assignment with no rollout to correct it.
+ * assignment with no rollout to correct it. The one exception is an unknown
+ * version under the reported-version rule.
+ *
+ * Reported-version rule: a miner's reported version is the controller
+ * firmware it reports, except for container-class devices (CT1), where it is
+ * the hashboard firmware from inventory observed within the last two minutes.
+ * That version is set only when complete inventory shows every hashboard on
+ * the same version with fresh health; fresh inventory with differing versions
+ * reports an empty version and is mismatched. Without fresh, complete
+ * inventory the version is unknown, also reported empty: an unknown version is
+ * neither on target nor mismatched, so it cannot verify a miner, reopen a
+ * verified one, or start a rollout. Provenance and outstanding commands still
+ * apply to such a member.
  *
  * Single-active-rollout rule: a (channel, manufacturer, model) pair has at most
  * one ACTIVE rollout, reported as ReleaseChannelModelGroup.active_rollout_id.

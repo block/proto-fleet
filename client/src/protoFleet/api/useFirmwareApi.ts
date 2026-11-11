@@ -2,6 +2,7 @@ import { useCallback, useMemo } from "react";
 import { API_PROXY_BASE } from "@/protoFleet/api/constants";
 import { fetchSessionJson } from "@/protoFleet/api/fetchSessionJson";
 import { extractFetchError, useFileUpload } from "@/protoFleet/api/useFileUpload";
+import { minerTargetKey } from "@/protoFleet/features/fleetManagement/components/MinerActionsMenu/minerTarget";
 import { useLogout } from "@/protoFleet/store";
 
 export { computeSha256 } from "@/protoFleet/utils/crypto";
@@ -68,6 +69,7 @@ async function fetchFirmwareConfig(logout: () => void): Promise<FirmwareConfig> 
 }
 
 export interface FirmwareMetadataInput {
+  hashboardBuild?: string;
   targetManufacturer: string;
   targetModel: string;
   firmwareVersion: string;
@@ -100,6 +102,7 @@ export function validateFirmwareFile(
 }
 
 export interface FirmwareFileInfo {
+  hashboard_build?: string;
   id: string;
   filename: string;
   size: number;
@@ -115,8 +118,22 @@ interface CheckFirmwareResponse {
   firmware_file_id?: string;
 }
 
+export const HASHBOARD_BUILDS = ["prod", "dev", "mfgtest"] as const;
+export type HashboardBuild = (typeof HASHBOARD_BUILDS)[number];
+export const DEFAULT_HASHBOARD_BUILD: HashboardBuild = "prod";
+export const CT1_FIRMWARE_TARGET = { targetManufacturer: "Proto", targetModel: "CT1" } as const;
+
+export function isCT1FirmwareTarget(target: Partial<FirmwareMetadataInput>): boolean {
+  return (
+    minerTargetKey(target.targetManufacturer, target.targetModel) ===
+    minerTargetKey(CT1_FIRMWARE_TARGET.targetManufacturer, CT1_FIRMWARE_TARGET.targetModel)
+  );
+}
+
 /** The client mirror of the server's upload metadata completeness rule. */
 export function hasCompleteFirmwareTarget(target: Partial<FirmwareMetadataInput>): boolean {
+  if (isCT1FirmwareTarget(target) && !(HASHBOARD_BUILDS as readonly string[]).includes(target.hashboardBuild ?? ""))
+    return false;
   return Boolean(target.targetManufacturer?.trim() && target.targetModel?.trim() && target.firmwareVersion?.trim());
 }
 
@@ -125,6 +142,7 @@ function firmwareMetadataFields(target: FirmwareMetadataInput): Record<string, s
     target_manufacturer: target.targetManufacturer.trim(),
     target_model: target.targetModel.trim(),
     firmware_version: target.firmwareVersion.trim(),
+    ...(isCT1FirmwareTarget(target) ? { hashboard_build: target.hashboardBuild ?? "" } : {}),
   };
 }
 
@@ -175,8 +193,8 @@ export const useFirmwareApi = () => {
   const uploadFirmwareFile = useCallback(
     async (file: File, options: FirmwareUploadOptions): Promise<string> => {
       const config = await fetchFirmwareConfig(logout);
-      const { targetManufacturer = "", targetModel = "", firmwareVersion = "" } = options ?? {};
-      const target = { targetManufacturer, targetModel, firmwareVersion };
+      const { targetManufacturer = "", targetModel = "", firmwareVersion = "", hashboardBuild } = options ?? {};
+      const target = { targetManufacturer, targetModel, firmwareVersion, hashboardBuild };
       if (!hasCompleteFirmwareTarget(target)) {
         throw new Error(FIRMWARE_TARGET_REQUIRED_MESSAGE);
       }

@@ -11,7 +11,7 @@ func containerSnapshotToProto(s *ContainerSnapshot) *pb.ContainerSnapshot {
 	if s == nil {
 		return nil
 	}
-	out := &pb.ContainerSnapshot{ObservedAt: timestamppb.New(s.ObservedAt), TopologyComplete: s.TopologyComplete, Metrics: rollupToProto(s.Metrics)}
+	out := &pb.ContainerSnapshot{HashboardFirmwareVersion: s.HashboardFirmwareVersion, HashboardFirmwareMixed: s.HashboardFirmwareMixed, ObservedAt: timestamppb.New(s.ObservedAt), TopologyComplete: s.TopologyComplete, Metrics: rollupToProto(s.Metrics)}
 	if s.HA != nil {
 		out.Ha = &pb.ContainerHA{ObservedAt: timestamppb.New(s.HA.ObservedAt), Degraded: s.HA.Degraded}
 	}
@@ -65,7 +65,7 @@ func containerSnapshotFromProto(s *pb.ContainerSnapshot) *ContainerSnapshot {
 	if s == nil {
 		return nil
 	}
-	out := &ContainerSnapshot{ObservedAt: s.ObservedAt.AsTime(), TopologyComplete: s.TopologyComplete, Metrics: rollupFromProto(s.Metrics), Tanks: []ContainerTank{}}
+	out := &ContainerSnapshot{HashboardFirmwareVersion: s.HashboardFirmwareVersion, HashboardFirmwareMixed: s.HashboardFirmwareMixed, ObservedAt: s.ObservedAt.AsTime(), TopologyComplete: s.TopologyComplete, Metrics: rollupFromProto(s.Metrics), Tanks: []ContainerTank{}}
 	if s.Ha != nil {
 		out.HA = &ContainerHA{ObservedAt: s.Ha.ObservedAt.AsTime(), Degraded: s.Ha.Degraded}
 	}

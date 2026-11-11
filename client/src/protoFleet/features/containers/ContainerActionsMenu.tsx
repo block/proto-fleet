@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { create } from "@bufbuild/protobuf";
 import ContainerActionDialog from "./ContainerActionDialog";
 import {
   CONTAINER_ACTIONS,
@@ -14,19 +15,25 @@ import { isCurrentObservation } from "./moduleDetail";
 import { useMiningGroupState } from "./useMiningGroupState";
 import { useOpenContainerView } from "./useOpenContainerView";
 import type { Container } from "@/protoFleet/api/generated/containers/v1/containers_pb";
-import { ACTION_PERMISSIONS } from "@/protoFleet/features/fleetManagement/components/MinerActionsMenu/actionPermissions";
+import { FirmwareUpdateRequestSchema } from "@/protoFleet/api/generated/minercommand/v1/command_pb";
+import { CT1_FIRMWARE_TARGET } from "@/protoFleet/api/useFirmwareApi";
+import { useMinerCommand } from "@/protoFleet/api/useMinerCommand";
+import {
+  ACTION_PERMISSIONS,
+  hasAllRequired,
+} from "@/protoFleet/features/fleetManagement/components/MinerActionsMenu/actionPermissions";
 import {
   deviceActions,
   settingsActions,
 } from "@/protoFleet/features/fleetManagement/components/MinerActionsMenu/constants";
+import FirmwareUpdateModal from "@/protoFleet/features/fleetManagement/components/MinerActionsMenu/FirmwareUpdateModal";
 import { ConfigurationSelector } from "@/protoFleet/features/poolConfigurations/ConfigurationSelector";
 import { usePermissions } from "@/protoFleet/store";
 import { ArrowRight, MiningPools, Play, Power, Settings, Speedometer, Unpair } from "@/shared/assets/icons";
 import RowActionsMenu, { type RowAction } from "@/shared/components/RowActionsMenu";
+import { pushToast, STATUSES } from "@/shared/features/toaster";
 
-// Firmware and standalone worker-name updates are not available for CT1.
 const unavailableSettings = [
-  { label: "Update firmware", action: deviceActions.firmwareUpdate, icon: <Settings /> },
   { label: "Update worker name", action: settingsActions.updateWorkerNames, icon: <MiningPools /> },
 ];
 
@@ -40,6 +47,11 @@ export default function ContainerActionsMenu({
   onUnpaired?: (deviceIdentifier: string) => void;
 }) {
   const permissions = usePermissions();
+  const { firmwareUpdate } = useMinerCommand();
+  const hasActionPermissions = (action: keyof typeof ACTION_PERMISSIONS) =>
+    hasAllRequired(ACTION_PERMISSIONS[action], permissions);
+  const [firmwareOpen, setFirmwareOpen] = useState(false);
+  const canUpdateFirmware = permissions.includes("miner:read") && hasActionPermissions(deviceActions.firmwareUpdate);
   const [groupsOpen, setGroupsOpen] = useState(false);
   const [poolTarget, setPoolTarget] = useState<string>();
   const openContainerView = useOpenContainerView();
@@ -143,11 +155,14 @@ export default function ContainerActionsMenu({
           disabled: !poolsReady,
           onClick: () => setPoolTarget(deviceIdentifier),
         },
+        {
+          label: "Update firmware",
+          icon: <Settings />,
+          hidden: !canUpdateFirmware,
+          onClick: () => setFirmwareOpen(true),
+        },
         ...unavailableSettings
-          .filter((entry) => {
-            const required = ACTION_PERMISSIONS[entry.action];
-            return (typeof required === "string" ? [required] : required).every((key) => permissions.includes(key));
-          })
+          .filter((entry) => hasActionPermissions(entry.action))
           .map((entry) => ({
             label: entry.label,
             icon: entry.icon,
@@ -198,6 +213,30 @@ export default function ContainerActionsMenu({
           removalOnly={groupsEnabled}
           selectionDescription="Applies to the whole container."
           onDismiss={() => setPoolTarget(undefined)}
+        />
+      ) : null}
+      {firmwareOpen && canUpdateFirmware ? (
+        <FirmwareUpdateModal
+          open
+          target={CT1_FIRMWARE_TARGET}
+          onDismiss={() => setFirmwareOpen(false)}
+          onConfirm={(firmwareFileId) => {
+            setFirmwareOpen(false);
+            void firmwareUpdate({
+              firmwareUpdateRequest: create(FirmwareUpdateRequestSchema, {
+                firmwareFileId,
+                deviceSelector: {
+                  selectionType: { case: "includeDevices", value: { deviceIdentifiers: [deviceIdentifier] } },
+                },
+              }),
+              onSuccess: () =>
+                pushToast({
+                  message: "Hashboard firmware update queued. Board progress is available in module details.",
+                  status: STATUSES.success,
+                }),
+              onError: (message) => pushToast({ message, status: STATUSES.error }),
+            });
+          }}
         />
       ) : null}
       {groupsOpen ? (

@@ -24,6 +24,7 @@ type grpcAPI struct {
 	mdk.UnimplementedPowerServiceServer
 	mdk.UnimplementedPoolServiceServer
 	mdk.UnimplementedRunInServiceServer
+	mdk.UnimplementedFirmwareServiceServer
 	state *ContainerState
 }
 
@@ -39,6 +40,7 @@ func newGRPCServer(state *ContainerState, options ...grpc.ServerOption) *grpc.Se
 	mdk.RegisterPowerServiceServer(server, api)
 	mdk.RegisterPoolServiceServer(server, api)
 	mdk.RegisterRunInServiceServer(server, api)
+	mdk.RegisterFirmwareServiceServer(server, api)
 	return server
 }
 

@@ -149,11 +149,12 @@ SELECT m.channel_id,
        d.device_identifier,
        COALESCE(dd.manufacturer, '')::text AS manufacturer,
        COALESCE(dd.model, '')::text AS model,
-       COALESCE(dd.firmware_version, '')::text AS firmware_version,
+       COALESCE(reported.version, '')::text AS firmware_version,
        COALESCE(dep.firmware_checksum, '')::text AS last_deployed_firmware_checksum
 FROM release_channel_member m
 JOIN device d ON d.id = m.device_id
 JOIN discovered_device dd ON dd.id = d.discovered_device_id
+CROSS JOIN LATERAL release_channel_firmware_version(d.id, dd.device_class, dd.firmware_version) AS reported(version)
 LEFT JOIN device_firmware_deployment dep ON dep.device_id = d.id
 WHERE m.org_id = sqlc.arg('org_id')
 ORDER BY d.device_identifier;
@@ -167,11 +168,12 @@ SELECT m.device_id,
        d.device_identifier,
        COALESCE(dd.manufacturer, '')::text AS manufacturer,
        COALESCE(dd.model, '')::text AS model,
-       COALESCE(dd.firmware_version, '')::text AS firmware_version,
+       COALESCE(reported.version, '')::text AS firmware_version,
        COALESCE(dep.firmware_checksum, '')::text AS last_deployed_firmware_checksum
 FROM release_channel_member m
 JOIN device d ON d.id = m.device_id
 JOIN discovered_device dd ON dd.id = d.discovered_device_id
+CROSS JOIN LATERAL release_channel_firmware_version(d.id, dd.device_class, dd.firmware_version) AS reported(version)
 LEFT JOIN device_firmware_deployment dep ON dep.device_id = d.id
 WHERE m.org_id = sqlc.arg('org_id')
   AND m.channel_id = sqlc.arg('channel_id')
@@ -195,11 +197,12 @@ WITH members AS (
     SELECT m.device_id,
            COALESCE(dd.manufacturer, '')::text AS manufacturer,
            COALESCE(dd.model, '')::text AS model,
-           COALESCE(dd.firmware_version, '')::text AS firmware_version,
+           COALESCE(reported.version, '')::text AS firmware_version,
            COALESCE(dep.firmware_checksum, '')::text AS deployed_checksum
     FROM release_channel_member m
     JOIN device d ON d.id = m.device_id
     JOIN discovered_device dd ON dd.id = d.discovered_device_id
+    CROSS JOIN LATERAL release_channel_firmware_version(d.id, dd.device_class, dd.firmware_version) AS reported(version)
     LEFT JOIN device_firmware_deployment dep ON dep.device_id = d.id
     WHERE m.org_id = sqlc.arg('org_id') AND m.channel_id = sqlc.arg('channel_id')
 ), groups AS (
@@ -308,12 +311,13 @@ SELECT s.device_id,
        d.device_identifier,
        COALESCE(dd.manufacturer, '')::text AS manufacturer,
        COALESCE(dd.model, '')::text AS model,
-       COALESCE(dd.firmware_version, '')::text AS firmware_version,
+       COALESCE(reported.version, '')::text AS firmware_version,
        COALESCE(owner.channel_id, 0)::bigint AS owner_channel_id,
        COALESCE(owner.name, '')::text AS owner_channel_name
 FROM scoped s
 JOIN device d ON d.id = s.device_id
 JOIN discovered_device dd ON dd.id = d.discovered_device_id
+CROSS JOIN LATERAL release_channel_firmware_version(d.id, dd.device_class, dd.firmware_version) AS reported(version)
 LEFT JOIN LATERAL (
     SELECT DISTINCT c.id AS channel_id, c.name
     FROM release_channel_match rm
@@ -400,6 +404,7 @@ SELECT d.id AS device_id,
 FROM release_channel_member m
 JOIN device d ON d.id = m.device_id
 JOIN discovered_device dd ON dd.id = d.discovered_device_id
+CROSS JOIN LATERAL release_channel_firmware_version(d.id, dd.device_class, dd.firmware_version) AS reported(version)
 LEFT JOIN device_firmware_deployment dep ON dep.device_id = d.id
 LEFT JOIN LATERAL (
     SELECT dm.efficiency_jh
@@ -415,10 +420,10 @@ WHERE m.org_id = sqlc.arg('org_id')
   AND m.channel_id = sqlc.arg('channel_id')
   AND release_channel_pair_key(dd.manufacturer) = release_channel_pair_key(sqlc.arg('manufacturer')::text)
   AND release_channel_pair_key(dd.model) = release_channel_pair_key(sqlc.arg('model')::text)
-  AND NOT (
-      COALESCE(dd.firmware_version, '') = sqlc.arg('firmware_version')::text
-      AND COALESCE(dep.firmware_checksum, '') = sqlc.arg('firmware_checksum')::text
-      AND NOT EXISTS (
+  AND (
+      (reported.version = sqlc.arg('firmware_version')::text) IS FALSE
+      OR COALESCE(dep.firmware_checksum, '') <> sqlc.arg('firmware_checksum')::text
+      OR EXISTS (
           SELECT 1 FROM queue_message qm
           WHERE qm.device_id = d.id
             AND qm.command_type = 'FirmwareUpdate'
@@ -449,8 +454,8 @@ ORDER BY d.device_identifier;
 -- version and provenance. Suppression excludes dispatch targets, but does not
 -- change whether a member matches the assignment.
 WITH members AS (
-    SELECT COALESCE(dd.firmware_version, '') = sqlc.arg('firmware_version')::text
-           AND COALESCE(dep.firmware_checksum, '') = sqlc.arg('firmware_checksum')::text
+    SELECT (reported.version = sqlc.arg('firmware_version')::text) AS version_matches,
+           COALESCE(dep.firmware_checksum, '') = sqlc.arg('firmware_checksum')::text
            AND NOT EXISTS (
                SELECT 1 FROM queue_message qm
                WHERE qm.device_id = d.id
@@ -460,7 +465,7 @@ WITH members AS (
                      THEN qm.payload->>'firmware_checksum' <> sqlc.arg('firmware_checksum')::text
                      ELSE NOT (COALESCE(qm.payload->>'firmware_file_id', '') = ANY(COALESCE(sqlc.arg('assigned_file_ids')::text[], '{}')))
                  END
-           ) AS on_target,
+           ) AS provenance_matches,
            EXISTS (
                SELECT 1 FROM firmware_rollout_suppressed_device s
                WHERE s.channel_id = m.channel_id
@@ -472,14 +477,15 @@ WITH members AS (
     FROM release_channel_member m
     JOIN device d ON d.id = m.device_id
     JOIN discovered_device dd ON dd.id = d.discovered_device_id
+    CROSS JOIN LATERAL release_channel_firmware_version(d.id, dd.device_class, dd.firmware_version) AS reported(version)
     LEFT JOIN device_firmware_deployment dep ON dep.device_id = d.id
     WHERE m.org_id = sqlc.arg('org_id')
       AND m.channel_id = sqlc.arg('channel_id')
       AND release_channel_pair_key(dd.manufacturer) = release_channel_pair_key(sqlc.arg('manufacturer')::text)
       AND release_channel_pair_key(dd.model) = release_channel_pair_key(sqlc.arg('model')::text)
 )
-SELECT count(*) FILTER (WHERE NOT on_target AND NOT suppressed)::int AS target_count,
-       count(*) FILTER (WHERE on_target)::int AS on_target_count
+SELECT count(*) FILTER (WHERE (version_matches IS FALSE OR NOT provenance_matches) AND NOT suppressed)::int AS target_count,
+       count(*) FILTER (WHERE version_matches IS TRUE AND provenance_matches)::int AS on_target_count
 FROM members;
 
 -- name: ListReleaseChannelSuppressedMembers :many
@@ -526,15 +532,16 @@ AND EXISTS (
     FROM release_channel_member m
     JOIN device d ON d.id = m.device_id
     JOIN discovered_device dd ON dd.id = d.discovered_device_id
+    CROSS JOIN LATERAL release_channel_firmware_version(d.id, dd.device_class, dd.firmware_version) AS reported(version)
     LEFT JOIN device_firmware_deployment dep ON dep.device_id = d.id
     WHERE m.org_id = c.org_id
       AND m.channel_id = f.channel_id
       AND release_channel_pair_key(dd.manufacturer) = release_channel_pair_key(f.manufacturer)
       AND release_channel_pair_key(dd.model) = release_channel_pair_key(f.model)
-      AND NOT (
-          COALESCE(dd.firmware_version, '') = f.firmware_version
-          AND COALESCE(dep.firmware_checksum, '') = f.firmware_checksum
-          AND NOT EXISTS (
+      AND (
+          (reported.version = f.firmware_version) IS FALSE
+          OR COALESCE(dep.firmware_checksum, '') <> f.firmware_checksum
+          OR EXISTS (
               SELECT 1 FROM queue_message qm
               WHERE qm.device_id = d.id
                 AND qm.command_type = 'FirmwareUpdate'
@@ -894,7 +901,8 @@ WHERE reservation.channel_id = sqlc.arg('channel_id')
 -- retained targets keep their saved baselines without reading a replacement.
 SELECT rd.device_id,
        d.device_identifier,
-       COALESCE(dd.firmware_version, '')::text AS firmware_version,
+       COALESCE(reported.version, '')::text AS firmware_version,
+       (reported.version IS NOT NULL)::boolean AS firmware_version_known,
        COALESCE(dd.ip_address, '')::text AS ip_address,
        rd.batch_index,
        rd.position,
@@ -978,6 +986,7 @@ JOIN device d ON d.id = rd.device_id
 LEFT JOIN release_channel_member member ON member.org_id = r.org_id
     AND member.device_id = d.id AND member.channel_id = r.channel_id
 LEFT JOIN discovered_device dd ON dd.id = d.discovered_device_id AND dd.deleted_at IS NULL
+CROSS JOIN LATERAL release_channel_firmware_version(d.id, dd.device_class, dd.firmware_version) AS reported(version)
 LEFT JOIN device_status ds ON ds.device_id = d.id
 LEFT JOIN device_firmware_deployment dep ON dep.device_id = d.id
 LEFT JOIN LATERAL (

@@ -520,6 +520,9 @@ type FirmwareFile struct {
 	Size     int64
 	SHA256   string
 	FilePath string // On-disk path for gRPC bridge passthrough (plugins share the server's filesystem)
+	// RequestID is stable across automatic retries of one Fleet command and
+	// unique to that command, even across Fleet databases; empty when unknown.
+	RequestID string
 }
 
 // DeviceMaintenance represents device maintenance operations
@@ -532,7 +535,12 @@ type DeviceMaintenance interface {
 
 // FirmwareUpdateStatus represents the current firmware installation state on a device.
 type FirmwareUpdateStatus struct {
-	State    string // "current", "downloading", "downloaded", "installing", "installed", "confirming", "success", "error"
+	// "current", "downloading", "downloaded", "installing", "installed",
+	// "confirming", "success", or "error". Devices declaring
+	// CapabilityFirmwareSelfManaged report "completed" once the updater
+	// rebooted and verified every component, or "failed" once it finished with
+	// component failures; Fleet neither reboots nor automatically retries them.
+	State    string
 	Progress *int
 	Error    *string
 }
@@ -678,9 +686,10 @@ const (
 	CapabilityPSUStats          = "psu_stats_reported"    // PSU stats reported
 
 	// Firmware capabilities
-	CapabilityFirmware     = "firmware"      // Firmware update support (generic)
-	CapabilityOTAUpdate    = "ota_update"    // OTA update support
-	CapabilityManualUpload = "manual_upload" // Manual firmware upload support
+	CapabilityFirmware            = "firmware"              // Firmware update support (generic)
+	CapabilityFirmwareSelfManaged = "firmware_self_managed" // Updater reboots/verifies components and reports completed.
+	CapabilityOTAUpdate           = "ota_update"            // OTA update support
+	CapabilityManualUpload        = "manual_upload"         // Manual firmware upload support
 
 	// Authentication capabilities
 	CapabilityBasicAuth = "basic_auth" // Basic (username/password) authentication

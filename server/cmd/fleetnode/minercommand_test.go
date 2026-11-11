@@ -697,6 +697,7 @@ func TestHandleMinerCommand_FirmwareUpdateDownloadsArtifactAndCallsDevice(t *tes
 			assert.Equal(t, ref.GetFilename(), firmware.Filename)
 			assert.Equal(t, ref.GetSizeBytes(), firmware.Size)
 			assert.Equal(t, ref.GetSha256(), firmware.SHA256)
+			assert.Equal(t, "queue-message-7", firmware.RequestID)
 			assert.NotEmpty(t, firmware.FilePath)
 			assert.True(t, strings.HasPrefix(firmware.FilePath, firmwareTempRoot+string(os.PathSeparator)))
 			data, err := os.ReadFile(firmware.FilePath)
@@ -714,7 +715,7 @@ func TestHandleMinerCommand_FirmwareUpdateDownloadsArtifactAndCallsDevice(t *tes
 	ack := &captureAcker{}
 
 	r.handleMinerCommand(context.Background(), client, ack, "cmd-1",
-		withTarget(&pb.MinerCommand{Action: &pb.MinerCommand_FirmwareUpdate{FirmwareUpdate: &pb.FirmwareUpdateAction{Artifact: ref}}}), discardLogger(t))
+		withTarget(&pb.MinerCommand{Action: &pb.MinerCommand_FirmwareUpdate{FirmwareUpdate: &pb.FirmwareUpdateAction{Artifact: ref, RequestId: "queue-message-7"}}}), discardLogger(t))
 
 	got := ack.only(t)
 	assert.Equal(t, pb.AckCode_ACK_CODE_OK, got.GetCode())

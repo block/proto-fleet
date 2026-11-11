@@ -29,6 +29,7 @@ import { pushToast, STATUSES } from "@/shared/features/toaster";
 import { formatTimestamp, isoToEpochSeconds } from "@/shared/utils/formatTimestamp";
 
 type FirmwareFileData = {
+  hashboardBuild?: string;
   id: string;
   filename: string;
   targetManufacturer: string;
@@ -135,6 +136,7 @@ function toFileData(info: FirmwareFileInfo): FirmwareFileData {
     targetManufacturer: info.target_manufacturer,
     targetModel: info.target_model,
     firmwareVersion: info.firmware_version ?? "",
+    hashboardBuild: info.hashboard_build,
     checksum: info.sha256 ?? "",
     size: info.size,
     uploadedAt: isoToEpochSeconds(info.uploaded_at),

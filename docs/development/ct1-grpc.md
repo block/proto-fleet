@@ -172,6 +172,85 @@ ordinary polling reports the outage and the last HA observation becomes stale.
 - Authenticated MDK discovery remains unsupported. The optional `TestFrigateHALab`
   sends its lab credential only to loopback test addresses.
 
+## Hashboard firmware updates
+
+CT1 advertises the firmware capability. Fleet sends one native
+`FirmwareService` job for the explicit set of occupied board MACs, including
+unlocated boards, using the selected prod, dev, or mfgtest build. When some
+located tanks are reported, every tank and module position must be reported;
+a partial container map refuses the update, and the command retries. Fleet owns
+release-channel enforcement; it does not install a Frigate firmware policy.
+Normal channel enforcement can enqueue another update when newly adopted boards
+report a different version.
+
+The plugin extracts Fleet's selected ZIP, streams image metadata and 1 MiB
+chunks to `UploadFirmwareArtifact` within a five-minute deadline, validates the
+returned image identities, and calls `StartFirmwareUpdate` once with a unique
+task ID. Only the start serializes with other container writes, so breaker,
+pool, and mining commands proceed during an upload. Frigate validates
+signatures and hardware compatibility, stops mining, flashes and verifies the
+boards, and restores mining intent. Force is enabled to support Fleet rollback.
+
+An uncertain start is not replayed: while its task is unfinished or its owners
+are unreachable, a new update is refused. An automatic retry of the same Fleet
+command, such as after status polling timed out, resumes that command's task
+instead of starting another; a new command updates again. A refused start can
+be retried and reuses the same task ID, because no job was created. A start that Frigate definitively
+rejects (for example, invalid scope or a board already updating) creates no job
+and releases the handle immediately. When no owning controller knows a recorded
+task, the next command releases it, and status polling reports `failed` rather
+than an error, so a command is never retried against a task that is gone.
+
+Completion (`completed`) requires every target on every owning controller to
+report success or already-current, with all owner jobs terminal. Missing owners
+or targets cannot prove completion; an owner that no longer knows the task has
+no running job and counts as a failure for its boards, and a board missing from
+its owner's job counts as a failure. Once every existing
+owner job is terminal with any failure, the plugin reports `failed` with a failure summary bounded to the
+Fleet Node status limit. Frigate has already handled board reboot, so neither
+state triggers a CT1 controller reboot, and Fleet does not retry a `failed`
+update immediately; rollout re-send pacing or the operator decides when to
+retry. Every update targets every occupied board: boards report a version but
+not their installed build, so an earlier success cannot prove a board still
+runs the artifact. Repeated work stays bounded because a `failed` update is not
+retried immediately and rollouts re-send at most three times. The plugin
+process retains the task and its owners per container, shared by every handle
+for it, including Fleet Node's per-command handles. The task ID is derived
+from the command's request ID, which includes the batch UUID, so after a
+process restart a retried command finds its task and resumes it instead of
+flashing again. The lookup asks the controllers that own boards now, which must
+answer, and every other paired controller on a best-effort basis, so a job is
+found even if board ownership moved during the restart, while an unreachable
+peer never blocks an update. The resumed task is tracked by the targets its
+jobs report, not by inventory that changed while the plugin was down. Occupied
+boards those jobs never targeted, such as a replaced board or one whose
+previous owner could not be reached, count as not updated, so the command
+reports `failed` rather than success. Commands without a request ID, such
+as those relayed by an older Fleet Node, use a random task ID and are not
+recoverable after a restart.
+
+At most two decoded firmware archives are held in memory per process. The
+plugin holds its slot through the controller upload; a command that cannot get
+a slot before its deadline is refused before any upload and can be retried.
+
+Each poll reads local job lists from the verified controller endpoints and adds
+the latest task, owner, progress, and failure evidence to board diagnostics.
+Fleet shows this in the existing hashboard details. Peer job visibility requires
+both controller addresses to have been discovered and paired. Job reads have a
+one-second budget and do not replace the required inventory read.
+
+The controller's software version remains independent. Inventory reports a
+hashboard firmware version only when every CT1 tank and module position is
+reported and every occupied board, located or not, has the same version and
+fresh health. The same complete, fresh evidence with differing versions is
+reported as mixed. Anything less (missing, duplicate, or stale board evidence,
+a partial map, or only unlocated switch_ports inventory) leaves the version
+unknown. Release-channel convergence reads this observation within a
+two-minute freshness limit together with artifact provenance: a uniform version
+can verify a container, a mixed one is drift that enforcement corrects, and an
+unknown one neither verifies nor reopens a converged container, so it never
+triggers a reflash on its own.
+
 ## Collection and controls
 
 Each active CT1 owns a reusable gRPC connection per saved endpoint, closed by

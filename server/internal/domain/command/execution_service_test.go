@@ -1256,17 +1256,18 @@ func TestExecuteCommandOnDevice_FirmwareUpdatePassesFileMetadata(t *testing.T) {
 			payloadBytes, err := json.Marshal(payload)
 			require.NoError(t, err)
 			message := queue.Message{
-				ID:          9,
-				CommandType: commandtype.FirmwareUpdate,
-				DeviceID:    42,
-				Payload:     payloadBytes,
+				ID:           9,
+				BatchLogUUID: "batch-1",
+				CommandType:  commandtype.FirmwareUpdate,
+				DeviceID:     42,
+				Payload:      payloadBytes,
 			}
 
 			// The command has already captured its artifact identity before the
 			// mutable upload metadata changes while it waits for execution.
 			switch tc.metadataState {
 			case "edited":
-				_, err := filesService.UpdateFirmwareMetadata(fileID, files.FirmwareMetadata{
+				_, err := filesService.UpdateFirmwareMetadata(t.Context(), fileID, files.FirmwareMetadata{
 					TargetManufacturer: "Other",
 					TargetModel:        "Different",
 					FirmwareVersion:    "9.9.9",
@@ -1319,6 +1320,7 @@ func TestExecuteCommandOnDevice_FirmwareUpdatePassesFileMetadata(t *testing.T) {
 						assert.Equal(t, int64(len(content)), firmware.Size)
 						assert.Equal(t, info.SHA256, firmware.SHA256)
 						assert.Equal(t, deliveryInfo.FilePath, firmware.FilePath)
+						assert.Equal(t, "batch-1/9", firmware.RequestID)
 						data, err := io.ReadAll(firmware.Reader)
 						require.NoError(t, err)
 						assert.Equal(t, content, string(data))

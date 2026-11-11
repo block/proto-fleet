@@ -10,6 +10,7 @@ WORKDIR /app
 
 # Copy go module files
 COPY server/go.mod server/go.sum ./
+COPY sdk/mdk/ /sdk/mdk/
 
 # Download Go dependencies
 RUN go mod download

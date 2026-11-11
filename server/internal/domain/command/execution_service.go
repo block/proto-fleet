@@ -917,12 +917,13 @@ func (es *ExecutionService) executeCommandOnDevice(ctx context.Context, commandT
 		err = func() error {
 			defer reader.Close()
 			return minerInfo.FirmwareUpdate(ctx, sdk.FirmwareFile{
-				Reader:   reader,
-				ID:       info.ID,
-				Filename: info.Filename,
-				Size:     info.Size,
-				SHA256:   info.SHA256,
-				FilePath: info.FilePath,
+				Reader:    reader,
+				ID:        info.ID,
+				Filename:  info.Filename,
+				Size:      info.Size,
+				SHA256:    info.SHA256,
+				FilePath:  info.FilePath,
+				RequestID: fmt.Sprintf("%s/%d", message.BatchLogUUID, message.ID),
 			})
 		}()
 		if err != nil {
@@ -1499,6 +1500,13 @@ const (
 // clearFirmwareUpdateStatus resets stale firmware statuses back to ACTIVE after
 // a reboot command or firmware cleanup path, allowing telemetry to take over
 // status management.
+func firmwareStatusErrorMessage(status *sdk.FirmwareUpdateStatus) string {
+	if status.Error != nil && *status.Error != "" {
+		return *status.Error
+	}
+	return "unknown error"
+}
+
 func (es *ExecutionService) clearFirmwareUpdateStatus(ctx context.Context, deviceID int64) {
 	if es.conn == nil {
 		return
@@ -1533,10 +1541,10 @@ func (es *ExecutionService) clearFirmwareUpdateStatusForDevice(ctx context.Conte
 	for attempt := range 3 {
 		upsertErr = es.deviceStore.UpsertDeviceStatus(ctx, devID, models.MinerStatusActive, "")
 		if upsertErr == nil {
-			slog.Info("cleared firmware update status after reboot", "device_id", deviceID, "previous_status", currentStatus)
+			slog.Info("cleared firmware update status", "device_id", deviceID, "previous_status", currentStatus)
 			return
 		}
-		slog.Warn("failed to clear firmware update status after reboot, retrying",
+		slog.Warn("failed to clear firmware update status, retrying",
 			"device_id", deviceID, "attempt", attempt+1, "error", upsertErr)
 		select {
 		case <-ctx.Done():
@@ -1544,7 +1552,7 @@ func (es *ExecutionService) clearFirmwareUpdateStatusForDevice(ctx context.Conte
 		case <-time.After(1 * time.Second):
 		}
 	}
-	slog.Error("permanently failed to clear firmware update status after reboot",
+	slog.Error("permanently failed to clear firmware update status",
 		"device_id", deviceID, "error", upsertErr)
 }
 
@@ -1633,6 +1641,10 @@ func (es *ExecutionService) doPollFirmwareInstall(ctx context.Context, minerInfo
 		}
 
 		switch status.State {
+		case "completed":
+			es.clearFirmwareUpdateStatus(ctx, deviceID)
+			return true, false, nil
+
 		case "success", "confirming":
 			cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), dbWriteTimeout)
 			defer cancel()
@@ -1667,11 +1679,10 @@ func (es *ExecutionService) doPollFirmwareInstall(ctx context.Context, minerInfo
 			slog.Debug("firmware install not started yet (grace window)", "device_id", deviceID, "state", status.State)
 
 		case "error":
-			errMsg := "unknown error"
-			if status.Error != nil && *status.Error != "" {
-				errMsg = *status.Error
-			}
-			return true, false, fleeterror.NewInternalErrorf("firmware install failed on device %d: %s", deviceID, errMsg)
+			return true, false, fleeterror.NewInternalErrorf("firmware install failed on device %d: %s", deviceID, firmwareStatusErrorMessage(status))
+
+		case "failed":
+			return true, false, fleeterror.NewFailedPreconditionErrorf("firmware update failed on device %d: %s", deviceID, firmwareStatusErrorMessage(status))
 
 		default:
 			slog.Debug("unexpected firmware install state", "device_id", deviceID, "state", status.State)

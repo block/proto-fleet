@@ -880,18 +880,20 @@ class UpdateMinerPasswordRequest(_message.Message):
     def __init__(self, ref: _Optional[_Union[DeviceRef, _Mapping]] = ..., current_password: _Optional[str] = ..., new_password: _Optional[str] = ...) -> None: ...
 
 class FirmwareFileInfo(_message.Message):
-    __slots__ = ("file_path", "original_filename", "file_size", "id", "sha256")
+    __slots__ = ("file_path", "original_filename", "file_size", "id", "sha256", "request_id")
     FILE_PATH_FIELD_NUMBER: _ClassVar[int]
     ORIGINAL_FILENAME_FIELD_NUMBER: _ClassVar[int]
     FILE_SIZE_FIELD_NUMBER: _ClassVar[int]
     ID_FIELD_NUMBER: _ClassVar[int]
     SHA256_FIELD_NUMBER: _ClassVar[int]
+    REQUEST_ID_FIELD_NUMBER: _ClassVar[int]
     file_path: str
     original_filename: str
     file_size: int
     id: str
     sha256: str
-    def __init__(self, file_path: _Optional[str] = ..., original_filename: _Optional[str] = ..., file_size: _Optional[int] = ..., id: _Optional[str] = ..., sha256: _Optional[str] = ...) -> None: ...
+    request_id: str
+    def __init__(self, file_path: _Optional[str] = ..., original_filename: _Optional[str] = ..., file_size: _Optional[int] = ..., id: _Optional[str] = ..., sha256: _Optional[str] = ..., request_id: _Optional[str] = ...) -> None: ...
 
 class UpdateFirmwareRequest(_message.Message):
     __slots__ = ("ref", "firmware")
@@ -965,7 +967,9 @@ class ContainerHA(_message.Message):
     def __init__(self, observed_at: _Optional[_Union[_timestamp_pb2.Timestamp, _Mapping]] = ..., degraded: bool = ...) -> None: ...
 
 class ContainerSnapshot(_message.Message):
-    __slots__ = ("ha", "unlocated_hashboards", "metrics", "fans", "controls", "observed_at", "tanks", "plant", "topology_complete")
+    __slots__ = ("hashboard_firmware_version", "hashboard_firmware_mixed", "ha", "unlocated_hashboards", "metrics", "fans", "controls", "observed_at", "tanks", "plant", "topology_complete")
+    HASHBOARD_FIRMWARE_VERSION_FIELD_NUMBER: _ClassVar[int]
+    HASHBOARD_FIRMWARE_MIXED_FIELD_NUMBER: _ClassVar[int]
     HA_FIELD_NUMBER: _ClassVar[int]
     UNLOCATED_HASHBOARDS_FIELD_NUMBER: _ClassVar[int]
     METRICS_FIELD_NUMBER: _ClassVar[int]
@@ -975,6 +979,8 @@ class ContainerSnapshot(_message.Message):
     TANKS_FIELD_NUMBER: _ClassVar[int]
     PLANT_FIELD_NUMBER: _ClassVar[int]
     TOPOLOGY_COMPLETE_FIELD_NUMBER: _ClassVar[int]
+    hashboard_firmware_version: str
+    hashboard_firmware_mixed: bool
     ha: ContainerHA
     unlocated_hashboards: _containers.RepeatedCompositeFieldContainer[ContainerHashboard]
     metrics: ContainerRollup
@@ -984,7 +990,7 @@ class ContainerSnapshot(_message.Message):
     tanks: _containers.RepeatedCompositeFieldContainer[ContainerTank]
     plant: ContainerPlant
     topology_complete: bool
-    def __init__(self, ha: _Optional[_Union[ContainerHA, _Mapping]] = ..., unlocated_hashboards: _Optional[_Iterable[_Union[ContainerHashboard, _Mapping]]] = ..., metrics: _Optional[_Union[ContainerRollup, _Mapping]] = ..., fans: _Optional[_Iterable[_Union[ContainerFan, _Mapping]]] = ..., controls: _Optional[_Union[ContainerControls, _Mapping]] = ..., observed_at: _Optional[_Union[_timestamp_pb2.Timestamp, _Mapping]] = ..., tanks: _Optional[_Iterable[_Union[ContainerTank, _Mapping]]] = ..., plant: _Optional[_Union[ContainerPlant, _Mapping]] = ..., topology_complete: bool = ...) -> None: ...
+    def __init__(self, hashboard_firmware_version: _Optional[str] = ..., hashboard_firmware_mixed: bool = ..., ha: _Optional[_Union[ContainerHA, _Mapping]] = ..., unlocated_hashboards: _Optional[_Iterable[_Union[ContainerHashboard, _Mapping]]] = ..., metrics: _Optional[_Union[ContainerRollup, _Mapping]] = ..., fans: _Optional[_Iterable[_Union[ContainerFan, _Mapping]]] = ..., controls: _Optional[_Union[ContainerControls, _Mapping]] = ..., observed_at: _Optional[_Union[_timestamp_pb2.Timestamp, _Mapping]] = ..., tanks: _Optional[_Iterable[_Union[ContainerTank, _Mapping]]] = ..., plant: _Optional[_Union[ContainerPlant, _Mapping]] = ..., topology_complete: bool = ...) -> None: ...
 
 class ContainerTank(_message.Message):
     __slots__ = ("metrics", "topology_complete", "position", "modules")

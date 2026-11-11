@@ -14,10 +14,12 @@ import (
 )
 
 type Device struct {
-	id      string
-	info    sdk.DeviceInfo
-	clients []*Client
-	writeMu sync.Mutex
+	id           string
+	info         sdk.DeviceInfo
+	clients      []*Client
+	writeMu      sync.Mutex
+	firmwareOnce sync.Once
+	firmware     *firmwareState
 }
 
 var _ sdk.Device = (*Device)(nil)
@@ -62,7 +64,7 @@ func NewDevice(ctx context.Context, id string, info sdk.DeviceInfo, credentials 
 	return d, nil
 }
 func Capabilities() sdk.Capabilities {
-	return sdk.Capabilities{sdk.CapabilityContainerMining: true, sdk.CapabilityPoolConfig: true, sdk.CapabilityPoolClear: true, sdk.CapabilityPoolPriority: true, sdk.CapabilityMiningGroups: true, sdk.CapabilityMiningGroupPoolClear: true, sdk.CapabilityTankMining: true, sdk.CapabilityModuleMining: true, sdk.CapabilityContainerControl: true, sdk.CapabilityPollingHost: true, sdk.CapabilityDiscovery: true, sdk.CapabilityPairing: true, sdk.CapabilityRealtimeTelemetry: true, sdk.CapabilityHashrateReported: true, sdk.CapabilityPowerUsage: true}
+	return sdk.Capabilities{sdk.CapabilityFirmware: true, sdk.CapabilityManualUpload: true, sdk.CapabilityFirmwareSelfManaged: true, sdk.CapabilityContainerMining: true, sdk.CapabilityPoolConfig: true, sdk.CapabilityPoolClear: true, sdk.CapabilityPoolPriority: true, sdk.CapabilityMiningGroups: true, sdk.CapabilityMiningGroupPoolClear: true, sdk.CapabilityTankMining: true, sdk.CapabilityModuleMining: true, sdk.CapabilityContainerControl: true, sdk.CapabilityPollingHost: true, sdk.CapabilityDiscovery: true, sdk.CapabilityPairing: true, sdk.CapabilityRealtimeTelemetry: true, sdk.CapabilityHashrateReported: true, sdk.CapabilityPowerUsage: true}
 }
 func (d *Device) ID() string { return d.id }
 func (d *Device) DescribeDevice(ctx context.Context) (sdk.DeviceInfo, sdk.Capabilities, error) {
@@ -85,6 +87,7 @@ func (d *Device) Status(ctx context.Context) (sdk.DeviceMetrics, error) {
 	if err != nil {
 		return sdk.DeviceMetrics{}, err
 	}
+	firmwareJobs := observeFirmwareJobs(ctx, selected)
 	metrics, err := selected.client.Collect(ctx, d.id)
 	if err != nil && selected.standby != nil && ctx.Err() == nil {
 		// Reuse this poll's verified standby. Only telemetry can fall back;
@@ -99,6 +102,7 @@ func (d *Device) Status(ctx context.Context) (sdk.DeviceMetrics, error) {
 	}
 	if metrics.Container != nil {
 		metrics.Container.HA = ha
+		enrichFirmwareBoards(metrics.Container, <-firmwareJobs, time.Now().UTC())
 	}
 	metrics.FirmwareVersion = d.info.FirmwareVersion
 	if selected.state != nil {
@@ -142,9 +146,6 @@ func (d *Device) UpdateMinerPassword(context.Context, string, string) error {
 }
 func (d *Device) DownloadLogs(context.Context, *time.Time, string) (string, bool, error) {
 	return "", false, sdk.NewErrUnsupportedCapability("logs")
-}
-func (d *Device) FirmwareUpdate(context.Context, sdk.FirmwareFile) error {
-	return sdk.UnsupportedWrite("firmware")
 }
 func (d *Device) GetErrors(context.Context) (sdk.DeviceErrors, error) {
 	return sdk.DeviceErrors{}, sdk.NewErrUnsupportedCapability("errors")

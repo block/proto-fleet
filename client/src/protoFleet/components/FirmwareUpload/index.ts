@@ -8,3 +8,4 @@ export {
   FileErrorStatus,
 } from "./FirmwareUploadComponents";
 export { firmwareVersionFromFilename } from "./firmwareVersion";
+export { default as HashboardBuildField } from "./HashboardBuildField";

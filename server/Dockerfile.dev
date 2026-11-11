@@ -9,6 +9,7 @@ RUN apk add --no-cache git \
 WORKDIR /app
 
 COPY server/go.mod server/go.sum ./
+COPY sdk/mdk/ /sdk/mdk/
 RUN go mod download
 
 COPY server/ ./

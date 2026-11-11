@@ -36,6 +36,12 @@ func logFirmwareUploadActivity(
 			"firmware_version":    result.Metadata.FirmwareVersion,
 		},
 	}
+	if result.StoredFilename != "" && result.StoredFilename != filename {
+		event.Metadata["stored_filename"] = result.StoredFilename
+	}
+	if build := result.Metadata.HashboardBuild; build != "" {
+		event.Metadata["hashboard_build"] = build
+	}
 	stampFirmwareActor(ctx, &event)
 	activitySvc.Log(ctx, event)
 }
@@ -53,10 +59,16 @@ func logFirmwareMetadataUpdatedActivity(
 		"current_target_model":        current.TargetModel,
 		"current_firmware_version":    current.FirmwareVersion,
 	}
+	if current.HashboardBuild != "" {
+		metadata["current_hashboard_build"] = current.HashboardBuild
+	}
 	if previous != nil {
 		metadata["previous_target_manufacturer"] = previous.TargetManufacturer
 		metadata["previous_target_model"] = previous.TargetModel
 		metadata["previous_firmware_version"] = previous.FirmwareVersion
+		if previous.HashboardBuild != "" {
+			metadata["previous_hashboard_build"] = previous.HashboardBuild
+		}
 	}
 
 	event := activitymodels.Event{

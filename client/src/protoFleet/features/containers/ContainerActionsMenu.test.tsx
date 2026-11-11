@@ -3,9 +3,16 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { create } from "@bufbuild/protobuf";
 import { timestampFromDate } from "@bufbuild/protobuf/wkt";
+import { Code, ConnectError } from "@connectrpc/connect";
 import ContainerActionsMenu from "./ContainerActionsMenu";
 import { ContainerSchema } from "@/protoFleet/api/generated/containers/v1/containers_pb";
 import { STATUSES } from "@/shared/features/toaster";
+
+vi.mock("@/protoFleet/features/fleetManagement/components/MinerActionsMenu/FirmwareUpdateModal", () => ({
+  default: ({ onConfirm }: { onConfirm: (id: string) => void }) => (
+    <button onClick={() => onConfirm("ct1-firmware")}>Confirm hashboard update</button>
+  ),
+}));
 
 const state = vi.hoisted(() => ({
   permissions: [] as string[],
@@ -15,12 +22,14 @@ const state = vi.hoisted(() => ({
   request: vi.fn(),
   statusRequest: vi.fn(),
   commandResult: vi.fn(),
+  firmwareUpdate: vi.fn(),
 }));
 vi.mock("@/protoFleet/store", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/protoFleet/store")>()),
   usePermissions: () => state.permissions,
 }));
 vi.mock("@/protoFleet/api/clients", () => ({
+  minerCommandClient: { firmwareUpdate: state.firmwareUpdate },
   fleetManagementClient: { deleteMiners: state.deleteMiners },
   miningGroupsClient: { getState: state.getState },
   containersClient: {
@@ -414,7 +423,7 @@ describe("container command dispatch", () => {
     renderMenu();
     fireEvent.click(screen.getByRole("button", { name: "Actions for Container 1" }));
     await screen.findByRole("button", { name: "Sleep container" });
-    for (const name of ["Edit pool", "Update worker name", "Update firmware"]) {
+    for (const name of ["Edit pool", "Update worker name"]) {
       const button = screen.getByRole("button", { name });
       expect(button).toBeDisabled();
       fireEvent.click(button);
@@ -703,5 +712,49 @@ describe("whole-container pool configuration", () => {
     renderMenu();
     fireEvent.click(screen.getByRole("button", { name: "Actions for Container 1" }));
     expect(screen.getByRole("button", { name: "Edit pool" })).toBeDisabled();
+  });
+});
+
+describe("container firmware update", () => {
+  beforeEach(() => {
+    state.firmwareUpdate.mockReset();
+  });
+
+  it("queues firmware for exactly the selected container", async () => {
+    state.firmwareUpdate.mockResolvedValue({ batchIdentifier: "batch-fw" });
+    renderMenu();
+    await openAction("Update firmware");
+    fireEvent.click(screen.getByRole("button", { name: "Confirm hashboard update" }));
+    await waitFor(() =>
+      expect(state.firmwareUpdate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          firmwareFileId: "ct1-firmware",
+          deviceSelector: expect.objectContaining({
+            selectionType: {
+              case: "includeDevices",
+              value: expect.objectContaining({ deviceIdentifiers: [container.deviceIdentifier] }),
+            },
+          }),
+        }),
+      ),
+    );
+    await waitFor(() =>
+      expect(state.pushToast).toHaveBeenCalledWith(expect.objectContaining({ status: STATUSES.success })),
+    );
+  });
+
+  it("shows the server's message without the protocol code", async () => {
+    state.firmwareUpdate.mockImplementation(async () => {
+      throw new ConnectError("firmware targets another model", Code.FailedPrecondition);
+    });
+    renderMenu();
+    await openAction("Update firmware");
+    fireEvent.click(screen.getByRole("button", { name: "Confirm hashboard update" }));
+    await waitFor(() =>
+      expect(state.pushToast).toHaveBeenCalledWith({
+        message: "firmware targets another model",
+        status: STATUSES.error,
+      }),
+    );
   });
 });
