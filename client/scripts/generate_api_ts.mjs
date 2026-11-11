@@ -45,6 +45,8 @@ const generateTarget = async ({ dialect, schema, fileName }) => {
     addReadonly: true,
     httpClientType: "fetch",
     sortTypes: true,
+    // Protobuf JSON sends `bytes` fields as base64 strings; a Blob would serialize as `{}`.
+    primitiveTypeConstructs: { string: { byte: "string" } },
   });
 
   const filePath = path.join(output, fileName);

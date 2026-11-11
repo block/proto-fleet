@@ -136,7 +136,7 @@ export interface FirmwareServiceListFirmwareUpdatesParams {
 
 export interface FirmwareServiceWriteFirmwareArtifactUploadChunkBody {
   /** @format byte */
-  data?: Blob;
+  data?: string;
   /**
    * image_index selects an entry in the begin request's metadata.images.
    * @format int64
@@ -339,7 +339,7 @@ export interface MiningServiceSetModuleFixedVoltageParams {
 
 export interface PSUFirmwareServiceWritePSUFirmwareCapsuleUploadChunkBody {
   /** @format byte */
-  data?: Blob;
+  data?: string;
   /**
    * offset is the byte offset of data within the capsule.
    * @format int64
