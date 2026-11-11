@@ -21,12 +21,13 @@ import (
 type simulatedFirmware struct {
 	artifacts map[string][]*mdk.FirmwareImage
 	jobs      map[string]*mdk.FirmwareUpdate
+	uploads   map[string]*simulatedFirmwareUpload
 }
 
 const simulatedFlashDuration = 4 * time.Second
 
 func newSimulatedFirmware() *simulatedFirmware {
-	return &simulatedFirmware{artifacts: map[string][]*mdk.FirmwareImage{}, jobs: map[string]*mdk.FirmwareUpdate{}}
+	return &simulatedFirmware{artifacts: map[string][]*mdk.FirmwareImage{}, jobs: map[string]*mdk.FirmwareUpdate{}, uploads: map[string]*simulatedFirmwareUpload{}}
 }
 
 func (a *grpcAPI) UploadFirmwareArtifact(stream mdk.FirmwareService_UploadFirmwareArtifactServer) error {
@@ -69,25 +70,34 @@ func (a *grpcAPI) UploadFirmwareArtifact(stream mdk.FirmwareService_UploadFirmwa
 		}
 		data[i] = append(data[i], chunk.Data...)
 	}
+	a.state.mu.Lock()
+	result, err := a.cacheFirmware(meta, data)
+	a.state.mu.Unlock()
+	if err != nil {
+		return err
+	}
+	return stream.SendAndClose(result)
+}
+
+// Caller holds state.mu. Both upload transports share image validation and caching.
+func (a *grpcAPI) cacheFirmware(meta *mdk.FirmwareUploadMetadata, data [][]byte) (*mdk.UploadFirmwareArtifactResponse, error) {
 	var images []*mdk.FirmwareImage
 	digest := sha256.New()
 	for i, image := range meta.Images {
 		checksum := fmt.Sprintf("%x", sha256.Sum256(data[i]))
 		if int64(len(data[i])) != image.SizeBytes || checksum != image.Sha256 {
-			return status.Error(codes.InvalidArgument, "firmware checksum or size mismatch")
+			return nil, status.Error(codes.InvalidArgument, "firmware checksum or size mismatch")
 		}
 		decoded, err := hbfirmware.DecodeMetadata(data[i])
 		if err != nil {
-			return status.Error(codes.InvalidArgument, err.Error())
+			return nil, status.Error(codes.InvalidArgument, err.Error())
 		}
 		_, _ = fmt.Fprintf(digest, "%s:%s\n", image.Name, checksum)
 		images = append(images, &mdk.FirmwareImage{Name: image.Name, Version: decoded.Version(), Build: decoded.Build, HardwareRevision: decoded.HardwareRevision, Sha256: checksum})
 	}
 	id := fmt.Sprintf("%x", digest.Sum(nil))
-	a.state.mu.Lock()
 	a.state.firmware.artifacts[id] = images
-	a.state.mu.Unlock()
-	return stream.SendAndClose(&mdk.UploadFirmwareArtifactResponse{Artifact: &mdk.FirmwareArtifactRef{Source: mdk.FirmwareArtifactSource_FIRMWARE_ARTIFACT_SOURCE_UPLOAD, UploadId: id}, Images: images})
+	return &mdk.UploadFirmwareArtifactResponse{Artifact: &mdk.FirmwareArtifactRef{Source: mdk.FirmwareArtifactSource_FIRMWARE_ARTIFACT_SOURCE_UPLOAD, UploadId: id}, Images: images}, nil
 }
 
 func (a *grpcAPI) StartFirmwareUpdate(_ context.Context, req *mdk.StartFirmwareUpdateRequest) (*mdk.StartFirmwareUpdateResponse, error) {

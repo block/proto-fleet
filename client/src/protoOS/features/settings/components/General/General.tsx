@@ -7,6 +7,7 @@ import MinerSystemTagEditModal from "./MinerSystemTagEditModal";
 import { useSystemTag } from "@/protoOS/api";
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
 import CheckForUpdate from "@/protoOS/features/firmwareUpdate/components/CheckForUpdate";
+import CT1FirmwareUpload from "@/protoOS/features/firmwareUpdate/components/CT1FirmwareUpload";
 import {
   useAccessToken,
   useDismissedLoginModal,
@@ -47,7 +48,7 @@ const General = () => {
   const isContainer = systemInfo?.identity.deviceType === "container";
   const isProtoRig = useIsProtoRig();
   const { getSystemTag, systemTag: minerTag } = useSystemTag();
-  const { isFleetHosted, minerRoot } = useMinerHosting();
+  const { adapter, isFleetHosted, minerRoot } = useMinerHosting();
 
   const pausedAuthAction = usePausedAuthAction();
   const setPausedAuthAction = useSetPausedAuthAction();
@@ -172,6 +173,13 @@ const General = () => {
               <span>—</span>
             </Row>
           </>
+        ) : null}
+        {isContainer && !isFleetHosted && adapter?.ct1Firmware && systemInfo.identity.deviceId ? (
+          <CT1FirmwareUpload
+            key={systemInfo.identity.deviceId}
+            firmware={adapter.ct1Firmware}
+            deviceId={systemInfo.identity.deviceId}
+          />
         ) : null}
         {!isContainer ? (
           <div className="mt-6 flex justify-center">

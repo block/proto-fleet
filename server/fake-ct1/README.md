@@ -203,10 +203,14 @@ real Stratum sessions, or per-group connection history. Existing pool
 diagnostics remain demonstration data. REST retains its existing API; Fleet uses
 the native gRPC group service.
 
-## Hashboard firmware in Fleet
+## Hashboard firmware in Fleet and ProtoOS
 
 The native gRPC listener implements `FirmwareService` upload, start, get, list,
-and cancel. Fleet can upload a selected prod/dev/mfgtest archive and target the
+and cancel. The Connect handler exposes the chunked begin/write/commit/abort
+upload calls and the same update jobs for standalone ProtoOS. Chunked uploads
+accept at most 1 MiB per write, skip received bytes on retry, refuse gaps, reset
+an image on a digest mismatch, expire after ten idle minutes, and allow two
+concurrent sessions. Both upload transports share metadata decoding and caching. Fleet can upload a selected prod/dev/mfgtest archive and target the
 container through its existing firmware action or a release channel. Stream
 framing, size limits, SHA-256 digests, and embedded image metadata are checked.
 The fixture does not verify real signing certificates or hardware compatibility.

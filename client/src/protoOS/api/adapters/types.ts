@@ -1,4 +1,5 @@
 import type { ContainerHistoryRequest, ContainerHistoryResult } from "./containerHistory";
+import type { CT1Firmware } from "./ct1Firmware";
 import type { ChangePasswordRequest } from "./mdkV1";
 import type { PoolHistoryRequest, PoolHistoryResult, PoolRecordedShares } from "./poolHistory";
 import type {
@@ -175,6 +176,7 @@ export interface TimeSeriesQuery {
 }
 
 export interface MinerAdapter {
+  ct1Firmware?: CT1Firmware;
   /**
    * Merge this adapter's own request decoration (auth headers, actor
    * attribution, …) into `params`. Each generation owns what its firmware

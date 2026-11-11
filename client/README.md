@@ -110,9 +110,44 @@ through the authenticated MDK v1 multipart endpoint, which starts installation
 automatically. Keep the page open during upload; the existing firmware status
 and reboot controls follow installation. The rig validates the image and enforces
 its upload limits. If upload completion is uncertain, check the device status
-before retrying. This control is unavailable in Fleet-hosted views and on CT1;
-the catalog update flow remains available. R2 images must bundle a ProtoOS release
+before retrying. This control is unavailable in Fleet-hosted views;
+the R2 catalog update flow remains available. R2 images must bundle a ProtoOS release
 containing this feature before operators can use it on-device.
+
+### CT1 local hashboard firmware
+
+On a direct CT1 connection, **Settings → General → Firmware → Upload hashboard
+firmware** accepts one `f1-app-prod.bin`, `f1-app-dev.bin`, or
+`f1-app-mfgtest.bin` from a hashboard release. It reads the embedded F1 metadata
+and displays the version, build, and occupied-board count before confirmation.
+ZIP archives, other hardware, and mismatched filenames are refused. This control
+is absent in Fleet-hosted views, which keep Fleet's firmware flow.
+
+The browser checks the complete six-tank map (including every configured module
+and slot), then uploads the image once to the connected controller using the
+chunked Connect API. It supplies the image version and filename as release
+attribution, computes SHA-256 even on plain LAN HTTP, and retries only uncertain
+chunk writes at the same offset. Frigate validates the artifact and coordinates
+its distribution to the owning controllers. The update explicitly targets every
+occupied board, including unlocated inventory, with the selected build and
+`force=true`: boards report version but not installed build, so same-version
+build changes must still flash. Mining stop/restore uses Frigate's defaults.
+
+Keep the page open during upload. Canceling an upload aborts its session when
+possible; sessions lost on disconnect expire after ten idle minutes or a
+controller restart. Before starting, ProtoOS saves its task ID and board-owner
+map in local browser storage. After a lost response or reload on the same origin,
+**Hashboard update status** queries each owner without resubmitting Start.
+Missing or unreachable owners remain visibly unresolved; cancel must reach every
+owner and confirm a terminal job before tracking is cleared. A cancellation
+request that is still stopping boards remains recoverable across reloads. Progress includes each board's phase and
+failure details. Browser storage does not transfer across origins, browsers, or
+controllers, and an unfinished upload must be selected again after a reload.
+
+The simulator covers upload integrity and job lifecycle, not real signing or
+flashing. Frigate must update its pinned ProtoOS release before this feature
+appears on physical containers. PSU firmware, controller software, and release
+archive upload are separate flows.
 
 ### CT1 on-device standalone
 
