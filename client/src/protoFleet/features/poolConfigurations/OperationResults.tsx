@@ -92,13 +92,26 @@ export const OperationResults = ({
   const selected = selectedTargets && new Set(selectedTargets.filter((t) => t.targetId > 0n).map(keyFor));
   const explicitOperation = !!(replacement || operationId);
   const currentAssignments = new Map(assignments.map((a) => [keyFor(assignmentTarget(a)), a]));
+  // Board rows can refer to a whole-container operation. Match both the
+  // controller and current operation so unrelated or replaced work stays hidden.
+  const projectedAssignment = (target: { kind: string; targetId: bigint }, id: string) =>
+    target.kind === "device"
+      ? assignments.find(
+          (a) =>
+            a.installationId &&
+            a.deviceId === target.targetId &&
+            a.operationId === id &&
+            (!selected || selected.has(keyFor(assignmentTarget(a)))),
+        )
+      : undefined;
   const rows = (query.data ?? []).flatMap((operation) =>
     operation.targets
       .filter((target) => {
         const key = keyFor(target);
         return (
-          (!selected || selected.has(key)) &&
-          (explicitOperation || currentAssignments.get(key)?.operationId === operation.operationId)
+          ((!selected || selected.has(key)) &&
+            (explicitOperation || currentAssignments.get(key)?.operationId === operation.operationId)) ||
+          !!projectedAssignment(target, operation.operationId)
         );
       })
       .map((target) => ({
@@ -180,7 +193,7 @@ export const OperationResults = ({
         {rows.map((row) => {
           const removal = row.operationKind === "clear" || row.operationKind === "unassign";
           const key = keyFor(row.target);
-          const currentAssignment = currentAssignments.get(key);
+          const currentAssignment = currentAssignments.get(key) ?? projectedAssignment(row.target, row.operationId);
           const assignmentChanged =
             !!currentAssignment &&
             (currentAssignment.operationId !== row.operationId ||

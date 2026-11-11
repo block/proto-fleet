@@ -139,35 +139,38 @@ func (q *Queries) GetPoolLifecycleAllocation(ctx context.Context, arg GetPoolLif
 }
 
 const getPoolLifecycleTransition = `-- name: GetPoolLifecycleTransition :one
-SELECT t.transition_id, t.organization_id, t.device_id, t.asset_kind, t.asset_id, t.owner_account_id, t.allocation_revision, t.pairing_defaults, t.reason, t.configuration_id, t.revision_id, t.target_kind, t.target_id, t.reviewed_binding, t.state, t.result_code, t.operation_id, t.physical_attempt_id, t.created_at, t.updated_at, t.next_attempt_at,COALESCE(a.account_id,'')::text AS external_account_id,COALESCE(a.name,'')::text AS account_name
+SELECT t.transition_id, t.organization_id, t.device_id, t.asset_kind, t.asset_id, t.owner_account_id, t.allocation_revision, t.pairing_defaults, t.reason, t.configuration_id, t.revision_id, t.target_kind, t.target_id, t.reviewed_binding, t.state, t.result_code, t.operation_id, t.physical_attempt_id, t.created_at, t.updated_at, t.next_attempt_at,COALESCE(a.account_id,'')::text AS external_account_id,COALESCE(a.name,'')::text AS account_name,
+ COALESCE(w.status,'')::text AS physical_attempt_status
 FROM pool_lifecycle_transition t LEFT JOIN hosted_account a ON a.organization_id=t.organization_id AND a.id=t.owner_account_id
+LEFT JOIN device_write_attempt w ON w.attempt_id=t.physical_attempt_id
 WHERE t.transition_id=$1
 `
 
 type GetPoolLifecycleTransitionRow struct {
-	TransitionID       uuid.UUID
-	OrganizationID     int64
-	DeviceID           int64
-	AssetKind          int32
-	AssetID            int64
-	OwnerAccountID     int64
-	AllocationRevision int64
-	PairingDefaults    json.RawMessage
-	Reason             string
-	ConfigurationID    sql.NullString
-	RevisionID         sql.NullString
-	TargetKind         string
-	TargetID           int64
-	ReviewedBinding    string
-	State              string
-	ResultCode         string
-	OperationID        sql.NullString
-	PhysicalAttemptID  uuid.NullUUID
-	CreatedAt          time.Time
-	UpdatedAt          time.Time
-	NextAttemptAt      time.Time
-	ExternalAccountID  string
-	AccountName        string
+	TransitionID          uuid.UUID
+	OrganizationID        int64
+	DeviceID              int64
+	AssetKind             int32
+	AssetID               int64
+	OwnerAccountID        int64
+	AllocationRevision    int64
+	PairingDefaults       json.RawMessage
+	Reason                string
+	ConfigurationID       sql.NullString
+	RevisionID            sql.NullString
+	TargetKind            string
+	TargetID              int64
+	ReviewedBinding       string
+	State                 string
+	ResultCode            string
+	OperationID           sql.NullString
+	PhysicalAttemptID     uuid.NullUUID
+	CreatedAt             time.Time
+	UpdatedAt             time.Time
+	NextAttemptAt         time.Time
+	ExternalAccountID     string
+	AccountName           string
+	PhysicalAttemptStatus string
 }
 
 func (q *Queries) GetPoolLifecycleTransition(ctx context.Context, transitionID uuid.UUID) (GetPoolLifecycleTransitionRow, error) {
@@ -197,6 +200,7 @@ func (q *Queries) GetPoolLifecycleTransition(ctx context.Context, transitionID u
 		&i.NextAttemptAt,
 		&i.ExternalAccountID,
 		&i.AccountName,
+		&i.PhysicalAttemptStatus,
 	)
 	return i, err
 }

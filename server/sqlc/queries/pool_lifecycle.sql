@@ -14,8 +14,10 @@ SELECT * FROM (
 ) pending ORDER BY next_attempt_at,created_at LIMIT 100;
 
 -- name: GetPoolLifecycleTransition :one
-SELECT t.*,COALESCE(a.account_id,'')::text AS external_account_id,COALESCE(a.name,'')::text AS account_name
+SELECT t.*,COALESCE(a.account_id,'')::text AS external_account_id,COALESCE(a.name,'')::text AS account_name,
+ COALESCE(w.status,'')::text AS physical_attempt_status
 FROM pool_lifecycle_transition t LEFT JOIN hosted_account a ON a.organization_id=t.organization_id AND a.id=t.owner_account_id
+LEFT JOIN device_write_attempt w ON w.attempt_id=t.physical_attempt_id
 WHERE t.transition_id=$1;
 
 -- name: DeferPoolLifecycleTransition :exec

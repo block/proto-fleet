@@ -57,14 +57,19 @@ assigning its eight device-processing slots. Preparation uses spare capacity;
 already-running work finishes normally before its slot can be reused.
 
 Pending transitions appear in equipment pool status. Applied configurations retain
-the existing operation results. Automatic clears report completion only after
-empty stored and runtime settings are verified. Pre-dispatch read failures retry
+the existing operation results. With mining groups disabled and one owner across
+the container, board rows also show its whole-container operation and link to its
+details. This does not create individual board assignments. Enabled, pending, or
+suspended mining-group observations, or an unfinished mining-group workflow, stop
+that fallback; board-specific assignments keep their own status. Automatic clears
+report completion only after empty stored and runtime settings are verified. Pre-dispatch read failures retry
 only after the journal proves no mutation was sent. Failure recording and retry
 scheduling commit together; polling also recovers recorded pre-dispatch failures
 left by an interrupted process. Unclaimed clears repeat preparation using current
 placement and mining-group mode before dispatch. A dispatched clear is never sent
 again automatically: completed attempts can be observed again, while unknown
 attempts require the existing administrator device-write recovery procedure.
+Their operation details explicitly report “Administrator recovery required.”
 
 Ownership changes remain available during pool work. An obsolete automatic board
 clear ends only after saved requests have settled and fresh controller readback

@@ -51,14 +51,7 @@ func (s *Service) GetAssignments(ctx context.Context, accountID string, identifi
 		result := EquipmentAssignments{SelectedCount: int64(len(identifiers) + len(deviceIDs))}
 		for _, row := range rows {
 			if visible(row.SiteID) {
-				if event, ok := events[AssignmentTarget{Kind: TargetDevice, ID: row.DeviceID, DeviceID: row.DeviceID}]; ok && row.ConfigurationID == "" {
-					row.State = lifecycleDisplayState(event)
-					row.ResultCode = event.ResultCode
-					row.OperationID = event.TransitionID.String()
-					row.UpdatedAt = event.UpdatedAt
-					row.ConfigurationID = event.ConfigurationID.String
-					row.Name = event.ConfigurationName
-				}
+				applyDeviceLifecycleStatus(&row, events)
 				result.Assignments = append(result.Assignments, row)
 			}
 		}

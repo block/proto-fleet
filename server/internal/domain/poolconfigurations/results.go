@@ -82,6 +82,7 @@ func (r *Repository) GetOperation(ctx context.Context, q sqlc.Querier, scope Sco
 			state = "pending"
 		}
 		target := publicOperationTarget(sqlc.PoolConfigurationOperationTarget{TargetKind: event.TargetKind, TargetID: event.TargetID, State: state, ResultCode: event.ResultCode, UpdatedAt: event.UpdatedAt, ReviewedBinding: event.ReviewedBinding})
+		applyClearRecoveryStatus(&target, kind, event.PhysicalAttemptStatus)
 		if target.ID == 0 {
 			target.Kind = TargetDevice
 			target.ID = event.DeviceID
@@ -114,12 +115,16 @@ func (r *Repository) GetOperation(ctx context.Context, q sqlc.Querier, scope Sco
 	// Live metadata can belong to a different owner after reassignment.
 	for _, target := range targets {
 		public := publicOperationTarget(target.PoolConfigurationOperationTarget)
-		if row.Kind == "clear" && (public.State == "applying" || public.State == "uncertain") && target.PhysicalAttemptStatus == "unknown" {
-			public.ResultCode = "operator_recovery_required"
-		}
+		applyClearRecoveryStatus(&public, row.Kind, target.PhysicalAttemptStatus)
 		result.Targets = append(result.Targets, public)
 	}
 	return result, nil
+}
+
+func applyClearRecoveryStatus(target *OperationTarget, kind, attemptStatus string) {
+	if kind == "clear" && (target.State == "applying" || target.State == "uncertain") && attemptStatus == "unknown" {
+		target.ResultCode = "operator_recovery_required"
+	}
 }
 
 func targetMutationResult(n int64, err error) error {

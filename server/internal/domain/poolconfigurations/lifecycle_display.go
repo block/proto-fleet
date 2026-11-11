@@ -33,3 +33,16 @@ func lifecycleDisplayState(event sqlc.ListVisiblePoolLifecycleTransitionsRow) st
 	}
 	return event.State
 }
+
+// applyDeviceLifecycleStatus also serves board rows covered by a whole-container
+// operation. Saved assignments take precedence over lifecycle fallback evidence.
+func applyDeviceLifecycleStatus(row *sqlc.ListPoolEquipmentAssignmentsRow, events map[AssignmentTarget]sqlc.ListVisiblePoolLifecycleTransitionsRow) {
+	if event, ok := events[AssignmentTarget{Kind: TargetDevice, ID: row.DeviceID, DeviceID: row.DeviceID}]; ok && row.ConfigurationID == "" {
+		row.State = lifecycleDisplayState(event)
+		row.ResultCode = event.ResultCode
+		row.OperationID = event.TransitionID.String()
+		row.UpdatedAt = event.UpdatedAt
+		row.ConfigurationID = event.ConfigurationID.String
+		row.Name = event.ConfigurationName
+	}
+}
