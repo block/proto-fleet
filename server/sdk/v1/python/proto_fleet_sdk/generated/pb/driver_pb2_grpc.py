@@ -131,6 +131,11 @@ class DriverStub(object):
                 request_serializer=pb_dot_driver__pb2.SetContainerControlRequest.SerializeToString,
                 response_deserializer=google_dot_protobuf_dot_empty__pb2.Empty.FromString,
                 _registered_method=True)
+        self.FrigateServerUpdate = channel.unary_unary(
+                '/sdk.v1.Driver/FrigateServerUpdate',
+                request_serializer=pb_dot_driver__pb2.FrigateServerUpdateRequest.SerializeToString,
+                response_deserializer=pb_dot_driver__pb2.FrigateServerUpdateResponse.FromString,
+                _registered_method=True)
         self.SetCoolingMode = channel.unary_unary(
                 '/sdk.v1.Driver/SetCoolingMode',
                 request_serializer=pb_dot_driver__pb2.SetCoolingModeRequest.SerializeToString,
@@ -355,6 +360,17 @@ class DriverServicer(object):
 
     def SetContainerControl(self, request, context):
         """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def FrigateServerUpdate(self, request, context):
+        """Optional controller-only Frigate software update operations (capability
+        "frigate_server_update"). One RPC carries nine operations so the plugin
+        boundary stays narrow. A Frigate refusal travels as a gRPC status carrying a
+        google.rpc.ErrorInfo in domain "mdk.v2.frigate" whose reason is the UPDATE_*
+        code. Unsupported drivers return UNIMPLEMENTED.
+        """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
@@ -587,6 +603,11 @@ def add_DriverServicer_to_server(servicer, server):
                     servicer.SetContainerControl,
                     request_deserializer=pb_dot_driver__pb2.SetContainerControlRequest.FromString,
                     response_serializer=google_dot_protobuf_dot_empty__pb2.Empty.SerializeToString,
+            ),
+            'FrigateServerUpdate': grpc.unary_unary_rpc_method_handler(
+                    servicer.FrigateServerUpdate,
+                    request_deserializer=pb_dot_driver__pb2.FrigateServerUpdateRequest.FromString,
+                    response_serializer=pb_dot_driver__pb2.FrigateServerUpdateResponse.SerializeToString,
             ),
             'SetCoolingMode': grpc.unary_unary_rpc_method_handler(
                     servicer.SetCoolingMode,
@@ -1203,6 +1224,33 @@ class Driver(object):
             '/sdk.v1.Driver/SetContainerControl',
             pb_dot_driver__pb2.SetContainerControlRequest.SerializeToString,
             google_dot_protobuf_dot_empty__pb2.Empty.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def FrigateServerUpdate(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/sdk.v1.Driver/FrigateServerUpdate',
+            pb_dot_driver__pb2.FrigateServerUpdateRequest.SerializeToString,
+            pb_dot_driver__pb2.FrigateServerUpdateResponse.FromString,
             options,
             channel_credentials,
             insecure,

@@ -57,7 +57,22 @@ func main() {
 		cfg.ServerID, cfg.Tanks, state.ModuleCount(), state.BoardCount(),
 	)
 
-	if err := runContainer(state, address, getEnvPort("GRPC_PORT", 9095), getEnvPort("HTTP_PORT", defaultHTTPPort), *webRoot); err != nil {
+	grpcPort, httpPort := getEnvPort("GRPC_PORT", 9095), getEnvPort("HTTP_PORT", defaultHTTPPort)
+	pair, enabled, err := haPairSettingsFromEnv(cfg, grpcPort, httpPort)
+	if err != nil {
+		log.Fatal(err)
+	}
+	if enabled {
+		peer := NewContainerState(pair.peerConfig(cfg))
+		peer.IPAddress = state.IPAddress
+		sim := newHAPair(state, peer, pair)
+		log.Printf("CT1_HA_PAIR: controllers %s and %s, cluster %s, primary %s", state.ServerID, peer.ServerID, pair.ClusterID, pair.Update.Primary)
+		if err := runHAPair(state, peer, sim, address, grpcPort, httpPort, pair.PeerGRPCPort, pair.PeerHTTPPort, *webRoot); err != nil {
+			log.Fatal(err)
+		}
+		return
+	}
+	if err := runContainer(state, address, grpcPort, httpPort, *webRoot); err != nil {
 		log.Fatal(err)
 	}
 }
@@ -100,7 +115,12 @@ func runContainer(state *ContainerState, address string, rpcPort, httpPort int, 
 	defer stopSignals()
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	stopMetrics, err := state.startMetrics(context.Background(), os.Getenv("FAKE_MINER_METRICS_FILE"))
+	metricsFile := os.Getenv("FAKE_MINER_METRICS_FILE")
+	if state.ha != nil && !state.ha.primaryMetrics {
+		// One metrics file cannot be shared by both pair members.
+		metricsFile = ""
+	}
+	stopMetrics, err := state.startMetrics(context.Background(), metricsFile)
 	if err != nil {
 		return err
 	}

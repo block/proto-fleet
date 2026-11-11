@@ -260,6 +260,18 @@ func (q *retryingQuerier) AllDevicesBelongToOrg(ctx context.Context, arg AllDevi
 	return result, err
 }
 
+func (q *retryingQuerier) AnyDeviceHasBlockingFrigateUpdateJob(ctx context.Context, deviceIds []int64) (bool, error) {
+	var result bool
+	err := q.retrier.RetryQuery(ctx, "AnyDeviceHasBlockingFrigateUpdateJob", func() error {
+		callResult, callErr := q.next.AnyDeviceHasBlockingFrigateUpdateJob(ctx, deviceIds)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) AppendFirmwareRolloutDevices(ctx context.Context, arg AppendFirmwareRolloutDevicesParams) error {
 	return q.retrier.RetryQuery(ctx, "AppendFirmwareRolloutDevices", func() error {
 		return q.next.AppendFirmwareRolloutDevices(ctx, arg)
@@ -1404,6 +1416,18 @@ func (q *retryingQuerier) CountFleetNodeDevicesByNode(ctx context.Context, orgID
 	var result []CountFleetNodeDevicesByNodeRow
 	err := q.retrier.RetryQuery(ctx, "CountFleetNodeDevicesByNode", func() error {
 		callResult, callErr := q.next.CountFleetNodeDevicesByNode(ctx, orgID)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) CountFrigateUpdateActions(ctx context.Context, jobID uuid.UUID) (int32, error) {
+	var result int32
+	err := q.retrier.RetryQuery(ctx, "CountFrigateUpdateActions", func() error {
+		callResult, callErr := q.next.CountFrigateUpdateActions(ctx, jobID)
 		if callErr == nil {
 			result = callResult
 		}
@@ -2738,6 +2762,30 @@ func (q *retryingQuerier) FreezePoolConfigurationWriters(ctx context.Context, or
 	})
 }
 
+func (q *retryingQuerier) FrigateUpdatePackageInUse(ctx context.Context, packageID uuid.UUID) (bool, error) {
+	var result bool
+	err := q.retrier.RetryQuery(ctx, "FrigateUpdatePackageInUse", func() error {
+		callResult, callErr := q.next.FrigateUpdatePackageInUse(ctx, packageID)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) FrigateUpdatePackageWantsBlob(ctx context.Context, id uuid.UUID) (bool, error) {
+	var result bool
+	err := q.retrier.RetryQuery(ctx, "FrigateUpdatePackageWantsBlob", func() error {
+		callResult, callErr := q.next.FrigateUpdatePackageWantsBlob(ctx, id)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) GetAccountRepairTicket(ctx context.Context, arg GetAccountRepairTicketParams) (RepairTicket, error) {
 	var result RepairTicket
 	err := q.retrier.RetryQuery(ctx, "GetAccountRepairTicket", func() error {
@@ -3090,6 +3138,18 @@ func (q *retryingQuerier) GetBatchStatusAndDeviceCounts(ctx context.Context, arg
 	var result GetBatchStatusAndDeviceCountsRow
 	err := q.retrier.RetryQuery(ctx, "GetBatchStatusAndDeviceCounts", func() error {
 		callResult, callErr := q.next.GetBatchStatusAndDeviceCounts(ctx, argUuid)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) GetBlockingFrigateUpdateJobForDevice(ctx context.Context, deviceID int64) (FrigateUpdateJob, error) {
+	var result FrigateUpdateJob
+	err := q.retrier.RetryQuery(ctx, "GetBlockingFrigateUpdateJobForDevice", func() error {
+		callResult, callErr := q.next.GetBlockingFrigateUpdateJobForDevice(ctx, deviceID)
 		if callErr == nil {
 			result = callResult
 		}
@@ -4170,6 +4230,90 @@ func (q *retryingQuerier) GetFleetNodeTelemetryRouteByDeviceIdentifier(ctx conte
 	var result GetFleetNodeTelemetryRouteByDeviceIdentifierRow
 	err := q.retrier.RetryQuery(ctx, "GetFleetNodeTelemetryRouteByDeviceIdentifier", func() error {
 		callResult, callErr := q.next.GetFleetNodeTelemetryRouteByDeviceIdentifier(ctx, deviceIdentifier)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) GetFrigateUpdateAction(ctx context.Context, arg GetFrigateUpdateActionParams) (FrigateUpdateAction, error) {
+	var result FrigateUpdateAction
+	err := q.retrier.RetryQuery(ctx, "GetFrigateUpdateAction", func() error {
+		callResult, callErr := q.next.GetFrigateUpdateAction(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) GetFrigateUpdateDeviceSite(ctx context.Context, id int64) (GetFrigateUpdateDeviceSiteRow, error) {
+	var result GetFrigateUpdateDeviceSiteRow
+	err := q.retrier.RetryQuery(ctx, "GetFrigateUpdateDeviceSite", func() error {
+		callResult, callErr := q.next.GetFrigateUpdateDeviceSite(ctx, id)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) GetFrigateUpdateJob(ctx context.Context, arg GetFrigateUpdateJobParams) (FrigateUpdateJob, error) {
+	var result FrigateUpdateJob
+	err := q.retrier.RetryQuery(ctx, "GetFrigateUpdateJob", func() error {
+		callResult, callErr := q.next.GetFrigateUpdateJob(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) GetFrigateUpdateJobByRequestKey(ctx context.Context, arg GetFrigateUpdateJobByRequestKeyParams) (FrigateUpdateJob, error) {
+	var result FrigateUpdateJob
+	err := q.retrier.RetryQuery(ctx, "GetFrigateUpdateJobByRequestKey", func() error {
+		callResult, callErr := q.next.GetFrigateUpdateJobByRequestKey(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) GetFrigateUpdatePackage(ctx context.Context, arg GetFrigateUpdatePackageParams) (GetFrigateUpdatePackageRow, error) {
+	var result GetFrigateUpdatePackageRow
+	err := q.retrier.RetryQuery(ctx, "GetFrigateUpdatePackage", func() error {
+		callResult, callErr := q.next.GetFrigateUpdatePackage(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) GetFrigateUpdatePackageBySHA256(ctx context.Context, arg GetFrigateUpdatePackageBySHA256Params) (FrigateUpdatePackage, error) {
+	var result FrigateUpdatePackage
+	err := q.retrier.RetryQuery(ctx, "GetFrigateUpdatePackageBySHA256", func() error {
+		callResult, callErr := q.next.GetFrigateUpdatePackageBySHA256(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) GetFrigateUpdateTarget(ctx context.Context, arg GetFrigateUpdateTargetParams) (GetFrigateUpdateTargetRow, error) {
+	var result GetFrigateUpdateTargetRow
+	err := q.retrier.RetryQuery(ctx, "GetFrigateUpdateTarget", func() error {
+		callResult, callErr := q.next.GetFrigateUpdateTarget(ctx, arg)
 		if callErr == nil {
 			result = callResult
 		}
@@ -6218,6 +6362,42 @@ func (q *retryingQuerier) InsertDeviceMetricsBatch(ctx context.Context, arg Inse
 	})
 }
 
+func (q *retryingQuerier) InsertFrigateUpdateAction(ctx context.Context, arg InsertFrigateUpdateActionParams) error {
+	return q.retrier.RetryQuery(ctx, "InsertFrigateUpdateAction", func() error {
+		return q.next.InsertFrigateUpdateAction(ctx, arg)
+	})
+}
+
+func (q *retryingQuerier) InsertFrigateUpdateInstance(ctx context.Context, arg InsertFrigateUpdateInstanceParams) error {
+	return q.retrier.RetryQuery(ctx, "InsertFrigateUpdateInstance", func() error {
+		return q.next.InsertFrigateUpdateInstance(ctx, arg)
+	})
+}
+
+func (q *retryingQuerier) InsertFrigateUpdateJob(ctx context.Context, arg InsertFrigateUpdateJobParams) (FrigateUpdateJob, error) {
+	var result FrigateUpdateJob
+	err := q.retrier.RetryQuery(ctx, "InsertFrigateUpdateJob", func() error {
+		callResult, callErr := q.next.InsertFrigateUpdateJob(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) InsertFrigateUpdatePackage(ctx context.Context, arg InsertFrigateUpdatePackageParams) (FrigateUpdatePackage, error) {
+	var result FrigateUpdatePackage
+	err := q.retrier.RetryQuery(ctx, "InsertFrigateUpdatePackage", func() error {
+		callResult, callErr := q.next.InsertFrigateUpdatePackage(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) InsertHashboardDiagnosticObservations(ctx context.Context, arg InsertHashboardDiagnosticObservationsParams) error {
 	return q.retrier.RetryQuery(ctx, "InsertHashboardDiagnosticObservations", func() error {
 		return q.next.InsertHashboardDiagnosticObservations(ctx, arg)
@@ -7380,6 +7560,66 @@ func (q *retryingQuerier) ListFleetTankOptions(ctx context.Context, arg ListFlee
 	var result []ListFleetTankOptionsRow
 	err := q.retrier.RetryQuery(ctx, "ListFleetTankOptions", func() error {
 		callResult, callErr := q.next.ListFleetTankOptions(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) ListFrigateUpdateCleanupJobs(ctx context.Context) ([]FrigateUpdateJob, error) {
+	var result []FrigateUpdateJob
+	err := q.retrier.RetryQuery(ctx, "ListFrigateUpdateCleanupJobs", func() error {
+		callResult, callErr := q.next.ListFrigateUpdateCleanupJobs(ctx)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) ListFrigateUpdateInstances(ctx context.Context, jobID uuid.UUID) ([]FrigateUpdateInstance, error) {
+	var result []FrigateUpdateInstance
+	err := q.retrier.RetryQuery(ctx, "ListFrigateUpdateInstances", func() error {
+		callResult, callErr := q.next.ListFrigateUpdateInstances(ctx, jobID)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) ListFrigateUpdateInstancesForJobs(ctx context.Context, jobIds []uuid.UUID) ([]FrigateUpdateInstance, error) {
+	var result []FrigateUpdateInstance
+	err := q.retrier.RetryQuery(ctx, "ListFrigateUpdateInstancesForJobs", func() error {
+		callResult, callErr := q.next.ListFrigateUpdateInstancesForJobs(ctx, jobIds)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) ListFrigateUpdateJobsForDevice(ctx context.Context, arg ListFrigateUpdateJobsForDeviceParams) ([]FrigateUpdateJob, error) {
+	var result []FrigateUpdateJob
+	err := q.retrier.RetryQuery(ctx, "ListFrigateUpdateJobsForDevice", func() error {
+		callResult, callErr := q.next.ListFrigateUpdateJobsForDevice(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) ListFrigateUpdatePackages(ctx context.Context, orgID int64) ([]ListFrigateUpdatePackagesRow, error) {
+	var result []ListFrigateUpdatePackagesRow
+	err := q.retrier.RetryQuery(ctx, "ListFrigateUpdatePackages", func() error {
+		callResult, callErr := q.next.ListFrigateUpdatePackages(ctx, orgID)
 		if callErr == nil {
 			result = callResult
 		}
@@ -8720,6 +8960,18 @@ func (q *retryingQuerier) ListRolesWithDetailsForOrg(ctx context.Context, organi
 	return result, err
 }
 
+func (q *retryingQuerier) ListRunnableFrigateUpdateJobs(ctx context.Context) ([]FrigateUpdateJob, error) {
+	var result []FrigateUpdateJob
+	err := q.retrier.RetryQuery(ctx, "ListRunnableFrigateUpdateJobs", func() error {
+		callResult, callErr := q.next.ListRunnableFrigateUpdateJobs(ctx)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) ListScheduleIDStatuses(ctx context.Context, orgID int64) ([]ListScheduleIDStatusesRow, error) {
 	var result []ListScheduleIDStatusesRow
 	err := q.retrier.RetryQuery(ctx, "ListScheduleIDStatuses", func() error {
@@ -9386,6 +9638,42 @@ func (q *retryingQuerier) LockFleetNodePairingDevice(ctx context.Context, arg Lo
 	return result, err
 }
 
+func (q *retryingQuerier) LockFrigateUpdateJob(ctx context.Context, id uuid.UUID) (FrigateUpdateJob, error) {
+	var result FrigateUpdateJob
+	err := q.retrier.RetryQuery(ctx, "LockFrigateUpdateJob", func() error {
+		callResult, callErr := q.next.LockFrigateUpdateJob(ctx, id)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) LockFrigateUpdatePackage(ctx context.Context, arg LockFrigateUpdatePackageParams) (FrigateUpdatePackage, error) {
+	var result FrigateUpdatePackage
+	err := q.retrier.RetryQuery(ctx, "LockFrigateUpdatePackage", func() error {
+		callResult, callErr := q.next.LockFrigateUpdatePackage(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) LockFrigateUpdateTarget(ctx context.Context, arg LockFrigateUpdateTargetParams) (LockFrigateUpdateTargetRow, error) {
+	var result LockFrigateUpdateTargetRow
+	err := q.retrier.RetryQuery(ctx, "LockFrigateUpdateTarget", func() error {
+		callResult, callErr := q.next.LockFrigateUpdateTarget(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) LockHashboardOrganization(ctx context.Context, identifier string) (int64, error) {
 	var result int64
 	err := q.retrier.RetryQuery(ctx, "LockHashboardOrganization", func() error {
@@ -9924,6 +10212,18 @@ func (q *retryingQuerier) MarkFleetNodeHAStandbyReady(ctx context.Context, arg M
 		return callErr
 	})
 	return result, err
+}
+
+func (q *retryingQuerier) MarkFrigateUpdateActionLocal(ctx context.Context, arg MarkFrigateUpdateActionLocalParams) error {
+	return q.retrier.RetryQuery(ctx, "MarkFrigateUpdateActionLocal", func() error {
+		return q.next.MarkFrigateUpdateActionLocal(ctx, arg)
+	})
+}
+
+func (q *retryingQuerier) MarkFrigateUpdateCleanupAttempted(ctx context.Context, arg MarkFrigateUpdateCleanupAttemptedParams) error {
+	return q.retrier.RetryQuery(ctx, "MarkFrigateUpdateCleanupAttempted", func() error {
+		return q.next.MarkFrigateUpdateCleanupAttempted(ctx, arg)
+	})
 }
 
 func (q *retryingQuerier) MarkRepairTicketPartsConsumed(ctx context.Context, arg MarkRepairTicketPartsConsumedParams) error {
@@ -11444,6 +11744,12 @@ func (q *retryingQuerier) SoftDeleteFleetNodesForExpiredEnrollments(ctx context.
 	return result, err
 }
 
+func (q *retryingQuerier) SoftDeleteFrigateUpdatePackage(ctx context.Context, arg SoftDeleteFrigateUpdatePackageParams) error {
+	return q.retrier.RetryQuery(ctx, "SoftDeleteFrigateUpdatePackage", func() error {
+		return q.next.SoftDeleteFrigateUpdatePackage(ctx, arg)
+	})
+}
+
 func (q *retryingQuerier) SoftDeleteInfrastructureDevice(ctx context.Context, arg SoftDeleteInfrastructureDeviceParams) (InfrastructureDevice, error) {
 	var result InfrastructureDevice
 	err := q.retrier.RetryQuery(ctx, "SoftDeleteInfrastructureDevice", func() error {
@@ -11988,6 +12294,36 @@ func (q *retryingQuerier) UpdateFleetNodeLastSeenAt(ctx context.Context, arg Upd
 		return callErr
 	})
 	return result, err
+}
+
+func (q *retryingQuerier) UpdateFrigateUpdateInstance(ctx context.Context, arg UpdateFrigateUpdateInstanceParams) error {
+	return q.retrier.RetryQuery(ctx, "UpdateFrigateUpdateInstance", func() error {
+		return q.next.UpdateFrigateUpdateInstance(ctx, arg)
+	})
+}
+
+func (q *retryingQuerier) UpdateFrigateUpdateInstanceStaging(ctx context.Context, arg UpdateFrigateUpdateInstanceStagingParams) (int64, error) {
+	var result int64
+	err := q.retrier.RetryQuery(ctx, "UpdateFrigateUpdateInstanceStaging", func() error {
+		callResult, callErr := q.next.UpdateFrigateUpdateInstanceStaging(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) UpdateFrigateUpdateJob(ctx context.Context, arg UpdateFrigateUpdateJobParams) error {
+	return q.retrier.RetryQuery(ctx, "UpdateFrigateUpdateJob", func() error {
+		return q.next.UpdateFrigateUpdateJob(ctx, arg)
+	})
+}
+
+func (q *retryingQuerier) UpdateFrigateUpdatePackageRelease(ctx context.Context, arg UpdateFrigateUpdatePackageReleaseParams) error {
+	return q.retrier.RetryQuery(ctx, "UpdateFrigateUpdatePackageRelease", func() error {
+		return q.next.UpdateFrigateUpdatePackageRelease(ctx, arg)
+	})
 }
 
 func (q *retryingQuerier) UpdateInfrastructureDevice(ctx context.Context, arg UpdateInfrastructureDeviceParams) (int64, error) {

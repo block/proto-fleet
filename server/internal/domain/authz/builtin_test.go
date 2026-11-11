@@ -22,6 +22,21 @@ func TestBuiltinRoles_AdminDoesNotSeedInstanceUpdate(t *testing.T) {
 	}
 }
 
+func TestBuiltinRoles_AdminDoesNotSeedControllerSoftwareUpdate(t *testing.T) {
+	perms := permissionSet(builtinRoleByKey(t, BuiltinKeyAdmin).SeedPermissions)
+	if perms[PermControllerSoftwareUpdate] {
+		t.Fatalf("ADMIN seed permissions unexpectedly include %q", PermControllerSoftwareUpdate)
+	}
+	for _, key := range []BuiltinKey{BuiltinKeyFieldTech} {
+		if permissionSet(builtinRoleByKey(t, key).SeedPermissions)[PermControllerSoftwareUpdate] {
+			t.Fatalf("%s seed permissions unexpectedly include %q", key, PermControllerSoftwareUpdate)
+		}
+	}
+	if !permissionSet(builtinRoleByKey(t, BuiltinKeySuperAdmin).SeedPermissions)[PermControllerSoftwareUpdate] {
+		t.Fatalf("SUPER_ADMIN seed permissions missing %q", PermControllerSoftwareUpdate)
+	}
+}
+
 func TestBuiltinRoles_SuperAdminSeedsInstanceUpdate(t *testing.T) {
 	superAdmin := builtinRoleByKey(t, BuiltinKeySuperAdmin)
 	perms := permissionSet(superAdmin.SeedPermissions)

@@ -102,6 +102,19 @@ func PrepareDeletion(ctx context.Context, q sqlc.Querier, organizationID int64, 
 			return blocked()
 		}
 	}
+	// A Frigate software update outlives the calls that start or retry it: the
+	// controllers keep installing after those calls return, and only the job
+	// can report or recover the rollout. Its job addresses this device row, so
+	// the container cannot be retired, and its controllers re-paired as another
+	// device, until the job finishes or is cancelled. Job creation locks the
+	// same device row, so this check cannot miss a concurrently created job.
+	updating, err := q.AnyDeviceHasBlockingFrigateUpdateJob(ctx, ids)
+	if err != nil {
+		return err
+	}
+	if updating {
+		return fleeterror.NewFailedPreconditionError("a controller software update is still running or waiting for a retry on this container; let it finish, retry it, or cancel it before removing the container")
+	}
 	// Only paired direct Proto adapters support the captured post-delete Unpair.
 	bindings, err := q.GetDeviceWriteDeletionBindings(ctx, sqlc.GetDeviceWriteDeletionBindingsParams{DeviceIds: ids, OrganizationID: organizationID})
 	if err != nil {

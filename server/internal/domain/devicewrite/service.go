@@ -497,6 +497,14 @@ func isOrderedWrite(kind commandtype.Type) bool {
 		commandtype.Curtail, commandtype.Uncurtail, commandtype.ApplyCurtailmentConfig,
 		commandtype.SetContainerControl, commandtype.SetTankMining, commandtype.SetModuleMining, commandtype.ContainerMining:
 		return true
+	case commandtype.FrigateServerUpdate:
+		// Each Frigate update call is synchronous and idempotent under its job
+		// ID and idempotency key, and Fleet reconciles every job from Frigate's
+		// own rollout status. A returned call therefore leaves no unresolved
+		// physical write, even when its reply was lost. The rollout itself
+		// outlives these calls; PrepareDeletion keeps the container from being
+		// retired while its job is blocking.
+		return true
 	case commandtype.DownloadLogs, commandtype.Reboot, commandtype.BlinkLED,
 		commandtype.FirmwareUpdate, commandtype.Unpair:
 		return false

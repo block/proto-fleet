@@ -9,12 +9,15 @@ import {
 } from "./containerActions";
 import ContainerSiteDialog from "./ContainerSiteDialog";
 import ContainerUnpairDialog from "./ContainerUnpairDialog";
+import { FRIGATE_UPDATE_PERMISSION } from "./frigateUpdate";
+import FrigateUpdateDialog from "./FrigateUpdateDialog";
 import { hasMiningGroupPermissions } from "./miningGroupPermissions";
 import MiningGroupsDialog from "./MiningGroupsDialog";
 import { isCurrentObservation } from "./moduleDetail";
 import { useMiningGroupState } from "./useMiningGroupState";
 import { useOpenContainerView } from "./useOpenContainerView";
 import type { Container } from "@/protoFleet/api/generated/containers/v1/containers_pb";
+import type { UpdateJob } from "@/protoFleet/api/generated/frigateupdate/v1/frigateupdate_pb";
 import { FirmwareUpdateRequestSchema } from "@/protoFleet/api/generated/minercommand/v1/command_pb";
 import { CT1_FIRMWARE_TARGET } from "@/protoFleet/api/useFirmwareApi";
 import { useMinerCommand } from "@/protoFleet/api/useMinerCommand";
@@ -29,7 +32,7 @@ import {
 import FirmwareUpdateModal from "@/protoFleet/features/fleetManagement/components/MinerActionsMenu/FirmwareUpdateModal";
 import { ConfigurationSelector } from "@/protoFleet/features/poolConfigurations/ConfigurationSelector";
 import { usePermissions } from "@/protoFleet/store";
-import { ArrowRight, MiningPools, Play, Power, Settings, Speedometer, Unpair } from "@/shared/assets/icons";
+import { ArrowRight, Download, MiningPools, Play, Power, Settings, Speedometer, Unpair } from "@/shared/assets/icons";
 import RowActionsMenu, { type RowAction } from "@/shared/components/RowActionsMenu";
 import { pushToast, STATUSES } from "@/shared/features/toaster";
 
@@ -41,10 +44,12 @@ export default function ContainerActionsMenu({
   container,
   onSiteChanged,
   onUnpaired,
+  onFrigateUpdateStarted,
 }: {
   container: Container;
   onSiteChanged?: () => void;
   onUnpaired?: (deviceIdentifier: string) => void;
+  onFrigateUpdateStarted?: (job: UpdateJob | undefined) => void;
 }) {
   const permissions = usePermissions();
   const { firmwareUpdate } = useMinerCommand();
@@ -57,6 +62,7 @@ export default function ContainerActionsMenu({
   const openContainerView = useOpenContainerView();
   const [action, setAction] = useState<ContainerAction>();
   const [unpairOpen, setUnpairOpen] = useState(false);
+  const [frigateUpdateOpen, setFrigateUpdateOpen] = useState(false);
   const [open, setOpen] = useState(false);
   const [assigningSite, setAssigningSite] = useState(false);
   const [status, setStatus] = useState<{
@@ -178,6 +184,15 @@ export default function ContainerActionsMenu({
       ]
     : [];
 
+  // Updating the controllers' software is its own permission, independent of miner access.
+  if (permissions.includes(FRIGATE_UPDATE_PERMISSION))
+    actions.push({
+      label: "Update Frigate",
+      icon: <Download />,
+      showGroupDivider: true,
+      onClick: () => setFrigateUpdateOpen(true),
+    });
+
   if (container.canAssignSite)
     actions.push({
       label: "Change site",
@@ -252,6 +267,14 @@ export default function ContainerActionsMenu({
           action={action}
           miningScope={groupsEnabled === undefined ? "unknown" : groupsEnabled ? "default-group" : "container"}
           onClose={() => setAction(undefined)}
+        />
+      ) : null}
+      {frigateUpdateOpen && permissions.includes(FRIGATE_UPDATE_PERMISSION) ? (
+        <FrigateUpdateDialog
+          key={deviceIdentifier}
+          container={container}
+          onClose={() => setFrigateUpdateOpen(false)}
+          onStarted={onFrigateUpdateStarted}
         />
       ) : null}
       {unpairOpen ? (

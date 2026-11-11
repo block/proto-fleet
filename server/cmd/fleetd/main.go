@@ -18,8 +18,12 @@ import (
 	poolconfigurationsDomain "github.com/block/proto-fleet/server/internal/domain/poolconfigurations"
 	poolconfigurationsHandler "github.com/block/proto-fleet/server/internal/handlers/poolconfigurations"
 
+	frigateupdatev1connect "github.com/block/proto-fleet/server/generated/grpc/frigateupdate/v1/frigateupdatev1connect"
 	mininggroupsv1connect "github.com/block/proto-fleet/server/generated/grpc/mininggroups/v1/mininggroupsv1connect"
+	frigateReleaseDomain "github.com/block/proto-fleet/server/internal/domain/frigaterelease"
+	frigateUpdateDomain "github.com/block/proto-fleet/server/internal/domain/frigateupdate"
 	mininggroupsDomain "github.com/block/proto-fleet/server/internal/domain/mininggroups"
+	frigateUpdateHandler "github.com/block/proto-fleet/server/internal/handlers/frigateupdate"
 	mininggroupsHandler "github.com/block/proto-fleet/server/internal/handlers/mininggroups"
 
 	"github.com/block/proto-fleet/server/internal/domain/authz"
@@ -221,6 +225,7 @@ func normalizeFleetdArgs(args []string) []string {
 // services" rather than a curated subset.
 var reflectEnabledServices = []string{
 	mininggroupsv1connect.MiningGroupServiceName,
+	frigateupdatev1connect.FrigateUpdateServiceName,
 	marketdatav1connect.MarketDataServiceName,
 	hostedv1connect.HostedAccountServiceName,
 	invitationv1connect.InvitationServiceName,
@@ -813,6 +818,25 @@ func start(config *Config) (result error) {
 	fleetMgmtSvc.WithWorkerNameReviews(poolConfigurationsSvc)
 	groupsSvc := mininggroupsDomain.NewService(conn, minerService, hostedPoolsSvc, encryptSvc).WithPoolConfigurations(poolRepository, poolReviewer).WithPoolRemovals(poolChecker)
 	poolWorker.WithBoardApplications(groupsSvc).WithRemovals(poolChecker)
+	frigatePackageStore, err := files.NewFrigatePackageStore(config.FrigateUpdate.PackageDir)
+	if err != nil {
+		return err
+	}
+	// Package upload stays disabled until release keys are configured; the rest
+	// of the service still lists, starts and tracks updates for stored packages.
+	var frigateVerifier *frigateReleaseDomain.Verifier
+	if config.FrigateUpdate.ReleaseKeysDir != "" {
+		frigateVerifier = frigateReleaseDomain.NewDirVerifier(config.FrigateUpdate.ReleaseKeysDir)
+	}
+	frigateAuthorizer := frigateUpdateHandler.NewAuthorizer()
+	frigateUpdateSvc := frigateUpdateDomain.NewService(conn, minerService, frigatePackageStore, frigateVerifier, frigateAuthorizer, activitySvc, config.FrigateUpdate)
+	frigateUploadMgr := frigateUpdateHandler.NewUploadManager()
+	// Both loops belong to the active replica only, and uploads are served only
+	// there. They are separate runtime jobs because each reports its own progress.
+	frigateUpdateRunner := newBackgroundLoop(frigateUpdateSvc.Run)
+	frigatePackageCleanup := newBackgroundLoop(func(ctx context.Context) {
+		frigateUploadMgr.StartCleanup(ctx, config.Files.ChunkedUploadSessionTTL, frigateUpdateSvc)
+	})
 	jobs, err := newRuntimeJobs(runtimeJobLifecycles{
 		plugins: stopOnlyLifecycle{
 			stop:     pluginService.Shutdown,
@@ -836,6 +860,8 @@ func start(config *Config) (result error) {
 		curtailmentRigConfig:      mqttSettingsSvc,
 		curtailmentAlertMetrics:   curtailmentAlertMetrics,
 		chunkedUploadCleanup:      chunkedUploadCleanup,
+		frigateUpdateRunner:       frigateUpdateRunner,
+		frigatePackageCleanup:     frigatePackageCleanup,
 		fleetNodeFailover:         newBackgroundLoop(fleetNodeHASvc.Run),
 		systemMonitoring:          systemMonitoring,
 		haReadiness:               haReadiness,
@@ -910,6 +936,10 @@ func start(config *Config) (result error) {
 	mux.Handle("POST /api/v1/firmware/upload/chunked", activeHTTP.Wrap(firmwareHandler.NewInitiateHandler(chunkedMgr, filesService, requestAuth)))
 	mux.Handle("PUT /api/v1/firmware/upload/chunked/{uploadId}", activeHTTP.Wrap(firmwareHandler.NewChunkHandler(chunkedMgr, requestAuth)))
 	mux.Handle("POST /api/v1/firmware/upload/chunked/{uploadId}/complete", activeHTTP.Wrap(firmwareHandler.NewCompleteHandler(chunkedMgr, filesService, requestAuth, activitySvc)))
+	frigateUploads := frigateUpdateHandler.NewUploadHandlers(frigateUploadMgr, frigateUpdateSvc, frigatePackageStore, frigateAuthorizer, requestAuth)
+	mux.Handle("POST /api/v1/frigate-packages/upload/chunked", activeHTTP.Wrap(frigateUploads.Initiate))
+	mux.Handle("PUT /api/v1/frigate-packages/upload/chunked/{uploadId}", activeHTTP.Wrap(frigateUploads.Chunk))
+	mux.Handle("POST /api/v1/frigate-packages/upload/chunked/{uploadId}/complete", activeHTTP.Wrap(frigateUploads.Complete))
 	mux.Handle("GET /api/v1/firmware/files", activeHTTP.Wrap(firmwareHandler.NewListFilesHandler(filesService, requestAuth)))
 	mux.Handle("PATCH /api/v1/firmware/files/{fileId}", activeHTTP.Wrap(firmwareHandler.NewUpdateMetadataHandler(filesService, requestAuth, activitySvc)))
 	mux.Handle("DELETE /api/v1/firmware/files/{fileId}", activeHTTP.Wrap(firmwareHandler.NewDeleteFileHandler(filesService, requestAuth)))
@@ -947,6 +977,7 @@ func start(config *Config) (result error) {
 	mux.Handle(sitesv1connect.NewSiteServiceHandler(sitesHandler.NewHandler(sitesSvc), li))
 	mux.Handle(buildingsv1connect.NewBuildingServiceHandler(buildingsHandler.NewHandler(buildingsSvc), li))
 	mux.Handle(mininggroupsv1connect.NewMiningGroupServiceHandler(mininggroupsHandler.NewHandler(groupsSvc), li))
+	mux.Handle(frigateupdatev1connect.NewFrigateUpdateServiceHandler(frigateUpdateHandler.NewHandler(frigateUpdateSvc), li))
 	mux.Handle(containersv1connect.NewContainerServiceHandler(containersHandler.NewHandler(containersDomain.NewService(sqlstores.NewSQLContainerStore(conn))).WithCommands(commandSvc), li))
 	mux.Handle(fleetinventoryv1connect.NewFleetInventoryServiceHandler(fleetInventoryHandler.NewHandler(fleetInventoryDomain.NewService(db.NewFailoverResettingQuerier(db.NewRetryDB(conn))).WithBuildings(buildingStore).WithMiners(fleetMgmtSvc)), li))
 	mux.Handle(infrastructurev1connect.NewInfrastructureServiceHandler(infrastructureHandler.NewHandler(infrastructureSvc), li))

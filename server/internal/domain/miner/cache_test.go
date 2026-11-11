@@ -23,6 +23,7 @@ import (
 type fakePluginManager struct {
 	driver     sdk.Driver
 	driverName string
+	caps       sdk.Capabilities
 	scoped     *sdkMocks.ScopedDriverFixture
 	scopedMu   sync.Mutex
 }
@@ -32,6 +33,9 @@ func (f *fakePluginManager) HasPluginForDriverName(driverName string) bool {
 }
 
 func (f *fakePluginManager) GetCapabilitiesForDriverName(_ string) sdk.Capabilities {
+	if f.caps != nil {
+		return f.caps
+	}
 	return sdk.Capabilities{}
 }
 

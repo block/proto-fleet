@@ -1,0 +1,318 @@
+syntax = "proto3";
+
+package frigateupdate.v1;
+
+import "buf/validate/validate.proto";
+import "google/protobuf/timestamp.proto";
+
+// FrigateUpdateService drives signed Frigate software updates for a CT1
+// container (an HA pair of controllers). Fleet stages one verified package on
+// every controller and starts a self-coordinated rollout that the controllers'
+// root helpers drive themselves; Fleet then tracks it to a terminal state.
+//
+// Every method requires controller:software_update. Methods that name a
+// container or a job need it at that container's site, ListPackages needs it at
+// any site, and DeletePackage needs it organization-wide because packages are
+// shared by every site. Packages are uploaded over REST
+// (POST /api/v1/frigate-packages/upload/chunked), not through this service.
+service FrigateUpdateService {
+  // GetSupport reads each controller's update readiness. It does not mutate
+  // anything. With package_id it also checks the package against the
+  // controllers.
+  rpc GetSupport(GetSupportRequest) returns (GetSupportResponse);
+  rpc ListPackages(ListPackagesRequest) returns (ListPackagesResponse);
+  // DeletePackage removes an uploaded package. It is refused while an update
+  // that uses the package is in progress.
+  rpc DeletePackage(DeletePackageRequest) returns (DeletePackageResponse);
+  // StartUpdate records an update job and returns immediately; the Fleet
+  // runner stages the package and starts the rollout. A repeated request with
+  // the same idempotency_key returns the existing job.
+  rpc StartUpdate(StartUpdateRequest) returns (StartUpdateResponse);
+  rpc GetUpdate(GetUpdateRequest) returns (GetUpdateResponse);
+  // ListUpdates returns the container's update jobs, newest first.
+  rpc ListUpdates(ListUpdatesRequest) returns (ListUpdatesResponse);
+  // RetryUpdate asks Frigate to resume a rollout that failed after the
+  // controllers were stopped.
+  rpc RetryUpdate(RetryUpdateRequest) returns (RetryUpdateResponse);
+  // CancelUpdate abandons a job that has not stopped any controller.
+  rpc CancelUpdate(CancelUpdateRequest) returns (CancelUpdateResponse);
+}
+
+// FrigateUpdateState is Fleet's view of one update job.
+enum FrigateUpdateState {
+  FRIGATE_UPDATE_STATE_UNSPECIFIED = 0;
+  // Fleet is uploading the package to the controllers.
+  FRIGATE_UPDATE_STATE_STAGING = 1;
+  // The package is staged on every controller; Fleet has not yet started the rollout.
+  FRIGATE_UPDATE_STATE_STAGED = 2;
+  // Fleet is asking Frigate to start the rollout.
+  FRIGATE_UPDATE_STATE_STARTING = 3;
+  // Frigate accepted the rollout and is running it; see rollout_phase.
+  FRIGATE_UPDATE_STATE_RUNNING = 4;
+  FRIGATE_UPDATE_STATE_SUCCEEDED = 5;
+  // Fleet or Frigate failed the job. Frigate rollouts that fail after the
+  // controllers were stopped keep retryable and disruption_started set.
+  FRIGATE_UPDATE_STATE_FAILED = 6;
+  FRIGATE_UPDATE_STATE_CANCELLED = 7;
+  // A stage_only job verified the package on every controller; nothing was stopped.
+  FRIGATE_UPDATE_STATE_VERIFIED = 8;
+  // An operator ran the on-host abandon command.
+  FRIGATE_UPDATE_STATE_ABANDONED = 9;
+}
+
+// FrigateRolloutPhase mirrors the site-wide Frigate rollout phase.
+enum FrigateRolloutPhase {
+  FRIGATE_ROLLOUT_PHASE_UNSPECIFIED = 0;
+  FRIGATE_ROLLOUT_PHASE_VERIFYING = 1;
+  FRIGATE_ROLLOUT_PHASE_STOPPING = 2;
+  FRIGATE_ROLLOUT_PHASE_INSTALLING = 3;
+  FRIGATE_ROLLOUT_PHASE_MIGRATING = 4;
+  FRIGATE_ROLLOUT_PHASE_STARTING = 5;
+  FRIGATE_ROLLOUT_PHASE_SUCCEEDED = 6;
+  FRIGATE_ROLLOUT_PHASE_FAILED = 7;
+  FRIGATE_ROLLOUT_PHASE_CANCELLED = 8;
+  FRIGATE_ROLLOUT_PHASE_VERIFIED = 9;
+  FRIGATE_ROLLOUT_PHASE_ABANDONED = 10;
+  // A phase this Fleet version does not know. Treat it as non-terminal.
+  FRIGATE_ROLLOUT_PHASE_UNKNOWN = 11;
+}
+
+// FrigateAgentPhase is one controller's update helper phase.
+enum FrigateAgentPhase {
+  FRIGATE_AGENT_PHASE_UNSPECIFIED = 0;
+  FRIGATE_AGENT_PHASE_CONNECTING = 1;
+  FRIGATE_AGENT_PHASE_STAGED = 2;
+  FRIGATE_AGENT_PHASE_STOPPED = 3;
+  FRIGATE_AGENT_PHASE_INSTALLED = 4;
+  FRIGATE_AGENT_PHASE_MIGRATED = 5;
+  FRIGATE_AGENT_PHASE_STARTED = 6;
+  FRIGATE_AGENT_PHASE_FAILED = 7;
+  FRIGATE_AGENT_PHASE_UNKNOWN = 8;
+}
+
+// InstanceStageState is the package upload state for one controller.
+enum InstanceStageState {
+  INSTANCE_STAGE_STATE_UNSPECIFIED = 0;
+  INSTANCE_STAGE_STATE_PENDING = 1;
+  INSTANCE_STAGE_STATE_STAGING = 2;
+  INSTANCE_STAGE_STATE_STAGED = 3;
+  INSTANCE_STAGE_STATE_FAILED = 4;
+}
+
+enum FrigateInstallationType {
+  FRIGATE_INSTALLATION_TYPE_UNSPECIFIED = 0;
+  FRIGATE_INSTALLATION_TYPE_DEBIAN_PACKAGE = 1;
+  FRIGATE_INSTALLATION_TYPE_DIRECT_BINARY = 2;
+  FRIGATE_INSTALLATION_TYPE_UNKNOWN = 3;
+}
+
+message GetSupportRequest {
+  string device_identifier = 1 [(buf.validate.field).string = {
+    min_len: 1
+    max_len: 255
+  }];
+  // package_id optionally checks eligibility for this package: architecture,
+  // trusted release key and version.
+  string package_id = 2 [(buf.validate.field) = {
+    ignore: IGNORE_IF_UNPOPULATED
+    string: {uuid: true}
+  }];
+}
+
+message GetSupportResponse {
+  // eligible is the server's verdict for starting an update now.
+  bool eligible = 1;
+  // ineligible_code is a stable machine-readable reason when eligible is false.
+  // It is an open set: an UPDATE_* code from Frigate or a FLEET_* code from Fleet.
+  string ineligible_code = 2;
+  string ineligible_reason = 3;
+  repeated InstanceSupport instances = 4;
+}
+
+// InstanceSupport is one controller's readiness. When the controller could not
+// be read, error is set and the remaining fields are empty.
+message InstanceSupport {
+  string instance_id = 1;
+  string peer_instance_id = 2;
+  string running_version = 3;
+  string architecture = 4;
+  FrigateInstallationType installation_type = 5;
+  bool helper_available = 6;
+  string support_message = 7;
+  string cluster_id = 8;
+  string active_job_id = 9;
+  int64 spool_free_bytes = 10;
+  uint32 etcd_members_total = 11;
+  uint32 etcd_members_healthy = 12;
+  repeated string trusted_release_key_ids = 13;
+  bool self_coordination_supported = 14;
+  bool remote_trigger_allowed = 15;
+  string error = 16;
+}
+
+// FrigatePackage is an uploaded, signature-checked Frigate Debian package.
+message FrigatePackage {
+  string id = 1;
+  string filename = 2;
+  string version = 3;
+  string architecture = 4;
+  // sha256 is the lowercase hex SHA-256 of the package file.
+  string sha256 = 5;
+  int64 size_bytes = 6;
+  string repository = 7;
+  // release_key_id is "sha256:" plus the hex SHA-256 of the signing key's SPKI DER.
+  string release_key_id = 8;
+  string min_installed_version = 9;
+  google.protobuf.Timestamp issued_at = 10;
+  google.protobuf.Timestamp uploaded_at = 11;
+  string uploaded_by = 12;
+  // stored_on_this_host is true when the package bytes are on the disk of the
+  // Fleet replica that answered. Package blobs are local to one replica, so after
+  // a failover this is false until the package is uploaded again, and an update
+  // that starts from it fails with FLEET_PACKAGE_MISSING. Only ListPackages sets
+  // it; other messages that embed a package leave it false.
+  bool stored_on_this_host = 13;
+}
+
+message ListPackagesRequest {}
+
+message ListPackagesResponse {
+  repeated FrigatePackage packages = 1;
+}
+
+message DeletePackageRequest {
+  string package_id = 1 [(buf.validate.field).string.uuid = true];
+}
+
+message DeletePackageResponse {}
+
+message StartUpdateRequest {
+  string device_identifier = 1 [(buf.validate.field).string = {
+    min_len: 1
+    max_len: 255
+  }];
+  string package_id = 2 [(buf.validate.field).string.uuid = true];
+  // stage_only verifies the package on every controller and stops before any
+  // controller is stopped.
+  bool stage_only = 3;
+  // idempotency_key identifies one operator action. A repeat with the same key
+  // returns the existing job.
+  string idempotency_key = 4 [(buf.validate.field).string = {
+    min_len: 1
+    max_len: 128
+    pattern: "^[\\x20-\\x7e]+$"
+  }];
+}
+
+message StartUpdateResponse {
+  UpdateJob job = 1;
+}
+
+message GetUpdateRequest {
+  string job_id = 1 [(buf.validate.field).string.uuid = true];
+}
+
+message GetUpdateResponse {
+  UpdateJob job = 1;
+}
+
+message ListUpdatesRequest {
+  string device_identifier = 1 [(buf.validate.field).string = {
+    min_len: 1
+    max_len: 255
+  }];
+  // page_size defaults to 20 when zero.
+  int32 page_size = 2 [(buf.validate.field).int32 = {
+    gte: 0
+    lte: 100
+  }];
+}
+
+message ListUpdatesResponse {
+  repeated UpdateJob jobs = 1;
+}
+
+message RetryUpdateRequest {
+  string job_id = 1 [(buf.validate.field).string.uuid = true];
+  // idempotency_key identifies one operator action; a repeat does not send a
+  // second retry to Frigate.
+  string idempotency_key = 2 [(buf.validate.field).string = {
+    min_len: 1
+    max_len: 128
+    pattern: "^[\\x20-\\x7e]+$"
+  }];
+}
+
+message RetryUpdateResponse {
+  UpdateJob job = 1;
+}
+
+message CancelUpdateRequest {
+  string job_id = 1 [(buf.validate.field).string.uuid = true];
+  string idempotency_key = 2 [(buf.validate.field).string = {
+    min_len: 1
+    max_len: 128
+    pattern: "^[\\x20-\\x7e]+$"
+  }];
+}
+
+message CancelUpdateResponse {
+  UpdateJob job = 1;
+}
+
+// UpdateJob is one update of one container. The job ID is also the Frigate
+// rollout ID.
+message UpdateJob {
+  string job_id = 1;
+  string device_identifier = 2;
+  FrigatePackage package = 3;
+  FrigateUpdateState state = 4;
+  FrigateRolloutPhase rollout_phase = 5;
+  string from_version = 6;
+  string target_version = 7;
+  bool stage_only = 8;
+  repeated InstanceProgress instances = 9;
+  // driver_instance_id is the controller whose helper currently drives the rollout.
+  string driver_instance_id = 10;
+  // error_code is an open set: an UPDATE_* code from Frigate or a FLEET_* code
+  // from Fleet. Treat unknown codes as a generic failure and show error_message.
+  string error_code = 11;
+  string error_message = 12;
+  // next_step is an operator-facing hint.
+  string next_step = 13;
+  bool retryable = 14;
+  bool cancellable = 15;
+  // disruption_started is true once any controller was stopped.
+  bool disruption_started = 16;
+  // served_by_maintenance is true when the last status came from the
+  // maintenance service because the controller daemon is stopped for install.
+  bool served_by_maintenance = 17;
+  // last_contact is when Fleet last read the rollout status from a controller.
+  google.protobuf.Timestamp last_contact = 18;
+  // unreachable_since is set while no controller answered status reads.
+  google.protobuf.Timestamp unreachable_since = 19;
+  string actor = 20;
+  google.protobuf.Timestamp created_at = 21;
+  google.protobuf.Timestamp updated_at = 22;
+  google.protobuf.Timestamp completed_at = 23;
+  // cancel_requested_at is set while an operator cancel is pending: Fleet could
+  // not yet tell whether a Start it sent is still in flight, so the job stays
+  // in STARTING (cancellable is false) until Fleet confirms it, then becomes
+  // CANCELLED. The runner takes no new start attempt while this is set.
+  google.protobuf.Timestamp cancel_requested_at = 24;
+}
+
+message InstanceProgress {
+  string instance_id = 1;
+  InstanceStageState stage_state = 2;
+  int64 staged_bytes = 3;
+  int64 size_bytes = 4;
+  FrigateAgentPhase agent_phase = 5;
+  google.protobuf.Timestamp last_contact = 6;
+  // contact_stale is true when Frigate saw no helper report for over 30 seconds.
+  bool contact_stale = 7;
+  string running_version = 8;
+  bool migration_executed = 9;
+  string error_code = 10;
+  string error_message = 11;
+}

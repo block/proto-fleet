@@ -66,6 +66,10 @@ type Querier interface {
 	// Returns true if all provided device identifiers belong to the specified organization.
 	// Used for authorization checks - fails fast if any device is not owned by the org.
 	AllDevicesBelongToOrg(ctx context.Context, arg AllDevicesBelongToOrgParams) (bool, error)
+	// Device retirement refuses while a rollout is in progress or can still be
+	// retried, because the job addresses the container by its device row. The
+	// predicate matches idx_frigate_update_job_device_blocking.
+	AnyDeviceHasBlockingFrigateUpdateJob(ctx context.Context, deviceIds []int64) (bool, error)
 	// Adds late joiners: unbatched, unordered (they sort last) and without a
 	// baseline; the engine applies the contract's late-joiner convergence criteria. Miners
 	// already in the rollout are left as they are.
@@ -401,6 +405,7 @@ type Querier interface {
 	// Counts errors with AND filter logic (same logic as QueryErrors without pagination).
 	CountErrors(ctx context.Context, arg CountErrorsParams) (int64, error)
 	CountFleetNodeDevicesByNode(ctx context.Context, orgID int64) ([]CountFleetNodeDevicesByNodeRow, error)
+	CountFrigateUpdateActions(ctx context.Context, jobID uuid.UUID) (int32, error)
 	// Administration must remain recoverable after suspension is lifted. Check
 	// live identities and capability ceilings even for currently suspended accounts.
 	CountHostedAccountsWithoutAdministrator(ctx context.Context, arg CountHostedAccountsWithoutAdministratorParams) (int64, error)
@@ -694,6 +699,10 @@ type Querier interface {
 	// the operator intent is to clear policy ownership, not report graceful restore.
 	ForceReleaseCurtailmentEvent(ctx context.Context, arg ForceReleaseCurtailmentEventParams) (CurtailmentEvent, error)
 	FreezePoolConfigurationWriters(ctx context.Context, organizationID int64) error
+	FrigateUpdatePackageInUse(ctx context.Context, packageID uuid.UUID) (bool, error)
+	// A blob belongs to a package that has not been deleted. Soft-deleted rows and
+	// unknown IDs are orphans.
+	FrigateUpdatePackageWantsBlob(ctx context.Context, id uuid.UUID) (bool, error)
 	GetAccountRepairTicket(ctx context.Context, arg GetAccountRepairTicketParams) (RepairTicket, error)
 	GetAccountTicketAccess(ctx context.Context, arg GetAccountTicketAccessParams) (GetAccountTicketAccessRow, error)
 	GetActiveFirmwareRolloutForPair(ctx context.Context, arg GetActiveFirmwareRolloutForPairParams) (FirmwareRollout, error)
@@ -756,6 +765,7 @@ type Querier interface {
 	GetBatchHeaderForOrg(ctx context.Context, arg GetBatchHeaderForOrgParams) (GetBatchHeaderForOrgRow, error)
 	GetBatchLog(ctx context.Context, argUuid string) (GetBatchLogRow, error)
 	GetBatchStatusAndDeviceCounts(ctx context.Context, argUuid string) (GetBatchStatusAndDeviceCountsRow, error)
+	GetBlockingFrigateUpdateJobForDevice(ctx context.Context, deviceID int64) (FrigateUpdateJob, error)
 	GetBoardPoolRemovalAttempt(ctx context.Context, arg GetBoardPoolRemovalAttemptParams) (GetBoardPoolRemovalAttemptRow, error)
 	GetBuilding(ctx context.Context, arg GetBuildingParams) (GetBuildingRow, error)
 	// Returns the building's parent site_id, excluding soft-deleted rows.
@@ -926,6 +936,15 @@ type Querier interface {
 	// MATERIALIZED keeps the planner from flattening this back into a seven-table
 	// join: ownership resolves first, then metadata, credentials and fence.
 	GetFleetNodeTelemetryRouteByDeviceIdentifier(ctx context.Context, deviceIdentifier string) (GetFleetNodeTelemetryRouteByDeviceIdentifierRow, error)
+	GetFrigateUpdateAction(ctx context.Context, arg GetFrigateUpdateActionParams) (FrigateUpdateAction, error)
+	GetFrigateUpdateDeviceSite(ctx context.Context, id int64) (GetFrigateUpdateDeviceSiteRow, error)
+	GetFrigateUpdateJob(ctx context.Context, arg GetFrigateUpdateJobParams) (FrigateUpdateJob, error)
+	GetFrigateUpdateJobByRequestKey(ctx context.Context, arg GetFrigateUpdateJobByRequestKeyParams) (FrigateUpdateJob, error)
+	// Includes deleted packages so job history keeps resolving them.
+	GetFrigateUpdatePackage(ctx context.Context, arg GetFrigateUpdatePackageParams) (GetFrigateUpdatePackageRow, error)
+	GetFrigateUpdatePackageBySHA256(ctx context.Context, arg GetFrigateUpdatePackageBySHA256Params) (FrigateUpdatePackage, error)
+	// A paired CT1 container (device class 2) addressed by Fleet device identifier.
+	GetFrigateUpdateTarget(ctx context.Context, arg GetFrigateUpdateTargetParams) (GetFrigateUpdateTargetRow, error)
 	// Batch query to get group refs for multiple devices at once (for miner list)
 	GetGroupRefsForDevices(ctx context.Context, arg GetGroupRefsForDevicesParams) ([]GetGroupRefsForDevicesRow, error)
 	GetHAProfileDatabaseIdentity(ctx context.Context) (GetHAProfileDatabaseIdentityRow, error)
@@ -1244,6 +1263,10 @@ type Querier interface {
 	// regardless of soft-delete state. Duplicate historical identifiers are
 	// resolved deterministically, preferring the live device row.
 	InsertDeviceMetricsBatch(ctx context.Context, arg InsertDeviceMetricsBatchParams) error
+	InsertFrigateUpdateAction(ctx context.Context, arg InsertFrigateUpdateActionParams) error
+	InsertFrigateUpdateInstance(ctx context.Context, arg InsertFrigateUpdateInstanceParams) error
+	InsertFrigateUpdateJob(ctx context.Context, arg InsertFrigateUpdateJobParams) (FrigateUpdateJob, error)
+	InsertFrigateUpdatePackage(ctx context.Context, arg InsertFrigateUpdatePackageParams) (FrigateUpdatePackage, error)
 	InsertHashboardDiagnosticObservations(ctx context.Context, arg InsertHashboardDiagnosticObservationsParams) error
 	InsertHashboardMetrics(ctx context.Context, arg InsertHashboardMetricsParams) error
 	InsertMQTTSourceConfig(ctx context.Context, arg InsertMQTTSourceConfigParams) (InsertMQTTSourceConfigRow, error)
@@ -1602,6 +1625,13 @@ type Querier interface {
 	ListFleetNodesForOrganization(ctx context.Context, orgID int64) ([]ListFleetNodesForOrganizationRow, error)
 	// Tank labels only: deliberately avoid module, health, and telemetry joins.
 	ListFleetTankOptions(ctx context.Context, arg ListFleetTankOptionsParams) ([]ListFleetTankOptionsRow, error)
+	// Least recently attempted first (never attempted before any), so a job whose
+	// controllers cannot be reached does not hold back the ones behind it.
+	ListFrigateUpdateCleanupJobs(ctx context.Context) ([]FrigateUpdateJob, error)
+	ListFrigateUpdateInstances(ctx context.Context, jobID uuid.UUID) ([]FrigateUpdateInstance, error)
+	ListFrigateUpdateInstancesForJobs(ctx context.Context, jobIds []uuid.UUID) ([]FrigateUpdateInstance, error)
+	ListFrigateUpdateJobsForDevice(ctx context.Context, arg ListFrigateUpdateJobsForDeviceParams) ([]FrigateUpdateJob, error)
+	ListFrigateUpdatePackages(ctx context.Context, orgID int64) ([]ListFrigateUpdatePackagesRow, error)
 	// Source-time history retains collection bounds separately. Keep installation
 	// and topology groups separate even when they share a bucket.
 	ListHashboardHistory(ctx context.Context, arg ListHashboardHistoryParams) ([]ListHashboardHistoryRow, error)
@@ -1866,6 +1896,9 @@ type Querier interface {
 	// this query orders built-ins first by display name (lexical), custom
 	// roles after, and is_builtin DESC gives that grouping cheaply.
 	ListRolesWithDetailsForOrg(ctx context.Context, organizationID sql.NullInt64) ([]ListRolesWithDetailsForOrgRow, error)
+	// Jobs the runner must advance. Retryable failures stay listed so a rollout
+	// that an operator retries elsewhere (or on the host) is noticed.
+	ListRunnableFrigateUpdateJobs(ctx context.Context) ([]FrigateUpdateJob, error)
 	ListScheduleIDStatuses(ctx context.Context, orgID int64) ([]ListScheduleIDStatusesRow, error)
 	ListSchedules(ctx context.Context, arg ListSchedulesParams) ([]ListSchedulesRow, error)
 	// Returns the (id, name, network_config) tuple for every live site in
@@ -2043,6 +2076,9 @@ type Querier interface {
 	// reconciliation. Call after locking the Fleet Node and before checking the
 	// device's current cloud-pairing state.
 	LockFleetNodePairingDevice(ctx context.Context, arg LockFleetNodePairingDeviceParams) ([]int64, error)
+	LockFrigateUpdateJob(ctx context.Context, id uuid.UUID) (FrigateUpdateJob, error)
+	LockFrigateUpdatePackage(ctx context.Context, arg LockFrigateUpdatePackageParams) (FrigateUpdatePackage, error)
+	LockFrigateUpdateTarget(ctx context.Context, arg LockFrigateUpdateTargetParams) (LockFrigateUpdateTargetRow, error)
 	LockHashboardOrganization(ctx context.Context, identifier string) (int64, error)
 	LockHostedAccountAdministrators(ctx context.Context, arg LockHostedAccountAdministratorsParams) ([]int64, error)
 	LockHostedAccountAssetInventory(ctx context.Context, deviceIds []int64) error
@@ -2167,6 +2203,8 @@ type Querier interface {
 	// phase change is a rollout change under the revision rule.
 	MarkFirmwareRolloutDevicesVerified(ctx context.Context, arg MarkFirmwareRolloutDevicesVerifiedParams) error
 	MarkFleetNodeHAStandbyReady(ctx context.Context, arg MarkFleetNodeHAStandbyReadyParams) (int64, error)
+	MarkFrigateUpdateActionLocal(ctx context.Context, arg MarkFrigateUpdateActionLocalParams) error
+	MarkFrigateUpdateCleanupAttempted(ctx context.Context, arg MarkFrigateUpdateCleanupAttemptedParams) error
 	MarkRepairTicketPartsConsumed(ctx context.Context, arg MarkRepairTicketPartsConsumedParams) error
 	MoveDiscoveredDeviceAttribution(ctx context.Context, arg MoveDiscoveredDeviceAttributionParams) error
 	MoveFleetNodeDevices(ctx context.Context, arg MoveFleetNodeDevicesParams) ([]string, error)
@@ -2590,6 +2628,7 @@ type Querier interface {
 	SoftDeleteDiscoveredDevicesForDeletedDevices(ctx context.Context, arg SoftDeleteDiscoveredDevicesForDeletedDevicesParams) error
 	SoftDeleteFleetNode(ctx context.Context, arg SoftDeleteFleetNodeParams) (int64, error)
 	SoftDeleteFleetNodesForExpiredEnrollments(ctx context.Context, deletedAt sql.NullTime) (int64, error)
+	SoftDeleteFrigateUpdatePackage(ctx context.Context, arg SoftDeleteFrigateUpdatePackageParams) error
 	// expected_site_id: same stale-authorization guard as
 	// UpdateInfrastructureDevice above. RETURNING the deleted row lets the
 	// caller stamp the delete audit event with the device actually deleted,
@@ -2758,6 +2797,16 @@ type Querier interface {
 	UpdateDeviceWorkerNamePoolSyncStatusByID(ctx context.Context, arg UpdateDeviceWorkerNamePoolSyncStatusByIDParams) error
 	UpdateDiscoveredDeviceFirmwareVersion(ctx context.Context, arg UpdateDiscoveredDeviceFirmwareVersionParams) error
 	UpdateFleetNodeLastSeenAt(ctx context.Context, arg UpdateFleetNodeLastSeenAtParams) (int64, error)
+	UpdateFrigateUpdateInstance(ctx context.Context, arg UpdateFrigateUpdateInstanceParams) error
+	// Staging progress is written per acknowledgement without the job lock. It
+	// affects no row once the job has left staging, which tells the uploader to stop.
+	UpdateFrigateUpdateInstanceStaging(ctx context.Context, arg UpdateFrigateUpdateInstanceStagingParams) (int64, error)
+	// Callers hold the job row lock and have decided every field.
+	UpdateFrigateUpdateJob(ctx context.Context, arg UpdateFrigateUpdateJobParams) error
+	// Re-uploading the same bytes with a newly verified statement replaces the
+	// statement-derived fields. Callers hold the package lock and have checked that
+	// no blocking job uses the package.
+	UpdateFrigateUpdatePackageRelease(ctx context.Context, arg UpdateFrigateUpdatePackageReleaseParams) error
 	// expected_site_id and expected_rack_name predicate the write on the
 	// placement the caller was authorized against, so a concurrent placement
 	// change between the authorization read and this write invalidates the

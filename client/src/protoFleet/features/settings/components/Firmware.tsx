@@ -10,6 +10,7 @@ import EditFirmwareMetadataDialog from "@/protoFleet/features/settings/component
 import FirmwarePageLayout from "@/protoFleet/features/settings/components/FirmwarePageLayout";
 import FirmwareUploadDialog from "@/protoFleet/features/settings/components/FirmwareUploadDialog";
 import FirmwareUsageBadge from "@/protoFleet/features/settings/components/FirmwareUsageBadge";
+import FrigatePackages from "@/protoFleet/features/settings/components/FrigatePackages";
 import ActiveUpdatesMonitor, {
   type MonitorRequest,
 } from "@/protoFleet/features/settings/components/ReleaseChannels/ActiveUpdatesMonitor";
@@ -19,6 +20,7 @@ import {
   useLinkedRollout,
 } from "@/protoFleet/features/settings/components/ReleaseChannels/useLinkedRollout";
 import SettingsEmptyState from "@/protoFleet/features/settings/components/SettingsEmptyState";
+import { useHasPermission } from "@/protoFleet/store";
 import { Alert, ChevronDown, Edit, Trash } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import Callout, { intents } from "@/shared/components/Callout";
@@ -396,14 +398,51 @@ const FirmwareFilesSection = ({
 
 const TAB_FILES = "files";
 const TAB_RELEASE_CHANNELS = "releaseChannels";
+const TAB_FRIGATE_PACKAGES = "frigatePackages";
 export const RELEASE_CHANNELS_TAB_PARAM = "release-channels";
+export const FRIGATE_PACKAGES_TAB_PARAM = "frigate-packages";
+const FRIGATE_UPDATE_PERMISSION = "controller:software_update";
+const MINER_FIRMWARE_PERMISSION = "miner:firmware_update";
+
+// FrigatePackagesPage is the page for a user who may update controller
+// software but not miner firmware. It never loads miner firmware data.
+const FrigatePackagesPage = () => {
+  const [actionContainer, setActionContainer] = useState<HTMLDivElement | null>(null);
+  return (
+    <FirmwarePageLayout
+      activeTab={TAB_FRIGATE_PACKAGES}
+      showFrigatePackages
+      showMinerFirmware={false}
+      headerAction={<div ref={setActionContainer} className="shrink-0 empty:hidden phone:w-full" />}
+      manageRequest={null}
+      monitor={null}
+      onSelectTab={() => undefined}
+    >
+      <FrigatePackages actionContainer={actionContainer} />
+    </FirmwarePageLayout>
+  );
+};
+
+// The settings route admits either permission; each view checks its own.
+const Firmware = () => {
+  const canManageMinerFirmware = useHasPermission(MINER_FIRMWARE_PERMISSION);
+  const canManageFrigatePackages = useHasPermission(FRIGATE_UPDATE_PERMISSION);
+  return !canManageMinerFirmware && canManageFrigatePackages ? <FrigatePackagesPage /> : <MinerFirmwarePage />;
+};
 
 // The active tab lives in the `tab` search param so other surfaces can
 // deep-link straight to the release channels view. The active-updates monitor
 // consumes channel data on both tabs, so one page-owned poll feeds both views.
-const Firmware = () => {
+const MinerFirmwarePage = () => {
   const [searchParams, setSearchParams] = useSearchParams();
-  const activeTab = searchParams.get("tab") === RELEASE_CHANNELS_TAB_PARAM ? TAB_RELEASE_CHANNELS : TAB_FILES;
+  const canManageFrigatePackages = useHasPermission(FRIGATE_UPDATE_PERMISSION);
+  const tabParam = searchParams.get("tab");
+  const activeTab =
+    tabParam === RELEASE_CHANNELS_TAB_PARAM
+      ? TAB_RELEASE_CHANNELS
+      : tabParam === FRIGATE_PACKAGES_TAB_PARAM && canManageFrigatePackages
+        ? TAB_FRIGATE_PACKAGES
+        : TAB_FILES;
   const channelsApi = useReleaseChannels();
   const linkedRolloutId = searchParams.get(LINKED_ROLLOUT_PARAM);
   const linkedRollout = useLinkedRollout(linkedRolloutId);
@@ -491,12 +530,16 @@ const Firmware = () => {
   return (
     <FirmwarePageLayout
       activeTab={activeTab}
+      showFrigatePackages={canManageFrigatePackages}
       headerAction={<div ref={setActionContainer} className="shrink-0 empty:hidden phone:w-full" />}
       manageRequest={manageRequest}
       refreshWarning={refreshWarning}
       onSelectTab={(key) => {
         if (key === TAB_RELEASE_CHANNELS) {
           showChannels();
+        } else if (key === TAB_FRIGATE_PACKAGES) {
+          setManageRequest(null);
+          setSearchParams({ tab: FRIGATE_PACKAGES_TAB_PARAM }, { replace: true });
         } else {
           setManageRequest(null);
           setSearchParams({}, { replace: true });
@@ -549,6 +592,8 @@ const Firmware = () => {
             setMonitorRequest({ kind: "rollback", rollout });
           }}
         />
+      ) : activeTab === TAB_FRIGATE_PACKAGES ? (
+        <FrigatePackages actionContainer={actionContainer} />
       ) : (
         <FirmwareFilesSection
           actionContainer={actionContainer}

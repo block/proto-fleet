@@ -20,6 +20,8 @@ type Device struct {
 	writeMu      sync.Mutex
 	firmwareOnce sync.Once
 	firmware     *firmwareState
+	// updateOrder is a routing hint for Frigate update status calls.
+	updateOrder updateOrder
 }
 
 var _ sdk.Device = (*Device)(nil)
@@ -64,7 +66,7 @@ func NewDevice(ctx context.Context, id string, info sdk.DeviceInfo, credentials 
 	return d, nil
 }
 func Capabilities() sdk.Capabilities {
-	return sdk.Capabilities{sdk.CapabilityFirmware: true, sdk.CapabilityManualUpload: true, sdk.CapabilityFirmwareSelfManaged: true, sdk.CapabilityContainerMining: true, sdk.CapabilityPoolConfig: true, sdk.CapabilityPoolClear: true, sdk.CapabilityPoolPriority: true, sdk.CapabilityMiningGroups: true, sdk.CapabilityMiningGroupPoolClear: true, sdk.CapabilityTankMining: true, sdk.CapabilityModuleMining: true, sdk.CapabilityContainerControl: true, sdk.CapabilityPollingHost: true, sdk.CapabilityDiscovery: true, sdk.CapabilityPairing: true, sdk.CapabilityRealtimeTelemetry: true, sdk.CapabilityHashrateReported: true, sdk.CapabilityPowerUsage: true}
+	return sdk.Capabilities{sdk.CapabilityFirmware: true, sdk.CapabilityManualUpload: true, sdk.CapabilityFirmwareSelfManaged: true, sdk.CapabilityContainerMining: true, sdk.CapabilityPoolConfig: true, sdk.CapabilityPoolClear: true, sdk.CapabilityPoolPriority: true, sdk.CapabilityMiningGroups: true, sdk.CapabilityMiningGroupPoolClear: true, sdk.CapabilityTankMining: true, sdk.CapabilityModuleMining: true, sdk.CapabilityContainerControl: true, sdk.CapabilityFrigateServerUpdate: true, sdk.CapabilityPollingHost: true, sdk.CapabilityDiscovery: true, sdk.CapabilityPairing: true, sdk.CapabilityRealtimeTelemetry: true, sdk.CapabilityHashrateReported: true, sdk.CapabilityPowerUsage: true}
 }
 func (d *Device) ID() string { return d.id }
 func (d *Device) DescribeDevice(ctx context.Context) (sdk.DeviceInfo, sdk.Capabilities, error) {

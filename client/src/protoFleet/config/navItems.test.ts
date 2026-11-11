@@ -80,7 +80,7 @@ describe("secondaryNavItems", () => {
         label: "Firmware",
         parent: "/settings",
         section: "Fleet",
-        requiredPermission: "miner:firmware_update",
+        requiredAnyPermission: ["miner:firmware_update", "controller:software_update"],
       }),
     );
     expect(labels.indexOf("Network")).toBeLessThan(labels.indexOf("Schedules"));

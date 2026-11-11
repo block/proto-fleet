@@ -1361,3 +1361,324 @@ class ContainerMiningResponse(_message.Message):
     PAYLOAD_FIELD_NUMBER: _ClassVar[int]
     payload: bytes
     def __init__(self, payload: _Optional[bytes] = ...) -> None: ...
+
+class FrigateServerUpdateRequest(_message.Message):
+    __slots__ = ("ref", "support", "stage_begin", "stage_append", "stage_commit", "stage_abort", "start", "status", "retry", "cancel")
+    REF_FIELD_NUMBER: _ClassVar[int]
+    SUPPORT_FIELD_NUMBER: _ClassVar[int]
+    STAGE_BEGIN_FIELD_NUMBER: _ClassVar[int]
+    STAGE_APPEND_FIELD_NUMBER: _ClassVar[int]
+    STAGE_COMMIT_FIELD_NUMBER: _ClassVar[int]
+    STAGE_ABORT_FIELD_NUMBER: _ClassVar[int]
+    START_FIELD_NUMBER: _ClassVar[int]
+    STATUS_FIELD_NUMBER: _ClassVar[int]
+    RETRY_FIELD_NUMBER: _ClassVar[int]
+    CANCEL_FIELD_NUMBER: _ClassVar[int]
+    ref: DeviceRef
+    support: FrigateUpdateSupportRequest
+    stage_begin: FrigateStageBeginRequest
+    stage_append: FrigateStageAppendRequest
+    stage_commit: FrigateStageCommitRequest
+    stage_abort: FrigateStageAbortRequest
+    start: FrigateUpdateStartRequest
+    status: FrigateUpdateStatusRequest
+    retry: FrigateUpdateRetryRequest
+    cancel: FrigateUpdateCancelRequest
+    def __init__(self, ref: _Optional[_Union[DeviceRef, _Mapping]] = ..., support: _Optional[_Union[FrigateUpdateSupportRequest, _Mapping]] = ..., stage_begin: _Optional[_Union[FrigateStageBeginRequest, _Mapping]] = ..., stage_append: _Optional[_Union[FrigateStageAppendRequest, _Mapping]] = ..., stage_commit: _Optional[_Union[FrigateStageCommitRequest, _Mapping]] = ..., stage_abort: _Optional[_Union[FrigateStageAbortRequest, _Mapping]] = ..., start: _Optional[_Union[FrigateUpdateStartRequest, _Mapping]] = ..., status: _Optional[_Union[FrigateUpdateStatusRequest, _Mapping]] = ..., retry: _Optional[_Union[FrigateUpdateRetryRequest, _Mapping]] = ..., cancel: _Optional[_Union[FrigateUpdateCancelRequest, _Mapping]] = ...) -> None: ...
+
+class FrigateServerUpdateResponse(_message.Message):
+    __slots__ = ("support", "stage_progress", "stage_commit", "stage_abort", "rollout", "status")
+    SUPPORT_FIELD_NUMBER: _ClassVar[int]
+    STAGE_PROGRESS_FIELD_NUMBER: _ClassVar[int]
+    STAGE_COMMIT_FIELD_NUMBER: _ClassVar[int]
+    STAGE_ABORT_FIELD_NUMBER: _ClassVar[int]
+    ROLLOUT_FIELD_NUMBER: _ClassVar[int]
+    STATUS_FIELD_NUMBER: _ClassVar[int]
+    support: FrigateUpdateSupportResponse
+    stage_progress: FrigateStageProgress
+    stage_commit: FrigateStageCommitResult
+    stage_abort: _empty_pb2.Empty
+    rollout: FrigateRollout
+    status: FrigateStatus
+    def __init__(self, support: _Optional[_Union[FrigateUpdateSupportResponse, _Mapping]] = ..., stage_progress: _Optional[_Union[FrigateStageProgress, _Mapping]] = ..., stage_commit: _Optional[_Union[FrigateStageCommitResult, _Mapping]] = ..., stage_abort: _Optional[_Union[_empty_pb2.Empty, _Mapping]] = ..., rollout: _Optional[_Union[FrigateRollout, _Mapping]] = ..., status: _Optional[_Union[FrigateStatus, _Mapping]] = ...) -> None: ...
+
+class FrigateUpdateSupportRequest(_message.Message):
+    __slots__ = ()
+    def __init__(self) -> None: ...
+
+class FrigateUpdateSupportResponse(_message.Message):
+    __slots__ = ("instances",)
+    INSTANCES_FIELD_NUMBER: _ClassVar[int]
+    instances: _containers.RepeatedCompositeFieldContainer[FrigateInstanceSupport]
+    def __init__(self, instances: _Optional[_Iterable[_Union[FrigateInstanceSupport, _Mapping]]] = ...) -> None: ...
+
+class FrigateInstanceSupport(_message.Message):
+    __slots__ = ("instance_id", "peer_instance_id", "running_version", "architecture", "installation_type", "helper_available", "support_message", "cluster_id", "active_job_id", "spool_free_bytes", "etcd_members_total", "etcd_members_healthy", "trusted_release_key_ids", "self_coordination_supported", "remote_trigger_allowed", "error")
+    INSTANCE_ID_FIELD_NUMBER: _ClassVar[int]
+    PEER_INSTANCE_ID_FIELD_NUMBER: _ClassVar[int]
+    RUNNING_VERSION_FIELD_NUMBER: _ClassVar[int]
+    ARCHITECTURE_FIELD_NUMBER: _ClassVar[int]
+    INSTALLATION_TYPE_FIELD_NUMBER: _ClassVar[int]
+    HELPER_AVAILABLE_FIELD_NUMBER: _ClassVar[int]
+    SUPPORT_MESSAGE_FIELD_NUMBER: _ClassVar[int]
+    CLUSTER_ID_FIELD_NUMBER: _ClassVar[int]
+    ACTIVE_JOB_ID_FIELD_NUMBER: _ClassVar[int]
+    SPOOL_FREE_BYTES_FIELD_NUMBER: _ClassVar[int]
+    ETCD_MEMBERS_TOTAL_FIELD_NUMBER: _ClassVar[int]
+    ETCD_MEMBERS_HEALTHY_FIELD_NUMBER: _ClassVar[int]
+    TRUSTED_RELEASE_KEY_IDS_FIELD_NUMBER: _ClassVar[int]
+    SELF_COORDINATION_SUPPORTED_FIELD_NUMBER: _ClassVar[int]
+    REMOTE_TRIGGER_ALLOWED_FIELD_NUMBER: _ClassVar[int]
+    ERROR_FIELD_NUMBER: _ClassVar[int]
+    instance_id: str
+    peer_instance_id: str
+    running_version: str
+    architecture: str
+    installation_type: str
+    helper_available: bool
+    support_message: str
+    cluster_id: str
+    active_job_id: str
+    spool_free_bytes: int
+    etcd_members_total: int
+    etcd_members_healthy: int
+    trusted_release_key_ids: _containers.RepeatedScalarFieldContainer[str]
+    self_coordination_supported: bool
+    remote_trigger_allowed: bool
+    error: str
+    def __init__(self, instance_id: _Optional[str] = ..., peer_instance_id: _Optional[str] = ..., running_version: _Optional[str] = ..., architecture: _Optional[str] = ..., installation_type: _Optional[str] = ..., helper_available: bool = ..., support_message: _Optional[str] = ..., cluster_id: _Optional[str] = ..., active_job_id: _Optional[str] = ..., spool_free_bytes: _Optional[int] = ..., etcd_members_total: _Optional[int] = ..., etcd_members_healthy: _Optional[int] = ..., trusted_release_key_ids: _Optional[_Iterable[str]] = ..., self_coordination_supported: bool = ..., remote_trigger_allowed: bool = ..., error: _Optional[str] = ...) -> None: ...
+
+class FrigateManifest(_message.Message):
+    __slots__ = ("job_id", "site_id", "container_id", "instance_id", "expected_instance_ids", "release_tag", "target_version", "asset_id", "asset_name", "sha256", "size_bytes", "actor", "coordination", "release_statement", "release_signature")
+    JOB_ID_FIELD_NUMBER: _ClassVar[int]
+    SITE_ID_FIELD_NUMBER: _ClassVar[int]
+    CONTAINER_ID_FIELD_NUMBER: _ClassVar[int]
+    INSTANCE_ID_FIELD_NUMBER: _ClassVar[int]
+    EXPECTED_INSTANCE_IDS_FIELD_NUMBER: _ClassVar[int]
+    RELEASE_TAG_FIELD_NUMBER: _ClassVar[int]
+    TARGET_VERSION_FIELD_NUMBER: _ClassVar[int]
+    ASSET_ID_FIELD_NUMBER: _ClassVar[int]
+    ASSET_NAME_FIELD_NUMBER: _ClassVar[int]
+    SHA256_FIELD_NUMBER: _ClassVar[int]
+    SIZE_BYTES_FIELD_NUMBER: _ClassVar[int]
+    ACTOR_FIELD_NUMBER: _ClassVar[int]
+    COORDINATION_FIELD_NUMBER: _ClassVar[int]
+    RELEASE_STATEMENT_FIELD_NUMBER: _ClassVar[int]
+    RELEASE_SIGNATURE_FIELD_NUMBER: _ClassVar[int]
+    job_id: str
+    site_id: str
+    container_id: str
+    instance_id: str
+    expected_instance_ids: _containers.RepeatedScalarFieldContainer[str]
+    release_tag: str
+    target_version: str
+    asset_id: int
+    asset_name: str
+    sha256: str
+    size_bytes: int
+    actor: str
+    coordination: str
+    release_statement: bytes
+    release_signature: bytes
+    def __init__(self, job_id: _Optional[str] = ..., site_id: _Optional[str] = ..., container_id: _Optional[str] = ..., instance_id: _Optional[str] = ..., expected_instance_ids: _Optional[_Iterable[str]] = ..., release_tag: _Optional[str] = ..., target_version: _Optional[str] = ..., asset_id: _Optional[int] = ..., asset_name: _Optional[str] = ..., sha256: _Optional[str] = ..., size_bytes: _Optional[int] = ..., actor: _Optional[str] = ..., coordination: _Optional[str] = ..., release_statement: _Optional[bytes] = ..., release_signature: _Optional[bytes] = ...) -> None: ...
+
+class FrigateStageBeginRequest(_message.Message):
+    __slots__ = ("instance_id", "manifest")
+    INSTANCE_ID_FIELD_NUMBER: _ClassVar[int]
+    MANIFEST_FIELD_NUMBER: _ClassVar[int]
+    instance_id: str
+    manifest: FrigateManifest
+    def __init__(self, instance_id: _Optional[str] = ..., manifest: _Optional[_Union[FrigateManifest, _Mapping]] = ...) -> None: ...
+
+class FrigateStageAppendRequest(_message.Message):
+    __slots__ = ("instance_id", "job_id", "manifest_sha256", "offset", "chunk", "actor")
+    INSTANCE_ID_FIELD_NUMBER: _ClassVar[int]
+    JOB_ID_FIELD_NUMBER: _ClassVar[int]
+    MANIFEST_SHA256_FIELD_NUMBER: _ClassVar[int]
+    OFFSET_FIELD_NUMBER: _ClassVar[int]
+    CHUNK_FIELD_NUMBER: _ClassVar[int]
+    ACTOR_FIELD_NUMBER: _ClassVar[int]
+    instance_id: str
+    job_id: str
+    manifest_sha256: str
+    offset: int
+    chunk: bytes
+    actor: str
+    def __init__(self, instance_id: _Optional[str] = ..., job_id: _Optional[str] = ..., manifest_sha256: _Optional[str] = ..., offset: _Optional[int] = ..., chunk: _Optional[bytes] = ..., actor: _Optional[str] = ...) -> None: ...
+
+class FrigateStageCommitRequest(_message.Message):
+    __slots__ = ("instance_id", "job_id", "manifest_sha256", "actor")
+    INSTANCE_ID_FIELD_NUMBER: _ClassVar[int]
+    JOB_ID_FIELD_NUMBER: _ClassVar[int]
+    MANIFEST_SHA256_FIELD_NUMBER: _ClassVar[int]
+    ACTOR_FIELD_NUMBER: _ClassVar[int]
+    instance_id: str
+    job_id: str
+    manifest_sha256: str
+    actor: str
+    def __init__(self, instance_id: _Optional[str] = ..., job_id: _Optional[str] = ..., manifest_sha256: _Optional[str] = ..., actor: _Optional[str] = ...) -> None: ...
+
+class FrigateStageAbortRequest(_message.Message):
+    __slots__ = ("instance_id", "job_id", "manifest_sha256", "actor")
+    INSTANCE_ID_FIELD_NUMBER: _ClassVar[int]
+    JOB_ID_FIELD_NUMBER: _ClassVar[int]
+    MANIFEST_SHA256_FIELD_NUMBER: _ClassVar[int]
+    ACTOR_FIELD_NUMBER: _ClassVar[int]
+    instance_id: str
+    job_id: str
+    manifest_sha256: str
+    actor: str
+    def __init__(self, instance_id: _Optional[str] = ..., job_id: _Optional[str] = ..., manifest_sha256: _Optional[str] = ..., actor: _Optional[str] = ...) -> None: ...
+
+class FrigateStageProgress(_message.Message):
+    __slots__ = ("job_id", "manifest_sha256", "next_offset", "size_bytes")
+    JOB_ID_FIELD_NUMBER: _ClassVar[int]
+    MANIFEST_SHA256_FIELD_NUMBER: _ClassVar[int]
+    NEXT_OFFSET_FIELD_NUMBER: _ClassVar[int]
+    SIZE_BYTES_FIELD_NUMBER: _ClassVar[int]
+    job_id: str
+    manifest_sha256: str
+    next_offset: int
+    size_bytes: int
+    def __init__(self, job_id: _Optional[str] = ..., manifest_sha256: _Optional[str] = ..., next_offset: _Optional[int] = ..., size_bytes: _Optional[int] = ...) -> None: ...
+
+class FrigateStageCommitResult(_message.Message):
+    __slots__ = ("job_id", "bytes_staged", "sha256")
+    JOB_ID_FIELD_NUMBER: _ClassVar[int]
+    BYTES_STAGED_FIELD_NUMBER: _ClassVar[int]
+    SHA256_FIELD_NUMBER: _ClassVar[int]
+    job_id: str
+    bytes_staged: int
+    sha256: str
+    def __init__(self, job_id: _Optional[str] = ..., bytes_staged: _Optional[int] = ..., sha256: _Optional[str] = ...) -> None: ...
+
+class FrigateUpdateStartRequest(_message.Message):
+    __slots__ = ("job_id", "target_version", "expected_instance_ids", "stage_only", "idempotency_key", "expected_manifest_sha256", "actor")
+    class ExpectedManifestSha256Entry(_message.Message):
+        __slots__ = ("key", "value")
+        KEY_FIELD_NUMBER: _ClassVar[int]
+        VALUE_FIELD_NUMBER: _ClassVar[int]
+        key: str
+        value: str
+        def __init__(self, key: _Optional[str] = ..., value: _Optional[str] = ...) -> None: ...
+    JOB_ID_FIELD_NUMBER: _ClassVar[int]
+    TARGET_VERSION_FIELD_NUMBER: _ClassVar[int]
+    EXPECTED_INSTANCE_IDS_FIELD_NUMBER: _ClassVar[int]
+    STAGE_ONLY_FIELD_NUMBER: _ClassVar[int]
+    IDEMPOTENCY_KEY_FIELD_NUMBER: _ClassVar[int]
+    EXPECTED_MANIFEST_SHA256_FIELD_NUMBER: _ClassVar[int]
+    ACTOR_FIELD_NUMBER: _ClassVar[int]
+    job_id: str
+    target_version: str
+    expected_instance_ids: _containers.RepeatedScalarFieldContainer[str]
+    stage_only: bool
+    idempotency_key: str
+    expected_manifest_sha256: _containers.ScalarMap[str, str]
+    actor: str
+    def __init__(self, job_id: _Optional[str] = ..., target_version: _Optional[str] = ..., expected_instance_ids: _Optional[_Iterable[str]] = ..., stage_only: bool = ..., idempotency_key: _Optional[str] = ..., expected_manifest_sha256: _Optional[_Mapping[str, str]] = ..., actor: _Optional[str] = ...) -> None: ...
+
+class FrigateUpdateStatusRequest(_message.Message):
+    __slots__ = ("job_id",)
+    JOB_ID_FIELD_NUMBER: _ClassVar[int]
+    job_id: str
+    def __init__(self, job_id: _Optional[str] = ...) -> None: ...
+
+class FrigateUpdateRetryRequest(_message.Message):
+    __slots__ = ("job_id", "idempotency_key", "actor")
+    JOB_ID_FIELD_NUMBER: _ClassVar[int]
+    IDEMPOTENCY_KEY_FIELD_NUMBER: _ClassVar[int]
+    ACTOR_FIELD_NUMBER: _ClassVar[int]
+    job_id: str
+    idempotency_key: str
+    actor: str
+    def __init__(self, job_id: _Optional[str] = ..., idempotency_key: _Optional[str] = ..., actor: _Optional[str] = ...) -> None: ...
+
+class FrigateUpdateCancelRequest(_message.Message):
+    __slots__ = ("job_id", "idempotency_key", "actor")
+    JOB_ID_FIELD_NUMBER: _ClassVar[int]
+    IDEMPOTENCY_KEY_FIELD_NUMBER: _ClassVar[int]
+    ACTOR_FIELD_NUMBER: _ClassVar[int]
+    job_id: str
+    idempotency_key: str
+    actor: str
+    def __init__(self, job_id: _Optional[str] = ..., idempotency_key: _Optional[str] = ..., actor: _Optional[str] = ...) -> None: ...
+
+class FrigateStatus(_message.Message):
+    __slots__ = ("rollout", "served_by_maintenance", "answered_by")
+    ROLLOUT_FIELD_NUMBER: _ClassVar[int]
+    SERVED_BY_MAINTENANCE_FIELD_NUMBER: _ClassVar[int]
+    ANSWERED_BY_FIELD_NUMBER: _ClassVar[int]
+    rollout: FrigateRollout
+    served_by_maintenance: bool
+    answered_by: str
+    def __init__(self, rollout: _Optional[_Union[FrigateRollout, _Mapping]] = ..., served_by_maintenance: bool = ..., answered_by: _Optional[str] = ...) -> None: ...
+
+class FrigateRollout(_message.Message):
+    __slots__ = ("job_id", "target_version", "phase", "instances", "driver_instance_id", "migration_executor_instance_id", "error_code", "error_message", "next_step", "stage_only", "disruption_started", "retryable", "cancellable", "automatic_retries", "actor", "created_at", "updated_at", "stopped_at", "expires_at", "from_version", "package_sha256", "release_key_id")
+    JOB_ID_FIELD_NUMBER: _ClassVar[int]
+    TARGET_VERSION_FIELD_NUMBER: _ClassVar[int]
+    PHASE_FIELD_NUMBER: _ClassVar[int]
+    INSTANCES_FIELD_NUMBER: _ClassVar[int]
+    DRIVER_INSTANCE_ID_FIELD_NUMBER: _ClassVar[int]
+    MIGRATION_EXECUTOR_INSTANCE_ID_FIELD_NUMBER: _ClassVar[int]
+    ERROR_CODE_FIELD_NUMBER: _ClassVar[int]
+    ERROR_MESSAGE_FIELD_NUMBER: _ClassVar[int]
+    NEXT_STEP_FIELD_NUMBER: _ClassVar[int]
+    STAGE_ONLY_FIELD_NUMBER: _ClassVar[int]
+    DISRUPTION_STARTED_FIELD_NUMBER: _ClassVar[int]
+    RETRYABLE_FIELD_NUMBER: _ClassVar[int]
+    CANCELLABLE_FIELD_NUMBER: _ClassVar[int]
+    AUTOMATIC_RETRIES_FIELD_NUMBER: _ClassVar[int]
+    ACTOR_FIELD_NUMBER: _ClassVar[int]
+    CREATED_AT_FIELD_NUMBER: _ClassVar[int]
+    UPDATED_AT_FIELD_NUMBER: _ClassVar[int]
+    STOPPED_AT_FIELD_NUMBER: _ClassVar[int]
+    EXPIRES_AT_FIELD_NUMBER: _ClassVar[int]
+    FROM_VERSION_FIELD_NUMBER: _ClassVar[int]
+    PACKAGE_SHA256_FIELD_NUMBER: _ClassVar[int]
+    RELEASE_KEY_ID_FIELD_NUMBER: _ClassVar[int]
+    job_id: str
+    target_version: str
+    phase: str
+    instances: _containers.RepeatedCompositeFieldContainer[FrigateInstanceProgress]
+    driver_instance_id: str
+    migration_executor_instance_id: str
+    error_code: str
+    error_message: str
+    next_step: str
+    stage_only: bool
+    disruption_started: bool
+    retryable: bool
+    cancellable: bool
+    automatic_retries: int
+    actor: str
+    created_at: _timestamp_pb2.Timestamp
+    updated_at: _timestamp_pb2.Timestamp
+    stopped_at: _timestamp_pb2.Timestamp
+    expires_at: _timestamp_pb2.Timestamp
+    from_version: str
+    package_sha256: str
+    release_key_id: str
+    def __init__(self, job_id: _Optional[str] = ..., target_version: _Optional[str] = ..., phase: _Optional[str] = ..., instances: _Optional[_Iterable[_Union[FrigateInstanceProgress, _Mapping]]] = ..., driver_instance_id: _Optional[str] = ..., migration_executor_instance_id: _Optional[str] = ..., error_code: _Optional[str] = ..., error_message: _Optional[str] = ..., next_step: _Optional[str] = ..., stage_only: bool = ..., disruption_started: bool = ..., retryable: bool = ..., cancellable: bool = ..., automatic_retries: _Optional[int] = ..., actor: _Optional[str] = ..., created_at: _Optional[_Union[_timestamp_pb2.Timestamp, _Mapping]] = ..., updated_at: _Optional[_Union[_timestamp_pb2.Timestamp, _Mapping]] = ..., stopped_at: _Optional[_Union[_timestamp_pb2.Timestamp, _Mapping]] = ..., expires_at: _Optional[_Union[_timestamp_pb2.Timestamp, _Mapping]] = ..., from_version: _Optional[str] = ..., package_sha256: _Optional[str] = ..., release_key_id: _Optional[str] = ...) -> None: ...
+
+class FrigateInstanceProgress(_message.Message):
+    __slots__ = ("instance_id", "phase", "last_contact", "running_version", "migration_executed", "error_code", "error_message", "manifest_sha256", "contact_stale")
+    INSTANCE_ID_FIELD_NUMBER: _ClassVar[int]
+    PHASE_FIELD_NUMBER: _ClassVar[int]
+    LAST_CONTACT_FIELD_NUMBER: _ClassVar[int]
+    RUNNING_VERSION_FIELD_NUMBER: _ClassVar[int]
+    MIGRATION_EXECUTED_FIELD_NUMBER: _ClassVar[int]
+    ERROR_CODE_FIELD_NUMBER: _ClassVar[int]
+    ERROR_MESSAGE_FIELD_NUMBER: _ClassVar[int]
+    MANIFEST_SHA256_FIELD_NUMBER: _ClassVar[int]
+    CONTACT_STALE_FIELD_NUMBER: _ClassVar[int]
+    instance_id: str
+    phase: str
+    last_contact: _timestamp_pb2.Timestamp
+    running_version: str
+    migration_executed: bool
+    error_code: str
+    error_message: str
+    manifest_sha256: str
+    contact_stale: bool
+    def __init__(self, instance_id: _Optional[str] = ..., phase: _Optional[str] = ..., last_contact: _Optional[_Union[_timestamp_pb2.Timestamp, _Mapping]] = ..., running_version: _Optional[str] = ..., migration_executed: bool = ..., error_code: _Optional[str] = ..., error_message: _Optional[str] = ..., manifest_sha256: _Optional[str] = ..., contact_stale: bool = ...) -> None: ...

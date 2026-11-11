@@ -794,6 +794,13 @@ service Driver {
   rpc SetModuleMining(SetModuleMiningRequest) returns (google.protobuf.Empty);
   rpc SetContainerControl(SetContainerControlRequest) returns (google.protobuf.Empty);
 
+  // Optional controller-only Frigate software update operations (capability
+  // "frigate_server_update"). One RPC carries nine operations so the plugin
+  // boundary stays narrow. A Frigate refusal travels as a gRPC status carrying a
+  // google.rpc.ErrorInfo in domain "mdk.v2.frigate" whose reason is the UPDATE_*
+  // code. Unsupported drivers return UNIMPLEMENTED.
+  rpc FrigateServerUpdate(FrigateServerUpdateRequest) returns (FrigateServerUpdateResponse);
+
   // CoreV1 - Configuration methods - Required methods
   rpc SetCoolingMode(SetCoolingModeRequest) returns (google.protobuf.Empty);
   rpc GetCoolingMode(DeviceRef) returns (GetCoolingModeResponse);
@@ -1057,3 +1064,201 @@ message MiningGroupsResponse { bytes payload = 1; }
 
 message ContainerMiningRequest { DeviceRef ref = 1; bytes payload = 2; }
 message ContainerMiningResponse { bytes payload = 1; }
+
+// FrigateServerUpdateRequest selects exactly one operation. Staging operations
+// and support are instance-scoped; instance_id is the Frigate instance ID of an
+// endpoint of the device. Start, status, retry, and cancel address the HA pair.
+message FrigateServerUpdateRequest {
+  DeviceRef ref = 1;
+  oneof operation {
+    FrigateUpdateSupportRequest support = 2;
+    FrigateStageBeginRequest stage_begin = 3;
+    FrigateStageAppendRequest stage_append = 4;
+    FrigateStageCommitRequest stage_commit = 5;
+    FrigateStageAbortRequest stage_abort = 6;
+    FrigateUpdateStartRequest start = 7;
+    FrigateUpdateStatusRequest status = 8;
+    FrigateUpdateRetryRequest retry = 9;
+    FrigateUpdateCancelRequest cancel = 10;
+  }
+}
+
+// FrigateServerUpdateResponse carries the result of the requested operation:
+// support for support; stage_progress for stage_begin and stage_append;
+// stage_commit for stage_commit; stage_abort for stage_abort; rollout for
+// start, retry, and cancel; status for status.
+message FrigateServerUpdateResponse {
+  oneof result {
+    FrigateUpdateSupportResponse support = 1;
+    FrigateStageProgress stage_progress = 2;
+    FrigateStageCommitResult stage_commit = 3;
+    google.protobuf.Empty stage_abort = 4;
+    FrigateRollout rollout = 5;
+    FrigateStatus status = 6;
+  }
+}
+
+message FrigateUpdateSupportRequest {}
+
+message FrigateUpdateSupportResponse {
+  repeated FrigateInstanceSupport instances = 1;
+}
+
+// FrigateInstanceSupport mirrors mdk.v2.GetServerUpdateSupportResponse for one
+// instance. error is non-empty (and the remaining fields empty) when that
+// instance could not be queried.
+message FrigateInstanceSupport {
+  string instance_id = 1;
+  string peer_instance_id = 2;
+  string running_version = 3;
+  string architecture = 4;
+  string installation_type = 5; // "", "debian_package", or "direct_binary"
+  bool helper_available = 6;
+  string support_message = 7;
+  string cluster_id = 8;
+  string active_job_id = 9;
+  int64 spool_free_bytes = 10;
+  uint32 etcd_members_total = 11;
+  uint32 etcd_members_healthy = 12;
+  repeated string trusted_release_key_ids = 13;
+  bool self_coordination_supported = 14;
+  bool remote_trigger_allowed = 15;
+  string error = 16;
+}
+
+// FrigateManifest mirrors the mdk.v2.ServerUpdateManifest fields a self-coordinated
+// update uses. Flotilla connection fields and the maintenance token are
+// deliberately absent and always sent empty.
+message FrigateManifest {
+  string job_id = 1;
+  string site_id = 2;
+  string container_id = 3;
+  string instance_id = 4;
+  repeated string expected_instance_ids = 5;
+  string release_tag = 6;
+  string target_version = 7;
+  int64 asset_id = 8;
+  string asset_name = 9;
+  string sha256 = 10;
+  int64 size_bytes = 11;
+  string actor = 12;
+  string coordination = 13; // "" (legacy) or "self"
+  bytes release_statement = 14;
+  bytes release_signature = 15;
+}
+
+message FrigateStageBeginRequest {
+  string instance_id = 1;
+  FrigateManifest manifest = 2;
+}
+
+message FrigateStageAppendRequest {
+  string instance_id = 1;
+  string job_id = 2;
+  string manifest_sha256 = 3;
+  int64 offset = 4;
+  bytes chunk = 5;
+  string actor = 6;
+}
+
+message FrigateStageCommitRequest {
+  string instance_id = 1;
+  string job_id = 2;
+  string manifest_sha256 = 3;
+  string actor = 4;
+}
+
+message FrigateStageAbortRequest {
+  string instance_id = 1;
+  string job_id = 2;
+  string manifest_sha256 = 3;
+  string actor = 4;
+}
+
+message FrigateStageProgress {
+  string job_id = 1;
+  string manifest_sha256 = 2;
+  int64 next_offset = 3;
+  int64 size_bytes = 4;
+}
+
+message FrigateStageCommitResult {
+  string job_id = 1;
+  int64 bytes_staged = 2;
+  string sha256 = 3;
+}
+
+message FrigateUpdateStartRequest {
+  string job_id = 1;
+  string target_version = 2;
+  repeated string expected_instance_ids = 3;
+  bool stage_only = 4;
+  string idempotency_key = 5;
+  map<string, string> expected_manifest_sha256 = 6;
+  string actor = 7;
+}
+
+message FrigateUpdateStatusRequest {
+  string job_id = 1;
+}
+
+message FrigateUpdateRetryRequest {
+  string job_id = 1;
+  string idempotency_key = 2;
+  string actor = 3;
+}
+
+message FrigateUpdateCancelRequest {
+  string job_id = 1;
+  string idempotency_key = 2;
+  string actor = 3;
+}
+
+message FrigateStatus {
+  FrigateRollout rollout = 1;
+  bool served_by_maintenance = 2;
+  string answered_by = 3; // Frigate instance ID of the endpoint that answered.
+}
+
+// FrigateRollout mirrors mdk.v2.ServerUpdateRollout. Phase strings are
+// lowercase: verifying, stopping, installing, migrating, starting, succeeded,
+// failed, cancelled, verified, abandoned. An unrecognized phase is "unknown".
+message FrigateRollout {
+  string job_id = 1;
+  string target_version = 2;
+  string phase = 3;
+  repeated FrigateInstanceProgress instances = 4;
+  string driver_instance_id = 5;
+  string migration_executor_instance_id = 6;
+  string error_code = 7;
+  string error_message = 8;
+  string next_step = 9;
+  bool stage_only = 10;
+  bool disruption_started = 11;
+  bool retryable = 12;
+  bool cancellable = 13;
+  uint32 automatic_retries = 14;
+  string actor = 15;
+  google.protobuf.Timestamp created_at = 16;
+  google.protobuf.Timestamp updated_at = 17;
+  google.protobuf.Timestamp stopped_at = 18;
+  google.protobuf.Timestamp expires_at = 19;
+  string from_version = 20;
+  string package_sha256 = 21;
+  string release_key_id = 22;
+}
+
+// FrigateInstanceProgress mirrors mdk.v2.ServerUpdateInstanceProgress. Phase is
+// one of connecting, staged, stopped, installed, migrated, started, failed, or
+// "unknown".
+message FrigateInstanceProgress {
+  string instance_id = 1;
+  string phase = 2;
+  google.protobuf.Timestamp last_contact = 3;
+  string running_version = 4;
+  bool migration_executed = 5;
+  string error_code = 6;
+  string error_message = 7;
+  string manifest_sha256 = 8;
+  bool contact_stale = 9;
+}

@@ -24,6 +24,11 @@ func TestStringFromStringRoundtrip(t *testing.T) {
 		Curtail,
 		Uncurtail,
 		ApplyCurtailmentConfig,
+		SetContainerControl,
+		SetTankMining,
+		SetModuleMining,
+		ContainerMining,
+		FrigateServerUpdate,
 	}
 	for _, want := range all {
 		name := want.String()

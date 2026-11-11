@@ -362,6 +362,107 @@ before removing the additive schema. The endpoint-group down migration removes
 saved endpoint lists and HA observations; it does not remove hashboard telemetry.
 Both peers must support the new HA API before a new group can be established.
 
+## Frigate software updates
+
+The CT1 plugin advertises the `frigate_server_update` capability and implements
+`sdk.DeviceFrigateUpdater` over the controller's MDK `ServerUpdateService`
+(`sdk/mdk/proto/mdk/v2/server_update.proto`, pinned with the other MDK v2
+sources; see `sdk/mdk/README.md`). The plugin boundary carries it as one
+`FrigateServerUpdate` RPC with a oneof over nine operations: support, stage
+begin/append/commit/abort, and rollout start/status/retry/cancel. Fleet
+coordinates nothing itself: it stages the same signed package on both
+controllers and starts a self-coordinated rollout that the Frigate root helpers
+drive through etcd.
+
+- Transport and auth: native gRPC to the controller RPC port, reusing the
+  per-endpoint clients. There is no login or bearer token, so controllers that
+  require `mdk_auth` are not supported. FleetNode-owned controllers are not
+  supported either: `RemoteFleetNodeMiner` answers every update call with
+  FailedPrecondition.
+- Instance routing: one HA pair is one Fleet device. `DeviceEndpoint.ID` is the
+  Frigate instance ID, and the plugin sends staging calls to the connection of
+  the instance named in the call. A single-node controller uses its instance
+  ID from discovery, so its device can only be built while Frigate is running
+  (`NewDevice` without endpoints verifies identity); a device that was already
+  built keeps working, including status through the maintenance service, while
+  Frigate is stopped. This limitation is deliberate and applies only to
+  single-node CT1; HA pairs are built from stored endpoints. Support returns
+  one entry per controller; an unreachable controller or one answering as the
+  wrong instance has `Err` set instead of failing the whole call, and
+  `ErrReason` carries the Frigate refusal reason when the failure was a refusal.
+  `ErrReason` crosses the plugin boundary in-band as an `[UPDATE_REASON] `
+  prefix on the wire `error` string (the proto has no dedicated field yet) and
+  is decoded back by the SDK.
+- Staging: `Begin` returns the manifest fingerprint and the next offset, so an
+  interrupted upload resumes from that offset. `Append` sends at most 1 MiB
+  (`FrigateStageChunkBytes`) at the exact next offset; repeating an
+  acknowledged chunk is accepted without advancing. `Commit` verifies the
+  digest and size. The manifest carries `coordination = SELF`, the release
+  statement and signature, and the Fleet user as `actor`; no maintenance token
+  or Flotilla connection fields are ever set.
+- Start: before sending, the plugin reads support from both controllers and
+  fails clearly unless the instance IDs equal `expected_instance_ids`, each
+  `cluster_id` matches the device key (`ct1:<cluster uuid>`), and each
+  controller reports `remote_trigger_allowed` and
+  `self_coordination_supported`. Those two cases surface as the Frigate
+  refusal reasons `UPDATE_REMOTE_TRIGGER_DISABLED` and
+  `UPDATE_SELF_COORDINATION_UNSUPPORTED`; identity and cluster mismatches use
+  the Fleet-synthesized reason `FLEET_PAIR_MISMATCH`. The cluster check never
+  fails open: when the device key carries no cluster, both support responses
+  must report the same non-empty `cluster_id`. A controller that cannot be
+  queried fails the pre-check with that failure's own gRPC code. Start goes to
+  one controller (Frigate routes it to the control leader).
+- Idempotency: Start, Retry and Cancel require a non-empty idempotency key (at
+  most 128 printable ASCII characters) and a canonical lowercase UUID job ID,
+  checked by SDK validation and again by the device. Fall-through to the other
+  controller is only safe because Frigate replays the stored result for a
+  repeated key.
+- Controller choice and fall-through: attempts go to controllers whose gRPC
+  channel is READY first, then IDLE, then the rest, keeping the last controller
+  that answered first within each class. Calls use `WaitForReady(false)`. A
+  Frigate refusal is final and returned intact on every call, whatever its gRPC
+  code (an `UPDATE_ETCD_UNHEALTHY` refusal with code Unavailable is not a
+  transport failure). Unavailable falls through to the other controller. A
+  deadline falls through for Status; for Start, Retry and Cancel it falls
+  through only when the channel was not READY when the call began (nothing was
+  sent), and is otherwise returned as is, because the request may have been
+  applied. The caller reconciles an ambiguous mutation by reading
+  `FrigateUpdateStatus` and, if still needed, repeating it with the same key.
+  When every controller fails with a transport error the last error's gRPC code
+  is returned with each controller's detail in the message.
+- Status, retry and cancel try controllers in that order. They are never gated
+  on HA probing: while
+  Frigate is stopped for the install, the maintenance service on the same RPC
+  port answers them with `served_by_maintenance=true`, and the result's
+  `AnsweredBy` names the controller. Other update calls are Unavailable until
+  Frigate is back.
+- Refusals: Frigate sends `google.rpc.ErrorInfo` in the `mdk.v2.frigate` domain
+  with an `UPDATE_*` reason (for example `UPDATE_NOT_STAGED`,
+  `UPDATE_SIGNATURE_INVALID`, `UPDATE_ACTIVE_JOB`, `UPDATE_NOT_RETRYABLE`).
+  The plugin converts them to `*sdk.FrigateRefusal{Reason, Message, Code}`,
+  which keeps the reason and gRPC code across the plugin boundary; use
+  `sdk.AsFrigateRefusal(err)`. Retry and cancel carry idempotency keys; Frigate
+  replays the original result for a repeated key.
+- Audit attribution: update calls send `x-frigate-actor: proto-fleet:<user>`
+  (`sdk.FrigateAuditActor`) instead of the fixed `proto-fleet` value, and the
+  manifest `actor` field carries the same sanitized, bounded value so body and
+  header agree. This is attribution only, not authentication.
+- Validation: the SDK rejects malformed requests before they reach the plugin
+  (self coordination only, 1 to 8 unique instance IDs including the target,
+  64-character lowercase hex digests and fingerprints, package size 1 byte to
+  1 GiB, statement at most 4 KiB, signature at most 512 bytes). The device also
+  refuses a manifest whose instance differs from the controller it is sent to,
+  before any byte is sent; the simulator rejects the same case with
+  `UPDATE_MANIFEST_INVALID`, like Frigate.
+- Update calls bypass the Fleet write gate and command queue. They are
+  rollout orchestration, not device writes, and the caller owns idempotency.
+
+`server/fake-ct1` serves this API for an HA pair with `CT1_HA_PAIR=1`,
+including signature verification, refusals, a scripted rollout with maintenance
+mode, and fault knobs; see its README. The plugin tests in
+`plugin/proto/internal/ct1/frigate_update_simulator_test.go` build and run it
+(or use `CT1_SIMULATOR_BIN`).
+
 ## Container menu commands
 
 Fleet's container menu uses typed Fleet RPCs for current mining status and power

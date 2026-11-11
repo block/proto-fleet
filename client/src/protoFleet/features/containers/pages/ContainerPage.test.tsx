@@ -8,12 +8,23 @@ import type { useEquipmentCommand } from "../hooks/useEquipmentCommand";
 import ContainerPage from "./ContainerPage";
 import { ContainerSchema } from "@/protoFleet/api/generated/containers/v1/containers_pb";
 import { EntityKind, InventoryItemSchema } from "@/protoFleet/api/generated/fleetinventory/v1/fleetinventory_pb";
+import {
+  FrigateRolloutPhase,
+  FrigateUpdateState,
+  UpdateJobSchema,
+} from "@/protoFleet/api/generated/frigateupdate/v1/frigateupdate_pb";
 import { SiteWithCountsSchema } from "@/protoFleet/api/generated/sites/v1/sites_pb";
 
 const mocks = vi.hoisted(() => ({
   load: vi.fn<typeof useContainerOverview>(),
   sync: vi.fn(),
   command: vi.fn<typeof useEquipmentCommand>(),
+  permissions: [] as string[],
+  updates: vi.fn(),
+}));
+vi.mock("@/protoFleet/api/useFrigateUpdates", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/protoFleet/api/useFrigateUpdates")>()),
+  useFrigateUpdates: mocks.updates,
 }));
 vi.mock("../hooks/useEquipmentCommand", async (importOriginal) => ({
   ...(await importOriginal<object>()),
@@ -33,7 +44,7 @@ vi.mock("@/protoFleet/api/SitesContext", () => ({
 vi.mock("@/protoFleet/store", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/protoFleet/store")>()),
   useTemperatureUnit: () => "C",
-  usePermissions: () => [],
+  usePermissions: () => mocks.permissions,
 }));
 
 function Location() {
@@ -57,6 +68,8 @@ function renderPage() {
 }
 beforeEach(() => {
   vi.clearAllMocks();
+  mocks.permissions = [];
+  mocks.updates.mockReturnValue({ jobs: [], loading: false, error: undefined, latest: undefined, refresh: vi.fn() });
   mocks.command.mockReturnValue({
     submit: vi.fn(),
     busy: false,
@@ -162,6 +175,34 @@ describe("native container detail", () => {
     expect(screen.getByText("No fan readings available.")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /Tank 1 module 1.*View module/ }));
     expect(screen.getByTestId("location")).toHaveTextContent("/containers/ct1/tanks/81/modules/91");
+  });
+
+  it("does not read or show Frigate updates without the software update permission", () => {
+    renderPage();
+    expect(mocks.updates).toHaveBeenCalledWith("ct1", false);
+    expect(screen.queryByTestId("frigate-update-panel")).not.toBeInTheDocument();
+  });
+
+  it("shows the Frigate update panel for a user with the software update permission", () => {
+    mocks.permissions = ["controller:software_update"];
+    mocks.updates.mockReturnValue({
+      jobs: [
+        create(UpdateJobSchema, {
+          jobId: "11111111-1111-4111-8111-111111111111",
+          state: FrigateUpdateState.RUNNING,
+          rolloutPhase: FrigateRolloutPhase.INSTALLING,
+          targetVersion: "1.4.0",
+          servedByMaintenance: true,
+        }),
+      ],
+      loading: false,
+      error: undefined,
+      refresh: vi.fn(),
+    });
+    renderPage();
+    expect(mocks.updates).toHaveBeenCalledWith("ct1", true);
+    expect(screen.getByTestId("frigate-update-state")).toHaveTextContent("Update in progress: Installing");
+    expect(screen.getByTestId("frigate-update-maintenance")).toBeInTheDocument();
   });
 
   it("opens the native tank detail using the stable tank ID", () => {

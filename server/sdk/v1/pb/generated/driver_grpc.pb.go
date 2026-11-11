@@ -40,6 +40,7 @@ const (
 	Driver_MiningGroups_FullMethodName            = "/sdk.v1.Driver/MiningGroups"
 	Driver_SetModuleMining_FullMethodName         = "/sdk.v1.Driver/SetModuleMining"
 	Driver_SetContainerControl_FullMethodName     = "/sdk.v1.Driver/SetContainerControl"
+	Driver_FrigateServerUpdate_FullMethodName     = "/sdk.v1.Driver/FrigateServerUpdate"
 	Driver_SetCoolingMode_FullMethodName          = "/sdk.v1.Driver/SetCoolingMode"
 	Driver_GetCoolingMode_FullMethodName          = "/sdk.v1.Driver/GetCoolingMode"
 	Driver_SetPowerTarget_FullMethodName          = "/sdk.v1.Driver/SetPowerTarget"
@@ -93,6 +94,12 @@ type DriverClient interface {
 	MiningGroups(ctx context.Context, in *MiningGroupsRequest, opts ...grpc.CallOption) (*MiningGroupsResponse, error)
 	SetModuleMining(ctx context.Context, in *SetModuleMiningRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
 	SetContainerControl(ctx context.Context, in *SetContainerControlRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
+	// Optional controller-only Frigate software update operations (capability
+	// "frigate_server_update"). One RPC carries nine operations so the plugin
+	// boundary stays narrow. A Frigate refusal travels as a gRPC status carrying a
+	// google.rpc.ErrorInfo in domain "mdk.v2.frigate" whose reason is the UPDATE_*
+	// code. Unsupported drivers return UNIMPLEMENTED.
+	FrigateServerUpdate(ctx context.Context, in *FrigateServerUpdateRequest, opts ...grpc.CallOption) (*FrigateServerUpdateResponse, error)
 	// CoreV1 - Configuration methods - Required methods
 	SetCoolingMode(ctx context.Context, in *SetCoolingModeRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
 	GetCoolingMode(ctx context.Context, in *DeviceRef, opts ...grpc.CallOption) (*GetCoolingModeResponse, error)
@@ -299,6 +306,15 @@ func (c *driverClient) SetModuleMining(ctx context.Context, in *SetModuleMiningR
 func (c *driverClient) SetContainerControl(ctx context.Context, in *SetContainerControlRequest, opts ...grpc.CallOption) (*emptypb.Empty, error) {
 	out := new(emptypb.Empty)
 	err := c.cc.Invoke(ctx, Driver_SetContainerControl_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *driverClient) FrigateServerUpdate(ctx context.Context, in *FrigateServerUpdateRequest, opts ...grpc.CallOption) (*FrigateServerUpdateResponse, error) {
+	out := new(FrigateServerUpdateResponse)
+	err := c.cc.Invoke(ctx, Driver_FrigateServerUpdate_FullMethodName, in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -539,6 +555,12 @@ type DriverServer interface {
 	MiningGroups(context.Context, *MiningGroupsRequest) (*MiningGroupsResponse, error)
 	SetModuleMining(context.Context, *SetModuleMiningRequest) (*emptypb.Empty, error)
 	SetContainerControl(context.Context, *SetContainerControlRequest) (*emptypb.Empty, error)
+	// Optional controller-only Frigate software update operations (capability
+	// "frigate_server_update"). One RPC carries nine operations so the plugin
+	// boundary stays narrow. A Frigate refusal travels as a gRPC status carrying a
+	// google.rpc.ErrorInfo in domain "mdk.v2.frigate" whose reason is the UPDATE_*
+	// code. Unsupported drivers return UNIMPLEMENTED.
+	FrigateServerUpdate(context.Context, *FrigateServerUpdateRequest) (*FrigateServerUpdateResponse, error)
 	// CoreV1 - Configuration methods - Required methods
 	SetCoolingMode(context.Context, *SetCoolingModeRequest) (*emptypb.Empty, error)
 	GetCoolingMode(context.Context, *DeviceRef) (*GetCoolingModeResponse, error)
@@ -633,6 +655,9 @@ func (UnimplementedDriverServer) SetModuleMining(context.Context, *SetModuleMini
 }
 func (UnimplementedDriverServer) SetContainerControl(context.Context, *SetContainerControlRequest) (*emptypb.Empty, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method SetContainerControl not implemented")
+}
+func (UnimplementedDriverServer) FrigateServerUpdate(context.Context, *FrigateServerUpdateRequest) (*FrigateServerUpdateResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method FrigateServerUpdate not implemented")
 }
 func (UnimplementedDriverServer) SetCoolingMode(context.Context, *SetCoolingModeRequest) (*emptypb.Empty, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method SetCoolingMode not implemented")
@@ -1045,6 +1070,24 @@ func _Driver_SetContainerControl_Handler(srv interface{}, ctx context.Context, d
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(DriverServer).SetContainerControl(ctx, req.(*SetContainerControlRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Driver_FrigateServerUpdate_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(FrigateServerUpdateRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DriverServer).FrigateServerUpdate(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Driver_FrigateServerUpdate_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DriverServer).FrigateServerUpdate(ctx, req.(*FrigateServerUpdateRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -1494,6 +1537,10 @@ var Driver_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "SetContainerControl",
 			Handler:    _Driver_SetContainerControl_Handler,
+		},
+		{
+			MethodName: "FrigateServerUpdate",
+			Handler:    _Driver_FrigateServerUpdate_Handler,
 		},
 		{
 			MethodName: "SetCoolingMode",

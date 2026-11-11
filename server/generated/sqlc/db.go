@@ -90,6 +90,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.allDevicesBelongToOrgStmt, err = db.PrepareContext(ctx, allDevicesBelongToOrg); err != nil {
 		return nil, fmt.Errorf("error preparing query AllDevicesBelongToOrg: %w", err)
 	}
+	if q.anyDeviceHasBlockingFrigateUpdateJobStmt, err = db.PrepareContext(ctx, anyDeviceHasBlockingFrigateUpdateJob); err != nil {
+		return nil, fmt.Errorf("error preparing query AnyDeviceHasBlockingFrigateUpdateJob: %w", err)
+	}
 	if q.appendFirmwareRolloutDevicesStmt, err = db.PrepareContext(ctx, appendFirmwareRolloutDevices); err != nil {
 		return nil, fmt.Errorf("error preparing query AppendFirmwareRolloutDevices: %w", err)
 	}
@@ -404,6 +407,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.countFleetNodeDevicesByNodeStmt, err = db.PrepareContext(ctx, countFleetNodeDevicesByNode); err != nil {
 		return nil, fmt.Errorf("error preparing query CountFleetNodeDevicesByNode: %w", err)
+	}
+	if q.countFrigateUpdateActionsStmt, err = db.PrepareContext(ctx, countFrigateUpdateActions); err != nil {
+		return nil, fmt.Errorf("error preparing query CountFrigateUpdateActions: %w", err)
 	}
 	if q.countHostedAccountsWithoutAdministratorStmt, err = db.PrepareContext(ctx, countHostedAccountsWithoutAdministrator); err != nil {
 		return nil, fmt.Errorf("error preparing query CountHostedAccountsWithoutAdministrator: %w", err)
@@ -795,6 +801,12 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.freezePoolConfigurationWritersStmt, err = db.PrepareContext(ctx, freezePoolConfigurationWriters); err != nil {
 		return nil, fmt.Errorf("error preparing query FreezePoolConfigurationWriters: %w", err)
 	}
+	if q.frigateUpdatePackageInUseStmt, err = db.PrepareContext(ctx, frigateUpdatePackageInUse); err != nil {
+		return nil, fmt.Errorf("error preparing query FrigateUpdatePackageInUse: %w", err)
+	}
+	if q.frigateUpdatePackageWantsBlobStmt, err = db.PrepareContext(ctx, frigateUpdatePackageWantsBlob); err != nil {
+		return nil, fmt.Errorf("error preparing query FrigateUpdatePackageWantsBlob: %w", err)
+	}
 	if q.getAccountRepairTicketStmt, err = db.PrepareContext(ctx, getAccountRepairTicket); err != nil {
 		return nil, fmt.Errorf("error preparing query GetAccountRepairTicket: %w", err)
 	}
@@ -884,6 +896,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.getBatchStatusAndDeviceCountsStmt, err = db.PrepareContext(ctx, getBatchStatusAndDeviceCounts); err != nil {
 		return nil, fmt.Errorf("error preparing query GetBatchStatusAndDeviceCounts: %w", err)
+	}
+	if q.getBlockingFrigateUpdateJobForDeviceStmt, err = db.PrepareContext(ctx, getBlockingFrigateUpdateJobForDevice); err != nil {
+		return nil, fmt.Errorf("error preparing query GetBlockingFrigateUpdateJobForDevice: %w", err)
 	}
 	if q.getBoardPoolRemovalAttemptStmt, err = db.PrepareContext(ctx, getBoardPoolRemovalAttempt); err != nil {
 		return nil, fmt.Errorf("error preparing query GetBoardPoolRemovalAttempt: %w", err)
@@ -1154,6 +1169,27 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.getFleetNodeTelemetryRouteByDeviceIdentifierStmt, err = db.PrepareContext(ctx, getFleetNodeTelemetryRouteByDeviceIdentifier); err != nil {
 		return nil, fmt.Errorf("error preparing query GetFleetNodeTelemetryRouteByDeviceIdentifier: %w", err)
+	}
+	if q.getFrigateUpdateActionStmt, err = db.PrepareContext(ctx, getFrigateUpdateAction); err != nil {
+		return nil, fmt.Errorf("error preparing query GetFrigateUpdateAction: %w", err)
+	}
+	if q.getFrigateUpdateDeviceSiteStmt, err = db.PrepareContext(ctx, getFrigateUpdateDeviceSite); err != nil {
+		return nil, fmt.Errorf("error preparing query GetFrigateUpdateDeviceSite: %w", err)
+	}
+	if q.getFrigateUpdateJobStmt, err = db.PrepareContext(ctx, getFrigateUpdateJob); err != nil {
+		return nil, fmt.Errorf("error preparing query GetFrigateUpdateJob: %w", err)
+	}
+	if q.getFrigateUpdateJobByRequestKeyStmt, err = db.PrepareContext(ctx, getFrigateUpdateJobByRequestKey); err != nil {
+		return nil, fmt.Errorf("error preparing query GetFrigateUpdateJobByRequestKey: %w", err)
+	}
+	if q.getFrigateUpdatePackageStmt, err = db.PrepareContext(ctx, getFrigateUpdatePackage); err != nil {
+		return nil, fmt.Errorf("error preparing query GetFrigateUpdatePackage: %w", err)
+	}
+	if q.getFrigateUpdatePackageBySHA256Stmt, err = db.PrepareContext(ctx, getFrigateUpdatePackageBySHA256); err != nil {
+		return nil, fmt.Errorf("error preparing query GetFrigateUpdatePackageBySHA256: %w", err)
+	}
+	if q.getFrigateUpdateTargetStmt, err = db.PrepareContext(ctx, getFrigateUpdateTarget); err != nil {
+		return nil, fmt.Errorf("error preparing query GetFrigateUpdateTarget: %w", err)
 	}
 	if q.getGroupRefsForDevicesStmt, err = db.PrepareContext(ctx, getGroupRefsForDevices); err != nil {
 		return nil, fmt.Errorf("error preparing query GetGroupRefsForDevices: %w", err)
@@ -1680,6 +1716,18 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.insertDeviceMetricsBatchStmt, err = db.PrepareContext(ctx, insertDeviceMetricsBatch); err != nil {
 		return nil, fmt.Errorf("error preparing query InsertDeviceMetricsBatch: %w", err)
 	}
+	if q.insertFrigateUpdateActionStmt, err = db.PrepareContext(ctx, insertFrigateUpdateAction); err != nil {
+		return nil, fmt.Errorf("error preparing query InsertFrigateUpdateAction: %w", err)
+	}
+	if q.insertFrigateUpdateInstanceStmt, err = db.PrepareContext(ctx, insertFrigateUpdateInstance); err != nil {
+		return nil, fmt.Errorf("error preparing query InsertFrigateUpdateInstance: %w", err)
+	}
+	if q.insertFrigateUpdateJobStmt, err = db.PrepareContext(ctx, insertFrigateUpdateJob); err != nil {
+		return nil, fmt.Errorf("error preparing query InsertFrigateUpdateJob: %w", err)
+	}
+	if q.insertFrigateUpdatePackageStmt, err = db.PrepareContext(ctx, insertFrigateUpdatePackage); err != nil {
+		return nil, fmt.Errorf("error preparing query InsertFrigateUpdatePackage: %w", err)
+	}
 	if q.insertHashboardDiagnosticObservationsStmt, err = db.PrepareContext(ctx, insertHashboardDiagnosticObservations); err != nil {
 		return nil, fmt.Errorf("error preparing query InsertHashboardDiagnosticObservations: %w", err)
 	}
@@ -1988,6 +2036,21 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.listFleetTankOptionsStmt, err = db.PrepareContext(ctx, listFleetTankOptions); err != nil {
 		return nil, fmt.Errorf("error preparing query ListFleetTankOptions: %w", err)
+	}
+	if q.listFrigateUpdateCleanupJobsStmt, err = db.PrepareContext(ctx, listFrigateUpdateCleanupJobs); err != nil {
+		return nil, fmt.Errorf("error preparing query ListFrigateUpdateCleanupJobs: %w", err)
+	}
+	if q.listFrigateUpdateInstancesStmt, err = db.PrepareContext(ctx, listFrigateUpdateInstances); err != nil {
+		return nil, fmt.Errorf("error preparing query ListFrigateUpdateInstances: %w", err)
+	}
+	if q.listFrigateUpdateInstancesForJobsStmt, err = db.PrepareContext(ctx, listFrigateUpdateInstancesForJobs); err != nil {
+		return nil, fmt.Errorf("error preparing query ListFrigateUpdateInstancesForJobs: %w", err)
+	}
+	if q.listFrigateUpdateJobsForDeviceStmt, err = db.PrepareContext(ctx, listFrigateUpdateJobsForDevice); err != nil {
+		return nil, fmt.Errorf("error preparing query ListFrigateUpdateJobsForDevice: %w", err)
+	}
+	if q.listFrigateUpdatePackagesStmt, err = db.PrepareContext(ctx, listFrigateUpdatePackages); err != nil {
+		return nil, fmt.Errorf("error preparing query ListFrigateUpdatePackages: %w", err)
 	}
 	if q.listHashboardHistoryStmt, err = db.PrepareContext(ctx, listHashboardHistory); err != nil {
 		return nil, fmt.Errorf("error preparing query ListHashboardHistory: %w", err)
@@ -2322,6 +2385,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.listRolesWithDetailsForOrgStmt, err = db.PrepareContext(ctx, listRolesWithDetailsForOrg); err != nil {
 		return nil, fmt.Errorf("error preparing query ListRolesWithDetailsForOrg: %w", err)
 	}
+	if q.listRunnableFrigateUpdateJobsStmt, err = db.PrepareContext(ctx, listRunnableFrigateUpdateJobs); err != nil {
+		return nil, fmt.Errorf("error preparing query ListRunnableFrigateUpdateJobs: %w", err)
+	}
 	if q.listScheduleIDStatusesStmt, err = db.PrepareContext(ctx, listScheduleIDStatuses); err != nil {
 		return nil, fmt.Errorf("error preparing query ListScheduleIDStatuses: %w", err)
 	}
@@ -2514,6 +2580,15 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.lockFleetNodePairingDeviceStmt, err = db.PrepareContext(ctx, lockFleetNodePairingDevice); err != nil {
 		return nil, fmt.Errorf("error preparing query LockFleetNodePairingDevice: %w", err)
 	}
+	if q.lockFrigateUpdateJobStmt, err = db.PrepareContext(ctx, lockFrigateUpdateJob); err != nil {
+		return nil, fmt.Errorf("error preparing query LockFrigateUpdateJob: %w", err)
+	}
+	if q.lockFrigateUpdatePackageStmt, err = db.PrepareContext(ctx, lockFrigateUpdatePackage); err != nil {
+		return nil, fmt.Errorf("error preparing query LockFrigateUpdatePackage: %w", err)
+	}
+	if q.lockFrigateUpdateTargetStmt, err = db.PrepareContext(ctx, lockFrigateUpdateTarget); err != nil {
+		return nil, fmt.Errorf("error preparing query LockFrigateUpdateTarget: %w", err)
+	}
 	if q.lockHashboardOrganizationStmt, err = db.PrepareContext(ctx, lockHashboardOrganization); err != nil {
 		return nil, fmt.Errorf("error preparing query LockHashboardOrganization: %w", err)
 	}
@@ -2666,6 +2741,12 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.markFleetNodeHAStandbyReadyStmt, err = db.PrepareContext(ctx, markFleetNodeHAStandbyReady); err != nil {
 		return nil, fmt.Errorf("error preparing query MarkFleetNodeHAStandbyReady: %w", err)
+	}
+	if q.markFrigateUpdateActionLocalStmt, err = db.PrepareContext(ctx, markFrigateUpdateActionLocal); err != nil {
+		return nil, fmt.Errorf("error preparing query MarkFrigateUpdateActionLocal: %w", err)
+	}
+	if q.markFrigateUpdateCleanupAttemptedStmt, err = db.PrepareContext(ctx, markFrigateUpdateCleanupAttempted); err != nil {
+		return nil, fmt.Errorf("error preparing query MarkFrigateUpdateCleanupAttempted: %w", err)
 	}
 	if q.markRepairTicketPartsConsumedStmt, err = db.PrepareContext(ctx, markRepairTicketPartsConsumed); err != nil {
 		return nil, fmt.Errorf("error preparing query MarkRepairTicketPartsConsumed: %w", err)
@@ -3159,6 +3240,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.softDeleteFleetNodesForExpiredEnrollmentsStmt, err = db.PrepareContext(ctx, softDeleteFleetNodesForExpiredEnrollments); err != nil {
 		return nil, fmt.Errorf("error preparing query SoftDeleteFleetNodesForExpiredEnrollments: %w", err)
 	}
+	if q.softDeleteFrigateUpdatePackageStmt, err = db.PrepareContext(ctx, softDeleteFrigateUpdatePackage); err != nil {
+		return nil, fmt.Errorf("error preparing query SoftDeleteFrigateUpdatePackage: %w", err)
+	}
 	if q.softDeleteInfrastructureDeviceStmt, err = db.PrepareContext(ctx, softDeleteInfrastructureDevice); err != nil {
 		return nil, fmt.Errorf("error preparing query SoftDeleteInfrastructureDevice: %w", err)
 	}
@@ -3338,6 +3422,18 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.updateFleetNodeLastSeenAtStmt, err = db.PrepareContext(ctx, updateFleetNodeLastSeenAt); err != nil {
 		return nil, fmt.Errorf("error preparing query UpdateFleetNodeLastSeenAt: %w", err)
+	}
+	if q.updateFrigateUpdateInstanceStmt, err = db.PrepareContext(ctx, updateFrigateUpdateInstance); err != nil {
+		return nil, fmt.Errorf("error preparing query UpdateFrigateUpdateInstance: %w", err)
+	}
+	if q.updateFrigateUpdateInstanceStagingStmt, err = db.PrepareContext(ctx, updateFrigateUpdateInstanceStaging); err != nil {
+		return nil, fmt.Errorf("error preparing query UpdateFrigateUpdateInstanceStaging: %w", err)
+	}
+	if q.updateFrigateUpdateJobStmt, err = db.PrepareContext(ctx, updateFrigateUpdateJob); err != nil {
+		return nil, fmt.Errorf("error preparing query UpdateFrigateUpdateJob: %w", err)
+	}
+	if q.updateFrigateUpdatePackageReleaseStmt, err = db.PrepareContext(ctx, updateFrigateUpdatePackageRelease); err != nil {
+		return nil, fmt.Errorf("error preparing query UpdateFrigateUpdatePackageRelease: %w", err)
 	}
 	if q.updateInfrastructureDeviceStmt, err = db.PrepareContext(ctx, updateInfrastructureDevice); err != nil {
 		return nil, fmt.Errorf("error preparing query UpdateInfrastructureDevice: %w", err)
@@ -3626,6 +3722,11 @@ func (q *Queries) Close() error {
 	if q.allDevicesBelongToOrgStmt != nil {
 		if cerr := q.allDevicesBelongToOrgStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing allDevicesBelongToOrgStmt: %w", cerr)
+		}
+	}
+	if q.anyDeviceHasBlockingFrigateUpdateJobStmt != nil {
+		if cerr := q.anyDeviceHasBlockingFrigateUpdateJobStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing anyDeviceHasBlockingFrigateUpdateJobStmt: %w", cerr)
 		}
 	}
 	if q.appendFirmwareRolloutDevicesStmt != nil {
@@ -4151,6 +4252,11 @@ func (q *Queries) Close() error {
 	if q.countFleetNodeDevicesByNodeStmt != nil {
 		if cerr := q.countFleetNodeDevicesByNodeStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing countFleetNodeDevicesByNodeStmt: %w", cerr)
+		}
+	}
+	if q.countFrigateUpdateActionsStmt != nil {
+		if cerr := q.countFrigateUpdateActionsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing countFrigateUpdateActionsStmt: %w", cerr)
 		}
 	}
 	if q.countHostedAccountsWithoutAdministratorStmt != nil {
@@ -4803,6 +4909,16 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing freezePoolConfigurationWritersStmt: %w", cerr)
 		}
 	}
+	if q.frigateUpdatePackageInUseStmt != nil {
+		if cerr := q.frigateUpdatePackageInUseStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing frigateUpdatePackageInUseStmt: %w", cerr)
+		}
+	}
+	if q.frigateUpdatePackageWantsBlobStmt != nil {
+		if cerr := q.frigateUpdatePackageWantsBlobStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing frigateUpdatePackageWantsBlobStmt: %w", cerr)
+		}
+	}
 	if q.getAccountRepairTicketStmt != nil {
 		if cerr := q.getAccountRepairTicketStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getAccountRepairTicketStmt: %w", cerr)
@@ -4951,6 +5067,11 @@ func (q *Queries) Close() error {
 	if q.getBatchStatusAndDeviceCountsStmt != nil {
 		if cerr := q.getBatchStatusAndDeviceCountsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getBatchStatusAndDeviceCountsStmt: %w", cerr)
+		}
+	}
+	if q.getBlockingFrigateUpdateJobForDeviceStmt != nil {
+		if cerr := q.getBlockingFrigateUpdateJobForDeviceStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getBlockingFrigateUpdateJobForDeviceStmt: %w", cerr)
 		}
 	}
 	if q.getBoardPoolRemovalAttemptStmt != nil {
@@ -5401,6 +5522,41 @@ func (q *Queries) Close() error {
 	if q.getFleetNodeTelemetryRouteByDeviceIdentifierStmt != nil {
 		if cerr := q.getFleetNodeTelemetryRouteByDeviceIdentifierStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getFleetNodeTelemetryRouteByDeviceIdentifierStmt: %w", cerr)
+		}
+	}
+	if q.getFrigateUpdateActionStmt != nil {
+		if cerr := q.getFrigateUpdateActionStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getFrigateUpdateActionStmt: %w", cerr)
+		}
+	}
+	if q.getFrigateUpdateDeviceSiteStmt != nil {
+		if cerr := q.getFrigateUpdateDeviceSiteStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getFrigateUpdateDeviceSiteStmt: %w", cerr)
+		}
+	}
+	if q.getFrigateUpdateJobStmt != nil {
+		if cerr := q.getFrigateUpdateJobStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getFrigateUpdateJobStmt: %w", cerr)
+		}
+	}
+	if q.getFrigateUpdateJobByRequestKeyStmt != nil {
+		if cerr := q.getFrigateUpdateJobByRequestKeyStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getFrigateUpdateJobByRequestKeyStmt: %w", cerr)
+		}
+	}
+	if q.getFrigateUpdatePackageStmt != nil {
+		if cerr := q.getFrigateUpdatePackageStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getFrigateUpdatePackageStmt: %w", cerr)
+		}
+	}
+	if q.getFrigateUpdatePackageBySHA256Stmt != nil {
+		if cerr := q.getFrigateUpdatePackageBySHA256Stmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getFrigateUpdatePackageBySHA256Stmt: %w", cerr)
+		}
+	}
+	if q.getFrigateUpdateTargetStmt != nil {
+		if cerr := q.getFrigateUpdateTargetStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getFrigateUpdateTargetStmt: %w", cerr)
 		}
 	}
 	if q.getGroupRefsForDevicesStmt != nil {
@@ -6278,6 +6434,26 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing insertDeviceMetricsBatchStmt: %w", cerr)
 		}
 	}
+	if q.insertFrigateUpdateActionStmt != nil {
+		if cerr := q.insertFrigateUpdateActionStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing insertFrigateUpdateActionStmt: %w", cerr)
+		}
+	}
+	if q.insertFrigateUpdateInstanceStmt != nil {
+		if cerr := q.insertFrigateUpdateInstanceStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing insertFrigateUpdateInstanceStmt: %w", cerr)
+		}
+	}
+	if q.insertFrigateUpdateJobStmt != nil {
+		if cerr := q.insertFrigateUpdateJobStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing insertFrigateUpdateJobStmt: %w", cerr)
+		}
+	}
+	if q.insertFrigateUpdatePackageStmt != nil {
+		if cerr := q.insertFrigateUpdatePackageStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing insertFrigateUpdatePackageStmt: %w", cerr)
+		}
+	}
 	if q.insertHashboardDiagnosticObservationsStmt != nil {
 		if cerr := q.insertHashboardDiagnosticObservationsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing insertHashboardDiagnosticObservationsStmt: %w", cerr)
@@ -6791,6 +6967,31 @@ func (q *Queries) Close() error {
 	if q.listFleetTankOptionsStmt != nil {
 		if cerr := q.listFleetTankOptionsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing listFleetTankOptionsStmt: %w", cerr)
+		}
+	}
+	if q.listFrigateUpdateCleanupJobsStmt != nil {
+		if cerr := q.listFrigateUpdateCleanupJobsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listFrigateUpdateCleanupJobsStmt: %w", cerr)
+		}
+	}
+	if q.listFrigateUpdateInstancesStmt != nil {
+		if cerr := q.listFrigateUpdateInstancesStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listFrigateUpdateInstancesStmt: %w", cerr)
+		}
+	}
+	if q.listFrigateUpdateInstancesForJobsStmt != nil {
+		if cerr := q.listFrigateUpdateInstancesForJobsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listFrigateUpdateInstancesForJobsStmt: %w", cerr)
+		}
+	}
+	if q.listFrigateUpdateJobsForDeviceStmt != nil {
+		if cerr := q.listFrigateUpdateJobsForDeviceStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listFrigateUpdateJobsForDeviceStmt: %w", cerr)
+		}
+	}
+	if q.listFrigateUpdatePackagesStmt != nil {
+		if cerr := q.listFrigateUpdatePackagesStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listFrigateUpdatePackagesStmt: %w", cerr)
 		}
 	}
 	if q.listHashboardHistoryStmt != nil {
@@ -7348,6 +7549,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing listRolesWithDetailsForOrgStmt: %w", cerr)
 		}
 	}
+	if q.listRunnableFrigateUpdateJobsStmt != nil {
+		if cerr := q.listRunnableFrigateUpdateJobsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listRunnableFrigateUpdateJobsStmt: %w", cerr)
+		}
+	}
 	if q.listScheduleIDStatusesStmt != nil {
 		if cerr := q.listScheduleIDStatusesStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing listScheduleIDStatusesStmt: %w", cerr)
@@ -7668,6 +7874,21 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing lockFleetNodePairingDeviceStmt: %w", cerr)
 		}
 	}
+	if q.lockFrigateUpdateJobStmt != nil {
+		if cerr := q.lockFrigateUpdateJobStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing lockFrigateUpdateJobStmt: %w", cerr)
+		}
+	}
+	if q.lockFrigateUpdatePackageStmt != nil {
+		if cerr := q.lockFrigateUpdatePackageStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing lockFrigateUpdatePackageStmt: %w", cerr)
+		}
+	}
+	if q.lockFrigateUpdateTargetStmt != nil {
+		if cerr := q.lockFrigateUpdateTargetStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing lockFrigateUpdateTargetStmt: %w", cerr)
+		}
+	}
 	if q.lockHashboardOrganizationStmt != nil {
 		if cerr := q.lockHashboardOrganizationStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing lockHashboardOrganizationStmt: %w", cerr)
@@ -7921,6 +8142,16 @@ func (q *Queries) Close() error {
 	if q.markFleetNodeHAStandbyReadyStmt != nil {
 		if cerr := q.markFleetNodeHAStandbyReadyStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing markFleetNodeHAStandbyReadyStmt: %w", cerr)
+		}
+	}
+	if q.markFrigateUpdateActionLocalStmt != nil {
+		if cerr := q.markFrigateUpdateActionLocalStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing markFrigateUpdateActionLocalStmt: %w", cerr)
+		}
+	}
+	if q.markFrigateUpdateCleanupAttemptedStmt != nil {
+		if cerr := q.markFrigateUpdateCleanupAttemptedStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing markFrigateUpdateCleanupAttemptedStmt: %w", cerr)
 		}
 	}
 	if q.markRepairTicketPartsConsumedStmt != nil {
@@ -8743,6 +8974,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing softDeleteFleetNodesForExpiredEnrollmentsStmt: %w", cerr)
 		}
 	}
+	if q.softDeleteFrigateUpdatePackageStmt != nil {
+		if cerr := q.softDeleteFrigateUpdatePackageStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing softDeleteFrigateUpdatePackageStmt: %w", cerr)
+		}
+	}
 	if q.softDeleteInfrastructureDeviceStmt != nil {
 		if cerr := q.softDeleteInfrastructureDeviceStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing softDeleteInfrastructureDeviceStmt: %w", cerr)
@@ -9041,6 +9277,26 @@ func (q *Queries) Close() error {
 	if q.updateFleetNodeLastSeenAtStmt != nil {
 		if cerr := q.updateFleetNodeLastSeenAtStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing updateFleetNodeLastSeenAtStmt: %w", cerr)
+		}
+	}
+	if q.updateFrigateUpdateInstanceStmt != nil {
+		if cerr := q.updateFrigateUpdateInstanceStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing updateFrigateUpdateInstanceStmt: %w", cerr)
+		}
+	}
+	if q.updateFrigateUpdateInstanceStagingStmt != nil {
+		if cerr := q.updateFrigateUpdateInstanceStagingStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing updateFrigateUpdateInstanceStagingStmt: %w", cerr)
+		}
+	}
+	if q.updateFrigateUpdateJobStmt != nil {
+		if cerr := q.updateFrigateUpdateJobStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing updateFrigateUpdateJobStmt: %w", cerr)
+		}
+	}
+	if q.updateFrigateUpdatePackageReleaseStmt != nil {
+		if cerr := q.updateFrigateUpdatePackageReleaseStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing updateFrigateUpdatePackageReleaseStmt: %w", cerr)
 		}
 	}
 	if q.updateInfrastructureDeviceStmt != nil {
@@ -9394,6 +9650,7 @@ type Queries struct {
 	advanceFleetMetricRollupProgressStmt                        *sql.Stmt
 	advanceRecoveredDeviceWriteFenceStmt                        *sql.Stmt
 	allDevicesBelongToOrgStmt                                   *sql.Stmt
+	anyDeviceHasBlockingFrigateUpdateJobStmt                    *sql.Stmt
 	appendFirmwareRolloutDevicesStmt                            *sql.Stmt
 	applyFleetNodeRecoveredEndpointStmt                         *sql.Stmt
 	applyFleetNodeRecoveryAuthenticationNeededStmt              *sql.Stmt
@@ -9499,6 +9756,7 @@ type Queries struct {
 	countEnabledCurtailmentAutomationRulesByResponseProfileStmt *sql.Stmt
 	countErrorsStmt                                             *sql.Stmt
 	countFleetNodeDevicesByNodeStmt                             *sql.Stmt
+	countFrigateUpdateActionsStmt                               *sql.Stmt
 	countHostedAccountsWithoutAdministratorStmt                 *sql.Stmt
 	countInfrastructureDevicesBySiteStmt                        *sql.Stmt
 	countInventoryPartsStmt                                     *sql.Stmt
@@ -9629,6 +9887,8 @@ type Queries struct {
 	fleetNodeInHAPairStmt                                       *sql.Stmt
 	forceReleaseCurtailmentEventStmt                            *sql.Stmt
 	freezePoolConfigurationWritersStmt                          *sql.Stmt
+	frigateUpdatePackageInUseStmt                               *sql.Stmt
+	frigateUpdatePackageWantsBlobStmt                           *sql.Stmt
 	getAccountRepairTicketStmt                                  *sql.Stmt
 	getAccountTicketAccessStmt                                  *sql.Stmt
 	getActiveFirmwareRolloutForPairStmt                         *sql.Stmt
@@ -9659,6 +9919,7 @@ type Queries struct {
 	getBatchHeaderForOrgStmt                                    *sql.Stmt
 	getBatchLogStmt                                             *sql.Stmt
 	getBatchStatusAndDeviceCountsStmt                           *sql.Stmt
+	getBlockingFrigateUpdateJobForDeviceStmt                    *sql.Stmt
 	getBoardPoolRemovalAttemptStmt                              *sql.Stmt
 	getBuildingStmt                                             *sql.Stmt
 	getBuildingSiteStmt                                         *sql.Stmt
@@ -9749,6 +10010,13 @@ type Queries struct {
 	getFleetNodePairingTargetStmt                               *sql.Stmt
 	getFleetNodeSessionByTokenHashStmt                          *sql.Stmt
 	getFleetNodeTelemetryRouteByDeviceIdentifierStmt            *sql.Stmt
+	getFrigateUpdateActionStmt                                  *sql.Stmt
+	getFrigateUpdateDeviceSiteStmt                              *sql.Stmt
+	getFrigateUpdateJobStmt                                     *sql.Stmt
+	getFrigateUpdateJobByRequestKeyStmt                         *sql.Stmt
+	getFrigateUpdatePackageStmt                                 *sql.Stmt
+	getFrigateUpdatePackageBySHA256Stmt                         *sql.Stmt
+	getFrigateUpdateTargetStmt                                  *sql.Stmt
 	getGroupRefsForDevicesStmt                                  *sql.Stmt
 	getHAProfileDatabaseIdentityStmt                            *sql.Stmt
 	getHashboardControllerSiteStmt                              *sql.Stmt
@@ -9924,6 +10192,10 @@ type Queries struct {
 	insertCurtailmentResponseProfileStmt                        *sql.Stmt
 	insertDeviceStmt                                            *sql.Stmt
 	insertDeviceMetricsBatchStmt                                *sql.Stmt
+	insertFrigateUpdateActionStmt                               *sql.Stmt
+	insertFrigateUpdateInstanceStmt                             *sql.Stmt
+	insertFrigateUpdateJobStmt                                  *sql.Stmt
+	insertFrigateUpdatePackageStmt                              *sql.Stmt
 	insertHashboardDiagnosticObservationsStmt                   *sql.Stmt
 	insertHashboardMetricsStmt                                  *sql.Stmt
 	insertMQTTSourceConfigStmt                                  *sql.Stmt
@@ -10027,6 +10299,11 @@ type Queries struct {
 	listFleetNodeHAPairsStmt                                    *sql.Stmt
 	listFleetNodesForOrganizationStmt                           *sql.Stmt
 	listFleetTankOptionsStmt                                    *sql.Stmt
+	listFrigateUpdateCleanupJobsStmt                            *sql.Stmt
+	listFrigateUpdateInstancesStmt                              *sql.Stmt
+	listFrigateUpdateInstancesForJobsStmt                       *sql.Stmt
+	listFrigateUpdateJobsForDeviceStmt                          *sql.Stmt
+	listFrigateUpdatePackagesStmt                               *sql.Stmt
 	listHashboardHistoryStmt                                    *sql.Stmt
 	listHashboardModulesStmt                                    *sql.Stmt
 	listHashboardPoolIntentsStmt                                *sql.Stmt
@@ -10138,6 +10415,7 @@ type Queries struct {
 	listRolePermissionKeysStmt                                  *sql.Stmt
 	listRolesStmt                                               *sql.Stmt
 	listRolesWithDetailsForOrgStmt                              *sql.Stmt
+	listRunnableFrigateUpdateJobsStmt                           *sql.Stmt
 	listScheduleIDStatusesStmt                                  *sql.Stmt
 	listSchedulesStmt                                           *sql.Stmt
 	listSiteNetworkConfigsForOverlapStmt                        *sql.Stmt
@@ -10202,6 +10480,9 @@ type Queries struct {
 	lockFleetNodeHAPairStmt                                     *sql.Stmt
 	lockFleetNodeIdentityByIDStmt                               *sql.Stmt
 	lockFleetNodePairingDeviceStmt                              *sql.Stmt
+	lockFrigateUpdateJobStmt                                    *sql.Stmt
+	lockFrigateUpdatePackageStmt                                *sql.Stmt
+	lockFrigateUpdateTargetStmt                                 *sql.Stmt
 	lockHashboardOrganizationStmt                               *sql.Stmt
 	lockHostedAccountAdministratorsStmt                         *sql.Stmt
 	lockHostedAccountAssetInventoryStmt                         *sql.Stmt
@@ -10253,6 +10534,8 @@ type Queries struct {
 	markFirmwareRolloutDevicesSentStmt                          *sql.Stmt
 	markFirmwareRolloutDevicesVerifiedStmt                      *sql.Stmt
 	markFleetNodeHAStandbyReadyStmt                             *sql.Stmt
+	markFrigateUpdateActionLocalStmt                            *sql.Stmt
+	markFrigateUpdateCleanupAttemptedStmt                       *sql.Stmt
 	markRepairTicketPartsConsumedStmt                           *sql.Stmt
 	moveDiscoveredDeviceAttributionStmt                         *sql.Stmt
 	moveFleetNodeDevicesStmt                                    *sql.Stmt
@@ -10417,6 +10700,7 @@ type Queries struct {
 	softDeleteDiscoveredDevicesForDeletedDevicesStmt            *sql.Stmt
 	softDeleteFleetNodeStmt                                     *sql.Stmt
 	softDeleteFleetNodesForExpiredEnrollmentsStmt               *sql.Stmt
+	softDeleteFrigateUpdatePackageStmt                          *sql.Stmt
 	softDeleteInfrastructureDeviceStmt                          *sql.Stmt
 	softDeleteInfrastructureDevicesBySiteStmt                   *sql.Stmt
 	softDeleteInventoryPartStmt                                 *sql.Stmt
@@ -10477,6 +10761,10 @@ type Queries struct {
 	updateDeviceWorkerNamePoolSyncStatusByIDStmt                *sql.Stmt
 	updateDiscoveredDeviceFirmwareVersionStmt                   *sql.Stmt
 	updateFleetNodeLastSeenAtStmt                               *sql.Stmt
+	updateFrigateUpdateInstanceStmt                             *sql.Stmt
+	updateFrigateUpdateInstanceStagingStmt                      *sql.Stmt
+	updateFrigateUpdateJobStmt                                  *sql.Stmt
+	updateFrigateUpdatePackageReleaseStmt                       *sql.Stmt
 	updateInfrastructureDeviceStmt                              *sql.Stmt
 	updateInventoryPartStmt                                     *sql.Stmt
 	updateLastLoginStmt                                         *sql.Stmt
@@ -10563,6 +10851,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		advanceFleetMetricRollupProgressStmt:                        q.advanceFleetMetricRollupProgressStmt,
 		advanceRecoveredDeviceWriteFenceStmt:                        q.advanceRecoveredDeviceWriteFenceStmt,
 		allDevicesBelongToOrgStmt:                                   q.allDevicesBelongToOrgStmt,
+		anyDeviceHasBlockingFrigateUpdateJobStmt:                    q.anyDeviceHasBlockingFrigateUpdateJobStmt,
 		appendFirmwareRolloutDevicesStmt:                            q.appendFirmwareRolloutDevicesStmt,
 		applyFleetNodeRecoveredEndpointStmt:                         q.applyFleetNodeRecoveredEndpointStmt,
 		applyFleetNodeRecoveryAuthenticationNeededStmt:              q.applyFleetNodeRecoveryAuthenticationNeededStmt,
@@ -10668,6 +10957,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		countEnabledCurtailmentAutomationRulesByResponseProfileStmt: q.countEnabledCurtailmentAutomationRulesByResponseProfileStmt,
 		countErrorsStmt:                                             q.countErrorsStmt,
 		countFleetNodeDevicesByNodeStmt:                             q.countFleetNodeDevicesByNodeStmt,
+		countFrigateUpdateActionsStmt:                               q.countFrigateUpdateActionsStmt,
 		countHostedAccountsWithoutAdministratorStmt:                 q.countHostedAccountsWithoutAdministratorStmt,
 		countInfrastructureDevicesBySiteStmt:                        q.countInfrastructureDevicesBySiteStmt,
 		countInventoryPartsStmt:                                     q.countInventoryPartsStmt,
@@ -10798,6 +11088,8 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		fleetNodeInHAPairStmt:                                       q.fleetNodeInHAPairStmt,
 		forceReleaseCurtailmentEventStmt:                            q.forceReleaseCurtailmentEventStmt,
 		freezePoolConfigurationWritersStmt:                          q.freezePoolConfigurationWritersStmt,
+		frigateUpdatePackageInUseStmt:                               q.frigateUpdatePackageInUseStmt,
+		frigateUpdatePackageWantsBlobStmt:                           q.frigateUpdatePackageWantsBlobStmt,
 		getAccountRepairTicketStmt:                                  q.getAccountRepairTicketStmt,
 		getAccountTicketAccessStmt:                                  q.getAccountTicketAccessStmt,
 		getActiveFirmwareRolloutForPairStmt:                         q.getActiveFirmwareRolloutForPairStmt,
@@ -10828,6 +11120,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getBatchHeaderForOrgStmt:                                    q.getBatchHeaderForOrgStmt,
 		getBatchLogStmt:                                             q.getBatchLogStmt,
 		getBatchStatusAndDeviceCountsStmt:                           q.getBatchStatusAndDeviceCountsStmt,
+		getBlockingFrigateUpdateJobForDeviceStmt:                    q.getBlockingFrigateUpdateJobForDeviceStmt,
 		getBoardPoolRemovalAttemptStmt:                              q.getBoardPoolRemovalAttemptStmt,
 		getBuildingStmt:                                             q.getBuildingStmt,
 		getBuildingSiteStmt:                                         q.getBuildingSiteStmt,
@@ -10918,6 +11211,13 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getFleetNodePairingTargetStmt:                               q.getFleetNodePairingTargetStmt,
 		getFleetNodeSessionByTokenHashStmt:                          q.getFleetNodeSessionByTokenHashStmt,
 		getFleetNodeTelemetryRouteByDeviceIdentifierStmt:            q.getFleetNodeTelemetryRouteByDeviceIdentifierStmt,
+		getFrigateUpdateActionStmt:                                  q.getFrigateUpdateActionStmt,
+		getFrigateUpdateDeviceSiteStmt:                              q.getFrigateUpdateDeviceSiteStmt,
+		getFrigateUpdateJobStmt:                                     q.getFrigateUpdateJobStmt,
+		getFrigateUpdateJobByRequestKeyStmt:                         q.getFrigateUpdateJobByRequestKeyStmt,
+		getFrigateUpdatePackageStmt:                                 q.getFrigateUpdatePackageStmt,
+		getFrigateUpdatePackageBySHA256Stmt:                         q.getFrigateUpdatePackageBySHA256Stmt,
+		getFrigateUpdateTargetStmt:                                  q.getFrigateUpdateTargetStmt,
 		getGroupRefsForDevicesStmt:                                  q.getGroupRefsForDevicesStmt,
 		getHAProfileDatabaseIdentityStmt:                            q.getHAProfileDatabaseIdentityStmt,
 		getHashboardControllerSiteStmt:                              q.getHashboardControllerSiteStmt,
@@ -11093,6 +11393,10 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		insertCurtailmentResponseProfileStmt:                        q.insertCurtailmentResponseProfileStmt,
 		insertDeviceStmt:                                            q.insertDeviceStmt,
 		insertDeviceMetricsBatchStmt:                                q.insertDeviceMetricsBatchStmt,
+		insertFrigateUpdateActionStmt:                               q.insertFrigateUpdateActionStmt,
+		insertFrigateUpdateInstanceStmt:                             q.insertFrigateUpdateInstanceStmt,
+		insertFrigateUpdateJobStmt:                                  q.insertFrigateUpdateJobStmt,
+		insertFrigateUpdatePackageStmt:                              q.insertFrigateUpdatePackageStmt,
 		insertHashboardDiagnosticObservationsStmt:                   q.insertHashboardDiagnosticObservationsStmt,
 		insertHashboardMetricsStmt:                                  q.insertHashboardMetricsStmt,
 		insertMQTTSourceConfigStmt:                                  q.insertMQTTSourceConfigStmt,
@@ -11196,6 +11500,11 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		listFleetNodeHAPairsStmt:                                    q.listFleetNodeHAPairsStmt,
 		listFleetNodesForOrganizationStmt:                           q.listFleetNodesForOrganizationStmt,
 		listFleetTankOptionsStmt:                                    q.listFleetTankOptionsStmt,
+		listFrigateUpdateCleanupJobsStmt:                            q.listFrigateUpdateCleanupJobsStmt,
+		listFrigateUpdateInstancesStmt:                              q.listFrigateUpdateInstancesStmt,
+		listFrigateUpdateInstancesForJobsStmt:                       q.listFrigateUpdateInstancesForJobsStmt,
+		listFrigateUpdateJobsForDeviceStmt:                          q.listFrigateUpdateJobsForDeviceStmt,
+		listFrigateUpdatePackagesStmt:                               q.listFrigateUpdatePackagesStmt,
 		listHashboardHistoryStmt:                                    q.listHashboardHistoryStmt,
 		listHashboardModulesStmt:                                    q.listHashboardModulesStmt,
 		listHashboardPoolIntentsStmt:                                q.listHashboardPoolIntentsStmt,
@@ -11307,6 +11616,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		listRolePermissionKeysStmt:                                  q.listRolePermissionKeysStmt,
 		listRolesStmt:                                               q.listRolesStmt,
 		listRolesWithDetailsForOrgStmt:                              q.listRolesWithDetailsForOrgStmt,
+		listRunnableFrigateUpdateJobsStmt:                           q.listRunnableFrigateUpdateJobsStmt,
 		listScheduleIDStatusesStmt:                                  q.listScheduleIDStatusesStmt,
 		listSchedulesStmt:                                           q.listSchedulesStmt,
 		listSiteNetworkConfigsForOverlapStmt:                        q.listSiteNetworkConfigsForOverlapStmt,
@@ -11371,6 +11681,9 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		lockFleetNodeHAPairStmt:                                     q.lockFleetNodeHAPairStmt,
 		lockFleetNodeIdentityByIDStmt:                               q.lockFleetNodeIdentityByIDStmt,
 		lockFleetNodePairingDeviceStmt:                              q.lockFleetNodePairingDeviceStmt,
+		lockFrigateUpdateJobStmt:                                    q.lockFrigateUpdateJobStmt,
+		lockFrigateUpdatePackageStmt:                                q.lockFrigateUpdatePackageStmt,
+		lockFrigateUpdateTargetStmt:                                 q.lockFrigateUpdateTargetStmt,
 		lockHashboardOrganizationStmt:                               q.lockHashboardOrganizationStmt,
 		lockHostedAccountAdministratorsStmt:                         q.lockHostedAccountAdministratorsStmt,
 		lockHostedAccountAssetInventoryStmt:                         q.lockHostedAccountAssetInventoryStmt,
@@ -11422,6 +11735,8 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		markFirmwareRolloutDevicesSentStmt:                          q.markFirmwareRolloutDevicesSentStmt,
 		markFirmwareRolloutDevicesVerifiedStmt:                      q.markFirmwareRolloutDevicesVerifiedStmt,
 		markFleetNodeHAStandbyReadyStmt:                             q.markFleetNodeHAStandbyReadyStmt,
+		markFrigateUpdateActionLocalStmt:                            q.markFrigateUpdateActionLocalStmt,
+		markFrigateUpdateCleanupAttemptedStmt:                       q.markFrigateUpdateCleanupAttemptedStmt,
 		markRepairTicketPartsConsumedStmt:                           q.markRepairTicketPartsConsumedStmt,
 		moveDiscoveredDeviceAttributionStmt:                         q.moveDiscoveredDeviceAttributionStmt,
 		moveFleetNodeDevicesStmt:                                    q.moveFleetNodeDevicesStmt,
@@ -11586,6 +11901,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		softDeleteDiscoveredDevicesForDeletedDevicesStmt:            q.softDeleteDiscoveredDevicesForDeletedDevicesStmt,
 		softDeleteFleetNodeStmt:                                     q.softDeleteFleetNodeStmt,
 		softDeleteFleetNodesForExpiredEnrollmentsStmt:               q.softDeleteFleetNodesForExpiredEnrollmentsStmt,
+		softDeleteFrigateUpdatePackageStmt:                          q.softDeleteFrigateUpdatePackageStmt,
 		softDeleteInfrastructureDeviceStmt:                          q.softDeleteInfrastructureDeviceStmt,
 		softDeleteInfrastructureDevicesBySiteStmt:                   q.softDeleteInfrastructureDevicesBySiteStmt,
 		softDeleteInventoryPartStmt:                                 q.softDeleteInventoryPartStmt,
@@ -11646,6 +11962,10 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		updateDeviceWorkerNamePoolSyncStatusByIDStmt:                q.updateDeviceWorkerNamePoolSyncStatusByIDStmt,
 		updateDiscoveredDeviceFirmwareVersionStmt:                   q.updateDiscoveredDeviceFirmwareVersionStmt,
 		updateFleetNodeLastSeenAtStmt:                               q.updateFleetNodeLastSeenAtStmt,
+		updateFrigateUpdateInstanceStmt:                             q.updateFrigateUpdateInstanceStmt,
+		updateFrigateUpdateInstanceStagingStmt:                      q.updateFrigateUpdateInstanceStagingStmt,
+		updateFrigateUpdateJobStmt:                                  q.updateFrigateUpdateJobStmt,
+		updateFrigateUpdatePackageReleaseStmt:                       q.updateFrigateUpdatePackageReleaseStmt,
 		updateInfrastructureDeviceStmt:                              q.updateInfrastructureDeviceStmt,
 		updateInventoryPartStmt:                                     q.updateInventoryPartStmt,
 		updateLastLoginStmt:                                         q.updateLastLoginStmt,

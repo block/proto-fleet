@@ -131,6 +131,15 @@ describe("SettingsLayout permission guard", () => {
     expect(screen.getByTestId("firmware-page")).toBeInTheDocument();
   });
 
+  test("renders Firmware when only the controller software update permission is present", () => {
+    permissionsMock.current = ["controller:software_update"];
+
+    renderSettingsRoute("/settings/firmware");
+
+    expect(screen.getByTestId("location-probe").textContent).toBe("/settings/firmware");
+    expect(screen.getByTestId("firmware-page")).toBeInTheDocument();
+  });
+
   test("renders protected settings routes when the org permission is present", () => {
     permissionsMock.current = ["user:read"];
 

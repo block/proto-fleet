@@ -119,7 +119,9 @@ type ContainerState struct {
 	history      *simulationHistory
 	miningGroups *simulatedMiningGroups
 	pools        map[int64]simulatedPool
-	nextPoolID   int64
+	// ha is non-nil when this controller is one member of a CT1_HA_PAIR.
+	ha         *haInstance
+	nextPoolID int64
 
 	Config    ContainerConfig
 	ServerID  string
@@ -378,4 +380,11 @@ func boardMAC(cfg ContainerConfig, position int) string {
 	digest := sha256.Sum256([]byte(fmt.Sprintf("%s/board/%d", namespace, position)))
 	digest[0] = (digest[0] | 2) & 0xfe
 	return fmt.Sprintf("%02X:%02X:%02X:%02X:%02X:%02X", digest[0], digest[1], digest[2], digest[3], digest[4], digest[5])
+}
+
+// setVersion records the firmware version a completed software update installed.
+func (s *ContainerState) setVersion(version string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.Version = version
 }

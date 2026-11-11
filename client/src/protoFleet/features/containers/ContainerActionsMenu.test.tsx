@@ -62,6 +62,24 @@ vi.mock("@/protoFleet/features/poolConfigurations/ConfigurationSelector", () => 
   ),
 }));
 
+vi.mock("./FrigateUpdateDialog", () => ({
+  default: ({
+    container: target,
+    onClose,
+    onStarted,
+  }: {
+    container: { deviceIdentifier: string };
+    onClose: () => void;
+    onStarted?: (job: unknown) => void;
+  }) => (
+    <div role="dialog" aria-label="Update Frigate">
+      <p>{target.deviceIdentifier}</p>
+      <button onClick={() => onStarted?.({ jobId: "job-1" })}>Report started</button>
+      <button onClick={onClose}>Close update</button>
+    </div>
+  ),
+}));
+
 vi.mock("@/shared/features/toaster", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/shared/features/toaster")>()),
   pushToast: state.pushToast,
@@ -140,6 +158,39 @@ describe("container command dispatch", () => {
     renderMenu({ canAssignSite: false });
     fireEvent.click(screen.getByRole("button", { name: "Actions for Container 1" }));
     expect(screen.queryByRole("button", { name: "Change site" })).not.toBeInTheDocument();
+  });
+
+  it("hides Update Frigate without the software update permission", () => {
+    renderMenu();
+    fireEvent.click(screen.getByRole("button", { name: "Actions for Container 1" }));
+    expect(screen.queryByRole("button", { name: "Update Frigate" })).not.toBeInTheDocument();
+  });
+
+  it("offers Update Frigate with only the software update permission", () => {
+    state.permissions = ["controller:software_update"];
+    renderMenu();
+    fireEvent.click(screen.getByRole("button", { name: "Actions for Container 1" }));
+    expect(screen.getByRole("button", { name: "Update Frigate" })).toBeEnabled();
+    expect(statusRequest).not.toHaveBeenCalled();
+  });
+
+  it("opens the update dialog for the container and reports a started update", () => {
+    state.permissions = [...state.permissions, "controller:software_update"];
+    const onFrigateUpdateStarted = vi.fn();
+    render(
+      <MemoryRouter>
+        <ContainerActionsMenu container={container} onFrigateUpdateStarted={onFrigateUpdateStarted} />
+      </MemoryRouter>,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Actions for Container 1" }));
+    fireEvent.click(screen.getByRole("button", { name: "Update Frigate" }));
+
+    const dialog = screen.getByRole("dialog", { name: "Update Frigate" });
+    expect(dialog).toHaveTextContent("ct1/board");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Report started" }));
+    expect(onFrigateUpdateStarted).toHaveBeenCalledWith({ jobId: "job-1" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Close update" }));
+    expect(screen.queryByRole("dialog", { name: "Update Frigate" })).not.toBeInTheDocument();
   });
 
   it.each([

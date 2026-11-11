@@ -387,6 +387,8 @@ type runtimeJobLifecycles struct {
 	curtailmentRigConfig      runtimejobs.Lifecycle
 	curtailmentAlertMetrics   runtimejobs.Lifecycle
 	chunkedUploadCleanup      runtimejobs.Lifecycle
+	frigateUpdateRunner       runtimejobs.Lifecycle
+	frigatePackageCleanup     runtimejobs.Lifecycle
 	fleetNodeFailover         runtimejobs.Lifecycle
 	systemMonitoring          runtimejobs.Lifecycle
 	haReadiness               runtimejobs.Lifecycle
@@ -439,6 +441,12 @@ func newRuntimeJobs(lifecycles runtimeJobLifecycles) ([]runtimejobs.Job, error) 
 		}
 	}
 	if err := add("chunked-upload-cleanup", lifecycles.chunkedUploadCleanup); err != nil {
+		return nil, err
+	}
+	if err := add("frigate-update-runner", lifecycles.frigateUpdateRunner); err != nil {
+		return nil, err
+	}
+	if err := add("frigate-package-cleanup", lifecycles.frigatePackageCleanup); err != nil {
 		return nil, err
 	}
 	if lifecycles.fleetNodeFailover != nil {

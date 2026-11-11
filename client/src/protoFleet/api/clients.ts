@@ -20,6 +20,7 @@ import { FleetInventoryService } from "@/protoFleet/api/generated/fleetinventory
 import { FleetManagementService } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import { FleetNodeAdminService } from "@/protoFleet/api/generated/fleetnodeadmin/v1/fleetnodeadmin_pb";
 import { ForemanImportService } from "@/protoFleet/api/generated/foremanimport/v1/foremanimport_pb";
+import { FrigateUpdateService } from "@/protoFleet/api/generated/frigateupdate/v1/frigateupdate_pb";
 import { InfrastructureService } from "@/protoFleet/api/generated/infrastructure/v1/infrastructure_pb";
 import { InstanceUpdateService } from "@/protoFleet/api/generated/instance/v1/updates_pb";
 import { InventoryService } from "@/protoFleet/api/generated/inventory/v1/inventory_pb";
@@ -56,6 +57,7 @@ const siteMapClient = createClient(SiteMapService, transport);
 const deviceSetClient = createClient(DeviceSetService, transport);
 const telemetryClient = createClient(TelemetryService, transport);
 const foremanImportClient = createClient(ForemanImportService, transport);
+const frigateUpdateClient = createClient(FrigateUpdateService, transport);
 const infrastructureClient = createClient(InfrastructureService, transport);
 const sitesClient = createClient(SiteService, transport);
 const buildingsClient = createClient(BuildingService, transport);
@@ -103,6 +105,7 @@ export {
   instanceUpdateClient,
   rolloutClient,
   foremanImportClient,
+  frigateUpdateClient,
 };
 
 export const containersClient = createClient(ContainerService, transport);

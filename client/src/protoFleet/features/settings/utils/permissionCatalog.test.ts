@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 
-import { buildPermissionGroups, type CatalogEntry, dependencyGaps, withRequiredReads } from "./permissionCatalog";
+import {
+  buildPermissionGroups,
+  type CatalogEntry,
+  dependencyGaps,
+  requiredReadsFor,
+  withRequiredReads,
+} from "./permissionCatalog";
 
 // Minimal catalog covering the keys the dependency rules reference.
 const catalog: CatalogEntry[] = [
@@ -46,6 +52,21 @@ describe("buildPermissionGroups", () => {
       label: "Instance",
       entries: [instanceUpdate],
     });
+  });
+
+  it("publishes controller permissions as a visible role-editor group", () => {
+    const softwareUpdate: CatalogEntry = {
+      key: "controller:software_update",
+      description: "Update CT1 controller software.",
+      resource: "controller",
+    };
+
+    expect(buildPermissionGroups([...catalog, softwareUpdate])).toContainEqual({
+      resource: "controller",
+      label: "Controllers",
+      entries: [softwareUpdate],
+    });
+    expect(requiredReadsFor(softwareUpdate.key, [...catalog, softwareUpdate])).toEqual([]);
   });
 
   it("publishes maintenance permissions as a visible role-editor group", () => {

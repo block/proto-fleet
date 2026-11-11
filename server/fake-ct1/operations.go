@@ -49,6 +49,10 @@ func writeAPIError(w http.ResponseWriter, err error) {
 
 func (s *ContainerState) systemStatusDTO() systemStatusResponse {
 	active, total := s.boardCounts()
+	role, writePrimary := "HA_ROLE_PRIMARY", true
+	if s.ha != nil {
+		role, writePrimary = s.ha.role()
+	}
 	return systemStatusResponse{Status: systemStatus{
 		Health:                s.healthStatus(active, total),
 		Mining:                active > 0,
@@ -57,9 +61,9 @@ func (s *ContainerState) systemStatusDTO() systemStatusResponse {
 		ActivePool:            defaultActivePool,
 		DatabaseConnected:     true,
 		ServerID:              s.ServerID,
-		HARole:                "HA_ROLE_PRIMARY",
+		HARole:                role,
 		Version:               s.Version,
-		ContainerWritePrimary: true,
+		ContainerWritePrimary: writePrimary,
 	}}
 }
 

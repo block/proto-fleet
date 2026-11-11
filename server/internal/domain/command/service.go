@@ -259,6 +259,8 @@ func activityEventType(t commandtype.Type) string {
 		return "set_container_control"
 	case commandtype.ApplyCurtailmentConfig:
 		return "apply_curtailment_config"
+	case commandtype.FrigateServerUpdate:
+		return "frigate_server_update"
 	default:
 		return t.String()
 	}

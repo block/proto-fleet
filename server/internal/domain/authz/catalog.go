@@ -102,6 +102,12 @@ const (
 	// maintenance — organization-wide repair ticket lifecycle.
 	PermMaintenanceRead   = "maintenance:read"
 	PermMaintenanceManage = "maintenance:manage"
+
+	// controller — CT1 controller administration. software_update uploads
+	// Frigate packages and updates a container's controllers, which stops
+	// mining while they install. Site-scoped at the container's site; it has
+	// no :read partner and is not seeded into ADMIN.
+	PermControllerSoftwareUpdate = "controller:software_update"
 )
 
 // Resource identifiers used to group catalog entries for the admin UI
@@ -125,6 +131,7 @@ const (
 	ResourceAccount     = "account"
 	ResourceInstance    = "instance"
 	ResourceMaintenance = "maintenance"
+	ResourceController  = "controller"
 )
 
 // CatalogEntry is the in-code shape of a single permission. The wire-level
@@ -200,6 +207,8 @@ var catalog = []CatalogEntry{
 
 	{PermMaintenanceRead, "View repair tickets, maintenance history, and parts inventory.", ResourceMaintenance},
 	{PermMaintenanceManage, "Create, assign, update, and close repair tickets; manage parts inventory.", ResourceMaintenance},
+
+	{PermControllerSoftwareUpdate, "Upload Frigate software packages and update CT1 controller software. Updates stop mining controllers while they install.", ResourceController},
 }
 
 // AllPermissions returns the canonical permission keys in catalog order. The

@@ -16,6 +16,7 @@ import (
 	"github.com/block/proto-fleet/server/generated/grpc/fleetmanagement/v1/fleetmanagementv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/fleetnodeadmin/v1/fleetnodeadminv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/foremanimport/v1/foremanimportv1connect"
+	"github.com/block/proto-fleet/server/generated/grpc/frigateupdate/v1/frigateupdatev1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/hosted/v1/hostedv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/infrastructure/v1/infrastructurev1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/instance/v1/instancev1connect"
@@ -191,6 +192,18 @@ var ProcedurePermissions = map[string]string{
 	containersv1connect.ContainerServiceSetTankMiningProcedure: authz.PermSiteRead,
 	mininggroupsv1connect.MiningGroupServiceGetStateProcedure:  authz.PermSiteRead,
 	mininggroupsv1connect.MiningGroupServiceActivateProcedure:  authz.PermSiteRead,
+
+	// Frigate software updates. Every method enforces controller:software_update:
+	// container methods at the container's site, package listing and upload at any
+	// site, and package deletion organization-wide.
+	frigateupdatev1connect.FrigateUpdateServiceGetSupportProcedure:    authz.PermControllerSoftwareUpdate,
+	frigateupdatev1connect.FrigateUpdateServiceListPackagesProcedure:  authz.PermControllerSoftwareUpdate,
+	frigateupdatev1connect.FrigateUpdateServiceDeletePackageProcedure: authz.PermControllerSoftwareUpdate,
+	frigateupdatev1connect.FrigateUpdateServiceStartUpdateProcedure:   authz.PermControllerSoftwareUpdate,
+	frigateupdatev1connect.FrigateUpdateServiceGetUpdateProcedure:     authz.PermControllerSoftwareUpdate,
+	frigateupdatev1connect.FrigateUpdateServiceListUpdatesProcedure:   authz.PermControllerSoftwareUpdate,
+	frigateupdatev1connect.FrigateUpdateServiceRetryUpdateProcedure:   authz.PermControllerSoftwareUpdate,
+	frigateupdatev1connect.FrigateUpdateServiceCancelUpdateProcedure:  authz.PermControllerSoftwareUpdate,
 
 	containersv1connect.ContainerServiceSetModuleMiningProcedure:     authz.PermSiteRead,
 	containersv1connect.ContainerServiceSetEquipmentControlProcedure: authz.PermMinerSetCoolingMode,

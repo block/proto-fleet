@@ -1832,6 +1832,92 @@ type FleetTelemetryPollHeartbeat struct {
 	SampleCount    int64
 }
 
+type FrigateUpdateAction struct {
+	JobID      uuid.UUID
+	Kind       string
+	RequestKey string
+	Counter    int32
+	Local      bool
+	CreatedAt  time.Time
+}
+
+type FrigateUpdateInstance struct {
+	JobID             uuid.UUID
+	InstanceID        string
+	StageState        string
+	ManifestSha256    string
+	StagedBytes       int64
+	SizeBytes         int64
+	AgentPhase        string
+	LastContact       sql.NullTime
+	ContactStale      bool
+	RunningVersion    string
+	MigrationExecuted bool
+	ErrorCode         string
+	ErrorMessage      string
+	UpdatedAt         time.Time
+}
+
+type FrigateUpdateJob struct {
+	ID                  uuid.UUID
+	OrgID               int64
+	DeviceID            int64
+	PackageID           uuid.UUID
+	State               string
+	StageOnly           bool
+	RolloutPhase        string
+	FromVersion         string
+	TargetVersion       string
+	ExpectedInstanceIds []string
+	DriverInstanceID    string
+	ErrorCode           string
+	ErrorMessage        string
+	NextStep            string
+	Retryable           bool
+	Cancellable         bool
+	DisruptionStarted   bool
+	ServedByMaintenance bool
+	RequestKey          string
+	StartAttempted      bool
+	StartAttemptedAt    sql.NullTime
+	StartLeaseUntil     sql.NullTime
+	CancelRequestedAt   sql.NullTime
+	CancelRequestKey    string
+	CancelRequestActor  string
+	ActionCounter       int32
+	CleanupPending      bool
+	CleanupAttemptedAt  sql.NullTime
+	ActorUserID         int64
+	ActorExternalID     string
+	ActorUsername       string
+	RolloutUpdatedAt    sql.NullTime
+	LastPolledAt        sql.NullTime
+	LastContactAt       sql.NullTime
+	UnreachableSince    sql.NullTime
+	CreatedAt           time.Time
+	UpdatedAt           time.Time
+	CompletedAt         sql.NullTime
+}
+
+type FrigateUpdatePackage struct {
+	ID                  uuid.UUID
+	OrgID               int64
+	Filename            string
+	Version             string
+	Architecture        string
+	Sha256              string
+	SizeBytes           int64
+	Repository          string
+	ReleaseKeyID        string
+	MinInstalledVersion string
+	IssuedAt            time.Time
+	Statement           []byte
+	Signature           []byte
+	UploadedBy          sql.NullInt64
+	UploadedAt          time.Time
+	DeletedAt           sql.NullTime
+}
+
 type Hashboard struct {
 	ID          int64
 	OrgID       int64

@@ -31,6 +31,7 @@ import (
 	"github.com/block/proto-fleet/server/generated/grpc/fleetnodeadmin/v1/fleetnodeadminv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1/fleetnodegatewayv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/foremanimport/v1/foremanimportv1connect"
+	"github.com/block/proto-fleet/server/generated/grpc/frigateupdate/v1/frigateupdatev1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/hosted/v1/hostedv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/infrastructure/v1/infrastructurev1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/instance/v1/instancev1connect"
@@ -85,6 +86,7 @@ var registeredServices = []struct {
 	{collectionv1connect.DeviceCollectionServiceName, reflect.TypeOf((*collectionv1connect.DeviceCollectionServiceHandler)(nil)).Elem()},
 	{containersv1connect.ContainerServiceName, reflect.TypeOf((*containersv1connect.ContainerServiceHandler)(nil)).Elem()},
 	{mininggroupsv1connect.MiningGroupServiceName, reflect.TypeOf((*mininggroupsv1connect.MiningGroupServiceHandler)(nil)).Elem()},
+	{frigateupdatev1connect.FrigateUpdateServiceName, reflect.TypeOf((*frigateupdatev1connect.FrigateUpdateServiceHandler)(nil)).Elem()},
 	{fleetinventoryv1connect.FleetInventoryServiceName, reflect.TypeOf((*fleetinventoryv1connect.FleetInventoryServiceHandler)(nil)).Elem()},
 	{curtailmentv1connect.CurtailmentServiceName, reflect.TypeOf((*curtailmentv1connect.CurtailmentServiceHandler)(nil)).Elem()},
 	{device_setv1connect.DeviceSetServiceName, reflect.TypeOf((*device_setv1connect.DeviceSetServiceHandler)(nil)).Elem()},

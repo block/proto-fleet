@@ -102,6 +102,8 @@ func TestNewRuntimeJobs(t *testing.T) {
 		curtailmentRigConfig:      noopLifecycle{},
 		curtailmentAlertMetrics:   noopLifecycle{},
 		chunkedUploadCleanup:      noopLifecycle{},
+		frigateUpdateRunner:       noopLifecycle{},
+		frigatePackageCleanup:     noopLifecycle{},
 		systemMonitoring:          noopLifecycle{},
 		haReadiness:               noopLifecycle{},
 		releaseChecker:            noopLifecycle{},
@@ -127,6 +129,8 @@ func TestNewRuntimeJobs(t *testing.T) {
 		"curtailment-rig-config",
 		"curtailment-alert-metrics",
 		"chunked-upload-cleanup",
+		"frigate-update-runner",
+		"frigate-package-cleanup",
 		"system-monitoring",
 		"ha-readiness",
 		"release-checker",
@@ -170,6 +174,8 @@ func TestNewRuntimeJobs(t *testing.T) {
 		"curtailment-mqtt-subscriber",
 		"curtailment-rig-config",
 		"chunked-upload-cleanup",
+		"frigate-update-runner",
+		"frigate-package-cleanup",
 		"pending-unpairs",
 	}, jobNames(jobs))
 }
@@ -224,6 +230,8 @@ func TestRuntimeJobGroupKeepsCommandExecutionAliveWhileProducersDrain(t *testing
 		curtailmentAutomation:     noopLifecycle{},
 		curtailmentRigConfig:      noopLifecycle{},
 		chunkedUploadCleanup:      noopLifecycle{},
+		frigateUpdateRunner:       noopLifecycle{},
+		frigatePackageCleanup:     noopLifecycle{},
 	})
 	require.NoError(t, err)
 	group, err := runtimejobs.NewGroup(jobs)
@@ -848,6 +856,8 @@ func TestRuntimeJobsDrainUnpairsBeforeTheirPluginDependency(t *testing.T) {
 				curtailmentAutomation:     noopLifecycle{},
 				curtailmentRigConfig:      noopLifecycle{},
 				chunkedUploadCleanup:      noopLifecycle{},
+				frigateUpdateRunner:       noopLifecycle{},
+				frigatePackageCleanup:     noopLifecycle{},
 			})
 			require.NoError(t, err)
 			group, err := runtimejobs.NewGroup(jobs)

@@ -433,3 +433,50 @@ Files grow by one aggregate snapshot every ten seconds; rotate or retain them
 through the campaign supervisor. Deadlines that expire during the delay never
 dispatch their write and are counted as errors. No automatic retries or write
 replay are added.
+
+### HA pair and Frigate server updates
+
+`CT1_HA_PAIR=1` runs two Frigate controllers of one cluster in a single
+process, which is how a real CT1 appears to Fleet (one device, two
+endpoints). The primary listens on `GRPC_PORT`/`HTTP_PORT` and the peer on the
+next ports (`CT1_HA_PEER_GRPC_PORT`/`CT1_HA_PEER_HTTP_PORT`, 0 stays
+ephemeral). Both controllers share the physical inventory and report the same
+`CT1_HA_CLUSTER_ID` through `SystemService.GetHAStatus`; the standby reports
+`HA_ROLE_STANDBY`. Without the variable, `GetHAStatus` stays Unimplemented.
+
+The pair serves the full MDK `ServerUpdateService` over native gRPC only (no
+REST or Connect routes): instance-scoped support and Begin/Append/Commit/Abort
+staging with exact-offset resume, plus Start/Status/Retry/Cancel that either
+controller answers. `x-frigate-server-id` selects the instance when one
+connection is used for both. Release statements are verified for real with
+ECDSA P-256 against `CT1_UPDATE_TRUSTED_KEY_FILES` and bound to the manifest.
+Once a rollout stops Frigate, every service except update Status/Retry/Cancel
+answers Unavailable and Status reports `served_by_maintenance=true`, as with
+the real maintenance service. Unlike real Frigate, the fake allows remote
+triggering by default.
+
+Generate a development signing key:
+
+```bash
+openssl ecparam -genkey -name prime256v1 -noout -out release.key
+openssl ec -in release.key -pubout -out release.pub
+CT1_HA_PAIR=1 CT1_UPDATE_TRUSTED_KEY_FILES=$PWD/release.pub go run .
+```
+
+| Variable | Effect |
+| --- | --- |
+| `CT1_HA_PEER_SERVER_ID` | Second controller ID (default `<SERVER_ID>-b`). |
+| `CT1_HA_CLUSTER_ID` | Cluster UUID (default derived from both IDs). |
+| `CT1_HA_PRIMARY` | `a` (default) or `b`: which controller is HA primary. |
+| `CT1_UPDATE_TRUSTED_KEY_FILES` | Comma-separated PEM public keys; none means `UPDATE_NO_TRUSTED_KEYS`. |
+| `CT1_UPDATE_STEP` | Duration of each scripted rollout phase (default `2s`). |
+| `CT1_UPDATE_SPOOL_FREE_BYTES` | Advertised free spool space (`UPDATE_INSUFFICIENT_SPACE` when too small). |
+| `CT1_UPDATE_FAULT_REMOTE_TRIGGER_DISABLED` | Start refused with `UPDATE_REMOTE_TRIGGER_DISABLED`. |
+| `CT1_UPDATE_FAULT_SELF_COORDINATION_UNSUPPORTED` | Support reports no self coordination; staging and Start refuse. |
+| `CT1_UPDATE_FAULT_ETCD_UNHEALTHY` | Start refused with Unavailable `UPDATE_ETCD_UNHEALTHY`. |
+| `CT1_UPDATE_FAULT_HELPER_UNAVAILABLE` | Start refused with Unavailable `UPDATE_HELPER_UNAVAILABLE`. |
+| `CT1_UPDATE_FAULT_OUTSIDE_WINDOW` | Start refused with `UPDATE_OUTSIDE_WINDOW`. |
+| `CT1_UPDATE_FAULT_COOLDOWN` | Duration after a success during which Start returns `UPDATE_COOLDOWN`. |
+| `CT1_UPDATE_FAULT_MIGRATE_FAILURES` | Number of rollouts that fail at MIGRATING (retryable, stays stopped). |
+| `CT1_UPDATE_FAULT_STALE_CONTACT` | Non-driver instance reports `contact_stale` with an old `last_contact`. |
+| `CT1_UPDATE_FAULT_DRIVER_REBOOT` | Driver role moves to the peer during INSTALLING. |

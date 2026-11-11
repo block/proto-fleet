@@ -96,6 +96,13 @@ func MayAffectPools(operationKind, commandName string) bool {
 	switch kind {
 	case commandtype.BlinkLED, commandtype.DownloadLogs, commandtype.SetCoolingMode, commandtype.SetPowerTarget:
 		return false
+	case commandtype.FrigateServerUpdate:
+		// A controller software update changes no pool configuration; Frigate
+		// keeps its pool settings across the install. Treating it as a pool
+		// change would let a pool removal that started while the controllers
+		// were stopped refuse the Retry, Cancel and abort calls that let the
+		// controllers come back, so neither could ever finish.
+		return false
 	case commandtype.StartMining, commandtype.StopMining, commandtype.UpdateMiningPools,
 		commandtype.Reboot, commandtype.FirmwareUpdate, commandtype.Unpair,
 		commandtype.UpdateMinerPassword, commandtype.Curtail, commandtype.Uncurtail,

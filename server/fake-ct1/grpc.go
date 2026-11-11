@@ -31,7 +31,14 @@ type grpcAPI struct {
 func newGRPCServer(state *ContainerState, options ...grpc.ServerOption) *grpc.Server {
 	state.initHistory()
 	api := &grpcAPI{state: state}
-	server := grpc.NewServer(append([]grpc.ServerOption{grpc.UnaryInterceptor(serveUnary(state)), grpc.WaitForHandlers(true)}, options...)...)
+	unary := serveUnary(state)
+	serverOptions := []grpc.ServerOption{grpc.WaitForHandlers(true)}
+	if state.ha != nil {
+		unary = pairUnary(state, state.ha.sim)
+		serverOptions = append(serverOptions, grpc.StreamInterceptor(pairStream(state.ha.sim)))
+	}
+	serverOptions = append(serverOptions, grpc.UnaryInterceptor(unary))
+	server := grpc.NewServer(append(serverOptions, options...)...)
 	mdk.RegisterSystemServiceServer(server, api)
 	mdk.RegisterHashboardServiceServer(server, api)
 	mdk.RegisterMiningServiceServer(server, api)
@@ -41,6 +48,9 @@ func newGRPCServer(state *ContainerState, options ...grpc.ServerOption) *grpc.Se
 	mdk.RegisterPoolServiceServer(server, api)
 	mdk.RegisterRunInServiceServer(server, api)
 	mdk.RegisterFirmwareServiceServer(server, api)
+	if state.ha != nil {
+		mdk.RegisterServerUpdateServiceServer(server, &serverUpdateAPI{sim: state.ha.sim, self: state.ha.self})
+	}
 	return server
 }
 

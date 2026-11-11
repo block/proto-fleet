@@ -940,6 +940,15 @@ impl Driver for DriverService {
         ))
     }
 
+    async fn frigate_server_update(
+        &self,
+        _request: Request<pb::FrigateServerUpdateRequest>,
+    ) -> Result<Response<pb::FrigateServerUpdateResponse>, Status> {
+        Err(Status::unimplemented(
+            "frigate server updates are unsupported",
+        ))
+    }
+
     async fn set_cooling_mode(
         &self,
         _req: Request<pb::SetCoolingModeRequest>,

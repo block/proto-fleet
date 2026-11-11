@@ -36,6 +36,10 @@ const (
 	SetTankMining
 	SetModuleMining
 	ContainerMining
+	// FrigateServerUpdate admits one Frigate server update call (staging,
+	// start, retry, cancel) against a controller's current binding. It is
+	// dispatched directly, never through the command queue.
+	FrigateServerUpdate
 )
 
 func (t *Type) String() string {
@@ -76,6 +80,8 @@ func (t *Type) String() string {
 		return "SetContainerControl"
 	case ApplyCurtailmentConfig:
 		return "ApplyCurtailmentConfig"
+	case FrigateServerUpdate:
+		return "FrigateServerUpdate"
 
 	default:
 		return "Undefined"
@@ -125,6 +131,8 @@ func FromString(s string) (Type, error) {
 		return SetContainerControl, nil
 	case "ApplyCurtailmentConfig":
 		return ApplyCurtailmentConfig, nil
+	case "FrigateServerUpdate":
+		return FrigateServerUpdate, nil
 
 	default:
 		return Type(-1), fleeterror.NewInternalErrorf("invalid command type: %s", s)

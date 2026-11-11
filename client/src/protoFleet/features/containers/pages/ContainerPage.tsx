@@ -5,12 +5,15 @@ import { tankPath } from "../buildTankOverview";
 import ContainerOverviewLayout from "../components/ContainerOverviewLayout";
 import ContainerPerformance from "../components/ContainerPerformance";
 import ContainerActionsMenu from "../ContainerActionsMenu";
+import { FRIGATE_UPDATE_PERMISSION } from "../frigateUpdate";
+import FrigateUpdatePanel from "../FrigateUpdatePanel";
 import { useContainerOverview } from "../hooks/useContainerOverview";
 import { equipmentState, useEquipmentCommand } from "../hooks/useEquipmentCommand";
 import { modulePath } from "../moduleDetail";
 import { useSitesContext } from "@/protoFleet/api/SitesContext";
+import { useFrigateUpdates } from "@/protoFleet/api/useFrigateUpdates";
 import { entityScopeTarget, useSyncScopeToEntity } from "@/protoFleet/hooks/useSyncScopeToEntity";
-import { useTemperatureUnit } from "@/protoFleet/store";
+import { usePermissions, useTemperatureUnit } from "@/protoFleet/store";
 import Button, { variants } from "@/shared/components/Button";
 import Header from "@/shared/components/Header";
 
@@ -20,6 +23,8 @@ export default function ContainerPage() {
   const { data, loading, error, notFound, retry } = useContainerOverview(identifier);
   const { sites } = useSitesContext();
   const unit = useTemperatureUnit();
+  const canUpdateFrigate = usePermissions().includes(FRIGATE_UPDATE_PERMISSION);
+  const frigateUpdates = useFrigateUpdates(identifier, canUpdateFrigate);
   const container = data?.container;
   const equipmentCommand = useEquipmentCommand(identifier, container, retry);
   const canWrite = container?.canControlEquipment === true;
@@ -48,7 +53,13 @@ export default function ContainerPage() {
   return (
     <>
       <ContainerOverviewLayout
-        actions={<ContainerActionsMenu container={container} onSiteChanged={retry} />}
+        actions={
+          <ContainerActionsMenu
+            container={container}
+            onSiteChanged={retry}
+            onFrigateUpdateStarted={frigateUpdates.refresh}
+          />
+        }
         title={container.name}
         unlocatedHashboards={view.unlocatedHashboards}
         breadcrumb={
@@ -77,16 +88,28 @@ export default function ContainerPage() {
           canWrite && !error ? (name, enabled) => void equipmentCommand.submit(name, enabled) : undefined
         }
         notice={
-          view.stale || error ? (
-            <div className="flex flex-wrap items-center justify-between gap-3 text-200 text-text-primary-70">
-              {view.stale ? <p role="status">Readings unavailable or stale.</p> : null}
-              {error ? (
-                <>
-                  <p role="alert">Could not refresh container: {error}</p>
-                  <Button variant={variants.secondary} text="Retry" onClick={retry} />
-                </>
+          view.stale || error || canUpdateFrigate ? (
+            <>
+              {canUpdateFrigate ? (
+                <FrigateUpdatePanel
+                  jobs={frigateUpdates.jobs}
+                  loading={frigateUpdates.loading}
+                  error={frigateUpdates.error}
+                  onChanged={frigateUpdates.refresh}
+                />
               ) : null}
-            </div>
+              {view.stale || error ? (
+                <div className="flex flex-wrap items-center justify-between gap-3 text-200 text-text-primary-70">
+                  {view.stale ? <p role="status">Readings unavailable or stale.</p> : null}
+                  {error ? (
+                    <>
+                      <p role="alert">Could not refresh container: {error}</p>
+                      <Button variant={variants.secondary} text="Retry" onClick={retry} />
+                    </>
+                  ) : null}
+                </div>
+              ) : null}
+            </>
           ) : undefined
         }
         onSelectTank={(tankId) => navigate(tankPath(identifier, tankId))}

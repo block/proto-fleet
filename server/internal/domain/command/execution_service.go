@@ -1065,6 +1065,9 @@ func (es *ExecutionService) executeCommandOnDevice(ctx context.Context, commandT
 
 		// Evict so the next lookup re-reads updated credentials from DB.
 		es.minerService.InvalidateMiner(minerInfo.GetID())
+	case commandtype.FrigateServerUpdate:
+		// Frigate server updates are admitted directly and never queued.
+		return orgID, siteID, fleeterror.NewInternalErrorf("command type %v is not a queued command", commandType)
 	default:
 		return orgID, siteID, fleeterror.NewInternalErrorf("unsupported command type: %v", commandType)
 	}

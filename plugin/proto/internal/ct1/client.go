@@ -18,7 +18,6 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
-	"google.golang.org/grpc/metadata"
 )
 
 const DefaultRPCPort int32 = 9095
@@ -27,18 +26,19 @@ const maxReceiveBytes = 8 << 20
 // Client owns one controller connection. Independent reads share it; controls
 // retain their serialized read/write/readback sequence.
 type Client struct {
-	closeOnce sync.Once
-	closeErr  error
-	conn      *grpc.ClientConn
-	endpoint  sdk.DeviceInfo
-	memberID  string
-	system    mdk.SystemServiceClient
-	boards    mdk.HashboardServiceClient
-	mining    mdk.MiningServiceClient
-	telemetry mdk.TelemetryServiceClient
-	power     mdk.PowerServiceClient
-	firmware  mdk.FirmwareServiceClient
-	pollMu    sync.Mutex
+	closeOnce    sync.Once
+	closeErr     error
+	conn         *grpc.ClientConn
+	endpoint     sdk.DeviceInfo
+	memberID     string
+	system       mdk.SystemServiceClient
+	boards       mdk.HashboardServiceClient
+	mining       mdk.MiningServiceClient
+	telemetry    mdk.TelemetryServiceClient
+	power        mdk.PowerServiceClient
+	serverUpdate mdk.ServerUpdateServiceClient
+	firmware     mdk.FirmwareServiceClient
+	pollMu       sync.Mutex
 }
 
 func NewClient(info sdk.DeviceInfo, _ sdk.UsernamePassword) (*Client, error) {
@@ -61,15 +61,15 @@ func NewClient(info sdk.DeviceInfo, _ sdk.UsernamePassword) (*Client, error) {
 	opts := []grpc.DialOption{grpc.WithTransportCredentials(transport), grpc.WithDisableRetry(), grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(maxReceiveBytes))}
 	// Preserve Frigate audit attribution across the transport change. This is not authentication.
 	opts = append(opts, grpc.WithUnaryInterceptor(func(ctx context.Context, method string, req, reply any, cc *grpc.ClientConn, invoke grpc.UnaryInvoker, options ...grpc.CallOption) error {
-		return invoke(metadata.AppendToOutgoingContext(ctx, "x-frigate-actor", "proto-fleet"), method, req, reply, cc, options...)
+		return invoke(outgoingActor(ctx), method, req, reply, cc, options...)
 	}), grpc.WithStreamInterceptor(func(ctx context.Context, desc *grpc.StreamDesc, cc *grpc.ClientConn, method string, streamer grpc.Streamer, options ...grpc.CallOption) (grpc.ClientStream, error) {
-		return streamer(metadata.AppendToOutgoingContext(ctx, "x-frigate-actor", "proto-fleet"), desc, cc, method, options...)
+		return streamer(outgoingActor(ctx), desc, cc, method, options...)
 	}))
 	conn, err := grpc.NewClient("dns:///"+net.JoinHostPort(info.Host, strconv.Itoa(int(port))), opts...)
 	if err != nil {
 		return nil, fmt.Errorf("create CT1 connection: %w", err)
 	}
-	return &Client{firmware: mdk.NewFirmwareServiceClient(conn), endpoint: info, conn: conn, system: mdk.NewSystemServiceClient(conn), boards: mdk.NewHashboardServiceClient(conn), mining: mdk.NewMiningServiceClient(conn), telemetry: mdk.NewTelemetryServiceClient(conn), power: mdk.NewPowerServiceClient(conn)}, nil
+	return &Client{endpoint: info, conn: conn, system: mdk.NewSystemServiceClient(conn), boards: mdk.NewHashboardServiceClient(conn), mining: mdk.NewMiningServiceClient(conn), telemetry: mdk.NewTelemetryServiceClient(conn), power: mdk.NewPowerServiceClient(conn), serverUpdate: mdk.NewServerUpdateServiceClient(conn), firmware: mdk.NewFirmwareServiceClient(conn)}, nil
 }
 func (c *Client) Close() error {
 	c.closeOnce.Do(func() { c.closeErr = c.conn.Close() })
