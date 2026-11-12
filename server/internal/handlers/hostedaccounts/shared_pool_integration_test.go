@@ -2,6 +2,7 @@ package hostedaccounts_test
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"net"
@@ -231,12 +232,22 @@ func TestSharedPoolRPCRenameRetainsAssignmentCount(t *testing.T) {
 }
 
 func TestSharedPoolRPCAppliesWithoutManagePermissionAndPersistsResults(t *testing.T) {
-	for _, hosted := range []bool{false, true} {
-		name := "operator"
-		if hosted {
-			name = "hosted"
-		}
-		t.Run(name, func(t *testing.T) {
+	for _, test := range []struct {
+		name       string
+		hosted     bool
+		workerName sql.NullString
+		mac        string
+		label      string
+	}{
+		{name: "operator", mac: "02:00:00:00:00:01", label: "02:00:00:00:00:01"},
+		{name: "hosted", hosted: true, mac: "02:00:00:00:00:01", label: "02:00:00:00:00:01"},
+		{name: "operator no worker name", workerName: sql.NullString{Valid: true}, mac: "02:00:00:00:00:01", label: "02:00:00:00:00:01"},
+		{name: "hosted no worker name", hosted: true, workerName: sql.NullString{Valid: true}, mac: "02:00:00:00:00:01", label: "02:00:00:00:00:01"},
+		{name: "custom worker name", workerName: sql.NullString{String: "rack-one", Valid: true}, mac: "02:00:00:00:00:01", label: "rack-one"},
+		{name: "identifier fallback", workerName: sql.NullString{Valid: true}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			hosted := test.hosted
 			f := newRPCFixture(t)
 			accountID := ""
 			var account domain.Account
@@ -250,8 +261,12 @@ func TestSharedPoolRPCAppliesWithoutManagePermissionAndPersistsResults(t *testin
 			config := created.Msg.Configuration
 			var discovery, device int64
 			identifier := uuid.NewString()
+			label := test.label
+			if label == "" {
+				label = identifier
+			}
 			require.NoError(t, f.db.QueryRowContext(t.Context(), `INSERT INTO discovered_device(org_id,device_identifier,ip_address,port,url_scheme,driver_name,device_class) VALUES($1,$2,'192.0.2.1','80','http','proto',1) RETURNING id`, f.org, identifier).Scan(&discovery))
-			require.NoError(t, f.db.QueryRowContext(t.Context(), `INSERT INTO device(org_id,device_identifier,mac_address,discovered_device_id) VALUES($1,$2,'02:00:00:00:00:01',$3) RETURNING id`, f.org, identifier, discovery).Scan(&device))
+			require.NoError(t, f.db.QueryRowContext(t.Context(), `INSERT INTO device(org_id,device_identifier,mac_address,discovered_device_id,worker_name) VALUES($1,$2,$3,$4,$5) RETURNING id`, f.org, identifier, test.mac, discovery, test.workerName).Scan(&device))
 			if hosted {
 				_, err = f.db.ExecContext(t.Context(), `INSERT INTO hosted_account_asset(organization_id,kind,asset_id,device_id,miner_id,client_id) VALUES($1,5,$2,$2,$2,$3)`, f.org, device, account.ID)
 				require.NoError(t, err)
@@ -276,7 +291,7 @@ func TestSharedPoolRPCAppliesWithoutManagePermissionAndPersistsResults(t *testin
 			require.EqualValues(t, 1, review.Msg.AffectedMiners)
 			require.Len(t, review.Msg.Equipment, 1)
 			require.Equal(t, device, review.Msg.Equipment[0].TargetId)
-			require.NotEmpty(t, review.Msg.Equipment[0].Label)
+			require.Equal(t, label, review.Msg.Equipment[0].Label)
 			require.NotContains(t, string(mustProtoJSON(t, review.Msg)), "reviewed_binding")
 			_, err = f.configurations.ConfirmReview(t.Context(), rpcRequest(&pb.ConfirmReviewRequest{AccountId: accountID, ReviewId: review.Msg.ReviewId}, f.cookie, accountID))
 			require.Error(t, err, "hardware changes require a password confirmation")
@@ -288,7 +303,10 @@ func TestSharedPoolRPCAppliesWithoutManagePermissionAndPersistsResults(t *testin
 			require.Len(t, result.Msg.Targets, 1)
 			require.Equal(t, "pending", result.Msg.Targets[0].State, "saving does not claim equipment application")
 			require.NotContains(t, string(mustProtoJSON(t, result.Msg)), rpcPassword)
-			require.NotEmpty(t, result.Msg.Targets[0].Label)
+			require.Equal(t, label, result.Msg.Targets[0].Label)
+			var savedWorkerName sql.NullString
+			require.NoError(t, f.db.QueryRowContext(t.Context(), `SELECT worker_name FROM device WHERE id=$1`, device).Scan(&savedWorkerName))
+			require.Equal(t, test.workerName, savedWorkerName, "display labels must not change worker-name metadata")
 			history, err := f.configurations.ListOperations(t.Context(), rpcRequest(&pb.ListOperationsRequest{AccountId: accountID, ConfigurationId: config.ConfigurationId}, f.cookie, accountID))
 			require.NoError(t, err)
 			require.Len(t, history.Msg.Operations, 1)

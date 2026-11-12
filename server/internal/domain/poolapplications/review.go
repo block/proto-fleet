@@ -2,6 +2,7 @@
 package poolapplications
 
 import (
+	"cmp"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -108,7 +109,8 @@ func (r *Reviewer) reviewTargets(ctx context.Context, q sqlc.Querier, scope pool
 				return nil, fleeterror.NewFailedPreconditionError("equipment does not support native Stratum V2 pool destinations")
 			}
 		}
-		binding := Binding{Version: 1, Label: device.WorkerName, Ownership: owner, Device: device, Usernames: make([]string, len(slots))}
+		label := cmp.Or(strings.TrimSpace(device.WorkerName), strings.TrimSpace(device.MacAddress), device.DeviceIdentifier)
+		binding := Binding{Version: 1, Label: label, Ownership: owner, Device: device, Usernames: make([]string, len(slots))}
 		if commonpb.DeviceClass(device.DeviceClass) == commonpb.DeviceClass_DEVICE_CLASS_CONTAINER {
 			state, err := q.LockMiningGroupState(ctx, sqlc.LockMiningGroupStateParams{DeviceID: target.DeviceID, OrganizationID: scope.OrganizationID})
 			if err != nil && !errors.Is(err, sql.ErrNoRows) {
