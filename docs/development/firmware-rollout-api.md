@@ -77,7 +77,9 @@ Assign the resulting file ID to a CT1 release-channel target using the existing
 API. CT1 convergence uses fresh, uniform hashboard firmware observations rather
 than the controller software version; release-channel and rollout
 `firmware_version` fields report that version, or empty when boards are mixed
-or not observed. An unknown version is neither on target nor mismatched, so it
+or not observed; `firmware_version_state` on channel miners and rollout devices
+tells those apart. Mixed boards are mismatched, so enforcement updates the
+container. An unknown version is neither on target nor mismatched, so it
 cannot start, verify, or reopen a rollout. Updates use one-off Frigate jobs; Fleet
 retains channel enforcement, retry, pause, and cancellation scheduling. Canceling
 a Fleet rollout does not cancel an already-dispatched Frigate job. Per-board

@@ -71,6 +71,11 @@ const (
 	PhaseExcluded   = "excluded"
 	PhaseSkipped    = "skipped"
 
+	// Reported-version states, as the channel and rollout queries derive them.
+	VersionStateKnown   = "known"
+	VersionStateMixed   = "mixed"
+	VersionStateUnknown = "unknown"
+
 	// HaltReasonFailed: attempts exhausted without the miner verifying.
 	HaltReasonFailed = "failed"
 	// HaltReasonCanceled: the rollout was canceled before the miner updated.
@@ -218,6 +223,9 @@ type RolloutDevice struct {
 	LastError          string
 	// SkipNote is the caller's note when the miner was SKIPPED.
 	SkipNote string
+	// FirmwareVersionState is VersionStateKnown, VersionStateMixed or
+	// VersionStateUnknown.
+	FirmwareVersionState string
 	// LastDeployedFirmwareChecksum is the miner's managed-deployment
 	// provenance; empty when none is recorded.
 	LastDeployedFirmwareChecksum string
@@ -1164,6 +1172,7 @@ func (t target) view(r sqlc.FirmwareRollout) RolloutDevice {
 		LastError:          t.LastError,
 		SkipNote:           t.SkipNote,
 
+		FirmwareVersionState:         t.FirmwareVersionState,
 		LastDeployedFirmwareChecksum: t.LastDeployedFirmwareChecksum,
 	}
 	if t.BatchIndex.Valid {

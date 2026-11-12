@@ -113,6 +113,9 @@ type ChannelMiner struct {
 	Manufacturer     string
 	Model            string
 	FirmwareVersion  string
+	// FirmwareVersionState is VersionStateKnown, VersionStateMixed or
+	// VersionStateUnknown.
+	FirmwareVersionState string
 	// Another channel's scope also covers this miner; this channel won by
 	// specificity.
 	Conflicted bool
@@ -767,6 +770,7 @@ func (s *Service) ListChannelMiners(ctx context.Context, orgID, channelID int64,
 			Manufacturer:                 m.Manufacturer,
 			Model:                        m.Model,
 			FirmwareVersion:              m.FirmwareVersion,
+			FirmwareVersionState:         m.FirmwareVersionState,
 			Conflicted:                   m.Conflicted,
 			LastDeployedFirmwareChecksum: m.LastDeployedFirmwareChecksum,
 		})
