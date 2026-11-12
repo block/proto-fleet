@@ -44,6 +44,7 @@ const {
   mockListReleaseChannelModelGroups,
   mockListRollouts,
   mockListMinerStateSnapshots,
+  mockListContainers,
   mockCreateReleaseChannel,
   mockUpdateReleaseChannel,
   mockDeleteReleaseChannel,
@@ -60,6 +61,7 @@ const {
   mockHandleAuthErrors,
   mockAuth,
 } = vi.hoisted(() => ({
+  mockListContainers: vi.fn(),
   mockListReleaseChannels: vi.fn(),
   mockGetReleaseChannel: vi.fn(),
   mockListReleaseChannelModelGroups: vi.fn(),
@@ -112,6 +114,9 @@ vi.mock("@/protoFleet/api/clients", () => ({
   },
   fleetManagementClient: {
     listMinerStateSnapshots: mockListMinerStateSnapshots,
+  },
+  containersClient: {
+    listContainers: mockListContainers,
   },
 }));
 
@@ -363,6 +368,7 @@ describe("useReleaseChannels", () => {
       miners: [{ deviceIdentifier: "rig-001", name: "Rig A01" }],
       cursor: "",
     });
+    mockListContainers.mockResolvedValue({ containers: [] });
   });
 
   afterEach(() => {
@@ -2122,6 +2128,88 @@ describe("useReleaseChannels", () => {
     expect(result.current.minerNames).toEqual({});
     expect(mockHandleAuthErrors).not.toHaveBeenCalled();
     expect(mockListMinerStateSnapshots).toHaveBeenCalledTimes(1);
+  });
+
+  it("names containers alongside miners, and keeps miner names when the container list is forbidden", async () => {
+    const poll = capturePollingTimer();
+    mockListContainers.mockResolvedValue({ containers: [{ deviceIdentifier: "ct-001", name: "North CT1" }] });
+    const { result } = renderHook(() => useReleaseChannels());
+    await waitFor(() => expect(result.current.minerNames).toEqual({ "rig-001": "Rig A01", "ct-001": "North CT1" }));
+    expect(mockListContainers).toHaveBeenCalledExactlyOnceWith({}, pollOptions);
+
+    mockListContainers.mockRejectedValue(new ConnectError("site:read is required", Code.PermissionDenied));
+    expireMinerNames();
+    await act(async () => {
+      poll();
+    });
+    expect(result.current.minerNames).toEqual({ "rig-001": "Rig A01" });
+    expect(mockHandleAuthErrors).not.toHaveBeenCalled();
+    await act(async () => {
+      poll();
+    });
+    expect(mockListContainers).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps device names through a container list failure and retries only that list", async () => {
+    const poll = capturePollingTimer();
+    mockListContainers.mockResolvedValue({ containers: [{ deviceIdentifier: "ct-001", name: "North CT1" }] });
+    const { result } = renderHook(() => useReleaseChannels());
+    await waitFor(() => expect(result.current.minerNames).toEqual({ "rig-001": "Rig A01", "ct-001": "North CT1" }));
+
+    expireMinerNames();
+    mockListMinerStateSnapshots.mockResolvedValue({
+      miners: [{ deviceIdentifier: "rig-001", name: "Renamed A01" }],
+      cursor: "",
+    });
+    mockListContainers.mockRejectedValue(new ConnectError("containers unavailable", Code.Unavailable));
+    await act(async () => {
+      poll();
+    });
+    expect(result.current.minerNames).toEqual({ "rig-001": "Renamed A01", "ct-001": "North CT1" });
+    expect(result.current.error).toBeNull();
+    expect(mockHandleAuthErrors).not.toHaveBeenCalled();
+
+    mockListContainers.mockResolvedValue({ containers: [{ deviceIdentifier: "ct-001", name: "Renamed CT1" }] });
+    await act(async () => {
+      poll();
+    });
+    expect(result.current.minerNames).toEqual({ "rig-001": "Renamed A01", "ct-001": "Renamed CT1" });
+    expect(mockListMinerStateSnapshots).toHaveBeenCalledTimes(2);
+    expect(mockListContainers).toHaveBeenCalledTimes(3);
+  });
+
+  it("holds the names scan until its miner pages settle after the container list fails", async () => {
+    const poll = capturePollingTimer();
+    const lastPage = deferred<{ miners: { deviceIdentifier: string; name: string }[]; cursor: string }>();
+    mockListMinerStateSnapshots
+      .mockResolvedValueOnce({ miners: [{ deviceIdentifier: "rig-001", name: "Rig A01" }], cursor: "names-2" })
+      .mockReturnValueOnce(lastPage.promise);
+    mockListContainers.mockRejectedValue(new ConnectError("containers unavailable", Code.Unavailable));
+    const { result } = renderHook(() => useReleaseChannels());
+    await waitFor(() => expect(result.current.hasLoaded).toBe(true));
+    await act(async () => {
+      poll();
+    });
+    expect(mockListMinerStateSnapshots).toHaveBeenCalledTimes(2);
+    expect(mockListContainers).toHaveBeenCalledOnce();
+    await act(async () => {
+      lastPage.resolve({ miners: [{ deviceIdentifier: "rig-999", name: "Rig Z99" }], cursor: "" });
+    });
+    expect(result.current.minerNames).toEqual({ "rig-001": "Rig A01", "rig-999": "Rig Z99" });
+    await act(async () => {
+      poll();
+    });
+    expect(mockListMinerStateSnapshots).toHaveBeenCalledTimes(2);
+    expect(mockListContainers).toHaveBeenCalledTimes(2);
+  });
+
+  it("delegates a container list authentication failure to auth handling once", async () => {
+    capturePollingTimer();
+    const error = new ConnectError("session expired", Code.Unauthenticated);
+    mockListContainers.mockRejectedValue(error);
+    const { result } = renderHook(() => useReleaseChannels());
+    await waitFor(() => expect(mockHandleAuthErrors).toHaveBeenCalledExactlyOnceWith({ error }));
+    expect(result.current.minerNames).toEqual({});
   });
 
   it("reuses fully paged names across polls and mutations until five minutes after the scan completes", async () => {
