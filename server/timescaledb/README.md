@@ -79,15 +79,23 @@ Proto Fleet does not use:
 
 | Component | Version |
 |---|---|
-| PostgreSQL | 18.2 |
-| TimescaleDB | 2.25.1 |
-| timescaledb_toolkit | 1.22.0 |
-| pgvector | 0.8.1 |
+| PostgreSQL | 18.6 |
+| TimescaleDB | 2.32.0 |
+| timescaledb_toolkit | 1.27.0 |
+| pgvector | 0.8.7 |
 | timescaledb-tune | 0.18.1 |
 
-Versions are not pinned in the Dockerfile by default, so rebuilding will pull
-the latest compatible packages. Pin versions in the `apt-get install` line if
-you need reproducible builds.
+PostgreSQL and pgvector are held in the Dockerfile (`PG_VERSION` and
+`PGVECTOR_VERSION`). PostgreSQL 18.7 makes every TimescaleDB background job,
+including retention, columnstore, and continuous aggregate policies, end with
+`cannot drop portal "" while it is being set up`: the job's work commits, but
+the run is recorded as failed. This was seen with TimescaleDB 2.31.0 and
+2.32.0. pgvector is held because its newer builds require PostgreSQL 18.7.
+Remove both holds together once a TimescaleDB release supports 18.7.
+
+The other packages are not pinned, so rebuilding pulls their latest compatible
+versions. Pin them in the `apt-get install` line if you need reproducible
+builds.
 
 ## Building
 

@@ -38,6 +38,14 @@ ARG DEBIAN_FRONTEND=noninteractive
 
 # Versions — pin these for reproducible builds
 ARG PG_MAJOR=18
+# PostgreSQL 18.7 makes every TimescaleDB background job fail on exit with
+# 'cannot drop portal "" while it is being set up' (seen with TimescaleDB
+# 2.31.0 and 2.32.0): the job's work commits, but the run is recorded as
+# failed. Hold the server and client at 18.6 until a TimescaleDB release
+# supports 18.7, then drop both pins together.
+ARG PG_VERSION=18.6-1.pgdg24.04+2
+# Newer pgvector builds require PostgreSQL 18.7; this is the last one for 18.6.
+ARG PGVECTOR_VERSION=0.8.7-1.pgdg24.04+1
 
 # Create postgres user/group with UID/GID 999 matching the official postgres Docker
 # image convention. Note: the HA image used UID 1000 — the entrypoint handles
@@ -77,11 +85,11 @@ RUN set -eux; \
     # --- Install PostgreSQL + TimescaleDB + Toolkit + pgvector ---
     apt-get update; \
     apt-get install -y --no-install-recommends \
-        postgresql-${PG_MAJOR} \
-        postgresql-client-${PG_MAJOR} \
+        postgresql-${PG_MAJOR}=${PG_VERSION} \
+        postgresql-client-${PG_MAJOR}=${PG_VERSION} \
         timescaledb-2-postgresql-${PG_MAJOR} \
         timescaledb-toolkit-postgresql-${PG_MAJOR} \
-        postgresql-${PG_MAJOR}-pgvector; \
+        postgresql-${PG_MAJOR}-pgvector=${PGVECTOR_VERSION}; \
     \
     # --- Cleanup to minimize image size ---
     apt-get purge -y --auto-remove \
