@@ -32,11 +32,6 @@ interface ModelMinersModalProps {
   onClose: () => void;
 }
 
-// Per-model miner table, shown on demand so the manage view stays compact no
-// matter how many miners a model group holds. The server pages members and
-// rollout devices separately from the channel summary, so this fetches both
-// when opened and again whenever the polled summary changes, keeping firmware
-// versions and phases live while open.
 function versionLabel(miner: ReleaseChannelMiner) {
   switch (miner.firmwareVersionState) {
     case FirmwareVersionState.MIXED:
@@ -48,6 +43,11 @@ function versionLabel(miner: ReleaseChannelMiner) {
   }
 }
 
+// Per-model miner table, shown on demand so the manage view stays compact no
+// matter how many miners a model group holds. The server pages members and
+// rollout devices separately from the channel summary, so this fetches both
+// when opened and again whenever the polled summary changes, keeping firmware
+// versions and phases live while open.
 const ModelMinersModal = ({
   channelId,
   channelName,
