@@ -58,6 +58,12 @@ vi.mock("@/protoFleet/components/TargetSelectionModal", () => ({
   ),
 }));
 
+// The container catalog is fleet data too. A loaded, empty one leaves every
+// directly selected identifier with the Miners selector.
+vi.mock("@/protoFleet/api/useContainers", () => ({
+  useContainers: () => ({ containers: [], error: undefined, loading: false, refetch: () => {} }),
+}));
+
 vi.mock("@/shared/features/toaster", () => ({
   pushToast: vi.fn(),
   STATUSES: { success: "success", error: "error" },

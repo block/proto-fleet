@@ -1,12 +1,14 @@
 import { type ReactElement, useEffect, useMemo, useState } from "react";
 import { create } from "@bufbuild/protobuf";
 
+import ContainerSelectionModal from "./ContainerSelectionModal";
 import { isScopeEmpty, scopeSummary, scopeValidationErrors } from "./scopeUtils";
 import {
   type PreviewReleaseChannelScopeResponse,
   type ReleaseChannelScope,
   ReleaseChannelScopeSchema,
 } from "@/protoFleet/api/generated/rollout/v1/rollout_pb";
+import { useContainers } from "@/protoFleet/api/useContainers";
 import TargetSelectButton, { getTargetButtonLabel } from "@/protoFleet/components/TargetSelectButton";
 import {
   BuildingSelectionModal,
@@ -21,7 +23,7 @@ import Button, { sizes, variants } from "@/shared/components/Button";
 
 const PREVIEW_DEBOUNCE_MS = 300;
 
-type SelectionKind = "site" | "building" | "rack" | "group" | "miner";
+type SelectionKind = "site" | "building" | "rack" | "group" | "miner" | "container";
 
 const toStrings = (ids: bigint[]): string[] => ids.map((id) => id.toString());
 const toBigInts = (ids: string[]): bigint[] => ids.map((id) => BigInt(id));
@@ -61,15 +63,39 @@ const ScopeEditor = ({
   const canReadSites = useHasPermission("site:read");
   const canReadRacks = useHasPermission("rack:read");
   const canReadMiners = useHasPermission("miner:read");
+  const canReadFleet = useHasPermission("fleet:read");
+  // ListContainers returns a container only to callers holding all three.
+  const canReadContainers = canReadSites && canReadFleet && canReadMiners;
   const canSelectTargets = canReadSites || canReadRacks || canReadMiners;
+  const [openModal, setOpenModal] = useState<SelectionKind | null>(null);
+  // Miners and containers share deviceIdentifiers; the catalog tells them
+  // apart. It loads with the editor so a selection made later is classified
+  // at once.
+  const containerCatalog = useContainers([], false, canReadContainers);
+  const containerIds = useMemo(
+    () => new Set(containerCatalog.containers.map((container) => container.deviceIdentifier)),
+    [containerCatalog.containers],
+  );
+  // Until the catalog arrives, saved identifiers cannot be split. Hold both
+  // counts back, so a container is never shown as a miner first.
+  const classifying = containerCatalog.loading && scope.deviceIdentifiers.length > 0;
+  // Identifiers outside the readable catalog stay with the miners, as before.
+  const minerIds = scope.deviceIdentifiers.filter((id) => !containerIds.has(id));
+  const countContainers = (target: ReleaseChannelScope) =>
+    target.deviceIdentifiers.filter((id) => containerIds.has(id)).length;
+  const summarize = (target: ReleaseChannelScope) =>
+    classifying ? "selection" : scopeSummary(target, countContainers(target));
+  // The identifiers handed to the open miner picker. Its save replaces only
+  // these, so containers survive even if the catalog changes while it is open.
+  const [minerPickerIds, setMinerPickerIds] = useState<string[]>([]);
   const selectionButtons = [
     ["site", "Sites", scope.siteIds.length, canReadSites],
     ["building", "Buildings", scope.buildingIds.length, canReadSites],
     ["rack", "Racks", scope.rackIds.length, canReadRacks],
     ["group", "Groups", scope.groupIds.length, canReadRacks],
-    ["miner", "Miners", scope.deviceIdentifiers.length, canReadMiners],
+    ["miner", "Miners", minerIds.length, canReadMiners],
+    ["container", "Containers", scope.deviceIdentifiers.length - minerIds.length, canReadContainers],
   ] as const;
-  const [openModal, setOpenModal] = useState<SelectionKind | null>(null);
   const [previewAttempt, setPreviewAttempt] = useState(0);
   const request = useMemo(
     () => ({ scope, load: previewScope, attempt: previewAttempt }),
@@ -125,25 +151,31 @@ const ScopeEditor = ({
   return (
     <div className="flex flex-col gap-3" data-testid="scope-editor">
       <div className="grid">
-        {selectionButtons.map(([kind, label, count, permitted]) =>
-          permitted ? (
+        {selectionButtons.map(([kind, label, count, permitted]) => {
+          if (!permitted) return null;
+          const pending = classifying && (kind === "miner" || kind === "container");
+          return (
             <TargetSelectButton
               key={kind}
               label={label}
-              value={getTargetButtonLabel(count, kind)}
-              disabled={disabled}
-              onClick={() => setOpenModal(kind)}
+              value={pending ? "Loading…" : getTargetButtonLabel(count, kind)}
+              disabled={disabled || pending}
+              onClick={() => {
+                if (kind === "miner") setMinerPickerIds(minerIds);
+                setOpenModal(kind);
+              }}
             />
-          ) : null,
-        )}
+          );
+        })}
       </div>
 
       <ScopePreview
         scope={scope}
-        preview={preview}
+        summarize={summarize}
+        preview={classifying ? null : preview}
         error={currentError}
         validationErrors={validationErrors}
-        previousPreview={preview ? null : lastPreview}
+        previousPreview={preview || classifying ? null : lastPreview}
         editingExistingChannel={editingExistingChannel}
         canSelectTargets={canSelectTargets}
         retryDisabled={disabled}
@@ -200,11 +232,26 @@ const ScopeEditor = ({
       {canReadMiners && openModal === "miner" ? (
         <MinerSelectionModal
           open
-          selectedMinerIds={scope.deviceIdentifiers}
+          selectedMinerIds={minerPickerIds}
           filterConfig={canReadRacks ? undefined : { showRackFilter: false, showGroupFilter: false }}
           onDismiss={() => setOpenModal(null)}
           onSave={(selection) => {
-            update({ deviceIdentifiers: selection.selectedMinerIds });
+            const replaced = new Set(minerPickerIds);
+            const kept = scope.deviceIdentifiers.filter((id) => !replaced.has(id));
+            update({ deviceIdentifiers: [...new Set([...kept, ...selection.selectedMinerIds])] });
+            setOpenModal(null);
+          }}
+        />
+      ) : null}
+      {canReadContainers && openModal === "container" ? (
+        <ContainerSelectionModal
+          containers={containerCatalog.containers}
+          loading={containerCatalog.loading}
+          hasLoadError={containerCatalog.error !== undefined}
+          selectedIdentifiers={scope.deviceIdentifiers}
+          onDismiss={() => setOpenModal(null)}
+          onSave={(identifiers) => {
+            update({ deviceIdentifiers: [...minerIds, ...identifiers] });
             setOpenModal(null);
           }}
         />
@@ -216,6 +263,7 @@ const ScopeEditor = ({
 // What the scope resolves to right now, and any channels it would overlap.
 const ScopePreview = ({
   scope,
+  summarize,
   preview,
   error,
   validationErrors,
@@ -226,6 +274,7 @@ const ScopePreview = ({
   onRetry,
 }: {
   scope: ReleaseChannelScope;
+  summarize: (scope: ReleaseChannelScope) => string;
   preview: PreviewReleaseChannelScopeResponse | null;
   error: string | null;
   validationErrors: string[];
@@ -239,7 +288,7 @@ const ScopePreview = ({
     return (
       <p className="text-200 text-text-primary-50" data-testid="scope-preview">
         {canSelectTargets
-          ? "Select sites, buildings, racks, groups or individual miners. A miner can belong to one release channel."
+          ? "Select sites, buildings, racks, groups, or individual miners and containers. Each can belong to one release channel."
           : "You can save an empty channel. Selecting targets requires permission to view sites, racks or miners."}
       </p>
     );
@@ -273,13 +322,13 @@ const ScopePreview = ({
           </>
         ) : (
           <p className="text-text-primary-50">
-            Resolving {scopeSummary(scope)}…
+            Resolving {summarize(scope)}…
             {!editingExistingChannel ? " Wait for the preview before creating the channel." : ""}
           </p>
         )}
         {previousPreview && !editingExistingChannel ? (
           <p className="text-text-primary-50">
-            Last valid preview: {scopeSummary(previousPreview.request.scope)} · covers{" "}
+            Last valid preview: {summarize(previousPreview.request.scope)} · covers{" "}
             {previousPreview.value.minerCount.toLocaleString()}{" "}
             {previousPreview.value.minerCount === 1 ? "miner" : "miners"}.
           </p>
@@ -293,7 +342,7 @@ const ScopePreview = ({
     <div className="flex flex-col gap-1 text-200" data-testid="scope-preview">
       {!editingExistingChannel ? (
         <span className="text-text-primary">
-          {scopeSummary(scope)} · covers {preview.minerCount.toLocaleString()}{" "}
+          {summarize(scope)} · covers {preview.minerCount.toLocaleString()}{" "}
           {preview.minerCount === 1 ? "miner" : "miners"}
           {models ? ` (${models})` : ""}
         </span>

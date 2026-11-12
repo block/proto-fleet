@@ -44,7 +44,7 @@ export function scopeValidationErrors(scope: ReleaseChannelScope): string[] {
     { ids: scope.buildingIds, limit: 100, label: "buildings" },
     { ids: scope.rackIds, limit: 500, label: "racks" },
     { ids: scope.groupIds, limit: 100, label: "groups" },
-    { ids: scope.deviceIdentifiers, limit: 10000, label: "miners" },
+    { ids: scope.deviceIdentifiers, limit: 10000, label: "miners and containers" },
   ];
   return dimensions
     .filter(({ ids, limit }) => ids.length > limit)
@@ -55,14 +55,17 @@ export function scopeValidationErrors(scope: ReleaseChannelScope): string[] {
 }
 
 // One label per populated dimension ("2 racks, 5 miners"); "No miners
-// selected" when the scope is empty.
-export function scopeSummary(scope: ReleaseChannelScope): string {
+// selected" when the scope is empty. Containers share deviceIdentifiers with
+// miners, so the caller says how many of those identifiers are containers.
+export function scopeSummary(scope: ReleaseChannelScope, containerCount = 0): string {
   const parts: string[] = [];
   if (scope.siteIds.length > 0) parts.push(getTargetButtonLabel(scope.siteIds.length, "site"));
   if (scope.buildingIds.length > 0) parts.push(getTargetButtonLabel(scope.buildingIds.length, "building"));
   if (scope.rackIds.length > 0) parts.push(getTargetButtonLabel(scope.rackIds.length, "rack"));
   if (scope.groupIds.length > 0) parts.push(getTargetButtonLabel(scope.groupIds.length, "group"));
-  if (scope.deviceIdentifiers.length > 0) parts.push(getTargetButtonLabel(scope.deviceIdentifiers.length, "miner"));
+  const minerCount = scope.deviceIdentifiers.length - containerCount;
+  if (minerCount > 0) parts.push(getTargetButtonLabel(minerCount, "miner"));
+  if (containerCount > 0) parts.push(getTargetButtonLabel(containerCount, "container"));
   return parts.length > 0 ? parts.join(", ") : "No miners selected";
 }
 

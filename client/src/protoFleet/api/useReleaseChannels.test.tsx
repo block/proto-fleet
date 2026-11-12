@@ -44,6 +44,7 @@ const {
   mockListReleaseChannelModelGroups,
   mockListRollouts,
   mockListMinerStateSnapshots,
+  mockListContainers,
   mockCreateReleaseChannel,
   mockUpdateReleaseChannel,
   mockDeleteReleaseChannel,
@@ -60,6 +61,7 @@ const {
   mockHandleAuthErrors,
   mockAuth,
 } = vi.hoisted(() => ({
+  mockListContainers: vi.fn(),
   mockListReleaseChannels: vi.fn(),
   mockGetReleaseChannel: vi.fn(),
   mockListReleaseChannelModelGroups: vi.fn(),
@@ -112,6 +114,9 @@ vi.mock("@/protoFleet/api/clients", () => ({
   },
   fleetManagementClient: {
     listMinerStateSnapshots: mockListMinerStateSnapshots,
+  },
+  containersClient: {
+    listContainers: mockListContainers,
   },
 }));
 
@@ -363,6 +368,7 @@ describe("useReleaseChannels", () => {
       miners: [{ deviceIdentifier: "rig-001", name: "Rig A01" }],
       cursor: "",
     });
+    mockListContainers.mockResolvedValue({ containers: [] });
   });
 
   afterEach(() => {
@@ -2122,6 +2128,26 @@ describe("useReleaseChannels", () => {
     expect(result.current.minerNames).toEqual({});
     expect(mockHandleAuthErrors).not.toHaveBeenCalled();
     expect(mockListMinerStateSnapshots).toHaveBeenCalledTimes(1);
+  });
+
+  it("names containers alongside miners, and keeps miner names when the container list is forbidden", async () => {
+    const poll = capturePollingTimer();
+    mockListContainers.mockResolvedValue({ containers: [{ deviceIdentifier: "ct-001", name: "North CT1" }] });
+    const { result } = renderHook(() => useReleaseChannels());
+    await waitFor(() => expect(result.current.minerNames).toEqual({ "rig-001": "Rig A01", "ct-001": "North CT1" }));
+    expect(mockListContainers).toHaveBeenCalledExactlyOnceWith({}, pollOptions);
+
+    mockListContainers.mockRejectedValue(new ConnectError("site:read is required", Code.PermissionDenied));
+    expireMinerNames();
+    await act(async () => {
+      poll();
+    });
+    expect(result.current.minerNames).toEqual({ "rig-001": "Rig A01" });
+    expect(mockHandleAuthErrors).not.toHaveBeenCalled();
+    await act(async () => {
+      poll();
+    });
+    expect(mockListContainers).toHaveBeenCalledTimes(2);
   });
 
   it("reuses fully paged names across polls and mutations until five minutes after the scan completes", async () => {

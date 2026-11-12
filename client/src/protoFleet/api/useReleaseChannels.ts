@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Code, ConnectError } from "@connectrpc/connect";
 
-import { fleetManagementClient, rolloutClient } from "@/protoFleet/api/clients";
+import { containersClient, fleetManagementClient, rolloutClient } from "@/protoFleet/api/clients";
 import {
   type FirmwareAssignment,
   type PreviewReleaseChannelScopeResponse,
@@ -83,24 +83,30 @@ function loadMinerNames(
   checkCurrent();
   if (cache.value !== null && Date.now() < cache.expiresAt) return Promise.resolve(cache.value);
   if (cache.inFlight) return cache.inFlight;
-  const request = drainPages(
+  // Firmware managers need not have miner:read or site:read. Clear names when
+  // a permission is denied, and avoid retrying the denied scan every poll.
+  const forbidden = (error: unknown): never[] => {
+    checkCurrent();
+    if (error instanceof ConnectError && error.code === Code.PermissionDenied) return [];
+    throw error;
+  };
+  const miners = drainPages(
     (cursor) =>
       fleetManagementClient
         .listMinerStateSnapshots({ pageSize: DETAIL_PAGE_SIZE, cursor }, { timeoutMs: POLL_RPC_TIMEOUT_MS, signal })
         .then((resp) => ({ items: resp.miners, cursor: resp.cursor })),
     signal,
     checkCurrent,
-  )
-    .catch((error: unknown) => {
+  ).catch(forbidden);
+  // Miner snapshots exclude containers, which channels and rollouts also target.
+  const containers = containersClient
+    .listContainers({}, { timeoutMs: POLL_RPC_TIMEOUT_MS, signal })
+    .then((resp) => resp.containers)
+    .catch(forbidden);
+  const request = Promise.all([miners, containers])
+    .then((devices) => {
       checkCurrent();
-      // Firmware managers need not have miner:read. Clear names when that
-      // permission is denied, and avoid retrying the denied scan every poll.
-      if (error instanceof ConnectError && error.code === Code.PermissionDenied) return [];
-      throw error;
-    })
-    .then((miners) => {
-      checkCurrent();
-      const names = Object.fromEntries(miners.map((miner) => [miner.deviceIdentifier, miner.name]));
+      const names = Object.fromEntries(devices.flat().map((device) => [device.deviceIdentifier, device.name]));
       cache.value = names;
       cache.expiresAt = Date.now() + MINER_NAMES_REFRESH_INTERVAL_MS;
       return names;
@@ -164,7 +170,7 @@ export interface ReleaseChannelsApi {
   rollouts: Rollout[];
   // Committed rollback sources whose assignment changes are not fully polled yet.
   acknowledgedRollbacks: readonly Rollout[];
-  // deviceIdentifier -> display name, from fleet snapshots.
+  // deviceIdentifier -> display name, from fleet snapshots and the container list.
   minerNames: Record<string, string>;
   isLoading: boolean;
   // Distinguish a successfully loaded empty fleet from a failed initial read.

@@ -5,7 +5,9 @@ import { create } from "@bufbuild/protobuf";
 import { Code, ConnectError } from "@connectrpc/connect";
 
 import { deferred } from "./__tests__/helpers";
+import ContainerSelectionModal from "./ContainerSelectionModal";
 import ScopeEditor from "./ScopeEditor";
+import { ContainerSchema } from "@/protoFleet/api/generated/containers/v1/containers_pb";
 import {
   type PreviewReleaseChannelScopeResponse,
   PreviewReleaseChannelScopeResponseSchema,
@@ -19,7 +21,8 @@ import {
   SiteSelectionModal,
 } from "@/protoFleet/components/TargetSelectionModal";
 
-const { permissions, selections } = vi.hoisted(() => ({
+const { permissions, selections, useContainers } = vi.hoisted(() => ({
+  useContainers: vi.fn(),
   permissions: new Set<string>(),
   selections: {
     siteIds: ["8"],
@@ -27,7 +30,14 @@ const { permissions, selections } = vi.hoisted(() => ({
     rackIds: [] as string[],
     groupIds: [] as string[],
     deviceIdentifiers: [] as string[],
+    containerIdentifiers: [] as string[],
   },
+}));
+vi.mock("@/protoFleet/api/useContainers", () => ({ useContainers }));
+vi.mock("./ContainerSelectionModal", () => ({
+  default: vi.fn(({ onSave }: { onSave: (identifiers: string[]) => void }) => (
+    <button onClick={() => onSave(selections.containerIdentifiers)}>Save containers</button>
+  )),
 }));
 vi.mock("@/protoFleet/store", () => ({ useHasPermission: (permission: string) => permissions.has(permission) }));
 // Placement dialogs fetch on mount. These stand-ins let us verify that a
@@ -56,8 +66,14 @@ const pickers = [
   RackSelectionModal,
   GroupSelectionModal,
   MinerSelectionModal,
+  ContainerSelectionModal,
 ];
-const labels = ["Sites", "Buildings", "Racks", "Groups", "Miners"];
+const labels = ["Sites", "Buildings", "Racks", "Groups", "Miners", "Containers"];
+const catalog = (...identifiers: string[]) => ({
+  containers: identifiers.map((deviceIdentifier) => create(ContainerSchema, { deviceIdentifier })),
+  error: undefined,
+  loading: false,
+});
 const scope = create(ReleaseChannelScopeSchema, {
   siteIds: [1n],
   buildingIds: [2n],
@@ -74,7 +90,9 @@ beforeEach(() => {
   selections.rackIds = [];
   selections.groupIds = [];
   selections.deviceIdentifiers = [];
+  selections.containerIdentifiers = [];
   vi.clearAllMocks();
+  useContainers.mockReturnValue(catalog());
 });
 
 describe("release-channel scope preview cancellation", () => {
@@ -196,14 +214,14 @@ describe("release-channel scope bounds", () => {
     });
 
   it.each([
-    ["Sites", "siteIds", 100, SiteSelectionModal, "selectedSiteIds"],
-    ["Buildings", "buildingIds", 100, BuildingSelectionModal, "selectedBuildingIds"],
-    ["Racks", "rackIds", 500, RackSelectionModal, "selectedRackIds"],
-    ["Groups", "groupIds", 100, GroupSelectionModal, "selectedGroupIds"],
-    ["Miners", "deviceIdentifiers", 10000, MinerSelectionModal, "selectedMinerIds"],
+    ["Sites", "sites", "siteIds", 100, SiteSelectionModal, "selectedSiteIds"],
+    ["Buildings", "buildings", "buildingIds", 100, BuildingSelectionModal, "selectedBuildingIds"],
+    ["Racks", "racks", "rackIds", 500, RackSelectionModal, "selectedRackIds"],
+    ["Groups", "groups", "groupIds", 100, GroupSelectionModal, "selectedGroupIds"],
+    ["Miners", "miners and containers", "deviceIdentifiers", 10000, MinerSelectionModal, "selectedMinerIds"],
   ] as const)(
-    "retains oversized %s, skips invalid previews, and recovers at the %s limit",
-    async (label, field, limit, picker, selectionProp) => {
+    "retains oversized %s (%s), skips invalid previews, and recovers at the limit",
+    async (label, noun, field, limit, picker, selectionProp) => {
       const result = create(PreviewReleaseChannelScopeResponseSchema, { minerCount: 5 });
       const preview = vi.fn().mockResolvedValue(result);
       const onPreview = vi.fn();
@@ -236,7 +254,7 @@ describe("release-channel scope bounds", () => {
       selectCount(limit + 1);
       expect(changed.mock.calls[changed.mock.calls.length - 1][0][field]).toHaveLength(limit + 1);
       expect(screen.getByRole("alert")).toHaveTextContent(
-        `Select no more than ${limit.toLocaleString()} ${label.toLowerCase()} (${(limit + 1).toLocaleString()} selected).`,
+        `Select no more than ${limit.toLocaleString()} ${noun} (${(limit + 1).toLocaleString()} selected).`,
       );
       expect(onPreview).toHaveBeenLastCalledWith(null);
       await resolvePreview();
@@ -374,6 +392,7 @@ describe("release-channel scope permissions", () => {
       filterConfig: { showRackFilter: false, showGroupFilter: false },
     });
     for (const picker of pickers.slice(0, 4)) expect(picker).not.toHaveBeenCalled();
+    expect(ContainerSelectionModal).not.toHaveBeenCalled();
   });
 
   it("unmounts an open picker when its read permission is revoked", () => {
@@ -395,5 +414,99 @@ describe("release-channel scope permissions", () => {
     expect(screen.getByTestId("scope-preview")).toHaveTextContent("You can save an empty channel.");
     expect(onChange).not.toHaveBeenCalled();
     for (const picker of pickers) expect(picker).not.toHaveBeenCalled();
+  });
+});
+
+describe("release-channel scope containers", () => {
+  const mixedScope = create(ReleaseChannelScopeSchema, { deviceIdentifiers: ["rig-1", "ct-1", "rig-2"] });
+  const grant = () => {
+    for (const permission of ["site:read", "fleet:read", "miner:read"]) permissions.add(permission);
+  };
+
+  it.each(["site:read", "fleet:read", "miner:read"])("hides the container selector without %s", (missing) => {
+    grant();
+    permissions.delete(missing);
+    render(<ScopeEditor scope={mixedScope} onChange={vi.fn()} previewScope={previewScope} />);
+    expect(screen.queryByRole("button", { name: /^Containers / })).not.toBeInTheDocument();
+    expect(useContainers).toHaveBeenLastCalledWith([], false, false);
+  });
+
+  it("holds the miner and container counts until the catalog can tell them apart", () => {
+    grant();
+    useContainers.mockReturnValue({ containers: [], error: undefined, loading: true });
+    const props = { scope: mixedScope, onChange: vi.fn(), previewScope, editingExistingChannel: true };
+    const { rerender } = render(<ScopeEditor {...props} />);
+    expect(useContainers).toHaveBeenLastCalledWith([], false, true);
+    for (const label of ["Miners", "Containers"]) {
+      expect(screen.getByRole("button", { name: `${label} Loading…` })).toBeDisabled();
+    }
+    expect(screen.getByTestId("scope-preview")).toHaveTextContent("Resolving selection…");
+    expect(screen.getByTestId("scope-preview")).not.toHaveTextContent("miner");
+    useContainers.mockReturnValue(catalog("ct-1"));
+    rerender(<ScopeEditor {...props} />);
+    expect(screen.getByRole("button", { name: "Miners 2 miners" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Containers 1 container" })).toBeEnabled();
+    expect(screen.getByTestId("scope-preview")).toHaveTextContent("Resolving 2 miners, 1 container…");
+  });
+
+  it("offers both selectors at once for an empty scope while the catalog loads", () => {
+    grant();
+    useContainers.mockReturnValue({ containers: [], error: undefined, loading: true });
+    render(<ScopeEditor scope={create(ReleaseChannelScopeSchema)} onChange={vi.fn()} previewScope={previewScope} />);
+    expect(screen.getByRole("button", { name: "Miners Select" })).toBeEnabled();
+    fireEvent.click(screen.getByRole("button", { name: "Containers Select" }));
+    const calls = vi.mocked(ContainerSelectionModal).mock.calls;
+    expect(calls[calls.length - 1][0]).toMatchObject({ loading: true, selectedIdentifiers: [] });
+  });
+
+  it("counts directly selected containers apart from miners", async () => {
+    grant();
+    useContainers.mockReturnValue(catalog("ct-1", "ct-2"));
+    render(<ScopeEditor scope={mixedScope} onChange={vi.fn()} previewScope={previewScope} />);
+    expect(useContainers).toHaveBeenLastCalledWith([], false, true);
+    expect(screen.getByRole("button", { name: "Miners 2 miners" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Containers 1 container" })).toBeInTheDocument();
+    await waitFor(() =>
+      expect(screen.getByTestId("scope-preview")).toHaveTextContent("2 miners, 1 container · covers 5 miners"),
+    );
+  });
+
+  it("keeps the containers when the miner selection is saved", () => {
+    grant();
+    useContainers.mockReturnValue(catalog("ct-1"));
+    const onChange = vi.fn();
+    const { rerender } = render(<ScopeEditor scope={mixedScope} onChange={onChange} previewScope={previewScope} />);
+    fireEvent.click(screen.getByRole("button", { name: /^Miners / }));
+    const calls = vi.mocked(MinerSelectionModal).mock.calls;
+    expect(calls[calls.length - 1][0]).toMatchObject({ selectedMinerIds: ["rig-1", "rig-2"] });
+    // A failed poll empties the catalog. The open picker keeps the identifiers
+    // it was given, and the container is still not its to replace.
+    useContainers.mockReturnValue({ containers: [], error: "unavailable", loading: false });
+    rerender(<ScopeEditor scope={mixedScope} onChange={onChange} previewScope={previewScope} />);
+    expect(calls[calls.length - 1][0]).toMatchObject({ selectedMinerIds: ["rig-1", "rig-2"] });
+    selections.deviceIdentifiers = ["rig-2", "rig-3"];
+    fireEvent.click(screen.getByRole("button", { name: "Save miners" }));
+    expect(onChange).toHaveBeenCalledExactlyOnceWith(
+      create(ReleaseChannelScopeSchema, { deviceIdentifiers: ["ct-1", "rig-2", "rig-3"] }),
+    );
+  });
+
+  it("keeps the miners when the container selection is saved", () => {
+    grant();
+    useContainers.mockReturnValue(catalog("ct-1", "ct-2"));
+    const onChange = vi.fn();
+    render(<ScopeEditor scope={mixedScope} onChange={onChange} previewScope={previewScope} />);
+    fireEvent.click(screen.getByRole("button", { name: /^Containers / }));
+    const calls = vi.mocked(ContainerSelectionModal).mock.calls;
+    expect(calls[calls.length - 1][0]).toMatchObject({
+      selectedIdentifiers: ["rig-1", "ct-1", "rig-2"],
+      loading: false,
+      hasLoadError: false,
+    });
+    selections.containerIdentifiers = ["ct-2"];
+    fireEvent.click(screen.getByRole("button", { name: "Save containers" }));
+    expect(onChange).toHaveBeenCalledExactlyOnceWith(
+      create(ReleaseChannelScopeSchema, { deviceIdentifiers: ["rig-1", "rig-2", "ct-2"] }),
+    );
   });
 });
