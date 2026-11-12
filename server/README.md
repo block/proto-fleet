@@ -86,6 +86,16 @@ require additional groups and remains subject to the controller's group limit.
 Existing saved names and previously applied settings are preserved until a
 reviewed pool update is applied.
 
+On upgrade, migration 1076 preserves the old controller-derived `{miner_name}`
+input for active CT1 pool assignments. Currently installed boards with an
+individual or whole-container assignment receive that inherited name as Custom,
+including when it is the controller's MAC. Whole-container assignments also
+retain an explicit controller name. Only assigned revisions that use
+`{miner_name}` need this backfill; new/unassigned boards continue to default to
+no suffix. The migration changes metadata only and does not dispatch pool work.
+Rollback removes board names and strategies but retains materialized controller
+names, which preserve the same pre-upgrade rendering.
+
 ## CT1 module identity
 
 CT1 modules use the PSU-derived `hashboard.moduleId` from the firmware map,
