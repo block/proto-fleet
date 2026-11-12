@@ -7,6 +7,7 @@ import { containersClient } from "@/protoFleet/api/clients";
 import type { GetModuleMiningOptionsResponse } from "@/protoFleet/api/generated/containers/v1/containers_pb";
 import type { InventoryItem } from "@/protoFleet/api/generated/fleetinventory/v1/fleetinventory_pb";
 import { getErrorMessage } from "@/protoFleet/api/getErrorMessage";
+import { WorkerNameDialog } from "@/protoFleet/features/poolConfigurations/WorkerNameDialog";
 import { usePermissions } from "@/protoFleet/store";
 import { ChevronDown, MiningPools, Play, Power } from "@/shared/assets/icons";
 import { iconSizes } from "@/shared/assets/icons/constants";
@@ -33,6 +34,13 @@ export default function MiningActionsMenu({
   unavailable?: boolean;
 }) {
   const permissions = usePermissions();
+  const [workersOpen, setWorkersOpen] = useState(false);
+  const canRename =
+    kind === "module" &&
+    hasMiningGroupPermissions(permissions, "pools") &&
+    permissions.includes("miner:update_worker_names") &&
+    permissions.includes("miner:read") &&
+    permissions.includes("pool:read");
   const [poolsOpen, setPoolsOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState(false);
@@ -41,7 +49,7 @@ export default function MiningActionsMenu({
   const oneContainer = new Set(items.map((item) => item.deviceIdentifier)).size === 1;
   const { state: groups, isFetching } = useMiningGroupState(
     oneContainer ? items[0].deviceIdentifier : "",
-    open && canEditPools,
+    open && (canEditPools || canRename),
   );
   const [result, setResult] = useState<{
     key: string;
@@ -116,6 +124,13 @@ export default function MiningActionsMenu({
         }}
         actions={[
           {
+            label: "Update worker names",
+            icon: <MiningPools />,
+            hidden: !canRename || (oneContainer && groups?.supported === false),
+            disabled: unavailable || (oneContainer && !canEditHashboardPools(groups)),
+            onClick: () => setWorkersOpen(true),
+          },
+          {
             label: "Edit pool",
             icon:
               !unavailable && oneContainer && isFetching && !canEditHashboardPools(groups) ? (
@@ -151,6 +166,13 @@ export default function MiningActionsMenu({
           },
         ]}
       />
+      {workersOpen ? (
+        <WorkerNameDialog
+          key={key}
+          moduleIds={items.map((item) => item.ref!.id)}
+          onDismiss={() => setWorkersOpen(false)}
+        />
+      ) : null}
       {poolsOpen ? (
         <EditHashboardPoolDialog
           key={`${items[0].deviceIdentifier}:${key}`}

@@ -34,8 +34,9 @@ func TestSetWorkerNames_InitializesMissingNamesAndPreservesSavedNames(t *testing
 		{name: "default", imported: " \n\t ", want: "AA:BB:CC:DD:EE:02", changed: 1},
 		{name: "preserve saved name", stored: "fleet.worker", imported: "external.worker", want: "fleet.worker"},
 		{name: "preserve saved name without explicit import", stored: "fleet.worker", want: "fleet.worker"},
-		{name: "empty stored name", stored: "", want: "AA:BB:CC:DD:EE:05", changed: 1},
-		{name: "blank stored name", stored: "   ", want: "AA:BB:CC:DD:EE:06", changed: 1},
+		{name: "preserve explicit no worker name", stored: "", want: ""},
+		{name: "preserve non-null blank stored name", stored: "   ", want: "   "},
+		{name: "explicit import cannot replace no worker name", stored: "", imported: "external.worker", want: ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			deviceID := int64(i + 1)

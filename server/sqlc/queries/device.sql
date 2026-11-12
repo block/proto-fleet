@@ -321,7 +321,7 @@ SET worker_name = sqlc.arg('worker_name')::text
 WHERE device_identifier = sqlc.arg('device_identifier')
   AND org_id = sqlc.arg('org_id')
   AND deleted_at IS NULL
-  AND NULLIF(btrim(worker_name), '') IS NULL
+  AND worker_name IS NULL
   AND btrim(sqlc.arg('worker_name')::text) <> '';
 
 -- name: UpdateDeviceWorkerNamePoolSyncStatusByID :exec

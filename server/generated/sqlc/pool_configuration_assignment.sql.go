@@ -426,7 +426,7 @@ func (q *Queries) ListPoolConfigurationAssignments(ctx context.Context, arg List
 }
 
 const listPoolConfigurationAssignmentsForDevices = `-- name: ListPoolConfigurationAssignmentsForDevices :many
-SELECT d.id AS target_id, COALESCE(d.worker_name, '')::text AS worker_name,
+SELECT d.id AS target_id, COALESCE(d.worker_name, '')::text AS worker_name, (d.worker_name IS NOT NULL)::boolean AS worker_name_set, ''::text AS worker_name_mode,
  COALESCE(a.configuration_id, '')::text AS configuration_id, a.retired_at, c.account_id
 FROM device d
 LEFT JOIN pool_configuration_assignment a ON a.organization_id = d.org_id AND a.target_kind = 'device' AND a.target_id = d.id
@@ -443,6 +443,8 @@ type ListPoolConfigurationAssignmentsForDevicesParams struct {
 type ListPoolConfigurationAssignmentsForDevicesRow struct {
 	TargetID        int64
 	WorkerName      string
+	WorkerNameSet   bool
+	WorkerNameMode  string
 	ConfigurationID string
 	RetiredAt       sql.NullTime
 	AccountID       sql.NullInt64
@@ -460,6 +462,8 @@ func (q *Queries) ListPoolConfigurationAssignmentsForDevices(ctx context.Context
 		if err := rows.Scan(
 			&i.TargetID,
 			&i.WorkerName,
+			&i.WorkerNameSet,
+			&i.WorkerNameMode,
 			&i.ConfigurationID,
 			&i.RetiredAt,
 			&i.AccountID,

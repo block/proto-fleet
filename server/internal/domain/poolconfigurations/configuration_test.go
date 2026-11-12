@@ -10,7 +10,10 @@ import (
 )
 
 func TestRenderWorkerPreservesPayoutAndExpandsOnlyExplicitSuffix(t *testing.T) {
-	worker, err := RenderWorker("payout.existing.periods", "", "miner-1", "rack-2")
+	worker, err := RenderWorker("payout.existing.periods", "{miner_name}", "miner-1", "")
+	require.NoError(t, err)
+	require.Equal(t, "payout.existing.periods", worker, "no worker name must not append a dot")
+	worker, err = RenderWorker("payout.existing.periods", "", "miner-1", "rack-2")
 	require.NoError(t, err)
 	require.Equal(t, "payout.existing.periods", worker)
 	worker, err = RenderWorker("payout.existing.periods", "{miner_name}-{miner_id}", "miner-1", "rack-2")

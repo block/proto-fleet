@@ -55,6 +55,37 @@ The SDK reserves an ID during creation and rejected-result cleanup, returning a
 retryable close error while either is running. IDs being closed cannot be reused
 until cleanup succeeds.
 
+## Worker names
+
+`ReviewWorkerNames` accepts a miner selector or CT1 module/hashboard IDs. Select
+no worker name, the full lowercase, colon-separated MAC address, or a
+custom suffix. Miner name patterns remain available for ordinary miners. The
+review uses each target's assigned pool configuration; confirmation saves the
+name and queues that reviewed configuration in one transaction.
+
+The `workerName` request uses `mode`: `WORKER_NAME_MODE_NONE`,
+`WORKER_NAME_MODE_MAC_ADDRESS`, or `WORKER_NAME_MODE_CUSTOM`. CUSTOM requires a
+`name` containing 1–100 characters without whitespace or control characters.
+The other modes reject a supplied `name`, including an empty string. Omitted,
+UNSPECIFIED, and unknown modes are rejected.
+
+Unset names follow the plugin policy: the SDK defaults to the MAC suffix, and
+the CT1 plugin advertises `worker_name_default_none`. Explicit empty names stay
+empty. A `{miner_name}` template with an empty name leaves the payout username
+unchanged, including its existing periods, and does not add a trailing dot.
+Other explicit worker templates retain their normal expansion rules.
+
+Hashboard names and their selected strategies belong to the physical hashboard
+identity and survive moves. Module worker-name cells summarize installed boards:
+MAC address when all use MAC suffixes, blank when all use none, the common custom
+name when all share it, and Mixed otherwise. Strategy is stored separately so a
+custom name equal to a MAC suffix remains custom.
+Each board's rendered pool stack is frozen for execution. Boards with identical
+stacks share a mining group; selecting MAC-derived or distinct custom names can
+require additional groups and remains subject to the controller's group limit.
+Existing saved names and previously applied settings are preserved until a
+reviewed pool update is applied.
+
 ## CT1 module identity
 
 CT1 modules use the PSU-derived `hashboard.moduleId` from the firmware map,

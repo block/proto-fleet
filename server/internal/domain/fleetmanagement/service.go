@@ -110,6 +110,7 @@ type CapabilitiesProvider interface {
 
 type WorkerNamePoolReviewService interface {
 	ReviewWorkerNames(ctx context.Context, names map[string]string) ([]poolconfigurations.Review, error)
+	ReviewBoardWorkerNames(ctx context.Context, selection poolconfigurations.BoardSelection, options poolconfigurations.WorkerNameOptions) ([]poolconfigurations.Review, int, error)
 }
 
 type Service struct {

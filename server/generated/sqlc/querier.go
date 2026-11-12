@@ -1807,6 +1807,7 @@ type Querier interface {
 	ListPoolAssignmentPhysicalBindings(ctx context.Context, arg ListPoolAssignmentPhysicalBindingsParams) ([]ListPoolAssignmentPhysicalBindingsRow, error)
 	ListPoolBoardAssignments(ctx context.Context, arg ListPoolBoardAssignmentsParams) ([]ListPoolBoardAssignmentsRow, error)
 	ListPoolConfigurationAssignments(ctx context.Context, arg ListPoolConfigurationAssignmentsParams) ([]PoolConfigurationAssignment, error)
+	ListPoolConfigurationAssignmentsForBoards(ctx context.Context, arg ListPoolConfigurationAssignmentsForBoardsParams) ([]ListPoolConfigurationAssignmentsForBoardsRow, error)
 	ListPoolConfigurationAssignmentsForDevices(ctx context.Context, arg ListPoolConfigurationAssignmentsForDevicesParams) ([]ListPoolConfigurationAssignmentsForDevicesRow, error)
 	// Assignment identity is retained across retirement and reassignment. Use its
 	// device's current committed site for read authorization, not the old reviewed
@@ -2926,6 +2927,7 @@ type Querier interface {
 	// statement-derived fields. Callers hold the package lock and have checked that
 	// no blocking job uses the package.
 	UpdateFrigateUpdatePackageRelease(ctx context.Context, arg UpdateFrigateUpdatePackageReleaseParams) error
+	UpdateHashboardWorkerName(ctx context.Context, arg UpdateHashboardWorkerNameParams) (int64, error)
 	// expected_site_id and expected_rack_name predicate the write on the
 	// placement the caller was authorized against, so a concurrent placement
 	// change between the authorization read and this write invalidates the

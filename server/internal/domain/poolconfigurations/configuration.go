@@ -155,7 +155,9 @@ func RenderWorker(username, template, minerID, minerName string) (string, error)
 	worker := username
 	if template != "" {
 		suffix := strings.NewReplacer("{miner_id}", minerID, "{miner_name}", minerName).Replace(template)
-		worker += "." + suffix
+		if suffix != "" {
+			worker += "." + suffix
+		}
 	}
 	if !validPoolText(worker, 255, false) {
 		return "", fleeterror.NewInvalidArgumentError("rendered pool worker must contain at most 255 bytes without whitespace or controls")

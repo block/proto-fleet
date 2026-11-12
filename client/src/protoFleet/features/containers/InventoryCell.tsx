@@ -16,7 +16,7 @@ import {
 } from "@/shared/utils/telemetryFormat";
 
 // Shared read-only cells for tanks and modules. A controller's network address,
-// firmware, and worker are deliberately not presented as module attributes.
+// and firmware are not module attributes. Worker names summarize the hashboards.
 export function InventoryCell({
   item,
   column,
@@ -51,6 +51,8 @@ export function InventoryCell({
           {item.name}
         </span>
       );
+    case "workerName":
+      return <span>{item.ref?.kind === EntityKind.MODULE ? item.workerNameSummary || "—" : "—"}</span>;
     case "site":
       return <span>{item.siteName || "—"}</span>;
     case "rack":

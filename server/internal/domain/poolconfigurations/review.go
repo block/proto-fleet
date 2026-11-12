@@ -30,12 +30,13 @@ type TargetApproval struct {
 }
 
 type reviewedTarget struct {
-	RevisionID        string `json:",omitempty"`
-	VerificationState string `json:",omitempty"`
-	ClearSupported    bool
-	DesiredWorkerName *string `json:",omitempty"`
-	Change            AssignmentChange
-	Binding           string
+	RevisionID            string `json:",omitempty"`
+	VerificationState     string `json:",omitempty"`
+	ClearSupported        bool
+	DesiredWorkerName     *string `json:",omitempty"`
+	DesiredWorkerNameMode string  `json:",omitempty"`
+	Change                AssignmentChange
+	Binding               string
 }
 
 type Review struct {
@@ -75,10 +76,10 @@ type ReviewedSave struct {
 // assignment generation of every target. Dynamic selectors must be expanded by
 // the service before this call; confirmation never reevaluates a fleet filter.
 func (r *Repository) ReviewAssignment(ctx context.Context, q sqlc.Querier, scope Scope, actorID int64, id string, expectedVersion int64, targets []AssignmentTarget, reviewer TargetReviewer) (Review, error) {
-	return r.reviewAssignment(ctx, q, scope, actorID, id, expectedVersion, targets, reviewer, nil)
+	return r.reviewAssignment(ctx, q, scope, actorID, id, expectedVersion, targets, reviewer, nil, "")
 }
 
-func (r *Repository) reviewAssignment(ctx context.Context, q sqlc.Querier, scope Scope, actorID int64, id string, expectedVersion int64, targets []AssignmentTarget, reviewer TargetReviewer, names map[int64]string) (Review, error) {
+func (r *Repository) reviewAssignment(ctx context.Context, q sqlc.Querier, scope Scope, actorID int64, id string, expectedVersion int64, targets []AssignmentTarget, reviewer TargetReviewer, names map[AssignmentTarget]string, mode string) (Review, error) {
 	if err := scope.validate(); err != nil {
 		return Review{}, err
 	}
@@ -133,19 +134,22 @@ func (r *Repository) reviewAssignment(ctx context.Context, q sqlc.Querier, scope
 	}
 	for i := range changes {
 		changes[i].Binding = bindings[i]
-		if name, ok := names[changes[i].Change.Target.ID]; ok {
-			var binding struct {
-				Device sqlc.GetPoolConfigurationRuntimeRow
-			}
+		if name, ok := names[changes[i].Change.Target]; ok {
+			var binding workerNameBinding
 			if err := json.Unmarshal([]byte(bindings[i]), &binding); err != nil {
 				return Review{}, fleeterror.NewInternalError("decode reviewed worker binding failed")
 			}
+			identifier := binding.Device.DeviceIdentifier
+			if binding.Board != nil {
+				identifier = binding.Board.MAC
+			}
 			for _, slot := range public.Slots {
-				if _, err := RenderWorker(slot.Username, slot.WorkerTemplate, binding.Device.DeviceIdentifier, name); err != nil {
+				if _, err := RenderWorker(slot.Username, slot.WorkerTemplate, identifier, name); err != nil {
 					return Review{}, err
 				}
 			}
 			changes[i].DesiredWorkerName = &name
+			changes[i].DesiredWorkerNameMode = mode
 		}
 	}
 	if err := checkWorkerNameRetries(ctx, q, scope, public.RevisionID, changes); err != nil {
@@ -346,7 +350,13 @@ func (r *Repository) ConfirmReview(ctx context.Context, q sqlc.Querier, scope Sc
 			return ReviewedSave{}, err
 		}
 		for _, change := range workerChanges {
-			n, err := q.UpdateDeviceWorkerName(ctx, sqlc.UpdateDeviceWorkerNameParams{DeviceIdentifier: change.DeviceIdentifier, WorkerName: sql.NullString{String: change.After, Valid: true}})
+			var n int64
+			var err error
+			if change.HashboardID != 0 {
+				n, err = q.UpdateHashboardWorkerName(ctx, sqlc.UpdateHashboardWorkerNameParams{OrgID: scope.OrganizationID, HashboardID: change.HashboardID, WorkerName: change.After, WorkerNameMode: change.Mode})
+			} else {
+				n, err = q.UpdateDeviceWorkerName(ctx, sqlc.UpdateDeviceWorkerNameParams{DeviceIdentifier: change.DeviceIdentifier, WorkerName: sql.NullString{String: change.After, Valid: true}})
+			}
 			if err := targetMutationResult(n, err); err != nil {
 				return ReviewedSave{}, err
 			}

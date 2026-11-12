@@ -108,8 +108,8 @@ export const WorkerNameReview = ({
       }}
     >
       <p>
-        Save {changed.length} worker names and reapply each miner’s current pool configuration. Pool changes may briefly
-        interrupt mining.
+        Save {changed.length} worker names and reapply each target’s current pool configuration. Pool changes may
+        briefly interrupt mining.
       </p>
       <div className="max-h-72 overflow-auto" data-dd-privacy="mask">
         {review.reviews.map((item) => (
@@ -124,8 +124,10 @@ export const WorkerNameReview = ({
             </h3>
             <ul>
               {item.changes.map((change) => (
-                <li key={change.deviceIdentifier}>
-                  {change.deviceIdentifier}: {change.before || "Unnamed"} → {change.after}
+                <li key={`${change.deviceIdentifier}:${change.hashboardId}`}>
+                  {change.displayName ||
+                    (change.hashboardId ? `Hashboard ${change.hashboardId}` : change.deviceIdentifier)}
+                  : {change.before || "No worker name"} → {change.after || "No worker name"}
                 </li>
               ))}
             </ul>

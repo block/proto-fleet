@@ -15,6 +15,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/authz"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/infrastructure/db"
+	sdk "github.com/block/proto-fleet/server/sdk/v1"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 )
@@ -36,9 +37,14 @@ func (e *workerNameEquipment) ReviewTargets(ctx context.Context, q sqlc.Querier,
 		if e.rejectWorker != "" && device.WorkerName == e.rejectWorker {
 			return nil, fleeterror.NewFailedPreconditionError("desired worker cannot be applied")
 		}
+		name := device.WorkerName
+		if !device.WorkerNameSet {
+			name = (sdk.Capabilities{}).DefaultWorkerName(device.MacAddress)
+		}
 		binding, err := json.Marshal(struct {
-			Device sqlc.GetPoolConfigurationRuntimeRow
-		}{Device: device})
+			Device              sqlc.GetPoolConfigurationRuntimeRow
+			EffectiveWorkerName string
+		}{Device: device, EffectiveWorkerName: name})
 		if err != nil {
 			return nil, fmt.Errorf("encode worker fixture binding: %w", err)
 		}
@@ -464,4 +470,50 @@ func TestWorkerNameMatchingRetryIgnoresObservationFromOldAssignment(t *testing.T
 	reviews, err := f.service.ReviewWorkerNames(t.Context(), map[string]string{f.identifier: "old-worker"})
 	require.NoError(t, err)
 	require.Len(t, reviews, 1)
+}
+
+func TestWorkerNameReviewCanExplicitlyClearSuffix(t *testing.T) {
+	f := newWorkerNameFixture(t)
+	reviews, err := f.service.ReviewWorkerNames(t.Context(), map[string]string{f.identifier: ""})
+	require.NoError(t, err)
+	require.Len(t, reviews, 1)
+	require.Equal(t, "old-worker", f.worker(t), "review must not mutate metadata")
+	saved, err := f.service.ConfirmReview(t.Context(), "", reviews[0].ID, Confirmation{Password: "actor-password"})
+	require.NoError(t, err)
+	require.NotNil(t, saved.Operation)
+	require.Empty(t, f.worker(t))
+	runtime, err := sqlc.New(f.conn).GetPoolConfigurationRuntime(t.Context(), sqlc.GetPoolConfigurationRuntimeParams{OrgID: f.scope.OrganizationID, ID: f.target.ID})
+	require.NoError(t, err)
+	require.True(t, runtime.WorkerNameSet, "empty must remain distinct from plugin default")
+	require.Empty(t, runtime.WorkerName)
+}
+
+func TestWorkerNameClearUnassignedRequiresExplicitEmpty(t *testing.T) {
+	for _, retired := range []bool{false, true} {
+		for _, explicit := range []bool{false, true} {
+			t.Run(fmt.Sprintf("retired=%t/explicit=%t", retired, explicit), func(t *testing.T) {
+				f := newWorkerNameFixture(t)
+				ctx := t.Context()
+				identifier, target := f.identifier, f.target
+				if retired {
+					_, err := f.conn.ExecContext(ctx, `UPDATE pool_configuration_assignment SET retired_at=now(), version=version+1 WHERE target_id=$1`, target.ID)
+					require.NoError(t, err)
+				} else {
+					identifier, target = f.addDevice(t, f.scope.OrganizationID)
+				}
+				_, err := f.conn.ExecContext(ctx, `UPDATE device SET worker_name=$2 WHERE id=$1`, target.ID, sql.NullString{Valid: explicit})
+				require.NoError(t, err)
+				before := poolMaintenanceState(t, f.conn, f.scope.OrganizationID)
+				reviews, err := f.service.ReviewWorkerNames(ctx, map[string]string{identifier: ""})
+				if explicit {
+					require.NoError(t, err)
+				} else {
+					require.True(t, fleeterror.IsFailedPreconditionError(err), "%v", err)
+					require.Contains(t, err.Error(), "Assign a pool configuration")
+				}
+				require.Empty(t, reviews)
+				require.Equal(t, before, poolMaintenanceState(t, f.conn, f.scope.OrganizationID))
+			})
+		}
+	}
 }

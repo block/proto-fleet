@@ -16,7 +16,7 @@ JOIN pool_configuration c ON c.organization_id = a.organization_id AND c.configu
 WHERE a.organization_id = $1 AND a.target_kind = $2 AND a.target_id = $3;
 
 -- name: ListPoolConfigurationAssignmentsForDevices :many
-SELECT d.id AS target_id, COALESCE(d.worker_name, '')::text AS worker_name,
+SELECT d.id AS target_id, COALESCE(d.worker_name, '')::text AS worker_name, (d.worker_name IS NOT NULL)::boolean AS worker_name_set, ''::text AS worker_name_mode,
  COALESCE(a.configuration_id, '')::text AS configuration_id, a.retired_at, c.account_id
 FROM device d
 LEFT JOIN pool_configuration_assignment a ON a.organization_id = d.org_id AND a.target_kind = 'device' AND a.target_id = d.id

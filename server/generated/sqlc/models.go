@@ -1919,10 +1919,12 @@ type FrigateUpdatePackage struct {
 }
 
 type Hashboard struct {
-	ID          int64
-	OrgID       int64
-	FirstSeenAt time.Time
-	LastSeenAt  time.Time
+	ID             int64
+	OrgID          int64
+	FirstSeenAt    time.Time
+	LastSeenAt     time.Time
+	WorkerName     sql.NullString
+	WorkerNameMode string
 }
 
 type HashboardDiagnosticObservation struct {

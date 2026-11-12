@@ -99,8 +99,12 @@ func (s *Service) captureActivationPools(ctx context.Context, q sqlc.Querier, ro
 			}
 			usernames = binding.Usernames
 		} else {
+			workerID, workerName, err := s.sharedReviewer.WorkerInputs(ctx, q, scope, poolconfigurations.AssignmentTarget{Kind: poolconfigurations.TargetDevice, ID: row.DeviceID, DeviceID: row.DeviceID}, capture.Runtime)
+			if err != nil {
+				return capture, err
+			}
 			for _, slot := range slots {
-				username, err := poolconfigurations.RenderWorker(slot.Username, slot.WorkerTemplate, capture.Runtime.DeviceIdentifier, capture.Runtime.WorkerName)
+				username, err := poolconfigurations.RenderWorker(slot.Username, slot.WorkerTemplate, workerID, workerName)
 				if err != nil {
 					return capture, err
 				}
