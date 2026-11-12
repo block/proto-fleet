@@ -47,11 +47,11 @@ CREATE TABLE pool_lifecycle_transition (
   REFERENCES pool_configuration_revision(organization_id,configuration_id,revision_id),
  CONSTRAINT ck_pool_lifecycle_configuration CHECK ((configuration_id IS NULL)=(revision_id IS NULL))
 );
-CREATE INDEX idx_pool_lifecycle_pending ON pool_lifecycle_transition(next_attempt_at) WHERE state IN ('pending','ready');
-CREATE INDEX idx_pool_lifecycle_device ON pool_lifecycle_transition(organization_id,device_id);
-CREATE INDEX idx_pool_lifecycle_physical_attempt ON pool_lifecycle_transition(physical_attempt_id)
+CREATE INDEX idx_pool_lifecycle_transition_pending ON pool_lifecycle_transition(next_attempt_at) WHERE state IN ('pending','ready');
+CREATE INDEX idx_pool_lifecycle_transition_device ON pool_lifecycle_transition(organization_id,device_id);
+CREATE INDEX idx_pool_lifecycle_transition_physical_attempt ON pool_lifecycle_transition(physical_attempt_id)
  WHERE physical_attempt_id IS NOT NULL;
-CREATE INDEX idx_pool_lifecycle_removed_board ON pool_lifecycle_transition(organization_id,asset_id)
+CREATE INDEX idx_pool_lifecycle_transition_removed_board ON pool_lifecycle_transition(organization_id,asset_id)
  WHERE asset_kind=7 AND state='superseded' AND result_code='board_removed';
 
 

@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-const poolLifecycleMigration = "current/001074_internal_default_pool_lifecycle"
+const poolLifecycleMigration = "current/001076_internal_default_pool_lifecycle"
 
 func TestPoolLifecycleRollbackSeesConcurrentHistory(t *testing.T) {
 	conn, org, device := miningGroupRollbackFixture(t)
@@ -107,7 +107,7 @@ func TestPoolLifecycleAttemptReferenceIndexAndCleanup(t *testing.T) {
 	require.NoError(t, err)
 	var plan string
 	require.NoError(t, conn.QueryRowContext(ctx, `EXPLAIN (FORMAT JSON) SELECT 1 FROM pool_lifecycle_transition WHERE physical_attempt_id=$1`, unreferenced).Scan(&plan))
-	require.Contains(t, plan, "idx_pool_lifecycle_physical_attempt", "the cleanup reference check should use its index without disabling sequential scans")
+	require.Contains(t, plan, "idx_pool_lifecycle_transition_physical_attempt", "the cleanup reference check should use its index without disabling sequential scans")
 	t.Logf("attempt-reference plan: %s", plan)
 	for _, id := range []uuid.UUID{referenced, unreferenced} {
 		_, err := q.FinishDeviceWriteAttempt(ctx, sqlc.FinishDeviceWriteAttemptParams{Status: "complete", AttemptID: id, WriteOutcome: []byte("{}")})

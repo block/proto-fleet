@@ -2,7 +2,7 @@
 
 Each operator organization and client/subclient library has one default while it
 contains active configurations. The first configuration becomes the default.
-Migration 1074 chooses the oldest active configuration for existing libraries,
+Migration 1076 chooses the oldest active configuration for existing libraries,
 with configuration ID as the tie breaker. Library managers can select another
 default. Deleting a default promotes the oldest remaining configuration; deleting
 the last leaves no default. Pending transitions prevent deletion of a configuration
@@ -26,7 +26,7 @@ Explicit unpairing retires unclaimed pairing work. Accepted work rechecks that I
 before each new device mutation; old cycles cannot replace the next cycle's
 default. Already-dispatched writes keep their evidence and recovery protections.
 
-Migration 1074 initializes that marker for existing devices unless they are
+Migration 1076 initializes that marker for existing devices unless they are
 explicitly unpaired. Historical pairing timestamps cannot reliably distinguish
 first-time authentication from recovery, so those devices conservatively preserve
 their settings on their next authentication. An operator can apply a configuration
@@ -103,15 +103,23 @@ replacement allocation in the same inventory transaction supersedes any temporar
 operator policy. Repeated inventory reports do not enqueue more work. Claimed or
 uncertain writes keep their existing recovery workflow and write-fence protection.
 
-Transitions and operation history survive process restarts. Rollback of checkpoint
-1074 refuses to discard retained transition history; use a coordinated backup.
+## Upgrade and rollback
 
-Migration 1074 consolidates the default-pool feature into one internal up/down
-pair. It creates the physical-attempt reference index with the empty lifecycle
-table. Downgrade locks lifecycle producers and the history table before checking
-for retained work; the check and complete schema removal are one atomic statement.
+Stop Fleet API replicas, pool workers, telemetry/inventory writers, Fleet Node
+writers, and scheduled database writers before applying migration 1076. Take a
+coordinated application/database backup and rehearse its restore. This is a
+stop-writers upgrade: the migration takes an exclusive organization table lock,
+backfills defaults and pairing markers, and installs lifecycle triggers.
 
-Development databases that applied earlier unmerged default-pool migrations
-(1070–1072 or 1073–1077) have a different history. Preserve those databases and
-use a fresh isolated database, or reconcile their schema explicitly before running
-this build. Do not force their version or replay the consolidated migration.
+Restart only compatible Fleet builds after the checkpoint and startup checks
+pass. Do not mix old and new writers in a rolling deployment. Older code does
+not maintain the default invariant; for example, archiving a default through the
+old archive path violates the new active-default constraint. An application-only
+rollback is not supported: older builds also reject the newer checkpoint.
+
+Transitions and operation history survive process restarts. Prefer fixing forward.
+Downgrade locks lifecycle producers and the history table before checking for
+retained work; the check and complete schema removal are one atomic statement.
+Checkpoint 1076 refuses downgrade once any transition history exists, including
+completed work. Restore the coordinated backup with its matching application if
+a rollback is necessary; do not delete history or force the migration version.
