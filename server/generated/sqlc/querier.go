@@ -2345,6 +2345,8 @@ type Querier interface {
 	// Also retire intent left by earlier deletions or confirmed board removals.
 	// Board retirement is limited to unclaimed work. Retain physical attempts and
 	// completed history: supersession never establishes that a write has settled.
+	// Separate deleted devices from removed boards so retained failures are only
+	// visited for deleted devices, not for every live-controller inventory check.
 	ReconcilePoolLifecycleOperations(ctx context.Context) error
 	// The status and reboot-boundary predicates apply to the current status row even
 	// after waiting for a concurrent firmware install's write to finish. Boot

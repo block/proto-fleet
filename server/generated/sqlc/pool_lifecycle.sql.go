@@ -462,15 +462,20 @@ func (q *Queries) PreparePoolLifecycleTransition(ctx context.Context, arg Prepar
 }
 
 const reconcilePoolLifecycleOperations = `-- name: ReconcilePoolLifecycleOperations :exec
-WITH retired AS (
- UPDATE pool_lifecycle_transition l
- SET state='superseded',result_code=CASE WHEN d.deleted_at IS NOT NULL THEN 'device_deleted' ELSE 'board_removed' END,updated_at=clock_timestamp()
- FROM device d WHERE d.id=l.device_id AND d.org_id=l.organization_id
+WITH retired_devices AS (
+ UPDATE pool_lifecycle_transition l SET state='superseded',result_code='device_deleted',updated_at=clock_timestamp()
+ FROM device d WHERE d.id=l.device_id AND d.org_id=l.organization_id AND d.deleted_at IS NOT NULL
   AND l.state IN ('pending','ready','applying','uncertain','failed')
-  AND (d.deleted_at IS NOT NULL OR (l.asset_kind=7 AND l.state IN ('pending','ready') AND l.operation_id IS NULL AND l.physical_attempt_id IS NULL
-   AND NOT EXISTS(SELECT 1 FROM hashboard_installation i WHERE i.hashboard_id=l.asset_id AND i.device_id=l.device_id AND i.removed_at IS NULL)
-   AND EXISTS(SELECT 1 FROM hashboard_installation i WHERE i.hashboard_id=l.asset_id AND i.device_id=l.device_id AND i.removed_at IS NOT NULL)))
  RETURNING l.transition_id
+), retired_boards AS (
+ UPDATE pool_lifecycle_transition l SET state='superseded',result_code='board_removed',updated_at=clock_timestamp()
+ FROM device d WHERE d.id=l.device_id AND d.org_id=l.organization_id AND d.deleted_at IS NULL
+  AND l.asset_kind=7 AND l.state IN ('pending','ready') AND l.operation_id IS NULL AND l.physical_attempt_id IS NULL
+  AND NOT EXISTS(SELECT 1 FROM hashboard_installation i WHERE i.hashboard_id=l.asset_id AND i.device_id=l.device_id AND i.removed_at IS NULL)
+  AND EXISTS(SELECT 1 FROM hashboard_installation i WHERE i.hashboard_id=l.asset_id AND i.device_id=l.device_id AND i.removed_at IS NOT NULL)
+ RETURNING l.transition_id
+), retired AS (
+ SELECT transition_id FROM retired_devices UNION ALL SELECT transition_id FROM retired_boards
 )
 UPDATE pool_lifecycle_transition l SET state=CASE WHEN t.state='verified' THEN 'verified' ELSE 'failed' END,
  result_code=t.result_code,updated_at=clock_timestamp()
@@ -482,6 +487,8 @@ FROM pool_configuration_operation_target t WHERE l.operation_id=t.operation_id A
 // Also retire intent left by earlier deletions or confirmed board removals.
 // Board retirement is limited to unclaimed work. Retain physical attempts and
 // completed history: supersession never establishes that a write has settled.
+// Separate deleted devices from removed boards so retained failures are only
+// visited for deleted devices, not for every live-controller inventory check.
 func (q *Queries) ReconcilePoolLifecycleOperations(ctx context.Context) error {
 	_, err := q.exec(ctx, q.reconcilePoolLifecycleOperationsStmt, reconcilePoolLifecycleOperations)
 	return err

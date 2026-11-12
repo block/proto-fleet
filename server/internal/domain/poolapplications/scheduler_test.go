@@ -3,6 +3,7 @@ package poolapplications
 import (
 	"context"
 	"encoding/base64"
+	"errors"
 	"testing"
 	"time"
 
@@ -50,7 +51,71 @@ func poolSchedulerFixture(t *testing.T, accepted, preparing int) (*Worker, map[u
 		require.NoError(t, database.DB.QueryRowContext(t.Context(), `INSERT INTO pool_lifecycle_transition(organization_id,device_id,asset_kind,asset_id,reason) VALUES($1,$2,5,$2,'ownership') RETURNING transition_id`, user.OrganizationID, device.DatabaseID).Scan(&id))
 		transitions[id] = device.DatabaseID
 	}
-	return &Worker{queries: sqlc.New(database.DB)}, transitions, accept
+	return &Worker{conn: database.DB, queries: sqlc.New(database.DB)}, transitions, accept
+}
+
+func TestPoolSchedulerDefersFailedPreparationAndRunsNewerPolicy(t *testing.T) {
+	worker, transitions, _ := poolSchedulerFixture(t, 0, 1)
+	var first uuid.UUID
+	for id := range transitions {
+		first = id
+	}
+	before, err := worker.queries.GetPoolLifecycleTransition(t.Context(), first)
+	require.NoError(t, err)
+	var newer uuid.UUID
+	require.NoError(t, worker.conn.QueryRowContext(t.Context(), `INSERT INTO pool_lifecycle_transition(organization_id,device_id,asset_kind,asset_id,reason)
+ SELECT organization_id,device_id,asset_kind,asset_id,reason FROM pool_lifecycle_transition WHERE transition_id=$1 RETURNING transition_id`, first).Scan(&newer))
+	ctx, cancel := context.WithCancel(t.Context())
+	ticks := make(chan time.Time)
+	started := make(chan uuid.UUID, 4)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		worker.run(ctx, ticks, func(context.Context, int64, string, poolconfigurations.AssignmentTarget) error {
+			return errors.New("unexpected accepted work")
+		}, func(ctx context.Context, id uuid.UUID) error {
+			started <- id
+			if id == first {
+				return errors.New("preparation unavailable")
+			}
+			<-ctx.Done()
+			return nil
+		})
+	}()
+	t.Cleanup(func() {
+		cancel()
+		select {
+		case <-done:
+		case <-time.After(3 * time.Second):
+			t.Error("pool scheduler did not stop")
+		}
+	})
+	select {
+	case ticks <- time.Now():
+	case <-time.After(3 * time.Second):
+		t.Fatal("pool scheduler stopped polling")
+	}
+	select {
+	case id := <-started:
+		require.Equal(t, first, id)
+	case <-time.After(3 * time.Second):
+		t.Fatal("older preparation did not start")
+	}
+	require.Eventually(t, func() bool {
+		after, err := worker.queries.GetPoolLifecycleTransition(t.Context(), first)
+		return err == nil && after.State == "pending" && after.ResultCode == "preparation_unavailable" && after.NextAttemptAt.After(before.NextAttemptAt.Add(25*time.Second))
+	}, 3*time.Second, 10*time.Millisecond)
+	deadline := time.After(3 * time.Second)
+	for {
+		select {
+		case ticks <- time.Now():
+		case id := <-started:
+			require.Equal(t, newer, id, "deferred preparation must not monopolize its controller or immediately retry")
+			return
+		case <-deadline:
+			t.Fatal("newer policy did not run after the failed preparation")
+		}
+	}
 }
 
 func TestPoolSchedulerPrioritizesAcceptedWorkAndPreservesLimits(t *testing.T) {

@@ -47,7 +47,18 @@ CREATE TABLE pool_lifecycle_transition (
   REFERENCES pool_configuration_revision(organization_id,configuration_id,revision_id),
  CONSTRAINT ck_pool_lifecycle_configuration CHECK ((configuration_id IS NULL)=(revision_id IS NULL))
 );
-CREATE INDEX idx_pool_lifecycle_transition_pending ON pool_lifecycle_transition(next_attempt_at) WHERE state IN ('pending','ready');
+-- Polling includes recovery work; reconciliation also visits failed intent.
+-- Keep settled history out of these scans and ownership's per-asset lookup.
+CREATE INDEX idx_pool_lifecycle_transition_open_asset
+ ON pool_lifecycle_transition(state,organization_id,asset_kind,asset_id)
+ WHERE state IN ('pending','ready','applying','uncertain','failed');
+-- Physical-attempt status is rechecked by the poll; only locally eligible
+-- transitions belong here. Terminal failures must not grow the polling scan.
+CREATE INDEX idx_pool_lifecycle_transition_poll
+ ON pool_lifecycle_transition(device_id,next_attempt_at,created_at)
+ WHERE state IN ('pending','ready')
+  OR (state IN ('applying','uncertain') AND configuration_id IS NULL AND target_kind='device')
+  OR (state='failed' AND result_code='clear_not_dispatched' AND reason='ownership' AND configuration_id IS NULL AND target_kind='device');
 CREATE INDEX idx_pool_lifecycle_transition_device ON pool_lifecycle_transition(organization_id,device_id);
 CREATE INDEX idx_pool_lifecycle_transition_physical_attempt ON pool_lifecycle_transition(physical_attempt_id)
  WHERE physical_attempt_id IS NOT NULL;
