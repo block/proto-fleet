@@ -60,9 +60,11 @@ vi.mock("@/protoFleet/components/TargetSelectionModal", () => ({
 
 // The container catalog is fleet data too. A loaded, empty one leaves every
 // directly selected identifier with the Miners selector.
-vi.mock("@/protoFleet/api/useContainers", () => ({
-  useContainers: () => ({ containers: [], error: undefined, loading: false, refetch: () => {} }),
-}));
+vi.mock("@/protoFleet/api/useContainers", () => {
+  // One catalog object, as the hook returns between reads.
+  const catalog = { containers: [], error: undefined, loading: false, refetch: () => {} };
+  return { useContainers: () => catalog };
+});
 
 vi.mock("@/shared/features/toaster", () => ({
   pushToast: vi.fn(),

@@ -36,6 +36,21 @@ export function rebaseScope(
   return scopeSelectionsEqual(draft, merged) ? draft : merged;
 }
 
+// Applies a picker's edits to the current identifiers. One the picker was
+// offered and no longer returns is removed, and one it returns beyond those is
+// added. Every other identifier is left as it is, so the other kind of device
+// and a change rebased in while the picker was open both survive its save.
+export function applyPickerEdits(current: string[], offered: string[], picked: string[]): string[] {
+  const offeredIds = new Set(offered);
+  const pickedIds = new Set(picked);
+  return [
+    ...new Set([
+      ...current.filter((id) => pickedIds.has(id) || !offeredIds.has(id)),
+      ...picked.filter((id) => !offeredIds.has(id)),
+    ]),
+  ];
+}
+
 // Repeated-field bounds from ReleaseChannelScope apply to both preview and
 // writes. Keep every selected ID so operators can reduce an oversized draft.
 export function scopeValidationErrors(scope: ReleaseChannelScope): string[] {

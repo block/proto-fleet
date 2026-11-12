@@ -2,7 +2,8 @@ import { type ReactElement, useEffect, useMemo, useState } from "react";
 import { create } from "@bufbuild/protobuf";
 
 import ContainerSelectionModal from "./ContainerSelectionModal";
-import { isScopeEmpty, scopeSummary, scopeValidationErrors } from "./scopeUtils";
+import { applyPickerEdits, isScopeEmpty, scopeSummary, scopeValidationErrors } from "./scopeUtils";
+import type { Container } from "@/protoFleet/api/generated/containers/v1/containers_pb";
 import {
   type PreviewReleaseChannelScopeResponse,
   type ReleaseChannelScope,
@@ -24,6 +25,8 @@ import Button, { sizes, variants } from "@/shared/components/Button";
 const PREVIEW_DEBOUNCE_MS = 300;
 
 type SelectionKind = "site" | "building" | "rack" | "group" | "miner" | "container";
+
+const NO_CONTAINERS: Container[] = [];
 
 const toStrings = (ids: bigint[]): string[] => ids.map((id) => id.toString());
 const toBigInts = (ids: string[]): bigint[] => ids.map((id) => BigInt(id));
@@ -72,22 +75,36 @@ const ScopeEditor = ({
   // apart. It loads with the editor so a selection made later is classified
   // at once.
   const containerCatalog = useContainers([], false, canReadContainers);
-  const containerIds = useMemo(
-    () => new Set(containerCatalog.containers.map((container) => container.deviceIdentifier)),
-    [containerCatalog.containers],
-  );
-  // Until the catalog arrives, saved identifiers cannot be split. Hold both
-  // counts back, so a container is never shown as a miner first.
-  const classifying = containerCatalog.loading && scope.deviceIdentifiers.length > 0;
+  // The last catalog that loaded. A failed refresh keeps it, so an error never
+  // turns saved containers into miners for the miner picker to drop.
+  const [loadedContainers, setLoadedContainers] = useState<Container[]>();
+  if (
+    canReadContainers &&
+    !containerCatalog.loading &&
+    containerCatalog.error === undefined &&
+    containerCatalog.containers !== loadedContainers
+  ) {
+    setLoadedContainers(containerCatalog.containers);
+  }
+  const containers = canReadContainers ? loadedContainers : NO_CONTAINERS;
+  const catalogFailed = containers === undefined && containerCatalog.error !== undefined;
+  const catalogLoading = containers === undefined && !catalogFailed;
+  const containerIds = useMemo(() => new Set(containers?.map((container) => container.deviceIdentifier)), [containers]);
+  // A saved channel's identifiers cannot be split before a catalog has loaded.
+  // Hold both selectors back, so a container is never shown as a miner or
+  // handed to the miner picker. A new channel's identifiers were all picked
+  // here, and a container can only be picked from a loaded catalog.
+  const unclassified = editingExistingChannel && containers === undefined && scope.deviceIdentifiers.length > 0;
+  const classifying = unclassified && catalogLoading;
   // Identifiers outside the readable catalog stay with the miners, as before.
   const minerIds = scope.deviceIdentifiers.filter((id) => !containerIds.has(id));
   const countContainers = (target: ReleaseChannelScope) =>
     target.deviceIdentifiers.filter((id) => containerIds.has(id)).length;
   const summarize = (target: ReleaseChannelScope) =>
-    classifying ? "selection" : scopeSummary(target, countContainers(target));
-  // The identifiers handed to the open miner picker. Its save replaces only
-  // these, so containers survive even if the catalog changes while it is open.
-  const [minerPickerIds, setMinerPickerIds] = useState<string[]>([]);
+    unclassified ? "selection" : scopeSummary(target, countContainers(target));
+  // The identifiers handed to the open miner or container picker. Its save
+  // applies only what changed among these to the scope as it stands by then.
+  const [pickerIds, setPickerIds] = useState<string[]>([]);
   const selectionButtons = [
     ["site", "Sites", scope.siteIds.length, canReadSites],
     ["building", "Buildings", scope.buildingIds.length, canReadSites],
@@ -153,21 +170,28 @@ const ScopeEditor = ({
       <div className="grid">
         {selectionButtons.map(([kind, label, count, permitted]) => {
           if (!permitted) return null;
-          const pending = classifying && (kind === "miner" || kind === "container");
+          const pending = unclassified && (kind === "miner" || kind === "container");
           return (
             <TargetSelectButton
               key={kind}
               label={label}
-              value={pending ? "Loading…" : getTargetButtonLabel(count, kind)}
+              value={pending ? (classifying ? "Loading…" : "Unavailable") : getTargetButtonLabel(count, kind)}
               disabled={disabled || pending}
               onClick={() => {
-                if (kind === "miner") setMinerPickerIds(minerIds);
+                if (kind === "miner") setPickerIds(minerIds);
+                if (kind === "container") setPickerIds(scope.deviceIdentifiers.filter((id) => containerIds.has(id)));
                 setOpenModal(kind);
               }}
             />
           );
         })}
       </div>
+
+      {unclassified && catalogFailed ? (
+        <p role="alert" className="text-200 text-intent-critical-fill">
+          Couldn&apos;t load containers. Miners and containers can be changed once they load.
+        </p>
+      ) : null}
 
       <ScopePreview
         scope={scope}
@@ -232,26 +256,29 @@ const ScopeEditor = ({
       {canReadMiners && openModal === "miner" ? (
         <MinerSelectionModal
           open
-          selectedMinerIds={minerPickerIds}
+          selectedMinerIds={pickerIds}
           filterConfig={canReadRacks ? undefined : { showRackFilter: false, showGroupFilter: false }}
           onDismiss={() => setOpenModal(null)}
           onSave={(selection) => {
-            const replaced = new Set(minerPickerIds);
-            const kept = scope.deviceIdentifiers.filter((id) => !replaced.has(id));
-            update({ deviceIdentifiers: [...new Set([...kept, ...selection.selectedMinerIds])] });
+            update({
+              deviceIdentifiers: applyPickerEdits(scope.deviceIdentifiers, pickerIds, selection.selectedMinerIds),
+            });
             setOpenModal(null);
           }}
         />
       ) : null}
       {canReadContainers && openModal === "container" ? (
         <ContainerSelectionModal
-          containers={containerCatalog.containers}
-          loading={containerCatalog.loading}
-          hasLoadError={containerCatalog.error !== undefined}
+          containers={containers ?? NO_CONTAINERS}
+          loading={catalogLoading}
+          hasLoadError={catalogFailed}
           selectedIdentifiers={scope.deviceIdentifiers}
           onDismiss={() => setOpenModal(null)}
           onSave={(identifiers) => {
-            update({ deviceIdentifiers: [...minerIds, ...identifiers] });
+            // The picker returns only the containers it lists, so one that
+            // left the catalog while it was open was not unticked.
+            const offered = pickerIds.filter((id) => containerIds.has(id));
+            update({ deviceIdentifiers: applyPickerEdits(scope.deviceIdentifiers, offered, identifiers) });
             setOpenModal(null);
           }}
         />
