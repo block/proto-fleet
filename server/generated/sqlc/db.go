@@ -1503,6 +1503,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.getPoolRemovalStmt, err = db.PrepareContext(ctx, getPoolRemoval); err != nil {
 		return nil, fmt.Errorf("error preparing query GetPoolRemoval: %w", err)
 	}
+	if q.getPreferredContainerPoolPolicyStmt, err = db.PrepareContext(ctx, getPreferredContainerPoolPolicy); err != nil {
+		return nil, fmt.Errorf("error preparing query GetPreferredContainerPoolPolicy: %w", err)
+	}
 	if q.getProtoMinerProxyTargetStmt, err = db.PrepareContext(ctx, getProtoMinerProxyTarget); err != nil {
 		return nil, fmt.Errorf("error preparing query GetProtoMinerProxyTarget: %w", err)
 	}
@@ -6154,6 +6157,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing getPoolRemovalStmt: %w", cerr)
 		}
 	}
+	if q.getPreferredContainerPoolPolicyStmt != nil {
+		if cerr := q.getPreferredContainerPoolPolicyStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getPreferredContainerPoolPolicyStmt: %w", cerr)
+		}
+	}
 	if q.getProtoMinerProxyTargetStmt != nil {
 		if cerr := q.getProtoMinerProxyTargetStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getProtoMinerProxyTargetStmt: %w", cerr)
@@ -10321,6 +10329,7 @@ type Queries struct {
 	getPoolLifecycleAllocationStmt                              *sql.Stmt
 	getPoolLifecycleTransitionStmt                              *sql.Stmt
 	getPoolRemovalStmt                                          *sql.Stmt
+	getPreferredContainerPoolPolicyStmt                         *sql.Stmt
 	getProtoMinerProxyTargetStmt                                *sql.Stmt
 	getQueueMessagesByBatchStmt                                 *sql.Stmt
 	getRackDetailsForDevicesStmt                                *sql.Stmt
@@ -11547,6 +11556,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getPoolLifecycleAllocationStmt:                              q.getPoolLifecycleAllocationStmt,
 		getPoolLifecycleTransitionStmt:                              q.getPoolLifecycleTransitionStmt,
 		getPoolRemovalStmt:                                          q.getPoolRemovalStmt,
+		getPreferredContainerPoolPolicyStmt:                         q.getPreferredContainerPoolPolicyStmt,
 		getProtoMinerProxyTargetStmt:                                q.getProtoMinerProxyTargetStmt,
 		getQueueMessagesByBatchStmt:                                 q.getQueueMessagesByBatchStmt,
 		getRackDetailsForDevicesStmt:                                q.getRackDetailsForDevicesStmt,

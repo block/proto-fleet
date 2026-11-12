@@ -5540,6 +5540,18 @@ func (q *retryingQuerier) GetPoolRemoval(ctx context.Context, arg GetPoolRemoval
 	return result, err
 }
 
+func (q *retryingQuerier) GetPreferredContainerPoolPolicy(ctx context.Context, transitionID uuid.UUID) (uuid.UUID, error) {
+	var result uuid.UUID
+	err := q.retrier.RetryQuery(ctx, "GetPreferredContainerPoolPolicy", func() error {
+		callResult, callErr := q.next.GetPreferredContainerPoolPolicy(ctx, transitionID)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) GetProtoMinerProxyTarget(ctx context.Context, arg GetProtoMinerProxyTargetParams) (GetProtoMinerProxyTargetRow, error) {
 	var result GetProtoMinerProxyTargetRow
 	err := q.retrier.RetryQuery(ctx, "GetProtoMinerProxyTarget", func() error {

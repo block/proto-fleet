@@ -1125,6 +1125,10 @@ type Querier interface {
 	// Removal-specific preflight is stored in the shared immutable review target.
 	// The operation and target records own execution, progress and recovery.
 	GetPoolRemoval(ctx context.Context, arg GetPoolRemovalParams) (GetPoolRemovalRow, error)
+	// Called only after current whole-container ownership and disabled mode are
+	// established. Ignore stale ownership, removed boards, ended pairing cycles,
+	// and pairing-without-default (which requests no settings change).
+	GetPreferredContainerPoolPolicy(ctx context.Context, transitionID uuid.UUID) (uuid.UUID, error)
 	GetProtoMinerProxyTarget(ctx context.Context, arg GetProtoMinerProxyTargetParams) (GetProtoMinerProxyTargetRow, error)
 	GetQueueMessagesByBatch(ctx context.Context, commandBatchLogUuid string) ([]GetQueueMessagesByBatchRow, error)
 	// Batch query to get rack label and formatted slot position for multiple devices at once.

@@ -45,7 +45,11 @@ assignment invalidates older queued work.
 For CT1s, Fleet observes mining-group mode before preparing work and checks it
 again during execution. Enabled groups use physical hashboard installations.
 Disabled groups use one whole-container operation only when every installed board
-has the same destination owner. Mixed ownership with groups disabled leaves pool
+has the same destination owner. If several pending policies cover that container,
+preparation uses the newest valid captured policy and supersedes only older
+unclaimed requests. Later library default changes do not alter that capture,
+and accepted writes retain their normal execution and recovery protections.
+Mixed ownership with groups disabled leaves pool
 work waiting for mining groups to be enabled; Fleet does not activate groups
 automatically. Unknown mode, incomplete inventory, group capacity limits, custom
 group policies, and unresolved writes also prevent unsafe dispatch.

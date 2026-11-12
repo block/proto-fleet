@@ -153,7 +153,7 @@ func TestAutomaticContainerPoolsRequireHomogeneousOwnershipWhenGroupsDisabled(t 
 			require.NoError(t, f.db.QueryRowContext(t.Context(), `SELECT transition_id FROM pool_lifecycle_transition WHERE device_id=$1 AND reason='pairing' AND asset_kind=0`, controller).Scan(&pairingID))
 			require.NoError(t, worker.ProcessLifecycle(t.Context(), pairingID))
 			var id uuid.UUID
-			require.NoError(t, f.db.QueryRowContext(t.Context(), `SELECT transition_id FROM pool_lifecycle_transition WHERE device_id=$1 AND reason='ownership' ORDER BY created_at LIMIT 1`, controller).Scan(&id))
+			require.NoError(t, f.db.QueryRowContext(t.Context(), `SELECT transition_id FROM pool_lifecycle_transition WHERE device_id=$1 AND reason='ownership' ORDER BY created_at DESC,transition_id DESC LIMIT 1`, controller).Scan(&id))
 			err = worker.ProcessLifecycle(t.Context(), id)
 			if mixed {
 				require.Error(t, err)
@@ -238,7 +238,7 @@ func TestBoardOwnershipCanSettleCompletedWholeContainerClear(t *testing.T) {
 			require.NoError(t, err)
 			require.NoError(t, f.allocate(t, f.host, f.root, f.account.AccountID, hostedpb.AssetAssignmentIntent_ASSET_ASSIGNMENT_INTENT_ASSIGN, selected(6, module, 0)))
 			var id uuid.UUID
-			require.NoError(t, f.db.QueryRowContext(t.Context(), `SELECT transition_id FROM pool_lifecycle_transition WHERE device_id=$1 AND reason='ownership' ORDER BY created_at LIMIT 1`, controller).Scan(&id))
+			require.NoError(t, f.db.QueryRowContext(t.Context(), `SELECT transition_id FROM pool_lifecycle_transition WHERE device_id=$1 AND reason='ownership' ORDER BY created_at DESC,transition_id DESC LIMIT 1`, controller).Scan(&id))
 			require.NoError(t, worker.ProcessLifecycle(t.Context(), id))
 			q := sqlc.New(f.db)
 			old, err := q.GetPoolLifecycleTransition(t.Context(), id)

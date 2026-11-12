@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"time"
 
 	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
@@ -20,6 +21,9 @@ import (
 // ProcessLifecycle prepares durable automatic intent. It never writes device
 // settings itself; accepted work uses the normal apply or removal executor.
 func (w *Worker) ProcessLifecycle(ctx context.Context, id uuid.UUID) error {
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("process pool lifecycle: %w", err)
+	}
 	ctx = poolconfigurations.WithLifecycleTransition(ctx, id)
 	ctx = devicewrite.WithPoolOperation(ctx, id)
 	// Reconcile a persisted pre-dispatch failure before loading work. This also
@@ -73,6 +77,7 @@ func (w *Worker) ProcessLifecycle(ctx context.Context, id uuid.UUID) error {
 		return err
 	}
 	if row.State == "pending" {
+		preferredPolicy := id
 		if err := NewReadiness(w.conn, w.reviewer, w.miners).RefreshTargets(ctx, scope, 0, []poolconfigurations.AssignmentTarget{target}); err != nil {
 			return err
 		}
@@ -104,6 +109,10 @@ func (w *Worker) ProcessLifecycle(ctx context.Context, id uuid.UUID) error {
 					target = poolconfigurations.AssignmentTarget{Kind: poolconfigurations.TargetDevice, ID: row.DeviceID, DeviceID: row.DeviceID}
 					// Whole-container authority must include every installed board.
 					if _, err := w.reviewer.authority.AuthorizePoolEquipment(ctx, q, scope, 0, target); err != nil {
+						return err
+					}
+					preferredPolicy, err = q.GetPreferredContainerPoolPolicy(ctx, id)
+					if err != nil || preferredPolicy != id {
 						return err
 					}
 					if err := q.SupersedeContainerPoolLifecycleTransitions(ctx, sqlc.SupersedeContainerPoolLifecycleTransitionsParams{OrganizationID: scope.OrganizationID, DeviceID: row.DeviceID, OwnerAccountID: scope.AccountID, TransitionID: id}); err != nil {
@@ -149,6 +158,12 @@ func (w *Worker) ProcessLifecycle(ctx context.Context, id uuid.UUID) error {
 		})
 		if err != nil {
 			return err
+		}
+		if preferredPolicy != id {
+			// Release preparation locks and run the newer policy through all the
+			// normal checks. It can supersede older pending work when prepared;
+			// failures leave that work intact, and accepted writes are untouched.
+			return w.ProcessLifecycle(ctx, preferredPolicy)
 		}
 		row, err = w.queries.GetPoolLifecycleTransition(ctx, id)
 		if err != nil {

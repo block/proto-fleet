@@ -55,7 +55,7 @@ func TestRePairingDiscardsPreviousCyclePoolWork(t *testing.T) {
 				worker := poolapplications.NewWorker(f.db, repo, reviewer, poolMinerGetter{device}, cipher)
 				latest := func(kind int) uuid.UUID {
 					var id uuid.UUID
-					require.NoError(t, f.db.QueryRowContext(ctx, `SELECT transition_id FROM pool_lifecycle_transition WHERE device_id=$1 AND reason='pairing' AND asset_kind=$2 ORDER BY created_at DESC,asset_id LIMIT 1`, controller, kind).Scan(&id))
+					require.NoError(t, f.db.QueryRowContext(ctx, `SELECT transition_id FROM pool_lifecycle_transition WHERE device_id=$1 AND reason='pairing' AND asset_kind=$2 ORDER BY created_at DESC,transition_id DESC LIMIT 1`, controller, kind).Scan(&id))
 					return id
 				}
 				kind := 5

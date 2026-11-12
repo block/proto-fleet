@@ -211,6 +211,29 @@ func (q *Queries) GetPoolLifecycleTransition(ctx context.Context, transitionID u
 	return i, err
 }
 
+const getPreferredContainerPoolPolicy = `-- name: GetPreferredContainerPoolPolicy :one
+SELECT COALESCE((SELECT n.transition_id FROM pool_lifecycle_transition n
+ JOIN pool_lifecycle_transition current ON current.transition_id=$1
+ LEFT JOIN hosted_account_asset a ON a.organization_id=n.organization_id AND a.kind=n.asset_kind AND a.asset_id=n.asset_id AND a.device_id=n.device_id
+ WHERE n.organization_id=current.organization_id AND n.device_id=current.device_id AND n.owner_account_id=current.owner_account_id
+  AND n.state='pending' AND n.operation_id IS NULL AND n.physical_attempt_id IS NULL AND n.asset_kind=7
+  AND (n.created_at,n.transition_id)>(current.created_at,current.transition_id)
+  AND COALESCE(a.subclient_id,a.client_id,0)=n.owner_account_id AND COALESCE(a.revision,0)=n.allocation_revision
+  AND EXISTS(SELECT 1 FROM hashboard_installation i WHERE i.hashboard_id=n.asset_id AND i.device_id=n.device_id AND i.removed_at IS NULL)
+  AND (n.reason<>'pairing' OR (n.configuration_id IS NOT NULL AND EXISTS(SELECT 1 FROM pool_pairing_cycle c WHERE c.device_id=n.device_id AND c.cycle_id=n.pairing_cycle_id)))
+ ORDER BY n.created_at DESC,n.transition_id DESC LIMIT 1),$1)::uuid AS transition_id
+`
+
+// Called only after current whole-container ownership and disabled mode are
+// established. Ignore stale ownership, removed boards, ended pairing cycles,
+// and pairing-without-default (which requests no settings change).
+func (q *Queries) GetPreferredContainerPoolPolicy(ctx context.Context, transitionID uuid.UUID) (uuid.UUID, error) {
+	row := q.queryRow(ctx, q.getPreferredContainerPoolPolicyStmt, getPreferredContainerPoolPolicy, transitionID)
+	var transition_id uuid.UUID
+	err := row.Scan(&transition_id)
+	return transition_id, err
+}
+
 const linkPoolLifecycleOperation = `-- name: LinkPoolLifecycleOperation :exec
 UPDATE pool_lifecycle_transition SET operation_id=$2,state='applying',updated_at=clock_timestamp() WHERE transition_id=$1 AND state='ready'
 `
@@ -523,9 +546,11 @@ func (q *Queries) RetryUndispatchedPoolLifecycleRemoval(ctx context.Context, tra
 }
 
 const supersedeContainerPoolLifecycleTransitions = `-- name: SupersedeContainerPoolLifecycleTransitions :exec
-UPDATE pool_lifecycle_transition SET state='superseded',updated_at=clock_timestamp()
-WHERE organization_id=$1 AND device_id=$2 AND owner_account_id=$3 AND transition_id<>$4
- AND state='pending'
+UPDATE pool_lifecycle_transition l SET state='superseded',updated_at=clock_timestamp()
+FROM pool_lifecycle_transition selected
+WHERE l.organization_id=$1 AND l.device_id=$2 AND l.owner_account_id=$3 AND selected.transition_id=$4
+ AND (l.created_at,l.transition_id)<(selected.created_at,selected.transition_id)
+ AND l.state='pending' AND l.operation_id IS NULL AND l.physical_attempt_id IS NULL
 `
 
 type SupersedeContainerPoolLifecycleTransitionsParams struct {

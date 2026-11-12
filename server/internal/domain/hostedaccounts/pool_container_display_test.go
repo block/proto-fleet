@@ -61,7 +61,7 @@ func TestWholeContainerPoolStatusAppearsOnEveryBoard(t *testing.T) {
 				worker := poolapplications.NewWorker(f.db, repo, reviewer, getter, cipher).WithRemovals(checker)
 				service := poolconfigurations.NewService(f.db, repo, f.pools, reviewer)
 				var id uuid.UUID
-				require.NoError(t, f.db.QueryRowContext(ctx, `SELECT transition_id FROM pool_lifecycle_transition WHERE device_id=$1 AND reason='ownership' AND owner_account_id=$2 AND state='pending' ORDER BY created_at LIMIT 1`, controller, scope.AccountID).Scan(&id))
+				require.NoError(t, f.db.QueryRowContext(ctx, `SELECT transition_id FROM pool_lifecycle_transition WHERE device_id=$1 AND reason='ownership' AND owner_account_id=$2 AND state='pending' ORDER BY created_at DESC,transition_id DESC LIMIT 1`, controller, scope.AccountID).Scan(&id))
 				require.NoError(t, worker.ProcessLifecycle(t.Context(), id))
 				q := sqlc.New(f.db)
 				event, err := q.GetPoolLifecycleTransition(ctx, id)
