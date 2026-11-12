@@ -1,30 +1,35 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { type CT1Firmware, type CT1FirmwareAttempt, CT1FirmwareStartRefusedError } from "../adapters/ct1Firmware";
-import { readAttempts, removeAttempt, saveAttempt } from "./ct1FirmwareStorage";
-import { useCT1Firmware } from "./useCT1Firmware";
+import {
+  type HashboardFirmware,
+  type HashboardFirmwareAttempt,
+  HashboardFirmwareCancelError,
+  HashboardFirmwareStartRefusedError,
+} from "../adapters/hashboardFirmware";
+import { readAttempts, removeAttempt, saveAttempt } from "./hashboardFirmwareStorage";
+import { useHashboardFirmware } from "./useHashboardFirmware";
 
-vi.mock("../adapters/mdkV2/firmwareImage", () => ({
-  readFirmwareImage: async (file: File) => ({ file, version: "9.0.0", build: "prod" }),
-}));
 const boards = [{ mac: "02:00:00:00:00:01", owner: "controller", label: "Board 1" }];
 const file = new File(["test"], "f1-app-prod.bin");
 const setup = () => ({
-  prepare: vi.fn<CT1Firmware["prepare"]>().mockResolvedValue(boards),
+  readImage: vi
+    .fn<HashboardFirmware["readImage"]>()
+    .mockImplementation(async (chosen) => ({ file: chosen, version: "9.0.0", build: "prod" })),
+  prepare: vi.fn<HashboardFirmware["prepare"]>().mockResolvedValue(boards),
   install: vi
-    .fn<CT1Firmware["install"]>()
+    .fn<HashboardFirmware["install"]>()
     .mockImplementation(async (_image, _attempt, _progress, _params, starting) => {
       starting();
     }),
-  progress: vi.fn<CT1Firmware["progress"]>().mockResolvedValue({ outcome: "completed", boards: [], errors: [] }),
-  cancel: vi.fn<CT1Firmware["cancel"]>().mockResolvedValue({ pending: false, finished: false, absent: [] }),
+  progress: vi.fn<HashboardFirmware["progress"]>().mockResolvedValue({ outcome: "completed", boards: [], errors: [] }),
+  cancel: vi.fn<HashboardFirmware["cancel"]>().mockResolvedValue({ pending: false, finished: false, absent: [] }),
 });
-const tracked = (taskId = "task"): CT1FirmwareAttempt => ({ taskId, boards, version: "9.0.0", build: "prod" });
+const tracked = (taskId = "task"): HashboardFirmwareAttempt => ({ taskId, boards, version: "9.0.0", build: "prod" });
 /** What another tab, or an earlier page load, left in storage. */
-const save = (attempt: CT1FirmwareAttempt) => saveAttempt("device", attempt);
+const save = (attempt: HashboardFirmwareAttempt) => saveAttempt("device", attempt);
 const saved = () => readAttempts("device");
 
-describe("CT1 firmware recovery", () => {
+describe("Hashboard firmware recovery", () => {
   beforeEach(() => localStorage.clear());
   afterEach(() => vi.restoreAllMocks());
   it("persists before Start, blocks duplicates, and resumes status after a remount without installing", async () => {
@@ -33,17 +38,17 @@ describe("CT1 firmware recovery", () => {
       starting();
       throw new Error("Lost response");
     });
-    const first = renderHook(() => useCT1Firmware(firmware, "device"));
+    const first = renderHook(() => useHashboardFirmware(firmware, "device"));
     await act(() => first.result.current.choose(file));
     await act(() => first.result.current.install());
-    expect(first.result.current.error).toBe("Lost response");
+    expect(first.result.current.errors).toEqual(["Lost response"]);
     expect(saved()).toHaveLength(1);
     const [record] = saved();
     expect(record).toMatchObject({ boards, version: "9.0.0", build: "prod" });
     await act(() => first.result.current.install());
     expect(firmware.install).toHaveBeenCalledOnce();
     first.unmount();
-    const second = renderHook(() => useCT1Firmware(firmware, "device"));
+    const second = renderHook(() => useHashboardFirmware(firmware, "device"));
     await waitFor(() => expect(second.result.current.progress?.outcome).toBe("completed"));
     expect(firmware.progress).toHaveBeenCalledWith(
       record,
@@ -59,7 +64,7 @@ describe("CT1 firmware recovery", () => {
       const firmware = setup();
       save(tracked());
       firmware.progress.mockResolvedValue({ boards: [], errors: [] });
-      const { result } = renderHook(() => useCT1Firmware(firmware, "device"));
+      const { result } = renderHook(() => useHashboardFirmware(firmware, "device"));
       await act(() => vi.advanceTimersByTimeAsync(4500));
       expect(firmware.progress).toHaveBeenCalledTimes(3);
       firmware.progress.mockResolvedValue({ outcome: "canceled", boards: [], errors: [] });
@@ -77,12 +82,12 @@ describe("CT1 firmware recovery", () => {
     const attempt = tracked();
     save(attempt);
     firmware.cancel.mockRejectedValueOnce(new Error("Peer unavailable"));
-    const { result } = renderHook(() => useCT1Firmware(firmware, "device"));
+    const { result } = renderHook(() => useHashboardFirmware(firmware, "device"));
     await act(async () => {
       await result.current.cancel();
     });
     expect(result.current.attempt).toEqual({ ...attempt, cancel: "unconfirmed" });
-    expect(result.current.error).toBe("Peer unavailable");
+    expect(result.current.errors).toEqual(["Peer unavailable"]);
     expect(saved()).toEqual([{ ...attempt, cancel: "unconfirmed" }]);
     await act(async () => {
       await result.current.cancel();
@@ -90,19 +95,31 @@ describe("CT1 firmware recovery", () => {
     expect(result.current.attempt).toBeUndefined();
     expect(saved()).toEqual([]);
   });
+  it("reports each owner that could not answer a cancel on a line of its own", async () => {
+    const firmware = setup();
+    save(tracked());
+    const failures = ["controller-a: Controller unavailable", "controller-b: Controller unavailable"];
+    firmware.cancel.mockRejectedValue(new HashboardFirmwareCancelError(failures));
+    const { result } = renderHook(() => useHashboardFirmware(firmware, "device"));
+    await act(async () => {
+      await result.current.cancel();
+    });
+    expect(result.current.errors).toEqual(failures);
+    expect(result.current.attempt?.cancel).toBe("unconfirmed");
+  });
   it("retains and reloads a cancellation that is still stopping boards", async () => {
     const firmware = setup();
     const attempt = tracked();
     save(attempt);
     firmware.progress.mockResolvedValue({ boards: [], errors: [] });
     firmware.cancel.mockResolvedValue({ pending: true, finished: false, absent: [] });
-    const first = renderHook(() => useCT1Firmware(firmware, "device"));
+    const first = renderHook(() => useHashboardFirmware(firmware, "device"));
     await act(async () => {
       await first.result.current.cancel();
     });
     expect(first.result.current.attempt?.cancel).toBe("requested");
     first.unmount();
-    const second = renderHook(() => useCT1Firmware(firmware, "device"));
+    const second = renderHook(() => useHashboardFirmware(firmware, "device"));
     expect(second.result.current.attempt?.cancel).toBe("requested");
     expect(saved()).toEqual([{ ...attempt, cancel: "requested" }]);
   });
@@ -113,7 +130,7 @@ describe("CT1 firmware recovery", () => {
       signal = params?.signal;
       await new Promise<void>((resolve) => signal?.addEventListener("abort", () => resolve(), { once: true }));
     });
-    const { result, unmount } = renderHook(() => useCT1Firmware(firmware, "device"));
+    const { result, unmount } = renderHook(() => useHashboardFirmware(firmware, "device"));
     await act(() => result.current.choose(file));
     let pending: Promise<void>;
     act(() => {
@@ -134,7 +151,7 @@ describe("CT1 firmware recovery", () => {
         signal?.addEventListener("abort", () => reject(signal?.reason), { once: true }),
       );
     });
-    const { result } = renderHook(() => useCT1Firmware(firmware, "device"));
+    const { result } = renderHook(() => useHashboardFirmware(firmware, "device"));
     await act(() => result.current.choose(file));
     let pending: Promise<void>;
     act(() => {
@@ -147,7 +164,7 @@ describe("CT1 firmware recovery", () => {
     });
     expect(signal?.aborted).toBe(true);
     expect(result.current.busy).toBe(false);
-    expect(result.current.error).toBeUndefined();
+    expect(result.current.errors).toEqual([]);
     expect(result.current.attempt).toBeUndefined();
     expect(result.current.image?.file).toBe(file);
     expect(firmware.cancel).not.toHaveBeenCalled();
@@ -164,7 +181,7 @@ describe("CT1 firmware recovery", () => {
         finishStart = resolve;
       });
     });
-    const { result } = renderHook(() => useCT1Firmware(firmware, "device"));
+    const { result } = renderHook(() => useHashboardFirmware(firmware, "device"));
     await act(() => result.current.choose(file));
     let pending: Promise<void>;
     act(() => {
@@ -191,10 +208,10 @@ describe("CT1 firmware recovery", () => {
     vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
       throw new Error("Storage is full");
     });
-    const { result } = renderHook(() => useCT1Firmware(firmware, "device"));
+    const { result } = renderHook(() => useHashboardFirmware(firmware, "device"));
     await act(() => result.current.choose(file));
     await act(() => result.current.install());
-    expect(result.current.error).toBe("Storage is full");
+    expect(result.current.errors).toEqual(["Storage is full"]);
     expect(result.current.attempt).toBeUndefined();
     expect(firmware.progress).not.toHaveBeenCalled();
   });
@@ -202,12 +219,12 @@ describe("CT1 firmware recovery", () => {
     const firmware = setup();
     firmware.install.mockImplementation(async (_image, _attempt, _progress, _params, starting) => {
       starting();
-      throw new CT1FirmwareStartRefusedError("hashboard update already running");
+      throw new HashboardFirmwareStartRefusedError("hashboard update already running");
     });
-    const { result } = renderHook(() => useCT1Firmware(firmware, "device"));
+    const { result } = renderHook(() => useHashboardFirmware(firmware, "device"));
     await act(() => result.current.choose(file));
     await act(() => result.current.install());
-    expect(result.current.error).toBe("hashboard update already running");
+    expect(result.current.errors).toEqual(["hashboard update already running"]);
     expect(result.current.attempt).toBeUndefined();
     expect(result.current.image?.file).toBe(file);
     expect(saved()).toEqual([]);
@@ -219,7 +236,7 @@ describe("CT1 firmware recovery", () => {
     save(attempt);
     firmware.progress.mockResolvedValue({ boards: [], errors: [] });
     firmware.cancel.mockResolvedValue({ pending: false, finished: false, absent: ["controller"] });
-    const { result } = renderHook(() => useCT1Firmware(firmware, "device"));
+    const { result } = renderHook(() => useHashboardFirmware(firmware, "device"));
     await act(async () => {
       await result.current.cancel();
     });
@@ -235,12 +252,12 @@ describe("CT1 firmware recovery", () => {
     save(attempt);
     firmware.progress.mockResolvedValue({ boards: [], errors: [] });
     firmware.cancel.mockRejectedValue(new Error("Peer unavailable"));
-    const first = renderHook(() => useCT1Firmware(firmware, "device"));
+    const first = renderHook(() => useHashboardFirmware(firmware, "device"));
     await act(async () => {
       await first.result.current.cancel();
     });
     first.unmount();
-    const second = renderHook(() => useCT1Firmware(firmware, "device"));
+    const second = renderHook(() => useHashboardFirmware(firmware, "device"));
     expect(second.result.current.attempt).toEqual({ ...attempt, cancel: "unconfirmed" });
     expect(firmware.cancel).toHaveBeenCalledOnce();
   });
@@ -255,7 +272,7 @@ describe("CT1 firmware recovery", () => {
           params?.signal?.addEventListener("abort", () => reject(new Error("Aborted")), { once: true }),
         ),
     );
-    const { result, unmount } = renderHook(() => useCT1Firmware(firmware, "device"));
+    const { result, unmount } = renderHook(() => useHashboardFirmware(firmware, "device"));
     let pending: Promise<void> | undefined;
     act(() => {
       pending = result.current.cancel();
@@ -270,7 +287,7 @@ describe("CT1 firmware recovery", () => {
     // An earlier cancel could not be confirmed; the job then finished on its own.
     save({ ...attempt, cancel: "unconfirmed" });
     firmware.cancel.mockResolvedValue({ pending: false, finished: true, absent: [] });
-    const { result } = renderHook(() => useCT1Firmware(firmware, "device"));
+    const { result } = renderHook(() => useHashboardFirmware(firmware, "device"));
     await act(async () => {
       await result.current.cancel();
     });
@@ -283,12 +300,12 @@ describe("CT1 firmware recovery", () => {
     const firmware = setup();
     const other = tracked("other-tab");
     firmware.progress.mockResolvedValue({ boards: [], errors: [] });
-    const { result } = renderHook(() => useCT1Firmware(firmware, "device"));
+    const { result } = renderHook(() => useHashboardFirmware(firmware, "device"));
     await act(() => result.current.choose(file));
     save(other);
     await act(() => result.current.install());
     expect(firmware.install).not.toHaveBeenCalled();
-    expect(result.current.error).toContain("already tracked");
+    expect(result.current.errors).toEqual([expect.stringContaining("already tracked")]);
     expect(result.current.attempt).toEqual(other);
     expect(saved()).toEqual([other]);
   });
@@ -301,10 +318,10 @@ describe("CT1 firmware recovery", () => {
       starting();
       throw new Error("Start was sent");
     });
-    const { result } = renderHook(() => useCT1Firmware(firmware, "device"));
+    const { result } = renderHook(() => useHashboardFirmware(firmware, "device"));
     await act(() => result.current.choose(file));
     await act(() => result.current.install());
-    expect(result.current.error).toContain("already tracked");
+    expect(result.current.errors).toEqual([expect.stringContaining("already tracked")]);
     expect(result.current.attempt).toEqual(other);
     expect(saved()).toEqual([other]);
   });
@@ -315,7 +332,7 @@ describe("CT1 firmware recovery", () => {
     firmware.install.mockImplementation(async (_image, _attempt, _progress, _params, starting) => {
       starting();
       // The controller accepted the other tab's Start and refuses this one.
-      throw new CT1FirmwareStartRefusedError("hashboard update already running");
+      throw new HashboardFirmwareStartRefusedError("hashboard update already running");
     });
     // Both tabs found no record at the same moment. The other tab's save lands after this tab's check and just
     // before this tab's own save: the interleaving a single shared record would lose.
@@ -328,10 +345,10 @@ describe("CT1 firmware recovery", () => {
       }
       setItem.call(this, key, value);
     });
-    const { result } = renderHook(() => useCT1Firmware(firmware, "device"));
+    const { result } = renderHook(() => useHashboardFirmware(firmware, "device"));
     await act(() => result.current.choose(file));
     await act(() => result.current.install());
-    expect(result.current.error).toBe("hashboard update already running");
+    expect(result.current.errors).toEqual(["hashboard update already running"]);
     expect(saved()).toEqual([accepted]);
     expect(result.current.attempt).toEqual(accepted);
   });
@@ -344,7 +361,7 @@ describe("CT1 firmware recovery", () => {
       save(other);
       throw new Error("Lost response");
     });
-    const { result } = renderHook(() => useCT1Firmware(firmware, "device"));
+    const { result } = renderHook(() => useHashboardFirmware(firmware, "device"));
     await act(() => result.current.choose(file));
     await act(() => result.current.install());
     const own = result.current.attempt;
@@ -360,7 +377,7 @@ describe("CT1 firmware recovery", () => {
     const older = tracked("older");
     const newer = tracked("newer");
     save(older);
-    const { result } = renderHook(() => useCT1Firmware(firmware, "device"));
+    const { result } = renderHook(() => useHashboardFirmware(firmware, "device"));
     await waitFor(() => expect(result.current.progress?.outcome).toBe("completed"));
     // Another tab finished the older update and started a new one.
     removeAttempt("device", older.taskId);
@@ -378,7 +395,7 @@ describe("CT1 firmware recovery", () => {
       removeAttempt("device", attempt.taskId);
       return { pending: true, finished: false, absent: [] };
     });
-    const { result } = renderHook(() => useCT1Firmware(firmware, "device"));
+    const { result } = renderHook(() => useHashboardFirmware(firmware, "device"));
     await act(async () => {
       await result.current.cancel();
     });

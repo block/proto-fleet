@@ -1,31 +1,34 @@
 import { useEffect, useRef, useState } from "react";
 import {
-  type CT1Firmware,
-  type CT1FirmwareAttempt,
-  type CT1FirmwareBoard,
-  type CT1FirmwareImage,
-  type CT1FirmwareProgress,
-  CT1FirmwareStartRefusedError,
-} from "../adapters/ct1Firmware";
-import { readFirmwareImage } from "../adapters/mdkV2/firmwareImage";
-import { readAttempt, readAttempts, removeAttempt, saveAttempt } from "./ct1FirmwareStorage";
+  type HashboardFirmware,
+  type HashboardFirmwareAttempt,
+  type HashboardFirmwareBoard,
+  HashboardFirmwareCancelError,
+  type HashboardFirmwareImage,
+  type HashboardFirmwareProgress,
+  HashboardFirmwareStartRefusedError,
+} from "../adapters/hashboardFirmware";
+import { readAttempt, readAttempts, removeAttempt, saveAttempt } from "./hashboardFirmwareStorage";
 import { usePoll } from "@/shared/hooks/usePoll";
 
 const message = (error: unknown) =>
   error instanceof Error
     ? error.message
     : "The controller could not confirm the operation. Check the update status before trying again.";
+/** One line per failure: a cancel reports every owner that could not answer on a line of its own. */
+const messages = (error: unknown) =>
+  error instanceof HashboardFirmwareCancelError ? error.failures : [message(error)];
 
 const alreadyTracked =
   "Another hashboard update is already tracked in this browser. Check its status before starting a new one.";
 
-export function useCT1Firmware(firmware: CT1Firmware, deviceId: string) {
+export function useHashboardFirmware(firmware: HashboardFirmware, deviceId: string) {
   // One update is shown at a time. Any other saved record is adopted once this one is released.
   const [attempt, setAttempt] = useState(() => readAttempt(deviceId));
-  const [image, setImage] = useState<CT1FirmwareImage>();
-  const [boards, setBoards] = useState<CT1FirmwareBoard[]>([]);
-  const [progress, setProgress] = useState<CT1FirmwareProgress>();
-  const [error, setError] = useState<string>();
+  const [image, setImage] = useState<HashboardFirmwareImage>();
+  const [boards, setBoards] = useState<HashboardFirmwareBoard[]>([]);
+  const [progress, setProgress] = useState<HashboardFirmwareProgress>();
+  const [errors, setErrors] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [uploadPercent, setUploadPercent] = useState(0);
   const request = useRef<AbortController | null>(null);
@@ -53,15 +56,16 @@ export function useCT1Firmware(firmware: CT1Firmware, deviceId: string) {
         });
         if (!signal.aborted) setProgress(result);
       } catch (failure) {
-        if (!signal.aborted) setError(message(failure));
+        if (!signal.aborted) setErrors(messages(failure));
       }
     },
   });
 
-  // Records are saved per task (see ct1FirmwareStorage), so this tab only ever writes or removes its own task's
-  // record. The checks below keep a second tab from starting another update in the ordinary, sequential case; two
-  // tabs that pass them at the same moment each keep their own record, and the controller refuses one Start.
-  const track = (planned: CT1FirmwareAttempt) => {
+  // Records are saved per task (see hashboardFirmwareStorage), so this tab only ever writes or removes its own
+  // task's record. The checks below keep a second tab from starting another update in the ordinary, sequential
+  // case; two tabs that pass them at the same moment each keep their own record, and the controller refuses one
+  // Start.
+  const track = (planned: HashboardFirmwareAttempt) => {
     const other = readAttempt(deviceId);
     if (other) {
       if (mounted.current) setAttempt(other);
@@ -72,14 +76,14 @@ export function useCT1Firmware(firmware: CT1Firmware, deviceId: string) {
     if (mounted.current) setAttempt(planned);
   };
   /** Rewrites this task's record unless another tab already released it. */
-  const retrack = (record: CT1FirmwareAttempt) => {
+  const retrack = (record: HashboardFirmwareAttempt) => {
     const saved = readAttempts(deviceId);
     const own = saved.some((candidate) => candidate.taskId === record.taskId);
     if (own) saveAttempt(deviceId, record);
     setAttempt(own ? record : saved[0]);
   };
   /** Releases this task's record and returns another saved record to show next, if any. */
-  const untrack = (record: CT1FirmwareAttempt) => {
+  const untrack = (record: HashboardFirmwareAttempt) => {
     removeAttempt(deviceId, record.taskId);
     return readAttempt(deviceId);
   };
@@ -89,11 +93,11 @@ export function useCT1Firmware(firmware: CT1Firmware, deviceId: string) {
     const controller = new AbortController();
     request.current = controller;
     setBusy(true);
-    setError(undefined);
+    setErrors([]);
     try {
       await operation(controller.signal);
     } catch (failure) {
-      if (mounted.current && !controller.signal.aborted) setError(message(failure));
+      if (mounted.current && !controller.signal.aborted) setErrors(messages(failure));
     } finally {
       request.current = null;
       starting.current = false;
@@ -106,7 +110,7 @@ export function useCT1Firmware(firmware: CT1Firmware, deviceId: string) {
       setImage(undefined);
       setBoards([]);
       setProgress(undefined);
-      const selected = await readFirmwareImage(file);
+      const selected = await firmware.readImage(file);
       const scope = await firmware.prepare({ signal: AbortSignal.any([signal, AbortSignal.timeout(15_000)]) });
       signal.throwIfAborted();
       setImage(selected);
@@ -142,7 +146,7 @@ export function useCT1Firmware(firmware: CT1Firmware, deviceId: string) {
         );
       } catch (failure) {
         // The controller created no job: release the record and stay on the selection with its reason.
-        if (failure instanceof CT1FirmwareStartRefusedError) {
+        if (failure instanceof HashboardFirmwareStartRefusedError) {
           const other = untrack(planned);
           if (mounted.current) setAttempt(other);
         }
@@ -156,7 +160,7 @@ export function useCT1Firmware(firmware: CT1Firmware, deviceId: string) {
     setImage(undefined);
     setBoards([]);
     setProgress(undefined);
-    setError(undefined);
+    setErrors([]);
   };
 
   const cancel = () => {
@@ -192,7 +196,7 @@ export function useCT1Firmware(firmware: CT1Firmware, deviceId: string) {
     boards,
     attempt,
     progress,
-    error,
+    errors,
     busy,
     uploadPercent,
     choose,

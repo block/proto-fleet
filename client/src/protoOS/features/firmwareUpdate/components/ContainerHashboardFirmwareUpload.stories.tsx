@@ -1,13 +1,14 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import CT1FirmwareUpload from "./CT1FirmwareUpload";
+import ContainerHashboardFirmwareUpload from "./ContainerHashboardFirmwareUpload";
 
-const meta: Meta<typeof CT1FirmwareUpload> = {
-  title: "Proto OS/Firmware Update/CT1 local upload",
-  component: CT1FirmwareUpload,
+const meta: Meta<typeof ContainerHashboardFirmwareUpload> = {
+  title: "Proto OS/Firmware Update/Container hashboard local upload",
+  component: ContainerHashboardFirmwareUpload,
   parameters: { layout: "centered" },
   args: {
-    deviceId: "storybook-ct1",
+    deviceId: "storybook-container",
     firmware: {
+      readImage: async (file) => ({ file, build: "prod", version: "9.0.0" }),
       prepare: async () => [{ mac: "02:00:00:00:00:01", owner: "controller", label: "Tank 1 · Module 1 · Board 1" }],
       install: async (_image, _attempt, progress, _params, starting) => {
         progress(100);

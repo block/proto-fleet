@@ -1,15 +1,15 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { CT1FirmwareAttempt } from "../adapters/ct1Firmware";
-import { readAttempt, readAttempts, removeAttempt, saveAttempt } from "./ct1FirmwareStorage";
+import type { HashboardFirmwareAttempt } from "../adapters/hashboardFirmware";
+import { readAttempt, readAttempts, removeAttempt, saveAttempt } from "./hashboardFirmwareStorage";
 
-const attempt = (taskId: string): CT1FirmwareAttempt => ({
+const attempt = (taskId: string): HashboardFirmwareAttempt => ({
   taskId,
   boards: [{ mac: "02:00:00:00:00:01", owner: "controller", label: "Board 1" }],
   version: "9.0.0",
   build: "prod",
 });
 
-describe("CT1 firmware recovery records", () => {
+describe("Hashboard firmware recovery records", () => {
   beforeEach(() => localStorage.clear());
   afterEach(() => vi.restoreAllMocks());
 
@@ -43,9 +43,12 @@ describe("CT1 firmware recovery records", () => {
     saveAttempt("device", attempt("task"));
     // A device ID that extends this one must not be read as this device's record.
     saveAttempt("device:other", attempt("task"));
-    localStorage.setItem("proto-os:ct1-firmware:device:broken", "{");
-    localStorage.setItem("proto-os:ct1-firmware:device:mismatch", JSON.stringify(attempt("elsewhere")));
-    localStorage.setItem("proto-os:ct1-firmware:device:empty", JSON.stringify({ ...attempt("empty"), boards: [] }));
+    localStorage.setItem("proto-os:hashboard-firmware:device:broken", "{");
+    localStorage.setItem("proto-os:hashboard-firmware:device:mismatch", JSON.stringify(attempt("elsewhere")));
+    localStorage.setItem(
+      "proto-os:hashboard-firmware:device:empty",
+      JSON.stringify({ ...attempt("empty"), boards: [] }),
+    );
     localStorage.setItem("unrelated", "value");
     expect(readAttempts("device")).toEqual([attempt("task")]);
     expect(readAttempts("device:other")).toEqual([attempt("task")]);

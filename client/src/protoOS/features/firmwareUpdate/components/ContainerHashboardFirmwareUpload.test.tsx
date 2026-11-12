@@ -1,31 +1,43 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
-import CT1FirmwareUpload from "./CT1FirmwareUpload";
-import type { CT1Firmware, CT1FirmwareAttempt, CT1FirmwareProgress } from "@/protoOS/api/adapters/ct1Firmware";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import ContainerHashboardFirmwareUpload from "./ContainerHashboardFirmwareUpload";
+import {
+  type HashboardFirmware,
+  type HashboardFirmwareAttempt,
+  HashboardFirmwareCancelError,
+  type HashboardFirmwareProgress,
+} from "@/protoOS/api/adapters/hashboardFirmware";
 
-const key = "proto-os:ct1-firmware:device:task";
-const attempt: CT1FirmwareAttempt = {
+const key = "proto-os:hashboard-firmware:device:task";
+const attempt: HashboardFirmwareAttempt = {
   taskId: "task",
   boards: [{ mac: "02:00:00:00:00:01", owner: "controller", label: "Tank 1 · Module 1 · Board 1" }],
   version: "9.0.0",
   build: "prod",
 };
 const unreachable = "controller: Controller unavailable";
-const setup = (saved: CT1FirmwareAttempt = attempt, progress: CT1FirmwareProgress = { boards: [], errors: [] }) => {
+const setup = (
+  saved: HashboardFirmwareAttempt = attempt,
+  progress: HashboardFirmwareProgress = { boards: [], errors: [] },
+) => {
   const firmware = {
-    prepare: vi.fn<CT1Firmware["prepare"]>(),
-    install: vi.fn<CT1Firmware["install"]>(),
-    progress: vi.fn<CT1Firmware["progress"]>().mockResolvedValue(progress),
-    cancel: vi.fn<CT1Firmware["cancel"]>().mockRejectedValue(new Error(unreachable)),
+    readImage: vi.fn<HashboardFirmware["readImage"]>(),
+    prepare: vi.fn<HashboardFirmware["prepare"]>(),
+    install: vi.fn<HashboardFirmware["install"]>(),
+    progress: vi.fn<HashboardFirmware["progress"]>().mockResolvedValue(progress),
+    cancel: vi.fn<HashboardFirmware["cancel"]>().mockRejectedValue(new Error(unreachable)),
   };
   localStorage.setItem(key, JSON.stringify(saved));
-  render(<CT1FirmwareUpload firmware={firmware} deviceId="device" />);
+  render(<ContainerHashboardFirmwareUpload firmware={firmware} deviceId="device" />);
   fireEvent.click(screen.getByRole("button", { name: "Hashboard update status" }));
   return firmware;
 };
+const statusDialog = () => screen.getByRole("dialog", { name: "Hashboard update status" });
+const question = () => screen.getByRole("dialog", { name: "Stop tracking this update?" });
 
-describe("CT1FirmwareUpload", () => {
+describe("ContainerHashboardFirmwareUpload", () => {
   beforeEach(() => localStorage.clear());
+  afterEach(() => vi.restoreAllMocks());
 
   it("offers to stop tracking only after a cancel could not be confirmed, and asks before releasing", async () => {
     const firmware = setup();
@@ -33,19 +45,39 @@ describe("CT1FirmwareUpload", () => {
     fireEvent.click(screen.getByRole("button", { name: "Cancel update" }));
     fireEvent.click(await screen.findByRole("button", { name: "Stop tracking" }));
     expect(firmware.cancel).toHaveBeenCalledOnce();
-    expect(screen.getByRole("dialog", { name: "Stop tracking this update?" })).toBeInTheDocument();
+    // The question is asked over the status dialog, which stays out of reach until it is answered.
+    expect(question()).toBeInTheDocument();
+    expect(statusDialog()).toHaveAttribute("inert");
 
-    fireEvent.click(screen.getByRole("button", { name: "Keep tracking" }));
-    expect(screen.getByRole("dialog", { name: "Hashboard update status" })).toBeInTheDocument();
+    fireEvent.click(within(question()).getByRole("button", { name: "Keep tracking" }));
+    expect(screen.queryByRole("dialog", { name: "Stop tracking this update?" })).not.toBeInTheDocument();
+    expect(statusDialog()).not.toHaveAttribute("inert");
     expect(screen.getByRole("status")).toHaveTextContent("not confirmed by every controller");
     expect(screen.getByRole("alert")).toHaveTextContent(unreachable);
     expect(localStorage.getItem(key)).not.toBeNull();
 
     fireEvent.click(screen.getByRole("button", { name: "Stop tracking" }));
-    fireEvent.click(screen.getByRole("button", { name: "Stop tracking" }));
+    fireEvent.click(within(question()).getByRole("button", { name: "Stop tracking" }));
     expect(localStorage.getItem(key)).toBeNull();
     expect(screen.getByRole("dialog", { name: "Upload hashboard firmware" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Choose file" })).toBeEnabled();
+  });
+
+  it("opens the stop-tracking question with focus on keeping the record, and returns focus when declined", () => {
+    // jsdom lays nothing out; the shared Dialog only focuses elements that have a box.
+    vi.spyOn(HTMLElement.prototype, "getClientRects").mockReturnValue(
+      Object.assign([new DOMRect()], { item: () => null }),
+    );
+    setup({ ...attempt, cancel: "unconfirmed" });
+    const opener = screen.getByRole("button", { name: "Stop tracking" });
+    opener.focus();
+    fireEvent.click(opener);
+    expect(within(question()).getByRole("button", { name: "Keep tracking" })).toHaveFocus();
+    // A second press of the same key therefore keeps the record instead of releasing it.
+    fireEvent.click(document.activeElement!);
+    expect(screen.queryByRole("dialog", { name: "Stop tracking this update?" })).not.toBeInTheDocument();
+    expect(localStorage.getItem(key)).not.toBeNull();
+    expect(opener).toHaveFocus();
   });
 
   it("clears tracking without asking once every owner confirms the cancel", async () => {
@@ -69,6 +101,21 @@ describe("CT1FirmwareUpload", () => {
     expect(screen.getByRole("listitem")).toHaveTextContent("flashing · 52%");
     expect(screen.getByRole("button", { name: "Done" })).toBeEnabled();
     expect(screen.queryByRole("button", { name: "Cancel update" })).not.toBeInTheDocument();
+  });
+
+  it("lets the operator dismiss an ended update whose controller never reported one of its boards", async () => {
+    const missing = `${attempt.boards[0].label}: missing from update status`;
+    setup(attempt, {
+      outcome: "completedWithErrors",
+      boards: [{ ...attempt.boards[0], status: "Status unavailable" }],
+      errors: [missing],
+    });
+    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("Update finished with errors"));
+    expect(screen.getByRole("alert")).toHaveTextContent(missing);
+    expect(screen.getByRole("listitem")).toHaveTextContent("Status unavailable");
+    fireEvent.click(screen.getByRole("button", { name: "Done" }));
+    expect(localStorage.getItem(key)).toBeNull();
+    expect(screen.getByRole("button", { name: "Upload hashboard firmware" })).toBeInTheDocument();
   });
 
   it("shows a saved unconfirmed cancel as unconfirmed after a reload, with the release on offer", () => {
@@ -95,6 +142,16 @@ describe("CT1FirmwareUpload", () => {
     expect(alerts.map((alert) => alert.textContent)).toEqual([unreachable]);
     // Messages come before the board list, so a long list cannot push them out of view.
     expect(alerts[0].compareDocumentPosition(screen.getByRole("list")) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("shows each controller's error once when the status poll and a cancel both fail on two controllers", async () => {
+    const lines = ["controller-a: Controller unavailable", "controller-b: Controller unavailable"];
+    const firmware = setup(attempt, { boards: [], errors: lines });
+    firmware.cancel.mockRejectedValue(new HashboardFirmwareCancelError(lines));
+    await screen.findAllByRole("alert");
+    fireEvent.click(screen.getByRole("button", { name: "Cancel update" }));
+    await screen.findByRole("button", { name: "Stop tracking" });
+    expect(screen.getAllByRole("alert").map((alert) => alert.textContent)).toEqual(lines);
   });
 
   it("keeps distinct messages from the status poll and a failed cancel", async () => {

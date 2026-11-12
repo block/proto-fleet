@@ -1,12 +1,12 @@
 import { useRef, useState } from "react";
 import clsx from "clsx";
-import type { CT1Firmware, CT1FirmwareOutcome } from "@/protoOS/api/adapters/ct1Firmware";
-import { useCT1Firmware } from "@/protoOS/api/hooks/useCT1Firmware";
+import type { HashboardFirmware, HashboardFirmwareOutcome } from "@/protoOS/api/adapters/hashboardFirmware";
+import { useHashboardFirmware } from "@/protoOS/api/hooks/useHashboardFirmware";
 import Button from "@/shared/components/Button";
 import Dialog from "@/shared/components/Dialog";
 import FileSizeValue from "@/shared/components/FileSizeValue";
 
-const outcomeText: Record<CT1FirmwareOutcome, string> = {
+const outcomeText: Record<HashboardFirmwareOutcome, string> = {
   completed: "Update finished",
   completedWithErrors: "Update finished with errors",
   canceled: "Update canceled",
@@ -22,8 +22,14 @@ const boardListHeight = {
   stacked: "max-h-[clamp(4.5rem,calc(100dvh_-_37rem),20rem)]",
 };
 
-export default function CT1FirmwareUpload({ firmware, deviceId }: { firmware: CT1Firmware; deviceId: string }) {
-  const state = useCT1Firmware(firmware, deviceId);
+export default function ContainerHashboardFirmwareUpload({
+  firmware,
+  deviceId,
+}: {
+  firmware: HashboardFirmware;
+  deviceId: string;
+}) {
+  const state = useHashboardFirmware(firmware, deviceId);
   const [open, setOpen] = useState(false);
   const [confirmingRelease, setConfirmingRelease] = useState(false);
   const input = useRef<HTMLInputElement>(null);
@@ -32,42 +38,25 @@ export default function CT1FirmwareUpload({ firmware, deviceId }: { firmware: CT
   };
   const outcome = state.progress?.outcome;
   const unconfirmed = state.attempt?.cancel === "unconfirmed";
+  const releasing = confirmingRelease && !!state.attempt;
   // One line per distinct message: a failed cancel and the status poll often report the same unreachable controller.
-  const alerts = [
-    ...new Set([...(state.attempt ? (state.progress?.errors ?? []) : []), ...(state.error ? [state.error] : [])]),
-  ].map((message) => (
-    <p key={message} role="alert" className="text-text-critical">
-      {message}
-    </p>
-  ));
+  const alerts = [...new Set([...(state.attempt ? (state.progress?.errors ?? []) : []), ...state.errors])].map(
+    (message) => (
+      <p key={message} role="alert" className="text-text-critical">
+        {message}
+      </p>
+    ),
+  );
   return (
     <div className="mt-6 flex justify-center">
       <Button variant="secondary" size="compact" onClick={() => setOpen(true)}>
         {state.attempt ? "Hashboard update status" : "Upload hashboard firmware"}
       </Button>
-      {open && confirmingRelease && state.attempt ? (
-        <Dialog
-          title="Stop tracking this update?"
-          subtitle="This browser will no longer show or cancel it. An update still running on a controller that did not confirm the cancel continues."
-          subtitleSize="text-300"
-          manageFocus
-          onDismiss={() => setConfirmingRelease(false)}
-          buttons={[
-            { text: "Keep tracking", variant: "secondary", onClick: () => setConfirmingRelease(false) },
-            {
-              text: "Stop tracking",
-              variant: "primary",
-              onClick: () => {
-                state.clear();
-                setConfirmingRelease(false);
-              },
-            },
-          ]}
-        />
-      ) : open ? (
+      {open ? (
         <Dialog
           title={state.attempt ? "Hashboard update status" : "Upload hashboard firmware"}
           manageFocus
+          inert={releasing}
           onDismiss={close}
           buttons={[
             { text: "Close", variant: "secondary", disabled: state.busy, onClick: close },
@@ -192,6 +181,28 @@ export default function CT1FirmwareUpload({ firmware, deviceId }: { firmware: CT
             )}
           </div>
         </Dialog>
+      ) : null}
+      {/* A dialog of its own, over the status dialog: it opens with focus on "Keep tracking", not on the button that
+          releases the record, and declining returns focus to the button that asked. */}
+      {open && releasing ? (
+        <Dialog
+          title="Stop tracking this update?"
+          subtitle="This browser will no longer show or cancel it. An update still running on a controller that did not confirm the cancel continues."
+          subtitleSize="text-300"
+          manageFocus
+          onDismiss={() => setConfirmingRelease(false)}
+          buttons={[
+            { text: "Keep tracking", variant: "secondary", onClick: () => setConfirmingRelease(false) },
+            {
+              text: "Stop tracking",
+              variant: "primary",
+              onClick: () => {
+                state.clear();
+                setConfirmingRelease(false);
+              },
+            },
+          ]}
+        />
       ) : null}
     </div>
   );

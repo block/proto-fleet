@@ -1,39 +1,37 @@
-import { fromBinary } from "@bufbuild/protobuf";
 import { expect, test } from "@playwright/test";
-import type {
-  V2GetContainerMapResponse,
-  V2ListFirmwareUpdatesResponse,
-} from "../../../src/protoOS/api/adapters/mdkV2/generated/generatedApi";
-import { StartFirmwareUpdateRequestSchema } from "../../../src/protoOS/api/adapters/mdkV2/generated/proto/mdk/v2/firmware_pb";
-import { CT1FirmwarePage } from "../pages/ct1Firmware";
+import {
+  cancelUpdates,
+  containerMap,
+  controllerHeaders,
+  HashboardFirmwarePage,
+  isFirmwareCall,
+  listUpdates,
+  startRequest,
+} from "../pages/hashboardFirmware";
 
 // Separate complete six-tank simulator; the schematic suite retains its small map.
 test.use({ baseURL: "http://127.0.0.1:18082" });
-const procedure = (method: string) => `/mdk.v2.FirmwareService/${method}`;
-const headers = { "X-Frigate-Actor": "proto-os", "Connect-Protocol-Version": "1" };
 
 test("local F1 upload recovers a lost Start response and reload, reports every board, and preserves controller software", async ({
   page,
   request,
 }) => {
-  const map = (await (await request.get("/api/v2/container/map")).json()) as V2GetContainerMapResponse;
-  const macs = map.containerMap!.tanks!.flatMap((tank) =>
+  const macs = (await containerMap(request)).containerMap!.tanks!.flatMap((tank) =>
     tank.modules!.flatMap((module) =>
       module.slots!.filter((slot) => slot.occupied).map((slot) => slot.hashboard!.macAddress!),
     ),
   );
   const before = await (await request.get("/api/v2/system/info")).json();
-  const dashboard = new CT1FirmwarePage(page);
+  const dashboard = new HashboardFirmwarePage(page);
+  const taskIds = dashboard.startedTaskIds();
   let startCount = 0;
   let chunkWrites = 0;
-  page.on("request", (req) => {
-    if (new URL(req.url()).pathname === procedure("WriteFirmwareArtifactUploadChunk")) chunkWrites++;
+  page.on("request", (sent) => {
+    if (isFirmwareCall(sent, "WriteFirmwareArtifactUploadChunk")) chunkWrites++;
   });
-  const taskIds = new Set<string>();
-  await page.route(`**${procedure("StartFirmwareUpdate")}`, async (route) => {
+  await dashboard.interceptStart(async (route) => {
     startCount++;
-    const start = fromBinary(StartFirmwareUpdateRequestSchema, route.request().postDataBuffer()!);
-    taskIds.add(start.taskId);
+    const start = startRequest(route.request());
     expect(start.scope?.identifiers.sort()).toEqual(macs.sort());
     expect(start.options?.force).toBe(true);
     expect(start.options?.build).toBe("prod");
@@ -50,14 +48,14 @@ test("local F1 upload recovers a lost Start response and reload, reports every b
   try {
     await dashboard.open();
     await dashboard.choose("r2");
-    await expect(dashboard.dialog().getByRole("alert")).toContainText("valid F1");
-    await expect(dashboard.dialog().getByRole("button", { name: "Upload and install" })).toBeDisabled();
+    await expect(dashboard.alerts()).toContainText("valid F1");
+    await expect(dashboard.uploadAndInstallButton()).toBeDisabled();
     await dashboard.install();
-    await expect(dashboard.dialog().getByText("Lost response")).toBeVisible();
+    await expect(dashboard.alert("Lost response")).toBeVisible();
     await dashboard.reopenStatus();
-    await expect(dashboard.dialog().getByRole("status")).toHaveText("Update finished");
-    await expect(dashboard.dialog().getByRole("listitem")).toHaveCount(18);
-    await expect(dashboard.dialog().getByText("succeeded · 100%", { exact: true })).toHaveCount(18);
+    await expect(dashboard.status()).toHaveText("Update finished");
+    await expect(dashboard.boardRows()).toHaveCount(18);
+    await expect(dashboard.succeededRows()).toHaveCount(18);
     await test.info().attach("firmware-completed", { body: await page.screenshot(), contentType: "image/png" });
     expect(startCount).toBe(1);
     // Start is only reachable after the simulator accepted both chunks against the declared size and digest.
@@ -65,13 +63,12 @@ test("local F1 upload recovers a lost Start response and reload, reports every b
     const afterInfo = await (await request.get("/api/v2/system/info")).json();
     expect(afterInfo.info.version).toBe(before.info.version);
     expect(afterInfo.info.osInfo).toEqual(before.info.osInfo);
-    await dashboard.dialog().getByRole("button", { name: "Done", exact: true }).click();
-    await expect(page.getByRole("button", { name: "Upload hashboard firmware", exact: true })).toBeVisible();
+    await dashboard.doneButton().click();
+    await expect(dashboard.uploadButton()).toBeVisible();
   } finally {
-    for (const taskId of taskIds)
-      expect((await request.post(procedure("CancelFirmwareUpdate"), { headers, data: { taskId } })).ok()).toBe(true);
+    await cancelUpdates(request, taskIds);
     // Same-version force installs exercise flashing while preserving the baseline.
-    const after = (await (await request.get("/api/v2/container/map")).json()) as V2GetContainerMapResponse;
+    const after = await containerMap(request);
     expect(
       after.containerMap!.tanks!.flatMap((tank) =>
         tank.modules!.flatMap((module) => module.slots!.map((slot) => slot.hashboard!.firmwareVersion)),
@@ -82,42 +79,34 @@ test("local F1 upload recovers a lost Start response and reload, reports every b
 
 test("local hashboard firmware can cancel an update and displays a board failure", async ({ page, request }) => {
   await page.emulateMedia({ colorScheme: "dark" });
-  const dashboard = new CT1FirmwarePage(page);
-  const map = (await (await request.get("/api/v2/container/map")).json()) as V2GetContainerMapResponse;
-  const mac = map.containerMap!.tanks![0].modules![0].slots![0].hashboard!.macAddress!;
+  const dashboard = new HashboardFirmwarePage(page);
+  const mac = (await containerMap(request)).containerMap!.tanks![0].modules![0].slots![0].hashboard!.macAddress!;
   const isolation = async (isolated: boolean) => {
     expect(
       (
         await request.post("/mdk.v2.MiningService/SetIsolation", {
-          headers,
+          headers: controllerHeaders,
           data: { scope: { identifiers: [mac] }, isolated },
         })
       ).ok(),
     ).toBe(true);
   };
-  const taskIds = new Set<string>();
-  page.on("request", (req) => {
-    if (new URL(req.url()).pathname === procedure("StartFirmwareUpdate"))
-      taskIds.add(fromBinary(StartFirmwareUpdateRequestSchema, req.postDataBuffer()!).taskId);
-  });
+  const taskIds = dashboard.startedTaskIds();
   try {
     await dashboard.open();
     await dashboard.install();
-    await dashboard.dialog().getByRole("button", { name: "Cancel update", exact: true }).click();
-    await expect(dashboard.dialog().getByRole("button", { name: "Choose file" })).toBeVisible();
-    const listed = (await (
-      await request.post(procedure("ListFirmwareUpdates"), { headers, data: {} })
-    ).json()) as V2ListFirmwareUpdatesResponse;
-    expect(listed.updates!.find((job) => taskIds.has(job.taskId!))?.status).toBe("FIRMWARE_UPDATE_STATUS_CANCELED");
+    await dashboard.cancelUpdateButton().click();
+    await expect(dashboard.chooseFileButton()).toBeVisible();
+    const canceled = (await listUpdates(request)).find((job) => taskIds.has(job.taskId!));
+    expect(canceled?.status).toBe("FIRMWARE_UPDATE_STATUS_CANCELED");
     await isolation(true);
     await dashboard.install();
-    await expect(dashboard.dialog().getByRole("status")).toHaveText("Update finished with errors");
-    await expect(dashboard.dialog().getByText(/failed.*Simulated hashboard/)).toBeVisible();
-    await expect(dashboard.dialog().getByText("succeeded · 100%", { exact: true })).toHaveCount(17);
+    await expect(dashboard.status()).toHaveText("Update finished with errors");
+    await expect(dashboard.boardRow(/failed.*Simulated hashboard/)).toBeVisible();
+    await expect(dashboard.succeededRows()).toHaveCount(17);
     await test.info().attach("firmware-failed-dark", { body: await page.screenshot(), contentType: "image/png" });
   } finally {
-    for (const taskId of taskIds)
-      expect((await request.post(procedure("CancelFirmwareUpdate"), { headers, data: { taskId } })).ok()).toBe(true);
+    await cancelUpdates(request, taskIds);
     await isolation(false);
   }
 });
@@ -126,12 +115,11 @@ test("a refused Start is not tracked, and an update no controller knows stays tr
   page,
   request,
 }) => {
-  const dashboard = new CT1FirmwarePage(page);
-  const taskIds = new Set<string>();
+  const dashboard = new HashboardFirmwarePage(page);
+  const taskIds = dashboard.startedTaskIds();
   let refuse = true;
   // Neither Start reaches the simulator: the first is definitively refused, the second is lost on the way.
-  await page.route(`**${procedure("StartFirmwareUpdate")}`, async (route) => {
-    taskIds.add(fromBinary(StartFirmwareUpdateRequestSchema, route.request().postDataBuffer()!).taskId);
+  await dashboard.interceptStart(async (route) => {
     if (refuse)
       await route.fulfill({
         status: 400,
@@ -144,8 +132,8 @@ test("a refused Start is not tracked, and an update no controller knows stays tr
   await test.step("a refused Start keeps the selection and saves nothing", async () => {
     await dashboard.open();
     await dashboard.install();
-    await expect(dashboard.dialog().getByRole("alert")).toHaveText("hashboard update already running");
-    await expect(dashboard.dialog().getByRole("button", { name: "Upload and install" })).toBeEnabled();
+    await expect(dashboard.alerts()).toHaveText("hashboard update already running");
+    await expect(dashboard.uploadAndInstallButton()).toBeEnabled();
     await page.reload();
     await expect(dashboard.uploadButton()).toBeVisible();
   });
@@ -154,12 +142,10 @@ test("a refused Start is not tracked, and an update no controller knows stays tr
     refuse = false;
     await dashboard.uploadButton().click();
     await dashboard.install();
-    await expect(dashboard.dialog().getByText(/Update not found/)).toBeVisible();
-    await dashboard.dialog().getByRole("button", { name: "Cancel update", exact: true }).click();
-    await expect(dashboard.dialog().getByRole("status")).toHaveText(
-      "The cancel was not confirmed by every controller.",
-    );
-    await expect(dashboard.dialog().getByRole("button", { name: "Stop tracking", exact: true })).toBeEnabled();
+    await expect(dashboard.alert(/Update not found/)).toBeVisible();
+    await dashboard.cancelUpdateButton().click();
+    await expect(dashboard.status()).toHaveText("The cancel was not confirmed by every controller.");
+    await expect(dashboard.stopTrackingButton()).toBeEnabled();
     await test.info().attach("firmware-cancel-unconfirmed", {
       body: await page.screenshot(),
       contentType: "image/png",
@@ -167,44 +153,43 @@ test("a refused Start is not tracked, and an update no controller knows stays tr
     // With three buttons the footer stacks; the board list shrinks so the buttons stay on screen in a short window.
     const size = page.viewportSize()!;
     await page.setViewportSize({ width: size.width, height: 700 });
-    await expect(dashboard.dialog().getByRole("button", { name: "Close", exact: true })).toBeInViewport({
-      ratio: 0.99,
-    });
+    await expect(dashboard.closeButton()).toBeInViewport({ ratio: 0.99 });
     await page.setViewportSize(size);
     await dashboard.reopenStatus();
     // The unconfirmed cancel is saved with the record, so a reload shows the same state and the same way out.
-    await expect(dashboard.dialog().getByRole("status")).toHaveText(
-      "The cancel was not confirmed by every controller.",
-    );
-    await expect(dashboard.dialog().getByRole("button", { name: "Retry cancel", exact: true })).toBeVisible();
+    await expect(dashboard.status()).toHaveText("The cancel was not confirmed by every controller.");
+    await expect(dashboard.retryCancelButton()).toBeVisible();
   });
 
   await test.step("the operator releases it explicitly", async () => {
-    await dashboard.dialog().getByRole("button", { name: "Stop tracking", exact: true }).click();
-    await expect(page.getByRole("dialog", { name: "Stop tracking this update?" })).toBeVisible();
+    await dashboard.stopTrackingButton().click();
+    await expect(dashboard.releaseDialog()).toBeVisible();
+    // The question opens on the button that keeps the record, so a repeated key press cannot release it, and
+    // declining returns to the button that asked.
+    await expect(dashboard.keepTrackingButton()).toBeFocused();
+    await page.keyboard.press("Enter");
+    await expect(dashboard.releaseDialog()).toBeHidden();
+    await expect(dashboard.stopTrackingButton()).toBeFocused();
+    await page.keyboard.press("Enter");
+    await expect(dashboard.releaseDialog()).toBeVisible();
+    // The question animates in over the status dialog; capture it once it has settled.
+    await dashboard.releaseDialogSettled();
     await test.info().attach("firmware-stop-tracking", { body: await page.screenshot(), contentType: "image/png" });
-    await dashboard.dialog().getByRole("button", { name: "Stop tracking", exact: true }).click();
-    await expect(dashboard.dialog().getByRole("button", { name: "Choose file" })).toBeVisible();
+    await dashboard.confirmStopTrackingButton().click();
+    await expect(dashboard.chooseFileButton()).toBeVisible();
     await page.reload();
     await expect(dashboard.uploadButton()).toBeVisible();
   });
 
   expect(taskIds.size).toBe(2);
-  const listed = (await (
-    await request.post(procedure("ListFirmwareUpdates"), { headers, data: {} })
-  ).json()) as V2ListFirmwareUpdatesResponse;
-  expect((listed.updates ?? []).filter((job) => taskIds.has(job.taskId!))).toEqual([]);
+  expect((await listUpdates(request)).filter((job) => taskIds.has(job.taskId!))).toEqual([]);
 });
 
 test("a second tab adopts the tracked update instead of starting another one", async ({ page, context, request }) => {
-  const first = new CT1FirmwarePage(page);
-  const second = new CT1FirmwarePage(await context.newPage());
-  const taskIds = new Set<string>();
-  for (const tab of [first.page, second.page])
-    tab.on("request", (req) => {
-      if (new URL(req.url()).pathname === procedure("StartFirmwareUpdate"))
-        taskIds.add(fromBinary(StartFirmwareUpdateRequestSchema, req.postDataBuffer()!).taskId);
-    });
+  const first = new HashboardFirmwarePage(page);
+  const second = new HashboardFirmwarePage(await context.newPage());
+  const taskIds = first.startedTaskIds();
+  second.startedTaskIds(taskIds);
   try {
     // Both tabs select the image before either starts, so the second still shows the upload form.
     await first.open();
@@ -214,20 +199,19 @@ test("a second tab adopts the tracked update instead of starting another one", a
 
     await first.confirm();
     // The dialog switches to the status view once the record is saved, just before Start is sent.
-    await expect(first.page.getByRole("dialog", { name: "Hashboard update status" })).toBeVisible();
+    await expect(first.statusDialog()).toBeVisible();
     await second.confirm();
-    await expect(second.dialog().getByRole("alert")).toContainText("already tracked");
-    await expect(second.dialog().getByRole("status")).toHaveText("Update finished");
-    await expect(second.dialog().getByText("succeeded · 100%", { exact: true })).toHaveCount(18);
+    await expect(second.alerts()).toContainText("already tracked");
+    await expect(second.status()).toHaveText("Update finished");
+    await expect(second.succeededRows()).toHaveCount(18);
     expect(taskIds.size).toBe(1);
 
     // The second tab tracks the same task, so finishing there releases the record for the first tab too.
-    await second.dialog().getByRole("button", { name: "Done", exact: true }).click();
+    await second.doneButton().click();
     await first.page.reload();
     await expect(first.uploadButton()).toBeVisible();
   } finally {
-    for (const taskId of taskIds)
-      expect((await request.post(procedure("CancelFirmwareUpdate"), { headers, data: { taskId } })).ok()).toBe(true);
+    await cancelUpdates(request, taskIds);
   }
 });
 
@@ -235,39 +219,28 @@ test("an update another client cancels reads as canceled, and the dialog fits a 
   page,
   request,
 }) => {
-  const dashboard = new CT1FirmwarePage(page);
-  const taskIds = new Set<string>();
-  page.on("request", (req) => {
-    if (new URL(req.url()).pathname === procedure("StartFirmwareUpdate"))
-      taskIds.add(fromBinary(StartFirmwareUpdateRequestSchema, req.postDataBuffer()!).taskId);
-  });
-  const cancelAll = async () => {
-    for (const taskId of taskIds)
-      expect((await request.post(procedure("CancelFirmwareUpdate"), { headers, data: { taskId } })).ok()).toBe(true);
-  };
+  const dashboard = new HashboardFirmwarePage(page);
+  const taskIds = dashboard.startedTaskIds();
   try {
     await dashboard.open();
-    const started = page.waitForResponse(
-      (response) => new URL(response.url()).pathname === procedure("StartFirmwareUpdate"),
-    );
+    const started = dashboard.startResponse();
     await dashboard.install();
     expect((await started).ok()).toBe(true);
     // Another client, such as a second browser or Fleet, cancels the task this page is tracking.
-    await cancelAll();
-    await expect(dashboard.dialog().getByRole("status")).toHaveText("Update canceled");
-    await expect(dashboard.dialog().getByRole("listitem")).toHaveCount(18);
+    await cancelUpdates(request, taskIds);
+    await expect(dashboard.status()).toHaveText("Update canceled");
+    await expect(dashboard.boardRows()).toHaveCount(18);
 
     // The board list shrinks before the dialog has to scroll, so the footer stays on screen in a short window.
     await page.setViewportSize({ width: page.viewportSize()!.width, height: 640 });
-    const done = dashboard.dialog().getByRole("button", { name: "Done", exact: true });
-    await expect(done).toBeInViewport({ ratio: 0.99 });
+    await expect(dashboard.doneButton()).toBeInViewport({ ratio: 0.99 });
     await test.info().attach("firmware-canceled-short-window", {
       body: await page.screenshot(),
       contentType: "image/png",
     });
-    await done.click();
+    await dashboard.doneButton().click();
     await expect(dashboard.uploadButton()).toBeVisible();
   } finally {
-    await cancelAll();
+    await cancelUpdates(request, taskIds);
   }
 });

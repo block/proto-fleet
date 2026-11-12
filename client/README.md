@@ -154,7 +154,9 @@ Missing or unreachable owners remain visibly unresolved, and a job that finished
 before the cancel arrived keeps its per-board result until **Done**. When a
 cancel attempt leaves an owner unreachable or reporting the task as not found,
 **Stop tracking** releases the record after confirmation; an update still
-running on that controller continues. The state of a cancel is saved with the
+running on that controller continues. The confirmation opens over the status
+dialog with focus on **Keep tracking**, so a repeated key press cannot release
+the record. The state of a cancel is saved with the
 record, so both a request that is still stopping boards and one that was not
 confirmed read the same after a reload.
 
@@ -162,7 +164,11 @@ Once every owner's job has ended, the status states how: finished, finished with
 errors, canceled, interrupted, or failed. It comes from the owners' job
 statuses, so an update that another client cancels or a controller interrupts
 is not reported as finished; when owners end differently, the worst outcome is
-shown. Progress includes each board's phase and failure details. Browser storage does not transfer across
+shown. A board that its owner's ended job does not list is named as missing and
+counts as an error, as in Fleet, so the update reads at least as finished with
+errors and can still be dismissed with **Done**. While that job is running the
+board may yet be reported, so no outcome is shown. Progress includes each
+board's phase and failure details. Browser storage does not transfer across
 origins, browsers, or controllers, and an unfinished upload must be selected
 again after a reload.
 

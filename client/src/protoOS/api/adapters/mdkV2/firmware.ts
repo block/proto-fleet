@@ -1,11 +1,13 @@
+import { base64Encode } from "@bufbuild/protobuf/wire";
 import {
-  type CT1Firmware,
-  type CT1FirmwareAttempt,
-  type CT1FirmwareBoard,
-  type CT1FirmwareOutcome,
-  type CT1FirmwareProgress,
-  CT1FirmwareStartRefusedError,
-} from "../ct1Firmware";
+  type HashboardFirmware,
+  type HashboardFirmwareAttempt,
+  type HashboardFirmwareBoard,
+  HashboardFirmwareCancelError,
+  type HashboardFirmwareOutcome,
+  type HashboardFirmwareProgress,
+  HashboardFirmwareStartRefusedError,
+} from "../hashboardFirmware";
 import type { AdapterRequestOptions } from "../types";
 import type { MdkV2Client } from "./connectClient";
 import { firmwareDigest } from "./firmwareDigest";
@@ -16,7 +18,7 @@ import {
   type V2GetContainerMapResponse,
 } from "./generated/generatedApi";
 
-export function firmwareBoards(map: V2GetContainerMapResponse, serverId: string): CT1FirmwareBoard[] {
+export function firmwareBoards(map: V2GetContainerMapResponse, serverId: string): HashboardFirmwareBoard[] {
   // Fleet's rule (docs/development/ct1-grpc.md): every tank and every module position of its grid must be reported.
   // The map carries no completeness signal, so a tank that maps fewer modules than its grid cannot be told apart
   // from one whose modules are not all reported yet, and updating it could silently skip boards.
@@ -27,7 +29,7 @@ export function firmwareBoards(map: V2GetContainerMapResponse, serverId: string)
   const tanks = map.containerMap?.tanks;
   const located = tanks?.filter((tank) => tank.id !== 0) ?? [];
   if (located.length !== 6 || new Set(located.map((tank) => tank.id)).size !== 6) throw incomplete();
-  const boards: CT1FirmwareBoard[] = [];
+  const boards: HashboardFirmwareBoard[] = [];
   for (const tank of tanks ?? []) {
     const unlocated = tank.id === 0;
     const expected = (tank.moduleLayout?.rows ?? 0) * (tank.moduleLayout?.columns ?? 0) || 16;
@@ -79,10 +81,12 @@ export function firmwareBoards(map: V2GetContainerMapResponse, serverId: string)
 
 const errorMessage = (error: unknown) => (error instanceof Error ? error.message : "Controller unavailable");
 const statusCode = (error: unknown) => (error as { status?: number } | undefined)?.status;
-const owners = (attempt: CT1FirmwareAttempt) => [...new Set(attempt.boards.map((board) => board.owner))];
+// Status and cancel word an owner's failure identically, so the dialog can show it once.
+const ownerLine = (owner: string, message: string) => `${owner}: ${message}`;
+const owners = (attempt: HashboardFirmwareAttempt) => [...new Set(attempt.boards.map((board) => board.owner))];
 // A job has ended once it reports one of these statuses. They are listed from best to worst: when owners end
 // differently, the update as a whole is reported by the worst of them.
-const endedOutcomes = new Map<V2FirmwareUpdateStatus, CT1FirmwareOutcome>([
+const endedOutcomes = new Map<V2FirmwareUpdateStatus, HashboardFirmwareOutcome>([
   [V2FirmwareUpdateStatus.FIRMWARE_UPDATE_STATUS_COMPLETED, "completed"],
   [V2FirmwareUpdateStatus.FIRMWARE_UPDATE_STATUS_COMPLETED_WITH_ERRORS, "completedWithErrors"],
   [V2FirmwareUpdateStatus.FIRMWARE_UPDATE_STATUS_CANCELED, "canceled"],
@@ -94,12 +98,15 @@ const isTerminal = (status?: V2FirmwareUpdateStatus) => status !== undefined && 
 // The same split as Fleet's firmwareStartRefused (plugin/proto/internal/ct1/firmware.go): with these answers the
 // controller created no job. Every other outcome, including no status at all, is uncertain and stays tracked.
 const startRefusedStatuses = new Set([400, 401, 403, 404, 429, 501]);
+// CT1 hashboards are F1 hardware, so these containers accept only F1 images.
+const hardwareRevision = "f1";
 
-export function createCT1Firmware(
+export function createHashboardFirmware(
   client: MdkV2Client,
   decorate: (params?: AdapterRequestOptions) => AdapterRequestOptions,
-): CT1Firmware {
+): HashboardFirmware {
   return {
+    readImage: (file) => readFirmwareImage(file, hardwareRevision),
     async prepare(params) {
       const [map, system] = await Promise.all([
         client.hashboardServiceGetContainerMap(decorate(params)),
@@ -109,11 +116,11 @@ export function createCT1Firmware(
     },
     async install(image, attempt, onProgress, params, onStarting) {
       const options = decorate(params);
-      const checked = await readFirmwareImage(image.file);
+      const checked = await this.readImage(image.file);
       if (checked.build !== attempt.build || checked.version !== attempt.version)
         throw new Error("Firmware selection changed. Choose the image again.");
       const current = await this.prepare(params);
-      const identities = (boards: CT1FirmwareBoard[]) =>
+      const identities = (boards: HashboardFirmwareBoard[]) =>
         boards
           .map((board) => `${board.mac}/${board.owner}`)
           .sort()
@@ -143,9 +150,7 @@ export function createCT1Firmware(
         for (let offset = 0; offset < bytes.length;) {
           params?.signal?.throwIfAborted();
           const chunk = bytes.subarray(offset, offset + chunkSize);
-          let binary = "";
-          for (let i = 0; i < chunk.length; i += 8192) binary += String.fromCharCode(...chunk.subarray(i, i + 8192));
-          const request = { imageIndex: 0, offset: String(offset), data: btoa(binary) };
+          const request = { imageIndex: 0, offset: String(offset), data: base64Encode(chunk) };
           let response;
           for (let retry = 0; ; retry++) {
             try {
@@ -180,7 +185,7 @@ export function createCT1Firmware(
           );
         } catch (error) {
           if (startRefusedStatuses.has(statusCode(error) ?? 0))
-            throw new CT1FirmwareStartRefusedError(
+            throw new HashboardFirmwareStartRefusedError(
               error instanceof Error && error.message ? error.message : "The controller refused the update.",
             );
           throw error;
@@ -193,8 +198,8 @@ export function createCT1Firmware(
       }
     },
     async progress(attempt, params) {
-      const result: CT1FirmwareProgress = { boards: [], errors: [] };
-      const ended: CT1FirmwareOutcome[] = [];
+      const result: HashboardFirmwareProgress = { boards: [], errors: [] };
+      const ended: HashboardFirmwareOutcome[] = [];
       let unresolved = false;
       await Promise.all(
         owners(attempt).map(async (owner) => {
@@ -210,11 +215,13 @@ export function createCT1Firmware(
             const outcome = job.status && endedOutcomes.get(job.status);
             if (outcome) ended.push(outcome);
             else unresolved = true;
-            if (job.error) result.errors.push(`${owner}: ${job.error}`);
+            if (job.error) result.errors.push(ownerLine(owner, job.error));
             for (const board of expected) {
               const target = job.targets?.find((target) => target.macAddress?.toUpperCase() === board.mac);
               if (!target) {
-                unresolved = true;
+                // An ended job never gains targets, so waiting for this board would leave an update that can never be
+                // dismissed. Like Fleet (docs/development/ct1-grpc.md), count it as an error of the ended update.
+                if (outcome) ended.push("completedWithErrors");
                 result.errors.push(`${board.label}: missing from update status`);
               }
               result.boards.push({
@@ -229,7 +236,12 @@ export function createCT1Firmware(
           } catch (error) {
             unresolved = true;
             result.errors.push(
-              `${owner}: ${statusCode(error) === 404 ? "Update not found. Check again, or cancel and stop tracking before starting another update." : errorMessage(error)}`,
+              ownerLine(
+                owner,
+                statusCode(error) === 404
+                  ? "Update not found. Check again, or cancel and stop tracking before starting another update."
+                  : errorMessage(error),
+              ),
             );
             result.boards.push(...expected.map((board) => ({ ...board, status: "Status unavailable" })));
           }
@@ -259,11 +271,11 @@ export function createCT1Firmware(
             else if (status !== V2FirmwareUpdateStatus.FIRMWARE_UPDATE_STATUS_CANCELED) finished = true;
           } catch (error) {
             if (statusCode(error) === 404) absent.push(owner);
-            else failures.push(`${owner}: ${errorMessage(error)}`);
+            else failures.push(ownerLine(owner, errorMessage(error)));
           }
         }),
       );
-      if (failures.length) throw new Error(failures.join("; "));
+      if (failures.length) throw new HashboardFirmwareCancelError(failures);
       return { pending, finished, absent: absent.sort() };
     },
   };

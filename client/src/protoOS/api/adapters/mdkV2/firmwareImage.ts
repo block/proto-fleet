@@ -1,18 +1,34 @@
-import type { CT1FirmwareImage } from "../ct1Firmware";
+import {
+  type HashboardFirmwareBuild,
+  hashboardFirmwareBuilds,
+  type HashboardFirmwareImage,
+} from "../hashboardFirmware";
 
-const invalid = () =>
-  new Error("Choose a valid F1 firmware image: f1-app-prod.bin, f1-app-dev.bin, or f1-app-mfgtest.bin.");
+/** What an image's embedded hbmeta records, whichever hashboard hardware the image is built for. */
+export interface FirmwareMetadata {
+  hardwareRevision: string;
+  build: HashboardFirmwareBuild;
+  version: string;
+}
+
+// hbmeta follows the 1 KiB vector table: a six-byte header ending in a little-endian length, then a msgpack map.
+const metadataOffset = 1030;
+const maxMetadataBytes = 0xffff;
+const maxImageBytes = 64 * 1024 * 1024;
+
+const invalidMetadata = () => new Error("The firmware image metadata is missing or malformed.");
 
 // Read only hbmeta's bounded msgpack map. Unknown fields are skipped, including
 // nested containers and binary/extension values; they are never materialized.
-export function decodeFirmwareMetadata(bytes: Uint8Array): Omit<CT1FirmwareImage, "file"> {
-  if (bytes.length < 1030) throw invalid();
-  const length = bytes[1028] | (bytes[1029] << 8);
-  if (!length || length > bytes.length - 1030) throw invalid();
-  const data = new DataView(bytes.buffer, bytes.byteOffset + 1030, length);
+// Which hardware an image may be installed on is the caller's rule, as in Fleet's DecodeMetadata.
+export function decodeFirmwareMetadata(bytes: Uint8Array): FirmwareMetadata {
+  if (bytes.length < metadataOffset) throw invalidMetadata();
+  const length = bytes[metadataOffset - 2] | (bytes[metadataOffset - 1] << 8);
+  if (!length || length > bytes.length - metadataOffset) throw invalidMetadata();
+  const data = new DataView(bytes.buffer, bytes.byteOffset + metadataOffset, length);
   let offset = 0;
   const take = (n: number) => {
-    if (n < 0 || n > length - offset) throw invalid();
+    if (n < 0 || n > length - offset) throw invalidMetadata();
     const start = offset;
     offset += n;
     return start;
@@ -23,7 +39,7 @@ export function decodeFirmwareMetadata(bytes: Uint8Array): Omit<CT1FirmwareImage
     if (n === 2) return data.getUint16(at);
     if (n === 4) return data.getUint32(at);
     const value = data.getBigUint64(at);
-    if (value > BigInt(Number.MAX_SAFE_INTEGER)) throw invalid();
+    if (value > BigInt(Number.MAX_SAFE_INTEGER)) throw invalidMetadata();
     return Number(value);
   };
   const string = (tag: number) => {
@@ -33,7 +49,7 @@ export function decodeFirmwareMetadata(bytes: Uint8Array): Omit<CT1FirmwareImage
     return new TextDecoder("utf-8", { fatal: true }).decode(new Uint8Array(data.buffer, data.byteOffset + at, size));
   };
   const skip = (tag: number, depth = 0): void => {
-    if (depth > 16) throw invalid();
+    if (depth > 16) throw invalidMetadata();
     if (tag < 0x80 || tag >= 0xe0 || [0xc0, 0xc2, 0xc3].includes(tag)) return;
     if ((tag & 0xe0) === 0xa0) {
       take(tag & 31);
@@ -77,46 +93,66 @@ export function decodeFirmwareMetadata(bytes: Uint8Array): Omit<CT1FirmwareImage
         0xda: 2,
         0xdb: 4,
       };
-      if (!variable[tag]) throw invalid();
+      if (!variable[tag]) throw invalidMetadata();
       take(uint(variable[tag]) + (tag >= 0xc7 && tag <= 0xc9 ? 1 : 0));
       return;
     }
-    if (count > length - offset) throw invalid();
+    if (count > length - offset) throw invalidMetadata();
     for (let i = 0; i < count; i++) skip(uint(1), depth + 1);
   };
   const tag = uint(1);
   const count = (tag & 0xf0) === 0x80 ? tag & 15 : tag === 0xde ? uint(2) : tag === 0xdf ? uint(4) : -1;
-  if (count < 0 || count > length / 2) throw invalid();
+  if (count < 0 || count > length / 2) throw invalidMetadata();
+  const versionKeys = ["ver_major", "ver_minor", "ver_patch"];
   const values = new Map<string, string | number>();
   for (let i = 0; i < count; i++) {
     const key = string(uint(1));
     const valueTag = uint(1);
-    if (["hw_rev", "build_type", "ver_major", "ver_minor", "ver_patch"].includes(key)) {
-      if (values.has(key)) throw invalid();
+    if (key === "hw_rev" || key === "build_type" || versionKeys.includes(key)) {
+      if (values.has(key)) throw invalidMetadata();
       if (key === "hw_rev" || key === "build_type") values.set(key, string(valueTag).trim().toLowerCase());
       else {
         const size = { 0xcc: 1, 0xcd: 2, 0xce: 4, 0xcf: 8 }[valueTag];
         const value = valueTag < 0x80 ? valueTag : size ? uint(size) : -1;
-        if (value < 0 || value > 0xffffffff) throw invalid();
+        if (value < 0 || value > 0xffffffff) throw invalidMetadata();
         values.set(key, value);
       }
     } else skip(valueTag);
   }
-  const build = values.get("build_type");
+  const hardwareRevision = values.get("hw_rev");
+  const build = hashboardFirmwareBuilds.find((candidate) => candidate === values.get("build_type"));
   if (
     offset !== length ||
-    values.get("hw_rev") !== "f1" ||
-    (build !== "prod" && build !== "dev" && build !== "mfgtest") ||
-    !["ver_major", "ver_minor", "ver_patch"].every((key) => values.has(key))
+    typeof hardwareRevision !== "string" ||
+    !hardwareRevision ||
+    !build ||
+    !versionKeys.every((key) => values.has(key))
   )
-    throw invalid();
-  return { build, version: ["ver_major", "ver_minor", "ver_patch"].map((key) => values.get(key)).join(".") };
+    throw invalidMetadata();
+  return { hardwareRevision, build, version: versionKeys.map((key) => values.get(key)).join(".") };
 }
 
-export async function readFirmwareImage(file: File): Promise<CT1FirmwareImage> {
-  if (!/^f1-app-(prod|dev|mfgtest)\.bin$/.test(file.name) || file.size < 1030 || file.size > 64 * 1024 * 1024)
+const imageName = (hardwareRevision: string, build: HashboardFirmwareBuild) => `${hardwareRevision}-app-${build}.bin`;
+
+/**
+ * Reads a release image for one hashboard hardware revision. The file must be named `<revision>-app-<build>.bin`
+ * and its embedded metadata must name the same revision and build. Every refusal lists the file names accepted.
+ */
+export async function readFirmwareImage(file: File, hardwareRevision: string): Promise<HashboardFirmwareImage> {
+  const names = hashboardFirmwareBuilds.map((build) => imageName(hardwareRevision, build));
+  const invalid = () =>
+    new Error(
+      `Choose a valid ${hardwareRevision.toUpperCase()} firmware image: ${names.slice(0, -1).join(", ")}, or ${names[names.length - 1]}.`,
+    );
+  if (!names.includes(file.name) || file.size < metadataOffset || file.size > maxImageBytes) throw invalid();
+  const header = new Uint8Array(await file.slice(0, metadataOffset + maxMetadataBytes).arrayBuffer());
+  let metadata: FirmwareMetadata;
+  try {
+    metadata = decodeFirmwareMetadata(header);
+  } catch {
     throw invalid();
-  const metadata = decodeFirmwareMetadata(new Uint8Array(await file.slice(0, 1030 + 65535).arrayBuffer()));
-  if (file.name !== `f1-app-${metadata.build}.bin`) throw invalid();
-  return { file, ...metadata };
+  }
+  if (metadata.hardwareRevision !== hardwareRevision || file.name !== imageName(hardwareRevision, metadata.build))
+    throw invalid();
+  return { file, build: metadata.build, version: metadata.version };
 }

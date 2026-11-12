@@ -1,29 +1,38 @@
 import type { V2GetContainerMapResponse } from "./generated/generatedApi";
 
+/** A msgpack fixstr, for values of up to 31 bytes. */
+export const firmwareTestString = (value: string) => [0xa0 | value.length, ...new TextEncoder().encode(value)];
+
 /**
- * Synthetic selection metadata, not a signed deployable firmware image. Bytes outside the metadata repeat with a
- * period (251) that divides no chunk size, so a misplaced or reordered upload chunk changes the reassembled image.
+ * An image whose hbmeta payload is exactly `metadata`. Bytes outside the metadata repeat with a period (251) that
+ * divides no chunk size, so a misplaced or reordered upload chunk changes the reassembled image.
  */
-export function firmwareTestImage(build = "prod", hardware = "f1", size = 2048): Uint8Array<ArrayBuffer> {
-  const string = (value: string) => [0xa0 | value.length, ...new TextEncoder().encode(value)];
-  const metadata = new Uint8Array([
-    0x85,
-    ...string("build_type"),
-    ...string(build),
-    ...string("hw_rev"),
-    ...string(hardware),
-    ...string("ver_major"),
-    9,
-    ...string("ver_minor"),
-    0,
-    ...string("ver_patch"),
-    0,
-  ]);
-  const data = Uint8Array.from({ length: size }, (_, i) => i % 251);
+export function firmwareTestImageWithMetadata(metadata: ArrayLike<number>, size = 2048): Uint8Array<ArrayBuffer> {
+  const data = Uint8Array.from({ length: Math.max(size, 1030 + metadata.length) }, (_, i) => i % 251);
   data[1028] = metadata.length & 255;
   data[1029] = metadata.length >>> 8;
   data.set(metadata, 1030);
   return data;
+}
+
+/** Synthetic selection metadata, not a signed deployable firmware image. */
+export function firmwareTestImage(build = "prod", hardware = "f1", size = 2048): Uint8Array<ArrayBuffer> {
+  return firmwareTestImageWithMetadata(
+    [
+      0x85,
+      ...firmwareTestString("build_type"),
+      ...firmwareTestString(build),
+      ...firmwareTestString("hw_rev"),
+      ...firmwareTestString(hardware),
+      ...firmwareTestString("ver_major"),
+      9,
+      ...firmwareTestString("ver_minor"),
+      0,
+      ...firmwareTestString("ver_patch"),
+      0,
+    ],
+    size,
+  );
 }
 
 export function firmwareTestMap(): V2GetContainerMapResponse {

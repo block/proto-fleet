@@ -1,11 +1,42 @@
 import { describe, expect, it, vi } from "vitest";
 import { Buffer, File } from "node:buffer";
 import { createHash } from "node:crypto";
-import { type CT1FirmwareAttempt, CT1FirmwareStartRefusedError } from "../ct1Firmware";
+import {
+  type HashboardFirmwareAttempt,
+  HashboardFirmwareCancelError,
+  HashboardFirmwareStartRefusedError,
+} from "../hashboardFirmware";
 import type { MdkV2Client } from "./connectClient";
-import { createCT1Firmware, firmwareBoards } from "./firmware";
+import { createHashboardFirmware, firmwareBoards } from "./firmware";
 import { firmwareTestImage, firmwareTestMap } from "./firmwareTestFixtures";
-import { V2FirmwareTargetStatus, V2FirmwareUpdateStatus } from "./generated/generatedApi";
+import {
+  V2FirmwareTargetStatus,
+  V2FirmwareUpdateStatus,
+  type V2GetContainerMapResponse,
+} from "./generated/generatedApi";
+
+const tanksOf = (map: V2GetContainerMapResponse) => map.containerMap!.tanks!;
+/** The fixture map with `count` modules in every tank, reported as a complete 1 x `count` grid. */
+const mapWithModules = (count: number) => {
+  const map = firmwareTestMap();
+  tanksOf(map).forEach((tank, tankIndex) => {
+    const [first] = tank.modules!;
+    tank.moduleLayout = { rows: 1, columns: count };
+    tank.modules = Array.from({ length: count }, (_, moduleIndex) => ({
+      id: moduleIndex + 1,
+      slots: first.slots!.map((slot, position) => ({
+        ...slot,
+        // Lower-case hex, as a controller may report it; targets are always sent upper-case.
+        hashboard: {
+          ...slot.hashboard,
+          macAddress: `02:00:00:0${tankIndex}:${moduleIndex.toString(16).padStart(2, "0")}:0${position}`,
+        },
+      })),
+    }));
+  });
+  return map;
+};
+const twoModuleMap = () => mapWithModules(2);
 
 const setup = () => {
   const map = firmwareTestMap();
@@ -28,11 +59,11 @@ const setup = () => {
       data: { update: { taskId, serverId, status: V2FirmwareUpdateStatus.FIRMWARE_UPDATE_STATUS_CANCELED } },
     })),
   };
-  const firmware = createCT1Firmware(mock as unknown as MdkV2Client, (params) => ({
+  const firmware = createHashboardFirmware(mock as unknown as MdkV2Client, (params) => ({
     ...params,
     headers: { "X-Frigate-Actor": "proto-os" },
   }));
-  const attempt: CT1FirmwareAttempt = {
+  const attempt: HashboardFirmwareAttempt = {
     taskId: "client-task",
     boards: firmwareBoards(map, "owner-a"),
     version: "9.0.0",
@@ -147,14 +178,18 @@ describe("CT1 firmware", () => {
     }));
     expect((await firmware.progress(attempt)).outcome).toBe(outcome);
   });
-  it("does not report an outcome while an ended job is missing one of its boards", async () => {
+  it.each([
+    ["COMPLETED", "completedWithErrors"],
+    ["FAILED", "failed"],
+    ["RUNNING", undefined],
+  ] as const)("reports a board missing from a job that is %s with outcome %s", async (status, outcome) => {
     const { mock, firmware, attempt } = setup();
     mock.firmwareServiceGetFirmwareUpdate.mockImplementation(({ serverId, taskId }) => ({
       data: {
         update: {
           taskId,
           serverId,
-          status: V2FirmwareUpdateStatus.FIRMWARE_UPDATE_STATUS_COMPLETED,
+          status: V2FirmwareUpdateStatus[`FIRMWARE_UPDATE_STATUS_${serverId === "owner-a" ? status : "COMPLETED"}`],
           targets: attempt.boards
             .filter((board) => board.owner === serverId)
             .slice(serverId === "owner-a" ? 1 : 0)
@@ -166,8 +201,11 @@ describe("CT1 firmware", () => {
       },
     }));
     const result = await firmware.progress(attempt);
-    expect(result.outcome).toBeUndefined();
+    // An ended job never gains targets. The board is named, and the update ends so that it can be dismissed;
+    // while the job is still running the board may yet be reported.
+    expect(result.outcome).toBe(outcome);
     expect(result.errors).toEqual([`${attempt.boards[0].label}: missing from update status`]);
+    expect(result.boards.find((board) => board.mac === attempt.boards[0].mac)?.status).toBe("Status unavailable");
   });
   it("refuses incomplete, duplicate or changed board maps before uploading", async () => {
     const { mock, firmware, attempt, image, map } = setup();
@@ -184,6 +222,107 @@ describe("CT1 firmware", () => {
     duplicate.containerMap!.tanks![1] = duplicate.containerMap!.tanks![0];
     expect(() => firmwareBoards(duplicate, "owner")).toThrow("incomplete");
   });
+  it.each<[string, (map: V2GetContainerMapResponse) => void]>([
+    [
+      "a tank that maps fewer modules than its grid",
+      (map) => {
+        tanksOf(map)[0].modules!.pop();
+      },
+    ],
+    [
+      "a tank with no reported grid and fewer than 16 modules",
+      (map) => {
+        delete tanksOf(map)[0].moduleLayout;
+      },
+    ],
+    [
+      "two modules of one tank sharing a number",
+      (map) => {
+        tanksOf(map)[0].modules![1].id = 1;
+      },
+    ],
+    [
+      "a module numbered outside its tank's grid",
+      (map) => {
+        tanksOf(map)[0].modules![1].id = 3;
+      },
+    ],
+    [
+      "two slots of one module reporting the same position",
+      (map) => {
+        const slot = tanksOf(map)[0].modules![0].slots![1];
+        slot.configuredLocation = { hashboardPosition: 1 };
+        slot.hashboard!.location = { hashboardPosition: 1 };
+      },
+    ],
+    [
+      "a board reported in a position other than its slot's",
+      (map) => {
+        tanksOf(map)[0].modules![0].slots![0].configuredLocation = { hashboardPosition: 2 };
+      },
+    ],
+    [
+      "two boards with the same MAC address",
+      (map) => {
+        const [first, second] = tanksOf(map)[0].modules![0].slots!;
+        second.hashboard!.macAddress = first.hashboard!.macAddress;
+      },
+    ],
+    [
+      "a malformed MAC address",
+      (map) => {
+        tanksOf(map)[0].modules![0].slots![0].hashboard!.macAddress = "02:00:00:00:00";
+      },
+    ],
+    [
+      "an occupied slot that reports no board",
+      (map) => {
+        delete tanksOf(map)[0].modules![0].slots![0].hashboard;
+      },
+    ],
+    [
+      "unlocated inventory that is not reported as one module 0",
+      (map) => {
+        tanksOf(map).unshift({ id: 0, modules: [{ id: 1, slots: [] }] });
+      },
+    ],
+  ])("refuses a board map with %s", (_case, change) => {
+    const map = twoModuleMap();
+    expect(firmwareBoards(map, "owner")).toHaveLength(36);
+    change(map);
+    expect(() => firmwareBoards(map, "owner")).toThrow("incomplete");
+  });
+  it("expects 16 module positions in a tank that reports no grid", () => {
+    const map = mapWithModules(16);
+    for (const tank of tanksOf(map)) delete tank.moduleLayout;
+    const boards = firmwareBoards(map, "owner");
+    expect(boards).toHaveLength(288);
+    expect(boards.map((board) => board.mac)).toContain("02:00:00:05:0F:02");
+    tanksOf(map)[5].modules!.pop();
+    expect(() => firmwareBoards(map, "owner")).toThrow("incomplete");
+    // A tank holds at most 16 modules, even when it reports and fills a larger grid.
+    expect(() => firmwareBoards(mapWithModules(17), "owner")).toThrow("incomplete");
+  });
+  it("targets every occupied board of a complete map and labels it by position", () => {
+    const map = twoModuleMap();
+    expect(firmwareBoards(map, "owner").map((board) => board.label)).toContain("Tank 6 · Module 2 · Board 3");
+    // An empty slot belongs to a complete map but not to the update.
+    tanksOf(map)[0].modules![1].slots![2].occupied = false;
+    expect(firmwareBoards(map, "owner")).toHaveLength(35);
+    for (const tank of tanksOf(map))
+      for (const module of tank.modules!) for (const slot of module.slots!) slot.occupied = false;
+    expect(() => firmwareBoards(map, "owner")).toThrow("no occupied hashboards");
+  });
+  it("targets unlocated boards by MAC, owned by the serving controller when the map names no owner", () => {
+    const map = firmwareTestMap();
+    tanksOf(map).unshift({
+      id: 0,
+      modules: [{ id: 0, slots: [{ occupied: true, hashboard: { macAddress: "02:00:00:00:ff:0a" } }] }],
+    });
+    const boards = firmwareBoards(map, "serving");
+    expect(boards).toHaveLength(19);
+    expect(boards[0]).toEqual({ mac: "02:00:00:00:FF:0A", owner: "serving", label: "02:00:00:00:FF:0A" });
+  });
   it("does not treat an accepted cancellation as finished until all owners stop", async () => {
     const { mock, firmware, attempt } = setup();
     mock.firmwareServiceCancelFirmwareUpdate.mockImplementation(({ taskId, serverId }) => ({
@@ -196,6 +335,17 @@ describe("CT1 firmware", () => {
     mock.firmwareServiceCancelFirmwareUpdate.mockRejectedValueOnce(new Error("offline"));
     await expect(firmware.cancel(attempt)).rejects.toThrow("offline");
     expect(mock.firmwareServiceCancelFirmwareUpdate).toHaveBeenCalledTimes(2);
+  });
+  it("reports each owner that could not answer a cancel on its own line, worded as its status error is", async () => {
+    const { mock, firmware, attempt } = setup();
+    mock.firmwareServiceCancelFirmwareUpdate.mockRejectedValue(new Error("offline"));
+    mock.firmwareServiceGetFirmwareUpdate.mockRejectedValue(new Error("offline"));
+    const failure = await firmware.cancel(attempt).catch((error: unknown) => error);
+    expect(failure).toBeInstanceOf(HashboardFirmwareCancelError);
+    const lines = ["owner-a: offline", "owner-b: offline"];
+    expect([...(failure as HashboardFirmwareCancelError).failures].sort()).toEqual(lines);
+    // The dialog shows a line once however many requests reported it, so both must use the same words.
+    expect([...(await firmware.progress(attempt)).errors].sort()).toEqual(lines);
   });
   it("keeps owners that do not know the task unresolved when canceling", async () => {
     const { mock, firmware, attempt } = setup();
@@ -236,7 +386,7 @@ describe("CT1 firmware", () => {
       version: "9.0.0",
       build: "prod" as const,
     };
-    // Each 16 KiB chunk spans two of the 8,192-byte slices the base64 encoder works in.
+    // Two full 16 KiB chunks and a short last one.
     mock.firmwareServiceBeginFirmwareArtifactUpload.mockResolvedValue({
       data: { uploadId: "session", maxChunkBytes: 16384 },
     });
@@ -295,7 +445,7 @@ describe("CT1 firmware", () => {
         Object.assign(new Error("hashboard update already running"), { status }),
       );
       const refused = await firmware.install(image, attempt, vi.fn(), {}, vi.fn()).catch((error: unknown) => error);
-      expect(refused).toBeInstanceOf(CT1FirmwareStartRefusedError);
+      expect(refused).toBeInstanceOf(HashboardFirmwareStartRefusedError);
       expect((refused as Error).message).toBe("hashboard update already running");
       expect(mock.firmwareServiceStartFirmwareUpdate).toHaveBeenCalledOnce();
     },
@@ -306,7 +456,7 @@ describe("CT1 firmware", () => {
     mock.firmwareServiceStartFirmwareUpdate.mockRejectedValue(failure);
     const uncertain = await firmware.install(image, attempt, vi.fn(), {}, vi.fn()).catch((error: unknown) => error);
     expect(uncertain).toBe(failure);
-    expect(uncertain).not.toBeInstanceOf(CT1FirmwareStartRefusedError);
+    expect(uncertain).not.toBeInstanceOf(HashboardFirmwareStartRefusedError);
     expect(mock.firmwareServiceStartFirmwareUpdate).toHaveBeenCalledOnce();
   });
 });
