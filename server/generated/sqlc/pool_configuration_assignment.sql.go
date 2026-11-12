@@ -597,7 +597,7 @@ func (q *Queries) LockCurrentPoolConfigurationOperationTarget(ctx context.Contex
 }
 
 const retirePoolConfigurationAssignment = `-- name: RetirePoolConfigurationAssignment :execrows
-UPDATE pool_configuration_assignment a SET retired_at = CURRENT_TIMESTAMP, version = a.version + 1, updated_at = CURRENT_TIMESTAMP
+UPDATE pool_configuration_assignment a SET retired_at = clock_timestamp(), version = a.version + 1, updated_at = clock_timestamp()
 FROM pool_configuration c
 WHERE a.organization_id = $1 AND a.target_kind = $2 AND a.target_id = $3
  AND a.device_id = $4
@@ -673,12 +673,12 @@ WITH discarded AS (
  WHERE a.organization_id=$1 AND a.target_kind=$2 AND a.target_id=$3 AND a.retired_at IS NOT NULL
   AND p.organization_id=a.organization_id AND p.installation_id=a.target_id AND a.target_kind='hashboard_installation'
 )
-INSERT INTO pool_configuration_assignment(organization_id, target_kind, target_id, device_id, configuration_id, revision_id, version, operation_id)
-VALUES($1, $2, $3, $4, $5, $6, 1, $7)
+INSERT INTO pool_configuration_assignment(organization_id, target_kind, target_id, device_id, configuration_id, revision_id, version, operation_id, updated_at)
+VALUES($1, $2, $3, $4, $5, $6, 1, $7, clock_timestamp())
 ON CONFLICT (organization_id, target_kind, target_id) DO UPDATE SET
  configuration_id = EXCLUDED.configuration_id, revision_id = EXCLUDED.revision_id,
  version = pool_configuration_assignment.version + 1, operation_id = EXCLUDED.operation_id,
- retired_at = NULL, updated_at = CURRENT_TIMESTAMP
+ retired_at = NULL, updated_at = EXCLUDED.updated_at
 RETURNING organization_id, target_kind, target_id, device_id, configuration_id, revision_id, version, operation_id, retired_at, updated_at, adopted_at
 `
 
@@ -692,6 +692,7 @@ type SetPoolConfigurationAssignmentParams struct {
 	OperationID     sql.NullString
 }
 
+// Policy ordering uses save time after serialization locks, not transaction start.
 // Explicitly returning retired equipment must not resurrect its former intent
 // while the new reviewed operation is pending or if admission later fails.
 func (q *Queries) SetPoolConfigurationAssignment(ctx context.Context, arg SetPoolConfigurationAssignmentParams) (PoolConfigurationAssignment, error) {

@@ -2600,6 +2600,7 @@ type Querier interface {
 	SetLocalTelemetryLockTimeout(ctx context.Context, timeoutMilliseconds int64) error
 	SetLocalTransactionTimeout(ctx context.Context, timeoutMilliseconds int64) error
 	SetMQTTSourceConfigEnabled(ctx context.Context, arg SetMQTTSourceConfigEnabledParams) (SetMQTTSourceConfigEnabledRow, error)
+	// Policy ordering uses save time after serialization locks, not transaction start.
 	// Explicitly returning retired equipment must not resurrect its former intent
 	// while the new reviewed operation is pending or if admission later fails.
 	SetPoolConfigurationAssignment(ctx context.Context, arg SetPoolConfigurationAssignmentParams) (PoolConfigurationAssignment, error)
