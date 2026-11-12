@@ -74,6 +74,11 @@ var (
 		rollout.PhaseExcluded:   pb.RolloutDevicePhase_ROLLOUT_DEVICE_PHASE_EXCLUDED,
 		rollout.PhaseSkipped:    pb.RolloutDevicePhase_ROLLOUT_DEVICE_PHASE_SKIPPED,
 	}
+	versionStateToProto = map[string]pb.FirmwareVersionState{
+		rollout.VersionStateKnown:   pb.FirmwareVersionState_FIRMWARE_VERSION_STATE_KNOWN,
+		rollout.VersionStateMixed:   pb.FirmwareVersionState_FIRMWARE_VERSION_STATE_MIXED,
+		rollout.VersionStateUnknown: pb.FirmwareVersionState_FIRMWARE_VERSION_STATE_UNKNOWN,
+	}
 	actorTypeToProto = map[string]pb.RolloutActorType{
 		rollout.ActorTypeUser:   pb.RolloutActorType_ROLLOUT_ACTOR_TYPE_USER,
 		rollout.ActorTypeAPIKey: pb.RolloutActorType_ROLLOUT_ACTOR_TYPE_API_KEY,
@@ -274,6 +279,7 @@ func minerToProto(m *rollout.ChannelMiner) *pb.ReleaseChannelMiner {
 		Manufacturer:                 m.Manufacturer,
 		Model:                        m.Model,
 		FirmwareVersion:              m.FirmwareVersion,
+		FirmwareVersionState:         versionStateToProto[m.FirmwareVersionState],
 		Conflicted:                   m.Conflicted,
 		LastDeployedFirmwareChecksum: m.LastDeployedFirmwareChecksum,
 	}
@@ -369,6 +375,7 @@ func deviceToProto(d *rollout.RolloutDevice) *pb.RolloutDevice {
 		LastError:          d.LastError,
 		SkipNote:           d.SkipNote,
 
+		FirmwareVersionState:         versionStateToProto[d.FirmwareVersionState],
 		LastDeployedFirmwareChecksum: d.LastDeployedFirmwareChecksum,
 	}
 }

@@ -29,6 +29,16 @@ func TestCT1RolloutConvergesOnHashboardsNotController(t *testing.T) {
 	require.NoError(t, err)
 	f.svc.EnforceTick(t.Context())
 	require.Equal(t, PhaseDone, phaseOf(f.rollout(t, started[0].ID), "ct1"))
+	versionStates := func(t *testing.T) (channel, rollout string) {
+		t.Helper()
+		miners, _, err := f.svc.ListChannelMiners(t.Context(), f.orgID, f.channelID, "", "", 10, "")
+		require.NoError(t, err)
+		require.Len(t, miners, 1)
+		return miners[0].FirmwareVersionState, deviceOf(t, f.rollout(t, started[0].ID), "ct1").FirmwareVersionState
+	}
+	channelState, rolloutState := versionStates(t)
+	require.Equal(t, VersionStateKnown, channelState)
+	require.Equal(t, VersionStateKnown, rolloutState)
 
 	observe := func(t *testing.T, version string, mixed bool, age string) sql.NullString {
 		t.Helper()
@@ -61,11 +71,17 @@ func TestCT1RolloutConvergesOnHashboardsNotController(t *testing.T) {
 				require.Len(t, plans, 1)
 				require.Zero(t, plans[0].TargetCount, "unknown evidence is not a mismatch")
 				require.Zero(t, plans[0].OnTargetCount, "unknown evidence is not on target")
+				channelState, rolloutState := versionStates(t)
+				require.Equal(t, VersionStateUnknown, channelState)
+				require.Equal(t, VersionStateUnknown, rolloutState)
 			})
 		}
 	})
 	t.Run("mixed evidence is drift", func(t *testing.T) {
 		require.Equal(t, sql.NullString{String: "", Valid: true}, observe(t, "", true, "0 seconds"))
+		channelState, rolloutState := versionStates(t)
+		require.Equal(t, VersionStateMixed, channelState, "mixed is drift, not a telemetry gap")
+		require.Equal(t, VersionStateMixed, rolloutState)
 		f.svc.EnforceTick(t.Context())
 		require.Equal(t, []string{"ct1", "ct1"}, f.dispatcher.sentIdentifiers())
 		require.NotEqual(t, PhaseDone, phaseOf(f.rollout(t, started[0].ID), "ct1"))
