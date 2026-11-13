@@ -2481,6 +2481,85 @@ type HostedModuleMembership struct {
 	BoardIds        interface{}
 }
 
+type HostedReport struct {
+	ID                  int64
+	ReportID            string
+	OrganizationID      int64
+	AccountID           int64
+	SeriesID            string
+	Number              int64
+	CorrectionOf        sql.NullInt64
+	CorrectionReason    string
+	Kind                string
+	PeriodStart         time.Time
+	PeriodEnd           time.Time
+	AsOf                time.Time
+	Timezone            string
+	Period              json.RawMessage
+	InputRevision       int64
+	Result              json.RawMessage
+	SiteIds             []int64
+	CreatedBy           int64
+	OwnerID             int64
+	Status              string
+	Revision            int64
+	IssuedAt            sql.NullTime
+	IssuedBy            sql.NullInt64
+	IncompleteException string
+	CreatedAt           time.Time
+	UpdatedAt           time.Time
+	EvidenceCutoff      sql.NullTime
+}
+
+type HostedReportArtifact struct {
+	ID               int64
+	ReportInternalID int64
+	Name             string
+	MediaType        string
+	Sha256           string
+	ByteCount        int64
+	ChunkCount       int64
+}
+
+type HostedReportArtifactChunk struct {
+	ArtifactID int64
+	Sequence   int64
+	Data       []byte
+}
+
+type HostedReportDelivery struct {
+	ID               int64
+	ReportInternalID int64
+	RequestKey       string
+	Channel          string
+	Status           string
+	SentAt           sql.NullTime
+	ReceivedAt       sql.NullTime
+	SourceRef        string
+	Evidence         string
+	FailureCategory  string
+	ActorID          int64
+	CreatedAt        time.Time
+}
+
+type HostedReportRequest struct {
+	ID               int64
+	RequestID        string
+	OrganizationID   int64
+	AccountID        int64
+	ReceivedAt       time.Time
+	SourceRef        string
+	Requester        string
+	Scope            string
+	OwnerID          int64
+	TargetAt         time.Time
+	Limitations      string
+	CommunicationRef string
+	DeliveryRef      string
+	ActorID          int64
+	CreatedAt        time.Time
+}
+
 type HostedReportingAuthority struct {
 	OrganizationID int64
 	AccountID      int64

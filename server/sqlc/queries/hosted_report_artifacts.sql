@@ -1,0 +1,203 @@
+-- name: CreateHostedReportArtifact :one
+INSERT INTO hosted_report_artifact(report_internal_id,name,media_type) VALUES($1,$2,$3) RETURNING *;
+
+-- name: AppendHostedReportArtifactChunk :exec
+INSERT INTO hosted_report_artifact_chunk(artifact_id,sequence,data) VALUES($1,$2,$3);
+
+-- name: FinalizeHostedReportArtifact :execrows
+UPDATE hosted_report_artifact SET sha256=$2,byte_count=$3,chunk_count=$4 WHERE id=$1 AND sha256='';
+
+-- name: GetHostedReportArtifact :one
+SELECT a.* FROM hosted_report_artifact a JOIN hosted_report r ON r.id=a.report_internal_id
+WHERE r.organization_id=$1 AND r.account_id=$2 AND r.report_id=$3 AND r.status='issued' AND a.name=$4 AND a.sha256<>'';
+
+-- name: GetHostedReportArtifactScope :one
+SELECT status,site_ids FROM hosted_report WHERE organization_id=$1 AND account_id=$2 AND report_id=$3;
+
+-- name: GetHostedReportArtifactChunk :one
+SELECT data FROM hosted_report_artifact_chunk WHERE artifact_id=$1 AND sequence=$2;
+
+-- name: ListHostedReportArtifacts :many
+SELECT * FROM hosted_report_artifact WHERE report_internal_id=$1 AND sha256<>'' ORDER BY name;
+
+-- A report's monitoring evidence is read, never copied: per allocated interval
+-- of the account and UTC hour overlapping the period and a coverage segment, the
+-- highest revision captured by the report's cutoff, and the hours under a gap
+-- recorded by the cutoff. Only coverage segments that overlap the period select
+-- evidence, so the report context already holds every one of them. Evidence is
+-- append-only and its writers serialize with the cutoff (see
+-- hosted_report_evidence_cutoff), so these reads repeat. An interval's identity
+-- comes from its allocation snapshot, or from the interval itself when no hour
+-- was ever captured for it, as for an allocation wholly inside a gap; an
+-- interval's identity columns never change after it is created. Stored
+-- coverage timestamps lose sub-microsecond precision, so they only select
+-- candidates; overlap is decided on each segment's original start and end, as
+-- in the calculation.
+
+-- name: ListHostedReportEvidenceIntervals :many
+SELECT a.interval_id,a.asset_id,a.site_id,a.kind FROM hosted_report r
+CROSS JOIN LATERAL (SELECT DISTINCT c.allocation_interval_id FROM hosted_reporting_fact c
+ WHERE c.organization_id=r.organization_id AND c.account_id=r.account_id AND c.kind='coverage'
+  AND c.allocation_interval_id>sqlc.arg(after_interval_id)::bigint
+  AND c.start_at<=r.period_end+INTERVAL '1 microsecond' AND (c.end_at IS NULL OR c.end_at>=r.period_start-INTERVAL '1 microsecond')
+  AND c.start_seconds::numeric+c.start_nanos::numeric/1000000000<extract(epoch FROM r.period_end)
+  AND (c.end_at IS NULL OR extract(epoch FROM regexp_replace(c.payload->>'end','[.][0-9]+','')::timestamptz)+COALESCE(('0.'||substring(c.payload->>'end' FROM '[.]([0-9]+)'))::numeric,0)>extract(epoch FROM r.period_start))) c
+CROSS JOIN LATERAL (
+ SELECT x.interval_id,x.organization_id,x.client_id,x.subclient_id,x.asset_id,x.site_id,x.kind FROM (
+  SELECT s.interval_id,s.organization_id,s.client_id,s.subclient_id,s.asset_id,s.site_id,s.kind,0 AS preference
+  FROM hosted_account_reporting_allocation_snapshot s WHERE s.interval_id=c.allocation_interval_id
+  UNION ALL
+  SELECT i.id,i.organization_id,i.client_id,i.subclient_id,i.asset_id,i.site_id,i.kind,1
+  FROM hosted_account_asset_interval i WHERE i.id=c.allocation_interval_id
+ ) x ORDER BY x.preference LIMIT 1) a
+WHERE r.id=sqlc.arg(report_internal_id) AND r.evidence_cutoff IS NOT NULL
+ AND a.organization_id=r.organization_id AND (a.client_id=r.account_id OR a.subclient_id=r.account_id)
+ORDER BY a.interval_id LIMIT sqlc.arg(page_limit)::int;
+
+-- One interval's hours in bucket order; read when the report exports
+-- by the hour. A gap hour has capture_reason 'gap', revision 0, its gap's
+-- reason and recording time, and no observation.
+-- name: ListHostedReportEvidence :many
+WITH scope AS MATERIALIZED (
+ SELECT r.organization_id,r.account_id,r.evidence_cutoff AS cutoff,r.period_start,r.period_end,
+  time_bucket(INTERVAL '1 hour',r.period_start) AS first_hour,a.interval_id
+ FROM hosted_report r CROSS JOIN LATERAL (
+  SELECT x.interval_id,x.organization_id,x.client_id,x.subclient_id,x.asset_id,x.site_id,x.kind FROM (
+   SELECT s.interval_id,s.organization_id,s.client_id,s.subclient_id,s.asset_id,s.site_id,s.kind,0 AS preference
+   FROM hosted_account_reporting_allocation_snapshot s WHERE s.interval_id=sqlc.arg(interval_id)::bigint
+   UNION ALL
+   SELECT i.id,i.organization_id,i.client_id,i.subclient_id,i.asset_id,i.site_id,i.kind,1
+   FROM hosted_account_asset_interval i WHERE i.id=sqlc.arg(interval_id)::bigint
+  ) x ORDER BY x.preference LIMIT 1) a
+ WHERE r.id=sqlc.arg(report_internal_id)
+  AND a.organization_id=r.organization_id AND (a.client_id=r.account_id OR a.subclient_id=r.account_id)
+), segment AS MATERIALIZED (
+ SELECT c.start_epoch,c.end_epoch FROM scope s CROSS JOIN LATERAL (
+  SELECT c.start_seconds::numeric+c.start_nanos::numeric/1000000000 AS start_epoch,
+   CASE WHEN c.end_at IS NOT NULL THEN extract(epoch FROM regexp_replace(c.payload->>'end','[.][0-9]+','')::timestamptz)+COALESCE(('0.'||substring(c.payload->>'end' FROM '[.]([0-9]+)'))::numeric,0) END AS end_epoch
+  FROM hosted_reporting_fact c
+  WHERE c.organization_id=s.organization_id AND c.account_id=s.account_id AND c.kind='coverage' AND c.allocation_interval_id=s.interval_id
+   AND c.start_at<=s.period_end+INTERVAL '1 microsecond' AND (c.end_at IS NULL OR c.end_at>=s.period_start-INTERVAL '1 microsecond')) c
+ WHERE c.start_epoch<extract(epoch FROM s.period_end) AND (c.end_epoch IS NULL OR c.end_epoch>extract(epoch FROM s.period_start))
+), evidence AS (
+ SELECT h.* FROM scope s JOIN hosted_account_reporting_hour h ON h.interval_id=s.interval_id
+  AND h.bucket>=s.first_hour AND h.bucket<s.period_end AND h.captured_at<=s.cutoff
+ WHERE NOT EXISTS(SELECT 1 FROM hosted_account_reporting_hour n
+   WHERE n.interval_id=h.interval_id AND n.bucket=h.bucket AND n.revision>h.revision AND n.captured_at<=s.cutoff)
+  AND EXISTS(SELECT 1 FROM segment c WHERE extract(epoch FROM h.bucket)+3600>c.start_epoch AND (c.end_epoch IS NULL OR extract(epoch FROM h.bucket)<c.end_epoch))
+), gap AS (
+ SELECT DISTINCT ON (b.bucket) b.bucket,g.reason,g.recorded_at
+ FROM scope s JOIN hosted_account_reporting_hour_gap g
+  ON g.recorded_at<=s.cutoff AND g.from_bucket<s.period_end AND g.to_bucket>s.first_hour
+ CROSS JOIN LATERAL generate_series(GREATEST(g.from_bucket,s.first_hour),
+  LEAST(g.to_bucket,s.period_end)-INTERVAL '1 microsecond',INTERVAL '1 hour') b(bucket)
+ WHERE EXISTS(SELECT 1 FROM segment c WHERE extract(epoch FROM b.bucket)+3600>c.start_epoch AND (c.end_epoch IS NULL OR extract(epoch FROM b.bucket)<c.end_epoch))
+  AND NOT EXISTS(SELECT 1 FROM evidence e WHERE e.bucket=b.bucket)
+ ORDER BY b.bucket,g.gap_id
+)
+SELECT e.bucket,e.revision,e.captured_at,e.capture_reason,''::text AS gap_reason,e.no_source_data,e.window_start,e.window_end,
+ e.hashrate_report_count,e.hashrate_count,e.hashrate_positive_count,e.hashrate_sum,e.hashrate_complete,e.hashrate_source_oldest_at,e.hashrate_source_newest_at,
+ e.power_report_count,e.power_count,e.power_sum,e.power_complete,e.power_source_oldest_at,e.power_source_newest_at,
+ e.temperature_report_count,e.temperature_count,e.temperature_sum,e.temperature_latest_value,e.temperature_latest_at,
+ e.temperature_source_oldest_at,e.temperature_source_newest_at,
+ e.state_report_count,e.state_count,e.state_latest_value,e.state_latest_at,e.state_source_oldest_at,e.state_source_newest_at
+FROM evidence e
+UNION ALL
+SELECT g.bucket,0,g.recorded_at,'gap',g.reason,false,NULL,NULL,
+ 0,0,0,NULL,NULL,NULL,NULL,
+ 0,0,NULL,NULL,NULL,NULL,
+ 0,0,NULL,NULL,NULL,NULL,NULL,
+ 0,0,NULL,NULL,NULL,NULL
+FROM gap g
+ORDER BY bucket;
+
+-- One interval's hours rolled up by UTC day, for periods too long to export by
+-- the hour. Counts and sums add; completeness is the conjunction of the hours
+-- that report it; latest values come from the newest hour that has one; the
+-- revision and capture time are the highest of the day's hours. A day made only
+-- of gap hours has zero evidence hours.
+-- name: ListHostedReportEvidenceDays :many
+WITH scope AS MATERIALIZED (
+ SELECT r.organization_id,r.account_id,r.evidence_cutoff AS cutoff,r.period_start,r.period_end,
+  time_bucket(INTERVAL '1 hour',r.period_start) AS first_hour,a.interval_id
+ FROM hosted_report r CROSS JOIN LATERAL (
+  SELECT x.interval_id,x.organization_id,x.client_id,x.subclient_id,x.asset_id,x.site_id,x.kind FROM (
+   SELECT s.interval_id,s.organization_id,s.client_id,s.subclient_id,s.asset_id,s.site_id,s.kind,0 AS preference
+   FROM hosted_account_reporting_allocation_snapshot s WHERE s.interval_id=sqlc.arg(interval_id)::bigint
+   UNION ALL
+   SELECT i.id,i.organization_id,i.client_id,i.subclient_id,i.asset_id,i.site_id,i.kind,1
+   FROM hosted_account_asset_interval i WHERE i.id=sqlc.arg(interval_id)::bigint
+  ) x ORDER BY x.preference LIMIT 1) a
+ WHERE r.id=sqlc.arg(report_internal_id)
+  AND a.organization_id=r.organization_id AND (a.client_id=r.account_id OR a.subclient_id=r.account_id)
+), segment AS MATERIALIZED (
+ SELECT c.start_epoch,c.end_epoch FROM scope s CROSS JOIN LATERAL (
+  SELECT c.start_seconds::numeric+c.start_nanos::numeric/1000000000 AS start_epoch,
+   CASE WHEN c.end_at IS NOT NULL THEN extract(epoch FROM regexp_replace(c.payload->>'end','[.][0-9]+','')::timestamptz)+COALESCE(('0.'||substring(c.payload->>'end' FROM '[.]([0-9]+)'))::numeric,0) END AS end_epoch
+  FROM hosted_reporting_fact c
+  WHERE c.organization_id=s.organization_id AND c.account_id=s.account_id AND c.kind='coverage' AND c.allocation_interval_id=s.interval_id
+   AND c.start_at<=s.period_end+INTERVAL '1 microsecond' AND (c.end_at IS NULL OR c.end_at>=s.period_start-INTERVAL '1 microsecond')) c
+ WHERE c.start_epoch<extract(epoch FROM s.period_end) AND (c.end_epoch IS NULL OR c.end_epoch>extract(epoch FROM s.period_start))
+), evidence AS (
+ SELECT h.* FROM scope s JOIN hosted_account_reporting_hour h ON h.interval_id=s.interval_id
+  AND h.bucket>=s.first_hour AND h.bucket<s.period_end AND h.captured_at<=s.cutoff
+ WHERE NOT EXISTS(SELECT 1 FROM hosted_account_reporting_hour n
+   WHERE n.interval_id=h.interval_id AND n.bucket=h.bucket AND n.revision>h.revision AND n.captured_at<=s.cutoff)
+  AND EXISTS(SELECT 1 FROM segment c WHERE extract(epoch FROM h.bucket)+3600>c.start_epoch AND (c.end_epoch IS NULL OR extract(epoch FROM h.bucket)<c.end_epoch))
+), gap AS (
+ SELECT DISTINCT ON (b.bucket) b.bucket,g.reason,g.recorded_at
+ FROM scope s JOIN hosted_account_reporting_hour_gap g
+  ON g.recorded_at<=s.cutoff AND g.from_bucket<s.period_end AND g.to_bucket>s.first_hour
+ CROSS JOIN LATERAL generate_series(GREATEST(g.from_bucket,s.first_hour),
+  LEAST(g.to_bucket,s.period_end)-INTERVAL '1 microsecond',INTERVAL '1 hour') b(bucket)
+ WHERE EXISTS(SELECT 1 FROM segment c WHERE extract(epoch FROM b.bucket)+3600>c.start_epoch AND (c.end_epoch IS NULL OR extract(epoch FROM b.bucket)<c.end_epoch))
+  AND NOT EXISTS(SELECT 1 FROM evidence e WHERE e.bucket=b.bucket)
+ ORDER BY b.bucket,g.gap_id
+), hourly AS (
+ SELECT e.bucket,1 AS evidence_hours,0 AS gap_hours,e.revision,e.captured_at,(e.capture_reason='unattributable')::int AS unattributable,
+  e.no_source_data::int AS no_source,e.window_start,e.window_end,
+  e.hashrate_report_count,e.hashrate_count,e.hashrate_positive_count,e.hashrate_sum,e.hashrate_complete,
+  e.power_report_count,e.power_count,e.power_sum,e.power_complete,
+  e.temperature_report_count,e.temperature_count,e.temperature_sum,e.temperature_latest_value,e.temperature_latest_at,
+  e.state_report_count,e.state_count,e.state_latest_value,e.state_latest_at,
+  LEAST(e.hashrate_source_oldest_at,e.power_source_oldest_at,e.temperature_source_oldest_at,e.state_source_oldest_at) AS source_oldest_at,
+  GREATEST(e.hashrate_source_newest_at,e.power_source_newest_at,e.temperature_source_newest_at,e.state_source_newest_at) AS source_newest_at
+ FROM evidence e
+ UNION ALL
+ SELECT g.bucket,0,1,0,g.recorded_at,0,0,NULL,NULL,0,0,0,NULL,NULL,0,0,NULL,NULL,0,0,NULL,NULL,NULL,0,0,NULL,NULL,NULL,NULL FROM gap g
+), daily AS (
+ SELECT date_trunc('day',h.bucket,'UTC')::timestamptz AS day,
+  sum(h.evidence_hours)::int AS evidence_hours,sum(h.gap_hours)::int AS gap_hours,
+  (count(*) FILTER(WHERE h.revision>1))::int AS revised_hours,sum(h.unattributable)::int AS unattributable_hours,
+  sum(h.no_source)::int AS no_source_data_hours,max(h.revision)::int AS revision,max(h.captured_at)::timestamptz AS captured_at,
+  min(h.window_start)::timestamptz AS window_start,max(h.window_end)::timestamptz AS window_end,
+  sum(h.hashrate_report_count)::bigint AS hashrate_report_count,sum(h.hashrate_count)::bigint AS hashrate_count,
+  sum(h.hashrate_positive_count)::bigint AS hashrate_positive_count,
+  (sum(h.hashrate_sum ORDER BY h.bucket))::double precision AS hashrate_sum,bool_and(h.hashrate_complete)::boolean AS hashrate_complete,
+  sum(h.power_report_count)::bigint AS power_report_count,sum(h.power_count)::bigint AS power_count,
+  (sum(h.power_sum ORDER BY h.bucket))::double precision AS power_sum,bool_and(h.power_complete)::boolean AS power_complete,
+  sum(h.temperature_report_count)::bigint AS temperature_report_count,sum(h.temperature_count)::bigint AS temperature_count,
+  (sum(h.temperature_sum ORDER BY h.bucket))::double precision AS temperature_sum,
+  ((array_agg(h.temperature_latest_value ORDER BY h.temperature_latest_at DESC) FILTER(WHERE h.temperature_latest_at IS NOT NULL))[1])::double precision AS temperature_latest_value,
+  max(h.temperature_latest_at)::timestamptz AS temperature_latest_at,
+  sum(h.state_report_count)::bigint AS state_report_count,sum(h.state_count)::bigint AS state_count,
+  ((array_agg(h.state_latest_value ORDER BY h.state_latest_at DESC) FILTER(WHERE h.state_latest_at IS NOT NULL))[1])::double precision AS state_latest_value,
+  max(h.state_latest_at)::timestamptz AS state_latest_at,
+  min(h.source_oldest_at)::timestamptz AS source_oldest_at,max(h.source_newest_at)::timestamptz AS source_newest_at
+ FROM hourly h GROUP BY date_trunc('day',h.bucket,'UTC')
+)
+-- The left join only tells sqlc that the aggregates are nullable.
+SELECT d.day,d.evidence_hours,d.gap_hours,d.revised_hours,d.unattributable_hours,d.no_source_data_hours,d.revision,d.captured_at,
+ d.window_start,d.window_end,
+ d.hashrate_report_count,d.hashrate_count,d.hashrate_positive_count,d.hashrate_sum,d.hashrate_complete,
+ d.power_report_count,d.power_count,d.power_sum,d.power_complete,
+ d.temperature_report_count,d.temperature_count,d.temperature_sum,d.temperature_latest_value,d.temperature_latest_at,
+ d.state_report_count,d.state_count,d.state_latest_value,d.state_latest_at,d.source_oldest_at,d.source_newest_at
+FROM scope s LEFT JOIN daily d ON true WHERE d.day IS NOT NULL
+ORDER BY d.day;
+
+-- name: SelectHostedReportPublicationTime :one
+SELECT clock_timestamp()::timestamptz AS issued_at;
+
+-- name: LatestIssuedHostedReport :one
+SELECT * FROM hosted_report WHERE organization_id=$1 AND account_id=$2 AND series_id=$3 AND status='issued' ORDER BY number DESC LIMIT 1;

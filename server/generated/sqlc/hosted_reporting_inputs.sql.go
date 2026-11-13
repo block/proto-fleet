@@ -1164,6 +1164,56 @@ func (q *Queries) LockReportingDevices(ctx context.Context, arg LockReportingDev
 	return items, nil
 }
 
+const lockReportingInputsForRead = `-- name: LockReportingInputsForRead :one
+SELECT organization_id, account_id, revision, updated_by, source_ref, configuration, site_ids, updated_at FROM hosted_reporting_inputs WHERE organization_id=$1 AND account_id=$2 FOR KEY SHARE
+`
+
+type LockReportingInputsForReadParams struct {
+	OrganizationID int64
+	AccountID      int64
+}
+
+func (q *Queries) LockReportingInputsForRead(ctx context.Context, arg LockReportingInputsForReadParams) (HostedReportingInput, error) {
+	row := q.queryRow(ctx, q.lockReportingInputsForReadStmt, lockReportingInputsForRead, arg.OrganizationID, arg.AccountID)
+	var i HostedReportingInput
+	err := row.Scan(
+		&i.OrganizationID,
+		&i.AccountID,
+		&i.Revision,
+		&i.UpdatedBy,
+		&i.SourceRef,
+		&i.Configuration,
+		pq.Array(&i.SiteIds),
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const lockReportingInputsForReport = `-- name: LockReportingInputsForReport :one
+SELECT organization_id, account_id, revision, updated_by, source_ref, configuration, site_ids, updated_at FROM hosted_reporting_inputs WHERE organization_id=$1 AND account_id=$2 FOR NO KEY UPDATE
+`
+
+type LockReportingInputsForReportParams struct {
+	OrganizationID int64
+	AccountID      int64
+}
+
+func (q *Queries) LockReportingInputsForReport(ctx context.Context, arg LockReportingInputsForReportParams) (HostedReportingInput, error) {
+	row := q.queryRow(ctx, q.lockReportingInputsForReportStmt, lockReportingInputsForReport, arg.OrganizationID, arg.AccountID)
+	var i HostedReportingInput
+	err := row.Scan(
+		&i.OrganizationID,
+		&i.AccountID,
+		&i.Revision,
+		&i.UpdatedBy,
+		&i.SourceRef,
+		&i.Configuration,
+		pq.Array(&i.SiteIds),
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const lockReportingInputsForShare = `-- name: LockReportingInputsForShare :one
 SELECT organization_id, account_id, revision, updated_by, source_ref, configuration, site_ids, updated_at FROM hosted_reporting_inputs WHERE organization_id=$1 AND account_id=$2 FOR SHARE
 `

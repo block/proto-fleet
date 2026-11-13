@@ -28,7 +28,13 @@ import (
 // embedded source, so full-run assertions stay valid as migrations are added.
 func latestMigrationVersion(t *testing.T) int {
 	t.Helper()
-	entries, err := fs.ReadDir(migrations.Migrations, ".")
+	return latestMigrationVersionIn(t, migrations.Migrations, ".")
+}
+
+// latestMigrationVersionIn returns the highest up-migration version in dir.
+func latestMigrationVersionIn(t *testing.T, source fs.FS, dir string) int {
+	t.Helper()
+	entries, err := fs.ReadDir(source, dir)
 	assert.NoError(t, err)
 	latest := 0
 	for _, entry := range entries {

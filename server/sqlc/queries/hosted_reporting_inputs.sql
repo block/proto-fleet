@@ -25,6 +25,12 @@ SELECT * FROM hosted_reporting_inputs WHERE organization_id=$1 AND account_id=$2
 -- name: LockReportingInputsForUpdate :one
 SELECT * FROM hosted_reporting_inputs WHERE organization_id=$1 AND account_id=$2 FOR UPDATE;
 
+-- name: LockReportingInputsForReport :one
+SELECT * FROM hosted_reporting_inputs WHERE organization_id=$1 AND account_id=$2 FOR NO KEY UPDATE;
+
+-- name: LockReportingInputsForRead :one
+SELECT * FROM hosted_reporting_inputs WHERE organization_id=$1 AND account_id=$2 FOR KEY SHARE;
+
 -- name: LockReportingInputsForShare :one
 SELECT * FROM hosted_reporting_inputs WHERE organization_id=$1 AND account_id=$2 FOR SHARE;
 

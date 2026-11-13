@@ -466,6 +466,102 @@ number of intervals.
 Measure growth on the actual estate before setting the storage budget, and
 rehearse restore on a disposable restored database.
 
+## Report selection and source artifact limits
+
+An account's current reporting facts accumulate through revision-checked bounded
+mutations. Preparing and publishing a report query its current and annual
+comparison windows, exact commercial support, episode starts and global latest
+ticket states, and latest pool observation ties. Unrelated retained history does
+not enter the selected report arrays. Preparation and publication serialize on
+the account input row, protecting selection, original/correction creation and
+publication against concurrent report and input mutations. Report work takes
+`FOR NO KEY UPDATE`, input mutations take `FOR UPDATE`, and register readers
+take `FOR KEY SHARE`. Register readers retain a consistent input revision while
+report rendering proceeds. Their organization, user and permission admission
+locks are shared, so mining summaries and report readers can continue. Issued report reads and artifact pages do not lock the report row;
+each page still checks live authority.
+
+Selection first reads aggregate metadata. One report may select up to 32 MiB of
+stored fact payloads, subject also to a 256 MiB heap reservation: eight times
+stored payload bytes, six times identity bytes, 2 KiB per fact, and 8 MiB reserved
+for configuration. This is a byte and estimated heap budget, with no fixed fact
+count or page-count limit. Input selection, including device locks and external
+witness validation, has a 45-second deadline within the existing 60-second report
+transaction. Provisional draft writes and audits roll back when any check fails.
+Deadline exhaustion returns an actionable failed-precondition error; caller
+cancellation retains its cancellation error.
+
+### Evidence cutoff
+
+A report does not copy or link evidence rows. Preparing or regenerating a draft
+stores one instant, `hosted_report.evidence_cutoff`, and the report's monitoring
+evidence is derived from it: for each allocated interval under the report's
+commercial coverage and each hour of the period, the highest revision with
+`captured_at <= evidence_cutoff`, plus the hours of every gap with
+`recorded_at <= evidence_cutoff` that have no such row. Later revisions and gaps
+never enter that report. A correction report takes its own, later cutoff and so
+reads them; the original keeps its own. The cutoff is immutable once the report
+is issued, and an issued report must have one.
+
+`hosted_report_evidence_cutoff(as_of)` takes the cutoff in its own short
+transaction, before the preparation transaction: it locks the hourly control row
+`FOR SHARE`, reads `clock_timestamp()`, waits for the clock to advance past that
+reading, and returns the earlier of it and the report's `as_of`. The hourly job's
+close, revise and gap steps hold the same row `FOR UPDATE` from before their first
+insert until they commit, so no evidence transaction is in flight at the cutoff:
+everything stamped at or before it is already committed, and everything committed
+later is stamped after it. Preparation therefore waits for a running job step
+(up to 15 seconds, then fails and can be retried) rather than reading around it.
+
+This depends on two things:
+
+- Every writer of `hosted_account_reporting_hour` and
+  `hosted_account_reporting_hour_gap` holds the control row `FOR UPDATE` first. A
+  manual insert that skips it can commit a row stamped before an existing cutoff.
+- The database clock does not step backwards. If it does, rows captured after a
+  report was prepared can be stamped at or before its cutoff and enter a draft.
+  Published artifacts are stored bytes and do not change. After a backwards step,
+  regenerate open drafts once the clock has passed its earlier reading.
+
+Publication requires the draft's input revision to still be current, so the
+commercial coverage that scopes the evidence is the coverage the draft was
+calculated from. The evidence archive is written once, at publication.
+
+### Evidence export
+
+The evidence archive holds one row per allocated interval and time, ordered by
+`(interval_id, time)`, read one interval at a time.
+
+- A report of at most 500,000 interval-hours (covered allocation intervals times
+  the hours of its period) exports `observations.csv`: one row per interval and
+  hour, with the revision, capture time and reason, source window, and each
+  metric's report count, sample count, sum, completeness, latest state and
+  temperature, and source times. A gap hour has reason `gap`, revision 0, the
+  gap's reason and recording time, and no observation.
+- A larger report exports `observation_days.csv`: the same hours rolled up per
+  interval and UTC day, with the number of evidence, gap, revised, unattributable
+  and no-source-data hours, summed counts and sums, the day's latest state and
+  temperature, and the highest revision and latest capture time. Hourly rows
+  remain in the database and can be re-derived from the report's cutoff.
+
+The limit is on size, not period length: an hourly row is about 280 bytes, so
+500,000 rows are about 140 MB of the 256 MiB uncompressed archive limit. Two
+CT1s export a month by the hour; three export it by day. A year of one CT1 is by
+day; a year of 50 intervals is by the hour.
+
+Measured in the development database for one CT1 (288 allocated intervals, every
+hour present with all four metrics):
+
+| Period | Rows | Prepare | Publish | CSV | Archive |
+| --- | --- | --- | --- | --- | --- |
+| 30 days, hourly | 207,360 | 2.1 s | 3.0 s | 58.3 MB | 4.6 MB |
+| 365 days, daily | 105,120 (from 2,522,880 hours) | 0.7 s | 10.1 s | 31.0 MB | 2.5 MB |
+
+Day rollups still aggregate every hour inside the 60-second report transaction,
+at about 250,000 hour rows per second here, so publication reaches the deadline
+near 12 million interval-hours: about five CT1s for a year. Larger reports fail
+publication with the deadline or size error; nothing is truncated.
+
 ## Known limits
 
 - Corrections to hours older than the 9-day correction window leave no trace.

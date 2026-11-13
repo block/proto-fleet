@@ -69,7 +69,7 @@ const FloatingNavigation = ({ items, closeMenu, roleLabel }: FloatingNavigationP
         onClick={handleCloseMenu}
       />
       <div
-        className={clsx("relative z-30 h-full", {
+        className={clsx("relative z-30 h-full w-60", {
           "animate-[slide-right-nav_.3s_ease-in-out]": isVisible,
           "animate-[slide-left-nav_.3s_ease-in-out]": !isVisible,
         })}

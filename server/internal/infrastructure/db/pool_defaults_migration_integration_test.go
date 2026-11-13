@@ -75,7 +75,7 @@ func TestDefaultPoolLifecycleUpgradeFromPopulated1077(t *testing.T) {
 	require.NoError(t, runCurrentMigrations(ctx, conn, migrations.Current))
 	require.NoError(t, runCurrentMigrations(ctx, conn, migrations.Current), "repeated startup must not recreate or reapply defaults")
 	require.NoError(t, conn.QueryRowContext(ctx, `SELECT version,dirty FROM schema_migrations`).Scan(&version, &dirty))
-	require.Equal(t, 1078, version)
+	require.Equal(t, latestMigrationVersionIn(t, migrations.Current, "current"), version)
 	require.False(t, dirty)
 	for _, library := range libraries {
 		var chosen string

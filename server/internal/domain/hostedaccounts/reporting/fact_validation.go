@@ -49,7 +49,7 @@ func ValidateFactFields(value any) error {
 		if !attributed(v.SiteID, v.ContainerID, v.OrderID, v.Start, v.End) || v.End.IsZero() || !text(v.MeterID) || !text(v.SourceID) || !text(v.SourceRef) || !slices.Contains([]string{"measured", "estimated", "missing", "reset"}, v.Quality) {
 			return fmt.Errorf("invalid meter interval")
 		}
-		if v.Quality == "measured" || v.Quality == "estimated" {
+		if v.Quality == "measured" || v.Quality == meterQualityEstimated {
 			if _, e := Decimal(v.KWh, false); e != nil {
 				return fmt.Errorf("invalid metered energy")
 			}

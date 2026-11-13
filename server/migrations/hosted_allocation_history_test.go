@@ -154,6 +154,7 @@ func TestAllocationHistoryMigrationFencesConcurrentRecall(t *testing.T) {
 // Remove the newest dependent schema before testing a legacy migration.
 func rollbackEmptyHashboardAllocations(t *testing.T, conn *sql.DB) {
 	t.Helper()
+	rollbackEmptyReportingLifecycle(t, conn)
 	var exists bool
 	require.NoError(t, conn.QueryRowContext(t.Context(), `SELECT to_regclass('hosted_account_reporting_hour') IS NOT NULL`).Scan(&exists))
 	if exists {

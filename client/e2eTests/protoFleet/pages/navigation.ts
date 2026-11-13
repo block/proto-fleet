@@ -140,6 +140,7 @@ export class NavigationPage {
       await expect(trigger).toBeFocused();
       await trigger.click();
       await expect(dialog).toBeVisible();
+      await expect(panel).toHaveCSS("transform", "none");
       await dialog.getByRole("button", { name: "Close navigation menu" }).click({ position: { x: 380, y: 100 } });
       await expect(dialog).toBeHidden();
 

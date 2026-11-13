@@ -13,6 +13,8 @@ import (
 	"time"
 )
 
+const meterQualityEstimated = "estimated"
+
 const reportKindQuarterly = "quarterly"
 
 // Asset kinds match the mining contract without coupling pure calculations to

@@ -36,6 +36,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.activateDirectDiscoveredDeviceStmt, err = db.PrepareContext(ctx, activateDirectDiscoveredDevice); err != nil {
 		return nil, fmt.Errorf("error preparing query ActivateDirectDiscoveredDevice: %w", err)
 	}
+	if q.activeHostedReportCorrectionStmt, err = db.PrepareContext(ctx, activeHostedReportCorrection); err != nil {
+		return nil, fmt.Errorf("error preparing query ActiveHostedReportCorrection: %w", err)
+	}
 	if q.addDevicesToDeviceSetStmt, err = db.PrepareContext(ctx, addDevicesToDeviceSet); err != nil {
 		return nil, fmt.Errorf("error preparing query AddDevicesToDeviceSet: %w", err)
 	}
@@ -95,6 +98,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.appendFirmwareRolloutDevicesStmt, err = db.PrepareContext(ctx, appendFirmwareRolloutDevices); err != nil {
 		return nil, fmt.Errorf("error preparing query AppendFirmwareRolloutDevices: %w", err)
+	}
+	if q.appendHostedReportArtifactChunkStmt, err = db.PrepareContext(ctx, appendHostedReportArtifactChunk); err != nil {
+		return nil, fmt.Errorf("error preparing query AppendHostedReportArtifactChunk: %w", err)
 	}
 	if q.applyFleetNodeRecoveredEndpointStmt, err = db.PrepareContext(ctx, applyFleetNodeRecoveredEndpoint); err != nil {
 		return nil, fmt.Errorf("error preparing query ApplyFleetNodeRecoveredEndpoint: %w", err)
@@ -525,6 +531,18 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.createHostedAccountPoolRevisionStmt, err = db.PrepareContext(ctx, createHostedAccountPoolRevision); err != nil {
 		return nil, fmt.Errorf("error preparing query CreateHostedAccountPoolRevision: %w", err)
 	}
+	if q.createHostedReportStmt, err = db.PrepareContext(ctx, createHostedReport); err != nil {
+		return nil, fmt.Errorf("error preparing query CreateHostedReport: %w", err)
+	}
+	if q.createHostedReportArtifactStmt, err = db.PrepareContext(ctx, createHostedReportArtifact); err != nil {
+		return nil, fmt.Errorf("error preparing query CreateHostedReportArtifact: %w", err)
+	}
+	if q.createHostedReportDeliveryStmt, err = db.PrepareContext(ctx, createHostedReportDelivery); err != nil {
+		return nil, fmt.Errorf("error preparing query CreateHostedReportDelivery: %w", err)
+	}
+	if q.createHostedReportRequestStmt, err = db.PrepareContext(ctx, createHostedReportRequest); err != nil {
+		return nil, fmt.Errorf("error preparing query CreateHostedReportRequest: %w", err)
+	}
 	if q.createInfrastructureDeviceStmt, err = db.PrepareContext(ctx, createInfrastructureDevice); err != nil {
 		return nil, fmt.Errorf("error preparing query CreateInfrastructureDevice: %w", err)
 	}
@@ -765,6 +783,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.failCurtailmentPendingDeadlineTargetsStmt, err = db.PrepareContext(ctx, failCurtailmentPendingDeadlineTargets); err != nil {
 		return nil, fmt.Errorf("error preparing query FailCurtailmentPendingDeadlineTargets: %w", err)
 	}
+	if q.finalizeHostedReportArtifactStmt, err = db.PrepareContext(ctx, finalizeHostedReportArtifact); err != nil {
+		return nil, fmt.Errorf("error preparing query FinalizeHostedReportArtifact: %w", err)
+	}
 	if q.findDeviceBuildingConflictsStmt, err = db.PrepareContext(ctx, findDeviceBuildingConflicts); err != nil {
 		return nil, fmt.Errorf("error preparing query FindDeviceBuildingConflicts: %w", err)
 	}
@@ -791,6 +812,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.findHostedAccountMemberByUUIDStmt, err = db.PrepareContext(ctx, findHostedAccountMemberByUUID); err != nil {
 		return nil, fmt.Errorf("error preparing query FindHostedAccountMemberByUUID: %w", err)
+	}
+	if q.findHostedOriginalReportStmt, err = db.PrepareContext(ctx, findHostedOriginalReport); err != nil {
+		return nil, fmt.Errorf("error preparing query FindHostedOriginalReport: %w", err)
 	}
 	if q.finishDeviceWriteAttemptStmt, err = db.PrepareContext(ctx, finishDeviceWriteAttempt); err != nil {
 		return nil, fmt.Errorf("error preparing query FinishDeviceWriteAttempt: %w", err)
@@ -1290,6 +1314,21 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.getHostedAccountPoolRevisionByIDStmt, err = db.PrepareContext(ctx, getHostedAccountPoolRevisionByID); err != nil {
 		return nil, fmt.Errorf("error preparing query GetHostedAccountPoolRevisionByID: %w", err)
 	}
+	if q.getHostedReportStmt, err = db.PrepareContext(ctx, getHostedReport); err != nil {
+		return nil, fmt.Errorf("error preparing query GetHostedReport: %w", err)
+	}
+	if q.getHostedReportArtifactStmt, err = db.PrepareContext(ctx, getHostedReportArtifact); err != nil {
+		return nil, fmt.Errorf("error preparing query GetHostedReportArtifact: %w", err)
+	}
+	if q.getHostedReportArtifactChunkStmt, err = db.PrepareContext(ctx, getHostedReportArtifactChunk); err != nil {
+		return nil, fmt.Errorf("error preparing query GetHostedReportArtifactChunk: %w", err)
+	}
+	if q.getHostedReportArtifactScopeStmt, err = db.PrepareContext(ctx, getHostedReportArtifactScope); err != nil {
+		return nil, fmt.Errorf("error preparing query GetHostedReportArtifactScope: %w", err)
+	}
+	if q.getHostedReportDeliveryStmt, err = db.PrepareContext(ctx, getHostedReportDelivery); err != nil {
+		return nil, fmt.Errorf("error preparing query GetHostedReportDelivery: %w", err)
+	}
 	if q.getInfrastructureControlSubnetsStmt, err = db.PrepareContext(ctx, getInfrastructureControlSubnets); err != nil {
 		return nil, fmt.Errorf("error preparing query GetInfrastructureControlSubnets: %w", err)
 	}
@@ -1680,6 +1719,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.hasHostedAccountHostAuthorityStmt, err = db.PrepareContext(ctx, hasHostedAccountHostAuthority); err != nil {
 		return nil, fmt.Errorf("error preparing query HasHostedAccountHostAuthority: %w", err)
 	}
+	if q.hasIssuedHostedOriginalReportStmt, err = db.PrepareContext(ctx, hasIssuedHostedOriginalReport); err != nil {
+		return nil, fmt.Errorf("error preparing query HasIssuedHostedOriginalReport: %w", err)
+	}
 	if q.hasPendingContainerCommandStmt, err = db.PrepareContext(ctx, hasPendingContainerCommand); err != nil {
 		return nil, fmt.Errorf("error preparing query HasPendingContainerCommand: %w", err)
 	}
@@ -1697,6 +1739,15 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.hasUserStmt, err = db.PrepareContext(ctx, hasUser); err != nil {
 		return nil, fmt.Errorf("error preparing query HasUser: %w", err)
+	}
+	if q.hostedReportDeliveryStatusStmt, err = db.PrepareContext(ctx, hostedReportDeliveryStatus); err != nil {
+		return nil, fmt.Errorf("error preparing query HostedReportDeliveryStatus: %w", err)
+	}
+	if q.hostedReportEvidenceSitesStmt, err = db.PrepareContext(ctx, hostedReportEvidenceSites); err != nil {
+		return nil, fmt.Errorf("error preparing query HostedReportEvidenceSites: %w", err)
+	}
+	if q.hostedReportPublicIDStmt, err = db.PrepareContext(ctx, hostedReportPublicID); err != nil {
+		return nil, fmt.Errorf("error preparing query HostedReportPublicID: %w", err)
 	}
 	if q.initializeDeviceWorkerNameStmt, err = db.PrepareContext(ctx, initializeDeviceWorkerName); err != nil {
 		return nil, fmt.Errorf("error preparing query InitializeDeviceWorkerName: %w", err)
@@ -1823,6 +1874,12 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.isRetiredDeviceWriteDrainedStmt, err = db.PrepareContext(ctx, isRetiredDeviceWriteDrained); err != nil {
 		return nil, fmt.Errorf("error preparing query IsRetiredDeviceWriteDrained: %w", err)
+	}
+	if q.issueHostedReportStmt, err = db.PrepareContext(ctx, issueHostedReport); err != nil {
+		return nil, fmt.Errorf("error preparing query IssueHostedReport: %w", err)
+	}
+	if q.latestIssuedHostedReportStmt, err = db.PrepareContext(ctx, latestIssuedHostedReport); err != nil {
+		return nil, fmt.Errorf("error preparing query LatestIssuedHostedReport: %w", err)
 	}
 	if q.legacyPoolWritersDisabledStmt, err = db.PrepareContext(ctx, legacyPoolWritersDisabled); err != nil {
 		return nil, fmt.Errorf("error preparing query LegacyPoolWritersDisabled: %w", err)
@@ -2160,6 +2217,27 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.listHostedPoolImportSourcesStmt, err = db.PrepareContext(ctx, listHostedPoolImportSources); err != nil {
 		return nil, fmt.Errorf("error preparing query ListHostedPoolImportSources: %w", err)
 	}
+	if q.listHostedReportArtifactsStmt, err = db.PrepareContext(ctx, listHostedReportArtifacts); err != nil {
+		return nil, fmt.Errorf("error preparing query ListHostedReportArtifacts: %w", err)
+	}
+	if q.listHostedReportDeliveriesStmt, err = db.PrepareContext(ctx, listHostedReportDeliveries); err != nil {
+		return nil, fmt.Errorf("error preparing query ListHostedReportDeliveries: %w", err)
+	}
+	if q.listHostedReportEvidenceStmt, err = db.PrepareContext(ctx, listHostedReportEvidence); err != nil {
+		return nil, fmt.Errorf("error preparing query ListHostedReportEvidence: %w", err)
+	}
+	if q.listHostedReportEvidenceDaysStmt, err = db.PrepareContext(ctx, listHostedReportEvidenceDays); err != nil {
+		return nil, fmt.Errorf("error preparing query ListHostedReportEvidenceDays: %w", err)
+	}
+	if q.listHostedReportEvidenceIntervalsStmt, err = db.PrepareContext(ctx, listHostedReportEvidenceIntervals); err != nil {
+		return nil, fmt.Errorf("error preparing query ListHostedReportEvidenceIntervals: %w", err)
+	}
+	if q.listHostedReportRequestsStmt, err = db.PrepareContext(ctx, listHostedReportRequests); err != nil {
+		return nil, fmt.Errorf("error preparing query ListHostedReportRequests: %w", err)
+	}
+	if q.listHostedReportSummariesStmt, err = db.PrepareContext(ctx, listHostedReportSummaries); err != nil {
+		return nil, fmt.Errorf("error preparing query ListHostedReportSummaries: %w", err)
+	}
 	if q.listImportedPoolConfigurationsStmt, err = db.PrepareContext(ctx, listImportedPoolConfigurations); err != nil {
 		return nil, fmt.Errorf("error preparing query ListImportedPoolConfigurations: %w", err)
 	}
@@ -2375,6 +2453,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.listReportingCaptureStreamsStmt, err = db.PrepareContext(ctx, listReportingCaptureStreams); err != nil {
 		return nil, fmt.Errorf("error preparing query ListReportingCaptureStreams: %w", err)
+	}
+	if q.listReportingContextMetadataStmt, err = db.PrepareContext(ctx, listReportingContextMetadata); err != nil {
+		return nil, fmt.Errorf("error preparing query ListReportingContextMetadata: %w", err)
 	}
 	if q.listReportingFactDevicesStmt, err = db.PrepareContext(ctx, listReportingFactDevices); err != nil {
 		return nil, fmt.Errorf("error preparing query ListReportingFactDevices: %w", err)
@@ -2649,6 +2730,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.lockHostedAccountOrganizationForShareStmt, err = db.PrepareContext(ctx, lockHostedAccountOrganizationForShare); err != nil {
 		return nil, fmt.Errorf("error preparing query LockHostedAccountOrganizationForShare: %w", err)
 	}
+	if q.lockHostedReportStmt, err = db.PrepareContext(ctx, lockHostedReport); err != nil {
+		return nil, fmt.Errorf("error preparing query LockHostedReport: %w", err)
+	}
 	if q.lockInfrastructureDeviceForWriteStmt, err = db.PrepareContext(ctx, lockInfrastructureDeviceForWrite); err != nil {
 		return nil, fmt.Errorf("error preparing query LockInfrastructureDeviceForWrite: %w", err)
 	}
@@ -2751,6 +2835,12 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.lockReportingDevicesStmt, err = db.PrepareContext(ctx, lockReportingDevices); err != nil {
 		return nil, fmt.Errorf("error preparing query LockReportingDevices: %w", err)
 	}
+	if q.lockReportingInputsForReadStmt, err = db.PrepareContext(ctx, lockReportingInputsForRead); err != nil {
+		return nil, fmt.Errorf("error preparing query LockReportingInputsForRead: %w", err)
+	}
+	if q.lockReportingInputsForReportStmt, err = db.PrepareContext(ctx, lockReportingInputsForReport); err != nil {
+		return nil, fmt.Errorf("error preparing query LockReportingInputsForReport: %w", err)
+	}
 	if q.lockReportingInputsForShareStmt, err = db.PrepareContext(ctx, lockReportingInputsForShare); err != nil {
 		return nil, fmt.Errorf("error preparing query LockReportingInputsForShare: %w", err)
 	}
@@ -2804,6 +2894,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.negateSchedulePrioritiesStmt, err = db.PrepareContext(ctx, negateSchedulePriorities); err != nil {
 		return nil, fmt.Errorf("error preparing query NegateSchedulePriorities: %w", err)
+	}
+	if q.nextHostedReportNumberStmt, err = db.PrepareContext(ctx, nextHostedReportNumber); err != nil {
+		return nil, fmt.Errorf("error preparing query NextHostedReportNumber: %w", err)
 	}
 	if q.nextRepairTicketNumberStmt, err = db.PrepareContext(ctx, nextRepairTicketNumber); err != nil {
 		return nil, fmt.Errorf("error preparing query NextRepairTicketNumber: %w", err)
@@ -2970,6 +3063,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.refreshPoolConfigurationReadinessStmt, err = db.PrepareContext(ctx, refreshPoolConfigurationReadiness); err != nil {
 		return nil, fmt.Errorf("error preparing query RefreshPoolConfigurationReadiness: %w", err)
 	}
+	if q.regenerateHostedReportStmt, err = db.PrepareContext(ctx, regenerateHostedReport); err != nil {
+		return nil, fmt.Errorf("error preparing query RegenerateHostedReport: %w", err)
+	}
 	if q.reincludeFirmwareRolloutDevicesStmt, err = db.PrepareContext(ctx, reincludeFirmwareRolloutDevices); err != nil {
 		return nil, fmt.Errorf("error preparing query ReincludeFirmwareRolloutDevices: %w", err)
 	}
@@ -3017,6 +3113,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.repairTicketContainsModuleStmt, err = db.PrepareContext(ctx, repairTicketContainsModule); err != nil {
 		return nil, fmt.Errorf("error preparing query RepairTicketContainsModule: %w", err)
+	}
+	if q.reportingContextSizeStmt, err = db.PrepareContext(ctx, reportingContextSize); err != nil {
+		return nil, fmt.Errorf("error preparing query ReportingContextSize: %w", err)
 	}
 	if q.reprepareUndispatchedPoolLifecycleRemovalStmt, err = db.PrepareContext(ctx, reprepareUndispatchedPoolLifecycleRemoval); err != nil {
 		return nil, fmt.Errorf("error preparing query ReprepareUndispatchedPoolLifecycleRemoval: %w", err)
@@ -3174,6 +3273,12 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.scheduleMiningGroupReconciliationStmt, err = db.PrepareContext(ctx, scheduleMiningGroupReconciliation); err != nil {
 		return nil, fmt.Errorf("error preparing query ScheduleMiningGroupReconciliation: %w", err)
 	}
+	if q.selectHostedReportEvidenceCutoffStmt, err = db.PrepareContext(ctx, selectHostedReportEvidenceCutoff); err != nil {
+		return nil, fmt.Errorf("error preparing query SelectHostedReportEvidenceCutoff: %w", err)
+	}
+	if q.selectHostedReportPublicationTimeStmt, err = db.PrepareContext(ctx, selectHostedReportPublicationTime); err != nil {
+		return nil, fmt.Errorf("error preparing query SelectHostedReportPublicationTime: %w", err)
+	}
 	if q.setCurtailmentAutomationActiveEventStmt, err = db.PrepareContext(ctx, setCurtailmentAutomationActiveEvent); err != nil {
 		return nil, fmt.Errorf("error preparing query SetCurtailmentAutomationActiveEvent: %w", err)
 	}
@@ -3218,6 +3323,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.setHostedAccountTicketingStmt, err = db.PrepareContext(ctx, setHostedAccountTicketing); err != nil {
 		return nil, fmt.Errorf("error preparing query SetHostedAccountTicketing: %w", err)
+	}
+	if q.setHostedReportContextStmt, err = db.PrepareContext(ctx, setHostedReportContext); err != nil {
+		return nil, fmt.Errorf("error preparing query SetHostedReportContext: %w", err)
 	}
 	if q.setInfrastructureControlSubnetsStmt, err = db.PrepareContext(ctx, setInfrastructureControlSubnets); err != nil {
 		return nil, fmt.Errorf("error preparing query SetInfrastructureControlSubnets: %w", err)
@@ -3712,6 +3820,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing activateDirectDiscoveredDeviceStmt: %w", cerr)
 		}
 	}
+	if q.activeHostedReportCorrectionStmt != nil {
+		if cerr := q.activeHostedReportCorrectionStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing activeHostedReportCorrectionStmt: %w", cerr)
+		}
+	}
 	if q.addDevicesToDeviceSetStmt != nil {
 		if cerr := q.addDevicesToDeviceSetStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing addDevicesToDeviceSetStmt: %w", cerr)
@@ -3810,6 +3923,11 @@ func (q *Queries) Close() error {
 	if q.appendFirmwareRolloutDevicesStmt != nil {
 		if cerr := q.appendFirmwareRolloutDevicesStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing appendFirmwareRolloutDevicesStmt: %w", cerr)
+		}
+	}
+	if q.appendHostedReportArtifactChunkStmt != nil {
+		if cerr := q.appendHostedReportArtifactChunkStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing appendHostedReportArtifactChunkStmt: %w", cerr)
 		}
 	}
 	if q.applyFleetNodeRecoveredEndpointStmt != nil {
@@ -4527,6 +4645,26 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing createHostedAccountPoolRevisionStmt: %w", cerr)
 		}
 	}
+	if q.createHostedReportStmt != nil {
+		if cerr := q.createHostedReportStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing createHostedReportStmt: %w", cerr)
+		}
+	}
+	if q.createHostedReportArtifactStmt != nil {
+		if cerr := q.createHostedReportArtifactStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing createHostedReportArtifactStmt: %w", cerr)
+		}
+	}
+	if q.createHostedReportDeliveryStmt != nil {
+		if cerr := q.createHostedReportDeliveryStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing createHostedReportDeliveryStmt: %w", cerr)
+		}
+	}
+	if q.createHostedReportRequestStmt != nil {
+		if cerr := q.createHostedReportRequestStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing createHostedReportRequestStmt: %w", cerr)
+		}
+	}
 	if q.createInfrastructureDeviceStmt != nil {
 		if cerr := q.createInfrastructureDeviceStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing createInfrastructureDeviceStmt: %w", cerr)
@@ -4927,6 +5065,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing failCurtailmentPendingDeadlineTargetsStmt: %w", cerr)
 		}
 	}
+	if q.finalizeHostedReportArtifactStmt != nil {
+		if cerr := q.finalizeHostedReportArtifactStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing finalizeHostedReportArtifactStmt: %w", cerr)
+		}
+	}
 	if q.findDeviceBuildingConflictsStmt != nil {
 		if cerr := q.findDeviceBuildingConflictsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing findDeviceBuildingConflictsStmt: %w", cerr)
@@ -4970,6 +5113,11 @@ func (q *Queries) Close() error {
 	if q.findHostedAccountMemberByUUIDStmt != nil {
 		if cerr := q.findHostedAccountMemberByUUIDStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing findHostedAccountMemberByUUIDStmt: %w", cerr)
+		}
+	}
+	if q.findHostedOriginalReportStmt != nil {
+		if cerr := q.findHostedOriginalReportStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing findHostedOriginalReportStmt: %w", cerr)
 		}
 	}
 	if q.finishDeviceWriteAttemptStmt != nil {
@@ -5802,6 +5950,31 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing getHostedAccountPoolRevisionByIDStmt: %w", cerr)
 		}
 	}
+	if q.getHostedReportStmt != nil {
+		if cerr := q.getHostedReportStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getHostedReportStmt: %w", cerr)
+		}
+	}
+	if q.getHostedReportArtifactStmt != nil {
+		if cerr := q.getHostedReportArtifactStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getHostedReportArtifactStmt: %w", cerr)
+		}
+	}
+	if q.getHostedReportArtifactChunkStmt != nil {
+		if cerr := q.getHostedReportArtifactChunkStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getHostedReportArtifactChunkStmt: %w", cerr)
+		}
+	}
+	if q.getHostedReportArtifactScopeStmt != nil {
+		if cerr := q.getHostedReportArtifactScopeStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getHostedReportArtifactScopeStmt: %w", cerr)
+		}
+	}
+	if q.getHostedReportDeliveryStmt != nil {
+		if cerr := q.getHostedReportDeliveryStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getHostedReportDeliveryStmt: %w", cerr)
+		}
+	}
 	if q.getInfrastructureControlSubnetsStmt != nil {
 		if cerr := q.getInfrastructureControlSubnetsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getInfrastructureControlSubnetsStmt: %w", cerr)
@@ -6452,6 +6625,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing hasHostedAccountHostAuthorityStmt: %w", cerr)
 		}
 	}
+	if q.hasIssuedHostedOriginalReportStmt != nil {
+		if cerr := q.hasIssuedHostedOriginalReportStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing hasIssuedHostedOriginalReportStmt: %w", cerr)
+		}
+	}
 	if q.hasPendingContainerCommandStmt != nil {
 		if cerr := q.hasPendingContainerCommandStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing hasPendingContainerCommandStmt: %w", cerr)
@@ -6480,6 +6658,21 @@ func (q *Queries) Close() error {
 	if q.hasUserStmt != nil {
 		if cerr := q.hasUserStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing hasUserStmt: %w", cerr)
+		}
+	}
+	if q.hostedReportDeliveryStatusStmt != nil {
+		if cerr := q.hostedReportDeliveryStatusStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing hostedReportDeliveryStatusStmt: %w", cerr)
+		}
+	}
+	if q.hostedReportEvidenceSitesStmt != nil {
+		if cerr := q.hostedReportEvidenceSitesStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing hostedReportEvidenceSitesStmt: %w", cerr)
+		}
+	}
+	if q.hostedReportPublicIDStmt != nil {
+		if cerr := q.hostedReportPublicIDStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing hostedReportPublicIDStmt: %w", cerr)
 		}
 	}
 	if q.initializeDeviceWorkerNameStmt != nil {
@@ -6690,6 +6883,16 @@ func (q *Queries) Close() error {
 	if q.isRetiredDeviceWriteDrainedStmt != nil {
 		if cerr := q.isRetiredDeviceWriteDrainedStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing isRetiredDeviceWriteDrainedStmt: %w", cerr)
+		}
+	}
+	if q.issueHostedReportStmt != nil {
+		if cerr := q.issueHostedReportStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing issueHostedReportStmt: %w", cerr)
+		}
+	}
+	if q.latestIssuedHostedReportStmt != nil {
+		if cerr := q.latestIssuedHostedReportStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing latestIssuedHostedReportStmt: %w", cerr)
 		}
 	}
 	if q.legacyPoolWritersDisabledStmt != nil {
@@ -7252,6 +7455,41 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing listHostedPoolImportSourcesStmt: %w", cerr)
 		}
 	}
+	if q.listHostedReportArtifactsStmt != nil {
+		if cerr := q.listHostedReportArtifactsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listHostedReportArtifactsStmt: %w", cerr)
+		}
+	}
+	if q.listHostedReportDeliveriesStmt != nil {
+		if cerr := q.listHostedReportDeliveriesStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listHostedReportDeliveriesStmt: %w", cerr)
+		}
+	}
+	if q.listHostedReportEvidenceStmt != nil {
+		if cerr := q.listHostedReportEvidenceStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listHostedReportEvidenceStmt: %w", cerr)
+		}
+	}
+	if q.listHostedReportEvidenceDaysStmt != nil {
+		if cerr := q.listHostedReportEvidenceDaysStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listHostedReportEvidenceDaysStmt: %w", cerr)
+		}
+	}
+	if q.listHostedReportEvidenceIntervalsStmt != nil {
+		if cerr := q.listHostedReportEvidenceIntervalsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listHostedReportEvidenceIntervalsStmt: %w", cerr)
+		}
+	}
+	if q.listHostedReportRequestsStmt != nil {
+		if cerr := q.listHostedReportRequestsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listHostedReportRequestsStmt: %w", cerr)
+		}
+	}
+	if q.listHostedReportSummariesStmt != nil {
+		if cerr := q.listHostedReportSummariesStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listHostedReportSummariesStmt: %w", cerr)
+		}
+	}
 	if q.listImportedPoolConfigurationsStmt != nil {
 		if cerr := q.listImportedPoolConfigurationsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing listImportedPoolConfigurationsStmt: %w", cerr)
@@ -7610,6 +7848,11 @@ func (q *Queries) Close() error {
 	if q.listReportingCaptureStreamsStmt != nil {
 		if cerr := q.listReportingCaptureStreamsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing listReportingCaptureStreamsStmt: %w", cerr)
+		}
+	}
+	if q.listReportingContextMetadataStmt != nil {
+		if cerr := q.listReportingContextMetadataStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listReportingContextMetadataStmt: %w", cerr)
 		}
 	}
 	if q.listReportingFactDevicesStmt != nil {
@@ -8067,6 +8310,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing lockHostedAccountOrganizationForShareStmt: %w", cerr)
 		}
 	}
+	if q.lockHostedReportStmt != nil {
+		if cerr := q.lockHostedReportStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing lockHostedReportStmt: %w", cerr)
+		}
+	}
 	if q.lockInfrastructureDeviceForWriteStmt != nil {
 		if cerr := q.lockInfrastructureDeviceForWriteStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing lockInfrastructureDeviceForWriteStmt: %w", cerr)
@@ -8237,6 +8485,16 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing lockReportingDevicesStmt: %w", cerr)
 		}
 	}
+	if q.lockReportingInputsForReadStmt != nil {
+		if cerr := q.lockReportingInputsForReadStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing lockReportingInputsForReadStmt: %w", cerr)
+		}
+	}
+	if q.lockReportingInputsForReportStmt != nil {
+		if cerr := q.lockReportingInputsForReportStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing lockReportingInputsForReportStmt: %w", cerr)
+		}
+	}
 	if q.lockReportingInputsForShareStmt != nil {
 		if cerr := q.lockReportingInputsForShareStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing lockReportingInputsForShareStmt: %w", cerr)
@@ -8325,6 +8583,11 @@ func (q *Queries) Close() error {
 	if q.negateSchedulePrioritiesStmt != nil {
 		if cerr := q.negateSchedulePrioritiesStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing negateSchedulePrioritiesStmt: %w", cerr)
+		}
+	}
+	if q.nextHostedReportNumberStmt != nil {
+		if cerr := q.nextHostedReportNumberStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing nextHostedReportNumberStmt: %w", cerr)
 		}
 	}
 	if q.nextRepairTicketNumberStmt != nil {
@@ -8602,6 +8865,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing refreshPoolConfigurationReadinessStmt: %w", cerr)
 		}
 	}
+	if q.regenerateHostedReportStmt != nil {
+		if cerr := q.regenerateHostedReportStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing regenerateHostedReportStmt: %w", cerr)
+		}
+	}
 	if q.reincludeFirmwareRolloutDevicesStmt != nil {
 		if cerr := q.reincludeFirmwareRolloutDevicesStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing reincludeFirmwareRolloutDevicesStmt: %w", cerr)
@@ -8680,6 +8948,11 @@ func (q *Queries) Close() error {
 	if q.repairTicketContainsModuleStmt != nil {
 		if cerr := q.repairTicketContainsModuleStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing repairTicketContainsModuleStmt: %w", cerr)
+		}
+	}
+	if q.reportingContextSizeStmt != nil {
+		if cerr := q.reportingContextSizeStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing reportingContextSizeStmt: %w", cerr)
 		}
 	}
 	if q.reprepareUndispatchedPoolLifecycleRemovalStmt != nil {
@@ -8942,6 +9215,16 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing scheduleMiningGroupReconciliationStmt: %w", cerr)
 		}
 	}
+	if q.selectHostedReportEvidenceCutoffStmt != nil {
+		if cerr := q.selectHostedReportEvidenceCutoffStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing selectHostedReportEvidenceCutoffStmt: %w", cerr)
+		}
+	}
+	if q.selectHostedReportPublicationTimeStmt != nil {
+		if cerr := q.selectHostedReportPublicationTimeStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing selectHostedReportPublicationTimeStmt: %w", cerr)
+		}
+	}
 	if q.setCurtailmentAutomationActiveEventStmt != nil {
 		if cerr := q.setCurtailmentAutomationActiveEventStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing setCurtailmentAutomationActiveEventStmt: %w", cerr)
@@ -9015,6 +9298,11 @@ func (q *Queries) Close() error {
 	if q.setHostedAccountTicketingStmt != nil {
 		if cerr := q.setHostedAccountTicketingStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing setHostedAccountTicketingStmt: %w", cerr)
+		}
+	}
+	if q.setHostedReportContextStmt != nil {
+		if cerr := q.setHostedReportContextStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing setHostedReportContextStmt: %w", cerr)
 		}
 	}
 	if q.setInfrastructureControlSubnetsStmt != nil {
@@ -9840,6 +10128,7 @@ type Queries struct {
 	acquireFleetRuntimeLeaseStmt                                *sql.Stmt
 	acquireReconcileLockStmt                                    *sql.Stmt
 	activateDirectDiscoveredDeviceStmt                          *sql.Stmt
+	activeHostedReportCorrectionStmt                            *sql.Stmt
 	addDevicesToDeviceSetStmt                                   *sql.Stmt
 	addHostedAccountKeyDescendantStmt                           *sql.Stmt
 	addHostedAccountSiteStmt                                    *sql.Stmt
@@ -9860,6 +10149,7 @@ type Queries struct {
 	allDevicesBelongToOrgStmt                                   *sql.Stmt
 	anyDeviceHasBlockingFrigateUpdateJobStmt                    *sql.Stmt
 	appendFirmwareRolloutDevicesStmt                            *sql.Stmt
+	appendHostedReportArtifactChunkStmt                         *sql.Stmt
 	applyFleetNodeRecoveredEndpointStmt                         *sql.Stmt
 	applyFleetNodeRecoveryAuthenticationNeededStmt              *sql.Stmt
 	archiveHostedAccountPoolStmt                                *sql.Stmt
@@ -10003,6 +10293,10 @@ type Queries struct {
 	createHostedAccountInvitationStmt                           *sql.Stmt
 	createHostedAccountPoolStmt                                 *sql.Stmt
 	createHostedAccountPoolRevisionStmt                         *sql.Stmt
+	createHostedReportStmt                                      *sql.Stmt
+	createHostedReportArtifactStmt                              *sql.Stmt
+	createHostedReportDeliveryStmt                              *sql.Stmt
+	createHostedReportRequestStmt                               *sql.Stmt
 	createInfrastructureDeviceStmt                              *sql.Stmt
 	createInventoryPartStmt                                     *sql.Stmt
 	createMiningGroupPoolHandoffStmt                            *sql.Stmt
@@ -10083,6 +10377,7 @@ type Queries struct {
 	ensurePoolConfigurationDefaultStmt                          *sql.Stmt
 	excludeFirmwareRolloutDevicesStmt                           *sql.Stmt
 	failCurtailmentPendingDeadlineTargetsStmt                   *sql.Stmt
+	finalizeHostedReportArtifactStmt                            *sql.Stmt
 	findDeviceBuildingConflictsStmt                             *sql.Stmt
 	findDeviceSiteConflictsStmt                                 *sql.Stmt
 	findDevicesInBuildingLessPlacedRacksStmt                    *sql.Stmt
@@ -10092,6 +10387,7 @@ type Queries struct {
 	findEndpointDiscoveryStmt                                   *sql.Stmt
 	findHashboardIdentitiesStmt                                 *sql.Stmt
 	findHostedAccountMemberByUUIDStmt                           *sql.Stmt
+	findHostedOriginalReportStmt                                *sql.Stmt
 	finishDeviceWriteAttemptStmt                                *sql.Stmt
 	finishFirmwareRolloutStmt                                   *sql.Stmt
 	finishPoolConfigurationTargetStmt                           *sql.Stmt
@@ -10258,6 +10554,11 @@ type Queries struct {
 	getHostedAccountPoolProfileStmt                             *sql.Stmt
 	getHostedAccountPoolRevisionStmt                            *sql.Stmt
 	getHostedAccountPoolRevisionByIDStmt                        *sql.Stmt
+	getHostedReportStmt                                         *sql.Stmt
+	getHostedReportArtifactStmt                                 *sql.Stmt
+	getHostedReportArtifactChunkStmt                            *sql.Stmt
+	getHostedReportArtifactScopeStmt                            *sql.Stmt
+	getHostedReportDeliveryStmt                                 *sql.Stmt
 	getInfrastructureControlSubnetsStmt                         *sql.Stmt
 	getInfrastructureDeviceStmt                                 *sql.Stmt
 	getInventoryInsightsStmt                                    *sql.Stmt
@@ -10388,12 +10689,16 @@ type Queries struct {
 	hasDetachedPoolGroupIntentsStmt                             *sql.Stmt
 	hasDueTelemetrySeedRecoveryStmt                             *sql.Stmt
 	hasHostedAccountHostAuthorityStmt                           *sql.Stmt
+	hasIssuedHostedOriginalReportStmt                           *sql.Stmt
 	hasPendingContainerCommandStmt                              *sql.Stmt
 	hasPoolAssignmentKindConflictStmt                           *sql.Stmt
 	hasPoolConfigurationCutoverStmt                             *sql.Stmt
 	hasPoolConfigurationReviewAuthorizationStmt                 *sql.Stmt
 	hasReportingAllocatedMetersStmt                             *sql.Stmt
 	hasUserStmt                                                 *sql.Stmt
+	hostedReportDeliveryStatusStmt                              *sql.Stmt
+	hostedReportEvidenceSitesStmt                               *sql.Stmt
+	hostedReportPublicIDStmt                                    *sql.Stmt
 	initializeDeviceWorkerNameStmt                              *sql.Stmt
 	initializeReportingInputsStmt                               *sql.Stmt
 	insertActivityLogStmt                                       *sql.Stmt
@@ -10436,6 +10741,8 @@ type Queries struct {
 	isDeviceWriteFenceDrainedStmt                               *sql.Stmt
 	isFleetNodeHAStandbyStmt                                    *sql.Stmt
 	isRetiredDeviceWriteDrainedStmt                             *sql.Stmt
+	issueHostedReportStmt                                       *sql.Stmt
+	latestIssuedHostedReportStmt                                *sql.Stmt
 	legacyPoolWritersDisabledStmt                               *sql.Stmt
 	linkPoolConfigurationAttemptStmt                            *sql.Stmt
 	linkPoolGroupSnapshotStmt                                   *sql.Stmt
@@ -10548,6 +10855,13 @@ type Queries struct {
 	listHostedAccountSummariesStmt                              *sql.Stmt
 	listHostedAccountsStmt                                      *sql.Stmt
 	listHostedPoolImportSourcesStmt                             *sql.Stmt
+	listHostedReportArtifactsStmt                               *sql.Stmt
+	listHostedReportDeliveriesStmt                              *sql.Stmt
+	listHostedReportEvidenceStmt                                *sql.Stmt
+	listHostedReportEvidenceDaysStmt                            *sql.Stmt
+	listHostedReportEvidenceIntervalsStmt                       *sql.Stmt
+	listHostedReportRequestsStmt                                *sql.Stmt
+	listHostedReportSummariesStmt                               *sql.Stmt
 	listImportedPoolConfigurationsStmt                          *sql.Stmt
 	listInfrastructureDevicesByOrgStmt                          *sql.Stmt
 	listInventoryPartsStmt                                      *sql.Stmt
@@ -10620,6 +10934,7 @@ type Queries struct {
 	listReportingAssetSupportMetadataStmt                       *sql.Stmt
 	listReportingAuthoritiesStmt                                *sql.Stmt
 	listReportingCaptureStreamsStmt                             *sql.Stmt
+	listReportingContextMetadataStmt                            *sql.Stmt
 	listReportingFactDevicesStmt                                *sql.Stmt
 	listReportingFactPageMetadataStmt                           *sql.Stmt
 	listReportingFactSitesStmt                                  *sql.Stmt
@@ -10711,6 +11026,7 @@ type Queries struct {
 	lockHostedAccountAssetInventoryStmt                         *sql.Stmt
 	lockHostedAccountOrganizationStmt                           *sql.Stmt
 	lockHostedAccountOrganizationForShareStmt                   *sql.Stmt
+	lockHostedReportStmt                                        *sql.Stmt
 	lockInfrastructureDeviceForWriteStmt                        *sql.Stmt
 	lockInfrastructureDevicesBySiteForWriteStmt                 *sql.Stmt
 	lockInfrastructureDevicesForResponseProfileStmt             *sql.Stmt
@@ -10745,6 +11061,8 @@ type Queries struct {
 	lockRepairTicketCreateKeyStmt                               *sql.Stmt
 	lockRepairTicketTargetAllocationStmt                        *sql.Stmt
 	lockReportingDevicesStmt                                    *sql.Stmt
+	lockReportingInputsForReadStmt                              *sql.Stmt
+	lockReportingInputsForReportStmt                            *sql.Stmt
 	lockReportingInputsForShareStmt                             *sql.Stmt
 	lockReportingInputsForUpdateStmt                            *sql.Stmt
 	lockSchedulePriorityStmt                                    *sql.Stmt
@@ -10763,6 +11081,7 @@ type Queries struct {
 	moveDiscoveredDeviceAttributionStmt                         *sql.Stmt
 	moveFleetNodeDevicesStmt                                    *sql.Stmt
 	negateSchedulePrioritiesStmt                                *sql.Stmt
+	nextHostedReportNumberStmt                                  *sql.Stmt
 	nextRepairTicketNumberStmt                                  *sql.Stmt
 	observeFirmwareRolloutReservationsOfflineStmt               *sql.Stmt
 	offlineDevicesForFleetNodeRevocationStmt                    *sql.Stmt
@@ -10818,6 +11137,7 @@ type Queries struct {
 	recoverTelemetrySeedBatchStmt                               *sql.Stmt
 	refreshOpenErrorsLastSeenByDeviceStmt                       *sql.Stmt
 	refreshPoolConfigurationReadinessStmt                       *sql.Stmt
+	regenerateHostedReportStmt                                  *sql.Stmt
 	reincludeFirmwareRolloutDevicesStmt                         *sql.Stmt
 	rejectCurtailmentDispatchStmt                               *sql.Stmt
 	rejectPendingPoolRemovalStmt                                *sql.Stmt
@@ -10834,6 +11154,7 @@ type Queries struct {
 	renewCurtailmentAutomationScheduleRevisionStmt              *sql.Stmt
 	renewFleetRuntimeLeaseStmt                                  *sql.Stmt
 	repairTicketContainsModuleStmt                              *sql.Stmt
+	reportingContextSizeStmt                                    *sql.Stmt
 	reprepareUndispatchedPoolLifecycleRemovalStmt               *sql.Stmt
 	requestRigConfigReconciliationForDevicesStmt                *sql.Stmt
 	requeueFirmwareRolloutDevicesStmt                           *sql.Stmt
@@ -10886,6 +11207,8 @@ type Queries struct {
 	savePoolConfigurationObservationStmt                        *sql.Stmt
 	savePoolConfigurationReviewResultStmt                       *sql.Stmt
 	scheduleMiningGroupReconciliationStmt                       *sql.Stmt
+	selectHostedReportEvidenceCutoffStmt                        *sql.Stmt
+	selectHostedReportPublicationTimeStmt                       *sql.Stmt
 	setCurtailmentAutomationActiveEventStmt                     *sql.Stmt
 	setCurtailmentAutomationExecutionErrorStmt                  *sql.Stmt
 	setCurtailmentAutomationRestoreStartedStmt                  *sql.Stmt
@@ -10901,6 +11224,7 @@ type Queries struct {
 	setHostedAccountPoolProfileStmt                             *sql.Stmt
 	setHostedAccountSitesRestrictedStmt                         *sql.Stmt
 	setHostedAccountTicketingStmt                               *sql.Stmt
+	setHostedReportContextStmt                                  *sql.Stmt
 	setInfrastructureControlSubnetsStmt                         *sql.Stmt
 	setLocalDeviceDeletionLockTimeoutStmt                       *sql.Stmt
 	setLocalFleetNodeHAFailoverLockTimeoutStmt                  *sql.Stmt
@@ -11067,6 +11391,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		acquireFleetRuntimeLeaseStmt:                                q.acquireFleetRuntimeLeaseStmt,
 		acquireReconcileLockStmt:                                    q.acquireReconcileLockStmt,
 		activateDirectDiscoveredDeviceStmt:                          q.activateDirectDiscoveredDeviceStmt,
+		activeHostedReportCorrectionStmt:                            q.activeHostedReportCorrectionStmt,
 		addDevicesToDeviceSetStmt:                                   q.addDevicesToDeviceSetStmt,
 		addHostedAccountKeyDescendantStmt:                           q.addHostedAccountKeyDescendantStmt,
 		addHostedAccountSiteStmt:                                    q.addHostedAccountSiteStmt,
@@ -11087,6 +11412,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		allDevicesBelongToOrgStmt:                                   q.allDevicesBelongToOrgStmt,
 		anyDeviceHasBlockingFrigateUpdateJobStmt:                    q.anyDeviceHasBlockingFrigateUpdateJobStmt,
 		appendFirmwareRolloutDevicesStmt:                            q.appendFirmwareRolloutDevicesStmt,
+		appendHostedReportArtifactChunkStmt:                         q.appendHostedReportArtifactChunkStmt,
 		applyFleetNodeRecoveredEndpointStmt:                         q.applyFleetNodeRecoveredEndpointStmt,
 		applyFleetNodeRecoveryAuthenticationNeededStmt:              q.applyFleetNodeRecoveryAuthenticationNeededStmt,
 		archiveHostedAccountPoolStmt:                                q.archiveHostedAccountPoolStmt,
@@ -11230,6 +11556,10 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		createHostedAccountInvitationStmt:                           q.createHostedAccountInvitationStmt,
 		createHostedAccountPoolStmt:                                 q.createHostedAccountPoolStmt,
 		createHostedAccountPoolRevisionStmt:                         q.createHostedAccountPoolRevisionStmt,
+		createHostedReportStmt:                                      q.createHostedReportStmt,
+		createHostedReportArtifactStmt:                              q.createHostedReportArtifactStmt,
+		createHostedReportDeliveryStmt:                              q.createHostedReportDeliveryStmt,
+		createHostedReportRequestStmt:                               q.createHostedReportRequestStmt,
 		createInfrastructureDeviceStmt:                              q.createInfrastructureDeviceStmt,
 		createInventoryPartStmt:                                     q.createInventoryPartStmt,
 		createMiningGroupPoolHandoffStmt:                            q.createMiningGroupPoolHandoffStmt,
@@ -11310,6 +11640,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		ensurePoolConfigurationDefaultStmt:                          q.ensurePoolConfigurationDefaultStmt,
 		excludeFirmwareRolloutDevicesStmt:                           q.excludeFirmwareRolloutDevicesStmt,
 		failCurtailmentPendingDeadlineTargetsStmt:                   q.failCurtailmentPendingDeadlineTargetsStmt,
+		finalizeHostedReportArtifactStmt:                            q.finalizeHostedReportArtifactStmt,
 		findDeviceBuildingConflictsStmt:                             q.findDeviceBuildingConflictsStmt,
 		findDeviceSiteConflictsStmt:                                 q.findDeviceSiteConflictsStmt,
 		findDevicesInBuildingLessPlacedRacksStmt:                    q.findDevicesInBuildingLessPlacedRacksStmt,
@@ -11319,6 +11650,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		findEndpointDiscoveryStmt:                                   q.findEndpointDiscoveryStmt,
 		findHashboardIdentitiesStmt:                                 q.findHashboardIdentitiesStmt,
 		findHostedAccountMemberByUUIDStmt:                           q.findHostedAccountMemberByUUIDStmt,
+		findHostedOriginalReportStmt:                                q.findHostedOriginalReportStmt,
 		finishDeviceWriteAttemptStmt:                                q.finishDeviceWriteAttemptStmt,
 		finishFirmwareRolloutStmt:                                   q.finishFirmwareRolloutStmt,
 		finishPoolConfigurationTargetStmt:                           q.finishPoolConfigurationTargetStmt,
@@ -11485,6 +11817,11 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getHostedAccountPoolProfileStmt:                             q.getHostedAccountPoolProfileStmt,
 		getHostedAccountPoolRevisionStmt:                            q.getHostedAccountPoolRevisionStmt,
 		getHostedAccountPoolRevisionByIDStmt:                        q.getHostedAccountPoolRevisionByIDStmt,
+		getHostedReportStmt:                                         q.getHostedReportStmt,
+		getHostedReportArtifactStmt:                                 q.getHostedReportArtifactStmt,
+		getHostedReportArtifactChunkStmt:                            q.getHostedReportArtifactChunkStmt,
+		getHostedReportArtifactScopeStmt:                            q.getHostedReportArtifactScopeStmt,
+		getHostedReportDeliveryStmt:                                 q.getHostedReportDeliveryStmt,
 		getInfrastructureControlSubnetsStmt:                         q.getInfrastructureControlSubnetsStmt,
 		getInfrastructureDeviceStmt:                                 q.getInfrastructureDeviceStmt,
 		getInventoryInsightsStmt:                                    q.getInventoryInsightsStmt,
@@ -11615,12 +11952,16 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		hasDetachedPoolGroupIntentsStmt:                             q.hasDetachedPoolGroupIntentsStmt,
 		hasDueTelemetrySeedRecoveryStmt:                             q.hasDueTelemetrySeedRecoveryStmt,
 		hasHostedAccountHostAuthorityStmt:                           q.hasHostedAccountHostAuthorityStmt,
+		hasIssuedHostedOriginalReportStmt:                           q.hasIssuedHostedOriginalReportStmt,
 		hasPendingContainerCommandStmt:                              q.hasPendingContainerCommandStmt,
 		hasPoolAssignmentKindConflictStmt:                           q.hasPoolAssignmentKindConflictStmt,
 		hasPoolConfigurationCutoverStmt:                             q.hasPoolConfigurationCutoverStmt,
 		hasPoolConfigurationReviewAuthorizationStmt:                 q.hasPoolConfigurationReviewAuthorizationStmt,
 		hasReportingAllocatedMetersStmt:                             q.hasReportingAllocatedMetersStmt,
 		hasUserStmt:                                                 q.hasUserStmt,
+		hostedReportDeliveryStatusStmt:                              q.hostedReportDeliveryStatusStmt,
+		hostedReportEvidenceSitesStmt:                               q.hostedReportEvidenceSitesStmt,
+		hostedReportPublicIDStmt:                                    q.hostedReportPublicIDStmt,
 		initializeDeviceWorkerNameStmt:                              q.initializeDeviceWorkerNameStmt,
 		initializeReportingInputsStmt:                               q.initializeReportingInputsStmt,
 		insertActivityLogStmt:                                       q.insertActivityLogStmt,
@@ -11663,6 +12004,8 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		isDeviceWriteFenceDrainedStmt:                               q.isDeviceWriteFenceDrainedStmt,
 		isFleetNodeHAStandbyStmt:                                    q.isFleetNodeHAStandbyStmt,
 		isRetiredDeviceWriteDrainedStmt:                             q.isRetiredDeviceWriteDrainedStmt,
+		issueHostedReportStmt:                                       q.issueHostedReportStmt,
+		latestIssuedHostedReportStmt:                                q.latestIssuedHostedReportStmt,
 		legacyPoolWritersDisabledStmt:                               q.legacyPoolWritersDisabledStmt,
 		linkPoolConfigurationAttemptStmt:                            q.linkPoolConfigurationAttemptStmt,
 		linkPoolGroupSnapshotStmt:                                   q.linkPoolGroupSnapshotStmt,
@@ -11775,6 +12118,13 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		listHostedAccountSummariesStmt:                              q.listHostedAccountSummariesStmt,
 		listHostedAccountsStmt:                                      q.listHostedAccountsStmt,
 		listHostedPoolImportSourcesStmt:                             q.listHostedPoolImportSourcesStmt,
+		listHostedReportArtifactsStmt:                               q.listHostedReportArtifactsStmt,
+		listHostedReportDeliveriesStmt:                              q.listHostedReportDeliveriesStmt,
+		listHostedReportEvidenceStmt:                                q.listHostedReportEvidenceStmt,
+		listHostedReportEvidenceDaysStmt:                            q.listHostedReportEvidenceDaysStmt,
+		listHostedReportEvidenceIntervalsStmt:                       q.listHostedReportEvidenceIntervalsStmt,
+		listHostedReportRequestsStmt:                                q.listHostedReportRequestsStmt,
+		listHostedReportSummariesStmt:                               q.listHostedReportSummariesStmt,
 		listImportedPoolConfigurationsStmt:                          q.listImportedPoolConfigurationsStmt,
 		listInfrastructureDevicesByOrgStmt:                          q.listInfrastructureDevicesByOrgStmt,
 		listInventoryPartsStmt:                                      q.listInventoryPartsStmt,
@@ -11847,6 +12197,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		listReportingAssetSupportMetadataStmt:                       q.listReportingAssetSupportMetadataStmt,
 		listReportingAuthoritiesStmt:                                q.listReportingAuthoritiesStmt,
 		listReportingCaptureStreamsStmt:                             q.listReportingCaptureStreamsStmt,
+		listReportingContextMetadataStmt:                            q.listReportingContextMetadataStmt,
 		listReportingFactDevicesStmt:                                q.listReportingFactDevicesStmt,
 		listReportingFactPageMetadataStmt:                           q.listReportingFactPageMetadataStmt,
 		listReportingFactSitesStmt:                                  q.listReportingFactSitesStmt,
@@ -11938,6 +12289,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		lockHostedAccountAssetInventoryStmt:                         q.lockHostedAccountAssetInventoryStmt,
 		lockHostedAccountOrganizationStmt:                           q.lockHostedAccountOrganizationStmt,
 		lockHostedAccountOrganizationForShareStmt:                   q.lockHostedAccountOrganizationForShareStmt,
+		lockHostedReportStmt:                                        q.lockHostedReportStmt,
 		lockInfrastructureDeviceForWriteStmt:                        q.lockInfrastructureDeviceForWriteStmt,
 		lockInfrastructureDevicesBySiteForWriteStmt:                 q.lockInfrastructureDevicesBySiteForWriteStmt,
 		lockInfrastructureDevicesForResponseProfileStmt:             q.lockInfrastructureDevicesForResponseProfileStmt,
@@ -11972,6 +12324,8 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		lockRepairTicketCreateKeyStmt:                               q.lockRepairTicketCreateKeyStmt,
 		lockRepairTicketTargetAllocationStmt:                        q.lockRepairTicketTargetAllocationStmt,
 		lockReportingDevicesStmt:                                    q.lockReportingDevicesStmt,
+		lockReportingInputsForReadStmt:                              q.lockReportingInputsForReadStmt,
+		lockReportingInputsForReportStmt:                            q.lockReportingInputsForReportStmt,
 		lockReportingInputsForShareStmt:                             q.lockReportingInputsForShareStmt,
 		lockReportingInputsForUpdateStmt:                            q.lockReportingInputsForUpdateStmt,
 		lockSchedulePriorityStmt:                                    q.lockSchedulePriorityStmt,
@@ -11990,6 +12344,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		moveDiscoveredDeviceAttributionStmt:                         q.moveDiscoveredDeviceAttributionStmt,
 		moveFleetNodeDevicesStmt:                                    q.moveFleetNodeDevicesStmt,
 		negateSchedulePrioritiesStmt:                                q.negateSchedulePrioritiesStmt,
+		nextHostedReportNumberStmt:                                  q.nextHostedReportNumberStmt,
 		nextRepairTicketNumberStmt:                                  q.nextRepairTicketNumberStmt,
 		observeFirmwareRolloutReservationsOfflineStmt:               q.observeFirmwareRolloutReservationsOfflineStmt,
 		offlineDevicesForFleetNodeRevocationStmt:                    q.offlineDevicesForFleetNodeRevocationStmt,
@@ -12045,6 +12400,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		recoverTelemetrySeedBatchStmt:                               q.recoverTelemetrySeedBatchStmt,
 		refreshOpenErrorsLastSeenByDeviceStmt:                       q.refreshOpenErrorsLastSeenByDeviceStmt,
 		refreshPoolConfigurationReadinessStmt:                       q.refreshPoolConfigurationReadinessStmt,
+		regenerateHostedReportStmt:                                  q.regenerateHostedReportStmt,
 		reincludeFirmwareRolloutDevicesStmt:                         q.reincludeFirmwareRolloutDevicesStmt,
 		rejectCurtailmentDispatchStmt:                               q.rejectCurtailmentDispatchStmt,
 		rejectPendingPoolRemovalStmt:                                q.rejectPendingPoolRemovalStmt,
@@ -12061,6 +12417,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		renewCurtailmentAutomationScheduleRevisionStmt:              q.renewCurtailmentAutomationScheduleRevisionStmt,
 		renewFleetRuntimeLeaseStmt:                                  q.renewFleetRuntimeLeaseStmt,
 		repairTicketContainsModuleStmt:                              q.repairTicketContainsModuleStmt,
+		reportingContextSizeStmt:                                    q.reportingContextSizeStmt,
 		reprepareUndispatchedPoolLifecycleRemovalStmt:               q.reprepareUndispatchedPoolLifecycleRemovalStmt,
 		requestRigConfigReconciliationForDevicesStmt:                q.requestRigConfigReconciliationForDevicesStmt,
 		requeueFirmwareRolloutDevicesStmt:                           q.requeueFirmwareRolloutDevicesStmt,
@@ -12113,6 +12470,8 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		savePoolConfigurationObservationStmt:                        q.savePoolConfigurationObservationStmt,
 		savePoolConfigurationReviewResultStmt:                       q.savePoolConfigurationReviewResultStmt,
 		scheduleMiningGroupReconciliationStmt:                       q.scheduleMiningGroupReconciliationStmt,
+		selectHostedReportEvidenceCutoffStmt:                        q.selectHostedReportEvidenceCutoffStmt,
+		selectHostedReportPublicationTimeStmt:                       q.selectHostedReportPublicationTimeStmt,
 		setCurtailmentAutomationActiveEventStmt:                     q.setCurtailmentAutomationActiveEventStmt,
 		setCurtailmentAutomationExecutionErrorStmt:                  q.setCurtailmentAutomationExecutionErrorStmt,
 		setCurtailmentAutomationRestoreStartedStmt:                  q.setCurtailmentAutomationRestoreStartedStmt,
@@ -12128,6 +12487,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		setHostedAccountPoolProfileStmt:                             q.setHostedAccountPoolProfileStmt,
 		setHostedAccountSitesRestrictedStmt:                         q.setHostedAccountSitesRestrictedStmt,
 		setHostedAccountTicketingStmt:                               q.setHostedAccountTicketingStmt,
+		setHostedReportContextStmt:                                  q.setHostedReportContextStmt,
 		setInfrastructureControlSubnetsStmt:                         q.setInfrastructureControlSubnetsStmt,
 		setLocalDeviceDeletionLockTimeoutStmt:                       q.setLocalDeviceDeletionLockTimeoutStmt,
 		setLocalFleetNodeHAFailoverLockTimeoutStmt:                  q.setLocalFleetNodeHAFailoverLockTimeoutStmt,
