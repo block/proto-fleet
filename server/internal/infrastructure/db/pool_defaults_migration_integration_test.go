@@ -1,6 +1,7 @@
 package db
 
 import (
+	"database/sql"
 	"io/fs"
 	"testing"
 	"testing/fstest"
@@ -85,7 +86,11 @@ func TestDefaultPoolLifecycleUpgradeFromPopulated1077(t *testing.T) {
 		require.Equal(t, library.oldest, chosen, "choose oldest active configuration independently for each owner")
 	}
 	var assignmentAfter, revisionsAfter string
-	require.NoError(t, conn.QueryRowContext(ctx, `SELECT to_jsonb(a)::text FROM pool_configuration_assignment a WHERE device_id=$1`, device).Scan(&assignmentAfter))
+	var inheritedWorkerName sql.NullString
+	// Worker-name metadata is added by a later migration. Check its NULL
+	// default separately while comparing every original assignment field.
+	require.NoError(t, conn.QueryRowContext(ctx, `SELECT (to_jsonb(a)-'inherited_worker_name')::text,inherited_worker_name FROM pool_configuration_assignment a WHERE device_id=$1`, device).Scan(&assignmentAfter, &inheritedWorkerName))
+	require.False(t, inheritedWorkerName.Valid, "upgrade must not invent an inherited worker input")
 	require.NoError(t, conn.QueryRowContext(ctx, `SELECT jsonb_agg(to_jsonb(r) ORDER BY revision_id)::text FROM pool_configuration_revision r`).Scan(&revisionsAfter))
 	require.JSONEq(t, assignmentBefore, assignmentAfter, "choosing a default must not reassign existing hardware")
 	require.JSONEq(t, revisionsBefore, revisionsAfter, "upgrade preserves existing revisions and encrypted credentials")
