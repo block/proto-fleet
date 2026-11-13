@@ -661,24 +661,27 @@ python3 scripts/check-migration-history.py --base-ref origin/main
 Use `--public-ref <fetched-public-commit>` to compare against the frozen public
 migration history.
 
-## Provisional hosted reporting evidence (1055)
+## Hosted reporting evidence (1055, 1077)
+
+Migration 1055 installed a provisional raw hold that copied every normalized
+hosted-history sample. Migration 1077 replaces it with hourly evidence: it
+deletes the raw hold and its events, keeps the allocation snapshot, and adds
+append-only hour rows written by a scheduled TimescaleDB job. Deployments that
+ran 1055 keep raw capture paused until 1077 lands.
 
 Stop telemetry, allocation and scheduled database writers before applying
-migration 1055. It installs a transactional hold on new normalized hosted-history
-samples and records its capture epoch without backfilling existing data.
-Rehearse the upgrade on a representative restored backup to size the maintenance
-window and lock capacity: the seven telemetry/historical table locks include all
-existing chunks, and the hashboard metrics trigger is reinstalled on each chunk.
-Fresh-database tests do not qualify that upgrade footprint.
+either migration. Both lock the same seven telemetry and history tables,
+including all existing chunks, so rehearse the upgrade on a representative
+restored backup to size the maintenance window and lock capacity. Fresh-database
+tests do not qualify that footprint.
 
-A pre-1055 binary rejects the 1055 checkpoint. Once capture begins, the populated
-hold refuses downgrade; returning to an older build requires the coordinated
-pre-upgrade database backup and matching application, losing post-backup writes.
+A binary older than 1077 rejects the 1077 checkpoint. The 1077 down migration
+refuses once the hourly evidence or gap table has rows; before that it restores
+an empty 1055 raw hold, which resumes raw capture. Returning to an older build after evidence exists
+requires the coordinated pre-upgrade database backup and matching application,
+losing post-backup writes. Prefer fixing forward and retain coordinated backups.
 
-The hold is provisional and has no automatic deletion policy. Production rollout
-needs an operations owner and a reviewed interim storage/backup budget. Since
-`fleetd` applies current migrations on startup, keep builds containing 1055 out
-of hosted releases and promotion until that approval and the restore rehearsal
-are recorded. The down migration refuses to discard a populated hold; prefer fixing forward and retain
-coordinated backups. Inspect capture and storage using the
-[reporting evidence runbook](hosted-reporting-evidence.md).
+The hold has no automatic deletion policy. Keep builds containing 1077 out of
+hosted releases until the operations owner has approved the storage and backup
+budget and the lag and storage alerts are in place. Operate and size the hold
+using the [reporting evidence runbook](hosted-reporting-evidence.md).

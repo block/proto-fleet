@@ -130,7 +130,7 @@ func TestHostedHistorySummaryRollbackRemovesHistory(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			f := setup(t)
 			// Exercise the historical chart rollback before the later evidence hold.
-			require.NoError(t, reportingEvidenceMigration(t, f, "down"))
+			require.NoError(t, rollbackReportingEvidence(t, f))
 			if withEvidence {
 				client := f.client(t, "Customer", f.user, hostedaccounts.AllCapabilities)
 				miner := f.miningDevice(t, commonpb.DeviceClass_DEVICE_CLASS_RIG)

@@ -26,29 +26,14 @@ func TestAccountDashboardRetainedYearRepresentativeEstate(t *testing.T) {
 	}
 	_, err := f.db.ExecContext(t.Context(), `UPDATE hosted_account_asset_interval SET started_at=$1 WHERE client_id=$2`, start, client.ID)
 	require.NoError(t, err)
-	// Seed synthetic chart history without duplicating millions of fixture rows
-	// into the evidence ledger. Capture correctness and cost have dedicated tests.
+	// Seed synthetic chart history directly. Hourly reporting evidence is written
+	// only by the closer, which never runs here; its cost has dedicated tests.
 	seedHistory := func(from, until time.Time, cadence string) {
 		t.Helper()
-		tx, seedErr := f.db.BeginTx(t.Context(), nil)
-		require.NoError(t, seedErr)
-		defer tx.Rollback()
-		var captureTrigger string
-		require.NoError(t, tx.QueryRowContext(t.Context(), `SELECT pg_get_triggerdef(oid) FROM pg_trigger WHERE tgrelid='hosted_account_history_sample'::regclass AND tgname='record_hosted_reporting_evidence'`).Scan(&captureTrigger))
-		// DISABLE TRIGGER does not prevent TimescaleDB from enabling its copy on
-		// new chunks. Remove and restore the definition within this transaction.
-		_, seedErr = tx.ExecContext(t.Context(), `DROP TRIGGER record_hosted_reporting_evidence ON hosted_account_history_sample`)
-		require.NoError(t, seedErr)
-		_, seedErr = tx.ExecContext(t.Context(), `INSERT INTO hosted_account_history_sample(time,interval_id,metric,value,complete,source_oldest_at,source_newest_at,source_id,origin_key,origin_time,origin_collected_at)
+		_, seedErr := f.db.ExecContext(t.Context(), `INSERT INTO hosted_account_history_sample(time,interval_id,metric,value,complete,source_oldest_at,source_newest_at,source_id,origin_key,origin_time,origin_collected_at)
  SELECT sample,i.id,metric,CASE metric WHEN 1 THEN 1e12 WHEN 2 THEN 20 WHEN 3 THEN 55 ELSE 3 END,CASE WHEN metric IN (1,2) THEN true END,sample,sample,1,i.asset_id::text,sample,sample
  FROM hosted_account_asset_interval i CROSS JOIN generate_series($1::timestamptz,$2::timestamptz-$3::interval,$3::interval) sample CROSS JOIN generate_series(1,4) metric WHERE i.client_id=$4`, from, until, cadence, client.ID)
 		require.NoError(t, seedErr)
-		_, seedErr = tx.ExecContext(t.Context(), captureTrigger)
-		require.NoError(t, seedErr)
-		require.NoError(t, tx.Commit())
-		var captured int
-		require.NoError(t, f.db.QueryRowContext(t.Context(), `SELECT count(*) FROM hosted_account_reporting_evidence`).Scan(&captured))
-		require.Zero(t, captured, "synthetic chart fixtures must not populate the evidence ledger")
 	}
 	// One sample per metric/day creates the same wide-summary row cardinality as
 	// dense polls, isolating read cost from a year's ingestion.
@@ -86,11 +71,4 @@ func TestAccountDashboardRetainedYearRepresentativeEstate(t *testing.T) {
 	require.EqualValues(t, 160, result.Readings[364].UptimeStatus.HashingCount)
 	require.Less(t, elapsed, 5*time.Second, "dense real-time summary tail must fit the mining transaction deadline")
 	t.Logf("same retained estate plus 24h unmaterialized 15-second tail (3686400 normalized samples),API duration=%s", elapsed)
-	// Capture must resume on the chunks created while seeding the dense tail.
-	_, err = f.db.ExecContext(t.Context(), `UPDATE hosted_account_history_sample SET value=value+1
- WHERE time=$1 AND metric=1 AND interval_id=(SELECT min(id) FROM hosted_account_asset_interval WHERE client_id=$2)`, end, client.ID)
-	require.NoError(t, err)
-	var captured int
-	require.NoError(t, f.db.QueryRowContext(t.Context(), `SELECT count(*) FROM hosted_account_reporting_evidence`).Scan(&captured))
-	require.Equal(t, 2, captured, "capture must retain before and after images once fixture seeding commits")
 }

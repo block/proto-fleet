@@ -230,9 +230,10 @@ Chart uptime is positive-hash sample percentage, not contractual uptime. Latest
 authorized temperature/state observations determine distributions. Missing
 measurements remain absent.
 
-The [provisional reporting evidence hold](hosted-reporting-evidence.md) retains
-new normalized observations and their changes separately from these mutable
-chart samples. It does not certify contractual uptime or fill missing sources.
+The [reporting evidence hold](hosted-reporting-evidence.md) keeps append-only
+hourly rows per allocated interval, computed from these normalized samples, with
+revisions for later corrections. It does not certify contractual uptime or fill
+missing sources.
 
 Retained transactions use custom query plans. Aligned source-width buckets with
 one interval per typed asset project summary rows directly; other requests use
@@ -613,8 +614,8 @@ Reproducible checks include `BenchmarkCT1PollNormalization` (6 tanks, 96 modules
 288 boards), timestamp/absence, move/retry/partial-map regressions, and API
 authorization tests. The allocated reporting-estate fixture,
 `TestStoredContainerRollupsReportingEvidenceRepresentativeScale`, and its current
-capture measurements are documented in the
-[reporting evidence runbook](hosted-reporting-evidence.md#local-capture-cost).
+hourly evidence measurements are documented in the
+[reporting evidence runbook](hosted-reporting-evidence.md#sizing).
 
 The following are historical CT1 baseline measurements from an Apple M4 Max and
 local Docker TimescaleDB, without an allocated reporting estate:

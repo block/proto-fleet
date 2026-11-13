@@ -1,9 +1,7 @@
 package hostedaccounts_test
 
 import (
-	"database/sql"
 	"fmt"
-	"strings"
 	"testing"
 	"time"
 
@@ -13,292 +11,250 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestHostedReportingEvidenceCorrectionsSurviveChartExpiry(t *testing.T) {
-	f := setup(t)
-	client := f.client(t, "Customer", f.user, hostedaccounts.AllCapabilities)
-	miner := f.miningDevice(t, commonpb.DeviceClass_DEVICE_CLASS_RIG)
-	require.NoError(t, f.allocate(t, f.host, f.root, client.AccountID, 1, selected(5, miner, 0)))
-	day := time.Now().UTC().Truncate(24 * time.Hour).Add(-40 * 24 * time.Hour)
-	historyEpoch(t, f, day)
-	_, err := f.db.ExecContext(t.Context(), `UPDATE hosted_account_asset_interval SET started_at=$1 WHERE kind=5 AND asset_id=$2`, day, miner)
-	require.NoError(t, err)
-	for _, value := range []float64{100e12, 200e12} {
-		_, err = f.db.ExecContext(t.Context(), `INSERT INTO device_metrics(time,device_identifier,hash_rate_hs,power_w) SELECT $1,device_identifier,$2,3000 FROM device WHERE id=$3 ON CONFLICT(time,device_identifier) DO UPDATE SET hash_rate_hs=EXCLUDED.hash_rate_hs`, day.Add(time.Minute), value, miner)
-		require.NoError(t, err)
-	}
-	rows, err := f.db.QueryContext(t.Context(), `SELECT operation,value,transaction_id,captured_at,epoch_started_at,origin_time FROM hosted_account_reporting_evidence WHERE metric=1 ORDER BY event_id`)
-	require.NoError(t, err)
-	defer rows.Close()
-	var operations []string
-	var values []float64
-	var transactions []int64
-	for rows.Next() {
-		var operation string
-		var value float64
-		var transaction int64
-		var captured, epoch, origin time.Time
-		require.NoError(t, rows.Scan(&operation, &value, &transaction, &captured, &epoch, &origin))
-		operations = append(operations, operation)
-		values = append(values, value)
-		transactions = append(transactions, transaction)
-		require.False(t, captured.Before(epoch))
-		require.True(t, origin.Before(epoch), "old source time is not the hold capture boundary")
-	}
-	require.NoError(t, rows.Err())
-	require.Equal(t, []string{"INSERT", "DELETE", "INSERT"}, operations)
-	require.Equal(t, []float64{100e12, 100e12, 200e12}, values)
-	require.Equal(t, transactions[1], transactions[2], "correction retains deletion and replacement in one transaction")
-	var before, after int
-	require.NoError(t, f.db.QueryRowContext(t.Context(), `SELECT count(*) FROM hosted_account_reporting_evidence`).Scan(&before))
-	_, err = f.db.ExecContext(t.Context(), `SELECT drop_chunks('hosted_account_history_sample',older_than=>$1::timestamptz)`, day.Add(24*time.Hour))
-	require.NoError(t, err)
-	_, err = f.db.ExecContext(t.Context(), `SELECT drop_chunks('device_metrics',older_than=>$1::timestamptz)`, day.Add(24*time.Hour))
-	require.NoError(t, err)
-	require.NoError(t, f.db.QueryRowContext(t.Context(), `SELECT count(*) FROM hosted_account_reporting_evidence`).Scan(&after))
-	require.Equal(t, before, after, "chunk expiry neither removes evidence nor emits deletion events")
-	var snapshots int
-	require.NoError(t, f.db.QueryRowContext(t.Context(), `SELECT count(*) FROM hosted_account_reporting_allocation_snapshot`).Scan(&snapshots))
-	require.Equal(t, 1, snapshots, "allocation identity is stored once per interval")
-}
-
-// Execute migration files only against this test's disposable database.
-func reportingEvidenceMigration(t *testing.T, f fixture, direction string) error {
+// Roll back the reporting evidence holds only against this test's disposable
+// database. Hourly evidence (1077) retires the 1055 raw hold and references its
+// allocation snapshot, so it rolls back first, in the same implicit transaction.
+func rollbackReportingEvidence(t *testing.T, f fixture) error {
 	t.Helper()
-	script, err := migrations.Current.ReadFile("current/001055_internal_hosted_reporting_evidence." + direction + ".sql")
+	script, err := migrations.Current.ReadFile("current/001055_internal_hosted_reporting_evidence.down.sql")
 	require.NoError(t, err)
-	_, err = f.db.ExecContext(t.Context(), string(script))
-	if err != nil {
-		return fmt.Errorf("apply reporting evidence %s migration: %w", direction, err)
+	hourly, err := migrations.Current.ReadFile("current/001077_internal_hourly_reporting_evidence.down.sql")
+	require.NoError(t, err)
+	var hourlyApplied bool
+	require.NoError(t, f.db.QueryRowContext(t.Context(), `SELECT to_regclass('hosted_account_reporting_hour') IS NOT NULL`).Scan(&hourlyApplied))
+	statements := string(script)
+	if hourlyApplied {
+		statements = string(hourly) + "\n" + statements
+	}
+	if _, err = f.db.ExecContext(t.Context(), statements); err != nil {
+		return fmt.Errorf("apply reporting evidence down migration: %w", err)
 	}
 	return nil
 }
 
-func TestHostedReportingEvidenceProspectiveUpgradeAndRollback(t *testing.T) {
-	f := setup(t)
-	require.NoError(t, reportingEvidenceMigration(t, f, "down"), "an empty hold can roll back")
-	client := f.client(t, "Customer", f.user, hostedaccounts.AllCapabilities)
-	miner := f.miningDevice(t, commonpb.DeviceClass_DEVICE_CLASS_RIG)
-	require.NoError(t, f.allocate(t, f.host, f.root, client.AccountID, 1, selected(5, miner, 0)))
-	at := time.Now().UTC().Add(-time.Hour)
-	historyEpoch(t, f, at.Add(-time.Hour))
-	_, err := f.db.ExecContext(t.Context(), `UPDATE hosted_account_asset_interval SET started_at=$1 WHERE asset_id=$2 AND kind=5`, at.Add(-time.Hour), miner)
+// rawHoldCatalog describes every object migration 1055 creates or alters:
+// relations, columns, constraints, indexes, triggers, functions, the status
+// view, the event sequence and the epoch and event row counts.
+func rawHoldCatalog(t *testing.T, f fixture) []string {
+	t.Helper()
+	rows, err := f.db.QueryContext(t.Context(), `WITH rel AS (
+ SELECT c.oid,c.relname,c.relkind FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+ WHERE n.nspname='public' AND c.relname IN ('hosted_account_reporting_evidence','hosted_account_reporting_evidence_epoch',
+  'hosted_account_reporting_allocation_snapshot','hosted_account_reporting_capture_status','hosted_account_reporting_evidence_event_id_seq'))
+SELECT entry FROM (
+ SELECT 'relation '||r.relname||' kind='||c.relkind::text||' persistence='||c.relpersistence::text||' options='||COALESCE(c.reloptions::text,'')
+  ||' acl='||COALESCE(c.relacl::text,'')||' comment='||COALESCE(obj_description(c.oid,'pg_class'),'') AS entry
+ FROM rel r JOIN pg_class c ON c.oid=r.oid
+ UNION ALL
+ SELECT 'column '||r.relname||'.'||a.attname||' '||a.attnum||' '||format_type(a.atttypid,a.atttypmod)||' notnull='||a.attnotnull
+  ||' default='||COALESCE(pg_get_expr(d.adbin,d.adrelid),'')
+ FROM rel r JOIN pg_attribute a ON a.attrelid=r.oid AND a.attnum>0 AND NOT a.attisdropped
+ LEFT JOIN pg_attrdef d ON d.adrelid=a.attrelid AND d.adnum=a.attnum
+ UNION ALL
+ SELECT 'constraint '||r.relname||'.'||c.conname||' '||pg_get_constraintdef(c.oid) FROM rel r JOIN pg_constraint c ON c.conrelid=r.oid
+ UNION ALL
+ SELECT 'index '||pg_get_indexdef(i.indexrelid) FROM rel r JOIN pg_index i ON i.indrelid=r.oid
+ UNION ALL
+ SELECT 'trigger '||pg_get_triggerdef(t.oid)||' enabled='||t.tgenabled::text FROM pg_trigger t
+ WHERE NOT t.tgisinternal AND t.tgrelid IN (SELECT r.oid FROM rel r
+  UNION ALL SELECT 'hosted_account_history_sample'::regclass UNION ALL SELECT 'hashboard_metrics'::regclass)
+ UNION ALL
+ SELECT 'function '||p.oid::regprocedure::text||' '||pg_get_functiondef(p.oid) FROM pg_proc p
+ WHERE p.proname IN ('record_hosted_reporting_evidence','reject_hosted_reporting_evidence_mutation','record_hosted_hashboard_history_sample')
+ UNION ALL
+ SELECT 'view '||pg_get_viewdef(r.oid) FROM rel r WHERE r.relkind='v'
+ UNION ALL
+ SELECT 'sequence '||s.seqtypid::regtype::text||' '||s.seqstart||' '||s.seqincrement||' '||s.seqmin||' '||s.seqmax||' '||s.seqcache||' '||s.seqcycle
+ FROM rel r JOIN pg_sequence s ON s.seqrelid=r.oid
+ UNION ALL
+ SELECT 'depends '||d.objid::regclass::text||' on '||d.refobjid::regclass::text||'.'||d.refobjsubid||' '||d.deptype::text
+ FROM pg_depend d JOIN rel r ON r.oid=d.objid WHERE d.classid='pg_class'::regclass AND d.refclassid='pg_class'::regclass
+ UNION ALL
+ SELECT 'rows epoch='||(SELECT count(*) FROM hosted_account_reporting_evidence_epoch)
+  ||' evidence='||(SELECT count(*) FROM hosted_account_reporting_evidence)
+) catalog ORDER BY entry`)
 	require.NoError(t, err)
-	_, err = f.db.ExecContext(t.Context(), `INSERT INTO device_metrics(time,device_identifier,hash_rate_hs) SELECT $1,device_identifier,100e12 FROM device WHERE id=$2`, at, miner)
-	require.NoError(t, err)
-	var samples int
-	require.NoError(t, f.db.QueryRowContext(t.Context(), `SELECT count(*) FROM hosted_account_history_sample`).Scan(&samples))
-	require.Positive(t, samples)
-	_, err = f.db.ExecContext(t.Context(), `SELECT compress_chunk(c) FROM show_chunks('hosted_account_history_sample') c`)
-	require.NoError(t, err)
-	require.NoError(t, reportingEvidenceMigration(t, f, "up"))
-	var events, snapshots int
-	require.NoError(t, f.db.QueryRowContext(t.Context(), `SELECT count(*) FROM hosted_account_reporting_evidence`).Scan(&events))
-	require.NoError(t, f.db.QueryRowContext(t.Context(), `SELECT count(*) FROM hosted_account_reporting_allocation_snapshot`).Scan(&snapshots))
-	require.Zero(t, events, "upgrade never copies existing samples")
-	require.Zero(t, snapshots)
-	// A later correction first captures the old version at its actual capture time.
-	_, err = f.db.ExecContext(t.Context(), `UPDATE device_metrics SET hash_rate_hs=200e12 WHERE time=$1`, at)
-	require.NoError(t, err)
-	var oldSource, lateCapture bool
-	require.NoError(t, f.db.QueryRowContext(t.Context(), `SELECT bool_and(origin_time<epoch_started_at),bool_and(captured_at>=epoch_started_at) FROM hosted_account_reporting_evidence`).Scan(&oldSource, &lateCapture))
-	require.True(t, oldSource)
-	require.True(t, lateCapture)
-	require.ErrorContains(t, reportingEvidenceMigration(t, f, "down"), "preserve retained hosted reporting evidence")
-	require.NoError(t, f.db.QueryRowContext(t.Context(), `SELECT count(*) FROM hosted_account_reporting_evidence`).Scan(&events))
-	require.Equal(t, samples*2, events, "refused rollback retains deletion and replacement images")
-}
-
-func TestHostedReportingEvidenceImmutableAndAtomic(t *testing.T) {
-	f := setup(t)
-	client := f.client(t, "Customer", f.user, hostedaccounts.AllCapabilities)
-	miner := f.miningDevice(t, commonpb.DeviceClass_DEVICE_CLASS_RIG)
-	require.NoError(t, f.allocate(t, f.host, f.root, client.AccountID, 1, selected(5, miner, 0)))
-	at := time.Now().UTC()
-	_, err := f.db.ExecContext(t.Context(), `INSERT INTO device_metrics(time,device_identifier,hash_rate_hs) SELECT $1,device_identifier,100e12 FROM device WHERE id=$2`, at, miner)
-	require.NoError(t, err)
-	for _, table := range []string{"hosted_account_reporting_evidence", "hosted_account_reporting_allocation_snapshot", "hosted_account_reporting_evidence_epoch"} {
-		for _, statement := range []string{"UPDATE " + table + " SET captured_at=clock_timestamp()", "DELETE FROM " + table, "TRUNCATE " + table + " CASCADE"} {
-			if table == "hosted_account_reporting_evidence_epoch" {
-				statement = strings.Replace(statement, "captured_at", "started_at", 1)
-			}
-			_, err = f.db.ExecContext(t.Context(), statement)
-			require.ErrorContains(t, err, "hosted reporting evidence is append-only")
-		}
+	defer rows.Close()
+	var catalog []string
+	for rows.Next() {
+		var entry string
+		require.NoError(t, rows.Scan(&entry))
+		catalog = append(catalog, entry)
 	}
-	var before int
-	require.NoError(t, f.db.QueryRowContext(t.Context(), `SELECT count(*) FROM hosted_account_reporting_evidence`).Scan(&before))
-	_, err = f.db.ExecContext(t.Context(), `ALTER TABLE hosted_account_reporting_evidence ADD CONSTRAINT evidence_test_failure CHECK(value IS NULL OR value<150e12) NOT VALID`)
-	require.NoError(t, err)
-	_, err = f.db.ExecContext(t.Context(), `UPDATE device_metrics SET hash_rate_hs=200e12 WHERE time=$1`, at)
-	require.ErrorContains(t, err, "evidence_test_failure")
-	var raw, sample float64
-	var after int
-	require.NoError(t, f.db.QueryRowContext(t.Context(), `SELECT hash_rate_hs FROM device_metrics WHERE time=$1`, at).Scan(&raw))
-	require.NoError(t, f.db.QueryRowContext(t.Context(), `SELECT value FROM hosted_account_history_sample WHERE metric=1 AND time=$1`, at).Scan(&sample))
-	require.NoError(t, f.db.QueryRowContext(t.Context(), `SELECT count(*) FROM hosted_account_reporting_evidence`).Scan(&after))
-	require.Equal(t, 100e12, raw)
-	require.Equal(t, 100e12, sample)
-	require.Equal(t, before, after, "failed capture rolls back prior deletion events too")
-	_, err = f.db.ExecContext(t.Context(), `INSERT INTO device_metrics(time,device_identifier,hash_rate_hs) SELECT $1,device_identifier,200e12 FROM device WHERE id=$2`, at.Add(time.Minute), miner)
-	require.ErrorContains(t, err, "evidence_test_failure")
-	var count int
-	require.NoError(t, f.db.QueryRowContext(t.Context(), `SELECT count(*) FROM device_metrics WHERE time=$1`, at.Add(time.Minute)).Scan(&count))
-	require.Zero(t, count, "failed first capture rolls back the raw insert")
+	require.NoError(t, rows.Err())
+	return catalog
 }
 
-func TestHostedReportingEvidenceHashboardPayloadAndDirectUpdate(t *testing.T) {
+func requireRawHoldRetired(t *testing.T, f fixture) {
+	t.Helper()
+	var evidence, epoch, streamIndex, observationIndex, captureFunction, captureTrigger bool
+	require.NoError(t, f.db.QueryRowContext(t.Context(), `SELECT
+ to_regclass('hosted_account_reporting_evidence') IS NOT NULL,
+ to_regclass('hosted_account_reporting_evidence_epoch') IS NOT NULL,
+ to_regclass('idx_hosted_account_reporting_evidence_stream_event') IS NOT NULL,
+ to_regclass('idx_hosted_account_reporting_evidence_stream_observation') IS NOT NULL,
+ to_regprocedure('record_hosted_reporting_evidence()') IS NOT NULL,
+ EXISTS(SELECT 1 FROM pg_trigger WHERE tgrelid='hosted_account_history_sample'::regclass AND tgname='record_hosted_reporting_evidence')`).Scan(
+		&evidence, &epoch, &streamIndex, &observationIndex, &captureFunction, &captureTrigger))
+	require.False(t, evidence, "the raw event table is retired")
+	require.False(t, epoch, "the raw-hold epoch is retired")
+	require.False(t, streamIndex)
+	require.False(t, observationIndex)
+	require.False(t, captureFunction, "the raw capture function is retired")
+	require.False(t, captureTrigger, "normalized samples no longer copy raw events")
+
+	var snapshot, immutable, snapshotTrigger bool
+	var hashboardTrigger string
+	require.NoError(t, f.db.QueryRowContext(t.Context(), `SELECT
+ to_regclass('hosted_account_reporting_allocation_snapshot') IS NOT NULL,
+ to_regprocedure('reject_hosted_reporting_evidence_mutation()') IS NOT NULL,
+ EXISTS(SELECT 1 FROM pg_trigger WHERE tgrelid='hosted_account_reporting_allocation_snapshot'::regclass AND tgname='hosted_reporting_allocation_snapshot_immutable'),
+ (SELECT pg_get_triggerdef(oid) FROM pg_trigger WHERE tgrelid='hashboard_metrics'::regclass AND tgname='record_hosted_hashboard_history')`).Scan(
+		&snapshot, &immutable, &snapshotTrigger, &hashboardTrigger))
+	require.True(t, snapshot, "hourly evidence keeps the allocation snapshot")
+	require.True(t, immutable, "hourly evidence reuses the immutability function")
+	require.True(t, snapshotTrigger)
+	require.Contains(t, hashboardTrigger, "UPDATE OF hashboard_id, installation_id", "the narrowed 1055 hashboard trigger stays")
+}
+
+func TestReportingEvidenceUpgradeRetiresRawHold(t *testing.T) {
 	f := setup(t)
+	requireRawHoldRetired(t, f)
+	var closed time.Time
+	var missing int
+	client := f.client(t, "Customer", f.user, hostedaccounts.AllCapabilities)
+	miner := f.miningDevice(t, commonpb.DeviceClass_DEVICE_CLASS_RIG)
+	require.NoError(t, f.allocate(t, f.host, f.root, client.AccountID, 1, selected(5, miner, 0)))
+	require.NoError(t, f.db.QueryRowContext(t.Context(), `SELECT closed_through,missing_hours FROM hosted_account_reporting_capture_status
+ WHERE asset_id=$1 AND kind=5 AND source_id=1 AND metric=1`, miner).Scan(&closed, &missing))
+	require.Zero(t, missing, "the rebuilt status view reads the hourly hold")
+}
+
+func TestReportingEvidenceUpgradeDeletesPopulatedRawHold(t *testing.T) {
+	f := setup(t)
+	require.NoError(t, reportingHourMigration(t, f, "down"), "an empty hourly hold restores the raw hold")
+	client := f.client(t, "Customer", f.user, hostedaccounts.AllCapabilities)
+	miner := f.miningDevice(t, commonpb.DeviceClass_DEVICE_CLASS_RIG)
+	require.NoError(t, f.allocate(t, f.host, f.root, client.AccountID, 1, selected(5, miner, 0)))
+	_, err := f.db.ExecContext(t.Context(), `INSERT INTO device_metrics(time,device_identifier,hash_rate_hs,power_w) SELECT $1,device_identifier,100e12,3000 FROM device WHERE id=$2`, time.Now().UTC(), miner)
+	require.NoError(t, err)
+	var events int
+	var snapshotBefore string
+	require.NoError(t, f.db.QueryRowContext(t.Context(), `SELECT count(*) FROM hosted_account_reporting_evidence`).Scan(&events))
+	require.Positive(t, events, "the restored raw hold captures new samples")
+	require.NoError(t, f.db.QueryRowContext(t.Context(), `SELECT jsonb_agg(to_jsonb(s) ORDER BY interval_id)::text FROM hosted_account_reporting_allocation_snapshot s`).Scan(&snapshotBefore))
+
+	require.NoError(t, reportingHourMigration(t, f, "up"), "upgrade deletes populated raw evidence")
+	requireRawHoldRetired(t, f)
+	var snapshotAfter string
+	require.NoError(t, f.db.QueryRowContext(t.Context(), `SELECT jsonb_agg(to_jsonb(s) ORDER BY interval_id)::text FROM hosted_account_reporting_allocation_snapshot s`).Scan(&snapshotAfter))
+	require.JSONEq(t, snapshotBefore, snapshotAfter, "allocation snapshots survive the retirement")
+	var streams, observed int
+	require.NoError(t, f.db.QueryRowContext(t.Context(), `SELECT count(*),count(*) FILTER(WHERE has_observation)
+ FROM hosted_account_reporting_capture_status WHERE asset_id=$1 AND kind=5`, miner).Scan(&streams, &observed))
+	require.Equal(t, 4, streams)
+	require.Zero(t, observed, "raw events are not carried into the hourly hold")
+}
+
+// The 1055 runbook paused raw capture by dropping its trigger; 1077 accepts
+// that state as well as an active hold.
+func TestReportingEvidenceUpgradeFromPausedRawHold(t *testing.T) {
+	f := setup(t)
+	require.NoError(t, reportingHourMigration(t, f, "down"), "an empty hourly hold restores the raw hold")
+	_, err := f.db.ExecContext(t.Context(), `DROP TRIGGER record_hosted_reporting_evidence ON hosted_account_history_sample`)
+	require.NoError(t, err, "pause raw capture")
+	require.NoError(t, reportingHourMigration(t, f, "up"), "the upgrade accepts a paused raw hold")
+	requireRawHoldRetired(t, f)
+	var hours, control, status, job bool
+	require.NoError(t, f.db.QueryRowContext(t.Context(), `SELECT
+ to_regclass('hosted_account_reporting_hour') IS NOT NULL,
+ EXISTS(SELECT 1 FROM hosted_account_reporting_hour_control),
+ to_regclass('hosted_account_reporting_capture_status') IS NOT NULL,
+ EXISTS(SELECT 1 FROM timescaledb_information.jobs WHERE proc_name='hosted_reporting_hour_job')`).Scan(&hours, &control, &status, &job))
+	require.True(t, hours)
+	require.True(t, control)
+	require.True(t, status)
+	require.True(t, job)
+}
+
+func TestReportingEvidenceRollbackRestoresRawHold(t *testing.T) {
+	f := setup(t)
+	before := time.Now()
+	require.NoError(t, reportingHourMigration(t, f, "down"), "an empty hourly hold can roll back")
+	restored := rawHoldCatalog(t, f)
+	require.Contains(t, restored, "rows epoch=1 evidence=0")
+	var epoch time.Time
+	require.NoError(t, f.db.QueryRowContext(t.Context(), `SELECT started_at FROM hosted_account_reporting_evidence_epoch`).Scan(&epoch))
+	require.False(t, epoch.Before(before), "rollback starts a new raw-hold epoch")
+
+	// The restored capture trigger appends raw events again.
+	client := f.client(t, "Customer", f.user, hostedaccounts.AllCapabilities)
+	miner := f.miningDevice(t, commonpb.DeviceClass_DEVICE_CLASS_RIG)
+	require.NoError(t, f.allocate(t, f.host, f.root, client.AccountID, 1, selected(5, miner, 0)))
+	tx, err := f.db.BeginTx(t.Context(), nil)
+	require.NoError(t, err)
+	defer tx.Rollback()
+	_, err = tx.ExecContext(t.Context(), `INSERT INTO device_metrics(time,device_identifier,hash_rate_hs) SELECT $1,device_identifier,100e12 FROM device WHERE id=$2`, time.Now().UTC(), miner)
+	require.NoError(t, err)
+	var samples, events int
+	require.NoError(t, tx.QueryRowContext(t.Context(), `SELECT (SELECT count(*) FROM hosted_account_history_sample),(SELECT count(*) FROM hosted_account_reporting_evidence)`).Scan(&samples, &events))
+	require.Positive(t, samples)
+	require.Equal(t, samples, events, "every normalized sample appends one raw event")
+	require.NoError(t, tx.Rollback())
+
+	// Reference: the same objects exactly as migration 1055 creates them here.
+	require.NoError(t, f.execMigration(t, "001055_internal_hosted_reporting_evidence.down.sql"))
+	require.NoError(t, f.execMigration(t, "001055_internal_hosted_reporting_evidence.up.sql"))
+	require.Equal(t, rawHoldCatalog(t, f), restored, "rollback restores the 1055 objects exactly")
+
+	require.NoError(t, reportingHourMigration(t, f, "up"), "the upgrade runs again after a rollback")
+	requireRawHoldRetired(t, f)
+	_, err = f.db.ExecContext(t.Context(), `INSERT INTO hosted_account_reporting_hour_gap(from_bucket,to_bucket,reason) VALUES($1,$1::timestamptz+interval '1 hour','test')`,
+		time.Now().UTC().Truncate(time.Hour).Add(-48*time.Hour))
+	require.NoError(t, err)
+	require.ErrorContains(t, reportingHourMigration(t, f, "down"), "preserve hourly hosted reporting evidence", "a gap row also preserves the hold")
+}
+
+func (f fixture) execMigration(t *testing.T, name string) error {
+	t.Helper()
+	script, err := migrations.Current.ReadFile("current/" + name)
+	require.NoError(t, err)
+	if _, err = f.db.ExecContext(t.Context(), string(script)); err != nil {
+		return fmt.Errorf("apply %s: %w", name, err)
+	}
+	return nil
+}
+
+// boardHourInterval allocates one hashboard whose interval starts before hour
+// and returns the board and interval ids.
+func boardHourInterval(t *testing.T, f fixture, hour time.Time) (int64, int64, int64) {
+	t.Helper()
 	client := f.client(t, "Customer", f.user, hostedaccounts.AllCapabilities)
 	module, controller := f.miningModule(t)
 	board := f.moduleSelection(t, module).Boards[0].Id
 	require.NoError(t, f.allocate(t, f.host, f.root, client.AccountID, 1, selected(7, board, 0)))
-	child, err := f.svc.CreateChild(t.Context(), f.user, f.org, client.AccountID, "Subclient", f.host, hostedaccounts.DefaultCapabilities)
-	require.NoError(t, err)
-	require.NoError(t, f.allocate(t, f.user, client.AccountID, child.AccountID, 1, selected(7, board, 1)))
-	at := time.Now().UTC().Add(time.Second).Truncate(time.Microsecond)
-	stored := at
-	_, err = f.db.ExecContext(t.Context(), `INSERT INTO hashboard_metrics(hashboard_id,installation_id,time,collected_at,state,mining_state,hashrate_hs,power_w,temperature_c)
- SELECT $1,id,$2,$3,'active','',100e12,NULL,55 FROM hashboard_installation WHERE hashboard_id=$1 AND removed_at IS NULL`, board, stored, at)
-	require.NoError(t, err)
-	var savedClient, savedSubclient, savedDevice int64
-	require.NoError(t, f.db.QueryRowContext(t.Context(), `SELECT client_id,subclient_id,device_id FROM hosted_account_reporting_allocation_snapshot`).Scan(&savedClient, &savedSubclient, &savedDevice))
-	require.Equal(t, client.ID, savedClient)
-	require.Equal(t, child.ID, savedSubclient)
-	require.Equal(t, controller, savedDevice)
-	var differences int
-	require.NoError(t, f.db.QueryRowContext(t.Context(), `SELECT count(*) FROM (
- (SELECT time,interval_id,metric,value,complete,source_oldest_at,source_newest_at,source_id,origin_key,origin_time,origin_collected_at FROM hosted_account_history_sample
- EXCEPT SELECT time,interval_id,metric,value,complete,source_oldest_at,source_newest_at,source_id,origin_key,origin_time,origin_collected_at FROM hosted_account_reporting_evidence)
- UNION ALL
- (SELECT time,interval_id,metric,value,complete,source_oldest_at,source_newest_at,source_id,origin_key,origin_time,origin_collected_at FROM hosted_account_reporting_evidence
- EXCEPT SELECT time,interval_id,metric,value,complete,source_oldest_at,source_newest_at,source_id,origin_key,origin_time,origin_collected_at FROM hosted_account_history_sample)) difference`).Scan(&differences))
-	require.Zero(t, differences, "every admitted scalar identity, window, nullable value and completeness survives")
-	var missing bool
-	require.NoError(t, f.db.QueryRowContext(t.Context(), `SELECT value IS NULL AND complete=false FROM hosted_account_reporting_evidence WHERE metric=2`).Scan(&missing))
-	require.True(t, missing, "missing power is not invented as zero")
-	_, err = f.db.ExecContext(t.Context(), `UPDATE hosted_account_history_sample SET value=200e12 WHERE metric=1`)
-	require.NoError(t, err)
-	var before, after float64
-	var sameTransaction bool
-	require.NoError(t, f.db.QueryRowContext(t.Context(), `SELECT b.value,a.value,b.transaction_id=a.transaction_id FROM hosted_account_reporting_evidence b JOIN hosted_account_reporting_evidence a ON a.event_id=b.event_id+1 WHERE b.operation='UPDATE' AND b.image='before' AND a.image='after'`).Scan(&before, &after, &sameTransaction))
-	require.Equal(t, 100e12, before)
-	require.Equal(t, 200e12, after)
-	require.True(t, sameTransaction)
-	// A current receipt cannot authorize a board sample before ownership.
-	_, err = f.db.ExecContext(t.Context(), `INSERT INTO hashboard_metrics(hashboard_id,installation_id,time,collected_at,state,mining_state,hashrate_hs)
- SELECT $1,id,$2,$3,'active','',300e12 FROM hashboard_installation WHERE hashboard_id=$1 AND removed_at IS NULL`, board, at.Add(-time.Hour), at.Add(time.Second))
-	require.NoError(t, err)
-	var unauthorizedHash, missingPower int
-	require.NoError(t, f.db.QueryRowContext(t.Context(), `SELECT count(*) FILTER(WHERE metric=1),count(*) FILTER(WHERE metric=2 AND value IS NULL AND complete=false) FROM hosted_account_reporting_evidence WHERE origin_collected_at=$1`, at.Add(time.Second)).Scan(&unauthorizedHash, &missingPower))
-	require.Zero(t, unauthorizedHash, "current receipt never authorizes a contributor window before ownership")
-	require.Zero(t, missingPower, "an out-of-window board sample cannot introduce missing-value evidence either")
+	historyEpoch(t, f, hour.Add(-time.Minute))
+	var interval int64
+	require.NoError(t, f.db.QueryRowContext(t.Context(), `UPDATE hosted_account_asset_interval SET started_at=$1
+ WHERE kind=7 AND asset_id=$2 AND ended_at IS NULL RETURNING id`, hour.Add(-time.Minute), board).Scan(&interval))
+	return board, controller, interval
 }
 
-func TestHostedReportingEvidenceCompressedCorrection(t *testing.T) {
-	f := setup(t)
-	client := f.client(t, "Customer", f.user, hostedaccounts.AllCapabilities)
-	miner := f.miningDevice(t, commonpb.DeviceClass_DEVICE_CLASS_RIG)
-	require.NoError(t, f.allocate(t, f.host, f.root, client.AccountID, 1, selected(5, miner, 0)))
-	at := time.Now().UTC().Truncate(time.Hour).Add(-24 * time.Hour)
-	historyEpoch(t, f, at.Add(-time.Hour))
-	_, err := f.db.ExecContext(t.Context(), `UPDATE hosted_account_asset_interval SET started_at=$1 WHERE asset_id=$2 AND kind=5`, at.Add(-time.Hour), miner)
-	require.NoError(t, err)
-	_, err = f.db.ExecContext(t.Context(), `INSERT INTO device_metrics(time,device_identifier,hash_rate_hs) SELECT $1,device_identifier,100e12 FROM device WHERE id=$2`, at, miner)
-	require.NoError(t, err)
-	_, err = f.db.ExecContext(t.Context(), `SELECT compress_chunk(c) FROM show_chunks('hosted_account_history_sample') c`)
-	require.NoError(t, err)
-	_, err = f.db.ExecContext(t.Context(), `UPDATE device_metrics SET hash_rate_hs=200e12 WHERE time=$1`, at)
-	require.NoError(t, err)
-	var count int
-	require.NoError(t, f.db.QueryRowContext(t.Context(), `SELECT count(*) FROM hosted_account_reporting_evidence WHERE metric=1`).Scan(&count))
-	require.Equal(t, 3, count, "compressed samples retain correction deletion and replacement")
-	_, err = f.db.ExecContext(t.Context(), `SELECT compress_chunk(c,if_not_compressed=>true,recompress=>true) FROM show_chunks('hosted_account_history_sample') c`)
-	require.NoError(t, err)
-	require.NoError(t, f.db.QueryRowContext(t.Context(), `SELECT count(*) FROM hosted_account_reporting_evidence WHERE metric=1`).Scan(&count))
-	require.Equal(t, 3, count, "recompression does not emit reporting evidence")
-}
-
-func TestHostedReportingEvidenceStateSources(t *testing.T) {
-	f := setup(t)
-	client := f.client(t, "Customer", f.user, hostedaccounts.AllCapabilities)
-	miner := f.miningDevice(t, commonpb.DeviceClass_DEVICE_CLASS_RIG)
-	module, _ := f.miningModule(t)
-	board := f.moduleSelection(t, module).Boards[0].Id
-	require.NoError(t, f.allocate(t, f.host, f.root, client.AccountID, 1, selected(5, miner, 0), selected(7, board, 0)))
-	source := time.Now().UTC().Truncate(time.Microsecond)
-	receipt := source.Add(time.Second)
-	_, err := f.db.ExecContext(t.Context(), `INSERT INTO miner_state_snapshots(time,org_id,site_id,device_identifier,state) SELECT $1,org_id,site_id,device_identifier,3 FROM device WHERE id=$2`, source, miner)
-	require.NoError(t, err)
-	_, err = f.db.ExecContext(t.Context(), `INSERT INTO hashboard_diagnostic_observation(hashboard_id,installation_id,collected_at,state,state_observed_at,mining_state) SELECT $1,id,$2,'active',$3,'' FROM hashboard_installation WHERE hashboard_id=$1 AND removed_at IS NULL`, board, receipt, source)
-	require.NoError(t, err)
-	rows, err := f.db.QueryContext(t.Context(), `SELECT source_id,metric,value,complete,source_oldest_at,source_newest_at,origin_time,origin_collected_at FROM hosted_account_reporting_evidence ORDER BY source_id`)
-	require.NoError(t, err)
-	defer rows.Close()
-	var sources []int
-	for rows.Next() {
-		var id, metric int
-		var value float64
-		var complete sql.NullBool
-		var oldest, newest, origin, collected time.Time
-		require.NoError(t, rows.Scan(&id, &metric, &value, &complete, &oldest, &newest, &origin, &collected))
-		sources = append(sources, id)
-		require.Equal(t, 4, metric)
-		require.Equal(t, 3.0, value, "miner and hashboard active states retain the same normalized code")
-		require.False(t, complete.Valid, "state has no metric completeness flag")
-		require.Equal(t, source, oldest.UTC())
-		require.Equal(t, source, newest.UTC())
-		expectedReceipt := source
-		if id == 6 {
-			expectedReceipt = receipt
-		}
-		require.Equal(t, expectedReceipt, origin.UTC())
-		require.Equal(t, expectedReceipt, collected.UTC())
-	}
-	require.NoError(t, rows.Err())
-	require.Equal(t, []int{2, 6}, sources)
-}
-
-func TestHostedReportingEvidencePreservesLegacyModuleIdentity(t *testing.T) {
-	f := setup(t)
-	client := f.client(t, "Legacy customer", f.user, hostedaccounts.AllCapabilities)
-	module, _ := f.miningModule(t)
-	require.NoError(t, f.allocate(t, f.host, f.root, client.AccountID, 1, selected(6, module, 0)))
-	f.legacyModuleHistory(t)
-	at := time.Now().UTC().Add(-time.Hour).Truncate(time.Microsecond)
-	historyEpoch(t, f, at.Add(-time.Minute))
-	_, err := f.db.ExecContext(t.Context(), `UPDATE hosted_account_asset_interval SET started_at=$1 WHERE kind=6`, at.Add(-time.Minute))
-	require.NoError(t, err)
-	_, err = f.db.ExecContext(t.Context(), `INSERT INTO container_module_metrics(module_id,time,collected_at,hashrate_hs,power_w,temperature_c,coverage)
- VALUES($1,$2,$2,100e12,2000,55,jsonb_build_object(
- 'hashrate',jsonb_build_object('oldest_at',$2::timestamptz,'newest_at',$2::timestamptz,'reporting',1,'expected',1,'topology_complete',true),
- 'power',jsonb_build_object('oldest_at',$2::timestamptz,'newest_at',$2::timestamptz,'reporting',1,'expected',1,'topology_complete',true),
- 'temperature',jsonb_build_object('oldest_at',$2::timestamptz,'newest_at',$2::timestamptz)))`, module, at)
-	require.NoError(t, err)
-	var events, kind int
-	var asset, savedClient int64
-	require.NoError(t, f.db.QueryRowContext(t.Context(), `SELECT count(*) FROM hosted_account_reporting_evidence WHERE source_id=3`).Scan(&events))
-	require.Equal(t, 3, events)
-	require.NoError(t, f.db.QueryRowContext(t.Context(), `SELECT kind,asset_id,client_id FROM hosted_account_reporting_allocation_snapshot`).Scan(&kind, &asset, &savedClient))
-	require.Equal(t, 6, kind, "historical module samples must not be reassigned to current hashboards")
-	require.Equal(t, module, asset)
-	require.Equal(t, client.ID, savedClient)
-}
-
+// The narrowed 1055 hashboard trigger stays: topology stamping must not
+// re-normalize samples, so it never marks a closed hour for revision.
 func TestHostedReportingEvidenceTopologyStampingPreservesCorrections(t *testing.T) {
 	for _, compressed := range []bool{false, true} {
 		t.Run(fmt.Sprintf("compressed=%t", compressed), func(t *testing.T) {
 			f := setup(t)
-			client := f.client(t, "Customer", f.user, hostedaccounts.AllCapabilities)
-			module, controller := f.miningModule(t)
-			board := f.moduleSelection(t, module).Boards[0].Id
-			require.NoError(t, f.allocate(t, f.host, f.root, client.AccountID, 1, selected(7, board, 0)))
 			at := time.Now().UTC().Truncate(time.Hour).Add(-24 * time.Hour)
-			historyEpoch(t, f, at.Add(-time.Minute))
-			_, err := f.db.ExecContext(t.Context(), `UPDATE hosted_account_asset_interval SET started_at=$1 WHERE kind=7 AND asset_id=$2`, at.Add(-time.Minute), board)
-			require.NoError(t, err)
-			_, err = f.db.ExecContext(t.Context(), `INSERT INTO hashboard_metrics(hashboard_id,installation_id,time,collected_at,state,mining_state,hashrate_hs,power_w,temperature_c)
+			resetReportingHourControl(t, f, at)
+			board, controller, interval := boardHourInterval(t, f, at)
+			_, err := f.db.ExecContext(t.Context(), `INSERT INTO hashboard_metrics(hashboard_id,installation_id,time,collected_at,state,mining_state,hashrate_hs,power_w,temperature_c)
  SELECT $1,id,$2,$2,'active','',100e12,1000,50 FROM hashboard_installation WHERE hashboard_id=$1 AND removed_at IS NULL`, board, at)
 			require.NoError(t, err)
+			asOf := at.Add(time.Hour + reportingHourGrace)
+			require.Equal(t, 1, closeReportingHours(t, f, asOf))
+			require.Zero(t, reportingHourMarkerCount(t, f, interval))
 			var topology int64
 			require.NoError(t, f.db.QueryRowContext(t.Context(), `INSERT INTO container_topology_version(device_id,fingerprint,topology) VALUES($1,'reporting-evidence','{}') RETURNING id`, controller).Scan(&topology))
 			if compressed {
@@ -312,29 +268,17 @@ func TestHostedReportingEvidenceTopologyStampingPreservesCorrections(t *testing.
 			var stamped int64
 			require.NoError(t, f.db.QueryRowContext(t.Context(), `SELECT topology_version_id FROM hashboard_metrics WHERE hashboard_id=$1 AND time=$2`, board, at).Scan(&stamped))
 			require.Equal(t, topology, stamped, "the real topology write still completes")
-			var events int
-			require.NoError(t, f.db.QueryRowContext(t.Context(), `SELECT count(*) FROM hosted_account_reporting_evidence`).Scan(&events))
-			require.Equal(t, 3, events, "topology-only updates do not create monitoring corrections")
+			require.Zero(t, reportingHourMarkerCount(t, f, interval), "topology-only updates do not mark the closed hour")
 
 			_, err = f.db.ExecContext(t.Context(), `UPDATE hashboard_metrics SET hashrate_hs=150e12 WHERE hashboard_id=$1 AND time=$2`, board, at)
 			require.NoError(t, err)
-			var operations, images []string
-			var values []float64
-			rows, err := f.db.QueryContext(t.Context(), `SELECT operation,image,value FROM hosted_account_reporting_evidence WHERE metric=1 ORDER BY event_id`)
-			require.NoError(t, err)
-			defer rows.Close()
-			for rows.Next() {
-				var operation, image string
-				var value float64
-				require.NoError(t, rows.Scan(&operation, &image, &value))
-				operations = append(operations, operation)
-				images = append(images, image)
-				values = append(values, value)
-			}
-			require.NoError(t, rows.Err())
-			require.Equal(t, []string{"INSERT", "DELETE", "INSERT"}, operations)
-			require.Equal(t, []string{"after", "before", "after"}, images)
-			require.Equal(t, []float64{100e12, 100e12, 150e12}, values)
+			require.Positive(t, reportingHourMarkerCount(t, f, interval), "a real correction marks the closed hour")
+			require.Equal(t, 1, reviseReportingHours(t, f, asOf))
+			rows := reportingHourRows(t, f, interval)
+			require.Len(t, rows, 2)
+			require.Equal(t, 2, rows[1].revision)
+			require.NotNil(t, rows[1].hashrateSum)
+			require.InEpsilon(t, 150e12, *rows[1].hashrateSum, 1e-12)
 
 			for _, correction := range []struct {
 				query  string
@@ -366,12 +310,16 @@ func TestHostedReportingEvidenceTopologyStampingPreservesCorrections(t *testing.
 			var remaining int
 			require.NoError(t, f.db.QueryRowContext(t.Context(), `SELECT count(*) FROM hosted_account_history_sample`).Scan(&remaining))
 			require.Zero(t, remaining)
-			require.NoError(t, f.db.QueryRowContext(t.Context(), `SELECT count(*) FROM hosted_account_reporting_evidence`).Scan(&events))
-			require.Equal(t, 36, events, "real corrections retain every original, deletion and replacement image")
+			require.Equal(t, 1, reviseReportingHours(t, f, asOf), "the corrections collapse into one revision")
+			rows = reportingHourRows(t, f, interval)
+			require.Len(t, rows, 3)
+			require.Zero(t, rows[2].hashrateReports, "deleted samples leave the hour reported as silent")
+			require.Nil(t, rows[2].hashrateSum)
 		})
 	}
 }
 
+// Every column the narrowed hashboard trigger watches still re-normalizes.
 func TestHostedReportingEvidenceHashboardCorrectionColumns(t *testing.T) {
 	for _, correction := range []struct {
 		column string
@@ -399,18 +347,9 @@ func TestHostedReportingEvidenceHashboardCorrectionColumns(t *testing.T) {
 			_, err := f.db.ExecContext(t.Context(), `INSERT INTO hashboard_metrics(hashboard_id,installation_id,time,collected_at,state,state_observed_at,mining_state,hashrate_hs,power_w,temperature_c)
  SELECT $1,id,$2,$2,'active',$2,'',100e12,1000,50 FROM hashboard_installation WHERE hashboard_id=$1 AND removed_at IS NULL`, board, at)
 			require.NoError(t, err)
-			// Compare complete normalized payloads with their retained before/after images.
-			payload := func(table, filter string) string {
-				t.Helper()
-				var result string
-				require.NoError(t, f.db.QueryRowContext(t.Context(), `SELECT COALESCE(jsonb_agg(to_jsonb(s) ORDER BY metric),'[]'::jsonb)::text FROM (
- SELECT time,interval_id,metric,value,complete,source_oldest_at,source_newest_at,source_id,origin_key,origin_time,origin_collected_at FROM `+table+` WHERE `+filter+`) s`).Scan(&result))
-				return result
-			}
-			before := payload("hosted_account_history_sample", "true")
-			require.NotEqual(t, "[]", before)
-			var initialEvent int64
-			require.NoError(t, f.db.QueryRowContext(t.Context(), `SELECT max(event_id) FROM hosted_account_reporting_evidence`).Scan(&initialEvent))
+			var samples int
+			require.NoError(t, f.db.QueryRowContext(t.Context(), `SELECT count(*) FROM hosted_account_history_sample`).Scan(&samples))
+			require.Equal(t, 3, samples, "every hashboard metric is normalized")
 			value := correction.value
 			source, receipt := at, at
 			switch correction.column {
@@ -437,20 +376,12 @@ func TestHostedReportingEvidenceHashboardCorrectionColumns(t *testing.T) {
 			updated, err := result.RowsAffected()
 			require.NoError(t, err)
 			require.EqualValues(t, 1, updated)
-			require.Equal(t, before, payload("hosted_account_reporting_evidence", "operation='DELETE'"), "corrections retain the complete deleted sample images")
-			after := payload("hosted_account_history_sample", "true")
-			require.Equal(t, after, payload("hosted_account_reporting_evidence", fmt.Sprintf("operation='INSERT' AND event_id>%d", initialEvent)), "replacement samples and their retained images agree")
-			var events, transactions, samples int
-			require.NoError(t, f.db.QueryRowContext(t.Context(), `SELECT count(*),count(DISTINCT transaction_id) FROM hosted_account_reporting_evidence WHERE event_id>$1`, initialEvent).Scan(&events, &transactions))
-			require.Equal(t, 1, transactions, "deletion and replacement are captured atomically")
 			require.NoError(t, f.db.QueryRowContext(t.Context(), `SELECT count(*) FROM hosted_account_history_sample`).Scan(&samples))
 			if correction.column == "hashboard_id" {
 				require.Zero(t, samples, "a board/installation mismatch removes the old samples without admitting replacements")
-				require.Equal(t, 3, events)
 				return
 			}
 			require.Equal(t, 3, samples)
-			require.Equal(t, 6, events, "every watched field deletes and replaces all three measurements")
 			for metric, expected := range correction.values {
 				var actual float64
 				var actualTime, origin, collected time.Time

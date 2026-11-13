@@ -15,6 +15,7 @@ func TestTelemetryFreshnessMigrationRespectsCheckpointTransaction(t *testing.T) 
 	conn, _ := newMigrationBridgeTestDB(t)
 	before := fstest.MapFS{}
 	var up, down []byte
+	found := false
 	entries, err := fs.ReadDir(migrations.Current, "current")
 	require.NoError(t, err)
 	for _, entry := range entries {
@@ -27,6 +28,11 @@ func TestTelemetryFreshnessMigrationRespectsCheckpointTransaction(t *testing.T) 
 			} else {
 				down = body
 			}
+			found = true
+			continue
+		}
+		// Later migrations are applied with the full set below.
+		if found {
 			continue
 		}
 		before[path] = &fstest.MapFile{Data: body}

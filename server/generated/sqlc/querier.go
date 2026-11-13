@@ -1850,6 +1850,7 @@ type Querier interface {
 	ListReportingAllocationIntervals(ctx context.Context, arg ListReportingAllocationIntervalsParams) ([]HostedAccountAssetInterval, error)
 	ListReportingAssetSupportMetadata(ctx context.Context, arg ListReportingAssetSupportMetadataParams) ([]ListReportingAssetSupportMetadataRow, error)
 	ListReportingAuthorities(ctx context.Context, arg ListReportingAuthoritiesParams) ([]ListReportingAuthoritiesRow, error)
+	// Current allocations only; the status view also lists recently ended intervals.
 	ListReportingCaptureStreams(ctx context.Context, arg ListReportingCaptureStreamsParams) ([]ListReportingCaptureStreamsRow, error)
 	ListReportingFactDevices(ctx context.Context, arg ListReportingFactDevicesParams) ([]int64, error)
 	ListReportingFactPageMetadata(ctx context.Context, arg ListReportingFactPageMetadataParams) ([]ListReportingFactPageMetadataRow, error)
