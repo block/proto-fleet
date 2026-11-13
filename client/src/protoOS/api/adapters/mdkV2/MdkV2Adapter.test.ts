@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
 
+import { LOG_TAIL_DEADLINE_MS } from "./connectClient";
+import { AUDIT_READ_TIMEOUT_MS } from "./controllerRecords";
 import {
   type V2GetContainerMapResponse,
   V2HashboardErrorCause,
@@ -12,6 +14,7 @@ import {
 } from "./generated/generatedApi";
 import { MdkV2Adapter, type MdkV2Client } from "./MdkV2Adapter";
 import { ROOT_MODULE_KEY } from "@/protoOS/store/contract";
+import { isAbortError } from "@/shared/utils/abort";
 
 const client = (overrides: Partial<MdkV2Client> = {}) =>
   ({
@@ -972,5 +975,172 @@ describe("MdkV2Adapter", () => {
       }),
     ).rejects.toThrow("require explicit zero-based indexes");
     expect(queryTimeSeries).not.toHaveBeenCalled();
+  });
+
+  describe("controller logs and audit trail", () => {
+    test("are only offered when the client can bound the log stream", () => {
+      const adapter = new MdkV2Adapter(client({ systemServiceListAuditEvents: vi.fn() }));
+      expect(adapter.getControllerLogs).toBeUndefined();
+      expect(adapter.listAuditEvents).toBeUndefined();
+    });
+
+    test("reads a log tail with controller identity, attribution and coverage", async () => {
+      const readLogTail = vi.fn().mockResolvedValue({
+        entries: [
+          { timestamp: "2026-11-13T10:00:00Z", level: "LOG_LEVEL_WARNING", component: "pool", message: "stale job" },
+          { timestamp: "", level: "LOG_LEVEL_ERROR", component: "", message: "no time" },
+        ],
+      });
+      const adapter = new MdkV2Adapter(
+        client({
+          systemServiceReadLogTail: readLogTail,
+          systemServiceListAuditEvents: vi.fn(),
+          systemServiceGetSystemStatus: vi.fn().mockResolvedValue({ data: { status: { serverId: "ct1-a" } } }),
+        }),
+      );
+
+      const snapshot = await adapter.getControllerLogs!({ limit: 2, minSeverity: "warn", component: "pool" });
+
+      expect(readLogTail).toHaveBeenCalledWith(
+        { tail: 2, level: "LOG_LEVEL_WARNING", component: "pool" },
+        { headers: { "X-Frigate-Actor": "proto-os" } },
+      );
+      expect(snapshot).toMatchObject({
+        entries: [
+          { timestamp: "2026-11-13T10:00:00Z", severity: "warn", component: "pool", message: "stale job" },
+          { timestamp: undefined, severity: "error", component: "", message: "no time" },
+        ],
+        limit: 2,
+        coverage: { state: "limit-reached" },
+        controllerId: "ct1-a",
+      });
+    });
+
+    test("marks an interrupted tail and still returns logs when identity is unavailable", async () => {
+      const adapter = new MdkV2Adapter(
+        client({
+          systemServiceReadLogTail: vi.fn().mockResolvedValue({
+            entries: [{ level: "LOG_LEVEL_INFO", component: "power", message: "ok" }],
+            interruption: "log stream reset by controller",
+          }),
+          systemServiceListAuditEvents: vi.fn(),
+          systemServiceGetSystemStatus: vi.fn().mockRejectedValue(new Error("status unavailable")),
+        }),
+      );
+
+      const snapshot = await adapter.getControllerLogs!({ limit: 1000 });
+
+      expect(snapshot.coverage).toEqual({ state: "interrupted", reason: "log stream reset by controller" });
+      expect(snapshot.controllerId).toBeUndefined();
+      expect(snapshot.entries).toHaveLength(1);
+    });
+
+    test("returns logs without waiting on a stalled identity lookup, and reports a silent controller", async () => {
+      vi.useFakeTimers();
+      try {
+        const adapter = new MdkV2Adapter(
+          client({
+            systemServiceReadLogTail: vi.fn().mockResolvedValue({ entries: [], noResponse: true }),
+            systemServiceListAuditEvents: vi.fn(),
+            systemServiceGetSystemStatus: vi.fn(
+              (params?: { signal?: AbortSignal | null }) =>
+                new Promise<never>((_, reject) =>
+                  params?.signal?.addEventListener("abort", () => reject(params.signal?.reason)),
+                ),
+            ),
+          }),
+        );
+
+        const pending = adapter.getControllerLogs!({ limit: 1000 });
+        await vi.advanceTimersByTimeAsync(LOG_TAIL_DEADLINE_MS);
+        const snapshot = await pending;
+
+        expect(snapshot.coverage).toEqual({ state: "no-response" });
+        expect(snapshot.controllerId).toBeUndefined();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    test("fails an audit read the controller never answers instead of waiting forever", async () => {
+      vi.useFakeTimers();
+      try {
+        const adapter = new MdkV2Adapter(
+          client({
+            systemServiceReadLogTail: vi.fn(),
+            systemServiceListAuditEvents: vi.fn(
+              (_query: unknown, params?: { signal?: AbortSignal | null }) =>
+                new Promise<never>((_, reject) =>
+                  params?.signal?.addEventListener("abort", () => reject(params.signal?.reason)),
+                ),
+            ),
+          }),
+        );
+
+        const pending = adapter.listAuditEvents!({
+          start: "2026-11-12T10:00:00Z",
+          end: "2026-11-13T10:00:00Z",
+          limit: 1,
+        });
+        pending.catch(() => undefined);
+        await vi.advanceTimersByTimeAsync(AUDIT_READ_TIMEOUT_MS);
+
+        await expect(pending).rejects.toThrow("The controller did not respond within 10 seconds.");
+        await expect(pending).rejects.not.toSatisfy(isAbortError);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    test("lists audit events newest first with attribution and a full-page marker", async () => {
+      const listAuditEvents = vi.fn().mockResolvedValue({
+        data: {
+          events: [
+            {
+              id: "7",
+              time: "2026-11-13T10:00:00Z",
+              actor: "operator@bridge",
+              source: "rest:10.0.0.2:443",
+              node: "ct1-a",
+              action: "SetBreaker",
+              target: "breaker-1",
+              result: "error",
+              error: "interlock",
+              detailsJson: '{"state":"open"}',
+            },
+          ],
+        },
+      });
+      const adapter = new MdkV2Adapter(
+        client({ systemServiceReadLogTail: vi.fn(), systemServiceListAuditEvents: listAuditEvents }),
+      );
+
+      const page = await adapter.listAuditEvents!({
+        start: "2026-11-12T10:00:00Z",
+        end: "2026-11-13T10:00:00Z",
+        limit: 1,
+        result: "error",
+      });
+
+      expect(listAuditEvents).toHaveBeenCalledWith(
+        { "range.start": "2026-11-12T10:00:00Z", "range.end": "2026-11-13T10:00:00Z", limit: 1, result: "error" },
+        expect.objectContaining({ headers: { "X-Frigate-Actor": "proto-os" }, signal: expect.any(AbortSignal) }),
+      );
+      expect(page).toMatchObject({
+        events: [
+          {
+            id: "7",
+            actor: "operator@bridge",
+            source: "rest:10.0.0.2:443",
+            node: "ct1-a",
+            result: "error",
+            error: "interlock",
+            details: '{"state":"open"}',
+          },
+        ],
+        limit: 1,
+        limitReached: true,
+      });
+    });
   });
 });

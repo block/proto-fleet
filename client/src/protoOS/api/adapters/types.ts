@@ -1,4 +1,5 @@
 import type { ContainerHistoryRequest, ContainerHistoryResult } from "./containerHistory";
+import type { AuditEventPage, AuditEventQuery, ControllerLogQuery, ControllerLogSnapshot } from "./controllerLogs";
 import type { HashboardFirmware } from "./hashboardFirmware";
 import type { ChangePasswordRequest } from "./mdkV1";
 import type { PoolHistoryRequest, PoolHistoryResult, PoolRecordedShares } from "./poolHistory";
@@ -243,6 +244,10 @@ export interface MinerAdapter {
     query: { lines: number; source?: SystemLogSource },
     params?: AdapterRequestOptions,
   ): Promise<SystemLogs | undefined>;
+  /** Bounded controller log tail. Adapters without structured controller logs omit this capability. */
+  getControllerLogs?(query: ControllerLogQuery, params?: AdapterRequestOptions): Promise<ControllerLogSnapshot>;
+  /** Controller audit trail, newest first. Adapters without one omit this capability. */
+  listAuditEvents?(query: AuditEventQuery, params?: AdapterRequestOptions): Promise<AuditEventPage>;
   getCurrentTelemetry(levels?: TelemetryLevel[], params?: AdapterRequestOptions): Promise<TelemetrySnapshot>;
   getTimeSeries(request: TimeSeriesQuery, params?: AdapterRequestOptions): Promise<TelemetryState>;
   /** Container and plant histories without per-hashboard requests. Unsupported adapters omit this capability. */

@@ -24,7 +24,9 @@ const ContainerPreview = ({ children }: { children: ReactNode }) => {
       { name: "coolant_pump_speed_hz", value: 45, unit: "Hz", boundsKnown: true, min: 30, max: 60 },
       { name: "dry_cooler_auto_temp_c", value: 38, unit: "C", boundsKnown: true, min: 20, max: 55 },
     ];
-    const client: { [K in keyof MdkV2Client]?: (...args: Parameters<MdkV2Client[K]>) => Promise<unknown> } = {
+    const client: {
+      [K in keyof MdkV2Client]?: (...args: Parameters<NonNullable<MdkV2Client[K]>>) => Promise<unknown>;
+    } = {
       poolServiceListPools: async () => ({ data: { pools } }),
       poolServiceUpdatePool: async ({ poolId }, { pool }) => {
         pools = pools.map((current) => (current.id === poolId ? { ...current, ...pool } : current));

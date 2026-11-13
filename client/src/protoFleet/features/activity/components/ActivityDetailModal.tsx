@@ -1,5 +1,4 @@
-import { type ComponentProps, type ReactNode, useEffect } from "react";
-import clsx from "clsx";
+import { useEffect } from "react";
 
 import type { ActivityEntry } from "@/protoFleet/api/generated/activity/v1/activity_pb";
 import type {
@@ -23,49 +22,13 @@ import { formatScope } from "@/protoFleet/features/activity/utils/formatScope";
 import { Alert, Info } from "@/shared/assets/icons";
 import Modal from "@/shared/components/Modal";
 import ProgressCircular from "@/shared/components/ProgressCircular";
-import Row from "@/shared/components/Row";
-import StatusCircle from "@/shared/components/StatusCircle";
+import { StatusLabel } from "@/shared/components/StatusCircle";
+import SummaryRow from "@/shared/components/SummaryRow";
 import { formatActivityTimestamp } from "@/shared/utils/formatTimestamp";
 
 interface ActivityDetailModalProps {
   entry: ActivityEntry | null;
   onDismiss: () => void;
-}
-
-function SummaryRow({
-  label,
-  children,
-  className,
-  divider = true,
-}: {
-  label: string;
-  children: ReactNode;
-  className?: string;
-  divider?: boolean;
-}) {
-  return (
-    <Row compact divider={divider}>
-      <div className="flex w-full items-center justify-between gap-4">
-        <span className="shrink-0 text-300 text-text-primary-70">{label}</span>
-        <span className={clsx("min-w-0 text-right text-300 text-text-primary", className)}>{children}</span>
-      </div>
-    </Row>
-  );
-}
-
-function StatusLabel({
-  status,
-  children,
-}: {
-  status: ComponentProps<typeof StatusCircle>["status"];
-  children: ReactNode;
-}) {
-  return (
-    <span className="inline-flex items-center gap-1.5">
-      <StatusCircle status={status} variant="simple" width="w-1.5" removeMargin />
-      {children}
-    </span>
-  );
 }
 
 const formatBatchResult = (data: GetCommandBatchDeviceResultsResponse): string => {
@@ -136,7 +99,7 @@ const ActivityDetailModal = ({ entry, onDismiss }: ActivityDetailModalProps) => 
             </StatusLabel>
           </SummaryRow>
           {entry.errorMessage ? (
-            <SummaryRow label="Issue" className="text-intent-critical break-words" divider={false}>
+            <SummaryRow label="Issue" className="break-words" critical divider={false}>
               {formatActivityErrorSummary(entry.errorMessage)}
             </SummaryRow>
           ) : null}

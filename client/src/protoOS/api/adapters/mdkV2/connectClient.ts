@@ -8,12 +8,15 @@ import {
   toJson,
 } from "@bufbuild/protobuf";
 import { Code, ConnectError, type Transport } from "@connectrpc/connect";
+import { createAsyncIterable } from "@connectrpc/connect/protocol";
 
 import type { AdapterRequestOptions, MiningScope } from "../types";
 import type {
   FirmwareServiceWriteFirmwareArtifactUploadChunkBody,
   PoolServiceGetPoolDiagnosticsParams,
   PoolServiceUpdatePoolBody,
+  SystemServiceGetLogsParams,
+  SystemServiceListAuditEventsParams,
   TelemetryServiceGetContainerHealthParams,
   TelemetryServiceQueryShareQualityHistoryParams,
   TelemetryServiceQueryTimeSeriesParams,
@@ -33,12 +36,14 @@ import type {
   V2GetContainerMapResponse,
   V2GetFirmwareUpdateResponse,
   V2GetHashboardASICsResponse,
+  V2GetLogsResponse,
   V2GetMiningStatusResponse,
   V2GetPoolDiagnosticsResponse,
   V2GetSystemInfoResponse,
   V2GetSystemStatusResponse,
   V2GetTargetPowerResponse,
   V2HashboardRunInConfig,
+  V2ListAuditEventsResponse,
   V2ListFirmwareUpdatesResponse,
   V2ListPoolsResponse,
   V2QueryShareQualityHistoryResponse,
@@ -72,7 +77,27 @@ import { TelemetryService } from "./generated/proto/mdk/v2/telemetry_pb";
 
 type HttpResponse<T> = Promise<{ data: T }>;
 
+/**
+ * GetLogs sends the controller's retained tail and then follows new entries
+ * until the client disconnects, so a bounded read stops on its own.
+ * `interruption` is set when the stream failed after it opened, ran past the
+ * deadline, or paused before the controller's newest matching entry arrived.
+ */
+export interface LogTailRead {
+  entries: V2GetLogsResponse[];
+  /** Why the read stopped before the tail was known to be finished. */
+  interruption?: string;
+  /** The stream never opened, so an empty tail and a slow controller look the same. */
+  noResponse?: true;
+}
+
 export interface MdkV2Client {
+  /** Bounded GetLogs read. Connect only: the REST client cannot end a following stream. */
+  systemServiceReadLogTail?(query: SystemServiceGetLogsParams, params?: AdapterRequestOptions): Promise<LogTailRead>;
+  systemServiceListAuditEvents?(
+    query: SystemServiceListAuditEventsParams,
+    params?: AdapterRequestOptions,
+  ): HttpResponse<V2ListAuditEventsResponse>;
   firmwareServiceBeginFirmwareArtifactUpload(
     data: V2BeginFirmwareArtifactUploadRequest,
     params?: AdapterRequestOptions,
@@ -292,6 +317,138 @@ const unary = async <I extends DescMessage, O extends DescMessage, T>(
   }
 };
 
+// The tail arrives as one burst; a pause this long usually means the controller
+// has moved on to following new entries. GetLogs has no end-of-tail marker, so
+// the read confirms the pause against the controller's newest entry.
+export const LOG_TAIL_IDLE_MS = 750;
+// Connect servers send stream headers with the first entry, so a stream that
+// has not opened by now usually has no matching entries, though a slow
+// controller looks the same. The read reports that it cannot tell which.
+export const LOG_TAIL_OPEN_MS = 2_000;
+// Upper bound on a tail read. A controller still sending at this point may not
+// have finished its tail, so the read reports itself as interrupted.
+export const LOG_TAIL_DEADLINE_MS = 5_000;
+
+const IDLE = Symbol("idle");
+
+const raceTimeout = async <T>(promise: Promise<T>, ms: number): Promise<T | typeof IDLE> => {
+  // The losing promise rejects once the read is aborted; nobody awaits it then.
+  promise.catch(() => undefined);
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<typeof IDLE>((resolve) => {
+        timer = setTimeout(() => resolve(IDLE), ms);
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+};
+
+type LogStreamEnd = "limit" | "closed" | "paused" | "deadline" | "unopened";
+
+/**
+ * Reads one GetLogs stream into `entries` until it pauses, ends, fills `tail`
+ * or hits the deadline. Entries stay in `entries` if the stream fails.
+ */
+const readLogStream = async (
+  transport: Transport,
+  query: SystemServiceGetLogsParams,
+  entries: V2GetLogsResponse[],
+  signal: AbortSignal,
+  headers: AdapterRequestOptions["headers"],
+  { openMs, deadline }: { openMs: number; deadline: number },
+): Promise<LogStreamEnd> => {
+  const method = SystemService.method.getLogs;
+  // Ends the stream on return; GetLogs would otherwise follow new entries forever.
+  const done = new AbortController();
+  const limit = query.tail ?? 0;
+  try {
+    const input = fromJson(method.input, withoutUndefined(query) as JsonValue);
+    const response = await raceTimeout(
+      transport.stream(
+        method,
+        AbortSignal.any([signal, done.signal]),
+        undefined,
+        headers,
+        createAsyncIterable([input]),
+      ),
+      openMs,
+    );
+    if (response === IDLE) return "unopened";
+    const messages = response.message[Symbol.asyncIterator]();
+    while (limit <= 0 || entries.length < limit) {
+      const wait = Math.min(LOG_TAIL_IDLE_MS, deadline - Date.now());
+      const result = wait > 0 ? await raceTimeout(messages.next(), wait) : IDLE;
+      if (result === IDLE) return wait < LOG_TAIL_IDLE_MS ? "deadline" : "paused";
+      if (result.done) return "closed";
+      const data = toJson(method.output, result.value, { alwaysEmitImplicit: true });
+      nameUnknownEnums(method.output, data);
+      entries.push(data as V2GetLogsResponse);
+    }
+    return "limit";
+  } finally {
+    done.abort();
+  }
+};
+
+const MISSED_NEWEST = "the controller's newest matching entry was not received";
+
+const sameLogEntry = (a: V2GetLogsResponse | undefined, b: V2GetLogsResponse | undefined) =>
+  a?.timestamp === b?.timestamp && a?.level === b?.level && a?.component === b?.component && a?.message === b?.message;
+
+const readLogTail = async (
+  transport: Transport,
+  query: SystemServiceGetLogsParams,
+  params: AdapterRequestOptions = {},
+): Promise<LogTailRead> => {
+  const outer = params.signal ?? undefined;
+  const controller = new AbortController();
+  const abort = () => controller.abort(outer?.reason);
+  outer?.addEventListener("abort", abort, { once: true });
+  const deadline = Date.now() + LOG_TAIL_DEADLINE_MS;
+  // Follow-up reads may queue behind the page's other requests, so they get
+  // whatever time is left rather than the first read's open timeout.
+  const read = (request: SystemServiceGetLogsParams, into: V2GetLogsResponse[], openMs: number) =>
+    readLogStream(transport, request, into, controller.signal, params.headers, { openMs, deadline });
+  const entries: V2GetLogsResponse[] = [];
+  try {
+    outer?.throwIfAborted();
+    const end = await read(query, entries, LOG_TAIL_OPEN_MS);
+    if (end === "unopened") return { entries, noResponse: true };
+    if (end === "deadline") {
+      return {
+        entries,
+        interruption: `the controller was still sending after ${LOG_TAIL_DEADLINE_MS / 1000} seconds`,
+      };
+    }
+    if (end !== "paused") return { entries };
+    // GetLogs has no end-of-tail marker, and a stall mid-tail looks like its
+    // end while the newest entries are still to come. The tail is complete
+    // only if it reaches the controller's newest matching entry.
+    const latest: V2GetLogsResponse[] = [];
+    await read({ ...query, tail: 1 }, latest, deadline - Date.now());
+    const [newest] = latest;
+    if (sameLogEntry(newest, entries[entries.length - 1])) return { entries };
+    if (!newest) return { entries, interruption: "the controller did not confirm its newest entry" };
+    // A stall, or entries logged since the first read: read the tail again.
+    const again: V2GetLogsResponse[] = [];
+    await read(query, again, deadline - Date.now());
+    if (again.some((entry) => sameLogEntry(entry, newest))) return { entries: again };
+    return { entries: again.length ? again : entries, interruption: MISSED_NEWEST };
+  } catch (error) {
+    if (outer?.aborted) throw outer.reason;
+    // With no entries there is nothing partial to show: the logs are unavailable.
+    if (!entries.length) throw toGatewayError(error);
+    return { entries, interruption: toGatewayError(error).message };
+  } finally {
+    outer?.removeEventListener("abort", abort);
+    controller.abort();
+  }
+};
+
 const timeRange = <Q extends { "range.start"?: string; "range.end"?: string }>({
   "range.start": start,
   "range.end": end,
@@ -308,6 +465,8 @@ export const createMdkV2Client = (transport: Transport): MdkV2Client => {
   const telemetry = TelemetryService.method;
 
   return {
+    systemServiceReadLogTail: (query, params) => readLogTail(transport, query, params),
+    systemServiceListAuditEvents: (query, params) => unary(transport, system.listAuditEvents, timeRange(query), params),
     firmwareServiceBeginFirmwareArtifactUpload: (data, params) =>
       unary(transport, FirmwareService.method.beginFirmwareArtifactUpload, data, params),
     firmwareServiceWriteFirmwareArtifactUploadChunk: (path, data, params) =>

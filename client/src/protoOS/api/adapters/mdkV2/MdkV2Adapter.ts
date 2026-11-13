@@ -20,6 +20,7 @@ import { mapWithConcurrency } from "../utils/async";
 import { parseIsoDurationMs } from "../utils/time";
 import { createMdkV2Client, type MdkV2Client } from "./connectClient";
 import { queryContainerHistory } from "./containerHistory";
+import { listControllerAuditEvents, readControllerLogs } from "./controllerRecords";
 import { createHashboardFirmware } from "./firmware";
 import {
   Api,
@@ -131,6 +132,8 @@ const toWirePllAlgorithm = (value: string | undefined): V2PLLAlgorithm | undefin
 
 export class MdkV2Adapter implements MinerAdapter {
   readonly hashboardFirmware;
+  readonly getControllerLogs?: MinerAdapter["getControllerLogs"];
+  readonly listAuditEvents?: MinerAdapter["listAuditEvents"];
   private deviceId: string | undefined;
   private readonly hashboardTimeSeriesCache = new Map<string, { expiresAtMs: number; data: QueryTimeSeriesResponse }>();
 
@@ -140,6 +143,16 @@ export class MdkV2Adapter implements MinerAdapter {
   ) {
     this.deviceId = match.deviceId;
     this.hashboardFirmware = createHashboardFirmware(client, (params) => this.decorate(params));
+    // Only the Connect client can bound the following log stream. The REST
+    // client is generated with ListAuditEvents too, but its one caller, Fleet's
+    // miner proxy, forwards neither route, so both reads follow the log reader.
+    const { systemServiceReadLogTail: readLogTail, systemServiceListAuditEvents: listAuditEvents } = client;
+    if (readLogTail && listAuditEvents) {
+      this.getControllerLogs = (query, params) =>
+        readControllerLogs(readLogTail, client.systemServiceGetSystemStatus, query, this.decorate(params));
+      this.listAuditEvents = (query, params) =>
+        listControllerAuditEvents(listAuditEvents, query, this.decorate(params));
+    }
   }
 
   /**
