@@ -12,6 +12,10 @@ import { useFleetStore } from "@/protoFleet/store";
 export const poolTargetKey = (a: EquipmentAssignment) =>
   `${a.installationId ? "hashboard_installation" : "device"}:${a.installationId || a.deviceId}`;
 
+// Clears have no configuration ID, but their tracked outcome still owns status.
+export const usesDevicePoolReadback = (a: Pick<EquipmentAssignment, "configurationId" | "operationId">) =>
+  !a.configurationId && !a.operationId;
+
 // Batch equipment without Fleet intent so the server can share one observation
 // per controller. Assigned configurations retain their explicit verification flow.
 export const useDevicePoolReadings = (
@@ -22,7 +26,7 @@ export const useDevicePoolReadings = (
 ) => {
   // Include controller routing so moving a board invalidates an in-flight read.
   const selection = [
-    ...new Set(assignments.filter((a) => !a.configurationId).map((a) => `${a.deviceId}/${poolTargetKey(a)}`)),
+    ...new Set(assignments.filter(usesDevicePoolReadback).map((a) => `${a.deviceId}/${poolTargetKey(a)}`)),
   ]
     .sort()
     .join(",");

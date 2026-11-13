@@ -81,7 +81,7 @@ it.each(["failure", "missing"])(
   },
 );
 
-it.each(["account", "route", "disabled", "session"])(
+it.each(["account", "route", "disabled", "session", "clear"])(
   "invalidates old readings on a %s change and ignores the prior response",
   async (change) => {
     const board = create(EquipmentAssignmentSchema, { installationId: 101n, deviceId: 1n });
@@ -105,7 +105,12 @@ it.each(["account", "route", "disabled", "session"])(
       rerender({
         ...initial,
         accountId: change === "account" ? "account-b" : initial.accountId,
-        assignments: change === "route" ? [{ ...board, deviceId: 2n }] : initial.assignments,
+        assignments:
+          change === "route"
+            ? [{ ...board, deviceId: 2n }]
+            : change === "clear"
+              ? [{ ...board, operationId: "automatic-clear", state: "pending" }]
+              : initial.assignments,
         enabled: change !== "disabled",
       });
     }
@@ -113,7 +118,7 @@ it.each(["account", "route", "disabled", "session"])(
     expect(priorSignal.aborted).toBe(true);
     await act(async () => old.resolve(reply([{ kind: "hashboard_installation", targetId: 101n }])));
     expect(result.current.readings).toEqual({});
-    if (change === "disabled") {
+    if (change === "disabled" || change === "clear") {
       rerender(initial);
       expect(result.current.readings).toEqual({});
     }

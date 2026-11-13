@@ -46,13 +46,18 @@ func TestAccountMiningEmptyAndPrivateAuthority(t *testing.T) {
 
 func (f fixture) miningDevice(t *testing.T, class commonpb.DeviceClass) int64 {
 	t.Helper()
+	return f.miningDeviceWithPairingStatus(t, class, "PAIRED")
+}
+
+func (f fixture) miningDeviceWithPairingStatus(t *testing.T, class commonpb.DeviceClass, status string) int64 {
+	t.Helper()
 	identifier := uuid.NewString()
 	discovered := &discoverymodels.DiscoveredDevice{Device: pairingpb.Device{DeviceIdentifier: identifier, DeviceClass: class, Model: "Synthetic", Manufacturer: "Proto", DriverName: "proto", IpAddress: "192.0.2.1", Port: "8080", UrlScheme: "http"}, OrgID: f.org, IsActive: true}
 	_, err := sqlstores.NewSQLDiscoveredDeviceStore(f.db).Save(t.Context(), discoverymodels.DeviceOrgIdentifier{OrgID: f.org, DeviceIdentifier: identifier}, discovered)
 	require.NoError(t, err)
 	store := sqlstores.NewSQLDeviceStore(f.db)
 	require.NoError(t, store.InsertDevice(t.Context(), &discovered.Device, f.org, identifier))
-	require.NoError(t, store.UpsertDevicePairing(t.Context(), &discovered.Device, f.org, "PAIRED"))
+	require.NoError(t, store.UpsertDevicePairing(t.Context(), &discovered.Device, f.org, status))
 	var id int64
 	require.NoError(t, f.db.QueryRowContext(t.Context(), `SELECT id FROM device WHERE org_id=$1 AND device_identifier=$2`, f.org, identifier).Scan(&id))
 	return id

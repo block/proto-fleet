@@ -258,6 +258,7 @@ WHERE a.attempt_id=$1 AND a.device_id=$2
  AND a.status='complete' AND a.queue_message_id IS NULL AND a.write_outcome='{}'::jsonb
  AND NOT EXISTS (SELECT 1 FROM device_deletion_unpair_permit p WHERE p.attempt_id=a.attempt_id)
  AND NOT EXISTS (SELECT 1 FROM pool_configuration_operation_target t WHERE t.physical_attempt_id=a.attempt_id)
+ AND NOT EXISTS (SELECT 1 FROM pool_lifecycle_transition l WHERE l.physical_attempt_id=a.attempt_id)
 `
 
 type DeleteUndispatchedDirectAttemptParams struct {

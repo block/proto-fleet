@@ -332,6 +332,7 @@ type Querier interface {
 	// Pairing has rebound this device in the same transaction, so the new owner
 	// may replace the revocation's OFFLINE status with a fresh status.
 	ClearFleetNodeRevokedStatus(ctx context.Context, arg ClearFleetNodeRevokedStatusParams) (int64, error)
+	ClearPoolConfigurationDefault(ctx context.Context, arg ClearPoolConfigurationDefaultParams) error
 	// Companion to SoftDeleteDeviceSet for rack-typed collections. Clears
 	// the device_set_rack placement so a soft-deleted rack doesn't leave
 	// an orphan (building_id, aisle_index, position_in_aisle) tuple that
@@ -462,6 +463,7 @@ type Querier interface {
 	// expired history can never block a write.
 	CountUnexpiredAlertMaintenanceWindows(ctx context.Context, arg CountUnexpiredAlertMaintenanceWindowsParams) (int64, error)
 	CreateApiKey(ctx context.Context, arg CreateApiKeyParams) error
+	CreateAutomaticPoolConfigurationOperation(ctx context.Context, arg CreateAutomaticPoolConfigurationOperationParams) (PoolConfigurationOperation, error)
 	// `site_id` is nullable. Name is unique per (site_id, name) when site_id
 	// is non-null; the partial index surfaces collisions to the service
 	// layer. Unassigned buildings (site_id IS NULL) are not name-unique so
@@ -504,6 +506,7 @@ type Querier interface {
 	CreatePoolConfigurationReview(ctx context.Context, arg CreatePoolConfigurationReviewParams) (PoolConfigurationReview, error)
 	CreatePoolConfigurationRevision(ctx context.Context, arg CreatePoolConfigurationRevisionParams) (PoolConfigurationRevision, error)
 	CreatePoolGroupSnapshot(ctx context.Context, arg CreatePoolGroupSnapshotParams) error
+	CreatePoolLifecycleBoardTransition(ctx context.Context, arg CreatePoolLifecycleBoardTransitionParams) error
 	CreateQueueMessage(ctx context.Context, arg CreateQueueMessageParams) error
 	CreateQueueMessages(ctx context.Context, arg CreateQueueMessagesParams) error
 	// org_id is denormalized onto device_set_rack so the building FK can be
@@ -533,6 +536,7 @@ type Querier interface {
 	// desired_state scope avoids blocking AdminTerminate on RESTORING events
 	// whose in-flight commands are Uncurtails.
 	CurtailmentEventHasInFlightTargets(ctx context.Context, curtailmentEventID int64) (bool, error)
+	DeferPoolLifecycleTransition(ctx context.Context, arg DeferPoolLifecycleTransitionParams) error
 	DeleteActiveRepairTicketParts(ctx context.Context, arg DeleteActiveRepairTicketPartsParams) error
 	DeleteAlertMaintenanceWindow(ctx context.Context, arg DeleteAlertMaintenanceWindowParams) (int64, error)
 	DeleteAlertRouteChannels(ctx context.Context, policyID int64) error
@@ -625,6 +629,7 @@ type Querier interface {
 	// The caller rejects aliases that resolve to different existing hardware.
 	EnsureHashboards(ctx context.Context, arg EnsureHashboardsParams) ([]EnsureHashboardsRow, error)
 	EnsureMiningGroupState(ctx context.Context, arg EnsureMiningGroupStateParams) error
+	EnsurePoolConfigurationDefault(ctx context.Context, arg EnsurePoolConfigurationDefaultParams) error
 	ExcludeFirmwareRolloutDevices(ctx context.Context, arg ExcludeFirmwareRolloutDevicesParams) error
 	// Keep ambiguous in-flight intents nonterminal until BeginRestore resets them:
 	// enqueueing may have succeeded before its dispatched timestamp was persisted.
@@ -691,6 +696,7 @@ type Querier interface {
 	FinishFirmwareRollout(ctx context.Context, arg FinishFirmwareRolloutParams) (int64, error)
 	FinishPoolConfigurationTarget(ctx context.Context, arg FinishPoolConfigurationTargetParams) (int64, error)
 	FinishPoolGroupAttempt(ctx context.Context, arg FinishPoolGroupAttemptParams) error
+	FinishPoolLifecycleTransition(ctx context.Context, arg FinishPoolLifecycleTransitionParams) (int64, error)
 	FinishPoolRemoval(ctx context.Context, arg FinishPoolRemovalParams) (int64, error)
 	FinishTerminalCommandBatches(ctx context.Context, finishLimit int32) (int64, error)
 	FleetNodeInHAPair(ctx context.Context, arg FleetNodeInHAPairParams) (bool, error)
@@ -834,6 +840,7 @@ type Querier interface {
 	// (dispatching/dispatched conflate). Unavailable reason buckets are covered
 	// by idx_curtailment_target_unavailable_reason.
 	GetCurtailmentTargetRollupByEvent(ctx context.Context, arg GetCurtailmentTargetRollupByEventParams) (GetCurtailmentTargetRollupByEventRow, error)
+	GetDefaultPoolConfiguration(ctx context.Context, arg GetDefaultPoolConfigurationParams) (PoolConfiguration, error)
 	GetDeletionUnpairPermit(ctx context.Context, arg GetDeletionUnpairPermitParams) (DeviceDeletionUnpairPermit, error)
 	GetDeviceByDeviceIdentifier(ctx context.Context, arg GetDeviceByDeviceIdentifierParams) (Device, error)
 	GetDeviceByID(ctx context.Context, arg GetDeviceByIDParams) (Device, error)
@@ -1113,9 +1120,15 @@ type Querier interface {
 	GetPoolEquipmentDevice(ctx context.Context, arg GetPoolEquipmentDeviceParams) (GetPoolEquipmentDeviceRow, error)
 	GetPoolEquipmentMinerOwner(ctx context.Context, arg GetPoolEquipmentMinerOwnerParams) (GetPoolEquipmentMinerOwnerRow, error)
 	GetPoolGroupSnapshot(ctx context.Context, arg GetPoolGroupSnapshotParams) (PoolConfigurationGroupSnapshot, error)
+	GetPoolLifecycleAllocation(ctx context.Context, arg GetPoolLifecycleAllocationParams) (GetPoolLifecycleAllocationRow, error)
+	GetPoolLifecycleTransition(ctx context.Context, transitionID uuid.UUID) (GetPoolLifecycleTransitionRow, error)
 	// Removal-specific preflight is stored in the shared immutable review target.
 	// The operation and target records own execution, progress and recovery.
 	GetPoolRemoval(ctx context.Context, arg GetPoolRemovalParams) (GetPoolRemovalRow, error)
+	// Called only after current whole-container ownership and disabled mode are
+	// established. Ignore stale ownership, removed boards, ended pairing cycles,
+	// and pairing-without-default (which requests no settings change).
+	GetPreferredContainerPoolPolicy(ctx context.Context, transitionID uuid.UUID) (uuid.UUID, error)
 	GetProtoMinerProxyTarget(ctx context.Context, arg GetProtoMinerProxyTargetParams) (GetProtoMinerProxyTargetRow, error)
 	GetQueueMessagesByBatch(ctx context.Context, commandBatchLogUuid string) ([]GetQueueMessagesByBatchRow, error)
 	// Batch query to get rack label and formatted slot position for multiple devices at once.
@@ -1305,6 +1318,7 @@ type Querier interface {
 	LegacyPoolWritersDisabled(ctx context.Context, organizationID int64) (bool, error)
 	LinkPoolConfigurationAttempt(ctx context.Context, arg LinkPoolConfigurationAttemptParams) (int64, error)
 	LinkPoolGroupSnapshot(ctx context.Context, arg LinkPoolGroupSnapshotParams) (int64, error)
+	LinkPoolLifecycleOperation(ctx context.Context, arg LinkPoolLifecycleOperationParams) error
 	ListAccountRepairTicketComments(ctx context.Context, arg ListAccountRepairTicketCommentsParams) ([]ListAccountRepairTicketCommentsRow, error)
 	ListAccountRepairTicketTargets(ctx context.Context, arg ListAccountRepairTicketTargetsParams) ([]RepairTicketTarget, error)
 	ListAccountRepairTickets(ctx context.Context, arg ListAccountRepairTicketsParams) ([]RepairTicket, error)
@@ -1730,6 +1744,8 @@ type Querier interface {
 	// pending until their controller workflow settles; admission still rechecks
 	// the journal under lock in case it becomes busy after this selection.
 	ListPendingPoolConfigurationWork(ctx context.Context) ([]ListPendingPoolConfigurationWorkRow, error)
+	// Prepare one policy per controller and let accepted work dispatch first.
+	ListPendingPoolLifecycleTransitions(ctx context.Context) ([]PoolLifecycleTransition, error)
 	ListPermissions(ctx context.Context) ([]Permission, error)
 	ListPoolAffectedBoards(ctx context.Context, arg ListPoolAffectedBoardsParams) ([]ListPoolAffectedBoardsRow, error)
 	// Called around accepted inventory reconciliation under its organization lock.
@@ -1937,6 +1953,9 @@ type Querier interface {
 	// Queued commands have no physical attempt yet and survive the offline import.
 	ListUnsettledPoolAdoptionWork(ctx context.Context, organizationID int64) ([]ListUnsettledPoolAdoptionWorkRow, error)
 	ListUsersForOrganization(ctx context.Context, organizationID int64) ([]ListUsersForOrganizationRow, error)
+	// Retirement ends current intent even when it retains the automatic operation
+	// ID for history. Only retirements newer than the policy suppress its display.
+	ListVisiblePoolLifecycleTransitions(ctx context.Context, arg ListVisiblePoolLifecycleTransitionsParams) ([]ListVisiblePoolLifecycleTransitionsRow, error)
 	LockActiveHostedAccountUser(ctx context.Context, arg LockActiveHostedAccountUserParams) (User, error)
 	LockActiveHostedAccountUserForShare(ctx context.Context, arg LockActiveHostedAccountUserForShareParams) (User, error)
 	// Break-glass resets intentionally target the sole live org-scope
@@ -2229,8 +2248,13 @@ type Querier interface {
 	// Timestamp the pause after the header lock, never before the creation or
 	// stage transition the caller observed. Repeated pauses keep the first event.
 	PauseFirmwareRollout(ctx context.Context, arg PauseFirmwareRolloutParams) (int64, error)
+	PoolConfigurationHasPendingLifecycle(ctx context.Context, arg PoolConfigurationHasPendingLifecycleParams) (bool, error)
 	PoolConfigurationWritersFrozen(ctx context.Context, organizationID int64) (bool, error)
+	// Automatic assignments retain their policy's ordering even when processed late.
+	// Later manual assignments and retirements still supersede queued policy.
+	PoolLifecycleHasNewerAssignment(ctx context.Context, transitionID uuid.UUID) (bool, error)
 	PrepareFleetNodeHAKeyInstall(ctx context.Context, arg PrepareFleetNodeHAKeyInstallParams) ([]byte, error)
+	PreparePoolLifecycleTransition(ctx context.Context, arg PreparePoolLifecycleTransitionParams) (int64, error)
 	PrepareTelemetrySeed(ctx context.Context, arg PrepareTelemetrySeedParams) (time.Time, error)
 	// Retrying a failed deployment preserves its original health expectations.
 	// A failed update can itself stop hashing; recapturing that degraded state
@@ -2322,6 +2346,12 @@ type Querier interface {
 	// AUTHENTICATION_NEEDED, PENDING, or FAILED by another flow.
 	ReconcileDefaultPasswordPairingStatusByIdentifier(ctx context.Context, arg ReconcileDefaultPasswordPairingStatusByIdentifierParams) (ReconcileDefaultPasswordPairingStatusByIdentifierRow, error)
 	ReconcileHostedHashboardReplacements(ctx context.Context, arg ReconcileHostedHashboardReplacementsParams) error
+	// Also retire intent left by earlier deletions or confirmed board removals.
+	// Board retirement is limited to unclaimed work. Retain physical attempts and
+	// completed history: supersession never establishes that a write has settled.
+	// Separate deleted devices from removed boards so retained failures are only
+	// visited for deleted devices, not for every live-controller inventory check.
+	ReconcilePoolLifecycleOperations(ctx context.Context) error
 	// The status and reboot-boundary predicates apply to the current status row even
 	// after waiting for a concurrent firmware install's write to finish. Boot
 	// evidence from an earlier install must not clear a later pending reboot.
@@ -2418,6 +2448,10 @@ type Querier interface {
 	RenewCurtailmentAutomationScheduleRevision(ctx context.Context, ruleID int64) error
 	RenewFleetRuntimeLease(ctx context.Context, arg RenewFleetRuntimeLeaseParams) (RenewFleetRuntimeLeaseRow, error)
 	RepairTicketContainsModule(ctx context.Context, arg RepairTicketContainsModuleParams) (bool, error)
+	// Admission claims ready -> applying in the same transaction as its attempt.
+	// Reset only unclaimed clears. Preparation then recomputes target and binding
+	// from the original asset, including the current CT1 mining-group mode.
+	ReprepareUndispatchedPoolLifecycleRemoval(ctx context.Context, transitionID uuid.UUID) error
 	// Lock/update the organization before writing targets. Completion and terminal
 	// retry follow the same lock order so concurrent requests cannot lose targets.
 	RequestRigConfigReconciliationForDevices(ctx context.Context, arg RequestRigConfigReconciliationForDevicesParams) error
@@ -2510,6 +2544,10 @@ type Querier interface {
 	// they are spent the organization keeps retrying on a slow period, so a short
 	// outage cannot strand stale fallback providers on its rigs.
 	RetryRigConfigReconciliation(ctx context.Context, arg RetryRigConfigReconciliationParams) error
+	// Require explicit no-dispatch evidence from the direct executor plus a
+	// completed attempt. Failed verification of an ordered write can also have an
+	// empty physical receipt; that receipt alone must never authorize a retry.
+	RetryUndispatchedPoolLifecycleRemoval(ctx context.Context, transitionID uuid.UUID) error
 	RevertScheduleToActive(ctx context.Context, id int64) error
 	RevokeAllSessionsByUserID(ctx context.Context, arg RevokeAllSessionsByUserIDParams) error
 	RevokeApiKey(ctx context.Context, arg RevokeApiKeyParams) (int64, error)
@@ -2562,10 +2600,12 @@ type Querier interface {
 	SetLocalTelemetryLockTimeout(ctx context.Context, timeoutMilliseconds int64) error
 	SetLocalTransactionTimeout(ctx context.Context, timeoutMilliseconds int64) error
 	SetMQTTSourceConfigEnabled(ctx context.Context, arg SetMQTTSourceConfigEnabledParams) (SetMQTTSourceConfigEnabledRow, error)
+	// Policy ordering uses save time after serialization locks, not transaction start.
 	// Explicitly returning retired equipment must not resurrect its former intent
 	// while the new reviewed operation is pending or if admission later fails.
 	SetPoolConfigurationAssignment(ctx context.Context, arg SetPoolConfigurationAssignmentParams) (PoolConfigurationAssignment, error)
 	SetPoolConfigurationCurrentRevision(ctx context.Context, arg SetPoolConfigurationCurrentRevisionParams) (PoolConfiguration, error)
+	SetPoolConfigurationDefault(ctx context.Context, arg SetPoolConfigurationDefaultParams) error
 	// Writes the rack's grid placement (aisle_index, position_in_aisle).
 	// Caller must have already set building_id via UpdateRackPlacement —
 	// this query intentionally does not touch building_id so the two
@@ -2666,6 +2706,7 @@ type Querier interface {
 	// collection. The function groups by exact source time and supplies explicit
 	// board/time filters before Timescale decompresses batches, including generic plans.
 	StampHashboardTopology(ctx context.Context, arg StampHashboardTopologyParams) error
+	SupersedeContainerPoolLifecycleTransitions(ctx context.Context, arg SupersedeContainerPoolLifecycleTransitionsParams) error
 	SupersedePoolConfigurationTarget(ctx context.Context, arg SupersedePoolConfigurationTargetParams) error
 	SwapFleetNodeHAPair(ctx context.Context, id int64) error
 	// Reclaims rows for never-created rule UIDs left by ambiguous create failures (see CreateRule).

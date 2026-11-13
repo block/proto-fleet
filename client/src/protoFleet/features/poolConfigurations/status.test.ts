@@ -17,6 +17,7 @@ describe("pool configuration status copy", () => {
     ["different", "write_uncertain", "Settings differ"],
     ["device_configuration", "", "Device configuration"],
     ["container_configuration", "", "Container configuration"],
+    ["cleared", "", "—"],
     ["", "", "—"],
     ["unexpected", "", "Unavailable"],
   ])("maps %s / %s to %s", (state, resultCode, expected) => {

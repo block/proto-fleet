@@ -59,7 +59,8 @@ func (r *Repository) Assign(ctx context.Context, q sqlc.Querier, scope Scope, ac
 	if err := scope.validate(); err != nil {
 		return Operation{}, err
 	}
-	if actorID <= 0 || len(changes) == 0 {
+	automatic := actorID == 0 && LifecycleTransitionID(ctx) != uuid.Nil
+	if (actorID <= 0 && !automatic) || len(changes) == 0 {
 		return Operation{}, fleeterror.NewInvalidArgumentError("pool assignment requires an actor and equipment")
 	}
 	if _, err := q.LockPoolConfigurationImportOrganization(ctx, scope.OrganizationID); err != nil {
@@ -69,7 +70,7 @@ func (r *Repository) Assign(ctx context.Context, q sqlc.Querier, scope Scope, ac
 	if err != nil {
 		return Operation{}, storageError(err)
 	}
-	if config.Archived || config.CurrentRevisionID.String != revisionID {
+	if config.Archived || (!automatic && config.CurrentRevisionID.String != revisionID) {
 		return Operation{}, fleeterror.NewFailedPreconditionError("configuration changed; refresh and review again")
 	}
 	changes = slices.Clone(changes)
@@ -78,6 +79,15 @@ func (r *Repository) Assign(ctx context.Context, q sqlc.Querier, scope Scope, ac
 	})
 	for i, change := range changes {
 		target := change.Target
+		if automatic {
+			event, err := AuthorizeLifecycleTransition(ctx, q, scope, target.DeviceID)
+			if err != nil {
+				return Operation{}, err
+			}
+			if event.ConfigurationID.String != configID || event.RevisionID.String != revisionID || event.TargetKind != target.Kind || event.TargetID != target.ID {
+				return Operation{}, staleAssignment()
+			}
+		}
 		if target.ID <= 0 || target.DeviceID <= 0 || change.ExpectedVersion < 0 ||
 			(target.Kind != TargetDevice && target.Kind != TargetInstallation) || (target.Kind == TargetDevice && target.ID != target.DeviceID) ||
 			(i > 0 && target.Kind == changes[i-1].Target.Kind && target.ID == changes[i-1].Target.ID) {
@@ -107,7 +117,12 @@ func (r *Repository) Assign(ctx context.Context, q sqlc.Querier, scope Scope, ac
 			}
 		}
 	}
-	operation, err := q.CreatePoolConfigurationOperation(ctx, sqlc.CreatePoolConfigurationOperationParams{OperationID: uuid.NewString(), OrganizationID: scope.OrganizationID, ConfigurationID: configID, RevisionID: revisionID, ActorID: actorID})
+	var operation sqlc.PoolConfigurationOperation
+	if automatic {
+		operation, err = q.CreateAutomaticPoolConfigurationOperation(ctx, sqlc.CreateAutomaticPoolConfigurationOperationParams{OperationID: uuid.NewString(), OrganizationID: scope.OrganizationID, ConfigurationID: configID, RevisionID: revisionID, LifecycleID: uuid.NullUUID{UUID: LifecycleTransitionID(ctx), Valid: true}})
+	} else {
+		operation, err = q.CreatePoolConfigurationOperation(ctx, sqlc.CreatePoolConfigurationOperationParams{OperationID: uuid.NewString(), OrganizationID: scope.OrganizationID, ConfigurationID: configID, RevisionID: revisionID, ActorID: actorID})
+	}
 	if err != nil {
 		return Operation{}, storageError(err)
 	}

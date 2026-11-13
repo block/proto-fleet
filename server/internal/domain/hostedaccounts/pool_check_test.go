@@ -58,7 +58,11 @@ func TestPoolConfigurationCheckReadsWithoutWritingAndPreservesUncertainty(t *tes
 	before, err := service.GetAssignments(ctx, f.account.AccountID, nil, []int64{miner}, nil)
 	require.NoError(t, err)
 	require.Len(t, before.Assignments, 1)
-	require.Empty(t, before.Assignments[0].ConfigurationID)
+	require.Equal(t, config.ID, before.Assignments[0].ConfigurationID, "allocation exposes its queued default policy")
+	require.Equal(t, "pending", before.Assignments[0].State)
+	var assignmentsBeforeCheck int
+	require.NoError(t, f.db.QueryRowContext(ctx, `SELECT count(*) FROM pool_configuration_assignment WHERE device_id=$1`, miner).Scan(&assignmentsBeforeCheck))
+	require.Zero(t, assignmentsBeforeCheck, "readback does not create an assignment")
 	review, err := service.ReviewAssignment(ctx, f.account.AccountID, config.ID, config.Version, []poolconfigurations.AssignmentTarget{target})
 	require.NoError(t, err)
 	saved, err := service.ConfirmReview(ctx, f.account.AccountID, review.ID, poolconfigurations.Confirmation{Password: "actor-password"})

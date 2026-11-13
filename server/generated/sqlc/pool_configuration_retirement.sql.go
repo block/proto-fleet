@@ -74,13 +74,20 @@ func (q *Queries) ListPoolAssignmentPhysicalBindings(ctx context.Context, arg Li
 }
 
 const retirePoolConfigurationEquipmentAssignments = `-- name: RetirePoolConfigurationEquipmentAssignments :exec
-WITH retired AS (
+WITH lifecycle AS (
+ UPDATE pool_lifecycle_transition l
+ SET state='superseded',result_code='device_deleted',updated_at=clock_timestamp()
+ FROM device d
+ WHERE d.org_id=$1 AND d.org_id=l.organization_id AND d.id=l.device_id
+  AND d.deleted_at IS NOT NULL AND d.device_identifier=ANY($2::text[])
+  AND l.state IN ('pending','ready','applying','uncertain','failed')
+), retired AS (
  UPDATE pool_configuration_assignment a
  SET retired_at=clock_timestamp(),version=a.version+1,updated_at=clock_timestamp()
  WHERE a.organization_id=$1 AND a.retired_at IS NULL
-  AND ((a.target_kind='hashboard_installation' AND a.target_id=ANY($2::bigint[]))
+  AND ((a.target_kind='hashboard_installation' AND a.target_id=ANY($3::bigint[]))
    OR EXISTS (SELECT 1 FROM device d WHERE d.org_id=a.organization_id AND d.id=a.device_id
-    AND d.device_identifier=ANY($3::text[])))
+    AND d.device_identifier=ANY($2::text[])))
  RETURNING a.organization_id,a.target_kind,a.target_id
 )
 UPDATE pool_configuration_operation_target t SET state='superseded',updated_at=clock_timestamp()
@@ -90,14 +97,14 @@ FROM retired a WHERE t.organization_id=a.organization_id AND t.target_kind=a.tar
 
 type RetirePoolConfigurationEquipmentAssignmentsParams struct {
 	OrganizationID    int64
-	InstallationIds   []int64
 	DeviceIdentifiers []string
+	InstallationIds   []int64
 }
 
 // Explicit lifecycle action. The caller retains inventory/deletion locks and
 // commits retirement and supersession with the physical change. Never erase
 // the device-write journal: superseding intent is not proof of physical drain.
 func (q *Queries) RetirePoolConfigurationEquipmentAssignments(ctx context.Context, arg RetirePoolConfigurationEquipmentAssignmentsParams) error {
-	_, err := q.exec(ctx, q.retirePoolConfigurationEquipmentAssignmentsStmt, retirePoolConfigurationEquipmentAssignments, arg.OrganizationID, pq.Array(arg.InstallationIds), pq.Array(arg.DeviceIdentifiers))
+	_, err := q.exec(ctx, q.retirePoolConfigurationEquipmentAssignmentsStmt, retirePoolConfigurationEquipmentAssignments, arg.OrganizationID, pq.Array(arg.DeviceIdentifiers), pq.Array(arg.InstallationIds))
 	return err
 }

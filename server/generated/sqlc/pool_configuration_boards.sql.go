@@ -450,11 +450,16 @@ const listPoolSelectionBoards = `-- name: ListPoolSelectionBoards :many
 SELECT i.id AS installation_id,h.id AS hashboard_id,m.id AS module_id,tank.device_id,d.device_identifier,d.site_id,
  COALESCE(owner.subclient_id,owner.client_id,0)::bigint AS account_id,
  m.reported_id AS module_name,i.position,COALESCE(i.metadata->>'macAddress','')::text AS mac_address,
+ (g.observed_at IS NOT NULL AND g.status NOT IN ('pending','applying','blocked')
+  AND COALESCE(g.observed->>'supported','false')='true'
+  AND COALESCE(g.observed->>'enabled','false')='false' AND COALESCE(g.observed->>'pending','false')='false'
+  AND COALESCE(g.observed->>'suspended','false')='false')::boolean AS uses_container_pools,
  (s.unavailable_reason='' AND s.observed_at>now()-INTERVAL '2 minutes' AND s.observed_at<=now()+INTERVAL '5 seconds'
   AND COALESCE(i.metadata->>'macAddress','')<>'' AND i.site_id IS NOT DISTINCT FROM d.site_id)::boolean AS ready
 FROM hashboard_installation i JOIN hashboard h ON h.id=i.hashboard_id
 JOIN container_module m ON m.id=i.module_id JOIN container_tank tank ON tank.id=m.tank_id
 JOIN device d ON d.id=tank.device_id
+LEFT JOIN container_mining_group_state g ON g.device_id=d.id AND g.organization_id=d.org_id
 LEFT JOIN hosted_account_asset owner ON owner.organization_id=d.org_id AND owner.kind=7 AND owner.asset_id=i.hashboard_id
 JOIN hashboard_slot s ON s.module_id=i.module_id AND s.position=i.position AND s.hashboard_id=i.hashboard_id
 WHERE d.org_id=$1 AND h.org_id=$1 AND d.deleted_at IS NULL AND tank.present AND m.retired_at IS NULL
@@ -471,17 +476,18 @@ type ListPoolSelectionBoardsParams struct {
 }
 
 type ListPoolSelectionBoardsRow struct {
-	InstallationID   int64
-	HashboardID      int64
-	ModuleID         int64
-	DeviceID         int64
-	DeviceIdentifier string
-	SiteID           sql.NullInt64
-	AccountID        int64
-	ModuleName       string
-	Position         int32
-	MacAddress       string
-	Ready            bool
+	InstallationID     int64
+	HashboardID        int64
+	ModuleID           int64
+	DeviceID           int64
+	DeviceIdentifier   string
+	SiteID             sql.NullInt64
+	AccountID          int64
+	ModuleName         string
+	Position           int32
+	MacAddress         string
+	UsesContainerPools bool
+	Ready              bool
 }
 
 func (q *Queries) ListPoolSelectionBoards(ctx context.Context, arg ListPoolSelectionBoardsParams) ([]ListPoolSelectionBoardsRow, error) {
@@ -509,6 +515,7 @@ func (q *Queries) ListPoolSelectionBoards(ctx context.Context, arg ListPoolSelec
 			&i.ModuleName,
 			&i.Position,
 			&i.MacAddress,
+			&i.UsesContainerPools,
 			&i.Ready,
 		); err != nil {
 			return nil, err

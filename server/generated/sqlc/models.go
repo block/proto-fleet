@@ -2740,6 +2740,7 @@ type PoolConfiguration struct {
 	CurrentRevisionID sql.NullString
 	CreatedAt         time.Time
 	UpdatedAt         time.Time
+	IsDefault         bool
 }
 
 type PoolConfigurationAssignment struct {
@@ -2814,6 +2815,7 @@ type PoolConfigurationOperation struct {
 	ActorID         int64
 	CreatedAt       time.Time
 	Kind            string
+	LifecycleID     uuid.NullUUID
 }
 
 type PoolConfigurationOperationTarget struct {
@@ -2864,6 +2866,59 @@ type PoolConfigurationRevision struct {
 	Number          int64
 	Slots           json.RawMessage
 	CreatedAt       time.Time
+}
+
+type PoolLifecycleRemoval struct {
+	RemovalID          uuid.UUID
+	OrganizationID     int64
+	AccountID          int64
+	ActorID            int64
+	TargetKind         string
+	TargetID           int64
+	DeviceID           int64
+	ConfigurationID    string
+	RevisionID         string
+	AssignmentVersion  int64
+	ReviewedBinding    string
+	VerificationState  string
+	ClearSupported     bool
+	KeepDeviceSettings bool
+	State              string
+	ResultCode         string
+	PhysicalAttemptID  uuid.NullUUID
+	CreatedAt          time.Time
+	UpdatedAt          time.Time
+	AttemptStatus      string
+}
+
+type PoolLifecycleTransition struct {
+	TransitionID       uuid.UUID
+	OrganizationID     int64
+	DeviceID           int64
+	AssetKind          int32
+	AssetID            int64
+	OwnerAccountID     int64
+	AllocationRevision int64
+	PairingDefaults    json.RawMessage
+	Reason             string
+	PairingCycleID     uuid.NullUUID
+	ConfigurationID    sql.NullString
+	RevisionID         sql.NullString
+	TargetKind         string
+	TargetID           int64
+	ReviewedBinding    string
+	State              string
+	ResultCode         string
+	OperationID        sql.NullString
+	PhysicalAttemptID  uuid.NullUUID
+	CreatedAt          time.Time
+	UpdatedAt          time.Time
+	NextAttemptAt      time.Time
+}
+
+type PoolPairingCycle struct {
+	DeviceID int64
+	CycleID  uuid.UUID
 }
 
 type QueueMessage struct {

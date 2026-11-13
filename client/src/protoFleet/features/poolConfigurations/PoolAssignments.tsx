@@ -3,7 +3,7 @@ import { type ReactNode, useCallback, useEffect, useMemo } from "react";
 import { usePoolConfigurationClient, usePoolConfigurationPermissions } from "./api";
 import { PoolAssignmentsContext } from "./assignmentContext";
 import { usePoolAssignmentProgress } from "./assignmentProgress";
-import { poolTargetKey, useDevicePoolReadings } from "./useDevicePoolReadings";
+import { poolTargetKey, useDevicePoolReadings, usesDevicePoolReadback } from "./useDevicePoolReadings";
 import { POLL_INTERVAL_MS } from "@/protoFleet/constants/polling";
 import { ACCOUNT_READ_TIMEOUT_MS } from "@/protoFleet/features/hostedAccounts/api";
 import { useAccountQuery } from "@/protoFleet/features/hostedAccounts/useAccountQuery";
@@ -115,7 +115,7 @@ export const PoolAssignments = ({
   const assignments = useMemo(
     () =>
       query.data?.response.assignments.map((a) => {
-        const check = !a.configurationId && reported.readings[poolTargetKey(a)];
+        const check = usesDevicePoolReadback(a) && reported.readings[poolTargetKey(a)];
         return check ? { ...a, state: check.state, resultCode: check.resultCode } : a;
       }) ?? [],
     [query.data, reported.readings],

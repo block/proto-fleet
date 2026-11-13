@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"errors"
 
+	"github.com/google/uuid"
+
 	"github.com/block/proto-fleet/server/generated/sqlc"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 )
@@ -54,6 +56,49 @@ func (r *Repository) RetryTarget(ctx context.Context, q sqlc.Querier, scope Scop
 
 func (r *Repository) GetOperation(ctx context.Context, q sqlc.Querier, scope Scope, operationID string) (Operation, error) {
 	row, err := q.GetPoolConfigurationOperation(ctx, sqlc.GetPoolConfigurationOperationParams{OrganizationID: scope.OrganizationID, AccountID: scope.account(), OperationID: operationID})
+	if errors.Is(err, sql.ErrNoRows) {
+		id, parseErr := uuid.Parse(operationID)
+		if parseErr != nil {
+			return Operation{}, storageError(err)
+		}
+		event, eventErr := q.GetPoolLifecycleTransition(ctx, id)
+		if eventErr != nil || event.OrganizationID != scope.OrganizationID || event.OwnerAccountID != scope.AccountID {
+			return Operation{}, fleeterror.NewNotFoundError("pool operation not found")
+		}
+		kind, name := "clear", ""
+		if event.Reason == "pairing" {
+			kind = "apply"
+		}
+		if event.ConfigurationID.Valid {
+			kind = "apply"
+			config, err := r.Get(ctx, q, scope, event.ConfigurationID.String)
+			if err != nil {
+				return Operation{}, err
+			}
+			name = config.Name
+		}
+		state := event.State
+		if state == "ready" {
+			state = "pending"
+		}
+		target := publicOperationTarget(sqlc.PoolConfigurationOperationTarget{TargetKind: event.TargetKind, TargetID: event.TargetID, State: state, ResultCode: event.ResultCode, UpdatedAt: event.UpdatedAt, ReviewedBinding: event.ReviewedBinding})
+		applyClearRecoveryStatus(&target, kind, event.PhysicalAttemptStatus)
+		if target.ID == 0 {
+			target.Kind = TargetDevice
+			target.ID = event.DeviceID
+			if event.AssetKind == 7 {
+				target.Kind = TargetInstallation
+				boards, err := q.ListPoolSelectionBoards(ctx, sqlc.ListPoolSelectionBoardsParams{OrgID: scope.OrganizationID, HashboardIds: []int64{event.AssetID}})
+				if err != nil {
+					return Operation{}, err
+				}
+				if len(boards) == 1 {
+					target.ID = boards[0].InstallationID
+				}
+			}
+		}
+		return Operation{Kind: kind, Name: name, ID: operationID, ConfigurationID: event.ConfigurationID.String, RevisionID: event.RevisionID.String, CreatedAt: event.CreatedAt, Targets: []OperationTarget{target}}, nil
+	}
 	if err != nil {
 		return Operation{}, storageError(err)
 	}
@@ -70,12 +115,16 @@ func (r *Repository) GetOperation(ctx context.Context, q sqlc.Querier, scope Sco
 	// Live metadata can belong to a different owner after reassignment.
 	for _, target := range targets {
 		public := publicOperationTarget(target.PoolConfigurationOperationTarget)
-		if row.Kind == "clear" && (public.State == "applying" || public.State == "uncertain") && target.PhysicalAttemptStatus == "unknown" {
-			public.ResultCode = "operator_recovery_required"
-		}
+		applyClearRecoveryStatus(&public, row.Kind, target.PhysicalAttemptStatus)
 		result.Targets = append(result.Targets, public)
 	}
 	return result, nil
+}
+
+func applyClearRecoveryStatus(target *OperationTarget, kind, attemptStatus string) {
+	if kind == "clear" && (target.State == "applying" || target.State == "uncertain") && attemptStatus == "unknown" {
+		target.ResultCode = "operator_recovery_required"
+	}
 }
 
 func targetMutationResult(n int64, err error) error {

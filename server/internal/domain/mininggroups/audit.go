@@ -32,9 +32,15 @@ func activitySubject(kind string) string {
 }
 
 func recordAcceptedActivity(ctx context.Context, q sqlc.Querier, row sqlc.ContainerMiningGroupState, identifier string, site sql.NullInt64, config string, boards []int64) error {
-	actor, err := q.GetUserById(ctx, row.ActorID.Int64)
-	if err != nil {
-		return err
+	var actor sqlc.User
+	var err error
+	actorType := models.ActorSystem
+	if row.ActorID.Valid {
+		actor, err = q.GetUserById(ctx, row.ActorID.Int64)
+		if err != nil {
+			return err
+		}
+		actorType = models.ActorUser
 	}
 	metadata, err := encode(activityMetadata{OperationID: row.OperationID.UUID.String(), DeviceID: row.DeviceID, HashboardIDs: boards, PoolRevisionID: config, Status: "accepted"})
 	if err != nil {
@@ -43,8 +49,8 @@ func recordAcceptedActivity(ctx context.Context, q sqlc.Querier, row sqlc.Contai
 	return q.InsertActivityLog(ctx, sqlc.InsertActivityLogParams{
 		EventID: activityID(row.OrganizationID, row.OperationID.UUID, "accepted"), EventCategory: string(models.CategoryFleetManagement),
 		EventType: "mining_groups." + row.OperationKind + ".accepted", Description: activitySubject(row.OperationKind) + " request accepted",
-		Result: string(models.ResultSuccess), ActorType: string(models.ActorUser),
-		UserID: sql.NullString{String: actor.UserID, Valid: true}, Username: sql.NullString{String: actor.Username, Valid: true},
+		Result: string(models.ResultSuccess), ActorType: string(actorType),
+		UserID: sql.NullString{String: actor.UserID, Valid: row.ActorID.Valid}, Username: sql.NullString{String: actor.Username, Valid: row.ActorID.Valid},
 		OrganizationID: sql.NullInt64{Int64: row.OrganizationID, Valid: true}, SiteID: site,
 		ScopeType: sql.NullString{String: "container", Valid: true}, ScopeLabel: sql.NullString{String: identifier, Valid: true},
 		ScopeCount: sql.NullInt32{Int32: 1, Valid: true}, Metadata: pqtype.NullRawMessage{RawMessage: metadata, Valid: true}, MemberSiteIds: []int64{},
