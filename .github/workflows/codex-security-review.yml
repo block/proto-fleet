@@ -4,6 +4,9 @@ on:
   pull_request:
     types: [edited, opened, reopened, ready_for_review, synchronize]
 
+env:
+  CODEX_MODEL: gpt-6.1-sol
+
 jobs:
   review-agent:
     name: Run bounded Codex reviewer
@@ -23,7 +26,6 @@ jobs:
       contents: read
     env:
       OPENAI_API_KEY_PRESENT: ${{ secrets.OPENAI_API_KEY != '' }}
-      CODEX_MODEL: gpt-6-astra
       CODEX_REASONING_EFFORT: medium
       CODEX_TIMEOUT_MINUTES: "30"
       CODEX_CANCELLATION_CLEANUP_SECONDS: "300"
@@ -67,7 +69,7 @@ jobs:
           git cat-file -e "$REVIEW_BASE_SHA^{commit}"
           git cat-file -e "$REVIEW_HEAD_SHA^{commit}"
           test "$REVIEW_COMMIT_RANGE" = "$REVIEW_BASE_SHA...$REVIEW_HEAD_SHA"
-          test "$CODEX_MODEL" = "gpt-6-astra"
+          test "$CODEX_MODEL" = "gpt-6.1-sol"
           test "$CODEX_REASONING_EFFORT" = "medium"
           if git config --local --get-regexp '^http\..*\.extraheader$'; then
             echo "Checkout retained HTTP credentials after the exact-SHA fetch." >&2
@@ -608,6 +610,7 @@ jobs:
               ])
 
           result = {
+              "model": os.environ["CODEX_MODEL"],
               "head_sha": head_sha,
               "commit_range": commit_range,
               "run_id": run_id,
@@ -659,7 +662,6 @@ jobs:
       issues: write
       pull-requests: write
     env:
-      CODEX_MODEL: gpt-6-astra
       REVIEW_COMMIT_RANGE: ${{ format('{0}...{1}', github.event.pull_request.base.sha, github.event.pull_request.head.sha) }}
       REVIEW_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
       REVIEW_PR_NUMBER: ${{ github.event.pull_request.number }}
