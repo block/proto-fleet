@@ -11,20 +11,27 @@ import { Code, ConnectError, type Transport } from "@connectrpc/connect";
 
 import type { AdapterRequestOptions, MiningScope } from "../types";
 import type {
+  FirmwareServiceWriteFirmwareArtifactUploadChunkBody,
   PoolServiceGetPoolDiagnosticsParams,
   PoolServiceUpdatePoolBody,
   TelemetryServiceGetContainerHealthParams,
   TelemetryServiceQueryShareQualityHistoryParams,
   TelemetryServiceQueryTimeSeriesParams,
+  V2AbortFirmwareArtifactUploadResponse,
+  V2BeginFirmwareArtifactUploadRequest,
+  V2BeginFirmwareArtifactUploadResponse,
+  V2CancelFirmwareUpdateResponse,
   V2ClearModuleFixedVoltageResponse,
   V2ClearPowerTargetScopedRequest,
   V2ClearPowerTargetScopedResponse,
+  V2CommitFirmwareArtifactUploadResponse,
   V2CreatePoolRequest,
   V2CreatePoolResponse,
   V2DeletePoolResponse,
   V2GetContainerControlsResponse,
   V2GetContainerHealthResponse,
   V2GetContainerMapResponse,
+  V2GetFirmwareUpdateResponse,
   V2GetHashboardASICsResponse,
   V2GetMiningStatusResponse,
   V2GetPoolDiagnosticsResponse,
@@ -32,6 +39,7 @@ import type {
   V2GetSystemStatusResponse,
   V2GetTargetPowerResponse,
   V2HashboardRunInConfig,
+  V2ListFirmwareUpdatesResponse,
   V2ListPoolsResponse,
   V2QueryShareQualityHistoryResponse,
   V2QueryTimeSeriesResponse,
@@ -45,11 +53,15 @@ import type {
   V2SetPowerTargetScopedResponse,
   V2SetTargetPowerRequest,
   V2SetTargetPowerResponse,
+  V2StartFirmwareUpdateRequest,
+  V2StartFirmwareUpdateResponse,
   V2StartMiningScopedResponse,
   V2StartModuleRunInResponse,
   V2StopMiningScopedResponse,
   V2UpdatePoolResponse,
+  V2WriteFirmwareArtifactUploadChunkResponse,
 } from "./generated/generatedApi";
+import { FirmwareService } from "./generated/proto/mdk/v2/firmware_pb";
 import { HashboardService } from "./generated/proto/mdk/v2/hashboard_pb";
 import { MiningService } from "./generated/proto/mdk/v2/mining_pb";
 import { PoolService } from "./generated/proto/mdk/v2/pool_pb";
@@ -61,6 +73,40 @@ import { TelemetryService } from "./generated/proto/mdk/v2/telemetry_pb";
 type HttpResponse<T> = Promise<{ data: T }>;
 
 export interface MdkV2Client {
+  firmwareServiceBeginFirmwareArtifactUpload(
+    data: V2BeginFirmwareArtifactUploadRequest,
+    params?: AdapterRequestOptions,
+  ): HttpResponse<V2BeginFirmwareArtifactUploadResponse>;
+  firmwareServiceWriteFirmwareArtifactUploadChunk(
+    path: { uploadId: string },
+    data: FirmwareServiceWriteFirmwareArtifactUploadChunkBody,
+    params?: AdapterRequestOptions,
+  ): HttpResponse<V2WriteFirmwareArtifactUploadChunkResponse>;
+  firmwareServiceCommitFirmwareArtifactUpload(
+    path: { uploadId: string },
+    params?: AdapterRequestOptions,
+  ): HttpResponse<V2CommitFirmwareArtifactUploadResponse>;
+  firmwareServiceAbortFirmwareArtifactUpload(
+    path: { uploadId: string },
+    params?: AdapterRequestOptions,
+  ): HttpResponse<V2AbortFirmwareArtifactUploadResponse>;
+  firmwareServiceStartFirmwareUpdate(
+    data: V2StartFirmwareUpdateRequest,
+    params?: AdapterRequestOptions,
+  ): HttpResponse<V2StartFirmwareUpdateResponse>;
+  firmwareServiceGetFirmwareUpdate(
+    path: { taskId: string; serverId?: string },
+    params?: AdapterRequestOptions,
+  ): HttpResponse<V2GetFirmwareUpdateResponse>;
+  firmwareServiceListFirmwareUpdates(
+    query?: { localOnly?: boolean },
+    params?: AdapterRequestOptions,
+  ): HttpResponse<V2ListFirmwareUpdatesResponse>;
+  firmwareServiceCancelFirmwareUpdate(
+    path: { taskId: string; serverId?: string },
+    params?: AdapterRequestOptions,
+  ): HttpResponse<V2CancelFirmwareUpdateResponse>;
+
   systemServiceGetSystemInfo(params?: AdapterRequestOptions): HttpResponse<V2GetSystemInfoResponse>;
   systemServiceGetSystemStatus(params?: AdapterRequestOptions): HttpResponse<V2GetSystemStatusResponse>;
   miningServiceGetMiningStatus(params?: AdapterRequestOptions): HttpResponse<V2GetMiningStatusResponse>;
@@ -262,6 +308,22 @@ export const createMdkV2Client = (transport: Transport): MdkV2Client => {
   const telemetry = TelemetryService.method;
 
   return {
+    firmwareServiceBeginFirmwareArtifactUpload: (data, params) =>
+      unary(transport, FirmwareService.method.beginFirmwareArtifactUpload, data, params),
+    firmwareServiceWriteFirmwareArtifactUploadChunk: (path, data, params) =>
+      unary(transport, FirmwareService.method.writeFirmwareArtifactUploadChunk, { ...data, ...path }, params),
+    firmwareServiceCommitFirmwareArtifactUpload: (path, params) =>
+      unary(transport, FirmwareService.method.commitFirmwareArtifactUpload, path, params),
+    firmwareServiceAbortFirmwareArtifactUpload: (path, params) =>
+      unary(transport, FirmwareService.method.abortFirmwareArtifactUpload, path, params),
+    firmwareServiceStartFirmwareUpdate: (data, params) =>
+      unary(transport, FirmwareService.method.startFirmwareUpdate, data, params),
+    firmwareServiceGetFirmwareUpdate: (path, params) =>
+      unary(transport, FirmwareService.method.getFirmwareUpdate, path, params),
+    firmwareServiceListFirmwareUpdates: (query, params) =>
+      unary(transport, FirmwareService.method.listFirmwareUpdates, query ?? {}, params),
+    firmwareServiceCancelFirmwareUpdate: (path, params) =>
+      unary(transport, FirmwareService.method.cancelFirmwareUpdate, path, params),
     systemServiceGetSystemInfo: (params) => unary(transport, system.getSystemInfo, {}, params),
     systemServiceGetSystemStatus: (params) => unary(transport, system.getSystemStatus, {}, params),
     miningServiceGetMiningStatus: (params) => unary(transport, mining.getMiningStatus, {}, params),

@@ -7,6 +7,7 @@ import MinerSystemTagEditModal from "./MinerSystemTagEditModal";
 import { useSystemTag } from "@/protoOS/api";
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
 import CheckForUpdate from "@/protoOS/features/firmwareUpdate/components/CheckForUpdate";
+import ContainerHashboardFirmwareUpload from "@/protoOS/features/firmwareUpdate/components/ContainerHashboardFirmwareUpload";
 import {
   useAccessToken,
   useDismissedLoginModal,
@@ -47,7 +48,10 @@ const General = () => {
   const isContainer = systemInfo?.identity.deviceType === "container";
   const isProtoRig = useIsProtoRig();
   const { getSystemTag, systemTag: minerTag } = useSystemTag();
-  const { isFleetHosted, minerRoot } = useMinerHosting();
+  const { adapter, isFleetHosted, minerRoot } = useMinerHosting();
+  // Local hashboard updates are offered only on a direct container connection. Fleet-hosted views keep Fleet's flow.
+  const localHashboardFirmware = isContainer && !isFleetHosted ? adapter?.hashboardFirmware : undefined;
+  const deviceId = systemInfo?.identity.deviceId;
 
   const pausedAuthAction = usePausedAuthAction();
   const setPausedAuthAction = useSetPausedAuthAction();
@@ -172,6 +176,9 @@ const General = () => {
               <span>—</span>
             </Row>
           </>
+        ) : null}
+        {localHashboardFirmware && deviceId ? (
+          <ContainerHashboardFirmwareUpload key={deviceId} firmware={localHashboardFirmware} deviceId={deviceId} />
         ) : null}
         {!isContainer ? (
           <div className="mt-6 flex justify-center">

@@ -110,9 +110,72 @@ through the authenticated MDK v1 multipart endpoint, which starts installation
 automatically. Keep the page open during upload; the existing firmware status
 and reboot controls follow installation. The rig validates the image and enforces
 its upload limits. If upload completion is uncertain, check the device status
-before retrying. This control is unavailable in Fleet-hosted views and on CT1;
-the catalog update flow remains available. R2 images must bundle a ProtoOS release
+before retrying. This control is unavailable in Fleet-hosted views;
+the R2 catalog update flow remains available. R2 images must bundle a ProtoOS release
 containing this feature before operators can use it on-device.
+
+### CT1 local hashboard firmware
+
+On a direct CT1 connection, **Settings → General → Firmware → Upload hashboard
+firmware** accepts one `f1-app-prod.bin`, `f1-app-dev.bin`, or
+`f1-app-mfgtest.bin` from a hashboard release. It reads the embedded F1 metadata
+and displays the version, build, and occupied-board count before confirmation.
+ZIP archives, other hardware, and mismatched filenames are refused. This control
+is absent in Fleet-hosted views, which keep Fleet's firmware flow.
+
+The browser checks the complete six-tank map: every module position of each
+tank's grid and every board slot must be reported. A tank that maps fewer
+modules than its grid is refused, as in Fleet, because the map carries no signal
+that separates an unmapped position from one not reported yet, and updating it
+could silently skip boards. It then uploads the image once to the connected
+controller using the chunked Connect API. It supplies the image version and filename as release
+attribution, computes SHA-256 even on plain LAN HTTP, and retries only uncertain
+chunk writes at the same offset. Frigate validates the artifact and coordinates
+its distribution to the owning controllers. The update explicitly targets every
+occupied board, including unlocated inventory, with the selected build and
+`force=true`: boards report version but not installed build, so same-version
+build changes must still flash. Mining stop/restore uses Frigate's defaults.
+
+Keep the page open during upload. Canceling an upload aborts its session when
+possible; sessions lost on disconnect expire after ten idle minutes or a
+controller restart. Before starting, ProtoOS saves its task ID and board-owner
+map in local browser storage, under a key of its own. A tab only writes or
+removes the record of its own task, so tabs cannot overwrite or delete each
+other's record even when they start at the same moment; the controller decides
+which Start wins. One update is shown at a time: a second tab on the same origin
+adopts the saved record instead of starting another update, and any further
+saved record is shown once the current one is released. A Start that the
+controller definitively refuses creates no job and is not tracked. After a lost response or reload on the same origin,
+**Hashboard update status** queries each owner without resubmitting Start.
+
+Tracking is cleared only when every owner confirms the outcome: **Done** after
+the update ends, or a cancel that every owner answers with a canceled job.
+Missing or unreachable owners remain visibly unresolved, and a job that finished
+before the cancel arrived keeps its per-board result until **Done**. When a
+cancel attempt leaves an owner unreachable or reporting the task as not found,
+**Stop tracking** releases the record after confirmation; an update still
+running on that controller continues. The confirmation opens over the status
+dialog with focus on **Keep tracking**, so a repeated key press cannot release
+the record. The state of a cancel is saved with the
+record, so both a request that is still stopping boards and one that was not
+confirmed read the same after a reload.
+
+Once every owner's job has ended, the status states how: finished, finished with
+errors, canceled, interrupted, or failed. It comes from the owners' job
+statuses, so an update that another client cancels or a controller interrupts
+is not reported as finished; when owners end differently, the worst outcome is
+shown. A board that its owner's ended job does not list is named as missing and
+counts as an error, as in Fleet, so the update reads at least as finished with
+errors and can still be dismissed with **Done**. While that job is running the
+board may yet be reported, so no outcome is shown. Progress includes each
+board's phase and failure details. Browser storage does not transfer across
+origins, browsers, or controllers, and an unfinished upload must be selected
+again after a reload.
+
+The simulator covers upload integrity and job lifecycle, not real signing or
+flashing. Frigate must update its pinned ProtoOS release before this feature
+appears on physical containers. PSU firmware, controller software, and release
+archive upload are separate flows.
 
 ### CT1 on-device standalone
 

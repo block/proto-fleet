@@ -125,4 +125,13 @@ describe("General system-tag flow", () => {
     fireEvent.click(getByRole("button", { name: "Done" }));
     expect(queryByRole("dialog", { name: "Flow" })).not.toBeInTheDocument();
   });
+  test.each([false, true])("local hashboard firmware is shown only outside Fleet (hosted=%s)", (isFleetHosted) => {
+    vi.mocked(useSystemInfo).mockReturnValue({
+      identity: { deviceType: "container", deviceId: "ct1-local" },
+      operatingSystem: { version: "2.0.0" },
+    } as never);
+    vi.mocked(useMinerHosting).mockReturnValue({ isFleetHosted, adapter: { hashboardFirmware: {} } } as never);
+    const { queryByRole } = render(<General />);
+    expect(!!queryByRole("button", { name: "Upload hashboard firmware" })).toBe(!isFleetHosted);
+  });
 });

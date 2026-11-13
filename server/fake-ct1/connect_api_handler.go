@@ -20,6 +20,7 @@ type connectAPI struct {
 	mdkv2connect.UnimplementedPowerServiceHandler
 	mdkv2connect.UnimplementedPoolServiceHandler
 	mdkv2connect.UnimplementedRunInServiceHandler
+	mdkv2connect.UnimplementedFirmwareServiceHandler
 	native *grpcAPI
 }
 
@@ -33,6 +34,7 @@ func registerConnectRoutes(mux *http.ServeMux, state *ContainerState) {
 	mux.Handle(mdkv2connect.NewPowerServiceHandler(api, options))
 	mux.Handle(mdkv2connect.NewPoolServiceHandler(api, options))
 	mux.Handle(mdkv2connect.NewRunInServiceHandler(api, options))
+	mux.Handle(mdkv2connect.NewFirmwareServiceHandler(api, options))
 }
 
 // simulationInterceptor gives each Connect call the shared request lifecycle
@@ -175,4 +177,36 @@ func (a *connectAPI) UpdatePool(ctx context.Context, req *connect.Request[mdk.Up
 }
 func (a *connectAPI) DeletePool(ctx context.Context, req *connect.Request[mdk.DeletePoolRequest]) (*connect.Response[mdk.DeletePoolResponse], error) {
 	return connectResult(a.native.DeletePool(ctx, req.Msg))
+}
+
+func (a *connectAPI) BeginFirmwareArtifactUpload(ctx context.Context, req *connect.Request[mdk.BeginFirmwareArtifactUploadRequest]) (*connect.Response[mdk.BeginFirmwareArtifactUploadResponse], error) {
+	return connectResult(a.native.BeginFirmwareArtifactUpload(ctx, req.Msg))
+}
+
+func (a *connectAPI) WriteFirmwareArtifactUploadChunk(ctx context.Context, req *connect.Request[mdk.WriteFirmwareArtifactUploadChunkRequest]) (*connect.Response[mdk.WriteFirmwareArtifactUploadChunkResponse], error) {
+	return connectResult(a.native.WriteFirmwareArtifactUploadChunk(ctx, req.Msg))
+}
+
+func (a *connectAPI) CommitFirmwareArtifactUpload(ctx context.Context, req *connect.Request[mdk.CommitFirmwareArtifactUploadRequest]) (*connect.Response[mdk.CommitFirmwareArtifactUploadResponse], error) {
+	return connectResult(a.native.CommitFirmwareArtifactUpload(ctx, req.Msg))
+}
+
+func (a *connectAPI) AbortFirmwareArtifactUpload(ctx context.Context, req *connect.Request[mdk.AbortFirmwareArtifactUploadRequest]) (*connect.Response[mdk.AbortFirmwareArtifactUploadResponse], error) {
+	return connectResult(a.native.AbortFirmwareArtifactUpload(ctx, req.Msg))
+}
+
+func (a *connectAPI) StartFirmwareUpdate(ctx context.Context, req *connect.Request[mdk.StartFirmwareUpdateRequest]) (*connect.Response[mdk.StartFirmwareUpdateResponse], error) {
+	return connectResult(a.native.StartFirmwareUpdate(ctx, req.Msg))
+}
+
+func (a *connectAPI) GetFirmwareUpdate(ctx context.Context, req *connect.Request[mdk.GetFirmwareUpdateRequest]) (*connect.Response[mdk.GetFirmwareUpdateResponse], error) {
+	return connectResult(a.native.GetFirmwareUpdate(ctx, req.Msg))
+}
+
+func (a *connectAPI) ListFirmwareUpdates(ctx context.Context, req *connect.Request[mdk.ListFirmwareUpdatesRequest]) (*connect.Response[mdk.ListFirmwareUpdatesResponse], error) {
+	return connectResult(a.native.ListFirmwareUpdates(ctx, req.Msg))
+}
+
+func (a *connectAPI) CancelFirmwareUpdate(ctx context.Context, req *connect.Request[mdk.CancelFirmwareUpdateRequest]) (*connect.Response[mdk.CancelFirmwareUpdateResponse], error) {
+	return connectResult(a.native.CancelFirmwareUpdate(ctx, req.Msg))
 }

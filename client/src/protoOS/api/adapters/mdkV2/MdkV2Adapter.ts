@@ -20,6 +20,7 @@ import { mapWithConcurrency } from "../utils/async";
 import { parseIsoDurationMs } from "../utils/time";
 import { createMdkV2Client, type MdkV2Client } from "./connectClient";
 import { queryContainerHistory } from "./containerHistory";
+import { createHashboardFirmware } from "./firmware";
 import {
   Api,
   type TelemetryServiceQueryTimeSeriesParams,
@@ -129,6 +130,7 @@ const toWirePllAlgorithm = (value: string | undefined): V2PLLAlgorithm | undefin
 };
 
 export class MdkV2Adapter implements MinerAdapter {
+  readonly hashboardFirmware;
   private deviceId: string | undefined;
   private readonly hashboardTimeSeriesCache = new Map<string, { expiresAtMs: number; data: QueryTimeSeriesResponse }>();
 
@@ -137,6 +139,7 @@ export class MdkV2Adapter implements MinerAdapter {
     match: AdapterProbeMatch = {},
   ) {
     this.deviceId = match.deviceId;
+    this.hashboardFirmware = createHashboardFirmware(client, (params) => this.decorate(params));
   }
 
   /**

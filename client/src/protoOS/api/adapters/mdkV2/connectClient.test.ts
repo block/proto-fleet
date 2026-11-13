@@ -5,6 +5,7 @@ import { Code, ConnectError, createRouterTransport } from "@connectrpc/connect";
 import { createMdkV2Client, type MdkV2Client } from "./connectClient";
 import { V2HashboardIdentifyLEDMode, V2PerformanceMode } from "./generated/generatedApi";
 import { BucketSize, TimeSeriesMetric } from "./generated/proto/mdk/v2/common_pb";
+import { FirmwareService } from "./generated/proto/mdk/v2/firmware_pb";
 import { HashboardErrorCause, HashboardService } from "./generated/proto/mdk/v2/hashboard_pb";
 import { MiningService, PerformanceMode } from "./generated/proto/mdk/v2/mining_pb";
 import { PoolService } from "./generated/proto/mdk/v2/pool_pb";
@@ -45,6 +46,7 @@ const recordingClient = () => {
   const calls: { rpc: string; request: JsonValue }[] = [];
   const transport = createRouterTransport((router) => {
     for (const service of [
+      FirmwareService,
       SystemService,
       MiningService,
       HashboardService,
@@ -73,6 +75,63 @@ const rpcTable: [
   request: JsonValue,
   call: (client: MdkV2Client) => Promise<unknown>,
 ][] = [
+  [
+    "firmwareServiceBeginFirmwareArtifactUpload",
+    "mdk.v2.FirmwareService/BeginFirmwareArtifactUpload",
+    {},
+    (c) => c.firmwareServiceBeginFirmwareArtifactUpload({}),
+  ],
+  [
+    "firmwareServiceWriteFirmwareArtifactUploadChunk",
+    "mdk.v2.FirmwareService/WriteFirmwareArtifactUploadChunk",
+    { uploadId: "session", imageIndex: 1, offset: "1024", data: "AQID" },
+    (c) =>
+      c.firmwareServiceWriteFirmwareArtifactUploadChunk(
+        { uploadId: "session" },
+        { imageIndex: 1, offset: "1024", data: "AQID" },
+      ),
+  ],
+  [
+    "firmwareServiceCommitFirmwareArtifactUpload",
+    "mdk.v2.FirmwareService/CommitFirmwareArtifactUpload",
+    { uploadId: "session" },
+    (c) => c.firmwareServiceCommitFirmwareArtifactUpload({ uploadId: "session" }),
+  ],
+  [
+    "firmwareServiceAbortFirmwareArtifactUpload",
+    "mdk.v2.FirmwareService/AbortFirmwareArtifactUpload",
+    { uploadId: "session" },
+    (c) => c.firmwareServiceAbortFirmwareArtifactUpload({ uploadId: "session" }),
+  ],
+  [
+    "firmwareServiceStartFirmwareUpdate",
+    "mdk.v2.FirmwareService/StartFirmwareUpdate",
+    { taskId: "task", scope: { identifiers: ["mac"] }, options: { force: true, build: "prod" } },
+    (c) =>
+      c.firmwareServiceStartFirmwareUpdate({
+        taskId: "task",
+        scope: { identifiers: ["mac"] },
+        options: { force: true, build: "prod" },
+      }),
+  ],
+  [
+    "firmwareServiceGetFirmwareUpdate",
+    "mdk.v2.FirmwareService/GetFirmwareUpdate",
+    { taskId: "task", serverId: "owner" },
+    (c) => c.firmwareServiceGetFirmwareUpdate({ taskId: "task", serverId: "owner" }),
+  ],
+  [
+    "firmwareServiceListFirmwareUpdates",
+    "mdk.v2.FirmwareService/ListFirmwareUpdates",
+    { localOnly: true },
+    (c) => c.firmwareServiceListFirmwareUpdates({ localOnly: true }),
+  ],
+  [
+    "firmwareServiceCancelFirmwareUpdate",
+    "mdk.v2.FirmwareService/CancelFirmwareUpdate",
+    { taskId: "task", serverId: "owner" },
+    (c) => c.firmwareServiceCancelFirmwareUpdate({ taskId: "task", serverId: "owner" }),
+  ],
   ["systemServiceGetSystemInfo", "mdk.v2.SystemService/GetSystemInfo", {}, (c) => c.systemServiceGetSystemInfo()],
   ["systemServiceGetSystemStatus", "mdk.v2.SystemService/GetSystemStatus", {}, (c) => c.systemServiceGetSystemStatus()],
   ["miningServiceGetMiningStatus", "mdk.v2.MiningService/GetMiningStatus", {}, (c) => c.miningServiceGetMiningStatus()],

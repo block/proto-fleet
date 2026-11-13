@@ -199,9 +199,15 @@ type containerMap struct {
 	Tanks []tankDTO `json:"tanks"`
 }
 
+type moduleLayoutDTO struct {
+	Rows    int `json:"rows"`
+	Columns int `json:"columns"`
+}
+
 type tankDTO struct {
-	ID      int         `json:"id"`
-	Modules []moduleDTO `json:"modules"`
+	ModuleLayout *moduleLayoutDTO `json:"moduleLayout,omitempty"`
+	ID           int              `json:"id"`
+	Modules      []moduleDTO      `json:"modules"`
 }
 
 type moduleDTO struct {
@@ -665,7 +671,7 @@ func (s *ContainerState) containerMapDTO() containerMapResponse {
 		remaining = s.BoardCount()
 	}
 	for _, tank := range s.Tanks {
-		td := tankDTO{ID: tank.ID}
+		td := tankDTO{ID: tank.ID, ModuleLayout: &moduleLayoutDTO{Rows: 1, Columns: s.Config.ModulesPerTank}}
 		for _, module := range tank.Modules {
 			md := moduleDTO{ID: module.ID}
 			for _, slot := range module.Slots {
