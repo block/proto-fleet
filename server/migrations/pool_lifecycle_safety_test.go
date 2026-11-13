@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-const poolLifecycleMigration = "current/001076_internal_default_pool_lifecycle"
+const poolLifecycleMigration = "current/001078_internal_default_pool_lifecycle"
 
 func TestPoolLifecycleRollbackSeesConcurrentHistory(t *testing.T) {
 	conn, org, device := miningGroupRollbackFixture(t)

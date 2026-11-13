@@ -221,7 +221,7 @@ planner remain in place. Endpoint retirement does not authorize dropping storage
 | --- | --- |
 | `pools.v1.PoolsService` (all library CRUD and validation) | `PoolConfigurationService` library APIs and `TestConnection` |
 | `HostedAccountService.CreatePoolConfiguration`, `RevisePoolConfiguration`, `GetPoolRevision`, `ListPoolConfigurations`, `ArchivePoolConfiguration` | Shared configuration service with the selected `account_id` and account header |
-| `HostedAccountService.GetIncomingPoolProfile`, `SetIncomingPoolProfile` | Stored profiles never applied equipment settings. Import retained library state, then use canonical defaults for new allocations (checkpoint 1076) or explicitly review and confirm assignments for existing equipment. |
+| `HostedAccountService.GetIncomingPoolProfile`, `SetIncomingPoolProfile` | Stored profiles never applied equipment settings. Import retained library state, then use canonical defaults for new allocations (checkpoint 1078) or explicitly review and confirm assignments for existing equipment. |
 | `MiningGroupService.SetPools`, `CreatePoolConfiguration`, `ListPoolConfigurations`, `ResolveFleetPools` | Canonical library and board/module `ReviewAssignment` → `ConfirmReview`; `GetState` and `Activate` remain |
 | `MinerCommandService.UpdateMiningPools` | Canonical configuration review/confirmation; no public raw write replacement |
 | `FleetManagementService.GetMinerPoolAssignments` | Canonical `GetAssignments` and `CheckConfiguration` |

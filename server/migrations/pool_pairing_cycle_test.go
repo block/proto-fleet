@@ -16,7 +16,7 @@ func TestPoolPairingCycleUpgradePreservesExistingDevices(t *testing.T) {
 	user := database.CreateSuperAdminUser()
 	runMigration := func(direction string) {
 		t.Helper()
-		script, err := migrations.Current.ReadFile("current/001076_internal_default_pool_lifecycle." + direction + ".sql")
+		script, err := migrations.Current.ReadFile("current/001078_internal_default_pool_lifecycle." + direction + ".sql")
 		require.NoError(t, err)
 		_, err = database.DB.ExecContext(t.Context(), string(script))
 		require.NoError(t, err)
