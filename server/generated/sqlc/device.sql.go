@@ -2391,7 +2391,7 @@ SET worker_name = $1::text
 WHERE device_identifier = $2
   AND org_id = $3
   AND deleted_at IS NULL
-  AND NULLIF(btrim(worker_name), '') IS NULL
+  AND worker_name IS NULL
   AND btrim($1::text) <> ''
 `
 

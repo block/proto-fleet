@@ -13,7 +13,8 @@ import (
 )
 
 const getPoolConfigurationRuntime = `-- name: GetPoolConfigurationRuntime :one
-SELECT d.id,d.device_identifier,COALESCE(NULLIF(btrim(d.worker_name),''),NULLIF(btrim(d.mac_address),''),d.device_identifier)::text AS worker_name,
+SELECT d.id,d.device_identifier,COALESCE(d.worker_name,'')::text AS worker_name,
+ (d.worker_name IS NOT NULL)::boolean AS worker_name_set,COALESCE(d.mac_address,'')::text AS mac_address,
  dd.id AS discovery_id,dd.driver_name,COALESCE(dd.manufacturer,'')::text AS manufacturer,COALESCE(dd.model,'')::text AS model,
  dd.device_class,f.epoch,f.state,device_write_identity_keys(d.id)::text[] AS identity_keys
 FROM device d JOIN discovered_device dd ON dd.id=d.discovered_device_id AND dd.org_id=d.org_id
@@ -30,6 +31,8 @@ type GetPoolConfigurationRuntimeRow struct {
 	ID               int64
 	DeviceIdentifier string
 	WorkerName       string
+	WorkerNameSet    bool
+	MacAddress       string
 	DiscoveryID      int64
 	DriverName       string
 	Manufacturer     string
@@ -47,6 +50,8 @@ func (q *Queries) GetPoolConfigurationRuntime(ctx context.Context, arg GetPoolCo
 		&i.ID,
 		&i.DeviceIdentifier,
 		&i.WorkerName,
+		&i.WorkerNameSet,
+		&i.MacAddress,
 		&i.DiscoveryID,
 		&i.DriverName,
 		&i.Manufacturer,

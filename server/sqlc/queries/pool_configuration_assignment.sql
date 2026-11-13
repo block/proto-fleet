@@ -16,7 +16,7 @@ JOIN pool_configuration c ON c.organization_id = a.organization_id AND c.configu
 WHERE a.organization_id = $1 AND a.target_kind = $2 AND a.target_id = $3;
 
 -- name: ListPoolConfigurationAssignmentsForDevices :many
-SELECT d.id AS target_id, COALESCE(d.worker_name, '')::text AS worker_name,
+SELECT d.id AS target_id, COALESCE(d.worker_name, '')::text AS worker_name, (d.worker_name IS NOT NULL)::boolean AS worker_name_set, ''::text AS worker_name_mode,
  COALESCE(a.configuration_id, '')::text AS configuration_id, a.retired_at, c.account_id
 FROM device d
 LEFT JOIN pool_configuration_assignment a ON a.organization_id = d.org_id AND a.target_kind = 'device' AND a.target_id = d.id
@@ -49,15 +49,23 @@ VALUES($1, $2, $3, $4, $5, $6, 1, $7, clock_timestamp())
 ON CONFLICT (organization_id, target_kind, target_id) DO UPDATE SET
  configuration_id = EXCLUDED.configuration_id, revision_id = EXCLUDED.revision_id,
  version = pool_configuration_assignment.version + 1, operation_id = EXCLUDED.operation_id,
+ inherited_worker_name = CASE WHEN pool_configuration_assignment.retired_at IS NULL THEN pool_configuration_assignment.inherited_worker_name ELSE NULL END,
  retired_at = NULL, updated_at = EXCLUDED.updated_at
 RETURNING *;
 
 -- name: AdoptPoolConfigurationAssignment :execrows
 -- Never overwrite even a retired assignment: returning hardware must not
 -- inherit the previous occupant's desired configuration on a repeated import.
-INSERT INTO pool_configuration_assignment(organization_id,target_kind,target_id,device_id,configuration_id,revision_id,version,adopted_at)
-VALUES($1,$2,$3,$4,$5,$6,1,CURRENT_TIMESTAMP)
+INSERT INTO pool_configuration_assignment(organization_id,target_kind,target_id,device_id,configuration_id,revision_id,version,adopted_at,inherited_worker_name)
+VALUES($1,$2,$3,$4,$5,$6,1,CURRENT_TIMESTAMP,sqlc.narg(inherited_worker_name)::text)
 ON CONFLICT (organization_id,target_kind,target_id) DO NOTHING;
+
+-- name: ClearInheritedPoolWorkerName :execrows
+-- Only explicit worker-name confirmation replaces inherited input. The caller
+-- carries this version advance into its atomic reviewed assignment update.
+UPDATE pool_configuration_assignment SET inherited_worker_name=NULL,version=version+1,updated_at=CURRENT_TIMESTAMP
+WHERE organization_id=$1 AND target_kind=$2 AND target_id=$3 AND version=$4
+ AND retired_at IS NULL AND inherited_worker_name IS NOT NULL;
 
 -- name: HasPoolAssignmentKindConflict :one
 SELECT EXISTS (

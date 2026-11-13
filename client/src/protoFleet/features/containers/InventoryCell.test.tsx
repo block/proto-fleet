@@ -49,3 +49,15 @@ it("keeps partial board coverage beside the module mean", () => {
   expect(screen.getByText("60.1 °C")).toBeInTheDocument();
   expect(screen.getByText("2/3 boards reporting")).toBeInTheDocument();
 });
+
+it.each([
+  [EntityKind.MODULE, "MAC address", "MAC address"],
+  [EntityKind.MODULE, "", "—"],
+  [EntityKind.MODULE, "rack-one", "rack-one"],
+  [EntityKind.MODULE, "Mixed", "Mixed"],
+  [EntityKind.TANK, "MAC address", "—"],
+])("shows the module worker summary for %s (%s)", (kind, workerNameSummary, expected) => {
+  const item = create(InventoryItemSchema, { ref: { kind, id: 1n }, workerNameSummary });
+  render(<InventoryCell item={item} column="workerName" />);
+  expect(screen.getByText(expected)).toBeInTheDocument();
+});

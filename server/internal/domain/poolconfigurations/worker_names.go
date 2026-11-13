@@ -3,16 +3,58 @@ package poolconfigurations
 import (
 	"context"
 	"encoding/json"
+	"net"
 	"sort"
 	"strings"
 	"unicode/utf8"
+
+	sdk "github.com/block/proto-fleet/server/sdk/v1"
 
 	"github.com/block/proto-fleet/server/generated/sqlc"
 	"github.com/block/proto-fleet/server/internal/domain/authz"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 )
 
-type WorkerNameChange struct{ DeviceIdentifier, Before, After string }
+type WorkerNameChange struct {
+	DeviceIdentifier, Before, After string
+	DisplayName                     string
+	HashboardID                     int64
+	Mode                            string
+}
+
+// WorkerNameOptions selects an explicit suffix; it never changes the payout account.
+type WorkerNameOptions struct {
+	MACAddress bool
+	Custom     string
+}
+
+func (o WorkerNameOptions) mode() string {
+	if o.MACAddress {
+		return "mac_address"
+	}
+	if o.Custom != "" {
+		return "custom"
+	}
+	return "none"
+}
+
+func (o WorkerNameOptions) Name(mac string) (string, error) {
+	if o.MACAddress {
+		if o.Custom != "" {
+			return "", fleeterror.NewInvalidArgumentError("choose one worker name option")
+		}
+		if _, err := net.ParseMAC(mac); err != nil {
+			return "", fleeterror.NewInvalidArgumentError("equipment has no valid MAC address")
+		}
+		return sdk.MACWorkerName(mac), nil
+	}
+	if !validWorkerName(o.Custom) {
+		return "", fleeterror.NewInvalidArgumentError("invalid worker name")
+	}
+	return o.Custom, nil
+}
+
+type workerNameResolver func(sqlc.Querier, Principal) ([]AssignmentTarget, map[AssignmentTarget]string, error)
 
 // Worker names are reviewed with each miner's current configuration. Reviewing
 // never changes equipment metadata; confirmation saves metadata and canonical
@@ -23,13 +65,13 @@ func (s *Service) ReviewWorkerNames(ctx context.Context, names map[string]string
 	}
 	identifiers := make([]string, 0, len(names))
 	for identifier, name := range names {
-		if identifier == "" || strings.TrimSpace(name) == "" || !utf8.ValidString(name) || utf8.RuneCountInString(name) > 100 {
-			return nil, fleeterror.NewInvalidArgumentError("worker names must contain 1 to 100 characters")
+		if identifier == "" || !validWorkerName(name) {
+			return nil, fleeterror.NewInvalidArgumentError("worker names must contain at most 100 characters without whitespace or controls")
 		}
 		identifiers = append(identifiers, identifier)
 	}
 	sort.Strings(identifiers)
-	resolve := func(q sqlc.Querier, p Principal) ([]AssignmentTarget, map[int64]string, error) {
+	resolve := func(q sqlc.Querier, p Principal) ([]AssignmentTarget, map[AssignmentTarget]string, error) {
 		rows, err := q.GetOrgDeviceIDsWithIdentifiers(ctx, sqlc.GetOrgDeviceIDsWithIdentifiersParams{OrgID: p.Scope.OrganizationID, DeviceIdentifiers: identifiers})
 		if err != nil {
 			return nil, nil, err
@@ -38,13 +80,44 @@ func (s *Service) ReviewWorkerNames(ctx context.Context, names map[string]string
 			return nil, nil, fleeterror.NewForbiddenError("selected equipment is unavailable")
 		}
 		targets := make([]AssignmentTarget, len(rows))
-		desired := make(map[int64]string, len(rows))
+		desired := make(map[AssignmentTarget]string, len(rows))
 		for i, row := range rows {
 			targets[i] = AssignmentTarget{Kind: TargetDevice, ID: row.ID, DeviceID: row.ID}
-			desired[row.ID] = names[row.DeviceIdentifier]
+			desired[targets[i]] = names[row.DeviceIdentifier]
 		}
 		return targets, desired, nil
 	}
+	return s.reviewWorkerNames(ctx, resolve, "")
+}
+
+func (s *Service) ReviewBoardWorkerNames(ctx context.Context, selection BoardSelection, options WorkerNameOptions) ([]Review, int, error) {
+	if len(selection.DeviceIDs) != 0 {
+		return nil, 0, fleeterror.NewInvalidArgumentError("select hashboards or modules")
+	}
+	count := 0
+	resolve := func(q sqlc.Querier, p Principal) ([]AssignmentTarget, map[AssignmentTarget]string, error) {
+		rows, err := resolveBoards(ctx, q, p, selection, true)
+		if err != nil {
+			return nil, nil, err
+		}
+		count = len(rows)
+		targets := make([]AssignmentTarget, len(rows))
+		names := make(map[AssignmentTarget]string, len(rows))
+		for i, row := range rows {
+			targets[i] = AssignmentTarget{Kind: TargetInstallation, ID: row.InstallationID, DeviceID: row.DeviceID}
+			name, err := options.Name(row.MacAddress)
+			if err != nil {
+				return nil, nil, err
+			}
+			names[targets[i]] = name
+		}
+		return targets, names, nil
+	}
+	reviews, err := s.reviewWorkerNames(ctx, resolve, options.mode())
+	return reviews, count, err
+}
+
+func (s *Service) reviewWorkerNames(ctx context.Context, resolve workerNameResolver, mode string) ([]Review, error) {
 	if err := s.refreshReadiness(ctx, "", Read, func(q sqlc.Querier, p Principal) ([]AssignmentTarget, error) {
 		targets, _, err := resolve(q, p)
 		return targets, err
@@ -69,22 +142,37 @@ func (s *Service) ReviewWorkerNames(ctx context.Context, names map[string]string
 		if err != nil {
 			return nil, err
 		}
-		deviceIDs := make([]int64, len(targets))
-		for i, target := range targets {
-			deviceIDs[i] = target.ID
+		var deviceIDs, installationIDs []int64
+		for _, target := range targets {
+			if target.Kind == TargetInstallation {
+				installationIDs = append(installationIDs, target.ID)
+			} else {
+				deviceIDs = append(deviceIDs, target.ID)
+			}
 		}
-		assignments, err := q.ListPoolConfigurationAssignmentsForDevices(ctx, sqlc.ListPoolConfigurationAssignmentsForDevicesParams{OrganizationID: p.Scope.OrganizationID, DeviceIds: deviceIDs})
-		if err != nil {
-			return nil, err
+		byTarget := make(map[AssignmentTarget]sqlc.ListPoolConfigurationAssignmentsForDevicesRow, len(targets))
+		if len(deviceIDs) > 0 {
+			assignments, err := q.ListPoolConfigurationAssignmentsForDevices(ctx, sqlc.ListPoolConfigurationAssignmentsForDevicesParams{OrganizationID: p.Scope.OrganizationID, DeviceIds: deviceIDs})
+			if err != nil {
+				return nil, err
+			}
+			for _, a := range assignments {
+				byTarget[AssignmentTarget{Kind: TargetDevice, ID: a.TargetID}] = a
+			}
 		}
-		byDevice := make(map[int64]sqlc.ListPoolConfigurationAssignmentsForDevicesRow, len(assignments))
-		for _, assignment := range assignments {
-			byDevice[assignment.TargetID] = assignment
+		if len(installationIDs) > 0 {
+			assignments, err := q.ListPoolConfigurationAssignmentsForBoards(ctx, sqlc.ListPoolConfigurationAssignmentsForBoardsParams{OrganizationID: p.Scope.OrganizationID, InstallationIds: installationIDs})
+			if err != nil {
+				return nil, err
+			}
+			for _, a := range assignments {
+				byTarget[AssignmentTarget{Kind: TargetInstallation, ID: a.TargetID}] = sqlc.ListPoolConfigurationAssignmentsForDevicesRow(a)
+			}
 		}
 		groups := map[string][]AssignmentTarget{}
 		for _, target := range targets {
-			assignment, ok := byDevice[target.ID]
-			if ok && (assignment.ConfigurationID == "" || assignment.RetiredAt.Valid) && sameWorkerName(assignment.WorkerName, desired[target.ID]) {
+			assignment, ok := byTarget[AssignmentTarget{Kind: target.Kind, ID: target.ID}]
+			if ok && (assignment.ConfigurationID == "" || assignment.RetiredAt.Valid) && assignment.WorkerNameSet && sameWorkerName(assignment.WorkerName, desired[target]) && (target.Kind != TargetInstallation || assignment.WorkerNameMode == mode) {
 				continue
 			}
 			if !ok || assignment.ConfigurationID == "" || assignment.RetiredAt.Valid {
@@ -108,8 +196,8 @@ func (s *Service) ReviewWorkerNames(ctx context.Context, names map[string]string
 			}
 			selected := make([]AssignmentTarget, 0, len(groups[id]))
 			for _, target := range groups[id] {
-				if sameWorkerName(byDevice[target.ID].WorkerName, desired[target.ID]) {
-					retry, err := workerNameRetryEligible(ctx, q, p.Scope, target, config.RevisionID)
+				if assignment := byTarget[AssignmentTarget{Kind: target.Kind, ID: target.ID}]; assignment.WorkerNameSet && sameWorkerName(assignment.WorkerName, desired[target]) && (target.Kind != TargetInstallation || assignment.WorkerNameMode == mode) {
+					retry, err := workerNameRetryEligible(ctx, q, p.Scope, target, config.RevisionID, desired[target])
 					if err != nil {
 						return nil, err
 					}
@@ -122,7 +210,7 @@ func (s *Service) ReviewWorkerNames(ctx context.Context, names map[string]string
 			if len(selected) == 0 {
 				continue
 			}
-			review, err := s.repository.reviewAssignment(ctx, q, p.Scope, p.ActorID, id, config.Version, selected, s.equipment, desired)
+			review, err := s.repository.reviewAssignment(ctx, q, p.Scope, p.ActorID, id, config.Version, selected, s.equipment, desired, mode)
 			if err != nil {
 				return nil, err
 			}
@@ -152,11 +240,18 @@ func workerNameChanges(targets []reviewedTarget) []WorkerNameChange {
 		if target.DesiredWorkerName == nil {
 			continue
 		}
-		var binding struct {
-			Device sqlc.GetPoolConfigurationRuntimeRow
-		}
+		var binding workerNameBinding
 		_ = json.Unmarshal([]byte(target.Binding), &binding)
-		changes = append(changes, WorkerNameChange{DeviceIdentifier: binding.Device.DeviceIdentifier, Before: binding.Device.WorkerName, After: *target.DesiredWorkerName})
+		change := WorkerNameChange{DeviceIdentifier: binding.Device.DeviceIdentifier, Before: binding.EffectiveWorkerName, After: *target.DesiredWorkerName}
+		if target.PreviousWorkerName != nil {
+			change.Before = *target.PreviousWorkerName
+		}
+		if binding.Board != nil {
+			change.HashboardID = binding.Board.HashboardID
+			change.DisplayName = binding.Label
+			change.Mode = target.DesiredWorkerNameMode
+		}
+		changes = append(changes, change)
 	}
 	return changes
 }
@@ -165,13 +260,17 @@ func sameWorkerName(a, b string) bool { return strings.TrimSpace(a) == strings.T
 
 // Matching metadata is not evidence that the miner accepted the name. Only the
 // current canonical assignment and its latest readback can authorize a reapply.
-func workerNameRetryEligible(ctx context.Context, q sqlc.Querier, scope Scope, target AssignmentTarget, revisionID string) (bool, error) {
+func workerNameRetryEligible(ctx context.Context, q sqlc.Querier, scope Scope, target AssignmentTarget, revisionID, desired string) (bool, error) {
 	assignment, err := q.GetPoolConfigurationAssignment(ctx, sqlc.GetPoolConfigurationAssignmentParams{OrganizationID: scope.OrganizationID, TargetKind: target.Kind, TargetID: target.ID})
 	if err != nil {
 		return false, storageError(err)
 	}
-	if assignment.RetiredAt.Valid || !assignment.OperationID.Valid {
+	if assignment.RetiredAt.Valid {
 		return false, nil
+	}
+	if !assignment.OperationID.Valid {
+		changed, _, err := adoptedWorkerNameChange(ctx, q, scope, target, revisionID, desired)
+		return changed, err
 	}
 	work, err := q.GetPoolConfigurationWork(ctx, sqlc.GetPoolConfigurationWorkParams{OrganizationID: scope.OrganizationID, OperationID: assignment.OperationID.String, TargetKind: target.Kind, TargetID: target.ID})
 	if err != nil {
@@ -191,7 +290,8 @@ func workerNameRetryEligible(ctx context.Context, q sqlc.Querier, scope Scope, t
 	if code == resultWriteUncertain {
 		return false, retryUnavailable()
 	}
-	if !retryableOutcome(state, code) {
+	inheritedChange := assignment.InheritedWorkerName.Valid && assignment.InheritedWorkerName.String != desired
+	if !inheritedChange && !retryableOutcome(state, code) {
 		return false, nil
 	}
 	// Retrying a name must not silently apply a newer configuration revision.
@@ -206,14 +306,37 @@ func workerNameRetryEligible(ctx context.Context, q sqlc.Querier, scope Scope, t
 func checkWorkerNameRetries(ctx context.Context, q sqlc.Querier, scope Scope, revisionID string, targets []reviewedTarget) error {
 	for _, item := range targets {
 		changes := workerNameChanges([]reviewedTarget{item})
-		if len(changes) == 0 || !sameWorkerName(changes[0].Before, changes[0].After) {
+		if len(changes) == 0 {
+			continue
+		}
+		var binding workerNameBinding
+		if err := json.Unmarshal([]byte(item.Binding), &binding); err != nil {
+			return fleeterror.NewInternalError("decode reviewed worker binding failed")
+		}
+		savedName := binding.Device.WorkerName
+		explicit := binding.Device.WorkerNameSet
+		if binding.Board != nil {
+			if binding.Board.WorkerNameMode != item.DesiredWorkerNameMode {
+				continue
+			}
+			savedName = binding.Board.WorkerName
+			explicit = binding.Board.WorkerNameSet
+		}
+		if !explicit || !sameWorkerName(savedName, changes[0].After) {
 			continue
 		}
 		target := item.Change.Target
+		inheritedChange, _, err := adoptedWorkerNameChange(ctx, q, scope, target, revisionID, changes[0].After)
+		if err != nil {
+			return err
+		}
+		if inheritedChange {
+			continue
+		}
 		if _, err := q.LockCurrentPoolConfigurationOperationTarget(ctx, sqlc.LockCurrentPoolConfigurationOperationTargetParams{OrganizationID: scope.OrganizationID, TargetKind: target.Kind, TargetID: target.ID}); err != nil {
 			return storageError(err)
 		}
-		retry, err := workerNameRetryEligible(ctx, q, scope, target, revisionID)
+		retry, err := workerNameRetryEligible(ctx, q, scope, target, revisionID, changes[0].After)
 		if err != nil {
 			return err
 		}
@@ -222,4 +345,21 @@ func checkWorkerNameRetries(ctx context.Context, q sqlc.Querier, scope Scope, re
 		}
 	}
 	return nil
+}
+
+// The review owns only the worker fields of the equipment's private binding.
+type workerNameBinding struct {
+	EffectiveWorkerName string
+	Label               string
+	Device              sqlc.GetPoolConfigurationRuntimeRow
+	Board               *struct {
+		HashboardID     int64
+		MAC, WorkerName string
+		WorkerNameSet   bool
+		WorkerNameMode  string
+	}
+}
+
+func validWorkerName(name string) bool {
+	return validPoolText(name, 400, false) && utf8.RuneCountInString(name) <= 100
 }

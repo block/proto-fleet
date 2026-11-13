@@ -303,6 +303,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.clearFleetNodeRevokedStatusStmt, err = db.PrepareContext(ctx, clearFleetNodeRevokedStatus); err != nil {
 		return nil, fmt.Errorf("error preparing query ClearFleetNodeRevokedStatus: %w", err)
 	}
+	if q.clearInheritedPoolWorkerNameStmt, err = db.PrepareContext(ctx, clearInheritedPoolWorkerName); err != nil {
+		return nil, fmt.Errorf("error preparing query ClearInheritedPoolWorkerName: %w", err)
+	}
 	if q.clearPoolConfigurationDefaultStmt, err = db.PrepareContext(ctx, clearPoolConfigurationDefault); err != nil {
 		return nil, fmt.Errorf("error preparing query ClearPoolConfigurationDefault: %w", err)
 	}
@@ -1752,6 +1755,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.initializeDeviceWorkerNameStmt, err = db.PrepareContext(ctx, initializeDeviceWorkerName); err != nil {
 		return nil, fmt.Errorf("error preparing query InitializeDeviceWorkerName: %w", err)
 	}
+	if q.initializeHashboardWorkerNameStmt, err = db.PrepareContext(ctx, initializeHashboardWorkerName); err != nil {
+		return nil, fmt.Errorf("error preparing query InitializeHashboardWorkerName: %w", err)
+	}
 	if q.initializeReportingInputsStmt, err = db.PrepareContext(ctx, initializeReportingInputs); err != nil {
 		return nil, fmt.Errorf("error preparing query InitializeReportingInputs: %w", err)
 	}
@@ -2312,6 +2318,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.listPoolConfigurationAssignmentsStmt, err = db.PrepareContext(ctx, listPoolConfigurationAssignments); err != nil {
 		return nil, fmt.Errorf("error preparing query ListPoolConfigurationAssignments: %w", err)
+	}
+	if q.listPoolConfigurationAssignmentsForBoardsStmt, err = db.PrepareContext(ctx, listPoolConfigurationAssignmentsForBoards); err != nil {
+		return nil, fmt.Errorf("error preparing query ListPoolConfigurationAssignmentsForBoards: %w", err)
 	}
 	if q.listPoolConfigurationAssignmentsForDevicesStmt, err = db.PrepareContext(ctx, listPoolConfigurationAssignmentsForDevices); err != nil {
 		return nil, fmt.Errorf("error preparing query ListPoolConfigurationAssignmentsForDevices: %w", err)
@@ -3621,6 +3630,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.updateFrigateUpdatePackageReleaseStmt, err = db.PrepareContext(ctx, updateFrigateUpdatePackageRelease); err != nil {
 		return nil, fmt.Errorf("error preparing query UpdateFrigateUpdatePackageRelease: %w", err)
 	}
+	if q.updateHashboardWorkerNameStmt, err = db.PrepareContext(ctx, updateHashboardWorkerName); err != nil {
+		return nil, fmt.Errorf("error preparing query UpdateHashboardWorkerName: %w", err)
+	}
 	if q.updateInfrastructureDeviceStmt, err = db.PrepareContext(ctx, updateInfrastructureDevice); err != nil {
 		return nil, fmt.Errorf("error preparing query UpdateInfrastructureDevice: %w", err)
 	}
@@ -4263,6 +4275,11 @@ func (q *Queries) Close() error {
 	if q.clearFleetNodeRevokedStatusStmt != nil {
 		if cerr := q.clearFleetNodeRevokedStatusStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing clearFleetNodeRevokedStatusStmt: %w", cerr)
+		}
+	}
+	if q.clearInheritedPoolWorkerNameStmt != nil {
+		if cerr := q.clearInheritedPoolWorkerNameStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing clearInheritedPoolWorkerNameStmt: %w", cerr)
 		}
 	}
 	if q.clearPoolConfigurationDefaultStmt != nil {
@@ -6680,6 +6697,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing initializeDeviceWorkerNameStmt: %w", cerr)
 		}
 	}
+	if q.initializeHashboardWorkerNameStmt != nil {
+		if cerr := q.initializeHashboardWorkerNameStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing initializeHashboardWorkerNameStmt: %w", cerr)
+		}
+	}
 	if q.initializeReportingInputsStmt != nil {
 		if cerr := q.initializeReportingInputsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing initializeReportingInputsStmt: %w", cerr)
@@ -7613,6 +7635,11 @@ func (q *Queries) Close() error {
 	if q.listPoolConfigurationAssignmentsStmt != nil {
 		if cerr := q.listPoolConfigurationAssignmentsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing listPoolConfigurationAssignmentsStmt: %w", cerr)
+		}
+	}
+	if q.listPoolConfigurationAssignmentsForBoardsStmt != nil {
+		if cerr := q.listPoolConfigurationAssignmentsForBoardsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listPoolConfigurationAssignmentsForBoardsStmt: %w", cerr)
 		}
 	}
 	if q.listPoolConfigurationAssignmentsForDevicesStmt != nil {
@@ -9795,6 +9822,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing updateFrigateUpdatePackageReleaseStmt: %w", cerr)
 		}
 	}
+	if q.updateHashboardWorkerNameStmt != nil {
+		if cerr := q.updateHashboardWorkerNameStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing updateHashboardWorkerNameStmt: %w", cerr)
+		}
+	}
 	if q.updateInfrastructureDeviceStmt != nil {
 		if cerr := q.updateInfrastructureDeviceStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing updateInfrastructureDeviceStmt: %w", cerr)
@@ -10217,6 +10249,7 @@ type Queries struct {
 	clearDeviceBuildingsOnSiteMismatchStmt                      *sql.Stmt
 	clearDeviceSitesAndBuildingsStmt                            *sql.Stmt
 	clearFleetNodeRevokedStatusStmt                             *sql.Stmt
+	clearInheritedPoolWorkerNameStmt                            *sql.Stmt
 	clearPoolConfigurationDefaultStmt                           *sql.Stmt
 	clearRackPlacementForSoftDeleteStmt                         *sql.Stmt
 	clearRackSlotPositionStmt                                   *sql.Stmt
@@ -10700,6 +10733,7 @@ type Queries struct {
 	hostedReportEvidenceSitesStmt                               *sql.Stmt
 	hostedReportPublicIDStmt                                    *sql.Stmt
 	initializeDeviceWorkerNameStmt                              *sql.Stmt
+	initializeHashboardWorkerNameStmt                           *sql.Stmt
 	initializeReportingInputsStmt                               *sql.Stmt
 	insertActivityLogStmt                                       *sql.Stmt
 	insertAlertChannelStmt                                      *sql.Stmt
@@ -10887,6 +10921,7 @@ type Queries struct {
 	listPoolAssignmentPhysicalBindingsStmt                      *sql.Stmt
 	listPoolBoardAssignmentsStmt                                *sql.Stmt
 	listPoolConfigurationAssignmentsStmt                        *sql.Stmt
+	listPoolConfigurationAssignmentsForBoardsStmt               *sql.Stmt
 	listPoolConfigurationAssignmentsForDevicesStmt              *sql.Stmt
 	listPoolConfigurationOperationSitesStmt                     *sql.Stmt
 	listPoolConfigurationOperationTargetsStmt                   *sql.Stmt
@@ -11323,6 +11358,7 @@ type Queries struct {
 	updateFrigateUpdateInstanceStagingStmt                      *sql.Stmt
 	updateFrigateUpdateJobStmt                                  *sql.Stmt
 	updateFrigateUpdatePackageReleaseStmt                       *sql.Stmt
+	updateHashboardWorkerNameStmt                               *sql.Stmt
 	updateInfrastructureDeviceStmt                              *sql.Stmt
 	updateInventoryPartStmt                                     *sql.Stmt
 	updateLastLoginStmt                                         *sql.Stmt
@@ -11480,6 +11516,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		clearDeviceBuildingsOnSiteMismatchStmt:                      q.clearDeviceBuildingsOnSiteMismatchStmt,
 		clearDeviceSitesAndBuildingsStmt:                            q.clearDeviceSitesAndBuildingsStmt,
 		clearFleetNodeRevokedStatusStmt:                             q.clearFleetNodeRevokedStatusStmt,
+		clearInheritedPoolWorkerNameStmt:                            q.clearInheritedPoolWorkerNameStmt,
 		clearPoolConfigurationDefaultStmt:                           q.clearPoolConfigurationDefaultStmt,
 		clearRackPlacementForSoftDeleteStmt:                         q.clearRackPlacementForSoftDeleteStmt,
 		clearRackSlotPositionStmt:                                   q.clearRackSlotPositionStmt,
@@ -11963,6 +12000,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		hostedReportEvidenceSitesStmt:                               q.hostedReportEvidenceSitesStmt,
 		hostedReportPublicIDStmt:                                    q.hostedReportPublicIDStmt,
 		initializeDeviceWorkerNameStmt:                              q.initializeDeviceWorkerNameStmt,
+		initializeHashboardWorkerNameStmt:                           q.initializeHashboardWorkerNameStmt,
 		initializeReportingInputsStmt:                               q.initializeReportingInputsStmt,
 		insertActivityLogStmt:                                       q.insertActivityLogStmt,
 		insertAlertChannelStmt:                                      q.insertAlertChannelStmt,
@@ -12150,6 +12188,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		listPoolAssignmentPhysicalBindingsStmt:                      q.listPoolAssignmentPhysicalBindingsStmt,
 		listPoolBoardAssignmentsStmt:                                q.listPoolBoardAssignmentsStmt,
 		listPoolConfigurationAssignmentsStmt:                        q.listPoolConfigurationAssignmentsStmt,
+		listPoolConfigurationAssignmentsForBoardsStmt:               q.listPoolConfigurationAssignmentsForBoardsStmt,
 		listPoolConfigurationAssignmentsForDevicesStmt:              q.listPoolConfigurationAssignmentsForDevicesStmt,
 		listPoolConfigurationOperationSitesStmt:                     q.listPoolConfigurationOperationSitesStmt,
 		listPoolConfigurationOperationTargetsStmt:                   q.listPoolConfigurationOperationTargetsStmt,
@@ -12586,6 +12625,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		updateFrigateUpdateInstanceStagingStmt:                      q.updateFrigateUpdateInstanceStagingStmt,
 		updateFrigateUpdateJobStmt:                                  q.updateFrigateUpdateJobStmt,
 		updateFrigateUpdatePackageReleaseStmt:                       q.updateFrigateUpdatePackageReleaseStmt,
+		updateHashboardWorkerNameStmt:                               q.updateHashboardWorkerNameStmt,
 		updateInfrastructureDeviceStmt:                              q.updateInfrastructureDeviceStmt,
 		updateInventoryPartStmt:                                     q.updateInventoryPartStmt,
 		updateLastLoginStmt:                                         q.updateLastLoginStmt,

@@ -1052,6 +1052,18 @@ func (q *retryingQuerier) ClearFleetNodeRevokedStatus(ctx context.Context, arg C
 	return result, err
 }
 
+func (q *retryingQuerier) ClearInheritedPoolWorkerName(ctx context.Context, arg ClearInheritedPoolWorkerNameParams) (int64, error) {
+	var result int64
+	err := q.retrier.RetryQuery(ctx, "ClearInheritedPoolWorkerName", func() error {
+		callResult, callErr := q.next.ClearInheritedPoolWorkerName(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) ClearPoolConfigurationDefault(ctx context.Context, arg ClearPoolConfigurationDefaultParams) error {
 	return q.retrier.RetryQuery(ctx, "ClearPoolConfigurationDefault", func() error {
 		return q.next.ClearPoolConfigurationDefault(ctx, arg)
@@ -6524,6 +6536,12 @@ func (q *retryingQuerier) InitializeDeviceWorkerName(ctx context.Context, arg In
 	return result, err
 }
 
+func (q *retryingQuerier) InitializeHashboardWorkerName(ctx context.Context, arg InitializeHashboardWorkerNameParams) error {
+	return q.retrier.RetryQuery(ctx, "InitializeHashboardWorkerName", func() error {
+		return q.next.InitializeHashboardWorkerName(ctx, arg)
+	})
+}
+
 func (q *retryingQuerier) InitializeReportingInputs(ctx context.Context, arg InitializeReportingInputsParams) (int64, error) {
 	var result int64
 	err := q.retrier.RetryQuery(ctx, "InitializeReportingInputs", func() error {
@@ -8622,6 +8640,18 @@ func (q *retryingQuerier) ListPoolConfigurationAssignments(ctx context.Context, 
 	var result []PoolConfigurationAssignment
 	err := q.retrier.RetryQuery(ctx, "ListPoolConfigurationAssignments", func() error {
 		callResult, callErr := q.next.ListPoolConfigurationAssignments(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) ListPoolConfigurationAssignmentsForBoards(ctx context.Context, arg ListPoolConfigurationAssignmentsForBoardsParams) ([]ListPoolConfigurationAssignmentsForBoardsRow, error) {
+	var result []ListPoolConfigurationAssignmentsForBoardsRow
+	err := q.retrier.RetryQuery(ctx, "ListPoolConfigurationAssignmentsForBoards", func() error {
+		callResult, callErr := q.next.ListPoolConfigurationAssignmentsForBoards(ctx, arg)
 		if callErr == nil {
 			result = callResult
 		}
@@ -12978,6 +13008,18 @@ func (q *retryingQuerier) UpdateFrigateUpdatePackageRelease(ctx context.Context,
 	return q.retrier.RetryQuery(ctx, "UpdateFrigateUpdatePackageRelease", func() error {
 		return q.next.UpdateFrigateUpdatePackageRelease(ctx, arg)
 	})
+}
+
+func (q *retryingQuerier) UpdateHashboardWorkerName(ctx context.Context, arg UpdateHashboardWorkerNameParams) (int64, error) {
+	var result int64
+	err := q.retrier.RetryQuery(ctx, "UpdateHashboardWorkerName", func() error {
+		callResult, callErr := q.next.UpdateHashboardWorkerName(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
 }
 
 func (q *retryingQuerier) UpdateInfrastructureDevice(ctx context.Context, arg UpdateInfrastructureDeviceParams) (int64, error) {

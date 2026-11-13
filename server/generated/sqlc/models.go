@@ -1919,10 +1919,12 @@ type FrigateUpdatePackage struct {
 }
 
 type Hashboard struct {
-	ID          int64
-	OrgID       int64
-	FirstSeenAt time.Time
-	LastSeenAt  time.Time
+	ID             int64
+	OrgID          int64
+	FirstSeenAt    time.Time
+	LastSeenAt     time.Time
+	WorkerName     sql.NullString
+	WorkerNameMode string
 }
 
 type HashboardDiagnosticObservation struct {
@@ -2823,17 +2825,18 @@ type PoolConfiguration struct {
 }
 
 type PoolConfigurationAssignment struct {
-	OrganizationID  int64
-	TargetKind      string
-	TargetID        int64
-	DeviceID        int64
-	ConfigurationID string
-	RevisionID      string
-	Version         int64
-	OperationID     sql.NullString
-	RetiredAt       sql.NullTime
-	UpdatedAt       time.Time
-	AdoptedAt       sql.NullTime
+	OrganizationID      int64
+	TargetKind          string
+	TargetID            int64
+	DeviceID            int64
+	ConfigurationID     string
+	RevisionID          string
+	Version             int64
+	OperationID         sql.NullString
+	RetiredAt           sql.NullTime
+	UpdatedAt           time.Time
+	AdoptedAt           sql.NullTime
+	InheritedWorkerName sql.NullString
 }
 
 type PoolConfigurationBoardIntent struct {

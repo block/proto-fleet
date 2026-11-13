@@ -58,12 +58,14 @@ WITH assets AS (
    CASE WHEN access.telemetry_allowed THEN r.efficiency_jth END AS efficiency_jth,
    CASE WHEN access.telemetry_allowed THEN r.hashrate_reporting_count ELSE 0 END AS hashrate_reporting_count,
    CASE WHEN access.telemetry_allowed THEN r.power_reporting_count ELSE 0 END AS power_reporting_count,
-   access.telemetry_allowed AS telemetry_allowed, dd.model, dd.firmware_version, dd.ip_address_inet, d.mac_address, d.worker_name,
+   access.telemetry_allowed AS telemetry_allowed, dd.model, dd.firmware_version, dd.ip_address_inet, d.mac_address,
+   CASE WHEN r.kind=6 THEN workers.summary ELSE d.worker_name END AS worker_name,
+   workers.summary AS worker_name_summary,
    dp.pairing_status::text AS pairing_status, rack.zone,
    CASE WHEN fn.last_seen_at < now()-INTERVAL '2 minutes' AND fn.enrollment_status='CONFIRMED' AND fn.deleted_at IS NULL THEN 'OFFLINE' ELSE ds.status::text END AS device_status,
    issues.issue_count, issues.issue_types, issues.actionable,
    dm.voltage_v, dm.current_a,
-   concat_ws(' ',r.name,r.reported_id,r.device_identifier,d.mac_address,dd.ip_address,d.worker_name) AS search_text
+   concat_ws(' ',r.name,r.reported_id,r.device_identifier,d.mac_address,dd.ip_address,CASE WHEN r.kind=6 THEN workers.summary ELSE d.worker_name END) AS search_text
  FROM assets r
  CROSS JOIN LATERAL (
    SELECT NOT EXISTS (
@@ -73,6 +75,18 @@ WITH assets AS (
    ) AS telemetry_allowed
  ) access
  LEFT JOIN device d ON r.kind=5 AND d.id=r.id AND d.org_id=r.org_id
+ LEFT JOIN LATERAL (
+   SELECT CASE
+     WHEN count(*)=0 OR bool_and(h.worker_name_mode='none') THEN ''
+     WHEN count(DISTINCT h.worker_name_mode)>1 THEN 'Mixed'
+     WHEN bool_and(h.worker_name_mode='mac_address') THEN 'MAC address'
+     WHEN count(DISTINCT h.worker_name)=1 THEN min(h.worker_name)
+     ELSE 'Mixed'
+   END AS summary
+   FROM hashboard_installation i JOIN hashboard h ON h.id=i.hashboard_id AND h.org_id=r.org_id
+   WHERE r.kind=6 AND i.module_id=r.id AND i.removed_at IS NULL
+     AND i.site_id IS NOT DISTINCT FROM r.site_id
+ ) workers ON r.kind=6
  LEFT JOIN discovered_device dd ON dd.id=d.discovered_device_id
  LEFT JOIN device_pairing dp ON dp.device_id=d.id
  LEFT JOIN device_status ds ON ds.device_id=d.id
@@ -92,7 +106,7 @@ WITH assets AS (
  ) dm ON TRUE
  WHERE r.org_id=$1 AND r.kind=ANY($4::int[])
 ), filtered AS (
- SELECT r.kind, r.id, r.org_id, r.site_id, r.name, r.device_identifier, r.position, r.reported_id, r.facility_kind, r.facility_id, r.group_kind, r.group_id, r.state, r.asset_count, r.hashrate_ths, r.power_kw, r.min_temperature_c, r.max_temperature_c, r.observed_at, r.miner_efficiency_jth, r.efficiency_jth, r.hashrate_reporting_count, r.power_reporting_count, r.telemetry_allowed, r.model, r.firmware_version, r.ip_address_inet, r.mac_address, r.worker_name, r.pairing_status, r.zone, r.device_status, r.issue_count, r.issue_types, r.actionable, r.voltage_v, r.current_a, r.search_text,
+ SELECT r.kind, r.id, r.org_id, r.site_id, r.name, r.device_identifier, r.position, r.reported_id, r.facility_kind, r.facility_id, r.group_kind, r.group_id, r.state, r.asset_count, r.hashrate_ths, r.power_kw, r.min_temperature_c, r.max_temperature_c, r.observed_at, r.miner_efficiency_jth, r.efficiency_jth, r.hashrate_reporting_count, r.power_reporting_count, r.telemetry_allowed, r.model, r.firmware_version, r.ip_address_inet, r.mac_address, r.worker_name, r.worker_name_summary, r.pairing_status, r.zone, r.device_status, r.issue_count, r.issue_types, r.actionable, r.voltage_v, r.current_a, r.search_text,
    COALESCE(CASE $5::int WHEN 1 THEN r.name
      WHEN 8 THEN r.model WHEN 9 THEN r.firmware_version WHEN 10 THEN encode(inet_send(r.ip_address_inet),'hex')
      WHEN 11 THEN r.mac_address WHEN 12 THEN r.worker_name ELSE '' END, '')::text AS sort_text,
@@ -183,7 +197,7 @@ WITH assets AS (
        OR (f.maximum IS NOT NULL AND (v.high > f.maximum OR (v.high = f.maximum AND NOT f.max_inclusive)))
    )
 ), page AS (
- SELECT f.kind, f.id, f.org_id, f.site_id, f.name, f.device_identifier, f.position, f.reported_id, f.facility_kind, f.facility_id, f.group_kind, f.group_id, f.state, f.asset_count, f.hashrate_ths, f.power_kw, f.min_temperature_c, f.max_temperature_c, f.observed_at, f.miner_efficiency_jth, f.efficiency_jth, f.hashrate_reporting_count, f.power_reporting_count, f.telemetry_allowed, f.model, f.firmware_version, f.ip_address_inet, f.mac_address, f.worker_name, f.pairing_status, f.zone, f.device_status, f.issue_count, f.issue_types, f.actionable, f.voltage_v, f.current_a, f.search_text, f.sort_text, f.sort_number, row_number() OVER (
+ SELECT f.kind, f.id, f.org_id, f.site_id, f.name, f.device_identifier, f.position, f.reported_id, f.facility_kind, f.facility_id, f.group_kind, f.group_id, f.state, f.asset_count, f.hashrate_ths, f.power_kw, f.min_temperature_c, f.max_temperature_c, f.observed_at, f.miner_efficiency_jth, f.efficiency_jth, f.hashrate_reporting_count, f.power_reporting_count, f.telemetry_allowed, f.model, f.firmware_version, f.ip_address_inet, f.mac_address, f.worker_name, f.worker_name_summary, f.pairing_status, f.zone, f.device_status, f.issue_count, f.issue_types, f.actionable, f.voltage_v, f.current_a, f.search_text, f.sort_text, f.sort_number, row_number() OVER (
    ORDER BY CASE WHEN NOT $11::boolean THEN sort_number END ASC NULLS LAST,
             CASE WHEN $11::boolean THEN sort_number END DESC NULLS LAST,
             CASE WHEN NOT $11::boolean THEN sort_text END ASC,

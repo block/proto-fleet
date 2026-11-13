@@ -71,6 +71,7 @@ function mountAction(kind: "module" | "hashboard") {
           create(InventoryItemSchema, {
             ref: { kind: EntityKind.MODULE, id: 11n },
             name: "Module 11",
+            workerNameSummary: "rack-one",
             deviceIdentifier: "ct1",
           }),
         ]}
@@ -84,7 +85,7 @@ function mountAction(kind: "module" | "hashboard") {
           position: 1,
           occupancy: "occupied",
           observedAt: timestampFromDate(new Date()),
-          board: { hashboardId: 101n },
+          board: { hashboardId: 101n, workerName: "rack-one", workerNameMode: "custom" },
         })}
       />,
     );
@@ -219,7 +220,7 @@ it("preserves the selected hashboard and credentials across inventory changes", 
     position: 1,
     occupancy: "occupied",
     observedAt: timestampFromDate(new Date()),
-    board: { hashboardId: 101n },
+    board: { hashboardId: 101n, workerName: "rack-one", workerNameMode: "custom" },
   });
   const { rerender } = render(<HashboardPoolAction deviceIdentifier="ct1" slot={slot} />);
   await openEditor();
@@ -271,4 +272,27 @@ it.each([
   if (trigger) fireEvent.click(trigger);
   expect(screen.queryByRole("button", { name: "Edit pool" })).not.toBeInTheDocument();
   expect(mocks.editor).not.toHaveBeenCalled();
+});
+
+it.each(["module", "hashboard"] as const)("initializes worker names from the %s action", async (kind) => {
+  mocks.permissions.push("miner:read", "miner:update_worker_names");
+  mountAction(kind);
+  fireEvent.click(screen.getByRole("button", { name: /Actions for/ }));
+  const update = await screen.findByRole("button", {
+    name: kind === "module" ? "Update worker names" : "Update worker name",
+  });
+  await waitFor(() => expect(update).toBeEnabled());
+  fireEvent.click(update);
+  fireEvent.change(screen.getByLabelText("Username"), { target: { value: "operator" } });
+  fireEvent.change(screen.getByLabelText("Password"), { target: { value: "password" } });
+  fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+  await screen.findByRole("dialog", { name: "Update worker names" });
+  const selection = screen.getByRole("button", { name: "Worker name" });
+  if (kind === "module") {
+    expect(selection).toHaveTextContent("Select worker name");
+    expect(screen.getByRole("button", { name: "Review changes" })).toBeDisabled();
+  } else {
+    expect(selection).toHaveTextContent("Custom worker name");
+    expect(screen.getByLabelText("Custom worker name")).toHaveValue("rack-one");
+  }
 });

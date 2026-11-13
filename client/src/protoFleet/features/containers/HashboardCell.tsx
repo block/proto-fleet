@@ -148,6 +148,8 @@ export function HashboardCell({
     }
     case "macAddress":
       return <span>{board?.macAddress || "—"}</span>;
+    case "workerName":
+      return <span>{board?.workerName || "—"}</span>;
     case "issues":
       return board ? <HashboardIssues board={board} position={slot.position} name={name} /> : null;
     default:

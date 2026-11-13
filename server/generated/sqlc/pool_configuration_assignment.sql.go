@@ -14,18 +14,19 @@ import (
 )
 
 const adoptPoolConfigurationAssignment = `-- name: AdoptPoolConfigurationAssignment :execrows
-INSERT INTO pool_configuration_assignment(organization_id,target_kind,target_id,device_id,configuration_id,revision_id,version,adopted_at)
-VALUES($1,$2,$3,$4,$5,$6,1,CURRENT_TIMESTAMP)
+INSERT INTO pool_configuration_assignment(organization_id,target_kind,target_id,device_id,configuration_id,revision_id,version,adopted_at,inherited_worker_name)
+VALUES($1,$2,$3,$4,$5,$6,1,CURRENT_TIMESTAMP,$7::text)
 ON CONFLICT (organization_id,target_kind,target_id) DO NOTHING
 `
 
 type AdoptPoolConfigurationAssignmentParams struct {
-	OrganizationID  int64
-	TargetKind      string
-	TargetID        int64
-	DeviceID        int64
-	ConfigurationID string
-	RevisionID      string
+	OrganizationID      int64
+	TargetKind          string
+	TargetID            int64
+	DeviceID            int64
+	ConfigurationID     string
+	RevisionID          string
+	InheritedWorkerName sql.NullString
 }
 
 // Never overwrite even a retired assignment: returning hardware must not
@@ -38,6 +39,7 @@ func (q *Queries) AdoptPoolConfigurationAssignment(ctx context.Context, arg Adop
 		arg.DeviceID,
 		arg.ConfigurationID,
 		arg.RevisionID,
+		arg.InheritedWorkerName,
 	)
 	if err != nil {
 		return 0, err
@@ -79,6 +81,34 @@ func (q *Queries) ClaimPoolConfigurationTarget(ctx context.Context, arg ClaimPoo
 	var attempts int32
 	err := row.Scan(&attempts)
 	return attempts, err
+}
+
+const clearInheritedPoolWorkerName = `-- name: ClearInheritedPoolWorkerName :execrows
+UPDATE pool_configuration_assignment SET inherited_worker_name=NULL,version=version+1,updated_at=CURRENT_TIMESTAMP
+WHERE organization_id=$1 AND target_kind=$2 AND target_id=$3 AND version=$4
+ AND retired_at IS NULL AND inherited_worker_name IS NOT NULL
+`
+
+type ClearInheritedPoolWorkerNameParams struct {
+	OrganizationID int64
+	TargetKind     string
+	TargetID       int64
+	Version        int64
+}
+
+// Only explicit worker-name confirmation replaces inherited input. The caller
+// carries this version advance into its atomic reviewed assignment update.
+func (q *Queries) ClearInheritedPoolWorkerName(ctx context.Context, arg ClearInheritedPoolWorkerNameParams) (int64, error) {
+	result, err := q.exec(ctx, q.clearInheritedPoolWorkerNameStmt, clearInheritedPoolWorkerName,
+		arg.OrganizationID,
+		arg.TargetKind,
+		arg.TargetID,
+		arg.Version,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const createPoolConfigurationOperation = `-- name: CreatePoolConfigurationOperation :one
@@ -240,7 +270,7 @@ func (q *Queries) GetPoolAssignmentInstallation(ctx context.Context, arg GetPool
 }
 
 const getPoolConfigurationAssignment = `-- name: GetPoolConfigurationAssignment :one
-SELECT a.organization_id, a.target_kind, a.target_id, a.device_id, a.configuration_id, a.revision_id, a.version, a.operation_id, a.retired_at, a.updated_at, a.adopted_at, c.account_id FROM pool_configuration_assignment a
+SELECT a.organization_id, a.target_kind, a.target_id, a.device_id, a.configuration_id, a.revision_id, a.version, a.operation_id, a.retired_at, a.updated_at, a.adopted_at, a.inherited_worker_name, c.account_id FROM pool_configuration_assignment a
 JOIN pool_configuration c ON c.organization_id = a.organization_id AND c.configuration_id = a.configuration_id
 WHERE a.organization_id = $1 AND a.target_kind = $2 AND a.target_id = $3
 `
@@ -252,18 +282,19 @@ type GetPoolConfigurationAssignmentParams struct {
 }
 
 type GetPoolConfigurationAssignmentRow struct {
-	OrganizationID  int64
-	TargetKind      string
-	TargetID        int64
-	DeviceID        int64
-	ConfigurationID string
-	RevisionID      string
-	Version         int64
-	OperationID     sql.NullString
-	RetiredAt       sql.NullTime
-	UpdatedAt       time.Time
-	AdoptedAt       sql.NullTime
-	AccountID       sql.NullInt64
+	OrganizationID      int64
+	TargetKind          string
+	TargetID            int64
+	DeviceID            int64
+	ConfigurationID     string
+	RevisionID          string
+	Version             int64
+	OperationID         sql.NullString
+	RetiredAt           sql.NullTime
+	UpdatedAt           time.Time
+	AdoptedAt           sql.NullTime
+	InheritedWorkerName sql.NullString
+	AccountID           sql.NullInt64
 }
 
 func (q *Queries) GetPoolConfigurationAssignment(ctx context.Context, arg GetPoolConfigurationAssignmentParams) (GetPoolConfigurationAssignmentRow, error) {
@@ -281,6 +312,7 @@ func (q *Queries) GetPoolConfigurationAssignment(ctx context.Context, arg GetPoo
 		&i.RetiredAt,
 		&i.UpdatedAt,
 		&i.AdoptedAt,
+		&i.InheritedWorkerName,
 		&i.AccountID,
 	)
 	return i, err
@@ -377,7 +409,7 @@ func (q *Queries) ListActivePoolAssignmentsForTargets(ctx context.Context, arg L
 }
 
 const listPoolConfigurationAssignments = `-- name: ListPoolConfigurationAssignments :many
-SELECT a.organization_id, a.target_kind, a.target_id, a.device_id, a.configuration_id, a.revision_id, a.version, a.operation_id, a.retired_at, a.updated_at, a.adopted_at FROM pool_configuration_assignment a
+SELECT a.organization_id, a.target_kind, a.target_id, a.device_id, a.configuration_id, a.revision_id, a.version, a.operation_id, a.retired_at, a.updated_at, a.adopted_at, a.inherited_worker_name FROM pool_configuration_assignment a
 JOIN pool_configuration c ON c.organization_id = a.organization_id AND c.configuration_id = a.configuration_id
 WHERE a.organization_id = $1 AND a.configuration_id = $2
  AND c.account_id IS NOT DISTINCT FROM $3::bigint AND a.retired_at IS NULL
@@ -411,6 +443,7 @@ func (q *Queries) ListPoolConfigurationAssignments(ctx context.Context, arg List
 			&i.RetiredAt,
 			&i.UpdatedAt,
 			&i.AdoptedAt,
+			&i.InheritedWorkerName,
 		); err != nil {
 			return nil, err
 		}
@@ -426,7 +459,7 @@ func (q *Queries) ListPoolConfigurationAssignments(ctx context.Context, arg List
 }
 
 const listPoolConfigurationAssignmentsForDevices = `-- name: ListPoolConfigurationAssignmentsForDevices :many
-SELECT d.id AS target_id, COALESCE(d.worker_name, '')::text AS worker_name,
+SELECT d.id AS target_id, COALESCE(d.worker_name, '')::text AS worker_name, (d.worker_name IS NOT NULL)::boolean AS worker_name_set, ''::text AS worker_name_mode,
  COALESCE(a.configuration_id, '')::text AS configuration_id, a.retired_at, c.account_id
 FROM device d
 LEFT JOIN pool_configuration_assignment a ON a.organization_id = d.org_id AND a.target_kind = 'device' AND a.target_id = d.id
@@ -443,6 +476,8 @@ type ListPoolConfigurationAssignmentsForDevicesParams struct {
 type ListPoolConfigurationAssignmentsForDevicesRow struct {
 	TargetID        int64
 	WorkerName      string
+	WorkerNameSet   bool
+	WorkerNameMode  string
 	ConfigurationID string
 	RetiredAt       sql.NullTime
 	AccountID       sql.NullInt64
@@ -460,6 +495,8 @@ func (q *Queries) ListPoolConfigurationAssignmentsForDevices(ctx context.Context
 		if err := rows.Scan(
 			&i.TargetID,
 			&i.WorkerName,
+			&i.WorkerNameSet,
+			&i.WorkerNameMode,
 			&i.ConfigurationID,
 			&i.RetiredAt,
 			&i.AccountID,
@@ -678,8 +715,9 @@ VALUES($1, $2, $3, $4, $5, $6, 1, $7, clock_timestamp())
 ON CONFLICT (organization_id, target_kind, target_id) DO UPDATE SET
  configuration_id = EXCLUDED.configuration_id, revision_id = EXCLUDED.revision_id,
  version = pool_configuration_assignment.version + 1, operation_id = EXCLUDED.operation_id,
+ inherited_worker_name = CASE WHEN pool_configuration_assignment.retired_at IS NULL THEN pool_configuration_assignment.inherited_worker_name ELSE NULL END,
  retired_at = NULL, updated_at = EXCLUDED.updated_at
-RETURNING organization_id, target_kind, target_id, device_id, configuration_id, revision_id, version, operation_id, retired_at, updated_at, adopted_at
+RETURNING organization_id, target_kind, target_id, device_id, configuration_id, revision_id, version, operation_id, retired_at, updated_at, adopted_at, inherited_worker_name
 `
 
 type SetPoolConfigurationAssignmentParams struct {
@@ -718,6 +756,7 @@ func (q *Queries) SetPoolConfigurationAssignment(ctx context.Context, arg SetPoo
 		&i.RetiredAt,
 		&i.UpdatedAt,
 		&i.AdoptedAt,
+		&i.InheritedWorkerName,
 	)
 	return i, err
 }

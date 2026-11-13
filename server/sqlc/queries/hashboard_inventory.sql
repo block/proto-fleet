@@ -15,6 +15,8 @@ WITH modules AS (
  CASE WHEN i.id IS NOT NULL AND s.occupancy='occupied' AND s.observed_at > now()-INTERVAL '2 minutes' THEN
  jsonb_build_object('hashboard_id',i.hashboard_id,'installation_id',i.id,'module_id',m.id,'position',p.position,
  'mac_address', COALESCE(i.metadata->>'macAddress',''), 'serial', COALESCE(i.metadata->>'serial',''),
+ 'worker_name',COALESCE(h.worker_name,''),
+ 'worker_name_mode',h.worker_name_mode,
  'metadata',i.metadata,
  'state',CASE WHEN s.state_observed_at > now()-INTERVAL '2 minutes' AND s.state_observed_at <= now()+INTERVAL '5 seconds'
  AND (s.state_observed_at >= i.installed_at OR NOT EXISTS (SELECT 1 FROM hashboard_installation prior WHERE prior.hashboard_id=i.hashboard_id AND (prior.installed_at,prior.id)<(i.installed_at,i.id))) THEN s.state ELSE 'unknown' END,
@@ -28,6 +30,7 @@ WITH modules AS (
  FROM modules m CROSS JOIN generate_series(1,3) p(position)
  LEFT JOIN hashboard_slot s ON s.module_id=m.id AND s.position=p.position
  LEFT JOIN hashboard_installation i ON i.module_id=m.id AND i.position=p.position AND i.removed_at IS NULL AND i.site_id IS NOT DISTINCT FROM m.site_id
+ LEFT JOIN hashboard h ON h.id=i.hashboard_id
  LEFT JOIN hashboard_latest_metrics mm ON mm.hashboard_id=i.hashboard_id AND mm.installation_id=i.id
  AND mm.time=s.health_observed_at AND mm.time > now()-INTERVAL '2 minutes' AND mm.time <= now()+INTERVAL '5 seconds'
 ), result AS (

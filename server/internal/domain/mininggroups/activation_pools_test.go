@@ -3,6 +3,7 @@ package mininggroups
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -87,6 +88,11 @@ func (m *activationPoolMiner) MiningGroups(ctx context.Context, r sdk.MiningGrou
 
 func newActivationPoolFixture(t *testing.T, extraBoard ...bool) (context.Context, retryFixture, *activationPoolMiner, *poolconfigurations.Service, poolconfigurations.Configuration, []int64, func(poolconfigurations.Review) poolconfigurations.ReviewedSave) {
 	t.Helper()
+	return newActivationPoolFixtureWithWorker(t, "controller-worker", extraBoard...)
+}
+
+func newActivationPoolFixtureWithWorker(t *testing.T, workerName string, extraBoard ...bool) (context.Context, retryFixture, *activationPoolMiner, *poolconfigurations.Service, poolconfigurations.Configuration, []int64, func(poolconfigurations.Review) poolconfigurations.ReviewedSave) {
+	t.Helper()
 	ctx, f := newIdleRetryFixture(t)
 	_, boards := preparePermissionPoolAssignment(t, ctx, f)
 	if len(extraBoard) > 0 && extraBoard[0] {
@@ -114,6 +120,8 @@ func newActivationPoolFixture(t *testing.T, extraBoard ...bool) (context.Context
 	info, err := session.GetInfo(ctx)
 	require.NoError(t, err)
 	password := "private-pool-password"
+	_, err = f.conn.ExecContext(ctx, `UPDATE device SET worker_name=$2 WHERE id=$1`, f.target.DeviceID, workerName)
+	require.NoError(t, err)
 	config, err := service.Create(ctx, "", poolconfigurations.RevisionOptions{Name: "Default", Slots: []poolconfigurations.SlotOptions{{URL: "stratum+tcp://pool.example:3333", Username: "account", WorkerTemplate: "{miner_name}", Password: &password}}})
 	require.NoError(t, err)
 	confirm := func(review poolconfigurations.Review) poolconfigurations.ReviewedSave {
@@ -172,21 +180,137 @@ func TestActivationPreservesPoolAssignmentAndSubsequentEdit(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "verified", operation.Targets[0].State)
 	require.Equal(t, "stratum+tcp://updated.example:3333", miner.snapshot.Groups[1].Pools[0].URL)
+	require.Equal(t, "account.controller-worker", miner.snapshot.Groups[1].Pools[0].Username)
+}
+
+func TestActivationRetainedBoardNameCanCorrectInheritedPools(t *testing.T) {
+	for _, savedWorker := range []string{"rack-one", ""} {
+		for _, editFirst := range []bool{false, true} {
+			t.Run(fmt.Sprintf("name=%q/edit=%t", savedWorker, editFirst), func(t *testing.T) {
+				ctx, f, miner, service, config, boards, confirm := newActivationPoolFixture(t)
+				// A relocated physical board retains its choice, while activation inherits
+				// the destination controller's currently applied pool stack.
+				_, err := f.conn.ExecContext(ctx, `UPDATE hashboard SET worker_name=$2,worker_name_mode=CASE WHEN $2='' THEN 'none' ELSE 'custom' END WHERE id=$1`, boards[0], savedWorker)
+				require.NoError(t, err)
+				_, err = f.service.Activate(ctx, f.target.DeviceIdentifier, uuid.NewString())
+				require.NoError(t, err)
+				for range 8 {
+					if active(f.state(t).Status) {
+						f.reconcile(t, ctx)
+					}
+				}
+				require.Equal(t, statusComplete, f.state(t).Status)
+				require.Equal(t, "account.controller-worker", miner.snapshot.Groups[0].Pools[0].Username)
+				var savedName string
+				require.NoError(t, f.conn.QueryRowContext(ctx, `SELECT worker_name FROM hashboard WHERE id=$1`, boards[0]).Scan(&savedName))
+				require.Equal(t, savedWorker, savedName, "activation must preserve a physical board's explicit choice")
+				if editFirst {
+					password := "updated-password"
+					edit, err := service.ReviewEdit(ctx, "", config.ID, config.Version, poolconfigurations.RevisionOptions{Name: config.Name, Slots: []poolconfigurations.SlotOptions{{ID: config.Slots[0].ID, URL: "stratum+tcp://updated.example:3333", Username: "account", WorkerTemplate: "{miner_name}", Password: &password}}})
+					require.NoError(t, err)
+					updated := confirm(edit)
+					config = updated.Configuration
+					require.NoError(t, f.service.ExecutePoolConfiguration(ctx, f.target.OrganizationID, updated.Operation.ID, f.target.DeviceID))
+					for range 20 {
+						if active(f.state(t).Status) {
+							f.reconcile(t, ctx)
+						}
+					}
+					require.Equal(t, statusComplete, f.state(t).Status)
+					op, err := service.GetOperation(ctx, "", updated.Operation.ID)
+					require.NoError(t, err)
+					require.Equal(t, "verified", op.Targets[0].State)
+					require.Equal(t, "account.controller-worker", miner.snapshot.Groups[1].Pools[0].Username)
+					require.NoError(t, f.conn.QueryRowContext(ctx, `SELECT worker_name FROM hashboard WHERE id=$1`, boards[0]).Scan(&savedName))
+					require.Equal(t, savedWorker, savedName)
+				}
+				reviews, count, err := service.ReviewBoardWorkerNames(ctx, poolconfigurations.BoardSelection{HashboardIDs: boards}, poolconfigurations.WorkerNameOptions{Custom: savedWorker})
+				require.NoError(t, err)
+				require.Equal(t, 1, count)
+				require.Len(t, reviews, 1, "matching saved metadata is not proof that inherited settings match")
+				require.Equal(t, "controller-worker", reviews[0].WorkerNames[0].Before)
+				require.Equal(t, savedWorker, reviews[0].WorkerNames[0].After)
+				// A reviewed correction cannot replace intent changed after review.
+				info, err := session.GetInfo(ctx)
+				require.NoError(t, err)
+				repo := poolconfigurations.NewRepository(f.service.secrets)
+				tx, err := f.conn.BeginTx(ctx, nil)
+				require.NoError(t, err)
+				t.Cleanup(func() { _ = tx.Rollback() })
+				_, err = tx.ExecContext(ctx, `UPDATE pool_configuration_assignment SET version=version+1 WHERE device_id=$1 AND target_kind='hashboard_installation'`, f.target.DeviceID)
+				require.NoError(t, err)
+				_, err = repo.ConfirmReview(ctx, sqlc.New(tx), poolconfigurations.Scope{OrganizationID: info.OrganizationID}, info.UserID, reviews[0].ID, f.service.sharedReviewer, nil)
+				require.Error(t, err)
+				require.NoError(t, tx.Rollback())
+				var inherited string
+				require.NoError(t, f.conn.QueryRowContext(ctx, `SELECT inherited_worker_name FROM pool_configuration_assignment WHERE device_id=$1 AND target_kind='hashboard_installation'`, f.target.DeviceID).Scan(&inherited))
+				require.Equal(t, "controller-worker", inherited)
+				require.NoError(t, f.conn.QueryRowContext(ctx, `SELECT worker_name FROM hashboard WHERE id=$1`, boards[0]).Scan(&savedName))
+				require.Equal(t, savedWorker, savedName)
+				reviews, _, err = service.ReviewBoardWorkerNames(ctx, poolconfigurations.BoardSelection{HashboardIDs: boards}, poolconfigurations.WorkerNameOptions{Custom: savedWorker})
+				require.NoError(t, err)
+				require.Len(t, reviews, 1)
+				saved := confirm(reviews[0])
+				require.NoError(t, f.service.ExecutePoolConfiguration(ctx, f.target.OrganizationID, saved.Operation.ID, f.target.DeviceID))
+				for range 20 {
+					if active(f.state(t).Status) {
+						f.reconcile(t, ctx)
+					}
+				}
+				require.Equal(t, statusComplete, f.state(t).Status)
+				assignments, err := service.GetBoardAssignments(ctx, "", poolconfigurations.BoardSelection{HashboardIDs: boards})
+				require.NoError(t, err)
+				checked, err := service.CheckConfiguration(ctx, "", config.ID, poolconfigurations.AssignmentTarget{Kind: poolconfigurations.TargetInstallation, ID: assignments.Assignments[0].InstallationID})
+				require.NoError(t, err)
+				require.Equal(t, "verified", checked.State)
+				expected := "account"
+				if savedWorker != "" {
+					expected += "." + savedWorker
+				}
+				require.Equal(t, expected, checked.Reported[0].Username)
+				reviews, _, err = service.ReviewBoardWorkerNames(ctx, poolconfigurations.BoardSelection{HashboardIDs: boards}, poolconfigurations.WorkerNameOptions{Custom: savedWorker})
+				require.NoError(t, err)
+				require.Empty(t, reviews, "already applied names remain a no-op")
+			})
+		}
+	}
+}
+
+func TestActivationPreservesEmptyControllerWorkerInput(t *testing.T) {
+	ctx, f, miner, _, _, boards, _ := newActivationPoolFixtureWithWorker(t, "")
+	_, err := f.service.Activate(ctx, f.target.DeviceIdentifier, uuid.NewString())
+	require.NoError(t, err)
+	for range 8 {
+		if active(f.state(t).Status) {
+			f.reconcile(t, ctx)
+		}
+	}
+	require.Equal(t, statusComplete, f.state(t).Status)
+	require.Equal(t, "account", miner.snapshot.Groups[0].Pools[0].Username)
+	var name, mode, inherited string
+	require.NoError(t, f.conn.QueryRowContext(ctx, `SELECT h.worker_name,h.worker_name_mode,a.inherited_worker_name FROM hashboard h JOIN hashboard_installation i ON i.hashboard_id=h.id JOIN pool_configuration_assignment a ON a.target_kind='hashboard_installation' AND a.target_id=i.id WHERE h.id=$1`, boards[0]).Scan(&name, &mode, &inherited))
+	require.Empty(t, name)
+	require.Equal(t, "none", mode)
+	require.Empty(t, inherited)
 }
 
 func TestActivationPoolHandoffRetriesAndObservations(t *testing.T) {
-	for _, scenario := range []string{"restart", "different", "missing board", "ambiguous membership", "read unavailable", "saved worker", "running"} {
+	for _, scenario := range []string{"restart", "different", "missing board", "ambiguous membership", "read unavailable", "saved worker", "legacy journal", "running"} {
 		t.Run(scenario, func(t *testing.T) {
 			ctx, f, miner, service, config, boards, _ := newActivationPoolFixture(t)
 			expectedState := "verified"
 			requestID := uuid.NewString()
-			if scenario == "saved worker" {
+			if scenario == "saved worker" || scenario == "legacy journal" {
 				_, err := f.conn.ExecContext(ctx, `UPDATE device SET worker_name='changed-after-application' WHERE id=$1`, f.target.DeviceID)
 				require.NoError(t, err)
 			}
 			miner.running = scenario == "running"
 			_, err := f.service.Activate(ctx, f.target.DeviceIdentifier, requestID)
 			require.NoError(t, err)
+			if scenario == "legacy journal" {
+				_, err = f.conn.ExecContext(ctx, `UPDATE mining_group_pool_handoff SET captured=captured-'WorkerName' WHERE device_id=$1`, f.target.DeviceID)
+				require.NoError(t, err)
+			}
 			f.prepareActivation(t, ctx)
 			miner.loseActivation = scenario == "restart"
 			f.reconcile(t, ctx)
@@ -222,6 +346,9 @@ func TestActivationPoolHandoffRetriesAndObservations(t *testing.T) {
 			require.NoError(t, err)
 			require.Equal(t, config.ID, got.Assignments[0].ConfigurationID)
 			require.Equal(t, expectedState, got.Assignments[0].State)
+			var inherited string
+			require.NoError(t, f.conn.QueryRowContext(ctx, `SELECT inherited_worker_name FROM pool_configuration_assignment WHERE target_kind='hashboard_installation' AND target_id=$1`, got.Assignments[0].InstallationID).Scan(&inherited))
+			require.Equal(t, "controller-worker", inherited)
 			require.Equal(t, scenario == "running", miner.snapshot.Groups[0].Mining)
 			checked, err := service.CheckConfiguration(ctx, "", config.ID, poolconfigurations.AssignmentTarget{Kind: poolconfigurations.TargetInstallation, ID: got.Assignments[0].InstallationID})
 			require.NoError(t, err)

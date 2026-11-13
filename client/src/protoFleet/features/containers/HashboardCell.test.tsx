@@ -58,6 +58,18 @@ it.each([
   expect(screen.getByText(expected)).toBeInTheDocument();
 });
 
+it.each([
+  ["occupied", "e245", "e245"],
+  ["occupied", "rack-one", "rack-one"],
+  ["occupied", "", "—"],
+  ["empty", "old-worker", "—"],
+  ["unknown", "old-worker", "—"],
+])("shows the saved worker name for %s slots (%s)", (occupancy, workerName, expected) => {
+  const slot = create(HashboardSlotSchema, { position: 1, occupancy, board: { workerName } });
+  render(<HashboardCell slot={slot} column="workerName" />);
+  expect(screen.getByText(expected)).toBeInTheDocument();
+});
+
 it("keeps isolation separate from the canonical operating state", () => {
   const slot = create(HashboardSlotSchema, {
     position: 1,

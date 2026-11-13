@@ -124,9 +124,13 @@ func (c *Checker) CheckConfiguration(ctx context.Context, p poolconfigurations.P
 						}
 					}
 				}
+				workerID, workerName, err := c.reviewer.WorkerInputs(ctx, q, p.Scope, target, runtime)
+				if err != nil {
+					return err
+				}
 				desired = make([]dto.MiningPool, len(slots))
 				for i, slot := range slots {
-					username, err := poolconfigurations.RenderWorker(slot.Username, slot.WorkerTemplate, runtime.DeviceIdentifier, runtime.WorkerName)
+					username, err := poolconfigurations.RenderWorker(slot.Username, slot.WorkerTemplate, workerID, workerName)
 					if err != nil {
 						return err
 					}
