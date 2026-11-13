@@ -2825,17 +2825,18 @@ type PoolConfiguration struct {
 }
 
 type PoolConfigurationAssignment struct {
-	OrganizationID  int64
-	TargetKind      string
-	TargetID        int64
-	DeviceID        int64
-	ConfigurationID string
-	RevisionID      string
-	Version         int64
-	OperationID     sql.NullString
-	RetiredAt       sql.NullTime
-	UpdatedAt       time.Time
-	AdoptedAt       sql.NullTime
+	OrganizationID      int64
+	TargetKind          string
+	TargetID            int64
+	DeviceID            int64
+	ConfigurationID     string
+	RevisionID          string
+	Version             int64
+	OperationID         sql.NullString
+	RetiredAt           sql.NullTime
+	UpdatedAt           time.Time
+	AdoptedAt           sql.NullTime
+	InheritedWorkerName sql.NullString
 }
 
 type PoolConfigurationBoardIntent struct {

@@ -74,6 +74,8 @@ the CT1 plugin advertises `worker_name_default_none`. Explicit empty names stay
 empty. A `{miner_name}` template with an empty name leaves the payout username
 unchanged, including its existing periods, and does not add a trailing dot.
 Other explicit worker templates retain their normal expansion rules.
+`{miner_id}` always means the controller/miner identifier, including for
+hashboard assignments; choosing MAC address uses the board MAC as `{miner_name}`.
 
 Hashboard names and their selected strategies belong to the physical hashboard
 identity and survive moves. Module worker-name cells summarize installed boards:
@@ -87,14 +89,15 @@ Existing saved names and previously applied settings are preserved until a
 reviewed pool update is applied.
 
 On upgrade, migration 1076 preserves the old controller-derived `{miner_name}`
-input for active CT1 pool assignments. Currently installed boards with an
+input for active CT1 pool assignments and the old trimmed-name, MAC, or identifier
+fallback for active ordinary-miner assignments. Currently installed boards with an
 individual or whole-container assignment receive that inherited name as Custom,
 including when it is the controller's MAC. Whole-container assignments also
 retain an explicit controller name. Only assigned revisions that use
 `{miner_name}` need this backfill; new/unassigned boards continue to default to
 no suffix. The migration changes metadata only and does not dispatch pool work.
-Rollback removes board names and strategies but retains materialized controller
-names, which preserve the same pre-upgrade rendering.
+Rollback removes board names, strategies, and inherited assignment inputs but
+retains materialized miner/controller names, preserving pre-upgrade rendering.
 
 ## CT1 module identity
 
@@ -170,6 +173,16 @@ the handoff verifies ordered pool settings and membership; the observation from
 before the lock gap cannot verify them. Unavailable or different observations
 do not become verified. Group passwords
 remain write-only, with encrypted credentials preserved from the source revision.
+
+The adopted assignment retains the applied controller worker input separately
+from the physical board's saved choice. Activation initializes only unnamed
+boards; explicit empty or custom choices survive. Ordinary pool edits continue
+using the inherited input. An operator can select the saved worker-name choice
+again to replace an inherited name through the existing review and confirmation
+flow. Its preview shows the inherited name and requested name, even when saved
+metadata already matches the request. Confirmation clears the inherited input
+atomically with the new assignment; changed assignment versions, stale revisions,
+and unresolved writes still prevent an unsafe retry.
 
 The original selection survives retries and restarts. Changed ownership,
 permissions, installations or assignment generations prevent further mutations,

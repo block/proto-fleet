@@ -56,8 +56,8 @@ func TestHashboardWorkerNamesMigration(t *testing.T) {
 	_, err = database.DB.ExecContext(ctx, string(down))
 	require.NoError(t, err)
 	var columns, boards int
-	require.NoError(t, database.DB.QueryRowContext(ctx, `SELECT count(*) FROM information_schema.columns WHERE table_schema='public' AND table_name='hashboard' AND column_name IN ('worker_name','worker_name_mode')`).Scan(&columns))
-	require.Zero(t, columns, "rollback removes both columns")
+	require.NoError(t, database.DB.QueryRowContext(ctx, `SELECT count(*) FROM information_schema.columns WHERE table_schema='public' AND ((table_name='hashboard' AND column_name IN ('worker_name','worker_name_mode')) OR (table_name='pool_configuration_assignment' AND column_name='inherited_worker_name'))`).Scan(&columns))
+	require.Zero(t, columns, "rollback removes worker-name columns")
 	require.NoError(t, database.DB.QueryRowContext(ctx, `SELECT count(*) FROM hashboard WHERE id=$1`, id).Scan(&boards))
 	require.Equal(t, 1, boards, "rollback preserves the physical board")
 	_, err = database.DB.ExecContext(ctx, string(up))
@@ -76,7 +76,17 @@ func TestHashboardWorkerNamesMigrationPreservesAssignedSuffixes(t *testing.T) {
 		worker                                    sql.NullString
 		retired, removed, unassigned, adopted     bool
 		newerRevision                             bool
+		ordinary                                  bool
 	}{
+		{name: "board miner ID", targetKind: "hashboard_installation", template: "{miner_id}", mac: "aa:bb:cc:dd:ee:ff"},
+		{name: "board mixed placeholders", targetKind: "hashboard_installation", template: "{miner_id}-{miner_name}", mac: "aa:bb:cc:dd:ee:ff", expected: "aa:bb:cc:dd:ee:ff"},
+		{name: "ordinary empty name", ordinary: true, targetKind: "device", template: "{miner_name}", mac: "AA:BB:CC:DD:EE:FF", worker: sql.NullString{Valid: true}, expected: "AA:BB:CC:DD:EE:FF"},
+		{name: "ordinary whitespace name", ordinary: true, targetKind: "device", template: "{miner_name}", mac: "aa:bb:cc:dd:ee:ff", worker: sql.NullString{String: "   ", Valid: true}, expected: "aa:bb:cc:dd:ee:ff"},
+		{name: "ordinary whitespace controls", ordinary: true, targetKind: "device", template: "{miner_name}", mac: "aa:bb:cc:dd:ee:ff", worker: sql.NullString{String: "\t\r\n", Valid: true}, expected: "aa:bb:cc:dd:ee:ff"},
+		{name: "ordinary unicode spaces", ordinary: true, targetKind: "device", template: "{miner_name}", worker: sql.NullString{String: "\u00a0\u2003rack-one\u3000", Valid: true}, expected: "rack-one"},
+		{name: "ordinary trimmed name", ordinary: true, targetKind: "device", template: "{miner_name}", worker: sql.NullString{String: " rack-one ", Valid: true}, expected: "rack-one"},
+		{name: "ordinary missing MAC", ordinary: true, targetKind: "device", template: "{miner_name}", expected: "controller-id"},
+		{name: "ordinary unset name", ordinary: true, targetKind: "device", template: "{miner_name}", mac: "AA:BB:CC:DD:EE:FF", expected: "AA:BB:CC:DD:EE:FF"},
 		{name: "board inherits controller MAC", targetKind: "hashboard_installation", template: "{miner_name}", mac: "AA:BB:CC:DD:EE:FF", expected: "AA:BB:CC:DD:EE:FF"},
 		{name: "adopted board", targetKind: "hashboard_installation", template: "{miner_name}", mac: "aa:bb:cc:dd:ee:ff", expected: "aa:bb:cc:dd:ee:ff", adopted: true},
 		{name: "assigned revision differs from latest", targetKind: "hashboard_installation", template: "{miner_name}", mac: "aa:bb:cc:dd:ee:ff", expected: "aa:bb:cc:dd:ee:ff", newerRevision: true},
@@ -105,7 +115,7 @@ func TestHashboardWorkerNamesMigrationPreservesAssignedSuffixes(t *testing.T) {
 			require.NoError(t, err)
 
 			var discovery, device, tank, module, board, installation int64
-			require.NoError(t, conn.QueryRowContext(ctx, `INSERT INTO discovered_device(org_id,device_identifier,ip_address,port,url_scheme,driver_name,device_class) VALUES($1,'controller-id','192.0.2.1','80','http','proto',2) RETURNING id`, org).Scan(&discovery))
+			require.NoError(t, conn.QueryRowContext(ctx, `INSERT INTO discovered_device(org_id,device_identifier,ip_address,port,url_scheme,driver_name,device_class) VALUES($1,'controller-id','192.0.2.1','80','http','proto',$2) RETURNING id`, org, map[bool]int{true: 1, false: 2}[tc.ordinary]).Scan(&discovery))
 			require.NoError(t, conn.QueryRowContext(ctx, `INSERT INTO device(org_id,device_identifier,discovered_device_id,mac_address,worker_name) VALUES($1,'controller-id',$2,$3,$4) RETURNING id`, org, discovery, tc.mac, tc.worker).Scan(&device))
 			_, err = conn.ExecContext(ctx, `INSERT INTO device_write_fence(device_id,organization_id) VALUES($1,$2)`, device, org)
 			require.NoError(t, err)
@@ -160,7 +170,7 @@ func TestHashboardWorkerNamesMigrationPreservesAssignedSuffixes(t *testing.T) {
 			var name sql.NullString
 			var mode string
 			require.NoError(t, conn.QueryRowContext(ctx, `SELECT worker_name,worker_name_mode FROM hashboard WHERE id=$1`, board).Scan(&name, &mode))
-			if tc.expected == "" {
+			if tc.expected == "" || tc.ordinary {
 				require.False(t, name.Valid)
 				require.Equal(t, "none", mode)
 			} else {
@@ -182,6 +192,9 @@ func TestHashboardWorkerNamesMigrationPreservesAssignedSuffixes(t *testing.T) {
 			before, err := poolconfigurations.RenderWorker("account", tc.template, "controller-id", tc.expected)
 			require.NoError(t, err)
 			require.Equal(t, before, rendered, "readback and reapply must preserve the pre-upgrade pool username")
+			if tc.ordinary {
+				return
+			}
 			inventory := fleetinventory.NewService(q)
 			boards, err := inventory.Hashboards(ctx, org, &inventorypb.GetModuleHashboardsRequest{ModuleIds: []int64{module}}, []fleetinventory.Scope{{OrgWide: true}})
 			require.NoError(t, err)

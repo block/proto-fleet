@@ -197,7 +197,7 @@ func (s *Service) reviewWorkerNames(ctx context.Context, resolve workerNameResol
 			selected := make([]AssignmentTarget, 0, len(groups[id]))
 			for _, target := range groups[id] {
 				if assignment := byTarget[AssignmentTarget{Kind: target.Kind, ID: target.ID}]; assignment.WorkerNameSet && sameWorkerName(assignment.WorkerName, desired[target]) && (target.Kind != TargetInstallation || assignment.WorkerNameMode == mode) {
-					retry, err := workerNameRetryEligible(ctx, q, p.Scope, target, config.RevisionID)
+					retry, err := workerNameRetryEligible(ctx, q, p.Scope, target, config.RevisionID, desired[target])
 					if err != nil {
 						return nil, err
 					}
@@ -243,6 +243,9 @@ func workerNameChanges(targets []reviewedTarget) []WorkerNameChange {
 		var binding workerNameBinding
 		_ = json.Unmarshal([]byte(target.Binding), &binding)
 		change := WorkerNameChange{DeviceIdentifier: binding.Device.DeviceIdentifier, Before: binding.EffectiveWorkerName, After: *target.DesiredWorkerName}
+		if target.PreviousWorkerName != nil {
+			change.Before = *target.PreviousWorkerName
+		}
 		if binding.Board != nil {
 			change.HashboardID = binding.Board.HashboardID
 			change.DisplayName = binding.Label
@@ -257,13 +260,17 @@ func sameWorkerName(a, b string) bool { return strings.TrimSpace(a) == strings.T
 
 // Matching metadata is not evidence that the miner accepted the name. Only the
 // current canonical assignment and its latest readback can authorize a reapply.
-func workerNameRetryEligible(ctx context.Context, q sqlc.Querier, scope Scope, target AssignmentTarget, revisionID string) (bool, error) {
+func workerNameRetryEligible(ctx context.Context, q sqlc.Querier, scope Scope, target AssignmentTarget, revisionID, desired string) (bool, error) {
 	assignment, err := q.GetPoolConfigurationAssignment(ctx, sqlc.GetPoolConfigurationAssignmentParams{OrganizationID: scope.OrganizationID, TargetKind: target.Kind, TargetID: target.ID})
 	if err != nil {
 		return false, storageError(err)
 	}
-	if assignment.RetiredAt.Valid || !assignment.OperationID.Valid {
+	if assignment.RetiredAt.Valid {
 		return false, nil
+	}
+	if !assignment.OperationID.Valid {
+		changed, _, err := adoptedWorkerNameChange(ctx, q, scope, target, revisionID, desired)
+		return changed, err
 	}
 	work, err := q.GetPoolConfigurationWork(ctx, sqlc.GetPoolConfigurationWorkParams{OrganizationID: scope.OrganizationID, OperationID: assignment.OperationID.String, TargetKind: target.Kind, TargetID: target.ID})
 	if err != nil {
@@ -283,7 +290,8 @@ func workerNameRetryEligible(ctx context.Context, q sqlc.Querier, scope Scope, t
 	if code == resultWriteUncertain {
 		return false, retryUnavailable()
 	}
-	if !retryableOutcome(state, code) {
+	inheritedChange := assignment.InheritedWorkerName.Valid && assignment.InheritedWorkerName.String != desired
+	if !inheritedChange && !retryableOutcome(state, code) {
 		return false, nil
 	}
 	// Retrying a name must not silently apply a newer configuration revision.
@@ -298,28 +306,37 @@ func workerNameRetryEligible(ctx context.Context, q sqlc.Querier, scope Scope, t
 func checkWorkerNameRetries(ctx context.Context, q sqlc.Querier, scope Scope, revisionID string, targets []reviewedTarget) error {
 	for _, item := range targets {
 		changes := workerNameChanges([]reviewedTarget{item})
-		if len(changes) == 0 || !sameWorkerName(changes[0].Before, changes[0].After) {
+		if len(changes) == 0 {
 			continue
 		}
 		var binding workerNameBinding
 		if err := json.Unmarshal([]byte(item.Binding), &binding); err != nil {
 			return fleeterror.NewInternalError("decode reviewed worker binding failed")
 		}
+		savedName := binding.Device.WorkerName
 		explicit := binding.Device.WorkerNameSet
 		if binding.Board != nil {
 			if binding.Board.WorkerNameMode != item.DesiredWorkerNameMode {
 				continue
 			}
+			savedName = binding.Board.WorkerName
 			explicit = binding.Board.WorkerNameSet
 		}
-		if !explicit {
+		if !explicit || !sameWorkerName(savedName, changes[0].After) {
 			continue
 		}
 		target := item.Change.Target
+		inheritedChange, _, err := adoptedWorkerNameChange(ctx, q, scope, target, revisionID, changes[0].After)
+		if err != nil {
+			return err
+		}
+		if inheritedChange {
+			continue
+		}
 		if _, err := q.LockCurrentPoolConfigurationOperationTarget(ctx, sqlc.LockCurrentPoolConfigurationOperationTargetParams{OrganizationID: scope.OrganizationID, TargetKind: target.Kind, TargetID: target.ID}); err != nil {
 			return storageError(err)
 		}
-		retry, err := workerNameRetryEligible(ctx, q, scope, target, revisionID)
+		retry, err := workerNameRetryEligible(ctx, q, scope, target, revisionID, changes[0].After)
 		if err != nil {
 			return err
 		}

@@ -324,7 +324,7 @@ func (s *Service) authorizeSharedWorkflow(ctx context.Context, q sqlc.Querier, r
 		if err != nil {
 			return true, err
 		}
-		if len(boards) != 1 || saved.Board == nil || boards[0].MacAddress != saved.Board.MAC || boards[0].DeviceID != row.DeviceID || boards[0].WorkerName != saved.Board.WorkerName || boards[0].WorkerNameSet != saved.Board.WorkerNameSet || boards[0].WorkerNameMode != saved.Board.WorkerNameMode {
+		if len(boards) != 1 || saved.Board == nil || boards[0].MacAddress != saved.Board.MAC || boards[0].DeviceID != row.DeviceID || boards[0].WorkerName != saved.Board.WorkerName || boards[0].WorkerNameSet != saved.Board.WorkerNameSet || boards[0].WorkerNameMode != saved.Board.WorkerNameMode || boards[0].InheritedWorkerName != saved.Board.InheritedWorkerName {
 			return true, fleeterror.NewForbiddenError("board installation changed")
 		}
 	}

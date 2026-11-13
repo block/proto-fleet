@@ -64,6 +64,7 @@ type BoardBinding struct {
 	WorkerName                            string
 	WorkerNameSet                         bool
 	WorkerNameMode                        string
+	InheritedWorkerName                   sql.NullString
 }
 
 func (r *Reviewer) ReviewTargets(ctx context.Context, q sqlc.Querier, scope poolconfigurations.Scope, actorID int64, targets []poolconfigurations.AssignmentTarget, slots []poolconfigurations.Endpoint) ([]poolconfigurations.TargetApproval, error) {
@@ -149,7 +150,7 @@ func (r *Reviewer) reviewTargets(ctx context.Context, q sqlc.Querier, scope pool
 					return nil, fleeterror.NewFailedPreconditionError("selected board installation changed or is stale")
 				}
 				board := boards[0]
-				binding.Board = &BoardBinding{InstallationID: board.InstallationID, HashboardID: board.HashboardID, ModuleID: board.ModuleID, Position: board.Position, MAC: board.MacAddress, WorkerName: board.WorkerName, WorkerNameSet: board.WorkerNameSet, WorkerNameMode: board.WorkerNameMode}
+				binding.Board = &BoardBinding{InstallationID: board.InstallationID, HashboardID: board.HashboardID, ModuleID: board.ModuleID, Position: board.Position, MAC: board.MacAddress, WorkerName: board.WorkerName, WorkerNameSet: board.WorkerNameSet, WorkerNameMode: board.WorkerNameMode, InheritedWorkerName: board.InheritedWorkerName}
 				binding.Label = fmt.Sprintf("%s · Hashboard %d", board.ModuleName, board.Position)
 			}
 			seen := map[string]bool{}
@@ -169,8 +170,10 @@ func (r *Reviewer) reviewTargets(ctx context.Context, q sqlc.Querier, scope pool
 		}
 		identifier, name := device.DeviceIdentifier, equipmentWorkerName(caps, device.WorkerName, device.WorkerNameSet, device.MacAddress)
 		if binding.Board != nil {
-			identifier = binding.Board.MAC
 			name = equipmentWorkerName(caps, binding.Board.WorkerName, binding.Board.WorkerNameSet, binding.Board.MAC)
+			if binding.Board.InheritedWorkerName.Valid {
+				name = binding.Board.InheritedWorkerName.String
+			}
 		}
 		binding.EffectiveWorkerName = name
 		for i, slot := range slots {
@@ -314,7 +317,11 @@ func (r *Reviewer) WorkerInputs(ctx context.Context, q sqlc.Querier, scope poolc
 			return "", "", fleeterror.NewFailedPreconditionError("board installation changed")
 		}
 		board := rows[0]
-		return board.MacAddress, equipmentWorkerName(caps, board.WorkerName, board.WorkerNameSet, board.MacAddress), nil
+		name := equipmentWorkerName(caps, board.WorkerName, board.WorkerNameSet, board.MacAddress)
+		if board.InheritedWorkerName.Valid {
+			name = board.InheritedWorkerName.String
+		}
+		return device.DeviceIdentifier, name, nil
 	}
 	return device.DeviceIdentifier, equipmentWorkerName(caps, device.WorkerName, device.WorkerNameSet, device.MacAddress), nil
 }

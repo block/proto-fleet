@@ -34,6 +34,7 @@ type reviewedTarget struct {
 	VerificationState     string `json:",omitempty"`
 	ClearSupported        bool
 	DesiredWorkerName     *string `json:",omitempty"`
+	PreviousWorkerName    *string `json:",omitempty"`
 	DesiredWorkerNameMode string  `json:",omitempty"`
 	Change                AssignmentChange
 	Binding               string
@@ -140,9 +141,6 @@ func (r *Repository) reviewAssignment(ctx context.Context, q sqlc.Querier, scope
 				return Review{}, fleeterror.NewInternalError("decode reviewed worker binding failed")
 			}
 			identifier := binding.Device.DeviceIdentifier
-			if binding.Board != nil {
-				identifier = binding.Board.MAC
-			}
 			for _, slot := range public.Slots {
 				if _, err := RenderWorker(slot.Username, slot.WorkerTemplate, identifier, name); err != nil {
 					return Review{}, err
@@ -150,6 +148,11 @@ func (r *Repository) reviewAssignment(ctx context.Context, q sqlc.Querier, scope
 			}
 			changes[i].DesiredWorkerName = &name
 			changes[i].DesiredWorkerNameMode = mode
+			_, before, err := adoptedWorkerNameChange(ctx, q, scope, changes[i].Change.Target, public.RevisionID, name)
+			if err != nil {
+				return Review{}, err
+			}
+			changes[i].PreviousWorkerName = before
 		}
 	}
 	if err := checkWorkerNameRetries(ctx, q, scope, public.RevisionID, changes); err != nil {
@@ -348,6 +351,16 @@ func (r *Repository) ConfirmReview(ctx context.Context, q sqlc.Querier, scope Sc
 	if len(workerChanges) > 0 {
 		if err := authorizeWorkerNames(ctx, q, scope, actorID); err != nil {
 			return ReviewedSave{}, err
+		}
+		for i, item := range reviewed {
+			if item.DesiredWorkerName == nil || item.Change.Target.Kind != TargetInstallation {
+				continue
+			}
+			n, err := q.ClearInheritedPoolWorkerName(ctx, sqlc.ClearInheritedPoolWorkerNameParams{OrganizationID: scope.OrganizationID, TargetKind: item.Change.Target.Kind, TargetID: item.Change.Target.ID, Version: item.Change.ExpectedVersion})
+			if err != nil {
+				return ReviewedSave{}, storageError(err)
+			}
+			changes[i].ExpectedVersion += n
 		}
 		for _, change := range workerChanges {
 			var n int64

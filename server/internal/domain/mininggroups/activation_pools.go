@@ -28,6 +28,7 @@ type activationPoolBoard struct {
 // Only immutable references and credential-free bindings enter the journal.
 // Encrypted execution material lives in the existing group snapshot store.
 type activationPoolCapture struct {
+	WorkerName *string
 	Source     sqlc.GetPoolConfigurationAssignmentRow
 	Runtime    sqlc.GetPoolConfigurationRuntimeRow
 	Ownership  string
@@ -98,11 +99,20 @@ func (s *Service) captureActivationPools(ctx context.Context, q sqlc.Querier, ro
 				return capture, fleeterror.NewFailedPreconditionError(activationPoolRecovery)
 			}
 			usernames = binding.Usernames
+			// Bindings written before worker-name policies stored the effective
+			// input directly in Device.WorkerName. Both represent applied intent,
+			// which can differ from today's controller metadata.
+			name := binding.EffectiveWorkerName
+			if name == "" {
+				name = binding.Device.WorkerName
+			}
+			capture.WorkerName = &name
 		} else {
 			workerID, workerName, err := s.sharedReviewer.WorkerInputs(ctx, q, scope, poolconfigurations.AssignmentTarget{Kind: poolconfigurations.TargetDevice, ID: row.DeviceID, DeviceID: row.DeviceID}, capture.Runtime)
 			if err != nil {
 				return capture, err
 			}
+			capture.WorkerName = &workerName
 			for _, slot := range slots {
 				username, err := poolconfigurations.RenderWorker(slot.Username, slot.WorkerTemplate, workerID, workerName)
 				if err != nil {
@@ -274,13 +284,32 @@ func (s *Service) validateActivationPools(ctx context.Context, q sqlc.Querier, r
 func (s *Service) finishActivationPools(ctx context.Context, q sqlc.Querier, row *sqlc.ContainerMiningGroupState, observed sdk.MiningGroupResult, capture activationPoolCapture) error {
 	scope := poolconfigurations.Scope{OrganizationID: row.OrganizationID}
 	repository := poolconfigurations.NewRepository(s.secrets)
+	name := capture.Runtime.WorkerName
+	if capture.WorkerName != nil {
+		name = *capture.WorkerName
+	} else if capture.Source.OperationID.Valid {
+		// Journals created on main predate WorkerName. Recover their applied
+		// input from the immutable operation, not possibly newer metadata.
+		work, err := q.GetPoolConfigurationWork(ctx, sqlc.GetPoolConfigurationWorkParams{OrganizationID: row.OrganizationID, OperationID: capture.Source.OperationID.String, TargetKind: poolconfigurations.TargetDevice, TargetID: row.DeviceID})
+		if err != nil {
+			return err
+		}
+		var binding poolapplications.Binding
+		if err := decode([]byte(work.ReviewedBinding), &binding); err != nil {
+			return err
+		}
+		name = binding.Device.WorkerName
+	}
 	if err := repository.RetireAssignment(ctx, q, scope, poolconfigurations.AssignmentTarget{Kind: poolconfigurations.TargetDevice, ID: row.DeviceID, DeviceID: row.DeviceID}, capture.Source.Version); err != nil {
 		return err
 	}
 	for _, board := range capture.Boards {
+		if err := q.InitializeHashboardWorkerName(ctx, sqlc.InitializeHashboardWorkerNameParams{OrgID: row.OrganizationID, HashboardID: board.Binding.HashboardID, WorkerName: name}); err != nil {
+			return err
+		}
 		// A transfer preserves the assigned revision even when the library has since
 		// advanced. It never creates physical work or overwrites a prior board row.
-		n, err := q.AdoptPoolConfigurationAssignment(ctx, sqlc.AdoptPoolConfigurationAssignmentParams{OrganizationID: row.OrganizationID, TargetKind: poolconfigurations.TargetInstallation, TargetID: board.Binding.InstallationID, DeviceID: row.DeviceID, ConfigurationID: capture.Source.ConfigurationID, RevisionID: capture.Source.RevisionID})
+		n, err := q.AdoptPoolConfigurationAssignment(ctx, sqlc.AdoptPoolConfigurationAssignmentParams{OrganizationID: row.OrganizationID, TargetKind: poolconfigurations.TargetInstallation, TargetID: board.Binding.InstallationID, DeviceID: row.DeviceID, ConfigurationID: capture.Source.ConfigurationID, RevisionID: capture.Source.RevisionID, InheritedWorkerName: sql.NullString{String: name, Valid: true}})
 		if err != nil {
 			return err
 		}
