@@ -20,6 +20,8 @@ type Device struct {
 	writeMu      sync.Mutex
 	firmwareOnce sync.Once
 	firmware     *firmwareState
+	errorsOnce   sync.Once
+	errorState   *errorState
 	// updateOrder is a routing hint for Frigate update status calls.
 	updateOrder updateOrder
 }
@@ -66,7 +68,7 @@ func NewDevice(ctx context.Context, id string, info sdk.DeviceInfo, credentials 
 	return d, nil
 }
 func Capabilities() sdk.Capabilities {
-	return sdk.Capabilities{sdk.CapabilityFirmware: true, sdk.CapabilityManualUpload: true, sdk.CapabilityFirmwareSelfManaged: true, sdk.CapabilityContainerMining: true, sdk.CapabilityPoolConfig: true, sdk.CapabilityPoolClear: true, sdk.CapabilityPoolPriority: true, sdk.CapabilityMiningGroups: true, sdk.CapabilityMiningGroupPoolClear: true, sdk.CapabilityTankMining: true, sdk.CapabilityModuleMining: true, sdk.CapabilityContainerControl: true, sdk.CapabilityFrigateServerUpdate: true, sdk.CapabilityPollingHost: true, sdk.CapabilityDiscovery: true, sdk.CapabilityPairing: true, sdk.CapabilityRealtimeTelemetry: true, sdk.CapabilityHashrateReported: true, sdk.CapabilityPowerUsage: true}
+	return sdk.Capabilities{sdk.CapabilityFirmware: true, sdk.CapabilityManualUpload: true, sdk.CapabilityFirmwareSelfManaged: true, sdk.CapabilityContainerMining: true, sdk.CapabilityPoolConfig: true, sdk.CapabilityPoolClear: true, sdk.CapabilityPoolPriority: true, sdk.CapabilityMiningGroups: true, sdk.CapabilityMiningGroupPoolClear: true, sdk.CapabilityTankMining: true, sdk.CapabilityModuleMining: true, sdk.CapabilityContainerControl: true, sdk.CapabilityFrigateServerUpdate: true, sdk.CapabilityPollingHost: true, sdk.CapabilityDiscovery: true, sdk.CapabilityPairing: true, sdk.CapabilityRealtimeTelemetry: true, sdk.CapabilityHashrateReported: true, sdk.CapabilityPowerUsage: true, sdk.CapabilityGetErrors: true}
 }
 func (d *Device) ID() string { return d.id }
 func (d *Device) DescribeDevice(ctx context.Context) (sdk.DeviceInfo, sdk.Capabilities, error) {
@@ -90,18 +92,19 @@ func (d *Device) Status(ctx context.Context) (sdk.DeviceMetrics, error) {
 		return sdk.DeviceMetrics{}, err
 	}
 	firmwareJobs := observeFirmwareJobs(ctx, selected)
-	metrics, err := selected.client.Collect(ctx, d.id)
+	metrics, evidence, err := selected.client.collect(ctx, d.id)
 	if err != nil && selected.standby != nil && ctx.Err() == nil {
 		// Reuse this poll's verified standby. Only telemetry can fall back;
 		// commands and their readback stay on one selected connection.
 		selected = selected.standby
 		firstErr := err
-		metrics, err = selected.client.Collect(ctx, d.id)
+		metrics, evidence, err = selected.client.collect(ctx, d.id)
 		if err != nil {
 			err = errors.Join(firstErr, err)
 		}
 		ha.Degraded = true
 	}
+	d.errorsShared().observe(evidence)
 	if metrics.Container != nil {
 		metrics.Container.HA = ha
 		enrichFirmwareBoards(metrics.Container, <-firmwareJobs, time.Now().UTC())
@@ -149,8 +152,49 @@ func (d *Device) UpdateMinerPassword(context.Context, string, string) error {
 func (d *Device) DownloadLogs(context.Context, *time.Time, string) (string, bool, error) {
 	return "", false, sdk.NewErrUnsupportedCapability("logs")
 }
-func (d *Device) GetErrors(context.Context) (sdk.DeviceErrors, error) {
-	return sdk.DeviceErrors{}, sdk.NewErrUnsupportedCapability("errors")
+
+// GetErrors reports active board, PSU, and plant errors. Fleet closes an error
+// that polls stop reporting, so errors whose source has gone silent are still
+// reported, marked as retained. A failed map read fails the poll; it never
+// returns an empty report.
+func (d *Device) GetErrors(ctx context.Context) (sdk.DeviceErrors, error) {
+	state := d.errorsShared()
+	if !state.current(time.Now(), errorEvidenceMaxAge) {
+		evidence, err := d.readErrorEvidence(ctx)
+		if err != nil {
+			return sdk.DeviceErrors{}, err
+		}
+		state.observe(evidence)
+	}
+	return state.report(d.id), nil
+}
+
+// errorsShared returns the container's error state, shared across handles
+// like its firmware state.
+func (d *Device) errorsShared() *errorState {
+	d.errorsOnce.Do(func() {
+		if d.errorState == nil {
+			d.errorState = errorStateFor(firmwareContainerIdentity(d.info))
+		}
+	})
+	return d.errorState
+}
+
+// readErrorEvidence follows the telemetry read policy: prefer the settled
+// primary and retry once on this poll's verified standby.
+func (d *Device) readErrorEvidence(ctx context.Context) (*errorEvidence, error) {
+	selected, _, err := d.probeControllers(ctx, false)
+	if err != nil {
+		return nil, err
+	}
+	evidence, err := selected.client.collectErrorEvidence(ctx)
+	if err != nil && selected.standby != nil && ctx.Err() == nil {
+		firstErr := err
+		if evidence, err = selected.standby.client.collectErrorEvidence(ctx); err != nil {
+			err = errors.Join(firstErr, err)
+		}
+	}
+	return evidence, err
 }
 func (d *Device) TryBatchStatus(context.Context, []sdk.Device) (map[string]sdk.DeviceMetrics, bool, error) {
 	return nil, false, nil

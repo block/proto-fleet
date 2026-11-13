@@ -33,6 +33,7 @@ type haServer struct {
 	haOverride     func(*mdk.HAStatus)
 	statusOverride func(*mdk.SystemStatus)
 	mapError       error
+	containerMap   *mdk.GetContainerMapResponse
 	mapDelay       time.Duration
 	mapReads       atomic.Int32
 	infoReads      atomic.Int32
@@ -155,6 +156,9 @@ func (s *haServer) GetContainerMap(ctx context.Context, _ *mdk.GetContainerMapRe
 	}
 	if s.mapError != nil {
 		return nil, s.mapError
+	}
+	if s.containerMap != nil {
+		return s.containerMap, nil
 	}
 	return &mdk.GetContainerMapResponse{ContainerMap: &mdk.ContainerMap{}}, nil
 }

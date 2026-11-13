@@ -645,6 +645,11 @@ const (
 	CapabilityDiscovery = "discovery" // Device discovery support
 	CapabilityPairing   = "pairing"   // Device pairing support
 
+	// CapabilityGetErrors declares that GetErrors returns the device's errors.
+	// It is the name the Rust and Python SDKs already use, and is independent
+	// of CapabilityErrorCount telemetry.
+	CapabilityGetErrors = "get_errors"
+
 	// Command capabilities
 	CapabilityReboot             = "reboot"               // Device reboot support
 	CapabilityMiningStart        = "mining_start"         // Start mining support

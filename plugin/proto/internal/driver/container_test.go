@@ -94,6 +94,7 @@ func TestContainerLifecycle(t *testing.T) {
 	require.Equal(t, "http://127.0.0.1:8181", web)
 	caps := restarted.GetCapabilitiesForModel(t.Context(), info.Manufacturer, info.Model)
 	require.True(t, caps[sdk.CapabilityRealtimeTelemetry])
+	require.True(t, caps[sdk.CapabilityGetErrors])
 	require.False(t, caps[sdk.CapabilityMiningStop])
 	require.False(t, caps[sdk.CapabilityBasicAuth])
 	info.SerialNumber = "another-controller"

@@ -76,6 +76,7 @@ func TestCT1SimulatorTelemetryUpload(t *testing.T) {
 			if scenario == "all-board-faults" {
 				require.Greater(t, len(original), 2*1024*1024, "exercise a real fault payload above the old ACK cap")
 			}
+			requireCT1ErrorPolling(t, handle.Device, "ct1-upload", scenario)
 
 			gateway := &controlFakeGateway{}
 			gateway.queue(telemetryCmd(t, validTelemetryRequest()))

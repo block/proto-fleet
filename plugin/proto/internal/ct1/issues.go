@@ -1,6 +1,7 @@
 package ct1
 
 import (
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -37,31 +38,51 @@ func moduleIssues(boards []Board, now time.Time, identityConflict bool) *sdk.Con
 }
 
 func moduleIssuesWithBudget(boards []Board, now time.Time, identityConflict bool, budget *issueBudget) *sdk.ContainerModuleIssues {
+	issues, _ := moduleIssueEvidence(boards, now, identityConflict, budget)
+	return issues
+}
+
+// issueOrigins names, for each issue, the fresh samples that asserted it. It
+// uses the SourceTimes keys: "hashboard:<mac>" for a board sample and "psu" for
+// the shared thermal state. Error polling needs it to tell which sample can
+// clear an issue: a power-supply cause belongs to the board that reported it,
+// not to the shared PSU reading.
+type issueOrigins map[string][]string
+
+func issueOriginKey(issue sdk.ContainerModuleIssue) string {
+	return issue.Component + ":" + issue.ComponentID + ":" + issue.Cause
+}
+
+func moduleIssueEvidence(boards []Board, now time.Time, identityConflict bool, budget *issueBudget) (*sdk.ContainerModuleIssues, issueOrigins) {
 	if !budget.retain(64) {
-		return nil
+		return nil, nil
 	}
 	out := &sdk.ContainerModuleIssues{Complete: len(boards) == boardsPerModule && !identityConflict, SourceTimes: map[string]time.Time{}}
 	if identityConflict {
-		return out
+		return out, nil
 	}
 	issues := map[string]sdk.ContainerModuleIssue{}
+	origins := issueOrigins{}
 	truncated := false
+	sourceKey := func(component, id string) string {
+		if id == "" {
+			return component
+		}
+		return component + ":" + id
+	}
 	addSource := func(component, id string, at time.Time) {
 		if len(id) > maxIssueComponentIDBytes {
 			truncated = true
 			return
 		}
-		key := component
-		if id != "" {
-			key += ":" + id
-		}
+		key := sourceKey(component, id)
 		if _, exists := out.SourceTimes[key]; !exists && !budget.retain(len(key)+64) {
 			truncated = true
 			return
 		}
 		out.SourceTimes[key] = at
 	}
-	add := func(component, id, cause, severity string, at time.Time) {
+	add := func(origin, component, id, cause, severity string, at time.Time) {
 		if len(cause) > maxIssueCauseBytes || len(id) > maxIssueComponentIDBytes {
 			truncated = true
 			return
@@ -78,6 +99,9 @@ func moduleIssuesWithBudget(boards []Board, now time.Time, identityConflict bool
 		if !exists && (len(issues) >= maxModuleIssues || !budget.retain(len(component)+len(id)+len(cause)+128)) {
 			truncated = true
 			return
+		}
+		if !slices.Contains(origins[key], origin) {
+			origins[key] = append(origins[key], origin)
 		}
 		if !exists || at.After(old.ObservedAt) || (at.Equal(old.ObservedAt) && severity == "fault") {
 			issues[key] = sdk.ContainerModuleIssue{Component: component, ComponentID: id, Cause: cause, Severity: severity, CanonicalError: code, ObservedAt: at}
@@ -101,6 +125,7 @@ func moduleIssuesWithBudget(boards []Board, now time.Time, identityConflict bool
 		// Use the inventory selector for both faults and clear-reading watermarks.
 		b.MACAddress = normalizedBoardMAC(b.MACAddress)
 		addSource("hashboard", b.MACAddress, sourceAt)
+		origin := sourceKey("hashboard", b.MACAddress)
 		if h.Errors == nil || h.Warnings == nil {
 			out.Complete = false
 		}
@@ -117,15 +142,15 @@ func moduleIssuesWithBudget(boards []Board, now time.Time, identityConflict bool
 				if cause == "HASHBOARD_ERROR_CAUSE_BOARD_POWER_SUPPLY_OVER_TEMPERATURE" {
 					cause = "PSU_OVER_TEMPERATURE"
 				}
-				add(component, id, cause, group.severity, h.Timestamp)
+				add(origin, component, id, cause, group.severity, h.Timestamp)
 			}
 		}
 		if b.MiningState == miningStateMining {
 			if h.HashrailOK != nil && !*h.HashrailOK {
-				add("hashboard", b.MACAddress, "HASHRAIL_NOT_OK", "fault", h.Timestamp)
+				add(origin, "hashboard", b.MACAddress, "HASHRAIL_NOT_OK", "fault", h.Timestamp)
 			}
 			if h.RefclksOK != nil && !*h.RefclksOK {
-				add("hashboard", b.MACAddress, "REFERENCE_CLOCKS_NOT_OK", "fault", h.Timestamp)
+				add(origin, "hashboard", b.MACAddress, "REFERENCE_CLOCKS_NOT_OK", "fault", h.Timestamp)
 			}
 		}
 		if p := h.PSUThermal; p != nil && p.ThermalStateValid {
@@ -154,10 +179,10 @@ func moduleIssuesWithBudget(boards []Board, now time.Time, identityConflict bool
 			out.ObservedAt = psuAt
 		}
 		if psu.OverTemperatureFault {
-			add("psu", "psu", "PSU_OVER_TEMPERATURE", "fault", psuAt)
+			add("psu", "psu", "psu", "PSU_OVER_TEMPERATURE", "fault", psuAt)
 		}
 		if psu.OverTemperatureWarning {
-			add("psu", "psu", "PSU_OVER_TEMPERATURE", "warning", psuAt)
+			add("psu", "psu", "psu", "PSU_OVER_TEMPERATURE", "warning", psuAt)
 		}
 	}
 	if psu == nil {
@@ -180,5 +205,5 @@ func moduleIssuesWithBudget(boards []Board, now time.Time, identityConflict bool
 		}
 		return a.Component+":"+a.ComponentID+":"+a.Cause < b.Component+":"+b.ComponentID+":"+b.Cause
 	})
-	return out
+	return out, origins
 }
