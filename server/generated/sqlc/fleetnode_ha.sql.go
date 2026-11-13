@@ -248,7 +248,7 @@ func (q *Queries) MoveDiscoveredDeviceAttribution(ctx context.Context, arg MoveD
 
 const moveFleetNodeDevices = `-- name: MoveFleetNodeDevices :many
 UPDATE fleet_node_device AS fnd
-SET fleet_node_id = $1
+SET fleet_node_id = $1, assigned_at = CURRENT_TIMESTAMP
 FROM device d
 WHERE fnd.fleet_node_id = $2 AND fnd.org_id = $3
   AND d.id = fnd.device_id AND d.org_id = fnd.org_id

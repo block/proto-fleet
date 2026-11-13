@@ -1180,7 +1180,7 @@ impl Driver for DriverService {
 
         let data = device.get_data().await.map_err(device_err_to_status)?;
 
-        let errors = device.to_device_errors(&data);
+        let errors = device.to_device_errors(&data.data);
         Ok(Response::new(errors))
     }
 }

@@ -3141,6 +3141,35 @@ type Site struct {
 	InfrastructureControlSubnets string
 }
 
+type TelemetryFreshness struct {
+	DeviceID         int64
+	ObservedAt       sql.NullTime
+	SourceNodeID     int64
+	IngestedAt       time.Time
+	ObservationKnown bool
+}
+
+type TelemetryFreshnessExclusion struct {
+	DeviceID  int64
+	Reason    string
+	CreatedAt time.Time
+	ExpiresAt time.Time
+}
+
+type TelemetryFreshnessSummary struct {
+	OrgID            int64
+	SiteID           int64
+	SourceNodeID     int64
+	DeviceClass      int32
+	ExpectedCount    int64
+	FreshCount       int64
+	StaleCount       int64
+	UnknownCount     int64
+	ExcludedCount    int64
+	GraceCount       int64
+	OldestAgeSeconds float64
+}
+
 type TelemetrySummaryProgress struct {
 	AggregateName    string
 	SourceName       string

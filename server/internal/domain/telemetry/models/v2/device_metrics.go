@@ -19,7 +19,11 @@ type DeviceMetrics struct {
 	// not the database primary key (device.id BIGINT).
 	DeviceIdentifier string    `json:"device_identifier"`
 	Timestamp        time.Time `json:"timestamp"`
-	FirmwareVersion  string    `json:"firmware_version,omitempty"`
+	// FreshnessObservedAt is a server-clock observation bound. It is never
+	// accepted from a JSON payload; remote samples derive it from observation age.
+	FreshnessObservedAt   time.Time `json:"-"`
+	FreshnessSourceNodeID int64     `json:"-"`
+	FirmwareVersion       string    `json:"firmware_version,omitempty"`
 
 	// UptimeSeconds is whole elapsed seconds since boot; nil means unknown.
 	// UptimeObservedAt is the sampling request start in the collector's clock.

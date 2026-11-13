@@ -2060,6 +2060,12 @@ func (q *retryingQuerier) CreateSite(ctx context.Context, arg CreateSiteParams) 
 	return result, err
 }
 
+func (q *retryingQuerier) CreateTelemetryFreshnessSavepoint(ctx context.Context) error {
+	return q.retrier.RetryQuery(ctx, "CreateTelemetryFreshnessSavepoint", func() error {
+		return q.next.CreateTelemetryFreshnessSavepoint(ctx)
+	})
+}
+
 func (q *retryingQuerier) CreateUser(ctx context.Context, arg CreateUserParams) (int64, error) {
 	var result int64
 	err := q.retrier.RetryQuery(ctx, "CreateUser", func() error {
@@ -5874,6 +5880,18 @@ func (q *retryingQuerier) GetTeamInvitationAuthorityFingerprint(ctx context.Cont
 	var result string
 	err := q.retrier.RetryQuery(ctx, "GetTeamInvitationAuthorityFingerprint", func() error {
 		callResult, callErr := q.next.GetTeamInvitationAuthorityFingerprint(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) GetTelemetryFreshnessSummary(ctx context.Context) ([]TelemetryFreshnessSummary, error) {
+	var result []TelemetryFreshnessSummary
+	err := q.retrier.RetryQuery(ctx, "GetTelemetryFreshnessSummary", func() error {
+		callResult, callErr := q.next.GetTelemetryFreshnessSummary(ctx)
 		if callErr == nil {
 			result = callResult
 		}
@@ -10682,6 +10700,12 @@ func (q *retryingQuerier) RecordPoolConfigurationImport(ctx context.Context, arg
 	})
 }
 
+func (q *retryingQuerier) RecordTelemetryFreshnessBatch(ctx context.Context, arg RecordTelemetryFreshnessBatchParams) error {
+	return q.retrier.RetryQuery(ctx, "RecordTelemetryFreshnessBatch", func() error {
+		return q.next.RecordTelemetryFreshnessBatch(ctx, arg)
+	})
+}
+
 func (q *retryingQuerier) RecoverSettledPoolConfigurationWork(ctx context.Context) error {
 	return q.retrier.RetryQuery(ctx, "RecoverSettledPoolConfigurationWork", func() error {
 		return q.next.RecoverSettledPoolConfigurationWork(ctx)
@@ -10782,6 +10806,12 @@ func (q *retryingQuerier) ReleaseInventoryPart(ctx context.Context, arg ReleaseI
 		return callErr
 	})
 	return result, err
+}
+
+func (q *retryingQuerier) ReleaseTelemetryFreshnessSavepoint(ctx context.Context) error {
+	return q.retrier.RetryQuery(ctx, "ReleaseTelemetryFreshnessSavepoint", func() error {
+		return q.next.ReleaseTelemetryFreshnessSavepoint(ctx)
+	})
 }
 
 func (q *retryingQuerier) ReleaseUndispatchedTargetsForRestore(ctx context.Context, arg ReleaseUndispatchedTargetsForRestoreParams) (int64, error) {
@@ -11297,6 +11327,12 @@ func (q *retryingQuerier) RevokeSession(ctx context.Context, arg RevokeSessionPa
 func (q *retryingQuerier) RewritePoolImportControllerBindings(ctx context.Context, arg RewritePoolImportControllerBindingsParams) error {
 	return q.retrier.RetryQuery(ctx, "RewritePoolImportControllerBindings", func() error {
 		return q.next.RewritePoolImportControllerBindings(ctx, arg)
+	})
+}
+
+func (q *retryingQuerier) RollbackTelemetryFreshnessSavepoint(ctx context.Context) error {
+	return q.retrier.RetryQuery(ctx, "RollbackTelemetryFreshnessSavepoint", func() error {
+		return q.next.RollbackTelemetryFreshnessSavepoint(ctx)
 	})
 }
 

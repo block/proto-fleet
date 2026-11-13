@@ -524,6 +524,7 @@ type Querier interface {
 	// deleted_at IS NULL surfaces name collisions as a unique-violation; the
 	// service layer maps that to AlreadyExists.
 	CreateSite(ctx context.Context, arg CreateSiteParams) (Site, error)
+	CreateTelemetryFreshnessSavepoint(ctx context.Context) error
 	CreateUser(ctx context.Context, arg CreateUserParams) (int64, error)
 	CreateUserOrganization(ctx context.Context, arg CreateUserOrganizationParams) error
 	// AdminTerminate's Stop-first gate: true when any target still has an
@@ -1176,6 +1177,7 @@ type Querier interface {
 	GetSiteBySlug(ctx context.Context, arg GetSiteBySlugParams) (Site, error)
 	GetTankRollupWatermarks(ctx context.Context, deviceID int64) ([]GetTankRollupWatermarksRow, error)
 	GetTeamInvitationAuthorityFingerprint(ctx context.Context, arg GetTeamInvitationAuthorityFingerprintParams) (string, error)
+	GetTelemetryFreshnessSummary(ctx context.Context) ([]TelemetryFreshnessSummary, error)
 	GetTotalDevicesPendingAuth(ctx context.Context, orgID int64) (int64, error)
 	// Unified query that supports all filters including component error filtering
 	// Uses EXISTS for error checks (more efficient than LEFT JOIN + DISTINCT)
@@ -2344,6 +2346,12 @@ type Querier interface {
 	RecordMiningGroupRequest(ctx context.Context, arg RecordMiningGroupRequestParams) error
 	RecordPoolConfigurationCutover(ctx context.Context, arg RecordPoolConfigurationCutoverParams) error
 	RecordPoolConfigurationImport(ctx context.Context, arg RecordPoolConfigurationImportParams) error
+	// Sort by device id to give overlapping batches the same lock order. Unknown
+	// observations cannot reset freshness; old/replayed observations cannot advance
+	// the watermark. Both observation and ingestion times are coalesced for 30s,
+	// except on route changes or the first known observation. A stored watermark
+	// can therefore lag by approximately 30s plus polling cadence and source age.
+	RecordTelemetryFreshnessBatch(ctx context.Context, arg RecordTelemetryFreshnessBatchParams) error
 	// Never redispatch work. Running admissions need explicit offline recovery,
 	// regardless of their age or process owner. A settled attempt proves drain,
 	// not successful settings application. Allow a minute for normal bookkeeping
@@ -2369,6 +2377,7 @@ type Querier interface {
 	// reported elsewhere in this same poll (including unlocated inventory).
 	ReleaseHashboardObservations(ctx context.Context, arg ReleaseHashboardObservationsParams) error
 	ReleaseInventoryPart(ctx context.Context, arg ReleaseInventoryPartParams) (int64, error)
+	ReleaseTelemetryFreshnessSavepoint(ctx context.Context) error
 	// Targets that never received a Curtail command do not need Uncurtail. Release
 	// them before the restore reset so graceful Stop does not enqueue commands
 	// that could wake miners this event never curtailed.
@@ -2512,6 +2521,7 @@ type Querier interface {
 	RevokePermissionFromRole(ctx context.Context, arg RevokePermissionFromRoleParams) error
 	RevokeSession(ctx context.Context, arg RevokeSessionParams) error
 	RewritePoolImportControllerBindings(ctx context.Context, arg RewritePoolImportControllerBindingsParams) error
+	RollbackTelemetryFreshnessSavepoint(ctx context.Context) error
 	SaveMiningGroupState(ctx context.Context, arg SaveMiningGroupStateParams) error
 	SavePoolConfigurationObservation(ctx context.Context, arg SavePoolConfigurationObservationParams) error
 	SavePoolConfigurationReviewResult(ctx context.Context, arg SavePoolConfigurationReviewResultParams) (int64, error)

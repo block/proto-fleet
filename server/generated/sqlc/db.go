@@ -588,6 +588,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.createSiteStmt, err = db.PrepareContext(ctx, createSite); err != nil {
 		return nil, fmt.Errorf("error preparing query CreateSite: %w", err)
 	}
+	if q.createTelemetryFreshnessSavepointStmt, err = db.PrepareContext(ctx, createTelemetryFreshnessSavepoint); err != nil {
+		return nil, fmt.Errorf("error preparing query CreateTelemetryFreshnessSavepoint: %w", err)
+	}
 	if q.createUserStmt, err = db.PrepareContext(ctx, createUser); err != nil {
 		return nil, fmt.Errorf("error preparing query CreateUser: %w", err)
 	}
@@ -1580,6 +1583,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.getTeamInvitationAuthorityFingerprintStmt, err = db.PrepareContext(ctx, getTeamInvitationAuthorityFingerprint); err != nil {
 		return nil, fmt.Errorf("error preparing query GetTeamInvitationAuthorityFingerprint: %w", err)
+	}
+	if q.getTelemetryFreshnessSummaryStmt, err = db.PrepareContext(ctx, getTelemetryFreshnessSummary); err != nil {
+		return nil, fmt.Errorf("error preparing query GetTelemetryFreshnessSummary: %w", err)
 	}
 	if q.getTotalDevicesPendingAuthStmt, err = db.PrepareContext(ctx, getTotalDevicesPendingAuth); err != nil {
 		return nil, fmt.Errorf("error preparing query GetTotalDevicesPendingAuth: %w", err)
@@ -2898,6 +2904,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.recordPoolConfigurationImportStmt, err = db.PrepareContext(ctx, recordPoolConfigurationImport); err != nil {
 		return nil, fmt.Errorf("error preparing query RecordPoolConfigurationImport: %w", err)
 	}
+	if q.recordTelemetryFreshnessBatchStmt, err = db.PrepareContext(ctx, recordTelemetryFreshnessBatch); err != nil {
+		return nil, fmt.Errorf("error preparing query RecordTelemetryFreshnessBatch: %w", err)
+	}
 	if q.recoverSettledPoolConfigurationWorkStmt, err = db.PrepareContext(ctx, recoverSettledPoolConfigurationWork); err != nil {
 		return nil, fmt.Errorf("error preparing query RecoverSettledPoolConfigurationWork: %w", err)
 	}
@@ -2930,6 +2939,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.releaseInventoryPartStmt, err = db.PrepareContext(ctx, releaseInventoryPart); err != nil {
 		return nil, fmt.Errorf("error preparing query ReleaseInventoryPart: %w", err)
+	}
+	if q.releaseTelemetryFreshnessSavepointStmt, err = db.PrepareContext(ctx, releaseTelemetryFreshnessSavepoint); err != nil {
+		return nil, fmt.Errorf("error preparing query ReleaseTelemetryFreshnessSavepoint: %w", err)
 	}
 	if q.releaseUndispatchedTargetsForRestoreStmt, err = db.PrepareContext(ctx, releaseUndispatchedTargetsForRestore); err != nil {
 		return nil, fmt.Errorf("error preparing query ReleaseUndispatchedTargetsForRestore: %w", err)
@@ -3089,6 +3101,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.rewritePoolImportControllerBindingsStmt, err = db.PrepareContext(ctx, rewritePoolImportControllerBindings); err != nil {
 		return nil, fmt.Errorf("error preparing query RewritePoolImportControllerBindings: %w", err)
+	}
+	if q.rollbackTelemetryFreshnessSavepointStmt, err = db.PrepareContext(ctx, rollbackTelemetryFreshnessSavepoint); err != nil {
+		return nil, fmt.Errorf("error preparing query RollbackTelemetryFreshnessSavepoint: %w", err)
 	}
 	if q.saveMiningGroupStateStmt, err = db.PrepareContext(ctx, saveMiningGroupState); err != nil {
 		return nil, fmt.Errorf("error preparing query SaveMiningGroupState: %w", err)
@@ -4552,6 +4567,11 @@ func (q *Queries) Close() error {
 	if q.createSiteStmt != nil {
 		if cerr := q.createSiteStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing createSiteStmt: %w", cerr)
+		}
+	}
+	if q.createTelemetryFreshnessSavepointStmt != nil {
+		if cerr := q.createTelemetryFreshnessSavepointStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing createTelemetryFreshnessSavepointStmt: %w", cerr)
 		}
 	}
 	if q.createUserStmt != nil {
@@ -6207,6 +6227,11 @@ func (q *Queries) Close() error {
 	if q.getTeamInvitationAuthorityFingerprintStmt != nil {
 		if cerr := q.getTeamInvitationAuthorityFingerprintStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getTeamInvitationAuthorityFingerprintStmt: %w", cerr)
+		}
+	}
+	if q.getTelemetryFreshnessSummaryStmt != nil {
+		if cerr := q.getTelemetryFreshnessSummaryStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getTelemetryFreshnessSummaryStmt: %w", cerr)
 		}
 	}
 	if q.getTotalDevicesPendingAuthStmt != nil {
@@ -8404,6 +8429,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing recordPoolConfigurationImportStmt: %w", cerr)
 		}
 	}
+	if q.recordTelemetryFreshnessBatchStmt != nil {
+		if cerr := q.recordTelemetryFreshnessBatchStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing recordTelemetryFreshnessBatchStmt: %w", cerr)
+		}
+	}
 	if q.recoverSettledPoolConfigurationWorkStmt != nil {
 		if cerr := q.recoverSettledPoolConfigurationWorkStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing recoverSettledPoolConfigurationWorkStmt: %w", cerr)
@@ -8457,6 +8487,11 @@ func (q *Queries) Close() error {
 	if q.releaseInventoryPartStmt != nil {
 		if cerr := q.releaseInventoryPartStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing releaseInventoryPartStmt: %w", cerr)
+		}
+	}
+	if q.releaseTelemetryFreshnessSavepointStmt != nil {
+		if cerr := q.releaseTelemetryFreshnessSavepointStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing releaseTelemetryFreshnessSavepointStmt: %w", cerr)
 		}
 	}
 	if q.releaseUndispatchedTargetsForRestoreStmt != nil {
@@ -8722,6 +8757,11 @@ func (q *Queries) Close() error {
 	if q.rewritePoolImportControllerBindingsStmt != nil {
 		if cerr := q.rewritePoolImportControllerBindingsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing rewritePoolImportControllerBindingsStmt: %w", cerr)
+		}
+	}
+	if q.rollbackTelemetryFreshnessSavepointStmt != nil {
+		if cerr := q.rollbackTelemetryFreshnessSavepointStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing rollbackTelemetryFreshnessSavepointStmt: %w", cerr)
 		}
 	}
 	if q.saveMiningGroupStateStmt != nil {
@@ -9816,6 +9856,7 @@ type Queries struct {
 	createScheduleTargetStmt                                    *sql.Stmt
 	createSessionStmt                                           *sql.Stmt
 	createSiteStmt                                              *sql.Stmt
+	createTelemetryFreshnessSavepointStmt                       *sql.Stmt
 	createUserStmt                                              *sql.Stmt
 	createUserOrganizationStmt                                  *sql.Stmt
 	curtailmentEventHasInFlightTargetsStmt                      *sql.Stmt
@@ -10147,6 +10188,7 @@ type Queries struct {
 	getSiteBySlugStmt                                           *sql.Stmt
 	getTankRollupWatermarksStmt                                 *sql.Stmt
 	getTeamInvitationAuthorityFingerprintStmt                   *sql.Stmt
+	getTelemetryFreshnessSummaryStmt                            *sql.Stmt
 	getTotalDevicesPendingAuthStmt                              *sql.Stmt
 	getTotalMinerStateSnapshotsStmt                             *sql.Stmt
 	getTotalPairedDevicesStmt                                   *sql.Stmt
@@ -10586,6 +10628,7 @@ type Queries struct {
 	recordMiningGroupRequestStmt                                *sql.Stmt
 	recordPoolConfigurationCutoverStmt                          *sql.Stmt
 	recordPoolConfigurationImportStmt                           *sql.Stmt
+	recordTelemetryFreshnessBatchStmt                           *sql.Stmt
 	recoverSettledPoolConfigurationWorkStmt                     *sql.Stmt
 	recoverTelemetrySeedBatchStmt                               *sql.Stmt
 	refreshOpenErrorsLastSeenByDeviceStmt                       *sql.Stmt
@@ -10597,6 +10640,7 @@ type Queries struct {
 	releaseFleetRuntimeLeaseStmt                                *sql.Stmt
 	releaseHashboardObservationsStmt                            *sql.Stmt
 	releaseInventoryPartStmt                                    *sql.Stmt
+	releaseTelemetryFreshnessSavepointStmt                      *sql.Stmt
 	releaseUndispatchedTargetsForRestoreStmt                    *sql.Stmt
 	removeAllDevicesFromDeviceSetStmt                           *sql.Stmt
 	removeDevicesFromAnyRackStmt                                *sql.Stmt
@@ -10650,6 +10694,7 @@ type Queries struct {
 	revokePermissionFromRoleStmt                                *sql.Stmt
 	revokeSessionStmt                                           *sql.Stmt
 	rewritePoolImportControllerBindingsStmt                     *sql.Stmt
+	rollbackTelemetryFreshnessSavepointStmt                     *sql.Stmt
 	saveMiningGroupStateStmt                                    *sql.Stmt
 	savePoolConfigurationObservationStmt                        *sql.Stmt
 	savePoolConfigurationReviewResultStmt                       *sql.Stmt
@@ -11017,6 +11062,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		createScheduleTargetStmt:                                    q.createScheduleTargetStmt,
 		createSessionStmt:                                           q.createSessionStmt,
 		createSiteStmt:                                              q.createSiteStmt,
+		createTelemetryFreshnessSavepointStmt:                       q.createTelemetryFreshnessSavepointStmt,
 		createUserStmt:                                              q.createUserStmt,
 		createUserOrganizationStmt:                                  q.createUserOrganizationStmt,
 		curtailmentEventHasInFlightTargetsStmt:                      q.curtailmentEventHasInFlightTargetsStmt,
@@ -11348,6 +11394,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getSiteBySlugStmt:                                           q.getSiteBySlugStmt,
 		getTankRollupWatermarksStmt:                                 q.getTankRollupWatermarksStmt,
 		getTeamInvitationAuthorityFingerprintStmt:                   q.getTeamInvitationAuthorityFingerprintStmt,
+		getTelemetryFreshnessSummaryStmt:                            q.getTelemetryFreshnessSummaryStmt,
 		getTotalDevicesPendingAuthStmt:                              q.getTotalDevicesPendingAuthStmt,
 		getTotalMinerStateSnapshotsStmt:                             q.getTotalMinerStateSnapshotsStmt,
 		getTotalPairedDevicesStmt:                                   q.getTotalPairedDevicesStmt,
@@ -11787,6 +11834,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		recordMiningGroupRequestStmt:                                q.recordMiningGroupRequestStmt,
 		recordPoolConfigurationCutoverStmt:                          q.recordPoolConfigurationCutoverStmt,
 		recordPoolConfigurationImportStmt:                           q.recordPoolConfigurationImportStmt,
+		recordTelemetryFreshnessBatchStmt:                           q.recordTelemetryFreshnessBatchStmt,
 		recoverSettledPoolConfigurationWorkStmt:                     q.recoverSettledPoolConfigurationWorkStmt,
 		recoverTelemetrySeedBatchStmt:                               q.recoverTelemetrySeedBatchStmt,
 		refreshOpenErrorsLastSeenByDeviceStmt:                       q.refreshOpenErrorsLastSeenByDeviceStmt,
@@ -11798,6 +11846,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		releaseFleetRuntimeLeaseStmt:                                q.releaseFleetRuntimeLeaseStmt,
 		releaseHashboardObservationsStmt:                            q.releaseHashboardObservationsStmt,
 		releaseInventoryPartStmt:                                    q.releaseInventoryPartStmt,
+		releaseTelemetryFreshnessSavepointStmt:                      q.releaseTelemetryFreshnessSavepointStmt,
 		releaseUndispatchedTargetsForRestoreStmt:                    q.releaseUndispatchedTargetsForRestoreStmt,
 		removeAllDevicesFromDeviceSetStmt:                           q.removeAllDevicesFromDeviceSetStmt,
 		removeDevicesFromAnyRackStmt:                                q.removeDevicesFromAnyRackStmt,
@@ -11851,6 +11900,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		revokePermissionFromRoleStmt:                                q.revokePermissionFromRoleStmt,
 		revokeSessionStmt:                                           q.revokeSessionStmt,
 		rewritePoolImportControllerBindingsStmt:                     q.rewritePoolImportControllerBindingsStmt,
+		rollbackTelemetryFreshnessSavepointStmt:                     q.rollbackTelemetryFreshnessSavepointStmt,
 		saveMiningGroupStateStmt:                                    q.saveMiningGroupStateStmt,
 		savePoolConfigurationObservationStmt:                        q.savePoolConfigurationObservationStmt,
 		savePoolConfigurationReviewResultStmt:                       q.savePoolConfigurationReviewResultStmt,

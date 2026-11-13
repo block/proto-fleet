@@ -74,6 +74,7 @@ func TestRemoteFleetNodeMinerGetDeviceMetricsHappyPath(t *testing.T) {
 	got := receiveMetricsResult(t, results)
 	require.NoError(t, got.err)
 	assert.Equal(t, "node-device", got.metrics.DeviceIdentifier)
+	assert.EqualValues(t, 12, got.metrics.FreshnessSourceNodeID)
 	assert.Equal(t, 100.0, got.metrics.HashrateHS.Value)
 	assert.Equal(t, "fw-1", got.metrics.FirmwareVersion)
 }
