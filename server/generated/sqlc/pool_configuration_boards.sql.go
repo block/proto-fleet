@@ -101,6 +101,25 @@ func (q *Queries) GetPoolGroupSnapshot(ctx context.Context, arg GetPoolGroupSnap
 	return i, err
 }
 
+const initializeHashboardWorkerName = `-- name: InitializeHashboardWorkerName :exec
+UPDATE hashboard SET worker_name = $1::text,
+ worker_name_mode = CASE WHEN $1::text = '' THEN 'none' ELSE 'custom' END
+WHERE org_id = $2 AND id = $3 AND worker_name IS NULL
+`
+
+type InitializeHashboardWorkerNameParams struct {
+	WorkerName  string
+	OrgID       int64
+	HashboardID int64
+}
+
+// Activation inherits the applied controller input only when the physical
+// board has no explicit choice. An explicit empty name must survive relocation.
+func (q *Queries) InitializeHashboardWorkerName(ctx context.Context, arg InitializeHashboardWorkerNameParams) error {
+	_, err := q.exec(ctx, q.initializeHashboardWorkerNameStmt, initializeHashboardWorkerName, arg.WorkerName, arg.OrgID, arg.HashboardID)
+	return err
+}
+
 const linkPoolGroupSnapshot = `-- name: LinkPoolGroupSnapshot :execrows
 UPDATE pool_configuration_operation_target SET group_snapshot_id=$5
 WHERE organization_id=$1 AND operation_id=$2 AND target_kind='hashboard_installation' AND target_id=$3 AND attempts=$4
@@ -240,6 +259,62 @@ func (q *Queries) ListPoolBoardAssignments(ctx context.Context, arg ListPoolBoar
 			&i.State,
 			&i.ResultCode,
 			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listPoolConfigurationAssignmentsForBoards = `-- name: ListPoolConfigurationAssignmentsForBoards :many
+SELECT i.id AS target_id, COALESCE(h.worker_name,'')::text AS worker_name,(h.worker_name IS NOT NULL)::boolean AS worker_name_set,h.worker_name_mode,
+ COALESCE(a.configuration_id,'')::text AS configuration_id,a.retired_at,c.account_id
+FROM hashboard_installation i JOIN hashboard h ON h.id=i.hashboard_id
+LEFT JOIN pool_configuration_assignment a ON a.organization_id=h.org_id AND a.target_kind='hashboard_installation' AND a.target_id=i.id
+LEFT JOIN pool_configuration c ON c.organization_id=a.organization_id AND c.configuration_id=a.configuration_id
+WHERE h.org_id=$1 AND i.removed_at IS NULL
+ AND i.id=ANY($2::bigint[])
+`
+
+type ListPoolConfigurationAssignmentsForBoardsParams struct {
+	OrganizationID  int64
+	InstallationIds []int64
+}
+
+type ListPoolConfigurationAssignmentsForBoardsRow struct {
+	TargetID        int64
+	WorkerName      string
+	WorkerNameSet   bool
+	WorkerNameMode  string
+	ConfigurationID string
+	RetiredAt       sql.NullTime
+	AccountID       sql.NullInt64
+}
+
+func (q *Queries) ListPoolConfigurationAssignmentsForBoards(ctx context.Context, arg ListPoolConfigurationAssignmentsForBoardsParams) ([]ListPoolConfigurationAssignmentsForBoardsRow, error) {
+	rows, err := q.query(ctx, q.listPoolConfigurationAssignmentsForBoardsStmt, listPoolConfigurationAssignmentsForBoards, arg.OrganizationID, pq.Array(arg.InstallationIds))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListPoolConfigurationAssignmentsForBoardsRow
+	for rows.Next() {
+		var i ListPoolConfigurationAssignmentsForBoardsRow
+		if err := rows.Scan(
+			&i.TargetID,
+			&i.WorkerName,
+			&i.WorkerNameSet,
+			&i.WorkerNameMode,
+			&i.ConfigurationID,
+			&i.RetiredAt,
+			&i.AccountID,
 		); err != nil {
 			return nil, err
 		}
@@ -449,6 +524,8 @@ func (q *Queries) ListPoolGroupWork(ctx context.Context, arg ListPoolGroupWorkPa
 const listPoolSelectionBoards = `-- name: ListPoolSelectionBoards :many
 SELECT i.id AS installation_id,h.id AS hashboard_id,m.id AS module_id,tank.device_id,d.device_identifier,d.site_id,
  COALESCE(owner.subclient_id,owner.client_id,0)::bigint AS account_id,
+ COALESCE(h.worker_name,'')::text AS worker_name,(h.worker_name IS NOT NULL)::boolean AS worker_name_set,h.worker_name_mode,
+ a.inherited_worker_name,
  m.reported_id AS module_name,i.position,COALESCE(i.metadata->>'macAddress','')::text AS mac_address,
  (g.observed_at IS NOT NULL AND g.status NOT IN ('pending','applying','blocked')
   AND COALESCE(g.observed->>'supported','false')='true'
@@ -460,6 +537,8 @@ FROM hashboard_installation i JOIN hashboard h ON h.id=i.hashboard_id
 JOIN container_module m ON m.id=i.module_id JOIN container_tank tank ON tank.id=m.tank_id
 JOIN device d ON d.id=tank.device_id
 LEFT JOIN container_mining_group_state g ON g.device_id=d.id AND g.organization_id=d.org_id
+LEFT JOIN pool_configuration_assignment a ON a.organization_id=h.org_id AND a.target_kind='hashboard_installation'
+ AND a.target_id=i.id AND a.device_id=d.id AND a.retired_at IS NULL
 LEFT JOIN hosted_account_asset owner ON owner.organization_id=d.org_id AND owner.kind=7 AND owner.asset_id=i.hashboard_id
 JOIN hashboard_slot s ON s.module_id=i.module_id AND s.position=i.position AND s.hashboard_id=i.hashboard_id
 WHERE d.org_id=$1 AND h.org_id=$1 AND d.deleted_at IS NULL AND tank.present AND m.retired_at IS NULL
@@ -476,18 +555,22 @@ type ListPoolSelectionBoardsParams struct {
 }
 
 type ListPoolSelectionBoardsRow struct {
-	InstallationID     int64
-	HashboardID        int64
-	ModuleID           int64
-	DeviceID           int64
-	DeviceIdentifier   string
-	SiteID             sql.NullInt64
-	AccountID          int64
-	ModuleName         string
-	Position           int32
-	MacAddress         string
-	UsesContainerPools bool
-	Ready              bool
+	InstallationID      int64
+	HashboardID         int64
+	ModuleID            int64
+	DeviceID            int64
+	DeviceIdentifier    string
+	SiteID              sql.NullInt64
+	AccountID           int64
+	WorkerName          string
+	WorkerNameSet       bool
+	WorkerNameMode      string
+	InheritedWorkerName sql.NullString
+	ModuleName          string
+	Position            int32
+	MacAddress          string
+	UsesContainerPools  bool
+	Ready               bool
 }
 
 func (q *Queries) ListPoolSelectionBoards(ctx context.Context, arg ListPoolSelectionBoardsParams) ([]ListPoolSelectionBoardsRow, error) {
@@ -512,6 +595,10 @@ func (q *Queries) ListPoolSelectionBoards(ctx context.Context, arg ListPoolSelec
 			&i.DeviceIdentifier,
 			&i.SiteID,
 			&i.AccountID,
+			&i.WorkerName,
+			&i.WorkerNameSet,
+			&i.WorkerNameMode,
+			&i.InheritedWorkerName,
 			&i.ModuleName,
 			&i.Position,
 			&i.MacAddress,
@@ -629,4 +716,29 @@ func (q *Queries) ListUnreplacedHashboardPoolIntents(ctx context.Context, arg Li
 		return nil, err
 	}
 	return items, nil
+}
+
+const updateHashboardWorkerName = `-- name: UpdateHashboardWorkerName :execrows
+UPDATE hashboard SET worker_name = $1::text, worker_name_mode = $2::text
+WHERE org_id = $3 AND id = $4
+`
+
+type UpdateHashboardWorkerNameParams struct {
+	WorkerName     string
+	WorkerNameMode string
+	OrgID          int64
+	HashboardID    int64
+}
+
+func (q *Queries) UpdateHashboardWorkerName(ctx context.Context, arg UpdateHashboardWorkerNameParams) (int64, error) {
+	result, err := q.exec(ctx, q.updateHashboardWorkerNameStmt, updateHashboardWorkerName,
+		arg.WorkerName,
+		arg.WorkerNameMode,
+		arg.OrgID,
+		arg.HashboardID,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }

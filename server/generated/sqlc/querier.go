@@ -334,6 +334,9 @@ type Querier interface {
 	// Pairing has rebound this device in the same transaction, so the new owner
 	// may replace the revocation's OFFLINE status with a fresh status.
 	ClearFleetNodeRevokedStatus(ctx context.Context, arg ClearFleetNodeRevokedStatusParams) (int64, error)
+	// Only explicit worker-name confirmation replaces inherited input. The caller
+	// carries this version advance into its atomic reviewed assignment update.
+	ClearInheritedPoolWorkerName(ctx context.Context, arg ClearInheritedPoolWorkerNameParams) (int64, error)
 	ClearPoolConfigurationDefault(ctx context.Context, arg ClearPoolConfigurationDefaultParams) error
 	// Companion to SoftDeleteDeviceSet for rack-typed collections. Clears
 	// the device_set_rack placement so a soft-deleted rack doesn't leave
@@ -1257,6 +1260,9 @@ type Querier interface {
 	HostedReportEvidenceSites(ctx context.Context, id int64) ([]sql.NullInt64, error)
 	HostedReportPublicID(ctx context.Context, id int64) (string, error)
 	InitializeDeviceWorkerName(ctx context.Context, arg InitializeDeviceWorkerNameParams) (int64, error)
+	// Activation inherits the applied controller input only when the physical
+	// board has no explicit choice. An explicit empty name must survive relocation.
+	InitializeHashboardWorkerName(ctx context.Context, arg InitializeHashboardWorkerNameParams) error
 	InitializeReportingInputs(ctx context.Context, arg InitializeReportingInputsParams) (int64, error)
 	// The unique partial index on (batch_id, event_type) for '*.completed' event
 	// types lets the Go layer detect idempotent re-inserts via pq unique_violation.

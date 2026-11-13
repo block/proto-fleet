@@ -1052,6 +1052,18 @@ func (q *retryingQuerier) ClearFleetNodeRevokedStatus(ctx context.Context, arg C
 	return result, err
 }
 
+func (q *retryingQuerier) ClearInheritedPoolWorkerName(ctx context.Context, arg ClearInheritedPoolWorkerNameParams) (int64, error) {
+	var result int64
+	err := q.retrier.RetryQuery(ctx, "ClearInheritedPoolWorkerName", func() error {
+		callResult, callErr := q.next.ClearInheritedPoolWorkerName(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) ClearPoolConfigurationDefault(ctx context.Context, arg ClearPoolConfigurationDefaultParams) error {
 	return q.retrier.RetryQuery(ctx, "ClearPoolConfigurationDefault", func() error {
 		return q.next.ClearPoolConfigurationDefault(ctx, arg)
@@ -6522,6 +6534,12 @@ func (q *retryingQuerier) InitializeDeviceWorkerName(ctx context.Context, arg In
 		return callErr
 	})
 	return result, err
+}
+
+func (q *retryingQuerier) InitializeHashboardWorkerName(ctx context.Context, arg InitializeHashboardWorkerNameParams) error {
+	return q.retrier.RetryQuery(ctx, "InitializeHashboardWorkerName", func() error {
+		return q.next.InitializeHashboardWorkerName(ctx, arg)
+	})
 }
 
 func (q *retryingQuerier) InitializeReportingInputs(ctx context.Context, arg InitializeReportingInputsParams) (int64, error) {

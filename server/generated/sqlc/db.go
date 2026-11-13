@@ -303,6 +303,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.clearFleetNodeRevokedStatusStmt, err = db.PrepareContext(ctx, clearFleetNodeRevokedStatus); err != nil {
 		return nil, fmt.Errorf("error preparing query ClearFleetNodeRevokedStatus: %w", err)
 	}
+	if q.clearInheritedPoolWorkerNameStmt, err = db.PrepareContext(ctx, clearInheritedPoolWorkerName); err != nil {
+		return nil, fmt.Errorf("error preparing query ClearInheritedPoolWorkerName: %w", err)
+	}
 	if q.clearPoolConfigurationDefaultStmt, err = db.PrepareContext(ctx, clearPoolConfigurationDefault); err != nil {
 		return nil, fmt.Errorf("error preparing query ClearPoolConfigurationDefault: %w", err)
 	}
@@ -1751,6 +1754,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.initializeDeviceWorkerNameStmt, err = db.PrepareContext(ctx, initializeDeviceWorkerName); err != nil {
 		return nil, fmt.Errorf("error preparing query InitializeDeviceWorkerName: %w", err)
+	}
+	if q.initializeHashboardWorkerNameStmt, err = db.PrepareContext(ctx, initializeHashboardWorkerName); err != nil {
+		return nil, fmt.Errorf("error preparing query InitializeHashboardWorkerName: %w", err)
 	}
 	if q.initializeReportingInputsStmt, err = db.PrepareContext(ctx, initializeReportingInputs); err != nil {
 		return nil, fmt.Errorf("error preparing query InitializeReportingInputs: %w", err)
@@ -4271,6 +4277,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing clearFleetNodeRevokedStatusStmt: %w", cerr)
 		}
 	}
+	if q.clearInheritedPoolWorkerNameStmt != nil {
+		if cerr := q.clearInheritedPoolWorkerNameStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing clearInheritedPoolWorkerNameStmt: %w", cerr)
+		}
+	}
 	if q.clearPoolConfigurationDefaultStmt != nil {
 		if cerr := q.clearPoolConfigurationDefaultStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing clearPoolConfigurationDefaultStmt: %w", cerr)
@@ -6684,6 +6695,11 @@ func (q *Queries) Close() error {
 	if q.initializeDeviceWorkerNameStmt != nil {
 		if cerr := q.initializeDeviceWorkerNameStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing initializeDeviceWorkerNameStmt: %w", cerr)
+		}
+	}
+	if q.initializeHashboardWorkerNameStmt != nil {
+		if cerr := q.initializeHashboardWorkerNameStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing initializeHashboardWorkerNameStmt: %w", cerr)
 		}
 	}
 	if q.initializeReportingInputsStmt != nil {
@@ -10233,6 +10249,7 @@ type Queries struct {
 	clearDeviceBuildingsOnSiteMismatchStmt                      *sql.Stmt
 	clearDeviceSitesAndBuildingsStmt                            *sql.Stmt
 	clearFleetNodeRevokedStatusStmt                             *sql.Stmt
+	clearInheritedPoolWorkerNameStmt                            *sql.Stmt
 	clearPoolConfigurationDefaultStmt                           *sql.Stmt
 	clearRackPlacementForSoftDeleteStmt                         *sql.Stmt
 	clearRackSlotPositionStmt                                   *sql.Stmt
@@ -10716,6 +10733,7 @@ type Queries struct {
 	hostedReportEvidenceSitesStmt                               *sql.Stmt
 	hostedReportPublicIDStmt                                    *sql.Stmt
 	initializeDeviceWorkerNameStmt                              *sql.Stmt
+	initializeHashboardWorkerNameStmt                           *sql.Stmt
 	initializeReportingInputsStmt                               *sql.Stmt
 	insertActivityLogStmt                                       *sql.Stmt
 	insertAlertChannelStmt                                      *sql.Stmt
@@ -11498,6 +11516,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		clearDeviceBuildingsOnSiteMismatchStmt:                      q.clearDeviceBuildingsOnSiteMismatchStmt,
 		clearDeviceSitesAndBuildingsStmt:                            q.clearDeviceSitesAndBuildingsStmt,
 		clearFleetNodeRevokedStatusStmt:                             q.clearFleetNodeRevokedStatusStmt,
+		clearInheritedPoolWorkerNameStmt:                            q.clearInheritedPoolWorkerNameStmt,
 		clearPoolConfigurationDefaultStmt:                           q.clearPoolConfigurationDefaultStmt,
 		clearRackPlacementForSoftDeleteStmt:                         q.clearRackPlacementForSoftDeleteStmt,
 		clearRackSlotPositionStmt:                                   q.clearRackSlotPositionStmt,
@@ -11981,6 +12000,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		hostedReportEvidenceSitesStmt:                               q.hostedReportEvidenceSitesStmt,
 		hostedReportPublicIDStmt:                                    q.hostedReportPublicIDStmt,
 		initializeDeviceWorkerNameStmt:                              q.initializeDeviceWorkerNameStmt,
+		initializeHashboardWorkerNameStmt:                           q.initializeHashboardWorkerNameStmt,
 		initializeReportingInputsStmt:                               q.initializeReportingInputsStmt,
 		insertActivityLogStmt:                                       q.insertActivityLogStmt,
 		insertAlertChannelStmt:                                      q.insertAlertChannelStmt,

@@ -88,7 +88,7 @@ require additional groups and remains subject to the controller's group limit.
 Existing saved names and previously applied settings are preserved until a
 reviewed pool update is applied.
 
-On upgrade, migration 1077 preserves the old controller-derived `{miner_name}`
+On upgrade, migration 1081 preserves the old controller-derived `{miner_name}`
 input for active CT1 pool assignments and the old trimmed-name, MAC, or identifier
 fallback for active ordinary-miner assignments. Currently installed boards with an
 individual or whole-container assignment receive that inherited name as Custom,
