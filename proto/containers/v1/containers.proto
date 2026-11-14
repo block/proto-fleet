@@ -16,6 +16,8 @@ service ContainerService {
   rpc SetPowerTarget(SetPowerTargetRequest) returns (SetPowerTargetResponse);
   rpc GetModuleMiningOptions(GetModuleMiningOptionsRequest) returns (GetModuleMiningOptionsResponse);
   rpc SetModuleMining(SetModuleMiningRequest) returns (SetModuleMiningResponse);
+  rpc GetBoardIdentifyOptions(GetBoardIdentifyOptionsRequest) returns (GetBoardIdentifyOptionsResponse);
+  rpc SetBoardIdentify(SetBoardIdentifyRequest) returns (SetBoardIdentifyResponse);
   rpc GetTankMiningOptions(GetTankMiningOptionsRequest) returns (GetTankMiningOptionsResponse);
   rpc SetTankMining(SetTankMiningRequest) returns (SetTankMiningResponse);
   rpc GetEquipmentCommandResult(GetEquipmentCommandResultRequest) returns (GetEquipmentCommandResultResponse);
@@ -208,6 +210,54 @@ message ModuleMiningCommand {
 message SetModuleMiningResponse {
   // One batch per controller; the server resolves exact module scope and identity.
   repeated ModuleMiningCommand commands = 1;
+}
+
+// Stable Fleet module and hashboard IDs. The server expands modules into the
+// boards currently installed in them; the caller confirms that exact list.
+message GetBoardIdentifyOptionsRequest {
+  repeated int64 module_ids = 1 [(buf.validate.field).repeated = {max_items: 10, items: {int64: {gt: 0}}}];
+  repeated int64 hashboard_ids = 2 [(buf.validate.field).repeated = {max_items: 30, items: {int64: {gt: 0}}}];
+}
+// One currently installed board. installation_id changes whenever the board
+// moves or is replaced, so it pins the confirmed identity to its placement.
+message IdentifyBoard {
+  int64 hashboard_id = 1;
+  int64 installation_id = 2;
+  int64 module_id = 3;
+  string device_identifier = 4;
+  string container_name = 5;
+  int32 tank = 6;
+  int32 module = 7;
+  int32 slot = 8;
+  string serial_number = 9;
+}
+message GetBoardIdentifyOptionsResponse {
+  repeated IdentifyBoard boards = 1;
+  bool can_identify = 2;
+  string unavailable_reason = 3;
+}
+enum BoardIdentifyMode {
+  BOARD_IDENTIFY_MODE_UNSPECIFIED = 0;
+  BOARD_IDENTIFY_MODE_BLINK = 1;
+  BOARD_IDENTIFY_MODE_OFF = 2;
+}
+message BoardIdentifyTarget {
+  int64 hashboard_id = 1 [(buf.validate.field).int64.gt = 0];
+  int64 installation_id = 2 [(buf.validate.field).int64.gt = 0];
+}
+message SetBoardIdentifyRequest {
+  // The exact boards the operator confirmed; a moved or replaced board is rejected.
+  repeated BoardIdentifyTarget boards = 1 [(buf.validate.field).repeated = {min_items: 1, max_items: 30}];
+  BoardIdentifyMode mode = 2 [(buf.validate.field).enum = {defined_only: true, not_in: [0]}];
+}
+message BoardIdentifyCommand {
+  int64 hashboard_id = 1;
+  string device_identifier = 2;
+  string batch_identifier = 3;
+}
+message SetBoardIdentifyResponse {
+  // One batch per board so each board reports its own controller outcome.
+  repeated BoardIdentifyCommand commands = 1;
 }
 
 message GetMiningStatusResponse {

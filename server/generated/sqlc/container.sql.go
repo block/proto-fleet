@@ -19,7 +19,7 @@ const containerOwnsCommandBatch = `-- name: ContainerOwnsCommandBatch :one
 SELECT EXISTS (
  SELECT 1 FROM command_batch_log b JOIN queue_message m ON m.command_batch_log_uuid=b.uuid
  WHERE b.uuid=$1 AND b.organization_id=$2
- AND b.type IN ('SetContainerControl', 'SetTankMining', 'SetModuleMining', 'ContainerMining') AND b.devices_count=1 AND m.device_id=$3
+ AND b.type IN ('SetContainerControl', 'SetTankMining', 'SetModuleMining', 'ContainerMining', 'SetBoardIdentify') AND b.devices_count=1 AND m.device_id=$3
 )::boolean
 `
 
@@ -141,6 +141,116 @@ type InsertContainerPlantMetricsParams struct {
 func (q *Queries) InsertContainerPlantMetrics(ctx context.Context, arg InsertContainerPlantMetricsParams) error {
 	_, err := q.exec(ctx, q.insertContainerPlantMetricsStmt, insertContainerPlantMetrics, arg.Time, arg.Metrics, arg.DeviceIdentifier)
 	return err
+}
+
+const listBoardIdentifyTargets = `-- name: ListBoardIdentifyTargets :many
+SELECT i.hashboard_id, i.id AS installation_id, i.module_id, i.position AS slot,
+       t.device_id, t.position AS tank_position, m.position AS module_position,
+       m.reported_id, m.identity_confirmed, m.last_seen_at AS module_seen_at, ci.observed_at,
+       s.observed_at AS slot_observed_at, s.occupancy, s.unavailable_reason,
+       (s.hashboard_id IS NOT DISTINCT FROM i.hashboard_id)::boolean AS slot_matches,
+       COALESCE((SELECT array_agg(hi.value ORDER BY hi.value) FROM hashboard_identity hi
+                 WHERE hi.org_id=d.org_id AND hi.hashboard_id=i.hashboard_id AND hi.kind='mac'), '{}')::text[] AS mac_addresses,
+       COALESCE((SELECT min(hi.value) FROM hashboard_identity hi
+                 WHERE hi.org_id=d.org_id AND hi.hashboard_id=i.hashboard_id AND hi.kind='serial'), '')::text AS serial_number,
+       d.device_identifier, d.site_id,
+       COALESCE(NULLIF(d.custom_name, ''), NULLIF(d.serial_number, ''), d.device_identifier)::text AS container_name,
+       dd.manufacturer, dd.model, dd.driver_name
+FROM hashboard_installation i
+JOIN hashboard h ON h.id=i.hashboard_id
+JOIN container_module m ON m.id=i.module_id AND m.retired_at IS NULL
+JOIN container_tank t ON t.id=m.tank_id AND t.present
+JOIN container_inventory ci ON ci.device_id=t.device_id
+JOIN device d ON d.id=t.device_id AND d.org_id=h.org_id
+JOIN discovered_device dd ON dd.id=d.discovered_device_id AND dd.org_id=d.org_id
+JOIN device_pairing dp ON dp.device_id=d.id
+LEFT JOIN hashboard_slot s ON s.module_id=i.module_id AND s.position=i.position
+WHERE i.removed_at IS NULL
+  AND (i.hashboard_id=ANY($1::bigint[]) OR i.module_id=ANY($2::bigint[]))
+  AND d.org_id=$3 AND d.deleted_at IS NULL AND dd.deleted_at IS NULL
+  AND dd.device_class=2 AND dp.pairing_status IN ('PAIRED','DEFAULT_PASSWORD')
+ORDER BY d.id, t.position, m.position, i.position
+`
+
+type ListBoardIdentifyTargetsParams struct {
+	HashboardIds []int64
+	ModuleIds    []int64
+	OrgID        int64
+}
+
+type ListBoardIdentifyTargetsRow struct {
+	HashboardID       int64
+	InstallationID    int64
+	ModuleID          int64
+	Slot              int32
+	DeviceID          int64
+	TankPosition      int32
+	ModulePosition    int32
+	ReportedID        string
+	IdentityConfirmed bool
+	ModuleSeenAt      time.Time
+	ObservedAt        time.Time
+	SlotObservedAt    sql.NullTime
+	Occupancy         sql.NullString
+	UnavailableReason sql.NullString
+	SlotMatches       bool
+	MacAddresses      []string
+	SerialNumber      string
+	DeviceIdentifier  string
+	SiteID            sql.NullInt64
+	ContainerName     string
+	Manufacturer      sql.NullString
+	Model             sql.NullString
+	DriverName        string
+}
+
+// Current installations only; the slot observation must still name the same
+// board, and a board must carry exactly one MAC identity to be addressable.
+func (q *Queries) ListBoardIdentifyTargets(ctx context.Context, arg ListBoardIdentifyTargetsParams) ([]ListBoardIdentifyTargetsRow, error) {
+	rows, err := q.query(ctx, q.listBoardIdentifyTargetsStmt, listBoardIdentifyTargets, pq.Array(arg.HashboardIds), pq.Array(arg.ModuleIds), arg.OrgID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListBoardIdentifyTargetsRow
+	for rows.Next() {
+		var i ListBoardIdentifyTargetsRow
+		if err := rows.Scan(
+			&i.HashboardID,
+			&i.InstallationID,
+			&i.ModuleID,
+			&i.Slot,
+			&i.DeviceID,
+			&i.TankPosition,
+			&i.ModulePosition,
+			&i.ReportedID,
+			&i.IdentityConfirmed,
+			&i.ModuleSeenAt,
+			&i.ObservedAt,
+			&i.SlotObservedAt,
+			&i.Occupancy,
+			&i.UnavailableReason,
+			&i.SlotMatches,
+			pq.Array(&i.MacAddresses),
+			&i.SerialNumber,
+			&i.DeviceIdentifier,
+			&i.SiteID,
+			&i.ContainerName,
+			&i.Manufacturer,
+			&i.Model,
+			&i.DriverName,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const listContainerPlacements = `-- name: ListContainerPlacements :many

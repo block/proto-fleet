@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"sync"
 	"time"
+
+	mdk "github.com/block/proto-fleet/sdk/mdk/generated/mdk/v2"
 )
 
 // Topology and telemetry defaults for a simulated CT1 container.
@@ -182,6 +184,11 @@ type Hashboard struct {
 
 	State    string // one of the miningState* constants
 	Isolated bool
+
+	// Identify LED: the desired mode recorded by SetIdentifyLED and, for blink,
+	// when the controller stops blinking on its own.
+	IdentifyLED       mdk.HashboardIdentifyLEDMode
+	IdentifyExpiresAt time.Time
 
 	// Location.
 	TankID      int

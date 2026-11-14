@@ -481,7 +481,7 @@ func TestRunControlSession_NegotiatesKeepaliveAndRetiresSilentStream(t *testing.
 	require.Error(t, err)
 	assert.ErrorIs(t, err, errControlStreamSilent)
 	assert.GreaterOrEqual(t, time.Since(start), fleetnodecontrol.KeepaliveMisses*minControlKeepaliveInterval)
-	assert.Equal(t, int32(pb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V9), fake.helloVersion.Load())
+	assert.Equal(t, int32(pb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V10), fake.helloVersion.Load())
 	assert.GreaterOrEqual(t, fake.pings.Load(), int32(1), "node must ping at the negotiated interval")
 	assert.NoError(t, ctx.Err(), "the caller's context must still be live")
 }

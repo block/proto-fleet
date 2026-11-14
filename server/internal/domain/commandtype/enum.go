@@ -36,6 +36,8 @@ const (
 	SetTankMining
 	SetModuleMining
 	ContainerMining
+	// SetBoardIdentify sets one verified CT1 board's identification LED.
+	SetBoardIdentify
 	// FrigateServerUpdate admits one Frigate server update call (staging,
 	// start, retry, cancel) against a controller's current binding. It is
 	// dispatched directly, never through the command queue.
@@ -74,6 +76,8 @@ func (t *Type) String() string {
 		return "ContainerMining"
 	case SetModuleMining:
 		return "SetModuleMining"
+	case SetBoardIdentify:
+		return "SetBoardIdentify"
 	case SetTankMining:
 		return "SetTankMining"
 	case SetContainerControl:
@@ -125,6 +129,8 @@ func FromString(s string) (Type, error) {
 		return ContainerMining, nil
 	case "SetModuleMining":
 		return SetModuleMining, nil
+	case "SetBoardIdentify":
+		return SetBoardIdentify, nil
 	case "SetTankMining":
 		return SetTankMining, nil
 	case "SetContainerControl":

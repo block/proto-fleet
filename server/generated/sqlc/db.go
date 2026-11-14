@@ -1968,6 +1968,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.listBatchDeviceResultsStmt, err = db.PrepareContext(ctx, listBatchDeviceResults); err != nil {
 		return nil, fmt.Errorf("error preparing query ListBatchDeviceResults: %w", err)
 	}
+	if q.listBoardIdentifyTargetsStmt, err = db.PrepareContext(ctx, listBoardIdentifyTargets); err != nil {
+		return nil, fmt.Errorf("error preparing query ListBoardIdentifyTargets: %w", err)
+	}
 	if q.listBuildingNamesBySiteStmt, err = db.PrepareContext(ctx, listBuildingNamesBySite); err != nil {
 		return nil, fmt.Errorf("error preparing query ListBuildingNamesBySite: %w", err)
 	}
@@ -7052,6 +7055,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing listBatchDeviceResultsStmt: %w", cerr)
 		}
 	}
+	if q.listBoardIdentifyTargetsStmt != nil {
+		if cerr := q.listBoardIdentifyTargetsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listBoardIdentifyTargetsStmt: %w", cerr)
+		}
+	}
 	if q.listBuildingNamesBySiteStmt != nil {
 		if cerr := q.listBuildingNamesBySiteStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing listBuildingNamesBySiteStmt: %w", cerr)
@@ -10804,6 +10812,7 @@ type Queries struct {
 	listAssignmentsForRoleStmt                                  *sql.Stmt
 	listAssignmentsForUserStmt                                  *sql.Stmt
 	listBatchDeviceResultsStmt                                  *sql.Stmt
+	listBoardIdentifyTargetsStmt                                *sql.Stmt
 	listBuildingNamesBySiteStmt                                 *sql.Stmt
 	listBuildingRacksStmt                                       *sql.Stmt
 	listBuildingsByOrgStmt                                      *sql.Stmt
@@ -12071,6 +12080,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		listAssignmentsForRoleStmt:                                  q.listAssignmentsForRoleStmt,
 		listAssignmentsForUserStmt:                                  q.listAssignmentsForUserStmt,
 		listBatchDeviceResultsStmt:                                  q.listBatchDeviceResultsStmt,
+		listBoardIdentifyTargetsStmt:                                q.listBoardIdentifyTargetsStmt,
 		listBuildingNamesBySiteStmt:                                 q.listBuildingNamesBySiteStmt,
 		listBuildingRacksStmt:                                       q.listBuildingRacksStmt,
 		listBuildingsByOrgStmt:                                      q.listBuildingsByOrgStmt,

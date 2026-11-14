@@ -792,6 +792,8 @@ service Driver {
   rpc ContainerMining(ContainerMiningRequest) returns (ContainerMiningResponse);
   rpc MiningGroups(MiningGroupsRequest) returns (MiningGroupsResponse);
   rpc SetModuleMining(SetModuleMiningRequest) returns (google.protobuf.Empty);
+  // Optional controller-only identification LED command for one verified board.
+  rpc SetBoardIdentify(SetBoardIdentifyRequest) returns (google.protobuf.Empty);
   rpc SetContainerControl(SetContainerControlRequest) returns (google.protobuf.Empty);
 
   // Optional controller-only Frigate software update operations (capability
@@ -1007,6 +1009,21 @@ message SetModuleMiningRequest {
   DeviceRef ref = 1;
   repeated ModuleMiningTarget modules = 2;
   optional bool mining = 3;
+}
+
+// Physical placement plus the identities Fleet observed for that placement.
+message BoardIdentifyTarget {
+  int32 tank = 1;
+  int32 module = 2;
+  int32 slot = 3;
+  string module_reported_id = 4;
+  string mac_address = 5;
+}
+message SetBoardIdentifyRequest {
+  DeviceRef ref = 1;
+  BoardIdentifyTarget board = 2;
+  // "blink" or "off".
+  string mode = 3;
 }
 
 // Poll-time physical measurements; never allocated customer power.

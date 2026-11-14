@@ -41,27 +41,9 @@ func (d *Device) setScopedMining(ctx context.Context, positions []int32, targets
 	defer cancel()
 	d.writeMu.Lock()
 	defer d.writeMu.Unlock()
-	c, err := d.selectClient(ctx, true)
+	c, err := d.verifiedWriteClient(ctx)
 	if err != nil {
-		return sdk.WriteRefused(err, sdk.WriteStageBackendSelection, sdk.WriteReasonTransportFailed)
-	}
-	expectedSerial := strings.TrimSpace(d.info.SerialNumber)
-	if expectedSerial == "" {
-		return sdk.WriteRefused(fmt.Errorf("container identity unavailable"), sdk.WriteStageConfigurationRead, sdk.WriteReasonStaleBinding)
-	}
-	// Paired endpoints were already verified during controller selection.
-	if len(d.info.Endpoints) == 0 {
-		info, err := c.Discover(ctx, d.info)
-		if err != nil {
-			reason := sdk.WriteReasonStaleBinding
-			if _, rpcError := status.FromError(err); rpcError {
-				reason = sdk.WriteReasonReadFailed
-			}
-			return sdk.WriteRefused(fmt.Errorf("container identity unavailable: %w", err), sdk.WriteStageConfigurationRead, reason)
-		}
-		if strings.TrimSpace(info.SerialNumber) != expectedSerial {
-			return sdk.WriteRefused(fmt.Errorf("container identity changed"), sdk.WriteStageConfigurationRead, sdk.WriteReasonStaleBinding)
-		}
+		return err
 	}
 	mapWire, err := c.boards.GetContainerMap(ctx, &mdk.GetContainerMapRequest{})
 	if err != nil {
@@ -103,6 +85,34 @@ func (d *Device) setScopedMining(ctx context.Context, positions []int32, targets
 		return fmt.Errorf("%s mining partially applied (%d/%d boards failed): %s", scopeName, len(failures), len(expected), strings.Join(failures, "; "))
 	}
 	return nil
+}
+
+// verifiedWriteClient selects the write backend and confirms it still serves
+// the paired container. Callers must hold writeMu.
+func (d *Device) verifiedWriteClient(ctx context.Context) (*Client, error) {
+	c, err := d.selectClient(ctx, true)
+	if err != nil {
+		return nil, sdk.WriteRefused(err, sdk.WriteStageBackendSelection, sdk.WriteReasonTransportFailed)
+	}
+	expectedSerial := strings.TrimSpace(d.info.SerialNumber)
+	if expectedSerial == "" {
+		return nil, sdk.WriteRefused(fmt.Errorf("container identity unavailable"), sdk.WriteStageConfigurationRead, sdk.WriteReasonStaleBinding)
+	}
+	// Paired endpoints were already verified during controller selection.
+	if len(d.info.Endpoints) == 0 {
+		info, err := c.Discover(ctx, d.info)
+		if err != nil {
+			reason := sdk.WriteReasonStaleBinding
+			if _, rpcError := status.FromError(err); rpcError {
+				reason = sdk.WriteReasonReadFailed
+			}
+			return nil, sdk.WriteRefused(fmt.Errorf("container identity unavailable: %w", err), sdk.WriteStageConfigurationRead, reason)
+		}
+		if strings.TrimSpace(info.SerialNumber) != expectedSerial {
+			return nil, sdk.WriteRefused(fmt.Errorf("container identity changed"), sdk.WriteStageConfigurationRead, sdk.WriteReasonStaleBinding)
+		}
+	}
+	return c, nil
 }
 
 func scopedMiningScope(wire MapResponse, positions []int32, targets []sdk.ModuleMiningTarget, scopeName string) (*mdk.BoardScope, map[string]string, error) {

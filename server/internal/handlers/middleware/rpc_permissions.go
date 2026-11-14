@@ -189,6 +189,9 @@ var ProcedurePermissions = map[string]string{
 	containersv1connect.ContainerServiceGetEquipmentCommandResultProcedure: authz.PermSiteRead,
 	containersv1connect.ContainerServiceGetTankMiningOptionsProcedure:      authz.PermSiteRead,
 	containersv1connect.ContainerServiceGetModuleMiningOptionsProcedure:    authz.PermSiteRead,
+	// Handler resolves every board and enforces miner:blink_led at its current site.
+	containersv1connect.ContainerServiceGetBoardIdentifyOptionsProcedure: authz.PermSiteRead,
+	containersv1connect.ContainerServiceSetBoardIdentifyProcedure:        authz.PermSiteRead,
 	// Handler resolves every tank/module and enforces the requested mining permission at its current site.
 	containersv1connect.ContainerServiceSetTankMiningProcedure: authz.PermSiteRead,
 	mininggroupsv1connect.MiningGroupServiceGetStateProcedure:  authz.PermSiteRead,

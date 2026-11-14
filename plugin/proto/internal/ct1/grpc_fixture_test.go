@@ -171,3 +171,12 @@ func (f *grpcFixture) StopMiningScoped(ctx context.Context, in *mdk.StopMiningSc
 	err = f.call(ctx, "POST", "/api/v2/mining/scoped/stop", string(body), out)
 	return out, err
 }
+func (f *grpcFixture) SetIdentifyLED(ctx context.Context, in *mdk.SetIdentifyLEDRequest) (*mdk.SetIdentifyLEDResponse, error) {
+	body, err := protojson.Marshal(in)
+	if err != nil {
+		return nil, fmt.Errorf("encode identify LED request: %w", err)
+	}
+	out := new(mdk.SetIdentifyLEDResponse)
+	err = f.call(ctx, "POST", "/api/v2/hashboards/identify-led", string(body), out)
+	return out, err
+}

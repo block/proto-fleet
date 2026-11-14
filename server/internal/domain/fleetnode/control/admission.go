@@ -77,6 +77,8 @@ func AdmissionForMinerCommand(command *gatewaypb.MinerCommand) (CommandAdmission
 		return CommandAdmissionGeneral, "mining_groups"
 	case *gatewaypb.MinerCommand_SetModuleMining:
 		return CommandAdmissionGeneral, "set_module_mining"
+	case *gatewaypb.MinerCommand_SetBoardIdentify:
+		return CommandAdmissionGeneral, "set_board_identify"
 	case *gatewaypb.MinerCommand_SetTankMining:
 		return CommandAdmissionGeneral, "set_tank_mining"
 	case *gatewaypb.MinerCommand_SetContainerControl:

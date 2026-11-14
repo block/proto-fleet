@@ -262,12 +262,32 @@ func (a *grpcAPI) SetIsolation(ctx context.Context, in *mdk.SetIsolationRequest)
 	return &mdk.SetIsolationResponse{BoardsChanged: appliedBoardCount(results), Results: results}, nil
 }
 
+// identifyBlinkDuration matches Frigate's blink window, which Fleet tells
+// operators is about 15 minutes.
+const identifyBlinkDuration = 15 * time.Minute
+
 func (a *grpcAPI) SetIdentifyLED(ctx context.Context, in *mdk.SetIdentifyLEDRequest) (*mdk.SetIdentifyLEDResponse, error) {
-	results, err := a.applyToScope(ctx, in.GetScope(), func(*Hashboard) (bool, string) { return true, "" })
+	mode := in.GetMode()
+	if mode != mdk.HashboardIdentifyLEDMode_HASHBOARD_IDENTIFY_LED_MODE_BLINK && mode != mdk.HashboardIdentifyLEDMode_HASHBOARD_IDENTIFY_LED_MODE_OFF {
+		return nil, status.Error(codes.InvalidArgument, "identify LED mode must be BLINK or OFF")
+	}
+	var expiresAt time.Time
+	if mode == mdk.HashboardIdentifyLEDMode_HASHBOARD_IDENTIFY_LED_MODE_BLINK {
+		expiresAt = time.Now().UTC().Add(identifyBlinkDuration)
+	}
+	results, err := a.applyToScope(ctx, in.GetScope(), func(b *Hashboard) (bool, string) {
+		b.IdentifyLED = mode
+		b.IdentifyExpiresAt = expiresAt
+		return true, ""
+	})
 	if err != nil {
 		return nil, err
 	}
-	return &mdk.SetIdentifyLEDResponse{BoardsUpdated: appliedBoardCount(results)}, nil
+	out := &mdk.SetIdentifyLEDResponse{BoardsUpdated: appliedBoardCount(results)}
+	if !expiresAt.IsZero() {
+		out.ExpiresAt = timestamppb.New(expiresAt)
+	}
+	return out, nil
 }
 
 func (a *grpcAPI) applyToScope(ctx context.Context, in *mdk.BoardScope, apply func(*Hashboard) (bool, string)) ([]*mdk.BoardResult, error) {

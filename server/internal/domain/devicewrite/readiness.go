@@ -94,7 +94,7 @@ func MayAffectPools(operationKind, commandName string) bool {
 		return true
 	}
 	switch kind {
-	case commandtype.BlinkLED, commandtype.DownloadLogs, commandtype.SetCoolingMode, commandtype.SetPowerTarget:
+	case commandtype.BlinkLED, commandtype.SetBoardIdentify, commandtype.DownloadLogs, commandtype.SetCoolingMode, commandtype.SetPowerTarget:
 		return false
 	case commandtype.FrigateServerUpdate:
 		// A controller software update changes no pool configuration; Frigate

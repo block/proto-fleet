@@ -1430,6 +1430,9 @@ type Querier interface {
 	// fires. Callers that want to detect truncation pass (cap + 1); reading one
 	// sentinel row beyond the cap keeps `len(rows) > cap` a valid signal.
 	ListBatchDeviceResults(ctx context.Context, arg ListBatchDeviceResultsParams) ([]ListBatchDeviceResultsRow, error)
+	// Current installations only; the slot observation must still name the same
+	// board, and a board must carry exactly one MAC identity to be addressable.
+	ListBoardIdentifyTargets(ctx context.Context, arg ListBoardIdentifyTargetsParams) ([]ListBoardIdentifyTargetsRow, error)
 	// CreateBuildings' collision preflight: names only, so it skips
 	// ListBuildingsByOrg's org-wide rack/device aggregation while the site
 	// write lock is held.

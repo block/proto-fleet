@@ -505,7 +505,7 @@ func isOrderedWrite(kind commandtype.Type) bool {
 		// outlives these calls; PrepareDeletion keeps the container from being
 		// retired while its job is blocking.
 		return true
-	case commandtype.DownloadLogs, commandtype.Reboot, commandtype.BlinkLED,
+	case commandtype.DownloadLogs, commandtype.Reboot, commandtype.BlinkLED, commandtype.SetBoardIdentify,
 		commandtype.FirmwareUpdate, commandtype.Unpair:
 		return false
 	default:
