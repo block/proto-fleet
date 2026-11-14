@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -882,6 +883,106 @@ func TestGetErrorsFallsBackToTheVerifiedStandby(t *testing.T) {
 	expireErrorEvidence(d)
 	_, err = d.GetErrors(t.Context())
 	require.Equal(t, codes.Unavailable, status.Code(err), "both controllers failing is a failed poll")
+}
+
+func TestGetErrorsSingleControllerRemovesABoard(t *testing.T) {
+	isolateErrorStates(t)
+	controller := &errorsController{wire: faultedBoards}
+	d := controller.device(t)
+	report, err := d.GetErrors(t.Context())
+	require.NoError(t, err)
+	require.Len(t, report.Errors, 1)
+
+	controller.set(func(c *errorsController) {
+		c.wire = func(at time.Time) *mdk.GetContainerMapResponse {
+			return errorsMap(errorsBoard(2, at), errorsBoard(3, at))
+		}
+	})
+	expireErrorEvidence(d)
+	report, err = d.GetErrors(t.Context())
+	require.NoError(t, err)
+	require.Empty(t, report.Errors, "the only controller's map is the container's board catalog")
+}
+
+// A board that a map does not list has left the container only if the map came
+// from the pair's one settled primary. During an HA transition any other
+// controller's view of the board catalog can be behind it.
+func TestOnlyTheSettledPrimaryRemovesABoard(t *testing.T) {
+	scenarios := []struct {
+		name             string
+		degrade, restore func(a, b *haServer, recovering *atomic.Bool)
+	}{
+		{
+			name: "fallback after the primary's read failed",
+			degrade: func(a, _ *haServer, _ *atomic.Bool) {
+				a.mapError = status.Error(codes.Unavailable, "primary cannot read hashboards")
+			},
+			restore: func(a, _ *haServer, _ *atomic.Bool) { a.mapError = nil },
+		},
+		{
+			name:    "settled standby while the primary is recovering",
+			degrade: func(_, _ *haServer, recovering *atomic.Bool) { recovering.Store(true) },
+			restore: func(_, _ *haServer, recovering *atomic.Bool) { recovering.Store(false) },
+		},
+		{
+			name:    "both controllers claim write authority",
+			degrade: func(_, b *haServer, _ *atomic.Bool) { b.primary.Store(true) },
+			restore: func(_, b *haServer, _ *atomic.Bool) { b.primary.Store(false) },
+		},
+	}
+	reads := []struct {
+		name string
+		read func(t *testing.T, d *Device) sdk.DeviceErrors
+	}{
+		{"error poll", func(t *testing.T, d *Device) sdk.DeviceErrors {
+			expireErrorEvidence(d)
+			report, err := d.GetErrors(t.Context())
+			require.NoError(t, err)
+			return report
+		}},
+		{"telemetry poll", func(t *testing.T, d *Device) sdk.DeviceErrors {
+			_, err := d.Status(t.Context())
+			require.NoError(t, err)
+			report, err := d.GetErrors(t.Context())
+			require.NoError(t, err)
+			return report
+		}},
+	}
+	for _, scenario := range scenarios {
+		for _, via := range reads {
+			t.Run(scenario.name+"/"+via.name, func(t *testing.T) {
+				isolateErrorStates(t)
+				a, b := startHAServer(t, "a", "b"), startHAServer(t, "b", "a")
+				a.primary.Store(true)
+				var recovering atomic.Bool
+				a.statusOverride = func(s *mdk.SystemStatus) {
+					if recovering.Load() {
+						s.HaRecovery.State = mdk.HARecoveryState_HA_RECOVERY_STATE_RECONCILING
+					}
+				}
+				sampled := time.Now().UTC()
+				withoutBoard1 := errorsMap(errorsBoard(2, sampled), errorsBoard(3, sampled))
+				a.containerMap, b.containerMap = faultedBoards(sampled), withoutBoard1
+				d, err := NewDevice(t.Context(), errorsDevice, haInfo(a, b), sdk.UsernamePassword{})
+				require.NoError(t, err)
+				defer d.Close(t.Context())
+				report := via.read(t, d)
+				requireEvidence(t, requireError(t, report, kindBoard, "mac:"+errorsMAC(1), sdkerrors.BoardPowerOvercurrent), errorEvidenceCurrent)
+
+				// Whichever controller answers now, its map lists the other
+				// boards but not the faulted one.
+				scenario.degrade(a, b, &recovering)
+				a.containerMap = withoutBoard1
+				report = via.read(t, d)
+				require.Len(t, report.Errors, 1, "no sample cleared the error and the board is not known to be gone")
+				requireEvidence(t, requireError(t, report, kindBoard, "mac:"+errorsMAC(1), sdkerrors.BoardPowerOvercurrent), errorEvidenceRetained)
+
+				// The settled primary's map confirms that the board is gone.
+				scenario.restore(a, b, &recovering)
+				require.Empty(t, via.read(t, d).Errors)
+			})
+		}
+	}
 }
 
 func TestGetErrorsStandbySampleCannotClearAPrimaryError(t *testing.T) {

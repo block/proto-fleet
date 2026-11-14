@@ -104,7 +104,7 @@ func (d *Device) Status(ctx context.Context) (sdk.DeviceMetrics, error) {
 		}
 		ha.Degraded = true
 	}
-	d.errorsShared().observe(evidence)
+	d.errorsShared().observe(evidence.readFrom(selected))
 	if metrics.Container != nil {
 		metrics.Container.HA = ha
 		enrichFirmwareBoards(metrics.Container, <-firmwareJobs, time.Now().UTC())
@@ -189,12 +189,13 @@ func (d *Device) readErrorEvidence(ctx context.Context) (*errorEvidence, error) 
 	}
 	evidence, err := selected.client.collectErrorEvidence(ctx)
 	if err != nil && selected.standby != nil && ctx.Err() == nil {
+		selected = selected.standby
 		firstErr := err
-		if evidence, err = selected.standby.client.collectErrorEvidence(ctx); err != nil {
+		if evidence, err = selected.client.collectErrorEvidence(ctx); err != nil {
 			err = errors.Join(firstErr, err)
 		}
 	}
-	return evidence, err
+	return evidence.readFrom(selected), err
 }
 func (d *Device) TryBatchStatus(context.Context, []sdk.Device) (map[string]sdk.DeviceMetrics, bool, error) {
 	return nil, false, nil

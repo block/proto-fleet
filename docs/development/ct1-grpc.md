@@ -367,9 +367,14 @@ that asserted it supplies a complete reading without it.
   the vendor attributes `ct1_evidence=retained` and `ct1_last_confirmed_at`,
   a note with the same time in its summary, and no last-seen time of its own.
   These values do not change while it is carried.
-- A board that Frigate no longer lists has been removed and its errors are
-  dropped. Errors are kept when the map lists no boards at all, or lists a board
-  the plugin rejected without a usable identity.
+- A board that the map no longer lists has been removed, and its errors are
+  dropped, only when the map came from the container's only saved controller or
+  from an HA pair's one settled write primary. A map read from any other
+  controller keeps the errors of boards it does not list: a standby, a primary
+  that is not settled, or either controller while both claim write authority.
+  During an HA transition such a controller's board catalog can be behind.
+  Errors are also kept when the map lists no boards at all, or lists a board the
+  plugin rejected without a usable identity.
 - A failed map read fails the poll. It never produces an empty report.
 
 Claims and sample order live in the plugin process, shared by every handle for

@@ -148,13 +148,22 @@ type errorEvidence struct {
 	readings map[string]errorReading
 	// present sources still belong to the container but may be silent. Frigate
 	// lists every board it has a location or inventory record for, so a board
-	// that is not listed has been removed.
+	// that an authoritative map does not list has been removed.
 	present map[string]bool
-	// unresolved means no missing source is treated as removed: Frigate either
-	// reported a board that was rejected without a usable identity, which
-	// could be any of them, or listed no board at all.
-	unresolved bool
-	places     map[errorComponent]errorPlace
+	// keepUnlisted means a source the map does not list is not treated as
+	// removed. The map came from a controller that is not authoritative, it
+	// listed no board at all, or it reported a board that was rejected without
+	// a usable identity, which could be any of the missing ones.
+	keepUnlisted bool
+	places       map[errorComponent]errorPlace
+}
+
+// readFrom records which controller supplied the evidence.
+func (e *errorEvidence) readFrom(controller *controllerProbe) *errorEvidence {
+	if e != nil && !controller.authoritative {
+		e.keepUnlisted = true
+	}
+	return e
 }
 
 type errorCollector struct {
@@ -185,7 +194,7 @@ func (c *errorCollector) result() *errorEvidence {
 	}
 	// A map that lists no board at all cannot show that every board left.
 	if !c.listed {
-		c.evidence.unresolved = true
+		c.evidence.keepUnlisted = true
 	}
 	return &c.evidence
 }
@@ -247,7 +256,7 @@ func (c *errorCollector) rejected(observation sdk.ContainerHashboard) {
 		}
 	}
 	if !claimed && observation.UnavailableReason != "" {
-		e.unresolved = true
+		e.keepUnlisted = true
 	}
 }
 
@@ -507,7 +516,7 @@ func (s *errorState) observe(e *errorEvidence) {
 		if applies(source) && e.readings[source].complete {
 			return false
 		}
-		return e.present[source] || e.unresolved
+		return e.present[source] || e.keepUnlisted
 	}
 	next := make(map[errorItemKey]*errorItem, len(e.items))
 	for key, observed := range e.items {
