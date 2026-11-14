@@ -335,35 +335,47 @@ and per-fan alarm flags are not reported.
 
 Fleet closes an error once polls stop reporting it. A report therefore
 distinguishes a source that cleared an error from a source that said nothing.
-Every error records which samples asserted it: a board's own health sample, the
-module's PSU thermal state, or the plant alarm list. It is reported until each of
-those sources supplies a fresh reading without it.
+A source is a board's own health sample, a module's PSU thermal state, or the
+plant alarm list. Each source that asserts an error holds its own claim: a
+severity and the sample that made it. The error is reported until every source
+that asserted it supplies a complete reading without it.
 
 - Frigate attaches board health to the map only while it is under two minutes
   old. A board without current health is silent: errors it asserted stay
   reported, and it adds none. The plugin applies the same two-minute rule to the
   timestamps it receives.
+- A source's readings are ordered by their own sample time, not by when they
+  were collected. A later read can return an earlier sample, for example from a
+  standby that lags the primary. A sample older than one already applied
+  neither raises nor clears an error. The order is remembered while such a
+  sample could still be fresh, whether or not the source holds an error.
 - PSU thermal state is shared by a module's boards, so any reporting board can
   clear it. A power-supply cause stays with the board that reported it.
+- The reported severity is the most severe claim not yet withdrawn. A PSU
+  thermal warning does not downgrade an over-temperature fault that a silent
+  board still holds.
 - The plant alarm list is authoritative only in a fresh snapshot that carries
   plant telemetry. A failed, stale, or unsupported `GetContainerHealth` read
   leaves plant alarms as they were; board and PSU errors are still reported.
   Before its first plant poll, Frigate serves saved alarm flags without the
   list. The plugin then reports one aggregate plant alarm and keeps the alarms
   it already knew.
-- An error carried for a silent source has the vendor attributes
-  `ct1_evidence=retained` and `ct1_last_confirmed_at`, the same note in its
-  summary, and no last-seen time of its own. These values do not change while
-  the source stays silent.
+- A report that had to omit causes (more than 64 per module, or the container
+  issue budget) is not a complete reading. It raises the causes it kept and
+  clears nothing.
+- An error that no source asserted in the latest evidence is carried. It has
+  the vendor attributes `ct1_evidence=retained` and `ct1_last_confirmed_at`,
+  a note with the same time in its summary, and no last-seen time of its own.
+  These values do not change while it is carried.
 - A board that Frigate no longer lists has been removed and its errors are
   dropped. Errors are kept when the map lists no boards at all, or lists a board
   the plugin rejected without a usable identity.
 - A failed map read fails the poll. It never produces an empty report.
 
-Carried errors live in the plugin process, shared by every handle for a
-container, including Fleet Node's per-command handles. They do not survive a
-plugin restart: after one, errors whose source is still silent are no longer
-reported, and Fleet closes them after its staleness threshold.
+Claims and sample order live in the plugin process, shared by every handle for
+a container, including Fleet Node's per-command handles. They do not survive a
+plugin restart: after one, carried errors are no longer reported, and Fleet
+closes them after its staleness threshold.
 
 Error polling reuses a telemetry observation made in the last ten seconds, so
 the poll cycle reads the map once. Otherwise it selects a controller like

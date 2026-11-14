@@ -290,8 +290,8 @@ func snapshotEvidence(wire MapResponse, now time.Time, collect *errorCollector) 
 				// validated board readings, but withhold this module's shared metrics.
 				boards = nil
 			}
-			issues, origins := moduleIssueEvidence(boards, now, identityConflict, &issuesBudget)
-			collect.module(tank.ID, m.ID, hashboards, issues, origins)
+			issues, sources := moduleIssueEvidence(boards, now, identityConflict, &issuesBudget)
+			collect.module(tank.ID, m.ID, hashboards, issues, sources)
 			out.Modules = append(out.Modules, sdk.ContainerModule{Position: m.ID, ReportedID: reportedID, IdentityConfirmed: reportedID != "" && !identityUnavailable, State: state, ObservedAt: moduleObservedAt(boards, state, now), Metrics: moduleMetrics(boards, now), Hashboards: hashboards, Issues: issues})
 		}
 		sort.Slice(out.Modules, func(i, j int) bool { return out.Modules[i].Position < out.Modules[j].Position })

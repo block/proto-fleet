@@ -1,7 +1,6 @@
 package ct1
 
 import (
-	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -42,27 +41,56 @@ func moduleIssuesWithBudget(boards []Board, now time.Time, identityConflict bool
 	return issues
 }
 
-// issueOrigins names, for each issue, the fresh samples that asserted it. It
-// uses the SourceTimes keys: "hashboard:<mac>" for a board sample and "psu" for
-// the shared thermal state. Error polling needs it to tell which sample can
-// clear an issue: a power-supply cause belongs to the board that reported it,
-// not to the shared PSU reading.
-type issueOrigins map[string][]string
+// issueClaim is one fresh sample's own claim of an issue.
+type issueClaim struct {
+	// source is the sample's SourceTimes key.
+	source   string
+	severity string
+	at       time.Time
+}
 
-func issueOriginKey(issue sdk.ContainerModuleIssue) string {
+// issueSources describes the fresh samples behind a module issue report. Error
+// polling needs what the report does not keep: each sample's own time and its
+// own claims. A power-supply cause belongs to the board that reported it as
+// well as to the shared PSU reading, and the two can disagree.
+type issueSources struct {
+	// sampledAt is each fresh sample's time by SourceTimes key:
+	// "hashboard:<mac>" for a board sample and "psu" for the shared thermal
+	// state. Unlike SourceTimes it is not capped at the collection time and it
+	// survives a truncated report, so it orders one source's samples exactly.
+	sampledAt map[string]time.Time
+	// claims lists, for each issue, the samples that asserted it.
+	claims map[string][]issueClaim
+}
+
+func issueClaimKey(issue sdk.ContainerModuleIssue) string {
 	return issue.Component + ":" + issue.ComponentID + ":" + issue.Cause
 }
 
-func moduleIssueEvidence(boards []Board, now time.Time, identityConflict bool, budget *issueBudget) (*sdk.ContainerModuleIssues, issueOrigins) {
+// claim keeps one claim per sample. A sample that lists a cause as both a
+// fault and a warning claims the fault.
+func (s issueSources) claim(key, source, severity string, at time.Time) {
+	for i := range s.claims[key] {
+		if s.claims[key][i].source == source {
+			if severity == "fault" {
+				s.claims[key][i].severity = severity
+			}
+			return
+		}
+	}
+	s.claims[key] = append(s.claims[key], issueClaim{source: source, severity: severity, at: at})
+}
+
+func moduleIssueEvidence(boards []Board, now time.Time, identityConflict bool, budget *issueBudget) (*sdk.ContainerModuleIssues, issueSources) {
 	if !budget.retain(64) {
-		return nil, nil
+		return nil, issueSources{}
 	}
 	out := &sdk.ContainerModuleIssues{Complete: len(boards) == boardsPerModule && !identityConflict, SourceTimes: map[string]time.Time{}}
 	if identityConflict {
-		return out, nil
+		return out, issueSources{}
 	}
 	issues := map[string]sdk.ContainerModuleIssue{}
-	origins := issueOrigins{}
+	sources := issueSources{sampledAt: map[string]time.Time{}, claims: map[string][]issueClaim{}}
 	truncated := false
 	sourceKey := func(component, id string) string {
 		if id == "" {
@@ -100,9 +128,7 @@ func moduleIssueEvidence(boards []Board, now time.Time, identityConflict bool, b
 			truncated = true
 			return
 		}
-		if !slices.Contains(origins[key], origin) {
-			origins[key] = append(origins[key], origin)
-		}
+		sources.claim(key, origin, severity, at)
 		if !exists || at.After(old.ObservedAt) || (at.Equal(old.ObservedAt) && severity == "fault") {
 			issues[key] = sdk.ContainerModuleIssue{Component: component, ComponentID: id, Cause: cause, Severity: severity, CanonicalError: code, ObservedAt: at}
 		}
@@ -126,6 +152,7 @@ func moduleIssueEvidence(boards []Board, now time.Time, identityConflict bool, b
 		b.MACAddress = normalizedBoardMAC(b.MACAddress)
 		addSource("hashboard", b.MACAddress, sourceAt)
 		origin := sourceKey("hashboard", b.MACAddress)
+		sources.sampledAt[origin] = h.Timestamp
 		if h.Errors == nil || h.Warnings == nil {
 			out.Complete = false
 		}
@@ -175,6 +202,7 @@ func moduleIssueEvidence(boards []Board, now time.Time, identityConflict bool, b
 	}
 	if psu != nil {
 		addSource("psu", "", psuAt)
+		sources.sampledAt["psu"] = psuAt
 		if psuAt.Before(out.ObservedAt) {
 			out.ObservedAt = psuAt
 		}
@@ -205,5 +233,5 @@ func moduleIssueEvidence(boards []Board, now time.Time, identityConflict bool, b
 		}
 		return a.Component+":"+a.ComponentID+":"+a.Cause < b.Component+":"+b.ComponentID+":"+b.Cause
 	})
-	return out, origins
+	return out, sources
 }

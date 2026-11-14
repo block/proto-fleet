@@ -21,10 +21,17 @@ import (
 // An error here is one firmware cause or plant alarm on one component, at any
 // severity. Fleet closes an error that polls stop reporting, so a report must
 // separate "this source says the error cleared" from "this source said
-// nothing". Each error remembers the evidence sources that asserted it and
-// stays reported until every one of them supplies a fresh reading without it,
-// or leaves the container. Frigate omits board health older than two minutes
-// from the map, so a silent board is the normal shape of missing evidence.
+// nothing". Each source that asserts an error holds its own claim: a severity
+// and the sample that made it. The error is reported, at the most severe
+// unresolved claim, until every source that asserted it supplies a complete
+// reading without it, or leaves the container. Frigate omits board health
+// older than two minutes from the map, so a silent board is the normal shape
+// of missing evidence.
+//
+// A source's readings are ordered by their own sample time, not by when they
+// were collected. A later read can return an earlier sample, for example from
+// a standby that lags the primary. A sample older than one already applied
+// neither asserts nor withdraws anything.
 
 // errorEvidenceMaxAge lets error polling reuse the observation that the same
 // poll cycle's telemetry read just made, instead of reading the map twice.
@@ -35,7 +42,7 @@ const (
 	// complete reading, so omitted alarms are never treated as cleared.
 	maxPlantAlarms         = 128
 	maxPlantAlarmTextBytes = 256
-	// Errors carried for silent sources are bounded per container.
+	// Errors carried from earlier evidence are bounded per container.
 	maxRetainedErrorItems = 8192
 	// Fleet Node rejects a whole result that exceeds its field limits.
 	maxErrorSummaryBytes = 1024
@@ -72,29 +79,73 @@ type errorPlace struct {
 	attrs map[string]string
 }
 
-type errorItem struct {
-	key      errorItemKey
-	code     sdkerrors.MinerError
+// errorClaim is one source's assertion that an error is active.
+type errorClaim struct {
 	severity sdkerrors.Severity
-	text     string
-	place    errorPlace
-	// sources asserted this error and have not since supplied a fresh reading
-	// without it.
-	sources     []string
-	firstSeen   time.Time
-	confirmedAt time.Time
-	// confirmed means the newest evidence asserted the error; otherwise it is
-	// carried for sources that are silent.
-	confirmed bool
+	// at is the sample that last made the claim.
+	at time.Time
+	// current means the newest evidence made the claim. Otherwise the claim
+	// is carried from earlier evidence.
+	current bool
+}
+
+type errorItem struct {
+	key       errorItemKey
+	code      sdkerrors.MinerError
+	text      string
+	place     errorPlace
+	firstSeen time.Time
+	// claims holds each source's unresolved claim, by source.
+	claims map[string]errorClaim
+}
+
+// severity is the most severe unresolved claim.
+func (i *errorItem) severity() sdkerrors.Severity {
+	worst := sdkerrors.SeverityUnspecified
+	for _, claim := range i.claims {
+		// Severity values order most severe first.
+		if worst == sdkerrors.SeverityUnspecified || claim.severity < worst {
+			worst = claim.severity
+		}
+	}
+	return worst
+}
+
+// confirmed reports whether the newest evidence asserted the error.
+func (i *errorItem) confirmed() bool {
+	for _, claim := range i.claims {
+		if claim.current {
+			return true
+		}
+	}
+	return false
+}
+
+// confirmedAt is the newest sample that asserted the error.
+func (i *errorItem) confirmedAt() time.Time {
+	var newest time.Time
+	for _, claim := range i.claims {
+		if claim.at.After(newest) {
+			newest = claim.at
+		}
+	}
+	return newest
+}
+
+// errorReading is what one source supplied in a collection.
+type errorReading struct {
+	// at is the source's own sample time. It orders the source's readings.
+	at time.Time
+	// complete means an error the source does not assert has cleared for it.
+	complete bool
 }
 
 // errorEvidence is one collection's view of every error source.
 type errorEvidence struct {
 	observedAt time.Time
 	items      map[errorItemKey]*errorItem
-	// fresh sources supplied an authoritative reading: an error they do not
-	// assert has cleared for them.
-	fresh map[string]bool
+	// readings holds the sources that supplied a fresh sample.
+	readings map[string]errorReading
 	// present sources still belong to the container but may be silent. Frigate
 	// lists every board it has a location or inventory record for, so a board
 	// that is not listed has been removed.
@@ -120,7 +171,7 @@ func newErrorCollector(observedAt time.Time) *errorCollector {
 		evidence: errorEvidence{
 			observedAt: observedAt,
 			items:      map[errorItemKey]*errorItem{},
-			fresh:      map[string]bool{},
+			readings:   map[string]errorReading{},
 			present:    map[string]bool{},
 			places:     map[errorComponent]errorPlace{},
 		},
@@ -150,7 +201,7 @@ func boardComponent(mac string) errorComponent {
 
 // module records one located module. Boards are selected by MAC and the shared
 // PSU by position, matching Fleet inventory.
-func (c *errorCollector) module(tank, module int32, hashboards []sdk.ContainerHashboard, issues *sdk.ContainerModuleIssues, origins issueOrigins) {
+func (c *errorCollector) module(tank, module int32, hashboards []sdk.ContainerHashboard, issues *sdk.ContainerModuleIssues, sources issueSources) {
 	if c == nil {
 		return
 	}
@@ -176,7 +227,7 @@ func (c *errorCollector) module(tank, module int32, hashboards []sdk.ContainerHa
 			}
 		}
 	}
-	c.issues(issues, origins, psu, psuSource)
+	c.issues(issues, sources, psu, psuSource)
 }
 
 func unlocatedPSUSource(mac string) string { return "psu:board:" + mac }
@@ -221,30 +272,31 @@ func (c *errorCollector) unlocated(board *Board, observation sdk.ContainerHashbo
 	e.present[psuSource] = true
 	e.places[boardComponent(mac)] = errorPlace{label: "Unlocated hashboard " + mac, attrs: attrs}
 	e.places[psu] = errorPlace{label: "PSU of unlocated hashboard " + mac, attrs: attrs}
-	issues, origins := moduleIssueEvidence([]Board{*board}, now, false, &c.budget)
-	c.issues(issues, origins, psu, psuSource)
+	issues, sources := moduleIssueEvidence([]Board{*board}, now, false, &c.budget)
+	c.issues(issues, sources, psu, psuSource)
 }
 
-// issues adds one module issue report. SourceTimes lists the samples that were
-// fresh; the protobuf path always supplies both cause arrays, so a listed
-// board sample is a complete reading of that board.
-func (c *errorCollector) issues(issues *sdk.ContainerModuleIssues, origins issueOrigins, psu errorComponent, psuSource string) {
+// issues adds one module issue report. A sample listed in SourceTimes gave a
+// complete reading: the protobuf path always supplies both cause arrays, and a
+// truncated report lists no sample.
+func (c *errorCollector) issues(issues *sdk.ContainerModuleIssues, sources issueSources, psu errorComponent, psuSource string) {
 	if issues == nil {
 		return
 	}
 	e := &c.evidence
-	source := func(origin string) string {
-		if origin == "psu" {
+	source := func(sample string) string {
+		if sample == "psu" {
 			return psuSource
 		}
-		if mac, ok := strings.CutPrefix(origin, "hashboard:"); ok && mac != "" {
+		if mac, ok := strings.CutPrefix(sample, "hashboard:"); ok && mac != "" {
 			return "board:" + mac
 		}
 		return ""
 	}
-	for origin := range issues.SourceTimes {
-		if name := source(origin); name != "" {
-			e.fresh[name] = true
+	for sample, at := range sources.sampledAt {
+		if name := source(sample); name != "" {
+			_, complete := issues.SourceTimes[sample]
+			e.readings[name] = errorReading{at: at, complete: complete}
 		}
 	}
 	for _, issue := range issues.Items {
@@ -259,22 +311,22 @@ func (c *errorCollector) issues(issues *sdk.ContainerModuleIssues, origins issue
 		default:
 			continue
 		}
-		if issue.Severity != "fault" && issue.Severity != "warning" {
-			continue
-		}
-		code, severity := canonicalIssue(issue.Cause, issue.Severity == "warning")
+		code, _ := canonicalIssue(issue.Cause, false)
 		item := &errorItem{
 			key:  errorItemKey{component: component, cause: issue.Cause},
-			code: code, severity: severity, text: causeText(issue.Cause), place: e.places[component],
-			firstSeen: issue.ObservedAt, confirmedAt: issue.ObservedAt, confirmed: true,
+			code: code, text: causeText(issue.Cause), place: e.places[component],
+			claims: map[string]errorClaim{},
 		}
-		for _, origin := range origins[issueOriginKey(issue)] {
-			if name := source(origin); name != "" && !slices.Contains(item.sources, name) {
-				item.sources = append(item.sources, name)
+		for _, claim := range sources.claims[issueClaimKey(issue)] {
+			name := source(claim.source)
+			if name == "" || (claim.severity != "fault" && claim.severity != "warning") {
+				continue
 			}
+			_, severity := canonicalIssue(issue.Cause, claim.severity == "warning")
+			item.claims[name] = errorClaim{severity: severity, at: claim.at, current: true}
 		}
 		// An error that cannot name its source could never be withdrawn.
-		if len(item.sources) > 0 {
+		if len(item.claims) > 0 {
 			e.items[item.key] = item
 		}
 	}
@@ -290,22 +342,25 @@ func (c *errorCollector) plant(wire *mdk.GetContainerHealthResponse, err error, 
 	}
 	e := &c.evidence
 	e.present[plantAlarmsSource], e.present[plantAggregateSource] = true, true
-	at := sourceTime(wire.GetTimestamp())
+	sampled := sourceTime(wire.GetTimestamp())
 	plant := wire.GetPlant()
-	if err != nil || plant == nil || at.IsZero() || now.Sub(at) > healthMaxAge || at.Sub(now) > clockSkewAllowance {
+	if err != nil || plant == nil || sampled.IsZero() || now.Sub(sampled) > healthMaxAge || sampled.Sub(now) > clockSkewAllowance {
 		return
 	}
+	// Reported times never run ahead of the collection. Ordering uses the
+	// sample's own time.
+	at := sampled
 	if at.After(now) {
 		at = now
 	}
 	add := func(id, cause, text string, severity sdkerrors.Severity, place errorPlace, source string) {
 		key := errorItemKey{component: errorComponent{kind: sdkerrors.ComponentTypeUnspecified, id: id}, cause: cause}
 		e.items[key] = &errorItem{
-			key: key, code: sdkerrors.VendorErrorUnmapped, severity: severity, text: text, place: place,
-			sources: []string{source}, firstSeen: at, confirmedAt: at, confirmed: true,
+			key: key, code: sdkerrors.VendorErrorUnmapped, text: text, place: place,
+			claims: map[string]errorClaim{source: {severity: severity, at: at, current: true}},
 		}
 	}
-	e.fresh[plantAggregateSource] = true
+	e.readings[plantAggregateSource] = errorReading{at: sampled, complete: true}
 	alarms := wire.GetAlarms()
 	if len(alarms) == 0 && (plant.GetAlarmActive() || plant.GetCriticalAlarmActive()) {
 		// Frigate lists alarms only from a live plant poll. Before its first
@@ -337,9 +392,7 @@ func (c *errorCollector) plant(wire *mdk.GetContainerHealthResponse, err error, 
 		}
 		add("plant-alarm:"+id, id, text, plantAlarmSeverity(alarm.GetSeverity()), errorPlace{label: "Plant alarm", attrs: attrs}, plantAlarmsSource)
 	}
-	if complete {
-		e.fresh[plantAlarmsSource] = true
-	}
+	e.readings[plantAlarmsSource] = errorReading{at: sampled, complete: complete}
 }
 
 // Frigate plant alarms have no Fleet code. Informational notices stay
@@ -395,14 +448,17 @@ func joinBounded(parts []string, separator string, limit int) string {
 	return out
 }
 
-// errorState is one container's reported errors, including those carried for
-// silent sources. It is shared by every handle for the container in this
+// errorState is one container's reported errors, including those carried from
+// earlier evidence. It is shared by every handle for the container in this
 // process, including Fleet Node's per-command handles, and does not survive a
 // plugin restart.
 type errorState struct {
 	mu         sync.Mutex
 	observedAt time.Time
 	items      map[errorItemKey]*errorItem
+	// sampledAt is the newest sample applied from each source. It is kept
+	// whether or not the source holds a claim.
+	sampledAt map[string]time.Time
 }
 
 var errorStates = struct {
@@ -440,61 +496,91 @@ func (s *errorState) observe(e *errorEvidence) {
 	if e.observedAt.Before(s.observedAt) {
 		return
 	}
-	// A silent source keeps its errors while it still belongs to the container.
-	silent := func(source string) bool {
-		return !e.fresh[source] && (e.present[source] || e.unresolved)
+	// A reading applies unless a newer sample of its source already has.
+	applies := func(source string) bool {
+		reading, ok := e.readings[source]
+		return ok && !reading.at.Before(s.sampledAt[source])
+	}
+	// A source keeps a claim it does not repeat while it still belongs to the
+	// container, unless a complete reading of it applies.
+	keeps := func(source string) bool {
+		if applies(source) && e.readings[source].complete {
+			return false
+		}
+		return e.present[source] || e.unresolved
 	}
 	next := make(map[errorItemKey]*errorItem, len(e.items))
-	for key, current := range e.items {
-		item := *current
-		item.sources = slices.Clone(current.sources)
-		if previous := s.items[key]; previous != nil {
-			if !previous.firstSeen.IsZero() && previous.firstSeen.Before(item.firstSeen) {
-				item.firstSeen = previous.firstSeen
+	for key, observed := range e.items {
+		item := *observed
+		item.claims = make(map[string]errorClaim, len(observed.claims))
+		for source, claim := range observed.claims {
+			if !applies(source) {
+				continue
 			}
-			for _, source := range previous.sources {
-				if silent(source) && !slices.Contains(item.sources, source) {
-					item.sources = append(item.sources, source)
-				}
+			item.claims[source] = claim
+			if item.firstSeen.IsZero() || claim.at.Before(item.firstSeen) {
+				item.firstSeen = claim.at
 			}
 		}
-		next[key] = &item
+		if len(item.claims) > 0 {
+			next[key] = &item
+		}
 	}
 	for key, previous := range s.items {
-		if next[key] != nil {
-			continue
-		}
-		var sources []string
-		for _, source := range previous.sources {
-			if silent(source) {
-				sources = append(sources, source)
+		item := next[key]
+		for source, claim := range previous.claims {
+			if item != nil {
+				if _, repeated := item.claims[source]; repeated {
+					continue
+				}
 			}
+			if !keeps(source) {
+				continue
+			}
+			if item == nil {
+				carried := *previous
+				carried.claims = map[string]errorClaim{}
+				if place, ok := e.places[key.component]; ok {
+					carried.place = place
+				}
+				item = &carried
+				next[key] = item
+			}
+			claim.current = false
+			item.claims[source] = claim
 		}
-		if len(sources) == 0 {
-			continue
+		if item != nil && !previous.firstSeen.IsZero() && previous.firstSeen.Before(item.firstSeen) {
+			item.firstSeen = previous.firstSeen
 		}
-		item := *previous
-		item.sources, item.confirmed = sources, false
-		if place, ok := e.places[key.component]; ok {
-			item.place = place
-		}
-		next[key] = &item
 	}
 	if excess := len(next) - maxRetainedErrorItems; excess > 0 {
 		carried := make([]*errorItem, 0, len(next))
 		for _, item := range next {
-			if !item.confirmed {
+			if !item.confirmed() {
 				carried = append(carried, item)
 			}
 		}
-		slices.SortFunc(carried, func(a, b *errorItem) int { return a.confirmedAt.Compare(b.confirmedAt) })
+		slices.SortFunc(carried, func(a, b *errorItem) int { return a.confirmedAt().Compare(b.confirmedAt()) })
 		dropped := min(excess, len(carried))
 		for _, item := range carried[:dropped] {
 			delete(next, item.key)
 		}
-		slog.Warn("CT1 dropped the oldest errors carried for silent sources", "dropped", dropped, "limit", maxRetainedErrorItems)
+		slog.Warn("CT1 dropped the oldest errors carried from earlier evidence", "dropped", dropped, "limit", maxRetainedErrorItems)
 	}
-	s.items, s.observedAt = next, e.observedAt
+	sampledAt := make(map[string]time.Time, len(e.readings))
+	for source, at := range s.sampledAt {
+		// A sample is only fresh while under two minutes old, so an older
+		// mark can no longer reject one.
+		if e.observedAt.Sub(at) <= healthMaxAge {
+			sampledAt[source] = at
+		}
+	}
+	for source, reading := range e.readings {
+		if reading.at.After(sampledAt[source]) {
+			sampledAt[source] = reading.at
+		}
+	}
+	s.items, s.sampledAt, s.observedAt = next, sampledAt, e.observedAt
 }
 
 // report renders the container's errors in Fleet's error contract. Fleet
@@ -515,12 +601,12 @@ func (s *errorState) report(deviceID string) sdk.DeviceErrors {
 	out := sdk.DeviceErrors{DeviceID: deviceID, Errors: make([]sdk.DeviceError, 0, len(groups))}
 	for key, items := range groups {
 		slices.SortFunc(items, func(a, b *errorItem) int {
-			return cmp.Or(cmp.Compare(a.severity, b.severity), cmp.Compare(a.key.cause, b.key.cause))
+			return cmp.Or(cmp.Compare(a.severity(), b.severity()), cmp.Compare(a.key.cause, b.key.cause))
 		})
 		// Severity values order most severe first, so the first item decides.
 		first := items[0]
 		reported := sdk.DeviceError{
-			MinerError: key.code, Severity: first.severity, DeviceID: deviceID,
+			MinerError: key.code, Severity: first.severity(), DeviceID: deviceID,
 			ComponentID: new(key.component.id), ComponentType: key.component.kind,
 			FirstSeenAt: first.firstSeen, VendorAttributes: maps.Clone(first.place.attrs),
 		}
@@ -531,9 +617,9 @@ func (s *errorState) report(deviceID string) sdk.DeviceErrors {
 		confirmed, confirmedAt := false, time.Time{}
 		for _, item := range items {
 			causes, texts = append(causes, item.key.cause), append(texts, item.text)
-			confirmed = confirmed || item.confirmed
-			if item.confirmedAt.After(confirmedAt) {
-				confirmedAt = item.confirmedAt
+			confirmed = confirmed || item.confirmed()
+			if at := item.confirmedAt(); at.After(confirmedAt) {
+				confirmedAt = at
 			}
 			if !item.firstSeen.IsZero() && item.firstSeen.Before(reported.FirstSeenAt) {
 				reported.FirstSeenAt = item.firstSeen
@@ -548,10 +634,10 @@ func (s *errorState) report(deviceID string) sdk.DeviceErrors {
 			reported.LastSeenAt = s.observedAt
 			reported.VendorAttributes["ct1_evidence"] = errorEvidenceCurrent
 		} else {
-			// The marker and its time are fixed while the source is silent, so
-			// the stored error is rewritten once, not on every poll.
+			// The marker and its time are fixed while the error is carried,
+			// so the stored error is rewritten once, not on every poll.
 			at := confirmedAt.UTC().Format(time.RFC3339)
-			reported.Summary += " (source not reporting; last confirmed " + at + ")"
+			reported.Summary += " (not confirmed or cleared since " + at + ")"
 			reported.VendorAttributes["ct1_evidence"] = errorEvidenceRetained
 			reported.VendorAttributes["ct1_last_confirmed_at"] = at
 		}

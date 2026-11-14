@@ -237,7 +237,7 @@ func TestErrorReportRetainsFaultsOfSilentSources(t *testing.T) {
 	requireEvidence(t, retained, errorEvidenceRetained)
 	confirmed := first.Format(time.RFC3339)
 	require.Equal(t, confirmed, retained.VendorAttributes["ct1_last_confirmed_at"])
-	require.Equal(t, "Tank 1, module 1, hashboard 1 (aa:bb:cc:dd:ee:01): Board over current (source not reporting; last confirmed "+confirmed+")", retained.Summary)
+	require.Equal(t, "Tank 1, module 1, hashboard 1 (aa:bb:cc:dd:ee:01): Board over current (not confirmed or cleared since "+confirmed+")", retained.Summary)
 	require.Equal(t, sdkerrors.SeverityCritical, retained.Severity)
 	require.True(t, retained.FirstSeenAt.Equal(first))
 	require.True(t, retained.LastSeenAt.IsZero(), "a carried fault claims no new observation")
@@ -457,6 +457,184 @@ func TestErrorStateIgnoresOlderEvidence(t *testing.T) {
 	earlier := at.Add(-5 * time.Second)
 	faulted := errorsMap(errorsBoard(1, earlier, withErrors(mdk.HashboardErrorCause_HASHBOARD_ERROR_CAUSE_BOARD_OVER_CURRENT)), errorsBoard(2, earlier), errorsBoard(3, earlier))
 	require.Empty(t, pollErrors(t, state, earlier, faulted, plantHealth(earlier), nil).Errors, "a delayed read cannot restore what a newer one cleared")
+}
+
+// A later read can return an earlier sample of a source, for example from a
+// standby that lags the primary. The sample is still under two minutes old.
+func TestErrorReportIgnoresSamplesOlderThanOnesAlreadyApplied(t *testing.T) {
+	overCurrent := withErrors(mdk.HashboardErrorCause_HASHBOARD_ERROR_CAUSE_BOARD_OVER_CURRENT)
+	boardID := "mac:" + errorsMAC(1)
+	listed := &mdk.PlantAlarm{Id: "register-1-bit-2", Name: "Coolant level low", Severity: mdk.Severity_SEVERITY_CRITICAL}
+	const listedID = "plant-alarm:register-1-bit-2"
+
+	t.Run("board sample cannot clear a newer error", func(t *testing.T) {
+		first := time.Now().UTC().Truncate(time.Second)
+		state := &errorState{}
+		require.Len(t, pollErrors(t, state, first, errorsMap(errorsBoard(1, first, overCurrent), errorsBoard(2, first), errorsBoard(3, first)), plantHealth(first), nil).Errors, 1)
+
+		at := first.Add(15 * time.Second)
+		report := pollErrors(t, state, at, errorsMap(errorsBoard(1, first.Add(-10*time.Second)), errorsBoard(2, at), errorsBoard(3, at)), plantHealth(at), nil)
+		require.Len(t, report.Errors, 1, "the earlier healthy sample says nothing about the newer error")
+		retained := requireError(t, report, kindBoard, boardID, sdkerrors.BoardPowerOvercurrent)
+		requireEvidence(t, retained, errorEvidenceRetained)
+		require.Equal(t, first.Format(time.RFC3339), retained.VendorAttributes["ct1_last_confirmed_at"])
+
+		// The error was not lost: the board going silent still keeps it.
+		at = at.Add(15 * time.Second)
+		report = pollErrors(t, state, at, errorsMap(errorsBoard(1, at, withoutHealth), errorsBoard(2, at), errorsBoard(3, at)), plantHealth(at), nil)
+		requireEvidence(t, requireError(t, report, kindBoard, boardID, sdkerrors.BoardPowerOvercurrent), errorEvidenceRetained)
+
+		at = at.Add(15 * time.Second)
+		require.Empty(t, pollErrors(t, state, at, errorsMap(errorsBoard(1, at), errorsBoard(2, at), errorsBoard(3, at)), plantHealth(at), nil).Errors, "a newer healthy sample clears it")
+	})
+	t.Run("board sample cannot restore a cleared error", func(t *testing.T) {
+		first := time.Now().UTC().Truncate(time.Second)
+		state := &errorState{}
+		require.Empty(t, pollErrors(t, state, first, errorsMap(errorsBoard(1, first), errorsBoard(2, first), errorsBoard(3, first)), plantHealth(first), nil).Errors)
+
+		// The ordering is remembered although the source holds no error.
+		at := first.Add(15 * time.Second)
+		report := pollErrors(t, state, at, errorsMap(errorsBoard(1, first.Add(-10*time.Second), overCurrent), errorsBoard(2, at), errorsBoard(3, at)), plantHealth(at), nil)
+		require.Empty(t, report.Errors, "the newer sample already reported the board without this error")
+
+		at = at.Add(15 * time.Second)
+		report = pollErrors(t, state, at, errorsMap(errorsBoard(1, at, overCurrent), errorsBoard(2, at), errorsBoard(3, at)), plantHealth(at), nil)
+		requireEvidence(t, requireError(t, report, kindBoard, boardID, sdkerrors.BoardPowerOvercurrent), errorEvidenceCurrent)
+	})
+	t.Run("samples are ordered by their own time when the controller clock is ahead", func(t *testing.T) {
+		first := time.Now().UTC().Truncate(time.Second)
+		state := &errorState{}
+		ahead := first.Add(4 * time.Second)
+		require.Len(t, pollErrors(t, state, first, errorsMap(errorsBoard(1, ahead, overCurrent), errorsBoard(2, first), errorsBoard(3, first)), plantHealth(first), nil).Errors, 1)
+
+		// This sample is later than the first collection but earlier than the
+		// sample that collection applied.
+		at := first.Add(15 * time.Second)
+		report := pollErrors(t, state, at, errorsMap(errorsBoard(1, ahead.Add(-2*time.Second)), errorsBoard(2, at), errorsBoard(3, at)), plantHealth(at), nil)
+		requireEvidence(t, requireError(t, report, kindBoard, boardID, sdkerrors.BoardPowerOvercurrent), errorEvidenceRetained)
+	})
+	t.Run("the same sample read again still applies", func(t *testing.T) {
+		first := time.Now().UTC().Truncate(time.Second)
+		state := &errorState{}
+		wire := func() *mdk.GetContainerMapResponse {
+			return errorsMap(errorsBoard(1, first, overCurrent), errorsBoard(2, first), errorsBoard(3, first))
+		}
+		pollErrors(t, state, first, wire(), plantHealth(first), nil)
+		report := pollErrors(t, state, first.Add(15*time.Second), wire(), plantHealth(first), nil)
+		requireEvidence(t, requireError(t, report, kindBoard, boardID, sdkerrors.BoardPowerOvercurrent), errorEvidenceCurrent)
+	})
+	t.Run("PSU thermal state", func(t *testing.T) {
+		first := time.Now().UTC().Truncate(time.Second)
+		state := &errorState{}
+		report := pollErrors(t, state, first, errorsMap(errorsBoard(1, first, withPSUFault), errorsBoard(2, first, withPSUFault), errorsBoard(3, first, withPSUFault)), plantHealth(first), nil)
+		requireEvidence(t, requireError(t, report, kindPSU, modulePSU, sdkerrors.PSUOverTemperature), errorEvidenceCurrent)
+
+		// The boards' own samples are new, but their copy of the shared PSU
+		// state was taken before the one already applied.
+		at := first.Add(15 * time.Second)
+		aged := func(b *mdk.Hashboard) { b.Health.PsuThermal.ThermalStateAgeMs = new(uint32(30_000)) }
+		report = pollErrors(t, state, at, errorsMap(errorsBoard(1, at, aged, overCurrent), errorsBoard(2, at, aged), errorsBoard(3, at, aged)), plantHealth(at), nil)
+		require.Len(t, report.Errors, 2)
+		requireEvidence(t, requireError(t, report, kindPSU, modulePSU, sdkerrors.PSUOverTemperature), errorEvidenceRetained)
+		requireEvidence(t, requireError(t, report, kindBoard, boardID, sdkerrors.BoardPowerOvercurrent), errorEvidenceCurrent)
+
+		at = at.Add(15 * time.Second)
+		require.Empty(t, pollErrors(t, state, at, errorsMap(errorsBoard(1, at), errorsBoard(2, at), errorsBoard(3, at)), plantHealth(at), nil).Errors)
+	})
+	t.Run("plant alarms", func(t *testing.T) {
+		first := time.Now().UTC().Truncate(time.Second)
+		state := &errorState{}
+		require.Len(t, pollErrors(t, state, first, errorsMap(), plantHealth(first, listed), nil).Errors, 1)
+
+		at := first.Add(15 * time.Second)
+		older := first.Add(-10 * time.Second)
+		report := pollErrors(t, state, at, errorsMap(), plantHealth(older), nil)
+		require.Len(t, report.Errors, 1, "an earlier empty alarm list cannot clear the alarm")
+		requireEvidence(t, requireError(t, report, kindPlant, listedID, sdkerrors.VendorErrorUnmapped), errorEvidenceRetained)
+
+		at = at.Add(15 * time.Second)
+		report = pollErrors(t, state, at, errorsMap(), plantHealth(older, &mdk.PlantAlarm{Id: "register-2-bit-0", Severity: mdk.Severity_SEVERITY_ERROR}), nil)
+		require.Len(t, report.Errors, 1, "nor can an earlier list raise another alarm")
+		requireEvidence(t, requireError(t, report, kindPlant, listedID, sdkerrors.VendorErrorUnmapped), errorEvidenceRetained)
+
+		at = at.Add(15 * time.Second)
+		require.Empty(t, pollErrors(t, state, at, errorsMap(), plantHealth(at), nil).Errors)
+	})
+}
+
+func TestErrorStateOrderingMarksExpire(t *testing.T) {
+	at := time.Now().UTC()
+	state := &errorState{}
+	pollErrors(t, state, at, errorsMap(errorsBoard(1, at), errorsBoard(2, at), errorsBoard(3, at)), plantHealth(at), nil)
+	require.Len(t, state.sampledAt, 6, "three boards, their PSU, and the two plant readings, although none holds an error")
+
+	// A sample is only accepted while under two minutes old, so a mark past
+	// that age can reject nothing and is dropped.
+	at = at.Add(healthMaxAge + time.Second)
+	pollErrors(t, state, at, errorsMap(errorsBoard(1, at, withoutHealth), errorsBoard(2, at, withoutHealth), errorsBoard(3, at, withoutHealth)), nil, status.Error(codes.Unavailable, "plant unavailable"))
+	require.Empty(t, state.sampledAt)
+}
+
+// Frigate health can carry more causes than a report retains. The omitted
+// causes are unknown, so the report is not a complete reading of its boards.
+func TestErrorReportTruncatedEvidenceClearsNothing(t *testing.T) {
+	at := time.Now().UTC()
+	state := &errorState{}
+	boardID := "mac:" + errorsMAC(1)
+	require.Len(t, pollErrors(t, state, at, errorsMap(errorsBoard(1, at, withErrors(mdk.HashboardErrorCause_HASHBOARD_ERROR_CAUSE_BOARD_OVER_CURRENT)), errorsBoard(2, at), errorsBoard(3, at)), plantHealth(at), nil).Errors, 1)
+
+	var causes []mdk.HashboardErrorCause
+	for i := range maxModuleIssues + 1 {
+		causes = append(causes, mdk.HashboardErrorCause(5000+i)) //nolint:gosec // bounded test index
+	}
+	at = at.Add(15 * time.Second)
+	report := pollErrors(t, state, at, errorsMap(errorsBoard(1, at, withErrors(causes...)), errorsBoard(2, at), errorsBoard(3, at)), plantHealth(at), nil)
+	require.Len(t, report.Errors, 2)
+	requireEvidence(t, requireError(t, report, kindBoard, boardID, sdkerrors.BoardPowerOvercurrent), errorEvidenceRetained)
+	requireEvidence(t, requireError(t, report, kindBoard, boardID, sdkerrors.VendorErrorUnmapped), errorEvidenceCurrent)
+
+	at = at.Add(15 * time.Second)
+	require.Empty(t, pollErrors(t, state, at, errorsMap(errorsBoard(1, at), errorsBoard(2, at), errorsBoard(3, at)), plantHealth(at), nil).Errors)
+}
+
+// A power-supply cause is asserted by the board that reported it and by the
+// module's shared thermal state, possibly at different severities.
+func TestErrorReportKeepsTheMostSevereUnresolvedClaim(t *testing.T) {
+	first := time.Now().UTC().Truncate(time.Second)
+	state := &errorState{}
+	boardFault := withErrors(mdk.HashboardErrorCause_HASHBOARD_ERROR_CAUSE_BOARD_POWER_SUPPLY_OVER_TEMPERATURE)
+	thermalWarning := func(b *mdk.Hashboard) { b.Health.PsuThermal.OverTemperatureWarning = true }
+
+	report := pollErrors(t, state, first, errorsMap(errorsBoard(1, first, boardFault), errorsBoard(2, first), errorsBoard(3, first)), plantHealth(first), nil)
+	require.Len(t, report.Errors, 1)
+	require.Equal(t, sdkerrors.SeverityCritical, requireError(t, report, kindPSU, modulePSU, sdkerrors.PSUOverTemperature).Severity)
+
+	// Board 1 stops reporting while the shared thermal state warns.
+	at := first.Add(15 * time.Second)
+	report = pollErrors(t, state, at, errorsMap(errorsBoard(1, at, withoutHealth), errorsBoard(2, at, thermalWarning), errorsBoard(3, at, thermalWarning)), plantHealth(at), nil)
+	require.Len(t, report.Errors, 1)
+	mixed := requireError(t, report, kindPSU, modulePSU, sdkerrors.PSUOverTemperature)
+	require.Equal(t, sdkerrors.SeverityCritical, mixed.Severity, "the warning does not withdraw the silent board's fault")
+	requireEvidence(t, mixed, errorEvidenceCurrent)
+	require.True(t, mixed.LastSeenAt.Equal(at))
+	require.True(t, mixed.FirstSeenAt.Equal(first))
+
+	// The warning clears. Board 1 has still not withdrawn its fault.
+	at = at.Add(15 * time.Second)
+	report = pollErrors(t, state, at, errorsMap(errorsBoard(1, at, withoutHealth), errorsBoard(2, at), errorsBoard(3, at)), plantHealth(at), nil)
+	require.Len(t, report.Errors, 1)
+	retained := requireError(t, report, kindPSU, modulePSU, sdkerrors.PSUOverTemperature)
+	require.Equal(t, sdkerrors.SeverityCritical, retained.Severity)
+	requireEvidence(t, retained, errorEvidenceRetained)
+	require.Equal(t, first.Format(time.RFC3339), retained.VendorAttributes["ct1_last_confirmed_at"], "the board's fault was last confirmed by the board")
+
+	// A warning alone is reported at its own severity once the fault is withdrawn.
+	at = at.Add(15 * time.Second)
+	report = pollErrors(t, state, at, errorsMap(errorsBoard(1, at, thermalWarning), errorsBoard(2, at, thermalWarning), errorsBoard(3, at, thermalWarning)), plantHealth(at), nil)
+	require.Equal(t, sdkerrors.SeverityMajor, requireError(t, report, kindPSU, modulePSU, sdkerrors.PSUOverTemperature).Severity)
+
+	at = at.Add(15 * time.Second)
+	require.Empty(t, pollErrors(t, state, at, errorsMap(errorsBoard(1, at), errorsBoard(2, at), errorsBoard(3, at)), plantHealth(at), nil).Errors)
 }
 
 func TestErrorPollingCapabilityIsAdvertised(t *testing.T) {
@@ -704,4 +882,29 @@ func TestGetErrorsFallsBackToTheVerifiedStandby(t *testing.T) {
 	expireErrorEvidence(d)
 	_, err = d.GetErrors(t.Context())
 	require.Equal(t, codes.Unavailable, status.Code(err), "both controllers failing is a failed poll")
+}
+
+func TestGetErrorsStandbySampleCannotClearAPrimaryError(t *testing.T) {
+	isolateErrorStates(t)
+	a, b := startHAServer(t, "a", "b"), startHAServer(t, "b", "a")
+	a.primary.Store(true)
+	sampled := time.Now().UTC()
+	a.containerMap = faultedBoards(sampled)
+	// The standby still serves each board's earlier, healthy sample.
+	earlier := sampled.Add(-10 * time.Second)
+	b.containerMap = errorsMap(errorsBoard(1, earlier), errorsBoard(2, earlier), errorsBoard(3, earlier))
+	d, err := NewDevice(t.Context(), errorsDevice, haInfo(a, b), sdk.UsernamePassword{})
+	require.NoError(t, err)
+	defer d.Close(t.Context())
+	report, err := d.GetErrors(t.Context())
+	require.NoError(t, err)
+	requireEvidence(t, requireError(t, report, kindBoard, "mac:"+errorsMAC(1), sdkerrors.BoardPowerOvercurrent), errorEvidenceCurrent)
+
+	a.mapError = status.Error(codes.Unavailable, "primary cannot read hashboards")
+	expireErrorEvidence(d)
+	report, err = d.GetErrors(t.Context())
+	require.NoError(t, err)
+	require.EqualValues(t, 1, b.mapReads.Load(), "this report came from the standby")
+	require.Len(t, report.Errors, 1)
+	requireEvidence(t, requireError(t, report, kindBoard, "mac:"+errorsMAC(1), sdkerrors.BoardPowerOvercurrent), errorEvidenceRetained)
 }

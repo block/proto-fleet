@@ -154,9 +154,9 @@ func (d *Device) DownloadLogs(context.Context, *time.Time, string) (string, bool
 }
 
 // GetErrors reports active board, PSU, and plant errors. Fleet closes an error
-// that polls stop reporting, so errors whose source has gone silent are still
-// reported, marked as retained. A failed map read fails the poll; it never
-// returns an empty report.
+// that polls stop reporting, so an error is still reported, marked as
+// retained, until its source confirms that it cleared. A failed map read fails
+// the poll; it never returns an empty report.
 func (d *Device) GetErrors(ctx context.Context) (sdk.DeviceErrors, error) {
 	state := d.errorsShared()
 	if !state.current(time.Now(), errorEvidenceMaxAge) {
