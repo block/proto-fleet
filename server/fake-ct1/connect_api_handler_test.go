@@ -344,3 +344,41 @@ func TestBoundToGETFollowsRESTBindings(t *testing.T) {
 		}
 	}
 }
+
+func TestConnectGatewayServesHAStatusWithUnreachablePeer(t *testing.T) {
+	var states [2]*ContainerState
+	for i, id := range []string{"ct1-a", "ct1-b"} {
+		states[i] = NewContainerState(ContainerConfig{ServerID: id, Hostname: "fake-ct1-" + id, Tanks: 1, ModulesPerTank: 1, SlotsPerModule: 1, AsicsPerBoard: 4, Seed: 1})
+	}
+	sim := newHAPair(states[0], states[1], haPairSettings{Update: updateSimConfig{Primary: "ct1-a"}, ClusterID: testHAClusterID, PeerUnreachable: true})
+	t.Cleanup(sim.close)
+	handler, cleanup, err := newHTTPHandler(states[0], "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(cleanup)
+	srv := httptest.NewServer(handler)
+	t.Cleanup(srv.Close)
+
+	system := mdkv2connect.NewSystemServiceClient(http.DefaultClient, srv.URL, connect.WithGRPCWeb())
+	response, err := system.GetHAStatus(context.Background(), connect.NewRequest(&mdk.GetHAStatusRequest{}))
+	if err != nil {
+		t.Fatalf("GetHAStatus over Connect: %v", err)
+	}
+	report := response.Msg.GetStatus()
+	if report.GetReportingServerId() != "ct1-a" || report.GetPeerServerId() != "ct1-b" || len(report.GetMembers()) != 2 {
+		t.Fatalf("unexpected HA report: %v", report)
+	}
+	local, peer := report.GetMembers()[0], report.GetMembers()[1]
+	if !local.GetLocal() || !local.GetFrigateReachable() || local.GetHostname() != "fake-ct1-ct1-a" ||
+		local.GetRoleObservation().GetFreshness() != mdk.HAObservationFreshness_HA_OBSERVATION_FRESHNESS_FRESH {
+		t.Fatalf("local member = %v", local)
+	}
+	if peer.GetLocal() || peer.FrigateReachable == nil || peer.GetFrigateReachable() || peer.GetRecovery() != nil ||
+		peer.GetHostname() != "fake-ct1-ct1-b" ||
+		peer.GetFrigateObservation().GetFreshness() != mdk.HAObservationFreshness_HA_OBSERVATION_FRESHNESS_STALE ||
+		peer.GetRoleObservation().GetFreshness() != mdk.HAObservationFreshness_HA_OBSERVATION_FRESHNESS_STALE ||
+		peer.GetFrigateObservation().GetLastSuccessfulAt() == nil {
+		t.Fatalf("peer member = %v", peer)
+	}
+}

@@ -36,6 +36,7 @@ import type {
   V2GetContainerMapResponse,
   V2GetFirmwareUpdateResponse,
   V2GetHashboardASICsResponse,
+  V2GetHAStatusResponse,
   V2GetLogsResponse,
   V2GetMiningStatusResponse,
   V2GetPoolDiagnosticsResponse,
@@ -136,6 +137,7 @@ export interface MdkV2Client {
 
   systemServiceGetSystemInfo(params?: AdapterRequestOptions): HttpResponse<V2GetSystemInfoResponse>;
   systemServiceGetSystemStatus(params?: AdapterRequestOptions): HttpResponse<V2GetSystemStatusResponse>;
+  systemServiceGetHaStatus(params?: AdapterRequestOptions): HttpResponse<V2GetHAStatusResponse>;
   miningServiceGetMiningStatus(params?: AdapterRequestOptions): HttpResponse<V2GetMiningStatusResponse>;
   miningServiceGetTargetPower(params?: AdapterRequestOptions): HttpResponse<V2GetTargetPowerResponse>;
   miningServiceSetTargetPower(
@@ -491,6 +493,7 @@ export const createMdkV2Client = (transport: Transport): MdkV2Client => {
       unary(transport, FirmwareService.method.cancelFirmwareUpdate, path, params),
     systemServiceGetSystemInfo: (params) => unary(transport, system.getSystemInfo, {}, params),
     systemServiceGetSystemStatus: (params) => unary(transport, system.getSystemStatus, {}, params),
+    systemServiceGetHaStatus: (params) => unary(transport, system.getHAStatus, {}, params),
     miningServiceGetMiningStatus: (params) => unary(transport, mining.getMiningStatus, {}, params),
     miningServiceGetTargetPower: (params) => unary(transport, mining.getTargetPower, {}, params),
     miningServiceSetTargetPower: (data, params) => unary(transport, mining.setTargetPower, data, params),

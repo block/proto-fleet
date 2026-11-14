@@ -22,7 +22,8 @@ import { mapWithConcurrency } from "../utils/async";
 import { parseIsoDurationMs } from "../utils/time";
 import { createMdkV2Client, type MdkV2Client } from "./connectClient";
 import { queryContainerHistory } from "./containerHistory";
-import { listControllerAuditEvents, readControllerLogs } from "./controllerRecords";
+import { toCanonicalControllerDiagnostics } from "./controllerDiagnostics";
+import { listControllerAuditEvents, readControllerLogs, withDeadline } from "./controllerRecords";
 import { createHashboardFirmware } from "./firmware";
 import {
   Api,
@@ -65,6 +66,9 @@ const ACTOR = "proto-os";
 const DEFAULT_DEVICE_ID = "ct1";
 const HASHBOARD_CONCURRENCY = 8;
 const HASHBOARD_TIMESERIES_CACHE_MS = 5 * 60_000;
+// A diagnostics poll that stalls past this is reported as unavailable, well
+// before the 15-second role observations it would refresh go stale.
+export const CONTROLLER_DIAGNOSTICS_TIMEOUT_MS = 8_000;
 const SERIES_METRICS: Record<ContainerSeriesField, TelemetryServiceQueryTimeSeriesParams["metric"]> = {
   hashrate: "TIME_SERIES_METRIC_HASHRATE",
   temperature: "TIME_SERIES_METRIC_TEMPERATURE",
@@ -220,6 +224,23 @@ export class MdkV2Adapter implements MinerAdapter {
   async getSystemStatus(params: AdapterRequestOptions = {}) {
     const response = await this.client.systemServiceGetSystemStatus(this.decorate(params));
     return toCanonicalLifecycle(response.data);
+  }
+
+  async getControllerDiagnostics(params: AdapterRequestOptions = {}) {
+    const decorated = this.decorate(params);
+    // Each read has its own deadline, so one stalled source cannot hide the
+    // other's answer or hold up the next poll.
+    const [ha, status] = await Promise.allSettled([
+      withDeadline(decorated, CONTROLLER_DIAGNOSTICS_TIMEOUT_MS, (options) =>
+        this.client.systemServiceGetHaStatus(options).then(({ data }) => data),
+      ),
+      withDeadline(decorated, CONTROLLER_DIAGNOSTICS_TIMEOUT_MS, (options) =>
+        this.client.systemServiceGetSystemStatus(options).then(({ data }) => data),
+      ),
+    ]);
+    // With neither source there is nothing to diagnose; surface the failure.
+    if (ha.status === "rejected" && status.status === "rejected") throw status.reason;
+    return toCanonicalControllerDiagnostics(ha, status);
   }
 
   async getSystemTag(params: AdapterRequestOptions = {}) {

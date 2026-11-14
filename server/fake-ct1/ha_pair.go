@@ -25,6 +25,12 @@ type haInstance struct {
 	self      string
 	peer      string
 	clusterID string
+	// peerHostname is reported as the peer member's observed hostname.
+	peerHostname string
+	// peerUnreachable makes this controller report its peer as unreachable
+	// since startedAt, with stale role and reachability observations.
+	peerUnreachable bool
+	startedAt       time.Time
 	// primaryMetrics is true for the member that owns FAKE_MINER_METRICS_FILE.
 	primaryMetrics bool
 }
@@ -47,7 +53,9 @@ type haPairSettings struct {
 	PeerHTTPPort  int
 	ClusterID     string
 	PrimaryIsPeer bool
-	Update        updateSimConfig
+	// PeerUnreachable makes each controller report the other as unreachable.
+	PeerUnreachable bool
+	Update          updateSimConfig
 }
 
 func envBool(key string) bool {
@@ -75,6 +83,7 @@ func envDuration(key string, fallback time.Duration) (time.Duration, error) {
 //	CT1_HA_CLUSTER_ID                 durable cluster UUID (default derived from the two IDs)
 //	CT1_UPDATE_ETCD_CLUSTER_ID        etcd cluster ID update support reports (default derived from the cluster UUID)
 //	CT1_HA_PRIMARY                    "a" (default) or "b"
+//	CT1_HA_FAULT_PEER_UNREACHABLE     each controller reports its peer unreachable
 //	CT1_UPDATE_TRUSTED_KEY_FILES      comma-separated PEM P-256 release public keys
 //	CT1_UPDATE_STEP                   duration of each scripted rollout phase (default 2s)
 //	CT1_UPDATE_SPOOL_FREE_BYTES       advertised free spool space
@@ -86,7 +95,10 @@ func haPairSettingsFromEnv(cfg ContainerConfig, grpcPort, httpPort int) (haPairS
 	if !envBool("CT1_HA_PAIR") {
 		return haPairSettings{}, false, nil
 	}
-	settings := haPairSettings{PeerServerID: getEnv("CT1_HA_PEER_SERVER_ID", cfg.ServerID+"-b")}
+	settings := haPairSettings{
+		PeerServerID:    getEnv("CT1_HA_PEER_SERVER_ID", cfg.ServerID+"-b"),
+		PeerUnreachable: envBool("CT1_HA_FAULT_PEER_UNREACHABLE"),
+	}
 	if settings.PeerServerID == cfg.ServerID {
 		return settings, false, fmt.Errorf("CT1_HA_PEER_SERVER_ID must differ from SERVER_ID")
 	}
@@ -178,8 +190,15 @@ func newHAPair(a, b *ContainerState, settings haPairSettings) *updateSim {
 	sim := newUpdateSim(settings.Update)
 	sim.attach(a)
 	sim.attach(b)
-	a.ha = &haInstance{sim: sim, self: a.ServerID, peer: b.ServerID, clusterID: settings.ClusterID, primaryMetrics: true}
-	b.ha = &haInstance{sim: sim, self: b.ServerID, peer: a.ServerID, clusterID: settings.ClusterID}
+	startedAt := time.Now()
+	a.ha = &haInstance{
+		sim: sim, self: a.ServerID, peer: b.ServerID, clusterID: settings.ClusterID, peerHostname: b.Hostname,
+		peerUnreachable: settings.PeerUnreachable, startedAt: startedAt, primaryMetrics: true,
+	}
+	b.ha = &haInstance{
+		sim: sim, self: b.ServerID, peer: a.ServerID, clusterID: settings.ClusterID, peerHostname: a.Hostname,
+		peerUnreachable: settings.PeerUnreachable, startedAt: startedAt,
+	}
 	return sim
 }
 
@@ -220,19 +239,43 @@ func (a *grpcAPI) GetHAStatus(context.Context, *mdk.GetHAStatusRequest) (*mdk.Ge
 		IdentityState:  mdk.HAIdentityState_HA_IDENTITY_STATE_CONFIRMED,
 		InventoryReady: true, ObservedAt: now,
 	}
+	fresh := func(source string) *mdk.HAObservation {
+		return &mdk.HAObservation{SourceServerId: source, ObservedAt: now, LastSuccessfulAt: now, Freshness: mdk.HAObservationFreshness_HA_OBSERVATION_FRESHNESS_FRESH}
+	}
 	for _, id := range []string{h.self, h.peer} {
 		primary := h.sim.currentPrimary() == id
 		role := mdk.HARole_HA_ROLE_STANDBY
 		if primary {
 			role = mdk.HARole_HA_ROLE_PRIMARY
 		}
-		report.Members = append(report.Members, &mdk.HAMemberStatus{
-			Id: id, Kind: mdk.HAMemberRole_HA_MEMBER_ROLE_FRIGATE, Local: id == h.self,
+		hostname := a.state.Hostname
+		if id != h.self {
+			hostname = h.peerHostname
+		}
+		member := &mdk.HAMemberStatus{
+			Id: id, Kind: mdk.HAMemberRole_HA_MEMBER_ROLE_FRIGATE, Local: id == h.self, Hostname: hostname,
 			HaRole: role, ContainerWritePrimary: &primary, FrigateReachable: new(true),
 			Recovery:           &mdk.HARecoveryStatus{State: mdk.HARecoveryState_HA_RECOVERY_STATE_STEADY},
-			RoleObservation:    &mdk.HAObservation{SourceServerId: id, ObservedAt: now, Freshness: mdk.HAObservationFreshness_HA_OBSERVATION_FRESHNESS_FRESH},
-			FrigateObservation: &mdk.HAObservation{SourceServerId: h.self, ObservedAt: now, Freshness: mdk.HAObservationFreshness_HA_OBSERVATION_FRESHNESS_FRESH},
-		})
+			RoleObservation:    fresh(id),
+			FrigateObservation: fresh(h.self),
+		}
+		if id != h.self && h.peerUnreachable {
+			// The last successful probe predates the fault; the role and write
+			// claim are what the peer last reported, and recovery is unknown.
+			lastSuccess := timestamppb.New(h.startedAt)
+			member.FrigateReachable = new(false)
+			member.Recovery = nil
+			member.FrigateObservation = &mdk.HAObservation{
+				SourceServerId: h.self, ObservedAt: now, LastSuccessfulAt: lastSuccess,
+				Freshness: mdk.HAObservationFreshness_HA_OBSERVATION_FRESHNESS_STALE,
+				Detail:    "peer did not answer the latest probe",
+			}
+			member.RoleObservation = &mdk.HAObservation{
+				SourceServerId: id, ObservedAt: lastSuccess, LastSuccessfulAt: lastSuccess,
+				Freshness: mdk.HAObservationFreshness_HA_OBSERVATION_FRESHNESS_STALE,
+			}
+		}
+		report.Members = append(report.Members, member)
 	}
 	return &mdk.GetHAStatusResponse{Status: report}, nil
 }

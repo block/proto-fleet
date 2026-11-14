@@ -1,4 +1,5 @@
 import type { ContainerHistoryRequest, ContainerHistoryResult } from "./containerHistory";
+import type { ControllerDiagnosticsResult } from "./controllerDiagnostics";
 import type { AuditEventPage, AuditEventQuery, ControllerLogQuery, ControllerLogSnapshot } from "./controllerLogs";
 import type { HashboardFirmware } from "./hashboardFirmware";
 import type { ChangePasswordRequest } from "./mdkV1";
@@ -199,6 +200,8 @@ export interface MinerAdapter {
     onboarded?: boolean;
     passwordSet?: boolean;
   }>;
+  /** Controller identities, roles, reachability and HA observations. Single-controller adapters omit this capability. */
+  getControllerDiagnostics?(params?: AdapterRequestOptions): Promise<ControllerDiagnosticsResult>;
   getSystemTag(params?: AdapterRequestOptions): Promise<string>;
   setSystemTag(value: string, params?: AdapterRequestOptions): Promise<void>;
   getMiningStatus(params?: AdapterRequestOptions): Promise<OperationalStatus>;

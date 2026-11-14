@@ -1,9 +1,12 @@
-import { type ReactNode, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import clsx from "clsx";
 
+import ControllerDiagnostics from "./ControllerDiagnostics";
+import { Panel, Stat } from "./diagnosticLayout";
 import DiagnosticStatusModal from "./DiagnosticStatusModal";
 import DryCoolerSettingsModal from "./DryCoolerSettingsModal";
 import { useContainerControl } from "./useContainerControl";
+import { useControllerDiagnosticsSupported } from "./useControllerDiagnostics";
 import type { TelemetryLevel } from "@/protoOS/api/adapters/types";
 import { useTelemetry } from "@/protoOS/api/hooks/useTelemetry";
 import { ProtoOSStatusModal } from "@/protoOS/components/StatusModal";
@@ -43,7 +46,7 @@ import type { TemperatureUnit } from "@/shared/features/preferences/types";
 import { formatFlowRate } from "@/shared/utils/flowRate";
 import { convertCtoF } from "@/shared/utils/telemetryFormat";
 
-type DiagnosticTab = "all" | "tanks" | "dry-cooler" | "power" | "controls";
+type DiagnosticTab = "all" | "tanks" | "dry-cooler" | "power" | "controls" | "controllers";
 
 // Keep the telemetry subscription out of the view so polling state alone does
 // not re-render every card. Remount when scope changes to cancel the old poll.
@@ -63,6 +66,7 @@ const tabs = [
   { key: "dry-cooler", title: "Cooling" },
   { key: "power", title: "Power" },
   { key: "controls", title: "Controls" },
+  { key: "controllers", title: "Controllers" },
 ];
 
 const PASCALS_PER_PSI = 6_894.757;
@@ -85,17 +89,6 @@ const formatTemperature = (value: number | undefined, unit: TemperatureUnit) => 
 
 const formatPressure = (pascals: number | undefined) =>
   pascals === undefined ? "—" : `${decimal(pascals / PASCALS_PER_PSI)} psi`;
-
-const Stat = ({ label, value }: { label: string; value: string }) => (
-  <div>
-    <dt className="mb-1 text-300 text-text-primary-70">{label}</dt>
-    <dd className="text-emphasis-400 text-text-primary tabular-nums">{value}</dd>
-  </div>
-);
-
-const Panel = ({ children, className }: { children: ReactNode; className?: string }) => (
-  <div className={clsx("rounded-2xl bg-surface-overlay p-6", className)}>{children}</div>
-);
 
 const useContainerDiagnostics = () => {
   const topology = useMinerStore((state) => state.hardware.topology);
@@ -673,6 +666,7 @@ const ControlsDiagnostics = ({ plant }: { plant?: PlantTelemetry }) => {
 const ContainerDiagnosticView = ({ className }: { className?: string }) => {
   const [selectedTab, setSelectedTab] = useState<DiagnosticTab>("all");
   const data = useContainerDiagnostics();
+  const controllersSupported = useControllerDiagnosticsSupported();
   const full = selectedTab === "all" || selectedTab === "tanks";
   const polling = <DiagnosticsPolling key={full ? "full" : "plant"} full={full} />;
   if (!data)
@@ -690,7 +684,7 @@ const ContainerDiagnosticView = ({ className }: { className?: string }) => {
         <h1 className="text-heading-300">Systems</h1>
         <div className="max-w-full overflow-x-auto">
           <SegmentedControl
-            segments={tabs}
+            segments={controllersSupported ? tabs : tabs.filter((tab) => tab.key !== "controllers")}
             initialSegmentKey="all"
             onSelect={(key) => setSelectedTab(key as DiagnosticTab)}
           />
@@ -702,6 +696,7 @@ const ContainerDiagnosticView = ({ className }: { className?: string }) => {
         {show("dry-cooler") ? <DryCoolerDiagnostics data={data} /> : null}
         {show("power") ? <PowerDiagnostics data={data} /> : null}
         {show("controls") ? <ControlsDiagnostics plant={data.plant} /> : null}
+        {show("controllers") ? <ControllerDiagnostics /> : null}
       </div>
     </div>
   );

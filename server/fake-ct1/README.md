@@ -468,8 +468,12 @@ process, which is how a real CT1 appears to Fleet (one device, two
 endpoints). The primary listens on `GRPC_PORT`/`HTTP_PORT` and the peer on the
 next ports (`CT1_HA_PEER_GRPC_PORT`/`CT1_HA_PEER_HTTP_PORT`, 0 stays
 ephemeral). Both controllers share the physical inventory and report the same
-`CT1_HA_CLUSTER_ID` through `SystemService.GetHAStatus`; the standby reports
-`HA_ROLE_STANDBY`. Without the variable, `GetHAStatus` stays Unimplemented.
+`CT1_HA_CLUSTER_ID` through `SystemService.GetHAStatus` over native gRPC and
+Connect; the standby reports `HA_ROLE_STANDBY`. Without the variable,
+`GetHAStatus` stays Unimplemented. ProtoOS shows this report on the Systems
+page's Controllers tab. Set `CT1_HA_FAULT_PEER_UNREACHABLE=1` to make each
+controller report its peer unreachable since startup, with stale role and
+reachability observations and unknown recovery.
 
 The pair serves the full MDK `ServerUpdateService` over native gRPC only (no
 REST or Connect routes): instance-scoped support and Begin/Append/Commit/Abort
@@ -495,6 +499,7 @@ CT1_HA_PAIR=1 CT1_UPDATE_TRUSTED_KEY_FILES=$PWD/release.pub go run .
 | `CT1_HA_PEER_SERVER_ID` | Second controller ID (default `<SERVER_ID>-b`). |
 | `CT1_HA_CLUSTER_ID` | Cluster UUID (default derived from both IDs). |
 | `CT1_HA_PRIMARY` | `a` (default) or `b`: which controller is HA primary. |
+| `CT1_HA_FAULT_PEER_UNREACHABLE` | Each controller reports its peer unreachable with stale observations. |
 | `CT1_UPDATE_TRUSTED_KEY_FILES` | Comma-separated PEM public keys; none means `UPDATE_NO_TRUSTED_KEYS`. |
 | `CT1_UPDATE_STEP` | Duration of each scripted rollout phase (default `2s`). |
 | `CT1_UPDATE_SPOOL_FREE_BYTES` | Advertised free spool space (`UPDATE_INSUFFICIENT_SPACE` when too small). |

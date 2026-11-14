@@ -517,6 +517,17 @@ describe("Container diagnostics", () => {
     expect(screen.getByText("0% PWM")).toBeInTheDocument();
   });
 
+  test("offers the Controllers tab only when this controller serves its diagnostics", () => {
+    hosting.adapter = { getControllerDiagnostics: () => new Promise(() => {}) } as unknown as MinerAdapter;
+    hosting.isFleetHosted = false;
+    try {
+      render(<ContainerDiagnosticView />);
+      expect(screen.getByRole("button", { name: "Controllers" })).toBeInTheDocument();
+    } finally {
+      hosting.isFleetHosted = true;
+    }
+  });
+
   test("switches among the dry cooler, power, and controls designs", () => {
     render(<ContainerDiagnosticView />);
 

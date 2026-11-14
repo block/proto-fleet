@@ -154,6 +154,7 @@ const rpcTable: [
   ],
   ["systemServiceGetSystemInfo", "mdk.v2.SystemService/GetSystemInfo", {}, (c) => c.systemServiceGetSystemInfo()],
   ["systemServiceGetSystemStatus", "mdk.v2.SystemService/GetSystemStatus", {}, (c) => c.systemServiceGetSystemStatus()],
+  ["systemServiceGetHaStatus", "mdk.v2.SystemService/GetHAStatus", {}, (c) => c.systemServiceGetHaStatus()],
   [
     "systemServiceReadLogTail",
     "mdk.v2.SystemService/GetLogs",

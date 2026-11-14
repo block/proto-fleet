@@ -51,7 +51,7 @@ export const AUDIT_READ_TIMEOUT_MS = 10_000;
  * Runs `request` with the caller's signal plus a deadline. Expiry rejects with
  * an ordinary error, not an abort, so callers report it like any failed read.
  */
-async function withDeadline<T>(
+export async function withDeadline<T>(
   params: AdapterRequestOptions,
   ms: number,
   request: (params: AdapterRequestOptions) => Promise<T>,
