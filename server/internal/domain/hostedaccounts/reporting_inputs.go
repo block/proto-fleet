@@ -405,7 +405,7 @@ func (s *Service) HostReportingSetup(ctx context.Context, actorID, orgID int64, 
 			}
 		}
 		if grant.CanCreate {
-			row, err := q.LockReportingInputsForShare(ctx, sqlc.LockReportingInputsForShareParams{OrganizationID: orgID, AccountID: a.account.ID})
+			row, err := q.LockReportingInputsForRead(ctx, sqlc.LockReportingInputsForReadParams{OrganizationID: orgID, AccountID: a.account.ID})
 			if err != nil && !errors.Is(err, sql.ErrNoRows) {
 				return out, err
 			}

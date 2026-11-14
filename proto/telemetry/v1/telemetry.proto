@@ -292,6 +292,10 @@ message FleetNodeTelemetryResult {
   // time from its own request start and this age, avoiding node clock skew.
   // Missing or negative age provides no reboot evidence to the server.
   google.protobuf.Duration uptime_observation_age = 16;
+  // Age of the telemetry snapshot at response assembly, preserving cached data's
+  // original timestamp. Absent means no trustworthy observation time. The server
+  // subtracts this age from its own request start to avoid node clock skew.
+  google.protobuf.Duration telemetry_observation_age = 17;
 }
 
 message GetCombinedMetricsRequest {

@@ -311,6 +311,8 @@ enum CommandProtocolVersion {
     COMMAND_PROTOCOL_VERSION_V8 = 8;
     // V9 verifies complete stored and runtime pool clearing on the node.
     COMMAND_PROTOCOL_VERSION_V9 = 9;
+    // V10 adds verified CT1 board identification LED commands.
+    COMMAND_PROTOCOL_VERSION_V10 = 10;
 }
 
 message ControlHello {
@@ -508,6 +510,7 @@ message MinerCommand {
         MiningGroupsAction mining_groups = 22;
         ContainerMiningAction container_mining = 23;
         VerifyPoolsClearedAction verify_pools_cleared = 24;
+        SetBoardIdentifyAction set_board_identify = 25;
     }
 }
 
@@ -775,6 +778,16 @@ message ModuleMiningTarget {
 message SetModuleMiningAction {
   repeated ModuleMiningTarget modules = 1 [(buf.validate.field).repeated = {min_items: 1, max_items: 100}];
   optional bool mining = 2 [(buf.validate.field).required = true];
+}
+
+// One board, addressed by placement and the identities Fleet confirmed there.
+message SetBoardIdentifyAction {
+  int32 tank = 1 [(buf.validate.field).int32.gt = 0];
+  int32 module = 2 [(buf.validate.field).int32.gt = 0];
+  int32 slot = 3 [(buf.validate.field).int32 = {gte: 1, lte: 3}];
+  string module_reported_id = 4 [(buf.validate.field).string = {min_len: 1, max_len: 255}];
+  string mac_address = 5 [(buf.validate.field).string = {min_len: 1, max_len: 64}];
+  string mode = 6 [(buf.validate.field).string = {in: ["blink", "off"]}];
 }
 
 // Closed SDK MiningGroupRequest JSON. Passwords are empty in request;

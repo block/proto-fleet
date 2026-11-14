@@ -15,6 +15,15 @@ import (
 type containerWriteScope struct {
 	deviceID, orgID, siteID int64
 	noun, upgradeMessage    string
+	// action names the write in outcome messages; it defaults to "mining".
+	action string
+}
+
+func (scope containerWriteScope) label() string {
+	if scope.action == "" {
+		return scope.noun + " mining"
+	}
+	return scope.noun + " " + scope.action
 }
 
 // executeContainerWrite keeps controller placement and error classification
@@ -55,8 +64,8 @@ func (es *ExecutionService) executeContainerWrite(ctx context.Context, scope con
 			if devicewrite.IsNotDispatched(err) {
 				return err
 			}
-			slog.ErrorContext(ctx, scope.noun+" mining outcome unconfirmed", "device_id", scope.deviceID, "error", err)
-			return fleeterror.NewFailedPreconditionError(scope.noun + " mining outcome unconfirmed")
+			slog.ErrorContext(ctx, scope.label()+" outcome unconfirmed", "device_id", scope.deviceID, "error", err)
+			return fleeterror.NewFailedPreconditionError(scope.label() + " outcome unconfirmed")
 		}
 		return nil
 	})
@@ -65,11 +74,11 @@ func (es *ExecutionService) executeContainerWrite(ctx context.Context, scope con
 			return err
 		}
 		if dispatchStarted && !devicewrite.IsNotDispatched(err) {
-			slog.ErrorContext(ctx, scope.noun+" mining outcome unconfirmed", "device_id", scope.deviceID, "error", err)
-			return fleeterror.NewFailedPreconditionError(scope.noun + " mining outcome unconfirmed")
+			slog.ErrorContext(ctx, scope.label()+" outcome unconfirmed", "device_id", scope.deviceID, "error", err)
+			return fleeterror.NewFailedPreconditionError(scope.label() + " outcome unconfirmed")
 		}
-		slog.ErrorContext(ctx, scope.noun+" mining preparation failed", "device_id", scope.deviceID, "error", err)
-		preparedErr := fleeterror.NewInternalError(scope.noun + " mining preparation failed; retry shortly")
+		slog.ErrorContext(ctx, scope.label()+" preparation failed", "device_id", scope.deviceID, "error", err)
+		preparedErr := fleeterror.NewInternalError(scope.label() + " preparation failed; retry shortly")
 		if devicewrite.IsNotDispatched(err) {
 			return devicewrite.NotDispatched(preparedErr)
 		}

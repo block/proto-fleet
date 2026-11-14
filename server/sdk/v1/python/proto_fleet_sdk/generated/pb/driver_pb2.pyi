@@ -1245,6 +1245,30 @@ class SetModuleMiningRequest(_message.Message):
     mining: bool
     def __init__(self, ref: _Optional[_Union[DeviceRef, _Mapping]] = ..., modules: _Optional[_Iterable[_Union[ModuleMiningTarget, _Mapping]]] = ..., mining: bool = ...) -> None: ...
 
+class BoardIdentifyTarget(_message.Message):
+    __slots__ = ("tank", "module", "slot", "module_reported_id", "mac_address")
+    TANK_FIELD_NUMBER: _ClassVar[int]
+    MODULE_FIELD_NUMBER: _ClassVar[int]
+    SLOT_FIELD_NUMBER: _ClassVar[int]
+    MODULE_REPORTED_ID_FIELD_NUMBER: _ClassVar[int]
+    MAC_ADDRESS_FIELD_NUMBER: _ClassVar[int]
+    tank: int
+    module: int
+    slot: int
+    module_reported_id: str
+    mac_address: str
+    def __init__(self, tank: _Optional[int] = ..., module: _Optional[int] = ..., slot: _Optional[int] = ..., module_reported_id: _Optional[str] = ..., mac_address: _Optional[str] = ...) -> None: ...
+
+class SetBoardIdentifyRequest(_message.Message):
+    __slots__ = ("ref", "board", "mode")
+    REF_FIELD_NUMBER: _ClassVar[int]
+    BOARD_FIELD_NUMBER: _ClassVar[int]
+    MODE_FIELD_NUMBER: _ClassVar[int]
+    ref: DeviceRef
+    board: BoardIdentifyTarget
+    mode: str
+    def __init__(self, ref: _Optional[_Union[DeviceRef, _Mapping]] = ..., board: _Optional[_Union[BoardIdentifyTarget, _Mapping]] = ..., mode: _Optional[str] = ...) -> None: ...
+
 class ContainerRollup(_message.Message):
     __slots__ = ("unlocated_hashboards", "hashrate_hs", "power_w", "efficiency_jh", "temperature_c", "min_temperature_c", "max_temperature_c", "hashrate", "power", "temperature", "power_source", "attribution", "source_times")
     class SourceTimesEntry(_message.Message):

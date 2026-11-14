@@ -46,6 +46,9 @@ const (
 	// PoolConfigurationServiceDuplicateConfigurationProcedure is the fully-qualified name of the
 	// PoolConfigurationService's DuplicateConfiguration RPC.
 	PoolConfigurationServiceDuplicateConfigurationProcedure = "/poolconfigurations.v1.PoolConfigurationService/DuplicateConfiguration"
+	// PoolConfigurationServiceSetDefaultConfigurationProcedure is the fully-qualified name of the
+	// PoolConfigurationService's SetDefaultConfiguration RPC.
+	PoolConfigurationServiceSetDefaultConfigurationProcedure = "/poolconfigurations.v1.PoolConfigurationService/SetDefaultConfiguration"
 	// PoolConfigurationServiceArchiveConfigurationProcedure is the fully-qualified name of the
 	// PoolConfigurationService's ArchiveConfiguration RPC.
 	PoolConfigurationServiceArchiveConfigurationProcedure = "/poolconfigurations.v1.PoolConfigurationService/ArchiveConfiguration"
@@ -94,6 +97,7 @@ type PoolConfigurationServiceClient interface {
 	GetConfiguration(context.Context, *connect.Request[v1.GetConfigurationRequest]) (*connect.Response[v1.GetConfigurationResponse], error)
 	ListConfigurations(context.Context, *connect.Request[v1.ListConfigurationsRequest]) (*connect.Response[v1.ListConfigurationsResponse], error)
 	DuplicateConfiguration(context.Context, *connect.Request[v1.DuplicateConfigurationRequest]) (*connect.Response[v1.DuplicateConfigurationResponse], error)
+	SetDefaultConfiguration(context.Context, *connect.Request[v1.SetDefaultConfigurationRequest]) (*connect.Response[v1.SetDefaultConfigurationResponse], error)
 	ArchiveConfiguration(context.Context, *connect.Request[v1.ArchiveConfigurationRequest]) (*connect.Response[v1.ArchiveConfigurationResponse], error)
 	ReviewEdit(context.Context, *connect.Request[v1.ReviewEditRequest]) (*connect.Response[v1.ReviewEditResponse], error)
 	AuthorizeWorkerNameReviews(context.Context, *connect.Request[v1.AuthorizeWorkerNameReviewsRequest]) (*connect.Response[v1.AuthorizeWorkerNameReviewsResponse], error)
@@ -138,6 +142,11 @@ func NewPoolConfigurationServiceClient(httpClient connect.HTTPClient, baseURL st
 		duplicateConfiguration: connect.NewClient[v1.DuplicateConfigurationRequest, v1.DuplicateConfigurationResponse](
 			httpClient,
 			baseURL+PoolConfigurationServiceDuplicateConfigurationProcedure,
+			opts...,
+		),
+		setDefaultConfiguration: connect.NewClient[v1.SetDefaultConfigurationRequest, v1.SetDefaultConfigurationResponse](
+			httpClient,
+			baseURL+PoolConfigurationServiceSetDefaultConfigurationProcedure,
 			opts...,
 		),
 		archiveConfiguration: connect.NewClient[v1.ArchiveConfigurationRequest, v1.ArchiveConfigurationResponse](
@@ -214,6 +223,7 @@ type poolConfigurationServiceClient struct {
 	getConfiguration           *connect.Client[v1.GetConfigurationRequest, v1.GetConfigurationResponse]
 	listConfigurations         *connect.Client[v1.ListConfigurationsRequest, v1.ListConfigurationsResponse]
 	duplicateConfiguration     *connect.Client[v1.DuplicateConfigurationRequest, v1.DuplicateConfigurationResponse]
+	setDefaultConfiguration    *connect.Client[v1.SetDefaultConfigurationRequest, v1.SetDefaultConfigurationResponse]
 	archiveConfiguration       *connect.Client[v1.ArchiveConfigurationRequest, v1.ArchiveConfigurationResponse]
 	reviewEdit                 *connect.Client[v1.ReviewEditRequest, v1.ReviewEditResponse]
 	authorizeWorkerNameReviews *connect.Client[v1.AuthorizeWorkerNameReviewsRequest, v1.AuthorizeWorkerNameReviewsResponse]
@@ -248,6 +258,12 @@ func (c *poolConfigurationServiceClient) ListConfigurations(ctx context.Context,
 // poolconfigurations.v1.PoolConfigurationService.DuplicateConfiguration.
 func (c *poolConfigurationServiceClient) DuplicateConfiguration(ctx context.Context, req *connect.Request[v1.DuplicateConfigurationRequest]) (*connect.Response[v1.DuplicateConfigurationResponse], error) {
 	return c.duplicateConfiguration.CallUnary(ctx, req)
+}
+
+// SetDefaultConfiguration calls
+// poolconfigurations.v1.PoolConfigurationService.SetDefaultConfiguration.
+func (c *poolConfigurationServiceClient) SetDefaultConfiguration(ctx context.Context, req *connect.Request[v1.SetDefaultConfigurationRequest]) (*connect.Response[v1.SetDefaultConfigurationResponse], error) {
+	return c.setDefaultConfiguration.CallUnary(ctx, req)
 }
 
 // ArchiveConfiguration calls poolconfigurations.v1.PoolConfigurationService.ArchiveConfiguration.
@@ -323,6 +339,7 @@ type PoolConfigurationServiceHandler interface {
 	GetConfiguration(context.Context, *connect.Request[v1.GetConfigurationRequest]) (*connect.Response[v1.GetConfigurationResponse], error)
 	ListConfigurations(context.Context, *connect.Request[v1.ListConfigurationsRequest]) (*connect.Response[v1.ListConfigurationsResponse], error)
 	DuplicateConfiguration(context.Context, *connect.Request[v1.DuplicateConfigurationRequest]) (*connect.Response[v1.DuplicateConfigurationResponse], error)
+	SetDefaultConfiguration(context.Context, *connect.Request[v1.SetDefaultConfigurationRequest]) (*connect.Response[v1.SetDefaultConfigurationResponse], error)
 	ArchiveConfiguration(context.Context, *connect.Request[v1.ArchiveConfigurationRequest]) (*connect.Response[v1.ArchiveConfigurationResponse], error)
 	ReviewEdit(context.Context, *connect.Request[v1.ReviewEditRequest]) (*connect.Response[v1.ReviewEditResponse], error)
 	AuthorizeWorkerNameReviews(context.Context, *connect.Request[v1.AuthorizeWorkerNameReviewsRequest]) (*connect.Response[v1.AuthorizeWorkerNameReviewsResponse], error)
@@ -362,6 +379,11 @@ func NewPoolConfigurationServiceHandler(svc PoolConfigurationServiceHandler, opt
 	poolConfigurationServiceDuplicateConfigurationHandler := connect.NewUnaryHandler(
 		PoolConfigurationServiceDuplicateConfigurationProcedure,
 		svc.DuplicateConfiguration,
+		opts...,
+	)
+	poolConfigurationServiceSetDefaultConfigurationHandler := connect.NewUnaryHandler(
+		PoolConfigurationServiceSetDefaultConfigurationProcedure,
+		svc.SetDefaultConfiguration,
 		opts...,
 	)
 	poolConfigurationServiceArchiveConfigurationHandler := connect.NewUnaryHandler(
@@ -439,6 +461,8 @@ func NewPoolConfigurationServiceHandler(svc PoolConfigurationServiceHandler, opt
 			poolConfigurationServiceListConfigurationsHandler.ServeHTTP(w, r)
 		case PoolConfigurationServiceDuplicateConfigurationProcedure:
 			poolConfigurationServiceDuplicateConfigurationHandler.ServeHTTP(w, r)
+		case PoolConfigurationServiceSetDefaultConfigurationProcedure:
+			poolConfigurationServiceSetDefaultConfigurationHandler.ServeHTTP(w, r)
 		case PoolConfigurationServiceArchiveConfigurationProcedure:
 			poolConfigurationServiceArchiveConfigurationHandler.ServeHTTP(w, r)
 		case PoolConfigurationServiceReviewEditProcedure:
@@ -488,6 +512,10 @@ func (UnimplementedPoolConfigurationServiceHandler) ListConfigurations(context.C
 
 func (UnimplementedPoolConfigurationServiceHandler) DuplicateConfiguration(context.Context, *connect.Request[v1.DuplicateConfigurationRequest]) (*connect.Response[v1.DuplicateConfigurationResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("poolconfigurations.v1.PoolConfigurationService.DuplicateConfiguration is not implemented"))
+}
+
+func (UnimplementedPoolConfigurationServiceHandler) SetDefaultConfiguration(context.Context, *connect.Request[v1.SetDefaultConfigurationRequest]) (*connect.Response[v1.SetDefaultConfigurationResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("poolconfigurations.v1.PoolConfigurationService.SetDefaultConfiguration is not implemented"))
 }
 
 func (UnimplementedPoolConfigurationServiceHandler) ArchiveConfiguration(context.Context, *connect.Request[v1.ArchiveConfigurationRequest]) (*connect.Response[v1.ArchiveConfigurationResponse], error) {

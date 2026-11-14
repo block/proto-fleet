@@ -67,7 +67,7 @@ func (s *Service) ReportingFactPage(ctx context.Context, actorID, orgID int64, a
 		if e != nil {
 			return zero, e
 		}
-		row, e := q.LockReportingInputsForShare(ctx, sqlc.LockReportingInputsForShareParams{OrganizationID: orgID, AccountID: a.account.ID})
+		row, e := q.LockReportingInputsForRead(ctx, sqlc.LockReportingInputsForReadParams{OrganizationID: orgID, AccountID: a.account.ID})
 		if errors.Is(e, sql.ErrNoRows) {
 			return zero, fleeterror.NewNotFoundError("reporting inputs not found")
 		}

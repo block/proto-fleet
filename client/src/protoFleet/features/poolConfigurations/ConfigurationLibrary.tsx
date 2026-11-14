@@ -46,13 +46,14 @@ export default function ConfigurationLibrary() {
   const query = useAccountQuery(load);
   const [editing, setEditing] = useState<Configuration | "new">();
   const [viewing, setViewing] = useState<Configuration>();
+  const [defaulting, setDefaulting] = useState<Configuration>();
   const [deleting, setDeleting] = useState<Configuration>();
   return (
     <div className="flex flex-col gap-6">
       <div className="flex items-start justify-between gap-4 phone:flex-col phone:items-stretch">
         <SettingsPageHeader
           title="Pool configurations"
-          description="Save a primary pool and optional backups to apply to your equipment."
+          description="The default configuration applies when equipment is paired or changes ownership."
         />
         {manage ? (
           <Button
@@ -100,6 +101,7 @@ export default function ConfigurationLibrary() {
                       text={configuration.name}
                       onClick={() => setViewing(configuration)}
                     />
+                    {configuration.isDefault ? <span className="text-200 text-text-primary-50">Default</span> : null}
                     {configuration.pools.length > 1 ? (
                       <span className="text-200 text-text-primary-50">
                         {configuration.pools.length - 1} backup{configuration.pools.length > 2 ? "s" : ""}
@@ -123,6 +125,11 @@ export default function ConfigurationLibrary() {
                   <RowActionsMenu
                     ariaLabel={`Actions for ${configuration.name}`}
                     actions={[
+                      {
+                        label: "Set as default",
+                        disabled: readOnly || configuration.isDefault,
+                        onClick: () => setDefaulting(configuration),
+                      },
                       { label: "Edit configuration", disabled: readOnly, onClick: () => setEditing(configuration) },
                       {
                         label: "Delete configuration",
@@ -198,6 +205,27 @@ export default function ConfigurationLibrary() {
           onDismiss={() => openOperation("")}
         />
       ) : null}
+      {defaulting ? (
+        <ActionModal
+          title="Set default configuration"
+          confirm="Set as default"
+          onDismiss={() => setDefaulting(undefined)}
+          onSubmit={async () => {
+            await client.setDefaultConfiguration({
+              accountId,
+              configurationId: defaulting.configurationId,
+              expectedVersion: defaulting.version,
+            });
+            setDefaulting(undefined);
+            query.refresh();
+          }}
+        >
+          <p>
+            Use {defaulting.name} for future pairing and ownership changes? Existing equipment will keep its current
+            configuration.
+          </p>
+        </ActionModal>
+      ) : null}
       {deleting ? (
         <ActionModal
           title="Delete configuration"
@@ -219,6 +247,9 @@ export default function ConfigurationLibrary() {
               ? "Reassign this configuration’s equipment before deleting it."
               : `Delete ${deleting.name}? It will no longer be available for new assignments.`}
           </p>
+          {deleting.isDefault && deleting.assignedCount === 0n ? (
+            <p>The oldest remaining configuration will become the default.</p>
+          ) : null}
         </ActionModal>
       ) : null}
     </div>

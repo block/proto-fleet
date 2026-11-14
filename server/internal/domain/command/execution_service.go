@@ -649,7 +649,7 @@ func upsertCommandOnDeviceStatus(workerError error) sqlc.DeviceCommandStatusEnum
 // including upload, install polling, and any follow-on reboot. Queue reaping
 // cannot release this attempt while firmware execution is still outstanding.
 func (es *ExecutionService) executeQueuedCommand(ctx context.Context, message queue.Message) (orgID, siteID int64, resultErr error) {
-	if message.CommandType == commandtype.DownloadLogs || message.CommandType == commandtype.BlinkLED {
+	if message.CommandType == commandtype.DownloadLogs || message.CommandType == commandtype.BlinkLED || message.CommandType == commandtype.SetBoardIdentify {
 		return es.executeCommandOnDevice(ctx, message.CommandType, message)
 	}
 	attempt, err := devicewrite.NewService(es.conn).BeginQueuedHost(ctx, message)
@@ -987,6 +987,17 @@ func (es *ExecutionService) executeCommandOnDevice(ctx context.Context, commandT
 		}
 		siteID = payload.SiteID
 		err = es.executeModuleMining(ctx, message.DeviceID, orgID, payload, controller)
+	case commandtype.SetBoardIdentify:
+		var payload boardIdentifyPayload
+		if decodeErr := json.Unmarshal(message.Payload, &payload); decodeErr != nil {
+			return orgID, siteID, fleeterror.NewFailedPreconditionError("invalid board identify payload")
+		}
+		controller, ok := minerInfo.(sdk.DeviceBoardIdentifier)
+		if !ok {
+			return orgID, siteID, fleeterror.NewUnimplementedError("board identify unsupported")
+		}
+		siteID = payload.SiteID
+		err = es.executeBoardIdentify(ctx, message.DeviceID, orgID, payload, controller)
 	case commandtype.ContainerMining:
 		var payload containerMiningPayload
 		if decodeErr := json.Unmarshal(message.Payload, &payload); decodeErr != nil {

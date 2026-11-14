@@ -55,6 +55,50 @@ The SDK reserves an ID during creation and rejected-result cleanup, returning a
 retryable close error while either is running. IDs being closed cannot be reused
 until cleanup succeeds.
 
+## Worker names
+
+`ReviewWorkerNames` accepts a miner selector or CT1 module/hashboard IDs. Select
+no worker name, the full lowercase, colon-separated MAC address, or a
+custom suffix. Miner name patterns remain available for ordinary miners. The
+review uses each target's assigned pool configuration; confirmation saves the
+name and queues that reviewed configuration in one transaction.
+
+The `workerName` request uses `mode`: `WORKER_NAME_MODE_NONE`,
+`WORKER_NAME_MODE_MAC_ADDRESS`, or `WORKER_NAME_MODE_CUSTOM`. CUSTOM requires a
+`name` containing 1–100 characters without whitespace or control characters.
+The other modes reject a supplied `name`, including an empty string. Omitted,
+UNSPECIFIED, and unknown modes are rejected.
+
+Unset names follow the plugin policy: the SDK defaults to the MAC suffix, and
+the CT1 plugin advertises `worker_name_default_none`. Explicit empty names stay
+empty. A `{miner_name}` template with an empty name leaves the payout username
+unchanged, including its existing periods, and does not add a trailing dot.
+Other explicit worker templates retain their normal expansion rules.
+`{miner_id}` always means the controller/miner identifier, including for
+hashboard assignments; choosing MAC address uses the board MAC as `{miner_name}`.
+
+Hashboard names and their selected strategies belong to the physical hashboard
+identity and survive moves. Module worker-name cells summarize installed boards:
+MAC address when all use MAC suffixes, blank when all use none, the common custom
+name when all share it, and Mixed otherwise. Strategy is stored separately so a
+custom name equal to a MAC suffix remains custom.
+Each board's rendered pool stack is frozen for execution. Boards with identical
+stacks share a mining group; selecting MAC-derived or distinct custom names can
+require additional groups and remains subject to the controller's group limit.
+Existing saved names and previously applied settings are preserved until a
+reviewed pool update is applied.
+
+On upgrade, migration 1081 preserves the old controller-derived `{miner_name}`
+input for active CT1 pool assignments and the old trimmed-name, MAC, or identifier
+fallback for active ordinary-miner assignments. Currently installed boards with an
+individual or whole-container assignment receive that inherited name as Custom,
+including when it is the controller's MAC. Whole-container assignments also
+retain an explicit controller name. Only assigned revisions that use
+`{miner_name}` need this backfill; new/unassigned boards continue to default to
+no suffix. The migration changes metadata only and does not dispatch pool work.
+Rollback removes board names, strategies, and inherited assignment inputs but
+retains materialized miner/controller names, preserving pre-upgrade rendering.
+
 ## CT1 module identity
 
 CT1 modules use the PSU-derived `hashboard.moduleId` from the firmware map,
@@ -129,6 +173,16 @@ the handoff verifies ordered pool settings and membership; the observation from
 before the lock gap cannot verify them. Unavailable or different observations
 do not become verified. Group passwords
 remain write-only, with encrypted credentials preserved from the source revision.
+
+The adopted assignment retains the applied controller worker input separately
+from the physical board's saved choice. Activation initializes only unnamed
+boards; explicit empty or custom choices survive. Ordinary pool edits continue
+using the inherited input. An operator can select the saved worker-name choice
+again to replace an inherited name through the existing review and confirmation
+flow. Its preview shows the inherited name and requested name, even when saved
+metadata already matches the request. Confirmation clears the inherited input
+atomically with the new assignment; changed assignment versions, stale revisions,
+and unresolved writes still prevent an unsafe retry.
 
 The original selection survives retries and restarts. Changed ownership,
 permissions, installations or assignment generations prevent further mutations,
@@ -565,8 +619,10 @@ revisions. The transaction serializes with account administration, physical
 identity bindings and container reconciliation, then rechecks eligibility and
 site scope before writing the ledger and audit. New allocations require active
 eligible hardware and destination policy. Recall can release retained unavailable
-allocations. Assignment does not reserve/activate device-write fences, dispatch
-firmware changes or apply incoming pool profiles.
+allocations. Assignment records a durable pool transition in the same transaction.
+The pool worker applies the destination owner’s default, or clears device pools
+when that owner has no configuration. Device writes happen after commit using
+normal physical fencing and readback. See [pool defaults](../docs/development/pool-defaults.md).
 
 `GetAccountDashboard` supplies the shared client/preview dashboard, with current
 scoped totals, allocated-site summaries and historical readings. Requests require

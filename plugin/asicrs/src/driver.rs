@@ -924,6 +924,13 @@ impl Driver for DriverService {
         Err(Status::unimplemented("module mining is unsupported"))
     }
 
+    async fn set_board_identify(
+        &self,
+        _req: Request<pb::SetBoardIdentifyRequest>,
+    ) -> Result<Response<()>, Status> {
+        Err(Status::unimplemented("board identify is unsupported"))
+    }
+
     async fn set_tank_mining(
         &self,
         _req: Request<pb::SetTankMiningRequest>,
@@ -1180,7 +1187,7 @@ impl Driver for DriverService {
 
         let data = device.get_data().await.map_err(device_err_to_status)?;
 
-        let errors = device.to_device_errors(&data);
+        let errors = device.to_device_errors(&data.data);
         Ok(Response::new(errors))
     }
 }

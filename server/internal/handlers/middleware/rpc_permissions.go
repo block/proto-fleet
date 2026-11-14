@@ -68,6 +68,7 @@ var ProcedurePermissions = map[string]string{
 	poolconfigurationsv1connect.PoolConfigurationServiceGetConfigurationProcedure:           authz.PermPoolRead,
 	poolconfigurationsv1connect.PoolConfigurationServiceListConfigurationsProcedure:         authz.PermPoolRead,
 	poolconfigurationsv1connect.PoolConfigurationServiceDuplicateConfigurationProcedure:     authz.PermPoolManage,
+	poolconfigurationsv1connect.PoolConfigurationServiceSetDefaultConfigurationProcedure:    authz.PermPoolManage,
 	poolconfigurationsv1connect.PoolConfigurationServiceArchiveConfigurationProcedure:       authz.PermPoolManage,
 	poolconfigurationsv1connect.PoolConfigurationServiceReviewEditProcedure:                 authz.PermPoolManage,
 	poolconfigurationsv1connect.PoolConfigurationServiceTestConnectionProcedure:             authz.PermPoolManage,
@@ -188,6 +189,9 @@ var ProcedurePermissions = map[string]string{
 	containersv1connect.ContainerServiceGetEquipmentCommandResultProcedure: authz.PermSiteRead,
 	containersv1connect.ContainerServiceGetTankMiningOptionsProcedure:      authz.PermSiteRead,
 	containersv1connect.ContainerServiceGetModuleMiningOptionsProcedure:    authz.PermSiteRead,
+	// Handler resolves every board and enforces miner:blink_led at its current site.
+	containersv1connect.ContainerServiceGetBoardIdentifyOptionsProcedure: authz.PermSiteRead,
+	containersv1connect.ContainerServiceSetBoardIdentifyProcedure:        authz.PermSiteRead,
 	// Handler resolves every tank/module and enforces the requested mining permission at its current site.
 	containersv1connect.ContainerServiceSetTankMiningProcedure: authz.PermSiteRead,
 	mininggroupsv1connect.MiningGroupServiceGetStateProcedure:  authz.PermSiteRead,

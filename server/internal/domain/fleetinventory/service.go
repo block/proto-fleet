@@ -130,6 +130,7 @@ func encodeCursor(c pageCursor) (string, error) {
 }
 
 type listRow struct {
+	WorkerNameSummary         string                     `json:"worker_name_summary"`
 	Coverage                  *sdk.ContainerRollup       `json:"coverage"`
 	ModuleIssues              *sdk.ContainerModuleIssues `json:"module_issues"`
 	ModuleIssuesLastSeenAt    *time.Time                 `json:"module_issues_last_seen_at"`
@@ -194,6 +195,7 @@ func (r listRow) item() *pb.InventoryItem {
 	if r.ObservedAt != nil {
 		item.ObservedAt = timestamppb.New(*r.ObservedAt)
 	}
+	item.WorkerNameSummary = r.WorkerNameSummary
 	item.ModuleIssues = projectModuleIssues(r.ModuleIssues, r.ModuleIssuesLastSeenAt, time.Now())
 	return item
 }

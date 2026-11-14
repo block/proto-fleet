@@ -42,6 +42,8 @@ type workerNamePoolServiceStub struct {
 	reviewErr              error
 	reviewCalls            int
 	lastDesiredWorkerNames map[string]string
+	boardSelection         poolconfigurations.BoardSelection
+	boardOptions           poolconfigurations.WorkerNameOptions
 }
 
 func (s *workerNamePoolServiceStub) ReviewWorkerNames(_ context.Context, desired map[string]string) ([]poolconfigurations.Review, error) {
@@ -842,11 +844,11 @@ func TestLoadDevicePropertiesForNameGeneration_SkipsRackLookupWithoutRackQualifi
 	assert.Empty(t, props[0].RackPosition)
 }
 
-func TestReviewWorkerNames_RejectsMissingNameConfig(t *testing.T) {
+func TestReviewWorkerNames_RejectsMissingWorkerOptions(t *testing.T) {
 	service := &Service{}
 	_, err := service.ReviewWorkerNames(authn.SetInfo(t.Context(), &session.Info{UserID: 1, OrganizationID: 2}), &pb.ReviewWorkerNamesRequest{})
 	require.True(t, fleeterror.IsInvalidArgumentError(err))
-	require.ErrorContains(t, err, "name_config is required")
+	require.ErrorContains(t, err, "choose a worker option or a miner name pattern")
 }
 
 func TestReviewWorkerNames_GeneratesSortedNamesAndReturnsCanonicalReview(t *testing.T) {
@@ -938,4 +940,9 @@ func TestReviewWorkerNames_MatchingNameReturnsCanonicalRetry(t *testing.T) {
 	require.Zero(t, response.UnchangedCount)
 	require.Len(t, response.Reviews, 1)
 	require.Equal(t, "retry", response.Reviews[0].ReviewId)
+}
+
+func (s *workerNamePoolServiceStub) ReviewBoardWorkerNames(_ context.Context, selection poolconfigurations.BoardSelection, options poolconfigurations.WorkerNameOptions) ([]poolconfigurations.Review, int, error) {
+	s.boardSelection, s.boardOptions = selection, options
+	return s.reviews, 2, s.reviewErr
 }

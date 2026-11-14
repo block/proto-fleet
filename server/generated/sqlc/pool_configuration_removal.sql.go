@@ -14,9 +14,12 @@ import (
 	"github.com/lib/pq"
 )
 
-const acceptPoolRemoval = `-- name: AcceptPoolRemoval :execrows
+const acceptPoolRemoval = `-- name: AcceptPoolRemoval :one
+WITH lifecycle AS (UPDATE pool_lifecycle_transition SET state='applying',physical_attempt_id=$1::uuid,updated_at=clock_timestamp() WHERE transition_id=$2::uuid AND state='ready' AND configuration_id IS NULL RETURNING 1),
+manual AS (
 UPDATE pool_configuration_operation_target SET state='applying',physical_attempt_id=$1::uuid,attempts=attempts+1,updated_at=clock_timestamp()
-WHERE operation_id=$2::uuid::text AND state='pending'
+WHERE operation_id=$2::uuid::text AND state='pending' RETURNING 1)
+SELECT ((SELECT count(*) FROM lifecycle)+(SELECT count(*) FROM manual))::bigint AS changed
 `
 
 type AcceptPoolRemovalParams struct {
@@ -25,11 +28,10 @@ type AcceptPoolRemovalParams struct {
 }
 
 func (q *Queries) AcceptPoolRemoval(ctx context.Context, arg AcceptPoolRemovalParams) (int64, error) {
-	result, err := q.exec(ctx, q.acceptPoolRemovalStmt, acceptPoolRemoval, arg.PhysicalAttemptID, arg.RemovalID)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected()
+	row := q.queryRow(ctx, q.acceptPoolRemovalStmt, acceptPoolRemoval, arg.PhysicalAttemptID, arg.RemovalID)
+	var changed int64
+	err := row.Scan(&changed)
+	return changed, err
 }
 
 const enqueuePoolRemoval = `-- name: EnqueuePoolRemoval :execrows
@@ -39,7 +41,7 @@ WITH operation AS (
  CASE WHEN $1::boolean THEN 'unassign' ELSE 'clear' END
  FROM pool_configuration_review r WHERE r.review_id=$2 AND r.kind='remove'
   AND r.saved_version IS NULL AND r.expires_at>clock_timestamp()
- RETURNING operation_id, organization_id, configuration_id, revision_id, actor_id, created_at, kind
+ RETURNING operation_id, organization_id, configuration_id, revision_id, actor_id, created_at, kind, lifecycle_id
 ), target AS (
  INSERT INTO pool_configuration_operation_target(organization_id,operation_id,target_kind,target_id,assignment_version,reviewed_binding)
  SELECT o.organization_id,o.operation_id,r.targets->0->'Change'->'Target'->>'Kind',
@@ -64,9 +66,12 @@ func (q *Queries) EnqueuePoolRemoval(ctx context.Context, arg EnqueuePoolRemoval
 	return result.RowsAffected()
 }
 
-const finishPoolRemoval = `-- name: FinishPoolRemoval :execrows
+const finishPoolRemoval = `-- name: FinishPoolRemoval :one
+WITH lifecycle AS (UPDATE pool_lifecycle_transition SET state=$1::text,result_code=$2::text,updated_at=clock_timestamp() WHERE transition_id=$3::uuid AND state IN ('ready','applying','uncertain') AND configuration_id IS NULL RETURNING 1),
+manual AS (
 UPDATE pool_configuration_operation_target SET state=$1::text,result_code=$2::text,updated_at=clock_timestamp()
-WHERE operation_id=$3::uuid::text AND state IN ('pending','applying','uncertain')
+WHERE operation_id=$3::uuid::text AND state IN ('pending','applying','uncertain') RETURNING 1)
+SELECT ((SELECT count(*) FROM lifecycle)+(SELECT count(*) FROM manual))::bigint AS changed
 `
 
 type FinishPoolRemovalParams struct {
@@ -76,15 +81,16 @@ type FinishPoolRemovalParams struct {
 }
 
 func (q *Queries) FinishPoolRemoval(ctx context.Context, arg FinishPoolRemovalParams) (int64, error) {
-	result, err := q.exec(ctx, q.finishPoolRemovalStmt, finishPoolRemoval, arg.State, arg.ResultCode, arg.RemovalID)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected()
+	row := q.queryRow(ctx, q.finishPoolRemovalStmt, finishPoolRemoval, arg.State, arg.ResultCode, arg.RemovalID)
+	var changed int64
+	err := row.Scan(&changed)
+	return changed, err
 }
 
 const getBoardPoolRemovalAttempt = `-- name: GetBoardPoolRemovalAttempt :one
 SELECT o.operation_id::uuid AS removal_id,o.actor_id,COALESCE(a.account_id,'')::text AS external_account_id FROM pool_configuration_operation o JOIN pool_configuration_operation_target t USING(operation_id) JOIN pool_configuration c ON c.configuration_id=o.configuration_id LEFT JOIN hosted_account a ON a.id=c.account_id AND a.organization_id=o.organization_id WHERE o.organization_id=$1 AND t.physical_attempt_id=$2 AND t.target_kind='hashboard_installation' AND o.kind='clear' AND t.state IN ('applying','uncertain')
+UNION ALL
+SELECT l.transition_id AS removal_id,0::bigint AS actor_id,COALESCE(a.account_id,'')::text AS external_account_id FROM pool_lifecycle_transition l LEFT JOIN hosted_account a ON a.id=l.owner_account_id AND a.organization_id=l.organization_id WHERE l.organization_id=$1 AND l.physical_attempt_id=$2 AND l.target_kind='hashboard_installation' AND l.configuration_id IS NULL AND l.state IN ('applying','uncertain')
 `
 
 type GetBoardPoolRemovalAttemptParams struct {
@@ -125,6 +131,9 @@ LEFT JOIN pool_configuration_operation o ON o.operation_id=r.operation_id AND o.
 LEFT JOIN pool_configuration_operation_target t ON t.operation_id=o.operation_id AND t.organization_id=o.organization_id
 LEFT JOIN device_write_attempt w ON w.attempt_id=t.physical_attempt_id
 WHERE r.kind='remove' AND r.review_id=$1::uuid::text AND r.organization_id=$2::bigint AND c.account_id IS NOT DISTINCT FROM $3::bigint AND r.actor_id=$4::bigint
+UNION ALL
+SELECT removal_id, organization_id, account_id, actor_id, target_kind, target_id, device_id, configuration_id, revision_id, assignment_version, reviewed_binding, verification_state, clear_supported, keep_device_settings, state, result_code, physical_attempt_id, created_at, updated_at, attempt_status FROM pool_lifecycle_removal WHERE removal_id=$1::uuid AND organization_id=$2::bigint
+ AND account_id IS NOT DISTINCT FROM $3::bigint AND actor_id=$4::bigint
 `
 
 type GetPoolRemovalParams struct {
@@ -194,6 +203,8 @@ func (q *Queries) GetPoolRemoval(ctx context.Context, arg GetPoolRemovalParams) 
 
 const getUnfinishedCompletedPoolRemoval = `-- name: GetUnfinishedCompletedPoolRemoval :one
 SELECT o.operation_id::uuid AS removal_id FROM pool_configuration_operation o JOIN pool_configuration_operation_target t USING(operation_id) JOIN device_write_attempt w ON w.attempt_id=t.physical_attempt_id WHERE o.organization_id=$1 AND w.device_id=$2 AND t.physical_attempt_id=$3 AND t.target_kind='device' AND o.kind='clear' AND t.state IN ('applying','uncertain') AND w.status='complete'
+UNION ALL
+SELECT l.transition_id FROM pool_lifecycle_transition l JOIN device_write_attempt w ON w.attempt_id=l.physical_attempt_id WHERE l.organization_id=$1 AND l.device_id=$2 AND l.physical_attempt_id=$3 AND l.target_kind='device' AND l.configuration_id IS NULL AND l.state IN ('applying','uncertain') AND w.status='complete'
 `
 
 type GetUnfinishedCompletedPoolRemovalParams struct {
@@ -211,6 +222,8 @@ func (q *Queries) GetUnfinishedCompletedPoolRemoval(ctx context.Context, arg Get
 
 const listActivePoolRemovals = `-- name: ListActivePoolRemovals :many
 SELECT o.operation_id::uuid AS removal_id,t.physical_attempt_id FROM pool_configuration_operation o JOIN pool_configuration_operation_target t USING(operation_id) JOIN pool_configuration_assignment a ON a.organization_id=t.organization_id AND a.target_kind=t.target_kind AND a.target_id=t.target_id WHERE o.kind IN ('clear','unassign') AND o.organization_id=$1 AND a.device_id=$2 AND t.state IN ('pending','applying','uncertain')
+UNION ALL
+SELECT transition_id AS removal_id,physical_attempt_id FROM pool_lifecycle_transition WHERE organization_id=$1 AND device_id=$2 AND configuration_id IS NULL AND target_id>0 AND state IN ('ready','applying','uncertain')
 `
 
 type ListActivePoolRemovalsParams struct {
@@ -257,7 +270,16 @@ JOIN hashboard_installation i ON i.id=t.target_id AND i.removed_at IS NULL
 WHERE o.organization_id=$1 AND a.device_id=$2 AND t.target_kind='hashboard_installation' AND o.kind='clear'
  AND ((t.state IN ('pending','applying','uncertain') AND a.version=t.assignment_version AND a.retired_at IS NULL)
  OR (t.state='completed' AND a.version=t.assignment_version+1 AND a.retired_at IS NOT NULL))
-ORDER BY t.target_id
+UNION ALL
+SELECT l.transition_id,NULLIF(l.owner_account_id,0)::bigint,l.target_id,l.allocation_revision,l.reviewed_binding,l.state,l.physical_attempt_id,
+ COALESCE(i.metadata->>'macAddress','')::text AS mac_address
+FROM pool_lifecycle_transition l JOIN hashboard_installation i ON i.id=l.target_id AND i.removed_at IS NULL AND i.device_id=l.device_id
+LEFT JOIN hosted_account_asset owner ON owner.organization_id=l.organization_id AND owner.kind=l.asset_kind AND owner.asset_id=l.asset_id
+WHERE l.organization_id=$1 AND l.device_id=$2 AND l.target_kind='hashboard_installation' AND l.configuration_id IS NULL
+ AND l.state IN ('ready','applying','uncertain','completed')
+ AND COALESCE(owner.revision,0)=l.allocation_revision AND COALESCE(owner.subclient_id,owner.client_id,0)=l.owner_account_id
+ AND NOT EXISTS(SELECT 1 FROM pool_configuration_assignment a WHERE a.organization_id=l.organization_id AND a.target_kind=l.target_kind AND a.target_id=l.target_id AND (a.retired_at IS NULL OR a.updated_at>l.created_at))
+ORDER BY target_id
 `
 
 type ListClearedBoardPoolIntentsParams struct {
@@ -311,10 +333,10 @@ func (q *Queries) ListClearedBoardPoolIntents(ctx context.Context, arg ListClear
 const listDeviceWriteRecoveryCandidates = `-- name: ListDeviceWriteRecoveryCandidates :many
 SELECT w.attempt_id, w.device_id, w.organization_id, w.epoch, w.queue_message_id, w.owner_instance_id, w.operation_kind, w.identity_snapshot, w.status, w.created_at, w.finished_at, w.identity_keys, w.curtailment_command, w.command_type, w.write_outcome FROM device_write_attempt w
 WHERE w.organization_id=$1 AND w.device_id=$2 AND (w.status IN ('running','unknown') OR
- (w.status='complete' AND w.operation_kind='mutation' AND w.command_type='UpdateMiningPools' AND EXISTS(
+ (w.status='complete' AND w.operation_kind='mutation' AND w.command_type='UpdateMiningPools' AND (EXISTS(
  SELECT 1 FROM pool_configuration_operation_target t JOIN pool_configuration_operation o ON o.operation_id=t.operation_id
  WHERE t.organization_id=w.organization_id AND t.physical_attempt_id=w.attempt_id
- AND t.target_kind='device' AND o.kind='clear' AND t.state IN ('applying','uncertain'))))
+ AND t.target_kind='device' AND o.kind='clear' AND t.state IN ('applying','uncertain')) OR EXISTS(SELECT 1 FROM pool_lifecycle_transition l WHERE l.physical_attempt_id=w.attempt_id AND l.configuration_id IS NULL AND l.target_kind='device' AND l.state IN ('applying','uncertain')))))
 ORDER BY w.created_at,w.attempt_id
 `
 
@@ -375,6 +397,15 @@ WHERE o.organization_id=$1 AND t.organization_id=o.organization_id
  AND w.status='complete' AND w.operation_kind='mutation' AND w.command_type='UpdateMiningPools'
  AND t.state IN ('applying','uncertain')
  AND (a.retired_at IS NOT NULL OR a.version<>t.assignment_version OR a.configuration_id<>o.configuration_id)
+UNION ALL
+SELECT l.transition_id FROM pool_lifecycle_transition l
+JOIN device_write_attempt w ON w.attempt_id=l.physical_attempt_id
+LEFT JOIN hosted_account_asset owner ON owner.organization_id=l.organization_id AND owner.kind=l.asset_kind AND owner.asset_id=l.asset_id
+WHERE l.organization_id=$1 AND l.device_id=$2 AND l.target_kind='device' AND l.configuration_id IS NULL
+ AND l.state IN ('applying','uncertain') AND w.status='complete'
+ AND (COALESCE(owner.subclient_id,owner.client_id,0)<>l.owner_account_id OR COALESCE(owner.revision,0)<>l.allocation_revision
+  OR EXISTS(SELECT 1 FROM pool_lifecycle_transition newer WHERE newer.organization_id=l.organization_id AND newer.device_id=l.device_id
+   AND newer.reason='ownership' AND newer.created_at>w.created_at))
 `
 
 type ListRetiredCompletedPoolRemovalsParams struct {
@@ -420,13 +451,19 @@ func (q *Queries) RejectPendingPoolRemoval(ctx context.Context, operationID stri
 	return result.RowsAffected()
 }
 
-const resolveCompletedPoolRemoval = `-- name: ResolveCompletedPoolRemoval :execrows
+const resolveCompletedPoolRemoval = `-- name: ResolveCompletedPoolRemoval :one
+WITH lifecycle AS (
+ UPDATE pool_lifecycle_transition SET state='failed',result_code='interrupted',updated_at=clock_timestamp()
+ WHERE transition_id=$1::uuid AND organization_id=$2::bigint AND device_id=$3::bigint
+ AND physical_attempt_id=$4::uuid AND target_kind='device' AND configuration_id IS NULL AND state IN ('applying','uncertain') RETURNING 1
+), manual AS (
 UPDATE pool_configuration_operation_target t SET state='failed',result_code='interrupted',updated_at=clock_timestamp()
 FROM pool_configuration_operation o,pool_configuration_assignment a
 WHERE o.operation_id=t.operation_id AND o.organization_id=t.organization_id AND o.kind='clear'
  AND a.organization_id=t.organization_id AND a.target_kind=t.target_kind AND a.target_id=t.target_id
  AND t.operation_id=$1::uuid::text AND t.organization_id=$2::bigint AND a.device_id=$3::bigint AND t.physical_attempt_id=$4::uuid
- AND t.target_kind='device' AND t.state IN ('applying','uncertain')
+ AND t.target_kind='device' AND t.state IN ('applying','uncertain') RETURNING 1)
+SELECT ((SELECT count(*) FROM lifecycle)+(SELECT count(*) FROM manual))::bigint AS changed
 `
 
 type ResolveCompletedPoolRemovalParams struct {
@@ -437,19 +474,22 @@ type ResolveCompletedPoolRemovalParams struct {
 }
 
 func (q *Queries) ResolveCompletedPoolRemoval(ctx context.Context, arg ResolveCompletedPoolRemovalParams) (int64, error) {
-	result, err := q.exec(ctx, q.resolveCompletedPoolRemovalStmt, resolveCompletedPoolRemoval,
+	row := q.queryRow(ctx, q.resolveCompletedPoolRemovalStmt, resolveCompletedPoolRemoval,
 		arg.RemovalID,
 		arg.OrganizationID,
 		arg.DeviceID,
 		arg.PhysicalAttemptID,
 	)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected()
+	var changed int64
+	err := row.Scan(&changed)
+	return changed, err
 }
 
 const resolveRecoveredPoolRemoval = `-- name: ResolveRecoveredPoolRemoval :exec
+WITH lifecycle AS (
+ UPDATE pool_lifecycle_transition SET state='failed',result_code='interrupted',updated_at=clock_timestamp()
+ WHERE organization_id=$1 AND device_id=$2 AND physical_attempt_id=$3 AND configuration_id IS NULL AND state IN ('ready','applying','uncertain') RETURNING 1
+)
 UPDATE pool_configuration_operation_target t SET state='failed',result_code='interrupted',updated_at=clock_timestamp()
 FROM pool_configuration_operation o,pool_configuration_assignment a
 WHERE o.operation_id=t.operation_id AND o.organization_id=t.organization_id AND o.kind IN ('clear','unassign')

@@ -39,6 +39,9 @@ func TestProxyControlCompletion(t *testing.T) {
 		{http.MethodPost, "v2", "hashboards/identify-led", false},
 		{http.MethodPost, "v2", "mining/isolation", false},
 		{http.MethodPost, "v1", "new-setting", false},
+		{http.MethodPost, "v1", "system/update", false},
+		{http.MethodPut, "v1", "system/update", false},
+		{http.MethodPost, "v1", "system/reboot", false},
 	} {
 		t.Run(operation.version+"/"+operation.rest, func(t *testing.T) {
 			database, org, device, h, target := proxyFenceFixture(t)

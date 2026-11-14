@@ -11,44 +11,49 @@ sql:
         emit_interface: true
         sql_package: "database/sql"
         overrides:
-          # Lateral joins leave these status fields NULL for never-observed streams.
-          - column: "hosted_account_reporting_capture_status.last_event_id"
-            go_type:
-              import: "database/sql"
-              type: "NullInt64"
-          - column: "hosted_account_reporting_capture_status.last_event_operation"
-            go_type:
-              import: "database/sql"
-              type: "NullString"
-          - column: "hosted_account_reporting_capture_status.last_event_captured_at"
+          # Lateral joins leave these status fields NULL for never-observed streams,
+          # never-closed intervals and intervals without gaps.
+          - column: "hosted_account_reporting_capture_status.last_observation_bucket"
             go_type:
               import: "database/sql"
               type: "NullTime"
-          - column: "hosted_account_reporting_capture_status.last_observation_event_id"
+          - column: "hosted_account_reporting_capture_status.last_observation_revision"
             go_type:
               import: "database/sql"
-              type: "NullInt64"
+              type: "NullInt32"
           - column: "hosted_account_reporting_capture_status.last_observation_captured_at"
             go_type:
               import: "database/sql"
               type: "NullTime"
-          - column: "hosted_account_reporting_capture_status.last_observation_origin_key"
+          - column: "hosted_account_reporting_capture_status.last_observation_source_newest_at"
+            go_type:
+              import: "database/sql"
+              type: "NullTime"
+          - column: "hosted_account_reporting_capture_status.last_closed_bucket"
+            go_type:
+              import: "database/sql"
+              type: "NullTime"
+          - column: "hosted_account_reporting_capture_status.last_closed_revision"
+            go_type:
+              import: "database/sql"
+              type: "NullInt32"
+          - column: "hosted_account_reporting_capture_status.last_closed_no_source_data"
+            go_type:
+              import: "database/sql"
+              type: "NullBool"
+          - column: "hosted_account_reporting_capture_status.last_gap_from_bucket"
+            go_type:
+              import: "database/sql"
+              type: "NullTime"
+          - column: "hosted_account_reporting_capture_status.last_gap_to_bucket"
+            go_type:
+              import: "database/sql"
+              type: "NullTime"
+          - column: "hosted_account_reporting_capture_status.last_gap_reason"
             go_type:
               import: "database/sql"
               type: "NullString"
-          - column: "hosted_account_reporting_capture_status.last_observation_origin_time"
-            go_type:
-              import: "database/sql"
-              type: "NullTime"
-          - column: "hosted_account_reporting_capture_status.last_observation_collected_at"
-            go_type:
-              import: "database/sql"
-              type: "NullTime"
-          - column: "hosted_account_reporting_capture_status.last_observation_source_oldest_at"
-            go_type:
-              import: "database/sql"
-              type: "NullTime"
-          - column: "hosted_account_reporting_capture_status.last_observation_source_newest_at"
+          - column: "hosted_account_reporting_capture_status.last_gap_recorded_at"
             go_type:
               import: "database/sql"
               type: "NullTime"

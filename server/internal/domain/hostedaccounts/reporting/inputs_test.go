@@ -145,7 +145,7 @@ func scalableMeterInputs(count int, shared bool) Inputs {
 
 func TestMeterValidationAtBatchLimit(t *testing.T) {
 	for _, shared := range []bool{true, false} {
-		in := scalableMeterInputs(5000, shared)
+		in := scalableMeterInputs(10000/2, shared)
 		slices.Reverse(in.Meters)
 		require.NoError(t, in.ValidateContext(t.Context()))
 		ctx, cancel := context.WithCancel(t.Context())
@@ -156,7 +156,7 @@ func TestMeterValidationAtBatchLimit(t *testing.T) {
 
 func BenchmarkMeterValidation(b *testing.B) {
 	for _, shared := range []bool{true, false} {
-		for _, count := range []int{100, 1000, 5000} {
+		for _, count := range []int{100, 1000, 10000 / 2} {
 			b.Run(fmt.Sprintf("shared=%t/facts=%d", shared, count), func(b *testing.B) {
 				in := scalableMeterInputs(count, shared)
 				b.ResetTimer()

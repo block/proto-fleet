@@ -474,9 +474,15 @@ func tryCreateTestDatabase(ctx context.Context, adminConfig *db.Config, dbName s
 // source (SQLSTATE 55006). Parallel tests all clone the same template, so this
 // is expected under load rather than a real failure.
 func isRetryableCreateError(msg string) bool {
-	return isTransientServerError(msg) ||
-		strings.Contains(msg, pgObjectInUse) ||
-		strings.Contains(msg, templateSourceInUse)
+	return isTransientServerError(msg) || isDatabaseInUseError(msg)
+}
+
+// isDatabaseInUseError reports whether a statement that needs a database to
+// itself found another session attached to it (SQLSTATE 55006). Unlike a
+// transient server error, the connection that issued the statement is still
+// usable, so the same session can evict the other one and try again.
+func isDatabaseInUseError(msg string) bool {
+	return strings.Contains(msg, pgObjectInUse) || strings.Contains(msg, templateSourceInUse)
 }
 
 // isMissingTemplateError reports whether a clone failed because its source

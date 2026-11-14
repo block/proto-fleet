@@ -911,8 +911,9 @@ const AccountAssets = ({
             </p>
           ) : null}
           <p className="text-200 text-text-primary-50">
-            Allocation does not change equipment settings. Members need Change pools permission to apply a
-            configuration.
+            The receiving account’s default pool configuration will be applied automatically. If it has no pool
+            configurations, existing pools will be cleared. Members still need Change pools permission to change pools
+            manually.
           </p>
         </ActionModal>
       ) : null}

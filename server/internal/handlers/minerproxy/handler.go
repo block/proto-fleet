@@ -716,10 +716,11 @@ func (h *Handler) dispatchTarget(ctx context.Context, target proxyTarget, mutati
 }
 
 // The authorization contract already distinguishes observations, including
-// POST timeseries and downloadable logs. Login only establishes authentication;
-// all other operations retain conservative physical-mutation evidence.
+// POST timeseries and downloadable logs. Login only establishes authentication.
+// Firmware availability checks do not download or install firmware, even though
+// they require firmware-update permission. Other controls retain mutation evidence.
 func proxyMutatesMiner(method, proxyPath string) bool {
-	if method == http.MethodPost && proxyPath == minerLoginPath {
+	if method == http.MethodPost && (proxyPath == minerLoginPath || proxyPath == "/api/v1/system/update/check") {
 		return false
 	}
 	for _, permission := range permissionsFor(method, proxyPath) {

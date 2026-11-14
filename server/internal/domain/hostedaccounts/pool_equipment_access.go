@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"encoding/json"
 
+	"github.com/google/uuid"
+
 	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
 	"github.com/block/proto-fleet/server/generated/sqlc"
 	"github.com/block/proto-fleet/server/internal/domain/authz"
@@ -54,14 +56,9 @@ type poolEquipmentAccess struct {
 }
 
 func (s *PoolService) poolEquipmentAccess(ctx context.Context, q sqlc.Querier, scope poolconfigurations.Scope, actorID int64, targets []poolconfigurations.AssignmentTarget) (*poolEquipmentAccess, error) {
-	info, err := session.GetInfo(ctx)
-	if err != nil || info.Actor != "" || info.UserID != actorID || actorID <= 0 || info.OrganizationID != scope.OrganizationID || info.AuthMethod != session.AuthMethodSession || info.AccountKey {
-		return nil, denied()
-	}
-	selected, hasSelection := RequestAccountID(ctx)
-	if scope.AccountID < 0 || (scope.AccountID == 0 && hasSelection) || (scope.AccountID != 0 && !hasSelection) {
-		return nil, denied()
-	}
+	var policy Sites
+	var host *authz.EffectivePermissions
+	var err error
 	if len(targets) == 0 {
 		return nil, fleeterror.NewInvalidArgumentError("select equipment")
 	}
@@ -75,32 +72,47 @@ func (s *PoolService) poolEquipmentAccess(ctx context.Context, q sqlc.Querier, s
 			installationIDs = append(installationIDs, target.ID)
 		}
 	}
-	if err := lockActorForRead(ctx, q, scope.OrganizationID, actorID); err != nil {
-		return nil, err
-	}
-	var policy Sites
-	var host *authz.EffectivePermissions
-	if scope.AccountID == 0 {
-		host, err = authz.LoadEffectiveForShare(ctx, q, actorID, scope.OrganizationID)
-	} else {
-		var account Account
-		account, err = s.authorizePoolAccess(ctx, q, actorID, scope.OrganizationID, selected, View|ChangePools)
-		if err == nil && account.ID != scope.AccountID {
+	if poolconfigurations.LifecycleTransitionID(ctx) != uuid.Nil {
+		if actorID != 0 {
 			return nil, denied()
 		}
-		if err == nil {
-			var path []sqlc.HostedAccount
-			path, err = loadPath(ctx, q, scope.OrganizationID, selected)
+		if _, err := poolconfigurations.AuthorizeLifecycleTransition(ctx, q, scope, deviceID); err != nil {
+			return nil, err
+		}
+	} else {
+		info, err := session.GetInfo(ctx)
+		if err != nil || info.Actor != "" || info.UserID != actorID || actorID <= 0 || info.OrganizationID != scope.OrganizationID || info.AuthMethod != session.AuthMethodSession || info.AccountKey {
+			return nil, denied()
+		}
+		selected, hasSelection := RequestAccountID(ctx)
+		if scope.AccountID < 0 || (scope.AccountID == 0 && hasSelection) || (scope.AccountID != 0 && !hasSelection) {
+			return nil, denied()
+		}
+		if err := lockActorForRead(ctx, q, scope.OrganizationID, actorID); err != nil {
+			return nil, err
+		}
+		if scope.AccountID == 0 {
+			host, err = authz.LoadEffectiveForShare(ctx, q, actorID, scope.OrganizationID)
+		} else {
+			var account Account
+			account, err = s.authorizePoolAccess(ctx, q, actorID, scope.OrganizationID, selected, View|ChangePools)
+			if err == nil && account.ID != scope.AccountID {
+				return nil, denied()
+			}
 			if err == nil {
-				policy, err = sitePolicy(ctx, q, scope.OrganizationID, path, false)
+				var path []sqlc.HostedAccount
+				path, err = loadPath(ctx, q, scope.OrganizationID, selected)
+				if err == nil {
+					policy, err = sitePolicy(ctx, q, scope.OrganizationID, path, false)
+				}
+			}
+			if err == nil {
+				host, err = hostReadAuthority(ctx, q, actorID, scope.OrganizationID, account, miningRead)
 			}
 		}
-		if err == nil {
-			host, err = hostReadAuthority(ctx, q, actorID, scope.OrganizationID, account, miningRead)
+		if err != nil {
+			return nil, err
 		}
-	}
-	if err != nil {
-		return nil, err
 	}
 	device, err := q.GetPoolEquipmentDevice(ctx, sqlc.GetPoolEquipmentDeviceParams{OrgID: scope.OrganizationID, ID: deviceID})
 	if err != nil {

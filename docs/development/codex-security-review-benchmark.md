@@ -1,8 +1,31 @@
 # Codex security review benchmark
 
-The benchmark replays fixed historical PR ranges to compare the production
-security reviewer with GPT-6.1 Sol. It produces evidence for human adjudication;
-it does not post PR comments, approve PRs, or change production review policy.
+The benchmark replays fixed historical PR ranges to compare Astra and Sol
+using the production security-review prompt. It produces evidence for human
+adjudication; it does not post PR comments, approve PRs, or change production
+review policy.
+
+## Production reviewer trial
+
+The supplementary production reviewer uses `gpt-6.1-sol` at `medium` reasoning
+effort. Execution, finalized result artifacts, and the posted comment inherit one
+workflow-level model setting. The prompt, sandbox, output validation, timeout
+budget, trusted finalizer, and human-review policy retain their existing behavior.
+
+The 2026-11-11 paired validation runs used the same trusted workflow revision
+`6f3775f2eed3a2d73e495edf1aae7012015ff45f`:
+[Astra](https://github.com/btc-mining/proto-fleet-internal/actions/runs/43078247871)
+and [Sol](https://github.com/btc-mining/proto-fleet-internal/actions/runs/43078250039).
+Both completed 6/6 cases and kept both clean controls clean. Both detected the
+frozen #1077 finding and missed the other four required findings, including the
+two migration findings in #1090. Their additional #1090 findings do not count
+as frozen recall. Neither passed the frozen validation gate.
+
+Sol had a lower median recorded case time (58.5s versus 76.5s) and lower total
+recorded case time (560s versus 583s). This supports a reversible trial, not a
+claim of proven quality improvement. Preserve the frozen expectations and
+observe the first 30 chronological production runs as described below before
+assessing the trial; the historical promotion gates remain the quality target.
 
 ## Profiles and scope
 
@@ -153,6 +176,12 @@ count them as unseen clean-control validation for Astra.
 
 ## Promotion gates
 
+The production trial above is a deliberate, reversible exception to these
+historical promotion gates. Neither model passed frozen validation; this trial
+does not count as passing these gates or establish a quality improvement.
+Use the trial decision rule below for this exception, while retaining these
+gates as the quality target for future evaluation.
+
 The initial Sol candidate must complete 6/6 cases, retain all four adjudicated
 `HIGH` findings without downgrade, retain all six adjudicated `MEDIUM`
 findings, complete both clean controls without invalid material findings, and
@@ -172,5 +201,32 @@ Production promotion is a separate change. Preserve its trusted finalizer and
 human-review path, and update execution, validation, result metadata, comment
 model identity, and tests together. Observe the first 30 chronological runs
 after promotion, reporting completion, verified timeouts, automation failures,
-latency, usage, packet sizes, and human finding dispositions. Revert the model
-change if that observation shows a quality regression.
+latency, usage, packet sizes, and human finding dispositions.
+
+### Trial decision after 30 runs
+
+Compare the first 30 chronological Sol production runs with the last 30
+chronological Astra production runs before the switch. Include every eligible
+reviewer run, including incomplete reviews and automation failures; list run
+attempts and repeated reviews of the same PR separately rather than selecting
+only successful or favorable cases. Identify Sol runs from `model` in
+`codex-security-review-result.json`. Older Astra artifacts lack that field:
+verify their model from the workflow revision and action logs, and record any
+unavailable evidence explicitly.
+
+Human reviewers must adjudicate material automated findings and material
+findings the automation missed on those exact PR heads for both samples.
+Report the counts and dispositions alongside completion, timeout and automation
+failure rates, latency, and packet sizes. These are different PR workloads;
+the comparison is observational and cannot prove equal quality or a model-only
+latency improvement.
+
+Revert early if independent human adjudication confirms an invalid
+`MEDIUM`-or-higher Sol finding or a missed `HIGH`/`CRITICAL` finding in a trial
+PR. At run 30, keep Sol only after a human accepts a report showing no such
+quality failures, a completion rate at least as high as the Astra sample, and
+a lower median latency on completed reviews. Missing artifacts or incomplete
+human adjudication make the result inconclusive: revert to Astra at the end
+of the trial unless a separate change explicitly approves further evaluation.
+Passing this trial rule keeps the supplementary reviewer on Sol; it does not
+waive the historical promotion gates or the human-review requirement.

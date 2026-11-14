@@ -136,6 +136,16 @@ a third of it, and the budget no longer grows with each new migration.
   requiring an exclusive source database (`CREATE DATABASE … TEMPLATE`,
   `DROP DATABASE`) must disable connections *and* terminate existing backends.
   `ALLOW_CONNECTIONS false` alone does not evict what is already connected.
+- **From TimescaleDB 2.32, renaming a database summons a scheduler for it.**
+  `ALTER DATABASE … RENAME` makes the launcher start a scheduler for that
+  database, even a sealed one whose sessions were just evicted. The worker exits
+  once it finds connections disabled, but when it attaches before the rename has
+  checked for other sessions, PostgreSQL waits five seconds and fails the rename
+  with SQLSTATE 55006. Evicting first cannot prevent it, and neither does
+  `_timescaledb_functions.stop_background_workers()`, so a rename that needs the
+  database to itself has to be retried (`publishTemplateDatabase`). It depends
+  on timing: about one rename in four on CI and on a single-CPU database under
+  load, none on an idle multi-core machine.
 - **`pg_advisory_lock` on a `*sql.DB` is a bug.** Pool routing can send the
   unlock to a different session. Pin with `db.Conn(ctx)`.
 - **Don't derive template readiness from "the database exists."** Use a state

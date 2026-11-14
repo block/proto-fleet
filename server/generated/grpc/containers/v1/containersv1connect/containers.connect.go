@@ -52,6 +52,12 @@ const (
 	// ContainerServiceSetModuleMiningProcedure is the fully-qualified name of the ContainerService's
 	// SetModuleMining RPC.
 	ContainerServiceSetModuleMiningProcedure = "/containers.v1.ContainerService/SetModuleMining"
+	// ContainerServiceGetBoardIdentifyOptionsProcedure is the fully-qualified name of the
+	// ContainerService's GetBoardIdentifyOptions RPC.
+	ContainerServiceGetBoardIdentifyOptionsProcedure = "/containers.v1.ContainerService/GetBoardIdentifyOptions"
+	// ContainerServiceSetBoardIdentifyProcedure is the fully-qualified name of the ContainerService's
+	// SetBoardIdentify RPC.
+	ContainerServiceSetBoardIdentifyProcedure = "/containers.v1.ContainerService/SetBoardIdentify"
 	// ContainerServiceGetTankMiningOptionsProcedure is the fully-qualified name of the
 	// ContainerService's GetTankMiningOptions RPC.
 	ContainerServiceGetTankMiningOptionsProcedure = "/containers.v1.ContainerService/GetTankMiningOptions"
@@ -83,6 +89,8 @@ type ContainerServiceClient interface {
 	SetPowerTarget(context.Context, *connect.Request[v1.SetPowerTargetRequest]) (*connect.Response[v1.SetPowerTargetResponse], error)
 	GetModuleMiningOptions(context.Context, *connect.Request[v1.GetModuleMiningOptionsRequest]) (*connect.Response[v1.GetModuleMiningOptionsResponse], error)
 	SetModuleMining(context.Context, *connect.Request[v1.SetModuleMiningRequest]) (*connect.Response[v1.SetModuleMiningResponse], error)
+	GetBoardIdentifyOptions(context.Context, *connect.Request[v1.GetBoardIdentifyOptionsRequest]) (*connect.Response[v1.GetBoardIdentifyOptionsResponse], error)
+	SetBoardIdentify(context.Context, *connect.Request[v1.SetBoardIdentifyRequest]) (*connect.Response[v1.SetBoardIdentifyResponse], error)
 	GetTankMiningOptions(context.Context, *connect.Request[v1.GetTankMiningOptionsRequest]) (*connect.Response[v1.GetTankMiningOptionsResponse], error)
 	SetTankMining(context.Context, *connect.Request[v1.SetTankMiningRequest]) (*connect.Response[v1.SetTankMiningResponse], error)
 	GetEquipmentCommandResult(context.Context, *connect.Request[v1.GetEquipmentCommandResultRequest]) (*connect.Response[v1.GetEquipmentCommandResultResponse], error)
@@ -133,6 +141,16 @@ func NewContainerServiceClient(httpClient connect.HTTPClient, baseURL string, op
 			baseURL+ContainerServiceSetModuleMiningProcedure,
 			opts...,
 		),
+		getBoardIdentifyOptions: connect.NewClient[v1.GetBoardIdentifyOptionsRequest, v1.GetBoardIdentifyOptionsResponse](
+			httpClient,
+			baseURL+ContainerServiceGetBoardIdentifyOptionsProcedure,
+			opts...,
+		),
+		setBoardIdentify: connect.NewClient[v1.SetBoardIdentifyRequest, v1.SetBoardIdentifyResponse](
+			httpClient,
+			baseURL+ContainerServiceSetBoardIdentifyProcedure,
+			opts...,
+		),
 		getTankMiningOptions: connect.NewClient[v1.GetTankMiningOptionsRequest, v1.GetTankMiningOptionsResponse](
 			httpClient,
 			baseURL+ContainerServiceGetTankMiningOptionsProcedure,
@@ -179,6 +197,8 @@ type containerServiceClient struct {
 	setPowerTarget            *connect.Client[v1.SetPowerTargetRequest, v1.SetPowerTargetResponse]
 	getModuleMiningOptions    *connect.Client[v1.GetModuleMiningOptionsRequest, v1.GetModuleMiningOptionsResponse]
 	setModuleMining           *connect.Client[v1.SetModuleMiningRequest, v1.SetModuleMiningResponse]
+	getBoardIdentifyOptions   *connect.Client[v1.GetBoardIdentifyOptionsRequest, v1.GetBoardIdentifyOptionsResponse]
+	setBoardIdentify          *connect.Client[v1.SetBoardIdentifyRequest, v1.SetBoardIdentifyResponse]
 	getTankMiningOptions      *connect.Client[v1.GetTankMiningOptionsRequest, v1.GetTankMiningOptionsResponse]
 	setTankMining             *connect.Client[v1.SetTankMiningRequest, v1.SetTankMiningResponse]
 	getEquipmentCommandResult *connect.Client[v1.GetEquipmentCommandResultRequest, v1.GetEquipmentCommandResultResponse]
@@ -216,6 +236,16 @@ func (c *containerServiceClient) GetModuleMiningOptions(ctx context.Context, req
 // SetModuleMining calls containers.v1.ContainerService.SetModuleMining.
 func (c *containerServiceClient) SetModuleMining(ctx context.Context, req *connect.Request[v1.SetModuleMiningRequest]) (*connect.Response[v1.SetModuleMiningResponse], error) {
 	return c.setModuleMining.CallUnary(ctx, req)
+}
+
+// GetBoardIdentifyOptions calls containers.v1.ContainerService.GetBoardIdentifyOptions.
+func (c *containerServiceClient) GetBoardIdentifyOptions(ctx context.Context, req *connect.Request[v1.GetBoardIdentifyOptionsRequest]) (*connect.Response[v1.GetBoardIdentifyOptionsResponse], error) {
+	return c.getBoardIdentifyOptions.CallUnary(ctx, req)
+}
+
+// SetBoardIdentify calls containers.v1.ContainerService.SetBoardIdentify.
+func (c *containerServiceClient) SetBoardIdentify(ctx context.Context, req *connect.Request[v1.SetBoardIdentifyRequest]) (*connect.Response[v1.SetBoardIdentifyResponse], error) {
+	return c.setBoardIdentify.CallUnary(ctx, req)
 }
 
 // GetTankMiningOptions calls containers.v1.ContainerService.GetTankMiningOptions.
@@ -261,6 +291,8 @@ type ContainerServiceHandler interface {
 	SetPowerTarget(context.Context, *connect.Request[v1.SetPowerTargetRequest]) (*connect.Response[v1.SetPowerTargetResponse], error)
 	GetModuleMiningOptions(context.Context, *connect.Request[v1.GetModuleMiningOptionsRequest]) (*connect.Response[v1.GetModuleMiningOptionsResponse], error)
 	SetModuleMining(context.Context, *connect.Request[v1.SetModuleMiningRequest]) (*connect.Response[v1.SetModuleMiningResponse], error)
+	GetBoardIdentifyOptions(context.Context, *connect.Request[v1.GetBoardIdentifyOptionsRequest]) (*connect.Response[v1.GetBoardIdentifyOptionsResponse], error)
+	SetBoardIdentify(context.Context, *connect.Request[v1.SetBoardIdentifyRequest]) (*connect.Response[v1.SetBoardIdentifyResponse], error)
 	GetTankMiningOptions(context.Context, *connect.Request[v1.GetTankMiningOptionsRequest]) (*connect.Response[v1.GetTankMiningOptionsResponse], error)
 	SetTankMining(context.Context, *connect.Request[v1.SetTankMiningRequest]) (*connect.Response[v1.SetTankMiningResponse], error)
 	GetEquipmentCommandResult(context.Context, *connect.Request[v1.GetEquipmentCommandResultRequest]) (*connect.Response[v1.GetEquipmentCommandResultResponse], error)
@@ -305,6 +337,16 @@ func NewContainerServiceHandler(svc ContainerServiceHandler, opts ...connect.Han
 	containerServiceSetModuleMiningHandler := connect.NewUnaryHandler(
 		ContainerServiceSetModuleMiningProcedure,
 		svc.SetModuleMining,
+		opts...,
+	)
+	containerServiceGetBoardIdentifyOptionsHandler := connect.NewUnaryHandler(
+		ContainerServiceGetBoardIdentifyOptionsProcedure,
+		svc.GetBoardIdentifyOptions,
+		opts...,
+	)
+	containerServiceSetBoardIdentifyHandler := connect.NewUnaryHandler(
+		ContainerServiceSetBoardIdentifyProcedure,
+		svc.SetBoardIdentify,
 		opts...,
 	)
 	containerServiceGetTankMiningOptionsHandler := connect.NewUnaryHandler(
@@ -356,6 +398,10 @@ func NewContainerServiceHandler(svc ContainerServiceHandler, opts ...connect.Han
 			containerServiceGetModuleMiningOptionsHandler.ServeHTTP(w, r)
 		case ContainerServiceSetModuleMiningProcedure:
 			containerServiceSetModuleMiningHandler.ServeHTTP(w, r)
+		case ContainerServiceGetBoardIdentifyOptionsProcedure:
+			containerServiceGetBoardIdentifyOptionsHandler.ServeHTTP(w, r)
+		case ContainerServiceSetBoardIdentifyProcedure:
+			containerServiceSetBoardIdentifyHandler.ServeHTTP(w, r)
 		case ContainerServiceGetTankMiningOptionsProcedure:
 			containerServiceGetTankMiningOptionsHandler.ServeHTTP(w, r)
 		case ContainerServiceSetTankMiningProcedure:
@@ -401,6 +447,14 @@ func (UnimplementedContainerServiceHandler) GetModuleMiningOptions(context.Conte
 
 func (UnimplementedContainerServiceHandler) SetModuleMining(context.Context, *connect.Request[v1.SetModuleMiningRequest]) (*connect.Response[v1.SetModuleMiningResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("containers.v1.ContainerService.SetModuleMining is not implemented"))
+}
+
+func (UnimplementedContainerServiceHandler) GetBoardIdentifyOptions(context.Context, *connect.Request[v1.GetBoardIdentifyOptionsRequest]) (*connect.Response[v1.GetBoardIdentifyOptionsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("containers.v1.ContainerService.GetBoardIdentifyOptions is not implemented"))
+}
+
+func (UnimplementedContainerServiceHandler) SetBoardIdentify(context.Context, *connect.Request[v1.SetBoardIdentifyRequest]) (*connect.Response[v1.SetBoardIdentifyResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("containers.v1.ContainerService.SetBoardIdentify is not implemented"))
 }
 
 func (UnimplementedContainerServiceHandler) GetTankMiningOptions(context.Context, *connect.Request[v1.GetTankMiningOptionsRequest]) (*connect.Response[v1.GetTankMiningOptionsResponse], error) {

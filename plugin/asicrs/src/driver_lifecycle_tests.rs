@@ -734,6 +734,30 @@ async fn identity_fixture(
 }
 
 #[tokio::test]
+async fn device_status_timestamps_new_observations_and_preserves_cache_hits() {
+    let (service, control, _) = identity_fixture(Duration::from_secs(300)).await;
+    let reference = device_ref(&service, "device").await;
+    let before_poll = std::time::SystemTime::now();
+    let first = service
+        .device_status(Request::new(reference.clone()))
+        .await
+        .unwrap()
+        .into_inner();
+    let after_poll = std::time::SystemTime::now();
+    let observed_at = std::time::SystemTime::try_from(first.timestamp.unwrap()).unwrap();
+    assert!(observed_at >= before_poll && observed_at <= after_poll);
+
+    // A live read would reject replacement hardware; the second response is cached.
+    *control.serial.lock().unwrap() = "serial-B".into();
+    let cached = service
+        .device_status(Request::new(reference))
+        .await
+        .unwrap()
+        .into_inner();
+    assert_eq!(cached.timestamp, first.timestamp);
+}
+
+#[tokio::test]
 async fn scoped_lifecycle_live_identity_rejects_control_despite_fresh_cached_telemetry() {
     let (service, control, device) = identity_fixture(Duration::from_secs(60)).await;
     service
@@ -746,7 +770,13 @@ async fn scoped_lifecycle_live_identity_rejects_control_despite_fresh_cached_tel
     // Cache A while its session remains healthy, then simulate same-model B at
     // the same endpoint. Uncurtail must inspect live identity before resuming.
     assert_eq!(
-        device.get_data().await.unwrap().serial_number.as_deref(),
+        device
+            .get_data()
+            .await
+            .unwrap()
+            .data
+            .serial_number
+            .as_deref(),
         Some("serial-A")
     );
     *control.serial.lock().unwrap() = "serial-B".into();

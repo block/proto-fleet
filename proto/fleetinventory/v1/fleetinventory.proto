@@ -163,6 +163,9 @@ message InventoryItem {
   // Absent means unavailable. Aggregate evidence can be stale while individual
   // items remain fresh; the server retains those current causes.
   ModuleIssues module_issues = 28;
+  // Module hashboard naming summary: "MAC address", a shared custom name,
+  // "Mixed", or empty when all installed hashboards use no worker name.
+  string worker_name_summary = 30;
 }
 
 message ListInventoryResponse {
@@ -304,6 +307,11 @@ message HashboardReading {
   // may be smaller; null measurements are excluded from each metric's average.
   int64 sample_count = 23;
   google.protobuf.Timestamp last_collected_at = 24;
+  // Worker suffix saved on the physical hashboard. Current readings only;
+  // empty for no worker name or the CT1 plugin's default.
+  string worker_name = 26;
+  // Saved strategy: none, mac_address, or custom. Current readings only.
+  string worker_name_mode = 27;
 }
 
 // Unknown boards and boards with no readable historical installation return

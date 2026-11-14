@@ -3,6 +3,7 @@ package hostedaccounts_test
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"testing"
 
@@ -208,4 +209,28 @@ func TestPoolWorkerMatchingNameRetryUsesCanonicalBatchConfirmation(t *testing.T)
 	require.NotEqual(t, first.Operation.ID, retried.Operation.ID)
 	require.Equal(t, first.Configuration.RevisionID, retried.Configuration.RevisionID)
 	require.Equal(t, "pending", retried.Operation.Targets[0].State)
+}
+
+func TestPoolWorkerNamePreviewShowsEffectiveDefaultBeforeClearing(t *testing.T) {
+	f, service, ctx, original := workerBatchFixture(t, 1)
+	identifier := original[0].WorkerNames[0].DeviceIdentifier
+	_, err := f.db.ExecContext(ctx, `UPDATE device SET worker_name=NULL,mac_address='AA:BB:CC:DD:EE:FF' WHERE device_identifier=$1`, identifier)
+	require.NoError(t, err)
+	reviews, err := service.ReviewWorkerNames(ctx, map[string]string{identifier: ""})
+	require.NoError(t, err)
+	require.Len(t, reviews, 1)
+	require.Equal(t, []poolconfigurations.WorkerNameChange{{DeviceIdentifier: identifier, Before: "aa:bb:cc:dd:ee:ff", After: ""}}, reviews[0].WorkerNames)
+	saved, err := service.ConfirmReview(ctx, "", reviews[0].ID, poolconfigurations.Confirmation{Password: "actor-password"})
+	require.NoError(t, err)
+	var encoded string
+	require.NoError(t, f.db.QueryRowContext(ctx, `SELECT reviewed_binding FROM pool_configuration_operation_target WHERE operation_id=$1`, saved.Operation.ID).Scan(&encoded))
+	var binding poolapplications.Binding
+	require.NoError(t, json.Unmarshal([]byte(encoded), &binding))
+	require.Equal(t, []string{"payout.0"}, binding.Usernames)
+	require.True(t, binding.Device.WorkerNameSet)
+	require.Empty(t, binding.Device.WorkerName)
+	// Pairing and import share this initializer. Neither may undo the clear.
+	updated, err := sqlc.New(f.db).InitializeDeviceWorkerName(ctx, sqlc.InitializeDeviceWorkerNameParams{OrgID: f.org, DeviceIdentifier: identifier, WorkerName: "aa:bb:cc:dd:ee:ff"})
+	require.NoError(t, err)
+	require.Zero(t, updated)
 }

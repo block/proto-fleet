@@ -82,6 +82,13 @@ func (s *Service) ReviewBoardRemoval(ctx context.Context, q sqlc.Querier, p pool
 			// Firmware does not expose hosted-group diagnostics for the default
 			// group. Moving a board just to discover support would mutate before
 			// preflight. Keep assignment-only removal available for this scope.
+			if group.ID == "default" && p.ActorID == 0 {
+				// Automatic ownership policy authorizes moving only the selected
+				// board into a stopped, pool-free group. That group's runtime
+				// readback is verified after transfer; the default is unchanged.
+				found = true
+				continue
+			}
 			if group.ID == "default" {
 				return fleeterror.NewUnimplementedError("verified pool clearing is unavailable for boards in the default mining group")
 			}
@@ -150,7 +157,7 @@ func (s *Service) BeginBoardRemoval(ctx context.Context, p poolconfigurations.Pr
 		}
 		row.OperationID = uuid.NullUUID{UUID: r.RemovalID, Valid: true}
 		row.AttemptID = uuid.NullUUID{UUID: attempt, Valid: true}
-		row.ActorID = sql.NullInt64{Int64: p.ActorID, Valid: true}
+		row.ActorID = sql.NullInt64{Int64: p.ActorID, Valid: p.ActorID > 0}
 		row.OperationKind = "pools"
 		row.WriteEpoch = epoch
 		row.Status = "pending"
@@ -177,6 +184,9 @@ func (s *Service) workflowRemoval(ctx context.Context, q sqlc.Querier, row sqlc.
 	meta, err := q.GetBoardPoolRemovalAttempt(ctx, sqlc.GetBoardPoolRemovalAttemptParams{OrganizationID: row.OrganizationID, PhysicalAttemptID: row.AttemptID})
 	if err != nil {
 		return ctx, poolconfigurations.Principal{}, sqlc.GetPoolRemovalRow{}, err
+	}
+	if meta.ActorID == 0 {
+		ctx = poolconfigurations.WithLifecycleTransition(ctx, meta.RemovalID)
 	}
 	actorCtx, err := poolActorContext(ctx, row.OrganizationID, meta.ActorID, meta.ExternalAccountID)
 	if err != nil {
@@ -308,4 +318,30 @@ func (s *Service) finishBoardRemoval(ctx context.Context, q sqlc.Querier, row sq
 		return s.removals.FinishRemoval(actorCtx, q, p, r, false)
 	}
 	return fmt.Errorf("selected board group is unavailable")
+}
+
+// Called only after a fresh settled observation, in the same transaction that
+// retires the workflow and releases its admission. Superseding old policy does
+// not claim its pools were cleared and must not modify the new owner's intent.
+func retireObsoleteAutomaticRemoval(ctx context.Context, q sqlc.Querier, row sqlc.ContainerMiningGroupState, removal sqlc.GetBoardPoolRemovalAttemptRow, pending bool) (bool, error) {
+	if removal.ActorID != 0 || pending || row.Step.Valid || row.ControllerOperationID != "" {
+		return false, nil
+	}
+	transition, err := q.GetPoolLifecycleTransition(ctx, removal.RemovalID)
+	if err != nil {
+		return false, err
+	}
+	owner, err := q.GetPoolLifecycleAllocation(ctx, sqlc.GetPoolLifecycleAllocationParams{OrganizationID: transition.OrganizationID, Kind: transition.AssetKind, AssetID: transition.AssetID, DeviceID: transition.DeviceID})
+	if err != nil {
+		return false, err
+	}
+	newer, err := q.PoolLifecycleHasNewerAssignment(ctx, transition.TransitionID)
+	if err != nil {
+		return false, err
+	}
+	if owner.OwnerAccountID == transition.OwnerAccountID && owner.Revision == transition.AllocationRevision && !newer {
+		return false, nil
+	}
+	changed, err := q.FinishPoolLifecycleTransition(ctx, sqlc.FinishPoolLifecycleTransitionParams{TransitionID: transition.TransitionID, State: "superseded", ResultCode: "policy_replaced"})
+	return changed == 1, err
 }

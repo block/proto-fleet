@@ -178,6 +178,7 @@ func (m *RemoteFleetNodeMiner) GetDeviceMetrics(ctx context.Context) (modelsV2.D
 	if err := m.validateTelemetryDeviceIdentifier("result", metrics.DeviceIdentifier); err != nil {
 		return modelsV2.DeviceMetrics{}, err
 	}
+	metrics.FreshnessSourceNodeID = m.route.fleetNodeID
 	m.rememberStatus(result.GetDeviceStatus())
 	return metrics, nil
 }
@@ -429,6 +430,10 @@ func (m *RemoteFleetNodeMiner) rememberStatus(status telemetrypb.DeviceStatus) {
 }
 
 func telemetryResultToDeviceMetrics(result *telemetrypb.FleetNodeTelemetryResult, requestStartedAt time.Time) (modelsV2.DeviceMetrics, error) {
+	var freshnessObservedAt time.Time
+	if age := result.TelemetryObservationAge; age != nil && age.CheckValid() == nil && age.AsDuration() >= 0 && !requestStartedAt.IsZero() {
+		freshnessObservedAt = requestStartedAt.Add(-age.AsDuration())
+	}
 	var uptimeSeconds *uint64
 	var uptimeObservedAt time.Time
 	if age := result.UptimeObservationAge; result.UptimeSeconds != nil && age != nil && age.CheckValid() == nil && age.AsDuration() >= 0 && !requestStartedAt.IsZero() {
@@ -444,6 +449,7 @@ func telemetryResultToDeviceMetrics(result *telemetrypb.FleetNodeTelemetryResult
 		}
 		metrics.DeviceIdentifier = result.GetDeviceIdentifier()
 		metrics.Timestamp = result.GetTimestamp().AsTime()
+		metrics.FreshnessObservedAt = freshnessObservedAt
 		metrics.FirmwareVersion = result.GetFirmwareVersion()
 		// Never use the absolute node observation timestamp carried by the JSON.
 		metrics.UptimeSeconds = uptimeSeconds
@@ -458,6 +464,7 @@ func telemetryResultToDeviceMetrics(result *telemetrypb.FleetNodeTelemetryResult
 	return modelsV2.DeviceMetrics{
 		DeviceIdentifier:      result.GetDeviceIdentifier(),
 		Timestamp:             result.GetTimestamp().AsTime(),
+		FreshnessObservedAt:   freshnessObservedAt,
 		FirmwareVersion:       result.GetFirmwareVersion(),
 		UptimeSeconds:         uptimeSeconds,
 		UptimeObservedAt:      uptimeObservedAt,

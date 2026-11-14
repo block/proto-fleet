@@ -72,14 +72,14 @@ func (s *Readiness) RefreshTargets(ctx context.Context, scope poolconfigurations
 			if err != nil {
 				return admission{}, err
 			}
-			var recoverRemoval bool
-			if target.Kind == poolconfigurations.TargetDevice {
-				retired, err := q.ListRetiredCompletedPoolRemovals(ctx, sqlc.ListRetiredCompletedPoolRemovalsParams{OrganizationID: scope.OrganizationID, TargetID: target.DeviceID})
-				if err != nil {
-					return admission{}, err
-				}
-				recoverRemoval = len(retired) > 0
+			// A board transition can follow an obsolete whole-container clear.
+			// Completed writes may be observed and retired under current authority;
+			// unknown writes still retain the device fence.
+			retired, err := q.ListRetiredCompletedPoolRemovals(ctx, sqlc.ListRetiredCompletedPoolRemovalsParams{OrganizationID: scope.OrganizationID, TargetID: target.DeviceID})
+			if err != nil {
+				return admission{}, err
 			}
+			recoverRemoval := len(retired) > 0
 			if !recoverRemoval {
 				if err := devicewrite.RequireNoConflictingPoolWrites(ctx, q, scope.OrganizationID, target.DeviceID); err != nil {
 					return admission{}, err

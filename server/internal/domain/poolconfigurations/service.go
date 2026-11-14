@@ -164,7 +164,11 @@ func recordConfigurationAudit(ctx context.Context, q sqlc.Querier, p Principal, 
 	if err != nil {
 		return fleeterror.NewInternalError("encode configuration audit failed")
 	}
-	err = q.InsertActivityLog(ctx, sqlc.InsertActivityLogParams{EventID: uuid.New(), EventCategory: string(models.CategoryPool), EventType: event, Description: event, Result: string(models.ResultSuccess), ActorType: string(models.ActorUser), UserID: sql.NullString{String: p.UserID, Valid: true}, Username: sql.NullString{String: p.Username, Valid: true}, OrganizationID: sql.NullInt64{Int64: p.Scope.OrganizationID, Valid: true}, ScopeType: sql.NullString{String: scopeType, Valid: true}, ScopeLabel: sql.NullString{String: scopeLabel, Valid: scopeLabel != ""}, Metadata: pqtype.NullRawMessage{RawMessage: encoded, Valid: true}, MemberSiteIds: []int64{}})
+	actorType := models.ActorUser
+	if p.ActorID == 0 {
+		actorType = models.ActorSystem
+	}
+	err = q.InsertActivityLog(ctx, sqlc.InsertActivityLogParams{EventID: uuid.New(), EventCategory: string(models.CategoryPool), EventType: event, Description: event, Result: string(models.ResultSuccess), ActorType: string(actorType), UserID: sql.NullString{String: p.UserID, Valid: p.UserID != ""}, Username: sql.NullString{String: p.Username, Valid: p.Username != ""}, OrganizationID: sql.NullInt64{Int64: p.Scope.OrganizationID, Valid: true}, ScopeType: sql.NullString{String: scopeType, Valid: true}, ScopeLabel: sql.NullString{String: scopeLabel, Valid: scopeLabel != ""}, Metadata: pqtype.NullRawMessage{RawMessage: encoded, Valid: true}, MemberSiteIds: []int64{}})
 	if err != nil {
 		return storageError(err)
 	}

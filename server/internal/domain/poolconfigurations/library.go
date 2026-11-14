@@ -2,6 +2,7 @@ package poolconfigurations
 
 import (
 	"context"
+	"database/sql"
 	"encoding/base64"
 	"encoding/json"
 
@@ -34,7 +35,7 @@ func (r *Repository) Get(ctx context.Context, q sqlc.Querier, scope Scope, id st
 	if err != nil {
 		return Summary{}, storageError(err)
 	}
-	public, err := publicConfiguration(sqlc.PoolConfiguration{ConfigurationID: row.ConfigurationID, Name: row.Name, CurrentRevisionID: row.CurrentRevisionID, Version: row.Version, Archived: row.Archived}, row.Slots)
+	public, err := publicConfiguration(sqlc.PoolConfiguration{ConfigurationID: row.ConfigurationID, Name: row.Name, CurrentRevisionID: row.CurrentRevisionID, Version: row.Version, Archived: row.Archived, IsDefault: row.IsDefault}, row.Slots)
 	return Summary{Configuration: public, AssignedCount: row.AssignedCount}, err
 }
 
@@ -69,7 +70,7 @@ func (r *Repository) List(ctx context.Context, q sqlc.Querier, scope Scope, page
 		if i == int(pageSize) {
 			break
 		}
-		public, err := publicConfiguration(sqlc.PoolConfiguration{ConfigurationID: row.ConfigurationID, Name: row.Name, CurrentRevisionID: row.CurrentRevisionID, Version: row.Version, Archived: row.Archived}, row.Slots)
+		public, err := publicConfiguration(sqlc.PoolConfiguration{ConfigurationID: row.ConfigurationID, Name: row.Name, CurrentRevisionID: row.CurrentRevisionID, Version: row.Version, Archived: row.Archived, IsDefault: row.IsDefault}, row.Slots)
 		if err != nil {
 			return Page{}, err
 		}
@@ -95,6 +96,13 @@ func (r *Repository) Archive(ctx context.Context, q sqlc.Querier, scope Scope, i
 	if _, err := q.LockPoolConfiguration(ctx, sqlc.LockPoolConfigurationParams{OrganizationID: scope.OrganizationID, AccountID: scope.account(), ConfigurationID: id}); err != nil {
 		return storageError(err)
 	}
+	pending, err := q.PoolConfigurationHasPendingLifecycle(ctx, sqlc.PoolConfigurationHasPendingLifecycleParams{OrganizationID: scope.OrganizationID, ConfigurationID: sql.NullString{String: id, Valid: true}})
+	if err != nil {
+		return err
+	}
+	if pending {
+		return fleeterror.NewFailedPreconditionError("wait for automatic pool transitions before deleting this configuration")
+	}
 	n, err := q.ArchivePoolConfiguration(ctx, sqlc.ArchivePoolConfigurationParams{OrganizationID: scope.OrganizationID, AccountID: scope.account(), ConfigurationID: id, ExpectedVersion: expectedVersion})
 	if err != nil {
 		return storageError(err)
@@ -102,7 +110,7 @@ func (r *Repository) Archive(ctx context.Context, q sqlc.Querier, scope Scope, i
 	if n != 1 {
 		return fleeterror.NewFailedPreconditionError("configuration changed or is still assigned; refresh and reassign equipment before deleting")
 	}
-	return nil
+	return q.EnsurePoolConfigurationDefault(ctx, sqlc.EnsurePoolConfigurationDefaultParams{OrganizationID: scope.OrganizationID, AccountID: scope.account()})
 }
 
 // Duplicate copies complete settings within the same owner scope. It creates

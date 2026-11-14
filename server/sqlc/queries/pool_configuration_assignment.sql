@@ -16,7 +16,7 @@ JOIN pool_configuration c ON c.organization_id = a.organization_id AND c.configu
 WHERE a.organization_id = $1 AND a.target_kind = $2 AND a.target_id = $3;
 
 -- name: ListPoolConfigurationAssignmentsForDevices :many
-SELECT d.id AS target_id, COALESCE(d.worker_name, '')::text AS worker_name,
+SELECT d.id AS target_id, COALESCE(d.worker_name, '')::text AS worker_name, (d.worker_name IS NOT NULL)::boolean AS worker_name_set, ''::text AS worker_name_mode,
  COALESCE(a.configuration_id, '')::text AS configuration_id, a.retired_at, c.account_id
 FROM device d
 LEFT JOIN pool_configuration_assignment a ON a.organization_id = d.org_id AND a.target_kind = 'device' AND a.target_id = d.id
@@ -36,6 +36,7 @@ INSERT INTO pool_configuration_operation(operation_id, organization_id, configur
 VALUES($1, $2, $3, $4, $5) RETURNING *;
 
 -- name: SetPoolConfigurationAssignment :one
+-- Policy ordering uses save time after serialization locks, not transaction start.
 -- Explicitly returning retired equipment must not resurrect its former intent
 -- while the new reviewed operation is pending or if admission later fails.
 WITH discarded AS (
@@ -43,20 +44,28 @@ WITH discarded AS (
  WHERE a.organization_id=$1 AND a.target_kind=$2 AND a.target_id=$3 AND a.retired_at IS NOT NULL
   AND p.organization_id=a.organization_id AND p.installation_id=a.target_id AND a.target_kind='hashboard_installation'
 )
-INSERT INTO pool_configuration_assignment(organization_id, target_kind, target_id, device_id, configuration_id, revision_id, version, operation_id)
-VALUES($1, $2, $3, $4, $5, $6, 1, $7)
+INSERT INTO pool_configuration_assignment(organization_id, target_kind, target_id, device_id, configuration_id, revision_id, version, operation_id, updated_at)
+VALUES($1, $2, $3, $4, $5, $6, 1, $7, clock_timestamp())
 ON CONFLICT (organization_id, target_kind, target_id) DO UPDATE SET
  configuration_id = EXCLUDED.configuration_id, revision_id = EXCLUDED.revision_id,
  version = pool_configuration_assignment.version + 1, operation_id = EXCLUDED.operation_id,
- retired_at = NULL, updated_at = CURRENT_TIMESTAMP
+ inherited_worker_name = CASE WHEN pool_configuration_assignment.retired_at IS NULL THEN pool_configuration_assignment.inherited_worker_name ELSE NULL END,
+ retired_at = NULL, updated_at = EXCLUDED.updated_at
 RETURNING *;
 
 -- name: AdoptPoolConfigurationAssignment :execrows
 -- Never overwrite even a retired assignment: returning hardware must not
 -- inherit the previous occupant's desired configuration on a repeated import.
-INSERT INTO pool_configuration_assignment(organization_id,target_kind,target_id,device_id,configuration_id,revision_id,version,adopted_at)
-VALUES($1,$2,$3,$4,$5,$6,1,CURRENT_TIMESTAMP)
+INSERT INTO pool_configuration_assignment(organization_id,target_kind,target_id,device_id,configuration_id,revision_id,version,adopted_at,inherited_worker_name)
+VALUES($1,$2,$3,$4,$5,$6,1,CURRENT_TIMESTAMP,sqlc.narg(inherited_worker_name)::text)
 ON CONFLICT (organization_id,target_kind,target_id) DO NOTHING;
+
+-- name: ClearInheritedPoolWorkerName :execrows
+-- Only explicit worker-name confirmation replaces inherited input. The caller
+-- carries this version advance into its atomic reviewed assignment update.
+UPDATE pool_configuration_assignment SET inherited_worker_name=NULL,version=version+1,updated_at=CURRENT_TIMESTAMP
+WHERE organization_id=$1 AND target_kind=$2 AND target_id=$3 AND version=$4
+ AND retired_at IS NULL AND inherited_worker_name IS NOT NULL;
 
 -- name: HasPoolAssignmentKindConflict :one
 SELECT EXISTS (
@@ -65,7 +74,7 @@ SELECT EXISTS (
 );
 
 -- name: RetirePoolConfigurationAssignment :execrows
-UPDATE pool_configuration_assignment a SET retired_at = CURRENT_TIMESTAMP, version = a.version + 1, updated_at = CURRENT_TIMESTAMP
+UPDATE pool_configuration_assignment a SET retired_at = clock_timestamp(), version = a.version + 1, updated_at = clock_timestamp()
 FROM pool_configuration c
 WHERE a.organization_id = sqlc.arg(organization_id) AND a.target_kind = sqlc.arg(target_kind) AND a.target_id = sqlc.arg(target_id)
  AND a.device_id = sqlc.arg(device_id)
@@ -101,7 +110,10 @@ WHERE t.organization_id = $1 AND t.operation_id = $2 ORDER BY t.target_kind, t.t
 SELECT d.site_id FROM pool_configuration_operation_target t
 JOIN pool_configuration_assignment a ON a.organization_id=t.organization_id AND a.target_kind=t.target_kind AND a.target_id=t.target_id
 JOIN device d ON d.org_id=a.organization_id AND d.id=a.device_id
-WHERE t.organization_id=$1 AND t.operation_id=$2;
+WHERE t.organization_id=sqlc.arg(organization_id)::bigint AND t.operation_id=sqlc.arg(operation_id)::text
+UNION ALL
+SELECT d.site_id FROM pool_lifecycle_transition l JOIN device d ON d.org_id=l.organization_id AND d.id=l.device_id
+WHERE l.organization_id=sqlc.arg(organization_id)::bigint AND l.transition_id::text=sqlc.arg(operation_id)::text;
 
 -- name: ClaimPoolConfigurationTarget :one
 UPDATE pool_configuration_operation_target t SET state = 'applying', attempts = attempts + 1, result_code = '', updated_at = CURRENT_TIMESTAMP

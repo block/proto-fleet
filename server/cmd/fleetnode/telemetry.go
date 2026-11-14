@@ -388,6 +388,14 @@ func isDefaultPasswordActiveTelemetryError(err error) bool {
 }
 
 func telemetryResultFromV2(deviceIdentifier string, metrics modelsV2.DeviceMetrics, status telemetrypb.DeviceStatus) (*telemetrypb.FleetNodeTelemetryResult, error) {
+	// Capture freshness before the legacy timestamp fallback. Unknown observation
+	// times must not become fresh just because a response is assembled now.
+	var observationAge *durationpb.Duration
+	if observed := metrics.FreshnessObservationTime(); !observed.IsZero() {
+		if age := time.Since(observed); age >= 0 {
+			observationAge = durationpb.New(age)
+		}
+	}
 	if metrics.Timestamp.IsZero() {
 		metrics.Timestamp = time.Now().UTC()
 	}
@@ -399,18 +407,19 @@ func telemetryResultFromV2(deviceIdentifier string, metrics modelsV2.DeviceMetri
 		return nil, fmt.Errorf("device metrics payload is %d bytes, max %d", len(metricsJSON), maxTelemetryDeviceMetricsJSONBytes)
 	}
 	result := &telemetrypb.FleetNodeTelemetryResult{
-		DeviceIdentifier:  deviceIdentifier,
-		Timestamp:         timestamppb.New(metrics.Timestamp),
-		FirmwareVersion:   truncateUTF8(metrics.FirmwareVersion, maxTelemetryFirmwareVersionBytes),
-		DeviceStatus:      status,
-		HealthStatus:      healthStatusFromV2(metrics.Health),
-		HashrateHs:        metricValue(metrics.HashrateHS),
-		TempC:             metricValue(metrics.TempC),
-		FanRpm:            metricValue(metrics.FanRPM),
-		PowerW:            metricValue(metrics.PowerW),
-		EfficiencyJh:      metricValue(metrics.EfficiencyJH),
-		DeviceMetricsJson: metricsJSON,
-		UptimeSeconds:     metrics.UptimeSeconds,
+		DeviceIdentifier:        deviceIdentifier,
+		Timestamp:               timestamppb.New(metrics.Timestamp),
+		FirmwareVersion:         truncateUTF8(metrics.FirmwareVersion, maxTelemetryFirmwareVersionBytes),
+		DeviceStatus:            status,
+		HealthStatus:            healthStatusFromV2(metrics.Health),
+		HashrateHs:              metricValue(metrics.HashrateHS),
+		TempC:                   metricValue(metrics.TempC),
+		FanRpm:                  metricValue(metrics.FanRPM),
+		PowerW:                  metricValue(metrics.PowerW),
+		EfficiencyJh:            metricValue(metrics.EfficiencyJH),
+		DeviceMetricsJson:       metricsJSON,
+		UptimeSeconds:           metrics.UptimeSeconds,
+		TelemetryObservationAge: observationAge,
 	}
 	if metrics.UptimeSeconds != nil && !metrics.UptimeObservedAt.IsZero() {
 		if age := time.Since(metrics.UptimeObservedAt); age >= 0 {

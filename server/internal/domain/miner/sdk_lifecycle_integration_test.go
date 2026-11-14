@@ -185,6 +185,11 @@ func TestFreshCommandFacadesFenceChangedBindings(t *testing.T) {
 			case "org":
 				exec("INSERT INTO organization(id,org_id,name) VALUES(2,'sdk-other-org','SDK other org')")
 				exec("DELETE FROM device_write_fence WHERE device_id=$1", id)
+				// Remove the fixture's undispatched pairing event before directly
+				// changing its organization to exercise stale SDK binding rejection.
+				exec(`DELETE FROM pool_lifecycle_transition
+					WHERE device_id=$1 AND reason='pairing' AND state='pending'
+					  AND physical_attempt_id IS NULL AND operation_id IS NULL`, id)
 				exec("UPDATE device SET org_id=2 WHERE id=$1", id)
 			case "discovery incarnation":
 				newDiscovery := createDiscoveredDevice(t, conn, "TestMiner", "TestCorp", "antminer")

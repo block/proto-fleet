@@ -2,8 +2,8 @@
 // @generated from file containers/v1/containers.proto (package containers.v1, syntax proto3)
 /* eslint-disable */
 
-import type { GenFile, GenMessage, GenService } from "@bufbuild/protobuf/codegenv2";
-import { fileDesc, messageDesc, serviceDesc } from "@bufbuild/protobuf/codegenv2";
+import type { GenEnum, GenFile, GenMessage, GenService } from "@bufbuild/protobuf/codegenv2";
+import { enumDesc, fileDesc, messageDesc, serviceDesc } from "@bufbuild/protobuf/codegenv2";
 import { file_buf_validate_validate } from "../../buf/validate/validate_pb";
 import type { ResourceRef } from "../../common/v1/common_pb";
 import { file_common_v1_common } from "../../common/v1/common_pb";
@@ -21,7 +21,7 @@ import type { Message } from "@bufbuild/protobuf";
 export const file_containers_v1_containers: GenFile =
   /*@__PURE__*/
   fileDesc(
-    "Ch5jb250YWluZXJzL3YxL2NvbnRhaW5lcnMucHJvdG8SDWNvbnRhaW5lcnMudjEiIAoeTGlzdENvbnRhaW5lclBsYWNlbWVudHNSZXF1ZXN0IlgKH0xpc3RDb250YWluZXJQbGFjZW1lbnRzUmVzcG9uc2USNQoKY29udGFpbmVycxgBIAMoCzIhLmNvbnRhaW5lcnMudjEuQ29udGFpbmVyUGxhY2VtZW50IncKEkNvbnRhaW5lclBsYWNlbWVudBIZChFkZXZpY2VfaWRlbnRpZmllchgBIAEoCRIMCgRuYW1lGAIgASgJEiQKBHNpdGUYAyABKAsyFi5jb21tb24udjEuUmVzb3VyY2VSZWYSEgoKdGFua19jb3VudBgEIAEoAyI8ChNHZXRDb250YWluZXJSZXF1ZXN0EiUKEWRldmljZV9pZGVudGlmaWVyGAEgASgJQgq6SAdyBRABGP8BIkMKFEdldENvbnRhaW5lclJlc3BvbnNlEisKCWNvbnRhaW5lchgBIAEoCzIYLmNvbnRhaW5lcnMudjEuQ29udGFpbmVyIlYKFUxpc3RDb250YWluZXJzUmVxdWVzdBIhCghzaXRlX2lkcxgBIAMoA0IPukgMkgEJEIAIIgQiAiAAEhoKEmluY2x1ZGVfdW5hc3NpZ25lZBgCIAEoCCJGChZMaXN0Q29udGFpbmVyc1Jlc3BvbnNlEiwKCmNvbnRhaW5lcnMYASADKAsyGC5jb250YWluZXJzLnYxLkNvbnRhaW5lciJfCgtDb250YWluZXJIQRIvCgtvYnNlcnZlZF9hdBgBIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASEAoIZGVncmFkZWQYAiABKAgSDQoFc3RhbGUYAyABKAgi7QYKCUNvbnRhaW5lchImCgJoYRgWIAEoCzIaLmNvbnRhaW5lcnMudjEuQ29udGFpbmVySEESFwoPY2FuX2Fzc2lnbl9zaXRlGBUgASgIEiEKFHVubG9jYXRlZF9oYXNoYm9hcmRzGBQgASgNSACIAQESGgoNZWZmaWNpZW5jeV9qaBgQIAEoAUgBiAEBEi4KCGNvdmVyYWdlGBEgASgLMhwuY29tbW9uLnYxLkVxdWlwbWVudENvdmVyYWdlEh4KEW1pbl90ZW1wZXJhdHVyZV9jGBIgASgBSAKIAQESHgoRbWF4X3RlbXBlcmF0dXJlX2MYEyABKAFIA4gBARIsCgVwbGFudBgPIAEoCzIdLmNvbnRhaW5lcnMudjEuQ29udGFpbmVyUGxhbnQSHQoVY2FuX2NvbnRyb2xfZXF1aXBtZW50GA4gASgIEikKBGZhbnMYDCADKAsyGy5jb250YWluZXJzLnYxLkNvbnRhaW5lckZhbhIyCghjb250cm9scxgNIAEoCzIgLmNvbnRhaW5lcnMudjEuQ29udGFpbmVyQ29udHJvbHMSCgoCaWQYCyABKAMSGQoRZGV2aWNlX2lkZW50aWZpZXIYASABKAkSDAoEbmFtZRgCIAEoCRIkCgRzaXRlGAMgASgLMhYuY29tbW9uLnYxLlJlc291cmNlUmVmEi8KC29ic2VydmVkX2F0GAQgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIoCgV0YW5rcxgFIAMoCzIZLmNvbnRhaW5lcnMudjEuVGFua0hlYWx0aBIuCgptZXRyaWNzX2F0GAYgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIYCgtoYXNocmF0ZV9ocxgHIAEoAUgEiAEBEhQKB3Bvd2VyX3cYCCABKAFIBYgBARIaCg10ZW1wZXJhdHVyZV9jGAkgASgBSAaIAQESDQoFc3RhbGUYCiABKAhCFwoVX3VubG9jYXRlZF9oYXNoYm9hcmRzQhAKDl9lZmZpY2llbmN5X2poQhQKEl9taW5fdGVtcGVyYXR1cmVfY0IUChJfbWF4X3RlbXBlcmF0dXJlX2NCDgoMX2hhc2hyYXRlX2hzQgoKCF9wb3dlcl93QhAKDl90ZW1wZXJhdHVyZV9jIqwBCgpUYW5rSGVhbHRoEhAKCHBvc2l0aW9uGAEgASgFEhUKDWhhc2hpbmdfY291bnQYAiABKAUSFwoPYXR0ZW50aW9uX2NvdW50GAMgASgFEhUKDW9mZmxpbmVfY291bnQYBCABKAUSFgoOc2xlZXBpbmdfY291bnQYBSABKAUSFgoOaXNvbGF0ZWRfY291bnQYBiABKAUSFQoNdW5rbm93bl9jb3VudBgHIAEoBSKGAgoMQ29udGFpbmVyRmFuEhQKDGNvbXBvbmVudF9pZBgBIAEoCRIvCgtvYnNlcnZlZF9hdBgCIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASGgoNc3BlZWRfcGVyY2VudBgDIAEoAUgAiAEBEhQKB3Bvd2VyX3cYBCABKAFIAYgBARIWCglkaXJlY3Rpb24YBSABKAlIAogBARIZCgxhbGFybV9hY3RpdmUYBiABKAhIA4gBARINCgVzdGFsZRgHIAEoCEIQCg5fc3BlZWRfcGVyY2VudEIKCghfcG93ZXJfd0IMCgpfZGlyZWN0aW9uQg8KDV9hbGFybV9hY3RpdmUiyQQKEUNvbnRhaW5lckNvbnRyb2xzEi8KC29ic2VydmVkX2F0GAEgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIWCglzdXBwb3J0ZWQYAiABKAhIAIgBARIxCghjb250cm9scxgDIAMoCzIfLmNvbnRhaW5lcnMudjEuQ29udGFpbmVyQ29udHJvbBIzCglzZXRwb2ludHMYBCADKAsyIC5jb250YWluZXJzLnYxLkNvbnRhaW5lclNldHBvaW50EisKHm1haW5fY2lyY3VpdF9icmVha2VyX3N1cHBvcnRlZBgFIAEoCEgBiAEBEigKG21haW5fY2lyY3VpdF9icmVha2VyX2Nsb3NlZBgGIAEoCEgCiAEBEiIKFWFsYXJtX3Jlc2V0X3N1cHBvcnRlZBgHIAEoCEgDiAEBEiEKFGFsYXJtX211dGVfc3VwcG9ydGVkGAggASgISASIAQESLQogZHJ5X2Nvb2xlcl9mYW5fcmV2ZXJzZV9zdXBwb3J0ZWQYCSABKAhIBYgBARINCgVzdGFsZRgKIAEoCEIMCgpfc3VwcG9ydGVkQiEKH19tYWluX2NpcmN1aXRfYnJlYWtlcl9zdXBwb3J0ZWRCHgocX21haW5fY2lyY3VpdF9icmVha2VyX2Nsb3NlZEIYChZfYWxhcm1fcmVzZXRfc3VwcG9ydGVkQhcKFV9hbGFybV9tdXRlX3N1cHBvcnRlZEIjCiFfZHJ5X2Nvb2xlcl9mYW5fcmV2ZXJzZV9zdXBwb3J0ZWQiQgoQQ29udGFpbmVyQ29udHJvbBIMCgRuYW1lGAEgASgJEhQKB2VuYWJsZWQYAiABKAhIAIgBAUIKCghfZW5hYmxlZCJNChFDb250YWluZXJTZXRwb2ludBIMCgRuYW1lGAEgASgJEhIKBXZhbHVlGAIgASgBSACIAQESDAoEdW5pdBgDIAEoCUIICgZfdmFsdWUi+gEKGlNldEVxdWlwbWVudENvbnRyb2xSZXF1ZXN0EiUKEWRldmljZV9pZGVudGlmaWVyGAEgASgJQgq6SAdyBRABGP8BEooBCgRuYW1lGAIgASgJQny6SHlyd1IKZHJ5X2Nvb2xlclIPZHJ5X2Nvb2xlcl9hdXRvUg50YW5rX2xlZF9saWdodFIMY29vbGFudF9wdW1wUhFhaXJfY29uZGl0aW9uZXJfMVIRYWlyX2NvbmRpdGlvbmVyXzJSFG1haW5fY2lyY3VpdF9icmVha2VyEhwKB2VuYWJsZWQYAyABKAhCBrpIA8gBAUgAiAEBQgoKCF9lbmFibGVkIjcKG1NldEVxdWlwbWVudENvbnRyb2xSZXNwb25zZRIYChBiYXRjaF9pZGVudGlmaWVyGAEgASgJIm8KIEdldEVxdWlwbWVudENvbW1hbmRSZXN1bHRSZXF1ZXN0EiUKEWRldmljZV9pZGVudGlmaWVyGAEgASgJQgq6SAdyBRABGP8BEiQKEGJhdGNoX2lkZW50aWZpZXIYAiABKAlCCrpIB3IFEAEYgAEiagohR2V0RXF1aXBtZW50Q29tbWFuZFJlc3VsdFJlc3BvbnNlEkUKBnJlc3VsdBgBIAEoCzI1Lm1pbmVyY29tbWFuZC52MS5HZXRDb21tYW5kQmF0Y2hEZXZpY2VSZXN1bHRzUmVzcG9uc2UioAEKDkNvbnRhaW5lclBsYW50Ei8KC29ic2VydmVkX2F0GAEgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIrCh5kcnlfY29vbGVyX2lubGV0X3RlbXBlcmF0dXJlX2MYAiABKAFIAIgBARINCgVzdGFsZRgDIAEoCEIhCh9fZHJ5X2Nvb2xlcl9pbmxldF90ZW1wZXJhdHVyZV9jIkEKG0dldFRhbmtNaW5pbmdPcHRpb25zUmVxdWVzdBIiCgh0YW5rX2lkcxgBIAMoA0IQukgNkgEKCAEQZCIEIgIgACJfChxHZXRUYW5rTWluaW5nT3B0aW9uc1Jlc3BvbnNlEhEKCWNhbl9zdGFydBgBIAEoCBIQCghjYW5fc3RvcBgCIAEoCBIaChJ1bmF2YWlsYWJsZV9yZWFzb24YAyABKAkiYgoUU2V0VGFua01pbmluZ1JlcXVlc3QSIgoIdGFua19pZHMYASADKANCELpIDZIBCggBEGQiBCICIAASGwoGbWluaW5nGAIgASgIQga6SAPIAQFIAIgBAUIJCgdfbWluaW5nInIKEVRhbmtNaW5pbmdDb21tYW5kEhkKEWRldmljZV9pZGVudGlmaWVyGAEgASgJEhYKDmNvbnRhaW5lcl9uYW1lGAIgASgJEhAKCHRhbmtfaWRzGAMgAygDEhgKEGJhdGNoX2lkZW50aWZpZXIYBCABKAkiSwoVU2V0VGFua01pbmluZ1Jlc3BvbnNlEjIKCGNvbW1hbmRzGAEgAygLMiAuY29udGFpbmVycy52MS5UYW5rTWluaW5nQ29tbWFuZCJFCh1HZXRNb2R1bGVNaW5pbmdPcHRpb25zUmVxdWVzdBIkCgptb2R1bGVfaWRzGAEgAygDQhC6SA2SAQoIARBkIgQiAiAAImEKHkdldE1vZHVsZU1pbmluZ09wdGlvbnNSZXNwb25zZRIRCgljYW5fc3RhcnQYASABKAgSEAoIY2FuX3N0b3AYAiABKAgSGgoSdW5hdmFpbGFibGVfcmVhc29uGAMgASgJImYKFlNldE1vZHVsZU1pbmluZ1JlcXVlc3QSJAoKbW9kdWxlX2lkcxgBIAMoA0IQukgNkgEKCAEQZCIEIgIgABIbCgZtaW5pbmcYAiABKAhCBrpIA8gBAUgAiAEBQgkKB19taW5pbmcidgoTTW9kdWxlTWluaW5nQ29tbWFuZBIZChFkZXZpY2VfaWRlbnRpZmllchgBIAEoCRIWCg5jb250YWluZXJfbmFtZRgCIAEoCRISCgptb2R1bGVfaWRzGAMgAygDEhgKEGJhdGNoX2lkZW50aWZpZXIYBCABKAkiTwoXU2V0TW9kdWxlTWluaW5nUmVzcG9uc2USNAoIY29tbWFuZHMYASADKAsyIi5jb250YWluZXJzLnYxLk1vZHVsZU1pbmluZ0NvbW1hbmQiQgoXR2V0TWluaW5nU3RhdHVzUmVzcG9uc2USDgoGbWluaW5nGAEgASgIEhcKD29wZXJhdGluZ19zdGF0ZRgCIAEoCSKBAgoWR2V0UG93ZXJUYXJnZXRSZXNwb25zZRINCgV3YXR0cxgBIAEoARIaCg1taW5pbXVtX3dhdHRzGAIgASgBSACIAQESGgoNbWF4aW11bV93YXR0cxgDIAEoAUgBiAEBEhgKEHBlcmZvcm1hbmNlX21vZGUYBCABKAkSGQoMYmFsYW5jZV9iYXlzGAUgASgISAKIAQESHwoSaGFzaF9vbl9kaXNjb25uZWN0GAYgASgISAOIAQFCEAoOX21pbmltdW1fd2F0dHNCEAoOX21heGltdW1fd2F0dHNCDwoNX2JhbGFuY2VfYmF5c0IVChNfaGFzaF9vbl9kaXNjb25uZWN0ImEKEFNldE1pbmluZ1JlcXVlc3QSJQoRZGV2aWNlX2lkZW50aWZpZXIYASABKAlCCrpIB3IFEAEY/wESGwoGbWluaW5nGAIgASgIQga6SAPIAQFIAIgBAUIJCgdfbWluaW5nIsQCChVTZXRQb3dlclRhcmdldFJlcXVlc3QSJQoRZGV2aWNlX2lkZW50aWZpZXIYASABKAlCCrpIB3IFEAEY/wESHwoFd2F0dHMYAiABKAFCELpIDRILQAEhAAAAAAAAAAASfwoQcGVyZm9ybWFuY2VfbW9kZRgDIAEoCUJlukhicmBSAFIcUEVSRk9STUFOQ0VfTU9ERV9VTlNQRUNJRklFRFIhUEVSRk9STUFOQ0VfTU9ERV9NQVhJTVVNX0hBU0hSQVRFUhtQRVJGT1JNQU5DRV9NT0RFX0VGRklDSUVOQ1kSGQoMYmFsYW5jZV9iYXlzGAQgASgISACIAQESHwoSaGFzaF9vbl9kaXNjb25uZWN0GAUgASgISAGIAQFCDwoNX2JhbGFuY2VfYmF5c0IVChNfaGFzaF9vbl9kaXNjb25uZWN0Ii0KEVNldE1pbmluZ1Jlc3BvbnNlEhgKEGJhdGNoX2lkZW50aWZpZXIYASABKAkiPwoWR2V0TWluaW5nU3RhdHVzUmVxdWVzdBIlChFkZXZpY2VfaWRlbnRpZmllchgBIAEoCUIKukgHcgUQARj/ASI+ChVHZXRQb3dlclRhcmdldFJlcXVlc3QSJQoRZGV2aWNlX2lkZW50aWZpZXIYASABKAlCCrpIB3IFEAEY/wEiMgoWU2V0UG93ZXJUYXJnZXRSZXNwb25zZRIYChBiYXRjaF9pZGVudGlmaWVyGAEgASgJMsgKChBDb250YWluZXJTZXJ2aWNlEmAKD0dldE1pbmluZ1N0YXR1cxIlLmNvbnRhaW5lcnMudjEuR2V0TWluaW5nU3RhdHVzUmVxdWVzdBomLmNvbnRhaW5lcnMudjEuR2V0TWluaW5nU3RhdHVzUmVzcG9uc2USXQoOR2V0UG93ZXJUYXJnZXQSJC5jb250YWluZXJzLnYxLkdldFBvd2VyVGFyZ2V0UmVxdWVzdBolLmNvbnRhaW5lcnMudjEuR2V0UG93ZXJUYXJnZXRSZXNwb25zZRJOCglTZXRNaW5pbmcSHy5jb250YWluZXJzLnYxLlNldE1pbmluZ1JlcXVlc3QaIC5jb250YWluZXJzLnYxLlNldE1pbmluZ1Jlc3BvbnNlEl0KDlNldFBvd2VyVGFyZ2V0EiQuY29udGFpbmVycy52MS5TZXRQb3dlclRhcmdldFJlcXVlc3QaJS5jb250YWluZXJzLnYxLlNldFBvd2VyVGFyZ2V0UmVzcG9uc2USdQoWR2V0TW9kdWxlTWluaW5nT3B0aW9ucxIsLmNvbnRhaW5lcnMudjEuR2V0TW9kdWxlTWluaW5nT3B0aW9uc1JlcXVlc3QaLS5jb250YWluZXJzLnYxLkdldE1vZHVsZU1pbmluZ09wdGlvbnNSZXNwb25zZRJgCg9TZXRNb2R1bGVNaW5pbmcSJS5jb250YWluZXJzLnYxLlNldE1vZHVsZU1pbmluZ1JlcXVlc3QaJi5jb250YWluZXJzLnYxLlNldE1vZHVsZU1pbmluZ1Jlc3BvbnNlEm8KFEdldFRhbmtNaW5pbmdPcHRpb25zEiouY29udGFpbmVycy52MS5HZXRUYW5rTWluaW5nT3B0aW9uc1JlcXVlc3QaKy5jb250YWluZXJzLnYxLkdldFRhbmtNaW5pbmdPcHRpb25zUmVzcG9uc2USWgoNU2V0VGFua01pbmluZxIjLmNvbnRhaW5lcnMudjEuU2V0VGFua01pbmluZ1JlcXVlc3QaJC5jb250YWluZXJzLnYxLlNldFRhbmtNaW5pbmdSZXNwb25zZRJ+ChlHZXRFcXVpcG1lbnRDb21tYW5kUmVzdWx0Ei8uY29udGFpbmVycy52MS5HZXRFcXVpcG1lbnRDb21tYW5kUmVzdWx0UmVxdWVzdBowLmNvbnRhaW5lcnMudjEuR2V0RXF1aXBtZW50Q29tbWFuZFJlc3VsdFJlc3BvbnNlEmwKE1NldEVxdWlwbWVudENvbnRyb2wSKS5jb250YWluZXJzLnYxLlNldEVxdWlwbWVudENvbnRyb2xSZXF1ZXN0GiouY29udGFpbmVycy52MS5TZXRFcXVpcG1lbnRDb250cm9sUmVzcG9uc2USVwoMR2V0Q29udGFpbmVyEiIuY29udGFpbmVycy52MS5HZXRDb250YWluZXJSZXF1ZXN0GiMuY29udGFpbmVycy52MS5HZXRDb250YWluZXJSZXNwb25zZRJdCg5MaXN0Q29udGFpbmVycxIkLmNvbnRhaW5lcnMudjEuTGlzdENvbnRhaW5lcnNSZXF1ZXN0GiUuY29udGFpbmVycy52MS5MaXN0Q29udGFpbmVyc1Jlc3BvbnNlEngKF0xpc3RDb250YWluZXJQbGFjZW1lbnRzEi0uY29udGFpbmVycy52MS5MaXN0Q29udGFpbmVyUGxhY2VtZW50c1JlcXVlc3QaLi5jb250YWluZXJzLnYxLkxpc3RDb250YWluZXJQbGFjZW1lbnRzUmVzcG9uc2VCyAEKEWNvbS5jb250YWluZXJzLnYxQg9Db250YWluZXJzUHJvdG9QAVpNZ2l0aHViLmNvbS9ibG9jay9wcm90by1mbGVldC9zZXJ2ZXIvZ2VuZXJhdGVkL2dycGMvY29udGFpbmVycy92MTtjb250YWluZXJzdjGiAgNDWFiqAg1Db250YWluZXJzLlYxygINQ29udGFpbmVyc1xWMeICGUNvbnRhaW5lcnNcVjFcR1BCTWV0YWRhdGHqAg5Db250YWluZXJzOjpWMWIGcHJvdG8z",
+    "Ch5jb250YWluZXJzL3YxL2NvbnRhaW5lcnMucHJvdG8SDWNvbnRhaW5lcnMudjEiIAoeTGlzdENvbnRhaW5lclBsYWNlbWVudHNSZXF1ZXN0IlgKH0xpc3RDb250YWluZXJQbGFjZW1lbnRzUmVzcG9uc2USNQoKY29udGFpbmVycxgBIAMoCzIhLmNvbnRhaW5lcnMudjEuQ29udGFpbmVyUGxhY2VtZW50IncKEkNvbnRhaW5lclBsYWNlbWVudBIZChFkZXZpY2VfaWRlbnRpZmllchgBIAEoCRIMCgRuYW1lGAIgASgJEiQKBHNpdGUYAyABKAsyFi5jb21tb24udjEuUmVzb3VyY2VSZWYSEgoKdGFua19jb3VudBgEIAEoAyI8ChNHZXRDb250YWluZXJSZXF1ZXN0EiUKEWRldmljZV9pZGVudGlmaWVyGAEgASgJQgq6SAdyBRABGP8BIkMKFEdldENvbnRhaW5lclJlc3BvbnNlEisKCWNvbnRhaW5lchgBIAEoCzIYLmNvbnRhaW5lcnMudjEuQ29udGFpbmVyIlYKFUxpc3RDb250YWluZXJzUmVxdWVzdBIhCghzaXRlX2lkcxgBIAMoA0IPukgMkgEJEIAIIgQiAiAAEhoKEmluY2x1ZGVfdW5hc3NpZ25lZBgCIAEoCCJGChZMaXN0Q29udGFpbmVyc1Jlc3BvbnNlEiwKCmNvbnRhaW5lcnMYASADKAsyGC5jb250YWluZXJzLnYxLkNvbnRhaW5lciJfCgtDb250YWluZXJIQRIvCgtvYnNlcnZlZF9hdBgBIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASEAoIZGVncmFkZWQYAiABKAgSDQoFc3RhbGUYAyABKAgi7QYKCUNvbnRhaW5lchImCgJoYRgWIAEoCzIaLmNvbnRhaW5lcnMudjEuQ29udGFpbmVySEESFwoPY2FuX2Fzc2lnbl9zaXRlGBUgASgIEiEKFHVubG9jYXRlZF9oYXNoYm9hcmRzGBQgASgNSACIAQESGgoNZWZmaWNpZW5jeV9qaBgQIAEoAUgBiAEBEi4KCGNvdmVyYWdlGBEgASgLMhwuY29tbW9uLnYxLkVxdWlwbWVudENvdmVyYWdlEh4KEW1pbl90ZW1wZXJhdHVyZV9jGBIgASgBSAKIAQESHgoRbWF4X3RlbXBlcmF0dXJlX2MYEyABKAFIA4gBARIsCgVwbGFudBgPIAEoCzIdLmNvbnRhaW5lcnMudjEuQ29udGFpbmVyUGxhbnQSHQoVY2FuX2NvbnRyb2xfZXF1aXBtZW50GA4gASgIEikKBGZhbnMYDCADKAsyGy5jb250YWluZXJzLnYxLkNvbnRhaW5lckZhbhIyCghjb250cm9scxgNIAEoCzIgLmNvbnRhaW5lcnMudjEuQ29udGFpbmVyQ29udHJvbHMSCgoCaWQYCyABKAMSGQoRZGV2aWNlX2lkZW50aWZpZXIYASABKAkSDAoEbmFtZRgCIAEoCRIkCgRzaXRlGAMgASgLMhYuY29tbW9uLnYxLlJlc291cmNlUmVmEi8KC29ic2VydmVkX2F0GAQgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIoCgV0YW5rcxgFIAMoCzIZLmNvbnRhaW5lcnMudjEuVGFua0hlYWx0aBIuCgptZXRyaWNzX2F0GAYgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIYCgtoYXNocmF0ZV9ocxgHIAEoAUgEiAEBEhQKB3Bvd2VyX3cYCCABKAFIBYgBARIaCg10ZW1wZXJhdHVyZV9jGAkgASgBSAaIAQESDQoFc3RhbGUYCiABKAhCFwoVX3VubG9jYXRlZF9oYXNoYm9hcmRzQhAKDl9lZmZpY2llbmN5X2poQhQKEl9taW5fdGVtcGVyYXR1cmVfY0IUChJfbWF4X3RlbXBlcmF0dXJlX2NCDgoMX2hhc2hyYXRlX2hzQgoKCF9wb3dlcl93QhAKDl90ZW1wZXJhdHVyZV9jIqwBCgpUYW5rSGVhbHRoEhAKCHBvc2l0aW9uGAEgASgFEhUKDWhhc2hpbmdfY291bnQYAiABKAUSFwoPYXR0ZW50aW9uX2NvdW50GAMgASgFEhUKDW9mZmxpbmVfY291bnQYBCABKAUSFgoOc2xlZXBpbmdfY291bnQYBSABKAUSFgoOaXNvbGF0ZWRfY291bnQYBiABKAUSFQoNdW5rbm93bl9jb3VudBgHIAEoBSKGAgoMQ29udGFpbmVyRmFuEhQKDGNvbXBvbmVudF9pZBgBIAEoCRIvCgtvYnNlcnZlZF9hdBgCIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASGgoNc3BlZWRfcGVyY2VudBgDIAEoAUgAiAEBEhQKB3Bvd2VyX3cYBCABKAFIAYgBARIWCglkaXJlY3Rpb24YBSABKAlIAogBARIZCgxhbGFybV9hY3RpdmUYBiABKAhIA4gBARINCgVzdGFsZRgHIAEoCEIQCg5fc3BlZWRfcGVyY2VudEIKCghfcG93ZXJfd0IMCgpfZGlyZWN0aW9uQg8KDV9hbGFybV9hY3RpdmUiyQQKEUNvbnRhaW5lckNvbnRyb2xzEi8KC29ic2VydmVkX2F0GAEgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIWCglzdXBwb3J0ZWQYAiABKAhIAIgBARIxCghjb250cm9scxgDIAMoCzIfLmNvbnRhaW5lcnMudjEuQ29udGFpbmVyQ29udHJvbBIzCglzZXRwb2ludHMYBCADKAsyIC5jb250YWluZXJzLnYxLkNvbnRhaW5lclNldHBvaW50EisKHm1haW5fY2lyY3VpdF9icmVha2VyX3N1cHBvcnRlZBgFIAEoCEgBiAEBEigKG21haW5fY2lyY3VpdF9icmVha2VyX2Nsb3NlZBgGIAEoCEgCiAEBEiIKFWFsYXJtX3Jlc2V0X3N1cHBvcnRlZBgHIAEoCEgDiAEBEiEKFGFsYXJtX211dGVfc3VwcG9ydGVkGAggASgISASIAQESLQogZHJ5X2Nvb2xlcl9mYW5fcmV2ZXJzZV9zdXBwb3J0ZWQYCSABKAhIBYgBARINCgVzdGFsZRgKIAEoCEIMCgpfc3VwcG9ydGVkQiEKH19tYWluX2NpcmN1aXRfYnJlYWtlcl9zdXBwb3J0ZWRCHgocX21haW5fY2lyY3VpdF9icmVha2VyX2Nsb3NlZEIYChZfYWxhcm1fcmVzZXRfc3VwcG9ydGVkQhcKFV9hbGFybV9tdXRlX3N1cHBvcnRlZEIjCiFfZHJ5X2Nvb2xlcl9mYW5fcmV2ZXJzZV9zdXBwb3J0ZWQiQgoQQ29udGFpbmVyQ29udHJvbBIMCgRuYW1lGAEgASgJEhQKB2VuYWJsZWQYAiABKAhIAIgBAUIKCghfZW5hYmxlZCJNChFDb250YWluZXJTZXRwb2ludBIMCgRuYW1lGAEgASgJEhIKBXZhbHVlGAIgASgBSACIAQESDAoEdW5pdBgDIAEoCUIICgZfdmFsdWUi+gEKGlNldEVxdWlwbWVudENvbnRyb2xSZXF1ZXN0EiUKEWRldmljZV9pZGVudGlmaWVyGAEgASgJQgq6SAdyBRABGP8BEooBCgRuYW1lGAIgASgJQny6SHlyd1IKZHJ5X2Nvb2xlclIPZHJ5X2Nvb2xlcl9hdXRvUg50YW5rX2xlZF9saWdodFIMY29vbGFudF9wdW1wUhFhaXJfY29uZGl0aW9uZXJfMVIRYWlyX2NvbmRpdGlvbmVyXzJSFG1haW5fY2lyY3VpdF9icmVha2VyEhwKB2VuYWJsZWQYAyABKAhCBrpIA8gBAUgAiAEBQgoKCF9lbmFibGVkIjcKG1NldEVxdWlwbWVudENvbnRyb2xSZXNwb25zZRIYChBiYXRjaF9pZGVudGlmaWVyGAEgASgJIm8KIEdldEVxdWlwbWVudENvbW1hbmRSZXN1bHRSZXF1ZXN0EiUKEWRldmljZV9pZGVudGlmaWVyGAEgASgJQgq6SAdyBRABGP8BEiQKEGJhdGNoX2lkZW50aWZpZXIYAiABKAlCCrpIB3IFEAEYgAEiagohR2V0RXF1aXBtZW50Q29tbWFuZFJlc3VsdFJlc3BvbnNlEkUKBnJlc3VsdBgBIAEoCzI1Lm1pbmVyY29tbWFuZC52MS5HZXRDb21tYW5kQmF0Y2hEZXZpY2VSZXN1bHRzUmVzcG9uc2UioAEKDkNvbnRhaW5lclBsYW50Ei8KC29ic2VydmVkX2F0GAEgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIrCh5kcnlfY29vbGVyX2lubGV0X3RlbXBlcmF0dXJlX2MYAiABKAFIAIgBARINCgVzdGFsZRgDIAEoCEIhCh9fZHJ5X2Nvb2xlcl9pbmxldF90ZW1wZXJhdHVyZV9jIkEKG0dldFRhbmtNaW5pbmdPcHRpb25zUmVxdWVzdBIiCgh0YW5rX2lkcxgBIAMoA0IQukgNkgEKCAEQZCIEIgIgACJfChxHZXRUYW5rTWluaW5nT3B0aW9uc1Jlc3BvbnNlEhEKCWNhbl9zdGFydBgBIAEoCBIQCghjYW5fc3RvcBgCIAEoCBIaChJ1bmF2YWlsYWJsZV9yZWFzb24YAyABKAkiYgoUU2V0VGFua01pbmluZ1JlcXVlc3QSIgoIdGFua19pZHMYASADKANCELpIDZIBCggBEGQiBCICIAASGwoGbWluaW5nGAIgASgIQga6SAPIAQFIAIgBAUIJCgdfbWluaW5nInIKEVRhbmtNaW5pbmdDb21tYW5kEhkKEWRldmljZV9pZGVudGlmaWVyGAEgASgJEhYKDmNvbnRhaW5lcl9uYW1lGAIgASgJEhAKCHRhbmtfaWRzGAMgAygDEhgKEGJhdGNoX2lkZW50aWZpZXIYBCABKAkiSwoVU2V0VGFua01pbmluZ1Jlc3BvbnNlEjIKCGNvbW1hbmRzGAEgAygLMiAuY29udGFpbmVycy52MS5UYW5rTWluaW5nQ29tbWFuZCJFCh1HZXRNb2R1bGVNaW5pbmdPcHRpb25zUmVxdWVzdBIkCgptb2R1bGVfaWRzGAEgAygDQhC6SA2SAQoIARBkIgQiAiAAImEKHkdldE1vZHVsZU1pbmluZ09wdGlvbnNSZXNwb25zZRIRCgljYW5fc3RhcnQYASABKAgSEAoIY2FuX3N0b3AYAiABKAgSGgoSdW5hdmFpbGFibGVfcmVhc29uGAMgASgJImYKFlNldE1vZHVsZU1pbmluZ1JlcXVlc3QSJAoKbW9kdWxlX2lkcxgBIAMoA0IQukgNkgEKCAEQZCIEIgIgABIbCgZtaW5pbmcYAiABKAhCBrpIA8gBAUgAiAEBQgkKB19taW5pbmcidgoTTW9kdWxlTWluaW5nQ29tbWFuZBIZChFkZXZpY2VfaWRlbnRpZmllchgBIAEoCRIWCg5jb250YWluZXJfbmFtZRgCIAEoCRISCgptb2R1bGVfaWRzGAMgAygDEhgKEGJhdGNoX2lkZW50aWZpZXIYBCABKAkiTwoXU2V0TW9kdWxlTWluaW5nUmVzcG9uc2USNAoIY29tbWFuZHMYASADKAsyIi5jb250YWluZXJzLnYxLk1vZHVsZU1pbmluZ0NvbW1hbmQiawoeR2V0Qm9hcmRJZGVudGlmeU9wdGlvbnNSZXF1ZXN0EiIKCm1vZHVsZV9pZHMYASADKANCDrpIC5IBCBAKIgQiAiAAEiUKDWhhc2hib2FyZF9pZHMYAiADKANCDrpIC5IBCBAeIgQiAiAAIscBCg1JZGVudGlmeUJvYXJkEhQKDGhhc2hib2FyZF9pZBgBIAEoAxIXCg9pbnN0YWxsYXRpb25faWQYAiABKAMSEQoJbW9kdWxlX2lkGAMgASgDEhkKEWRldmljZV9pZGVudGlmaWVyGAQgASgJEhYKDmNvbnRhaW5lcl9uYW1lGAUgASgJEgwKBHRhbmsYBiABKAUSDgoGbW9kdWxlGAcgASgFEgwKBHNsb3QYCCABKAUSFQoNc2VyaWFsX251bWJlchgJIAEoCSKBAQofR2V0Qm9hcmRJZGVudGlmeU9wdGlvbnNSZXNwb25zZRIsCgZib2FyZHMYASADKAsyHC5jb250YWluZXJzLnYxLklkZW50aWZ5Qm9hcmQSFAoMY2FuX2lkZW50aWZ5GAIgASgIEhoKEnVuYXZhaWxhYmxlX3JlYXNvbhgDIAEoCSJWChNCb2FyZElkZW50aWZ5VGFyZ2V0Eh0KDGhhc2hib2FyZF9pZBgBIAEoA0IHukgEIgIgABIgCg9pbnN0YWxsYXRpb25faWQYAiABKANCB7pIBCICIAAilQEKF1NldEJvYXJkSWRlbnRpZnlSZXF1ZXN0Ej4KBmJvYXJkcxgBIAMoCzIiLmNvbnRhaW5lcnMudjEuQm9hcmRJZGVudGlmeVRhcmdldEIKukgHkgEECAEQHhI6CgRtb2RlGAIgASgOMiAuY29udGFpbmVycy52MS5Cb2FyZElkZW50aWZ5TW9kZUIKukgHggEEEAEgACJhChRCb2FyZElkZW50aWZ5Q29tbWFuZBIUCgxoYXNoYm9hcmRfaWQYASABKAMSGQoRZGV2aWNlX2lkZW50aWZpZXIYAiABKAkSGAoQYmF0Y2hfaWRlbnRpZmllchgDIAEoCSJRChhTZXRCb2FyZElkZW50aWZ5UmVzcG9uc2USNQoIY29tbWFuZHMYASADKAsyIy5jb250YWluZXJzLnYxLkJvYXJkSWRlbnRpZnlDb21tYW5kIkIKF0dldE1pbmluZ1N0YXR1c1Jlc3BvbnNlEg4KBm1pbmluZxgBIAEoCBIXCg9vcGVyYXRpbmdfc3RhdGUYAiABKAkigQIKFkdldFBvd2VyVGFyZ2V0UmVzcG9uc2USDQoFd2F0dHMYASABKAESGgoNbWluaW11bV93YXR0cxgCIAEoAUgAiAEBEhoKDW1heGltdW1fd2F0dHMYAyABKAFIAYgBARIYChBwZXJmb3JtYW5jZV9tb2RlGAQgASgJEhkKDGJhbGFuY2VfYmF5cxgFIAEoCEgCiAEBEh8KEmhhc2hfb25fZGlzY29ubmVjdBgGIAEoCEgDiAEBQhAKDl9taW5pbXVtX3dhdHRzQhAKDl9tYXhpbXVtX3dhdHRzQg8KDV9iYWxhbmNlX2JheXNCFQoTX2hhc2hfb25fZGlzY29ubmVjdCJhChBTZXRNaW5pbmdSZXF1ZXN0EiUKEWRldmljZV9pZGVudGlmaWVyGAEgASgJQgq6SAdyBRABGP8BEhsKBm1pbmluZxgCIAEoCEIGukgDyAEBSACIAQFCCQoHX21pbmluZyLEAgoVU2V0UG93ZXJUYXJnZXRSZXF1ZXN0EiUKEWRldmljZV9pZGVudGlmaWVyGAEgASgJQgq6SAdyBRABGP8BEh8KBXdhdHRzGAIgASgBQhC6SA0SC0ABIQAAAAAAAAAAEn8KEHBlcmZvcm1hbmNlX21vZGUYAyABKAlCZbpIYnJgUgBSHFBFUkZPUk1BTkNFX01PREVfVU5TUEVDSUZJRURSIVBFUkZPUk1BTkNFX01PREVfTUFYSU1VTV9IQVNIUkFURVIbUEVSRk9STUFOQ0VfTU9ERV9FRkZJQ0lFTkNZEhkKDGJhbGFuY2VfYmF5cxgEIAEoCEgAiAEBEh8KEmhhc2hfb25fZGlzY29ubmVjdBgFIAEoCEgBiAEBQg8KDV9iYWxhbmNlX2JheXNCFQoTX2hhc2hfb25fZGlzY29ubmVjdCItChFTZXRNaW5pbmdSZXNwb25zZRIYChBiYXRjaF9pZGVudGlmaWVyGAEgASgJIj8KFkdldE1pbmluZ1N0YXR1c1JlcXVlc3QSJQoRZGV2aWNlX2lkZW50aWZpZXIYASABKAlCCrpIB3IFEAEY/wEiPgoVR2V0UG93ZXJUYXJnZXRSZXF1ZXN0EiUKEWRldmljZV9pZGVudGlmaWVyGAEgASgJQgq6SAdyBRABGP8BIjIKFlNldFBvd2VyVGFyZ2V0UmVzcG9uc2USGAoQYmF0Y2hfaWRlbnRpZmllchgBIAEoCSp0ChFCb2FyZElkZW50aWZ5TW9kZRIjCh9CT0FSRF9JREVOVElGWV9NT0RFX1VOU1BFQ0lGSUVEEAASHQoZQk9BUkRfSURFTlRJRllfTU9ERV9CTElOSxABEhsKF0JPQVJEX0lERU5USUZZX01PREVfT0ZGEAIypwwKEENvbnRhaW5lclNlcnZpY2USYAoPR2V0TWluaW5nU3RhdHVzEiUuY29udGFpbmVycy52MS5HZXRNaW5pbmdTdGF0dXNSZXF1ZXN0GiYuY29udGFpbmVycy52MS5HZXRNaW5pbmdTdGF0dXNSZXNwb25zZRJdCg5HZXRQb3dlclRhcmdldBIkLmNvbnRhaW5lcnMudjEuR2V0UG93ZXJUYXJnZXRSZXF1ZXN0GiUuY29udGFpbmVycy52MS5HZXRQb3dlclRhcmdldFJlc3BvbnNlEk4KCVNldE1pbmluZxIfLmNvbnRhaW5lcnMudjEuU2V0TWluaW5nUmVxdWVzdBogLmNvbnRhaW5lcnMudjEuU2V0TWluaW5nUmVzcG9uc2USXQoOU2V0UG93ZXJUYXJnZXQSJC5jb250YWluZXJzLnYxLlNldFBvd2VyVGFyZ2V0UmVxdWVzdBolLmNvbnRhaW5lcnMudjEuU2V0UG93ZXJUYXJnZXRSZXNwb25zZRJ1ChZHZXRNb2R1bGVNaW5pbmdPcHRpb25zEiwuY29udGFpbmVycy52MS5HZXRNb2R1bGVNaW5pbmdPcHRpb25zUmVxdWVzdBotLmNvbnRhaW5lcnMudjEuR2V0TW9kdWxlTWluaW5nT3B0aW9uc1Jlc3BvbnNlEmAKD1NldE1vZHVsZU1pbmluZxIlLmNvbnRhaW5lcnMudjEuU2V0TW9kdWxlTWluaW5nUmVxdWVzdBomLmNvbnRhaW5lcnMudjEuU2V0TW9kdWxlTWluaW5nUmVzcG9uc2USeAoXR2V0Qm9hcmRJZGVudGlmeU9wdGlvbnMSLS5jb250YWluZXJzLnYxLkdldEJvYXJkSWRlbnRpZnlPcHRpb25zUmVxdWVzdBouLmNvbnRhaW5lcnMudjEuR2V0Qm9hcmRJZGVudGlmeU9wdGlvbnNSZXNwb25zZRJjChBTZXRCb2FyZElkZW50aWZ5EiYuY29udGFpbmVycy52MS5TZXRCb2FyZElkZW50aWZ5UmVxdWVzdBonLmNvbnRhaW5lcnMudjEuU2V0Qm9hcmRJZGVudGlmeVJlc3BvbnNlEm8KFEdldFRhbmtNaW5pbmdPcHRpb25zEiouY29udGFpbmVycy52MS5HZXRUYW5rTWluaW5nT3B0aW9uc1JlcXVlc3QaKy5jb250YWluZXJzLnYxLkdldFRhbmtNaW5pbmdPcHRpb25zUmVzcG9uc2USWgoNU2V0VGFua01pbmluZxIjLmNvbnRhaW5lcnMudjEuU2V0VGFua01pbmluZ1JlcXVlc3QaJC5jb250YWluZXJzLnYxLlNldFRhbmtNaW5pbmdSZXNwb25zZRJ+ChlHZXRFcXVpcG1lbnRDb21tYW5kUmVzdWx0Ei8uY29udGFpbmVycy52MS5HZXRFcXVpcG1lbnRDb21tYW5kUmVzdWx0UmVxdWVzdBowLmNvbnRhaW5lcnMudjEuR2V0RXF1aXBtZW50Q29tbWFuZFJlc3VsdFJlc3BvbnNlEmwKE1NldEVxdWlwbWVudENvbnRyb2wSKS5jb250YWluZXJzLnYxLlNldEVxdWlwbWVudENvbnRyb2xSZXF1ZXN0GiouY29udGFpbmVycy52MS5TZXRFcXVpcG1lbnRDb250cm9sUmVzcG9uc2USVwoMR2V0Q29udGFpbmVyEiIuY29udGFpbmVycy52MS5HZXRDb250YWluZXJSZXF1ZXN0GiMuY29udGFpbmVycy52MS5HZXRDb250YWluZXJSZXNwb25zZRJdCg5MaXN0Q29udGFpbmVycxIkLmNvbnRhaW5lcnMudjEuTGlzdENvbnRhaW5lcnNSZXF1ZXN0GiUuY29udGFpbmVycy52MS5MaXN0Q29udGFpbmVyc1Jlc3BvbnNlEngKF0xpc3RDb250YWluZXJQbGFjZW1lbnRzEi0uY29udGFpbmVycy52MS5MaXN0Q29udGFpbmVyUGxhY2VtZW50c1JlcXVlc3QaLi5jb250YWluZXJzLnYxLkxpc3RDb250YWluZXJQbGFjZW1lbnRzUmVzcG9uc2VCyAEKEWNvbS5jb250YWluZXJzLnYxQg9Db250YWluZXJzUHJvdG9QAVpNZ2l0aHViLmNvbS9ibG9jay9wcm90by1mbGVldC9zZXJ2ZXIvZ2VuZXJhdGVkL2dycGMvY29udGFpbmVycy92MTtjb250YWluZXJzdjGiAgNDWFiqAg1Db250YWluZXJzLlYxygINQ29udGFpbmVyc1xWMeICGUNvbnRhaW5lcnNcVjFcR1BCTWV0YWRhdGHqAg5Db250YWluZXJzOjpWMWIGcHJvdG8z",
     [
       file_buf_validate_validate,
       file_common_v1_common,
@@ -919,6 +919,217 @@ export const SetModuleMiningResponseSchema: GenMessage<SetModuleMiningResponse> 
   messageDesc(file_containers_v1_containers, 28);
 
 /**
+ * Stable Fleet module and hashboard IDs. The server expands modules into the
+ * boards currently installed in them; the caller confirms that exact list.
+ *
+ * @generated from message containers.v1.GetBoardIdentifyOptionsRequest
+ */
+export type GetBoardIdentifyOptionsRequest = Message<"containers.v1.GetBoardIdentifyOptionsRequest"> & {
+  /**
+   * @generated from field: repeated int64 module_ids = 1;
+   */
+  moduleIds: bigint[];
+
+  /**
+   * @generated from field: repeated int64 hashboard_ids = 2;
+   */
+  hashboardIds: bigint[];
+};
+
+/**
+ * Describes the message containers.v1.GetBoardIdentifyOptionsRequest.
+ * Use `create(GetBoardIdentifyOptionsRequestSchema)` to create a new message.
+ */
+export const GetBoardIdentifyOptionsRequestSchema: GenMessage<GetBoardIdentifyOptionsRequest> =
+  /*@__PURE__*/
+  messageDesc(file_containers_v1_containers, 29);
+
+/**
+ * One currently installed board. installation_id changes whenever the board
+ * moves or is replaced, so it pins the confirmed identity to its placement.
+ *
+ * @generated from message containers.v1.IdentifyBoard
+ */
+export type IdentifyBoard = Message<"containers.v1.IdentifyBoard"> & {
+  /**
+   * @generated from field: int64 hashboard_id = 1;
+   */
+  hashboardId: bigint;
+
+  /**
+   * @generated from field: int64 installation_id = 2;
+   */
+  installationId: bigint;
+
+  /**
+   * @generated from field: int64 module_id = 3;
+   */
+  moduleId: bigint;
+
+  /**
+   * @generated from field: string device_identifier = 4;
+   */
+  deviceIdentifier: string;
+
+  /**
+   * @generated from field: string container_name = 5;
+   */
+  containerName: string;
+
+  /**
+   * @generated from field: int32 tank = 6;
+   */
+  tank: number;
+
+  /**
+   * @generated from field: int32 module = 7;
+   */
+  module: number;
+
+  /**
+   * @generated from field: int32 slot = 8;
+   */
+  slot: number;
+
+  /**
+   * @generated from field: string serial_number = 9;
+   */
+  serialNumber: string;
+};
+
+/**
+ * Describes the message containers.v1.IdentifyBoard.
+ * Use `create(IdentifyBoardSchema)` to create a new message.
+ */
+export const IdentifyBoardSchema: GenMessage<IdentifyBoard> =
+  /*@__PURE__*/
+  messageDesc(file_containers_v1_containers, 30);
+
+/**
+ * @generated from message containers.v1.GetBoardIdentifyOptionsResponse
+ */
+export type GetBoardIdentifyOptionsResponse = Message<"containers.v1.GetBoardIdentifyOptionsResponse"> & {
+  /**
+   * @generated from field: repeated containers.v1.IdentifyBoard boards = 1;
+   */
+  boards: IdentifyBoard[];
+
+  /**
+   * @generated from field: bool can_identify = 2;
+   */
+  canIdentify: boolean;
+
+  /**
+   * @generated from field: string unavailable_reason = 3;
+   */
+  unavailableReason: string;
+};
+
+/**
+ * Describes the message containers.v1.GetBoardIdentifyOptionsResponse.
+ * Use `create(GetBoardIdentifyOptionsResponseSchema)` to create a new message.
+ */
+export const GetBoardIdentifyOptionsResponseSchema: GenMessage<GetBoardIdentifyOptionsResponse> =
+  /*@__PURE__*/
+  messageDesc(file_containers_v1_containers, 31);
+
+/**
+ * @generated from message containers.v1.BoardIdentifyTarget
+ */
+export type BoardIdentifyTarget = Message<"containers.v1.BoardIdentifyTarget"> & {
+  /**
+   * @generated from field: int64 hashboard_id = 1;
+   */
+  hashboardId: bigint;
+
+  /**
+   * @generated from field: int64 installation_id = 2;
+   */
+  installationId: bigint;
+};
+
+/**
+ * Describes the message containers.v1.BoardIdentifyTarget.
+ * Use `create(BoardIdentifyTargetSchema)` to create a new message.
+ */
+export const BoardIdentifyTargetSchema: GenMessage<BoardIdentifyTarget> =
+  /*@__PURE__*/
+  messageDesc(file_containers_v1_containers, 32);
+
+/**
+ * @generated from message containers.v1.SetBoardIdentifyRequest
+ */
+export type SetBoardIdentifyRequest = Message<"containers.v1.SetBoardIdentifyRequest"> & {
+  /**
+   * The exact boards the operator confirmed; a moved or replaced board is rejected.
+   *
+   * @generated from field: repeated containers.v1.BoardIdentifyTarget boards = 1;
+   */
+  boards: BoardIdentifyTarget[];
+
+  /**
+   * @generated from field: containers.v1.BoardIdentifyMode mode = 2;
+   */
+  mode: BoardIdentifyMode;
+};
+
+/**
+ * Describes the message containers.v1.SetBoardIdentifyRequest.
+ * Use `create(SetBoardIdentifyRequestSchema)` to create a new message.
+ */
+export const SetBoardIdentifyRequestSchema: GenMessage<SetBoardIdentifyRequest> =
+  /*@__PURE__*/
+  messageDesc(file_containers_v1_containers, 33);
+
+/**
+ * @generated from message containers.v1.BoardIdentifyCommand
+ */
+export type BoardIdentifyCommand = Message<"containers.v1.BoardIdentifyCommand"> & {
+  /**
+   * @generated from field: int64 hashboard_id = 1;
+   */
+  hashboardId: bigint;
+
+  /**
+   * @generated from field: string device_identifier = 2;
+   */
+  deviceIdentifier: string;
+
+  /**
+   * @generated from field: string batch_identifier = 3;
+   */
+  batchIdentifier: string;
+};
+
+/**
+ * Describes the message containers.v1.BoardIdentifyCommand.
+ * Use `create(BoardIdentifyCommandSchema)` to create a new message.
+ */
+export const BoardIdentifyCommandSchema: GenMessage<BoardIdentifyCommand> =
+  /*@__PURE__*/
+  messageDesc(file_containers_v1_containers, 34);
+
+/**
+ * @generated from message containers.v1.SetBoardIdentifyResponse
+ */
+export type SetBoardIdentifyResponse = Message<"containers.v1.SetBoardIdentifyResponse"> & {
+  /**
+   * One batch per board so each board reports its own controller outcome.
+   *
+   * @generated from field: repeated containers.v1.BoardIdentifyCommand commands = 1;
+   */
+  commands: BoardIdentifyCommand[];
+};
+
+/**
+ * Describes the message containers.v1.SetBoardIdentifyResponse.
+ * Use `create(SetBoardIdentifyResponseSchema)` to create a new message.
+ */
+export const SetBoardIdentifyResponseSchema: GenMessage<SetBoardIdentifyResponse> =
+  /*@__PURE__*/
+  messageDesc(file_containers_v1_containers, 35);
+
+/**
  * @generated from message containers.v1.GetMiningStatusResponse
  */
 export type GetMiningStatusResponse = Message<"containers.v1.GetMiningStatusResponse"> & {
@@ -939,7 +1150,7 @@ export type GetMiningStatusResponse = Message<"containers.v1.GetMiningStatusResp
  */
 export const GetMiningStatusResponseSchema: GenMessage<GetMiningStatusResponse> =
   /*@__PURE__*/
-  messageDesc(file_containers_v1_containers, 29);
+  messageDesc(file_containers_v1_containers, 36);
 
 /**
  * @generated from message containers.v1.GetPowerTargetResponse
@@ -982,7 +1193,7 @@ export type GetPowerTargetResponse = Message<"containers.v1.GetPowerTargetRespon
  */
 export const GetPowerTargetResponseSchema: GenMessage<GetPowerTargetResponse> =
   /*@__PURE__*/
-  messageDesc(file_containers_v1_containers, 30);
+  messageDesc(file_containers_v1_containers, 37);
 
 /**
  * @generated from message containers.v1.SetMiningRequest
@@ -1005,7 +1216,7 @@ export type SetMiningRequest = Message<"containers.v1.SetMiningRequest"> & {
  */
 export const SetMiningRequestSchema: GenMessage<SetMiningRequest> =
   /*@__PURE__*/
-  messageDesc(file_containers_v1_containers, 31);
+  messageDesc(file_containers_v1_containers, 38);
 
 /**
  * @generated from message containers.v1.SetPowerTargetRequest
@@ -1043,7 +1254,7 @@ export type SetPowerTargetRequest = Message<"containers.v1.SetPowerTargetRequest
  */
 export const SetPowerTargetRequestSchema: GenMessage<SetPowerTargetRequest> =
   /*@__PURE__*/
-  messageDesc(file_containers_v1_containers, 32);
+  messageDesc(file_containers_v1_containers, 39);
 
 /**
  * @generated from message containers.v1.SetMiningResponse
@@ -1063,7 +1274,7 @@ export type SetMiningResponse = Message<"containers.v1.SetMiningResponse"> & {
  */
 export const SetMiningResponseSchema: GenMessage<SetMiningResponse> =
   /*@__PURE__*/
-  messageDesc(file_containers_v1_containers, 33);
+  messageDesc(file_containers_v1_containers, 40);
 
 /**
  * @generated from message containers.v1.GetMiningStatusRequest
@@ -1081,7 +1292,7 @@ export type GetMiningStatusRequest = Message<"containers.v1.GetMiningStatusReque
  */
 export const GetMiningStatusRequestSchema: GenMessage<GetMiningStatusRequest> =
   /*@__PURE__*/
-  messageDesc(file_containers_v1_containers, 34);
+  messageDesc(file_containers_v1_containers, 41);
 
 /**
  * @generated from message containers.v1.GetPowerTargetRequest
@@ -1099,7 +1310,7 @@ export type GetPowerTargetRequest = Message<"containers.v1.GetPowerTargetRequest
  */
 export const GetPowerTargetRequestSchema: GenMessage<GetPowerTargetRequest> =
   /*@__PURE__*/
-  messageDesc(file_containers_v1_containers, 35);
+  messageDesc(file_containers_v1_containers, 42);
 
 /**
  * @generated from message containers.v1.SetPowerTargetResponse
@@ -1117,7 +1328,34 @@ export type SetPowerTargetResponse = Message<"containers.v1.SetPowerTargetRespon
  */
 export const SetPowerTargetResponseSchema: GenMessage<SetPowerTargetResponse> =
   /*@__PURE__*/
-  messageDesc(file_containers_v1_containers, 36);
+  messageDesc(file_containers_v1_containers, 43);
+
+/**
+ * @generated from enum containers.v1.BoardIdentifyMode
+ */
+export enum BoardIdentifyMode {
+  /**
+   * @generated from enum value: BOARD_IDENTIFY_MODE_UNSPECIFIED = 0;
+   */
+  UNSPECIFIED = 0,
+
+  /**
+   * @generated from enum value: BOARD_IDENTIFY_MODE_BLINK = 1;
+   */
+  BLINK = 1,
+
+  /**
+   * @generated from enum value: BOARD_IDENTIFY_MODE_OFF = 2;
+   */
+  OFF = 2,
+}
+
+/**
+ * Describes the enum containers.v1.BoardIdentifyMode.
+ */
+export const BoardIdentifyModeSchema: GenEnum<BoardIdentifyMode> =
+  /*@__PURE__*/
+  enumDesc(file_containers_v1_containers, 0);
 
 /**
  * Containers are paired controllers with observed internal topology. Their
@@ -1173,6 +1411,22 @@ export const ContainerService: GenService<{
     methodKind: "unary";
     input: typeof SetModuleMiningRequestSchema;
     output: typeof SetModuleMiningResponseSchema;
+  };
+  /**
+   * @generated from rpc containers.v1.ContainerService.GetBoardIdentifyOptions
+   */
+  getBoardIdentifyOptions: {
+    methodKind: "unary";
+    input: typeof GetBoardIdentifyOptionsRequestSchema;
+    output: typeof GetBoardIdentifyOptionsResponseSchema;
+  };
+  /**
+   * @generated from rpc containers.v1.ContainerService.SetBoardIdentify
+   */
+  setBoardIdentify: {
+    methodKind: "unary";
+    input: typeof SetBoardIdentifyRequestSchema;
+    output: typeof SetBoardIdentifyResponseSchema;
   };
   /**
    * @generated from rpc containers.v1.ContainerService.GetTankMiningOptions

@@ -25,6 +25,12 @@ SELECT * FROM hosted_reporting_inputs WHERE organization_id=$1 AND account_id=$2
 -- name: LockReportingInputsForUpdate :one
 SELECT * FROM hosted_reporting_inputs WHERE organization_id=$1 AND account_id=$2 FOR UPDATE;
 
+-- name: LockReportingInputsForReport :one
+SELECT * FROM hosted_reporting_inputs WHERE organization_id=$1 AND account_id=$2 FOR NO KEY UPDATE;
+
+-- name: LockReportingInputsForRead :one
+SELECT * FROM hosted_reporting_inputs WHERE organization_id=$1 AND account_id=$2 FOR KEY SHARE;
+
 -- name: LockReportingInputsForShare :one
 SELECT * FROM hosted_reporting_inputs WHERE organization_id=$1 AND account_id=$2 FOR SHARE;
 
@@ -48,11 +54,11 @@ WHERE a.organization_id=$1 AND a.depth>0 AND NOT a.suspended AND NOT root.suspen
 ORDER BY a.name,a.account_id;
 
 -- name: ListReportingCaptureStreams :many
-SELECT interval_id,site_id,source_id,metric,
- (last_observation_event_id IS NOT NULL)::boolean AS has_observation,
+-- Current allocations only; the status view also lists recently ended intervals.
+SELECT interval_id,site_id,source_id,metric,has_observation,
  last_observation_captured_at, last_observation_source_newest_at
 FROM hosted_account_reporting_capture_status
-WHERE organization_id=$1 AND (client_id=$2 OR subclient_id=$2)
+WHERE organization_id=$1 AND (client_id=$2 OR subclient_id=$2) AND allocation_ended_at IS NULL
 ORDER BY interval_id,source_id,metric;
 
 -- name: ListReportingAllocationIntervals :many

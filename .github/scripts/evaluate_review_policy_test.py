@@ -232,7 +232,7 @@ const github = {
         "REVIEW_HEAD_SHA": scenario.get("head_sha", "b" * 40),
         "REVIEW_PR_NUMBER": "965",
         "REVIEW_COMMIT_RANGE": f"{'a' * 40}...{'b' * 40}",
-        "CODEX_MODEL": "gpt-6-astra",
+        "CODEX_MODEL": "gpt-6.1-sol",
         "REVIEW_AGENT_RESULT": scenario.get("agent_result", "success"),
         "REVIEW_AGENT_JOB_NAME": "Run bounded Codex reviewer",
         "CODEX_TIMEOUT_MINUTES": scenario.get("timeout_minutes", "30"),
@@ -418,6 +418,12 @@ class ReviewPolicyTest(unittest.TestCase):
                 call_types = [call["type"] for call in output.get("calls", [])]
                 if expected_call:
                     self.assertIn(expected_call, call_types)
+                    posted = next(
+                        call
+                        for call in output["calls"]
+                        if call["type"] == expected_call
+                    )
+                    self.assertIn("Model: gpt-6.1-sol", posted["args"]["body"])
                 else:
                     self.assertNotIn("create", call_types)
                     self.assertNotIn("update", call_types)
@@ -1028,7 +1034,6 @@ class ReviewPolicyTest(unittest.TestCase):
         benchmark = load_workflow("codex-security-review-benchmark.yml")
         production_job = production["jobs"]["review-agent"]
         production_finalizer = production["jobs"]["security-review"]
-        production_poster = production["jobs"]["post-review"]
         benchmark_job = benchmark["jobs"]["benchmark-review"]
         benchmark_finalizer = benchmark["jobs"]["benchmark-finalize"]
         production_codex = find_step(production, "review-agent", "run_codex")
@@ -1046,12 +1051,18 @@ class ReviewPolicyTest(unittest.TestCase):
                 else benchmark_codex["with"][key],
                 f"{key} drifted between the production and benchmark reviews",
             )
-        self.assertEqual(production_job["env"]["CODEX_MODEL"], "gpt-6-astra")
+        self.assertEqual(production["env"]["CODEX_MODEL"], "gpt-6.1-sol")
         self.assertEqual(production_job["env"]["CODEX_REASONING_EFFORT"], "medium")
-        self.assertEqual(
-            production_poster["env"]["CODEX_MODEL"],
-            production_job["env"]["CODEX_MODEL"],
-        )
+        for job in production["jobs"].values():
+            self.assertNotIn("CODEX_MODEL", job.get("env", {}))
+            for step in job.get("steps", []):
+                if "CODEX_MODEL" in step.get("env", {}):
+                    self.assertEqual(
+                        step["env"]["CODEX_MODEL"], "${{ env.CODEX_MODEL }}"
+                    )
+        validation = find_step(production, "review-agent", "validate_scope")["run"]
+        self.assertIn('test "$CODEX_MODEL" = "gpt-6.1-sol"', validation)
+        self.assertEqual(production_codex["with"]["model"], "${{ env.CODEX_MODEL }}")
         self.assertEqual(benchmark_codex["with"]["model"], "${{ env.CODEX_MODEL }}")
         self.assertEqual(benchmark_codex["uses"], production_codex["uses"])
         self.assertEqual(
@@ -1516,6 +1527,7 @@ class ReviewPolicyTest(unittest.TestCase):
                     review_output, encoding="utf-8"
                 )
             environment = {
+                "CODEX_MODEL": "gpt-6.1-sol",
                 "CODEX_TIMEOUT_MINUTES": "30",
                 "REVIEW_BASE_SHA": base_sha,
                 "REVIEW_HEAD_SHA": head_sha,
@@ -1615,6 +1627,7 @@ class ReviewPolicyTest(unittest.TestCase):
                     incomplete_reason=handoff_reason,
                 )
                 self.assertEqual(result["overall_risk"], "HIGH")
+                self.assertEqual(result["model"], "gpt-6.1-sol")
                 self.assertFalse(result["automation_completed"])
                 self.assertEqual(result["incomplete_reason"], expected_reason)
                 self.assertEqual(result["timeout_budget_seconds"], 1800)
@@ -1643,6 +1656,7 @@ class ReviewPolicyTest(unittest.TestCase):
         )
 
         self.assertEqual(result["overall_risk"], "LOW")
+        self.assertEqual(result["model"], "gpt-6.1-sol")
         self.assertTrue(result["automation_completed"])
         self.assertNotIn("incomplete_reason", result)
         self.assertEqual(result["review_packet"]["context_variant"], "unified-40")

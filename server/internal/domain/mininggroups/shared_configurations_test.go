@@ -6,10 +6,12 @@ import (
 	"testing"
 	"time"
 
+	inventorypb "github.com/block/proto-fleet/server/generated/grpc/fleetinventory/v1"
 	"github.com/block/proto-fleet/server/generated/sqlc"
 	"github.com/block/proto-fleet/server/internal/domain/activity/models"
 	"github.com/block/proto-fleet/server/internal/domain/authz"
 	"github.com/block/proto-fleet/server/internal/domain/devicewrite"
+	"github.com/block/proto-fleet/server/internal/domain/fleetinventory"
 	"github.com/block/proto-fleet/server/internal/domain/poolapplications"
 	"github.com/block/proto-fleet/server/internal/domain/poolconfigurations"
 	"github.com/block/proto-fleet/server/internal/domain/session"
@@ -21,7 +23,7 @@ import (
 type sharedCapabilities struct{}
 
 func (sharedCapabilities) GetRawCapabilitiesForDevice(context.Context, string, string, string) sdk.Capabilities {
-	return sdk.Capabilities{sdk.CapabilityPoolConfig: true, sdk.CapabilityPoolPriority: true}
+	return sdk.Capabilities{sdk.CapabilityPoolConfig: true, sdk.CapabilityPoolPriority: true, sdk.CapabilityWorkerNameDefaultNone: true}
 }
 
 func TestSharedBoardConfigurationAssignmentAndEdit(t *testing.T) {
@@ -46,6 +48,26 @@ func TestSharedBoardConfigurationAssignmentAndEdit(t *testing.T) {
 	reviewer := poolapplications.NewReviewer(f.service.pools, sharedCapabilities{})
 	f.service.WithPoolConfigurations(repo, reviewer)
 	service := poolconfigurations.NewService(f.conn, repo, f.service.pools, reviewer)
+	service.WithChecker(poolapplications.NewChecker(f.conn, reviewer, firmware, f.service.secrets, f.service.pools))
+	assertInventoryNames := func(first, second, summary, firstMode, secondMode string) {
+		t.Helper()
+		inventory, err := fleetinventory.NewService(sqlc.New(f.conn)).Hashboards(ctx, f.target.OrganizationID, &inventorypb.GetModuleHashboardsRequest{ModuleIds: []int64{module}}, []fleetinventory.Scope{{OrgWide: true}})
+		require.NoError(t, err)
+		require.Len(t, inventory.Modules, 1)
+		require.Len(t, inventory.Modules[0].Slots, 3)
+		for position, name := range []string{first, second} {
+			board := inventory.Modules[0].Slots[position].Board
+			require.NotNil(t, board)
+			require.Equal(t, name, board.WorkerName)
+			require.Equal(t, []string{firstMode, secondMode}[position], board.WorkerNameMode)
+		}
+		require.Nil(t, inventory.Modules[0].Slots[2].Board)
+		listed, err := fleetinventory.NewService(sqlc.New(f.conn)).List(ctx, f.target.OrganizationID, &inventorypb.ListInventoryRequest{View: inventorypb.InventoryView_INVENTORY_VIEW_MINING_ASSETS, Kinds: []inventorypb.EntityKind{inventorypb.EntityKind_ENTITY_KIND_MODULE}}, []fleetinventory.Scope{{OrgWide: true}})
+		require.NoError(t, err)
+		require.Len(t, listed.Items, 1)
+		require.Equal(t, module, listed.Items[0].Ref.Id)
+		require.Equal(t, summary, listed.Items[0].WorkerNameSummary)
+	}
 	info, err := session.GetInfo(ctx)
 	require.NoError(t, err)
 	scope := poolconfigurations.Scope{OrganizationID: info.OrganizationID}
@@ -72,9 +94,102 @@ func TestSharedBoardConfigurationAssignmentAndEdit(t *testing.T) {
 		result, err := service.GetOperation(ctx, "", saved.Operation.ID)
 		require.NoError(t, err)
 		require.Equal(t, "verified", result.Targets[0].State, "readable pool settings match; firmware does not expose passwords")
+		for _, target := range result.Targets {
+			checked, err := service.CheckConfiguration(ctx, "", saved.Configuration.ID, poolconfigurations.AssignmentTarget{Kind: target.Kind, ID: target.ID})
+			require.NoError(t, err)
+			require.Equal(t, "verified", checked.State)
+			require.NotEmpty(t, checked.Expected)
+			require.Equal(t, checked.Expected, checked.Reported, "pool status uses the saved worker name")
+		}
 	}
 	saved := confirm(review)
 	apply(saved)
+	require.Equal(t, "account", firmware.snapshot.Groups[1].Pools[0].Username)
+	require.Len(t, firmware.snapshot.Groups[1].MACs, 2, "default board names share one mining group")
+	assertInventoryNames("", "", "", "none", "none")
+	// One batch may render a different username for each board. Admission must
+	// freeze each board's stack, rather than reuse the final board's username.
+	names, selectedCount, err := service.ReviewBoardWorkerNames(ctx, poolconfigurations.BoardSelection{ModuleIDs: []int64{module}}, poolconfigurations.WorkerNameOptions{MACAddress: true})
+	require.NoError(t, err)
+	require.Equal(t, 2, selectedCount)
+	require.Len(t, names, 1)
+	for _, change := range names[0].WorkerNames {
+		require.Empty(t, change.Before, "unset CT1 names use the plugin's blank default in the preview")
+	}
+	apply(confirm(names[0]))
+	assertInventoryNames("02:00:00:00:00:01", "02:00:00:00:00:02", "MAC address", "mac_address", "mac_address")
+	usernames := map[string]string{}
+	for _, group := range firmware.snapshot.Groups {
+		if len(group.Pools) > 0 {
+			for _, mac := range group.MACs {
+				usernames[mac] = group.Pools[0].Username
+			}
+		}
+	}
+	require.Equal(t, "account.02:00:00:00:00:01", usernames["02:00:00:00:00:01"])
+	require.Equal(t, "account.02:00:00:00:00:02", usernames["02:00:00:00:00:02"])
+
+	// A custom name equal to the MAC suffix still changes the saved strategy.
+	sameName, _, err := service.ReviewBoardWorkerNames(ctx, poolconfigurations.BoardSelection{HashboardIDs: boards}, poolconfigurations.WorkerNameOptions{Custom: "02:00:00:00:00:01"})
+	require.NoError(t, err)
+	require.Len(t, sameName, 1)
+	apply(confirm(sameName[0]))
+	assertInventoryNames("02:00:00:00:00:01", "02:00:00:00:00:02", "Mixed", "custom", "mac_address")
+	sameName, _, err = service.ReviewBoardWorkerNames(ctx, poolconfigurations.BoardSelection{HashboardIDs: boards}, poolconfigurations.WorkerNameOptions{MACAddress: true})
+	require.NoError(t, err)
+	require.Len(t, sameName, 1)
+	apply(confirm(sameName[0]))
+	assertInventoryNames("02:00:00:00:00:01", "02:00:00:00:00:02", "MAC address", "mac_address", "mac_address")
+
+	// A custom suffix applies only to the selected board. Confirmation rejects
+	// metadata that changed after review, without submitting stale work.
+	custom, _, err := service.ReviewBoardWorkerNames(ctx, poolconfigurations.BoardSelection{HashboardIDs: boards}, poolconfigurations.WorkerNameOptions{Custom: "rack-one"})
+	require.NoError(t, err)
+	require.Len(t, custom, 1)
+	_, err = f.conn.ExecContext(ctx, `UPDATE hashboard SET worker_name='intervening' WHERE id=$1`, boards[0])
+	require.NoError(t, err)
+	_, err = db.WithTransaction(ctx, f.conn, func(q sqlc.Querier) (poolconfigurations.ReviewedSave, error) {
+		return repo.ConfirmReview(ctx, q, scope, info.UserID, custom[0].ID, reviewer, nil)
+	})
+	require.Error(t, err)
+	_, err = f.conn.ExecContext(ctx, `UPDATE hashboard SET worker_name='02:00:00:00:00:01' WHERE id=$1`, boards[0])
+	require.NoError(t, err)
+	apply(confirm(custom[0]))
+	assertInventoryNames("rack-one", "02:00:00:00:00:02", "Mixed", "custom", "mac_address")
+	usernames = map[string]string{}
+	for _, group := range firmware.snapshot.Groups {
+		if len(group.Pools) > 0 {
+			for _, mac := range group.MACs {
+				usernames[mac] = group.Pools[0].Username
+			}
+		}
+	}
+	require.Equal(t, "account.rack-one", usernames["02:00:00:00:00:01"])
+	require.Equal(t, "account.02:00:00:00:00:02", usernames["02:00:00:00:00:02"])
+	for _, tc := range []struct{ name, summary string }{{"rack-two", "Mixed"}, {"rack-one", "rack-one"}, {"", "Mixed"}} {
+		names, _, err := service.ReviewBoardWorkerNames(ctx, poolconfigurations.BoardSelection{HashboardIDs: []int64{secondBoard}}, poolconfigurations.WorkerNameOptions{Custom: tc.name})
+		require.NoError(t, err)
+		require.Len(t, names, 1)
+		apply(confirm(names[0]))
+		mode := "custom"
+		if tc.name == "" {
+			mode = "none"
+		}
+		assertInventoryNames("rack-one", tc.name, tc.summary, "custom", mode)
+	}
+	// Clearing both names should converge back to a shared stack.
+	names, _, err = service.ReviewBoardWorkerNames(ctx, poolconfigurations.BoardSelection{ModuleIDs: []int64{module}}, poolconfigurations.WorkerNameOptions{})
+	require.NoError(t, err)
+	require.Len(t, names, 1)
+	apply(confirm(names[0]))
+	assertInventoryNames("", "", "", "none", "none")
+	for _, group := range firmware.snapshot.Groups {
+		if len(group.MACs) > 0 && len(group.Pools) > 0 {
+			require.Equal(t, "account", group.Pools[0].Username)
+			require.Len(t, group.MACs, 2)
+		}
+	}
+
 	assignments, err := service.GetBoardAssignments(ctx, "", poolconfigurations.BoardSelection{ModuleIDs: []int64{module}})
 	require.NoError(t, err)
 	require.Len(t, assignments.Assignments, 2)

@@ -51,7 +51,7 @@ WHERE id = $1 AND active_node_id = $2 AND standby_node_id = $3;
 
 -- name: MoveFleetNodeDevices :many
 UPDATE fleet_node_device AS fnd
-SET fleet_node_id = sqlc.arg('to_node_id')
+SET fleet_node_id = sqlc.arg('to_node_id'), assigned_at = CURRENT_TIMESTAMP
 FROM device d
 WHERE fnd.fleet_node_id = sqlc.arg('from_node_id') AND fnd.org_id = sqlc.arg('org_id')
   AND d.id = fnd.device_id AND d.org_id = fnd.org_id

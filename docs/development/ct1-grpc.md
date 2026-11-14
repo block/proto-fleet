@@ -275,6 +275,16 @@ failures report unconfirmed state; configured retry policies are disabled and no
 application retry/hedging replays writes. gRPC may transparently retry only calls
 known not to have reached application processing.
 
+Board identification calls `HashboardService.SetIdentifyLED` (blink or off) with
+one board MAC per request. MDK returns only an aggregate `boards_updated` count
+and has no LED readback, so the plugin first checks the slot's current MAC and
+module identity in `GetContainerMap` and succeeds only when exactly one board was
+updated. Fleet queues one command per confirmed board installation so each board
+reports its own outcome. Fleet Node routing requires command protocol V10.
+Frigate owns the blink window (15 minutes). Fleet command results do not carry
+MDK's `expires_at`, so the client shows an approximate end time counted from
+when each board's result was recorded.
+
 ## Protobuf presence and diagnostic fidelity
 
 Normalization reads typed protobuf values. Diagnostic JSON is generated separately

@@ -817,7 +817,7 @@ func TestPairDevices(t *testing.T) {
 		mockAntminerPairer := pairingMocks.NewMockPairer(ctrl)
 		mockAntminerPairer.EXPECT().
 			PairDevice(gomock.Any(), gomock.Any(), nil).
-			Return(fmt.Errorf("invalid_argument: credentials are required but were not provided")).Times(2)
+			Return(fmt.Errorf("invalid_argument: credentials are required but were not provided")).Times(3)
 
 		pairingService, ctx := setupTestService(t, testContext, adminUser, mockAntminerPairer, mockDiscoverer)
 
@@ -854,12 +854,14 @@ func TestPairDevices(t *testing.T) {
 		var workerName string
 		require.NoError(t, testContext.ServiceProvider.DB.QueryRowContext(ctx, `SELECT worker_name FROM device WHERE id=$1`, deviceID).Scan(&workerName))
 		assert.Equal(t, devices[0].MacAddress, workerName)
-		_, err = testContext.ServiceProvider.DB.ExecContext(ctx, `UPDATE device SET worker_name=$2 WHERE id=$1`, deviceID, "saved-worker")
-		require.NoError(t, err)
-		_, err = pairingService.PairDevices(ctx, pairRequest)
-		require.NoError(t, err)
-		require.NoError(t, testContext.ServiceProvider.DB.QueryRowContext(ctx, `SELECT worker_name FROM device WHERE id=$1`, deviceID).Scan(&workerName))
-		assert.Equal(t, "saved-worker", workerName, "auth-needed retries preserve the saved name")
+		for _, saved := range []string{"saved-worker", ""} {
+			_, err = testContext.ServiceProvider.DB.ExecContext(ctx, `UPDATE device SET worker_name=$2 WHERE id=$1`, deviceID, saved)
+			require.NoError(t, err)
+			_, err = pairingService.PairDevices(ctx, pairRequest)
+			require.NoError(t, err)
+			require.NoError(t, testContext.ServiceProvider.DB.QueryRowContext(ctx, `SELECT worker_name FROM device WHERE id=$1`, deviceID).Scan(&workerName))
+			assert.Equal(t, saved, workerName, "auth-needed retries preserve saved names, including explicit no worker name")
+		}
 
 	})
 

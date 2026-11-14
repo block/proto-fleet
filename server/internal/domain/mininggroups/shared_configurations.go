@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"slices"
 	"time"
 
 	"connectrpc.com/authn"
@@ -43,6 +44,9 @@ func (s *Service) ExecutePoolConfiguration(ctx context.Context, orgID int64, ope
 	first, err := s.queries.GetPoolConfigurationWork(ctx, sqlc.GetPoolConfigurationWorkParams{OrganizationID: orgID, OperationID: operationID, TargetKind: poolconfigurations.TargetInstallation, TargetID: rows[0].TargetID})
 	if err != nil {
 		return err
+	}
+	if first.LifecycleID.Valid {
+		ctx = poolconfigurations.WithLifecycleTransition(ctx, first.LifecycleID.UUID)
 	}
 	scope := poolconfigurations.Scope{OrganizationID: orgID, AccountID: first.AccountID.Int64}
 	ctx, err = poolActorContext(ctx, orgID, first.ActorID, first.ExternalAccountID)
@@ -89,35 +93,40 @@ func (s *Service) ExecutePoolConfiguration(ctx context.Context, orgID int64, ope
 		if err != nil {
 			return err
 		}
-		var rendered poolapplications.Binding
+		snapshotIDs := make([]string, len(approvals))
+		createdSnapshots := make(map[string]bool, len(approvals))
 		for i, approval := range approvals {
 			if approval.Binding != works[i].ReviewedBinding {
 				return fleeterror.NewFailedPreconditionError("reviewed board binding changed")
 			}
+			var rendered poolapplications.Binding
 			if err := decode([]byte(approval.Binding), &rendered); err != nil {
 				return err
 			}
-		}
-		if len(rendered.Usernames) != len(slots) {
-			return fleeterror.NewFailedPreconditionError("reviewed pool rendering is unavailable")
-		}
-		// All boards of this controller use its existing worker name; the exact
-		// rendered usernames are retained even if that name changes subsequently.
-		key, err := encode([]any{deviceID, first.RevisionID, rendered.Usernames})
-		if err != nil {
-			return err
-		}
-		snapshotID := uuid.NewSHA1(uuid.NameSpaceOID, key).String()
-		for i := range slots {
-			slots[i].Username = rendered.Usernames[i]
-			slots[i].WorkerTemplate = ""
-		}
-		encoded, err := encode(slots)
-		if err != nil {
-			return err
-		}
-		if err := q.CreatePoolGroupSnapshot(ctx, sqlc.CreatePoolGroupSnapshotParams{SnapshotID: snapshotID, OrganizationID: orgID, DeviceID: deviceID, ConfigurationID: first.ConfigurationID, RevisionID: first.RevisionID, Slots: encoded}); err != nil {
-			return err
+			if len(rendered.Usernames) != len(slots) {
+				return fleeterror.NewFailedPreconditionError("reviewed pool rendering is unavailable")
+			}
+			key, err := encode([]any{deviceID, first.RevisionID, rendered.Usernames})
+			if err != nil {
+				return err
+			}
+			snapshotIDs[i] = uuid.NewSHA1(uuid.NameSpaceOID, key).String()
+			if createdSnapshots[snapshotIDs[i]] {
+				continue
+			}
+			createdSnapshots[snapshotIDs[i]] = true
+			renderedSlots := slices.Clone(slots)
+			for j := range renderedSlots {
+				renderedSlots[j].Username = rendered.Usernames[j]
+				renderedSlots[j].WorkerTemplate = ""
+			}
+			encoded, err := encode(renderedSlots)
+			if err != nil {
+				return err
+			}
+			if err := q.CreatePoolGroupSnapshot(ctx, sqlc.CreatePoolGroupSnapshotParams{SnapshotID: snapshotIDs[i], OrganizationID: orgID, DeviceID: deviceID, ConfigurationID: first.ConfigurationID, RevisionID: first.RevisionID, Slots: encoded}); err != nil {
+				return err
+			}
 		}
 		boards := make([]int64, len(targets))
 		for i, target := range targets {
@@ -132,7 +141,7 @@ func (s *Service) ExecutePoolConfiguration(ctx context.Context, orgID int64, ope
 			if n != 1 {
 				return fleeterror.NewFailedPreconditionError("board application changed")
 			}
-			n, err = q.LinkPoolGroupSnapshot(ctx, sqlc.LinkPoolGroupSnapshotParams{OrganizationID: orgID, OperationID: operationID, TargetID: target.ID, Attempts: claimed, GroupSnapshotID: sql.NullString{String: snapshotID, Valid: true}})
+			n, err = q.LinkPoolGroupSnapshot(ctx, sqlc.LinkPoolGroupSnapshotParams{OrganizationID: orgID, OperationID: operationID, TargetID: target.ID, Attempts: claimed, GroupSnapshotID: sql.NullString{String: snapshotIDs[i], Valid: true}})
 			if err != nil {
 				return err
 			}
@@ -167,7 +176,7 @@ func (s *Service) ExecutePoolConfiguration(ctx context.Context, orgID int64, ope
 		}
 		row.OperationID = uuid.NullUUID{UUID: uuid.New(), Valid: true}
 		row.AttemptID = uuid.NullUUID{UUID: attempt, Valid: true}
-		row.ActorID = sql.NullInt64{Int64: first.ActorID, Valid: true}
+		row.ActorID = sql.NullInt64{Int64: first.ActorID, Valid: first.ActorID > 0}
 		row.OperationKind = "pools"
 		row.WriteEpoch = epoch
 		row.Status = "pending"
@@ -282,7 +291,15 @@ func (s *Service) authorizeSharedWorkflow(ctx context.Context, q sqlc.Querier, r
 		return s.authorizeRemovalWorkflow(ctx, q, row, nil)
 	}
 	for _, target := range targets {
-		actorCtx, err := poolActorContext(ctx, row.OrganizationID, target.ActorID, target.ExternalAccountID)
+		work, err := q.GetPoolConfigurationWork(ctx, sqlc.GetPoolConfigurationWorkParams{OrganizationID: row.OrganizationID, OperationID: target.OperationID, TargetKind: target.TargetKind, TargetID: target.TargetID})
+		if err != nil || work.State != statusApplying {
+			return true, fleeterror.NewForbiddenError("board assignment changed")
+		}
+		lifecycleCtx := ctx
+		if work.LifecycleID.Valid {
+			lifecycleCtx = poolconfigurations.WithLifecycleTransition(ctx, work.LifecycleID.UUID)
+		}
+		actorCtx, err := poolActorContext(lifecycleCtx, row.OrganizationID, target.ActorID, target.ExternalAccountID)
 		if err != nil {
 			return true, err
 		}
@@ -296,10 +313,6 @@ func (s *Service) authorizeSharedWorkflow(ctx context.Context, q sqlc.Querier, r
 		if json.Unmarshal([]byte(target.ReviewedBinding), &saved) != nil || saved.Ownership != ownership {
 			return true, fleeterror.NewForbiddenError("equipment ownership changed")
 		}
-		current, err := q.GetPoolConfigurationWork(ctx, sqlc.GetPoolConfigurationWorkParams{OrganizationID: row.OrganizationID, OperationID: target.OperationID, TargetKind: target.TargetKind, TargetID: target.TargetID})
-		if err != nil || current.State != statusApplying {
-			return true, fleeterror.NewForbiddenError("board assignment changed")
-		}
 		runtime, err := q.GetPoolConfigurationRuntime(ctx, sqlc.GetPoolConfigurationRuntimeParams{OrgID: row.OrganizationID, ID: row.DeviceID})
 		if err != nil {
 			return true, err
@@ -311,7 +324,7 @@ func (s *Service) authorizeSharedWorkflow(ctx context.Context, q sqlc.Querier, r
 		if err != nil {
 			return true, err
 		}
-		if len(boards) != 1 || saved.Board == nil || boards[0].MacAddress != saved.Board.MAC || boards[0].DeviceID != row.DeviceID {
+		if len(boards) != 1 || saved.Board == nil || boards[0].MacAddress != saved.Board.MAC || boards[0].DeviceID != row.DeviceID || boards[0].WorkerName != saved.Board.WorkerName || boards[0].WorkerNameSet != saved.Board.WorkerNameSet || boards[0].WorkerNameMode != saved.Board.WorkerNameMode || boards[0].InheritedWorkerName != saved.Board.InheritedWorkerName {
 			return true, fleeterror.NewForbiddenError("board installation changed")
 		}
 	}
@@ -379,6 +392,13 @@ func (s *Service) authorizeWorkflowBoards(ctx context.Context, q sqlc.Querier, r
 		return err
 	}
 	actor := authority[0]
+	work, err := q.GetPoolConfigurationWork(ctx, sqlc.GetPoolConfigurationWorkParams{OrganizationID: row.OrganizationID, OperationID: actor.OperationID, TargetKind: actor.TargetKind, TargetID: actor.TargetID})
+	if err != nil {
+		return fleeterror.NewForbiddenError("board assignment changed")
+	}
+	if work.LifecycleID.Valid {
+		ctx = poolconfigurations.WithLifecycleTransition(ctx, work.LifecycleID.UUID)
+	}
 	actorCtx, err := poolActorContext(ctx, row.OrganizationID, actor.ActorID, actor.ExternalAccountID)
 	if err != nil {
 		return err

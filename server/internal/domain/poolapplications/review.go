@@ -2,6 +2,7 @@
 package poolapplications
 
 import (
+	"cmp"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -44,19 +45,26 @@ func NewReviewer(authority Authority, capabilities Capabilities) *Reviewer {
 // observation timestamps: refreshing unchanged telemetry must not invalidate a
 // review. Ownership generations, physical identity, mode and worker inputs do.
 type Binding struct {
-	Version      int
-	Label        string
-	Ownership    string
-	Device       sqlc.GetPoolConfigurationRuntimeRow
-	Usernames    []string
-	Board        *BoardBinding
-	MiningGroups bool
+	// EffectiveWorkerName includes the plugin default when metadata is unset.
+	// Keep the raw metadata in Device/Board for stale-review and retry checks.
+	EffectiveWorkerName string
+	Version             int
+	Label               string
+	Ownership           string
+	Device              sqlc.GetPoolConfigurationRuntimeRow
+	Usernames           []string
+	Board               *BoardBinding
+	MiningGroups        bool
 }
 
 type BoardBinding struct {
 	InstallationID, HashboardID, ModuleID int64
 	Position                              int32
 	MAC                                   string
+	WorkerName                            string
+	WorkerNameSet                         bool
+	WorkerNameMode                        string
+	InheritedWorkerName                   sql.NullString
 }
 
 func (r *Reviewer) ReviewTargets(ctx context.Context, q sqlc.Querier, scope poolconfigurations.Scope, actorID int64, targets []poolconfigurations.AssignmentTarget, slots []poolconfigurations.Endpoint) ([]poolconfigurations.TargetApproval, error) {
@@ -102,7 +110,8 @@ func (r *Reviewer) reviewTargets(ctx context.Context, q sqlc.Querier, scope pool
 				return nil, fleeterror.NewFailedPreconditionError("equipment does not support native Stratum V2 pool destinations")
 			}
 		}
-		binding := Binding{Version: 1, Label: device.WorkerName, Ownership: owner, Device: device, Usernames: make([]string, len(slots))}
+		label := cmp.Or(strings.TrimSpace(device.WorkerName), strings.TrimSpace(device.MacAddress), device.DeviceIdentifier)
+		binding := Binding{Version: 1, Label: label, Ownership: owner, Device: device, Usernames: make([]string, len(slots))}
 		if commonpb.DeviceClass(device.DeviceClass) == commonpb.DeviceClass_DEVICE_CLASS_CONTAINER {
 			state, err := q.LockMiningGroupState(ctx, sqlc.LockMiningGroupStateParams{DeviceID: target.DeviceID, OrganizationID: scope.OrganizationID})
 			if err != nil && !errors.Is(err, sql.ErrNoRows) {
@@ -141,7 +150,7 @@ func (r *Reviewer) reviewTargets(ctx context.Context, q sqlc.Querier, scope pool
 					return nil, fleeterror.NewFailedPreconditionError("selected board installation changed or is stale")
 				}
 				board := boards[0]
-				binding.Board = &BoardBinding{InstallationID: board.InstallationID, HashboardID: board.HashboardID, ModuleID: board.ModuleID, Position: board.Position, MAC: board.MacAddress}
+				binding.Board = &BoardBinding{InstallationID: board.InstallationID, HashboardID: board.HashboardID, ModuleID: board.ModuleID, Position: board.Position, MAC: board.MacAddress, WorkerName: board.WorkerName, WorkerNameSet: board.WorkerNameSet, WorkerNameMode: board.WorkerNameMode, InheritedWorkerName: board.InheritedWorkerName}
 				binding.Label = fmt.Sprintf("%s · Hashboard %d", board.ModuleName, board.Position)
 			}
 			seen := map[string]bool{}
@@ -159,8 +168,16 @@ func (r *Reviewer) reviewTargets(ctx context.Context, q sqlc.Querier, scope pool
 		} else if target.Kind != poolconfigurations.TargetDevice {
 			return nil, fleeterror.NewFailedPreconditionError("hashboard assignments require mining-group support")
 		}
+		identifier, name := device.DeviceIdentifier, equipmentWorkerName(caps, device.WorkerName, device.WorkerNameSet, device.MacAddress)
+		if binding.Board != nil {
+			name = equipmentWorkerName(caps, binding.Board.WorkerName, binding.Board.WorkerNameSet, binding.Board.MAC)
+			if binding.Board.InheritedWorkerName.Valid {
+				name = binding.Board.InheritedWorkerName.String
+			}
+		}
+		binding.EffectiveWorkerName = name
 		for i, slot := range slots {
-			binding.Usernames[i], err = poolconfigurations.RenderWorker(slot.Username, slot.WorkerTemplate, device.DeviceIdentifier, device.WorkerName)
+			binding.Usernames[i], err = poolconfigurations.RenderWorker(slot.Username, slot.WorkerTemplate, identifier, name)
 			if err != nil {
 				return nil, err
 			}
@@ -279,4 +296,32 @@ func lockPoolBindings(ctx context.Context, q sqlc.Querier, scope poolconfigurati
 
 func (r *Reviewer) VerifyPoolEquipmentCredentials(ctx context.Context, accountID, password string) (poolconfigurations.CredentialProof, error) {
 	return r.authority.VerifyPoolEquipmentCredentials(ctx, accountID, password)
+}
+
+func equipmentWorkerName(caps sdk.Capabilities, name string, explicit bool, mac string) string {
+	if explicit {
+		return name
+	}
+	return caps.DefaultWorkerName(mac)
+}
+
+// WorkerInputs resolves the same plugin policy used during review, for readback.
+func (r *Reviewer) WorkerInputs(ctx context.Context, q sqlc.Querier, scope poolconfigurations.Scope, target poolconfigurations.AssignmentTarget, device sqlc.GetPoolConfigurationRuntimeRow) (string, string, error) {
+	caps := r.capabilities.GetRawCapabilitiesForDevice(ctx, device.DriverName, device.Manufacturer, device.Model)
+	if target.Kind == poolconfigurations.TargetInstallation {
+		rows, err := q.ListPoolSelectionBoards(ctx, sqlc.ListPoolSelectionBoardsParams{OrgID: scope.OrganizationID, InstallationIds: []int64{target.ID}})
+		if err != nil {
+			return "", "", err
+		}
+		if len(rows) != 1 || rows[0].DeviceID != target.DeviceID {
+			return "", "", fleeterror.NewFailedPreconditionError("board installation changed")
+		}
+		board := rows[0]
+		name := equipmentWorkerName(caps, board.WorkerName, board.WorkerNameSet, board.MacAddress)
+		if board.InheritedWorkerName.Valid {
+			name = board.InheritedWorkerName.String
+		}
+		return device.DeviceIdentifier, name, nil
+	}
+	return device.DeviceIdentifier, equipmentWorkerName(caps, device.WorkerName, device.WorkerNameSet, device.MacAddress), nil
 }

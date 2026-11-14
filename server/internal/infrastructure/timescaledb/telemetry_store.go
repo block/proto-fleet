@@ -364,7 +364,8 @@ func NewTelemetryStore(db *sql.DB, config Config) (*TimescaleTelemetryStore, err
 }
 
 // StoreDeviceMetrics stores device metrics in TimescaleDB.
-// The operation is atomic - if any insert fails, the entire transaction is rolled back.
+// Measurement inserts are atomic. Recoverable errors in optional freshness
+// tracking are isolated by a savepoint; final commit failures roll back both.
 func (s *TimescaleTelemetryStore) StoreDeviceMetrics(ctx context.Context, data ...modelsV2.DeviceMetrics) error {
 	if len(data) == 0 {
 		return nil
@@ -412,6 +413,11 @@ func (s *TimescaleTelemetryStore) StoreDeviceMetrics(ctx context.Context, data .
 	if len(params.Times) > 0 {
 		if err := qtx.InsertDeviceMetricsBatch(ctx, params); err != nil {
 			return fmt.Errorf("failed to insert %d device metrics: %w", len(params.Times), err)
+		}
+	}
+	if s.config.TrackTelemetryFreshness {
+		if err := s.recoverableFreshnessWrite(ctx, qtx, data); err != nil {
+			return err
 		}
 	}
 

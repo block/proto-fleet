@@ -79,7 +79,7 @@ func inputOptions(input *pb.ConfigurationInput) (domain.RevisionOptions, error) 
 }
 
 func configurationDTO(c domain.Configuration, assignedCount int64) *pb.Configuration {
-	result := &pb.Configuration{ConfigurationId: c.ID, Name: c.Name, RevisionId: c.RevisionID, Version: c.Version, Archived: c.Archived, AssignedCount: assignedCount}
+	result := &pb.Configuration{ConfigurationId: c.ID, Name: c.Name, RevisionId: c.RevisionID, Version: c.Version, Archived: c.Archived, IsDefault: c.IsDefault, AssignedCount: assignedCount}
 	for _, pool := range c.Slots {
 		result.Pools = append(result.Pools, &pb.Pool{SlotId: pool.ID, Url: pool.URL, Username: pool.Username, WorkerTemplate: pool.WorkerTemplate, HasPassword: pool.HasPassword})
 	}
@@ -295,4 +295,11 @@ func checkResponse(result domain.CheckResult) *pb.CheckConfigurationResponse {
 		}
 	} // #nosec G115 -- nonnegative int32 priority.
 	return response
+}
+
+func (h *Handler) SetDefaultConfiguration(ctx context.Context, req *connect.Request[pb.SetDefaultConfigurationRequest]) (*connect.Response[pb.SetDefaultConfigurationResponse], error) {
+	if err := h.service.SetDefault(ctx, req.Msg.AccountId, req.Msg.ConfigurationId, req.Msg.ExpectedVersion); err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&pb.SetDefaultConfigurationResponse{}), nil
 }

@@ -209,3 +209,62 @@ func TestGRPCScopedMiningPreservesScopeAndBoardFailures(t *testing.T) {
 		t.Fatal(started)
 	}
 }
+
+func TestGRPCIdentifyLEDRecordsOnlySelectedBoards(t *testing.T) {
+	state := NewContainerState(ContainerConfig{ServerID: "identify-test", Tanks: 1, ModulesPerTank: 2, SlotsPerModule: 3, AsicsPerBoard: 312, Seed: 1})
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := newGRPCServer(state)
+	t.Cleanup(server.Stop)
+	go func() { _ = server.Serve(listener) }()
+	conn, err := grpc.NewClient(listener.Addr().String(), grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = conn.Close() })
+	client := mdk.NewHashboardServiceClient(conn)
+	state.mu.Lock()
+	target := state.eachBoard()[1]
+	targetMAC := target.MAC
+	state.mu.Unlock()
+
+	if _, err := client.SetIdentifyLED(t.Context(), &mdk.SetIdentifyLEDRequest{Scope: &mdk.BoardScope{Identifiers: []string{targetMAC}}}); err == nil {
+		t.Fatal("unspecified mode accepted")
+	}
+	sentAt := time.Now()
+	blink, err := client.SetIdentifyLED(t.Context(), &mdk.SetIdentifyLEDRequest{Scope: &mdk.BoardScope{Identifiers: []string{targetMAC}}, Mode: mdk.HashboardIdentifyLEDMode_HASHBOARD_IDENTIFY_LED_MODE_BLINK})
+	receivedAt := time.Now()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if blink.GetBoardsUpdated() != 1 || blink.GetExpiresAt() == nil {
+		t.Fatal(blink)
+	}
+	if expires := blink.GetExpiresAt().AsTime(); expires.Before(sentAt.Add(15*time.Minute)) || expires.After(receivedAt.Add(15*time.Minute)) {
+		t.Fatalf("blink expires at %s, want 15 minutes after the request", expires)
+	}
+	state.mu.Lock()
+	for _, board := range state.eachBoard() {
+		blinking := board.IdentifyLED == mdk.HashboardIdentifyLEDMode_HASHBOARD_IDENTIFY_LED_MODE_BLINK
+		if blinking != (board.MAC == targetMAC) {
+			t.Errorf("board %s blinking=%t", board.MAC, blinking)
+		}
+	}
+	state.mu.Unlock()
+	off, err := client.SetIdentifyLED(t.Context(), &mdk.SetIdentifyLEDRequest{Scope: &mdk.BoardScope{Identifiers: []string{targetMAC}}, Mode: mdk.HashboardIdentifyLEDMode_HASHBOARD_IDENTIFY_LED_MODE_OFF})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if off.GetBoardsUpdated() != 1 || off.GetExpiresAt() != nil {
+		t.Fatal(off)
+	}
+	unknown, err := client.SetIdentifyLED(t.Context(), &mdk.SetIdentifyLEDRequest{Scope: &mdk.BoardScope{Identifiers: []string{"ff:ff:ff:ff:ff:ff"}}, Mode: mdk.HashboardIdentifyLEDMode_HASHBOARD_IDENTIFY_LED_MODE_OFF})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if unknown.GetBoardsUpdated() != 0 {
+		t.Fatal("unknown identifier reported as updated")
+	}
+}

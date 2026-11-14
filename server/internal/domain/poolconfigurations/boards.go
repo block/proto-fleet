@@ -105,9 +105,15 @@ func (s *Service) GetBoardAssignments(ctx context.Context, accountID string, sel
 			return BoardAssignments{}, err
 		}
 		ids := make([]int64, 0, len(rows))
+		deviceIDs := make([]int64, 0)
+		seenDevices := map[int64]bool{}
 		for _, row := range rows {
 			if row.AccountID == p.Scope.AccountID && visible(row.SiteID) {
 				ids = append(ids, row.InstallationID)
+				if row.UsesContainerPools && !seenDevices[row.DeviceID] {
+					deviceIDs = append(deviceIDs, row.DeviceID)
+					seenDevices[row.DeviceID] = true
+				}
 			}
 		}
 		assignments, err := q.ListPoolBoardAssignments(ctx, sqlc.ListPoolBoardAssignmentsParams{OrganizationID: p.Scope.OrganizationID, AccountID: p.Scope.account(), InstallationIds: ids})
@@ -121,6 +127,45 @@ func (s *Service) GetBoardAssignments(ctx context.Context, accountID string, sel
 		for _, row := range rows {
 			if row.AccountID == p.Scope.AccountID && visible(row.SiteID) && !byID[row.InstallationID] {
 				assignments = append(assignments, sqlc.ListPoolBoardAssignmentsRow{State: "unavailable", InstallationID: row.InstallationID, HashboardID: row.HashboardID, ModuleID: row.ModuleID, DeviceID: row.DeviceID, DeviceIdentifier: row.DeviceIdentifier, SiteID: row.SiteID})
+			}
+		}
+		// Reuse whole-device visibility: a container's status is private to its
+		// owner and can cover boards only while all installed boards share it.
+		devices, err := q.ListPoolEquipmentAssignments(ctx, sqlc.ListPoolEquipmentAssignmentsParams{OrganizationID: p.Scope.OrganizationID, AccountID: p.Scope.account(), DeviceIds: deviceIDs})
+		if err != nil {
+			return BoardAssignments{}, storageError(err)
+		}
+		deviceIDs = deviceIDs[:0]
+		for _, device := range devices {
+			deviceIDs = append(deviceIDs, device.DeviceID)
+		}
+		events, err := lifecycleStates(ctx, q, p.Scope, deviceIDs, ids)
+		if err != nil {
+			return BoardAssignments{}, err
+		}
+		byDevice := map[int64]sqlc.ListPoolEquipmentAssignmentsRow{}
+		for _, device := range devices {
+			applyDeviceLifecycleStatus(&device, events)
+			byDevice[device.DeviceID] = device
+		}
+		for i := range assignments {
+			a := &assignments[i]
+			if event, ok := events[AssignmentTarget{Kind: TargetInstallation, ID: a.InstallationID, DeviceID: a.DeviceID}]; ok && a.ConfigurationID == "" {
+				a.State = lifecycleDisplayState(event)
+				a.ResultCode = event.ResultCode
+				a.OperationID = event.TransitionID.String()
+				a.UpdatedAt = event.UpdatedAt
+				a.ConfigurationID = event.ConfigurationID.String
+				a.Name = event.ConfigurationName
+			} else if device, ok := byDevice[a.DeviceID]; ok && a.ConfigurationID == "" && device.OperationID != "" {
+				// Keep the board identity for table selection; its operation
+				// retains the whole-container target for details and actions.
+				a.State = device.State
+				a.ResultCode = device.ResultCode
+				a.OperationID = device.OperationID
+				a.UpdatedAt = device.UpdatedAt
+				a.ConfigurationID = device.ConfigurationID
+				a.Name = device.Name
 			}
 		}
 		return BoardAssignments{Assignments: assignments, SelectedCount: int64(len(ids))}, nil

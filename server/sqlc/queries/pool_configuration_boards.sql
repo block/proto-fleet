@@ -9,12 +9,21 @@ WHERE d.org_id=$1 AND m.id=ANY(sqlc.arg(module_ids)::bigint[]) AND d.deleted_at 
 -- name: ListPoolSelectionBoards :many
 SELECT i.id AS installation_id,h.id AS hashboard_id,m.id AS module_id,tank.device_id,d.device_identifier,d.site_id,
  COALESCE(owner.subclient_id,owner.client_id,0)::bigint AS account_id,
+ COALESCE(h.worker_name,'')::text AS worker_name,(h.worker_name IS NOT NULL)::boolean AS worker_name_set,h.worker_name_mode,
+ a.inherited_worker_name,
  m.reported_id AS module_name,i.position,COALESCE(i.metadata->>'macAddress','')::text AS mac_address,
+ (g.observed_at IS NOT NULL AND g.status NOT IN ('pending','applying','blocked')
+  AND COALESCE(g.observed->>'supported','false')='true'
+  AND COALESCE(g.observed->>'enabled','false')='false' AND COALESCE(g.observed->>'pending','false')='false'
+  AND COALESCE(g.observed->>'suspended','false')='false')::boolean AS uses_container_pools,
  (s.unavailable_reason='' AND s.observed_at>now()-INTERVAL '2 minutes' AND s.observed_at<=now()+INTERVAL '5 seconds'
   AND COALESCE(i.metadata->>'macAddress','')<>'' AND i.site_id IS NOT DISTINCT FROM d.site_id)::boolean AS ready
 FROM hashboard_installation i JOIN hashboard h ON h.id=i.hashboard_id
 JOIN container_module m ON m.id=i.module_id JOIN container_tank tank ON tank.id=m.tank_id
 JOIN device d ON d.id=tank.device_id
+LEFT JOIN container_mining_group_state g ON g.device_id=d.id AND g.organization_id=d.org_id
+LEFT JOIN pool_configuration_assignment a ON a.organization_id=h.org_id AND a.target_kind='hashboard_installation'
+ AND a.target_id=i.id AND a.device_id=d.id AND a.retired_at IS NULL
 LEFT JOIN hosted_account_asset owner ON owner.organization_id=d.org_id AND owner.kind=7 AND owner.asset_id=i.hashboard_id
 JOIN hashboard_slot s ON s.module_id=i.module_id AND s.position=i.position AND s.hashboard_id=i.hashboard_id
 WHERE d.org_id=$1 AND h.org_id=$1 AND d.deleted_at IS NULL AND tank.present AND m.retired_at IS NULL
@@ -127,3 +136,23 @@ WHERE d.org_id=$1 AND d.id=$2 AND d.deleted_at IS NULL AND i.device_id=d.id
  AND i.metadata->>'macAddress'=ANY(sqlc.arg(mac_addresses)::text[])
  AND s.occupancy='occupied' AND s.unavailable_reason='' AND s.observed_at>now()-INTERVAL '2 minutes'
  AND s.observed_at<=now()+INTERVAL '5 seconds' AND i.site_id IS NOT DISTINCT FROM d.site_id;
+
+-- name: UpdateHashboardWorkerName :execrows
+UPDATE hashboard SET worker_name = sqlc.arg(worker_name)::text, worker_name_mode = sqlc.arg(worker_name_mode)::text
+WHERE org_id = sqlc.arg(org_id) AND id = sqlc.arg(hashboard_id);
+
+-- name: InitializeHashboardWorkerName :exec
+-- Activation inherits the applied controller input only when the physical
+-- board has no explicit choice. An explicit empty name must survive relocation.
+UPDATE hashboard SET worker_name = sqlc.arg(worker_name)::text,
+ worker_name_mode = CASE WHEN sqlc.arg(worker_name)::text = '' THEN 'none' ELSE 'custom' END
+WHERE org_id = sqlc.arg(org_id) AND id = sqlc.arg(hashboard_id) AND worker_name IS NULL;
+
+-- name: ListPoolConfigurationAssignmentsForBoards :many
+SELECT i.id AS target_id, COALESCE(h.worker_name,'')::text AS worker_name,(h.worker_name IS NOT NULL)::boolean AS worker_name_set,h.worker_name_mode,
+ COALESCE(a.configuration_id,'')::text AS configuration_id,a.retired_at,c.account_id
+FROM hashboard_installation i JOIN hashboard h ON h.id=i.hashboard_id
+LEFT JOIN pool_configuration_assignment a ON a.organization_id=h.org_id AND a.target_kind='hashboard_installation' AND a.target_id=i.id
+LEFT JOIN pool_configuration c ON c.organization_id=a.organization_id AND c.configuration_id=a.configuration_id
+WHERE h.org_id=sqlc.arg(organization_id) AND i.removed_at IS NULL
+ AND i.id=ANY(sqlc.arg(installation_ids)::bigint[]);

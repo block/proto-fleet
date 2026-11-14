@@ -1,4 +1,6 @@
+import { Code } from "@connectrpc/connect";
 import { createConnectTransport } from "@connectrpc/connect-web";
+import { BREAKER_OUTCOME_UNKNOWN } from "../breakerMessages";
 import type { ContainerHistoryRequest } from "../containerHistory";
 import type { PoolHistoryRequest } from "../poolHistory";
 import type {
@@ -20,6 +22,8 @@ import { mapWithConcurrency } from "../utils/async";
 import { parseIsoDurationMs } from "../utils/time";
 import { createMdkV2Client, type MdkV2Client } from "./connectClient";
 import { queryContainerHistory } from "./containerHistory";
+import { toCanonicalControllerDiagnostics } from "./controllerDiagnostics";
+import { listControllerAuditEvents, readControllerLogs, withDeadline } from "./controllerRecords";
 import { createHashboardFirmware } from "./firmware";
 import {
   Api,
@@ -62,6 +66,9 @@ const ACTOR = "proto-os";
 const DEFAULT_DEVICE_ID = "ct1";
 const HASHBOARD_CONCURRENCY = 8;
 const HASHBOARD_TIMESERIES_CACHE_MS = 5 * 60_000;
+// A diagnostics poll that stalls past this is reported as unavailable, well
+// before the 15-second role observations it would refresh go stale.
+export const CONTROLLER_DIAGNOSTICS_TIMEOUT_MS = 8_000;
 const SERIES_METRICS: Record<ContainerSeriesField, TelemetryServiceQueryTimeSeriesParams["metric"]> = {
   hashrate: "TIME_SERIES_METRIC_HASHRATE",
   temperature: "TIME_SERIES_METRIC_TEMPERATURE",
@@ -113,6 +120,26 @@ const toWireModuleId = (value: string) => {
   return markerIndex === -1 ? value : value.slice(markerIndex + marker.length);
 };
 
+// The only codes the controller returns for container-control requests it rejects
+// before writing (not primary, unsupported backend, bad request). Any other failure
+// may have reached the PLC, so its outcome is unknown until readback.
+const BREAKER_REFUSAL_CODES = new Set<number>([Code.InvalidArgument, Code.FailedPrecondition, Code.Unimplemented]);
+
+const breakerWriteError = (error: unknown) => {
+  const failure = error as { status?: number; error?: { code?: number; message?: string } } | undefined;
+  // Leave authentication failures for the caller's token refresh and retry.
+  if (failure?.status === 401 || failure?.error?.code === Code.Unauthenticated) return error;
+  const code = failure?.error?.code;
+  if (code !== undefined && BREAKER_REFUSAL_CODES.has(code)) {
+    const detail = failure?.error?.message?.trim();
+    return Object.assign(
+      new Error(`The controller refused the request${detail ? `: ${detail}` : ""}. The breaker was not changed.`),
+      { cause: error },
+    );
+  }
+  return Object.assign(new Error(BREAKER_OUTCOME_UNKNOWN), { cause: error });
+};
+
 const toWireDeviceId = (value: string) => (value.startsWith("device:") ? value.slice("device:".length) : value);
 
 const toWirePerformanceMode = (value: MiningTargetUpdate["performanceMode"]) =>
@@ -131,6 +158,8 @@ const toWirePllAlgorithm = (value: string | undefined): V2PLLAlgorithm | undefin
 
 export class MdkV2Adapter implements MinerAdapter {
   readonly hashboardFirmware;
+  readonly getControllerLogs?: MinerAdapter["getControllerLogs"];
+  readonly listAuditEvents?: MinerAdapter["listAuditEvents"];
   private deviceId: string | undefined;
   private readonly hashboardTimeSeriesCache = new Map<string, { expiresAtMs: number; data: QueryTimeSeriesResponse }>();
 
@@ -140,6 +169,16 @@ export class MdkV2Adapter implements MinerAdapter {
   ) {
     this.deviceId = match.deviceId;
     this.hashboardFirmware = createHashboardFirmware(client, (params) => this.decorate(params));
+    // Only the Connect client can bound the following log stream. The REST
+    // client is generated with ListAuditEvents too, but its one caller, Fleet's
+    // miner proxy, forwards neither route, so both reads follow the log reader.
+    const { systemServiceReadLogTail: readLogTail, systemServiceListAuditEvents: listAuditEvents } = client;
+    if (readLogTail && listAuditEvents) {
+      this.getControllerLogs = (query, params) =>
+        readControllerLogs(readLogTail, client.systemServiceGetSystemStatus, query, this.decorate(params));
+      this.listAuditEvents = (query, params) =>
+        listControllerAuditEvents(listAuditEvents, query, this.decorate(params));
+    }
   }
 
   /**
@@ -185,6 +224,23 @@ export class MdkV2Adapter implements MinerAdapter {
   async getSystemStatus(params: AdapterRequestOptions = {}) {
     const response = await this.client.systemServiceGetSystemStatus(this.decorate(params));
     return toCanonicalLifecycle(response.data);
+  }
+
+  async getControllerDiagnostics(params: AdapterRequestOptions = {}) {
+    const decorated = this.decorate(params);
+    // Each read has its own deadline, so one stalled source cannot hide the
+    // other's answer or hold up the next poll.
+    const [ha, status] = await Promise.allSettled([
+      withDeadline(decorated, CONTROLLER_DIAGNOSTICS_TIMEOUT_MS, (options) =>
+        this.client.systemServiceGetHaStatus(options).then(({ data }) => data),
+      ),
+      withDeadline(decorated, CONTROLLER_DIAGNOSTICS_TIMEOUT_MS, (options) =>
+        this.client.systemServiceGetSystemStatus(options).then(({ data }) => data),
+      ),
+    ]);
+    // With neither source there is nothing to diagnose; surface the failure.
+    if (ha.status === "rejected" && status.status === "rejected") throw status.reason;
+    return toCanonicalControllerDiagnostics(ha, status);
   }
 
   async getSystemTag(params: AdapterRequestOptions = {}) {
@@ -335,6 +391,9 @@ export class MdkV2Adapter implements MinerAdapter {
           },
         ];
       }),
+      ...(data.mainCircuitBreakerSupported === true
+        ? { mainCircuitBreaker: { closed: data.mainCircuitBreakerClosed } }
+        : {}),
     };
   }
 
@@ -452,6 +511,23 @@ export class MdkV2Adapter implements MinerAdapter {
     if (!Number.isFinite(value) || !Number.isFinite(Math.fround(value))) throw new Error("Enter a finite number");
     const { data } = await this.client.powerServiceSetContainerSetpoint({ name }, { value }, this.decorate(params));
     this.checkContainerWriteConfirmation(data.confirmation);
+  }
+
+  async setMainCircuitBreakerState(closed: boolean, params: AdapterRequestOptions = {}) {
+    let readback: boolean;
+    try {
+      const { data } = await this.client.powerServiceSetMainCircuitBreakerState({ closed }, this.decorate(params));
+      // A plain proto3 bool: JSON gateways omit it when false.
+      readback = data.closed ?? false;
+    } catch (error) {
+      if (params.signal?.aborted) throw error;
+      throw breakerWriteError(error);
+    }
+    if (readback !== closed) {
+      throw new Error(
+        `The controller reports the breaker ${readback ? "closed" : "open"}. Check the current state before trying again.`,
+      );
+    }
   }
 
   private checkContainerWriteConfirmation(confirmation?: { state?: V2PlantWriteConfirmationState }) {

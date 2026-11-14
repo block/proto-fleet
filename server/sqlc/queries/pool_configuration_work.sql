@@ -36,8 +36,8 @@ WHERE t.state='pending' AND a.retired_at IS NULL AND (a.operation_id=t.operation
 ORDER BY t.updated_at,t.operation_id,t.target_kind,t.target_id LIMIT 100;
 
 -- name: GetPoolConfigurationWork :one
-SELECT t.*,a.device_id,o.configuration_id,o.revision_id,o.actor_id,o.kind AS operation_kind,c.account_id,
- COALESCE(account.account_id,'')::text AS external_account_id,u.username,u.user_id,
+SELECT t.*,a.device_id,o.configuration_id,o.revision_id,o.actor_id,o.kind AS operation_kind,o.lifecycle_id,c.account_id,
+ COALESCE(account.account_id,'')::text AS external_account_id,COALESCE(u.username,'')::text AS username,COALESCE(u.user_id,'')::text AS user_id,
  r.slots
 FROM pool_configuration_operation_target t
 JOIN pool_configuration_operation o ON o.operation_id=t.operation_id AND o.organization_id=t.organization_id
@@ -45,7 +45,7 @@ JOIN pool_configuration c ON c.configuration_id=o.configuration_id AND c.organiz
 JOIN pool_configuration_revision r ON r.revision_id=o.revision_id AND r.configuration_id=o.configuration_id AND r.organization_id=o.organization_id
 JOIN pool_configuration_assignment a ON a.organization_id=t.organization_id AND a.target_kind=t.target_kind AND a.target_id=t.target_id
 LEFT JOIN hosted_account account ON account.id=c.account_id AND account.organization_id=c.organization_id
-JOIN "user" u ON u.id=o.actor_id
+LEFT JOIN "user" u ON u.id=o.actor_id
 WHERE t.organization_id=$1 AND t.operation_id=$2 AND t.target_kind=$3 AND t.target_id=$4
  AND (a.operation_id=t.operation_id OR o.kind IN ('clear','unassign')) AND a.version=t.assignment_version AND a.retired_at IS NULL;
 

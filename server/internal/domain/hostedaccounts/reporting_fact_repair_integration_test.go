@@ -46,6 +46,10 @@ func TestReportingFactDeletionRepairsDriftInBoundedBatches(t *testing.T) {
 			case "missing_container":
 				_, err = f.db.ExecContext(t.Context(), `DELETE FROM device_pairing WHERE device_id=$1`, device)
 				require.NoError(t, err)
+				// Remove the fixture's undispatched pairing event before deliberately
+				// hard-deleting the container to simulate missing reporting evidence.
+				_, err = f.db.ExecContext(t.Context(), `DELETE FROM pool_lifecycle_transition WHERE device_id=$1 AND reason='pairing' AND state='pending' AND physical_attempt_id IS NULL AND operation_id IS NULL`, device)
+				require.NoError(t, err)
 				_, err = f.db.ExecContext(t.Context(), `DELETE FROM device WHERE id=$1`, device)
 			case "account_policy":
 				err = f.svc.ConfigureSites(t.Context(), f.user, f.org, account.AccountID, true, []int64{other})

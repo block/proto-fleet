@@ -253,6 +253,9 @@ func (c *Checker) GetRemoval(ctx context.Context, p poolconfigurations.Principal
 }
 
 func (c *Checker) ValidateRemoval(ctx context.Context, q sqlc.Querier, p poolconfigurations.Principal, row sqlc.GetPoolRemovalRow, allowOwn bool) error {
+	if p.ActorID == 0 {
+		return c.validateLifecycleRemoval(ctx, q, p, row)
+	}
 	allowed := uuid.Nil
 	if allowOwn {
 		allowed = row.RemovalID
@@ -353,6 +356,9 @@ func (c *Checker) FinishRemoval(ctx context.Context, q sqlc.Querier, p poolconfi
 	if n != 1 {
 		return fleeterror.NewFailedPreconditionError("removal changed")
 	}
+	if p.ActorID == 0 {
+		return poolconfigurations.RecordRemovalAudit(ctx, q, p, row.RemovalID.String(), "", false)
+	}
 	if err := poolconfigurations.NewRepository(c.secrets).RetireAssignment(ctx, q, p.Scope, target, row.AssignmentVersion); err != nil {
 		return err
 	}
@@ -420,9 +426,22 @@ func (c *Checker) clearRemoval(ctx context.Context, p poolconfigurations.Princip
 		if dispatched && !devicewrite.IsNotDispatched(err) {
 			state = removalUncertain
 		}
+		if p.ActorID == 0 && !dispatched {
+			// Persist positive no-dispatch evidence. Failed verification after
+			// an ordered write can also have an empty physical receipt.
+			resultCode = "clear_not_dispatched"
+		}
 		finishCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 		defer cancel()
-		_, saveErr := sqlc.New(c.conn).FinishPoolRemoval(finishCtx, sqlc.FinishPoolRemovalParams{RemovalID: row.RemovalID, State: state, ResultCode: resultCode})
+		saveErr := db.WithTransactionNoResult(finishCtx, c.conn, func(q sqlc.Querier) error {
+			if _, err := q.FinishPoolRemoval(finishCtx, sqlc.FinishPoolRemovalParams{RemovalID: row.RemovalID, State: state, ResultCode: resultCode}); err != nil {
+				return err
+			}
+			if p.ActorID == 0 && !dispatched {
+				return q.RetryUndispatchedPoolLifecycleRemoval(finishCtx, row.RemovalID)
+			}
+			return nil
+		})
 		if saveErr != nil {
 			return poolconfigurations.Removal{}, saveErr
 		}

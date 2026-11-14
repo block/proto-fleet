@@ -1919,10 +1919,12 @@ type FrigateUpdatePackage struct {
 }
 
 type Hashboard struct {
-	ID          int64
-	OrgID       int64
-	FirstSeenAt time.Time
-	LastSeenAt  time.Time
+	ID             int64
+	OrgID          int64
+	FirstSeenAt    time.Time
+	LastSeenAt     time.Time
+	WorkerName     sql.NullString
+	WorkerNameMode string
 }
 
 type HashboardDiagnosticObservation struct {
@@ -2355,46 +2357,88 @@ type HostedAccountReportingCaptureStatus struct {
 	DeviceID                      int64
 	DeviceIdentifier              string
 	AllocationStartedAt           time.Time
+	AllocationEndedAt             sql.NullTime
 	HoldStartedAt                 time.Time
+	ClosingThrough                time.Time
+	ClosedThrough                 time.Time
+	CloserLastSuccessAt           sql.NullTime
+	CloserLagSeconds              float64
 	SourceID                      int16
 	Metric                        int16
-	LastEventID                   sql.NullInt64
-	LastEventOperation            sql.NullString
-	LastEventCapturedAt           sql.NullTime
-	LastObservationEventID        sql.NullInt64
+	HasObservation                bool
+	LastObservationBucket         sql.NullTime
+	LastObservationRevision       sql.NullInt32
 	LastObservationCapturedAt     sql.NullTime
-	LastObservationValue          sql.NullFloat64
-	LastObservationComplete       sql.NullBool
-	LastObservationOriginKey      sql.NullString
-	LastObservationOriginTime     sql.NullTime
-	LastObservationCollectedAt    sql.NullTime
-	LastObservationSourceOldestAt sql.NullTime
 	LastObservationSourceNewestAt sql.NullTime
+	LastClosedBucket              sql.NullTime
+	LastClosedRevision            sql.NullInt32
+	LastClosedNoSourceData        sql.NullBool
+	MissingHours                  int32
+	GapHours                      int32
+	LastGapFromBucket             sql.NullTime
+	LastGapToBucket               sql.NullTime
+	LastGapReason                 sql.NullString
+	LastGapRecordedAt             sql.NullTime
 }
 
-type HostedAccountReportingEvidence struct {
-	EventID           int64
-	EpochStartedAt    time.Time
-	CapturedAt        time.Time
-	TransactionID     int64
-	Operation         string
-	Image             string
-	Time              time.Time
-	IntervalID        int64
-	Metric            int16
-	Value             sql.NullFloat64
-	Complete          sql.NullBool
-	SourceOldestAt    time.Time
-	SourceNewestAt    time.Time
-	SourceID          int16
-	OriginKey         string
-	OriginTime        time.Time
-	OriginCollectedAt time.Time
+type HostedAccountReportingHour struct {
+	IntervalID                int64
+	Bucket                    time.Time
+	Revision                  int32
+	CapturedAt                time.Time
+	CaptureReason             string
+	NoSourceData              bool
+	WindowStart               sql.NullTime
+	WindowEnd                 sql.NullTime
+	HashrateReportCount       int32
+	HashrateCount             int32
+	HashratePositiveCount     int32
+	HashrateSum               sql.NullFloat64
+	HashrateComplete          sql.NullBool
+	HashrateSourceOldestAt    sql.NullTime
+	HashrateSourceNewestAt    sql.NullTime
+	PowerReportCount          int32
+	PowerCount                int32
+	PowerSum                  sql.NullFloat64
+	PowerComplete             sql.NullBool
+	PowerSourceOldestAt       sql.NullTime
+	PowerSourceNewestAt       sql.NullTime
+	TemperatureReportCount    int32
+	TemperatureCount          int32
+	TemperatureSum            sql.NullFloat64
+	TemperatureLatestValue    sql.NullFloat64
+	TemperatureLatestAt       sql.NullTime
+	TemperatureSourceOldestAt sql.NullTime
+	TemperatureSourceNewestAt sql.NullTime
+	StateReportCount          int32
+	StateCount                int32
+	StateLatestValue          sql.NullFloat64
+	StateLatestAt             sql.NullTime
+	StateSourceOldestAt       sql.NullTime
+	StateSourceNewestAt       sql.NullTime
 }
 
-type HostedAccountReportingEvidenceEpoch struct {
-	Singleton bool
-	StartedAt time.Time
+type HostedAccountReportingHourControl struct {
+	Singleton      bool
+	HoldStartedAt  time.Time
+	ClosingThrough time.Time
+	ClosedThrough  time.Time
+	LastSuccessAt  sql.NullTime
+}
+
+type HostedAccountReportingHourGap struct {
+	GapID      int64
+	FromBucket time.Time
+	ToBucket   time.Time
+	Reason     string
+	RecordedAt time.Time
+}
+
+type HostedAccountReportingHourMarker struct {
+	MarkerID   int64
+	IntervalID int64
+	Bucket     time.Time
+	EnqueuedAt time.Time
 }
 
 type HostedAccountSite struct {
@@ -2437,6 +2481,85 @@ type HostedModuleMembership struct {
 	OrgID           int64
 	MembershipSince interface{}
 	BoardIds        interface{}
+}
+
+type HostedReport struct {
+	ID                  int64
+	ReportID            string
+	OrganizationID      int64
+	AccountID           int64
+	SeriesID            string
+	Number              int64
+	CorrectionOf        sql.NullInt64
+	CorrectionReason    string
+	Kind                string
+	PeriodStart         time.Time
+	PeriodEnd           time.Time
+	AsOf                time.Time
+	Timezone            string
+	Period              json.RawMessage
+	InputRevision       int64
+	Result              json.RawMessage
+	SiteIds             []int64
+	CreatedBy           int64
+	OwnerID             int64
+	Status              string
+	Revision            int64
+	IssuedAt            sql.NullTime
+	IssuedBy            sql.NullInt64
+	IncompleteException string
+	CreatedAt           time.Time
+	UpdatedAt           time.Time
+	EvidenceCutoff      sql.NullTime
+}
+
+type HostedReportArtifact struct {
+	ID               int64
+	ReportInternalID int64
+	Name             string
+	MediaType        string
+	Sha256           string
+	ByteCount        int64
+	ChunkCount       int64
+}
+
+type HostedReportArtifactChunk struct {
+	ArtifactID int64
+	Sequence   int64
+	Data       []byte
+}
+
+type HostedReportDelivery struct {
+	ID               int64
+	ReportInternalID int64
+	RequestKey       string
+	Channel          string
+	Status           string
+	SentAt           sql.NullTime
+	ReceivedAt       sql.NullTime
+	SourceRef        string
+	Evidence         string
+	FailureCategory  string
+	ActorID          int64
+	CreatedAt        time.Time
+}
+
+type HostedReportRequest struct {
+	ID               int64
+	RequestID        string
+	OrganizationID   int64
+	AccountID        int64
+	ReceivedAt       time.Time
+	SourceRef        string
+	Requester        string
+	Scope            string
+	OwnerID          int64
+	TargetAt         time.Time
+	Limitations      string
+	CommunicationRef string
+	DeliveryRef      string
+	ActorID          int64
+	CreatedAt        time.Time
 }
 
 type HostedReportingAuthority struct {
@@ -2698,20 +2821,22 @@ type PoolConfiguration struct {
 	CurrentRevisionID sql.NullString
 	CreatedAt         time.Time
 	UpdatedAt         time.Time
+	IsDefault         bool
 }
 
 type PoolConfigurationAssignment struct {
-	OrganizationID  int64
-	TargetKind      string
-	TargetID        int64
-	DeviceID        int64
-	ConfigurationID string
-	RevisionID      string
-	Version         int64
-	OperationID     sql.NullString
-	RetiredAt       sql.NullTime
-	UpdatedAt       time.Time
-	AdoptedAt       sql.NullTime
+	OrganizationID      int64
+	TargetKind          string
+	TargetID            int64
+	DeviceID            int64
+	ConfigurationID     string
+	RevisionID          string
+	Version             int64
+	OperationID         sql.NullString
+	RetiredAt           sql.NullTime
+	UpdatedAt           time.Time
+	AdoptedAt           sql.NullTime
+	InheritedWorkerName sql.NullString
 }
 
 type PoolConfigurationBoardIntent struct {
@@ -2772,6 +2897,7 @@ type PoolConfigurationOperation struct {
 	ActorID         int64
 	CreatedAt       time.Time
 	Kind            string
+	LifecycleID     uuid.NullUUID
 }
 
 type PoolConfigurationOperationTarget struct {
@@ -2822,6 +2948,59 @@ type PoolConfigurationRevision struct {
 	Number          int64
 	Slots           json.RawMessage
 	CreatedAt       time.Time
+}
+
+type PoolLifecycleRemoval struct {
+	RemovalID          uuid.UUID
+	OrganizationID     int64
+	AccountID          int64
+	ActorID            int64
+	TargetKind         string
+	TargetID           int64
+	DeviceID           int64
+	ConfigurationID    string
+	RevisionID         string
+	AssignmentVersion  int64
+	ReviewedBinding    string
+	VerificationState  string
+	ClearSupported     bool
+	KeepDeviceSettings bool
+	State              string
+	ResultCode         string
+	PhysicalAttemptID  uuid.NullUUID
+	CreatedAt          time.Time
+	UpdatedAt          time.Time
+	AttemptStatus      string
+}
+
+type PoolLifecycleTransition struct {
+	TransitionID       uuid.UUID
+	OrganizationID     int64
+	DeviceID           int64
+	AssetKind          int32
+	AssetID            int64
+	OwnerAccountID     int64
+	AllocationRevision int64
+	PairingDefaults    json.RawMessage
+	Reason             string
+	PairingCycleID     uuid.NullUUID
+	ConfigurationID    sql.NullString
+	RevisionID         sql.NullString
+	TargetKind         string
+	TargetID           int64
+	ReviewedBinding    string
+	State              string
+	ResultCode         string
+	OperationID        sql.NullString
+	PhysicalAttemptID  uuid.NullUUID
+	CreatedAt          time.Time
+	UpdatedAt          time.Time
+	NextAttemptAt      time.Time
+}
+
+type PoolPairingCycle struct {
+	DeviceID int64
+	CycleID  uuid.UUID
 }
 
 type QueueMessage struct {
@@ -3139,6 +3318,35 @@ type Site struct {
 	Timezone                     sql.NullString
 	Slug                         string
 	InfrastructureControlSubnets string
+}
+
+type TelemetryFreshness struct {
+	DeviceID         int64
+	ObservedAt       sql.NullTime
+	SourceNodeID     int64
+	IngestedAt       time.Time
+	ObservationKnown bool
+}
+
+type TelemetryFreshnessExclusion struct {
+	DeviceID  int64
+	Reason    string
+	CreatedAt time.Time
+	ExpiresAt time.Time
+}
+
+type TelemetryFreshnessSummary struct {
+	OrgID            int64
+	SiteID           int64
+	SourceNodeID     int64
+	DeviceClass      int32
+	ExpectedCount    int64
+	FreshCount       int64
+	StaleCount       int64
+	UnknownCount     int64
+	ExcludedCount    int64
+	GraceCount       int64
+	OldestAgeSeconds float64
 }
 
 type TelemetrySummaryProgress struct {

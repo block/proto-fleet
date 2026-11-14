@@ -1,4 +1,6 @@
 import type { ContainerHistoryRequest, ContainerHistoryResult } from "./containerHistory";
+import type { ControllerDiagnosticsResult } from "./controllerDiagnostics";
+import type { AuditEventPage, AuditEventQuery, ControllerLogQuery, ControllerLogSnapshot } from "./controllerLogs";
 import type { HashboardFirmware } from "./hashboardFirmware";
 import type { ChangePasswordRequest } from "./mdkV1";
 import type { PoolHistoryRequest, PoolHistoryResult, PoolRecordedShares } from "./poolHistory";
@@ -64,6 +66,11 @@ export interface ContainerSettings {
   supported: boolean;
   controls: Array<{ name: string; description?: string; enabled?: boolean }>;
   setpoints: Array<{ name: string; description?: string; value?: number; unit?: string; min?: number; max?: number }>;
+  /**
+   * Present only when the controller advertises the dedicated breaker command, which it can
+   * do without ordinary plant controls. `closed` is PLC readback, unset when unknown.
+   */
+  mainCircuitBreaker?: { closed?: boolean };
 }
 
 export interface SavedPoolSettings extends PoolFormInput {
@@ -193,6 +200,8 @@ export interface MinerAdapter {
     onboarded?: boolean;
     passwordSet?: boolean;
   }>;
+  /** Controller identities, roles, reachability and HA observations. Single-controller adapters omit this capability. */
+  getControllerDiagnostics?(params?: AdapterRequestOptions): Promise<ControllerDiagnosticsResult>;
   getSystemTag(params?: AdapterRequestOptions): Promise<string>;
   setSystemTag(value: string, params?: AdapterRequestOptions): Promise<void>;
   getMiningStatus(params?: AdapterRequestOptions): Promise<OperationalStatus>;
@@ -226,6 +235,8 @@ export interface MinerAdapter {
   clearModuleFixedVoltage?(moduleId: string, params?: AdapterRequestOptions): Promise<void>;
   setContainerControl?(name: string, enabled: boolean, params?: AdapterRequestOptions): Promise<void>;
   setContainerSetpoint?(name: string, value: number, params?: AdapterRequestOptions): Promise<void>;
+  /** Resolves only when controller readback matches the requested state. */
+  setMainCircuitBreakerState?(closed: boolean, params?: AdapterRequestOptions): Promise<void>;
   startModuleRunIn?(
     moduleId: string,
     request: ModuleRunInRequest,
@@ -243,6 +254,10 @@ export interface MinerAdapter {
     query: { lines: number; source?: SystemLogSource },
     params?: AdapterRequestOptions,
   ): Promise<SystemLogs | undefined>;
+  /** Bounded controller log tail. Adapters without structured controller logs omit this capability. */
+  getControllerLogs?(query: ControllerLogQuery, params?: AdapterRequestOptions): Promise<ControllerLogSnapshot>;
+  /** Controller audit trail, newest first. Adapters without one omit this capability. */
+  listAuditEvents?(query: AuditEventQuery, params?: AdapterRequestOptions): Promise<AuditEventPage>;
   getCurrentTelemetry(levels?: TelemetryLevel[], params?: AdapterRequestOptions): Promise<TelemetrySnapshot>;
   getTimeSeries(request: TimeSeriesQuery, params?: AdapterRequestOptions): Promise<TelemetryState>;
   /** Container and plant histories without per-hashboard requests. Unsupported adapters omit this capability. */

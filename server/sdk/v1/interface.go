@@ -660,10 +660,13 @@ const (
 	CapabilityCoolingModeImmerse = "cooling_mode_immerse" // Immersion cooling mode support
 	CapabilityPoolClear          = "pool_clear"           // Explicit whole-device empty-stack support with complete stored readback.
 	CapabilityPoolConfig         = "pool_config"          // Pool configuration support
-	CapabilityPoolPriority       = "pool_priority"        // Pool priority support
-	CapabilityNativeStratumV2    = "native_stratum_v2"    // Firmware speaks Stratum V2 natively
-	CapabilityLogsDownload       = "logs_download"        // Device logs download support
-	CapabilityLogLevels          = "log_levels"           // Device logs include a per-line log-level field
+	// CapabilityWorkerNameDefaultNone opts out of the SDK default MAC suffix.
+	// Unset worker names use the full MAC address unless this is true.
+	CapabilityWorkerNameDefaultNone = "worker_name_default_none"
+	CapabilityPoolPriority          = "pool_priority"     // Pool priority support
+	CapabilityNativeStratumV2       = "native_stratum_v2" // Firmware speaks Stratum V2 natively
+	CapabilityLogsDownload          = "logs_download"     // Device logs download support
+	CapabilityLogLevels             = "log_levels"        // Device logs include a per-line log-level field
 	//#nosec G101 -- Capability constant name, not actual credentials
 	CapabilityUpdateMinerPassword = "update_miner_password" // Update miner web UI password support
 

@@ -7,7 +7,15 @@ import { toCanonicalContainer } from "@/protoOS/api/adapters/mdkV2/normalize";
 import MinerHostingContext from "@/protoOS/contexts/MinerHostingContext/MinerHostingContext";
 import useMinerStore from "@/protoOS/store/useMinerStore";
 
-function SystemPreview({ unsupported = false, overview = false }: { unsupported?: boolean; overview?: boolean }) {
+function SystemPreview({
+  unsupported = false,
+  overview = false,
+  breaker = false,
+}: {
+  unsupported?: boolean;
+  overview?: boolean;
+  breaker?: boolean;
+}) {
   const preview = useMemo(() => {
     const map = { containerMap: { tanks: Array.from({ length: 6 }, (_, index) => ({ id: index + 1 })) } };
     const controls = [
@@ -20,6 +28,7 @@ function SystemPreview({ unsupported = false, overview = false }: { unsupported?
       { name: "dry_cooler_auto_temp_c", value: 32, unit: "C", min: 20, max: 55, boundsKnown: true },
       { name: "dry_cooler_manual_speed_percent", value: 80, unit: "%", min: 0, max: 100, boundsKnown: true },
     ];
+    const mainCircuitBreaker = { closed: true };
     const health = () => ({
       controls,
       setpoints,
@@ -49,7 +58,19 @@ function SystemPreview({ unsupported = false, overview = false }: { unsupported?
       hashboardServiceGetContainerMap: async () => ({ data: map }),
       miningServiceGetMiningStatus: async () => ({ data: {} }),
       telemetryServiceGetContainerHealth: async () => ({ data: health() }),
-      powerServiceGetContainerControls: async () => ({ data: { supported: !unsupported, controls, setpoints } }),
+      powerServiceGetContainerControls: async () => ({
+        data: {
+          supported: !unsupported,
+          controls: unsupported ? [] : controls,
+          setpoints: unsupported ? [] : setpoints,
+          mainCircuitBreakerSupported: breaker,
+          mainCircuitBreakerClosed: breaker ? mainCircuitBreaker.closed : undefined,
+        },
+      }),
+      powerServiceSetMainCircuitBreakerState: async ({ closed }: { closed: boolean }) => {
+        mainCircuitBreaker.closed = closed;
+        return { data: { closed, changed: true } };
+      },
       powerServiceSetContainerControl: async ({ name }: { name: string }, { enabled }: { enabled: boolean }) => {
         const control = controls.find((item) => item.name === name)!;
         control.enabled = enabled;
@@ -65,7 +86,7 @@ function SystemPreview({ unsupported = false, overview = false }: { unsupported?
       adapter: new MdkV2Adapter(client as unknown as MdkV2Client, { deviceId: "ct1-story" }),
       fixture: toCanonicalContainer(map, {}, health(), "ct1-story"),
     };
-  }, [unsupported]);
+  }, [unsupported, breaker]);
   useEffect(() => {
     const store = useMinerStore.getState();
     store.resetDeviceData();
@@ -102,5 +123,7 @@ function SystemPreview({ unsupported = false, overview = false }: { unsupported?
 
 export const Overview = () => <SystemPreview overview />;
 export const Interactive = () => <SystemPreview />;
+export const WithMainCircuitBreaker = () => <SystemPreview breaker />;
 export const UnsupportedControls = () => <SystemPreview unsupported />;
+export const BreakerOnly = () => <SystemPreview unsupported breaker />;
 export default { title: "Proto OS/Containers/Home/Live system", component: ContainerSystem };

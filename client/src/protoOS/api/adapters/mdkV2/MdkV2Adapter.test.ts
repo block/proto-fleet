@@ -1,5 +1,9 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
+import { Code } from "@connectrpc/connect";
+import { BREAKER_OUTCOME_UNKNOWN } from "../breakerMessages";
 
+import { LOG_TAIL_DEADLINE_MS } from "./connectClient";
+import { AUDIT_READ_TIMEOUT_MS } from "./controllerRecords";
 import {
   type V2GetContainerMapResponse,
   V2HashboardErrorCause,
@@ -12,6 +16,7 @@ import {
 } from "./generated/generatedApi";
 import { MdkV2Adapter, type MdkV2Client } from "./MdkV2Adapter";
 import { ROOT_MODULE_KEY } from "@/protoOS/store/contract";
+import { isAbortError } from "@/shared/utils/abort";
 
 const client = (overrides: Partial<MdkV2Client> = {}) =>
   ({
@@ -517,6 +522,76 @@ describe("MdkV2Adapter", () => {
   });
 
   test.each([
+    [{ mainCircuitBreakerSupported: true, mainCircuitBreakerClosed: false }, { closed: false }],
+    [{ mainCircuitBreakerSupported: true }, { closed: undefined }],
+    [{ mainCircuitBreakerSupported: false, mainCircuitBreakerClosed: true }, undefined],
+    [{ mainCircuitBreakerClosed: true }, undefined],
+  ])("reads the dedicated breaker only when advertised: %j", async (data, expected) => {
+    const adapter = new MdkV2Adapter(
+      client({ powerServiceGetContainerControls: vi.fn().mockResolvedValue({ data: { supported: false, ...data } }) }),
+    );
+    const settings = await adapter.getContainerSettings();
+    expect(settings.mainCircuitBreaker).toEqual(expected);
+    expect(settings.controls).toEqual([]);
+  });
+
+  test("writes the dedicated breaker and accepts matching readback", async () => {
+    const setBreaker = vi.fn().mockResolvedValue({ data: { closed: false, changed: true } });
+    const adapter = new MdkV2Adapter(client({ powerServiceSetMainCircuitBreakerState: setBreaker }));
+    await adapter.setMainCircuitBreakerState(false);
+    expect(setBreaker).toHaveBeenCalledWith({ closed: false }, { headers: { "X-Frigate-Actor": "proto-os" } });
+    // REST omits a false proto3 bool.
+    setBreaker.mockResolvedValueOnce({ data: {} });
+    await adapter.setMainCircuitBreakerState(false);
+    // The omitted bool means open, even when the request was to close.
+    setBreaker.mockResolvedValueOnce({ data: {} });
+    await expect(adapter.setMainCircuitBreakerState(true)).rejects.toThrow("reports the breaker open");
+  });
+
+  test("reports breaker readback that differs from the request", async () => {
+    const adapter = new MdkV2Adapter(
+      client({ powerServiceSetMainCircuitBreakerState: vi.fn().mockResolvedValue({ data: { closed: true } }) }),
+    );
+    await expect(adapter.setMainCircuitBreakerState(false)).rejects.toThrow("reports the breaker closed");
+  });
+
+  const refusedCodes = new Set<number>([Code.InvalidArgument, Code.FailedPrecondition, Code.Unimplemented]);
+  test.each(
+    Object.values(Code)
+      .filter((code): code is Code => typeof code === "number" && code !== Code.Unauthenticated)
+      .map((code) => [Code[code], code] as const),
+  )("classifies breaker failure code %s as refusal or unknown outcome", async (_name, code) => {
+    const detail = "this node is not the container control primary";
+    const adapter = new MdkV2Adapter(
+      client({
+        powerServiceSetMainCircuitBreakerState: vi
+          .fn()
+          .mockRejectedValue({ status: 400, error: { code, message: detail } }),
+      }),
+    );
+    await expect(adapter.setMainCircuitBreakerState(true)).rejects.toThrow(
+      refusedCodes.has(code)
+        ? `The controller refused the request: ${detail}. The breaker was not changed.`
+        : BREAKER_OUTCOME_UNKNOWN,
+    );
+  });
+
+  test("treats a breaker network failure as an unknown outcome", async () => {
+    const adapter = new MdkV2Adapter(
+      client({ powerServiceSetMainCircuitBreakerState: vi.fn().mockRejectedValue(new TypeError("Failed to fetch")) }),
+    );
+    await expect(adapter.setMainCircuitBreakerState(true)).rejects.toThrow(BREAKER_OUTCOME_UNKNOWN);
+  });
+
+  test("leaves breaker authentication failures for token refresh", async () => {
+    const unauthenticated = { status: 401, error: { code: 16, message: "token expired" } };
+    const adapter = new MdkV2Adapter(
+      client({ powerServiceSetMainCircuitBreakerState: vi.fn().mockRejectedValue(unauthenticated) }),
+    );
+    await expect(adapter.setMainCircuitBreakerState(true)).rejects.toBe(unauthenticated);
+  });
+
+  test.each([
     V2PlantWriteConfirmationState.PLANT_WRITE_CONFIRMATION_STATE_MISMATCH,
     V2PlantWriteConfirmationState.PLANT_WRITE_CONFIRMATION_STATE_UNAVAILABLE,
     V2PlantWriteConfirmationState.PLANT_WRITE_CONFIRMATION_STATE_UNSPECIFIED,
@@ -972,5 +1047,172 @@ describe("MdkV2Adapter", () => {
       }),
     ).rejects.toThrow("require explicit zero-based indexes");
     expect(queryTimeSeries).not.toHaveBeenCalled();
+  });
+
+  describe("controller logs and audit trail", () => {
+    test("are only offered when the client can bound the log stream", () => {
+      const adapter = new MdkV2Adapter(client({ systemServiceListAuditEvents: vi.fn() }));
+      expect(adapter.getControllerLogs).toBeUndefined();
+      expect(adapter.listAuditEvents).toBeUndefined();
+    });
+
+    test("reads a log tail with controller identity, attribution and coverage", async () => {
+      const readLogTail = vi.fn().mockResolvedValue({
+        entries: [
+          { timestamp: "2026-11-13T10:00:00Z", level: "LOG_LEVEL_WARNING", component: "pool", message: "stale job" },
+          { timestamp: "", level: "LOG_LEVEL_ERROR", component: "", message: "no time" },
+        ],
+      });
+      const adapter = new MdkV2Adapter(
+        client({
+          systemServiceReadLogTail: readLogTail,
+          systemServiceListAuditEvents: vi.fn(),
+          systemServiceGetSystemStatus: vi.fn().mockResolvedValue({ data: { status: { serverId: "ct1-a" } } }),
+        }),
+      );
+
+      const snapshot = await adapter.getControllerLogs!({ limit: 2, minSeverity: "warn", component: "pool" });
+
+      expect(readLogTail).toHaveBeenCalledWith(
+        { tail: 2, level: "LOG_LEVEL_WARNING", component: "pool" },
+        { headers: { "X-Frigate-Actor": "proto-os" } },
+      );
+      expect(snapshot).toMatchObject({
+        entries: [
+          { timestamp: "2026-11-13T10:00:00Z", severity: "warn", component: "pool", message: "stale job" },
+          { timestamp: undefined, severity: "error", component: "", message: "no time" },
+        ],
+        limit: 2,
+        coverage: { state: "limit-reached" },
+        controllerId: "ct1-a",
+      });
+    });
+
+    test("marks an interrupted tail and still returns logs when identity is unavailable", async () => {
+      const adapter = new MdkV2Adapter(
+        client({
+          systemServiceReadLogTail: vi.fn().mockResolvedValue({
+            entries: [{ level: "LOG_LEVEL_INFO", component: "power", message: "ok" }],
+            interruption: "log stream reset by controller",
+          }),
+          systemServiceListAuditEvents: vi.fn(),
+          systemServiceGetSystemStatus: vi.fn().mockRejectedValue(new Error("status unavailable")),
+        }),
+      );
+
+      const snapshot = await adapter.getControllerLogs!({ limit: 1000 });
+
+      expect(snapshot.coverage).toEqual({ state: "interrupted", reason: "log stream reset by controller" });
+      expect(snapshot.controllerId).toBeUndefined();
+      expect(snapshot.entries).toHaveLength(1);
+    });
+
+    test("returns logs without waiting on a stalled identity lookup, and reports a silent controller", async () => {
+      vi.useFakeTimers();
+      try {
+        const adapter = new MdkV2Adapter(
+          client({
+            systemServiceReadLogTail: vi.fn().mockResolvedValue({ entries: [], noResponse: true }),
+            systemServiceListAuditEvents: vi.fn(),
+            systemServiceGetSystemStatus: vi.fn(
+              (params?: { signal?: AbortSignal | null }) =>
+                new Promise<never>((_, reject) =>
+                  params?.signal?.addEventListener("abort", () => reject(params.signal?.reason)),
+                ),
+            ),
+          }),
+        );
+
+        const pending = adapter.getControllerLogs!({ limit: 1000 });
+        await vi.advanceTimersByTimeAsync(LOG_TAIL_DEADLINE_MS);
+        const snapshot = await pending;
+
+        expect(snapshot.coverage).toEqual({ state: "no-response" });
+        expect(snapshot.controllerId).toBeUndefined();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    test("fails an audit read the controller never answers instead of waiting forever", async () => {
+      vi.useFakeTimers();
+      try {
+        const adapter = new MdkV2Adapter(
+          client({
+            systemServiceReadLogTail: vi.fn(),
+            systemServiceListAuditEvents: vi.fn(
+              (_query: unknown, params?: { signal?: AbortSignal | null }) =>
+                new Promise<never>((_, reject) =>
+                  params?.signal?.addEventListener("abort", () => reject(params.signal?.reason)),
+                ),
+            ),
+          }),
+        );
+
+        const pending = adapter.listAuditEvents!({
+          start: "2026-11-12T10:00:00Z",
+          end: "2026-11-13T10:00:00Z",
+          limit: 1,
+        });
+        pending.catch(() => undefined);
+        await vi.advanceTimersByTimeAsync(AUDIT_READ_TIMEOUT_MS);
+
+        await expect(pending).rejects.toThrow("The controller did not respond within 10 seconds.");
+        await expect(pending).rejects.not.toSatisfy(isAbortError);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    test("lists audit events newest first with attribution and a full-page marker", async () => {
+      const listAuditEvents = vi.fn().mockResolvedValue({
+        data: {
+          events: [
+            {
+              id: "7",
+              time: "2026-11-13T10:00:00Z",
+              actor: "operator@bridge",
+              source: "rest:10.0.0.2:443",
+              node: "ct1-a",
+              action: "SetBreaker",
+              target: "breaker-1",
+              result: "error",
+              error: "interlock",
+              detailsJson: '{"state":"open"}',
+            },
+          ],
+        },
+      });
+      const adapter = new MdkV2Adapter(
+        client({ systemServiceReadLogTail: vi.fn(), systemServiceListAuditEvents: listAuditEvents }),
+      );
+
+      const page = await adapter.listAuditEvents!({
+        start: "2026-11-12T10:00:00Z",
+        end: "2026-11-13T10:00:00Z",
+        limit: 1,
+        result: "error",
+      });
+
+      expect(listAuditEvents).toHaveBeenCalledWith(
+        { "range.start": "2026-11-12T10:00:00Z", "range.end": "2026-11-13T10:00:00Z", limit: 1, result: "error" },
+        expect.objectContaining({ headers: { "X-Frigate-Actor": "proto-os" }, signal: expect.any(AbortSignal) }),
+      );
+      expect(page).toMatchObject({
+        events: [
+          {
+            id: "7",
+            actor: "operator@bridge",
+            source: "rest:10.0.0.2:443",
+            node: "ct1-a",
+            result: "error",
+            error: "interlock",
+            details: '{"state":"open"}',
+          },
+        ],
+        limit: 1,
+        limitReached: true,
+      });
+    });
   });
 });

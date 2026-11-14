@@ -128,6 +128,28 @@ Board identifiers, `pdu-1` through `pdu-6`, `dry-cooler-fan-1` through
 corresponding metrics. Unknown components are rejected. Startup backfill is
 synthetic; runtime history is not persisted across restarts.
 
+**Logs and audit trail.** `SystemService/GetLogs` and
+`SystemService/ListAuditEvents` are available over Connect and native gRPC
+only, with no REST route. They follow Frigate's bounds:
+
+- `GetLogs` sends the newest matching entries from a 1000-entry in-memory ring,
+  then follows new entries every two seconds until the client disconnects.
+  `tail` defaults to 200, with a maximum of 1000. An unspecified level means
+  info. The ring starts full with 45 minutes of deterministic entries, so the
+  oldest retained entry moves forward as new entries arrive.
+- `ListAuditEvents` returns deterministic events every 47 minutes over the last
+  eight days, newest first. Filters are exact match. `range` defaults to the
+  last 24 hours and is rejected above seven days. `limit` defaults to 200, with
+  a maximum of 1000.
+
+Set `CT1_LOG_SCENARIO` to exercise failure handling:
+
+| Value | Behavior |
+| --- | --- |
+| `logs-unavailable` | `GetLogs` fails with Unavailable "process log stream is not configured" |
+| `logs-interrupted` | `GetLogs` fails with Unavailable halfway through the retained tail |
+| `audit-unavailable` | `ListAuditEvents` fails with Unavailable "audit log requires a configured database" |
+
 Share-history range validation follows Frigate's
 [`validateIndefiniteHistoryRange`](https://github.com/btc-mining/frigate/blob/5225b5fa64f8d81d95329dcd5bbd6b9c70005198/pkg/api/telemetry_service.go):
 only one-hour or one-day buckets with aligned start/end timestamps are accepted.
@@ -277,6 +299,7 @@ partial failures. Synthetic test images are not signed production firmware.
 | `FAKE_MINER_RESPONSE_DELAY` | Nonnegative Go duration before each REST, Connect or native gRPC operation, outside simulation locks and canceled by request deadlines. Set `5ms` for the load campaign. | `0` |
 | `FAKE_MINER_METRICS_FILE` | Append cumulative operation counts, errors and latency sums as JSONL every ten seconds and on graceful shutdown; omit to disable file output. | unset |
 | `CT1_UNLOCATED_BOARDS` | Number of existing boards to report under tank/module zero, or `all` for entirely unlocated inventory | `0` |
+| `CT1_LOG_SCENARIO` | Log and audit failure scenario: `logs-unavailable`, `logs-interrupted` or `audit-unavailable` (see [Logs and audit trail](#implemented-endpoints)) | unset |
 | `CT1_SEED`               | Positive integer controlling deterministic variation                                                                                           | `1`               |
 
 Shrink the tree for fast tests, e.g. `CT1_TANKS=1 CT1_MODULES_PER_TANK=2`.
@@ -445,8 +468,12 @@ process, which is how a real CT1 appears to Fleet (one device, two
 endpoints). The primary listens on `GRPC_PORT`/`HTTP_PORT` and the peer on the
 next ports (`CT1_HA_PEER_GRPC_PORT`/`CT1_HA_PEER_HTTP_PORT`, 0 stays
 ephemeral). Both controllers share the physical inventory and report the same
-`CT1_HA_CLUSTER_ID` through `SystemService.GetHAStatus`; the standby reports
-`HA_ROLE_STANDBY`. Without the variable, `GetHAStatus` stays Unimplemented.
+`CT1_HA_CLUSTER_ID` through `SystemService.GetHAStatus` over native gRPC and
+Connect; the standby reports `HA_ROLE_STANDBY`. Without the variable,
+`GetHAStatus` stays Unimplemented. ProtoOS shows this report on the Systems
+page's Controllers tab. Set `CT1_HA_FAULT_PEER_UNREACHABLE=1` to make each
+controller report its peer unreachable since startup, with stale role and
+reachability observations and unknown recovery.
 
 The pair serves the full MDK `ServerUpdateService` over native gRPC only (no
 REST or Connect routes): instance-scoped support and Begin/Append/Commit/Abort
@@ -472,6 +499,7 @@ CT1_HA_PAIR=1 CT1_UPDATE_TRUSTED_KEY_FILES=$PWD/release.pub go run .
 | `CT1_HA_PEER_SERVER_ID` | Second controller ID (default `<SERVER_ID>-b`). |
 | `CT1_HA_CLUSTER_ID` | Cluster UUID (default derived from both IDs). |
 | `CT1_HA_PRIMARY` | `a` (default) or `b`: which controller is HA primary. |
+| `CT1_HA_FAULT_PEER_UNREACHABLE` | Each controller reports its peer unreachable with stale observations. |
 | `CT1_UPDATE_TRUSTED_KEY_FILES` | Comma-separated PEM public keys; none means `UPDATE_NO_TRUSTED_KEYS`. |
 | `CT1_UPDATE_STEP` | Duration of each scripted rollout phase (default `2s`). |
 | `CT1_UPDATE_SPOOL_FREE_BYTES` | Advertised free spool space (`UPDATE_INSUFFICIENT_SPACE` when too small). |

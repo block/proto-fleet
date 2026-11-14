@@ -73,6 +73,10 @@ func (a *connectAPI) GetSystemStatus(ctx context.Context, req *connect.Request[m
 	return connectResult(a.native.GetSystemStatus(ctx, req.Msg))
 }
 
+func (a *connectAPI) GetHAStatus(ctx context.Context, req *connect.Request[mdk.GetHAStatusRequest]) (*connect.Response[mdk.GetHAStatusResponse], error) {
+	return connectResult(a.native.GetHAStatus(ctx, req.Msg))
+}
+
 func (a *connectAPI) GetContainerMap(ctx context.Context, req *connect.Request[mdk.GetContainerMapRequest]) (*connect.Response[mdk.GetContainerMapResponse], error) {
 	return connectResult(a.native.GetContainerMap(ctx, req.Msg))
 }

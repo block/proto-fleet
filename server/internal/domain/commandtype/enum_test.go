@@ -27,6 +27,7 @@ func TestStringFromStringRoundtrip(t *testing.T) {
 		SetContainerControl,
 		SetTankMining,
 		SetModuleMining,
+		SetBoardIdentify,
 		ContainerMining,
 		FrigateServerUpdate,
 	}

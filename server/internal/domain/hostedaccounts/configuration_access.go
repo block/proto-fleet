@@ -4,6 +4,8 @@ import (
 	"context"
 	"database/sql"
 
+	"github.com/google/uuid"
+
 	"github.com/block/proto-fleet/server/generated/sqlc"
 	"github.com/block/proto-fleet/server/internal/domain/authz"
 	"github.com/block/proto-fleet/server/internal/domain/poolconfigurations"
@@ -31,6 +33,21 @@ func (s *PoolService) PoolEquipmentVisibility(ctx context.Context, q sqlc.Querie
 // AuthorizePoolConfiguration keeps private account resolution out of the shared
 // store. Selected-account requests can never fall back to the operator library.
 func (s *PoolService) AuthorizePoolConfiguration(ctx context.Context, q sqlc.Querier, accountID string, access poolconfigurations.Access) (poolconfigurations.Principal, error) {
+	if id := poolconfigurations.LifecycleTransitionID(ctx); id != uuid.Nil {
+		row, err := q.GetPoolLifecycleTransition(ctx, id)
+		if err != nil {
+			return poolconfigurations.Principal{}, err
+		}
+		if access != poolconfigurations.Read || accountID != row.ExternalAccountID {
+			return poolconfigurations.Principal{}, denied()
+		}
+		scope := poolconfigurations.Scope{OrganizationID: row.OrganizationID, AccountID: row.OwnerAccountID}
+		if _, err := poolconfigurations.AuthorizeLifecycleTransition(ctx, q, scope, row.DeviceID); err != nil {
+			return poolconfigurations.Principal{}, err
+		}
+		return poolconfigurations.Principal{Scope: scope, AccountID: row.ExternalAccountID, AccountName: row.AccountName}, nil
+	}
+
 	info, err := session.GetInfo(ctx)
 	if err != nil || info.Actor != "" || info.UserID <= 0 || info.OrganizationID <= 0 {
 		return poolconfigurations.Principal{}, denied()

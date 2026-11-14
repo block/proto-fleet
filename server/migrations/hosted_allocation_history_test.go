@@ -154,6 +154,15 @@ func TestAllocationHistoryMigrationFencesConcurrentRecall(t *testing.T) {
 // Remove the newest dependent schema before testing a legacy migration.
 func rollbackEmptyHashboardAllocations(t *testing.T, conn *sql.DB) {
 	t.Helper()
+	rollbackEmptyReportingLifecycle(t, conn)
+	var exists bool
+	require.NoError(t, conn.QueryRowContext(t.Context(), `SELECT to_regclass('hosted_account_reporting_hour') IS NOT NULL`).Scan(&exists))
+	if exists {
+		hourDown, err := migrations.Current.ReadFile("current/001077_internal_hourly_reporting_evidence.down.sql")
+		require.NoError(t, err)
+		_, err = conn.ExecContext(t.Context(), string(hourDown))
+		require.NoError(t, err, "remove only empty hourly reporting evidence before historical rollback")
+	}
 	var reportingInputs bool
 	require.NoError(t, conn.QueryRowContext(t.Context(), `SELECT to_regclass('hosted_reporting_inputs') IS NOT NULL`).Scan(&reportingInputs))
 	if reportingInputs {
@@ -162,7 +171,6 @@ func rollbackEmptyHashboardAllocations(t *testing.T, conn *sql.DB) {
 		_, err = conn.ExecContext(t.Context(), string(source))
 		require.NoError(t, err, "remove only empty newer reporting inputs before historical rollback")
 	}
-	var exists bool
 	require.NoError(t, conn.QueryRowContext(t.Context(), `SELECT to_regclass('hosted_account_reporting_evidence') IS NOT NULL`).Scan(&exists))
 	if exists {
 		evidenceDown, err := migrations.Current.ReadFile("current/001055_internal_hosted_reporting_evidence.down.sql")

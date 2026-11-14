@@ -1,6 +1,6 @@
 use std::panic::AssertUnwindSafe;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 
 use asic_rs::MinerFactory;
 use asic_rs_core::config::pools::{PoolConfig, PoolGroupConfig};
@@ -54,11 +54,19 @@ pub struct AsicRsDevice {
 
     miner: Arc<Mutex<Option<Box<dyn Miner>>>>,
     cache_ttl: Duration,
-    last_data: Arc<Mutex<Option<(Instant, MinerData)>>>,
+    last_data: Arc<Mutex<Option<TelemetryObservation>>>,
     pre_full_curtail_mining: Mutex<FullCurtailMiningState>,
     last_connect_attempt: Mutex<Option<Instant>>,
     factory: Arc<MinerFactory>,
     auth: Option<MinerAuth>,
+}
+
+/// Data and observation time travel together through the cache and SDK conversion.
+#[derive(Clone)]
+pub struct TelemetryObservation {
+    pub data: MinerData,
+    observed_at: SystemTime,
+    cached_at: Instant,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -279,13 +287,13 @@ impl AsicRsDevice {
     }
 
     /// Get telemetry data, using cache if fresh enough.
-    pub async fn get_data(&self) -> anyhow::Result<MinerData> {
+    pub async fn get_data(&self) -> anyhow::Result<TelemetryObservation> {
         // Check cache
         {
             let cache = self.last_data.lock().await;
-            if let Some((ts, ref data)) = *cache {
-                if ts.elapsed() < self.cache_ttl {
-                    return Ok(data.clone());
+            if let Some(ref observation) = *cache {
+                if observation.cached_at.elapsed() < self.cache_ttl {
+                    return Ok(observation.clone());
                 }
             }
         }
@@ -293,6 +301,9 @@ impl AsicRsDevice {
         let mut guard = self.connected_miner().await?;
         let miner = guard.as_ref().unwrap();
 
+        // Use the poll start as a conservative observation bound, not response assembly
+        // time. Cache hits retain it even when the cache TTL exceeds the stale threshold.
+        let observed_at = SystemTime::now();
         let result = catch_panic(tokio::time::timeout(TELEMETRY_TIMEOUT, miner.get_data())).await;
 
         // On failure, invalidate the connection so the next call forces a fresh probe
@@ -306,9 +317,14 @@ impl AsicRsDevice {
                     self.invalidate_cache().await;
                     return Err(error);
                 }
+                let observation = TelemetryObservation {
+                    data,
+                    observed_at,
+                    cached_at: Instant::now(),
+                };
                 let mut cache = self.last_data.lock().await;
-                *cache = Some((Instant::now(), data.clone()));
-                Ok(data)
+                *cache = Some(observation.clone());
+                Ok(observation)
             }
             Ok(Err(_)) => {
                 drop(guard);
@@ -326,7 +342,7 @@ impl AsicRsDevice {
     /// Read live recovery identity and check the firmware's control-access
     /// authentication before the endpoint is accepted (a session for LuxOS).
     pub async fn inspect_recovery(&self) -> anyhow::Result<MinerData> {
-        let data = self.get_data().await?;
+        let data = self.get_data().await?.data;
         let guard = self.connected_write_miner().await?;
         let miner = guard
             .as_ref()
@@ -353,10 +369,10 @@ impl AsicRsDevice {
         Ok(data)
     }
 
-    /// Convert MinerData to proto DeviceMetrics.
-    pub fn to_device_metrics(&self, data: &MinerData) -> pb::DeviceMetrics {
-        let now = std::time::SystemTime::now();
-        let timestamp = prost_types::Timestamp::from(now);
+    /// Convert telemetry to SDK metrics without refreshing cached observation times.
+    pub fn to_device_metrics(&self, observation: &TelemetryObservation) -> pb::DeviceMetrics {
+        let data = &observation.data;
+        let timestamp = prost_types::Timestamp::from(observation.observed_at);
 
         tracing::debug!(
             device_id = %self.id,
@@ -653,7 +669,7 @@ impl AsicRsDevice {
             self.require_cap(CAP_CURTAIL_FULL).await?;
         }
         self.invalidate_cache().await;
-        let was_mining = self.get_data().await?.is_mining;
+        let was_mining = self.get_data().await?.data.is_mining;
         let guard = self.connected_write_miner().await?;
         self.require_cap(CAP_CURTAIL_FULL).await?;
         let miner = guard.as_ref().unwrap();
@@ -1896,6 +1912,43 @@ mod tests {
             light_flashing: None,
             total_chips: None,
         }
+    }
+
+    #[tokio::test]
+    async fn cached_telemetry_preserves_stale_observation_timestamp() {
+        // A supported five-minute TTL must not renew a three-minute-old sample.
+        // No miner is connected: both reads must be served from the actual cache.
+        let device = AsicRsDevice::new(
+            "cached-miner".into(),
+            pb::DeviceInfo::default(),
+            Capabilities::new(),
+            None,
+            Duration::from_secs(300),
+            Arc::new(MinerFactory::new()),
+            None,
+        );
+        let age = Duration::from_secs(180);
+        let observed_at = SystemTime::now() - age;
+        let mut data = make_miner_data(true);
+        data.wattage = Some(measurements::Power::from_watts(3000.0));
+        *device.last_data.lock().await = Some(TelemetryObservation {
+            data,
+            observed_at,
+            cached_at: Instant::now() - age,
+        });
+
+        let first = device.to_device_metrics(&device.get_data().await.unwrap());
+        let replay = device.to_device_metrics(&device.get_data().await.unwrap());
+        assert_eq!(first.power_w.unwrap().value, 3000.0);
+        assert!(first.power_w.unwrap().metadata.is_none());
+        assert_eq!(
+            first.timestamp, replay.timestamp,
+            "cache hits cannot advance the watermark"
+        );
+        let timestamp = replay.timestamp.unwrap();
+        assert_eq!(timestamp, prost_types::Timestamp::from(observed_at));
+        let returned_at = SystemTime::try_from(timestamp).unwrap();
+        assert!(returned_at.elapsed().unwrap() >= age);
     }
 
     #[test]

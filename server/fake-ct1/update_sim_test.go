@@ -800,12 +800,13 @@ func TestTrustedKeyFilesAndPairSettings(t *testing.T) {
 	t.Setenv("CT1_UPDATE_FAULT_STALE_CONTACT", "true")
 	t.Setenv("CT1_UPDATE_STEP", "50ms")
 	t.Setenv("CT1_HA_PRIMARY", "b")
+	t.Setenv("CT1_HA_FAULT_PEER_UNREACHABLE", "1")
 	settings, enabled, err := haPairSettingsFromEnv(ContainerConfig{ServerID: "node"}, 9095, 8080)
 	if err != nil || !enabled {
 		t.Fatalf("settings = %v, %v, %v", settings, enabled, err)
 	}
 	if settings.PeerServerID != "node-b" || settings.PeerGRPCPort != 9096 || settings.PeerHTTPPort != 8081 || settings.Update.Primary != "node-b" ||
-		len(settings.Update.TrustedKeys) != 1 || settings.Update.Faults.MigrateFailures != 2 || !settings.Update.Faults.StaleContact || settings.Update.StepDelay != 50*time.Millisecond {
+		len(settings.Update.TrustedKeys) != 1 || settings.Update.Faults.MigrateFailures != 2 || !settings.Update.Faults.StaleContact || settings.Update.StepDelay != 50*time.Millisecond || !settings.PeerUnreachable {
 		t.Fatalf("settings = %+v", settings)
 	}
 	t.Setenv("CT1_HA_PRIMARY", "c")
