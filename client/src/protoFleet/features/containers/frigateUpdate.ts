@@ -63,6 +63,13 @@ const CODE_TEXT: Record<string, string> = {
   ROLLOUT_NOT_FOUND: "The controllers no longer know this update.",
   NOT_RETRYABLE: "This update can't be retried.",
   NOT_CANCELLABLE: "This update can no longer be cancelled.",
+  FIRMWARE_ACTIVE:
+    "A hashboard or PSU firmware update is running on a controller. Wait for it to finish, then start the update again.",
+  COOLDOWN: "A controller was updated recently and is still in its cool-down period. Try again later.",
+  OUTSIDE_WINDOW: "A controller only accepts updates during its maintenance window.",
+  NOT_STAGED: "The package isn't staged on every controller yet.",
+  STAGE_MISMATCH: "A controller has a different package staged than this update expects.",
+  EXPIRED: "The update expired before it started, so nothing was stopped.",
 };
 
 function codeKey(code: string): string {

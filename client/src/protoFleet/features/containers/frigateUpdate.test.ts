@@ -30,6 +30,22 @@ describe("describeFrigateError", () => {
     expect(frigateCodeText("FLEET_REMOTE_TRIGGER_DISABLED")).toMatch(/allow_remote_trigger/);
   });
 
+  it("explains a server update refused because firmware is being flashed", () => {
+    expect(describeFrigateError("UPDATE_FIRMWARE_ACTIVE", "frigate-a hashboard job-1")).toEqual({
+      title:
+        "A hashboard or PSU firmware update is running on a controller. Wait for it to finish, then start the update again.",
+      detail: "frigate-a hashboard job-1",
+      code: "UPDATE_FIRMWARE_ACTIVE",
+    });
+  });
+
+  it.each(["UPDATE_COOLDOWN", "UPDATE_OUTSIDE_WINDOW", "UPDATE_NOT_STAGED", "UPDATE_STAGE_MISMATCH", "UPDATE_EXPIRED"])(
+    "maps the Frigate refusal %s",
+    (code) => {
+      expect(frigateCodeText(code)).toBeDefined();
+    },
+  );
+
   it("falls back to the server message for an unknown code and still reports the code", () => {
     expect(describeFrigateError("UPDATE_SOMETHING_NEW", "the disk caught fire")).toEqual({
       title: "the disk caught fire",

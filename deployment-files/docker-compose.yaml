@@ -46,11 +46,16 @@ services:
       # Deployment-controlled half of the dual Modbus dial allowlist.
       # Empty keeps all infrastructure writes disabled.
       INFRASTRUCTURE_OT_CONTROL_SUBNETS: "${INFRASTRUCTURE_OT_CONTROL_SUBNETS:-}"
+      # Trusted Frigate release public keys. Empty keeps Frigate package upload
+      # disabled; set it to /app/frigate-release-keys once a key is installed.
+      FRIGATE_UPDATE_RELEASE_KEYS_DIR: "${FRIGATE_UPDATE_RELEASE_KEYS_DIR:-}"
     volumes:
       # Sibling of deployment: retained across installer and updater tree swaps.
       - ../artifacts/firmware:/app/firmware
       - ../artifacts/command-artifacts:/app/command-artifacts
       - ../artifacts/logs:/app/logs
+      # Read-only so the server can never change the keys it trusts.
+      - ../artifacts/frigate-release-keys:/app/frigate-release-keys:ro
     depends_on:
       timescaledb:
         condition: service_healthy
