@@ -54,7 +54,8 @@ export default function ContainerSystem({ plant, fans }: { plant?: PlantTelemetr
     dryCoolerOutletPressure: pressure(latest(plant?.heatRejectionOutletPressure)),
     pumpOutletPressure: pressure(latest(plant?.pumpOutletPressure)),
     actions:
-      adapter?.getContainerSettings && (adapter.setContainerControl || adapter.setContainerSetpoint) ? (
+      adapter?.getContainerSettings &&
+      (adapter.setContainerControl || adapter.setContainerSetpoint || adapter.setMainCircuitBreakerState) ? (
         <Button
           variant="secondary"
           size="compact"

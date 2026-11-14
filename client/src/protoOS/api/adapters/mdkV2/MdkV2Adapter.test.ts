@@ -1,4 +1,6 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
+import { Code } from "@connectrpc/connect";
+import { BREAKER_OUTCOME_UNKNOWN } from "../breakerMessages";
 
 import { LOG_TAIL_DEADLINE_MS } from "./connectClient";
 import { AUDIT_READ_TIMEOUT_MS } from "./controllerRecords";
@@ -517,6 +519,76 @@ describe("MdkV2Adapter", () => {
       { value: 18.3 },
       { headers: { "X-Frigate-Actor": "proto-os" } },
     );
+  });
+
+  test.each([
+    [{ mainCircuitBreakerSupported: true, mainCircuitBreakerClosed: false }, { closed: false }],
+    [{ mainCircuitBreakerSupported: true }, { closed: undefined }],
+    [{ mainCircuitBreakerSupported: false, mainCircuitBreakerClosed: true }, undefined],
+    [{ mainCircuitBreakerClosed: true }, undefined],
+  ])("reads the dedicated breaker only when advertised: %j", async (data, expected) => {
+    const adapter = new MdkV2Adapter(
+      client({ powerServiceGetContainerControls: vi.fn().mockResolvedValue({ data: { supported: false, ...data } }) }),
+    );
+    const settings = await adapter.getContainerSettings();
+    expect(settings.mainCircuitBreaker).toEqual(expected);
+    expect(settings.controls).toEqual([]);
+  });
+
+  test("writes the dedicated breaker and accepts matching readback", async () => {
+    const setBreaker = vi.fn().mockResolvedValue({ data: { closed: false, changed: true } });
+    const adapter = new MdkV2Adapter(client({ powerServiceSetMainCircuitBreakerState: setBreaker }));
+    await adapter.setMainCircuitBreakerState(false);
+    expect(setBreaker).toHaveBeenCalledWith({ closed: false }, { headers: { "X-Frigate-Actor": "proto-os" } });
+    // REST omits a false proto3 bool.
+    setBreaker.mockResolvedValueOnce({ data: {} });
+    await adapter.setMainCircuitBreakerState(false);
+    // The omitted bool means open, even when the request was to close.
+    setBreaker.mockResolvedValueOnce({ data: {} });
+    await expect(adapter.setMainCircuitBreakerState(true)).rejects.toThrow("reports the breaker open");
+  });
+
+  test("reports breaker readback that differs from the request", async () => {
+    const adapter = new MdkV2Adapter(
+      client({ powerServiceSetMainCircuitBreakerState: vi.fn().mockResolvedValue({ data: { closed: true } }) }),
+    );
+    await expect(adapter.setMainCircuitBreakerState(false)).rejects.toThrow("reports the breaker closed");
+  });
+
+  const refusedCodes = new Set<number>([Code.InvalidArgument, Code.FailedPrecondition, Code.Unimplemented]);
+  test.each(
+    Object.values(Code)
+      .filter((code): code is Code => typeof code === "number" && code !== Code.Unauthenticated)
+      .map((code) => [Code[code], code] as const),
+  )("classifies breaker failure code %s as refusal or unknown outcome", async (_name, code) => {
+    const detail = "this node is not the container control primary";
+    const adapter = new MdkV2Adapter(
+      client({
+        powerServiceSetMainCircuitBreakerState: vi
+          .fn()
+          .mockRejectedValue({ status: 400, error: { code, message: detail } }),
+      }),
+    );
+    await expect(adapter.setMainCircuitBreakerState(true)).rejects.toThrow(
+      refusedCodes.has(code)
+        ? `The controller refused the request: ${detail}. The breaker was not changed.`
+        : BREAKER_OUTCOME_UNKNOWN,
+    );
+  });
+
+  test("treats a breaker network failure as an unknown outcome", async () => {
+    const adapter = new MdkV2Adapter(
+      client({ powerServiceSetMainCircuitBreakerState: vi.fn().mockRejectedValue(new TypeError("Failed to fetch")) }),
+    );
+    await expect(adapter.setMainCircuitBreakerState(true)).rejects.toThrow(BREAKER_OUTCOME_UNKNOWN);
+  });
+
+  test("leaves breaker authentication failures for token refresh", async () => {
+    const unauthenticated = { status: 401, error: { code: 16, message: "token expired" } };
+    const adapter = new MdkV2Adapter(
+      client({ powerServiceSetMainCircuitBreakerState: vi.fn().mockRejectedValue(unauthenticated) }),
+    );
+    await expect(adapter.setMainCircuitBreakerState(true)).rejects.toBe(unauthenticated);
   });
 
   test.each([

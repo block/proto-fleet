@@ -53,6 +53,8 @@ import type {
   V2SetIdentifyLEDRequest,
   V2SetIdentifyLEDResponse,
   V2SetIsolationResponse,
+  V2SetMainCircuitBreakerStateRequest,
+  V2SetMainCircuitBreakerStateResponse,
   V2SetModuleFixedVoltageResponse,
   V2SetPowerTargetScopedRequest,
   V2SetPowerTargetScopedResponse,
@@ -203,6 +205,10 @@ export interface MdkV2Client {
     data: { value: number },
     params?: AdapterRequestOptions,
   ): HttpResponse<V2SetContainerSetpointResponse>;
+  powerServiceSetMainCircuitBreakerState(
+    data: V2SetMainCircuitBreakerStateRequest,
+    params?: AdapterRequestOptions,
+  ): HttpResponse<V2SetMainCircuitBreakerStateResponse>;
   runInServiceStartModuleRunIn(
     path: { moduleId: string; taskId?: string },
     data: V2HashboardRunInConfig,
@@ -515,6 +521,8 @@ export const createMdkV2Client = (transport: Transport): MdkV2Client => {
       unary(transport, power.setContainerControl, { ...data, name }, params),
     powerServiceSetContainerSetpoint: ({ name }, data, params) =>
       unary(transport, power.setContainerSetpoint, { ...data, name }, params),
+    powerServiceSetMainCircuitBreakerState: (data, params) =>
+      unary(transport, power.setMainCircuitBreakerState, data, params),
     runInServiceStartModuleRunIn: ({ moduleId, taskId }, config, params) =>
       unary(transport, runIn.startModuleRunIn, { moduleId, taskId, config }, params),
     telemetryServiceGetContainerHealth: (query = {}, params) =>

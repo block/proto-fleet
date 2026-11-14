@@ -65,6 +65,11 @@ export interface ContainerSettings {
   supported: boolean;
   controls: Array<{ name: string; description?: string; enabled?: boolean }>;
   setpoints: Array<{ name: string; description?: string; value?: number; unit?: string; min?: number; max?: number }>;
+  /**
+   * Present only when the controller advertises the dedicated breaker command, which it can
+   * do without ordinary plant controls. `closed` is PLC readback, unset when unknown.
+   */
+  mainCircuitBreaker?: { closed?: boolean };
 }
 
 export interface SavedPoolSettings extends PoolFormInput {
@@ -227,6 +232,8 @@ export interface MinerAdapter {
   clearModuleFixedVoltage?(moduleId: string, params?: AdapterRequestOptions): Promise<void>;
   setContainerControl?(name: string, enabled: boolean, params?: AdapterRequestOptions): Promise<void>;
   setContainerSetpoint?(name: string, value: number, params?: AdapterRequestOptions): Promise<void>;
+  /** Resolves only when controller readback matches the requested state. */
+  setMainCircuitBreakerState?(closed: boolean, params?: AdapterRequestOptions): Promise<void>;
   startModuleRunIn?(
     moduleId: string,
     request: ModuleRunInRequest,

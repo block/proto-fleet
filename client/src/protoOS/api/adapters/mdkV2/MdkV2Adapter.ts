@@ -1,4 +1,6 @@
+import { Code } from "@connectrpc/connect";
 import { createConnectTransport } from "@connectrpc/connect-web";
+import { BREAKER_OUTCOME_UNKNOWN } from "../breakerMessages";
 import type { ContainerHistoryRequest } from "../containerHistory";
 import type { PoolHistoryRequest } from "../poolHistory";
 import type {
@@ -112,6 +114,26 @@ const toWireModuleId = (value: string) => {
   const marker = ":module:";
   const markerIndex = value.lastIndexOf(marker);
   return markerIndex === -1 ? value : value.slice(markerIndex + marker.length);
+};
+
+// The only codes the controller returns for container-control requests it rejects
+// before writing (not primary, unsupported backend, bad request). Any other failure
+// may have reached the PLC, so its outcome is unknown until readback.
+const BREAKER_REFUSAL_CODES = new Set<number>([Code.InvalidArgument, Code.FailedPrecondition, Code.Unimplemented]);
+
+const breakerWriteError = (error: unknown) => {
+  const failure = error as { status?: number; error?: { code?: number; message?: string } } | undefined;
+  // Leave authentication failures for the caller's token refresh and retry.
+  if (failure?.status === 401 || failure?.error?.code === Code.Unauthenticated) return error;
+  const code = failure?.error?.code;
+  if (code !== undefined && BREAKER_REFUSAL_CODES.has(code)) {
+    const detail = failure?.error?.message?.trim();
+    return Object.assign(
+      new Error(`The controller refused the request${detail ? `: ${detail}` : ""}. The breaker was not changed.`),
+      { cause: error },
+    );
+  }
+  return Object.assign(new Error(BREAKER_OUTCOME_UNKNOWN), { cause: error });
 };
 
 const toWireDeviceId = (value: string) => (value.startsWith("device:") ? value.slice("device:".length) : value);
@@ -348,6 +370,9 @@ export class MdkV2Adapter implements MinerAdapter {
           },
         ];
       }),
+      ...(data.mainCircuitBreakerSupported === true
+        ? { mainCircuitBreaker: { closed: data.mainCircuitBreakerClosed } }
+        : {}),
     };
   }
 
@@ -465,6 +490,23 @@ export class MdkV2Adapter implements MinerAdapter {
     if (!Number.isFinite(value) || !Number.isFinite(Math.fround(value))) throw new Error("Enter a finite number");
     const { data } = await this.client.powerServiceSetContainerSetpoint({ name }, { value }, this.decorate(params));
     this.checkContainerWriteConfirmation(data.confirmation);
+  }
+
+  async setMainCircuitBreakerState(closed: boolean, params: AdapterRequestOptions = {}) {
+    let readback: boolean;
+    try {
+      const { data } = await this.client.powerServiceSetMainCircuitBreakerState({ closed }, this.decorate(params));
+      // A plain proto3 bool: JSON gateways omit it when false.
+      readback = data.closed ?? false;
+    } catch (error) {
+      if (params.signal?.aborted) throw error;
+      throw breakerWriteError(error);
+    }
+    if (readback !== closed) {
+      throw new Error(
+        `The controller reports the breaker ${readback ? "closed" : "open"}. Check the current state before trying again.`,
+      );
+    }
   }
 
   private checkContainerWriteConfirmation(confirmation?: { state?: V2PlantWriteConfirmationState }) {

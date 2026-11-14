@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { BREAKER_OUTCOME_UNKNOWN } from "@/protoOS/api/adapters/breakerMessages";
 import type { AdapterRequestOptions, ContainerSettings } from "@/protoOS/api/adapters/types";
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
 import { useAuthRetry } from "@/protoOS/store/hooks/useAuthRetry";
@@ -21,6 +22,14 @@ const message = (error: unknown) =>
     ? error.message
     : ((error as { error?: { message?: string } })?.error?.message ?? "The request did not complete.");
 const isTemperature = (unit?: string) => unit === "C" || unit === "°C";
+const MAIN_BREAKER = "main_circuit_breaker";
+// The dedicated breaker is tracked with the boolean controls but never written through them.
+const controlStates = (settings: ContainerSettings) => {
+  const states = settings.controls.map((item): [string, boolean | undefined] => [item.name, item.enabled]);
+  if (settings.mainCircuitBreaker) states.push([MAIN_BREAKER, settings.mainCircuitBreaker.closed]);
+  return states;
+};
+const isTimeout = (error: unknown) => error instanceof DOMException && error.name === "TimeoutError";
 const setpointLabel = (name: string) => {
   if (name === "coolant_pump_speed_hz") return "Pump speed";
   if (name === "dry_cooler_manual_speed_percent") return "Fan speed";
@@ -46,7 +55,8 @@ export default function ContainerSystemControlsModal({ onDismiss }: { onDismiss:
       });
     return () => controller.abort();
   }, [adapter, authRetry]);
-  if (settings?.supported) return <SystemControlsForm settings={settings} onDismiss={onDismiss} />;
+  if (settings?.supported || settings?.mainCircuitBreaker)
+    return <SystemControlsForm settings={settings} onDismiss={onDismiss} />;
   return (
     <Modal open manageFocus title="System controls" dialogLabel="System controls" onDismiss={onDismiss}>
       <p role={error ? "alert" : "status"}>
@@ -60,17 +70,14 @@ export default function ContainerSystemControlsModal({ onDismiss }: { onDismiss:
 }
 
 function SystemControlsForm({ settings, onDismiss }: { settings: ContainerSettings; onDismiss: () => void }) {
-  const { adapter } = useMinerHosting();
+  const { adapter, isFleetHosted } = useMinerHosting();
   const authRetry = useAuthRetry();
   const unit = useTemperatureUnit();
   const [controls, setControls] = useState<Record<string, boolean | undefined>>(() =>
-    Object.fromEntries(settings.controls.map((item) => [item.name, item.enabled])),
+    Object.fromEntries(controlStates(settings)),
   );
   const saved = useRef<Record<string, boolean | number | undefined>>(
-    Object.fromEntries([
-      ...settings.controls.map((item) => [item.name, item.enabled]),
-      ...settings.setpoints.map((item) => [item.name, item.value]),
-    ]),
+    Object.fromEntries([...controlStates(settings), ...settings.setpoints.map((item) => [item.name, item.value])]),
   );
   const display = (value: number, settingUnit?: string) =>
     isTemperature(settingUnit) && unit === "F" ? convertCtoF(value) : value;
@@ -87,7 +94,9 @@ function SystemControlsForm({ settings, onDismiss }: { settings: ContainerSettin
   const [powerConfirmation, setPowerConfirmation] = useState<{
     name: string;
     value: boolean;
-    equipment: string;
+    title: string;
+    subtitle?: string;
+    action: string;
     label: string;
     generation: number;
   }>();
@@ -177,12 +186,13 @@ function SystemControlsForm({ settings, onDismiss }: { settings: ContainerSettin
       try {
         const current = await request((params) => adapter!.getContainerSettings!(params));
         if (!isCurrent()) return;
-        if (!current?.supported) throw new Error("Controls are unavailable on this container.");
+        if (!current?.supported && !current?.mainCircuitBreaker)
+          throw new Error("Controls are unavailable on this container.");
         saved.current = Object.fromEntries([
-          ...current.controls.map((item) => [item.name, item.enabled]),
+          ...controlStates(current),
           ...current.setpoints.map((item) => [item.name, item.value]),
         ]);
-        setControls(Object.fromEntries(current.controls.map((item) => [item.name, item.enabled])));
+        setControls(Object.fromEntries(controlStates(current)));
         setValues((previous) => ({
           ...previous,
           ...Object.fromEntries(
@@ -214,22 +224,44 @@ function SystemControlsForm({ settings, onDismiss }: { settings: ContainerSettin
             try {
               await request(
                 (params) =>
-                  typeof value === "boolean"
-                    ? adapter!.setContainerControl!(name, value, params)
-                    : adapter!.setContainerSetpoint!(name, value, params),
+                  typeof value !== "boolean"
+                    ? adapter!.setContainerSetpoint!(name, value, params)
+                    : name === MAIN_BREAKER
+                      ? adapter!.setMainCircuitBreakerState!(value, params)
+                      : adapter!.setContainerControl!(name, value, params),
                 30_000,
               );
             } catch (error) {
-              writeError = error;
+              writeError =
+                name === MAIN_BREAKER && isTimeout(error)
+                  ? Object.assign(new Error(BREAKER_OUTCOME_UNKNOWN), { cause: error })
+                  : error;
             }
             if (!isCurrent()) return false;
-            // Read separately so a failed read can never replay the write.
-            await refreshSettings();
+            // Read separately so a failed read can never replay the write. A failed read leaves
+            // needsRefresh set, so the next change re-reads first instead of writing blind.
+            let rereadError: unknown;
+            try {
+              await refreshSettings();
+            } catch (error) {
+              // Keep the breaker's write outcome visible; it matters most when the link drops.
+              if (name !== MAIN_BREAKER) throw error;
+              rereadError = error;
+            }
             if (!isCurrent()) return false;
             if (writeError) {
               // A timed-out write may still have applied after this read.
               needsRefresh.current = true;
-              throw writeError;
+              if (!rereadError) throw writeError;
+              throw Object.assign(new Error(`${message(writeError)} The current state could not be re-read.`), {
+                cause: writeError,
+              });
+            }
+            if (rereadError) {
+              const detail = "The controller accepted the change, but the current state could not be re-read.";
+              setErrors((previous) => ({ ...previous, [name]: `${detail} Check it before changing it again.` }));
+              pushToast({ message: `${label}: ${detail}`, status: "error" });
+              return true;
             }
             if (!matches(name, value)) throw new Error("The device did not confirm the requested value.");
           }
@@ -254,7 +286,9 @@ function SystemControlsForm({ settings, onDismiss }: { settings: ContainerSettin
               ? `${label} saved.`
               : name === "dry_cooler_auto"
                 ? `Mode set to ${value ? "Auto" : "Manual"}.`
-                : `${label} turned ${value ? "on" : "off"}.`;
+                : name === MAIN_BREAKER
+                  ? `${label} ${value ? "closed" : "opened"}.`
+                  : `${label} turned ${value ? "on" : "off"}.`;
           pushToast({
             message: refreshFailed ? `${success} Live readings could not be refreshed.` : success,
             status: refreshFailed ? "error" : "success",
@@ -326,7 +360,8 @@ function SystemControlsForm({ settings, onDismiss }: { settings: ContainerSettin
                 setPowerConfirmation({
                   name,
                   value: !controls[name],
-                  equipment,
+                  title: `${controls[name] ? "Turn off" : "Turn on"} ${equipment}?`,
+                  action: controls[name] ? "Turn off" : "Turn on",
                   label: label === "Power" ? `${equipment} power` : label,
                   generation: useMinerStore.getState().connectionGeneration,
                 })
@@ -341,6 +376,50 @@ function SystemControlsForm({ settings, onDismiss }: { settings: ContainerSettin
         ) : null}
       </div>
     ) : null;
+  const breakerClosed = controls[MAIN_BREAKER];
+  const breakerRow = settings.mainCircuitBreaker ? (
+    <section aria-label="Main circuit breaker controls" className="space-y-4">
+      <div className="flex items-center justify-between gap-4">
+        <div>
+          <h2 className="text-heading-100">Main circuit breaker</h2>
+          <p className="text-200 text-text-primary-70">Affects the whole container.</p>
+          {isFleetHosted ? (
+            <p className="text-200 text-text-primary-70">
+              Changing the breaker needs a direct connection to the controller.
+            </p>
+          ) : null}
+        </div>
+        <div className="flex items-center gap-4">
+          <span className="text-text-primary-70">
+            {breakerClosed === undefined ? "Unavailable" : breakerClosed ? "Closed" : "Open"}
+          </span>
+          <Switch
+            ariaLabel="Main circuit breaker closed"
+            checked={breakerClosed === true}
+            disabled={
+              controlPending || breakerClosed === undefined || isFleetHosted || !adapter?.setMainCircuitBreakerState
+            }
+            setChecked={() =>
+              setPowerConfirmation({
+                name: MAIN_BREAKER,
+                value: !breakerClosed,
+                title: `${breakerClosed ? "Open" : "Close"} the main circuit breaker?`,
+                subtitle: "This changes power for the whole container, not a single tank or module.",
+                action: breakerClosed ? "Open breaker" : "Close breaker",
+                label: "Main circuit breaker",
+                generation: useMinerStore.getState().connectionGeneration,
+              })
+            }
+          />
+        </div>
+      </div>
+      {errors[MAIN_BREAKER] ? (
+        <p role="alert" className="text-200 text-text-critical">
+          {errors[MAIN_BREAKER]}
+        </p>
+      ) : null}
+    </section>
+  ) : null;
   const setpointField = (name: string, saveLabel?: string) => {
     const item = settings.setpoints.find((setting) => setting.name === name);
     if (!item) return null;
@@ -384,6 +463,10 @@ function SystemControlsForm({ settings, onDismiss }: { settings: ContainerSettin
       >
         <div className="space-y-6" aria-busy={pending}>
           <p className="text-300 text-text-primary-50">Changes save automatically.</p>
+          {breakerRow}
+          {breakerRow && (hasPump || hasCooler || airConditioners.length || hasControl("tank_led_light")) ? (
+            <Divider />
+          ) : null}
           {hasPump || hasCooler ? (
             <div className="grid grid-cols-1 gap-6 tablet:grid-cols-2">
               {hasPump ? (
@@ -439,22 +522,26 @@ function SystemControlsForm({ settings, onDismiss }: { settings: ContainerSettin
               </section>
             </>
           ) : null}
-          {!hasPump && !hasCooler && !airConditioners.length && !hasControl("tank_led_light") ? (
+          {!breakerRow && !hasPump && !hasCooler && !airConditioners.length && !hasControl("tank_led_light") ? (
             <p>No controls are available on this container.</p>
           ) : null}
         </div>
       </Modal>
       {powerConfirmation ? (
         <Dialog
-          title={`${powerConfirmation.value ? "Turn on" : "Turn off"} ${powerConfirmation.equipment}?`}
+          title={powerConfirmation.title}
+          subtitle={powerConfirmation.subtitle}
           manageFocus
           preventScroll
           onDismiss={() => setPowerConfirmation(undefined)}
           buttons={[
             { text: "Cancel", variant: variants.secondary, onClick: () => setPowerConfirmation(undefined) },
             {
-              text: powerConfirmation.value ? "Turn on" : "Turn off",
-              variant: variants.primary,
+              text: powerConfirmation.action,
+              variant:
+                powerConfirmation.name === MAIN_BREAKER && !powerConfirmation.value
+                  ? variants.danger
+                  : variants.primary,
               disabled: controlPending,
               onClick: () => {
                 setPowerConfirmation(undefined);

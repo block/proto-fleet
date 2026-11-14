@@ -285,6 +285,12 @@ const rpcTable: [
     (c) => c.powerServiceSetContainerSetpoint({ name: "dry_cooler_auto_temp_c" }, { value: 31.5 }),
   ],
   [
+    "powerServiceSetMainCircuitBreakerState",
+    "mdk.v2.PowerService/SetMainCircuitBreakerState",
+    { closed: true },
+    (c) => c.powerServiceSetMainCircuitBreakerState({ closed: true }),
+  ],
+  [
     "runInServiceStartModuleRunIn",
     "mdk.v2.RunInService/StartModuleRunIn",
     { moduleId: "T1-M02", taskId: "0123456789abcdef", config: { stopMiningOnFinish: true } },
