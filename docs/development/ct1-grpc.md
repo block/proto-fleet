@@ -717,7 +717,11 @@ settles. Moving boards can resume mining when Default is running; a stopped
 Default stays stopped. Fleet changes membership only, without rewriting Default's
 pools or starting or stopping the group. The accepted workflow retains the exact
 installations, ownership revisions and confirmed settings. Lost replies replay
-the saved request; changed settings require another review. Only confirmed
+the saved request; changed settings require another review. Fleet rejects a
+return when the source or Default group has custom power or tuning policy.
+Controller observations expose only its presence, so Fleet cannot review or
+confirm those values. Custom policies on unrelated groups do not block a return.
+Only confirmed
 returns retire the selected boards' old pool and completed-clear intents.
 
 The Disable dialog offers the same confirmed action for all unallocated boards

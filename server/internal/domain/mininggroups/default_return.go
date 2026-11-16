@@ -53,6 +53,22 @@ func defaultSettings(group sdk.MiningGroup) (string, error) {
 	return digest(group)
 }
 
+// SDK snapshots report only the presence of custom power and tuning policies.
+// Their values cannot be reviewed or protected by the settings digest.
+func defaultReturnPolicyBlocker(observed sdk.MiningGroupResult, boards []sqlc.ListDefaultReturnBoardsRow) string {
+	for _, group := range observed.Groups {
+		if !group.CustomPolicy {
+			continue
+		}
+		if group.ID == "default" || slices.ContainsFunc(boards, func(board sqlc.ListDefaultReturnBoardsRow) bool {
+			return slices.Contains(group.MACs, board.MacAddress)
+		}) {
+			return "Fleet cannot move hashboards from or to a group with custom power or tuning settings."
+		}
+	}
+	return ""
+}
+
 func defaultGroup(observed sdk.MiningGroupResult) (sdk.MiningGroup, bool) {
 	for _, group := range observed.Groups {
 		if group.ID == "default" {
@@ -207,6 +223,9 @@ func (s *Service) reviewDefaultReturn(ctx context.Context, q sqlc.Querier, userI
 	review.BlockedReason, err = s.defaultReturnBlocker(ctx, q, row, observed, ids)
 	if err != nil || review.BlockedReason != "" {
 		return review, err
+	}
+	if review.BlockedReason = defaultReturnPolicyBlocker(observed, review.Boards); review.BlockedReason != "" {
+		return review, nil
 	}
 	settings, err := defaultSettings(review.Default)
 	if err != nil {
@@ -414,6 +433,9 @@ func (s *Service) reconcileDefaultReturn(ctx context.Context, q sqlc.Querier, ro
 	target, found := defaultGroup(observed)
 	if !found || !observed.Enabled || observed.Suspended {
 		return s.finishDefaultReturn(ctx, q, row, false, "Controller mode changed. Review the container before retrying the move to Default.")
+	}
+	if reason := defaultReturnPolicyBlocker(observed, capture.Boards); reason != "" {
+		return s.finishDefaultReturn(ctx, q, row, false, reason)
 	}
 	settings, err := defaultSettings(target)
 	if err != nil {

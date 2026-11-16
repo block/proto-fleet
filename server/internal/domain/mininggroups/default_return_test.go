@@ -105,6 +105,66 @@ func TestDefaultReturnIsOfferedOnlyAfterRecallCleanup(t *testing.T) {
 	require.False(t, state.CanReturnToDefault, "settled default membership permits Disable instead of Move")
 }
 
+func TestDefaultReturnRejectsCustomPowerAndTuningPolicies(t *testing.T) {
+	for index, group := range []string{"default", "source"} {
+		for _, phase := range []string{"review", "confirmation", "planning", "revision conflict"} {
+			t.Run(group+"/"+phase, func(t *testing.T) {
+				ctx, f, firmware, ids := newDefaultReturnFixture(t)
+				if phase == "review" {
+					firmware.snapshot.Groups[index].CustomPolicy = true
+					reviews, err := f.service.ReviewReturnToDefault(ctx, f.target.DeviceIdentifier, ids)
+					require.NoError(t, err)
+					require.Len(t, reviews, 1)
+					require.Contains(t, reviews[0].BlockedReason, "custom power or tuning settings")
+					require.Empty(t, reviews[0].Token)
+					return
+				}
+				review := reviewDefaultReturn(t, ctx, f, ids)
+				if phase == "confirmation" {
+					firmware.snapshot.Groups[index].CustomPolicy = true
+					_, err := f.service.GetState(ctx, f.target.DeviceIdentifier)
+					require.NoError(t, err)
+					_, err = f.service.ReturnToDefault(ctx, f.target.DeviceIdentifier, review.Token, uuid.NewString(), ids)
+					require.ErrorContains(t, err, "custom power or tuning settings")
+					require.Equal(t, "idle", f.state(t).Status)
+					return
+				}
+				_, err := f.service.ReturnToDefault(ctx, f.target.DeviceIdentifier, review.Token, uuid.NewString(), ids)
+				require.NoError(t, err)
+				if phase == "revision conflict" {
+					f.reconcile(t, ctx)
+					require.True(t, f.state(t).Step.Valid)
+					firmware.rejectRevision = true
+				}
+				firmware.snapshot.Groups[index].CustomPolicy = true
+				firmware.snapshot.Groups[index].Revision++
+				f.reconcile(t, ctx)
+				if phase == "revision conflict" {
+					f.reconcile(t, ctx)
+				}
+				require.Equal(t, "failed", f.state(t).Status)
+				require.Contains(t, f.state(t).Message, "custom power or tuning settings")
+				require.False(t, f.state(t).Step.Valid)
+				require.Nil(t, firmware.transfer, "no transfer may start under unreviewed policy")
+				require.Empty(t, firmware.receipts)
+			})
+		}
+	}
+}
+
+func TestDefaultReturnIgnoresUnselectedCustomPolicyGroup(t *testing.T) {
+	ctx, f, firmware, ids := newDefaultReturnFixture(t)
+	firmware.snapshot.Groups = append(firmware.snapshot.Groups, sdk.MiningGroup{ID: "unrelated", Revision: 1, CustomPolicy: true, MACs: []string{"02:00:00:00:00:77"}})
+	review := reviewDefaultReturn(t, ctx, f, ids)
+	_, err := f.service.ReturnToDefault(ctx, f.target.DeviceIdentifier, review.Token, uuid.NewString(), ids)
+	require.NoError(t, err)
+	for range 5 {
+		f.reconcile(t, ctx)
+	}
+	require.Equal(t, statusComplete, f.state(t).Status)
+	require.Equal(t, []string{"02:00:00:00:00:77"}, firmware.snapshot.Groups[2].MACs)
+}
+
 func TestDefaultReturnPersistsExactTransferAfterLostReplyAndKeepsSibling(t *testing.T) {
 	ctx, f, firmware, ids := newDefaultReturnFixture(t)
 	review := reviewDefaultReturn(t, ctx, f, ids)
