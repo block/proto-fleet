@@ -13,6 +13,7 @@ import (
 func rollbackEmptyPoolConfigurations(t *testing.T, conn *sql.DB) {
 	t.Helper()
 	for _, path := range []string{
+		"current/001086_internal_ct1_lifecycle_fence_scope.down.sql",
 		"current/001085_internal_mining_group_dispatch_token.down.sql",
 		"current/001084_internal_mining_group_step_dispatch.down.sql",
 		"current/001083_internal_mining_group_default_return.down.sql",
@@ -60,6 +61,7 @@ func restoreEmptyPoolConfigurations(t *testing.T, conn *sql.DB) {
 		"current/001083_internal_mining_group_default_return.up.sql",
 		"current/001084_internal_mining_group_step_dispatch.up.sql",
 		"current/001085_internal_mining_group_dispatch_token.up.sql",
+		"current/001086_internal_ct1_lifecycle_fence_scope.up.sql",
 	} {
 		up, err := migrations.Current.ReadFile(path)
 		require.NoError(t, err)

@@ -8,6 +8,8 @@ The unmerged CT1 mining-group branch used versions 1076–1079 before it
 integrated the main migration sequence through 1081. Its guards, confirmed
 return to Default, and dispatch records now use 1082–1084. Migration 1085 adds
 per-invocation dispatch tokens without changing retained delivery evidence.
+Migration 1086 limits the lifecycle fence lock to CT1 controllers. Other miner
+types can still complete ownership changes while a pool-write result settles.
 Stop API and background workers before applying 1085. Start only builds that
 use dispatch tokens; an older worker could clear a newer invocation's marker.
 A development database that used the earlier branch sequence has a different
