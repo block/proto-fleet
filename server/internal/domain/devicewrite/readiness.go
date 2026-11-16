@@ -122,8 +122,20 @@ func requireNoActivePoolRemoval(ctx context.Context, q sqlc.Querier, organizatio
 }
 
 func requirePoolRemovalAdmission(ctx context.Context, q sqlc.Querier, organizationID, deviceID int64, kind commandtype.Type) error {
-	if err := RequireNoMiningGroupDeactivation(ctx, q, organizationID, deviceID); err != nil {
-		return err
+	nativeCurtailment := false
+	if kind.IsCurtailmentControl() {
+		binding, err := q.GetPoolConfigurationRuntime(ctx, sqlc.GetPoolConfigurationRuntimeParams{OrgID: organizationID, ID: deviceID})
+		if err != nil {
+			return err
+		}
+		// Proto's native controls do not replace pools. Recheck the current
+		// driver at admission and dispatch rather than trusting queue payloads.
+		nativeCurtailment = binding.DriverName == "proto"
+	}
+	if !nativeCurtailment {
+		if err := RequireNoMiningGroupDeactivation(ctx, q, organizationID, deviceID); err != nil {
+			return err
+		}
 	}
 	rows, err := q.ListActivePoolRemovals(ctx, sqlc.ListActivePoolRemovalsParams{OrganizationID: organizationID, DeviceID: deviceID})
 	if err != nil {
@@ -137,18 +149,8 @@ func requirePoolRemovalAdmission(ctx context.Context, q sqlc.Querier, organizati
 		}
 	}
 	if conflicting {
-		if kind.IsCurtailmentControl() {
-			binding, err := q.GetPoolConfigurationRuntime(ctx, sqlc.GetPoolConfigurationRuntimeParams{OrgID: organizationID, ID: deviceID})
-			if err != nil {
-				return err
-			}
-			// Proto's native curtailment changes mining/power state, and its
-			// fallback configuration contains no pool settings. Other drivers
-			// may implement controls by replacing pools; keep those serialized.
-			// Inspect the current binding rather than trusting a queued payload.
-			if binding.DriverName == "proto" {
-				return nil
-			}
+		if nativeCurtailment {
+			return nil
 		}
 		return fleeterror.NewFailedPreconditionError("pool removal is unfinished; check its result before another device change")
 	}

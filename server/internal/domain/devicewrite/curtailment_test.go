@@ -46,6 +46,10 @@ func TestCurtailmentBatchIncludesEveryOwnershipState(t *testing.T) {
 				_, err := database.DB.ExecContext(t.Context(), `UPDATE device_write_fence SET state=$1,epoch=$2 WHERE device_id=$3`, states[i], i, device)
 				require.NoError(t, err)
 			}
+			for i, status := range []string{"pending", "applying", "blocked"} {
+				_, err := database.DB.ExecContext(t.Context(), `INSERT INTO container_mining_group_state(device_id,organization_id,operation_kind,status) VALUES($1,$2,'deactivate',$3)`, ids[i], org, status)
+				require.NoError(t, err)
+			}
 			ctx, batch := curtailmentBatch(t, database.DB, org, processing.BatchLogUUID, kind, 4)
 			require.NoError(t, messages.Enqueue(ctx, batch, kind, ids, nil))
 			rows, err := messages.Dequeue(ctx, 4)
