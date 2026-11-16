@@ -170,6 +170,9 @@ type Module struct {
 	// FixedMillivolts is the operator-pinned module voltage, 0 when unset.
 	FixedMillivolts int64
 	FixedVoltageSet bool
+	// Who last changed the voltage setting, and when; zero until first changed.
+	VoltageUpdatedBy string
+	VoltageUpdatedAt time.Time
 }
 
 // Slot is a physical hashboard position, possibly empty.

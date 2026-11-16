@@ -1,6 +1,8 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useShallow } from "zustand/react/shallow";
+
+import ModuleVoltageSection from "./ModuleVoltageSection";
 
 import { useHashboardStatus } from "@/protoOS/api/hooks/useHashboardStatus";
 import LocationBreadcrumb from "@/protoOS/components/LocationBreadcrumb/LocationBreadcrumb";
@@ -61,6 +63,8 @@ const ModuleModal = ({
     };
   }, []);
   const navigate = useNavigate();
+  // Leaving the module mid-write would drop the write's outcome, so the ways out wait for it.
+  const [voltageWriting, setVoltageWriting] = useState(false);
   const { search } = useLocation();
   const { minerRoot } = useMinerHosting();
   const modules = tankModules(tank, topology);
@@ -85,8 +89,8 @@ const ModuleModal = ({
       size="fullscreen"
       title="Modules"
       dialogLabel="Modules"
-      onDismiss={onClose ?? (() => navigate(tankPath))}
-      buttons={[{ text: "Done", variant: "primary" }]}
+      onDismiss={voltageWriting ? undefined : (onClose ?? (() => navigate(tankPath)))}
+      buttons={[{ text: "Done", variant: "primary", disabled: voltageWriting }]}
       bodyClassName="text-text-primary"
     >
       <div ref={bodyRef} className="mx-auto flex max-w-[1600px] flex-col gap-7 px-0 py-6 tablet:px-4 laptop:px-10">
@@ -98,6 +102,7 @@ const ModuleModal = ({
                 placement="right"
                 headingSize="compact"
                 currentId={module.id}
+                disabled={voltageWriting}
                 items={modules.map((item, index) => ({
                   id: item.id,
                   name: moduleLabel?.(item) ?? `Module ${item.location?.moduleSlot ?? index + 1}`,
@@ -113,6 +118,11 @@ const ModuleModal = ({
         <div className="flex justify-start">
           <HealthStatusButton key={module.id} scope={{ kind: "module", id: module.id }} />
         </div>
+        {voltageWriting ? (
+          <p role="status" className="text-200 text-text-primary-70">
+            Changing the module voltage. You can leave this module once the controller answers.
+          </p>
+        ) : null}
         {error ? <p role="alert">Could not refresh ASIC readings. Displayed values may be out of date.</p> : null}
         <ComponentSection title="Hashboards">
           <div className="grid grid-cols-1 gap-2 laptop:grid-cols-3" aria-busy={pending}>
@@ -123,6 +133,7 @@ const ModuleModal = ({
                   key={board.id}
                   identifier={board.identity.value}
                   viewTo={`${modulePath}/${encodeURIComponent(board.identity.value)}${search}`}
+                  viewDisabled={voltageWriting}
                 />
               ) : (
                 <EmptySlotCard key={slot} type="hashboard" position={slot} title={`Board ${slot}`} />
@@ -130,6 +141,7 @@ const ModuleModal = ({
             })}
           </div>
         </ComponentSection>
+        <ModuleVoltageSection key={module.id} module={module} onWritingChange={setVoltageWriting} />
         <ComponentSection title="Other hardware">
           {module.psuIds.length ? (
             module.psuIds.map((id) => <PsuStatusCard key={id} componentId={id} />)

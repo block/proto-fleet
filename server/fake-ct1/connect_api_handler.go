@@ -9,6 +9,7 @@ import (
 	"connectrpc.com/connect"
 	mdk "github.com/block/proto-fleet/sdk/mdk/generated/mdk/v2"
 	"github.com/block/proto-fleet/sdk/mdk/generated/mdk/v2/mdkv2connect"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 )
 
@@ -129,12 +130,25 @@ func (a *connectAPI) SetIsolation(ctx context.Context, req *connect.Request[mdk.
 	return connectResult(a.native.SetIsolation(ctx, req.Msg))
 }
 
+func (a *connectAPI) ListModuleVoltageSettings(ctx context.Context, req *connect.Request[mdk.ListModuleVoltageSettingsRequest]) (*connect.Response[mdk.ListModuleVoltageSettingsResponse], error) {
+	return connectResult(a.native.ListModuleVoltageSettings(ctx, req.Msg))
+}
+
+// withActor carries the Connect caller's actor header to the native handler,
+// which reads it from gRPC metadata.
+func withActor(ctx context.Context, header http.Header) context.Context {
+	if actor := header.Get(actorHeader); actor != "" {
+		return metadata.NewIncomingContext(ctx, metadata.Pairs(actorHeader, actor))
+	}
+	return ctx
+}
+
 func (a *connectAPI) SetModuleFixedVoltage(ctx context.Context, req *connect.Request[mdk.SetModuleFixedVoltageRequest]) (*connect.Response[mdk.SetModuleFixedVoltageResponse], error) {
-	return connectResult(a.native.SetModuleFixedVoltage(ctx, req.Msg))
+	return connectResult(a.native.SetModuleFixedVoltage(withActor(ctx, req.Header()), req.Msg))
 }
 
 func (a *connectAPI) ClearModuleFixedVoltage(ctx context.Context, req *connect.Request[mdk.ClearModuleFixedVoltageRequest]) (*connect.Response[mdk.ClearModuleFixedVoltageResponse], error) {
-	return connectResult(a.native.ClearModuleFixedVoltage(ctx, req.Msg))
+	return connectResult(a.native.ClearModuleFixedVoltage(withActor(ctx, req.Header()), req.Msg))
 }
 
 func (a *connectAPI) QueryTimeSeries(ctx context.Context, req *connect.Request[mdk.QueryTimeSeriesRequest]) (*connect.Response[mdk.QueryTimeSeriesResponse], error) {

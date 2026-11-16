@@ -1,4 +1,3 @@
-import { Code } from "@connectrpc/connect";
 import { createConnectTransport } from "@connectrpc/connect-web";
 import { ALARM_MUTE_OUTCOME_UNKNOWN, ALARM_RESET_OUTCOME_UNKNOWN } from "../alarmMessages";
 import { BREAKER_OUTCOME_UNKNOWN } from "../breakerMessages";
@@ -35,9 +34,11 @@ import {
   V2PLLAlgorithm,
 } from "./generated/generatedApi";
 import { followHashboardStatus } from "./hashboardStream";
+import { listModuleVoltageSettings, writeModuleVoltage } from "./moduleVoltage";
 import {
   type ContainerSeriesField,
   ct1ContainerId,
+  ct1RunInModuleId,
   toCanonicalContainer,
   toCanonicalContainerFans,
   toCanonicalContainerTelemetry,
@@ -54,6 +55,7 @@ import {
   toCanonicalSystemInfo,
 } from "./normalize";
 import { queryPoolHistory } from "./poolHistory";
+import { containerWriteError } from "./writeErrors";
 import type { CoolingMode, MiningTarget, MiningTargetUpdate } from "@/protoOS/store/contract";
 import { getHashboardId } from "@/protoOS/store/utils/entityIds";
 import type { PoolInfo } from "@/shared/types/pool";
@@ -114,32 +116,6 @@ const seriesFields = (fields: readonly string[], level: string) => {
     }
   }
   return requested;
-};
-
-const toWireModuleId = (value: string) => {
-  const marker = ":module:";
-  const markerIndex = value.lastIndexOf(marker);
-  return markerIndex === -1 ? value : value.slice(markerIndex + marker.length);
-};
-
-// The only codes the controller returns for container-control requests it rejects
-// before writing (not primary, unsupported backend, bad request). Any other failure
-// may have reached the PLC, so its outcome is unknown until readback.
-const CONTAINER_REFUSAL_CODES = new Set<number>([Code.InvalidArgument, Code.FailedPrecondition, Code.Unimplemented]);
-
-const containerWriteError = (error: unknown, unchanged: string, outcomeUnknown: string) => {
-  const failure = error as { status?: number; error?: { code?: number; message?: string } } | undefined;
-  // Leave authentication failures for the caller's token refresh and retry.
-  if (failure?.status === 401 || failure?.error?.code === Code.Unauthenticated) return error;
-  const code = failure?.error?.code;
-  if (code !== undefined && CONTAINER_REFUSAL_CODES.has(code)) {
-    const detail = failure?.error?.message?.trim();
-    return Object.assign(new Error(`The controller refused the request${detail ? `: ${detail}` : ""}. ${unchanged}`), {
-      cause: error,
-      writeOutcome: "refused" as const,
-    });
-  }
-  return Object.assign(new Error(outcomeUnknown), { cause: error, writeOutcome: "unknown" as const });
 };
 
 const breakerWriteError = (error: unknown) =>
@@ -505,19 +481,17 @@ export class MdkV2Adapter implements MinerAdapter {
     await this.client.miningServiceStopMiningScoped({ scope }, this.decorate(params));
   }
 
+  async listModuleVoltageSettings(params: AdapterRequestOptions = {}) {
+    return listModuleVoltageSettings(this.client, this.decorate(params));
+  }
+
+  /** One call, never retried. Failures carry `writeOutcome`; see MinerAdapter. */
   async setModuleFixedVoltage(moduleId: string, millivolts: number, params: AdapterRequestOptions = {}) {
-    await this.client.miningServiceSetModuleFixedVoltage(
-      { moduleId: toWireModuleId(moduleId) },
-      { millivolts },
-      this.decorate(params),
-    );
+    return writeModuleVoltage(this.client, moduleId, millivolts, this.decorate(params));
   }
 
   async clearModuleFixedVoltage(moduleId: string, params: AdapterRequestOptions = {}) {
-    await this.client.miningServiceClearModuleFixedVoltage(
-      { moduleId: toWireModuleId(moduleId) },
-      this.decorate(params),
-    );
+    return writeModuleVoltage(this.client, moduleId, undefined, this.decorate(params));
   }
 
   async setContainerControl(name: string, enabled: boolean, params: AdapterRequestOptions = {}) {
@@ -593,7 +567,7 @@ export class MdkV2Adapter implements MinerAdapter {
       throw new Error("A module run-in requires a duration and positive per-hashboard power target");
     }
     const response = await this.client.runInServiceStartModuleRunIn(
-      { moduleId: toWireModuleId(moduleId), taskId },
+      { moduleId: ct1RunInModuleId(moduleId), taskId },
       {
         ...config,
         tuningSweep: {

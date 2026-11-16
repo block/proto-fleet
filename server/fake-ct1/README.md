@@ -89,7 +89,8 @@ is a write unless its `google.api.http` binding is a GET.
 | GET | `/api/v2/hashboards/{identifier}/asics` | 312 ASICs + layout (`identifier` = MAC or serial) |
 | POST | `/api/v2/mining/scoped/power` · `/power/clear` | set/clear per-board power target |
 | POST | `/api/v2/mining/scoped/start` · `/stop` | scoped board lifecycle |
-| PUT/DELETE | `/api/v2/mining/modules/{moduleId}/voltage/fixed` | set/clear module fixed voltage |
+| GET | `/api/v2/mining/modules/voltage` | each module's saved fixed or automatic voltage, supported range and readiness |
+| PUT/DELETE | `/api/v2/mining/modules/{moduleId}/voltage/fixed` | set/clear module fixed voltage, with per-board results |
 | POST | `/api/v2/modules/{moduleId}/run-in` | accept a run-in request; returns queued, execution remains unimplemented |
 | GET | `/health` | liveness |
 
@@ -153,6 +154,24 @@ Set `CT1_LOG_SCENARIO` to exercise failure handling:
 | `logs-unavailable` | `GetLogs` fails with Unavailable "process log stream is not configured" |
 | `logs-interrupted` | `GetLogs` fails with Unavailable halfway through the retained tail |
 | `audit-unavailable` | `ListAuditEvents` fails with Unavailable "audit log requires a configured database" |
+
+**Module voltage.** `ListModuleVoltageSettings`, `SetModuleFixedVoltage` and
+`ClearModuleFixedVoltage` keep one saved setting per module. An absent
+`fixedMillivolts` means automatic voltage. A module reports the 26,000–30,000 mV
+range only when every board has reported limits: a module with a disconnected
+board is `LIMITS_UNAVAILABLE` and refuses a fixed target with
+FailedPrecondition, and a module without boards is `NO_MEMBERS`. A saved write
+returns one result per board. Disconnected and error-state boards report
+`applied: false` and keep the saved setting, so the demo topology's faulted
+modules return partial results. The `x-frigate-actor` header is recorded as
+`updatedBy`, defaulting to `fake-ct1`.
+
+Set `CT1_MODULE_VOLTAGE_SCENARIO` to exercise write failures:
+
+| Value | Behavior |
+| --- | --- |
+| `write-refused` | Set and clear fail with FailedPrecondition "this node is not the container control primary" and save nothing |
+| `write-unknown` | Set and clear save the change, then fail with Internal, so only a re-read shows the result |
 
 **ASIC health stream.** `TelemetryService/StreamASICHealth` is available over
 Connect and native gRPC only. Like Frigate, it sends one board's ASIC readings
@@ -313,6 +332,7 @@ partial failures. Synthetic test images are not signed production firmware.
 | `FAKE_MINER_METRICS_FILE` | Append cumulative operation counts, errors and latency sums as JSONL every ten seconds and on graceful shutdown; omit to disable file output. | unset |
 | `CT1_UNLOCATED_BOARDS` | Number of existing boards to report under tank/module zero, or `all` for entirely unlocated inventory | `0` |
 | `CT1_LOG_SCENARIO` | Log and audit failure scenario: `logs-unavailable`, `logs-interrupted` or `audit-unavailable` (see [Logs and audit trail](#implemented-endpoints)) | unset |
+| `CT1_MODULE_VOLTAGE_SCENARIO` | Module voltage write failure scenario: `write-refused` or `write-unknown` (see [Module voltage](#implemented-endpoints)) | unset |
 | `CT1_SEED`               | Positive integer controlling deterministic variation                                                                                           | `1`               |
 
 Shrink the tree for fast tests, e.g. `CT1_TANKS=1 CT1_MODULES_PER_TANK=2`.

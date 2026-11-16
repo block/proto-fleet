@@ -26,9 +26,11 @@ interface HashboardStatusCardProps {
   /** Board identity value: CT1 MAC address or R2 serial number. */
   identifier: string;
   viewTo?: string;
+  /** Keeps the View action from navigating away, for a host with work in flight. */
+  viewDisabled?: boolean;
 }
 
-function HashboardStatusCard({ identifier, viewTo }: HashboardStatusCardProps) {
+function HashboardStatusCard({ identifier, viewTo, viewDisabled }: HashboardStatusCardProps) {
   // Fetch data directly from store
   const hashboardData = useMinerHashboard(identifier);
   const slot = useHashboardSlot(identifier);
@@ -106,7 +108,7 @@ function HashboardStatusCard({ identifier, viewTo }: HashboardStatusCardProps) {
         metrics={stats}
         onInfoClick={component ? () => setShowComponentStatusModal(true) : undefined}
         actions={
-          <Button variant="secondary" size="compact" onClick={handleViewClick}>
+          <Button variant="secondary" size="compact" disabled={viewDisabled} onClick={handleViewClick}>
             View
           </Button>
         }

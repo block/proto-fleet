@@ -109,8 +109,23 @@ const efficiencyMetric = (
 export const ct1DeviceId = (value: string | undefined) => asDeviceId(`device:${value || "ct1"}`);
 export const ct1ContainerId = (value: string | undefined) => asContainerId(`container:${value || "ct1"}`);
 const tankId = (containerId: string, tank: number) => asTankId(`${containerId}:tank:${tank}`);
+const MODULE_MARKER = ":module:";
 const moduleId = (containerId: string, tank: number, module: number, reported?: string) =>
   asModuleId(reported ? `${containerId}:module:${reported}` : `${containerId}:tank:${tank}:module:${module}`);
+/**
+ * The controller-reported module identifier inside a canonical CT1 module ID, or undefined when the
+ * topology only placed the module by tank and slot. A slot position never names a module on the wire.
+ */
+export const ct1ReportedModuleId = (value: string): string | undefined => {
+  const index = value.indexOf(MODULE_MARKER);
+  if (index === -1 || value.slice(0, index).includes(":tank:")) return undefined;
+  return value.slice(index + MODULE_MARKER.length) || undefined;
+};
+/** The module identifier run-in sends: the reported one, or the slot number when none was reported. */
+export const ct1RunInModuleId = (value: string): string => {
+  const index = value.lastIndexOf(MODULE_MARKER);
+  return ct1ReportedModuleId(value) ?? (index === -1 ? value : value.slice(index + MODULE_MARKER.length));
+};
 const hashboardId = (board: V2Hashboard) =>
   asHashboardId(board.macAddress ? `mac:${board.macAddress}` : `serial:${board.serial || "unknown"}`);
 const asicId = (boardId: HashboardId, index: number) => asAsicId(`${boardId}:asic:${index}`);

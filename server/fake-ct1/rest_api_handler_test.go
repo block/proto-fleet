@@ -748,8 +748,8 @@ func TestModuleFixedVoltageSetAndClear(t *testing.T) {
 	if status != http.StatusOK {
 		t.Fatalf("PUT status = %d", status)
 	}
-	if setResp.Setting.FixedMillivolts != 28000 {
-		t.Errorf("fixedMillivolts = %d, want 28000", setResp.Setting.FixedMillivolts)
+	if got := setResp.Setting.FixedMillivolts; got == nil || *got != 28000 {
+		t.Errorf("fixedMillivolts = %v, want 28000", got)
 	}
 	if setResp.BoardsUpdated != 3 {
 		t.Errorf("boardsUpdated = %d, want 3", setResp.BoardsUpdated)
@@ -760,8 +760,8 @@ func TestModuleFixedVoltageSetAndClear(t *testing.T) {
 	if status != http.StatusOK {
 		t.Fatalf("DELETE status = %d", status)
 	}
-	if clrResp.Setting.FixedMillivolts != 0 {
-		t.Errorf("fixedMillivolts after clear = %d, want 0", clrResp.Setting.FixedMillivolts)
+	if got := clrResp.Setting.FixedMillivolts; got != nil {
+		t.Errorf("fixedMillivolts after clear = %v, want absent (automatic)", *got)
 	}
 }
 

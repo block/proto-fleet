@@ -2,6 +2,7 @@ import type { ContainerHistoryRequest, ContainerHistoryResult } from "./containe
 import type { ControllerDiagnosticsResult } from "./controllerDiagnostics";
 import type { HashboardFirmware } from "./hashboardFirmware";
 import type { ChangePasswordRequest } from "./mdkV1";
+import type { ModuleVoltageSetting, ModuleVoltageWriteResult } from "./moduleVoltage";
 import type { PoolHistoryRequest, PoolHistoryResult, PoolRecordedShares } from "./poolHistory";
 import type {
   CoolingMode,
@@ -244,8 +245,19 @@ export interface MinerAdapter {
   ): Promise<HashboardActionResult>;
   startScopedMining?(scope: MiningScope, params?: AdapterRequestOptions): Promise<void>;
   stopScopedMining?(scope: MiningScope, params?: AdapterRequestOptions): Promise<void>;
-  setModuleFixedVoltage?(moduleId: string, millivolts: number, params?: AdapterRequestOptions): Promise<void>;
-  clearModuleFixedVoltage?(moduleId: string, params?: AdapterRequestOptions): Promise<void>;
+  /** Durable fixed/automatic voltage settings for every module the controller knows. */
+  listModuleVoltageSettings?(params?: AdapterRequestOptions): Promise<ModuleVoltageSetting[]>;
+  /**
+   * One call, never retried. `moduleId` must carry the controller-reported module identity. Failures carry
+   * `writeOutcome`: "refused" when the controller rejected the request before saving, otherwise "unknown".
+   */
+  setModuleFixedVoltage?(
+    moduleId: string,
+    millivolts: number,
+    params?: AdapterRequestOptions,
+  ): Promise<ModuleVoltageWriteResult>;
+  /** Restores automatic voltage tuning. Same failure contract as setModuleFixedVoltage. */
+  clearModuleFixedVoltage?(moduleId: string, params?: AdapterRequestOptions): Promise<ModuleVoltageWriteResult>;
   setContainerControl?(name: string, enabled: boolean, params?: AdapterRequestOptions): Promise<void>;
   setContainerSetpoint?(name: string, value: number, params?: AdapterRequestOptions): Promise<void>;
   /** Resolves only when controller readback matches the requested state. */

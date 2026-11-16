@@ -217,6 +217,12 @@ const rpcTable: [
     (c) => c.miningServiceSetIsolation({ scope, isolated: true }),
   ],
   [
+    "miningServiceListModuleVoltageSettings",
+    "mdk.v2.MiningService/ListModuleVoltageSettings",
+    {},
+    (c) => c.miningServiceListModuleVoltageSettings(),
+  ],
+  [
     "miningServiceSetModuleFixedVoltage",
     "mdk.v2.MiningService/SetModuleFixedVoltage",
     { moduleId: "T1-M02", millivolts: 28000 },

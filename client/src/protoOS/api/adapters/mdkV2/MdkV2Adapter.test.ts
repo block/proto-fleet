@@ -474,7 +474,7 @@ describe("MdkV2Adapter", () => {
 
   test("forwards scoped power and module-voltage writes with actor attribution", async () => {
     const setScopedPower = vi.fn().mockResolvedValue(undefined);
-    const setModuleFixedVoltage = vi.fn().mockResolvedValue(undefined);
+    const setModuleFixedVoltage = vi.fn().mockResolvedValue({ data: {} });
     const adapter = new MdkV2Adapter(
       client({
         miningServiceSetPowerTargetScoped: setScopedPower,

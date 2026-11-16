@@ -161,26 +161,6 @@ func (s *ContainerState) setContainerSetpoint(name string, value float64) error 
 	return nil
 }
 
-// setModuleFixedVoltage pins a module's PSU voltage, or releases it when pin
-// is false.
-func (s *ContainerState) setModuleFixedVoltage(moduleID string, millivolts int64, pin bool) (moduleVoltageResponse, error) {
-	module := s.modulesByID[moduleID]
-	if module == nil {
-		return moduleVoltageResponse{}, notFoundf("unknown module %q", moduleID)
-	}
-	if pin {
-		if millivolts < 26000 || millivolts > 30000 {
-			return moduleVoltageResponse{}, invalidArgument("fixed voltage must be between 26000 and 30000 mV (simulator bounds)")
-		}
-		module.FixedMillivolts = millivolts
-		module.FixedVoltageSet = true
-	} else {
-		module.FixedMillivolts = 0
-		module.FixedVoltageSet = false
-	}
-	return s.moduleVoltageResponse(module), nil
-}
-
 func (s *ContainerState) hashboardASICs(identifier string) (asicsResponse, error) {
 	board := s.findBoard(identifier)
 	if board == nil {

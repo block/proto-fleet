@@ -47,6 +47,7 @@ import type {
   V2HashboardRunInConfig,
   V2ListAuditEventsResponse,
   V2ListFirmwareUpdatesResponse,
+  V2ListModuleVoltageSettingsResponse,
   V2ListPoolsResponse,
   V2MuteContainerAlarmRequest,
   V2MuteContainerAlarmResponse,
@@ -170,6 +171,9 @@ export interface MdkV2Client {
     data: { scope: MiningScope; isolated: boolean },
     params?: AdapterRequestOptions,
   ): HttpResponse<V2SetIsolationResponse>;
+  miningServiceListModuleVoltageSettings(
+    params?: AdapterRequestOptions,
+  ): HttpResponse<V2ListModuleVoltageSettingsResponse>;
   miningServiceSetModuleFixedVoltage(
     path: { moduleId: string },
     data: { millivolts: number },
@@ -554,6 +558,7 @@ export const createMdkV2Client = (transport: Transport): MdkV2Client => {
     miningServiceStartMiningScoped: (data, params) => unary(transport, mining.startMiningScoped, data, params),
     miningServiceStopMiningScoped: (data, params) => unary(transport, mining.stopMiningScoped, data, params),
     miningServiceSetIsolation: (data, params) => unary(transport, mining.setIsolation, data, params),
+    miningServiceListModuleVoltageSettings: (params) => unary(transport, mining.listModuleVoltageSettings, {}, params),
     miningServiceSetModuleFixedVoltage: ({ moduleId }, data, params) =>
       unary(transport, mining.setModuleFixedVoltage, { ...data, moduleId }, params),
     miningServiceClearModuleFixedVoltage: ({ moduleId }, params) =>

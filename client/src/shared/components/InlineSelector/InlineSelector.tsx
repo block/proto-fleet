@@ -18,6 +18,7 @@ type InlineSelectorProps = {
   onSelect: (id: string) => void;
   placement?: "below" | "right";
   headingSize?: keyof typeof headingClasses;
+  disabled?: boolean;
 };
 
 const InlineSelector = ({
@@ -26,6 +27,7 @@ const InlineSelector = ({
   onSelect,
   placement = "below",
   headingSize = "base",
+  disabled = false,
 }: InlineSelectorProps) => {
   const headingClass = headingClasses[headingSize];
   const [showPopover, setShowPopover] = useState<boolean>(false);
@@ -62,7 +64,7 @@ const InlineSelector = ({
     return current?.name;
   }, [currentId, items]);
 
-  const hasItems = items.length > 0;
+  const hasItems = items.length > 0 && !disabled;
   if (!hasItems && showPopover) setShowPopover(false);
 
   return (

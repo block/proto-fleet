@@ -83,6 +83,7 @@ func (h *RESTApiHandler) RegisterRoutes(mux *http.ServeMux) {
 	register("POST /api/v2/mining/scoped/stop", h.handleScopedStop)
 
 	// Per-module writes and per-hashboard reads (path parameters).
+	register("GET /api/v2/mining/modules/voltage", h.handleListModuleVoltageSettings)
 	register("PUT /api/v2/mining/modules/{moduleId}/voltage/fixed", h.handleModuleFixedVoltage)
 	register("DELETE /api/v2/mining/modules/{moduleId}/voltage/fixed", h.handleModuleFixedVoltage)
 	register("GET /api/v2/hashboards/{identifier}/asics", h.handleHashboardAsics)
@@ -598,28 +599,6 @@ type errorResponse struct {
 	Message string `json:"message"`
 }
 
-type setModuleVoltageRequest struct {
-	Millivolts int64str `json:"millivolts"`
-}
-
-type moduleVoltageResponse struct {
-	Setting       moduleVoltageSetting `json:"setting"`
-	BoardsUpdated int                  `json:"boardsUpdated"`
-	Results       []boardResult        `json:"results"`
-}
-
-type moduleVoltageSetting struct {
-	ModuleID                   string    `json:"moduleId"`
-	FixedMillivolts            int64str  `json:"fixedMillivolts"`
-	SupportedMinimumMillivolts int64str  `json:"supportedMinimumMillivolts"`
-	SupportedMaximumMillivolts int64str  `json:"supportedMaximumMillivolts"`
-	BoardCount                 int       `json:"boardCount"`
-	Readiness                  string    `json:"readiness"`
-	ReadinessMessage           string    `json:"readinessMessage"`
-	UpdatedBy                  string    `json:"updatedBy"`
-	UpdatedAt                  time.Time `json:"updatedAt"`
-}
-
 // ---------------------------------------------------------------------------
 // Handlers
 // ---------------------------------------------------------------------------
@@ -992,6 +971,13 @@ func (h *RESTApiHandler) handleModuleRunIn(w http.ResponseWriter, r *http.Reques
 	writeJSON(w, http.StatusOK, resp)
 }
 
+func (h *RESTApiHandler) handleListModuleVoltageSettings(w http.ResponseWriter, _ *http.Request) {
+	h.state.mu.RLock()
+	resp := h.state.listModuleVoltageSettings()
+	h.state.mu.RUnlock()
+	writeJSON(w, http.StatusOK, resp)
+}
+
 // handleModuleFixedVoltage serves PUT/DELETE
 // /api/v2/mining/modules/{moduleId}/voltage/fixed. ServeMux extracts moduleId
 // and rejects other methods with a 405.
@@ -1010,7 +996,7 @@ func (h *RESTApiHandler) handleModuleFixedVoltage(w http.ResponseWriter, r *http
 	}
 
 	h.state.mu.Lock()
-	resp, err := h.state.setModuleFixedVoltage(moduleID, millivolts, r.Method == http.MethodPut)
+	resp, err := h.state.setModuleFixedVoltage(moduleID, millivolts, r.Method == http.MethodPut, r.Header.Get(actorHeader))
 	h.state.mu.Unlock()
 	if err != nil {
 		writeAPIError(w, err)
@@ -1242,34 +1228,6 @@ func (s *ContainerState) asicsResponse(b *Hashboard) asicsResponse {
 			TotalAsics:    total,
 			Entries:       entries,
 		},
-	}
-}
-
-func (s *ContainerState) moduleVoltageResponse(m *Module) moduleVoltageResponse {
-	results := make([]boardResult, 0, len(m.Slots))
-	for _, slot := range m.Slots {
-		if slot.Board == nil {
-			continue
-		}
-		results = append(results, boardResult{MACAddress: slot.Board.MAC, Applied: true})
-	}
-	readiness := "MODULE_VOLTAGE_READINESS_READY"
-	if !m.FixedVoltageSet {
-		readiness = "MODULE_VOLTAGE_READINESS_UNSPECIFIED"
-	}
-	return moduleVoltageResponse{
-		Setting: moduleVoltageSetting{
-			ModuleID:                   m.ModuleID,
-			FixedMillivolts:            int64str(m.FixedMillivolts),
-			SupportedMinimumMillivolts: 26000,
-			SupportedMaximumMillivolts: 30000,
-			BoardCount:                 len(results),
-			Readiness:                  readiness,
-			UpdatedBy:                  "fake-ct1",
-			UpdatedAt:                  time.Now(),
-		},
-		BoardsUpdated: len(results),
-		Results:       results,
 	}
 }
 

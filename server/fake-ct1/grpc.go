@@ -343,12 +343,17 @@ func appliedBoardCount(results []*mdk.BoardResult) int32 {
 	return count
 }
 
+func (a *grpcAPI) ListModuleVoltageSettings(context.Context, *mdk.ListModuleVoltageSettingsRequest) (*mdk.ListModuleVoltageSettingsResponse, error) {
+	out := new(mdk.ListModuleVoltageSettingsResponse)
+	return out, a.snapshot(func(s *ContainerState) any { return s.listModuleVoltageSettings() }, out)
+}
+
 func (a *grpcAPI) SetModuleFixedVoltage(ctx context.Context, in *mdk.SetModuleFixedVoltageRequest) (*mdk.SetModuleFixedVoltageResponse, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, status.FromContextError(err).Err()
 	}
 	a.state.mu.Lock()
-	dto, err := a.state.setModuleFixedVoltage(in.GetModuleId(), int64(in.GetMillivolts()), true)
+	dto, err := a.state.setModuleFixedVoltage(in.GetModuleId(), int64(in.GetMillivolts()), true, headerValue(ctx, actorHeader))
 	a.state.mu.Unlock()
 	return project(dto, err, new(mdk.SetModuleFixedVoltageResponse))
 }
@@ -358,7 +363,7 @@ func (a *grpcAPI) ClearModuleFixedVoltage(ctx context.Context, in *mdk.ClearModu
 		return nil, status.FromContextError(err).Err()
 	}
 	a.state.mu.Lock()
-	dto, err := a.state.setModuleFixedVoltage(in.GetModuleId(), 0, false)
+	dto, err := a.state.setModuleFixedVoltage(in.GetModuleId(), 0, false, headerValue(ctx, actorHeader))
 	a.state.mu.Unlock()
 	return project(dto, err, new(mdk.ClearModuleFixedVoltageResponse))
 }
