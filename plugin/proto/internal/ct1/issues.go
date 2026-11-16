@@ -37,31 +37,82 @@ func moduleIssues(boards []Board, now time.Time, identityConflict bool) *sdk.Con
 }
 
 func moduleIssuesWithBudget(boards []Board, now time.Time, identityConflict bool, budget *issueBudget) *sdk.ContainerModuleIssues {
+	issues, _ := moduleIssueEvidence(boards, now, identityConflict, budget)
+	return issues
+}
+
+// issueClaim is one fresh sample's own claim of an issue.
+type issueClaim struct {
+	// source is the sample's SourceTimes key.
+	source   string
+	severity string
+	at       time.Time
+}
+
+// issueSources describes the fresh samples behind a module issue report. Error
+// polling needs what the report does not keep: each sample's own time and its
+// own claims. A power-supply cause belongs to the board that reported it as
+// well as to the shared PSU reading, and the two can disagree.
+type issueSources struct {
+	// sampledAt is each fresh sample's time by SourceTimes key:
+	// "hashboard:<mac>" for a board sample and "psu" for the shared thermal
+	// state. Unlike SourceTimes it is not capped at the collection time and it
+	// survives a truncated report, so it orders one source's samples exactly.
+	sampledAt map[string]time.Time
+	// claims lists, for each issue, the samples that asserted it.
+	claims map[string][]issueClaim
+}
+
+// issueClaimKey identifies an issue within a module. The normalizer records
+// claims under it and error polling looks them up by it.
+func issueClaimKey(component, id, cause string) string {
+	return component + ":" + id + ":" + cause
+}
+
+// claim keeps one claim per sample. A sample that lists a cause as both a
+// fault and a warning claims the fault.
+func (s issueSources) claim(key, source, severity string, at time.Time) {
+	for i := range s.claims[key] {
+		if s.claims[key][i].source == source {
+			if severity == "fault" {
+				s.claims[key][i].severity = severity
+			}
+			return
+		}
+	}
+	s.claims[key] = append(s.claims[key], issueClaim{source: source, severity: severity, at: at})
+}
+
+func moduleIssueEvidence(boards []Board, now time.Time, identityConflict bool, budget *issueBudget) (*sdk.ContainerModuleIssues, issueSources) {
 	if !budget.retain(64) {
-		return nil
+		return nil, issueSources{}
 	}
 	out := &sdk.ContainerModuleIssues{Complete: len(boards) == boardsPerModule && !identityConflict, SourceTimes: map[string]time.Time{}}
 	if identityConflict {
-		return out
+		return out, issueSources{}
 	}
 	issues := map[string]sdk.ContainerModuleIssue{}
+	sources := issueSources{sampledAt: map[string]time.Time{}, claims: map[string][]issueClaim{}}
 	truncated := false
+	sourceKey := func(component, id string) string {
+		if id == "" {
+			return component
+		}
+		return component + ":" + id
+	}
 	addSource := func(component, id string, at time.Time) {
 		if len(id) > maxIssueComponentIDBytes {
 			truncated = true
 			return
 		}
-		key := component
-		if id != "" {
-			key += ":" + id
-		}
+		key := sourceKey(component, id)
 		if _, exists := out.SourceTimes[key]; !exists && !budget.retain(len(key)+64) {
 			truncated = true
 			return
 		}
 		out.SourceTimes[key] = at
 	}
-	add := func(component, id, cause, severity string, at time.Time) {
+	add := func(origin, component, id, cause, severity string, at time.Time) {
 		if len(cause) > maxIssueCauseBytes || len(id) > maxIssueComponentIDBytes {
 			truncated = true
 			return
@@ -72,13 +123,14 @@ func moduleIssuesWithBudget(boards []Board, now time.Time, identityConflict bool
 		if at.After(now) {
 			at = now
 		}
-		key := component + ":" + id + ":" + cause
+		key := issueClaimKey(component, id, cause)
 		code, _ := canonicalIssue(cause, severity == "warning")
 		old, exists := issues[key]
 		if !exists && (len(issues) >= maxModuleIssues || !budget.retain(len(component)+len(id)+len(cause)+128)) {
 			truncated = true
 			return
 		}
+		sources.claim(key, origin, severity, at)
 		if !exists || at.After(old.ObservedAt) || (at.Equal(old.ObservedAt) && severity == "fault") {
 			issues[key] = sdk.ContainerModuleIssue{Component: component, ComponentID: id, Cause: cause, Severity: severity, CanonicalError: code, ObservedAt: at}
 		}
@@ -101,6 +153,8 @@ func moduleIssuesWithBudget(boards []Board, now time.Time, identityConflict bool
 		// Use the inventory selector for both faults and clear-reading watermarks.
 		b.MACAddress = normalizedBoardMAC(b.MACAddress)
 		addSource("hashboard", b.MACAddress, sourceAt)
+		origin := sourceKey("hashboard", b.MACAddress)
+		sources.sampledAt[origin] = h.Timestamp
 		if h.Errors == nil || h.Warnings == nil {
 			out.Complete = false
 		}
@@ -117,15 +171,15 @@ func moduleIssuesWithBudget(boards []Board, now time.Time, identityConflict bool
 				if cause == "HASHBOARD_ERROR_CAUSE_BOARD_POWER_SUPPLY_OVER_TEMPERATURE" {
 					cause = "PSU_OVER_TEMPERATURE"
 				}
-				add(component, id, cause, group.severity, h.Timestamp)
+				add(origin, component, id, cause, group.severity, h.Timestamp)
 			}
 		}
 		if b.MiningState == miningStateMining {
 			if h.HashrailOK != nil && !*h.HashrailOK {
-				add("hashboard", b.MACAddress, "HASHRAIL_NOT_OK", "fault", h.Timestamp)
+				add(origin, "hashboard", b.MACAddress, "HASHRAIL_NOT_OK", "fault", h.Timestamp)
 			}
 			if h.RefclksOK != nil && !*h.RefclksOK {
-				add("hashboard", b.MACAddress, "REFERENCE_CLOCKS_NOT_OK", "fault", h.Timestamp)
+				add(origin, "hashboard", b.MACAddress, "REFERENCE_CLOCKS_NOT_OK", "fault", h.Timestamp)
 			}
 		}
 		if p := h.PSUThermal; p != nil && p.ThermalStateValid {
@@ -150,14 +204,15 @@ func moduleIssuesWithBudget(boards []Board, now time.Time, identityConflict bool
 	}
 	if psu != nil {
 		addSource("psu", "", psuAt)
+		sources.sampledAt["psu"] = psuAt
 		if psuAt.Before(out.ObservedAt) {
 			out.ObservedAt = psuAt
 		}
 		if psu.OverTemperatureFault {
-			add("psu", "psu", "PSU_OVER_TEMPERATURE", "fault", psuAt)
+			add("psu", "psu", "psu", "PSU_OVER_TEMPERATURE", "fault", psuAt)
 		}
 		if psu.OverTemperatureWarning {
-			add("psu", "psu", "PSU_OVER_TEMPERATURE", "warning", psuAt)
+			add("psu", "psu", "psu", "PSU_OVER_TEMPERATURE", "warning", psuAt)
 		}
 	}
 	if psu == nil {
@@ -180,5 +235,5 @@ func moduleIssuesWithBudget(boards []Board, now time.Time, identityConflict bool
 		}
 		return a.Component+":"+a.ComponentID+":"+a.Cause < b.Component+":"+b.ComponentID+":"+b.Cause
 	})
-	return out
+	return out, sources
 }

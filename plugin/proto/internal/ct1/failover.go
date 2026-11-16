@@ -19,6 +19,11 @@ type controllerProbe struct {
 	err    error
 
 	standby *controllerProbe
+	// authoritative marks the container's only saved controller, or the
+	// pair's one settled write primary. Only its map can show that a board
+	// left the container: during an HA transition another controller's view
+	// of the board catalog can be behind it.
+	authoritative bool
 }
 
 // Probe both open connections within one budget. Never send a mutation here.
@@ -33,7 +38,7 @@ func (d *Device) selectClient(ctx context.Context, write bool) (*Client, error) 
 func (d *Device) probeControllers(ctx context.Context, write bool) (*controllerProbe, *sdk.ContainerHA, error) {
 	if len(d.info.Endpoints) == 0 {
 		// Older or unconfigured servers cannot establish a healthy HA pair.
-		return &controllerProbe{client: d.clients[0]}, &sdk.ContainerHA{ObservedAt: time.Now().UTC(), Degraded: true}, nil
+		return &controllerProbe{client: d.clients[0], authoritative: true}, &sdk.ContainerHA{ObservedAt: time.Now().UTC(), Degraded: true}, nil
 	}
 	clients := d.clients
 	results := make(chan *controllerProbe, len(clients))
@@ -116,6 +121,7 @@ func (d *Device) probeControllers(ctx context.Context, write bool) (*controllerP
 	} else {
 		if primary != nil {
 			primary.standby = standby
+			primary.authoritative = primaryCount == 1
 			return primary, ha, nil
 		}
 		if standby != nil {

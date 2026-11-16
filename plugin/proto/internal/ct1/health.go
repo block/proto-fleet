@@ -175,6 +175,13 @@ func moduleState(boards []Board, now time.Time) sdk.MinerStatus {
 // snapshot rejects ambiguous topology rather than changing the card's denominator
 // through duplicate modules or boards. Empty mapped slots are not live readings.
 func snapshot(wire MapResponse, now time.Time) (*sdk.ContainerSnapshot, error) {
+	return snapshotEvidence(wire, now, nil)
+}
+
+// snapshotEvidence also hands each accepted module's issue evidence to error
+// polling, so both views classify the same validated boards. A nil collector
+// records nothing.
+func snapshotEvidence(wire MapResponse, now time.Time, collect *errorCollector) (*sdk.ContainerSnapshot, error) {
 	if wire.ContainerMap == nil {
 		return nil, fmt.Errorf("container map missing")
 	}
@@ -209,6 +216,7 @@ func snapshot(wire MapResponse, now time.Time) (*sdk.ContainerSnapshot, error) {
 								break
 							}
 						}
+						collect.unlocated(slot.Hashboard, observation, now)
 						result.UnlocatedHashboards = append(result.UnlocatedHashboards, observation)
 					}
 				}
@@ -282,7 +290,9 @@ func snapshot(wire MapResponse, now time.Time) (*sdk.ContainerSnapshot, error) {
 				// validated board readings, but withhold this module's shared metrics.
 				boards = nil
 			}
-			out.Modules = append(out.Modules, sdk.ContainerModule{Position: m.ID, ReportedID: reportedID, IdentityConfirmed: reportedID != "" && !identityUnavailable, State: state, ObservedAt: moduleObservedAt(boards, state, now), Metrics: moduleMetrics(boards, now), Hashboards: hashboards, Issues: moduleIssuesWithBudget(boards, now, identityConflict, &issuesBudget)})
+			issues, sources := moduleIssueEvidence(boards, now, identityConflict, &issuesBudget)
+			collect.module(tank.ID, m.ID, hashboards, issues, sources)
+			out.Modules = append(out.Modules, sdk.ContainerModule{Position: m.ID, ReportedID: reportedID, IdentityConfirmed: reportedID != "" && !identityUnavailable, State: state, ObservedAt: moduleObservedAt(boards, state, now), Metrics: moduleMetrics(boards, now), Hashboards: hashboards, Issues: issues})
 		}
 		sort.Slice(out.Modules, func(i, j int) bool { return out.Modules[i].Position < out.Modules[j].Position })
 		result.TopologyComplete = result.TopologyComplete && out.TopologyComplete

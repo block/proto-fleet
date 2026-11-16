@@ -148,7 +148,7 @@ type DeviceError struct {
 	ClosedAt          *time.Time        // Optional closed/expired error
 	VendorAttributes  map[string]string // e.g., firmware, code, serials
 	DeviceID          string            // Device this error belongs to
-	ComponentID       *string           // Optional component identifier (numeric index as string, e.g., "0", "1", "2")
+	ComponentID       *string           // Optional component identifier, opaque and stable for the component: a slot index for a single miner (e.g., "0", "1", "2") or an identity for a container component (e.g., "mac:<MAC>"). It need not parse as a number.
 	ComponentType     ComponentType     // Type of component (PSU, fan, hashboard, etc.)
 	Impact            string            // Human-readable business impact (e.g., "Stops mining", "Reduces hashrate by 30%")
 	Summary           string            // High level summary - typically raw message from miner

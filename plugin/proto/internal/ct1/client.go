@@ -115,6 +115,13 @@ func (c *Client) Discover(ctx context.Context, info sdk.DeviceInfo) (sdk.DeviceI
 }
 
 func (c *Client) Collect(ctx context.Context, id string) (sdk.DeviceMetrics, error) {
+	metrics, _, err := c.collect(ctx, id)
+	return metrics, err
+}
+
+// collect also returns the poll's error evidence, so error polling can reuse
+// these reads instead of repeating them.
+func (c *Client) collect(ctx context.Context, id string) (sdk.DeviceMetrics, *errorEvidence, error) {
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	c.pollMu.Lock()
@@ -147,13 +154,15 @@ func (c *Client) Collect(ctx context.Context, id string) (sdk.DeviceMetrics, err
 	}()
 	reads.Wait()
 	if err != nil {
-		return sdk.DeviceMetrics{}, err
+		return sdk.DeviceMetrics{}, nil, err
 	}
 	observed := time.Now().UTC()
-	topology, err := snapshot(mapResponse(wire), observed)
+	collector := newErrorCollector(observed)
+	topology, err := snapshotEvidence(mapResponse(wire), observed, collector)
 	if err != nil {
-		return sdk.DeviceMetrics{}, err
+		return sdk.DeviceMetrics{}, nil, err
 	}
+	collector.plant(plantWire, plantErr, observed)
 	topology.HashboardFirmwareVersion, topology.HashboardFirmwareMixed = observedHashboardFirmware(wire, topology, observed)
 	result := sdk.DeviceMetrics{DeviceID: id, Timestamp: observed, Container: topology, Health: sdk.HealthWarning}
 	if err := miningErr; err != nil {
@@ -204,9 +213,49 @@ func (c *Client) Collect(ctx context.Context, id string) (sdk.DeviceMetrics, err
 	result.TempC = metric(topology.Metrics.TemperatureC)
 	result.EfficiencyJH = metric(topology.Metrics.EfficiencyJH)
 	if err := ctx.Err(); err != nil {
-		return sdk.DeviceMetrics{}, fmt.Errorf("collect CT1: %w", err)
+		return sdk.DeviceMetrics{}, nil, fmt.Errorf("collect CT1: %w", err)
 	}
-	return result, nil
+	return result, collector.result(), nil
+}
+
+// collectErrorEvidence reads only what error polling needs: the required map
+// and the plant snapshot as a bounded supplement. It is used when no recent
+// telemetry poll supplied evidence.
+func (c *Client) collectErrorEvidence(ctx context.Context) (*errorEvidence, error) {
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	c.pollMu.Lock()
+	defer c.pollMu.Unlock()
+	var wire *mdk.GetContainerMapResponse
+	var plantWire *mdk.GetContainerHealthResponse
+	var err, plantErr error
+	var reads sync.WaitGroup
+	reads.Add(2)
+	go func() { defer reads.Done(); wire, err = c.boards.GetContainerMap(ctx, &mdk.GetContainerMapRequest{}) }()
+	go func() {
+		defer reads.Done()
+		sub, done := supplementContext(ctx)
+		defer done()
+		plantWire, plantErr = c.telemetry.GetContainerHealth(sub, &mdk.GetContainerHealthRequest{})
+	}()
+	reads.Wait()
+	if err != nil {
+		return nil, err
+	}
+	observed := time.Now().UTC()
+	collector := newErrorCollector(observed)
+	if _, err := snapshotEvidence(mapResponse(wire), observed, collector); err != nil {
+		return nil, err
+	}
+	if plantErr != nil {
+		// Controllers without plant health still report board and PSU errors.
+		slog.WarnContext(ctx, "CT1 plant alarms unavailable", "error", plantErr)
+	}
+	collector.plant(plantWire, plantErr, observed)
+	if err := ctx.Err(); err != nil {
+		return nil, fmt.Errorf("collect CT1 errors: %w", err)
+	}
+	return collector.result(), nil
 }
 
 // Reserve time for the accepted core result to cross the plugin RPC.

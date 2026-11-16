@@ -745,7 +745,7 @@ message DeviceError {
   map<string, string> vendor_attributes = 8;        // e.g., firmware, code, serials
 
   string device_id = 9;                             // Device this error belongs to
-  optional string component_id = 10;                // Optional component identifier (numeric index as string, e.g., "0", "1", "2")
+  optional string component_id = 10;                // Optional component identifier, opaque and stable for the component: a slot index for a single miner (e.g., "0", "1", "2") or an identity for a container component (e.g., "mac:<MAC>"). It need not parse as a number.
   string impact = 11;                               // Human-readable business impact (e.g., "Stops mining", "Reduces hashrate by 30%")
   string summary = 12;                              // High level summary - typically raw message from miner
   ComponentType component_type = 13;                // Type of component (PSU, fan, hashboard, etc.)

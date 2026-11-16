@@ -1,7 +1,7 @@
 # CT1 native gRPC transport
 
 The Proto plugin uses Frigate MDK v2 gRPC for CT1 discovery, pairing,
-current telemetry, equipment controls, and container-menu sleep, wake, and power actions. ProtoOS and
+current telemetry, error polling, equipment controls, and container-menu sleep, wake, and power actions. ProtoOS and
 Fleet's web proxy continue to use HTTP(S). Poll frequency is unchanged. Concurrent polling, physical-equipment rollups,
 and topology persistence are described in [polling measurements](ct1-polling-metrics.md).
 Retained historical ingestion remains #179.
@@ -307,6 +307,112 @@ be represented by name until the pin is updated.
   takes precedence over the mining fallback; container efficiency still uses
   that final selection. These definitions are deliberately not replaced by the
   planned polling/storage corrections.
+
+## Error polling
+
+The CT1 plugin advertises `get_errors` and implements `GetErrors` from the two
+reads telemetry already makes: `HashboardService.GetContainerMap` (required) and
+`TelemetryService.GetContainerHealth` (a bounded supplement). Errors reach
+Fleet's diagnostics store the same way on direct and Fleet Node paths. The
+[module issue evidence](../architecture/container-inventory.md#current-module-issue-evidence)
+shown in container inventory uses the same classification.
+
+| Source | Fleet component | Component ID | Code and severity |
+| --- | --- | --- | --- |
+| Board `errors` and `warnings`; rail and clock flags while mining | Hashboard | `mac:<board MAC>` | Same canonical codes as module issues |
+| PSU thermal state; board-reported power-supply causes | PSU | `tank:<n>/module:<n>` | Same canonical codes as module issues |
+| The same, for a board without a location | Hashboard or PSU | `mac:<board MAC>` | Same canonical codes as module issues |
+| Active plant alarm | Unspecified | `plant-alarm:<alarm ID>` | `VENDOR_ERROR_UNMAPPED`; critical, major (error), minor (warning or unrated), or info |
+
+Component IDs are identities, not slot numbers. The summary and vendor attributes
+carry the current tank, module, and board position. The firmware cause or alarm ID
+is the vendor code. Fleet stores one error per code and component, so causes that
+share both are reported as one error listing each cause, at the most severe
+level. `lastShutdownError` is history and is never reported. Plant fault codes
+and per-fan alarm flags are not reported.
+
+### Evidence and retention
+
+Fleet closes an error once polls stop reporting it. A report therefore
+distinguishes a source that cleared an error from a source that said nothing.
+A source is a board's own health sample, a module's PSU thermal state, or the
+plant alarm list. Each source that asserts an error holds its own claim: a
+severity and the sample that made it. The error is reported until every source
+that asserted it supplies a complete reading without it.
+
+- Frigate attaches board health to the map only while it is under two minutes
+  old. A board without current health is silent: errors it asserted stay
+  reported, and it adds none. The plugin applies the same two-minute rule to the
+  timestamps it receives.
+- A source's readings are ordered by their own sample time, not by when they
+  were collected. A later read can return an earlier sample, for example from a
+  standby that lags the primary. A sample older than one already applied
+  neither raises nor clears an error. The order is remembered while such a
+  sample could still be fresh, whether or not the source holds an error.
+- PSU thermal state is shared by a module's boards, so any reporting board can
+  clear it. A power-supply cause stays with the board that reported it.
+- The reported severity is the most severe claim not yet withdrawn. A PSU
+  thermal warning does not downgrade an over-temperature fault that a silent
+  board still holds.
+- The plant alarm list is authoritative only in a fresh snapshot that carries
+  plant telemetry. A failed, stale, or unsupported `GetContainerHealth` read
+  leaves plant alarms as they were; board and PSU errors are still reported.
+  Before its first plant poll, Frigate serves saved alarm flags without the
+  list. The plugin then reports one aggregate plant alarm and keeps the alarms
+  it already knew.
+- A report that had to omit causes (more than 64 per module, or the container
+  issue budget) is not a complete reading. It raises the causes it kept and
+  clears nothing.
+- An error that no source asserted in the latest evidence is carried. It has
+  the vendor attributes `ct1_evidence=retained` and `ct1_last_confirmed_at`,
+  a note with the same time in its summary, and no last-seen time of its own.
+  These values do not change while it is carried.
+- A board that the map no longer lists has been removed, and its errors are
+  dropped, only when the map came from the container's only saved controller or
+  from an HA pair's one settled write primary. A map read from any other
+  controller keeps the errors of boards it does not list: a standby, a primary
+  that is not settled, or either controller while both claim write authority.
+  During an HA transition such a controller's board catalog can be behind.
+  Errors are also kept when the map lists no boards at all, or lists a board the
+  plugin rejected without a usable identity.
+- Removal does not wait for a complete topology, unlike inventory. At the pinned
+  Frigate commit a silent board stays in the map: Frigate lists every board that
+  has a location, and deletes a location only when it retires the board
+  (`location_retention_days`, seven by default, with no owner and no discovery)
+  or when another board supersedes it at its switch port. Tanks and modules are
+  derived from the listed boards, an occupied slot always carries its board, and
+  every board carries a MAC. A board missing from the authoritative map is
+  therefore one Frigate has retired. Requiring a complete topology would instead
+  keep its errors open wherever any slot is unknown, which includes every empty
+  slot outside `switch_ports` mode.
+- A poll that cannot read the container confirms and clears nothing. Fleet
+  records an unreachable container as offline and still closes the errors that
+  polls stop refreshing, so the errors already held are reported, all carried.
+  They stay open in Fleet for as long as the container is unreachable. With no
+  error held, the poll fails: a failed map read never produces an empty report.
+
+Claims and sample order live in the plugin process, shared by every handle for
+a container, including Fleet Node's per-command handles. They do not survive a
+plugin restart: after one, carried errors are no longer reported, and Fleet
+closes them after its staleness threshold. That includes a restart while the
+container is unreachable, when the plugin holds nothing and the poll fails.
+
+Fleet polls errors right after telemetry. Error polling reuses the outcome of a
+telemetry poll that ended in the last ten seconds, so the poll cycle reads the
+map once. If that poll read the container, its observation is the report. If
+it could not, the error poll takes that failure as its own and does not probe
+or read the controllers again. A poll the caller abandoned is not reused.
+Otherwise error polling selects a controller like telemetry does, including one
+retry on the verified standby, and reads only the map and plant health.
+
+These times come from the host's wall clock. If it steps backwards, the plugin
+does not wait for it to catch up: an outcome dated after now is not reused, and
+evidence older than the last by more than ten seconds is applied. Controller
+samples are then dated ahead of the host and cannot be judged fresh, so errors
+are carried until the clocks agree.
+
+Fleet Node results carry at most 512 reports. Reports are ordered most severe
+first; when a result is truncated, Fleet keeps the device's open errors.
 
 ## Validation and performance boundary
 
