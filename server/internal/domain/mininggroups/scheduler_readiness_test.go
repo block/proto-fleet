@@ -61,3 +61,82 @@ func TestSchedulerReadinessCannotOccupyWorkflowSlots(t *testing.T) {
 		t.Fatal("idle observations delayed a newly accepted workflow")
 	}
 }
+
+func TestSchedulerDrainsReadinessWithoutWaitingForAnotherTick(t *testing.T) {
+	const controllers = 100
+	s, ids, conn := newSchedulerFixture(t, controllers)
+	_, err := conn.ExecContext(t.Context(), `UPDATE container_mining_group_state SET status='idle' WHERE device_id=ANY($1)`, ids)
+	require.NoError(t, err)
+	_, err = conn.ExecContext(t.Context(), `UPDATE discovered_device SET device_class=2 WHERE id IN (SELECT discovered_device_id FROM device WHERE id=ANY($1))`, ids)
+	require.NoError(t, err)
+	_, err = conn.ExecContext(t.Context(), `INSERT INTO device_pairing(device_id,pairing_status) SELECT id,'PAIRED' FROM device WHERE id=ANY($1)`, ids)
+	require.NoError(t, err)
+	ctx, cancel := context.WithCancel(t.Context())
+	ticks := make(chan time.Time, 1)
+	started := make(chan int64, controllers)
+	completed := make(chan int64, controllers)
+	release := make(chan struct{})
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		s.run(ctx, ticks, func(ctx context.Context, row sqlc.ListMiningGroupControllersRow) error {
+			started <- row.DeviceID
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-release:
+			}
+			_, err := conn.ExecContext(ctx, `UPDATE container_mining_group_state SET observed_at=clock_timestamp(),next_reconcile_at=clock_timestamp()+INTERVAL '1 minute' WHERE device_id=$1`, row.DeviceID)
+			if err != nil {
+				return fmt.Errorf("save scheduled observation: %w", err)
+			}
+			completed <- row.DeviceID
+			return nil
+		})
+	}()
+	t.Cleanup(func() {
+		cancel()
+		select {
+		case <-done:
+		case <-time.After(3 * time.Second):
+			t.Error("scheduler did not stop")
+		}
+	})
+	// The old two-per-tick limit needed 50 ticks (150 seconds), longer than
+	// the allocation freshness window. No further tick is sent in this test.
+	ticks <- time.Now()
+	seen := map[int64]bool{}
+	next := func() {
+		t.Helper()
+		select {
+		case id := <-started:
+			require.False(t, seen[id], "each controller must refresh once")
+			seen[id] = true
+		case <-time.After(2 * time.Second):
+			t.Fatal("a free observation slot waited for another scheduler tick")
+		}
+	}
+	next()
+	next()
+	select {
+	case <-started:
+		t.Fatal("observations exceeded their two-slot budget")
+	case <-time.After(50 * time.Millisecond):
+	}
+	for range controllers - 2 {
+		release <- struct{}{}
+		next()
+	}
+	release <- struct{}{}
+	release <- struct{}{}
+	for range controllers {
+		select {
+		case <-completed:
+		case <-time.After(2 * time.Second):
+			t.Fatal("observation did not finish")
+		}
+	}
+	var refreshed int
+	require.NoError(t, conn.QueryRowContext(ctx, `SELECT count(*) FROM container_mining_group_state WHERE device_id=ANY($1) AND observed_at>clock_timestamp()-INTERVAL '2 minutes'`, ids).Scan(&refreshed))
+	require.Equal(t, controllers, refreshed)
+}

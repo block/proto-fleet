@@ -50,6 +50,7 @@ func (s *Service) run(ctx context.Context, ticks <-chan time.Time, reconcile fun
 	var runningMu sync.Mutex
 	running := map[int64]struct{}{}
 	var workflows, observations int
+	observationReady := make(chan struct{}, 1)
 	start := func(row sqlc.ListMiningGroupControllersRow, observation bool) bool {
 		runningMu.Lock()
 		defer runningMu.Unlock()
@@ -78,6 +79,10 @@ func (s *Service) run(ctx context.Context, ticks <-chan time.Time, reconcile fun
 					workflows--
 				}
 				runningMu.Unlock()
+				select {
+				case observationReady <- struct{}{}:
+				default:
+				}
 			}()
 			if err := reconcile(ctx, row); err != nil {
 				slog.WarnContext(ctx, "mining group reconciliation paused", "device_id", row.DeviceID, "error", err)
@@ -85,10 +90,21 @@ func (s *Service) run(ctx context.Context, ticks <-chan time.Time, reconcile fun
 		}()
 		return true
 	}
+	var queuedReadiness []sqlc.ListMiningGroupReadinessControllersRow
+	startReadiness := func() {
+		for len(queuedReadiness) > 0 && ctx.Err() == nil {
+			if !start(sqlc.ListMiningGroupControllersRow(queuedReadiness[0]), true) {
+				return
+			}
+			queuedReadiness = queuedReadiness[1:]
+		}
+	}
 	for {
 		select {
 		case <-ctx.Done():
 			return
+		case <-observationReady:
+			startReadiness()
 		case <-ticks:
 			rows, err := s.queries.ListMiningGroupControllers(ctx)
 			if err != nil {
@@ -109,19 +125,14 @@ func (s *Service) run(ctx context.Context, ticks <-chan time.Time, reconcile fun
 			if !capacity {
 				continue
 			}
-			readiness, err := s.queries.ListMiningGroupReadinessControllers(ctx)
-			if err != nil {
-				slog.ErrorContext(ctx, "list mining group readiness", "error", err)
-				continue
-			}
-			for _, row := range readiness {
-				if ctx.Err() != nil {
-					return
-				}
-				if !start(sqlc.ListMiningGroupControllersRow(row), true) {
-					break
+			if len(queuedReadiness) == 0 {
+				queuedReadiness, err = s.queries.ListMiningGroupReadinessControllers(ctx)
+				if err != nil {
+					slog.ErrorContext(ctx, "list mining group readiness", "error", err)
+					continue
 				}
 			}
+			startReadiness()
 		}
 	}
 }
