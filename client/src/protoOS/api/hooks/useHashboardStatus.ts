@@ -11,16 +11,34 @@ import { usePoll } from "@/shared/hooks/usePoll";
 interface UseHashboardStatusProps {
   hashboardSerialNumbers: string[];
   poll?: boolean;
+  /**
+   * Follow live readings instead of polling when exactly one board is
+   * requested and the adapter can stream it. The stream closes on unmount or
+   * when the board changes.
+   */
+  stream?: boolean;
 }
+
+// Reconnect delays after a stream fails or closes. A frame resets the delay.
+export const HASHBOARD_STREAM_RETRY_MS = 2_000;
+export const HASHBOARD_STREAM_MAX_RETRY_MS = 30_000;
+// A stream with no new sample for this long is reported stale and reopened.
+// The controller sends one sample per second.
+export const HASHBOARD_STREAM_STALL_MS = 10_000;
+const STALLED_MESSAGE = "The controller stopped sending new ASIC readings.";
 
 // TODO: [STORE_REFACTOR] We only use this hook to fill in gaps that our useHardware doesnt currently provide
 // - hashboard.asicIds
 // - asic rows and columns
-const useHashboardStatus = ({ hashboardSerialNumbers, poll }: UseHashboardStatusProps) => {
+const useHashboardStatus = ({ hashboardSerialNumbers, poll, stream }: UseHashboardStatusProps) => {
   const { adapter } = useMinerHosting();
   const authRetry = useAuthRetry();
   const [data, setData] = useState<HashboardStatus[]>([]);
-  const [error, setError] = useState<string>();
+  // A failure belongs to the boards it was reported for, so it never shows
+  // for the next selection.
+  const serialsKey = JSON.stringify(hashboardSerialNumbers);
+  const [failure, setFailure] = useState<{ serials: string; message: string }>();
+  const error = failure?.serials === serialsKey ? failure.message : undefined;
   const [pending, setPending] = useState<boolean>(false);
   // Staleness guard: if hashboardSerialNumbers changes mid-fetch, an older
   // Promise.all resolving after a newer one must not overwrite fresher data.
@@ -30,7 +48,6 @@ const useHashboardStatus = ({ hashboardSerialNumbers, poll }: UseHashboardStatus
       if (!adapter || hashboardSerialNumbers.length === 0) return;
 
       setPending(true);
-      setError(undefined);
       const fetchId = ++fetchIdRef.current;
 
       return authRetry({
@@ -39,22 +56,122 @@ const useHashboardStatus = ({ hashboardSerialNumbers, poll }: UseHashboardStatus
         onSuccess: (results) => {
           if (fetchId !== fetchIdRef.current) return;
           setData(results);
+          // Cleared here, not before the request, so a failing poll keeps its
+          // error until a refresh succeeds.
+          setFailure(undefined);
         },
-        onError: (err) => setError(err?.error?.message ?? "Unknown error occurred"),
+        onError: (err) => setFailure({ serials: serialsKey, message: err?.error?.message ?? "Unknown error occurred" }),
       }).finally(() => {
         setPending(false);
       });
     },
-    [hashboardSerialNumbers, adapter, authRetry],
+    [hashboardSerialNumbers, serialsKey, adapter, authRetry],
   );
+
+  const streamSerial =
+    stream && adapter?.streamHashboardStatus && hashboardSerialNumbers.length === 1
+      ? hashboardSerialNumbers[0]
+      : undefined;
 
   usePoll({
     fetchData,
     // Hydrating ASIC hardware rebuilds Diagnostics' serial array. Restart only
     // when its contents change, or every response triggers another request.
-    params: JSON.stringify(hashboardSerialNumbers),
+    params: serialsKey,
     poll,
+    enabled: streamSerial === undefined,
   });
+
+  // A new authRetry identity must not reopen a healthy stream.
+  const authRetryRef = useRef(authRetry);
+  useEffect(() => {
+    authRetryRef.current = authRetry;
+  }, [authRetry]);
+
+  useEffect(() => {
+    const follow = adapter?.streamHashboardStatus?.bind(adapter);
+    if (streamSerial === undefined || !follow) return;
+    const controller = new AbortController();
+    let retryMs = HASHBOARD_STREAM_RETRY_MS;
+    const fail = (message: string) => setFailure({ serials: serialsKey, message });
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let watchdog: ReturnType<typeof setTimeout> | undefined;
+    let endStalledAttempt: (() => void) | undefined;
+    // Both are kept across attempts, so a reopened stream that resends the old
+    // sample does not read as current, however it ends.
+    let lastObservedAt: string | undefined;
+    // Covers the wait for the first sample and every gap between new ones.
+    // Only a new sample pushes the deadline back.
+    const watch = () => {
+      clearTimeout(watchdog);
+      watchdog = setTimeout(() => {
+        watchdog = undefined;
+        // A failure already reported says more than the stall that follows it.
+        setFailure((current) =>
+          current?.serials === serialsKey ? current : { serials: serialsKey, message: STALLED_MESSAGE },
+        );
+        endStalledAttempt?.();
+      }, HASHBOARD_STREAM_STALL_MS);
+    };
+    const open = () => {
+      setPending(true);
+      let failed = false;
+      let stalled = false;
+      let frames = 0;
+      // Each attempt has its own signal so a stall can end it and reconnect.
+      const attempt = new AbortController();
+      const abortAttempt = () => attempt.abort();
+      controller.signal.addEventListener("abort", abortAttempt);
+      endStalledAttempt = () => {
+        stalled = true;
+        attempt.abort();
+      };
+      // After a stall, each new attempt gets a fresh deadline of its own.
+      if (watchdog === undefined) watch();
+      void authRetryRef
+        .current({
+          request: async (params) => {
+            for await (const status of follow(streamSerial, params)) {
+              if (attempt.signal.aborted) return;
+              frames += 1;
+              setPending(false);
+              setData([status]);
+              // A resent sample is not a new reading: it neither clears the
+              // error nor holds off the watchdog.
+              if (status.observedAt !== undefined && status.observedAt === lastObservedAt) continue;
+              lastObservedAt = status.observedAt;
+              retryMs = HASHBOARD_STREAM_RETRY_MS;
+              setFailure(undefined);
+              watch();
+            }
+          },
+          signal: attempt.signal,
+          onError: (err) => {
+            failed = true;
+            fail(err?.error?.message ?? "Unknown error occurred");
+          },
+        })
+        .finally(() => {
+          endStalledAttempt = undefined;
+          controller.signal.removeEventListener("abort", abortAttempt);
+          if (controller.signal.aborted) return;
+          setPending(false);
+          // A stream that closes before its first frame has shown nothing current.
+          if (!failed && !stalled && frames === 0) {
+            fail("The controller closed the ASIC stream before sending readings.");
+          }
+          timer = setTimeout(open, retryMs);
+          retryMs = Math.min(retryMs * 2, HASHBOARD_STREAM_MAX_RETRY_MS);
+        });
+    };
+    watch();
+    open();
+    return () => {
+      controller.abort();
+      clearTimeout(timer);
+      clearTimeout(watchdog);
+    };
+  }, [adapter, streamSerial, serialsKey]);
 
   useEffect(() => {
     if (data.length === 0) return;

@@ -1,6 +1,7 @@
 import {
   type DescEnum,
   type DescMessage,
+  type DescMethodServerStreaming,
   type DescMethodUnary,
   fromJson,
   type JsonObject,
@@ -66,6 +67,7 @@ import type {
   V2StartMiningScopedResponse,
   V2StartModuleRunInResponse,
   V2StopMiningScopedResponse,
+  V2StreamASICHealthResponse,
   V2UpdatePoolResponse,
   V2WriteFirmwareArtifactUploadChunkResponse,
 } from "./generated/generatedApi";
@@ -216,6 +218,11 @@ export interface MdkV2Client {
     data: V2HashboardRunInConfig,
     params?: AdapterRequestOptions,
   ): HttpResponse<V2StartModuleRunInResponse>;
+  /** Follows one board's ASIC readings until `params.signal` aborts. Connect only: the REST client cannot follow a stream. */
+  telemetryServiceFollowAsicHealth?(
+    path: { identifier: string },
+    params?: AdapterRequestOptions,
+  ): AsyncIterable<V2StreamASICHealthResponse>;
   telemetryServiceGetContainerHealth(
     query?: TelemetryServiceGetContainerHealthParams,
     params?: AdapterRequestOptions,
@@ -324,6 +331,38 @@ const unary = async <I extends DescMessage, O extends DescMessage, T>(
     throw toGatewayError(error);
   }
 };
+
+/** Yields each message of a server stream in the unary path's JSON shape until the stream ends or aborts. */
+async function* serverStream<I extends DescMessage, O extends DescMessage, T>(
+  transport: Transport,
+  method: DescMethodServerStreaming<I, O>,
+  request: unknown,
+  params: AdapterRequestOptions = {},
+): AsyncGenerator<T> {
+  const input = fromJson(method.input, withoutUndefined(request) as JsonValue);
+  const signal = params.signal ?? undefined;
+  // Closes the stream if the caller stops reading before it ends.
+  const done = new AbortController();
+  try {
+    const response = await transport.stream(
+      method,
+      signal ? AbortSignal.any([signal, done.signal]) : done.signal,
+      undefined,
+      params.headers,
+      createAsyncIterable([input]),
+    );
+    for await (const message of response.message) {
+      const data = toJson(method.output, message, { alwaysEmitImplicit: true });
+      nameUnknownEnums(method.output, data);
+      yield data as T;
+    }
+  } catch (error) {
+    if (signal?.aborted) throw signal.reason;
+    throw toGatewayError(error);
+  } finally {
+    done.abort();
+  }
+}
 
 // The tail arrives as one burst; a pause this long usually means the controller
 // has moved on to following new entries. GetLogs has no end-of-tail marker, so
@@ -528,6 +567,8 @@ export const createMdkV2Client = (transport: Transport): MdkV2Client => {
       unary(transport, power.setMainCircuitBreakerState, data, params),
     runInServiceStartModuleRunIn: ({ moduleId, taskId }, config, params) =>
       unary(transport, runIn.startModuleRunIn, { moduleId, taskId, config }, params),
+    telemetryServiceFollowAsicHealth: ({ identifier }, params) =>
+      serverStream(transport, telemetry.streamASICHealth, { identifier }, params),
     telemetryServiceGetContainerHealth: (query = {}, params) =>
       unary(transport, telemetry.getContainerHealth, query, params),
     telemetryServiceQueryTimeSeries: (query, params) =>

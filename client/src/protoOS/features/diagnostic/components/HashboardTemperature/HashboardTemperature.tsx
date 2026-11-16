@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
+import clsx from "clsx";
 import AsicTable from "./Asic/AsicTableWrapper";
 import { AsicMetricProvider, type SelectedMetric } from "./AsicMetricContext";
 import HashboardSelector from "./HashboardSelector";
@@ -25,7 +26,8 @@ import {
   useTemperatureUnit,
 } from "@/protoOS/store";
 import { efficiencyValue } from "@/protoOS/store/utils/efficiency";
-import { ArrowRight, Dismiss } from "@/shared/assets/icons";
+import { Alert, ArrowRight, Dismiss } from "@/shared/assets/icons";
+import Callout from "@/shared/components/Callout";
 import Header from "@/shared/components/Header";
 import { PopoverProvider } from "@/shared/components/Popover";
 import SegmentedControl from "@/shared/components/SegmentedControl";
@@ -74,9 +76,11 @@ const HashboardRail = ({ rail, center, readings, temperatureUnit }: HashboardRai
 
 type HashboardTemperatureProps = {
   serial: string;
+  /** The last refresh failed, so the readings shown are not current. */
+  readingsStale?: boolean;
 };
 
-const HashboardTemperature = ({ serial }: HashboardTemperatureProps) => {
+const HashboardTemperature = ({ serial, readingsStale = false }: HashboardTemperatureProps) => {
   const temperatureUnit = useTemperatureUnit();
   const layout = useHashboardLayout();
   const [showPopover, setShowPopover] = useState<string | undefined>(undefined);
@@ -194,7 +198,20 @@ const HashboardTemperature = ({ serial }: HashboardTemperatureProps) => {
           </PopoverProvider>
         </div>
       </div>
-      <div className="max-w-screen overflow-visible overflow-x-auto">
+      {readingsStale ? (
+        <div role="alert" className={`pb-8 ${pagePadX}`}>
+          <Callout
+            intent="warning"
+            prefixIcon={<Alert />}
+            title="Could not refresh ASIC readings."
+            subtitle="Showing the last readings received. Retrying automatically."
+          />
+        </div>
+      ) : null}
+      <div
+        className={clsx("max-w-screen overflow-visible overflow-x-auto", readingsStale && "opacity-50")}
+        data-testid="hashboard-stats"
+      >
         <div className={`${pagePadX} phone:mx-6 phone:!px-0`}>
           <Stats stats={stats} grid={layout.detailStatsGrid} size="medium" gap="gap-10" padding="pb-4" />
         </div>
@@ -222,30 +239,32 @@ const HashboardTemperature = ({ serial }: HashboardTemperatureProps) => {
           onSelect={(metric) => setSelectedMetric(metric as SelectedMetric)}
         />
       </div>
-      <div className={`${pagePadX} pt-4`}>
+      <div className={clsx(readingsStale && "opacity-50")} data-testid="hashboard-readings">
+        <div className={`${pagePadX} pt-4`}>
+          {serial ? (
+            <HashboardRail
+              rail={layout.rails.top}
+              center={serial}
+              readings={railReadings}
+              temperatureUnit={temperatureUnit}
+            />
+          ) : null}
+        </div>
         {serial ? (
-          <HashboardRail
-            rail={layout.rails.top}
-            center={serial}
-            readings={railReadings}
-            temperatureUnit={temperatureUnit}
-          />
+          <div className="scrollbar-hide max-w-screen overflow-x-auto">
+            <div className={`relative ${pageMarginX} mb-2 ${layout.grid.minWidth}`}>
+              <AsicMetricProvider selectedMetric={selectedMetric}>
+                <AsicTable hashboardSerialNumber={serial} showPopover={showPopover} setShowPopover={setShowPopover} />
+              </AsicMetricProvider>
+            </div>
+          </div>
+        ) : null}
+        {serial && layout.rails.bottom ? (
+          <div className={`${pagePadX} pt-4`}>
+            <HashboardRail rail={layout.rails.bottom} readings={railReadings} temperatureUnit={temperatureUnit} />
+          </div>
         ) : null}
       </div>
-      {serial ? (
-        <div className="scrollbar-hide max-w-screen overflow-x-auto">
-          <div className={`relative ${pageMarginX} mb-2 ${layout.grid.minWidth}`}>
-            <AsicMetricProvider selectedMetric={selectedMetric}>
-              <AsicTable hashboardSerialNumber={serial} showPopover={showPopover} setShowPopover={setShowPopover} />
-            </AsicMetricProvider>
-          </div>
-        </div>
-      ) : null}
-      {serial && layout.rails.bottom ? (
-        <div className={`${pagePadX} pt-4`}>
-          <HashboardRail rail={layout.rails.bottom} readings={railReadings} temperatureUnit={temperatureUnit} />
-        </div>
-      ) : null}
       <div className={`${pagePadX} mb-5`}>
         {hashboard?.board ? (
           <div className={`${railChrome} justify-around`}>

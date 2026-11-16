@@ -16,7 +16,12 @@ const HashboardTemperatureWrapper = () => {
   const valid =
     !moduleId || !!module?.hashboardIds.some((id) => topology?.hashboards.get(id)?.identity.value === serial);
   const hashboardSerialNumbers = useMemo(() => (valid && serial !== undefined ? [serial] : []), [serial, valid]);
-  const { error } = useHashboardStatus({ hashboardSerialNumbers, poll: topology?.kind === "container" });
+  // Containers stream the selected board's ASIC readings, polling only where
+  // the adapter has no stream.
+  const container = topology?.kind === "container";
+  // Other miners load the board once and keep refreshing through telemetry, so
+  // a failed load leaves their readings current.
+  const { error } = useHashboardStatus({ hashboardSerialNumbers, poll: container, stream: container });
   if (moduleId && !topology) return <p role="status">Loading module…</p>;
   if (!valid)
     return (
@@ -30,10 +35,7 @@ const HashboardTemperatureWrapper = () => {
       </div>
     );
   return serial !== undefined ? (
-    <>
-      {error ? <p role="alert">Could not refresh ASIC readings.</p> : null}
-      <HashboardTemperature serial={serial} />
-    </>
+    <HashboardTemperature serial={serial} readingsStale={container ? !!error : false} />
   ) : null;
 };
 

@@ -21,9 +21,9 @@ const setReadings = (power: number, hashrate: number, efficiency?: number) =>
       efficiency: efficiency === undefined ? undefined : { latest: { value: efficiency, units: "J/TH" } },
     });
   });
-function BoardPage() {
+function BoardPage({ readingsStale }: { readingsStale?: boolean }) {
   const { serial } = useParams();
-  return <HashboardTemperature serial={serial!} />;
+  return <HashboardTemperature serial={serial!} readingsStale={readingsStale} />;
 }
 function Location() {
   const location = useLocation();
@@ -38,12 +38,12 @@ function Location() {
     </>
   );
 }
-function showPage() {
+function showPage(readingsStale = false) {
   return render(
     <MemoryRouter initialEntries={["/tanks/1/modules/1", "/tanks/1/modules/1/T1-M1-HB1"]}>
       <Location />
       <Routes>
-        <Route path="/tanks/:tankId/modules/:moduleId/:serial" element={<BoardPage />} />
+        <Route path="/tanks/:tankId/modules/:moduleId/:serial" element={<BoardPage readingsStale={readingsStale} />} />
         <Route path="/tanks/:tankId/modules/:moduleId" element={<p>Module modal</p>} />
       </Routes>
     </MemoryRouter>,
@@ -127,4 +127,22 @@ test.each([
   expect(screen.queryByRole("navigation", { name: "Breadcrumb" })).not.toBeInTheDocument();
   act(() => useMinerStore.getState().hardware.replaceHardware(moduleFixture().hardware));
   expect(screen.getByRole("navigation", { name: "Breadcrumb" })).toHaveTextContent("Tank 1/Module 2");
+});
+
+test("a failed refresh shows below the fixed page header and dims the last readings", () => {
+  showPage(true);
+  const alert = screen.getByRole("alert");
+  expect(alert).toHaveTextContent("Could not refresh ASIC readings.");
+  // The header is fixed over the top of the page, so the alert must sit in
+  // the page content after it rather than ahead of the page.
+  expect(screen.getByText("Hashboards").compareDocumentPosition(alert) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect(screen.getByTestId("hashboard-stats")).toHaveClass("opacity-50");
+  expect(screen.getByTestId("hashboard-readings")).toHaveClass("opacity-50");
+});
+
+test("current readings show no alert and are not dimmed", () => {
+  showPage();
+  expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  expect(screen.getByTestId("hashboard-stats")).not.toHaveClass("opacity-50");
+  expect(screen.getByTestId("hashboard-readings")).not.toHaveClass("opacity-50");
 });

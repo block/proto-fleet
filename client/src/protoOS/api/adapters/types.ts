@@ -150,6 +150,8 @@ export interface HashboardStatus {
   asicIds: string[];
   asics: AsicHardwareData[];
   asicTelemetry: AsicTelemetrySample[];
+  /** When the controller took this sample, where it reports one. */
+  observedAt?: string;
 }
 
 export type TelemetryLevel = "miner" | "hashboard" | "psu" | "asic";
@@ -253,6 +255,11 @@ export interface MinerAdapter {
   ): Promise<{ hardware: HardwareState; telemetry: TelemetryState }>;
   getHashboards(params?: AdapterRequestOptions): Promise<HashboardHardwareData[]>;
   getHashboardStatus(serials: string[], params?: AdapterRequestOptions): Promise<HashboardStatus[]>;
+  /**
+   * Live ASIC readings for one hashboard, one status per controller frame, until `params.signal` aborts.
+   * Adapters without a per-board stream omit this capability; callers poll getHashboardStatus instead.
+   */
+  streamHashboardStatus?(serial: string, params?: AdapterRequestOptions): AsyncIterable<HashboardStatus>;
   login(password: string, params?: AdapterRequestOptions): Promise<AuthTokens>;
   refreshAccessToken(refreshToken: string, params?: AdapterRequestOptions): Promise<{ accessToken: string }>;
   getSystemLogs(

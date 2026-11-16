@@ -33,6 +33,7 @@ import {
   V2PlantWriteConfirmationState,
   V2PLLAlgorithm,
 } from "./generated/generatedApi";
+import { followHashboardStatus } from "./hashboardStream";
 import {
   type ContainerSeriesField,
   ct1ContainerId,
@@ -160,6 +161,7 @@ export class MdkV2Adapter implements MinerAdapter {
   readonly hashboardFirmware;
   readonly getControllerLogs?: MinerAdapter["getControllerLogs"];
   readonly listAuditEvents?: MinerAdapter["listAuditEvents"];
+  readonly streamHashboardStatus?: MinerAdapter["streamHashboardStatus"];
   private deviceId: string | undefined;
   private readonly hashboardTimeSeriesCache = new Map<string, { expiresAtMs: number; data: QueryTimeSeriesResponse }>();
 
@@ -178,6 +180,11 @@ export class MdkV2Adapter implements MinerAdapter {
         readControllerLogs(readLogTail, client.systemServiceGetSystemStatus, query, this.decorate(params));
       this.listAuditEvents = (query, params) =>
         listControllerAuditEvents(listAuditEvents, query, this.decorate(params));
+    }
+    const { telemetryServiceFollowAsicHealth: followAsicHealth } = client;
+    if (followAsicHealth) {
+      this.streamHashboardStatus = (identifier, params) =>
+        followHashboardStatus(followAsicHealth, identifier, this.decorate(params));
     }
   }
 

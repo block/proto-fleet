@@ -150,6 +150,13 @@ Set `CT1_LOG_SCENARIO` to exercise failure handling:
 | `logs-interrupted` | `GetLogs` fails with Unavailable halfway through the retained tail |
 | `audit-unavailable` | `ListAuditEvents` fails with Unavailable "audit log requires a configured database" |
 
+**ASIC health stream.** `TelemetryService/StreamASICHealth` is available over
+Connect and native gRPC only. Like Frigate, it sends one board's ASIC readings
+every second until the client disconnects, and includes the layout only on the
+first frame and when it changes. Frames go through the shared request
+lifecycle, so they agree with `GetHashboardASICs` within a sample interval.
+Unknown boards fail with NotFound.
+
 Share-history range validation follows Frigate's
 [`validateIndefiniteHistoryRange`](https://github.com/btc-mining/frigate/blob/5225b5fa64f8d81d95329dcd5bbd6b9c70005198/pkg/api/telemetry_service.go):
 only one-hour or one-day buckets with aligned start/end timestamps are accepted.

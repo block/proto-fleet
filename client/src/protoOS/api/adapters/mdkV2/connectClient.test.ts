@@ -52,6 +52,12 @@ const containerMapWithBoardError = (cause: HashboardErrorCause) => ({
   },
 });
 
+const collect = async <T>(items: AsyncIterable<T>) => {
+  const out: T[] = [];
+  for await (const item of items) out.push(item);
+  return out;
+};
+
 const isUnary = (method: DescMethod): method is DescMethodUnary => method.methodKind === "unary";
 const isServerStreaming = (method: DescMethod): method is DescMethodServerStreaming =>
   method.methodKind === "server_streaming";
@@ -297,6 +303,12 @@ const rpcTable: [
     { moduleId: "T1-M02", taskId: "0123456789abcdef", config: { stopMiningOnFinish: true } },
     (c) =>
       c.runInServiceStartModuleRunIn({ moduleId: "T1-M02", taskId: "0123456789abcdef" }, { stopMiningOnFinish: true }),
+  ],
+  [
+    "telemetryServiceFollowAsicHealth",
+    "mdk.v2.TelemetryService/StreamASICHealth",
+    { identifier: "02:00:00:00:00:01" },
+    (c) => collect(c.telemetryServiceFollowAsicHealth!({ identifier: "02:00:00:00:00:01" })),
   ],
   [
     "telemetryServiceGetContainerHealth",
@@ -579,6 +591,75 @@ describe("MDK v2 Connect client", () => {
     const error = await pending.catch((rejection: unknown) => rejection);
     expect(error).toBe(reason);
     expect(isAbortError(error)).toBe(true);
+  });
+});
+
+describe("MDK v2 Connect ASIC health stream", () => {
+  const asicClient = (
+    streamASICHealth: (signal: AbortSignal) => AsyncIterable<{ macAddress: string; asics: { index: number }[] }>,
+  ) =>
+    createMdkV2Client(
+      createRouterTransport(({ service }) =>
+        service(TelemetryService, { streamASICHealth: (_request, context) => streamASICHealth(context.signal) }),
+      ),
+    );
+
+  it("yields each frame in the REST JSON shape", async () => {
+    const client = asicClient(async function* () {
+      yield { macAddress: "02:00:00:00:00:01", asics: [{ index: 0 }] };
+      yield { macAddress: "02:00:00:00:00:01", asics: [{ index: 1 }] };
+    });
+
+    const frames = await collect(client.telemetryServiceFollowAsicHealth!({ identifier: "02:00:00:00:00:01" }));
+
+    expect(frames).toHaveLength(2);
+    expect(frames[0]).toMatchObject({ macAddress: "02:00:00:00:00:01", asics: [{ index: 0, voltageMv: 0 }] });
+    expect(frames[1].asics?.[0].index).toBe(1);
+  });
+
+  it("rejects with the gateway error shape when the stream fails", async () => {
+    const client = asicClient(async function* () {
+      yield { macAddress: "02:00:00:00:00:01", asics: [] };
+      throw new ConnectError("unknown hashboard", Code.NotFound);
+    });
+    const frames: unknown[] = [];
+
+    const error = await (async () => {
+      for await (const frame of client.telemetryServiceFollowAsicHealth!({ identifier: "02:00:00:00:00:01" })) {
+        frames.push(frame);
+      }
+    })().catch((rejection: unknown) => rejection);
+
+    expect(frames).toHaveLength(1);
+    expect(error).toMatchObject({ status: 404, error: { code: Code.NotFound, message: "unknown hashboard" } });
+  });
+
+  it("closes the stream when the caller stops reading or aborts", async () => {
+    const signals: AbortSignal[] = [];
+    const client = asicClient(async function* (signal) {
+      signals.push(signal);
+      while (!signal.aborted) {
+        yield { macAddress: "02:00:00:00:00:01", asics: [] };
+        await new Promise((resolve) => setTimeout(resolve, 1));
+      }
+    });
+
+    for await (const _frame of client.telemetryServiceFollowAsicHealth!({ identifier: "02:00:00:00:00:01" })) break;
+    await vi.waitFor(() => expect(signals[0].aborted).toBe(true));
+
+    const controller = new AbortController();
+    const reason = new DOMException("The operation was aborted.", "AbortError");
+    const read = (async () => {
+      for await (const _frame of client.telemetryServiceFollowAsicHealth!(
+        { identifier: "02:00:00:00:00:01" },
+        { signal: controller.signal },
+      )) {
+        controller.abort(reason);
+      }
+    })();
+
+    await expect(read).rejects.toBe(reason);
+    await vi.waitFor(() => expect(signals[1].aborted).toBe(true));
   });
 });
 
