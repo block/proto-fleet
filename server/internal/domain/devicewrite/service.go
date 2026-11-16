@@ -495,7 +495,7 @@ func isOrderedWrite(kind commandtype.Type) bool {
 	case commandtype.StartMining, commandtype.StopMining, commandtype.SetCoolingMode,
 		commandtype.SetPowerTarget, commandtype.UpdateMiningPools, commandtype.UpdateMinerPassword,
 		commandtype.Curtail, commandtype.Uncurtail, commandtype.ApplyCurtailmentConfig,
-		commandtype.SetContainerControl, commandtype.SetTankMining, commandtype.SetModuleMining, commandtype.ContainerMining:
+		commandtype.SetContainerControl, commandtype.ContainerAlarmAction, commandtype.SetTankMining, commandtype.SetModuleMining, commandtype.ContainerMining:
 		return true
 	case commandtype.FrigateServerUpdate:
 		// Each Frigate update call is synchronous and idempotent under its job

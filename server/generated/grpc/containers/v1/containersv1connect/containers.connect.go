@@ -76,6 +76,9 @@ const (
 	// ContainerServiceSetEquipmentControlProcedure is the fully-qualified name of the
 	// ContainerService's SetEquipmentControl RPC.
 	ContainerServiceSetEquipmentControlProcedure = "/containers.v1.ContainerService/SetEquipmentControl"
+	// ContainerServiceRunPlantAlarmActionProcedure is the fully-qualified name of the
+	// ContainerService's RunPlantAlarmAction RPC.
+	ContainerServiceRunPlantAlarmActionProcedure = "/containers.v1.ContainerService/RunPlantAlarmAction"
 	// ContainerServiceGetContainerProcedure is the fully-qualified name of the ContainerService's
 	// GetContainer RPC.
 	ContainerServiceGetContainerProcedure = "/containers.v1.ContainerService/GetContainer"
@@ -112,6 +115,7 @@ type ContainerServiceClient interface {
 	SetTankMining(context.Context, *connect.Request[v1.SetTankMiningRequest]) (*connect.Response[v1.SetTankMiningResponse], error)
 	GetEquipmentCommandResult(context.Context, *connect.Request[v1.GetEquipmentCommandResultRequest]) (*connect.Response[v1.GetEquipmentCommandResultResponse], error)
 	SetEquipmentControl(context.Context, *connect.Request[v1.SetEquipmentControlRequest]) (*connect.Response[v1.SetEquipmentControlResponse], error)
+	RunPlantAlarmAction(context.Context, *connect.Request[v1.RunPlantAlarmActionRequest]) (*connect.Response[v1.RunPlantAlarmActionResponse], error)
 	GetContainer(context.Context, *connect.Request[v1.GetContainerRequest]) (*connect.Response[v1.GetContainerResponse], error)
 	ListContainers(context.Context, *connect.Request[v1.ListContainersRequest]) (*connect.Response[v1.ListContainersResponse], error)
 	// Site management metadata only; does not grant access to container telemetry.
@@ -203,6 +207,11 @@ func NewContainerServiceClient(httpClient connect.HTTPClient, baseURL string, op
 			baseURL+ContainerServiceSetEquipmentControlProcedure,
 			opts...,
 		),
+		runPlantAlarmAction: connect.NewClient[v1.RunPlantAlarmActionRequest, v1.RunPlantAlarmActionResponse](
+			httpClient,
+			baseURL+ContainerServiceRunPlantAlarmActionProcedure,
+			opts...,
+		),
 		getContainer: connect.NewClient[v1.GetContainerRequest, v1.GetContainerResponse](
 			httpClient,
 			baseURL+ContainerServiceGetContainerProcedure,
@@ -247,6 +256,7 @@ type containerServiceClient struct {
 	setTankMining             *connect.Client[v1.SetTankMiningRequest, v1.SetTankMiningResponse]
 	getEquipmentCommandResult *connect.Client[v1.GetEquipmentCommandResultRequest, v1.GetEquipmentCommandResultResponse]
 	setEquipmentControl       *connect.Client[v1.SetEquipmentControlRequest, v1.SetEquipmentControlResponse]
+	runPlantAlarmAction       *connect.Client[v1.RunPlantAlarmActionRequest, v1.RunPlantAlarmActionResponse]
 	getContainer              *connect.Client[v1.GetContainerRequest, v1.GetContainerResponse]
 	listContainers            *connect.Client[v1.ListContainersRequest, v1.ListContainersResponse]
 	listContainerPlacements   *connect.Client[v1.ListContainerPlacementsRequest, v1.ListContainerPlacementsResponse]
@@ -324,6 +334,11 @@ func (c *containerServiceClient) SetEquipmentControl(ctx context.Context, req *c
 	return c.setEquipmentControl.CallUnary(ctx, req)
 }
 
+// RunPlantAlarmAction calls containers.v1.ContainerService.RunPlantAlarmAction.
+func (c *containerServiceClient) RunPlantAlarmAction(ctx context.Context, req *connect.Request[v1.RunPlantAlarmActionRequest]) (*connect.Response[v1.RunPlantAlarmActionResponse], error) {
+	return c.runPlantAlarmAction.CallUnary(ctx, req)
+}
+
 // GetContainer calls containers.v1.ContainerService.GetContainer.
 func (c *containerServiceClient) GetContainer(ctx context.Context, req *connect.Request[v1.GetContainerRequest]) (*connect.Response[v1.GetContainerResponse], error) {
 	return c.getContainer.CallUnary(ctx, req)
@@ -368,6 +383,7 @@ type ContainerServiceHandler interface {
 	SetTankMining(context.Context, *connect.Request[v1.SetTankMiningRequest]) (*connect.Response[v1.SetTankMiningResponse], error)
 	GetEquipmentCommandResult(context.Context, *connect.Request[v1.GetEquipmentCommandResultRequest]) (*connect.Response[v1.GetEquipmentCommandResultResponse], error)
 	SetEquipmentControl(context.Context, *connect.Request[v1.SetEquipmentControlRequest]) (*connect.Response[v1.SetEquipmentControlResponse], error)
+	RunPlantAlarmAction(context.Context, *connect.Request[v1.RunPlantAlarmActionRequest]) (*connect.Response[v1.RunPlantAlarmActionResponse], error)
 	GetContainer(context.Context, *connect.Request[v1.GetContainerRequest]) (*connect.Response[v1.GetContainerResponse], error)
 	ListContainers(context.Context, *connect.Request[v1.ListContainersRequest]) (*connect.Response[v1.ListContainersResponse], error)
 	// Site management metadata only; does not grant access to container telemetry.
@@ -455,6 +471,11 @@ func NewContainerServiceHandler(svc ContainerServiceHandler, opts ...connect.Han
 		svc.SetEquipmentControl,
 		opts...,
 	)
+	containerServiceRunPlantAlarmActionHandler := connect.NewUnaryHandler(
+		ContainerServiceRunPlantAlarmActionProcedure,
+		svc.RunPlantAlarmAction,
+		opts...,
+	)
 	containerServiceGetContainerHandler := connect.NewUnaryHandler(
 		ContainerServiceGetContainerProcedure,
 		svc.GetContainer,
@@ -510,6 +531,8 @@ func NewContainerServiceHandler(svc ContainerServiceHandler, opts ...connect.Han
 			containerServiceGetEquipmentCommandResultHandler.ServeHTTP(w, r)
 		case ContainerServiceSetEquipmentControlProcedure:
 			containerServiceSetEquipmentControlHandler.ServeHTTP(w, r)
+		case ContainerServiceRunPlantAlarmActionProcedure:
+			containerServiceRunPlantAlarmActionHandler.ServeHTTP(w, r)
 		case ContainerServiceGetContainerProcedure:
 			containerServiceGetContainerHandler.ServeHTTP(w, r)
 		case ContainerServiceListContainersProcedure:
@@ -583,6 +606,10 @@ func (UnimplementedContainerServiceHandler) GetEquipmentCommandResult(context.Co
 
 func (UnimplementedContainerServiceHandler) SetEquipmentControl(context.Context, *connect.Request[v1.SetEquipmentControlRequest]) (*connect.Response[v1.SetEquipmentControlResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("containers.v1.ContainerService.SetEquipmentControl is not implemented"))
+}
+
+func (UnimplementedContainerServiceHandler) RunPlantAlarmAction(context.Context, *connect.Request[v1.RunPlantAlarmActionRequest]) (*connect.Response[v1.RunPlantAlarmActionResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("containers.v1.ContainerService.RunPlantAlarmAction is not implemented"))
 }
 
 func (UnimplementedContainerServiceHandler) GetContainer(context.Context, *connect.Request[v1.GetContainerRequest]) (*connect.Response[v1.GetContainerResponse], error) {

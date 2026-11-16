@@ -189,7 +189,7 @@ func (r *RunCmd) handleMinerCommand(ctx context.Context, client gatewayClient, s
 		MacAddress:   target.GetMacAddress(),
 	}
 	// This action addresses the controller, never a derived module or a rig.
-	if mc.GetContainerMining() != nil || mc.GetSetContainerControl() != nil || mc.GetSetTankMining() != nil || mc.GetSetModuleMining() != nil || mc.GetSetBoardIdentify() != nil || mc.GetControllerRecords() != nil || mc.GetContainerPowerFeed() != nil || mc.GetMiningGroups() != nil {
+	if mc.GetContainerMining() != nil || mc.GetSetContainerControl() != nil || mc.GetSetTankMining() != nil || mc.GetSetModuleMining() != nil || mc.GetSetBoardIdentify() != nil || mc.GetRunContainerAlarmAction() != nil || mc.GetControllerRecords() != nil || mc.GetContainerPowerFeed() != nil || mc.GetMiningGroups() != nil {
 		deviceInfo.DeviceClass = sdk.DeviceClassContainer
 	}
 	result, err := driver.NewDevice(cmdCtx, handleID, deviceInfo, bundle)
@@ -515,6 +515,16 @@ func runMinerAction(ctx context.Context, client gatewayClient, commandID, firmwa
 			return nil, sdk.InvalidWriteRequest(err)
 		}
 		return nil, controller.SetBoardIdentify(ctx, req)
+	case *pb.MinerCommand_RunContainerAlarmAction:
+		controller, ok := dev.(sdk.DeviceContainerAlarmController)
+		if !ok {
+			return nil, sdk.UnsupportedWrite(sdk.CapabilityContainerAlarm)
+		}
+		req := sdk.ContainerAlarmRequest{Action: a.RunContainerAlarmAction.GetAction()}
+		if err := req.Validate(); err != nil {
+			return nil, sdk.InvalidWriteRequest(err)
+		}
+		return nil, controller.RunContainerAlarmAction(ctx, req)
 	case *pb.MinerCommand_SetContainerControl:
 		controller, ok := dev.(sdk.DeviceContainerController)
 		if !ok {

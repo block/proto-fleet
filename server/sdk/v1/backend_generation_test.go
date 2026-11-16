@@ -230,6 +230,10 @@ func TestScopedGenerationCheckedByEveryUnaryDeviceEndpoint(t *testing.T) {
 			_, e := server.SetContainerControl(t.Context(), &pb.SetContainerControlRequest{Ref: ref, Name: "coolant_pump", Enabled: &desired})
 			return e
 		},
+		"RunContainerAlarmAction": func() error {
+			_, e := server.RunContainerAlarmAction(t.Context(), &pb.RunContainerAlarmActionRequest{Ref: ref, Action: ContainerAlarmActionMute})
+			return e
+		},
 		"SetTankMining": func() error {
 			_, e := server.SetTankMining(t.Context(), &pb.SetTankMiningRequest{Ref: ref, Positions: []int32{1}, Mining: &desired})
 			return e

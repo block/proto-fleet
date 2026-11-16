@@ -306,6 +306,8 @@ partial failures. Synthetic test images are not signed production firmware.
 | `CT1_ASICS_PER_BOARD`    | ASICs reported per board                                                                                                                       | `312`             |
 | `CT1_DEMO_MODULE_STATES` | Set to `true` for mixed failures in tank 2, a single-board fault in tank 3, and sleeping/offline modules in tank 4 (tanks 1, 5, and 6 healthy) | `true`            |
 | `CT1_DEMO_ALL_BOARD_FAULTS` | Report every current MDK fault cause on every board to exercise telemetry payload limits; use with `CT1_DEMO_MODULE_STATES=false` | `false` |
+| `CT1_DEMO_PLANT_ALARMS` | Start with two plant alarms raised and the buzzer sounding: a latched warning "Coolant low pressure" whose cause has cleared and a critical "Tank B outlet over temperature" whose cause is still present (see [Plant alarms](#plant-alarms)) | `false` |
+| `CT1_ALARM_RESET_SUPPORTED` | Set to `false` to mimic real CT1 hardware: `GetContainerControls` advertises `alarm_reset_supported=false` and `ResetContainerAlarm` returns Unimplemented. Mute stays supported. | `true` |
 | `CT1_OCCUPIED_BOARDS` | Populate the first N slots in tank/module/slot order, in `1..capacity`. Remaining physical slots are empty, with configured locations and no hashboard identity or telemetry. Invalid values fail before listening. | all slots |
 | `FAKE_MINER_RESPONSE_DELAY` | Nonnegative Go duration before each REST, Connect or native gRPC operation, outside simulation locks and canceled by request deadlines. Set `5ms` for the load campaign. | `0` |
 | `FAKE_MINER_METRICS_FILE` | Append cumulative operation counts, errors and latency sums as JSONL every ten seconds and on graceful shutdown; omit to disable file output. | unset |
@@ -314,6 +316,27 @@ partial failures. Synthetic test images are not signed production firmware.
 | `CT1_SEED`               | Positive integer controlling deterministic variation                                                                                           | `1`               |
 
 Shrink the tree for fast tests, e.g. `CT1_TANKS=1 CT1_MODULES_PER_TANK=2`.
+
+### Plant alarms
+
+`GetContainerControls` advertises `alarm_mute_supported=true` and `alarm_reset_supported`
+(from `CT1_ALARM_RESET_SUPPORTED`). `GetContainerHealth` reports `alarms[]`, `plant.alarm_active`,
+`plant.critical_alarm_active`, `plant.buzzer_active` and `alarm_mute_supported` from simulator
+state; a controller without `CT1_DEMO_PLANT_ALARMS` reports none. Over REST the same routes are
+`POST /api/v2/power/container/alarm/mute` and `.../alarm/reset`.
+
+- `MuteContainerAlarm` silences the buzzer. Alarms stay active.
+- `ResetContainerAlarm` clears latched alarms whose cause has cleared and keeps those whose cause is
+  still present. With the demo alarms, the first reset removes only the warning. It returns
+  Unimplemented (REST 501) when reset is configured unsupported.
+- A newly raised alarm sounds the buzzer again, even after a mute.
+- Both commands succeed with an empty response and carry no readback. Confirm the result from a
+  later `GetContainerHealth` observation, as ProtoOS does.
+
+```bash
+CT1_DEMO_PLANT_ALARMS=true just dev-ct1
+CT1_DEMO_PLANT_ALARMS=true CT1_ALARM_RESET_SUPPORTED=false just dev-ct1
+```
 
 ### Unlocated inventory
 

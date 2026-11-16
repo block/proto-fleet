@@ -19,6 +19,13 @@ const errorSource = (error: NormalizedMinerError): ErrorSource => {
   return kind === "hashboard" ? "HASHBOARD" : kind === "psu" ? "PSU" : kind === "fan" ? "FAN" : "RIG";
 };
 
+/**
+ * A container-wide error with no component or source is a plant alarm from the cooling
+ * controller, not a control board fault. Status summaries group it as its own issue.
+ */
+export const isPlantAlarmError = (error: NormalizedMinerError) =>
+  error.owner.kind === "container" && !error.component && !error.source;
+
 const toLegacyError = (error: NormalizedMinerError): MinerError => ({
   errorCode: error.code,
   timestamp: error.timestampMs === undefined ? undefined : error.timestampMs / 1_000,
@@ -177,13 +184,14 @@ export const useHideWakeDialog = () => {
  * @returns Object with component types as keys and arrays of errors as values
  */
 export const useGroupedErrors = () => {
-  const allErrors = useErrors();
+  const detailedErrors = useDetailedErrors();
 
   return useMemo(() => {
     // Simple direct grouping by source
     // ASIC errors have already been transformed to HASHBOARD in the transformer
     // Pool-related errors are RIG source errors with pool-specific error codes
     const poolErrorCodes = ["NoPoolConfigured", "PoolConnectionLost"];
+    const allErrors = detailedErrors.filter((error) => !isPlantAlarmError(error)).map(toLegacyError);
 
     return {
       hashboard: allErrors.filter((error) => error.source === "HASHBOARD"),
@@ -191,8 +199,9 @@ export const useGroupedErrors = () => {
       fan: allErrors.filter((error) => error.source === "FAN"),
       pool: allErrors.filter((error) => error.source === "RIG" && poolErrorCodes.includes(error.errorCode)),
       system: allErrors.filter((error) => error.source === "RIG" && !poolErrorCodes.includes(error.errorCode)),
+      plant: detailedErrors.filter(isPlantAlarmError).map(toLegacyError),
     };
-  }, [allErrors]);
+  }, [detailedErrors]);
 };
 
 /**

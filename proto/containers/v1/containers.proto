@@ -27,6 +27,7 @@ service ContainerService {
   rpc SetTankMining(SetTankMiningRequest) returns (SetTankMiningResponse);
   rpc GetEquipmentCommandResult(GetEquipmentCommandResultRequest) returns (GetEquipmentCommandResultResponse);
   rpc SetEquipmentControl(SetEquipmentControlRequest) returns (SetEquipmentControlResponse);
+  rpc RunPlantAlarmAction(RunPlantAlarmActionRequest) returns (RunPlantAlarmActionResponse);
   rpc GetContainer(GetContainerRequest) returns (GetContainerResponse);
   rpc ListContainers(ListContainersRequest) returns (ListContainersResponse);
   // Site management metadata only; does not grant access to container telemetry.
@@ -159,6 +160,25 @@ message SetEquipmentControlResponse {
   string batch_identifier = 1;
 }
 
+enum PlantAlarmAction {
+  PLANT_ALARM_ACTION_UNSPECIFIED = 0;
+  // Silences the alarm buzzer. Alarms stay active until their cause clears.
+  PLANT_ALARM_ACTION_MUTE = 1;
+  // Asks the controller to clear latched alarms. An alarm whose cause is still
+  // present stays active, and no hardware fault is cleared.
+  PLANT_ALARM_ACTION_RESET = 2;
+}
+// One pulse to the container's current controller; never replayed by Fleet.
+message RunPlantAlarmActionRequest {
+  string device_identifier = 1 [(buf.validate.field).string = {min_len: 1, max_len: 255}];
+  PlantAlarmAction action = 2 [(buf.validate.field).enum = {defined_only: true, not_in: [0]}];
+}
+message RunPlantAlarmActionResponse {
+  // Completion acknowledges the pulse, not its effect. Use
+  // GetEquipmentCommandResult, then a newer plant observation, to confirm it.
+  string batch_identifier = 1;
+}
+
 message GetEquipmentCommandResultRequest {
  string device_identifier = 1 [(buf.validate.field).string = {min_len: 1, max_len: 255}];
  string batch_identifier = 2 [(buf.validate.field).string = {min_len: 1, max_len: 128}];
@@ -173,6 +193,12 @@ message ContainerPlant {
  google.protobuf.Timestamp observed_at = 1;
  optional double dry_cooler_inlet_temperature_c = 2;
  bool stale = 3;
+ // Controller alarm flags from the same observation. Absent means not
+ // reported, never clear. Individual alarms are reported as device errors.
+ optional bool alarm_active = 4;
+ optional bool critical_alarm_active = 5;
+ // Absent when the controller does not expose buzzer state.
+ optional bool buzzer_active = 6;
 }
 
 // Stable Fleet tank IDs; positions and controllers are resolved by the server.

@@ -385,6 +385,14 @@ export interface ContainerSetpointTelemetry {
   maximum?: number;
 }
 
+/** One active plant alarm from the controller's own list; scope and severity as reported. */
+export interface PlantAlarm {
+  id?: string;
+  name: string;
+  severity: "critical" | "error" | "warning" | "info" | "unknown";
+  componentId?: string;
+}
+
 export interface PlantTelemetry {
   componentId: ComponentId;
   operatingState?: string;
@@ -429,6 +437,12 @@ export interface PlantTelemetry {
   alarmActive?: boolean;
   criticalAlarmActive?: boolean;
   buzzerActive?: boolean;
+  /** Complete active-alarm list from the same observation as the flags above. */
+  alarms?: PlantAlarm[];
+  /** Live narrowing of mute support; absent on older controllers, which keeps mute assumed supported. */
+  alarmMuteSupported?: boolean;
+  /** Oldest contributing source observation behind this snapshot, never receipt time. */
+  observedAtMs?: number;
   controls?: ContainerControlTelemetry[];
   setpoints?: ContainerSetpointTelemetry[];
 }

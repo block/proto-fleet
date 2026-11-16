@@ -38,7 +38,7 @@ func TestEquipmentObservationsDirectAndFleetNodeTransport(t *testing.T) {
 			store, err := timescaledb.NewTelemetryStore(db, timescaledb.DefaultConfig())
 			require.NoError(t, err)
 			now := time.Now().UTC().Truncate(time.Microsecond)
-			snapshot := &sdk.ContainerSnapshot{HA: &sdk.ContainerHA{ObservedAt: now, Degraded: true}, Plant: &sdk.ContainerPlant{ObservedAt: now, DryCoolerInletTemperatureC: new(0.0)}, ObservedAt: now, Tanks: []sdk.ContainerTank{{Position: 1}}, Fans: []sdk.ContainerFan{{ComponentID: "fan-a", ObservedAt: now.Add(-time.Second), SpeedPercent: new(0.0), PowerW: new(0.0), AlarmActive: new(false)}, {ComponentID: "fan-b", ObservedAt: now.Add(-3 * time.Minute)}}, Controls: &sdk.ContainerControls{ObservedAt: now, Supported: new(true), Controls: []sdk.ContainerControl{{Name: "dry_cooler", Enabled: new(false)}, {Name: "coolant_pump"}}, Setpoints: []sdk.ContainerSetpoint{{Name: "coolant_pump_speed_hz", Value: new(0.0), Unit: "Hz"}}, MainCircuitBreakerSupported: new(true)}}
+			snapshot := &sdk.ContainerSnapshot{HA: &sdk.ContainerHA{ObservedAt: now, Degraded: true}, Plant: &sdk.ContainerPlant{ObservedAt: now, DryCoolerInletTemperatureC: new(0.0), AlarmActive: new(true), CriticalAlarmActive: new(false)}, ObservedAt: now, Tanks: []sdk.ContainerTank{{Position: 1}}, Fans: []sdk.ContainerFan{{ComponentID: "fan-a", ObservedAt: now.Add(-time.Second), SpeedPercent: new(0.0), PowerW: new(0.0), AlarmActive: new(false)}, {ComponentID: "fan-b", ObservedAt: now.Add(-3 * time.Minute)}}, Controls: &sdk.ContainerControls{ObservedAt: now, Supported: new(true), Controls: []sdk.ContainerControl{{Name: "dry_cooler", Enabled: new(false)}, {Name: "coolant_pump"}}, Setpoints: []sdk.ContainerSetpoint{{Name: "coolant_pump_speed_hz", Value: new(0.0), Unit: "Hz"}}, MainCircuitBreakerSupported: new(true)}}
 			write := func() {
 				t.Helper()
 				metrics := telemetry.DeviceMetrics{DeviceIdentifier: d.DeviceIdentifier, Timestamp: snapshot.ObservedAt, Container: snapshot}
@@ -62,6 +62,10 @@ func TestEquipmentObservationsDirectAndFleetNodeTransport(t *testing.T) {
 			require.NotNil(t, got.Plant)
 			require.False(t, got.Plant.Stale)
 			require.Equal(t, 0.0, *got.Plant.DryCoolerInletTemperatureC)
+			require.True(t, *got.Plant.AlarmActive)
+			require.NotNil(t, got.Plant.CriticalAlarmActive)
+			require.False(t, *got.Plant.CriticalAlarmActive, "an explicit false must survive projection")
+			require.Nil(t, got.Plant.BuzzerActive, "an unreported buzzer must not read as silent")
 			require.Len(t, got.Fans, 2)
 			require.False(t, got.Fans[0].Stale)
 			require.True(t, got.Fans[1].Stale)

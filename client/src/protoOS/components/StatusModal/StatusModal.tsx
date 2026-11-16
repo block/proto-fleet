@@ -11,11 +11,11 @@ import { useMinerStatusTitle } from "@/protoOS/hooks/status";
 import { useWakeMiner } from "@/protoOS/hooks/useWakeMiner";
 import { useDeviceType, useIsSleeping, useMinerStore } from "@/protoOS/store";
 import type { ComponentRef } from "@/protoOS/store/contract";
-import { useDetailedErrors } from "@/protoOS/store/hooks/useMinerStatus";
+import { isPlantAlarmError, useDetailedErrors } from "@/protoOS/store/hooks/useMinerStatus";
 import { componentName, resolveComponentAddress } from "@/protoOS/store/utils/componentSelection";
 import { variants } from "@/shared/components/Button";
 import { StatusModal as SharedStatusModal } from "@/shared/components/StatusModal";
-import type { ComponentStatusData, ErrorData, MinerStatusData } from "@/shared/components/StatusModal/types";
+import type { ComponentStatusData, MinerStatusData } from "@/shared/components/StatusModal/types";
 
 /**
  * ProtoOS-specific StatusModal wrapper that integrates with the store
@@ -94,11 +94,13 @@ const RigStatusModal = ({ open, onClose, componentAddress, showBackButton = true
       psu: group("psu"),
       fan: group("fan"),
       controlBoard: transformErrorsForModal(
-        errors.filter((error) => !error.component || error.component.kind === "controlBoard"),
+        errors.filter(
+          (error) => error.component?.kind === "controlBoard" || (!error.component && !isPlantAlarmError(error)),
+        ),
         name,
         setComponent,
       ),
-      other: [] as ErrorData[],
+      other: transformErrorsForModal(errors.filter(isPlantAlarmError), name),
     };
 
     // Build buttons

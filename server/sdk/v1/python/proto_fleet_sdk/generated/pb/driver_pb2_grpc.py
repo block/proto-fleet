@@ -151,6 +151,11 @@ class DriverStub(object):
                 request_serializer=pb_dot_driver__pb2.ControllerRecordsRequest.SerializeToString,
                 response_deserializer=pb_dot_driver__pb2.ControllerRecordsResponse.FromString,
                 _registered_method=True)
+        self.RunContainerAlarmAction = channel.unary_unary(
+                '/sdk.v1.Driver/RunContainerAlarmAction',
+                request_serializer=pb_dot_driver__pb2.RunContainerAlarmActionRequest.SerializeToString,
+                response_deserializer=google_dot_protobuf_dot_empty__pb2.Empty.FromString,
+                _registered_method=True)
         self.FrigateServerUpdate = channel.unary_unary(
                 '/sdk.v1.Driver/FrigateServerUpdate',
                 request_serializer=pb_dot_driver__pb2.FrigateServerUpdateRequest.SerializeToString,
@@ -416,6 +421,14 @@ class DriverServicer(object):
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def RunContainerAlarmAction(self, request, context):
+        """Optional controller-only plant alarm pulse (mute or reset). Success
+        acknowledges the pulse; only a later plant observation confirms its effect.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
     def FrigateServerUpdate(self, request, context):
         """Optional controller-only Frigate software update operations (capability
         "frigate_server_update"). One RPC carries nine operations so the plugin
@@ -675,6 +688,11 @@ def add_DriverServicer_to_server(servicer, server):
                     servicer.ControllerRecords,
                     request_deserializer=pb_dot_driver__pb2.ControllerRecordsRequest.FromString,
                     response_serializer=pb_dot_driver__pb2.ControllerRecordsResponse.SerializeToString,
+            ),
+            'RunContainerAlarmAction': grpc.unary_unary_rpc_method_handler(
+                    servicer.RunContainerAlarmAction,
+                    request_deserializer=pb_dot_driver__pb2.RunContainerAlarmActionRequest.FromString,
+                    response_serializer=google_dot_protobuf_dot_empty__pb2.Empty.SerializeToString,
             ),
             'FrigateServerUpdate': grpc.unary_unary_rpc_method_handler(
                     servicer.FrigateServerUpdate,
@@ -1404,6 +1422,33 @@ class Driver(object):
             '/sdk.v1.Driver/ControllerRecords',
             pb_dot_driver__pb2.ControllerRecordsRequest.SerializeToString,
             pb_dot_driver__pb2.ControllerRecordsResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def RunContainerAlarmAction(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/sdk.v1.Driver/RunContainerAlarmAction',
+            pb_dot_driver__pb2.RunContainerAlarmActionRequest.SerializeToString,
+            google_dot_protobuf_dot_empty__pb2.Empty.FromString,
             options,
             channel_credentials,
             insecure,

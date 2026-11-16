@@ -346,7 +346,8 @@ func (c *errorCollector) issues(issues *sdk.ContainerModuleIssues, sources issue
 // plant records active plant alarms. The response timestamp is the oldest
 // contributing poll, so an old timestamp means Frigate is serving a retained
 // snapshot. A failed, stale, or plant-less read is silence: it neither adds
-// nor clears alarms, and board and PSU evidence is unaffected.
+// nor clears alarms, and board and PSU evidence is unaffected. An omitted
+// alarm flag is silence too, never a clear reading.
 func (c *errorCollector) plant(wire *mdk.GetContainerHealthResponse, err error, now time.Time) {
 	if c == nil {
 		return
@@ -371,12 +372,15 @@ func (c *errorCollector) plant(wire *mdk.GetContainerHealthResponse, err error, 
 			claims: map[string]errorClaim{source: {severity: severity, at: at, current: true}},
 		}
 	}
-	e.readings[plantAggregateSource] = errorReading{at: sampled, complete: true}
 	alarms := wire.GetAlarms()
 	if len(alarms) == 0 && (plant.GetAlarmActive() || plant.GetCriticalAlarmActive()) {
 		// Frigate lists alarms only from a live plant poll. Before its first
 		// poll it serves the saved flags alone; an empty list is then not a
-		// clear reading of the alarms Fleet already holds.
+		// clear reading of the alarms Fleet already holds. A flag that was
+		// not reported says nothing, so it cannot withdraw the other flag's
+		// held error.
+		complete := plant.AlarmActive != nil && plant.CriticalAlarmActive != nil
+		e.readings[plantAggregateSource] = errorReading{at: sampled, complete: complete}
 		cause, text, severity := "PLANT_ALARM_ACTIVE", "Alarm active; the controller did not list its alarms", sdkerrors.SeverityMajor
 		if plant.GetCriticalAlarmActive() {
 			cause, text, severity = "PLANT_CRITICAL_ALARM_ACTIVE", "Critical alarm active; the controller did not list its alarms", sdkerrors.SeverityCritical
@@ -384,6 +388,13 @@ func (c *errorCollector) plant(wire *mdk.GetContainerHealthResponse, err error, 
 		add("plant", cause, text, severity, errorPlace{label: "Plant"}, plantAggregateSource)
 		return
 	}
+	if len(alarms) == 0 && plant.AlarmActive == nil {
+		// Only an alarm flag reported clear confirms an empty list. Without
+		// it the sample may predate Frigate's first plant poll, so it is
+		// silence for both the flags and the list.
+		return
+	}
+	e.readings[plantAggregateSource] = errorReading{at: sampled, complete: true}
 	complete := len(alarms) <= maxPlantAlarms
 	for _, alarm := range alarms[:min(len(alarms), maxPlantAlarms)] {
 		id, name := strings.TrimSpace(alarm.GetId()), strings.TrimSpace(alarm.GetName())

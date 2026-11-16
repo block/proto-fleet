@@ -106,7 +106,7 @@ func MayAffectPools(operationKind, commandName string) bool {
 	case commandtype.StartMining, commandtype.StopMining, commandtype.UpdateMiningPools,
 		commandtype.Reboot, commandtype.FirmwareUpdate, commandtype.Unpair,
 		commandtype.UpdateMinerPassword, commandtype.Curtail, commandtype.Uncurtail,
-		commandtype.ApplyCurtailmentConfig, commandtype.SetContainerControl,
+		commandtype.ApplyCurtailmentConfig, commandtype.SetContainerControl, commandtype.ContainerAlarmAction,
 		commandtype.SetTankMining, commandtype.SetModuleMining, commandtype.ContainerMining:
 		return true
 	default:

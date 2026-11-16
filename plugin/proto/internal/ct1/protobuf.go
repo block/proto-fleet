@@ -133,7 +133,7 @@ func boardFromProto(v *mdk.Hashboard) *Board {
 func plantObservation(v *mdk.GetContainerHealthResponse) plantResponse {
 	out := plantResponse{Timestamp: sourceTime(v.GetTimestamp())}
 	if p := v.GetPlant(); p != nil {
-		out.Plant = &plantFields{DryCoolerInletTemperatureC: p.DryCoolerInletTemperatureC, TotalPowerW: p.TotalPowerW, FacilityPowerW: p.FacilityPowerW, PUE: p.Pue, InletTemperatureC: p.InletTemperatureC, OutletTemperatureC: p.OutletTemperatureC, AlarmActive: p.GetAlarmActive(), CriticalAlarmActive: p.GetCriticalAlarmActive()}
+		out.Plant = &plantFields{DryCoolerInletTemperatureC: p.DryCoolerInletTemperatureC, TotalPowerW: p.TotalPowerW, FacilityPowerW: p.FacilityPowerW, PUE: p.Pue, InletTemperatureC: p.InletTemperatureC, OutletTemperatureC: p.OutletTemperatureC, AlarmActive: p.AlarmActive, CriticalAlarmActive: p.CriticalAlarmActive, BuzzerActive: p.BuzzerActive}
 	}
 	for _, f := range v.GetCoolingFans() {
 		fan := fanResponse{ComponentID: f.GetComponentId(), SpeedPercent: f.SpeedPercent, PowerW: f.PowerW, AlarmActive: f.AlarmActive}

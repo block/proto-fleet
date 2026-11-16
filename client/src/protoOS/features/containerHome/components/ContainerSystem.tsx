@@ -2,6 +2,7 @@ import { useState } from "react";
 import { formatReading, latest, temperatureValue } from "../utils/buildContainerHome";
 import ContainerSystemControlsModal from "./ContainerSystemControlsModal";
 import ContainerSystemSchematic, { type ContainerSystemSchematicProps } from "./ContainerSystemSchematic";
+import PlantAlarmOutcomeNotice from "./PlantAlarmOutcomeNotice";
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
 import { tankSide } from "@/protoOS/features/tanks/tankSide";
 import type { FanHardware, PlantTelemetry } from "@/protoOS/store/contract";
@@ -55,14 +56,22 @@ export default function ContainerSystem({ plant, fans }: { plant?: PlantTelemetr
     pumpOutletPressure: pressure(latest(plant?.pumpOutletPressure)),
     actions:
       adapter?.getContainerSettings &&
-      (adapter.setContainerControl || adapter.setContainerSetpoint || adapter.setMainCircuitBreakerState) ? (
-        <Button
-          variant="secondary"
-          size="compact"
-          text="System controls"
-          className="min-h-10"
-          onClick={() => setSelectedGeneration(generation)}
-        />
+      (adapter.setContainerControl ||
+        adapter.setContainerSetpoint ||
+        adapter.setMainCircuitBreakerState ||
+        adapter.muteContainerAlarm ||
+        adapter.resetContainerAlarm) ? (
+        <div className="flex flex-wrap items-center gap-3">
+          <Button
+            variant="secondary"
+            size="compact"
+            text="System controls"
+            className="min-h-10"
+            onClick={() => setSelectedGeneration(generation)}
+          />
+          {/* The open modal shows the outcome in its Container alarms section. */}
+          {selectedGeneration === generation ? null : <PlantAlarmOutcomeNotice />}
+        </div>
       ) : undefined,
   };
   return (

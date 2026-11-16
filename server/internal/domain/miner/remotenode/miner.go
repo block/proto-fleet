@@ -327,7 +327,9 @@ func (m *Miner) sendInSlot(ctx context.Context, mc *gatewaypb.MinerCommand) (*ga
 		return nil, devicewrite.NotDispatched(err)
 	}
 	version := gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1
-	if mc.GetContainerPowerFeed() != nil {
+	if mc.GetRunContainerAlarmAction() != nil {
+		version = ContainerAlarmCommandProtocolVersion
+	} else if mc.GetContainerPowerFeed() != nil {
 		version = gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V13
 	} else if mc.GetControllerRecords() != nil {
 		version = gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V11

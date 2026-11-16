@@ -806,6 +806,10 @@ service Driver {
   // JSON-encoded sdk.ControllerRecordsRequest and sdk.ControllerRecordsResult.
   rpc ControllerRecords(ControllerRecordsRequest) returns (ControllerRecordsResponse);
 
+  // Optional controller-only plant alarm pulse (mute or reset). Success
+  // acknowledges the pulse; only a later plant observation confirms its effect.
+  rpc RunContainerAlarmAction(RunContainerAlarmActionRequest) returns (google.protobuf.Empty);
+
   // Optional controller-only Frigate software update operations (capability
   // "frigate_server_update"). One RPC carries nine operations so the plugin
   // boundary stays narrow. A Frigate refusal travels as a gRPC status carrying a
@@ -947,8 +951,11 @@ message ContainerPlant {
  optional double pue = 4;
  optional double inlet_temperature_c = 5;
  optional double outlet_temperature_c = 6;
- bool alarm_active = 7;
- bool critical_alarm_active = 8;
+ // Absent means the controller did not report the flag, not that it is clear.
+ optional bool alarm_active = 7;
+ optional bool critical_alarm_active = 8;
+ // Absent when the controller's PLC transport does not expose buzzer state.
+ optional bool buzzer_active = 10;
 }
 
 // Latest component observations. Missing scalar values are unavailable, not zero.
@@ -986,6 +993,13 @@ message SetContainerControlRequest {
   DeviceRef ref = 1;
   string name = 2;
   optional bool enabled = 3;
+}
+
+message RunContainerAlarmActionRequest {
+  DeviceRef ref = 1;
+  // "mute" silences the alarm buzzer; "reset" asks the controller to clear
+  // latched alarms. Neither clears the condition that raised an alarm.
+  string action = 2;
 }
 
 // Current evidence, independently timestamped from module classification.

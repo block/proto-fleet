@@ -10,6 +10,7 @@ import type {
   PsuHardware,
   PsuTelemetry,
 } from "@/protoOS/store/contract";
+import { isPlantAlarmError } from "@/protoOS/store/hooks/useMinerStatus";
 import EfficiencyValue from "@/shared/components/EfficiencyValue";
 import HashRateValue from "@/shared/components/HashRateValue";
 import PowerValue from "@/shared/components/PowerValue";
@@ -195,7 +196,7 @@ export function transformErrorsForModal(
   onErrorClick?: (component: ComponentRef) => void,
 ): ErrorData[] {
   return errors.map((error) => ({
-    componentName: error.component ? name(error.component) : "Miner",
+    componentName: error.component ? name(error.component) : isPlantAlarmError(error) ? "Container alarm" : "Miner",
     message: error.message,
     timestamp: error.timestampMs === undefined ? undefined : error.timestampMs / 1000,
     onClick: error.component && onErrorClick ? () => onErrorClick(error.component!) : undefined,

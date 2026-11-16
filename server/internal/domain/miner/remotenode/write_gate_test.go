@@ -55,6 +55,9 @@ func TestRemotePhysicalWritesRequireAdmissionBeforeTransport(t *testing.T) {
 		{commandtype.SetContainerControl, func(m *Miner) error {
 			return m.SetContainerControl(t.Context(), sdk.ContainerControlRequest{Name: "dry_cooler", Enabled: new(false)})
 		}},
+		{commandtype.ContainerAlarmAction, func(m *Miner) error {
+			return m.RunContainerAlarmAction(t.Context(), sdk.ContainerAlarmRequest{Action: sdk.ContainerAlarmActionMute})
+		}},
 		{commandtype.FirmwareUpdate, func(m *Miner) error {
 			return m.FirmwareUpdate(t.Context(), sdk.FirmwareFile{ID: "11111111-1111-1111-1111-111111111111", Filename: "update.swu", Size: 42, SHA256: strings.Repeat("a", 64)})
 		}},
@@ -203,11 +206,12 @@ func TestPhysicalWriteKindCoversEveryProtocolAction(t *testing.T) {
 		"set_cooling_mode": commandtype.SetCoolingMode, "set_power_target": commandtype.SetPowerTarget,
 		"update_mining_pools": commandtype.UpdateMiningPools, "update_miner_password": commandtype.UpdateMinerPassword,
 		"firmware_update": commandtype.FirmwareUpdate, "set_container_control": commandtype.SetContainerControl,
-		"set_tank_mining":      commandtype.SetTankMining,
-		"set_module_mining":    commandtype.SetModuleMining,
-		"mining_groups":        commandtype.Type(-1),
-		"container_power_feed": commandtype.Type(-1),
-		"container_mining":     commandtype.ContainerMining,
+		"run_container_alarm_action": commandtype.ContainerAlarmAction,
+		"set_tank_mining":            commandtype.SetTankMining,
+		"set_module_mining":          commandtype.SetModuleMining,
+		"mining_groups":              commandtype.Type(-1),
+		"container_power_feed":       commandtype.Type(-1),
+		"container_mining":           commandtype.ContainerMining,
 	}
 	actions := (&gatewaypb.MinerCommand{}).ProtoReflect().Descriptor().Oneofs().ByName("action").Fields()
 	require.Equal(t, len(readAndIndicator)+len(mutationKinds), actions.Len(), "classify new protocol actions explicitly")

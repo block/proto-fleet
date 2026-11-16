@@ -317,6 +317,8 @@ enum CommandProtocolVersion {
     COMMAND_PROTOCOL_VERSION_V11 = 11;
     // V13 adds read-only CT1 module power-feed inspection.
     COMMAND_PROTOCOL_VERSION_V13 = 13;
+    // V14 adds CT1 plant alarm mute and reset pulses.
+    COMMAND_PROTOCOL_VERSION_V14 = 14;
 }
 
 message ControlHello {
@@ -517,6 +519,7 @@ message MinerCommand {
         SetBoardIdentifyAction set_board_identify = 25;
         ControllerRecordsAction controller_records = 26;
         ContainerPowerFeedAction container_power_feed = 27;
+        RunContainerAlarmAction run_container_alarm_action = 28;
     }
 }
 
@@ -794,6 +797,11 @@ message SetBoardIdentifyAction {
   string module_reported_id = 4 [(buf.validate.field).string = {min_len: 1, max_len: 255}];
   string mac_address = 5 [(buf.validate.field).string = {min_len: 1, max_len: 64}];
   string mode = 6 [(buf.validate.field).string = {in: ["blink", "off"]}];
+}
+
+// A single plant alarm pulse. Success acknowledges the pulse, not its effect.
+message RunContainerAlarmAction {
+  string action = 1 [(buf.validate.field).string = {in: ["mute", "reset"]}];
 }
 
 // Closed SDK MiningGroupRequest JSON. Passwords are empty in request;

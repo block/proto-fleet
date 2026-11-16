@@ -1541,6 +1541,83 @@ func TestEquipmentCommandUnsupportedOldPlugin(t *testing.T) {
 	require.Equal(t, string(sdk.WriteReasonUnsupported), evidence.Metadata["reason"])
 }
 
+type alarmActionDevice struct {
+	sdk.Device
+	received []sdk.ContainerAlarmRequest
+	err      error
+}
+
+func (d *alarmActionDevice) RunContainerAlarmAction(_ context.Context, req sdk.ContainerAlarmRequest) error {
+	d.received = append(d.received, req)
+	return d.err
+}
+
+func TestContainerAlarmCommandBuildsControllerAndSendsActionOnce(t *testing.T) {
+	for _, action := range []string{sdk.ContainerAlarmActionMute, sdk.ContainerAlarmActionReset} {
+		t.Run(action, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			driver := mocks.NewMockDriver(ctrl)
+			base := mocks.NewMockDevice(ctrl)
+			base.EXPECT().Close(gomock.Any()).Return(nil)
+			device := &alarmActionDevice{Device: base}
+			driver.EXPECT().NewDevice(gomock.Any(), gomock.Not("dev-1"), gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, _ string, info sdk.DeviceInfo, _ sdk.SecretBundle) (sdk.NewDeviceResult, error) {
+				require.Equal(t, sdk.DeviceClassContainer, info.DeviceClass, "the action addresses the controller, never a derived device")
+				return sdk.NewDeviceResult{Device: device}, nil
+			})
+			run := &RunCmd{driverGetter: fakeDriverGetter{d: driver}, minerSecrets: nodeSecretProvider{}}
+			acker := &captureAcker{}
+			command := withTarget(&pb.MinerCommand{Action: &pb.MinerCommand_RunContainerAlarmAction{RunContainerAlarmAction: &pb.RunContainerAlarmAction{Action: action}}})
+			run.handleMinerCommand(t.Context(), nil, acker, "alarm", command, slog.Default())
+			require.True(t, acker.only(t).Succeeded)
+			require.Equal(t, []sdk.ContainerAlarmRequest{{Action: action}}, device.received)
+		})
+	}
+}
+
+func TestContainerAlarmCommandReportsRefusalAndUnknownOutcomeDistinctly(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		err     error
+		outcome string
+	}{
+		{"refusal", sdk.WriteRefused(errors.New("refused"), sdk.WriteStageDispatch, sdk.WriteReasonRejected), sdk.WriteNotDispatched},
+		{"unknown outcome", sdk.WithWriteOutcome(errors.New("timeout"), sdk.WriteUnknown, sdk.WriteStageDispatch, sdk.WriteReasonTransportFailed), sdk.WriteUnknown},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			driver := mocks.NewMockDriver(ctrl)
+			base := mocks.NewMockDevice(ctrl)
+			base.EXPECT().Close(gomock.Any()).Return(nil)
+			device := &alarmActionDevice{Device: base, err: tc.err}
+			driver.EXPECT().NewDevice(gomock.Any(), gomock.Not("dev-1"), gomock.Any(), gomock.Any()).Return(sdk.NewDeviceResult{Device: device}, nil)
+			run := &RunCmd{driverGetter: fakeDriverGetter{d: driver}, minerSecrets: nodeSecretProvider{}}
+			acker := &captureAcker{}
+			command := withTarget(&pb.MinerCommand{Action: &pb.MinerCommand_RunContainerAlarmAction{RunContainerAlarmAction: &pb.RunContainerAlarmAction{Action: sdk.ContainerAlarmActionMute}}})
+			run.handleMinerCommand(t.Context(), nil, acker, "alarm", command, slog.Default())
+			ack := acker.only(t)
+			require.False(t, ack.Succeeded)
+			require.NotNil(t, ack.GetWriteOutcome())
+			require.Equal(t, tc.outcome, ack.GetWriteOutcome().GetOutcome())
+			require.Len(t, device.received, 1, "the node must not replay a plant alarm command")
+		})
+	}
+}
+
+func TestContainerAlarmCommandUnsupportedOldPluginAndInvalidAction(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	_, err := runMinerAction(t.Context(), nil, "alarm", "", nil, mocks.NewMockDevice(ctrl), &pb.MinerCommand{Action: &pb.MinerCommand_RunContainerAlarmAction{RunContainerAlarmAction: &pb.RunContainerAlarmAction{Action: sdk.ContainerAlarmActionMute}}})
+	require.EqualError(t, err, "unsupported capability: container_alarm")
+	code, _ := classifyMinerCommandError("execute command", err)
+	require.Equal(t, pb.AckCode_ACK_CODE_UNIMPLEMENTED, code)
+	require.Equal(t, sdk.WriteNotDispatched, sdk.WriteEvidence(err).GetReason())
+
+	device := &alarmActionDevice{Device: mocks.NewMockDevice(ctrl)}
+	_, err = runMinerAction(t.Context(), nil, "alarm", "", nil, device, &pb.MinerCommand{Action: &pb.MinerCommand_RunContainerAlarmAction{RunContainerAlarmAction: &pb.RunContainerAlarmAction{Action: "silence"}}})
+	require.Error(t, err)
+	require.Equal(t, sdk.WriteNotDispatched, sdk.WriteEvidence(err).GetReason())
+	require.Empty(t, device.received)
+}
+
 type tankMiningDevice struct {
 	sdk.Device
 	received sdk.TankMiningRequest

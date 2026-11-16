@@ -4,12 +4,16 @@ import { buildEquipmentOverview } from "../buildEquipmentOverview";
 import { tankPath } from "../buildTankOverview";
 import ContainerOverviewLayout from "../components/ContainerOverviewLayout";
 import ContainerPerformance from "../components/ContainerPerformance";
+import PlantAlarmsPanel from "../components/PlantAlarmsPanel";
 import ContainerActionsMenu from "../ContainerActionsMenu";
 import { FRIGATE_UPDATE_PERMISSION } from "../frigateUpdate";
 import FrigateUpdatePanel from "../FrigateUpdatePanel";
 import { useContainerOverview } from "../hooks/useContainerOverview";
 import { equipmentState, useEquipmentCommand } from "../hooks/useEquipmentCommand";
+import { usePlantAlarmAction } from "../hooks/usePlantAlarmAction";
+import { usePlantAlarmErrors } from "../hooks/usePlantAlarmErrors";
 import { modulePath } from "../moduleDetail";
+import { hasPlantAlarmSurface } from "../plantAlarms";
 import { useSitesContext } from "@/protoFleet/api/SitesContext";
 import { useFrigateUpdates } from "@/protoFleet/api/useFrigateUpdates";
 import { entityScopeTarget, useSyncScopeToEntity } from "@/protoFleet/hooks/useSyncScopeToEntity";
@@ -27,6 +31,12 @@ export default function ContainerPage() {
   const frigateUpdates = useFrigateUpdates(identifier, canUpdateFrigate);
   const container = data?.container;
   const equipmentCommand = useEquipmentCommand(identifier, container, retry);
+  const alarmCommand = usePlantAlarmAction(identifier, container, retry);
+  const plantAlarms = usePlantAlarmErrors(
+    identifier,
+    String(container?.plant?.observedAt?.seconds ?? ""),
+    !!container && hasPlantAlarmSurface(container),
+  );
   const canWrite = container?.canControlEquipment === true;
   const target = container ? entityScopeTarget(container.site?.id, sites) : undefined;
   useSyncScopeToEntity(target);
@@ -119,10 +129,19 @@ export default function ContainerPage() {
           if (destination) navigate(destination);
         }}
         plantControls={
-          <div className="text-200 text-text-primary-70">
+          <div className="flex flex-col gap-2 text-200 text-text-primary-70">
             {equipment.controlsNotice ? <p>{equipment.controlsNotice}</p> : null}
             {equipmentCommand.failed && equipmentCommand.message ? (
               <p role="alert">{equipmentCommand.message}</p>
+            ) : null}
+            {hasPlantAlarmSurface(container) || alarmCommand.notice || alarmCommand.status ? (
+              <PlantAlarmsPanel
+                container={container}
+                alarms={plantAlarms.alarms}
+                alarmsFailed={plantAlarms.failed}
+                refreshFailed={!!error}
+                command={alarmCommand}
+              />
             ) : null}
           </div>
         }

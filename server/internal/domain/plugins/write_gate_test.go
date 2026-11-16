@@ -41,6 +41,9 @@ func (d *gatedSDKDevice) Unpair(ctx context.Context) error {
 func (d *gatedSDKDevice) SetContainerControl(ctx context.Context, _ sdk.ContainerControlRequest) error {
 	return d.write(ctx, commandtype.SetContainerControl)
 }
+func (d *gatedSDKDevice) RunContainerAlarmAction(ctx context.Context, _ sdk.ContainerAlarmRequest) error {
+	return d.write(ctx, commandtype.ContainerAlarmAction)
+}
 func (d *gatedSDKDevice) SetTankMining(ctx context.Context, _ sdk.TankMiningRequest) error {
 	return d.write(ctx, commandtype.SetTankMining)
 }
@@ -52,7 +55,7 @@ func createGatedTestPluginMiner() (*PluginMiner, *gatedSDKDevice) {
 	_, base := createTestPluginMiner()
 	device := &gatedSDKDevice{mockSDKDevice: base}
 	miner := createTestPluginMinerWithDevice(device)
-	miner.caps = sdk.Capabilities{sdk.CapabilityCurtailFull: true, sdk.CapabilityTankMining: true, sdk.CapabilityModuleMining: true}
+	miner.caps = sdk.Capabilities{sdk.CapabilityCurtailFull: true, sdk.CapabilityTankMining: true, sdk.CapabilityModuleMining: true, sdk.CapabilityContainerAlarm: true}
 	device.rebootFunc = func(ctx context.Context) error { return device.write(ctx, commandtype.Reboot) }
 	device.startMiningFunc = func(ctx context.Context) error { return device.write(ctx, commandtype.StartMining) }
 	device.stopMiningFunc = func(ctx context.Context) error { return device.write(ctx, commandtype.StopMining) }
@@ -87,6 +90,9 @@ func pluginPhysicalWriteCases(miner *PluginMiner) []pluginPhysicalWriteCase {
 	return []pluginPhysicalWriteCase{
 		{commandtype.SetContainerControl, func(ctx context.Context) error {
 			return miner.SetContainerControl(ctx, sdk.ContainerControlRequest{Name: "dry_cooler", Enabled: new(false)})
+		}},
+		{commandtype.ContainerAlarmAction, func(ctx context.Context) error {
+			return miner.RunContainerAlarmAction(ctx, sdk.ContainerAlarmRequest{Action: sdk.ContainerAlarmActionReset})
 		}},
 		{commandtype.SetTankMining, func(ctx context.Context) error {
 			return miner.SetTankMining(ctx, sdk.TankMiningRequest{Positions: []int32{1}, Mining: new(false)})

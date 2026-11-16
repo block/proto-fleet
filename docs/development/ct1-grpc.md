@@ -285,6 +285,40 @@ Frigate owns the blink window (15 minutes). Fleet command results do not carry
 MDK's `expires_at`, so the client shows an approximate end time counted from
 when each board's result was recorded.
 
+## Plant alarm mute and reset
+
+`PowerService.MuteContainerAlarm` and `ResetContainerAlarm` take an empty request
+and return an empty response. Each pulses a PLC command bit once, so success means
+the PLC accepted the command and carries no readback. The plugin advertises
+`CapabilityContainerAlarm` and implements `RunContainerAlarmAction` with action
+`mute` or `reset`. Fleet exposes it as `ContainerService.RunPlantAlarmAction`; the
+outcome is read through `GetEquipmentCommandResult`.
+
+Capability comes from `GetContainerControls.alarm_mute_supported` and
+`alarm_reset_supported`. Mute also requires that
+`GetContainerHealth.alarm_mute_supported` is not false; an absent value (older
+releases) keeps mute available. Reset depends only on the controls flag. Production
+CT1 supports mute and not reset, because its PLC clears alarm bits only when their
+conditions clear, so Fleet rejects reset admission when the flag is false or absent.
+Admission also needs a controls observation that is fresh (two minutes) and not
+stale, and takes the same per-container pending-command lock as
+`SetContainerControl`, so an alarm action and an equipment control cannot be queued
+together in either order.
+
+The plugin sends at most one controller write and never retries it. Controller
+status codes InvalidArgument, FailedPrecondition, Unimplemented and the HA
+not-primary refusal mean nothing was sent: they are reported as a refused write and
+stored as "was not sent". Any other failure (DeadlineExceeded, Internal,
+Unavailable, Unknown, transport loss) may have reached the PLC. It carries unknown
+write evidence, quarantines the device-write fence, and is stored as "outcome
+unconfirmed". Both outcomes are terminal in the command queue. Fleet Node routing
+requires command protocol V14; older nodes are refused before enqueue.
+
+Plant readback is a later observation, never the write response. The container
+projection reports `plant.alarm_active`, `critical_alarm_active` and `buzzer_active`
+as optional values: an absent field means the controller did not report it, which
+is not the same as clear. Per-alarm detail comes from the existing errors path.
+
 Module power-feed inspection is read-only. The plugin reads
 `PowerService.ListPowerFeeds`, `PowerService.GetActivePowerRecoveryCycle` and
 `HashboardService.GetContainerMap` from a verified controller and derives the

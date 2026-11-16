@@ -96,6 +96,8 @@ func AdmissionForMinerCommand(command *gatewaypb.MinerCommand) (CommandAdmission
 		return CommandAdmissionGeneral, "set_tank_mining"
 	case *gatewaypb.MinerCommand_SetContainerControl:
 		return CommandAdmissionGeneral, "set_container_control"
+	case *gatewaypb.MinerCommand_RunContainerAlarmAction:
+		return CommandAdmissionGeneral, "run_container_alarm_action"
 	case *gatewaypb.MinerCommand_Reboot:
 		return CommandAdmissionGeneral, "reboot"
 	case *gatewaypb.MinerCommand_StartMining:

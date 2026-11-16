@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { Code } from "@connectrpc/connect";
+import { ALARM_MUTE_OUTCOME_UNKNOWN, ALARM_RESET_OUTCOME_UNKNOWN } from "../alarmMessages";
 import { BREAKER_OUTCOME_UNKNOWN } from "../breakerMessages";
 
 import { LOG_TAIL_DEADLINE_MS } from "./connectClient";
@@ -589,6 +590,96 @@ describe("MdkV2Adapter", () => {
       client({ powerServiceSetMainCircuitBreakerState: vi.fn().mockRejectedValue(unauthenticated) }),
     );
     await expect(adapter.setMainCircuitBreakerState(true)).rejects.toBe(unauthenticated);
+  });
+
+  test.each([
+    [
+      { alarmMuteSupported: true, alarmResetSupported: false },
+      { alarmMute: true, alarmReset: false },
+    ],
+    [
+      { alarmMuteSupported: true, alarmResetSupported: true },
+      { alarmMute: true, alarmReset: true },
+    ],
+    [
+      { alarmMuteSupported: false, alarmResetSupported: true },
+      { alarmMute: false, alarmReset: true },
+    ],
+    // Older controllers omit the flags: absence is never support.
+    [{}, { alarmMute: false, alarmReset: false }],
+  ])("reads alarm capability only when advertised: %j", async (data, expected) => {
+    const adapter = new MdkV2Adapter(
+      client({ powerServiceGetContainerControls: vi.fn().mockResolvedValue({ data: { supported: false, ...data } }) }),
+    );
+    expect(await adapter.getContainerSettings()).toMatchObject(expected);
+  });
+
+  describe.each([
+    ["mute", "powerServiceMuteContainerAlarm", ALARM_MUTE_OUTCOME_UNKNOWN],
+    ["reset", "powerServiceResetContainerAlarm", ALARM_RESET_OUTCOME_UNKNOWN],
+  ] as const)("%s container alarm", (action, method, outcomeUnknown) => {
+    const run = (adapter: MdkV2Adapter, params?: { signal?: AbortSignal }) =>
+      action === "mute" ? adapter.muteContainerAlarm(params) : adapter.resetContainerAlarm(params);
+
+    test("sends one command with the actor header and no readback", async () => {
+      const write = vi.fn().mockResolvedValue({ data: {} });
+      const other = vi.fn();
+      const adapter = new MdkV2Adapter(
+        client({
+          [method]: write,
+          [method === "powerServiceMuteContainerAlarm"
+            ? "powerServiceResetContainerAlarm"
+            : "powerServiceMuteContainerAlarm"]: other,
+        }),
+      );
+      await expect(run(adapter)).resolves.toBeUndefined();
+      expect(write).toHaveBeenCalledExactlyOnceWith({}, { headers: { "X-Frigate-Actor": "proto-os" } });
+      expect(other).not.toHaveBeenCalled();
+    });
+
+    const refusedCodes = new Set<number>([Code.InvalidArgument, Code.FailedPrecondition, Code.Unimplemented]);
+    test.each(
+      Object.values(Code)
+        .filter((code): code is Code => typeof code === "number" && code !== Code.Unauthenticated)
+        .map((code) => [Code[code], code] as const),
+    )("classifies failure code %s as refusal or unknown outcome without retrying", async (_name, code) => {
+      const detail = "this node is not the container control primary";
+      const write = vi.fn().mockRejectedValue({ status: 400, error: { code, message: detail } });
+      const adapter = new MdkV2Adapter(client({ [method]: write }));
+      const failure = await run(adapter).catch((error) => error);
+      expect(failure).toBeInstanceOf(Error);
+      expect(failure.message).toBe(
+        refusedCodes.has(code)
+          ? `The controller refused the request: ${detail}. The alarm state was not changed.`
+          : outcomeUnknown,
+      );
+      expect(failure.writeOutcome).toBe(refusedCodes.has(code) ? "refused" : "unknown");
+      expect(write).toHaveBeenCalledOnce();
+    });
+
+    test("treats a network failure as an unknown outcome", async () => {
+      const write = vi.fn().mockRejectedValue(new TypeError("Failed to fetch"));
+      const adapter = new MdkV2Adapter(client({ [method]: write }));
+      await expect(run(adapter)).rejects.toThrow(outcomeUnknown);
+      expect(write).toHaveBeenCalledOnce();
+    });
+
+    test("leaves authentication failures for token refresh", async () => {
+      const unauthenticated = { status: 401, error: { code: 16, message: "token expired" } };
+      const adapter = new MdkV2Adapter(client({ [method]: vi.fn().mockRejectedValue(unauthenticated) }));
+      await expect(run(adapter)).rejects.toBe(unauthenticated);
+    });
+
+    test("rethrows an aborted request untouched", async () => {
+      const controller = new AbortController();
+      const abort = new DOMException("The operation was aborted.", "AbortError");
+      const write = vi.fn().mockImplementation(() => {
+        controller.abort();
+        return Promise.reject(abort);
+      });
+      const adapter = new MdkV2Adapter(client({ [method]: write }));
+      await expect(run(adapter, { signal: controller.signal })).rejects.toBe(abort);
+    });
   });
 
   test.each([

@@ -44,6 +44,7 @@ const (
 	Driver_StreamBoardASICReadings_FullMethodName = "/sdk.v1.Driver/StreamBoardASICReadings"
 	Driver_SetContainerControl_FullMethodName     = "/sdk.v1.Driver/SetContainerControl"
 	Driver_ControllerRecords_FullMethodName       = "/sdk.v1.Driver/ControllerRecords"
+	Driver_RunContainerAlarmAction_FullMethodName = "/sdk.v1.Driver/RunContainerAlarmAction"
 	Driver_FrigateServerUpdate_FullMethodName     = "/sdk.v1.Driver/FrigateServerUpdate"
 	Driver_SetCoolingMode_FullMethodName          = "/sdk.v1.Driver/SetCoolingMode"
 	Driver_GetCoolingMode_FullMethodName          = "/sdk.v1.Driver/GetCoolingMode"
@@ -110,6 +111,9 @@ type DriverClient interface {
 	// audit events (capability "controller_records"). The payloads are the
 	// JSON-encoded sdk.ControllerRecordsRequest and sdk.ControllerRecordsResult.
 	ControllerRecords(ctx context.Context, in *ControllerRecordsRequest, opts ...grpc.CallOption) (*ControllerRecordsResponse, error)
+	// Optional controller-only plant alarm pulse (mute or reset). Success
+	// acknowledges the pulse; only a later plant observation confirms its effect.
+	RunContainerAlarmAction(ctx context.Context, in *RunContainerAlarmActionRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
 	// Optional controller-only Frigate software update operations (capability
 	// "frigate_server_update"). One RPC carries nine operations so the plugin
 	// boundary stays narrow. A Frigate refusal travels as a gRPC status carrying a
@@ -387,6 +391,15 @@ func (c *driverClient) ControllerRecords(ctx context.Context, in *ControllerReco
 	return out, nil
 }
 
+func (c *driverClient) RunContainerAlarmAction(ctx context.Context, in *RunContainerAlarmActionRequest, opts ...grpc.CallOption) (*emptypb.Empty, error) {
+	out := new(emptypb.Empty)
+	err := c.cc.Invoke(ctx, Driver_RunContainerAlarmAction_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *driverClient) FrigateServerUpdate(ctx context.Context, in *FrigateServerUpdateRequest, opts ...grpc.CallOption) (*FrigateServerUpdateResponse, error) {
 	out := new(FrigateServerUpdateResponse)
 	err := c.cc.Invoke(ctx, Driver_FrigateServerUpdate_FullMethodName, in, out, opts...)
@@ -642,6 +655,9 @@ type DriverServer interface {
 	// audit events (capability "controller_records"). The payloads are the
 	// JSON-encoded sdk.ControllerRecordsRequest and sdk.ControllerRecordsResult.
 	ControllerRecords(context.Context, *ControllerRecordsRequest) (*ControllerRecordsResponse, error)
+	// Optional controller-only plant alarm pulse (mute or reset). Success
+	// acknowledges the pulse; only a later plant observation confirms its effect.
+	RunContainerAlarmAction(context.Context, *RunContainerAlarmActionRequest) (*emptypb.Empty, error)
 	// Optional controller-only Frigate software update operations (capability
 	// "frigate_server_update"). One RPC carries nine operations so the plugin
 	// boundary stays narrow. A Frigate refusal travels as a gRPC status carrying a
@@ -754,6 +770,9 @@ func (UnimplementedDriverServer) SetContainerControl(context.Context, *SetContai
 }
 func (UnimplementedDriverServer) ControllerRecords(context.Context, *ControllerRecordsRequest) (*ControllerRecordsResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ControllerRecords not implemented")
+}
+func (UnimplementedDriverServer) RunContainerAlarmAction(context.Context, *RunContainerAlarmActionRequest) (*emptypb.Empty, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method RunContainerAlarmAction not implemented")
 }
 func (UnimplementedDriverServer) FrigateServerUpdate(context.Context, *FrigateServerUpdateRequest) (*FrigateServerUpdateResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method FrigateServerUpdate not implemented")
@@ -1248,6 +1267,24 @@ func _Driver_ControllerRecords_Handler(srv interface{}, ctx context.Context, dec
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Driver_RunContainerAlarmAction_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RunContainerAlarmActionRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DriverServer).RunContainerAlarmAction(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Driver_RunContainerAlarmAction_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DriverServer).RunContainerAlarmAction(ctx, req.(*RunContainerAlarmActionRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _Driver_FrigateServerUpdate_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(FrigateServerUpdateRequest)
 	if err := dec(in); err != nil {
@@ -1723,6 +1760,10 @@ var Driver_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ControllerRecords",
 			Handler:    _Driver_ControllerRecords_Handler,
+		},
+		{
+			MethodName: "RunContainerAlarmAction",
+			Handler:    _Driver_RunContainerAlarmAction_Handler,
 		},
 		{
 			MethodName: "FrigateServerUpdate",

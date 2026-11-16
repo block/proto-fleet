@@ -189,7 +189,7 @@ func (c *Client) collect(ctx context.Context, id string) (sdk.DeviceMetrics, *er
 		slog.WarnContext(ctx, "CT1 plant observation unavailable", "device_id", id, "error", err)
 	} else if topology.Plant = plant.observation(time.Now().UTC()); topology.Plant != nil {
 		p := topology.Plant
-		if p.AlarmActive || p.CriticalAlarmActive {
+		if (p.AlarmActive != nil && *p.AlarmActive) || (p.CriticalAlarmActive != nil && *p.CriticalAlarmActive) {
 			result.Health = sdk.HealthWarning
 		}
 	}

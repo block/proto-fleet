@@ -33,7 +33,8 @@ export const useMinerStatusSummary = (): string => {
         componentType: "controlBoard",
         slot: e.slot,
       })),
-      other: [],
+      // Plant alarms are container-wide, so they count as their own issue rather than a component failure
+      other: groupedErrors.plant.map(() => ({ componentType: "other" })),
     }),
     [groupedErrors],
   );

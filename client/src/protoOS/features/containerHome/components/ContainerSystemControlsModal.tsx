@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState } from "react";
+import ContainerPlantAlarms from "./ContainerPlantAlarms";
+import PlantAlarmOutcomeNotice from "./PlantAlarmOutcomeNotice";
 import { BREAKER_OUTCOME_UNKNOWN } from "@/protoOS/api/adapters/breakerMessages";
 import type { AdapterRequestOptions, ContainerSettings } from "@/protoOS/api/adapters/types";
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
@@ -29,6 +31,12 @@ const controlStates = (settings: ContainerSettings) => {
   if (settings.mainCircuitBreaker) states.push([MAIN_BREAKER, settings.mainCircuitBreaker.closed]);
   return states;
 };
+// Plant alarms live beside the controls; a controller can offer them without ordinary plant controls.
+const hasControlSurface = (settings: ContainerSettings) =>
+  settings.supported ||
+  settings.mainCircuitBreaker !== undefined ||
+  settings.alarmMute === true ||
+  settings.alarmReset === true;
 const isTimeout = (error: unknown) => error instanceof DOMException && error.name === "TimeoutError";
 const setpointLabel = (name: string) => {
   if (name === "coolant_pump_speed_hz") return "Pump speed";
@@ -55,8 +63,7 @@ export default function ContainerSystemControlsModal({ onDismiss }: { onDismiss:
       });
     return () => controller.abort();
   }, [adapter, authRetry]);
-  if (settings?.supported || settings?.mainCircuitBreaker)
-    return <SystemControlsForm settings={settings} onDismiss={onDismiss} />;
+  if (settings && hasControlSurface(settings)) return <SystemControlsForm settings={settings} onDismiss={onDismiss} />;
   return (
     <Modal open manageFocus title="System controls" dialogLabel="System controls" onDismiss={onDismiss}>
       <p role={error ? "alert" : "status"}>
@@ -65,6 +72,8 @@ export default function ContainerSystemControlsModal({ onDismiss }: { onDismiss:
             ? "Controls are unavailable on this container."
             : "Loading settings…")}
       </p>
+      {/* Without settings the Container alarms section cannot render, but its last result still matters. */}
+      <PlantAlarmOutcomeNotice />
     </Modal>
   );
 }
@@ -91,6 +100,7 @@ function SystemControlsForm({ settings, onDismiss }: { settings: ContainerSettin
   );
   const [pending, setPending] = useState(false);
   const [controlPending, setControlPending] = useState(false);
+  const [alarmBusy, setAlarmBusy] = useState(false);
   const [powerConfirmation, setPowerConfirmation] = useState<{
     name: string;
     value: boolean;
@@ -186,8 +196,7 @@ function SystemControlsForm({ settings, onDismiss }: { settings: ContainerSettin
       try {
         const current = await request((params) => adapter!.getContainerSettings!(params));
         if (!isCurrent()) return;
-        if (!current?.supported && !current?.mainCircuitBreaker)
-          throw new Error("Controls are unavailable on this container.");
+        if (!current || !hasControlSurface(current)) throw new Error("Controls are unavailable on this container.");
         saved.current = Object.fromEntries([
           ...controlStates(current),
           ...current.setpoints.map((item) => [item.name, item.value]),
@@ -420,6 +429,10 @@ function SystemControlsForm({ settings, onDismiss }: { settings: ContainerSettin
       ) : null}
     </section>
   ) : null;
+  const alarmsRow =
+    settings.alarmMute || settings.alarmReset ? (
+      <ContainerPlantAlarms settings={settings} onBusyChange={setAlarmBusy} />
+    ) : null;
   const setpointField = (name: string, saveLabel?: string) => {
     const item = settings.setpoints.find((setting) => setting.name === name);
     if (!item) return null;
@@ -459,12 +472,15 @@ function SystemControlsForm({ settings, onDismiss }: { settings: ContainerSettin
         manageFocus
         title="System controls"
         dialogLabel="System controls"
-        onDismiss={pending || powerConfirmation ? undefined : onDismiss}
+        onDismiss={pending || alarmBusy || powerConfirmation ? undefined : onDismiss}
       >
         <div className="space-y-6" aria-busy={pending}>
           <p className="text-300 text-text-primary-50">Changes save automatically.</p>
           {breakerRow}
-          {breakerRow && (hasPump || hasCooler || airConditioners.length || hasControl("tank_led_light")) ? (
+          {breakerRow && alarmsRow ? <Divider /> : null}
+          {alarmsRow}
+          {(breakerRow || alarmsRow) &&
+          (hasPump || hasCooler || airConditioners.length || hasControl("tank_led_light")) ? (
             <Divider />
           ) : null}
           {hasPump || hasCooler ? (
@@ -522,7 +538,12 @@ function SystemControlsForm({ settings, onDismiss }: { settings: ContainerSettin
               </section>
             </>
           ) : null}
-          {!breakerRow && !hasPump && !hasCooler && !airConditioners.length && !hasControl("tank_led_light") ? (
+          {!breakerRow &&
+          !alarmsRow &&
+          !hasPump &&
+          !hasCooler &&
+          !airConditioners.length &&
+          !hasControl("tank_led_light") ? (
             <p>No controls are available on this container.</p>
           ) : null}
         </div>

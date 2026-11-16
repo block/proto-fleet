@@ -184,6 +184,8 @@ func (s *ContainerState) containerTelemetry() containerTelemetryResponse {
 	}
 	return containerTelemetryResponse{
 		Timestamp:          s.sampleTime,
+		Alarms:             s.plantAlarmsDTO(),
+		AlarmMuteSupported: true,
 		Phases:             phases,
 		CoolingFans:        fans,
 		PowerDistributions: pdus,
@@ -202,6 +204,9 @@ func (s *ContainerState) containerTelemetry() containerTelemetryResponse {
 			InletTemperatureC: inlet, OutletTemperatureC: outlet,
 			OutletATemperatureC: outletA, OutletBTemperatureC: outletB,
 			AmbientTemperatureC: ambient, OutsideAmbientTemperatureC: ambient,
+			AlarmActive:               len(s.plantAlarms) > 0,
+			CriticalAlarmActive:       s.criticalAlarmActive(),
+			BuzzerActive:              s.buzzerActive,
 			InsideAmbientTemperatureC: 27 + s.wave(703, 900),
 			CoolantPumpActive:         pump, HeatRejectionActive: cooler,
 			CoolantPumpSpeedHz:            pumpSpeed,

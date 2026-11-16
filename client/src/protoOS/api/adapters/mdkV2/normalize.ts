@@ -13,6 +13,7 @@ import type {
   V2ListPoolsResponse,
   V2Module,
   V2ModuleLayout,
+  V2PlantAlarm,
   V2QueryTimeSeriesResponse,
 } from "./generated/generatedApi";
 import {
@@ -56,6 +57,7 @@ import {
   type ModuleNode,
   type NetworkInfoState,
   type OperationalStatus,
+  type PlantAlarm,
   type PlantHardware,
   type PlantTelemetry,
   type PoolInfo,
@@ -438,6 +440,28 @@ const boardMiningStatus = (board: V2Hashboard): MiningStatus => {
   }
 };
 
+const PLANT_ALARM_SEVERITIES = {
+  [V2Severity.SEVERITY_CRITICAL]: "critical",
+  [V2Severity.SEVERITY_ERROR]: "error",
+  [V2Severity.SEVERITY_WARNING]: "warning",
+  [V2Severity.SEVERITY_INFO]: "info",
+} as const;
+
+const toPlantAlarm = (alarm: V2PlantAlarm): PlantAlarm => ({
+  id: alarm.id || undefined,
+  name: alarm.name?.trim() || alarm.id || "Container alarm",
+  severity:
+    (alarm.severity && PLANT_ALARM_SEVERITIES[alarm.severity as keyof typeof PLANT_ALARM_SEVERITIES]) || "unknown",
+  componentId: alarm.componentId || undefined,
+});
+
+// The envelope time is the oldest contributing source observation. A missing or
+// unparseable time stays unknown: receipt time must not stand in for it.
+const observationMs = (timestamp: string | undefined) => {
+  const ms = Date.parse(timestamp ?? "");
+  return Number.isNaN(ms) ? undefined : ms;
+};
+
 const plantComponents = (containerId: string, wire: V2GetContainerHealthResponse) => {
   const owner = { kind: "container" as const, id: asContainerId(containerId) };
   const hardware = new Map<ComponentId, PlantHardware>();
@@ -487,6 +511,9 @@ const plantComponents = (containerId: string, wire: V2GetContainerHealthResponse
     alarmActive: plant?.alarmActive,
     criticalAlarmActive: plant?.criticalAlarmActive,
     buzzerActive: plant?.buzzerActive,
+    alarms: (wire.alarms ?? []).map(toPlantAlarm),
+    alarmMuteSupported: wire.alarmMuteSupported,
+    observedAtMs: observationMs(wire.timestamp),
     controls: (wire.controls ?? []).flatMap((control) =>
       control.name
         ? [
@@ -837,7 +864,7 @@ export const toCanonicalErrors = (
               ? "Info"
               : "Severity unknown";
     const code = alarm.id || "PLANT_ALARM";
-    const name = alarm.name?.trim() || alarm.id || "Plant alarm";
+    const name = alarm.name?.trim() || alarm.id || "Container alarm";
     errors.push({
       id: `${containerId}:alarm:${alarm.id || `${alarm.componentId || name}:${index}`}`,
       code,

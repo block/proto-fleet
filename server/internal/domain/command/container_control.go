@@ -45,7 +45,7 @@ func (s *Service) SetContainerControl(ctx context.Context, identifier string, re
 		if err := authorize(txCtx, site); err != nil {
 			return nil, err
 		}
-		pending, err := q.HasPendingContainerCommand(txCtx, sqlc.HasPendingContainerCommandParams{DeviceID: target.ID, CommandTypes: []string{"SetContainerControl"}})
+		pending, err := q.HasPendingContainerCommand(txCtx, sqlc.HasPendingContainerCommandParams{DeviceID: target.ID, CommandTypes: containerEquipmentCommandTypes})
 		if err != nil {
 			return nil, err
 		}

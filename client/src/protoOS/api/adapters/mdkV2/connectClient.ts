@@ -48,8 +48,12 @@ import type {
   V2ListAuditEventsResponse,
   V2ListFirmwareUpdatesResponse,
   V2ListPoolsResponse,
+  V2MuteContainerAlarmRequest,
+  V2MuteContainerAlarmResponse,
   V2QueryShareQualityHistoryResponse,
   V2QueryTimeSeriesResponse,
+  V2ResetContainerAlarmRequest,
+  V2ResetContainerAlarmResponse,
   V2SetContainerControlResponse,
   V2SetContainerSetpointResponse,
   V2SetIdentifyLEDRequest,
@@ -213,6 +217,14 @@ export interface MdkV2Client {
     data: V2SetMainCircuitBreakerStateRequest,
     params?: AdapterRequestOptions,
   ): HttpResponse<V2SetMainCircuitBreakerStateResponse>;
+  powerServiceMuteContainerAlarm(
+    data: V2MuteContainerAlarmRequest,
+    params?: AdapterRequestOptions,
+  ): HttpResponse<V2MuteContainerAlarmResponse>;
+  powerServiceResetContainerAlarm(
+    data: V2ResetContainerAlarmRequest,
+    params?: AdapterRequestOptions,
+  ): HttpResponse<V2ResetContainerAlarmResponse>;
   runInServiceStartModuleRunIn(
     path: { moduleId: string; taskId?: string },
     data: V2HashboardRunInConfig,
@@ -565,6 +577,8 @@ export const createMdkV2Client = (transport: Transport): MdkV2Client => {
       unary(transport, power.setContainerSetpoint, { ...data, name }, params),
     powerServiceSetMainCircuitBreakerState: (data, params) =>
       unary(transport, power.setMainCircuitBreakerState, data, params),
+    powerServiceMuteContainerAlarm: (data, params) => unary(transport, power.muteContainerAlarm, data, params),
+    powerServiceResetContainerAlarm: (data, params) => unary(transport, power.resetContainerAlarm, data, params),
     runInServiceStartModuleRunIn: ({ moduleId, taskId }, config, params) =>
       unary(transport, runIn.startModuleRunIn, { moduleId, taskId, config }, params),
     telemetryServiceFollowAsicHealth: ({ identifier }, params) =>

@@ -30,6 +30,7 @@ func TestStringFromStringRoundtrip(t *testing.T) {
 		SetBoardIdentify,
 		ContainerMining,
 		FrigateServerUpdate,
+		ContainerAlarmAction,
 	}
 	for _, want := range all {
 		name := want.String()

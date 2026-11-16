@@ -95,6 +95,37 @@ func (h *Handler) SetEquipmentControl(ctx context.Context, req *connect.Request[
 	return connect.NewResponse(&pb.SetEquipmentControlResponse{BatchIdentifier: result.BatchIdentifier}), nil
 }
 
+// RunPlantAlarmAction queues one alarm mute or reset. Success of the returned
+// batch only acknowledges the command; the effect is confirmed from a later
+// plant observation.
+func (h *Handler) RunPlantAlarmAction(ctx context.Context, req *connect.Request[pb.RunPlantAlarmActionRequest]) (*connect.Response[pb.RunPlantAlarmActionResponse], error) {
+	if h.commands == nil {
+		return nil, fleeterror.NewUnimplementedError("equipment commands unavailable")
+	}
+	action, err := plantAlarmAction(req.Msg.Action)
+	if err != nil {
+		return nil, err
+	}
+	result, err := h.commands.RunContainerAlarmAction(ctx, req.Msg.DeviceIdentifier, sdk.ContainerAlarmRequest{Action: action}, authorizeEquipmentWrite)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&pb.RunPlantAlarmActionResponse{BatchIdentifier: result.BatchIdentifier}), nil
+}
+
+func plantAlarmAction(action pb.PlantAlarmAction) (string, error) {
+	switch action {
+	case pb.PlantAlarmAction_PLANT_ALARM_ACTION_MUTE:
+		return sdk.ContainerAlarmActionMute, nil
+	case pb.PlantAlarmAction_PLANT_ALARM_ACTION_RESET:
+		return sdk.ContainerAlarmActionReset, nil
+	case pb.PlantAlarmAction_PLANT_ALARM_ACTION_UNSPECIFIED:
+		return "", fleeterror.NewInvalidArgumentError("container alarm action is required")
+	default:
+		return "", fleeterror.NewInvalidArgumentError("unsupported container alarm action")
+	}
+}
+
 // Plant controls require both cooling and power configuration authority at the
 // current site. A locator-LED or read-only grant never authorizes plant writes.
 func authorizeEquipmentWrite(ctx context.Context, siteID *int64) error {

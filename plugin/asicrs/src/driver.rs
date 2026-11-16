@@ -973,6 +973,15 @@ impl Driver for DriverService {
         ))
     }
 
+    async fn run_container_alarm_action(
+        &self,
+        _request: Request<pb::RunContainerAlarmActionRequest>,
+    ) -> Result<Response<()>, Status> {
+        Err(Status::unimplemented(
+            "container alarm actions are unsupported",
+        ))
+    }
+
     async fn frigate_server_update(
         &self,
         _request: Request<pb::FrigateServerUpdateRequest>,

@@ -30,6 +30,9 @@ vi.mock("../hooks/useEquipmentCommand", async (importOriginal) => ({
   ...(await importOriginal<object>()),
   useEquipmentCommand: mocks.command,
 }));
+vi.mock("../hooks/usePlantAlarmErrors", () => ({
+  usePlantAlarmErrors: () => ({ alarms: [], failed: false, loaded: true }),
+}));
 vi.mock("../hooks/useContainerOverview", () => ({ useContainerOverview: mocks.load }));
 vi.mock("../components/ContainerPerformance", () => ({ default: () => <section aria-label="Performance" /> }));
 vi.mock("@/protoFleet/hooks/useSyncScopeToEntity", async (importOriginal) => ({
@@ -102,6 +105,26 @@ beforeEach(() => {
 });
 
 describe("native container detail", () => {
+  it("shows the plant alarms panel only when the controller reports alarm state", () => {
+    const container = mocks.load("ct1").data!.container;
+    const { unmount } = renderPage();
+    expect(screen.queryByRole("region", { name: "Container alarms" })).not.toBeInTheDocument();
+    unmount();
+    Object.assign(
+      container,
+      create(ContainerSchema, {
+        name: "CT1 North",
+        canControlEquipment: true,
+        controls: { supported: true, observedAt: timestampNow(), alarmMuteSupported: true, alarmResetSupported: false },
+        plant: { observedAt: timestampNow(), alarmActive: true, buzzerActive: true },
+      }),
+    );
+    renderPage();
+    const panel = within(screen.getByRole("region", { name: "Container alarms" }));
+    expect(panel.getByText("Sounding")).toBeInTheDocument();
+    expect(panel.getByRole("button", { name: "Mute buzzer" })).toBeEnabled();
+    expect(panel.queryByRole("button", { name: "Reset alarms" })).not.toBeInTheDocument();
+  });
   it("shows activity beside the affected control until readback, then clears it or reports failure", () => {
     const container = mocks.load("ct1").data!.container;
     Object.assign(

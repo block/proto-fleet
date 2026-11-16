@@ -192,3 +192,30 @@ test("keeps the breaker read-only when the miner is hosted in Fleet", async () =
   expect(within(breaker).getByLabelText("Main circuit breaker closed")).toBeDisabled();
   expect(within(breaker).getByText(/needs a direct connection to the controller/)).toBeInTheDocument();
 });
+
+test("shows plant alarms when the controller advertises alarm commands without plant controls", async () => {
+  mocks.adapter.getContainerSettings.mockResolvedValue({
+    supported: false,
+    controls: [],
+    setpoints: [],
+    alarmMute: true,
+    alarmReset: false,
+  });
+  render(<ContainerSystemControlsModal onDismiss={vi.fn()} />);
+  expect(await screen.findByRole("region", { name: "Container alarms" })).toBeInTheDocument();
+  expect(screen.queryByText("Controls are unavailable on this container.")).not.toBeInTheDocument();
+  expect(screen.queryByText("No controls are available on this container.")).not.toBeInTheDocument();
+});
+
+test("hides plant alarms unless the controller advertises an alarm command", async () => {
+  mocks.adapter.getContainerSettings.mockResolvedValue({
+    supported: true,
+    controls: [{ name: "air_conditioner_1", enabled: true }],
+    setpoints: [],
+    alarmMute: false,
+    alarmReset: false,
+  });
+  render(<ContainerSystemControlsModal onDismiss={vi.fn()} />);
+  await screen.findByLabelText("Air conditioner 1 power");
+  expect(screen.queryByRole("region", { name: "Container alarms" })).not.toBeInTheDocument();
+});

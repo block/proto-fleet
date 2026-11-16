@@ -1,4 +1,5 @@
 import { useEffect, useMemo } from "react";
+import { type PlantAlarmOutcome, setPlantAlarmOutcome } from "../hooks/usePlantAlarmOutcome";
 import { latest } from "../utils/buildContainerHome";
 import ContainerOverviewView from "./ContainerOverviewView";
 import ContainerSystem from "./ContainerSystem";
@@ -11,10 +12,13 @@ function SystemPreview({
   unsupported = false,
   overview = false,
   breaker = false,
+  alarmOutcome,
 }: {
   unsupported?: boolean;
   overview?: boolean;
   breaker?: boolean;
+  /** The last alarm command's outcome, shown beside System controls while the modal is closed. */
+  alarmOutcome?: PlantAlarmOutcome;
 }) {
   const preview = useMemo(() => {
     const map = { containerMap: { tanks: Array.from({ length: 6 }, (_, index) => ({ id: index + 1 })) } };
@@ -92,8 +96,9 @@ function SystemPreview({
     store.resetDeviceData();
     store.hardware.replaceHardware(preview.fixture.hardware);
     store.telemetry.mergeTelemetry(preview.fixture.telemetry);
+    if (alarmOutcome) setPlantAlarmOutcome(useMinerStore.getState().connectionGeneration, alarmOutcome);
     return () => useMinerStore.getState().resetDeviceData();
-  }, [preview]);
+  }, [preview, alarmOutcome]);
   const hardware = useMinerStore((state) => state.hardware);
   const telemetry = useMinerStore((state) => state.telemetry);
   const plantId = [...hardware.plant.values()].find((item) => item.kind === "plant")?.ref.id;
@@ -126,4 +131,11 @@ export const Interactive = () => <SystemPreview />;
 export const WithMainCircuitBreaker = () => <SystemPreview breaker />;
 export const UnsupportedControls = () => <SystemPreview unsupported />;
 export const BreakerOnly = () => <SystemPreview unsupported breaker />;
+const muteStillSounding: PlantAlarmOutcome = {
+  phase: "settled",
+  action: "mute",
+  confirmed: false,
+  message: "Mute sent, but the controller still reports the buzzer sounding.",
+};
+export const AlarmOutcomeWhileClosed = () => <SystemPreview alarmOutcome={muteStillSounding} />;
 export default { title: "Proto OS/Containers/Home/Live system", component: ContainerSystem };

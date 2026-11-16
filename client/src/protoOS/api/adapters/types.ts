@@ -76,6 +76,12 @@ export interface ContainerSettings {
    * do without ordinary plant controls. `closed` is PLC readback, unset when unknown.
    */
   mainCircuitBreaker?: { closed?: boolean };
+  /**
+   * What the controller advertises for plant alarms; true only when it says so. Mute can still be
+   * narrowed by live health (`PlantTelemetry.alarmMuteSupported`).
+   */
+  alarmMute?: boolean;
+  alarmReset?: boolean;
 }
 
 export interface SavedPoolSettings extends PoolFormInput {
@@ -244,6 +250,12 @@ export interface MinerAdapter {
   setContainerSetpoint?(name: string, value: number, params?: AdapterRequestOptions): Promise<void>;
   /** Resolves only when controller readback matches the requested state. */
   setMainCircuitBreakerState?(closed: boolean, params?: AdapterRequestOptions): Promise<void>;
+  /**
+   * One call, never retried. Resolves when the controller accepted the command, which carries no
+   * readback: confirm from a later plant observation.
+   */
+  muteContainerAlarm?(params?: AdapterRequestOptions): Promise<void>;
+  resetContainerAlarm?(params?: AdapterRequestOptions): Promise<void>;
   startModuleRunIn?(
     moduleId: string,
     request: ModuleRunInRequest,

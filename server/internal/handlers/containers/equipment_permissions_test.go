@@ -4,6 +4,9 @@ import (
 	"testing"
 
 	"connectrpc.com/authn"
+	pb "github.com/block/proto-fleet/server/generated/grpc/containers/v1"
+	"github.com/block/proto-fleet/server/generated/grpc/containers/v1/containersv1connect"
+	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/session"
 
 	"github.com/block/proto-fleet/server/internal/domain/authz"
@@ -29,4 +32,22 @@ func TestEquipmentWritePermissionsFollowCurrentSite(t *testing.T) {
 		require.Error(t, authorizeEquipmentWrite(ctx, &other))
 		require.Error(t, authorizeEquipmentWrite(ctx, nil))
 	}
+}
+
+func TestPlantAlarmActionMapsOnlyMuteAndReset(t *testing.T) {
+	got, err := plantAlarmAction(pb.PlantAlarmAction_PLANT_ALARM_ACTION_MUTE)
+	require.NoError(t, err)
+	require.Equal(t, "mute", got)
+	got, err = plantAlarmAction(pb.PlantAlarmAction_PLANT_ALARM_ACTION_RESET)
+	require.NoError(t, err)
+	require.Equal(t, "reset", got)
+	for _, invalid := range []pb.PlantAlarmAction{pb.PlantAlarmAction_PLANT_ALARM_ACTION_UNSPECIFIED, pb.PlantAlarmAction(99)} {
+		_, err = plantAlarmAction(invalid)
+		require.True(t, fleeterror.IsInvalidArgumentError(err))
+	}
+}
+
+func TestPlantAlarmActionUsesEquipmentWritePermission(t *testing.T) {
+	require.Equal(t, authz.PermMinerSetCoolingMode, middleware.ProcedurePermissions[containersv1connect.ContainerServiceRunPlantAlarmActionProcedure])
+	require.Equal(t, middleware.ProcedurePermissions[containersv1connect.ContainerServiceSetEquipmentControlProcedure], middleware.ProcedurePermissions[containersv1connect.ContainerServiceRunPlantAlarmActionProcedure])
 }

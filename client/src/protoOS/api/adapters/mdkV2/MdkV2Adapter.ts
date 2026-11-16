@@ -1,5 +1,6 @@
 import { Code } from "@connectrpc/connect";
 import { createConnectTransport } from "@connectrpc/connect-web";
+import { ALARM_MUTE_OUTCOME_UNKNOWN, ALARM_RESET_OUTCOME_UNKNOWN } from "../alarmMessages";
 import { BREAKER_OUTCOME_UNKNOWN } from "../breakerMessages";
 import type { ContainerHistoryRequest } from "../containerHistory";
 import type { PoolHistoryRequest } from "../poolHistory";
@@ -124,22 +125,30 @@ const toWireModuleId = (value: string) => {
 // The only codes the controller returns for container-control requests it rejects
 // before writing (not primary, unsupported backend, bad request). Any other failure
 // may have reached the PLC, so its outcome is unknown until readback.
-const BREAKER_REFUSAL_CODES = new Set<number>([Code.InvalidArgument, Code.FailedPrecondition, Code.Unimplemented]);
+const CONTAINER_REFUSAL_CODES = new Set<number>([Code.InvalidArgument, Code.FailedPrecondition, Code.Unimplemented]);
 
-const breakerWriteError = (error: unknown) => {
+const containerWriteError = (error: unknown, unchanged: string, outcomeUnknown: string) => {
   const failure = error as { status?: number; error?: { code?: number; message?: string } } | undefined;
   // Leave authentication failures for the caller's token refresh and retry.
   if (failure?.status === 401 || failure?.error?.code === Code.Unauthenticated) return error;
   const code = failure?.error?.code;
-  if (code !== undefined && BREAKER_REFUSAL_CODES.has(code)) {
+  if (code !== undefined && CONTAINER_REFUSAL_CODES.has(code)) {
     const detail = failure?.error?.message?.trim();
-    return Object.assign(
-      new Error(`The controller refused the request${detail ? `: ${detail}` : ""}. The breaker was not changed.`),
-      { cause: error },
-    );
+    return Object.assign(new Error(`The controller refused the request${detail ? `: ${detail}` : ""}. ${unchanged}`), {
+      cause: error,
+      writeOutcome: "refused" as const,
+    });
   }
-  return Object.assign(new Error(BREAKER_OUTCOME_UNKNOWN), { cause: error });
+  return Object.assign(new Error(outcomeUnknown), { cause: error, writeOutcome: "unknown" as const });
 };
+
+const breakerWriteError = (error: unknown) =>
+  containerWriteError(error, "The breaker was not changed.", BREAKER_OUTCOME_UNKNOWN);
+
+const ALARM_WRITES = {
+  mute: { unchanged: "The alarm state was not changed.", outcomeUnknown: ALARM_MUTE_OUTCOME_UNKNOWN },
+  reset: { unchanged: "The alarm state was not changed.", outcomeUnknown: ALARM_RESET_OUTCOME_UNKNOWN },
+} as const;
 
 const toWireDeviceId = (value: string) => (value.startsWith("device:") ? value.slice("device:".length) : value);
 
@@ -401,6 +410,8 @@ export class MdkV2Adapter implements MinerAdapter {
       ...(data.mainCircuitBreakerSupported === true
         ? { mainCircuitBreaker: { closed: data.mainCircuitBreakerClosed } }
         : {}),
+      alarmMute: data.alarmMuteSupported === true,
+      alarmReset: data.alarmResetSupported === true,
     };
   }
 
@@ -534,6 +545,32 @@ export class MdkV2Adapter implements MinerAdapter {
       throw new Error(
         `The controller reports the breaker ${readback ? "closed" : "open"}. Check the current state before trying again.`,
       );
+    }
+  }
+
+  /**
+   * One call, never retried. Success means the controller accepted the command; it carries no
+   * readback, so callers confirm from a later plant observation.
+   */
+  async muteContainerAlarm(params: AdapterRequestOptions = {}) {
+    await this.alarmWrite("mute", (decorated) => this.client.powerServiceMuteContainerAlarm({}, decorated), params);
+  }
+
+  async resetContainerAlarm(params: AdapterRequestOptions = {}) {
+    await this.alarmWrite("reset", (decorated) => this.client.powerServiceResetContainerAlarm({}, decorated), params);
+  }
+
+  private async alarmWrite(
+    action: keyof typeof ALARM_WRITES,
+    write: (params: AdapterRequestOptions) => Promise<unknown>,
+    params: AdapterRequestOptions,
+  ) {
+    try {
+      await write(this.decorate(params));
+    } catch (error) {
+      if (params.signal?.aborted) throw error;
+      const { unchanged, outcomeUnknown } = ALARM_WRITES[action];
+      throw containerWriteError(error, unchanged, outcomeUnknown);
     }
   }
 

@@ -298,6 +298,18 @@ const rpcTable: [
     (c) => c.powerServiceSetMainCircuitBreakerState({ closed: true }),
   ],
   [
+    "powerServiceMuteContainerAlarm",
+    "mdk.v2.PowerService/MuteContainerAlarm",
+    {},
+    (c) => c.powerServiceMuteContainerAlarm({}),
+  ],
+  [
+    "powerServiceResetContainerAlarm",
+    "mdk.v2.PowerService/ResetContainerAlarm",
+    {},
+    (c) => c.powerServiceResetContainerAlarm({}),
+  ],
+  [
     "runInServiceStartModuleRunIn",
     "mdk.v2.RunInService/StartModuleRunIn",
     { moduleId: "T1-M02", taskId: "0123456789abcdef", config: { stopMiningOnFinish: true } },

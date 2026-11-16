@@ -31,7 +31,7 @@ func containerSnapshotToProto(s *ContainerSnapshot) *pb.ContainerSnapshot {
 		}
 	}
 	if p := s.Plant; p != nil {
-		out.Plant = &pb.ContainerPlant{DryCoolerInletTemperatureC: p.DryCoolerInletTemperatureC, ObservedAt: timestamppb.New(p.ObservedAt), TotalPowerW: p.TotalPowerW, FacilityPowerW: p.FacilityPowerW, Pue: p.PUE, InletTemperatureC: p.InletTemperatureC, OutletTemperatureC: p.OutletTemperatureC, AlarmActive: p.AlarmActive, CriticalAlarmActive: p.CriticalAlarmActive}
+		out.Plant = &pb.ContainerPlant{DryCoolerInletTemperatureC: p.DryCoolerInletTemperatureC, ObservedAt: timestamppb.New(p.ObservedAt), TotalPowerW: p.TotalPowerW, FacilityPowerW: p.FacilityPowerW, Pue: p.PUE, InletTemperatureC: p.InletTemperatureC, OutletTemperatureC: p.OutletTemperatureC, AlarmActive: p.AlarmActive, CriticalAlarmActive: p.CriticalAlarmActive, BuzzerActive: p.BuzzerActive}
 	}
 	for _, tank := range s.Tanks {
 		t := &pb.ContainerTank{Position: tank.Position, Metrics: rollupToProto(tank.Metrics), TopologyComplete: tank.TopologyComplete}
@@ -95,7 +95,7 @@ func containerSnapshotFromProto(s *pb.ContainerSnapshot) *ContainerSnapshot {
 		}
 	}
 	if p := s.Plant; p != nil {
-		out.Plant = &ContainerPlant{DryCoolerInletTemperatureC: p.DryCoolerInletTemperatureC, ObservedAt: p.ObservedAt.AsTime(), TotalPowerW: p.TotalPowerW, FacilityPowerW: p.FacilityPowerW, PUE: p.Pue, InletTemperatureC: p.InletTemperatureC, OutletTemperatureC: p.OutletTemperatureC, AlarmActive: p.AlarmActive, CriticalAlarmActive: p.CriticalAlarmActive}
+		out.Plant = &ContainerPlant{DryCoolerInletTemperatureC: p.DryCoolerInletTemperatureC, ObservedAt: p.ObservedAt.AsTime(), TotalPowerW: p.TotalPowerW, FacilityPowerW: p.FacilityPowerW, PUE: p.Pue, InletTemperatureC: p.InletTemperatureC, OutletTemperatureC: p.OutletTemperatureC, AlarmActive: p.AlarmActive, CriticalAlarmActive: p.CriticalAlarmActive, BuzzerActive: p.BuzzerActive}
 	}
 	for _, tank := range s.Tanks {
 		t := ContainerTank{Position: tank.Position, Metrics: rollupFromProto(tank.Metrics), TopologyComplete: tank.TopologyComplete, Modules: []ContainerModule{}}

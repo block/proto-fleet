@@ -7,6 +7,7 @@ import {
   V2ModuleNumberingOrder,
   V2Phase,
   V2PoolConnState,
+  V2Severity,
 } from "./generated/generatedApi";
 import {
   toCanonicalContainer,
@@ -818,5 +819,46 @@ describe("MDK v2 CT1 normalization", () => {
       expect.objectContaining({ id: asicId, hashboardSerial: "26:B0:3F:F0:D7:92" }),
     ]);
     expect(hardware.getAsicRowsByHashboard("26:B0:3F:F0:D7:92")).toEqual([2]);
+  });
+});
+
+describe("plant alarm telemetry", () => {
+  const plantTelemetry = (health: Parameters<typeof toCanonicalContainer>[2]) =>
+    [...toCanonicalContainer({ containerMap: { tanks: [] } }, {}, health, "ct1-a").telemetry.plant.values()][0];
+
+  test("carries the alarm list, flags, mute narrowing and the controller observation time", () => {
+    const plant = plantTelemetry({
+      timestamp: "2026-11-14T12:00:00Z",
+      alarmMuteSupported: false,
+      alarms: [
+        { id: "a1", name: " Coolant low pressure ", severity: V2Severity.SEVERITY_WARNING, componentId: "pump-1" },
+        { id: "a2", severity: V2Severity.SEVERITY_CRITICAL },
+        { name: "No identity", severity: V2Severity.SEVERITY_UNSPECIFIED },
+      ],
+      plant: { alarmActive: true, criticalAlarmActive: true, buzzerActive: false },
+    });
+    expect(plant).toMatchObject({
+      alarmActive: true,
+      criticalAlarmActive: true,
+      buzzerActive: false,
+      alarmMuteSupported: false,
+      observedAtMs: Date.parse("2026-11-14T12:00:00Z"),
+      alarms: [
+        { id: "a1", name: "Coolant low pressure", severity: "warning", componentId: "pump-1" },
+        { id: "a2", name: "a2", severity: "critical", componentId: undefined },
+        { id: undefined, name: "No identity", severity: "unknown", componentId: undefined },
+      ],
+    });
+  });
+
+  test("keeps unreported flags and a missing observation time unknown", () => {
+    for (const timestamp of [undefined, "not a time"]) {
+      const plant = plantTelemetry({ timestamp, plant: {} });
+      expect(plant.observedAtMs).toBeUndefined();
+      expect(plant.alarmActive).toBeUndefined();
+      expect(plant.buzzerActive).toBeUndefined();
+      expect(plant.alarmMuteSupported).toBeUndefined();
+      expect(plant.alarms).toEqual([]);
+    }
   });
 });

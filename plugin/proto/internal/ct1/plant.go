@@ -21,8 +21,9 @@ type plantFields struct {
 	PUE                        *float64 `json:"pue"`
 	InletTemperatureC          *float64 `json:"inletTemperatureC"`
 	OutletTemperatureC         *float64 `json:"outletTemperatureC"`
-	AlarmActive                bool     `json:"alarmActive"`
-	CriticalAlarmActive        bool     `json:"criticalAlarmActive"`
+	AlarmActive                *bool    `json:"alarmActive"`
+	CriticalAlarmActive        *bool    `json:"criticalAlarmActive"`
+	BuzzerActive               *bool    `json:"buzzerActive"`
 }
 
 // plantSampleFresh is the one freshness rule for a plant snapshot. Telemetry
@@ -36,5 +37,5 @@ func (p plantResponse) observation(now time.Time) *sdk.ContainerPlant {
 	if p.Plant == nil || !plantSampleFresh(p.Timestamp, now) {
 		return nil
 	}
-	return &sdk.ContainerPlant{DryCoolerInletTemperatureC: p.Plant.DryCoolerInletTemperatureC, ObservedAt: p.Timestamp, TotalPowerW: p.Plant.TotalPowerW, FacilityPowerW: p.Plant.FacilityPowerW, PUE: p.Plant.PUE, InletTemperatureC: p.Plant.InletTemperatureC, OutletTemperatureC: p.Plant.OutletTemperatureC, AlarmActive: p.Plant.AlarmActive, CriticalAlarmActive: p.Plant.CriticalAlarmActive}
+	return &sdk.ContainerPlant{DryCoolerInletTemperatureC: p.Plant.DryCoolerInletTemperatureC, ObservedAt: p.Timestamp, TotalPowerW: p.Plant.TotalPowerW, FacilityPowerW: p.Plant.FacilityPowerW, PUE: p.Plant.PUE, InletTemperatureC: p.Plant.InletTemperatureC, OutletTemperatureC: p.Plant.OutletTemperatureC, AlarmActive: p.Plant.AlarmActive, CriticalAlarmActive: p.Plant.CriticalAlarmActive, BuzzerActive: p.Plant.BuzzerActive}
 }

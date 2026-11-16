@@ -61,6 +61,8 @@ func (h *RESTApiHandler) RegisterRoutes(mux *http.ServeMux) {
 	register("GET /api/v2/power/container/controls", h.handleContainerControls)
 	register("POST /api/v2/power/container/controls/{name}", h.handleContainerControl)
 	register("POST /api/v2/power/container/setpoints/{name}", h.handleContainerSetpoint)
+	register("POST /api/v2/power/container/alarm/mute", h.handleContainerAlarm((*ContainerState).muteContainerAlarm))
+	register("POST /api/v2/power/container/alarm/reset", h.handleContainerAlarm((*ContainerState).resetContainerAlarm))
 
 	// Mining status and global lifecycle.
 	register("GET /api/v2/mining/status", h.handleMiningStatus)
@@ -332,6 +334,9 @@ type containerTelemetryResponse struct {
 	CoolingFans        []plantCoolingFan   `json:"coolingFans"`
 	PowerDistributions []powerDistribution `json:"powerDistributions"`
 	PowerFeeds         []powerFeed         `json:"powerFeeds"`
+	Alarms             []plantAlarm        `json:"alarms"`
+	// AlarmMuteSupported is live health narrowing of the controls capability.
+	AlarmMuteSupported bool `json:"alarmMuteSupported"`
 }
 
 type containerControl struct {
@@ -345,6 +350,8 @@ type containerControlsResponse struct {
 	Controls                    []containerControl  `json:"controls"`
 	Setpoints                   []containerSetpoint `json:"setpoints"`
 	MainCircuitBreakerSupported bool                `json:"mainCircuitBreakerSupported"`
+	AlarmMuteSupported          bool                `json:"alarmMuteSupported"`
+	AlarmResetSupported         bool                `json:"alarmResetSupported"`
 }
 
 type containerSetpoint struct {
@@ -496,6 +503,8 @@ type plantTelemetry struct {
 	TankALiquidLevelMm            float64 `json:"tankALiquidLevelMm"`
 	TankBLiquidLevelMm            float64 `json:"tankBLiquidLevelMm"`
 	AlarmActive                   bool    `json:"alarmActive"`
+	CriticalAlarmActive           bool    `json:"criticalAlarmActive"`
+	BuzzerActive                  bool    `json:"buzzerActive"`
 	TotalPowerW                   float64 `json:"totalPowerW"`
 	HeatRejectionPowerW           float64 `json:"heatRejectionPowerW"`
 	FacilityPowerW                float64 `json:"facilityPowerW"`
@@ -879,7 +888,27 @@ func (h *RESTApiHandler) handleContainerControls(w http.ResponseWriter, r *http.
 		Setpoints: telemetry.Setpoints,
 		// The simulator has no dedicated breaker operation or physical readback.
 		MainCircuitBreakerSupported: false,
+		AlarmMuteSupported:          true,
+		AlarmResetSupported:         !h.state.Config.AlarmResetUnsupported,
 	})
+}
+
+// handleContainerAlarm serves the empty-bodied alarm mute and reset commands.
+func (h *RESTApiHandler) handleContainerAlarm(command func(*ContainerState) error) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var empty struct{}
+		if !decodeJSON(w, r, &empty) {
+			return
+		}
+		h.state.mu.Lock()
+		err := command(h.state)
+		h.state.mu.Unlock()
+		if err != nil {
+			writeAPIError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, struct{}{})
+	}
 }
 
 func (h *RESTApiHandler) handleContainerControl(w http.ResponseWriter, r *http.Request) {

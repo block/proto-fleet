@@ -262,6 +262,8 @@ func activityEventType(t commandtype.Type) string {
 		return "container_mining"
 	case commandtype.SetContainerControl:
 		return "set_container_control"
+	case commandtype.ContainerAlarmAction:
+		return "container_alarm_action"
 	case commandtype.ApplyCurtailmentConfig:
 		return "apply_curtailment_config"
 	case commandtype.FrigateServerUpdate:

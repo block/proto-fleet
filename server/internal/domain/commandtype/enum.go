@@ -42,6 +42,9 @@ const (
 	// start, retry, cancel) against a controller's current binding. It is
 	// dispatched directly, never through the command queue.
 	FrigateServerUpdate
+	// ContainerAlarmAction sends one CT1 plant alarm mute or reset command. It
+	// is a physical plant write and is never retried.
+	ContainerAlarmAction
 )
 
 func (t *Type) String() string {
@@ -86,6 +89,8 @@ func (t *Type) String() string {
 		return "ApplyCurtailmentConfig"
 	case FrigateServerUpdate:
 		return "FrigateServerUpdate"
+	case ContainerAlarmAction:
+		return "ContainerAlarmAction"
 
 	default:
 		return "Undefined"
@@ -139,6 +144,8 @@ func FromString(s string) (Type, error) {
 		return ApplyCurtailmentConfig, nil
 	case "FrigateServerUpdate":
 		return FrigateServerUpdate, nil
+	case "ContainerAlarmAction":
+		return ContainerAlarmAction, nil
 
 	default:
 		return Type(-1), fleeterror.NewInternalErrorf("invalid command type: %s", s)

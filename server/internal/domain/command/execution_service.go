@@ -1009,6 +1009,17 @@ func (es *ExecutionService) executeCommandOnDevice(ctx context.Context, commandT
 		}
 		siteID = payload.SiteID
 		err = es.executeContainerMining(ctx, message.DeviceID, orgID, payload, controller)
+	case commandtype.ContainerAlarmAction:
+		var payload containerAlarmPayload
+		if decodeErr := json.Unmarshal(message.Payload, &payload); decodeErr != nil {
+			return orgID, siteID, fleeterror.NewFailedPreconditionError("invalid container alarm payload")
+		}
+		controller, ok := minerInfo.(sdk.DeviceContainerAlarmController)
+		if !ok {
+			return orgID, siteID, fleeterror.NewUnimplementedError("container alarm actions unsupported")
+		}
+		siteID = payload.SiteID
+		err = es.executeContainerAlarm(ctx, message.DeviceID, orgID, payload, controller)
 	case commandtype.SetContainerControl:
 		var payload sdk.ContainerControlRequest
 		if decodeErr := json.Unmarshal(message.Payload, &payload); decodeErr != nil {

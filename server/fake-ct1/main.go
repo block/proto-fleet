@@ -98,6 +98,9 @@ func containerConfigFromEnv() (ContainerConfig, error) {
 		UnlocatedBoards:   unlocatedBoards,
 
 		DemoAllBoardFaults: getEnv("CT1_DEMO_ALL_BOARD_FAULTS", "false") == "true",
+		DemoPlantAlarms:    getEnv("CT1_DEMO_PLANT_ALARMS", "false") == "true",
+		// Real CT1 hardware cannot reset alarms; set false to mimic it.
+		AlarmResetUnsupported: getEnv("CT1_ALARM_RESET_SUPPORTED", "true") == "false",
 	}
 
 	cfg.OccupiedBoards, err = parseOccupiedBoards(os.Getenv("CT1_OCCUPIED_BOARDS"), cfg.Tanks*cfg.ModulesPerTank*cfg.SlotsPerModule)

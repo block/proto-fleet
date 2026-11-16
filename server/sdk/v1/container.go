@@ -132,8 +132,9 @@ type ContainerPlant struct {
 	PUE                        *float64  `json:"pue,omitempty"`
 	InletTemperatureC          *float64  `json:"inlet_temperature_c,omitempty"`
 	OutletTemperatureC         *float64  `json:"outlet_temperature_c,omitempty"`
-	AlarmActive                bool      `json:"alarm_active"`
-	CriticalAlarmActive        bool      `json:"critical_alarm_active"`
+	AlarmActive                *bool     `json:"alarm_active,omitempty"`
+	CriticalAlarmActive        *bool     `json:"critical_alarm_active,omitempty"`
+	BuzzerActive               *bool     `json:"buzzer_active,omitempty"`
 }
 
 // ContainerFan retains the controller's component identity and source timestamp.

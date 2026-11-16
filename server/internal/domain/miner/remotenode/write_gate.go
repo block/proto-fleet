@@ -90,6 +90,8 @@ func physicalWriteKind(command *gatewaypb.MinerCommand) (commandtype.Type, bool)
 		return commandtype.SetModuleMining, true
 	case *gatewaypb.MinerCommand_SetContainerControl:
 		return commandtype.SetContainerControl, true
+	case *gatewaypb.MinerCommand_RunContainerAlarmAction:
+		return commandtype.ContainerAlarmAction, true
 	default:
 		return commandtype.Type(-1), true
 	}

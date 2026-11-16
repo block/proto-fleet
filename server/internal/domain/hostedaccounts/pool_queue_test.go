@@ -163,7 +163,7 @@ func TestPoolQueuedCommandConflictScope(t *testing.T) {
 		{commandtype.UpdateMiningPools, true}, {commandtype.StartMining, true}, {commandtype.StopMining, true},
 		{commandtype.Reboot, true}, {commandtype.FirmwareUpdate, true}, {commandtype.Unpair, true},
 		{commandtype.UpdateMinerPassword, true}, {commandtype.Curtail, true}, {commandtype.Uncurtail, true},
-		{commandtype.ApplyCurtailmentConfig, true}, {commandtype.SetContainerControl, true},
+		{commandtype.ApplyCurtailmentConfig, true}, {commandtype.SetContainerControl, true}, {commandtype.ContainerAlarmAction, true},
 		{commandtype.SetTankMining, true}, {commandtype.SetModuleMining, true}, {commandtype.Type(-1), true},
 	} {
 		t.Run(scenario.kind.String(), func(t *testing.T) {

@@ -105,6 +105,11 @@ type ContainerConfig struct {
 	UnlocatedBoards int
 
 	DemoAllBoardFaults bool
+	// DemoPlantAlarms starts with plant alarms raised and the buzzer sounding.
+	DemoPlantAlarms bool
+	// AlarmResetUnsupported mimics real CT1 hardware, whose PLC clears alarm bits
+	// only when their conditions clear. Zero value keeps reset supported.
+	AlarmResetUnsupported bool
 }
 
 // ContainerState holds the full simulated container tree and shared metadata.
@@ -137,6 +142,9 @@ type ContainerState struct {
 	HashOnDisconnect   bool
 	ContainerControls  map[string]bool
 	ContainerSetpoints map[string]float64
+
+	plantAlarms  []simulatedPlantAlarm
+	buzzerActive bool
 
 	Tanks   []*Tank
 	Modules []*Module // flattened, in tree order
@@ -244,6 +252,10 @@ func newContainerState(cfg ContainerConfig, now time.Time) *ContainerState {
 	}
 	for _, point := range containerSetpointDefaults {
 		s.ContainerSetpoints[point.Name] = point.Value
+	}
+	if cfg.DemoPlantAlarms {
+		s.plantAlarms = demoPlantAlarms()
+		s.buzzerActive = true
 	}
 
 	s.initPools()

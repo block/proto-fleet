@@ -424,6 +424,53 @@ func TestErrorReportPlantFlagsWithoutAlarmList(t *testing.T) {
 	requireError(t, report, kindPlant, "plant-alarm:a", sdkerrors.VendorErrorUnmapped)
 }
 
+// Each plant flag is optional. An omitted flag is silence, never a clear
+// reading, so it cannot withdraw a held plant error.
+func TestErrorReportPlantFlagsOmitted(t *testing.T) {
+	const listed = "plant-alarm:a"
+	for _, tc := range []struct {
+		name            string
+		alarm, critical *bool
+		// want maps each expected plant error to its evidence and severity.
+		// The flag errors share the "plant" component, so one report carries
+		// both vendor codes at the more severe claim.
+		want map[string]string
+	}{
+		{name: "both flags omitted", want: map[string]string{
+			listed: "retained SEVERITY_MINOR", "plant": "retained SEVERITY_CRITICAL",
+		}},
+		{name: "alarm flag omitted, critical clear", critical: new(false), want: map[string]string{
+			listed: "retained SEVERITY_MINOR", "plant": "retained SEVERITY_CRITICAL",
+		}},
+		{name: "alarm active, critical omitted", alarm: new(true), want: map[string]string{
+			listed: "retained SEVERITY_MINOR", "plant": "current SEVERITY_CRITICAL",
+		}},
+		{name: "alarm active, critical clear", alarm: new(true), critical: new(false), want: map[string]string{
+			listed: "retained SEVERITY_MINOR", "plant": "current SEVERITY_MAJOR",
+		}},
+		{name: "alarm clear, critical omitted", alarm: new(false), want: map[string]string{}},
+		{name: "both flags clear", alarm: new(false), critical: new(false), want: map[string]string{}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			at := time.Now().UTC()
+			state := &errorState{}
+			pollErrors(t, state, at, errorsMap(), plantHealth(at, &mdk.PlantAlarm{Id: "a", Severity: mdk.Severity_SEVERITY_WARNING}), nil)
+			at = at.Add(15 * time.Second)
+			flags := &mdk.GetContainerHealthResponse{Timestamp: timestamppb.New(at), Plant: &mdk.PlantHealth{AlarmActive: new(true), CriticalAlarmActive: new(true)}}
+			require.Len(t, pollErrors(t, state, at, errorsMap(), flags, nil).Errors, 2)
+
+			at = at.Add(15 * time.Second)
+			sample := &mdk.GetContainerHealthResponse{Timestamp: timestamppb.New(at), Plant: &mdk.PlantHealth{AlarmActive: tc.alarm, CriticalAlarmActive: tc.critical}}
+			got := map[string]string{}
+			for _, reported := range pollErrors(t, state, at, errorsMap(), sample, nil).Errors {
+				require.Equal(t, kindPlant, reported.ComponentType)
+				got[*reported.ComponentID] = fmt.Sprintf("%s %v", reported.VendorAttributes["ct1_evidence"], reported.Severity)
+			}
+			require.Equal(t, tc.want, got)
+		})
+	}
+}
+
 func TestErrorReportUnlocatedBoards(t *testing.T) {
 	at := time.Now().UTC()
 	unlocated := func(edits ...func(*mdk.Hashboard)) *mdk.GetContainerMapResponse {

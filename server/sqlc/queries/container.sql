@@ -113,7 +113,7 @@ SELECT EXISTS (
 SELECT EXISTS (
  SELECT 1 FROM command_batch_log b JOIN queue_message m ON m.command_batch_log_uuid=b.uuid
  WHERE b.uuid=sqlc.arg('batch_identifier') AND b.organization_id=sqlc.arg('org_id')
- AND b.type IN ('SetContainerControl', 'SetTankMining', 'SetModuleMining', 'ContainerMining', 'SetBoardIdentify') AND b.devices_count=1 AND m.device_id=sqlc.arg('device_id')
+ AND b.type IN ('SetContainerControl', 'SetTankMining', 'SetModuleMining', 'ContainerMining', 'SetBoardIdentify', 'ContainerAlarmAction') AND b.devices_count=1 AND m.device_id=sqlc.arg('device_id')
 )::boolean;
 
 -- name: ListTankCommandTargets :many

@@ -134,7 +134,10 @@ func (a *grpcAPI) GetContainerControls(context.Context, *mdk.GetContainerControl
 	out := new(mdk.GetContainerControlsResponse)
 	err := a.snapshot(func(s *ContainerState) any {
 		v := s.containerTelemetry()
-		return containerControlsResponse{Supported: true, Controls: v.Controls, Setpoints: v.Setpoints, MainCircuitBreakerSupported: false}
+		return containerControlsResponse{
+			Supported: true, Controls: v.Controls, Setpoints: v.Setpoints, MainCircuitBreakerSupported: false,
+			AlarmMuteSupported: true, AlarmResetSupported: !s.Config.AlarmResetUnsupported,
+		}
 	}, out)
 	return out, err
 }
@@ -165,6 +168,29 @@ func (a *grpcAPI) SetContainerControl(ctx context.Context, in *mdk.SetContainerC
 	a.state.ContainerControls[in.Name] = in.Enabled
 	return &mdk.SetContainerControlResponse{Control: &mdk.ContainerControl{Name: in.Name, Enabled: in.Enabled, StateKnown: true}, Confirmation: &mdk.ContainerControlConfirmation{RequestedEnabled: in.Enabled, ObservedEnabled: new(a.state.ContainerControls[in.Name]), ObservedAt: timestamppb.New(now), State: mdk.PlantWriteConfirmationState_PLANT_WRITE_CONFIRMATION_STATE_CONFIRMED, Source: mdk.PlantWriteConfirmationSource_PLANT_WRITE_CONFIRMATION_SOURCE_CONTROLLER_REGISTER}}, nil
 }
+func (a *grpcAPI) MuteContainerAlarm(ctx context.Context, _ *mdk.MuteContainerAlarmRequest) (*mdk.MuteContainerAlarmResponse, error) {
+	if err := a.containerAlarm(ctx, (*ContainerState).muteContainerAlarm); err != nil {
+		return nil, err
+	}
+	return &mdk.MuteContainerAlarmResponse{}, nil
+}
+
+func (a *grpcAPI) ResetContainerAlarm(ctx context.Context, _ *mdk.ResetContainerAlarmRequest) (*mdk.ResetContainerAlarmResponse, error) {
+	if err := a.containerAlarm(ctx, (*ContainerState).resetContainerAlarm); err != nil {
+		return nil, err
+	}
+	return &mdk.ResetContainerAlarmResponse{}, nil
+}
+
+func (a *grpcAPI) containerAlarm(ctx context.Context, command func(*ContainerState) error) error {
+	if err := ctx.Err(); err != nil {
+		return status.FromContextError(err).Err()
+	}
+	a.state.mu.Lock()
+	defer a.state.mu.Unlock()
+	return command(a.state)
+}
+
 func (a *grpcAPI) SetMainCircuitBreakerState(context.Context, *mdk.SetMainCircuitBreakerStateRequest) (*mdk.SetMainCircuitBreakerStateResponse, error) {
 	return nil, status.Error(codes.Unimplemented, fmt.Sprintf("%s simulator has no dedicated breaker readback", product))
 }

@@ -265,7 +265,7 @@ func (r *RunCmd) runControlSession(ctx context.Context, logger *slog.Logger, cli
 		return fmt.Errorf("discovery configuration: %w", err)
 	}
 	if err := stream.Send(&pb.ControlStreamRequest{Kind: &pb.ControlStreamRequest_Hello{Hello: &pb.ControlHello{
-		MaxCommandProtocolVersion: pb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V13,
+		MaxCommandProtocolVersion: latestCommandProtocolVersion,
 		DiscoveryConfig:           config,
 	}}}); err != nil {
 		if ctx.Err() != nil {
@@ -1005,3 +1005,15 @@ func nodeWriteOutcome(evidence *errdetails.ErrorInfo) *pb.DeviceWriteOutcome {
 	}
 	return &pb.DeviceWriteOutcome{Outcome: evidence.Reason, Stage: evidence.Metadata["stage"], Reason: evidence.Metadata["reason"]}
 }
+
+// latestCommandProtocolVersion is the newest command protocol this node build
+// knows. The node handles every action the generated gateway contract
+// defines, so the hello advertises the newest enum value instead of a literal
+// that each new protocol version would have to bump by hand.
+var latestCommandProtocolVersion = func() pb.CommandProtocolVersion {
+	var latest pb.CommandProtocolVersion
+	for version := range pb.CommandProtocolVersion_name {
+		latest = max(latest, pb.CommandProtocolVersion(version))
+	}
+	return latest
+}()

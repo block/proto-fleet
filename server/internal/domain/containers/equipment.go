@@ -57,6 +57,9 @@ func projectPlant(c *pb.Container, plantJSON []byte, now time.Time) error {
 	c.Plant = &pb.ContainerPlant{
 		ObservedAt:                 timestamppb.New(plant.ObservedAt),
 		DryCoolerInletTemperatureC: temperature,
+		AlarmActive:                plant.AlarmActive,
+		CriticalAlarmActive:        plant.CriticalAlarmActive,
+		BuzzerActive:               plant.BuzzerActive,
 		Stale:                      observationStale(plant.ObservedAt, now),
 	}
 	return nil

@@ -161,6 +161,14 @@ func (a *connectAPI) SetContainerSetpoint(ctx context.Context, req *connect.Requ
 	return connectResult(a.native.SetContainerSetpoint(ctx, req.Msg))
 }
 
+func (a *connectAPI) MuteContainerAlarm(ctx context.Context, req *connect.Request[mdk.MuteContainerAlarmRequest]) (*connect.Response[mdk.MuteContainerAlarmResponse], error) {
+	return connectResult(a.native.MuteContainerAlarm(ctx, req.Msg))
+}
+
+func (a *connectAPI) ResetContainerAlarm(ctx context.Context, req *connect.Request[mdk.ResetContainerAlarmRequest]) (*connect.Response[mdk.ResetContainerAlarmResponse], error) {
+	return connectResult(a.native.ResetContainerAlarm(ctx, req.Msg))
+}
+
 func (a *connectAPI) ListPools(ctx context.Context, req *connect.Request[mdk.ListPoolsRequest]) (*connect.Response[mdk.ListPoolsResponse], error) {
 	return connectResult(a.native.ListPools(ctx, req.Msg))
 }

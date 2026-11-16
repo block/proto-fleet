@@ -61,7 +61,7 @@ func TestAcceptedMutationRequiresAuditedCompletionBeforeTransfer(t *testing.T) {
 }
 
 func TestOrderedQueuedWritesRetireWithoutOfflineRecovery(t *testing.T) {
-	for _, kind := range []commandtype.Type{commandtype.UpdateMiningPools, commandtype.UpdateMinerPassword, commandtype.StartMining, commandtype.StopMining, commandtype.SetCoolingMode, commandtype.SetPowerTarget, commandtype.Curtail, commandtype.Uncurtail, commandtype.ApplyCurtailmentConfig, commandtype.SetTankMining, commandtype.SetModuleMining, commandtype.SetContainerControl} {
+	for _, kind := range []commandtype.Type{commandtype.UpdateMiningPools, commandtype.UpdateMinerPassword, commandtype.StartMining, commandtype.StopMining, commandtype.SetCoolingMode, commandtype.SetPowerTarget, commandtype.Curtail, commandtype.Uncurtail, commandtype.ApplyCurtailmentConfig, commandtype.SetTankMining, commandtype.SetModuleMining, commandtype.SetContainerControl, commandtype.ContainerAlarmAction} {
 		t.Run(kind.String(), func(t *testing.T) {
 			for _, lostResponse := range []bool{false, true} {
 				t.Run(map[bool]string{false: "success", true: "lost response"}[lostResponse], func(t *testing.T) {
