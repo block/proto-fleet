@@ -89,6 +89,7 @@ func (d *Device) DescribeDevice(ctx context.Context) (sdk.DeviceInfo, sdk.Capabi
 func (d *Device) Status(ctx context.Context) (sdk.DeviceMetrics, error) {
 	selected, ha, err := d.probeControllers(ctx, false)
 	if err != nil {
+		d.pollFailed(ctx, err)
 		return sdk.DeviceMetrics{}, err
 	}
 	firmwareJobs := observeFirmwareJobs(ctx, selected)
@@ -104,7 +105,11 @@ func (d *Device) Status(ctx context.Context) (sdk.DeviceMetrics, error) {
 		}
 		ha.Degraded = true
 	}
-	d.errorsShared().observe(evidence.readFrom(selected))
+	if err != nil {
+		d.pollFailed(ctx, err)
+	} else {
+		d.errorsShared().observe(evidence.readFrom(selected))
+	}
 	if metrics.Container != nil {
 		metrics.Container.HA = ha
 		enrichFirmwareBoards(metrics.Container, <-firmwareJobs, time.Now().UTC())
@@ -156,10 +161,16 @@ func (d *Device) DownloadLogs(context.Context, *time.Time, string) (string, bool
 // GetErrors reports active board, PSU, and plant errors. Fleet closes an error
 // that polls stop reporting, so an error is still reported, marked as
 // retained, until its source confirms that it cleared. A failed map read fails
-// the poll; it never returns an empty report.
+// the poll; it never returns an empty report. Fleet polls errors right after
+// telemetry, so the outcome of a telemetry poll that just ended is reused,
+// whether it read the container or failed to.
 func (d *Device) GetErrors(ctx context.Context) (sdk.DeviceErrors, error) {
 	state := d.errorsShared()
-	if !state.current(time.Now(), errorEvidenceMaxAge) {
+	observed, err := state.lastPoll(time.Now(), errorEvidenceMaxAge)
+	if err != nil {
+		return sdk.DeviceErrors{}, err
+	}
+	if !observed {
 		evidence, err := d.readErrorEvidence(ctx)
 		if err != nil {
 			return sdk.DeviceErrors{}, err
@@ -167,6 +178,16 @@ func (d *Device) GetErrors(ctx context.Context) (sdk.DeviceErrors, error) {
 		state.observe(evidence)
 	}
 	return state.report(d.id), nil
+}
+
+// pollFailed records a telemetry poll that could not read the container, so
+// that the error poll after it does not repeat the failing reads. A poll the
+// caller abandoned says nothing about the container.
+func (d *Device) pollFailed(ctx context.Context, err error) {
+	if errors.Is(ctx.Err(), context.Canceled) {
+		return
+	}
+	d.errorsShared().failed(time.Now(), err)
 }
 
 // errorsShared returns the container's error state, shared across handles

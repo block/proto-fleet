@@ -3,6 +3,7 @@ package main
 import (
 	"strconv"
 	"testing"
+	"time"
 
 	"buf.build/go/protovalidate"
 	"github.com/stretchr/testify/require"
@@ -13,7 +14,48 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/diagnostics/models"
 	"github.com/block/proto-fleet/server/internal/domain/plugins/mappers"
 	sdk "github.com/block/proto-fleet/server/sdk/v1"
+	sdkerrors "github.com/block/proto-fleet/server/sdk/v1/errors"
 )
+
+// A CT1 error carried from earlier evidence claims no last-seen time of its
+// own and names when it was last confirmed. Both routes to Fleet must pass
+// that through, so the server stamps its own poll time. The simulator cannot
+// silence a board, so the report is written out as the plugin produces it.
+func TestCarriedCT1ErrorReachesFleetWithoutALastSeenTime(t *testing.T) {
+	const deviceID, boardID, confirmed = "ct1-upload", "mac:aa:bb:cc:dd:ee:01", "2026-11-14T09:12:13Z"
+	firstSeen := time.Date(2026, 11, 14, 9, 12, 13, 0, time.UTC)
+	carried := sdk.DeviceError{
+		MinerError: sdkerrors.BoardPowerOvercurrent, Severity: sdkerrors.SeverityCritical, DeviceID: deviceID,
+		ComponentType: sdkerrors.ComponentTypeHashBoard, ComponentID: new(boardID),
+		CauseSummary: "Board over current",
+		Summary:      "Tank 1, module 1, hashboard 1 (aa:bb:cc:dd:ee:01): Board over current (not confirmed or cleared since " + confirmed + ")",
+		FirstSeenAt:  firstSeen,
+		VendorAttributes: map[string]string{
+			"tank": "1", "module": "1", "hashboard_position": "1", "mac_address": "aa:bb:cc:dd:ee:01",
+			"vendor_code": "HASHBOARD_ERROR_CAUSE_BOARD_OVER_CURRENT", "ct1_evidence": "retained", "ct1_last_confirmed_at": confirmed,
+		},
+	}
+	reported := sdk.DeviceErrors{DeviceID: deviceID, Errors: []sdk.DeviceError{carried}}
+
+	direct := mappers.SDKDeviceErrorsToFleetDeviceErrors(reported)
+	require.Len(t, direct.Errors, 1)
+	require.True(t, direct.Errors[0].LastSeenAt.IsZero())
+	require.Equal(t, carried.VendorAttributes, direct.Errors[0].VendorAttributes)
+
+	payload, err := getErrorsResultPayload(deviceID, reported)
+	require.NoError(t, err)
+	result := &pb.GetErrorsResult{}
+	require.NoError(t, proto.Unmarshal(payload, result))
+	require.NoError(t, protovalidate.Validate(result))
+	require.Len(t, result.GetErrors(), 1)
+	report := result.GetErrors()[0]
+	require.Nil(t, report.GetLastSeenAt())
+	require.True(t, firstSeen.Equal(report.GetFirstSeenAt().AsTime()))
+	require.Equal(t, errorspb.Severity_SEVERITY_CRITICAL, report.GetSeverity())
+	require.Equal(t, boardID, report.GetComponentId())
+	require.Equal(t, carried.Summary, report.GetSummary())
+	require.Equal(t, carried.VendorAttributes, report.GetVendorAttributes())
+}
 
 // requireCT1ErrorPolling follows one CT1 error report from the simulator
 // through the plugin RPC and both routes to Fleet: the server's own mapper for

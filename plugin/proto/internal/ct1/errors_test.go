@@ -450,14 +450,17 @@ func TestErrorReportUnlocatedBoards(t *testing.T) {
 	}
 }
 
-func TestErrorStateIgnoresOlderEvidence(t *testing.T) {
+// Two collections can finish slightly out of order. Sample ordering protects
+// each source's readings, but not which boards a collection listed.
+func TestErrorStateIgnoresACollectionOlderThanTheOneApplied(t *testing.T) {
 	at := time.Now().UTC()
 	state := &errorState{}
-	healthy := errorsMap(errorsBoard(1, at), errorsBoard(2, at), errorsBoard(3, at))
-	require.Empty(t, pollErrors(t, state, at, healthy, plantHealth(at), nil).Errors)
+	require.Len(t, pollErrors(t, state, at, faultedBoards(at), plantHealth(at), nil).Errors, 1)
+
 	earlier := at.Add(-5 * time.Second)
-	faulted := errorsMap(errorsBoard(1, earlier, withErrors(mdk.HashboardErrorCause_HASHBOARD_ERROR_CAUSE_BOARD_OVER_CURRENT)), errorsBoard(2, earlier), errorsBoard(3, earlier))
-	require.Empty(t, pollErrors(t, state, earlier, faulted, plantHealth(earlier), nil).Errors, "a delayed read cannot restore what a newer one cleared")
+	report := pollErrors(t, state, earlier, errorsMap(errorsBoard(2, earlier), errorsBoard(3, earlier)), plantHealth(earlier), nil)
+	require.Len(t, report.Errors, 1, "a delayed collection cannot remove a board that the newer one listed")
+	requireEvidence(t, requireError(t, report, kindBoard, "mac:"+errorsMAC(1), sdkerrors.BoardPowerOvercurrent), errorEvidenceCurrent)
 }
 
 // A later read can return an earlier sample of a source, for example from a
@@ -563,6 +566,62 @@ func TestErrorReportIgnoresSamplesOlderThanOnesAlreadyApplied(t *testing.T) {
 	})
 }
 
+func TestErrorStateBoundsCarriedErrors(t *testing.T) {
+	at := time.Now().UTC()
+	state := &errorState{}
+	const source, extra = "board:" + "aa:bb:cc:dd:ee:01", 5
+	cause := func(i int) errorItemKey {
+		return errorItemKey{component: boardComponent(errorsMAC(1)), cause: fmt.Sprintf("CAUSE_%05d", i)}
+	}
+	asserted := &errorEvidence{
+		observedAt: at, items: map[errorItemKey]*errorItem{},
+		readings: map[string]errorReading{source: {at: at, complete: true}}, present: map[string]bool{source: true},
+	}
+	for i := range maxRetainedErrorItems + extra {
+		// Lower-numbered causes were confirmed earlier.
+		confirmed := at.Add(time.Duration(i) * time.Microsecond)
+		asserted.items[cause(i)] = &errorItem{key: cause(i), code: sdkerrors.VendorErrorUnmapped, claims: map[string]errorClaim{
+			source: {severity: sdkerrors.SeverityMajor, at: confirmed, current: true},
+		}}
+	}
+	state.observe(asserted)
+	require.Len(t, state.items, maxRetainedErrorItems+extra, "errors asserted by current evidence are never dropped")
+
+	// The source goes silent, so every error is carried.
+	state.observe(&errorEvidence{observedAt: at.Add(15 * time.Second), present: map[string]bool{source: true}})
+	require.Len(t, state.items, maxRetainedErrorItems)
+	for i := range extra {
+		require.NotContains(t, state.items, cause(i), "the errors confirmed longest ago are dropped first")
+	}
+	require.Contains(t, state.items, cause(extra))
+}
+
+func TestErrorReportBoundsThePlantAlarmList(t *testing.T) {
+	at := time.Now().UTC()
+	state := &errorState{}
+	known := &mdk.PlantAlarm{Id: "known", Severity: mdk.Severity_SEVERITY_CRITICAL}
+	require.Len(t, pollErrors(t, state, at, errorsMap(), plantHealth(at, known), nil).Errors, 1)
+
+	// A list longer than the plugin reads is not a complete reading: it
+	// raises the alarms that were read and clears nothing.
+	alarms := make([]*mdk.PlantAlarm, 0, maxPlantAlarms+1)
+	for i := range maxPlantAlarms + 1 {
+		alarms = append(alarms, &mdk.PlantAlarm{Id: fmt.Sprintf("alarm-%03d", i), Severity: mdk.Severity_SEVERITY_WARNING})
+	}
+	at = at.Add(15 * time.Second)
+	report := pollErrors(t, state, at, errorsMap(), plantHealth(at, alarms...), nil)
+	require.Len(t, report.Errors, maxPlantAlarms+1)
+	requireEvidence(t, requireError(t, report, kindPlant, "plant-alarm:known", sdkerrors.VendorErrorUnmapped), errorEvidenceRetained)
+	requireEvidence(t, requireError(t, report, kindPlant, "plant-alarm:alarm-000", sdkerrors.VendorErrorUnmapped), errorEvidenceCurrent)
+	for _, reported := range report.Errors {
+		require.NotEqual(t, fmt.Sprintf("plant-alarm:alarm-%03d", maxPlantAlarms), *reported.ComponentID, "the alarm past the bound is not read")
+	}
+
+	// A list within the bound is complete again.
+	at = at.Add(15 * time.Second)
+	require.Len(t, pollErrors(t, state, at, errorsMap(), plantHealth(at, alarms[:3]...), nil).Errors, 3)
+}
+
 func TestErrorStateOrderingMarksExpire(t *testing.T) {
 	at := time.Now().UTC()
 	state := &errorState{}
@@ -662,6 +721,7 @@ func expireErrorEvidence(d *Device) {
 	state := d.errorsShared()
 	state.mu.Lock()
 	state.observedAt = state.observedAt.Add(-errorEvidenceMaxAge)
+	state.failedAt = state.failedAt.Add(-errorEvidenceMaxAge)
 	state.mu.Unlock()
 }
 
@@ -725,6 +785,17 @@ func (c *errorsController) count(path string) int {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return c.calls[path]
+}
+
+// reads is the number of controller reads of any kind.
+func (c *errorsController) reads() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	total := 0
+	for _, calls := range c.calls {
+		total += calls
+	}
+	return total
 }
 
 func (c *errorsController) device(t *testing.T) *Device {
@@ -883,6 +954,139 @@ func TestGetErrorsFallsBackToTheVerifiedStandby(t *testing.T) {
 	expireErrorEvidence(d)
 	_, err = d.GetErrors(t.Context())
 	require.Equal(t, codes.Unavailable, status.Code(err), "both controllers failing is a failed poll")
+}
+
+// The server polls errors right after every telemetry poll, including one that
+// failed. Repeating its reads would double the load on a controller that is
+// already failing and hold the poll for their timeouts.
+func TestGetErrorsDoesNotRepeatAFailedTelemetryPoll(t *testing.T) {
+	unavailable := status.Error(codes.Unavailable, "controller cannot read hashboards")
+	t.Run("single controller", func(t *testing.T) {
+		isolateErrorStates(t)
+		controller := &errorsController{wire: faultedBoards, mapStatus: http.StatusServiceUnavailable}
+		d := controller.device(t)
+		_, err := d.Status(t.Context())
+		require.Equal(t, codes.Unavailable, status.Code(err))
+		reads := controller.reads()
+
+		_, err = d.GetErrors(t.Context())
+		require.Equal(t, codes.Unavailable, status.Code(err), "the failed poll fails the error poll too")
+		require.Equal(t, reads, controller.reads(), "without reading the controller again")
+
+		// A poll that reads the container replaces the failure.
+		controller.set(func(c *errorsController) { c.mapStatus = 0 })
+		_, err = d.Status(t.Context())
+		require.NoError(t, err)
+		reads = controller.reads()
+		report, err := d.GetErrors(t.Context())
+		require.NoError(t, err)
+		require.Len(t, report.Errors, 1)
+		require.Equal(t, reads, controller.reads())
+
+		// A newer failure wins over that observation, although it is recent.
+		controller.set(func(c *errorsController) { c.mapStatus = http.StatusServiceUnavailable })
+		_, err = d.Status(t.Context())
+		require.Equal(t, codes.Unavailable, status.Code(err))
+		reads = controller.reads()
+		_, err = d.GetErrors(t.Context())
+		require.Equal(t, codes.Unavailable, status.Code(err))
+		require.Equal(t, reads, controller.reads())
+
+		// The failure is reused only for as long as an observation would be.
+		expireErrorEvidence(d)
+		_, err = d.GetErrors(t.Context())
+		require.Equal(t, codes.Unavailable, status.Code(err))
+		require.Greater(t, controller.reads(), reads, "the error poll reads for itself again")
+	})
+	t.Run("HA pair whose map reads fail", func(t *testing.T) {
+		isolateErrorStates(t)
+		a, b := startHAServer(t, "a", "b"), startHAServer(t, "b", "a")
+		a.primary.Store(true)
+		a.mapError, b.mapError = unavailable, unavailable
+		d, err := NewDevice(t.Context(), errorsDevice, haInfo(a, b), sdk.UsernamePassword{})
+		require.NoError(t, err)
+		defer d.Close(t.Context())
+		_, err = d.Status(t.Context())
+		require.Equal(t, codes.Unavailable, status.Code(err))
+		require.EqualValues(t, 2, a.mapReads.Load()+b.mapReads.Load(), "the telemetry poll tried both controllers")
+		probes := a.haReads.Load() + b.haReads.Load()
+
+		_, err = d.GetErrors(t.Context())
+		require.Equal(t, codes.Unavailable, status.Code(err))
+		require.EqualValues(t, 2, a.mapReads.Load()+b.mapReads.Load(), "neither controller is read again")
+		require.Equal(t, probes, a.haReads.Load()+b.haReads.Load(), "or probed again")
+	})
+	t.Run("HA pair that cannot be probed", func(t *testing.T) {
+		isolateErrorStates(t)
+		a, b := startHAServer(t, "a", "b"), startHAServer(t, "b", "a")
+		a.primary.Store(true)
+		a.haError, b.haError = unavailable, unavailable
+		d, err := NewDevice(t.Context(), errorsDevice, haInfo(a, b), sdk.UsernamePassword{})
+		require.NoError(t, err)
+		defer d.Close(t.Context())
+		_, err = d.Status(t.Context())
+		require.Error(t, err)
+		probes := a.haReads.Load() + b.haReads.Load()
+		require.EqualValues(t, 2, probes)
+
+		_, err = d.GetErrors(t.Context())
+		require.Error(t, err)
+		require.Equal(t, probes, a.haReads.Load()+b.haReads.Load(), "the controllers are not probed again")
+	})
+	t.Run("a poll the caller abandoned says nothing about the container", func(t *testing.T) {
+		isolateErrorStates(t)
+		controller := &errorsController{wire: faultedBoards}
+		d := controller.device(t)
+		abandoned, cancel := context.WithCancel(t.Context())
+		cancel()
+		_, err := d.Status(abandoned)
+		require.Error(t, err)
+
+		report, err := d.GetErrors(t.Context())
+		require.NoError(t, err)
+		require.Len(t, report.Errors, 1)
+	})
+}
+
+// Observation times are wall-clock. When the host clock steps back, the state
+// must not wait for the clock to catch up before it accepts evidence again.
+func TestErrorStateSurvivesTheHostClockSteppingBack(t *testing.T) {
+	first := time.Now().UTC().Truncate(time.Second)
+	state := &errorState{}
+	boardID := "mac:" + errorsMAC(1)
+	report := pollErrors(t, state, first, faultedBoards(first), plantHealth(first), nil)
+	requireEvidence(t, requireError(t, report, kindBoard, boardID, sdkerrors.BoardPowerOvercurrent), errorEvidenceCurrent)
+
+	// The host clock steps back an hour. The controller's does not, so its
+	// samples are now dated an hour ahead and cannot be judged fresh.
+	at := first.Add(-time.Hour + 15*time.Second)
+	sampled := first.Add(15 * time.Second)
+	report = pollErrors(t, state, at, errorsMap(errorsBoard(1, sampled), errorsBoard(2, sampled), errorsBoard(3, sampled)), plantHealth(sampled), nil)
+	require.Len(t, report.Errors, 1)
+	requireEvidence(t, requireError(t, report, kindBoard, boardID, sdkerrors.BoardPowerOvercurrent), errorEvidenceRetained)
+
+	// The clocks agree again and the board reports healthy.
+	at = first.Add(30 * time.Second)
+	require.Empty(t, pollErrors(t, state, at, errorsMap(errorsBoard(1, at), errorsBoard(2, at), errorsBoard(3, at)), plantHealth(at), nil).Errors)
+}
+
+func TestGetErrorsReadsWhenItsObservationIsDatedAfterNow(t *testing.T) {
+	isolateErrorStates(t)
+	controller := &errorsController{wire: faultedBoards}
+	d := controller.device(t)
+	_, err := d.GetErrors(t.Context())
+	require.NoError(t, err)
+	require.Equal(t, 1, controller.count("/api/v2/container/map"))
+
+	// The host clock stepped back an hour since that read.
+	state := d.errorsShared()
+	state.mu.Lock()
+	state.observedAt = state.observedAt.Add(time.Hour)
+	state.mu.Unlock()
+	report, err := d.GetErrors(t.Context())
+	require.NoError(t, err)
+	require.Equal(t, 2, controller.count("/api/v2/container/map"), "the old report is not served until the clock catches up")
+	requireEvidence(t, requireError(t, report, kindBoard, "mac:"+errorsMAC(1), sdkerrors.BoardPowerOvercurrent), errorEvidenceCurrent)
 }
 
 func TestGetErrorsSingleControllerRemovesABoard(t *testing.T) {

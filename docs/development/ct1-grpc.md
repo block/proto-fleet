@@ -375,6 +375,16 @@ that asserted it supplies a complete reading without it.
   During an HA transition such a controller's board catalog can be behind.
   Errors are also kept when the map lists no boards at all, or lists a board the
   plugin rejected without a usable identity.
+- Removal does not wait for a complete topology, unlike inventory. At the pinned
+  Frigate commit a silent board stays in the map: Frigate lists every board that
+  has a location, and deletes a location only when it retires the board
+  (`location_retention_days`, seven by default, with no owner and no discovery)
+  or when another board supersedes it at its switch port. Tanks and modules are
+  derived from the listed boards, an occupied slot always carries its board, and
+  every board carries a MAC. A board missing from the authoritative map is
+  therefore one Frigate has retired. Requiring a complete topology would instead
+  keep its errors open wherever any slot is unknown, which includes every empty
+  slot outside `switch_ports` mode.
 - A failed map read fails the poll. It never produces an empty report.
 
 Claims and sample order live in the plugin process, shared by every handle for
@@ -382,10 +392,19 @@ a container, including Fleet Node's per-command handles. They do not survive a
 plugin restart: after one, carried errors are no longer reported, and Fleet
 closes them after its staleness threshold.
 
-Error polling reuses a telemetry observation made in the last ten seconds, so
-the poll cycle reads the map once. Otherwise it selects a controller like
-telemetry does, including one retry on the verified standby, and reads only the
-map and plant health.
+Fleet polls errors right after telemetry. Error polling reuses the outcome of a
+telemetry poll that ended in the last ten seconds, so the poll cycle reads the
+map once. If that poll read the container, its observation is the report. If
+it could not, the error poll fails with the same error and does not probe or
+read the controllers again. A poll the caller abandoned is not reused.
+Otherwise error polling selects a controller like telemetry does, including one
+retry on the verified standby, and reads only the map and plant health.
+
+These times come from the host's wall clock. If it steps backwards, the plugin
+does not wait for it to catch up: an outcome dated after now is not reused, and
+evidence older than the last by more than ten seconds is applied. Controller
+samples are then dated ahead of the host and cannot be judged fresh, so errors
+are carried until the clocks agree.
 
 Fleet Node results carry at most 512 reports. Reports are ordered most severe
 first; when a result is truncated, Fleet keeps the device's open errors.

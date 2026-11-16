@@ -63,8 +63,10 @@ type issueSources struct {
 	claims map[string][]issueClaim
 }
 
-func issueClaimKey(issue sdk.ContainerModuleIssue) string {
-	return issue.Component + ":" + issue.ComponentID + ":" + issue.Cause
+// issueClaimKey identifies an issue within a module. The normalizer records
+// claims under it and error polling looks them up by it.
+func issueClaimKey(component, id, cause string) string {
+	return component + ":" + id + ":" + cause
 }
 
 // claim keeps one claim per sample. A sample that lists a cause as both a
@@ -121,7 +123,7 @@ func moduleIssueEvidence(boards []Board, now time.Time, identityConflict bool, b
 		if at.After(now) {
 			at = now
 		}
-		key := component + ":" + id + ":" + cause
+		key := issueClaimKey(component, id, cause)
 		code, _ := canonicalIssue(cause, severity == "warning")
 		old, exists := issues[key]
 		if !exists && (len(issues) >= maxModuleIssues || !budget.retain(len(component)+len(id)+len(cause)+128)) {

@@ -33,8 +33,9 @@ import (
 // a standby that lags the primary. A sample older than one already applied
 // neither asserts nor withdraws anything.
 
-// errorEvidenceMaxAge lets error polling reuse the observation that the same
-// poll cycle's telemetry read just made, instead of reading the map twice.
+// errorEvidenceMaxAge lets error polling reuse the outcome of the telemetry
+// poll that the same poll cycle just made, instead of reading the map twice.
+// It also bounds how far apart two collections can finish out of order.
 const errorEvidenceMaxAge = 10 * time.Second
 
 const (
@@ -147,8 +148,9 @@ type errorEvidence struct {
 	// readings holds the sources that supplied a fresh sample.
 	readings map[string]errorReading
 	// present sources still belong to the container but may be silent. Frigate
-	// lists every board it has a location or inventory record for, so a board
-	// that an authoritative map does not list has been removed.
+	// lists every board that has a location, and keeps a silent board's
+	// location until it retires the board, so a board that an authoritative
+	// map does not list has been removed.
 	present map[string]bool
 	// keepUnlisted means a source the map does not list is not treated as
 	// removed. The map came from a controller that is not authoritative, it
@@ -326,7 +328,7 @@ func (c *errorCollector) issues(issues *sdk.ContainerModuleIssues, sources issue
 			code: code, text: causeText(issue.Cause), place: e.places[component],
 			claims: map[string]errorClaim{},
 		}
-		for _, claim := range sources.claims[issueClaimKey(issue)] {
+		for _, claim := range sources.claims[issueClaimKey(issue.Component, issue.ComponentID, issue.Cause)] {
 			name := source(claim.source)
 			if name == "" || (claim.severity != "fault" && claim.severity != "warning") {
 				continue
@@ -353,7 +355,7 @@ func (c *errorCollector) plant(wire *mdk.GetContainerHealthResponse, err error, 
 	e.present[plantAlarmsSource], e.present[plantAggregateSource] = true, true
 	sampled := sourceTime(wire.GetTimestamp())
 	plant := wire.GetPlant()
-	if err != nil || plant == nil || sampled.IsZero() || now.Sub(sampled) > healthMaxAge || sampled.Sub(now) > clockSkewAllowance {
+	if err != nil || plant == nil || !plantSampleFresh(sampled, now) {
 		return
 	}
 	// Reported times never run ahead of the collection. Ordering uses the
@@ -468,6 +470,10 @@ type errorState struct {
 	// sampledAt is the newest sample applied from each source. It is kept
 	// whether or not the source holds a claim.
 	sampledAt map[string]time.Time
+	// failure is the error of a telemetry poll that could not read the
+	// container, and failedAt is when it ended. Applying evidence clears it.
+	failure  error
+	failedAt time.Time
 }
 
 var errorStates = struct {
@@ -486,11 +492,31 @@ func errorStateFor(container string) *errorState {
 	return state
 }
 
-// current reports whether evidence newer than maxAge has been observed.
-func (s *errorState) current(now time.Time, maxAge time.Duration) bool {
+// recent reports whether at lies within the last maxAge. A time after now does
+// not: these are wall-clock times, so it means the host clock stepped back,
+// and counting it as recent would freeze the state until the clock caught up.
+func recent(now, at time.Time, maxAge time.Duration) bool {
+	age := now.Sub(at)
+	return !at.IsZero() && age >= 0 && age < maxAge
+}
+
+// lastPoll reports how the newest poll within maxAge ended: with an
+// observation, or with the error of a telemetry poll that could not read the
+// container. In both cases an error poll has nothing to read.
+func (s *errorState) lastPoll(now time.Time, maxAge time.Duration) (observed bool, failure error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return !s.observedAt.IsZero() && now.Sub(s.observedAt) < maxAge
+	if s.failure != nil && recent(now, s.failedAt, maxAge) {
+		return false, s.failure
+	}
+	return recent(now, s.observedAt, maxAge), nil
+}
+
+// failed records a telemetry poll that could not read the container.
+func (s *errorState) failed(at time.Time, err error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.failure, s.failedAt = err, at
 }
 
 // observe reconciles the container's errors with newer evidence. Telemetry and
@@ -502,7 +528,11 @@ func (s *errorState) observe(e *errorEvidence) {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if e.observedAt.Before(s.observedAt) {
+	// Two collections can finish slightly out of order, and the older one is
+	// dropped. Evidence that is older by more than that is applied: the host
+	// clock stepped back, and holding out for the old time would freeze the
+	// state until the clock caught up.
+	if behind := s.observedAt.Sub(e.observedAt); behind > 0 && behind <= errorEvidenceMaxAge {
 		return
 	}
 	// A reading applies unless a newer sample of its source already has.
@@ -574,7 +604,9 @@ func (s *errorState) observe(e *errorEvidence) {
 		for _, item := range carried[:dropped] {
 			delete(next, item.key)
 		}
-		slog.Warn("CT1 dropped the oldest errors carried from earlier evidence", "dropped", dropped, "limit", maxRetainedErrorItems)
+		if dropped > 0 {
+			slog.Warn("CT1 dropped the oldest errors carried from earlier evidence", "dropped", dropped, "limit", maxRetainedErrorItems)
+		}
 	}
 	sampledAt := make(map[string]time.Time, len(e.readings))
 	for source, at := range s.sampledAt {
@@ -590,6 +622,7 @@ func (s *errorState) observe(e *errorEvidence) {
 		}
 	}
 	s.items, s.sampledAt, s.observedAt = next, sampledAt, e.observedAt
+	s.failure, s.failedAt = nil, time.Time{}
 }
 
 // report renders the container's errors in Fleet's error contract. Fleet
