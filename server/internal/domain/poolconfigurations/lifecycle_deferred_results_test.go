@@ -15,9 +15,11 @@ func TestDeferredAutomaticOperationReportsPending(t *testing.T) {
 			conn, scope, repo, target, config := defaultRetirementFixture(t)
 			ctx := t.Context()
 			q := sqlc.New(conn)
+			_, err := conn.ExecContext(ctx, `UPDATE discovered_device SET device_class=2 WHERE id=(SELECT discovered_device_id FROM device WHERE id=$1)`, target.DeviceID)
+			require.NoError(t, err)
 			require.NoError(t, q.EnsureDeviceWriteFences(ctx, []int64{target.DeviceID}))
 			require.NoError(t, q.EnsureMiningGroupState(ctx, sqlc.EnsureMiningGroupStateParams{OrganizationID: scope.OrganizationID, DeviceID: target.DeviceID}))
-			_, err := conn.ExecContext(ctx, `UPDATE container_mining_group_state SET operation_kind='deactivate',status='pending' WHERE device_id=$1`, target.DeviceID)
+			_, err = conn.ExecContext(ctx, `UPDATE container_mining_group_state SET operation_kind='deactivate',status='pending' WHERE device_id=$1`, target.DeviceID)
 			require.NoError(t, err)
 			var configID, revisionID sql.NullString
 			if kind == "apply" {
