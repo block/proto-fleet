@@ -131,6 +131,11 @@ class DriverStub(object):
                 request_serializer=pb_dot_driver__pb2.SetBoardIdentifyRequest.SerializeToString,
                 response_deserializer=google_dot_protobuf_dot_empty__pb2.Empty.FromString,
                 _registered_method=True)
+        self.StreamBoardASICReadings = channel.unary_stream(
+                '/sdk.v1.Driver/StreamBoardASICReadings',
+                request_serializer=pb_dot_driver__pb2.StreamBoardASICReadingsRequest.SerializeToString,
+                response_deserializer=pb_dot_driver__pb2.BoardASICFrame.FromString,
+                _registered_method=True)
         self.SetContainerControl = channel.unary_unary(
                 '/sdk.v1.Driver/SetContainerControl',
                 request_serializer=pb_dot_driver__pb2.SetContainerControlRequest.SerializeToString,
@@ -370,6 +375,14 @@ class DriverServicer(object):
 
     def SetBoardIdentify(self, request, context):
         """Optional controller-only identification LED command for one verified board.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def StreamBoardASICReadings(self, request, context):
+        """Optional controller-only live ASIC readings for one verified board. The
+        stream runs until the caller cancels it or the controller ends it.
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -629,6 +642,11 @@ def add_DriverServicer_to_server(servicer, server):
                     servicer.SetBoardIdentify,
                     request_deserializer=pb_dot_driver__pb2.SetBoardIdentifyRequest.FromString,
                     response_serializer=google_dot_protobuf_dot_empty__pb2.Empty.SerializeToString,
+            ),
+            'StreamBoardASICReadings': grpc.unary_stream_rpc_method_handler(
+                    servicer.StreamBoardASICReadings,
+                    request_deserializer=pb_dot_driver__pb2.StreamBoardASICReadingsRequest.FromString,
+                    response_serializer=pb_dot_driver__pb2.BoardASICFrame.SerializeToString,
             ),
             'SetContainerControl': grpc.unary_unary_rpc_method_handler(
                     servicer.SetContainerControl,
@@ -1260,6 +1278,33 @@ class Driver(object):
             '/sdk.v1.Driver/SetBoardIdentify',
             pb_dot_driver__pb2.SetBoardIdentifyRequest.SerializeToString,
             google_dot_protobuf_dot_empty__pb2.Empty.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def StreamBoardASICReadings(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_stream(
+            request,
+            target,
+            '/sdk.v1.Driver/StreamBoardASICReadings',
+            pb_dot_driver__pb2.StreamBoardASICReadingsRequest.SerializeToString,
+            pb_dot_driver__pb2.BoardASICFrame.FromString,
             options,
             channel_credentials,
             insecure,

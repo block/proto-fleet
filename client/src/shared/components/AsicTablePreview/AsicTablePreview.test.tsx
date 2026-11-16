@@ -23,6 +23,15 @@ describe("AsicTablePreview", () => {
     expect(chips).toHaveLength(4);
   });
 
+  it("renders a list far longer than its grid", () => {
+    // More entries than a function call can take as arguments.
+    const asics: AsicData[] = Array.from({ length: 200_000 }, (_, i) => ({ row: i % 2, col: 0, value: 50 }));
+
+    render(<AsicTablePreview asics={asics} {...defaultProps} />);
+
+    expect(screen.getAllByTestId(/^asic-/)).toHaveLength(2);
+  });
+
   it("handles sparse grids correctly", () => {
     const asics: AsicData[] = [
       { row: 0, col: 0, value: 50 },

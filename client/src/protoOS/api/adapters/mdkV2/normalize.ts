@@ -68,9 +68,9 @@ import {
   type TelemetryState,
 } from "@/protoOS/store/contract";
 import type { HashboardHardwareData } from "@/protoOS/store/types";
-import { CONTAINER_HASHBOARD_COLUMNS } from "@/protoOS/store/utils/containerHashboardLayout";
 import { createEmptyTelemetryState } from "@/protoOS/store/utils/createEmptyTelemetryState";
 import { efficiencyValue } from "@/protoOS/store/utils/efficiency";
+import { containerAsicPlacement } from "@/shared/utils/containerAsicLayout";
 
 export const CT1_COMMANDS: CommandCapabilities = {
   startStop: "supported",
@@ -870,39 +870,19 @@ export const toCanonicalHashboards = (wire: V2GetContainerMapResponse): Hashboar
 export const toCanonicalHashboardStatus = (identifier: string, wire: V2GetHashboardASICsResponse): HashboardStatus => {
   const id = asHashboardId(identifier.includes(":") ? `mac:${identifier}` : `serial:${identifier}`);
   const positions = new Map((wire.layout?.entries ?? []).map((entry) => [entry.index, entry]));
-  // Some APIs report a stack as one long row. Wrap its display only; ASIC
-  // indices and the wire's electrical stack identities remain unchanged.
-  const entries = wire.layout?.entries ?? [];
-  const columns = CONTAINER_HASHBOARD_COLUMNS;
-  const rowsPerStack = Math.ceil((wire.layout?.asicsPerStack ?? columns) / columns);
-  const wrapStacks =
-    entries.some((entry) => (entry.x ?? 0) >= columns) ||
-    (rowsPerStack > 1 &&
-      entries.length > 0 &&
-      entries.every(
-        (entry) =>
-          entry.stackId !== undefined &&
-          entry.stackIndex !== undefined &&
-          entry.x === entry.stackIndex &&
-          entry.y === entry.stackId,
-      ));
+  const place = containerAsicPlacement(wire.layout?.entries ?? [], wire.layout?.asicsPerStack);
   const asicIds: string[] = [];
   const asics: HashboardStatus["asics"] = [];
   const samples: AsicTelemetrySample[] = [];
   for (const asic of wire.asics ?? []) {
     if (asic.index === undefined) continue;
     const normalizedId = asicId(id, asic.index);
-    const position = positions.get(asic.index);
     asicIds.push(normalizedId);
     asics.push({
       id: normalizedId,
       hashboardSerial: identifier,
       index: asic.index,
-      row:
-        wrapStacks && position?.x !== undefined && position.y !== undefined
-          ? position.y * rowsPerStack + Math.floor(position.x / columns)
-          : position?.y,
-      column: wrapStacks && position?.x !== undefined ? position.x % columns : position?.x,
+      ...place(positions.get(asic.index)),
     });
     samples.push({
       asicId: normalizedId,

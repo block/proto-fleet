@@ -794,6 +794,9 @@ service Driver {
   rpc SetModuleMining(SetModuleMiningRequest) returns (google.protobuf.Empty);
   // Optional controller-only identification LED command for one verified board.
   rpc SetBoardIdentify(SetBoardIdentifyRequest) returns (google.protobuf.Empty);
+  // Optional controller-only live ASIC readings for one verified board. The
+  // stream runs until the caller cancels it or the controller ends it.
+  rpc StreamBoardASICReadings(StreamBoardASICReadingsRequest) returns (stream BoardASICFrame);
   rpc SetContainerControl(SetContainerControlRequest) returns (google.protobuf.Empty);
   // Optional controller-only bounded read of the controller's own logs or
   // audit events (capability "controller_records"). The payloads are the
@@ -1028,6 +1031,48 @@ message SetBoardIdentifyRequest {
   BoardIdentifyTarget board = 2;
   // "blink" or "off".
   string mode = 3;
+}
+
+message StreamBoardASICReadingsRequest {
+  DeviceRef ref = 1;
+  BoardIdentifyTarget board = 2;
+}
+
+// Physical position of one ASIC on its board.
+message BoardASICPosition {
+  int32 index = 1;
+  int32 stack_id = 2;
+  int32 stack_index = 3;
+  int32 x = 4;
+  int32 y = 5;
+}
+
+message BoardASICLayout {
+  int32 stack_count = 1;
+  int32 asics_per_stack = 2;
+  int32 total_asics = 3;
+  repeated BoardASICPosition positions = 4;
+}
+
+// One ASIC's readings at the frame's observation time.
+message BoardASICReading {
+  int32 index = 1;
+  double temperature_c = 2;
+  double hashrate_ghs = 3;
+  double voltage_v = 4;
+  double frequency_mhz = 5;
+  double pass_rate_percent = 6;
+  // Absent when the controller did not report thermal quarantine.
+  optional bool thermal_quarantined = 7;
+}
+
+message BoardASICFrame {
+  // The controller's identity for the board that produced the readings.
+  string mac_address = 1;
+  google.protobuf.Timestamp observed_at = 2;
+  // Present on the first frame and whenever the board's topology changes.
+  BoardASICLayout layout = 3;
+  repeated BoardASICReading asics = 4;
 }
 
 // Poll-time physical measurements; never allocated customer power.

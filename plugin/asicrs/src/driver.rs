@@ -938,6 +938,16 @@ impl Driver for DriverService {
         Err(Status::unimplemented("board identify is unsupported"))
     }
 
+    type StreamBoardASICReadingsStream =
+        tokio_stream::wrappers::ReceiverStream<Result<pb::BoardAsicFrame, Status>>;
+
+    async fn stream_board_asic_readings(
+        &self,
+        _req: Request<pb::StreamBoardAsicReadingsRequest>,
+    ) -> Result<Response<Self::StreamBoardASICReadingsStream>, Status> {
+        Err(Status::unimplemented("board ASIC stream is unsupported"))
+    }
+
     async fn set_tank_mining(
         &self,
         _req: Request<pb::SetTankMiningRequest>,

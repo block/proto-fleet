@@ -76,8 +76,9 @@ const AsicTablePreview = ({
       return [];
     }
 
-    const maxRow = Math.max(...asics.map((a) => a.row), 0) + 1;
-    const maxCol = Math.max(...asics.map((a) => a.col), 0) + 1;
+    // reduce, not a spread: a large enough list would exceed the argument limit.
+    const maxRow = asics.reduce((max, a) => Math.max(max, a.row), 0) + 1;
+    const maxCol = asics.reduce((max, a) => Math.max(max, a.col), 0) + 1;
 
     // Create a 2D array for the grid
     const gridArray: Array<Array<number | null>> = Array(maxRow)

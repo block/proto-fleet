@@ -19,18 +19,12 @@
  * ordering, which is not yet confirmed.
  */
 
+import { CONTAINER_HASHBOARD_COLUMNS } from "@/shared/utils/containerAsicLayout";
+
 /** Letter for each row pair, top to bottom. */
 export const CONTAINER_HASHBOARD_ROW_LETTERS = ["F", "E", "D", "C", "B", "A"] as const;
 
-/**
- * Column count for a container hashboard.
- *
- * Confirmed 26 (jmarr, 2026-07-28). With 26 columns each letter pair holds 52
- * ASICs: top sub-row F1..F26 (left to right), bottom sub-row F52..F27 (left to
- * right). All helpers still take `columns` as an argument so the value is easy
- * to change in one place.
- */
-export const CONTAINER_HASHBOARD_COLUMNS = 26;
+export { CONTAINER_HASHBOARD_COLUMNS };
 
 /** Number of display rows on a container hashboard (6 letter pairs x 2). */
 export const CONTAINER_HASHBOARD_ROWS = CONTAINER_HASHBOARD_ROW_LETTERS.length * 2;

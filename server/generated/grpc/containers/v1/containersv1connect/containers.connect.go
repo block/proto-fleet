@@ -58,6 +58,9 @@ const (
 	// ContainerServiceSetBoardIdentifyProcedure is the fully-qualified name of the ContainerService's
 	// SetBoardIdentify RPC.
 	ContainerServiceSetBoardIdentifyProcedure = "/containers.v1.ContainerService/SetBoardIdentify"
+	// ContainerServiceStreamBoardASICReadingsProcedure is the fully-qualified name of the
+	// ContainerService's StreamBoardASICReadings RPC.
+	ContainerServiceStreamBoardASICReadingsProcedure = "/containers.v1.ContainerService/StreamBoardASICReadings"
 	// ContainerServiceGetTankMiningOptionsProcedure is the fully-qualified name of the
 	// ContainerService's GetTankMiningOptions RPC.
 	ContainerServiceGetTankMiningOptionsProcedure = "/containers.v1.ContainerService/GetTankMiningOptions"
@@ -97,6 +100,10 @@ type ContainerServiceClient interface {
 	SetModuleMining(context.Context, *connect.Request[v1.SetModuleMiningRequest]) (*connect.Response[v1.SetModuleMiningResponse], error)
 	GetBoardIdentifyOptions(context.Context, *connect.Request[v1.GetBoardIdentifyOptionsRequest]) (*connect.Response[v1.GetBoardIdentifyOptionsResponse], error)
 	SetBoardIdentify(context.Context, *connect.Request[v1.SetBoardIdentifyRequest]) (*connect.Response[v1.SetBoardIdentifyResponse], error)
+	// Live ASIC readings for one installed board while the caller keeps the
+	// stream open. The server ends each stream after a few minutes so access and
+	// placement are re-checked; callers reopen it.
+	StreamBoardASICReadings(context.Context, *connect.Request[v1.StreamBoardASICReadingsRequest]) (*connect.ServerStreamForClient[v1.StreamBoardASICReadingsResponse], error)
 	GetTankMiningOptions(context.Context, *connect.Request[v1.GetTankMiningOptionsRequest]) (*connect.Response[v1.GetTankMiningOptionsResponse], error)
 	SetTankMining(context.Context, *connect.Request[v1.SetTankMiningRequest]) (*connect.Response[v1.SetTankMiningResponse], error)
 	GetEquipmentCommandResult(context.Context, *connect.Request[v1.GetEquipmentCommandResultRequest]) (*connect.Response[v1.GetEquipmentCommandResultResponse], error)
@@ -162,6 +169,11 @@ func NewContainerServiceClient(httpClient connect.HTTPClient, baseURL string, op
 			baseURL+ContainerServiceSetBoardIdentifyProcedure,
 			opts...,
 		),
+		streamBoardASICReadings: connect.NewClient[v1.StreamBoardASICReadingsRequest, v1.StreamBoardASICReadingsResponse](
+			httpClient,
+			baseURL+ContainerServiceStreamBoardASICReadingsProcedure,
+			opts...,
+		),
 		getTankMiningOptions: connect.NewClient[v1.GetTankMiningOptionsRequest, v1.GetTankMiningOptionsResponse](
 			httpClient,
 			baseURL+ContainerServiceGetTankMiningOptionsProcedure,
@@ -220,6 +232,7 @@ type containerServiceClient struct {
 	setModuleMining           *connect.Client[v1.SetModuleMiningRequest, v1.SetModuleMiningResponse]
 	getBoardIdentifyOptions   *connect.Client[v1.GetBoardIdentifyOptionsRequest, v1.GetBoardIdentifyOptionsResponse]
 	setBoardIdentify          *connect.Client[v1.SetBoardIdentifyRequest, v1.SetBoardIdentifyResponse]
+	streamBoardASICReadings   *connect.Client[v1.StreamBoardASICReadingsRequest, v1.StreamBoardASICReadingsResponse]
 	getTankMiningOptions      *connect.Client[v1.GetTankMiningOptionsRequest, v1.GetTankMiningOptionsResponse]
 	setTankMining             *connect.Client[v1.SetTankMiningRequest, v1.SetTankMiningResponse]
 	getEquipmentCommandResult *connect.Client[v1.GetEquipmentCommandResultRequest, v1.GetEquipmentCommandResultResponse]
@@ -269,6 +282,11 @@ func (c *containerServiceClient) GetBoardIdentifyOptions(ctx context.Context, re
 // SetBoardIdentify calls containers.v1.ContainerService.SetBoardIdentify.
 func (c *containerServiceClient) SetBoardIdentify(ctx context.Context, req *connect.Request[v1.SetBoardIdentifyRequest]) (*connect.Response[v1.SetBoardIdentifyResponse], error) {
 	return c.setBoardIdentify.CallUnary(ctx, req)
+}
+
+// StreamBoardASICReadings calls containers.v1.ContainerService.StreamBoardASICReadings.
+func (c *containerServiceClient) StreamBoardASICReadings(ctx context.Context, req *connect.Request[v1.StreamBoardASICReadingsRequest]) (*connect.ServerStreamForClient[v1.StreamBoardASICReadingsResponse], error) {
+	return c.streamBoardASICReadings.CallServerStream(ctx, req)
 }
 
 // GetTankMiningOptions calls containers.v1.ContainerService.GetTankMiningOptions.
@@ -326,6 +344,10 @@ type ContainerServiceHandler interface {
 	SetModuleMining(context.Context, *connect.Request[v1.SetModuleMiningRequest]) (*connect.Response[v1.SetModuleMiningResponse], error)
 	GetBoardIdentifyOptions(context.Context, *connect.Request[v1.GetBoardIdentifyOptionsRequest]) (*connect.Response[v1.GetBoardIdentifyOptionsResponse], error)
 	SetBoardIdentify(context.Context, *connect.Request[v1.SetBoardIdentifyRequest]) (*connect.Response[v1.SetBoardIdentifyResponse], error)
+	// Live ASIC readings for one installed board while the caller keeps the
+	// stream open. The server ends each stream after a few minutes so access and
+	// placement are re-checked; callers reopen it.
+	StreamBoardASICReadings(context.Context, *connect.Request[v1.StreamBoardASICReadingsRequest], *connect.ServerStream[v1.StreamBoardASICReadingsResponse]) error
 	GetTankMiningOptions(context.Context, *connect.Request[v1.GetTankMiningOptionsRequest]) (*connect.Response[v1.GetTankMiningOptionsResponse], error)
 	SetTankMining(context.Context, *connect.Request[v1.SetTankMiningRequest]) (*connect.Response[v1.SetTankMiningResponse], error)
 	GetEquipmentCommandResult(context.Context, *connect.Request[v1.GetEquipmentCommandResultRequest]) (*connect.Response[v1.GetEquipmentCommandResultResponse], error)
@@ -385,6 +407,11 @@ func NewContainerServiceHandler(svc ContainerServiceHandler, opts ...connect.Han
 	containerServiceSetBoardIdentifyHandler := connect.NewUnaryHandler(
 		ContainerServiceSetBoardIdentifyProcedure,
 		svc.SetBoardIdentify,
+		opts...,
+	)
+	containerServiceStreamBoardASICReadingsHandler := connect.NewServerStreamHandler(
+		ContainerServiceStreamBoardASICReadingsProcedure,
+		svc.StreamBoardASICReadings,
 		opts...,
 	)
 	containerServiceGetTankMiningOptionsHandler := connect.NewUnaryHandler(
@@ -450,6 +477,8 @@ func NewContainerServiceHandler(svc ContainerServiceHandler, opts ...connect.Han
 			containerServiceGetBoardIdentifyOptionsHandler.ServeHTTP(w, r)
 		case ContainerServiceSetBoardIdentifyProcedure:
 			containerServiceSetBoardIdentifyHandler.ServeHTTP(w, r)
+		case ContainerServiceStreamBoardASICReadingsProcedure:
+			containerServiceStreamBoardASICReadingsHandler.ServeHTTP(w, r)
 		case ContainerServiceGetTankMiningOptionsProcedure:
 			containerServiceGetTankMiningOptionsHandler.ServeHTTP(w, r)
 		case ContainerServiceSetTankMiningProcedure:
@@ -507,6 +536,10 @@ func (UnimplementedContainerServiceHandler) GetBoardIdentifyOptions(context.Cont
 
 func (UnimplementedContainerServiceHandler) SetBoardIdentify(context.Context, *connect.Request[v1.SetBoardIdentifyRequest]) (*connect.Response[v1.SetBoardIdentifyResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("containers.v1.ContainerService.SetBoardIdentify is not implemented"))
+}
+
+func (UnimplementedContainerServiceHandler) StreamBoardASICReadings(context.Context, *connect.Request[v1.StreamBoardASICReadingsRequest], *connect.ServerStream[v1.StreamBoardASICReadingsResponse]) error {
+	return connect.NewError(connect.CodeUnimplemented, errors.New("containers.v1.ContainerService.StreamBoardASICReadings is not implemented"))
 }
 
 func (UnimplementedContainerServiceHandler) GetTankMiningOptions(context.Context, *connect.Request[v1.GetTankMiningOptionsRequest]) (*connect.Response[v1.GetTankMiningOptionsResponse], error) {

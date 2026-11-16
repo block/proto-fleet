@@ -29,8 +29,10 @@ type grpcFixture struct {
 	mdk.UnimplementedPowerServiceServer
 	tankFixtures bool
 	handler      http.Handler
-	server       *grpc.Server
-	URL          string
+	// asicHealth serves StreamASICHealth when set.
+	asicHealth func(*mdk.StreamASICHealthRequest, mdk.TelemetryService_StreamASICHealthServer) error
+	server     *grpc.Server
+	URL        string
 }
 
 func newGRPCFixture(t *testing.T, handler http.Handler) *grpcFixture {
@@ -54,6 +56,12 @@ func newConfiguredGRPCFixture(t *testing.T, handler http.Handler, tankFixtures b
 	return f
 }
 func (f *grpcFixture) Close() { f.server.Stop() }
+func (f *grpcFixture) StreamASICHealth(in *mdk.StreamASICHealthRequest, stream mdk.TelemetryService_StreamASICHealthServer) error {
+	if f.asicHealth == nil {
+		return status.Error(codes.Unimplemented, "fixture has no ASIC stream") //nolint:wrapcheck // server must return a gRPC status
+	}
+	return f.asicHealth(in, stream)
+}
 func (f *grpcFixture) call(ctx context.Context, method, path, body string, out proto.Message) error {
 	req := httptest.NewRequest(method, path, strings.NewReader(body)).WithContext(ctx)
 	if md, ok := metadata.FromIncomingContext(ctx); ok {

@@ -1269,6 +1269,70 @@ class SetBoardIdentifyRequest(_message.Message):
     mode: str
     def __init__(self, ref: _Optional[_Union[DeviceRef, _Mapping]] = ..., board: _Optional[_Union[BoardIdentifyTarget, _Mapping]] = ..., mode: _Optional[str] = ...) -> None: ...
 
+class StreamBoardASICReadingsRequest(_message.Message):
+    __slots__ = ("ref", "board")
+    REF_FIELD_NUMBER: _ClassVar[int]
+    BOARD_FIELD_NUMBER: _ClassVar[int]
+    ref: DeviceRef
+    board: BoardIdentifyTarget
+    def __init__(self, ref: _Optional[_Union[DeviceRef, _Mapping]] = ..., board: _Optional[_Union[BoardIdentifyTarget, _Mapping]] = ...) -> None: ...
+
+class BoardASICPosition(_message.Message):
+    __slots__ = ("index", "stack_id", "stack_index", "x", "y")
+    INDEX_FIELD_NUMBER: _ClassVar[int]
+    STACK_ID_FIELD_NUMBER: _ClassVar[int]
+    STACK_INDEX_FIELD_NUMBER: _ClassVar[int]
+    X_FIELD_NUMBER: _ClassVar[int]
+    Y_FIELD_NUMBER: _ClassVar[int]
+    index: int
+    stack_id: int
+    stack_index: int
+    x: int
+    y: int
+    def __init__(self, index: _Optional[int] = ..., stack_id: _Optional[int] = ..., stack_index: _Optional[int] = ..., x: _Optional[int] = ..., y: _Optional[int] = ...) -> None: ...
+
+class BoardASICLayout(_message.Message):
+    __slots__ = ("stack_count", "asics_per_stack", "total_asics", "positions")
+    STACK_COUNT_FIELD_NUMBER: _ClassVar[int]
+    ASICS_PER_STACK_FIELD_NUMBER: _ClassVar[int]
+    TOTAL_ASICS_FIELD_NUMBER: _ClassVar[int]
+    POSITIONS_FIELD_NUMBER: _ClassVar[int]
+    stack_count: int
+    asics_per_stack: int
+    total_asics: int
+    positions: _containers.RepeatedCompositeFieldContainer[BoardASICPosition]
+    def __init__(self, stack_count: _Optional[int] = ..., asics_per_stack: _Optional[int] = ..., total_asics: _Optional[int] = ..., positions: _Optional[_Iterable[_Union[BoardASICPosition, _Mapping]]] = ...) -> None: ...
+
+class BoardASICReading(_message.Message):
+    __slots__ = ("index", "temperature_c", "hashrate_ghs", "voltage_v", "frequency_mhz", "pass_rate_percent", "thermal_quarantined")
+    INDEX_FIELD_NUMBER: _ClassVar[int]
+    TEMPERATURE_C_FIELD_NUMBER: _ClassVar[int]
+    HASHRATE_GHS_FIELD_NUMBER: _ClassVar[int]
+    VOLTAGE_V_FIELD_NUMBER: _ClassVar[int]
+    FREQUENCY_MHZ_FIELD_NUMBER: _ClassVar[int]
+    PASS_RATE_PERCENT_FIELD_NUMBER: _ClassVar[int]
+    THERMAL_QUARANTINED_FIELD_NUMBER: _ClassVar[int]
+    index: int
+    temperature_c: float
+    hashrate_ghs: float
+    voltage_v: float
+    frequency_mhz: float
+    pass_rate_percent: float
+    thermal_quarantined: bool
+    def __init__(self, index: _Optional[int] = ..., temperature_c: _Optional[float] = ..., hashrate_ghs: _Optional[float] = ..., voltage_v: _Optional[float] = ..., frequency_mhz: _Optional[float] = ..., pass_rate_percent: _Optional[float] = ..., thermal_quarantined: bool = ...) -> None: ...
+
+class BoardASICFrame(_message.Message):
+    __slots__ = ("mac_address", "observed_at", "layout", "asics")
+    MAC_ADDRESS_FIELD_NUMBER: _ClassVar[int]
+    OBSERVED_AT_FIELD_NUMBER: _ClassVar[int]
+    LAYOUT_FIELD_NUMBER: _ClassVar[int]
+    ASICS_FIELD_NUMBER: _ClassVar[int]
+    mac_address: str
+    observed_at: _timestamp_pb2.Timestamp
+    layout: BoardASICLayout
+    asics: _containers.RepeatedCompositeFieldContainer[BoardASICReading]
+    def __init__(self, mac_address: _Optional[str] = ..., observed_at: _Optional[_Union[_timestamp_pb2.Timestamp, _Mapping]] = ..., layout: _Optional[_Union[BoardASICLayout, _Mapping]] = ..., asics: _Optional[_Iterable[_Union[BoardASICReading, _Mapping]]] = ...) -> None: ...
+
 class ContainerRollup(_message.Message):
     __slots__ = ("unlocated_hashboards", "hashrate_hs", "power_w", "efficiency_jh", "temperature_c", "min_temperature_c", "max_temperature_c", "hashrate", "power", "temperature", "power_source", "attribution", "source_times")
     class SourceTimesEntry(_message.Message):

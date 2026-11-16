@@ -192,6 +192,8 @@ var ProcedurePermissions = map[string]string{
 	// Handler resolves every board and enforces miner:blink_led at its current site.
 	containersv1connect.ContainerServiceGetBoardIdentifyOptionsProcedure: authz.PermSiteRead,
 	containersv1connect.ContainerServiceSetBoardIdentifyProcedure:        authz.PermSiteRead,
+	// Handler resolves the board and enforces fleet:read and miner:read at its current site.
+	containersv1connect.ContainerServiceStreamBoardASICReadingsProcedure: authz.PermSiteRead,
 	// Handler enforces miner:download_logs and the container read permissions at its current site.
 	containersv1connect.ContainerServiceGetControllerLogsProcedure:         authz.PermSiteRead,
 	containersv1connect.ContainerServiceListControllerAuditEventsProcedure: authz.PermSiteRead,

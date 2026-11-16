@@ -40,6 +40,7 @@ const (
 	Driver_MiningGroups_FullMethodName            = "/sdk.v1.Driver/MiningGroups"
 	Driver_SetModuleMining_FullMethodName         = "/sdk.v1.Driver/SetModuleMining"
 	Driver_SetBoardIdentify_FullMethodName        = "/sdk.v1.Driver/SetBoardIdentify"
+	Driver_StreamBoardASICReadings_FullMethodName = "/sdk.v1.Driver/StreamBoardASICReadings"
 	Driver_SetContainerControl_FullMethodName     = "/sdk.v1.Driver/SetContainerControl"
 	Driver_ControllerRecords_FullMethodName       = "/sdk.v1.Driver/ControllerRecords"
 	Driver_FrigateServerUpdate_FullMethodName     = "/sdk.v1.Driver/FrigateServerUpdate"
@@ -97,6 +98,9 @@ type DriverClient interface {
 	SetModuleMining(ctx context.Context, in *SetModuleMiningRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
 	// Optional controller-only identification LED command for one verified board.
 	SetBoardIdentify(ctx context.Context, in *SetBoardIdentifyRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
+	// Optional controller-only live ASIC readings for one verified board. The
+	// stream runs until the caller cancels it or the controller ends it.
+	StreamBoardASICReadings(ctx context.Context, in *StreamBoardASICReadingsRequest, opts ...grpc.CallOption) (Driver_StreamBoardASICReadingsClient, error)
 	SetContainerControl(ctx context.Context, in *SetContainerControlRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
 	// Optional controller-only bounded read of the controller's own logs or
 	// audit events (capability "controller_records"). The payloads are the
@@ -320,6 +324,38 @@ func (c *driverClient) SetBoardIdentify(ctx context.Context, in *SetBoardIdentif
 	return out, nil
 }
 
+func (c *driverClient) StreamBoardASICReadings(ctx context.Context, in *StreamBoardASICReadingsRequest, opts ...grpc.CallOption) (Driver_StreamBoardASICReadingsClient, error) {
+	stream, err := c.cc.NewStream(ctx, &Driver_ServiceDesc.Streams[0], Driver_StreamBoardASICReadings_FullMethodName, opts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &driverStreamBoardASICReadingsClient{stream}
+	if err := x.ClientStream.SendMsg(in); err != nil {
+		return nil, err
+	}
+	if err := x.ClientStream.CloseSend(); err != nil {
+		return nil, err
+	}
+	return x, nil
+}
+
+type Driver_StreamBoardASICReadingsClient interface {
+	Recv() (*BoardASICFrame, error)
+	grpc.ClientStream
+}
+
+type driverStreamBoardASICReadingsClient struct {
+	grpc.ClientStream
+}
+
+func (x *driverStreamBoardASICReadingsClient) Recv() (*BoardASICFrame, error) {
+	m := new(BoardASICFrame)
+	if err := x.ClientStream.RecvMsg(m); err != nil {
+		return nil, err
+	}
+	return m, nil
+}
+
 func (c *driverClient) SetContainerControl(ctx context.Context, in *SetContainerControlRequest, opts ...grpc.CallOption) (*emptypb.Empty, error) {
 	out := new(emptypb.Empty)
 	err := c.cc.Invoke(ctx, Driver_SetContainerControl_FullMethodName, in, out, opts...)
@@ -510,7 +546,7 @@ func (c *driverClient) BatchStatus(ctx context.Context, in *BatchStatusRequest, 
 }
 
 func (c *driverClient) Subscribe(ctx context.Context, in *SubscribeRequest, opts ...grpc.CallOption) (Driver_SubscribeClient, error) {
-	stream, err := c.cc.NewStream(ctx, &Driver_ServiceDesc.Streams[0], Driver_Subscribe_FullMethodName, opts...)
+	stream, err := c.cc.NewStream(ctx, &Driver_ServiceDesc.Streams[1], Driver_Subscribe_FullMethodName, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -582,6 +618,9 @@ type DriverServer interface {
 	SetModuleMining(context.Context, *SetModuleMiningRequest) (*emptypb.Empty, error)
 	// Optional controller-only identification LED command for one verified board.
 	SetBoardIdentify(context.Context, *SetBoardIdentifyRequest) (*emptypb.Empty, error)
+	// Optional controller-only live ASIC readings for one verified board. The
+	// stream runs until the caller cancels it or the controller ends it.
+	StreamBoardASICReadings(*StreamBoardASICReadingsRequest, Driver_StreamBoardASICReadingsServer) error
 	SetContainerControl(context.Context, *SetContainerControlRequest) (*emptypb.Empty, error)
 	// Optional controller-only bounded read of the controller's own logs or
 	// audit events (capability "controller_records"). The payloads are the
@@ -687,6 +726,9 @@ func (UnimplementedDriverServer) SetModuleMining(context.Context, *SetModuleMini
 }
 func (UnimplementedDriverServer) SetBoardIdentify(context.Context, *SetBoardIdentifyRequest) (*emptypb.Empty, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method SetBoardIdentify not implemented")
+}
+func (UnimplementedDriverServer) StreamBoardASICReadings(*StreamBoardASICReadingsRequest, Driver_StreamBoardASICReadingsServer) error {
+	return status.Errorf(codes.Unimplemented, "method StreamBoardASICReadings not implemented")
 }
 func (UnimplementedDriverServer) SetContainerControl(context.Context, *SetContainerControlRequest) (*emptypb.Empty, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method SetContainerControl not implemented")
@@ -1110,6 +1152,27 @@ func _Driver_SetBoardIdentify_Handler(srv interface{}, ctx context.Context, dec 
 		return srv.(DriverServer).SetBoardIdentify(ctx, req.(*SetBoardIdentifyRequest))
 	}
 	return interceptor(ctx, in, info, handler)
+}
+
+func _Driver_StreamBoardASICReadings_Handler(srv interface{}, stream grpc.ServerStream) error {
+	m := new(StreamBoardASICReadingsRequest)
+	if err := stream.RecvMsg(m); err != nil {
+		return err
+	}
+	return srv.(DriverServer).StreamBoardASICReadings(m, &driverStreamBoardASICReadingsServer{stream})
+}
+
+type Driver_StreamBoardASICReadingsServer interface {
+	Send(*BoardASICFrame) error
+	grpc.ServerStream
+}
+
+type driverStreamBoardASICReadingsServer struct {
+	grpc.ServerStream
+}
+
+func (x *driverStreamBoardASICReadingsServer) Send(m *BoardASICFrame) error {
+	return x.ServerStream.SendMsg(m)
 }
 
 func _Driver_SetContainerControl_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
@@ -1702,6 +1765,11 @@ var Driver_ServiceDesc = grpc.ServiceDesc{
 		},
 	},
 	Streams: []grpc.StreamDesc{
+		{
+			StreamName:    "StreamBoardASICReadings",
+			Handler:       _Driver_StreamBoardASICReadings_Handler,
+			ServerStreams: true,
+		},
 		{
 			StreamName:    "Subscribe",
 			Handler:       _Driver_Subscribe_Handler,

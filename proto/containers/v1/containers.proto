@@ -18,6 +18,10 @@ service ContainerService {
   rpc SetModuleMining(SetModuleMiningRequest) returns (SetModuleMiningResponse);
   rpc GetBoardIdentifyOptions(GetBoardIdentifyOptionsRequest) returns (GetBoardIdentifyOptionsResponse);
   rpc SetBoardIdentify(SetBoardIdentifyRequest) returns (SetBoardIdentifyResponse);
+  // Live ASIC readings for one installed board while the caller keeps the
+  // stream open. The server ends each stream after a few minutes so access and
+  // placement are re-checked; callers reopen it.
+  rpc StreamBoardASICReadings(StreamBoardASICReadingsRequest) returns (stream StreamBoardASICReadingsResponse);
   rpc GetTankMiningOptions(GetTankMiningOptionsRequest) returns (GetTankMiningOptionsResponse);
   rpc SetTankMining(SetTankMiningRequest) returns (SetTankMiningResponse);
   rpc GetEquipmentCommandResult(GetEquipmentCommandResultRequest) returns (GetEquipmentCommandResultResponse);
@@ -263,6 +267,39 @@ message BoardIdentifyCommand {
 message SetBoardIdentifyResponse {
   // One batch per board so each board reports its own controller outcome.
   repeated BoardIdentifyCommand commands = 1;
+}
+
+message StreamBoardASICReadingsRequest {
+  // A moved or replaced board ends the stream rather than showing another board.
+  BoardIdentifyTarget board = 1 [(buf.validate.field).required = true];
+}
+// Physical ASIC position from the board's latest controller layout.
+message BoardASICPosition {
+  int32 stack_id = 1;
+  int32 stack_index = 2;
+  int32 x = 3;
+  int32 y = 4;
+}
+message BoardASICReading {
+  int32 index = 1;
+  double temperature_c = 2;
+  double hashrate_ghs = 3;
+  double voltage_v = 4;
+  double frequency_mhz = 5;
+  double pass_rate_percent = 6;
+  // Absent when the controller did not report thermal quarantine.
+  optional bool thermal_quarantined = 7;
+  // Absent when the controller's layout does not map this ASIC.
+  BoardASICPosition position = 8;
+}
+// One sample of a board's ASIC readings. Every frame is complete: positions
+// from the latest layout are joined onto each reading.
+message StreamBoardASICReadingsResponse {
+  int64 hashboard_id = 1;
+  // The controller's sample time.
+  google.protobuf.Timestamp observed_at = 2;
+  int32 asics_per_stack = 3;
+  repeated BoardASICReading asics = 4;
 }
 
 message GetMiningStatusResponse {

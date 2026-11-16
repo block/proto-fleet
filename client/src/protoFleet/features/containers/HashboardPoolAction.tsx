@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import BoardAsicReadingsDialog from "./BoardAsicReadingsDialog";
 import BoardIdentifyDialog from "./BoardIdentifyDialog";
 import EditHashboardPoolDialog from "./EditHashboardPoolDialog";
 import { hasMiningGroupPermissions } from "./miningGroupPermissions";
@@ -7,7 +8,7 @@ import { canEditHashboardPools, useMiningGroupState } from "./useMiningGroupStat
 import type { HashboardSlot } from "@/protoFleet/api/generated/fleetinventory/v1/fleetinventory_pb";
 import { WorkerNameDialog } from "@/protoFleet/features/poolConfigurations/WorkerNameDialog";
 import { usePermissions } from "@/protoFleet/store";
-import { LEDIndicator, MiningPools } from "@/shared/assets/icons";
+import { Asic, LEDIndicator, MiningPools } from "@/shared/assets/icons";
 import ProgressCircular from "@/shared/components/ProgressCircular";
 import RowActionsMenu from "@/shared/components/RowActionsMenu";
 
@@ -27,6 +28,8 @@ export default function HashboardPoolAction({
   const [selectedBoardID, setSelectedBoardID] = useState<bigint>();
   const [identify, setIdentify] = useState<{ hashboardId: bigint; blink: boolean }>();
   const [workerBoardID, setWorkerBoardID] = useState<bigint>();
+  // Captured at open so a board swapped into this slot is never shown as this one.
+  const [readingsBoard, setReadingsBoard] = useState<{ hashboardId: bigint; installationId: bigint }>();
   const [menuOpen, setMenuOpen] = useState(false);
   const canRename =
     hasMiningGroupPermissions(permissions, "pools") &&
@@ -35,8 +38,9 @@ export default function HashboardPoolAction({
     permissions.includes("pool:read");
   const canEdit = hasMiningGroupPermissions(permissions, "pools") && permissions.includes("pool:read");
   const canIdentify = permissions.includes("miner:blink_led");
+  const canViewReadings = ["site:read", "fleet:read", "miner:read"].every((p) => permissions.includes(p));
   const { state: groups, isFetching } = useMiningGroupState(deviceIdentifier, menuOpen && (canEdit || canRename));
-  if (!canEdit && !canRename && !canIdentify) return null;
+  if (!canEdit && !canRename && !canIdentify && !canViewReadings) return null;
   const board = slot.occupancy === "occupied" ? slot.board : undefined;
   const available = !!board?.hashboardId && !slot.unavailableReason && isCurrentObservation(slot.observedAt, now);
   return (
@@ -45,6 +49,16 @@ export default function HashboardPoolAction({
         ariaLabel={`Actions for hashboard ${slot.position}`}
         onOpenChange={setMenuOpen}
         actions={[
+          {
+            label: "View ASIC readings",
+            icon: <Asic />,
+            hidden: !canViewReadings,
+            disabled: !available,
+            onClick: () => {
+              if (board?.hashboardId)
+                setReadingsBoard({ hashboardId: board.hashboardId, installationId: board.installationId });
+            },
+          },
           {
             label: "Update worker name",
             icon: <MiningPools />,
@@ -89,6 +103,14 @@ export default function HashboardPoolAction({
           deviceIdentifier={deviceIdentifier}
           hashboardIds={[selectedBoardID]}
           onClose={() => setSelectedBoardID(undefined)}
+        />
+      ) : null}
+      {readingsBoard ? (
+        <BoardAsicReadingsDialog
+          key={`${readingsBoard.hashboardId}:${readingsBoard.installationId}`}
+          board={readingsBoard}
+          position={slot.position}
+          onClose={() => setReadingsBoard(undefined)}
         />
       ) : null}
       {identify ? (
