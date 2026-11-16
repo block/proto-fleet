@@ -176,7 +176,7 @@ test_fleet_ha_contract() {
     cp "${HA_DIR}/../server/otel-collector-config.datadog.yaml" "${release_dir}/server/otel-collector-config.datadog.yaml"
     cp -r "${HA_DIR}/../../server/monitoring" "${release_dir}/server/monitoring"
 
-    UPDATES_ENABLED=true render_fleet_profile "$release_dir" base >"$rendered"
+    TIMESCALEDB_TRACK_TELEMETRY_FRESHNESS= UPDATES_ENABLED=true render_fleet_profile "$release_dir" base >"$rendered"
 
     if grep -q '^  timescaledb:$' "$rendered"; then
         fail "HA Fleet targets must not include the standalone database service"
@@ -184,6 +184,7 @@ test_fleet_ha_contract() {
     assert_contains "$rendered" "HTTP_LISTEN_ADDRESS: 127.0.0.1:4000"
     assert_contains "$rendered" "LOG_JSON: \"true\""
     assert_contains "$rendered" "UPDATES_ENABLED: \"false\""
+    assert_contains "$rendered" 'TIMESCALEDB_TRACK_TELEMETRY_FRESHNESS: "false"'
     assert_contains "$rendered" "FLEET_HA_ENABLED: \"true\""
     assert_contains "$rendered" "https://10.40.0.11:2379,https://10.40.0.12:2379,https://10.40.0.13:2379"
     assert_contains "$rendered" "FLEET_HA_ENDPOINT_IP: 10.40.0.100"
@@ -245,7 +246,8 @@ test_fleet_ha_contract() {
     secret_mount_count="$(grep -c 'source: /etc/proto-fleet/ha/' "$rendered")"
     [[ "$secret_mount_count" -eq 7 ]] || fail "Fleet services must mount only their required HA secret files"
 
-    render_fleet_profile "$release_dir" disabled >"$rendered"
+    TIMESCALEDB_TRACK_TELEMETRY_FRESHNESS=true render_fleet_profile "$release_dir" disabled >"$rendered"
+    assert_contains "$rendered" 'TIMESCALEDB_TRACK_TELEMETRY_FRESHNESS: "true"'
     assert_not_contains "$rendered" "grafana:"
     assert_not_contains "$rendered" "grafana-data"
     assert_not_contains "$rendered" "FLEET_ALERTS_GRAFANA_PASSWORD"
@@ -276,7 +278,8 @@ test_fleet_ha_contract() {
     assert_not_contains "$rendered" "source: ${release_dir}/ssl"
     assert_not_contains "$rendered" "/run/proto-fleet-updater"
 
-    render_fleet_profile "$release_dir" external >"$rendered"
+    TIMESCALEDB_TRACK_TELEMETRY_FRESHNESS=false render_fleet_profile "$release_dir" external >"$rendered"
+    assert_contains "$rendered" 'TIMESCALEDB_TRACK_TELEMETRY_FRESHNESS: "false"'
     assert_contains "$rendered" "FLEET_HA_ENDPOINT_MODE: external"
     assert_contains "$rendered" "FLEET_HA_ENDPOINT_NODE_IP: 10.40.0.11"
     assert_contains "$rendered" 'FLEET_HA_ENDPOINT_IP: ""'

@@ -116,6 +116,28 @@ to a release supporting this key before adding it to existing `fleet.env` files:
 older HA tools reject unknown keys. Setting the process environment on
 `fleet-ha update` does not change installed configuration.
 
+Committed telemetry freshness tracking is off by default. HA installation and
+`prepare-external` accept `TIMESCALEDB_TRACK_TELEMETRY_FRESHNESS=true` or `false`,
+persist it in `/etc/proto-fleet/ha/fleet.env`, and pass it to the API container.
+For interactive installation, export the value on `ha-a` and preserve it through
+`sudo`, as in the tracing example above:
+
+```bash
+export TIMESCALEDB_TRACK_TELEMETRY_FRESHNESS=true
+curl -fsSL https://fleet.proto.xyz/install.sh | sudo --preserve-env=SSH_AUTH_SOCK,TIMESCALEDB_TRACK_TELEMETRY_FRESHNESS bash -s -- --ha
+```
+
+Updates preserve the installed value. For an existing deployment, upgrade both
+hosts to a release supporting this key before adding it to each host's
+`fleet.env`; older HA tools reject unknown keys. Before rolling back to a release
+that does not support the key, remove it from both hosts' `fleet.env` files.
+Apply configuration changes through the normal controlled HA restart workflow.
+See the [telemetry freshness rollout order](../../docs/telemetry-freshness.md)
+for tracking, observer, and notification prerequisites. All serving Fleet Nodes must
+support observation-age reporting before enabling freshness notifications.
+Tracking alone does not install the independent observer or enable its alerts;
+disabling tracking freezes watermarks rather than establishing healthy telemetry.
+
 Market data is off by default. HA installation and `prepare-external` also
 capture the `MARKET_DATA_*` settings documented in [market data](../../docs/market-data.md),
 including the CoinGecko paid-plan API key, and persist them in the protected
