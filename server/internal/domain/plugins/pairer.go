@@ -641,9 +641,13 @@ func classifyPairingDriverError(err error, prefix string) error {
 			return fleeterror.NewUnauthenticatedErrorf("%s: %v", prefix, err)
 		case codes.PermissionDenied:
 			return fleeterror.NewForbiddenErrorf("%s: %v", prefix, err)
+		case codes.FailedPrecondition:
+			// The driver names a state the operator has to change first, such
+			// as a different controller answering at a paired address.
+			return fleeterror.NewFailedPreconditionErrorf("%s: %s", prefix, st.Message())
 		case codes.OK, codes.Canceled, codes.Unknown, codes.InvalidArgument,
 			codes.DeadlineExceeded, codes.NotFound, codes.AlreadyExists,
-			codes.ResourceExhausted, codes.FailedPrecondition, codes.Aborted,
+			codes.ResourceExhausted, codes.Aborted,
 			codes.OutOfRange, codes.Unimplemented, codes.Internal,
 			codes.Unavailable, codes.DataLoss:
 			// All other gRPC status codes fall through to InternalError below.

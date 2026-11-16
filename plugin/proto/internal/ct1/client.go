@@ -103,7 +103,7 @@ func (c *Client) Discover(ctx context.Context, info sdk.DeviceInfo) (sdk.DeviceI
 		return sdk.DeviceInfo{}, fmt.Errorf("endpoint is not a CT1 container")
 	}
 	if info.SerialNumber != "" && info.SerialNumber != v.Id {
-		return sdk.DeviceInfo{}, fmt.Errorf("CT1 controller identity mismatch")
+		return sdk.DeviceInfo{}, ErrControllerIdentityMismatch
 	}
 	report, key, err := c.readHA(ctx, v.Id, "")
 	if err != nil {

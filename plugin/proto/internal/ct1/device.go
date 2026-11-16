@@ -61,7 +61,7 @@ func NewDevice(ctx context.Context, id string, info sdk.DeviceInfo, credentials 
 		verified, err := d.clients[0].Discover(ctx, info)
 		if err != nil {
 			_ = d.Close(ctx)
-			return nil, authFailure(id, err)
+			return nil, identityMismatchGuidance(authFailure(id, err))
 		}
 		d.info = verified
 		d.clients[0].memberID = verified.SerialNumber

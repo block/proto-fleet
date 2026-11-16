@@ -100,3 +100,17 @@ func UnidentifiedController(info sdk.DeviceInfo) sdk.DeviceInfo {
 	info.Endpoints = nil
 	return info
 }
+
+// ErrControllerIdentityMismatch reports that the controller answering at a saved
+// address is not the one the caller expected.
+var ErrControllerIdentityMismatch = errors.New("CT1 controller identity mismatch")
+
+// identityMismatchGuidance turns a mismatch found while opening a device into a
+// failed precondition, so pairing tells the operator how to recover instead of
+// reporting an internal error. Other errors pass through unchanged.
+func identityMismatchGuidance(err error) error {
+	if !errors.Is(err, ErrControllerIdentityMismatch) {
+		return err
+	}
+	return status.Errorf(codes.FailedPrecondition, "%v: a different controller now answers at this address; remove the existing device from Fleet, then discover and pair this controller", err) //nolint:wrapcheck // The gRPC status is the plugin boundary error.
+}

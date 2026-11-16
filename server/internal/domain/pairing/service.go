@@ -586,10 +586,18 @@ func (s *Service) processDiscoveredDevice(ctx context.Context, discoveredDevice 
 			deviceIdentifier = existing.DeviceIdentifier
 			if discoveredDevice.SerialNumber == "" {
 				// A controller that requires a token is rediscovered without its
-				// identity. Keep the identity pairing verified.
-				discoveredDevice.SerialNumber = existing.SerialNumber
-				discoveredDevice.MacAddress = existing.MacAddress
-				discoveredDevice.FirmwareVersion = existing.FirmwareVersion
+				// identity. Keep the identity that pairing verified. A row with
+				// no device was never verified, so let it go blank: a replaced
+				// controller at this address can then pair under its own ID.
+				_, linkedErr := s.deviceStore.GetDeviceByDeviceIdentifier(ctx, existing.DeviceIdentifier, info.OrganizationID)
+				switch {
+				case linkedErr == nil:
+					discoveredDevice.SerialNumber = existing.SerialNumber
+					discoveredDevice.MacAddress = existing.MacAddress
+					discoveredDevice.FirmwareVersion = existing.FirmwareVersion
+				case !fleeterror.IsNotFoundError(linkedErr):
+					return false, fleeterror.NewInternalErrorf("failed to check whether the container is paired: %v", linkedErr)
+				}
 			}
 		}
 	}

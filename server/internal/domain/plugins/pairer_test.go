@@ -1892,3 +1892,20 @@ func TestProtectedHAControllerIsNotPairedYet(t *testing.T) {
 	require.True(t, fleeterror.IsFailedPreconditionError(err))
 	require.NotContains(t, err.Error(), token)
 }
+
+func TestReplacedControllerIdentityMismatchTellsOperatorWhatToDo(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	driver := sdkMocks.NewMockDriver(ctrl)
+	manager := NewManager(&Config{})
+	manager.pluginsByDriverName["proto"] = &LoadedPlugin{Identifier: sdk.DriverIdentifier{DriverName: "proto"}, Driver: driver, Caps: sdk.Capabilities{sdk.CapabilityPairing: true}}
+	pairer := NewPairer(manager, mocks.NewMockTransactor(ctrl), stablePairingSnapshotStore(ctrl), mocks.NewMockDeviceStore(ctrl), nil)
+	device := &discoverymodels.DiscoveredDevice{Device: pb.Device{DeviceIdentifier: "ct1", DeviceClass: commonpb.DeviceClass_DEVICE_CLASS_CONTAINER, DriverName: "proto", Model: "CT1", Port: "8080", IpAddress: "192.0.2.1", UrlScheme: "http", RpcPort: 9095, SerialNumber: "controller-a"}, OrgID: 1}
+	const token = "0123456789abcdef"
+	const guidance = "CT1 controller identity mismatch: a different controller now answers at this address"
+	driver.EXPECT().PairDevice(gomock.Any(), gomock.Any(), gomock.Any()).Return(sdk.DeviceInfo{}, status.Error(codes.FailedPrecondition, guidance))
+
+	err := pairer.PairDevice(t.Context(), device, &pb.Credentials{Password: stringPtr(token)})
+	require.ErrorContains(t, err, guidance)
+	require.True(t, fleeterror.IsFailedPreconditionError(err))
+	require.NotContains(t, err.Error(), token)
+}

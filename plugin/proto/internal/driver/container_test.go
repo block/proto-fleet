@@ -102,6 +102,7 @@ func TestContainerLifecycle(t *testing.T) {
 	require.ErrorContains(t, err, "identity mismatch")
 	_, err = driver.PairDevice(t.Context(), info, sdk.SecretBundle{})
 	require.ErrorContains(t, err, "identity mismatch")
+	require.Equal(t, codes.FailedPrecondition, status.Code(err), "the operator must remove the old device first")
 }
 
 func TestContainerDiscoveryRejectsConfiguredBearerToken(t *testing.T) {

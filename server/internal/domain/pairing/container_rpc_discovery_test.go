@@ -91,32 +91,52 @@ func TestContainerRPCDiscoveryRejectsAmbiguousExistingContainers(t *testing.T) {
 }
 
 func TestProtectedContainerRediscoveryKeepsVerifiedIdentity(t *testing.T) {
-	infra := testutil.InitializeDBServiceInfrastructure(t)
-	admin := infra.DatabaseService.CreateSuperAdminUser()
-	registerDiscoveryPortsPlugin(t, infra, "proto", []string{"80", "443", "8080", "9095"})
-	discoverer := &MockDiscoverer{}
-	service, ctx := setupTestService(t, infra, admin, nil, discoverer)
-	store := sqlstores.NewSQLDiscoveredDeviceStore(infra.ServiceProvider.DB)
-	ip := "172.16.71.21"
-	_, err := store.SaveDirect(ctx, discovery.DeviceOrgIdentifier{OrgID: admin.OrganizationID, DeviceIdentifier: "protected-container"}, &discovery.DiscoveredDevice{Device: pb.Device{
-		DeviceClass: commonpb.DeviceClass_DEVICE_CLASS_CONTAINER, DriverName: "proto", Model: "CT1", Manufacturer: "Proto",
-		IpAddress: ip, Port: "8080", UrlScheme: "http", RpcPort: 9095, SerialNumber: "controller-a", FirmwareVersion: "v1",
-	}})
-	require.NoError(t, err)
+	// Only a paired device has an identity that pairing verified. An unpaired
+	// row goes blank, so a replaced controller can pair under its own ID.
+	for _, tc := range []struct {
+		name         string
+		paired       bool
+		wantSerial   string
+		wantFirmware string
+	}{
+		{name: "paired", paired: true, wantSerial: "controller-a", wantFirmware: "v1"},
+		{name: "unpaired"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			infra := testutil.InitializeDBServiceInfrastructure(t)
+			admin := infra.DatabaseService.CreateSuperAdminUser()
+			registerDiscoveryPortsPlugin(t, infra, "proto", []string{"80", "443", "8080", "9095"})
+			discoverer := &MockDiscoverer{}
+			service, ctx := setupTestService(t, infra, admin, nil, discoverer)
+			store := sqlstores.NewSQLDiscoveredDeviceStore(infra.ServiceProvider.DB)
+			ip := "172.16.71.21"
+			_, err := store.SaveDirect(ctx, discovery.DeviceOrgIdentifier{OrgID: admin.OrganizationID, DeviceIdentifier: "protected-container"}, &discovery.DiscoveredDevice{Device: pb.Device{
+				DeviceClass: commonpb.DeviceClass_DEVICE_CLASS_CONTAINER, DriverName: "proto", Model: "CT1", Manufacturer: "Proto",
+				IpAddress: ip, Port: "8080", UrlScheme: "http", RpcPort: 9095, SerialNumber: "controller-a", FirmwareVersion: "v1",
+			}})
+			require.NoError(t, err)
+			if tc.paired {
+				_, err = infra.ServiceProvider.DB.ExecContext(ctx, `INSERT INTO device (org_id, discovered_device_id, device_identifier, mac_address)
+					SELECT org_id, id, device_identifier, '' FROM discovered_device WHERE org_id = $1 AND device_identifier = $2`,
+					admin.OrganizationID, "protected-container")
+				require.NoError(t, err)
+			}
 
-	// A controller that requires a token answers discovery without its identity.
-	unidentified := &discovery.DiscoveredDevice{Device: pb.Device{DeviceClass: commonpb.DeviceClass_DEVICE_CLASS_CONTAINER, DriverName: "proto", Model: "CT1", Manufacturer: "Proto", IpAddress: ip, Port: "8080", UrlScheme: "http", RpcPort: 9095}}
-	discoverer.On("Discover", mock.Anything, ip, "9095").Return(unidentified, nil).Once()
-	results, err := service.DiscoverWithIPList(ctx, &pb.IPListModeRequest{IpAddresses: []string{ip}, Ports: []string{"9095"}})
-	require.NoError(t, err)
-	var found []*pb.Device
-	for result := range results {
-		found = append(found, result.Devices...)
+			// A controller that requires a token answers discovery without its identity.
+			unidentified := &discovery.DiscoveredDevice{Device: pb.Device{DeviceClass: commonpb.DeviceClass_DEVICE_CLASS_CONTAINER, DriverName: "proto", Model: "CT1", Manufacturer: "Proto", IpAddress: ip, Port: "8080", UrlScheme: "http", RpcPort: 9095}}
+			discoverer.On("Discover", mock.Anything, ip, "9095").Return(unidentified, nil).Once()
+			results, err := service.DiscoverWithIPList(ctx, &pb.IPListModeRequest{IpAddresses: []string{ip}, Ports: []string{"9095"}})
+			require.NoError(t, err)
+			var found []*pb.Device
+			for result := range results {
+				found = append(found, result.Devices...)
+			}
+			require.Len(t, found, 1)
+			require.Equal(t, "protected-container", found[0].DeviceIdentifier)
+			saved, err := store.GetDevice(ctx, discovery.DeviceOrgIdentifier{OrgID: admin.OrganizationID, DeviceIdentifier: "protected-container"})
+			require.NoError(t, err)
+			require.Equal(t, tc.wantSerial, saved.SerialNumber)
+			require.Equal(t, tc.wantFirmware, saved.FirmwareVersion)
+		})
 	}
-	require.Len(t, found, 1)
-	require.Equal(t, "protected-container", found[0].DeviceIdentifier)
-	saved, err := store.GetDevice(ctx, discovery.DeviceOrgIdentifier{OrgID: admin.OrganizationID, DeviceIdentifier: "protected-container"})
-	require.NoError(t, err)
-	require.Equal(t, "controller-a", saved.SerialNumber)
-	require.Equal(t, "v1", saved.FirmwareVersion)
 }

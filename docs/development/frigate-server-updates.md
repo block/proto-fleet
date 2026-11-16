@@ -37,9 +37,10 @@ drive the install steps.
 
 ## Requirements and limits
 
-- **mdk_auth sites are unsupported in v1.** Fleet talks to Frigate over the CT1
-  plugin's native gRPC connection (port 9095) and has no login or bearer-token
-  step. A controller with `server.mdk_auth.enabled` refuses the calls.
+- **Token-protected HA pairs are not supported yet.** Fleet sends a paired
+  controller's stored token on its CT1 gRPC connection (port 9095), but it cannot
+  yet pair an HA pair whose controllers have `server.mdk_auth.enabled`. See
+  [the gRPC transport guide](ct1-grpc.md) for the token and its limits.
 - **FleetNode-owned controllers are unsupported in v1.** `StartUpdate` and
   `GetSupport` return `FailedPrecondition` for a container whose controller is
   reached through a Fleet Node.

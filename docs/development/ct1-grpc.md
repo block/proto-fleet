@@ -78,7 +78,11 @@ with no controller ID, firmware version, or HA group. Opportunistic probes of
 web ports never list one, because any authenticated gRPC service would match.
 Pairing without a token then needs authentication. Pairing with the token reads
 and checks the controller ID. Rescanning a paired protected controller keeps the
-controller ID that pairing verified.
+controller ID that pairing verified. An unpaired listing keeps no controller ID,
+so a replacement controller at the same address pairs under its own ID. If a
+different controller answers at a paired device's address, pairing fails with
+"CT1 controller identity mismatch" and asks the operator to remove the existing
+device, then discover and pair the new controller.
 
 Protected HA pairs cannot be paired yet. Pairing with the token returns an HA
 group that discovery did not record, and only discovery saves endpoint groups.
