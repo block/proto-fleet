@@ -53,6 +53,19 @@ func (q *Queries) LockMinerBindingDevice(ctx context.Context, id int64) (int64, 
 	return discovered_device_id, err
 }
 
+const lockMinerBindingDeviceForAllocation = `-- name: LockMinerBindingDeviceForAllocation :one
+SELECT discovered_device_id FROM device WHERE id=$1 FOR NO KEY UPDATE NOWAIT
+`
+
+// Allocation holds organization admission. Do not retain that lock while a
+// controller observation or mutation holds the device binding for I/O.
+func (q *Queries) LockMinerBindingDeviceForAllocation(ctx context.Context, id int64) (int64, error) {
+	row := q.queryRow(ctx, q.lockMinerBindingDeviceForAllocationStmt, lockMinerBindingDeviceForAllocation, id)
+	var discovered_device_id int64
+	err := row.Scan(&discovered_device_id)
+	return discovered_device_id, err
+}
+
 const lockMinerBindingDiscovery = `-- name: LockMinerBindingDiscovery :one
 SELECT id FROM discovered_device WHERE id=$1 FOR SHARE
 `

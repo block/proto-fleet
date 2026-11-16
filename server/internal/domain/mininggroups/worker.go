@@ -49,6 +49,42 @@ func (s *Service) run(ctx context.Context, ticks <-chan time.Time, reconcile fun
 	defer pending.Wait()
 	var runningMu sync.Mutex
 	running := map[int64]struct{}{}
+	var workflows, observations int
+	start := func(row sqlc.ListMiningGroupControllersRow, observation bool) bool {
+		runningMu.Lock()
+		defer runningMu.Unlock()
+		if _, exists := running[row.DeviceID]; exists {
+			return true
+		}
+		// Idle reads cannot occupy the slots reserved for accepted changes.
+		if observation && observations >= 2 || !observation && workflows >= 8 {
+			return false
+		}
+		running[row.DeviceID] = struct{}{}
+		if observation {
+			observations++
+		} else {
+			workflows++
+		}
+		pending.Add(1)
+		go func() {
+			defer pending.Done()
+			defer func() {
+				runningMu.Lock()
+				delete(running, row.DeviceID)
+				if observation {
+					observations--
+				} else {
+					workflows--
+				}
+				runningMu.Unlock()
+			}()
+			if err := reconcile(ctx, row); err != nil {
+				slog.WarnContext(ctx, "mining group reconciliation paused", "device_id", row.DeviceID, "error", err)
+			}
+		}()
+		return true
+	}
 	for {
 		select {
 		case <-ctx.Done():
@@ -63,29 +99,28 @@ func (s *Service) run(ctx context.Context, ticks <-chan time.Time, reconcile fun
 				if ctx.Err() != nil {
 					return
 				}
-				runningMu.Lock()
-				if len(running) >= 8 {
-					runningMu.Unlock()
-					break // Recheck ready work on the next tick without waiting.
+				if !start(r, false) {
+					break
 				}
-				if _, exists := running[r.DeviceID]; exists {
-					runningMu.Unlock()
-					continue
+			}
+			runningMu.Lock()
+			capacity := observations < 2
+			runningMu.Unlock()
+			if !capacity {
+				continue
+			}
+			readiness, err := s.queries.ListMiningGroupReadinessControllers(ctx)
+			if err != nil {
+				slog.ErrorContext(ctx, "list mining group readiness", "error", err)
+				continue
+			}
+			for _, row := range readiness {
+				if ctx.Err() != nil {
+					return
 				}
-				running[r.DeviceID] = struct{}{}
-				runningMu.Unlock()
-				pending.Add(1)
-				go func() {
-					defer pending.Done()
-					defer func() {
-						runningMu.Lock()
-						delete(running, r.DeviceID)
-						runningMu.Unlock()
-					}()
-					if err := reconcile(ctx, r); err != nil {
-						slog.WarnContext(ctx, "mining group reconciliation paused", "device_id", r.DeviceID, "error", err)
-					}
-				}()
+				if !start(sqlc.ListMiningGroupControllersRow(row), true) {
+					break
+				}
 			}
 		}
 	}
@@ -106,10 +141,10 @@ func (s *Service) Reconcile(ctx context.Context, orgID, deviceID int64, identifi
 	// The binding transaction takes device/route locks before the journal lock.
 	// It never retries external calls. The committed step survives any lost reply.
 	err = s.writes.WithBindingTransaction(ctx, func(ctx context.Context, q sqlc.Querier) error {
-		if initial.OperationKind == operationActivate {
-			if _, err := q.LockPoolEquipmentOrganization(ctx, orgID); err != nil {
-				return err
-			}
+		// Ownership changes must wait until this pass finishes validating and
+		// dispatching. Take organization admission before physical binding locks.
+		if _, err := q.LockPoolEquipmentOrganization(ctx, orgID); err != nil {
+			return err
 		}
 		return s.writes.WithBindingObservation(ctx, deviceID, func(q sqlc.Querier) error { return nil }, func(ctx context.Context) error {
 			row, err := q.LockMiningGroupState(ctx, sqlc.LockMiningGroupStateParams{OrganizationID: orgID, DeviceID: deviceID})
@@ -132,6 +167,9 @@ func (s *Service) Reconcile(ctx context.Context, orgID, deviceID int64, identifi
 			if row.OperationKind == operationActivate {
 				permission = authz.PermMinerActivateMiningGroups
 			}
+			if row.OperationKind == operationDeactivate {
+				permission = authz.PermMinerDeactivateMiningGroups
+			}
 			shared, authorityErr := s.authorizeSharedWorkflow(ctx, q, row)
 			if authorityErr == nil && !shared {
 				authorityErr = authorize(ctx, q, row.ActorID.Int64, orgID, target.SiteID, permission, authz.PermMinerStartMining, authz.PermMinerStopMining)
@@ -144,6 +182,12 @@ func (s *Service) Reconcile(ctx context.Context, orgID, deviceID int64, identifi
 					return s.interrupt(ctx, q, row, "Operator access changed. Activation ended without further changes; review the controller's mining state before continuing.")
 				}
 				return s.interrupt(ctx, q, row, "Operator access changed. Applied assignments were kept; an authorized operator can submit a new request.")
+			}
+			if row.OperationKind == operationDeactivate {
+				return s.reconcileDeactivation(ctx, q, row)
+			}
+			if row.OperationKind == operationReturnDefault {
+				return s.reconcileDefaultReturn(ctx, q, row)
 			}
 			if row.OperationKind != operationActivate {
 				detached, err := hasDetachedIntents(ctx, q, orgID, deviceID)
@@ -259,7 +303,7 @@ func (s *Service) Reconcile(ctx context.Context, orgID, deviceID int64, identifi
 // any historical boards affected by the next write.
 func (s *Service) liveIntent(ctx context.Context, q sqlc.Querier, row sqlc.ContainerMiningGroupState, affected []string) (map[string]string, error) {
 	desired := map[string]string{}
-	if row.OperationKind == operationActivate {
+	if changesMode(row.OperationKind) {
 		return desired, nil
 	}
 	cutover, err := q.HasPoolConfigurationCutover(ctx, row.OrganizationID)
@@ -373,7 +417,13 @@ func (s *Service) apply(ctx context.Context, q sqlc.Querier, row sqlc.ContainerM
 	if request.Key != row.StepKey.UUID.String() {
 		return fmt.Errorf("mining group step identity mismatch")
 	}
-	if _, err := s.liveIntent(ctx, q, row, step.AffectedMACs); err != nil {
+	var validationErr error
+	if row.OperationKind == operationReturnDefault {
+		_, validationErr = s.validateDefaultReturn(ctx, q, row)
+	} else {
+		_, validationErr = s.liveIntent(ctx, q, row, step.AffectedMACs)
+	}
+	if validationErr != nil {
 		return s.block(ctx, q, row, "A board affected by this change is unavailable or stale; configuration is paused")
 	}
 	// Re-authorize profiles on replay as well as when preparing a new step.
@@ -382,7 +432,7 @@ func (s *Service) apply(ctx context.Context, q sqlc.Querier, row sqlc.ContainerM
 			return s.block(ctx, q, row, "Pool configuration is no longer available")
 		}
 	}
-	if request.Action == string(Transfer) {
+	if request.Action == string(Transfer) && row.OperationKind != operationReturnDefault {
 		for _, mac := range request.MACs {
 			if desired[mac] != step.ConfigID {
 				return s.block(ctx, q, row, "Selected board intent changed; transfer is paused")
@@ -390,6 +440,16 @@ func (s *Service) apply(ctx context.Context, q sqlc.Querier, row sqlc.ContainerM
 		}
 	}
 	var response sdk.MiningGroupResult
+	// WithBindingTransaction reserves dispatch capacity, leaving a connection
+	// for this independent commit. Keep the marker even if receipt saving rolls
+	// back or the process exits after the controller accepted the request.
+	marked, err := s.queries.MarkMiningGroupStepDispatch(ctx, sqlc.MarkMiningGroupStepDispatchParams{StepKey: row.StepKey.UUID, AttemptID: row.AttemptID.UUID})
+	if err != nil {
+		return err
+	}
+	if marked != 1 {
+		return fmt.Errorf("mining group dispatch identity changed")
+	}
 	err = devicewrite.Dispatch(ctx, func(ctx context.Context) error {
 		var e error
 		response, e = s.call(ctx, row.DeviceID, request)
@@ -446,6 +506,10 @@ func (s *Service) apply(ctx context.Context, q sqlc.Querier, row sqlc.ContainerM
 	case operationActivate:
 		if !response.Enabled {
 			return s.block(ctx, q, row, "Waiting for mining group activation")
+		}
+	case operationDeactivate:
+		if !response.Deactivated {
+			return s.block(ctx, q, row, "Waiting for mining group deactivation")
 		}
 	case string(Transfer):
 		return s.recordTransfer(ctx, q, row, response.Operation)
@@ -551,7 +615,13 @@ func (s *Service) prepareStep(ctx context.Context, q sqlc.Querier, row sqlc.Cont
 	if err != nil {
 		return err
 	}
-	if _, err := s.liveIntent(ctx, q, row, affected); err != nil {
+	var validationErr error
+	if row.OperationKind == operationReturnDefault {
+		_, validationErr = s.validateDefaultReturn(ctx, q, row)
+	} else {
+		_, validationErr = s.liveIntent(ctx, q, row, affected)
+	}
+	if validationErr != nil {
 		return s.block(ctx, q, row, "A board affected by this change is unavailable or stale; configuration is paused")
 	}
 	key := uuid.New()
@@ -575,6 +645,9 @@ func (s *Service) prepareStep(ctx context.Context, q sqlc.Querier, row sqlc.Cont
 	row.StepKey = uuid.NullUUID{UUID: key, Valid: true}
 	row.Status = statusApplying
 	row.Message = message
+	if err := q.RegisterMiningGroupStep(ctx, sqlc.RegisterMiningGroupStepParams{StepKey: key, AttemptID: row.AttemptID.UUID}); err != nil {
+		return err
+	}
 	// No mutation in this transaction: dispatch begins on the next iteration,
 	// after the exact idempotent request has durably committed.
 	return save(ctx, q, row)
@@ -585,7 +658,7 @@ func (s *Service) prepareStep(ctx context.Context, q sqlc.Querier, row sqlc.Cont
 // observations may replace row.Observed while its outcome is unresolved. The
 // request's revision precondition prevents applying it to changed membership.
 func affectedBoardMACs(row sqlc.ContainerMiningGroupState, request sdk.MiningGroupRequest) ([]string, error) {
-	if row.OperationKind == operationActivate {
+	if changesMode(row.OperationKind) {
 		return nil, nil
 	}
 	switch request.Action {

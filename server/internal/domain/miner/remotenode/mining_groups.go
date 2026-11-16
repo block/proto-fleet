@@ -12,6 +12,18 @@ import (
 	sdk "github.com/block/proto-fleet/server/sdk/v1"
 )
 
+// CheckMiningGroupDeactivation checks the live node handshake without sending a
+// command. Admission calls it before committing a durable mode-change workflow.
+func (m *Miner) CheckMiningGroupDeactivation(context.Context) error {
+	checker, ok := m.sender.(interface {
+		SupportsCommandProtocolVersion(fleetNodeID int64, minimum gatewaypb.CommandProtocolVersion) bool
+	})
+	if !ok || !checker.SupportsCommandProtocolVersion(m.fleetNodeID, gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V15) {
+		return fleeterror.NewFailedPreconditionError("Upgrade the Fleet Node and reconnect it before disabling mining groups.")
+	}
+	return nil
+}
+
 func (m *Miner) MiningGroups(ctx context.Context, r sdk.MiningGroupRequest) (sdk.MiningGroupResult, error) {
 	var result sdk.MiningGroupResult
 	if err := r.Validate(); err != nil {

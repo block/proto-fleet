@@ -146,8 +146,10 @@ placement evidence only from its upgrade boundary.
 
 Mining-group changes run as an HA-managed background job: the passive Fleet
 server does not reconcile them, and loss of active ownership cancels the job.
-Normal progress uses the three-second worker cadence. Up to eight containers
-reconcile concurrently, with at most one task per container. Each tick fills
+Normal progress uses the three-second worker cadence. Up to eight accepted
+workflows reconcile concurrently. Two separate slots refresh idle allocated
+controllers, so slow readiness reads do not occupy workflow capacity. There is
+at most one task per container. Each tick fills
 available slots without waiting for slower containers to finish. Shutdown
 cancels and waits for all running tasks before the worker returns.
 Consecutive failures use exponential retry delays starting at five seconds and

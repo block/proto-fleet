@@ -69,6 +69,7 @@ export default function ContainerActionsMenu({
   const [firmwareOpen, setFirmwareOpen] = useState(false);
   const canUpdateFirmware = permissions.includes("miner:read") && hasActionPermissions(deviceActions.firmwareUpdate);
   const [groupsOpen, setGroupsOpen] = useState(false);
+  const [groupsMode, setGroupsMode] = useState<"activate" | "deactivate">("activate");
   const [poolTarget, setPoolTarget] = useState<string>();
   const openContainerView = useOpenContainerView();
   const navigate = useNavigate();
@@ -159,10 +160,14 @@ export default function ContainerActionsMenu({
           onClick: () => navigate(controllerLogsPath(container)),
         },
         {
-          label: "Enable mining groups",
+          label: groups?.enabled ? "Disable mining groups" : "Enable mining groups",
           icon: <MiningPools />,
-          hidden: !hasMiningGroupPermissions(permissions, "activate") || !groups?.supported || groups.enabled,
-          onClick: () => setGroupsOpen(true),
+          hidden:
+            !hasMiningGroupPermissions(permissions, groups?.enabled ? "deactivate" : "activate") || !groups?.supported,
+          onClick: () => {
+            setGroupsMode(groups?.enabled ? "deactivate" : "activate");
+            setGroupsOpen(true);
+          },
         },
         ...commands,
         ...permittedActions
@@ -274,7 +279,11 @@ export default function ContainerActionsMenu({
         />
       ) : null}
       {groupsOpen ? (
-        <MiningGroupsDialog deviceIdentifier={deviceIdentifier} onClose={() => setGroupsOpen(false)} />
+        <MiningGroupsDialog
+          deviceIdentifier={deviceIdentifier}
+          mode={groupsMode}
+          onClose={() => setGroupsOpen(false)}
+        />
       ) : null}
       {assigningSite ? (
         <ContainerSiteDialog container={container} onClose={() => setAssigningSite(false)} onSaved={onSiteChanged} />

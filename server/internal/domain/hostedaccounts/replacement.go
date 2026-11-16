@@ -72,6 +72,9 @@ func (s *Service) ReplaceHashboard(ctx context.Context, actorID, orgID int64, re
 		if old.DeviceID != oldDevice || replacement.DeviceID != replacementDevice {
 			return assetConflict()
 		}
+		if err := requireAllocationMiningGroups(ctx, q, orgID, []int64{replacement.DeviceID}); err != nil {
+			return err
+		}
 		owner := old.OwnerAccountID
 		path, policy, err := replacementOwnerPolicy(ctx, q, orgID, owner)
 		if err != nil {

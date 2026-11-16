@@ -182,6 +182,7 @@ export default defineConfig(({ mode, command }) => {
 
   return {
     ...(modes[mode] || defaultConfig),
+    cacheDir: resolve(_dirname, "node_modules/.vite", mode),
     base: "/",
     envDir: process.cwd(),
     plugins: [react(), responsiveImagePlugin(), moveHtmlFiles(mode), copyPublicDirectory(mode, command)],

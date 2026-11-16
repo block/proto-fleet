@@ -31,7 +31,7 @@ func (m *obsoleteClearGroups) MiningGroups(ctx context.Context, request sdk.Mini
 }
 
 func TestObsoleteAutomaticBoardClearSettlesWithoutReplayingOldPolicy(t *testing.T) {
-	for _, stage := range []string{"no outstanding request", "transfer settles", "ownership returns", "pending controller", "unavailable controller", "unknown saved request"} {
+	for _, stage := range []string{"no outstanding request", "prepared request", "transfer settles", "ownership returns", "pending controller", "unavailable controller", "unknown saved request"} {
 		t.Run(stage, func(t *testing.T) {
 			ctx, f := newIdleRetryFixture(t)
 			_, boards := preparePermissionPoolAssignment(t, ctx, f)
@@ -57,6 +57,12 @@ func TestObsoleteAutomaticBoardClearSettlesWithoutReplayingOldPolicy(t *testing.
 			require.True(t, initial.AttemptID.Valid)
 			require.False(t, initial.Step.Valid)
 			switch stage {
+			case "prepared request":
+				f.reconcile(t, ctx)
+				require.True(t, f.state(t).Step.Valid)
+				unsent, err := f.service.queries.MiningGroupStepIsUnsent(ctx, sqlc.MiningGroupStepIsUnsentParams{StepKey: f.state(t).StepKey.UUID, AttemptID: initial.AttemptID.UUID})
+				require.NoError(t, err)
+				require.True(t, unsent)
 			case "transfer settles":
 				for i := 0; i < 30 && f.state(t).ControllerOperationID == ""; i++ {
 					require.NoError(t, f.service.Reconcile(ctx, f.target.OrganizationID, f.target.DeviceID, f.target.DeviceIdentifier))
@@ -99,7 +105,7 @@ func TestObsoleteAutomaticBoardClearSettlesWithoutReplayingOldPolicy(t *testing.
 			// must still run, then retire the obsolete policy from settled state.
 			for i := 0; i < 3 && active(f.state(t).Status); i++ {
 				err = f.service.Reconcile(ctx, f.target.OrganizationID, f.target.DeviceID, f.target.DeviceIdentifier)
-				if stage == "no outstanding request" || stage == "transfer settles" || stage == "ownership returns" {
+				if stage == "no outstanding request" || stage == "prepared request" || stage == "transfer settles" || stage == "ownership returns" {
 					require.NoError(t, err)
 				}
 			}

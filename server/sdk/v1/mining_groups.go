@@ -22,6 +22,7 @@ const (
 	miningGroupActionStopLegacy    = "stop_legacy"
 	miningGroupActionOperation     = "operation"
 	miningGroupActionActivate      = "activate"
+	miningGroupActionDeactivate    = "deactivate"
 	miningGroupActionReplacePools  = "replace_pools"
 	miningGroupActionTransfer      = "transfer"
 )
@@ -63,7 +64,7 @@ func (r MiningGroupRequest) Validate() error {
 		if r.GroupID == "" {
 			return fmt.Errorf("operation ID required")
 		}
-	case miningGroupActionActivate:
+	case miningGroupActionActivate, miningGroupActionDeactivate:
 		allowed["revision"] = true
 	case "create":
 		allowed["config"] = true
@@ -180,6 +181,7 @@ type MiningGroupMiningStatus struct {
 	ActiveBoards int32 `json:"active_boards"`
 }
 type MiningGroupResult struct {
+	Deactivated   bool                     `json:"deactivated,omitempty"`
 	PoolsCleared  *bool                    `json:"pools_cleared,omitempty"`
 	MiningStatus  *MiningGroupMiningStatus `json:"mining_status,omitempty"`
 	StopRequested bool                     `json:"stop_requested,omitempty"`

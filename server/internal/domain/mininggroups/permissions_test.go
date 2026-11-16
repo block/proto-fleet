@@ -126,12 +126,17 @@ func TestMiningGroupWorkerRechecksStartAndStopPermissions(t *testing.T) {
 				require.NoError(t, err)
 				f.miner.calls = nil
 				f.reconcile(t, ctx)
-				require.Empty(t, f.miner.calls, "revoked authority must prevent dispatch of the saved step")
-				blocked := f.state(t)
-				require.Equal(t, "blocked", blocked.Status)
-				require.Equal(t, prepared.Step, blocked.Step)
-				require.Equal(t, prepared.StepKey, blocked.StepKey)
-				require.Equal(t, prepared.AttemptID, blocked.AttemptID)
+				for _, call := range f.miner.calls {
+					require.True(t, call.ReadOnly(), "revoked authority must prevent dispatch of the saved step")
+				}
+				finished := f.state(t)
+				require.Equal(t, "failed", finished.Status)
+				require.False(t, finished.Step.Valid)
+				require.False(t, finished.StepKey.Valid)
+				require.Equal(t, prepared.AttemptID, finished.AttemptID)
+				var attemptStatus string
+				require.NoError(t, f.conn.QueryRowContext(ctx, `SELECT status FROM device_write_attempt WHERE attempt_id=$1`, prepared.AttemptID.UUID).Scan(&attemptStatus))
+				require.Equal(t, "complete", attemptStatus)
 			})
 		}
 	}

@@ -357,6 +357,11 @@ func (c *Checker) FinishRemoval(ctx context.Context, q sqlc.Querier, p poolconfi
 		return fleeterror.NewFailedPreconditionError("removal changed")
 	}
 	if p.ActorID == 0 {
+		if !keep && row.TargetKind == poolconfigurations.TargetDevice {
+			if err := q.CompleteCoveredContainerPoolClears(ctx, row.RemovalID); err != nil {
+				return err
+			}
+		}
 		return poolconfigurations.RecordRemovalAudit(ctx, q, p, row.RemovalID.String(), "", false)
 	}
 	if err := poolconfigurations.NewRepository(c.secrets).RetireAssignment(ctx, q, p.Scope, target, row.AssignmentVersion); err != nil {

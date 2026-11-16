@@ -259,7 +259,7 @@ func (q *Queries) GetMiningGroupRequestActivity(ctx context.Context, arg GetMini
 }
 
 const getMiningGroupState = `-- name: GetMiningGroupState :one
-SELECT device_id, organization_id, observed, observed_at, bindings, operation_id, attempt_id, actor_id, operation_kind, status, message, step, step_key, controller_operation_id, write_epoch, revision, updated_at, retry_count, next_reconcile_at, activation_resume_mining, activation_stop_requested, transfer_failure_count FROM container_mining_group_state WHERE device_id=$1 AND organization_id=$2
+SELECT device_id, organization_id, observed, observed_at, bindings, operation_id, attempt_id, actor_id, operation_kind, status, message, step, step_key, controller_operation_id, write_epoch, revision, updated_at, retry_count, next_reconcile_at, activation_resume_mining, activation_stop_requested, transfer_failure_count, default_return FROM container_mining_group_state WHERE device_id=$1 AND organization_id=$2
 `
 
 type GetMiningGroupStateParams struct {
@@ -293,6 +293,7 @@ func (q *Queries) GetMiningGroupState(ctx context.Context, arg GetMiningGroupSta
 		&i.ActivationResumeMining,
 		&i.ActivationStopRequested,
 		&i.TransferFailureCount,
+		&i.DefaultReturn,
 	)
 	return i, err
 }
@@ -461,7 +462,8 @@ func (q *Queries) ListHostMiningGroupPoolRevisions(ctx context.Context, organiza
 }
 
 const listMiningGroupControllers = `-- name: ListMiningGroupControllers :many
-SELECT s.device_id,s.organization_id,d.device_identifier,s.attempt_id,s.retry_count FROM container_mining_group_state s JOIN device d ON d.id=s.device_id
+SELECT s.device_id,s.organization_id,d.device_identifier,s.attempt_id,s.retry_count,false::boolean AS readiness
+FROM container_mining_group_state s JOIN device d ON d.id=s.device_id
 WHERE d.deleted_at IS NULL AND s.status IN ('pending','applying','blocked') AND s.next_reconcile_at<=CURRENT_TIMESTAMP
 ORDER BY s.next_reconcile_at,s.device_id LIMIT 1000
 `
@@ -472,6 +474,7 @@ type ListMiningGroupControllersRow struct {
 	DeviceIdentifier string
 	AttemptID        uuid.NullUUID
 	RetryCount       int32
+	Readiness        bool
 }
 
 func (q *Queries) ListMiningGroupControllers(ctx context.Context) ([]ListMiningGroupControllersRow, error) {
@@ -489,6 +492,66 @@ func (q *Queries) ListMiningGroupControllers(ctx context.Context) ([]ListMiningG
 			&i.DeviceIdentifier,
 			&i.AttemptID,
 			&i.RetryCount,
+			&i.Readiness,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listMiningGroupReadinessControllers = `-- name: ListMiningGroupReadinessControllers :many
+WITH controllers AS MATERIALIZED (
+ SELECT organization_id,device_id FROM container_mining_group_state
+ UNION
+ SELECT organization_id,device_id FROM hosted_account_asset
+ WHERE kind=7 AND client_id IS NOT NULL AND device_id IS NOT NULL
+)
+SELECT d.id AS device_id,d.org_id AS organization_id,d.device_identifier,s.attempt_id,COALESCE(s.retry_count,0)::integer AS retry_count,true::boolean AS readiness
+FROM controllers a JOIN device d ON d.id=a.device_id AND d.org_id=a.organization_id
+JOIN discovered_device dd ON dd.id=d.discovered_device_id AND dd.deleted_at IS NULL AND dd.device_class=2
+JOIN device_pairing dp ON dp.device_id=d.id AND dp.pairing_status IN ('PAIRED','DEFAULT_PASSWORD')
+LEFT JOIN container_mining_group_state s ON s.device_id=d.id AND s.organization_id=d.org_id
+WHERE d.deleted_at IS NULL AND COALESCE(s.next_reconcile_at,'-infinity'::timestamptz)<=CURRENT_TIMESTAMP
+ AND COALESCE(s.status,'idle') NOT IN ('pending','applying','blocked')
+  AND (s.observed_at IS NULL OR s.observed_at<=CURRENT_TIMESTAMP-INTERVAL '1 minute' OR s.observed_at>CURRENT_TIMESTAMP+INTERVAL '5 seconds')
+ORDER BY COALESCE(s.next_reconcile_at,'-infinity'::timestamptz),d.id LIMIT 1000
+`
+
+type ListMiningGroupReadinessControllersRow struct {
+	DeviceID         int64
+	OrganizationID   int64
+	DeviceIdentifier string
+	AttemptID        uuid.NullUUID
+	RetryCount       int32
+	Readiness        bool
+}
+
+// Keep known CT1 modes fresh even before the first allocation or after recall.
+// Start from tracked controllers and allocated boards, not the miner fleet.
+func (q *Queries) ListMiningGroupReadinessControllers(ctx context.Context) ([]ListMiningGroupReadinessControllersRow, error) {
+	rows, err := q.query(ctx, q.listMiningGroupReadinessControllersStmt, listMiningGroupReadinessControllers)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListMiningGroupReadinessControllersRow
+	for rows.Next() {
+		var i ListMiningGroupReadinessControllersRow
+		if err := rows.Scan(
+			&i.DeviceID,
+			&i.OrganizationID,
+			&i.DeviceIdentifier,
+			&i.AttemptID,
+			&i.RetryCount,
+			&i.Readiness,
 		); err != nil {
 			return nil, err
 		}
@@ -504,7 +567,7 @@ func (q *Queries) ListMiningGroupControllers(ctx context.Context) ([]ListMiningG
 }
 
 const lockMiningGroupState = `-- name: LockMiningGroupState :one
-SELECT device_id, organization_id, observed, observed_at, bindings, operation_id, attempt_id, actor_id, operation_kind, status, message, step, step_key, controller_operation_id, write_epoch, revision, updated_at, retry_count, next_reconcile_at, activation_resume_mining, activation_stop_requested, transfer_failure_count FROM container_mining_group_state WHERE device_id=$1 AND organization_id=$2 FOR UPDATE
+SELECT device_id, organization_id, observed, observed_at, bindings, operation_id, attempt_id, actor_id, operation_kind, status, message, step, step_key, controller_operation_id, write_epoch, revision, updated_at, retry_count, next_reconcile_at, activation_resume_mining, activation_stop_requested, transfer_failure_count, default_return FROM container_mining_group_state WHERE device_id=$1 AND organization_id=$2 FOR UPDATE
 `
 
 type LockMiningGroupStateParams struct {
@@ -538,6 +601,7 @@ func (q *Queries) LockMiningGroupState(ctx context.Context, arg LockMiningGroupS
 		&i.ActivationResumeMining,
 		&i.ActivationStopRequested,
 		&i.TransferFailureCount,
+		&i.DefaultReturn,
 	)
 	return i, err
 }
@@ -646,9 +710,10 @@ const scheduleMiningGroupReconciliation = `-- name: ScheduleMiningGroupReconcili
 UPDATE container_mining_group_state
 SET retry_count=CASE WHEN $1::boolean OR status='blocked' THEN LEAST(retry_count+1,7) ELSE 0 END,
  next_reconcile_at=clock_timestamp() +
-   (CASE WHEN $1::boolean OR status='blocked' THEN $2::bigint ELSE 0 END) * INTERVAL '1 millisecond'
+   (CASE WHEN $1::boolean OR status='blocked' THEN $2::bigint
+    WHEN status NOT IN ('pending','applying','blocked') THEN 60000 ELSE 0 END) * INTERVAL '1 millisecond'
 WHERE device_id=$3 AND organization_id=$4
- AND attempt_id=$5
+ AND attempt_id IS NOT DISTINCT FROM $5::uuid
 `
 
 type ScheduleMiningGroupReconciliationParams struct {

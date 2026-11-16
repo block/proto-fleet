@@ -38,7 +38,7 @@ func TestHashboardOwnershipChangeRetiresControllerPoolIntent(t *testing.T) {
 	require.NoError(t, err)
 	module, controller := f.miningModule(t)
 	require.NoError(t, f.allocate(t, f.host, f.root, f.account.AccountID, pb.AssetAssignmentIntent_ASSET_ASSIGNMENT_INTENT_ASSIGN, selected(6, module, 0)))
-	_, err = f.db.ExecContext(ctx, `INSERT INTO container_mining_group_state(device_id,organization_id,observed,observed_at) VALUES($1,$2,'{"supported":true,"enabled":false}',now())`, controller, f.org)
+	_, err = f.db.ExecContext(ctx, `UPDATE container_mining_group_state SET observed='{"supported":true,"enabled":false}',observed_at=now() WHERE device_id=$1 AND organization_id=$2`, controller, f.org)
 	require.NoError(t, err)
 	reviewer := poolapplications.NewReviewer(f.pools, poolCapabilities{sdk.CapabilityPoolConfig: true})
 	service := poolconfigurations.NewService(f.db, poolconfigurations.NewRepository(cipher), f.pools, reviewer)

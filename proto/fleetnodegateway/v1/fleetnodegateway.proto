@@ -319,6 +319,8 @@ enum CommandProtocolVersion {
     COMMAND_PROTOCOL_VERSION_V13 = 13;
     // V14 adds CT1 plant alarm mute and reset pulses.
     COMMAND_PROTOCOL_VERSION_V14 = 14;
+    // V15 adds mining-group deactivation with validated replay receipts.
+    COMMAND_PROTOCOL_VERSION_V15 = 15;
 }
 
 message ControlHello {

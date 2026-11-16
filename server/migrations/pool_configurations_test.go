@@ -13,6 +13,10 @@ import (
 func rollbackEmptyPoolConfigurations(t *testing.T, conn *sql.DB) {
 	t.Helper()
 	for _, path := range []string{
+		"current/001084_internal_mining_group_step_dispatch.down.sql",
+		"current/001083_internal_mining_group_default_return.down.sql",
+		"current/001082_internal_ct1_mining_group_guards.down.sql",
+		"current/001081_internal_hashboard_worker_names.down.sql",
 		"current/001078_internal_default_pool_lifecycle.down.sql",
 		"current/001070_internal_activation_pool_handoff.down.sql",
 		"current/001068_internal_pool_removal_bindings.down.sql",
@@ -50,6 +54,10 @@ func restoreEmptyPoolConfigurations(t *testing.T, conn *sql.DB) {
 		"current/001068_internal_pool_removal_bindings.up.sql",
 		"current/001070_internal_activation_pool_handoff.up.sql",
 		"current/001078_internal_default_pool_lifecycle.up.sql",
+		"current/001081_internal_hashboard_worker_names.up.sql",
+		"current/001082_internal_ct1_mining_group_guards.up.sql",
+		"current/001083_internal_mining_group_default_return.up.sql",
+		"current/001084_internal_mining_group_step_dispatch.up.sql",
 	} {
 		up, err := migrations.Current.ReadFile(path)
 		require.NoError(t, err)
@@ -67,6 +75,14 @@ func TestEmptyPoolConfigurationMigrationRoundTrip(t *testing.T) {
 		WHERE schemaname = 'public' AND tablename LIKE 'pool_configuration%'`).Scan(&remaining))
 	require.Zero(t, remaining)
 	restoreEmptyPoolConfigurations(t, conn)
+	var restored bool
+	require.NoError(t, conn.QueryRowContext(t.Context(), `
+		SELECT to_regclass('mining_group_step_dispatch') IS NOT NULL
+		 AND to_regprocedure('ct1_hashboard_allocation_ready(bigint,bigint)') IS NOT NULL
+		 AND EXISTS(SELECT 1 FROM information_schema.columns WHERE table_name='container_mining_group_state' AND column_name='default_return')
+		 AND EXISTS(SELECT 1 FROM information_schema.columns WHERE table_name='pool_configuration_assignment' AND column_name='inherited_worker_name')
+		 AND EXISTS(SELECT 1 FROM information_schema.columns WHERE table_name='hashboard' AND column_name='worker_name_mode')`).Scan(&restored))
+	require.True(t, restored, "historical fixtures must restore current workflow guards and worker metadata")
 	// A second rollback also checks that no functions or constraints were left
 	// behind by the first one or omitted when recreating the schema.
 	rollbackEmptyPoolConfigurations(t, conn)

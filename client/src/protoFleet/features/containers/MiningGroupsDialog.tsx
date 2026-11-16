@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "react";
-import { timestampDate } from "@bufbuild/protobuf/wkt";
 import { Code, ConnectError } from "@connectrpc/connect";
 import { hasMiningGroupPermissions } from "./miningGroupPermissions";
+import { isCurrentObservation } from "./moduleDetail";
+import ReturnHashboardsToDefaultDialog from "./ReturnHashboardsToDefaultDialog";
 import { miningGroupsClient } from "@/protoFleet/api/clients";
 import type { GetStateResponse } from "@/protoFleet/api/generated/mininggroups/v1/mininggroups_pb";
 import { getErrorMessage } from "@/protoFleet/api/getErrorMessage";
@@ -13,6 +14,7 @@ import Modal from "@/shared/components/Modal";
 
 type MiningGroupsDialogProps = {
   deviceIdentifier: string;
+  mode?: "activate" | "deactivate";
   moduleIds?: bigint[];
   hashboardIds?: bigint[];
   onClose: () => void;
@@ -27,20 +29,14 @@ export default function MiningGroupsDialog(props: MiningGroupsDialogProps) {
         onDismiss={props.onClose}
       />
     );
-  const targetKey = props.deviceIdentifier;
-  // A new target starts a fresh form and cancels reads for the previous target.
-  // Sorting preserves the form and retry identity across same-target refreshes.
+  const targetKey = `${props.deviceIdentifier}:${props.mode ?? "activate"}`;
+  // A different container or action starts a fresh form and cancels old reads.
   return <MiningGroupsForm key={targetKey} {...props} />;
 }
 
-function MiningGroupsForm({ deviceIdentifier, onClose }: MiningGroupsDialogProps) {
-  const mounted = useRef(true);
-  useEffect(() => {
-    mounted.current = true;
-    return () => {
-      mounted.current = false;
-    };
-  }, []);
+function MiningGroupsForm({ deviceIdentifier, onClose, mode = "activate" }: MiningGroupsDialogProps) {
+  const deactivating = mode === "deactivate";
+  const actionLabel = deactivating ? "Disable mining groups" : "Enable mining groups";
   const permissions = usePermissions();
   const [now, setNow] = useState(Date.now);
   useEffect(() => {
@@ -52,9 +48,11 @@ function MiningGroupsForm({ deviceIdentifier, onClose }: MiningGroupsDialogProps
   const [observationError, setObservationError] = useState("");
   const [saving, setSaving] = useState(false);
   const [submitted, setSubmitted] = useState(false);
-  const request = useRef<{ id: string; profile: string; revision: bigint } | undefined>(undefined);
+  const [returningToDefault, setReturningToDefault] = useState(false);
+  const requestId = useRef<string | undefined>(undefined);
   const refreshState = useRef<(() => Promise<void>) | undefined>(undefined);
   useEffect(() => {
+    if (returningToDefault) return;
     let disposed = false;
     let inFlight: AbortController | undefined;
     const refresh = async (replace = false) => {
@@ -85,23 +83,28 @@ function MiningGroupsForm({ deviceIdentifier, onClose }: MiningGroupsDialogProps
       refreshState.current = undefined;
       clearInterval(timer);
     };
-  }, [deviceIdentifier]);
+  }, [deviceIdentifier, returningToDefault]);
   const pending = state && ["pending", "applying", "blocked"].includes(state.status);
-  const fresh = state?.observedAt && now - timestampDate(state.observedAt).getTime() < 120_000;
-  const allowed = hasMiningGroupPermissions(permissions, "activate");
-  const ready = allowed && !!fresh && state?.supported && !pending && !submitted && !state.enabled;
-  const submit = async (profile = "") => {
+  const fresh = isCurrentObservation(state?.observedAt, now);
+  const allowed = hasMiningGroupPermissions(permissions, mode);
+  const ready =
+    allowed &&
+    fresh &&
+    state?.supported &&
+    !pending &&
+    !submitted &&
+    (deactivating ? state.enabled && !state.deactivationBlockedReason : !state.enabled);
+  const submit = async () => {
     if (!ready || saving || !state) return;
     setSaving(true);
     setError("");
     try {
-      // Keep the same identity after a lost response. Changing the user's selection
-      // is a new request; normal observation polling does not change its revision.
-      if (!request.current || request.current.profile !== profile)
-        request.current = { id: createOperationID(), profile, revision: state.revision };
-      await miningGroupsClient.activate({
+      // Polling and retries after a lost response retain the same request ID.
+      requestId.current ??= createOperationID();
+      const changeMode = deactivating ? miningGroupsClient.deactivate : miningGroupsClient.activate;
+      await changeMode({
         deviceIdentifier,
-        requestId: request.current.id,
+        requestId: requestId.current,
         acknowledgeInterruption: true,
       });
     } catch (e) {
@@ -110,7 +113,7 @@ function MiningGroupsForm({ deviceIdentifier, onClose }: MiningGroupsDialogProps
       if (code === Code.FailedPrecondition || code === Code.Aborted) {
         // These are definitive submission rejections. A transport failure may
         // have committed, so its original request identity must be retained.
-        request.current = undefined;
+        requestId.current = undefined;
         await refreshState.current?.();
       }
       setSaving(false);
@@ -120,61 +123,103 @@ function MiningGroupsForm({ deviceIdentifier, onClose }: MiningGroupsDialogProps
     await refreshState.current?.();
     setSaving(false);
   };
-  const prerequisite = !allowed
-    ? "Enabling mining groups requires permission to enable groups and to start and stop mining."
-    : !state
-      ? "Loading controller configuration…"
-      : !state.supported
-        ? "This controller’s firmware does not support mining groups."
-        : !fresh
-          ? "Controller configuration is stale. Reconnect the controller before making changes."
-          : undefined;
-  const activationFailed = state?.status === "failed";
-  const activationComplete = !!state?.enabled && !pending && !activationFailed;
+  const failed = state?.status === "failed";
+  const modeMatches = !!state && state.enabled === (mode === "activate");
+  const complete = modeMatches && !pending && !failed;
+  const started = submitted || !!pending || (failed && modeMatches);
+  let prerequisite: string | undefined;
+  if (!allowed) {
+    prerequisite = deactivating
+      ? "Disabling mining groups requires permission to disable groups and to start and stop mining."
+      : "Enabling mining groups requires permission to enable groups and to start and stop mining.";
+  } else if (!state) {
+    prerequisite = "Loading controller configuration…";
+  } else if (!state.supported) {
+    prerequisite = "This controller’s firmware does not support mining groups.";
+  } else if (!fresh) {
+    prerequisite = "Controller configuration is stale. Reconnect the controller before making changes.";
+  } else if (deactivating && !started && !complete) {
+    prerequisite = state.deactivationBlockedReason;
+  }
   useEffect(() => {
-    if (activationComplete) refreshPoolAssignments();
-  }, [activationComplete]);
-  const activationStarted = submitted || !!pending || (activationFailed && !!state?.enabled);
+    if (complete) refreshPoolAssignments();
+  }, [complete]);
+  let buttonLabel = actionLabel;
+  if (complete) buttonLabel = "Done";
+  else if (saving) buttonLabel = "Submitting…";
+  else if (started) buttonLabel = "Close";
+
+  let introduction =
+    "Fleet will pause mining to enable mining groups, then resume with the existing pools if this container was running. A stopped container will stay stopped. Any Fleet pool assignment will follow the installed hashboards and be checked against their reported settings.";
+  if (deactivating) introduction = "The container will keep the default group’s pools and mining settings.";
+  const disableBlocked = deactivating && !started && !complete && !!prerequisite;
+  const canMove = disableBlocked && allowed && fresh && !observationError && state?.canReturnToDefault;
+
+  let progressMessage: string | undefined;
+  let progressRole: "alert" | "status" = "status";
+  if (failed) {
+    progressMessage = state.message;
+    progressRole = "alert";
+  } else if (complete) {
+    progressMessage = deactivating ? "Mining groups disabled." : "Mining groups enabled.";
+  } else if (started) {
+    progressMessage = state?.message;
+    if (!progressMessage) progressMessage = deactivating ? "Disabling mining groups…" : "Enabling mining groups…";
+    if (state?.status === "blocked") progressRole = "alert";
+  }
+  if (returningToDefault)
+    return (
+      <ReturnHashboardsToDefaultDialog
+        deviceIdentifier={deviceIdentifier}
+        onClose={() => {
+          setReturningToDefault(false);
+          void refreshState.current?.();
+        }}
+        onComplete={() => {
+          setReturningToDefault(false);
+          void refreshState.current?.();
+        }}
+      />
+    );
   return (
     <Modal
       open
-      title="Enable mining groups"
+      title={actionLabel}
+      dialogLabel={actionLabel}
+      manageFocus
       onDismiss={saving ? undefined : onClose}
       buttons={[
-        {
-          text: activationComplete
-            ? "Done"
-            : saving
-              ? "Submitting…"
-              : activationStarted
-                ? "Close"
-                : "Enable mining groups",
-          variant: "primary",
-          disabled: saving || (!activationComplete && !activationStarted && !ready),
-          dismissModalOnClick: false,
-          onClick: () => {
-            if (activationComplete || activationStarted) onClose();
-            else void submit();
-          },
-        },
+        ...(canMove
+          ? [
+              {
+                text: "Move unallocated hashboards",
+                variant: "primary" as const,
+                disabled: saving,
+                dismissModalOnClick: false,
+                onClick: () => setReturningToDefault(true),
+              },
+            ]
+          : []),
+        ...(!canMove
+          ? [
+              {
+                text: disableBlocked ? "Close" : buttonLabel,
+                variant: disableBlocked ? ("secondary" as const) : ("primary" as const),
+                disabled: saving || (!disableBlocked && !complete && !started && !ready),
+                dismissModalOnClick: false,
+                onClick: () => {
+                  if (disableBlocked || complete || started) onClose();
+                  else void submit();
+                },
+              },
+            ]
+          : []),
       ]}
     >
       <div className="flex flex-col gap-4">
-        {!activationStarted && !activationComplete ? (
-          <p>
-            Fleet will pause mining to enable mining groups, then resume with the existing pools if this container was
-            running. A stopped container will stay stopped. Any Fleet pool assignment will follow the installed
-            hashboards and be checked against their reported settings.
-          </p>
-        ) : null}
+        {!started && !complete && !disableBlocked ? <p>{introduction}</p> : null}
         {prerequisite ? <p role="status">{prerequisite}</p> : null}
-        {activationFailed ? (
-          <p role="alert">{state.message}</p>
-        ) : activationComplete ? (
-          <p role="status">Mining groups enabled.</p>
-        ) : activationStarted ? (
-          <p role={state?.status === "blocked" ? "alert" : "status"}>{state?.message || "Enabling mining groups…"}</p>
-        ) : null}
+        {progressMessage && !disableBlocked ? <p role={progressRole}>{progressMessage}</p> : null}
         {error || observationError ? (
           <p role="alert" className="text-intent-critical-fill">
             {error || observationError}

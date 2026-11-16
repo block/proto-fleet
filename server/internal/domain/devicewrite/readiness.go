@@ -2,6 +2,7 @@ package devicewrite
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 
 	"github.com/block/proto-fleet/server/generated/sqlc"
@@ -121,6 +122,9 @@ func requireNoActivePoolRemoval(ctx context.Context, q sqlc.Querier, organizatio
 }
 
 func requirePoolRemovalAdmission(ctx context.Context, q sqlc.Querier, organizationID, deviceID int64, kind commandtype.Type) error {
+	if err := RequireNoMiningGroupDeactivation(ctx, q, organizationID, deviceID); err != nil {
+		return err
+	}
 	rows, err := q.ListActivePoolRemovals(ctx, sqlc.ListActivePoolRemovalsParams{OrganizationID: organizationID, DeviceID: deviceID})
 	if err != nil {
 		return err
@@ -149,4 +153,24 @@ func requirePoolRemovalAdmission(ctx context.Context, q sqlc.Querier, organizati
 		return fleeterror.NewFailedPreconditionError("pool removal is unfinished; check its result before another device change")
 	}
 	return nil
+}
+
+// Call under the device fence before enqueueing or admitting a mutation. An
+// accepted deactivation reserves mode changes until its exact journal settles.
+func RequireNoMiningGroupDeactivation(ctx context.Context, q sqlc.Querier, organizationID, deviceID int64) error {
+	row, err := q.GetMiningGroupState(ctx, sqlc.GetMiningGroupStateParams{OrganizationID: organizationID, DeviceID: deviceID})
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if row.OperationKind != "deactivate" || (row.Status != "pending" && row.Status != "applying" && row.Status != "blocked") {
+		return nil
+	}
+	current, _ := ctx.Value(attemptContextKey{}).(*Attempt)
+	if current != nil && row.AttemptID.Valid && current.id == row.AttemptID.UUID {
+		return nil
+	}
+	return fleeterror.NewFailedPreconditionError("Mining groups are being disabled. Wait for this change or recovery to finish before submitting device changes.")
 }

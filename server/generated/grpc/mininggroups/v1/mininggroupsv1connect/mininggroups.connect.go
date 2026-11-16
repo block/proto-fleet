@@ -40,12 +40,24 @@ const (
 	// MiningGroupServiceActivateProcedure is the fully-qualified name of the MiningGroupService's
 	// Activate RPC.
 	MiningGroupServiceActivateProcedure = "/mininggroups.v1.MiningGroupService/Activate"
+	// MiningGroupServiceDeactivateProcedure is the fully-qualified name of the MiningGroupService's
+	// Deactivate RPC.
+	MiningGroupServiceDeactivateProcedure = "/mininggroups.v1.MiningGroupService/Deactivate"
+	// MiningGroupServiceReviewReturnToDefaultProcedure is the fully-qualified name of the
+	// MiningGroupService's ReviewReturnToDefault RPC.
+	MiningGroupServiceReviewReturnToDefaultProcedure = "/mininggroups.v1.MiningGroupService/ReviewReturnToDefault"
+	// MiningGroupServiceReturnToDefaultProcedure is the fully-qualified name of the
+	// MiningGroupService's ReturnToDefault RPC.
+	MiningGroupServiceReturnToDefaultProcedure = "/mininggroups.v1.MiningGroupService/ReturnToDefault"
 )
 
 // MiningGroupServiceClient is a client for the mininggroups.v1.MiningGroupService service.
 type MiningGroupServiceClient interface {
 	GetState(context.Context, *connect.Request[v1.GetStateRequest]) (*connect.Response[v1.GetStateResponse], error)
 	Activate(context.Context, *connect.Request[v1.ActivateRequest]) (*connect.Response[v1.ActivateResponse], error)
+	Deactivate(context.Context, *connect.Request[v1.DeactivateRequest]) (*connect.Response[v1.DeactivateResponse], error)
+	ReviewReturnToDefault(context.Context, *connect.Request[v1.ReviewReturnToDefaultRequest]) (*connect.Response[v1.ReviewReturnToDefaultResponse], error)
+	ReturnToDefault(context.Context, *connect.Request[v1.ReturnToDefaultRequest]) (*connect.Response[v1.ReturnToDefaultResponse], error)
 }
 
 // NewMiningGroupServiceClient constructs a client for the mininggroups.v1.MiningGroupService
@@ -68,13 +80,31 @@ func NewMiningGroupServiceClient(httpClient connect.HTTPClient, baseURL string, 
 			baseURL+MiningGroupServiceActivateProcedure,
 			opts...,
 		),
+		deactivate: connect.NewClient[v1.DeactivateRequest, v1.DeactivateResponse](
+			httpClient,
+			baseURL+MiningGroupServiceDeactivateProcedure,
+			opts...,
+		),
+		reviewReturnToDefault: connect.NewClient[v1.ReviewReturnToDefaultRequest, v1.ReviewReturnToDefaultResponse](
+			httpClient,
+			baseURL+MiningGroupServiceReviewReturnToDefaultProcedure,
+			opts...,
+		),
+		returnToDefault: connect.NewClient[v1.ReturnToDefaultRequest, v1.ReturnToDefaultResponse](
+			httpClient,
+			baseURL+MiningGroupServiceReturnToDefaultProcedure,
+			opts...,
+		),
 	}
 }
 
 // miningGroupServiceClient implements MiningGroupServiceClient.
 type miningGroupServiceClient struct {
-	getState *connect.Client[v1.GetStateRequest, v1.GetStateResponse]
-	activate *connect.Client[v1.ActivateRequest, v1.ActivateResponse]
+	getState              *connect.Client[v1.GetStateRequest, v1.GetStateResponse]
+	activate              *connect.Client[v1.ActivateRequest, v1.ActivateResponse]
+	deactivate            *connect.Client[v1.DeactivateRequest, v1.DeactivateResponse]
+	reviewReturnToDefault *connect.Client[v1.ReviewReturnToDefaultRequest, v1.ReviewReturnToDefaultResponse]
+	returnToDefault       *connect.Client[v1.ReturnToDefaultRequest, v1.ReturnToDefaultResponse]
 }
 
 // GetState calls mininggroups.v1.MiningGroupService.GetState.
@@ -87,10 +117,28 @@ func (c *miningGroupServiceClient) Activate(ctx context.Context, req *connect.Re
 	return c.activate.CallUnary(ctx, req)
 }
 
+// Deactivate calls mininggroups.v1.MiningGroupService.Deactivate.
+func (c *miningGroupServiceClient) Deactivate(ctx context.Context, req *connect.Request[v1.DeactivateRequest]) (*connect.Response[v1.DeactivateResponse], error) {
+	return c.deactivate.CallUnary(ctx, req)
+}
+
+// ReviewReturnToDefault calls mininggroups.v1.MiningGroupService.ReviewReturnToDefault.
+func (c *miningGroupServiceClient) ReviewReturnToDefault(ctx context.Context, req *connect.Request[v1.ReviewReturnToDefaultRequest]) (*connect.Response[v1.ReviewReturnToDefaultResponse], error) {
+	return c.reviewReturnToDefault.CallUnary(ctx, req)
+}
+
+// ReturnToDefault calls mininggroups.v1.MiningGroupService.ReturnToDefault.
+func (c *miningGroupServiceClient) ReturnToDefault(ctx context.Context, req *connect.Request[v1.ReturnToDefaultRequest]) (*connect.Response[v1.ReturnToDefaultResponse], error) {
+	return c.returnToDefault.CallUnary(ctx, req)
+}
+
 // MiningGroupServiceHandler is an implementation of the mininggroups.v1.MiningGroupService service.
 type MiningGroupServiceHandler interface {
 	GetState(context.Context, *connect.Request[v1.GetStateRequest]) (*connect.Response[v1.GetStateResponse], error)
 	Activate(context.Context, *connect.Request[v1.ActivateRequest]) (*connect.Response[v1.ActivateResponse], error)
+	Deactivate(context.Context, *connect.Request[v1.DeactivateRequest]) (*connect.Response[v1.DeactivateResponse], error)
+	ReviewReturnToDefault(context.Context, *connect.Request[v1.ReviewReturnToDefaultRequest]) (*connect.Response[v1.ReviewReturnToDefaultResponse], error)
+	ReturnToDefault(context.Context, *connect.Request[v1.ReturnToDefaultRequest]) (*connect.Response[v1.ReturnToDefaultResponse], error)
 }
 
 // NewMiningGroupServiceHandler builds an HTTP handler from the service implementation. It returns
@@ -109,12 +157,33 @@ func NewMiningGroupServiceHandler(svc MiningGroupServiceHandler, opts ...connect
 		svc.Activate,
 		opts...,
 	)
+	miningGroupServiceDeactivateHandler := connect.NewUnaryHandler(
+		MiningGroupServiceDeactivateProcedure,
+		svc.Deactivate,
+		opts...,
+	)
+	miningGroupServiceReviewReturnToDefaultHandler := connect.NewUnaryHandler(
+		MiningGroupServiceReviewReturnToDefaultProcedure,
+		svc.ReviewReturnToDefault,
+		opts...,
+	)
+	miningGroupServiceReturnToDefaultHandler := connect.NewUnaryHandler(
+		MiningGroupServiceReturnToDefaultProcedure,
+		svc.ReturnToDefault,
+		opts...,
+	)
 	return "/mininggroups.v1.MiningGroupService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case MiningGroupServiceGetStateProcedure:
 			miningGroupServiceGetStateHandler.ServeHTTP(w, r)
 		case MiningGroupServiceActivateProcedure:
 			miningGroupServiceActivateHandler.ServeHTTP(w, r)
+		case MiningGroupServiceDeactivateProcedure:
+			miningGroupServiceDeactivateHandler.ServeHTTP(w, r)
+		case MiningGroupServiceReviewReturnToDefaultProcedure:
+			miningGroupServiceReviewReturnToDefaultHandler.ServeHTTP(w, r)
+		case MiningGroupServiceReturnToDefaultProcedure:
+			miningGroupServiceReturnToDefaultHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -130,4 +199,16 @@ func (UnimplementedMiningGroupServiceHandler) GetState(context.Context, *connect
 
 func (UnimplementedMiningGroupServiceHandler) Activate(context.Context, *connect.Request[v1.ActivateRequest]) (*connect.Response[v1.ActivateResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("mininggroups.v1.MiningGroupService.Activate is not implemented"))
+}
+
+func (UnimplementedMiningGroupServiceHandler) Deactivate(context.Context, *connect.Request[v1.DeactivateRequest]) (*connect.Response[v1.DeactivateResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("mininggroups.v1.MiningGroupService.Deactivate is not implemented"))
+}
+
+func (UnimplementedMiningGroupServiceHandler) ReviewReturnToDefault(context.Context, *connect.Request[v1.ReviewReturnToDefaultRequest]) (*connect.Response[v1.ReviewReturnToDefaultResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("mininggroups.v1.MiningGroupService.ReviewReturnToDefault is not implemented"))
+}
+
+func (UnimplementedMiningGroupServiceHandler) ReturnToDefault(context.Context, *connect.Request[v1.ReturnToDefaultRequest]) (*connect.Response[v1.ReturnToDefaultResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("mininggroups.v1.MiningGroupService.ReturnToDefault is not implemented"))
 }

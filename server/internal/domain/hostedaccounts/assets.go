@@ -20,6 +20,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/infrastructure/db"
 	sdk "github.com/block/proto-fleet/server/sdk/v1"
+	"github.com/jackc/pgx/v5/pgconn"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
@@ -780,6 +781,18 @@ func (s *Service) AssignAssets(ctx context.Context, actorID, orgID int64, reques
 				return assetConflict()
 			}
 		}
+		if assigning {
+			controllers := []int64{}
+			for _, selection := range leaves {
+				if selection.Kind == pb.MiningAssetKind_MINING_ASSET_KIND_HASHBOARD {
+					controllers = append(controllers, current[[2]int64{int64(selection.Kind), selection.Id}].DeviceID)
+				}
+			}
+			slices.Sort(controllers)
+			if err := requireAllocationMiningGroups(ctx, q, orgID, slices.Compact(controllers)); err != nil {
+				return err
+			}
+		}
 		allocationAssets, err := json.Marshal(leaves)
 		if err != nil {
 			return fleeterror.NewInternalErrorf("encode allocation assets: %w", err)
@@ -872,8 +885,12 @@ func lockMiningDevices(ctx context.Context, q sqlc.Querier, deviceIDs []int64) e
 		return err
 	}
 	for _, deviceID := range deviceIDs {
-		discoveryID, err := q.LockMinerBindingDevice(ctx, deviceID)
+		discoveryID, err := q.LockMinerBindingDeviceForAllocation(ctx, deviceID)
 		if err != nil {
+			var pgErr *pgconn.PgError
+			if errors.As(err, &pgErr) && pgErr.Code == "55P03" {
+				return fleeterror.NewUnavailableErrorf("Selected equipment is busy. Retry the allocation after the current device operation finishes.")
+			}
 			return missingAssetConflict(err)
 		}
 		if _, err = q.LockMinerBindingDiscovery(ctx, discoveryID); err != nil {

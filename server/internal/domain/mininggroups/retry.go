@@ -18,7 +18,12 @@ func (s *Service) reconcileScheduled(ctx context.Context, row sqlc.ListMiningGro
 
 func (s *Service) reconcileScheduledWithTimeout(ctx context.Context, row sqlc.ListMiningGroupControllersRow, timeout time.Duration) error {
 	callCtx, cancel := context.WithTimeout(ctx, timeout)
-	err := s.Reconcile(callCtx, row.OrganizationID, row.DeviceID, row.DeviceIdentifier)
+	var err error
+	if row.Readiness {
+		err = s.refreshAllocationReadiness(callCtx, row.OrganizationID, row.DeviceID, row.DeviceIdentifier)
+	} else {
+		err = s.Reconcile(callCtx, row.OrganizationID, row.DeviceID, row.DeviceIdentifier)
+	}
 	cancel()
 	if ctx.Err() != nil {
 		return err

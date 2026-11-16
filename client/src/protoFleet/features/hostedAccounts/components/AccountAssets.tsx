@@ -23,6 +23,7 @@ import {
 import ListPagination from "@/protoFleet/components/ListPagination";
 import ListSearchInput from "@/protoFleet/components/ListSearchInput";
 import { POLL_INTERVAL_MS } from "@/protoFleet/constants/polling";
+import ReturnHashboardsToDefaultDialog from "@/protoFleet/features/containers/ReturnHashboardsToDefaultDialog";
 import FleetListActionBar from "@/protoFleet/features/fleetManagement/components/ActionBar/FleetListActionBar";
 import {
   type MinerColumn,
@@ -93,6 +94,7 @@ const AccountAssets = ({
   const [selected, setSelected] = useState<string[]>([]);
   const [review, setReview] = useState<Review | null>(null);
   const [poolTargets, setPoolTargets] = useState<AccountAsset[]>();
+  const [returnToDefaultBoards, setReturnToDefaultBoards] = useState<bigint[]>();
   const [conflictNotice, setConflictNotice] = useState("");
   const assignmentPending = useRef(false);
   const pageToken = pages[pages.length - 1];
@@ -849,7 +851,7 @@ const AccountAssets = ({
           confirm={`${reviewAction} ${countLabel(review.assets.length)}`}
           valid={reviewTarget ? review.intent === AssetAssignmentIntent.RECALL || !reviewTarget.suspended : false}
           onDismiss={() => setReview(null)}
-          onSubmit={async () => {
+          onSubmit={async (current) => {
             if (assignmentPending.current) return;
             assignmentPending.current = true;
             try {
@@ -869,6 +871,15 @@ const AccountAssets = ({
                   return;
                 }
                 throw error;
+              }
+              if (!current()) return;
+              if (!reviewingAssignment && account.depth === 0) {
+                const recalledBoards = review.assets.flatMap((asset) => {
+                  if (asset.kind === MiningAssetKind.HASHBOARD) return [asset.id];
+                  if (asset.kind === MiningAssetKind.MODULE) return asset.boards.map((board) => board.id);
+                  return [];
+                });
+                if (recalledBoards.length) setReturnToDefaultBoards(recalledBoards);
               }
               const success = reviewingAssignment
                 ? `Allocated ${countLabel(review.assets.length)} to ${reviewTarget!.name}.`
@@ -916,6 +927,16 @@ const AccountAssets = ({
             manually.
           </p>
         </ActionModal>
+      ) : null}
+      {returnToDefaultBoards ? (
+        <ReturnHashboardsToDefaultDialog
+          hashboardIds={returnToDefaultBoards}
+          onClose={() => setReturnToDefaultBoards(undefined)}
+          onComplete={() => {
+            setReturnToDefaultBoards(undefined);
+            refresh();
+          }}
+        />
       ) : null}
       {replacing && editable && !readOnly ? (
         <ReplaceHashboardDialog

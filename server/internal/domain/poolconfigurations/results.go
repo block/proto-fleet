@@ -78,7 +78,7 @@ func (r *Repository) GetOperation(ctx context.Context, q sqlc.Querier, scope Sco
 			name = config.Name
 		}
 		state := event.State
-		if state == "ready" {
+		if state == "ready" || state == "deferred" {
 			state = "pending"
 		}
 		target := publicOperationTarget(sqlc.PoolConfigurationOperationTarget{TargetKind: event.TargetKind, TargetID: event.TargetID, State: state, ResultCode: event.ResultCode, UpdatedAt: event.UpdatedAt, ReviewedBinding: event.ReviewedBinding})

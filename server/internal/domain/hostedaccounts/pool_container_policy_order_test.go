@@ -108,6 +108,12 @@ func TestContainerPolicySelectionPreservesIneligibleAndNewerWork(t *testing.T) {
 	accepted := capture("ready", 0, "ownership", nil, board, nil)
 	linked := capture("pending", 0, "ownership", nil, board, uuid.NewString())
 	older := capture("pending", 0, "ownership", nil, board, nil)
+	_, _, _, cipher, _ := poolFixture(t, f.fixture)
+	config, err := poolconfigurations.NewRepository(cipher).Create(t.Context(), q, poolconfigurations.Scope{OrganizationID: f.org}, poolOptions(nil))
+	require.NoError(t, err)
+	var olderApply uuid.UUID
+	require.NoError(t, f.db.QueryRowContext(t.Context(), `INSERT INTO pool_lifecycle_transition(organization_id,device_id,asset_kind,asset_id,reason,configuration_id,revision_id)
+ VALUES($1,$2,7,$3,'ownership',$4,$5) RETURNING transition_id`, f.org, controller, board, config.ID, config.RevisionID).Scan(&olderApply))
 	selected := capture("pending", 0, "ownership", nil, board, nil)
 	// Neither stale ownership nor an absent installation can displace valid work.
 	capture("pending", 1, "ownership", nil, board, nil)
@@ -131,7 +137,7 @@ func TestContainerPolicySelectionPreservesIneligibleAndNewerWork(t *testing.T) {
 		id    uuid.UUID
 		state string
 	}{
-		{older, "superseded"}, {selected, "pending"}, {newer, "pending"}, {accepted, "ready"}, {linked, "pending"},
+		{older, "pending"}, {olderApply, "superseded"}, {selected, "pending"}, {newer, "pending"}, {accepted, "ready"}, {linked, "pending"},
 	} {
 		row, err := q.GetPoolLifecycleTransition(t.Context(), tc.id)
 		require.NoError(t, err)

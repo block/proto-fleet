@@ -200,9 +200,12 @@ var ProcedurePermissions = map[string]string{
 	containersv1connect.ContainerServiceGetControllerLogsProcedure:         authz.PermSiteRead,
 	containersv1connect.ContainerServiceListControllerAuditEventsProcedure: authz.PermSiteRead,
 	// Handler resolves every tank/module and enforces the requested mining permission at its current site.
-	containersv1connect.ContainerServiceSetTankMiningProcedure: authz.PermSiteRead,
-	mininggroupsv1connect.MiningGroupServiceGetStateProcedure:  authz.PermSiteRead,
-	mininggroupsv1connect.MiningGroupServiceActivateProcedure:  authz.PermSiteRead,
+	containersv1connect.ContainerServiceSetTankMiningProcedure:             authz.PermSiteRead,
+	mininggroupsv1connect.MiningGroupServiceGetStateProcedure:              authz.PermSiteRead,
+	mininggroupsv1connect.MiningGroupServiceActivateProcedure:              authz.PermSiteRead,
+	mininggroupsv1connect.MiningGroupServiceDeactivateProcedure:            authz.PermSiteRead,
+	mininggroupsv1connect.MiningGroupServiceReviewReturnToDefaultProcedure: authz.PermSiteRead,
+	mininggroupsv1connect.MiningGroupServiceReturnToDefaultProcedure:       authz.PermSiteRead,
 
 	// Frigate software updates. Every method enforces controller:software_update:
 	// container methods at the container's site, package listing and upload at any

@@ -51,6 +51,7 @@ export function canEditHashboardPools(state: GetStateResponse | undefined) {
   return (
     !!state?.supported &&
     state.enabled &&
+    !state.suspended &&
     isCurrentObservation(state.observedAt, Date.now()) &&
     !["pending", "applying", "blocked"].includes(state.status)
   );

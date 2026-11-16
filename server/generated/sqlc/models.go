@@ -659,6 +659,7 @@ type ContainerMiningGroupState struct {
 	ActivationResumeMining  sql.NullBool
 	ActivationStopRequested bool
 	TransferFailureCount    int32
+	DefaultReturn           pqtype.NullRawMessage
 }
 
 type ContainerModule struct {
@@ -2702,6 +2703,12 @@ type MiningGroupRequest struct {
 	DeviceID       int64
 	Fingerprint    string
 	CreatedAt      time.Time
+}
+
+type MiningGroupStepDispatch struct {
+	StepKey         uuid.UUID
+	AttemptID       uuid.UUID
+	DispatchStarted bool
 }
 
 type NotificationActive struct {

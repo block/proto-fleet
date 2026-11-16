@@ -7,6 +7,11 @@
 -- name: LockMinerBindingDevice :one
 SELECT discovered_device_id FROM device WHERE id=$1 FOR NO KEY UPDATE;
 
+-- name: LockMinerBindingDeviceForAllocation :one
+-- Allocation holds organization admission. Do not retain that lock while a
+-- controller observation or mutation holds the device binding for I/O.
+SELECT discovered_device_id FROM device WHERE id=$1 FOR NO KEY UPDATE NOWAIT;
+
 -- name: LockMinerBindingObservationDevice :one
 SELECT discovered_device_id FROM device WHERE id=$1 FOR SHARE;
 

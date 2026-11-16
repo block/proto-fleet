@@ -4,6 +4,14 @@ Use golang-migrate and the existing `schema_migrations(version, dirty)` row.
 Shared and private SQL use one sequence: shared baseline 1000, private baseline
 1001, then ordinary migrations. Baselines run only on empty databases.
 
+The unmerged CT1 mining-group branch used versions 1076–1079 before it
+integrated the main migration sequence through 1081. Its guards, confirmed
+return to Default, and dispatch records now use 1082–1084. A development
+database that used the earlier branch sequence has a different schema at
+those versions. Keep that database for inspection and create a separate
+current-schema development database. Do not force its version or replay
+the new sequence against it.
+
 ## Existing databases
 
 ### Mining-group activation assignment handoff (1070)

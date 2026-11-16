@@ -10,6 +10,12 @@ import "common/v1/sort.proto";
 import "telemetry/v1/telemetry.proto";
 import "google/protobuf/timestamp.proto";
 
+// Endpoint error details for allocation and board replacement.
+enum AssetAssignmentErrorCode {
+  ASSET_ASSIGNMENT_ERROR_CODE_UNSPECIFIED = 0;
+  ASSET_ASSIGNMENT_ERROR_CODE_MINING_GROUPS_NOT_READY = 1;
+}
+
 // HostedAccountService uses account authority independently of organization RBAC.
 // Every private account operation names its account; names are display labels.
 // invitation.v1.InvitationService redeems the invitation codes issued here.

@@ -113,6 +113,43 @@ func (a *grpcAPI) GetMiningGroupCapability(ctx context.Context, _ *mdk.GetMining
 		return &mdk.GetMiningGroupCapabilityResponse{Capability: g.capability}, nil
 	})
 }
+
+func (a *grpcAPI) DeactivateMiningGroups(ctx context.Context, r *mdk.DeactivateMiningGroupsRequest) (*mdk.DeactivateMiningGroupsResponse, error) {
+	return miningGroupRPC(ctx, a, r.IdempotencyKey, r, func(s *ContainerState, g *simulatedMiningGroups) (*mdk.DeactivateMiningGroupsResponse, error) {
+		if r.ExpectedStateRevision != g.capability.StateRevision {
+			return nil, status.Error(codes.Aborted, "mining group state changed")
+		}
+		for _, member := range g.members {
+			if member.GroupId != "default" {
+				return nil, status.Error(codes.FailedPrecondition, "mining groups are still in use")
+			}
+		}
+		for _, operation := range g.operations {
+			if operation.Phase != "COMPLETE" && operation.Phase != "FAILED" {
+				return nil, status.Error(codes.FailedPrecondition, "mining group operations are unfinished")
+			}
+		}
+		if g.capability.Enabled {
+			// Legacy mode takes over the current default policy. Keep board states
+			// unchanged so disabling groups does not start or stop mining.
+			s.pools = make(map[int64]simulatedPool, len(g.pools["default"]))
+			for _, input := range g.pools["default"] {
+				p := proto.CloneOf(input.Pool)
+				id := int64(p.Id)
+				s.pools[id] = simulatedPool{pool: &mdk.Pool{Id: id, Name: p.Name, Url: p.Url, Username: p.Username, Priority: p.Priority, Enabled: p.Enabled, ShareWeight: p.ShareWeight}, password: input.GetPassword()}
+				s.nextPoolID = max(s.nextPoolID, id)
+			}
+			clear(g.groups)
+			clear(g.pools)
+			clear(g.members)
+			// Retain operation history, receipts and sequence numbers across modes.
+		}
+		g.capability.Enabled = false
+		g.capability.Suspended = false
+		g.capability.StateRevision++
+		return &mdk.DeactivateMiningGroupsResponse{Capability: g.capability}, nil
+	})
+}
 func (a *grpcAPI) ActivateMiningGroups(ctx context.Context, r *mdk.ActivateMiningGroupsRequest) (*mdk.ActivateMiningGroupsResponse, error) {
 	return miningGroupRPC(ctx, a, r.IdempotencyKey, r, func(s *ContainerState, g *simulatedMiningGroups) (*mdk.ActivateMiningGroupsResponse, error) {
 		if r.ExpectedStateRevision != g.capability.StateRevision {
@@ -131,9 +168,9 @@ func (a *grpcAPI) ActivateMiningGroups(ctx context.Context, r *mdk.ActivateMinin
 		}
 		now := timestamppb.New(s.now())
 		g.groups["default"] = &mdk.MiningGroupRecord{Id: "default", Name: "Default", Revision: 1, CreatedAt: now, UpdatedAt: now}
-		for _, p := range s.poolDTOs() {
-			password := s.pools[int64(p.ID)].password
-			g.pools["default"] = append(g.pools["default"], &mdk.MiningGroupPoolInput{Pool: &mdk.MiningGroupPoolRecord{Id: int32(p.ID), Name: p.Name, Url: p.URL, Username: p.Username, Priority: p.Priority, Enabled: p.Enabled}, Password: &password})
+		for _, p := range s.storedPools() {
+			password := s.pools[p.Id].password
+			g.pools["default"] = append(g.pools["default"], &mdk.MiningGroupPoolInput{Pool: &mdk.MiningGroupPoolRecord{Id: int32(p.Id), Name: p.Name, Url: p.Url, Username: p.Username, Priority: p.Priority, Enabled: p.Enabled, ShareWeight: p.ShareWeight}, Password: &password})
 		}
 		for _, b := range s.eachBoard() {
 			g.members[strings.ToLower(b.MAC)] = &mdk.MiningGroupMembershipRecord{MacAddress: strings.ToLower(b.MAC), GroupId: "default", Generation: 1, AssignedAt: now}

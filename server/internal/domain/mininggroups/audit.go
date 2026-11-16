@@ -25,6 +25,12 @@ func activityID(orgID int64, operation uuid.UUID, phase string) uuid.UUID {
 }
 
 func activitySubject(kind string) string {
+	if kind == operationReturnDefault {
+		return "Hashboard return to Default"
+	}
+	if kind == operationDeactivate {
+		return "Mining-group deactivation"
+	}
 	if kind == operationActivate {
 		return "Mining-group activation"
 	}

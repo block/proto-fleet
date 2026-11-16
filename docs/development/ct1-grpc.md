@@ -655,6 +655,80 @@ and disconnect settings retain their presence and values.
 Global start/stop retains the firmware semantics: with mining groups enabled it
 changes only the default group; isolated boards retain their individual state.
 
+## Allocation and mining-group mode
+
+Allocating or delegating CT1 hashboards requires a supported, enabled mining-group
+observation from the last two minutes. Suspended, changing, unknown and stale modes
+are rejected. The observation must be newer than the current device fence. Pending
+physical mutations also prevent allocation. Module selections expand to exact
+installed boards and use the same rule. Recall remains available in every mode.
+Manual and automatic board replacements follow the same readiness rule; an
+automatic replacement waits without discarding the accepted inventory.
+Automatic replacement skips busy device fences and mode observations, then
+retries on a later inventory poll. Manual allocation returns a retryable busy
+error during a conflicting device operation instead of waiting while holding
+organization admission.
+Fleet refreshes known idle CT1 controllers about once per minute, including
+containers with no allocated boards. Recall and a return to Default therefore
+keep the mode fresh for the next allocation. Allocation errors distinguish stale
+observations from disabled mode and unfinished device work.
+After a successful refresh, the next accepted inventory poll can retry replacement.
+Failed observations keep replacement blocked and retry with backoff.
+
+Each saved mining-group request has a durable dispatch record. Fleet records
+the request as unsent in the journal transaction. Before sending it, Fleet
+commits a dispatch marker separately, so a failed receipt save cannot erase
+delivery uncertainty. If recall changes ownership before dispatch, Fleet can
+retire the unsent request after a settled controller observation. The new owner
+cleanup can then proceed. Ownership changes cannot pass between validation and
+dispatch. Sent requests and older requests without dispatch history keep their
+recovery guards; matching readback alone does not prove that a request ended.
+
+The container menu offers **Disable mining groups** to operators with
+`miner:deactivate_mining_groups`, start-mining and stop-mining permissions. The
+dialog explains why the action is blocked. All boards must be recalled, and pool
+applications, removals, ownership cleanup and uncertain device writes must settle
+first. A completed or terminally rejected operation does not block forever. A
+clear awaiting a proven-safe retry still counts as unfinished work.
+
+For remote controllers, upgrade the Fleet Node to command protocol V15 before
+disabling mining groups. Fleet checks the live node version before committing
+deactivation. Existing mining-group reads and commands still require only V6.
+
+Deactivation uses the existing durable mining-group journal. Fleet commits the
+exact request before sending it and retains its identity after a lost response.
+Fresh disabled-mode readback completes the operation. New device commands, pool
+work and allocations cannot pass admission while deactivation is pending. Frigate
+also requires boards to leave non-default groups and its internal power work to
+settle. After a recall to the host, Fleet offers a separate confirmation to move
+the exact recalled hashboards to **Default**. Reviewed module selections keep
+their original board membership. Operators can leave this step until later;
+recall and loss of client access remain complete if the move fails.
+
+The confirmation shows Default's pools and mining intent after ownership cleanup
+settles. Moving boards can resume mining when Default is running; a stopped
+Default stays stopped. Fleet changes membership only, without rewriting Default's
+pools or starting or stopping the group. The accepted workflow retains the exact
+installations, ownership revisions and confirmed settings. Lost replies replay
+the saved request; changed settings require another review. Only confirmed
+returns retire the selected boards' old pool and completed-clear intents.
+
+The Disable dialog offers the same confirmed action for all unallocated boards
+still outside Default. Disable remains blocked until those moves and cleanup
+settle. Returning boards requires permission to change pools and start and stop
+mining. A recall between client accounts does not offer a return to host Default.
+
+Inventory and pairing observations continue during deactivation. Automatic pool
+policies recorded by those observations wait until deactivation settles, then
+resume against the current controller mode. Confirmed deactivation clears the
+old controller-group bindings while retaining snapshots and request receipts.
+
+Firmware changes outside Fleet can still change mode. Whole-container ownership
+clears therefore retain sibling board requests until the clear is verified. After
+a pre-dispatch failure, a change to enabled mode can reprepare each original board
+without losing the other boards' cleanup. Successful whole-container readback
+settles only covered, earlier pending clears for the same owner.
+
 ## Controller logs and audit trail
 
 Fleet reads a CT1 controller's own logs and audit events on demand through
