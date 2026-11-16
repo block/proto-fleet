@@ -978,7 +978,8 @@ func start(config *Config) (result error) {
 	mux.Handle(buildingsv1connect.NewBuildingServiceHandler(buildingsHandler.NewHandler(buildingsSvc), li))
 	mux.Handle(mininggroupsv1connect.NewMiningGroupServiceHandler(mininggroupsHandler.NewHandler(groupsSvc), li))
 	mux.Handle(frigateupdatev1connect.NewFrigateUpdateServiceHandler(frigateUpdateHandler.NewHandler(frigateUpdateSvc), li))
-	mux.Handle(containersv1connect.NewContainerServiceHandler(containersHandler.NewHandler(containersDomain.NewService(sqlstores.NewSQLContainerStore(conn))).WithCommands(commandSvc), li))
+	containersPath, containersHTTP := containersv1connect.NewContainerServiceHandler(containersHandler.NewHandler(containersDomain.NewService(sqlstores.NewSQLContainerStore(conn))).WithCommands(commandSvc), li)
+	mux.Handle(containersPath, containersHandler.WithBoardASICStreamWriteDeadline(containersHTTP, commandDomain.BoardASICStreamWriteBudget()))
 	mux.Handle(fleetinventoryv1connect.NewFleetInventoryServiceHandler(fleetInventoryHandler.NewHandler(fleetInventoryDomain.NewService(db.NewFailoverResettingQuerier(db.NewRetryDB(conn))).WithBuildings(buildingStore).WithMiners(fleetMgmtSvc)), li))
 	mux.Handle(infrastructurev1connect.NewInfrastructureServiceHandler(infrastructureHandler.NewHandler(infrastructureSvc), li))
 	mux.Handle(sitemapv1connect.NewSiteMapServiceHandler(

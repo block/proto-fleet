@@ -29,6 +29,12 @@ var (
 
 var errBoardASICStreamIdle = errors.New("board ASIC stream idle")
 
+// BoardASICStreamWriteBudget is how long one stream's response may take to
+// write: its lifetime, plus the idle timeout for the last write to finish.
+func BoardASICStreamWriteBudget() time.Duration {
+	return boardASICStreamLifetime + boardASICStreamIdleTimeout
+}
+
 const (
 	boardASICStreamChangedReason     = "This board moved or was replaced. Reopen it from its module."
 	boardASICStreamIdentityReason    = "Board identity is unavailable. Refresh the module and check its controller connection."
