@@ -2,18 +2,31 @@
 -- Commit with the encrypted journal before any controller dispatch.
 INSERT INTO mining_group_step_dispatch(step_key,attempt_id) VALUES($1,$2);
 
--- name: MarkMiningGroupStepDispatch :execrows
+-- name: MarkMiningGroupStepDispatch :one
 -- Commit independently before I/O. A rollback of the binding transaction must
 -- never make an attempted request look unsent. Missing history stays unknown.
-INSERT INTO mining_group_step_dispatch(step_key,attempt_id,dispatch_started) VALUES($1,$2,TRUE)
-ON CONFLICT(step_key) DO UPDATE SET dispatch_started=TRUE
-WHERE mining_group_step_dispatch.attempt_id=EXCLUDED.attempt_id;
+WITH previous AS MATERIALIZED (
+ SELECT tracking.dispatch_started FROM mining_group_step_dispatch tracking
+ WHERE tracking.step_key=$1 AND tracking.attempt_id=$2 FOR UPDATE
+), marked AS (
+ UPDATE mining_group_step_dispatch tracking SET dispatch_started=TRUE,dispatch_token=$3
+ FROM previous WHERE tracking.step_key=$1 AND tracking.attempt_id=$2
+ RETURNING NOT previous.dispatch_started AS was_unsent
+), missing AS (
+ INSERT INTO mining_group_step_dispatch(step_key,attempt_id,dispatch_started,dispatch_token)
+ SELECT $1,$2,TRUE,$3 WHERE NOT EXISTS(SELECT 1 FROM previous)
+ ON CONFLICT(step_key) DO NOTHING
+ RETURNING FALSE AS was_unsent
+)
+SELECT COALESCE(result.was_unsent,FALSE)::boolean AS was_unsent
+FROM (SELECT was_unsent FROM marked UNION ALL SELECT was_unsent FROM missing) result;
 
 -- name: RestoreMiningGroupStepUnsent :execrows
--- Call only when the first marked attempt returned explicit proof that no
--- outbound request began. A caller must never erase an earlier uncertain send.
+-- Restore only when the marker was unsent before this invocation and its call
+-- proved no outbound request began. A newer dispatch token must never be cleared.
+-- Repeating the same restore is safe, including after a lost acknowledgement.
 UPDATE mining_group_step_dispatch SET dispatch_started=FALSE
-WHERE step_key=$1 AND attempt_id=$2 AND dispatch_started;
+WHERE step_key=$1 AND attempt_id=$2 AND dispatch_token=$3;
 
 -- name: MiningGroupStepIsUnsent :one
 -- The caller holds the workflow's journal and binding locks through retirement.

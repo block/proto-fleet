@@ -11,25 +11,37 @@ import (
 	"github.com/google/uuid"
 )
 
-const markMiningGroupStepDispatch = `-- name: MarkMiningGroupStepDispatch :execrows
-INSERT INTO mining_group_step_dispatch(step_key,attempt_id,dispatch_started) VALUES($1,$2,TRUE)
-ON CONFLICT(step_key) DO UPDATE SET dispatch_started=TRUE
-WHERE mining_group_step_dispatch.attempt_id=EXCLUDED.attempt_id
+const markMiningGroupStepDispatch = `-- name: MarkMiningGroupStepDispatch :one
+WITH previous AS MATERIALIZED (
+ SELECT tracking.dispatch_started FROM mining_group_step_dispatch tracking
+ WHERE tracking.step_key=$1 AND tracking.attempt_id=$2 FOR UPDATE
+), marked AS (
+ UPDATE mining_group_step_dispatch tracking SET dispatch_started=TRUE,dispatch_token=$3
+ FROM previous WHERE tracking.step_key=$1 AND tracking.attempt_id=$2
+ RETURNING NOT previous.dispatch_started AS was_unsent
+), missing AS (
+ INSERT INTO mining_group_step_dispatch(step_key,attempt_id,dispatch_started,dispatch_token)
+ SELECT $1,$2,TRUE,$3 WHERE NOT EXISTS(SELECT 1 FROM previous)
+ ON CONFLICT(step_key) DO NOTHING
+ RETURNING FALSE AS was_unsent
+)
+SELECT COALESCE(result.was_unsent,FALSE)::boolean AS was_unsent
+FROM (SELECT was_unsent FROM marked UNION ALL SELECT was_unsent FROM missing) result
 `
 
 type MarkMiningGroupStepDispatchParams struct {
-	StepKey   uuid.UUID
-	AttemptID uuid.UUID
+	StepKey       uuid.UUID
+	AttemptID     uuid.UUID
+	DispatchToken uuid.UUID
 }
 
 // Commit independently before I/O. A rollback of the binding transaction must
 // never make an attempted request look unsent. Missing history stays unknown.
-func (q *Queries) MarkMiningGroupStepDispatch(ctx context.Context, arg MarkMiningGroupStepDispatchParams) (int64, error) {
-	result, err := q.exec(ctx, q.markMiningGroupStepDispatchStmt, markMiningGroupStepDispatch, arg.StepKey, arg.AttemptID)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected()
+func (q *Queries) MarkMiningGroupStepDispatch(ctx context.Context, arg MarkMiningGroupStepDispatchParams) (bool, error) {
+	row := q.queryRow(ctx, q.markMiningGroupStepDispatchStmt, markMiningGroupStepDispatch, arg.StepKey, arg.AttemptID, arg.DispatchToken)
+	var was_unsent bool
+	err := row.Scan(&was_unsent)
+	return was_unsent, err
 }
 
 const miningGroupStepIsUnsent = `-- name: MiningGroupStepIsUnsent :one
@@ -66,18 +78,20 @@ func (q *Queries) RegisterMiningGroupStep(ctx context.Context, arg RegisterMinin
 
 const restoreMiningGroupStepUnsent = `-- name: RestoreMiningGroupStepUnsent :execrows
 UPDATE mining_group_step_dispatch SET dispatch_started=FALSE
-WHERE step_key=$1 AND attempt_id=$2 AND dispatch_started
+WHERE step_key=$1 AND attempt_id=$2 AND dispatch_token=$3
 `
 
 type RestoreMiningGroupStepUnsentParams struct {
-	StepKey   uuid.UUID
-	AttemptID uuid.UUID
+	StepKey       uuid.UUID
+	AttemptID     uuid.UUID
+	DispatchToken uuid.UUID
 }
 
-// Call only when the first marked attempt returned explicit proof that no
-// outbound request began. A caller must never erase an earlier uncertain send.
+// Restore only when the marker was unsent before this invocation and its call
+// proved no outbound request began. A newer dispatch token must never be cleared.
+// Repeating the same restore is safe, including after a lost acknowledgement.
 func (q *Queries) RestoreMiningGroupStepUnsent(ctx context.Context, arg RestoreMiningGroupStepUnsentParams) (int64, error) {
-	result, err := q.exec(ctx, q.restoreMiningGroupStepUnsentStmt, restoreMiningGroupStepUnsent, arg.StepKey, arg.AttemptID)
+	result, err := q.exec(ctx, q.restoreMiningGroupStepUnsentStmt, restoreMiningGroupStepUnsent, arg.StepKey, arg.AttemptID, arg.DispatchToken)
 	if err != nil {
 		return 0, err
 	}

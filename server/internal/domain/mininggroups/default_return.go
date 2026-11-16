@@ -374,14 +374,14 @@ func (s *Service) validateDefaultReturn(ctx context.Context, q sqlc.Querier, row
 		return capture, err
 	}
 	if len(ids) == 0 || !reflect.DeepEqual(boards, capture.Boards) {
-		return capture, fleeterror.NewFailedPreconditionError("Board ownership, installation or pool policy changed. Review the recalled boards again.")
+		return capture, newWorkflowChangedError("Board ownership, installation or pool policy changed. Review the recalled boards again.")
 	}
 	ready, err := q.GetMiningGroupBoards(ctx, sqlc.GetMiningGroupBoardsParams{OrganizationID: row.OrganizationID, HashboardIds: ids})
 	if err != nil {
 		return capture, err
 	}
 	if len(ready) != len(ids) {
-		return capture, fleeterror.NewUnavailableErrorf("Hashboard inventory is stale. Waiting for a fresh inventory.")
+		return capture, newInventoryStaleError("Hashboard inventory is stale. Waiting for a fresh inventory.")
 	}
 	return capture, nil
 }
@@ -403,10 +403,13 @@ func (s *Service) reconcileDefaultReturn(ctx context.Context, q sqlc.Querier, ro
 	row.ObservedAt = sql.NullTime{Time: time.Now().UTC(), Valid: true}
 	capture, err := s.validateDefaultReturn(ctx, q, row)
 	if err != nil {
-		if fleeterror.IsFailedPreconditionError(err) {
-			return s.finishDefaultReturn(ctx, q, row, false, err.Error())
+		if isWorkflowChanged(err) {
+			return s.interrupt(ctx, q, row, err.Error())
 		}
-		return s.block(ctx, q, row, "Waiting for fresh hashboard inventory before returning boards to Default")
+		if isInventoryStale(err) {
+			return s.block(ctx, q, row, err.Error())
+		}
+		return err
 	}
 	target, found := defaultGroup(observed)
 	if !found || !observed.Enabled || observed.Suspended {

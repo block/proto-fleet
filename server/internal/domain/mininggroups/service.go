@@ -198,14 +198,17 @@ func (s *Service) GetState(ctx context.Context, identifier string) (State, error
 }
 func (s *Service) call(ctx context.Context, id int64, r sdk.MiningGroupRequest) (sdk.MiningGroupResult, error) {
 	m, err := s.miners.GetMinerForCommand(ctx, id)
-	if err != nil {
-		return sdk.MiningGroupResult{}, err
+	if err == nil {
+		if c, ok := m.(sdk.DeviceMiningGroups); ok {
+			return c.MiningGroups(ctx, r)
+		}
+		err = fleeterror.NewUnimplementedError("controller does not support mining groups")
 	}
-	c, ok := m.(sdk.DeviceMiningGroups)
-	if !ok {
-		return sdk.MiningGroupResult{}, fleeterror.NewUnimplementedError("controller does not support mining groups")
+	if !r.ReadOnly() {
+		// Handle resolution and capability checks cannot start the requested write.
+		err = devicewrite.NotDispatched(err)
 	}
-	return c.MiningGroups(ctx, r)
+	return sdk.MiningGroupResult{}, err
 }
 func (s *Service) Activate(ctx context.Context, identifier, requestID string) (uuid.UUID, error) {
 	return s.changeMode(ctx, identifier, requestID, operationActivate)

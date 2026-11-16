@@ -2,6 +2,7 @@ package mininggroups
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"testing"
@@ -304,7 +305,7 @@ func TestDefaultReturnKeepsStoppedDefaultStopped(t *testing.T) {
 }
 
 func TestDefaultReturnRetiresInvalidUnsentStep(t *testing.T) {
-	for _, change := range []string{"installation", "pool policy", "stale inventory"} {
+	for _, change := range []string{"installation", "pool policy", "stale inventory", "missing inventory"} {
 		t.Run(change, func(t *testing.T) {
 			ctx, f, firmware, ids := newDefaultReturnFixture(t)
 			review := reviewDefaultReturn(t, ctx, f, ids)
@@ -321,6 +322,8 @@ func TestDefaultReturnRetiresInvalidUnsentStep(t *testing.T) {
 				_, err = f.conn.ExecContext(ctx, `INSERT INTO pool_lifecycle_transition(organization_id,device_id,asset_kind,asset_id,reason) VALUES($1,$2,7,$3,'ownership')`, f.target.OrganizationID, f.target.DeviceID, ids[0])
 			case "stale inventory":
 				_, err = f.conn.ExecContext(ctx, `UPDATE hashboard_slot SET observed_at=now()-INTERVAL '3 minutes' WHERE hashboard_id=$1`, ids[0])
+			case "missing inventory":
+				_, err = f.conn.ExecContext(ctx, `DELETE FROM hashboard_slot WHERE hashboard_id=$1`, ids[0])
 			}
 			require.NoError(t, err)
 			firmware.calls = nil
@@ -328,7 +331,7 @@ func TestDefaultReturnRetiresInvalidUnsentStep(t *testing.T) {
 			after := f.state(t)
 			var attemptStatus string
 			require.NoError(t, f.conn.QueryRowContext(ctx, `SELECT status FROM device_write_attempt WHERE attempt_id=$1`, prepared.AttemptID.UUID).Scan(&attemptStatus))
-			if change == "stale inventory" {
+			if change == "stale inventory" || change == "missing inventory" {
 				require.Equal(t, "blocked", after.Status)
 				require.Equal(t, prepared.Step, after.Step)
 				require.Equal(t, "running", attemptStatus)
@@ -343,6 +346,30 @@ func TestDefaultReturnRetiresInvalidUnsentStep(t *testing.T) {
 			require.Empty(t, firmware.receipts)
 		})
 	}
+}
+
+func TestDefaultReturnKeepsAdmissionAfterInvalidSavedSelection(t *testing.T) {
+	ctx, f, firmware, ids := newDefaultReturnFixture(t)
+	review := reviewDefaultReturn(t, ctx, f, ids)
+	_, err := f.service.ReturnToDefault(ctx, f.target.DeviceIdentifier, review.Token, uuid.NewString(), ids)
+	require.NoError(t, err)
+	before := f.state(t)
+	_, err = f.conn.ExecContext(ctx, `UPDATE container_mining_group_state SET default_return='{"boards":"invalid"}' WHERE device_id=$1`, f.target.DeviceID)
+	require.NoError(t, err)
+	firmware.calls = nil
+	err = f.service.Reconcile(ctx, f.target.OrganizationID, f.target.DeviceID, f.target.DeviceIdentifier)
+	var decodeErr *json.UnmarshalTypeError
+	require.ErrorAs(t, err, &decodeErr)
+	after := f.state(t)
+	require.Equal(t, before.Status, after.Status, "invalid saved data must not be recorded as a board change or stale inventory")
+	require.Equal(t, before.AttemptID, after.AttemptID)
+	var status string
+	require.NoError(t, f.conn.QueryRowContext(ctx, `SELECT status FROM device_write_attempt WHERE attempt_id=$1`, before.AttemptID.UUID).Scan(&status))
+	require.Equal(t, "running", status)
+	for _, call := range firmware.calls {
+		require.True(t, call.ReadOnly())
+	}
+	require.Empty(t, firmware.receipts)
 }
 
 func TestDefaultReturnKeepsInvalidStepWithUnknownDelivery(t *testing.T) {

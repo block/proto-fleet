@@ -2709,6 +2709,7 @@ type MiningGroupStepDispatch struct {
 	StepKey         uuid.UUID
 	AttemptID       uuid.UUID
 	DispatchStarted bool
+	DispatchToken   uuid.UUID
 }
 
 type NotificationActive struct {

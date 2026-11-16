@@ -677,8 +677,15 @@ Failed observations keep replacement blocked and retry with backoff.
 
 Each saved mining-group request has a durable dispatch record. Fleet records
 the request as unsent in the journal transaction. Before sending it, Fleet
-commits a dispatch marker separately, so a failed receipt save cannot erase
-delivery uncertainty. If recall changes ownership before dispatch, Fleet can
+commits a dispatch marker separately after local admission checks, so a failed
+receipt save cannot erase delivery uncertainty. Each invocation has its own
+token. A proven no-send refusal can restore only that invocation's marker;
+an older worker cannot clear a newer worker's send after losing its SQL locks.
+Tracking failures keep the saved request and record a blocked message while
+the scheduler retries. Stale inventory waits for fresh data; changed bindings
+can end a proven-unsent operation. Database and decoding failures retain their
+original errors instead of becoming inventory warnings.
+If recall changes ownership before dispatch, Fleet can
 retire the unsent request after a settled controller observation. The new owner
 cleanup can then proceed. Ownership changes cannot pass between validation and
 dispatch. Sent requests and older requests without dispatch history keep their

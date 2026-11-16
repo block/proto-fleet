@@ -6,9 +6,12 @@ Shared and private SQL use one sequence: shared baseline 1000, private baseline
 
 The unmerged CT1 mining-group branch used versions 1076–1079 before it
 integrated the main migration sequence through 1081. Its guards, confirmed
-return to Default, and dispatch records now use 1082–1084. A development
-database that used the earlier branch sequence has a different schema at
-those versions. Keep that database for inspection and create a separate
+return to Default, and dispatch records now use 1082–1084. Migration 1085 adds
+per-invocation dispatch tokens without changing retained delivery evidence.
+Stop API and background workers before applying 1085. Start only builds that
+use dispatch tokens; an older worker could clear a newer invocation's marker.
+A development database that used the earlier branch sequence has a different
+schema at those versions. Keep that database for inspection and create a separate
 current-schema development database. Do not force its version or replay
 the new sequence against it.
 

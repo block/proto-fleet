@@ -138,6 +138,7 @@ func (s *Service) Reconcile(ctx context.Context, orgID, deviceID int64, identifi
 		return err
 	}
 	ctx = attempt.Context(ctx)
+	var recordedErr error
 	// The binding transaction takes device/route locks before the journal lock.
 	// It never retries external calls. The committed step survives any lost reply.
 	err = s.writes.WithBindingTransaction(ctx, func(ctx context.Context, q sqlc.Querier) error {
@@ -146,7 +147,7 @@ func (s *Service) Reconcile(ctx context.Context, orgID, deviceID int64, identifi
 		if _, err := q.LockPoolEquipmentOrganization(ctx, orgID); err != nil {
 			return err
 		}
-		return s.writes.WithBindingObservation(ctx, deviceID, func(q sqlc.Querier) error { return nil }, func(ctx context.Context) error {
+		bindingErr := s.writes.WithBindingObservation(ctx, deviceID, func(q sqlc.Querier) error { return nil }, func(ctx context.Context) error {
 			row, err := q.LockMiningGroupState(ctx, sqlc.LockMiningGroupStateParams{OrganizationID: orgID, DeviceID: deviceID})
 			if err != nil {
 				return err
@@ -175,6 +176,9 @@ func (s *Service) Reconcile(ctx context.Context, orgID, deviceID int64, identifi
 				authorityErr = authorize(ctx, q, row.ActorID.Int64, orgID, target.SiteID, permission, authz.PermMinerStartMining, authz.PermMinerStopMining)
 			}
 			if err := authorityErr; err != nil {
+				if isInventoryStale(err) || isWorkflowChanged(err) {
+					return s.handleBoardValidation(ctx, q, row, err)
+				}
 				if !fleeterror.IsForbiddenError(err) {
 					return err
 				}
@@ -200,7 +204,7 @@ func (s *Service) Reconcile(ctx context.Context, orgID, deviceID int64, identifi
 			}
 			desired, err := s.liveIntent(ctx, q, row, nil)
 			if err != nil {
-				return s.block(ctx, q, row, "Hashboard inventory changed or is stale; configuration is paused")
+				return s.handleBoardValidation(ctx, q, row, err)
 			}
 			if row.OperationKind == operationActivate {
 				return s.reconcileActivation(ctx, q, row)
@@ -284,7 +288,16 @@ func (s *Service) Reconcile(ctx context.Context, orgID, deviceID int64, identifi
 			}
 			return s.prepareStep(ctx, q, row, request, step.ConfigRevision, "Applying pool configuration")
 		})
+		var recorded *recordedWorkflowError
+		if errors.As(bindingErr, &recorded) {
+			recordedErr = recorded.err
+			return nil
+		}
+		return bindingErr
 	})
+	if recordedErr != nil {
+		return errors.Join(err, recordedErr)
+	}
 	var handoff *activationPoolHandoffReady
 	if !errors.As(err, &handoff) {
 		return err
@@ -328,7 +341,7 @@ func (s *Service) liveIntent(ctx context.Context, q sqlc.Querier, row sqlc.Conta
 	required := make([]sqlc.HashboardPoolIntent, 0, len(intents))
 	for _, i := range intents {
 		if desired[i.MacAddress] != "" {
-			return nil, fleeterror.NewFailedPreconditionError("ambiguous board installation")
+			return nil, newWorkflowChangedError("Ambiguous board installation; review the selected hashboards.")
 		}
 		desired[i.MacAddress] = i.PoolRevisionID
 		if i.OperationID == row.OperationID.UUID || slices.Contains(affected, i.MacAddress) {
@@ -341,12 +354,12 @@ func (s *Service) liveIntent(ctx context.Context, q sqlc.Querier, row sqlc.Conta
 		return nil, err
 	}
 	if len(boards) != len(required) {
-		return nil, fleeterror.NewFailedPreconditionError("board inventory changed")
+		return nil, newInventoryStaleError("Hashboard inventory is unavailable or stale; waiting for fresh inventory.")
 	}
 	for i, b := range boards {
 		want := required[i]
 		if b.HashboardID != want.HashboardID || b.InstallationID != want.InstallationID || b.DeviceID != row.DeviceID || b.MacAddress != want.MacAddress {
-			return nil, fleeterror.NewFailedPreconditionError("board installation changed")
+			return nil, newWorkflowChangedError("Board installation changed; review the selected hashboards.")
 		}
 	}
 	affectedBoards := make([]poolconfigurations.AssignmentTarget, len(required))
@@ -418,10 +431,7 @@ func (s *Service) apply(ctx context.Context, q sqlc.Querier, row sqlc.ContainerM
 		return fmt.Errorf("mining group step identity mismatch")
 	}
 	if err := s.validateStepBoards(ctx, q, row, step.AffectedMACs); err != nil {
-		if row.OperationKind == operationReturnDefault && fleeterror.IsFailedPreconditionError(err) {
-			return s.interrupt(ctx, q, row, err.Error())
-		}
-		return s.block(ctx, q, row, "A board affected by this change is unavailable or stale; configuration is paused")
+		return s.handleBoardValidation(ctx, q, row, err)
 	}
 	// Re-authorize profiles on replay as well as when preparing a new step.
 	if step.ConfigID != "" {
@@ -432,41 +442,15 @@ func (s *Service) apply(ctx context.Context, q sqlc.Querier, row sqlc.ContainerM
 	if request.Action == string(Transfer) && row.OperationKind != operationReturnDefault {
 		for _, mac := range request.MACs {
 			if desired[mac] != step.ConfigID {
-				return s.block(ctx, q, row, "Selected board intent changed; transfer is paused")
+				return s.interrupt(ctx, q, row, "Selected board intent changed; review the selected hashboards.")
 			}
 		}
 	}
-	var response sdk.MiningGroupResult
-	wasUnsent, err := q.MiningGroupStepIsUnsent(ctx, sqlc.MiningGroupStepIsUnsentParams{StepKey: row.StepKey.UUID, AttemptID: row.AttemptID.UUID})
+	response, err := s.dispatchStep(ctx, row, request)
 	if err != nil {
-		return err
-	}
-	// WithBindingTransaction reserves dispatch capacity, leaving a connection
-	// for this independent commit. Keep the marker even if receipt saving rolls
-	// back or the process exits after the controller accepted the request.
-	marked, err := s.queries.MarkMiningGroupStepDispatch(ctx, sqlc.MarkMiningGroupStepDispatchParams{StepKey: row.StepKey.UUID, AttemptID: row.AttemptID.UUID})
-	if err != nil {
-		return err
-	}
-	if marked != 1 {
-		return fmt.Errorf("mining group dispatch identity changed")
-	}
-	err = devicewrite.Dispatch(ctx, func(ctx context.Context) error {
-		var e error
-		response, e = s.call(ctx, row.DeviceID, request)
-		return e
-	})
-	if err != nil {
-		if wasUnsent && devicewrite.IsNotDispatched(err) {
-			cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
-			restored, restoreErr := s.queries.RestoreMiningGroupStepUnsent(cleanupCtx, sqlc.RestoreMiningGroupStepUnsentParams{StepKey: row.StepKey.UUID, AttemptID: row.AttemptID.UUID})
-			cancel()
-			if restoreErr != nil {
-				return errors.Join(err, fmt.Errorf("restore unsent mining group step: %w", restoreErr))
-			}
-			if restored != 1 {
-				return errors.Join(err, fmt.Errorf("mining group dispatch identity changed while restoring no-dispatch proof"))
-			}
+		var tracking *stepDispatchError
+		if errors.As(err, &tracking) {
+			return s.blockWithDiagnostic(ctx, q, row, tracking.message, err)
 		}
 		message := "Controller has not confirmed the change; retrying the same request"
 		if request.Action == operationActivate {
@@ -637,7 +621,7 @@ func (s *Service) prepareStep(ctx context.Context, q sqlc.Querier, row sqlc.Cont
 		return err
 	}
 	if err := s.validateStepBoards(ctx, q, row, affected); err != nil {
-		return s.block(ctx, q, row, "A board affected by this change is unavailable or stale; configuration is paused")
+		return s.handleBoardValidation(ctx, q, row, err)
 	}
 	key := uuid.New()
 	request.Key = key.String()

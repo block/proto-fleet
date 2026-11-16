@@ -13,6 +13,7 @@ import (
 func rollbackEmptyPoolConfigurations(t *testing.T, conn *sql.DB) {
 	t.Helper()
 	for _, path := range []string{
+		"current/001085_internal_mining_group_dispatch_token.down.sql",
 		"current/001084_internal_mining_group_step_dispatch.down.sql",
 		"current/001083_internal_mining_group_default_return.down.sql",
 		"current/001082_internal_ct1_mining_group_guards.down.sql",
@@ -58,6 +59,7 @@ func restoreEmptyPoolConfigurations(t *testing.T, conn *sql.DB) {
 		"current/001082_internal_ct1_mining_group_guards.up.sql",
 		"current/001083_internal_mining_group_default_return.up.sql",
 		"current/001084_internal_mining_group_step_dispatch.up.sql",
+		"current/001085_internal_mining_group_dispatch_token.up.sql",
 	} {
 		up, err := migrations.Current.ReadFile(path)
 		require.NoError(t, err)
@@ -78,6 +80,7 @@ func TestEmptyPoolConfigurationMigrationRoundTrip(t *testing.T) {
 	var restored bool
 	require.NoError(t, conn.QueryRowContext(t.Context(), `
 		SELECT to_regclass('mining_group_step_dispatch') IS NOT NULL
+		 AND EXISTS(SELECT 1 FROM information_schema.columns WHERE table_name='mining_group_step_dispatch' AND column_name='dispatch_token')
 		 AND to_regprocedure('ct1_hashboard_allocation_ready(bigint,bigint)') IS NOT NULL
 		 AND EXISTS(SELECT 1 FROM information_schema.columns WHERE table_name='container_mining_group_state' AND column_name='default_return')
 		 AND EXISTS(SELECT 1 FROM information_schema.columns WHERE table_name='pool_configuration_assignment' AND column_name='inherited_worker_name')

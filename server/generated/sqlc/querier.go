@@ -2329,7 +2329,7 @@ type Querier interface {
 	MarkFrigateUpdateCleanupAttempted(ctx context.Context, arg MarkFrigateUpdateCleanupAttemptedParams) error
 	// Commit independently before I/O. A rollback of the binding transaction must
 	// never make an attempted request look unsent. Missing history stays unknown.
-	MarkMiningGroupStepDispatch(ctx context.Context, arg MarkMiningGroupStepDispatchParams) (int64, error)
+	MarkMiningGroupStepDispatch(ctx context.Context, arg MarkMiningGroupStepDispatchParams) (bool, error)
 	MarkRepairTicketPartsConsumed(ctx context.Context, arg MarkRepairTicketPartsConsumedParams) error
 	// The caller holds the workflow's journal and binding locks through retirement.
 	MiningGroupStepIsUnsent(ctx context.Context, arg MiningGroupStepIsUnsentParams) (bool, error)
@@ -2630,8 +2630,9 @@ type Querier interface {
 	// The domain has already locked and revalidated physical placements. Resolve
 	// opening identities through the same view used by the asset picker.
 	ResolveRepairTicketMinerTarget(ctx context.Context, arg ResolveRepairTicketMinerTargetParams) (RepairTicketAssetOption, error)
-	// Call only when the first marked attempt returned explicit proof that no
-	// outbound request began. A caller must never erase an earlier uncertain send.
+	// Restore only when the marker was unsent before this invocation and its call
+	// proved no outbound request began. A newer dispatch token must never be cleared.
+	// Repeating the same restore is safe, including after a lost acknowledgement.
 	RestoreMiningGroupStepUnsent(ctx context.Context, arg RestoreMiningGroupStepUnsentParams) (int64, error)
 	// Restore reversal: go back through pending so the curtail dispatcher picks
 	// up reset targets. Preserve fan_off_sent_at and fan_last_error until the

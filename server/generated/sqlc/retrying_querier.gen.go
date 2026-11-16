@@ -10898,8 +10898,8 @@ func (q *retryingQuerier) MarkFrigateUpdateCleanupAttempted(ctx context.Context,
 	})
 }
 
-func (q *retryingQuerier) MarkMiningGroupStepDispatch(ctx context.Context, arg MarkMiningGroupStepDispatchParams) (int64, error) {
-	var result int64
+func (q *retryingQuerier) MarkMiningGroupStepDispatch(ctx context.Context, arg MarkMiningGroupStepDispatchParams) (bool, error) {
+	var result bool
 	err := q.retrier.RetryQuery(ctx, "MarkMiningGroupStepDispatch", func() error {
 		callResult, callErr := q.next.MarkMiningGroupStepDispatch(ctx, arg)
 		if callErr == nil {

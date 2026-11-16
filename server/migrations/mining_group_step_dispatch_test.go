@@ -30,6 +30,10 @@ func TestMiningGroupDispatchRollbackPreservesSavedRequests(t *testing.T) {
 			require.NoError(t, err)
 			_, err = conn.ExecContext(t.Context(), string(up))
 			require.NoError(t, err)
+			tokenUp, err := migrations.Current.ReadFile("current/001085_internal_mining_group_dispatch_token.up.sql")
+			require.NoError(t, err)
+			_, err = conn.ExecContext(t.Context(), string(tokenUp))
+			require.NoError(t, err)
 			var records int
 			require.NoError(t, conn.QueryRowContext(t.Context(), `SELECT count(*) FROM mining_group_step_dispatch WHERE step_key=$1`, key).Scan(&records))
 			require.Zero(t, records, "upgrade must not infer delivery for an older request")
