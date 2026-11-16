@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/block/proto-fleet/server/generated/sqlc"
+	"github.com/block/proto-fleet/server/internal/domain/devicewrite"
 	"github.com/block/proto-fleet/server/internal/domain/miner/interfaces"
 	sdk "github.com/block/proto-fleet/server/sdk/v1"
 	"github.com/google/uuid"
@@ -18,12 +19,13 @@ const pendingTransferPhase = "QUIESCING"
 // real Postgres. Each request identity retains its original transfer receipt.
 type transferFailureMiner struct {
 	*retryMiner
-	groups        []sdk.MiningGroup
-	receipts      map[string]*sdk.MiningGroupOperation
-	transferPhase string
-	loseReply     bool
-	observeErr    bool
-	pending       bool
+	groups         []sdk.MiningGroup
+	receipts       map[string]*sdk.MiningGroupOperation
+	transferPhase  string
+	loseReply      bool
+	refuseMutation bool
+	observeErr     bool
+	pending        bool
 }
 
 func (m *transferFailureMiner) GetMinerForCommand(context.Context, int64) (interfaces.Miner, error) {
@@ -32,6 +34,9 @@ func (m *transferFailureMiner) GetMinerForCommand(context.Context, int64) (inter
 
 func (m *transferFailureMiner) MiningGroups(ctx context.Context, r sdk.MiningGroupRequest) (sdk.MiningGroupResult, error) {
 	m.calls = append(m.calls, r)
+	if m.refuseMutation && !r.ReadOnly() {
+		return sdk.MiningGroupResult{}, devicewrite.NotDispatched(errors.New("mutation refused before dispatch"))
+	}
 	switch r.Action {
 	case "observe":
 		if m.observeErr {

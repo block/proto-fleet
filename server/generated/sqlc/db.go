@@ -3249,6 +3249,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.resolveRepairTicketMinerTargetStmt, err = db.PrepareContext(ctx, resolveRepairTicketMinerTarget); err != nil {
 		return nil, fmt.Errorf("error preparing query ResolveRepairTicketMinerTarget: %w", err)
 	}
+	if q.restoreMiningGroupStepUnsentStmt, err = db.PrepareContext(ctx, restoreMiningGroupStepUnsent); err != nil {
+		return nil, fmt.Errorf("error preparing query RestoreMiningGroupStepUnsent: %w", err)
+	}
 	if q.resumeCurtailmentFromRestoringStmt, err = db.PrepareContext(ctx, resumeCurtailmentFromRestoring); err != nil {
 		return nil, fmt.Errorf("error preparing query ResumeCurtailmentFromRestoring: %w", err)
 	}
@@ -9247,6 +9250,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing resolveRepairTicketMinerTargetStmt: %w", cerr)
 		}
 	}
+	if q.restoreMiningGroupStepUnsentStmt != nil {
+		if cerr := q.restoreMiningGroupStepUnsentStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing restoreMiningGroupStepUnsentStmt: %w", cerr)
+		}
+	}
 	if q.resumeCurtailmentFromRestoringStmt != nil {
 		if cerr := q.resumeCurtailmentFromRestoringStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing resumeCurtailmentFromRestoringStmt: %w", cerr)
@@ -11391,6 +11399,7 @@ type Queries struct {
 	resolveReleaseChannelScopeStmt                              *sql.Stmt
 	resolveRepairTicketAssetStmt                                *sql.Stmt
 	resolveRepairTicketMinerTargetStmt                          *sql.Stmt
+	restoreMiningGroupStepUnsentStmt                            *sql.Stmt
 	resumeCurtailmentFromRestoringStmt                          *sql.Stmt
 	resumeFirmwareRolloutStmt                                   *sql.Stmt
 	resumePausedScheduleStmt                                    *sql.Stmt
@@ -12678,6 +12687,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		resolveReleaseChannelScopeStmt:                              q.resolveReleaseChannelScopeStmt,
 		resolveRepairTicketAssetStmt:                                q.resolveRepairTicketAssetStmt,
 		resolveRepairTicketMinerTargetStmt:                          q.resolveRepairTicketMinerTargetStmt,
+		restoreMiningGroupStepUnsentStmt:                            q.restoreMiningGroupStepUnsentStmt,
 		resumeCurtailmentFromRestoringStmt:                          q.resumeCurtailmentFromRestoringStmt,
 		resumeFirmwareRolloutStmt:                                   q.resumeFirmwareRolloutStmt,
 		resumePausedScheduleStmt:                                    q.resumePausedScheduleStmt,

@@ -428,13 +428,13 @@ func (s *Service) reconcileDefaultReturn(ctx context.Context, q sqlc.Querier, ro
 			membership[mac] = group
 		}
 	}
-	var returned []int64
+	returned := 0
 	for _, board := range capture.Boards {
 		if membership[board.MacAddress].ID == "default" {
-			returned = append(returned, board.InstallationID)
+			returned++
 		}
 	}
-	if len(returned) == len(capture.Boards) {
+	if returned == len(capture.Boards) {
 		return s.finishDefaultReturn(ctx, q, row, true, "Hashboards returned to Default and use its pool and mining settings.")
 	}
 	if row.TransferFailureCount >= maxTransferFailures {

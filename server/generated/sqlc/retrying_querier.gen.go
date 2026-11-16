@@ -11906,6 +11906,18 @@ func (q *retryingQuerier) ResolveRepairTicketMinerTarget(ctx context.Context, ar
 	return result, err
 }
 
+func (q *retryingQuerier) RestoreMiningGroupStepUnsent(ctx context.Context, arg RestoreMiningGroupStepUnsentParams) (int64, error) {
+	var result int64
+	err := q.retrier.RetryQuery(ctx, "RestoreMiningGroupStepUnsent", func() error {
+		callResult, callErr := q.next.RestoreMiningGroupStepUnsent(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) ResumeCurtailmentFromRestoring(ctx context.Context, id int64) (CurtailmentEvent, error) {
 	var result CurtailmentEvent
 	err := q.retrier.RetryQuery(ctx, "ResumeCurtailmentFromRestoring", func() error {

@@ -303,6 +303,81 @@ func TestDefaultReturnKeepsStoppedDefaultStopped(t *testing.T) {
 	}
 }
 
+func TestDefaultReturnRetiresInvalidUnsentStep(t *testing.T) {
+	for _, change := range []string{"installation", "pool policy", "stale inventory"} {
+		t.Run(change, func(t *testing.T) {
+			ctx, f, firmware, ids := newDefaultReturnFixture(t)
+			review := reviewDefaultReturn(t, ctx, f, ids)
+			_, err := f.service.ReturnToDefault(ctx, f.target.DeviceIdentifier, review.Token, uuid.NewString(), ids)
+			require.NoError(t, err)
+			f.reconcile(t, ctx)
+			prepared := f.state(t)
+			require.True(t, prepared.Step.Valid)
+			require.Empty(t, firmware.receipts)
+			switch change {
+			case "installation":
+				_, err = f.conn.ExecContext(ctx, `UPDATE hashboard_installation SET metadata='{"macAddress":"02:00:00:00:00:02"}' WHERE hashboard_id=$1`, ids[0])
+			case "pool policy":
+				_, err = f.conn.ExecContext(ctx, `INSERT INTO pool_lifecycle_transition(organization_id,device_id,asset_kind,asset_id,reason) VALUES($1,$2,7,$3,'ownership')`, f.target.OrganizationID, f.target.DeviceID, ids[0])
+			case "stale inventory":
+				_, err = f.conn.ExecContext(ctx, `UPDATE hashboard_slot SET observed_at=now()-INTERVAL '3 minutes' WHERE hashboard_id=$1`, ids[0])
+			}
+			require.NoError(t, err)
+			firmware.calls = nil
+			f.reconcile(t, ctx)
+			after := f.state(t)
+			var attemptStatus string
+			require.NoError(t, f.conn.QueryRowContext(ctx, `SELECT status FROM device_write_attempt WHERE attempt_id=$1`, prepared.AttemptID.UUID).Scan(&attemptStatus))
+			if change == "stale inventory" {
+				require.Equal(t, "blocked", after.Status)
+				require.Equal(t, prepared.Step, after.Step)
+				require.Equal(t, "running", attemptStatus)
+			} else {
+				require.Equal(t, "failed", after.Status)
+				require.False(t, after.Step.Valid)
+				require.Equal(t, "complete", attemptStatus)
+			}
+			for _, call := range firmware.calls {
+				require.True(t, call.ReadOnly())
+			}
+			require.Empty(t, firmware.receipts)
+		})
+	}
+}
+
+func TestDefaultReturnKeepsInvalidStepWithUnknownDelivery(t *testing.T) {
+	for _, delivery := range []string{"dispatched", "missing history"} {
+		t.Run(delivery, func(t *testing.T) {
+			ctx, f, firmware, ids := newDefaultReturnFixture(t)
+			review := reviewDefaultReturn(t, ctx, f, ids)
+			_, err := f.service.ReturnToDefault(ctx, f.target.DeviceIdentifier, review.Token, uuid.NewString(), ids)
+			require.NoError(t, err)
+			f.reconcile(t, ctx)
+			if delivery == "dispatched" {
+				firmware.loseReply = true
+				f.reconcile(t, ctx)
+				require.NotEmpty(t, firmware.receipts)
+			} else {
+				_, err = f.conn.ExecContext(ctx, `DELETE FROM mining_group_step_dispatch WHERE step_key=$1`, f.state(t).StepKey.UUID)
+				require.NoError(t, err)
+			}
+			before := f.state(t)
+			_, err = f.conn.ExecContext(ctx, `UPDATE hashboard_installation SET metadata='{"macAddress":"02:00:00:00:00:02"}' WHERE hashboard_id=$1`, ids[0])
+			require.NoError(t, err)
+			firmware.calls = nil
+			f.reconcile(t, ctx)
+			after := f.state(t)
+			require.Equal(t, "blocked", after.Status)
+			require.Equal(t, before.Step, after.Step)
+			require.Equal(t, before.StepKey, after.StepKey)
+			require.Empty(t, firmware.calls)
+			var attemptStatus string
+			require.NoError(t, f.conn.QueryRowContext(ctx, `SELECT status FROM device_write_attempt WHERE attempt_id=$1`, before.AttemptID.UUID).Scan(&attemptStatus))
+			require.Equal(t, "running", attemptStatus)
+		})
+	}
+}
+
 func TestDefaultReturnReviewDoesNotClaimCompletionAfterReadFailure(t *testing.T) {
 	ctx, f, firmware, ids := newDefaultReturnFixture(t)
 	firmware.snapshot.Groups[0].MACs = []string{"02:00:00:00:00:01"}

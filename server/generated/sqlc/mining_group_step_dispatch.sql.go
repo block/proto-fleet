@@ -63,3 +63,23 @@ func (q *Queries) RegisterMiningGroupStep(ctx context.Context, arg RegisterMinin
 	_, err := q.exec(ctx, q.registerMiningGroupStepStmt, registerMiningGroupStep, arg.StepKey, arg.AttemptID)
 	return err
 }
+
+const restoreMiningGroupStepUnsent = `-- name: RestoreMiningGroupStepUnsent :execrows
+UPDATE mining_group_step_dispatch SET dispatch_started=FALSE
+WHERE step_key=$1 AND attempt_id=$2 AND dispatch_started
+`
+
+type RestoreMiningGroupStepUnsentParams struct {
+	StepKey   uuid.UUID
+	AttemptID uuid.UUID
+}
+
+// Call only when the first marked attempt returned explicit proof that no
+// outbound request began. A caller must never erase an earlier uncertain send.
+func (q *Queries) RestoreMiningGroupStepUnsent(ctx context.Context, arg RestoreMiningGroupStepUnsentParams) (int64, error) {
+	result, err := q.exec(ctx, q.restoreMiningGroupStepUnsentStmt, restoreMiningGroupStepUnsent, arg.StepKey, arg.AttemptID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}

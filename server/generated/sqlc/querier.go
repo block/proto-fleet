@@ -2630,6 +2630,9 @@ type Querier interface {
 	// The domain has already locked and revalidated physical placements. Resolve
 	// opening identities through the same view used by the asset picker.
 	ResolveRepairTicketMinerTarget(ctx context.Context, arg ResolveRepairTicketMinerTargetParams) (RepairTicketAssetOption, error)
+	// Call only when the first marked attempt returned explicit proof that no
+	// outbound request began. A caller must never erase an earlier uncertain send.
+	RestoreMiningGroupStepUnsent(ctx context.Context, arg RestoreMiningGroupStepUnsentParams) (int64, error)
 	// Restore reversal: go back through pending so the curtail dispatcher picks
 	// up reset targets. Preserve fan_off_sent_at and fan_last_error until the
 	// active reconciler has positively reopened airflow; clearing them here can

@@ -124,6 +124,53 @@ func TestDispatchMarkerSurvivesLostJournalCommit(t *testing.T) {
 	require.Empty(t, firmware.calls, "unknown writes cannot be replayed or discarded after access changes")
 }
 
+func TestProvenNoDispatchRestoresOnlyFirstAttempt(t *testing.T) {
+	for _, tc := range []struct {
+		name         string
+		priorUnknown bool
+	}{
+		{name: "first attempt"},
+		{name: "after unknown attempt", priorUnknown: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx, f, firmware, _, _ := newTransferFailureFixture(t)
+			f.reconcile(t, ctx)
+			prepared := f.state(t)
+			require.True(t, prepared.Step.Valid)
+
+			if tc.priorUnknown {
+				firmware.loseReply = true
+				f.reconcile(t, ctx)
+				firmware.loseReply = false
+				require.NotEmpty(t, firmware.receipts)
+			}
+
+			firmware.refuseMutation = true
+			f.reconcile(t, ctx)
+			unsent, err := f.service.queries.MiningGroupStepIsUnsent(ctx, sqlc.MiningGroupStepIsUnsentParams{StepKey: prepared.StepKey.UUID, AttemptID: prepared.AttemptID.UUID})
+			require.NoError(t, err)
+			require.Equal(t, !tc.priorUnknown, unsent)
+
+			setMiningGroupPermissions(t, ctx, f, nil)
+			f.service = NewService(f.conn, firmware, f.service.pools, f.service.secrets)
+			firmware.refuseMutation = false
+			firmware.calls = nil
+			f.reconcile(t, ctx)
+			if tc.priorUnknown {
+				require.Equal(t, "blocked", f.state(t).Status)
+				require.Equal(t, prepared.Step, f.state(t).Step)
+				require.Empty(t, firmware.calls)
+				return
+			}
+			require.Equal(t, "failed", f.state(t).Status)
+			require.False(t, f.state(t).Step.Valid)
+			for _, call := range firmware.calls {
+				require.True(t, call.ReadOnly())
+			}
+		})
+	}
+}
+
 func TestInterruptedStepWithoutDispatchHistoryRemainsProtected(t *testing.T) {
 	ctx, f, firmware, _, _ := newTransferFailureFixture(t)
 	f.reconcile(t, ctx)

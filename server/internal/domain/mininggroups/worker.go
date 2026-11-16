@@ -417,13 +417,10 @@ func (s *Service) apply(ctx context.Context, q sqlc.Querier, row sqlc.ContainerM
 	if request.Key != row.StepKey.UUID.String() {
 		return fmt.Errorf("mining group step identity mismatch")
 	}
-	var validationErr error
-	if row.OperationKind == operationReturnDefault {
-		_, validationErr = s.validateDefaultReturn(ctx, q, row)
-	} else {
-		_, validationErr = s.liveIntent(ctx, q, row, step.AffectedMACs)
-	}
-	if validationErr != nil {
+	if err := s.validateStepBoards(ctx, q, row, step.AffectedMACs); err != nil {
+		if row.OperationKind == operationReturnDefault && fleeterror.IsFailedPreconditionError(err) {
+			return s.interrupt(ctx, q, row, err.Error())
+		}
 		return s.block(ctx, q, row, "A board affected by this change is unavailable or stale; configuration is paused")
 	}
 	// Re-authorize profiles on replay as well as when preparing a new step.
@@ -440,6 +437,10 @@ func (s *Service) apply(ctx context.Context, q sqlc.Querier, row sqlc.ContainerM
 		}
 	}
 	var response sdk.MiningGroupResult
+	wasUnsent, err := q.MiningGroupStepIsUnsent(ctx, sqlc.MiningGroupStepIsUnsentParams{StepKey: row.StepKey.UUID, AttemptID: row.AttemptID.UUID})
+	if err != nil {
+		return err
+	}
 	// WithBindingTransaction reserves dispatch capacity, leaving a connection
 	// for this independent commit. Keep the marker even if receipt saving rolls
 	// back or the process exits after the controller accepted the request.
@@ -456,6 +457,17 @@ func (s *Service) apply(ctx context.Context, q sqlc.Querier, row sqlc.ContainerM
 		return e
 	})
 	if err != nil {
+		if wasUnsent && devicewrite.IsNotDispatched(err) {
+			cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+			restored, restoreErr := s.queries.RestoreMiningGroupStepUnsent(cleanupCtx, sqlc.RestoreMiningGroupStepUnsentParams{StepKey: row.StepKey.UUID, AttemptID: row.AttemptID.UUID})
+			cancel()
+			if restoreErr != nil {
+				return errors.Join(err, fmt.Errorf("restore unsent mining group step: %w", restoreErr))
+			}
+			if restored != 1 {
+				return errors.Join(err, fmt.Errorf("mining group dispatch identity changed while restoring no-dispatch proof"))
+			}
+		}
 		message := "Controller has not confirmed the change; retrying the same request"
 		if request.Action == operationActivate {
 			message = activationWaitingMessage(err)
@@ -610,18 +622,21 @@ func (s *Service) failOperation(ctx context.Context, q sqlc.Querier, row sqlc.Co
 	return save(ctx, q, row)
 }
 
+func (s *Service) validateStepBoards(ctx context.Context, q sqlc.Querier, row sqlc.ContainerMiningGroupState, affected []string) error {
+	if row.OperationKind == operationReturnDefault {
+		_, err := s.validateDefaultReturn(ctx, q, row)
+		return err
+	}
+	_, err := s.liveIntent(ctx, q, row, affected)
+	return err
+}
+
 func (s *Service) prepareStep(ctx context.Context, q sqlc.Querier, row sqlc.ContainerMiningGroupState, request sdk.MiningGroupRequest, config, message string) error {
 	affected, err := affectedBoardMACs(row, request)
 	if err != nil {
 		return err
 	}
-	var validationErr error
-	if row.OperationKind == operationReturnDefault {
-		_, validationErr = s.validateDefaultReturn(ctx, q, row)
-	} else {
-		_, validationErr = s.liveIntent(ctx, q, row, affected)
-	}
-	if validationErr != nil {
+	if err := s.validateStepBoards(ctx, q, row, affected); err != nil {
 		return s.block(ctx, q, row, "A board affected by this change is unavailable or stale; configuration is paused")
 	}
 	key := uuid.New()
