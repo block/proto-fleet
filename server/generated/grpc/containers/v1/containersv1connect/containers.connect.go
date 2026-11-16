@@ -58,6 +58,9 @@ const (
 	// ContainerServiceSetBoardIdentifyProcedure is the fully-qualified name of the ContainerService's
 	// SetBoardIdentify RPC.
 	ContainerServiceSetBoardIdentifyProcedure = "/containers.v1.ContainerService/SetBoardIdentify"
+	// ContainerServiceGetModulePowerFeedProcedure is the fully-qualified name of the ContainerService's
+	// GetModulePowerFeed RPC.
+	ContainerServiceGetModulePowerFeedProcedure = "/containers.v1.ContainerService/GetModulePowerFeed"
 	// ContainerServiceStreamBoardASICReadingsProcedure is the fully-qualified name of the
 	// ContainerService's StreamBoardASICReadings RPC.
 	ContainerServiceStreamBoardASICReadingsProcedure = "/containers.v1.ContainerService/StreamBoardASICReadings"
@@ -100,6 +103,7 @@ type ContainerServiceClient interface {
 	SetModuleMining(context.Context, *connect.Request[v1.SetModuleMiningRequest]) (*connect.Response[v1.SetModuleMiningResponse], error)
 	GetBoardIdentifyOptions(context.Context, *connect.Request[v1.GetBoardIdentifyOptionsRequest]) (*connect.Response[v1.GetBoardIdentifyOptionsResponse], error)
 	SetBoardIdentify(context.Context, *connect.Request[v1.SetBoardIdentifyRequest]) (*connect.Response[v1.SetBoardIdentifyResponse], error)
+	GetModulePowerFeed(context.Context, *connect.Request[v1.GetModulePowerFeedRequest]) (*connect.Response[v1.GetModulePowerFeedResponse], error)
 	// Live ASIC readings for one installed board while the caller keeps the
 	// stream open. The server ends each stream after a few minutes so access and
 	// placement are re-checked; callers reopen it.
@@ -169,6 +173,11 @@ func NewContainerServiceClient(httpClient connect.HTTPClient, baseURL string, op
 			baseURL+ContainerServiceSetBoardIdentifyProcedure,
 			opts...,
 		),
+		getModulePowerFeed: connect.NewClient[v1.GetModulePowerFeedRequest, v1.GetModulePowerFeedResponse](
+			httpClient,
+			baseURL+ContainerServiceGetModulePowerFeedProcedure,
+			opts...,
+		),
 		streamBoardASICReadings: connect.NewClient[v1.StreamBoardASICReadingsRequest, v1.StreamBoardASICReadingsResponse](
 			httpClient,
 			baseURL+ContainerServiceStreamBoardASICReadingsProcedure,
@@ -232,6 +241,7 @@ type containerServiceClient struct {
 	setModuleMining           *connect.Client[v1.SetModuleMiningRequest, v1.SetModuleMiningResponse]
 	getBoardIdentifyOptions   *connect.Client[v1.GetBoardIdentifyOptionsRequest, v1.GetBoardIdentifyOptionsResponse]
 	setBoardIdentify          *connect.Client[v1.SetBoardIdentifyRequest, v1.SetBoardIdentifyResponse]
+	getModulePowerFeed        *connect.Client[v1.GetModulePowerFeedRequest, v1.GetModulePowerFeedResponse]
 	streamBoardASICReadings   *connect.Client[v1.StreamBoardASICReadingsRequest, v1.StreamBoardASICReadingsResponse]
 	getTankMiningOptions      *connect.Client[v1.GetTankMiningOptionsRequest, v1.GetTankMiningOptionsResponse]
 	setTankMining             *connect.Client[v1.SetTankMiningRequest, v1.SetTankMiningResponse]
@@ -282,6 +292,11 @@ func (c *containerServiceClient) GetBoardIdentifyOptions(ctx context.Context, re
 // SetBoardIdentify calls containers.v1.ContainerService.SetBoardIdentify.
 func (c *containerServiceClient) SetBoardIdentify(ctx context.Context, req *connect.Request[v1.SetBoardIdentifyRequest]) (*connect.Response[v1.SetBoardIdentifyResponse], error) {
 	return c.setBoardIdentify.CallUnary(ctx, req)
+}
+
+// GetModulePowerFeed calls containers.v1.ContainerService.GetModulePowerFeed.
+func (c *containerServiceClient) GetModulePowerFeed(ctx context.Context, req *connect.Request[v1.GetModulePowerFeedRequest]) (*connect.Response[v1.GetModulePowerFeedResponse], error) {
+	return c.getModulePowerFeed.CallUnary(ctx, req)
 }
 
 // StreamBoardASICReadings calls containers.v1.ContainerService.StreamBoardASICReadings.
@@ -344,6 +359,7 @@ type ContainerServiceHandler interface {
 	SetModuleMining(context.Context, *connect.Request[v1.SetModuleMiningRequest]) (*connect.Response[v1.SetModuleMiningResponse], error)
 	GetBoardIdentifyOptions(context.Context, *connect.Request[v1.GetBoardIdentifyOptionsRequest]) (*connect.Response[v1.GetBoardIdentifyOptionsResponse], error)
 	SetBoardIdentify(context.Context, *connect.Request[v1.SetBoardIdentifyRequest]) (*connect.Response[v1.SetBoardIdentifyResponse], error)
+	GetModulePowerFeed(context.Context, *connect.Request[v1.GetModulePowerFeedRequest]) (*connect.Response[v1.GetModulePowerFeedResponse], error)
 	// Live ASIC readings for one installed board while the caller keeps the
 	// stream open. The server ends each stream after a few minutes so access and
 	// placement are re-checked; callers reopen it.
@@ -407,6 +423,11 @@ func NewContainerServiceHandler(svc ContainerServiceHandler, opts ...connect.Han
 	containerServiceSetBoardIdentifyHandler := connect.NewUnaryHandler(
 		ContainerServiceSetBoardIdentifyProcedure,
 		svc.SetBoardIdentify,
+		opts...,
+	)
+	containerServiceGetModulePowerFeedHandler := connect.NewUnaryHandler(
+		ContainerServiceGetModulePowerFeedProcedure,
+		svc.GetModulePowerFeed,
 		opts...,
 	)
 	containerServiceStreamBoardASICReadingsHandler := connect.NewServerStreamHandler(
@@ -477,6 +498,8 @@ func NewContainerServiceHandler(svc ContainerServiceHandler, opts ...connect.Han
 			containerServiceGetBoardIdentifyOptionsHandler.ServeHTTP(w, r)
 		case ContainerServiceSetBoardIdentifyProcedure:
 			containerServiceSetBoardIdentifyHandler.ServeHTTP(w, r)
+		case ContainerServiceGetModulePowerFeedProcedure:
+			containerServiceGetModulePowerFeedHandler.ServeHTTP(w, r)
 		case ContainerServiceStreamBoardASICReadingsProcedure:
 			containerServiceStreamBoardASICReadingsHandler.ServeHTTP(w, r)
 		case ContainerServiceGetTankMiningOptionsProcedure:
@@ -536,6 +559,10 @@ func (UnimplementedContainerServiceHandler) GetBoardIdentifyOptions(context.Cont
 
 func (UnimplementedContainerServiceHandler) SetBoardIdentify(context.Context, *connect.Request[v1.SetBoardIdentifyRequest]) (*connect.Response[v1.SetBoardIdentifyResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("containers.v1.ContainerService.SetBoardIdentify is not implemented"))
+}
+
+func (UnimplementedContainerServiceHandler) GetModulePowerFeed(context.Context, *connect.Request[v1.GetModulePowerFeedRequest]) (*connect.Response[v1.GetModulePowerFeedResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("containers.v1.ContainerService.GetModulePowerFeed is not implemented"))
 }
 
 func (UnimplementedContainerServiceHandler) StreamBoardASICReadings(context.Context, *connect.Request[v1.StreamBoardASICReadingsRequest], *connect.ServerStream[v1.StreamBoardASICReadingsResponse]) error {

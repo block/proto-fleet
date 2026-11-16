@@ -1464,6 +1464,20 @@ class ContainerMiningResponse(_message.Message):
     payload: bytes
     def __init__(self, payload: _Optional[bytes] = ...) -> None: ...
 
+class ContainerPowerFeedRequest(_message.Message):
+    __slots__ = ("ref", "payload")
+    REF_FIELD_NUMBER: _ClassVar[int]
+    PAYLOAD_FIELD_NUMBER: _ClassVar[int]
+    ref: DeviceRef
+    payload: bytes
+    def __init__(self, ref: _Optional[_Union[DeviceRef, _Mapping]] = ..., payload: _Optional[bytes] = ...) -> None: ...
+
+class ContainerPowerFeedResponse(_message.Message):
+    __slots__ = ("payload",)
+    PAYLOAD_FIELD_NUMBER: _ClassVar[int]
+    payload: bytes
+    def __init__(self, payload: _Optional[bytes] = ...) -> None: ...
+
 class FrigateServerUpdateRequest(_message.Message):
     __slots__ = ("ref", "support", "stage_begin", "stage_append", "stage_commit", "stage_abort", "start", "status", "retry", "cancel")
     REF_FIELD_NUMBER: _ClassVar[int]

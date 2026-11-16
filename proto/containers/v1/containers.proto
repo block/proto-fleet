@@ -18,6 +18,7 @@ service ContainerService {
   rpc SetModuleMining(SetModuleMiningRequest) returns (SetModuleMiningResponse);
   rpc GetBoardIdentifyOptions(GetBoardIdentifyOptionsRequest) returns (GetBoardIdentifyOptionsResponse);
   rpc SetBoardIdentify(SetBoardIdentifyRequest) returns (SetBoardIdentifyResponse);
+  rpc GetModulePowerFeed(GetModulePowerFeedRequest) returns (GetModulePowerFeedResponse);
   // Live ASIC readings for one installed board while the caller keeps the
   // stream open. The server ends each stream after a few minutes so access and
   // placement are re-checked; callers reopen it.
@@ -269,6 +270,104 @@ message SetBoardIdentifyResponse {
   repeated BoardIdentifyCommand commands = 1;
 }
 
+// Live read of the power feed (PDU outlet) that supplies one CT1 module.
+message GetModulePowerFeedRequest {
+  int64 module_id = 1 [(buf.validate.field).int64.gt = 0];
+}
+// How the controller associates the module with its feed. The server derives
+// it from the controller map; it never infers an outlet from positions.
+enum PowerFeedMappingConfidence {
+  POWER_FEED_MAPPING_CONFIDENCE_UNSPECIFIED = 0;
+  // Every occupied board's switch-port wiring check verified the feed.
+  POWER_FEED_MAPPING_CONFIDENCE_WIRING_VERIFIED = 1;
+  // One configured feed, consistent across the module and claimed by no other
+  // module, without wiring verification or reported wiring problems.
+  POWER_FEED_MAPPING_CONFIDENCE_CONFIGURED = 2;
+  // Feed evidence disagrees, is shared, or reports a wiring problem.
+  POWER_FEED_MAPPING_CONFIDENCE_AMBIGUOUS = 3;
+  // The controller reports no feed for this module.
+  POWER_FEED_MAPPING_CONFIDENCE_UNAVAILABLE = 4;
+}
+// Authoritative controller target state; unspecified means unknown.
+enum PowerFeedState {
+  POWER_FEED_STATE_UNSPECIFIED = 0;
+  POWER_FEED_STATE_ENABLED = 1;
+  POWER_FEED_STATE_DISABLED = 2;
+}
+message PowerFeedModuleRef {
+  int32 tank = 1;
+  int32 module = 2;
+}
+// One slot's feed evidence from the controller map.
+message PowerFeedBoardEvidence {
+  int32 position = 1;
+  bool occupied = 2;
+  string serial_number = 3;
+  string slot_feed_id = 4;
+  string observed_feed_id = 5;
+  string expected_feed_id = 6;
+  string wiring_status = 7;
+  repeated string wiring_reasons = 8;
+}
+message PowerFeedMapping {
+  PowerFeedMappingConfidence confidence = 1 [(buf.validate.field).enum.defined_only = true];
+  // The single feed the evidence names; empty when there is none.
+  string feed_id = 2;
+  // Machine-readable reasons, for example "multiple_feeds" or "feed_shared".
+  repeated string reasons = 3;
+  repeated PowerFeedModuleRef shared_with = 4;
+  repeated PowerFeedBoardEvidence boards = 5;
+}
+// The controller's current snapshot of one feed. Absent measurements are unset;
+// a measured zero is kept.
+message PowerFeedReading {
+  string id = 1;
+  PowerFeedState state = 2 [(buf.validate.field).enum.defined_only = true];
+  optional bool active = 3;
+  optional bool faulted = 4;
+  // A process-local operator override marker on the controller.
+  bool overridden = 5;
+  // "A", "B", "C", or empty when the feed is not single-phase.
+  string phase = 6;
+  optional double voltage_v = 7;
+  optional double current_a = 8;
+  optional double power_w = 9;
+  optional double voltage_ab_v = 10;
+  optional double voltage_bc_v = 11;
+  optional double voltage_ca_v = 12;
+  optional double current_a_a = 13;
+  optional double current_b_a = 14;
+  optional double current_c_a = 15;
+}
+// The controller's singleton durable restore obligation. While it exists the
+// controller refuses every other feed operation.
+message PowerRecoveryCycle {
+  string id = 1;
+  string scope = 2;
+  string phase = 3;
+  repeated string outlet_ids = 4;
+  google.protobuf.Timestamp restore_after = 5;
+  google.protobuf.Timestamp created_at = 6;
+  string last_error = 7;
+}
+message GetModulePowerFeedResponse {
+  int64 module_id = 1;
+  string device_identifier = 2;
+  string container_name = 3;
+  int32 tank = 4;
+  int32 module = 5;
+  google.protobuf.Timestamp observed_at = 6;
+  PowerFeedMapping mapping = 7;
+  // Unset when no unique feed is mapped or feed_unavailable_reason is set.
+  PowerFeedReading feed = 8;
+  // "snapshot_not_ready", "not_in_snapshot", "duplicate_records" or "read_failed".
+  string feed_unavailable_reason = 9;
+  // The answering controller's write authority; unset when unknown.
+  optional bool controller_write_primary = 10;
+  // False when the durable recovery cycle could not be read.
+  bool recovery_cycle_known = 11;
+  PowerRecoveryCycle recovery_cycle = 12;
+}
 message StreamBoardASICReadingsRequest {
   // A moved or replaced board ends the stream rather than showing another board.
   BoardIdentifyTarget board = 1 [(buf.validate.field).required = true];

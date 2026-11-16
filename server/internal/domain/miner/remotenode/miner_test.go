@@ -740,6 +740,20 @@ func TestMinerAcquireGateUsesSharedAdmissionPolicy(t *testing.T) {
 			wantDeferrable: 1,
 		},
 		{
+			name: "power feed inspection uses deferrable gate",
+			command: &gatewaypb.MinerCommand{Action: &gatewaypb.MinerCommand_ContainerPowerFeed{
+				ContainerPowerFeed: &gatewaypb.ContainerPowerFeedAction{Request: []byte(`{"action":"inspect","module":{"tank":1,"module":1}}`)},
+			}},
+			wantDeferrable: 1,
+		},
+		{
+			name: "other power feed action uses general gate",
+			command: &gatewaypb.MinerCommand{Action: &gatewaypb.MinerCommand_ContainerPowerFeed{
+				ContainerPowerFeed: &gatewaypb.ContainerPowerFeedAction{Request: []byte(`{"action":"turn_off","feed_id":"pdu-1-outlet-01","module":{"tank":1,"module":1}}`)},
+			}},
+			wantGeneral: 1,
+		},
+		{
 			name:        "unknown action uses general gate",
 			command:     &gatewaypb.MinerCommand{},
 			wantGeneral: 1,

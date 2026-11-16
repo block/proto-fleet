@@ -7,6 +7,7 @@ import { getModuleStatusPresentation } from "../moduleStatusPresentation";
 import { tankMetricCoverage } from "../tankMetricCoverage";
 import ModuleHashboardCard from "./ModuleHashboardCard";
 import ModulePerformance from "./ModulePerformance";
+import ModulePowerFeedCard from "./ModulePowerFeedCard";
 import ModulePsuCard from "./ModulePsuCard";
 import {
   HashboardSlotSchema,
@@ -144,6 +145,7 @@ export default function ModuleDetails({
       <section aria-label="Other hardware" className="flex flex-col gap-4">
         <h2 className="text-heading-200">Other hardware</h2>
         <ModulePsuCard module={module} slots={result?.data?.slots ?? []} unavailable={unavailable} now={now} />
+        <ModulePowerFeedCard moduleId={module.ref!.id} enabled={enabled} />
       </section>
       <ModulePerformance moduleId={module.ref!.id} enabled={enabled} />
     </PoolAssignments>

@@ -40,6 +40,7 @@ const (
 	Driver_MiningGroups_FullMethodName            = "/sdk.v1.Driver/MiningGroups"
 	Driver_SetModuleMining_FullMethodName         = "/sdk.v1.Driver/SetModuleMining"
 	Driver_SetBoardIdentify_FullMethodName        = "/sdk.v1.Driver/SetBoardIdentify"
+	Driver_ContainerPowerFeed_FullMethodName      = "/sdk.v1.Driver/ContainerPowerFeed"
 	Driver_StreamBoardASICReadings_FullMethodName = "/sdk.v1.Driver/StreamBoardASICReadings"
 	Driver_SetContainerControl_FullMethodName     = "/sdk.v1.Driver/SetContainerControl"
 	Driver_ControllerRecords_FullMethodName       = "/sdk.v1.Driver/ControllerRecords"
@@ -98,6 +99,9 @@ type DriverClient interface {
 	SetModuleMining(ctx context.Context, in *SetModuleMiningRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
 	// Optional controller-only identification LED command for one verified board.
 	SetBoardIdentify(ctx context.Context, in *SetBoardIdentifyRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
+	// Optional controller-only module power-feed operations (capability
+	// "container_power_feed"). The payload is a closed JSON operation.
+	ContainerPowerFeed(ctx context.Context, in *ContainerPowerFeedRequest, opts ...grpc.CallOption) (*ContainerPowerFeedResponse, error)
 	// Optional controller-only live ASIC readings for one verified board. The
 	// stream runs until the caller cancels it or the controller ends it.
 	StreamBoardASICReadings(ctx context.Context, in *StreamBoardASICReadingsRequest, opts ...grpc.CallOption) (Driver_StreamBoardASICReadingsClient, error)
@@ -318,6 +322,15 @@ func (c *driverClient) SetModuleMining(ctx context.Context, in *SetModuleMiningR
 func (c *driverClient) SetBoardIdentify(ctx context.Context, in *SetBoardIdentifyRequest, opts ...grpc.CallOption) (*emptypb.Empty, error) {
 	out := new(emptypb.Empty)
 	err := c.cc.Invoke(ctx, Driver_SetBoardIdentify_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *driverClient) ContainerPowerFeed(ctx context.Context, in *ContainerPowerFeedRequest, opts ...grpc.CallOption) (*ContainerPowerFeedResponse, error) {
+	out := new(ContainerPowerFeedResponse)
+	err := c.cc.Invoke(ctx, Driver_ContainerPowerFeed_FullMethodName, in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -618,6 +631,9 @@ type DriverServer interface {
 	SetModuleMining(context.Context, *SetModuleMiningRequest) (*emptypb.Empty, error)
 	// Optional controller-only identification LED command for one verified board.
 	SetBoardIdentify(context.Context, *SetBoardIdentifyRequest) (*emptypb.Empty, error)
+	// Optional controller-only module power-feed operations (capability
+	// "container_power_feed"). The payload is a closed JSON operation.
+	ContainerPowerFeed(context.Context, *ContainerPowerFeedRequest) (*ContainerPowerFeedResponse, error)
 	// Optional controller-only live ASIC readings for one verified board. The
 	// stream runs until the caller cancels it or the controller ends it.
 	StreamBoardASICReadings(*StreamBoardASICReadingsRequest, Driver_StreamBoardASICReadingsServer) error
@@ -726,6 +742,9 @@ func (UnimplementedDriverServer) SetModuleMining(context.Context, *SetModuleMini
 }
 func (UnimplementedDriverServer) SetBoardIdentify(context.Context, *SetBoardIdentifyRequest) (*emptypb.Empty, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method SetBoardIdentify not implemented")
+}
+func (UnimplementedDriverServer) ContainerPowerFeed(context.Context, *ContainerPowerFeedRequest) (*ContainerPowerFeedResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ContainerPowerFeed not implemented")
 }
 func (UnimplementedDriverServer) StreamBoardASICReadings(*StreamBoardASICReadingsRequest, Driver_StreamBoardASICReadingsServer) error {
 	return status.Errorf(codes.Unimplemented, "method StreamBoardASICReadings not implemented")
@@ -1150,6 +1169,24 @@ func _Driver_SetBoardIdentify_Handler(srv interface{}, ctx context.Context, dec 
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(DriverServer).SetBoardIdentify(ctx, req.(*SetBoardIdentifyRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Driver_ContainerPowerFeed_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ContainerPowerFeedRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DriverServer).ContainerPowerFeed(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Driver_ContainerPowerFeed_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DriverServer).ContainerPowerFeed(ctx, req.(*ContainerPowerFeedRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -1674,6 +1711,10 @@ var Driver_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "SetBoardIdentify",
 			Handler:    _Driver_SetBoardIdentify_Handler,
+		},
+		{
+			MethodName: "ContainerPowerFeed",
+			Handler:    _Driver_ContainerPowerFeed_Handler,
 		},
 		{
 			MethodName: "SetContainerControl",

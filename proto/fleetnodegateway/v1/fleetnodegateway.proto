@@ -315,6 +315,8 @@ enum CommandProtocolVersion {
     COMMAND_PROTOCOL_VERSION_V10 = 10;
     // V11 adds bounded on-demand reads of CT1 controller logs and audit events.
     COMMAND_PROTOCOL_VERSION_V11 = 11;
+    // V13 adds read-only CT1 module power-feed inspection.
+    COMMAND_PROTOCOL_VERSION_V13 = 13;
 }
 
 message ControlHello {
@@ -514,6 +516,7 @@ message MinerCommand {
         VerifyPoolsClearedAction verify_pools_cleared = 24;
         SetBoardIdentifyAction set_board_identify = 25;
         ControllerRecordsAction controller_records = 26;
+        ContainerPowerFeedAction container_power_feed = 27;
     }
 }
 
@@ -810,5 +813,14 @@ message ControllerRecordsAction {
 
 // Closed SDK container operation; request/result JSON is validated at both ends.
 message ContainerMiningAction {
+  bytes request = 1 [(buf.validate.field).bytes = {min_len: 1, max_len: 4096}];
+}
+
+// Closed SDK container power-feed operation (sdk.ContainerPowerFeedRequest
+// JSON). Nodes and plugins reject unknown actions and unknown request fields,
+// so adding either needs a new command protocol version that the server
+// requires before it routes the new request. Servers ignore unknown result
+// fields, so a newer node or plugin may add result fields without one.
+message ContainerPowerFeedAction {
   bytes request = 1 [(buf.validate.field).bytes = {min_len: 1, max_len: 4096}];
 }

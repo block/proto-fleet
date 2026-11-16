@@ -29,6 +29,11 @@ vi.mock("@/protoFleet/store", async (importOriginal) => ({
   useTemperatureUnit: () => "C",
   usePermissions: () => [],
 }));
+vi.mock("../components/ModulePowerFeedCard", () => ({
+  default: ({ moduleId }: { moduleId: bigint }) => (
+    <article aria-label="Power feed">module {String(moduleId)} feed</article>
+  ),
+}));
 vi.mock("../components/ModulePerformance", () => ({
   default: ({ moduleId }: { moduleId: bigint }) => (
     <section aria-label="Performance">module {String(moduleId)} history</section>

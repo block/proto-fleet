@@ -794,6 +794,9 @@ service Driver {
   rpc SetModuleMining(SetModuleMiningRequest) returns (google.protobuf.Empty);
   // Optional controller-only identification LED command for one verified board.
   rpc SetBoardIdentify(SetBoardIdentifyRequest) returns (google.protobuf.Empty);
+  // Optional controller-only module power-feed operations (capability
+  // "container_power_feed"). The payload is a closed JSON operation.
+  rpc ContainerPowerFeed(ContainerPowerFeedRequest) returns (ContainerPowerFeedResponse);
   // Optional controller-only live ASIC readings for one verified board. The
   // stream runs until the caller cancels it or the controller ends it.
   rpc StreamBoardASICReadings(StreamBoardASICReadingsRequest) returns (stream BoardASICFrame);
@@ -1132,6 +1135,8 @@ message ControllerRecordsRequest { DeviceRef ref = 1; bytes payload = 2; }
 message ControllerRecordsResponse { bytes payload = 1; }
 message ContainerMiningRequest { DeviceRef ref = 1; bytes payload = 2; }
 message ContainerMiningResponse { bytes payload = 1; }
+message ContainerPowerFeedRequest { DeviceRef ref = 1; bytes payload = 2; }
+message ContainerPowerFeedResponse { bytes payload = 1; }
 
 // FrigateServerUpdateRequest selects exactly one operation. Staging operations
 // and support are instance-scoped; instance_id is the Frigate instance ID of an

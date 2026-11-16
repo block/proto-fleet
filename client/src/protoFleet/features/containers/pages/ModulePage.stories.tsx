@@ -7,6 +7,9 @@ import ModulePage from "./ModulePage";
 import {
   GetContainerResponseSchema,
   GetModuleMiningOptionsResponseSchema,
+  GetModulePowerFeedResponseSchema,
+  PowerFeedMappingConfidence,
+  PowerFeedState,
 } from "@/protoFleet/api/generated/containers/v1/containers_pb";
 import {
   EntityKind,
@@ -208,6 +211,42 @@ const meta = {
               ),
             )
           : json(toJson(ListModuleHistoryResponseSchema, create(ListModuleHistoryResponseSchema, { samples })));
+      }
+      if (request.url.endsWith("/GetModulePowerFeed")) {
+        const power = args.state === "stale" ? undefined : 18_240;
+        return json(
+          toJson(
+            GetModulePowerFeedResponseSchema,
+            create(GetModulePowerFeedResponseSchema, {
+              moduleId: 91n,
+              deviceIdentifier: "ct1",
+              containerName: "CT1 North",
+              tank: 1,
+              module: 1,
+              observedAt: now,
+              mapping: {
+                confidence: PowerFeedMappingConfidence.WIRING_VERIFIED,
+                feedId: "pdu-1-outlet-01",
+              },
+              feed: {
+                id: "pdu-1-outlet-01",
+                state: PowerFeedState.ENABLED,
+                active: true,
+                faulted: false,
+                voltageV: 480.2,
+                currentA: 21.9,
+                powerW: power,
+                voltageAbV: 480.2,
+                voltageBcV: 479.8,
+                voltageCaV: 480.4,
+                currentAA: 21.9,
+                currentBA: 21.8,
+                currentCA: 22.0,
+              },
+              recoveryCycleKnown: true,
+            }),
+          ),
+        );
       }
       if (request.url.endsWith("/GetModuleMiningOptions"))
         return json(

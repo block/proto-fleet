@@ -268,3 +268,47 @@ func TestGRPCIdentifyLEDRecordsOnlySelectedBoards(t *testing.T) {
 		t.Fatal("unknown identifier reported as updated")
 	}
 }
+
+func TestGRPCListsModulePowerFeeds(t *testing.T) {
+	state := NewContainerState(ContainerConfig{ServerID: "feed-test", Tanks: 1, ModulesPerTank: 2, SlotsPerModule: 3, AsicsPerBoard: 312, Seed: 1})
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := newGRPCServer(state)
+	t.Cleanup(server.Stop)
+	go func() { _ = server.Serve(listener) }()
+	conn, err := grpc.NewClient(listener.Addr().String(), grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = conn.Close() })
+	power := mdk.NewPowerServiceClient(conn)
+	feeds, err := power.ListPowerFeeds(t.Context(), &mdk.ListPowerFeedsRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !feeds.GetSnapshotReady() || len(feeds.GetPowerFeeds()) != 2 {
+		t.Fatalf("feeds = %v", feeds)
+	}
+	layout, err := mdk.NewHashboardServiceClient(conn).GetContainerMap(t.Context(), &mdk.GetContainerMapRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	mapped := map[string]bool{}
+	for _, module := range layout.GetContainerMap().GetTanks()[0].GetModules() {
+		mapped[module.GetSlots()[0].GetPowerFeedId()] = true
+	}
+	for _, feed := range feeds.GetPowerFeeds() {
+		if !mapped[feed.GetPowerFeedId()] || feed.GetState() != mdk.PowerFeedState_POWER_FEED_STATE_ENABLED || feed.State == nil {
+			t.Fatalf("feed %v is not an enabled mapped outlet", feed)
+		}
+		if feed.GetPowerW() > 0 && (feed.GetCurrentA() <= 0 || feed.GetCurrentAA() != feed.GetCurrentA() || feed.GetVoltageAbV() != feed.GetVoltageV()) {
+			t.Fatalf("feed %v lacks consistent three-phase readings", feed)
+		}
+	}
+	cycle, err := power.GetActivePowerRecoveryCycle(t.Context(), &mdk.GetActivePowerRecoveryCycleRequest{})
+	if err != nil || cycle.GetCycle() != nil {
+		t.Fatalf("cycle = %v, %v", cycle, err)
+	}
+}

@@ -1,6 +1,9 @@
 package control
 
-import gatewaypb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
+import (
+	gatewaypb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
+	sdk "github.com/block/proto-fleet/server/sdk/v1"
+)
 
 // Fixed optimistic ceilings for one Fleet Node. At the default 15-second
 // telemetry cadence, 504 deferrable slots leave substantial latency headroom
@@ -30,6 +33,9 @@ const (
 // GetCoolingMode only prefills the settings UI. GetMiningPools remains general
 // because it is also a prerequisite for operator pool changes, while
 // GetFirmwareUpdateStatus advances an operator-initiated firmware workflow.
+// Container power-feed inspection is an operator-opened observation that never
+// changes equipment, so it must not take the slots reserved for operator writes;
+// any other or undecodable power-feed request stays general.
 func AdmissionForCommand(command *gatewaypb.AgentCommand) (CommandAdmissionClass, string) {
 	if command == nil {
 		return CommandAdmissionGeneral, "malformed"
@@ -73,6 +79,11 @@ func AdmissionForMinerCommand(command *gatewaypb.MinerCommand) (CommandAdmission
 		return CommandAdmissionDeferrableRead, "get_errors"
 	case *gatewaypb.MinerCommand_ContainerMining:
 		return CommandAdmissionGeneral, "container_mining"
+	case *gatewaypb.MinerCommand_ContainerPowerFeed:
+		if r, err := sdk.DecodeContainerPowerFeedRequest(command.GetContainerPowerFeed().GetRequest()); err == nil && r.ReadOnly() {
+			return CommandAdmissionDeferrableRead, "container_power_feed_inspect"
+		}
+		return CommandAdmissionGeneral, "container_power_feed"
 	case *gatewaypb.MinerCommand_MiningGroups:
 		return CommandAdmissionGeneral, "mining_groups"
 	case *gatewaypb.MinerCommand_SetModuleMining:

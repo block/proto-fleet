@@ -285,6 +285,29 @@ Frigate owns the blink window (15 minutes). Fleet command results do not carry
 MDK's `expires_at`, so the client shows an approximate end time counted from
 when each board's result was recorded.
 
+Module power-feed inspection is read-only. The plugin reads
+`PowerService.ListPowerFeeds`, `PowerService.GetActivePowerRecoveryCycle` and
+`HashboardService.GetContainerMap` from a verified controller and derives the
+module's feed from board slot evidence (slot, observed and expected feed,
+switch-port wiring status and configured location). The mapping is
+`wiring_verified` or `configured` only when the module position is unique, its
+identity matches the one Fleet confirmed, every occupied slot names the same
+single feed, wiring is not contradicted and no other module claims that feed;
+anything else is `ambiguous` or `unavailable` with machine-readable reasons. An
+occupied slot that names no feed while others do is `feed_evidence_incomplete`.
+Feed readings are shown only from a ready snapshot with exactly one record for
+the feed; an unreadable recovery cycle stays unknown rather than "none". Fleet
+reads through the `container_power_feed` capability and Fleet Node routing
+requires command protocol V13. Nodes and plugins reject unknown actions and
+request fields, so a new action or request field needs a new protocol version;
+servers ignore unknown result fields. This path is never polled: each read
+holds the container's binding lock until the controller answers, so Fleet reads
+once when the module page opens and again only when the operator refreshes.
+Inspection uses the Fleet Node's deferrable-read capacity, so it never takes
+the command slots or device handles reserved for operator commands.
+fake-ct1 reports every simulated outlet as enabled with no active recovery
+cycle.
+
 ## Protobuf presence and diagnostic fidelity
 
 Normalization reads typed protobuf values. Diagnostic JSON is generated separately

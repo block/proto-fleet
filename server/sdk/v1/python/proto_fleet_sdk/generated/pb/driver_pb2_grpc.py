@@ -131,6 +131,11 @@ class DriverStub(object):
                 request_serializer=pb_dot_driver__pb2.SetBoardIdentifyRequest.SerializeToString,
                 response_deserializer=google_dot_protobuf_dot_empty__pb2.Empty.FromString,
                 _registered_method=True)
+        self.ContainerPowerFeed = channel.unary_unary(
+                '/sdk.v1.Driver/ContainerPowerFeed',
+                request_serializer=pb_dot_driver__pb2.ContainerPowerFeedRequest.SerializeToString,
+                response_deserializer=pb_dot_driver__pb2.ContainerPowerFeedResponse.FromString,
+                _registered_method=True)
         self.StreamBoardASICReadings = channel.unary_stream(
                 '/sdk.v1.Driver/StreamBoardASICReadings',
                 request_serializer=pb_dot_driver__pb2.StreamBoardASICReadingsRequest.SerializeToString,
@@ -375,6 +380,14 @@ class DriverServicer(object):
 
     def SetBoardIdentify(self, request, context):
         """Optional controller-only identification LED command for one verified board.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def ContainerPowerFeed(self, request, context):
+        """Optional controller-only module power-feed operations (capability
+        "container_power_feed"). The payload is a closed JSON operation.
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -642,6 +655,11 @@ def add_DriverServicer_to_server(servicer, server):
                     servicer.SetBoardIdentify,
                     request_deserializer=pb_dot_driver__pb2.SetBoardIdentifyRequest.FromString,
                     response_serializer=google_dot_protobuf_dot_empty__pb2.Empty.SerializeToString,
+            ),
+            'ContainerPowerFeed': grpc.unary_unary_rpc_method_handler(
+                    servicer.ContainerPowerFeed,
+                    request_deserializer=pb_dot_driver__pb2.ContainerPowerFeedRequest.FromString,
+                    response_serializer=pb_dot_driver__pb2.ContainerPowerFeedResponse.SerializeToString,
             ),
             'StreamBoardASICReadings': grpc.unary_stream_rpc_method_handler(
                     servicer.StreamBoardASICReadings,
@@ -1278,6 +1296,33 @@ class Driver(object):
             '/sdk.v1.Driver/SetBoardIdentify',
             pb_dot_driver__pb2.SetBoardIdentifyRequest.SerializeToString,
             google_dot_protobuf_dot_empty__pb2.Empty.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def ContainerPowerFeed(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/sdk.v1.Driver/ContainerPowerFeed',
+            pb_dot_driver__pb2.ContainerPowerFeedRequest.SerializeToString,
+            pb_dot_driver__pb2.ContainerPowerFeedResponse.FromString,
             options,
             channel_credentials,
             insecure,

@@ -938,6 +938,15 @@ impl Driver for DriverService {
         Err(Status::unimplemented("board identify is unsupported"))
     }
 
+    async fn container_power_feed(
+        &self,
+        _req: Request<pb::ContainerPowerFeedRequest>,
+    ) -> Result<Response<pb::ContainerPowerFeedResponse>, Status> {
+        Err(Status::unimplemented(
+            "container power feeds are unsupported",
+        ))
+    }
+
     type StreamBoardASICReadingsStream =
         tokio_stream::wrappers::ReceiverStream<Result<pb::BoardAsicFrame, Status>>;
 

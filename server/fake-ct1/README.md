@@ -23,6 +23,10 @@ A full container is a **Tank → Module → Slot → Hashboard** tree:
 - **312 ASICs per board** with layout coordinates
   (four stacks of 78; the client wraps each stack into three rows of 26)
 - Plant/PUE, fan, power-distribution, and power-feed telemetry
+- Read-only module power feeds over gRPC: `ListPowerFeeds` reports one enabled
+  three-phase `pdu-N-outlet-MM` outlet per module, with line voltage, per-phase
+  current, and AC power. `GetActivePowerRecoveryCycle` reports no cycle. Feed
+  on, off, cycle, and override writes are not simulated.
 - Bucketed aggregate time-series telemetry
 - Stateful mining writes (global/scoped power targets, start/stop, fixed voltage, module run-in)
 

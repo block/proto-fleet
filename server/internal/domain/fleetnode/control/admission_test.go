@@ -44,6 +44,24 @@ func TestCommandAdmissionPolicy(t *testing.T) {
 			wantKind:  "get_errors",
 		},
 		{
+			name:      "power feed inspection",
+			command:   minerAgentCommand(powerFeedCommand(`{"action":"inspect","module":{"tank":1,"module":1}}`)),
+			wantClass: CommandAdmissionDeferrableRead,
+			wantKind:  "container_power_feed_inspect",
+		},
+		{
+			name:      "power feed action other than inspection",
+			command:   minerAgentCommand(powerFeedCommand(`{"action":"turn_off","feed_id":"pdu-1-outlet-01","module":{"tank":1,"module":1}}`)),
+			wantClass: CommandAdmissionGeneral,
+			wantKind:  "container_power_feed",
+		},
+		{
+			name:      "undecodable power feed request",
+			command:   minerAgentCommand(powerFeedCommand(`{"action":"inspect","module":{"tank":1,"module":1},"outlet":"x"}`)),
+			wantClass: CommandAdmissionGeneral,
+			wantKind:  "container_power_feed",
+		},
+		{
 			name: "pool read",
 			command: minerAgentCommand(&gatewaypb.MinerCommand{Action: &gatewaypb.MinerCommand_GetMiningPools{
 				GetMiningPools: &gatewaypb.GetMiningPoolsAction{},
@@ -164,5 +182,11 @@ func TestOptimisticCommandCapacityLeavesOperatorReservation(t *testing.T) {
 func minerAgentCommand(command *gatewaypb.MinerCommand) *gatewaypb.AgentCommand {
 	return &gatewaypb.AgentCommand{Command: &gatewaypb.AgentCommand_MinerCommand{
 		MinerCommand: command,
+	}}
+}
+
+func powerFeedCommand(request string) *gatewaypb.MinerCommand {
+	return &gatewaypb.MinerCommand{Action: &gatewaypb.MinerCommand_ContainerPowerFeed{
+		ContainerPowerFeed: &gatewaypb.ContainerPowerFeedAction{Request: []byte(request)},
 	}}
 }
