@@ -22,20 +22,22 @@ import (
 
 type retryMiner struct {
 	interfaces.Miner
-	enabled       bool
-	fail          bool
-	wait          bool
-	calls         []sdk.MiningGroupRequest
-	activationErr error
-	mining        bool
-	activeBoards  int32
-	holdStop      bool
-	loseStop      bool
-	loseActivate  bool
-	loseStart     bool
-	statusErr     bool
-	startConflict bool
-	revision      int64
+	enabled        bool
+	fail           bool
+	wait           bool
+	calls          []sdk.MiningGroupRequest
+	activationErr  error
+	mining         bool
+	activeBoards   int32
+	holdStop       bool
+	loseStop       bool
+	loseActivate   bool
+	loseDeactivate bool
+	deactivatedKey string
+	loseStart      bool
+	statusErr      bool
+	startConflict  bool
+	revision       int64
 }
 
 func (m *retryMiner) GetMinerForCommand(context.Context, int64) (interfaces.Miner, error) {
@@ -52,6 +54,14 @@ func (m *retryMiner) MiningGroups(ctx context.Context, request sdk.MiningGroupRe
 		return sdk.MiningGroupResult{}, errors.New("controller unavailable")
 	}
 	switch request.Action {
+	case operationDeactivate:
+		m.enabled = false
+		m.deactivatedKey = request.Key
+		if m.loseDeactivate {
+			m.loseDeactivate = false
+			return sdk.MiningGroupResult{}, errors.New("lost deactivation reply")
+		}
+		return sdk.MiningGroupResult{Deactivated: true}, nil
 	case "mining_status":
 		if m.statusErr {
 			return sdk.MiningGroupResult{}, errors.New("status unavailable")

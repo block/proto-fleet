@@ -12,3 +12,12 @@ func (m *RemoteFleetNodeMiner) MiningGroups(ctx context.Context, r sdk.MiningGro
 	}
 	return sdk.MiningGroupResult{}, m.unsupported("mining groups")
 }
+
+func (m *RemoteFleetNodeMiner) CheckMiningGroupDeactivation(ctx context.Context) error {
+	if checker, ok := m.delegate.(interface {
+		CheckMiningGroupDeactivation(ctx context.Context) error
+	}); ok {
+		return checker.CheckMiningGroupDeactivation(ctx)
+	}
+	return m.unsupported("mining-group deactivation preflight")
+}

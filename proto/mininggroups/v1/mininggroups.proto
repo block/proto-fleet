@@ -7,6 +7,9 @@ import "google/protobuf/timestamp.proto";
 service MiningGroupService {
  rpc GetState(GetStateRequest) returns (GetStateResponse);
  rpc Activate(ActivateRequest) returns (ActivateResponse);
+ rpc Deactivate(DeactivateRequest) returns (DeactivateResponse);
+ rpc ReviewReturnToDefault(ReviewReturnToDefaultRequest) returns (ReviewReturnToDefaultResponse);
+ rpc ReturnToDefault(ReturnToDefaultRequest) returns (ReturnToDefaultResponse);
 }
 message GetStateRequest { string device_identifier = 1 [(buf.validate.field).string = {min_len:1,max_len:255}]; }
 message Pool {
@@ -43,6 +46,12 @@ message GetStateResponse {
  string message = 8;
  int64 revision = 9;
  bool supported = 10;
+ // A current server-derived reason to prevent deactivation, or empty if ready.
+ string deactivation_blocked_reason = 11;
+ // The server confirms that returning boards is the next deactivation step.
+ bool can_return_to_default = 12;
+ // The server offers explicit reauthorization of the saved deactivation request.
+ bool can_resume_deactivation = 13;
 }
 message ActivateRequest {
  string device_identifier = 1 [(buf.validate.field).string = {min_len:1,max_len:255}];
@@ -51,3 +60,44 @@ message ActivateRequest {
  string request_id = 3 [(buf.validate.field).string.uuid = true];
 }
 message ActivateResponse { string operation_id = 1; }
+message DeactivateRequest {
+ string device_identifier = 1 [(buf.validate.field).string = {min_len:1,max_len:255}];
+ bool acknowledge_interruption = 2 [(buf.validate.field).bool.const = true];
+ string request_id = 3 [(buf.validate.field).string.uuid = true];
+}
+message DeactivateResponse { string operation_id = 1; }
+
+// An empty selection reviews all unallocated boards on the named controller.
+// Recall passes its exact reviewed boards, including reviewed module members.
+message ReviewReturnToDefaultRequest {
+ option (buf.validate.message).cel = {
+   id: "default_return_scope"
+   message: "select a container or hashboards"
+   expression: "this.device_identifier != '' || size(this.hashboard_ids) > 0"
+ };
+ string device_identifier = 1 [(buf.validate.field).string.max_len = 255];
+ repeated int64 hashboard_ids = 2 [(buf.validate.field).repeated = {max_items:1500, unique:true, items:{int64:{gt:0}}}];
+}
+message DefaultReturnBoard {
+ int64 hashboard_id = 1;
+ string mac_address = 2;
+ // Matches the hashboard name in Mining assets.
+ string name = 3;
+}
+message DefaultReturnReview {
+ string device_identifier = 1;
+ repeated DefaultReturnBoard boards = 2;
+ Group default_group = 3;
+ string review_token = 4;
+ string blocked_reason = 5;
+}
+message ReviewReturnToDefaultResponse { repeated DefaultReturnReview containers = 1; }
+message ReturnToDefaultRequest {
+ string device_identifier = 1 [(buf.validate.field).string = {min_len:1,max_len:255}];
+ repeated int64 hashboard_ids = 2 [(buf.validate.field).repeated = {min_items:1,max_items:288,unique:true,items:{int64:{gt:0}}}];
+ // Binds confirmation to the reviewed installations, ownership and settings.
+ string review_token = 3 [(buf.validate.field).string.len = 64];
+ string request_id = 4 [(buf.validate.field).string.uuid = true];
+ bool acknowledge_mining_change = 5 [(buf.validate.field).bool.const = true];
+}
+message ReturnToDefaultResponse { string operation_id = 1; }

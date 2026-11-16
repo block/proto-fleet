@@ -49,11 +49,14 @@ func (c *Checker) removalBinding(ctx context.Context, q sqlc.Querier, p poolconf
 		return sqlc.GetPoolConfigurationAssignmentRow{}, binding, fleeterror.NewForbiddenError("equipment access changed")
 	}
 	a, err := q.GetPoolConfigurationAssignment(ctx, sqlc.GetPoolConfigurationAssignmentParams{OrganizationID: p.Scope.OrganizationID, TargetKind: target.Kind, TargetID: target.ID})
+	if errors.Is(err, sql.ErrNoRows) {
+		return a, binding, newBindingChangedError("equipment assignment changed; review removal again")
+	}
 	if err != nil {
 		return a, binding, err
 	}
 	if a.RetiredAt.Valid || a.AccountID.Int64 != p.Scope.AccountID {
-		return a, binding, fleeterror.NewFailedPreconditionError("equipment assignment changed; review removal again")
+		return a, binding, newBindingChangedError("equipment assignment changed; review removal again")
 	}
 	target.DeviceID = a.DeviceID
 	if err := lockPoolBindings(ctx, q, p.Scope, []poolconfigurations.AssignmentTarget{target}, true); err != nil {
@@ -269,7 +272,7 @@ func (c *Checker) ValidateRemoval(ctx context.Context, q sqlc.Querier, p poolcon
 		return fleeterror.NewInternalError("encode removal binding failed")
 	}
 	if a.Version != row.AssignmentVersion || a.ConfigurationID != row.ConfigurationID || a.RevisionID != row.RevisionID || string(encoded) != row.ReviewedBinding {
-		return fleeterror.NewFailedPreconditionError("equipment assignment changed; review removal again")
+		return newBindingChangedError("equipment assignment changed; review removal again")
 	}
 	return nil
 }
@@ -357,6 +360,11 @@ func (c *Checker) FinishRemoval(ctx context.Context, q sqlc.Querier, p poolconfi
 		return fleeterror.NewFailedPreconditionError("removal changed")
 	}
 	if p.ActorID == 0 {
+		if !keep && row.TargetKind == poolconfigurations.TargetDevice {
+			if err := q.CompleteCoveredContainerPoolClears(ctx, row.RemovalID); err != nil {
+				return err
+			}
+		}
 		return poolconfigurations.RecordRemovalAudit(ctx, q, p, row.RemovalID.String(), "", false)
 	}
 	if err := poolconfigurations.NewRepository(c.secrets).RetireAssignment(ctx, q, p.Scope, target, row.AssignmentVersion); err != nil {

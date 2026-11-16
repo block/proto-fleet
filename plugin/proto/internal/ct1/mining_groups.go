@@ -84,6 +84,12 @@ func (d *Device) MiningGroups(ctx context.Context, r sdk.MiningGroupRequest) (ou
 			return out, e
 		}
 		out.Enabled = v.GetCapability().GetEnabled()
+	case "deactivate":
+		v, e := client.DeactivateMiningGroups(ctx, &mdk.DeactivateMiningGroupsRequest{ExpectedStateRevision: r.Revision, IdempotencyKey: r.Key})
+		if e != nil {
+			return out, e
+		}
+		out.Deactivated = v.GetCapability() != nil && !v.Capability.Enabled
 	case "create":
 		v, e := client.CreateMiningGroup(ctx, &mdk.CreateMiningGroupRequest{Metadata: &mdk.MiningGroupMetadata{Name: "Fleet " + r.ConfigID, ExternalRef: &r.ConfigID}, IdempotencyKey: r.Key})
 		if e != nil {

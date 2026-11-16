@@ -5,6 +5,7 @@ import (
 	"time"
 
 	pb "github.com/block/proto-fleet/server/generated/grpc/hosted/v1"
+	"github.com/block/proto-fleet/server/generated/sqlc"
 	"github.com/block/proto-fleet/server/internal/domain/hostedaccounts"
 	"github.com/block/proto-fleet/server/internal/testutil"
 	"github.com/stretchr/testify/require"
@@ -20,6 +21,10 @@ func TestManualAllocationAfterClockAheadAutomaticReplacement(t *testing.T) {
 			require.NoError(t, err)
 			r := &modulePSUIdentityRig{db: database.DB, deviceID: device.DatabaseID, orgID: user.OrganizationID, device: device.ID, base: time.Now().UTC().Add(-time.Minute).Truncate(time.Microsecond)}
 			svc := hostedaccounts.NewService(r.db, nil)
+			require.NoError(t, sqlc.New(r.db).EnsureDeviceWriteFences(t.Context(), []int64{r.deviceID}))
+			_, err = r.db.ExecContext(t.Context(), `INSERT INTO container_mining_group_state(device_id,organization_id,observed,observed_at)
+			 VALUES($1,$2,'{"supported":true,"enabled":true,"suspended":false,"pending":false,"revision":1}',clock_timestamp())`, r.deviceID, r.orgID)
+			require.NoError(t, err)
 			var root string
 			require.NoError(t, r.db.QueryRowContext(t.Context(), `SELECT account_id FROM hosted_account WHERE organization_id=$1 AND depth=0`, r.orgID).Scan(&root))
 			client, err := svc.CreateChild(t.Context(), user.DatabaseID, r.orgID, root, "Client", user.DatabaseID, hostedaccounts.AllCapabilities)

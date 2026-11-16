@@ -102,6 +102,25 @@ func (t *Type) IsCurtailmentControl() bool {
 	return *t == Curtail || *t == Uncurtail || *t == ApplyCurtailmentConfig
 }
 
+// MayAffectPools treats unknown commands as conflicting. Only commands that are
+// independent of pool configuration and reconciliation may overlap pool work.
+func (t *Type) MayAffectPools() bool {
+	switch *t {
+	case BlinkLED, SetBoardIdentify, DownloadLogs, SetCoolingMode, SetPowerTarget:
+		return false
+	case FrigateServerUpdate:
+		// Frigate preserves pools across controller updates. Pool work must
+		// not prevent the retry, cancel or abort calls that restore controllers.
+		return false
+	case StartMining, StopMining, UpdateMiningPools, Reboot, FirmwareUpdate, Unpair,
+		UpdateMinerPassword, Curtail, Uncurtail, ApplyCurtailmentConfig,
+		SetContainerControl, ContainerAlarmAction, SetTankMining, SetModuleMining, ContainerMining:
+		return true
+	default:
+		return true
+	}
+}
+
 func FromString(s string) (Type, error) {
 	switch s {
 	case "StartMining":

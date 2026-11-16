@@ -25,7 +25,7 @@ func lifecycleStates(ctx context.Context, q sqlc.Querier, scope Scope, devices, 
 }
 
 func lifecycleDisplayState(event sqlc.ListVisiblePoolLifecycleTransitionsRow) string {
-	if event.State == "ready" {
+	if event.State == "ready" || event.State == "deferred" {
 		return "pending"
 	}
 	if event.State == "completed" {

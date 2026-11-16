@@ -25,6 +25,12 @@ func activityID(orgID int64, operation uuid.UUID, phase string) uuid.UUID {
 }
 
 func activitySubject(kind string) string {
+	if kind == operationReturnDefault {
+		return "Hashboard return to Default"
+	}
+	if kind == operationDeactivate {
+		return "Mining-group deactivation"
+	}
 	if kind == operationActivate {
 		return "Mining-group activation"
 	}
@@ -32,6 +38,14 @@ func activitySubject(kind string) string {
 }
 
 func recordAcceptedActivity(ctx context.Context, q sqlc.Querier, row sqlc.ContainerMiningGroupState, identifier string, site sql.NullInt64, config string, boards []int64) error {
+	return recordOperatorActivity(ctx, q, row, identifier, site, config, boards, "accepted", "accepted")
+}
+
+func recordResumedActivity(ctx context.Context, q sqlc.Querier, row sqlc.ContainerMiningGroupState, identifier string, site sql.NullInt64) error {
+	return recordOperatorActivity(ctx, q, row, identifier, site, "", nil, "resumed", fmt.Sprintf("resumed.%d", row.Revision))
+}
+
+func recordOperatorActivity(ctx context.Context, q sqlc.Querier, row sqlc.ContainerMiningGroupState, identifier string, site sql.NullInt64, config string, boards []int64, status, phase string) error {
 	var actor sqlc.User
 	var err error
 	actorType := models.ActorSystem
@@ -42,13 +56,13 @@ func recordAcceptedActivity(ctx context.Context, q sqlc.Querier, row sqlc.Contai
 		}
 		actorType = models.ActorUser
 	}
-	metadata, err := encode(activityMetadata{OperationID: row.OperationID.UUID.String(), DeviceID: row.DeviceID, HashboardIDs: boards, PoolRevisionID: config, Status: "accepted"})
+	metadata, err := encode(activityMetadata{OperationID: row.OperationID.UUID.String(), DeviceID: row.DeviceID, HashboardIDs: boards, PoolRevisionID: config, Status: status})
 	if err != nil {
 		return err
 	}
 	return q.InsertActivityLog(ctx, sqlc.InsertActivityLogParams{
-		EventID: activityID(row.OrganizationID, row.OperationID.UUID, "accepted"), EventCategory: string(models.CategoryFleetManagement),
-		EventType: "mining_groups." + row.OperationKind + ".accepted", Description: activitySubject(row.OperationKind) + " request accepted",
+		EventID: activityID(row.OrganizationID, row.OperationID.UUID, phase), EventCategory: string(models.CategoryFleetManagement),
+		EventType: "mining_groups." + row.OperationKind + "." + status, Description: activitySubject(row.OperationKind) + " request " + status,
 		Result: string(models.ResultSuccess), ActorType: string(actorType),
 		UserID: sql.NullString{String: actor.UserID, Valid: row.ActorID.Valid}, Username: sql.NullString{String: actor.Username, Valid: row.ActorID.Valid},
 		OrganizationID: sql.NullInt64{Int64: row.OrganizationID, Valid: true}, SiteID: site,

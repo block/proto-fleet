@@ -283,8 +283,6 @@ func TestBoardPoolRemovalKeepsSiblingAssignmentsAndRejectsMovedInstallations(t *
 			ctx, err := hostedaccounts.WithRequestAccountID(f.sessionContext(t), f.account.AccountID)
 			require.NoError(t, err)
 			require.NoError(t, sqlc.New(f.db).EnsureDeviceWriteFences(ctx, []int64{controller}))
-			_, err = f.db.ExecContext(ctx, `INSERT INTO container_mining_group_state(device_id,organization_id,observed,observed_at) VALUES($1,$2,'{"supported":true,"enabled":true}',now())`, controller, f.org)
-			require.NoError(t, err)
 			repo := poolconfigurations.NewRepository(cipher)
 			reviewer := poolapplications.NewReviewer(f.pools, poolCapabilities{sdk.CapabilityPoolConfig: true})
 			device := &poolDevice{}

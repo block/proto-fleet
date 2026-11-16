@@ -52,11 +52,24 @@ func (s *Service) recordTransfer(ctx context.Context, q sqlc.Querier, row sqlc.C
 	return finishStep(ctx, q, row)
 }
 
-// interrupt never dispatches a mutation. Saved requests with unknown outcomes
-// remain protected; only known transfer receipts can be settled without replay.
+// interrupt never dispatches a mutation. It can discard a request only when
+// durable dispatch tracking proves it never left Fleet. Unknown outcomes retain
+// their identity and admission; known transfers settle through receipt polling.
 func (s *Service) interrupt(ctx context.Context, q sqlc.Querier, row sqlc.ContainerMiningGroupState, message string) error {
 	if row.Step.Valid {
-		return s.block(ctx, q, row, "Access or board installation changed; the saved controller request must be resolved before this operation can end")
+		unsent, err := q.MiningGroupStepIsUnsent(ctx, sqlc.MiningGroupStepIsUnsentParams{StepKey: row.StepKey.UUID, AttemptID: row.AttemptID.UUID})
+		if err != nil {
+			return err
+		}
+		if !unsent {
+			if row.OperationKind == operationDeactivate {
+				return s.block(ctx, q, row, "Operator access changed. Resume disabling mining groups to continue.")
+			}
+			return s.block(ctx, q, row, "Access or board installation changed; the saved controller request must be resolved before this operation can end")
+		}
+		row.Step = pqtype.NullRawMessage{}
+		row.StepKey = uuid.NullUUID{}
+		row.ControllerOperationID = ""
 	}
 	// The legacy stop predates the saved activation step. A missing stop receipt
 	// may mean the call was accepted, so neither revocation nor timeout releases it.
@@ -78,6 +91,17 @@ func (s *Service) interrupt(ctx context.Context, q sqlc.Querier, row sqlc.Contai
 		return err
 	}
 	row.ObservedAt = sql.NullTime{Time: time.Now().UTC(), Valid: true}
+	if row.OperationKind == operationDeactivate && !observed.Enabled {
+		if observed.Suspended {
+			return s.block(ctx, q, row, "Waiting for the controller to settle before ending deactivation")
+		}
+		// A settled disabled controller no longer has these group identities,
+		// even when authority changed after its deactivation receipt committed.
+		row.Bindings = []byte(`{}`)
+	}
+	if row.OperationKind == operationReturnDefault {
+		return s.finishDefaultReturn(ctx, q, row, false, message)
+	}
 	snapshot, err := s.plannerSnapshot(ctx, q, row, observed)
 	if err != nil {
 		return s.block(ctx, q, row, "Pool configuration unavailable; waiting to verify applied assignments")

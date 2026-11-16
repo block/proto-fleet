@@ -185,6 +185,10 @@ func TestAutomaticHashboardReplacementMigrationPreservesOwnership(t *testing.T) 
 
 func assignReplacementBoard(t *testing.T, r *modulePSUIdentityRig, board, client, child int64, at time.Time) {
 	t.Helper()
+	require.NoError(t, sqlc.New(r.db).EnsureDeviceWriteFences(t.Context(), []int64{r.deviceID}))
+	_, err := r.db.ExecContext(t.Context(), `INSERT INTO container_mining_group_state(device_id,organization_id,observed,observed_at)
+	 VALUES($1,$2,'{"supported":true,"enabled":true,"suspended":false,"pending":false,"revision":1}',clock_timestamp()) ON CONFLICT(device_id) DO NOTHING`, r.deviceID, r.orgID)
+	require.NoError(t, err)
 	tx, err := r.db.BeginTx(t.Context(), nil)
 	require.NoError(t, err)
 	defer tx.Rollback()

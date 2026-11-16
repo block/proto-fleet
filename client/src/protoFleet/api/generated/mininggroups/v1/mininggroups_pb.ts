@@ -15,7 +15,7 @@ import type { Message } from "@bufbuild/protobuf";
 export const file_mininggroups_v1_mininggroups: GenFile =
   /*@__PURE__*/
   fileDesc(
-    "CiJtaW5pbmdncm91cHMvdjEvbWluaW5nZ3JvdXBzLnByb3RvEg9taW5pbmdncm91cHMudjEiOAoPR2V0U3RhdGVSZXF1ZXN0EiUKEWRldmljZV9pZGVudGlmaWVyGAEgASgJQgq6SAdyBRABGP8BIo4BCgRQb29sEgoKAmlkGAEgASgFEgwKBG5hbWUYAiABKAkSCwoDdXJsGAMgASgJEhAKCHVzZXJuYW1lGAQgASgJEhAKCHByaW9yaXR5GAUgASgFEg8KB2VuYWJsZWQYBiABKAgSGQoMc2hhcmVfd2VpZ2h0GAcgASgBSACIAQFCDwoNX3NoYXJlX3dlaWdodCKaAQoFR3JvdXASCgoCaWQYASABKAkSDAoEbmFtZRgCIAEoCRIQCghyZXZpc2lvbhgDIAEoAxIVCg1tYWNfYWRkcmVzc2VzGAQgAygJEiQKBXBvb2xzGAUgAygLMhUubWluaW5nZ3JvdXBzLnYxLlBvb2wSDgoGbWluaW5nGAYgASgIEhgKEHBvb2xfcmV2aXNpb25faWQYByABKAkiUgoLQm9hcmRJbnRlbnQSFAoMaGFzaGJvYXJkX2lkGAEgASgDEhMKC21hY19hZGRyZXNzGAIgASgJEhgKEHBvb2xfcmV2aXNpb25faWQYAyABKAkimgIKEEdldFN0YXRlUmVzcG9uc2USDwoHZW5hYmxlZBgBIAEoCBIRCglzdXNwZW5kZWQYAiABKAgSJgoGZ3JvdXBzGAMgAygLMhYubWluaW5nZ3JvdXBzLnYxLkdyb3VwEi0KB2Rlc2lyZWQYBCADKAsyHC5taW5pbmdncm91cHMudjEuQm9hcmRJbnRlbnQSLwoLb2JzZXJ2ZWRfYXQYBSABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEhQKDG9wZXJhdGlvbl9pZBgGIAEoCRIOCgZzdGF0dXMYByABKAkSDwoHbWVzc2FnZRgIIAEoCRIQCghyZXZpc2lvbhgJIAEoAxIRCglzdXBwb3J0ZWQYCiABKAgigQEKD0FjdGl2YXRlUmVxdWVzdBIlChFkZXZpY2VfaWRlbnRpZmllchgBIAEoCUIKukgHcgUQARj/ARIpChhhY2tub3dsZWRnZV9pbnRlcnJ1cHRpb24YAiABKAhCB7pIBGoCCAESHAoKcmVxdWVzdF9pZBgDIAEoCUIIukgFcgOwAQEiKAoQQWN0aXZhdGVSZXNwb25zZRIUCgxvcGVyYXRpb25faWQYASABKAkytgEKEk1pbmluZ0dyb3VwU2VydmljZRJPCghHZXRTdGF0ZRIgLm1pbmluZ2dyb3Vwcy52MS5HZXRTdGF0ZVJlcXVlc3QaIS5taW5pbmdncm91cHMudjEuR2V0U3RhdGVSZXNwb25zZRJPCghBY3RpdmF0ZRIgLm1pbmluZ2dyb3Vwcy52MS5BY3RpdmF0ZVJlcXVlc3QaIS5taW5pbmdncm91cHMudjEuQWN0aXZhdGVSZXNwb25zZULYAQoTY29tLm1pbmluZ2dyb3Vwcy52MUIRTWluaW5nZ3JvdXBzUHJvdG9QAVpRZ2l0aHViLmNvbS9ibG9jay9wcm90by1mbGVldC9zZXJ2ZXIvZ2VuZXJhdGVkL2dycGMvbWluaW5nZ3JvdXBzL3YxO21pbmluZ2dyb3Vwc3YxogIDTVhYqgIPTWluaW5nZ3JvdXBzLlYxygIPTWluaW5nZ3JvdXBzXFYx4gIbTWluaW5nZ3JvdXBzXFYxXEdQQk1ldGFkYXRh6gIQTWluaW5nZ3JvdXBzOjpWMWIGcHJvdG8z",
+    "CiJtaW5pbmdncm91cHMvdjEvbWluaW5nZ3JvdXBzLnByb3RvEg9taW5pbmdncm91cHMudjEiOAoPR2V0U3RhdGVSZXF1ZXN0EiUKEWRldmljZV9pZGVudGlmaWVyGAEgASgJQgq6SAdyBRABGP8BIo4BCgRQb29sEgoKAmlkGAEgASgFEgwKBG5hbWUYAiABKAkSCwoDdXJsGAMgASgJEhAKCHVzZXJuYW1lGAQgASgJEhAKCHByaW9yaXR5GAUgASgFEg8KB2VuYWJsZWQYBiABKAgSGQoMc2hhcmVfd2VpZ2h0GAcgASgBSACIAQFCDwoNX3NoYXJlX3dlaWdodCKaAQoFR3JvdXASCgoCaWQYASABKAkSDAoEbmFtZRgCIAEoCRIQCghyZXZpc2lvbhgDIAEoAxIVCg1tYWNfYWRkcmVzc2VzGAQgAygJEiQKBXBvb2xzGAUgAygLMhUubWluaW5nZ3JvdXBzLnYxLlBvb2wSDgoGbWluaW5nGAYgASgIEhgKEHBvb2xfcmV2aXNpb25faWQYByABKAkiUgoLQm9hcmRJbnRlbnQSFAoMaGFzaGJvYXJkX2lkGAEgASgDEhMKC21hY19hZGRyZXNzGAIgASgJEhgKEHBvb2xfcmV2aXNpb25faWQYAyABKAki/wIKEEdldFN0YXRlUmVzcG9uc2USDwoHZW5hYmxlZBgBIAEoCBIRCglzdXNwZW5kZWQYAiABKAgSJgoGZ3JvdXBzGAMgAygLMhYubWluaW5nZ3JvdXBzLnYxLkdyb3VwEi0KB2Rlc2lyZWQYBCADKAsyHC5taW5pbmdncm91cHMudjEuQm9hcmRJbnRlbnQSLwoLb2JzZXJ2ZWRfYXQYBSABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEhQKDG9wZXJhdGlvbl9pZBgGIAEoCRIOCgZzdGF0dXMYByABKAkSDwoHbWVzc2FnZRgIIAEoCRIQCghyZXZpc2lvbhgJIAEoAxIRCglzdXBwb3J0ZWQYCiABKAgSIwobZGVhY3RpdmF0aW9uX2Jsb2NrZWRfcmVhc29uGAsgASgJEh0KFWNhbl9yZXR1cm5fdG9fZGVmYXVsdBgMIAEoCBIfChdjYW5fcmVzdW1lX2RlYWN0aXZhdGlvbhgNIAEoCCKBAQoPQWN0aXZhdGVSZXF1ZXN0EiUKEWRldmljZV9pZGVudGlmaWVyGAEgASgJQgq6SAdyBRABGP8BEikKGGFja25vd2xlZGdlX2ludGVycnVwdGlvbhgCIAEoCEIHukgEagIIARIcCgpyZXF1ZXN0X2lkGAMgASgJQgi6SAVyA7ABASIoChBBY3RpdmF0ZVJlc3BvbnNlEhQKDG9wZXJhdGlvbl9pZBgBIAEoCSKDAQoRRGVhY3RpdmF0ZVJlcXVlc3QSJQoRZGV2aWNlX2lkZW50aWZpZXIYASABKAlCCrpIB3IFEAEY/wESKQoYYWNrbm93bGVkZ2VfaW50ZXJydXB0aW9uGAIgASgIQge6SARqAggBEhwKCnJlcXVlc3RfaWQYAyABKAlCCLpIBXIDsAEBIioKEkRlYWN0aXZhdGVSZXNwb25zZRIUCgxvcGVyYXRpb25faWQYASABKAki6gEKHFJldmlld1JldHVyblRvRGVmYXVsdFJlcXVlc3QSIwoRZGV2aWNlX2lkZW50aWZpZXIYASABKAlCCLpIBXIDGP8BEigKDWhhc2hib2FyZF9pZHMYAiADKANCEbpIDpIBCxDcCxgBIgQiAiAAOnu6SHgadgoUZGVmYXVsdF9yZXR1cm5fc2NvcGUSIHNlbGVjdCBhIGNvbnRhaW5lciBvciBoYXNoYm9hcmRzGjx0aGlzLmRldmljZV9pZGVudGlmaWVyICE9ICcnIHx8IHNpemUodGhpcy5oYXNoYm9hcmRfaWRzKSA+IDAiTQoSRGVmYXVsdFJldHVybkJvYXJkEhQKDGhhc2hib2FyZF9pZBgBIAEoAxITCgttYWNfYWRkcmVzcxgCIAEoCRIMCgRuYW1lGAMgASgJIsIBChNEZWZhdWx0UmV0dXJuUmV2aWV3EhkKEWRldmljZV9pZGVudGlmaWVyGAEgASgJEjMKBmJvYXJkcxgCIAMoCzIjLm1pbmluZ2dyb3Vwcy52MS5EZWZhdWx0UmV0dXJuQm9hcmQSLQoNZGVmYXVsdF9ncm91cBgDIAEoCzIWLm1pbmluZ2dyb3Vwcy52MS5Hcm91cBIUCgxyZXZpZXdfdG9rZW4YBCABKAkSFgoOYmxvY2tlZF9yZWFzb24YBSABKAkiWQodUmV2aWV3UmV0dXJuVG9EZWZhdWx0UmVzcG9uc2USOAoKY29udGFpbmVycxgBIAMoCzIkLm1pbmluZ2dyb3Vwcy52MS5EZWZhdWx0UmV0dXJuUmV2aWV3ItUBChZSZXR1cm5Ub0RlZmF1bHRSZXF1ZXN0EiUKEWRldmljZV9pZGVudGlmaWVyGAEgASgJQgq6SAdyBRABGP8BEioKDWhhc2hib2FyZF9pZHMYAiADKANCE7pIEJIBDQgBEKACGAEiBCICIAASHgoMcmV2aWV3X3Rva2VuGAMgASgJQgi6SAVyA5gBQBIcCgpyZXF1ZXN0X2lkGAQgASgJQgi6SAVyA7ABARIqChlhY2tub3dsZWRnZV9taW5pbmdfY2hhbmdlGAUgASgIQge6SARqAggBIi8KF1JldHVyblRvRGVmYXVsdFJlc3BvbnNlEhQKDG9wZXJhdGlvbl9pZBgBIAEoCTLrAwoSTWluaW5nR3JvdXBTZXJ2aWNlEk8KCEdldFN0YXRlEiAubWluaW5nZ3JvdXBzLnYxLkdldFN0YXRlUmVxdWVzdBohLm1pbmluZ2dyb3Vwcy52MS5HZXRTdGF0ZVJlc3BvbnNlEk8KCEFjdGl2YXRlEiAubWluaW5nZ3JvdXBzLnYxLkFjdGl2YXRlUmVxdWVzdBohLm1pbmluZ2dyb3Vwcy52MS5BY3RpdmF0ZVJlc3BvbnNlElUKCkRlYWN0aXZhdGUSIi5taW5pbmdncm91cHMudjEuRGVhY3RpdmF0ZVJlcXVlc3QaIy5taW5pbmdncm91cHMudjEuRGVhY3RpdmF0ZVJlc3BvbnNlEnYKFVJldmlld1JldHVyblRvRGVmYXVsdBItLm1pbmluZ2dyb3Vwcy52MS5SZXZpZXdSZXR1cm5Ub0RlZmF1bHRSZXF1ZXN0Gi4ubWluaW5nZ3JvdXBzLnYxLlJldmlld1JldHVyblRvRGVmYXVsdFJlc3BvbnNlEmQKD1JldHVyblRvRGVmYXVsdBInLm1pbmluZ2dyb3Vwcy52MS5SZXR1cm5Ub0RlZmF1bHRSZXF1ZXN0GigubWluaW5nZ3JvdXBzLnYxLlJldHVyblRvRGVmYXVsdFJlc3BvbnNlQtgBChNjb20ubWluaW5nZ3JvdXBzLnYxQhFNaW5pbmdncm91cHNQcm90b1ABWlFnaXRodWIuY29tL2Jsb2NrL3Byb3RvLWZsZWV0L3NlcnZlci9nZW5lcmF0ZWQvZ3JwYy9taW5pbmdncm91cHMvdjE7bWluaW5nZ3JvdXBzdjGiAgNNWFiqAg9NaW5pbmdncm91cHMuVjHKAg9NaW5pbmdncm91cHNcVjHiAhtNaW5pbmdncm91cHNcVjFcR1BCTWV0YWRhdGHqAhBNaW5pbmdncm91cHM6OlYxYgZwcm90bzM",
     [file_buf_validate_validate, file_google_protobuf_timestamp],
   );
 
@@ -210,6 +210,27 @@ export type GetStateResponse = Message<"mininggroups.v1.GetStateResponse"> & {
    * @generated from field: bool supported = 10;
    */
   supported: boolean;
+
+  /**
+   * A current server-derived reason to prevent deactivation, or empty if ready.
+   *
+   * @generated from field: string deactivation_blocked_reason = 11;
+   */
+  deactivationBlockedReason: string;
+
+  /**
+   * The server confirms that returning boards is the next deactivation step.
+   *
+   * @generated from field: bool can_return_to_default = 12;
+   */
+  canReturnToDefault: boolean;
+
+  /**
+   * The server offers explicit reauthorization of the saved deactivation request.
+   *
+   * @generated from field: bool can_resume_deactivation = 13;
+   */
+  canResumeDeactivation: boolean;
 };
 
 /**
@@ -269,6 +290,222 @@ export const ActivateResponseSchema: GenMessage<ActivateResponse> =
   messageDesc(file_mininggroups_v1_mininggroups, 6);
 
 /**
+ * @generated from message mininggroups.v1.DeactivateRequest
+ */
+export type DeactivateRequest = Message<"mininggroups.v1.DeactivateRequest"> & {
+  /**
+   * @generated from field: string device_identifier = 1;
+   */
+  deviceIdentifier: string;
+
+  /**
+   * @generated from field: bool acknowledge_interruption = 2;
+   */
+  acknowledgeInterruption: boolean;
+
+  /**
+   * @generated from field: string request_id = 3;
+   */
+  requestId: string;
+};
+
+/**
+ * Describes the message mininggroups.v1.DeactivateRequest.
+ * Use `create(DeactivateRequestSchema)` to create a new message.
+ */
+export const DeactivateRequestSchema: GenMessage<DeactivateRequest> =
+  /*@__PURE__*/
+  messageDesc(file_mininggroups_v1_mininggroups, 7);
+
+/**
+ * @generated from message mininggroups.v1.DeactivateResponse
+ */
+export type DeactivateResponse = Message<"mininggroups.v1.DeactivateResponse"> & {
+  /**
+   * @generated from field: string operation_id = 1;
+   */
+  operationId: string;
+};
+
+/**
+ * Describes the message mininggroups.v1.DeactivateResponse.
+ * Use `create(DeactivateResponseSchema)` to create a new message.
+ */
+export const DeactivateResponseSchema: GenMessage<DeactivateResponse> =
+  /*@__PURE__*/
+  messageDesc(file_mininggroups_v1_mininggroups, 8);
+
+/**
+ * An empty selection reviews all unallocated boards on the named controller.
+ * Recall passes its exact reviewed boards, including reviewed module members.
+ *
+ * @generated from message mininggroups.v1.ReviewReturnToDefaultRequest
+ */
+export type ReviewReturnToDefaultRequest = Message<"mininggroups.v1.ReviewReturnToDefaultRequest"> & {
+  /**
+   * @generated from field: string device_identifier = 1;
+   */
+  deviceIdentifier: string;
+
+  /**
+   * @generated from field: repeated int64 hashboard_ids = 2;
+   */
+  hashboardIds: bigint[];
+};
+
+/**
+ * Describes the message mininggroups.v1.ReviewReturnToDefaultRequest.
+ * Use `create(ReviewReturnToDefaultRequestSchema)` to create a new message.
+ */
+export const ReviewReturnToDefaultRequestSchema: GenMessage<ReviewReturnToDefaultRequest> =
+  /*@__PURE__*/
+  messageDesc(file_mininggroups_v1_mininggroups, 9);
+
+/**
+ * @generated from message mininggroups.v1.DefaultReturnBoard
+ */
+export type DefaultReturnBoard = Message<"mininggroups.v1.DefaultReturnBoard"> & {
+  /**
+   * @generated from field: int64 hashboard_id = 1;
+   */
+  hashboardId: bigint;
+
+  /**
+   * @generated from field: string mac_address = 2;
+   */
+  macAddress: string;
+
+  /**
+   * Matches the hashboard name in Mining assets.
+   *
+   * @generated from field: string name = 3;
+   */
+  name: string;
+};
+
+/**
+ * Describes the message mininggroups.v1.DefaultReturnBoard.
+ * Use `create(DefaultReturnBoardSchema)` to create a new message.
+ */
+export const DefaultReturnBoardSchema: GenMessage<DefaultReturnBoard> =
+  /*@__PURE__*/
+  messageDesc(file_mininggroups_v1_mininggroups, 10);
+
+/**
+ * @generated from message mininggroups.v1.DefaultReturnReview
+ */
+export type DefaultReturnReview = Message<"mininggroups.v1.DefaultReturnReview"> & {
+  /**
+   * @generated from field: string device_identifier = 1;
+   */
+  deviceIdentifier: string;
+
+  /**
+   * @generated from field: repeated mininggroups.v1.DefaultReturnBoard boards = 2;
+   */
+  boards: DefaultReturnBoard[];
+
+  /**
+   * @generated from field: mininggroups.v1.Group default_group = 3;
+   */
+  defaultGroup?: Group | undefined;
+
+  /**
+   * @generated from field: string review_token = 4;
+   */
+  reviewToken: string;
+
+  /**
+   * @generated from field: string blocked_reason = 5;
+   */
+  blockedReason: string;
+};
+
+/**
+ * Describes the message mininggroups.v1.DefaultReturnReview.
+ * Use `create(DefaultReturnReviewSchema)` to create a new message.
+ */
+export const DefaultReturnReviewSchema: GenMessage<DefaultReturnReview> =
+  /*@__PURE__*/
+  messageDesc(file_mininggroups_v1_mininggroups, 11);
+
+/**
+ * @generated from message mininggroups.v1.ReviewReturnToDefaultResponse
+ */
+export type ReviewReturnToDefaultResponse = Message<"mininggroups.v1.ReviewReturnToDefaultResponse"> & {
+  /**
+   * @generated from field: repeated mininggroups.v1.DefaultReturnReview containers = 1;
+   */
+  containers: DefaultReturnReview[];
+};
+
+/**
+ * Describes the message mininggroups.v1.ReviewReturnToDefaultResponse.
+ * Use `create(ReviewReturnToDefaultResponseSchema)` to create a new message.
+ */
+export const ReviewReturnToDefaultResponseSchema: GenMessage<ReviewReturnToDefaultResponse> =
+  /*@__PURE__*/
+  messageDesc(file_mininggroups_v1_mininggroups, 12);
+
+/**
+ * @generated from message mininggroups.v1.ReturnToDefaultRequest
+ */
+export type ReturnToDefaultRequest = Message<"mininggroups.v1.ReturnToDefaultRequest"> & {
+  /**
+   * @generated from field: string device_identifier = 1;
+   */
+  deviceIdentifier: string;
+
+  /**
+   * @generated from field: repeated int64 hashboard_ids = 2;
+   */
+  hashboardIds: bigint[];
+
+  /**
+   * Binds confirmation to the reviewed installations, ownership and settings.
+   *
+   * @generated from field: string review_token = 3;
+   */
+  reviewToken: string;
+
+  /**
+   * @generated from field: string request_id = 4;
+   */
+  requestId: string;
+
+  /**
+   * @generated from field: bool acknowledge_mining_change = 5;
+   */
+  acknowledgeMiningChange: boolean;
+};
+
+/**
+ * Describes the message mininggroups.v1.ReturnToDefaultRequest.
+ * Use `create(ReturnToDefaultRequestSchema)` to create a new message.
+ */
+export const ReturnToDefaultRequestSchema: GenMessage<ReturnToDefaultRequest> =
+  /*@__PURE__*/
+  messageDesc(file_mininggroups_v1_mininggroups, 13);
+
+/**
+ * @generated from message mininggroups.v1.ReturnToDefaultResponse
+ */
+export type ReturnToDefaultResponse = Message<"mininggroups.v1.ReturnToDefaultResponse"> & {
+  /**
+   * @generated from field: string operation_id = 1;
+   */
+  operationId: string;
+};
+
+/**
+ * Describes the message mininggroups.v1.ReturnToDefaultResponse.
+ * Use `create(ReturnToDefaultResponseSchema)` to create a new message.
+ */
+export const ReturnToDefaultResponseSchema: GenMessage<ReturnToDefaultResponse> =
+  /*@__PURE__*/
+  messageDesc(file_mininggroups_v1_mininggroups, 14);
+
+/**
  * Operator-only until authoritative customer hashboard allocations are available.
  *
  * @generated from service mininggroups.v1.MiningGroupService
@@ -289,5 +526,29 @@ export const MiningGroupService: GenService<{
     methodKind: "unary";
     input: typeof ActivateRequestSchema;
     output: typeof ActivateResponseSchema;
+  };
+  /**
+   * @generated from rpc mininggroups.v1.MiningGroupService.Deactivate
+   */
+  deactivate: {
+    methodKind: "unary";
+    input: typeof DeactivateRequestSchema;
+    output: typeof DeactivateResponseSchema;
+  };
+  /**
+   * @generated from rpc mininggroups.v1.MiningGroupService.ReviewReturnToDefault
+   */
+  reviewReturnToDefault: {
+    methodKind: "unary";
+    input: typeof ReviewReturnToDefaultRequestSchema;
+    output: typeof ReviewReturnToDefaultResponseSchema;
+  };
+  /**
+   * @generated from rpc mininggroups.v1.MiningGroupService.ReturnToDefault
+   */
+  returnToDefault: {
+    methodKind: "unary";
+    input: typeof ReturnToDefaultRequestSchema;
+    output: typeof ReturnToDefaultResponseSchema;
   };
 }> = /*@__PURE__*/ serviceDesc(file_mininggroups_v1_mininggroups, 0);

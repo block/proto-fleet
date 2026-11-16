@@ -332,6 +332,15 @@ func (r *Registry) CommandProtocolUpgradeRequiredForVersion(fleetNodeID int64, m
 	return conn != nil && conn.maxCommandProtocolVersion < minimumCommandProtocolVersion
 }
 
+// SupportsCommandProtocolVersion requires a live node with a known compatible
+// handshake. Use it before admitting new durable workflows.
+func (r *Registry) SupportsCommandProtocolVersion(fleetNodeID int64, minimumCommandProtocolVersion gatewaypb.CommandProtocolVersion) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	conn := r.conns[fleetNodeID]
+	return conn != nil && conn.maxCommandProtocolVersion >= minimumCommandProtocolVersion
+}
+
 // teardown closes connection.done and every in-flight command's done. Caller holds
 // Registry.mu and must then remove/replace the conn so teardown can't run twice.
 func teardown(conn *connection) {

@@ -18,12 +18,22 @@ import (
 type groupsServer struct {
 	mdk.UnimplementedMiningGroupServiceServer
 	mdk.UnimplementedMiningServiceServer
-	disabled bool
-	stops    int
-	pools    *mdk.ReplaceMiningGroupPoolsRequest
-	intent   *mdk.UpdateMiningGroupIntentRequest
-	transfer *mdk.RequestMiningGroupTransferRequest
-	conflict bool
+	disabled     bool
+	stops        int
+	pools        *mdk.ReplaceMiningGroupPoolsRequest
+	intent       *mdk.UpdateMiningGroupIntentRequest
+	transfer     *mdk.RequestMiningGroupTransferRequest
+	conflict     bool
+	deactivation *mdk.DeactivateMiningGroupsRequest
+}
+
+func (s *groupsServer) DeactivateMiningGroups(_ context.Context, r *mdk.DeactivateMiningGroupsRequest) (*mdk.DeactivateMiningGroupsResponse, error) {
+	s.deactivation = r
+	if s.conflict {
+		return nil, fmt.Errorf("deactivate groups: %w", status.Error(codes.Aborted, "revision changed"))
+	}
+	s.disabled = true
+	return &mdk.DeactivateMiningGroupsResponse{Capability: &mdk.MiningGroupCapability{Enabled: false}}, nil
 }
 
 func (s *groupsServer) GetMiningGroupCapability(context.Context, *mdk.GetMiningGroupCapabilityRequest) (*mdk.GetMiningGroupCapabilityResponse, error) {
@@ -73,6 +83,12 @@ func TestMiningGroupsNativeTransport(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = conn.Close() })
 	device := &Device{clients: []*Client{{conn: conn, mining: mdk.NewMiningServiceClient(conn)}}}
+	disabled, err := device.MiningGroups(t.Context(), sdk.MiningGroupRequest{Action: "deactivate", Key: "disable", Revision: 7})
+	require.NoError(t, err)
+	require.True(t, disabled.Deactivated)
+	require.Equal(t, int64(7), stub.deactivation.ExpectedStateRevision)
+	require.Equal(t, "disable", stub.deactivation.IdempotencyKey)
+	stub.disabled = false
 	mining, err := device.MiningGroups(t.Context(), sdk.MiningGroupRequest{Action: "mining_status"})
 	require.NoError(t, err)
 	require.Equal(t, &sdk.MiningGroupMiningStatus{Mining: true, ActiveBoards: 3}, mining.MiningStatus)

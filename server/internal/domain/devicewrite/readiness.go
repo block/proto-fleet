@@ -2,6 +2,7 @@ package devicewrite
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 
 	"github.com/block/proto-fleet/server/generated/sqlc"
@@ -93,25 +94,7 @@ func MayAffectPools(operationKind, commandName string) bool {
 	if err != nil {
 		return true
 	}
-	switch kind {
-	case commandtype.BlinkLED, commandtype.SetBoardIdentify, commandtype.DownloadLogs, commandtype.SetCoolingMode, commandtype.SetPowerTarget:
-		return false
-	case commandtype.FrigateServerUpdate:
-		// A controller software update changes no pool configuration; Frigate
-		// keeps its pool settings across the install. Treating it as a pool
-		// change would let a pool removal that started while the controllers
-		// were stopped refuse the Retry, Cancel and abort calls that let the
-		// controllers come back, so neither could ever finish.
-		return false
-	case commandtype.StartMining, commandtype.StopMining, commandtype.UpdateMiningPools,
-		commandtype.Reboot, commandtype.FirmwareUpdate, commandtype.Unpair,
-		commandtype.UpdateMinerPassword, commandtype.Curtail, commandtype.Uncurtail,
-		commandtype.ApplyCurtailmentConfig, commandtype.SetContainerControl, commandtype.ContainerAlarmAction,
-		commandtype.SetTankMining, commandtype.SetModuleMining, commandtype.ContainerMining:
-		return true
-	default:
-		return true
-	}
+	return kind.MayAffectPools()
 }
 
 // requireNoActivePoolRemoval also protects legacy commands and mining-group
@@ -121,6 +104,21 @@ func requireNoActivePoolRemoval(ctx context.Context, q sqlc.Querier, organizatio
 }
 
 func requirePoolRemovalAdmission(ctx context.Context, q sqlc.Querier, organizationID, deviceID int64, kind commandtype.Type) error {
+	nativeCurtailment := false
+	if kind.IsCurtailmentControl() {
+		binding, err := q.GetPoolConfigurationRuntime(ctx, sqlc.GetPoolConfigurationRuntimeParams{OrgID: organizationID, ID: deviceID})
+		if err != nil {
+			return err
+		}
+		// Proto's native controls do not replace pools. Recheck the current
+		// driver at admission and dispatch rather than trusting queue payloads.
+		nativeCurtailment = binding.DriverName == "proto"
+	}
+	if !nativeCurtailment {
+		if err := RequireNoMiningGroupDeactivation(ctx, q, organizationID, deviceID); err != nil {
+			return err
+		}
+	}
 	rows, err := q.ListActivePoolRemovals(ctx, sqlc.ListActivePoolRemovalsParams{OrganizationID: organizationID, DeviceID: deviceID})
 	if err != nil {
 		return err
@@ -133,20 +131,30 @@ func requirePoolRemovalAdmission(ctx context.Context, q sqlc.Querier, organizati
 		}
 	}
 	if conflicting {
-		if kind.IsCurtailmentControl() {
-			binding, err := q.GetPoolConfigurationRuntime(ctx, sqlc.GetPoolConfigurationRuntimeParams{OrgID: organizationID, ID: deviceID})
-			if err != nil {
-				return err
-			}
-			// Proto's native curtailment changes mining/power state, and its
-			// fallback configuration contains no pool settings. Other drivers
-			// may implement controls by replacing pools; keep those serialized.
-			// Inspect the current binding rather than trusting a queued payload.
-			if binding.DriverName == "proto" {
-				return nil
-			}
+		if nativeCurtailment {
+			return nil
 		}
 		return fleeterror.NewFailedPreconditionError("pool removal is unfinished; check its result before another device change")
 	}
 	return nil
+}
+
+// Call under the device fence before enqueueing or admitting a mutation. An
+// accepted deactivation reserves mode changes until its exact journal settles.
+func RequireNoMiningGroupDeactivation(ctx context.Context, q sqlc.Querier, organizationID, deviceID int64) error {
+	row, err := q.GetMiningGroupState(ctx, sqlc.GetMiningGroupStateParams{OrganizationID: organizationID, DeviceID: deviceID})
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if row.OperationKind != "deactivate" || (row.Status != "pending" && row.Status != "applying" && row.Status != "blocked") {
+		return nil
+	}
+	current, _ := ctx.Value(attemptContextKey{}).(*Attempt)
+	if current != nil && row.AttemptID.Valid && current.id == row.AttemptID.UUID {
+		return nil
+	}
+	return fleeterror.NewFailedPreconditionError("Mining groups are being disabled. Wait for this change or recovery to finish before submitting device changes.")
 }

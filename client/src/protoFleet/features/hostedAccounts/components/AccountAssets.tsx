@@ -23,6 +23,8 @@ import {
 import ListPagination from "@/protoFleet/components/ListPagination";
 import ListSearchInput from "@/protoFleet/components/ListSearchInput";
 import { POLL_INTERVAL_MS } from "@/protoFleet/constants/polling";
+import { hasMiningGroupPermissions } from "@/protoFleet/features/containers/miningGroupPermissions";
+import ReturnHashboardsToDefaultDialog from "@/protoFleet/features/containers/ReturnHashboardsToDefaultDialog";
 import FleetListActionBar from "@/protoFleet/features/fleetManagement/components/ActionBar/FleetListActionBar";
 import {
   type MinerColumn,
@@ -36,7 +38,7 @@ import { ConfigurationSelector } from "@/protoFleet/features/poolConfigurations/
 import { PoolAssignments } from "@/protoFleet/features/poolConfigurations/PoolAssignments";
 import SettingsEmptyState from "@/protoFleet/features/settings/components/SettingsEmptyState";
 import SettingsPageHeader from "@/protoFleet/features/settings/components/SettingsPageHeader";
-import { useFleetStore } from "@/protoFleet/store";
+import { useFleetStore, usePermissions } from "@/protoFleet/store";
 import { ChevronDown, Slider } from "@/shared/assets/icons";
 import { ActionBarSelectionControls } from "@/shared/components/ActionBar";
 import Button, { sizes } from "@/shared/components/Button";
@@ -71,6 +73,7 @@ const AccountAssets = ({
   const assigning = mode === "assign";
   const isPicker = !!onDismiss;
   const { account, client, readOnly = false } = useRequiredAccountScope();
+  const canReturnToDefault = hasMiningGroupPermissions(usePermissions(), "pools") && account.depth === 0;
   const inputId = useId();
   const [allocating, setAllocating] = useState(false);
   const fleetView = !child && !assigning && account.depth > 0;
@@ -93,6 +96,7 @@ const AccountAssets = ({
   const [selected, setSelected] = useState<string[]>([]);
   const [review, setReview] = useState<Review | null>(null);
   const [poolTargets, setPoolTargets] = useState<AccountAsset[]>();
+  const [returnToDefaultBoards, setReturnToDefaultBoards] = useState<bigint[]>();
   const [conflictNotice, setConflictNotice] = useState("");
   const assignmentPending = useRef(false);
   const pageToken = pages[pages.length - 1];
@@ -220,6 +224,7 @@ const AccountAssets = ({
   const selectable = (editable && !readOnly) || poolEditable;
   if (!selectable && selected.length > 0) setSelected([]);
   if (!poolEditable && poolTargets) setPoolTargets(undefined);
+  if (!canReturnToDefault && returnToDefaultBoards) setReturnToDefaultBoards(undefined);
   if ((!editable || readOnly) && (review !== null || replacing !== null)) {
     setReplacing(null);
     setReview(null);
@@ -849,7 +854,7 @@ const AccountAssets = ({
           confirm={`${reviewAction} ${countLabel(review.assets.length)}`}
           valid={reviewTarget ? review.intent === AssetAssignmentIntent.RECALL || !reviewTarget.suspended : false}
           onDismiss={() => setReview(null)}
-          onSubmit={async () => {
+          onSubmit={async (current) => {
             if (assignmentPending.current) return;
             assignmentPending.current = true;
             try {
@@ -869,6 +874,15 @@ const AccountAssets = ({
                   return;
                 }
                 throw error;
+              }
+              if (!current()) return;
+              if (!reviewingAssignment && canReturnToDefault) {
+                const recalledBoards = review.assets.flatMap((asset) => {
+                  if (asset.kind === MiningAssetKind.HASHBOARD) return [asset.id];
+                  if (asset.kind === MiningAssetKind.MODULE) return asset.boards.map((board) => board.id);
+                  return [];
+                });
+                if (recalledBoards.length) setReturnToDefaultBoards(recalledBoards);
               }
               const success = reviewingAssignment
                 ? `Allocated ${countLabel(review.assets.length)} to ${reviewTarget!.name}.`
@@ -916,6 +930,16 @@ const AccountAssets = ({
             manually.
           </p>
         </ActionModal>
+      ) : null}
+      {canReturnToDefault && returnToDefaultBoards ? (
+        <ReturnHashboardsToDefaultDialog
+          hashboardIds={returnToDefaultBoards}
+          onClose={() => setReturnToDefaultBoards(undefined)}
+          onComplete={() => {
+            setReturnToDefaultBoards(undefined);
+            refresh();
+          }}
+        />
       ) : null}
       {replacing && editable && !readOnly ? (
         <ReplaceHashboardDialog

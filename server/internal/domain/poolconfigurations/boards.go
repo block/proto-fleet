@@ -150,7 +150,15 @@ func (s *Service) GetBoardAssignments(ctx context.Context, accountID string, sel
 		}
 		for i := range assignments {
 			a := &assignments[i]
-			if event, ok := events[AssignmentTarget{Kind: TargetInstallation, ID: a.InstallationID, DeviceID: a.DeviceID}]; ok && a.ConfigurationID == "" {
+			event, hasEvent := events[AssignmentTarget{Kind: TargetInstallation, ID: a.InstallationID, DeviceID: a.DeviceID}]
+			if device, visible := byDevice[a.DeviceID]; visible && device.OperationID != "" {
+				container, ok := events[AssignmentTarget{Kind: TargetDevice, ID: a.DeviceID, DeviceID: a.DeviceID}]
+				if ok && !event.CreatedAt.After(container.CreatedAt) {
+					// Retained sibling clears must show the newer container recovery.
+					hasEvent = false
+				}
+			}
+			if hasEvent && a.ConfigurationID == "" {
 				a.State = lifecycleDisplayState(event)
 				a.ResultCode = event.ResultCode
 				a.OperationID = event.TransitionID.String()

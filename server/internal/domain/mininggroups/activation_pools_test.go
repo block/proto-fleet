@@ -506,7 +506,8 @@ func TestActivationPoolHandoffRechecksOwnershipBeforeResume(t *testing.T) {
 			require.NoError(t, err)
 			before := len(miner.calls)
 			f.reconcile(t, ctx)
-			require.Equal(t, "blocked", f.state(t).Status)
+			require.Equal(t, "failed", f.state(t).Status, "the prepared start was never sent and can release admission")
+			require.False(t, f.state(t).Step.Valid)
 			for _, call := range miner.calls[before:] {
 				require.True(t, call.ReadOnly())
 			}

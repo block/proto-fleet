@@ -150,6 +150,10 @@ func TestAccountHistoryDenseCompressedWindow(t *testing.T) {
 	// Allocate one asset of each kind only after the measured history queries, so
 	// the test continues to exercise exactly the original synthetic intervals.
 	client := f.client(t, "Capture restoration", f.user, hostedaccounts.AllCapabilities)
+	// Bulk loading and compression can exceed the mode observation lifetime.
+	_, err = f.db.ExecContext(t.Context(), `UPDATE container_mining_group_state SET observed_at=clock_timestamp()
+	 WHERE device_id=(SELECT t.device_id FROM container_module m JOIN container_tank t ON t.id=m.tank_id WHERE m.id=$1)`, modules[0])
+	require.NoError(t, err)
 	require.NoError(t, f.allocate(t, f.host, f.root, client.AccountID, 1, selected(5, miners[0], 0), selected(6, modules[0], 0)))
 	f.legacyModuleHistory(t)
 	historyEpoch(t, f, start)

@@ -12,6 +12,7 @@ import (
 
 	"github.com/block/proto-fleet/server/generated/sqlc"
 	activitymodels "github.com/block/proto-fleet/server/internal/domain/activity/models"
+	"github.com/block/proto-fleet/server/internal/domain/devicewrite"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/miner/interfaces"
 	"github.com/block/proto-fleet/server/internal/infrastructure/db"
@@ -118,11 +119,21 @@ func (s *Service) StartUpdate(ctx context.Context, in StartInput) (Job, error) {
 
 	replayed := false
 	row, err := db.WithTransaction(ctx, s.conn, func(q sqlc.Querier) (sqlc.FrigateUpdateJob, error) {
+		// Match allocation and pool readiness: organization, device, then fence.
+		if _, err := q.LockPoolEquipmentOrganization(ctx, info.OrganizationID); err != nil {
+			return sqlc.FrigateUpdateJob{}, err
+		}
 		locked, err := q.LockFrigateUpdateTarget(ctx, sqlc.LockFrigateUpdateTargetParams{DeviceIdentifier: in.DeviceIdentifier, OrgID: info.OrganizationID})
 		if err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
 				return sqlc.FrigateUpdateJob{}, fleeterror.NewNotFoundError("container not found")
 			}
+			return sqlc.FrigateUpdateJob{}, err
+		}
+		if err := q.EnsureDeviceWriteFences(ctx, []int64{locked.ID}); err != nil {
+			return sqlc.FrigateUpdateJob{}, err
+		}
+		if _, err := q.LockDeviceWriteFences(ctx, []int64{locked.ID}); err != nil {
 			return sqlc.FrigateUpdateJob{}, err
 		}
 		// Re-authorize against the locked row: the container may have moved sites.
@@ -148,6 +159,9 @@ func (s *Service) StartUpdate(ctx context.Context, in StartInput) (Job, error) {
 			replayed = true
 			return existing, nil
 		} else if !errors.Is(err, sql.ErrNoRows) {
+			return sqlc.FrigateUpdateJob{}, err
+		}
+		if err := devicewrite.RequireNoMiningGroupDeactivation(ctx, q, info.OrganizationID, locked.ID); err != nil {
 			return sqlc.FrigateUpdateJob{}, err
 		}
 		if blocking, err := q.GetBlockingFrigateUpdateJobForDevice(ctx, locked.ID); err == nil {

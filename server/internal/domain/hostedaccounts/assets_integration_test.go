@@ -67,6 +67,10 @@ func (f fixture) miningModule(t *testing.T) (int64, int64) {
 	controller := f.miningDevice(t, commonpb.DeviceClass_DEVICE_CLASS_CONTAINER)
 	_, err := f.db.ExecContext(t.Context(), `INSERT INTO container_inventory(device_id,org_id,observed_at) VALUES($1,$2,now())`, controller, f.org)
 	require.NoError(t, err)
+	require.NoError(t, sqlc.New(f.db).EnsureDeviceWriteFences(t.Context(), []int64{controller}))
+	_, err = f.db.ExecContext(t.Context(), `INSERT INTO container_mining_group_state(device_id,organization_id,observed,observed_at)
+	 VALUES($1,$2,'{"supported":true,"enabled":true,"suspended":false,"pending":false,"revision":1}',clock_timestamp())`, controller, f.org)
+	require.NoError(t, err)
 	var tank, module int64
 	require.NoError(t, f.db.QueryRowContext(t.Context(), `INSERT INTO container_tank(device_id,position,first_seen_at,last_seen_at) VALUES($1,1,now(),now()) RETURNING id`, controller).Scan(&tank))
 	require.NoError(t, f.db.QueryRowContext(t.Context(), `INSERT INTO container_module(tank_id,position,first_seen_at,last_seen_at,state,state_observed_at) VALUES($1,1,now(),now(),'active',now()) RETURNING id`, tank).Scan(&module))
@@ -283,19 +287,19 @@ func TestAccountMiningAssignmentRechecksConcurrentSiteMove(t *testing.T) {
 	defer tx.Rollback()
 	_, err = tx.ExecContext(t.Context(), `SELECT id FROM device WHERE id=$1 FOR UPDATE`, miner)
 	require.NoError(t, err)
+	request := &pb.AssignAccountAssetsRequest{AccountId: f.root, ChildAccountId: client.AccountID, Intent: 1, Assets: []*pb.MiningAssetSelection{selected(5, miner, 0)}}
 	result := make(chan error, 1)
-	go func() {
-		result <- f.svc.AssignAssets(t.Context(), f.host, f.org, &pb.AssignAccountAssetsRequest{AccountId: f.root, ChildAccountId: client.AccountID, Intent: 1, Assets: []*pb.MiningAssetSelection{selected(5, miner, 0)}})
-	}()
-	require.Eventually(t, func() bool {
-		var blocked bool
-		err := f.db.QueryRowContext(t.Context(), `SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock' AND query LIKE '%SELECT discovered_device_id FROM device WHERE id=%')`).Scan(&blocked)
-		return err == nil && blocked
-	}, 5*time.Second, 10*time.Millisecond)
+	go func() { result <- f.svc.AssignAssets(t.Context(), f.host, f.org, request) }()
+	select {
+	case err := <-result:
+		t.Fatalf("assignment returned before the site move finished: %v", err)
+	case <-time.After(250 * time.Millisecond):
+	}
 	_, err = tx.ExecContext(t.Context(), `UPDATE device SET site_id=$1 WHERE id=$2`, second.ID, miner)
 	require.NoError(t, err)
 	require.NoError(t, tx.Commit())
-	require.Error(t, <-result, "site moved while admission waited must fail live destination policy")
+	err = <-result
+	require.ErrorContains(t, err, "site policy", "retry must recheck live destination policy after the site move")
 	var count int
 	require.NoError(t, f.db.QueryRowContext(t.Context(), `SELECT count(*) FROM hosted_account_asset`).Scan(&count))
 	require.Zero(t, count)
@@ -608,10 +612,12 @@ func TestAccountMiningAssignmentBoundsPhysicalLockWait(t *testing.T) {
 	_, err = tx.ExecContext(t.Context(), `SELECT id FROM device WHERE id=$1 FOR UPDATE`, miner)
 	require.NoError(t, err)
 	result := make(chan error, 1)
+	started := time.Now()
 	go func() { result <- f.allocate(t, f.host, f.root, client.AccountID, 1, selected(5, miner, 0)) }()
 	select {
 	case err := <-result:
-		require.Error(t, err)
+		require.True(t, fleeterror.IsUnavailableError(err), "prolonged physical contention must remain retryable: %v", err)
+		require.GreaterOrEqual(t, time.Since(started), 4*time.Second, "retry brief contention before returning busy")
 	case <-time.After(8 * time.Second):
 		t.Fatal("assignment did not bound its physical lock wait")
 	}

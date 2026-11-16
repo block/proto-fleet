@@ -69,7 +69,7 @@ func (c *Checker) validateLifecycleRemoval(ctx context.Context, q sqlc.Querier, 
 		return err
 	}
 	if current.TransitionID != row.RemovalID || current.ConfigurationID.Valid || current.TargetKind != row.TargetKind || current.TargetID != row.TargetID || current.ReviewedBinding != row.ReviewedBinding {
-		return fleeterror.NewFailedPreconditionError("pool lifecycle intent changed")
+		return newBindingChangedError("pool lifecycle intent changed")
 	}
 	binding, err := c.lifecycleRemovalBinding(ctx, q, p, poolconfigurations.AssignmentTarget{Kind: row.TargetKind, ID: row.TargetID, DeviceID: row.DeviceID})
 	if err != nil {
@@ -80,7 +80,7 @@ func (c *Checker) validateLifecycleRemoval(ctx context.Context, q sqlc.Querier, 
 		return fleeterror.NewInternalError("encode lifecycle binding failed")
 	}
 	if string(encoded) != row.ReviewedBinding {
-		return fleeterror.NewFailedPreconditionError("pool lifecycle binding changed")
+		return newBindingChangedError("pool lifecycle binding changed")
 	}
 	return nil
 }

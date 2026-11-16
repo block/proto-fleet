@@ -146,10 +146,21 @@ placement evidence only from its upgrade boundary.
 
 Mining-group changes run as an HA-managed background job: the passive Fleet
 server does not reconcile them, and loss of active ownership cancels the job.
-Normal progress uses the three-second worker cadence. Up to eight containers
-reconcile concurrently, with at most one task per container. Each tick fills
-available slots without waiting for slower containers to finish. Shutdown
-cancels and waits for all running tasks before the worker returns.
+Normal progress uses the three-second worker cadence. Up to eight accepted
+workflows reconcile concurrently. Readiness has up to 64 separate slots and permits
+at most 32 reads per organization. The shared database dispatch budget can reduce
+these limits. Readiness leaves up to eight dispatch slots for accepted workflows;
+small pools reserve at least one slot and split the remaining dispatch capacity.
+Due-work pages interleave organizations;
+the scheduler skips organizations at their limit. A freed slot starts the next
+queued observation without waiting for a tick. Each read allows 40 seconds for
+reconciliation and five seconds for retry bookkeeping.
+There is at most one task per container. Each tick checks tracked controllers
+for due work without waiting for slow controllers to finish. Once per minute,
+Fleet also discovers paired container inventory with no saved state. This keeps
+controllers ready before their first allocation, including controllers enabled
+outside Fleet. Shutdown cancels and waits for all running tasks before the worker
+returns.
 Consecutive failures use exponential retry delays starting at five seconds and
 capped at five minutes,
 with 80–100% jitter. Retry timing is stored with the operation and survives
@@ -157,7 +168,20 @@ failover; dialog observations do not reset it. Successful progress resets the
 delay. A controller reporting a failed transfer remains blocked and backs off,
 even when the status request itself succeeds.
 
+A successful controller observation commits before advisory deactivation checks.
+If an advisory check fails, Fleet keeps the fresh observation and shows a blocker.
+Mutation admission still requires successful checks.
+Return-to-Default review polls use committed observations up to two minutes old.
+Missing or expired observations require a controller read. Each review checks
+current permissions, board installations, pending pool work, and write conflicts.
+Confirmation and execution recheck these conditions and controller revisions.
+
 Retries retain the exact saved request and controller operation identity.
+An authorized operator can resume a blocked deactivation from the container menu.
+Fleet checks the operator's current permissions and device binding, records the
+new operator, and retries the original request. Resume keeps the physical
+admission, saved request, and dispatch evidence. It does not claim that a lost
+reply means the controller did or did not apply the change.
 Backoff never releases a device-write admission or marks unresolved work
 complete. A database outage or a crash before retry bookkeeping commits can
 cause an earlier retry; the saved physical operation remains unchanged.

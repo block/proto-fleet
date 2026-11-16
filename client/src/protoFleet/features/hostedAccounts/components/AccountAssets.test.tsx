@@ -7,16 +7,31 @@ import userEvent from "@testing-library/user-event";
 
 import { type AccountScope, AccountScopeContext } from "../AccountScope";
 import AccountAssets from "./AccountAssets";
+import { FleetErrorDetailsSchema } from "@/protoFleet/api/generated/common/v1/common_pb";
 import { SortDirection, SortField } from "@/protoFleet/api/generated/common/v1/sort_pb";
 import {
   AccountAssetSchema,
   AccountSchema,
+  AssetAssignmentErrorCode,
   AssetAssignmentIntent,
   ListAccountAssetsResponseSchema,
   MiningAssetKind,
 } from "@/protoFleet/api/generated/hosted/v1/hosted_pb";
 import { POLL_INTERVAL_MS } from "@/protoFleet/constants/polling";
+import { useFleetStore } from "@/protoFleet/store";
 import { pushToast, STATUSES } from "@/shared/features/toaster";
+
+const returnDefault = vi.hoisted(() => vi.fn());
+vi.mock("@/protoFleet/features/containers/ReturnHashboardsToDefaultDialog", () => ({
+  default: (props: { hashboardIds: bigint[]; recalled: boolean; onClose: () => void }) => {
+    returnDefault(props);
+    return (
+      <div role="dialog" aria-label="Return hashboards to Default">
+        <button onClick={props.onClose}>Later</button>
+      </div>
+    );
+  },
+}));
 
 vi.mock("@/shared/features/toaster", () => ({
   pushToast: vi.fn(),
@@ -40,6 +55,8 @@ vi.mock("@/protoFleet/features/poolConfigurations/ConfigurationSelector", () => 
 }));
 
 beforeEach(() => {
+  returnDefault.mockClear();
+  useFleetStore.getState().auth.setPermissions([]);
   vi.mocked(pushToast).mockClear();
   // Popovers require a visible trigger; JSDOM does not calculate layout.
   vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue(new DOMRect(20, 20, 240, 40));
@@ -162,6 +179,78 @@ const selectTarget = async (user: ReturnType<typeof userEvent.setup>) => {
 };
 
 describe("account mining asset allocation", () => {
+  it("offers the Default confirmation for only the recalled module's reviewed boards", async () => {
+    useFleetStore.getState().auth.setPermissions(["miner:update_pools", "miner:start_mining", "miner:stop_mining"]);
+    const { scope, rerenderAccount, client } = mount(
+      31n,
+      [create(AccountAssetSchema, { ...module, ownerAccountId: childId })],
+      undefined,
+      "",
+      "inventory",
+      { accountId: childId, name: "East", suspended: false },
+    );
+    rerenderAccount(create(AccountSchema, { ...scope.account, depth: 0 }));
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("checkbox", { name: "Select Module One" }));
+    await user.click(screen.getByRole("button", { name: "Recall selected" }));
+    expect(returnDefault).not.toHaveBeenCalled();
+    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Recall 1 asset" }));
+    await screen.findByRole("dialog", { name: "Return hashboards to Default" });
+    expect(returnDefault).toHaveBeenLastCalledWith(expect.objectContaining({ hashboardIds: [11n, 12n, 13n] }));
+    expect(client.assignAccountAssets).toHaveBeenCalledOnce();
+    await user.click(screen.getByRole("button", { name: "Later" }));
+    expect(screen.queryByRole("dialog", { name: "Return hashboards to Default" })).not.toBeInTheDocument();
+    expect(client.assignAccountAssets).toHaveBeenCalledOnce();
+  });
+  it("closes the optional Default dialog when pool permissions are removed", async () => {
+    const permissions = ["miner:update_pools", "miner:start_mining", "miner:stop_mining"];
+    useFleetStore.getState().auth.setPermissions(permissions);
+    const { scope, rerenderAccount, client } = mount(
+      31n,
+      [create(AccountAssetSchema, { ...module, ownerAccountId: childId })],
+      undefined,
+      "",
+      "inventory",
+      { accountId: childId, name: "East", suspended: false },
+    );
+    rerenderAccount(create(AccountSchema, { ...scope.account, depth: 0 }));
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("checkbox", { name: "Select Module One" }));
+    await user.click(screen.getByRole("button", { name: "Recall selected" }));
+    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Recall 1 asset" }));
+    await screen.findByRole("dialog", { name: "Return hashboards to Default" });
+    act(() => useFleetStore.getState().auth.setPermissions(["miner:update_pools"]));
+    expect(screen.queryByRole("dialog", { name: "Return hashboards to Default" })).not.toBeInTheDocument();
+    act(() => useFleetStore.getState().auth.setPermissions(permissions));
+    expect(screen.queryByRole("dialog", { name: "Return hashboards to Default" })).not.toBeInTheDocument();
+    expect(client.assignAccountAssets).toHaveBeenCalledOnce();
+  });
+
+  it.each([
+    { name: "a host without pool permissions", depth: 0, permitted: false, asset: module },
+    { name: "a client with pool permissions", depth: 1, permitted: true, asset: module },
+    { name: "a host recalling only miners", depth: 0, permitted: true, asset: miner },
+  ])("keeps recall available without the optional Default dialog for $name", async ({ depth, permitted, asset }) => {
+    if (permitted)
+      useFleetStore.getState().auth.setPermissions(["miner:update_pools", "miner:start_mining", "miner:stop_mining"]);
+    const { scope, rerenderAccount, client } = mount(
+      31n,
+      [create(AccountAssetSchema, { ...asset, ownerAccountId: childId })],
+      undefined,
+      "",
+      "inventory",
+      { accountId: childId, name: "East", suspended: false },
+    );
+    rerenderAccount(create(AccountSchema, { ...scope.account, depth }));
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("checkbox", { name: `Select ${asset.name}` }));
+    await user.click(screen.getByRole("button", { name: "Recall selected" }));
+    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Recall 1 asset" }));
+    await waitFor(() => expect(client.assignAccountAssets).toHaveBeenCalledOnce());
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(returnDefault).not.toHaveBeenCalled();
+  });
+
   it("keeps pool status visible to account readers without Change pools permission", async () => {
     mount(1n);
     await screen.findByText("Miner One");
@@ -1001,6 +1090,26 @@ describe("account mining asset allocation", () => {
       expect(pushToast).toHaveBeenCalledWith({ message: "Allocated 1 asset to East.", status: STATUSES.success }),
     );
     expect(assign).toHaveBeenCalledTimes(2);
+  });
+  it("keeps the mining-group prerequisite visible in the allocation dialog", async () => {
+    const message = "Enable mining groups and refresh the container before allocating its hashboards.";
+    const error = new ConnectError(message, Code.FailedPrecondition, undefined, [
+      {
+        desc: FleetErrorDetailsSchema,
+        value: { code: { case: "endpoint", value: AssetAssignmentErrorCode.MINING_GROUPS_NOT_READY } },
+      },
+    ]);
+    const assign = vi.fn().mockRejectedValue(error);
+    const { client } = mount(31n, [miner], assign, "", "assign");
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("checkbox", { name: "Select Miner One" }));
+    await user.click(screen.getByRole("button", { name: "Allocate selected" }));
+    await selectTarget(user);
+    const dialog = screen.getByRole("dialog");
+    await user.click(within(dialog).getByRole("button", { name: "Allocate 1 asset" }));
+    expect(await within(dialog).findByText(message)).toBeVisible();
+    expect(client.listAccountAssets).toHaveBeenCalledOnce();
+    expect(screen.getByRole("checkbox", { name: "Select Miner One" })).toBeChecked();
   });
   it("clears stale selections and requires another review after an ownership conflict", async () => {
     const assign = vi.fn().mockRejectedValue(new ConnectError("Assignment changed", Code.Aborted));

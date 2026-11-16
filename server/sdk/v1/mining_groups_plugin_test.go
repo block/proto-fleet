@@ -36,6 +36,7 @@ func TestMiningGroupResultValidationAtPluginBoundaries(t *testing.T) {
 	requests := map[string]MiningGroupRequest{
 		"observe":       {Action: "observe"},
 		"activate":      {Action: "activate", Key: "k", Revision: 1},
+		"deactivate":    {Action: "deactivate", Key: "k", Revision: 1},
 		"create":        {Action: "create", Key: "k", ConfigID: "config"},
 		"start":         {Action: "start", Key: "k", GroupID: "g", Revision: 1},
 		"remove":        {Action: "remove", Key: "k", GroupID: "g", Revision: 1},
@@ -52,6 +53,10 @@ func TestMiningGroupResultValidationAtPluginBoundaries(t *testing.T) {
 		{"supported observation", "observe", observed, true},
 		{"unsupported observation", "observe", MiningGroupResult{}, true},
 		{"activation receipt", "activate", MiningGroupResult{Enabled: true}, true},
+		{"deactivation receipt", "deactivate", MiningGroupResult{Deactivated: true}, true},
+		{"missing deactivation receipt", "deactivate", MiningGroupResult{}, false},
+		{"wrong deactivation receipt", "activate", MiningGroupResult{Deactivated: true}, false},
+		{"mixed deactivation receipt", "deactivate", MiningGroupResult{Deactivated: true, Enabled: true}, false},
 		{"creation receipt", "create", MiningGroupResult{Group: group}, true},
 		{"pool receipt", "replace_pools", MiningGroupResult{Group: group}, true},
 		{"start receipt", "start", MiningGroupResult{Group: group}, true},

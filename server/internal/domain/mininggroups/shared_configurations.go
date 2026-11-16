@@ -292,8 +292,11 @@ func (s *Service) authorizeSharedWorkflow(ctx context.Context, q sqlc.Querier, r
 	}
 	for _, target := range targets {
 		work, err := q.GetPoolConfigurationWork(ctx, sqlc.GetPoolConfigurationWorkParams{OrganizationID: row.OrganizationID, OperationID: target.OperationID, TargetKind: target.TargetKind, TargetID: target.TargetID})
-		if err != nil || work.State != statusApplying {
-			return true, fleeterror.NewForbiddenError("board assignment changed")
+		if errors.Is(err, sql.ErrNoRows) || (err == nil && work.State != statusApplying) {
+			return true, newWorkflowChangedError("Board assignment changed. Review the boards again.")
+		}
+		if err != nil {
+			return true, err
 		}
 		lifecycleCtx := ctx
 		if work.LifecycleID.Valid {
@@ -305,27 +308,36 @@ func (s *Service) authorizeSharedWorkflow(ctx context.Context, q sqlc.Querier, r
 		}
 		scope := poolconfigurations.Scope{OrganizationID: row.OrganizationID, AccountID: target.AccountID.Int64}
 		selected := poolconfigurations.AssignmentTarget{Kind: poolconfigurations.TargetInstallation, ID: target.TargetID, DeviceID: row.DeviceID}
-		ownership, err := s.pools.AuthorizePoolEquipment(actorCtx, q, scope, target.ActorID, selected)
+		ownership, err := s.authorizeWorkflowBoard(actorCtx, q, scope, target.ActorID, selected)
 		if err != nil {
 			return true, err
 		}
 		var saved poolapplications.Binding
-		if json.Unmarshal([]byte(target.ReviewedBinding), &saved) != nil || saved.Ownership != ownership {
-			return true, fleeterror.NewForbiddenError("equipment ownership changed")
+		if err := json.Unmarshal([]byte(target.ReviewedBinding), &saved); err != nil {
+			return true, fmt.Errorf("decode reviewed board binding: %w", err)
+		}
+		if saved.Ownership != ownership {
+			return true, newWorkflowChangedError("Equipment ownership changed. Review the boards again.")
 		}
 		runtime, err := q.GetPoolConfigurationRuntime(ctx, sqlc.GetPoolConfigurationRuntimeParams{OrgID: row.OrganizationID, ID: row.DeviceID})
 		if err != nil {
 			return true, err
 		}
 		if !reflect.DeepEqual(runtime, saved.Device) {
-			return true, fleeterror.NewForbiddenError("reviewed device binding changed")
+			return true, newWorkflowChangedError("Device settings changed. Review the boards again.")
 		}
 		boards, err := q.ListPoolSelectionBoards(ctx, sqlc.ListPoolSelectionBoardsParams{OrgID: row.OrganizationID, InstallationIds: []int64{target.TargetID}})
 		if err != nil {
 			return true, err
 		}
-		if len(boards) != 1 || saved.Board == nil || boards[0].MacAddress != saved.Board.MAC || boards[0].DeviceID != row.DeviceID || boards[0].WorkerName != saved.Board.WorkerName || boards[0].WorkerNameSet != saved.Board.WorkerNameSet || boards[0].WorkerNameMode != saved.Board.WorkerNameMode || boards[0].InheritedWorkerName != saved.Board.InheritedWorkerName {
-			return true, fleeterror.NewForbiddenError("board installation changed")
+		if saved.Board == nil {
+			return true, fmt.Errorf("missing reviewed board binding")
+		}
+		if len(boards) == 0 {
+			return true, newInventoryStaleError("Board inventory is unavailable. Waiting for a fresh inventory.")
+		}
+		if len(boards) != 1 || boards[0].MacAddress != saved.Board.MAC || boards[0].DeviceID != row.DeviceID || boards[0].WorkerName != saved.Board.WorkerName || boards[0].WorkerNameSet != saved.Board.WorkerNameSet || boards[0].WorkerNameMode != saved.Board.WorkerNameMode || boards[0].InheritedWorkerName != saved.Board.InheritedWorkerName {
+			return true, newWorkflowChangedError("Board installation or worker settings changed. Review the boards again.")
 		}
 	}
 	return true, nil
@@ -355,21 +367,24 @@ func (s *Service) sharedIntents(ctx context.Context, q sqlc.Querier, row sqlc.Co
 	}
 	for _, intent := range intents {
 		board, found := byInstallation[intent.InstallationID]
-		if !found || board.DeviceID != row.DeviceID || board.MacAddress != intent.MacAddress {
-			return nil, fmt.Errorf("board installation changed")
+		if !found {
+			return nil, newInventoryStaleError("Board inventory is unavailable. Waiting for a fresh inventory.")
+		}
+		if board.DeviceID != row.DeviceID || board.MacAddress != intent.MacAddress {
+			return nil, newWorkflowChangedError("Board installation changed. Review the boards again.")
 		}
 		required := intent.PhysicalAttemptID == row.AttemptID
 		for _, mac := range affected {
 			required = required || mac == intent.MacAddress
 		}
 		if required && !board.Ready {
-			return nil, fmt.Errorf("board inventory is stale")
+			return nil, newInventoryStaleError("Board inventory is stale. Waiting for a fresh inventory.")
 		}
 		if required {
 			requiredBoards = append(requiredBoards, poolconfigurations.AssignmentTarget{Kind: poolconfigurations.TargetInstallation, ID: intent.InstallationID, DeviceID: row.DeviceID})
 		}
 		if desired[intent.MacAddress] != "" {
-			return nil, fmt.Errorf("ambiguous board installation")
+			return nil, newWorkflowChangedError("Board identity is ambiguous. Review the boards again.")
 		}
 		desired[intent.MacAddress] = intent.GroupSnapshotID.String
 	}
@@ -393,8 +408,11 @@ func (s *Service) authorizeWorkflowBoards(ctx context.Context, q sqlc.Querier, r
 	}
 	actor := authority[0]
 	work, err := q.GetPoolConfigurationWork(ctx, sqlc.GetPoolConfigurationWorkParams{OrganizationID: row.OrganizationID, OperationID: actor.OperationID, TargetKind: actor.TargetKind, TargetID: actor.TargetID})
+	if errors.Is(err, sql.ErrNoRows) {
+		return newWorkflowChangedError("Board assignment changed. Review the boards again.")
+	}
 	if err != nil {
-		return fleeterror.NewForbiddenError("board assignment changed")
+		return err
 	}
 	if work.LifecycleID.Valid {
 		ctx = poolconfigurations.WithLifecycleTransition(ctx, work.LifecycleID.UUID)
@@ -404,11 +422,45 @@ func (s *Service) authorizeWorkflowBoards(ctx context.Context, q sqlc.Querier, r
 		return err
 	}
 	for _, board := range boards {
-		if _, err := s.pools.AuthorizePoolEquipment(actorCtx, q, poolconfigurations.Scope{OrganizationID: row.OrganizationID, AccountID: actor.AccountID.Int64}, actor.ActorID, board); err != nil {
+		if _, err := s.authorizeWorkflowBoard(actorCtx, q, poolconfigurations.Scope{OrganizationID: row.OrganizationID, AccountID: actor.AccountID.Int64}, actor.ActorID, board); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+func (s *Service) authorizeWorkflowBoard(ctx context.Context, q sqlc.Querier, scope poolconfigurations.Scope, actorID int64, target poolconfigurations.AssignmentTarget) (string, error) {
+	ownership, err := s.pools.AuthorizePoolEquipment(ctx, q, scope, actorID, target)
+	if err == nil || (!fleeterror.IsForbiddenError(err) && !fleeterror.IsFailedPreconditionError(err)) {
+		return ownership, err
+	}
+	// Equipment authorization also rejects incomplete inventory. Diagnose that
+	// case before treating its rejection as a lasting authority change.
+	boards, inventoryErr := q.ListPoolSelectionBoards(ctx, sqlc.ListPoolSelectionBoardsParams{OrgID: scope.OrganizationID, InstallationIds: []int64{target.ID}})
+	if inventoryErr != nil {
+		return "", inventoryErr
+	}
+	if len(boards) != 1 || !boards[0].Ready {
+		return "", newInventoryStaleError("Board inventory is unavailable or stale. Waiting for a fresh inventory.")
+	}
+	owners, inventoryErr := q.ListPoolEquipmentModuleOwners(ctx, sqlc.ListPoolEquipmentModuleOwnersParams{OrgID: scope.OrganizationID, ID: target.DeviceID})
+	if inventoryErr != nil {
+		return "", inventoryErr
+	}
+	moduleReady := false
+	for _, owner := range owners {
+		if owner.AssetID != boards[0].ModuleID {
+			continue
+		}
+		if owner.HashboardID == 0 || owner.AccountID < 0 {
+			return "", newInventoryStaleError("Module inventory is incomplete. Waiting for a fresh inventory.")
+		}
+		moduleReady = true
+	}
+	if !moduleReady {
+		return "", newInventoryStaleError("Module inventory is incomplete or stale. Waiting for a fresh inventory.")
+	}
+	return "", err
 }
 
 func (s *Service) authorizeAffectedWorkflowBoards(ctx context.Context, q sqlc.Querier, row sqlc.ContainerMiningGroupState, affected []string) error {
@@ -433,14 +485,14 @@ func (s *Service) authorizeAffectedWorkflowBoards(ctx context.Context, q sqlc.Qu
 	targets := make([]poolconfigurations.AssignmentTarget, len(boards))
 	for i, board := range boards {
 		if found[board.MacAddress] {
-			return fleeterror.NewFailedPreconditionError("ambiguous affected board installation")
+			return newWorkflowChangedError("Board identity is ambiguous. Review the boards again.")
 		}
 		found[board.MacAddress] = true
 		targets[i] = poolconfigurations.AssignmentTarget{Kind: poolconfigurations.TargetInstallation, ID: board.InstallationID, DeviceID: row.DeviceID}
 	}
 	for _, mac := range affected {
 		if !found[mac] {
-			return fleeterror.NewFailedPreconditionError("affected board inventory is unavailable or stale")
+			return newInventoryStaleError("Board inventory is unavailable or stale. Waiting for a fresh inventory.")
 		}
 	}
 	return s.authorizeWorkflowBoards(ctx, q, row, targets)

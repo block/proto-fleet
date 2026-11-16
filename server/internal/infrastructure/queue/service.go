@@ -90,6 +90,15 @@ func (d DatabaseMessageQueue) enqueueEncoded(ctx context.Context, commandBatchLo
 			}
 			epochs[i] = fence.Epoch
 		}
+		if commandType.MayAffectPools() && !commandType.IsCurtailmentControl() {
+			changing, err := q.ListActiveMiningGroupDeactivations(ctx, deviceIDs)
+			if err != nil {
+				return err
+			}
+			if len(changing) > 0 {
+				return fleeterror.NewFailedPreconditionError("Mining groups are being disabled. Wait for this change or recovery to finish before submitting device commands.")
+			}
+		}
 		err = q.CreateQueueMessages(ctx, sqlc.CreateQueueMessagesParams{
 			CommandBatchLogUuid: commandBatchLogUUID,
 			CommandType:         commandType.String(),

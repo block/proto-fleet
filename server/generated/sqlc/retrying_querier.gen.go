@@ -656,6 +656,18 @@ func (q *retryingQuerier) BumpCurtailmentTargetRetry(ctx context.Context, arg Bu
 	return result, err
 }
 
+func (q *retryingQuerier) CT1HashboardAllocationReady(ctx context.Context, arg CT1HashboardAllocationReadyParams) (bool, error) {
+	var result bool
+	err := q.retrier.RetryQuery(ctx, "CT1HashboardAllocationReady", func() error {
+		callResult, callErr := q.next.CT1HashboardAllocationReady(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) CanAccountCloseRepairTicket(ctx context.Context, arg CanAccountCloseRepairTicketParams) (bool, error) {
 	var result bool
 	err := q.retrier.RetryQuery(ctx, "CanAccountCloseRepairTicket", func() error {
@@ -1116,6 +1128,12 @@ func (q *retryingQuerier) CloseStaleErrors(ctx context.Context, arg CloseStaleEr
 		return callErr
 	})
 	return result, err
+}
+
+func (q *retryingQuerier) CompleteCoveredContainerPoolClears(ctx context.Context, transitionID uuid.UUID) error {
+	return q.retrier.RetryQuery(ctx, "CompleteCoveredContainerPoolClears", func() error {
+		return q.next.CompleteCoveredContainerPoolClears(ctx, transitionID)
+	})
 }
 
 func (q *retryingQuerier) CompleteCurtailmentAutomationExecution(ctx context.Context, arg CompleteCurtailmentAutomationExecutionParams) error {
@@ -2300,6 +2318,18 @@ func (q *retryingQuerier) DeleteCurtailmentResponseProfilesBySite(ctx context.Co
 	return result, err
 }
 
+func (q *retryingQuerier) DeleteDefaultReturnBoardIntents(ctx context.Context, arg DeleteDefaultReturnBoardIntentsParams) error {
+	return q.retrier.RetryQuery(ctx, "DeleteDefaultReturnBoardIntents", func() error {
+		return q.next.DeleteDefaultReturnBoardIntents(ctx, arg)
+	})
+}
+
+func (q *retryingQuerier) DeleteDefaultReturnLegacyIntents(ctx context.Context, arg DeleteDefaultReturnLegacyIntentsParams) error {
+	return q.retrier.RetryQuery(ctx, "DeleteDefaultReturnLegacyIntents", func() error {
+		return q.next.DeleteDefaultReturnLegacyIntents(ctx, arg)
+	})
+}
+
 func (q *retryingQuerier) DeleteDisabledMQTTSourceConfigByOrg(ctx context.Context, arg DeleteDisabledMQTTSourceConfigByOrgParams) (int64, error) {
 	var result int64
 	err := q.retrier.RetryQuery(ctx, "DeleteDisabledMQTTSourceConfigByOrg", func() error {
@@ -2579,6 +2609,12 @@ func (q *retryingQuerier) DisableSyncCommit(ctx context.Context) error {
 func (q *retryingQuerier) DiscardRecoveredLegacyPoolIntents(ctx context.Context, arg DiscardRecoveredLegacyPoolIntentsParams) error {
 	return q.retrier.RetryQuery(ctx, "DiscardRecoveredLegacyPoolIntents", func() error {
 		return q.next.DiscardRecoveredLegacyPoolIntents(ctx, arg)
+	})
+}
+
+func (q *retryingQuerier) DiscoverMiningGroupControllers(ctx context.Context) error {
+	return q.retrier.RetryQuery(ctx, "DiscoverMiningGroupControllers", func() error {
+		return q.next.DiscoverMiningGroupControllers(ctx)
 	})
 }
 
@@ -3366,6 +3402,18 @@ func (q *retryingQuerier) GetBuiltinRoleForOrg(ctx context.Context, arg GetBuilt
 	var result Role
 	err := q.retrier.RetryQuery(ctx, "GetBuiltinRoleForOrg", func() error {
 		callResult, callErr := q.next.GetBuiltinRoleForOrg(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) GetCT1HashboardAllocationBlocker(ctx context.Context, arg GetCT1HashboardAllocationBlockerParams) (string, error) {
+	var result string
+	err := q.retrier.RetryQuery(ctx, "GetCT1HashboardAllocationBlocker", func() error {
+		callResult, callErr := q.next.GetCT1HashboardAllocationBlocker(ctx, arg)
 		if callErr == nil {
 			result = callResult
 		}
@@ -5126,6 +5174,18 @@ func (q *retryingQuerier) GetMiningGroupBoards(ctx context.Context, arg GetMinin
 	return result, err
 }
 
+func (q *retryingQuerier) GetMiningGroupDeactivationBlocker(ctx context.Context, arg GetMiningGroupDeactivationBlockerParams) (string, error) {
+	var result string
+	err := q.retrier.RetryQuery(ctx, "GetMiningGroupDeactivationBlocker", func() error {
+		callResult, callErr := q.next.GetMiningGroupDeactivationBlocker(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) GetMiningGroupPoolHandoff(ctx context.Context, arg GetMiningGroupPoolHandoffParams) (MiningGroupPoolHandoff, error) {
 	var result MiningGroupPoolHandoff
 	err := q.retrier.RetryQuery(ctx, "GetMiningGroupPoolHandoff", func() error {
@@ -6428,6 +6488,18 @@ func (q *retryingQuerier) HasPendingContainerCommand(ctx context.Context, arg Ha
 	return result, err
 }
 
+func (q *retryingQuerier) HasPendingDefaultReturnPoolPolicy(ctx context.Context, arg HasPendingDefaultReturnPoolPolicyParams) (sql.NullBool, error) {
+	var result sql.NullBool
+	err := q.retrier.RetryQuery(ctx, "HasPendingDefaultReturnPoolPolicy", func() error {
+		callResult, callErr := q.next.HasPendingDefaultReturnPoolPolicy(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) HasPoolAssignmentKindConflict(ctx context.Context, arg HasPoolAssignmentKindConflictParams) (bool, error) {
 	var result bool
 	err := q.retrier.RetryQuery(ctx, "HasPoolAssignmentKindConflict", func() error {
@@ -7064,6 +7136,18 @@ func (q *retryingQuerier) ListActiveFirmwareRollouts(ctx context.Context) ([]Lis
 	return result, err
 }
 
+func (q *retryingQuerier) ListActiveMiningGroupDeactivations(ctx context.Context, dollar_1 []int64) ([]int64, error) {
+	var result []int64
+	err := q.retrier.RetryQuery(ctx, "ListActiveMiningGroupDeactivations", func() error {
+		callResult, callErr := q.next.ListActiveMiningGroupDeactivations(ctx, dollar_1)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) ListActiveNotificationGroups(ctx context.Context, arg ListActiveNotificationGroupsParams) ([]ListActiveNotificationGroupsRow, error) {
 	var result []ListActiveNotificationGroupsRow
 	err := q.retrier.RetryQuery(ctx, "ListActiveNotificationGroups", func() error {
@@ -7560,6 +7644,30 @@ func (q *retryingQuerier) ListCustomRolesForOrg(ctx context.Context, organizatio
 	var result []Role
 	err := q.retrier.RetryQuery(ctx, "ListCustomRolesForOrg", func() error {
 		callResult, callErr := q.next.ListCustomRolesForOrg(ctx, organizationID)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) ListDefaultReturnBoardNames(ctx context.Context, arg ListDefaultReturnBoardNamesParams) ([]ListDefaultReturnBoardNamesRow, error) {
+	var result []ListDefaultReturnBoardNamesRow
+	err := q.retrier.RetryQuery(ctx, "ListDefaultReturnBoardNames", func() error {
+		callResult, callErr := q.next.ListDefaultReturnBoardNames(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) ListDefaultReturnBoards(ctx context.Context, arg ListDefaultReturnBoardsParams) ([]ListDefaultReturnBoardsRow, error) {
+	var result []ListDefaultReturnBoardsRow
+	err := q.retrier.RetryQuery(ctx, "ListDefaultReturnBoards", func() error {
+		callResult, callErr := q.next.ListDefaultReturnBoards(ctx, arg)
 		if callErr == nil {
 			result = callResult
 		}
@@ -8496,6 +8604,18 @@ func (q *retryingQuerier) ListMiningGroupControllers(ctx context.Context) ([]Lis
 	var result []ListMiningGroupControllersRow
 	err := q.retrier.RetryQuery(ctx, "ListMiningGroupControllers", func() error {
 		callResult, callErr := q.next.ListMiningGroupControllers(ctx)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) ListMiningGroupReadinessControllers(ctx context.Context) ([]ListMiningGroupReadinessControllersRow, error) {
+	var result []ListMiningGroupReadinessControllersRow
+	err := q.retrier.RetryQuery(ctx, "ListMiningGroupReadinessControllers", func() error {
+		callResult, callErr := q.next.ListMiningGroupReadinessControllers(ctx)
 		if callErr == nil {
 			result = callResult
 		}
@@ -10424,6 +10544,18 @@ func (q *retryingQuerier) LockMinerBindingDevice(ctx context.Context, id int64) 
 	return result, err
 }
 
+func (q *retryingQuerier) LockMinerBindingDeviceForAllocation(ctx context.Context, id int64) (int64, error) {
+	var result int64
+	err := q.retrier.RetryQuery(ctx, "LockMinerBindingDeviceForAllocation", func() error {
+		callResult, callErr := q.next.LockMinerBindingDeviceForAllocation(ctx, id)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) LockMinerBindingDiscovery(ctx context.Context, id int64) (int64, error) {
 	var result int64
 	err := q.retrier.RetryQuery(ctx, "LockMinerBindingDiscovery", func() error {
@@ -10766,10 +10898,40 @@ func (q *retryingQuerier) MarkFrigateUpdateCleanupAttempted(ctx context.Context,
 	})
 }
 
+func (q *retryingQuerier) MarkMiningGroupObservationPending(ctx context.Context, arg MarkMiningGroupObservationPendingParams) error {
+	return q.retrier.RetryQuery(ctx, "MarkMiningGroupObservationPending", func() error {
+		return q.next.MarkMiningGroupObservationPending(ctx, arg)
+	})
+}
+
+func (q *retryingQuerier) MarkMiningGroupStepDispatch(ctx context.Context, arg MarkMiningGroupStepDispatchParams) (bool, error) {
+	var result bool
+	err := q.retrier.RetryQuery(ctx, "MarkMiningGroupStepDispatch", func() error {
+		callResult, callErr := q.next.MarkMiningGroupStepDispatch(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) MarkRepairTicketPartsConsumed(ctx context.Context, arg MarkRepairTicketPartsConsumedParams) error {
 	return q.retrier.RetryQuery(ctx, "MarkRepairTicketPartsConsumed", func() error {
 		return q.next.MarkRepairTicketPartsConsumed(ctx, arg)
 	})
+}
+
+func (q *retryingQuerier) MiningGroupStepIsUnsent(ctx context.Context, arg MiningGroupStepIsUnsentParams) (bool, error) {
+	var result bool
+	err := q.retrier.RetryQuery(ctx, "MiningGroupStepIsUnsent", func() error {
+		callResult, callErr := q.next.MiningGroupStepIsUnsent(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
 }
 
 func (q *retryingQuerier) MoveDiscoveredDeviceAttribution(ctx context.Context, arg MoveDiscoveredDeviceAttributionParams) error {
@@ -11324,6 +11486,12 @@ func (q *retryingQuerier) RegenerateHostedReport(ctx context.Context, arg Regene
 	return result, err
 }
 
+func (q *retryingQuerier) RegisterMiningGroupStep(ctx context.Context, arg RegisterMiningGroupStepParams) error {
+	return q.retrier.RetryQuery(ctx, "RegisterMiningGroupStep", func() error {
+		return q.next.RegisterMiningGroupStep(ctx, arg)
+	})
+}
+
 func (q *retryingQuerier) ReincludeFirmwareRolloutDevices(ctx context.Context, arg ReincludeFirmwareRolloutDevicesParams) error {
 	return q.retrier.RetryQuery(ctx, "ReincludeFirmwareRolloutDevices", func() error {
 		return q.next.ReincludeFirmwareRolloutDevices(ctx, arg)
@@ -11744,6 +11912,18 @@ func (q *retryingQuerier) ResolveRepairTicketMinerTarget(ctx context.Context, ar
 	return result, err
 }
 
+func (q *retryingQuerier) RestoreMiningGroupStepUnsent(ctx context.Context, arg RestoreMiningGroupStepUnsentParams) (int64, error) {
+	var result int64
+	err := q.retrier.RetryQuery(ctx, "RestoreMiningGroupStepUnsent", func() error {
+		callResult, callErr := q.next.RestoreMiningGroupStepUnsent(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) ResumeCurtailmentFromRestoring(ctx context.Context, id int64) (CurtailmentEvent, error) {
 	var result CurtailmentEvent
 	err := q.retrier.RetryQuery(ctx, "ResumeCurtailmentFromRestoring", func() error {
@@ -11789,6 +11969,12 @@ func (q *retryingQuerier) RetainAppliedPoolGroupIntents(ctx context.Context, arg
 func (q *retryingQuerier) RetireContainerModules(ctx context.Context, arg RetireContainerModulesParams) error {
 	return q.retrier.RetryQuery(ctx, "RetireContainerModules", func() error {
 		return q.next.RetireContainerModules(ctx, arg)
+	})
+}
+
+func (q *retryingQuerier) RetireDefaultReturnAssignments(ctx context.Context, arg RetireDefaultReturnAssignmentsParams) error {
+	return q.retrier.RetryQuery(ctx, "RetireDefaultReturnAssignments", func() error {
+		return q.next.RetireDefaultReturnAssignments(ctx, arg)
 	})
 }
 
@@ -11945,6 +12131,12 @@ func (q *retryingQuerier) RewritePoolImportControllerBindings(ctx context.Contex
 func (q *retryingQuerier) RollbackTelemetryFreshnessSavepoint(ctx context.Context) error {
 	return q.retrier.RetryQuery(ctx, "RollbackTelemetryFreshnessSavepoint", func() error {
 		return q.next.RollbackTelemetryFreshnessSavepoint(ctx)
+	})
+}
+
+func (q *retryingQuerier) SaveMiningGroupDefaultReturn(ctx context.Context, arg SaveMiningGroupDefaultReturnParams) error {
+	return q.retrier.RetryQuery(ctx, "SaveMiningGroupDefaultReturn", func() error {
+		return q.next.SaveMiningGroupDefaultReturn(ctx, arg)
 	})
 }
 
@@ -12557,6 +12749,12 @@ func (q *retryingQuerier) StampHashboardTopology(ctx context.Context, arg StampH
 func (q *retryingQuerier) SupersedeContainerPoolLifecycleTransitions(ctx context.Context, arg SupersedeContainerPoolLifecycleTransitionsParams) error {
 	return q.retrier.RetryQuery(ctx, "SupersedeContainerPoolLifecycleTransitions", func() error {
 		return q.next.SupersedeContainerPoolLifecycleTransitions(ctx, arg)
+	})
+}
+
+func (q *retryingQuerier) SupersedeDefaultReturnClears(ctx context.Context, arg SupersedeDefaultReturnClearsParams) error {
+	return q.retrier.RetryQuery(ctx, "SupersedeDefaultReturnClears", func() error {
+		return q.next.SupersedeDefaultReturnClears(ctx, arg)
 	})
 }
 

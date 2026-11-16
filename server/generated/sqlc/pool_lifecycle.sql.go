@@ -15,6 +15,23 @@ import (
 	"github.com/lib/pq"
 )
 
+const completeCoveredContainerPoolClears = `-- name: CompleteCoveredContainerPoolClears :exec
+UPDATE pool_lifecycle_transition sibling SET state='completed',result_code='covered_by_container_clear',updated_at=clock_timestamp()
+FROM pool_lifecycle_transition completed
+WHERE completed.transition_id=$1 AND completed.state='completed' AND completed.target_kind='device'
+ AND completed.configuration_id IS NULL AND sibling.organization_id=completed.organization_id
+ AND sibling.device_id=completed.device_id AND sibling.owner_account_id=completed.owner_account_id
+ AND sibling.transition_id<>completed.transition_id AND sibling.state IN ('pending','deferred')
+ AND sibling.configuration_id IS NULL AND sibling.created_at<=completed.created_at
+`
+
+// A verified whole-container clear covers only earlier pending clears for the
+// same owner. Keep every sibling request until that success is established.
+func (q *Queries) CompleteCoveredContainerPoolClears(ctx context.Context, transitionID uuid.UUID) error {
+	_, err := q.exec(ctx, q.completeCoveredContainerPoolClearsStmt, completeCoveredContainerPoolClears, transitionID)
+	return err
+}
+
 const createAutomaticPoolConfigurationOperation = `-- name: CreateAutomaticPoolConfigurationOperation :one
 INSERT INTO pool_configuration_operation(operation_id,organization_id,configuration_id,revision_id,actor_id,lifecycle_id)
 VALUES($1,$2,$3,$4,0,$5) RETURNING operation_id, organization_id, configuration_id, revision_id, actor_id, created_at, kind, lifecycle_id
@@ -253,8 +270,7 @@ SELECT transition_id, organization_id, device_id, asset_kind, asset_id, owner_ac
  SELECT DISTINCT ON (l.device_id) l.transition_id, l.organization_id, l.device_id, l.asset_kind, l.asset_id, l.owner_account_id, l.allocation_revision, l.pairing_defaults, l.reason, l.pairing_cycle_id, l.configuration_id, l.revision_id, l.target_kind, l.target_id, l.reviewed_binding, l.state, l.result_code, l.operation_id, l.physical_attempt_id, l.created_at, l.updated_at, l.next_attempt_at FROM pool_lifecycle_transition l
  LEFT JOIN device_write_attempt w ON w.attempt_id=l.physical_attempt_id
  WHERE (l.state IN ('pending','ready') OR (l.state IN ('applying','uncertain') AND l.configuration_id IS NULL AND l.target_kind='device' AND w.status='complete')
-  OR (l.state='failed' AND l.result_code='clear_not_dispatched' AND l.reason='ownership' AND l.configuration_id IS NULL AND l.target_kind='device'
-   AND w.status='complete' AND w.operation_kind='mutation' AND w.command_type='UpdateMiningPools' AND w.write_outcome='{}'::jsonb))
+  OR pool_lifecycle_clear_retryable(l,w))
   AND l.next_attempt_at<=clock_timestamp()
   AND NOT EXISTS(SELECT 1 FROM pool_configuration_assignment a JOIN pool_configuration_operation_target t
    ON t.organization_id=a.organization_id AND t.operation_id=a.operation_id AND t.target_kind=a.target_kind AND t.target_id=a.target_id AND t.assignment_version=a.version
@@ -320,7 +336,7 @@ LEFT JOIN hashboard_installation i ON l.asset_kind=7 AND i.hashboard_id=l.asset_
 LEFT JOIN hosted_account_asset owner ON owner.organization_id=l.organization_id AND owner.kind=l.asset_kind AND owner.asset_id=l.asset_id
 WHERE l.organization_id=$1 AND l.owner_account_id=$2::bigint
  AND (l.device_id=ANY($3::bigint[]) OR i.id=ANY($4::bigint[]))
- AND l.state<>'superseded' AND (l.asset_kind<>0 OR l.state='pending')
+ AND l.state<>'superseded' AND (l.asset_kind<>0 OR l.state IN ('pending','deferred'))
  AND (l.asset_kind<>7 OR l.target_id>0 OR i.id IS NOT NULL)
  AND COALESCE(owner.subclient_id,owner.client_id,0)=l.owner_account_id AND COALESCE(owner.revision,0)=l.allocation_revision
  AND NOT EXISTS(SELECT 1 FROM pool_configuration_assignment a WHERE a.organization_id=l.organization_id
@@ -423,9 +439,9 @@ func (q *Queries) ListVisiblePoolLifecycleTransitions(ctx context.Context, arg L
 }
 
 const poolConfigurationHasPendingLifecycle = `-- name: PoolConfigurationHasPendingLifecycle :one
-SELECT (EXISTS(SELECT 1 FROM pool_lifecycle_transition l WHERE l.organization_id=$1 AND l.configuration_id=$2 AND l.state IN ('pending','ready','applying'))
+SELECT (EXISTS(SELECT 1 FROM pool_lifecycle_transition l WHERE l.organization_id=$1 AND l.configuration_id=$2 AND l.state IN ('pending','deferred','ready','applying'))
  OR EXISTS(SELECT 1 FROM pool_lifecycle_transition p,jsonb_each(p.pairing_defaults) entry
- WHERE p.organization_id=$1 AND p.asset_kind=0 AND p.state='pending' AND entry.value->>'configuration_id'=$2))::boolean AS pending
+ WHERE p.organization_id=$1 AND p.asset_kind=0 AND p.state IN ('pending','deferred') AND entry.value->>'configuration_id'=$2))::boolean AS pending
 `
 
 type PoolConfigurationHasPendingLifecycleParams struct {
@@ -488,23 +504,48 @@ const reconcilePoolLifecycleOperations = `-- name: ReconcilePoolLifecycleOperati
 WITH retired_devices AS (
  UPDATE pool_lifecycle_transition l SET state='superseded',result_code='device_deleted',updated_at=clock_timestamp()
  FROM device d WHERE d.id=l.device_id AND d.org_id=l.organization_id AND d.deleted_at IS NOT NULL
-  AND l.state IN ('pending','ready','applying','uncertain','failed')
+  AND l.state IN ('pending','deferred','ready','applying','uncertain','failed')
  RETURNING l.transition_id
 ), retired_boards AS (
  UPDATE pool_lifecycle_transition l SET state='superseded',result_code='board_removed',updated_at=clock_timestamp()
  FROM device d WHERE d.id=l.device_id AND d.org_id=l.organization_id AND d.deleted_at IS NULL
-  AND l.asset_kind=7 AND l.state IN ('pending','ready') AND l.operation_id IS NULL AND l.physical_attempt_id IS NULL
+  AND l.asset_kind=7 AND l.state IN ('pending','deferred','ready') AND l.operation_id IS NULL AND l.physical_attempt_id IS NULL
   AND NOT EXISTS(SELECT 1 FROM hashboard_installation i WHERE i.hashboard_id=l.asset_id AND i.device_id=l.device_id AND i.removed_at IS NULL)
   AND EXISTS(SELECT 1 FROM hashboard_installation i WHERE i.hashboard_id=l.asset_id AND i.device_id=l.device_id AND i.removed_at IS NOT NULL)
  RETURNING l.transition_id
+), retired_deferred AS (
+ UPDATE pool_lifecycle_transition l
+ SET state='superseded',result_code=CASE
+  WHEN l.reason='pairing' AND NOT EXISTS(SELECT 1 FROM pool_pairing_cycle c WHERE c.device_id=l.device_id AND c.cycle_id=l.pairing_cycle_id) THEN 'pairing_cycle_ended'
+  ELSE 'ownership_changed' END,updated_at=clock_timestamp()
+ FROM device d WHERE d.id=l.device_id AND d.org_id=l.organization_id AND d.deleted_at IS NULL
+  AND l.state='deferred'
+  AND NOT EXISTS(SELECT 1 FROM retired_boards r WHERE r.transition_id=l.transition_id)
+  AND ((l.reason='pairing' AND NOT EXISTS(SELECT 1 FROM pool_pairing_cycle c WHERE c.device_id=l.device_id AND c.cycle_id=l.pairing_cycle_id))
+   OR EXISTS(SELECT 1 FROM hosted_account_asset a
+    WHERE a.organization_id=l.organization_id AND a.kind=l.asset_kind AND a.asset_id=l.asset_id
+     AND (COALESCE(a.subclient_id,a.client_id,0)<>l.owner_account_id OR a.revision<>l.allocation_revision)))
+ RETURNING l.transition_id
 ), retired AS (
- SELECT transition_id FROM retired_devices UNION ALL SELECT transition_id FROM retired_boards
+ SELECT transition_id FROM retired_devices
+ UNION ALL SELECT transition_id FROM retired_boards
+ UNION ALL SELECT transition_id FROM retired_deferred
+), released AS (
+ UPDATE pool_lifecycle_transition l
+ SET state='pending',result_code='',next_attempt_at=clock_timestamp(),updated_at=clock_timestamp()
+ WHERE l.state='deferred'
+  AND NOT EXISTS(SELECT 1 FROM retired r WHERE r.transition_id=l.transition_id)
+  AND NOT EXISTS(SELECT 1 FROM container_mining_group_state s
+   WHERE s.organization_id=l.organization_id AND s.device_id=l.device_id
+    AND s.operation_kind='deactivate' AND s.status IN ('pending','applying','blocked'))
+ RETURNING l.transition_id
 )
 UPDATE pool_lifecycle_transition l SET state=CASE WHEN t.state='verified' THEN 'verified' ELSE 'failed' END,
  result_code=t.result_code,updated_at=clock_timestamp()
 FROM pool_configuration_operation_target t WHERE l.operation_id=t.operation_id AND l.state='applying'
  AND t.state NOT IN ('pending','applying')
  AND NOT EXISTS(SELECT 1 FROM retired r WHERE r.transition_id=l.transition_id)
+ AND NOT EXISTS(SELECT 1 FROM released r WHERE r.transition_id=l.transition_id)
 `
 
 // Also retire intent left by earlier deletions or confirmed board removals.
@@ -533,8 +574,7 @@ func (q *Queries) ReprepareUndispatchedPoolLifecycleRemoval(ctx context.Context,
 const retryUndispatchedPoolLifecycleRemoval = `-- name: RetryUndispatchedPoolLifecycleRemoval :exec
 UPDATE pool_lifecycle_transition l SET state='ready',physical_attempt_id=NULL,next_attempt_at=clock_timestamp()+interval '30 seconds',updated_at=clock_timestamp()
 FROM device_write_attempt w WHERE l.transition_id=$1 AND l.physical_attempt_id=w.attempt_id
- AND l.state='failed' AND l.result_code='clear_not_dispatched' AND l.reason='ownership' AND l.configuration_id IS NULL AND l.target_kind='device'
- AND w.status='complete' AND w.operation_kind='mutation' AND w.command_type='UpdateMiningPools' AND w.write_outcome='{}'::jsonb
+ AND pool_lifecycle_clear_retryable(l,w)
 `
 
 // Require explicit no-dispatch evidence from the direct executor plus a
@@ -550,7 +590,8 @@ UPDATE pool_lifecycle_transition l SET state='superseded',updated_at=clock_times
 FROM pool_lifecycle_transition selected
 WHERE l.organization_id=$1 AND l.device_id=$2 AND l.owner_account_id=$3 AND selected.transition_id=$4
  AND (l.created_at,l.transition_id)<(selected.created_at,selected.transition_id)
- AND l.state='pending' AND l.operation_id IS NULL AND l.physical_attempt_id IS NULL
+ AND l.state IN ('pending','deferred') AND l.operation_id IS NULL AND l.physical_attempt_id IS NULL
+ AND (selected.configuration_id IS NOT NULL OR l.configuration_id IS NOT NULL)
 `
 
 type SupersedeContainerPoolLifecycleTransitionsParams struct {
@@ -560,6 +601,8 @@ type SupersedeContainerPoolLifecycleTransitionsParams struct {
 	TransitionID   uuid.UUID
 }
 
+// Newer policy replaces older unclaimed applies. A clear retains sibling clears
+// until verified success covers them; it still cancels older pending applies.
 func (q *Queries) SupersedeContainerPoolLifecycleTransitions(ctx context.Context, arg SupersedeContainerPoolLifecycleTransitionsParams) error {
 	_, err := q.exec(ctx, q.supersedeContainerPoolLifecycleTransitionsStmt, supersedeContainerPoolLifecycleTransitions,
 		arg.OrganizationID,

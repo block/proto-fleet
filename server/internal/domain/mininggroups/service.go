@@ -28,6 +28,7 @@ import (
 const statusApplying = "applying"
 const statusComplete = "complete"
 const operationActivate = "activate"
+const operationDeactivate = "deactivate"
 const messageWaitingToApply = "Waiting to apply configuration"
 
 type MinerGetter interface {
@@ -50,9 +51,11 @@ func NewService(conn *sql.DB, miners MinerGetter, pools *hostedaccounts.PoolServ
 }
 
 type State struct {
-	Record   sqlc.ContainerMiningGroupState
-	Observed sdk.MiningGroupResult
-	Desired  []sqlc.HashboardPoolIntent
+	Record                    sqlc.ContainerMiningGroupState
+	Observed                  sdk.MiningGroupResult
+	Desired                   []sqlc.HashboardPoolIntent
+	DeactivationBlockedReason string
+	CanReturnToDefault        bool
 }
 type binding struct {
 	ConfigID   string `json:"config_id"`
@@ -68,6 +71,11 @@ type savedStep struct {
 func active(status string) bool {
 	return status == "pending" || status == statusApplying || status == "blocked"
 }
+
+func changesMode(kind string) bool {
+	return kind == operationActivate || kind == operationDeactivate
+}
+
 func authorize(ctx context.Context, q sqlc.Querier, userID, orgID int64, site sql.NullInt64, permissions ...string) error {
 	perms, err := authz.LoadEffectiveForShare(ctx, q, userID, orgID)
 	if err != nil {
@@ -128,12 +136,15 @@ func (s *Service) GetState(ctx context.Context, identifier string) (State, error
 	}
 	var result State
 	err = s.writes.WithHostObservation(ctx, info.OrganizationID, target.ID, target.Epoch, func(ctx context.Context) error {
-		return s.writes.WithBindingObservation(ctx, target.ID, func(q sqlc.Querier) error {
+		return s.writes.WithExclusiveBindingObservation(ctx, target.ID, func(q sqlc.Querier) error {
 			fresh, err := q.GetMiningGroupTarget(ctx, sqlc.GetMiningGroupTargetParams{OrgID: info.OrganizationID, DeviceIdentifier: identifier})
 			if err != nil {
 				return err
 			}
-			return authorize(ctx, q, info.UserID, info.OrganizationID, fresh.SiteID, authz.PermMinerRead)
+			if err := authorize(ctx, q, info.UserID, info.OrganizationID, fresh.SiteID, authz.PermMinerRead); err != nil {
+				return err
+			}
+			return s.queries.MarkMiningGroupObservationPending(ctx, sqlc.MarkMiningGroupObservationPendingParams{OrganizationID: info.OrganizationID, DeviceID: target.ID})
 		}, func(ctx context.Context) error {
 			return s.writes.WithBindingTransaction(ctx, func(ctx context.Context, q sqlc.Querier) error {
 				row, err := q.LockMiningGroupState(ctx, sqlc.LockMiningGroupStateParams{DeviceID: target.ID, OrganizationID: info.OrganizationID})
@@ -149,41 +160,89 @@ func (s *Service) GetState(ctx context.Context, identifier string) (State, error
 					return err
 				}
 				next, readErr := s.call(ctx, target.ID, sdk.MiningGroupRequest{Action: "observe"})
-				if readErr != nil && !row.ObservedAt.Valid {
-					return readErr
-				}
-				if readErr == nil {
-					observed = next
-					row.Observed, err = encode(next)
-					if err != nil {
-						return err
+				if readErr != nil {
+					if !observed.Supported {
+						return readErr
 					}
-					row.ObservedAt = sql.NullTime{Time: time.Now().UTC(), Valid: true}
-					if err := save(ctx, q, row); err != nil {
-						return err
-					}
+					// Keep the authorized display snapshot. The pending marker was
+					// committed before this read, even if this transaction rolls back.
+					row.ObservedAt = sql.NullTime{}
+					result = State{Record: row, Observed: observed, Desired: desired, DeactivationBlockedReason: "Reconnect the controller and refresh its mining-group state before disabling mining groups."}
+					return nil
 				}
-				// Return the authorized snapshot captured under the same binding lock,
-				// including its original freshness when the controller is disconnected.
+				observed = next
+				row.Observed, err = encode(next)
+				if err != nil {
+					return err
+				}
+				row.ObservedAt = sql.NullTime{Time: time.Now().UTC(), Valid: true}
+				if err := save(ctx, q, row); err != nil {
+					return err
+				}
 				result = State{Record: row, Observed: observed, Desired: desired}
 				return nil
 			})
 		})
 	})
+	// Advisory checks can use another device call or fail on a database read.
+	// Run them after commit so they cannot discard a successful observation.
+	if err == nil && result.Record.ObservedAt.Valid && result.Observed.Supported && result.Observed.Enabled {
+		readiness, checkErr := s.deactivationReadiness(ctx, s.queries, result.Record, result.Observed)
+		if checkErr != nil {
+			result.DeactivationBlockedReason = "Fleet cannot confirm that mining groups can be disabled. Refresh the controller and try again."
+		} else {
+			result.DeactivationBlockedReason = readiness.Reason
+			result.CanReturnToDefault = readiness.CanReturnToDefault
+		}
+	}
 	return result, err
 }
 func (s *Service) call(ctx context.Context, id int64, r sdk.MiningGroupRequest) (sdk.MiningGroupResult, error) {
 	m, err := s.miners.GetMinerForCommand(ctx, id)
-	if err != nil {
-		return sdk.MiningGroupResult{}, err
+	if err == nil {
+		if c, ok := m.(sdk.DeviceMiningGroups); ok {
+			return c.MiningGroups(ctx, r)
+		}
+		err = fleeterror.NewUnimplementedError("controller does not support mining groups")
 	}
-	c, ok := m.(sdk.DeviceMiningGroups)
-	if !ok {
-		return sdk.MiningGroupResult{}, fleeterror.NewUnimplementedError("controller does not support mining groups")
+	if !r.ReadOnly() {
+		// Handle resolution and capability checks cannot start the requested write.
+		err = devicewrite.NotDispatched(err)
 	}
-	return c.MiningGroups(ctx, r)
+	return sdk.MiningGroupResult{}, err
 }
 func (s *Service) Activate(ctx context.Context, identifier, requestID string) (uuid.UUID, error) {
+	return s.changeMode(ctx, identifier, requestID, operationActivate)
+}
+
+func (s *Service) Deactivate(ctx context.Context, identifier, requestID string) (uuid.UUID, error) {
+	return s.changeMode(ctx, identifier, requestID, operationDeactivate)
+}
+
+func (s *Service) deactivationReadiness(ctx context.Context, q sqlc.Querier, row sqlc.ContainerMiningGroupState, observed sdk.MiningGroupResult) (deactivationReadiness, error) {
+	readiness, err := deactivationBlocker(ctx, q, row, observed, false)
+	if err != nil || readiness.Reason != "" {
+		return readiness, err
+	}
+	miner, err := s.miners.GetMinerForCommand(ctx, row.DeviceID)
+	if err != nil {
+		return deactivationReadiness{}, err
+	}
+	if checker, ok := miner.(interface {
+		CheckMiningGroupDeactivation(ctx context.Context) error
+	}); ok {
+		if err := checker.CheckMiningGroupDeactivation(ctx); err != nil {
+			var refusal fleeterror.FleetError
+			if fleeterror.IsFailedPreconditionError(err) && errors.As(err, &refusal) {
+				return deactivationReadiness{Reason: refusal.DebugMessage}, nil
+			}
+			return deactivationReadiness{}, err
+		}
+	}
+	return readiness, nil
+}
+
+func (s *Service) changeMode(ctx context.Context, identifier, requestID, kind string) (uuid.UUID, error) {
 	info, err := OperatorPrincipal(ctx)
 	if err != nil {
 		return uuid.Nil, err
@@ -192,7 +251,7 @@ func (s *Service) Activate(ctx context.Context, identifier, requestID string) (u
 	if err != nil {
 		return uuid.Nil, fleeterror.NewInvalidArgumentError("request ID must be a UUID")
 	}
-	raw, err := encode([]any{identifier, operationActivate, "", []int64(nil), int64(0)})
+	raw, err := encode([]any{identifier, kind, "", []int64(nil), int64(0)})
 	if err != nil {
 		return uuid.Nil, err
 	}
@@ -218,6 +277,9 @@ func (s *Service) Activate(ctx context.Context, identifier, requestID string) (u
 		return true, nil
 	}
 	if done, e := replay(s.queries); e != nil || done {
+		if e == nil && done && kind == operationDeactivate {
+			e = s.resumeDeactivation(ctx, info.OrganizationID, info.UserID, identifier, target.ID, id)
+		}
 		return id, e
 	}
 	err = s.writes.BeginPoolWorkflow(ctx, info.OrganizationID, target.ID, func(ctx context.Context, q sqlc.Querier, attempt uuid.UUID, epoch int64) error {
@@ -225,7 +287,11 @@ func (s *Service) Activate(ctx context.Context, identifier, requestID string) (u
 		if err != nil {
 			return err
 		}
-		if err := authorize(ctx, q, info.UserID, info.OrganizationID, current.SiteID, authz.PermMinerActivateMiningGroups, authz.PermMinerStartMining, authz.PermMinerStopMining); err != nil {
+		permission := authz.PermMinerActivateMiningGroups
+		if kind == operationDeactivate {
+			permission = authz.PermMinerDeactivateMiningGroups
+		}
+		if err := authorize(ctx, q, info.UserID, info.OrganizationID, current.SiteID, permission, authz.PermMinerStartMining, authz.PermMinerStopMining); err != nil {
 			return err
 		}
 		row, err := q.LockMiningGroupState(ctx, sqlc.LockMiningGroupStateParams{DeviceID: target.ID, OrganizationID: info.OrganizationID})
@@ -241,7 +307,7 @@ func (s *Service) Activate(ctx context.Context, identifier, requestID string) (u
 			return fleeterror.NewFailedPreconditionError("a mining group change is already pending")
 		}
 		if !row.ObservedAt.Valid || time.Since(row.ObservedAt.Time) > 2*time.Minute {
-			return fleeterror.NewFailedPreconditionError("refresh the container before enabling mining groups")
+			return fleeterror.NewFailedPreconditionError("refresh the container before changing mining-group mode")
 		}
 		var observation sdk.MiningGroupResult
 		if err := decode(row.Observed, &observation); err != nil {
@@ -250,10 +316,19 @@ func (s *Service) Activate(ctx context.Context, identifier, requestID string) (u
 		if !observation.Supported {
 			return fleeterror.NewFailedPreconditionError("controller firmware does not support mining groups")
 		}
+		if kind == operationDeactivate {
+			reason, err := s.deactivationReadiness(ctx, q, row, observation)
+			if err != nil {
+				return err
+			}
+			if reason.Reason != "" {
+				return fleeterror.NewFailedPreconditionError(reason.Reason)
+			}
+		}
 		row.OperationID = uuid.NullUUID{UUID: id, Valid: true}
 		row.AttemptID = uuid.NullUUID{UUID: attempt, Valid: true}
 		row.ActorID = sql.NullInt64{Int64: info.UserID, Valid: true}
-		row.OperationKind = operationActivate
+		row.OperationKind = kind
 		row.ActivationResumeMining = sql.NullBool{}
 		row.ActivationStopRequested = false
 		row.Status = "pending"
@@ -269,15 +344,19 @@ func (s *Service) Activate(ctx context.Context, identifier, requestID string) (u
 		if err := q.RecordMiningGroupRequest(ctx, sqlc.RecordMiningGroupRequestParams{OrganizationID: info.OrganizationID, RequestID: id, DeviceID: target.ID, Fingerprint: fingerprint}); err != nil {
 			return err
 		}
-		capture, err := s.captureActivationPools(ctx, q, row, observation)
-		if err != nil {
-			return err
+		boardIDs := []int64{}
+		poolRevision := ""
+		if kind == operationActivate {
+			capture, err := s.captureActivationPools(ctx, q, row, observation)
+			if err != nil {
+				return err
+			}
+			for _, board := range capture.Boards {
+				boardIDs = append(boardIDs, board.Binding.HashboardID)
+			}
+			poolRevision = capture.Source.RevisionID
 		}
-		boardIDs := make([]int64, len(capture.Boards))
-		for i, board := range capture.Boards {
-			boardIDs[i] = board.Binding.HashboardID
-		}
-		if err := recordAcceptedActivity(ctx, q, row, identifier, current.SiteID, capture.Source.RevisionID, boardIDs); err != nil {
+		if err := recordAcceptedActivity(ctx, q, row, identifier, current.SiteID, poolRevision, boardIDs); err != nil {
 			return err
 		}
 		return save(ctx, q, row)
