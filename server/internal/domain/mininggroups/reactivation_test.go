@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/block/proto-fleet/server/generated/sqlc"
+	"github.com/block/proto-fleet/server/internal/domain/authz"
 	"github.com/block/proto-fleet/server/internal/domain/miner/interfaces"
 	"github.com/block/proto-fleet/server/internal/domain/poolapplications"
 	"github.com/block/proto-fleet/server/internal/domain/poolconfigurations"
@@ -34,12 +35,18 @@ func (m *modeCyclePoolMiner) MiningGroups(ctx context.Context, request sdk.Minin
 }
 
 func TestReactivationAfterDeactivationReleasesOldGroupBindings(t *testing.T) {
-	for _, newSource := range []bool{false, true} {
-		name := "same installations"
-		if newSource {
-			name = "new installation and container assignment"
-		}
-		t.Run(name, func(t *testing.T) {
+	for _, tc := range []struct {
+		name           string
+		newSource      bool
+		permissionLost bool
+		suspended      bool
+	}{
+		{name: "same installations"},
+		{name: "new installation and container assignment", newSource: true},
+		{name: "permission lost after deactivation receipt", newSource: true, permissionLost: true},
+		{name: "permission lost while disabled state is suspended", newSource: true, permissionLost: true, suspended: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
 			ctx, f, miner, service, config, _, confirm := newActivationPoolFixture(t)
 			f.service.miners = &modeCyclePoolMiner{miner}
 			activationID := uuid.New()
@@ -64,7 +71,28 @@ func TestReactivationAfterDeactivationReleasesOldGroupBindings(t *testing.T) {
 			deactivationID := uuid.New()
 			_, err = f.service.Deactivate(ctx, f.target.DeviceIdentifier, deactivationID.String())
 			require.NoError(t, err)
-			finish()
+			if tc.permissionLost {
+				f.reconcile(t, ctx) // Save the request.
+				require.True(t, f.state(t).Step.Valid)
+				f.reconcile(t, ctx) // Commit the receipt, before final mode readback.
+				require.False(t, f.state(t).Step.Valid)
+				require.False(t, miner.snapshot.Enabled)
+				priorBindings := f.state(t).Bindings
+				require.NotEqual(t, `{}`, string(priorBindings))
+				setMiningGroupPermissions(t, ctx, f, nil)
+				if tc.suspended {
+					miner.snapshot.Suspended = true
+					f.reconcile(t, ctx)
+					require.Equal(t, "blocked", f.state(t).Status)
+					require.JSONEq(t, string(priorBindings), string(f.state(t).Bindings))
+					miner.snapshot.Suspended = false
+				}
+				f.reconcile(t, ctx)
+				require.Equal(t, "failed", f.state(t).Status, "authority loss ends the operation after readback")
+				setMiningGroupPermissions(t, ctx, f, []string{authz.PermSiteRead, authz.PermFleetRead, authz.PermMinerRead, authz.PermPoolRead, authz.PermPoolManage, authz.PermMinerUpdatePools, authz.PermMinerActivateMiningGroups, authz.PermMinerDeactivateMiningGroups, authz.PermMinerStartMining, authz.PermMinerStopMining})
+			} else {
+				finish()
+			}
 			require.False(t, miner.snapshot.Enabled)
 			require.JSONEq(t, `{}`, string(f.state(t).Bindings))
 			_, err = sqlc.New(f.conn).GetPoolGroupSnapshot(ctx, sqlc.GetPoolGroupSnapshotParams{OrganizationID: f.target.OrganizationID, DeviceID: f.target.DeviceID, SnapshotID: priorSnapshot})
@@ -75,7 +103,7 @@ func TestReactivationAfterDeactivationReleasesOldGroupBindings(t *testing.T) {
 			_, err = f.service.Deactivate(ctx, f.target.DeviceIdentifier, deactivationID.String())
 			require.NoError(t, err, "completed request replay keeps its original identity")
 
-			if newSource {
+			if tc.newSource {
 				// Accepted removal retires the old installation's assignment. Its
 				// returning board receives a new installation generation.
 				var oldInstallation int64
@@ -99,7 +127,7 @@ func TestReactivationAfterDeactivationReleasesOldGroupBindings(t *testing.T) {
 			require.NoError(t, err)
 			finish()
 			require.True(t, miner.snapshot.Enabled)
-			if newSource {
+			if tc.newSource {
 				require.NoError(t, decode(f.state(t).Bindings, &bindings))
 				require.True(t, bindings["default"].Inherited)
 				require.NotEqual(t, priorSnapshot, bindings["default"].ConfigID)

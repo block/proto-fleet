@@ -88,6 +88,14 @@ func (s *Service) interrupt(ctx context.Context, q sqlc.Querier, row sqlc.Contai
 		return err
 	}
 	row.ObservedAt = sql.NullTime{Time: time.Now().UTC(), Valid: true}
+	if row.OperationKind == operationDeactivate && !observed.Enabled {
+		if observed.Suspended {
+			return s.block(ctx, q, row, "Waiting for the controller to settle before ending deactivation")
+		}
+		// A settled disabled controller no longer has these group identities,
+		// even when authority changed after its deactivation receipt committed.
+		row.Bindings = []byte(`{}`)
+	}
 	if row.OperationKind == operationReturnDefault {
 		return s.finishDefaultReturn(ctx, q, row, false, message)
 	}
