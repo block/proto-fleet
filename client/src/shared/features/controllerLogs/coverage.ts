@@ -1,4 +1,4 @@
-import type { AuditEventPage, ControllerLogEntry, ControllerLogSnapshot } from "@/protoOS/api/adapters/controllerLogs";
+import type { AuditEventPage, ControllerLogEntry, ControllerLogSnapshot } from "@/shared/features/controllerLogs/types";
 import { formatActivityTimestamp } from "@/shared/utils/formatTimestamp";
 
 export interface CoverageNotice {
@@ -53,7 +53,10 @@ export function logCoverageNotice(
     title: oldest ? `Logs available from ${formatControllerTime(oldest)}` : "Logs are kept in controller memory only",
     subtitle:
       coverage.state === "limit-reached"
-        ? `Only the latest ${limit.toLocaleString()} matching entries are returned.`
+        ? // Fewer than the limit means long entries filled the read's size limit.
+          entries.length < limit
+          ? `Only the latest ${entries.length.toLocaleString()} matching entries fit in one read.`
+          : `Only the latest ${limit.toLocaleString()} matching entries are returned.`
         : oldest
           ? "Held in controller memory. Earlier entries are lost on restart or when the buffer fills."
           : "Earlier entries are lost on restart or when the buffer fills.",
@@ -65,7 +68,11 @@ export function auditCoverageNotice(page: AuditEventPage): CoverageNotice | unde
   const oldest = page.events[page.events.length - 1]?.time;
   return {
     intent: "information",
-    title: `Showing the newest ${page.limit.toLocaleString()} events`,
+    // A long page can be cut below the limit to fit one read.
+    title:
+      page.events.length === 1
+        ? "Showing the newest event"
+        : `Showing the newest ${page.events.length.toLocaleString()} events`,
     subtitle: oldest
       ? `Events before ${formatControllerTime(oldest)} in this time range aren't shown.`
       : "Older events in this time range aren't shown.",

@@ -1,27 +1,16 @@
-import { useState } from "react";
+import { useMemo } from "react";
 
-import AuditTrailView from "./AuditTrailView";
-import ControllerLogView from "./ControllerLogView";
+import { controllerRecordsSource } from "./controllerRecordsSource";
 import type { MinerAdapter } from "@/protoOS/api/adapters/types";
-import SegmentedControl from "@/shared/components/SegmentedControl";
+import { useAuthRetry } from "@/protoOS/store/hooks/useAuthRetry";
+import SharedControllerLogs from "@/shared/features/controllerLogs/ControllerLogs";
+
+export const CONTROLLER_RECORDS_POLL_MS = 10_000;
 
 const ControllerLogs = ({ adapter }: { adapter: MinerAdapter }) => {
-  const [view, setView] = useState("logs");
-  return (
-    <>
-      <div className="px-4 py-3">
-        <SegmentedControl
-          segments={[
-            { key: "logs", title: "Logs" },
-            { key: "audit", title: "Audit trail" },
-          ]}
-          initialSegmentKey={view}
-          onSelect={setView}
-        />
-      </div>
-      {view === "logs" ? <ControllerLogView adapter={adapter} /> : <AuditTrailView adapter={adapter} />}
-    </>
-  );
+  const authRetry = useAuthRetry();
+  const source = useMemo(() => controllerRecordsSource(adapter, authRetry), [adapter, authRetry]);
+  return <SharedControllerLogs {...source} pollIntervalMs={CONTROLLER_RECORDS_POLL_MS} />;
 };
 
 export default ControllerLogs;

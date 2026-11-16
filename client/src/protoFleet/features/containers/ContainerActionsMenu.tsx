@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { create } from "@bufbuild/protobuf";
 import ContainerActionDialog from "./ContainerActionDialog";
 import {
@@ -15,7 +16,7 @@ import { hasMiningGroupPermissions } from "./miningGroupPermissions";
 import MiningGroupsDialog from "./MiningGroupsDialog";
 import { isCurrentObservation } from "./moduleDetail";
 import { useMiningGroupState } from "./useMiningGroupState";
-import { useOpenContainerView } from "./useOpenContainerView";
+import { controllerLogsPath, useOpenContainerView } from "./useOpenContainerView";
 import type { Container } from "@/protoFleet/api/generated/containers/v1/containers_pb";
 import type { UpdateJob } from "@/protoFleet/api/generated/frigateupdate/v1/frigateupdate_pb";
 import { FirmwareUpdateRequestSchema } from "@/protoFleet/api/generated/minercommand/v1/command_pb";
@@ -32,7 +33,17 @@ import {
 import FirmwareUpdateModal from "@/protoFleet/features/fleetManagement/components/MinerActionsMenu/FirmwareUpdateModal";
 import { ConfigurationSelector } from "@/protoFleet/features/poolConfigurations/ConfigurationSelector";
 import { usePermissions } from "@/protoFleet/store";
-import { ArrowRight, Download, MiningPools, Play, Power, Settings, Speedometer, Unpair } from "@/shared/assets/icons";
+import {
+  ArrowRight,
+  Download,
+  MiningPools,
+  Play,
+  Power,
+  Settings,
+  Speedometer,
+  Terminal,
+  Unpair,
+} from "@/shared/assets/icons";
 import RowActionsMenu, { type RowAction } from "@/shared/components/RowActionsMenu";
 import { pushToast, STATUSES } from "@/shared/features/toaster";
 
@@ -60,6 +71,7 @@ export default function ContainerActionsMenu({
   const [groupsOpen, setGroupsOpen] = useState(false);
   const [poolTarget, setPoolTarget] = useState<string>();
   const openContainerView = useOpenContainerView();
+  const navigate = useNavigate();
   const [action, setAction] = useState<ContainerAction>();
   const [unpairOpen, setUnpairOpen] = useState(false);
   const [frigateUpdateOpen, setFrigateUpdateOpen] = useState(false);
@@ -138,6 +150,13 @@ export default function ContainerActionsMenu({
           icon: <ArrowRight className="text-text-primary" />,
           showGroupDivider: true,
           onClick: () => openContainerView(container),
+        },
+        {
+          // Fleet checks the same permission at the container's site before reading.
+          label: "Controller logs",
+          icon: <Terminal />,
+          hidden: !hasActionPermissions(deviceActions.downloadLogs),
+          onClick: () => navigate(controllerLogsPath(container)),
         },
         {
           label: "Enable mining groups",

@@ -79,6 +79,12 @@ const (
 	// ContainerServiceListContainerPlacementsProcedure is the fully-qualified name of the
 	// ContainerService's ListContainerPlacements RPC.
 	ContainerServiceListContainerPlacementsProcedure = "/containers.v1.ContainerService/ListContainerPlacements"
+	// ContainerServiceGetControllerLogsProcedure is the fully-qualified name of the ContainerService's
+	// GetControllerLogs RPC.
+	ContainerServiceGetControllerLogsProcedure = "/containers.v1.ContainerService/GetControllerLogs"
+	// ContainerServiceListControllerAuditEventsProcedure is the fully-qualified name of the
+	// ContainerService's ListControllerAuditEvents RPC.
+	ContainerServiceListControllerAuditEventsProcedure = "/containers.v1.ContainerService/ListControllerAuditEvents"
 )
 
 // ContainerServiceClient is a client for the containers.v1.ContainerService service.
@@ -99,6 +105,11 @@ type ContainerServiceClient interface {
 	ListContainers(context.Context, *connect.Request[v1.ListContainersRequest]) (*connect.Response[v1.ListContainersResponse], error)
 	// Site management metadata only; does not grant access to container telemetry.
 	ListContainerPlacements(context.Context, *connect.Request[v1.ListContainerPlacementsRequest]) (*connect.Response[v1.ListContainerPlacementsResponse], error)
+	// On-demand reads of one controller's own records, through the container's
+	// assigned Fleet Node when it has one. Fleet does not store either result.
+	// Requires miner:download_logs at the container's site.
+	GetControllerLogs(context.Context, *connect.Request[v1.GetControllerLogsRequest]) (*connect.Response[v1.GetControllerLogsResponse], error)
+	ListControllerAuditEvents(context.Context, *connect.Request[v1.ListControllerAuditEventsRequest]) (*connect.Response[v1.ListControllerAuditEventsResponse], error)
 }
 
 // NewContainerServiceClient constructs a client for the containers.v1.ContainerService service. By
@@ -186,6 +197,16 @@ func NewContainerServiceClient(httpClient connect.HTTPClient, baseURL string, op
 			baseURL+ContainerServiceListContainerPlacementsProcedure,
 			opts...,
 		),
+		getControllerLogs: connect.NewClient[v1.GetControllerLogsRequest, v1.GetControllerLogsResponse](
+			httpClient,
+			baseURL+ContainerServiceGetControllerLogsProcedure,
+			opts...,
+		),
+		listControllerAuditEvents: connect.NewClient[v1.ListControllerAuditEventsRequest, v1.ListControllerAuditEventsResponse](
+			httpClient,
+			baseURL+ContainerServiceListControllerAuditEventsProcedure,
+			opts...,
+		),
 	}
 }
 
@@ -206,6 +227,8 @@ type containerServiceClient struct {
 	getContainer              *connect.Client[v1.GetContainerRequest, v1.GetContainerResponse]
 	listContainers            *connect.Client[v1.ListContainersRequest, v1.ListContainersResponse]
 	listContainerPlacements   *connect.Client[v1.ListContainerPlacementsRequest, v1.ListContainerPlacementsResponse]
+	getControllerLogs         *connect.Client[v1.GetControllerLogsRequest, v1.GetControllerLogsResponse]
+	listControllerAuditEvents *connect.Client[v1.ListControllerAuditEventsRequest, v1.ListControllerAuditEventsResponse]
 }
 
 // GetMiningStatus calls containers.v1.ContainerService.GetMiningStatus.
@@ -283,6 +306,16 @@ func (c *containerServiceClient) ListContainerPlacements(ctx context.Context, re
 	return c.listContainerPlacements.CallUnary(ctx, req)
 }
 
+// GetControllerLogs calls containers.v1.ContainerService.GetControllerLogs.
+func (c *containerServiceClient) GetControllerLogs(ctx context.Context, req *connect.Request[v1.GetControllerLogsRequest]) (*connect.Response[v1.GetControllerLogsResponse], error) {
+	return c.getControllerLogs.CallUnary(ctx, req)
+}
+
+// ListControllerAuditEvents calls containers.v1.ContainerService.ListControllerAuditEvents.
+func (c *containerServiceClient) ListControllerAuditEvents(ctx context.Context, req *connect.Request[v1.ListControllerAuditEventsRequest]) (*connect.Response[v1.ListControllerAuditEventsResponse], error) {
+	return c.listControllerAuditEvents.CallUnary(ctx, req)
+}
+
 // ContainerServiceHandler is an implementation of the containers.v1.ContainerService service.
 type ContainerServiceHandler interface {
 	GetMiningStatus(context.Context, *connect.Request[v1.GetMiningStatusRequest]) (*connect.Response[v1.GetMiningStatusResponse], error)
@@ -301,6 +334,11 @@ type ContainerServiceHandler interface {
 	ListContainers(context.Context, *connect.Request[v1.ListContainersRequest]) (*connect.Response[v1.ListContainersResponse], error)
 	// Site management metadata only; does not grant access to container telemetry.
 	ListContainerPlacements(context.Context, *connect.Request[v1.ListContainerPlacementsRequest]) (*connect.Response[v1.ListContainerPlacementsResponse], error)
+	// On-demand reads of one controller's own records, through the container's
+	// assigned Fleet Node when it has one. Fleet does not store either result.
+	// Requires miner:download_logs at the container's site.
+	GetControllerLogs(context.Context, *connect.Request[v1.GetControllerLogsRequest]) (*connect.Response[v1.GetControllerLogsResponse], error)
+	ListControllerAuditEvents(context.Context, *connect.Request[v1.ListControllerAuditEventsRequest]) (*connect.Response[v1.ListControllerAuditEventsResponse], error)
 }
 
 // NewContainerServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -384,6 +422,16 @@ func NewContainerServiceHandler(svc ContainerServiceHandler, opts ...connect.Han
 		svc.ListContainerPlacements,
 		opts...,
 	)
+	containerServiceGetControllerLogsHandler := connect.NewUnaryHandler(
+		ContainerServiceGetControllerLogsProcedure,
+		svc.GetControllerLogs,
+		opts...,
+	)
+	containerServiceListControllerAuditEventsHandler := connect.NewUnaryHandler(
+		ContainerServiceListControllerAuditEventsProcedure,
+		svc.ListControllerAuditEvents,
+		opts...,
+	)
 	return "/containers.v1.ContainerService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case ContainerServiceGetMiningStatusProcedure:
@@ -416,6 +464,10 @@ func NewContainerServiceHandler(svc ContainerServiceHandler, opts ...connect.Han
 			containerServiceListContainersHandler.ServeHTTP(w, r)
 		case ContainerServiceListContainerPlacementsProcedure:
 			containerServiceListContainerPlacementsHandler.ServeHTTP(w, r)
+		case ContainerServiceGetControllerLogsProcedure:
+			containerServiceGetControllerLogsHandler.ServeHTTP(w, r)
+		case ContainerServiceListControllerAuditEventsProcedure:
+			containerServiceListControllerAuditEventsHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -483,4 +535,12 @@ func (UnimplementedContainerServiceHandler) ListContainers(context.Context, *con
 
 func (UnimplementedContainerServiceHandler) ListContainerPlacements(context.Context, *connect.Request[v1.ListContainerPlacementsRequest]) (*connect.Response[v1.ListContainerPlacementsResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("containers.v1.ContainerService.ListContainerPlacements is not implemented"))
+}
+
+func (UnimplementedContainerServiceHandler) GetControllerLogs(context.Context, *connect.Request[v1.GetControllerLogsRequest]) (*connect.Response[v1.GetControllerLogsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("containers.v1.ContainerService.GetControllerLogs is not implemented"))
+}
+
+func (UnimplementedContainerServiceHandler) ListControllerAuditEvents(context.Context, *connect.Request[v1.ListControllerAuditEventsRequest]) (*connect.Response[v1.ListControllerAuditEventsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("containers.v1.ContainerService.ListControllerAuditEvents is not implemented"))
 }

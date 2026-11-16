@@ -1,9 +1,9 @@
 import { auditResultLabel, auditResultStatus, formatAuditDetails } from "./auditResult";
 import { formatControllerTime } from "./coverage";
-import type { AuditEvent } from "@/protoOS/api/adapters/controllerLogs";
 import Modal from "@/shared/components/Modal";
 import { StatusLabel } from "@/shared/components/StatusCircle";
 import SummaryRow from "@/shared/components/SummaryRow";
+import type { AuditEvent } from "@/shared/features/controllerLogs/types";
 
 interface AuditEventDetailModalProps {
   event: AuditEvent | null;
@@ -41,6 +41,9 @@ const AuditEventDetailModal = ({ event, onDismiss }: AuditEventDetailModalProps)
           ) : null}
         </div>
 
+        {event.truncated ? (
+          <p className="text-200 text-text-primary-70">Some fields were shortened to fit the read limit.</p>
+        ) : null}
         {event.details ? (
           <div className="flex flex-col gap-2">
             <div className="text-heading-200 text-text-primary">Details</div>

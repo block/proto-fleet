@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { auditCoverageNotice, entriesInWindow, logCoverageNotice } from "./coverage";
-import type { ControllerLogEntry, ControllerLogSnapshot } from "@/protoOS/api/adapters/controllerLogs";
+import type { ControllerLogEntry, ControllerLogSnapshot } from "@/shared/features/controllerLogs/types";
 
 const at = (iso: string): ControllerLogEntry => ({ timestamp: iso, severity: "info", component: "pool", message: iso });
 const snapshot = (overrides: Partial<ControllerLogSnapshot> = {}): ControllerLogSnapshot => ({
@@ -31,8 +31,14 @@ describe("logCoverageNotice", () => {
   });
 
   it("says when the limit cut off older matching entries", () => {
+    expect(logCoverageNotice(snapshot({ limit: 2, coverage: { state: "limit-reached" } }), undefined)).toMatchObject({
+      subtitle: "Only the latest 2 matching entries are returned.",
+    });
+  });
+
+  it("counts the entries returned when long entries filled the read", () => {
     expect(logCoverageNotice(snapshot({ coverage: { state: "limit-reached" } }), undefined)).toMatchObject({
-      subtitle: "Only the latest 1,000 matching entries are returned.",
+      subtitle: "Only the latest 2 matching entries fit in one read.",
     });
   });
 
@@ -103,5 +109,11 @@ describe("auditCoverageNotice", () => {
       title: "Showing the newest 2 events",
       subtitle: expect.stringMatching(/^Events before .+ aren't shown\.$/),
     });
+  });
+
+  it("counts the events shown when long events filled the read", () => {
+    expect(
+      auditCoverageNotice({ events: [event("2026-11-13T10:00:00Z")], limit: 1000, limitReached: true, fetchedAt: "" }),
+    ).toMatchObject({ title: "Showing the newest event" });
   });
 });

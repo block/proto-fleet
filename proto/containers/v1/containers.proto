@@ -26,6 +26,11 @@ service ContainerService {
   rpc ListContainers(ListContainersRequest) returns (ListContainersResponse);
   // Site management metadata only; does not grant access to container telemetry.
   rpc ListContainerPlacements(ListContainerPlacementsRequest) returns (ListContainerPlacementsResponse);
+  // On-demand reads of one controller's own records, through the container's
+  // assigned Fleet Node when it has one. Fleet does not store either result.
+  // Requires miner:download_logs at the container's site.
+  rpc GetControllerLogs(GetControllerLogsRequest) returns (GetControllerLogsResponse);
+  rpc ListControllerAuditEvents(ListControllerAuditEventsRequest) returns (ListControllerAuditEventsResponse);
 }
 message ListContainerPlacementsRequest {}
 message ListContainerPlacementsResponse {
@@ -296,4 +301,113 @@ message GetPowerTargetRequest {
 }
 message SetPowerTargetResponse {
   string batch_identifier = 1;
+}
+
+// Lowest severity to include; the controller's levels in ascending order.
+enum ControllerLogSeverity {
+  CONTROLLER_LOG_SEVERITY_UNSPECIFIED = 0;
+  CONTROLLER_LOG_SEVERITY_DEBUG = 1;
+  CONTROLLER_LOG_SEVERITY_INFO = 2;
+  CONTROLLER_LOG_SEVERITY_WARN = 3;
+  CONTROLLER_LOG_SEVERITY_ERROR = 4;
+}
+
+// How much of the controller's retained log a read covers. A controller keeps
+// only a bounded in-memory tail, so no read is ever a complete history.
+enum ControllerLogCoverage {
+  CONTROLLER_LOG_COVERAGE_UNSPECIFIED = 0;
+  // Fewer than limit entries came back: everything the controller still holds
+  // for the filters. Older entries were evicted or lost at its last restart.
+  CONTROLLER_LOG_COVERAGE_RETAINED = 1;
+  // Older retained entries were not returned: either limit entries came back,
+  // or the oldest were dropped to fit one response, so fewer than limit can
+  // come back with this coverage.
+  CONTROLLER_LOG_COVERAGE_LIMIT_REACHED = 2;
+  // The read stopped before the tail was known to be finished. interruption says why.
+  CONTROLLER_LOG_COVERAGE_INTERRUPTED = 3;
+  // The controller sent nothing, so "no matching entries" and a slow
+  // controller cannot be told apart.
+  CONTROLLER_LOG_COVERAGE_NO_RESPONSE = 4;
+}
+
+message GetControllerLogsRequest {
+  string device_identifier = 1 [(buf.validate.field).string = {min_len: 1, max_len: 255}];
+  // Server ID of one of the container's controllers; empty reads the
+  // controller Fleet currently prefers for reads.
+  string controller_id = 2 [(buf.validate.field).string.max_len = 255];
+  ControllerLogSeverity min_severity = 3 [(buf.validate.field).enum.defined_only = true];
+  // Exact component name; empty means every component.
+  string component = 4 [(buf.validate.field).string.max_len = 128];
+  int32 limit = 5 [(buf.validate.field).int32 = {gte: 1, lte: 1000}];
+}
+
+message ControllerLogEntry {
+  // Controller-recorded time; absent when the controller sent none.
+  google.protobuf.Timestamp time = 1;
+  ControllerLogSeverity severity = 2;
+  string component = 3;
+  string message = 4;
+  // The message was longer than Fleet relays and was cut short.
+  bool message_truncated = 5;
+}
+
+message GetControllerLogsResponse {
+  // Oldest first, as the controller sent them.
+  repeated ControllerLogEntry entries = 1;
+  int32 limit = 2;
+  ControllerLogCoverage coverage = 3;
+  // Set with CONTROLLER_LOG_COVERAGE_INTERRUPTED.
+  string interruption = 4;
+  // Server ID of the controller that produced the entries, when it reported one.
+  string controller_id = 5;
+  // Server IDs of the container's controllers, for choosing another one.
+  repeated string controller_ids = 6;
+  // When the read finished.
+  google.protobuf.Timestamp read_at = 7;
+}
+
+message ListControllerAuditEventsRequest {
+  string device_identifier = 1 [(buf.validate.field).string = {min_len: 1, max_len: 255}];
+  string controller_id = 2 [(buf.validate.field).string.max_len = 255];
+  // The controller rejects windows longer than seven days.
+  google.protobuf.Timestamp start = 3 [(buf.validate.field).required = true];
+  google.protobuf.Timestamp end = 4 [(buf.validate.field).required = true];
+  int32 limit = 5 [(buf.validate.field).int32 = {gte: 1, lte: 1000}];
+  // "ok" or "error"; empty means every result.
+  string result = 6 [(buf.validate.field).string = {in: ["", "ok", "error"]}];
+}
+
+// One record from the controller's own audit log. These are controller
+// evidence, separate from Fleet's command and activity records.
+message ControllerAuditEvent {
+  string id = 1;
+  google.protobuf.Timestamp time = 2;
+  // Client-supplied identity ("user@host") or subsystem name.
+  string actor = 3;
+  // "grpc:<addr>", "rest:<addr>", or "system".
+  string source = 4;
+  // Server ID of the controller that performed the action.
+  string node = 5;
+  string action = 6;
+  string target = 7;
+  string result = 8;
+  string error = 9;
+  // Structured JSON payload as recorded; empty when there was none.
+  string details_json = 10;
+  // A field was longer than Fleet relays and was cut short. Truncated
+  // details_json is no longer valid JSON.
+  bool truncated = 11;
+}
+
+message ListControllerAuditEventsResponse {
+  // Newest first, as the controller sent them.
+  repeated ControllerAuditEvent events = 1;
+  int32 limit = 2;
+  // Older events in the window were not returned: either the page is full, or
+  // the oldest were dropped to fit one response, so fewer than limit events can
+  // come back with this set.
+  bool limit_reached = 3;
+  string controller_id = 4;
+  repeated string controller_ids = 5;
+  google.protobuf.Timestamp read_at = 6;
 }

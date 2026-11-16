@@ -21,7 +21,7 @@ import type { Message } from "@bufbuild/protobuf";
 export const file_containers_v1_containers: GenFile =
   /*@__PURE__*/
   fileDesc(
-    "Ch5jb250YWluZXJzL3YxL2NvbnRhaW5lcnMucHJvdG8SDWNvbnRhaW5lcnMudjEiIAoeTGlzdENvbnRhaW5lclBsYWNlbWVudHNSZXF1ZXN0IlgKH0xpc3RDb250YWluZXJQbGFjZW1lbnRzUmVzcG9uc2USNQoKY29udGFpbmVycxgBIAMoCzIhLmNvbnRhaW5lcnMudjEuQ29udGFpbmVyUGxhY2VtZW50IncKEkNvbnRhaW5lclBsYWNlbWVudBIZChFkZXZpY2VfaWRlbnRpZmllchgBIAEoCRIMCgRuYW1lGAIgASgJEiQKBHNpdGUYAyABKAsyFi5jb21tb24udjEuUmVzb3VyY2VSZWYSEgoKdGFua19jb3VudBgEIAEoAyI8ChNHZXRDb250YWluZXJSZXF1ZXN0EiUKEWRldmljZV9pZGVudGlmaWVyGAEgASgJQgq6SAdyBRABGP8BIkMKFEdldENvbnRhaW5lclJlc3BvbnNlEisKCWNvbnRhaW5lchgBIAEoCzIYLmNvbnRhaW5lcnMudjEuQ29udGFpbmVyIlYKFUxpc3RDb250YWluZXJzUmVxdWVzdBIhCghzaXRlX2lkcxgBIAMoA0IPukgMkgEJEIAIIgQiAiAAEhoKEmluY2x1ZGVfdW5hc3NpZ25lZBgCIAEoCCJGChZMaXN0Q29udGFpbmVyc1Jlc3BvbnNlEiwKCmNvbnRhaW5lcnMYASADKAsyGC5jb250YWluZXJzLnYxLkNvbnRhaW5lciJfCgtDb250YWluZXJIQRIvCgtvYnNlcnZlZF9hdBgBIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASEAoIZGVncmFkZWQYAiABKAgSDQoFc3RhbGUYAyABKAgi7QYKCUNvbnRhaW5lchImCgJoYRgWIAEoCzIaLmNvbnRhaW5lcnMudjEuQ29udGFpbmVySEESFwoPY2FuX2Fzc2lnbl9zaXRlGBUgASgIEiEKFHVubG9jYXRlZF9oYXNoYm9hcmRzGBQgASgNSACIAQESGgoNZWZmaWNpZW5jeV9qaBgQIAEoAUgBiAEBEi4KCGNvdmVyYWdlGBEgASgLMhwuY29tbW9uLnYxLkVxdWlwbWVudENvdmVyYWdlEh4KEW1pbl90ZW1wZXJhdHVyZV9jGBIgASgBSAKIAQESHgoRbWF4X3RlbXBlcmF0dXJlX2MYEyABKAFIA4gBARIsCgVwbGFudBgPIAEoCzIdLmNvbnRhaW5lcnMudjEuQ29udGFpbmVyUGxhbnQSHQoVY2FuX2NvbnRyb2xfZXF1aXBtZW50GA4gASgIEikKBGZhbnMYDCADKAsyGy5jb250YWluZXJzLnYxLkNvbnRhaW5lckZhbhIyCghjb250cm9scxgNIAEoCzIgLmNvbnRhaW5lcnMudjEuQ29udGFpbmVyQ29udHJvbHMSCgoCaWQYCyABKAMSGQoRZGV2aWNlX2lkZW50aWZpZXIYASABKAkSDAoEbmFtZRgCIAEoCRIkCgRzaXRlGAMgASgLMhYuY29tbW9uLnYxLlJlc291cmNlUmVmEi8KC29ic2VydmVkX2F0GAQgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIoCgV0YW5rcxgFIAMoCzIZLmNvbnRhaW5lcnMudjEuVGFua0hlYWx0aBIuCgptZXRyaWNzX2F0GAYgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIYCgtoYXNocmF0ZV9ocxgHIAEoAUgEiAEBEhQKB3Bvd2VyX3cYCCABKAFIBYgBARIaCg10ZW1wZXJhdHVyZV9jGAkgASgBSAaIAQESDQoFc3RhbGUYCiABKAhCFwoVX3VubG9jYXRlZF9oYXNoYm9hcmRzQhAKDl9lZmZpY2llbmN5X2poQhQKEl9taW5fdGVtcGVyYXR1cmVfY0IUChJfbWF4X3RlbXBlcmF0dXJlX2NCDgoMX2hhc2hyYXRlX2hzQgoKCF9wb3dlcl93QhAKDl90ZW1wZXJhdHVyZV9jIqwBCgpUYW5rSGVhbHRoEhAKCHBvc2l0aW9uGAEgASgFEhUKDWhhc2hpbmdfY291bnQYAiABKAUSFwoPYXR0ZW50aW9uX2NvdW50GAMgASgFEhUKDW9mZmxpbmVfY291bnQYBCABKAUSFgoOc2xlZXBpbmdfY291bnQYBSABKAUSFgoOaXNvbGF0ZWRfY291bnQYBiABKAUSFQoNdW5rbm93bl9jb3VudBgHIAEoBSKGAgoMQ29udGFpbmVyRmFuEhQKDGNvbXBvbmVudF9pZBgBIAEoCRIvCgtvYnNlcnZlZF9hdBgCIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASGgoNc3BlZWRfcGVyY2VudBgDIAEoAUgAiAEBEhQKB3Bvd2VyX3cYBCABKAFIAYgBARIWCglkaXJlY3Rpb24YBSABKAlIAogBARIZCgxhbGFybV9hY3RpdmUYBiABKAhIA4gBARINCgVzdGFsZRgHIAEoCEIQCg5fc3BlZWRfcGVyY2VudEIKCghfcG93ZXJfd0IMCgpfZGlyZWN0aW9uQg8KDV9hbGFybV9hY3RpdmUiyQQKEUNvbnRhaW5lckNvbnRyb2xzEi8KC29ic2VydmVkX2F0GAEgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIWCglzdXBwb3J0ZWQYAiABKAhIAIgBARIxCghjb250cm9scxgDIAMoCzIfLmNvbnRhaW5lcnMudjEuQ29udGFpbmVyQ29udHJvbBIzCglzZXRwb2ludHMYBCADKAsyIC5jb250YWluZXJzLnYxLkNvbnRhaW5lclNldHBvaW50EisKHm1haW5fY2lyY3VpdF9icmVha2VyX3N1cHBvcnRlZBgFIAEoCEgBiAEBEigKG21haW5fY2lyY3VpdF9icmVha2VyX2Nsb3NlZBgGIAEoCEgCiAEBEiIKFWFsYXJtX3Jlc2V0X3N1cHBvcnRlZBgHIAEoCEgDiAEBEiEKFGFsYXJtX211dGVfc3VwcG9ydGVkGAggASgISASIAQESLQogZHJ5X2Nvb2xlcl9mYW5fcmV2ZXJzZV9zdXBwb3J0ZWQYCSABKAhIBYgBARINCgVzdGFsZRgKIAEoCEIMCgpfc3VwcG9ydGVkQiEKH19tYWluX2NpcmN1aXRfYnJlYWtlcl9zdXBwb3J0ZWRCHgocX21haW5fY2lyY3VpdF9icmVha2VyX2Nsb3NlZEIYChZfYWxhcm1fcmVzZXRfc3VwcG9ydGVkQhcKFV9hbGFybV9tdXRlX3N1cHBvcnRlZEIjCiFfZHJ5X2Nvb2xlcl9mYW5fcmV2ZXJzZV9zdXBwb3J0ZWQiQgoQQ29udGFpbmVyQ29udHJvbBIMCgRuYW1lGAEgASgJEhQKB2VuYWJsZWQYAiABKAhIAIgBAUIKCghfZW5hYmxlZCJNChFDb250YWluZXJTZXRwb2ludBIMCgRuYW1lGAEgASgJEhIKBXZhbHVlGAIgASgBSACIAQESDAoEdW5pdBgDIAEoCUIICgZfdmFsdWUi+gEKGlNldEVxdWlwbWVudENvbnRyb2xSZXF1ZXN0EiUKEWRldmljZV9pZGVudGlmaWVyGAEgASgJQgq6SAdyBRABGP8BEooBCgRuYW1lGAIgASgJQny6SHlyd1IKZHJ5X2Nvb2xlclIPZHJ5X2Nvb2xlcl9hdXRvUg50YW5rX2xlZF9saWdodFIMY29vbGFudF9wdW1wUhFhaXJfY29uZGl0aW9uZXJfMVIRYWlyX2NvbmRpdGlvbmVyXzJSFG1haW5fY2lyY3VpdF9icmVha2VyEhwKB2VuYWJsZWQYAyABKAhCBrpIA8gBAUgAiAEBQgoKCF9lbmFibGVkIjcKG1NldEVxdWlwbWVudENvbnRyb2xSZXNwb25zZRIYChBiYXRjaF9pZGVudGlmaWVyGAEgASgJIm8KIEdldEVxdWlwbWVudENvbW1hbmRSZXN1bHRSZXF1ZXN0EiUKEWRldmljZV9pZGVudGlmaWVyGAEgASgJQgq6SAdyBRABGP8BEiQKEGJhdGNoX2lkZW50aWZpZXIYAiABKAlCCrpIB3IFEAEYgAEiagohR2V0RXF1aXBtZW50Q29tbWFuZFJlc3VsdFJlc3BvbnNlEkUKBnJlc3VsdBgBIAEoCzI1Lm1pbmVyY29tbWFuZC52MS5HZXRDb21tYW5kQmF0Y2hEZXZpY2VSZXN1bHRzUmVzcG9uc2UioAEKDkNvbnRhaW5lclBsYW50Ei8KC29ic2VydmVkX2F0GAEgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIrCh5kcnlfY29vbGVyX2lubGV0X3RlbXBlcmF0dXJlX2MYAiABKAFIAIgBARINCgVzdGFsZRgDIAEoCEIhCh9fZHJ5X2Nvb2xlcl9pbmxldF90ZW1wZXJhdHVyZV9jIkEKG0dldFRhbmtNaW5pbmdPcHRpb25zUmVxdWVzdBIiCgh0YW5rX2lkcxgBIAMoA0IQukgNkgEKCAEQZCIEIgIgACJfChxHZXRUYW5rTWluaW5nT3B0aW9uc1Jlc3BvbnNlEhEKCWNhbl9zdGFydBgBIAEoCBIQCghjYW5fc3RvcBgCIAEoCBIaChJ1bmF2YWlsYWJsZV9yZWFzb24YAyABKAkiYgoUU2V0VGFua01pbmluZ1JlcXVlc3QSIgoIdGFua19pZHMYASADKANCELpIDZIBCggBEGQiBCICIAASGwoGbWluaW5nGAIgASgIQga6SAPIAQFIAIgBAUIJCgdfbWluaW5nInIKEVRhbmtNaW5pbmdDb21tYW5kEhkKEWRldmljZV9pZGVudGlmaWVyGAEgASgJEhYKDmNvbnRhaW5lcl9uYW1lGAIgASgJEhAKCHRhbmtfaWRzGAMgAygDEhgKEGJhdGNoX2lkZW50aWZpZXIYBCABKAkiSwoVU2V0VGFua01pbmluZ1Jlc3BvbnNlEjIKCGNvbW1hbmRzGAEgAygLMiAuY29udGFpbmVycy52MS5UYW5rTWluaW5nQ29tbWFuZCJFCh1HZXRNb2R1bGVNaW5pbmdPcHRpb25zUmVxdWVzdBIkCgptb2R1bGVfaWRzGAEgAygDQhC6SA2SAQoIARBkIgQiAiAAImEKHkdldE1vZHVsZU1pbmluZ09wdGlvbnNSZXNwb25zZRIRCgljYW5fc3RhcnQYASABKAgSEAoIY2FuX3N0b3AYAiABKAgSGgoSdW5hdmFpbGFibGVfcmVhc29uGAMgASgJImYKFlNldE1vZHVsZU1pbmluZ1JlcXVlc3QSJAoKbW9kdWxlX2lkcxgBIAMoA0IQukgNkgEKCAEQZCIEIgIgABIbCgZtaW5pbmcYAiABKAhCBrpIA8gBAUgAiAEBQgkKB19taW5pbmcidgoTTW9kdWxlTWluaW5nQ29tbWFuZBIZChFkZXZpY2VfaWRlbnRpZmllchgBIAEoCRIWCg5jb250YWluZXJfbmFtZRgCIAEoCRISCgptb2R1bGVfaWRzGAMgAygDEhgKEGJhdGNoX2lkZW50aWZpZXIYBCABKAkiTwoXU2V0TW9kdWxlTWluaW5nUmVzcG9uc2USNAoIY29tbWFuZHMYASADKAsyIi5jb250YWluZXJzLnYxLk1vZHVsZU1pbmluZ0NvbW1hbmQiawoeR2V0Qm9hcmRJZGVudGlmeU9wdGlvbnNSZXF1ZXN0EiIKCm1vZHVsZV9pZHMYASADKANCDrpIC5IBCBAKIgQiAiAAEiUKDWhhc2hib2FyZF9pZHMYAiADKANCDrpIC5IBCBAeIgQiAiAAIscBCg1JZGVudGlmeUJvYXJkEhQKDGhhc2hib2FyZF9pZBgBIAEoAxIXCg9pbnN0YWxsYXRpb25faWQYAiABKAMSEQoJbW9kdWxlX2lkGAMgASgDEhkKEWRldmljZV9pZGVudGlmaWVyGAQgASgJEhYKDmNvbnRhaW5lcl9uYW1lGAUgASgJEgwKBHRhbmsYBiABKAUSDgoGbW9kdWxlGAcgASgFEgwKBHNsb3QYCCABKAUSFQoNc2VyaWFsX251bWJlchgJIAEoCSKBAQofR2V0Qm9hcmRJZGVudGlmeU9wdGlvbnNSZXNwb25zZRIsCgZib2FyZHMYASADKAsyHC5jb250YWluZXJzLnYxLklkZW50aWZ5Qm9hcmQSFAoMY2FuX2lkZW50aWZ5GAIgASgIEhoKEnVuYXZhaWxhYmxlX3JlYXNvbhgDIAEoCSJWChNCb2FyZElkZW50aWZ5VGFyZ2V0Eh0KDGhhc2hib2FyZF9pZBgBIAEoA0IHukgEIgIgABIgCg9pbnN0YWxsYXRpb25faWQYAiABKANCB7pIBCICIAAilQEKF1NldEJvYXJkSWRlbnRpZnlSZXF1ZXN0Ej4KBmJvYXJkcxgBIAMoCzIiLmNvbnRhaW5lcnMudjEuQm9hcmRJZGVudGlmeVRhcmdldEIKukgHkgEECAEQHhI6CgRtb2RlGAIgASgOMiAuY29udGFpbmVycy52MS5Cb2FyZElkZW50aWZ5TW9kZUIKukgHggEEEAEgACJhChRCb2FyZElkZW50aWZ5Q29tbWFuZBIUCgxoYXNoYm9hcmRfaWQYASABKAMSGQoRZGV2aWNlX2lkZW50aWZpZXIYAiABKAkSGAoQYmF0Y2hfaWRlbnRpZmllchgDIAEoCSJRChhTZXRCb2FyZElkZW50aWZ5UmVzcG9uc2USNQoIY29tbWFuZHMYASADKAsyIy5jb250YWluZXJzLnYxLkJvYXJkSWRlbnRpZnlDb21tYW5kIkIKF0dldE1pbmluZ1N0YXR1c1Jlc3BvbnNlEg4KBm1pbmluZxgBIAEoCBIXCg9vcGVyYXRpbmdfc3RhdGUYAiABKAkigQIKFkdldFBvd2VyVGFyZ2V0UmVzcG9uc2USDQoFd2F0dHMYASABKAESGgoNbWluaW11bV93YXR0cxgCIAEoAUgAiAEBEhoKDW1heGltdW1fd2F0dHMYAyABKAFIAYgBARIYChBwZXJmb3JtYW5jZV9tb2RlGAQgASgJEhkKDGJhbGFuY2VfYmF5cxgFIAEoCEgCiAEBEh8KEmhhc2hfb25fZGlzY29ubmVjdBgGIAEoCEgDiAEBQhAKDl9taW5pbXVtX3dhdHRzQhAKDl9tYXhpbXVtX3dhdHRzQg8KDV9iYWxhbmNlX2JheXNCFQoTX2hhc2hfb25fZGlzY29ubmVjdCJhChBTZXRNaW5pbmdSZXF1ZXN0EiUKEWRldmljZV9pZGVudGlmaWVyGAEgASgJQgq6SAdyBRABGP8BEhsKBm1pbmluZxgCIAEoCEIGukgDyAEBSACIAQFCCQoHX21pbmluZyLEAgoVU2V0UG93ZXJUYXJnZXRSZXF1ZXN0EiUKEWRldmljZV9pZGVudGlmaWVyGAEgASgJQgq6SAdyBRABGP8BEh8KBXdhdHRzGAIgASgBQhC6SA0SC0ABIQAAAAAAAAAAEn8KEHBlcmZvcm1hbmNlX21vZGUYAyABKAlCZbpIYnJgUgBSHFBFUkZPUk1BTkNFX01PREVfVU5TUEVDSUZJRURSIVBFUkZPUk1BTkNFX01PREVfTUFYSU1VTV9IQVNIUkFURVIbUEVSRk9STUFOQ0VfTU9ERV9FRkZJQ0lFTkNZEhkKDGJhbGFuY2VfYmF5cxgEIAEoCEgAiAEBEh8KEmhhc2hfb25fZGlzY29ubmVjdBgFIAEoCEgBiAEBQg8KDV9iYWxhbmNlX2JheXNCFQoTX2hhc2hfb25fZGlzY29ubmVjdCItChFTZXRNaW5pbmdSZXNwb25zZRIYChBiYXRjaF9pZGVudGlmaWVyGAEgASgJIj8KFkdldE1pbmluZ1N0YXR1c1JlcXVlc3QSJQoRZGV2aWNlX2lkZW50aWZpZXIYASABKAlCCrpIB3IFEAEY/wEiPgoVR2V0UG93ZXJUYXJnZXRSZXF1ZXN0EiUKEWRldmljZV9pZGVudGlmaWVyGAEgASgJQgq6SAdyBRABGP8BIjIKFlNldFBvd2VyVGFyZ2V0UmVzcG9uc2USGAoQYmF0Y2hfaWRlbnRpZmllchgBIAEoCSp0ChFCb2FyZElkZW50aWZ5TW9kZRIjCh9CT0FSRF9JREVOVElGWV9NT0RFX1VOU1BFQ0lGSUVEEAASHQoZQk9BUkRfSURFTlRJRllfTU9ERV9CTElOSxABEhsKF0JPQVJEX0lERU5USUZZX01PREVfT0ZGEAIypwwKEENvbnRhaW5lclNlcnZpY2USYAoPR2V0TWluaW5nU3RhdHVzEiUuY29udGFpbmVycy52MS5HZXRNaW5pbmdTdGF0dXNSZXF1ZXN0GiYuY29udGFpbmVycy52MS5HZXRNaW5pbmdTdGF0dXNSZXNwb25zZRJdCg5HZXRQb3dlclRhcmdldBIkLmNvbnRhaW5lcnMudjEuR2V0UG93ZXJUYXJnZXRSZXF1ZXN0GiUuY29udGFpbmVycy52MS5HZXRQb3dlclRhcmdldFJlc3BvbnNlEk4KCVNldE1pbmluZxIfLmNvbnRhaW5lcnMudjEuU2V0TWluaW5nUmVxdWVzdBogLmNvbnRhaW5lcnMudjEuU2V0TWluaW5nUmVzcG9uc2USXQoOU2V0UG93ZXJUYXJnZXQSJC5jb250YWluZXJzLnYxLlNldFBvd2VyVGFyZ2V0UmVxdWVzdBolLmNvbnRhaW5lcnMudjEuU2V0UG93ZXJUYXJnZXRSZXNwb25zZRJ1ChZHZXRNb2R1bGVNaW5pbmdPcHRpb25zEiwuY29udGFpbmVycy52MS5HZXRNb2R1bGVNaW5pbmdPcHRpb25zUmVxdWVzdBotLmNvbnRhaW5lcnMudjEuR2V0TW9kdWxlTWluaW5nT3B0aW9uc1Jlc3BvbnNlEmAKD1NldE1vZHVsZU1pbmluZxIlLmNvbnRhaW5lcnMudjEuU2V0TW9kdWxlTWluaW5nUmVxdWVzdBomLmNvbnRhaW5lcnMudjEuU2V0TW9kdWxlTWluaW5nUmVzcG9uc2USeAoXR2V0Qm9hcmRJZGVudGlmeU9wdGlvbnMSLS5jb250YWluZXJzLnYxLkdldEJvYXJkSWRlbnRpZnlPcHRpb25zUmVxdWVzdBouLmNvbnRhaW5lcnMudjEuR2V0Qm9hcmRJZGVudGlmeU9wdGlvbnNSZXNwb25zZRJjChBTZXRCb2FyZElkZW50aWZ5EiYuY29udGFpbmVycy52MS5TZXRCb2FyZElkZW50aWZ5UmVxdWVzdBonLmNvbnRhaW5lcnMudjEuU2V0Qm9hcmRJZGVudGlmeVJlc3BvbnNlEm8KFEdldFRhbmtNaW5pbmdPcHRpb25zEiouY29udGFpbmVycy52MS5HZXRUYW5rTWluaW5nT3B0aW9uc1JlcXVlc3QaKy5jb250YWluZXJzLnYxLkdldFRhbmtNaW5pbmdPcHRpb25zUmVzcG9uc2USWgoNU2V0VGFua01pbmluZxIjLmNvbnRhaW5lcnMudjEuU2V0VGFua01pbmluZ1JlcXVlc3QaJC5jb250YWluZXJzLnYxLlNldFRhbmtNaW5pbmdSZXNwb25zZRJ+ChlHZXRFcXVpcG1lbnRDb21tYW5kUmVzdWx0Ei8uY29udGFpbmVycy52MS5HZXRFcXVpcG1lbnRDb21tYW5kUmVzdWx0UmVxdWVzdBowLmNvbnRhaW5lcnMudjEuR2V0RXF1aXBtZW50Q29tbWFuZFJlc3VsdFJlc3BvbnNlEmwKE1NldEVxdWlwbWVudENvbnRyb2wSKS5jb250YWluZXJzLnYxLlNldEVxdWlwbWVudENvbnRyb2xSZXF1ZXN0GiouY29udGFpbmVycy52MS5TZXRFcXVpcG1lbnRDb250cm9sUmVzcG9uc2USVwoMR2V0Q29udGFpbmVyEiIuY29udGFpbmVycy52MS5HZXRDb250YWluZXJSZXF1ZXN0GiMuY29udGFpbmVycy52MS5HZXRDb250YWluZXJSZXNwb25zZRJdCg5MaXN0Q29udGFpbmVycxIkLmNvbnRhaW5lcnMudjEuTGlzdENvbnRhaW5lcnNSZXF1ZXN0GiUuY29udGFpbmVycy52MS5MaXN0Q29udGFpbmVyc1Jlc3BvbnNlEngKF0xpc3RDb250YWluZXJQbGFjZW1lbnRzEi0uY29udGFpbmVycy52MS5MaXN0Q29udGFpbmVyUGxhY2VtZW50c1JlcXVlc3QaLi5jb250YWluZXJzLnYxLkxpc3RDb250YWluZXJQbGFjZW1lbnRzUmVzcG9uc2VCyAEKEWNvbS5jb250YWluZXJzLnYxQg9Db250YWluZXJzUHJvdG9QAVpNZ2l0aHViLmNvbS9ibG9jay9wcm90by1mbGVldC9zZXJ2ZXIvZ2VuZXJhdGVkL2dycGMvY29udGFpbmVycy92MTtjb250YWluZXJzdjGiAgNDWFiqAg1Db250YWluZXJzLlYxygINQ29udGFpbmVyc1xWMeICGUNvbnRhaW5lcnNcVjFcR1BCTWV0YWRhdGHqAg5Db250YWluZXJzOjpWMWIGcHJvdG8z",
+    "Ch5jb250YWluZXJzL3YxL2NvbnRhaW5lcnMucHJvdG8SDWNvbnRhaW5lcnMudjEiIAoeTGlzdENvbnRhaW5lclBsYWNlbWVudHNSZXF1ZXN0IlgKH0xpc3RDb250YWluZXJQbGFjZW1lbnRzUmVzcG9uc2USNQoKY29udGFpbmVycxgBIAMoCzIhLmNvbnRhaW5lcnMudjEuQ29udGFpbmVyUGxhY2VtZW50IncKEkNvbnRhaW5lclBsYWNlbWVudBIZChFkZXZpY2VfaWRlbnRpZmllchgBIAEoCRIMCgRuYW1lGAIgASgJEiQKBHNpdGUYAyABKAsyFi5jb21tb24udjEuUmVzb3VyY2VSZWYSEgoKdGFua19jb3VudBgEIAEoAyI8ChNHZXRDb250YWluZXJSZXF1ZXN0EiUKEWRldmljZV9pZGVudGlmaWVyGAEgASgJQgq6SAdyBRABGP8BIkMKFEdldENvbnRhaW5lclJlc3BvbnNlEisKCWNvbnRhaW5lchgBIAEoCzIYLmNvbnRhaW5lcnMudjEuQ29udGFpbmVyIlYKFUxpc3RDb250YWluZXJzUmVxdWVzdBIhCghzaXRlX2lkcxgBIAMoA0IPukgMkgEJEIAIIgQiAiAAEhoKEmluY2x1ZGVfdW5hc3NpZ25lZBgCIAEoCCJGChZMaXN0Q29udGFpbmVyc1Jlc3BvbnNlEiwKCmNvbnRhaW5lcnMYASADKAsyGC5jb250YWluZXJzLnYxLkNvbnRhaW5lciJfCgtDb250YWluZXJIQRIvCgtvYnNlcnZlZF9hdBgBIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASEAoIZGVncmFkZWQYAiABKAgSDQoFc3RhbGUYAyABKAgi7QYKCUNvbnRhaW5lchImCgJoYRgWIAEoCzIaLmNvbnRhaW5lcnMudjEuQ29udGFpbmVySEESFwoPY2FuX2Fzc2lnbl9zaXRlGBUgASgIEiEKFHVubG9jYXRlZF9oYXNoYm9hcmRzGBQgASgNSACIAQESGgoNZWZmaWNpZW5jeV9qaBgQIAEoAUgBiAEBEi4KCGNvdmVyYWdlGBEgASgLMhwuY29tbW9uLnYxLkVxdWlwbWVudENvdmVyYWdlEh4KEW1pbl90ZW1wZXJhdHVyZV9jGBIgASgBSAKIAQESHgoRbWF4X3RlbXBlcmF0dXJlX2MYEyABKAFIA4gBARIsCgVwbGFudBgPIAEoCzIdLmNvbnRhaW5lcnMudjEuQ29udGFpbmVyUGxhbnQSHQoVY2FuX2NvbnRyb2xfZXF1aXBtZW50GA4gASgIEikKBGZhbnMYDCADKAsyGy5jb250YWluZXJzLnYxLkNvbnRhaW5lckZhbhIyCghjb250cm9scxgNIAEoCzIgLmNvbnRhaW5lcnMudjEuQ29udGFpbmVyQ29udHJvbHMSCgoCaWQYCyABKAMSGQoRZGV2aWNlX2lkZW50aWZpZXIYASABKAkSDAoEbmFtZRgCIAEoCRIkCgRzaXRlGAMgASgLMhYuY29tbW9uLnYxLlJlc291cmNlUmVmEi8KC29ic2VydmVkX2F0GAQgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIoCgV0YW5rcxgFIAMoCzIZLmNvbnRhaW5lcnMudjEuVGFua0hlYWx0aBIuCgptZXRyaWNzX2F0GAYgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIYCgtoYXNocmF0ZV9ocxgHIAEoAUgEiAEBEhQKB3Bvd2VyX3cYCCABKAFIBYgBARIaCg10ZW1wZXJhdHVyZV9jGAkgASgBSAaIAQESDQoFc3RhbGUYCiABKAhCFwoVX3VubG9jYXRlZF9oYXNoYm9hcmRzQhAKDl9lZmZpY2llbmN5X2poQhQKEl9taW5fdGVtcGVyYXR1cmVfY0IUChJfbWF4X3RlbXBlcmF0dXJlX2NCDgoMX2hhc2hyYXRlX2hzQgoKCF9wb3dlcl93QhAKDl90ZW1wZXJhdHVyZV9jIqwBCgpUYW5rSGVhbHRoEhAKCHBvc2l0aW9uGAEgASgFEhUKDWhhc2hpbmdfY291bnQYAiABKAUSFwoPYXR0ZW50aW9uX2NvdW50GAMgASgFEhUKDW9mZmxpbmVfY291bnQYBCABKAUSFgoOc2xlZXBpbmdfY291bnQYBSABKAUSFgoOaXNvbGF0ZWRfY291bnQYBiABKAUSFQoNdW5rbm93bl9jb3VudBgHIAEoBSKGAgoMQ29udGFpbmVyRmFuEhQKDGNvbXBvbmVudF9pZBgBIAEoCRIvCgtvYnNlcnZlZF9hdBgCIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASGgoNc3BlZWRfcGVyY2VudBgDIAEoAUgAiAEBEhQKB3Bvd2VyX3cYBCABKAFIAYgBARIWCglkaXJlY3Rpb24YBSABKAlIAogBARIZCgxhbGFybV9hY3RpdmUYBiABKAhIA4gBARINCgVzdGFsZRgHIAEoCEIQCg5fc3BlZWRfcGVyY2VudEIKCghfcG93ZXJfd0IMCgpfZGlyZWN0aW9uQg8KDV9hbGFybV9hY3RpdmUiyQQKEUNvbnRhaW5lckNvbnRyb2xzEi8KC29ic2VydmVkX2F0GAEgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIWCglzdXBwb3J0ZWQYAiABKAhIAIgBARIxCghjb250cm9scxgDIAMoCzIfLmNvbnRhaW5lcnMudjEuQ29udGFpbmVyQ29udHJvbBIzCglzZXRwb2ludHMYBCADKAsyIC5jb250YWluZXJzLnYxLkNvbnRhaW5lclNldHBvaW50EisKHm1haW5fY2lyY3VpdF9icmVha2VyX3N1cHBvcnRlZBgFIAEoCEgBiAEBEigKG21haW5fY2lyY3VpdF9icmVha2VyX2Nsb3NlZBgGIAEoCEgCiAEBEiIKFWFsYXJtX3Jlc2V0X3N1cHBvcnRlZBgHIAEoCEgDiAEBEiEKFGFsYXJtX211dGVfc3VwcG9ydGVkGAggASgISASIAQESLQogZHJ5X2Nvb2xlcl9mYW5fcmV2ZXJzZV9zdXBwb3J0ZWQYCSABKAhIBYgBARINCgVzdGFsZRgKIAEoCEIMCgpfc3VwcG9ydGVkQiEKH19tYWluX2NpcmN1aXRfYnJlYWtlcl9zdXBwb3J0ZWRCHgocX21haW5fY2lyY3VpdF9icmVha2VyX2Nsb3NlZEIYChZfYWxhcm1fcmVzZXRfc3VwcG9ydGVkQhcKFV9hbGFybV9tdXRlX3N1cHBvcnRlZEIjCiFfZHJ5X2Nvb2xlcl9mYW5fcmV2ZXJzZV9zdXBwb3J0ZWQiQgoQQ29udGFpbmVyQ29udHJvbBIMCgRuYW1lGAEgASgJEhQKB2VuYWJsZWQYAiABKAhIAIgBAUIKCghfZW5hYmxlZCJNChFDb250YWluZXJTZXRwb2ludBIMCgRuYW1lGAEgASgJEhIKBXZhbHVlGAIgASgBSACIAQESDAoEdW5pdBgDIAEoCUIICgZfdmFsdWUi+gEKGlNldEVxdWlwbWVudENvbnRyb2xSZXF1ZXN0EiUKEWRldmljZV9pZGVudGlmaWVyGAEgASgJQgq6SAdyBRABGP8BEooBCgRuYW1lGAIgASgJQny6SHlyd1IKZHJ5X2Nvb2xlclIPZHJ5X2Nvb2xlcl9hdXRvUg50YW5rX2xlZF9saWdodFIMY29vbGFudF9wdW1wUhFhaXJfY29uZGl0aW9uZXJfMVIRYWlyX2NvbmRpdGlvbmVyXzJSFG1haW5fY2lyY3VpdF9icmVha2VyEhwKB2VuYWJsZWQYAyABKAhCBrpIA8gBAUgAiAEBQgoKCF9lbmFibGVkIjcKG1NldEVxdWlwbWVudENvbnRyb2xSZXNwb25zZRIYChBiYXRjaF9pZGVudGlmaWVyGAEgASgJIm8KIEdldEVxdWlwbWVudENvbW1hbmRSZXN1bHRSZXF1ZXN0EiUKEWRldmljZV9pZGVudGlmaWVyGAEgASgJQgq6SAdyBRABGP8BEiQKEGJhdGNoX2lkZW50aWZpZXIYAiABKAlCCrpIB3IFEAEYgAEiagohR2V0RXF1aXBtZW50Q29tbWFuZFJlc3VsdFJlc3BvbnNlEkUKBnJlc3VsdBgBIAEoCzI1Lm1pbmVyY29tbWFuZC52MS5HZXRDb21tYW5kQmF0Y2hEZXZpY2VSZXN1bHRzUmVzcG9uc2UioAEKDkNvbnRhaW5lclBsYW50Ei8KC29ic2VydmVkX2F0GAEgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIrCh5kcnlfY29vbGVyX2lubGV0X3RlbXBlcmF0dXJlX2MYAiABKAFIAIgBARINCgVzdGFsZRgDIAEoCEIhCh9fZHJ5X2Nvb2xlcl9pbmxldF90ZW1wZXJhdHVyZV9jIkEKG0dldFRhbmtNaW5pbmdPcHRpb25zUmVxdWVzdBIiCgh0YW5rX2lkcxgBIAMoA0IQukgNkgEKCAEQZCIEIgIgACJfChxHZXRUYW5rTWluaW5nT3B0aW9uc1Jlc3BvbnNlEhEKCWNhbl9zdGFydBgBIAEoCBIQCghjYW5fc3RvcBgCIAEoCBIaChJ1bmF2YWlsYWJsZV9yZWFzb24YAyABKAkiYgoUU2V0VGFua01pbmluZ1JlcXVlc3QSIgoIdGFua19pZHMYASADKANCELpIDZIBCggBEGQiBCICIAASGwoGbWluaW5nGAIgASgIQga6SAPIAQFIAIgBAUIJCgdfbWluaW5nInIKEVRhbmtNaW5pbmdDb21tYW5kEhkKEWRldmljZV9pZGVudGlmaWVyGAEgASgJEhYKDmNvbnRhaW5lcl9uYW1lGAIgASgJEhAKCHRhbmtfaWRzGAMgAygDEhgKEGJhdGNoX2lkZW50aWZpZXIYBCABKAkiSwoVU2V0VGFua01pbmluZ1Jlc3BvbnNlEjIKCGNvbW1hbmRzGAEgAygLMiAuY29udGFpbmVycy52MS5UYW5rTWluaW5nQ29tbWFuZCJFCh1HZXRNb2R1bGVNaW5pbmdPcHRpb25zUmVxdWVzdBIkCgptb2R1bGVfaWRzGAEgAygDQhC6SA2SAQoIARBkIgQiAiAAImEKHkdldE1vZHVsZU1pbmluZ09wdGlvbnNSZXNwb25zZRIRCgljYW5fc3RhcnQYASABKAgSEAoIY2FuX3N0b3AYAiABKAgSGgoSdW5hdmFpbGFibGVfcmVhc29uGAMgASgJImYKFlNldE1vZHVsZU1pbmluZ1JlcXVlc3QSJAoKbW9kdWxlX2lkcxgBIAMoA0IQukgNkgEKCAEQZCIEIgIgABIbCgZtaW5pbmcYAiABKAhCBrpIA8gBAUgAiAEBQgkKB19taW5pbmcidgoTTW9kdWxlTWluaW5nQ29tbWFuZBIZChFkZXZpY2VfaWRlbnRpZmllchgBIAEoCRIWCg5jb250YWluZXJfbmFtZRgCIAEoCRISCgptb2R1bGVfaWRzGAMgAygDEhgKEGJhdGNoX2lkZW50aWZpZXIYBCABKAkiTwoXU2V0TW9kdWxlTWluaW5nUmVzcG9uc2USNAoIY29tbWFuZHMYASADKAsyIi5jb250YWluZXJzLnYxLk1vZHVsZU1pbmluZ0NvbW1hbmQiawoeR2V0Qm9hcmRJZGVudGlmeU9wdGlvbnNSZXF1ZXN0EiIKCm1vZHVsZV9pZHMYASADKANCDrpIC5IBCBAKIgQiAiAAEiUKDWhhc2hib2FyZF9pZHMYAiADKANCDrpIC5IBCBAeIgQiAiAAIscBCg1JZGVudGlmeUJvYXJkEhQKDGhhc2hib2FyZF9pZBgBIAEoAxIXCg9pbnN0YWxsYXRpb25faWQYAiABKAMSEQoJbW9kdWxlX2lkGAMgASgDEhkKEWRldmljZV9pZGVudGlmaWVyGAQgASgJEhYKDmNvbnRhaW5lcl9uYW1lGAUgASgJEgwKBHRhbmsYBiABKAUSDgoGbW9kdWxlGAcgASgFEgwKBHNsb3QYCCABKAUSFQoNc2VyaWFsX251bWJlchgJIAEoCSKBAQofR2V0Qm9hcmRJZGVudGlmeU9wdGlvbnNSZXNwb25zZRIsCgZib2FyZHMYASADKAsyHC5jb250YWluZXJzLnYxLklkZW50aWZ5Qm9hcmQSFAoMY2FuX2lkZW50aWZ5GAIgASgIEhoKEnVuYXZhaWxhYmxlX3JlYXNvbhgDIAEoCSJWChNCb2FyZElkZW50aWZ5VGFyZ2V0Eh0KDGhhc2hib2FyZF9pZBgBIAEoA0IHukgEIgIgABIgCg9pbnN0YWxsYXRpb25faWQYAiABKANCB7pIBCICIAAilQEKF1NldEJvYXJkSWRlbnRpZnlSZXF1ZXN0Ej4KBmJvYXJkcxgBIAMoCzIiLmNvbnRhaW5lcnMudjEuQm9hcmRJZGVudGlmeVRhcmdldEIKukgHkgEECAEQHhI6CgRtb2RlGAIgASgOMiAuY29udGFpbmVycy52MS5Cb2FyZElkZW50aWZ5TW9kZUIKukgHggEEEAEgACJhChRCb2FyZElkZW50aWZ5Q29tbWFuZBIUCgxoYXNoYm9hcmRfaWQYASABKAMSGQoRZGV2aWNlX2lkZW50aWZpZXIYAiABKAkSGAoQYmF0Y2hfaWRlbnRpZmllchgDIAEoCSJRChhTZXRCb2FyZElkZW50aWZ5UmVzcG9uc2USNQoIY29tbWFuZHMYASADKAsyIy5jb250YWluZXJzLnYxLkJvYXJkSWRlbnRpZnlDb21tYW5kIkIKF0dldE1pbmluZ1N0YXR1c1Jlc3BvbnNlEg4KBm1pbmluZxgBIAEoCBIXCg9vcGVyYXRpbmdfc3RhdGUYAiABKAkigQIKFkdldFBvd2VyVGFyZ2V0UmVzcG9uc2USDQoFd2F0dHMYASABKAESGgoNbWluaW11bV93YXR0cxgCIAEoAUgAiAEBEhoKDW1heGltdW1fd2F0dHMYAyABKAFIAYgBARIYChBwZXJmb3JtYW5jZV9tb2RlGAQgASgJEhkKDGJhbGFuY2VfYmF5cxgFIAEoCEgCiAEBEh8KEmhhc2hfb25fZGlzY29ubmVjdBgGIAEoCEgDiAEBQhAKDl9taW5pbXVtX3dhdHRzQhAKDl9tYXhpbXVtX3dhdHRzQg8KDV9iYWxhbmNlX2JheXNCFQoTX2hhc2hfb25fZGlzY29ubmVjdCJhChBTZXRNaW5pbmdSZXF1ZXN0EiUKEWRldmljZV9pZGVudGlmaWVyGAEgASgJQgq6SAdyBRABGP8BEhsKBm1pbmluZxgCIAEoCEIGukgDyAEBSACIAQFCCQoHX21pbmluZyLEAgoVU2V0UG93ZXJUYXJnZXRSZXF1ZXN0EiUKEWRldmljZV9pZGVudGlmaWVyGAEgASgJQgq6SAdyBRABGP8BEh8KBXdhdHRzGAIgASgBQhC6SA0SC0ABIQAAAAAAAAAAEn8KEHBlcmZvcm1hbmNlX21vZGUYAyABKAlCZbpIYnJgUgBSHFBFUkZPUk1BTkNFX01PREVfVU5TUEVDSUZJRURSIVBFUkZPUk1BTkNFX01PREVfTUFYSU1VTV9IQVNIUkFURVIbUEVSRk9STUFOQ0VfTU9ERV9FRkZJQ0lFTkNZEhkKDGJhbGFuY2VfYmF5cxgEIAEoCEgAiAEBEh8KEmhhc2hfb25fZGlzY29ubmVjdBgFIAEoCEgBiAEBQg8KDV9iYWxhbmNlX2JheXNCFQoTX2hhc2hfb25fZGlzY29ubmVjdCItChFTZXRNaW5pbmdSZXNwb25zZRIYChBiYXRjaF9pZGVudGlmaWVyGAEgASgJIj8KFkdldE1pbmluZ1N0YXR1c1JlcXVlc3QSJQoRZGV2aWNlX2lkZW50aWZpZXIYASABKAlCCrpIB3IFEAEY/wEiPgoVR2V0UG93ZXJUYXJnZXRSZXF1ZXN0EiUKEWRldmljZV9pZGVudGlmaWVyGAEgASgJQgq6SAdyBRABGP8BIjIKFlNldFBvd2VyVGFyZ2V0UmVzcG9uc2USGAoQYmF0Y2hfaWRlbnRpZmllchgBIAEoCSLgAQoYR2V0Q29udHJvbGxlckxvZ3NSZXF1ZXN0EiUKEWRldmljZV9pZGVudGlmaWVyGAEgASgJQgq6SAdyBRABGP8BEh8KDWNvbnRyb2xsZXJfaWQYAiABKAlCCLpIBXIDGP8BEkQKDG1pbl9zZXZlcml0eRgDIAEoDjIkLmNvbnRhaW5lcnMudjEuQ29udHJvbGxlckxvZ1NldmVyaXR5Qgi6SAWCAQIQARIbCgljb21wb25lbnQYBCABKAlCCLpIBXIDGIABEhkKBWxpbWl0GAUgASgFQgq6SAcaBRjoBygBIrUBChJDb250cm9sbGVyTG9nRW50cnkSKAoEdGltZRgBIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASNgoIc2V2ZXJpdHkYAiABKA4yJC5jb250YWluZXJzLnYxLkNvbnRyb2xsZXJMb2dTZXZlcml0eRIRCgljb21wb25lbnQYAyABKAkSDwoHbWVzc2FnZRgEIAEoCRIZChFtZXNzYWdlX3RydW5jYXRlZBgFIAEoCCKIAgoZR2V0Q29udHJvbGxlckxvZ3NSZXNwb25zZRIyCgdlbnRyaWVzGAEgAygLMiEuY29udGFpbmVycy52MS5Db250cm9sbGVyTG9nRW50cnkSDQoFbGltaXQYAiABKAUSNgoIY292ZXJhZ2UYAyABKA4yJC5jb250YWluZXJzLnYxLkNvbnRyb2xsZXJMb2dDb3ZlcmFnZRIUCgxpbnRlcnJ1cHRpb24YBCABKAkSFQoNY29udHJvbGxlcl9pZBgFIAEoCRIWCg5jb250cm9sbGVyX2lkcxgGIAMoCRIrCgdyZWFkX2F0GAcgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcCKNAgogTGlzdENvbnRyb2xsZXJBdWRpdEV2ZW50c1JlcXVlc3QSJQoRZGV2aWNlX2lkZW50aWZpZXIYASABKAlCCrpIB3IFEAEY/wESHwoNY29udHJvbGxlcl9pZBgCIAEoCUIIukgFcgMY/wESMQoFc3RhcnQYAyABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wQga6SAPIAQESLwoDZW5kGAQgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcEIGukgDyAEBEhkKBWxpbWl0GAUgASgFQgq6SAcaBRjoBygBEiIKBnJlc3VsdBgGIAEoCUISukgPcg1SAFICb2tSBWVycm9yIuEBChRDb250cm9sbGVyQXVkaXRFdmVudBIKCgJpZBgBIAEoCRIoCgR0aW1lGAIgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBINCgVhY3RvchgDIAEoCRIOCgZzb3VyY2UYBCABKAkSDAoEbm9kZRgFIAEoCRIOCgZhY3Rpb24YBiABKAkSDgoGdGFyZ2V0GAcgASgJEg4KBnJlc3VsdBgIIAEoCRINCgVlcnJvchgJIAEoCRIUCgxkZXRhaWxzX2pzb24YCiABKAkSEQoJdHJ1bmNhdGVkGAsgASgIItoBCiFMaXN0Q29udHJvbGxlckF1ZGl0RXZlbnRzUmVzcG9uc2USMwoGZXZlbnRzGAEgAygLMiMuY29udGFpbmVycy52MS5Db250cm9sbGVyQXVkaXRFdmVudBINCgVsaW1pdBgCIAEoBRIVCg1saW1pdF9yZWFjaGVkGAMgASgIEhUKDWNvbnRyb2xsZXJfaWQYBCABKAkSFgoOY29udHJvbGxlcl9pZHMYBSADKAkSKwoHcmVhZF9hdBgGIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXAqdAoRQm9hcmRJZGVudGlmeU1vZGUSIwofQk9BUkRfSURFTlRJRllfTU9ERV9VTlNQRUNJRklFRBAAEh0KGUJPQVJEX0lERU5USUZZX01PREVfQkxJTksQARIbChdCT0FSRF9JREVOVElGWV9NT0RFX09GRhACKsoBChVDb250cm9sbGVyTG9nU2V2ZXJpdHkSJwojQ09OVFJPTExFUl9MT0dfU0VWRVJJVFlfVU5TUEVDSUZJRUQQABIhCh1DT05UUk9MTEVSX0xPR19TRVZFUklUWV9ERUJVRxABEiAKHENPTlRST0xMRVJfTE9HX1NFVkVSSVRZX0lORk8QAhIgChxDT05UUk9MTEVSX0xPR19TRVZFUklUWV9XQVJOEAMSIQodQ09OVFJPTExFUl9MT0dfU0VWRVJJVFlfRVJST1IQBCrjAQoVQ29udHJvbGxlckxvZ0NvdmVyYWdlEicKI0NPTlRST0xMRVJfTE9HX0NPVkVSQUdFX1VOU1BFQ0lGSUVEEAASJAogQ09OVFJPTExFUl9MT0dfQ09WRVJBR0VfUkVUQUlORUQQARIpCiVDT05UUk9MTEVSX0xPR19DT1ZFUkFHRV9MSU1JVF9SRUFDSEVEEAISJwojQ09OVFJPTExFUl9MT0dfQ09WRVJBR0VfSU5URVJSVVBURUQQAxInCiNDT05UUk9MTEVSX0xPR19DT1ZFUkFHRV9OT19SRVNQT05TRRAEMo8OChBDb250YWluZXJTZXJ2aWNlEmAKD0dldE1pbmluZ1N0YXR1cxIlLmNvbnRhaW5lcnMudjEuR2V0TWluaW5nU3RhdHVzUmVxdWVzdBomLmNvbnRhaW5lcnMudjEuR2V0TWluaW5nU3RhdHVzUmVzcG9uc2USXQoOR2V0UG93ZXJUYXJnZXQSJC5jb250YWluZXJzLnYxLkdldFBvd2VyVGFyZ2V0UmVxdWVzdBolLmNvbnRhaW5lcnMudjEuR2V0UG93ZXJUYXJnZXRSZXNwb25zZRJOCglTZXRNaW5pbmcSHy5jb250YWluZXJzLnYxLlNldE1pbmluZ1JlcXVlc3QaIC5jb250YWluZXJzLnYxLlNldE1pbmluZ1Jlc3BvbnNlEl0KDlNldFBvd2VyVGFyZ2V0EiQuY29udGFpbmVycy52MS5TZXRQb3dlclRhcmdldFJlcXVlc3QaJS5jb250YWluZXJzLnYxLlNldFBvd2VyVGFyZ2V0UmVzcG9uc2USdQoWR2V0TW9kdWxlTWluaW5nT3B0aW9ucxIsLmNvbnRhaW5lcnMudjEuR2V0TW9kdWxlTWluaW5nT3B0aW9uc1JlcXVlc3QaLS5jb250YWluZXJzLnYxLkdldE1vZHVsZU1pbmluZ09wdGlvbnNSZXNwb25zZRJgCg9TZXRNb2R1bGVNaW5pbmcSJS5jb250YWluZXJzLnYxLlNldE1vZHVsZU1pbmluZ1JlcXVlc3QaJi5jb250YWluZXJzLnYxLlNldE1vZHVsZU1pbmluZ1Jlc3BvbnNlEngKF0dldEJvYXJkSWRlbnRpZnlPcHRpb25zEi0uY29udGFpbmVycy52MS5HZXRCb2FyZElkZW50aWZ5T3B0aW9uc1JlcXVlc3QaLi5jb250YWluZXJzLnYxLkdldEJvYXJkSWRlbnRpZnlPcHRpb25zUmVzcG9uc2USYwoQU2V0Qm9hcmRJZGVudGlmeRImLmNvbnRhaW5lcnMudjEuU2V0Qm9hcmRJZGVudGlmeVJlcXVlc3QaJy5jb250YWluZXJzLnYxLlNldEJvYXJkSWRlbnRpZnlSZXNwb25zZRJvChRHZXRUYW5rTWluaW5nT3B0aW9ucxIqLmNvbnRhaW5lcnMudjEuR2V0VGFua01pbmluZ09wdGlvbnNSZXF1ZXN0GisuY29udGFpbmVycy52MS5HZXRUYW5rTWluaW5nT3B0aW9uc1Jlc3BvbnNlEloKDVNldFRhbmtNaW5pbmcSIy5jb250YWluZXJzLnYxLlNldFRhbmtNaW5pbmdSZXF1ZXN0GiQuY29udGFpbmVycy52MS5TZXRUYW5rTWluaW5nUmVzcG9uc2USfgoZR2V0RXF1aXBtZW50Q29tbWFuZFJlc3VsdBIvLmNvbnRhaW5lcnMudjEuR2V0RXF1aXBtZW50Q29tbWFuZFJlc3VsdFJlcXVlc3QaMC5jb250YWluZXJzLnYxLkdldEVxdWlwbWVudENvbW1hbmRSZXN1bHRSZXNwb25zZRJsChNTZXRFcXVpcG1lbnRDb250cm9sEikuY29udGFpbmVycy52MS5TZXRFcXVpcG1lbnRDb250cm9sUmVxdWVzdBoqLmNvbnRhaW5lcnMudjEuU2V0RXF1aXBtZW50Q29udHJvbFJlc3BvbnNlElcKDEdldENvbnRhaW5lchIiLmNvbnRhaW5lcnMudjEuR2V0Q29udGFpbmVyUmVxdWVzdBojLmNvbnRhaW5lcnMudjEuR2V0Q29udGFpbmVyUmVzcG9uc2USXQoOTGlzdENvbnRhaW5lcnMSJC5jb250YWluZXJzLnYxLkxpc3RDb250YWluZXJzUmVxdWVzdBolLmNvbnRhaW5lcnMudjEuTGlzdENvbnRhaW5lcnNSZXNwb25zZRJ4ChdMaXN0Q29udGFpbmVyUGxhY2VtZW50cxItLmNvbnRhaW5lcnMudjEuTGlzdENvbnRhaW5lclBsYWNlbWVudHNSZXF1ZXN0Gi4uY29udGFpbmVycy52MS5MaXN0Q29udGFpbmVyUGxhY2VtZW50c1Jlc3BvbnNlEmYKEUdldENvbnRyb2xsZXJMb2dzEicuY29udGFpbmVycy52MS5HZXRDb250cm9sbGVyTG9nc1JlcXVlc3QaKC5jb250YWluZXJzLnYxLkdldENvbnRyb2xsZXJMb2dzUmVzcG9uc2USfgoZTGlzdENvbnRyb2xsZXJBdWRpdEV2ZW50cxIvLmNvbnRhaW5lcnMudjEuTGlzdENvbnRyb2xsZXJBdWRpdEV2ZW50c1JlcXVlc3QaMC5jb250YWluZXJzLnYxLkxpc3RDb250cm9sbGVyQXVkaXRFdmVudHNSZXNwb25zZULIAQoRY29tLmNvbnRhaW5lcnMudjFCD0NvbnRhaW5lcnNQcm90b1ABWk1naXRodWIuY29tL2Jsb2NrL3Byb3RvLWZsZWV0L3NlcnZlci9nZW5lcmF0ZWQvZ3JwYy9jb250YWluZXJzL3YxO2NvbnRhaW5lcnN2MaICA0NYWKoCDUNvbnRhaW5lcnMuVjHKAg1Db250YWluZXJzXFYx4gIZQ29udGFpbmVyc1xWMVxHUEJNZXRhZGF0YeoCDkNvbnRhaW5lcnM6OlYxYgZwcm90bzM",
     [
       file_buf_validate_validate,
       file_common_v1_common,
@@ -1331,6 +1331,327 @@ export const SetPowerTargetResponseSchema: GenMessage<SetPowerTargetResponse> =
   messageDesc(file_containers_v1_containers, 43);
 
 /**
+ * @generated from message containers.v1.GetControllerLogsRequest
+ */
+export type GetControllerLogsRequest = Message<"containers.v1.GetControllerLogsRequest"> & {
+  /**
+   * @generated from field: string device_identifier = 1;
+   */
+  deviceIdentifier: string;
+
+  /**
+   * Server ID of one of the container's controllers; empty reads the
+   * controller Fleet currently prefers for reads.
+   *
+   * @generated from field: string controller_id = 2;
+   */
+  controllerId: string;
+
+  /**
+   * @generated from field: containers.v1.ControllerLogSeverity min_severity = 3;
+   */
+  minSeverity: ControllerLogSeverity;
+
+  /**
+   * Exact component name; empty means every component.
+   *
+   * @generated from field: string component = 4;
+   */
+  component: string;
+
+  /**
+   * @generated from field: int32 limit = 5;
+   */
+  limit: number;
+};
+
+/**
+ * Describes the message containers.v1.GetControllerLogsRequest.
+ * Use `create(GetControllerLogsRequestSchema)` to create a new message.
+ */
+export const GetControllerLogsRequestSchema: GenMessage<GetControllerLogsRequest> =
+  /*@__PURE__*/
+  messageDesc(file_containers_v1_containers, 44);
+
+/**
+ * @generated from message containers.v1.ControllerLogEntry
+ */
+export type ControllerLogEntry = Message<"containers.v1.ControllerLogEntry"> & {
+  /**
+   * Controller-recorded time; absent when the controller sent none.
+   *
+   * @generated from field: google.protobuf.Timestamp time = 1;
+   */
+  time?: Timestamp | undefined;
+
+  /**
+   * @generated from field: containers.v1.ControllerLogSeverity severity = 2;
+   */
+  severity: ControllerLogSeverity;
+
+  /**
+   * @generated from field: string component = 3;
+   */
+  component: string;
+
+  /**
+   * @generated from field: string message = 4;
+   */
+  message: string;
+
+  /**
+   * The message was longer than Fleet relays and was cut short.
+   *
+   * @generated from field: bool message_truncated = 5;
+   */
+  messageTruncated: boolean;
+};
+
+/**
+ * Describes the message containers.v1.ControllerLogEntry.
+ * Use `create(ControllerLogEntrySchema)` to create a new message.
+ */
+export const ControllerLogEntrySchema: GenMessage<ControllerLogEntry> =
+  /*@__PURE__*/
+  messageDesc(file_containers_v1_containers, 45);
+
+/**
+ * @generated from message containers.v1.GetControllerLogsResponse
+ */
+export type GetControllerLogsResponse = Message<"containers.v1.GetControllerLogsResponse"> & {
+  /**
+   * Oldest first, as the controller sent them.
+   *
+   * @generated from field: repeated containers.v1.ControllerLogEntry entries = 1;
+   */
+  entries: ControllerLogEntry[];
+
+  /**
+   * @generated from field: int32 limit = 2;
+   */
+  limit: number;
+
+  /**
+   * @generated from field: containers.v1.ControllerLogCoverage coverage = 3;
+   */
+  coverage: ControllerLogCoverage;
+
+  /**
+   * Set with CONTROLLER_LOG_COVERAGE_INTERRUPTED.
+   *
+   * @generated from field: string interruption = 4;
+   */
+  interruption: string;
+
+  /**
+   * Server ID of the controller that produced the entries, when it reported one.
+   *
+   * @generated from field: string controller_id = 5;
+   */
+  controllerId: string;
+
+  /**
+   * Server IDs of the container's controllers, for choosing another one.
+   *
+   * @generated from field: repeated string controller_ids = 6;
+   */
+  controllerIds: string[];
+
+  /**
+   * When the read finished.
+   *
+   * @generated from field: google.protobuf.Timestamp read_at = 7;
+   */
+  readAt?: Timestamp | undefined;
+};
+
+/**
+ * Describes the message containers.v1.GetControllerLogsResponse.
+ * Use `create(GetControllerLogsResponseSchema)` to create a new message.
+ */
+export const GetControllerLogsResponseSchema: GenMessage<GetControllerLogsResponse> =
+  /*@__PURE__*/
+  messageDesc(file_containers_v1_containers, 46);
+
+/**
+ * @generated from message containers.v1.ListControllerAuditEventsRequest
+ */
+export type ListControllerAuditEventsRequest = Message<"containers.v1.ListControllerAuditEventsRequest"> & {
+  /**
+   * @generated from field: string device_identifier = 1;
+   */
+  deviceIdentifier: string;
+
+  /**
+   * @generated from field: string controller_id = 2;
+   */
+  controllerId: string;
+
+  /**
+   * The controller rejects windows longer than seven days.
+   *
+   * @generated from field: google.protobuf.Timestamp start = 3;
+   */
+  start?: Timestamp | undefined;
+
+  /**
+   * @generated from field: google.protobuf.Timestamp end = 4;
+   */
+  end?: Timestamp | undefined;
+
+  /**
+   * @generated from field: int32 limit = 5;
+   */
+  limit: number;
+
+  /**
+   * "ok" or "error"; empty means every result.
+   *
+   * @generated from field: string result = 6;
+   */
+  result: string;
+};
+
+/**
+ * Describes the message containers.v1.ListControllerAuditEventsRequest.
+ * Use `create(ListControllerAuditEventsRequestSchema)` to create a new message.
+ */
+export const ListControllerAuditEventsRequestSchema: GenMessage<ListControllerAuditEventsRequest> =
+  /*@__PURE__*/
+  messageDesc(file_containers_v1_containers, 47);
+
+/**
+ * One record from the controller's own audit log. These are controller
+ * evidence, separate from Fleet's command and activity records.
+ *
+ * @generated from message containers.v1.ControllerAuditEvent
+ */
+export type ControllerAuditEvent = Message<"containers.v1.ControllerAuditEvent"> & {
+  /**
+   * @generated from field: string id = 1;
+   */
+  id: string;
+
+  /**
+   * @generated from field: google.protobuf.Timestamp time = 2;
+   */
+  time?: Timestamp | undefined;
+
+  /**
+   * Client-supplied identity ("user@host") or subsystem name.
+   *
+   * @generated from field: string actor = 3;
+   */
+  actor: string;
+
+  /**
+   * "grpc:<addr>", "rest:<addr>", or "system".
+   *
+   * @generated from field: string source = 4;
+   */
+  source: string;
+
+  /**
+   * Server ID of the controller that performed the action.
+   *
+   * @generated from field: string node = 5;
+   */
+  node: string;
+
+  /**
+   * @generated from field: string action = 6;
+   */
+  action: string;
+
+  /**
+   * @generated from field: string target = 7;
+   */
+  target: string;
+
+  /**
+   * @generated from field: string result = 8;
+   */
+  result: string;
+
+  /**
+   * @generated from field: string error = 9;
+   */
+  error: string;
+
+  /**
+   * Structured JSON payload as recorded; empty when there was none.
+   *
+   * @generated from field: string details_json = 10;
+   */
+  detailsJson: string;
+
+  /**
+   * A field was longer than Fleet relays and was cut short. Truncated
+   * details_json is no longer valid JSON.
+   *
+   * @generated from field: bool truncated = 11;
+   */
+  truncated: boolean;
+};
+
+/**
+ * Describes the message containers.v1.ControllerAuditEvent.
+ * Use `create(ControllerAuditEventSchema)` to create a new message.
+ */
+export const ControllerAuditEventSchema: GenMessage<ControllerAuditEvent> =
+  /*@__PURE__*/
+  messageDesc(file_containers_v1_containers, 48);
+
+/**
+ * @generated from message containers.v1.ListControllerAuditEventsResponse
+ */
+export type ListControllerAuditEventsResponse = Message<"containers.v1.ListControllerAuditEventsResponse"> & {
+  /**
+   * Newest first, as the controller sent them.
+   *
+   * @generated from field: repeated containers.v1.ControllerAuditEvent events = 1;
+   */
+  events: ControllerAuditEvent[];
+
+  /**
+   * @generated from field: int32 limit = 2;
+   */
+  limit: number;
+
+  /**
+   * Older events in the window were not returned: either the page is full, or
+   * the oldest were dropped to fit one response, so fewer than limit events can
+   * come back with this set.
+   *
+   * @generated from field: bool limit_reached = 3;
+   */
+  limitReached: boolean;
+
+  /**
+   * @generated from field: string controller_id = 4;
+   */
+  controllerId: string;
+
+  /**
+   * @generated from field: repeated string controller_ids = 5;
+   */
+  controllerIds: string[];
+
+  /**
+   * @generated from field: google.protobuf.Timestamp read_at = 6;
+   */
+  readAt?: Timestamp | undefined;
+};
+
+/**
+ * Describes the message containers.v1.ListControllerAuditEventsResponse.
+ * Use `create(ListControllerAuditEventsResponseSchema)` to create a new message.
+ */
+export const ListControllerAuditEventsResponseSchema: GenMessage<ListControllerAuditEventsResponse> =
+  /*@__PURE__*/
+  messageDesc(file_containers_v1_containers, 49);
+
+/**
  * @generated from enum containers.v1.BoardIdentifyMode
  */
 export enum BoardIdentifyMode {
@@ -1356,6 +1677,97 @@ export enum BoardIdentifyMode {
 export const BoardIdentifyModeSchema: GenEnum<BoardIdentifyMode> =
   /*@__PURE__*/
   enumDesc(file_containers_v1_containers, 0);
+
+/**
+ * Lowest severity to include; the controller's levels in ascending order.
+ *
+ * @generated from enum containers.v1.ControllerLogSeverity
+ */
+export enum ControllerLogSeverity {
+  /**
+   * @generated from enum value: CONTROLLER_LOG_SEVERITY_UNSPECIFIED = 0;
+   */
+  UNSPECIFIED = 0,
+
+  /**
+   * @generated from enum value: CONTROLLER_LOG_SEVERITY_DEBUG = 1;
+   */
+  DEBUG = 1,
+
+  /**
+   * @generated from enum value: CONTROLLER_LOG_SEVERITY_INFO = 2;
+   */
+  INFO = 2,
+
+  /**
+   * @generated from enum value: CONTROLLER_LOG_SEVERITY_WARN = 3;
+   */
+  WARN = 3,
+
+  /**
+   * @generated from enum value: CONTROLLER_LOG_SEVERITY_ERROR = 4;
+   */
+  ERROR = 4,
+}
+
+/**
+ * Describes the enum containers.v1.ControllerLogSeverity.
+ */
+export const ControllerLogSeveritySchema: GenEnum<ControllerLogSeverity> =
+  /*@__PURE__*/
+  enumDesc(file_containers_v1_containers, 1);
+
+/**
+ * How much of the controller's retained log a read covers. A controller keeps
+ * only a bounded in-memory tail, so no read is ever a complete history.
+ *
+ * @generated from enum containers.v1.ControllerLogCoverage
+ */
+export enum ControllerLogCoverage {
+  /**
+   * @generated from enum value: CONTROLLER_LOG_COVERAGE_UNSPECIFIED = 0;
+   */
+  UNSPECIFIED = 0,
+
+  /**
+   * Fewer than limit entries came back: everything the controller still holds
+   * for the filters. Older entries were evicted or lost at its last restart.
+   *
+   * @generated from enum value: CONTROLLER_LOG_COVERAGE_RETAINED = 1;
+   */
+  RETAINED = 1,
+
+  /**
+   * Older retained entries were not returned: either limit entries came back,
+   * or the oldest were dropped to fit one response, so fewer than limit can
+   * come back with this coverage.
+   *
+   * @generated from enum value: CONTROLLER_LOG_COVERAGE_LIMIT_REACHED = 2;
+   */
+  LIMIT_REACHED = 2,
+
+  /**
+   * The read stopped before the tail was known to be finished. interruption says why.
+   *
+   * @generated from enum value: CONTROLLER_LOG_COVERAGE_INTERRUPTED = 3;
+   */
+  INTERRUPTED = 3,
+
+  /**
+   * The controller sent nothing, so "no matching entries" and a slow
+   * controller cannot be told apart.
+   *
+   * @generated from enum value: CONTROLLER_LOG_COVERAGE_NO_RESPONSE = 4;
+   */
+  NO_RESPONSE = 4,
+}
+
+/**
+ * Describes the enum containers.v1.ControllerLogCoverage.
+ */
+export const ControllerLogCoverageSchema: GenEnum<ControllerLogCoverage> =
+  /*@__PURE__*/
+  enumDesc(file_containers_v1_containers, 2);
 
 /**
  * Containers are paired controllers with observed internal topology. Their
@@ -1485,5 +1897,25 @@ export const ContainerService: GenService<{
     methodKind: "unary";
     input: typeof ListContainerPlacementsRequestSchema;
     output: typeof ListContainerPlacementsResponseSchema;
+  };
+  /**
+   * On-demand reads of one controller's own records, through the container's
+   * assigned Fleet Node when it has one. Fleet does not store either result.
+   * Requires miner:download_logs at the container's site.
+   *
+   * @generated from rpc containers.v1.ContainerService.GetControllerLogs
+   */
+  getControllerLogs: {
+    methodKind: "unary";
+    input: typeof GetControllerLogsRequestSchema;
+    output: typeof GetControllerLogsResponseSchema;
+  };
+  /**
+   * @generated from rpc containers.v1.ContainerService.ListControllerAuditEvents
+   */
+  listControllerAuditEvents: {
+    methodKind: "unary";
+    input: typeof ListControllerAuditEventsRequestSchema;
+    output: typeof ListControllerAuditEventsResponseSchema;
   };
 }> = /*@__PURE__*/ serviceDesc(file_containers_v1_containers, 0);

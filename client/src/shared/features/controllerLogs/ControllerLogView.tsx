@@ -2,15 +2,17 @@ import { useCallback, useMemo, useState } from "react";
 
 import { entriesInWindow, logCoverageNotice } from "./coverage";
 import { controllerLogsToCsv } from "./csv";
+import { ControllerSelect, RefreshControl } from "./ReadControls";
 import ReadNotices from "./ReadNotices";
-import { usePolledRead } from "./usePolledRead";
 import {
   CONTROLLER_LOG_LIMIT,
   type ControllerLogEntry,
   type ControllerLogSeverity,
   type ControllerLogSnapshot,
-} from "@/protoOS/api/adapters/controllerLogs";
-import type { MinerAdapter } from "@/protoOS/api/adapters/types";
+  type ControllerRecordsSource,
+} from "./types";
+import { useKnownControllers } from "./useKnownControllers";
+import { usePolledRead } from "./usePolledRead";
 import Logs, { type LogsData } from "@/shared/components/Logs";
 import Select from "@/shared/components/Select";
 import { padLeft } from "@/shared/utils/stringUtils";
@@ -46,7 +48,9 @@ const toLogsData = (entries: ControllerLogEntry[]): LogsData => ({
     id: BigInt(index),
     timestamp: formatLogTime(entry.timestamp),
     level: entry.severity,
-    message: entry.component ? `${entry.component} ${entry.message}` : entry.message,
+    message:
+      (entry.component ? `${entry.component} ${entry.message}` : entry.message) +
+      (entry.truncated ? " [truncated]" : ""),
   })),
   lines: entries.length,
 });
@@ -56,25 +60,39 @@ const toLogsData = (entries: ControllerLogEntry[]): LogsData => ({
 const silentRead = (snapshot: ControllerLogSnapshot) =>
   snapshot.coverage.state === "no-response" ? "The controller didn't send any log entries." : undefined;
 
-const ControllerLogView = ({ adapter }: { adapter: MinerAdapter }) => {
+type ControllerLogViewProps = Pick<ControllerRecordsSource, "readLogs" | "pollIntervalMs">;
+
+const ControllerLogView = ({ readLogs, pollIntervalMs }: ControllerLogViewProps) => {
+  const [controllerId, setControllerId] = useState("");
   const [minSeverity, setMinSeverity] = useState<ControllerLogSeverity>("info");
   const [component, setComponent] = useState("");
   const [windowMs, setWindowMs] = useState("");
   // The controller has no component list, so offer every component seen so far.
   const [knownComponents, setKnownComponents] = useState<string[]>([]);
 
-  const selection = useMemo(() => ({ minSeverity, component }), [minSeverity, component]);
+  const selection = useMemo(() => ({ controllerId, minSeverity, component }), [controllerId, minSeverity, component]);
   const read = useMemo(
     () =>
-      adapter.getControllerLogs &&
-      ((query: typeof selection, options: Parameters<NonNullable<MinerAdapter["getControllerLogs"]>>[1]) =>
-        adapter.getControllerLogs!(
-          { ...query, component: query.component || undefined, limit: CONTROLLER_LOG_LIMIT },
-          options,
+      readLogs &&
+      ((query: typeof selection, signal: AbortSignal) =>
+        readLogs(
+          {
+            minSeverity: query.minSeverity,
+            component: query.component || undefined,
+            controllerId: query.controllerId || undefined,
+            limit: CONTROLLER_LOG_LIMIT,
+          },
+          signal,
         )),
-    [adapter],
+    [readLogs],
   );
-  const { data: snapshot, error } = usePolledRead(selection, read, silentRead);
+  const {
+    data: snapshot,
+    error,
+    reading,
+    refresh,
+  } = usePolledRead(selection, read, { inconclusive: silentRead, pollIntervalMs });
+  const controllerIds = useKnownControllers(snapshot?.controllerIds);
 
   const seen = snapshot?.entries.map((entry) => entry.component).filter(Boolean) ?? [];
   if (seen.some((name) => !knownComponents.includes(name))) {
@@ -116,6 +134,12 @@ const ControllerLogView = ({ adapter }: { adapter: MinerAdapter }) => {
   return (
     <>
       <div className="flex flex-wrap items-center gap-3 px-4 pb-3">
+        <ControllerSelect
+          id="controller-log-controller"
+          controllerIds={controllerIds}
+          value={controllerId}
+          onChange={setControllerId}
+        />
         <Select
           id="controller-log-window"
           label="Time range"
@@ -143,11 +167,22 @@ const ControllerLogView = ({ adapter }: { adapter: MinerAdapter }) => {
           ]}
           onChange={setComponent}
         />
+        {pollIntervalMs === undefined ? (
+          <div className="ml-auto">
+            <RefreshControl
+              fetchedAt={snapshot?.fetchedAt}
+              controllerId={snapshot?.controllerId}
+              reading={reading}
+              onRefresh={refresh}
+              testId="controller-logs-refresh"
+            />
+          </div>
+        ) : null}
       </div>
       {logsShown && urgent ? null : notices}
       {logsShown ? (
         <Logs
-          key={`${minSeverity}:${component}`}
+          key={`${controllerId}:${minSeverity}:${component}`}
           logsData={logsData}
           exportCsv={exportCsv}
           downloadFilename={downloadFilename}

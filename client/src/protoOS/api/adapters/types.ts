@@ -1,6 +1,5 @@
 import type { ContainerHistoryRequest, ContainerHistoryResult } from "./containerHistory";
 import type { ControllerDiagnosticsResult } from "./controllerDiagnostics";
-import type { AuditEventPage, AuditEventQuery, ControllerLogQuery, ControllerLogSnapshot } from "./controllerLogs";
 import type { HashboardFirmware } from "./hashboardFirmware";
 import type { ChangePasswordRequest } from "./mdkV1";
 import type { PoolHistoryRequest, PoolHistoryResult, PoolRecordedShares } from "./poolHistory";
@@ -21,6 +20,12 @@ import type {
   TelemetryState,
 } from "@/protoOS/store/contract";
 import type { AsicHardwareData, HashboardHardwareData } from "@/protoOS/store/types";
+import type {
+  AuditEventPage,
+  AuditEventQuery,
+  ControllerLogQuery,
+  ControllerLogSnapshot,
+} from "@/shared/features/controllerLogs/types";
 import type { PoolInfo as PoolFormInput } from "@/shared/types/pool";
 
 export interface AdapterRequestOptions {

@@ -1,4 +1,4 @@
-import type { AuditEvent } from "@/protoOS/api/adapters/controllerLogs";
+import type { AuditEvent } from "@/shared/features/controllerLogs/types";
 
 export const auditResultLabel = (result: AuditEvent["result"]) =>
   result === "ok" ? "Succeeded" : result === "error" ? "Failed" : result || "Unknown";

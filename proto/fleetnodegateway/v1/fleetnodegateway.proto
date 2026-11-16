@@ -313,6 +313,8 @@ enum CommandProtocolVersion {
     COMMAND_PROTOCOL_VERSION_V9 = 9;
     // V10 adds verified CT1 board identification LED commands.
     COMMAND_PROTOCOL_VERSION_V10 = 10;
+    // V11 adds bounded on-demand reads of CT1 controller logs and audit events.
+    COMMAND_PROTOCOL_VERSION_V11 = 11;
 }
 
 message ControlHello {
@@ -511,6 +513,7 @@ message MinerCommand {
         ContainerMiningAction container_mining = 23;
         VerifyPoolsClearedAction verify_pools_cleared = 24;
         SetBoardIdentifyAction set_board_identify = 25;
+        ControllerRecordsAction controller_records = 26;
     }
 }
 
@@ -795,6 +798,14 @@ message SetBoardIdentifyAction {
 message MiningGroupsAction {
  bytes request = 1 [(buf.validate.field).bytes = {min_len: 1, max_len: 16384}];
  NodeEncryptedPayload encrypted_pools = 2;
+}
+
+// One bounded controller log or audit read, encoded as sdk.ControllerRecordsRequest.
+// The ack payload is the encoded sdk.ControllerRecordsResult. Nodes reject
+// unknown request fields, so a new request field needs a new protocol version;
+// servers ignore unknown result fields.
+message ControllerRecordsAction {
+  bytes request = 1 [(buf.validate.field).bytes = {min_len: 1, max_len: 4096}];
 }
 
 // Closed SDK container operation; request/result JSON is validated at both ends.

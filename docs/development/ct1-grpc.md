@@ -597,3 +597,44 @@ and disconnect settings retain their presence and values.
 
 Global start/stop retains the firmware semantics: with mining groups enabled it
 changes only the default group; isolated boards retain their individual state.
+
+## Controller logs and audit trail
+
+Fleet reads a CT1 controller's own logs and audit events on demand through
+`ContainerService.GetControllerLogs` and `ListControllerAuditEvents`. Fleet does
+not ingest, store or record them: each read is answered from the controller, the
+export is built in the browser, and record content is not written to Fleet logs
+or activity. Audit events are Frigate's records, distinct from Fleet's own
+command and activity history.
+
+Direct controllers read through the Proto plugin; node-owned controllers run
+the same read on their assigned Fleet Node, which requires command protocol V11.
+The bounded read runs next to the controller and only a bounded result crosses
+the gateway or plugin boundary:
+
+- Logs use `SystemService.GetLogs`, a following stream with no end-of-tail
+  marker. The plugin waits up to 2 s for the first entry (`no_response`), treats
+  a 750 ms gap as the end of the retained tail and confirms it with a `tail: 1`
+  read, re-reading once if a newer entry arrived. A 5 s deadline or a stream
+  error after entries reports `interrupted` with a reason; an error before any
+  entry fails the read. A full page reports `limit_reached`.
+- Audit uses `AuditService.ListAuditEvents` with a window of at most 7 days and
+  at most 1,000 events, newest first.
+- Messages, details and error text are truncated per field and the oldest
+  records are dropped to keep the encoded result under 3 MiB; either is
+  reported in the result. Log entries are bounded as they arrive, so a read
+  never holds more than that budget of controller messages.
+- Each read holds a database transaction and a share lock on the container's
+  binding until the controller answers, within a 15 s server budget, so writes
+  to that container wait behind it. Read only when an operator asks; never poll
+  through this path.
+
+Reads use the read-preferred HA controller unless the caller addresses one
+member by its controller ID. The result names the controller that answered and
+the controllers available. A best-effort `GetSystemStatus` confirms the answering
+controller's identity; a mismatch with the saved member fails the read.
+
+The caller needs `miner:download_logs` plus `site:read`, `fleet:read` and
+`miner:read` at the container's current site. The audit trail also needs
+`activity:read` there, as Fleet's own activity log does; without it Fleet shows
+only the logs.

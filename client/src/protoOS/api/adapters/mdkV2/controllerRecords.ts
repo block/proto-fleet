@@ -1,11 +1,3 @@
-import {
-  type AuditEventPage,
-  type AuditEventQuery,
-  type ControllerLogEntry,
-  type ControllerLogQuery,
-  type ControllerLogSeverity,
-  type ControllerLogSnapshot,
-} from "../controllerLogs";
 import type { AdapterRequestOptions } from "../types";
 import { LOG_TAIL_DEADLINE_MS, type LogTailRead } from "./connectClient";
 import type {
@@ -16,6 +8,14 @@ import type {
   V2GetSystemStatusResponse,
   V2ListAuditEventsResponse,
 } from "./generated/generatedApi";
+import {
+  type AuditEventPage,
+  type AuditEventQuery,
+  type ControllerLogEntry,
+  type ControllerLogQuery,
+  type ControllerLogSeverity,
+  type ControllerLogSnapshot,
+} from "@/shared/features/controllerLogs/types";
 
 const wireLevels: Record<ControllerLogSeverity, NonNullable<SystemServiceGetLogsParams["level"]>> = {
   debug: "LOG_LEVEL_DEBUG",

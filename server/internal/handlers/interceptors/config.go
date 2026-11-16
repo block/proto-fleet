@@ -5,6 +5,7 @@ import (
 	"github.com/block/proto-fleet/server/generated/grpc/apikey/v1/apikeyv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/auth/v1/authv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/authz/v1/authzv1connect"
+	"github.com/block/proto-fleet/server/generated/grpc/containers/v1/containersv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/curtailment/v1/curtailmentv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/fleetmanagement/v1/fleetmanagementv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/fleetnodeadmin/v1/fleetnodeadminv1connect"
@@ -318,4 +319,9 @@ var SensitiveBodyProcedures = map[string]bool{
 	infrastructurev1connect.InfrastructureServiceDeleteInfrastructureDeviceProcedure: true,
 	sitesv1connect.SiteServiceGetInfrastructureControlSubnetsProcedure:               true,
 	sitesv1connect.SiteServiceSetInfrastructureControlSubnetsProcedure:               true,
+	// Controller logs and audit events carry operator identities, client
+	// addresses and free-form controller text; Fleet relays them without
+	// keeping a copy, including in debug logs.
+	containersv1connect.ContainerServiceGetControllerLogsProcedure:         true,
+	containersv1connect.ContainerServiceListControllerAuditEventsProcedure: true,
 }

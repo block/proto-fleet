@@ -1,4 +1,4 @@
-/** Controller log and audit-trail contracts for adapters that expose them (CT1/Frigate). */
+/** Controller log and audit-trail contracts for CT1 (Frigate) controllers, read by ProtoOS and Fleet. */
 
 export type ControllerLogSeverity = "debug" | "info" | "warn" | "error";
 
@@ -10,6 +10,8 @@ export const AUDIT_WINDOW_MAX_MS = 7 * 24 * 60 * 60 * 1000;
 
 export interface ControllerLogQuery {
   limit: number;
+  /** Server ID of one HA controller; omitted means the read-preferred controller. */
+  controllerId?: string;
   /** Lowest severity to include. The controller defaults to info. */
   minSeverity?: ControllerLogSeverity;
   /** Exact component name; omitted means every component. */
@@ -22,6 +24,8 @@ export interface ControllerLogEntry {
   severity: ControllerLogSeverity;
   component: string;
   message: string;
+  /** True when the message was shortened to fit the read's size bound. */
+  truncated?: boolean;
 }
 
 /**
@@ -51,7 +55,9 @@ export interface ControllerLogSnapshot {
   coverage: ControllerLogCoverage;
   /** Server ID of the controller that produced the logs, when it reports one. */
   controllerId?: string;
-  /** When the client finished reading the snapshot, ISO 8601. */
+  /** Controllers that can be addressed by `controllerId`, when the source reports them. */
+  controllerIds?: string[];
+  /** When the snapshot was read, ISO 8601. */
   fetchedAt: string;
 }
 
@@ -63,6 +69,8 @@ export interface AuditEventQuery {
   end: string;
   limit: number;
   result?: AuditResult;
+  /** Server ID of one HA controller; omitted means the read-preferred controller. */
+  controllerId?: string;
 }
 
 export interface AuditEvent {
@@ -81,6 +89,8 @@ export interface AuditEvent {
   error?: string;
   /** Structured JSON payload as recorded; omitted when empty. */
   details?: string;
+  /** True when a field was shortened to fit the read's size bound. */
+  truncated?: boolean;
 }
 
 export interface AuditEventPage {
@@ -89,5 +99,20 @@ export interface AuditEventPage {
   limit: number;
   /** True when the page is full, so older events in the window were not returned. */
   limitReached: boolean;
+  /** Server ID of the controller that answered, when the source reports it. */
+  controllerId?: string;
+  /** Controllers that can be addressed by `controllerId`, when the source reports them. */
+  controllerIds?: string[];
   fetchedAt: string;
+}
+
+/** Reads one controller record view; the signal cancels it when the view closes or the filters change. */
+export type ControllerRecordsRead<Query, Data> = (query: Query, signal: AbortSignal) => Promise<Data>;
+
+/** How an app reads a controller's records. Transport stays with the app. */
+export interface ControllerRecordsSource {
+  readLogs?: ControllerRecordsRead<ControllerLogQuery, ControllerLogSnapshot>;
+  listAuditEvents?: ControllerRecordsRead<AuditEventQuery, AuditEventPage>;
+  /** Re-read on this interval while open. Omitted means read on open, on filter change and on Refresh. */
+  pollIntervalMs?: number;
 }

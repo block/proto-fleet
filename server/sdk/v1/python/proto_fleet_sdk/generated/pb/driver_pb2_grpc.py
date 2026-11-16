@@ -136,6 +136,11 @@ class DriverStub(object):
                 request_serializer=pb_dot_driver__pb2.SetContainerControlRequest.SerializeToString,
                 response_deserializer=google_dot_protobuf_dot_empty__pb2.Empty.FromString,
                 _registered_method=True)
+        self.ControllerRecords = channel.unary_unary(
+                '/sdk.v1.Driver/ControllerRecords',
+                request_serializer=pb_dot_driver__pb2.ControllerRecordsRequest.SerializeToString,
+                response_deserializer=pb_dot_driver__pb2.ControllerRecordsResponse.FromString,
+                _registered_method=True)
         self.FrigateServerUpdate = channel.unary_unary(
                 '/sdk.v1.Driver/FrigateServerUpdate',
                 request_serializer=pb_dot_driver__pb2.FrigateServerUpdateRequest.SerializeToString,
@@ -372,6 +377,15 @@ class DriverServicer(object):
 
     def SetContainerControl(self, request, context):
         """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def ControllerRecords(self, request, context):
+        """Optional controller-only bounded read of the controller's own logs or
+        audit events (capability "controller_records"). The payloads are the
+        JSON-encoded sdk.ControllerRecordsRequest and sdk.ControllerRecordsResult.
+        """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
@@ -620,6 +634,11 @@ def add_DriverServicer_to_server(servicer, server):
                     servicer.SetContainerControl,
                     request_deserializer=pb_dot_driver__pb2.SetContainerControlRequest.FromString,
                     response_serializer=google_dot_protobuf_dot_empty__pb2.Empty.SerializeToString,
+            ),
+            'ControllerRecords': grpc.unary_unary_rpc_method_handler(
+                    servicer.ControllerRecords,
+                    request_deserializer=pb_dot_driver__pb2.ControllerRecordsRequest.FromString,
+                    response_serializer=pb_dot_driver__pb2.ControllerRecordsResponse.SerializeToString,
             ),
             'FrigateServerUpdate': grpc.unary_unary_rpc_method_handler(
                     servicer.FrigateServerUpdate,
@@ -1268,6 +1287,33 @@ class Driver(object):
             '/sdk.v1.Driver/SetContainerControl',
             pb_dot_driver__pb2.SetContainerControlRequest.SerializeToString,
             google_dot_protobuf_dot_empty__pb2.Empty.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def ControllerRecords(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/sdk.v1.Driver/ControllerRecords',
+            pb_dot_driver__pb2.ControllerRecordsRequest.SerializeToString,
+            pb_dot_driver__pb2.ControllerRecordsResponse.FromString,
             options,
             channel_credentials,
             insecure,

@@ -242,6 +242,10 @@ func TestScopedGenerationCheckedByEveryUnaryDeviceEndpoint(t *testing.T) {
 			_, e := server.SetBoardIdentify(t.Context(), &pb.SetBoardIdentifyRequest{Ref: ref, Board: &pb.BoardIdentifyTarget{Tank: 1, Module: 1, Slot: 1, ModuleReportedId: "module-a", MacAddress: "aa:bb:cc:dd:ee:01"}, Mode: string(BoardIdentifyBlink)})
 			return e
 		},
+		"ControllerRecords": func() error {
+			_, e := server.ControllerRecords(t.Context(), &pb.ControllerRecordsRequest{Ref: ref, Payload: []byte(`{"kind":"logs","logs":{"limit":10}}`)})
+			return e
+		},
 		"BatchStatus": func() error {
 			_, e := server.BatchStatus(t.Context(), &pb.BatchStatusRequest{Refs: []*pb.DeviceRef{ref}})
 			return e

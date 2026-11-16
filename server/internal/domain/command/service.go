@@ -86,6 +86,9 @@ type Service struct {
 	// uses them instead of the real DB batch insert / status-update goroutine.
 	saveCommandBatchLogOverride      func(ctx context.Context, userID, organizationID int64, command *Command, payloadBytes []byte, devicesCount int) (string, error)
 	startStatusUpdateRoutineOverride func(batchUUID string, finalizer onFinishedCallbackFunc)
+	// Test hook: runs after a controller records read's unlocked target
+	// lookup, before the locked re-read.
+	controllerRecordsTargetLookedUp func()
 
 	// filters run in registration order. Registered at startup only;
 	// the slice is not mutex-protected.

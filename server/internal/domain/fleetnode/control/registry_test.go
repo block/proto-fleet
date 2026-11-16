@@ -151,8 +151,9 @@ func TestRegistry_CommandProtocolUpgradeRecommended(t *testing.T) {
 		{gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V7, true},
 		{gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V8, true},
 		{gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V9, true},
-		{gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V10, false},
-		{gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V10 + 1, false},
+		{gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V10, true},
+		{gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V11, false},
+		{gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V11 + 1, false},
 	} {
 		t.Run(tc.version.String(), func(t *testing.T) {
 			stream, err := r.RegisterAuthenticated(7, "session", tc.version)

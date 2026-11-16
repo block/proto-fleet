@@ -795,6 +795,10 @@ service Driver {
   // Optional controller-only identification LED command for one verified board.
   rpc SetBoardIdentify(SetBoardIdentifyRequest) returns (google.protobuf.Empty);
   rpc SetContainerControl(SetContainerControlRequest) returns (google.protobuf.Empty);
+  // Optional controller-only bounded read of the controller's own logs or
+  // audit events (capability "controller_records"). The payloads are the
+  // JSON-encoded sdk.ControllerRecordsRequest and sdk.ControllerRecordsResult.
+  rpc ControllerRecords(ControllerRecordsRequest) returns (ControllerRecordsResponse);
 
   // Optional controller-only Frigate software update operations (capability
   // "frigate_server_update"). One RPC carries nine operations so the plugin
@@ -1079,6 +1083,8 @@ message DeviceEndpoint {
 message MiningGroupsRequest { DeviceRef ref = 1; bytes payload = 2; }
 message MiningGroupsResponse { bytes payload = 1; }
 
+message ControllerRecordsRequest { DeviceRef ref = 1; bytes payload = 2; }
+message ControllerRecordsResponse { bytes payload = 1; }
 message ContainerMiningRequest { DeviceRef ref = 1; bytes payload = 2; }
 message ContainerMiningResponse { bytes payload = 1; }
 

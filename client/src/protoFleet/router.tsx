@@ -11,6 +11,7 @@ import {
   importAuth,
   importBuildingPage,
   importContainerPage,
+  importControllerLogsPage,
   importDashboard,
   importEnergyPage,
   importFleetBuildingsPage,
@@ -106,6 +107,7 @@ const BuildingPage = lazy(importBuildingPage);
 const TankPage = lazy(importTankPage);
 const ModulePage = lazy(importModulePage);
 const ContainerPage = lazy(importContainerPage);
+const ControllerLogsPage = lazy(importControllerLogsPage);
 const FleetLayout = lazy(importFleetLayout);
 const FleetBuildingsPage = lazy(importFleetBuildingsPage);
 const FleetSitesPage = lazy(importFleetSitesPage);
@@ -269,6 +271,7 @@ const router = createBrowserRouter([
   createRoute("/containers/:identifier/tanks/:tankId", <TankPage />, { hideShellHeader: true }),
   createRoute("/containers/:identifier/tanks/:tankId/modules/:moduleId", <ModulePage />, { hideShellHeader: true }),
   createRoute("/containers/:identifier", <ContainerPage />, { hideShellHeader: true }),
+  createRoute("/containers/:identifier/controller-logs", <ControllerLogsPage />, { hideShellHeader: true }),
 
   createRoute("/maintenance", <MaintenancePage />),
 

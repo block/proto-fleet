@@ -50,6 +50,7 @@ export const importSiteDetailPage = () => import("@/protoFleet/features/sites/pa
 export const importTankPage = () => import("@/protoFleet/features/containers/pages/TankPage");
 export const importModulePage = () => import("@/protoFleet/features/containers/pages/ModulePage");
 export const importContainerPage = () => import("@/protoFleet/features/containers/pages/ContainerPage");
+export const importControllerLogsPage = () => import("@/protoFleet/features/containers/pages/ControllerLogsPage");
 export const importBuildingPage = () => import("@/protoFleet/features/buildings/pages/BuildingPage");
 export const importFleetLayout = () => import("@/protoFleet/features/fleetManagement/components/FleetLayout");
 export const importFleetBuildingsPage = () => import("@/protoFleet/features/fleetManagement/pages/FleetBuildingsPage");

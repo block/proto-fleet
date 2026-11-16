@@ -163,7 +163,7 @@ var catalog = []CatalogEntry{
 	{PermMinerSetCoolingMode, "Change a miner's cooling mode.", ResourceMiner},
 	{PermMinerSetPowerTarget, "Change a miner's power target.", ResourceMiner},
 	{PermMinerFirmwareUpdate, "Install firmware on a miner. Installs can reboot the device, so this also needs reboot access.", ResourceMiner},
-	{PermMinerDownloadLogs, "Download diagnostic logs from a miner.", ResourceMiner},
+	{PermMinerDownloadLogs, "Download diagnostic logs from a miner, and read a container controller's logs and, with activity read, its audit trail.", ResourceMiner},
 	{PermMinerUpdatePassword, "Change a miner's local web interface password.", ResourceMiner},
 	{PermMinerUnpair, "Unpair a miner from the fleet.", ResourceMiner},
 	{PermMinerPair, "Discover, pair, and bulk-import miners into the fleet.", ResourceMiner},

@@ -13,6 +13,8 @@ import (
 
 	"github.com/block/proto-fleet/server/generated/grpc/alerts/v1/alertsv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/auth/v1/authv1connect"
+	containerspb "github.com/block/proto-fleet/server/generated/grpc/containers/v1"
+	"github.com/block/proto-fleet/server/generated/grpc/containers/v1/containersv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/curtailment/v1/curtailmentv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/fleetmanagement/v1/fleetmanagementv1connect"
 	fleetnodeadmin "github.com/block/proto-fleet/server/generated/grpc/fleetnodeadmin/v1"
@@ -90,6 +92,28 @@ func TestListFleetNodesResponseIsRedactedFromDebugLogs(t *testing.T) {
 	for _, value := range append(node.IpAddresses, node.Version, node.EnrolledBy) {
 		require.NotContains(t, logged, value)
 	}
+}
+
+func TestControllerRecordBodiesNeverReachDebugLogs(t *testing.T) {
+	out := captureSlogWarn(t)
+	procedure := containersv1connect.ContainerServiceGetControllerLogsProcedure
+	require.True(t, SensitiveBodyProcedures[containersv1connect.ContainerServiceListControllerAuditEventsProcedure])
+	logging := NewRequestLoggingInterceptor(slog.LevelDebug, RedactedRequestProcedures, RedactedResponseProcedures)
+	handler := connect.NewUnaryHandler(procedure,
+		func(context.Context, *connect.Request[containerspb.GetControllerLogsRequest]) (*connect.Response[containerspb.GetControllerLogsResponse], error) {
+			return connect.NewResponse(&containerspb.GetControllerLogsResponse{Entries: []*containerspb.ControllerLogEntry{{Message: "login by operator@10.20.0.4"}}}), nil
+		}, connect.WithInterceptors(logging))
+	server := httptest.NewServer(handler)
+	defer server.Close()
+	client := connect.NewClient[containerspb.GetControllerLogsRequest, containerspb.GetControllerLogsResponse](server.Client(), server.URL+procedure)
+
+	_, err := client.CallUnary(t.Context(), connect.NewRequest(&containerspb.GetControllerLogsRequest{DeviceIdentifier: "ct1-private", Component: "auth"}))
+
+	require.NoError(t, err)
+	logged := out.String()
+	require.Contains(t, logged, procedure)
+	require.NotContains(t, logged, "operator@10.20.0.4")
+	require.NotContains(t, logged, "ct1-private")
 }
 
 func TestSiteMapCsvProceduresAreSensitiveBody(t *testing.T) {

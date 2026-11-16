@@ -2,7 +2,7 @@ import { render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import AuditEventDetailModal from "./AuditEventDetailModal";
-import type { AuditEvent } from "@/protoOS/api/adapters/controllerLogs";
+import type { AuditEvent } from "@/shared/features/controllerLogs/types";
 
 const event: AuditEvent = {
   id: "7",

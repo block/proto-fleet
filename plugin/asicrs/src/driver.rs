@@ -903,6 +903,13 @@ impl Driver for DriverService {
 
     // --- Configuration ---
 
+    async fn controller_records(
+        &self,
+        _req: Request<pb::ControllerRecordsRequest>,
+    ) -> Result<Response<pb::ControllerRecordsResponse>, Status> {
+        Err(Status::unimplemented("controller records are unsupported"))
+    }
+
     async fn container_mining(
         &self,
         _req: Request<pb::ContainerMiningRequest>,

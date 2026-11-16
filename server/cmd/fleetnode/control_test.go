@@ -599,8 +599,19 @@ func TestControlLoop_ReconnectsAfterStreamEOF(t *testing.T) {
 	// Assert: the loop reconnected at least once.
 	assert.GreaterOrEqual(t, fake.helloCount(), 2)
 	for _, got := range fake.helloCommandProtocolVersionsCopy() {
-		assert.Equal(t, pb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V10, got)
+		assert.Equal(t, newestCommandProtocolVersion(), got)
 	}
+}
+
+// newestCommandProtocolVersion is the highest version the protocol defines.
+// The node advertises it, so adding a version without updating the hello, or
+// renumbering one, fails the hello assertions.
+func newestCommandProtocolVersion() pb.CommandProtocolVersion {
+	var newest pb.CommandProtocolVersion
+	for version := range pb.CommandProtocolVersion_name {
+		newest = max(newest, pb.CommandProtocolVersion(version))
+	}
+	return newest
 }
 
 func TestControlLoop_HandshakeTimeoutReconnects(t *testing.T) {

@@ -470,6 +470,17 @@ describe("container command dispatch", () => {
     expect(request).not.toHaveBeenCalled();
   });
 
+  it("opens controller logs only with the log download permission", async () => {
+    renderMenu();
+    fireEvent.click(screen.getByRole("button", { name: "Actions for Container 1" }));
+    expect(screen.queryByRole("button", { name: "Controller logs" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Actions for Container 1" }));
+
+    state.permissions = ["miner:read", "miner:download_logs"];
+    await openAction("Controller logs");
+    expect(screen.getByTestId("location")).toHaveTextContent("/containers/ct1%2Fboard/controller-logs");
+  });
+
   it("keeps unsupported settings and pools with unknown readiness disabled", async () => {
     renderMenu();
     fireEvent.click(screen.getByRole("button", { name: "Actions for Container 1" }));

@@ -189,7 +189,7 @@ func (r *RunCmd) handleMinerCommand(ctx context.Context, client gatewayClient, s
 		MacAddress:   target.GetMacAddress(),
 	}
 	// This action addresses the controller, never a derived module or a rig.
-	if mc.GetContainerMining() != nil || mc.GetSetContainerControl() != nil || mc.GetSetTankMining() != nil || mc.GetSetModuleMining() != nil || mc.GetSetBoardIdentify() != nil || mc.GetMiningGroups() != nil {
+	if mc.GetContainerMining() != nil || mc.GetSetContainerControl() != nil || mc.GetSetTankMining() != nil || mc.GetSetModuleMining() != nil || mc.GetSetBoardIdentify() != nil || mc.GetControllerRecords() != nil || mc.GetMiningGroups() != nil {
 		deviceInfo.DeviceClass = sdk.DeviceClassContainer
 	}
 	result, err := driver.NewDevice(cmdCtx, handleID, deviceInfo, bundle)
@@ -434,6 +434,28 @@ func runMinerAction(ctx context.Context, client gatewayClient, commandID, firmwa
 		data, err := json.Marshal(result)
 		if err != nil {
 			return nil, fmt.Errorf("encode container mining result: %w", err)
+		}
+		return data, nil
+	case *pb.MinerCommand_ControllerRecords:
+		reader, ok := dev.(sdk.DeviceControllerRecords)
+		if !ok {
+			return nil, sdk.UnsupportedWrite(sdk.CapabilityControllerRecords)
+		}
+		req, err := sdk.DecodeControllerRecordsRequest(a.ControllerRecords.Request)
+		if err != nil {
+			return nil, sdk.InvalidWriteRequest(err)
+		}
+		result, err := reader.ControllerRecords(ctx, req)
+		if err != nil {
+			return nil, err
+		}
+		result = sdk.BoundControllerRecords(result)
+		if err := result.Validate(req); err != nil {
+			return nil, err
+		}
+		data, err := sdk.EncodeControllerRecords(result)
+		if err != nil {
+			return nil, fmt.Errorf("encode controller records result: %w", err)
 		}
 		return data, nil
 	case *pb.MinerCommand_SetTankMining:

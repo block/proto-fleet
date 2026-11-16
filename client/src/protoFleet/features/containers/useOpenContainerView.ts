@@ -10,3 +10,7 @@ export function useOpenContainerView() {
   const navigate = useNavigate();
   return useCallback((container: Container) => navigate(containerDetailPath(container)), [navigate]);
 }
+
+export function controllerLogsPath(container: Pick<Container, "deviceIdentifier">) {
+  return `${containerDetailPath(container)}/controller-logs`;
+}

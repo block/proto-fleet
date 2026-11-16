@@ -4,15 +4,17 @@ import AuditEventDetailModal from "./AuditEventDetailModal";
 import { auditResultLabel, auditResultStatus } from "./auditResult";
 import { auditCoverageNotice, formatControllerTime } from "./coverage";
 import { auditEventsToCsv } from "./csv";
+import { ControllerSelect, RefreshControl } from "./ReadControls";
 import ReadNotices from "./ReadNotices";
-import { usePolledRead } from "./usePolledRead";
 import {
   AUDIT_EVENT_LIMIT,
   AUDIT_WINDOW_MAX_MS,
   type AuditEvent,
   type AuditResult,
-} from "@/protoOS/api/adapters/controllerLogs";
-import type { AdapterRequestOptions, MinerAdapter } from "@/protoOS/api/adapters/types";
+  type ControllerRecordsSource,
+} from "./types";
+import { useKnownControllers } from "./useKnownControllers";
+import { usePolledRead } from "./usePolledRead";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import List from "@/shared/components/List";
 import type { ColConfig, ColTitles } from "@/shared/components/List/types";
@@ -62,28 +64,36 @@ const colConfig: ColConfig<AuditEvent, string, AuditColumn> = {
 };
 const activeCols = Object.keys(colTitles) as AuditColumn[];
 
-const AuditTrailView = ({ adapter }: { adapter: MinerAdapter }) => {
+type AuditTrailViewProps = Pick<ControllerRecordsSource, "listAuditEvents" | "pollIntervalMs">;
+
+const AuditTrailView = ({ listAuditEvents, pollIntervalMs }: AuditTrailViewProps) => {
+  const [controllerId, setControllerId] = useState("");
   const [rangeMs, setRangeMs] = useState(String(24 * HOUR_MS));
   const [result, setResult] = useState("");
-  const selection = useMemo(() => ({ rangeMs: Number(rangeMs), result }), [rangeMs, result]);
+  const selection = useMemo(
+    () => ({ controllerId, rangeMs: Number(rangeMs), result }),
+    [controllerId, rangeMs, result],
+  );
   const read = useMemo(
     () =>
-      adapter.listAuditEvents &&
-      ((query: typeof selection, options: AdapterRequestOptions) => {
+      listAuditEvents &&
+      ((query: typeof selection, signal: AbortSignal) => {
         const end = Date.now();
-        return adapter.listAuditEvents!(
+        return listAuditEvents(
           {
             start: new Date(end - query.rangeMs).toISOString(),
             end: new Date(end).toISOString(),
             limit: AUDIT_EVENT_LIMIT,
             result: (query.result || undefined) as AuditResult | undefined,
+            controllerId: query.controllerId || undefined,
           },
-          options,
+          signal,
         );
       }),
-    [adapter],
+    [listAuditEvents],
   );
-  const { data: page, error, loading } = usePolledRead(selection, read);
+  const { data: page, error, loading, reading, refresh } = usePolledRead(selection, read, { pollIntervalMs });
+  const controllerIds = useKnownControllers(page?.controllerIds);
   const coverage = page ? auditCoverageNotice(page) : undefined;
   const [selected, setSelected] = useState<AuditEvent | null>(null);
   const dismiss = useCallback(() => setSelected(null), []);
@@ -93,6 +103,12 @@ const AuditTrailView = ({ adapter }: { adapter: MinerAdapter }) => {
   return (
     <>
       <div className="flex flex-wrap items-center gap-3 px-4 pb-3">
+        <ControllerSelect
+          id="audit-controller"
+          controllerIds={controllerIds}
+          value={controllerId}
+          onChange={setControllerId}
+        />
         <Select
           id="audit-range"
           label="Time range"
@@ -109,7 +125,16 @@ const AuditTrailView = ({ adapter }: { adapter: MinerAdapter }) => {
           options={RESULTS}
           onChange={setResult}
         />
-        <div className="ml-auto">
+        <div className="ml-auto flex items-center gap-3">
+          {pollIntervalMs === undefined ? (
+            <RefreshControl
+              fetchedAt={page?.fetchedAt}
+              controllerId={page?.controllerId}
+              reading={reading}
+              onRefresh={refresh}
+              testId="audit-refresh"
+            />
+          ) : null}
           <Button
             size={sizes.compact}
             variant={variants.secondary}
@@ -120,7 +145,9 @@ const AuditTrailView = ({ adapter }: { adapter: MinerAdapter }) => {
               downloadLogs(
                 auditEventsToCsv(page.events),
                 getFileName(
-                  ["controller-audit", page.limitReached && "partial", error && "stale"].filter(Boolean).join("-"),
+                  ["controller-audit", page.controllerId, page.limitReached && "partial", error && "stale"]
+                    .filter(Boolean)
+                    .join("-"),
                   "csv",
                 ),
               )
