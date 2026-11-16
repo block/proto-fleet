@@ -15,7 +15,9 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/authz"
 	"github.com/block/proto-fleet/server/internal/domain/devicewrite"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/block/proto-fleet/server/internal/domain/poolapplications"
 	"github.com/block/proto-fleet/server/internal/domain/poolconfigurations"
+	"github.com/block/proto-fleet/server/internal/infrastructure/db"
 	sdk "github.com/block/proto-fleet/server/sdk/v1"
 	"github.com/google/uuid"
 	"github.com/sqlc-dev/pqtype"
@@ -24,6 +26,18 @@ import (
 // Fleet Node allows 25 seconds for a command. Leave additional time for
 // admission, transport, the acknowledgement, and committing the journal.
 const reconciliationTimeout = 40 * time.Second
+
+const (
+	maxWorkflowTasks = 8
+	// Separate readiness capacity can serve multiple fleets while slow reads
+	// remain bounded. Each organization can occupy at most half of it.
+	maxReadinessTasks             = 64
+	maxOrganizationReadinessTasks = 32
+	controllerDiscoveryInterval   = time.Minute
+	// Reconciliation has its own 40-second I/O bound plus five seconds to
+	// commit retry bookkeeping. Bound the scheduler callback as well.
+	readinessTaskTimeout = reconciliationTimeout + 5*time.Second
+)
 
 // This budget counts only explicit terminal FAILED receipts, across the entire
 // user operation. Timeouts, pending transfers and revision conflicts do not count.
@@ -36,6 +50,19 @@ const (
 	transferPhaseFailed   = "FAILED"
 )
 
+// Readiness retains binding transactions during I/O. Leave real dispatch slots
+// for accepted workflows as well as logical scheduler slots. The database's
+// dispatch budget already reserves separate connections for pending markers and
+// completion SQL. Small pools split their dispatch budget between both classes.
+func readinessCapacity(conn *sql.DB) (int, error) {
+	capacity, err := db.DispatchCapacity(conn)
+	if err != nil {
+		return 0, err
+	}
+	reserved := min(maxWorkflowTasks, max(1, capacity/2))
+	return min(maxReadinessTasks, capacity-reserved), nil
+}
+
 func (s *Service) Run(ctx context.Context) {
 	ticker := time.NewTicker(3 * time.Second)
 	defer ticker.Stop()
@@ -43,6 +70,11 @@ func (s *Service) Run(ctx context.Context) {
 }
 
 func (s *Service) run(ctx context.Context, ticks <-chan time.Time, reconcile func(context.Context, sqlc.ListMiningGroupControllersRow) error) {
+	observationLimit, err := readinessCapacity(s.conn)
+	if err != nil {
+		slog.ErrorContext(ctx, "mining group readiness capacity unavailable", "error", err)
+	}
+	organizationLimit := min(maxOrganizationReadinessTasks, max(1, observationLimit/2))
 	// Keep admission across ticks so slow containers occupy only their own
 	// slots. A device remains running through retry bookkeeping as well as I/O.
 	var pending sync.WaitGroup
@@ -50,6 +82,7 @@ func (s *Service) run(ctx context.Context, ticks <-chan time.Time, reconcile fun
 	var runningMu sync.Mutex
 	running := map[int64]struct{}{}
 	var workflows, observations int
+	observationsByOrganization := map[int64]int{}
 	observationReady := make(chan struct{}, 1)
 	start := func(row sqlc.ListMiningGroupControllersRow, observation bool) bool {
 		runningMu.Lock()
@@ -58,12 +91,13 @@ func (s *Service) run(ctx context.Context, ticks <-chan time.Time, reconcile fun
 			return true
 		}
 		// Idle reads cannot occupy the slots reserved for accepted changes.
-		if observation && observations >= 2 || !observation && workflows >= 8 {
+		if observation && (observations >= observationLimit || observationsByOrganization[row.OrganizationID] >= organizationLimit) || !observation && workflows >= maxWorkflowTasks {
 			return false
 		}
 		running[row.DeviceID] = struct{}{}
 		if observation {
 			observations++
+			observationsByOrganization[row.OrganizationID]++
 		} else {
 			workflows++
 		}
@@ -75,6 +109,7 @@ func (s *Service) run(ctx context.Context, ticks <-chan time.Time, reconcile fun
 				delete(running, row.DeviceID)
 				if observation {
 					observations--
+					observationsByOrganization[row.OrganizationID]--
 				} else {
 					workflows--
 				}
@@ -84,7 +119,13 @@ func (s *Service) run(ctx context.Context, ticks <-chan time.Time, reconcile fun
 				default:
 				}
 			}()
-			if err := reconcile(ctx, row); err != nil {
+			taskCtx := ctx
+			if observation {
+				var cancel context.CancelFunc
+				taskCtx, cancel = context.WithTimeout(ctx, readinessTaskTimeout)
+				defer cancel()
+			}
+			if err := reconcile(taskCtx, row); err != nil {
 				slog.WarnContext(ctx, "mining group reconciliation paused", "device_id", row.DeviceID, "error", err)
 			}
 		}()
@@ -92,13 +133,17 @@ func (s *Service) run(ctx context.Context, ticks <-chan time.Time, reconcile fun
 	}
 	var queuedReadiness []sqlc.ListMiningGroupReadinessControllersRow
 	startReadiness := func() {
-		for len(queuedReadiness) > 0 && ctx.Err() == nil {
-			if !start(sqlc.ListMiningGroupControllersRow(queuedReadiness[0]), true) {
-				return
+		// Scan past organizations at their limit so their slow controllers do
+		// not prevent another fleet from using the remaining read capacity.
+		for i := 0; i < len(queuedReadiness) && ctx.Err() == nil; {
+			if !start(sqlc.ListMiningGroupControllersRow(queuedReadiness[i]), true) {
+				i++
+				continue
 			}
-			queuedReadiness = queuedReadiness[1:]
+			queuedReadiness = append(queuedReadiness[:i], queuedReadiness[i+1:]...)
 		}
 	}
+	var nextDiscovery time.Time
 	for {
 		select {
 		case <-ctx.Done():
@@ -106,6 +151,13 @@ func (s *Service) run(ctx context.Context, ticks <-chan time.Time, reconcile fun
 		case <-observationReady:
 			startReadiness()
 		case <-ticks:
+			if !time.Now().Before(nextDiscovery) {
+				if err := s.queries.DiscoverMiningGroupControllers(ctx); err != nil {
+					slog.ErrorContext(ctx, "discover mining group controllers", "error", err)
+				} else {
+					nextDiscovery = time.Now().Add(controllerDiscoveryInterval)
+				}
+			}
 			rows, err := s.queries.ListMiningGroupControllers(ctx)
 			if err != nil {
 				slog.ErrorContext(ctx, "list mining group operations", "error", err)
@@ -119,17 +171,20 @@ func (s *Service) run(ctx context.Context, ticks <-chan time.Time, reconcile fun
 					break
 				}
 			}
-			runningMu.Lock()
-			capacity := observations < 2
-			runningMu.Unlock()
-			if !capacity {
+			ready, err := s.queries.ListMiningGroupReadinessControllers(ctx)
+			if err != nil {
+				slog.ErrorContext(ctx, "list mining group readiness", "error", err)
 				continue
 			}
-			if len(queuedReadiness) == 0 {
-				queuedReadiness, err = s.queries.ListMiningGroupReadinessControllers(ctx)
-				if err != nil {
-					slog.ErrorContext(ctx, "list mining group readiness", "error", err)
-					continue
+			// Merge fresh discoveries even when one organization's tasks are
+			// slow. Keep existing queue order and avoid duplicate controller work.
+			queued := make(map[int64]bool, len(queuedReadiness))
+			for _, row := range queuedReadiness {
+				queued[row.DeviceID] = true
+			}
+			for _, row := range ready {
+				if !queued[row.DeviceID] {
+					queuedReadiness = append(queuedReadiness, row)
 				}
 			}
 			startReadiness()
@@ -156,7 +211,8 @@ func (s *Service) Reconcile(ctx context.Context, orgID, deviceID int64, identifi
 		// Activation and pool work recheck shared assignment authority. Take its
 		// organization admission before binding locks. Host deactivation and
 		// return-to-Default work need only the per-device binding reservation.
-		if initial.OperationKind != operationDeactivate && initial.OperationKind != operationReturnDefault {
+		receiptOnly := initial.ControllerOperationID != ""
+		if !receiptOnly && initial.OperationKind != operationDeactivate && initial.OperationKind != operationReturnDefault {
 			if _, err := q.LockPoolEquipmentOrganization(ctx, orgID); err != nil {
 				return err
 			}
@@ -167,6 +223,11 @@ func (s *Service) Reconcile(ctx context.Context, orgID, deviceID int64, identifi
 				return err
 			}
 			if row.AttemptID != initial.AttemptID || !active(row.Status) {
+				return nil
+			}
+			// A receipt-only pass has no organization authority reservation. If
+			// another worker settled it, restart through normal mutation admission.
+			if receiptOnly && row.ControllerOperationID != initial.ControllerOperationID {
 				return nil
 			}
 			// Settling an already admitted transfer is read-only. Loss of user
@@ -190,7 +251,7 @@ func (s *Service) Reconcile(ctx context.Context, orgID, deviceID int64, identifi
 				authorityErr = authorize(ctx, q, row.ActorID.Int64, orgID, target.SiteID, permission, authz.PermMinerStartMining, authz.PermMinerStopMining)
 			}
 			if err := authorityErr; err != nil {
-				if isInventoryStale(err) || isWorkflowChanged(err) {
+				if isInventoryStale(err) || isWorkflowChanged(err) || poolapplications.IsBindingChanged(err) || fleeterror.IsFailedPreconditionError(err) {
 					return s.handleBoardValidation(ctx, q, row, err)
 				}
 				if !fleeterror.IsForbiddenError(err) {

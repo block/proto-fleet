@@ -179,18 +179,22 @@ func (s *Service) GetState(ctx context.Context, identifier string) (State, error
 				if err := save(ctx, q, row); err != nil {
 					return err
 				}
-				var readiness deactivationReadiness
-				if observed.Supported && observed.Enabled {
-					readiness, err = s.deactivationReadiness(ctx, q, row, observed)
-					if err != nil {
-						return err
-					}
-				}
-				result = State{Record: row, Observed: observed, Desired: desired, DeactivationBlockedReason: readiness.Reason, CanReturnToDefault: readiness.CanReturnToDefault}
+				result = State{Record: row, Observed: observed, Desired: desired}
 				return nil
 			})
 		})
 	})
+	// Advisory checks can use another device call or fail on a database read.
+	// Run them after commit so they cannot discard a successful observation.
+	if err == nil && result.Record.ObservedAt.Valid && result.Observed.Supported && result.Observed.Enabled {
+		readiness, checkErr := s.deactivationReadiness(ctx, s.queries, result.Record, result.Observed)
+		if checkErr != nil {
+			result.DeactivationBlockedReason = "Fleet cannot confirm that mining groups can be disabled. Refresh the controller and try again."
+		} else {
+			result.DeactivationBlockedReason = readiness.Reason
+			result.CanReturnToDefault = readiness.CanReturnToDefault
+		}
+	}
 	return result, err
 }
 func (s *Service) call(ctx context.Context, id int64, r sdk.MiningGroupRequest) (sdk.MiningGroupResult, error) {
@@ -273,6 +277,9 @@ func (s *Service) changeMode(ctx context.Context, identifier, requestID, kind st
 		return true, nil
 	}
 	if done, e := replay(s.queries); e != nil || done {
+		if e == nil && done && kind == operationDeactivate {
+			e = s.resumeDeactivation(ctx, info.OrganizationID, info.UserID, identifier, target.ID, id)
+		}
 		return id, e
 	}
 	err = s.writes.BeginPoolWorkflow(ctx, info.OrganizationID, target.ID, func(ctx context.Context, q sqlc.Querier, attempt uuid.UUID, epoch int64) error {

@@ -36,6 +36,22 @@ func (q *Queries) DeleteUnappliedHashboardPoolIntents(ctx context.Context, arg D
 	return err
 }
 
+const discoverMiningGroupControllers = `-- name: DiscoverMiningGroupControllers :exec
+INSERT INTO container_mining_group_state(device_id,organization_id)
+SELECT d.id,d.org_id
+FROM discovered_device dd JOIN device d ON d.discovered_device_id=dd.id
+JOIN device_pairing dp ON dp.device_id=d.id AND dp.pairing_status IN ('PAIRED','DEFAULT_PASSWORD')
+WHERE dd.deleted_at IS NULL AND dd.device_class=2 AND d.deleted_at IS NULL
+ON CONFLICT(device_id) DO NOTHING
+`
+
+// Discover paired container inventory once per minute, including controllers
+// whose mining groups were enabled outside Fleet and have no allocations.
+func (q *Queries) DiscoverMiningGroupControllers(ctx context.Context) error {
+	_, err := q.exec(ctx, q.discoverMiningGroupControllersStmt, discoverMiningGroupControllers)
+	return err
+}
+
 const ensureMiningGroupState = `-- name: EnsureMiningGroupState :exec
 INSERT INTO container_mining_group_state(device_id,organization_id) VALUES($1,$2) ON CONFLICT(device_id) DO NOTHING
 `
@@ -513,16 +529,20 @@ WITH controllers AS MATERIALIZED (
  UNION
  SELECT organization_id,device_id FROM hosted_account_asset
  WHERE kind=7 AND client_id IS NOT NULL AND device_id IS NOT NULL
-)
-SELECT d.id AS device_id,d.org_id AS organization_id,d.device_identifier,s.attempt_id,COALESCE(s.retry_count,0)::integer AS retry_count,true::boolean AS readiness
-FROM controllers a JOIN device d ON d.id=a.device_id AND d.org_id=a.organization_id
-JOIN discovered_device dd ON dd.id=d.discovered_device_id AND dd.deleted_at IS NULL AND dd.device_class=2
-JOIN device_pairing dp ON dp.device_id=d.id AND dp.pairing_status IN ('PAIRED','DEFAULT_PASSWORD')
-LEFT JOIN container_mining_group_state s ON s.device_id=d.id AND s.organization_id=d.org_id
-WHERE d.deleted_at IS NULL AND COALESCE(s.next_reconcile_at,'-infinity'::timestamptz)<=CURRENT_TIMESTAMP
- AND COALESCE(s.status,'idle') NOT IN ('pending','applying','blocked')
+), due AS (
+ SELECT d.id AS device_id,d.org_id AS organization_id,d.device_identifier,s.attempt_id,COALESCE(s.retry_count,0)::integer AS retry_count,true::boolean AS readiness,
+  ROW_NUMBER() OVER (PARTITION BY d.org_id ORDER BY COALESCE(s.next_reconcile_at,'-infinity'::timestamptz),d.id) AS organization_rank,
+  COALESCE(s.next_reconcile_at,'-infinity'::timestamptz) AS due_at
+ FROM controllers a JOIN device d ON d.id=a.device_id AND d.org_id=a.organization_id
+ JOIN discovered_device dd ON dd.id=d.discovered_device_id AND dd.deleted_at IS NULL AND dd.device_class=2
+ JOIN device_pairing dp ON dp.device_id=d.id AND dp.pairing_status IN ('PAIRED','DEFAULT_PASSWORD')
+ LEFT JOIN container_mining_group_state s ON s.device_id=d.id AND s.organization_id=d.org_id
+ WHERE d.deleted_at IS NULL AND COALESCE(s.next_reconcile_at,'-infinity'::timestamptz)<=CURRENT_TIMESTAMP
+  AND COALESCE(s.status,'idle') NOT IN ('pending','applying','blocked')
   AND (s.observed_at IS NULL OR s.observed_at<=CURRENT_TIMESTAMP-INTERVAL '1 minute' OR s.observed_at>CURRENT_TIMESTAMP+INTERVAL '5 seconds')
-ORDER BY COALESCE(s.next_reconcile_at,'-infinity'::timestamptz),d.id LIMIT 1000
+)
+SELECT device_id,organization_id,device_identifier,attempt_id,retry_count,readiness
+FROM due ORDER BY organization_rank,due_at,organization_id,device_id LIMIT 1000
 `
 
 type ListMiningGroupReadinessControllersRow struct {
@@ -534,8 +554,9 @@ type ListMiningGroupReadinessControllersRow struct {
 	Readiness        bool
 }
 
-// Keep known CT1 modes fresh even before the first allocation or after recall.
-// Start from tracked controllers and allocated boards, not the miner fleet.
+// Frequent due-work checks only scan tracked controllers and allocated boards.
+// Interleave organizations so a large fleet cannot hide another organization's
+// due controllers behind the page limit. Within each organization, oldest wins.
 func (q *Queries) ListMiningGroupReadinessControllers(ctx context.Context) ([]ListMiningGroupReadinessControllersRow, error) {
 	rows, err := q.query(ctx, q.listMiningGroupReadinessControllersStmt, listMiningGroupReadinessControllers)
 	if err != nil {

@@ -2612,6 +2612,12 @@ func (q *retryingQuerier) DiscardRecoveredLegacyPoolIntents(ctx context.Context,
 	})
 }
 
+func (q *retryingQuerier) DiscoverMiningGroupControllers(ctx context.Context) error {
+	return q.retrier.RetryQuery(ctx, "DiscoverMiningGroupControllers", func() error {
+		return q.next.DiscoverMiningGroupControllers(ctx)
+	})
+}
+
 func (q *retryingQuerier) EndpointDiscoveryHasPairing(ctx context.Context, arg EndpointDiscoveryHasPairingParams) (bool, error) {
 	var result bool
 	err := q.retrier.RetryQuery(ctx, "EndpointDiscoveryHasPairing", func() error {

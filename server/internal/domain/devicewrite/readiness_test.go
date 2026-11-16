@@ -72,3 +72,10 @@ func TestPoolReadinessIgnoresOnlyUnrelatedWrites(t *testing.T) {
 		}
 	}
 }
+
+func TestMayAffectPoolsPreservesObservationAndUnknownCommandPolicy(t *testing.T) {
+	require.False(t, devicewrite.MayAffectPools("observation", "UnknownCommand"))
+	require.True(t, devicewrite.MayAffectPools("mutation", "UnknownCommand"))
+	require.False(t, devicewrite.MayAffectPools("mutation", "BlinkLED"))
+	require.True(t, devicewrite.MayAffectPools("mutation", "UpdateMiningPools"))
+}

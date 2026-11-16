@@ -29,6 +29,7 @@ func (h *Handler) GetState(ctx context.Context, r *connect.Request[pb.GetStateRe
 	out := &pb.GetStateResponse{Enabled: o.Enabled, Suspended: o.Suspended, Supported: o.Supported, Revision: state.Record.Revision, Status: state.Record.Status, Message: state.Record.Message}
 	out.DeactivationBlockedReason = state.DeactivationBlockedReason
 	out.CanReturnToDefault = state.CanReturnToDefault
+	out.CanResumeDeactivation = state.Record.OperationKind == "deactivate" && state.Record.Status == "blocked" && state.Record.Step.Valid
 	if state.Record.ObservedAt.Valid {
 		out.ObservedAt = timestamppb.New(state.Record.ObservedAt.Time)
 	}

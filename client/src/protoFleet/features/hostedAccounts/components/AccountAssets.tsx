@@ -23,6 +23,7 @@ import {
 import ListPagination from "@/protoFleet/components/ListPagination";
 import ListSearchInput from "@/protoFleet/components/ListSearchInput";
 import { POLL_INTERVAL_MS } from "@/protoFleet/constants/polling";
+import { hasMiningGroupPermissions } from "@/protoFleet/features/containers/miningGroupPermissions";
 import ReturnHashboardsToDefaultDialog from "@/protoFleet/features/containers/ReturnHashboardsToDefaultDialog";
 import FleetListActionBar from "@/protoFleet/features/fleetManagement/components/ActionBar/FleetListActionBar";
 import {
@@ -37,7 +38,7 @@ import { ConfigurationSelector } from "@/protoFleet/features/poolConfigurations/
 import { PoolAssignments } from "@/protoFleet/features/poolConfigurations/PoolAssignments";
 import SettingsEmptyState from "@/protoFleet/features/settings/components/SettingsEmptyState";
 import SettingsPageHeader from "@/protoFleet/features/settings/components/SettingsPageHeader";
-import { useFleetStore } from "@/protoFleet/store";
+import { useFleetStore, usePermissions } from "@/protoFleet/store";
 import { ChevronDown, Slider } from "@/shared/assets/icons";
 import { ActionBarSelectionControls } from "@/shared/components/ActionBar";
 import Button, { sizes } from "@/shared/components/Button";
@@ -72,6 +73,7 @@ const AccountAssets = ({
   const assigning = mode === "assign";
   const isPicker = !!onDismiss;
   const { account, client, readOnly = false } = useRequiredAccountScope();
+  const canReturnToDefault = hasMiningGroupPermissions(usePermissions(), "pools") && account.depth === 0;
   const inputId = useId();
   const [allocating, setAllocating] = useState(false);
   const fleetView = !child && !assigning && account.depth > 0;
@@ -222,6 +224,7 @@ const AccountAssets = ({
   const selectable = (editable && !readOnly) || poolEditable;
   if (!selectable && selected.length > 0) setSelected([]);
   if (!poolEditable && poolTargets) setPoolTargets(undefined);
+  if (!canReturnToDefault && returnToDefaultBoards) setReturnToDefaultBoards(undefined);
   if ((!editable || readOnly) && (review !== null || replacing !== null)) {
     setReplacing(null);
     setReview(null);
@@ -873,7 +876,7 @@ const AccountAssets = ({
                 throw error;
               }
               if (!current()) return;
-              if (!reviewingAssignment && account.depth === 0) {
+              if (!reviewingAssignment && canReturnToDefault) {
                 const recalledBoards = review.assets.flatMap((asset) => {
                   if (asset.kind === MiningAssetKind.HASHBOARD) return [asset.id];
                   if (asset.kind === MiningAssetKind.MODULE) return asset.boards.map((board) => board.id);
@@ -928,7 +931,7 @@ const AccountAssets = ({
           </p>
         </ActionModal>
       ) : null}
-      {returnToDefaultBoards ? (
+      {canReturnToDefault && returnToDefaultBoards ? (
         <ReturnHashboardsToDefaultDialog
           hashboardIds={returnToDefaultBoards}
           onClose={() => setReturnToDefaultBoards(undefined)}

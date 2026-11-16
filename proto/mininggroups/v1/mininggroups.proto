@@ -50,6 +50,8 @@ message GetStateResponse {
  string deactivation_blocked_reason = 11;
  // The server confirms that returning boards is the next deactivation step.
  bool can_return_to_default = 12;
+ // The server offers explicit reauthorization of the saved deactivation request.
+ bool can_resume_deactivation = 13;
 }
 message ActivateRequest {
  string device_identifier = 1 [(buf.validate.field).string = {min_len:1,max_len:255}];

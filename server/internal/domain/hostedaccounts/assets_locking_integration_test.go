@@ -122,3 +122,44 @@ func TestMiningReportSharedAuthorityExcludesRoleRevocation(t *testing.T) {
 	_, err = f.svc.MiningSummary(ctx, f.host, f.org, f.root)
 	require.True(t, fleeterror.IsForbiddenError(err), "the next report must see revoked authority: %v", err)
 }
+
+func TestAccountMiningAssignmentRetriesBriefDeviceContention(t *testing.T) {
+	f := setup(t)
+	client := f.client(t, "Customer", f.user, hostedaccounts.AllCapabilities)
+	other := f.client(t, "Other customer", f.user, hostedaccounts.AllCapabilities)
+	first := f.miningDevice(t, commonpb.DeviceClass_DEVICE_CLASS_RIG)
+	second := f.miningDevice(t, commonpb.DeviceClass_DEVICE_CLASS_RIG)
+	tx, err := f.db.BeginTx(t.Context(), nil)
+	require.NoError(t, err)
+	defer tx.Rollback()
+	_, err = tx.ExecContext(t.Context(), `SELECT id FROM device WHERE id=$1 FOR UPDATE`, second)
+	require.NoError(t, err)
+	result := make(chan error, 1)
+	go func() {
+		result <- f.svc.AssignAssets(t.Context(), f.host, f.org, &pb.AssignAccountAssetsRequest{
+			AccountId: f.root, ChildAccountId: client.AccountID,
+			Intent: pb.AssetAssignmentIntent_ASSET_ASSIGNMENT_INTENT_ASSIGN,
+			Assets: []*pb.MiningAssetSelection{selected(5, first, 0), selected(5, second, 0)},
+		})
+	}()
+	// The request must remain pending while the short physical operation runs.
+	select {
+	case err := <-result:
+		t.Fatalf("assignment returned before the device operation finished: %v", err)
+	case <-time.After(250 * time.Millisecond):
+	}
+	// Account administration must proceed before the busy device is released.
+	ctx, cancel := context.WithTimeout(t.Context(), time.Second)
+	defer cancel()
+	require.NoError(t, f.svc.ConfigureChild(ctx, f.host, f.org, other.AccountID, hostedaccounts.AllCapabilities, true))
+	var allocations int
+	require.NoError(t, f.db.QueryRowContext(ctx, `SELECT count(*) FROM hosted_account_asset`).Scan(&allocations))
+	require.Zero(t, allocations, "a failed attempt must not allocate the unlocked part of the batch")
+	require.NoError(t, tx.Commit())
+	require.NoError(t, <-result)
+	require.NoError(t, f.db.QueryRowContext(t.Context(), `SELECT count(*) FROM hosted_account_asset`).Scan(&allocations))
+	require.Equal(t, 2, allocations)
+	var audits int
+	require.NoError(t, f.db.QueryRowContext(t.Context(), `SELECT count(*) FROM activity_log WHERE event_type='account_assets_assigned'`).Scan(&audits))
+	require.Equal(t, 1, audits, "only the committed attempt must write an assignment audit")
+}

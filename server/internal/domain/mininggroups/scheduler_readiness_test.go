@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/block/proto-fleet/server/generated/sqlc"
+	"github.com/block/proto-fleet/server/internal/infrastructure/db"
 	"github.com/stretchr/testify/require"
 )
 
@@ -116,19 +117,21 @@ func TestSchedulerDrainsReadinessWithoutWaitingForAnotherTick(t *testing.T) {
 			t.Fatal("a free observation slot waited for another scheduler tick")
 		}
 	}
-	next()
-	next()
+	for range maxOrganizationReadinessTasks {
+		next()
+	}
 	select {
 	case <-started:
-		t.Fatal("observations exceeded their two-slot budget")
+		t.Fatal("observations exceeded the organization budget")
 	case <-time.After(50 * time.Millisecond):
 	}
-	for range controllers - 2 {
+	for range controllers - maxOrganizationReadinessTasks {
 		release <- struct{}{}
 		next()
 	}
-	release <- struct{}{}
-	release <- struct{}{}
+	for range maxOrganizationReadinessTasks {
+		release <- struct{}{}
+	}
 	for range controllers {
 		select {
 		case <-completed:
@@ -139,4 +142,107 @@ func TestSchedulerDrainsReadinessWithoutWaitingForAnotherTick(t *testing.T) {
 	var refreshed int
 	require.NoError(t, conn.QueryRowContext(ctx, `SELECT count(*) FROM container_mining_group_state WHERE device_id=ANY($1) AND observed_at>clock_timestamp()-INTERVAL '2 minutes'`, ids).Scan(&refreshed))
 	require.Equal(t, controllers, refreshed)
+}
+
+func TestSchedulerSlowReadinessLeavesCapacityForHealthyControllersAndOtherOrganizations(t *testing.T) {
+	const controllers = 80
+	s, ids, conn := newSchedulerOrganizationsFixture(t, []int{64, 16})
+	_, err := conn.ExecContext(t.Context(), `UPDATE container_mining_group_state SET status='idle' WHERE device_id=ANY($1)`, ids)
+	require.NoError(t, err)
+	_, err = conn.ExecContext(t.Context(), `UPDATE discovered_device SET device_class=2 WHERE id IN (SELECT discovered_device_id FROM device WHERE id=ANY($1))`, ids)
+	require.NoError(t, err)
+	_, err = conn.ExecContext(t.Context(), `INSERT INTO device_pairing(device_id,pairing_status) SELECT id,'PAIRED' FROM device WHERE id=ANY($1)`, ids)
+	require.NoError(t, err)
+	var otherOrg int64
+	require.NoError(t, conn.QueryRowContext(t.Context(), `SELECT org_id FROM device WHERE id=$1`, ids[64]).Scan(&otherOrg))
+	slow := make(chan int64, controllers)
+	healthy := make(chan int64, controllers)
+	startScheduler(t, s, func(ctx context.Context, row sqlc.ListMiningGroupControllersRow) error {
+		deadline, bounded := ctx.Deadline()
+		if !bounded || time.Until(deadline) > readinessTaskTimeout {
+			return fmt.Errorf("readiness task lacks scheduler deadline")
+		}
+		// The first organization exceeds its own limit. The second mixes two
+		// slow controllers with healthy controllers behind them in due order.
+		if row.OrganizationID != otherOrg || row.DeviceID == ids[64] || row.DeviceID == ids[65] {
+			slow <- row.DeviceID
+			<-ctx.Done()
+			return ctx.Err()
+		}
+		_, err := conn.ExecContext(ctx, `UPDATE container_mining_group_state SET observed_at=clock_timestamp(),next_reconcile_at=clock_timestamp()+INTERVAL '1 minute' WHERE device_id=$1`, row.DeviceID)
+		if err == nil {
+			healthy <- row.DeviceID
+			return nil
+		}
+		return fmt.Errorf("record readiness observation: %w", err)
+	})
+	for range 14 {
+		select {
+		case <-healthy:
+		case <-time.After(3 * time.Second):
+			t.Fatal("a slow organization or two slow controllers starved healthy readiness")
+		}
+	}
+	require.Eventually(t, func() bool { return len(slow) == maxOrganizationReadinessTasks+2 }, time.Second, 10*time.Millisecond)
+}
+
+func TestReadinessCapacityReservesPhysicalDispatchSlots(t *testing.T) {
+	s, _, conn := newSchedulerFixture(t, 1)
+	for _, tc := range []struct{ pool, want int }{
+		{pool: 2, want: 0},
+		{pool: 4, want: 1},
+		{pool: 16, want: 4},
+		{pool: 32, want: 8},
+		{pool: 250, want: maxReadinessTasks},
+	} {
+		t.Run(fmt.Sprintf("pool_%d", tc.pool), func(t *testing.T) {
+			conn.SetMaxOpenConns(tc.pool)
+			capacity, err := readinessCapacity(s.conn)
+			require.NoError(t, err)
+			require.Equal(t, tc.want, capacity)
+		})
+	}
+}
+
+func TestReadinessLeavesPhysicalDispatchCapacityForWorkflow(t *testing.T) {
+	s, ids, conn := newSchedulerFixture(t, 2)
+	conn.SetMaxOpenConns(4) // Two dispatch slots: one observation and one workflow.
+	_, err := conn.ExecContext(t.Context(), `UPDATE container_mining_group_state SET status='idle' WHERE device_id=ANY($1)`, ids)
+	require.NoError(t, err)
+	_, err = conn.ExecContext(t.Context(), `UPDATE discovered_device SET device_class=2 WHERE id IN (SELECT discovered_device_id FROM device WHERE id=ANY($1))`, ids)
+	require.NoError(t, err)
+	_, err = conn.ExecContext(t.Context(), `INSERT INTO device_pairing(device_id,pairing_status) SELECT id,'PAIRED' FROM device WHERE id=ANY($1)`, ids)
+	require.NoError(t, err)
+	idle := make(chan struct{}, 1)
+	workflow := make(chan struct{}, 1)
+	startScheduler(t, s, func(ctx context.Context, row sqlc.ListMiningGroupControllersRow) error {
+		release, err := db.AcquireDispatchBudget(ctx, conn)
+		if err != nil {
+			return err
+		}
+		defer release()
+		if row.Readiness {
+			idle <- struct{}{}
+			<-ctx.Done()
+			return ctx.Err()
+		}
+		workflow <- struct{}{}
+		_, err = conn.ExecContext(ctx, `UPDATE container_mining_group_state SET status='complete' WHERE device_id=$1`, row.DeviceID)
+		if err != nil {
+			return fmt.Errorf("complete test workflow: %w", err)
+		}
+		return nil
+	})
+	select {
+	case <-idle:
+	case <-time.After(2 * time.Second):
+		t.Fatal("readiness did not acquire its physical dispatch slot")
+	}
+	_, err = conn.ExecContext(t.Context(), `UPDATE container_mining_group_state SET status='pending' WHERE device_id=$1`, ids[1])
+	require.NoError(t, err)
+	select {
+	case <-workflow:
+	case <-time.After(2 * time.Second):
+		t.Fatal("readiness consumed dispatch capacity reserved for workflows")
+	}
 }

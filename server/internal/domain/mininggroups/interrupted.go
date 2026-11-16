@@ -62,6 +62,9 @@ func (s *Service) interrupt(ctx context.Context, q sqlc.Querier, row sqlc.Contai
 			return err
 		}
 		if !unsent {
+			if row.OperationKind == operationDeactivate {
+				return s.block(ctx, q, row, "Operator access changed. Resume disabling mining groups to continue.")
+			}
 			return s.block(ctx, q, row, "Access or board installation changed; the saved controller request must be resolved before this operation can end")
 		}
 		row.Step = pqtype.NullRawMessage{}

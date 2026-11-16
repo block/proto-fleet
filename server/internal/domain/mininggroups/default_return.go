@@ -82,6 +82,27 @@ func currentDefaultReturnObservation(state State) bool {
 	return state.Record.ObservedAt.Valid && time.Since(state.Record.ObservedAt.Time) <= 2*time.Minute && time.Until(state.Record.ObservedAt.Time) <= 5*time.Second && state.Observed.Supported
 }
 
+// Routine review polls use committed observations. Confirmation still checks
+// permissions, installations, pool work, and live controller revisions again.
+func (s *Service) defaultReturnReviewState(ctx context.Context, orgID, userID int64, identifier string) (State, error) {
+	target, err := s.ensure(ctx, orgID, userID, identifier)
+	if err != nil {
+		return State{}, err
+	}
+	row, err := s.queries.GetMiningGroupState(ctx, sqlc.GetMiningGroupStateParams{OrganizationID: orgID, DeviceID: target.ID})
+	if err != nil {
+		return State{}, err
+	}
+	state := State{Record: row}
+	if err := decode(row.Observed, &state.Observed); err != nil {
+		return State{}, err
+	}
+	if currentDefaultReturnObservation(state) {
+		return state, nil
+	}
+	return s.GetState(ctx, identifier)
+}
+
 func (s *Service) ReviewReturnToDefault(ctx context.Context, identifier string, ids []int64) ([]DefaultReturnReview, error) {
 	info, err := OperatorPrincipal(ctx)
 	if err != nil {
@@ -92,7 +113,7 @@ func (s *Service) ReviewReturnToDefault(ctx context.Context, identifier string, 
 	}
 	var containerState *State
 	if identifier != "" {
-		state, err := s.GetState(ctx, identifier)
+		state, err := s.defaultReturnReviewState(ctx, info.OrganizationID, info.UserID, identifier)
 		if err != nil {
 			return nil, err
 		}
@@ -136,7 +157,7 @@ func (s *Service) ReviewReturnToDefault(ctx context.Context, identifier string, 
 		if containerState != nil {
 			state = *containerState
 		} else {
-			state, err = s.GetState(ctx, selection[0].DeviceIdentifier)
+			state, err = s.defaultReturnReviewState(ctx, info.OrganizationID, info.UserID, selection[0].DeviceIdentifier)
 			if err != nil {
 				return nil, err
 			}

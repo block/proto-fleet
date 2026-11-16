@@ -8,6 +8,8 @@ import (
 
 	"github.com/block/proto-fleet/server/generated/sqlc"
 	"github.com/block/proto-fleet/server/internal/domain/devicewrite"
+	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/block/proto-fleet/server/internal/domain/poolapplications"
 	sdk "github.com/block/proto-fleet/server/sdk/v1"
 	"github.com/google/uuid"
 )
@@ -68,10 +70,10 @@ func (s *Service) blockWithDiagnostic(ctx context.Context, q sqlc.Querier, row s
 }
 
 func (s *Service) handleBoardValidation(ctx context.Context, q sqlc.Querier, row sqlc.ContainerMiningGroupState, err error) error {
-	if isWorkflowChanged(err) {
+	if isWorkflowChanged(err) || poolapplications.IsBindingChanged(err) || fleeterror.IsForbiddenError(err) {
 		return s.interrupt(ctx, q, row, err.Error())
 	}
-	if isInventoryStale(err) {
+	if isInventoryStale(err) || fleeterror.IsFailedPreconditionError(err) {
 		return s.block(ctx, q, row, err.Error())
 	}
 	return err

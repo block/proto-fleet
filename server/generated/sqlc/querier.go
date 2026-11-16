@@ -633,6 +633,9 @@ type Querier interface {
 	DisableCurtailmentAutomationRuleByActiveEvent(ctx context.Context, arg DisableCurtailmentAutomationRuleByActiveEventParams) (int64, error)
 	DisableSyncCommit(ctx context.Context) error
 	DiscardRecoveredLegacyPoolIntents(ctx context.Context, arg DiscardRecoveredLegacyPoolIntentsParams) error
+	// Discover paired container inventory once per minute, including controllers
+	// whose mining groups were enabled outside Fleet and have no allocations.
+	DiscoverMiningGroupControllers(ctx context.Context) error
 	// Read after taking inventory locks so a pairing that won the wait is visible.
 	EndpointDiscoveryHasPairing(ctx context.Context, arg EndpointDiscoveryHasPairingParams) (bool, error)
 	// A keyless fallback must not create another row for a known group's peer.
@@ -1810,8 +1813,9 @@ type Querier interface {
 	// This stub exists solely to generate the ListMinerStateSnapshotsRow type.
 	ListMinerStateSnapshots(ctx context.Context) ([]ListMinerStateSnapshotsRow, error)
 	ListMiningGroupControllers(ctx context.Context) ([]ListMiningGroupControllersRow, error)
-	// Keep known CT1 modes fresh even before the first allocation or after recall.
-	// Start from tracked controllers and allocated boards, not the miner fleet.
+	// Frequent due-work checks only scan tracked controllers and allocated boards.
+	// Interleave organizations so a large fleet cannot hide another organization's
+	// due controllers behind the page limit. Within each organization, oldest wins.
 	ListMiningGroupReadinessControllers(ctx context.Context) ([]ListMiningGroupReadinessControllersRow, error)
 	ListModuleCommandTargets(ctx context.Context, arg ListModuleCommandTargetsParams) ([]ListModuleCommandTargetsRow, error)
 	// System-scope (no org filter); reconciler is a singleton driving all orgs.

@@ -16,18 +16,30 @@ const meta = {
           .getState()
           .auth.setPermissions(["miner:deactivate_mining_groups", "miner:start_mining", "miner:stop_mining"]);
         const previousFetch = window.fetch;
-        let enabled = true;
+        let canResumeDeactivation = context.parameters.canResumeDeactivation ?? false;
+        let enabled = !canResumeDeactivation;
         window.fetch = async (input, init) => {
           const url = input instanceof Request ? input.url : String(input);
           if (!url.includes("/mininggroups.v1.MiningGroupService/")) return previousFetch(input, init);
-          if (url.endsWith("/Deactivate")) enabled = false;
+          if (url.endsWith("/Deactivate")) {
+            enabled = false;
+            canResumeDeactivation = false;
+          }
+          let status = "complete";
+          if (canResumeDeactivation) status = "blocked";
+          else if (enabled) status = "idle";
           return new Response(
             JSON.stringify(
               url.endsWith("/GetState")
                 ? {
                     supported: true,
                     enabled,
-                    status: enabled ? "idle" : "complete",
+                    status,
+                    canResumeDeactivation,
+                    operationId: "story-deactivation",
+                    message: canResumeDeactivation
+                      ? "Operator access changed. Resume disabling mining groups to continue."
+                      : "",
                     observedAt: new Date().toISOString(),
                     groups: [{ id: "client-group", macAddresses: ["02:00:00:00:00:01"] }],
                     canReturnToDefault: context.parameters.canReturnToDefault ?? false,
@@ -42,7 +54,11 @@ const meta = {
           window.fetch = previousFetch;
           useFleetStore.getState().auth.setPermissions(previousPermissions);
         };
-      }, [context.parameters.blockedReason, context.parameters.canReturnToDefault]);
+      }, [
+        context.parameters.blockedReason,
+        context.parameters.canReturnToDefault,
+        context.parameters.canResumeDeactivation,
+      ]);
       return <Story />;
     },
   ],
@@ -69,4 +85,8 @@ export const RecoveryRequired: Story = {
   parameters: {
     blockedReason: "Wait for pending device changes or resolve uncertain writes before disabling mining groups.",
   },
+};
+
+export const ResumeDisabling: Story = {
+  parameters: { canResumeDeactivation: true },
 };

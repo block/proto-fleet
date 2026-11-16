@@ -92,6 +92,9 @@ export default function ContainerActionsMenu({
   const currentStatus = status?.deviceIdentifier === deviceIdentifier ? status : undefined;
   const { state: groups } = useMiningGroupState(deviceIdentifier, open && permissions.includes("miner:read"));
   const groupsEnabled = groups?.enabled;
+  const groupsAction = groups?.canResumeDeactivation || groupsEnabled ? "deactivate" : "activate";
+  let groupsLabel = groupsEnabled ? "Disable mining groups" : "Enable mining groups";
+  if (groups?.canResumeDeactivation) groupsLabel = "Resume disabling mining groups";
   const canEditPools = permissions.includes("pool:read") && permissions.includes("miner:update_pools");
   const poolsReady =
     !!groups?.supported &&
@@ -160,12 +163,11 @@ export default function ContainerActionsMenu({
           onClick: () => navigate(controllerLogsPath(container)),
         },
         {
-          label: groups?.enabled ? "Disable mining groups" : "Enable mining groups",
+          label: groupsLabel,
           icon: <MiningPools />,
-          hidden:
-            !hasMiningGroupPermissions(permissions, groups?.enabled ? "deactivate" : "activate") || !groups?.supported,
+          hidden: !hasMiningGroupPermissions(permissions, groupsAction) || !groups?.supported,
           onClick: () => {
-            setGroupsMode(groups?.enabled ? "deactivate" : "activate");
+            setGroupsMode(groupsAction);
             setGroupsOpen(true);
           },
         },

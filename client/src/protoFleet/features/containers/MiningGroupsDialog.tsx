@@ -87,6 +87,14 @@ function MiningGroupsForm({ deviceIdentifier, onClose, mode = "activate" }: Mini
   const pending = state && ["pending", "applying", "blocked"].includes(state.status);
   const fresh = isCurrentObservation(state?.observedAt, now);
   const allowed = hasMiningGroupPermissions(permissions, mode);
+  const canResume =
+    deactivating &&
+    allowed &&
+    fresh &&
+    !observationError &&
+    state?.supported &&
+    state.canResumeDeactivation &&
+    !!state.operationId;
   const ready =
     allowed &&
     fresh &&
@@ -95,12 +103,15 @@ function MiningGroupsForm({ deviceIdentifier, onClose, mode = "activate" }: Mini
     !submitted &&
     (deactivating ? state.enabled && !state.deactivationBlockedReason : !state.enabled);
   const submit = async () => {
-    if (!ready || saving || !state) return;
+    if ((!ready && !canResume) || saving || !state) return;
     setSaving(true);
     setError("");
     try {
       // Polling and retries after a lost response retain the same request ID.
-      requestId.current ??= createOperationID();
+      if (canResume) {
+        requestId.current = state.operationId;
+        setSubmitted(false);
+      } else requestId.current ??= createOperationID();
       const changeMode = deactivating ? miningGroupsClient.deactivate : miningGroupsClient.activate;
       await changeMode({
         deviceIdentifier,
@@ -147,6 +158,7 @@ function MiningGroupsForm({ deviceIdentifier, onClose, mode = "activate" }: Mini
   let buttonLabel = actionLabel;
   if (complete) buttonLabel = "Done";
   else if (saving) buttonLabel = "Submitting…";
+  else if (canResume) buttonLabel = "Resume disabling";
   else if (started) buttonLabel = "Close";
 
   let introduction =
@@ -189,6 +201,17 @@ function MiningGroupsForm({ deviceIdentifier, onClose, mode = "activate" }: Mini
       manageFocus
       onDismiss={saving ? undefined : onClose}
       buttons={[
+        ...(canResume
+          ? [
+              {
+                text: "Close",
+                variant: "secondary" as const,
+                disabled: saving,
+                dismissModalOnClick: false,
+                onClick: onClose,
+              },
+            ]
+          : []),
         ...(canMove
           ? [
               {
@@ -208,7 +231,7 @@ function MiningGroupsForm({ deviceIdentifier, onClose, mode = "activate" }: Mini
                 disabled: saving || (!disableBlocked && !complete && !started && !ready),
                 dismissModalOnClick: false,
                 onClick: () => {
-                  if (disableBlocked || complete || started) onClose();
+                  if (!canResume && (disableBlocked || complete || started)) onClose();
                   else void submit();
                 },
               },

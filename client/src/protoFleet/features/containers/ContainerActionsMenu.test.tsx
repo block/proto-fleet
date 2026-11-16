@@ -19,6 +19,7 @@ const state = vi.hoisted(() => ({
   deleteMiners: vi.fn(),
   pushToast: vi.fn(),
   getState: vi.fn(),
+  deactivate: vi.fn(),
   request: vi.fn(),
   statusRequest: vi.fn(),
   commandResult: vi.fn(),
@@ -31,7 +32,7 @@ vi.mock("@/protoFleet/store", async (importOriginal) => ({
 vi.mock("@/protoFleet/api/clients", () => ({
   minerCommandClient: { firmwareUpdate: state.firmwareUpdate },
   fleetManagementClient: { deleteMiners: state.deleteMiners },
-  miningGroupsClient: { getState: state.getState },
+  miningGroupsClient: { getState: state.getState, deactivate: state.deactivate },
   containersClient: {
     getMiningStatus: state.statusRequest,
     getPowerTarget: state.request,
@@ -115,6 +116,7 @@ const renderMenu = (overrides = {}, onUnpaired = vi.fn()) =>
 beforeEach(() => {
   state.pushToast.mockClear();
   state.getState.mockReset().mockResolvedValue({ enabled: false });
+  state.deactivate.mockReset().mockResolvedValue({ operationId: "saved-deactivation" });
   state.permissions = [
     "miner:read",
     "miner:delete",
@@ -708,6 +710,32 @@ it.each([
   fireEvent.click(screen.getByRole("button", { name: "Actions for Container 1" }));
   await waitFor(() => expect(state.getState).toHaveBeenCalled());
   await waitFor(() => expect(!!screen.queryByRole("button", { name: "Enable mining groups" })).toBe(visible));
+});
+
+it("opens deactivation recovery after a lost reply without activation permission", async () => {
+  state.permissions = ["miner:read", "miner:deactivate_mining_groups", "miner:start_mining", "miner:stop_mining"];
+  state.getState.mockResolvedValue({
+    enabled: false,
+    supported: true,
+    status: "blocked",
+    canResumeDeactivation: true,
+    operationId: "saved-deactivation",
+    observedAt: timestampFromDate(new Date()),
+  });
+  renderMenu();
+  await openAction("Resume disabling mining groups");
+  const dialog = screen.getByRole("dialog", { name: "Disable mining groups" });
+  const resume = await within(dialog).findByRole("button", { name: "Resume disabling" });
+  expect(resume).toBeEnabled();
+  expect(screen.queryByRole("button", { name: "Enable mining groups" })).not.toBeInTheDocument();
+  fireEvent.click(resume);
+  await waitFor(() =>
+    expect(state.deactivate).toHaveBeenCalledExactlyOnceWith({
+      deviceIdentifier: "ct1/board",
+      requestId: "saved-deactivation",
+      acknowledgeInterruption: true,
+    }),
+  );
 });
 
 it.each(["miner:start_mining", "miner:stop_mining"])("hides activation without %s", async (missing) => {

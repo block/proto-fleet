@@ -13,7 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestAllocationDoesNotWaitForControllerObservation(t *testing.T) {
+func TestAllocationReleasesOrganizationWhileControllerObservationIsBusy(t *testing.T) {
 	for _, replacement := range []bool{false, true} {
 		name := "assign"
 		if replacement {
@@ -45,11 +45,33 @@ func TestAllocationDoesNotWaitForControllerObservation(t *testing.T) {
 			ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
 			defer cancel()
 			started := time.Now()
-			err = change(ctx)
-			require.True(t, fleeterror.IsUnavailableError(err), "a busy controller must return a retryable error: %v", err)
-			require.Less(t, time.Since(started), time.Second)
+			result := make(chan error, 1)
+			go func() { result <- change(ctx) }()
+			if replacement {
+				err = <-result
+				require.True(t, fleeterror.IsUnavailableError(err), "a busy replacement must remain retryable: %v", err)
+				require.Less(t, time.Since(started), time.Second)
+			} else {
+				select {
+				case err := <-result:
+					t.Fatalf("assignment stopped before its retry deadline: %v", err)
+				case <-time.After(250 * time.Millisecond):
+				}
+			}
 			// The same organization remains usable while observation I/O is held.
-			require.NoError(t, f.svc.AssignAssets(ctx, f.host, f.org, &pb.AssignAccountAssetsRequest{AccountId: f.root, ChildAccountId: client.AccountID, Intent: pb.AssetAssignmentIntent_ASSET_ASSIGNMENT_INTENT_ASSIGN, Assets: []*pb.MiningAssetSelection{selected(7, other, 0)}}))
+			mutationCtx, cancelMutation := context.WithTimeout(t.Context(), time.Second)
+			defer cancelMutation()
+			require.NoError(t, f.svc.AssignAssets(mutationCtx, f.host, f.org, &pb.AssignAccountAssetsRequest{AccountId: f.root, ChildAccountId: client.AccountID, Intent: pb.AssetAssignmentIntent_ASSET_ASSIGNMENT_INTENT_ASSIGN, Assets: []*pb.MiningAssetSelection{selected(7, other, 0)}}))
+			if !replacement {
+				select {
+				case err := <-result:
+					require.True(t, fleeterror.IsUnavailableError(err), "a busy controller must return a retryable error: %v", err)
+					require.GreaterOrEqual(t, time.Since(started), 1500*time.Millisecond)
+					require.Less(t, time.Since(started), 3*time.Second, "the caller's deadline must bound retries")
+				case <-time.After(3 * time.Second):
+					t.Fatal("assignment did not stop at its retry deadline")
+				}
+			}
 			require.NoError(t, observation.Commit())
 			require.NoError(t, change(t.Context()), "the original reviewed selection must remain usable after the observation ends")
 		})
@@ -59,6 +81,7 @@ func TestAllocationDoesNotWaitForControllerObservation(t *testing.T) {
 func TestRigAllocationCanRetryBusyBinding(t *testing.T) {
 	f := setup(t)
 	client := f.client(t, "Client", f.user, hostedaccounts.AllCapabilities)
+	other := f.client(t, "Other client", f.user, hostedaccounts.AllCapabilities)
 	miner := f.miningDevice(t, commonpb.DeviceClass_DEVICE_CLASS_RIG)
 	observation, err := f.db.BeginTx(t.Context(), nil)
 	require.NoError(t, err)
@@ -66,9 +89,21 @@ func TestRigAllocationCanRetryBusyBinding(t *testing.T) {
 	_, err = sqlc.New(observation).LockMinerBindingObservationDevice(t.Context(), miner)
 	require.NoError(t, err)
 	started := time.Now()
-	err = f.allocate(t, f.host, f.root, client.AccountID, pb.AssetAssignmentIntent_ASSET_ASSIGNMENT_INTENT_ASSIGN, selected(5, miner, 0))
-	require.True(t, fleeterror.IsUnavailableError(err))
-	require.Less(t, time.Since(started), time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), 3*time.Second)
+	defer cancel()
+	result := make(chan error, 1)
+	go func() {
+		result <- f.svc.AssignAssets(ctx, f.host, f.org, &pb.AssignAccountAssetsRequest{AccountId: f.root, ChildAccountId: client.AccountID, Intent: pb.AssetAssignmentIntent_ASSET_ASSIGNMENT_INTENT_ASSIGN, Assets: []*pb.MiningAssetSelection{selected(5, miner, 0)}})
+	}()
+	select {
+	case err := <-result:
+		t.Fatalf("allocation did not wait for brief binding contention: %v", err)
+	case <-time.After(250 * time.Millisecond):
+	}
+	mutationCtx, cancelMutation := context.WithTimeout(t.Context(), time.Second)
+	defer cancelMutation()
+	require.NoError(t, f.svc.ConfigureChild(mutationCtx, f.host, f.org, other.AccountID, hostedaccounts.AllCapabilities, true), "retry waits must release organization admission")
 	require.NoError(t, observation.Commit())
-	require.NoError(t, f.allocate(t, f.host, f.root, client.AccountID, pb.AssetAssignmentIntent_ASSET_ASSIGNMENT_INTENT_ASSIGN, selected(5, miner, 0)))
+	require.NoError(t, <-result, "the pending allocation must retry after the binding is released")
+	require.Less(t, time.Since(started), 3*time.Second)
 }

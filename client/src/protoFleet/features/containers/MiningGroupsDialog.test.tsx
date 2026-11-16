@@ -157,6 +157,114 @@ it.each(["pending", "applying", "blocked", "complete"])(
   },
 );
 
+it("resumes a blocked deactivation with its saved operation ID", async () => {
+  const onClose = vi.fn();
+  let finish: (() => void) | undefined;
+  mocks.deactivate.mockImplementation(
+    () =>
+      new Promise<void>((resolve) => {
+        finish = resolve;
+      }),
+  );
+  mocks.getState.mockResolvedValue(
+    create(GetStateResponseSchema, {
+      enabled: true,
+      supported: true,
+      status: "blocked",
+      operationId: "saved-deactivation",
+      canResumeDeactivation: true,
+      message: "Operator access changed. Resume disabling mining groups to continue.",
+      observedAt: timestampFromDate(new Date()),
+    }),
+  );
+  render(<MiningGroupsDialog deviceIdentifier="ct1" mode="deactivate" onClose={onClose} />);
+  fireEvent.click(await screen.findByRole("button", { name: "Resume disabling" }));
+  expect(mocks.deactivate).toHaveBeenCalledExactlyOnceWith({
+    deviceIdentifier: "ct1",
+    requestId: "saved-deactivation",
+    acknowledgeInterruption: true,
+  });
+  expect(screen.getByRole("button", { name: "Submitting…" })).toBeDisabled();
+  expect(screen.getByRole("button", { name: "Close" })).toBeDisabled();
+  expect(onClose).not.toHaveBeenCalled();
+  mocks.getState.mockResolvedValue(
+    create(GetStateResponseSchema, {
+      enabled: true,
+      supported: true,
+      status: "applying",
+      operationId: "saved-deactivation",
+      message: "Disabling mining groups…",
+      observedAt: timestampFromDate(new Date()),
+    }),
+  );
+  await act(async () => finish?.());
+  expect(screen.queryByRole("button", { name: "Resume disabling" })).not.toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Close" })).toBeEnabled();
+  expect(mocks.getState).toHaveBeenCalledTimes(2);
+});
+
+it("offers resume after this dialog submitted the paused deactivation", async () => {
+  mocks.deactivate.mockImplementationOnce(({ requestId }: { requestId: string }) => {
+    mocks.getState.mockResolvedValue(
+      create(GetStateResponseSchema, {
+        enabled: true,
+        supported: true,
+        status: "blocked",
+        operationId: requestId,
+        canResumeDeactivation: true,
+        observedAt: timestampFromDate(new Date()),
+      }),
+    );
+    return Promise.resolve({ operationId: requestId });
+  });
+  render(<MiningGroupsDialog deviceIdentifier="ct1" mode="deactivate" onClose={vi.fn()} />);
+  const disable = await screen.findByRole("button", { name: "Disable mining groups" });
+  await waitFor(() => expect(disable).toBeEnabled());
+  fireEvent.click(disable);
+  fireEvent.click(await screen.findByRole("button", { name: "Resume disabling" }));
+  await waitFor(() => expect(mocks.deactivate).toHaveBeenCalledTimes(2));
+  expect(mocks.deactivate.mock.calls[1][0].requestId).toEqual(mocks.deactivate.mock.calls[0][0].requestId);
+});
+
+it.each([
+  { name: "without the server flag", canResume: false, fresh: true, missing: "", operationId: "saved" },
+  { name: "with stale state", canResume: true, fresh: false, missing: "", operationId: "saved" },
+  { name: "without an operation ID", canResume: true, fresh: true, missing: "", operationId: "" },
+  {
+    name: "without disable permission",
+    canResume: true,
+    fresh: true,
+    missing: "miner:deactivate_mining_groups",
+    operationId: "saved",
+  },
+  {
+    name: "without start permission",
+    canResume: true,
+    fresh: true,
+    missing: "miner:start_mining",
+    operationId: "saved",
+  },
+  { name: "without stop permission", canResume: true, fresh: true, missing: "miner:stop_mining", operationId: "saved" },
+])("does not resume deactivation $name", async ({ canResume, fresh, missing, operationId }) => {
+  mocks.permissions = mocks.permissions.filter((permission) => permission !== missing);
+  mocks.getState.mockResolvedValue(
+    create(GetStateResponseSchema, {
+      enabled: true,
+      supported: true,
+      status: "blocked",
+      operationId,
+      canResumeDeactivation: canResume,
+      message: "Recovery is paused",
+      observedAt: fresh ? timestampFromDate(new Date()) : undefined,
+    }),
+  );
+  render(<MiningGroupsDialog deviceIdentifier="ct1" mode="deactivate" onClose={vi.fn()} />);
+  await screen.findByText("Recovery is paused");
+  expect(screen.queryByRole("button", { name: "Resume disabling" })).not.toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Close" })).toBeEnabled();
+  expect(mocks.deactivate).not.toHaveBeenCalled();
+});
+
 it("keeps stale state, access, and read errors visible during deactivation", async () => {
   const intervals = vi.spyOn(window, "setInterval");
   mocks.permissions = mocks.permissions.filter((permission) => permission !== "miner:deactivate_mining_groups");

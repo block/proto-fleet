@@ -90,7 +90,7 @@ func (d DatabaseMessageQueue) enqueueEncoded(ctx context.Context, commandBatchLo
 			}
 			epochs[i] = fence.Epoch
 		}
-		if !commandType.IsCurtailmentControl() {
+		if commandType.MayAffectPools() && !commandType.IsCurtailmentControl() {
 			changing, err := q.ListActiveMiningGroupDeactivations(ctx, deviceIDs)
 			if err != nil {
 				return err

@@ -112,6 +112,8 @@ func TestDefaultReturnRejectsCustomPowerAndTuningPolicies(t *testing.T) {
 				ctx, f, firmware, ids := newDefaultReturnFixture(t)
 				if phase == "review" {
 					firmware.snapshot.Groups[index].CustomPolicy = true
+					_, err := f.service.GetState(ctx, f.target.DeviceIdentifier)
+					require.NoError(t, err)
 					reviews, err := f.service.ReviewReturnToDefault(ctx, f.target.DeviceIdentifier, ids)
 					require.NoError(t, err)
 					require.Len(t, reviews, 1)
@@ -350,9 +352,11 @@ func TestDefaultReturnPreservesNewPoolPolicyBeforeOrAfterTransfer(t *testing.T) 
 func TestDefaultReturnKeepsStoppedDefaultStopped(t *testing.T) {
 	ctx, f, firmware, ids := newDefaultReturnFixture(t)
 	firmware.snapshot.Groups[0].Mining = false
+	_, err := f.service.GetState(ctx, f.target.DeviceIdentifier)
+	require.NoError(t, err)
 	review := reviewDefaultReturn(t, ctx, f, ids)
 	require.False(t, review.Default.Mining)
-	_, err := f.service.ReturnToDefault(ctx, f.target.DeviceIdentifier, review.Token, uuid.NewString(), ids)
+	_, err = f.service.ReturnToDefault(ctx, f.target.DeviceIdentifier, review.Token, uuid.NewString(), ids)
 	require.NoError(t, err)
 	for range 4 {
 		f.reconcile(t, ctx)
@@ -472,6 +476,8 @@ func TestDefaultReturnReviewDoesNotClaimCompletionAfterReadFailure(t *testing.T)
 	_, err := f.service.GetState(ctx, f.target.DeviceIdentifier)
 	require.NoError(t, err)
 	firmware.observeErr = true
+	_, err = f.conn.ExecContext(ctx, `UPDATE container_mining_group_state SET observed_at=now()-INTERVAL '3 minutes' WHERE device_id=$1`, f.target.DeviceID)
+	require.NoError(t, err)
 	_, err = f.service.ReviewReturnToDefault(ctx, "", ids)
 	require.ErrorContains(t, err, "refresh its mining-group state")
 }
@@ -488,4 +494,39 @@ func TestDefaultReturnReviewUsesMiningAssetNames(t *testing.T) {
 	require.NoError(t, err)
 	review = reviewDefaultReturn(t, ctx, f, ids)
 	require.Equal(t, "Hashboard CT1-0001", review.BoardNames[ids[0]])
+}
+
+func TestDefaultReturnReviewReusesFreshSnapshotsAndCurrentDatabaseBlockers(t *testing.T) {
+	ctx, f, firmware, ids := newDefaultReturnFixture(t)
+	firmware.calls = nil
+	firmware.observeErr = true
+	for range 3 {
+		reviews, err := f.service.ReviewReturnToDefault(ctx, "", ids)
+		require.NoError(t, err)
+		require.Len(t, reviews, 1)
+		require.NotEmpty(t, reviews[0].Token)
+	}
+	require.Empty(t, firmware.calls, "routine reviews must not contact controllers")
+	_, err := f.conn.ExecContext(ctx, `INSERT INTO pool_lifecycle_transition(organization_id,device_id,asset_kind,asset_id,reason) VALUES($1,$2,7,$3,'ownership')`, f.target.OrganizationID, f.target.DeviceID, ids[0])
+	require.NoError(t, err)
+	reviews, err := f.service.ReviewReturnToDefault(ctx, "", ids)
+	require.NoError(t, err)
+	require.Len(t, reviews, 1)
+	require.Contains(t, reviews[0].BlockedReason, "ownership cleanup")
+	require.Empty(t, reviews[0].Token)
+	require.Empty(t, firmware.calls)
+}
+
+func TestDefaultReturnReviewRefreshesExpiredObservationOnce(t *testing.T) {
+	ctx, f, firmware, ids := newDefaultReturnFixture(t)
+	_, err := f.conn.ExecContext(ctx, `UPDATE container_mining_group_state SET observed_at=now()-INTERVAL '3 minutes' WHERE device_id=$1`, f.target.DeviceID)
+	require.NoError(t, err)
+	firmware.calls = nil
+	for range 3 {
+		reviews, err := f.service.ReviewReturnToDefault(ctx, "", ids)
+		require.NoError(t, err)
+		require.Len(t, reviews, 1)
+	}
+	require.Len(t, firmware.calls, 1)
+	require.Equal(t, "observe", firmware.calls[0].Action)
 }

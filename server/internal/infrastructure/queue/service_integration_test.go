@@ -89,6 +89,50 @@ func TestEnqueueChecksDeactivationAcrossSelectedBatch(t *testing.T) {
 	require.ElementsMatch(t, ids[:2], enqueued)
 }
 
+func TestEnqueueDeactivationOnlyBlocksPoolAffectingCommands(t *testing.T) {
+	database := testutil.NewDatabaseService(t, nil)
+	user := database.CreateSuperAdminUser()
+	first := database.CreateDevice(user.OrganizationID, "proto")
+	second := database.CreateDevice(user.OrganizationID, "proto")
+	ids := []int64{first.DatabaseID, second.DatabaseID}
+	q := sqlc.New(database.DB)
+	service := queue.NewDatabaseMessageQueue(&queue.Config{}, database.DB)
+	for _, status := range []string{"pending", "applying", "blocked"} {
+		_, err := database.DB.ExecContext(t.Context(), `INSERT INTO container_mining_group_state(device_id,organization_id,operation_kind,status) VALUES($1,$2,'deactivate',$3) ON CONFLICT (device_id) DO UPDATE SET status=EXCLUDED.status`, second.DatabaseID, user.OrganizationID, status)
+		require.NoError(t, err)
+		for _, tc := range []struct {
+			kind    commandtype.Type
+			blocked bool
+		}{
+			{commandtype.BlinkLED, false}, {commandtype.DownloadLogs, false},
+			{commandtype.SetCoolingMode, false}, {commandtype.SetPowerTarget, false},
+			{commandtype.SetBoardIdentify, false},
+			{commandtype.Curtail, false}, {commandtype.Uncurtail, false},
+			{commandtype.ApplyCurtailmentConfig, false},
+			{commandtype.UpdateMiningPools, true}, {commandtype.Reboot, true},
+		} {
+			t.Run(status+"/"+tc.kind.String(), func(t *testing.T) {
+				batch := id.GenerateID()
+				_, err := q.CreateCommandBatchLog(t.Context(), sqlc.CreateCommandBatchLogParams{Uuid: batch, Type: tc.kind.String(), CreatedBy: user.DatabaseID, CreatedAt: time.Now(), Status: sqlc.BatchStatusEnumPENDING, DevicesCount: 2, OrganizationID: sql.NullInt64{Int64: user.OrganizationID, Valid: true}})
+				require.NoError(t, err)
+				err = service.Enqueue(t.Context(), batch, tc.kind, ids, nil)
+				if tc.blocked {
+					require.ErrorContains(t, err, "being disabled")
+				} else {
+					require.NoError(t, err)
+				}
+				rows, err := q.GetQueueMessagesByBatch(t.Context(), batch)
+				require.NoError(t, err)
+				if tc.blocked {
+					require.Empty(t, rows, "no commands in the selected batch may pass")
+				} else {
+					require.Len(t, rows, len(ids))
+				}
+			})
+		}
+	}
+}
+
 func TestDatabaseMessageQueueEnqueueManyInsertsPerDevicePayloads(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping database integration test in short mode")

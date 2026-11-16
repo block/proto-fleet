@@ -17,18 +17,29 @@ import (
 // controlled, so tests can hold tasks open without issuing controller writes.
 func newSchedulerFixture(t *testing.T, count int) (*Service, []int64, *sql.DB) {
 	t.Helper()
+	return newSchedulerOrganizationsFixture(t, []int{count})
+}
+
+func newSchedulerOrganizationsFixture(t *testing.T, counts []int) (*Service, []int64, *sql.DB) {
+	t.Helper()
 	cfg, err := testutil.GetTestConfig()
 	require.NoError(t, err)
 	database := testutil.NewDatabaseService(t, cfg)
 	user := database.CreateSuperAdminUser()
-	ids := make([]int64, 0, count)
-	for range count {
-		device := database.CreateDevice(user.OrganizationID, "proto")
-		_, err := database.DB.ExecContext(t.Context(), `INSERT INTO container_mining_group_state(device_id,organization_id,status) VALUES($1,$2,'pending')`, device.DatabaseID, user.OrganizationID)
-		require.NoError(t, err)
-		ids = append(ids, device.DatabaseID)
+	var ids []int64
+	for index, count := range counts {
+		orgID := user.OrganizationID
+		if index > 0 {
+			require.NoError(t, database.DB.QueryRowContext(t.Context(), `INSERT INTO organization(org_id,name) VALUES($1,$1) RETURNING id`, fmt.Sprintf("scheduler-org-%d", index)).Scan(&orgID))
+		}
+		for range count {
+			device := database.CreateDevice(orgID, "proto")
+			_, err := database.DB.ExecContext(t.Context(), `INSERT INTO container_mining_group_state(device_id,organization_id,status) VALUES($1,$2,'pending')`, device.DatabaseID, orgID)
+			require.NoError(t, err)
+			ids = append(ids, device.DatabaseID)
+		}
 	}
-	return &Service{queries: sqlc.New(database.DB)}, ids, database.DB
+	return &Service{conn: database.DB, queries: sqlc.New(database.DB)}, ids, database.DB
 }
 
 func startScheduler(t *testing.T, s *Service, reconcile func(context.Context, sqlc.ListMiningGroupControllersRow) error) (context.CancelFunc, <-chan struct{}) {

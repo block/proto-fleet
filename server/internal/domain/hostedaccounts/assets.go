@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"math"
 	"slices"
 	"strings"
@@ -28,6 +29,10 @@ import (
 // and transaction retries, so a report or assignment cannot indefinitely delay
 // revocation or other organization administration.
 const miningTransactionTimeout = 5 * time.Second
+
+const miningDeviceRetryDelay = 100 * time.Millisecond
+
+var errMiningDeviceBusy = errors.New("selected equipment is busy")
 
 type miningEstate struct {
 	account         Account
@@ -634,12 +639,11 @@ func (s *Service) AssignAssets(ctx context.Context, actorID, orgID int64, reques
 	if len(request.Assets) == 0 || len(request.Assets) > 500 || (request.Intent != pb.AssetAssignmentIntent_ASSET_ASSIGNMENT_INTENT_ASSIGN && request.Intent != pb.AssetAssignmentIntent_ASSET_ASSIGNMENT_INTENT_RECALL) {
 		return fleeterror.NewInvalidArgumentError("invalid asset assignment")
 	}
-	// Binding and inventory lock waits run under organization admission. Bound the
-	// whole assignment so contention cannot retain that admission indefinitely.
+	// Bound the whole assignment, including waits between transaction attempts.
 	ctx, cancel := context.WithTimeout(ctx, miningTransactionTimeout)
 	defer cancel()
 
-	return db.WithTransactionTimeoutNoResult(ctx, s.conn, miningTransactionTimeout, func(q sqlc.Querier) error {
+	return s.withMiningAssignmentTransaction(ctx, func(q sqlc.Querier) error {
 		e, err := loadMiningEstate(ctx, q, actorID, orgID, request.AccountId, false, miningWrite)
 		if err != nil {
 			return err
@@ -831,6 +835,35 @@ func (s *Service) AssignAssets(ctx context.Context, actorID, orgID int64, reques
 		return audit(ctx, q, actor, e.account, "account_assets_assigned", map[string]any{"child_account_id": child.AccountID, "intent": request.Intent.String(), "asset_count": len(leaves), "assets": request.Assets})
 	})
 }
+
+func (s *Service) withMiningAssignmentTransaction(ctx context.Context, action func(sqlc.Querier) error) error {
+	wasBusy := false
+	for {
+		err := db.WithTransactionTimeoutNoResult(ctx, s.conn, miningTransactionTimeout, action)
+		if !errors.Is(err, errMiningDeviceBusy) {
+			if wasBusy && errors.Is(err, context.DeadlineExceeded) {
+				return miningDeviceBusy()
+			}
+			return err
+		}
+		wasBusy = true
+		// The failed transaction has rolled back. Release account admission and
+		// all physical locks while waiting, then recheck the complete selection.
+		select {
+		case <-ctx.Done():
+			if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+				return miningDeviceBusy()
+			}
+			return fmt.Errorf("allocation retry canceled: %w", ctx.Err())
+		case <-time.After(miningDeviceRetryDelay):
+		}
+	}
+}
+
+func miningDeviceBusy() error {
+	return fleeterror.NewUnavailableErrorf("%w. Retry the allocation after the current device operation finishes.", errMiningDeviceBusy)
+}
+
 func assetConflict() error {
 	return fleeterror.NewFailedPreconditionError("selected assets changed or are unavailable; refresh and review the selection")
 }
@@ -889,7 +922,7 @@ func lockMiningDevices(ctx context.Context, q sqlc.Querier, deviceIDs []int64) e
 		if err != nil {
 			var pgErr *pgconn.PgError
 			if errors.As(err, &pgErr) && pgErr.Code == "55P03" {
-				return fleeterror.NewUnavailableErrorf("Selected equipment is busy. Retry the allocation after the current device operation finishes.")
+				return miningDeviceBusy()
 			}
 			return missingAssetConflict(err)
 		}

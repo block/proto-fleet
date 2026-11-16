@@ -100,3 +100,46 @@ func (f retryFixture) makeReadinessDue(t *testing.T) sqlc.ListMiningGroupControl
 	require.Len(t, rows, 1)
 	return sqlc.ListMiningGroupControllersRow(rows[0])
 }
+
+func TestReadinessDiscoversPairedControllersWithoutStateOrAllocations(t *testing.T) {
+	ctx, f := deactivationFixture(t)
+	preparePermissionPoolAssignment(t, ctx, f)
+	_, err := f.conn.ExecContext(ctx, `DELETE FROM container_mining_group_state WHERE device_id=$1`, f.target.DeviceID)
+	require.NoError(t, err)
+	var allocated int
+	require.NoError(t, f.conn.QueryRowContext(ctx, `SELECT count(*) FROM hosted_account_asset WHERE device_id=$1 AND client_id IS NOT NULL`, f.target.DeviceID).Scan(&allocated))
+	require.Zero(t, allocated)
+	require.NoError(t, f.service.queries.DiscoverMiningGroupControllers(ctx))
+	require.NoError(t, f.service.queries.DiscoverMiningGroupControllers(ctx), "discovery must be idempotent")
+	rows, err := f.service.queries.ListMiningGroupReadinessControllers(ctx)
+	require.NoError(t, err)
+	require.Len(t, rows, 1)
+	require.NoError(t, f.service.reconcileScheduled(ctx, sqlc.ListMiningGroupControllersRow(rows[0])))
+	requireAllocationReadiness(t, ctx, f, true)
+	require.False(t, f.state(t).AttemptID.Valid)
+}
+
+func TestReadinessDiscoveryExcludesUnpairedOrDeletedInventory(t *testing.T) {
+	for _, change := range []string{"unpaired", "deleted device", "deleted discovery", "ordinary miner"} {
+		t.Run(change, func(t *testing.T) {
+			ctx, f := deactivationFixture(t)
+			_, err := f.conn.ExecContext(ctx, `DELETE FROM container_mining_group_state WHERE device_id=$1`, f.target.DeviceID)
+			require.NoError(t, err)
+			switch change {
+			case "unpaired":
+				_, err = f.conn.ExecContext(ctx, `DELETE FROM device_pairing WHERE device_id=$1`, f.target.DeviceID)
+			case "deleted device":
+				_, err = f.conn.ExecContext(ctx, `UPDATE device SET deleted_at=now() WHERE id=$1`, f.target.DeviceID)
+			case "deleted discovery":
+				_, err = f.conn.ExecContext(ctx, `UPDATE discovered_device SET deleted_at=now() WHERE id=(SELECT discovered_device_id FROM device WHERE id=$1)`, f.target.DeviceID)
+			case "ordinary miner":
+				_, err = f.conn.ExecContext(ctx, `UPDATE discovered_device SET device_class=1 WHERE id=(SELECT discovered_device_id FROM device WHERE id=$1)`, f.target.DeviceID)
+			}
+			require.NoError(t, err)
+			require.NoError(t, f.service.queries.DiscoverMiningGroupControllers(ctx))
+			var count int
+			require.NoError(t, f.conn.QueryRowContext(ctx, `SELECT count(*) FROM container_mining_group_state WHERE device_id=$1`, f.target.DeviceID).Scan(&count))
+			require.Zero(t, count)
+		})
+	}
+}

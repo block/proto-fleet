@@ -768,6 +768,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.discardRecoveredLegacyPoolIntentsStmt, err = db.PrepareContext(ctx, discardRecoveredLegacyPoolIntents); err != nil {
 		return nil, fmt.Errorf("error preparing query DiscardRecoveredLegacyPoolIntents: %w", err)
 	}
+	if q.discoverMiningGroupControllersStmt, err = db.PrepareContext(ctx, discoverMiningGroupControllers); err != nil {
+		return nil, fmt.Errorf("error preparing query DiscoverMiningGroupControllers: %w", err)
+	}
 	if q.endpointDiscoveryHasPairingStmt, err = db.PrepareContext(ctx, endpointDiscoveryHasPairing); err != nil {
 		return nil, fmt.Errorf("error preparing query EndpointDiscoveryHasPairing: %w", err)
 	}
@@ -5113,6 +5116,11 @@ func (q *Queries) Close() error {
 	if q.discardRecoveredLegacyPoolIntentsStmt != nil {
 		if cerr := q.discardRecoveredLegacyPoolIntentsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing discardRecoveredLegacyPoolIntentsStmt: %w", cerr)
+		}
+	}
+	if q.discoverMiningGroupControllersStmt != nil {
+		if cerr := q.discoverMiningGroupControllersStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing discoverMiningGroupControllersStmt: %w", cerr)
 		}
 	}
 	if q.endpointDiscoveryHasPairingStmt != nil {
@@ -10572,6 +10580,7 @@ type Queries struct {
 	disableCurtailmentAutomationRuleByActiveEventStmt           *sql.Stmt
 	disableSyncCommitStmt                                       *sql.Stmt
 	discardRecoveredLegacyPoolIntentsStmt                       *sql.Stmt
+	discoverMiningGroupControllersStmt                          *sql.Stmt
 	endpointDiscoveryHasPairingStmt                             *sql.Stmt
 	endpointDiscoveryHasSavedGroupAtSocketStmt                  *sql.Stmt
 	enqueuePoolRemovalStmt                                      *sql.Stmt
@@ -11860,6 +11869,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		disableCurtailmentAutomationRuleByActiveEventStmt:           q.disableCurtailmentAutomationRuleByActiveEventStmt,
 		disableSyncCommitStmt:                                       q.disableSyncCommitStmt,
 		discardRecoveredLegacyPoolIntentsStmt:                       q.discardRecoveredLegacyPoolIntentsStmt,
+		discoverMiningGroupControllersStmt:                          q.discoverMiningGroupControllersStmt,
 		endpointDiscoveryHasPairingStmt:                             q.endpointDiscoveryHasPairingStmt,
 		endpointDiscoveryHasSavedGroupAtSocketStmt:                  q.endpointDiscoveryHasSavedGroupAtSocketStmt,
 		enqueuePoolRemovalStmt:                                      q.enqueuePoolRemovalStmt,

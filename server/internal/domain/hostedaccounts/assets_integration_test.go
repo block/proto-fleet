@@ -288,12 +288,17 @@ func TestAccountMiningAssignmentRechecksConcurrentSiteMove(t *testing.T) {
 	_, err = tx.ExecContext(t.Context(), `SELECT id FROM device WHERE id=$1 FOR UPDATE`, miner)
 	require.NoError(t, err)
 	request := &pb.AssignAccountAssetsRequest{AccountId: f.root, ChildAccountId: client.AccountID, Intent: 1, Assets: []*pb.MiningAssetSelection{selected(5, miner, 0)}}
-	err = f.svc.AssignAssets(t.Context(), f.host, f.org, request)
-	require.True(t, fleeterror.IsUnavailableError(err), "contention must preserve the reviewed selection for retry")
+	result := make(chan error, 1)
+	go func() { result <- f.svc.AssignAssets(t.Context(), f.host, f.org, request) }()
+	select {
+	case err := <-result:
+		t.Fatalf("assignment returned before the site move finished: %v", err)
+	case <-time.After(250 * time.Millisecond):
+	}
 	_, err = tx.ExecContext(t.Context(), `UPDATE device SET site_id=$1 WHERE id=$2`, second.ID, miner)
 	require.NoError(t, err)
 	require.NoError(t, tx.Commit())
-	err = f.svc.AssignAssets(t.Context(), f.host, f.org, request)
+	err = <-result
 	require.ErrorContains(t, err, "site policy", "retry must recheck live destination policy after the site move")
 	var count int
 	require.NoError(t, f.db.QueryRowContext(t.Context(), `SELECT count(*) FROM hosted_account_asset`).Scan(&count))
@@ -607,10 +612,12 @@ func TestAccountMiningAssignmentBoundsPhysicalLockWait(t *testing.T) {
 	_, err = tx.ExecContext(t.Context(), `SELECT id FROM device WHERE id=$1 FOR UPDATE`, miner)
 	require.NoError(t, err)
 	result := make(chan error, 1)
+	started := time.Now()
 	go func() { result <- f.allocate(t, f.host, f.root, client.AccountID, 1, selected(5, miner, 0)) }()
 	select {
 	case err := <-result:
-		require.Error(t, err)
+		require.True(t, fleeterror.IsUnavailableError(err), "prolonged physical contention must remain retryable: %v", err)
+		require.GreaterOrEqual(t, time.Since(started), 4*time.Second, "retry brief contention before returning busy")
 	case <-time.After(8 * time.Second):
 		t.Fatal("assignment did not bound its physical lock wait")
 	}
