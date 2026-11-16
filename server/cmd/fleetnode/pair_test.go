@@ -592,3 +592,46 @@ func TestPluginPairer_AnonymousContainerDoesNotReportRigDefaults(t *testing.T) {
 	require.Nil(t, result.EncryptedCredentials)
 	require.Equal(t, []sdk.SecretBundle{{Version: "v1"}}, driver.gotBundles)
 }
+
+func TestPluginPairer_ProtectedContainerWithoutTokenNeedsAuthentication(t *testing.T) {
+	driver := &fakePairDriver{pairErr: sdk.NewErrorAuthenticationFailed("ct1")}
+	pairer := newTestPairer(t, sdk.Capabilities{sdk.CapabilityPairing: true}, driver)
+	target := fakePairTarget()
+	target.DeviceClass = commonpb.DeviceClass_DEVICE_CLASS_CONTAINER
+	result := pairer.Pair(t.Context(), target, nil)
+	require.Equal(t, pb.PairOutcome_PAIR_OUTCOME_AUTH_NEEDED, result.Outcome, "no credential was tried, so none failed")
+	require.Nil(t, result.EncryptedCredentials)
+}
+
+func TestPluginPairer_ContainerTokenIsSealedWithEmptyUsername(t *testing.T) {
+	driver := &fakePairDriver{pairResult: sdk.DeviceInfo{SerialNumber: "ct1", DeviceClass: sdk.DeviceClassContainer}}
+	codec := &credentialCodec{key: bytes.Repeat([]byte{1}, credentialKeySize)}
+	pairer := newTestPairerWithCredentials(t, sdk.Capabilities{sdk.CapabilityPairing: true}, driver, codec)
+	target := fakePairTarget()
+	target.DeviceClass = commonpb.DeviceClass_DEVICE_CLASS_CONTAINER
+	token := "0123456789abcdef"
+	result := pairer.Pair(t.Context(), target, &pairingpb.Credentials{Password: &token})
+	require.Equal(t, pb.PairOutcome_PAIR_OUTCOME_PAIRED, result.Outcome)
+	require.Equal(t, []sdk.SecretBundle{{Version: "v1", Kind: sdk.UsernamePassword{Password: token}}}, driver.gotBundles)
+	require.NotEmpty(t, result.GetEncryptedCredentials().GetUsername(), "an empty username still seals to a stored blob")
+	bundle, err := codec.Open(result.GetEncryptedCredentials())
+	require.NoError(t, err)
+	require.Equal(t, sdk.UsernamePassword{Password: token}, bundle.Kind)
+}
+
+func TestPluginPairer_ProtectedHAControllerIsNotPairedYet(t *testing.T) {
+	members := []string{"controller-a", "controller-b"}
+	driver := &fakePairDriver{pairResult: sdk.DeviceInfo{SerialNumber: "controller-a", DeviceClass: sdk.DeviceClassContainer, Endpoints: []sdk.DeviceEndpoint{
+		{ID: "controller-a", DeviceKey: "ha-1", MemberIDs: members, Host: "192.0.2.1", Port: 8080, URLScheme: "http", RPCPort: 9095},
+	}}}
+	codec := &credentialCodec{key: bytes.Repeat([]byte{1}, credentialKeySize)}
+	pairer := newTestPairerWithCredentials(t, sdk.Capabilities{sdk.CapabilityPairing: true}, driver, codec)
+	target := fakePairTarget()
+	target.DeviceClass = commonpb.DeviceClass_DEVICE_CLASS_CONTAINER
+	token := "0123456789abcdef"
+	result := pairer.Pair(t.Context(), target, &pairingpb.Credentials{Password: &token})
+	require.Equal(t, pb.PairOutcome_PAIR_OUTCOME_ERROR, result.Outcome)
+	require.Contains(t, result.ErrorMessage, "Fleet cannot pair token-protected HA pairs yet")
+	require.NotContains(t, result.ErrorMessage, token)
+	require.Nil(t, result.EncryptedCredentials)
+}

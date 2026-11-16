@@ -144,7 +144,13 @@ func (p *Pairer) PairDevice(ctx context.Context, discoveredDevice *discoverymode
 	// Container plugins decide whether anonymous pairing is supported. Do not
 	// offer or persist the shared driver's rig defaults for a public controller.
 	if credentials == nil && discoveredDevice.DeviceClass == commonpb.DeviceClass_DEVICE_CLASS_CONTAINER {
-		return p.executePairing(ctx, plugin, discoveredDevice, nil)
+		err := p.executePairing(ctx, plugin, discoveredDevice, nil)
+		if fleeterror.IsAuthenticationError(err) {
+			// A controller that requires a credential needs the operator's, the
+			// same as a rig with no working defaults.
+			return fleeterror.NewInvalidArgumentErrorf("invalid_argument: credentials are required for pairing")
+		}
+		return err
 	}
 	// If no credentials provided, try default credentials if plugin provides them
 	if credentials == nil {

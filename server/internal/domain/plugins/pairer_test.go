@@ -22,6 +22,7 @@ import (
 	stores "github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces/mocks"
 	"github.com/block/proto-fleet/server/internal/infrastructure/encrypt"
+	"github.com/block/proto-fleet/server/internal/infrastructure/secrets"
 	sdk "github.com/block/proto-fleet/server/sdk/v1"
 	sdkMocks "github.com/block/proto-fleet/server/sdk/v1/mocks"
 	"github.com/stretchr/testify/assert"
@@ -1818,4 +1819,76 @@ func TestCloseUncertainProbeIsBounded(t *testing.T) {
 		require.Equal(t, time.Second, time.Since(start))
 		require.Greater(t, calls, 1)
 	})
+}
+
+// A controller that rejects anonymous pairing needs the operator's token. It is
+// reported like a rig with no working defaults so the device lands in
+// AUTHENTICATION_NEEDED instead of failing to pair.
+func TestContainerRequiringTokenWithoutCredentialsNeedsAuthentication(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	driver := sdkMocks.NewMockDriver(ctrl)
+	manager := NewManager(&Config{})
+	manager.pluginsByDriverName["proto"] = &LoadedPlugin{Identifier: sdk.DriverIdentifier{DriverName: "proto"}, Driver: driver, Caps: sdk.Capabilities{sdk.CapabilityPairing: true}}
+	pairer := NewPairer(manager, mocks.NewMockTransactor(ctrl), stablePairingSnapshotStore(ctrl), mocks.NewMockDeviceStore(ctrl), nil)
+	device := &discoverymodels.DiscoveredDevice{Device: pb.Device{DeviceIdentifier: "ct1", DeviceClass: commonpb.DeviceClass_DEVICE_CLASS_CONTAINER, DriverName: "proto", Model: "CT1", Port: "8080", IpAddress: "192.0.2.1", UrlScheme: "http"}, OrgID: 1}
+	driver.EXPECT().PairDevice(gomock.Any(), gomock.Any(), sdk.SecretBundle{Version: "v1"}).Return(sdk.DeviceInfo{}, status.Error(codes.Unauthenticated, "authentication failed"))
+
+	err := pairer.PairDevice(t.Context(), device, nil)
+	require.ErrorContains(t, err, "credentials are required for pairing")
+	require.True(t, fleeterror.IsInvalidArgumentError(err))
+}
+
+func TestContainerTokenIsStoredEncryptedWithEmptyUsername(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	driver := sdkMocks.NewMockDriver(ctrl)
+	manager := NewManager(&Config{})
+	manager.pluginsByDriverName["proto"] = &LoadedPlugin{Identifier: sdk.DriverIdentifier{DriverName: "proto"}, Driver: driver, Caps: sdk.Capabilities{sdk.CapabilityPairing: true}}
+	transactor := mocks.NewMockTransactor(ctrl)
+	store := mocks.NewMockDeviceStore(ctrl)
+	encryptService, err := encrypt.NewService(&encrypt.Config{ServiceMasterKey: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="})
+	require.NoError(t, err)
+	pairer := NewPairer(manager, transactor, stablePairingSnapshotStore(ctrl), store, encryptService)
+	device := &discoverymodels.DiscoveredDevice{Device: pb.Device{DeviceIdentifier: "ct1", DeviceClass: commonpb.DeviceClass_DEVICE_CLASS_CONTAINER, DriverName: "proto", Model: "CT1", Port: "8080", IpAddress: "192.0.2.1", UrlScheme: "http"}, OrgID: 1}
+	const token = "0123456789abcdef"
+	driver.EXPECT().PairDevice(gomock.Any(), gomock.Any(), sdk.SecretBundle{Version: "v1", Kind: sdk.UsernamePassword{Password: token}}).Return(sdk.DeviceInfo{DeviceClass: sdk.DeviceClassContainer, SerialNumber: "controller-a", Model: "CT1"}, nil)
+	transactor.EXPECT().RunInTx(gomock.Any(), gomock.Any()).DoAndReturn(func(ctx context.Context, fn func(context.Context) error) error { return fn(ctx) })
+	store.EXPECT().GetDeviceByDeviceIdentifier(gomock.Any(), "ct1", int64(1)).Return(nil, fleeterror.NewNotFoundError("missing"))
+	store.EXPECT().InsertDevice(gomock.Any(), gomock.Any(), int64(1), "ct1").Return(nil)
+	store.EXPECT().UpsertMinerCredentials(gomock.Any(), gomock.Any(), int64(1), gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, _ *pb.Device, _ int64, usernameEnc string, passwordEnc *secrets.Text) error {
+			require.NotEmpty(t, usernameEnc, "an empty username still stores ciphertext")
+			require.NotContains(t, passwordEnc.Value(), token)
+			username, err := encryptService.Decrypt(usernameEnc)
+			require.NoError(t, err)
+			require.Empty(t, username)
+			password, err := encryptService.Decrypt(passwordEnc.Value())
+			require.NoError(t, err)
+			require.Equal(t, token, string(password))
+			return nil
+		})
+	store.EXPECT().UpsertDevicePairing(gomock.Any(), gomock.Any(), int64(1), "PAIRED").Return(nil)
+	store.EXPECT().UpsertDeviceStatus(gomock.Any(), models.DeviceIdentifier("ct1"), models.MinerStatusActive, "").Return(nil)
+
+	require.NoError(t, pairer.PairDevice(t.Context(), device, &pb.Credentials{Password: stringPtr(token)}))
+}
+
+func TestProtectedHAControllerIsNotPairedYet(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	driver := sdkMocks.NewMockDriver(ctrl)
+	manager := NewManager(&Config{})
+	manager.pluginsByDriverName["proto"] = &LoadedPlugin{Identifier: sdk.DriverIdentifier{DriverName: "proto"}, Driver: driver, Caps: sdk.Capabilities{sdk.CapabilityPairing: true}}
+	// No transaction or store calls: nothing is saved for an unrecorded HA pair.
+	pairer := NewPairer(manager, mocks.NewMockTransactor(ctrl), stablePairingSnapshotStore(ctrl), mocks.NewMockDeviceStore(ctrl), nil)
+	device := &discoverymodels.DiscoveredDevice{Device: pb.Device{DeviceIdentifier: "ct1", DeviceClass: commonpb.DeviceClass_DEVICE_CLASS_CONTAINER, DriverName: "proto", Model: "CT1", Port: "8080", IpAddress: "192.0.2.1", UrlScheme: "http", RpcPort: 9095}, OrgID: 1}
+	const token = "0123456789abcdef"
+	members := []string{"controller-a", "controller-b"}
+	driver.EXPECT().PairDevice(gomock.Any(), gomock.Any(), sdk.SecretBundle{Version: "v1", Kind: sdk.UsernamePassword{Password: token}}).Return(sdk.DeviceInfo{
+		DeviceClass: sdk.DeviceClassContainer, SerialNumber: "controller-a", Model: "CT1",
+		Endpoints: []sdk.DeviceEndpoint{{ID: "controller-a", DeviceKey: "ha-1", MemberIDs: members, Host: "192.0.2.1", Port: 8080, URLScheme: "http", RPCPort: 9095}},
+	}, nil)
+
+	err := pairer.PairDevice(t.Context(), device, &pb.Credentials{Password: stringPtr(token)})
+	require.ErrorContains(t, err, "Fleet cannot pair token-protected HA pairs yet")
+	require.True(t, fleeterror.IsFailedPreconditionError(err))
+	require.NotContains(t, err.Error(), token)
 }

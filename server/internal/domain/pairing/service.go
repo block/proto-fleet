@@ -584,6 +584,13 @@ func (s *Service) processDiscoveredDevice(ctx context.Context, discoveredDevice 
 			return false, err
 		default:
 			deviceIdentifier = existing.DeviceIdentifier
+			if discoveredDevice.SerialNumber == "" {
+				// A controller that requires a token is rediscovered without its
+				// identity. Keep the identity pairing verified.
+				discoveredDevice.SerialNumber = existing.SerialNumber
+				discoveredDevice.MacAddress = existing.MacAddress
+				discoveredDevice.FirmwareVersion = existing.FirmwareVersion
+			}
 		}
 	}
 	if deviceIdentifier == "" {
