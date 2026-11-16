@@ -3,13 +3,11 @@ SELECT device_id FROM container_mining_group_state
  WHERE device_id=ANY($1::bigint[]) AND operation_kind='deactivate'
   AND status IN ('pending','applying','blocked');
 
--- name: InvalidateMiningGroupObservation :exec
--- Keep the last display snapshot, but a failed refresh cannot authorize a new
--- allocation merely because the previous successful read was recent.
--- Cleanup runs after binding locks unwind; never invalidate a newer observation.
+-- name: MarkMiningGroupObservationPending :exec
+-- Commit before controller I/O, separately from the binding transaction. A
+-- failed read or transaction must not restore cached allocation authority.
 UPDATE container_mining_group_state SET observed_at=NULL
-WHERE organization_id=sqlc.arg(organization_id) AND device_id=sqlc.arg(device_id)
- AND observed_at IS NOT DISTINCT FROM sqlc.narg(observed_at)::timestamptz;
+WHERE organization_id=sqlc.arg(organization_id) AND device_id=sqlc.arg(device_id);
 
 -- name: GetMiningGroupDeactivationBlocker :one
 -- The caller holds organization admission and the device fence. Keep queued

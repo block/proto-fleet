@@ -1347,10 +1347,6 @@ type Querier interface {
 	InsertRepairTicketOpeningAudience(ctx context.Context, arg InsertRepairTicketOpeningAudienceParams) error
 	InsertRepairTicketOpeningTarget(ctx context.Context, arg InsertRepairTicketOpeningTargetParams) error
 	InsertRepairTicketPart(ctx context.Context, arg InsertRepairTicketPartParams) error
-	// Keep the last display snapshot, but a failed refresh cannot authorize a new
-	// allocation merely because the previous successful read was recent.
-	// Cleanup runs after binding locks unwind; never invalidate a newer observation.
-	InvalidateMiningGroupObservation(ctx context.Context, arg InvalidateMiningGroupObservationParams) error
 	InventoryPartExistsBySiteAndName(ctx context.Context, arg InventoryPartExistsBySiteAndNameParams) (bool, error)
 	// Team and customer account invitations share one code namespace, so public
 	// redemption resolves each code to exactly one invitation.
@@ -2327,6 +2323,9 @@ type Querier interface {
 	MarkFleetNodeHAStandbyReady(ctx context.Context, arg MarkFleetNodeHAStandbyReadyParams) (int64, error)
 	MarkFrigateUpdateActionLocal(ctx context.Context, arg MarkFrigateUpdateActionLocalParams) error
 	MarkFrigateUpdateCleanupAttempted(ctx context.Context, arg MarkFrigateUpdateCleanupAttemptedParams) error
+	// Commit before controller I/O, separately from the binding transaction. A
+	// failed read or transaction must not restore cached allocation authority.
+	MarkMiningGroupObservationPending(ctx context.Context, arg MarkMiningGroupObservationPendingParams) error
 	// Commit independently before I/O. A rollback of the binding transaction must
 	// never make an attempted request look unsent. Missing history stays unknown.
 	MarkMiningGroupStepDispatch(ctx context.Context, arg MarkMiningGroupStepDispatchParams) (bool, error)

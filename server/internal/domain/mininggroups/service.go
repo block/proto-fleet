@@ -135,14 +135,16 @@ func (s *Service) GetState(ctx context.Context, identifier string) (State, error
 		return State{}, err
 	}
 	var result State
-	var previousObservation *sqlc.ContainerMiningGroupState
 	err = s.writes.WithHostObservation(ctx, info.OrganizationID, target.ID, target.Epoch, func(ctx context.Context) error {
-		return s.writes.WithBindingObservation(ctx, target.ID, func(q sqlc.Querier) error {
+		return s.writes.WithExclusiveBindingObservation(ctx, target.ID, func(q sqlc.Querier) error {
 			fresh, err := q.GetMiningGroupTarget(ctx, sqlc.GetMiningGroupTargetParams{OrgID: info.OrganizationID, DeviceIdentifier: identifier})
 			if err != nil {
 				return err
 			}
-			return authorize(ctx, q, info.UserID, info.OrganizationID, fresh.SiteID, authz.PermMinerRead)
+			if err := authorize(ctx, q, info.UserID, info.OrganizationID, fresh.SiteID, authz.PermMinerRead); err != nil {
+				return err
+			}
+			return s.queries.MarkMiningGroupObservationPending(ctx, sqlc.MarkMiningGroupObservationPendingParams{OrganizationID: info.OrganizationID, DeviceID: target.ID})
 		}, func(ctx context.Context) error {
 			return s.writes.WithBindingTransaction(ctx, func(ctx context.Context, q sqlc.Querier) error {
 				row, err := q.LockMiningGroupState(ctx, sqlc.LockMiningGroupStateParams{DeviceID: target.ID, OrganizationID: info.OrganizationID})
@@ -157,15 +159,13 @@ func (s *Service) GetState(ctx context.Context, identifier string) (State, error
 				if err != nil {
 					return err
 				}
-				before := row
-				previousObservation = &before
 				next, readErr := s.call(ctx, target.ID, sdk.MiningGroupRequest{Action: "observe"})
 				if readErr != nil {
 					if !observed.Supported {
 						return readErr
 					}
-					// Keep the authorized display snapshot. Finalize invalidation after
-					// this transaction ends, even if the read exhausted its context.
+					// Keep the authorized display snapshot. The pending marker was
+					// committed before this read, even if this transaction rolls back.
 					row.ObservedAt = sql.NullTime{}
 					result = State{Record: row, Observed: observed, Desired: desired, DeactivationBlockedReason: "Reconnect the controller and refresh its mining-group state before disabling mining groups."}
 					return nil
@@ -191,9 +191,6 @@ func (s *Service) GetState(ctx context.Context, identifier string) (State, error
 			})
 		})
 	})
-	if previousObservation != nil {
-		err = errors.Join(err, s.invalidateFailedObservation(ctx, *previousObservation))
-	}
 	return result, err
 }
 func (s *Service) call(ctx context.Context, id int64, r sdk.MiningGroupRequest) (sdk.MiningGroupResult, error) {

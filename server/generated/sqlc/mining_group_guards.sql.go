@@ -7,7 +7,6 @@ package sqlc
 
 import (
 	"context"
-	"database/sql"
 
 	"github.com/lib/pq"
 )
@@ -101,26 +100,6 @@ func (q *Queries) GetMiningGroupDeactivationBlocker(ctx context.Context, arg Get
 	return reason, err
 }
 
-const invalidateMiningGroupObservation = `-- name: InvalidateMiningGroupObservation :exec
-UPDATE container_mining_group_state SET observed_at=NULL
-WHERE organization_id=$1 AND device_id=$2
- AND observed_at IS NOT DISTINCT FROM $3::timestamptz
-`
-
-type InvalidateMiningGroupObservationParams struct {
-	OrganizationID int64
-	DeviceID       int64
-	ObservedAt     sql.NullTime
-}
-
-// Keep the last display snapshot, but a failed refresh cannot authorize a new
-// allocation merely because the previous successful read was recent.
-// Cleanup runs after binding locks unwind; never invalidate a newer observation.
-func (q *Queries) InvalidateMiningGroupObservation(ctx context.Context, arg InvalidateMiningGroupObservationParams) error {
-	_, err := q.exec(ctx, q.invalidateMiningGroupObservationStmt, invalidateMiningGroupObservation, arg.OrganizationID, arg.DeviceID, arg.ObservedAt)
-	return err
-}
-
 const listActiveMiningGroupDeactivations = `-- name: ListActiveMiningGroupDeactivations :many
 SELECT device_id FROM container_mining_group_state
  WHERE device_id=ANY($1::bigint[]) AND operation_kind='deactivate'
@@ -148,4 +127,21 @@ func (q *Queries) ListActiveMiningGroupDeactivations(ctx context.Context, dollar
 		return nil, err
 	}
 	return items, nil
+}
+
+const markMiningGroupObservationPending = `-- name: MarkMiningGroupObservationPending :exec
+UPDATE container_mining_group_state SET observed_at=NULL
+WHERE organization_id=$1 AND device_id=$2
+`
+
+type MarkMiningGroupObservationPendingParams struct {
+	OrganizationID int64
+	DeviceID       int64
+}
+
+// Commit before controller I/O, separately from the binding transaction. A
+// failed read or transaction must not restore cached allocation authority.
+func (q *Queries) MarkMiningGroupObservationPending(ctx context.Context, arg MarkMiningGroupObservationPendingParams) error {
+	_, err := q.exec(ctx, q.markMiningGroupObservationPendingStmt, markMiningGroupObservationPending, arg.OrganizationID, arg.DeviceID)
+	return err
 }

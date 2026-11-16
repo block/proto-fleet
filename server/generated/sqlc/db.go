@@ -1878,9 +1878,6 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.insertRepairTicketPartStmt, err = db.PrepareContext(ctx, insertRepairTicketPart); err != nil {
 		return nil, fmt.Errorf("error preparing query InsertRepairTicketPart: %w", err)
 	}
-	if q.invalidateMiningGroupObservationStmt, err = db.PrepareContext(ctx, invalidateMiningGroupObservation); err != nil {
-		return nil, fmt.Errorf("error preparing query InvalidateMiningGroupObservation: %w", err)
-	}
 	if q.inventoryPartExistsBySiteAndNameStmt, err = db.PrepareContext(ctx, inventoryPartExistsBySiteAndName); err != nil {
 		return nil, fmt.Errorf("error preparing query InventoryPartExistsBySiteAndName: %w", err)
 	}
@@ -2933,6 +2930,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.markFrigateUpdateCleanupAttemptedStmt, err = db.PrepareContext(ctx, markFrigateUpdateCleanupAttempted); err != nil {
 		return nil, fmt.Errorf("error preparing query MarkFrigateUpdateCleanupAttempted: %w", err)
+	}
+	if q.markMiningGroupObservationPendingStmt, err = db.PrepareContext(ctx, markMiningGroupObservationPending); err != nil {
+		return nil, fmt.Errorf("error preparing query MarkMiningGroupObservationPending: %w", err)
 	}
 	if q.markMiningGroupStepDispatchStmt, err = db.PrepareContext(ctx, markMiningGroupStepDispatch); err != nil {
 		return nil, fmt.Errorf("error preparing query MarkMiningGroupStepDispatch: %w", err)
@@ -6965,11 +6965,6 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing insertRepairTicketPartStmt: %w", cerr)
 		}
 	}
-	if q.invalidateMiningGroupObservationStmt != nil {
-		if cerr := q.invalidateMiningGroupObservationStmt.Close(); cerr != nil {
-			err = fmt.Errorf("error closing invalidateMiningGroupObservationStmt: %w", cerr)
-		}
-	}
 	if q.inventoryPartExistsBySiteAndNameStmt != nil {
 		if cerr := q.inventoryPartExistsBySiteAndNameStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing inventoryPartExistsBySiteAndNameStmt: %w", cerr)
@@ -8723,6 +8718,11 @@ func (q *Queries) Close() error {
 	if q.markFrigateUpdateCleanupAttemptedStmt != nil {
 		if cerr := q.markFrigateUpdateCleanupAttemptedStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing markFrigateUpdateCleanupAttemptedStmt: %w", cerr)
+		}
+	}
+	if q.markMiningGroupObservationPendingStmt != nil {
+		if cerr := q.markMiningGroupObservationPendingStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing markMiningGroupObservationPendingStmt: %w", cerr)
 		}
 	}
 	if q.markMiningGroupStepDispatchStmt != nil {
@@ -10942,7 +10942,6 @@ type Queries struct {
 	insertRepairTicketOpeningAudienceStmt                       *sql.Stmt
 	insertRepairTicketOpeningTargetStmt                         *sql.Stmt
 	insertRepairTicketPartStmt                                  *sql.Stmt
-	invalidateMiningGroupObservationStmt                        *sql.Stmt
 	inventoryPartExistsBySiteAndNameStmt                        *sql.Stmt
 	invitationTokenHashInUseStmt                                *sql.Stmt
 	isBatchFinishedStmt                                         *sql.Stmt
@@ -11294,6 +11293,7 @@ type Queries struct {
 	markFleetNodeHAStandbyReadyStmt                             *sql.Stmt
 	markFrigateUpdateActionLocalStmt                            *sql.Stmt
 	markFrigateUpdateCleanupAttemptedStmt                       *sql.Stmt
+	markMiningGroupObservationPendingStmt                       *sql.Stmt
 	markMiningGroupStepDispatchStmt                             *sql.Stmt
 	markRepairTicketPartsConsumedStmt                           *sql.Stmt
 	miningGroupStepIsUnsentStmt                                 *sql.Stmt
@@ -12230,7 +12230,6 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		insertRepairTicketOpeningAudienceStmt:                       q.insertRepairTicketOpeningAudienceStmt,
 		insertRepairTicketOpeningTargetStmt:                         q.insertRepairTicketOpeningTargetStmt,
 		insertRepairTicketPartStmt:                                  q.insertRepairTicketPartStmt,
-		invalidateMiningGroupObservationStmt:                        q.invalidateMiningGroupObservationStmt,
 		inventoryPartExistsBySiteAndNameStmt:                        q.inventoryPartExistsBySiteAndNameStmt,
 		invitationTokenHashInUseStmt:                                q.invitationTokenHashInUseStmt,
 		isBatchFinishedStmt:                                         q.isBatchFinishedStmt,
@@ -12582,6 +12581,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		markFleetNodeHAStandbyReadyStmt:                             q.markFleetNodeHAStandbyReadyStmt,
 		markFrigateUpdateActionLocalStmt:                            q.markFrigateUpdateActionLocalStmt,
 		markFrigateUpdateCleanupAttemptedStmt:                       q.markFrigateUpdateCleanupAttemptedStmt,
+		markMiningGroupObservationPendingStmt:                       q.markMiningGroupObservationPendingStmt,
 		markMiningGroupStepDispatchStmt:                             q.markMiningGroupStepDispatchStmt,
 		markRepairTicketPartsConsumedStmt:                           q.markRepairTicketPartsConsumedStmt,
 		miningGroupStepIsUnsentStmt:                                 q.miningGroupStepIsUnsentStmt,

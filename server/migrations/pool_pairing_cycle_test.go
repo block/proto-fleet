@@ -14,6 +14,12 @@ func TestPoolPairingCycleUpgradePreservesExistingDevices(t *testing.T) {
 	require.NoError(t, err)
 	database := testutil.NewDatabaseService(t, cfg)
 	user := database.CreateSuperAdminUser()
+	// Remove current feature dependencies before restoring the historical
+	// lifecycle schema whose upgrade behavior this fixture exercises.
+	guardsDown, err := migrations.Current.ReadFile("current/001082_internal_ct1_mining_group_guards.down.sql")
+	require.NoError(t, err)
+	_, err = database.DB.ExecContext(t.Context(), string(guardsDown))
+	require.NoError(t, err)
 	runMigration := func(direction string) {
 		t.Helper()
 		script, err := migrations.Current.ReadFile("current/001078_internal_default_pool_lifecycle." + direction + ".sql")

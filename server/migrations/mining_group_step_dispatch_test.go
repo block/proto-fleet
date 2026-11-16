@@ -1,7 +1,9 @@
 package migrations_test
 
 import (
+	"context"
 	"testing"
+	"time"
 
 	"github.com/block/proto-fleet/server/generated/sqlc"
 	"github.com/block/proto-fleet/server/migrations"
@@ -47,6 +49,67 @@ func TestMiningGroupDispatchRollbackPreservesSavedRequests(t *testing.T) {
 			var records int
 			require.NoError(t, conn.QueryRowContext(t.Context(), `SELECT count(*) FROM mining_group_step_dispatch WHERE step_key=$1`, key).Scan(&records))
 			require.Zero(t, records, "upgrade must not infer delivery for an older request")
+		})
+	}
+}
+
+func TestMiningGroupDispatchRollbackSeesConcurrentSavedStep(t *testing.T) {
+	for _, started := range []bool{false, true} {
+		name := "unsent"
+		if started {
+			name = "dispatch started"
+		}
+		t.Run(name, func(t *testing.T) {
+			conn, org, device := miningGroupRollbackFixture(t)
+			ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+			defer cancel()
+			q := sqlc.New(conn)
+			require.NoError(t, q.EnsureDeviceWriteFences(ctx, []int64{device}))
+			key, attempt, token := uuid.New(), uuid.New(), uuid.New()
+			require.NoError(t, q.CreateDeviceWriteAttempt(ctx, sqlc.CreateDeviceWriteAttemptParams{
+				AttemptID: attempt, OrganizationID: org, DeviceID: device, OwnerInstanceID: uuid.New(),
+				IdentityKeys: []string{"concurrent-dispatch-rollback"}, OperationKind: "mutation", CommandType: "MiningGroups",
+			}))
+			writer, err := conn.BeginTx(ctx, nil)
+			require.NoError(t, err)
+			defer writer.Rollback()
+			var writerPID int
+			require.NoError(t, writer.QueryRowContext(ctx, `SELECT pg_backend_pid()`).Scan(&writerPID))
+			_, err = writer.ExecContext(ctx, `INSERT INTO mining_group_step_dispatch(step_key,attempt_id,dispatch_started,dispatch_token) VALUES($1,$2,$3,$4)`, key, attempt, started, token)
+			require.NoError(t, err)
+			_, err = writer.ExecContext(ctx, `UPDATE container_mining_group_state SET status='applying',step_key=$1 WHERE device_id=$2`, key, device)
+			require.NoError(t, err)
+			downConn, err := conn.Conn(ctx)
+			require.NoError(t, err)
+			defer downConn.Close()
+			var downPID int
+			require.NoError(t, downConn.QueryRowContext(ctx, `SELECT pg_backend_pid()`).Scan(&downPID))
+			down, err := migrations.Current.ReadFile("current/001084_internal_mining_group_step_dispatch.down.sql")
+			require.NoError(t, err)
+			// Preparing also requires the locks, guard, and removal to be one SQL
+			// statement, independent of an outer migration transaction.
+			rollback, err := downConn.PrepareContext(ctx, string(down))
+			require.NoError(t, err)
+			defer rollback.Close()
+			done := make(chan error, 1)
+			go func() { _, err := rollback.ExecContext(ctx); done <- err }()
+			// The old guard sees the prior idle journal, then waits only at DROP.
+			// The fenced guard waits first and must inspect the newly committed step.
+			require.Eventually(t, func() bool {
+				var waiting bool
+				err := conn.QueryRowContext(ctx, `SELECT $1=ANY(pg_blocking_pids($2))`, writerPID, downPID).Scan(&waiting)
+				return err == nil && waiting
+			}, 3*time.Second, 10*time.Millisecond)
+			require.NoError(t, writer.Commit())
+			require.ErrorContains(t, <-done, "Settle saved mining-group requests")
+			var retainedKey, retainedToken, retainedAttempt uuid.UUID
+			var retainedStarted bool
+			require.NoError(t, conn.QueryRowContext(ctx, `SELECT s.step_key,d.dispatch_token,d.attempt_id,d.dispatch_started
+    FROM container_mining_group_state s JOIN mining_group_step_dispatch d ON d.step_key=s.step_key WHERE s.device_id=$1`, device).Scan(&retainedKey, &retainedToken, &retainedAttempt, &retainedStarted))
+			require.Equal(t, key, retainedKey)
+			require.Equal(t, token, retainedToken)
+			require.Equal(t, attempt, retainedAttempt)
+			require.Equal(t, started, retainedStarted, "refused downgrade must retain exact delivery evidence")
 		})
 	}
 }

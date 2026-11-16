@@ -49,17 +49,31 @@ func RecheckIdentityAdmission(ctx context.Context, q sqlc.Querier, organizationI
 // its callback performs external I/O. Cancellation must not release its locks
 // while a context-ignoring adapter is still running.
 func (s *Service) WithBindingDispatch(ctx context.Context, deviceID int64, validate func(sqlc.Querier) error, call func(context.Context) error) error {
-	return s.withBindingDispatch(ctx, deviceID, true, validate, call)
+	return s.withBindingDispatch(ctx, deviceID, true, bindingLockExclusive, validate, call)
 }
 
 // WithBindingObservation retains the binding without marking a physical mutation.
 // Only a durably admitted observation may share the parent lock with other reads;
 // a mutation attempt keeps its exclusive lock even during preliminary login.
 func (s *Service) WithBindingObservation(ctx context.Context, deviceID int64, validate func(sqlc.Querier) error, call func(context.Context) error) error {
-	return s.withBindingDispatch(ctx, deviceID, false, validate, call)
+	return s.withBindingDispatch(ctx, deviceID, false, bindingLockSharedObservation, validate, call)
 }
 
-func (s *Service) withBindingDispatch(ctx context.Context, deviceID int64, mutation bool, validate func(sqlc.Querier) error, call func(context.Context) error) error {
+// WithExclusiveBindingObservation serializes reads that publish shared state.
+// It retains read-only admission while choosing the exclusive parent lock before
+// any binding lock is acquired, so no shared lock needs to be upgraded.
+func (s *Service) WithExclusiveBindingObservation(ctx context.Context, deviceID int64, validate func(sqlc.Querier) error, call func(context.Context) error) error {
+	return s.withBindingDispatch(ctx, deviceID, false, bindingLockExclusive, validate, call)
+}
+
+type bindingLockMode int
+
+const (
+	bindingLockExclusive bindingLockMode = iota
+	bindingLockSharedObservation
+)
+
+func (s *Service) withBindingDispatch(ctx context.Context, deviceID int64, mutation bool, lockMode bindingLockMode, validate func(sqlc.Querier) error, call func(context.Context) error) error {
 	invoked := false
 	err := s.WithBindingTransaction(ctx, func(ctx context.Context, q sqlc.Querier) error {
 		// Choose the lock mode for the entire admitted attempt, never for an
@@ -68,7 +82,7 @@ func (s *Service) withBindingDispatch(ctx context.Context, deviceID int64, mutat
 		attempt, admitted := ctx.Value(attemptContextKey{}).(*Attempt)
 		var discoveryID int64
 		var err error
-		if admitted && attempt.service.conn == s.conn && attempt.deviceID == deviceID && attempt.observation {
+		if lockMode == bindingLockSharedObservation && admitted && attempt.service.conn == s.conn && attempt.deviceID == deviceID && attempt.observation {
 			discoveryID, err = q.LockMinerBindingObservationDevice(ctx, deviceID)
 		} else {
 			discoveryID, err = q.LockMinerBindingDevice(ctx, deviceID)

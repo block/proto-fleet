@@ -672,6 +672,10 @@ Fleet refreshes known idle CT1 controllers about once per minute, including
 containers with no allocated boards. Recall and a return to Default therefore
 keep the mode fresh for the next allocation. Allocation errors distinguish stale
 observations from disabled mode and unfinished device work.
+Mode reads serialize on the controller binding. Before reading the controller,
+Fleet commits a not-ready marker while preserving the last display snapshot.
+Only a successful observation commit restores allocation readiness. A failed
+read or failed commit cannot leave a window that accepts the cached state.
 After a successful refresh, the next accepted inventory poll can retry replacement.
 Failed observations keep replacement blocked and retry with backoff.
 

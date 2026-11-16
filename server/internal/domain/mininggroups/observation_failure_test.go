@@ -114,21 +114,6 @@ func TestFailedObservationInvalidatesCachedAllocationAuthority(t *testing.T) {
 	}
 }
 
-func TestDelayedObservationInvalidationPreservesNewerSuccess(t *testing.T) {
-	ctx, f, failed := observationFailureFixture(t)
-	_, err := f.service.GetState(ctx, f.target.DeviceIdentifier)
-	require.NoError(t, err)
-	fresh := f.state(t)
-	require.True(t, fresh.ObservedAt.Time.After(failed.ObservedAt.Time))
-	canceledCtx, cancel := context.WithCancel(ctx)
-	cancel()
-	require.NoError(t, f.service.invalidateFailedObservation(canceledCtx, failed))
-	after := f.state(t)
-	require.Equal(t, fresh.ObservedAt, after.ObservedAt)
-	require.Equal(t, fresh.Observed, after.Observed)
-	requireAllocationReadiness(t, ctx, f, true)
-}
-
 func TestScheduledObservationTimeoutRetainsMissingStateForBackoff(t *testing.T) {
 	ctx, f := deactivationFixture(t)
 	_, err := f.conn.ExecContext(ctx, `DELETE FROM container_mining_group_state WHERE device_id=$1`, f.target.DeviceID)

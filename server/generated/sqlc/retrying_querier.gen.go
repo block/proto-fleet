@@ -6872,12 +6872,6 @@ func (q *retryingQuerier) InsertRepairTicketPart(ctx context.Context, arg Insert
 	})
 }
 
-func (q *retryingQuerier) InvalidateMiningGroupObservation(ctx context.Context, arg InvalidateMiningGroupObservationParams) error {
-	return q.retrier.RetryQuery(ctx, "InvalidateMiningGroupObservation", func() error {
-		return q.next.InvalidateMiningGroupObservation(ctx, arg)
-	})
-}
-
 func (q *retryingQuerier) InventoryPartExistsBySiteAndName(ctx context.Context, arg InventoryPartExistsBySiteAndNameParams) (bool, error) {
 	var result bool
 	err := q.retrier.RetryQuery(ctx, "InventoryPartExistsBySiteAndName", func() error {
@@ -10895,6 +10889,12 @@ func (q *retryingQuerier) MarkFrigateUpdateActionLocal(ctx context.Context, arg 
 func (q *retryingQuerier) MarkFrigateUpdateCleanupAttempted(ctx context.Context, arg MarkFrigateUpdateCleanupAttemptedParams) error {
 	return q.retrier.RetryQuery(ctx, "MarkFrigateUpdateCleanupAttempted", func() error {
 		return q.next.MarkFrigateUpdateCleanupAttempted(ctx, arg)
+	})
+}
+
+func (q *retryingQuerier) MarkMiningGroupObservationPending(ctx context.Context, arg MarkMiningGroupObservationPendingParams) error {
+	return q.retrier.RetryQuery(ctx, "MarkMiningGroupObservationPending", func() error {
+		return q.next.MarkMiningGroupObservationPending(ctx, arg)
 	})
 }
 
