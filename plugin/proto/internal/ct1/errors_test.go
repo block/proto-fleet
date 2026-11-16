@@ -861,7 +861,37 @@ func TestGetErrorsReusesTheTelemetryPoll(t *testing.T) {
 	require.Equal(t, 2, controller.count("/api/v2/container/map"), "older evidence is not reused")
 }
 
-func TestGetErrorsFailedMapReadIsNotAnEmptyReport(t *testing.T) {
+// Fleet polls errors right after telemetry, so plant alarms normally reach it
+// through the telemetry poll's evidence, not through an error poll's own read.
+func TestGetErrorsReportsPlantAlarmsFromTheTelemetryPoll(t *testing.T) {
+	isolateErrorStates(t)
+	controller := &errorsController{wire: faultedBoards, plant: func(at time.Time) *mdk.GetContainerHealthResponse {
+		return plantHealth(at, &mdk.PlantAlarm{Id: "register-1-bit-2", Severity: mdk.Severity_SEVERITY_CRITICAL})
+	}}
+	d := controller.device(t)
+	_, err := d.Status(t.Context())
+	require.NoError(t, err)
+	report, err := d.GetErrors(t.Context())
+	require.NoError(t, err)
+	requireEvidence(t, requireError(t, report, kindPlant, "plant-alarm:register-1-bit-2", sdkerrors.VendorErrorUnmapped), errorEvidenceCurrent)
+	require.Equal(t, 1, controller.count("/api/v2/container/map"))
+	require.Equal(t, 1, controller.count("/api/v2/telemetry/container"))
+
+	// A telemetry poll without plant health says nothing about the plant,
+	// which is still part of the container, so the alarm is carried.
+	controller.set(func(c *errorsController) { c.plantStatus = http.StatusServiceUnavailable })
+	_, err = d.Status(t.Context())
+	require.NoError(t, err)
+	report, err = d.GetErrors(t.Context())
+	require.NoError(t, err)
+	requireEvidence(t, requireError(t, report, kindPlant, "plant-alarm:register-1-bit-2", sdkerrors.VendorErrorUnmapped), errorEvidenceRetained)
+	require.Equal(t, 2, controller.count("/api/v2/container/map"), "only the telemetry polls read the controller")
+}
+
+// Fleet records an unreachable container as offline and still closes the
+// errors that polls stop refreshing. A failed read confirms and clears
+// nothing, so the errors already held stay reported.
+func TestGetErrorsFailedMapReadCarriesHeldErrors(t *testing.T) {
 	isolateErrorStates(t)
 	controller := &errorsController{wire: faultedBoards}
 	d := controller.device(t)
@@ -872,14 +902,45 @@ func TestGetErrorsFailedMapReadIsNotAnEmptyReport(t *testing.T) {
 	controller.set(func(c *errorsController) { c.mapStatus = http.StatusServiceUnavailable })
 	expireErrorEvidence(d)
 	report, err = d.GetErrors(t.Context())
-	require.Equal(t, codes.Unavailable, status.Code(err))
-	require.Empty(t, report.Errors)
+	require.NoError(t, err)
+	require.Len(t, report.Errors, 1)
+	carried := requireError(t, report, kindBoard, "mac:"+errorsMAC(1), sdkerrors.BoardPowerOvercurrent)
+	requireEvidence(t, carried, errorEvidenceRetained)
+	require.True(t, carried.LastSeenAt.IsZero(), "a failed read confirms nothing")
+	require.NotEmpty(t, carried.VendorAttributes["ct1_last_confirmed_at"])
 
 	// The failed read changed nothing: the next good read still sees the fault.
 	controller.set(func(c *errorsController) { c.mapStatus = 0 })
 	report, err = d.GetErrors(t.Context())
 	require.NoError(t, err)
 	requireEvidence(t, requireError(t, report, kindBoard, "mac:"+errorsMAC(1), sdkerrors.BoardPowerOvercurrent), errorEvidenceCurrent)
+}
+
+func TestGetErrorsFailedMapReadIsNotAnEmptyReport(t *testing.T) {
+	healthyBoards := func(at time.Time) *mdk.GetContainerMapResponse {
+		return errorsMap(errorsBoard(1, at), errorsBoard(2, at), errorsBoard(3, at))
+	}
+	t.Run("before any read", func(t *testing.T) {
+		isolateErrorStates(t)
+		controller := &errorsController{wire: faultedBoards, mapStatus: http.StatusServiceUnavailable}
+		report, err := controller.device(t).GetErrors(t.Context())
+		require.Equal(t, codes.Unavailable, status.Code(err))
+		require.Empty(t, report.Errors)
+	})
+	t.Run("with no error held", func(t *testing.T) {
+		isolateErrorStates(t)
+		controller := &errorsController{wire: healthyBoards}
+		d := controller.device(t)
+		report, err := d.GetErrors(t.Context())
+		require.NoError(t, err)
+		require.Empty(t, report.Errors)
+
+		controller.set(func(c *errorsController) { c.mapStatus = http.StatusServiceUnavailable })
+		expireErrorEvidence(d)
+		report, err = d.GetErrors(t.Context())
+		require.Equal(t, codes.Unavailable, status.Code(err))
+		require.Empty(t, report.Errors)
+	})
 }
 
 func TestGetErrorsKeepsBoardFaultsWithoutPlantHealth(t *testing.T) {
@@ -952,8 +1013,10 @@ func TestGetErrorsFallsBackToTheVerifiedStandby(t *testing.T) {
 
 	b.mapError = status.Error(codes.Unavailable, "standby cannot read hashboards")
 	expireErrorEvidence(d)
-	_, err = d.GetErrors(t.Context())
-	require.Equal(t, codes.Unavailable, status.Code(err), "both controllers failing is a failed poll")
+	report, err = d.GetErrors(t.Context())
+	require.NoError(t, err, "with both controllers failing, the held error is carried")
+	require.Len(t, report.Errors, 1)
+	requireEvidence(t, requireError(t, report, kindBoard, "mac:"+errorsMAC(1), sdkerrors.BoardPowerOvercurrent), errorEvidenceRetained)
 }
 
 // The server polls errors right after every telemetry poll, including one that
@@ -970,7 +1033,7 @@ func TestGetErrorsDoesNotRepeatAFailedTelemetryPoll(t *testing.T) {
 		reads := controller.reads()
 
 		_, err = d.GetErrors(t.Context())
-		require.Equal(t, codes.Unavailable, status.Code(err), "the failed poll fails the error poll too")
+		require.Equal(t, codes.Unavailable, status.Code(err), "with nothing held, the failed poll fails the error poll too")
 		require.Equal(t, reads, controller.reads(), "without reading the controller again")
 
 		// A poll that reads the container replaces the failure.
@@ -988,14 +1051,16 @@ func TestGetErrorsDoesNotRepeatAFailedTelemetryPoll(t *testing.T) {
 		_, err = d.Status(t.Context())
 		require.Equal(t, codes.Unavailable, status.Code(err))
 		reads = controller.reads()
-		_, err = d.GetErrors(t.Context())
-		require.Equal(t, codes.Unavailable, status.Code(err))
+		report, err = d.GetErrors(t.Context())
+		require.NoError(t, err, "the held error is carried across the failed poll")
+		requireEvidence(t, requireError(t, report, kindBoard, "mac:"+errorsMAC(1), sdkerrors.BoardPowerOvercurrent), errorEvidenceRetained)
 		require.Equal(t, reads, controller.reads())
 
 		// The failure is reused only for as long as an observation would be.
 		expireErrorEvidence(d)
-		_, err = d.GetErrors(t.Context())
-		require.Equal(t, codes.Unavailable, status.Code(err))
+		report, err = d.GetErrors(t.Context())
+		require.NoError(t, err)
+		requireEvidence(t, requireError(t, report, kindBoard, "mac:"+errorsMAC(1), sdkerrors.BoardPowerOvercurrent), errorEvidenceRetained)
 		require.Greater(t, controller.reads(), reads, "the error poll reads for itself again")
 	})
 	t.Run("HA pair whose map reads fail", func(t *testing.T) {

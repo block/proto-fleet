@@ -385,18 +385,23 @@ that asserted it supplies a complete reading without it.
   therefore one Frigate has retired. Requiring a complete topology would instead
   keep its errors open wherever any slot is unknown, which includes every empty
   slot outside `switch_ports` mode.
-- A failed map read fails the poll. It never produces an empty report.
+- A poll that cannot read the container confirms and clears nothing. Fleet
+  records an unreachable container as offline and still closes the errors that
+  polls stop refreshing, so the errors already held are reported, all carried.
+  They stay open in Fleet for as long as the container is unreachable. With no
+  error held, the poll fails: a failed map read never produces an empty report.
 
 Claims and sample order live in the plugin process, shared by every handle for
 a container, including Fleet Node's per-command handles. They do not survive a
 plugin restart: after one, carried errors are no longer reported, and Fleet
-closes them after its staleness threshold.
+closes them after its staleness threshold. That includes a restart while the
+container is unreachable, when the plugin holds nothing and the poll fails.
 
 Fleet polls errors right after telemetry. Error polling reuses the outcome of a
 telemetry poll that ended in the last ten seconds, so the poll cycle reads the
 map once. If that poll read the container, its observation is the report. If
-it could not, the error poll fails with the same error and does not probe or
-read the controllers again. A poll the caller abandoned is not reused.
+it could not, the error poll takes that failure as its own and does not probe
+or read the controllers again. A poll the caller abandoned is not reused.
 Otherwise error polling selects a controller like telemetry does, including one
 retry on the verified standby, and reads only the map and plant health.
 

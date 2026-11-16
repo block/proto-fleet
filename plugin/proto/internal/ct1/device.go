@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net"
 	"net/url"
 	"strconv"
@@ -95,8 +96,9 @@ func (d *Device) Status(ctx context.Context) (sdk.DeviceMetrics, error) {
 	firmwareJobs := observeFirmwareJobs(ctx, selected)
 	metrics, evidence, err := selected.client.collect(ctx, d.id)
 	if err != nil && selected.standby != nil && ctx.Err() == nil {
-		// Reuse this poll's verified standby. Only telemetry can fall back;
-		// commands and their readback stay on one selected connection.
+		// Reuse this poll's verified standby. Only telemetry and error polling
+		// (readErrorEvidence) can fall back; commands and their readback stay
+		// on one selected connection.
 		selected = selected.standby
 		firstErr := err
 		metrics, evidence, err = selected.client.collect(ctx, d.id)
@@ -160,24 +162,35 @@ func (d *Device) DownloadLogs(context.Context, *time.Time, string) (string, bool
 
 // GetErrors reports active board, PSU, and plant errors. Fleet closes an error
 // that polls stop reporting, so an error is still reported, marked as
-// retained, until its source confirms that it cleared. A failed map read fails
-// the poll; it never returns an empty report. Fleet polls errors right after
-// telemetry, so the outcome of a telemetry poll that just ended is reused,
-// whether it read the container or failed to.
+// retained, until its source confirms that it cleared. Fleet polls errors
+// right after telemetry, so the outcome of a telemetry poll that just ended is
+// reused, whether it read the container or failed to.
+//
+// A poll that cannot read the container confirms and clears nothing. Fleet
+// records an unreachable container as offline and still closes the errors
+// that polls stop refreshing, so the errors already held are reported, all
+// marked as retained. With none held, which includes the first poll after a
+// plugin restart, the poll fails: a failed read never returns an empty report.
 func (d *Device) GetErrors(ctx context.Context) (sdk.DeviceErrors, error) {
 	state := d.errorsShared()
 	observed, err := state.lastPoll(time.Now(), errorEvidenceMaxAge)
-	if err != nil {
-		return sdk.DeviceErrors{}, err
-	}
-	if !observed {
-		evidence, err := d.readErrorEvidence(ctx)
-		if err != nil {
-			return sdk.DeviceErrors{}, err
+	if err == nil && !observed {
+		var evidence *errorEvidence
+		if evidence, err = d.readErrorEvidence(ctx); err == nil {
+			state.observe(evidence)
 		}
-		state.observe(evidence)
 	}
-	return state.report(d.id), nil
+	if err == nil {
+		return state.report(d.id), nil
+	}
+	// A poll the caller abandoned says nothing about the container.
+	if ctx.Err() == nil {
+		if report, held := state.carried(d.id); held {
+			slog.WarnContext(ctx, "CT1 container could not be read; reporting the errors already held", "device_id", d.id, "errors", len(report.Errors), "error", err)
+			return report, nil
+		}
+	}
+	return sdk.DeviceErrors{}, err
 }
 
 // pollFailed records a telemetry poll that could not read the container, so

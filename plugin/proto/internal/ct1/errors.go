@@ -460,9 +460,9 @@ func joinBounded(parts []string, separator string, limit int) string {
 }
 
 // errorState is one container's reported errors, including those carried from
-// earlier evidence. It is shared by every handle for the container in this
-// process, including Fleet Node's per-command handles, and does not survive a
-// plugin restart.
+// earlier evidence or across polls that could not read the container. It is
+// shared by every handle for the container in this process, including Fleet
+// Node's per-command handles, and does not survive a plugin restart.
 type errorState struct {
 	mu         sync.Mutex
 	observedAt time.Time
@@ -631,6 +631,30 @@ func (s *errorState) observe(e *errorEvidence) {
 func (s *errorState) report(deviceID string) sdk.DeviceErrors {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	return s.render(deviceID)
+}
+
+// carried reports the errors already held after a poll that could not read
+// the container. Such a poll confirmed and cleared nothing, so every claim
+// becomes carried and stays so until evidence asserts it again. held is false
+// when there is nothing to carry.
+func (s *errorState) carried(deviceID string) (report sdk.DeviceErrors, held bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if len(s.items) == 0 {
+		return sdk.DeviceErrors{}, false
+	}
+	for _, item := range s.items {
+		for source, claim := range item.claims {
+			claim.current = false
+			item.claims[source] = claim
+		}
+	}
+	return s.render(deviceID), true
+}
+
+// render builds the report. The caller holds the lock.
+func (s *errorState) render(deviceID string) sdk.DeviceErrors {
 	type group struct {
 		code      sdkerrors.MinerError
 		component errorComponent
