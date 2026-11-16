@@ -134,11 +134,28 @@ it("keeps a failed preparation out of the confirmation and allows checking again
 
 it("retains the exact request and selection after a lost submission reply", async () => {
   mocks.returnToDefault.mockRejectedValueOnce(new ConnectError("Lost reply", Code.Unavailable));
+  let finish!: (response: ReturnType<typeof create<typeof GetStateResponseSchema>>) => void;
+  mocks.getState.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+  );
   render(<ReturnHashboardsToDefaultDialog hashboardIds={[9n]} onClose={vi.fn()} onComplete={vi.fn()} />);
   await screen.findByText("Mining: Running");
   fireEvent.click(screen.getByRole("button", { name: "Move hashboards" }));
   await screen.findByRole("alert");
+  expect(screen.queryByText("Moving hashboards…")).not.toBeInTheDocument();
+  expect(screen.getByText("Mining: Running")).toBeVisible();
+  expect(screen.getByText(/host.worker/)).toBeVisible();
+  expect(screen.getByText(/If you move these hashboards/)).toBeVisible();
+  expect(screen.getByRole("list", { name: "Selected hashboards" })).toHaveTextContent("Hashboard CT1-0009");
   fireEvent.click(screen.getByRole("button", { name: "Move hashboards" }));
+  expect(await screen.findByText("Moving hashboards…")).toBeVisible();
+  expect(screen.queryByText("Mining: Running")).not.toBeInTheDocument();
+  expect(screen.queryByText(/host.worker/)).not.toBeInTheDocument();
+  expect(screen.queryByText(/If you move these hashboards/)).not.toBeInTheDocument();
+  await act(async () => finish(create(GetStateResponseSchema, { operationId: "return-9", status: "complete" })));
   await screen.findByRole("button", { name: "Done" });
   expect(mocks.returnToDefault.mock.calls[1][0]).toEqual(mocks.returnToDefault.mock.calls[0][0]);
   expect(mocks.reviewReturnToDefault).toHaveBeenCalledOnce();

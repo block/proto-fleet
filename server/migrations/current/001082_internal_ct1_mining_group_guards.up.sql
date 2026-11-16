@@ -30,6 +30,21 @@ CREATE INDEX idx_pool_lifecycle_transition_open_asset
  ON pool_lifecycle_transition(state,organization_id,asset_kind,asset_id)
  WHERE state IN ('pending','deferred','ready','applying','uncertain','failed');
 
+-- Allocation guards also inspect uncertain work. Keep those rows in the
+-- assignment-scoped working set instead of scanning retained target history.
+DROP INDEX idx_pool_configuration_operation_target_open;
+CREATE INDEX idx_pool_configuration_operation_target_open
+ ON pool_configuration_operation_target(organization_id,target_kind,target_id)
+ WHERE state IN ('pending','applying','uncertain','failed','different','applied_unverified');
+
+-- All workflow guards and the lifecycle worker use the same safe retry rule.
+CREATE FUNCTION pool_lifecycle_clear_retryable(l pool_lifecycle_transition,w device_write_attempt)
+RETURNS boolean LANGUAGE sql IMMUTABLE AS $$
+ SELECT l.state='failed' AND l.result_code='clear_not_dispatched' AND l.reason='ownership'
+  AND l.configuration_id IS NULL AND l.target_kind='device' AND w.status='complete'
+  AND w.operation_kind='mutation' AND w.command_type='UpdateMiningPools' AND w.write_outcome='{}'::jsonb;
+$$;
+
 CREATE INDEX idx_hosted_account_asset_allocated_hashboard_device
  ON hosted_account_asset(organization_id,device_id)
  WHERE kind=7 AND client_id IS NOT NULL AND device_id IS NOT NULL;
@@ -45,6 +60,14 @@ ON CONFLICT(role_id,permission_id) DO NOTHING;
 -- Deferred work waits for the admitted deactivation without blocking it.
 CREATE FUNCTION guard_pool_lifecycle_mining_group_deactivation() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
+ -- Rigs cannot run mining-group deactivation. Keep their ownership and pairing
+ -- writes independent of physical-attempt finalization on the device fence.
+ IF NEW.state<>'pending' OR NOT EXISTS (
+  SELECT 1 FROM device d JOIN discovered_device dd ON dd.id=d.discovered_device_id
+  WHERE d.id=NEW.device_id AND d.org_id=NEW.organization_id AND dd.device_class=2
+ ) THEN
+  RETURN NEW;
+ END IF;
  PERFORM 1 FROM device_write_fence WHERE device_id=NEW.device_id AND organization_id=NEW.organization_id FOR UPDATE;
  IF NEW.state='pending' AND EXISTS (SELECT 1 FROM container_mining_group_state WHERE device_id=NEW.device_id
   AND organization_id=NEW.organization_id AND operation_kind='deactivate' AND status IN ('pending','applying','blocked')) THEN

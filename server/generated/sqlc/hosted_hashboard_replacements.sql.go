@@ -11,10 +11,14 @@ import (
 )
 
 const reconcileHostedHashboardReplacements = `-- name: ReconcileHostedHashboardReplacements :exec
-WITH locked_fence AS MATERIALIZED (
- SELECT device_id,organization_id FROM device_write_fence
- WHERE organization_id=$1::bigint AND device_id=$2::bigint
- FOR UPDATE SKIP LOCKED
+WITH locked_organization AS MATERIALIZED (
+ SELECT id FROM organization WHERE id=$1::bigint AND deleted_at IS NULL
+ FOR NO KEY UPDATE SKIP LOCKED
+), locked_fence AS MATERIALIZED (
+ SELECT f.device_id,f.organization_id FROM device_write_fence f
+ JOIN locked_organization o ON o.id=f.organization_id
+ WHERE f.device_id=$2::bigint
+ FOR UPDATE OF f SKIP LOCKED
 ), locked_state AS MATERIALIZED (
  SELECT s.device_id FROM container_mining_group_state s
  JOIN locked_fence f ON f.device_id=s.device_id AND f.organization_id=s.organization_id
@@ -34,7 +38,8 @@ type ReconcileHostedHashboardReplacementsParams struct {
 }
 
 // Keep accepted inventory even when physical admission or mode publication is
-// busy. Lock before reading readiness, and retain both locks through transfer.
+// busy. Match admission order: organization, fence, then mode state. Retain
+// those locks through transfer, or defer replacement when any lock is busy.
 func (q *Queries) ReconcileHostedHashboardReplacements(ctx context.Context, arg ReconcileHostedHashboardReplacementsParams) error {
 	_, err := q.exec(ctx, q.reconcileHostedHashboardReplacementsStmt, reconcileHostedHashboardReplacements, arg.OrganizationID, arg.DeviceID, arg.ObservedAt)
 	return err

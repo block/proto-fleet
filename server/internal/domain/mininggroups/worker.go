@@ -153,10 +153,13 @@ func (s *Service) Reconcile(ctx context.Context, orgID, deviceID int64, identifi
 	// The binding transaction takes device/route locks before the journal lock.
 	// It never retries external calls. The committed step survives any lost reply.
 	err = s.writes.WithBindingTransaction(ctx, func(ctx context.Context, q sqlc.Querier) error {
-		// Ownership changes must wait until this pass finishes validating and
-		// dispatching. Take organization admission before physical binding locks.
-		if _, err := q.LockPoolEquipmentOrganization(ctx, orgID); err != nil {
-			return err
+		// Activation and pool work recheck shared assignment authority. Take its
+		// organization admission before binding locks. Host deactivation and
+		// return-to-Default work need only the per-device binding reservation.
+		if initial.OperationKind != operationDeactivate && initial.OperationKind != operationReturnDefault {
+			if _, err := q.LockPoolEquipmentOrganization(ctx, orgID); err != nil {
+				return err
+			}
 		}
 		bindingErr := s.writes.WithBindingObservation(ctx, deviceID, func(q sqlc.Querier) error { return nil }, func(ctx context.Context) error {
 			row, err := q.LockMiningGroupState(ctx, sqlc.LockMiningGroupStateParams{OrganizationID: orgID, DeviceID: deviceID})

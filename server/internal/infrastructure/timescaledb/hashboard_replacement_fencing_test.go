@@ -1,6 +1,7 @@
 package timescaledb
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -120,4 +121,66 @@ func TestAutomaticReplacementDefersForModeObservationOrMissingFence(t *testing.T
 			require.Equal(t, [2]int64{client, 0}, replacementOwner(t, r, incoming))
 		})
 	}
+}
+
+func TestAutomaticReplacementDefersBeforeFenceWhenOrganizationIsBusy(t *testing.T) {
+	r := newModulePSUIdentityRig(t)
+	require.NoError(t, r.store(t, replacementSnapshot(r.base, "old", "other", "spare")))
+	old := r.boardID(t, "old")
+	client := replacementAccount(t, r, 0)
+	assignReplacementBoard(t, r, old, client, 0, r.base.Add(time.Millisecond))
+	// Save accepted inventory while a separate admission defers its transfer.
+	// The readiness worker later retries replacement outside telemetry's org lock.
+	inventoryFence, err := r.db.BeginTx(t.Context(), nil)
+	require.NoError(t, err)
+	defer inventoryFence.Rollback()
+	_, err = sqlc.New(inventoryFence).LockDeviceWriteFences(t.Context(), []int64{r.deviceID})
+	require.NoError(t, err)
+	observed := r.base.Add(time.Second)
+	require.NoError(t, r.store(t, replacementSnapshot(observed, "new", "other", "spare")))
+	require.NoError(t, inventoryFence.Commit())
+	incoming := r.boardID(t, "new")
+	admission, err := r.db.BeginTx(t.Context(), nil)
+	require.NoError(t, err)
+	defer admission.Rollback()
+	q := sqlc.New(admission)
+	_, err = q.LockHostedAccountOrganization(t.Context(), r.orgID)
+	require.NoError(t, err)
+	done := make(chan error, 1)
+	reconcile := func() error {
+		return sqlc.New(r.db).ReconcileHostedHashboardReplacements(t.Context(), sqlc.ReconcileHostedHashboardReplacementsParams{OrganizationID: r.orgID, DeviceID: r.deviceID, ObservedAt: observed})
+	}
+	go func() { done <- reconcile() }()
+	finished := false
+	defer func() {
+		_ = admission.Rollback()
+		if !finished {
+			select {
+			case <-done:
+			case <-time.After(5 * time.Second):
+				t.Error("replacement did not finish after organization admission ended")
+			}
+		}
+	}()
+	select {
+	case err = <-done:
+		finished = true
+		require.NoError(t, err)
+	case <-time.After(2 * time.Second):
+		t.Fatal("replacement waited for organization admission")
+	}
+	// Organization admission must still acquire the fence. Taking it first in
+	// replacement would create the reverse dependency and a database deadlock.
+	ctx, cancel := context.WithTimeout(t.Context(), time.Second)
+	defer cancel()
+	fences, err := q.LockDeviceWriteFences(ctx, []int64{r.deviceID})
+	require.NoError(t, err)
+	require.Len(t, fences, 1)
+	require.Equal(t, [2]int64{client, 0}, replacementOwner(t, r, old))
+	require.Equal(t, [2]int64{}, replacementOwner(t, r, incoming))
+	require.NoError(t, admission.Commit())
+	require.NoError(t, reconcile())
+	require.Equal(t, [2]int64{}, replacementOwner(t, r, old))
+	require.Equal(t, [2]int64{client, 0}, replacementOwner(t, r, incoming))
+	require.Equal(t, 1, replacementEventCount(t, r))
 }

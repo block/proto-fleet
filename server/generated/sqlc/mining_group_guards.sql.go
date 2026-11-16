@@ -74,9 +74,7 @@ SELECT CASE
   WHERE l.organization_id=$1 AND l.device_id=$2
    AND (l.state IN ('pending','ready','applying','uncertain')
     OR (l.state='deferred' AND NOT $3::boolean) OR
-    (l.state='failed' AND l.result_code='clear_not_dispatched' AND l.reason='ownership'
-     AND l.configuration_id IS NULL AND l.target_kind='device' AND w.status='complete'
-     AND w.operation_kind='mutation' AND w.command_type='UpdateMiningPools' AND w.write_outcome='{}'::jsonb))
+    pool_lifecycle_clear_retryable(l,w))
  ) OR EXISTS (
   SELECT 1 FROM pool_configuration_operation_target t
   JOIN pool_configuration_assignment a ON a.organization_id=t.organization_id

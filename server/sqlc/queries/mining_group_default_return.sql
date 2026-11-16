@@ -38,8 +38,9 @@ FROM hashboard h WHERE h.org_id=sqlc.arg(organization_id)
 
 -- name: HasPendingDefaultReturnPoolPolicy :one
 SELECT EXISTS (
- SELECT 1 FROM pool_lifecycle_transition l WHERE l.organization_id=sqlc.arg(organization_id) AND l.device_id=sqlc.arg(device_id)
- AND (l.state IN ('pending','deferred','ready','applying','uncertain') OR (l.state='failed' AND l.result_code='clear_not_dispatched'))
+ SELECT 1 FROM pool_lifecycle_transition l LEFT JOIN device_write_attempt w ON w.attempt_id=l.physical_attempt_id
+ WHERE l.organization_id=sqlc.arg(organization_id) AND l.device_id=sqlc.arg(device_id)
+ AND (l.state IN ('pending','deferred','ready','applying','uncertain') OR pool_lifecycle_clear_retryable(l,w))
 ) OR EXISTS (
  SELECT 1 FROM pool_configuration_operation_target t
  JOIN pool_configuration_assignment a ON a.organization_id=t.organization_id AND a.target_kind=t.target_kind AND a.target_id=t.target_id

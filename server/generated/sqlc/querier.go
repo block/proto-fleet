@@ -2452,7 +2452,8 @@ type Querier interface {
 	// AUTHENTICATION_NEEDED, PENDING, or FAILED by another flow.
 	ReconcileDefaultPasswordPairingStatusByIdentifier(ctx context.Context, arg ReconcileDefaultPasswordPairingStatusByIdentifierParams) (ReconcileDefaultPasswordPairingStatusByIdentifierRow, error)
 	// Keep accepted inventory even when physical admission or mode publication is
-	// busy. Lock before reading readiness, and retain both locks through transfer.
+	// busy. Match admission order: organization, fence, then mode state. Retain
+	// those locks through transfer, or defer replacement when any lock is busy.
 	ReconcileHostedHashboardReplacements(ctx context.Context, arg ReconcileHostedHashboardReplacementsParams) error
 	// Also retire intent left by earlier deletions or confirmed board removals.
 	// Board retirement is limited to unclaimed work. Retain physical attempts and

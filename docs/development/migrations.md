@@ -6,15 +6,15 @@ Shared and private SQL use one sequence: shared baseline 1000, private baseline
 
 The unmerged CT1 mining-group branch used versions 1076–1079 before it
 integrated the main migration sequence through 1081. Its guards, confirmed
-return to Default, and dispatch records now use 1082–1084. Migration 1085 adds
-per-invocation dispatch tokens without changing retained delivery evidence.
-Migration 1086 limits the lifecycle fence lock to CT1 controllers. Other miner
-types can still complete ownership changes while a pool-write result settles.
-Stop API and background workers before applying 1085. Start only builds that
-use dispatch tokens; an older worker could clear a newer invocation's marker.
+return to Default, and dispatch records now use 1082–1084. The lifecycle fence
+in 1082 applies only to CT1 controllers. Other miner types can complete ownership
+changes while a pool-write result settles. Dispatch records include per-invocation
+tokens from their creation in 1084. Do not mix feature worker versions while
+mining-group requests are in flight.
 A development database that used the earlier branch sequence has a different
 schema at those versions. Keep that database for inspection and create a separate
-current-schema development database. Do not force its version or replay
+current-schema development database. This also applies to branch databases that
+used the former 1085–1086 fixup migrations. Do not force a version or replay
 the new sequence against it.
 
 ## Existing databases

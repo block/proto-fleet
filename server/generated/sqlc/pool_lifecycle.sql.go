@@ -270,8 +270,7 @@ SELECT transition_id, organization_id, device_id, asset_kind, asset_id, owner_ac
  SELECT DISTINCT ON (l.device_id) l.transition_id, l.organization_id, l.device_id, l.asset_kind, l.asset_id, l.owner_account_id, l.allocation_revision, l.pairing_defaults, l.reason, l.pairing_cycle_id, l.configuration_id, l.revision_id, l.target_kind, l.target_id, l.reviewed_binding, l.state, l.result_code, l.operation_id, l.physical_attempt_id, l.created_at, l.updated_at, l.next_attempt_at FROM pool_lifecycle_transition l
  LEFT JOIN device_write_attempt w ON w.attempt_id=l.physical_attempt_id
  WHERE (l.state IN ('pending','ready') OR (l.state IN ('applying','uncertain') AND l.configuration_id IS NULL AND l.target_kind='device' AND w.status='complete')
-  OR (l.state='failed' AND l.result_code='clear_not_dispatched' AND l.reason='ownership' AND l.configuration_id IS NULL AND l.target_kind='device'
-   AND w.status='complete' AND w.operation_kind='mutation' AND w.command_type='UpdateMiningPools' AND w.write_outcome='{}'::jsonb))
+  OR pool_lifecycle_clear_retryable(l,w))
   AND l.next_attempt_at<=clock_timestamp()
   AND NOT EXISTS(SELECT 1 FROM pool_configuration_assignment a JOIN pool_configuration_operation_target t
    ON t.organization_id=a.organization_id AND t.operation_id=a.operation_id AND t.target_kind=a.target_kind AND t.target_id=a.target_id AND t.assignment_version=a.version
@@ -575,8 +574,7 @@ func (q *Queries) ReprepareUndispatchedPoolLifecycleRemoval(ctx context.Context,
 const retryUndispatchedPoolLifecycleRemoval = `-- name: RetryUndispatchedPoolLifecycleRemoval :exec
 UPDATE pool_lifecycle_transition l SET state='ready',physical_attempt_id=NULL,next_attempt_at=clock_timestamp()+interval '30 seconds',updated_at=clock_timestamp()
 FROM device_write_attempt w WHERE l.transition_id=$1 AND l.physical_attempt_id=w.attempt_id
- AND l.state='failed' AND l.result_code='clear_not_dispatched' AND l.reason='ownership' AND l.configuration_id IS NULL AND l.target_kind='device'
- AND w.status='complete' AND w.operation_kind='mutation' AND w.command_type='UpdateMiningPools' AND w.write_outcome='{}'::jsonb
+ AND pool_lifecycle_clear_retryable(l,w)
 `
 
 // Require explicit no-dispatch evidence from the direct executor plus a

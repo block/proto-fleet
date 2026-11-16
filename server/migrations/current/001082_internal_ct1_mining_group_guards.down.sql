@@ -11,6 +11,11 @@ END $$;
 DROP TRIGGER pool_lifecycle_mining_group_deactivation ON pool_lifecycle_transition;
 DROP FUNCTION guard_pool_lifecycle_mining_group_deactivation();
 DROP FUNCTION ct1_hashboard_allocation_ready(bigint,bigint);
+DROP FUNCTION pool_lifecycle_clear_retryable(pool_lifecycle_transition,device_write_attempt);
+DROP INDEX idx_pool_configuration_operation_target_open;
+CREATE INDEX idx_pool_configuration_operation_target_open
+ ON pool_configuration_operation_target(organization_id,target_kind,target_id)
+ WHERE state IN ('pending','applying','failed','different','applied_unverified');
 DROP INDEX idx_hosted_account_asset_allocated_hashboard_device;
 ALTER TABLE pool_lifecycle_transition DROP CONSTRAINT chk_pool_lifecycle_transition_state;
 ALTER TABLE pool_lifecycle_transition ADD CONSTRAINT pool_lifecycle_transition_state_check
@@ -25,7 +30,7 @@ ALTER TABLE container_mining_group_state ADD CONSTRAINT container_mining_group_s
 DELETE FROM role_permission WHERE permission_id IN (SELECT id FROM permission WHERE key='miner:deactivate_mining_groups');
 DELETE FROM permission WHERE key='miner:deactivate_mining_groups';
 
--- Restore the lifecycle trigger behavior from migration 1076.
+-- Restore the lifecycle trigger behavior from migration 1078.
 CREATE OR REPLACE FUNCTION enqueue_ownership_pool_transition() RETURNS trigger LANGUAGE plpgsql AS $$
 DECLARE owner bigint;
 BEGIN

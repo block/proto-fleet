@@ -56,6 +56,14 @@ func TestPoolLifecycleRollbackIsAtomicAndPreservesHistory(t *testing.T) {
 				_, err := conn.ExecContext(ctx, `INSERT INTO pool_lifecycle_transition(organization_id,device_id,asset_kind,asset_id,reason,state) VALUES($1,$2,5,$2,'ownership',$3)`, org, device, state)
 				require.NoError(t, err)
 			}
+			if state == "empty" {
+				// Newer functions use the lifecycle row type. Undo those guards
+				// before testing this historical migration's table removal.
+				guards, err := migrations.Current.ReadFile("current/001082_internal_ct1_mining_group_guards.down.sql")
+				require.NoError(t, err)
+				_, err = conn.ExecContext(t.Context(), string(guards))
+				require.NoError(t, err)
+			}
 			down, err := migrations.Current.ReadFile(poolLifecycleMigration + ".down.sql")
 			require.NoError(t, err)
 			// Preparing the migration requires one statement, so lock, guard and DDL

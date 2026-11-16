@@ -286,7 +286,7 @@ export default function ReturnHashboardsToDefaultDialog({
       ]}
     >
       <div className="flex flex-col gap-4">
-        {!started && !complete ? (
+        {!complete && reviews?.some((review) => !submissions[review.deviceIdentifier]?.operationId) ? (
           <p>
             If you move these hashboards, they will use the default group’s pools and mining settings. Mining can resume
             after the move if the group is running.
@@ -294,7 +294,7 @@ export default function ReturnHashboardsToDefaultDialog({
         ) : null}
         {reviews?.map((review) => {
           const submission = submissions[review.deviceIdentifier];
-          const message = submission?.message || (submission ? "Moving hashboards…" : "");
+          const message = submission?.message || (submission?.operationId ? "Moving hashboards…" : "");
           return (
             <div key={review.deviceIdentifier} className="flex flex-col gap-2">
               {reviews.length > 1 ? <p>{review.deviceIdentifier}</p> : null}
@@ -306,7 +306,7 @@ export default function ReturnHashboardsToDefaultDialog({
                   </li>
                 ))}
               </ul>
-              {!started && review.defaultGroup ? (
+              {!submission?.operationId && review.defaultGroup ? (
                 <>
                   <p>Mining: {review.defaultGroup.mining ? "Running" : "Stopped"}</p>
                   {review.defaultGroup.pools.length ? (

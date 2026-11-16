@@ -181,7 +181,7 @@ func (s *Service) GetState(ctx context.Context, identifier string) (State, error
 				}
 				var readiness deactivationReadiness
 				if observed.Supported && observed.Enabled {
-					readiness, err = deactivationBlocker(ctx, q, row, observed, false)
+					readiness, err = s.deactivationReadiness(ctx, q, row, observed)
 					if err != nil {
 						return err
 					}
@@ -216,6 +216,29 @@ func (s *Service) Activate(ctx context.Context, identifier, requestID string) (u
 
 func (s *Service) Deactivate(ctx context.Context, identifier, requestID string) (uuid.UUID, error) {
 	return s.changeMode(ctx, identifier, requestID, operationDeactivate)
+}
+
+func (s *Service) deactivationReadiness(ctx context.Context, q sqlc.Querier, row sqlc.ContainerMiningGroupState, observed sdk.MiningGroupResult) (deactivationReadiness, error) {
+	readiness, err := deactivationBlocker(ctx, q, row, observed, false)
+	if err != nil || readiness.Reason != "" {
+		return readiness, err
+	}
+	miner, err := s.miners.GetMinerForCommand(ctx, row.DeviceID)
+	if err != nil {
+		return deactivationReadiness{}, err
+	}
+	if checker, ok := miner.(interface {
+		CheckMiningGroupDeactivation(ctx context.Context) error
+	}); ok {
+		if err := checker.CheckMiningGroupDeactivation(ctx); err != nil {
+			var refusal fleeterror.FleetError
+			if fleeterror.IsFailedPreconditionError(err) && errors.As(err, &refusal) {
+				return deactivationReadiness{Reason: refusal.DebugMessage}, nil
+			}
+			return deactivationReadiness{}, err
+		}
+	}
+	return readiness, nil
 }
 
 func (s *Service) changeMode(ctx context.Context, identifier, requestID, kind string) (uuid.UUID, error) {
@@ -290,18 +313,7 @@ func (s *Service) changeMode(ctx context.Context, identifier, requestID, kind st
 			return fleeterror.NewFailedPreconditionError("controller firmware does not support mining groups")
 		}
 		if kind == operationDeactivate {
-			miner, err := s.miners.GetMinerForCommand(ctx, target.ID)
-			if err != nil {
-				return err
-			}
-			if checker, ok := miner.(interface {
-				CheckMiningGroupDeactivation(ctx context.Context) error
-			}); ok {
-				if err := checker.CheckMiningGroupDeactivation(ctx); err != nil {
-					return err
-				}
-			}
-			reason, err := deactivationBlocker(ctx, q, row, observation, false)
+			reason, err := s.deactivationReadiness(ctx, q, row, observation)
 			if err != nil {
 				return err
 			}
