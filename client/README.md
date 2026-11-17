@@ -134,6 +134,8 @@ Container-wide edits remain available when the controller reports the supported
 group protocol with groups disabled, no suspension, and no pending group change.
 Every write checks that state again. Reorders perform one full preflight, then
 check the mode revision before each priority write and stop if it changes.
+Between reorder steps, a transient capability-read failure is retried once;
+priority writes are never retried.
 After any successful priority write, a later failure reports that some priorities
 were saved and the final order is unconfirmed. Authentication errors keep their
 status and show sign-in guidance; neither writes nor reorders are replayed.
@@ -147,6 +149,9 @@ membership stability uses group IDs and revisions, so live transfer progress
 does not invalidate the view. Operation details appear in both modes. Terminal
 `COMPLETE` and `FAILED` receipts do not block legacy editing; unfinished work
 still blocks it even when it reports an error.
+If the controller does not support the group protocol, saved container pools
+remain visible in a read-only list. Other capability-read failures keep the page
+unavailable. Pool reads time out after ten seconds so **Reload pools** stays usable.
 Use **Reload pools** to refresh the configuration.
 Group edits and transfers are not offered by this view. Fleet-hosted ProtoOS
 keeps its existing read-only pool view; hosted assignments are managed in Fleet.

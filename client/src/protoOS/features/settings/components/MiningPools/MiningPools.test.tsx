@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, expect, test, vi } from "vitest";
 import MiningPools from "./MiningPools";
+import { MdkV2Adapter, type MdkV2Client } from "@/protoOS/api/adapters/mdkV2/MdkV2Adapter";
 import type { ContainerPoolConfiguration } from "@/protoOS/api/adapters/poolConfiguration";
 
 const state = vi.hoisted(() => ({
@@ -224,6 +225,37 @@ test("a failed read offers retry without enabling pool creation", async () => {
   state.adapter.getPoolSettings.mockResolvedValue([]);
   fireEvent.click(screen.getByText("Reload pools"));
   expect(await screen.findByText("Add pool")).toBeInTheDocument();
+});
+
+test("unsupported group mode keeps saved pools visible without editing controls", async () => {
+  state.adapter.getContainerPoolConfiguration.mockResolvedValue({ ...containerConfiguration, mode: "unsupported" });
+  render(<MiningPools />);
+  expect(await screen.findByText("Primary")).toBeInTheDocument();
+  expect(screen.getByRole("status")).toHaveTextContent("Pool editing is unavailable on this controller.");
+  expect(screen.queryByText("Add pool")).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Update" })).not.toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Reload pools" })).toBeEnabled();
+});
+
+test("a stalled controller pool list releases Reload and allows recovery", async () => {
+  vi.useFakeTimers();
+  try {
+    const adapter = new MdkV2Adapter({
+      poolServiceListPools: vi.fn().mockImplementation(() => new Promise(() => {})),
+    } as unknown as MdkV2Client);
+    state.adapter.getPoolSettings.mockImplementationOnce((params) => adapter.getPoolSettings(params));
+    render(<MiningPools />);
+    await act(async () => {});
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10_000);
+    });
+    expect(screen.getByRole("alert")).toHaveTextContent("Could not reload pools");
+    expect(screen.getByRole("button", { name: "Reload pools" })).toBeEnabled();
+  } finally {
+    vi.useRealTimers();
+  }
+  fireEvent.click(screen.getByRole("button", { name: "Reload pools" }));
+  expect(await screen.findByText("Primary")).toBeInTheDocument();
 });
 
 test.each([false, true])("leaving pools cancels the pending configuration read (reload: %s)", async (reload) => {

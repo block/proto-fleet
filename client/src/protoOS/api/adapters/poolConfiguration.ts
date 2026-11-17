@@ -5,7 +5,7 @@ export interface PoolBoardAssignment {
 }
 
 export interface ContainerPoolConfiguration {
-  mode: "container" | "groups";
+  mode: "container" | "groups" | "unsupported";
   suspended: boolean;
   groups: Array<{ id: string; name: string; revision: string; boards: PoolBoardAssignment[] }>;
   unassignedBoards: PoolBoardAssignment[];

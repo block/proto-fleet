@@ -68,6 +68,7 @@ import {
   toCanonicalSystemInfo,
 } from "./normalize";
 import {
+  POOL_READ_TIMEOUT_MS,
   poolWriteError,
   readContainerPoolConfiguration,
   readMiningGroupPools,
@@ -343,7 +344,9 @@ export class MdkV2Adapter implements MinerAdapter {
   }
 
   async getPoolSettings(params: AdapterRequestOptions = {}) {
-    const { data } = await this.client.poolServiceListPools(this.decorate(params));
+    const { data } = await withDeadline(this.decorate(params), POOL_READ_TIMEOUT_MS, (options) =>
+      this.client.poolServiceListPools(options),
+    );
     return (data.pools ?? [])
       .map((pool) => {
         if (!pool.id) throw new Error("Pool identity was not reported");

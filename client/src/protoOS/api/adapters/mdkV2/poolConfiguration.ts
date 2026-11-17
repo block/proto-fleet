@@ -1,4 +1,5 @@
 import { Code } from "@connectrpc/connect";
+import { isAuthenticationError } from "../errors";
 import {
   type ContainerPoolConfiguration,
   hasPendingPoolOperations,
@@ -12,8 +13,9 @@ import type { V2GetContainerMapResponse, V2MiningGroupOperationRecord } from "./
 import { slotPosition } from "./slotPosition";
 import { containerWriteError } from "./writeErrors";
 
-const READ_TIMEOUT_MS = 10_000;
+export const POOL_READ_TIMEOUT_MS = 10_000;
 const macKey = (mac: string) => mac.trim().toLowerCase();
+class UnsupportedGroupCapability extends Error {}
 
 async function readGroupCapability(client: MdkV2Client, params: AdapterRequestOptions) {
   const { data } = await client.miningGroupServiceGetMiningGroupCapability(params);
@@ -21,11 +23,14 @@ async function readGroupCapability(client: MdkV2Client, params: AdapterRequestOp
   if (
     value?.name !== "mining-groups-v1" ||
     value.version !== 1 ||
-    value.assignmentGranularity !== "PHYSICAL_HASHBOARD" ||
-    !/^\d+$/.test(value.stateRevision ?? "")
+    value.assignmentGranularity !== "PHYSICAL_HASHBOARD"
   ) {
-    throw new Error("The controller did not report mining-group mode. Pool editing is unavailable.");
+    throw new UnsupportedGroupCapability(
+      "The controller did not report mining-group mode. Pool editing is unavailable.",
+    );
   }
+  if (!/^\d+$/.test(value.stateRevision ?? ""))
+    throw new Error("The controller did not report a mining-group revision.");
   return value;
 }
 
@@ -60,8 +65,30 @@ function boardLocations(map: V2GetContainerMapResponse) {
 
 /** Read group membership once; pool credentials are loaded only for groups the operator opens. */
 export function readContainerPoolConfiguration(client: MdkV2Client, params: AdapterRequestOptions) {
-  return withDeadline(params, READ_TIMEOUT_MS, async (options): Promise<ContainerPoolConfiguration> => {
-    const before = await readGroupCapability(client, options);
+  return withDeadline(params, POOL_READ_TIMEOUT_MS, async (options): Promise<ContainerPoolConfiguration> => {
+    let before;
+    try {
+      before = await readGroupCapability(client, options);
+    } catch (error) {
+      const failure = error as { status?: number; error?: { code?: number } } | undefined;
+      if (
+        !isAuthenticationError(error) &&
+        (error instanceof UnsupportedGroupCapability ||
+          failure?.status === 501 ||
+          failure?.error?.code === Code.Unimplemented)
+      ) {
+        return {
+          mode: "unsupported",
+          suspended: false,
+          groups: [],
+          unassignedBoards: [],
+          locationsAvailable: false,
+          inventoryIssues: [],
+          pendingOperations: [],
+        };
+      }
+      throw error;
+    }
     const { data: groupsBefore } = await client.miningGroupServiceListMiningGroups(options);
     const configuration: ContainerPoolConfiguration = {
       mode: before.enabled ? "groups" : "container",
@@ -143,7 +170,7 @@ export function readMiningGroupPools(
   revision: string,
   params: AdapterRequestOptions,
 ) {
-  return withDeadline(params, READ_TIMEOUT_MS, async (options): Promise<MiningGroupPoolSettings[]> => {
+  return withDeadline(params, POOL_READ_TIMEOUT_MS, async (options): Promise<MiningGroupPoolSettings[]> => {
     if (!groupId || !revision) throw new Error("Reload the group assignments before reading pools.");
     const { data } = await client.miningGroupServiceListMiningGroupPools({ groupId }, options);
     const current = (await client.miningGroupServiceGetMiningGroup({ id: groupId }, options)).data.group;
@@ -189,38 +216,47 @@ export async function requireContainerPoolMode(
   params: AdapterRequestOptions,
   expectedRevision?: string,
 ) {
-  try {
-    return await withDeadline(params, READ_TIMEOUT_MS, async (options) => {
-      const state = await readGroupCapability(client, options);
-      if (state.enabled) throw new Error("Mining groups are enabled. Container-wide pool editing is unavailable here.");
-      if (state.suspended) throw new Error("Mining groups are suspended. Reload pools before making changes.");
-      if (expectedRevision !== undefined) {
-        if (state.stateRevision !== expectedRevision)
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await withDeadline(params, POOL_READ_TIMEOUT_MS, async (options) => {
+        const state = await readGroupCapability(client, options);
+        if (state.enabled)
+          throw new Error("Mining groups are enabled. Container-wide pool editing is unavailable here.");
+        if (state.suspended) throw new Error("Mining groups are suspended. Reload pools before making changes.");
+        if (expectedRevision !== undefined) {
+          if (state.stateRevision !== expectedRevision)
+            throw new Error("Mining-group mode changed. Reload pools before making changes.");
+          return state.stateRevision!;
+        }
+        const { data } = await client.miningGroupServiceListMiningGroups(options);
+        if (hasPendingPoolOperations(toOperations(data.pendingOperations)))
+          throw new Error("A mining-group change is pending. Wait for it to finish and reload pools.");
+        const after = await readGroupCapability(client, options);
+        if (state.stateRevision !== after.stateRevision || after.enabled || after.suspended)
           throw new Error("Mining-group mode changed. Reload pools before making changes.");
-        return state.stateRevision!;
-      }
-      const { data } = await client.miningGroupServiceListMiningGroups(options);
-      if (hasPendingPoolOperations(toOperations(data.pendingOperations)))
-        throw new Error("A mining-group change is pending. Wait for it to finish and reload pools.");
-      const after = await readGroupCapability(client, options);
-      if (state.stateRevision !== after.stateRevision || after.enabled || after.suspended)
-        throw new Error("Mining-group mode changed. Reload pools before making changes.");
-      return after.stateRevision!;
-    });
-  } catch (error) {
-    if (params.signal?.aborted) throw error;
-    if (isPoolAuthenticationError(error)) throw error;
-    const message =
-      error instanceof Error
-        ? error.message
-        : "Could not confirm mining-group mode. Reload pools before making changes.";
-    throw Object.assign(new Error(message), { writeOutcome: "refused" as const });
+        return after.stateRevision!;
+      });
+    } catch (error) {
+      if (params.signal?.aborted) throw error;
+      if (isAuthenticationError(error)) throw error;
+      // Only repeat a read between reorder steps. A failed mutation may already be saved.
+      if (expectedRevision !== undefined && attempt === 0 && isTransientReadError(error)) continue;
+      const message =
+        error instanceof Error
+          ? error.message
+          : "Could not confirm mining-group mode. Reload pools before making changes.";
+      throw Object.assign(new Error(message), { writeOutcome: "refused" as const });
+    }
   }
 }
 
-export const isPoolAuthenticationError = (error: unknown) => {
-  const failure = error as { status?: number; error?: { code?: number } } | undefined;
-  return failure?.status === 401 || failure?.error?.code === Code.Unauthenticated;
+const isTransientReadError = (error: unknown) => {
+  const failure = error as { status?: number; error?: { code?: number }; cause?: unknown } | undefined;
+  return (
+    [408, 502, 503, 504].includes(failure?.status ?? 0) ||
+    [Code.Unavailable, Code.DeadlineExceeded].includes(failure?.error?.code ?? 0) ||
+    (failure?.cause instanceof DOMException && failure.cause.name === "TimeoutError")
+  );
 };
 
 // Pool reloads can fail with FailedPrecondition after persistence. That code is not a refusal here.

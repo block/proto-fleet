@@ -273,7 +273,9 @@ to verify selected-board clearing without treating missing boards as cleared.
 
 All group state resets when the simulator restarts. Connected-board transfers
 complete synchronously; transfers involving isolated or disconnected boards are
-rejected. This fixture does not model HA ownership, physical shutdown proofs,
+rejected. `ListMiningGroups` does not populate `pending_operations` or
+`inventory_issues`. Use the ProtoOS pool-assignment stories and client mocks to
+test in-progress changes, failed operations, and inventory warnings. This fixture does not model HA ownership, physical shutdown proofs,
 real Stratum sessions, or per-group connection history. Existing pool
 diagnostics remain demonstration data. REST retains its existing API; Fleet uses
 the native gRPC group service.

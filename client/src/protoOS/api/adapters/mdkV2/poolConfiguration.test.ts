@@ -95,6 +95,55 @@ const fixture = (overrides: Partial<MdkV2Client> = {}) => {
 };
 
 describe("CT1 pool configuration inspection", () => {
+  test.each([{ data: {} }, { data: { capability: capability({ version: 2 }) } }])(
+    "missing or unsupported capabilities allow read-only pool inspection: %j",
+    async (response) => {
+      const { adapter, client } = fixture({
+        miningGroupServiceGetMiningGroupCapability: vi.fn().mockResolvedValue(response),
+      });
+      expect(await adapter.getContainerPoolConfiguration()).toMatchObject({ mode: "unsupported" });
+      expect(client.miningGroupServiceListMiningGroups).not.toHaveBeenCalled();
+    },
+  );
+
+  test.each([Code.Unimplemented, Code.Unavailable, Code.Unauthenticated])(
+    "only an unimplemented capability permits read-only fallback for error %s",
+    async (code) => {
+      const error = { error: { code } };
+      const { adapter } = fixture({
+        miningGroupServiceGetMiningGroupCapability: vi.fn().mockRejectedValue(error),
+      });
+      if (code === Code.Unimplemented)
+        expect(await adapter.getContainerPoolConfiguration()).toMatchObject({ mode: "unsupported" });
+      else await expect(adapter.getContainerPoolConfiguration()).rejects.toBe(error);
+    },
+  );
+
+  test("a pool list that ignores cancellation still times out", async () => {
+    vi.useFakeTimers();
+    try {
+      const list = vi.fn().mockImplementation(() => new Promise(() => {}));
+      const { adapter } = fixture({ poolServiceListPools: list });
+      const pending = adapter.getPoolSettings();
+      const assertion = expect(pending).rejects.toThrow("did not respond within 10 seconds");
+      await vi.advanceTimersByTimeAsync(10_000);
+      await assertion;
+      expect(list.mock.calls[0][0].signal.aborted).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test("canceling a stalled pool list stops waiting without a retry", async () => {
+    const list = vi.fn().mockImplementation(() => new Promise(() => {}));
+    const { adapter } = fixture({ poolServiceListPools: list });
+    const controller = new AbortController();
+    const pending = adapter.getPoolSettings({ signal: controller.signal });
+    controller.abort(new Error("Left pools"));
+    await expect(pending).rejects.toBe(controller.signal.reason);
+    expect(list).toHaveBeenCalledTimes(1);
+  });
+
   test("transfer progress and group ordering do not invalidate stable membership", async () => {
     const list = vi
       .fn()
@@ -300,7 +349,7 @@ describe("CT1 pool configuration inspection", () => {
     controller.abort(reason);
     // Real transports reject an already-aborted signal before dispatch.
     await expect(adapter.getContainerPoolConfiguration({ signal: controller.signal })).rejects.toBe(reason);
-    expect(read.mock.calls[0]?.[0]?.signal?.reason).toBe(reason);
+    expect(read).not.toHaveBeenCalled();
     expect(client.miningGroupServiceListMiningGroups).not.toHaveBeenCalled();
   });
 });
@@ -382,6 +431,62 @@ describe("legacy container pool write admission", () => {
     expect(list).toHaveBeenCalledTimes(1);
   });
 
+  test.each([Code.Unavailable, Code.DeadlineExceeded])(
+    "a transient capability failure between reorder passes is retried once: %s",
+    async (code) => {
+      const response = { data: { capability: capability({ enabled: false }) } };
+      const read = vi.fn().mockResolvedValue(response);
+      const update = vi.fn().mockImplementation(async () => {
+        if (update.mock.calls.length === 2) read.mockRejectedValueOnce({ error: { code } });
+      });
+      const { adapter } = fixture({
+        miningGroupServiceGetMiningGroupCapability: read,
+        miningGroupServiceListMiningGroups: vi.fn().mockResolvedValue({ data: {} }),
+        poolServiceUpdatePool: update,
+      });
+      await adapter.reorderPoolSettings(["2", "1"]);
+      expect(read).toHaveBeenCalledTimes(7);
+      expect(update.mock.calls.map(([, body]) => body.pool.priority)).toEqual([2, 3, 0, 1]);
+    },
+  );
+
+  test("two capability failures after parking stop the reorder without replaying writes", async () => {
+    const read = vi.fn().mockResolvedValue({ data: { capability: capability({ enabled: false }) } });
+    const update = vi.fn().mockImplementation(async () => {
+      if (update.mock.calls.length === 2) read.mockRejectedValue({ status: 503 });
+    });
+    const { adapter } = fixture({
+      miningGroupServiceGetMiningGroupCapability: read,
+      miningGroupServiceListMiningGroups: vi.fn().mockResolvedValue({ data: {} }),
+      poolServiceUpdatePool: update,
+    });
+    await expect(adapter.reorderPoolSettings(["2", "1"])).rejects.toMatchObject({ writeOutcome: "unknown" });
+    expect(read).toHaveBeenCalledTimes(6);
+    expect(update).toHaveBeenCalledTimes(2);
+  });
+
+  test("a local capability timeout between passes is retried with a fresh deadline", async () => {
+    vi.useFakeTimers();
+    try {
+      const read = vi.fn().mockResolvedValue({ data: { capability: capability({ enabled: false }) } });
+      const update = vi.fn().mockImplementation(async () => {
+        if (update.mock.calls.length === 2) read.mockImplementationOnce(() => new Promise(() => {}));
+      });
+      const { adapter } = fixture({
+        miningGroupServiceGetMiningGroupCapability: read,
+        miningGroupServiceListMiningGroups: vi.fn().mockResolvedValue({ data: {} }),
+        poolServiceUpdatePool: update,
+      });
+      const pending = adapter.reorderPoolSettings(["2", "1"]);
+      await vi.advanceTimersByTimeAsync(10_000);
+      await pending;
+      expect(read).toHaveBeenCalledTimes(7);
+      expect(update).toHaveBeenCalledTimes(4);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   test.each(["revision", "authentication"])(
     "a %s change after a saved priority stops without replaying",
     async (change) => {
@@ -402,6 +507,7 @@ describe("legacy container pool write admission", () => {
         message: expect.stringContaining("Some pool priorities were saved"),
       });
       if (change === "authentication") expect(failure).toMatchObject({ status: 401, error: auth.error, cause: auth });
+      expect(read).toHaveBeenCalledTimes(4);
       expect(update).toHaveBeenCalledTimes(1);
     },
   );

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import MiningGroupConfiguration from "./MiningGroupConfiguration";
 import MiningGroupOperations from "./MiningGroupOperations";
 import ReadOnlyMiningPools from "./ReadOnlyMiningPools";
-import { isPoolAuthenticationError } from "@/protoOS/api/adapters/mdkV2/poolConfiguration";
+import { isAuthenticationError } from "@/protoOS/api/adapters/errors";
 import { type ContainerPoolConfiguration, hasPendingPoolOperations } from "@/protoOS/api/adapters/poolConfiguration";
 import type { MinerAdapter, SavedPoolSettings } from "@/protoOS/api/adapters/types";
 import Pools from "@/protoOS/components/MiningPools/Pools";
@@ -21,7 +21,7 @@ const POOL_READ_FAILED =
 const POOL_WRITE_FAILED = "The pool change did not complete. Review the reloaded configuration before trying again.";
 const POOL_AUTH_REQUIRED = "Sign in to the controller, then reload pools. Pool changes were not retried.";
 const readFailureMessage = (error: unknown) => {
-  if (isPoolAuthenticationError(error)) return POOL_AUTH_REQUIRED;
+  if (isAuthenticationError(error)) return POOL_AUTH_REQUIRED;
   return error instanceof Error ? error.message : POOL_READ_FAILED;
 };
 
@@ -66,7 +66,7 @@ const ContainerMiningPools = () => {
   let subtitle = "Read the controller's pool configuration.";
   if (configuration?.mode === "groups") {
     subtitle = "Pools are managed by mining groups.";
-  } else if (configuration) {
+  } else if (configuration?.mode === "container") {
     subtitle =
       "Add up to 3 pools in order of priority. If a pool fails or is removed, the container switches to the next available pool automatically.";
   }
@@ -81,7 +81,7 @@ const ContainerMiningPools = () => {
     try {
       if (!adapter.getContainerPoolConfiguration) throw new Error("Mining-group mode is unavailable.");
       const currentConfiguration = await adapter.getContainerPoolConfiguration({ signal });
-      const current = currentConfiguration.mode === "container" ? await adapter.getPoolSettings({ signal }) : [];
+      const current = currentConfiguration.mode !== "groups" ? await adapter.getPoolSettings({ signal }) : [];
       if (signal.aborted) return;
       setSnapshot({ adapter, pools: current, configuration: currentConfiguration });
       setUnavailable(false);
@@ -89,7 +89,7 @@ const ContainerMiningPools = () => {
     } catch (error) {
       if (signal.aborted) return;
       setUnavailable(true);
-      if (isPoolAuthenticationError(error)) throw error;
+      if (isAuthenticationError(error)) throw error;
       throw Object.assign(new Error(POOL_READ_FAILED), { cause: error });
     } finally {
       if (currentRead.current === controller && !signal.aborted) setRefreshing(false);
@@ -145,9 +145,8 @@ const ContainerMiningPools = () => {
         messages.push(outcome && failure instanceof Error ? failure.message : POOL_WRITE_FAILED);
       }
       if (reloadFailure)
-        messages.push(isPoolAuthenticationError(reloadFailure) ? POOL_READ_FAILED : readFailureMessage(reloadFailure));
-      if (isPoolAuthenticationError(failure) || isPoolAuthenticationError(reloadFailure))
-        messages.push(POOL_AUTH_REQUIRED);
+        messages.push(isAuthenticationError(reloadFailure) ? POOL_READ_FAILED : readFailureMessage(reloadFailure));
+      if (isAuthenticationError(failure) || isAuthenticationError(reloadFailure)) messages.push(POOL_AUTH_REQUIRED);
       setError(messages.join(" "));
       throw failure;
     }
@@ -194,6 +193,19 @@ const ContainerMiningPools = () => {
       ) : null}
       {configuration?.mode === "container" ? (
         <MiningGroupOperations operations={configuration.pendingOperations} />
+      ) : null}
+      {configuration?.mode === "unsupported" ? (
+        <>
+          <div className="mb-6" role="status">
+            <Callout
+              intent={intents.warning}
+              prefixIcon={<Alert />}
+              title="Pool editing is unavailable on this controller."
+              subtitle="Mining-group support could not be confirmed. You can still view saved pools."
+            />
+          </div>
+          <ReadOnlyMiningPools pools={pools ?? []} showHeader={false} />
+        </>
       ) : null}
       {configuration?.mode === "container" && !canEditContainerPools ? (
         <>
