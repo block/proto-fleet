@@ -329,8 +329,13 @@ func (m *Miner) sendInSlot(ctx context.Context, mc *gatewaypb.MinerCommand) (*ga
 	version := gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1
 	if mc.GetRunContainerAlarmAction() != nil {
 		version = ContainerAlarmCommandProtocolVersion
-	} else if mc.GetContainerPowerFeed() != nil {
-		version = gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V13
+	} else if feed := mc.GetContainerPowerFeed(); feed != nil {
+		// Inspection and writes have separate minimums; an undecodable request
+		// takes the newer one so an older node never sees it.
+		version = PowerFeedWriteCommandProtocolVersion
+		if r, err := sdk.DecodeContainerPowerFeedRequest(feed.Request); err == nil && r.ReadOnly() {
+			version = PowerFeedInspectCommandProtocolVersion
+		}
 	} else if mc.GetControllerRecords() != nil {
 		version = gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V11
 	} else if mc.GetSetBoardIdentify() != nil {
@@ -468,6 +473,10 @@ func ackToError(ack *gatewaypb.ControlAck) error {
 			return devicewrite.NotDispatched(err)
 		}
 		return err
+	}
+	if code == gatewaypb.AckCode_ACK_CODE_FAILED_PRECONDITION {
+		// The device's own refusal, already worded for the operator.
+		return fleeterror.NewFailedPreconditionError(reason)
 	}
 	return fleeterror.NewInternalErrorf("fleet node reported command failure: %s", reason)
 }

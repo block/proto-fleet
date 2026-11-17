@@ -23,6 +23,9 @@ func (d *Device) ContainerPowerFeed(ctx context.Context, req sdk.ContainerPowerF
 	if err := req.Validate(); err != nil {
 		return result, sdk.InvalidWriteRequest(err)
 	}
+	if !req.ReadOnly() {
+		return d.writePowerFeed(ctx, req)
+	}
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	c, err := d.verifiedReadClient(ctx)
@@ -120,7 +123,8 @@ func slotFeedIDs(f *sdk.ContainerFeedEvidence) []string {
 // moduleFeedMapping derives the module's feed from every slot's evidence:
 // the slot's configured feed, the board's observed and expected feeds, and its
 // wiring status. A unique mapping needs exactly one feed across all of it,
-// claimed by no other module, at a module identity Fleet confirmed.
+// claimed by no other module, at a module identity Fleet confirmed, in a map
+// complete enough to show every module that could share the feed.
 func moduleFeedMapping(wire MapResponse, target sdk.ContainerPowerFeedModule) sdk.PowerFeedMapping {
 	mapping := sdk.PowerFeedMapping{Confidence: sdk.PowerFeedMappingUnavailable}
 	reasons := map[string]bool{}
@@ -208,6 +212,9 @@ func moduleFeedMapping(wire MapResponse, target sdk.ContainerPowerFeedModule) sd
 		if len(mapping.SharedWith) > 0 {
 			reasons["feed_shared"] = true
 		}
+		if !feedSharingKnown(wire, target) {
+			reasons["topology_incomplete"] = true
+		}
 	default:
 		reasons["multiple_feeds"] = true
 	}
@@ -271,6 +278,53 @@ func modulesClaimingFeed(wire MapResponse, feed string, target sdk.ContainerPowe
 	return out
 }
 
+// feedSharingKnown reports whether the map accounts for everything that could
+// draw from a feed. Feed records name no modules, so sharing is known only
+// from the map: a tank or module position it omits, a slot it does not
+// report, an unlocated board, or an occupied slot elsewhere that names no
+// feed could share the target's feed without appearing in SharedWith.
+func feedSharingKnown(wire MapResponse, target sdk.ContainerPowerFeedModule) bool {
+	tanks := map[int32]bool{}
+	for _, tank := range wire.ContainerMap.Tanks {
+		if tank.ID == 0 {
+			for _, module := range tank.Modules {
+				for _, slot := range module.Slots {
+					if slot.Occupied || slot.Hashboard != nil {
+						return false
+					}
+				}
+			}
+			continue
+		}
+		expected := tank.ExpectedModules
+		if expected == 0 {
+			expected = sdk.CT1ModulesPerTank
+		}
+		if tank.ID < 0 || tank.ID > sdk.CT1TankCount || tanks[tank.ID] || expected < 0 {
+			return false
+		}
+		tanks[tank.ID] = true
+		modules := map[int32]bool{}
+		for _, module := range tank.Modules {
+			if module.ID < 1 || module.ID > expected || modules[module.ID] || len(module.Slots) < boardsPerModule {
+				return false
+			}
+			modules[module.ID] = true
+			// The target's own unnamed boards are feed_evidence_incomplete.
+			isTarget := tank.ID == target.Tank && module.ID == target.Module
+			for _, slot := range module.Slots {
+				if slot.unreported || (!isTarget && slot.Occupied && len(slotFeedIDs(slot.Feed)) == 0) {
+					return false
+				}
+			}
+		}
+		if len(modules) != int(expected) {
+			return false
+		}
+	}
+	return len(tanks) == sdk.CT1TankCount
+}
+
 func finiteReading(v *float64) *float64 {
 	if v == nil || math.IsNaN(*v) || math.IsInf(*v, 0) {
 		return nil
@@ -296,6 +350,12 @@ func feedReading(resp *mdk.ListPowerFeedsResponse, id string) (*sdk.PowerFeedRea
 	if match == nil {
 		return nil, sdk.PowerFeedReadingNotInSnapshot
 	}
+	return powerFeedReading(match, id), ""
+}
+
+// powerFeedReading converts one controller feed record, keeping absent and
+// non-finite measurements unavailable.
+func powerFeedReading(match *mdk.PowerFeed, id string) *sdk.PowerFeedReading {
 	state := sdk.PowerFeedStateUnknown
 	if match.State != nil {
 		switch match.GetState() {
@@ -321,7 +381,7 @@ func feedReading(resp *mdk.ListPowerFeedsResponse, id string) (*sdk.PowerFeedRea
 		VoltageV: finiteReading(match.VoltageV), CurrentA: finiteReading(match.CurrentA), PowerW: finiteReading(match.PowerW),
 		VoltageABV: finiteReading(match.VoltageAbV), VoltageBCV: finiteReading(match.VoltageBcV), VoltageCAV: finiteReading(match.VoltageCaV),
 		CurrentAA: finiteReading(match.CurrentAA), CurrentBA: finiteReading(match.CurrentBA), CurrentCA: finiteReading(match.CurrentCA),
-	}, ""
+	}
 }
 
 func recoveryCycle(c *mdk.PowerRecoveryCycle) *sdk.PowerRecoveryCycle {

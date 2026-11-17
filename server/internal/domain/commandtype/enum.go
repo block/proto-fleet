@@ -45,6 +45,9 @@ const (
 	// ContainerAlarmAction sends one CT1 plant alarm mute or reset command. It
 	// is a physical plant write and is never retried.
 	ContainerAlarmAction
+	// ControlPowerFeed turns one CT1 module's power feed on or off, cycles it,
+	// or clears its operator override.
+	ControlPowerFeed
 )
 
 func (t *Type) String() string {
@@ -91,6 +94,8 @@ func (t *Type) String() string {
 		return "FrigateServerUpdate"
 	case ContainerAlarmAction:
 		return "ContainerAlarmAction"
+	case ControlPowerFeed:
+		return "ControlPowerFeed"
 
 	default:
 		return "Undefined"
@@ -114,7 +119,8 @@ func (t *Type) MayAffectPools() bool {
 		return false
 	case StartMining, StopMining, UpdateMiningPools, Reboot, FirmwareUpdate, Unpair,
 		UpdateMinerPassword, Curtail, Uncurtail, ApplyCurtailmentConfig,
-		SetContainerControl, ContainerAlarmAction, SetTankMining, SetModuleMining, ContainerMining:
+		SetContainerControl, ContainerAlarmAction, SetTankMining, SetModuleMining, ContainerMining,
+		ControlPowerFeed:
 		return true
 	default:
 		return true
@@ -165,6 +171,8 @@ func FromString(s string) (Type, error) {
 		return FrigateServerUpdate, nil
 	case "ContainerAlarmAction":
 		return ContainerAlarmAction, nil
+	case "ControlPowerFeed":
+		return ControlPowerFeed, nil
 
 	default:
 		return Type(-1), fleeterror.NewInternalErrorf("invalid command type: %s", s)

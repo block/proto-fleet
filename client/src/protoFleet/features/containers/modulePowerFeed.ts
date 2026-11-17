@@ -1,10 +1,15 @@
 import { timestampDate } from "@bufbuild/protobuf/wkt";
 import {
   type GetModulePowerFeedResponse,
+  PowerFeedAction,
   PowerFeedMappingConfidence,
   PowerFeedState,
 } from "@/protoFleet/api/generated/containers/v1/containers_pb";
-import type { PowerFeedConfidence, PowerFeedView } from "@/shared/components/PowerFeedCard";
+import type {
+  PowerFeedAction as PowerFeedActionName,
+  PowerFeedConfidence,
+  PowerFeedView,
+} from "@/shared/components/PowerFeedCard";
 
 const confidences: Record<PowerFeedMappingConfidence, PowerFeedConfidence> = {
   [PowerFeedMappingConfidence.UNSPECIFIED]: "unavailable",
@@ -53,5 +58,33 @@ export function modulePowerFeedView(response: GetModulePowerFeedResponse): Power
             lastError: cycle.lastError,
           }
         : null,
+  };
+}
+
+export const powerFeedActions: Record<PowerFeedActionName, PowerFeedAction> = {
+  turn_on: PowerFeedAction.TURN_ON,
+  turn_off: PowerFeedAction.TURN_OFF,
+  cycle: PowerFeedAction.CYCLE,
+  clear_override: PowerFeedAction.CLEAR_OVERRIDE,
+};
+
+export type ModulePowerFeedControl = {
+  feedId: string;
+  actions: PowerFeedActionName[];
+  /** Set when the actions cannot run now. */
+  unavailableReason?: string;
+  cycleHoldSeconds: number;
+};
+
+/** The controls the server offers for this read; undefined without permission or a mapped feed. */
+export function modulePowerFeedControl(response: GetModulePowerFeedResponse): ModulePowerFeedControl | undefined {
+  const control = response.control;
+  if (!control) return undefined;
+  const names = Object.entries(powerFeedActions) as [PowerFeedActionName, PowerFeedAction][];
+  return {
+    feedId: response.mapping?.feedId ?? "",
+    actions: control.actions.flatMap((wire) => names.filter(([, value]) => value === wire).map(([name]) => name)),
+    unavailableReason: control.unavailableReason || (response.mapping?.feedId ? undefined : "No feed is mapped."),
+    cycleHoldSeconds: control.cycleHoldSeconds,
   };
 }

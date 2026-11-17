@@ -9,6 +9,13 @@ import (
 	sdk "github.com/block/proto-fleet/server/sdk/v1"
 )
 
+// Power feed inspection and writes arrived in different command protocol
+// versions. Admission, dispatch and the upgrade messages all read these.
+const (
+	PowerFeedInspectCommandProtocolVersion = gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V13
+	PowerFeedWriteCommandProtocolVersion   = gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V16
+)
+
 func (m *Miner) ContainerPowerFeed(ctx context.Context, r sdk.ContainerPowerFeedRequest) (sdk.ContainerPowerFeedResult, error) {
 	var result sdk.ContainerPowerFeedResult
 	if err := r.Validate(); err != nil {

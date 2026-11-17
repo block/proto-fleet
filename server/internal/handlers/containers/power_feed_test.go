@@ -1,13 +1,16 @@
 package containers
 
 import (
+	"context"
 	"testing"
 	"time"
 
 	"connectrpc.com/authn"
+	"connectrpc.com/connect"
 	pb "github.com/block/proto-fleet/server/generated/grpc/containers/v1"
 	"github.com/block/proto-fleet/server/internal/domain/authz"
 	"github.com/block/proto-fleet/server/internal/domain/command"
+	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/session"
 	"github.com/block/proto-fleet/server/internal/handlers/middleware"
 	sdk "github.com/block/proto-fleet/server/sdk/v1"
@@ -56,4 +59,43 @@ func TestModulePowerFeedResponseKeepsUnknownsDistinct(t *testing.T) {
 	require.Equal(t, restore, got.RecoveryCycle.RestoreAfter.AsTime())
 	require.Nil(t, got.RecoveryCycle.CreatedAt)
 	require.Equal(t, observed, got.ObservedAt.AsTime())
+}
+
+func TestPowerFeedControlRequiresControlAndReadsAtContainerSite(t *testing.T) {
+	site, other := int64(7), int64(8)
+	reads := []string{authz.PermSiteRead, authz.PermFleetRead, authz.PermMinerRead}
+	ctxWith := func(perms []string) context.Context {
+		return middleware.WithEffectivePermissions(authn.SetInfo(t.Context(), &session.Info{UserID: 1, OrganizationID: 1}), authz.NewEffectivePermissions([]authz.Assignment{{ScopeType: authz.ScopeSite, SiteID: &site, Permissions: perms}}))
+	}
+	admin := ctxWith(append([]string{authz.PermContainerPowerFeed}, reads...))
+	require.NoError(t, authorizePowerFeedControl(admin, &site))
+	require.True(t, canControlPowerFeed(admin, &site))
+	require.Error(t, authorizePowerFeedControl(admin, &other))
+	require.False(t, canControlPowerFeed(admin, &other))
+	require.False(t, canControlPowerFeed(admin, nil))
+
+	viewer := ctxWith(reads)
+	require.Error(t, authorizePowerFeedControl(viewer, &site), "reads alone never control a feed")
+	require.False(t, canControlPowerFeed(viewer, &site))
+	require.Error(t, authorizePowerFeedControl(ctxWith([]string{authz.PermContainerPowerFeed}), &site), "control still needs the reads")
+}
+
+func TestControlModulePowerFeedRejectsUnknownActions(t *testing.T) {
+	h := (&Handler{}).WithCommands(&command.Service{})
+	_, err := h.ControlModulePowerFeed(t.Context(), connect.NewRequest(&pb.ControlModulePowerFeedRequest{ModuleId: 1, FeedId: "pdu-1", DeviceIdentifier: "container-1"}))
+	require.True(t, fleeterror.IsInvalidArgumentError(err), err)
+}
+
+func TestModulePowerFeedResponseCarriesControl(t *testing.T) {
+	inspection := sdk.ModulePowerFeedInspection{ObservedAt: time.Now(), Mapping: sdk.PowerFeedMapping{Confidence: sdk.PowerFeedMappingConfigured, FeedID: "pdu-1"}, RecoveryCycleKnown: true}
+	require.Nil(t, modulePowerFeedResponse(command.ModulePowerFeed{Inspection: inspection}).Control, "no control without permission")
+	got := modulePowerFeedResponse(command.ModulePowerFeed{Inspection: inspection, Control: &command.PowerFeedControl{
+		Actions: []string{sdk.ContainerPowerFeedTurnOn, sdk.ContainerPowerFeedClearOverride}, UnavailableReason: "busy",
+	}}).Control
+	require.Equal(t, []pb.PowerFeedAction{pb.PowerFeedAction_POWER_FEED_ACTION_TURN_ON, pb.PowerFeedAction_POWER_FEED_ACTION_CLEAR_OVERRIDE}, got.Actions)
+	require.Equal(t, "busy", got.UnavailableReason)
+	require.EqualValues(t, 30, got.CycleHoldSeconds)
+	for wire, action := range powerFeedActions {
+		require.Equal(t, wire, powerFeedActionProto(action), "%s round-trips", action)
+	}
 }

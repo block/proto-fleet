@@ -19,6 +19,8 @@ service ContainerService {
   rpc GetBoardIdentifyOptions(GetBoardIdentifyOptionsRequest) returns (GetBoardIdentifyOptionsResponse);
   rpc SetBoardIdentify(SetBoardIdentifyRequest) returns (SetBoardIdentifyResponse);
   rpc GetModulePowerFeed(GetModulePowerFeedRequest) returns (GetModulePowerFeedResponse);
+  // Queues one power feed write. Track it with GetEquipmentCommandResult.
+  rpc ControlModulePowerFeed(ControlModulePowerFeedRequest) returns (ControlModulePowerFeedResponse);
   // Live ASIC readings for one installed board while the caller keeps the
   // stream open. The server ends each stream after a few minutes so access and
   // placement are re-checked; callers reopen it.
@@ -393,6 +395,39 @@ message GetModulePowerFeedResponse {
   // False when the durable recovery cycle could not be read.
   bool recovery_cycle_known = 11;
   PowerRecoveryCycle recovery_cycle = 12;
+  // Unset when the caller may not control power feeds at the module's site.
+  PowerFeedControl control = 13;
+}
+
+enum PowerFeedAction {
+  POWER_FEED_ACTION_UNSPECIFIED = 0;
+  POWER_FEED_ACTION_TURN_ON = 1;
+  POWER_FEED_ACTION_TURN_OFF = 2;
+  POWER_FEED_ACTION_CYCLE = 3;
+  POWER_FEED_ACTION_CLEAR_OVERRIDE = 4;
+}
+
+// The writes that would change the feed's current state, and why none can run.
+message PowerFeedControl {
+  // In display order. Empty when the feed has no current reading.
+  repeated PowerFeedAction actions = 1;
+  // Operator-facing reason the actions cannot run now; empty when they can.
+  string unavailable_reason = 2;
+  // How long a cycle holds the feed off before the controller restores it.
+  uint32 cycle_hold_seconds = 3;
+}
+
+message ControlModulePowerFeedRequest {
+  int64 module_id = 1 [(buf.validate.field).int64.gt = 0];
+  PowerFeedAction action = 2 [(buf.validate.field).enum = {defined_only: true, not_in: [0]}];
+  // The feed the operator confirmed; rejected unless it is still the module's unique feed.
+  string feed_id = 3 [(buf.validate.field).string = {min_len: 1, max_len: 256}];
+  // The controller the operator inspected; rejected if the module has since moved to another.
+  string device_identifier = 4 [(buf.validate.field).string = {min_len: 1, max_len: 256}];
+}
+message ControlModulePowerFeedResponse {
+  string device_identifier = 1;
+  string batch_identifier = 2;
 }
 message StreamBoardASICReadingsRequest {
   // A moved or replaced board ends the stream rather than showing another board.

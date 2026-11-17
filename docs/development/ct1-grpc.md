@@ -329,6 +329,11 @@ identity matches the one Fleet confirmed, every occupied slot names the same
 single feed, wiring is not contradicted and no other module claims that feed;
 anything else is `ambiguous` or `unavailable` with machine-readable reasons. An
 occupied slot that names no feed while others do is `feed_evidence_incomplete`.
+Feed records name no modules, so sharing is known only from the map. A map
+that omits a tank or module position, leaves a slot unreported, lists an
+unlocated board, or has an occupied slot elsewhere that names no feed is
+`topology_incomplete`: the mapping is `ambiguous` and controls stay off,
+because hardware the map does not show could share the feed.
 Feed readings are shown only from a ready snapshot with exactly one record for
 the feed; an unreadable recovery cycle stays unknown rather than "none". Fleet
 reads through the `container_power_feed` capability and Fleet Node routing
@@ -341,6 +346,37 @@ Inspection uses the Fleet Node's deferrable-read capacity, so it never takes
 the command slots or device handles reserved for operator commands.
 fake-ct1 reports every simulated outlet as enabled with no active recovery
 cycle.
+
+Module power-feed control calls `PowerService.SetPowerFeedState` (turn on or
+off), `CyclePowerFeed` or `ClearPowerFeedOverride` for the one feed the
+operator confirmed. It requires the `container:power_feed` permission and the
+`container_power_feed_control` capability. Fleet offers an action only when
+the mapping is `wiring_verified` or `configured`, the feed has a current
+reading in a known state, no recovery cycle is active or unknown, and no power
+feed command is pending for the container. Turn on needs a disabled feed and
+turn off an enabled one. Cycle needs an enabled feed that reports no fault.
+Clear override needs an overridden feed. Under its write lock, the plugin
+re-derives the mapping, the module identity, the recovery cycle and the feed
+state before it sends anything, and refuses with `FailedPrecondition` if any
+of them changed. Those reads have a 10-second budget and the write its own
+15 seconds. Fleet and the plugin take the actions a feed state allows from one
+SDK rule, `PowerFeedWritesFor`. If Fleet cannot check whether controls are
+available, the inspection still succeeds with controls off and a reason.
+Writes are sent once and are never retried or replayed.
+A write names the controller the operator inspected, and Fleet refuses it
+before queueing if the module has since moved to another controller: feed IDs
+repeat across containers.
+Controller refusals report as failed, with the controller's reason. A Fleet
+Node carries that reason back with `ACK_CODE_FAILED_PRECONDITION`. Transport
+failures report as outcome unconfirmed. The confirmation dialog stays open
+until the command settles. A cycle that hits its deadline has been committed, and the
+controller owns its 30-second hold and restore durably. Fleet reads the feed
+once when a command settles and shows the recovery cycle from that read; the
+operator refreshes to follow it. Fleet Node routing requires command protocol
+V16 for writes. An older node only inspects, so Fleet turns controls off for its
+containers and refuses a write with an upgrade message. Feed power is separate
+from mining: turning a feed off does not stop mining first. fake-ct1 does not implement power-feed
+writes, so its controller refuses them as unimplemented.
 
 ## Protobuf presence and diagnostic fidelity
 

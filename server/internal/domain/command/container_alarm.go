@@ -87,7 +87,7 @@ func (s *Service) RunContainerAlarmAction(ctx context.Context, identifier string
 		if pending {
 			return nil, fleeterror.NewFailedPreconditionError(containerAlarmPendingMessage)
 		}
-		upgrade, err := s.containerAlarmUpgradeRequired(txCtx, q, info.OrganizationID, target.ID, identifier)
+		upgrade, err := s.fleetNodeUpgradeRequired(db.WithTxQueries(txCtx, q), info.OrganizationID, target.ID, identifier, remotenode.ContainerAlarmCommandProtocolVersion)
 		if err != nil {
 			return nil, err
 		}
@@ -109,22 +109,6 @@ func (s *Service) RunContainerAlarmAction(ctx context.Context, identifier string
 		description := "Container alarm " + req.Action + " requested"
 		return s.queueContainerCommand(txCtx, identifier, &Command{commandType: commandtype.ContainerAlarmAction, payload: payload}, "container_alarm_action", description)
 	})
-}
-
-func (s *Service) containerAlarmUpgradeRequired(ctx context.Context, q sqlc.Querier, orgID, deviceID int64, identifier string) (bool, error) {
-	if s.protocolChecker == nil {
-		return false, nil
-	}
-	routes, err := s.resolveDeviceCommandRoutes(db.WithTxQueries(ctx, q), orgID, []resolvedDevice{{id: deviceID, identifier: identifier}})
-	if err != nil {
-		return false, err
-	}
-	for _, route := range routes {
-		if route.FleetNodeID.Valid && s.protocolChecker.CommandProtocolUpgradeRequiredForVersion(route.FleetNodeID.Int64, remotenode.ContainerAlarmCommandProtocolVersion) {
-			return true, nil
-		}
-	}
-	return false, nil
 }
 
 // alarmActionWritable applies the same freshness rule as equipment writes and

@@ -321,6 +321,8 @@ enum CommandProtocolVersion {
     COMMAND_PROTOCOL_VERSION_V14 = 14;
     // V15 adds mining-group deactivation with validated replay receipts.
     COMMAND_PROTOCOL_VERSION_V15 = 15;
+    // V16 adds CT1 module power-feed on, off, cycle and override clearing.
+    COMMAND_PROTOCOL_VERSION_V16 = 16;
 }
 
 message ControlHello {
@@ -769,6 +771,9 @@ enum AckCode {
     // FORBIDDEN: the miner denied access for a non-authentication remediation
     // reason, e.g. default-password lockout.
     ACK_CODE_FORBIDDEN       = 11;
+    // FAILED_PRECONDITION: the device refused the command before starting it.
+    // error_message is the operator-facing reason; retrying unchanged cannot succeed.
+    ACK_CODE_FAILED_PRECONDITION = 12;
 }
 
 message SetContainerControlAction {

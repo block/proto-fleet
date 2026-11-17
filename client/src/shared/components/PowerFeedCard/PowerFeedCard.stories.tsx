@@ -1,5 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react";
-import PowerFeedCard, { type PowerFeedView } from ".";
+import PowerFeedCard, { powerFeedActionLabels, type PowerFeedView } from ".";
+import { Power } from "@/shared/assets/icons";
+import RowActionsMenu from "@/shared/components/RowActionsMenu";
 
 const healthy: PowerFeedView = {
   feedId: "pdu-1-outlet-05",
@@ -59,6 +61,9 @@ export const Ambiguous: Story = {
     },
   },
 };
+export const PartialControllerMap: Story = {
+  args: { feed: { ...healthy, confidence: "ambiguous", reasons: ["topology_incomplete"] } },
+};
 export const ReadingUnavailable: Story = {
   args: { feed: { ...healthy, reading: undefined, readingUnavailableReason: "read_failed", recoveryCycle: undefined } },
 };
@@ -86,5 +91,21 @@ export const RecoveryCycle: Story = {
         lastError: "",
       },
     },
+  },
+};
+export const WithActions: Story = {
+  args: {
+    feed: { ...healthy, confidence: "configured" },
+    actions: (
+      <RowActionsMenu
+        ariaLabel="Power feed actions"
+        actions={(["turn_off", "cycle"] as const).map((action) => ({
+          label: powerFeedActionLabels[action],
+          icon: <Power />,
+          danger: true,
+          onClick: () => {},
+        }))}
+      />
+    ),
   },
 };
