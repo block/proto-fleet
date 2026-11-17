@@ -102,4 +102,10 @@ func TestAccountLegacyModuleUptimeUsesLatestStateWithoutMetricSamples(t *testing
 	require.Zero(t, result.Readings[0].UptimeStatus.HashingCount)
 	require.Zero(t, result.Readings[1].UptimeStatus.HashingCount, "latest unknown state must not retain earlier active state")
 	require.Zero(t, result.Readings[1].UptimeStatus.NotHashingCount, "unknown is a gap, not an offline observation")
+
+	_, err = f.db.ExecContext(t.Context(), `SELECT compress_chunk(c) FROM show_chunks('container_module_diagnostic_observation') c`)
+	require.NoError(t, err)
+	compressed, err := f.svc.Dashboard(t.Context(), f.user, f.org, request)
+	require.NoError(t, err)
+	require.Equal(t, result.Readings, compressed.Readings, "compressed diagnostics must preserve dashboard history")
 }
