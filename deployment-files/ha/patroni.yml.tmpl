@@ -111,3 +111,6 @@ postgresql:
     - hostssl all fleet ${HA_DB_B_IP}/32 scram-sha-256
     - hostssl fleet grafana_ha_ro ${HA_DB_A_IP}/32 scram-sha-256
     - hostssl fleet grafana_ha_ro ${HA_DB_B_IP}/32 scram-sha-256
+    # Vendor-neutral monitoring views; credentials/grants are provisioned externally.
+    - hostssl fleet fleet_metrics_ro ${HA_DB_A_IP}/32 scram-sha-256
+    - hostssl fleet fleet_metrics_ro ${HA_DB_B_IP}/32 scram-sha-256

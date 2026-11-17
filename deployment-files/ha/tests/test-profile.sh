@@ -133,6 +133,8 @@ test_patroni_contract() {
     assert_contains "$template" "sslmode: verify-full"
     assert_contains "$template" 'post_bootstrap: /usr/local/bin/patroni-post-bootstrap'
     assert_contains "$template" 'hostssl fleet grafana_ha_ro ${HA_DB_A_IP}/32 scram-sha-256'
+    assert_contains "$template" 'hostssl fleet fleet_metrics_ro ${HA_DB_A_IP}/32 scram-sha-256'
+    assert_contains "$template" 'hostssl fleet fleet_metrics_ro ${HA_DB_B_IP}/32 scram-sha-256'
     assert_not_contains "$template" "0.0.0.0/0"
     assert_contains "$entrypoint" "render-patroni-config"
     assert_contains "$entrypoint" 'exec gosu postgres start-patroni "${run_dir}/patroni.yml"'
