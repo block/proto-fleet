@@ -144,7 +144,13 @@ func (p *Pairer) PairDevice(ctx context.Context, discoveredDevice *discoverymode
 	// Container plugins decide whether anonymous pairing is supported. Do not
 	// offer or persist the shared driver's rig defaults for a public controller.
 	if credentials == nil && discoveredDevice.DeviceClass == commonpb.DeviceClass_DEVICE_CLASS_CONTAINER {
-		return p.executePairing(ctx, plugin, discoveredDevice, nil)
+		err := p.executePairing(ctx, plugin, discoveredDevice, nil)
+		if fleeterror.IsAuthenticationError(err) {
+			// A controller that requires a credential needs the operator's, the
+			// same as a rig with no working defaults.
+			return fleeterror.NewInvalidArgumentErrorf("invalid_argument: credentials are required for pairing")
+		}
+		return err
 	}
 	// If no credentials provided, try default credentials if plugin provides them
 	if credentials == nil {
@@ -635,9 +641,13 @@ func classifyPairingDriverError(err error, prefix string) error {
 			return fleeterror.NewUnauthenticatedErrorf("%s: %v", prefix, err)
 		case codes.PermissionDenied:
 			return fleeterror.NewForbiddenErrorf("%s: %v", prefix, err)
+		case codes.FailedPrecondition:
+			// The driver names a state the operator has to change first, such
+			// as a different controller answering at a paired address.
+			return fleeterror.NewFailedPreconditionErrorf("%s: %s", prefix, st.Message())
 		case codes.OK, codes.Canceled, codes.Unknown, codes.InvalidArgument,
 			codes.DeadlineExceeded, codes.NotFound, codes.AlreadyExists,
-			codes.ResourceExhausted, codes.FailedPrecondition, codes.Aborted,
+			codes.ResourceExhausted, codes.Aborted,
 			codes.OutOfRange, codes.Unimplemented, codes.Internal,
 			codes.Unavailable, codes.DataLoss:
 			// All other gRPC status codes fall through to InternalError below.

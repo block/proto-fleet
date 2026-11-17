@@ -145,6 +145,12 @@ func (p *pluginPairer) Pair(ctx context.Context, target *pairingpb.FleetNodePair
 	if deviceInfo.DeviceClass == sdk.DeviceClassContainer {
 		updated, pairErr := pairDevice(sdk.SecretBundle{Version: "v1"})
 		if pairErr != nil {
+			if isNodeAuthFailure(pairErr) {
+				// The controller requires a credential none was supplied for.
+				res.Outcome = pb.PairOutcome_PAIR_OUTCOME_AUTH_NEEDED
+				res.ErrorMessage = "credentials required for pairing"
+				return res
+			}
 			classifyNodePairError(pairErr, res)
 			return res
 		}
