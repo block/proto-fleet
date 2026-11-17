@@ -19,7 +19,26 @@ const series: HomeSeries[] = ["Hashboards", "Pumps", "Fans", "AC", "Aux"].map((l
   low: "10.0 kW",
   average: "12.0 kW",
 }));
-const history: HomeHistory = { series, units: "kW", window: [end - 12 * 3_600_000, end], stacked: true };
+const powerSeries: HomeSeries[] = [
+  { label: "Facility total", value: 820, color: colors[3] },
+  { label: "Mining power", value: 720, color: colors[0] },
+  ...Array.from({ length: 6 }, (_, index) => ({
+    label: `pdu-${index + 1}`,
+    value: 125 + index,
+    color: `hsl(${(270 + index * 137.508) % 360} 65% 50%)`,
+  })),
+  { label: "Fans", value: 20, color: colors[2] },
+].map(({ label, value, color }) => ({
+  id: label,
+  label,
+  color,
+  latest: `${value}.0 kW`,
+  points: series[0].points.map((point, index) => ({ ...point, value: value + Math.sin(index / 10) })),
+  high: `${value + 1}.0 kW`,
+  low: `${value - 1}.0 kW`,
+  average: `${value}.0 kW`,
+}));
+const history: HomeHistory = { series: powerSeries, units: "kW", window: [end - 12 * 3_600_000, end] };
 const readings: HomeReading[] = [
   "Container power",
   "Container efficiency",
@@ -27,7 +46,6 @@ const readings: HomeReading[] = [
   "Module low",
   "Module average",
   "Module efficiency",
-  ...Array.from({ length: 6 }, (_, index) => `PDU ${index + 1}`),
 ].map((label, index) => ({ id: `${index}`, label, value: label.includes("efficiency") ? "15.5 J/TH" : "11.5 kW" }));
 const links = {
   overview: "/",
@@ -92,9 +110,14 @@ function buildStorySeries({
   partial,
 }: StoryDataOptions & { mode: HomeChartMode; partial: boolean }): HomeSeries[] {
   if (empty) return [];
-  let source = series;
-  if (mode === "hashboards") source = bandSeries;
-  else if (partial) source = series.slice(0, 2);
+  let source = temperature ? series : powerSeries;
+  if (temperature && mode === "hashboards") source = bandSeries;
+  else if (partial)
+    source = source.map((item) =>
+      item.label === "Fans"
+        ? { ...item, latest: "—", points: item.points.map((point) => ({ ...point, value: null })) }
+        : item,
+    );
 
   if (zero)
     return source.map((item) => ({
@@ -152,22 +175,24 @@ function MetricStory({
         title={temperature ? "Temperature" : "Power"}
         readings={buildStoryReadings(dataOptions)}
         mode={mode}
-        modes={modes}
+        modes={temperature ? modes : []}
         onModeChange={setMode}
         locations={temperature ? temperatureLocations : locations}
         history={{
           ...history,
           series: buildStorySeries({ ...dataOptions, mode, partial }),
           units: temperature ? "°C" : "kW",
-          stacked: !temperature && mode === "system" && !partial,
+          stacked: false,
           loading,
           error: error ? "Could not refresh history. Displayed history may be out of date." : undefined,
         }}
-        categories={series.slice(1).map((item) => ({
-          id: item.id,
-          label: item.label,
-          ...storyStatistics(item, dataOptions),
-        }))}
+        categories={(temperature ? series.slice(1) : powerSeries.filter((item) => item.label === "Fans")).map(
+          (item) => ({
+            id: item.id,
+            label: item.label,
+            ...storyStatistics(item, { ...dataOptions, empty: empty || partial }),
+          }),
+        )}
       />
     </div>
   );
@@ -178,7 +203,6 @@ export const PartialTelemetry = () => <MetricStory partial />;
 export const UnavailableTelemetry = () => <MetricStory empty />;
 export const TemperatureModes = () => <MetricStory temperature />;
 // Illustrative band data only: live band membership/statistics require a definition.
-export const PowerHashboards = () => <MetricStory initialMode="hashboards" />;
 export const TemperatureHashboards = () => <MetricStory temperature initialMode="hashboards" />;
 export const TemperatureFluid = () => <MetricStory temperature initialMode="fluid" />;
 export const Loading = () => <MetricStory empty loading />;

@@ -74,10 +74,6 @@ export function buildContainerLive(hardware: HardwareState, telemetry: Telemetry
       reading(`module-${stat}`, `Module ${stat}`, modulePower[stat] === null ? null : modulePower[stat] / 1000, "kW"),
     ),
     reading("module-efficiency", "Module efficiency", moduleEfficiency, "J/TH"),
-    ...pdus.map((component) => {
-      const value = latest(telemetry.plant.get(component.ref.id)?.totalPower);
-      return reading(component.ref.id, component.name, value === null ? null : value / 1000, "kW");
-    }),
   ];
   const temp = (id: string, label: string, value: number | null) =>
     reading(id, label, temperatureValue(value, unit), `°${unit}`);

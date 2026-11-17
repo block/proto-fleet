@@ -210,24 +210,25 @@ describe("container Home live refresh", () => {
     const merge = useMinerStore.getState().telemetry.mergeTelemetry;
     const reading = (name: string) => {
       const { hardware, telemetry } = useMinerStore.getState();
-      return buildContainerLive(hardware, telemetry, "C").powerReadings.find(({ label }) => label === name)?.value;
+      const component = [...hardware.plant.values()].find((item) => item.kind === "distribution" && item.name === name);
+      return component ? telemetry.plant.get(component.ref.id)?.totalPower?.latest?.value : undefined;
     };
     merge(initial.telemetry, 1);
-    expect(reading("pdu-a")).toBe("2.0 kW");
+    expect(reading("pdu-a")).toBe(2000);
     merge(toCanonicalContainerTelemetry({}, snapshot, "ct1"), 3);
-    expect(reading("pdu-a")).toBe("—");
-    if (snapshot.powerDistributions?.[0]?.componentId === "pdu-b") expect(reading("pdu-b")).toBe("0.5 kW");
+    expect(reading("pdu-a")).toBe(null);
+    if (snapshot.powerDistributions?.[0]?.componentId === "pdu-b") expect(reading("pdu-b")).toBe(500);
     merge(initial.telemetry, 2);
-    expect(reading("pdu-a")).toBe("—");
+    expect(reading("pdu-a")).toBe(null);
     merge(
       toCanonicalContainerTelemetry({}, { powerDistributions: [{ componentId: "pdu-a", activePowerW: 0 }] }, "ct1"),
       4,
     );
-    expect(reading("pdu-a")).toBe("0.0 kW");
+    expect(reading("pdu-a")).toBe(0);
     merge(initial.telemetry, 5);
-    expect(reading("pdu-a")).toBe("2.0 kW");
+    expect(reading("pdu-a")).toBe(2000);
     merge(toCanonicalContainerTelemetry({}, {}, "ct1"), 2);
-    expect(reading("pdu-a")).toBe("2.0 kW");
+    expect(reading("pdu-a")).toBe(2000);
   });
 
   it.each([
@@ -278,7 +279,7 @@ describe("container Home mapping", () => {
     const live = buildContainerLive(state.hardware, state.telemetry, "C");
     expect(live.power).toBe(2000);
     expect(live.efficiency).toBe(20);
-    expect(live.powerReadings.find((reading) => reading.label === "PDU west")?.value).toBe("0.0 kW");
+    expect(live.powerReadings.some((reading) => reading.label === "PDU west")).toBe(false);
     expect(live.powerReadings.find((reading) => reading.label === "Module efficiency")?.value).toBe("—");
     expect(live.powerLocations).toHaveLength(0);
   });
