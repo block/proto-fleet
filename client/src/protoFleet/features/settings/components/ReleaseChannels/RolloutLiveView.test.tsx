@@ -56,7 +56,9 @@ it.each([activeRigRollout, gatedRigRollout, batchedRigRollout, pausedRigRollout]
     expect(toggle).toHaveAttribute("aria-expanded", "true");
     expect(toggle).toHaveAttribute("aria-controls", screen.getByTestId("inline-rollout-details").id);
     expect(card.getByTestId("inline-rollout-detail-stats")).toHaveTextContent("Canary channel, 6 miners");
-    expect(card.getByTestId("inline-rollout-performance")).toBeInTheDocument();
+    expect(card.getByTestId("inline-rollout-performance")).toHaveTextContent(
+      "Compares the baseline before the update with telemetry after miners come back.",
+    );
 
     fireEvent.click(card.getByRole("button", { name: "Hide details" }));
     expect(card.queryByTestId("inline-rollout-detail-stats")).not.toBeInTheDocument();
@@ -64,6 +66,25 @@ it.each([activeRigRollout, gatedRigRollout, batchedRigRollout, pausedRigRollout]
     expect(card.getByTestId("inline-rollout-detail-progress")).toBeInTheDocument();
   },
 );
+
+it("words a container model's update as containers, not miners", () => {
+  // A container update has the same shape as a rig update, under the container pair.
+  const rollout = { ...batchedRigRollout, manufacturer: "Proto", model: "CT1" };
+  render(<RolloutLiveView {...propsFor(rollout)} presentation="fullscreen" />);
+
+  const card = screen.getByTestId("rollout-live-view");
+  expect(screen.getByTestId("rollout-detail-progress")).toHaveTextContent("1 of 2 containers updated");
+  expect(screen.getByTestId("rollout-failed-banner")).toHaveTextContent("1 container failed to update");
+  expect(screen.getByTestId("rollout-failed-banner")).toHaveTextContent("Review container details");
+  expect(within(card).getByRole("button", { name: "Review containers" })).toBeInTheDocument();
+  expect(within(card).getByRole("button", { name: "View containers" })).toBeInTheDocument();
+  expect(screen.getByTestId("rollout-detail-stats")).toHaveTextContent("Canary channel, 6 containers");
+  expect(screen.getByTestId("review-banner")).toHaveTextContent("1 of 2 containers in this batch updated");
+  expect(screen.getByTestId("rollout-performance")).toHaveTextContent(
+    "Compares the baseline before the update with telemetry after containers come back.",
+  );
+  // The hold reason in the same banner is the server's own text and is not reworded here.
+});
 
 it("keeps refresh failures, failed miners, and review hold reasons visible when collapsed", () => {
   const props = propsFor(batchedRigRollout);

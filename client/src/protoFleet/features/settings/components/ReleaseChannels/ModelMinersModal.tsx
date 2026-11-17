@@ -1,6 +1,6 @@
 import { useCallback, useMemo } from "react";
 
-import { deviceNouns, minerLabel, pairLabel, phaseLabels, phaseTone } from "./rolloutStatus";
+import { capitalize, deviceNouns, minerLabel, pairLabel, phaseLabels, phaseTone } from "./rolloutStatus";
 import StatusChip from "./StatusChip";
 import { useRefreshingRead } from "./useRefreshingRead";
 import {
@@ -91,7 +91,7 @@ const ModelMinersModal = ({
   const miners = data?.miners ?? null;
   // A container model group lists containers, not miners.
   const { singular, plural } = deviceNouns(group);
-  const capitalized = `${singular[0].toUpperCase()}${singular.slice(1)}`;
+  const capitalized = capitalize(singular);
 
   const phases = useMemo(() => {
     const byIdentifier = new Map<string, RolloutDevicePhase>();

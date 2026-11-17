@@ -2,7 +2,10 @@ import { type ReactElement, useCallback, useMemo, useState } from "react";
 import clsx from "clsx";
 
 import {
+  capitalize,
   type DeltaIntent,
+  deviceCountLabel,
+  deviceNouns,
   evidenceScopeLabel,
   failedDevices,
   isActive,
@@ -243,7 +246,9 @@ const RolloutMinersModal = ({
     cancel();
     onClose();
   };
-  const unavailableMessage = isLoading ? "Loading miners…" : "Miner details unavailable.";
+  // An update of a container model lists containers, not miners.
+  const { singular, plural } = deviceNouns(rollout);
+  const unavailableMessage = isLoading ? `Loading ${plural}…` : `${capitalize(singular)} details unavailable.`;
 
   const rows = useMemo<MinerRow[]>(
     () =>
@@ -261,10 +266,10 @@ const RolloutMinersModal = ({
     devices === null
       ? unavailableMessage
       : filter === "failed"
-        ? `${failedCount.toLocaleString()} ${failedCount === 1 ? "miner" : "miners"} failed to update`
-        : `${rows.length.toLocaleString()} miners in this update${
+        ? `${deviceCountLabel(rollout, failedCount)} failed to update`
+        : `${rows.length.toLocaleString()} ${plural} in this update${
             isActive(rollout)
-              ? `; evidence scope: ${evidenceScopeLabel(rollout).toLowerCase()} (${evidenceCount.toLocaleString()} ${evidenceCount === 1 ? "miner" : "miners"})`
+              ? `; evidence scope: ${evidenceScopeLabel(rollout).toLowerCase()} (${deviceCountLabel(rollout, evidenceCount)})`
               : ""
           }`;
 
@@ -301,7 +306,7 @@ const RolloutMinersModal = ({
     <Modal
       open
       onDismiss={handleClose}
-      title="Miners in firmware update"
+      title={`${capitalize(plural)} in firmware update`}
       description={`${rollout.channelName}, ${pairLabel(rollout)}`}
       size="large"
       className="flex !h-[calc(100dvh-(--spacing(32)))] max-h-[calc(100dvh-(--spacing(32)))] flex-col !overflow-hidden"
@@ -316,7 +321,9 @@ const RolloutMinersModal = ({
             <Callout
               intent={intents.warning}
               prefixIcon={<Alert />}
-              title={devices === null ? "Couldn't load miners" : "Miner details may be out of date"}
+              title={
+                devices === null ? `Couldn't load ${plural}` : `${capitalize(singular)} details may be out of date`
+              }
               subtitle={devices === null ? error : `${error} Showing the last loaded data.`}
               buttonText={isLoading ? "Retrying..." : "Retry"}
               buttonOnClick={() => {
@@ -328,7 +335,7 @@ const RolloutMinersModal = ({
         <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
           <SegmentedControl
             segments={[
-              { key: "all", title: "All miners" },
+              { key: "all", title: `All ${plural}` },
               { key: "failed", title: "Failed" },
             ]}
             initialSegmentKey={initialFilter}
@@ -338,19 +345,23 @@ const RolloutMinersModal = ({
         </div>
         <List<MinerRow, string, MinerColumn>
           activeCols={minerColumns}
-          colTitles={minerColTitles}
+          colTitles={{ ...minerColTitles, miner: capitalize(singular) }}
           colConfig={colConfig}
           items={visibleRows}
           itemKey="id"
           total={visibleRows.length}
-          itemName={{ singular: "miner", plural: "miners" }}
+          itemName={{ singular, plural }}
           containerClassName="min-h-0"
           tableClassName="mb-0 w-full !table-fixed"
           applyColumnWidthsToCells
           stickyFirstColumn={false}
           emptyStateRow={
             <div className="py-10 text-center text-300 text-text-primary-70">
-              {devices === null ? unavailableMessage : filter === "failed" ? "No miners failed." : "No miners to show."}
+              {devices === null
+                ? unavailableMessage
+                : filter === "failed"
+                  ? `No ${plural} failed.`
+                  : `No ${plural} to show.`}
             </div>
           }
         />

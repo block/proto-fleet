@@ -23,6 +23,7 @@ import RolloutProgressIndicator from "./RolloutProgressIndicator";
 import {
   activeRolloutForGroup,
   channelAssignmentKey,
+  channelMembersLabel,
   hasUnavailableAssignedFirmware,
   isContainerPair,
   lastFinishedByChannelAssignment,
@@ -888,7 +889,7 @@ const ReleaseChannelManageView = ({
             {activeCount > 0 ? <UpdateActivePill count={activeCount} testId="channel-update-pill" /> : null}
           </div>
           <div className="flex items-center gap-2 text-200 text-text-primary-50">
-            <span>{channel.minerCount === 1 ? "1 miner" : `${channel.minerCount.toLocaleString()} miners`}</span>
+            <span>{channelMembersLabel(channel.minerCount, liveGroups)}</span>
             <span>·</span>
             <span>{liveGroups.length === 1 ? "1 model" : `${liveGroups.length} models`}</span>
           </div>
