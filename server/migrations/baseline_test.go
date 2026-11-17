@@ -18,7 +18,7 @@ func TestSharedBaselineUsesExtensionAPIs(t *testing.T) {
 	}
 }
 
-func TestBaselinePreservesContinuousAggregateStorageIntervals(t *testing.T) {
+func TestContinuousAggregateStorageIntervals(t *testing.T) {
 	db := testutil.GetTestDB(t)
 	rows, err := db.QueryContext(t.Context(), `
 		SELECT ca.view_name, d.time_interval::text
@@ -40,13 +40,14 @@ func TestBaselinePreservesContinuousAggregateStorageIntervals(t *testing.T) {
 	// Tightening the source hypertable's interval never changed these existing
 	// materializations. Fresh creation otherwise derives a different interval.
 	// Later feature migrations may add their own materializations.
+	// The minute uptime rollup deliberately uses daily chunks for finer retention.
 	require.Subset(t, actual, map[string]string{
 		"device_metrics_daily":               "10 days",
 		"device_metrics_hourly":              "10 days",
 		"device_status_daily":                "10 days",
 		"device_status_hourly":               "10 days",
 		"fleet_telemetry_poll_heartbeat":     "10 days",
-		"miner_state_snapshot_device_1m":     "10 days",
+		"miner_state_snapshot_device_1m":     "1 day",
 		"miner_state_snapshot_device_daily":  "10 days",
 		"miner_state_snapshot_device_hourly": "10 days",
 	})
