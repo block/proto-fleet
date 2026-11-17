@@ -249,6 +249,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.cancelPendingEnrollmentStmt, err = db.PrepareContext(ctx, cancelPendingEnrollment); err != nil {
 		return nil, fmt.Errorf("error preparing query CancelPendingEnrollment: %w", err)
 	}
+	if q.captureHostedCurtailmentConfirmationsStmt, err = db.PrepareContext(ctx, captureHostedCurtailmentConfirmations); err != nil {
+		return nil, fmt.Errorf("error preparing query CaptureHostedCurtailmentConfirmations: %w", err)
+	}
 	if q.cascadeAddedDeviceBuildingsStmt, err = db.PrepareContext(ctx, cascadeAddedDeviceBuildings); err != nil {
 		return nil, fmt.Errorf("error preparing query CascadeAddedDeviceBuildings: %w", err)
 	}
@@ -2331,6 +2334,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.listHostedAccountsStmt, err = db.PrepareContext(ctx, listHostedAccounts); err != nil {
 		return nil, fmt.Errorf("error preparing query ListHostedAccounts: %w", err)
 	}
+	if q.listHostedCurtailmentWindowsStmt, err = db.PrepareContext(ctx, listHostedCurtailmentWindows); err != nil {
+		return nil, fmt.Errorf("error preparing query ListHostedCurtailmentWindows: %w", err)
+	}
 	if q.listHostedPoolImportSourcesStmt, err = db.PrepareContext(ctx, listHostedPoolImportSources); err != nil {
 		return nil, fmt.Errorf("error preparing query ListHostedPoolImportSources: %w", err)
 	}
@@ -4356,6 +4362,11 @@ func (q *Queries) Close() error {
 	if q.cancelPendingEnrollmentStmt != nil {
 		if cerr := q.cancelPendingEnrollmentStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing cancelPendingEnrollmentStmt: %w", cerr)
+		}
+	}
+	if q.captureHostedCurtailmentConfirmationsStmt != nil {
+		if cerr := q.captureHostedCurtailmentConfirmationsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing captureHostedCurtailmentConfirmationsStmt: %w", cerr)
 		}
 	}
 	if q.cascadeAddedDeviceBuildingsStmt != nil {
@@ -7828,6 +7839,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing listHostedAccountsStmt: %w", cerr)
 		}
 	}
+	if q.listHostedCurtailmentWindowsStmt != nil {
+		if cerr := q.listHostedCurtailmentWindowsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listHostedCurtailmentWindowsStmt: %w", cerr)
+		}
+	}
 	if q.listHostedPoolImportSourcesStmt != nil {
 		if cerr := q.listHostedPoolImportSourcesStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing listHostedPoolImportSourcesStmt: %w", cerr)
@@ -10687,6 +10703,7 @@ type Queries struct {
 	cancelPendingDeviceWritesStmt                               *sql.Stmt
 	cancelPendingDeviceWritesForDeletionStmt                    *sql.Stmt
 	cancelPendingEnrollmentStmt                                 *sql.Stmt
+	captureHostedCurtailmentConfirmationsStmt                   *sql.Stmt
 	cascadeAddedDeviceBuildingsStmt                             *sql.Stmt
 	cascadeAddedDeviceSitesStmt                                 *sql.Stmt
 	cascadeDevicesSiteForBuildingStmt                           *sql.Stmt
@@ -11381,6 +11398,7 @@ type Queries struct {
 	listHostedAccountSitesStmt                                  *sql.Stmt
 	listHostedAccountSummariesStmt                              *sql.Stmt
 	listHostedAccountsStmt                                      *sql.Stmt
+	listHostedCurtailmentWindowsStmt                            *sql.Stmt
 	listHostedPoolImportSourcesStmt                             *sql.Stmt
 	listHostedReportArtifactsStmt                               *sql.Stmt
 	listHostedReportDeliveriesStmt                              *sql.Stmt
@@ -12011,6 +12029,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		cancelPendingDeviceWritesStmt:                               q.cancelPendingDeviceWritesStmt,
 		cancelPendingDeviceWritesForDeletionStmt:                    q.cancelPendingDeviceWritesForDeletionStmt,
 		cancelPendingEnrollmentStmt:                                 q.cancelPendingEnrollmentStmt,
+		captureHostedCurtailmentConfirmationsStmt:                   q.captureHostedCurtailmentConfirmationsStmt,
 		cascadeAddedDeviceBuildingsStmt:                             q.cascadeAddedDeviceBuildingsStmt,
 		cascadeAddedDeviceSitesStmt:                                 q.cascadeAddedDeviceSitesStmt,
 		cascadeDevicesSiteForBuildingStmt:                           q.cascadeDevicesSiteForBuildingStmt,
@@ -12705,6 +12724,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		listHostedAccountSitesStmt:                                  q.listHostedAccountSitesStmt,
 		listHostedAccountSummariesStmt:                              q.listHostedAccountSummariesStmt,
 		listHostedAccountsStmt:                                      q.listHostedAccountsStmt,
+		listHostedCurtailmentWindowsStmt:                            q.listHostedCurtailmentWindowsStmt,
 		listHostedPoolImportSourcesStmt:                             q.listHostedPoolImportSourcesStmt,
 		listHostedReportArtifactsStmt:                               q.listHostedReportArtifactsStmt,
 		listHostedReportDeliveriesStmt:                              q.listHostedReportDeliveriesStmt,

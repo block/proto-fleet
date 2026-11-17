@@ -510,6 +510,7 @@ type Heartbeat struct {
 // fields mean "no row joined" and map to the natural skip reason (e.g.,
 // absent telemetry → stale).
 type Candidate struct {
+	DeviceDatabaseID int64
 	DeviceIdentifier string
 	DriverName       *string
 	Model            string

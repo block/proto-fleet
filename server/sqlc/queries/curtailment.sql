@@ -1937,13 +1937,21 @@ SELECT
 -- RaceLoss. Both narg guards are inert when NULL, so full-tick writes that omit
 -- them are unaffected.
 WITH locked_event AS MATERIALIZED (
-    SELECT id
-    FROM curtailment_event
-    WHERE id = sqlc.arg('curtailment_event_id')
-        AND state IN ('pending', 'active', 'restoring')
+    SELECT e.id,e.org_id,e.force_include_all_paired_miners
+    FROM curtailment_event e
+    WHERE e.id = sqlc.arg('curtailment_event_id')
+        AND e.state IN ('pending', 'active', 'restoring')
         AND (sqlc.narg('expected_event_state')::TEXT IS NULL
-             OR state = sqlc.narg('expected_event_state')::TEXT)
+             OR e.state = sqlc.narg('expected_event_state')::TEXT)
     FOR UPDATE
+),
+locked_device AS MATERIALIZED (
+    SELECT d.id
+    FROM locked_event,device d
+    WHERE d.id=sqlc.narg('expected_device_database_id')::bigint
+      AND d.org_id=locked_event.org_id AND d.deleted_at IS NULL
+      AND d.device_identifier=sqlc.arg('device_identifier')
+    FOR UPDATE OF d
 )
 UPDATE curtailment_target
 SET state              = sqlc.arg('state'),
@@ -2031,7 +2039,12 @@ SET state              = sqlc.arg('state'),
     END
 FROM locked_event
 WHERE curtailment_event_id = locked_event.id
-  AND device_identifier    = sqlc.arg('device_identifier')
+  AND curtailment_target.device_identifier = sqlc.arg('device_identifier')
+  AND (sqlc.narg('expected_device_database_id')::bigint IS NULL OR EXISTS (
+       SELECT 1 FROM locked_device d WHERE
+        curtailment_target.desired_state<>'curtailed' OR NOT locked_event.force_include_all_paired_miners
+        OR EXISTS (SELECT 1 FROM device_pairing dp WHERE dp.device_id=d.id
+         AND dp.pairing_status::text IN ('PAIRED','DEFAULT_PASSWORD','AUTHENTICATION_NEEDED'))))
   AND (sqlc.narg('expected_desired_state')::text IS NULL
        OR desired_state = sqlc.narg('expected_desired_state')::text)
   AND (sqlc.narg('expected_state')::text IS NULL
@@ -2109,6 +2122,7 @@ latest_hourly AS (
     ORDER BY device_metrics_hourly.device_identifier, bucket DESC
 )
 SELECT
+    d.id AS device_database_id,
     d.device_identifier,
     dd.driver_name,
     COALESCE(dd.model, '') AS model,

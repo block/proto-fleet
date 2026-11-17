@@ -1,7 +1,6 @@
 package hostedaccounts
 
 import (
-	"bytes"
 	"context"
 	"crypto/sha256"
 	"database/sql"
@@ -250,15 +249,7 @@ func (s *Service) PublishReport(ctx context.Context, actorID, orgID int64, accou
 		if err != nil {
 			return zero, fmt.Errorf("recalculate report for publication: %w", err)
 		}
-		actual, err := reporting.MarshalResultContext(ctx, recalculated)
-		if err != nil {
-			return zero, err
-		}
-		reviewed, err := reporting.MarshalResultContext(ctx, record.Result)
-		if err != nil {
-			return zero, err
-		}
-		if !bytes.Equal(actual, reviewed) {
+		if err := reporting.VerifySavedReviewedCalculation(ctx, recalculated, record.Result); err != nil {
 			return zero, fleeterror.NewFailedPreconditionError("reviewed report differs from current report context; regenerate before publication")
 		}
 		if !record.Result.Complete && strings.TrimSpace(exception) == "" {

@@ -137,6 +137,37 @@ a null timestamp, so use the target state to determine ownership. Use
 `curtail_completed_at`/`restore_completed_at` for phase completion; release must
 not be interpreted as confirmed restoration.
 
+## Hosted reporting capture (1076)
+
+The reconciler writes `hosted_curtailment_confirmation` prospectively in the same
+transaction as a positive telemetry promotion. Both confirmation paths guard the
+physical device ID, organization, event phase and dispatch batch. Reporting also
+requires a sample after dispatch and the device's creation, no later than
+confirmation. Full ticks use the telemetry timestamp; live sampling uses its
+request-start boundary. Cohort allocation and installation must already exist
+at that boundary and remain valid through confirmation. Older/unknown telemetry
+can still drive the existing operational lifecycle, but is not reporting evidence.
+Single-target rolling observations and administrative state changes do not create confirmations.
+Capture failure rolls back the promotion. An existing caller transaction is reused.
+These application-written tables have no update/delete API or capture triggers.
+
+Each curtail confirmation freezes its hosted allocation cohort in
+`hosted_curtailment_asset`: customer/subclient, site, stable miner or hashboard ID,
+allocation interval, and board installation where applicable. A later allocation
+cannot inherit earlier evidence. Restores match the same event, physical device
+and curtail dispatch cycle; release and phase-completion timestamps do not close
+an observation. Allocation ends, installation removal and later curtail
+confirmations narrow the observation's reporting window without proving restoration.
+Target reset, identifier reuse and event deletion cannot rewrite the captured rows.
+
+This is control evidence, not measured uninterrupted curtailment or an approved
+contract exclusion. No historical target summaries are backfilled. Confirmation
+and capture timestamps must both precede the report's as-of cutoff. Prepared
+results freeze the client projection; publication does not query live curtailment
+state. Retained allocation/installation ends known at preparation can narrow an
+older window even when reported later; there is no historical replay of edits to
+those boundaries. Neither absence of captured rows nor an unmatched restore proves
+zero curtailment, continuing physical curtailment, or a commercial entitlement.
 ## Facility fan operations
 
 Fan commands pin a database connection under the shared dispatch budget. Sorted

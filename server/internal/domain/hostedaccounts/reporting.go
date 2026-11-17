@@ -331,6 +331,10 @@ func (s *Service) PrepareReport(ctx context.Context, actorID, orgID int64, accou
 			}
 			return zero, fleeterror.NewInvalidArgumentError(err.Error())
 		}
+		curtailmentSites, err := appendCurtailmentEvidence(ctx, q, a, &result)
+		if err != nil {
+			return zero, err
+		}
 		resultJSON, err = reporting.MarshalResultContext(ctx, result)
 		if err != nil {
 			if ctx.Err() != nil {
@@ -338,7 +342,7 @@ func (s *Service) PrepareReport(ctx context.Context, actorID, orgID int64, accou
 			}
 			return zero, fleeterror.NewInvalidArgumentError(err.Error())
 		}
-		sites = input.Inputs.Sites()
+		sites = append(input.Inputs.Sites(), curtailmentSites...)
 		if sites == nil {
 			sites = []int64{}
 		}

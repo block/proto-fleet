@@ -122,7 +122,11 @@ const Events = ({ interruptions, timezone }: { interruptions: ReportingInterrupt
         container: entry.siteId && entry.containerId ? `Site ${entry.siteId} · Container ${entry.containerId}` : "",
         order: entry.orderId,
         start: time(entry.start),
-        end: entry.open ? "Ongoing" : time(entry.end),
+        end: entry.open
+          ? entry.category === "curtailment_control"
+            ? "Restoration unconfirmed"
+            : "Ongoing"
+          : time(entry.end),
         observedThrough: entry.open ? time(entry.observedThrough) : "",
         cause: entry.rootCause,
         exclusion: entry.claimedExclusion || "None claimed",
@@ -139,8 +143,19 @@ const Events = ({ interruptions, timezone }: { interruptions: ReportingInterrupt
           { label: "Order ref", value: row.order, wide: true },
           { label: "Start", value: row.start },
           { label: "End", value: row.end },
-          ...(row.observedThrough ? [{ label: "Observed through", value: row.observedThrough }] : []),
-          { label: "Root cause", value: row.cause, wide: true },
+          ...(row.observedThrough
+            ? [
+                {
+                  label: row.category === "Curtailment control" ? "Reporting cutoff" : "Observed through",
+                  value: row.observedThrough,
+                },
+              ]
+            : []),
+          {
+            label: row.category === "Curtailment control" ? "Evidence basis" : "Root cause",
+            value: row.cause,
+            wide: true,
+          },
           { label: "Exclusion", value: row.exclusion },
           { label: "Exclusion status", value: row.exclusionStatus },
           { label: "Source", value: row.source, wide: true },

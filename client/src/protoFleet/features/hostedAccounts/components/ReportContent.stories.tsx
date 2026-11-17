@@ -64,3 +64,30 @@ export const Evidence: Story = {
     await userEvent.click(within(canvasElement).getByRole("button", { name: "Evidence" }));
   },
 };
+
+export const Curtailment: Story = {
+  args: {
+    report: (() => {
+      const report = reportFixture();
+      const event = report.result!.interruptions[0];
+      Object.assign(event, {
+        category: "curtailment_control",
+        summary: "Hashboard 42 curtailment",
+        containerId: 0n,
+        orderId: "",
+        open: true,
+        observedThrough: event.end,
+        end: undefined,
+        claimedExclusion: "",
+        exclusionStatus: "unavailable",
+        rootCause:
+          "Confirmed curtailment control observation. These endpoints do not prove uninterrupted physical curtailment. Evidence is limited to the reporting period, as-of time, original allocation/installation and any later curtailment confirmation. No contractual exclusion, fee or credit is inferred; earlier activity is not backfilled.",
+        sourceRef: "curtailment-confirmation:example",
+      });
+      return report;
+    })(),
+  },
+  play: async ({ canvasElement }) => {
+    await userEvent.click(within(canvasElement).getByRole("button", { name: "Events" }));
+  },
+};

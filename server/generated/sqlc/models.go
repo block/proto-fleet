@@ -2477,6 +2477,32 @@ type HostedAccountSite struct {
 	ParentControlled bool
 }
 
+type HostedCurtailmentAsset struct {
+	ConfirmationID int64
+	IntervalID     int64
+	InstallationID sql.NullInt64
+	OrganizationID int64
+	ClientID       int64
+	SubclientID    sql.NullInt64
+	SiteID         sql.NullInt64
+	Kind           int32
+	AssetID        int64
+}
+
+type HostedCurtailmentConfirmation struct {
+	ID             int64
+	EvidenceID     uuid.UUID
+	OrganizationID int64
+	EventID        int64
+	DeviceID       int64
+	CurtailBatch   string
+	Phase          string
+	PhaseBatch     string
+	SampleAt       time.Time
+	ConfirmedAt    time.Time
+	CapturedAt     time.Time
+}
+
 type HostedInvitationRateLimit struct {
 	ClientHash      string
 	WindowStartedAt time.Time

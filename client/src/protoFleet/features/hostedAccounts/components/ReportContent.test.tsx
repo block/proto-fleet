@@ -261,3 +261,25 @@ it("keeps unsaved column choices when polling returns the same report", async ()
   await user.click(screen.getByRole("button", { name: "Save" }));
   expect(within(screen.getByRole("table")).queryByText("Hashrate")).not.toBeInTheDocument();
 });
+
+it("keeps missing curtailment restoration distinct from an ongoing incident", async () => {
+  const user = userEvent.setup();
+  const value = report();
+  const event = value.result!.interruptions[0];
+  event.summary = "Hashboard 42 curtailment";
+  event.category = "curtailment_control";
+  event.open = true;
+  event.rootCause = "Confirmed control endpoints do not prove uninterrupted physical curtailment.";
+  event.sourceRef = "curtailment-confirmation:example";
+  event.observedThrough = { $typeName: "google.protobuf.Timestamp", seconds: 1791003600n, nanos: 0 };
+  render(<ReportContent report={value} />);
+  await user.click(screen.getByRole("button", { name: "Events" }));
+  expect(screen.getByText("Restoration unconfirmed")).toBeInTheDocument();
+  expect(screen.queryByText("Ongoing")).not.toBeInTheDocument();
+  await user.click(screen.getByText(event.summary));
+  const dialog = screen.getByRole("dialog", { name: "Event details" });
+  expect(within(dialog).getByText("Reporting cutoff")).toBeInTheDocument();
+  expect(within(dialog).queryByText("Observed through")).not.toBeInTheDocument();
+  expect(within(dialog).getByText("Evidence basis")).toBeInTheDocument();
+  expect(within(dialog).getByText(event.rootCause)).toBeInTheDocument();
+});

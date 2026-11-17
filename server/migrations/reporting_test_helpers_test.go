@@ -12,6 +12,16 @@ import (
 // down migrations. Retained report or artifact history still refuses removal.
 func rollbackEmptyReportingLifecycle(t *testing.T, conn *sql.DB) {
 	t.Helper()
+	// Capture retains allocation/installation foreign keys. Its own down guard
+	// must approve removing empty capture before historical predecessors.
+	var curtailmentCapture bool
+	require.NoError(t, conn.QueryRowContext(t.Context(), `SELECT to_regclass('hosted_curtailment_confirmation') IS NOT NULL`).Scan(&curtailmentCapture))
+	if curtailmentCapture {
+		source, err := migrations.Current.ReadFile("current/001092_internal_hosted_curtailment_observations.down.sql")
+		require.NoError(t, err)
+		_, err = conn.ExecContext(t.Context(), string(source))
+		require.NoError(t, err, "remove only empty curtailment capture before historical rollback")
+	}
 	var generationPermission bool
 	require.NoError(t, conn.QueryRowContext(t.Context(), `SELECT EXISTS(SELECT 1 FROM pg_constraint WHERE conrelid=to_regclass('hosted_account') AND conname='hosted_account_capabilities_check' AND pg_get_constraintdef(oid) LIKE '%63%')`).Scan(&generationPermission))
 	if generationPermission {

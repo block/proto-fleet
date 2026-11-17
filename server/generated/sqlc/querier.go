@@ -236,6 +236,9 @@ type Querier interface {
 	// atomically without firmware-completion effects: these writes never dispatched.
 	CancelPendingDeviceWritesForDeletion(ctx context.Context, deviceIds []int64) error
 	CancelPendingEnrollment(ctx context.Context, arg CancelPendingEnrollmentParams) (int64, error)
+	// Called in the same transaction as positive telemetry promotion. Exact physical
+	// identity, phase, dispatch and timestamp guards exclude arbitrary state writes.
+	CaptureHostedCurtailmentConfirmations(ctx context.Context, arg CaptureHostedCurtailmentConfirmationsParams) error
 	// Building peer of CascadeAddedDeviceSites. Rewrites device.building_id
 	// to rack.building_id for added rack members whose current building
 	// differs. Fires when the rack has a placement (a site OR a building):
@@ -1776,6 +1779,9 @@ type Querier interface {
 	// private role or capabilities unless explicit live authority grants viewing.
 	ListHostedAccountSummaries(ctx context.Context, arg ListHostedAccountSummariesParams) ([]ListHostedAccountSummariesRow, error)
 	ListHostedAccounts(ctx context.Context, organizationID int64) ([]HostedAccount, error)
+	// Account attribution is fixed at curtail confirmation. Retained allocation and
+	// installation ends can only narrow it; no current device membership is used.
+	ListHostedCurtailmentWindows(ctx context.Context, arg ListHostedCurtailmentWindowsParams) ([]ListHostedCurtailmentWindowsRow, error)
 	ListHostedPoolImportSources(ctx context.Context, organizationID int64) ([]ListHostedPoolImportSourcesRow, error)
 	ListHostedReportArtifacts(ctx context.Context, reportInternalID int64) ([]HostedReportArtifact, error)
 	ListHostedReportDeliveries(ctx context.Context, arg ListHostedReportDeliveriesParams) ([]HostedReportDelivery, error)

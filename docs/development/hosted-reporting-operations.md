@@ -86,6 +86,31 @@ allocation date. Check each configuration revision against its source before sav
 Only account team managers can select or change authorized representatives.
 Report creators can preserve those recipients while editing other settings.
 
+## Curtailment observations
+
+Newly prepared reports include automatically captured curtailment control
+confirmations in **Events**. Open a row for its evidence basis. Conventional
+miners use their original allocation; shared containers contribute only the
+client's originally installed, allocated hashboards. Host reasons, actors,
+controller identifiers and other clients' hardware are excluded.
+
+**Restoration unconfirmed** means no matching positive restoration is available
+within that row's reporting cutoff. Release, failure, event completion and
+installation removal do not establish physical restoration. A cutoff bounds the
+reporting window; it does not mean the equipment was continuously observed or
+curtailed through that instant. Later confirmations supersede earlier windows.
+These control endpoints do not change reviewed curtailment duration, contractual
+uptime/exclusions, hosting fees or credits. Those still require reviewed inputs
+and approved contract calculations. Absence of observations is not proof of zero activity.
+
+Capture starts with the upgraded application after migration 1092; older mutable
+target summaries are not backfilled. Both confirmation and capture must precede
+the as-of cutoff. Preparation freezes these rows and their site scope alongside
+other report results; later restoration never rewrites a published report.
+The capture tables have no automatic expiry or application update/delete API.
+Include their storage in the existing reporting evidence backup and capacity
+budget. The down migration refuses to discard any captured confirmations.
+
 ## Prepare and issue
 
 1. Record effective orders and commercial coverage separately from physical

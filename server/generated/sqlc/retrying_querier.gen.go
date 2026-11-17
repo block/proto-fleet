@@ -836,6 +836,12 @@ func (q *retryingQuerier) CancelPendingEnrollment(ctx context.Context, arg Cance
 	return result, err
 }
 
+func (q *retryingQuerier) CaptureHostedCurtailmentConfirmations(ctx context.Context, arg CaptureHostedCurtailmentConfirmationsParams) error {
+	return q.retrier.RetryQuery(ctx, "CaptureHostedCurtailmentConfirmations", func() error {
+		return q.next.CaptureHostedCurtailmentConfirmations(ctx, arg)
+	})
+}
+
 func (q *retryingQuerier) CascadeAddedDeviceBuildings(ctx context.Context, arg CascadeAddedDeviceBuildingsParams) (int64, error) {
 	var result int64
 	err := q.retrier.RetryQuery(ctx, "CascadeAddedDeviceBuildings", func() error {
@@ -8652,6 +8658,18 @@ func (q *retryingQuerier) ListHostedAccounts(ctx context.Context, organizationID
 	var result []HostedAccount
 	err := q.retrier.RetryQuery(ctx, "ListHostedAccounts", func() error {
 		callResult, callErr := q.next.ListHostedAccounts(ctx, organizationID)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) ListHostedCurtailmentWindows(ctx context.Context, arg ListHostedCurtailmentWindowsParams) ([]ListHostedCurtailmentWindowsRow, error) {
+	var result []ListHostedCurtailmentWindowsRow
+	err := q.retrier.RetryQuery(ctx, "ListHostedCurtailmentWindows", func() error {
+		callResult, callErr := q.next.ListHostedCurtailmentWindows(ctx, arg)
 		if callErr == nil {
 			result = callResult
 		}

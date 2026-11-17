@@ -109,6 +109,8 @@ func (r *Reconciler) confirmTarget(ctx context.Context, ev *models.Event, target
 	if restore {
 		desired = models.DesiredStateActive
 	}
+	params.ExpectedDeviceDatabaseID = &candidate.DeviceDatabaseID
+	params.ConfirmationSampleAt = candidate.LatestMetricsAt
 	params.ExpectedDesiredState = &desired
 	expected := models.TargetStateDispatched
 	params.ExpectedState = &expected
