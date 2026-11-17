@@ -31,10 +31,16 @@ test.describe("Container Home", () => {
     await page.getByRole("button", { name: "48h" }).click();
     await expect(page.getByRole("button", { name: "48h" })).toHaveAttribute("aria-pressed", "true");
     await navigation.getByRole("link", { name: "Power", exact: true }).click();
-    await expect(page.getByRole("region", { name: "Live readings" })).toContainText("pdu-1");
+    await expect(page.getByRole("region", { name: "Live readings" })).not.toContainText("pdu-1");
     await expect(page.getByRole("region", { name: "Fans period statistics" })).toContainText("kW");
-    await page.getByRole("button", { name: "Hashboards", exact: true }).click();
-    await expect(page.getByText("History unavailable for this selection.")).toBeVisible();
+    await expect(page.getByRole("group", { name: "Power chart mode" })).toHaveCount(0);
+    const legend = page.getByRole("list", { name: "Latest series values" });
+    await expect(legend).toContainText("Facility total");
+    await expect(legend).toContainText("Mining power");
+    await expect(legend).toContainText("pdu-1");
+    await expect(legend).toContainText("Fans");
+    await expect(page.locator(".recharts-area")).toHaveCount(0);
+    for (const label of ["Pumps", "AC", "Aux"]) await expect(page.getByText(label, { exact: true })).toHaveCount(0);
     await navigation.getByRole("link", { name: "Temperature", exact: true }).click();
     await expect(page.getByRole("region", { name: "Live readings" })).toContainText("°C");
     await page.getByRole("button", { name: "Fluid", exact: true }).click();
@@ -42,9 +48,13 @@ test.describe("Container Home", () => {
     await expect(page.getByRole("list", { name: "Readings by tank" })).toBeVisible();
     await expect(page.getByRole("button", { name: "Fluid" })).toHaveAttribute("aria-pressed", "true");
     expect(histories.length).toBeGreaterThan(0);
-    expect(histories.every((query) => !query.identifier || query.metric === TimeSeriesMetric.PLANT_FAN_POWER)).toBe(
-      true,
-    );
+    expect(
+      histories.every(
+        (query) =>
+          !query.identifier ||
+          [TimeSeriesMetric.PLANT_FAN_POWER, TimeSeriesMetric.PLANT_DISTRIBUTION_POWER].includes(query.metric),
+      ),
+    ).toBe(true);
   });
 
   test("partial telemetry stays usable and small screens do not overflow", async ({ page }) => {
@@ -57,7 +67,7 @@ test.describe("Container Home", () => {
     });
     await page.goto("/power-usage");
     await expect(page.getByRole("navigation", { name: "Container Home" })).toBeVisible();
-    await expect(page.getByRole("region", { name: "Live readings" })).toContainText("pdu-1");
+    await expect(page.getByRole("region", { name: "Live readings" })).not.toContainText("pdu-1");
     await expect(page.getByRole("region", { name: "Fans period statistics" })).toContainText("—");
     const plot = page.getByRole("figure");
     await expect(plot).toBeVisible();
