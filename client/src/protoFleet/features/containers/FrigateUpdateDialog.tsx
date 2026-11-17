@@ -121,7 +121,7 @@ export default function FrigateUpdateDialog({
         idempotencyKey: keyFor({ deviceIdentifier, packageId }),
       });
       reset();
-      pushToast({ message: `${name}: Frigate update started.`, status: STATUSES.success });
+      pushToast({ message: `${name}: controller software update started.`, status: STATUSES.success });
       onStarted?.(job);
       onClose();
     } catch (cause) {
@@ -135,13 +135,13 @@ export default function FrigateUpdateDialog({
   return (
     <Dialog
       open
-      title={`Update Frigate: ${name}`}
+      title={`Update controller software: ${name}`}
       onDismiss={busy ? undefined : onClose}
       testId="frigate-update-dialog"
       buttons={[
         { text: "Cancel", variant: variants.secondary, onClick: onClose, disabled: busy },
         {
-          text: busy ? "Starting…" : "Update Frigate",
+          text: busy ? "Starting…" : "Start update",
           variant: variants.primary,
           onClick: () => void submit(),
           disabled: !canStart,
@@ -162,7 +162,7 @@ export default function FrigateUpdateDialog({
           </p>
         ) : null}
         {packages.status === "ready" && packages.value.length === 0 && elsewhereCount === 0 ? (
-          <p role="status">No Frigate packages are uploaded. Upload one in Settings, Firmware.</p>
+          <p role="status">No controller software is uploaded. Upload a package in Settings, Firmware.</p>
         ) : null}
         {packages.status === "ready" && elsewhereCount > 0 ? (
           <p role="status">
@@ -243,7 +243,7 @@ function SupportSummary({ support, onCheckAgain }: { support: Loaded<GetSupportR
             <li key={instance.instanceId} className="rounded-lg border border-border-5 p-3">
               <div className="text-emphasis-300 text-text-primary">{instance.instanceId}</div>
               <div className="text-200 text-text-primary-70">
-                {[instance.runningVersion && `Frigate ${instance.runningVersion}`, instance.architecture]
+                {[instance.runningVersion && `Version ${instance.runningVersion}`, instance.architecture]
                   .filter(Boolean)
                   .join(", ") || "Version unknown"}
               </div>

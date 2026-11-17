@@ -18,7 +18,7 @@ import (
 
 var (
 	// ErrNoTrustedKeys is returned when no release key is configured.
-	ErrNoTrustedKeys = errors.New("no trusted Frigate release keys are configured")
+	ErrNoTrustedKeys = errors.New("no trusted controller software release keys are configured")
 	// ErrSignatureInvalid is returned when no trusted key verifies the signature.
 	ErrSignatureInvalid = errors.New("release signature does not verify against any trusted key")
 	// ErrKeyIDMismatch is returned when the caller named a key ID that is not the signing key.

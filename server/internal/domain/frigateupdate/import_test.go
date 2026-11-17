@@ -175,7 +175,7 @@ func TestImportPackage_Rejections(t *testing.T) {
 			func(d []byte) []byte { return statementFor(t, d, nil) }, nil, "f.deb", "does not match the signed release statement"},
 		{"unsupported compression", buildDeb(t, controlText("frigate", "2.1.0", "arm64"), "control.tar.xz"),
 			func(d []byte) []byte { return statementFor(t, d, nil) }, nil, "f.deb", "gzip"},
-		{"not a deb", []byte("plain text, not an archive"), func(d []byte) []byte { return statementFor(t, d, nil) }, nil, "f.deb", "not a valid Frigate package"},
+		{"not a deb", []byte("plain text, not an archive"), func(d []byte) []byte { return statementFor(t, d, nil) }, nil, "f.deb", "not a valid controller software package"},
 		{"bad filename", good, func(d []byte) []byte { return statementFor(t, d, nil) }, nil, "../f.deb", "filename"},
 	}
 	for _, tt := range tests {

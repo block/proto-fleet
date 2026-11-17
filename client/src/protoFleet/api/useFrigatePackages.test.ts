@@ -129,4 +129,13 @@ describe("useFrigatePackages", () => {
 
     expect(mocks.deletePackage).toHaveBeenCalledWith({ packageId: packageRecord.id }, expect.any(Object));
   });
+
+  it("reports whether a container is paired where the user may update controller software", async () => {
+    mocks.listPackages.mockResolvedValue({ packages: [], hasUpdatableContainer: true });
+    const { result } = renderHook(() => useFrigatePackages());
+    const controller = new AbortController();
+
+    await expect(result.current.hasUpdatableContainer(controller.signal)).resolves.toBe(true);
+    expect(mocks.listPackages).toHaveBeenCalledWith({}, { signal: controller.signal, timeoutMs: 30_000 });
+  });
 });

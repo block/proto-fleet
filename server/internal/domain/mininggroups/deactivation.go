@@ -28,7 +28,7 @@ func deactivationBlocker(ctx context.Context, q sqlc.Querier, row sqlc.Container
 		return deactivationReadiness{Reason: "Wait for the mining-group change or recovery to finish before disabling mining groups."}, nil
 	}
 	if _, err := q.GetBlockingFrigateUpdateJobForDevice(ctx, row.DeviceID); err == nil {
-		return deactivationReadiness{Reason: "Wait for the Frigate software update to finish or cancel it before disabling mining groups."}, nil
+		return deactivationReadiness{Reason: "Wait for the controller software update to finish or cancel it before disabling mining groups."}, nil
 	} else if !errors.Is(err, sql.ErrNoRows) {
 		return deactivationReadiness{}, err
 	}

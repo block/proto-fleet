@@ -3,7 +3,7 @@ import { ETCD_UNHEALTHY, FRIGATE_UPDATE_MESSAGES_BY_CODE } from "@/shared/featur
 export { ETCD_UNHEALTHY };
 
 export const REMOTE_TRIGGER_DISABLED =
-  "Software updates through the controller API are turned off for this container. Set update.allow_remote_trigger to true in the Frigate configuration, then check again.";
+  "Software updates through the controller API are turned off for this container. Set update.allow_remote_trigger to true in the controller configuration, then check again.";
 
 // Frigate's codes as Fleet shows them too, plus the ones whose next step is specific to this dialog.
 const CODE_TEXT: Record<string, string> = {
@@ -11,9 +11,9 @@ const CODE_TEXT: Record<string, string> = {
   REMOTE_TRIGGER_DISABLED,
   ACTIVE_JOB: "Another software update is already running on these controllers.",
   SELF_COORDINATION_UNSUPPORTED:
-    "A controller's Frigate version can't coordinate its own update. Update it once by hand to a version that supports it.",
+    "A controller's software version can't coordinate its own update. Update it once by hand to a version that supports it.",
   HELPER_UNAVAILABLE:
-    "A controller's update helper isn't available. Make sure the Frigate update helper service is running.",
+    "A controller's update helper isn't available. Make sure the controller's update helper service is running.",
   NOT_STAGED: `${FRIGATE_UPDATE_MESSAGES_BY_CODE.NOT_STAGED} Discard this update and choose the package again.`,
   STAGE_MISMATCH: `${FRIGATE_UPDATE_MESSAGES_BY_CODE.STAGE_MISMATCH} Discard this update and choose the package again.`,
 };

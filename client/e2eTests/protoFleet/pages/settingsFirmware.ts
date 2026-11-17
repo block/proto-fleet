@@ -845,7 +845,7 @@ export class SettingsFirmwarePage extends BasePage {
     const emptyState = this.page.getByText("No firmware files uploaded", { exact: true });
     const firmwareRows = this.page.getByTestId("list-body").locator("tr");
     const loadingState = this.page.getByText("Loading firmware files...", { exact: true });
-    const deleteAllButton = this.page.getByRole("button", { name: "Delete all", exact: true }).first();
+    const deleteAllButton = this.page.getByRole("button", { name: "Delete all firmware files", exact: true }).first();
 
     if (await loadingState.isVisible().catch(() => false)) {
       await expect(loadingState).toBeHidden();

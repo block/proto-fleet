@@ -16,15 +16,15 @@ export const FRIGATE_UPDATE_RUNBOOK_URL =
   "https://github.com/btc-mining/proto-fleet-internal/blob/main/docs/development/frigate-server-updates.md";
 
 const REMOTE_TRIGGER_DISABLED =
-  "Remote updates are turned off on a controller. On that controller, set update.allow_remote_trigger to true in the Frigate configuration, then check again.";
+  "Remote updates are turned off on a controller. On that controller, set update.allow_remote_trigger to true in its configuration, then check again.";
 const HELPER_UNAVAILABLE =
-  "A controller's update helper is not available. Install the Frigate Debian package that includes the update helper and make sure the helper service is running.";
+  "A controller's update helper is not available. Install the controller software package that includes the update helper and make sure the helper service is running.";
 const SELF_COORDINATION_UNSUPPORTED =
-  "A controller's Frigate version can't coordinate its own update. Update it once by hand to a version that supports Fleet updates.";
+  "A controller's software version can't coordinate its own update. Update it once by hand to a version that supports Fleet updates.";
 const UNSUPPORTED_INSTALLATION =
   "A controller wasn't installed from a Debian package, so it can't be updated from Fleet.";
 const CONTROLLER_UNREACHABLE =
-  "Fleet can't reach a controller. Check its network connection and that Frigate is running.";
+  "Fleet can't reach a controller. Check its network connection and that its software is running.";
 
 // Codes are an open set with an UPDATE_ prefix from Frigate and a FLEET_ prefix
 // from Fleet, so lookups ignore the prefix. Frigate's own codes are worded once
@@ -97,10 +97,10 @@ export const frigateStateLabel = (state: FrigateUpdateState) => STATE_LABELS[sta
 
 const ROLLOUT_PHASE_LABELS: Partial<Record<FrigateRolloutPhase, string>> = {
   [FrigateRolloutPhase.VERIFYING]: "Verifying",
-  [FrigateRolloutPhase.STOPPING]: "Stopping Frigate",
+  [FrigateRolloutPhase.STOPPING]: "Stopping controller software",
   [FrigateRolloutPhase.INSTALLING]: "Installing",
   [FrigateRolloutPhase.MIGRATING]: "Migrating the database",
-  [FrigateRolloutPhase.STARTING]: "Starting Frigate",
+  [FrigateRolloutPhase.STARTING]: "Starting controller software",
   [FrigateRolloutPhase.SUCCEEDED]: "Succeeded",
   [FrigateRolloutPhase.FAILED]: "Failed",
   [FrigateRolloutPhase.CANCELLED]: "Cancelled",
@@ -115,10 +115,10 @@ export const frigateRolloutPhaseLabel = (phase: FrigateRolloutPhase) => ROLLOUT_
 const AGENT_PHASE_LABELS: Partial<Record<FrigateAgentPhase, string>> = {
   [FrigateAgentPhase.CONNECTING]: "Connecting",
   [FrigateAgentPhase.STAGED]: "Staged",
-  [FrigateAgentPhase.STOPPED]: "Frigate stopped",
+  [FrigateAgentPhase.STOPPED]: "Software stopped",
   [FrigateAgentPhase.INSTALLED]: "Installed",
   [FrigateAgentPhase.MIGRATED]: "Migrated",
-  [FrigateAgentPhase.STARTED]: "Frigate started",
+  [FrigateAgentPhase.STARTED]: "Software started",
   [FrigateAgentPhase.FAILED]: "Failed",
   [FrigateAgentPhase.UNKNOWN]: "Unknown phase",
 };

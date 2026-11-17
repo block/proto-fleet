@@ -13,7 +13,12 @@ This page is for operators and developers. The wire contract is
 ## What Fleet does
 
 1. An administrator uploads a release package together with its signed release
-   statement and signature (`POST /api/v1/frigate-packages/upload/chunked`).
+   statement and signature (`POST /api/v1/frigate-packages/upload/chunked`). In
+   the Fleet UI, packages are listed, uploaded and deleted under **Settings →
+   Firmware → Files**, in the **Proto Containers** section. That section is
+   hidden while no Proto Container is paired where the user can list or update
+   one. The Fleet UI, the text the Fleet server writes for it, and ProtoOS call
+   Frigate "controller software" and do not use the name Frigate.
 2. `StartUpdate` records a job for one container. The `frigate-update-runner`,
    which runs only on the active Fleet replica, then:
    - stages the package on each controller with that controller's own
@@ -88,6 +93,12 @@ has are not enough.
 | `GetSupport`, `StartUpdate`, `GetUpdate`, `ListUpdates`, `RetryUpdate`, `CancelUpdate` | at the container's site |
 | `ListPackages`, package upload | at any site |
 | `DeletePackage` | organization-wide, because packages are shared by every site |
+
+`ListPackages` also returns `has_updatable_container`: whether a container is
+paired at a site where the caller holds the permission. Listing containers
+needs read access at their site, which this permission does not imply, so the
+Fleet UI uses this answer, not an empty container list, before it hides
+controller software from someone who may update it.
 
 ## Configuration
 

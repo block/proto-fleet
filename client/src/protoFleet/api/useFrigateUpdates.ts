@@ -78,7 +78,7 @@ export function useFrigateUpdates(deviceIdentifier: string, enabled: boolean) {
             setResult((previous) => ({
               key: deviceIdentifier,
               jobs: previous?.key === deviceIdentifier ? previous.jobs : undefined,
-              error: getErrorMessage(error, "Couldn't load Frigate updates."),
+              error: getErrorMessage(error, "Couldn't load controller software updates."),
             })),
         });
       }

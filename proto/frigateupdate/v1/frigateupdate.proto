@@ -178,6 +178,11 @@ message ListPackagesRequest {}
 
 message ListPackagesResponse {
   repeated FrigatePackage packages = 1;
+  // has_updatable_container reports whether a container is paired at a site
+  // where the caller may update controller software. A client uses it to tell
+  // an organization without containers from one whose containers the caller
+  // cannot list.
+  bool has_updatable_container = 2;
 }
 
 message DeletePackageRequest {

@@ -82,7 +82,7 @@ const setup = (record?: FrigateUpdateRecord, configure?: (update: FakeUpdate) =>
 };
 const open = (name: string) => fireEvent.click(screen.getByRole("button", { name }));
 const choose = () =>
-  fireEvent.change(screen.getByLabelText("Frigate release files"), {
+  fireEvent.change(screen.getByLabelText("Controller software release files"), {
     target: { files: [pkg.deb, new File(["{}"], "x.deb.statement.json"), new File(["s"], "x.deb.statement.sig")] },
   });
 
@@ -104,7 +104,7 @@ describe("ContainerFrigateSoftwareUpdate", () => {
       within(controllers)
         .getAllByRole("listitem")
         .map((item) => item.textContent),
-    ).toEqual(["ct1-aFrigate 1.0.0 → 9.9.9", "ct1-bFrigate 1.0.0 → 9.9.9"]);
+    ).toEqual(["ct1-aVersion 1.0.0 → 9.9.9", "ct1-bVersion 1.0.0 → 9.9.9"]);
     expect(screen.getByRole("alert")).toHaveTextContent("turned off");
     expect(screen.getByRole("button", { name: "Update" })).toBeDisabled();
   });
@@ -490,7 +490,7 @@ describe("ContainerFrigateSoftwareUpdate", () => {
     const key = prefix + "job";
     localStorage.setItem(key, JSON.stringify(staged({ step: "started" })));
     act(() => void window.dispatchEvent(new StorageEvent("storage", { key })));
-    expect(await screen.findByText("Stopping Frigate")).toBeInTheDocument();
+    expect(await screen.findByText("Stopping controller software")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Discard" })).not.toBeInTheDocument();
     expect(update.start).not.toHaveBeenCalled();
     expect(update.discard).not.toHaveBeenCalled();
@@ -503,7 +503,7 @@ describe("ContainerFrigateSoftwareUpdate", () => {
     open("Controller software update status");
     localStorage.setItem(prefix + "job", JSON.stringify(staged({ step: "started" })));
     fireEvent.click(screen.getByRole("button", { name: "Discard" }));
-    expect(await screen.findByText("Stopping Frigate")).toBeInTheDocument();
+    expect(await screen.findByText("Stopping controller software")).toBeInTheDocument();
     expect(update.discard).not.toHaveBeenCalled();
     expect(update.start).not.toHaveBeenCalled();
     expect(saved()).toEqual([expect.objectContaining({ step: "started" })]);

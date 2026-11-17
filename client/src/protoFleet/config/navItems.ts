@@ -154,8 +154,8 @@ export const secondaryNavItems: SecondaryNavItem[] = [
     label: "Firmware",
     parent: "/settings",
     section: "Fleet",
-    // Miner firmware tabs need miner:firmware_update; the Frigate packages tab
-    // needs controller:software_update. Each tab checks its own permission.
+    // Miner firmware views need miner:firmware_update; controller software
+    // needs controller:software_update. Each view checks its own permission.
     requiredAnyPermission: ["miner:firmware_update", "controller:software_update"],
   },
   {

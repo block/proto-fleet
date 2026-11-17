@@ -63,7 +63,7 @@ function InstanceRow({ instance, driver }: { instance: InstanceProgress; driver:
             No report for over 30 seconds
           </span>
         ) : null}
-        {instance.runningVersion ? <span>Frigate {instance.runningVersion}</span> : null}
+        {instance.runningVersion ? <span>Version {instance.runningVersion}</span> : null}
       </div>
       {failure ? (
         <div role="alert" className="text-200 text-intent-critical-text">
@@ -92,7 +92,7 @@ function ConfirmDialog({
   return (
     <Dialog
       open
-      title={retry ? "Retry the Frigate update?" : "Cancel the Frigate update?"}
+      title={retry ? "Retry the controller software update?" : "Cancel the controller software update?"}
       testId={`frigate-update-${kind}-dialog`}
       onDismiss={busy ? undefined : onDismiss}
       buttons={[
@@ -108,7 +108,7 @@ function ConfirmDialog({
       <p className="text-300 text-text-primary-70">
         {retry
           ? "The update resumes from the step that failed. Both controllers stop mining control together, briefly."
-          : "No controller has been stopped, so cancelling leaves Frigate unchanged. You can start a new update afterwards."}
+          : "No controller has been stopped, so cancelling leaves the controller software unchanged. You can start a new update afterwards."}
       </p>
       {error ? (
         <p role="alert" className="mt-3 text-intent-critical-text">
@@ -142,14 +142,14 @@ function JobDetail({ job, onChanged }: { job: UpdateJob; onChanged: () => void }
       // The key lives as long as the confirmation, so resubmitting the same
       // action after a failure reuses it.
       const key = keyFor({ action: confirming, jobId: job.jobId });
-      let message = "Frigate update retry requested.";
+      let message = "Controller software update retry requested.";
       if (confirming === "cancel") {
         // A cancel can be accepted while Start is still in flight, or queued
         // for Frigate's driver. Only a cancelled job has really stopped.
         const updated = await cancelUpdate(job.jobId, key);
         message =
           updated?.state === FrigateUpdateState.CANCELLED
-            ? "Frigate update cancelled."
+            ? "Controller software update cancelled."
             : "Cancel requested. The update stops only if no controller has stopped yet.";
       } else {
         await retryUpdate(job.jobId, key);
@@ -213,8 +213,8 @@ function JobDetail({ job, onChanged }: { job: UpdateJob; onChanged: () => void }
         <Callout
           intent="information"
           prefixIcon={<Info />}
-          title="Frigate is stopped for the install."
-          subtitle="The maintenance service is answering for this container. Status keeps updating, and Frigate restarts on its own."
+          title="The controller software is stopped for the install."
+          subtitle="The maintenance service is answering for this container. Status keeps updating, and the controller software restarts on its own."
           testId="frigate-update-maintenance"
         />
       ) : null}
@@ -260,7 +260,7 @@ function JobDetail({ job, onChanged }: { job: UpdateJob; onChanged: () => void }
           rel="noopener noreferrer"
           className="text-300 text-core-accent-fill underline"
         >
-          Frigate update runbook
+          Controller software update runbook
         </a>
       ) : null}
       {confirming ? (
@@ -286,11 +286,11 @@ export default function FrigateUpdatePanel({
   if (!latest && !error) return null;
   return (
     <section
-      aria-label="Frigate update"
+      aria-label="Controller software update"
       className="flex flex-col gap-4 rounded-xl bg-core-primary-5 p-6"
       data-testid="frigate-update-panel"
     >
-      <h2 className="text-heading-200 text-text-primary">Frigate update</h2>
+      <h2 className="text-heading-200 text-text-primary">Controller software update</h2>
       {error ? (
         <p role="alert" className="text-300 text-intent-critical-text">
           {error}
@@ -300,7 +300,7 @@ export default function FrigateUpdatePanel({
       {earlier.length > 0 ? (
         <div className="flex flex-col gap-2">
           <h3 className="text-emphasis-300 text-text-primary">Recent updates</h3>
-          <ul aria-label="Recent Frigate updates" className="flex flex-col divide-y divide-border-5">
+          <ul aria-label="Recent controller software updates" className="flex flex-col divide-y divide-border-5">
             {earlier.map((job) => (
               <li key={job.jobId} className="flex flex-wrap items-baseline justify-between gap-2 py-2 text-300">
                 <span className="text-text-primary">

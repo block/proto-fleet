@@ -218,7 +218,7 @@ describe("Firmware", () => {
     const { queryByText } = render(<Firmware />);
 
     await waitFor(() => {
-      expect(queryByText("Delete all")).not.toBeInTheDocument();
+      expect(queryByText("Delete all firmware files")).not.toBeInTheDocument();
     });
   });
 
@@ -228,7 +228,7 @@ describe("Firmware", () => {
     const { getByText } = render(<Firmware />);
 
     await waitFor(() => {
-      const deleteAllButton = getByText("Delete all").closest("button");
+      const deleteAllButton = getByText("Delete all firmware files").closest("button");
       expect(deleteAllButton).not.toBeDisabled();
     });
   });
@@ -320,7 +320,7 @@ describe("Firmware", () => {
       expect(getByText("alpha.swu")).toBeInTheDocument();
     });
 
-    fireEvent.click(getByText("Delete all"));
+    fireEvent.click(getByText("Delete all firmware files"));
 
     expect(getByText("Delete all firmware files?")).toBeInTheDocument();
   });
@@ -335,7 +335,7 @@ describe("Firmware", () => {
       expect(getByText("alpha.swu")).toBeInTheDocument();
     });
 
-    fireEvent.click(getByText("Delete all"));
+    fireEvent.click(getByText("Delete all firmware files"));
 
     await waitFor(() => {
       expect(getByText("Delete all firmware files?")).toBeInTheDocument();

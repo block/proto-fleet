@@ -213,7 +213,7 @@ export default function ContainerActionsMenu({
   // Updating the controllers' software is its own permission, independent of miner access.
   if (permissions.includes(FRIGATE_UPDATE_PERMISSION))
     actions.push({
-      label: "Update Frigate",
+      label: "Update controller software",
       icon: <Download />,
       showGroupDivider: true,
       onClick: () => setFrigateUpdateOpen(true),

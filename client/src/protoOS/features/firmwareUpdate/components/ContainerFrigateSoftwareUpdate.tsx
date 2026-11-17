@@ -18,10 +18,10 @@ type UpdateState = ReturnType<typeof useFrigateServerUpdate>;
 
 const phaseText: Record<FrigateRolloutPhase, string> = {
   verifying: "Verifying the package",
-  stopping: "Stopping Frigate",
+  stopping: "Stopping controller software",
   installing: "Installing",
   migrating: "Migrating the database",
-  starting: "Starting Frigate",
+  starting: "Starting controller software",
   succeeded: "Update complete",
   failed: "Update failed",
   cancelled: "Update cancelled",
@@ -82,7 +82,7 @@ function ControllerProgress({ rollout }: { rollout: FrigateRollout }) {
           <p className="text-text-primary-70">
             {[
               instance.phase,
-              instance.runningVersion && `Frigate ${instance.runningVersion}`,
+              instance.runningVersion && `version ${instance.runningVersion}`,
               instance.lastContact && `last report ${time(instance.lastContact)}`,
               instance.contactStale && "no recent report",
             ]
@@ -109,19 +109,19 @@ function RolloutProgress({ state }: { state: UpdateState }) {
   return (
     <>
       <p>
-        Frigate {rollout?.fromVersion || "—"} → {rollout?.targetVersion || record?.targetVersion || "—"}
+        Controller software {rollout?.fromVersion || "—"} → {rollout?.targetVersion || record?.targetVersion || "—"}
       </p>
       <p role="status">{progressText(state) ?? (rollout ? phaseText[rollout.phase] : waiting)}</p>
       {state.servedByMaintenance ? (
         <p>
-          Frigate is stopped for the update, and the controller's maintenance service is answering. Keep this page open:
-          it can't load again until Frigate restarts.
+          The controller software is stopped for the update, and the controller's maintenance service is answering. Keep
+          this page open: it can't load again until the controller software restarts.
         </p>
       ) : null}
       {state.unanswered ? (
         <p role="status" className="text-text-primary-70">
-          The controller isn't answering ({state.unanswered}). Frigate restarts during the update, so this can take a
-          few minutes.
+          The controller isn't answering ({state.unanswered}). The controller software restarts during the update, so
+          this can take a few minutes.
           {state.lastAnswer ? ` Last answer at ${time(state.lastAnswer)}.` : ""}
         </p>
       ) : null}
@@ -161,7 +161,7 @@ function CopiedPackage({
   return (
     <>
       <p className="break-all">
-        Frigate {record.targetVersion} · {record.packageName}
+        Version {record.targetVersion} · {record.packageName}
       </p>
       <p role="status">
         {progressText(state) ??
@@ -183,9 +183,9 @@ function ReleaseChoice({ state }: { state: UpdateState }) {
   return (
     <>
       <p>
-        Choose the three files of one Frigate release: the .deb package, its .deb.statement.json, and its
-        .deb.statement.sig. The controllers check the release signature before anything stops. Frigate stops and
-        restarts on each controller during the update.
+        Choose the three files of one controller software release: the .deb package, its .deb.statement.json, and its
+        .deb.statement.sig. The controllers check the release signature before anything stops. The controller software
+        stops and restarts on each controller during the update.
       </p>
       <Button variant="secondary" disabled={state.busy} onClick={() => input.current?.click()}>
         {pkg ? "Change files" : "Choose files"}
@@ -195,7 +195,7 @@ function ReleaseChoice({ state }: { state: UpdateState }) {
         type="file"
         multiple
         accept=".deb,.json,.sig"
-        aria-label="Frigate release files"
+        aria-label="Controller software release files"
         className="hidden"
         disabled={state.busy}
         onChange={(event) => {
@@ -210,7 +210,7 @@ function ReleaseChoice({ state }: { state: UpdateState }) {
             {pkg.deb.name} · <FileSizeValue value={pkg.sizeBytes} />
           </p>
           <p>
-            Frigate {pkg.version} · {pkg.architecture}
+            Version {pkg.version} · {pkg.architecture}
             {pkg.issuedAt ? ` · released ${pkg.issuedAt.slice(0, 10)}` : ""}
           </p>
           <p className="text-200 text-text-primary-70">SHA-256 {pkg.sha256}</p>
@@ -222,7 +222,7 @@ function ReleaseChoice({ state }: { state: UpdateState }) {
             <li key={controller.instanceId} className="flex justify-between gap-4">
               <span>{controller.instanceId}</span>
               <span className="text-text-primary-70">
-                Frigate {controller.runningVersion || "—"}
+                Version {controller.runningVersion || "—"}
                 {pkg ? ` → ${pkg.version}` : ""}
               </span>
             </li>

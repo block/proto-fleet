@@ -217,7 +217,7 @@ var catalog = []CatalogEntry{
 	{PermMaintenanceRead, "View repair tickets, maintenance history, and parts inventory.", ResourceMaintenance},
 	{PermMaintenanceManage, "Create, assign, update, and close repair tickets; manage parts inventory.", ResourceMaintenance},
 
-	{PermControllerSoftwareUpdate, "Upload Frigate software packages and update CT1 controller software. Updates stop mining controllers while they install.", ResourceController},
+	{PermControllerSoftwareUpdate, "Upload controller software packages and update Proto Container controller software. Updates stop mining controllers while they install.", ResourceController},
 
 	{PermContainerPowerFeed, "Turn a CT1 module's power feed on or off, cycle it, and clear its operator override. Cutting a feed removes power from the module's boards without stopping mining first.", ResourceContainer},
 }

@@ -11,7 +11,7 @@ import Modal from "@/shared/components/Modal/Modal";
 type FileKey = "deb" | "statement" | "signature";
 
 const FIELDS: { key: FileKey; label: string; accept: string; hint: string }[] = [
-  { key: "deb", label: "Package", accept: ".deb", hint: "The Frigate .deb file." },
+  { key: "deb", label: "Package", accept: ".deb", hint: "The controller software .deb file." },
   {
     key: "statement",
     label: "Release statement",
@@ -146,7 +146,7 @@ const FrigatePackageUploadDialog = ({ open, onSuccess, onDismiss }: Props) => {
   return (
     <Modal
       open={open}
-      title="Upload Frigate package"
+      title="Upload controller software"
       onDismiss={dismiss}
       divider={false}
       buttons={[

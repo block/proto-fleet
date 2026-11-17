@@ -157,12 +157,12 @@ describe("createFrigateServerUpdate", () => {
           new File([new Uint8Array(64 * 1024 + 1)], "x.deb.statement.json"),
           release().files[2],
         ],
-        "not a Frigate release statement",
+        "not a controller software release statement",
       ],
       [
         "an oversized signature",
         () => [...release().files.slice(0, 2), new File([new Uint8Array(129)], "x.deb.statement.sig")],
-        "not a Frigate release signature",
+        "not a controller software release signature",
       ],
     ])("rejects %s", async (_, files, message) => {
       const { update } = setup();
@@ -195,10 +195,10 @@ describe("createFrigateServerUpdate", () => {
         );
       versions(pkg.version, "1.0.0");
       expect((await update.plan(pkg)).blockers).toEqual([
-        expect.stringMatching(new RegExp(`^Controller ct1-a already runs Frigate ${pkg.version}\\. .*by hand\\.$`)),
+        expect.stringMatching(new RegExp(`^Controller ct1-a already runs version ${pkg.version}\\. .*by hand\\.$`)),
       ]);
       versions(pkg.version, pkg.version);
-      expect((await update.plan(pkg)).blockers).toEqual([`The controllers already run Frigate ${pkg.version}.`]);
+      expect((await update.plan(pkg)).blockers).toEqual([`The controllers already run version ${pkg.version}.`]);
     });
 
     it("refuses a release older than what a controller runs", async () => {
@@ -210,7 +210,7 @@ describe("createFrigateServerUpdate", () => {
           : support("ct1-a", "ct1-b"),
       );
       expect((await update.plan(pkg)).blockers).toEqual([
-        "Controller ct1-b runs Frigate 10.0.0, which is newer than this release. Only a newer release can be installed.",
+        "Controller ct1-b runs version 10.0.0, which is newer than this release. Only a newer release can be installed.",
       ]);
     });
 
@@ -223,7 +223,7 @@ describe("createFrigateServerUpdate", () => {
           : support("ct1-a", "ct1-b"),
       );
       expect((await update.plan(pkg)).blockers).toEqual([
-        "This release needs Frigate 2.0.0 or newer, and controller ct1-a runs 1.0.0. Install an earlier release first.",
+        "This release needs version 2.0.0 or newer, and controller ct1-a runs 1.0.0. Install an earlier release first.",
       ]);
     });
 

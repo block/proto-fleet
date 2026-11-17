@@ -46,7 +46,7 @@ func TestDeactivationWaitsForBlockingFrigateUpdate(t *testing.T) {
 			require.NoError(t, err)
 			_, err = f.service.Deactivate(ctx, f.target.DeviceIdentifier, uuid.NewString())
 			if tc.blocking {
-				require.ErrorContains(t, err, "Frigate software update")
+				require.ErrorContains(t, err, "controller software update")
 				_, err = f.conn.ExecContext(ctx, `UPDATE frigate_update_job SET state='cancelled',retryable=false WHERE id=$1`, job.ID)
 				require.NoError(t, err)
 				_, err = f.service.Deactivate(ctx, f.target.DeviceIdentifier, uuid.NewString())

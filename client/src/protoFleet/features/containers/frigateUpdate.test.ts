@@ -69,7 +69,7 @@ describe("labels", () => {
     expect(frigateStateLabel(FrigateUpdateState.UNSPECIFIED)).toBe("Unknown");
     expect(frigateRolloutPhaseLabel(FrigateRolloutPhase.INSTALLING)).toBe("Installing");
     expect(frigateRolloutPhaseLabel(FrigateRolloutPhase.UNSPECIFIED)).toBe("");
-    expect(frigateAgentPhaseLabel(FrigateAgentPhase.STOPPED)).toBe("Frigate stopped");
+    expect(frigateAgentPhaseLabel(FrigateAgentPhase.STOPPED)).toBe("Software stopped");
     expect(frigateAgentPhaseLabel(FrigateAgentPhase.UNSPECIFIED)).toBe("Not reported");
   });
 });

@@ -207,7 +207,7 @@ func (s *Service) updaterFor(ctx context.Context, deviceID int64) (interfaces.Fr
 	}
 	u, ok := m.(interfaces.FrigateUpdater)
 	if !ok {
-		return nil, fleeterror.NewUnimplementedError("this controller does not support Frigate software updates")
+		return nil, fleeterror.NewUnimplementedError("this controller does not support controller software updates")
 	}
 	return u, nil
 }

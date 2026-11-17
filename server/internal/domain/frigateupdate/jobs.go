@@ -199,7 +199,7 @@ func (s *Service) StartUpdate(ctx context.Context, in StartInput) (Job, error) {
 		return s.loadJob(ctx, row)
 	}
 	s.logJobEvent(ctx, row, "frigate_update_started",
-		fmt.Sprintf("Started Frigate update to %s", row.TargetVersion), activitymodels.ResultSuccess, "")
+		fmt.Sprintf("Started controller software update to %s", row.TargetVersion), activitymodels.ResultSuccess, "")
 	return s.loadJob(ctx, row)
 }
 
@@ -514,7 +514,7 @@ func (s *Service) cancelUnstarted(ctx context.Context, updater interfaces.Frigat
 		if _, err := s.applyRollout(ctx, job.ID, rolloutObservation{Rollout: status.Rollout, ServedByMaintenance: status.ServedByMaintenance}); err != nil {
 			return Job{}, err
 		}
-		return Job{}, fleeterror.NewFailedPreconditionError("Frigate accepted the update while it was being cancelled; cancel it again")
+		return Job{}, fleeterror.NewFailedPreconditionError("The controller accepted the update while it was being cancelled; cancel it again")
 	case !isNotFoundRefusal(err):
 		return Job{}, callError(err)
 	}
@@ -662,22 +662,22 @@ func (s *Service) logTransition(ctx context.Context, before, after sqlc.FrigateU
 	switch after.State {
 	case StateRunning:
 		s.logJobEvent(ctx, after, "frigate_update_running",
-			fmt.Sprintf("Frigate accepted the update to %s", after.TargetVersion), activitymodels.ResultSuccess, "")
+			fmt.Sprintf("The controller accepted the update to %s", after.TargetVersion), activitymodels.ResultSuccess, "")
 	case StateSucceeded:
 		s.logJobEvent(ctx, after, "frigate_update_succeeded",
-			fmt.Sprintf("Frigate updated to %s", after.TargetVersion), activitymodels.ResultSuccess, "")
+			fmt.Sprintf("Controller software updated to %s", after.TargetVersion), activitymodels.ResultSuccess, "")
 	case StateVerified:
 		s.logJobEvent(ctx, after, "frigate_update_verified",
 			fmt.Sprintf("Verified the package for %s on every controller", after.TargetVersion), activitymodels.ResultSuccess, "")
 	case StateFailed:
 		s.logJobEvent(ctx, after, "frigate_update_failed",
-			fmt.Sprintf("Frigate update to %s failed", after.TargetVersion), activitymodels.ResultFailure, after.ErrorMessage)
+			fmt.Sprintf("Controller software update to %s failed", after.TargetVersion), activitymodels.ResultFailure, after.ErrorMessage)
 	case StateCancelled:
 		s.logJobEvent(ctx, after, "frigate_update_cancelled",
-			fmt.Sprintf("Cancelled the Frigate update to %s", after.TargetVersion), activitymodels.ResultSuccess, "")
+			fmt.Sprintf("Cancelled the controller software update to %s", after.TargetVersion), activitymodels.ResultSuccess, "")
 	case StateAbandoned:
 		s.logJobEvent(ctx, after, "frigate_update_abandoned",
-			fmt.Sprintf("The Frigate update to %s was abandoned", after.TargetVersion), activitymodels.ResultFailure, after.ErrorMessage)
+			fmt.Sprintf("The controller software update to %s was abandoned", after.TargetVersion), activitymodels.ResultFailure, after.ErrorMessage)
 	}
 }
 

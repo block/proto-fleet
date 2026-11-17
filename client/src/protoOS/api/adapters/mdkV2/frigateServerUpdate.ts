@@ -113,10 +113,10 @@ const endedPhases = new Set<FrigateRolloutPhase>(["succeeded", "failed", "cancel
 const agentPhases: Partial<Record<FrigateUpdateAgentPhase, string>> = {
   [FrigateUpdateAgentPhase.CONNECTING]: "Connecting",
   [FrigateUpdateAgentPhase.STAGED]: "Staged",
-  [FrigateUpdateAgentPhase.STOPPED]: "Frigate stopped",
+  [FrigateUpdateAgentPhase.STOPPED]: "Software stopped",
   [FrigateUpdateAgentPhase.INSTALLED]: "Installed",
   [FrigateUpdateAgentPhase.MIGRATED]: "Migrated",
-  [FrigateUpdateAgentPhase.STARTED]: "Frigate started",
+  [FrigateUpdateAgentPhase.STARTED]: "Software started",
   [FrigateUpdateAgentPhase.FAILED]: "Failed",
 };
 
@@ -153,7 +153,7 @@ export function toFrigateRollout(rollout: ServerUpdateRollout): FrigateRollout {
 }
 
 const RELEASE_FILES =
-  "Choose the three files of one Frigate release: the .deb package, its .deb.statement.json, and its .deb.statement.sig.";
+  "Choose the three files of one controller software release: the .deb package, its .deb.statement.json, and its .deb.statement.sig.";
 
 function parseStatement(bytes: Uint8Array): Omit<FrigatePackage, "deb" | "statement" | "signature"> {
   const invalid = (detail: string) => new Error(`The release statement is not valid: ${detail}.`);
@@ -175,7 +175,8 @@ function parseStatement(bytes: Uint8Array): Omit<FrigatePackage, "deb" | "statem
   };
   if (fields.schema !== STATEMENT_SCHEMA) throw invalid(`its schema is not ${STATEMENT_SCHEMA}`);
   const name = text("package");
-  if (name !== RELEASE_PACKAGE) throw new Error(`This is not a Frigate release: its statement is for "${name}".`);
+  if (name !== RELEASE_PACKAGE)
+    throw new Error(`This is not a controller software release: its statement is for "${name}".`);
   const repository = text("repository")!;
   if (repository !== RELEASE_REPOSITORY)
     throw new Error(`This release was not published from ${RELEASE_REPOSITORY}. The controllers will refuse it.`);
@@ -317,9 +318,9 @@ export function createFrigateServerUpdate(
       const [deb] = debs;
       // Sizes are checked before anything is read, so a wrong file is never loaded.
       if (!statements[0].size || statements[0].size > MAX_STATEMENT_BYTES)
-        throw new Error("The release statement file is not a Frigate release statement.");
+        throw new Error("The release statement file is not a controller software release statement.");
       if (!signatures[0].size || signatures[0].size > MAX_SIGNATURE_BYTES)
-        throw new Error("The release signature file is not a Frigate release signature.");
+        throw new Error("The release signature file is not a controller software release signature.");
       const statement = new Uint8Array(await statements[0].arrayBuffer());
       const signature = new Uint8Array(await signatures[0].arrayBuffer());
       const parsed = parseStatement(statement);
@@ -362,21 +363,21 @@ export function createFrigateServerUpdate(
         // update for both.
         const current = supports.filter((support) => support.runningVersion === pkg.version);
         if (current.length && current.length === (local.peerInstanceId ? 2 : 1))
-          blockers.push(`The controllers already run Frigate ${pkg.version}.`);
+          blockers.push(`The controllers already run version ${pkg.version}.`);
         else
           for (const { instanceId } of current)
             blockers.push(
-              `Controller ${instanceId} already runs Frigate ${pkg.version}. An update needs every controller on an older version, so install this release on the other controller by hand.`,
+              `Controller ${instanceId} already runs version ${pkg.version}. An update needs every controller on an older version, so install this release on the other controller by hand.`,
             );
         // Start refuses these too, but only after the whole package has been copied.
         for (const { instanceId, runningVersion } of supports) {
           if (olderThan(pkg.version, runningVersion))
             blockers.push(
-              `Controller ${instanceId} runs Frigate ${runningVersion}, which is newer than this release. Only a newer release can be installed.`,
+              `Controller ${instanceId} runs version ${runningVersion}, which is newer than this release. Only a newer release can be installed.`,
             );
           else if (pkg.minInstalledVersion && olderThan(runningVersion, pkg.minInstalledVersion))
             blockers.push(
-              `This release needs Frigate ${pkg.minInstalledVersion} or newer, and controller ${instanceId} runs ${runningVersion}. Install an earlier release first.`,
+              `This release needs version ${pkg.minInstalledVersion} or newer, and controller ${instanceId} runs ${runningVersion}. Install an earlier release first.`,
             );
         }
       }

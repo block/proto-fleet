@@ -39,7 +39,7 @@ const rollout = (fields: Partial<FrigateRollout> = {}): FrigateRollout => ({
     { instanceId: "ct1-a", phase: "Installed", runningVersion: "1.2.0", lastContact: new Date(), contactStale: false },
     {
       instanceId: "ct1-b",
-      phase: "Frigate stopped",
+      phase: "Software stopped",
       runningVersion: "1.2.0",
       lastContact: new Date(),
       contactStale: false,
@@ -147,7 +147,7 @@ export const Succeeded: Story = {
           ended: true,
           instances: rollout().instances.map((instance) => ({
             ...instance,
-            phase: "Frigate started",
+            phase: "Software started",
             runningVersion: "1.3.0",
           })),
         }),

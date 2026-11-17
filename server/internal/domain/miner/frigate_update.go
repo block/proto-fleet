@@ -14,7 +14,7 @@ var _ interfaces.FrigateUpdater = (*RemoteFleetNodeMiner)(nil)
 // FleetNode-owned controller is reached only through the node gateway, which
 // carries no Frigate update protocol in this version.
 func errFrigateUpdateOnFleetNode() error {
-	return fleeterror.NewFailedPreconditionError("Frigate software updates are not supported for FleetNode-owned controllers")
+	return fleeterror.NewFailedPreconditionError("Controller software updates are not supported for FleetNode-owned controllers")
 }
 
 func (m *RemoteFleetNodeMiner) FrigateUpdateSupport(context.Context) ([]sdk.FrigateInstanceSupport, error) {

@@ -77,7 +77,7 @@ const choosePackage = async (user: ReturnType<typeof userEvent.setup>, version: 
   await user.click(await screen.findByRole("option", { name: new RegExp(version) }));
 };
 
-const startButton = () => screen.getByRole("button", { name: "Update Frigate" });
+const startButton = () => screen.getByRole("button", { name: "Start update" });
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -112,7 +112,7 @@ describe("FrigateUpdateDialog", () => {
     const controllers = await screen.findByRole("list", { name: "Controllers" });
     expect(within(controllers).getAllByRole("listitem")).toHaveLength(2);
     expect(within(controllers).getByText("frigate-a")).toBeInTheDocument();
-    expect(within(controllers).getAllByText("Frigate 1.3.0, arm64")).toHaveLength(2);
+    expect(within(controllers).getAllByText("Version 1.3.0, arm64")).toHaveLength(2);
     expect(within(controllers).getAllByText("Ready")).toHaveLength(2);
   });
 
@@ -216,7 +216,7 @@ describe("FrigateUpdateDialog", () => {
   it("points to Settings when there are no packages", async () => {
     mocks.listPackages.mockResolvedValue([]);
     renderDialog();
-    expect(await screen.findByText(/No Frigate packages are uploaded/)).toBeInTheDocument();
+    expect(await screen.findByText(/No controller software is uploaded/)).toBeInTheDocument();
     expect(startButton()).toBeDisabled();
   });
 
@@ -236,7 +236,7 @@ describe("FrigateUpdateDialog", () => {
     mocks.listPackages.mockResolvedValue([create(FrigatePackageSchema, { id: PACKAGE_B, version: "1.5.0" })]);
     renderDialog();
     expect(await screen.findByText(/stored on another Fleet host/)).toBeInTheDocument();
-    expect(screen.queryByText(/No Frigate packages are uploaded/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/No controller software is uploaded/)).not.toBeInTheDocument();
     expect(startButton()).toBeDisabled();
   });
 
@@ -269,7 +269,7 @@ describe("FrigateUpdateDialog", () => {
     });
     expect(onStarted).toHaveBeenCalledWith({ jobId: "job-1" });
     expect(mocks.pushToast).toHaveBeenCalledWith({
-      message: "Container 1: Frigate update started.",
+      message: "Container 1: controller software update started.",
       status: STATUSES.success,
     });
   });
