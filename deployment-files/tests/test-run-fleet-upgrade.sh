@@ -262,7 +262,7 @@ case " $* " in
         ;;
     *" compose "*" fleet-api check --state startup "*)
         # Compose creates host bind paths even when the command does not use them.
-        for name in firmware command-artifacts logs; do
+        for name in firmware command-artifacts logs frigate-release-keys; do
             case " $* " in
                 *" -v /app/$name "*) ;;
                 *) mkdir -p "$STAGE_ROOT/../artifacts/$name" ;;

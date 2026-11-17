@@ -2681,7 +2681,7 @@ if [ -n "$existing_api" ]; then
     fi
     # Avoid creating the artifact bind paths before preservation has adopted them.
     if ! compose run --rm --no-deps \
-        -v /app/firmware -v /app/command-artifacts -v /app/logs \
+        -v /app/firmware -v /app/command-artifacts -v /app/logs -v /app/frigate-release-keys \
         --entrypoint /app/fleet-db-transition fleet-api check --state startup; then
         echo "Error: database is not ready for this release; complete offline reconciliation before retrying. Existing containers were not removed." >&2
         exit 1
