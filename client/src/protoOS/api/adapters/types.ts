@@ -22,6 +22,7 @@ import type {
   TelemetryState,
 } from "@/protoOS/store/contract";
 import type { AsicHardwareData, HashboardHardwareData } from "@/protoOS/store/types";
+import type { PowerFeedView } from "@/shared/components/PowerFeedCard";
 import type {
   AuditEventPage,
   AuditEventQuery,
@@ -84,6 +85,18 @@ export interface ContainerSettings {
    */
   alarmMute?: boolean;
   alarmReset?: boolean;
+}
+
+/** A module's controller position and its canonical ID, which records the module ID the operator saw there. */
+export interface ModulePowerFeedTarget {
+  tank: number;
+  module: number;
+  moduleId: string;
+}
+
+/** One live read of the feed that supplies a module, with the mapping derived from the controller map. */
+export interface ModulePowerFeedInspection extends PowerFeedView {
+  observedAt: Date;
 }
 
 export interface SavedPoolSettings extends PoolFormInput {
@@ -271,6 +284,11 @@ export interface MinerAdapter {
    */
   muteContainerAlarm?(params?: AdapterRequestOptions): Promise<void>;
   resetContainerAlarm?(params?: AdapterRequestOptions): Promise<void>;
+  /** Reads the module's feed on request; it never polls. Rejects only when the controller map cannot be read. */
+  getModulePowerFeed?(
+    target: ModulePowerFeedTarget,
+    params?: AdapterRequestOptions,
+  ): Promise<ModulePowerFeedInspection>;
   startModuleRunIn?(
     moduleId: string,
     request: ModuleRunInRequest,

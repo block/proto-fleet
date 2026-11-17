@@ -382,3 +382,23 @@ func TestConnectGatewayServesHAStatusWithUnreachablePeer(t *testing.T) {
 		t.Fatalf("peer member = %v", peer)
 	}
 }
+
+func TestConnectServesModulePowerFeedReads(t *testing.T) {
+	srv, _ := newConnectTestServer(t)
+	ctx := context.Background()
+	power := mdkv2connect.NewPowerServiceClient(http.DefaultClient, srv.URL)
+	feeds, err := power.ListPowerFeeds(ctx, connect.NewRequest(&mdk.ListPowerFeedsRequest{}))
+	if err != nil {
+		t.Fatalf("ListPowerFeeds: %v", err)
+	}
+	if !feeds.Msg.GetSnapshotReady() || len(feeds.Msg.GetPowerFeeds()) == 0 || feeds.Msg.GetPowerFeeds()[0].GetPowerFeedId() != "pdu-1-outlet-01" {
+		t.Fatalf("unexpected feeds: ready=%v feeds=%d", feeds.Msg.GetSnapshotReady(), len(feeds.Msg.GetPowerFeeds()))
+	}
+	cycle, err := power.GetActivePowerRecoveryCycle(ctx, connect.NewRequest(&mdk.GetActivePowerRecoveryCycleRequest{}))
+	if err != nil {
+		t.Fatalf("GetActivePowerRecoveryCycle: %v", err)
+	}
+	if cycle.Msg.GetCycle() != nil {
+		t.Fatalf("unexpected recovery cycle: %v", cycle.Msg.GetCycle())
+	}
+}

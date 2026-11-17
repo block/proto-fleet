@@ -32,6 +32,7 @@ import type {
   V2CreatePoolRequest,
   V2CreatePoolResponse,
   V2DeletePoolResponse,
+  V2GetActivePowerRecoveryCycleResponse,
   V2GetContainerControlsResponse,
   V2GetContainerHealthResponse,
   V2GetContainerMapResponse,
@@ -49,6 +50,7 @@ import type {
   V2ListFirmwareUpdatesResponse,
   V2ListModuleVoltageSettingsResponse,
   V2ListPoolsResponse,
+  V2ListPowerFeedsResponse,
   V2MuteContainerAlarmRequest,
   V2MuteContainerAlarmResponse,
   V2QueryShareQualityHistoryResponse,
@@ -217,6 +219,10 @@ export interface MdkV2Client {
     data: { value: number },
     params?: AdapterRequestOptions,
   ): HttpResponse<V2SetContainerSetpointResponse>;
+  powerServiceListPowerFeeds(params?: AdapterRequestOptions): HttpResponse<V2ListPowerFeedsResponse>;
+  powerServiceGetActivePowerRecoveryCycle(
+    params?: AdapterRequestOptions,
+  ): HttpResponse<V2GetActivePowerRecoveryCycleResponse>;
   powerServiceSetMainCircuitBreakerState(
     data: V2SetMainCircuitBreakerStateRequest,
     params?: AdapterRequestOptions,
@@ -580,6 +586,9 @@ export const createMdkV2Client = (transport: Transport): MdkV2Client => {
       unary(transport, power.setContainerControl, { ...data, name }, params),
     powerServiceSetContainerSetpoint: ({ name }, data, params) =>
       unary(transport, power.setContainerSetpoint, { ...data, name }, params),
+    powerServiceListPowerFeeds: (params) => unary(transport, power.listPowerFeeds, {}, params),
+    powerServiceGetActivePowerRecoveryCycle: (params) =>
+      unary(transport, power.getActivePowerRecoveryCycle, {}, params),
     powerServiceSetMainCircuitBreakerState: (data, params) =>
       unary(transport, power.setMainCircuitBreakerState, data, params),
     powerServiceMuteContainerAlarm: (data, params) => unary(transport, power.muteContainerAlarm, data, params),

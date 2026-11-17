@@ -191,6 +191,14 @@ func (a *connectAPI) ResetContainerAlarm(ctx context.Context, req *connect.Reque
 	return connectResult(a.native.ResetContainerAlarm(ctx, req.Msg))
 }
 
+func (a *connectAPI) ListPowerFeeds(ctx context.Context, req *connect.Request[mdk.ListPowerFeedsRequest]) (*connect.Response[mdk.ListPowerFeedsResponse], error) {
+	return connectResult(a.native.ListPowerFeeds(ctx, req.Msg))
+}
+
+func (a *connectAPI) GetActivePowerRecoveryCycle(ctx context.Context, req *connect.Request[mdk.GetActivePowerRecoveryCycleRequest]) (*connect.Response[mdk.GetActivePowerRecoveryCycleResponse], error) {
+	return connectResult(a.native.GetActivePowerRecoveryCycle(ctx, req.Msg))
+}
+
 func (a *connectAPI) ListPools(ctx context.Context, req *connect.Request[mdk.ListPoolsRequest]) (*connect.Response[mdk.ListPoolsResponse], error) {
 	return connectResult(a.native.ListPools(ctx, req.Msg))
 }

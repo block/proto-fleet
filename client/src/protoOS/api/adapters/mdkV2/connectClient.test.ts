@@ -285,6 +285,13 @@ const rpcTable: [
     {},
     (c) => c.powerServiceGetContainerControls(),
   ],
+  ["powerServiceListPowerFeeds", "mdk.v2.PowerService/ListPowerFeeds", {}, (c) => c.powerServiceListPowerFeeds()],
+  [
+    "powerServiceGetActivePowerRecoveryCycle",
+    "mdk.v2.PowerService/GetActivePowerRecoveryCycle",
+    {},
+    (c) => c.powerServiceGetActivePowerRecoveryCycle(),
+  ],
   [
     "powerServiceSetContainerControl",
     "mdk.v2.PowerService/SetContainerControl",

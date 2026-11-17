@@ -13,6 +13,7 @@ import type {
   HashboardStatus,
   MinerAdapter,
   MiningScope,
+  ModulePowerFeedTarget,
   ModuleRunInRequest,
   SystemLogs,
   SystemLogSource,
@@ -37,10 +38,12 @@ import {
 } from "./generated/generatedApi";
 import { ServerUpdateService } from "./generated/proto/mdk/v2/server_update_pb";
 import { followHashboardStatus } from "./hashboardStream";
+import { modulePowerFeedInspection } from "./modulePowerFeed";
 import { listModuleVoltageSettings, writeModuleVoltage } from "./moduleVoltage";
 import {
   type ContainerSeriesField,
   ct1ContainerId,
+  ct1ReportedModuleId,
   ct1RunInModuleId,
   toCanonicalContainer,
   toCanonicalContainerFans,
@@ -76,6 +79,8 @@ const HASHBOARD_TIMESERIES_CACHE_MS = 5 * 60_000;
 // A diagnostics poll that stalls past this is reported as unavailable, well
 // before the 15-second role observations it would refresh go stale.
 export const CONTROLLER_DIAGNOSTICS_TIMEOUT_MS = 8_000;
+// Fleet's plugin gives the same reads ten seconds in all.
+export const POWER_FEED_READ_TIMEOUT_MS = 10_000;
 const SERIES_METRICS: Record<ContainerSeriesField, TelemetryServiceQueryTimeSeriesParams["metric"]> = {
   hashrate: "TIME_SERIES_METRIC_HASHRATE",
   temperature: "TIME_SERIES_METRIC_TEMPERATURE",
@@ -567,6 +572,26 @@ export class MdkV2Adapter implements MinerAdapter {
     }
     throw new Error(
       "The command was sent, but controller readback is unavailable. Check the current setting before trying again.",
+    );
+  }
+
+  async getModulePowerFeed(target: ModulePowerFeedTarget, params: AdapterRequestOptions = {}) {
+    const decorated = this.decorate(params);
+    const read = <T>(request: (options: AdapterRequestOptions) => Promise<{ data: T }>) =>
+      withDeadline(decorated, POWER_FEED_READ_TIMEOUT_MS, (options) => request(options).then(({ data }) => data));
+    // Read together, like Fleet's plugin, so one inspection reflects one moment.
+    // Each read has its own deadline, so a stalled one cannot hold the others.
+    const [map, feeds, cycle] = await Promise.allSettled([
+      read((options) => this.client.hashboardServiceGetContainerMap(options)),
+      read((options) => this.client.powerServiceListPowerFeeds(options)),
+      read((options) => this.client.powerServiceGetActivePowerRecoveryCycle(options)),
+    ]);
+    if (map.status === "rejected") throw map.reason;
+    const { tank, module, moduleId } = target;
+    return modulePowerFeedInspection(
+      { tank, module, reportedId: ct1ReportedModuleId(moduleId) },
+      { map: map.value, feeds, cycle },
+      new Date(),
     );
   }
 
