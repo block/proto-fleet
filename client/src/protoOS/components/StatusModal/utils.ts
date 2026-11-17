@@ -11,6 +11,7 @@ import type {
   PsuTelemetry,
 } from "@/protoOS/store/contract";
 import { isPlantAlarmError } from "@/protoOS/store/hooks/useMinerStatus";
+import { psuFaultMessage, psuFreshness, psuHealth, psuReadingNotice } from "@/protoOS/store/utils/psuFreshness";
 import EfficiencyValue from "@/shared/components/EfficiencyValue";
 import HashRateValue from "@/shared/components/HashRateValue";
 import PowerValue from "@/shared/components/PowerValue";
@@ -46,7 +47,7 @@ export const getComponentTitle = (type: ComponentType): string => {
 /**
  * Get component metrics from telemetry data
  */
-function getComponentMetrics(type: ComponentType, telemetry: ComponentTelemetry): ComponentMetric[] {
+function getComponentMetrics(type: ComponentType, telemetry: ComponentTelemetry, now: number): ComponentMetric[] {
   const metrics: ComponentMetric[] = [];
 
   switch (type) {
@@ -65,6 +66,28 @@ function getComponentMetrics(type: ComponentType, telemetry: ComponentTelemetry)
     case "psu":
       if (telemetry) {
         const psuTelemetry = telemetry as PsuTelemetry;
+        if (psuTelemetry.observedAt) {
+          const freshness = psuFreshness(psuTelemetry, now);
+          for (const [label, field, group, Value] of [
+            ["Input Power", "inputPower", "electrical", PowerValue],
+            ["Output Power", "outputPower", "electrical", PowerValue],
+            ["PSU inlet", "inletTemperature", "temperatures", TemperatureValue],
+            ["SR heatsink", "srHeatsinkTemperature", "temperatures", TemperatureValue],
+            ["PFC heatsink", "pfcHeatsinkTemperature", "temperatures", TemperatureValue],
+          ] as const) {
+            const value = psuTelemetry[field]?.latest?.value;
+            metrics.push({
+              label,
+              value:
+                freshness[group] === "stale"
+                  ? "Stale"
+                  : freshness[group] !== "current" || value == null || !Number.isFinite(value)
+                    ? "Unavailable"
+                    : createElement(Value, { value }),
+            });
+          }
+          break;
+        }
         metrics.push(
           {
             label: "Input Power",
@@ -145,6 +168,10 @@ function getComponentMetadata(type: ComponentType, hardware: ComponentHardware):
 
   switch (type) {
     case "psu":
+      metadata.manufacturer = {
+        label: "Vendor",
+        value: (hardware as PsuHardware).manufacturer,
+      };
       metadata.serialNumber = {
         label: "Serial Number",
         value: (hardware as PsuHardware).serialNumber,
@@ -156,6 +183,10 @@ function getComponentMetadata(type: ComponentType, hardware: ComponentHardware):
       metadata.firmwareVersion = {
         label: "Firmware Version",
         value: (hardware as PsuHardware).firmware?.application?.version,
+      };
+      metadata.hardwareRevision = {
+        label: "Hardware revision",
+        value: (hardware as PsuHardware).hardwareRevision,
       };
       break;
 
@@ -194,10 +225,11 @@ export function transformErrorsForModal(
   errors: MinerError[],
   name: (component: ComponentRef) => string,
   onErrorClick?: (component: ComponentRef) => void,
+  now = Date.now(),
 ): ErrorData[] {
   return errors.map((error) => ({
     componentName: error.component ? name(error.component) : isPlantAlarmError(error) ? "Container alarm" : "Miner",
-    message: error.message,
+    message: psuFaultMessage(error, now),
     timestamp: error.timestampMs === undefined ? undefined : error.timestampMs / 1000,
     onClick: error.component && onErrorClick ? () => onErrorClick(error.component!) : undefined,
   }));
@@ -209,13 +241,34 @@ export function buildComponentStatusProps(
   errors: MinerError[],
   telemetry: ComponentTelemetry,
   hardware: ComponentHardware,
+  now = Date.now(),
 ): ComponentStatusModalProps {
   const componentType: ComponentType =
     component.kind === "asic" || component.kind === "plant" ? "other" : component.kind;
   const componentErrors = errors.filter(
-    (error) => error.component?.kind === component.kind && error.component.id === component.id,
+    (error) =>
+      (error.component?.kind === component.kind && error.component.id === component.id) ||
+      error.reportedBy?.some(
+        (reporter) => reporter.component.kind === component.kind && reporter.component.id === component.id,
+      ),
   );
-  const health = telemetry && "health" in telemetry ? telemetry.health : undefined;
+  const psu = component.kind === "psu" ? (telemetry as PsuTelemetry | undefined) : undefined;
+  const health =
+    component.kind === "psu" ? psuHealth(psu, now) : telemetry && "health" in telemetry ? telemetry.health : undefined;
+  const freshness = psu?.observedAt ? psuFreshness(psu, now) : undefined;
+  const notice = freshness
+    ? [
+        psuReadingNotice("Electrical readings", freshness.electrical),
+        psuReadingNotice("Temperatures", freshness.temperatures),
+        psuReadingNotice("Thermal status", freshness.thermalState),
+      ]
+        .filter(Boolean)
+        .join(". ")
+    : undefined;
+  const metadata = getComponentMetadata(componentType, hardware);
+  if (psu?.observedAt) {
+    for (const field of Object.values(metadata)) field.value = field.value || "Unavailable";
+  }
   const status =
     health === "unknown"
       ? "Status unknown"
@@ -232,8 +285,9 @@ export function buildComponentStatusProps(
     summary: status ? `${name} · ${status}` : name,
     componentType,
     health,
-    errors: transformErrorsForModal(componentErrors, () => name),
-    metrics: getComponentMetrics(componentType, telemetry),
-    metadata: getComponentMetadata(componentType, hardware),
+    notice,
+    errors: transformErrorsForModal(componentErrors, () => name, undefined, now),
+    metrics: getComponentMetrics(componentType, telemetry, now),
+    metadata,
   };
 }

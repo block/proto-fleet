@@ -25,6 +25,7 @@ import {
   V2Severity,
 } from "./generated/generatedApi";
 import { normalizeModulePsu } from "./modulePsu";
+import { groupPsuErrors, isPsuFaultCause } from "./modulePsuErrors";
 import {
   asAsicId,
   asComponentId,
@@ -838,11 +839,18 @@ export const toCanonicalErrors = (
     ] as const) {
       for (const [index, issue] of (issues ?? []).entries()) {
         const code = issue.cause ?? "HASHBOARD_ERROR_CAUSE_UNKNOWN_ERROR";
+        const psuFault = isPsuFaultCause(code);
         const cause = code
           .replace(/^HASHBOARD_ERROR_CAUSE_/, "")
           .replaceAll("_", " ")
           .toLowerCase();
-        const details = [cause.charAt(0).toUpperCase() + cause.slice(1)];
+        const details = [
+          psuFault
+            ? code === "HASHBOARD_ERROR_CAUSE_BOARD_POWER_SUPPLY"
+              ? "Power supply fault"
+              : `PSU over temperature ${severity === "warning" ? "warning" : "fault"}`
+            : cause.charAt(0).toUpperCase() + cause.slice(1),
+        ];
         if (issue.asic?.id !== undefined) details.push(`ASIC ${issue.asic.id}`);
         if (issue.asic?.temperature !== undefined) details.push(`${issue.asic.temperature} °C`);
         if (issue.asic?.voltage !== undefined) details.push(`${issue.asic.voltage} V`);
@@ -854,9 +862,25 @@ export const toCanonicalErrors = (
           code,
           message: details.join(" · "),
           owner,
-          component,
-          source: { kind: "hashboard", slot: entry.slot },
+          component: psuFault ? { kind: "psu", id: asComponentId(`${entry.moduleId}:psu:1`), owner } : component,
+          source: psuFault ? { kind: "psu", slot: 1 } : { kind: "hashboard", slot: entry.slot },
           severity,
+          ...(psuFault
+            ? {
+                reportedBy: [
+                  {
+                    component,
+                    label:
+                      entry.slot === undefined
+                        ? entry.board.serial || entry.board.macAddress || entry.hashboardId
+                        : `Board ${entry.slot}`,
+                    observedAt: Number.isFinite(Date.parse(entry.board.health?.timestamp ?? ""))
+                      ? Date.parse(entry.board.health!.timestamp!)
+                      : undefined,
+                  },
+                ],
+              }
+            : {}),
         });
       }
     }
@@ -895,7 +919,7 @@ export const toCanonicalErrors = (
       severity,
     });
   }
-  return errors;
+  return groupPsuErrors(errors);
 };
 
 export const toCanonicalContainerTelemetry = (

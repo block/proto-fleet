@@ -18,6 +18,7 @@ const normalizeModules = (modules: V2Hashboard[][]) =>
                 hashboard: {
                   macAddress: `T1-M${index + 1}-HB${slot + 1}`,
                   ...board,
+                  health: board.health ? { timestamp: new Date().toISOString(), ...board.health } : undefined,
                 },
               })),
             })),
@@ -141,7 +142,13 @@ describe("module PSU telemetry", () => {
         {
           health: {
             psuElectrical: { inputPower: 5000, inputVoltage: 415 },
-            psuThermal: { inletTemperature: 80, thermalStateValid: true, overTemperatureWarning: true },
+            psuThermal: {
+              inletTemperature: 80,
+              srHeatsinkTemperature: 85,
+              pfcHeatsinkTemperature: 82,
+              thermalStateValid: true,
+              overTemperatureWarning: true,
+            },
           },
         },
       ],
@@ -155,12 +162,18 @@ describe("module PSU telemetry", () => {
     let psu = useMinerStore.getState().telemetry.psus.get(id)!;
     expect(psu.inputPower?.latest?.value).toBeNull();
     expect(psu.hotspotTemperature?.latest?.value).toBeNull();
+    expect(psu.inletTemperature?.latest?.value).toBeNull();
+    expect(psu.srHeatsinkTemperature?.latest?.value).toBeNull();
+    expect(psu.pfcHeatsinkTemperature?.latest?.value).toBeNull();
+    expect(psu.observedAt?.temperatures).toBeUndefined();
+    expect(psu.observedAt?.thermalState).toBeUndefined();
     expect(psu.inputPower?.timeSeries?.points).toEqual([{ timestampMs: 1, value: 5000 }]);
     expect(psu.inputVoltage?.latest?.value).toBe(415);
     store.telemetry.mergeTelemetry(normalizeModules([[{}]]).telemetry, 3);
     psu = useMinerStore.getState().telemetry.psus.get(id)!;
     expect(psu.inputVoltage?.latest?.value).toBeNull();
     expect(psu.health).toBe("unknown");
+    expect(psu.observedAt).toEqual({});
     store.telemetry.mergeTelemetry(initial.telemetry, 1);
     expect(useMinerStore.getState().telemetry.psus.get(id)?.inputVoltage?.latest?.value).toBeNull();
   });
