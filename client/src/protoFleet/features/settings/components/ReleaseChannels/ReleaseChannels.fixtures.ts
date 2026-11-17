@@ -3,6 +3,7 @@ import { timestampFromDate } from "@bufbuild/protobuf/wkt";
 
 import {
   AggregateMetricComparisonSchema,
+  FirmwareVersionState,
   MetricComparisonSchema,
   type PreviewReleaseChannelScopeResponse,
   PreviewReleaseChannelScopeResponseSchema,
@@ -49,6 +50,21 @@ export const checksums = {
   rig143: "1431431431431431431431431431431431431431431431431431431431431431",
   rig144: "1441441441441441441441441441441441441441441441441441441441441441",
   s21301: "3013013013013013013013013013013013013013013013013013013013013013",
+  hashboard1390: "1390139013901390139013901390139013901390139013901390139013901390",
+};
+
+// Hashboard firmware for a Proto Container. Kept out of firmwareFiles so the
+// miner-only stories and tests keep their catalog.
+export const hashboardFirmwareFile: FirmwareFileInfo = {
+  id: "fw-hashboard-1390",
+  filename: "hashboard-firmware-1.39.0-prod.zip",
+  size: 9_437_184,
+  uploaded_at: "2026-11-12T15:45:00Z",
+  target_manufacturer: "Proto",
+  target_model: "CT1",
+  firmware_version: "1.39.0",
+  hashboard_build: "prod",
+  sha256: checksums.hashboard1390,
 };
 
 export const firmwareFiles: FirmwareFileInfo[] = [
@@ -93,6 +109,8 @@ export const minerNames: Record<string, string> = {
   "rig-006": "Rig B03",
   "s21-001": "S21 Rack 4-1",
   "s21-002": "S21 Rack 4-2",
+  "ct1:north-a": "Container North A",
+  "ct1:north-b": "Container North B",
 };
 
 export const singleBatchBehavior: RolloutBehavior = create(RolloutBehaviorSchema, {
@@ -354,6 +372,61 @@ export const emptyChannel: ChannelView = {
     updatedAt: minutesAgo(30),
   }),
   modelGroups: [],
+};
+
+// "Site North" mixes rigs with two Proto Containers. A container is one
+// channel member; its version is the firmware its hashboards report, and one
+// here has boards on differing versions.
+const containerChannelId = 5n;
+export const containerChannel: ChannelView = {
+  ...create(ReleaseChannelSchema, {
+    id: containerChannelId,
+    name: "Site North",
+    description: "Rigs and Proto Containers at the north site.",
+    scope: { siteIds: [BigInt(2)] },
+    behavior: singleBatchBehavior,
+    modelGroupCount: 2,
+    minerCount: 8,
+    createdAt: minutesAgo(60 * 24 * 2),
+    updatedAt: minutesAgo(60 * 24),
+  }),
+  modelGroups: [
+    modelGroup(
+      containerChannelId,
+      { ...settledRigGroup },
+      [1, 2, 3, 4, 5, 6].map((n) => rigMiner(n, "1.4.4")),
+    ),
+    modelGroup(
+      containerChannelId,
+      {
+        manufacturer: "Proto",
+        model: "CT1",
+        firmwareFileId: hashboardFirmwareFile.id,
+        firmwareVersion: "1.39.0",
+        firmwareChecksum: checksums.hashboard1390,
+        activeRolloutId: BigInt(0),
+        assignmentGeneration: 1n,
+      },
+      [
+        create(ReleaseChannelMinerSchema, {
+          deviceId: BigInt(301),
+          deviceIdentifier: "ct1:north-a",
+          manufacturer: "Proto",
+          model: "CT1",
+          firmwareVersion: "1.39.0",
+          firmwareVersionState: FirmwareVersionState.KNOWN,
+          lastDeployedFirmwareChecksum: checksums.hashboard1390,
+        }),
+        create(ReleaseChannelMinerSchema, {
+          deviceId: BigInt(302),
+          deviceIdentifier: "ct1:north-b",
+          manufacturer: "Proto",
+          model: "CT1",
+          firmwareVersionState: FirmwareVersionState.MIXED,
+        }),
+      ],
+    ),
+  ],
 };
 
 // A settled channel with a distinct id, for stories listing several channels.

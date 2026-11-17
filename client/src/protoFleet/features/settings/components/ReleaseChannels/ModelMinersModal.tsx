@@ -1,6 +1,6 @@
 import { useCallback, useMemo } from "react";
 
-import { minerLabel, pairLabel, phaseLabels, phaseTone } from "./rolloutStatus";
+import { deviceNouns, minerLabel, pairLabel, phaseLabels, phaseTone } from "./rolloutStatus";
 import StatusChip from "./StatusChip";
 import { useRefreshingRead } from "./useRefreshingRead";
 import {
@@ -43,8 +43,8 @@ function versionLabel(miner: ReleaseChannelMiner) {
   }
 }
 
-// Per-model miner table, shown on demand so the manage view stays compact no
-// matter how many miners a model group holds. The server pages members and
+// Per-model device table, shown on demand so the manage view stays compact no
+// matter how many miners or containers a model group holds. The server pages members and
 // rollout devices separately from the channel summary, so this fetches both
 // when opened and again whenever the polled summary changes, keeping firmware
 // versions and phases live while open.
@@ -89,6 +89,9 @@ const ModelMinersModal = ({
     errorMessage: "The request failed. Try again.",
   });
   const miners = data?.miners ?? null;
+  // A container model group lists containers, not miners.
+  const { singular, plural } = deviceNouns(group);
+  const capitalized = `${singular[0].toUpperCase()}${singular.slice(1)}`;
 
   const phases = useMemo(() => {
     const byIdentifier = new Map<string, RolloutDevicePhase>();
@@ -107,7 +110,7 @@ const ModelMinersModal = ({
     <Modal
       open
       size={sizes.large}
-      title={`${pairLabel(group)} miners`}
+      title={`${pairLabel(group)} ${plural}`}
       description={channelName}
       onDismiss={handleClose}
       buttons={[{ text: "Done", variant: variants.primary, onClick: handleClose }]}
@@ -117,7 +120,7 @@ const ModelMinersModal = ({
           <Callout
             intent={intents.warning}
             prefixIcon={<Alert />}
-            title={miners === null ? "Couldn't load miners" : "Miner details may be out of date"}
+            title={miners === null ? `Couldn't load ${plural}` : `${capitalized} details may be out of date`}
             subtitle={miners === null ? error : `${error} Showing the last loaded data.`}
             buttonText={isLoading ? "Retrying..." : "Retry"}
             buttonOnClick={() => {
@@ -129,16 +132,16 @@ const ModelMinersModal = ({
       {miners === null ? (
         isLoading ? (
           <p className="py-4 text-200 text-text-primary-50" data-testid="channel-miners-loading">
-            Loading miners…
+            Loading {plural}…
           </p>
         ) : null
       ) : miners.length === 0 ? (
-        <p className="py-4 text-200 text-text-primary-50">No miners in this model group.</p>
+        <p className="py-4 text-200 text-text-primary-50">No {plural} in this model group.</p>
       ) : (
         <table className="w-full text-left text-200" aria-busy={isLoading}>
           <thead>
             <tr className="text-text-primary-50">
-              <th className="py-1.5 pr-4 font-normal">Miner</th>
+              <th className="py-1.5 pr-4 font-normal">{capitalized}</th>
               <th className="py-1.5 pr-4 font-normal">Current firmware</th>
               <th className="py-1.5 font-normal">Status</th>
             </tr>
@@ -164,7 +167,7 @@ const ModelMinersModal = ({
                     {miner.conflicted ? (
                       <span
                         className="ml-2 text-text-primary-50"
-                        title="Another channel's scope also covers this miner"
+                        title={`Another channel's scope also covers this ${singular}`}
                       >
                         (also in another channel)
                       </span>

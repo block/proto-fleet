@@ -16,6 +16,7 @@ import {
   RolloutState,
   RolloutStatus,
 } from "@/protoFleet/api/generated/rollout/v1/rollout_pb";
+import { isCT1FirmwareTarget } from "@/protoFleet/api/useFirmwareApi";
 import type {
   ChannelView,
   ChannelModelGroupView as ReleaseChannelModelGroup,
@@ -508,6 +509,15 @@ export function channelUpdateStatus(activeRollouts: Rollout[]): UpdateStatus {
 // unknown halves left out.
 export const pairLabel = (pair: { manufacturer: string; model: string }): string =>
   `${pair.manufacturer} ${pair.model}`.trim() || "Unknown model";
+
+// Proto Containers are grouped and worded apart from miners. The channel API
+// reports no device class, so a container is recognized by its model pair.
+export const isContainerPair = (pair: { manufacturer: string; model: string }): boolean =>
+  isCT1FirmwareTarget({ targetManufacturer: pair.manufacturer, targetModel: pair.model });
+
+/** What operators call the devices of one model pair: miners, or containers. */
+export const deviceNouns = (pair: { manufacturer: string; model: string }): { singular: string; plural: string } =>
+  isContainerPair(pair) ? { singular: "container", plural: "containers" } : { singular: "miner", plural: "miners" };
 
 // Device identifiers can also be names inherited from Object.prototype.
 export const minerLabel = (deviceIdentifier: string, names: Readonly<Record<string, string>>): string =>

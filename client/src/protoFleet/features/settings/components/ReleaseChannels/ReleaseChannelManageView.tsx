@@ -24,6 +24,7 @@ import {
   activeRolloutForGroup,
   channelAssignmentKey,
   hasUnavailableAssignedFirmware,
+  isContainerPair,
   lastFinishedByChannelAssignment,
   pacingSummary,
   pairKey,
@@ -70,6 +71,10 @@ const scopeAndFirmwareMessage =
   "Changing Applies to with an existing firmware assignment could send the previous firmware to newly included miners. Keep the current scope, apply your firmware changes, then edit Applies to.";
 const unsupportedTargetMessage =
   "Release channels require manufacturer and model names of 1–255 printable ASCII characters. Correct the miner's reported identity before assigning firmware.";
+// A channel assigns one artifact to a container model today: the firmware its
+// hashboards run. The component is named so other container artifacts can
+// join the table as rows of their own.
+const CONTAINER_FIRMWARE_COMPONENT = "Hashboard firmware";
 
 // FirmwareAssignment is narrower than observed miner and upload metadata.
 // Validate the trimmed values sent to the API without changing identity joins.
@@ -219,7 +224,7 @@ const FirmwarePickerCell = ({
   return (
     <div className="grid gap-1">
       <FirmwarePickerButton
-        label={`Firmware for ${pairLabel(group)}`}
+        label={`${isContainerPair(group) ? CONTAINER_FIRMWARE_COMPONENT : "Firmware"} for ${pairLabel(group)}`}
         options={options}
         value={value}
         assignment={assignment}
@@ -492,6 +497,15 @@ const ReleaseChannelManageView = ({
   ];
   const activeCount = new Set(modelGroups.map((group) => activeForGroup(group)?.id).filter((id) => id !== undefined))
     .size;
+  // Each device type gets its own assignment table. A channel with no
+  // container model keeps the single miner table, which also carries the
+  // empty state.
+  const containerGroups = modelGroups.filter(isContainerPair);
+  const minerGroups = modelGroups.filter((group) => !isContainerPair(group));
+  const assignmentSections = [
+    ...(minerGroups.length > 0 || containerGroups.length === 0 ? [{ containers: false, groups: minerGroups }] : []),
+    ...(containerGroups.length > 0 ? [{ containers: true, groups: containerGroups }] : []),
+  ];
   // Derived from the polled channel on every render so the open modal tracks
   // live firmware versions and phases; closes if the group empties.
   const minersGroup =
@@ -931,110 +945,123 @@ const ReleaseChannelManageView = ({
       </div>
 
       {!showSettings && !showApplyDialog ? scopeAndFirmwareWarning : null}
-      <Section
-        title="Assigned miners"
-        subtext="Grouped by hardware model. Choose a firmware version for each model, or view its individual miners."
-      >
-        {exceedsAssignmentLimit ? (
-          <p role="alert" className="text-200 text-intent-critical-fill">
-            {assignmentLimitMessage}
-          </p>
-        ) : null}
-        {modelGroups.length === 0 ? (
-          <span className="text-300 text-text-primary-50">
-            No miners in scope yet. Open Channel settings and change Applies to to include miners.
-          </span>
-        ) : (
-          <table aria-label="Assigned miners by model" className="w-full text-left text-200">
-            <thead>
-              <tr className="text-text-primary-50">
-                <th className="py-1.5 pr-4 font-normal">Model</th>
-                <th className="py-1.5 pr-4 font-normal">Miners</th>
-                <th className="py-1.5 pr-4 font-normal">Firmware</th>
-                <th className="py-1.5 pr-4 font-normal">Update status</th>
-                <th className="py-1.5 font-normal">
-                  <span className="sr-only">Actions</span>
-                </th>
-              </tr>
-            </thead>
-            <tbody className="text-text-primary">
-              {modelGroups.map((group) => {
-                const acknowledged = acknowledgedAssignments[pairKey(group)];
-                const activeRollout = acknowledged ? undefined : activeForGroup(group);
-                const rolloutPending = group.activeRolloutId > 0n && !activeRollout;
-                return (
-                  <tr
-                    key={observedPairKey(group)}
-                    className="border-t border-border-5"
-                    data-testid={`model-group-${group.model}`}
-                  >
-                    <td className="py-3 pr-4 text-emphasis-300">{pairLabel(group)}</td>
-                    <td className="py-3 pr-4">{group.minerCount.toLocaleString()}</td>
-                    <td className="py-3 pr-4">
-                      <FirmwarePickerCell
-                        group={group}
-                        firmwareFiles={firmwareFiles}
-                        stagedFileId={staged[pairKey(group)]?.fileId}
-                        acknowledgedAssignment={acknowledged}
-                        selectionError={invalidSelections.get(pairKey(group))}
-                        disabled={isWriting}
-                        onStageFirmware={(g, fileId) => {
-                          if (!writeInFlightRef.current && !isWriting) {
-                            const key = pairKey(g);
-                            setStaged((prev) => {
-                              const next = { ...prev };
-                              if (!isFirmwareChange(g, acknowledged, fileId)) delete next[key];
-                              else next[key] = { fileId, group: g };
-                              return next;
-                            });
-                          }
-                        }}
-                      />
-                    </td>
-                    <td className="py-3 pr-4">
-                      {acknowledged ? (
-                        <span className="text-text-primary-50">Refreshing update status</span>
-                      ) : !livePairs.has(pairKey(group)) ? (
-                        <span className="text-text-primary-50">—</span>
-                      ) : activeRollout ? (
-                        <RolloutProgressIndicator
+      {assignmentSections.map(({ containers, groups }, index) => (
+        <Section
+          key={containers ? "containers" : "miners"}
+          title={containers ? "Assigned Proto Containers" : "Assigned miners"}
+          subtext={
+            containers
+              ? "Grouped by container model and component. Choose a version for each, or view the individual containers."
+              : "Grouped by hardware model. Choose a firmware version for each model, or view its individual miners."
+          }
+        >
+          {exceedsAssignmentLimit && index === 0 ? (
+            <p role="alert" className="text-200 text-intent-critical-fill">
+              {assignmentLimitMessage}
+            </p>
+          ) : null}
+          {groups.length === 0 ? (
+            <span className="text-300 text-text-primary-50">
+              No miners in scope yet. Open Channel settings and change Applies to to include miners.
+            </span>
+          ) : (
+            <table
+              aria-label={containers ? "Assigned Proto Containers by model" : "Assigned miners by model"}
+              className="w-full text-left text-200"
+            >
+              <thead>
+                <tr className="text-text-primary-50">
+                  <th className="py-1.5 pr-4 font-normal">Model</th>
+                  <th className="py-1.5 pr-4 font-normal">{containers ? "Containers" : "Miners"}</th>
+                  <th className="py-1.5 pr-4 font-normal">{containers ? "Version" : "Firmware"}</th>
+                  <th className="py-1.5 pr-4 font-normal">Update status</th>
+                  <th className="py-1.5 font-normal">
+                    <span className="sr-only">Actions</span>
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="text-text-primary">
+                {groups.map((group) => {
+                  const acknowledged = acknowledgedAssignments[pairKey(group)];
+                  const activeRollout = acknowledged ? undefined : activeForGroup(group);
+                  const rolloutPending = group.activeRolloutId > 0n && !activeRollout;
+                  return (
+                    <tr
+                      key={observedPairKey(group)}
+                      className="border-t border-border-5"
+                      data-testid={`model-group-${group.model}`}
+                    >
+                      <td className="py-3 pr-4">
+                        <div className="text-emphasis-300">{pairLabel(group)}</div>
+                        {containers ? <div className="text-text-primary-70">{CONTAINER_FIRMWARE_COMPONENT}</div> : null}
+                      </td>
+                      <td className="py-3 pr-4">{group.minerCount.toLocaleString()}</td>
+                      <td className="py-3 pr-4">
+                        <FirmwarePickerCell
                           group={group}
-                          rollout={activeRollout}
-                          testId={`model-group-rollout-progress-${group.model}`}
+                          firmwareFiles={firmwareFiles}
+                          stagedFileId={staged[pairKey(group)]?.fileId}
+                          acknowledgedAssignment={acknowledged}
+                          selectionError={invalidSelections.get(pairKey(group))}
+                          disabled={isWriting}
+                          onStageFirmware={(g, fileId) => {
+                            if (!writeInFlightRef.current && !isWriting) {
+                              const key = pairKey(g);
+                              setStaged((prev) => {
+                                const next = { ...prev };
+                                if (!isFirmwareChange(g, acknowledged, fileId)) delete next[key];
+                                else next[key] = { fileId, group: g };
+                                return next;
+                              });
+                            }
+                          }}
                         />
-                      ) : (
-                        <ModelStatusCell
-                          historyState={historyState}
-                          group={group}
-                          activeRollout={activeRollout}
-                          lastFinished={lastFinished.get(channelAssignmentKey(channel.id, group))}
-                        />
-                      )}
-                    </td>
-                    <td className="py-3 text-right">
-                      {group.minerCount > 0 ? (
-                        <Button
-                          variant={variants.secondary}
-                          size={sizes.compact}
-                          text="View miners"
-                          disabled={
-                            !livePairs.has(pairKey(group)) ||
-                            acknowledged !== undefined ||
-                            rolloutPending ||
-                            group.rollbackPending
-                          }
-                          onClick={() => setMinersPair(observedPairKey(group))}
-                          testId={`view-miners-${group.model}`}
-                        />
-                      ) : null}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        )}
-      </Section>
+                      </td>
+                      <td className="py-3 pr-4">
+                        {acknowledged ? (
+                          <span className="text-text-primary-50">Refreshing update status</span>
+                        ) : !livePairs.has(pairKey(group)) ? (
+                          <span className="text-text-primary-50">—</span>
+                        ) : activeRollout ? (
+                          <RolloutProgressIndicator
+                            group={group}
+                            rollout={activeRollout}
+                            testId={`model-group-rollout-progress-${group.model}`}
+                          />
+                        ) : (
+                          <ModelStatusCell
+                            historyState={historyState}
+                            group={group}
+                            activeRollout={activeRollout}
+                            lastFinished={lastFinished.get(channelAssignmentKey(channel.id, group))}
+                          />
+                        )}
+                      </td>
+                      <td className="py-3 text-right">
+                        {group.minerCount > 0 ? (
+                          <Button
+                            variant={variants.secondary}
+                            size={sizes.compact}
+                            text={containers ? "View containers" : "View miners"}
+                            disabled={
+                              !livePairs.has(pairKey(group)) ||
+                              acknowledged !== undefined ||
+                              rolloutPending ||
+                              group.rollbackPending
+                            }
+                            onClick={() => setMinersPair(observedPairKey(group))}
+                            testId={`view-miners-${group.model}`}
+                          />
+                        ) : null}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          )}
+        </Section>
+      ))}
 
       {showSettings ? (
         <Modal
