@@ -5,6 +5,12 @@ server, React/TypeScript clients (ProtoOS and ProtoFleet), Go/Rust/Python
 device plugins, and protobuf contracts. Human contributor workflows live in
 [CONTRIBUTING.md](CONTRIBUTING.md).
 
+## Technical communication
+
+Use ASD-STE100 (Simplified Technical English) for all technical communication,
+including documentation, PR descriptions, and review comments. Follow the
+[technical writing rules](CONTRIBUTING.md#technical-writing) before you submit text.
+
 ## Task-specific guidance
 
 Read the guidance relevant to the requested change; a small edit does not
