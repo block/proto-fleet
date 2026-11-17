@@ -35,6 +35,8 @@ vi.mock("@/protoOS/contexts/MinerHostingContext", () => ({
   useMinerHosting: vi.fn(),
 }));
 
+// The cooling section's dry cooler hold reads through useAuthRetry; its token refresh is not exercised here.
+vi.mock("@/protoOS/store/hooks/useAuth", () => ({ useAuthErrors: () => ({ handleAuthErrors: vi.fn() }) }));
 vi.mock("@/protoOS/store", () => ({
   useAccessToken: vi.fn(() => ({ checkAccess: mockCheckAccess, hasAccess: mockState.hasAccess })),
   useDismissedLoginModal: vi.fn(() => mockState.dismissedLoginModal),

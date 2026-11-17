@@ -29,6 +29,8 @@ A full container is a **Tank → Module → Slot → Hashboard** tree:
   on, off, cycle, and override writes are not simulated.
 - Bucketed aggregate time-series telemetry
 - Stateful mining writes (global/scoped power targets, start/stop, fixed voltage, module run-in)
+- Dry-cooler fan reversal over Connect and gRPC, with status readback on every
+  transport (see [Dry-cooler fan reversal](#dry-cooler-fan-reversal))
 
 State is held in memory and resets on restart. The default scenario has three
 fully healthy tanks, one tank with mixed failures, one with a single board fault,
@@ -327,6 +329,9 @@ partial failures. Synthetic test images are not signed production firmware.
 | `CT1_DEMO_ALL_BOARD_FAULTS` | Report every current MDK fault cause on every board to exercise telemetry payload limits; use with `CT1_DEMO_MODULE_STATES=false` | `false` |
 | `CT1_DEMO_PLANT_ALARMS` | Start with two plant alarms raised and the buzzer sounding: a latched warning "Coolant low pressure" whose cause has cleared and a critical "Tank B outlet over temperature" whose cause is still present (see [Plant alarms](#plant-alarms)) | `false` |
 | `CT1_ALARM_RESET_SUPPORTED` | Set to `false` to mimic real CT1 hardware: `GetContainerControls` advertises `alarm_reset_supported=false` and `ResetContainerAlarm` returns Unimplemented. Mute stays supported. | `true` |
+| `CT1_FAN_REVERSE_SUPPORTED` | Set to `false` to omit the dry-cooler fan reversal: `GetContainerControls` reports `dry_cooler_fan_reverse_supported=false` and `RunDryCoolerFanReverse` returns Unimplemented | `true` |
+| `CT1_FAN_REVERSE_MINUTE` | Wall time of one simulated fan-reversal minute, as a positive Go duration (see [Dry-cooler fan reversal](#dry-cooler-fan-reversal)) | `2s` |
+| `CT1_FAN_REVERSE_SCENARIO` | Fan-reversal failure scenario: `not-primary`, `no-activation`, `interrupted` or `lost-response` | unset |
 | `CT1_OCCUPIED_BOARDS` | Populate the first N slots in tank/module/slot order, in `1..capacity`. Remaining physical slots are empty, with configured locations and no hashboard identity or telemetry. Invalid values fail before listening. | all slots |
 | `FAKE_MINER_RESPONSE_DELAY` | Nonnegative Go duration before each REST, Connect or native gRPC operation, outside simulation locks and canceled by request deadlines. Set `5ms` for the load campaign. | `0` |
 | `FAKE_MINER_METRICS_FILE` | Append cumulative operation counts, errors and latency sums as JSONL every ten seconds and on graceful shutdown; omit to disable file output. | unset |
@@ -356,6 +361,37 @@ state; a controller without `CT1_DEMO_PLANT_ALARMS` reports none. Over REST the 
 ```bash
 CT1_DEMO_PLANT_ALARMS=true just dev-ct1
 CT1_DEMO_PLANT_ALARMS=true CT1_ALARM_RESET_SUPPORTED=false just dev-ct1
+```
+
+### Dry-cooler fan reversal
+
+`RunDryCoolerFanReverse` follows Frigate's PLC-owned procedure. It validates a 3-10 whole-minute
+duration, retains it, starts the run and returns only once the PLC reports a terminal state.
+`GetContainerControls` reports `dry_cooler_fan_reverse` (state and retained duration) and
+`dry_cooler_fan_reverse_supported`, over Connect, gRPC and REST. Before the first run the state is
+stopped with a 5-minute duration; after a run it is finished (standby).
+
+- The state is starting for the first 10 simulated seconds, then in progress until the duration
+  elapses. One simulated minute lasts `CT1_FAN_REVERSE_MINUTE` (default `2s`), so a 3-minute run
+  takes 6 seconds. Frigate's 15-second activation window scales the same way.
+- Other API calls keep being served while a run waits; the run does not hold the request lock.
+- The call is exempt from the HTTP server's 60-second write deadline, so a real-length run
+  (`CT1_FAN_REVERSE_MINUTE=1m`) still returns its terminal answer.
+- A second run while one is active returns FailedPrecondition. An out-of-range duration returns
+  InvalidArgument.
+- The procedure never changes the dry cooler's power, auto/manual mode or speed.
+
+`CT1_FAN_REVERSE_SCENARIO` exercises the outcomes ProtoOS must report:
+
+| Value | Behavior |
+| --- | --- |
+| `not-primary` | FailedPrecondition "this node is not the container control primary"; nothing is written |
+| `no-activation` | The duration is retained but the PLC never leaves standby, as when an interlock blocks it. After the activation window the call returns DeadlineExceeded (outcome unknown) |
+| `interrupted` | The run stops halfway; the call returns the terminal state stopped instead of finished |
+| `lost-response` | The run finishes on the PLC, but the call returns DeadlineExceeded as if completion was never observed |
+
+```bash
+CT1_FAN_REVERSE_SCENARIO=no-activation just dev-ct1
 ```
 
 ### Unlocated inventory

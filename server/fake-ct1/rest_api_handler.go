@@ -353,6 +353,10 @@ type containerControlsResponse struct {
 	MainCircuitBreakerSupported bool                `json:"mainCircuitBreakerSupported"`
 	AlarmMuteSupported          bool                `json:"alarmMuteSupported"`
 	AlarmResetSupported         bool                `json:"alarmResetSupported"`
+
+	// Dry-cooler fan reversal procedure readback; see fan_reverse.go.
+	DryCoolerFanReverse          *dryCoolerFanReverseStatus `json:"dryCoolerFanReverse,omitempty"`
+	DryCoolerFanReverseSupported bool                       `json:"dryCoolerFanReverseSupported"`
 }
 
 type containerSetpoint struct {
@@ -860,8 +864,10 @@ func (h *RESTApiHandler) handleContainerTelemetry(w http.ResponseWriter, r *http
 func (h *RESTApiHandler) handleContainerControls(w http.ResponseWriter, r *http.Request) {
 	h.state.mu.RLock()
 	telemetry := h.state.containerTelemetry()
+	fanReverse, fanReverseSupported := h.state.fanReverseControls()
 	h.state.mu.RUnlock()
 	writeJSON(w, http.StatusOK, containerControlsResponse{
+		DryCoolerFanReverse: fanReverse, DryCoolerFanReverseSupported: fanReverseSupported,
 		Supported: true,
 		Controls:  telemetry.Controls,
 		Setpoints: telemetry.Setpoints,

@@ -1,6 +1,8 @@
 import { useState } from "react";
 
 import type { MinerAdapter } from "@/protoOS/api/adapters/types";
+import { dryCoolerWriteHold } from "@/protoOS/features/containerHome/hooks/useFanReversalOutcome";
+import { useDryCoolerHold } from "@/protoOS/features/containerHome/hooks/useFanReversalReadback";
 import { useAuthRetry } from "@/protoOS/store/hooks/useAuthRetry";
 import useMinerStore from "@/protoOS/store/useMinerStore";
 import { variants } from "@/shared/components/Button";
@@ -34,10 +36,14 @@ const DryCoolerSettingsModal = ({
   const authRetry = useAuthRetry();
   const targetValue = Number(target);
   const validTarget = target.trim() !== "" && Number.isFinite(targetValue);
-  const canSave = mode === "auto" && validTarget && !pending;
+  // The PLC owns the dry cooler during a fan reversal, wherever the run was started.
+  const coolerHold = useDryCoolerHold();
+  const canSave = mode === "auto" && validTarget && !pending && !coolerHold;
 
   const save = async () => {
     if (!canSave || !adapter.setContainerControl || !adapter.setContainerSetpoint) return;
+    // Checked where the writes are sent, in case the hold began after this render.
+    if (dryCoolerWriteHold("dry_cooler_auto")) return;
     const setTarget = adapter.setContainerSetpoint.bind(adapter);
     const setControl = adapter.setContainerControl.bind(adapter);
     const generation = useMinerStore.getState().connectionGeneration;
@@ -125,6 +131,7 @@ const DryCoolerSettingsModal = ({
       surfaceClassName="tablet:w-[min(calc(100vw-(--spacing(4))),728px)]"
     >
       <div className="space-y-8 text-text-primary">
+        {coolerHold ? <p className="text-200 text-text-primary-70">{coolerHold}</p> : null}
         <div>
           <div className="mb-3 text-emphasis-300">Mode</div>
           <SegmentedControl

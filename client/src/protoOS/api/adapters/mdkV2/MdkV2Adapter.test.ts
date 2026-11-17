@@ -2,6 +2,7 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 import { Code } from "@connectrpc/connect";
 import { ALARM_MUTE_OUTCOME_UNKNOWN, ALARM_RESET_OUTCOME_UNKNOWN } from "../alarmMessages";
 import { BREAKER_OUTCOME_UNKNOWN } from "../breakerMessages";
+import { FAN_REVERSAL_OUTCOME_UNKNOWN } from "../fanReversalMessages";
 
 import { LOG_TAIL_DEADLINE_MS } from "./connectClient";
 import { AUDIT_READ_TIMEOUT_MS } from "./controllerRecords";
@@ -679,6 +680,108 @@ describe("MdkV2Adapter", () => {
       });
       const adapter = new MdkV2Adapter(client({ [method]: write }));
       await expect(run(adapter, { signal: controller.signal })).rejects.toBe(abort);
+    });
+  });
+
+  describe("dry cooler fan reversal", () => {
+    test.each([
+      [{}, undefined],
+      [
+        { dryCoolerFanReverseSupported: false, dryCoolerFanReverse: { state: "DRY_COOLER_FAN_REVERSE_STATE_STOPPED" } },
+        undefined,
+      ],
+      [
+        {
+          dryCoolerFanReverseSupported: true,
+          dryCoolerFanReverse: { state: "DRY_COOLER_FAN_REVERSE_STATE_IN_PROGRESS", durationMinutes: 6 },
+        },
+        { status: { state: "inProgress", durationMinutes: 6 } },
+      ],
+      [
+        { dryCoolerFanReverseSupported: true, dryCoolerFanReverse: { state: "DRY_COOLER_FAN_REVERSE_STATE_FINISHED" } },
+        { status: { state: "finished" } },
+      ],
+      [
+        {
+          dryCoolerFanReverseSupported: true,
+          dryCoolerFanReverse: { state: "DRY_COOLER_FAN_REVERSE_STATE_UNKNOWN", durationMinutes: 0 },
+        },
+        { status: { state: "unknown" } },
+      ],
+      [{ dryCoolerFanReverseSupported: true }, { status: undefined }],
+    ])("reads the procedure only when advertised: %j", async (data, expected) => {
+      const adapter = new MdkV2Adapter(
+        client({
+          powerServiceGetContainerControls: vi.fn().mockResolvedValue({ data: { supported: false, ...data } }),
+        }),
+      );
+      expect((await adapter.getContainerSettings()).dryCoolerFanReversal).toEqual(expected);
+    });
+
+    test("sends one fan reversal command with the actor header and returns the terminal state", async () => {
+      const write = vi.fn().mockResolvedValue({
+        data: { status: { state: "DRY_COOLER_FAN_REVERSE_STATE_FINISHED", durationMinutes: 4 } },
+      });
+      const control = vi.fn();
+      const adapter = new MdkV2Adapter(
+        client({ powerServiceRunDryCoolerFanReverse: write, powerServiceSetContainerControl: control }),
+      );
+      await expect(adapter.runDryCoolerFanReversal(4)).resolves.toEqual({ state: "finished", durationMinutes: 4 });
+      expect(write).toHaveBeenCalledExactlyOnceWith(
+        { durationMinutes: 4 },
+        { headers: { "X-Frigate-Actor": "proto-os" } },
+      );
+      expect(control).not.toHaveBeenCalled();
+    });
+
+    test("reports a missing terminal state as unknown", async () => {
+      const adapter = new MdkV2Adapter(
+        client({ powerServiceRunDryCoolerFanReverse: vi.fn().mockResolvedValue({ data: {} }) }),
+      );
+      await expect(adapter.runDryCoolerFanReversal(3)).resolves.toEqual({ state: "unknown" });
+    });
+
+    test.each([0, 2, 11, 4.5, Number.NaN])("refuses duration %s without sending anything", async (minutes) => {
+      const write = vi.fn();
+      const adapter = new MdkV2Adapter(client({ powerServiceRunDryCoolerFanReverse: write }));
+      const failure = await adapter.runDryCoolerFanReversal(minutes).catch((error) => error);
+      expect(failure.message).toBe("Choose a whole number of minutes from 3 to 10. Nothing was sent.");
+      expect(failure.writeOutcome).toBe("refused");
+      expect(write).not.toHaveBeenCalled();
+    });
+
+    const refusedCodes = new Set<number>([Code.InvalidArgument, Code.FailedPrecondition, Code.Unimplemented]);
+    test.each(
+      Object.values(Code)
+        .filter((code): code is Code => typeof code === "number" && code !== Code.Unauthenticated)
+        .map((code) => [Code[code], code] as const),
+    )("classifies fan reversal failure code %s as refusal or unknown outcome without retrying", async (_name, code) => {
+      const detail = "a dry-cooler fan reversal is already in progress";
+      const write = vi.fn().mockRejectedValue({ status: 400, error: { code, message: detail } });
+      const adapter = new MdkV2Adapter(client({ powerServiceRunDryCoolerFanReverse: write }));
+      const failure = await adapter.runDryCoolerFanReversal(5).catch((error) => error);
+      expect(failure.message).toBe(
+        refusedCodes.has(code)
+          ? `The controller refused the request: ${detail}. The fan reversal did not start.`
+          : FAN_REVERSAL_OUTCOME_UNKNOWN,
+      );
+      expect(failure.writeOutcome).toBe(refusedCodes.has(code) ? "refused" : "unknown");
+      expect(write).toHaveBeenCalledOnce();
+    });
+
+    test("treats a fan reversal network failure as an unknown outcome", async () => {
+      const adapter = new MdkV2Adapter(
+        client({ powerServiceRunDryCoolerFanReverse: vi.fn().mockRejectedValue(new TypeError("Failed to fetch")) }),
+      );
+      await expect(adapter.runDryCoolerFanReversal(5)).rejects.toThrow(FAN_REVERSAL_OUTCOME_UNKNOWN);
+    });
+
+    test("leaves fan reversal authentication failures for token refresh", async () => {
+      const unauthenticated = { status: 401, error: { code: 16, message: "token expired" } };
+      const adapter = new MdkV2Adapter(
+        client({ powerServiceRunDryCoolerFanReverse: vi.fn().mockRejectedValue(unauthenticated) }),
+      );
+      await expect(adapter.runDryCoolerFanReversal(5)).rejects.toBe(unauthenticated);
     });
   });
 

@@ -101,6 +101,14 @@ func containerConfigFromEnv() (ContainerConfig, error) {
 		DemoPlantAlarms:    getEnv("CT1_DEMO_PLANT_ALARMS", "false") == "true",
 		// Real CT1 hardware cannot reset alarms; set false to mimic it.
 		AlarmResetUnsupported: getEnv("CT1_ALARM_RESET_SUPPORTED", "true") == "false",
+		FanReverseUnsupported: getEnv("CT1_FAN_REVERSE_SUPPORTED", "true") == "false",
+	}
+	if value := os.Getenv("CT1_FAN_REVERSE_MINUTE"); value != "" {
+		minute, err := time.ParseDuration(value)
+		if err != nil || minute <= 0 {
+			return ContainerConfig{}, fmt.Errorf("CT1_FAN_REVERSE_MINUTE must be a positive Go duration, got %q", value)
+		}
+		cfg.FanReverseMinute = minute
 	}
 
 	cfg.OccupiedBoards, err = parseOccupiedBoards(os.Getenv("CT1_OCCUPIED_BOARDS"), cfg.Tanks*cfg.ModulesPerTank*cfg.SlotsPerModule)
@@ -172,7 +180,7 @@ func startHTTPServer(ctx context.Context, state *ContainerState, address string,
 	var connections sync.WaitGroup
 	server := &http.Server{
 		Addr:              net.JoinHostPort(address, strconv.Itoa(port)),
-		Handler:           handler,
+		Handler:           withFanReverseWriteDeadline(handler),
 		ReadHeaderTimeout: 10 * time.Second,
 		// Bound total request and response time. Every handler holds the state
 		// mutex while reading the body / streaming the (up to 288-board)

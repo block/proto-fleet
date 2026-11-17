@@ -1,6 +1,11 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, expect, test, vi } from "vitest";
 import ContainerCooling from "./ContainerCooling";
+import {
+  resetFanReversalOutcome,
+  setFanReversalOutcome,
+} from "@/protoOS/features/containerHome/hooks/useFanReversalOutcome";
+import useMinerStore from "@/protoOS/store/useMinerStore";
 
 const adapter = vi.hoisted(() => ({
   getContainerSettings: vi.fn(),
@@ -9,10 +14,13 @@ const adapter = vi.hoisted(() => ({
 }));
 const preferences = vi.hoisted(() => ({ temperatureUnit: "C" }));
 vi.mock("@/protoOS/store", () => ({ useTemperatureUnit: () => preferences.temperatureUnit }));
+// The dry cooler hold reads through useAuthRetry; its token refresh is not exercised here.
+vi.mock("@/protoOS/store/hooks/useAuth", () => ({ useAuthErrors: () => ({ handleAuthErrors: vi.fn() }) }));
 vi.mock("@/protoOS/contexts/MinerHostingContext", () => ({ useMinerHosting: () => ({ adapter }) }));
 
 beforeEach(() => {
   vi.resetAllMocks();
+  resetFanReversalOutcome();
   preferences.temperatureUnit = "C";
   adapter.getContainerSettings.mockResolvedValue({
     supported: true,
@@ -89,4 +97,40 @@ test("Fahrenheit inputs are converted to Celsius for the controller", async () =
   fireEvent.change(screen.getByLabelText("Dry cooler target temperature (°F)"), { target: { value: "104" } });
   fireEvent.click(screen.getByRole("button", { name: "Apply" }));
   await waitFor(() => expect(adapter.setContainerSetpoint).toHaveBeenCalledWith("dry_cooler_auto_temp_c", 40));
+});
+
+test("dry cooler settings cannot be changed while a fan reversal runs", async () => {
+  adapter.getContainerSettings.mockResolvedValue({
+    supported: true,
+    controls: [
+      { name: "coolant_pump", enabled: true },
+      { name: "dry_cooler", enabled: true },
+    ],
+    setpoints: [{ name: "dry_cooler_auto_temp_c", value: 38, unit: "°C" }],
+    dryCoolerFanReversal: { status: { state: "stopped" } },
+  });
+  render(<ContainerCooling />);
+  fireEvent.click(await screen.findByRole("button", { name: "Edit Dry cooler" }));
+  fireEvent.click(screen.getByRole("button", { name: "Off", pressed: false }));
+
+  // The run starts, here or in System controls, after the editor opened.
+  act(() =>
+    setFanReversalOutcome(useMinerStore.getState().connectionGeneration, { phase: "running", durationMinutes: 5 }),
+  );
+  expect(screen.getByRole("button", { name: "Apply" })).toBeDisabled();
+  expect(screen.getByRole("button", { name: "Edit Dry cooler target temperature" })).toBeDisabled();
+  expect(screen.getByRole("button", { name: "Edit Coolant pump" })).toBeEnabled();
+  expect(screen.getByText("Dry cooler settings are locked while the fan reversal runs.")).toBeInTheDocument();
+  expect(adapter.setContainerControl).not.toHaveBeenCalled();
+});
+
+test("a fan reversal the controller reports locks the dry cooler settings", async () => {
+  adapter.getContainerSettings.mockResolvedValue({
+    supported: true,
+    controls: [{ name: "dry_cooler", enabled: true }],
+    setpoints: [],
+    dryCoolerFanReversal: { status: { state: "inProgress", durationMinutes: 5 } },
+  });
+  render(<ContainerCooling />);
+  await waitFor(() => expect(screen.getByRole("button", { name: "Edit Dry cooler" })).toBeDisabled());
 });

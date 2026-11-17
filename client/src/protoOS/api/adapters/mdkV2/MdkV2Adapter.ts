@@ -3,6 +3,11 @@ import { createConnectTransport } from "@connectrpc/connect-web";
 import { ALARM_MUTE_OUTCOME_UNKNOWN, ALARM_RESET_OUTCOME_UNKNOWN } from "../alarmMessages";
 import { BREAKER_OUTCOME_UNKNOWN } from "../breakerMessages";
 import type { ContainerHistoryRequest } from "../containerHistory";
+import {
+  FAN_REVERSAL_MAX_MINUTES,
+  FAN_REVERSAL_MIN_MINUTES,
+  FAN_REVERSAL_OUTCOME_UNKNOWN,
+} from "../fanReversalMessages";
 import type { PoolHistoryRequest } from "../poolHistory";
 import type {
   AdapterProbeMatch,
@@ -26,6 +31,7 @@ import { createMdkV2Client, type MdkV2Client } from "./connectClient";
 import { queryContainerHistory } from "./containerHistory";
 import { toCanonicalControllerDiagnostics } from "./controllerDiagnostics";
 import { listControllerAuditEvents, readControllerLogs, withDeadline } from "./controllerRecords";
+import { toFanReversalStatus } from "./fanReversal";
 import { createHashboardFirmware } from "./firmware";
 import { createFrigateServerUpdate, type ServerUpdateClient } from "./frigateServerUpdate";
 import {
@@ -133,6 +139,9 @@ const ALARM_WRITES = {
   mute: { unchanged: "The alarm state was not changed.", outcomeUnknown: ALARM_MUTE_OUTCOME_UNKNOWN },
   reset: { unchanged: "The alarm state was not changed.", outcomeUnknown: ALARM_RESET_OUTCOME_UNKNOWN },
 } as const;
+
+const fanReversalWriteError = (error: unknown) =>
+  containerWriteError(error, "The fan reversal did not start.", FAN_REVERSAL_OUTCOME_UNKNOWN);
 
 const toWireDeviceId = (value: string) => (value.startsWith("device:") ? value.slice("device:".length) : value);
 
@@ -402,6 +411,9 @@ export class MdkV2Adapter implements MinerAdapter {
         : {}),
       alarmMute: data.alarmMuteSupported === true,
       alarmReset: data.alarmResetSupported === true,
+      ...(data.dryCoolerFanReverseSupported === true
+        ? { dryCoolerFanReversal: { status: toFanReversalStatus(data.dryCoolerFanReverse) } }
+        : {}),
     };
   }
 
@@ -546,6 +558,32 @@ export class MdkV2Adapter implements MinerAdapter {
 
   async resetContainerAlarm(params: AdapterRequestOptions = {}) {
     await this.alarmWrite("reset", (decorated) => this.client.powerServiceResetContainerAlarm({}, decorated), params);
+  }
+
+  /**
+   * One call, never retried: the controller holds it open until the PLC procedure ends. The
+   * terminal state comes from the controller, which reads it back from the PLC.
+   */
+  async runDryCoolerFanReversal(durationMinutes: number, params: AdapterRequestOptions = {}) {
+    if (
+      !Number.isInteger(durationMinutes) ||
+      durationMinutes < FAN_REVERSAL_MIN_MINUTES ||
+      durationMinutes > FAN_REVERSAL_MAX_MINUTES
+    ) {
+      throw Object.assign(
+        new Error(
+          `Choose a whole number of minutes from ${FAN_REVERSAL_MIN_MINUTES} to ${FAN_REVERSAL_MAX_MINUTES}. Nothing was sent.`,
+        ),
+        { writeOutcome: "refused" as const },
+      );
+    }
+    try {
+      const { data } = await this.client.powerServiceRunDryCoolerFanReverse({ durationMinutes }, this.decorate(params));
+      return toFanReversalStatus(data.status) ?? { state: "unknown" as const };
+    } catch (error) {
+      if (params.signal?.aborted) throw error;
+      throw fanReversalWriteError(error);
+    }
   }
 
   private async alarmWrite(

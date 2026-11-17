@@ -53,7 +53,9 @@ func simulationInterceptor(state *ContainerState) connect.UnaryInterceptorFunc {
 			if state.ha != nil && state.ha.sim.inMaintenance() {
 				return nil, connect.NewError(connect.CodeUnavailable, errors.New(maintenanceMessage))
 			}
-			if serveErr := state.serve(ctx, !boundToGET(req.Spec().Procedure), func() { res, err = next(ctx, req) }); serveErr != nil {
+			if selfServed(req.Spec().Procedure) {
+				res, err = next(ctx, req)
+			} else if serveErr := state.serve(ctx, !boundToGET(req.Spec().Procedure), func() { res, err = next(ctx, req) }); serveErr != nil {
 				err = status.FromContextError(serveErr).Err()
 			}
 			if err == nil {
@@ -189,6 +191,10 @@ func (a *connectAPI) MuteContainerAlarm(ctx context.Context, req *connect.Reques
 
 func (a *connectAPI) ResetContainerAlarm(ctx context.Context, req *connect.Request[mdk.ResetContainerAlarmRequest]) (*connect.Response[mdk.ResetContainerAlarmResponse], error) {
 	return connectResult(a.native.ResetContainerAlarm(ctx, req.Msg))
+}
+
+func (a *connectAPI) RunDryCoolerFanReverse(ctx context.Context, req *connect.Request[mdk.RunDryCoolerFanReverseRequest]) (*connect.Response[mdk.RunDryCoolerFanReverseResponse], error) {
+	return connectResult(a.native.RunDryCoolerFanReverse(ctx, req.Msg))
 }
 
 func (a *connectAPI) ListPowerFeeds(ctx context.Context, req *connect.Request[mdk.ListPowerFeedsRequest]) (*connect.Response[mdk.ListPowerFeedsResponse], error) {

@@ -2,6 +2,7 @@ import { useState } from "react";
 import { formatReading, latest, temperatureValue } from "../utils/buildContainerHome";
 import ContainerSystemControlsModal from "./ContainerSystemControlsModal";
 import ContainerSystemSchematic, { type ContainerSystemSchematicProps } from "./ContainerSystemSchematic";
+import FanReversalOutcomeNotice from "./FanReversalOutcomeNotice";
 import PlantAlarmOutcomeNotice from "./PlantAlarmOutcomeNotice";
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
 import { tankSide } from "@/protoOS/features/tanks/tankSide";
@@ -60,7 +61,8 @@ export default function ContainerSystem({ plant, fans }: { plant?: PlantTelemetr
         adapter.setContainerSetpoint ||
         adapter.setMainCircuitBreakerState ||
         adapter.muteContainerAlarm ||
-        adapter.resetContainerAlarm) ? (
+        adapter.resetContainerAlarm ||
+        adapter.runDryCoolerFanReversal) ? (
         <div className="flex flex-wrap items-center gap-3">
           <Button
             variant="secondary"
@@ -71,6 +73,7 @@ export default function ContainerSystem({ plant, fans }: { plant?: PlantTelemetr
           />
           {/* The open modal shows the outcome in its Container alarms section. */}
           {selectedGeneration === generation ? null : <PlantAlarmOutcomeNotice />}
+          {selectedGeneration === generation ? null : <FanReversalOutcomeNotice />}
         </div>
       ) : undefined,
   };

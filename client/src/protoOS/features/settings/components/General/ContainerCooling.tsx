@@ -1,7 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ContainerSettings } from "@/protoOS/api/adapters/types";
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
+import {
+  dryCoolerWriteHold,
+  recordFanReversalReadback,
+} from "@/protoOS/features/containerHome/hooks/useFanReversalOutcome";
+import { useDryCoolerHold } from "@/protoOS/features/containerHome/hooks/useFanReversalReadback";
 import { useTemperatureUnit } from "@/protoOS/store";
+import useMinerStore from "@/protoOS/store/useMinerStore";
 import Button from "@/shared/components/Button";
 import Input from "@/shared/components/Input";
 import Modal from "@/shared/components/Modal";
@@ -50,6 +56,9 @@ const ContainerCooling = () => {
   const [unavailable, setUnavailable] = useState(false);
   const [busy, setBusy] = useState(false);
   const writing = useRef(false);
+  // The PLC owns the dry cooler during a fan reversal, wherever the run was started.
+  const coolerHold = useDryCoolerHold();
+  const held = (name: string) => coolerHold !== undefined && name.startsWith("dry_cooler");
   const controls: ContainerSettings["controls"] = settings?.supported ? settings.controls : unavailableControls;
   const setpoints: ContainerSettings["setpoints"] = settings?.supported ? settings.setpoints : unavailableSetpoints;
   const canEdit = settings?.supported === true && !unavailable;
@@ -58,8 +67,16 @@ const ContainerCooling = () => {
     async (signal?: AbortSignal) => {
       if (!adapter?.getContainerSettings) return;
       try {
+        const generation = useMinerStore.getState().connectionGeneration;
+        const requestedAtMs = Date.now();
         const current = await adapter.getContainerSettings({ signal });
         if (signal?.aborted) return;
+        // This read also shows a reversal another client started.
+        if (current.dryCoolerFanReversal && useMinerStore.getState().connectionGeneration === generation)
+          recordFanReversalReadback(generation, {
+            status: current.dryCoolerFanReversal.status,
+            readAtMs: requestedAtMs,
+          });
         setSettings(current);
         setUnavailable(false);
       } catch {
@@ -90,6 +107,12 @@ const ContainerCooling = () => {
 
   const save = async () => {
     if (!selection || writing.current || unavailable) return;
+    // Checked where the write is sent, so an editor opened before the hold cannot still send.
+    const hold = dryCoolerWriteHold(selection.setting.name);
+    if (hold) {
+      setError(hold);
+      return;
+    }
     writing.current = true;
     setBusy(true);
     setError(undefined);
@@ -118,6 +141,7 @@ const ContainerCooling = () => {
   return (
     <section className="mb-10" aria-label="Container controls">
       <h3 className="mb-2 text-heading-100">Cooling and container controls</h3>
+      {coolerHold ? <p className="mb-2 text-200 text-text-primary-70">{coolerHold}</p> : null}
       <>
         {controls.map((setting) => (
           <Row key={setting.name} className="flex items-center justify-between gap-4">
@@ -132,7 +156,7 @@ const ContainerCooling = () => {
                   size="compact"
                   text="Edit"
                   ariaLabel={`Edit ${labelFor(setting.name)}`}
-                  disabled={unavailable || busy}
+                  disabled={unavailable || busy || held(setting.name)}
                   onClick={() => edit({ kind: "control", setting })}
                 />
               ) : null}
@@ -154,7 +178,7 @@ const ContainerCooling = () => {
                   size="compact"
                   text="Edit"
                   ariaLabel={`Edit ${labelFor(setting.name)}`}
-                  disabled={unavailable || busy}
+                  disabled={unavailable || busy || held(setting.name)}
                   onClick={() => edit({ kind: "setpoint", setting })}
                 />
               ) : null}
@@ -182,6 +206,7 @@ const ContainerCooling = () => {
               },
               disabled:
                 !canEdit ||
+                held(selection.setting.name) ||
                 (selection.kind === "control"
                   ? enabled === undefined
                   : !value.trim() || !Number.isFinite(Number(value)) || !Number.isFinite(Math.fround(Number(value)))),

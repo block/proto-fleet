@@ -85,6 +85,19 @@ export interface ContainerSettings {
    */
   alarmMute?: boolean;
   alarmReset?: boolean;
+  /**
+   * Present only when the controller advertises the dry-cooler fan reversal procedure. `status` is
+   * PLC readback, unset when the controller sent none.
+   */
+  dryCoolerFanReversal?: { status?: DryCoolerFanReversalStatus };
+}
+
+/** The PLC-owned fan reversal procedure. `stopped` is reported before the first run and after an interrupted one. */
+export type DryCoolerFanReversalState = "stopped" | "starting" | "inProgress" | "finished" | "unknown";
+export interface DryCoolerFanReversalStatus {
+  state: DryCoolerFanReversalState;
+  /** The duration the controller retains for the next or current run. */
+  durationMinutes?: number;
 }
 
 /** A module's controller position and its canonical ID, which records the module ID the operator saw there. */
@@ -284,6 +297,15 @@ export interface MinerAdapter {
    */
   muteContainerAlarm?(params?: AdapterRequestOptions): Promise<void>;
   resetContainerAlarm?(params?: AdapterRequestOptions): Promise<void>;
+  /**
+   * One call, never retried. The controller retains the whole-minute duration (3-10), starts the
+   * PLC-owned procedure and resolves with its terminal state, so this can take up to about 12
+   * minutes. A refusal rejects with `writeOutcome: "refused"`; any other failure is `"unknown"`.
+   */
+  runDryCoolerFanReversal?(
+    durationMinutes: number,
+    params?: AdapterRequestOptions,
+  ): Promise<DryCoolerFanReversalStatus>;
   /** Reads the module's feed on request; it never polls. Rejects only when the controller map cannot be read. */
   getModulePowerFeed?(
     target: ModulePowerFeedTarget,

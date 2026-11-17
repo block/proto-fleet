@@ -323,6 +323,12 @@ const rpcTable: [
     (c) => c.powerServiceResetContainerAlarm({}),
   ],
   [
+    "powerServiceRunDryCoolerFanReverse",
+    "mdk.v2.PowerService/RunDryCoolerFanReverse",
+    { durationMinutes: 4 },
+    (c) => c.powerServiceRunDryCoolerFanReverse({ durationMinutes: 4 }),
+  ],
+  [
     "runInServiceStartModuleRunIn",
     "mdk.v2.RunInService/StartModuleRunIn",
     { moduleId: "T1-M02", taskId: "0123456789abcdef", config: { stopMiningOnFinish: true } },

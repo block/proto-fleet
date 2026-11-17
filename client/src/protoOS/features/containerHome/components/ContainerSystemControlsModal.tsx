@@ -1,5 +1,9 @@
 import { useEffect, useRef, useState } from "react";
+import { dryCoolerWriteHold } from "../hooks/useFanReversalOutcome";
+import { useDryCoolerHold } from "../hooks/useFanReversalReadback";
+import ContainerFanReversal from "./ContainerFanReversal";
 import ContainerPlantAlarms from "./ContainerPlantAlarms";
+import FanReversalOutcomeNotice from "./FanReversalOutcomeNotice";
 import PlantAlarmOutcomeNotice from "./PlantAlarmOutcomeNotice";
 import { BREAKER_OUTCOME_UNKNOWN } from "@/protoOS/api/adapters/breakerMessages";
 import type { AdapterRequestOptions, ContainerSettings } from "@/protoOS/api/adapters/types";
@@ -36,7 +40,8 @@ const hasControlSurface = (settings: ContainerSettings) =>
   settings.supported ||
   settings.mainCircuitBreaker !== undefined ||
   settings.alarmMute === true ||
-  settings.alarmReset === true;
+  settings.alarmReset === true ||
+  settings.dryCoolerFanReversal !== undefined;
 const isTimeout = (error: unknown) => error instanceof DOMException && error.name === "TimeoutError";
 const setpointLabel = (name: string) => {
   if (name === "coolant_pump_speed_hz") return "Pump speed";
@@ -47,23 +52,32 @@ const setpointLabel = (name: string) => {
 
 export default function ContainerSystemControlsModal({ onDismiss }: { onDismiss: () => void }) {
   const { adapter } = useMinerHosting();
-  const [settings, setSettings] = useState<ContainerSettings>();
+  const [loaded, setLoaded] = useState<{ settings: ContainerSettings; requestedAtMs: number }>();
+  const settings = loaded?.settings;
   const [error, setError] = useState<string>();
   const authRetry = useAuthRetry();
   useEffect(() => {
     const controller = new AbortController();
+    const requestedAtMs = Date.now();
     if (adapter?.getContainerSettings)
       void authRetry({
         signal: controller.signal,
         request: (params) => adapter.getContainerSettings!(params),
         onSuccess: (value) => {
-          if (!controller.signal.aborted) setSettings(value);
+          if (!controller.signal.aborted) setLoaded({ settings: value, requestedAtMs });
         },
         onError: (error) => setError(`Could not load settings: ${message(error)}`),
       });
     return () => controller.abort();
   }, [adapter, authRetry]);
-  if (settings && hasControlSurface(settings)) return <SystemControlsForm settings={settings} onDismiss={onDismiss} />;
+  if (loaded && hasControlSurface(loaded.settings))
+    return (
+      <SystemControlsForm
+        settings={loaded.settings}
+        settingsRequestedAtMs={loaded.requestedAtMs}
+        onDismiss={onDismiss}
+      />
+    );
   return (
     <Modal open manageFocus title="System controls" dialogLabel="System controls" onDismiss={onDismiss}>
       <p role={error ? "alert" : "status"}>
@@ -74,11 +88,20 @@ export default function ContainerSystemControlsModal({ onDismiss }: { onDismiss:
       </p>
       {/* Without settings the Container alarms section cannot render, but its last result still matters. */}
       <PlantAlarmOutcomeNotice />
+      <FanReversalOutcomeNotice />
     </Modal>
   );
 }
 
-function SystemControlsForm({ settings, onDismiss }: { settings: ContainerSettings; onDismiss: () => void }) {
+function SystemControlsForm({
+  settings,
+  settingsRequestedAtMs,
+  onDismiss,
+}: {
+  settings: ContainerSettings;
+  settingsRequestedAtMs: number;
+  onDismiss: () => void;
+}) {
   const { adapter, isFleetHosted } = useMinerHosting();
   const authRetry = useAuthRetry();
   const unit = useTemperatureUnit();
@@ -101,6 +124,10 @@ function SystemControlsForm({ settings, onDismiss }: { settings: ContainerSettin
   const [pending, setPending] = useState(false);
   const [controlPending, setControlPending] = useState(false);
   const [alarmBusy, setAlarmBusy] = useState(false);
+  const [fanReversalBusy, setFanReversalBusy] = useState(false);
+  // The PLC runs the reversal on the dry cooler; its settings stay as they are until it ends.
+  const coolerHold = useDryCoolerHold();
+  const coolerLocked = coolerHold !== undefined;
   const [powerConfirmation, setPowerConfirmation] = useState<{
     name: string;
     value: boolean;
@@ -138,6 +165,29 @@ function SystemControlsForm({ settings, onDismiss }: { settings: ContainerSettin
   const airConditioners = [1, 2].filter(
     (number) => hasControl(`air_conditioner_${number}`) || hasSetpoint(`air_conditioner_${number}_temp_c`),
   );
+  const applyRead = (current: ContainerSettings) => {
+    saved.current = Object.fromEntries([
+      ...controlStates(current),
+      ...current.setpoints.map((item) => [item.name, item.value]),
+    ]);
+    setControls(Object.fromEntries(controlStates(current)));
+    setValues((previous) => ({
+      ...previous,
+      ...Object.fromEntries(
+        current.setpoints
+          .filter((item) => !dirty.current.has(item.name))
+          .map((item) => [item.name, item.value === undefined ? "" : String(display(item.value, item.unit))]),
+      ),
+    }));
+    needsRefresh.current = false;
+  };
+  // The PLC owned the dry cooler during the run, so show what it reads now. A change still being
+  // saved re-reads on its own; without a usable read, the next change re-reads before writing.
+  const fanReversalSettled = (current: ContainerSettings | undefined) => {
+    if (!mounted.current) return;
+    if (current && hasControlSurface(current) && pendingCount.current === 0) applyRead(current);
+    else needsRefresh.current = true;
+  };
   const matches = (name: string, value: boolean | number) => {
     const observed = saved.current[name];
     return typeof value === "number" && typeof observed === "number"
@@ -146,6 +196,12 @@ function SystemControlsForm({ settings, onDismiss }: { settings: ContainerSettin
   };
 
   const save = (name: string, value: boolean | number, label: string, prerequisite?: Promise<boolean>) => {
+    // Checked where the write is sent, so a confirmation opened before the hold cannot still send.
+    const held = dryCoolerWriteHold(name);
+    if (held) {
+      setErrors((previous) => ({ ...previous, [name]: held }));
+      return Promise.resolve(false);
+    }
     const existing = pendingWrites.current.get(name);
     if (existing?.value === value) return existing.result;
     if (!needsRefresh.current && !existing && matches(name, value)) {
@@ -197,20 +253,7 @@ function SystemControlsForm({ settings, onDismiss }: { settings: ContainerSettin
         const current = await request((params) => adapter!.getContainerSettings!(params));
         if (!isCurrent()) return;
         if (!current || !hasControlSurface(current)) throw new Error("Controls are unavailable on this container.");
-        saved.current = Object.fromEntries([
-          ...controlStates(current),
-          ...current.setpoints.map((item) => [item.name, item.value]),
-        ]);
-        setControls(Object.fromEntries(controlStates(current)));
-        setValues((previous) => ({
-          ...previous,
-          ...Object.fromEntries(
-            current.setpoints
-              .filter((item) => !dirty.current.has(item.name))
-              .map((item) => [item.name, item.value === undefined ? "" : String(display(item.value, item.unit))]),
-          ),
-        }));
-        needsRefresh.current = false;
+        applyRead(current);
       } catch (error) {
         if (isCurrent()) {
           needsRefresh.current = true;
@@ -364,7 +407,12 @@ function SystemControlsForm({ settings, onDismiss }: { settings: ContainerSettin
             <Switch
               ariaLabel={label === "Power" ? `${equipment} power` : label}
               checked={controls[name] === true}
-              disabled={controlPending || controls[name] === undefined || !adapter?.setContainerControl}
+              disabled={
+                controlPending ||
+                controls[name] === undefined ||
+                !adapter?.setContainerControl ||
+                (name === "dry_cooler" && coolerLocked)
+              }
               setChecked={() =>
                 setPowerConfirmation({
                   name,
@@ -433,7 +481,18 @@ function SystemControlsForm({ settings, onDismiss }: { settings: ContainerSettin
     settings.alarmMute || settings.alarmReset ? (
       <ContainerPlantAlarms settings={settings} onBusyChange={setAlarmBusy} />
     ) : null;
-  const setpointField = (name: string, saveLabel?: string) => {
+  // A confirmed procedure like the alarm commands, so it gets its own section, not a cooler setting.
+  const fanReversalRow = settings.dryCoolerFanReversal ? (
+    <ContainerFanReversal
+      settings={settings}
+      settingsRequestedAtMs={settingsRequestedAtMs}
+      settingsPending={pending}
+      dryCoolerAuto={controls.dry_cooler_auto}
+      onSettled={fanReversalSettled}
+      onBusyChange={setFanReversalBusy}
+    />
+  ) : null;
+  const setpointField = (name: string, saveLabel?: string, locked = false) => {
     const item = settings.setpoints.find((setting) => setting.name === name);
     if (!item) return null;
     const label = setpointLabel(name);
@@ -445,7 +504,7 @@ function SystemControlsForm({ settings, onDismiss }: { settings: ContainerSettin
           label={`${label}${suffix ? ` (${suffix})` : ""}`}
           initValue={values[name]}
           inputMode="decimal"
-          disabled={pending || !adapter?.setContainerSetpoint}
+          disabled={pending || locked || !adapter?.setContainerSetpoint}
           error={errors[name]}
           onChangeBlur={(value) => void saveSetpoint(item, value, saveLabel)}
           onKeyDown={(key) => {
@@ -472,7 +531,7 @@ function SystemControlsForm({ settings, onDismiss }: { settings: ContainerSettin
         manageFocus
         title="System controls"
         dialogLabel="System controls"
-        onDismiss={pending || alarmBusy || powerConfirmation ? undefined : onDismiss}
+        onDismiss={pending || alarmBusy || fanReversalBusy || powerConfirmation ? undefined : onDismiss}
       >
         <div className="space-y-6" aria-busy={pending}>
           <p className="text-300 text-text-primary-50">Changes save automatically.</p>
@@ -480,7 +539,7 @@ function SystemControlsForm({ settings, onDismiss }: { settings: ContainerSettin
           {breakerRow && alarmsRow ? <Divider /> : null}
           {alarmsRow}
           {(breakerRow || alarmsRow) &&
-          (hasPump || hasCooler || airConditioners.length || hasControl("tank_led_light")) ? (
+          (hasPump || hasCooler || fanReversalRow || airConditioners.length || hasControl("tank_led_light")) ? (
             <Divider />
           ) : null}
           {hasPump || hasCooler ? (
@@ -506,19 +565,28 @@ function SystemControlsForm({ settings, onDismiss }: { settings: ContainerSettin
                       ]}
                       value={controls.dry_cooler_auto === undefined ? "" : controls.dry_cooler_auto ? "auto" : "manual"}
                       placeholder="Select mode"
-                      disabled={controlPending || !adapter?.setContainerControl}
+                      disabled={controlPending || coolerLocked || !adapter?.setContainerControl}
                       error={errors.dry_cooler_auto}
                       onChange={(value) => saveControl("dry_cooler_auto", value === "auto", "Mode")}
                     />
                   ) : null}
-                  {coolerTarget ? setpointField(coolerTarget) : null}
+                  {coolerTarget ? setpointField(coolerTarget, undefined, coolerLocked) : null}
+                  {coolerLocked && (hasControl("dry_cooler") || hasControl("dry_cooler_auto") || coolerTarget) ? (
+                    <p className="text-200 text-text-primary-70">{coolerHold}</p>
+                  ) : null}
                 </section>
               ) : null}
             </div>
           ) : null}
-          {airConditioners.length ? (
+          {fanReversalRow ? (
             <>
               {hasPump || hasCooler ? <Divider /> : null}
+              {fanReversalRow}
+            </>
+          ) : null}
+          {airConditioners.length ? (
+            <>
+              {hasPump || hasCooler || fanReversalRow ? <Divider /> : null}
               <div className="grid grid-cols-1 gap-6 tablet:grid-cols-2">
                 {airConditioners.map((number) => (
                   <section key={number} aria-label={`Air conditioner ${number} controls`} className="min-w-0 space-y-4">
@@ -532,7 +600,7 @@ function SystemControlsForm({ settings, onDismiss }: { settings: ContainerSettin
           ) : null}
           {hasControl("tank_led_light") ? (
             <>
-              {hasPump || hasCooler || airConditioners.length ? <Divider /> : null}
+              {hasPump || hasCooler || fanReversalRow || airConditioners.length ? <Divider /> : null}
               <section aria-label="Lighting controls">
                 {powerRow("tank_led_light", "Tank lights", "Tank lights")}
               </section>
@@ -542,6 +610,7 @@ function SystemControlsForm({ settings, onDismiss }: { settings: ContainerSettin
           !alarmsRow &&
           !hasPump &&
           !hasCooler &&
+          !fanReversalRow &&
           !airConditioners.length &&
           !hasControl("tank_led_light") ? (
             <p>No controls are available on this container.</p>
@@ -563,7 +632,7 @@ function SystemControlsForm({ settings, onDismiss }: { settings: ContainerSettin
                 powerConfirmation.name === MAIN_BREAKER && !powerConfirmation.value
                   ? variants.danger
                   : variants.primary,
-              disabled: controlPending,
+              disabled: controlPending || (coolerLocked && powerConfirmation.name.startsWith("dry_cooler")),
               onClick: () => {
                 setPowerConfirmation(undefined);
                 if (useMinerStore.getState().connectionGeneration === powerConfirmation.generation) {

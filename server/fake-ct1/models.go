@@ -110,6 +110,11 @@ type ContainerConfig struct {
 	// AlarmResetUnsupported mimics real CT1 hardware, whose PLC clears alarm bits
 	// only when their conditions clear. Zero value keeps reset supported.
 	AlarmResetUnsupported bool
+	// FanReverseUnsupported omits the dry-cooler fan reversal, as on Frigate
+	// versions or PLC programs without it.
+	FanReverseUnsupported bool
+	// FanReverseMinute is the wall time of one simulated procedure minute.
+	FanReverseMinute time.Duration
 }
 
 // ContainerState holds the full simulated container tree and shared metadata.
@@ -145,6 +150,7 @@ type ContainerState struct {
 
 	plantAlarms  []simulatedPlantAlarm
 	buzzerActive bool
+	fanReverse   simulatedFanReverse
 
 	Tanks   []*Tank
 	Modules []*Module // flattened, in tree order
@@ -252,6 +258,7 @@ func newContainerState(cfg ContainerConfig, now time.Time) *ContainerState {
 		boardsBySerial:     make(map[string]*Hashboard),
 		modulesByID:        make(map[string]*Module),
 		firmware:           newSimulatedFirmware(),
+		fanReverse:         simulatedFanReverse{durationMinutes: fanReverseDefaultDuration},
 	}
 	for _, point := range containerSetpointDefaults {
 		s.ContainerSetpoints[point.Name] = point.Value

@@ -57,6 +57,8 @@ import type {
   V2QueryTimeSeriesResponse,
   V2ResetContainerAlarmRequest,
   V2ResetContainerAlarmResponse,
+  V2RunDryCoolerFanReverseRequest,
+  V2RunDryCoolerFanReverseResponse,
   V2SetContainerControlResponse,
   V2SetContainerSetpointResponse,
   V2SetIdentifyLEDRequest,
@@ -235,6 +237,10 @@ export interface MdkV2Client {
     data: V2ResetContainerAlarmRequest,
     params?: AdapterRequestOptions,
   ): HttpResponse<V2ResetContainerAlarmResponse>;
+  powerServiceRunDryCoolerFanReverse(
+    data: V2RunDryCoolerFanReverseRequest,
+    params?: AdapterRequestOptions,
+  ): HttpResponse<V2RunDryCoolerFanReverseResponse>;
   runInServiceStartModuleRunIn(
     path: { moduleId: string; taskId?: string },
     data: V2HashboardRunInConfig,
@@ -593,6 +599,7 @@ export const createMdkV2Client = (transport: Transport): MdkV2Client => {
       unary(transport, power.setMainCircuitBreakerState, data, params),
     powerServiceMuteContainerAlarm: (data, params) => unary(transport, power.muteContainerAlarm, data, params),
     powerServiceResetContainerAlarm: (data, params) => unary(transport, power.resetContainerAlarm, data, params),
+    powerServiceRunDryCoolerFanReverse: (data, params) => unary(transport, power.runDryCoolerFanReverse, data, params),
     runInServiceStartModuleRunIn: ({ moduleId, taskId }, config, params) =>
       unary(transport, runIn.startModuleRunIn, { moduleId, taskId, config }, params),
     telemetryServiceFollowAsicHealth: ({ identifier }, params) =>
