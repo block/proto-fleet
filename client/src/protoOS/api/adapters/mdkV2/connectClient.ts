@@ -14,6 +14,8 @@ import { createAsyncIterable } from "@connectrpc/connect/protocol";
 import type { AdapterRequestOptions, MiningScope } from "../types";
 import type {
   FirmwareServiceWriteFirmwareArtifactUploadChunkBody,
+  HashboardServiceGetHashboardEventsParams,
+  HashboardServiceListRecoveryEvidenceParams,
   PoolServiceGetPoolDiagnosticsParams,
   PoolServiceUpdatePoolBody,
   SystemServiceGetLogsParams,
@@ -38,10 +40,12 @@ import type {
   V2GetContainerMapResponse,
   V2GetFirmwareUpdateResponse,
   V2GetHashboardASICsResponse,
+  V2GetHashboardEventsResponse,
   V2GetHAStatusResponse,
   V2GetLogsResponse,
   V2GetMiningStatusResponse,
   V2GetPoolDiagnosticsResponse,
+  V2GetRecoveryEvidenceResponse,
   V2GetSystemInfoResponse,
   V2GetSystemStatusResponse,
   V2GetTargetPowerResponse,
@@ -51,6 +55,7 @@ import type {
   V2ListModuleVoltageSettingsResponse,
   V2ListPoolsResponse,
   V2ListPowerFeedsResponse,
+  V2ListRecoveryEvidenceResponse,
   V2MuteContainerAlarmRequest,
   V2MuteContainerAlarmResponse,
   V2QueryShareQualityHistoryResponse,
@@ -198,6 +203,21 @@ export interface MdkV2Client {
     path: { identifier: string },
     params?: AdapterRequestOptions,
   ): HttpResponse<V2GetHashboardASICsResponse>;
+  /** One board's past events within a window the controller defaults and caps. */
+  hashboardServiceGetHashboardEvents?(
+    query: HashboardServiceGetHashboardEventsParams,
+    params?: AdapterRequestOptions,
+  ): HttpResponse<V2GetHashboardEventsResponse>;
+  /** Recovery evidence summaries, newest first. CT1 only. */
+  hashboardServiceListRecoveryEvidence?(
+    query?: HashboardServiceListRecoveryEvidenceParams,
+    params?: AdapterRequestOptions,
+  ): HttpResponse<V2ListRecoveryEvidenceResponse>;
+  /** One recovery evidence snapshot with its bounded JSON payload. CT1 only. */
+  hashboardServiceGetRecoveryEvidence?(
+    path: { evidenceId: string },
+    params?: AdapterRequestOptions,
+  ): HttpResponse<V2GetRecoveryEvidenceResponse>;
   poolServiceListPools(params?: AdapterRequestOptions): HttpResponse<V2ListPoolsResponse>;
   poolServiceGetPoolDiagnostics(
     query?: PoolServiceGetPoolDiagnosticsParams,
@@ -530,6 +550,12 @@ const timeRange = <Q extends { "range.start"?: string; "range.end"?: string }>({
   ...query
 }: Q) => ({ ...query, range: { start, end } });
 
+const eventWindow = <Q extends { "window.start"?: string; "window.end"?: string }>({
+  "window.start": start,
+  "window.end": end,
+  ...query
+}: Q) => ({ ...query, window: { start, end } });
+
 export const createMdkV2Client = (transport: Transport): MdkV2Client => {
   const system = SystemService.method;
   const mining = MiningService.method;
@@ -581,6 +607,12 @@ export const createMdkV2Client = (transport: Transport): MdkV2Client => {
     hashboardServiceSetIdentifyLed: (data, params) => unary(transport, hashboard.setIdentifyLED, data, params),
     hashboardServiceGetHashboardAsiCs: ({ identifier }, params) =>
       unary(transport, hashboard.getHashboardASICs, { identifier }, params),
+    hashboardServiceGetHashboardEvents: (query, params) =>
+      unary(transport, hashboard.getHashboardEvents, eventWindow(query), params),
+    hashboardServiceListRecoveryEvidence: (query = {}, params) =>
+      unary(transport, hashboard.listRecoveryEvidence, query, params),
+    hashboardServiceGetRecoveryEvidence: ({ evidenceId }, params) =>
+      unary(transport, hashboard.getRecoveryEvidence, { evidenceId }, params),
     poolServiceListPools: (params) => unary(transport, pool.listPools, {}, params),
     poolServiceGetPoolDiagnostics: (query = {}, params) => unary(transport, pool.getPoolDiagnostics, query, params),
     poolServiceCreatePool: (data, params) => unary(transport, pool.createPool, data, params),

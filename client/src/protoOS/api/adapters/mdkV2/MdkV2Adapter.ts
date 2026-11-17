@@ -27,6 +27,7 @@ import type {
 } from "../types";
 import { mapWithConcurrency } from "../utils/async";
 import { parseIsoDurationMs } from "../utils/time";
+import { getRecoveryEvidence, listRecoveryEvidence, readBoardEvents } from "./boardHistory";
 import { createMdkV2Client, type MdkV2Client } from "./connectClient";
 import { queryContainerHistory } from "./containerHistory";
 import { toCanonicalControllerDiagnostics } from "./controllerDiagnostics";
@@ -165,6 +166,9 @@ export class MdkV2Adapter implements MinerAdapter {
   readonly getControllerLogs?: MinerAdapter["getControllerLogs"];
   readonly listAuditEvents?: MinerAdapter["listAuditEvents"];
   readonly streamHashboardStatus?: MinerAdapter["streamHashboardStatus"];
+  readonly getBoardEvents?: MinerAdapter["getBoardEvents"];
+  readonly listRecoveryEvidence?: MinerAdapter["listRecoveryEvidence"];
+  readonly getRecoveryEvidence?: MinerAdapter["getRecoveryEvidence"];
   private deviceId: string | undefined;
   private readonly hashboardTimeSeriesCache = new Map<string, { expiresAtMs: number; data: QueryTimeSeriesResponse }>();
 
@@ -195,6 +199,22 @@ export class MdkV2Adapter implements MinerAdapter {
     if (followAsicHealth) {
       this.streamHashboardStatus = (identifier, params) =>
         followHashboardStatus(followAsicHealth, identifier, this.decorate(params));
+    }
+    // Board history is Connect-only as well. The REST client is generated with
+    // these reads, but Fleet's miner proxy forwards none of their routes, so
+    // they follow the Connect-only ASIC stream.
+    const {
+      hashboardServiceGetHashboardEvents: getEvents,
+      hashboardServiceListRecoveryEvidence: listEvidence,
+      hashboardServiceGetRecoveryEvidence: getEvidence,
+    } = client;
+    if (followAsicHealth && getEvents && listEvidence && getEvidence) {
+      this.getBoardEvents = (identifier, query, params) =>
+        readBoardEvents(getEvents, identifier, query, this.decorate(params));
+      this.listRecoveryEvidence = (identifier, params) =>
+        listRecoveryEvidence(listEvidence, identifier, this.decorate(params));
+      this.getRecoveryEvidence = (evidenceId, params) =>
+        getRecoveryEvidence(getEvidence, evidenceId, this.decorate(params));
     }
   }
 

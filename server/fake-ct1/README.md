@@ -182,6 +182,22 @@ first frame and when it changes. Frames go through the shared request
 lifecycle, so they agree with `GetHashboardASICs` within a sample interval.
 Unknown boards fail with NotFound.
 
+**Board history.** `HashboardService/GetHashboardEvents`,
+`ListRecoveryEvidence` and `GetRecoveryEvidence` are available over Connect and
+native gRPC, with no REST routes. Each board has a deterministic fault episode
+every nine hours over the last 40 days, offset by slot. An episode reports an
+error cause sampled every 30 seconds for 18 minutes, and a mining state change
+into and out of error. Every fourth episode adds a stack dropout and every
+fifth a last shutdown cause. Like Frigate, events cover `[start, end)`. With no
+window the last 24 hours are returned. A window longer than seven days keeps
+its end and moves its start. Errors are aggregated per cause within the window,
+`count` counts samples, and a current isolation is appended last. Every third
+episode captured recovery evidence. Snapshots are kept for 30 days and at most
+ten per board, newest first. A JSON payload carries `sources`, `omitted` and
+stack dropout `cleared_at` times. Every seventh episode's snapshot is truncated.
+Set `CT1_BOARD_HISTORY_SCENARIO=events-unavailable` or `evidence-unavailable`
+to make those reads fail with Unavailable.
+
 Share-history range validation follows Frigate's
 [`validateIndefiniteHistoryRange`](https://github.com/btc-mining/frigate/blob/5225b5fa64f8d81d95329dcd5bbd6b9c70005198/pkg/api/telemetry_service.go):
 only one-hour or one-day buckets with aligned start/end timestamps are accepted.
@@ -337,6 +353,7 @@ partial failures. Synthetic test images are not signed production firmware.
 | `FAKE_MINER_METRICS_FILE` | Append cumulative operation counts, errors and latency sums as JSONL every ten seconds and on graceful shutdown; omit to disable file output. | unset |
 | `CT1_UNLOCATED_BOARDS` | Number of existing boards to report under tank/module zero, or `all` for entirely unlocated inventory | `0` |
 | `CT1_LOG_SCENARIO` | Log and audit failure scenario: `logs-unavailable`, `logs-interrupted` or `audit-unavailable` (see [Logs and audit trail](#implemented-endpoints)) | unset |
+| `CT1_BOARD_HISTORY_SCENARIO` | Board history failure scenario: `events-unavailable` or `evidence-unavailable` (see [Board history](#implemented-endpoints)) | unset |
 | `CT1_MODULE_VOLTAGE_SCENARIO` | Module voltage write failure scenario: `write-refused` or `write-unknown` (see [Module voltage](#implemented-endpoints)) | unset |
 | `CT1_SEED`               | Positive integer controlling deterministic variation                                                                                           | `1`               |
 

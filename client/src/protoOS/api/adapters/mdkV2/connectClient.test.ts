@@ -255,6 +255,29 @@ const rpcTable: [
     { identifier: "02:00:00:00:00:01" },
     (c) => c.hashboardServiceGetHashboardAsiCs({ identifier: "02:00:00:00:00:01" }),
   ],
+  [
+    "hashboardServiceGetHashboardEvents",
+    "mdk.v2.HashboardService/GetHashboardEvents",
+    { identifier: "02:00:00:00:00:01", window: { start: "2026-09-16T00:00:00Z", end: "2026-09-16T01:00:00Z" } },
+    (c) =>
+      c.hashboardServiceGetHashboardEvents!({
+        identifier: "02:00:00:00:00:01",
+        "window.start": "2026-09-16T00:00:00Z",
+        "window.end": "2026-09-16T01:00:00Z",
+      }),
+  ],
+  [
+    "hashboardServiceListRecoveryEvidence",
+    "mdk.v2.HashboardService/ListRecoveryEvidence",
+    { identifier: "02:00:00:00:00:01", limit: 20 },
+    (c) => c.hashboardServiceListRecoveryEvidence!({ identifier: "02:00:00:00:00:01", limit: 20 }),
+  ],
+  [
+    "hashboardServiceGetRecoveryEvidence",
+    "mdk.v2.HashboardService/GetRecoveryEvidence",
+    { evidenceId: "evidence-1" },
+    (c) => c.hashboardServiceGetRecoveryEvidence!({ evidenceId: "evidence-1" }),
+  ],
   ["poolServiceListPools", "mdk.v2.PoolService/ListPools", {}, (c) => c.poolServiceListPools()],
   [
     "poolServiceGetPoolDiagnostics",

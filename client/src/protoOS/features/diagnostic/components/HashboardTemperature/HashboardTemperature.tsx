@@ -3,6 +3,7 @@ import { useLocation, useNavigate } from "react-router-dom";
 import clsx from "clsx";
 import AsicTable from "./Asic/AsicTableWrapper";
 import { AsicMetricProvider, type SelectedMetric } from "./AsicMetricContext";
+import BoardHistorySection from "./BoardHistorySection";
 import HashboardSelector from "./HashboardSelector";
 import { useTelemetry } from "@/protoOS/api";
 import LocationBreadcrumb from "@/protoOS/components/LocationBreadcrumb/LocationBreadcrumb";
@@ -272,6 +273,11 @@ const HashboardTemperature = ({ serial, readingsStale = false }: HashboardTemper
           </div>
         ) : null}
       </div>
+      {currentBoard?.identity.kind === "mac" ? (
+        <div className={`${pagePadX} pb-10`}>
+          <BoardHistorySection mac={currentBoard.identity.value} />
+        </div>
+      ) : null}
     </div>
   );
 };

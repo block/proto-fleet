@@ -24,6 +24,12 @@ import type {
 import type { AsicHardwareData, HashboardHardwareData } from "@/protoOS/store/types";
 import type { PowerFeedView } from "@/shared/components/PowerFeedCard";
 import type {
+  BoardEventPage,
+  BoardEventQuery,
+  RecoveryEvidenceRecord,
+  RecoveryEvidenceSummary,
+} from "@/shared/features/boardHistory/types";
+import type {
   AuditEventPage,
   AuditEventQuery,
   ControllerLogQuery,
@@ -327,6 +333,14 @@ export interface MinerAdapter {
    * Adapters without a per-board stream omit this capability; callers poll getHashboardStatus instead.
    */
   streamHashboardStatus?(serial: string, params?: AdapterRequestOptions): AsyncIterable<HashboardStatus>;
+  /**
+   * Past events for one CT1 hashboard (by MAC) in a [start, end) window, oldest first. Current isolation is not history
+   * and is left out. Adapters without board event history omit this and the two evidence reads.
+   */
+  getBoardEvents?(identifier: string, query: BoardEventQuery, params?: AdapterRequestOptions): Promise<BoardEventPage>;
+  /** Retained recovery evidence snapshots for one CT1 hashboard (by MAC), newest first. */
+  listRecoveryEvidence?(identifier: string, params?: AdapterRequestOptions): Promise<RecoveryEvidenceSummary[]>;
+  getRecoveryEvidence?(evidenceId: string, params?: AdapterRequestOptions): Promise<RecoveryEvidenceRecord>;
   login(password: string, params?: AdapterRequestOptions): Promise<AuthTokens>;
   refreshAccessToken(refreshToken: string, params?: AdapterRequestOptions): Promise<{ accessToken: string }>;
   getSystemLogs(
