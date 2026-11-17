@@ -13,6 +13,7 @@ import {
   completedRigRollout,
   conflictingPreview,
   containerChannel,
+  containerControllerSoftware,
   emptyChannel,
   firmwareFiles,
   hashboardFirmwareFile,
@@ -121,6 +122,7 @@ export const MinersAndContainers: Story = {
         previewScope={resolveTo(canaryPreview)}
         listChannelMiners={listChannelMinersFixture}
         listRolloutDevices={listRolloutDevicesFixture}
+        controllerSoftware={containerControllerSoftware}
         onSave={settle}
         onDelete={() => {}}
         onApply={settle}

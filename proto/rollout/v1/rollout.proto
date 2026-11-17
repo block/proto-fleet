@@ -152,6 +152,19 @@ import "google/protobuf/timestamp.proto";
 // current-device attestation: a same-version out-of-band replacement is not
 // detected.
 //
+// Controller software rule: a channel may name a target controller software
+// version for a container model, set with SetReleaseChannelControllerSoftware.
+// The target starts no update; operators update a container's controller
+// software themselves. A container is on the target when the controller
+// software version it reports equals the target after trimming surrounding
+// whitespace and one leading "v". While a target is set, a rollout does not
+// dispatch firmware to a container that is not on it, because the controller
+// is what installs that firmware: the container stays QUEUED, an advance that
+// names it fails with DEVICE_NOT_DISPATCHABLE, and RolloutEvidence.hold_reason
+// reports the wait once no other target can be dispatched. Clearing the target
+// or updating the container releases the hold. A channel without a target is
+// unaffected.
+//
 // "Rollout" is the engine's name; operator-facing copy calls it a firmware
 // update.
 service RolloutService {
@@ -188,6 +201,26 @@ service RolloutService {
     rpc ListReleaseChannelMembershipConflicts(ListReleaseChannelMembershipConflictsRequest) returns (ListReleaseChannelMembershipConflictsResponse) {
         option idempotency_level = NO_SIDE_EFFECTS;
     }
+
+    // Lists a channel's container models with each one's controller software
+    // target and counts, under the RolloutService
+    // controller software rule.
+    rpc ListReleaseChannelControllerSoftware(ListReleaseChannelControllerSoftwareRequest) returns (ListReleaseChannelControllerSoftwareResponse) {
+        option idempotency_level = NO_SIDE_EFFECTS;
+    }
+
+    // Lists one page of containers for an exact observed manufacturer/model
+    // pair. Container details are separate from the channel summary.
+    rpc ListReleaseChannelContainers(ListReleaseChannelContainersRequest) returns (ListReleaseChannelContainersResponse) {
+        option idempotency_level = NO_SIDE_EFFECTS;
+    }
+
+    // Sets or clears a container model's controller software target under the
+    // RolloutService controller software rule. Requires
+    // controller:software_update in addition to the permission every
+    // RolloutService method needs. It starts no update. A version no uploaded
+    // controller software package carries fails with FAILED_PRECONDITION.
+    rpc SetReleaseChannelControllerSoftware(SetReleaseChannelControllerSoftwareRequest) returns (SetReleaseChannelControllerSoftwareResponse);
 
     // Creates a release channel. Fails when the scope overlaps another
     // channel's.
@@ -1403,6 +1436,71 @@ message ListReleaseChannelMembershipConflictsResponse {
     repeated ReleaseChannelMembershipConflict conflicts = 1 [(buf.validate.field).repeated.max_items = 100];
     // Opaque cursor sized for a 255-code-point Unicode device identifier,
     // numeric sort keys and encoding overhead; empty when there are no more conflicts.
+    string cursor = 2 [(buf.validate.field).string.max_len = 2048];
+}
+
+// A container resolved into a release channel, with the controller software
+// version it reports under the RolloutService controller software rule.
+message ReleaseChannelContainer {
+    string device_identifier = 1 [(buf.validate.field).string.max_len = 255];
+    // Controller software version the container reports, verbatim; empty when
+    // it reports none.
+    string controller_software_version = 2 [(buf.validate.field).string.max_len = 255];
+    // Whether the reported version is the model's target. False when the model
+    // has no target.
+    bool on_target = 3;
+}
+
+// One container model of a channel: its controller software target and the
+// counts for that model. Observed identities are returned verbatim.
+message ReleaseChannelControllerSoftware {
+    string manufacturer = 1 [(buf.validate.field).string.max_len = 255];
+    string model = 2 [(buf.validate.field).string.max_len = 255];
+    // Target version; empty when the model has no target.
+    string target_version = 3 [(buf.validate.field).string.max_len = 128];
+    // Containers of this model in the channel.
+    int32 container_count = 4 [(buf.validate.field).int32.gte = 0];
+    // Containers reporting the target version; 0 when the model has no target.
+    int32 on_target_count = 5 [(buf.validate.field).int32.gte = 0];
+}
+
+message ListReleaseChannelControllerSoftwareRequest {
+    int64 channel_id = 1 [(buf.validate.field).int64.gt = 0];
+}
+
+message ListReleaseChannelControllerSoftwareResponse {
+    // Every container model with members or a target, ordered by manufacturer
+    // then model. A target whose model has no container in the channel is
+    // listed with a container_count of 0.
+    repeated ReleaseChannelControllerSoftware models = 1 [(buf.validate.field).repeated.max_items = 100];
+}
+
+message SetReleaseChannelControllerSoftwareRequest {
+    int64 channel_id = 1 [(buf.validate.field).int64.gt = 0];
+    // Container model the target is for. Printable ASCII without surrounding
+    // spaces; ASCII letters compare case-insensitively.
+    string manufacturer = 2 [(buf.validate.field).string = {min_len: 1, max_len: 255, pattern: "^[!-~](?:[ -~]*[!-~])?$"}];
+    string model = 3 [(buf.validate.field).string = {min_len: 1, max_len: 255, pattern: "^[!-~](?:[ -~]*[!-~])?$"}];
+    // Target controller software version: the version of an uploaded controller
+    // software package. Empty clears the target.
+    string version = 4 [(buf.validate.field).string = {max_len: 128, not_contains: "\x00"}];
+}
+
+message SetReleaseChannelControllerSoftwareResponse {}
+
+message ListReleaseChannelContainersRequest {
+    int64 channel_id = 1 [(buf.validate.field).int64.gt = 0];
+    // Exact observed identities, including empty strings; not wildcard filters.
+    string manufacturer = 2 [(buf.validate.field).string = {max_len: 255, not_contains: "\x00"}];
+    string model = 3 [(buf.validate.field).string = {max_len: 255, not_contains: "\x00"}];
+    // 0 uses the default page size. The maximum is 1000.
+    int32 page_size = 4 [(buf.validate.field).int32 = {gte: 0, lte: 1000}];
+    string cursor = 5 [(buf.validate.field).string.max_len = 2048];
+}
+
+message ListReleaseChannelContainersResponse {
+    repeated ReleaseChannelContainer containers = 1 [(buf.validate.field).repeated.max_items = 1000];
+    // Empty on the last page. Pass unchanged with the same channel and pair.
     string cursor = 2 [(buf.validate.field).string.max_len = 2048];
 }
 

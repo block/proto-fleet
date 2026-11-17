@@ -1382,6 +1382,18 @@ func (q *retryingQuerier) ContainsContainerIdentifiers(ctx context.Context, arg 
 	return result, err
 }
 
+func (q *retryingQuerier) ControllerSoftwareVersionUploaded(ctx context.Context, arg ControllerSoftwareVersionUploadedParams) (bool, error) {
+	var result bool
+	err := q.retrier.RetryQuery(ctx, "ControllerSoftwareVersionUploaded", func() error {
+		callResult, callErr := q.next.ControllerSoftwareVersionUploaded(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) CountActiveAssignmentsForRole(ctx context.Context, roleID int64) (int64, error) {
 	var result int64
 	err := q.retrier.RetryQuery(ctx, "CountActiveAssignmentsForRole", func() error {
@@ -2610,6 +2622,18 @@ func (q *retryingQuerier) DeleteReleaseChannel(ctx context.Context, arg DeleteRe
 	var result int64
 	err := q.retrier.RetryQuery(ctx, "DeleteReleaseChannel", func() error {
 		callResult, callErr := q.next.DeleteReleaseChannel(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) DeleteReleaseChannelControllerSoftware(ctx context.Context, arg DeleteReleaseChannelControllerSoftwareParams) (int64, error) {
+	var result int64
+	err := q.retrier.RetryQuery(ctx, "DeleteReleaseChannelControllerSoftware", func() error {
+		callResult, callErr := q.next.DeleteReleaseChannelControllerSoftware(ctx, arg)
 		if callErr == nil {
 			result = callResult
 		}
@@ -8042,6 +8066,18 @@ func (q *retryingQuerier) ListDeviceWriteRecoveryCandidates(ctx context.Context,
 	return result, err
 }
 
+func (q *retryingQuerier) ListDevicesBehindControllerSoftware(ctx context.Context, arg ListDevicesBehindControllerSoftwareParams) ([]ListDevicesBehindControllerSoftwareRow, error) {
+	var result []ListDevicesBehindControllerSoftwareRow
+	err := q.retrier.RetryQuery(ctx, "ListDevicesBehindControllerSoftware", func() error {
+		callResult, callErr := q.next.ListDevicesBehindControllerSoftware(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) ListEarlierCurtailmentReservationDevices(ctx context.Context, arg ListEarlierCurtailmentReservationDevicesParams) ([]string, error) {
 	var result []string
 	err := q.retrier.RetryQuery(ctx, "ListEarlierCurtailmentReservationDevices", func() error {
@@ -9414,6 +9450,30 @@ func (q *retryingQuerier) ListRecentlyResolvedCurtailedDevicesByScope(ctx contex
 	var result []string
 	err := q.retrier.RetryQuery(ctx, "ListRecentlyResolvedCurtailedDevicesByScope", func() error {
 		callResult, callErr := q.next.ListRecentlyResolvedCurtailedDevicesByScope(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) ListReleaseChannelContainersPage(ctx context.Context, arg ListReleaseChannelContainersPageParams) ([]ListReleaseChannelContainersPageRow, error) {
+	var result []ListReleaseChannelContainersPageRow
+	err := q.retrier.RetryQuery(ctx, "ListReleaseChannelContainersPage", func() error {
+		callResult, callErr := q.next.ListReleaseChannelContainersPage(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) ListReleaseChannelControllerSoftwareSummary(ctx context.Context, arg ListReleaseChannelControllerSoftwareSummaryParams) ([]ListReleaseChannelControllerSoftwareSummaryRow, error) {
+	var result []ListReleaseChannelControllerSoftwareSummaryRow
+	err := q.retrier.RetryQuery(ctx, "ListReleaseChannelControllerSoftwareSummary", func() error {
+		callResult, callErr := q.next.ListReleaseChannelControllerSoftwareSummary(ctx, arg)
 		if callErr == nil {
 			result = callResult
 		}
@@ -14088,6 +14148,18 @@ func (q *retryingQuerier) UpsertPermission(ctx context.Context, arg UpsertPermis
 	var result Permission
 	err := q.retrier.RetryQuery(ctx, "UpsertPermission", func() error {
 		callResult, callErr := q.next.UpsertPermission(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) UpsertReleaseChannelControllerSoftware(ctx context.Context, arg UpsertReleaseChannelControllerSoftwareParams) (ReleaseChannelControllerSoftware, error) {
+	var result ReleaseChannelControllerSoftware
+	err := q.retrier.RetryQuery(ctx, "UpsertReleaseChannelControllerSoftware", func() error {
+		callResult, callErr := q.next.UpsertReleaseChannelControllerSoftware(ctx, arg)
 		if callErr == nil {
 			result = callResult
 		}

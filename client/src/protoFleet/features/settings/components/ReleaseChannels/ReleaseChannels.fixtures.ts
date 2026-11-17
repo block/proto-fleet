@@ -1,12 +1,15 @@
 import { create, type MessageInitShape } from "@bufbuild/protobuf";
 import { timestampFromDate } from "@bufbuild/protobuf/wkt";
 
+import type { ControllerSoftwareApi } from "./controllerSoftwareUtils";
 import {
   AggregateMetricComparisonSchema,
   FirmwareVersionState,
   MetricComparisonSchema,
   type PreviewReleaseChannelScopeResponse,
   PreviewReleaseChannelScopeResponseSchema,
+  ReleaseChannelContainerSchema,
+  ReleaseChannelControllerSoftwareSchema,
   type ReleaseChannelMiner,
   ReleaseChannelMinerSchema,
   type ReleaseChannelModelGroup,
@@ -427,6 +430,33 @@ export const containerChannel: ChannelView = {
       ],
     ),
   ],
+};
+
+// The container channel names controller software 1.6.0. One container is on
+// it; the other is behind, so its hashboard firmware waits.
+export const containerControllerSoftware: ControllerSoftwareApi = {
+  canSet: true,
+  list: () =>
+    Promise.resolve([
+      create(ReleaseChannelControllerSoftwareSchema, {
+        manufacturer: "Proto",
+        model: "CT1",
+        targetVersion: "1.6.0",
+        containerCount: 2,
+        onTargetCount: 1,
+      }),
+    ]),
+  listContainers: () =>
+    Promise.resolve([
+      create(ReleaseChannelContainerSchema, {
+        deviceIdentifier: "ct1:north-a",
+        controllerSoftwareVersion: "1.6.0",
+        onTarget: true,
+      }),
+      create(ReleaseChannelContainerSchema, { deviceIdentifier: "ct1:north-b", controllerSoftwareVersion: "1.5.2" }),
+    ]),
+  set: () => Promise.resolve(undefined),
+  listVersions: () => Promise.resolve(["1.6.0", "1.5.2"]),
 };
 
 // A settled channel with a distinct id, for stories listing several channels.

@@ -224,6 +224,8 @@ const descriptionFormatters: Record<string, (entry: ActivityEntry) => string | u
   rollout_completed: formatRolloutDescription,
   rollout_completed_with_failures: formatRolloutDescription,
   rollout_retried: formatRolloutDescription,
+  // Carries the channel, model and version the server recorded.
+  release_channel_controller_software_changed: formatRolloutDescription,
 
   command_preflight_blocked: (entry) => {
     const skippedCount = metadataNumber(entry, "skipped_count");

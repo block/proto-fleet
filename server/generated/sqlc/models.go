@@ -3163,6 +3163,15 @@ type ReleaseChannelConflict struct {
 	Resolution  string
 }
 
+type ReleaseChannelControllerSoftware struct {
+	ChannelID    int64
+	Manufacturer string
+	Model        string
+	Version      string
+	AssignedBy   int64
+	UpdatedAt    time.Time
+}
+
 type ReleaseChannelFirmware struct {
 	ChannelID                  int64
 	Manufacturer               string

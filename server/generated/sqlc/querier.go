@@ -397,6 +397,9 @@ type Querier interface {
 	ContainerControlsChildrenMatch(ctx context.Context, arg ContainerControlsChildrenMatchParams) (sql.NullBool, error)
 	ContainerOwnsCommandBatch(ctx context.Context, arg ContainerOwnsCommandBatchParams) (bool, error)
 	ContainsContainerIdentifiers(ctx context.Context, arg ContainsContainerIdentifiersParams) (bool, error)
+	// Whether the organization has an uploaded controller software package of this
+	// version, for any architecture.
+	ControllerSoftwareVersionUploaded(ctx context.Context, arg ControllerSoftwareVersionUploadedParams) (bool, error)
 	// Counts live (user_organization_role, user) pairs. Filtering on
 	// u.deleted_at IS NULL matches the resolver and the last-SUPER_ADMIN
 	// guards: a role only assigned to deactivated users is not actually
@@ -608,6 +611,7 @@ type Querier interface {
 	DeletePairingsForFleetNode(ctx context.Context, arg DeletePairingsForFleetNodeParams) (int64, error)
 	DeletePool(ctx context.Context, id int64) error
 	DeleteReleaseChannel(ctx context.Context, arg DeleteReleaseChannelParams) (int64, error)
+	DeleteReleaseChannelControllerSoftware(ctx context.Context, arg DeleteReleaseChannelControllerSoftwareParams) (int64, error)
 	DeleteReleaseChannelTargets(ctx context.Context, channelID int64) error
 	// Retain an offline dispatched target until recovery, including after command
 	// completion or departure from the channel. A live command can also release
@@ -1573,6 +1577,10 @@ type Querier interface {
 	ListDeviceSetMembersPaginatedFiltered(ctx context.Context, arg ListDeviceSetMembersPaginatedFilteredParams) ([]ListDeviceSetMembersPaginatedFilteredRow, error)
 	ListDeviceSetMembersPaginatedFilteredAfter(ctx context.Context, arg ListDeviceSetMembersPaginatedFilteredAfterParams) ([]ListDeviceSetMembersPaginatedFilteredAfterRow, error)
 	ListDeviceWriteRecoveryCandidates(ctx context.Context, arg ListDeviceWriteRecoveryCandidatesParams) ([]DeviceWriteAttempt, error)
+	// Of the given devices, the containers whose channel sets a controller software
+	// target for their pair that they do not report. The rollout engine holds
+	// hashboard firmware for these until they match.
+	ListDevicesBehindControllerSoftware(ctx context.Context, arg ListDevicesBehindControllerSoftwareParams) ([]ListDevicesBehindControllerSoftwareRow, error)
 	// Returns requested devices owned by an older concrete target or logical
 	// closed-loop scope. Admission holds the org scope lock while reading this
 	// list and claiming targets, so persisted event order decides ownership.
@@ -1931,6 +1939,12 @@ type Querier interface {
 	// Scoped cooldown lookup: enumerate the request's live candidate devices first,
 	// then probe terminal target history by device identifier.
 	ListRecentlyResolvedCurtailedDevicesByScope(ctx context.Context, arg ListRecentlyResolvedCurtailedDevicesByScopeParams) ([]string, error)
+	// One page for an exact observed pair, including empty observed identities.
+	// The cursor is the last (device_identifier, device_id) in the previous page.
+	ListReleaseChannelContainersPage(ctx context.Context, arg ListReleaseChannelContainersPageParams) ([]ListReleaseChannelContainersPageRow, error)
+	// Count members in SQL. Keep observed spellings separate, and include targets
+	// without members under any spelling of their pair.
+	ListReleaseChannelControllerSoftwareSummary(ctx context.Context, arg ListReleaseChannelControllerSoftwareSummaryParams) ([]ListReleaseChannelControllerSoftwareSummaryRow, error)
 	// Every pair row of an org's channels, assigned or cleared.
 	ListReleaseChannelFirmware(ctx context.Context, orgID int64) ([]ReleaseChannelFirmware, error)
 	// Assigned pairs with no active rollout and at least one mismatched,
@@ -3215,6 +3229,12 @@ type Querier interface {
 	// the in-code catalog so catalog text changes propagate without a new
 	// migration.
 	UpsertPermission(ctx context.Context, arg UpsertPermissionParams) (Permission, error)
+	// A release channel's target controller software version for a container
+	// model. The target starts no update: it marks which containers are behind and
+	// holds their hashboard firmware updates until they match.
+	// Sets a pair's target. The stored pair keeps the spelling it was first
+	// written with.
+	UpsertReleaseChannelControllerSoftware(ctx context.Context, arg UpsertReleaseChannelControllerSoftwareParams) (ReleaseChannelControllerSoftware, error)
 	// --- Firmware assignments ---
 	// Assigns an artifact to a pair and advances the pair's generation. The
 	// stored key keeps the case it was first written with. assigned_by is the

@@ -15,6 +15,8 @@ import ChangePreviewTable from "./ChangePreviewTable";
 import ChannelSettingsChanges from "./ChannelSettingsChanges";
 import { getChannelSettingsChanges, type MinerScopeChanges } from "./channelSettingsChangesUtils";
 import { ModelStatusCell } from "./channelStatus";
+import ControllerSoftwareRow from "./ControllerSoftwareRow";
+import { type ControllerSoftwareApi, controllerSoftwareHoldMessage } from "./controllerSoftwareUtils";
 import FirmwarePickerButton from "./FirmwarePickerButton";
 import MinerScopeChangesModal from "./MinerScopeChangesModal";
 import ModelMinersModal from "./ModelMinersModal";
@@ -33,6 +35,7 @@ import {
 } from "./rolloutStatus";
 import ScopeEditor from "./ScopeEditor";
 import { isScopeEmpty, rebaseScope, scopeSelectionsEqual, scopeValidationErrors } from "./scopeUtils";
+import { useChannelControllerSoftware } from "./useChannelControllerSoftware";
 import type { ChannelHistoryState } from "./useChannelHistory";
 import {
   type PreviewReleaseChannelScopeResponse,
@@ -72,9 +75,9 @@ const scopeAndFirmwareMessage =
   "Changing Applies to with an existing firmware assignment could send the previous firmware to newly included miners. Keep the current scope, apply your firmware changes, then edit Applies to.";
 const unsupportedTargetMessage =
   "Release channels require manufacturer and model names of 1–255 printable ASCII characters. Correct the miner's reported identity before assigning firmware.";
-// A channel assigns one artifact to a container model today: the firmware its
-// hashboards run. The component is named so other container artifacts can
-// join the table as rows of their own.
+// A container model has a row per component: the controller software version
+// the channel names, then the firmware its hashboards run. The controller
+// installs that firmware, so its row comes first.
 const CONTAINER_FIRMWARE_COMPONENT = "Hashboard firmware";
 
 // FirmwareAssignment is narrower than observed miner and upload metadata.
@@ -268,6 +271,9 @@ interface ReleaseChannelManageViewProps {
     signal?: AbortSignal,
   ) => Promise<ReleaseChannelMiner[]>;
   listRolloutDevices: (rolloutId: bigint, signal?: AbortSignal) => Promise<RolloutDevice[]>;
+  // Controller software versions for the channel's containers. Without it the
+  // container table lists hashboard firmware only.
+  controllerSoftware?: ControllerSoftwareApi;
   onSave: (draft: ReleaseChannelDraft) => Promise<void>;
   onCancelCreate?: () => void;
   onDelete?: (channel: ChannelView) => void;
@@ -291,6 +297,7 @@ const ReleaseChannelManageView = ({
   previewScope,
   listChannelMiners,
   listRolloutDevices,
+  controllerSoftware,
   onSave,
   onCancelCreate,
   onDelete,
@@ -507,6 +514,15 @@ const ReleaseChannelManageView = ({
     ...(minerGroups.length > 0 || containerGroups.length === 0 ? [{ containers: false, groups: minerGroups }] : []),
     ...(containerGroups.length > 0 ? [{ containers: true, groups: containerGroups }] : []),
   ];
+  const controllerSoftwareState = useChannelControllerSoftware({
+    api: controllerSoftware,
+    channelId,
+    channelName: channel?.name ?? "",
+    enabled: liveGroups.some(isContainerPair),
+    refreshKey: channel,
+    minerNames,
+    writeLock,
+  });
   // Derived from the polled channel on every render so the open modal tracks
   // live firmware versions and phases; closes if the group empties.
   const minersGroup =
@@ -952,7 +968,9 @@ const ReleaseChannelManageView = ({
           title={containers ? "Assigned Proto Containers" : "Assigned miners"}
           subtext={
             containers
-              ? "Grouped by container model and component. Choose a version for each, or view the individual containers."
+              ? controllerSoftware
+                ? "Grouped by container model and component. Hashboard firmware waits for containers that are behind on controller software."
+                : "Grouped by container model and component. Choose a version for each, or view the individual containers."
               : "Grouped by hardware model. Choose a firmware version for each model, or view its individual miners."
           }
         >
@@ -986,7 +1004,23 @@ const ReleaseChannelManageView = ({
                   const acknowledged = acknowledgedAssignments[pairKey(group)];
                   const activeRollout = acknowledged ? undefined : activeForGroup(group);
                   const rolloutPending = group.activeRolloutId > 0n && !activeRollout;
-                  return (
+                  const live = livePairs.has(pairKey(group));
+                  const showControllerSoftware = containers && controllerSoftware !== undefined && live;
+                  const holdMessage =
+                    showControllerSoftware &&
+                    !controllerSoftwareState.isRefreshingPair(group) &&
+                    hasFirmwareAssignment(group, acknowledged)
+                      ? controllerSoftwareHoldMessage(controllerSoftwareState.forPair(group))
+                      : null;
+                  return [
+                    showControllerSoftware ? (
+                      <ControllerSoftwareRow
+                        key={`${observedPairKey(group)}:controller-software`}
+                        group={group}
+                        state={controllerSoftwareState}
+                        disabled={isWriting}
+                      />
+                    ) : null,
                     <tr
                       key={observedPairKey(group)}
                       className="border-t border-border-5"
@@ -1021,7 +1055,7 @@ const ReleaseChannelManageView = ({
                       <td className="py-3 pr-4">
                         {acknowledged ? (
                           <span className="text-text-primary-50">Refreshing update status</span>
-                        ) : !livePairs.has(pairKey(group)) ? (
+                        ) : !live ? (
                           <span className="text-text-primary-50">—</span>
                         ) : activeRollout ? (
                           <RolloutProgressIndicator
@@ -1037,6 +1071,15 @@ const ReleaseChannelManageView = ({
                             lastFinished={lastFinished.get(channelAssignmentKey(channel.id, group))}
                           />
                         )}
+                        {holdMessage ? (
+                          <p
+                            role="status"
+                            className="mt-1 text-text-primary-70"
+                            data-testid={`controller-software-hold-${group.model}`}
+                          >
+                            {holdMessage}
+                          </p>
+                        ) : null}
                       </td>
                       <td className="py-3 text-right">
                         {group.minerCount > 0 ? (
@@ -1044,19 +1087,14 @@ const ReleaseChannelManageView = ({
                             variant={variants.secondary}
                             size={sizes.compact}
                             text={containers ? "View containers" : "View miners"}
-                            disabled={
-                              !livePairs.has(pairKey(group)) ||
-                              acknowledged !== undefined ||
-                              rolloutPending ||
-                              group.rollbackPending
-                            }
+                            disabled={!live || acknowledged !== undefined || rolloutPending || group.rollbackPending}
                             onClick={() => setMinersPair(observedPairKey(group))}
                             testId={`view-miners-${group.model}`}
                           />
                         ) : null}
                       </td>
-                    </tr>
-                  );
+                    </tr>,
+                  ];
                 })}
               </tbody>
             </table>
@@ -1128,6 +1166,8 @@ const ReleaseChannelManageView = ({
           onClose={() => setMinersPair(null)}
         />
       ) : null}
+
+      {controllerSoftwareState.dialogs}
 
       <Dialog
         open={showApplyDialog}

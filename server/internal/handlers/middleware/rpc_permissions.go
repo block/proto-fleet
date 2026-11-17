@@ -463,6 +463,11 @@ var ProcedurePermissions = map[string]string{
 	rolloutv1connect.RolloutServiceSkipRolloutDevicesProcedure:                    authz.PermMinerFirmwareUpdate,
 	rolloutv1connect.RolloutServiceCompleteRolloutProcedure:                       authz.PermMinerFirmwareUpdate,
 	rolloutv1connect.RolloutServiceListRolloutEventsProcedure:                     authz.PermMinerFirmwareUpdate,
+	// SetReleaseChannelControllerSoftware additionally requires
+	// controller:software_update inside the handler.
+	rolloutv1connect.RolloutServiceListReleaseChannelContainersProcedure:         authz.PermMinerFirmwareUpdate,
+	rolloutv1connect.RolloutServiceListReleaseChannelControllerSoftwareProcedure: authz.PermMinerFirmwareUpdate,
+	rolloutv1connect.RolloutServiceSetReleaseChannelControllerSoftwareProcedure:  authz.PermMinerFirmwareUpdate,
 
 	// ScheduleService — recurring miner actions. CreateSchedule and
 	// UpdateSchedule additionally re-check the underlying miner action
