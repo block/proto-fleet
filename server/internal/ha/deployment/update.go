@@ -136,7 +136,7 @@ func PrepareApplicationUpdate(ctx context.Context, root string) error {
 	if err != nil {
 		return err
 	}
-	return prepareApplicationUpdate(ctx, root, profile, defaultInstallDependencies(), RunCompose, readComposeOutput, EtcdStatus)
+	return prepareApplicationUpdate(ctx, root, profile, defaultInstallDependencies(), RunCompose, readComposeOutput, EtcdStatus, checkDatabaseConnectionCapacity)
 }
 
 func loadUpdateCompatibleProfile(path string) (fleetApplicationProfile, error) {
@@ -147,7 +147,7 @@ func loadUpdateCompatibleProfile(path string) (fleetApplicationProfile, error) {
 	return profile, nil
 }
 
-func prepareApplicationUpdate(ctx context.Context, root string, profile fleetApplicationProfile, deps installDependencies, runCompose func(context.Context, []string) error, composeOutput func(context.Context, []string) ([]byte, error), etcdStatus func(context.Context, string) (EtcdReport, error)) error {
+func prepareApplicationUpdate(ctx context.Context, root string, profile fleetApplicationProfile, deps installDependencies, runCompose func(context.Context, []string) error, composeOutput func(context.Context, []string) ([]byte, error), etcdStatus func(context.Context, string) (EtcdReport, error), checkCapacity func(context.Context, string) error) error {
 	// The target release must check its new readiness prerequisites before the
 	// installed (possibly older) binary stops the passive application.
 	report, err := etcdStatus(ctx, filepath.Join(configRoot, "node.env"))
@@ -156,6 +156,9 @@ func prepareApplicationUpdate(ctx context.Context, root string, profile fleetApp
 	}
 	if !report.Healthy {
 		return errors.New("HA application update requires healthy etcd members below 70% allocated quota; inspect fleet-ha etcd-status and complete supervised capacity recovery before retrying")
+	}
+	if err := checkCapacity(ctx, filepath.Join(configRoot, "node.env")); err != nil {
+		return err
 	}
 	if err := validateRelease(root, deps.readFile); err != nil {
 		return err
@@ -191,6 +194,9 @@ func prepareApplicationUpdate(ctx context.Context, root string, profile fleetApp
 func CheckApplicationSchema(ctx context.Context, root string) error {
 	profile, err := loadUpdateCompatibleProfile(installedFleetEnvironment)
 	if err != nil {
+		return err
+	}
+	if err := checkDatabaseConnectionCapacity(ctx, filepath.Join(configRoot, "node.env")); err != nil {
 		return err
 	}
 	return checkApplicationSchema(ctx, root, profile, RunCompose)

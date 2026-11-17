@@ -184,6 +184,9 @@ test_fleet_ha_contract() {
         fail "HA Fleet targets must not include the standalone database service"
     fi
     assert_contains "$rendered" "HTTP_LISTEN_ADDRESS: 127.0.0.1:4000"
+    assert_contains "$rendered" 'DB_MAX_OPEN_CONNS: "500"'
+    assert_contains "$rendered" 'DB_MAX_IDLE_CONNS: "500"'
+    assert_contains "$rendered" 'DB_CONN_MAX_LIFETIME: 15m'
     assert_contains "$rendered" "LOG_JSON: \"true\""
     assert_contains "$rendered" "UPDATES_ENABLED: \"false\""
     assert_contains "$rendered" 'TIMESCALEDB_TRACK_TELEMETRY_FRESHNESS: "false"'

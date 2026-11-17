@@ -82,6 +82,18 @@ func healthyUpdateEtcd(context.Context, string) (EtcdReport, error) {
 	return EtcdReport{Healthy: true}, nil
 }
 
+func healthyUpdateCapacity(context.Context, string) error { return nil }
+
+func TestPrepareApplicationUpdateRejectsConnectionCapacityBeforeStaging(t *testing.T) {
+	expected := errors.New("database capacity requires maintenance")
+	err := prepareApplicationUpdate(t.Context(), "/missing-release", nil, installDependencies{}, nil, nil, healthyUpdateEtcd,
+		func(_ context.Context, path string) error {
+			require.Equal(t, filepath.Join(configRoot, "node.env"), path)
+			return expected
+		})
+	require.ErrorIs(t, err, expected)
+}
+
 func TestPrepareApplicationUpdateRejectsEtcdBeforeStaging(t *testing.T) {
 	probeErr := errors.New("observer credentials unavailable")
 	for _, test := range []struct {
@@ -99,7 +111,7 @@ func TestPrepareApplicationUpdateRejectsEtcdBeforeStaging(t *testing.T) {
 				func(_ context.Context, envPath string) (EtcdReport, error) {
 					require.Equal(t, filepath.Join(configRoot, "node.env"), envPath)
 					return EtcdReport{}, test.err
-				})
+				}, nil)
 			require.ErrorContains(t, err, test.want)
 			if test.err != nil {
 				require.ErrorIs(t, err, test.err)
@@ -124,7 +136,7 @@ func TestPrepareApplicationUpdateStopsBeforeImageLoadWhenComposeValidationFails(
 	// Act
 	err := prepareApplicationUpdate(context.Background(), root, fleetApplicationProfile{"ENABLE_BETA_ALERTS": "true"}, deps, func(_ context.Context, _ []string) error {
 		return composeErr
-	}, nil, healthyUpdateEtcd)
+	}, nil, healthyUpdateEtcd, healthyUpdateCapacity)
 
 	// Assert
 	require.ErrorIs(t, err, composeErr)
@@ -144,7 +156,7 @@ func TestPrepareApplicationUpdateRecordsActiveInstallForExistingHADeployment(t *
 	}
 
 	// Act
-	err := prepareApplicationUpdate(t.Context(), root, fleetApplicationProfile{"ENABLE_BETA_ALERTS": "true"}, deps, func(context.Context, []string) error { return nil }, testPreparedComposeImages, healthyUpdateEtcd)
+	err := prepareApplicationUpdate(t.Context(), root, fleetApplicationProfile{"ENABLE_BETA_ALERTS": "true"}, deps, func(context.Context, []string) error { return nil }, testPreparedComposeImages, healthyUpdateEtcd, healthyUpdateCapacity)
 
 	// Assert
 	require.NoError(t, err)

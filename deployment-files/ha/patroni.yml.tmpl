@@ -57,7 +57,8 @@ bootstrap:
       parameters:
         hot_standby: "on"
         # Patroni only accepts these shared-memory limits from cluster configuration.
-        max_connections: 300
+        # Two 500-connection API pools plus 200 slots for other work.
+        max_connections: 1200
         max_replication_slots: 10
         max_wal_senders: 10
         max_worker_processes: 19
