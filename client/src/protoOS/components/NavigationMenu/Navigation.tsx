@@ -74,7 +74,7 @@ const Navigation = ({
   return (
     <div
       className={clsx(
-        "absolute z-30 flex h-full max-h-[calc(100vh-16px)] w-[240px] flex-col overflow-auto rounded-lg border-r border-border-5 bg-surface-base text-text-primary-70",
+        "absolute z-30 flex h-full max-h-[calc(100vh-16px)] w-60 flex-col overflow-auto rounded-lg border-r border-border-5 bg-surface-base text-text-primary-70",
         "laptop:static laptop:z-auto laptop:max-h-screen laptop:rounded-none",
       )}
     >
