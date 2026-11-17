@@ -3,6 +3,7 @@ import { Link, useLocation } from "react-router-dom";
 import clsx from "clsx";
 
 import { navigationItems, navigationMenuTypes } from "./constants";
+import InfoItem from "./InfoItem";
 import IpAddressInfo from "./InfoItem/IpAddressInfo";
 import type { IpAddressInfoProps } from "./InfoItem/IpAddressInfo";
 import LocationInfo from "./InfoItem/LocationInfo";
@@ -19,6 +20,7 @@ import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
 import { useDeviceType } from "@/protoOS/store";
 import { Logo } from "@/shared/assets/icons";
 import { useNavigate } from "@/shared/hooks/useNavigate";
+import { buildVersionInfo } from "@/shared/utils/version";
 
 interface NavigationProps {
   ipAddressInfo?: IpAddressInfoProps;
@@ -102,6 +104,14 @@ const Navigation = ({
         <IpAddressInfo loading={ipAddressInfo?.loading} value={ipAddressInfo?.value} />
 
         <VersionInfo loading={versionInfo?.loading} value={versionInfo?.value} />
+
+        {/* The web client's own build, which ships separately from the device firmware above. */}
+        <InfoItem
+          label="ProtoOS Version"
+          value={buildVersionInfo.version}
+          divider={false}
+          testId="protoos-version-info-item"
+        />
 
         <MacAddressInfo loading={macInfo?.loading} value={macInfo?.value} />
       </div>
