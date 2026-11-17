@@ -12,6 +12,7 @@ import { Code, ConnectError, type Transport } from "@connectrpc/connect";
 import { createAsyncIterable } from "@connectrpc/connect/protocol";
 
 import type { AdapterRequestOptions, MiningScope } from "../types";
+import type { FeedMappingClient } from "./feedMapping";
 import type {
   FirmwareServiceWriteFirmwareArtifactUploadChunkBody,
   HashboardServiceGetHashboardEventsParams,
@@ -90,6 +91,7 @@ import type {
   V2UpdatePoolResponse,
   V2WriteFirmwareArtifactUploadChunkResponse,
 } from "./generated/generatedApi";
+import { FeedMappingService } from "./generated/proto/mdk/v2/feed_mapping_pb";
 import { FirmwareService } from "./generated/proto/mdk/v2/firmware_pb";
 import { HashboardService } from "./generated/proto/mdk/v2/hashboard_pb";
 import { MiningGroupService } from "./generated/proto/mdk/v2/mining_group_pb";
@@ -117,6 +119,8 @@ export interface LogTailRead {
 }
 
 export interface MdkV2Client {
+  /** The Fleet REST proxy does not expose commissioning RPCs. */
+  feedMappingClient?(): FeedMappingClient;
   miningGroupServiceGetMiningGroupCapability(
     params?: AdapterRequestOptions,
   ): HttpResponse<V2GetMiningGroupCapabilityResponse>;
@@ -589,6 +593,16 @@ export const createMdkV2Client = (transport: Transport): MdkV2Client => {
   const telemetry = TelemetryService.method;
 
   return {
+    feedMappingClient: () => ({
+      report: (params) => unary(transport, FeedMappingService.method.getFeedMappingReport, {}, params),
+      active: (params) => unary(transport, FeedMappingService.method.getActiveFeedMappingRun, {}, params),
+      get: (runId, params) => unary(transport, FeedMappingService.method.getFeedMappingRun, { runId }, params),
+      plan: (config, params) => unary(transport, FeedMappingService.method.planFeedMappingRun, { config }, params),
+      start: (config, params) => unary(transport, FeedMappingService.method.startFeedMappingRun, { config }, params),
+      cancel: (runId, params) => unary(transport, FeedMappingService.method.cancelFeedMappingRun, { runId }, params),
+      verify: (macAddresses, params) =>
+        unary(transport, FeedMappingService.method.requestWiringVerification, { macAddresses }, params),
+    }),
     miningGroupServiceGetMiningGroupCapability: (params) =>
       unary(transport, miningGroup.getMiningGroupCapability, {}, params),
     miningGroupServiceListMiningGroups: (params) => unary(transport, miningGroup.listMiningGroups, {}, params),

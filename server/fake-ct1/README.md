@@ -23,9 +23,10 @@ A full container is a **Tank → Module → Slot → Hashboard** tree:
 - **312 ASICs per board** with layout coordinates
   (four stacks of 78; the client wraps each stack into three rows of 26)
 - Plant/PUE, fan, power-distribution, and power-feed telemetry
-- Read-only module power feeds over gRPC and Connect: `ListPowerFeeds` reports one enabled
+- Read-only module power feeds over gRPC and Connect: `ListPowerFeeds` reports one
   three-phase `pdu-N-outlet-MM` outlet per module, with line voltage, per-phase
-  current, and AC power. `GetActivePowerRecoveryCycle` reports no cycle. Feed
+  current, and AC power. Mapping runs change outlet states.
+  `GetActivePowerRecoveryCycle` reports no cycle. Separate feed
   on, off, cycle, and override writes are not simulated.
 - Bucketed aggregate time-series telemetry
 - Stateful mining writes (global/scoped power targets, start/stop, fixed voltage, module run-in)
@@ -629,3 +630,21 @@ CT1_HA_PAIR=1 CT1_UPDATE_TRUSTED_KEY_FILES=$PWD/release.pub go run .
 | `CT1_UPDATE_FAULT_MIGRATE_FAILURES` | Number of rollouts that fail at MIGRATING (retryable, stays stopped). |
 | `CT1_UPDATE_FAULT_STALE_CONTACT` | Non-driver instance reports `contact_stale` with an old `last_contact`. |
 | `CT1_UPDATE_FAULT_DRIVER_REBOOT` | Driver role moves to the peer during INSTALLING. |
+
+### Hashboard mapping
+
+Set `CT1_UNLOCATED_BOARDS=all` to exercise **Refresh mapping** on ProtoOS Home.
+A number selects the first N boards instead. The simulator implements manual
+mapping over Connect and native gRPC: report, plan, start, active status, run
+status, and cancellation. It retains the latest run until restart or another run.
+
+Each phase takes two seconds. Mapping isolates all feeds, checks each selected
+feed, saves the detected locations, and restores power. Board mining intent is
+retained. Telemetry and `ListPowerFeeds` reflect the temporary power interruption.
+Completed feeds retain their locations if the remaining run is canceled.
+Global mining and power-target writes, plus scoped board writes, are blocked during mapping.
+The simulator requires `restore_all_on=true`, standalone operation, and legacy mining mode.
+
+The simulator does not model switch-port wiring verification, mapping failures,
+soft mapping, or physical electrical behavior. These remain controller tests.
+Restart the simulator to restore its configured unlocated inventory.

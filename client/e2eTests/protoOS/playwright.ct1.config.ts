@@ -62,5 +62,22 @@ export default defineConfig({
         CT1_VERSION: "9.0.0",
       },
     },
+    ...[18083, 18084].map((port) => ({
+      command: `go run . --web-root "${webRoot}"`,
+      cwd: simulatorDirectory,
+      url: `http://127.0.0.1:${port}`,
+      reuseExistingServer: false,
+      timeout: 120_000,
+      env: {
+        GOWORK: "off",
+        HTTP_PORT: String(port),
+        GRPC_PORT: "0",
+        CT1_TANKS: "2",
+        CT1_MODULES_PER_TANK: "2",
+        CT1_SLOTS_PER_MODULE: "3",
+        CT1_DEMO_MODULE_STATES: "false",
+        CT1_UNLOCATED_BOARDS: "all",
+      },
+    })),
   ],
 });

@@ -4,7 +4,7 @@ import { kpiFields, metricFromRouteParam, perBoardFieldsForMetric } from "./kpiM
 import { useTelemetry, useTimeSeries } from "@/protoOS/api";
 import type { TelemetryLevel, TimeSeriesLevel } from "@/protoOS/api/adapters/types";
 import NoPoolsCallout from "@/protoOS/components/NoPoolsCallout";
-import { getNoPoolsCalloutState } from "@/protoOS/components/NoPoolsCallout/utility";
+import { useNoPoolsCalloutState } from "@/protoOS/components/NoPoolsCallout/useNoPoolsCalloutState";
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
 import TabMenu from "@/protoOS/features/kpis/components/TabMenu";
 import { useKpiViewSelection } from "@/protoOS/features/kpis/kpiViewSelection";
@@ -128,10 +128,7 @@ const KpiLayoutContent = ({ selection }: { selection: ViewSelection | undefined 
     enabled: perBoardLevels.length > 0,
   });
 
-  const { arePoolsConfigured, shouldShowNoPoolsCallout } = useMemo(
-    () => getNoPoolsCalloutState(poolsInfo, pathname),
-    [poolsInfo, pathname],
-  );
+  const { arePoolsConfigured, shouldShowNoPoolsCallout } = useNoPoolsCalloutState(poolsInfo, pathname);
 
   return (
     <ErrorBoundary>
