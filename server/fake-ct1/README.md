@@ -529,10 +529,12 @@ page's Controllers tab. Set `CT1_HA_FAULT_PEER_UNREACHABLE=1` to make each
 controller report its peer unreachable since startup, with stale role and
 reachability observations and unknown recovery.
 
-The pair serves the full MDK `ServerUpdateService` over native gRPC only (no
-REST or Connect routes): instance-scoped support and Begin/Append/Commit/Abort
-staging with exact-offset resume, plus Start/Status/Retry/Cancel that either
-controller answers. `x-frigate-server-id` selects the instance when one
+The pair serves the full MDK `ServerUpdateService` over native gRPC and, like
+Frigate's Connect gateway, its unary methods over Connect for ProtoOS (no REST
+routes; the streaming `StageServerUpdate` is gRPC only): instance-scoped
+support and Begin/Append/Commit/Abort staging with exact-offset resume, plus
+Start/Status/Retry/Cancel that either controller answers. Refusals carry the
+Frigate `ErrorInfo` reason on both transports. `x-frigate-server-id` selects the instance when one
 connection is used for both. Release statements are verified for real with
 ECDSA P-256 against `CT1_UPDATE_TRUSTED_KEY_FILES` and bound to the manifest.
 Once a rollout stops Frigate, every service except update Status/Retry/Cancel
@@ -562,6 +564,7 @@ CT1_HA_PAIR=1 CT1_UPDATE_TRUSTED_KEY_FILES=$PWD/release.pub go run .
 | `CT1_UPDATE_FAULT_ETCD_UNHEALTHY` | Start refused with Unavailable `UPDATE_ETCD_UNHEALTHY`. |
 | `CT1_UPDATE_FAULT_HELPER_UNAVAILABLE` | Start refused with Unavailable `UPDATE_HELPER_UNAVAILABLE`. |
 | `CT1_UPDATE_FAULT_OUTSIDE_WINDOW` | Start refused with `UPDATE_OUTSIDE_WINDOW`. |
+| `CT1_UPDATE_FAULT_FIRMWARE_ACTIVE` | Start refused with `UPDATE_FIRMWARE_ACTIVE`, as if a PSU flash were running. A running hashboard firmware task on either controller refuses Start the same way. |
 | `CT1_UPDATE_FAULT_COOLDOWN` | Duration after a success during which Start returns `UPDATE_COOLDOWN`. |
 | `CT1_UPDATE_FAULT_MIGRATE_FAILURES` | Number of rollouts that fail at MIGRATING (retryable, stays stopped). |
 | `CT1_UPDATE_FAULT_STALE_CONTACT` | Non-driver instance reports `contact_stale` with an old `last_contact`. |

@@ -64,6 +64,9 @@ type updateFaults struct {
 	StaleContact bool
 	// DriverReboot moves the driver role to the peer once, mid-rollout.
 	DriverReboot bool
+	// FirmwareActive reports a hashboard or PSU flash running on a node even
+	// when no simulated hashboard job is, so Start returns UPDATE_FIRMWARE_ACTIVE.
+	FirmwareActive bool
 }
 
 type updateSimConfig struct {
@@ -595,9 +598,38 @@ func startRequestIdentity(in *mdk.StartServerUpdateRequest) string {
 	return b.String()
 }
 
+// activeFlashes lists the firmware jobs still running on either instance, which
+// real Frigate tracks as leased etcd markers. State locks are taken only after
+// the simulator lock is released (see updateSim.mu).
+func (s *updateSim) activeFlashes() []string {
+	s.mu.Lock()
+	states := make([]*ContainerState, 0, len(s.instances))
+	for _, id := range s.sortedIDsLocked() {
+		states = append(states, s.instances[id].state)
+	}
+	var jobs []string
+	if s.cfg.Faults.FirmwareActive {
+		jobs = append(jobs, "simulated PSU firmware")
+	}
+	s.mu.Unlock()
+	for _, state := range states {
+		state.mu.Lock()
+		for id, job := range state.firmware.jobs {
+			state.advanceFirmware(job)
+			if job.CompletedAt == nil {
+				jobs = append(jobs, state.ServerID+"/"+id)
+			}
+		}
+		state.mu.Unlock()
+	}
+	slices.Sort(jobs)
+	return jobs
+}
+
 // startRollout validates a Start request against the staged state of every
-// instance and begins the scripted rollout.
-func (s *updateSim) startRollout(in *mdk.StartServerUpdateRequest, actor string) (*mdk.ServerUpdateRollout, error) {
+// instance and begins the scripted rollout. flashing lists the firmware jobs
+// running when the request arrived.
+func (s *updateSim) startRollout(in *mdk.StartServerUpdateRequest, actor string, flashing []string) (*mdk.ServerUpdateRollout, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if strings.TrimSpace(in.GetJobId()) == "" || in.GetTargetVersion() == "" || len(in.GetExpectedInstanceIds()) == 0 {
@@ -620,6 +652,9 @@ func (s *updateSim) startRollout(in *mdk.StartServerUpdateRequest, actor string)
 	}
 	if s.activeID != "" {
 		return nil, refusal(codes.FailedPrecondition, "UPDATE_ACTIVE_JOB", "update %s is already active", s.activeID)
+	}
+	if len(flashing) > 0 {
+		return nil, refusal(codes.FailedPrecondition, "UPDATE_FIRMWARE_ACTIVE", "a firmware update is running: %s", strings.Join(flashing, ", "))
 	}
 	if _, exists := s.rollouts[in.GetJobId()]; exists {
 		return nil, refusal(codes.FailedPrecondition, "UPDATE_ACTIVE_JOB", "job %s has already run", in.GetJobId())

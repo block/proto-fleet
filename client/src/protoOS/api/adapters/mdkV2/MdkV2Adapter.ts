@@ -1,3 +1,4 @@
+import { createClient } from "@connectrpc/connect";
 import { createConnectTransport } from "@connectrpc/connect-web";
 import { ALARM_MUTE_OUTCOME_UNKNOWN, ALARM_RESET_OUTCOME_UNKNOWN } from "../alarmMessages";
 import { BREAKER_OUTCOME_UNKNOWN } from "../breakerMessages";
@@ -25,6 +26,7 @@ import { queryContainerHistory } from "./containerHistory";
 import { toCanonicalControllerDiagnostics } from "./controllerDiagnostics";
 import { listControllerAuditEvents, readControllerLogs, withDeadline } from "./controllerRecords";
 import { createHashboardFirmware } from "./firmware";
+import { createFrigateServerUpdate, type ServerUpdateClient } from "./frigateServerUpdate";
 import {
   Api,
   type TelemetryServiceQueryTimeSeriesParams,
@@ -33,6 +35,7 @@ import {
   V2PlantWriteConfirmationState,
   V2PLLAlgorithm,
 } from "./generated/generatedApi";
+import { ServerUpdateService } from "./generated/proto/mdk/v2/server_update_pb";
 import { followHashboardStatus } from "./hashboardStream";
 import { listModuleVoltageSettings, writeModuleVoltage } from "./moduleVoltage";
 import {
@@ -144,18 +147,26 @@ const toWirePllAlgorithm = (value: string | undefined): V2PLLAlgorithm | undefin
 
 export class MdkV2Adapter implements MinerAdapter {
   readonly hashboardFirmware;
+  readonly frigateServerUpdate?: MinerAdapter["frigateServerUpdate"];
   readonly getControllerLogs?: MinerAdapter["getControllerLogs"];
   readonly listAuditEvents?: MinerAdapter["listAuditEvents"];
   readonly streamHashboardStatus?: MinerAdapter["streamHashboardStatus"];
   private deviceId: string | undefined;
   private readonly hashboardTimeSeriesCache = new Map<string, { expiresAtMs: number; data: QueryTimeSeriesResponse }>();
 
+  /**
+   * `serverUpdate` is Frigate's ServerUpdateService, which has no REST routes. Only a Connect transport provides it, so
+   * Fleet-hosted views, which use the REST client through Fleet's miner proxy, never offer local software updates.
+   */
   constructor(
     private readonly client: MdkV2Client,
     match: AdapterProbeMatch = {},
+    serverUpdate?: ServerUpdateClient,
   ) {
     this.deviceId = match.deviceId;
     this.hashboardFirmware = createHashboardFirmware(client, (params) => this.decorate(params));
+    if (serverUpdate)
+      this.frigateServerUpdate = createFrigateServerUpdate(serverUpdate, (params) => this.decorate(params));
     // Only the Connect client can bound the following log stream. The REST
     // client is generated with ListAuditEvents too, but its one caller, Fleet's
     // miner proxy, forwards neither route, so both reads follow the log reader.
@@ -180,11 +191,9 @@ export class MdkV2Adapter implements MinerAdapter {
    * class directly with a mock client.
    */
   static fromConfig(config: { baseUrl: string; protocol: MdkV2Protocol }, match: AdapterProbeMatch = {}): MdkV2Adapter {
-    const client: MdkV2Client =
-      config.protocol === "rest"
-        ? new Api({ baseUrl: config.baseUrl }).api
-        : createMdkV2Client(createConnectTransport({ baseUrl: config.baseUrl, useBinaryFormat: true }));
-    return new MdkV2Adapter(client, match);
+    if (config.protocol === "rest") return new MdkV2Adapter(new Api({ baseUrl: config.baseUrl }).api, match);
+    const transport = createConnectTransport({ baseUrl: config.baseUrl, useBinaryFormat: true });
+    return new MdkV2Adapter(createMdkV2Client(transport), match, createClient(ServerUpdateService, transport));
   }
 
   private containerDeviceId(context?: { deviceId: string }) {

@@ -169,6 +169,7 @@ func haPairSettingsFromEnv(cfg ContainerConfig, grpcPort, httpPort int) (haPairS
 			OutsideWindow:               envBool("CT1_UPDATE_FAULT_OUTSIDE_WINDOW"),
 			StaleContact:                envBool("CT1_UPDATE_FAULT_STALE_CONTACT"),
 			DriverReboot:                envBool("CT1_UPDATE_FAULT_DRIVER_REBOOT"),
+			FirmwareActive:              envBool("CT1_UPDATE_FAULT_FIRMWARE_ACTIVE"),
 			MigrateFailures:             failures,
 			Cooldown:                    cooldown,
 		},

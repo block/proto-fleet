@@ -7,6 +7,7 @@ import MinerSystemTagEditModal from "./MinerSystemTagEditModal";
 import { useSystemTag } from "@/protoOS/api";
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
 import CheckForUpdate from "@/protoOS/features/firmwareUpdate/components/CheckForUpdate";
+import ContainerFrigateSoftwareUpdate from "@/protoOS/features/firmwareUpdate/components/ContainerFrigateSoftwareUpdate";
 import ContainerHashboardFirmwareUpload from "@/protoOS/features/firmwareUpdate/components/ContainerHashboardFirmwareUpload";
 import {
   useAccessToken,
@@ -51,6 +52,8 @@ const General = () => {
   const { adapter, isFleetHosted, minerRoot } = useMinerHosting();
   // Local hashboard updates are offered only on a direct container connection. Fleet-hosted views keep Fleet's flow.
   const localHashboardFirmware = isContainer && !isFleetHosted ? adapter?.hashboardFirmware : undefined;
+  // Fleet runs its own controller updates, so the local workflow is for a direct CT1 connection only.
+  const localFrigateUpdate = isContainer && !isFleetHosted ? adapter?.frigateServerUpdate : undefined;
   const deviceId = systemInfo?.identity.deviceId;
 
   const pausedAuthAction = usePausedAuthAction();
@@ -176,6 +179,9 @@ const General = () => {
               <span>—</span>
             </Row>
           </>
+        ) : null}
+        {localFrigateUpdate && deviceId ? (
+          <ContainerFrigateSoftwareUpdate key={deviceId} update={localFrigateUpdate} deviceId={deviceId} />
         ) : null}
         {localHashboardFirmware && deviceId ? (
           <ContainerHashboardFirmwareUpload key={deviceId} firmware={localHashboardFirmware} deviceId={deviceId} />

@@ -177,6 +177,44 @@ flashing. Frigate must update its pinned ProtoOS release before this feature
 appears on physical containers. PSU firmware, controller software, and release
 archive upload are separate flows.
 
+### CT1 local controller software update
+
+On a direct CT1 connection, **Settings → General → Update controller software**
+updates Frigate on both HA controllers through Frigate's self-coordinated
+`ServerUpdateService`. Fleet-hosted views don't have it; they use Fleet's
+remote updates.
+
+- **Choose.** Pick the three files of one release: the `.deb` (at most
+  512 MiB), its `.deb.statement.json` and its `.deb.statement.sig`. ProtoOS
+  checks that they agree with each other and with what each controller
+  reports, and shows anything that blocks the update. The controllers verify
+  the signature themselves when the update starts, and the controller's
+  `update.allow_remote_trigger` setting applies.
+- **Copy.** The package is hashed and copied to each controller in 1 MiB
+  pieces, resuming an interrupted copy. A recovery record is saved in browser
+  storage first, and is shared between tabs of one browser.
+- **Start.** Start is sent once to the HA primary and never re-sent
+  automatically. A failed Start is settled by Status: an existing rollout is
+  followed; otherwise the copied package is offered again, at once after a
+  refusal (`InvalidArgument`, `FailedPrecondition`, `Unimplemented`) and after
+  Start's 60 s timeout plus a margin when the outcome is unknown.
+- **Follow.** The dialog polls Status. While Frigate is stopped its
+  maintenance service answers Status, Retry and Cancel, and ProtoOS shows its
+  booting screen; an update being followed stays on that screen with its
+  dialog open. With no record, ProtoOS looks for a rollout to follow, including
+  one started elsewhere.
+- **Retry and Cancel** appear when the rollout allows them. Each keeps its
+  idempotency key until the action is no longer offered or the rollout's
+  `updated_at` has changed, so a lost answer replays the same request.
+- **Discard** removes the copy from both controllers and keeps the record
+  until each confirms. **Stop tracking** is offered when the update can't be
+  followed; it changes nothing on the controllers.
+
+Frigate's `UPDATE_*` codes are worded for both apps in
+`src/shared/features/frigateUpdate/codeText.ts`. The simulator
+(`CT1_HA_PAIR=1`) serves `ServerUpdateService` over Connect; see
+`server/fake-ct1/README.md` for its trusted-key and refusal faults.
+
 ### CT1 on-device standalone
 
 CT1 uses the same `dist/protoOS` build as the standalone rig dashboard. The browser opens the MDK v2 API listener at `http://<controller>:8080/` and probes `/api/v2/system/info` on that origin. The CT1 adapter then makes same-origin Connect calls (`/mdk.v2.<Service>/<Method>`, binary protobuf) with the required `X-Frigate-Actor: proto-os` wire header, without a v1 bearer token or login/onboarding gate. No Vite server, minerproxy, CORS setup, or `PROXY_URL` is needed on the device. Locally, the ProtoOS Vite server proxies `/api/v1`, `/api/v2`, and `/mdk.v2.*` to `PROXY_URL`. Fleet-hosted CT1 views keep using the `/api/v2` REST routes because Fleet's miner proxy allowlists and authorizes those routes.

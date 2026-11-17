@@ -1,5 +1,6 @@
 import type { ContainerHistoryRequest, ContainerHistoryResult } from "./containerHistory";
 import type { ControllerDiagnosticsResult } from "./controllerDiagnostics";
+import type { FrigateServerUpdate } from "./frigateServerUpdate";
 import type { HashboardFirmware } from "./hashboardFirmware";
 import type { ChangePasswordRequest } from "./mdkV1";
 import type { ModuleVoltageSetting, ModuleVoltageWriteResult } from "./moduleVoltage";
@@ -198,6 +199,8 @@ export interface TimeSeriesQuery {
 
 export interface MinerAdapter {
   hashboardFirmware?: HashboardFirmware;
+  /** Frigate controller software update. Only on a direct CT1 connection. */
+  frigateServerUpdate?: FrigateServerUpdate;
   /**
    * Merge this adapter's own request decoration (auth headers, actor
    * attribution, …) into `params`. Each generation owns what its firmware

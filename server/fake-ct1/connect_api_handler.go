@@ -36,6 +36,10 @@ func registerConnectRoutes(mux *http.ServeMux, state *ContainerState) {
 	mux.Handle(mdkv2connect.NewPoolServiceHandler(api, options))
 	mux.Handle(mdkv2connect.NewRunInServiceHandler(api, options))
 	mux.Handle(mdkv2connect.NewFirmwareServiceHandler(api, options))
+	if state.ha != nil {
+		// Like native gRPC, update calls bypass the simulation lifecycle.
+		mux.Handle(mdkv2connect.NewServerUpdateServiceHandler(&connectServerUpdate{api: &serverUpdateAPI{sim: state.ha.sim, self: state.ha.self}}))
+	}
 }
 
 // simulationInterceptor gives each Connect call the shared request lifecycle
@@ -45,6 +49,10 @@ func simulationInterceptor(state *ContainerState) connect.UnaryInterceptorFunc {
 		return func(ctx context.Context, req connect.AnyRequest) (res connect.AnyResponse, err error) {
 			started := time.Now()
 			defer func() { state.metrics.record(req.Spec().Procedure, started, err != nil) }()
+			// While a rollout holds Frigate stopped, only the maintenance service answers.
+			if state.ha != nil && state.ha.sim.inMaintenance() {
+				return nil, connect.NewError(connect.CodeUnavailable, errors.New(maintenanceMessage))
+			}
 			if serveErr := state.serve(ctx, !boundToGET(req.Spec().Procedure), func() { res, err = next(ctx, req) }); serveErr != nil {
 				err = status.FromContextError(serveErr).Err()
 			}

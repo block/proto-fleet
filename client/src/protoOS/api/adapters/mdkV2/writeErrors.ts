@@ -3,7 +3,7 @@ import { Code } from "@connectrpc/connect";
 // The only codes the controller returns for container-control requests it rejects
 // before writing (not primary, unsupported backend, bad request). Any other failure
 // may have reached the PLC, so its outcome is unknown until readback.
-const CONTAINER_REFUSAL_CODES: ReadonlySet<number> = new Set<number>([
+export const CONTAINER_REFUSAL_CODES: ReadonlySet<number> = new Set<number>([
   Code.InvalidArgument,
   Code.FailedPrecondition,
   Code.Unimplemented,
