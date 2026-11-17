@@ -257,6 +257,11 @@ existing hashboards into the stopped `default` group before Fleet resumes it.
 Native gRPC and REST global start/stop share the same lifecycle behavior. Module and hashboard **Edit pool**
 actions become available after Fleet observes completed activation.
 
+The browser Connect gateway also exposes capability, group, membership, and
+group-pool reads for ProtoOS Settings → Pools. These share native state. Group
+mutations remain on native gRPC; the browser inspection view cannot enable,
+create, or transfer groups.
+
 The fixture supports capability and membership reads, group creation, ordered
 pool replacement (including explicit empty replacements), exact-board transfers, mining intent, operation receipts, and
 empty-group deletion. New groups start stopped. Groups without enabled pools do

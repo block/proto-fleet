@@ -8,6 +8,7 @@ import {
   V2PowerFeedState,
   type V2Slot,
 } from "./generated/generatedApi";
+import { slotPosition } from "./slotPosition";
 import type {
   PowerFeedConfidence,
   PowerFeedModuleRef,
@@ -78,9 +79,7 @@ function moduleSlots(slots: V2Slot[] | undefined): SlotEvidence[] {
         configuredModule: slot.configuredLocation?.module || undefined,
       },
     };
-    // Tolerates positions serialized as strings.
-    const configured = Number(slot.configuredLocation?.hashboardPosition ?? 0) || 0;
-    const position = Number(location?.hashboardPosition ?? 0) || configured;
+    const { configured, position } = slotPosition(slot);
     if (position < 1 || position > BOARDS_PER_MODULE) {
       extra.push({ ...evidence, invalid: true });
       continue;

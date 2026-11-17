@@ -114,6 +114,38 @@ before retrying. This control is unavailable in Fleet-hosted views;
 the R2 catalog update flow remains available. R2 images must bundle a ProtoOS release
 containing this feature before operators can use it on-device.
 
+### CT1 local pool configuration
+
+On a direct CT1 connection, **Settings → Pools** reads mining-group mode before
+offering container-wide edits. When groups are enabled, the page shows group
+membership, reported board locations, pending changes, and assignment issues.
+Open a group to read its configured pools, complete usernames, enabled state,
+priority, and any saved weights. Pool details load on demand. These are
+controller-reported settings, not proof that every board has applied them.
+Frigate stores the complete pool username; ProtoOS does not extract or infer a
+separate worker name.
+
+Container-wide edits remain available when the controller reports the supported
+group protocol with groups disabled, no suspension, and no pending group change.
+Every write checks that state again. Reorders perform one full preflight, then
+check the mode revision before each priority write and stop if it changes.
+After any successful priority write, a later failure reports that some priorities
+were saved and the final order is unconfirmed. Authentication errors keep their
+status and show sign-in guidance; neither writes nor reorders are replayed.
+Pool `FailedPrecondition` responses remain uncertain because Frigate can return
+them after saving a change when its live reload fails.
+This client preflight is not an authorization boundary or an
+atomic lock against another controller client. Failed reads keep editing blocked
+until a successful reload. Disabled mode reads only capability and operation
+state; leftover group records do not gate legacy editing. In group mode,
+membership stability uses group IDs and revisions, so live transfer progress
+does not invalidate the view. Operation details appear in both modes. Terminal
+`COMPLETE` and `FAILED` receipts do not block legacy editing; unfinished work
+still blocks it even when it reports an error.
+Use **Reload pools** to refresh the configuration.
+Group edits and transfers are not offered by this view. Fleet-hosted ProtoOS
+keeps its existing read-only pool view; hosted assignments are managed in Fleet.
+
 ### CT1 local hashboard firmware
 
 On a direct CT1 connection, **Settings → General → Firmware → Upload hashboard
