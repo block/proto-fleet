@@ -97,7 +97,7 @@ All settings are Fleet server flags with environment variables:
 | --- | --- | --- |
 | `FRIGATE_UPDATE_PACKAGE_DIR` | `firmware/frigate-packages` | Where uploaded packages are stored. The default is inside the persisted firmware volume (`artifacts/firmware` is mounted at `/app/firmware` by the standard compose files), so the packages survive container recreation. Any other directory must be on persistent storage and writable by the server user. |
 | `FRIGATE_UPDATE_MAX_PACKAGE_SIZE` | `536870912` | Largest package Fleet accepts, in bytes. |
-| `FRIGATE_UPDATE_RELEASE_KEYS_DIR` | empty | Directory of trusted release public keys. Empty disables package upload; the rest of the feature still works for packages already stored. |
+| `FRIGATE_UPDATE_RELEASE_KEYS_DIR` | empty | Directory of trusted release public keys. Empty disables package upload; the rest of the feature still works for packages already stored. With the standard compose deployment, set it to `/app/frigate-release-keys` (see [Release key directory](#release-key-directory)). |
 | `FRIGATE_UPDATE_POLL_INTERVAL` | `5s` | Runner tick and rollout status poll interval. |
 | `FRIGATE_UPDATE_STAGE_STALL_TIMEOUT` | `10m` | Staging that makes no progress for this long fails the job. |
 | `FRIGATE_UPDATE_START_TIMEOUT` | `10m` | A job that has been `starting` this long, with a fresh status read showing Frigate never accepted the job, is failed with `FLEET_START_TIMEOUT`. |
@@ -129,8 +129,20 @@ chmod 0644 /etc/fleet/frigate-release-keys/release-2026.pem
 export FRIGATE_UPDATE_RELEASE_KEYS_DIR=/etc/fleet/frigate-release-keys
 ```
 
-With the standard compose deployment, mount the directory read-only into the
-`fleet-api` container and set the variable there.
+The standard compose deployment (`deployment-files/docker-compose.yaml`) already
+mounts `artifacts/frigate-release-keys` read-only at `/app/frigate-release-keys`
+in the `fleet-api` container. The `artifacts` directory sits beside `deployment`
+and survives installer and updater tree swaps. To turn on package upload, copy
+the key in and point the variable at the mount in the deployment `.env`:
+
+```bash
+sudo mkdir -p <install>/artifacts/frigate-release-keys
+sudo install -m 0644 frigate-release.pem <install>/artifacts/frigate-release-keys/
+echo 'FRIGATE_UPDATE_RELEASE_KEYS_DIR=/app/frigate-release-keys' | sudo tee -a <install>/deployment/.env
+```
+
+Then recreate `fleet-api` so it picks up the variable. Later key changes need no
+restart. HA deployments do not mount this directory yet.
 
 A key file may be a symlink (Kubernetes secret mounts and `ln -s` rotations are
 followed; a dangling link is an error). A `.pem` file that holds no key, or any
