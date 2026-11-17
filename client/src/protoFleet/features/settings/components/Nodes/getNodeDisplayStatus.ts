@@ -8,7 +8,6 @@ export type NodeDisplayStatus =
   | "connected"
   | "heartbeatOnly"
   | "upgradeRequired"
-  | "upgradeRecommended"
   | "stale"
   | "neverConnected"
   | "awaitingConfirmation"
@@ -22,7 +21,6 @@ export const getNodeDisplayStatus = (node: FleetNodeItem): NodeDisplayStatus => 
     case FleetNodeEnrollmentStatus.CONFIRMED:
       if (node.commandProtocolUpgradeRequired && node.controlStreamConnected) return "upgradeRequired";
       if (node.lastSeenAt && Date.now() - node.lastSeenAt.getTime() > STALE_AFTER_MS) return "stale";
-      if (node.commandProtocolUpgradeRecommended && node.controlStreamConnected) return "upgradeRecommended";
       if (!node.lastSeenAt) return "neverConnected";
       return node.controlStreamConnected ? "connected" : "heartbeatOnly";
     case FleetNodeEnrollmentStatus.REVOKED:
@@ -30,4 +28,14 @@ export const getNodeDisplayStatus = (node: FleetNodeItem): NodeDisplayStatus => 
     default:
       return "pending";
   }
+};
+
+export type NodeUpgradeStatus = "required" | "recommended";
+
+// The server only reports protocol upgrades for a live control connection, so
+// a disconnected node's last-known version carries no upgrade state.
+export const getNodeUpgradeStatus = (node: FleetNodeItem): NodeUpgradeStatus | null => {
+  if (node.enrollmentStatus !== FleetNodeEnrollmentStatus.CONFIRMED || !node.controlStreamConnected) return null;
+  if (node.commandProtocolUpgradeRequired) return "required";
+  return node.commandProtocolUpgradeRecommended ? "recommended" : null;
 };

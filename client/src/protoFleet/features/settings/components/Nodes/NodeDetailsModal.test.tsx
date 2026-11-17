@@ -83,6 +83,14 @@ describe("NodeDetailsModal", () => {
     },
   );
 
+  it("spells out a recommended upgrade beside the version, not as the connection", () => {
+    show({ commandProtocolUpgradeRecommended: true });
+
+    expect(screen.getByText("Version").nextSibling).toHaveTextContent("v0.5.1-internal.3Upgrade recommended");
+    expect(screen.getByText("Upgrade recommended")).not.toHaveClass("sr-only");
+    expect(screen.getByText("Connection").nextSibling).toHaveTextContent("Connected");
+  });
+
   it("hides the HA section for a standalone node", () => {
     show();
 
