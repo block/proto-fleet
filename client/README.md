@@ -125,6 +125,11 @@ controller-reported settings, not proof that every board has applied them.
 Frigate stores the complete pool username; ProtoOS does not extract or infer a
 separate worker name.
 
+Hashboard counts stay visible on each group. **View hashboards** opens a separate
+list with search by MAC address or location and 25 rows per page. Boards sort by
+tank, module, and board number, with unknown locations last. Paging limits rows
+rendered in the browser; the controller still returns all assignment records.
+
 Container-wide edits remain available when the controller reports the supported
 group protocol with groups disabled, no suspension, and no pending group change.
 Every write checks that state again. Reorders perform one full preflight, then

@@ -1,4 +1,6 @@
 import type { ContainerPoolConfiguration } from "@/protoOS/api/adapters/poolConfiguration";
+import { Alert } from "@/shared/assets/icons";
+import Callout, { intents } from "@/shared/components/Callout";
 import Row from "@/shared/components/Row";
 
 export default function MiningGroupOperations({
@@ -15,7 +17,11 @@ export default function MiningGroupOperations({
           <p>
             {operation.kind} · {operation.phase}
           </p>
-          {operation.error ? <p>{operation.error}</p> : null}
+          {operation.error ? (
+            <div role="alert" className="my-2">
+              <Callout intent={intents.danger} prefixIcon={<Alert />} title={operation.error} />
+            </div>
+          ) : null}
           {operation.boards.length ? (
             <p className="text-200 break-words text-text-primary-70">{operation.boards.join(", ")}</p>
           ) : null}

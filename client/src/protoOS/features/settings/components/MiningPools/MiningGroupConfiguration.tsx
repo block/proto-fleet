@@ -1,12 +1,11 @@
 import { useEffect, useState } from "react";
 import MiningGroupOperations from "./MiningGroupOperations";
-import type {
-  ContainerPoolConfiguration,
-  MiningGroupPoolSettings,
-  PoolBoardAssignment,
-} from "@/protoOS/api/adapters/poolConfiguration";
+import PoolHashboards from "./PoolHashboards";
+import type { ContainerPoolConfiguration, MiningGroupPoolSettings } from "@/protoOS/api/adapters/poolConfiguration";
 import type { MinerAdapter } from "@/protoOS/api/adapters/types";
+import { Alert, ChevronDown } from "@/shared/assets/icons";
 import Button from "@/shared/components/Button";
+import Callout, { intents } from "@/shared/components/Callout";
 import Card, { cardType } from "@/shared/components/Card";
 import ProgressCircular from "@/shared/components/ProgressCircular";
 import Row from "@/shared/components/Row";
@@ -17,19 +16,6 @@ interface GroupProps {
   adapter: PoolGroupReader;
   group: ContainerPoolConfiguration["groups"][number];
 }
-
-const BoardAssignments = ({ boards }: { boards: PoolBoardAssignment[] }) => (
-  <ul className="break-words">
-    {boards.map((board) => (
-      <li key={board.mac}>
-        <Row>
-          <div>{board.location ?? "Location unavailable"}</div>
-          <div className="text-200 text-text-primary-70">{board.mac}</div>
-        </Row>
-      </li>
-    ))}
-  </ul>
-);
 
 function GroupPools({ adapter, group }: GroupProps) {
   const [pools, setPools] = useState<MiningGroupPoolSettings[]>();
@@ -48,14 +34,23 @@ function GroupPools({ adapter, group }: GroupProps) {
   }, [adapter, group.id, group.revision]);
 
   if (failed)
-    return <p role="alert">Could not read this group's pools. Reload pools to read the current configuration.</p>;
+    return (
+      <div role="alert">
+        <Callout
+          intent={intents.danger}
+          prefixIcon={<Alert />}
+          title="Could not load group pools."
+          subtitle="Reload pools to try again."
+        />
+      </div>
+    );
   if (!pools) return <ProgressCircular indeterminate />;
-  if (!pools.length) return <p>No pools configured for this group.</p>;
+  if (!pools.length) return <p className="text-300 text-text-primary-70">No pools configured for this group.</p>;
   return (
     <ul>
       {pools.map((pool, index) => (
         <li key={`${pool.id}:${index}`}>
-          <Row>
+          <Row divider={index < pools.length - 1} className={index === 0 ? "pt-0" : undefined}>
             <div className="text-emphasis-300 break-words">{pool.name || pool.url || "Unnamed pool"}</div>
             <dl className="space-y-1 text-200 break-words">
               <div>
@@ -93,28 +88,32 @@ function Group({ adapter, group }: GroupProps) {
       headerAction={
         <Button
           variant="textOnly"
-          text={`${detailsAction} details`}
-          ariaLabel={`${detailsAction} ${group.name} details`}
+          textColor="text-text-primary-70"
+          className="p-2"
+          prefixIcon={<ChevronDown width="w-4" className={open ? undefined : "-rotate-90"} />}
+          ariaLabel={`${detailsAction} ${group.name} pools`}
           ariaExpanded={open}
           onClick={() => setOpen(!open)}
         />
       }
     >
-      <p className="text-200 text-text-primary-70">
-        {group.boards.length} {group.boards.length === 1 ? "hashboard" : "hashboards"}
-      </p>
       {open ? (
-        <>
-          <h4 className="text-emphasis-300">Configured pools</h4>
+        <section aria-label="Configured pools">
           {group.revision && adapter.getMiningGroupPoolSettings ? (
             <GroupPools adapter={adapter} group={group} />
           ) : (
-            <p role="alert">Group details are unavailable. Reload pools.</p>
+            <div role="alert">
+              <Callout
+                intent={intents.danger}
+                prefixIcon={<Alert />}
+                title="Group details are unavailable."
+                subtitle="Reload pools to try again."
+              />
+            </div>
           )}
-          <h4 className="text-emphasis-300">Assigned hashboards</h4>
-          {group.boards.length ? <BoardAssignments boards={group.boards} /> : <p>No hashboards assigned.</p>}
-        </>
+        </section>
       ) : null}
+      <PoolHashboards boards={group.boards} title={`${group.name} hashboards`} countLabel="Assigned hashboards" />
     </Card>
   );
 }
@@ -128,29 +127,37 @@ export default function MiningGroupConfiguration({
 }) {
   return (
     <div className="space-y-6">
-      <p>
-        Mining groups are enabled. Container-wide pool editing is unavailable here. Manage hosted assignments from
-        Fleet.
-      </p>
-      <p className="text-200 text-text-primary-70">
-        These are controller-reported assignments and configured usernames. They do not confirm that each board has
-        applied the settings.
-      </p>
-      {configuration.suspended ? <p role="status">Mining groups are suspended.</p> : null}
+      {configuration.suspended ? (
+        <div role="status">
+          <Callout intent={intents.warning} prefixIcon={<Alert />} title="Container mining is paused." />
+        </div>
+      ) : null}
       {!configuration.locationsAvailable ? (
-        <p role="status">Board locations are unavailable. Assignments are shown by MAC address.</p>
+        <div role="status">
+          <Callout
+            intent={intents.warning}
+            prefixIcon={<Alert />}
+            title="Board locations are unavailable."
+            subtitle="Boards are listed by MAC address."
+          />
+        </div>
       ) : null}
       <MiningGroupOperations operations={configuration.pendingOperations} />
       {configuration.inventoryIssues.length ? (
-        <section aria-label="Assignment issues">
+        <section aria-label="Assignment issues" className="space-y-3">
           <h3 className="text-emphasis-300">Assignment issues</h3>
           {configuration.inventoryIssues.map((issue, index) => (
-            <Row key={index}>
-              <p className="break-words">
-                {issue.mac || configuration.groups.find((group) => group.id === issue.groupId)?.name || "Container"}:{" "}
-                {issue.reason}
-              </p>
-            </Row>
+            <div key={index} role="alert">
+              <Callout
+                intent={intents.warning}
+                prefixIcon={<Alert />}
+                title={issue.reason}
+                subtitle={
+                  issue.mac || configuration.groups.find((group) => group.id === issue.groupId)?.name || "Container"
+                }
+                className="break-words"
+              />
+            </div>
           ))}
         </section>
       ) : null}
@@ -159,12 +166,13 @@ export default function MiningGroupConfiguration({
       ))}
       {!configuration.groups.length ? <p>No mining groups reported.</p> : null}
       {configuration.unassignedBoards.length ? (
-        <details>
-          <summary className="cursor-pointer text-emphasis-300">
-            No reported group assignment ({configuration.unassignedBoards.length})
-          </summary>
-          <BoardAssignments boards={configuration.unassignedBoards} />
-        </details>
+        <section aria-label="No reported group assignment" className="space-y-3">
+          <h3 className="text-emphasis-300">No reported group assignment</h3>
+          <PoolHashboards
+            boards={configuration.unassignedBoards}
+            title="Hashboards with no reported group assignment"
+          />
+        </section>
       ) : null}
     </div>
   );

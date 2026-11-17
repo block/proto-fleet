@@ -84,10 +84,15 @@ test("mining groups show scoped usernames and assignments without container edit
   expect(screen.queryByText("Add pool")).not.toBeInTheDocument();
   expect(state.adapter.getPoolSettings).not.toHaveBeenCalled();
   expect(state.adapter.getMiningGroupPoolSettings).not.toHaveBeenCalled();
-  fireEvent.click(screen.getByRole("button", { name: "View Client A details" }));
+  fireEvent.click(screen.getByRole("button", { name: "View Client A hashboards" }));
+  expect(screen.getByRole("dialog", { name: "Client A hashboards" })).toBeInTheDocument();
+  expect(screen.getByText("Tank 1 · Module 2 · Board 3")).toBeInTheDocument();
+  expect(state.adapter.getMiningGroupPoolSettings).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole("button", { name: "Close dialog" }));
+  fireEvent.click(screen.getByRole("button", { name: "View Client A pools" }));
   expect(await screen.findByText("account.region.board-01")).toBeInTheDocument();
   expect(screen.getByText("Disabled · Priority 1")).toBeInTheDocument();
-  expect(screen.getByText("Tank 1 · Module 2 · Board 3")).toBeInTheDocument();
+  expect(screen.queryByText("Tank 1 · Module 2 · Board 3")).not.toBeInTheDocument();
   expect(state.adapter.getMiningGroupPoolSettings).toHaveBeenCalledWith(
     "client-a",
     "7",

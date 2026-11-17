@@ -7,7 +7,9 @@ import { type ContainerPoolConfiguration, hasPendingPoolOperations } from "@/pro
 import type { MinerAdapter, SavedPoolSettings } from "@/protoOS/api/adapters/types";
 import Pools from "@/protoOS/components/MiningPools/Pools";
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
+import { Alert } from "@/shared/assets/icons";
 import Button from "@/shared/components/Button";
+import Callout, { intents } from "@/shared/components/Callout";
 import ContentHeader from "@/shared/components/ContentHeader";
 import { emptyPoolInfo } from "@/shared/components/MiningPools/constants";
 import PoolModal from "@/shared/components/MiningPools/PoolModal";
@@ -63,7 +65,7 @@ const ContainerMiningPools = () => {
   const controlsDisabled = busy || unavailable || refreshing;
   let subtitle = "Read the controller's pool configuration.";
   if (configuration?.mode === "groups") {
-    subtitle = "Inspect pool configuration by mining group and hashboard.";
+    subtitle = "Pools are managed by mining groups.";
   } else if (configuration) {
     subtitle =
       "Add up to 3 pools in order of priority. If a pool fails or is removed, the container switches to the next available pool automatically.";
@@ -178,7 +180,7 @@ const ContainerMiningPools = () => {
       <ContentHeader title="Pools" subtitle={subtitle} />
       {error ? (
         <div role="alert" className="mb-6 space-y-3">
-          <p>{error}</p>
+          <Callout intent={intents.danger} prefixIcon={<Alert />} title={error} />
           {unavailable ? (
             <Button variant="secondary" text="Reload pools" disabled={refreshing} onClick={reloadPools} />
           ) : null}
@@ -195,10 +197,14 @@ const ContainerMiningPools = () => {
       ) : null}
       {configuration?.mode === "container" && !canEditContainerPools ? (
         <>
-          <p className="mb-6" role="status">
-            {configuration.suspended ? "Mining groups are suspended." : "A mining-group change is pending."}{" "}
-            Container-wide pool editing is unavailable. Reload pools after the change finishes.
-          </p>
+          <div className="mb-6" role="status">
+            <Callout
+              intent={intents.warning}
+              prefixIcon={<Alert />}
+              title={configuration.suspended ? "Container mining is paused." : "A mining-group change is pending."}
+              subtitle="Container-wide pool editing is unavailable. Reload pools to check again."
+            />
+          </div>
           <ReadOnlyMiningPools pools={pools ?? []} showHeader={false} />
         </>
       ) : null}

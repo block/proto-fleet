@@ -47,6 +47,25 @@ const pools: MiningGroupPoolSettings[] = [
 const adapter = { getMiningGroupPoolSettings: async () => pools };
 
 export const Groups = () => <MiningGroupConfiguration configuration={configuration} adapter={adapter} />;
+const manyBoards = Array.from({ length: 3000 }, (_, index) => ({
+  mac: `02:00:${index.toString(16).padStart(8, "0").match(/../g)!.join(":")}`,
+  location:
+    index === 2999
+      ? undefined
+      : `Tank ${Math.floor(index / 48) + 1} · Module ${(Math.floor(index / 3) % 16) + 1} · Board ${(index % 3) + 1}`,
+})).reverse();
+export const ManyHashboards = () => (
+  <MiningGroupConfiguration
+    configuration={{
+      ...configuration,
+      groups: [{ id: "large", name: "Large group", revision: "1", boards: manyBoards }],
+      unassignedBoards: [],
+      pendingOperations: [],
+      inventoryIssues: [],
+    }}
+    adapter={adapter}
+  />
+);
 export const Suspended = () => (
   <MiningGroupConfiguration
     configuration={{ ...configuration, suspended: true, locationsAvailable: false }}
