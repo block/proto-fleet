@@ -108,7 +108,7 @@ func newRPCFixture(t *testing.T) rpcFixture {
 	mux.Handle(poolconfigurationsv1connect.NewPoolConfigurationServiceHandler(poolhandler.NewHandler(configurationService), options))
 	mux.Handle(maintenancev1connect.NewMaintenanceServiceHandler(maintenancehandler.NewHandler(ticketService), options))
 	invitations := domain.NewInvitationService(accounts, sessions)
-	mux.Handle(hostedv1connect.NewHostedAccountServiceHandler(hostedhandler.NewHandler(accounts, invitations, accountKeys, users, permissions), options))
+	mux.Handle(hostedv1connect.NewHostedAccountServiceHandler(hostedhandler.NewHandler(accounts, invitations, accountKeys, users, permissions), options, hostedhandler.ReportingRequestReadLimitOption()))
 	mux.Handle(invitationv1connect.NewInvitationServiceHandler(invitationhandler.NewHandler(invitations, domain.NewTeamInvitationService(accounts, sessions)), options))
 	mux.Handle(authv1connect.NewAuthServiceHandler(authhandler.NewHandler(authService), options))
 	clientIP, err := middleware.NewClientIPMiddleware("")

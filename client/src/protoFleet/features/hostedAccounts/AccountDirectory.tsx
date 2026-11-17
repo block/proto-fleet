@@ -47,7 +47,7 @@ const AccountDirectory = () => {
   if (root)
     return (
       <AccountLayout items={[{ path: "/accounts", label: "Clients", icon: Groups, exact: true }]} roleLabel="Clients">
-        <div className="p-10 phone:p-6">
+        <div className="flex flex-col gap-6 p-10 phone:p-6">
           <ClientDirectory key={`${root.accountId}:${generation}`} root={root} />
         </div>
       </AccountLayout>
@@ -57,7 +57,9 @@ const AccountDirectory = () => {
       <div className="flex flex-col gap-6 p-10 phone:p-6">
         <div className="flex items-start justify-between gap-4 phone:flex-col">
           <SettingsPageHeader title="Accounts" />
-          <Button variant="secondary" text="Use an invitation code" to="/account-invitation" />
+          <div className="flex flex-wrap gap-3">
+            <Button variant="secondary" text="Use an invitation code" to="/account-invitation" />
+          </div>
         </div>
         <AccountState loading={directory.loading} error={directory.error} retry={directory.refresh} />
         {!directory.loading && !directory.error ? (

@@ -35,7 +35,9 @@ function mount(
   const refresh = vi.fn();
   render(
     <MemoryRouter initialEntries={[`/accounts/${account.accountId}/${section}`]}>
-      <HostedAccountsContext.Provider value={{ accounts, hostAccess, loading: false, error: null, refresh }}>
+      <HostedAccountsContext.Provider
+        value={{ reportingAccess: false, accounts, hostAccess, loading: false, error: null, refresh }}
+      >
         <Routes>
           <Route path="/accounts/:accountId/:section?" element={<AccountWorkspace />} />
           <Route path="/accounts/:accountId/manage/:section?" element={<AccountWorkspace management />} />

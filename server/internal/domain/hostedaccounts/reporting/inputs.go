@@ -11,11 +11,13 @@ import (
 	"slices"
 	"strings"
 	"time"
+
+	"github.com/google/uuid"
 )
 
-const meterQualityEstimated = "estimated"
-
 const reportKindQuarterly = "quarterly"
+const meterQualityEstimated = "estimated"
+const meterQualityMeasured = "measured"
 
 // Asset kinds match the mining contract without coupling pure calculations to
 // protobuf types. Module history remains distinct from stable board ownership.
@@ -33,7 +35,6 @@ type Period struct {
 	End               time.Time `json:"end"`
 	AsOf              time.Time `json:"asOf"`
 	Timezone          string    `json:"timezone"`
-	YearStart         time.Time `json:"yearStart,omitempty"`
 }
 
 type Prerequisite struct {
@@ -54,7 +55,19 @@ type RegisterCompleteness struct {
 	End       time.Time `json:"end"`
 	SourceRef string    `json:"sourceRef"`
 }
+
+// Schedule records the first required periods from an explicit reviewed calendar.
+// Zero starts disable that cadence; no agreement start is inferred.
+type Schedule struct {
+	OwnerUserID    string    `json:"ownerUserId"`
+	SourceRef      string    `json:"sourceRef"`
+	MonthlyStart   time.Time `json:"monthlyStart,omitempty"`
+	QuarterlyStart time.Time `json:"quarterlyStart,omitempty"`
+	AnnualStart    time.Time `json:"annualStart,omitempty"`
+}
+
 type Configuration struct {
+	Schedule            *Schedule              `json:"schedule,omitempty"`
 	Registers           []RegisterCompleteness `json:"registers"`
 	ContractRef         string                 `json:"contractRef"`
 	Timezone            string                 `json:"timezone"`
@@ -332,6 +345,38 @@ func (in Inputs) ValidateContext(ctx context.Context) error {
 	}
 	if c.ReportingYearMonth == 2 && c.ReportingYearDay == 29 {
 		return fmt.Errorf("February 29 reporting year requires an approved non-leap-year boundary rule")
+	}
+	if c.Schedule != nil {
+		schedule := c.Schedule
+		if _, err := uuid.Parse(schedule.OwnerUserID); err != nil || !text(schedule.SourceRef) {
+			return fmt.Errorf("schedule requires an owner UUID and calendar evidence")
+		}
+		enabled := false
+		for kind, start := range map[string]time.Time{"monthly": schedule.MonthlyStart, reportKindQuarterly: schedule.QuarterlyStart, "annual": schedule.AnnualStart} {
+			if start.IsZero() {
+				continue
+			}
+			enabled = true
+			loc, _ := time.LoadLocation(c.Timezone)
+			start = start.In(loc)
+			months := 1
+			if kind == reportKindQuarterly {
+				months = 3
+			}
+			if kind == "annual" {
+				months = 12
+			}
+			period := Period{Kind: kind, Start: start, End: start.AddDate(0, months, 0), AsOf: start.AddDate(0, months, 0), Timezone: c.Timezone}
+			if err := period.Validate(); err != nil {
+				return fmt.Errorf("invalid schedule %s boundary: %w", kind, err)
+			}
+			if kind == "annual" && (int(start.Month()) != c.ReportingYearMonth || start.Day() != c.ReportingYearDay) {
+				return fmt.Errorf("schedule annual start must match the reporting year")
+			}
+		}
+		if !enabled {
+			return fmt.Errorf("schedule requires an explicit first period")
+		}
 	}
 	if len(c.Registers) > 1000 {
 		return fmt.Errorf("too many register completeness intervals")

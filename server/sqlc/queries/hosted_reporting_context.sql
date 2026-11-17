@@ -179,3 +179,15 @@ WITH base AS NOT MATERIALIZED (
 SELECT f.row_id,f.kind,f.fact_id,f.payload_bytes FROM base f JOIN selected s ON s.row_id=f.row_id
 WHERE (f.kind,f.fact_id)>(sqlc.arg(after_kind)::text COLLATE "C",sqlc.arg(after_id)::text COLLATE "C")
 ORDER BY f.kind,f.fact_id LIMIT sqlc.arg(page_limit)::bigint;
+
+-- name: ReportingPeriodHasCoverage :one
+SELECT EXISTS (
+ SELECT 1 FROM hosted_reporting_fact f
+ WHERE organization_id=sqlc.arg(organization_id) AND account_id=sqlc.arg(account_id) AND kind='coverage'
+ AND start_at<=sqlc.arg(period_end)::timestamptz+interval '1 microsecond'
+ AND (start_seconds,start_nanos)<(sqlc.arg(end_seconds)::bigint,sqlc.arg(end_nanos)::bigint)
+ AND (end_at IS NULL OR (end_at>=sqlc.arg(period_start)::timestamptz-interval '1 microsecond'
+  AND (extract(epoch FROM regexp_replace(payload->>'end','[.][0-9]+','')::timestamptz)
+   +COALESCE(('0.'||substring(payload->>'end' FROM '[.]([0-9]+)'))::numeric,0))
+   >(sqlc.arg(start_seconds)::bigint::numeric+sqlc.arg(start_nanos)::bigint::numeric/1000000000)))
+)::boolean;

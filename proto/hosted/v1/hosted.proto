@@ -3,6 +3,8 @@ syntax = "proto3";
 package hosted.v1;
 
 import "buf/validate/validate.proto";
+import "hosted/v1/reporting.proto";
+import "hosted/v1/analysis.proto";
 import "activity/v1/activity.proto";
 import "maintenance/v1/maintenance.proto";
 import "common/v1/equipment_coverage.proto";
@@ -20,6 +22,32 @@ enum AssetAssignmentErrorCode {
 // Every private account operation names its account; names are display labels.
 // invitation.v1.InvitationService redeems the invitation codes issued here.
 service HostedAccountService {
+  rpc GenerateAccountAnalysis(GenerateAccountAnalysisRequest) returns (GenerateAccountAnalysisResponse);
+  rpc ListAccountAnalyses(ListAccountAnalysesRequest) returns (ListAccountAnalysesResponse);
+  rpc GetAccountAnalysis(GetAccountAnalysisRequest) returns (GetAccountAnalysisResponse);
+  rpc DeleteAccountAnalysis(DeleteAccountAnalysisRequest) returns (DeleteAccountAnalysisResponse);
+  rpc ExportAccountAnalysis(ExportAccountAnalysisRequest) returns (stream ExportAccountAnalysisResponse);
+ rpc ListHostReportQueue(ListHostReportQueueRequest) returns (ListHostReportQueueResponse);
+ rpc AcknowledgeHostReportQueue(AcknowledgeHostReportQueueRequest) returns (AcknowledgeHostReportQueueResponse);
+ rpc RetryHostReportQueueNotification(RetryHostReportQueueNotificationRequest) returns (RetryHostReportQueueNotificationResponse);
+  rpc CreateHostReportRequest(CreateHostReportRequestRequest) returns (CreateHostReportRequestResponse);
+  rpc RecordHostReportRequestFulfillment(RecordHostReportRequestFulfillmentRequest) returns (RecordHostReportRequestFulfillmentResponse);
+  rpc ListHostReportRequests(ListHostReportRequestsRequest) returns (ListHostReportRequestsResponse);
+  rpc ListHostReportingAccounts(ListHostReportingAccountsRequest) returns (ListHostReportingAccountsResponse);
+  rpc GetHostReportingSetup(GetHostReportingSetupRequest) returns (GetHostReportingSetupResponse);
+  rpc SetHostReportingAuthority(SetHostReportingAuthorityRequest) returns (SetHostReportingAuthorityResponse);
+  rpc MutateHostReportingInputs(MutateHostReportingInputsRequest) returns (MutateHostReportingInputsResponse);
+  rpc ListHostReportingFacts(ListHostReportingFactsRequest) returns (ListHostReportingFactsResponse);
+  rpc PrepareHostReport(PrepareHostReportRequest) returns (PrepareHostReportResponse);
+  rpc PublishHostReport(PublishHostReportRequest) returns (PublishHostReportResponse);
+  rpc ListHostReports(ListHostReportsRequest) returns (ListHostReportsResponse);
+  rpc GetHostReport(GetHostReportRequest) returns (GetHostReportResponse);
+  rpc RecordHostReportDelivery(RecordHostReportDeliveryRequest) returns (RecordHostReportDeliveryResponse);
+  rpc ListAccountReports(ListAccountReportsRequest) returns (ListAccountReportsResponse);
+  rpc GetAccountReport(GetAccountReportRequest) returns (GetAccountReportResponse);
+  rpc ExportAccountReport(ExportAccountReportRequest) returns (stream ExportAccountReportResponse);
+  rpc ExportHostReport(ExportHostReportRequest) returns (stream ExportHostReportResponse);
+
   rpc ListAccountTickets(ListAccountTicketsRequest) returns (ListAccountTicketsResponse);
   rpc GetAccountTicket(GetAccountTicketRequest) returns (GetAccountTicketResponse);
   rpc CreateAccountTicket(CreateAccountTicketRequest) returns (CreateAccountTicketResponse);
@@ -100,7 +128,7 @@ enum AccountRole {
 }
 
 // Capability mask: view=1, manage pool configurations=2, change pools=4,
-// manage memberships=8, delegate/recall=16. Ancestor grants remain explicit.
+// manage memberships=8, delegate/recall=16, generate ad hoc reports=32. Ancestor grants remain explicit.
 message Account {
   string account_id = 1;
   string parent_account_id = 2;
@@ -195,7 +223,7 @@ message CreateAccountRequest {
   // membership. Customer-created subclients use the creator as administrator.
   // An explicitly selected user becomes the initial member; users are not enumerated.
   optional string administrator_user_id = 3 [(buf.validate.field).string.uuid = true];
-  uint64 capabilities = 4 [(buf.validate.field).uint64 = {gte: 1, lte: 31}];
+  uint64 capabilities = 4 [(buf.validate.field).uint64 = {gte: 1, lte: 63}];
 }
 message CreateAccountResponse { Account account = 1; }
 
@@ -204,7 +232,7 @@ message ConfigureAccountRequest {
   // The active parent workspace controls only its directly delegated child.
   string account_id = 1 [(buf.validate.field).string.uuid = true];
   string child_account_id = 2 [(buf.validate.field).string.uuid = true];
-  uint64 capabilities = 3 [(buf.validate.field).uint64 = {gte: 1, lte: 31}];
+  uint64 capabilities = 3 [(buf.validate.field).uint64 = {gte: 1, lte: 63}];
   bool suspended = 4;
 }
 message ConfigureAccountResponse {}
@@ -234,7 +262,7 @@ message ListAncestorGrantsResponse { repeated AncestorGrant grants = 1; }
 message SetAncestorGrantRequest {
   string account_id = 1 [(buf.validate.field).string.uuid = true];
   string ancestor_account_id = 2 [(buf.validate.field).string.uuid = true];
-  uint64 capabilities = 3 [(buf.validate.field).uint64 = {gte: 1, lte: 31}];
+  uint64 capabilities = 3 [(buf.validate.field).uint64 = {gte: 1, lte: 63}];
 }
 message SetAncestorGrantResponse {}
 message RevokeAncestorGrantRequest {

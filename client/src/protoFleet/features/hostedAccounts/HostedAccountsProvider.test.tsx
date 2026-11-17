@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { act, render, screen, waitFor } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { create } from "@bufbuild/protobuf";
 import { Code, ConnectError } from "@connectrpc/connect";
 import { hostedAccountsClient } from "./api";
@@ -9,10 +9,16 @@ import { useHostedAccounts } from "./HostedAccountsContext";
 import { HostedAccountsProvider } from "./HostedAccountsProvider";
 import { HostWorkspaceGate } from "./HostWorkspaceGate";
 import { AccountSchema, ListAccountsResponseSchema } from "@/protoFleet/api/generated/hosted/v1/hosted_pb";
+import { ListHostReportingAccountsResponseSchema } from "@/protoFleet/api/generated/hosted/v1/reporting_pb";
 import { useFleetStore } from "@/protoFleet/store";
 
 const accountId = "11111111-1111-4111-8111-111111111111";
 const initialAuth = useFleetStore.getState().auth;
+beforeEach(() => {
+  vi.spyOn(hostedAccountsClient, "listHostReportingAccounts").mockResolvedValue(
+    create(ListHostReportingAccountsResponseSchema),
+  );
+});
 afterEach(() => {
   useFleetStore.setState({ auth: initialAuth });
   vi.restoreAllMocks();
@@ -28,6 +34,57 @@ const Reader = () => {
   return <div>{directory.loading ? "Loading" : directory.accounts.map((a) => a.name).join(",")}</div>;
 };
 describe("account directory and host workspace isolation", () => {
+  it("clears reporting navigation on a new login and ignores a late authority result", async () => {
+    vi.spyOn(hostedAccountsClient, "listAccounts").mockResolvedValue(
+      create(ListAccountsResponseSchema, { hostAccess: true }),
+    );
+    let resolve!: (value: Awaited<ReturnType<typeof hostedAccountsClient.listHostReportingAccounts>>) => void;
+    vi.mocked(hostedAccountsClient.listHostReportingAccounts)
+      .mockImplementationOnce(
+        () =>
+          new Promise((r) => {
+            resolve = r;
+          }),
+      )
+      .mockResolvedValue(create(ListHostReportingAccountsResponseSchema));
+    const ReportingReader = () => (
+      <output>{useHostedAccounts()!.reportingAccess ? "Reporting available" : "No reporting access"}</output>
+    );
+    login(50);
+    render(
+      <HostedAccountsProvider>
+        <ReportingReader />
+      </HostedAccountsProvider>,
+    );
+    await waitFor(() => expect(hostedAccountsClient.listHostReportingAccounts).toHaveBeenCalledTimes(1));
+    login(51);
+    expect(screen.getByText("No reporting access")).toBeInTheDocument();
+    await waitFor(() => expect(hostedAccountsClient.listHostReportingAccounts).toHaveBeenCalledTimes(2));
+    await act(async () =>
+      resolve(create(ListHostReportingAccountsResponseSchema, { accounts: [{ accountId, canCreate: true }] })),
+    );
+    expect(screen.getByText("No reporting access")).toBeInTheDocument();
+  });
+
+  it("loads reporting authority independently of client management", async () => {
+    vi.spyOn(hostedAccountsClient, "listAccounts").mockResolvedValue(
+      create(ListAccountsResponseSchema, { hostAccess: true }),
+    );
+    vi.mocked(hostedAccountsClient.listHostReportingAccounts).mockResolvedValue(
+      create(ListHostReportingAccountsResponseSchema, { accounts: [{ accountId, canCreate: true }] }),
+    );
+    const ReportingReader = () => (
+      <output>{useHostedAccounts()!.reportingAccess ? "Reporting available" : "No reporting access"}</output>
+    );
+    login(52);
+    render(
+      <HostedAccountsProvider>
+        <ReportingReader />
+      </HostedAccountsProvider>,
+    );
+    expect(await screen.findByText("Reporting available")).toBeInTheDocument();
+  });
+
   it("hides the old login's directory and ignores its delayed response", async () => {
     let resolve!: (value: Awaited<ReturnType<typeof hostedAccountsClient.listAccounts>>) => void;
     let oldSignal!: AbortSignal;

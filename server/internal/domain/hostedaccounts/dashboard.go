@@ -285,7 +285,7 @@ func (s *Service) Dashboard(ctx context.Context, actorID, orgID int64, request *
 	}
 	ctx, cancel := context.WithTimeout(ctx, miningTransactionTimeout)
 	defer cancel()
-	return db.WithTransactionTimeout(ctx, s.conn, miningTransactionTimeout, func(q sqlc.Querier) (*pb.GetAccountDashboardResponse, error) {
+	read := func(q sqlc.Querier) (*pb.GetAccountDashboardResponse, error) {
 		e, err := loadMiningEstate(ctx, q, actorID, orgID, request.AccountId, true, miningRead)
 		if err != nil {
 			return nil, err
@@ -517,7 +517,11 @@ func (s *Service) Dashboard(ctx context.Context, actorID, orgID int64, request *
 			response.Readings = append(response.Readings, &pb.AccountDashboardReading{Time: timestamppb.New(at), Summary: summary, TemperatureStatus: temperatureStatus, UptimeStatus: uptimeStatus})
 		}
 		return response, nil
-	})
+	}
+	if q := db.GetTxQueries(ctx); q != nil {
+		return read(q)
+	}
+	return db.WithTransactionTimeout(ctx, s.conn, miningTransactionTimeout, read)
 }
 
 func (s *Service) AssetDetail(ctx context.Context, actorID, orgID int64, request *pb.GetAccountAssetDetailRequest) (*pb.GetAccountAssetDetailResponse, error) {

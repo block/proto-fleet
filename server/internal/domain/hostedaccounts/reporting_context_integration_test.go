@@ -273,6 +273,9 @@ func TestReportingContextChecksStoredScopeBeforeRevision(t *testing.T) {
 func TestReportingContextPoolSelectionUsesExactPeriodProbe(t *testing.T) {
 	f, account, owner, in, p := reportContextFixture(t)
 	p.Kind = "ad_hoc"
+	request, err := f.svc.CreateReportRequest(t.Context(), f.host, f.org, account.AccountID, hostedaccounts.ReportRequest{ReceivedAt: time.Now().UTC().Add(-time.Hour), SourceRef: "exact period request receipt", Requester: "Client", Scope: "Exact period package", OwnerUserID: owner})
+	require.NoError(t, err)
+	p.RequestRef, p.RequestReceivedAt = request.RequestID, request.ReceivedAt
 	p.End = p.End.Add(900 * time.Nanosecond)
 	in.Coverage[0].End = p.End.Add(-50 * time.Nanosecond)
 	c := in.Coverage[0]

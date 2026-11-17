@@ -17,6 +17,7 @@ import Button, { sizes } from "@/shared/components/Button";
 import { type FleetDuration, getFleetDurationMs } from "@/shared/components/DurationSelector";
 import FilterChipsBar, { type FilterChipsBarFilter } from "@/shared/components/List/Filters/FilterChipsBar";
 import Stats from "@/shared/components/Stats";
+import { formatTimestamp } from "@/shared/utils/formatTimestamp";
 import {
   convertCtoF,
   formatEfficiencyOrDash,
@@ -162,6 +163,12 @@ const AccountOverview = () => {
             ) : null}
           </section>
           <section aria-label="Current readings">
+            <p className="mb-3 text-200 text-text-primary-70">
+              {query.data?.generatedAt
+                ? `Dashboard generated ${formatTimestamp(Number(query.data.generatedAt.seconds))}. `
+                : ""}
+              Aggregate source-time freshness is unavailable.
+            </p>
             <Stats
               grid="grid-cols-2 laptop:grid-cols-5"
               stats={[
@@ -192,7 +199,7 @@ const AccountOverview = () => {
                   text: reportingCoverage(summary.temperatureReportingCount, summary),
                 },
                 {
-                  label: "Uptime",
+                  label: "Hashing availability",
                   value: summary.uptimePercent === undefined ? "—" : `${summary.uptimePercent.toFixed(1)}%`,
                   preformatted: true,
                   text: reportingCoverage(summary.uptimeReportingCount, summary),

@@ -1,4 +1,4 @@
-import SettingsEmptyState from "@/protoFleet/features/settings/components/SettingsEmptyState";
+import { ReportingError } from "./ReportingError";
 import Button from "@/shared/components/Button";
 import ProgressCircular from "@/shared/components/ProgressCircular";
 
@@ -16,8 +16,8 @@ export const AccountState = ({
       <ProgressCircular indeterminate />
     </div>
   ) : error ? (
-    <div className="flex flex-col items-center gap-4 p-6" role="alert">
-      <SettingsEmptyState title="Unable to load account data" description={error} />
+    <div className="flex flex-col gap-4">
+      <ReportingError error={error} />
       <Button variant="secondary" text="Retry" onClick={retry} />
     </div>
   ) : null;

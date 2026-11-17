@@ -107,7 +107,14 @@ function mount(entry = managementPath, suspended = false) {
   render(
     <MemoryRouter initialEntries={[entry]}>
       <HostedAccountsContext.Provider
-        value={{ accounts: [root], hostAccess: true, loading: false, error: null, refresh: vi.fn() }}
+        value={{
+          reportingAccess: false,
+          accounts: [root],
+          hostAccess: true,
+          loading: false,
+          error: null,
+          refresh: vi.fn(),
+        }}
       >
         <Location />
         <Routes>

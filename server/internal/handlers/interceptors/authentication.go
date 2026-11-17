@@ -205,7 +205,15 @@ const hostedAccountProcedurePrefix = "/hosted.v1.HostedAccountService/"
 // account administration deliberately continues to allow omitted selection.
 func requiresSelectedAccount(procedure string) bool {
 	switch procedure {
-	case hostedv1connect.HostedAccountServiceListAccountTicketsProcedure,
+	case hostedv1connect.HostedAccountServiceListAccountReportsProcedure,
+		hostedv1connect.HostedAccountServiceGetAccountReportProcedure,
+		hostedv1connect.HostedAccountServiceGenerateAccountAnalysisProcedure,
+		hostedv1connect.HostedAccountServiceDeleteAccountAnalysisProcedure,
+		hostedv1connect.HostedAccountServiceListAccountAnalysesProcedure,
+		hostedv1connect.HostedAccountServiceGetAccountAnalysisProcedure,
+		hostedv1connect.HostedAccountServiceExportAccountAnalysisProcedure,
+		hostedv1connect.HostedAccountServiceExportAccountReportProcedure,
+		hostedv1connect.HostedAccountServiceListAccountTicketsProcedure,
 		hostedv1connect.HostedAccountServiceGetAccountTicketProcedure,
 		hostedv1connect.HostedAccountServiceCreateAccountTicketProcedure,
 		hostedv1connect.HostedAccountServiceCommentAccountTicketProcedure,
@@ -265,7 +273,15 @@ func allowsSelectedAccount(procedure string) bool {
 		poolconfigurationsv1connect.PoolConfigurationServiceTestConnectionProcedure,
 		poolconfigurationsv1connect.PoolConfigurationServiceConfirmReviewProcedure:
 		return true
-	case hostedv1connect.HostedAccountServiceListAccountTicketsProcedure,
+	case hostedv1connect.HostedAccountServiceListAccountReportsProcedure,
+		hostedv1connect.HostedAccountServiceGetAccountReportProcedure,
+		hostedv1connect.HostedAccountServiceGenerateAccountAnalysisProcedure,
+		hostedv1connect.HostedAccountServiceDeleteAccountAnalysisProcedure,
+		hostedv1connect.HostedAccountServiceListAccountAnalysesProcedure,
+		hostedv1connect.HostedAccountServiceGetAccountAnalysisProcedure,
+		hostedv1connect.HostedAccountServiceExportAccountAnalysisProcedure,
+		hostedv1connect.HostedAccountServiceExportAccountReportProcedure,
+		hostedv1connect.HostedAccountServiceListAccountTicketsProcedure,
 		hostedv1connect.HostedAccountServiceGetAccountTicketProcedure,
 		hostedv1connect.HostedAccountServiceCreateAccountTicketProcedure,
 		hostedv1connect.HostedAccountServiceCommentAccountTicketProcedure,

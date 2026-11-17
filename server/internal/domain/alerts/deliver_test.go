@@ -4,10 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -247,9 +249,7 @@ func TestDeliverSkipsChannelWithNothingRouted(t *testing.T) {
 	assert.Empty(t, *got, "a channel whose whole batch was routed away receives no POST")
 }
 
-// Cold cache + unreadable policies fails closed for channel delivery: restricted alerts must not
-// leak to every channel, and Alertmanager re-notifies firing alerts each repeat_interval.
-func TestDeliverDropsChannelDeliveryOnColdRouteReadFailure(t *testing.T) {
+func TestTrackedDeliveryRetriesColdRouteReadFailure(t *testing.T) {
 	srv, got := captureServer(t)
 	store := newFakeChannelStore()
 	crypto := testCipher(t)
@@ -258,9 +258,16 @@ func TestDeliverDropsChannelDeliveryOnColdRouteReadFailure(t *testing.T) {
 	d := NewDeliverer(store, routes, nil, crypto, fakeDeviceLookup{}, DestinationPolicy{AllowPrivateDestinations: true}, "")
 	seedChannel(t, store, crypto, 7, ChannelKindSlack, srv.URL, "")
 
-	d.Deliver(context.Background(), []Alert{firingRuleAlert("7", "dev-a", "X", "rule-any")})
-
+	batch := []Alert{firingRuleAlert("7", "dev-a", "X", "rule-any")}
+	result := d.DeliverTracked(context.Background(), batch)
+	require.Equal(t, 1, result.Failed)
+	require.Zero(t, result.Delivered)
 	assert.Empty(t, *got, "with no policy snapshot, delivery is dropped rather than leaking restricted alerts to every channel")
+	routes.listErr = nil
+	result = d.DeliverTracked(context.Background(), batch)
+	require.Zero(t, result.Failed)
+	require.Equal(t, 1, result.Delivered)
+	require.Len(t, *got, 1)
 }
 
 // A transient policy-read failure must not bypass explicit restrictions: the last-known-good snapshot keeps applying.
@@ -542,3 +549,93 @@ func TestSendTestReportsFailureWithoutError(t *testing.T) {
 	assert.False(t, ok)
 	assert.NotEmpty(t, msg, "a rejected test surfaces a message, not a Go error")
 }
+
+func TestTrackedDeliveryRetainsUnconfirmedFailures(t *testing.T) {
+	store := newFakeChannelStore()
+	d, crypto := newDeliverer(t, store, fakeDeviceLookup{})
+	got := d.DeliverTracked(context.Background(), []Alert{firingAlert("7", "", "Reporting action")})
+	require.Zero(t, got.Delivered, "no configured destination is not delivery")
+	require.Zero(t, got.Failed, "an empty destination list is not a transient lookup failure")
+	seedChannel(t, store, crypto, 7, ChannelKindWebhook, "http://127.0.0.1:1", "")
+	d.httpClient = &http.Client{Transport: trackedRoundTripFunc(func(*http.Request) (*http.Response, error) { return nil, errors.New("destination unavailable") })}
+	got = d.DeliverTracked(context.Background(), []Alert{firingAlert("7", "", "Reporting action")})
+	require.Equal(t, 1, got.Failed)
+	require.Zero(t, got.Delivered)
+}
+
+func TestTrackedChannelLookupFailureRemainsRetryable(t *testing.T) {
+	for _, partiallyDelivered := range []bool{false, true} {
+		t.Run(fmt.Sprint(partiallyDelivered), func(t *testing.T) {
+			var healthyPosts, recoveringPosts atomic.Int32
+			var available atomic.Bool
+			healthy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				healthyPosts.Add(1)
+				w.WriteHeader(http.StatusOK)
+			}))
+			t.Cleanup(healthy.Close)
+			recovering := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				recoveringPosts.Add(1)
+				if !available.Load() {
+					w.WriteHeader(http.StatusServiceUnavailable)
+					return
+				}
+				w.WriteHeader(http.StatusOK)
+			}))
+			t.Cleanup(recovering.Close)
+			store := newFakeChannelStore()
+			d, crypto := newDeliverer(t, store, fakeDeviceLookup{})
+			seedChannel(t, store, crypto, 7, ChannelKindWebhook, healthy.URL, "")
+			seedChannel(t, store, crypto, 7, ChannelKindWebhook, recovering.URL, "")
+			batch := []Alert{firingAlert("7", "", "Reporting action")}
+			var accepted []int64
+			if partiallyDelivered {
+				first := d.DeliverTracked(context.Background(), batch)
+				require.Equal(t, 1, first.Delivered)
+				require.Equal(t, 1, first.Failed)
+				accepted = first.DeliveredChannelIDs
+			}
+			store.listErr = errors.New("temporary destination lookup error")
+			failed := d.DeliverTrackedSkipping(context.Background(), batch, accepted)
+			require.Equal(t, 1, failed.Failed)
+			require.Zero(t, failed.Delivered)
+			require.Empty(t, failed.DeliveredChannelIDs)
+			store.listErr = nil
+			available.Store(true)
+			recovered := d.DeliverTrackedSkipping(context.Background(), batch, accepted)
+			require.Zero(t, recovered.Failed)
+			if partiallyDelivered {
+				require.Equal(t, 1, recovered.Delivered)
+			} else {
+				require.Equal(t, 2, recovered.Delivered)
+			}
+			require.EqualValues(t, 1, healthyPosts.Load(), "accepted destinations are never repeated")
+			if partiallyDelivered {
+				require.EqualValues(t, 2, recoveringPosts.Load())
+			} else {
+				require.EqualValues(t, 1, recoveringPosts.Load())
+			}
+		})
+	}
+}
+
+func TestTrackedRetrySkipsPreviouslyAcceptedDestinations(t *testing.T) {
+	healthy, posts := captureServer(t)
+	failing := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusServiceUnavailable) }))
+	t.Cleanup(failing.Close)
+	store := newFakeChannelStore()
+	d, crypto := newDeliverer(t, store, fakeDeviceLookup{})
+	seedChannel(t, store, crypto, 7, ChannelKindWebhook, healthy.URL, "")
+	seedChannel(t, store, crypto, 7, ChannelKindWebhook, failing.URL, "")
+	first := d.DeliverTrackedSkipping(context.Background(), []Alert{firingAlert("7", "", "Reporting action")}, nil)
+	require.Equal(t, 1, first.Delivered)
+	require.Equal(t, 1, first.Failed)
+	require.Len(t, first.DeliveredChannelIDs, 1)
+	retry := d.DeliverTrackedSkipping(context.Background(), []Alert{firingAlert("7", "", "Reporting action")}, first.DeliveredChannelIDs)
+	require.Equal(t, 0, retry.Delivered)
+	require.Equal(t, 1, retry.Failed)
+	require.Len(t, *posts, 1)
+}
+
+type trackedRoundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f trackedRoundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }

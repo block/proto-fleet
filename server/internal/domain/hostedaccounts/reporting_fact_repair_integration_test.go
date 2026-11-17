@@ -25,6 +25,7 @@ func TestReportingFactDeletionRepairsDriftInBoundedBatches(t *testing.T) {
 			require.NoError(t, err)
 			config := reporting.Configuration{Timezone: "UTC", ReportingYearMonth: 1, ReportingYearDay: 1}
 			if drift == "representative" {
+				require.NoError(t, f.svc.SetAncestorGrant(t.Context(), f.host, f.org, account.AccountID, f.root, hostedaccounts.View|hostedaccounts.ManageMembers))
 				var member string
 				require.NoError(t, f.db.QueryRowContext(t.Context(), `SELECT user_id FROM "user" WHERE id=$1`, f.user).Scan(&member))
 				config.Representatives = []reporting.Representative{{UserID: member, CanSubmit: true, SourceRef: "reviewed"}}
@@ -54,6 +55,7 @@ func TestReportingFactDeletionRepairsDriftInBoundedBatches(t *testing.T) {
 			case "account_policy":
 				err = f.svc.ConfigureSites(t.Context(), f.user, f.org, account.AccountID, true, []int64{other})
 			case "representative":
+				require.NoError(t, f.svc.RevokeAncestorGrant(t.Context(), f.host, f.org, account.AccountID, f.root))
 				_, err = f.db.ExecContext(t.Context(), `DELETE FROM hosted_account_membership WHERE account_id=$1 AND user_id=$2`, account.ID, f.user)
 			}
 			require.NoError(t, err)

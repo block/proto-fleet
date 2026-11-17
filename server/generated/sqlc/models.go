@@ -2137,6 +2137,34 @@ type HostedAccount struct {
 	TicketingEnabled      bool
 }
 
+type HostedAccountAnalysis struct {
+	ID             int64
+	AnalysisID     string
+	OrganizationID int64
+	AccountID      int64
+	Kind           string
+	Snapshot       json.RawMessage
+	SiteIds        []int64
+	TicketIds      []int64
+	CreatedBy      int64
+	CreatedAt      time.Time
+	CsvData        []byte
+	Sha256         string
+	RequestKey     string
+	RequestDigest  string
+}
+
+type HostedAccountAnalysisDeletion struct {
+	AnalysisID     string
+	OrganizationID int64
+	AccountID      int64
+	CreatedBy      int64
+	DeletedBy      int64
+	DeletedAt      time.Time
+	RequestKey     string
+	RequestDigest  string
+}
+
 type HostedAccountAncestorGrant struct {
 	OrganizationID int64
 	AccountID      int64
@@ -2545,6 +2573,37 @@ type HostedReportDelivery struct {
 	CreatedAt        time.Time
 }
 
+type HostedReportQueue struct {
+	ID                  int64
+	QueueID             string
+	OrganizationID      int64
+	AccountID           int64
+	WorkKey             string
+	OwnerID             int64
+	SiteIds             []int64
+	Projection          json.RawMessage
+	Fingerprint         string
+	Generation          int64
+	NotificationStatus  string
+	Attempts            int64
+	RetryAt             time.Time
+	ClaimToken          sql.NullString
+	LeaseUntil          sql.NullTime
+	CreatedAt           time.Time
+	UpdatedAt           time.Time
+	DeliveredChannelIds []int64
+}
+
+type HostedReportQueueEvent struct {
+	ID              int64
+	QueueInternalID int64
+	Generation      int64
+	Kind            string
+	ActorID         sql.NullInt64
+	Reason          string
+	CreatedAt       time.Time
+}
+
 type HostedReportRequest struct {
 	ID               int64
 	RequestID        string
@@ -2561,6 +2620,18 @@ type HostedReportRequest struct {
 	DeliveryRef      string
 	ActorID          int64
 	CreatedAt        time.Time
+}
+
+type HostedReportRequestFulfillment struct {
+	ID                int64
+	RequestInternalID int64
+	EntryKey          string
+	DeliveredAt       time.Time
+	DeliveryRef       string
+	CommunicationRef  string
+	Evidence          string
+	ActorID           int64
+	CreatedAt         time.Time
 }
 
 type HostedReportingAuthority struct {

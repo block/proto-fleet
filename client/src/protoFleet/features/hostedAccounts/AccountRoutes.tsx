@@ -6,6 +6,7 @@ import AccountWorkspace from "./AccountWorkspace";
 import { can } from "./capabilities";
 import ClientManagement from "./ClientManagement";
 import { useHostedAccounts } from "./HostedAccountsContext";
+import ReportingQueuePage from "./ReportingQueuePage";
 
 const AccountRoutes = () => {
   const location = useLocation();
@@ -17,7 +18,8 @@ const AccountRoutes = () => {
   const root = directory?.accounts.some(
     (account) => account.accountId === match?.params.accountId && account.depth === 0,
   );
-  const preview = hostAdministration && !directory?.loading && !!match && !management && !root;
+  const reporting = !!matchPath("/accounts/reports", location.pathname);
+  const preview = hostAdministration && !directory?.loading && !!match && !management && !root && !reporting;
   const [background, setBackground] = useState<Location>({
     pathname: "/accounts",
     search: "",
@@ -37,6 +39,7 @@ const AccountRoutes = () => {
       <div className="contents" inert={preview} aria-hidden={preview || undefined}>
         <Routes location={preview ? background : location}>
           <Route index element={<AccountDirectory />} />
+          <Route path="reports" element={<ReportingQueuePage />} />
           <Route path=":accountId/manage/:section?" element={<ClientManagement />} />
           <Route path=":accountId/assets/:kind/:assetId" element={<AccountWorkspace />} />
           <Route path=":accountId/:section?" element={<AccountWorkspace />} />

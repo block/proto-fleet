@@ -631,3 +631,41 @@ async function withStoredAdminContext<T>(
     await context.close();
   }
 }
+
+/** Remove only this test's disposable login, even if its username change failed. */
+export async function cleanupSecurityMember(
+  browser: Browser,
+  testInfo: TestInfo,
+  usernames: string[],
+  roleName: string,
+) {
+  await withStoredAdminContext(browser, testInfo, async ({ page }) => {
+    await page.evaluate(
+      async ({ names, roleName }) => {
+        const options = {
+          method: "POST",
+          headers: { "Connect-Protocol-Version": "1", "Content-Type": "application/json" },
+          credentials: "include" as const,
+        };
+        const call = async (method: string, body: object) => {
+          const response = await fetch(`/api-proxy/${method}`, { ...options, body: JSON.stringify(body) });
+          if (!response.ok) throw new Error(`Security test cleanup ${method}: HTTP ${response.status}`);
+          return response.json();
+        };
+        const { users } = (await call("auth.v1.AuthService/ListUsers", {})) as {
+          users: { userId: string; username: string }[];
+        };
+        const members = users.filter((user) => names.includes(user.username));
+        if (members.length !== 1) throw new Error(`Expected one security test login, found ${members.length}`);
+        await call("auth.v1.AuthService/DeactivateUser", { userId: members[0].userId });
+        const { roles } = (await call("authz.v1.AuthzService/ListRoles", {})) as {
+          roles: { roleId: string; name: string }[];
+        };
+        const matching = roles.filter((role) => role.name === roleName);
+        if (matching.length !== 1) throw new Error(`Expected one security test role, found ${matching.length}`);
+        await call("authz.v1.AuthzService/DeleteCustomRole", { roleId: matching[0].roleId });
+      },
+      { names: usernames, roleName },
+    );
+  });
+}

@@ -19,8 +19,8 @@ const account = (id: string) => ({
   name: id === clientA ? "Customer A" : id === clientB ? "Customer B" : "East subclient",
   depth: id === subclient ? 2 : 1,
   role: "ACCOUNT_ROLE_ADMINISTRATOR",
-  capabilityCeiling: "31",
-  effectiveCapabilities: "31",
+  capabilityCeiling: "63",
+  effectiveCapabilities: "63",
 });
 
 const summary = (id: string) => ({
@@ -48,7 +48,11 @@ const fulfill = (route: Route, data: unknown) =>
 export async function mockClientWorkspace(
   context: BrowserContext,
   preview: boolean,
-  options: { fleet?: boolean; missingModuleUptime?: boolean } = {},
+  options: {
+    fleet?: boolean;
+    missingModuleUptime?: boolean;
+    accountRole?: "ACCOUNT_ROLE_ADMINISTRATOR" | "ACCOUNT_ROLE_VIEWER";
+  } = {},
 ) {
   const configured = new Map<string, { capabilities: string; suspended: boolean }>();
   let createdName = "";
@@ -57,6 +61,7 @@ export async function mockClientWorkspace(
     const saved = configured.get(id);
     return {
       ...account(id),
+      ...(options.accountRole ? { role: options.accountRole } : {}),
       ...(id === newClient ? { name: createdName, depth: 1, parentAccountId: hostAccount } : {}),
       ...(saved
         ? {
@@ -122,7 +127,7 @@ export async function mockClientWorkspace(
       return fulfill(route, {
         hostAccess: preview,
         accounts: preview
-          ? [{ accountId: hostAccount, name: "Host", depth: 0, capabilityCeiling: "31", effectiveCapabilities: "31" }]
+          ? [{ accountId: hostAccount, name: "Host", depth: 0, capabilityCeiling: "63", effectiveCapabilities: "63" }]
           : [accountFor(clientA)],
       });
     if (method === "ConfigureAccount") {
@@ -174,7 +179,7 @@ export async function mockClientWorkspace(
         });
       return fulfill(route, { account: accountFor(id) });
     }
-    if (method === "GetSitePolicy") return fulfill(route, {});
+    if (method === "GetSitePolicy" || method === "ListHostReportingAccounts") return fulfill(route, {});
     if (["ListAccountActivities", "ExportAccountActivities"].includes(method)) {
       if (denied)
         return route.fulfill({

@@ -3,7 +3,7 @@ import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 
 import { useRequiredAccountScope } from "../AccountScope";
 import { ACCOUNT_READ_TIMEOUT_MS } from "../api";
-import { accountManagementPath, accountPath, can, capabilities } from "../capabilities";
+import { accountManagementPath, accountPath, can, capabilities, ticketingDescription } from "../capabilities";
 import { useHostedAccounts } from "../HostedAccountsContext";
 import { useAccountQuery } from "../useAccountQuery";
 import AccountAssets from "./AccountAssets";
@@ -313,9 +313,17 @@ const AccountChildren = () => {
             maxLength={255}
           />
           <CapabilityFields value={ceiling} allowed={allowed} required={required} onChange={setCeiling} />
-          <label className="flex items-center gap-3">
-            <Checkbox checked={ticketingEnabled} onChange={(event) => setTicketingEnabled(event.target.checked)} />
-            Ticketing
+          <label className="flex items-start gap-3 text-300 text-text-primary">
+            <Checkbox
+              ariaLabel="Ticketing"
+              className="shrink-0"
+              checked={ticketingEnabled}
+              onChange={(event) => setTicketingEnabled(event.target.checked)}
+            />
+            <span>
+              Ticketing
+              <span className="mt-1 block text-200 text-text-primary-50">{ticketingDescription}</span>
+            </span>
           </label>
         </ActionModal>
       ) : editing ? (

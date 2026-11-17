@@ -83,6 +83,13 @@ func TestNewRuntimeJobs(t *testing.T) {
 		<-ctx.Done()
 		miningStopped <- struct{}{}
 	})
+	reportingStarted := make(chan struct{}, 1)
+	reportingStopped := make(chan struct{}, 1)
+	reportingLoop := newBackgroundLoop(func(ctx context.Context) {
+		reportingStarted <- struct{}{}
+		<-ctx.Done()
+		reportingStopped <- struct{}{}
+	})
 	all := runtimeJobLifecycles{
 		plugins:                   noopLifecycle{},
 		pendingUnpairs:            noopLifecycle{},
@@ -107,6 +114,7 @@ func TestNewRuntimeJobs(t *testing.T) {
 		systemMonitoring:          noopLifecycle{},
 		haReadiness:               noopLifecycle{},
 		releaseChecker:            noopLifecycle{},
+		hostedReporting:           reportingLoop,
 	}
 
 	jobs, err := newRuntimeJobs(all)
@@ -133,6 +141,7 @@ func TestNewRuntimeJobs(t *testing.T) {
 		"frigate-package-cleanup",
 		"system-monitoring",
 		"ha-readiness",
+		"hosted-reporting",
 		"release-checker",
 		"pending-unpairs",
 	}, jobNames(jobs))
@@ -147,14 +156,17 @@ func TestNewRuntimeJobs(t *testing.T) {
 	defer cancelActive()
 	require.NoError(t, group.Start(activeCtx))
 	requireReceive(t, miningStarted)
+	requireReceive(t, reportingStarted)
 	cancelActive()
 	requireReceive(t, miningStopped)
+	requireReceive(t, reportingStopped)
 	require.NoError(t, group.Stop(t.Context()))
 
 	all.curtailmentAlertMetrics = nil
 	all.systemMonitoring = nil
 	all.haReadiness = nil
 	all.releaseChecker = nil
+	all.hostedReporting = nil
 	jobs, err = newRuntimeJobs(all)
 	require.NoError(t, err)
 	require.Equal(t, []string{

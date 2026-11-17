@@ -1,6 +1,6 @@
 import { StrictMode } from "react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { create, toJson } from "@bufbuild/protobuf";
 import userEvent from "@testing-library/user-event";
@@ -78,7 +78,14 @@ function mount(owner = true, entry = "/accounts", managedClient = client, strict
   const page = (managed = owner) => (
     <MemoryRouter initialEntries={[entry]}>
       <HostedAccountsContext.Provider
-        value={{ accounts: managed ? [root] : [client], hostAccess: managed, loading: false, error: null, refresh }}
+        value={{
+          reportingAccess: false,
+          accounts: managed ? [root] : [client],
+          hostAccess: managed,
+          loading: false,
+          error: null,
+          refresh,
+        }}
       >
         <Routes>
           <Route path="/accounts/*" element={<AccountRoutes />} />
@@ -259,10 +266,57 @@ describe("owner Clients directory", () => {
     },
   );
   it("preserves the membership directory for users without host creation authority", async () => {
-    const { calls } = mount(false);
+    let calls: ReturnType<typeof mount>["calls"] = [];
+    await act(async () => {
+      calls = mount(false).calls;
+    });
     expect(screen.getByRole("link", { name: "Use an invitation code" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Create client" })).not.toBeInTheDocument();
-    expect(calls).toHaveLength(0);
+    expect(calls).toEqual([]);
+    expect(screen.queryByRole("link", { name: "Reports" })).not.toBeInTheDocument();
+  });
+  it("opens the reporting queue for explicitly delegated operators without root membership", async () => {
+    const methods: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
+        const method = String(input).split("/").pop()!;
+        methods.push(method);
+        expect(new Headers(init?.headers).get("X-Fleet-Account-ID")).toBeNull();
+        const reply =
+          method === "ListHostReportingAccounts"
+            ? { accounts: [{ accountId: clientId, name: "Existing client", canPrepare: true }] }
+            : {};
+        return new Response(JSON.stringify(reply), { headers: { "Content-Type": "application/json" } });
+      }),
+    );
+    render(
+      <MemoryRouter initialEntries={["/accounts"]}>
+        <HostedAccountsContext.Provider
+          value={{
+            reportingAccess: true,
+            accounts: [],
+            hostAccess: true,
+            loading: false,
+            error: null,
+            refresh: vi.fn(),
+          }}
+        >
+          <Routes>
+            <Route path="/accounts/*" element={<AccountRoutes />} />
+          </Routes>
+        </HostedAccountsContext.Provider>
+      </MemoryRouter>,
+    );
+    await userEvent.setup().click(await screen.findByRole("link", { name: "Reports" }));
+    await screen.findByRole("heading", { name: "Reports", level: 1 });
+    expect(screen.queryByRole("navigation", { name: "Breadcrumb" })).not.toBeInTheDocument();
+    expect(
+      within(screen.getByRole("navigation", { name: "Settings" })).getByRole("link", { name: "Reports" }),
+    ).toHaveAttribute("aria-current", "page");
+    await waitFor(() => expect(methods).toContain("ListHostReportQueue"));
+    expect(methods).not.toContain("GetAccount");
+    expect(screen.queryByRole("dialog", { name: /Viewing as/ })).not.toBeInTheDocument();
   });
   it("discards an open creation form when host authority is removed", async () => {
     const { rerenderOwner } = mount();

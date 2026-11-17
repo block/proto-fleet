@@ -306,7 +306,7 @@ func (q *Queries) LockHostedAccountOrganizationForShare(ctx context.Context, id 
 
 const resolveHostedAccountMembership = `-- name: ResolveHostedAccountMembership :one
 SELECT a.account_id, m.role,
-    (a.capabilities & COALESCE(parent.capabilities, 31) & root.capabilities)::bigint AS capabilities
+    (a.capabilities & COALESCE(parent.capabilities, 63) & root.capabilities)::bigint AS capabilities
 FROM hosted_account a
 JOIN hosted_account root ON root.organization_id = a.organization_id AND root.depth = 0
 LEFT JOIN hosted_account parent ON parent.id = a.parent_id AND parent.organization_id = a.organization_id

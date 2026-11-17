@@ -393,6 +393,7 @@ type runtimeJobLifecycles struct {
 	systemMonitoring          runtimejobs.Lifecycle
 	haReadiness               runtimejobs.Lifecycle
 	releaseChecker            runtimejobs.Lifecycle
+	hostedReporting           runtimejobs.Lifecycle
 }
 
 func newRuntimeJobs(lifecycles runtimeJobLifecycles) ([]runtimejobs.Job, error) {
@@ -461,6 +462,11 @@ func newRuntimeJobs(lifecycles runtimeJobLifecycles) ([]runtimejobs.Job, error) 
 	}
 	if lifecycles.haReadiness != nil {
 		if err := add("ha-readiness", lifecycles.haReadiness); err != nil {
+			return nil, err
+		}
+	}
+	if lifecycles.hostedReporting != nil {
+		if err := add("hosted-reporting", lifecycles.hostedReporting); err != nil {
 			return nil, err
 		}
 	}

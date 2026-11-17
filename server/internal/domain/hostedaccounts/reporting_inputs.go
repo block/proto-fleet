@@ -130,6 +130,19 @@ func (a reportingAccess) hostSitesAllowed(sites []int64) bool {
 	}
 	return true
 }
+func (a reportingAccess) accountWideRequestsAllowed() bool {
+	if !a.grant.AllSites || a.policy.EffectiveRestricted {
+		return false
+	}
+	for _, permission := range []string{authz.PermSiteRead, authz.PermFleetRead, authz.PermMinerRead} {
+		orgWide, exceptions := a.permissions.SiteScopeFor(permission)
+		if !orgWide || len(exceptions) != 0 {
+			return false
+		}
+	}
+	return true
+}
+
 func reportingConflict() error {
 	return fleeterror.NewFailedPreconditionError("reporting history changed; refresh before continuing")
 }
@@ -286,9 +299,23 @@ func validateReportingExternalFacts(ctx context.Context, q sqlc.Querier, a repor
 			return fleeterror.NewInvalidArgumentError("reporting container is outside the evidenced organization and site")
 		}
 	}
-	intervalIDs := make([]int64, 0, len(input.Coverage))
-	for _, coverage := range input.Coverage {
-		intervalIDs = append(intervalIDs, coverage.AllocationIntervalID)
+	if err := validateCoverageAllocations(ctx, q, a.account.OrganizationID, a.account.ID, input.Coverage); err != nil {
+		return err
+	}
+	// Container ownership is checked separately from historical asset attribution.
+	if err := validateReportingModules(ctx, q, a.account.OrganizationID, input); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// validateCoverageAllocations rechecks commercial coverage against its retained
+// allocation intervals, which recalls and placement changes can close later.
+func validateCoverageAllocations(ctx context.Context, q sqlc.Querier, org, account int64, segments []reporting.CoverageSegment) error {
+	intervalIDs := make([]int64, 0, len(segments))
+	for _, segment := range segments {
+		intervalIDs = append(intervalIDs, segment.AllocationIntervalID)
 	}
 	slices.Sort(intervalIDs)
 	intervalIDs = slices.Compact(intervalIDs)
@@ -296,7 +323,7 @@ func validateReportingExternalFacts(ctx context.Context, q sqlc.Querier, a repor
 	// Bound each query independently of the number of facts in an account.
 	for start := 0; start < len(intervalIDs); start += reportingValidationBatchSize {
 		end := min(start+reportingValidationBatchSize, len(intervalIDs))
-		rows, err := q.ListReportingAllocationIntervals(ctx, sqlc.ListReportingAllocationIntervalsParams{Ids: intervalIDs[start:end], OrganizationID: a.account.OrganizationID, ClientID: a.account.ID})
+		rows, err := q.ListReportingAllocationIntervals(ctx, sqlc.ListReportingAllocationIntervalsParams{Ids: intervalIDs[start:end], OrganizationID: org, ClientID: account})
 		if err != nil {
 			return err
 		}
@@ -304,7 +331,7 @@ func validateReportingExternalFacts(ctx context.Context, q sqlc.Querier, a repor
 			intervals[row.ID] = row
 		}
 	}
-	for _, coverage := range input.Coverage {
+	for _, coverage := range segments {
 		if err := ctx.Err(); err != nil {
 			return fmt.Errorf("validate reporting allocation: %w", err)
 		}
@@ -316,11 +343,6 @@ func validateReportingExternalFacts(ctx context.Context, q sqlc.Querier, a repor
 			return fleeterror.NewInvalidArgumentError("commercial coverage exceeds its evidenced allocation interval")
 		}
 	}
-	// Container ownership is checked separately from historical asset attribution.
-	if err := validateReportingModules(ctx, q, a.account.OrganizationID, input); err != nil {
-		return err
-	}
-
 	return nil
 }
 
@@ -339,13 +361,17 @@ type ReportingCaptureStream struct {
 	OldestSource  *time.Time `json:"oldestSource,omitempty"`
 }
 type ReportingSetup struct {
-	AccountID     string                   `json:"accountId"`
-	Name          string                   `json:"name"`
-	CanAdminister bool                     `json:"canAdminister"`
-	CanCreate     bool                     `json:"canCreate"`
-	Authorities   []ReportingAuthority     `json:"authorities,omitempty"`
-	Input         *ReportingInputsMetadata `json:"input,omitempty"`
-	Capture       []ReportingCaptureStream `json:"capture"`
+	CanManageRepresentatives bool                     `json:"canManageRepresentatives"`
+	CanReadRequests          bool                     `json:"canReadRequests"`
+	CanCreateRequests        bool                     `json:"canCreateRequests"`
+	Owners                   []ReportingAuthority     `json:"owners"`
+	AccountID                string                   `json:"accountId"`
+	Name                     string                   `json:"name"`
+	CanAdminister            bool                     `json:"canAdminister"`
+	CanCreate                bool                     `json:"canCreate"`
+	Authorities              []ReportingAuthority     `json:"authorities,omitempty"`
+	Input                    *ReportingInputsMetadata `json:"input,omitempty"`
+	Capture                  []ReportingCaptureStream `json:"capture"`
 }
 
 func (s *Service) HostReportingAccounts(ctx context.Context, actorID, orgID int64) ([]HostReportingAccount, error) {
@@ -388,6 +414,10 @@ func (s *Service) HostReportingSetup(ctx context.Context, actorID, orgID int64, 
 		}
 		out.AccountID = a.account.AccountID
 		out.Name = a.account.Name
+		out.CanManageRepresentatives, err = reportingRepresentativeAuthority(ctx, q, actorID, orgID, accountID)
+		if err != nil {
+			return out, err
+		}
 		out.CanAdminister = admin
 		grant, err := q.GetReportingAuthority(ctx, sqlc.GetReportingAuthorityParams{OrganizationID: orgID, AccountID: a.account.ID, UserID: actorID})
 		if err != nil && !errors.Is(err, sql.ErrNoRows) {
@@ -395,13 +425,20 @@ func (s *Service) HostReportingSetup(ctx context.Context, actorID, orgID int64, 
 		}
 		a.grant = grant
 		out.CanCreate = grant.CanCreate
-		if admin {
+		out.CanReadRequests = grant.CanCreate && a.accountWideRequestsAllowed()
+		out.CanCreateRequests = grant.CanCreate && out.CanReadRequests
+		if admin || grant.CanCreate {
 			rows, err := q.ListReportingAuthorities(ctx, sqlc.ListReportingAuthoritiesParams{OrganizationID: orgID, AccountID: a.account.ID})
 			if err != nil {
 				return out, err
 			}
 			for _, row := range rows {
-				out.Authorities = append(out.Authorities, ReportingAuthority{UserID: row.UserUuid, Username: row.Username, CanCreate: row.CanCreate, AllSites: row.AllSites, SiteIDs: row.SiteIds, Revision: row.Revision})
+				if row.CanCreate {
+					out.Owners = append(out.Owners, ReportingAuthority{UserID: row.UserUuid, Username: row.Username})
+				}
+				if admin {
+					out.Authorities = append(out.Authorities, ReportingAuthority{UserID: row.UserUuid, Username: row.Username, CanCreate: row.CanCreate, AllSites: row.AllSites, SiteIDs: row.SiteIds, Revision: row.Revision})
+				}
 			}
 		}
 		if grant.CanCreate {
@@ -456,4 +493,32 @@ func (s *Service) HostReportingSetup(ctx context.Context, actorID, orgID int64, 
 		}
 		return out, nil
 	})
+}
+
+func reportingRepresentativeAuthority(ctx context.Context, q sqlc.Querier, actorID, orgID int64, accountID string) (bool, error) {
+	path, err := loadPath(ctx, q, orgID, accountID)
+	if err != nil {
+		return false, err
+	}
+	_, err = authorizeForRead(ctx, q, actorID, orgID, path, ManageMembers)
+	if fleeterror.IsForbiddenError(err) {
+		return false, nil
+	}
+	return err == nil, err
+}
+func sameReportingRepresentatives(a, b []reporting.Representative) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	refs := make(map[string]reporting.Representative, len(a))
+	for _, v := range a {
+		refs[v.UserID] = v
+	}
+	for _, v := range b {
+		ref, ok := refs[v.UserID]
+		if !ok || ref != v {
+			return false
+		}
+	}
+	return true
 }

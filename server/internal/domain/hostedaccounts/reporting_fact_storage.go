@@ -101,11 +101,21 @@ func (s *Service) MutateReportingInputs(ctx context.Context, actorID, orgID int6
 				return zero, fmt.Errorf("decode reporting configuration: %w", e)
 			}
 		}
+		priorConfig := config
 		if configuration != nil {
 			config = *configuration
 		}
 		if e = reporting.ValidateConfigurationContext(ctx, config); e != nil {
 			return zero, fleeterror.NewInvalidArgumentError(e.Error())
+		}
+		if !sameReportingRepresentatives(priorConfig.Representatives, config.Representatives) {
+			allowed, err := reportingRepresentativeAuthority(ctx, q, actorID, orgID, accountID)
+			if err != nil {
+				return zero, err
+			}
+			if !allowed {
+				return zero, fleeterror.NewForbiddenError("managing report recipients requires account team-management access")
+			}
 		}
 		configJSON, e := json.Marshal(config)
 		if e != nil {
@@ -229,6 +239,24 @@ func (s *Service) MutateReportingInputs(ctx context.Context, actorID, orgID int6
 		if !a.hostSitesAllowed(sites) {
 			return zero, denied()
 		}
+		if schedule := config.Schedule; schedule != nil {
+			owner, err := q.GetReportingUser(ctx, sqlc.GetReportingUserParams{UserID: schedule.OwnerUserID, OrganizationID: orgID})
+			if err != nil {
+				return zero, accessError(err)
+			}
+			grant, err := q.GetReportingAuthority(ctx, sqlc.GetReportingAuthorityParams{OrganizationID: orgID, AccountID: a.account.ID, UserID: owner})
+			if err != nil {
+				return zero, accessError(err)
+			}
+			if !grant.CanCreate {
+				return zero, denied()
+			}
+			for _, site := range sites {
+				if !grant.AllSites && !slices.Contains(grant.SiteIds, site) {
+					return zero, denied()
+				}
+			}
+		}
 		row, e := q.UpdateReportingInputs(ctx, sqlc.UpdateReportingInputsParams{OrganizationID: orgID, AccountID: a.account.ID, Revision: expected + 1, UpdatedBy: actorID, SourceRef: strings.TrimSpace(source), Configuration: configJSON, SiteIds: sites})
 		if e != nil {
 			return zero, e
@@ -238,12 +266,6 @@ func (s *Service) MutateReportingInputs(ctx context.Context, actorID, orgID int6
 			return zero, e
 		}
 		sections := []string{}
-		var priorConfig reporting.Configuration
-		if !absent {
-			if e = json.Unmarshal(previous.Configuration, &priorConfig); e != nil {
-				return zero, fmt.Errorf("decode prior reporting configuration: %w", e)
-			}
-		}
 		if configuration != nil && (absent || !reportingConfigurationsEqual(priorConfig, config)) {
 			sections = append(sections, "configuration")
 		}

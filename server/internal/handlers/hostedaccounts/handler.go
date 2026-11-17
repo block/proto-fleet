@@ -217,7 +217,7 @@ func (h *Handler) ListAncestorGrants(ctx context.Context, req *connect.Request[p
 	}
 	response := &pb.ListAncestorGrantsResponse{}
 	for _, row := range rows {
-		response.Grants = append(response.Grants, &pb.AncestorGrant{AncestorAccountId: row.AncestorAccountID, Capabilities: uint64(row.Capabilities), Revision: row.Revision}) // #nosec G115 -- stored ancestor grant masks are constrained to 1..31.
+		response.Grants = append(response.Grants, &pb.AncestorGrant{AncestorAccountId: row.AncestorAccountID, Capabilities: uint64(row.Capabilities), Revision: row.Revision}) // #nosec G115 -- stored ancestor grant masks are constrained to 1..63.
 	}
 	return connect.NewResponse(response), nil
 }
@@ -341,7 +341,7 @@ func (h *Handler) RevokeInvitation(ctx context.Context, req *connect.Request[pb.
 }
 
 func accountDTO(a domain.AccountSummary) *pb.Account {
-	item := &pb.Account{TicketingEnabled: a.TicketingEnabled, TicketAccess: a.TicketAccess, AccountId: a.AccountID, ParentAccountId: a.ParentAccountID, Name: a.Name, Depth: uint32(a.Depth), CapabilityCeiling: uint64(a.Capabilities), EffectiveCapabilities: uint64(a.EffectiveCapabilities), Role: RoleDTO(a.Role), Suspended: a.Suspended, Revision: a.Revision} // #nosec G115 -- account depth is constrained to 0..2 and capability masks to 0..31.
+	item := &pb.Account{TicketingEnabled: a.TicketingEnabled, TicketAccess: a.TicketAccess, AccountId: a.AccountID, ParentAccountId: a.ParentAccountID, Name: a.Name, Depth: uint32(a.Depth), CapabilityCeiling: uint64(a.Capabilities), EffectiveCapabilities: uint64(a.EffectiveCapabilities), Role: RoleDTO(a.Role), Suspended: a.Suspended, Revision: a.Revision} // #nosec G115 -- account depth is constrained to 0..2 and capability masks to 0..63.
 	if counts := a.ManagementSummary; counts != nil {
 		item.ManagementSummary = &pb.ClientManagementSummary{
 			MinerCount: counts.MinerCount, ModuleCount: counts.ModuleCount, HashboardCount: counts.HashboardCount,

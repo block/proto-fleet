@@ -79,6 +79,7 @@ describe("Navigation Menu", () => {
         <MemoryRouter initialEntries={["/settings/network"]}>
           <HostedAccountsContext.Provider
             value={{
+              reportingAccess: false,
               accounts: [create(AccountSchema, { accountId: "customer" })],
               hostAccess,
               loading: false,
@@ -103,6 +104,28 @@ describe("Navigation Menu", () => {
       } else {
         expect(screen.queryByRole("link", { name: "Clients" })).not.toBeInTheDocument();
       }
+    },
+  );
+
+  it.each([true, false])(
+    "shows Reports for an authorized reporter in the phone drawer (%s)",
+    async (reportingAccess) => {
+      mockUseWindowDimensions.mockReturnValue({ isPhone: true });
+      render(
+        <MemoryRouter initialEntries={["/accounts/reports"]}>
+          <HostedAccountsContext.Provider
+            value={{ accounts: [], hostAccess: true, reportingAccess, loading: false, error: null, refresh: vi.fn() }}
+          >
+            <NavigationMenu items={primaryNavItems} isVisible />
+          </HostedAccountsContext.Provider>
+        </MemoryRouter>,
+      );
+      if (reportingAccess) {
+        expect(await screen.findByRole("link", { name: "Reports" })).toHaveAttribute("aria-current", "page");
+      } else {
+        expect(screen.queryByRole("link", { name: "Reports" })).not.toBeInTheDocument();
+      }
+      expect(screen.queryByRole("link", { name: "Clients" })).not.toBeInTheDocument();
     },
   );
 

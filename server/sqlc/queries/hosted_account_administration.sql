@@ -84,13 +84,13 @@ WITH RECURSIVE page AS MATERIALIZED (
 ), inviters AS (
  SELECT DISTINCT inviter_id FROM page WHERE revoked_at IS NULL AND accepted_at IS NULL AND expires_at>statement_timestamp()
 ), sources AS (
- SELECT i.inviter_id, CASE m.role WHEN 'viewer' THEN 1 WHEN 'pool_operator' THEN 7 WHEN 'account_administrator' THEN 31 ELSE 0 END::bigint AS capabilities,
+ SELECT i.inviter_id, CASE m.role WHEN 'viewer' THEN 1 WHEN 'pool_operator' THEN 7 WHEN 'account_administrator' THEN 63 ELSE 0 END::bigint AS capabilities,
   'member:' || m.revision::text AS witness
  FROM inviters i JOIN hosted_account_membership m ON m.user_id=i.inviter_id
  JOIN target t ON t.id=m.account_id AND t.organization_id=m.organization_id WHERE m.revoked_at IS NULL
  UNION ALL
- SELECT i.inviter_id, (g.capabilities & CASE WHEN ancestor.depth=0 THEN 31 ELSE
-  CASE member.role WHEN 'viewer' THEN 1 WHEN 'pool_operator' THEN 7 WHEN 'account_administrator' THEN 31 ELSE 0 END END)::bigint,
+ SELECT i.inviter_id, (g.capabilities & CASE WHEN ancestor.depth=0 THEN 63 ELSE
+  CASE member.role WHEN 'viewer' THEN 1 WHEN 'pool_operator' THEN 7 WHEN 'account_administrator' THEN 63 ELSE 0 END END)::bigint,
   'grant:' || g.ancestor_id::text || ':' || g.revision::text || ':' ||
   CASE WHEN ancestor.depth=0 THEN COALESCE((
    SELECT string_agg(ur.id::text || ':' || ur.updated_at::text || ':' || r.updated_at::text, ',' ORDER BY ur.id)
@@ -122,8 +122,8 @@ WITH RECURSIVE page AS MATERIALIZED (
 SELECT p.invitation_id,p.role,p.expires_at,p.revoked_at,p.accepted_at,p.created_at,
  COALESCE(p.revoked_at IS NULL AND p.accepted_at IS NULL AND p.expires_at>statement_timestamp()
   AND (a.capabilities & 8)<>0 AND a.fingerprint=p.authority_fingerprint
-  AND (a.source_capabilities & CASE p.role WHEN 'viewer' THEN 1 WHEN 'pool_operator' THEN 7 WHEN 'account_administrator' THEN 31 ELSE 0 END)
-   = CASE p.role WHEN 'viewer' THEN 1 WHEN 'pool_operator' THEN 7 WHEN 'account_administrator' THEN 31 ELSE 0 END,false)::boolean AS available
+  AND (a.source_capabilities & CASE p.role WHEN 'viewer' THEN 1 WHEN 'pool_operator' THEN 7 WHEN 'account_administrator' THEN 63 ELSE 0 END)
+   = CASE p.role WHEN 'viewer' THEN 1 WHEN 'pool_operator' THEN 7 WHEN 'account_administrator' THEN 63 ELSE 0 END,false)::boolean AS available
 FROM page p LEFT JOIN authorities a ON a.inviter_id=p.inviter_id
 ORDER BY p.created_at DESC,p.invitation_id DESC;
 
@@ -148,12 +148,12 @@ WHERE a.organization_id = $1 AND a.depth > 0 AND NOT EXISTS (
     JOIN user_organization uo ON uo.user_id = u.id AND uo.organization_id = m.organization_id AND uo.deleted_at IS NULL
     WHERE m.organization_id = a.organization_id AND m.account_id = a.id
         AND m.revoked_at IS NULL AND m.role = 'account_administrator'
-        AND (a.capabilities & COALESCE(parent.capabilities, 31) & root.capabilities & 8) <> 0
+        AND (a.capabilities & COALESCE(parent.capabilities, 63) & root.capabilities & 8) <> 0
         AND u.id <> sqlc.arg(excluded_user_id)
 ) AND NOT EXISTS (
     SELECT 1 FROM hosted_account_ancestor_grant g
     WHERE g.organization_id = a.organization_id AND g.account_id = a.id AND g.revoked_at IS NULL
-        AND (g.capabilities & a.capabilities & COALESCE(parent.capabilities, 31) & root.capabilities & 8) <> 0
+        AND (g.capabilities & a.capabilities & COALESCE(parent.capabilities, 63) & root.capabilities & 8) <> 0
         AND (
             (g.ancestor_id = root.id AND EXISTS (
                 SELECT 1 FROM user_organization_role ur

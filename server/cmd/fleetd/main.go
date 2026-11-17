@@ -866,6 +866,7 @@ func start(config *Config) (result error) {
 		systemMonitoring:          systemMonitoring,
 		haReadiness:               haReadiness,
 		releaseChecker:            releaseCheckerJob,
+		hostedReporting:           newBackgroundLoop(hostedaccountsDomain.NewReportingJobs(hostedaccountsSvc, alertsDeliverer).Run),
 	})
 	if err != nil {
 		return err
@@ -956,7 +957,7 @@ func start(config *Config) (result error) {
 	}
 
 	mux.Handle(authv1connect.NewAuthServiceHandler(auth.NewHandler(authSvc), li))
-	mux.Handle(hostedv1connect.NewHostedAccountServiceHandler(hostedaccountsHandler.NewHandler(hostedaccountsSvc, hostedInvitationsSvc, hostedKeysSvc, userStore, permissionResolver), li))
+	mux.Handle(hostedv1connect.NewHostedAccountServiceHandler(hostedaccountsHandler.NewHandler(hostedaccountsSvc, hostedInvitationsSvc, hostedKeysSvc, userStore, permissionResolver), li, hostedaccountsHandler.ReportingRequestReadLimitOption()))
 	mux.Handle(invitationv1connect.NewInvitationServiceHandler(invitationHandler.NewHandler(hostedInvitationsSvc, teamInvitationsSvc), li))
 	mux.Handle(onboardingv1connect.NewOnboardingServiceHandler(onboarding.NewHandler(authSvc, onboardingSvc), li))
 	mux.Handle(pairingv1connect.NewPairingServiceHandler(pairing.NewHandler(pairingSvc, fleetNodeDiscoverySvc, fleetNodePairingSvc), li))

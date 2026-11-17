@@ -251,6 +251,46 @@ func (q *Queries) CreateHostedReportRequest(ctx context.Context, arg CreateHoste
 	return i, err
 }
 
+const createHostedReportRequestFulfillment = `-- name: CreateHostedReportRequestFulfillment :one
+INSERT INTO hosted_report_request_fulfillment(request_internal_id,entry_key,delivered_at,delivery_ref,communication_ref,evidence,actor_id)
+VALUES($1,$2,$3,$4,$5,$6,$7) ON CONFLICT DO NOTHING RETURNING id, request_internal_id, entry_key, delivered_at, delivery_ref, communication_ref, evidence, actor_id, created_at
+`
+
+type CreateHostedReportRequestFulfillmentParams struct {
+	RequestInternalID int64
+	EntryKey          string
+	DeliveredAt       time.Time
+	DeliveryRef       string
+	CommunicationRef  string
+	Evidence          string
+	ActorID           int64
+}
+
+func (q *Queries) CreateHostedReportRequestFulfillment(ctx context.Context, arg CreateHostedReportRequestFulfillmentParams) (HostedReportRequestFulfillment, error) {
+	row := q.queryRow(ctx, q.createHostedReportRequestFulfillmentStmt, createHostedReportRequestFulfillment,
+		arg.RequestInternalID,
+		arg.EntryKey,
+		arg.DeliveredAt,
+		arg.DeliveryRef,
+		arg.CommunicationRef,
+		arg.Evidence,
+		arg.ActorID,
+	)
+	var i HostedReportRequestFulfillment
+	err := row.Scan(
+		&i.ID,
+		&i.RequestInternalID,
+		&i.EntryKey,
+		&i.DeliveredAt,
+		&i.DeliveryRef,
+		&i.CommunicationRef,
+		&i.Evidence,
+		&i.ActorID,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
 const findHostedOriginalReport = `-- name: FindHostedOriginalReport :one
 SELECT report_id FROM hosted_report
 WHERE organization_id=$1 AND account_id=$2 AND kind=$3 AND period_start=$4 AND period_end=$5
@@ -355,6 +395,65 @@ func (q *Queries) GetHostedReportDelivery(ctx context.Context, arg GetHostedRepo
 	return i, err
 }
 
+const getHostedReportRequest = `-- name: GetHostedReportRequest :one
+SELECT id, request_id, organization_id, account_id, received_at, source_ref, requester, scope, owner_id, target_at, limitations, communication_ref, delivery_ref, actor_id, created_at FROM hosted_report_request WHERE organization_id=$1 AND account_id=$2 AND request_id=$3
+`
+
+type GetHostedReportRequestParams struct {
+	OrganizationID int64
+	AccountID      int64
+	RequestID      string
+}
+
+func (q *Queries) GetHostedReportRequest(ctx context.Context, arg GetHostedReportRequestParams) (HostedReportRequest, error) {
+	row := q.queryRow(ctx, q.getHostedReportRequestStmt, getHostedReportRequest, arg.OrganizationID, arg.AccountID, arg.RequestID)
+	var i HostedReportRequest
+	err := row.Scan(
+		&i.ID,
+		&i.RequestID,
+		&i.OrganizationID,
+		&i.AccountID,
+		&i.ReceivedAt,
+		&i.SourceRef,
+		&i.Requester,
+		&i.Scope,
+		&i.OwnerID,
+		&i.TargetAt,
+		&i.Limitations,
+		&i.CommunicationRef,
+		&i.DeliveryRef,
+		&i.ActorID,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
+const getHostedReportRequestFulfillment = `-- name: GetHostedReportRequestFulfillment :one
+SELECT id, request_internal_id, entry_key, delivered_at, delivery_ref, communication_ref, evidence, actor_id, created_at FROM hosted_report_request_fulfillment WHERE request_internal_id=$1 AND entry_key=$2
+`
+
+type GetHostedReportRequestFulfillmentParams struct {
+	RequestInternalID int64
+	EntryKey          string
+}
+
+func (q *Queries) GetHostedReportRequestFulfillment(ctx context.Context, arg GetHostedReportRequestFulfillmentParams) (HostedReportRequestFulfillment, error) {
+	row := q.queryRow(ctx, q.getHostedReportRequestFulfillmentStmt, getHostedReportRequestFulfillment, arg.RequestInternalID, arg.EntryKey)
+	var i HostedReportRequestFulfillment
+	err := row.Scan(
+		&i.ID,
+		&i.RequestInternalID,
+		&i.EntryKey,
+		&i.DeliveredAt,
+		&i.DeliveryRef,
+		&i.CommunicationRef,
+		&i.Evidence,
+		&i.ActorID,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
 const hasIssuedHostedOriginalReport = `-- name: HasIssuedHostedOriginalReport :one
 SELECT EXISTS(SELECT 1 FROM hosted_report
  WHERE organization_id=$1 AND account_id=$2 AND kind=$3 AND period_start=$4 AND period_end=$5
@@ -446,6 +545,17 @@ func (q *Queries) HostedReportPublicID(ctx context.Context, id int64) (string, e
 	var report_id string
 	err := row.Scan(&report_id)
 	return report_id, err
+}
+
+const hostedReportingUserUUID = `-- name: HostedReportingUserUUID :one
+SELECT user_id FROM "user" WHERE id=$1
+`
+
+func (q *Queries) HostedReportingUserUUID(ctx context.Context, id int64) (string, error) {
+	row := q.queryRow(ctx, q.hostedReportingUserUUIDStmt, hostedReportingUserUUID, id)
+	var user_id string
+	err := row.Scan(&user_id)
+	return user_id, err
 }
 
 const issueHostedReport = `-- name: IssueHostedReport :one
@@ -550,9 +660,22 @@ func (q *Queries) ListHostedReportDeliveries(ctx context.Context, arg ListHosted
 
 const listHostedReportRequests = `-- name: ListHostedReportRequests :many
 SELECT r.id,r.request_id,r.received_at,r.source_ref,r.requester,r.scope,r.target_at,r.limitations,r.communication_ref,r.delivery_ref,
- u.user_id AS owner_user_id
+ r.owner_id,u.user_id AS owner_user_id,
+ COALESCE(fulfillment.fulfilled_at,'0001-01-01T00:00:00Z'::timestamptz)::timestamptz AS fulfilled_at, COALESCE(fulfillment.fulfillment_ref,'')::text AS fulfillment_ref
 FROM hosted_report_request r
 JOIN "user" u ON u.id=r.owner_id
+LEFT JOIN LATERAL (
+ SELECT recorded.fulfilled_at,recorded.fulfillment_ref FROM (
+  SELECT f.delivered_at AS fulfilled_at,f.delivery_ref AS fulfillment_ref
+  FROM hosted_report_request_fulfillment f WHERE f.request_internal_id=r.id
+  UNION ALL
+  SELECT d.sent_at AS fulfilled_at,d.source_ref AS fulfillment_ref
+  FROM hosted_report report JOIN hosted_report_delivery d ON d.report_internal_id=report.id
+  WHERE report.organization_id=r.organization_id AND report.account_id=r.account_id
+   AND report.kind='ad_hoc' AND report.period->>'requestRef'=r.request_id
+   AND report.status='issued' AND d.status='confirmed' AND d.sent_at>=r.received_at
+ ) recorded ORDER BY recorded.fulfilled_at DESC,recorded.fulfillment_ref LIMIT 1
+) fulfillment ON true
 WHERE r.organization_id=$1 AND r.account_id=$2
  AND ($3::bigint=0 OR (r.received_at,r.id)<($4::timestamptz,$3::bigint))
 ORDER BY r.received_at DESC,r.id DESC LIMIT $5::int
@@ -577,7 +700,10 @@ type ListHostedReportRequestsRow struct {
 	Limitations      string
 	CommunicationRef string
 	DeliveryRef      string
+	OwnerID          int64
 	OwnerUserID      string
+	FulfilledAt      time.Time
+	FulfillmentRef   string
 }
 
 func (q *Queries) ListHostedReportRequests(ctx context.Context, arg ListHostedReportRequestsParams) ([]ListHostedReportRequestsRow, error) {
@@ -606,7 +732,10 @@ func (q *Queries) ListHostedReportRequests(ctx context.Context, arg ListHostedRe
 			&i.Limitations,
 			&i.CommunicationRef,
 			&i.DeliveryRef,
+			&i.OwnerID,
 			&i.OwnerUserID,
+			&i.FulfilledAt,
+			&i.FulfillmentRef,
 		); err != nil {
 			return nil, err
 		}
@@ -639,17 +768,19 @@ WHERE r.organization_id=$1 AND r.account_id=$2
  AND ($3::boolean OR (r.status='issued' AND NOT EXISTS (
    SELECT 1 FROM hosted_report newer WHERE newer.organization_id=r.organization_id AND newer.account_id=r.account_id AND newer.series_id=r.series_id AND newer.status='issued' AND newer.number>r.number
  )))
- AND ($4::text='' OR r.series_id=$4)
- AND ($5::bigint=0 OR (r.period_start,r.id)<($6::timestamptz,$5::bigint))
- AND ($7::text='' OR r.kind=$7)
- AND ($8::text='' OR strpos(lower(CASE r.kind WHEN 'monthly' THEN 'Monthly service report Official report' WHEN 'quarterly' THEN 'Quarterly service report Official report' WHEN 'annual' THEN 'Annual performance report Official report' ELSE 'Requested operational report Host-prepared response ad_hoc' END||' '||r.period::text||' '||to_char(r.period_start AT TIME ZONE r.timezone,'Mon YYYY')),lower($8))>0)
-ORDER BY r.period_start DESC,r.id DESC LIMIT $9::int
+ AND ($4::text='' OR r.report_id=$4)
+ AND ($5::text='' OR r.series_id=$5)
+ AND ($6::bigint=0 OR (r.period_start,r.id)<($7::timestamptz,$6::bigint))
+ AND ($8::text='' OR r.kind=$8)
+ AND ($9::text='' OR strpos(lower(CASE r.kind WHEN 'monthly' THEN 'Monthly service report Official report' WHEN 'quarterly' THEN 'Quarterly service report Official report' WHEN 'annual' THEN 'Annual performance report Official report' ELSE 'Requested operational report Host-prepared response ad_hoc' END||' '||r.period::text||' '||to_char(r.period_start AT TIME ZONE r.timezone,'Mon YYYY')),lower($9))>0)
+ORDER BY r.period_start DESC,r.id DESC LIMIT $10::int
 `
 
 type ListHostedReportSummariesParams struct {
 	OrganizationID int64
 	AccountID      int64
 	Host           bool
+	ReportID       string
 	SeriesID       string
 	BeforeID       int64
 	BeforeStart    time.Time
@@ -685,6 +816,7 @@ func (q *Queries) ListHostedReportSummaries(ctx context.Context, arg ListHostedR
 		arg.OrganizationID,
 		arg.AccountID,
 		arg.Host,
+		arg.ReportID,
 		arg.SeriesID,
 		arg.BeforeID,
 		arg.BeforeStart,

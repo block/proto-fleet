@@ -7,6 +7,7 @@ import (
 	"github.com/lib/pq"
 
 	pb "github.com/block/proto-fleet/server/generated/grpc/hosted/v1"
+	"github.com/block/proto-fleet/server/generated/sqlc"
 	"github.com/block/proto-fleet/server/internal/domain/hostedaccounts"
 	"github.com/block/proto-fleet/server/internal/domain/hostedaccounts/reporting"
 	"github.com/stretchr/testify/require"
@@ -139,4 +140,45 @@ func TestReportingHostWorkspaceDoesNotGrantPreviewOrUnassignedInputAccess(t *tes
 	accounts, err := f.svc.HostReportingAccounts(t.Context(), f.user, f.org)
 	require.Error(t, err, "discovery requires live host permissions")
 	require.Empty(t, accounts, "client membership is not host reporting authority")
+}
+
+func TestReportingWorkspaceOperatorOwnerChoicesDoNotExposeAuthorityGrants(t *testing.T) {
+	f := setup(t)
+	client := f.client(t, "Reporting client", f.user, hostedaccounts.AllCapabilities)
+	var hostUUID string
+	require.NoError(t, f.db.QueryRowContext(t.Context(), `SELECT user_id FROM "user" WHERE id=$1`, f.host).Scan(&hostUUID))
+	require.NoError(t, f.svc.SetReportingAuthority(t.Context(), f.host, f.org, client.AccountID, hostedaccounts.ReportingAuthority{UserID: hostUUID, CanCreate: true, AllSites: true}, 0))
+	reviewer := addUser(t, f.db, f.org)
+	var role int64
+	require.NoError(t, f.db.QueryRowContext(t.Context(), `SELECT id FROM role WHERE organization_id=$1 AND builtin_key='FIELD_TECH'`, f.org).Scan(&role))
+	_, err := sqlc.New(f.db).AssignRole(t.Context(), sqlc.AssignRoleParams{UserID: reviewer, OrganizationID: f.org, RoleID: role, ScopeType: "org"})
+	require.NoError(t, err)
+	var reviewerUUID string
+	require.NoError(t, f.db.QueryRowContext(t.Context(), `SELECT user_id FROM "user" WHERE id=$1`, reviewer).Scan(&reviewerUUID))
+	require.NoError(t, f.svc.SetReportingAuthority(t.Context(), f.host, f.org, client.AccountID, hostedaccounts.ReportingAuthority{UserID: reviewerUUID, CanCreate: true, AllSites: true}, 0))
+	_, err = saveReportingInputsForTest(f.svc, t.Context(), f.host, f.org, client.AccountID, 0, "source evidence", reportingInputs(t, f, client.AccountID, f.host))
+	require.NoError(t, err)
+	setup, err := f.svc.HostReportingSetup(t.Context(), reviewer, f.org, client.AccountID)
+	require.NoError(t, err)
+	require.False(t, setup.CanAdminister)
+	require.True(t, setup.CanCreate)
+	require.False(t, setup.CanReadRequests, "reporting publication does not replace unrestricted site-read authority")
+	require.False(t, setup.CanCreateRequests, "publish authority alone cannot create requests")
+	hostSetup, err := f.svc.HostReportingSetup(t.Context(), f.host, f.org, client.AccountID)
+	require.NoError(t, err)
+	require.True(t, hostSetup.CanReadRequests)
+	require.True(t, hostSetup.CanCreateRequests)
+
+	require.Empty(t, setup.Authorities, "non-admin operators cannot inspect grant details")
+	require.Len(t, setup.Owners, 2, "eligible explicit operators remain assignable without directory permission")
+	for _, owner := range setup.Owners {
+		require.NotEmpty(t, owner.UserID)
+		require.NotEmpty(t, owner.Username)
+		require.False(t, owner.CanCreate)
+		require.False(t, owner.AllSites)
+		require.Empty(t, owner.SiteIDs)
+	}
+	setup, err = f.svc.HostReportingSetup(t.Context(), reviewer, f.org, client.AccountID)
+	require.NoError(t, err)
+	require.NotNil(t, setup.Input)
 }

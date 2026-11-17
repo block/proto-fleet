@@ -29,8 +29,9 @@ const (
 	ChangePools
 	ManageMembers
 	Delegate
+	GenerateReports
 
-	DefaultCapabilities = View | ManagePools | ChangePools | ManageMembers
+	DefaultCapabilities = View | ManagePools | ChangePools | ManageMembers | GenerateReports
 	AllCapabilities     = DefaultCapabilities | Delegate
 )
 

@@ -38,7 +38,7 @@ export const generateUptimeHeadline = (
   }
 
   if (totalMiners === 0) {
-    return audience === "account" ? "No uptime readings" : "No miners";
+    return audience === "account" ? "No hashing-state readings" : "No miners";
   }
 
   // Surface the most severe non-healthy bucket first.

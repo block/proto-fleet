@@ -193,12 +193,12 @@ export class ClientWorkspacePage {
 
   async expectNavigation(accountId: string) {
     const navigation = await this.navigation();
-    for (const label of ["Home", "Fleet", "Activity"])
+    for (const label of ["Home", "Fleet", "Activity", "Reports"])
       await expect(navigation.getByRole("link", { name: label, exact: true })).toBeVisible();
     if (this.isMobile)
       await expect(navigation.getByRole("button", { name: "Settings menu toggle", exact: true })).toBeVisible();
     else await expect(navigation.getByRole("link", { name: "Settings", exact: true })).toBeVisible();
-    for (const label of ["Maintenance", "Reports", "Billing"])
+    for (const label of ["Maintenance", "Billing"])
       await expect(navigation.getByRole("link", { name: label, exact: true })).toHaveCount(0);
     await expect(
       this.page
