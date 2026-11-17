@@ -43,6 +43,8 @@ import type {
   V2GetHashboardEventsResponse,
   V2GetHAStatusResponse,
   V2GetLogsResponse,
+  V2GetMiningGroupCapabilityResponse,
+  V2GetMiningGroupResponse,
   V2GetMiningStatusResponse,
   V2GetPoolDiagnosticsResponse,
   V2GetRecoveryEvidenceResponse,
@@ -52,6 +54,9 @@ import type {
   V2HashboardRunInConfig,
   V2ListAuditEventsResponse,
   V2ListFirmwareUpdatesResponse,
+  V2ListMiningGroupMembershipsResponse,
+  V2ListMiningGroupPoolsResponse,
+  V2ListMiningGroupsResponse,
   V2ListModuleVoltageSettingsResponse,
   V2ListPoolsResponse,
   V2ListPowerFeedsResponse,
@@ -87,6 +92,7 @@ import type {
 } from "./generated/generatedApi";
 import { FirmwareService } from "./generated/proto/mdk/v2/firmware_pb";
 import { HashboardService } from "./generated/proto/mdk/v2/hashboard_pb";
+import { MiningGroupService } from "./generated/proto/mdk/v2/mining_group_pb";
 import { MiningService } from "./generated/proto/mdk/v2/mining_pb";
 import { PoolService } from "./generated/proto/mdk/v2/pool_pb";
 import { PowerService } from "./generated/proto/mdk/v2/power_pb";
@@ -111,6 +117,22 @@ export interface LogTailRead {
 }
 
 export interface MdkV2Client {
+  miningGroupServiceGetMiningGroupCapability(
+    params?: AdapterRequestOptions,
+  ): HttpResponse<V2GetMiningGroupCapabilityResponse>;
+  miningGroupServiceListMiningGroups(params?: AdapterRequestOptions): HttpResponse<V2ListMiningGroupsResponse>;
+  miningGroupServiceListMiningGroupMemberships(
+    query: { groupId?: string },
+    params?: AdapterRequestOptions,
+  ): HttpResponse<V2ListMiningGroupMembershipsResponse>;
+  miningGroupServiceListMiningGroupPools(
+    path: { groupId: string },
+    params?: AdapterRequestOptions,
+  ): HttpResponse<V2ListMiningGroupPoolsResponse>;
+  miningGroupServiceGetMiningGroup(
+    path: { id: string },
+    params?: AdapterRequestOptions,
+  ): HttpResponse<V2GetMiningGroupResponse>;
   /** Bounded GetLogs read. Connect only: the REST client cannot end a following stream. */
   systemServiceReadLogTail?(query: SystemServiceGetLogsParams, params?: AdapterRequestOptions): Promise<LogTailRead>;
   systemServiceListAuditEvents?(
@@ -559,6 +581,7 @@ const eventWindow = <Q extends { "window.start"?: string; "window.end"?: string 
 export const createMdkV2Client = (transport: Transport): MdkV2Client => {
   const system = SystemService.method;
   const mining = MiningService.method;
+  const miningGroup = MiningGroupService.method;
   const hashboard = HashboardService.method;
   const pool = PoolService.method;
   const power = PowerService.method;
@@ -566,6 +589,14 @@ export const createMdkV2Client = (transport: Transport): MdkV2Client => {
   const telemetry = TelemetryService.method;
 
   return {
+    miningGroupServiceGetMiningGroupCapability: (params) =>
+      unary(transport, miningGroup.getMiningGroupCapability, {}, params),
+    miningGroupServiceListMiningGroups: (params) => unary(transport, miningGroup.listMiningGroups, {}, params),
+    miningGroupServiceListMiningGroupMemberships: (query, params) =>
+      unary(transport, miningGroup.listMiningGroupMemberships, query, params),
+    miningGroupServiceListMiningGroupPools: (path, params) =>
+      unary(transport, miningGroup.listMiningGroupPools, path, params),
+    miningGroupServiceGetMiningGroup: (path, params) => unary(transport, miningGroup.getMiningGroup, path, params),
     systemServiceReadLogTail: (query, params) => readLogTail(transport, query, params),
     systemServiceListAuditEvents: (query, params) => unary(transport, system.listAuditEvents, timeRange(query), params),
     firmwareServiceBeginFirmwareArtifactUpload: (data, params) =>

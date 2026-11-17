@@ -67,6 +67,13 @@ import {
   toCanonicalPools,
   toCanonicalSystemInfo,
 } from "./normalize";
+import {
+  POOL_READ_TIMEOUT_MS,
+  poolWriteError,
+  readContainerPoolConfiguration,
+  readMiningGroupPools,
+  requireContainerPoolMode,
+} from "./poolConfiguration";
 import { queryPoolHistory } from "./poolHistory";
 import { containerWriteError } from "./writeErrors";
 import type { CoolingMode, MiningTarget, MiningTargetUpdate } from "@/protoOS/store/contract";
@@ -337,7 +344,9 @@ export class MdkV2Adapter implements MinerAdapter {
   }
 
   async getPoolSettings(params: AdapterRequestOptions = {}) {
-    const { data } = await this.client.poolServiceListPools(this.decorate(params));
+    const { data } = await withDeadline(this.decorate(params), POOL_READ_TIMEOUT_MS, (options) =>
+      this.client.poolServiceListPools(options),
+    );
     return (data.pools ?? [])
       .map((pool) => {
         if (!pool.id) throw new Error("Pool identity was not reported");
@@ -354,27 +363,46 @@ export class MdkV2Adapter implements MinerAdapter {
       .sort((a, b) => a.priority - b.priority);
   }
 
+  getContainerPoolConfiguration(params: AdapterRequestOptions = {}) {
+    return readContainerPoolConfiguration(this.client, this.decorate(params));
+  }
+
+  getMiningGroupPoolSettings(groupId: string, revision: string, params: AdapterRequestOptions = {}) {
+    return readMiningGroupPools(this.client, groupId, revision, this.decorate(params));
+  }
+
   async savePoolSettings(pool: PoolInfo, id?: string, params: AdapterRequestOptions = {}) {
+    await requireContainerPoolMode(this.client, this.decorate(params));
     const { name, url, username, password, priority } = pool;
-    if (id) {
-      await this.client.poolServiceUpdatePool(
-        { poolId: id },
-        { pool: { name, url, username }, password: password || undefined, updateMask: "name,url,username" },
-        this.decorate(params),
-      );
-    } else {
-      await this.client.poolServiceCreatePool(
-        { pool: { name, url, username, priority, enabled: true }, password: password || undefined },
-        this.decorate(params),
-      );
+    try {
+      if (id) {
+        await this.client.poolServiceUpdatePool(
+          { poolId: id },
+          { pool: { name, url, username }, password: password || undefined, updateMask: "name,url,username" },
+          this.decorate(params),
+        );
+      } else {
+        await this.client.poolServiceCreatePool(
+          { pool: { name, url, username, priority, enabled: true }, password: password || undefined },
+          this.decorate(params),
+        );
+      }
+    } catch (error) {
+      throw poolWriteError(error);
     }
   }
 
   async deletePoolSettings(id: string, params: AdapterRequestOptions = {}) {
-    await this.client.poolServiceDeletePool({ id }, this.decorate(params));
+    await requireContainerPoolMode(this.client, this.decorate(params));
+    try {
+      await this.client.poolServiceDeletePool({ id }, this.decorate(params));
+    } catch (error) {
+      throw poolWriteError(error);
+    }
   }
 
   async reorderPoolSettings(ids: string[], params: AdapterRequestOptions = {}) {
+    const modeRevision = await requireContainerPoolMode(this.client, this.decorate(params));
     const pools = await this.getPoolSettings(params);
     if (
       ids.length !== pools.length ||
@@ -383,20 +411,35 @@ export class MdkV2Adapter implements MinerAdapter {
     ) {
       throw new Error("The pool configuration changed. Reload before reordering.");
     }
-    const changed = ids.filter((id, priority) => pools.find((pool) => pool.id === id)!.priority !== priority);
+    const changed = ids
+      .map((id, priority) => ({ id, priority }))
+      .filter(({ id, priority }) => pools.find((pool) => pool.id === id)!.priority !== priority);
     // CT1 rejects duplicate priorities on each write. Park changed entries in
     // unused slots before assigning the final order; preserve credentials and
     // weighted/enabled settings through priority-only field masks.
     const temporaryStart = Math.max(ids.length, ...pools.map((pool) => pool.priority + 1));
     if (temporaryStart + changed.length > 2147483647) throw new Error("Pool priorities exceed the supported range");
-    const setPriority = (id: string, priority: number) =>
-      this.client.poolServiceUpdatePool(
-        { poolId: id },
-        { pool: { priority }, updateMask: "priority" },
-        this.decorate(params),
-      );
-    for (const [index, id] of changed.entries()) await setPriority(id, temporaryStart + index);
-    for (const id of changed) await setPriority(id, ids.indexOf(id));
+    let savedPriorities = 0;
+    const setPriority = async (id: string, priority: number) => {
+      await requireContainerPoolMode(this.client, this.decorate(params), modeRevision);
+      try {
+        await this.client.poolServiceUpdatePool(
+          { poolId: id },
+          { pool: { priority }, updateMask: "priority" },
+          this.decorate(params),
+        );
+      } catch (error) {
+        throw poolWriteError(error);
+      }
+      savedPriorities++;
+    };
+    try {
+      for (const [index, { id }] of changed.entries()) await setPriority(id, temporaryStart + index);
+      for (const { id, priority } of changed) await setPriority(id, priority);
+    } catch (error) {
+      if (savedPriorities > 0) throw poolWriteError(error, savedPriorities);
+      throw error;
+    }
   }
 
   async getContainerSettings(params: AdapterRequestOptions = {}): Promise<ContainerSettings> {

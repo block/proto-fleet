@@ -22,6 +22,18 @@ import { isAbortError } from "@/shared/utils/abort";
 
 const client = (overrides: Partial<MdkV2Client> = {}) =>
   ({
+    miningGroupServiceGetMiningGroupCapability: vi.fn().mockResolvedValue({
+      data: {
+        capability: {
+          name: "mining-groups-v1",
+          assignmentGranularity: "PHYSICAL_HASHBOARD",
+          version: 1,
+          stateRevision: "1",
+          enabled: false,
+        },
+      },
+    }),
+    miningGroupServiceListMiningGroups: vi.fn().mockResolvedValue({ data: {} }),
     miningServiceSetPowerTargetScoped: vi.fn(),
     miningServiceClearPowerTargetScoped: vi.fn(),
     miningServiceStartMiningScoped: vi.fn(),
@@ -107,7 +119,10 @@ describe("MdkV2Adapter", () => {
         poolServiceUpdatePool: update,
       }),
     );
-    await expect(adapter.reorderPoolSettings(["91", "42"])).rejects.toThrow("reload failed");
+    await expect(adapter.reorderPoolSettings(["91", "42"])).rejects.toMatchObject({
+      writeOutcome: "unknown",
+      message: expect.stringContaining("Some pool priorities were saved"),
+    });
     expect(update).toHaveBeenCalledTimes(2);
   });
 

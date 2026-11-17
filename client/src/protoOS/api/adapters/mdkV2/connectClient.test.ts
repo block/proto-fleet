@@ -19,6 +19,7 @@ import { V2HashboardIdentifyLEDMode, V2PerformanceMode } from "./generated/gener
 import { BucketSize, LogLevel, TimeSeriesMetric } from "./generated/proto/mdk/v2/common_pb";
 import { FirmwareService } from "./generated/proto/mdk/v2/firmware_pb";
 import { HashboardErrorCause, HashboardService } from "./generated/proto/mdk/v2/hashboard_pb";
+import { MiningGroupService } from "./generated/proto/mdk/v2/mining_group_pb";
 import { MiningService, PerformanceMode } from "./generated/proto/mdk/v2/mining_pb";
 import { PoolService } from "./generated/proto/mdk/v2/pool_pb";
 import { PowerService } from "./generated/proto/mdk/v2/power_pb";
@@ -69,6 +70,7 @@ const recordingClient = () => {
       FirmwareService,
       SystemService,
       MiningService,
+      MiningGroupService,
       HashboardService,
       PoolService,
       PowerService,
@@ -101,6 +103,36 @@ const rpcTable: [
   request: JsonValue,
   call: (client: MdkV2Client) => Promise<unknown>,
 ][] = [
+  [
+    "miningGroupServiceGetMiningGroupCapability",
+    "mdk.v2.MiningGroupService/GetMiningGroupCapability",
+    {},
+    (c) => c.miningGroupServiceGetMiningGroupCapability(),
+  ],
+  [
+    "miningGroupServiceListMiningGroups",
+    "mdk.v2.MiningGroupService/ListMiningGroups",
+    {},
+    (c) => c.miningGroupServiceListMiningGroups(),
+  ],
+  [
+    "miningGroupServiceListMiningGroupMemberships",
+    "mdk.v2.MiningGroupService/ListMiningGroupMemberships",
+    { groupId: "client-a" },
+    (c) => c.miningGroupServiceListMiningGroupMemberships({ groupId: "client-a" }),
+  ],
+  [
+    "miningGroupServiceListMiningGroupPools",
+    "mdk.v2.MiningGroupService/ListMiningGroupPools",
+    { groupId: "client-a" },
+    (c) => c.miningGroupServiceListMiningGroupPools({ groupId: "client-a" }),
+  ],
+  [
+    "miningGroupServiceGetMiningGroup",
+    "mdk.v2.MiningGroupService/GetMiningGroup",
+    { id: "client-a" },
+    (c) => c.miningGroupServiceGetMiningGroup({ id: "client-a" }),
+  ],
   [
     "firmwareServiceBeginFirmwareArtifactUpload",
     "mdk.v2.FirmwareService/BeginFirmwareArtifactUpload",

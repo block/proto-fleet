@@ -4,6 +4,7 @@ import type { FrigateServerUpdate } from "./frigateServerUpdate";
 import type { HashboardFirmware } from "./hashboardFirmware";
 import type { ChangePasswordRequest } from "./mdkV1";
 import type { ModuleVoltageSetting, ModuleVoltageWriteResult } from "./moduleVoltage";
+import type { ContainerPoolConfiguration, MiningGroupPoolSettings } from "./poolConfiguration";
 import type { PoolHistoryRequest, PoolHistoryResult, PoolRecordedShares } from "./poolHistory";
 import type {
   CoolingMode,
@@ -259,6 +260,12 @@ export interface MinerAdapter {
   getPoolHistory?(request: PoolHistoryRequest, params?: AdapterRequestOptions): Promise<PoolHistoryResult>;
   getPoolRecordedShares?(params?: AdapterRequestOptions): Promise<PoolRecordedShares>;
   getPoolSettings?(params?: AdapterRequestOptions): Promise<SavedPoolSettings[]>;
+  getContainerPoolConfiguration?(params?: AdapterRequestOptions): Promise<ContainerPoolConfiguration>;
+  getMiningGroupPoolSettings?(
+    groupId: string,
+    revision: string,
+    params?: AdapterRequestOptions,
+  ): Promise<MiningGroupPoolSettings[]>;
   savePoolSettings?(pool: PoolFormInput, id?: string, params?: AdapterRequestOptions): Promise<void>;
   deletePoolSettings?(id: string, params?: AdapterRequestOptions): Promise<void>;
   reorderPoolSettings?(ids: string[], params?: AdapterRequestOptions): Promise<void>;

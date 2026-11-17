@@ -17,6 +17,7 @@ type connectAPI struct {
 	mdkv2connect.UnimplementedSystemServiceHandler
 	mdkv2connect.UnimplementedHashboardServiceHandler
 	mdkv2connect.UnimplementedMiningServiceHandler
+	mdkv2connect.UnimplementedMiningGroupServiceHandler
 	mdkv2connect.UnimplementedTelemetryServiceHandler
 	mdkv2connect.UnimplementedPowerServiceHandler
 	mdkv2connect.UnimplementedPoolServiceHandler
@@ -31,6 +32,7 @@ func registerConnectRoutes(mux *http.ServeMux, state *ContainerState) {
 	mux.Handle(mdkv2connect.NewSystemServiceHandler(api, options))
 	mux.Handle(mdkv2connect.NewHashboardServiceHandler(api, options))
 	mux.Handle(mdkv2connect.NewMiningServiceHandler(api, options))
+	mux.Handle(mdkv2connect.NewMiningGroupServiceHandler(api, options))
 	mux.Handle(mdkv2connect.NewTelemetryServiceHandler(api, options))
 	mux.Handle(mdkv2connect.NewPowerServiceHandler(api, options))
 	mux.Handle(mdkv2connect.NewPoolServiceHandler(api, options))
@@ -102,6 +104,26 @@ func (a *connectAPI) SetIdentifyLED(ctx context.Context, req *connect.Request[md
 
 func (a *connectAPI) GetMiningStatus(ctx context.Context, req *connect.Request[mdk.GetMiningStatusRequest]) (*connect.Response[mdk.GetMiningStatusResponse], error) {
 	return connectResult(a.native.GetMiningStatus(ctx, req.Msg))
+}
+
+func (a *connectAPI) GetMiningGroupCapability(ctx context.Context, req *connect.Request[mdk.GetMiningGroupCapabilityRequest]) (*connect.Response[mdk.GetMiningGroupCapabilityResponse], error) {
+	return connectResult(a.native.GetMiningGroupCapability(ctx, req.Msg))
+}
+
+func (a *connectAPI) ListMiningGroups(ctx context.Context, req *connect.Request[mdk.ListMiningGroupsRequest]) (*connect.Response[mdk.ListMiningGroupsResponse], error) {
+	return connectResult(a.native.ListMiningGroups(ctx, req.Msg))
+}
+
+func (a *connectAPI) ListMiningGroupMemberships(ctx context.Context, req *connect.Request[mdk.ListMiningGroupMembershipsRequest]) (*connect.Response[mdk.ListMiningGroupMembershipsResponse], error) {
+	return connectResult(a.native.ListMiningGroupMemberships(ctx, req.Msg))
+}
+
+func (a *connectAPI) ListMiningGroupPools(ctx context.Context, req *connect.Request[mdk.ListMiningGroupPoolsRequest]) (*connect.Response[mdk.ListMiningGroupPoolsResponse], error) {
+	return connectResult(a.native.ListMiningGroupPools(ctx, req.Msg))
+}
+
+func (a *connectAPI) GetMiningGroup(ctx context.Context, req *connect.Request[mdk.GetMiningGroupRequest]) (*connect.Response[mdk.GetMiningGroupResponse], error) {
+	return connectResult(a.native.GetMiningGroup(ctx, req.Msg))
 }
 
 func (a *connectAPI) GetTargetPower(ctx context.Context, req *connect.Request[mdk.GetTargetPowerRequest]) (*connect.Response[mdk.GetTargetPowerResponse], error) {
