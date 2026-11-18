@@ -17,13 +17,7 @@
 # It writes proto-os_<tag>_all.deb.statement.json and .statement.sig next to
 # the package and never replaces existing files.
 #
-# Usage:
-#   sign-protoos-release.sh --dir DIR --tag TAG --repository OWNER/NAME \
-#       --commit SHA --kms-key-id KEY [--expected-key-id sha256:HEX] \
-#       [--issued-at YYYY-MM-DDTHH:MM:SSZ]
-#
-# DIR must hold proto-os_<tag>_all.deb, its .sha256 sidecar and
-# proto-os-<tag>.tar.gz. AWS credentials and region come from the environment.
+# The usage function gives the arguments.
 
 set -euo pipefail
 
@@ -38,7 +32,15 @@ die() {
 }
 
 usage() {
-  sed -n '20,23p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' >&2
+  cat >&2 <<'EOF'
+Usage:
+  sign-protoos-release.sh --dir DIR --tag TAG --repository OWNER/NAME \
+      --commit SHA --kms-key-id KEY [--expected-key-id sha256:HEX] \
+      [--issued-at YYYY-MM-DDTHH:MM:SSZ]
+
+DIR must hold proto-os_<tag>_all.deb, its .sha256 sidecar and
+proto-os-<tag>.tar.gz. AWS credentials and region come from the environment.
+EOF
   exit 2
 }
 
