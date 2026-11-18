@@ -2,7 +2,7 @@ import { expect, test } from "@playwright/test";
 import { fileURLToPath } from "node:url";
 import { FeedMappingPage } from "../pages/feedMapping";
 
-test("unlocated hashboards can be remapped with confirmation, reload recovery, and cross-tab dismissal", async ({
+test("unlocated hashboards can be remapped with confirmation, reload recovery, and automatic success cleanup", async ({
   page,
   context,
 }, testInfo) => {
@@ -43,6 +43,9 @@ test("unlocated hashboards can be remapped with confirmation, reload recovery, a
   await expect(mapping.poolConnectionWarning()).toHaveCount(0);
   await page.reload();
   await mapping.progress();
+  const otherTab = await context.newPage();
+  await otherTab.goto(page.url());
+  await expect(otherTab.getByText("Hashboard mapping is running", { exact: true })).toBeVisible();
   await expect(mapping.poolConnectionWarning()).toHaveCount(0);
   await expect(mapping.dialog().getByRole("button", { name: "Cancel mapping" })).toBeVisible();
   await expect(mapping.dialog().getByRole("button", { name: "Refresh mapping", exact: true })).toHaveCount(0);
@@ -53,12 +56,20 @@ test("unlocated hashboards can be remapped with confirmation, reload recovery, a
   await expect(mapping.dialog().getByText("Mapping complete", { exact: true })).toBeVisible({ timeout: 35_000 });
   await expect(mapping.dialog().getByTestId("mapping-progress-spinner")).toHaveCount(0);
   await expect(page.getByText("12 hashboards have no assigned location.", { exact: true })).toHaveCount(0);
-  const otherTab = await context.newPage();
-  await otherTab.goto(page.url());
-  await expect(otherTab.getByText("Hashboard mapping finished", { exact: true })).toBeVisible();
-  await mapping.dismiss();
+  // Whichever tab confirms success first emits the toast and clears the shared recovery record.
+  await expect
+    .poll(
+      async () =>
+        (await page.getByText("Hashboard mapping complete", { exact: true }).count()) +
+        (await otherTab.getByText("Hashboard mapping complete", { exact: true }).count()),
+    )
+    .toBeGreaterThan(0);
+  await mapping.close();
   await expect(otherTab.getByText("Hashboard mapping finished", { exact: true })).toHaveCount(0);
   await expect(otherTab.getByRole("button", { name: "Refresh mapping", exact: true })).toHaveCount(0);
+  await expect(page.getByText("Hashboard mapping complete", { exact: true })).toHaveCount(0);
+  await expect(otherTab.getByText("Hashboard mapping complete", { exact: true })).toHaveCount(0);
+  await page.reload();
   await otherTab.close();
   await expect(page.getByText("Hashboard mapping needs attention", { exact: true })).toHaveCount(0);
   await expect(page.getByText("Hashboard mapping finished", { exact: true })).toHaveCount(0);

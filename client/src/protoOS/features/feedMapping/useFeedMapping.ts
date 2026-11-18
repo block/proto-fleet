@@ -2,11 +2,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   type FeedMapping,
   type MappingAssessment,
+  mappingBoardNeedsReview,
   mappingError,
   type MappingRun,
   mappingRunActive,
 } from "@/protoOS/api/adapters/feedMapping";
 import type { AdapterRequestOptions } from "@/protoOS/api/adapters/types";
+import { pushToast } from "@/shared/features/toaster";
 import { usePoll } from "@/shared/hooks/usePoll";
 import { withDeadline } from "@/shared/utils/withDeadline";
 
@@ -58,6 +60,7 @@ export function useFeedMapping(
   const mounted = useRef(true);
   const request = useRef<AbortController | undefined>(undefined);
   const refreshedRun = useRef<string | undefined>(undefined);
+  const notifiedRun = useRef<string | undefined>(undefined);
   useEffect(() => {
     mounted.current = true;
     return () => {
@@ -72,7 +75,8 @@ export function useFeedMapping(
     if (!mounted.current) return;
     setAttempt(value);
     if (changed) {
-      setRun(undefined);
+      // Another tab can clear a clean success while this tab still has its progress dialog open.
+      setRun((previous) => (!value && previous?.status === "completed" ? previous : undefined));
       setRunningConfirmed(false);
     }
   }, []);
@@ -152,7 +156,8 @@ export function useFeedMapping(
         if (result.assessment.status === "fulfilled") setAssessment(result.assessment.value);
         if (result.missing) setRun(undefined);
         if (result.observed) {
-          if (!save({ token: result.saved?.token ?? newAttemptToken(), runId: result.observed.id }, saved)) {
+          const tracked = { token: result.saved?.token ?? newAttemptToken(), runId: result.observed.id };
+          if (!save(tracked, saved)) {
             refresh();
             return;
           }
@@ -162,6 +167,32 @@ export function useFeedMapping(
             await withDeadline(() => onSettled(controller.signal), controller, 15000);
             if (signal.aborted || !mounted.current) return;
             refreshedRun.current = result.observed.id;
+          }
+          if (result.observed.status === "completed") {
+            // The concurrent assessment above can predate completion. Confirm the final mapping before clearing it.
+            const fresh = await withDeadline(() => mapping.assess({ signal: controller.signal }), controller, 15000);
+            if (signal.aborted || !mounted.current) return;
+            result.assessment = { status: "fulfilled", value: fresh };
+            setAssessment(fresh);
+            if (
+              result.active.status === "fulfilled" &&
+              !fresh.unavailable &&
+              !fresh.deferredReason &&
+              !fresh.configurationReasons.length &&
+              !fresh.boards.some(mappingBoardNeedsReview) &&
+              !result.observed.error &&
+              !result.observed.warnings.length &&
+              !result.observed.feeds.some((feed) => feed.timedOut) &&
+              save(undefined, tracked)
+            ) {
+              // Retain the result for an open dialog, but stop tracking it across navigation or reloads.
+              setRun(result.observed);
+              setNotice(undefined);
+              if (notifiedRun.current !== result.observed.id) {
+                notifiedRun.current = result.observed.id;
+                pushToast({ message: "Hashboard mapping complete", status: "success" });
+              }
+            }
           }
         }
         const failure =
@@ -215,6 +246,7 @@ export function useFeedMapping(
   return {
     assessment,
     run,
+    completedSuccessfully: run?.status === "completed" && !attempt,
     runningConfirmed,
     error,
     notice,

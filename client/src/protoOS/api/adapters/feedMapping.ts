@@ -32,6 +32,12 @@ export interface MappingAssessment {
   historyIncomplete: boolean;
 }
 
+export const mappingBoardNeedsReview = (board: MappingBoard) =>
+  board.unlocated ||
+  board.conflict ||
+  board.reasons.includes("no_feed_assigned") ||
+  ["stale", "ambiguous", "deferred"].includes(board.status);
+
 export interface MappingRun {
   id: string;
   status: "planned" | "running" | "completed" | "failed" | "canceled" | "unknown";

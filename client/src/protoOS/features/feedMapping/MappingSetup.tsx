@@ -1,6 +1,11 @@
 import { useState } from "react";
 import { type FeedMappingState, useFeedMappingState } from "./feedMappingContext";
-import { type MappingBoard, type MappingRun, mappingRunActive } from "@/protoOS/api/adapters/feedMapping";
+import {
+  type MappingBoard,
+  mappingBoardNeedsReview,
+  type MappingRun,
+  mappingRunActive,
+} from "@/protoOS/api/adapters/feedMapping";
 import { Alert } from "@/shared/assets/icons";
 import Button, { variants } from "@/shared/components/Button";
 import Callout from "@/shared/components/Callout";
@@ -30,11 +35,6 @@ const location = (board: MappingBoard) =>
   board.unlocated
     ? "Unassigned"
     : `Tank ${board.tank}, module ${board.module}${board.position ? `, HB${board.position}` : ""}`;
-const needsReview = (board: MappingBoard) =>
-  board.unlocated ||
-  board.conflict ||
-  board.reasons.includes("no_feed_assigned") ||
-  ["stale", "ambiguous", "deferred"].includes(board.status);
 
 function BoardEvidence({ board }: { board: MappingBoard }) {
   return (
@@ -102,11 +102,18 @@ export function MappingSetup({ state }: { state: FeedMappingState }) {
   const boards = state.assessment?.boards ?? [];
   const unlocated = boards.filter((board) => board.unlocated).length;
   const conflicts = boards.filter((board) => board.conflict).length;
-  const affected = boards.filter(needsReview);
+  const affected = boards.filter(mappingBoardNeedsReview);
   const active = mappingRunActive(state.run);
   const unknown = state.unresolved && !active;
   const unavailable = state.error || state.assessment?.unavailable;
-  const visible = !!(affected.length || active || unknown || unavailable || state.run || state.notice);
+  const visible = !!(
+    affected.length ||
+    active ||
+    unknown ||
+    unavailable ||
+    (state.run && !state.completedSuccessfully) ||
+    state.notice
+  );
   const title = active
     ? "Hashboard mapping is running"
     : unknown

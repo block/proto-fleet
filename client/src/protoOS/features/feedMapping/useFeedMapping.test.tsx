@@ -4,6 +4,9 @@ import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { useFeedMappingState } from "./feedMappingContext";
 import { FeedMappingProvider } from "./FeedMappingProvider";
 import type { FeedMapping, MappingAssessment, MappingRun } from "@/protoOS/api/adapters/feedMapping";
+import { pushToast } from "@/shared/features/toaster";
+
+vi.mock("@/shared/features/toaster", () => ({ pushToast: vi.fn() }));
 
 const key = "proto-os:feed-mapping:ct1";
 const assessment: MappingAssessment = {
@@ -39,7 +42,10 @@ const mount = (mapping: FeedMapping) =>
     ),
   });
 
-beforeEach(() => localStorage.clear());
+beforeEach(() => {
+  localStorage.clear();
+  vi.mocked(pushToast).mockClear();
+});
 afterEach(() => {
   vi.useRealTimers();
   vi.unstubAllGlobals();
@@ -87,11 +93,11 @@ test.each([false, true])("recovers a missing saved run (previously observed: %s)
 test.each(["poll", "storage event"])("honors dismissal from another provider through %s", async (delivery) => {
   localStorage.setItem(key, JSON.stringify({ token: "saved-token", runId: running.id }));
   const mapping = api();
-  mapping.get.mockResolvedValue({ ...running, status: "completed" });
+  mapping.get.mockResolvedValue({ ...running, status: "canceled" });
   const first = mount(mapping);
   const second = mount(mapping);
-  await waitFor(() => expect(first.result.current.run?.status).toBe("completed"));
-  await waitFor(() => expect(second.result.current.run?.status).toBe("completed"));
+  await waitFor(() => expect(first.result.current.run?.status).toBe("canceled"));
+  await waitFor(() => expect(second.result.current.run?.status).toBe("canceled"));
   const calls = mapping.get.mock.calls.length;
   act(() => first.result.current.clear());
   act(() => {
@@ -118,12 +124,12 @@ test("clears a token-only attempt already deleted by another provider", async ()
 test("does not restore a dismissed record when a saved-run read finishes late", async () => {
   localStorage.setItem(key, JSON.stringify({ token: "saved-token", runId: running.id }));
   const mapping = api();
-  const finished = { ...running, status: "completed" as const };
+  const finished = { ...running, status: "canceled" as const };
   mapping.get.mockResolvedValue(finished);
   const first = mount(mapping);
   const second = mount(mapping);
-  await waitFor(() => expect(first.result.current.run?.status).toBe("completed"));
-  await waitFor(() => expect(second.result.current.run?.status).toBe("completed"));
+  await waitFor(() => expect(first.result.current.run?.status).toBe("canceled"));
+  await waitFor(() => expect(second.result.current.run?.status).toBe("canceled"));
   let resolve!: (value: MappingRun) => void;
   mapping.get.mockImplementationOnce(
     () =>
@@ -231,4 +237,86 @@ test("expires running confirmation when status reads time out and ignores late r
   await act(async () => resolve(running));
   expect(result.current.runningConfirmed).toBe(false);
   unmount();
+});
+
+test("clears a successful run only after a fresh healthy assessment and emits one success toast", async () => {
+  localStorage.setItem(key, JSON.stringify({ token: "saved-token", runId: running.id }));
+  const mapping = api();
+  mapping.get.mockResolvedValue({ ...running, status: "completed" });
+  let confirm!: (value: MappingAssessment) => void;
+  const confirmation = new Promise<MappingAssessment>((resolve) => {
+    confirm = resolve;
+  });
+  mapping.assess.mockResolvedValueOnce(assessment).mockReturnValue(confirmation);
+  const view = mount(mapping);
+  await waitFor(() => expect(mapping.assess.mock.calls.length).toBeGreaterThanOrEqual(2));
+  expect(localStorage.getItem(key)).not.toBeNull();
+  expect(pushToast).not.toHaveBeenCalled();
+  await act(async () => confirm(assessment));
+  await waitFor(() => expect(view.result.current.completedSuccessfully).toBe(true));
+  expect(view.result.current.run?.status).toBe("completed");
+  expect(localStorage.getItem(key)).toBeNull();
+  expect(pushToast).toHaveBeenCalledExactlyOnceWith({ message: "Hashboard mapping complete", status: "success" });
+  act(() => view.result.current.refresh());
+  await act(async () => {});
+  view.unmount();
+  const reloaded = mount(mapping);
+  await waitFor(() => expect(reloaded.result.current.ready).toBe(true));
+  expect(reloaded.result.current.run).toBeUndefined();
+  expect(pushToast).toHaveBeenCalledTimes(1);
+});
+
+test.each([
+  { name: "failed run", run: { ...running, status: "failed" as const }, assessment },
+  { name: "canceled run", run: { ...running, status: "canceled" as const }, assessment },
+  {
+    name: "run warning",
+    run: { ...running, status: "completed" as const, warnings: ["Check feed power"] },
+    assessment,
+  },
+  {
+    name: "timeout",
+    run: { ...running, status: "completed" as const, feeds: [{ ...running.feeds[0], timedOut: true }] },
+    assessment,
+  },
+  { name: "configuration issue", assessment: { ...assessment, configurationReasons: ["configuration mismatch"] } },
+  { name: "unavailable assessment", assessment: { ...assessment, unavailable: "Report unavailable" } },
+  { name: "deferred verification", assessment: { ...assessment, deferredReason: "switch unavailable" } },
+  {
+    name: "unlocated board",
+    assessment: {
+      ...assessment,
+      boards: [{ mac: "board", unlocated: true, conflict: false, status: "unverified", reasons: [], coverage: [] }],
+    },
+  },
+  {
+    name: "conflicting board",
+    assessment: {
+      ...assessment,
+      boards: [{ mac: "board", unlocated: false, conflict: true, status: "mismatch", reasons: [], coverage: [] }],
+    },
+  },
+])("retains the result for $name", async ({ run, assessment: finalAssessment }) => {
+  localStorage.setItem(key, JSON.stringify({ token: "saved-token", runId: running.id }));
+  const mapping = api();
+  mapping.get.mockResolvedValue(run ?? { ...running, status: "completed" });
+  // An earlier healthy read must not clear a problem in the post-completion assessment.
+  mapping.assess.mockResolvedValueOnce(assessment).mockResolvedValue(finalAssessment);
+  const { result } = mount(mapping);
+  await waitFor(() => expect(result.current.run?.id).toBe(running.id));
+  await act(async () => {});
+  expect(result.current.completedSuccessfully).toBe(false);
+  expect(localStorage.getItem(key)).not.toBeNull();
+  expect(pushToast).not.toHaveBeenCalled();
+});
+
+test("retains the result if the post-completion assessment fails", async () => {
+  localStorage.setItem(key, JSON.stringify({ token: "saved-token", runId: running.id }));
+  const mapping = api();
+  mapping.get.mockResolvedValue({ ...running, status: "completed" });
+  mapping.assess.mockResolvedValueOnce(assessment).mockRejectedValue(new Error("Assessment unavailable"));
+  const { result } = mount(mapping);
+  await waitFor(() => expect(result.current.error).toBe("Assessment unavailable"));
+  expect(localStorage.getItem(key)).not.toBeNull();
+  expect(pushToast).not.toHaveBeenCalled();
 });

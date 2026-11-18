@@ -165,7 +165,7 @@ test("cancel uses the recovered run ID", async () => {
   expect(mapping.cancel.mock.calls[0][0]).toBe("run-1");
 });
 
-test("refreshes hardware after a terminal result and hides a healthy assessment after dismissal", async () => {
+test("refreshes hardware and automatically hides a successful result with a healthy assessment", async () => {
   const mapping = api();
   const finished = { ...run, status: "completed" as const };
   mapping.active.mockResolvedValueOnce(finished).mockResolvedValue(null);
@@ -173,11 +173,10 @@ test("refreshes hardware after a terminal result and hides a healthy assessment 
   mapping.assess.mockResolvedValue({ ...assessment, boards: [] });
   const onSettled = vi.fn().mockResolvedValue(undefined);
   render(<MappingSetup mapping={mapping} deviceId="ct1" onSettled={onSettled} />);
-  await open();
   await waitFor(() => expect(onSettled).toHaveBeenCalledTimes(1));
-  fireEvent.click(screen.getByRole("button", { name: "Dismiss run result" }));
-  fireEvent.click(screen.getByRole("button", { name: "Close" }));
   await waitFor(() => expect(screen.queryByText("Hashboard mapping finished")).not.toBeInTheDocument());
+  expect(screen.queryByRole("button", { name: "Refresh mapping" })).not.toBeInTheDocument();
+  expect(localStorage.getItem("proto-os:feed-mapping:ct1")).toBeNull();
 });
 
 test("a second uncertain start cannot be dismissed as the previous completed run", async () => {
