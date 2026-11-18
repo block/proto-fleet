@@ -167,17 +167,11 @@ func (m *RemoteFleetNodeMiner) GetWebViewURL() *url.URL {
 
 func (m *RemoteFleetNodeMiner) GetDeviceMetrics(ctx context.Context) (modelsV2.DeviceMetrics, error) {
 	requestStartedAt := m.now()
-	result, err := m.fetchTelemetry(ctx)
+	result, decodedMetrics, err := m.fetchTelemetry(ctx)
 	if err != nil {
 		return modelsV2.DeviceMetrics{}, err
 	}
-	metrics, err := telemetryResultToDeviceMetrics(result, requestStartedAt)
-	if err != nil {
-		return modelsV2.DeviceMetrics{}, err
-	}
-	if err := m.validateTelemetryDeviceIdentifier("result", metrics.DeviceIdentifier); err != nil {
-		return modelsV2.DeviceMetrics{}, err
-	}
+	metrics := telemetryResultToDeviceMetrics(result, decodedMetrics, requestStartedAt)
 	metrics.FreshnessSourceNodeID = m.route.fleetNodeID
 	m.rememberStatus(result.GetDeviceStatus())
 	return metrics, nil
@@ -192,11 +186,8 @@ func (m *RemoteFleetNodeMiner) GetDeviceStatus(ctx context.Context) (models.Mine
 	}
 	m.mu.Unlock()
 
-	result, err := m.fetchTelemetry(ctx)
+	result, _, err := m.fetchTelemetry(ctx)
 	if err != nil {
-		return models.MinerStatusOffline, err
-	}
-	if err := m.validateTelemetryDeviceIdentifier("status", result.GetDeviceIdentifier()); err != nil {
 		return models.MinerStatusOffline, err
 	}
 	status := deviceStatusToMinerStatus(result.GetDeviceStatus())
@@ -204,30 +195,18 @@ func (m *RemoteFleetNodeMiner) GetDeviceStatus(ctx context.Context) (models.Mine
 	return status, nil
 }
 
-func (m *RemoteFleetNodeMiner) validateTelemetryDeviceIdentifier(kind string, got string) error {
-	if got == m.route.deviceIdentifier {
-		return nil
-	}
-	return fleeterror.NewInternalErrorf(
-		"fleet node telemetry %s device_identifier mismatch: got %q, want %q",
-		kind,
-		got,
-		m.route.deviceIdentifier,
-	)
-}
-
-func (m *RemoteFleetNodeMiner) fetchTelemetry(ctx context.Context) (*telemetrypb.FleetNodeTelemetryResult, error) {
+func (m *RemoteFleetNodeMiner) fetchTelemetry(ctx context.Context) (*telemetrypb.FleetNodeTelemetryResult, *modelsV2.DeviceMetrics, error) {
 	if m.sender == nil {
-		return nil, fleeterror.NewConnectionError(m.route.deviceIdentifier, errors.New("fleet node control registry is not configured"))
+		return nil, nil, fleeterror.NewConnectionError(m.route.deviceIdentifier, errors.New("fleet node control registry is not configured"))
 	}
 	commandTimeout := remoteTelemetryCommandTimeoutFromContext(ctx)
 	release, err := m.acquireTelemetryGate(ctx)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if err := ctx.Err(); err != nil {
 		release()
-		return nil, fleeterror.NewPlainError(
+		return nil, nil, fleeterror.NewPlainError(
 			fmt.Sprintf("fleet node telemetry context ended before command send: %v", err),
 			connect.CodeDeadlineExceeded,
 		)
@@ -238,31 +217,35 @@ func (m *RemoteFleetNodeMiner) fetchTelemetry(ctx context.Context) (*telemetrypb
 		"fleet_node_id", m.route.fleetNodeID, "device_identifier", m.route.deviceIdentifier, "command", "telemetry")
 	if err != nil {
 		if errors.Is(err, control.ErrNoActiveStream) || errors.Is(err, context.DeadlineExceeded) {
-			return nil, fleeterror.NewConnectionError(m.route.deviceIdentifier, err)
+			return nil, nil, fleeterror.NewConnectionError(m.route.deviceIdentifier, err)
 		}
-		return nil, err
+		return nil, nil, err
 	}
 	if ack.GetCode() != gatewaypb.AckCode_ACK_CODE_OK || !ack.GetSucceeded() {
-		return nil, m.errorFromAck(ack)
+		return nil, nil, m.errorFromAck(ack)
 	}
 	if len(ack.GetPayload()) == 0 {
-		return nil, fleeterror.NewInternalError("fleet node telemetry ack missing payload")
+		return nil, nil, fleeterror.NewInternalError("fleet node telemetry ack missing payload")
 	}
 	result := &telemetrypb.FleetNodeTelemetryResult{}
 	if err := proto.Unmarshal(ack.GetPayload(), result); err != nil {
-		return nil, fleeterror.NewInternalErrorf("unmarshal fleet node telemetry payload: %v", err)
+		return nil, nil, fleeterror.NewInternalErrorf("unmarshal fleet node telemetry payload: %v", err)
 	}
 	if err := validateTelemetryResult(result); err != nil {
-		return nil, err
+		return nil, nil, err
+	}
+	metrics, err := decodeTelemetryDeviceMetrics(result.GetDeviceMetricsJson())
+	if err != nil {
+		return nil, nil, err
 	}
 	if result.GetDeviceIdentifier() != m.route.deviceIdentifier {
-		return nil, fleeterror.NewInternalErrorf(
+		return nil, nil, fleeterror.NewInternalErrorf(
 			"fleet node telemetry result device_identifier mismatch: got %q, want %q",
 			result.GetDeviceIdentifier(),
 			m.route.deviceIdentifier,
 		)
 	}
-	return result, nil
+	return result, metrics, nil
 }
 
 func (m *RemoteFleetNodeMiner) acquireTelemetryGate(ctx context.Context) (func(), error) {
@@ -412,13 +395,18 @@ func validateTelemetryResult(result *telemetrypb.FleetNodeTelemetryResult) error
 			return fleeterror.NewInternalErrorf("invalid fleet node telemetry %s: non-finite value", name)
 		}
 	}
-	if len(result.GetDeviceMetricsJson()) > 0 {
-		var metrics modelsV2.DeviceMetrics
-		if err := json.Unmarshal(result.GetDeviceMetricsJson(), &metrics); err != nil {
-			return fleeterror.NewInternalErrorf("invalid fleet node telemetry device metrics payload: %v", err)
-		}
-	}
 	return nil
+}
+
+func decodeTelemetryDeviceMetrics(payload []byte) (*modelsV2.DeviceMetrics, error) {
+	if len(payload) == 0 {
+		return nil, nil
+	}
+	var metrics modelsV2.DeviceMetrics
+	if err := json.Unmarshal(payload, &metrics); err != nil {
+		return nil, fleeterror.NewInternalErrorf("invalid fleet node telemetry device metrics payload: %v", err)
+	}
+	return &metrics, nil
 }
 
 func (m *RemoteFleetNodeMiner) rememberStatus(status telemetrypb.DeviceStatus) {
@@ -430,7 +418,7 @@ func (m *RemoteFleetNodeMiner) rememberStatus(status telemetrypb.DeviceStatus) {
 	}
 }
 
-func telemetryResultToDeviceMetrics(result *telemetrypb.FleetNodeTelemetryResult, requestStartedAt time.Time) (modelsV2.DeviceMetrics, error) {
+func telemetryResultToDeviceMetrics(result *telemetrypb.FleetNodeTelemetryResult, metrics *modelsV2.DeviceMetrics, requestStartedAt time.Time) modelsV2.DeviceMetrics {
 	var freshnessObservedAt time.Time
 	if age := result.TelemetryObservationAge; age != nil && age.CheckValid() == nil && age.AsDuration() >= 0 && !requestStartedAt.IsZero() {
 		freshnessObservedAt = requestStartedAt.Add(-age.AsDuration())
@@ -443,41 +431,30 @@ func telemetryResultToDeviceMetrics(result *telemetrypb.FleetNodeTelemetryResult
 		// gives a conservative bound without comparing node and server wall clocks.
 		uptimeObservedAt = requestStartedAt.Add(-age.AsDuration())
 	}
-	if len(result.GetDeviceMetricsJson()) > 0 {
-		var metrics modelsV2.DeviceMetrics
-		if err := json.Unmarshal(result.GetDeviceMetricsJson(), &metrics); err != nil {
-			return modelsV2.DeviceMetrics{}, fleeterror.NewInternalErrorf("unmarshal fleet node telemetry device metrics: %v", err)
+	if metrics == nil {
+		var healthReason *string
+		if result.GetHealthReason() != "" {
+			reason := result.GetHealthReason()
+			healthReason = &reason
 		}
-		metrics.DeviceIdentifier = result.GetDeviceIdentifier()
-		metrics.Timestamp = result.GetTimestamp().AsTime()
-		metrics.FreshnessObservedAt = freshnessObservedAt
-		metrics.FirmwareVersion = result.GetFirmwareVersion()
-		// Never use the absolute node observation timestamp carried by the JSON.
-		metrics.UptimeSeconds = uptimeSeconds
-		metrics.UptimeObservedAt = uptimeObservedAt
-		return metrics, nil
+		metrics = &modelsV2.DeviceMetrics{
+			Health:                telemetryHealthToV2(result.GetHealthStatus(), result.GetDeviceStatus()),
+			HealthReason:          healthReason,
+			DefaultPasswordActive: result.DefaultPasswordActive,
+			HashrateHS:            scalarMetricToV2(result.HashrateHs, modelsV2.MetricKindRate),
+			TempC:                 scalarMetricToV2(result.TempC, modelsV2.MetricKindGauge),
+			FanRPM:                scalarMetricToV2(result.FanRpm, modelsV2.MetricKindGauge),
+			PowerW:                scalarMetricToV2(result.PowerW, modelsV2.MetricKindGauge),
+			EfficiencyJH:          scalarMetricToV2(result.EfficiencyJh, modelsV2.MetricKindGauge),
+		}
 	}
-	var healthReason *string
-	if result.GetHealthReason() != "" {
-		reason := result.GetHealthReason()
-		healthReason = &reason
-	}
-	return modelsV2.DeviceMetrics{
-		DeviceIdentifier:      result.GetDeviceIdentifier(),
-		Timestamp:             result.GetTimestamp().AsTime(),
-		FreshnessObservedAt:   freshnessObservedAt,
-		FirmwareVersion:       result.GetFirmwareVersion(),
-		UptimeSeconds:         uptimeSeconds,
-		UptimeObservedAt:      uptimeObservedAt,
-		Health:                telemetryHealthToV2(result.GetHealthStatus(), result.GetDeviceStatus()),
-		HealthReason:          healthReason,
-		DefaultPasswordActive: result.DefaultPasswordActive,
-		HashrateHS:            scalarMetricToV2(result.HashrateHs, modelsV2.MetricKindRate),
-		TempC:                 scalarMetricToV2(result.TempC, modelsV2.MetricKindGauge),
-		FanRPM:                scalarMetricToV2(result.FanRpm, modelsV2.MetricKindGauge),
-		PowerW:                scalarMetricToV2(result.PowerW, modelsV2.MetricKindGauge),
-		EfficiencyJH:          scalarMetricToV2(result.EfficiencyJh, modelsV2.MetricKindGauge),
-	}, nil
+	metrics.DeviceIdentifier = result.GetDeviceIdentifier()
+	metrics.Timestamp = result.GetTimestamp().AsTime()
+	metrics.FreshnessObservedAt = freshnessObservedAt
+	metrics.FirmwareVersion = result.GetFirmwareVersion()
+	metrics.UptimeSeconds = uptimeSeconds
+	metrics.UptimeObservedAt = uptimeObservedAt
+	return *metrics
 }
 
 func scalarMetricToV2(value *float64, kind modelsV2.MetricKind) *modelsV2.MetricValue {

@@ -76,8 +76,9 @@ func TestFleetNodeTelemetryUptimeRoundTrip(t *testing.T) {
 				require.NoError(t, err)
 				decoded := &telemetrypb.FleetNodeTelemetryResult{}
 				require.NoError(t, proto.Unmarshal(encoded, decoded))
-				metrics, err := telemetryResultToDeviceMetrics(decoded, requestStartedAt)
+				decodedMetrics, err := decodeTelemetryDeviceMetrics(decoded.GetDeviceMetricsJson())
 				require.NoError(t, err)
+				metrics := telemetryResultToDeviceMetrics(decoded, decodedMetrics, requestStartedAt)
 				require.Equal(t, tc.uptime, metrics.UptimeSeconds)
 				if tc.uptime == nil || tc.age == nil {
 					require.True(t, metrics.UptimeObservedAt.IsZero())
@@ -99,12 +100,12 @@ func TestFleetNodeUptimeIgnoresNodeClockOffset(t *testing.T) {
 		})
 		require.NoError(t, err)
 		result := &telemetrypb.FleetNodeTelemetryResult{
-			DeviceMetricsJson:    encoded,
 			UptimeSeconds:        new(uint64(0)),
 			UptimeObservationAge: durationpb.New(time.Minute),
 		}
-		metrics, err := telemetryResultToDeviceMetrics(result, requestStartedAt)
+		decodedMetrics, err := decodeTelemetryDeviceMetrics(encoded)
 		require.NoError(t, err)
+		metrics := telemetryResultToDeviceMetrics(result, decodedMetrics, requestStartedAt)
 		require.Equal(t, new(uint64(0)), metrics.UptimeSeconds)
 		require.Equal(t, requestStartedAt.Add(-time.Minute), metrics.UptimeObservedAt)
 	}
@@ -119,12 +120,12 @@ func TestFleetNodeInvalidUptimeAgeCannotUseJSONEvidence(t *testing.T) {
 	require.NoError(t, err)
 	for _, age := range []*durationpb.Duration{nil, durationpb.New(-time.Second), {Nanos: 1_000_000_000}} {
 		for _, payload := range [][]byte{nil, encoded} {
-			metrics, err := telemetryResultToDeviceMetrics(&telemetrypb.FleetNodeTelemetryResult{
-				DeviceMetricsJson:    payload,
+			decodedMetrics, err := decodeTelemetryDeviceMetrics(payload)
+			require.NoError(t, err)
+			metrics := telemetryResultToDeviceMetrics(&telemetrypb.FleetNodeTelemetryResult{
 				UptimeSeconds:        new(uint64(0)),
 				UptimeObservationAge: age,
-			}, now)
-			require.NoError(t, err)
+			}, decodedMetrics, now)
 			require.Nil(t, metrics.UptimeSeconds)
 			require.True(t, metrics.UptimeObservedAt.IsZero())
 		}

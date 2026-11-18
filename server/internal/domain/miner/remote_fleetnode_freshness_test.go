@@ -17,17 +17,17 @@ func TestRemoteFreshnessUsesObservationAgeInsteadOfNodeWallClock(t *testing.T) {
 			DeviceIdentifier: "miner", Timestamp: timestamppb.New(started.Add(nodeSkew)),
 			TelemetryObservationAge: durationpb.New(10 * time.Minute),
 		}
-		metrics, err := telemetryResultToDeviceMetrics(result, started)
-		require.NoError(t, err)
+		metrics := telemetryResultToDeviceMetrics(result, nil, started)
 		require.Equal(t, started.Add(-10*time.Minute), metrics.FreshnessObservedAt)
-		result.DeviceMetricsJson = []byte(`{"timestamp":"2099-01-01T00:00:00Z","freshness_observed_at":"2099-01-01T00:00:00Z"}`)
-		metrics, err = telemetryResultToDeviceMetrics(result, started)
+		payload := []byte(`{"timestamp":"2099-01-01T00:00:00Z","freshness_observed_at":"2099-01-01T00:00:00Z"}`)
+		decodedMetrics, err := decodeTelemetryDeviceMetrics(payload)
 		require.NoError(t, err)
+		metrics = telemetryResultToDeviceMetrics(result, decodedMetrics, started)
 		require.Equal(t, started.Add(-10*time.Minute), metrics.FreshnessObservedAt)
+		require.Equal(t, result.GetTimestamp().AsTime(), metrics.Timestamp)
 	}
 	for _, age := range []*durationpb.Duration{nil, durationpb.New(-time.Second), {Seconds: 315576000001}} {
-		metrics, err := telemetryResultToDeviceMetrics(&telemetrypb.FleetNodeTelemetryResult{Timestamp: timestamppb.Now(), TelemetryObservationAge: age}, started)
-		require.NoError(t, err)
+		metrics := telemetryResultToDeviceMetrics(&telemetrypb.FleetNodeTelemetryResult{Timestamp: timestamppb.Now(), TelemetryObservationAge: age}, nil, started)
 		require.True(t, metrics.FreshnessObservedAt.IsZero())
 	}
 }

@@ -138,6 +138,47 @@ func TestRemoteFleetNodeMinerGetDeviceMetricsPreservesComponentPayload(t *testin
 	assert.Equal(t, 83.0, got.metrics.HashBoards[0].ASICs[0].TempC.Value)
 }
 
+func BenchmarkRemoteFleetNodeMinerGetDeviceMetrics(b *testing.B) {
+	miner := newTestRemoteFleetNodeMiner(b, control.NewRegistry())
+	result := telemetryResult("node-device")
+	metrics := modelsV2.DeviceMetrics{
+		DeviceIdentifier: result.GetDeviceIdentifier(),
+		Timestamp:        result.GetTimestamp().AsTime(),
+		FirmwareVersion:  result.GetFirmwareVersion(),
+		Health:           modelsV2.HealthHealthyActive,
+		HashrateHS:       &modelsV2.MetricValue{Value: 100e12, Kind: modelsV2.MetricKindRate},
+	}
+	for index := range 3 {
+		metrics.HashBoards = append(metrics.HashBoards, modelsV2.HashBoardMetrics{
+			ComponentInfo: modelsV2.ComponentInfo{Index: index, Name: fmt.Sprintf("board-%d", index)},
+			HashRateHS:    &modelsV2.MetricValue{Value: 33e12, Kind: modelsV2.MetricKindRate},
+			TempC:         &modelsV2.MetricValue{Value: 72, Kind: modelsV2.MetricKindGauge},
+		})
+	}
+	for index := range 4 {
+		metrics.FanMetrics = append(metrics.FanMetrics, modelsV2.FanMetrics{
+			ComponentInfo: modelsV2.ComponentInfo{Index: index, Name: fmt.Sprintf("fan-%d", index)},
+			RPM:           &modelsV2.MetricValue{Value: 2500, Kind: modelsV2.MetricKindGauge},
+		})
+	}
+	deviceMetricsJSON, err := json.Marshal(metrics)
+	require.NoError(b, err)
+	result.DeviceMetricsJson = deviceMetricsJSON
+	payload, err := proto.Marshal(result)
+	require.NoError(b, err)
+	ack := &gatewaypb.ControlAck{Succeeded: true, Code: gatewaypb.AckCode_ACK_CODE_OK, Payload: payload}
+	miner.sender = telemetryRetrySender(func(context.Context, *gatewaypb.ControlCommand) (*gatewaypb.ControlAck, error) {
+		return ack, nil
+	})
+	ctx := b.Context()
+	b.ReportAllocs()
+	for b.Loop() {
+		if _, err := miner.GetDeviceMetrics(ctx); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
 func TestRemoteFleetNodeMinerGetDeviceMetricsUsesNodeLimiter(t *testing.T) {
 	registry := control.NewRegistry()
 	stream := registry.Register(12)
@@ -496,6 +537,25 @@ func TestRemoteFleetNodeMinerGetDeviceMetricsRejectsInvalidPayload(t *testing.T)
 	assert.Contains(t, got.err.Error(), "invalid fleet node telemetry payload")
 }
 
+func TestRemoteFleetNodeMinerRejectsInvalidDeviceMetricsJSON(t *testing.T) {
+	miner := newTestRemoteFleetNodeMiner(t, control.NewRegistry())
+	for _, deviceMetricsJSON := range []string{`{`, `{"hashrate_hs": []}`} {
+		result := telemetryResult("node-device")
+		result.DeviceMetricsJson = []byte(deviceMetricsJSON)
+		payload, err := proto.Marshal(result)
+		require.NoError(t, err)
+		miner.sender = telemetryRetrySender(func(context.Context, *gatewaypb.ControlCommand) (*gatewaypb.ControlAck, error) {
+			return &gatewaypb.ControlAck{Succeeded: true, Code: gatewaypb.AckCode_ACK_CODE_OK, Payload: payload}, nil
+		})
+
+		_, err = miner.GetDeviceMetrics(t.Context())
+		require.ErrorContains(t, err, "invalid fleet node telemetry device metrics payload")
+		status, err := miner.GetDeviceStatus(t.Context())
+		require.ErrorContains(t, err, "invalid fleet node telemetry device metrics payload")
+		require.Equal(t, models.MinerStatusOffline, status)
+	}
+}
+
 func TestRemoteFleetNodeMinerGetDeviceMetricsRejectsNonFiniteMetric(t *testing.T) {
 	registry := control.NewRegistry()
 	stream := registry.Register(12)
@@ -531,7 +591,9 @@ func TestRemoteFleetNodeMinerGetDeviceMetricsRejectsMismatchedIdentifier(t *test
 	}()
 
 	cmd := receiveRemoteCommand(t, stream)
-	publishTelemetryAck(t, stream, cmd.GetCommandId(), telemetryResult("other-device"))
+	result := telemetryResult("other-device")
+	result.DeviceMetricsJson = []byte(`{"device_identifier":"node-device"}`)
+	publishTelemetryAck(t, stream, cmd.GetCommandId(), result)
 
 	got := receiveMetricsResult(t, results)
 	require.Error(t, got.err)
@@ -651,6 +713,7 @@ func TestRemoteFleetNodeMinerNeedsMiningPoolKeepsExactStatus(t *testing.T) {
 	result := telemetryResult("node-device")
 	result.DeviceStatus = telemetrypb.DeviceStatus_DEVICE_STATUS_NEEDS_MINING_POOL
 	result.HealthStatus = telemetrypb.DeviceHealthStatus_DEVICE_HEALTH_STATUS_HEALTHY_INACTIVE
+	result.DeviceMetricsJson = []byte(`{"health":"health_healthy_inactive"}`)
 	publishTelemetryAck(t, stream, cmd.GetCommandId(), result)
 
 	got := receiveMetricsResult(t, results)
@@ -673,12 +736,12 @@ type metricsResult struct {
 	err     error
 }
 
-func newTestRemoteFleetNodeMiner(t *testing.T, registry *control.Registry) *RemoteFleetNodeMiner {
+func newTestRemoteFleetNodeMiner(t testing.TB, registry *control.Registry) *RemoteFleetNodeMiner {
 	t.Helper()
 	return newTestRemoteFleetNodeMinerWithGate(t, registry, nil)
 }
 
-func newTestRemoteFleetNodeMinerWithGate(t *testing.T, registry *control.Registry, gate remotenode.Gate) *RemoteFleetNodeMiner {
+func newTestRemoteFleetNodeMinerWithGate(t testing.TB, registry *control.Registry, gate remotenode.Gate) *RemoteFleetNodeMiner {
 	t.Helper()
 	miner, err := newRemoteFleetNodeMiner(remoteTelemetryRoute{
 		fleetNodeID:        12,
@@ -824,13 +887,14 @@ func TestFleetNodeEquipmentTelemetryRoundTrip(t *testing.T) {
 	result := telemetryResult("ct1")
 	result.DeviceMetricsJson = data
 	result.Timestamp = timestamppb.New(now)
-	require.NoError(t, validateTelemetryResult(result))
 	wire, err := proto.Marshal(result)
 	require.NoError(t, err)
 	decoded := &telemetrypb.FleetNodeTelemetryResult{}
 	require.NoError(t, proto.Unmarshal(wire, decoded))
-	metrics, err := telemetryResultToDeviceMetrics(decoded, now)
+	require.NoError(t, validateTelemetryResult(decoded))
+	decodedMetrics, err := decodeTelemetryDeviceMetrics(decoded.GetDeviceMetricsJson())
 	require.NoError(t, err)
+	metrics := telemetryResultToDeviceMetrics(decoded, decodedMetrics, now)
 	require.Equal(t, snapshot, metrics.Container)
 	require.Equal(t, "ct1", metrics.DeviceIdentifier)
 }
