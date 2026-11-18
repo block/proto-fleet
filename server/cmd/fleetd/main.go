@@ -478,6 +478,8 @@ func start(config *Config) (result error) {
 	}
 	scheduler := scheduler.NewScheduler(
 		config.Scheduler,
+		config.Telemetry.StalenessThreshold,
+		config.Telemetry.FetchInterval,
 	)
 
 	filesService, err := files.NewService(config.Files)

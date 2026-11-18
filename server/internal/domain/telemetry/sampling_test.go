@@ -237,7 +237,7 @@ func TestSampleDeviceMetrics_RetainedSampleClearedAndGenerationSurvivesRestart(t
 
 	// Keep Start's unrelated background routines quiet while exercising the
 	// real lifecycle, matching the setup used by the service restart tests.
-	scheduler.EXPECT().FetchDevices(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
+	scheduler.EXPECT().FetchDue(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
 	deviceStore.EXPECT().GetAllPairedDeviceIdentifiers(gomock.Any()).Return(nil, nil).AnyTimes()
 	dataStore.EXPECT().InsertMinerStateSnapshot(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 
@@ -951,6 +951,7 @@ func TestSampleDeviceMetrics_RaceWithScheduledAndRefresh(t *testing.T) {
 	h.minerGetter.EXPECT().GetMinerFromDeviceIdentifier(gomock.Any(), deviceID).Return(h.miner, nil).AnyTimes()
 	h.miner.EXPECT().GetDeviceMetrics(gomock.Any()).Return(sampleMetricsFixture(deviceID, 3200), nil).AnyTimes()
 	h.scheduler.EXPECT().AddDevices(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	h.scheduler.EXPECT().DeferDevices(gomock.Any(), models.Device{ID: deviceID}).Return(nil).AnyTimes()
 	h.errorPoller.EXPECT().PollErrors(gomock.Any(), h.miner).Return(diagnostics.PollResult{}).AnyTimes()
 
 	drainCtx, stopDrain := context.WithCancel(context.Background())
