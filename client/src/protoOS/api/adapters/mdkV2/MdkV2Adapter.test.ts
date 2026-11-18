@@ -325,6 +325,7 @@ describe("MdkV2Adapter", () => {
                     macAddress: `board-${module}-${position}`,
                     moduleId: `T1-M0${module}`,
                     health: {
+                      timestamp: new Date().toISOString(),
                       psuThermal: {
                         thermalStateValid: true,
                         thermalStateAgeMs: position * 10,
@@ -425,6 +426,7 @@ describe("MdkV2Adapter", () => {
                           macAddress: `board-${age}`,
                           moduleId: "T1-M01",
                           health: {
+                            timestamp: new Date().toISOString(),
                             psuThermal: {
                               thermalStateAgeMs: age,
                               thermalStateValid: true,

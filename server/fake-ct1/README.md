@@ -18,8 +18,20 @@ A full container is a **Tank → Module → Slot → Hashboard** tree:
 - Per-board hydro telemetry (hashrate, temperatures, voltage, power). Container-map
   health includes `maximumAsicTemperatureC` and its sample timestamp, derived from
   the same simulated ASIC readings as the detail endpoint for Fleet’s ASIC high metric.
-- Shared PSU identity, power, voltage, and thermal health per module, reported by
-  each board. Tank 2 module 11 reports a PSU thermal warning while in its error state.
+- Shared PSU identity (vendor, model, serial, hardware revision and firmware),
+  input/output voltage, current and power, and three individual temperatures per
+  module, reported identically by each board over REST, Connect and gRPC.
+  PSU AC current follows the module feed's balanced three-phase, unity-power-factor
+  model (`P = √3 × V × I`); DC uses `P = V × I`. These are simulation assumptions;
+  Frigate forwards the PSU's measured electrical snapshot. Revision `SIM-R1` and
+  firmware `sim-1.0.0` identify simulated hardware, independent of hashboard firmware.
+  Stopped modules report zero current/power; disconnected samples retain their ages
+  and invalid thermal status. Tank 2 module 11 reports a PSU thermal warning while
+  in its error state.
+- Fault previews: **Tank 2 / Module 11 / Board 3** reports a PSU power-supply fault
+  alongside the module's thermal warning; **Tank 3 / Module 8 / Board 1** reports
+  only board overcurrent. Their upstream power feeds report no fault. Feed faults
+  are independent of downstream board/PSU faults and are not modeled by this demo.
 - **312 ASICs per board** with layout coordinates
   (four stacks of 78; the client wraps each stack into three rows of 26)
 - Plant/PUE, fan, power-distribution, and power-feed telemetry

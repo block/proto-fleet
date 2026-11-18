@@ -109,11 +109,9 @@ func (s *ContainerState) containerTelemetry() containerTelemetryResponse {
 		pdu := powerDistribution{ComponentID: fmt.Sprintf("pdu-%d", tank.ID)}
 		for _, m := range tank.Modules {
 			power := 0.0
-			faulted := false
 			for _, slot := range m.Slots {
 				if slot.Board != nil {
 					power += s.boardSample(slot.Board).Power
-					faulted = faulted || slot.Board.State == miningStateError
 				}
 			}
 			feedID := fmt.Sprintf("pdu-%d-outlet-%02d", tank.ID, m.ID)
@@ -128,7 +126,9 @@ func (s *ContainerState) containerTelemetry() containerTelemetryResponse {
 			if power > 0 {
 				pdu.ActiveFeedCount++
 			}
-			feeds = append(feeds, powerFeed{PowerFeedID: feedID, State: state, Active: power > 0, Faulted: faulted, PowerW: power, VoltageV: voltage})
+			// This scenario has no PDU outlet faults. Downstream board/PSU errors
+			// are reported by hashboard health and do not establish a feed fault.
+			feeds = append(feeds, powerFeed{PowerFeedID: feedID, State: state, Active: power > 0, Faulted: false, PowerW: power, VoltageV: voltage})
 		}
 		pdus = append(pdus, pdu)
 	}

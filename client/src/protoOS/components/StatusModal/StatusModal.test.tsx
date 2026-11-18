@@ -38,8 +38,49 @@ beforeEach(() => {
   vi.spyOn(HTMLElement.prototype, "getClientRects").mockReturnValue([{}] as unknown as DOMRectList);
 });
 afterEach(() => {
+  vi.useRealTimers();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
+});
+
+test("PSU details show named temperatures and identity, and qualify stale data even with a single fault", () => {
+  vi.useFakeTimers();
+  const fixture = seed();
+  const psu = [...fixture.hardware.psus.values()][0];
+  useMinerStore.setState((state) => {
+    Object.assign(state.hardware.psus.get(psu.ref.id)!, {
+      manufacturer: "Acme",
+      hardwareRevision: "R3",
+      firmware: { application: { version: "2.3.4" } },
+    });
+    state.telemetry.psus.get(psu.ref.id)!.observedAt = {
+      electrical: Date.now(),
+      temperatures: Date.now() - 119_000,
+      thermalState: undefined,
+    };
+  });
+  useMinerStore.getState().minerStatus.setErrors([fault(psu.ref, "Previously reported PSU warning")]);
+  render(<StatusModal componentAddress={psu.ref} onClose={() => {}} />);
+  const dialog = within(screen.getByRole("dialog"));
+  for (const [label, value] of [
+    ["PSU inlet", "50"],
+    ["SR heatsink", "58"],
+    ["PFC heatsink", "55"],
+  ]) {
+    expect(dialog.getByText(label).parentElement).toHaveTextContent(value);
+  }
+  for (const [label, value] of [
+    ["Vendor", "Acme"],
+    ["Hardware revision", "R3"],
+    ["Firmware Version", "2.3.4"],
+  ]) {
+    expect(dialog.getByText(label).parentElement).toHaveTextContent(value);
+  }
+  expect(dialog.getByText("Thermal status unavailable")).toBeInTheDocument();
+  act(() => vi.advanceTimersByTime(1_000));
+  expect(dialog.getByText("PSU inlet").parentElement).toHaveTextContent("Stale");
+  expect(dialog.getByText(/Temperatures stale/)).toBeInTheDocument();
+  expect(dialog.getByText("Previously reported PSU warning")).toBeInTheDocument();
 });
 
 const seed = () => {
@@ -178,6 +219,58 @@ test("module summary keeps a single PSU fault clickable and dismiss returns to i
     "All components operational",
   );
   expect(screen.queryByText("PSU temperature fault")).not.toBeInTheDocument();
+});
+
+test("module summary stops claiming operational health when PSU evidence expires without a poll", () => {
+  vi.useFakeTimers();
+  const fixture = seed();
+  const module = [...fixture.hardware.topology!.modules.values()][0];
+  render(<StatusModal scope={{ kind: "module", id: module.id }} onClose={() => {}} />);
+  expect(screen.getByText("All components operational")).toBeInTheDocument();
+
+  act(() => vi.advanceTimersByTime(120_000));
+  expect(screen.queryByText("All components operational")).not.toBeInTheDocument();
+  expect(screen.getByText("Status unknown")).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: /Readings unavailable.*PSU 1/ }));
+  const details = screen.getByRole("dialog", { name: /PSU status/ });
+  expect(details).toHaveTextContent("Thermal status stale");
+});
+
+test("shows one shared PSU issue with reporting boards and ages, and clears it on recovery", () => {
+  vi.useFakeTimers();
+  const fixture = seed();
+  const module = [...fixture.hardware.topology!.modules.values()][0];
+  const psu = fixture.hardware.psus.get(module.psuIds[0])!;
+  const boards = module.hashboardIds.map((id) => fixture.hardware.hashboards.get(id)!);
+  useMinerStore.getState().minerStatus.setErrors([
+    {
+      ...fault(psu.ref, "Power supply fault"),
+      reportedBy: boards.slice(0, 2).map((board, index) => ({
+        component: board.ref,
+        label: `Board ${index + 1}`,
+        observedAt: index === 0 ? Date.now() : undefined,
+      })),
+    },
+  ]);
+  useMinerStore.setState((state) => {
+    state.telemetry.hashboards.get(boards[0].ref.id)!.health = "fault";
+  });
+  const { unmount } = render(<StatusModal scope={{ kind: "module", id: module.id }} onClose={() => {}} />);
+  expect(screen.getByRole("dialog")).toHaveTextContent("1 reported issue");
+  expect(screen.queryByText("Fault reported; details unavailable")).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: /Power supply fault.*PSU 1/ }));
+  const details = screen.getByRole("dialog", { name: /PSU status/ });
+  expect(details).toHaveTextContent("Reported by Board 1, Board 2 (age unavailable)");
+  act(() => vi.advanceTimersByTime(120_000));
+  expect(details).toHaveTextContent("Board 1 (stale)");
+  unmount();
+  render(<StatusModal componentAddress={boards[0].ref} onClose={() => {}} />);
+  const boardDetails = screen.getByRole("dialog", { name: /Hashboard status/ });
+  expect(boardDetails).toHaveTextContent("Power supply fault");
+  expect(boardDetails).toHaveTextContent("Board 1 (stale)");
+  act(() => useMinerStore.getState().minerStatus.setErrors([]));
+  expect(boardDetails).not.toHaveTextContent("Power supply fault");
+  expect(boardDetails).not.toHaveTextContent("Reported by");
 });
 
 test("container summary retains the wake action without offering container power in a tank summary", () => {

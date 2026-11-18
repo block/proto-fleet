@@ -14,8 +14,10 @@ type psuIdentity struct {
 
 type psuElectricalHealth struct {
 	InputVoltage  float64 `json:"inputVoltage"`
+	InputCurrent  float64 `json:"inputCurrent"`
 	InputPower    float64 `json:"inputPower"`
 	OutputVoltage float64 `json:"outputVoltage"`
+	OutputCurrent float64 `json:"outputCurrent"`
 	OutputPower   float64 `json:"outputPower"`
 	SampleAgeMs   int     `json:"sampleAgeMs"`
 }
@@ -59,7 +61,19 @@ func (s *ContainerState) modulePsu(b *Hashboard) (psuIdentity, psuElectricalHeal
 	if warning {
 		inlet, sr, pfc = 80, 88, 85
 	}
-	return psuIdentity{Serial: "PSU-" + b.ModuleID, Vendor: "Proto simulator", Model: "CT1 PSU", PsuType: "CT1", Revision: m.PSURevision, FirmwareVersion: m.PSUFirmwareVersion},
-		psuElectricalHealth{InputVoltage: 480 + 5*s.waveAt(sample.Timestamp, 600, 300), InputPower: power / psuEfficiency, OutputVoltage: sample.Voltage, OutputPower: power, SampleAgeMs: age},
+	electrical := psuElectricalHealth{
+		InputVoltage: 480 + 5*s.waveAt(sample.Timestamp, 600, 300), InputPower: power / psuEfficiency,
+		OutputVoltage: sample.Voltage, OutputPower: power, SampleAgeMs: age,
+	}
+	// Match ListPowerFeeds: balanced three-phase line current at unity power factor.
+	// Frigate forwards measured PSU currents; this relationship is a simulator assumption.
+	electrical.InputCurrent = electrical.InputPower / (math.Sqrt(3) * electrical.InputVoltage)
+	if electrical.OutputVoltage > 0 {
+		electrical.OutputCurrent = electrical.OutputPower / electrical.OutputVoltage
+	}
+	return psuIdentity{
+			Serial: "PSU-" + b.ModuleID, Vendor: "Proto simulator", Model: "CT1 PSU", PsuType: "CT1",
+			Revision: m.PSURevision, FirmwareVersion: m.PSUFirmwareVersion,
+		}, electrical,
 		psuThermalHealth{InletTemperature: inlet, SrHeatsinkTemperature: sr, PfcHeatsinkTemperature: pfc, OverTemperatureWarning: warning, ThermalStateValid: valid, TemperaturesAgeMs: age, ThermalStateAgeMs: age}
 }

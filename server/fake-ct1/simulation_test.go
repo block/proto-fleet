@@ -51,6 +51,8 @@ func TestFieldScenarioAccounting(t *testing.T) {
 				}
 				psu := module.Slots[0].Hashboard.Health.PsuElectrical
 				closeTo(t, "PSU DC", psu.OutputPower, modulePower, 1e-8)
+				closeTo(t, "PSU DC current", psu.OutputVoltage*psu.OutputCurrent, modulePower, 1e-8)
+				closeTo(t, "PSU AC current", math.Sqrt(3)*psu.InputVoltage*psu.InputCurrent, psu.InputPower, 1e-8)
 				closeTo(t, "PSU efficiency", psu.InputPower*(14.9/15.5), modulePower, 1e-8)
 				ac += psu.InputPower
 			}
