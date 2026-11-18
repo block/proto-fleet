@@ -101,12 +101,12 @@ tank summaries derive from module observations.
 Each view has an explicit SQL query: `ListFleetFacilities`,
 `ListFleetEquipmentGroups`, or `ListFleetMiningAssets`. Each query combines only
 its two entity types before filtering and pagination; one filtered relation
-supplies both the matching count and the page. The queries share the
-`fleet_mining_asset` projection for miner/module membership, state, and current
-measurements. Facilities aggregate those assets by facility; equipment groups
-aggregate by rack or tank. Mining-asset reads do not aggregate parents. Parent
-totals are computed at request time, while collection stores module history and
-latest values.
+supplies both the matching count and the page. Facilities and equipment groups use
+`fleet_mining_asset` to aggregate by facility, rack, or tank. Mining Assets
+selects candidates from miner records and module rows. It reads state and
+measurements from `fleet_mining_asset` for the page and for sorts or filters
+that need them. Parent totals are computed at request time. Collection stores
+module history and latest values.
 
 Shared filters cover site, typed ancestors, entity kind, search, and telemetry
 ranges. Sorting covers
